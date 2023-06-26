@@ -22,7 +22,7 @@ PipelineStage::PipelineStage(
     ValSet output_vals)
     : Expr(passkey) {
   TORCH_INTERNAL_ASSERT(
-      passkey.ir_container_->isA<Pipeline>(),
+      passkey.ir_container_ ? passkey.ir_container_->isA<Pipeline>() : false,
       "IR type only valid for Pipeline container.");
 
   for (auto v : output_vals) {
@@ -76,7 +76,7 @@ PipelineCommunication::PipelineCommunication(
     Val* out)
     : Expr(passkey) {
   TORCH_INTERNAL_ASSERT(
-      passkey.ir_container_->isA<Pipeline>(),
+      passkey.ir_container_ ? passkey.ir_container_->isA<Pipeline>() : false,
       "IR type only valid for Pipeline container.");
   TORCH_INTERNAL_ASSERT(
       in->isA<PipelineVal>() && out->isA<PipelineVal>(),
