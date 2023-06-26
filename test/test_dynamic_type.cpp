@@ -390,10 +390,22 @@ TEST_BINARY_OP_ALLTYPE(LogicalOr, ||);
         (DoubleInt64Bool(2L) op DoubleInt64Bool(2.0)) == (2L op 2.0));         \
     EXPECT_EQ(                                                                 \
         (DoubleInt64BoolVec(2L) op DoubleInt64BoolVec(2.0)), (2L op 2.0));     \
+    EXPECT_EQ(                                                                 \
+        (DoubleInt64BoolVec(                                                   \
+            std::vector<DoubleInt64BoolVec>{DoubleInt64BoolVec(2L)})           \
+             op DoubleInt64BoolVec(                                            \
+                 std::vector<DoubleInt64BoolVec>{DoubleInt64BoolVec(2.0)})),   \
+        (2L op 2.0));                                                          \
     static_assert(                                                             \
         (DoubleInt64Bool(2L) op DoubleInt64Bool(2.5)) == (2L op 2.5));         \
     EXPECT_EQ(                                                                 \
         (DoubleInt64BoolVec(2L) op DoubleInt64BoolVec(2.5)), (2L op 2.5));     \
+    EXPECT_EQ(                                                                 \
+        (DoubleInt64BoolVec(                                                   \
+            std::vector<DoubleInt64BoolVec>{DoubleInt64BoolVec(2L)})           \
+             op DoubleInt64BoolVec(                                            \
+                 std::vector<DoubleInt64BoolVec>{DoubleInt64BoolVec(2.5)})),   \
+        (2L op 2.5));                                                          \
     static_assert((DoubleInt64Bool(3L) op 2L) == (3L op 2L));                  \
     EXPECT_EQ((DoubleInt64BoolVec(3L) op 2L), (3L op 2L));                     \
     static_assert((3L op DoubleInt64Bool(2L)) == (3L op 2L));                  \
@@ -841,28 +853,6 @@ using UnorderedSetWithStupidHash = std::vector<T>;
 using NaturalNumber = DynamicType<Containers<UnorderedSetWithStupidHash>>;
 
 using Set = UnorderedSetWithStupidHash<NaturalNumber>;
-
-#if 1
-// DynamicType doesn't support operator== for containers, so we need to define
-// it ourselves.
-// TODO: add support for containers operator overloading in DynamicType, and
-// remove this definition.
-
-// operator== has to be in the top namespace for clang, otherwise clang will
-// have trouble compiling it. operator== has to be in the container_test
-// namespace for gcc, otherwise gcc will not compile.
-#if defined(__clang__)
-} // namespace container_test
-#endif
-bool operator==(
-    const container_test::NaturalNumber& lhs,
-    const container_test::NaturalNumber& rhs) {
-  return lhs.as<container_test::Set>() == rhs.as<container_test::Set>();
-}
-#if defined(__clang__)
-namespace container_test {
-#endif
-#endif
 
 TEST_F(DynamicTypeTest, SetTheoreticNaturalNumbers) {
   auto next = [](const NaturalNumber& n) {

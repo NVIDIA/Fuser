@@ -146,6 +146,15 @@ struct Containers {
   using VariantType =
       std::variant<std::monostate, MemberTypes..., Templates<DynamicType>...>;
 
+  template <typename DynamicType, typename... MemberTypes>
+  using TypeIdentitiesAsTuple = std::tuple<
+      std::type_identity<MemberTypes>...,
+      std::type_identity<Templates<DynamicType>>...>;
+
+  template <typename DynamicType, typename... MemberTypes>
+  using ForAllTypes =
+      nvfuser::ForAllTypes<MemberTypes..., Templates<DynamicType>...>;
+
   // Check if T is one of the types in the type list MemberTypes..., or a
   // container
   template <typename T, typename DynamicType, typename... MemberTypes>
@@ -164,9 +173,12 @@ struct DynamicType {
   // TODO: Not supporting operators for containers for now, because containers
   // has nested DynamicType, trying to support operators for containers will
   // make the template deduction an infinite loop.
-  using TypeIdentitiesAsTuple = std::tuple<std::type_identity<Ts>...>;
+  using TypeIdentitiesAsTuple =
+      typename Containers::template TypeIdentitiesAsTuple<DynamicType, Ts...>;
   static constexpr TypeIdentitiesAsTuple type_identities_as_tuple{};
-  using ForAllTypes = nvfuser::ForAllTypes<Ts...>;
+
+  using ForAllTypes =
+      typename Containers::template ForAllTypes<DynamicType, Ts...>;
   static constexpr ForAllTypes for_all_types{};
 
   // Check if T is one of the types in the type list Ts... or a container
