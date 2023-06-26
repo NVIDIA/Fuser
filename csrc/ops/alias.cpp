@@ -422,7 +422,9 @@ TensorView* transpose(TensorView* x) {
 }
 
 bool hasSimilarDtype(DataType base, DataType dt) {
-  if (isComplexType(base)) {
+  if (base == dt) {
+    return true;
+  } else if (isComplexType(base)) {
     return isComplexType(dt);
   } else if (isFloatingPointType(base)) {
     return isFloatingPointType(dt);
@@ -431,7 +433,7 @@ bool hasSimilarDtype(DataType base, DataType dt) {
   } else if (isIntegralType(base)) {
     return isIntegralType(dt);
   }
-  return false;
+  TORCH_INTERNAL_ASSERT(false, "Unrecognized base dtype.");
 }
 
 // Padding widths are assumed to be non-negative. Currently there's no
