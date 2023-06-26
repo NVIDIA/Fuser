@@ -248,7 +248,9 @@ endif()
 # installing nvfuser headers
 install(DIRECTORY "${NVFUSER_SRCS_DIR}/"
       DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/nvfuser"
-      FILES_MATCHING PATTERN "*.h" )
+      FILES_MATCHING
+      PATTERN "*.h"
+      PATTERN "type_traits")
 
 #-----------------------------
 # build nvfuser python library
