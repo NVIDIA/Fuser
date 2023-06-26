@@ -137,28 +137,36 @@ inline TensorView* loweredTv(TensorView* tv, GpuLower& gpulw) {
 class PredicatedChecker : public kir::IrVisitor {
  public:
   // Checks if the provided tv is written to within a non-trivial conditional
-  static bool isPredicated(TensorView* tv, GpuLower& gpulw) {
-    PredicatedChecker checker(
-        loweredTv(tv, gpulw), gpulw.kernel()->topLevelExprs());
+  static bool isPredicated(StmtNameType tv_name, GpuLower& gpulw) {
+    PredicatedChecker checker(tv_name, gpulw.kernel()->topLevelExprs());
     return checker.is_predicated_;
   }
 
-  static bool isPredicated(TensorView* tv, kir::Kernel* kernel) {
-    PredicatedChecker checker(loweredTv(tv, kernel), kernel->topLevelExprs());
+  static bool isPredicated(StmtNameType tv_name, kir::Kernel* kernel) {
+    PredicatedChecker checker(tv_name, kernel->topLevelExprs());
     return checker.is_predicated_;
+  }
+
+  static bool isPredicated(TensorView* tv, GpuLower& gpulw) {
+    return isPredicated(tv->name(), gpulw);
+  }
+
+  static bool isPredicated(TensorView* tv, kir::Kernel* kernel) {
+    return isPredicated(tv->name(), kernel);
   }
 
  private:
   PredicatedChecker() = delete;
 
-  PredicatedChecker(TensorView* tv, std::vector<Expr*> exprs) : tv_(tv) {
+  PredicatedChecker(StmtNameType tv_name, std::vector<Expr*> exprs)
+      : tv_name_(tv_name) {
     kir::IrVisitor::handle(exprs);
   }
 
   using kir::IrVisitor::handle;
   bool is_predicated_ = false;
   bool predicated_ite_ = false;
-  TensorView* tv_ = nullptr;
+  StmtNameType tv_name_ = 0;
 
   void handle(kir::IfThenElse* ite) final {
     auto prev_ite = predicated_ite_;
@@ -170,7 +178,7 @@ class PredicatedChecker : public kir::IrVisitor {
   void handle(Expr* expr) final {
     if (expr->outputs().size() && expr->outputs()[0]->isA<kir::TensorIndex>()) {
       auto ti = expr->outputs()[0]->as<kir::TensorIndex>();
-      if (ti->view() == tv_) {
+      if (ti->view()->name() == tv_name_) {
         is_predicated_ = is_predicated_ | predicated_ite_;
         if (expr->predicate() != nullptr &&
             !expr->predicate()->value()->isConst()) {

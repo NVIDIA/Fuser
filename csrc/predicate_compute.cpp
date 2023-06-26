@@ -357,15 +357,8 @@ Bool* PredicateCompute::getInlinePredicate(
   auto out_tv = ir_utils::getTvOutput(expr);
   TORCH_INTERNAL_ASSERT(out_tv != nullptr, "Missing TensorView output");
 
-  // Predicates for non-exact parallel dimensions must be used even
-  // when PredicateElimination::canOmitPredicate is true.
-  auto parallel_dom_pred =
-      ParallelizedDomainPredicate::getPredicate(expr, loops);
-  TORCH_INTERNAL_ASSERT(parallel_dom_pred != nullptr);
-
   if (gpu_lower->predicateElimination().canOmitPredicate(expr)) {
-    return SimplifyingIrBuilder::andExpr(thread_pred, parallel_dom_pred)
-        ->as<Bool>();
+    return thread_pred;
   }
 
   auto pred_info_vec = Index::getReferenceRootPredicates(
@@ -414,6 +407,10 @@ Bool* PredicateCompute::getInlinePredicate(
       !out_tv->domain()->hasGridReduction()) {
     return nullptr;
   }
+
+  auto parallel_dom_pred =
+      ParallelizedDomainPredicate::getPredicate(expr, loops);
+  TORCH_INTERNAL_ASSERT(parallel_dom_pred != nullptr);
 
   preds.push_back(parallel_dom_pred);
 
@@ -464,7 +461,6 @@ void UnswitchPredicate::predicateOn(Expr* tv_expr) {
   // the [Predicate Inversion for CpAsync] should be cleaned up together.
   if (gpu_lower->predicateElimination().canOmitPredicate(tv_expr) &&
       !ir_utils::isCpAsyncInit(tv_expr)) {
-    addParallelizedDomainPredicates(tv_expr);
     return;
   }
 
