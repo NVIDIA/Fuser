@@ -153,6 +153,8 @@ namespace nvfuser {
 #endif
 
 template <template <typename...> typename... Templates>
+// Note: `Templates` is a list of templates, not a list of types.
+// Just like std::vector is a template, std::vector<int> is a type.
 struct Containers {
   template <typename DynamicType, typename... MemberTypes>
   using VariantType =
@@ -226,6 +228,30 @@ struct DynamicType {
           return result;
         }(value)) {}
 
+  const std::type_info& type() const {
+    return std::visit(
+        [](auto value) -> const std::type_info& { return typeid(value); },
+        value_);
+  }
+
+  template <
+      template <typename...>
+      typename Template,
+      typename ItemT,
+      typename = std::enable_if_t<is_candidate_type<Template<DynamicType>>>>
+  constexpr DynamicType(Template<ItemT> value)
+      : value_([](const auto& input) {
+          Template<DynamicType> result;
+          std::transform(
+              input.begin(),
+              input.end(),
+              std::back_inserter(result),
+              [](const auto& item) { return DynamicType(item); });
+          return result;
+        }(value)) {}
+
+  // Returns the type_info of the actual type of the variant value_. For
+  // example, if value_ holds an int, then this will return typeid(int).
   const std::type_info& type() const {
     return std::visit(
         [](auto value) -> const std::type_info& { return typeid(value); },
