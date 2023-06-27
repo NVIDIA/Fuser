@@ -187,6 +187,9 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
       std::min(workload_per_thread, max_tmp_gmem_vect_factor);
   // threads_per_block has factor of 8, roundup to increase the probability of
   // bdimx * bdimy == threads_per_block.
+  TORCH_INTERNAL_ASSERT(
+      threads_per_block % 8 == 0,
+      " threads_per_block should have a factor of 8.");
   iop.bdimx = scheduler_utils::roundUpPow2Or8(
       ceilDiv(inner_dim_numel / iop.vectorization_factor_outer, iop.gdimy));
   // if still not divisible, e.g. threads_per_block = 256, bdimx = 40.
