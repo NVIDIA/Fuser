@@ -774,7 +774,7 @@ DT& operator*(const DT& x) {
       }
     }
   });
-  TORCH_CHECK(ret.has_value(), "Cannot dereference ", typeid(DT).name());
+  TORCH_CHECK(ret.has_value(), "Cannot dereference ", x.type().name());
   return ret.value();
 }
 
