@@ -286,6 +286,17 @@ static auto hasAsHelper(long) -> std::false_type;
 template <typename T, typename U>
 struct hasAs : decltype(hasAsHelper<T, U>(int{})) {};
 
+// Utilities for testing if we have T->as<Template> defined
+template <typename T, template <typename...> typename Template>
+static auto hasAsTemplateHelper(int)
+    -> decltype(std::declval<T>().template as<Template>(), std::true_type{});
+
+template <typename, template <typename...> typename>
+static auto hasAsTemplateHelper(long) -> std::false_type;
+
+template <typename T, template <typename...> typename Template>
+struct hasAsTemplate : decltype(hasAsTemplateHelper<T, Template>(int{})) {};
+
 TEST_F(DynamicTypeTest, Typing) {
   static_assert(DoubleInt64Bool().isNull());
   static_assert(!DoubleInt64Bool(1.0).isNull());
@@ -301,15 +312,16 @@ TEST_F(DynamicTypeTest, Typing) {
   static_assert(hasAs<DoubleInt64BoolVec, bool>::value);
   static_assert(
       hasAs<DoubleInt64BoolVec, std::vector<DoubleInt64BoolVec>>::value);
+  static_assert(hasAsTemplate<DoubleInt64BoolVec, std::vector>::value);
   static_assert(!hasAs<DoubleInt64BoolVec, SomeType>::value);
   static_assert(!hasAs<DoubleInt64BoolVec, int>::value);
+  static_assert(!hasAsTemplate<DoubleInt64BoolVec, std::list>::value);
 
   static_assert((int)DoubleInt64Bool(true) == 1);
   EXPECT_EQ((int)DoubleInt64BoolVec(true), 1);
 
   EXPECT_ANY_THROW(DoubleInt64Bool(1.0).as<bool>());
-  EXPECT_ANY_THROW(
-      DoubleInt64BoolVec(1.0).as<std::vector<DoubleInt64BoolVec>>());
+  EXPECT_ANY_THROW(DoubleInt64BoolVec(1.0).as<std::vector>());
 
   struct CustomType {};
   static_assert(opcheck<IntSomeType>.canCastTo(opcheck<double>));
@@ -324,7 +336,7 @@ TEST_F(DynamicTypeTest, Typing) {
       // suppress unused value warning
       []() { (void)(SomeType)IntSomeType(1); },
       ::testing::ThrowsMessage<c10::Error>(
-          ::testing::HasSubstr("Cannot cast to ")));
+          ::testing::HasSubstr("Cannot cast from ")));
 }
 
 #define TEST_BINARY_OP_ALLTYPE(name, op)                                       \
@@ -353,22 +365,22 @@ TEST_F(DynamicTypeTest, Typing) {
         (3L op DoubleInt64BoolVec(2L)).as<decltype((3L op 2L))>(),             \
         (3L op 2L));                                                           \
     EXPECT_THAT(                                                               \
-        [&]() { DoubleInt64Bool() op DoubleInt64Bool(2); },                    \
+        [&]() { DoubleInt64Bool() op DoubleInt64Bool(2L); },                   \
         ::testing::ThrowsMessage<c10::Error>(                                  \
-            ::testing::HasSubstr("Can not compute ")));                        \
+            ::testing::HasSubstr("Cannot compute ")));                         \
     EXPECT_THAT(                                                               \
         [&]() {                                                                \
           DoubleInt64BoolVec(std::vector<DoubleInt64BoolVec>{})                \
-              op DoubleInt64BoolVec(2);                                        \
+              op DoubleInt64BoolVec(2L);                                       \
         },                                                                     \
         ::testing::ThrowsMessage<c10::Error>(                                  \
-            ::testing::HasSubstr("Can not compute ")));                        \
+            ::testing::HasSubstr("Cannot compute ")));                         \
     static_assert(opcheck<IntSomeType> + opcheck<IntSomeType>);                \
     static_assert(!(opcheck<SomeTypes> + opcheck<SomeTypes>));                 \
     EXPECT_THAT(                                                               \
         [&]() { IntSomeType(SomeType{}) + IntSomeType(SomeType{}); },          \
         ::testing::ThrowsMessage<c10::Error>(                                  \
-            ::testing::HasSubstr("Can not compute ")));                        \
+            ::testing::HasSubstr("Cannot compute ")));                         \
   }
 
 TEST_BINARY_OP_ALLTYPE(Add, +);
@@ -377,12 +389,60 @@ TEST_BINARY_OP_ALLTYPE(Mul, *);
 TEST_BINARY_OP_ALLTYPE(Div, /);
 TEST_BINARY_OP_ALLTYPE(LogicalAnd, &&);
 TEST_BINARY_OP_ALLTYPE(LogicalOr, ||);
-TEST_BINARY_OP_ALLTYPE(Eq, ==);
-TEST_BINARY_OP_ALLTYPE(Ne, !=);
-TEST_BINARY_OP_ALLTYPE(Lt, <);
-TEST_BINARY_OP_ALLTYPE(Gt, >);
-TEST_BINARY_OP_ALLTYPE(Le, <=);
-TEST_BINARY_OP_ALLTYPE(Ge, >=);
+
+#define TEST_COMPARE_OP(name, op)                                              \
+  TEST_F(DynamicTypeTest, name) {                                              \
+    static_assert(opcheck<DoubleInt64Bool> op opcheck<DoubleInt64Bool>);       \
+    static_assert(opcheck<DoubleInt64BoolVec> op opcheck<DoubleInt64BoolVec>); \
+    static_assert(opcheck<DoubleInt64Bool> op opcheck<int>);                   \
+    static_assert(opcheck<DoubleInt64BoolVec> op opcheck<int>);                \
+    static_assert(opcheck<int> op opcheck<DoubleInt64Bool>);                   \
+    static_assert(opcheck<int> op opcheck<DoubleInt64BoolVec>);                \
+    static_assert(                                                             \
+        (DoubleInt64Bool(2L) op DoubleInt64Bool(2.0)) == (2L op 2.0));         \
+    EXPECT_EQ(                                                                 \
+        (DoubleInt64BoolVec(2L) op DoubleInt64BoolVec(2.0)), (2L op 2.0));     \
+    EXPECT_EQ(                                                                 \
+        (DoubleInt64BoolVec(std::vector<int64_t>{2})                           \
+             op DoubleInt64BoolVec(std::vector<double>{2.0})),                 \
+        (2L op 2.0));                                                          \
+    static_assert(                                                             \
+        (DoubleInt64Bool(2L) op DoubleInt64Bool(2.5)) == (2L op 2.5));         \
+    EXPECT_EQ(                                                                 \
+        (DoubleInt64BoolVec(2L) op DoubleInt64BoolVec(2.5)), (2L op 2.5));     \
+    EXPECT_EQ(                                                                 \
+        (DoubleInt64BoolVec(std::vector<int64_t>{2L})                          \
+             op DoubleInt64BoolVec(std::vector<double>{2.5})),                 \
+        (2L op 2.5));                                                          \
+    static_assert((DoubleInt64Bool(3L) op 2L) == (3L op 2L));                  \
+    EXPECT_EQ((DoubleInt64BoolVec(3L) op 2L), (3L op 2L));                     \
+    static_assert((3L op DoubleInt64Bool(2L)) == (3L op 2L));                  \
+    EXPECT_EQ((3L op DoubleInt64BoolVec(2L)), (3L op 2L));                     \
+    EXPECT_THAT(                                                               \
+        [&]() { DoubleInt64Bool() op DoubleInt64Bool(2L); },                   \
+        ::testing::ThrowsMessage<c10::Error>(                                  \
+            ::testing::HasSubstr("Cannot compute ")));                         \
+    EXPECT_THAT(                                                               \
+        [&]() {                                                                \
+          DoubleInt64BoolVec(std::vector<DoubleInt64BoolVec>{})                \
+              op DoubleInt64BoolVec(2L);                                       \
+        },                                                                     \
+        ::testing::ThrowsMessage<c10::Error>(                                  \
+            ::testing::HasSubstr("Cannot compute ")));                         \
+    static_assert(opcheck<IntSomeType> + opcheck<IntSomeType>);                \
+    static_assert(!(opcheck<SomeTypes> + opcheck<SomeTypes>));                 \
+    EXPECT_THAT(                                                               \
+        [&]() { IntSomeType(SomeType{}) + IntSomeType(SomeType{}); },          \
+        ::testing::ThrowsMessage<c10::Error>(                                  \
+            ::testing::HasSubstr("Cannot compute ")));                         \
+  }
+
+TEST_COMPARE_OP(Eq, ==);
+TEST_COMPARE_OP(Ne, !=);
+TEST_COMPARE_OP(Lt, <);
+TEST_COMPARE_OP(Gt, >);
+TEST_COMPARE_OP(Le, <=);
+TEST_COMPARE_OP(Ge, >=);
 
 #define TEST_BINARY_OP_INT_ONLY(name, op)                                      \
   TEST_F(DynamicTypeTest, name) {                                              \
@@ -403,22 +463,22 @@ TEST_BINARY_OP_ALLTYPE(Ge, >=);
     static_assert((3L op DoubleInt64Bool(2L)).as<int64_t>() == (3L op 2L));    \
     EXPECT_EQ((3L op DoubleInt64BoolVec(2L)).as<int64_t>(), (3L op 2L));       \
     EXPECT_THAT(                                                               \
-        [&]() { DoubleInt64Bool() op DoubleInt64Bool(2); },                    \
+        [&]() { DoubleInt64Bool() op DoubleInt64Bool(2L); },                   \
         ::testing::ThrowsMessage<c10::Error>(                                  \
-            ::testing::HasSubstr("Can not compute ")));                        \
+            ::testing::HasSubstr("Cannot compute ")));                         \
     EXPECT_THAT(                                                               \
         [&]() {                                                                \
           DoubleInt64BoolVec(std::vector<DoubleInt64BoolVec>{})                \
-              op DoubleInt64BoolVec(2);                                        \
+              op DoubleInt64BoolVec(2L);                                       \
         },                                                                     \
         ::testing::ThrowsMessage<c10::Error>(                                  \
-            ::testing::HasSubstr("Can not compute ")));                        \
+            ::testing::HasSubstr("Cannot compute ")));                         \
     static_assert(opcheck<IntSomeType> + opcheck<IntSomeType>);                \
     static_assert(!(opcheck<SomeTypes> + opcheck<SomeTypes>));                 \
     EXPECT_THAT(                                                               \
         [&]() { IntSomeType(SomeType{}) + IntSomeType(SomeType{}); },          \
         ::testing::ThrowsMessage<c10::Error>(                                  \
-            ::testing::HasSubstr("Can not compute ")));                        \
+            ::testing::HasSubstr("Cannot compute ")));                         \
   }
 
 TEST_BINARY_OP_INT_ONLY(Mod, %);
@@ -437,17 +497,17 @@ TEST_BINARY_OP_INT_ONLY(RShift, >>);
     EXPECT_THAT(                                                              \
         [&]() { op DoubleInt64Bool(); },                                      \
         ::testing::ThrowsMessage<c10::Error>(                                 \
-            ::testing::HasSubstr("Can not compute ")));                       \
+            ::testing::HasSubstr("Cannot compute ")));                        \
     EXPECT_THAT(                                                              \
         [&]() { op DoubleInt64BoolVec(std::vector<DoubleInt64BoolVec>{}); },  \
         ::testing::ThrowsMessage<c10::Error>(                                 \
-            ::testing::HasSubstr("Can not compute ")));                       \
+            ::testing::HasSubstr("Cannot compute ")));                        \
     static_assert(op opcheck<int_or_bool##SomeType>);                         \
     static_assert(!(op opcheck<SomeTypes>));                                  \
     EXPECT_THAT(                                                              \
         [&]() { op int_or_bool##SomeType(SomeType{}); },                      \
         ::testing::ThrowsMessage<c10::Error>(                                 \
-            ::testing::HasSubstr("Can not compute ")));                       \
+            ::testing::HasSubstr("Cannot compute ")));                        \
   }
 
 TEST_UNARY_OP(Positive, +, Int);
@@ -492,11 +552,11 @@ TEST_F(DynamicTypeTest, ExamplesInNote) {
     EXPECT_THAT(
         [&]() { i + null; },
         ::testing::ThrowsMessage<c10::Error>(
-            ::testing::HasSubstr("Can not compute ")));
+            ::testing::HasSubstr("Cannot compute ")));
     EXPECT_THAT(
         [&]() { i + c; },
         ::testing::ThrowsMessage<c10::Error>(
-            ::testing::HasSubstr("Can not compute ")));
+            ::testing::HasSubstr("Cannot compute ")));
   }
   // example 3
   {
@@ -519,7 +579,7 @@ TEST_F(DynamicTypeTest, ExamplesInNote) {
               BFloatOrHalfZeroOrInt(bfloat16_zero{});
         },
         ::testing::ThrowsMessage<c10::Error>(
-            ::testing::HasSubstr("Can not compute ")));
+            ::testing::HasSubstr("Cannot compute ")));
   }
   // example 5
   {
@@ -538,32 +598,18 @@ TEST_F(DynamicTypeTest, ExamplesInNote) {
         DynamicType<Containers<std::vector, std::list>, int, float>;
     IntFloatVecList x = std::vector<IntFloatVecList>{1, 2.0f};
     IntFloatVecList y = std::list<IntFloatVecList>{3, x};
-    EXPECT_TRUE(y.is<std::list<IntFloatVecList>>());
-    EXPECT_EQ(y.as<std::list<IntFloatVecList>>().size(), 2);
-    EXPECT_EQ(y.as<std::list<IntFloatVecList>>().front().as<int>(), 3);
-    EXPECT_TRUE(y.as<std::list<IntFloatVecList>>()
-                    .back()
-                    .is<std::vector<IntFloatVecList>>());
-    EXPECT_EQ(
-        y.as<std::list<IntFloatVecList>>()
-            .back()
-            .as<std::vector<IntFloatVecList>>()
-            .size(),
-        2);
-    EXPECT_EQ(
-        y.as<std::list<IntFloatVecList>>()
-            .back()
-            .as<std::vector<IntFloatVecList>>()
-            .front()
-            .as<int>(),
-        1);
-    EXPECT_EQ(
-        y.as<std::list<IntFloatVecList>>()
-            .back()
-            .as<std::vector<IntFloatVecList>>()
-            .back()
-            .as<float>(),
-        2.0f);
+    EXPECT_TRUE(y.is<std::list>());
+    EXPECT_EQ(y.as<std::list>().size(), 2);
+    EXPECT_EQ(y.as<std::list>().front().as<int>(), 3);
+    EXPECT_TRUE(y.as<std::list>().back().is<std::vector>());
+    EXPECT_EQ(y.as<std::list>().back().as<std::vector>().size(), 2);
+    EXPECT_EQ(y.as<std::list>().back()[0], 1);
+    EXPECT_EQ(y.as<std::list>().back().as<std::vector>()[1], 2.0f);
+    EXPECT_THAT(
+        // std::list can not be indexed
+        [&]() { y[0]; },
+        ::testing::ThrowsMessage<c10::Error>(
+            ::testing::HasSubstr("Cannot index ")));
   }
 }
 
@@ -583,7 +629,7 @@ TEST_F(DynamicTypeTest, UnaryOpAdvancedTyping) {
   EXPECT_THAT(
       bad,
       ::testing::ThrowsMessage<c10::Error>(
-          ::testing::HasSubstr("Can not compute ")));
+          ::testing::HasSubstr("Cannot compute ")));
 }
 
 TEST_F(DynamicTypeTest, BinaryOpAdvancedTyping) {
@@ -613,7 +659,7 @@ TEST_F(DynamicTypeTest, BinaryOpAdvancedTyping) {
   EXPECT_THAT(
       bad,
       ::testing::ThrowsMessage<c10::Error>(
-          ::testing::HasSubstr("Can not compute ")));
+          ::testing::HasSubstr("Cannot compute ")));
 }
 
 TEST_F(DynamicTypeTest, Printing) {
@@ -652,14 +698,14 @@ TEST_F(DynamicTypeTest, PlusPlusMinusMinus) {
           ++x;
         },
         ::testing::ThrowsMessage<c10::Error>(
-            ::testing::HasSubstr("Can not compute ")));
+            ::testing::HasSubstr("Cannot compute ")));
     EXPECT_THAT(
         []() {
           IntSomeType x(SomeType{});
           ++x;
         },
         ::testing::ThrowsMessage<c10::Error>(
-            ::testing::HasSubstr("Can not compute ")));
+            ::testing::HasSubstr("Cannot compute ")));
     static_assert(!(++opcheck<SomeTypes&>));
   }
   // --x
@@ -675,14 +721,14 @@ TEST_F(DynamicTypeTest, PlusPlusMinusMinus) {
           --x;
         },
         ::testing::ThrowsMessage<c10::Error>(
-            ::testing::HasSubstr("Can not compute ")));
+            ::testing::HasSubstr("Cannot compute ")));
     EXPECT_THAT(
         []() {
           IntSomeType x(SomeType{});
           --x;
         },
         ::testing::ThrowsMessage<c10::Error>(
-            ::testing::HasSubstr("Can not compute ")));
+            ::testing::HasSubstr("Cannot compute ")));
     static_assert(!(--opcheck<SomeTypes&>));
   }
   // x++
@@ -697,14 +743,14 @@ TEST_F(DynamicTypeTest, PlusPlusMinusMinus) {
           x++;
         },
         ::testing::ThrowsMessage<c10::Error>(
-            ::testing::HasSubstr("Can not compute ")));
+            ::testing::HasSubstr("Cannot compute ")));
     EXPECT_THAT(
         []() {
           IntSomeType x(SomeType{});
           x++;
         },
         ::testing::ThrowsMessage<c10::Error>(
-            ::testing::HasSubstr("Can not compute ")));
+            ::testing::HasSubstr("Cannot compute ")));
     static_assert(!(opcheck<SomeTypes&> ++));
   }
   // x--
@@ -719,16 +765,31 @@ TEST_F(DynamicTypeTest, PlusPlusMinusMinus) {
           x--;
         },
         ::testing::ThrowsMessage<c10::Error>(
-            ::testing::HasSubstr("Can not compute ")));
+            ::testing::HasSubstr("Cannot compute ")));
     EXPECT_THAT(
         []() {
           IntSomeType x(SomeType{});
           x--;
         },
         ::testing::ThrowsMessage<c10::Error>(
-            ::testing::HasSubstr("Can not compute ")));
+            ::testing::HasSubstr("Cannot compute ")));
     static_assert(!(opcheck<SomeTypes&> --));
   }
+}
+
+TEST_F(DynamicTypeTest, Star) {
+  using IntOrPtr = DynamicType<Containers<std::shared_ptr>, int>;
+  static_assert(*opcheck<IntOrPtr>);
+  static_assert(!(*opcheck<DoubleInt64Bool>));
+  IntOrPtr x = 299792458;
+  IntOrPtr y = std::make_shared<IntOrPtr>(x);
+  EXPECT_EQ(*y, 299792458);
+  (*y)--;
+  EXPECT_EQ(*y, 299792457);
+  EXPECT_THAT(
+      [&]() { *x; },
+      ::testing::ThrowsMessage<c10::Error>(
+          ::testing::HasSubstr("Cannot dereference ")));
 }
 
 #define TEST_ASSIGN_OP(op, assign_op, name)                \
@@ -744,14 +805,14 @@ TEST_F(DynamicTypeTest, PlusPlusMinusMinus) {
           x += 1;                                          \
         },                                                 \
         ::testing::ThrowsMessage<c10::Error>(              \
-            ::testing::HasSubstr("Can not compute ")));    \
+            ::testing::HasSubstr("Cannot compute ")));     \
     EXPECT_THAT(                                           \
         []() {                                             \
           IntSomeType x(SomeType{});                       \
           x += 1;                                          \
         },                                                 \
         ::testing::ThrowsMessage<c10::Error>(              \
-            ::testing::HasSubstr("Can not compute ")));    \
+            ::testing::HasSubstr("Cannot compute ")));     \
     static_assert(!(opcheck<SomeTypes&> += opcheck<int>)); \
   }
 
@@ -788,51 +849,27 @@ struct StupidHash {
 };
 
 template <typename T>
-using UnorderedSetWithStupidHash = std::unordered_set<T, StupidHash>;
+using Set = std::unordered_set<T, StupidHash>;
 
 #else
 
 template <typename T>
-using UnorderedSetWithStupidHash = std::vector<T>;
+using Set = std::vector<T>;
 #define insert push_back
 
 #endif
 
-using NaturalNumber = DynamicType<Containers<UnorderedSetWithStupidHash>>;
-
-using Set = UnorderedSetWithStupidHash<NaturalNumber>;
-
-#if 1
-// DynamicType doesn't support operator== for containers, so we need to define
-// it ourselves.
-// TODO: add support for containers operator overloading in DynamicType, and
-// remove this definition.
-
-// operator== has to be in the top namespace for clang, otherwise clang will
-// have trouble compiling it. operator== has to be in the container_test
-// namespace for gcc, otherwise gcc will not compile.
-#if defined(__clang__)
-} // namespace container_test
-#endif
-bool operator==(
-    const container_test::NaturalNumber& lhs,
-    const container_test::NaturalNumber& rhs) {
-  return lhs.as<container_test::Set>() == rhs.as<container_test::Set>();
-}
-#if defined(__clang__)
-namespace container_test {
-#endif
-#endif
+using NaturalNumber = DynamicType<Containers<Set>>;
 
 TEST_F(DynamicTypeTest, SetTheoreticNaturalNumbers) {
   auto next = [](const NaturalNumber& n) {
     // recursively define natural number n + 1 as n U {n}
-    Set set = n.as<Set>();
+    auto set = n.as<Set>();
     set.insert(n);
     return NaturalNumber(set);
   };
 
-  NaturalNumber zero = Set{};
+  NaturalNumber zero = Set<NaturalNumber>{};
   NaturalNumber one = next(zero);
   NaturalNumber two = next(one);
   NaturalNumber three = next(two);
@@ -843,6 +880,18 @@ TEST_F(DynamicTypeTest, SetTheoreticNaturalNumbers) {
   NaturalNumber eight = next(seven);
   NaturalNumber nine = next(eight);
   NaturalNumber ten = next(nine);
+
+  EXPECT_TRUE(zero.is<Set>());
+  EXPECT_TRUE(one.is<Set>());
+  EXPECT_TRUE(two.is<Set>());
+  EXPECT_TRUE(three.is<Set>());
+  EXPECT_TRUE(four.is<Set>());
+  EXPECT_TRUE(five.is<Set>());
+  EXPECT_TRUE(six.is<Set>());
+  EXPECT_TRUE(seven.is<Set>());
+  EXPECT_TRUE(eight.is<Set>());
+  EXPECT_TRUE(nine.is<Set>());
+  EXPECT_TRUE(ten.is<Set>());
 
   EXPECT_EQ(zero.as<Set>().size(), 0);
   EXPECT_EQ(one.as<Set>().size(), 1);
@@ -856,23 +905,70 @@ TEST_F(DynamicTypeTest, SetTheoreticNaturalNumbers) {
   EXPECT_EQ(nine.as<Set>().size(), 9);
   EXPECT_EQ(ten.as<Set>().size(), 10);
 
-  EXPECT_EQ(zero, NaturalNumber(Set{}));
-  EXPECT_EQ(one, NaturalNumber(Set{zero}));
-  EXPECT_EQ(two, NaturalNumber(Set{zero, one}));
-  EXPECT_EQ(three, NaturalNumber(Set{zero, one, two}));
-  EXPECT_EQ(four, NaturalNumber(Set{zero, one, two, three}));
-  EXPECT_EQ(five, NaturalNumber(Set{zero, one, two, three, four}));
-  EXPECT_EQ(six, NaturalNumber(Set{zero, one, two, three, four, five}));
-  EXPECT_EQ(seven, NaturalNumber(Set{zero, one, two, three, four, five, six}));
+  EXPECT_EQ(zero, NaturalNumber(Set<NaturalNumber>{}));
+  EXPECT_EQ(one, NaturalNumber(Set<NaturalNumber>{zero}));
+  EXPECT_EQ(two, NaturalNumber(Set<NaturalNumber>{zero, one}));
+  EXPECT_EQ(three, NaturalNumber(Set<NaturalNumber>{zero, one, two}));
+  EXPECT_EQ(four, NaturalNumber(Set<NaturalNumber>{zero, one, two, three}));
   EXPECT_EQ(
-      eight, NaturalNumber(Set{zero, one, two, three, four, five, six, seven}));
+      five, NaturalNumber(Set<NaturalNumber>{zero, one, two, three, four}));
+  EXPECT_EQ(
+      six,
+      NaturalNumber(Set<NaturalNumber>{zero, one, two, three, four, five}));
+  EXPECT_EQ(
+      seven,
+      NaturalNumber(
+          Set<NaturalNumber>{zero, one, two, three, four, five, six}));
+  EXPECT_EQ(
+      eight,
+      NaturalNumber(
+          Set<NaturalNumber>{zero, one, two, three, four, five, six, seven}));
   EXPECT_EQ(
       nine,
-      NaturalNumber(Set{zero, one, two, three, four, five, six, seven, eight}));
+      NaturalNumber(Set<NaturalNumber>{
+          zero, one, two, three, four, five, six, seven, eight}));
   EXPECT_EQ(
       ten,
-      NaturalNumber(
-          Set{zero, one, two, three, four, five, six, seven, eight, nine}));
+      NaturalNumber(Set<NaturalNumber>{
+          zero, one, two, three, four, five, six, seven, eight, nine}));
+}
+
+TEST_F(DynamicTypeTest, FromContainerToContainer) {
+  using IntOrVec = DynamicType<Containers<std::vector>, int>;
+
+  static_assert(std::is_constructible_v<IntOrVec, std::vector<int>>);
+  static_assert(
+      std::is_constructible_v<IntOrVec, std::vector<std::vector<int>>>);
+  static_assert(std::is_constructible_v<
+                IntOrVec,
+                std::vector<std::vector<std::vector<int>>>>);
+  static_assert(std::is_constructible_v<
+                IntOrVec,
+                std::vector<std::vector<std::vector<std::vector<int>>>>>);
+
+  static_assert(opcheck<IntOrVec>.canCastTo(opcheck<std::vector<double>>));
+  static_assert(
+      opcheck<IntOrVec>.canCastTo(opcheck<std::vector<std::vector<double>>>));
+  static_assert(opcheck<IntOrVec>.canCastTo(
+      opcheck<std::vector<std::vector<std::vector<double>>>>));
+  static_assert(opcheck<IntOrVec>.canCastTo(
+      opcheck<std::vector<std::vector<std::vector<std::vector<double>>>>>));
+
+  std::vector<std::vector<int>> vvi{{1, 2, 3}, {4, 5, 6}};
+  IntOrVec x = vvi;
+  EXPECT_EQ(x[0], IntOrVec(std::vector<int>{1, 2, 3}));
+  EXPECT_EQ(x[0][0], 1);
+  EXPECT_EQ(x[0][1], 2);
+  EXPECT_EQ(x[0][2], 3);
+  EXPECT_EQ(x[1], IntOrVec(std::vector<int>{4, 5, 6}));
+  EXPECT_EQ(x[1][0], 4);
+  EXPECT_EQ(x[1][1], 5);
+  EXPECT_EQ(x[1][2], 6);
+
+  std::vector<std::vector<double>> vvd{{1, 2, 3}, {4, 5, 6}};
+  EXPECT_EQ((std::vector<std::vector<double>>)x, vvd);
+  EXPECT_EQ((std::vector<double>)x[0], vvd[0]);
+  EXPECT_EQ((std::vector<double>)x[1], vvd[1]);
 }
 
 #undef insert
