@@ -12,11 +12,14 @@
 
 #include <type_traits.h>
 
+#include <C++20/type_traits>
 #include <cmath>
+#include <functional>
 #include <iostream>
 #include <numeric>
 #include <optional>
 #include <type_traits>
+#include <typeinfo>
 #include <variant>
 
 // Note [Design of DynamicType]
@@ -136,6 +139,17 @@ namespace nvfuser {
 #if defined(__GNUC__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wbool-operation"
+// gcc, even the latest version (13.1.1), is complaining about the following
+// code:
+//   std::optional<bool> ret = std::nullopt;
+//   ...
+//   TORCH_CHECK(ret.has_value(), ...);
+//   return ret.value();
+// saying that ret.value() is used uninitialized. This complaint is totoally
+// nonsense.
+// Also, why clang-tidy is reading gcc's options?
+// NOLINTNEXTLINE(clang-diagnostic-unknown-warning-option)
+#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
 #endif
 
 template <template <typename...> typename... Templates>
@@ -196,11 +210,42 @@ struct DynamicType {
   constexpr DynamicType() = default;
 
   template <typename T>
-  constexpr DynamicType(T value) : value_(value) {}
+  constexpr DynamicType(const T& value) : value_(value) {}
+
+  template <
+      template <typename...>
+      typename Template,
+      typename ItemT,
+      typename = std::enable_if_t<
+          is_candidate_type<Template<DynamicType>> &&
+          !std::is_same_v<ItemT, DynamicType>>>
+  constexpr DynamicType(const Template<ItemT>& value)
+      : value_([](const auto& input) {
+          Template<DynamicType> result;
+          std::transform(
+              input.begin(),
+              input.end(),
+              std::back_inserter(result),
+              [](const auto& item) { return DynamicType(item); });
+          return result;
+        }(value)) {}
+
+  // Returns the type_info of the actual type of the variant value_. For
+  // example, if value_ holds an int, then this will return typeid(int).
+  const std::type_info& type() const {
+    return std::visit(
+        [](auto value) -> const std::type_info& { return typeid(value); },
+        value_);
+  }
 
   template <typename T>
   constexpr bool is() const {
     return std::holds_alternative<T>(value_);
+  }
+
+  template <template <typename...> typename Template>
+  constexpr bool is() const {
+    return is<Template<DynamicType>>();
   }
 
   constexpr bool isNull() const {
@@ -212,13 +257,29 @@ struct DynamicType {
   }
 
   template <typename T, typename = std::enable_if_t<is_candidate_type<T>>>
-  constexpr T as() const {
+  constexpr const T& as() const {
     return std::get<T>(value_);
   }
 
   template <typename T, typename = std::enable_if_t<is_candidate_type<T>>>
   constexpr T& as() {
     return std::get<T>(value_);
+  }
+
+  template <
+      template <typename...>
+      typename Template,
+      typename = std::enable_if_t<is_candidate_type<Template<DynamicType>>>>
+  constexpr const Template<DynamicType>& as() const {
+    return as<Template<DynamicType>>();
+  }
+
+  template <
+      template <typename...>
+      typename Template,
+      typename = std::enable_if_t<is_candidate_type<Template<DynamicType>>>>
+  constexpr Template<DynamicType>& as() {
+    return as<Template<DynamicType>>();
   }
 
   template <typename T, typename = std::enable_if_t<can_cast_to<T>>>
@@ -232,8 +293,37 @@ struct DynamicType {
         }
       }
     });
-    TORCH_CHECK(ret.has_value(), "Cannot cast to ", typeid(T).name());
+    TORCH_CHECK(
+        ret.has_value(),
+        "Cannot cast from ",
+        type().name(),
+        " to ",
+        typeid(T).name(),
+        " : incompatible type");
     return ret.value();
+  }
+
+  template <
+      template <typename...>
+      typename Template,
+      typename ItemT,
+      typename = std::enable_if_t<
+          is_candidate_type<Template<DynamicType>> && can_cast_to<ItemT>>>
+  explicit constexpr operator Template<ItemT>() const {
+    TORCH_CHECK(
+        is<Template<DynamicType>>(),
+        "Cannot cast from ",
+        type().name(),
+        " to ",
+        typeid(Template<ItemT>).name(),
+        " : incompatible type");
+    Template<ItemT> result;
+    std::transform(
+        as<Template<DynamicType>>().begin(),
+        as<Template<DynamicType>>().end(),
+        std::back_inserter(result),
+        [](const auto& item) { return (ItemT)item; });
+    return result;
   }
 
   // Intentionally not overloading operator=, because the compiler generated
@@ -252,14 +342,45 @@ struct DynamicType {
   // returning pointers, however, if we have a DynamicType that can be either a
   // Type1 or Type2, then it is ambiguous to return a pointer to Type1 vs Type2
 
-  // Intentionally not supporting operator[], because this has similar issue as
-  // operator* for requiring reference type to be in the type list, which is not
-  // allowed by the C++ standard. On the other hand, instead of supporting
-  // things like std::vector<int> being in the type list, we are more interested
-  // in having recursive dynamic types, i.e. std::vector<DynamicType> being in
-  // the type list. In this case, operator[] will behave differently from the
-  // case of std::vector<int>. We need to think more about the interface before
-  // implementing it.
+  template <typename IndexT>
+  static constexpr bool has_square_bracket = any_check(
+      [](auto t) {
+        using T = typename decltype(t)::type;
+        if constexpr (opcheck<T>[opcheck<IndexT>]) {
+          return std::is_same_v<
+              decltype(std::declval<T>()[std::declval<IndexT>()]),
+              DynamicType&>;
+        }
+        return false;
+      },
+      type_identities_as_tuple);
+
+  template <
+      typename IndexT,
+      typename = std::enable_if_t<has_square_bracket<IndexT>>>
+  DynamicType& operator[](const IndexT& i) {
+    std::optional<std::reference_wrapper<DynamicType>> ret = std::nullopt;
+    for_all_types([this, &ret, &i](auto t) {
+      using T = typename decltype(t)::type;
+      if constexpr (opcheck<T>[opcheck<IndexT>]) {
+        if constexpr (std::is_same_v<
+                          decltype(std::declval<T>()[std::declval<IndexT>()]),
+                          DynamicType&>) {
+          if (is<T>()) {
+            ret = std::ref(as<T>()[i]);
+          }
+        }
+      }
+    });
+    TORCH_CHECK(
+        ret.has_value(),
+        "Cannot index ",
+        type().name(),
+        " with ",
+        typeid(IndexT).name(),
+        " : incompatible type");
+    return ret.value();
+  }
 
   // TODO: support ->* operator. This operator is rarely used, so we don't
   // implement it yet. But if in the future, it turns to be useful, we should
@@ -300,11 +421,11 @@ constexpr bool is_dynamic_type_v = is_dynamic_type<T>::value;
           DT::type_identities_as_tuple,                                       \
           DT::type_identities_as_tuple,                                       \
           DT::type_identities_as_tuple)>>                                     \
-  inline constexpr DT operator op(DT x, DT y) {                               \
+  inline constexpr DT operator op(const DT& x, const DT& y) {                 \
     DT ret(std::monostate{});                                                 \
-    DT::for_all_types([&ret, x, y](auto lhs) {                                \
+    DT::for_all_types([&ret, &x, &y](auto lhs) {                              \
       using LHS = typename decltype(lhs)::type;                               \
-      DT::for_all_types([&ret, x, y](auto rhs) {                              \
+      DT::for_all_types([&ret, &x, &y](auto rhs) {                            \
         using RHS = typename decltype(rhs)::type;                             \
         if constexpr ((opcheck<LHS> op opcheck<RHS>)) {                       \
           if constexpr (DT::template is_candidate_type<                       \
@@ -319,8 +440,12 @@ constexpr bool is_dynamic_type_v = is_dynamic_type<T>::value;
     });                                                                       \
     TORCH_CHECK(                                                              \
         !ret.template is<std::monostate>(),                                   \
-        "Can not compute ",                                                   \
+        "Cannot compute ",                                                    \
+        x.type().name(),                                                      \
+        " ",                                                                  \
         #op,                                                                  \
+        " ",                                                                  \
+        y.type().name(),                                                      \
         " : incompatible type");                                              \
     return ret;                                                               \
   }                                                                           \
@@ -343,9 +468,9 @@ constexpr bool is_dynamic_type_v = is_dynamic_type<T>::value;
           opname##_rdefined_checker<RHS>,                                     \
           DT::type_identities_as_tuple,                                       \
           DT::type_identities_as_tuple)>>                                     \
-  inline constexpr DT operator op(DT x, RHS y) {                              \
+  inline constexpr DT operator op(const DT& x, const RHS& y) {                \
     DT ret(std::monostate{});                                                 \
-    DT::for_all_types([&ret, x, y](auto lhs) {                                \
+    DT::for_all_types([&ret, &x, &y](auto lhs) {                              \
       using LHS = typename decltype(lhs)::type;                               \
       if constexpr ((opcheck<LHS> op opcheck<RHS>)) {                         \
         if constexpr (DT::template is_candidate_type<                         \
@@ -359,8 +484,12 @@ constexpr bool is_dynamic_type_v = is_dynamic_type<T>::value;
     });                                                                       \
     TORCH_CHECK(                                                              \
         !ret.template is<std::monostate>(),                                   \
-        "Can not compute ",                                                   \
+        "Cannot compute ",                                                    \
+        x.type().name(),                                                      \
+        " ",                                                                  \
         #op,                                                                  \
+        " ",                                                                  \
+        typeid(RHS).name(),                                                   \
         " : incompatible type");                                              \
     return ret;                                                               \
   }                                                                           \
@@ -383,9 +512,9 @@ constexpr bool is_dynamic_type_v = is_dynamic_type<T>::value;
           opname##_ldefined_checker<LHS>,                                     \
           DT::type_identities_as_tuple,                                       \
           DT::type_identities_as_tuple)>>                                     \
-  inline constexpr DT operator op(LHS x, DT y) {                              \
+  inline constexpr DT operator op(const LHS& x, const DT& y) {                \
     DT ret(std::monostate{});                                                 \
-    DT::for_all_types([&ret, x, y](auto rhs) {                                \
+    DT::for_all_types([&ret, &x, &y](auto rhs) {                              \
       using RHS = typename decltype(rhs)::type;                               \
       if constexpr ((opcheck<LHS> op opcheck<RHS>)) {                         \
         if constexpr (DT::template is_candidate_type<                         \
@@ -399,8 +528,12 @@ constexpr bool is_dynamic_type_v = is_dynamic_type<T>::value;
     });                                                                       \
     TORCH_CHECK(                                                              \
         !ret.template is<std::monostate>(),                                   \
-        "Can not compute ",                                                   \
+        "Cannot compute ",                                                    \
+        typeid(LHS).name(),                                                   \
+        " ",                                                                  \
         #op,                                                                  \
+        " ",                                                                  \
+        y.type().name(),                                                      \
         " : incompatible type");                                              \
     return ret;                                                               \
   }
@@ -439,11 +572,11 @@ DEFINE_BINARY_OP(rshift, >>);
           opname##_defined_checker,                                           \
           DT::type_identities_as_tuple,                                       \
           DT::type_identities_as_tuple)>>                                     \
-  inline constexpr bool operator op(DT x, DT y) {                             \
+  inline constexpr bool operator op(const DT& x, const DT& y) {               \
     std::optional<bool> ret = std::nullopt;                                   \
-    DT::for_all_types([&ret, x, y](auto lhs) {                                \
+    DT::for_all_types([&ret, &x, &y](auto lhs) {                              \
       using LHS = typename decltype(lhs)::type;                               \
-      DT::for_all_types([&ret, x, y](auto rhs) {                              \
+      DT::for_all_types([&ret, &x, &y](auto rhs) {                            \
         using RHS = typename decltype(rhs)::type;                             \
         if constexpr ((opcheck<LHS> op opcheck<RHS>)) {                       \
           if constexpr (std::is_convertible_v<                                \
@@ -458,7 +591,14 @@ DEFINE_BINARY_OP(rshift, >>);
       });                                                                     \
     });                                                                       \
     TORCH_CHECK(                                                              \
-        ret.has_value(), "Can not compute ", #op, " : incompatible type");    \
+        ret.has_value(),                                                      \
+        "Cannot compute ",                                                    \
+        x.type().name(),                                                      \
+        " ",                                                                  \
+        #op,                                                                  \
+        " ",                                                                  \
+        y.type().name(),                                                      \
+        " : incompatible type");                                              \
     return ret.value();                                                       \
   }                                                                           \
   /*TODO: we should inline the definition of lambdas into enable_if,*/        \
@@ -480,9 +620,9 @@ DEFINE_BINARY_OP(rshift, >>);
           !std::is_same_v<DT, RHS> &&                                         \
           any_check(                                                          \
               opname##_rdefined_checker<RHS>, DT::type_identities_as_tuple)>> \
-  inline constexpr bool operator op(DT x, RHS y) {                            \
+  inline constexpr bool operator op(const DT& x, const RHS& y) {              \
     std::optional<bool> ret = std::nullopt;                                   \
-    DT::for_all_types([&ret, x, y](auto lhs) {                                \
+    DT::for_all_types([&ret, &x, &y](auto lhs) {                              \
       using LHS = typename decltype(lhs)::type;                               \
       if constexpr ((opcheck<LHS> op opcheck<RHS>)) {                         \
         if constexpr (std::is_convertible_v<                                  \
@@ -496,7 +636,14 @@ DEFINE_BINARY_OP(rshift, >>);
       }                                                                       \
     });                                                                       \
     TORCH_CHECK(                                                              \
-        ret.has_value(), "Can not compute ", #op, " : incompatible type");    \
+        ret.has_value(),                                                      \
+        "Cannot compute ",                                                    \
+        x.type().name(),                                                      \
+        " ",                                                                  \
+        #op,                                                                  \
+        " ",                                                                  \
+        typeid(RHS).name(),                                                   \
+        " : incompatible type");                                              \
     return ret.value();                                                       \
   }                                                                           \
   /*TODO: we should inline the definition of lambdas into enable_if,*/        \
@@ -517,9 +664,9 @@ DEFINE_BINARY_OP(rshift, >>);
           any_check(                                                          \
               opname##_ldefined_checker<LHS>, DT::type_identities_as_tuple),  \
       bool>                                                                   \
-  operator op(LHS x, DT y) {                                                  \
+  operator op(const LHS& x, const DT& y) {                                    \
     std::optional<bool> ret = std::nullopt;                                   \
-    DT::for_all_types([&ret, x, y](auto rhs) {                                \
+    DT::for_all_types([&ret, &x, &y](auto rhs) {                              \
       using RHS = typename decltype(rhs)::type;                               \
       if constexpr ((opcheck<LHS> op opcheck<RHS>)) {                         \
         if constexpr (std::is_convertible_v<                                  \
@@ -533,7 +680,14 @@ DEFINE_BINARY_OP(rshift, >>);
       }                                                                       \
     });                                                                       \
     TORCH_CHECK(                                                              \
-        ret.has_value(), "Can not compute ", #op, " : incompatible type");    \
+        ret.has_value(),                                                      \
+        "Cannot compute ",                                                    \
+        typeid(LHS).name(),                                                   \
+        " ",                                                                  \
+        #op,                                                                  \
+        " ",                                                                  \
+        y.type().name(),                                                      \
+        " : incompatible type");                                              \
     return ret.value();                                                       \
   }
 
@@ -563,9 +717,9 @@ DEFINE_COMPARE_OP(ge, >=);
           opname##_helper,                                                     \
           DT::type_identities_as_tuple,                                        \
           DT::type_identities_as_tuple)>>                                      \
-  inline constexpr DT operator op(DT x) {                                      \
+  inline constexpr DT operator op(const DT& x) {                               \
     DT ret(std::monostate{});                                                  \
-    DT::for_all_types([&ret, x](auto _) {                                      \
+    DT::for_all_types([&ret, &x](auto _) {                                     \
       using Type = typename decltype(_)::type;                                 \
       if constexpr (op opcheck<Type>) {                                        \
         if constexpr (DT::template is_candidate_type<                          \
@@ -578,8 +732,9 @@ DEFINE_COMPARE_OP(ge, >=);
     });                                                                        \
     TORCH_CHECK(                                                               \
         !ret.template is<std::monostate>(),                                    \
-        "Can not compute ",                                                    \
+        "Cannot compute ",                                                     \
         #op,                                                                   \
+        x.type().name(),                                                       \
         " : incompatible type");                                               \
     return ret;                                                                \
   }
@@ -591,13 +746,39 @@ DEFINE_UNARY_OP(lnot, !);
 
 // Intentionally not supporting the following unary ops:
 // DEFINE_UNARY_OP(addr, &);
-// DEFINE_UNARY_OP(deref, *);
 // Because it only makes sense if and only if both T& and T* are included in
 // the type list, however, std::variant does not allow reference type to be
 // an alternative. Also, if we overloaded the operator&, how can we get the
 // address of the dynamic type itself?
-// TODO: even if we can not have T& in the type list, should we just let * to
-// return T instead of T&?
+
+template <typename DT>
+auto star_defined_checker = [](auto t) {
+  using T = typename decltype(t)::type;
+  if constexpr (*opcheck<T>) {
+    return std::is_same_v<decltype(*std::declval<T>()), DT&>;
+  }
+  return false;
+};
+
+template <
+    typename DT,
+    typename = std::enable_if_t<
+        any_check(star_defined_checker<DT>, DT::type_identities_as_tuple)>>
+DT& operator*(const DT& x) {
+  std::optional<std::reference_wrapper<DT>> ret = std::nullopt;
+  DT::for_all_types([&ret, &x](auto t) {
+    using T = typename decltype(t)::type;
+    if constexpr (*opcheck<T>) {
+      if constexpr (std::is_same_v<decltype(*std::declval<T>()), DT&>) {
+        if (x.template is<T>()) {
+          ret = std::ref(*(x.template as<T>()));
+        }
+      }
+    }
+  });
+  TORCH_CHECK(ret.has_value(), "Cannot dereference ", x.type().name());
+  return ret.value();
+}
 
 #undef DEFINE_UNARY_OP
 
@@ -632,7 +813,8 @@ std::ostream& operator<<(std::ostream& os, const DT& dt) {
       }
     }
   });
-  TORCH_CHECK(printed, "Can not print: incompatible type");
+  TORCH_CHECK(
+      printed, "Can not print ", dt.type().name(), " : incompatible type");
   return os;
 }
 
@@ -665,7 +847,12 @@ std::ostream& operator<<(std::ostream& os, const DT& dt) {
         }                                                                      \
       }                                                                        \
     });                                                                        \
-    TORCH_CHECK(computed, "Can not compute ", #op, " : incompatible type");    \
+    TORCH_CHECK(                                                               \
+        computed,                                                              \
+        "Cannot compute ",                                                     \
+        #op,                                                                   \
+        x.type().name(),                                                       \
+        " : incompatible type");                                               \
     return x;                                                                  \
   }
 
@@ -706,7 +893,8 @@ DEFINE_LEFT_PPMM(lmm, --);
     });                                                                        \
     TORCH_CHECK(                                                               \
         !ret.template is<std::monostate>(),                                    \
-        "Can not compute ",                                                    \
+        "Cannot compute ",                                                     \
+        x.type().name(),                                                       \
         #op,                                                                   \
         " : incompatible type");                                               \
     return ret;                                                                \
