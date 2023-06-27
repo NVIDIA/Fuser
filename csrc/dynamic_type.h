@@ -142,6 +142,8 @@ namespace nvfuser {
 #endif
 
 template <template <typename...> typename... Templates>
+// Note: `Templates` is a list of templates, not a list of types.
+// Just like std::vector is a template, std::vector<int> is a type.
 struct Containers {
   template <typename DynamicType, typename... MemberTypes>
   using VariantType =
