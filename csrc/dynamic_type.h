@@ -216,7 +216,9 @@ struct DynamicType {
       template <typename...>
       typename Template,
       typename ItemT,
-      typename = std::enable_if_t<is_candidate_type<Template<DynamicType>>>>
+      typename = std::enable_if_t<
+          is_candidate_type<Template<DynamicType>> &&
+          !std::is_same_v<ItemT, DynamicType>>>
   constexpr DynamicType(const Template<ItemT>& value)
       : value_([](const auto& input) {
           Template<DynamicType> result;
