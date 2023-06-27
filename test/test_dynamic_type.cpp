@@ -681,12 +681,10 @@ TEST_F(DynamicTypeTest, BinaryOpAdvancedTyping) {
       bad,
       ::testing::ThrowsMessage<c10::Error>(
           ::testing::HasSubstr("Cannot compute ")));
-  // test ptrdiff to int conversion
-  float a, b;
-  ptrdiff_t diff = &a - &b;
-  using FloatPtrOrInt = DynamicType<NoContainers, float*, int>;
-  FloatPtrOrInt x(&a), y(&b);
-  EXPECT_EQ(x - y, diff);
+  // test bool to int conversion
+  using Int = DynamicType<NoContainers, int>;
+  static_assert((Int(2) && Int(0)) == 0);
+  static_assert((Int(2) && Int(3)) == 1);
 }
 
 TEST_F(DynamicTypeTest, Printing) {
