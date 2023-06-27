@@ -126,7 +126,11 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
   iop.inner_vect = (int64_t)vectorize_factor;
 
   // Enforce valid return is needed because we enforced projection for fp32 if
-  // the feature size is less or equal 14K. See getPersistentHeuristics.
+  // the feature size is less or equal 14K.  It leads to register spills but
+  // still faster than unprojected version due to the reuse of a input para in
+  // this grid persistent kernel.
+  // This is a tmp solution before we have a new persistent heuristics, where
+  // the projection is not solely based on size of buffers.
   constexpr bool enforce_valid_return = true;
   const auto& batch_and_block_size = normalization_scheduler_utils::
       getOptionalInnerOuterPersistentBufferBatches(
@@ -185,15 +189,17 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
   // bdimx * bdimy == threads_per_block.
   iop.bdimx = scheduler_utils::roundUpPow2Or8(
       ceilDiv(inner_dim_numel / iop.vectorization_factor_outer, iop.gdimy));
-  // if still not dividable, e.g. threads_per_block = 256, bdimx = 40.
-  // increase bdimx to make it dividable. This will avoid the increase of
+  // if still not divisible, e.g. threads_per_block = 256, bdimx = 40.
+  // increase bdimx to make it divisible. This will avoid the increase of
   // threads per block which may cause register spills.
   while (threads_per_block % iop.bdimx) {
     iop.bdimx = std::min(iop.bdimx + 8, threads_per_block);
   }
   // Step-4, set OuterParams Reduction dim: bdimy.
-  iop.bdimy = ceilDiv(threads_per_block, iop.bdimx);
-
+  iop.bdimy = threads_per_block / iop.bdimx;
+  TORCH_INTERNAL_ASSERT(
+      iop.bdimy * iop.bdimx == threads_per_block,
+      " threads_per_block must be divisible by bdimx and bdimy.");
   // Step-5, special case, when inner_dim_numel <= 1024, bdimx is usually small
   // after divide by inner_vect and inner_batch. In this case, bdimy is used to
   // parallelize outer_dim instead of inner_dim. This pattern is named multi
