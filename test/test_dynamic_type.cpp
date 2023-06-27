@@ -365,13 +365,13 @@ TEST_F(DynamicTypeTest, Typing) {
         (3L op DoubleInt64BoolVec(2L)).as<decltype((3L op 2L))>(),             \
         (3L op 2L));                                                           \
     EXPECT_THAT(                                                               \
-        [&]() { DoubleInt64Bool() op DoubleInt64Bool(2); },                    \
+        [&]() { DoubleInt64Bool() op DoubleInt64Bool(2L); },                   \
         ::testing::ThrowsMessage<c10::Error>(                                  \
             ::testing::HasSubstr("Can not compute ")));                        \
     EXPECT_THAT(                                                               \
         [&]() {                                                                \
           DoubleInt64BoolVec(std::vector<DoubleInt64BoolVec>{})                \
-              op DoubleInt64BoolVec(2);                                        \
+              op DoubleInt64BoolVec(2L);                                       \
         },                                                                     \
         ::testing::ThrowsMessage<c10::Error>(                                  \
             ::testing::HasSubstr("Can not compute ")));                        \
@@ -419,13 +419,13 @@ TEST_BINARY_OP_ALLTYPE(LogicalOr, ||);
     static_assert((3L op DoubleInt64Bool(2L)) == (3L op 2L));                  \
     EXPECT_EQ((3L op DoubleInt64BoolVec(2L)), (3L op 2L));                     \
     EXPECT_THAT(                                                               \
-        [&]() { DoubleInt64Bool() op DoubleInt64Bool(2); },                    \
+        [&]() { DoubleInt64Bool() op DoubleInt64Bool(2L); },                   \
         ::testing::ThrowsMessage<c10::Error>(                                  \
             ::testing::HasSubstr("Can not compute ")));                        \
     EXPECT_THAT(                                                               \
         [&]() {                                                                \
           DoubleInt64BoolVec(std::vector<DoubleInt64BoolVec>{})                \
-              op DoubleInt64BoolVec(2);                                        \
+              op DoubleInt64BoolVec(2L);                                       \
         },                                                                     \
         ::testing::ThrowsMessage<c10::Error>(                                  \
             ::testing::HasSubstr("Can not compute ")));                        \
@@ -463,13 +463,13 @@ TEST_COMPARE_OP(Ge, >=);
     static_assert((3L op DoubleInt64Bool(2L)).as<int64_t>() == (3L op 2L));    \
     EXPECT_EQ((3L op DoubleInt64BoolVec(2L)).as<int64_t>(), (3L op 2L));       \
     EXPECT_THAT(                                                               \
-        [&]() { DoubleInt64Bool() op DoubleInt64Bool(2); },                    \
+        [&]() { DoubleInt64Bool() op DoubleInt64Bool(2L); },                   \
         ::testing::ThrowsMessage<c10::Error>(                                  \
             ::testing::HasSubstr("Can not compute ")));                        \
     EXPECT_THAT(                                                               \
         [&]() {                                                                \
           DoubleInt64BoolVec(std::vector<DoubleInt64BoolVec>{})                \
-              op DoubleInt64BoolVec(2);                                        \
+              op DoubleInt64BoolVec(2L);                                       \
         },                                                                     \
         ::testing::ThrowsMessage<c10::Error>(                                  \
             ::testing::HasSubstr("Can not compute ")));                        \
