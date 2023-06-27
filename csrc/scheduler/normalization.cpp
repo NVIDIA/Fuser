@@ -1319,21 +1319,21 @@ std::shared_ptr<ReductionParams> getPersistentHeuristics(
     // code will check if we can do this projection by allowing more registers.
     // This is a temporary solution, the issue is tracked by
     // https://github.com/csarofeen/pytorch/issues/2525
-    if (!project_persistent_buffers) {
-      int64_t total_projected_buffer_size =
-          persistent_buffer_size_info.projected_persistent_buffer_size +
-          outer_reduction_buffer_size;
-      // allow 10% more to allow project to input, 14K float should do project
-      // and 16K float should't do. more_register_factor >= 14*1024*5(three
-      // inputs, two outer reduction results)*sizeof(float) /
-      // register_file_size_full
-      constexpr float more_register_factor = 1.1;
-      const int64_t avilable_register_file_size = static_cast<int64_t>(
-          scheduler_utils::register_file_size_full * more_register_factor);
-      if (avilable_register_file_size >= total_projected_buffer_size) {
-        project_persistent_buffers = true;
-      }
-    }
+    // if (!project_persistent_buffers) {
+    //   int64_t total_projected_buffer_size =
+    //       persistent_buffer_size_info.projected_persistent_buffer_size +
+    //       outer_reduction_buffer_size;
+    //   // allow 10% more to allow project to input, 14K float should do project
+    //   // and 16K float should't do. more_register_factor >= 14*1024*5(three
+    //   // inputs, two outer reduction results)*sizeof(float) /
+    //   // register_file_size_full
+    //   constexpr float more_register_factor = 1.1;
+    //   const int64_t avilable_register_file_size = static_cast<int64_t>(
+    //       scheduler_utils::register_file_size_full * more_register_factor);
+    //   if (avilable_register_file_size >= total_projected_buffer_size) {
+    //     project_persistent_buffers = true;
+    //   }
+    // }
     // now we have the final decision on whether we project to input or not.
     if (project_persistent_buffers) {
       max_persistent_size =
