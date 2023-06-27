@@ -798,6 +798,21 @@ TEST_F(DynamicTypeTest, PlusPlusMinusMinus) {
   }
 }
 
+TEST_F(DynamicTypeTest, Star) {
+  using IntOrPtr = DynamicType<Containers<std::shared_ptr>, int>;
+  static_assert(*opcheck<IntOrPtr>);
+  static_assert(!(*opcheck<DoubleInt64Bool>));
+  IntOrPtr x = 299792458;
+  IntOrPtr y = std::make_shared<IntOrPtr>(x);
+  EXPECT_EQ(*y, 299792458);
+  (*y)--;
+  EXPECT_EQ(*y, 299792457);
+  EXPECT_THAT(
+      [&]() { *x; },
+      ::testing::ThrowsMessage<c10::Error>(
+          ::testing::HasSubstr("Cannot dereference ")));
+}
+
 #define TEST_ASSIGN_OP(op, assign_op, name)                \
   TEST_F(DynamicTypeTest, name) {                          \
     IntSomeType x(299792458);                              \

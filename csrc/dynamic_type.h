@@ -215,7 +215,10 @@ struct DynamicType {
   template <
       template <typename...>
       typename Template,
-      typename ItemT>
+      typename ItemT,
+      typename = std::enable_if_t<
+          is_candidate_type<Template<DynamicType>> &&
+          !std::is_same_v<ItemT, DynamicType>>>
   constexpr DynamicType(const Template<ItemT>& value)
       : value_([](const auto& input) {
           Template<DynamicType> result;
@@ -742,13 +745,39 @@ DEFINE_UNARY_OP(lnot, !);
 
 // Intentionally not supporting the following unary ops:
 // DEFINE_UNARY_OP(addr, &);
-// DEFINE_UNARY_OP(deref, *);
 // Because it only makes sense if and only if both T& and T* are included in
 // the type list, however, std::variant does not allow reference type to be
 // an alternative. Also, if we overloaded the operator&, how can we get the
 // address of the dynamic type itself?
-// TODO: even if we can not have T& in the type list, should we just let * to
-// return T instead of T&?
+
+template <typename DT>
+auto star_defined_checker = [](auto t) {
+  using T = typename decltype(t)::type;
+  if constexpr (*opcheck<T>) {
+    return std::is_same_v<decltype(*std::declval<T>()), DT&>;
+  }
+  return false;
+};
+
+template <
+    typename DT,
+    typename = std::enable_if_t<
+        any_check(star_defined_checker<DT>, DT::type_identities_as_tuple)>>
+DT& operator*(const DT& x) {
+  std::optional<std::reference_wrapper<DT>> ret = std::nullopt;
+  DT::for_all_types([&ret, &x](auto t) {
+    using T = typename decltype(t)::type;
+    if constexpr (*opcheck<T>) {
+      if constexpr (std::is_same_v<decltype(*std::declval<T>()), DT&>) {
+        if (x.template is<T>()) {
+          ret = std::ref(*(x.template as<T>()));
+        }
+      }
+    }
+  });
+  TORCH_CHECK(ret.has_value(), "Cannot dereference ", x.type().name());
+  return ret.value();
+}
 
 #undef DEFINE_UNARY_OP
 
