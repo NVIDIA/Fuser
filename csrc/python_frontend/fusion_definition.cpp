@@ -120,6 +120,7 @@ void FusionDefinition::setupSchedule(const at::ArrayRef<c10::IValue>& inputs) {
   prev_fusion_ = FusionGuard::getCurFusion();
   FusionGuard::setCurFusion(user_sched_->schedule.get());
 }
+
 void FusionDefinition::finalizeSchedule(
     const at::ArrayRef<c10::IValue>& inputs) {
   FUSER_PERF_SCOPE("FusionDefinition::finalizeSchedule");
