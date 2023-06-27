@@ -19,6 +19,7 @@
 #include <numeric>
 #include <optional>
 #include <type_traits>
+#include <typeinfo>
 #include <variant>
 
 // Note [Design of DynamicType]
@@ -216,6 +217,14 @@ struct DynamicType {
           return result;
         }(value)) {}
 
+  // Returns the type_info of the actual type of the variant value_. For
+  // example, if value_ holds an int, then this will return typeid(int).
+  const std::type_info& type() const {
+    return std::visit(
+        [](auto value) -> const std::type_info& { return typeid(value); },
+        value_);
+  }
+
   template <typename T>
   constexpr bool is() const {
     return std::holds_alternative<T>(value_);
@@ -235,7 +244,7 @@ struct DynamicType {
   }
 
   template <typename T, typename = std::enable_if_t<is_candidate_type<T>>>
-  constexpr T as() const {
+  constexpr const T& as() const {
     return std::get<T>(value_);
   }
 
@@ -248,7 +257,7 @@ struct DynamicType {
       template <typename...>
       typename Template,
       typename = std::enable_if_t<is_candidate_type<Template<DynamicType>>>>
-  constexpr Template<DynamicType> as() const {
+  constexpr const Template<DynamicType>& as() const {
     return as<Template<DynamicType>>();
   }
 
@@ -271,8 +280,37 @@ struct DynamicType {
         }
       }
     });
-    TORCH_CHECK(ret.has_value(), "Cannot cast to ", typeid(T).name());
+    TORCH_CHECK(
+        ret.has_value(),
+        "Cannot cast from ",
+        type().name(),
+        " to ",
+        typeid(T).name(),
+        " : incompatible type");
     return ret.value();
+  }
+
+  template <
+      template <typename...>
+      typename Template,
+      typename ItemT,
+      typename = std::enable_if_t<
+          is_candidate_type<Template<DynamicType>> && can_cast_to<ItemT>>>
+  explicit constexpr operator Template<ItemT>() const {
+    TORCH_CHECK(
+        is<Template<DynamicType>>(),
+        "Cannot cast from ",
+        type().name(),
+        " to ",
+        typeid(Template<ItemT>).name(),
+        " : incompatible type");
+    Template<ItemT> result;
+    std::transform(
+        as<Template<DynamicType>>().begin(),
+        as<Template<DynamicType>>().end(),
+        std::back_inserter(result),
+        [](const auto& item) { return (ItemT)item; });
+    return result;
   }
 
   // Intentionally not overloading operator=, because the compiler generated
@@ -321,7 +359,13 @@ struct DynamicType {
         }
       }
     });
-    TORCH_CHECK(ret.has_value(), "Cannot index ", typeid(*this).name());
+    TORCH_CHECK(
+        ret.has_value(),
+        "Cannot index ",
+        type().name(),
+        " with ",
+        typeid(IndexT).name(),
+        " : incompatible type");
     return ret.value();
   }
 
@@ -383,8 +427,12 @@ constexpr bool is_dynamic_type_v = is_dynamic_type<T>::value;
     });                                                                       \
     TORCH_CHECK(                                                              \
         !ret.template is<std::monostate>(),                                   \
-        "Can not compute ",                                                   \
+        "Cannot compute ",                                                    \
+        x.type().name(),                                                      \
+        " ",                                                                  \
         #op,                                                                  \
+        " ",                                                                  \
+        y.type().name(),                                                      \
         " : incompatible type");                                              \
     return ret;                                                               \
   }                                                                           \
@@ -423,8 +471,12 @@ constexpr bool is_dynamic_type_v = is_dynamic_type<T>::value;
     });                                                                       \
     TORCH_CHECK(                                                              \
         !ret.template is<std::monostate>(),                                   \
-        "Can not compute ",                                                   \
+        "Cannot compute ",                                                    \
+        x.type().name(),                                                      \
+        " ",                                                                  \
         #op,                                                                  \
+        " ",                                                                  \
+        typeid(RHS).name(),                                                   \
         " : incompatible type");                                              \
     return ret;                                                               \
   }                                                                           \
@@ -463,8 +515,12 @@ constexpr bool is_dynamic_type_v = is_dynamic_type<T>::value;
     });                                                                       \
     TORCH_CHECK(                                                              \
         !ret.template is<std::monostate>(),                                   \
-        "Can not compute ",                                                   \
+        "Cannot compute ",                                                    \
+        typeid(LHS).name(),                                                   \
+        " ",                                                                  \
         #op,                                                                  \
+        " ",                                                                  \
+        y.type().name(),                                                      \
         " : incompatible type");                                              \
     return ret;                                                               \
   }
@@ -522,7 +578,14 @@ DEFINE_BINARY_OP(rshift, >>);
       });                                                                     \
     });                                                                       \
     TORCH_CHECK(                                                              \
-        ret.has_value(), "Can not compute ", #op, " : incompatible type");    \
+        ret.has_value(),                                                      \
+        "Cannot compute ",                                                    \
+        x.type().name(),                                                      \
+        " ",                                                                  \
+        #op,                                                                  \
+        " ",                                                                  \
+        y.type().name(),                                                      \
+        " : incompatible type");                                              \
     return ret.value();                                                       \
   }                                                                           \
   /*TODO: we should inline the definition of lambdas into enable_if,*/        \
@@ -560,7 +623,14 @@ DEFINE_BINARY_OP(rshift, >>);
       }                                                                       \
     });                                                                       \
     TORCH_CHECK(                                                              \
-        ret.has_value(), "Can not compute ", #op, " : incompatible type");    \
+        ret.has_value(),                                                      \
+        "Cannot compute ",                                                    \
+        x.type().name(),                                                      \
+        " ",                                                                  \
+        #op,                                                                  \
+        " ",                                                                  \
+        typeid(RHS).name(),                                                   \
+        " : incompatible type");                                              \
     return ret.value();                                                       \
   }                                                                           \
   /*TODO: we should inline the definition of lambdas into enable_if,*/        \
@@ -597,7 +667,14 @@ DEFINE_BINARY_OP(rshift, >>);
       }                                                                       \
     });                                                                       \
     TORCH_CHECK(                                                              \
-        ret.has_value(), "Can not compute ", #op, " : incompatible type");    \
+        ret.has_value(),                                                      \
+        "Cannot compute ",                                                    \
+        typeid(LHS).name(),                                                   \
+        " ",                                                                  \
+        #op,                                                                  \
+        " ",                                                                  \
+        y.type().name(),                                                      \
+        " : incompatible type");                                              \
     return ret.value();                                                       \
   }
 
@@ -642,8 +719,9 @@ DEFINE_COMPARE_OP(ge, >=);
     });                                                                        \
     TORCH_CHECK(                                                               \
         !ret.template is<std::monostate>(),                                    \
-        "Can not compute ",                                                    \
+        "Cannot compute ",                                                     \
         #op,                                                                   \
+        x.type().name(),                                                       \
         " : incompatible type");                                               \
     return ret;                                                                \
   }
@@ -696,7 +774,8 @@ std::ostream& operator<<(std::ostream& os, const DT& dt) {
       }
     }
   });
-  TORCH_CHECK(printed, "Can not print: incompatible type");
+  TORCH_CHECK(
+      printed, "Can not print ", dt.type().name(), " : incompatible type");
   return os;
 }
 
@@ -729,7 +808,12 @@ std::ostream& operator<<(std::ostream& os, const DT& dt) {
         }                                                                      \
       }                                                                        \
     });                                                                        \
-    TORCH_CHECK(computed, "Can not compute ", #op, " : incompatible type");    \
+    TORCH_CHECK(                                                               \
+        computed,                                                              \
+        "Cannot compute ",                                                     \
+        #op,                                                                   \
+        x.type().name(),                                                       \
+        " : incompatible type");                                               \
     return x;                                                                  \
   }
 
@@ -770,7 +854,8 @@ DEFINE_LEFT_PPMM(lmm, --);
     });                                                                        \
     TORCH_CHECK(                                                               \
         !ret.template is<std::monostate>(),                                    \
-        "Can not compute ",                                                    \
+        "Cannot compute ",                                                     \
+        x.type().name(),                                                       \
         #op,                                                                   \
         " : incompatible type");                                               \
     return ret;                                                                \
