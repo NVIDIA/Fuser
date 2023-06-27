@@ -139,6 +139,17 @@ namespace nvfuser {
 #if defined(__GNUC__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wbool-operation"
+// gcc, even the latest version (13.1.1), is complaining about the following
+// code:
+//   std::optional<bool> ret = std::nullopt;
+//   ...
+//   TORCH_CHECK(ret.has_value(), ...);
+//   return ret.value();
+// saying that ret.value() is used uninitialized. This complaint is totoally
+// nonsense.
+// Also, why clang-tidy is reading gcc's options?
+// NOLINTNEXTLINE(clang-diagnostic-unknown-warning-option)
+#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
 #endif
 
 template <template <typename...> typename... Templates>
@@ -199,14 +210,14 @@ struct DynamicType {
   constexpr DynamicType() = default;
 
   template <typename T>
-  constexpr DynamicType(T value) : value_(value) {}
+  constexpr DynamicType(const T& value) : value_(value) {}
 
   template <
       template <typename...>
       typename Template,
       typename ItemT,
       typename = std::enable_if_t<is_candidate_type<Template<DynamicType>>>>
-  constexpr DynamicType(Template<ItemT> value)
+  constexpr DynamicType(const Template<ItemT>& value)
       : value_([](const auto& input) {
           Template<DynamicType> result;
           std::transform(
@@ -345,7 +356,7 @@ struct DynamicType {
   template <
       typename IndexT,
       typename = std::enable_if_t<has_square_bracket<IndexT>>>
-  DynamicType& operator[](IndexT i) {
+  DynamicType& operator[](const IndexT& i) {
     std::optional<std::reference_wrapper<DynamicType>> ret = std::nullopt;
     for_all_types([this, &ret, &i](auto t) {
       using T = typename decltype(t)::type;
@@ -408,11 +419,11 @@ constexpr bool is_dynamic_type_v = is_dynamic_type<T>::value;
           DT::type_identities_as_tuple,                                       \
           DT::type_identities_as_tuple,                                       \
           DT::type_identities_as_tuple)>>                                     \
-  inline constexpr DT operator op(DT x, DT y) {                               \
+  inline constexpr DT operator op(const DT& x, const DT& y) {                 \
     DT ret(std::monostate{});                                                 \
-    DT::for_all_types([&ret, x, y](auto lhs) {                                \
+    DT::for_all_types([&ret, &x, &y](auto lhs) {                              \
       using LHS = typename decltype(lhs)::type;                               \
-      DT::for_all_types([&ret, x, y](auto rhs) {                              \
+      DT::for_all_types([&ret, &x, &y](auto rhs) {                            \
         using RHS = typename decltype(rhs)::type;                             \
         if constexpr ((opcheck<LHS> op opcheck<RHS>)) {                       \
           if constexpr (DT::template is_candidate_type<                       \
@@ -455,9 +466,9 @@ constexpr bool is_dynamic_type_v = is_dynamic_type<T>::value;
           opname##_rdefined_checker<RHS>,                                     \
           DT::type_identities_as_tuple,                                       \
           DT::type_identities_as_tuple)>>                                     \
-  inline constexpr DT operator op(DT x, RHS y) {                              \
+  inline constexpr DT operator op(const DT& x, const RHS& y) {                \
     DT ret(std::monostate{});                                                 \
-    DT::for_all_types([&ret, x, y](auto lhs) {                                \
+    DT::for_all_types([&ret, &x, &y](auto lhs) {                              \
       using LHS = typename decltype(lhs)::type;                               \
       if constexpr ((opcheck<LHS> op opcheck<RHS>)) {                         \
         if constexpr (DT::template is_candidate_type<                         \
@@ -499,9 +510,9 @@ constexpr bool is_dynamic_type_v = is_dynamic_type<T>::value;
           opname##_ldefined_checker<LHS>,                                     \
           DT::type_identities_as_tuple,                                       \
           DT::type_identities_as_tuple)>>                                     \
-  inline constexpr DT operator op(LHS x, DT y) {                              \
+  inline constexpr DT operator op(const LHS& x, const DT& y) {                \
     DT ret(std::monostate{});                                                 \
-    DT::for_all_types([&ret, x, y](auto rhs) {                                \
+    DT::for_all_types([&ret, &x, &y](auto rhs) {                              \
       using RHS = typename decltype(rhs)::type;                               \
       if constexpr ((opcheck<LHS> op opcheck<RHS>)) {                         \
         if constexpr (DT::template is_candidate_type<                         \
@@ -559,11 +570,11 @@ DEFINE_BINARY_OP(rshift, >>);
           opname##_defined_checker,                                           \
           DT::type_identities_as_tuple,                                       \
           DT::type_identities_as_tuple)>>                                     \
-  inline constexpr bool operator op(DT x, DT y) {                             \
+  inline constexpr bool operator op(const DT& x, const DT& y) {               \
     std::optional<bool> ret = std::nullopt;                                   \
-    DT::for_all_types([&ret, x, y](auto lhs) {                                \
+    DT::for_all_types([&ret, &x, &y](auto lhs) {                              \
       using LHS = typename decltype(lhs)::type;                               \
-      DT::for_all_types([&ret, x, y](auto rhs) {                              \
+      DT::for_all_types([&ret, &x, &y](auto rhs) {                            \
         using RHS = typename decltype(rhs)::type;                             \
         if constexpr ((opcheck<LHS> op opcheck<RHS>)) {                       \
           if constexpr (std::is_convertible_v<                                \
@@ -607,9 +618,9 @@ DEFINE_BINARY_OP(rshift, >>);
           !std::is_same_v<DT, RHS> &&                                         \
           any_check(                                                          \
               opname##_rdefined_checker<RHS>, DT::type_identities_as_tuple)>> \
-  inline constexpr bool operator op(DT x, RHS y) {                            \
+  inline constexpr bool operator op(const DT& x, const RHS& y) {              \
     std::optional<bool> ret = std::nullopt;                                   \
-    DT::for_all_types([&ret, x, y](auto lhs) {                                \
+    DT::for_all_types([&ret, &x, &y](auto lhs) {                              \
       using LHS = typename decltype(lhs)::type;                               \
       if constexpr ((opcheck<LHS> op opcheck<RHS>)) {                         \
         if constexpr (std::is_convertible_v<                                  \
@@ -651,9 +662,9 @@ DEFINE_BINARY_OP(rshift, >>);
           any_check(                                                          \
               opname##_ldefined_checker<LHS>, DT::type_identities_as_tuple),  \
       bool>                                                                   \
-  operator op(LHS x, DT y) {                                                  \
+  operator op(const LHS& x, const DT& y) {                                    \
     std::optional<bool> ret = std::nullopt;                                   \
-    DT::for_all_types([&ret, x, y](auto rhs) {                                \
+    DT::for_all_types([&ret, &x, &y](auto rhs) {                              \
       using RHS = typename decltype(rhs)::type;                               \
       if constexpr ((opcheck<LHS> op opcheck<RHS>)) {                         \
         if constexpr (std::is_convertible_v<                                  \
@@ -704,9 +715,9 @@ DEFINE_COMPARE_OP(ge, >=);
           opname##_helper,                                                     \
           DT::type_identities_as_tuple,                                        \
           DT::type_identities_as_tuple)>>                                      \
-  inline constexpr DT operator op(DT x) {                                      \
+  inline constexpr DT operator op(const DT& x) {                               \
     DT ret(std::monostate{});                                                  \
-    DT::for_all_types([&ret, x](auto _) {                                      \
+    DT::for_all_types([&ret, &x](auto _) {                                     \
       using Type = typename decltype(_)::type;                                 \
       if constexpr (op opcheck<Type>) {                                        \
         if constexpr (DT::template is_candidate_type<                          \
