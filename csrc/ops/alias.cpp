@@ -735,7 +735,8 @@ TensorView* slice(
             out_root_id,
             SimplifyingIrBuilder::negExpr(range.start),
             sub(range.stop, inp_extent),
-            true);
+            true,
+            IterType::Iteration);
       } else {
         out_rf_id = IterDomainBuilder(
                         FusionGuard::getCurFusion()->zeroVal(),
