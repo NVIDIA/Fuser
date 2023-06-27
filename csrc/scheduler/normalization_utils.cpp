@@ -632,7 +632,7 @@ getOptionalInnerOuterPersistentBufferBatches(
     const int64_t persistent_buffer_size,
     const int64_t vectorize_factor,
     const int64_t warp_size,
-    const bool enforce_return_valid) {
+    const bool ignore_register_size_limit) {
   // if inner_dim_numel <= 1024, we are doing multiple reductions per block
   // with a constant batch size of 1. See Step 5 of
   // innerOuterPersistentHeuristic
@@ -702,7 +702,7 @@ getOptionalInnerOuterPersistentBufferBatches(
   // 320 bytes stack frame, 320 bytes spill stores, 640 bytes spill loads. As a
   // ref, the segmented version takes time_us mean(var)= 2841.91 (5.20231)
   // without considering the overhead of fusion segmentation.
-  if (enforce_return_valid || inner_batch <= batch_max + 3) {
+  if (ignore_register_size_limit || inner_batch <= batch_max + 3) {
     return std::make_pair(inner_batch, threads_per_block);
   } else {
     return std::make_pair(std::nullopt, -1);

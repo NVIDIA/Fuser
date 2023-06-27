@@ -187,11 +187,15 @@ int64_t partialReductionBufferSize(
 //! by inner_dim_numel and outer_dim_numel. If the persistent buffer batch is
 //! smaller than the maximum allowed batch which is determined by the avilable
 //! registers, this function will return that batch value. Otherwise, it will
-//! return nullopt except when enforce_return_valid is true where it will return
-//! whatever the batch value is. This is a special case for layer norm backward
-//! with dypte of float where we enforce persistent buffer projection and allows
-//! large register spills to avoid fusion segmentation. see
-//! getPersistentHeuristics() for more details.
+//! return nullopt except when ignore_register_size_limit is true where it will
+//! return whatever the batch value is.
+// This exception is needed because the register usage in canScheduleRuntime is
+// based on std::min(project_buffer, not_project_buffer). However, in
+// getPersistentHeuristics() we enforce project_buffer to input if dtype=float
+// and feature size <=14K. It leads to register spills but still faster than
+// unprojected version due to the reuse of a input para in this grid persistent
+// kernel. This is a tmp solution before we have a new persistent heuristics,
+// where the projection should not soley based on size of buffers.
 std::pair<std::optional<int64_t>, int64_t>
 getOptionalInnerOuterPersistentBufferBatches(
     const int64_t inner_dim_numel,
@@ -199,7 +203,7 @@ getOptionalInnerOuterPersistentBufferBatches(
     const int64_t persistent_buffer_size,
     const int64_t vectorize_factor,
     const int64_t warp_size,
-    const bool enforce_return_valid);
+    const bool ignore_register_size_limit);
 
 } // namespace normalization_scheduler_utils
 } // namespace nvfuser
