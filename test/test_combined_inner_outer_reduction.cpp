@@ -424,13 +424,13 @@ TEST_F(NVFuserTest, CombinedSchedulerSharedConsumer_CUDA) {
     auto cg_outputs = fec.runFusionWithInputs(aten_inputs);
 
     auto aten_gradients = at::native_layer_norm_backward(
-        aten_grad_out,
-        aten_input,
+        aten_grad_out.to(at::kDouble),
+        aten_input.to(at::kDouble),
         norm_shape,
-        aten_mean,
-        aten_rstd,
-        c10::optional<at::Tensor>(aten_weight),
-        c10::optional<at::Tensor>(aten_bias),
+        aten_mean.to(at::kDouble),
+        aten_rstd.to(at::kDouble),
+        c10::optional<at::Tensor>(aten_weight.to(at::kDouble)),
+        c10::optional<at::Tensor>(aten_bias.to(at::kDouble)),
         {true, true, true});
 
     auto aten_out_linked = link_inner_outer
