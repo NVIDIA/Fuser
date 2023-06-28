@@ -113,7 +113,7 @@ class EmptyTensorRemover : BackwardVisitor {
       // Note that if there empty intermediate tensors with uses that do not
       // lead to outputs, this check might fail.
       if (!tv->uses().empty() && isTVEmpty(tv)) {
-        TORCH_WARN(
+        TORCH_WARN_ONCE(
             "Found unexpected empty intermediate TensorView ",
             tv->toString(),
             ". This TensorView has un-removed uses that might not be used in this Fusion.");
