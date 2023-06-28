@@ -154,6 +154,7 @@ void FusionExecutor::debugCompileFusionFromStr(
   lowered_ = std::make_unique<GpuLower>(fusion);
   const auto kernel = lowered_->kernel();
   fusion_ = lowered_->kernel();
+  kernel_summary_ = kernel->summary();
 
   fusion_id_ = id;
   setUsedTVs();
@@ -162,12 +163,10 @@ void FusionExecutor::debugCompileFusionFromStr(
     kernel->print();
   }
 
-  const auto& kernel_summary = kernel->summary();
-
-  if (!kernel_summary.static_smem_allocations.empty()) {
+  if (!kernel_summary_.static_smem_allocations.empty()) {
     ExpressionEvaluator static_evaluator;
     const auto static_smem_size = computeSharedMemory(
-        static_evaluator, kernel_summary.static_smem_allocations);
+        static_evaluator, kernel_summary_.static_smem_allocations);
     TORCH_INTERNAL_ASSERT(
         static_smem_size < max_static_smem_,
         "The static shared memory allocation is larger than available memory.");
@@ -268,6 +267,7 @@ void FusionExecutor::compileFusion(
 
   const auto kernel = lowered_->kernel();
   fusion_ = lowered_->kernel()->as<Fusion>();
+  kernel_summary_ = kernel->summary();
 
   fusion_id_ = ++fusion_id_counter_;
   setUsedTVs();
@@ -312,24 +312,22 @@ void FusionExecutor::compileFusion(
       ? load_external_code(external_code_path)
       : getStructuredCode();
 
-  const auto& kernel_summary = kernel->summary();
-
   // We currently shouldn't allocate any more shared mem
   //  tensors statically but could keep this path if
   //  needed in later development.
-  if (!kernel_summary.static_smem_allocations.empty()) {
+  if (!kernel_summary_.static_smem_allocations.empty()) {
     ExpressionEvaluator static_evaluator;
     const auto static_smem_size = computeSharedMemory(
-        static_evaluator, kernel_summary.static_smem_allocations);
+        static_evaluator, kernel_summary_.static_smem_allocations);
     TORCH_INTERNAL_ASSERT(
         static_smem_size < max_static_smem_,
         "The static shared memory allocation is larger than available memory.");
   }
 
-  if (kernel_summary.has_dynamic_local_memory_allocations) {
+  if (kernel_summary_.has_dynamic_local_memory_allocations) {
     std::stringstream ss;
     ss << "Allocations must be based on constant integers for local memory. However, found: ";
-    for (auto alloc : kernel_summary.dynamic_lmem_allocations) {
+    for (auto alloc : kernel_summary_.dynamic_lmem_allocations) {
       ss << alloc->buffer()->toString() << ", ";
     }
     ss << " have dynamic allocations but are placed in local memory.";
@@ -1056,40 +1054,40 @@ LaunchParams FusionExecutor::computeLaunchParams(
     expr_eval.precomputedValues()->evaluate();
   }
 
-  const auto kernel = lowered_->kernel();
-  const auto& kernel_summary = kernel->summary();
-
   // Calculate Dynamic Shared Memory Size
   // Add workspace for reduction and broadcast
   int64_t reduction_broadcast_workspace = 0;
-  const bool has_workspace = kernel_summary.has_block_reductions ||
-      kernel_summary.has_grid_reductions ||
-      kernel_summary.has_block_broadcasts || kernel_summary.has_grid_broadcasts;
+  const bool has_workspace = kernel_summary_.has_block_reductions ||
+      kernel_summary_.has_grid_reductions ||
+      kernel_summary_.has_block_broadcasts ||
+      kernel_summary_.has_grid_broadcasts;
   if (has_workspace &&
-      kernel_summary.largest_smem_data_type != DataType::Null) {
+      kernel_summary_.largest_smem_data_type != DataType::Null) {
     // Not using nThreads here since it does not handle uninitialized value
 
     // TODO: here is an optimization opportunity since welford uses int64_t for
     // N while the data type is not neccessarily double. But it may need more
     // work on the alignment
     const int welford_factor =
-        kernel_summary.has_block_welford || kernel_summary.has_grid_welford ? 3
-                                                                            : 1;
+        kernel_summary_.has_block_welford || kernel_summary_.has_grid_welford
+        ? 3
+        : 1;
     reduction_broadcast_workspace =
-        (int64_t)dataTypeSize(kernel_summary.largest_smem_data_type) *
+        (int64_t)dataTypeSize(kernel_summary_.largest_smem_data_type) *
         welford_factor * launch_params.bdimx() * launch_params.bdimy() *
         launch_params.bdimz();
 
-    if (kernel_summary.has_outer_grouped_grid_welford) {
+    if (kernel_summary_.has_outer_grouped_grid_welford) {
       reduction_broadcast_workspace = std::max(
           reduction_broadcast_workspace,
-          (int64_t)kernel_summary.outer_grouped_grid_welford_largest_smem_size);
+          (int64_t)
+              kernel_summary_.outer_grouped_grid_welford_largest_smem_size);
     }
   }
 
   const auto dynamic_smem_size = computeSharedMemory(
       expr_eval,
-      kernel_summary.dynamic_smem_allocations,
+      kernel_summary_.dynamic_smem_allocations,
       true,
       reduction_broadcast_workspace);
 
@@ -1113,9 +1111,8 @@ std::vector<FusionExecutor::GlobalBufferInfo> FusionExecutor::
   std::vector<GlobalBufferInfo> global_buffers;
 
   const auto kernel = lowered_->kernel();
-  const auto& kernel_summary = kernel->summary();
 
-  for (auto alloc : kernel_summary.global_allocations) {
+  for (auto alloc : kernel_summary_.global_allocations) {
     TORCH_INTERNAL_ASSERT(
         alloc->buffer()->isA<TensorView>(),
         "Cannot allocate global buffers that are not tensors.");
@@ -2055,6 +2052,7 @@ void FusionExecutor::deserialize(
   lowered_ = std::make_unique<GpuLower>(fusion, default_params);
   // Replace integers that are tensor sizes by named scalars like "T0.size[0]"
   fusion_ = lowered_->kernel()->as<Fusion>();
+  kernel_summary_ = lowered_->kernel()->summary();
   setUsedTVs();
 
   // GlobalBufferInfo requires lowered kernel before deserialization
