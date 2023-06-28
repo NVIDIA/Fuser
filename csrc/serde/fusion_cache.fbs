@@ -110,6 +110,33 @@ enum RecordType : int {
     VectorLong,
 }
 
+enum UnaryOpType : int {
+  Cast = 0,
+  Neg,
+  None,
+}
+
+enum BinaryOpType : int {
+  Add = 0,
+  CeilDiv,
+  Div,
+  Mod,
+  Mul,
+  Sub,
+  None,
+}
+
+enum InstructionType : int {
+  Binary = 0,
+  Merge,
+  NamedString,
+  Scalar,
+  Split,
+  Symbolic,
+  Unary,
+  None,
+}
+
 // =====================================================================================
 // Union definitions
 
@@ -204,6 +231,51 @@ table TensorShape {
 // Data for Scalar Input
 table ScalarInput {
   dtype: DataType;
+}
+
+//
+// =====================================================================================
+// Tables for NaiveValueGenerator and AllocateBuffer used in FusionExecutor.
+
+table Instruction {
+  instruction : InstructionType;
+  unary_type : UnaryOpType;
+  binary_type : BinaryOpType;
+  data_type : DataType;
+  src0 : long;
+  src1 : long;
+  dest : long;
+  name : string;
+}
+
+// NaiveValueGenerator creates Fusion IR values
+table NaiveValueGenerator {
+  instructions : [Instruction];
+}
+
+// The extent maps to an instruction in the NaiveValueGenerator.
+table IterationDomain {
+  extent : long;
+}
+
+// Table represents a single TensorView domain
+table Domain {
+  dims : [IterationDomain];
+}
+
+// Table represents nvfuser::TensorView
+table SymbolicTensor {
+  dtype : DataType;
+  root : Domain;
+  rfactor : Domain;
+  allocate : Domain;
+  leaf : Domain;
+}
+
+// Table represents kir::Allocate node
+table AllocateBuffer {
+  tv : SymbolicTensor;
+  zero_init : bool;
 }
 
 // =====================================================================================
@@ -425,6 +497,8 @@ table FusionExecutor {
   // Is this kernel being compiled with int32 or int64 indexing. This
   // information is required to resolve DataType::Index
   index_type : DataType;
+  generator : NaiveValueGenerator;
+  global_allocations : [AllocateBuffer];
 }
 
 // Each FusionKernelRuntime represents a concretized, segmented Fusion.
