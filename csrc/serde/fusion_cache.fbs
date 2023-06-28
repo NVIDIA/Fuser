@@ -496,8 +496,12 @@ table KernelSummary {
   has_grid_welford : bool;
   has_outer_grouped_grid_welford : bool;
   largest_smem_data_type : DataType;
-  //! Largest shared memory buffer size of outer grouped grid welford
   outer_grouped_grid_welford_largest_smem_size : int = 0;
+  generator : NaiveValueGenerator;
+  global_allocations : [AllocateBuffer];
+  static_smem_allocations : [AllocateBuffer];
+  dynamic_smem_allocations : [AllocateBuffer];
+  dynamic_lmem_allocations : [AllocateBuffer];
 }
 
 // Each Fusion Executor maps to a lowered and compiled kernel.
@@ -513,8 +517,6 @@ table FusionExecutor {
   executor_entry_lookup_values : [ExecutorEntry];
   index_type : DataType;
   summary : KernelSummary;
-  generator : NaiveValueGenerator;
-  global_allocations : [AllocateBuffer];
 }
 
 // Each FusionKernelRuntime represents a concretized, segmented Fusion.

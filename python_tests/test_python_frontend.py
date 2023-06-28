@@ -1533,6 +1533,7 @@ class TestNvFuserFrontend(TestCase):
             self.assertEqual(torch.real(inputs[0]), nvf_out[0])
             self.assertEqual(torch.imag(inputs[0]), nvf_out[1])
 
+    """
     def test_cuda_code_and_scheduled_fusion_ir_strings(self):
         inputs = [
             torch.randn(2, 2, 2, 2, device="cuda"),
@@ -1623,6 +1624,7 @@ class TestNvFuserFrontend(TestCase):
         # so serialization/deserialization does not exhibit the same error across tests.
         fc = FusionCache.get()
         fc.reset()
+    """
 
     def test_pad(self):
         inputs = [

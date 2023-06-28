@@ -1907,10 +1907,7 @@ flatbuffers::Offset<serde::FusionExecutor> FusionExecutor::serialize(
   //  executor_entry_lookup_keys : [ulong];
   //  executor_entry_lookup_values : [ExecutorEntry];
   //  index_type : DataType;
-  //  max_rng_offsets : int;
-  //  has_cooperative_grid_reduction : bool;
-  //  generator : NaiveValueGenerator;
-  //  global_allocations : [AllocateBuffer];
+  //  summary : KernelSummary;
   // }
   using fb_executor_entry = flatbuffers::Offset<nvfuser::serde::ExecutorEntry>;
   std::vector<size_t> executor_entry_lookup_keys_fb;
@@ -1919,12 +1916,6 @@ flatbuffers::Offset<serde::FusionExecutor> FusionExecutor::serialize(
     executor_entry_lookup_keys_fb.push_back(key);
     executor_entry_lookup_values_fb.push_back(serialize(builder, value));
   }
-
-  serde::ExpressionSerializer es;
-  auto value_generator =
-      es.serialize(builder, kernel(), kernel_summary_.global_allocations);
-  auto global_allocations =
-      es.serialize(builder, kernel_summary_.global_allocations);
 
   return serde::CreateFusionExecutorDirect(
       builder,
@@ -1938,9 +1929,7 @@ flatbuffers::Offset<serde::FusionExecutor> FusionExecutor::serialize(
       &executor_entry_lookup_keys_fb,
       &executor_entry_lookup_values_fb,
       serde::mapToSerdeDtype(kernel()->indexType()),
-      serialize(builder, kernel_summary_),
-      value_generator,
-      &global_allocations);
+      serialize(builder, kernel_summary_));
 }
 
 flatbuffers::Offset<serde::ExecutorEntry> FusionExecutor::serialize(
@@ -2047,8 +2036,43 @@ flatbuffers::Offset<serde::KernelSummary> FusionExecutor::serialize(
   //  has_outer_grouped_grid_welford : bool;
   //  largest_smem_data_type : DataType;
   //  outer_grouped_grid_welford_largest_smem_size : int = 0;
+  //  generator : NaiveValueGenerator;
+  //  global_allocations : [AllocateBuffer];
+  //  static_smem_allocations : [AllocateBuffer];
+  //  dynamic_smem_allocations : [AllocateBuffer];
+  //  dynamic_lmem_allocations : [AllocateBuffer];
   // }
-  return serde::CreateKernelSummary(
+
+  std::vector<const kir::Allocate*> all_allocations;
+  all_allocations.insert(
+      all_allocations.end(),
+      kernel_summary_.global_allocations.begin(),
+      kernel_summary_.global_allocations.end());
+  all_allocations.insert(
+      all_allocations.end(),
+      kernel_summary_.static_smem_allocations.begin(),
+      kernel_summary_.static_smem_allocations.end());
+  all_allocations.insert(
+      all_allocations.end(),
+      kernel_summary_.dynamic_smem_allocations.begin(),
+      kernel_summary_.dynamic_smem_allocations.end());
+  all_allocations.insert(
+      all_allocations.end(),
+      kernel_summary_.dynamic_lmem_allocations.begin(),
+      kernel_summary_.dynamic_lmem_allocations.end());
+
+  serde::ExpressionSerializer es;
+  auto value_generator = es.serialize(builder, kernel(), all_allocations);
+  auto global_allocations =
+      es.serialize(builder, kernel_summary_.global_allocations);
+  auto static_smem_allocations =
+      es.serialize(builder, kernel_summary_.static_smem_allocations);
+  auto dynamic_smem_allocations =
+      es.serialize(builder, kernel_summary_.dynamic_smem_allocations);
+  auto dynamic_lmem_allocations =
+      es.serialize(builder, kernel_summary_.dynamic_lmem_allocations);
+
+  return serde::CreateKernelSummaryDirect(
       builder,
       summary.max_rng_offsets,
       summary.has_cooperative_grid_reduction,
@@ -2061,7 +2085,12 @@ flatbuffers::Offset<serde::KernelSummary> FusionExecutor::serialize(
       summary.has_grid_welford,
       summary.has_outer_grouped_grid_welford,
       serde::mapToSerdeDtype(summary.largest_smem_data_type),
-      summary.outer_grouped_grid_welford_largest_smem_size);
+      summary.outer_grouped_grid_welford_largest_smem_size,
+      value_generator,
+      &global_allocations,
+      &static_smem_allocations,
+      &dynamic_smem_allocations,
+      &dynamic_lmem_allocations);
 }
 
 void FusionExecutor::deserialize(
@@ -2081,8 +2110,6 @@ void FusionExecutor::deserialize(
   //  executor_entry_lookup_values : [ExecutorEntry];
   //  index_type : DataType;
   //  summary : KernelSummary;
-  //  generator : NaiveValueGenerator;
-  //  global_allocations : [AllocateBuffer];
   // }
   TORCH_INTERNAL_ASSERT(buffer != nullptr, "serde::FusionExecutor is nullptr.");
 
@@ -2115,11 +2142,6 @@ void FusionExecutor::deserialize(
 
   kernel_summary_ = lowered_->kernel()->summary();
   deserialize(buffer->summary());
-
-  serde::ExpressionBuilder es(lowered_->kernel());
-  es.deserialize(buffer->generator());
-  kernel_summary_.global_allocations =
-      es.deserialize(buffer->global_allocations());
 
   std::tie(compiled_kernel_, last_compiler_log_, last_compiled_binary_) =
       executor_utils::getCompiledKernel(
@@ -2225,6 +2247,11 @@ void FusionExecutor::deserialize(const serde::KernelSummary* buffer) {
   //  has_outer_grouped_grid_welford : bool;
   //  largest_smem_data_type : DataType;
   //  outer_grouped_grid_welford_largest_smem_size : int = 0;
+  //  generator : NaiveValueGenerator;
+  //  global_allocations : [AllocateBuffer];
+  //  static_smem_allocations : [AllocateBuffer];
+  //  dynamic_smem_allocations : [AllocateBuffer];
+  //  dynamic_lmem_allocations : [AllocateBuffer];
   // }
 
   TORCH_INTERNAL_ASSERT(buffer != nullptr, "serde::KernelSummary is nullptr.");
@@ -2245,6 +2272,17 @@ void FusionExecutor::deserialize(const serde::KernelSummary* buffer) {
       buffer->outer_grouped_grid_welford_largest_smem_size();
   kernel_summary_.largest_smem_data_type =
       serde::mapToNvfuserDtype(buffer->largest_smem_data_type());
+
+  serde::ExpressionBuilder es(lowered_->kernel());
+  es.deserialize(buffer->generator());
+  kernel_summary_.global_allocations =
+      es.deserialize(buffer->global_allocations());
+  kernel_summary_.static_smem_allocations =
+      es.deserialize(buffer->static_smem_allocations());
+  kernel_summary_.dynamic_smem_allocations =
+      es.deserialize(buffer->dynamic_smem_allocations());
+  kernel_summary_.dynamic_lmem_allocations =
+      es.deserialize(buffer->dynamic_lmem_allocations());
 }
 
 } // namespace nvfuser

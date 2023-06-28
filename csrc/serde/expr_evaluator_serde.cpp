@@ -102,9 +102,6 @@ void bind(std::vector<Val*>& all_values, std::vector<IterDomain*> domain) {
 // 2. Create new extents using split, merge, reorder operations for rfactor,
 // allocation, and leaf domains
 void bind(std::vector<Val*>& all_values, nvfuser::TensorView* tv) {
-  if (tv->getMemoryType() != MemoryType::Global) {
-    return;
-  }
   bind(all_values, tv->getRootDomain());
 }
 
@@ -148,7 +145,7 @@ flatbuffers::Offset<Instruction> ExpressionSerializer::serializeBinaryOp(
 flatbuffers::Offset<serde::NaiveValueGenerator> ExpressionSerializer::serialize(
     flatbuffers::FlatBufferBuilder& builder,
     kir::Kernel* kernel,
-    const std::vector<const kir::Allocate*>& global_allocations) {
+    const std::vector<const kir::Allocate*>& allocations) {
   // 1) Collect allocation sizes
   std::vector<Val*> all_values;
   for (auto allocate : collectBufferSizes(kernel->topLevelExprs())) {
@@ -156,9 +153,9 @@ flatbuffers::Offset<serde::NaiveValueGenerator> ExpressionSerializer::serialize(
       bind(all_values, tv);
     }
   }
-  // A deserialized fusion may not contain global allocations in its
-  // kir::Kernel. Add global allocations directly to handle this case.
-  for (auto allocate : global_allocations) {
+  // A deserialized fusion may not contain all its allocations in its
+  // kir::Kernel. Add allocations directly to handle this case.
+  for (auto allocate : allocations) {
     if (TensorView* tv = dynamic_cast<TensorView*>(allocate->buffer())) {
       bind(all_values, tv);
     }
@@ -311,7 +308,8 @@ flatbuffers::Offset<serde::SymbolicTensor> ExpressionSerializer::serialize(
   for (auto id : tv->getRootDomain()) {
     TORCH_INTERNAL_ASSERT(
         operation_stack_.count(id->extent()),
-        "Missing value in NaiveValueGenerator stack.");
+        "Missing value in NaiveValueGenerator stack.\t",
+        id->extent()->toString());
     auto extent_id = operation_stack_.at(id->extent());
     fb_root_domain.push_back(serde::CreateIterationDomain(builder, extent_id));
   }

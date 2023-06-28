@@ -3728,7 +3728,12 @@ struct KernelSummary FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
     VT_HAS_GRID_WELFORD = 20,
     VT_HAS_OUTER_GROUPED_GRID_WELFORD = 22,
     VT_LARGEST_SMEM_DATA_TYPE = 24,
-    VT_OUTER_GROUPED_GRID_WELFORD_LARGEST_SMEM_SIZE = 26
+    VT_OUTER_GROUPED_GRID_WELFORD_LARGEST_SMEM_SIZE = 26,
+    VT_GENERATOR = 28,
+    VT_GLOBAL_ALLOCATIONS = 30,
+    VT_STATIC_SMEM_ALLOCATIONS = 32,
+    VT_DYNAMIC_SMEM_ALLOCATIONS = 34,
+    VT_DYNAMIC_LMEM_ALLOCATIONS = 36
   };
   int32_t max_rng_offsets() const {
     return GetField<int32_t>(VT_MAX_RNG_OFFSETS, 0);
@@ -3766,6 +3771,21 @@ struct KernelSummary FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
   int32_t outer_grouped_grid_welford_largest_smem_size() const {
     return GetField<int32_t>(VT_OUTER_GROUPED_GRID_WELFORD_LARGEST_SMEM_SIZE, 0);
   }
+  const nvfuser::serde::NaiveValueGenerator *generator() const {
+    return GetPointer<const nvfuser::serde::NaiveValueGenerator *>(VT_GENERATOR);
+  }
+  const ::flatbuffers::Vector<::flatbuffers::Offset<nvfuser::serde::AllocateBuffer>> *global_allocations() const {
+    return GetPointer<const ::flatbuffers::Vector<::flatbuffers::Offset<nvfuser::serde::AllocateBuffer>> *>(VT_GLOBAL_ALLOCATIONS);
+  }
+  const ::flatbuffers::Vector<::flatbuffers::Offset<nvfuser::serde::AllocateBuffer>> *static_smem_allocations() const {
+    return GetPointer<const ::flatbuffers::Vector<::flatbuffers::Offset<nvfuser::serde::AllocateBuffer>> *>(VT_STATIC_SMEM_ALLOCATIONS);
+  }
+  const ::flatbuffers::Vector<::flatbuffers::Offset<nvfuser::serde::AllocateBuffer>> *dynamic_smem_allocations() const {
+    return GetPointer<const ::flatbuffers::Vector<::flatbuffers::Offset<nvfuser::serde::AllocateBuffer>> *>(VT_DYNAMIC_SMEM_ALLOCATIONS);
+  }
+  const ::flatbuffers::Vector<::flatbuffers::Offset<nvfuser::serde::AllocateBuffer>> *dynamic_lmem_allocations() const {
+    return GetPointer<const ::flatbuffers::Vector<::flatbuffers::Offset<nvfuser::serde::AllocateBuffer>> *>(VT_DYNAMIC_LMEM_ALLOCATIONS);
+  }
   bool Verify(::flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyField<int32_t>(verifier, VT_MAX_RNG_OFFSETS, 4) &&
@@ -3780,6 +3800,20 @@ struct KernelSummary FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
            VerifyField<uint8_t>(verifier, VT_HAS_OUTER_GROUPED_GRID_WELFORD, 1) &&
            VerifyField<int32_t>(verifier, VT_LARGEST_SMEM_DATA_TYPE, 4) &&
            VerifyField<int32_t>(verifier, VT_OUTER_GROUPED_GRID_WELFORD_LARGEST_SMEM_SIZE, 4) &&
+           VerifyOffset(verifier, VT_GENERATOR) &&
+           verifier.VerifyTable(generator()) &&
+           VerifyOffset(verifier, VT_GLOBAL_ALLOCATIONS) &&
+           verifier.VerifyVector(global_allocations()) &&
+           verifier.VerifyVectorOfTables(global_allocations()) &&
+           VerifyOffset(verifier, VT_STATIC_SMEM_ALLOCATIONS) &&
+           verifier.VerifyVector(static_smem_allocations()) &&
+           verifier.VerifyVectorOfTables(static_smem_allocations()) &&
+           VerifyOffset(verifier, VT_DYNAMIC_SMEM_ALLOCATIONS) &&
+           verifier.VerifyVector(dynamic_smem_allocations()) &&
+           verifier.VerifyVectorOfTables(dynamic_smem_allocations()) &&
+           VerifyOffset(verifier, VT_DYNAMIC_LMEM_ALLOCATIONS) &&
+           verifier.VerifyVector(dynamic_lmem_allocations()) &&
+           verifier.VerifyVectorOfTables(dynamic_lmem_allocations()) &&
            verifier.EndTable();
   }
 };
@@ -3824,6 +3858,21 @@ struct KernelSummaryBuilder {
   void add_outer_grouped_grid_welford_largest_smem_size(int32_t outer_grouped_grid_welford_largest_smem_size) {
     fbb_.AddElement<int32_t>(KernelSummary::VT_OUTER_GROUPED_GRID_WELFORD_LARGEST_SMEM_SIZE, outer_grouped_grid_welford_largest_smem_size, 0);
   }
+  void add_generator(::flatbuffers::Offset<nvfuser::serde::NaiveValueGenerator> generator) {
+    fbb_.AddOffset(KernelSummary::VT_GENERATOR, generator);
+  }
+  void add_global_allocations(::flatbuffers::Offset<::flatbuffers::Vector<::flatbuffers::Offset<nvfuser::serde::AllocateBuffer>>> global_allocations) {
+    fbb_.AddOffset(KernelSummary::VT_GLOBAL_ALLOCATIONS, global_allocations);
+  }
+  void add_static_smem_allocations(::flatbuffers::Offset<::flatbuffers::Vector<::flatbuffers::Offset<nvfuser::serde::AllocateBuffer>>> static_smem_allocations) {
+    fbb_.AddOffset(KernelSummary::VT_STATIC_SMEM_ALLOCATIONS, static_smem_allocations);
+  }
+  void add_dynamic_smem_allocations(::flatbuffers::Offset<::flatbuffers::Vector<::flatbuffers::Offset<nvfuser::serde::AllocateBuffer>>> dynamic_smem_allocations) {
+    fbb_.AddOffset(KernelSummary::VT_DYNAMIC_SMEM_ALLOCATIONS, dynamic_smem_allocations);
+  }
+  void add_dynamic_lmem_allocations(::flatbuffers::Offset<::flatbuffers::Vector<::flatbuffers::Offset<nvfuser::serde::AllocateBuffer>>> dynamic_lmem_allocations) {
+    fbb_.AddOffset(KernelSummary::VT_DYNAMIC_LMEM_ALLOCATIONS, dynamic_lmem_allocations);
+  }
   explicit KernelSummaryBuilder(::flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
     start_ = fbb_.StartTable();
@@ -3848,8 +3897,18 @@ inline ::flatbuffers::Offset<KernelSummary> CreateKernelSummary(
     bool has_grid_welford = false,
     bool has_outer_grouped_grid_welford = false,
     nvfuser::serde::DataType largest_smem_data_type = nvfuser::serde::DataType_Double,
-    int32_t outer_grouped_grid_welford_largest_smem_size = 0) {
+    int32_t outer_grouped_grid_welford_largest_smem_size = 0,
+    ::flatbuffers::Offset<nvfuser::serde::NaiveValueGenerator> generator = 0,
+    ::flatbuffers::Offset<::flatbuffers::Vector<::flatbuffers::Offset<nvfuser::serde::AllocateBuffer>>> global_allocations = 0,
+    ::flatbuffers::Offset<::flatbuffers::Vector<::flatbuffers::Offset<nvfuser::serde::AllocateBuffer>>> static_smem_allocations = 0,
+    ::flatbuffers::Offset<::flatbuffers::Vector<::flatbuffers::Offset<nvfuser::serde::AllocateBuffer>>> dynamic_smem_allocations = 0,
+    ::flatbuffers::Offset<::flatbuffers::Vector<::flatbuffers::Offset<nvfuser::serde::AllocateBuffer>>> dynamic_lmem_allocations = 0) {
   KernelSummaryBuilder builder_(_fbb);
+  builder_.add_dynamic_lmem_allocations(dynamic_lmem_allocations);
+  builder_.add_dynamic_smem_allocations(dynamic_smem_allocations);
+  builder_.add_static_smem_allocations(static_smem_allocations);
+  builder_.add_global_allocations(global_allocations);
+  builder_.add_generator(generator);
   builder_.add_outer_grouped_grid_welford_largest_smem_size(outer_grouped_grid_welford_largest_smem_size);
   builder_.add_largest_smem_data_type(largest_smem_data_type);
   builder_.add_max_rng_offsets(max_rng_offsets);
@@ -3865,6 +3924,50 @@ inline ::flatbuffers::Offset<KernelSummary> CreateKernelSummary(
   return builder_.Finish();
 }
 
+inline ::flatbuffers::Offset<KernelSummary> CreateKernelSummaryDirect(
+    ::flatbuffers::FlatBufferBuilder &_fbb,
+    int32_t max_rng_offsets = 0,
+    bool has_cooperative_grid_reduction = false,
+    bool has_dynamic_local_memory_allocations = false,
+    bool has_block_reductions = false,
+    bool has_grid_reductions = false,
+    bool has_block_broadcasts = false,
+    bool has_grid_broadcasts = false,
+    bool has_block_welford = false,
+    bool has_grid_welford = false,
+    bool has_outer_grouped_grid_welford = false,
+    nvfuser::serde::DataType largest_smem_data_type = nvfuser::serde::DataType_Double,
+    int32_t outer_grouped_grid_welford_largest_smem_size = 0,
+    ::flatbuffers::Offset<nvfuser::serde::NaiveValueGenerator> generator = 0,
+    const std::vector<::flatbuffers::Offset<nvfuser::serde::AllocateBuffer>> *global_allocations = nullptr,
+    const std::vector<::flatbuffers::Offset<nvfuser::serde::AllocateBuffer>> *static_smem_allocations = nullptr,
+    const std::vector<::flatbuffers::Offset<nvfuser::serde::AllocateBuffer>> *dynamic_smem_allocations = nullptr,
+    const std::vector<::flatbuffers::Offset<nvfuser::serde::AllocateBuffer>> *dynamic_lmem_allocations = nullptr) {
+  auto global_allocations__ = global_allocations ? _fbb.CreateVector<::flatbuffers::Offset<nvfuser::serde::AllocateBuffer>>(*global_allocations) : 0;
+  auto static_smem_allocations__ = static_smem_allocations ? _fbb.CreateVector<::flatbuffers::Offset<nvfuser::serde::AllocateBuffer>>(*static_smem_allocations) : 0;
+  auto dynamic_smem_allocations__ = dynamic_smem_allocations ? _fbb.CreateVector<::flatbuffers::Offset<nvfuser::serde::AllocateBuffer>>(*dynamic_smem_allocations) : 0;
+  auto dynamic_lmem_allocations__ = dynamic_lmem_allocations ? _fbb.CreateVector<::flatbuffers::Offset<nvfuser::serde::AllocateBuffer>>(*dynamic_lmem_allocations) : 0;
+  return nvfuser::serde::CreateKernelSummary(
+      _fbb,
+      max_rng_offsets,
+      has_cooperative_grid_reduction,
+      has_dynamic_local_memory_allocations,
+      has_block_reductions,
+      has_grid_reductions,
+      has_block_broadcasts,
+      has_grid_broadcasts,
+      has_block_welford,
+      has_grid_welford,
+      has_outer_grouped_grid_welford,
+      largest_smem_data_type,
+      outer_grouped_grid_welford_largest_smem_size,
+      generator,
+      global_allocations__,
+      static_smem_allocations__,
+      dynamic_smem_allocations__,
+      dynamic_lmem_allocations__);
+}
+
 struct FusionExecutor FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
   typedef FusionExecutorBuilder Builder;
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
@@ -3878,9 +3981,7 @@ struct FusionExecutor FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
     VT_EXECUTOR_ENTRY_LOOKUP_KEYS = 18,
     VT_EXECUTOR_ENTRY_LOOKUP_VALUES = 20,
     VT_INDEX_TYPE = 22,
-    VT_SUMMARY = 24,
-    VT_GENERATOR = 26,
-    VT_GLOBAL_ALLOCATIONS = 28
+    VT_SUMMARY = 24
   };
   int64_t device_smem_limit() const {
     return GetField<int64_t>(VT_DEVICE_SMEM_LIMIT, 0);
@@ -3915,12 +4016,6 @@ struct FusionExecutor FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
   const nvfuser::serde::KernelSummary *summary() const {
     return GetPointer<const nvfuser::serde::KernelSummary *>(VT_SUMMARY);
   }
-  const nvfuser::serde::NaiveValueGenerator *generator() const {
-    return GetPointer<const nvfuser::serde::NaiveValueGenerator *>(VT_GENERATOR);
-  }
-  const ::flatbuffers::Vector<::flatbuffers::Offset<nvfuser::serde::AllocateBuffer>> *global_allocations() const {
-    return GetPointer<const ::flatbuffers::Vector<::flatbuffers::Offset<nvfuser::serde::AllocateBuffer>> *>(VT_GLOBAL_ALLOCATIONS);
-  }
   bool Verify(::flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyField<int64_t>(verifier, VT_DEVICE_SMEM_LIMIT, 8) &&
@@ -3939,11 +4034,6 @@ struct FusionExecutor FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
            VerifyField<int32_t>(verifier, VT_INDEX_TYPE, 4) &&
            VerifyOffset(verifier, VT_SUMMARY) &&
            verifier.VerifyTable(summary()) &&
-           VerifyOffset(verifier, VT_GENERATOR) &&
-           verifier.VerifyTable(generator()) &&
-           VerifyOffset(verifier, VT_GLOBAL_ALLOCATIONS) &&
-           verifier.VerifyVector(global_allocations()) &&
-           verifier.VerifyVectorOfTables(global_allocations()) &&
            verifier.EndTable();
   }
 };
@@ -3985,12 +4075,6 @@ struct FusionExecutorBuilder {
   void add_summary(::flatbuffers::Offset<nvfuser::serde::KernelSummary> summary) {
     fbb_.AddOffset(FusionExecutor::VT_SUMMARY, summary);
   }
-  void add_generator(::flatbuffers::Offset<nvfuser::serde::NaiveValueGenerator> generator) {
-    fbb_.AddOffset(FusionExecutor::VT_GENERATOR, generator);
-  }
-  void add_global_allocations(::flatbuffers::Offset<::flatbuffers::Vector<::flatbuffers::Offset<nvfuser::serde::AllocateBuffer>>> global_allocations) {
-    fbb_.AddOffset(FusionExecutor::VT_GLOBAL_ALLOCATIONS, global_allocations);
-  }
   explicit FusionExecutorBuilder(::flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
     start_ = fbb_.StartTable();
@@ -4014,9 +4098,7 @@ inline ::flatbuffers::Offset<FusionExecutor> CreateFusionExecutor(
     ::flatbuffers::Offset<::flatbuffers::Vector<uint64_t>> executor_entry_lookup_keys = 0,
     ::flatbuffers::Offset<::flatbuffers::Vector<::flatbuffers::Offset<nvfuser::serde::ExecutorEntry>>> executor_entry_lookup_values = 0,
     nvfuser::serde::DataType index_type = nvfuser::serde::DataType_Double,
-    ::flatbuffers::Offset<nvfuser::serde::KernelSummary> summary = 0,
-    ::flatbuffers::Offset<nvfuser::serde::NaiveValueGenerator> generator = 0,
-    ::flatbuffers::Offset<::flatbuffers::Vector<::flatbuffers::Offset<nvfuser::serde::AllocateBuffer>>> global_allocations = 0) {
+    ::flatbuffers::Offset<nvfuser::serde::KernelSummary> summary = 0) {
   FusionExecutorBuilder builder_(_fbb);
   builder_.add_fusion_id_counter(fusion_id_counter);
   builder_.add_fusion_id(fusion_id);
@@ -4024,8 +4106,6 @@ inline ::flatbuffers::Offset<FusionExecutor> CreateFusionExecutor(
   builder_.add_maxrregcount_high_water_mark(maxrregcount_high_water_mark);
   builder_.add_block_size_high_water_mark(block_size_high_water_mark);
   builder_.add_device_smem_limit(device_smem_limit);
-  builder_.add_global_allocations(global_allocations);
-  builder_.add_generator(generator);
   builder_.add_summary(summary);
   builder_.add_index_type(index_type);
   builder_.add_executor_entry_lookup_values(executor_entry_lookup_values);
@@ -4046,13 +4126,10 @@ inline ::flatbuffers::Offset<FusionExecutor> CreateFusionExecutorDirect(
     const std::vector<uint64_t> *executor_entry_lookup_keys = nullptr,
     const std::vector<::flatbuffers::Offset<nvfuser::serde::ExecutorEntry>> *executor_entry_lookup_values = nullptr,
     nvfuser::serde::DataType index_type = nvfuser::serde::DataType_Double,
-    ::flatbuffers::Offset<nvfuser::serde::KernelSummary> summary = 0,
-    ::flatbuffers::Offset<nvfuser::serde::NaiveValueGenerator> generator = 0,
-    const std::vector<::flatbuffers::Offset<nvfuser::serde::AllocateBuffer>> *global_allocations = nullptr) {
+    ::flatbuffers::Offset<nvfuser::serde::KernelSummary> summary = 0) {
   auto kernel_code__ = kernel_code ? _fbb.CreateString(kernel_code) : 0;
   auto executor_entry_lookup_keys__ = executor_entry_lookup_keys ? _fbb.CreateVector<uint64_t>(*executor_entry_lookup_keys) : 0;
   auto executor_entry_lookup_values__ = executor_entry_lookup_values ? _fbb.CreateVector<::flatbuffers::Offset<nvfuser::serde::ExecutorEntry>>(*executor_entry_lookup_values) : 0;
-  auto global_allocations__ = global_allocations ? _fbb.CreateVector<::flatbuffers::Offset<nvfuser::serde::AllocateBuffer>>(*global_allocations) : 0;
   return nvfuser::serde::CreateFusionExecutor(
       _fbb,
       device_smem_limit,
@@ -4065,9 +4142,7 @@ inline ::flatbuffers::Offset<FusionExecutor> CreateFusionExecutorDirect(
       executor_entry_lookup_keys__,
       executor_entry_lookup_values__,
       index_type,
-      summary,
-      generator,
-      global_allocations__);
+      summary);
 }
 
 struct FusionKernelRuntime FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
