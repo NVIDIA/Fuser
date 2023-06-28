@@ -299,6 +299,10 @@ void Kernel::finalize(std::vector<Expr*> top_level_exprs) {
   warp_padded_parallel_info_ = GpuLower::current()->getWarpPaddedParallelInfo();
   profile_ = GpuLower::current()->profile();
   ValidateAllocation::validate(this);
+  generateSummary();
+}
+
+void Kernel::generateSummary() {
   analyze();
   // Make sure this is after analyze as it sets summary_
   summary_.vectorized_accesses = GpuLower::current()->vectorizedAccesses();

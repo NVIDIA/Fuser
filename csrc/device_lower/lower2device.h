@@ -56,9 +56,14 @@ class TORCH_CUDA_CU_API GpuLower : public NonCopyable {
   // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init)
   explicit GpuLower(
       Fusion* fusion,
-      const CompileParams& cparams = CompileParams())
+      const CompileParams& cparams = CompileParams(),
+      bool fast_lower = false)
       : cparams_(cparams) {
-    lower(fusion);
+    if (fast_lower) {
+      fastLower(fusion);
+    } else {
+      lower(fusion);
+    }
   }
 
   kir::Kernel* kernel() const;
@@ -196,6 +201,7 @@ class TORCH_CUDA_CU_API GpuLower : public NonCopyable {
   void propagateExprInfo(const Expr* old_expr, const Expr* new_expr);
 
  private:
+  void fast_lower(Fusion* fusion);
   void lower(Fusion* fusion);
 
   // Goes through the parallelized iterdomains of the used TVs and find

@@ -237,6 +237,80 @@ void dumpExprsIfEnabled(
   }
 }
 
+void GpuLower::fastLower(Fusion* fusion) {
+  FUSER_PERF_SCOPE("GpuLower::fastLower");
+  TORCH_INTERNAL_ASSERT(fusion != nullptr);
+  TORCH_INTERNAL_ASSERT(
+      active_gpu_lower == nullptr, "Nested lowering passes are not supported");
+
+  struct LowerGuard {
+    LowerGuard(GpuLower* gpu_lower) {
+      active_gpu_lower = gpu_lower;
+    }
+    ~LowerGuard() {
+      active_gpu_lower = nullptr;
+    }
+  } lower_guard(this);
+
+  // Use int64 by default as the kernel index type
+  auto kernel_index_type = cparams_.index_type.has_value()
+      ? cparams_.index_type.value()
+      : PrimDataType::Int;
+
+  // Copy fusion into a new kernel for processing
+  kernel_ = std::make_unique<kir::Kernel>(fusion, kernel_index_type);
+  // Alias the fusion kernel caries around as a view of itself.
+  fusion_ = kernel_.get();
+
+  // Convert tensor views of DataType::Index type to either Int or Int32
+  for (auto tv : ir_utils::allTvs(fusion_)) {
+    if (tv->dtype() == DataType::Index) {
+      tv->resolveIndexDtype();
+    }
+  }
+
+  FusionGuard fg(fusion_);
+
+  // prepare for lowering
+  validateIr(fusion_);
+
+  // Replaces integers that are tensor sizes by named scalars as "T0.size[0]"
+  replaceSymbolicSizes(fusion_);
+
+  // Build what's refered to as the compute at map. This map contains the
+  // mappings of all iteration domains across the fusion. There are three types
+  // of mappings Permissive, Exact, and Loop, see compute_at_map.h/cpp for more
+  // information.
+  compute_at_map_ = std::make_shared<ComputeAtMap>(fusion_);
+
+  resolveComputeWith(fusion_);
+
+  compute_at_map_->validateAndPropagatePType();
+
+  // Uses compute_at_map, find all splits that are enforced to be divisible
+  divisible_splits_ = getAllDivisibleSplits(fusion_, compute_at_map_.get());
+
+  // Used in parallel dimension map
+  concretized_broadcast_domains_ =
+      std::make_shared<const ConcretizedBroadcastDomains>(fusion_);
+
+  parallelDimensionMap().build(fusion_);
+
+  // Compute thread predicates. Depends on parallel_dimension_map_
+  thread_pred_map_.build(fusion_);
+
+  // Scan the whole fusion and build mappings about halo extensions of
+  // all IterDomains
+  halo_info_ = std::make_shared<HaloInfo>(fusion_, compute_at_map_);
+
+  // Want to run this after parallel map and halo info map are
+  // created. vectorized_accesses_ and vectorized_set_info_ are filled.
+  validateAndCollectVectorizeInfo(fusion_);
+
+  // Generate kernel summary
+  kernel_->generateSummary();
+}
+
 void GpuLower::lower(Fusion* fusion) {
   FUSER_PERF_SCOPE("GpuLower::lower");
   TORCH_INTERNAL_ASSERT(fusion != nullptr);

@@ -2062,7 +2062,8 @@ void FusionExecutor::deserialize(
   default_params.index_type = serde::mapToNvfuserDtype(buffer->index_type());
   default_params.maxrregcount = maxrregcount_high_water_mark_;
 
-  lowered_ = std::make_unique<GpuLower>(fusion, default_params);
+  lowered_ =
+      std::make_unique<GpuLower>(fusion, default_params, true /* fastLower */);
   // Replace integers that are tensor sizes by named scalars like "T0.size[0]"
   fusion_ = lowered_->kernel()->as<Fusion>();
   kernel_summary_ = lowered_->kernel()->summary();

@@ -196,6 +196,8 @@ class TORCH_CUDA_CU_API Kernel final : public Fusion {
   //! run analysis passes to build a KernelSummary.
   void finalize(std::vector<Expr*> top_level_exprs);
 
+  void Kernel::generateSummary();
+
   const std::vector<Expr*>& topLevelExprs() const {
     return top_level_exprs_;
   }
