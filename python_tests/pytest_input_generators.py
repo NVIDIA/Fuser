@@ -10,6 +10,7 @@ import torch
 from torch.testing import make_tensor
 
 from pytest_core import OpInfo, SampleInput, ErrorSample
+from pytest_utils import make_number, find_nonmatching_dtype
 from nvfuser import DataType
 
 
@@ -351,6 +352,10 @@ def _elementwise_unary_torch(op):
 def gather_generator(
     op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
 ):
+    # torch.gather(input: Tensor, dim: int, index: LongTensor)
+    # * input and index tensors have same ndims.
+    # * index tensors must be smaller than input tensor along all dims except specified axis.
+
     make_arg = partial(
         make_tensor, device="cuda", dtype=dtype, requires_grad=requires_grad
     )
@@ -450,6 +455,119 @@ def index_select_error_generator(
     # yield SampleInput(a, b, 0), RuntimeError, "out of bounds index value."
 
 
+def pad_error_generator(
+    op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
+):
+    # Nvfuser - fd.ops.pad(Tensor arg, std::vector<int64_t>& pad_widths, std::optional<Scalar> value)
+    # Jax ----- jax.lax.pad(operand, padding_value, padding_config)
+    # PyTorch - torch.nn.functional.pad(input, pad, mode='constant', value=None)
+    #
+    # Note: Nvfuser does not support interior (between-element) padding.
+    #
+    # Nvfuser errors
+    # 1) Tensor arg and pad value must have the same dtype
+    # 2) Number of pad widths must be at most twice the input dimension - NvFuser
+    # 3) Dimension size after padding is not at least 0
+    #
+    # Jax and PyTorch errors
+    # 1) Interior padding is non-negative
+    # 2) Length of pad_widths is equal to number of operands
+
+    make_arg = partial(
+        make_tensor, device="cuda", dtype=dtype, requires_grad=requires_grad
+    )
+
+    input_shape = (2, 2)
+    valid_pad_width = [1, 1, -1, 2]
+
+    yield SampleInput(
+        make_arg(input_shape),
+        valid_pad_width,
+        make_number(find_nonmatching_dtype(dtype)),
+    ), RuntimeError, "Tensor arg and pad value must have the same dtype."
+
+    # TODO Add better error message.
+    # Dimension size after padding is not at least 0
+    delete_all_pad_width = [-3, 0, 0, 0]
+    yield SampleInput(
+        make_arg(input_shape), delete_all_pad_width, make_number(dtype)
+    ), RuntimeError, "extent_int > 0"
+
+    too_many_pad_width = [1, 1, 1, 1, 1, 1]
+    yield SampleInput(
+        make_arg(input_shape), too_many_pad_width, make_number(dtype)
+    ), RuntimeError, "Number of pad widths must be at most twice the input dimension"
+
+    uneven_pad_width = [1, 1, 0]
+    yield SampleInput(
+        make_arg(input_shape), uneven_pad_width, make_number(dtype)
+    ), RuntimeError, "Invalid number of padding widths"
+
+
+def permute_generator(
+    op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
+):
+    make_arg = partial(
+        make_tensor, device="cuda", dtype=dtype, requires_grad=requires_grad
+    )
+
+    cases = (
+        ((4, 3, 7, 8), (0, 1, 2, 3)),
+        ((4, 3, 7, 8), (1, -2, 0, 3)),
+        ((4, 3, 7, 8), (-2, 1, 0, -1)),
+        ((4, 3, 7, 8), (0, 3, 1, 2)),
+        ((4, 3, 7, 8), (0, -1, 1, 2)),
+        ((4, 7), (1, 0)),
+    )
+
+    for shape, dims in cases:
+        yield SampleInput(make_arg(shape), dims)
+
+
+def permute_error_generator(
+    op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
+):
+    # torch.permute(input: torch.Tensor, dims: List[int])
+
+    make_arg = partial(
+        make_tensor, device="cuda", dtype=dtype, requires_grad=requires_grad
+    )
+
+    input_shape = (10, 3, 4, 4)
+    # dims = dtype, duplicate, in-range
+
+    # TODO Add dtype check.
+    yield SampleInput(
+        make_arg(input_shape), [0.0, 1.0, 2.0, 3.0]
+    ), TypeError, "permute(): incompatible function arguments"
+
+    # TODO Add duplicate axis check.
+    yield SampleInput(
+        make_arg(input_shape), [0, 1, 1, 3]
+    ), RuntimeError, "Duplicate entries in transformation map"
+
+    # TODO Add in-range axis check.
+    yield SampleInput(
+        make_arg(input_shape), [0, 1, 2, 4]
+    ), RuntimeError, "New2Old axes are not within the number of dimensions of the provided domain"
+
+    # TODO Add in-range axis check.
+    yield SampleInput(
+        make_arg(input_shape), [0, 1, 2, -5]
+    ), RuntimeError, "New2Old axes are not within the number of dimensions of the provided domain"
+
+    # TODO Add missing axes check.
+    # If dims list is empty, NvFuser ignores the permute operation.
+    yield SampleInput(
+        make_arg(input_shape), [0]
+    ), RuntimeError, "The number of dimensions in the tensor input does not match the length of the desired ordering of dimensions"
+
+    # TODO Add out-of-bounds axes check.
+    yield SampleInput(
+        make_arg(input_shape), [0, 1, 2, 3, 4]
+    ), RuntimeError, "The number of dimensions in the tensor input does not match the length of the desired ordering of dimensions"
+
+
 def reduction_generator(
     op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
 ):
@@ -524,6 +642,56 @@ def reduction_error_generator(
         input_tensor = make_arg(shape)
         axis_fn, ex_type, ex_str = es
         yield SampleInput(input_tensor, axis_fn(len(shape))), ex_type, ex_str
+
+
+def reshape_generator(
+    op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
+):
+    make_arg = partial(
+        make_tensor, device="cuda", dtype=dtype, requires_grad=requires_grad
+    )
+
+    # TODO Add examples with negative index
+    # TODO: Add zero-dim cases
+    # TODO: Add strided tensor cases
+    cases = (
+        ((1, 19, 1, 12, 7, 1, 99), (1, 19, 1, 3, 2772)),
+        ((3, 17, 80, 1), (51, 1, 2, 4, 10)),
+        ((3, 17, 80, 1, 9), (51, 1, 2, 4, 10, 9)),
+        ((2, 3, 4, 5), (1, 6, 1, 2, 2, 5)),
+        ((22, 22, 2), (22, 11, 1, 1, 4)),
+        ((37, 9, 7, 6, 10), (333, 2, 2, 3, 35)),
+        ((8, 1, 1, 8, 1, 8), (8, 2, 4, 1, 8)),
+        ((1, 333, 1), (1, 37, 9)),
+        ((1, 333), (1, 1, 1, 111, 1, 3)),
+        ((1, 27454, 1, 2), (1, 7844, 1, 7)),
+        ((1, 7844, 1, 7), (1, 27454, 2)),
+    )
+
+    for tensor_shape, output_shape in cases:
+        yield SampleInput(make_arg(tensor_shape), tensor_shape, output_shape)
+
+
+def reshape_error_generator(
+    op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
+):
+    # torch.reshape(input: Tensor, shape: [int])
+
+    make_arg = partial(
+        make_tensor, device="cuda", dtype=dtype, requires_grad=requires_grad
+    )
+
+    tensor_shape = (3, 14)
+
+    # Only a single inferred axis -1.
+    yield SampleInput(
+        make_arg(tensor_shape), tensor_shape, [3, -1, -1]
+    ), RuntimeError, "Only one dimension can by inferred"
+
+    # Number of elements must be equal for input and output tensors
+    yield SampleInput(
+        make_arg(tensor_shape), tensor_shape, [3, 2, 8]
+    ), RuntimeError, "Total element counts across view operation must match"
 
 
 # TODO: add stride testing

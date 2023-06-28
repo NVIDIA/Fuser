@@ -30,7 +30,6 @@ namespace nvfuser {
 struct TypePromotionConfig {
   bool promote_integer_inputs_to_float = false;
   bool require_full_precision_promoted = false;
-  TypePromotionConfig() = default;
 };
 
 namespace TypePromotion {
