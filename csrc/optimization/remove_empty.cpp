@@ -13,6 +13,8 @@
 
 #include <algorithm>
 #include <deque>
+#include <unordered_set>
+#include <vector>
 
 namespace nvfuser::optimization {
 
@@ -59,55 +61,33 @@ bool isTVEmpty(TensorView* tv) {
 //!   4. If the empty Tensorview is the input to a PadOp (which is not input to
 //!   a CatOp) then we replace the pad with `full(pad_value)`.
 //!
-//! Note that we do not use BackwardVisitor here even though we are doing a
-//! backward traversal. This is because we will actually be changing the Fusion
-//! graph as we traverse. BackwardVisitor works by creating a queue of
-//! statements using InputsOf and a forward traversal, then iteratively pops
-//! that static queue of statements. This does not work well when we want to
-//! eliminate dead code while traversing, so instead we implement a simple
-//! queue-based breadth-first backward traversal manually here.
-class EmptyTensorRemover {
+class EmptyTensorRemover : BackwardVisitor {
  public:
-  EmptyTensorRemover(Fusion* fusion) : fusion_(fusion) {
-    for (auto outp : fusion->outputs()) {
-      stmt_queue_.push_back(outp);
-    }
-  }
+  EmptyTensorRemover(Fusion* fusion)
+      : BackwardVisitor(false), fusion_(fusion) {}
 
   void run() {
-    while (!stmt_queue_.empty()) {
-      auto stmt = stmt_queue_.front();
-      stmt_queue_.pop_front();
-      handle(stmt);
-    }
+    traverseTo(fusion_, fusion_->outputs());
   }
 
-  void handle(Statement* stmt) {
-    if (stmt->isVal()) {
-      handle(stmt->asVal());
-    } else {
-      TORCH_INTERNAL_ASSERT(
-          stmt->isExpr(),
-          "Statement is neither a Val or Expr: ",
-          stmt->toString());
-      handle(stmt->asExpr());
+  void handle(Statement* stmt) final {
+    if (isDead(stmt)) {
+      // We check whether stmt is dead before we dereference it, since it may
+      // have been removed from the Fusion.
+      return;
     }
-  }
-
-  void handle(Val* v) {
-    if (auto tv = dynamic_cast<TensorView*>(v)) {
-      handle(tv);
-    } else if (v->definition()) {
-      // TensorView vals might be overwritten, in which case we should not keep
-      // traversing. For all other Vals, push their definition to the stack.
-      stmt_queue_.push_back(v->definition());
-    }
+    BackwardVisitor::handle(stmt);
   }
 
   //! If tv is a fusion output, we check whether it is empty and if so, replace
   //! it with full(). For non-outputs that are not inputs, we simply check that
   //! the tensor is not provably empty.
-  void handle(TensorView* tv) {
+  void handle(TensorView* tv) final {
+    if (tv->isFusionInput()) {
+      // Skip inputs since they do not have a definition to redefine
+      return;
+    }
+
     if (tv->isFusionOutput()) {
       const auto rfactor =
           TensorDomain::noReductions(tv->getMaybeRFactorDomain());
@@ -127,23 +107,12 @@ class EmptyTensorRemover {
         // Do not keep traversing upstream if we've replaced tv
         return;
       }
-    } else if (!tv->isFusionInput()) {
-      // TODO: This should be a warning instead
+    } else {
+      // TODO: This should be a warning instead of an assert
       TORCH_INTERNAL_ASSERT(
           !isTVEmpty(tv),
           "Found unexpected empty intermediate TensorView ",
           tv->toString());
-    }
-    if (tv->definition()) {
-      stmt_queue_.push_back(tv->definition());
-    }
-  }
-
-  //! Push the inputs of an expression onto the statement stack for further
-  //! processing.
-  void pushInputs(Expr* e) {
-    for (auto inp : e->inputs()) {
-      stmt_queue_.push_back(inp);
     }
   }
 
@@ -156,13 +125,12 @@ class EmptyTensorRemover {
   //!   }
   //!   return result;
   //!
-  void handle(ReductionOp* rop) {
+  void handle(ReductionOp* rop) final {
     auto in = rop->in()->as<TensorView>();
     auto empty_input_axes =
         emptyAxes(TensorDomain::noReductions(in->getMaybeRFactorDomain()));
     if (empty_input_axes.empty()) {
       // Input is not empty, handle like any other op
-      pushInputs(rop);
       return;
     }
     auto out = rop->out()->as<TensorView>();
@@ -202,7 +170,7 @@ class EmptyTensorRemover {
   //!   }
   //!   return result;
   //!
-  void handle(WelfordOp* wop) {}
+  void handle(WelfordOp* wop) final {}
 
   //! A cat op can have input empty tensors and still output a non-empty
   //! tensor. This is only possible if there is more than one input, so we
@@ -242,7 +210,7 @@ class EmptyTensorRemover {
   //!          T3
   //!
   //! This is done by simply calling the cat() command with only {T0, T2}.
-  void handle(CatOp* cop) {
+  void handle(CatOp* cop) final {
     auto dim = cop->concatenatedDim();
     std::vector<TensorView*> non_empty_inputs;
     for (auto inp : cop->inputs()) {
@@ -264,17 +232,13 @@ class EmptyTensorRemover {
       auto new_tv = cat(non_empty_inputs, dim);
       replaceTV(old_tv, new_tv);
     }
-    for (auto tv : non_empty_inputs) {
-      // Continue processing non-empty inputs
-      stmt_queue_.push_back(tv);
-    }
   }
 
   //! Replace pad(tv) if tv is empty in any dimension. Note that since we detect
   //! empty tensors by looking for constant extents, the output extents will be
   //! correct here already, so there is no value in removing the empty input
   //! extent when we do the replacement.
-  void handle(PadOp* pop) {
+  void handle(PadOp* pop) final {
     auto in = pop->in()->as<TensorView>();
     auto in_rfactor = TensorDomain::noReductions(in->getMaybeRFactorDomain());
     if (!emptyAxes(in_rfactor).empty()) {
@@ -288,8 +252,6 @@ class EmptyTensorRemover {
       }
       auto new_tv = full(shape, pop->value(), out->getDataType().value());
       replaceTV(out, new_tv);
-    } else {
-      pushInputs(pop);
     }
   }
 
@@ -304,32 +266,32 @@ class EmptyTensorRemover {
     for (auto use : old_tv->uses()) {
       ir_utils::replaceValInExpr(use, old_tv, new_tv);
     }
-    if (!old_tv->isFusionInput()) {
-      fusion_->removeVal(old_tv);
-      old_tv = nullptr;
+    // old_tv as well as its definition will be removed by fusion_->removeVal(),
+    // after which the pointers will be invalid. We mark them as dead to avoid
+    // dereferencing and processing those here.
+    markDead(old_tv);
+    if (old_tv->definition()) {
+      markDead(old_tv->definition());
     }
+
+    fusion_->removeVal(old_tv);
   }
 
-  void handle(Expr* e) {
-    if (auto rop = dynamic_cast<ReductionOp*>(e)) {
-      handle(rop);
-    } else if (auto wop = dynamic_cast<WelfordOp*>(e)) {
-      handle(wop);
-    } else if (auto pop = dynamic_cast<CatOp*>(e)) {
-      handle(pop);
-    } else if (auto pop = dynamic_cast<PadOp*>(e)) {
-      handle(pop);
-    } else {
-      // The handled ops above may terminate this branch of the traversal, so
-      // they will need to manually handle their inputs. For unhandled ops, we
-      // just handle all inputs here.
-      pushInputs(e);
-    }
+  //! Find whether a statement has been marked dead
+  bool isDead(Statement* stmt) {
+    return dead_.find(stmt) != dead_.end();
+  }
+
+  //! Mark a Statement* as dead so that we avoid dereferencing it later
+  void markDead(Statement* stmt) {
+    dead_.insert(stmt);
   }
 
  private:
   Fusion* fusion_;
-  std::deque<Statement*> stmt_queue_;
+
+  //! Statements are marked dead when they are removed from the Fusion
+  std::unordered_set<Statement*> dead_;
 };
 
 } // namespace
