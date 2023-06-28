@@ -332,6 +332,12 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
 
   GlobalBufferInfo deserialize(const serde::GlobalBufferInfo* buffer);
 
+  flatbuffers::Offset<serde::KernelSummary> serialize(
+      flatbuffers::FlatBufferBuilder& builder,
+      const kir::KernelSummary& summary) const;
+
+  void deserialize(const serde::KernelSummary* buffer);
+
   //! Get the current dynamic shared memory size
   int64_t getAvailableDynamicSmemSize();
 

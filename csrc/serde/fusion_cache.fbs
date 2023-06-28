@@ -483,6 +483,23 @@ table VectorLong {
 // =====================================================================================
 //
 
+// This table stores the KernelSummary value necessary for running compiled fusion.
+table KernelSummary {
+  max_rng_offsets : int;
+  has_cooperative_grid_reduction : bool;
+  has_dynamic_local_memory_allocations : bool;
+  has_block_reductions : bool;
+  has_grid_reductions : bool;
+  has_block_broadcasts : bool;
+  has_grid_broadcasts : bool;
+  has_block_welford : bool;
+  has_grid_welford : bool;
+  has_outer_grouped_grid_welford : bool;
+  largest_smem_data_type : DataType;
+  //! Largest shared memory buffer size of outer grouped grid welford
+  outer_grouped_grid_welford_largest_smem_size : int = 0;
+}
+
 // Each Fusion Executor maps to a lowered and compiled kernel.
 table FusionExecutor {
   device_smem_limit: long;
@@ -495,7 +512,7 @@ table FusionExecutor {
   executor_entry_lookup_keys : [ulong];
   executor_entry_lookup_values : [ExecutorEntry];
   index_type : DataType;
-  max_rng_offsets : int;
+  summary : KernelSummary;
   generator : NaiveValueGenerator;
   global_allocations : [AllocateBuffer];
 }

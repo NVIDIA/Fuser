@@ -141,6 +141,9 @@ struct VectorInputBuilder;
 struct VectorLong;
 struct VectorLongBuilder;
 
+struct KernelSummary;
+struct KernelSummaryBuilder;
+
 struct FusionExecutor;
 struct FusionExecutorBuilder;
 
@@ -3711,6 +3714,157 @@ inline ::flatbuffers::Offset<VectorLong> CreateVectorLongDirect(
       dtype);
 }
 
+struct KernelSummary FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
+  typedef KernelSummaryBuilder Builder;
+  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
+    VT_MAX_RNG_OFFSETS = 4,
+    VT_HAS_COOPERATIVE_GRID_REDUCTION = 6,
+    VT_HAS_DYNAMIC_LOCAL_MEMORY_ALLOCATIONS = 8,
+    VT_HAS_BLOCK_REDUCTIONS = 10,
+    VT_HAS_GRID_REDUCTIONS = 12,
+    VT_HAS_BLOCK_BROADCASTS = 14,
+    VT_HAS_GRID_BROADCASTS = 16,
+    VT_HAS_BLOCK_WELFORD = 18,
+    VT_HAS_GRID_WELFORD = 20,
+    VT_HAS_OUTER_GROUPED_GRID_WELFORD = 22,
+    VT_LARGEST_SMEM_DATA_TYPE = 24,
+    VT_OUTER_GROUPED_GRID_WELFORD_LARGEST_SMEM_SIZE = 26
+  };
+  int32_t max_rng_offsets() const {
+    return GetField<int32_t>(VT_MAX_RNG_OFFSETS, 0);
+  }
+  bool has_cooperative_grid_reduction() const {
+    return GetField<uint8_t>(VT_HAS_COOPERATIVE_GRID_REDUCTION, 0) != 0;
+  }
+  bool has_dynamic_local_memory_allocations() const {
+    return GetField<uint8_t>(VT_HAS_DYNAMIC_LOCAL_MEMORY_ALLOCATIONS, 0) != 0;
+  }
+  bool has_block_reductions() const {
+    return GetField<uint8_t>(VT_HAS_BLOCK_REDUCTIONS, 0) != 0;
+  }
+  bool has_grid_reductions() const {
+    return GetField<uint8_t>(VT_HAS_GRID_REDUCTIONS, 0) != 0;
+  }
+  bool has_block_broadcasts() const {
+    return GetField<uint8_t>(VT_HAS_BLOCK_BROADCASTS, 0) != 0;
+  }
+  bool has_grid_broadcasts() const {
+    return GetField<uint8_t>(VT_HAS_GRID_BROADCASTS, 0) != 0;
+  }
+  bool has_block_welford() const {
+    return GetField<uint8_t>(VT_HAS_BLOCK_WELFORD, 0) != 0;
+  }
+  bool has_grid_welford() const {
+    return GetField<uint8_t>(VT_HAS_GRID_WELFORD, 0) != 0;
+  }
+  bool has_outer_grouped_grid_welford() const {
+    return GetField<uint8_t>(VT_HAS_OUTER_GROUPED_GRID_WELFORD, 0) != 0;
+  }
+  nvfuser::serde::DataType largest_smem_data_type() const {
+    return static_cast<nvfuser::serde::DataType>(GetField<int32_t>(VT_LARGEST_SMEM_DATA_TYPE, 0));
+  }
+  int32_t outer_grouped_grid_welford_largest_smem_size() const {
+    return GetField<int32_t>(VT_OUTER_GROUPED_GRID_WELFORD_LARGEST_SMEM_SIZE, 0);
+  }
+  bool Verify(::flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyField<int32_t>(verifier, VT_MAX_RNG_OFFSETS, 4) &&
+           VerifyField<uint8_t>(verifier, VT_HAS_COOPERATIVE_GRID_REDUCTION, 1) &&
+           VerifyField<uint8_t>(verifier, VT_HAS_DYNAMIC_LOCAL_MEMORY_ALLOCATIONS, 1) &&
+           VerifyField<uint8_t>(verifier, VT_HAS_BLOCK_REDUCTIONS, 1) &&
+           VerifyField<uint8_t>(verifier, VT_HAS_GRID_REDUCTIONS, 1) &&
+           VerifyField<uint8_t>(verifier, VT_HAS_BLOCK_BROADCASTS, 1) &&
+           VerifyField<uint8_t>(verifier, VT_HAS_GRID_BROADCASTS, 1) &&
+           VerifyField<uint8_t>(verifier, VT_HAS_BLOCK_WELFORD, 1) &&
+           VerifyField<uint8_t>(verifier, VT_HAS_GRID_WELFORD, 1) &&
+           VerifyField<uint8_t>(verifier, VT_HAS_OUTER_GROUPED_GRID_WELFORD, 1) &&
+           VerifyField<int32_t>(verifier, VT_LARGEST_SMEM_DATA_TYPE, 4) &&
+           VerifyField<int32_t>(verifier, VT_OUTER_GROUPED_GRID_WELFORD_LARGEST_SMEM_SIZE, 4) &&
+           verifier.EndTable();
+  }
+};
+
+struct KernelSummaryBuilder {
+  typedef KernelSummary Table;
+  ::flatbuffers::FlatBufferBuilder &fbb_;
+  ::flatbuffers::uoffset_t start_;
+  void add_max_rng_offsets(int32_t max_rng_offsets) {
+    fbb_.AddElement<int32_t>(KernelSummary::VT_MAX_RNG_OFFSETS, max_rng_offsets, 0);
+  }
+  void add_has_cooperative_grid_reduction(bool has_cooperative_grid_reduction) {
+    fbb_.AddElement<uint8_t>(KernelSummary::VT_HAS_COOPERATIVE_GRID_REDUCTION, static_cast<uint8_t>(has_cooperative_grid_reduction), 0);
+  }
+  void add_has_dynamic_local_memory_allocations(bool has_dynamic_local_memory_allocations) {
+    fbb_.AddElement<uint8_t>(KernelSummary::VT_HAS_DYNAMIC_LOCAL_MEMORY_ALLOCATIONS, static_cast<uint8_t>(has_dynamic_local_memory_allocations), 0);
+  }
+  void add_has_block_reductions(bool has_block_reductions) {
+    fbb_.AddElement<uint8_t>(KernelSummary::VT_HAS_BLOCK_REDUCTIONS, static_cast<uint8_t>(has_block_reductions), 0);
+  }
+  void add_has_grid_reductions(bool has_grid_reductions) {
+    fbb_.AddElement<uint8_t>(KernelSummary::VT_HAS_GRID_REDUCTIONS, static_cast<uint8_t>(has_grid_reductions), 0);
+  }
+  void add_has_block_broadcasts(bool has_block_broadcasts) {
+    fbb_.AddElement<uint8_t>(KernelSummary::VT_HAS_BLOCK_BROADCASTS, static_cast<uint8_t>(has_block_broadcasts), 0);
+  }
+  void add_has_grid_broadcasts(bool has_grid_broadcasts) {
+    fbb_.AddElement<uint8_t>(KernelSummary::VT_HAS_GRID_BROADCASTS, static_cast<uint8_t>(has_grid_broadcasts), 0);
+  }
+  void add_has_block_welford(bool has_block_welford) {
+    fbb_.AddElement<uint8_t>(KernelSummary::VT_HAS_BLOCK_WELFORD, static_cast<uint8_t>(has_block_welford), 0);
+  }
+  void add_has_grid_welford(bool has_grid_welford) {
+    fbb_.AddElement<uint8_t>(KernelSummary::VT_HAS_GRID_WELFORD, static_cast<uint8_t>(has_grid_welford), 0);
+  }
+  void add_has_outer_grouped_grid_welford(bool has_outer_grouped_grid_welford) {
+    fbb_.AddElement<uint8_t>(KernelSummary::VT_HAS_OUTER_GROUPED_GRID_WELFORD, static_cast<uint8_t>(has_outer_grouped_grid_welford), 0);
+  }
+  void add_largest_smem_data_type(nvfuser::serde::DataType largest_smem_data_type) {
+    fbb_.AddElement<int32_t>(KernelSummary::VT_LARGEST_SMEM_DATA_TYPE, static_cast<int32_t>(largest_smem_data_type), 0);
+  }
+  void add_outer_grouped_grid_welford_largest_smem_size(int32_t outer_grouped_grid_welford_largest_smem_size) {
+    fbb_.AddElement<int32_t>(KernelSummary::VT_OUTER_GROUPED_GRID_WELFORD_LARGEST_SMEM_SIZE, outer_grouped_grid_welford_largest_smem_size, 0);
+  }
+  explicit KernelSummaryBuilder(::flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  ::flatbuffers::Offset<KernelSummary> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = ::flatbuffers::Offset<KernelSummary>(end);
+    return o;
+  }
+};
+
+inline ::flatbuffers::Offset<KernelSummary> CreateKernelSummary(
+    ::flatbuffers::FlatBufferBuilder &_fbb,
+    int32_t max_rng_offsets = 0,
+    bool has_cooperative_grid_reduction = false,
+    bool has_dynamic_local_memory_allocations = false,
+    bool has_block_reductions = false,
+    bool has_grid_reductions = false,
+    bool has_block_broadcasts = false,
+    bool has_grid_broadcasts = false,
+    bool has_block_welford = false,
+    bool has_grid_welford = false,
+    bool has_outer_grouped_grid_welford = false,
+    nvfuser::serde::DataType largest_smem_data_type = nvfuser::serde::DataType_Double,
+    int32_t outer_grouped_grid_welford_largest_smem_size = 0) {
+  KernelSummaryBuilder builder_(_fbb);
+  builder_.add_outer_grouped_grid_welford_largest_smem_size(outer_grouped_grid_welford_largest_smem_size);
+  builder_.add_largest_smem_data_type(largest_smem_data_type);
+  builder_.add_max_rng_offsets(max_rng_offsets);
+  builder_.add_has_outer_grouped_grid_welford(has_outer_grouped_grid_welford);
+  builder_.add_has_grid_welford(has_grid_welford);
+  builder_.add_has_block_welford(has_block_welford);
+  builder_.add_has_grid_broadcasts(has_grid_broadcasts);
+  builder_.add_has_block_broadcasts(has_block_broadcasts);
+  builder_.add_has_grid_reductions(has_grid_reductions);
+  builder_.add_has_block_reductions(has_block_reductions);
+  builder_.add_has_dynamic_local_memory_allocations(has_dynamic_local_memory_allocations);
+  builder_.add_has_cooperative_grid_reduction(has_cooperative_grid_reduction);
+  return builder_.Finish();
+}
+
 struct FusionExecutor FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
   typedef FusionExecutorBuilder Builder;
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
@@ -3724,7 +3878,7 @@ struct FusionExecutor FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
     VT_EXECUTOR_ENTRY_LOOKUP_KEYS = 18,
     VT_EXECUTOR_ENTRY_LOOKUP_VALUES = 20,
     VT_INDEX_TYPE = 22,
-    VT_MAX_RNG_OFFSETS = 24,
+    VT_SUMMARY = 24,
     VT_GENERATOR = 26,
     VT_GLOBAL_ALLOCATIONS = 28
   };
@@ -3758,8 +3912,8 @@ struct FusionExecutor FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
   nvfuser::serde::DataType index_type() const {
     return static_cast<nvfuser::serde::DataType>(GetField<int32_t>(VT_INDEX_TYPE, 0));
   }
-  int32_t max_rng_offsets() const {
-    return GetField<int32_t>(VT_MAX_RNG_OFFSETS, 0);
+  const nvfuser::serde::KernelSummary *summary() const {
+    return GetPointer<const nvfuser::serde::KernelSummary *>(VT_SUMMARY);
   }
   const nvfuser::serde::NaiveValueGenerator *generator() const {
     return GetPointer<const nvfuser::serde::NaiveValueGenerator *>(VT_GENERATOR);
@@ -3783,7 +3937,8 @@ struct FusionExecutor FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
            verifier.VerifyVector(executor_entry_lookup_values()) &&
            verifier.VerifyVectorOfTables(executor_entry_lookup_values()) &&
            VerifyField<int32_t>(verifier, VT_INDEX_TYPE, 4) &&
-           VerifyField<int32_t>(verifier, VT_MAX_RNG_OFFSETS, 4) &&
+           VerifyOffset(verifier, VT_SUMMARY) &&
+           verifier.VerifyTable(summary()) &&
            VerifyOffset(verifier, VT_GENERATOR) &&
            verifier.VerifyTable(generator()) &&
            VerifyOffset(verifier, VT_GLOBAL_ALLOCATIONS) &&
@@ -3827,8 +3982,8 @@ struct FusionExecutorBuilder {
   void add_index_type(nvfuser::serde::DataType index_type) {
     fbb_.AddElement<int32_t>(FusionExecutor::VT_INDEX_TYPE, static_cast<int32_t>(index_type), 0);
   }
-  void add_max_rng_offsets(int32_t max_rng_offsets) {
-    fbb_.AddElement<int32_t>(FusionExecutor::VT_MAX_RNG_OFFSETS, max_rng_offsets, 0);
+  void add_summary(::flatbuffers::Offset<nvfuser::serde::KernelSummary> summary) {
+    fbb_.AddOffset(FusionExecutor::VT_SUMMARY, summary);
   }
   void add_generator(::flatbuffers::Offset<nvfuser::serde::NaiveValueGenerator> generator) {
     fbb_.AddOffset(FusionExecutor::VT_GENERATOR, generator);
@@ -3859,7 +4014,7 @@ inline ::flatbuffers::Offset<FusionExecutor> CreateFusionExecutor(
     ::flatbuffers::Offset<::flatbuffers::Vector<uint64_t>> executor_entry_lookup_keys = 0,
     ::flatbuffers::Offset<::flatbuffers::Vector<::flatbuffers::Offset<nvfuser::serde::ExecutorEntry>>> executor_entry_lookup_values = 0,
     nvfuser::serde::DataType index_type = nvfuser::serde::DataType_Double,
-    int32_t max_rng_offsets = 0,
+    ::flatbuffers::Offset<nvfuser::serde::KernelSummary> summary = 0,
     ::flatbuffers::Offset<nvfuser::serde::NaiveValueGenerator> generator = 0,
     ::flatbuffers::Offset<::flatbuffers::Vector<::flatbuffers::Offset<nvfuser::serde::AllocateBuffer>>> global_allocations = 0) {
   FusionExecutorBuilder builder_(_fbb);
@@ -3871,7 +4026,7 @@ inline ::flatbuffers::Offset<FusionExecutor> CreateFusionExecutor(
   builder_.add_device_smem_limit(device_smem_limit);
   builder_.add_global_allocations(global_allocations);
   builder_.add_generator(generator);
-  builder_.add_max_rng_offsets(max_rng_offsets);
+  builder_.add_summary(summary);
   builder_.add_index_type(index_type);
   builder_.add_executor_entry_lookup_values(executor_entry_lookup_values);
   builder_.add_executor_entry_lookup_keys(executor_entry_lookup_keys);
@@ -3891,7 +4046,7 @@ inline ::flatbuffers::Offset<FusionExecutor> CreateFusionExecutorDirect(
     const std::vector<uint64_t> *executor_entry_lookup_keys = nullptr,
     const std::vector<::flatbuffers::Offset<nvfuser::serde::ExecutorEntry>> *executor_entry_lookup_values = nullptr,
     nvfuser::serde::DataType index_type = nvfuser::serde::DataType_Double,
-    int32_t max_rng_offsets = 0,
+    ::flatbuffers::Offset<nvfuser::serde::KernelSummary> summary = 0,
     ::flatbuffers::Offset<nvfuser::serde::NaiveValueGenerator> generator = 0,
     const std::vector<::flatbuffers::Offset<nvfuser::serde::AllocateBuffer>> *global_allocations = nullptr) {
   auto kernel_code__ = kernel_code ? _fbb.CreateString(kernel_code) : 0;
@@ -3910,7 +4065,7 @@ inline ::flatbuffers::Offset<FusionExecutor> CreateFusionExecutorDirect(
       executor_entry_lookup_keys__,
       executor_entry_lookup_values__,
       index_type,
-      max_rng_offsets,
+      summary,
       generator,
       global_allocations__);
 }

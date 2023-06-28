@@ -1913,6 +1913,7 @@ flatbuffers::Offset<serde::FusionExecutor> FusionExecutor::serialize(
   //  executor_entry_lookup_values : [ExecutorEntry];
   //  index_type : DataType;
   //  max_rng_offsets : int;
+  //  has_cooperative_grid_reduction : bool;
   //  generator : NaiveValueGenerator;
   //  global_allocations : [AllocateBuffer];
   // }
@@ -1931,8 +1932,8 @@ flatbuffers::Offset<serde::FusionExecutor> FusionExecutor::serialize(
       es.serialize(builder, kernel(), kernel_summary_.global_allocations);
   auto global_allocations =
       es.serialize(builder, kernel_summary_.global_allocations);
-  std::cout << "ga\t" << kernel_summary_.global_allocations << std::endl;
-  std::cout << "drng\t" << kernel_summary_.max_rng_offsets << std::endl;
+  std::cout << "drng\t" << kernel_summary_.has_cooperative_grid_reduction
+            << std::endl;
 
   std::cout << "serialize fe end" << std::endl;
   return serde::CreateFusionExecutorDirect(
@@ -1947,7 +1948,7 @@ flatbuffers::Offset<serde::FusionExecutor> FusionExecutor::serialize(
       &executor_entry_lookup_keys_fb,
       &executor_entry_lookup_values_fb,
       serde::mapToSerdeDtype(kernel()->indexType()),
-      kernel_summary_.max_rng_offsets,
+      serialize(builder, kernel_summary_),
       value_generator,
       &global_allocations);
 }
@@ -2043,6 +2044,39 @@ flatbuffers::Offset<serde::GlobalBufferInfo> FusionExecutor::serialize(
       is_fusion_output);
 }
 
+flatbuffers::Offset<serde::KernelSummary> FusionExecutor::serialize(
+    flatbuffers::FlatBufferBuilder& builder,
+    const kir::KernelSummary& summary) const {
+  // table KernelSummary {
+  //  max_rng_offsets : int;
+  //  has_cooperative_grid_reduction : bool;
+  //  has_dynamic_local_memory_allocations : bool;
+  //  has_block_reductions : bool;
+  //  has_grid_reductions : bool;
+  //  has_block_broadcasts : bool;
+  //  has_grid_broadcasts : bool;
+  //  has_block_welford : bool;
+  //  has_grid_welford : bool;
+  //  has_outer_grouped_grid_welford : bool;
+  //  largest_smem_data_type : DataType;
+  //  outer_grouped_grid_welford_largest_smem_size : int = 0;
+  // }
+  return serde::CreateKernelSummary(
+      builder,
+      summary.max_rng_offsets,
+      summary.has_cooperative_grid_reduction,
+      summary.has_dynamic_local_memory_allocations,
+      summary.has_block_reductions,
+      summary.has_grid_reductions,
+      summary.has_block_broadcasts,
+      summary.has_grid_broadcasts,
+      summary.has_block_welford,
+      summary.has_grid_welford,
+      summary.has_outer_grouped_grid_welford,
+      serde::mapToSerdeDtype(summary.largest_smem_data_type),
+      summary.outer_grouped_grid_welford_largest_smem_size);
+}
+
 void FusionExecutor::deserialize(
     const serde::FusionExecutor* buffer,
     Fusion* fusion) {
@@ -2059,7 +2093,7 @@ void FusionExecutor::deserialize(
   //  executor_entry_lookup_keys : [ulong];
   //  executor_entry_lookup_values : [ExecutorEntry];
   //  index_type : DataType;
-  //  max_rng_offsets : int;
+  //  summary : KernelSummary;
   //  generator : NaiveValueGenerator;
   //  global_allocations : [AllocateBuffer];
   // }
@@ -2084,7 +2118,6 @@ void FusionExecutor::deserialize(
       std::make_unique<GpuLower>(fusion, default_params, true /* fastLower */);
   // Replace integers that are tensor sizes by named scalars like "T0.size[0]"
   fusion_ = lowered_->kernel()->as<Fusion>();
-  kernel_summary_ = lowered_->kernel()->summary();
   setUsedTVs();
 
   // GlobalBufferInfo requires lowered kernel before deserialization
@@ -2094,14 +2127,13 @@ void FusionExecutor::deserialize(
         deserialize(buffer->executor_entry_lookup_values()->Get(idx)));
   }
 
+  kernel_summary_ = lowered_->kernel()->summary();
+  deserialize(buffer->summary());
+
   serde::ExpressionBuilder es(lowered_->kernel());
   es.deserialize(buffer->generator());
   kernel_summary_.global_allocations =
       es.deserialize(buffer->global_allocations());
-  kernel_summary_.max_rng_offsets = buffer->max_rng_offsets();
-  std::cout << "ksga\t" << kernel_summary_.global_allocations.size()
-            << std::endl;
-  std::cout << "drng\t" << kernel_summary_.max_rng_offsets << std::endl;
 
   std::tie(compiled_kernel_, last_compiler_log_, last_compiled_binary_) =
       executor_utils::getCompiledKernel(
@@ -2200,6 +2232,42 @@ FusionExecutor::GlobalBufferInfo FusionExecutor::deserialize(
   info.is_profile_buffer = buffer->is_profile_buffer();
   std::cout << "deserialize gb end" << std::endl;
   return info;
+}
+
+void FusionExecutor::deserialize(const serde::KernelSummary* buffer) {
+  // table KernelSummary {
+  //  max_rng_offsets : int;
+  //  has_cooperative_grid_reduction : bool;
+  //  has_dynamic_local_memory_allocations : bool;
+  //  has_block_reductions : bool;
+  //  has_grid_reductions : bool;
+  //  has_block_broadcasts : bool;
+  //  has_grid_broadcasts : bool;
+  //  has_block_welford : bool;
+  //  has_grid_welford : bool;
+  //  has_outer_grouped_grid_welford : bool;
+  //  largest_smem_data_type : DataType;
+  //  outer_grouped_grid_welford_largest_smem_size : int = 0;
+  // }
+
+  TORCH_INTERNAL_ASSERT(buffer != nullptr, "serde::KernelSummary is nullptr.");
+  TORCH_INTERNAL_ASSERT(lowered_ != nullptr);
+
+  kernel_summary_.max_rng_offsets = buffer->max_rng_offsets();
+  kernel_summary_.has_cooperative_grid_reduction =
+      buffer->has_cooperative_grid_reduction();
+  kernel_summary_.has_block_broadcasts = buffer->has_block_broadcasts();
+  kernel_summary_.has_grid_broadcasts = buffer->has_grid_broadcasts();
+  kernel_summary_.has_block_reductions = buffer->has_block_broadcasts();
+  kernel_summary_.has_grid_reductions = buffer->has_grid_reductions();
+  kernel_summary_.has_block_welford = buffer->has_block_welford();
+  kernel_summary_.has_grid_welford = buffer->has_grid_welford();
+  kernel_summary_.has_outer_grouped_grid_welford =
+      buffer->has_outer_grouped_grid_welford();
+  kernel_summary_.outer_grouped_grid_welford_largest_smem_size =
+      buffer->outer_grouped_grid_welford_largest_smem_size();
+  kernel_summary_.largest_smem_data_type =
+      serde::mapToNvfuserDtype(buffer->largest_smem_data_type());
 }
 
 } // namespace nvfuser
