@@ -12,7 +12,7 @@
 #include <ops/arith.h>
 
 #include <algorithm>
-#include <deque>
+#include <limits>
 #include <unordered_set>
 #include <vector>
 
@@ -116,6 +116,15 @@ class EmptyTensorRemover : BackwardVisitor {
     }
   }
 
+  //! Gets a vector of extents for noReduction(tv->getMaybeRFactorDomain())
+  static std::vector<Val*> noReductionShape(TensorView* tv) {
+    std::vector<Val*> shape;
+    for (auto id : TensorDomain::noReductions(tv->getMaybeRFactorDomain())) {
+      shape.push_back(id->extent());
+    }
+    return shape;
+  }
+
   //! A reduction over empty axes is equal to the initial value of the
   //! reduction, as if the reduction were written as follows:
   //!
@@ -135,17 +144,8 @@ class EmptyTensorRemover : BackwardVisitor {
     }
     auto out = rop->out()->as<TensorView>();
     // The input is empty in some axes. Assert that they are all reduced
-    const auto& out_root = out->getRootDomain();
-
-    std::vector<Val*> shape;
-    for (auto id : out_root) {
-      if (!id->isReduction() && !id->isStride()) { // same as noReductions()
-        shape.push_back(id->extent());
-      }
-    }
-
     for (auto ax : empty_input_axes) {
-      auto id = out_root.at(ax);
+      auto id = out->getRootDomain().at(ax);
       // Input rfactor domain positions correspond to output root positions
       TORCH_INTERNAL_ASSERT(
           id->isReduction(),
@@ -153,24 +153,55 @@ class EmptyTensorRemover : BackwardVisitor {
           ax,
           " in expression ",
           rop->toString());
-      shape[ax] = fusion_->zeroVal();
     }
-    // Find output shape to replace with full
 
-    auto new_tv = full(shape, rop->init(), out->getDataType().value());
+    auto new_tv =
+        full(noReductionShape(out), rop->init(), out->getDataType().value());
     replaceTV(out, new_tv);
   }
 
-  //! A reduction over empty axes is equal to the initial value of the
-  //! reduction, as if the reduction were written as follows:
-  //!
-  //!   auto result = init_value;
-  //!   for (auto element : reduction_elements) {
-  //!     result = reduction_op(result, element);
-  //!   }
-  //!   return result;
-  //!
-  void handle(WelfordOp* wop) final {}
+  //! A WelfordOp is similar to a ReductionOp, but has three outputs: avg, var,
+  //! N. For an empty reduction N will be zero, so we fill the output with zero.
+  //! The avg and var is obtained by summing then dividing by N. For empty
+  //! reductions this leads to 0.0 / 0 so we fill it with a constant NAN. The
+  //! .var variable is actually an unnormalized variance which is a sum without
+  //! dividing by N or N-1, so we fill it with zeros.
+  void handle(WelfordOp* wop) final {
+    auto in = wop->in()->as<TensorView>();
+    auto empty_input_axes =
+        emptyAxes(TensorDomain::noReductions(in->getMaybeRFactorDomain()));
+    if (empty_input_axes.empty()) {
+      // Input is not empty, handle like any other op
+      return;
+    }
+    auto avg = wop->outAvg()->as<TensorView>();
+    auto var_sum = wop->outVar()->as<TensorView>();
+    auto N = wop->outN()->as<TensorView>();
+    // The input is empty in some axes. Assert that they are all reduced
+    for (auto ax : empty_input_axes) {
+      auto id = avg->getRootDomain().at(ax);
+      // Input rfactor domain positions correspond to output root positions
+      TORCH_INTERNAL_ASSERT(
+          id->isReduction(),
+          "Found unexpected unreduced empty axis at position ",
+          ax,
+          " in expression ",
+          wop->toString());
+    }
+
+    auto shape = noReductionShape(avg);
+    auto nan = IrBuilder::create<Double>(
+        std::numeric_limits<double>::quiet_NaN(), avg->getDataType().value());
+    auto nan_tensor = full(shape, nan, avg->getDataType().value());
+    auto new_var_sum = full(
+        shape,
+        fusion_->zeroVal(var_sum->getDataType().value()),
+        var_sum->getDataType().value());
+    auto new_N = full(shape, fusion_->zeroVal(), N->getDataType().value());
+    replaceTV(avg, nan_tensor);
+    replaceTV(var_sum, new_var_sum);
+    replaceTV(N, new_N);
+  }
 
   //! A cat op can have input empty tensors and still output a non-empty
   //! tensor. This is only possible if there is more than one input, so we

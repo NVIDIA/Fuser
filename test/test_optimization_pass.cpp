@@ -419,10 +419,6 @@ TEST_F(NVFuserTest, FusionRemoveEmptyReduction_CUDA) {
   auto args = KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
   FusionKernelRuntime runtime(std::move(fusion_ptr), args);
 
-  // In the FusionKernelRuntime, before segmentation a number of optimization
-  // passes are performed. One of those is RemoveEmptyPass, which should replace
-  // the empty output tv1 with a new TensorView defined by `full({0, 3})` in
-  // this case.
   auto preseg_fusion = runtime.fusionSegments()->completeFusion();
   EXPECT_EQ(preseg_fusion->outputs().size(), 1);
   EXPECT_NE(preseg_fusion->outputs()[0]->definition(), nullptr);
@@ -436,6 +432,52 @@ TEST_F(NVFuserTest, FusionRemoveEmptyReduction_CUDA) {
       outputs,
       aten_inputs,
       {at::sum(at0, {0})},
+      __LINE__,
+      __FILE__);
+}
+
+// Test that we replace empty Welford with full
+TEST_F(NVFuserTest, FusionRemoveEmptyWelford_CUDA) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(fusion_ptr.get());
+  // Concrete tensor with zero for one extent, so that we can prove the output
+  // is empty
+  auto tv0 = makeConcreteTensor({0, 3});
+  fusion.addInput(tv0);
+  auto w = Welford(tv0, {0});
+  fusion.addOutput(w.avg);
+  auto var = div(w.var_sum, fusion_ptr->zeroVal(DataType::Float));
+  fusion.addOutput(var);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor at0 = at::randn({0, 3}, options);
+  std::vector<c10::IValue> aten_inputs = {at0};
+
+  auto args = KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
+  FusionKernelRuntime runtime(std::move(fusion_ptr), args);
+
+  auto preseg_fusion = runtime.fusionSegments()->completeFusion();
+  EXPECT_EQ(preseg_fusion->outputs().size(), 2);
+
+  EXPECT_NE(preseg_fusion->outputs()[0]->definition(), nullptr);
+  EXPECT_TRUE(preseg_fusion->outputs()[0]->definition()->isA<FullOp>());
+
+  EXPECT_NE(var->definition(), nullptr);
+  EXPECT_TRUE(var->definition()->isA<BinaryOp>());
+  // We divide in the fusion to normalize the variance, so here we have to peel
+  // that back
+  auto var_sum = var->definition()->inputs()[0]->as<TensorView>();
+  EXPECT_TRUE(var_sum->definition()->isA<FullOp>());
+
+  runtime.compileFusionParallel(args);
+  auto outputs = runtime.runWithInputs(args);
+
+  testValidate(
+      preseg_fusion,
+      outputs,
+      aten_inputs,
+      {at::mean(at0, {0}), at::var(at0, {0})},
       __LINE__,
       __FILE__);
 }
@@ -470,10 +512,6 @@ TEST_F(NVFuserTest, FusionRemoveEmptyCat_CUDA) {
   auto args = KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
   FusionKernelRuntime runtime(std::move(fusion_ptr), args);
 
-  // In the FusionKernelRuntime, before segmentation a number of optimization
-  // passes are performed. One of those is RemoveEmptyPass, which should replace
-  // the empty output tv1 with a new TensorView defined by `full({0, 3})` in
-  // this case.
   auto preseg_fusion = runtime.fusionSegments()->completeFusion();
   EXPECT_EQ(preseg_fusion->outputs().size(), 2);
 
@@ -520,10 +558,6 @@ TEST_F(NVFuserTest, FusionRemoveEmptyPad_CUDA) {
   auto args = KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
   FusionKernelRuntime runtime(std::move(fusion_ptr), args);
 
-  // In the FusionKernelRuntime, before segmentation a number of optimization
-  // passes are performed. One of those is RemoveEmptyPass, which should replace
-  // the empty output tv1 with a new TensorView defined by `full({0, 3})` in
-  // this case.
   auto preseg_fusion = runtime.fusionSegments()->completeFusion();
   EXPECT_EQ(preseg_fusion->outputs().size(), 1);
 
