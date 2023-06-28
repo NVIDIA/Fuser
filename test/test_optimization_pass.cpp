@@ -477,7 +477,7 @@ TEST_F(NVFuserTest, FusionRemoveEmptyWelford_CUDA) {
       preseg_fusion,
       outputs,
       aten_inputs,
-      {at::mean(at0, {0}), at::var(at0, {0})},
+      {at::mean(at0, 0), at::var(at0, 0)},
       __LINE__,
       __FILE__);
 }

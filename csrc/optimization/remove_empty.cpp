@@ -70,6 +70,8 @@ class EmptyTensorRemover : BackwardVisitor {
     traverseTo(fusion_, fusion_->outputs());
   }
 
+  using BackwardVisitor::handle;
+
   void handle(Statement* stmt) final {
     if (isDead(stmt)) {
       // We check whether stmt is dead before we dereference it, since it may
@@ -108,11 +110,14 @@ class EmptyTensorRemover : BackwardVisitor {
         return;
       }
     } else {
-      // TODO: This should be a warning instead of an assert
-      TORCH_INTERNAL_ASSERT(
-          !isTVEmpty(tv),
-          "Found unexpected empty intermediate TensorView ",
-          tv->toString());
+      // Note that if there empty intermediate tensors with uses that do not
+      // lead to outputs, this check might fail.
+      if (!tv->uses().empty() && isTVEmpty(tv)) {
+        TORCH_WARN(
+            "Found unexpected empty intermediate TensorView ",
+            tv->toString(),
+            ". This TensorView has un-removed uses that might not be used in this Fusion.");
+      }
     }
   }
 
