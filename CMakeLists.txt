@@ -184,6 +184,7 @@ list(APPEND NVFUSER_SRCS
     ${NVFUSER_SRCS_DIR}/optimization/add_axioms.cpp
     ${NVFUSER_SRCS_DIR}/optimization/consecutive_cast.cpp
     ${NVFUSER_SRCS_DIR}/optimization/pre_segmenter.cpp
+    ${NVFUSER_SRCS_DIR}/optimization/remove_empty.cpp
 )
 
 set(NVFUSER_CODEGEN ${PROJECT_NAME}_codegen)
