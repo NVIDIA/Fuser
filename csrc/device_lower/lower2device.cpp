@@ -237,6 +237,14 @@ void dumpExprsIfEnabled(
   }
 }
 
+// After compiling a cuda kernel, GpuLower, Kernel, and KernelSummary are
+// used to generate LaunchParams and validate vectorization for new inputs.
+// During deserialization, we want to avoid running the entire lower function
+// to save running time. RuntimeGpuLower contains a subset of GpuLower,
+// necessary for launching kernel at runtime.
+//
+// RuntimeGpuLower -> RuntimeKernelSummary
+// GpuLower -> KernelSummary
 void GpuLower::fastLower(Fusion* fusion) {
   FUSER_PERF_SCOPE("GpuLower::fastLower");
   TORCH_INTERNAL_ASSERT(fusion != nullptr);
