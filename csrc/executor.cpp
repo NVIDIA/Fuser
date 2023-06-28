@@ -1578,12 +1578,10 @@ std::vector<TensorView*> FusionExecutor::getTvsForKernelArguments() const {
   for (auto val : kernel()->inputs()) {
     tvs.emplace_back(dynamic_cast<TensorView*>(val));
   }
-  std::cout << "inputs\t" << tvs.size() << std::endl;
 
   for (auto val : kernel()->outputs()) {
     tvs.emplace_back(dynamic_cast<TensorView*>(val));
   }
-  std::cout << "outputs\t" << tvs.size() << std::endl;
 
   for (auto alloc : kernel_summary_.global_allocations) {
     auto tv = alloc->buffer()->as<TensorView>();
@@ -1592,13 +1590,10 @@ std::vector<TensorView*> FusionExecutor::getTvsForKernelArguments() const {
     }
     tvs.emplace_back(tv);
   }
-  std::cout << "inter\t" << tvs.size() << std::endl;
 
   if (kernel_summary_.max_rng_offsets >= 0) {
     tvs.emplace_back(nullptr);
   }
-  std::cout << "rng\t" << tvs.size() << std::endl;
-  std::cout << "=======" << std::endl;
   return tvs;
 }
 
@@ -1917,8 +1912,6 @@ flatbuffers::Offset<serde::FusionExecutor> FusionExecutor::serialize(
   //  generator : NaiveValueGenerator;
   //  global_allocations : [AllocateBuffer];
   // }
-  std::cout << "serialize fe" << std::endl;
-
   using fb_executor_entry = flatbuffers::Offset<nvfuser::serde::ExecutorEntry>;
   std::vector<size_t> executor_entry_lookup_keys_fb;
   std::vector<fb_executor_entry> executor_entry_lookup_values_fb;
@@ -1932,10 +1925,7 @@ flatbuffers::Offset<serde::FusionExecutor> FusionExecutor::serialize(
       es.serialize(builder, kernel(), kernel_summary_.global_allocations);
   auto global_allocations =
       es.serialize(builder, kernel_summary_.global_allocations);
-  std::cout << "drng\t" << kernel_summary_.has_cooperative_grid_reduction
-            << std::endl;
 
-  std::cout << "serialize fe end" << std::endl;
   return serde::CreateFusionExecutorDirect(
       builder,
       device_smem_limit_,
@@ -1965,7 +1955,6 @@ flatbuffers::Offset<serde::ExecutorEntry> FusionExecutor::serialize(
   //   intermediates : [GlobalBufferInfo];
   //   rand_offset : ulong;
   // }
-  std::cout << "serialize ee" << std::endl;
   std::vector<int> output_aliases_fb;
   std::vector<int> input_aliases_fb;
   output_aliases_fb.reserve(data.output_to_input_aliases.size());
@@ -2006,7 +1995,6 @@ flatbuffers::Offset<serde::ExecutorEntry> FusionExecutor::serialize(
         serialize(builder, buffer, tv_position, false /* is_fusion_output */));
   }
 
-  std::cout << "serialize ee end" << std::endl;
   return CreateExecutorEntryDirect(
       builder,
       data.init,
@@ -2032,7 +2020,6 @@ flatbuffers::Offset<serde::GlobalBufferInfo> FusionExecutor::serialize(
   //  is_profile_buffer : bool;
   //  is_fusion_output : bool;
   // }
-  std::cout << "serialize gb" << std::endl;
   return serde::CreateGlobalBufferInfoDirect(
       builder,
       tv_position,
@@ -2098,7 +2085,6 @@ void FusionExecutor::deserialize(
   //  global_allocations : [AllocateBuffer];
   // }
   TORCH_INTERNAL_ASSERT(buffer != nullptr, "serde::FusionExecutor is nullptr.");
-  std::cout << "deserialize fe" << std::endl;
 
   device_smem_limit_ = buffer->device_smem_limit();
   block_size_high_water_mark_ = buffer->block_size_high_water_mark();
@@ -2146,7 +2132,6 @@ void FusionExecutor::deserialize(
           save_compiled_binary_);
 
   TORCH_INTERNAL_ASSERT(isCompiled(), "Failed to deserialize FusionExecutor");
-  std::cout << "deserialize fe end" << std::endl;
 }
 
 FusionExecutor::ExecutorEntry FusionExecutor::deserialize(
@@ -2160,7 +2145,6 @@ FusionExecutor::ExecutorEntry FusionExecutor::deserialize(
   //    intermediates : [GlobalBufferInfo];
   //    rand_offset : ulong;
   // }
-  std::cout << "deserialize ee" << std::endl;
   TORCH_INTERNAL_ASSERT(buffer != nullptr, "serde::ExecutorEntry is nullptr.");
   ExecutorEntry entry;
 
@@ -2182,7 +2166,6 @@ FusionExecutor::ExecutorEntry FusionExecutor::deserialize(
   }
 
   entry.rand_offset = buffer->rand_offset();
-  std::cout << "deserialize ee end" << std::endl;
   return entry;
 }
 
@@ -2197,14 +2180,12 @@ FusionExecutor::GlobalBufferInfo FusionExecutor::deserialize(
   //  is_profile_buffer : bool;
   //  is_fusion_output : bool;
   // }
-  std::cout << "deserialize gb" << std::endl;
   TORCH_INTERNAL_ASSERT(
       buffer != nullptr, "serde::GlobalBufferInfo is nullptr.");
   TORCH_INTERNAL_ASSERT(
       buffer->tv() != -1, "Serialization failed to encode buffer tv position.");
   TORCH_INTERNAL_ASSERT(fusion_ != nullptr, "Fusion is not initialized.");
 
-  std::cout << "h1" << std::endl;
   GlobalBufferInfo info;
   if (buffer->is_fusion_output()) {
     auto out_val = fusion_->outputs().at(buffer->tv());
@@ -2216,21 +2197,17 @@ FusionExecutor::GlobalBufferInfo FusionExecutor::deserialize(
     info.tv = dynamic_cast<TensorView*>(out_val->buffer());
   }
 
-  std::cout << "h2" << std::endl;
   for (auto dim_size : *buffer->sizes()) {
     info.sizes.emplace_back(dim_size);
   }
 
-  std::cout << "h3" << std::endl;
   for (auto dim_stride : *buffer->strides()) {
     info.strides.emplace_back(dim_stride);
   }
 
-  std::cout << "h4" << std::endl;
   info.type = mapToAtenDtype(buffer->dtype());
   info.zero_init = buffer->zero_init();
   info.is_profile_buffer = buffer->is_profile_buffer();
-  std::cout << "deserialize gb end" << std::endl;
   return info;
 }
 

@@ -2315,6 +2315,7 @@ class TestNvFuserFrontend(TestCase):
             T24 = fd.ops.sum(T23, axes=[0], keepdim=False, dtype=DataType.Null)
             S25 = fd.ops.reciprocal(S5)
             T26 = fd.ops.mul(T24, S25)
+            fd.add_output(T26, T1)
             S27 = fd.define_scalar(1, dtype=DataType.Int)
             S28 = fd.ops.sub(S16, S27)
             S29 = fd.ops.div(S16, S28)
@@ -2335,10 +2336,9 @@ class TestNvFuserFrontend(TestCase):
                 T39, output_shape=[S5, S6, S7, S8, S9], broadcast_dims=[0, 4]
             )
             T41 = fd.ops.mul(T37, T40)
-            fd.add_output(T18)
-            fd.add_output(T26, T1)
-            fd.add_output(T39)
             fd.add_output(T41)
+            fd.add_output(T18)
+            fd.add_output(T39)
 
         inputs = [
             torch.randn(
