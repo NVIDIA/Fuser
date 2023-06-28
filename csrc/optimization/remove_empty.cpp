@@ -120,7 +120,7 @@ class EmptyTensorRemover {
           shape[ax] = fusion_->zeroVal();
         }
         auto dtype = tv->getDataType().value();
-        auto new_tv = full(shape, fusion_->oneVal(dtype), dtype);
+        auto new_tv = full(shape, fusion_->zeroVal(dtype), dtype);
         replaceTV(tv, new_tv);
         // Do not keep traversing upstream if we've replaced tv
         return;
