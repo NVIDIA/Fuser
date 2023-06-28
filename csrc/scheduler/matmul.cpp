@@ -71,16 +71,14 @@ inline void check_concrete_static_dim(IterDomain* id) {
 
 //! Automatically generates the shared memory swizzled data layout
 //!  for matmul mainloop and epilogue.
-//! The shared mem datalayout is always 2D currently, and this utility
+//! The shared mem data layout is always 2D currently, and this utility
 //!  function assumes that the shared_mem_tv has the following structure:
 //!  [tile_row, tile_col, ***shift***] where the parameter `shift` is the number
-//!  of IDs on the right of `tile_col`. The IDs of tile_row and tile_col are the
-//!  ones begin swizzled.
-//! The shift parameter is added for the transform of MMA results to skip the
-//!  K axis and will also skip the actual swizzle. This is to ensure a same
-//!  transform history between the MMA result tensor and the epilogue shared
-//!  memory tensor so the corresponding domains of these two tensors can be
-//!  mapped.
+//!  of IDs on the right of tile_col. The IDs of tile_row and tile_col are the
+//!  ones being swizzled.
+//! If the input tensorview is not stored in shared memory, the function will
+//! skip the actual swizzle. This is used to help the domain mapping between
+//! mma_result and the epilogue tensor.
 void swizzleSharedMemory(
     TensorView* shared_mem_tv,
     const MatmulParams& params,
@@ -370,13 +368,18 @@ void swizzleSharedMemory(
      *    +----------+----------+
      */
     int64_t swizzle_period = n_rows / repeated_pattern_size;
-    // tile_size_y will be splitted by n_cols and then by swizzle_period
-    // avoid over split, won't fully remove bank conflict if happens.
+    // tile_size_y will be splitted by n_cols and then by swizzle_period,
+    // Recalculate swizzle_period if tile_size_y is smaller than the
+    // multiplication of these two split factors. If this happens,
+    // bank conflicts can't be fully removed.
     if (tile_size_y < n_cols * swizzle_period) {
       swizzle_period = tile_size_y / n_cols;
       repeated_pattern_size = n_rows / swizzle_period;
     }
-    // e.g. tile_size_y = 96 in FusionAmpereMatmulTileCheck4warp_CUDA
+    // If the remaining part of tile_size_y is not divisible by swizzle_period,
+    // reduce swizzle_period by half until it is divisible. If this happens,
+    // bank conflicts can't be fully removed. e.g. tile_size_y = 96 in
+    // FusionAmpereMatmulTileCheck4warp_CUDA
     while (tile_size_y / n_cols % swizzle_period) {
       swizzle_period /= 2;
       repeated_pattern_size = n_rows / swizzle_period;
@@ -416,7 +419,7 @@ void swizzleSharedMemory(
     //     -6        -5      -4            -3           -2         -1
     // [matrix id, repeat, pattern, matrix id outer, pattern id, matrix, *****
     // shift ***** ]
-    // swizzle repeat with pattern id to make repeat no longerrepeat.
+    // swizzle repeat with pattern id to make repeat no longer repeat.
     // Apply swizzle only when shared_mem_tv is stored in shared memory.
     // TODO: This is a temporary workaround for the following issue:
     // For the mma output, we have the following schedule:

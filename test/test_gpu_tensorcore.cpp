@@ -56,8 +56,6 @@ namespace nvfuser {
 
 using namespace at::indexing;
 
-namespace MatMulUtils {}
-
 // MMA unit test for a single instruction tile. VoltaTT
 TEST_F(NVFuserTest, FusionVoltaMMATT_CUDA) {
   Fusion fusion;

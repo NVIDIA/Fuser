@@ -376,10 +376,16 @@ std::shared_ptr<MatmulParams> getMatmulHeuristics(
   // Disable magic zero for matmul kernels
   params->cparams.enable_magic_zero = false;
 
-  // Check if we have enough shared memory for epilogue
-  params->has_smem_epilogue = mma_utils::hasEnoughSharedMemoryForEpilogue(
-      params->tile_sizes,
-      params->double_buffer_options.smem_double_buffer_stage);
+  // Disable shared memory epilogue before shared memory reuse is implemented.
+  //  Otherwise, there will be performance regression due to reduced occupancy
+  //  caused by extra shared memory usage.
+  constexpr bool disable_smem_epilogue = true;
+  if (!disable_smem_epilogue) {
+    // Check if we have enough shared memory for epilogue
+    params->has_smem_epilogue = mma_utils::hasEnoughSharedMemoryForEpilogue(
+        params->tile_sizes,
+        params->double_buffer_options.smem_double_buffer_stage);
+  }
 
   if (isDebugDumpEnabled(DebugDumpOption::MatmulChecks)) {
     printMsg(params->toString());
