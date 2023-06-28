@@ -4105,6 +4105,23 @@ TEST_F(NVFuserTest, FusionAmpereMatmulEpilogue_CUDA) {
     params.double_buffer_options.smem_double_buffer_stage = 4;
     scheduleMatmul(&fusion, params);
 
+    // If has_smem_epilogue is true, there should be 3 shared memory tensors 2
+    // for prologue and 1 for epilogue.
+    int num_shared_mem_tensors = 0;
+    int expected_num_shared_mem_tensors = params.has_smem_epilogue ? 3 : 2;
+    for (const auto& tv : ir_utils::allTvs(&fusion)) {
+      if (tv->getMemoryType() == MemoryType::Shared) {
+        num_shared_mem_tensors++;
+      }
+    }
+    TORCH_CHECK(
+        num_shared_mem_tensors == expected_num_shared_mem_tensors,
+        "Number of shared memory tensors doesn't match!",
+        "Expected: ",
+        expected_num_shared_mem_tensors,
+        ", Got: ",
+        num_shared_mem_tensors);
+
     at::manual_seed(0);
     auto inputs = matmulAtInput(M, N, K, layout);
 
@@ -4120,15 +4137,6 @@ TEST_F(NVFuserTest, FusionAmpereMatmulEpilogue_CUDA) {
     auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
     auto tref = atMatmul(
         inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
-
-    // There should be 3 shared memory tensors 2 for prologue and 1 for epilogue.
-    int num_shared_mem_tensors = 0;
-    for(const auto& tv : ir_utils::allTvs(&fusion)) {
-      if(tv->getMemoryType() == MemoryType::Shared) {
-        num_shared_mem_tensors++;
-      }
-    }
-    TORCH_CHECK(num_shared_mem_tensors == 3, "Expected 3 shared memory tensors, got ", num_shared_mem_tensors);
 
     // check bank conflicts
     ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
