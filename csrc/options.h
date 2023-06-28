@@ -25,6 +25,7 @@ enum class DebugDumpOption {
   FusionIrMath, //!< Dump just the compute (math) part of the Fusion IR
   FusionIrPresched, //!< Dump the Fusion IR before it is scheduled.
   FusionIrConcretized, //!< Dump the Fusion IR after concretization
+  FusionIrPreseg, //!< Dump the Fusion IR after pre-segmenter optimization
   KernelIr, //!< Dump the compiler Kernel IR
   ComputeAtMap, //!< Dump the computeAt map
   CudaKernel, //!< Dump the generated CUDA C++ kernel code

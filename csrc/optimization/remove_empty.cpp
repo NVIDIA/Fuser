@@ -7,8 +7,8 @@
 // clang-format on
 #include <optimization/remove_empty.h>
 
-#include <ops/arith.h>
 #include <ir/utils.h>
+#include <ops/arith.h>
 
 #include <algorithm>
 
@@ -32,7 +32,8 @@ std::vector<size_t> emptyAxes(std::vector<IterDomain*> domain) {
 
 //! Check whether a TensorView is empty. During concretization, we traverse to
 //! find a minimal set of TensorViews that have zero extents, and we then set
-//! their extents to a constant 0. Here we check for those constant zero extents.
+//! their extents to a constant 0. Here we check for those constant zero
+//! extents.
 bool isTVEmpty(TensorView* tv) {
   return !emptyAxes(TensorDomain::noReductions(tv->getMaybeRFactorDomain()))
               .empty();
@@ -83,7 +84,10 @@ class EmptyTensorRemover {
     if (stmt->isVal()) {
       handle(stmt->asVal());
     } else {
-      TORCH_INTERNAL_ASSERT(stmt->isExpr(), "Statement is neither a Val or Expr: ", stmt->toString());
+      TORCH_INTERNAL_ASSERT(
+          stmt->isExpr(),
+          "Statement is neither a Val or Expr: ",
+          stmt->toString());
       handle(stmt->asExpr());
     }
   }
@@ -103,7 +107,8 @@ class EmptyTensorRemover {
   //! the tensor is not provably empty.
   void handle(TensorView* tv) {
     if (tv->isFusionOutput()) {
-      const auto rfactor = TensorDomain::noReductions(tv->getMaybeRFactorDomain());
+      const auto rfactor =
+          TensorDomain::noReductions(tv->getMaybeRFactorDomain());
       const auto empty_axes = emptyAxes(rfactor);
       if (!empty_axes.empty()) {
         std::vector<Val*> shape(rfactor.size());
@@ -150,7 +155,7 @@ class EmptyTensorRemover {
     auto out = rop->out()->as<TensorView>();
     // The input is empty in some axes. Assert that they are all reduced
     const auto& out_root = out->getRootDomain();
-    
+
     std::vector<Val*> shape;
     for (auto id : out_root) {
       if (!id->isReduction() && !id->isStride()) { // same as noReductions()
