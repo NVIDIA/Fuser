@@ -2,6 +2,36 @@
 
 namespace nvfuser::serde {
 
+serde::UnaryOpType mapToSerdeUnaryOp(nvfuser::UnaryOpType t) {
+  switch (t) {
+    case nvfuser::UnaryOpType::Cast:
+      return serde::UnaryOpType_Cast;
+    case nvfuser::UnaryOpType::Neg:
+      return serde::UnaryOpType_Neg;
+    default:
+      return serde::UnaryOpType_None;
+  }
+}
+
+serde::BinaryOpType mapToSerdeBinaryOp(nvfuser::BinaryOpType t) {
+  switch (t) {
+    case nvfuser::BinaryOpType::Add:
+      return serde::BinaryOpType_Add;
+    case nvfuser::BinaryOpType::CeilDiv:
+      return serde::BinaryOpType_CeilDiv;
+    case nvfuser::BinaryOpType::Div:
+      return serde::BinaryOpType_Div;
+    case nvfuser::BinaryOpType::Mod:
+      return serde::BinaryOpType_Mod;
+    case nvfuser::BinaryOpType::Mul:
+      return serde::BinaryOpType_Mul;
+    case nvfuser::BinaryOpType::Sub:
+      return serde::BinaryOpType_Sub;
+    default:
+      return serde::BinaryOpType_None;
+  }
+}
+
 serde::DataType mapToSerdeDtype(at::ScalarType t) {
   switch (t) {
     case at::ScalarType::Bool:

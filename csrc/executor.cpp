@@ -18,6 +18,7 @@
 #include <iter_visitor.h>
 #include <kernel_ir.h>
 #include <options.h>
+#include <serde/expr_evaluator_serde.h>
 #include <serde/utils.h>
 #include <utils.h>
 
@@ -1903,6 +1904,8 @@ flatbuffers::Offset<serde::FusionExecutor> FusionExecutor::serialize(
   //  executor_entry_lookup_keys : [ulong];
   //  executor_entry_lookup_values : [ExecutorEntry];
   //  index_type : DataType;
+  //  generator : NaiveValueGenerator;
+  //  global_allocations : [AllocateBuffer];
   // }
   using fb_executor_entry = flatbuffers::Offset<nvfuser::serde::ExecutorEntry>;
   std::vector<size_t> executor_entry_lookup_keys_fb;
@@ -1911,6 +1914,12 @@ flatbuffers::Offset<serde::FusionExecutor> FusionExecutor::serialize(
     executor_entry_lookup_keys_fb.push_back(key);
     executor_entry_lookup_values_fb.push_back(serialize(builder, value));
   }
+
+  serde::ExpressionSerializer es;
+  auto value_generator =
+      es.serialize(builder, kernel(), kernel_summary_.global_allocations);
+  auto global_allocations =
+      es.serialize(builder, kernel_summary_.global_allocations);
 
   return serde::CreateFusionExecutorDirect(
       builder,
@@ -1923,7 +1932,9 @@ flatbuffers::Offset<serde::FusionExecutor> FusionExecutor::serialize(
       kernel_code_.c_str(),
       &executor_entry_lookup_keys_fb,
       &executor_entry_lookup_values_fb,
-      serde::mapToSerdeDtype(kernel()->indexType()));
+      serde::mapToSerdeDtype(kernel()->indexType()),
+      value_generator,
+      &global_allocations);
 }
 
 flatbuffers::Offset<serde::ExecutorEntry> FusionExecutor::serialize(
@@ -2032,6 +2043,8 @@ void FusionExecutor::deserialize(
   //  executor_entry_lookup_keys : [ulong];
   //  executor_entry_lookup_values : [ExecutorEntry];
   //  index_type : DataType;
+  //  generator : NaiveValueGenerator;
+  //  global_allocations : [AllocateBuffer];
   // }
   TORCH_INTERNAL_ASSERT(buffer != nullptr, "serde::FusionExecutor is nullptr.");
 
@@ -2061,6 +2074,11 @@ void FusionExecutor::deserialize(
         buffer->executor_entry_lookup_keys()->Get(idx),
         deserialize(buffer->executor_entry_lookup_values()->Get(idx)));
   }
+
+  serde::ExpressionBuilder es(lowered_->kernel());
+  es.deserialize(buffer->generator());
+  kernel_summary_.global_allocations =
+      es.deserialize(buffer->global_allocations());
 
   std::tie(compiled_kernel_, last_compiler_log_, last_compiled_binary_) =
       executor_utils::getCompiledKernel(
