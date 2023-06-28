@@ -4121,6 +4121,15 @@ TEST_F(NVFuserTest, FusionAmpereMatmulEpilogue_CUDA) {
     auto tref = atMatmul(
         inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
 
+    // There should be 3 shared memory tensors 2 for prologue and 1 for epilogue.
+    int num_shared_mem_tensors = 0;
+    for(const auto& tv : ir_utils::allTvs(&fusion)) {
+      if(tv->getMemoryType() == MemoryType::Shared) {
+        num_shared_mem_tensors++;
+      }
+    }
+    TORCH_CHECK(num_shared_mem_tensors == 3, "Expected 3 shared memory tensors, got ", num_shared_mem_tensors);
+
     // check bank conflicts
     ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
     TORCH_CHECK(cg_outputs[0].allclose(tref, 0.001, 0.001));
