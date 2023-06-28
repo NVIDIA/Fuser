@@ -316,7 +316,7 @@ TensorView* iota(Val* length, Val* start, Val* step, DataType dtype) {
   }
 
   TORCH_INTERNAL_ASSERT(
-      step->isConstScalar() && !step->isZero(),
+      !step->isConstScalar() || !step->isZero(),
       "iota: step value must not equal zero.");
 
   auto out = TensorViewBuilder()
