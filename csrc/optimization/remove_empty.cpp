@@ -12,6 +12,7 @@
 #include <ops/arith.h>
 
 #include <algorithm>
+#include <deque>
 
 namespace nvfuser::optimization {
 
@@ -60,23 +61,23 @@ bool isTVEmpty(TensorView* tv) {
 //!
 //! Note that we do not use BackwardVisitor here even though we are doing a
 //! backward traversal. This is because we will actually be changing the Fusion
-//! graph as we traverse. BackwardVisitor works by creating a stack of
+//! graph as we traverse. BackwardVisitor works by creating a queue of
 //! statements using InputsOf and a forward traversal, then iteratively pops
-//! that static stack of statements. This does not work well when we want to
+//! that static queue of statements. This does not work well when we want to
 //! eliminate dead code while traversing, so instead we implement a simple
-//! stack-based depth-first backward traversal manually here.
+//! queue-based breadth-first backward traversal manually here.
 class EmptyTensorRemover {
  public:
   EmptyTensorRemover(Fusion* fusion) : fusion_(fusion) {
     for (auto outp : fusion->outputs()) {
-      stmt_stack_.push_back(outp);
+      stmt_queue_.push_back(outp);
     }
   }
 
   void run() {
-    while (!stmt_stack_.empty()) {
-      auto stmt = stmt_stack_.back();
-      stmt_stack_.pop_back();
+    while (!stmt_queue_.empty()) {
+      auto stmt = stmt_queue_.front();
+      stmt_queue_.pop_front();
       handle(stmt);
     }
   }
@@ -99,7 +100,7 @@ class EmptyTensorRemover {
     } else if (v->definition()) {
       // TensorView vals might be overwritten, in which case we should not keep
       // traversing. For all other Vals, push their definition to the stack.
-      stmt_stack_.push_back(v->definition());
+      stmt_queue_.push_back(v->definition());
     }
   }
 
@@ -134,16 +135,27 @@ class EmptyTensorRemover {
           tv->toString());
     }
     if (tv->definition()) {
-      stmt_stack_.push_back(tv->definition());
+      stmt_queue_.push_back(tv->definition());
     }
   }
 
+  //! Push the inputs of an expression onto the statement stack for further
+  //! processing.
   void pushInputs(Expr* e) {
     for (auto inp : e->inputs()) {
-      stmt_stack_.push_back(inp);
+      stmt_queue_.push_back(inp);
     }
   }
 
+  //! A reduction over empty axes is equal to the initial value of the
+  //! reduction, as if the reduction were written as follows:
+  //!
+  //!   auto result = init_value;
+  //!   for (auto element : reduction_elements) {
+  //!     result = reduction_op(result, element);
+  //!   }
+  //!   return result;
+  //!
   void handle(ReductionOp* rop) {
     auto in = rop->in()->as<TensorView>();
     auto empty_input_axes =
@@ -181,6 +193,15 @@ class EmptyTensorRemover {
     replaceTV(out, new_tv);
   }
 
+  //! A reduction over empty axes is equal to the initial value of the
+  //! reduction, as if the reduction were written as follows:
+  //!
+  //!   auto result = init_value;
+  //!   for (auto element : reduction_elements) {
+  //!     result = reduction_op(result, element);
+  //!   }
+  //!   return result;
+  //!
   void handle(WelfordOp* wop) {}
 
   //! A cat op can have input empty tensors and still output a non-empty
@@ -245,7 +266,7 @@ class EmptyTensorRemover {
     }
     for (auto tv : non_empty_inputs) {
       // Continue processing non-empty inputs
-      stmt_stack_.push_back(tv);
+      stmt_queue_.push_back(tv);
     }
   }
 
@@ -308,7 +329,7 @@ class EmptyTensorRemover {
 
  private:
   Fusion* fusion_;
-  std::vector<Statement*> stmt_stack_;
+  std::deque<Statement*> stmt_queue_;
 };
 
 } // namespace
