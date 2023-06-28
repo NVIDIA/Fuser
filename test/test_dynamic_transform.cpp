@@ -994,4 +994,39 @@ TEST_F(NVFuserTest, FusionDynamicSliceToBroadcast_CUDA) {
   testValidate(&fusion, outputs, aten_inputs, {at2}, __LINE__, __FILE__);
 }
 
+// Test that we remove empty output branch before segmentation
+TEST_F(NVFuserTest, FusionRemoveEmptyOutput_CUDA) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(fusion_ptr.get());
+  // Concrete tensor with zero for one extent, so that we can prove the output
+  // is empty
+  auto tv0 = makeConcreteTensor({0, 3});
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  fusion.addOutput(tv1);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor at0 = at::randn({0, 3}, options);
+  std::vector<c10::IValue> aten_inputs = {at0};
+
+  auto args = KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
+  FusionKernelRuntime runtime(std::move(fusion_ptr), args);
+
+  // In the FusionKernelRuntime, before segmentation a number of optimization
+  // passes are performed. One of those is RemoveEmptyPass, which should replace
+  // the empty output tv1 with a new TensorView defined by `full({0, 3})` in
+  // this case.
+  auto preseg_fusion = runtime.fusionSegments()->completeFusion();
+  EXPECT_EQ(preseg_fusion->outputs().size(), 1);
+  EXPECT_NE(preseg_fusion->outputs()[0], tv1);
+  EXPECT_NE(preseg_fusion->outputs()[0]->definition(), nullptr);
+  EXPECT_TRUE(preseg_fusion->outputs()[0]->definition()->isA<FullOp>());
+
+  runtime.compileFusionParallel(args);
+  auto outputs = runtime.runWithInputs(args);
+
+  testValidate(preseg_fusion, outputs, aten_inputs, {at0}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser
