@@ -602,9 +602,8 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   // Mma object is valid only because cacheBefore has been done on
   //  TV which is not output of MmaOp, as there is an epilogue
   auto mma_result = has_epilogue ? mma->out()->as<TensorView>() : cc;
-
   // epilogue shared memory tensor if use shared memory epilogue
-  // mma_result -> c_smem -> c
+  // mma_result -> cc (if has_epilogue) -> c_smem -> c
   auto c_smem = params.has_smem_epilogue ? c->cacheBefore() : c;
 
   // Clear MmaOp pointer, it's not needed from now on
@@ -724,9 +723,9 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   scheduler_utils::transformPropagateToAllFrom(mma_result, -1);
 
   if (params.has_smem_epilogue) {
-    // Transform cc through the epilogue swizzle without actually
+    // Transform mma_result through the epilogue swizzle without actually
     // swizzling the axes. This is done to enable the domains
-    // are mapped between cc and c_smem.
+    // are mapped between mma_result and c_smem.
     // epilogSwizzle by default swizzle axis -2 and -1
     // here, needs to shift by 1 to axis -2 and -3 to skip
     // the K axis. Merge back to original form after this swizzle
@@ -813,6 +812,16 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
       {ParallelType::TIDy, ParallelType::TIDz});
 
   if (params.has_smem_epilogue) {
+    if (has_epilogue) {
+      // mma_results -> other_tvs -> c_smem -> c
+      scheduler_utils::BoundedDirectionalTransformPropagator::forward(
+          mma_result,
+          -1,
+          ir_utils::producerTvsOf(c_smem),
+          scheduler_utils::BoundedDirectionalTransformPropagator::Options()
+              .propagateParallelType()
+              .propagateToBoundary());
+    }
     scheduleEpilog(
         c_smem,
         mma_result,
@@ -820,6 +829,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
         gemm_tile,
         mma_builder.operand(MmaOptions::Operand::Accumulator).build());
   }
+
   scheduler_utils::BoundedDirectionalTransformPropagator::forward(
       params.has_smem_epilogue ? c_smem : mma_result,
       -1,

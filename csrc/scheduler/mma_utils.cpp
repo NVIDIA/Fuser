@@ -24,22 +24,24 @@ bool hasEnoughSharedMemoryForEpilogue(
     const int smem_double_buffer_stage) {
   auto properties = at::cuda::getDeviceProperties(
       c10::Device(c10::DeviceType::CUDA, 0).index());
-  const int64_t device_smem_limit = (int64_t)properties->sharedMemPerBlockOptin;
+  const size_t device_smem_limit = properties->sharedMemPerBlockOptin;
 
   // see scheduleContiguousVectorLoad
-  const int64_t vector_word = 8;
+  const int vector_word = 8;
   auto warp_dims = gemm_tile.cta_tile / gemm_tile.warp_tile;
-  const int64_t round_to_factor =
+  const int round_to_factor =
       warp_dims.m * warp_dims.n * warp_dims.k * 32 * vector_word;
-  const int64_t mk = gemm_tile.cta_tile.m * gemm_tile.cta_tile.k;
-  const int64_t nk = gemm_tile.cta_tile.n * gemm_tile.cta_tile.k;
-  const int64_t smem_a = ceilDiv(mk, round_to_factor) * round_to_factor *
-      dataTypeSize(DataType::Half) * smem_double_buffer_stage;
-  const int64_t smem_b = ceilDiv(nk, round_to_factor) * round_to_factor *
-      dataTypeSize(DataType::Half) * smem_double_buffer_stage;
-  const int64_t smem_c = gemm_tile.cta_tile.m * gemm_tile.cta_tile.n *
+  const int mk = gemm_tile.cta_tile.m * gemm_tile.cta_tile.k;
+  const int nk = gemm_tile.cta_tile.n * gemm_tile.cta_tile.k;
+  const size_t smem_a = (size_t)(ceilDiv(mk, round_to_factor) *
+                                 round_to_factor * smem_double_buffer_stage) *
+      dataTypeSize(DataType::Half);
+  const size_t smem_b = (size_t)(ceilDiv(nk, round_to_factor) *
+                                 round_to_factor * smem_double_buffer_stage) *
+      dataTypeSize(DataType::Half);
+  const size_t smem_c = (size_t)(gemm_tile.cta_tile.m * gemm_tile.cta_tile.n) *
       dataTypeSize(DataType::Float);
-  int64_t smem_size = smem_a + smem_b + smem_c;
+  const size_t smem_size = smem_a + smem_b + smem_c;
 
   return smem_size <= device_smem_limit;
 }
