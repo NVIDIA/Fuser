@@ -635,8 +635,18 @@ TEST_F(DynamicTypeTest, UnaryOpAdvancedTyping) {
 TEST_F(DynamicTypeTest, BinaryOpAdvancedTyping) {
   struct Type1 {};
   struct Type2 {
-    Type1 operator+(Type2) const {
+    constexpr Type1 operator+(Type2) const {
       return Type1{};
+    }
+    constexpr Type1 operator+() const {
+      return Type1{};
+    }
+  };
+  struct Type3 {
+    constexpr Type3() = default;
+    constexpr Type3(Type1) {}
+    constexpr bool operator==(Type3) const {
+      return true;
     }
   };
   // not defined compile time because Type2+Type2 is not in type list
@@ -647,6 +657,17 @@ TEST_F(DynamicTypeTest, BinaryOpAdvancedTyping) {
       !(opcheck<DynamicType<NoContainers, Type2, SomeType>> + opcheck<Type2>));
   static_assert(
       !(opcheck<Type2> + opcheck<DynamicType<NoContainers, Type2, SomeType>>));
+  // defined compile time because Type2+Type2 and +Type2 is constructible to
+  // Type3
+  using Type2Type3 = DynamicType<NoContainers, Type2, Type3>;
+  static_assert(opcheck<Type2Type3> + opcheck<Type2Type3>);
+  static_assert(Type2Type3(Type2{}) + Type2Type3(Type2{}) == Type3{});
+  static_assert(opcheck<Type2Type3> + opcheck<Type2>);
+  static_assert(Type2Type3(Type2{}) + Type2{} == Type3{});
+  static_assert(opcheck<Type2> + opcheck<Type2Type3>);
+  static_assert(Type2{} + Type2Type3(Type2{}) == Type3{});
+  static_assert(+opcheck<Type2Type3>);
+  static_assert(+Type2Type3(Type2{}) == Type3{});
   // defined compile time because int+int is in type list
   static_assert(
       opcheck<DynamicType<NoContainers, Type2, int>> +
@@ -660,6 +681,10 @@ TEST_F(DynamicTypeTest, BinaryOpAdvancedTyping) {
       bad,
       ::testing::ThrowsMessage<c10::Error>(
           ::testing::HasSubstr("Cannot compute ")));
+  // test bool to int conversion
+  using Int = DynamicType<NoContainers, int>;
+  static_assert((Int(2) && Int(0)) == 0);
+  static_assert((Int(2) && Int(3)) == 1);
 }
 
 TEST_F(DynamicTypeTest, Printing) {
