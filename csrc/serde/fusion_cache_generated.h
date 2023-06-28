@@ -3724,8 +3724,9 @@ struct FusionExecutor FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
     VT_EXECUTOR_ENTRY_LOOKUP_KEYS = 18,
     VT_EXECUTOR_ENTRY_LOOKUP_VALUES = 20,
     VT_INDEX_TYPE = 22,
-    VT_GENERATOR = 24,
-    VT_GLOBAL_ALLOCATIONS = 26
+    VT_MAX_RNG_OFFSETS = 24,
+    VT_GENERATOR = 26,
+    VT_GLOBAL_ALLOCATIONS = 28
   };
   int64_t device_smem_limit() const {
     return GetField<int64_t>(VT_DEVICE_SMEM_LIMIT, 0);
@@ -3757,6 +3758,9 @@ struct FusionExecutor FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
   nvfuser::serde::DataType index_type() const {
     return static_cast<nvfuser::serde::DataType>(GetField<int32_t>(VT_INDEX_TYPE, 0));
   }
+  int32_t max_rng_offsets() const {
+    return GetField<int32_t>(VT_MAX_RNG_OFFSETS, 0);
+  }
   const nvfuser::serde::NaiveValueGenerator *generator() const {
     return GetPointer<const nvfuser::serde::NaiveValueGenerator *>(VT_GENERATOR);
   }
@@ -3779,6 +3783,7 @@ struct FusionExecutor FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
            verifier.VerifyVector(executor_entry_lookup_values()) &&
            verifier.VerifyVectorOfTables(executor_entry_lookup_values()) &&
            VerifyField<int32_t>(verifier, VT_INDEX_TYPE, 4) &&
+           VerifyField<int32_t>(verifier, VT_MAX_RNG_OFFSETS, 4) &&
            VerifyOffset(verifier, VT_GENERATOR) &&
            verifier.VerifyTable(generator()) &&
            VerifyOffset(verifier, VT_GLOBAL_ALLOCATIONS) &&
@@ -3822,6 +3827,9 @@ struct FusionExecutorBuilder {
   void add_index_type(nvfuser::serde::DataType index_type) {
     fbb_.AddElement<int32_t>(FusionExecutor::VT_INDEX_TYPE, static_cast<int32_t>(index_type), 0);
   }
+  void add_max_rng_offsets(int32_t max_rng_offsets) {
+    fbb_.AddElement<int32_t>(FusionExecutor::VT_MAX_RNG_OFFSETS, max_rng_offsets, 0);
+  }
   void add_generator(::flatbuffers::Offset<nvfuser::serde::NaiveValueGenerator> generator) {
     fbb_.AddOffset(FusionExecutor::VT_GENERATOR, generator);
   }
@@ -3851,6 +3859,7 @@ inline ::flatbuffers::Offset<FusionExecutor> CreateFusionExecutor(
     ::flatbuffers::Offset<::flatbuffers::Vector<uint64_t>> executor_entry_lookup_keys = 0,
     ::flatbuffers::Offset<::flatbuffers::Vector<::flatbuffers::Offset<nvfuser::serde::ExecutorEntry>>> executor_entry_lookup_values = 0,
     nvfuser::serde::DataType index_type = nvfuser::serde::DataType_Double,
+    int32_t max_rng_offsets = 0,
     ::flatbuffers::Offset<nvfuser::serde::NaiveValueGenerator> generator = 0,
     ::flatbuffers::Offset<::flatbuffers::Vector<::flatbuffers::Offset<nvfuser::serde::AllocateBuffer>>> global_allocations = 0) {
   FusionExecutorBuilder builder_(_fbb);
@@ -3862,6 +3871,7 @@ inline ::flatbuffers::Offset<FusionExecutor> CreateFusionExecutor(
   builder_.add_device_smem_limit(device_smem_limit);
   builder_.add_global_allocations(global_allocations);
   builder_.add_generator(generator);
+  builder_.add_max_rng_offsets(max_rng_offsets);
   builder_.add_index_type(index_type);
   builder_.add_executor_entry_lookup_values(executor_entry_lookup_values);
   builder_.add_executor_entry_lookup_keys(executor_entry_lookup_keys);
@@ -3881,6 +3891,7 @@ inline ::flatbuffers::Offset<FusionExecutor> CreateFusionExecutorDirect(
     const std::vector<uint64_t> *executor_entry_lookup_keys = nullptr,
     const std::vector<::flatbuffers::Offset<nvfuser::serde::ExecutorEntry>> *executor_entry_lookup_values = nullptr,
     nvfuser::serde::DataType index_type = nvfuser::serde::DataType_Double,
+    int32_t max_rng_offsets = 0,
     ::flatbuffers::Offset<nvfuser::serde::NaiveValueGenerator> generator = 0,
     const std::vector<::flatbuffers::Offset<nvfuser::serde::AllocateBuffer>> *global_allocations = nullptr) {
   auto kernel_code__ = kernel_code ? _fbb.CreateString(kernel_code) : 0;
@@ -3899,6 +3910,7 @@ inline ::flatbuffers::Offset<FusionExecutor> CreateFusionExecutorDirect(
       executor_entry_lookup_keys__,
       executor_entry_lookup_values__,
       index_type,
+      max_rng_offsets,
       generator,
       global_allocations__);
 }

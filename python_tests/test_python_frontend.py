@@ -968,7 +968,6 @@ class TestNvFuserFrontend(TestCase):
         eager_out = torch.mul(inputs[0], inputs[1])
         self.assertEqual(eager_out, nvf_out[0])
 
-    """
     def test_normal(self):
         input_size = [64, 128, 1024]
         dtype = torch.float32
@@ -1052,7 +1051,6 @@ class TestNvFuserFrontend(TestCase):
             .isclose(torch.tensor(hi), rtol=1e-2, atol=1e-2)
             .item()
         )
-    """
 
     def test_where_dtypes(self):
         inputs = [
@@ -1779,7 +1777,6 @@ class TestNvFuserFrontend(TestCase):
             )
             self.assertEqual(n, torch_out)
 
-    """
     def test_nanogpt_mha_dpa(self):
         inputs = [
             torch.randn(16, 16, 128, 128, device="cuda"),
@@ -1871,7 +1868,6 @@ class TestNvFuserFrontend(TestCase):
 
         for idx in range(len(nvf_out)):
             self.assertEqual(eager_out, nvf_out[idx])
-    """
 
     def test_nanogpt_split_mha_linears(self):
         inputs = [
@@ -1960,7 +1956,6 @@ class TestNvFuserFrontend(TestCase):
             for idx in range(len(eager_out)):
                 self.assertEqual(eager_out[idx], nvf_out[idx])
 
-    """
     def test_slice_error_checks(self):
         inputs = [
             [torch.randn(10, 10, device="cuda")],
@@ -2085,7 +2080,6 @@ class TestNvFuserFrontend(TestCase):
                         skip_serde_check=True,
                     )
             first_check = False
-    """
 
     def test_constant_nans(self):
         inputs = [

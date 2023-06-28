@@ -1912,6 +1912,7 @@ flatbuffers::Offset<serde::FusionExecutor> FusionExecutor::serialize(
   //  executor_entry_lookup_keys : [ulong];
   //  executor_entry_lookup_values : [ExecutorEntry];
   //  index_type : DataType;
+  //  max_rng_offsets : int;
   //  generator : NaiveValueGenerator;
   //  global_allocations : [AllocateBuffer];
   // }
@@ -1931,6 +1932,7 @@ flatbuffers::Offset<serde::FusionExecutor> FusionExecutor::serialize(
   auto global_allocations =
       es.serialize(builder, kernel_summary_.global_allocations);
   std::cout << "ga\t" << kernel_summary_.global_allocations << std::endl;
+  std::cout << "drng\t" << kernel_summary_.max_rng_offsets << std::endl;
 
   std::cout << "serialize fe end" << std::endl;
   return serde::CreateFusionExecutorDirect(
@@ -1945,6 +1947,7 @@ flatbuffers::Offset<serde::FusionExecutor> FusionExecutor::serialize(
       &executor_entry_lookup_keys_fb,
       &executor_entry_lookup_values_fb,
       serde::mapToSerdeDtype(kernel()->indexType()),
+      kernel_summary_.max_rng_offsets,
       value_generator,
       &global_allocations);
 }
@@ -2056,6 +2059,7 @@ void FusionExecutor::deserialize(
   //  executor_entry_lookup_keys : [ulong];
   //  executor_entry_lookup_values : [ExecutorEntry];
   //  index_type : DataType;
+  //  max_rng_offsets : int;
   //  generator : NaiveValueGenerator;
   //  global_allocations : [AllocateBuffer];
   // }
@@ -2094,16 +2098,10 @@ void FusionExecutor::deserialize(
   es.deserialize(buffer->generator());
   kernel_summary_.global_allocations =
       es.deserialize(buffer->global_allocations());
+  kernel_summary_.max_rng_offsets = buffer->max_rng_offsets();
   std::cout << "ksga\t" << kernel_summary_.global_allocations.size()
             << std::endl;
-
-  fusion_->printMath();
-
-  for (auto idx : c10::irange(buffer->executor_entry_lookup_keys()->size())) {
-    executor_entry_lookup_.emplace(
-        buffer->executor_entry_lookup_keys()->Get(idx),
-        deserialize(buffer->executor_entry_lookup_values()->Get(idx)));
-  }
+  std::cout << "drng\t" << kernel_summary_.max_rng_offsets << std::endl;
 
   std::tie(compiled_kernel_, last_compiler_log_, last_compiled_binary_) =
       executor_utils::getCompiledKernel(
