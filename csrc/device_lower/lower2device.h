@@ -201,7 +201,7 @@ class TORCH_CUDA_CU_API GpuLower : public NonCopyable {
   void propagateExprInfo(const Expr* old_expr, const Expr* new_expr);
 
  private:
-  void fast_lower(Fusion* fusion);
+  void fastLower(Fusion* fusion);
   void lower(Fusion* fusion);
 
   // Goes through the parallelized iterdomains of the used TVs and find

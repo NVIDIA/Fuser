@@ -544,7 +544,10 @@ void** KernelArgumentHolder::getBuffer(
     ExpressionEvaluator& eval) {
   TORCH_INTERNAL_ASSERT(
       arguments_.size() == tvs.size(),
-      "The size of arguments and the size of tvs does not match.");
+      "The size of arguments and the size of tvs does not match.\t",
+      arguments_.size(),
+      "\t",
+      tvs.size());
   if (void_ptrs_.size() < arguments_.size()) {
     void_ptrs_.resize(arguments_.size());
   }
