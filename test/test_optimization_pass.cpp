@@ -496,4 +496,52 @@ TEST_F(NVFuserTest, FusionRemoveEmptyCat_CUDA) {
       __FILE__);
 }
 
+// Test that we replace empty tensors in pad properly
+TEST_F(NVFuserTest, FusionRemoveEmptyPad_CUDA) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(fusion_ptr.get());
+  // Concrete tensor with zero for one extent, so that we can prove the output
+  // is empty
+  auto tv0 = makeConcreteTensor({3, 0});
+  fusion.addInput(tv0);
+
+  // Use a non-zero pad value to verify that it is used in the rewritten fill
+  auto pad_val = IrBuilder::create<Double>(3.14, DataType::Float);
+
+  // equivalent to full({3, 2}, pad_val, DataType::Float)
+  auto tv1 = pad(tv0, {fusion.oneVal(), fusion.oneVal()}, pad_val);
+  fusion.addOutput(tv1);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor at0 = at::randn({3, 0}, options);
+  std::vector<c10::IValue> aten_inputs = {at0};
+
+  auto args = KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
+  FusionKernelRuntime runtime(std::move(fusion_ptr), args);
+
+  // In the FusionKernelRuntime, before segmentation a number of optimization
+  // passes are performed. One of those is RemoveEmptyPass, which should replace
+  // the empty output tv1 with a new TensorView defined by `full({0, 3})` in
+  // this case.
+  auto preseg_fusion = runtime.fusionSegments()->completeFusion();
+  EXPECT_EQ(preseg_fusion->outputs().size(), 1);
+
+  EXPECT_NE(preseg_fusion->outputs()[0]->definition(), nullptr);
+  auto rewritten_def = preseg_fusion->outputs()[0]->definition();
+  EXPECT_TRUE(rewritten_def->isA<FullOp>());
+  EXPECT_TRUE(rewritten_def->as<FullOp>()->getFillValue()->sameAs(pad_val));
+
+  runtime.compileFusionParallel(args);
+  auto outputs = runtime.runWithInputs(args);
+
+  testValidate(
+      preseg_fusion,
+      outputs,
+      aten_inputs,
+      {at::pad(at0, {1, 1}, "constant", 3.14)},
+      __LINE__,
+      __FILE__);
+}
+
 } // namespace nvfuser::optimization

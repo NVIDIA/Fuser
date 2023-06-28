@@ -249,7 +249,28 @@ class EmptyTensorRemover {
     }
   }
 
-  void handle(PadOp* wop) {}
+  //! Replace pad(tv) if tv is empty in any dimension. Note that since we detect
+  //! empty tensors by looking for constant extents, the output extents will be
+  //! correct here already, so there is no value in removing the empty input
+  //! extent when we do the replacement.
+  void handle(PadOp* pop) {
+    auto in = pop->in()->as<TensorView>();
+    auto in_rfactor = TensorDomain::noReductions(in->getMaybeRFactorDomain());
+    if (!emptyAxes(in_rfactor).empty()) {
+      auto out = pop->out()->as<TensorView>();
+      auto out_rfactor =
+          TensorDomain::noReductions(out->getMaybeRFactorDomain());
+      std::vector<Val*> shape;
+      shape.reserve(out_rfactor.size());
+      for (auto id : out_rfactor) {
+        shape.push_back(id->extent());
+      }
+      auto new_tv = full(shape, pop->value(), out->getDataType().value());
+      replaceTV(out, new_tv);
+    } else {
+      pushInputs(pop);
+    }
+  }
 
   //! Replaces a TensorView in outputs, and in all uses. If old_tv is a Fusion
   //! input, we do not replace it. After replacement, unless it is a Fusion
