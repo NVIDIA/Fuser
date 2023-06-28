@@ -8,6 +8,7 @@
 #include <optimization/remove_empty.h>
 
 #include <ir/utils.h>
+#include <ops/alias.h>
 #include <ops/arith.h>
 
 #include <algorithm>
@@ -180,6 +181,76 @@ class EmptyTensorRemover {
     replaceTV(out, new_tv);
   }
 
+  void handle(WelfordOp* wop) {}
+
+  //! A cat op can have input empty tensors and still output a non-empty
+  //! tensor. This is only possible if there is more than one input, so we
+  //! only need to handle those cases. We find the non-empty inputs to cat
+  //! then replace with another cat (or `set` if n=1).
+  //!
+  //! The `cat` function creates a CatOp object, but its inputs() are not
+  //! the original inputs. Rather, they are the inputs after padding to the
+  //! output extent in the concatenated dimension. Thus, in the IR graph,
+  //! instead of the following:
+  //!
+  //!    T0  T1   T2
+  //!      \  |  /
+  //!       CatOp
+  //!         |
+  //!        T3
+  //!
+  //! a cat is represented as:
+  //!
+  //!    T0    T1    T2
+  //!     |     |     |
+  //!   PadOp PadOp PadOp
+  //!       \   |   /
+  //!         CatOp
+  //!           |
+  //!          T3
+  //!
+  //! If we determine that one of the inputs, T1, is empty in the cat
+  //! dimension, then we rewrite this as:
+  //!
+  //!    T0          T2
+  //!     |           |
+  //!   PadOp       PadOp
+  //!       \       /
+  //!         CatOp
+  //!           |
+  //!          T3
+  //!
+  //! This is done by simply calling the cat() command with only {T0, T2}.
+  void handle(CatOp* cop) {
+    auto dim = cop->concatenatedDim();
+    std::vector<TensorView*> non_empty_inputs;
+    for (auto inp : cop->inputs()) {
+      TORCH_INTERNAL_ASSERT(
+          inp->definition() && inp->definition()->isA<PadOp>(),
+          "Inputs to CatOp must be outputs of PadOps");
+      auto tv = inp->definition()->as<PadOp>()->in()->as<TensorView>();
+      auto cat_id =
+          TensorDomain::noReductions(tv->getMaybeRFactorDomain()).at(dim);
+      if (cat_id->extent()->isConst() && cat_id->extent()->evaluateInt() == 0) {
+        continue;
+      }
+      non_empty_inputs.push_back(tv);
+    }
+    if (non_empty_inputs.size() != cop->inputs().size()) {
+      // Replace this op with a new cat op
+      auto old_tv = cop->outputs()[0]->as<TensorView>();
+      // NOTE: cat() will translate to set() if non_empty_inputs.size() == 1
+      auto new_tv = cat(non_empty_inputs, dim);
+      replaceTV(old_tv, new_tv);
+    }
+    for (auto tv : non_empty_inputs) {
+      // Continue processing non-empty inputs
+      stmt_stack_.push_back(tv);
+    }
+  }
+
+  void handle(PadOp* wop) {}
+
   //! Replaces a TensorView in outputs, and in all uses. If old_tv is a Fusion
   //! input, we do not replace it. After replacement, unless it is a Fusion
   //! input, we remove it from the fusion and set the original pointer to zero
@@ -202,12 +273,14 @@ class EmptyTensorRemover {
       handle(rop);
     } else if (auto wop = dynamic_cast<WelfordOp*>(e)) {
       handle(wop);
+    } else if (auto pop = dynamic_cast<CatOp*>(e)) {
+      handle(pop);
     } else if (auto pop = dynamic_cast<PadOp*>(e)) {
       handle(pop);
     } else {
-      // The handled ops above may terminate this branch, so they will need to
-      // manually handle their inputs. For unhandled ops, we just handle all
-      // inputs here.
+      // The handled ops above may terminate this branch of the traversal, so
+      // they will need to manually handle their inputs. For unhandled ops, we
+      // just handle all inputs here.
       pushInputs(e);
     }
   }
