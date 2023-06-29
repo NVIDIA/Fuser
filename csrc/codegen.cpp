@@ -715,56 +715,21 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
              << rop->getRNGOffset() << ";\n";
     indent() << "if (rng_subseq != rng_subseq" << rop->name()
              << " || rng_offset != rng_offset" << rop->name() << ") {\n";
-    indent() << "  auto seed = philox_args.captured_ ?\n"
-             << "      static_cast<uint64_t>(*(philox_args.seed_.ptr)) : \n"
-             << "      philox_args.seed_.val;\n";
-    indent() << "  rng_result = philox(seed, rng_subseq" << rop->name()
-             << ", philox_offset / 4 + rng_offset" << rop->name() << ");\n";
-    indent() << "  rng_subseq = rng_subseq" << rop->name() << ";\n";
-    indent() << "  rng_offset = rng_offset" << rop->name() << ";\n";
-    indent() << "}\n";
-    auto op_type = rop->getRNGOpType();
-    indent() << gen(rop->output(0)) << " = " << op_type;
-    if (needFloatSuffix(op_type) && rop->dtype() == DataType::Float) {
-      code_ << "f";
+    if (rop->getRNGSeedVal()) {
+      indent() << "  auto seed = " << genInline(rop->getRNGSeedVal()) << ";\n";
+    } else {
+      indent() << "  auto seed = philox_args.captured_ ?\n";
+      indent() << "      static_cast<uint64_t>(*(philox_args.seed_.ptr)) : \n";
+      indent() << "      philox_args.seed_.val;\n";
     }
-    code_ << "(rng_result, rng_component" << rop->name();
-    switch (op_type) {
-      case RNGOpType::UniformRange: {
-        auto parameters = rop->getParameters();
-        TORCH_INTERNAL_ASSERT(parameters.size() == 2);
-        code_ << ", " << gen(parameters[0]) << ", " << gen(parameters[1]);
-        break;
-      }
-      case RNGOpType::NormalGeneral: {
-        auto parameters = rop->getParameters();
-        TORCH_INTERNAL_ASSERT(parameters.size() == 2);
-        code_ << ", " << gen(parameters[0]) << ", " << gen(parameters[1]);
-        break;
-      }
-      default:;
+    if (rop->getRNGOffsetVal()) {
+      indent() << "  rng_result = philox(seed, rng_subseq" << rop->name()
+               << ", " << genInline(rop->getRNGOffsetVal())
+               << " / 4 + rng_offset" << rop->name() << ");\n";
+    } else {
+      indent() << "  rng_result = philox(seed, rng_subseq" << rop->name()
+               << ", philox_offset / 4 + rng_offset" << rop->name() << ");\n";
     }
-    code_ << ");\n";
-  }
-
-  void handle(const FunctionalRNGOp* rop) final {
-    // TODO: TORCH_INTERNAL_ASSERT that the scheduler correctly creates an
-    // innermost ID of size 4 (float) or size 2 (double)?
-    auto index = genInline(rop->getPhiloxIndex());
-    int multiple = rop->getPhiloxMultiple();
-    indent() << "nvfuser_index_t linear_index" << rop->name() << " = " << index
-             << ";\n";
-    indent() << "nvfuser_index_t rng_subseq" << rop->name() << " = linear_index"
-             << rop->name() << " / " << multiple << ";\n";
-    indent() << "nvfuser_index_t rng_component" << rop->name()
-             << " = linear_index" << rop->name() << " % " << multiple << ";\n";
-    indent() << "nvfuser_index_t rng_offset" << rop->name() << " = 0;\n";
-    indent() << "if (rng_subseq != rng_subseq" << rop->name()
-             << " || rng_offset != rng_offset" << rop->name() << ") {\n";
-    indent() << "  auto seed = " << genInline(rop->getRNGSeed()) << ";\n";
-    indent() << "  rng_result = philox(seed, rng_subseq" << rop->name() << ", "
-             << genInline(rop->getRNGOffset()) << " / 4 + rng_offset"
-             << rop->name() << ");\n";
     indent() << "  rng_subseq = rng_subseq" << rop->name() << ";\n";
     indent() << "  rng_offset = rng_offset" << rop->name() << ";\n";
     indent() << "}\n";

@@ -177,10 +177,6 @@ void Expr::dispatch(T handler, Expr* expr) {
     ptr(handler)->handle(expr->as<RNGOp>());
     return;
   }
-  if (expr->isStrictlyA<FunctionalRNGOp>()) {
-    ptr(handler)->handle(expr->as<FunctionalRNGOp>());
-    return;
-  }
   if (expr->isStrictlyA<ReductionOp>()) {
     ptr(handler)->handle(expr->as<ReductionOp>());
     return;
@@ -481,10 +477,6 @@ void Expr::constDispatch(T handler, const Expr* expr) {
   }
   if (expr->isStrictlyA<RNGOp>()) {
     ptr(handler)->handle(expr->as<RNGOp>());
-    return;
-  }
-  if (expr->isStrictlyA<FunctionalRNGOp>()) {
-    ptr(handler)->handle(expr->as<FunctionalRNGOp>());
     return;
   }
   if (expr->isStrictlyA<ReductionOp>()) {
@@ -924,9 +916,6 @@ void OptOutConstDispatch::handle(const ScatterOp* stmt) {
 void OptOutConstDispatch::handle(const RNGOp* stmt) {
   unhandled(stmt);
 }
-void OptOutConstDispatch::handle(const FunctionalRNGOp* stmt) {
-  unhandled(stmt);
-}
 void OptOutConstDispatch::handle(const ReductionOp* stmt) {
   unhandled(stmt);
 }
@@ -1132,9 +1121,6 @@ void OptOutDispatch::handle(ScatterOp* stmt) {
   unhandled(stmt);
 }
 void OptOutDispatch::handle(RNGOp* stmt) {
-  unhandled(stmt);
-}
-void OptOutDispatch::handle(FunctionalRNGOp* stmt) {
   unhandled(stmt);
 }
 void OptOutDispatch::handle(ReductionOp* stmt) {

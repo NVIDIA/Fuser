@@ -505,25 +505,31 @@ class TORCH_CUDA_CU_API RNGOp : public Expr {
     // cppcoreguidelines-pro-type-member-init
     RNGOpType rtype = RNGOpType::Undefined;
     DataType dtype;
-    int rng_offset = 0;
+    int rng_offset_int;
+    size_t num_parameters = 0;
 
     // TODO: Enable the following in C++20:
     // bool operator==(const Attributes &other) const = default;
     bool operator==(const Attributes& other) const {
+      // Note: we do not need to explicitly compare num_parameters since it is
+      // tied to rtype
       return rtype == other.rtype && dtype == other.dtype &&
-          rng_offset == other.rng_offset;
+          rng_offset_int == other.rng_offset_int;
     }
   };
 
   using Expr::Expr;
 
+  //! Note that if philox_offset is provided, then rng_offset will be ignored.
   RNGOp(
       IrBuilderPasskey,
       RNGOpType type,
       Val* out,
       DataType dtype,
       std::vector<Val*> parameters = {},
-      int rng_offset = 0,
+      Val* philox_seed = nullptr,
+      Val* philox_offset = nullptr,
+      int rng_offset_int = 0,
       Val* philox_index = nullptr);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
@@ -544,92 +550,44 @@ class TORCH_CUDA_CU_API RNGOp : public Expr {
   }
 
   int getRNGOffset() const {
-    return attribute(0)->as<Attribute<Attributes>>()->value.rng_offset;
+    return attribute(0)->as<Attribute<Attributes>>()->value.rng_offset_int;
   }
 
   void setRNGOffset(int val) {
-    attribute(0)->as<Attribute<Attributes>>()->value.rng_offset = val;
+    attribute(0)->as<Attribute<Attributes>>()->value.rng_offset_int = val;
+  }
+
+  size_t getNumParameters() const {
+    return attribute(0)->as<Attribute<Attributes>>()->value.num_parameters;
   }
 
   std::vector<Val*> getParameters() const {
-    return {inputs().begin() + getOutputDims(), inputs().end()};
+    return {
+        inputs().begin() + getOutputDims(),
+        inputs().begin() + (getOutputDims() + getNumParameters())};
   }
 
   std::vector<Val*> getShape() const {
     return {inputs().begin(), inputs().begin() + getOutputDims()};
   }
 
-  Val* getPhiloxIndex() const {
-    return attributeVal(1);
+  Val* getRNGSeedVal() const {
+    // Note that inputs() consists of:
+    // output dims | parameters | philox seed | philox_offset
+    auto seed_index = getOutputDims() + getNumParameters();
+    return (inputs().size() > seed_index) ? inputs().at(seed_index) : nullptr;
   }
 
-  int getPhiloxMultiple() const {
-    return dtype() == DataType::Double ? 2 : 4;
-  }
-};
-
-//! FunctionalRNGOp is just like RNGOp but takes explicit Vals for the Philox
-//! seed and offset so it is deterministic.
-class TORCH_CUDA_CU_API FunctionalRNGOp : public Expr {
-  int64_t getOutputDims() const;
-
- public:
-  struct Attributes {
-    // default initialization for clang-tidy
-    // cppcoreguidelines-pro-type-member-init
-    RNGOpType rtype = RNGOpType::Undefined;
-    DataType dtype;
-
-    // TODO: Enable the following in C++20:
-    // bool operator==(const Attributes &other) const = default;
-    bool operator==(const Attributes& other) const {
-      return rtype == other.rtype && dtype == other.dtype;
-    }
-  };
-
-  using Expr::Expr;
-
-  FunctionalRNGOp(
-      IrBuilderPasskey,
-      Val* philox_seed,
-      Val* philox_offset,
-      RNGOpType type,
-      Val* out,
-      DataType dtype,
-      std::vector<Val*> parameters = {},
-      Val* philox_index = nullptr);
-
-  NVFUSER_DECLARE_CLONE_AND_CREATE
-
-  const char* getOpString() const override {
-    return "FunctionalRNGOp";
+  Val* getRNGOffsetVal() const {
+    // Note that inputs() consists of:
+    // output dims | parameters | philox seed | philox_offset
+    auto offset_index = getOutputDims() + getNumParameters() + 1;
+    return (inputs().size() > offset_index) ? inputs().at(offset_index)
+                                            : nullptr;
   }
 
-  std::string toString(int indent_size = 0) const override;
-  std::string toInlineString(int indent_size = 0) const override;
-
-  RNGOpType getRNGOpType() const {
-    return attribute(0)->as<Attribute<Attributes>>()->value.rtype;
-  }
-
-  DataType dtype() const {
-    return attribute(0)->as<Attribute<Attributes>>()->value.dtype;
-  }
-
-  Val* getRNGSeed() const {
-    return input(0);
-  }
-
-  Val* getRNGOffset() const {
-    return input(1);
-  }
-
-  std::vector<Val*> getParameters() const {
-    return {inputs().begin() + (getOutputDims() + 2), inputs().end()};
-  }
-
-  std::vector<Val*> getShape() const {
-    return {inputs().begin() + 2, inputs().begin() + (2 + getOutputDims())};
+  bool isDeterministic() const {
+    return inputs().size() == getOutputDims() + getNumParameters() + 2;
   }
 
   Val* getPhiloxIndex() const {

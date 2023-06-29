@@ -128,7 +128,9 @@ TensorView* uniform(
     const std::vector<Val*>& shape,
     Val* low,
     Val* high,
-    DataType dtype) {
+    DataType dtype,
+    Val* philox_seed,
+    Val* philox_offset) {
   auto n = shape.size();
   auto out = TensorViewBuilder()
                  .ndims(n)
@@ -137,31 +139,12 @@ TensorView* uniform(
                  .shape(shape)
                  .build();
   IrBuilder::create<RNGOp>(
-      RNGOpType::UniformRange, out, dtype, std::vector<Val*>{low, high});
-  return out;
-}
-
-TensorView* functional_uniform(
-    Val* philox_seed,
-    Val* philox_offset,
-    const std::vector<Val*>& shape,
-    Val* low,
-    Val* high,
-    DataType dtype) {
-  auto n = shape.size();
-  auto out = TensorViewBuilder()
-                 .ndims(n)
-                 .dtype(dtype)
-                 .contiguity(true)
-                 .shape(shape)
-                 .build();
-  IrBuilder::create<FunctionalRNGOp>(
-      philox_seed,
-      philox_offset,
       RNGOpType::UniformRange,
       out,
       dtype,
-      std::vector<Val*>{low, high});
+      std::vector<Val*>{low, high},
+      philox_seed,
+      philox_offset);
   return out;
 }
 

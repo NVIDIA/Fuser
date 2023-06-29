@@ -156,35 +156,9 @@ void IndexLowering::handle(const RNGOp* rop) {
       out,
       rop->dtype(),
       rop->getParameters(),
+      rop->getRNGSeedVal(),
+      rop->getRNGOffsetVal(),
       rop->getRNGOffset(),
-      philox_index);
-
-  pushBack(lowered);
-  GpuLower::current()->propagateExprInfo(rop, back());
-}
-
-void IndexLowering::handle(const FunctionalRNGOp* rop) {
-  // Write random tensor indices into the consumer
-  //  tensor index if the output is a tensor.
-  auto out_tv = dynamic_cast<TensorView*>(rop->output(0));
-  TORCH_INTERNAL_ASSERT(out_tv != nullptr, "rand scalar not yet supported");
-
-  // TensorIndex for philox subsequence and component.
-  auto philox_index =
-      Index::getLinearLogicalIndex(out_tv, for_loops_, getRotatedLoop());
-  philox_index = GpuLower::current()->commonScalarMap().hoistScalar(
-      philox_index, for_loops_);
-
-  // TensorIndex for writing rand_like output.
-  const auto out = lowerDstIndex(out_tv);
-
-  auto lowered = IrBuilder::create<FunctionalRNGOp>(
-      rop->getRNGSeed(),
-      rop->getRNGOffset(),
-      rop->getRNGOpType(),
-      out,
-      rop->dtype(),
-      rop->getParameters(),
       philox_index);
 
   pushBack(lowered);

@@ -371,14 +371,17 @@ TEST_F(RNGTest, FunctionalUniform) {
   fusion->addInput(high);
   fusion->addInput(seed);
   fusion->addInput(first_offset);
+
   TensorView* tv0 = uniform({size_val}, low, high, DataType::Float);
   TensorView* tv1 = uniform({size_val}, low, high, DataType::Double);
-  TensorView* tv2 = functional_uniform(
-      seed, first_offset, {size_val}, low, high, DataType::Float);
 
   auto second_offset = add(first_offset, IrBuilder::create<Int>(4));
-  TensorView* tv3 = functional_uniform(
-      seed, second_offset, {size_val}, low, high, DataType::Double);
+
+  TensorView* tv2 =
+      uniform({size_val}, low, high, DataType::Float, seed, first_offset);
+  TensorView* tv3 =
+      uniform({size_val}, low, high, DataType::Double, seed, second_offset);
+
   fusion->addOutput(tv0);
   fusion->addOutput(tv1);
   fusion->addOutput(tv2);
