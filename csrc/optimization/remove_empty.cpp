@@ -25,15 +25,13 @@ namespace {
 //! computation or remove dead code. Derived classes should override handle()
 //! and make use of replaceTV(), markDeadAndMaybeRemove(), and allUsesDead().
 //!
-//! We use BackwardVisitor::traversal_exprs_ which tracks the active expressions
-//! in this Fusion, to determine when it is safe to remove statements. We
-//! augment this by creating an unordered_set called active_statements_, which
-//! is initialized as the Exprs in traversal_exprs_ as well as their inputs and
-//! outputs. Marking a Statement as dead removes it from active_statements_, and
-//! replacing a Val inserts the Val and its definition, recursively. Since we
-//! traverse backwards, and we handle all active Expr outputs, this ensures that
-//! it is safe to do so whenever we remove an Expr (i.e. it will not result in
-//! erasing definitions of active Expr outputs).
+//! We use unordered_set called live_statements_, which is initialized as the
+//! Exprs in traversal_exprs_ as well as their inputs and their outputs with
+//! live uses. Marking a Statement as dead removes it from live_statements_,
+//! and replacing a Val inserts the Val and its definition, recursively. Since
+//! we traverse backwards, and we handle all active Expr outputs, this ensures
+//! that it is safe to removing an Expr will not result in erasing definitions
+//! of active Expr outputs.
 class DeadCodeRemover : BackwardVisitor {
  public:
   DeadCodeRemover(Fusion* fusion) : BackwardVisitor(false), fusion_(fusion) {}
