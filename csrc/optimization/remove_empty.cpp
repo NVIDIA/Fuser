@@ -444,14 +444,9 @@ class EmptyTensorRemover : DeadCodeRemover {
     auto in_rfactor = TensorDomain::noReductions(in->getMaybeRFactorDomain());
     if (!emptyAxes(in_rfactor).empty()) {
       auto out = pop->out()->as<TensorView>();
-      auto out_rfactor =
-          TensorDomain::noReductions(out->getMaybeRFactorDomain());
-      std::vector<Val*> shape;
-      shape.reserve(out_rfactor.size());
-      for (auto id : out_rfactor) {
-        shape.push_back(id->extent());
-      }
-      auto new_tv = full(shape, pop->value(), out->getDataType().value());
+      auto shape = noReductionShape(out);
+      auto dtype = out->getDataType().value();
+      auto new_tv = full(shape, pop->value(), dtype);
       replaceTV(out, new_tv);
     }
   }
