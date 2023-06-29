@@ -741,8 +741,6 @@ class PersistentBufferProjector {
           persistent_buffers.begin(), persistent_buffers.end());
       for (auto buffer_i : c10::irange(persistent_buffers.size())) {
         auto buffer = persistent_buffers[buffer_i];
-        std::cerr << "Non-projected persistent buffer: " << buffer->toString()
-                  << std::endl;
         // skip reduction buffers
         if (buffer->hasReduction()) {
           continue;
@@ -823,8 +821,6 @@ class PersistentBufferProjector {
   void projectToInputOrImmediatePersistentProducer(
       int buffer_i,
       const std::vector<Val*>& producers) {
-    std::cerr << "projectToInputOrImmediatePersistentProducer: producers: "
-              << toDelimitedString(producers) << std::endl;
     // For all uses that do not go towards the reduction operations in the
     // persistent section of the graph, recompute the persistent buffer.
     auto buffer = persistent_buffers[buffer_i];

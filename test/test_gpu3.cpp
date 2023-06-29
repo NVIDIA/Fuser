@@ -9203,48 +9203,6 @@ TEST_F(NVFuserTest, FusionOptionsGuard_CUDA) {
       << "Register spill is not captured!";
 }
 
-TEST_F(NVFuserTest, TMP) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
-  auto tv0 = makeSymbolicTensor(1);
-  fusion.addInput(tv0);
-  auto tv1 = makeSymbolicTensor(2);
-  fusion.addInput(tv1);
-
-  auto tv2 = set(tv0);
-  auto tv3 = broadcast(tv2, {true, false});
-  auto tv4 = add(tv1, tv3);
-  fusion.addOutput(tv4);
-
-  fusion.printMath();
-
-  inlineMost();
-
-  fusion.printMath();
-}
-
-TEST_F(NVFuserTest, TMP2) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
-  auto tv0 = makeSymbolicTensor(1);
-  fusion.addInput(tv0);
-  auto tv1 = makeSymbolicTensor(2);
-  fusion.addInput(tv1);
-
-  auto tv2 = set(tv0);
-  auto tv3 = broadcast(tv2, {false, true});
-  auto tv4 = add(tv1, tv3);
-  fusion.addOutput(tv4);
-
-  fusion.printMath();
-
-  inlineMost();
-
-  fusion.printMath();
-}
-
 // Test the uninlinable option of MaxPosCalculator
 TEST_F(NVFuserTest, ComputeAtPosWithUninlinableIDs_CUDA) {
   Fusion fusion;
@@ -9272,6 +9230,31 @@ TEST_F(NVFuserTest, ComputeAtPosWithUninlinableIDs_CUDA) {
         << "Invalid computeAt position: " << tv->toString()
         << ". Expected position: " << expeced_pos;
   }
+}
+
+TEST_F(NVFuserTest, TMP) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(1);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(2);
+  fusion.addInput(tv1);
+
+  auto tv2 = set(tv0);
+  auto tv3 = broadcast(tv2, {false, true});
+  auto tv4 = add(tv1, tv3);
+  fusion.addOutput(tv4);
+
+  //tv3->merge(0)->split(0, 4);
+  TransformPropagatorWithCheck propagator(tv3);
+  MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
+  
+  fusion.printMath();
+
+  inlineMost();
+
+  fusion.printMath();
 }
 
 // Test file size should be up to 10K LoC. Create a new file for more tests.

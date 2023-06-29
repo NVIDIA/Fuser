@@ -20,7 +20,8 @@ class MaxPosCalculator {
   // Root domains in producer that's unmappable to any of its consumers
   std::unordered_set<IterDomain*> unmappable_dims_;
 
-  // User set IterDomains to not inline
+  // User set IterDomains to not inline to consumers. Producer IDs can
+  // still be inlined to these IDs
   std::unordered_set<IterDomain*> uninlinable_ids_;
 
   // Iterate through all TVs and collect the dimensions of each TV that don't

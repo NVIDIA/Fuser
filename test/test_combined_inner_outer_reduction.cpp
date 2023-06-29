@@ -1085,8 +1085,6 @@ TEST_F(NVFuserTest, CombinedSchedulerPersistentProjection_CUDA) {
     fusion.addOutput(layer_norm_results.grad_weight);
     fusion.addOutput(layer_norm_results.grad_bias);
 
-    fusion.printMath();
-
     auto maybe_fp16_options = at::TensorOptions()
                                   .dtype(data_type_to_aten(dtype))
                                   .device(at::kCUDA, 0);
@@ -1113,10 +1111,6 @@ TEST_F(NVFuserTest, CombinedSchedulerPersistentProjection_CUDA) {
         aten_weight,
         aten_bias};
     auto cg_outputs = fec.runFusionWithInputs(aten_inputs);
-
-    for (int i = 0; i < 5; ++i) {
-      cg_outputs = fec.runFusionWithInputs(aten_inputs);
-    }
 
     auto aten_gradients = at::native_layer_norm_backward(
         aten_grad_out,

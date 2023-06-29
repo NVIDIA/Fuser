@@ -1833,33 +1833,24 @@ void schedulePersistentKernelInnerOuter(
   fusion->printMath();
   std::cout << std::endl;
 
-  std::vector<TensorView*> outer_broadcast_inputs;
   std::unordered_set<IterDomain*> uninlinable_ids;
 
   if (getenv("NOINLINE")) {
+    ComputeAtMap ca_map(fusion);
     for (auto cached_input : cached_inputs) {
       std::cerr << "Cached input: " << cached_input->toString() << std::endl;
-      auto broadcast_use_it = std::find_if(
-          cached_input->uses().begin(),
-          cached_input->uses().end(),
-          [](Expr* expr) {
-            auto bc = dynamic_cast<BroadcastOp*>(expr);
-            if (bc != nullptr) {
-              return true;
-            }
-            return false;
-          });
-      if (broadcast_use_it == cached_input->uses().end()) {
-        std::cerr << "Not broadcast: " << cached_input->toString() << std::endl;
-        continue;
-      }
-
-      auto broadcast_use = (*broadcast_use_it)->as<BroadcastOp>();
-      auto broadcast_out = broadcast_use->outputs()[0]->as<TensorView>();
-      for (auto leaf_id : broadcast_out->getLeafDomain()) {
-        uninlinable_ids.emplace(leaf_id);
-        std::cerr << "Disallowing inlining of " << leaf_id->toString() << " of "
-                  << broadcast_out->toString() << std::endl;
+      auto dep_exprs = DependencyCheck::getAllExprsBetween({cached_input}, fusion->outputs());
+       for (auto broadcast : ir_utils::filterByType<BroadcastOp>(dep_exprs)) {
+        std::cerr << "Broadcast use: " << broadcast->toString();
+#if 0
+        auto broadcast_use = (*broadcast_use_it)->as<BroadcastOp>();
+        auto broadcast_out = broadcast_use->outputs()[0]->as<TensorView>();
+        for (auto leaf_id : broadcast_out->getLeafDomain()) {
+          uninlinable_ids.emplace(leaf_id);
+          std::cerr << "Disallowing inlining of " << leaf_id->toString() << " of "
+                    << broadcast_out->toString() << std::endl;
+        }
+#endif
       }
     }
   }
