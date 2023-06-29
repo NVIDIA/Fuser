@@ -809,9 +809,10 @@ RNGOp::RNGOp(
     addInput(v);
   }
   if (philox_seed) {
+    TORCH_CHECK(
+        philox_offset,
+        "When providing philox_seed, philox_offset must also be provided");
     addInput(philox_seed);
-  }
-  if (philox_offset) {
     addInput(philox_offset);
   }
   addOutput(out);
