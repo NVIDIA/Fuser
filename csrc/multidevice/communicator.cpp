@@ -94,8 +94,7 @@ void Communicator::sendRecv(
   } else if (rank() == receiver_rank) {
     auto work = pg_->recv(tensor, sender_rank, tag);
     // wait for completion
-    while (!work->isCompleted()) {
-    }
+    TORCH_INTERNAL_ASSERT(work->wait(), "error during communication");
   }
 }
 

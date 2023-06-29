@@ -43,7 +43,7 @@ fusion OR are defined as copies (a "set" operation) of a Tv from another stage
 device index. Note: Later, when we add a new parallel type for inter-device
 sharding (dIdx, dIdy, etc...) we can loosen this condition by assuming only that
 the input values are not replicated on different devices. This assumption is
-natural because the input values must be univoque
+natural because the input values should be defined only once.
 
 The PipelineStageDescriptor are passed to the Pipeline (through a
 PipelineDescriptor) by REFERENCE. As a consequence, after instantiation of the
@@ -57,12 +57,12 @@ indices on which the stage should be executed at runtime.
 
 namespace nvfuser {
 
-using ValSet = VectorOfUniqueEntries<Val*>;
-
 class PipelineStage;
 
 // Interface to describe the composition of a PipelineStage
 class TORCH_CUDA_CU_API PipelineStageDescriptor final {
+  using ValSet = VectorOfUniqueEntries<Val*>;
+
  public:
   PipelineStageDescriptor() : unique_id(running_unique_id_++) {}
 
@@ -125,7 +125,7 @@ class TORCH_CUDA_CU_API Pipeline : public Fusion {
   }
 
   auto originalFusion() const {
-    return originalFusion_;
+    return original_fusion_;
   }
 
   /* returns a Fusion copied from the originalFusion but
@@ -138,7 +138,7 @@ class TORCH_CUDA_CU_API Pipeline : public Fusion {
   // utility class called at instantiation
   friend class PipelineBuilder;
 
-  Fusion* originalFusion_;
+  Fusion* original_fusion_ = nullptr;
   PipelineDescriptor descriptor_;
 };
 

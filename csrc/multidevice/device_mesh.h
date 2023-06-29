@@ -22,7 +22,7 @@ class DeviceMesh final {
  public:
   // return the flatten vector of device indices
   const auto& deviceIndices() const {
-    return deviceIndices_;
+    return device_indices_;
   }
 
   // return the shape of the mesh
@@ -41,17 +41,18 @@ class DeviceMesh final {
 
   // set the attributes of the mesh
   void set(
-      std::vector<DeviceIdxType> deviceIndices,
+      std::vector<DeviceIdxType> device_indices,
       std::vector<DimensionType> dimensions) {
-    deviceIndices_ = deviceIndices;
+    device_indices_ = device_indices;
     dimensions_ = dimensions;
 
-    TORCH_INTERNAL_ASSERT(validate(deviceIndices));
+    TORCH_INTERNAL_ASSERT(
+        validate(device_indices), "invalid parameters for Mesh Device");
   }
 
-  void set(std::vector<DeviceIdxType> deviceIndices) {
-    DimensionType length = static_cast<DimensionType>(deviceIndices.size());
-    set(deviceIndices, {length});
+  void set(std::vector<DeviceIdxType> device_indices) {
+    DimensionType length = static_cast<DimensionType>(device_indices.size());
+    set(device_indices, {length});
   }
 
  private:
@@ -59,12 +60,13 @@ class DeviceMesh final {
     returns whether the mesh is valid, i.e., its size is strictly positive and
     the size matches the number of device indices.
   */
-  bool validate(std::vector<DeviceIdxType> deviceIndices) {
-    return (size() == static_cast<int64_t>(deviceIndices.size()) && size() > 0);
+  bool validate(std::vector<DeviceIdxType> device_indices) {
+    return (
+        size() == static_cast<int64_t>(device_indices.size()) && size() > 0);
   }
 
   // stores the device indices
-  std::vector<DeviceIdxType> deviceIndices_;
+  std::vector<DeviceIdxType> device_indices_;
   // stores the mesh shape
   std::vector<DimensionType> dimensions_;
 };

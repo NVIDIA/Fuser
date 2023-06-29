@@ -18,8 +18,6 @@
 
 namespace nvfuser {
 
-using ValSet = VectorOfUniqueEntries<Val*>;
-
 class PipelineStageDescriptor;
 
 /*
@@ -32,6 +30,8 @@ class PipelineStageDescriptor;
   to the originalFusion's Vals contained in the Stage)
 */
 class TORCH_CUDA_CU_API PipelineStage : public Expr {
+  using ValSet = VectorOfUniqueEntries<Val*>;
+
  public:
   using Expr::Expr;
 

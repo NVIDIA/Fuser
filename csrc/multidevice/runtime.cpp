@@ -22,24 +22,24 @@ std::vector<at::Tensor> MultiDeviceRuntime::runWithInput(
 
 void MultiDeviceRuntime::validate() const {
   // stores all the device indices present in the pipeline accross all stages
-  std::unordered_set<DeviceIdxType> deviceIndices;
+  std::unordered_set<DeviceIdxType> device_indices;
   for (auto& stage_desc : pipeline_->descriptor().stageDescriptors) {
     for (auto dId : stage_desc->mesh.deviceIndices()) {
-      deviceIndices.insert(dId);
+      device_indices.insert(dId);
     }
   }
 
   // Gather all the device indices covered by the communicator
-  std::unordered_set<DeviceIdxType> deviceIndicesInCommunicator;
+  std::unordered_set<DeviceIdxType> device_indices_in_communicator;
   for (RankType rank : comm_.ranks()) {
-    deviceIndicesInCommunicator.insert(rankToDeviceIdx(rank));
+    device_indices_in_communicator.insert(rankToDeviceIdx(rank));
   }
 
   // Checks if all the devices indices involved in the pipeline are
   // associated with a rank in the communicator
-  for (auto dId : deviceIndices) {
+  for (auto dId : device_indices) {
     TORCH_INTERNAL_ASSERT(
-        deviceIndicesInCommunicator.count(dId),
+        device_indices_in_communicator.count(dId),
         "device index " + std::to_string(dId) +
             " is present in the pipeline but no process in the communicator runs it");
   }
@@ -47,7 +47,7 @@ void MultiDeviceRuntime::validate() const {
   // Checks that the device index of the current process corresponds to a valid
   // concrete device (if invovled in the pipeline)
   auto currentDeviceIdx = rankToDeviceIdx(comm_.rank());
-  if (deviceIndices.count(currentDeviceIdx)) {
+  if (device_indices.count(currentDeviceIdx)) {
     TORCH_INTERNAL_ASSERT(
         true, // TODO
         "device index " + deviceIdxToDevice(currentDeviceIdx).str() +
