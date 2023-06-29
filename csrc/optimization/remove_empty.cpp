@@ -45,38 +45,11 @@ class DeadCodeRemover : BackwardVisitor {
   void run() {
     // First we build a set of all live Statements so that we can detect dead
     // branches.
-    auto exprs = StmtSort::getExprs(fusion_, fusion_->outputs());
-    // Mark every Expr, as well as its inputs and outputs as live initially
-    for (auto expr : exprs) {
-      markLive(expr);
-      for (auto inp : expr->inputs()) {
-        markLive(inp);
-      }
-      for (auto outp : expr->outputs()) {
-        markLive(outp);
-      }
+    for (auto stmt : StmtSort::getStmts(fusion_, fusion_->outputs())) {
+      markLive(stmt);
     }
 
-    // We do not traverse all outputs of all Exprs, since this requires that all
-    // paths lead to fusion_->outputs(). Instead, here we mark any Vals dead
-    // that do not have any live uses. After this, it is safe to check whether
-    // all outputs of an Expr are marked dead to determine if it should be dead,
-    // which helps us determine when it is safe to remove a multi-output
-    // definition of a dead TV.
-    std::vector<Statement*> dead_expr_outputs;
-    for (auto stmt : live_statements_) {
-      if (stmt->isVal() && !stmt->asVal()->isFusionOutput() &&
-          allUsesDead(stmt->asVal())) {
-        // We should not erase from live_statements_ while traversing it, so we
-        // save the dead expr outputs for later removal instead.
-        dead_expr_outputs.push_back(stmt);
-      }
-    }
-    for (auto stmt : dead_expr_outputs) {
-      markDead(stmt);
-    }
-
-    // Note that StmtSort::getExprs() is also run in traverseTo. In the future,
+    // Note that StmtSort::getStmts() is also run in traverseTo. In the future,
     // we could potentially refactor this so that derived classes from
     // BackwardVisitor can make use of that traversal instead of repeating it.
     traverseTo(fusion_, fusion_->outputs());
