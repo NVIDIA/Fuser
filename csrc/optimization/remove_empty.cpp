@@ -20,46 +20,10 @@ namespace nvfuser::optimization {
 
 namespace {
 
-//! Get a vector of the integer positions of constant zero extent axes in the
-//! input domain. This will typically be used like
-//! `emptyAxes(TensorDomain::noReductions(tv->getMaybeRFactorDomain()))`
-std::vector<size_t> emptyAxes(std::vector<IterDomain*> domain) {
-  std::vector<size_t> empty_axes;
-  for (auto ax : c10::irange(domain.size())) {
-    auto id = domain.at(ax);
-    if (id->extent()->isConst() && id->extent()->evaluateInt() == 0) {
-      empty_axes.push_back(ax);
-    }
-  }
-  return empty_axes;
-}
-
-//! Check whether a TensorView is empty. During concretization, we traverse to
-//! find a minimal set of TensorViews that have zero extents, and we then set
-//! their extents to a constant 0. Here we check for those constant zero
-//! extents.
-bool isTVEmpty(TensorView* tv) {
-  return !emptyAxes(TensorDomain::noReductions(tv->getMaybeRFactorDomain()))
-              .empty();
-}
-
-//! removeEmptyPass performs a backward traversal of the Fusion. When it detects
-//! a TensorView that has at least one extent that is zero, we do the following:
-//!
-//!   1. If the empty Tensorview is a Fusion output, we replace it with a
-//!   TensorView created by `full` having the same shape. Since the original
-//!   tensor is empty, there is nothing to compute, so this eliminates a branch
-//!   of trivial code.
-//!   2. If the empty TensorView is the input of a `cat` op along the empty
-//!   dimension, we replace the cat op with a new one having the empty input
-//!   removed.
-//!   3. If the empty Tensorview is the input to a ReductionOp or WelfordOp and
-//!   the empty dimensions are reduced, we replace the op with `full` since
-//!   there are no elements being reduced. Note that if any empty axes are not
-//!   reduced, we will not encounter this case since it will have been removed
-//!   earlier in the backward traversal under condition 1.
-//!   4. If the empty Tensorview is the input to a PadOp (which is not input to
-//!   a CatOp) then we replace the pad with `full(pad_value)`.
+//! This is a generic traversal class that is used to modify a Fusion graph by
+//! replacing TensorViews so that their definitions can be altered to simplify
+//! computation or remove dead code. Derived classes should override handle()
+//! and make use of replaceTV(), markDeadAndMaybeRemove(), and allUsesDead().
 //!
 //! We use BackwardVisitor::traversal_exprs_ which tracks the active expressions
 //! in this Fusion, to determine when it is safe to remove statements. We
@@ -70,10 +34,9 @@ bool isTVEmpty(TensorView* tv) {
 //! traverse backwards, and we handle all active Expr outputs, this ensures that
 //! it is safe to do so whenever we remove an Expr (i.e. it will not result in
 //! erasing definitions of active Expr outputs).
-class EmptyTensorRemover : BackwardVisitor {
+class DeadCodeRemover : BackwardVisitor {
  public:
-  EmptyTensorRemover(Fusion* fusion)
-      : BackwardVisitor(false), fusion_(fusion) {}
+  DeadCodeRemover(Fusion* fusion) : BackwardVisitor(false), fusion_(fusion) {}
 
   void run() {
     // First we build a set of all live Statements so that we can detect dead
@@ -114,7 +77,11 @@ class EmptyTensorRemover : BackwardVisitor {
     traverseTo(fusion_, fusion_->outputs());
   }
 
- private:
+  Fusion* fusion() const {
+    return fusion_;
+  }
+
+ protected:
   using BackwardVisitor::handle;
 
   void handle(Statement* stmt) final {
@@ -141,6 +108,156 @@ class EmptyTensorRemover : BackwardVisitor {
     }
   }
 
+  //! Replaces a TensorView in outputs, and in all uses. If old_tv is a Fusion
+  //! input, we do not replace it. After replacement, unless it is a Fusion
+  //! input, we remove it from the fusion and set the original pointer to zero
+  //! (hence why old_tv is passed by reference).
+  void replaceTV(TensorView*& old_tv, TensorView* new_tv) {
+    if (old_tv->isFusionOutput()) {
+      fusion_->replaceOutput(old_tv, new_tv);
+    }
+    for (auto use : old_tv->uses()) {
+      ir_utils::replaceValInExpr(use, old_tv, new_tv);
+    }
+    markLiveRecursive(new_tv);
+    markDeadAndMaybeRemove(old_tv);
+  }
+
+  //! Guard removeVal with calls to markDead so that we always detect removed
+  //! Vals and Exprs before derefencing them.
+  //!
+  //! Note that we only remove val if all of its definition's outputs are marked
+  //! dead.
+  void markDeadAndMaybeRemove(Val* val) {
+    markDead(val);
+    if (val->definition()) {
+      // When all outputs of def are marked dead, mark the def dead
+      bool all_outputs_dead = true;
+      for (auto outp : val->definition()->outputs()) {
+        if (isLive(outp)) {
+          all_outputs_dead = false;
+          break;
+        }
+      }
+      if (all_outputs_dead) {
+        // If all other outputs are dead, it's safe to remove the definition as
+        // well as all its outputs
+        markDead(val->definition());
+        const auto outputs = val->definition()->outputs();
+        for (auto outp : outputs) {
+          fusion_->removeVal(outp);
+        }
+      }
+    } else {
+      TORCH_INTERNAL_ASSERT(
+          !val->isFusionInput(), "Refusing to remove Fusion input");
+      fusion_->removeVal(val);
+    }
+  }
+
+  //! Find whether a statement is live (i.e. not dead code)
+  //!
+  //! Inside BackwardVisitor::traverseTo, traversal_exprs_ is built, containing
+  //! all active expressions in the original graph.
+  bool isLive(Statement* stmt) {
+    return live_statements_.find(stmt) != live_statements_.end();
+  }
+
+  //! Check whether all uses have been marked dead
+  bool allUsesDead(Val* val) {
+    for (const auto use : val->uses()) {
+      if (isLive(use)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  //! Mark a single Statement as being alive
+  void markLive(Statement* stmt) {
+    live_statements_.insert(stmt);
+  }
+
+  //! Ensure that a Statement and its upstream Statements are alive. If it is an
+  //! Expr, ensure all its inputs are alive. If it's a Val with a definition,
+  //! recursive to the definition.
+  void markLiveRecursive(Statement* stmt) {
+    if (isLive(stmt)) {
+      return;
+    }
+    markLive(stmt);
+    if (stmt->isVal() && stmt->asVal()->definition()) {
+      markLiveRecursive(stmt);
+    } else {
+      for (const auto inp : stmt->asExpr()->inputs()) {
+        markLiveRecursive(inp);
+      }
+    }
+  }
+
+  //! Mark a Statement* as dead so that we avoid dereferencing it later
+  void markDead(Statement* stmt) {
+    live_statements_.erase(stmt);
+  }
+
+ private:
+  Fusion* fusion_;
+
+  //! Statements are marked dead by removing them from this set
+  std::unordered_set<Statement*> live_statements_;
+};
+
+//! Get a vector of the integer positions of constant zero extent axes in the
+//! input domain. This will typically be used like
+//! `emptyAxes(TensorDomain::noReductions(tv->getMaybeRFactorDomain()))`
+std::vector<size_t> emptyAxes(std::vector<IterDomain*> domain) {
+  std::vector<size_t> empty_axes;
+  for (auto ax : c10::irange(domain.size())) {
+    auto id = domain.at(ax);
+    if (id->extent()->isConst() && id->extent()->evaluateInt() == 0) {
+      empty_axes.push_back(ax);
+    }
+  }
+  return empty_axes;
+}
+
+//! Check whether a TensorView is empty. During concretization, we traverse to
+//! find a minimal set of TensorViews that have zero extents, and we then set
+//! their extents to a constant 0. Here we check for those constant zero
+//! extents.
+bool isTVEmpty(TensorView* tv) {
+  return !emptyAxes(TensorDomain::noReductions(tv->getMaybeRFactorDomain()))
+              .empty();
+}
+
+//! EmptyTensorRemover performs a backward traversal of the Fusion. When it
+//! detects a TensorView that has at least one extent that is zero, we do the
+//! following:
+//!
+//!   1. If the empty Tensorview is a Fusion output, we replace it with a
+//!   TensorView created by `full` having the same shape. Since the original
+//!   tensor is empty, there is nothing to compute, so this eliminates a branch
+//!   of trivial code.
+//!   2. If the empty TensorView is the input of a `cat` op along the empty
+//!   dimension, we replace the cat op with a new one having the empty input
+//!   removed.
+//!   3. If the empty Tensorview is the input to a ReductionOp or WelfordOp and
+//!   the empty dimensions are reduced, we replace the op with `full` since
+//!   there are no elements being reduced. Note that if any empty axes are not
+//!   reduced, we will not encounter this case since it will have been removed
+//!   earlier in the backward traversal under condition 1.
+//!   4. If the empty Tensorview is the input to a PadOp (which is not input to
+//!   a CatOp) then we replace the pad with `full(pad_value)`.
+//!
+class EmptyTensorRemover : DeadCodeRemover {
+ public:
+  EmptyTensorRemover(Fusion* fusion) : DeadCodeRemover(fusion) {}
+
+  using DeadCodeRemover::run;
+
+ protected:
+  using DeadCodeRemover::handle;
+
   //! If tv is a fusion output, we check whether it is empty and if so, replace
   //! it with full(). For non-outputs that are not inputs, we simply check that
   //! the tensor is not provably empty.
@@ -161,10 +278,10 @@ class EmptyTensorRemover : BackwardVisitor {
               return id->extent();
             });
         for (auto ax : empty_axes) {
-          shape[ax] = fusion_->zeroVal();
+          shape[ax] = fusion()->zeroVal();
         }
         auto dtype = tv->getDataType().value();
-        auto new_tv = full(shape, fusion_->zeroVal(dtype), dtype);
+        auto new_tv = full(shape, fusion()->zeroVal(dtype), dtype);
         replaceTV(tv, new_tv);
       }
     } else if (allUsesDead(tv)) {
@@ -268,12 +385,12 @@ class EmptyTensorRemover : BackwardVisitor {
     if (isLive(var_sum)) {
       auto new_var_sum = full(
           shape,
-          fusion_->zeroVal(var_sum->getDataType().value()),
+          fusion()->zeroVal(var_sum->getDataType().value()),
           var_sum->getDataType().value());
       replaceTV(var_sum, new_var_sum);
     }
     if (isLive(N)) {
-      auto new_N = full(shape, fusion_->zeroVal(), N->getDataType().value());
+      auto new_N = full(shape, fusion()->zeroVal(), N->getDataType().value());
       replaceTV(N, new_N);
     }
   }
@@ -360,104 +477,6 @@ class EmptyTensorRemover : BackwardVisitor {
       replaceTV(out, new_tv);
     }
   }
-
-  //! Replaces a TensorView in outputs, and in all uses. If old_tv is a Fusion
-  //! input, we do not replace it. After replacement, unless it is a Fusion
-  //! input, we remove it from the fusion and set the original pointer to zero
-  //! (hence why old_tv is passed by reference).
-  void replaceTV(TensorView*& old_tv, TensorView* new_tv) {
-    if (old_tv->isFusionOutput()) {
-      fusion_->replaceOutput(old_tv, new_tv);
-    }
-    for (auto use : old_tv->uses()) {
-      ir_utils::replaceValInExpr(use, old_tv, new_tv);
-    }
-    markLiveRecursive(new_tv);
-    markDeadAndMaybeRemove(old_tv);
-  }
-
-  //! Guard removeVal with calls to markDead so that we always detect removed
-  //! Vals and Exprs before derefencing them.
-  //!
-  //! Note that we only remove val if all of its definition's outputs are marked
-  //! dead.
-  void markDeadAndMaybeRemove(Val* val) {
-    markDead(val);
-    if (val->definition()) {
-      // When all outputs of def are marked dead, mark the def dead
-      bool all_outputs_dead = true;
-      for (auto outp : val->definition()->outputs()) {
-        if (isLive(outp)) {
-          all_outputs_dead = false;
-          break;
-        }
-      }
-      if (all_outputs_dead) {
-        // If all other outputs are dead, it's safe to remove the definition as
-        // well as all its outputs
-        markDead(val->definition());
-        const auto outputs = val->definition()->outputs();
-        for (auto outp : outputs) {
-          fusion_->removeVal(outp);
-        }
-      }
-    } else {
-      TORCH_INTERNAL_ASSERT(
-          !val->isFusionInput(), "Refusing to remove Fusion input");
-      fusion_->removeVal(val);
-    }
-  }
-
-  //! Find whether a statement is live (i.e. not dead code)
-  //!
-  //! Inside BackwardVisitor::traverseTo, traversal_exprs_ is built, containing
-  //! all active expressions in the original graph.
-  bool isLive(Statement* stmt) {
-    return live_statements_.find(stmt) != live_statements_.end();
-  }
-
-  //! Check whether all uses have been marked dead
-  bool allUsesDead(Val* val) {
-    for (const auto use : val->uses()) {
-      if (isLive(use)) {
-        return false;
-      }
-    }
-    return true;
-  }
-
-  //! Mark a single Statement as being alive
-  void markLive(Statement* stmt) {
-    live_statements_.insert(stmt);
-  }
-
-  //! Ensure that a Statement and its upstream Statements are alive. If it is an
-  //! Expr, ensure all its inputs are alive. If it's a Val with a definition,
-  //! recursive to the definition.
-  void markLiveRecursive(Statement* stmt) {
-    if (isLive(stmt)) {
-      return;
-    }
-    markLive(stmt);
-    if (stmt->isVal() && stmt->asVal()->definition()) {
-      markLiveRecursive(stmt);
-    } else {
-      for (const auto inp : stmt->asExpr()->inputs()) {
-        markLiveRecursive(inp);
-      }
-    }
-  }
-
-  //! Mark a Statement* as dead so that we avoid dereferencing it later
-  void markDead(Statement* stmt) {
-    live_statements_.erase(stmt);
-  }
-
- private:
-  Fusion* fusion_;
-
-  //! Statements are marked dead by removing them from this set
-  std::unordered_set<Statement*> live_statements_;
 };
 
 } // namespace
