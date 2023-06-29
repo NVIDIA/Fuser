@@ -609,7 +609,7 @@ std::pair<TensorDomain*, size_t> TransformReplay::replayCasP(
       producer,
       (int)producer_pos,
       root_map,
-      false,
+      true,
       !opt.replay_swizzle,
       !opt.replay_resize);
 

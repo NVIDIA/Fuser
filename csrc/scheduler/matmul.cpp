@@ -571,7 +571,6 @@ void scheduleEpilog(
     const MatmulParams& params,
     const MatMulTileOptions& gemm_tile,
     const MmaOptions& mma_options) {
-  c_smem->setMemoryType(MemoryType::Shared);
   mma_utils::orderTiledConcreteIdAsRoot(c_smem);
 
   // Swizzle the shared memory data layout
@@ -896,13 +895,23 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
               .propagateParallelType()
               .propagateToBoundary());
     }
-
-    scheduleEpilog(
-        c_smem,
+    c_smem->setMemoryType(MemoryType::Shared);
+    swizzleSharedMemory(c_smem, params, 0);
+    scheduler_utils::BoundedDirectionalTransformPropagator::forward(
         mma_result,
-        params,
-        gemm_tile,
-        mma_builder.operand(MmaOptions::Operand::Accumulator).build());
+        -1,
+        {c_smem},
+        scheduler_utils::BoundedDirectionalTransformPropagator::Options()
+            .propagateParallelType()
+            .propagateToBoundary());    
+    c_smem->axis(-1)->parallelize(ParallelType::Vectorize);
+
+    // scheduleEpilog(
+    //     c_smem,
+    //     mma_result,
+    //     params,
+    //     gemm_tile,
+    //     mma_builder.operand(MmaOptions::Operand::Accumulator).build());
 
     // can't propagate to c, because we want to schedule it differently for
     // better global memory access pattern.
