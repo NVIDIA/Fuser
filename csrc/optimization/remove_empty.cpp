@@ -52,10 +52,11 @@ class DeadCodeRemover : BackwardVisitor {
     }
 
     // We do not traverse all outputs of all Exprs, since this requires that all
-    // paths lead to fusion_->outputs(). Instead, here now mark all Vals dead
-    // which do not have any live uses. After this, it is safe to check whether
-    // all outputs of an Expr are actually dead, which helps us determine when
-    // it is safe to remove a multi-output definition of a dead TV.
+    // paths lead to fusion_->outputs(). Instead, here we mark any Vals dead
+    // that do not have any live uses. After this, it is safe to check whether
+    // all outputs of an Expr are marked dead to determine if it should be dead,
+    // which helps us determine when it is safe to remove a multi-output
+    // definition of a dead TV.
     std::vector<Statement*> dead_expr_outputs;
     for (auto stmt : live_statements_) {
       if (stmt->isVal() && !stmt->asVal()->isFusionOutput() &&
