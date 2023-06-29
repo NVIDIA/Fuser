@@ -596,7 +596,8 @@ class TORCH_CUDA_CU_API FunctionalRNGOp : public Expr {
       RNGOpType type,
       Val* out,
       DataType dtype,
-      std::vector<Val*> parameters = {});
+      std::vector<Val*> parameters = {},
+      Val* philox_index = nullptr);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 

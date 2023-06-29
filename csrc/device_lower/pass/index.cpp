@@ -184,7 +184,8 @@ void IndexLowering::handle(const FunctionalRNGOp* rop) {
       rop->getRNGOpType(),
       out,
       rop->dtype(),
-      rop->getParameters());
+      rop->getParameters(),
+      philox_index);
 
   pushBack(lowered);
   GpuLower::current()->propagateExprInfo(rop, back());

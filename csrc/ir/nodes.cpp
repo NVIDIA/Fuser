@@ -849,7 +849,8 @@ FunctionalRNGOp::FunctionalRNGOp(
     RNGOpType type,
     Val* out,
     DataType dtype,
-    std::vector<Val*> parameters)
+    std::vector<Val*> parameters,
+    Val* philox_index)
     : Expr(passkey) {
   addInput(philox_seed);
   addInput(philox_offset);
@@ -868,6 +869,7 @@ FunctionalRNGOp::FunctionalRNGOp(
   FunctionalRNGOp::Attributes attr{type, dtype};
   addAttribute(IrBuilder::create<Attribute<FunctionalRNGOp::Attributes>>(
       passkey.ir_container_, attr));
+  addAttribute(philox_index);
 }
 
 std::string FunctionalRNGOp::toString(int indent_size) const {

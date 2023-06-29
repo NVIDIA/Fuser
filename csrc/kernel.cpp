@@ -83,10 +83,17 @@ class KernelIrScanner : private IrVisitor {
     }
   }
 
-  // NOTE: FunctionalRNGOp should not contribute to max_rng_offsets
   void handle(RNGOp* rng_op) final {
+    summary_.has_philox_op = true;
     summary_.max_rng_offsets =
         std::max<int>(summary_.max_rng_offsets, rng_op->getRNGOffset());
+  }
+
+  void handle(FunctionalRNGOp* rng_op) final {
+    summary_.has_philox_op = true;
+    // NOTE: FunctionalRNGOp should not contribute to max_rng_offsets, since
+    // that would cause the executor to increment the offset, and
+    // FunctionalRNGOp should not affect random ops at all.
   }
 
   void handle(TensorIndex* tensor_index) final {

@@ -354,4 +354,52 @@ TEST_F(RNGTest, RandLikeReduction) {
   testValidate(fec.fusion(), {out}, {t0}, {t3}, __LINE__, __FILE__);
 }
 
+//! This is the same as the Uniform test, but we compare against
+//! functional_uniform in which we provide a seed and offset.
+TEST_F(RNGTest, FunctionalUniform) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  Int* size_val = IrBuilder::create<Int>();
+  Double* low = IrBuilder::create<Double>();
+  Double* high = IrBuilder::create<Double>();
+  Int* seed = IrBuilder::create<Int>();
+  Int* offset = IrBuilder::create<Int>();
+  fusion->addInput(size_val);
+  fusion->addInput(low);
+  fusion->addInput(high);
+  fusion->addInput(seed);
+  fusion->addInput(offset);
+  TensorView* tv0 = uniform({size_val}, low, high, DataType::Float);
+  TensorView* tv1 = uniform({size_val}, low, high, DataType::Double);
+  TensorView* tv2 =
+      functional_uniform(seed, offset, {size_val}, low, high, DataType::Float);
+  TensorView* tv3 =
+      functional_uniform(seed, offset, {size_val}, low, high, DataType::Double);
+  fusion->addOutput(tv0);
+  fusion->addOutput(tv1);
+  fusion->addOutput(tv2);
+  fusion->addOutput(tv3);
+
+  FusionExecutorCache fec(std::move(fusion_ptr));
+
+  for (int64_t size : {16, 1024, 10001, 10002, 10003, 100000, 10000001}) {
+    at::manual_seed(0);
+    auto cg_outputs = fec.runFusionWithInputs({size, -1.0, 1.0, 0, 0});
+
+    at::manual_seed(0);
+    auto ref0 = generate_uniform(size, at::kFloat) * 2 - 1;
+    auto ref1 = generate_uniform(size, at::kDouble) * 2 - 1;
+
+    testValidate(
+        fec.fusion(),
+        cg_outputs,
+        {size, -1.0, 1.0, 0, 0},
+        {ref0, ref1, ref0, ref1},
+        __LINE__,
+        __FILE__);
+  }
+}
+
 } // namespace nvfuser
