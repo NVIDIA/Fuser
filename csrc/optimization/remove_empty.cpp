@@ -70,6 +70,7 @@ class EmptyTensorRemover : BackwardVisitor {
     traverseTo(fusion_, fusion_->outputs());
   }
 
+ private:
   using BackwardVisitor::handle;
 
   void handle(Statement* stmt) final {
@@ -109,15 +110,18 @@ class EmptyTensorRemover : BackwardVisitor {
         // Do not keep traversing upstream if we've replaced tv
         return;
       }
-    } else {
+    } else if (tv->uses().empty()) {
+      // TensorViews that are not Fusion inputs or outputs and which have no
+      // uses are dead, so remove them and skip processing them and their
+      // definition.
+      removeAndMarkDead(tv);
+    } else if (isTVEmpty(tv)) {
       // Note that if there empty intermediate tensors with uses that do not
       // lead to outputs, this check might fail.
-      if (!tv->uses().empty() && isTVEmpty(tv)) {
-        TORCH_WARN_ONCE(
-            "Found unexpected empty intermediate TensorView ",
-            tv->toString(),
-            ". This TensorView has un-removed uses that might not be used in this Fusion.");
-      }
+      TORCH_WARN_ONCE(
+          "Found unexpected empty intermediate TensorView ",
+          tv->toString(),
+          ". This TensorView has un-removed uses that might not be used in this Fusion.");
     }
   }
 
@@ -302,15 +306,17 @@ class EmptyTensorRemover : BackwardVisitor {
     for (auto use : old_tv->uses()) {
       ir_utils::replaceValInExpr(use, old_tv, new_tv);
     }
-    // old_tv as well as its definition will be removed by fusion_->removeVal(),
-    // after which the pointers will be invalid. We mark them as dead to avoid
-    // dereferencing and processing those here.
-    markDead(old_tv);
-    if (old_tv->definition()) {
-      markDead(old_tv->definition());
-    }
+    removeAndMarkDead(old_tv);
+  }
 
-    fusion_->removeVal(old_tv);
+  //! Guard removeVal with calls to markDead so that we always detect removed
+  //! Vals and Exprs before derefencing them.
+  void removeAndMarkDead(Val* val) {
+    markDead(val);
+    if (val->definition()) {
+      markDead(val->definition());
+    }
+    fusion_->removeVal(val);
   }
 
   //! Find whether a statement has been marked dead
