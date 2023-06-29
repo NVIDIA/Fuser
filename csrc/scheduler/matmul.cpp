@@ -439,9 +439,11 @@ void swizzleSharedMemory(
     if (shared_mem_tv->getMemoryType() == MemoryType::Shared) {
       int swizzle_axis0 = repeated_pattern_size > 1 ? -5 : -4;
       if (isPowOf2(swizzle_period)) {
-        shared_mem_tv->swizzle(Swizzle2DType::XOR, swizzle_axis0, -2);
+        shared_mem_tv->swizzle(
+            Swizzle2DType::XOR, swizzle_axis0 - shift, -2 - shift);
       } else {
-        shared_mem_tv->swizzle(Swizzle2DType::CyclicShift, swizzle_axis0, -2);
+        shared_mem_tv->swizzle(
+            Swizzle2DType::CyclicShift, swizzle_axis0 - shift, -2 - shift);
       }
     }
 
@@ -495,6 +497,74 @@ void scheduleProlog(TensorView* shared_mem_tv, const MatmulParams& params) {
           .propagateParallelType());
 }
 
+void schedule_output_tensor(TensorView* c, const MatMulTileOptions& gemm_tile) {
+  // input tensor is in the form of [Mo,No,cta_tile_m,cta_tile_n]
+  check_concrete_static_dim(c->axis(-2));
+  check_concrete_static_dim(c->axis(-1));
+  const int64_t tile_size_m = c->axis(-2)->extent()->evaluateInt();
+  const int64_t tile_size_n = c->axis(-1)->extent()->evaluateInt();
+  TORCH_INTERNAL_ASSERT(
+      tile_size_m == gemm_tile.cta_tile.m,
+      "Actual tile size at axis(-2) in output tensor is different from CTA tile size! Expected: ",
+      gemm_tile.cta_tile.m,
+      ", actual: ",
+      tile_size_m);
+  TORCH_INTERNAL_ASSERT(
+      tile_size_n == gemm_tile.cta_tile.n,
+      "Actual tile size at axis(-1) in output tensor is different from CTA tile size! Expected: ",
+      gemm_tile.cta_tile.n,
+      ", actual: ",
+      tile_size_n);
+  const int64_t tot_elements = tile_size_m * tile_size_n;
+  const int64_t data_type_size = (int64_t)dataTypeSize(*c->getDataType());
+  constexpr int64_t warp_size = 32l;
+  const int64_t vectorization_factor = 16l / data_type_size;
+  const int64_t tidx = warp_size;
+  const int64_t tidy = gemm_tile.cta_tile.n / gemm_tile.warp_tile.n;
+  const int64_t tidz = gemm_tile.cta_tile.m / gemm_tile.warp_tile.m;
+  // step-1, merge last 2 dims
+  c->merge(-2);
+  // [Mo, No, m*n]
+
+  // step-2, set vectorization to maximum
+  // We have a fixed TIDx of 32, so we need to make sure that the output tensor
+  // can be fully vectorized.
+  TORCH_INTERNAL_ASSERT(
+      tot_elements % (tidx * tidy * tidz * vectorization_factor) == 0,
+      "Output tensor cannot be fully vectorized! tot_elements:",
+      tot_elements,
+      ", tidx: ",
+      tidx,
+      ", tidy: ",
+      tidy,
+      ", tidz: ",
+      tidz,
+      ", vectorization_factor: ",
+      vectorization_factor);
+  c->split(-1, vectorization_factor);
+  c->axis(-1)->parallelize(ParallelType::Vectorize);
+  // [Mo, No, m*n/vect, vect]
+
+  // step-3, Split out a warp for TIDx
+  c->split(-2, tidx);
+  c->axis(-2)->parallelize(ParallelType::TIDx);
+  // [Mo, No, m*n/vect/TIDx, TIDx, vect]
+
+  // step-4, Split out for TIDy and TIDz
+  // TIDy = cta_tile_n/warp_tile_n
+  // TIDz = cta_tile_m/warp_tile_m
+  c->split(-3, tidy);
+  c->axis(-3)->parallelize(ParallelType::TIDy);
+
+  c->split(-4, tidz);
+  c->axis(-4)->parallelize(ParallelType::TIDz);
+  // [Mo, No, m*n/vect/TIDx/TIDy/TIDz, TIDz, TIDy, TIDx, vect]
+
+  // step-5, Parallel first 2 dims
+  c->axis(0)->parallelize(ParallelType::BIDx);
+  c->axis(1)->parallelize(ParallelType::BIDy);
+}
+
 void scheduleEpilog(
     TensorView* c_smem,
     TensorView* mma_result,
@@ -516,6 +586,7 @@ void scheduleEpilog(
   // Parallel
   scheduler_utils::parallelizeAllLike(
       mma_result, -1, {c_smem}, allParallelTypesExcept({ParallelType::Mma}));
+  c_smem->axis(-1)->parallelize(ParallelType::Vectorize);
 }
 } // namespace
 
@@ -825,24 +896,27 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
               .propagateParallelType()
               .propagateToBoundary());
     }
+
     scheduleEpilog(
         c_smem,
         mma_result,
         params,
         gemm_tile,
         mma_builder.operand(MmaOptions::Operand::Accumulator).build());
-  }
 
-  scheduler_utils::BoundedDirectionalTransformPropagator::forward(
-      params.has_smem_epilogue ? c_smem : mma_result,
-      -1,
-      {c},
-      scheduler_utils::BoundedDirectionalTransformPropagator::Options()
-          .propagateParallelType()
-          .propagateToBoundary());
-  // Always vector
-  c_smem->axis(-1)->parallelize(ParallelType::Vectorize);
-  c->axis(-1)->parallelize(ParallelType::Vectorize);
+    // can't propagate to c, because we want to schedule it differently for
+    // better global memory access pattern.
+    schedule_output_tensor(c, gemm_tile);
+  } else {
+    scheduler_utils::BoundedDirectionalTransformPropagator::forward(
+        mma_result,
+        -1,
+        {c},
+        scheduler_utils::BoundedDirectionalTransformPropagator::Options()
+            .propagateParallelType()
+            .propagateToBoundary());
+    c->axis(-1)->parallelize(ParallelType::Vectorize);
+  }
   // auto inline for all tensors except register tensors and output tensor
   inlineMost(ir_utils::allTvsExcept(fusion, {acr, bcr, ab, bb, c_smem, c}));
 

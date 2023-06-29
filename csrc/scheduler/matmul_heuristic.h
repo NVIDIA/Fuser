@@ -92,7 +92,7 @@ class MatmulParams : public HeuristicParams {
 
   //! Unswizzle MMA results in shared memory to get
   //!  coalesced write to global memory
-  bool has_smem_epilogue = false;
+  bool has_smem_epilogue = true;
 
   std::string toString() const override {
     std::stringstream ss;
