@@ -842,6 +842,63 @@ int64_t RNGOp::getOutputDims() const {
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(RNGOp)
 
+FunctionalRNGOp::FunctionalRNGOp(
+    IrBuilderPasskey passkey,
+    Val* philox_seed,
+    Val* philox_offset,
+    RNGOpType type,
+    Val* out,
+    DataType dtype,
+    std::vector<Val*> parameters)
+    : Expr(passkey) {
+  addInput(philox_seed);
+  addInput(philox_offset);
+  if (auto tv_out = dynamic_cast<TensorView*>(out)) {
+    for (auto id : tv_out->getRootDomain()) {
+      TORCH_CHECK(
+          !id->isReduction(),
+          "Output of FunctionalRNGOp can not have reduction");
+      addInput(id->extent());
+    }
+  }
+  for (auto v : parameters) {
+    addInput(v);
+  }
+  addOutput(out);
+  FunctionalRNGOp::Attributes attr{type, dtype};
+  addAttribute(IrBuilder::create<Attribute<FunctionalRNGOp::Attributes>>(
+      passkey.ir_container_, attr));
+}
+
+std::string FunctionalRNGOp::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size);
+  ss << output(0)->toString() << "\n";
+  indent_size++;
+  indent(ss, indent_size);
+  ss << " = ";
+  ss << getRNGOpType() << "({" << toDelimitedString(getShape()) << "}, ";
+  if (!getParameters().empty()) {
+    ss << toDelimitedString(getParameters()) << ", ";
+  }
+  ss << dtype() << ");\n";
+  return ss.str();
+}
+
+std::string FunctionalRNGOp::toInlineString(int indent_size) const {
+  TORCH_CHECK(false, "Tensor op can not be printed inline");
+}
+
+int64_t FunctionalRNGOp::getOutputDims() const {
+  int64_t ndims = 0;
+  if (auto tv_out = dynamic_cast<TensorView*>(output(0))) {
+    ndims = (int64_t)tv_out->getRootDomain().size();
+  }
+  return ndims;
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(FunctionalRNGOp)
+
 BroadcastOp::BroadcastOp(
     IrBuilderPasskey passkey,
     Val* out,

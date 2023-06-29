@@ -670,6 +670,8 @@ Expr* Fusion::definition(const Val* val) const {
 // Indicate to kernel to set itself up to generate random numbers
 bool Fusion::isStochastic() {
   for (auto expr : exprs()) {
+    // Note that FunctionalRNGOp is not stochastic since the random seed and
+    // offset are given as Vals.
     if (expr->isA<RNGOp>()) {
       return true;
     }

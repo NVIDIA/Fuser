@@ -166,6 +166,13 @@ TORCH_CUDA_CU_API TensorView* uniform(
     Val* low,
     Val* high,
     DataType dtype);
+TensorView* functional_uniform(
+    Val* philox_seed,
+    Val* philox_offset,
+    const std::vector<Val*>& shape,
+    Val* low,
+    Val* high,
+    DataType dtype);
 TORCH_CUDA_CU_API TensorView* normal(
     const std::vector<Val*>& shape,
     Val* mean,

@@ -83,6 +83,7 @@ class KernelIrScanner : private IrVisitor {
     }
   }
 
+  // NOTE: FunctionalRNGOp should not contribute to max_rng_offsets
   void handle(RNGOp* rng_op) final {
     summary_.max_rng_offsets =
         std::max<int>(summary_.max_rng_offsets, rng_op->getRNGOffset());

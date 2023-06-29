@@ -140,6 +140,7 @@ bool isTvOp(const Expr* expr) {
           TorchGatherOp,
           ScatterOp,
           RNGOp,
+          FunctionalRNGOp,
           FullOp,
           IotaOp,
           EyeOp,
@@ -493,6 +494,11 @@ class ReplaceExprInput : private kir::ExprMutator {
 
   void handle(RNGOp* node) final {
     // RNGOp has no input
+    return;
+  }
+
+  void handle(FunctionalRNGOp* node) final {
+    // FunctionalRNGOp has no input
     return;
   }
 

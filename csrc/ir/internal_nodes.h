@@ -568,6 +568,78 @@ class TORCH_CUDA_CU_API RNGOp : public Expr {
   }
 };
 
+//! FunctionalRNGOp is just like RNGOp but takes explicit Vals for the Philox
+//! seed and offset so it is deterministic.
+class TORCH_CUDA_CU_API FunctionalRNGOp : public Expr {
+  int64_t getOutputDims() const;
+
+ public:
+  struct Attributes {
+    // default initialization for clang-tidy
+    // cppcoreguidelines-pro-type-member-init
+    RNGOpType rtype = RNGOpType::Undefined;
+    DataType dtype;
+
+    // TODO: Enable the following in C++20:
+    // bool operator==(const Attributes &other) const = default;
+    bool operator==(const Attributes& other) const {
+      return rtype == other.rtype && dtype == other.dtype;
+    }
+  };
+
+  using Expr::Expr;
+
+  FunctionalRNGOp(
+      IrBuilderPasskey,
+      Val* philox_seed,
+      Val* philox_offset,
+      RNGOpType type,
+      Val* out,
+      DataType dtype,
+      std::vector<Val*> parameters = {});
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "FunctionalRNGOp";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  RNGOpType getRNGOpType() const {
+    return attribute(0)->as<Attribute<Attributes>>()->value.rtype;
+  }
+
+  DataType dtype() const {
+    return attribute(0)->as<Attribute<Attributes>>()->value.dtype;
+  }
+
+  Val* getRNGSeed() const {
+    return input(0);
+  }
+
+  Val* getRNGOffset() const {
+    return input(1);
+  }
+
+  std::vector<Val*> getParameters() const {
+    return {inputs().begin() + (getOutputDims() + 2), inputs().end()};
+  }
+
+  std::vector<Val*> getShape() const {
+    return {inputs().begin() + 2, inputs().begin() + (2 + getOutputDims())};
+  }
+
+  Val* getPhiloxIndex() const {
+    return attributeVal(1);
+  }
+
+  int getPhiloxMultiple() const {
+    return dtype() == DataType::Double ? 2 : 4;
+  }
+};
+
 //! Broadcast in to match out. is_broadcast_dims are relative to out. Where
 //! is_broadcast_dims.size() == out->nDims().
 class TORCH_CUDA_CU_API BroadcastOp : public Expr {

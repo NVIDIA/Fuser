@@ -1161,6 +1161,10 @@ void ComputeAtRootDomainMapBuilder::handle(RNGOp* rop) {
   handle(rop->output(0)->as<TensorView>());
 }
 
+void ComputeAtRootDomainMapBuilder::handle(FunctionalRNGOp* frop) {
+  handle(frop->output(0)->as<TensorView>());
+}
+
 void ComputeAtRootDomainMapBuilder::handle(TensorView* tv) {
   const TensorDomain* td = tv->domain();
   const auto rfactor = TensorDomain::noReductions(td->maybeRFactor());

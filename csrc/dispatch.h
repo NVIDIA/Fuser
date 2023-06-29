@@ -91,6 +91,7 @@ class IndexSelectOp;
 class TorchGatherOp;
 class ScatterOp;
 class RNGOp;
+class FunctionalRNGOp;
 class ReductionOp;
 class GroupedReductionOp;
 class WelfordOp;
@@ -185,6 +186,7 @@ class TORCH_CUDA_CU_API OptOutConstDispatch : public PolymorphicBase {
   virtual void handle(const TorchGatherOp* stmt);
   virtual void handle(const ScatterOp* stmt);
   virtual void handle(const RNGOp* stmt);
+  virtual void handle(const FunctionalRNGOp* stmt);
   virtual void handle(const ReductionOp* stmt);
   virtual void handle(const GroupedReductionOp* stmt);
   virtual void handle(const WelfordOp* stmt);
@@ -271,6 +273,7 @@ class TORCH_CUDA_CU_API OptOutDispatch : public PolymorphicBase {
   virtual void handle(TorchGatherOp* stmt);
   virtual void handle(ScatterOp* stmt);
   virtual void handle(RNGOp* stmt);
+  virtual void handle(FunctionalRNGOp* stmt);
   virtual void handle(ReductionOp* stmt);
   virtual void handle(GroupedReductionOp* stmt);
   virtual void handle(WelfordOp* stmt);

@@ -63,6 +63,7 @@ class Val;
 class UnaryOp;
 class BinaryOp;
 class RNGOp;
+class FunctionalRNGOp;
 class IterDomain;
 class IrCloner;
 class IrContainer;
