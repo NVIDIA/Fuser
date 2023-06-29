@@ -275,6 +275,7 @@ table SymbolicTensor {
 // Table represents kir::Allocate node
 table AllocateBuffer {
   tv : SymbolicTensor;
+  shape : [long];
   zero_init : bool;
 }
 

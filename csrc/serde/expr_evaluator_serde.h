@@ -45,6 +45,10 @@ class ExpressionSerializer {
       flatbuffers::FlatBufferBuilder& builder,
       const nvfuser::TensorView* tv);
 
+  flatbuffers::Offset<flatbuffers::Vector<int64_t>> serialize(
+      flatbuffers::FlatBufferBuilder& builder,
+      std::vector<Val*> domain);
+
   std::unordered_map<Val*, long> operation_stack_;
 };
 

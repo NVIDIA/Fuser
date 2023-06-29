@@ -292,10 +292,30 @@ std::vector<flatbuffers::Offset<AllocateBuffer>> ExpressionSerializer::
     TORCH_INTERNAL_ASSERT(alloc_buffer_tv);
 
     auto fb_alloc = serde::CreateAllocateBuffer(
-        builder, serialize(builder, alloc_buffer_tv), alloc->zeroInit());
+        builder,
+        serialize(builder, alloc_buffer_tv),
+        serialize(builder, alloc->shape()),
+        alloc->zeroInit());
     fb_global_allocations.push_back(fb_alloc);
   }
   return fb_global_allocations;
+}
+
+// TODO create separate functions for TensorDomain and IterDomain
+flatbuffers::Offset<flatbuffers::Vector<int64_t>> ExpressionSerializer::
+    serialize(
+        flatbuffers::FlatBufferBuilder& builder,
+        std::vector<Val*> domain) {
+  std::vector<long> fb_domain;
+  for (auto val : domain) {
+    TORCH_INTERNAL_ASSERT(
+        operation_stack_.count(val),
+        "Missing value in NaiveValueGenerator stack.\t",
+        val->toString());
+    fb_domain.push_back(operation_stack_.at(val));
+  }
+
+  return builder.CreateVector(fb_domain);
 }
 
 // TODO create separate functions for TensorDomain and IterDomain
@@ -455,6 +475,7 @@ std::vector<const kir::Allocate*> ExpressionBuilder::deserialize(
   //
   // table AllocateBuffer {
   //  tv : SymbolicTensor;
+  //  shape : Domain;
   //  zero_init : bool;
   // }
   FusionGuard fg(kernel_);
@@ -475,8 +496,14 @@ std::vector<const kir::Allocate*> ExpressionBuilder::deserialize(
         mapToNvfuserDtype(buffer->tv()->dtype()),
         MemoryType::Global);
 
+    // TODO use stl map
+    std::vector<Val*> shape;
+    for (auto fb_id : *buffer->shape()) {
+      shape.push_back(operation_stack_.at(fb_id));
+    }
+
     auto node = IrBuilder::create<kir::Allocate>(
-        buffer_tv, buffer_tv->getMemoryType(), nullptr, buffer->zero_init());
+        buffer_tv, buffer_tv->getMemoryType(), shape, buffer->zero_init());
 
     results.push_back(node);
   }

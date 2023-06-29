@@ -1701,10 +1701,14 @@ struct AllocateBuffer FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
   typedef AllocateBufferBuilder Builder;
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
     VT_TV = 4,
-    VT_ZERO_INIT = 6
+    VT_SHAPE = 6,
+    VT_ZERO_INIT = 8
   };
   const nvfuser::serde::SymbolicTensor *tv() const {
     return GetPointer<const nvfuser::serde::SymbolicTensor *>(VT_TV);
+  }
+  const ::flatbuffers::Vector<int64_t> *shape() const {
+    return GetPointer<const ::flatbuffers::Vector<int64_t> *>(VT_SHAPE);
   }
   bool zero_init() const {
     return GetField<uint8_t>(VT_ZERO_INIT, 0) != 0;
@@ -1713,6 +1717,8 @@ struct AllocateBuffer FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
     return VerifyTableStart(verifier) &&
            VerifyOffset(verifier, VT_TV) &&
            verifier.VerifyTable(tv()) &&
+           VerifyOffset(verifier, VT_SHAPE) &&
+           verifier.VerifyVector(shape()) &&
            VerifyField<uint8_t>(verifier, VT_ZERO_INIT, 1) &&
            verifier.EndTable();
   }
@@ -1724,6 +1730,9 @@ struct AllocateBufferBuilder {
   ::flatbuffers::uoffset_t start_;
   void add_tv(::flatbuffers::Offset<nvfuser::serde::SymbolicTensor> tv) {
     fbb_.AddOffset(AllocateBuffer::VT_TV, tv);
+  }
+  void add_shape(::flatbuffers::Offset<::flatbuffers::Vector<int64_t>> shape) {
+    fbb_.AddOffset(AllocateBuffer::VT_SHAPE, shape);
   }
   void add_zero_init(bool zero_init) {
     fbb_.AddElement<uint8_t>(AllocateBuffer::VT_ZERO_INIT, static_cast<uint8_t>(zero_init), 0);
@@ -1742,11 +1751,26 @@ struct AllocateBufferBuilder {
 inline ::flatbuffers::Offset<AllocateBuffer> CreateAllocateBuffer(
     ::flatbuffers::FlatBufferBuilder &_fbb,
     ::flatbuffers::Offset<nvfuser::serde::SymbolicTensor> tv = 0,
+    ::flatbuffers::Offset<::flatbuffers::Vector<int64_t>> shape = 0,
     bool zero_init = false) {
   AllocateBufferBuilder builder_(_fbb);
+  builder_.add_shape(shape);
   builder_.add_tv(tv);
   builder_.add_zero_init(zero_init);
   return builder_.Finish();
+}
+
+inline ::flatbuffers::Offset<AllocateBuffer> CreateAllocateBufferDirect(
+    ::flatbuffers::FlatBufferBuilder &_fbb,
+    ::flatbuffers::Offset<nvfuser::serde::SymbolicTensor> tv = 0,
+    const std::vector<int64_t> *shape = nullptr,
+    bool zero_init = false) {
+  auto shape__ = shape ? _fbb.CreateVector<int64_t>(*shape) : 0;
+  return nvfuser::serde::CreateAllocateBuffer(
+      _fbb,
+      tv,
+      shape__,
+      zero_init);
 }
 
 struct PhiloxCudaState FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
