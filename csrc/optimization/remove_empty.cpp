@@ -61,12 +61,56 @@ bool isTVEmpty(TensorView* tv) {
 //!   4. If the empty Tensorview is the input to a PadOp (which is not input to
 //!   a CatOp) then we replace the pad with `full(pad_value)`.
 //!
+//! We use BackwardVisitor::traversal_exprs_ which tracks the active expressions
+//! in this Fusion, to determine when it is safe to remove statements. We
+//! augment this by creating an unordered_set called active_statements_, which
+//! is initialized as the Exprs in traversal_exprs_ as well as their inputs and
+//! outputs. Marking a Statement as dead removes it from active_statements_, and
+//! replacing a Val inserts the Val and its definition, recursively. Since we
+//! traverse backwards, and we handle all active Expr outputs, this ensures that
+//! it is safe to do so whenever we remove an Expr (i.e. it will not result in
+//! erasing definitions of active Expr outputs).
 class EmptyTensorRemover : BackwardVisitor {
  public:
   EmptyTensorRemover(Fusion* fusion)
       : BackwardVisitor(false), fusion_(fusion) {}
 
   void run() {
+    // First we build a set of all live Statements so that we can detect dead
+    // branches.
+    auto exprs = StmtSort::getExprs(fusion_, fusion_->outputs());
+    // Mark every Expr, as well as its inputs and outputs as live initially
+    for (auto expr : exprs) {
+      markLive(expr);
+      for (auto inp : expr->inputs()) {
+        markLive(inp);
+      }
+      for (auto outp : expr->outputs()) {
+        markLive(outp);
+      }
+    }
+
+    // We do not traverse all outputs of all Exprs, since this requires that all
+    // paths lead to fusion_->outputs(). Instead, here now mark all Vals dead
+    // which do not have any live uses. After this, it is safe to check whether
+    // all outputs of an Expr are actually dead, which helps us determine when
+    // it is safe to remove a multi-output definition of a dead TV.
+    std::vector<Statement*> dead_expr_outputs;
+    for (auto stmt : live_statements_) {
+      if (stmt->isVal() && !stmt->asVal()->isFusionOutput() &&
+          allUsesDead(stmt->asVal())) {
+        // We should not erase from live_statements_ while traversing it, so we
+        // save the dead expr outputs for later removal instead.
+        dead_expr_outputs.push_back(stmt);
+      }
+    }
+    for (auto stmt : dead_expr_outputs) {
+      markDead(stmt);
+    }
+
+    // Note that getExprs is also run in traverseTo. In the future, we
+    // could potentially refactor this so that derived classes from
+    // BackwardVisitor can make use of that traversal instead of repeating it.
     traverseTo(fusion_, fusion_->outputs());
   }
 
@@ -74,12 +118,27 @@ class EmptyTensorRemover : BackwardVisitor {
   using BackwardVisitor::handle;
 
   void handle(Statement* stmt) final {
-    if (isDead(stmt)) {
+    if (!isLive(stmt)) {
       // We check whether stmt is dead before we dereference it, since it may
       // have been removed from the Fusion.
       return;
     }
     BackwardVisitor::handle(stmt);
+  }
+
+  void handle(Expr* expr) final {
+    bool all_outputs_dead = true;
+    for (auto outp : expr->outputs()) {
+      if (isLive(outp)) {
+        all_outputs_dead = false;
+      }
+    }
+    if (all_outputs_dead) {
+      markDead(expr);
+      fusion_->removeExpr(expr);
+    } else {
+      BackwardVisitor::handle(expr);
+    }
   }
 
   //! If tv is a fusion output, we check whether it is empty and if so, replace
@@ -107,14 +166,12 @@ class EmptyTensorRemover : BackwardVisitor {
         auto dtype = tv->getDataType().value();
         auto new_tv = full(shape, fusion_->zeroVal(dtype), dtype);
         replaceTV(tv, new_tv);
-        // Do not keep traversing upstream if we've replaced tv
-        return;
       }
-    } else if (tv->uses().empty()) {
+    } else if (allUsesDead(tv)) {
       // TensorViews that are not Fusion inputs or outputs and which have no
       // uses are dead, so remove them and skip processing them and their
       // definition.
-      removeAndMarkDead(tv);
+      markDeadAndMaybeRemove(tv);
     } else if (isTVEmpty(tv)) {
       // Note that if there empty intermediate tensors with uses that do not
       // lead to outputs, this check might fail.
@@ -198,18 +255,27 @@ class EmptyTensorRemover : BackwardVisitor {
           wop->toString());
     }
 
+    // Since WelfordOp has multiple outputs, we need to check whether each is
+    // live before replacing it, to avoid replacing a dead output with a live
+    // one. Note that replaceTV will mark the replacement as live automatically.
     auto shape = noReductionShape(avg);
-    auto nan = IrBuilder::create<Double>(
-        std::numeric_limits<double>::quiet_NaN(), avg->getDataType().value());
-    auto nan_tensor = full(shape, nan, avg->getDataType().value());
-    auto new_var_sum = full(
-        shape,
-        fusion_->zeroVal(var_sum->getDataType().value()),
-        var_sum->getDataType().value());
-    auto new_N = full(shape, fusion_->zeroVal(), N->getDataType().value());
-    replaceTV(avg, nan_tensor);
-    replaceTV(var_sum, new_var_sum);
-    replaceTV(N, new_N);
+    if (isLive(avg)) {
+      auto nan = IrBuilder::create<Double>(
+          std::numeric_limits<double>::quiet_NaN(), avg->getDataType().value());
+      auto nan_tensor = full(shape, nan, avg->getDataType().value());
+      replaceTV(avg, nan_tensor);
+    }
+    if (isLive(var_sum)) {
+      auto new_var_sum = full(
+          shape,
+          fusion_->zeroVal(var_sum->getDataType().value()),
+          var_sum->getDataType().value());
+      replaceTV(var_sum, new_var_sum);
+    }
+    if (isLive(N)) {
+      auto new_N = full(shape, fusion_->zeroVal(), N->getDataType().value());
+      replaceTV(N, new_N);
+    }
   }
 
   //! A cat op can have input empty tensors and still output a non-empty
@@ -306,34 +372,92 @@ class EmptyTensorRemover : BackwardVisitor {
     for (auto use : old_tv->uses()) {
       ir_utils::replaceValInExpr(use, old_tv, new_tv);
     }
-    removeAndMarkDead(old_tv);
+    markLiveRecursive(new_tv);
+    markDeadAndMaybeRemove(old_tv);
   }
 
   //! Guard removeVal with calls to markDead so that we always detect removed
   //! Vals and Exprs before derefencing them.
-  void removeAndMarkDead(Val* val) {
+  //!
+  //! Note that we only remove val if all of its definition's outputs are marked
+  //! dead.
+  void markDeadAndMaybeRemove(Val* val) {
     markDead(val);
     if (val->definition()) {
-      markDead(val->definition());
+      // When all outputs of def are marked dead, mark the def dead
+      bool all_outputs_dead = true;
+      for (auto outp : val->definition()->outputs()) {
+        if (isLive(outp)) {
+          all_outputs_dead = false;
+          break;
+        }
+      }
+      if (all_outputs_dead) {
+        // If all other outputs are dead, it's safe to remove the definition as
+        // well as all its outputs
+        markDead(val->definition());
+        const auto outputs = val->definition()->outputs();
+        for (auto outp : outputs) {
+          fusion_->removeVal(outp);
+        }
+      }
+    } else {
+      TORCH_INTERNAL_ASSERT(
+          !val->isFusionInput(), "Refusing to remove Fusion input");
+      fusion_->removeVal(val);
     }
-    fusion_->removeVal(val);
   }
 
-  //! Find whether a statement has been marked dead
-  bool isDead(Statement* stmt) {
-    return dead_.find(stmt) != dead_.end();
+  //! Find whether a statement is live (i.e. not dead code)
+  //!
+  //! Inside BackwardVisitor::traverseTo, traversal_exprs_ is built, containing
+  //! all active expressions in the original graph.
+  bool isLive(Statement* stmt) {
+    return live_statements_.find(stmt) != live_statements_.end();
+  }
+
+  //! Check whether all uses have been marked dead
+  bool allUsesDead(Val* val) {
+    for (const auto use : val->uses()) {
+      if (isLive(use)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  //! Mark a single Statement as being alive
+  void markLive(Statement* stmt) {
+    live_statements_.insert(stmt);
+  }
+
+  //! Ensure that a Statement and its upstream Statements are alive. If it is an
+  //! Expr, ensure all its inputs are alive. If it's a Val with a definition,
+  //! recursive to the definition.
+  void markLiveRecursive(Statement* stmt) {
+    if (isLive(stmt)) {
+      return;
+    }
+    markLive(stmt);
+    if (stmt->isVal() && stmt->asVal()->definition()) {
+      markLiveRecursive(stmt);
+    } else {
+      for (const auto inp : stmt->asExpr()->inputs()) {
+        markLiveRecursive(inp);
+      }
+    }
   }
 
   //! Mark a Statement* as dead so that we avoid dereferencing it later
   void markDead(Statement* stmt) {
-    dead_.insert(stmt);
+    live_statements_.erase(stmt);
   }
 
  private:
   Fusion* fusion_;
 
-  //! Statements are marked dead when they are removed from the Fusion
-  std::unordered_set<Statement*> dead_;
+  //! Statements are marked dead by removing them from this set
+  std::unordered_set<Statement*> live_statements_;
 };
 
 } // namespace
