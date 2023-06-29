@@ -499,9 +499,7 @@ table KernelSummary {
   outer_grouped_grid_welford_largest_smem_size : int = 0;
   generator : NaiveValueGenerator;
   global_allocations : [AllocateBuffer];
-  static_smem_allocations : [AllocateBuffer];
   dynamic_smem_allocations : [AllocateBuffer];
-  dynamic_lmem_allocations : [AllocateBuffer];
 }
 
 // Each Fusion Executor maps to a lowered and compiled kernel.

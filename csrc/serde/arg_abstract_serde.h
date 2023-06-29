@@ -15,6 +15,11 @@
 
 namespace nvfuser::serde {
 
+//! The ArgAbstractFactory class is used to deserialize the flatbuffer
+//! ArgAbstract table. This factory creates Bool, ComplexDouble, Double, Long,
+//! PhiloxCudaState, ScalarCpu, TensorArgAbstract objects. These arguments are
+//! stored in KernelArgumentHolder, which is used to schedule the fusion in
+//! FusionKernelRuntime and to run a kernel in FusionExecutor.
 class ArgAbstractFactory : public Factory<
                                serde::ArgAbstract,
                                std::unique_ptr<nvfuser::ArgAbstract>> {

@@ -2038,9 +2038,7 @@ flatbuffers::Offset<serde::KernelSummary> FusionExecutor::serialize(
   //  outer_grouped_grid_welford_largest_smem_size : int = 0;
   //  generator : NaiveValueGenerator;
   //  global_allocations : [AllocateBuffer];
-  //  static_smem_allocations : [AllocateBuffer];
   //  dynamic_smem_allocations : [AllocateBuffer];
-  //  dynamic_lmem_allocations : [AllocateBuffer];
   // }
 
   std::vector<const kir::Allocate*> all_allocations;
@@ -2050,27 +2048,15 @@ flatbuffers::Offset<serde::KernelSummary> FusionExecutor::serialize(
       kernel_summary_.global_allocations.end());
   all_allocations.insert(
       all_allocations.end(),
-      kernel_summary_.static_smem_allocations.begin(),
-      kernel_summary_.static_smem_allocations.end());
-  all_allocations.insert(
-      all_allocations.end(),
       kernel_summary_.dynamic_smem_allocations.begin(),
       kernel_summary_.dynamic_smem_allocations.end());
-  all_allocations.insert(
-      all_allocations.end(),
-      kernel_summary_.dynamic_lmem_allocations.begin(),
-      kernel_summary_.dynamic_lmem_allocations.end());
 
   serde::ExpressionSerializer es;
   auto value_generator = es.serialize(builder, kernel(), all_allocations);
   auto global_allocations =
       es.serialize(builder, kernel_summary_.global_allocations);
-  auto static_smem_allocations =
-      es.serialize(builder, kernel_summary_.static_smem_allocations);
   auto dynamic_smem_allocations =
       es.serialize(builder, kernel_summary_.dynamic_smem_allocations);
-  auto dynamic_lmem_allocations =
-      es.serialize(builder, kernel_summary_.dynamic_lmem_allocations);
 
   return serde::CreateKernelSummaryDirect(
       builder,
@@ -2088,9 +2074,7 @@ flatbuffers::Offset<serde::KernelSummary> FusionExecutor::serialize(
       summary.outer_grouped_grid_welford_largest_smem_size,
       value_generator,
       &global_allocations,
-      &static_smem_allocations,
-      &dynamic_smem_allocations,
-      &dynamic_lmem_allocations);
+      &dynamic_smem_allocations);
 }
 
 void FusionExecutor::deserialize(
@@ -2249,9 +2233,7 @@ void FusionExecutor::deserialize(const serde::KernelSummary* buffer) {
   //  outer_grouped_grid_welford_largest_smem_size : int = 0;
   //  generator : NaiveValueGenerator;
   //  global_allocations : [AllocateBuffer];
-  //  static_smem_allocations : [AllocateBuffer];
   //  dynamic_smem_allocations : [AllocateBuffer];
-  //  dynamic_lmem_allocations : [AllocateBuffer];
   // }
 
   TORCH_INTERNAL_ASSERT(buffer != nullptr, "serde::KernelSummary is nullptr.");
@@ -2277,12 +2259,8 @@ void FusionExecutor::deserialize(const serde::KernelSummary* buffer) {
   es.deserialize(buffer->generator());
   kernel_summary_.global_allocations =
       es.deserialize(buffer->global_allocations());
-  kernel_summary_.static_smem_allocations =
-      es.deserialize(buffer->static_smem_allocations());
   kernel_summary_.dynamic_smem_allocations =
       es.deserialize(buffer->dynamic_smem_allocations());
-  kernel_summary_.dynamic_lmem_allocations =
-      es.deserialize(buffer->dynamic_lmem_allocations());
 }
 
 } // namespace nvfuser
