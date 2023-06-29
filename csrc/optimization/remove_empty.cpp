@@ -22,8 +22,9 @@ namespace {
 
 //! This is a generic traversal class that is used to modify a Fusion graph by
 //! replacing TensorViews so that their definitions can be altered to simplify
-//! computation or remove dead code. Derived classes should override handle()
-//! and make use of replaceTV(), markDeadAndMaybeRemove(), and allUsesDead().
+//! computation or remove dead code. This differs from OptOutMutator, which is
+//! built for mutating TensorViews in a graph, and does not easily handle
+//! modifying TensorView definitions and Expr Fusion inputs during traversal.
 //!
 //! We use unordered_set called live_statements_, which is initialized as the
 //! Exprs in traversal_exprs_ as well as their inputs and their outputs with
@@ -32,6 +33,11 @@ namespace {
 //! we traverse backwards, and we handle all active Expr outputs, this ensures
 //! that it is safe to removing an Expr will not result in erasing definitions
 //! of active Expr outputs.
+//!
+//! Derived classes should override handle() and make use of replaceTV(),
+//! markDeadAndMaybeRemove(), and allUsesDead(). Note that if replacements are
+//! made using replaceTV(old_tv, new_tv), then neither new_tv or any new
+//! Statements produced in creating it will be traversed by this class.
 class DeadCodeRemover : BackwardVisitor {
  public:
   DeadCodeRemover(Fusion* fusion) : BackwardVisitor(false), fusion_(fusion) {}
@@ -70,8 +76,8 @@ class DeadCodeRemover : BackwardVisitor {
       markDead(stmt);
     }
 
-    // Note that getExprs is also run in traverseTo. In the future, we
-    // could potentially refactor this so that derived classes from
+    // Note that StmtSort::getExprs() is also run in traverseTo. In the future,
+    // we could potentially refactor this so that derived classes from
     // BackwardVisitor can make use of that traversal instead of repeating it.
     traverseTo(fusion_, fusion_->outputs());
   }
