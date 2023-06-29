@@ -37,7 +37,8 @@ class MaxPosCalculator {
       bool best_effort,
       bool allow_reduction,
       bool allow_vectorize,
-      bool allow_unmappable) const;
+      bool allow_unmappable,
+      bool allow_uninlinable) const;
 
  public:
   // Returns the position at which tv can be inlined within.
@@ -46,7 +47,8 @@ class MaxPosCalculator {
       bool best_effort,
       bool allow_reduction,
       bool allow_vectorize,
-      bool allow_unmappable) const;
+      bool allow_unmappable,
+      bool allow_uninlinable) const;
 
   // Returns the maximum position producer can be inlined based on consumer
   // given the set ComputeAtMode

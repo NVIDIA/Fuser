@@ -1319,21 +1319,23 @@ std::shared_ptr<ReductionParams> getPersistentHeuristics(
     // code will check if we can do this projection by allowing more registers.
     // This is a temporary solution, the issue is tracked by
     // https://github.com/csarofeen/pytorch/issues/2525
-    // if (!project_persistent_buffers) {
-    //   int64_t total_projected_buffer_size =
-    //       persistent_buffer_size_info.projected_persistent_buffer_size +
-    //       outer_reduction_buffer_size;
-    //   // allow 10% more to allow project to input, 14K float should do project
-    //   // and 16K float should't do. more_register_factor >= 14*1024*5(three
-    //   // inputs, two outer reduction results)*sizeof(float) /
-    //   // register_file_size_full
-    //   constexpr float more_register_factor = 1.1;
-    //   const int64_t avilable_register_file_size = static_cast<int64_t>(
-    //       scheduler_utils::register_file_size_full * more_register_factor);
-    //   if (avilable_register_file_size >= total_projected_buffer_size) {
-    //     project_persistent_buffers = true;
-    //   }
-    // }
+    if (getenv("PROJECT")) {
+      if (!project_persistent_buffers) {
+        int64_t total_projected_buffer_size =
+            persistent_buffer_size_info.projected_persistent_buffer_size +
+            outer_reduction_buffer_size;
+        // allow 10% more to allow project to input, 14K float should do project
+        // and 16K float should't do. more_register_factor >= 14*1024*5(three
+        // inputs, two outer reduction results)*sizeof(float) /
+        // register_file_size_full
+        constexpr float more_register_factor = 1.1;
+        const int64_t avilable_register_file_size = static_cast<int64_t>(
+            scheduler_utils::register_file_size_full * more_register_factor);
+        if (avilable_register_file_size >= total_projected_buffer_size) {
+          project_persistent_buffers = true;
+        }
+      }
+    }
     // now we have the final decision on whether we project to input or not.
     if (project_persistent_buffers) {
       max_persistent_size =
@@ -1826,6 +1828,42 @@ void schedulePersistentKernelInnerOuter(
   for (auto output : dummy_outputs) {
     fusion->removeOutput(output);
   }
-  inlineMost();
+
+  std::cout << "Before inlineMost\n";
+  fusion->printMath();
+  std::cout << std::endl;
+
+  std::vector<TensorView*> outer_broadcast_inputs;
+  std::unordered_set<IterDomain*> uninlinable_ids;
+
+  if (getenv("NOINLINE")) {
+    for (auto cached_input : cached_inputs) {
+      std::cerr << "Cached input: " << cached_input->toString() << std::endl;
+      auto broadcast_use_it = std::find_if(
+          cached_input->uses().begin(),
+          cached_input->uses().end(),
+          [](Expr* expr) {
+            auto bc = dynamic_cast<BroadcastOp*>(expr);
+            if (bc != nullptr) {
+              return true;
+            }
+            return false;
+          });
+      if (broadcast_use_it == cached_input->uses().end()) {
+        std::cerr << "Not broadcast: " << cached_input->toString() << std::endl;
+        continue;
+      }
+
+      auto broadcast_use = (*broadcast_use_it)->as<BroadcastOp>();
+      auto broadcast_out = broadcast_use->outputs()[0]->as<TensorView>();
+      for (auto leaf_id : broadcast_out->getLeafDomain()) {
+        uninlinable_ids.emplace(leaf_id);
+        std::cerr << "Disallowing inlining of " << leaf_id->toString() << " of "
+                  << broadcast_out->toString() << std::endl;
+      }
+    }
+  }
+
+  inlineMost(uninlinable_ids);
 }
 } // namespace nvfuser

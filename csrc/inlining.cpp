@@ -54,14 +54,15 @@ bool MaxPosCalculator::isAllowedID(
     bool best_effort,
     bool allow_reduction,
     bool allow_vectorize,
-    bool allow_unmappable) const {
+    bool allow_unmappable,
+    bool allow_uninlinable) const {
   bool allowed = true;
 
   if (!allow_reduction) {
     allowed = allowed && !id->isReduction();
   }
 
-  if (uninlinable_ids_.count(id)) {
+  if (!allow_uninlinable && uninlinable_ids_.count(id)) {
     return false;
   }
 
@@ -97,7 +98,8 @@ size_t MaxPosCalculator::getMaxPosSelf(
     bool best_effort,
     bool allow_reduction,
     bool allow_vectorize,
-    bool allow_unmappable) const {
+    bool allow_unmappable,
+    bool allow_inlinable) const {
   auto dom = tv->getLeafDomain();
   auto iter = std::find_if(dom.begin(), dom.end(), [=](IterDomain* id) {
     return !isAllowedID(
@@ -106,6 +108,7 @@ size_t MaxPosCalculator::getMaxPosSelf(
         best_effort,
         allow_reduction,
         allow_vectorize,
+        allow_unmappable,
         allow_unmappable);
   });
   return std::distance(dom.begin(), iter);
@@ -135,7 +138,7 @@ size_t MaxPosCalculator::getMaxProducerPosFromConsumer(
     auto map_it = p2c_replay_map.find(producer->axis((int)producer_pos));
     if (map_it != p2c_replay_map.end()) {
       auto c_id = map_it->second;
-      if (!isAllowedID(c_id, consumer, best_effort, true, false, true)) {
+      if (!isAllowedID(c_id, consumer, best_effort, true, false, true, true)) {
         return producer_pos;
       }
     }
@@ -147,7 +150,7 @@ size_t MaxPosCalculator::getMaxPosAll(
     TensorView* tv,
     bool best_effort,
     bool check_siblings) {
-  auto max_pos = getMaxPosSelf(tv, best_effort, false, false, false);
+  auto max_pos = getMaxPosSelf(tv, best_effort, false, false, false, true);
   for (auto consumer_tv : ir_utils::consumerTvsOf(tv)) {
     max_pos = std::min<size_t>(
         max_pos, getMaxProducerPosFromConsumer(tv, consumer_tv, best_effort));
