@@ -359,13 +359,6 @@ struct Void {};
 //  1
 //  0
 //  0.2
-//
-// TODO: actually, it would be better if we can do
-//   auto f = [](auto x) { using T = decltype(x); ... };
-// and just call f with std::declval<T>(). But unfortunately, C++ compilers are
-// just too pedantic on disallowing declval to be instantiated. So we can not
-// call a function with declval<T>() as argument, even if inside the function we
-// don't actually use the value of the argument.
 
 template <typename... Ts>
 struct ForAllTypes;

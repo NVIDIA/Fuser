@@ -13,6 +13,7 @@ from pytest_opinfos import opinfos
 from typing import Callable, Optional
 
 from nvfuser import FusionDefinition
+from nvfuser.pytorch_utils import python_scalar_to_nvfuser_dtype
 
 
 def is_pre_volta():
@@ -41,7 +42,9 @@ def parse_inputs_fusion_definition(fd: FusionDefinition, opinfo: OpInfo, *args):
             elif type(a) is list or type(a) is tuple:
                 nvf_args.append(fd.define_vector(a))
             else:
-                nvf_args.append(fd.define_scalar(a))
+                # For symbolic scalars, we do not define with constant value.
+                # Otherwise, it becomes a constant and is not a fusion input.
+                nvf_args.append(fd.define_scalar(python_scalar_to_nvfuser_dtype(a)))
         else:
             assert type(a) is not torch.Tensor
             nvf_args.append(a)
