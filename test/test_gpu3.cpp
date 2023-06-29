@@ -9203,6 +9203,35 @@ TEST_F(NVFuserTest, FusionOptionsGuard_CUDA) {
       << "Register spill is not captured!";
 }
 
+// Test the uninlinable option of MaxPosCalculator
+TEST_F(NVFuserTest, ComputeAtPosWithUninlinableIDs_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv0);
+  auto tv3 = add(tv1, tv2);
+  auto tv4 = set(tv3);
+  fusion.addOutput(tv4);
+
+  // Disallow inlining of the innermost domain of tv3
+  std::unordered_set<IterDomain*> uninlinable = {tv3->axis(-1)};
+  inlineMost(uninlinable);
+
+  for (auto tv : ir_utils::allTvs(&fusion)) {
+    if (tv == tv0) {
+      continue;
+    }
+    int64_t expeced_pos = tv == tv3 ? 1 : 2;
+    ASSERT_TRUE(tv->getComputeAtPosition() == expeced_pos)
+        << "Invalid computeAt position: " << tv->toString()
+        << ". Expected position: " << expeced_pos;
+  }
+}
+
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser
