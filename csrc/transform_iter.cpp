@@ -851,36 +851,16 @@ IterDomain* getSwizzleFinalOutput(
   return id;
 }
 
-bool isSkippableSwizzleInput(
+bool isSwizzleInput(
     IterDomain* input_id,
-    const std::unordered_map<IterDomain*, Expr*>& id2expr,
-    const std::unordered_set<IterDomain*>& all_mapped_ids) {
+    const std::unordered_map<IterDomain*, Expr*>& id2expr) {
   auto user_expr_it = id2expr.find(input_id);
 
   if (user_expr_it == id2expr.end()) {
     return false;
   }
 
-  auto swizzle = dynamic_cast<Swizzle2D*>(user_expr_it->second);
-  if (swizzle == nullptr) {
-    return false;
-  }
-
-  // Swizzle should be skipped in an all-or-nothing manner. If both inputs are
-  // mapped, then we skip both of them. Otherwise, we skip none of them.
-  IterDomain* other_input_id = nullptr;
-  if (input_id == swizzle->inX()) {
-    other_input_id = swizzle->inY();
-  } else {
-    TORCH_INTERNAL_ASSERT(
-        input_id == swizzle->inY(),
-        "unknown input to swizzle op",
-        input_id->toString(),
-        swizzle->toString());
-    other_input_id = swizzle->inX();
-  }
-
-  return all_mapped_ids.count(other_input_id) > 0;
+  return user_expr_it->second->isA<Swizzle2D>();
 }
 
 } // namespace
@@ -1074,19 +1054,11 @@ void BestEffortReplay::skipSwizzles(
   // Update target2replay map
   bool updated = true;
 
-  std::unordered_set<IterDomain*> all_mapped_ids;
-  for (auto it : target2replay_id_map_) {
-    all_mapped_ids.emplace(it.first);
-    all_mapped_ids.emplace(it.second);
-  }
-
   while (updated) {
     updated = false;
     for (auto it : target2replay_id_map_) {
-      if ((isSkippableSwizzleInput(it.first, target_id2expr, all_mapped_ids) &&
-           skip_target_swizzle_) ||
-          (isSkippableSwizzleInput(it.second, replay_id2expr, all_mapped_ids) &&
-           skip_replay_swizzle_)) {
+      if ((isSwizzleInput(it.first, target_id2expr) && skip_target_swizzle_) ||
+          (isSwizzleInput(it.second, replay_id2expr) && skip_replay_swizzle_)) {
         updated = true;
 
         auto new_target = skip_target_swizzle_
