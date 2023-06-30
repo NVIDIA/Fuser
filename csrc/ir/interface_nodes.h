@@ -544,15 +544,17 @@ class TORCH_CUDA_CU_API TensorView : public Val {
   friend class ir_utils::TVDomainGuard;
 
   // Inline the computation of this tensor into its consumer at the given
-  // position. If this tensor is already inlined in a higher position, then this
-  // call is a no-op. If the right most dimensions before `pos` are
-  // broadcasting, then will not inline into these broadcastings. If
+  // position. If this tensor is already inlined in a
+  // higher position, then this call is a no-op, unless the
+  // allower_lower parameter is true. If the right most dimensions before `pos`
+  // are broadcasting, then will not inline into these broadcastings. If
   // best_effort, then will inline into the highest allowed position that is <=
   // `pos`.
   void inlineAt(
       int64_t pos,
       bool best_effort = false,
-      MaxPosCalculator* calc = nullptr);
+      MaxPosCalculator* calc = nullptr,
+      bool allow_lower = false);
 
   //! Inline the computation of this tensor into a consumer at the given
   //! position. The consumer to compute with is determined when the

@@ -345,7 +345,8 @@ IterDomain* TensorView::axis(int pos) const {
 void TensorView::inlineAt(
     int64_t pos,
     bool best_effort,
-    MaxPosCalculator* calc) {
+    MaxPosCalculator* calc,
+    bool allow_lower) {
   TORCH_INTERNAL_ASSERT(
       !container()->isA<kir::Kernel>(),
       "Function invalid for kernel container.");
@@ -391,7 +392,10 @@ void TensorView::inlineAt(
     return;
   }
 
-  if (pos <= compute_at_pos_) {
+  const bool lower_pos = pos < compute_at_pos_;
+  const bool default_compute_with = compute_at_pos_ == compute_with_pos_;
+
+  if (pos <= compute_at_pos_ && !(allow_lower && lower_pos)) {
     return;
   }
 
@@ -400,6 +404,13 @@ void TensorView::inlineAt(
   // If the new computeAt position is further inlined than the
   // computeWith position, reset the computeWith setting
   if (compute_at_pos_ >= compute_with_pos_) {
+    clearComputeWith();
+  }
+
+  // Also reset the computeWith setting if the computeAt position is
+  // lowered and the computeWith position was previously the same as
+  // the computeAt position
+  if (lower_pos && default_compute_with) {
     clearComputeWith();
   }
 

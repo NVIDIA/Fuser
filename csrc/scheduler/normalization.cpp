@@ -1678,6 +1678,147 @@ void scheduleReductionCombinedOuter(
   }
 }
 
+namespace {
+
+// Find leaf IDs that have broadcast IDs merged into
+std::vector<IterDomain*> getBroadcastLeafCAIds(TensorView* broadcast_tv) {
+  BroadcastOp* broadcast =
+      dynamic_cast<BroadcastOp*>(broadcast_tv->definition());
+  TORCH_INTERNAL_ASSERT(broadcast != nullptr);
+
+  std::unordered_set<Val*> root_broadcast_ids;
+  for (const auto i : c10::irange(broadcast_tv->getRootDomain().size())) {
+    if (broadcast->isBroadcastDim(i)) {
+      root_broadcast_ids.insert(broadcast_tv->getRootDomain().at(i));
+    }
+  }
+  auto broadcast_ids = DependencyCheck::getAllValsBetween(
+      root_broadcast_ids,
+      std::vector<Val*>(
+          broadcast_tv->getLeafDomain().begin(),
+          broadcast_tv->getLeafDomain().end()));
+
+  std::vector<IterDomain*> broadcast_leaf_ca_ids;
+  std::copy_if(
+      broadcast_tv->getLeafDomain().begin(),
+      broadcast_tv->getLeafDomain().begin() +
+          broadcast_tv->getComputeAtPosition(),
+      std::back_inserter(broadcast_leaf_ca_ids),
+      [&](auto id) {
+        return std::find(broadcast_ids.begin(), broadcast_ids.end(), id) !=
+            broadcast_ids.end();
+      });
+  return broadcast_leaf_ca_ids;
+}
+
+void avoidRedundantInputReads(
+    Fusion* fusion,
+    const std::vector<TensorView*>& cached_inputs) {
+  ComputeAtMap ca_map(fusion);
+  for (auto cached_input : cached_inputs) {
+    int64_t cached_input_ca_pos = cached_input->getComputeAtPosition();
+    // If it's already 0, no further adjustent is necessary
+    if (cached_input->getComputeAtPosition() == 0) {
+      continue;
+    }
+
+    // Check all dependent broadcast exprs
+    auto dep_exprs =
+        DependencyCheck::getAllExprsBetween({cached_input}, fusion->outputs());
+    for (auto broadcast : ir_utils::filterByType<BroadcastOp>(dep_exprs)) {
+      auto broadcast_tv = broadcast->output(0)->as<TensorView>();
+      const auto broadcast_leaf_ca_ids = getBroadcastLeafCAIds(broadcast_tv);
+      if (broadcast_leaf_ca_ids.empty()) {
+        continue;
+      }
+
+      // Look for a broadcast leaf CA ID that is expanded. Such IDs
+      // are executed redundantly. Note that the goal here is to avoid
+      // redundant loads by caching them in registers, so we only
+      // consider the redundancy within a thread, so if it's
+      // parallelized, it should be ignored.
+      //
+      // This analysis is similar to broadcast concretization as
+      // well as the thread predicate analysis. We could likely clean
+      // up with the new ID Graph facility.
+      const auto expanded_broadcast_leaf_it = std::find_if(
+          broadcast_leaf_ca_ids.begin(),
+          broadcast_leaf_ca_ids.end(),
+          [&ca_map](auto broadcast_leaf_ca_id) {
+            auto loop_concrete_id = ca_map.getConcreteMappedID(
+                broadcast_leaf_ca_id, IdMappingMode::LOOP);
+            // If it is exaclty mapped with the LOOP
+            // concrete ID, there's no redundancy
+            if (ca_map.areMapped(
+                    broadcast_leaf_ca_id,
+                    loop_concrete_id,
+                    IdMappingMode::EXACT)) {
+              return false;
+            }
+            if (isParallelTypeThread(loop_concrete_id->getParallelType())) {
+              return false;
+            }
+            return true;
+          });
+
+      // This broadcast does not cause any intra-thread
+      // redundancy. No need to adjust the CA position
+      if (expanded_broadcast_leaf_it == broadcast_leaf_ca_ids.end()) {
+        continue;
+      }
+
+      // Now that we found an expanded broadcast leaf ID, check if any
+      // of the leaf IDs of the cached inputs are inlined at or right of
+      // the expanded broadcast leaf ID. If there's one, the input
+      // would be redundantly loaded.
+      const auto expanded_broadcast_leaf_dim = std::distance(
+          broadcast_tv->getLeafDomain().begin(),
+          std::find(
+              broadcast_tv->getLeafDomain().begin(),
+              broadcast_tv->getLeafDomain().end(),
+              *expanded_broadcast_leaf_it));
+
+      const auto cached_input_mapped_leaf_id_it = std::find_if(
+          cached_input->getLeafDomain().begin(),
+          cached_input->getLeafDomain().end(),
+          [&](auto cached_input_leaf_id) {
+            std::cerr << "Cached input id: " << cached_input_leaf_id->toString()
+                      << std::endl;
+            return std::any_of(
+                broadcast_tv->getLeafDomain().begin() +
+                    expanded_broadcast_leaf_dim,
+                broadcast_tv->getLeafDomain().end(),
+                [&](auto broadcast_tv_leaf_id) {
+                  return ca_map.areMapped(
+                      broadcast_tv_leaf_id,
+                      cached_input_leaf_id,
+                      IdMappingMode::LOOP);
+                });
+          });
+      if (cached_input_mapped_leaf_id_it ==
+          cached_input->getLeafDomain().end()) {
+        continue;
+      }
+
+      // We need to make sure the CA position is left of
+      // cached_input_mapped_leaf_id_it
+      const int64_t cached_input_redundant_id_dim = std::distance(
+          cached_input->getLeafDomain().begin(),
+          cached_input_mapped_leaf_id_it);
+      cached_input_ca_pos =
+          std::min(cached_input_ca_pos, cached_input_redundant_id_dim);
+    }
+
+    if (cached_input_ca_pos < cached_input->getComputeAtPosition()) {
+      std::cerr << "CA position of input " << cached_input->toString()
+                << " should be " << cached_input_ca_pos << std::endl;
+      cached_input->inlineAt(cached_input_ca_pos, false, nullptr, true);
+    }
+  }
+}
+
+} // namespace
+
 void schedulePersistentKernelInnerOuter(
     Fusion* fusion,
     const ReductionParams& rparams) {
@@ -1829,32 +1970,10 @@ void schedulePersistentKernelInnerOuter(
     fusion->removeOutput(output);
   }
 
-  std::cout << "Before inlineMost\n";
-  fusion->printMath();
-  std::cout << std::endl;
-
-  std::unordered_set<IterDomain*> uninlinable_ids;
+  inlineMost();
 
   if (getenv("NOINLINE")) {
-    ComputeAtMap ca_map(fusion);
-    for (auto cached_input : cached_inputs) {
-      std::cerr << "Cached input: " << cached_input->toString() << std::endl;
-      auto dep_exprs = DependencyCheck::getAllExprsBetween({cached_input}, fusion->outputs());
-       for (auto broadcast : ir_utils::filterByType<BroadcastOp>(dep_exprs)) {
-        std::cerr << "Broadcast use: " << broadcast->toString();
-#if 0
-        auto broadcast_use = (*broadcast_use_it)->as<BroadcastOp>();
-        auto broadcast_out = broadcast_use->outputs()[0]->as<TensorView>();
-        for (auto leaf_id : broadcast_out->getLeafDomain()) {
-          uninlinable_ids.emplace(leaf_id);
-          std::cerr << "Disallowing inlining of " << leaf_id->toString() << " of "
-                    << broadcast_out->toString() << std::endl;
-        }
-#endif
-      }
-    }
+    avoidRedundantInputReads(fusion, cached_inputs);
   }
-
-  inlineMost(uninlinable_ids);
 }
 } // namespace nvfuser

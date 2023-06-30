@@ -9246,10 +9246,10 @@ TEST_F(NVFuserTest, TMP) {
   auto tv4 = add(tv1, tv3);
   fusion.addOutput(tv4);
 
-  //tv3->merge(0)->split(0, 4);
+  // tv3->merge(0)->split(0, 4);
   TransformPropagatorWithCheck propagator(tv3);
   MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
-  
+
   fusion.printMath();
 
   inlineMost();
