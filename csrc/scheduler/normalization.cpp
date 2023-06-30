@@ -1319,7 +1319,7 @@ std::shared_ptr<ReductionParams> getPersistentHeuristics(
     // code will check if we can do this projection by allowing more registers.
     // This is a temporary solution, the issue is tracked by
     // https://github.com/csarofeen/pytorch/issues/2525
-    if (getenv("PROJECT")) {
+    if (!getenv("NOINLINE")) {
       if (!project_persistent_buffers) {
         int64_t total_projected_buffer_size =
             persistent_buffer_size_info.projected_persistent_buffer_size +
