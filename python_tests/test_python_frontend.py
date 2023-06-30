@@ -2359,42 +2359,47 @@ class TestNvFuserFrontend(TestCase):
         # Just test that this executes, not that it's correct
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
 
-    def test_deterministic_uniform(self):
-        input_size = [64, 128, 1024]
+    # Test that deterministic random ops (uniform, normal) give same results as
+    # their stochastic versions
+    def test_deterministic_random(self):
+        input_size = [5, 9]
         dtype = torch.float32
         device = "cuda"
         inputs = [
             torch.randn(*input_size, device=device, dtype=dtype),
         ]
-        lo = 1.8
-        hi = 1223.5
+        param1 = 0.3  # low or mean
+        param2 = 1.7  # hi or sigma
 
-        def fusion_func(fd: FusionDefinition):
-            # Note: this is awkward, but we need to set the random seed each
-            # time the fusion is executed otherwise subsequent calls will
-            # compute t1 after advancing the seed
-            torch.manual_seed(0)
+        for randopname in ['uniform', 'normal']:
+            def fusion_func(fd: FusionDefinition):
+                # Note: this is awkward, but we need to set the random seed
+                # each time the fusion is executed otherwise subsequent calls
+                # will compute t1 after advancing the seed
+                torch.manual_seed(0)
 
-            t0 = fd.from_pytorch(inputs[0])
-            s_lo = fd.define_scalar(lo)
-            s_hi = fd.define_scalar(hi)
-            size = fd.ops.tensor_sizes(t0)
-            t1 = fd.ops.uniform(s_lo, s_hi, size, DataType.Double)
+                randop = getattr(fd.ops, randopname)
 
-            t2 = fd.ops.uniform(
-                s_lo,
-                s_hi,
-                size,
-                DataType.Double,
-                rng_seed=fd.define_constant(0),
-                rng_offset=fd.define_constant(0),
-            )
-            fd.add_output(t1)
-            fd.add_output(t2)
+                t0 = fd.from_pytorch(inputs[0])
+                s1 = fd.define_scalar(param1)
+                s2 = fd.define_scalar(param1)
+                size = fd.ops.tensor_sizes(t0)
+                t1 = randop(s1, s2, size, DataType.Double)
 
-        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+                t2 = randop(
+                    s1,
+                    s2,
+                    size,
+                    DataType.Double,
+                    rng_seed=fd.define_constant(0),
+                    rng_offset=fd.define_constant(0),
+                )
+                fd.add_output(t1)
+                fd.add_output(t2)
 
-        self.assertEqual(nvf_out[0], nvf_out[1])
+            nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+
+            self.assertEqual(nvf_out[0], nvf_out[1])
 
 
 if __name__ == "__main__":

@@ -2801,7 +2801,13 @@ struct RandomOpRecord : RecordFunctor {
         output = uniform(output_shape, arg1, arg2, dtype_, seed, offset);
       }
     } else if (name_.compare("ops.normal") == 0) {
-      output = normal(output_shape, arg1, arg2, dtype_);
+      if (args_.size() == 2) { // stochastic normal
+        output = normal(output_shape, arg1, arg2, dtype_);
+      } else if (args_.size() == 4) { // provided seed and offset
+        auto seed = fd.getFusionState(args_.at(2).index);
+        auto offset = fd.getFusionState(args_.at(3).index);
+        output = normal(output_shape, arg1, arg2, dtype_, seed, offset);
+      }
     } else {
       TORCH_INTERNAL_ASSERT(
           false, "random distribution not recognized:", name_);

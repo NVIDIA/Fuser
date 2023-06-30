@@ -152,7 +152,9 @@ TORCH_CUDA_CU_API WelfordResult WelfordRaw(
 // RNG OPERATIONS
 TORCH_CUDA_CU_API TensorView* rand(
     const std::vector<Val*>& shape,
-    DataType dtype);
+    DataType dtype,
+    Val* philox_seed = nullptr,
+    Val* philox_offset = nullptr);
 TORCH_CUDA_CU_API Val* rand_like(Val*);
 TORCH_CUDA_CU_API TensorView* rand_like(TensorView*);
 TORCH_CUDA_CU_API TensorView* randn(
@@ -172,7 +174,9 @@ TORCH_CUDA_CU_API TensorView* normal(
     const std::vector<Val*>& shape,
     Val* mean,
     Val* std,
-    DataType dtype);
+    DataType dtype,
+    Val* philox_seed = nullptr,
+    Val* philox_offset = nullptr);
 
 // TENSOR FACTORIES
 TORCH_CUDA_CU_API TensorView* full(

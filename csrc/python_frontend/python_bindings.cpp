@@ -2361,7 +2361,9 @@ void initNvFuserPythonBindings(PyObject* module) {
          Scalar mean,
          Scalar std,
          std::vector<Scalar>& shape,
-         PrimDataType dtype) -> Tensor {
+         PrimDataType dtype,
+         std::optional<Scalar> rng_seed,
+         std::optional<Scalar> rng_offset) -> Tensor {
         FUSER_PERF_SCOPE("Operators.normal");
         TORCH_CHECK(
             self.validUse(), "Attempting to add to a completed definition!");
@@ -2374,11 +2376,19 @@ void initNvFuserPythonBindings(PyObject* module) {
             shape.end(),
             output_shape_states.begin(),
             [&fd](const Scalar& s) { return fd->recordingState(s()); });
+        std::vector<State> arg_states = {
+            fd->recordingState(mean()),
+            fd->recordingState(std()),
+        };
+        if (rng_seed.has_value()) {
+          TORCH_CHECK(
+              rng_offset.has_value(),
+              "When providing rng_seed, rng_offset must also be provided");
+          arg_states.push_back(fd->recordingState(rng_seed.value()()));
+          arg_states.push_back(fd->recordingState(rng_offset.value()()));
+        }
         fd->defineRecord(new RandomOpRecord(
-            {
-                fd->recordingState(mean()),
-                fd->recordingState(std()),
-            },
+            arg_states,
             {fd->recordingState(output())},
             output_shape_states,
             "ops.normal",
@@ -2389,6 +2399,8 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("std"),
       py::arg("shape"),
       py::arg("dtype") = DataType::Float,
+      py::arg("rng_seed") = py::none(),
+      py::arg("rng_offset") = py::none(),
       py::return_value_policy::reference);
   //! The ScedOperators class is a nested class of FusionDefinition to allow the
   //! user to query the class for the list of schedule operators.
