@@ -204,25 +204,30 @@ TensorView* randn(
   return out;
 }
 
+TensorView* randn_like(TensorView* tv, Val* philox_seed, Val* philox_offset) {
+  TORCH_CHECK(
+      isFloatingPointType(tv->dtype()),
+      "input must have floating point type, but got ",
+      tv->dtype());
+  std::vector<Val*> shape;
+  auto dom = TensorDomain::noReductions(tv->getMaybeRFactorDomain());
+  shape.reserve(dom.size());
+  for (auto id : dom) {
+    shape.emplace_back(id->getMaybeExpandedExtent());
+  }
+  return randn(shape, tv->dtype(), philox_seed, philox_offset);
+}
 TensorView* randn_like(TensorView* tv) {
-  TORCH_CHECK(
-      isFloatingPointType(tv->dtype()),
-      "input must have floating point type, but got ",
-      tv->dtype());
-  std::vector<Val*> shape;
-  auto dom = TensorDomain::noReductions(tv->getMaybeRFactorDomain());
-  shape.reserve(dom.size());
-  for (auto id : dom) {
-    shape.emplace_back(id->getMaybeExpandedExtent());
-  }
-  return randn(shape, tv->dtype());
+  return randn_like(tv, nullptr, nullptr);
 }
-
+Val* randn_like(Val* v, Val* philox_seed, Val* philox_offset) {
+  return randn_like(v->as<TensorView>(), philox_seed, philox_offset);
+}
 Val* randn_like(Val* v) {
-  return randn_like(v->as<TensorView>());
+  return randn_like(v->as<TensorView>(), nullptr, nullptr);
 }
 
-TensorView* rand_like(TensorView* tv) {
+TensorView* rand_like(TensorView* tv, Val* philox_seed, Val* philox_offset) {
   TORCH_CHECK(
       isFloatingPointType(tv->dtype()),
       "input must have floating point type, but got ",
@@ -233,11 +238,16 @@ TensorView* rand_like(TensorView* tv) {
   for (auto id : dom) {
     shape.emplace_back(id->getMaybeExpandedExtent());
   }
-  return rand(shape, tv->dtype());
+  return rand(shape, tv->dtype(), philox_seed, philox_offset);
 }
-
+TensorView* rand_like(TensorView* tv) {
+  return rand_like(tv, nullptr, nullptr);
+}
+Val* rand_like(Val* v, Val* philox_seed, Val* philox_offset) {
+  return rand_like(v->as<TensorView>(), philox_seed, philox_offset);
+}
 Val* rand_like(Val* v) {
-  return rand_like(v->as<TensorView>());
+  return rand_like(v->as<TensorView>(), nullptr, nullptr);
 }
 
 TensorView* full(

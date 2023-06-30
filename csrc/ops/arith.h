@@ -155,15 +155,32 @@ TORCH_CUDA_CU_API TensorView* rand(
     DataType dtype,
     Val* philox_seed = nullptr,
     Val* philox_offset = nullptr);
-TORCH_CUDA_CU_API Val* rand_like(Val*);
-TORCH_CUDA_CU_API TensorView* rand_like(TensorView*);
+TORCH_CUDA_CU_API TensorView* rand_like(
+    TensorView*,
+    Val* philox_seed,
+    Val* philox_offset);
+// Note that overloading these would be convenient, but overloaded functions are
+// difficult to cast correctly. In the serde method
+// RecordFunctorFactory::setupFunctionMaps(), the op is cast to, for example
+// nvfuser::Val* (*)(nvfuser::Val*). In order to avoid errors due to that
+// static_cast, we just implement the unary and ternary versions of the random
+// *_like operators as separate functions.
+TORCH_CUDA_CU_API Val* rand_like(Val*, Val* philox_seed, Val* philox_offset);
+TORCH_CUDA_CU_API TensorView* rand_like(TensorView* tv);
+TORCH_CUDA_CU_API Val* rand_like(Val* val);
+
 TORCH_CUDA_CU_API TensorView* randn(
     const std::vector<Val*>& shape,
     DataType dtype,
     Val* philox_seed = nullptr,
     Val* philox_offset = nullptr);
-TORCH_CUDA_CU_API Val* randn_like(Val*);
-TORCH_CUDA_CU_API TensorView* randn_like(TensorView*);
+TORCH_CUDA_CU_API TensorView* randn_like(
+    TensorView*,
+    Val* philox_seed,
+    Val* philox_offset);
+TORCH_CUDA_CU_API Val* randn_like(Val*, Val* philox_seed, Val* philox_offset);
+TORCH_CUDA_CU_API TensorView* randn_like(TensorView* tv);
+TORCH_CUDA_CU_API Val* randn_like(Val* val);
 
 TORCH_CUDA_CU_API TensorView* uniform(
     const std::vector<Val*>& shape,

@@ -735,6 +735,44 @@ void initNvFuserPythonBindings(PyObject* module) {
   NVFUSER_PYTHON_BINDING_UNARY_OP("imag", imag)
 #undef NVFUSER_PYTHON_BINDING_UNARY_OP
 
+// rand_like and randn_like are normally used with a single TensorView argument,
+// like a UnaryOp. However, they also take an optional pair (rng_seed,
+// rng_offset) which converts them to deterministic ops. When those args are
+// provided, and they must both be provided if either is, then the op behaves
+// like a ternary op. We handle the UnaryOp case above and the TernaryOp case
+// here.
+#define NVFUSER_PYTHON_BINDING_TERNARY_RANDOM_OP(op_str, op_name)             \
+  nvf_ops.def(                                                                \
+      op_str,                                                                 \
+      [](FusionDefinition::Operators& self,                                   \
+         Tensor input,                                                        \
+         Scalar rng_seed,                                                     \
+         Scalar rng_offset) -> Tensor {                                       \
+        FUSER_PERF_SCOPE("Operators." op_str);                                \
+        TORCH_CHECK(                                                          \
+            self.validUse(), "Attempting to add to a completed definition!"); \
+        FusionDefinition* fd = self.fusion_definition;                        \
+        Tensor output = fd->defineTensor(input.dims);                         \
+        fd->defineRecord(new OpRecord<TensorView*, TensorView*>(              \
+            {fd->recordingState(input()),                                     \
+             fd->recordingState(rng_seed()),                                  \
+             fd->recordingState(rng_offset())},                               \
+            {fd->recordingState(output())},                                   \
+            ("ops." op_str),                                                  \
+            serde::RecordType_Ternary_TV_VAL_VAL,                             \
+            static_cast<TensorView* (*)(TensorView*)>(op_name)));             \
+        return output;                                                        \
+      },                                                                      \
+      py::arg("arg"),                                                         \
+      py::arg("rng_seed"),                                                    \
+      py::arg("rng_offset"),                                                  \
+      py::return_value_policy::reference);
+
+  NVFUSER_PYTHON_BINDING_TERNARY_RANDOM_OP("rand_like", rand_like)
+  NVFUSER_PYTHON_BINDING_TERNARY_RANDOM_OP("randn_like", randn_like)
+
+#undef NVFUSER_PYTHON_BINDING_UNARY_RANDOM_OP
+
 #define NVFUSER_PYTHON_BINDING_UNARY_OP_SPECIAL(op_str, op_name)               \
   tensor_class.def(                                                            \
       "__" op_str "__",                                                        \
