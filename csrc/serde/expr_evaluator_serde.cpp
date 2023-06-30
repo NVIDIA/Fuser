@@ -92,9 +92,22 @@ void bind(std::vector<Val*>& all_values, Val* v) {
   all_values.push_back(v);
 }
 
-void bind(std::vector<Val*>& all_values, std::vector<IterDomain*> domain) {
+// Bind the iterDomain's extent for the given root domain
+void bindRootDomain(
+    std::vector<Val*>& all_values,
+    std::vector<IterDomain*> domain) {
   for (auto d : domain) {
+    TORCH_INTERNAL_ASSERT(d->definition() == nullptr);
     bind(all_values, d->extent());
+  }
+}
+
+// Bind the iterDomain's extent for the given domain
+void bindDomain(
+    std::vector<Val*>& all_values,
+    std::vector<IterDomain*> domain) {
+  for (auto d : domain) {
+    bind(all_values, d->as<Val>());
   }
 }
 
@@ -102,7 +115,17 @@ void bind(std::vector<Val*>& all_values, std::vector<IterDomain*> domain) {
 // 2. Create new extents using split, merge, reorder operations for rfactor,
 // allocation, and leaf domains
 void bind(std::vector<Val*>& all_values, nvfuser::TensorView* tv) {
-  bind(all_values, tv->getRootDomain());
+  bindRootDomain(all_values, tv->getRootDomain());
+
+  if (tv->hasRFactor()) {
+    bindDomain(all_values, tv->getRFactorDomain());
+  }
+
+  if (tv->hasAllocation()) {
+    bindDomain(all_values, tv->getAllocationDomain());
+  }
+
+  bindDomain(all_values, tv->getLeafDomain());
 }
 
 } // namespace
@@ -162,14 +185,12 @@ flatbuffers::Offset<serde::NaiveValueGenerator> ExpressionSerializer::serialize(
   }
 
   // 2) Sort values by dependency order
-  auto list = makeSortedEvaluationList(all_values);
-
   // 3) Divide values into NamedScalar, Int, Symbolic, and Derived values
   std::unordered_set<nvfuser::NamedScalar*> named_scalar_values;
   std::unordered_set<nvfuser::Int*> const_int_values;
   std::unordered_set<nvfuser::Val*> symbolic_values;
   std::vector<nvfuser::Val*> derived_values;
-  for (auto v : list) {
+  for (auto v : makeSortedEvaluationList(all_values)) {
     if (v->definition() == nullptr) {
       if (NamedScalar* ns = dynamic_cast<NamedScalar*>(v)) {
         named_scalar_values.insert(ns);
@@ -273,8 +294,14 @@ flatbuffers::Offset<serde::NaiveValueGenerator> ExpressionSerializer::serialize(
       auto inst = serializeBinaryOp(builder, bop);
       instructions_fb.push_back(inst);
       operation_stack_.emplace(val, operation_stack_.size());
+    } else if (auto mop = dynamic_cast<Merge*>(def)) {
+      std::cout << mop->toString() << std::endl;
+    } else if (auto sop = dynamic_cast<Split*>(def)) {
+      std::cout << sop->toString() << std::endl;
+    } else if (auto swop = dynamic_cast<Swizzle2D*>(def)) {
+      std::cout << swop->toString() << std::endl;
     } else {
-      TORCH_INTERNAL_ASSERT(false, "Unknown Expression.");
+      TORCH_INTERNAL_ASSERT(false, "Unknown Expression.\t", def->toString());
     }
   }
   return serde::CreateNaiveValueGeneratorDirect(builder, &instructions_fb);
