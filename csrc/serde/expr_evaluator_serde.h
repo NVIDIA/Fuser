@@ -41,6 +41,22 @@ class ExpressionSerializer {
       flatbuffers::FlatBufferBuilder& builder,
       nvfuser::BinaryOp* bop) const;
 
+  flatbuffers::Offset<Instruction> serializeMerge(
+      flatbuffers::FlatBufferBuilder& builder,
+      nvfuser::Merge* merge) const;
+
+  flatbuffers::Offset<Instruction> serializeResize(
+      flatbuffers::FlatBufferBuilder& builder,
+      nvfuser::Resize* resize) const;
+
+  flatbuffers::Offset<Instruction> serializeSplit(
+      flatbuffers::FlatBufferBuilder& builder,
+      nvfuser::Split* split) const;
+
+  flatbuffers::Offset<Instruction> serializeSwizzle2D(
+      flatbuffers::FlatBufferBuilder& builder,
+      nvfuser::Swizzle2D* swizzle) const;
+
   flatbuffers::Offset<SymbolicTensor> serialize(
       flatbuffers::FlatBufferBuilder& builder,
       const nvfuser::TensorView* tv);

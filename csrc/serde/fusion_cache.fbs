@@ -316,8 +316,7 @@ table Resize {
   in : long;
   left_expansion : long;
   right_expansion : long;
-  mark_as_rfactor : bool;
-  iter_type : IterType;
+  out : long;
 }
 
 table Instruction {

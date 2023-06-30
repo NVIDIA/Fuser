@@ -19,6 +19,12 @@ std::vector<VALTYPE*> getImmediateProducers(VALTYPE* val) {
                              : std::vector<VALTYPE*>();
 }
 
+template <typename VALTYPE>
+std::vector<VALTYPE*> getConsumers(VALTYPE* val) {
+  return (val->definition()) ? val->definition()->outputs()
+                             : std::vector<VALTYPE*>({val});
+}
+
 //! IR-Generic utility, collects all the producers required for the
 //!  given list of IR values and returns them along with the original
 //!  list in topological order.
@@ -51,9 +57,12 @@ std::vector<VALTYPE*> makeSortedEvaluationList(std::vector<VALTYPE*> input) {
         }
       }
       if (ready_to_pop) {
-        visited.insert(top_val);
-        sorted.push_back(top_val);
-        to_sort.pop_back();
+        // Some definition operations generate multiple outputs. e.g., split and
+        // resize We add sibling outputs together in the sorted list.
+        for (auto consumer : getConsumers(top_val)) {
+          visited.insert(consumer);
+          sorted.push_back(consumer);
+        }
       }
     }
   }
@@ -151,6 +160,59 @@ flatbuffers::Offset<Instruction> ExpressionSerializer::serializeBinaryOp(
       builder, serde::InstructionData_BinaryOp, bop_fb.Union());
 }
 
+flatbuffers::Offset<Instruction> ExpressionSerializer::serializeMerge(
+    flatbuffers::FlatBufferBuilder& builder,
+    nvfuser::Merge* merge) const {
+  auto merge_fb = serde::CreateMerge(
+      builder,
+      operation_stack_.at(merge->inner()),
+      operation_stack_.at(merge->outer()),
+      (int64_t)operation_stack_.size());
+  return serde::CreateInstruction(
+      builder, serde::InstructionData_Merge, merge_fb.Union());
+}
+
+flatbuffers::Offset<Instruction> ExpressionSerializer::serializeResize(
+    flatbuffers::FlatBufferBuilder& builder,
+    nvfuser::Resize* resize) const {
+  auto resize_fb = serde::CreateResize(
+      builder,
+      operation_stack_.at(resize->in()),
+      operation_stack_.at(resize->leftExpand()),
+      operation_stack_.at(resize->rightExpand()),
+      (int64_t)operation_stack_.size());
+  return serde::CreateInstruction(
+      builder, serde::InstructionData_Resize, resize_fb.Union());
+}
+
+flatbuffers::Offset<Instruction> ExpressionSerializer::serializeSplit(
+    flatbuffers::FlatBufferBuilder& builder,
+    nvfuser::Split* split) const {
+  auto split_fb = serde::CreateSplit(
+      builder,
+      operation_stack_.at(split->in()),
+      operation_stack_.at(split->factor()),
+      (int64_t)operation_stack_.size(),
+      (int64_t)operation_stack_.size() + 1);
+  return serde::CreateInstruction(
+      builder, serde::InstructionData_Split, split_fb.Union());
+}
+
+flatbuffers::Offset<Instruction> ExpressionSerializer::serializeSwizzle2D(
+    flatbuffers::FlatBufferBuilder& builder,
+    nvfuser::Swizzle2D* swizzle) const {
+  auto swizzle_fb = serde::CreateSwizzle2D(
+      builder,
+      operation_stack_.at(swizzle->inX()),
+      operation_stack_.at(swizzle->inY()),
+      serde::Swizzle2DType_ZShape,
+      serde::SwizzleMode_Data,
+      (int64_t)operation_stack_.size(),
+      (int64_t)operation_stack_.size() + 1);
+  return serde::CreateInstruction(
+      builder, serde::InstructionData_Swizzle2D, swizzle_fb.Union());
+}
+
 flatbuffers::Offset<serde::NaiveValueGenerator> ExpressionSerializer::serialize(
     flatbuffers::FlatBufferBuilder& builder,
     kir::Kernel* kernel,
@@ -175,7 +237,7 @@ flatbuffers::Offset<serde::NaiveValueGenerator> ExpressionSerializer::serialize(
   std::unordered_set<nvfuser::NamedScalar*> named_scalar_values;
   std::unordered_set<nvfuser::Int*> const_int_values;
   std::unordered_set<nvfuser::Val*> symbolic_values;
-  std::vector<nvfuser::Val*> derived_values;
+  std::deque<nvfuser::Val*> derived_values;
   for (auto v : makeSortedEvaluationList(all_values)) {
     if (v->definition() == nullptr) {
       if (auto ns = dynamic_cast<nvfuser::NamedScalar*>(v)) {
@@ -209,17 +271,6 @@ flatbuffers::Offset<serde::NaiveValueGenerator> ExpressionSerializer::serialize(
   // table NaiveValueGenerator {
   //   instructions : [Instruction];
   // }
-  //
-  // table Instruction {
-  //  instruction : InstructionType;
-  //  unary_type : UnaryOpType;
-  //  binary_type : BinaryOpType;
-  //  data_type : DataType;
-  //  src0 : int;
-  //  src1 : int;
-  //  dest : int;
-  //  name : string;
-  // }
 
   using fb_instruction = flatbuffers::Offset<Instruction>;
   std::vector<fb_instruction> instructions_fb;
@@ -250,23 +301,46 @@ flatbuffers::Offset<serde::NaiveValueGenerator> ExpressionSerializer::serialize(
     operation_stack_.emplace(int_val, operation_stack_.size());
   }
 
-  for (auto& val : derived_values) {
+  while (!derived_values.empty()) {
+    auto& val = derived_values.front();
     auto def = val->definition();
+    derived_values.pop_front();
+
     TORCH_INTERNAL_ASSERT(def, "Expected definition with derived value.");
     if (auto uop = dynamic_cast<nvfuser::UnaryOp*>(def)) {
       instructions_fb.push_back(serializeUnaryOp(builder, uop));
       operation_stack_.emplace(val, operation_stack_.size());
+
     } else if (auto bop = dynamic_cast<nvfuser::BinaryOp*>(def)) {
       instructions_fb.push_back(serializeBinaryOp(builder, bop));
       operation_stack_.emplace(val, operation_stack_.size());
+
     } else if (auto mop = dynamic_cast<nvfuser::Merge*>(def)) {
-      std::cout << mop->toString() << std::endl;
+      instructions_fb.push_back(serializeMerge(builder, mop));
+      operation_stack_.emplace(val, operation_stack_.size());
+
     } else if (auto sop = dynamic_cast<nvfuser::Split*>(def)) {
-      std::cout << sop->toString() << std::endl;
+      instructions_fb.push_back(serializeSplit(builder, sop));
+      operation_stack_.emplace(val, operation_stack_.size());
+
+      auto next_val = derived_values.front();
+      TORCH_INTERNAL_ASSERT(next_val->definition() == def);
+      operation_stack_.emplace(next_val, operation_stack_.size());
+      derived_values.pop_front();
+
     } else if (auto swop = dynamic_cast<nvfuser::Swizzle2D*>(def)) {
-      std::cout << swop->toString() << std::endl;
+      instructions_fb.push_back(serializeSwizzle2D(builder, swop));
+      operation_stack_.emplace(val, operation_stack_.size());
+
+      auto next_val = derived_values.front();
+      TORCH_INTERNAL_ASSERT(next_val->definition() == def);
+      operation_stack_.emplace(next_val, operation_stack_.size());
+      derived_values.pop_front();
+
     } else if (auto rop = dynamic_cast<nvfuser::Resize*>(def)) {
-      std::cout << rop->toString() << std::endl;
+      instructions_fb.push_back(serializeResize(builder, rop));
+      operation_stack_.emplace(val, operation_stack_.size());
+
     } else {
       TORCH_INTERNAL_ASSERT(false, "Unknown Expression.\t", def->toString());
     }

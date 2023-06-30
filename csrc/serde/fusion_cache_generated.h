@@ -2083,8 +2083,7 @@ struct Resize FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
     VT_IN = 4,
     VT_LEFT_EXPANSION = 6,
     VT_RIGHT_EXPANSION = 8,
-    VT_MARK_AS_RFACTOR = 10,
-    VT_ITER_TYPE = 12
+    VT_OUT = 10
   };
   int64_t in() const {
     return GetField<int64_t>(VT_IN, 0);
@@ -2095,19 +2094,15 @@ struct Resize FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
   int64_t right_expansion() const {
     return GetField<int64_t>(VT_RIGHT_EXPANSION, 0);
   }
-  bool mark_as_rfactor() const {
-    return GetField<uint8_t>(VT_MARK_AS_RFACTOR, 0) != 0;
-  }
-  nvfuser::serde::IterType iter_type() const {
-    return static_cast<nvfuser::serde::IterType>(GetField<int32_t>(VT_ITER_TYPE, 0));
+  int64_t out() const {
+    return GetField<int64_t>(VT_OUT, 0);
   }
   bool Verify(::flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyField<int64_t>(verifier, VT_IN, 8) &&
            VerifyField<int64_t>(verifier, VT_LEFT_EXPANSION, 8) &&
            VerifyField<int64_t>(verifier, VT_RIGHT_EXPANSION, 8) &&
-           VerifyField<uint8_t>(verifier, VT_MARK_AS_RFACTOR, 1) &&
-           VerifyField<int32_t>(verifier, VT_ITER_TYPE, 4) &&
+           VerifyField<int64_t>(verifier, VT_OUT, 8) &&
            verifier.EndTable();
   }
 };
@@ -2125,11 +2120,8 @@ struct ResizeBuilder {
   void add_right_expansion(int64_t right_expansion) {
     fbb_.AddElement<int64_t>(Resize::VT_RIGHT_EXPANSION, right_expansion, 0);
   }
-  void add_mark_as_rfactor(bool mark_as_rfactor) {
-    fbb_.AddElement<uint8_t>(Resize::VT_MARK_AS_RFACTOR, static_cast<uint8_t>(mark_as_rfactor), 0);
-  }
-  void add_iter_type(nvfuser::serde::IterType iter_type) {
-    fbb_.AddElement<int32_t>(Resize::VT_ITER_TYPE, static_cast<int32_t>(iter_type), 0);
+  void add_out(int64_t out) {
+    fbb_.AddElement<int64_t>(Resize::VT_OUT, out, 0);
   }
   explicit ResizeBuilder(::flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
@@ -2147,14 +2139,12 @@ inline ::flatbuffers::Offset<Resize> CreateResize(
     int64_t in = 0,
     int64_t left_expansion = 0,
     int64_t right_expansion = 0,
-    bool mark_as_rfactor = false,
-    nvfuser::serde::IterType iter_type = nvfuser::serde::IterType_Iteration) {
+    int64_t out = 0) {
   ResizeBuilder builder_(_fbb);
+  builder_.add_out(out);
   builder_.add_right_expansion(right_expansion);
   builder_.add_left_expansion(left_expansion);
   builder_.add_in(in);
-  builder_.add_iter_type(iter_type);
-  builder_.add_mark_as_rfactor(mark_as_rfactor);
   return builder_.Finish();
 }
 
