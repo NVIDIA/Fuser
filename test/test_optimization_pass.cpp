@@ -436,6 +436,45 @@ TEST_F(NVFuserTest, FusionRemoveEmptyReduction_CUDA) {
       __FILE__);
 }
 
+// In this test, a reduction over a non-empty axis occurs first, followed by a
+// reduction over the remaining empty axis. The output is actually not empty,
+// even though the first reduction results in an empty tensor.
+TEST_F(NVFuserTest, FusionRemoveEmptyReductionWithNonReduction_CUDA) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(fusion_ptr.get());
+  // Concrete tensor with zero for one extent, so that we can prove the output
+  // is empty
+  auto tv0 = makeConcreteTensor({0, 3, 2});
+  fusion.addInput(tv0);
+  auto tv1 = sum(tv0, {1});
+  auto tv2 = sum(tv1, {0});
+  fusion.addOutput(tv2);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor at0 = at::randn({0, 3, 2}, options);
+  std::vector<c10::IValue> aten_inputs = {at0};
+
+  auto args = KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
+  FusionKernelRuntime runtime(std::move(fusion_ptr), args);
+
+  auto preseg_fusion = runtime.fusionSegments()->completeFusion();
+  EXPECT_EQ(preseg_fusion->outputs().size(), 1);
+  EXPECT_NE(preseg_fusion->outputs()[0]->definition(), nullptr);
+  EXPECT_TRUE(preseg_fusion->outputs()[0]->definition()->isA<FullOp>());
+
+  runtime.compileFusionParallel(args);
+  auto outputs = runtime.runWithInputs(args);
+
+  testValidate(
+      preseg_fusion,
+      outputs,
+      aten_inputs,
+      {at::sum(at::sum(at0, 1), 0)},
+      __LINE__,
+      __FILE__);
+}
+
 // Test that we replace empty Welford with full
 TEST_F(NVFuserTest, FusionRemoveEmptyWelford_CUDA) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
