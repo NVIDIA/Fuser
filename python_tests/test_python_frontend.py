@@ -2370,6 +2370,11 @@ class TestNvFuserFrontend(TestCase):
         hi = 1223.5
 
         def fusion_func(fd: FusionDefinition):
+            # Note: this is awkward, but we need to set the random seed each
+            # time the fusion is executed otherwise subsequent calls will
+            # compute t1 after advancing the seed
+            torch.manual_seed(0)
+
             t0 = fd.from_pytorch(inputs[0])
             s_lo = fd.define_scalar(lo)
             s_hi = fd.define_scalar(hi)
@@ -2384,35 +2389,12 @@ class TestNvFuserFrontend(TestCase):
                 rng_seed=fd.define_constant(0),
                 rng_offset=fd.define_constant(0),
             )
+            fd.add_output(t1)
             fd.add_output(t2)
 
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
 
-        # Is there a better way to test distribution?!
-        self.assertTrue(
-            nvf_out[0]
-            .mean()
-            .cpu()
-            .float()
-            .isclose(torch.tensor((hi - lo) / 2.0), rtol=1e-2, atol=1e-2)
-            .item()
-        )
-        self.assertTrue(
-            nvf_out[0]
-            .min()
-            .cpu()
-            .float()
-            .isclose(torch.tensor(lo), rtol=1e-2, atol=1e-2)
-            .item()
-        )
-        self.assertTrue(
-            nvf_out[0]
-            .max()
-            .cpu()
-            .float()
-            .isclose(torch.tensor(hi), rtol=1e-2, atol=1e-2)
-            .item()
-        )
+        self.assertEqual(nvf_out[0], nvf_out[1])
 
 
 if __name__ == "__main__":
