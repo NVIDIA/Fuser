@@ -261,11 +261,12 @@ class EmptyTensorRemover : public DeadCodeRemover {
       // uses are dead, so remove them and skip processing them and their
       // definition.
       markDeadAndMaybeRemove(tv);
+    } else {
+      TORCH_INTERNAL_ASSERT(
+          !isTVEmpty(tv),
+          "Found unexpected empty intermediate TensorView ",
+          tv->toString());
     }
-    TORCH_INTERNAL_ASSERT(
-        !isTVEmpty(tv),
-        "Found unexpected empty intermediate TensorView ",
-        tv->toString());
   }
 
   //! Gets a vector of extents for noReduction(tv->getMaybeRFactorDomain())
