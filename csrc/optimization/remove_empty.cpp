@@ -226,6 +226,8 @@ bool isTVEmpty(TensorView* tv) {
 //!   earlier in the backward traversal under condition 1.
 //!   4. If the empty Tensorview is the input to a PadOp (which is not input to
 //!   a CatOp) then we replace the pad with `full(pad_value)`.
+//!   5. If empty TensorViews are input to an MmaOp and they are empty in
+//!   contracted axes, we replace with `full({m, n}, zeroVal())`.
 //!
 class EmptyTensorRemover : DeadCodeRemover {
  public:
@@ -447,6 +449,22 @@ class EmptyTensorRemover : DeadCodeRemover {
       auto shape = noReductionShape(out);
       auto dtype = out->getDataType().value();
       auto new_tv = full(shape, pop->value(), dtype);
+      replaceTV(out, new_tv);
+    }
+  }
+
+  //! We handle MmaOp just as if it were written as a sum ReductionOp.
+  void handle(MmaOp* mop) final {
+    auto A = mop->inA()->as<TensorView>();
+    auto A_rfactor = TensorDomain::noReductions(A->getMaybeRFactorDomain());
+    // We only need to check empty axes in A. If any reduced axes are empty
+    // here, they will be empty in B also. If any non-reduced axes are empty,
+    // the output will also be empty, and this expression will already be dead.
+    if (!emptyAxes(A_rfactor).empty()) {
+      auto out = mop->out()->as<TensorView>();
+      auto shape = noReductionShape(out);
+      auto dtype = out->getDataType().value();
+      auto new_tv = full(shape, fusion()->zeroVal(dtype), dtype);
       replaceTV(out, new_tv);
     }
   }

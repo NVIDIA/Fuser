@@ -578,4 +578,55 @@ TEST_F(NVFuserTest, FusionRemoveEmptyPad_CUDA) {
       __FILE__);
 }
 
+// Test that we replace empty tensors in matmuls properly
+TEST_F(NVFuserTest, FusionRemoveEmptyMatmul_CUDA) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(fusion_ptr.get());
+
+  // [M, K]
+  auto tv0 = makeConcreteTensor({16, 0}, DataType::Half);
+  // [K, N]
+  auto tv1 = makeConcreteTensor({0, 8}, DataType::Half);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  // [M, N, K]
+  auto tv0b = broadcast(tv0, {false, true, false});
+  // [M, K, N]
+  auto tv1b = broadcast(tv1, {true, false, false});
+  // [M, N, K]
+  auto tv1t = transpose(tv1b, 1, 2);
+
+  auto tv2 = fusedMultiplySum(tv0b, tv1t, {2});
+  fusion.addOutput(tv2);
+
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+  at::Tensor at0 = at::randn({16, 0}, options);
+  at::Tensor at1 = at::randn({0, 8}, options);
+  std::vector<c10::IValue> aten_inputs = {at0, at1};
+
+  auto args = KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
+  FusionKernelRuntime runtime(std::move(fusion_ptr), args);
+
+  auto preseg_fusion = runtime.fusionSegments()->completeFusion();
+  EXPECT_EQ(preseg_fusion->outputs().size(), 1);
+
+  EXPECT_NE(preseg_fusion->outputs()[0]->definition(), nullptr);
+  auto rewritten_def = preseg_fusion->outputs()[0]->definition();
+  EXPECT_TRUE(rewritten_def->isA<FullOp>());
+  EXPECT_EQ(rewritten_def->as<FullOp>()->getFillValue()->evaluateDouble(), 0.0);
+
+  runtime.compileFusionParallel(args);
+  auto outputs = runtime.runWithInputs(args);
+
+  testValidate(
+      preseg_fusion,
+      outputs,
+      aten_inputs,
+      {at::zeros({16, 8}, options)},
+      __LINE__,
+      __FILE__);
+}
+
 } // namespace nvfuser::optimization
