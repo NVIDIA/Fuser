@@ -72,13 +72,7 @@ class DeadCodeRemover : BackwardVisitor {
   }
 
   void handle(Expr* expr) final {
-    bool all_outputs_dead = true;
-    for (auto outp : expr->outputs()) {
-      if (isLive(outp)) {
-        all_outputs_dead = false;
-      }
-    }
-    if (all_outputs_dead) {
+    if (allOutputsDead(expr)) {
       markDead(expr);
       fusion_->removeExpr(expr);
     } else {
@@ -109,15 +103,7 @@ class DeadCodeRemover : BackwardVisitor {
   void markDeadAndMaybeRemove(Val* val) {
     markDead(val);
     if (val->definition()) {
-      // When all outputs of def are marked dead, mark the def dead
-      bool all_outputs_dead = true;
-      for (auto outp : val->definition()->outputs()) {
-        if (isLive(outp)) {
-          all_outputs_dead = false;
-          break;
-        }
-      }
-      if (all_outputs_dead) {
+      if (allOutputsDead(val->definition())) {
         // If all other outputs are dead, it's safe to remove the definition as
         // well as all its outputs
         markDead(val->definition());
@@ -139,6 +125,14 @@ class DeadCodeRemover : BackwardVisitor {
   //! all active expressions in the original graph.
   bool isLive(Statement* stmt) {
     return live_statements_.find(stmt) != live_statements_.end();
+  }
+
+  //! Check whether all outputs of an expression have been marked dead
+  bool allOutputsDead(Expr* expr) {
+    return std::all_of(
+        expr->outputs().begin(), expr->outputs().end(), [&](Val* outp) {
+          return !isLive(outp);
+        });
   }
 
   //! Check whether all uses have been marked dead
