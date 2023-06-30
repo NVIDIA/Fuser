@@ -101,8 +101,7 @@ def make_number(
     Returns:
         (Scalar): The scalar number with specified dtype.
     """
-    return make_tensor([1], device="cpu", dtype=dtype).item()
-
+    return make_tensor([1], device="cpu", dtype=dtype, low=low, high=high).item()
 
 def find_nonmatching_dtype(dtype: torch.dtype):
     if dtype in int_float_dtypes:
