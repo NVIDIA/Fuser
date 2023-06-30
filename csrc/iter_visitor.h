@@ -372,4 +372,88 @@ class TORCH_CUDA_CU_API InputsOf : public IterVisitor {
       const std::vector<Val*>& outputs_);
 };
 
+//! This is a generic traversal class that is used to modify a Fusion graph by
+//! replacing TensorViews so that their definitions can be altered to simplify
+//! computation or remove dead code. This differs from OptOutMutator, which is
+//! built for mutating TensorViews in a graph, and does not easily handle
+//! modifying TensorView definitions and Expr Fusion inputs during traversal.
+//!
+//! We use unordered_set called live_statements_, which is initialized as the
+//! Exprs in traversal_exprs_ as well as their inputs and their outputs with
+//! live uses. Marking a Statement as dead removes it from live_statements_,
+//! and replacing a Val inserts the Val and its definition, recursively. Since
+//! we traverse backwards, and we handle all active Expr outputs, this ensures
+//! that it is safe to removing an Expr will not result in erasing definitions
+//! of active Expr outputs.
+//!
+//! Derived classes should override handle() and make use of replaceTV(),
+//! markDeadAndMaybeRemove(), and allUsesDead(). Note that if replacements are
+//! made using replaceTV(old_tv, new_tv), then neither new_tv or any new
+//! Statements produced in creating it will be traversed by this class.
+class DeadCodeRemover : BackwardVisitor {
+ public:
+  DeadCodeRemover(Fusion* fusion) : BackwardVisitor(false), fusion_(fusion) {}
+
+  DeadCodeRemover(const DeadCodeRemover& other) = default;
+  DeadCodeRemover& operator=(const DeadCodeRemover& other) = default;
+
+  DeadCodeRemover(DeadCodeRemover&& other) = default;
+  DeadCodeRemover& operator=(DeadCodeRemover&& other) = default;
+
+  //! Instead of traverseTo, run() is the entry point for this class, and we
+  //! always traverse from outputs backward to their inputs.
+  void run();
+
+  Fusion* fusion() const;
+
+ protected:
+  using BackwardVisitor::handle;
+
+  void handle(Statement* stmt) override;
+  void handle(Expr* expr) override;
+
+  //! Replaces a TensorView in outputs, and in all uses. If old_tv is a Fusion
+  //! input, we do not replace it. After replacement, unless it is a Fusion
+  //! input, we remove it from the fusion and set the original pointer to zero
+  //! (hence why old_tv is passed by reference).
+  void replaceTV(TensorView*& old_tv, TensorView* new_tv);
+
+  //! Guard removeVal with calls to markDead so that we always detect removed
+  //! Vals and Exprs before derefencing them.
+  //!
+  //! Note that we only remove val if all of its definition's outputs are marked
+  //! dead.
+  void markDeadAndMaybeRemove(Val* val);
+
+  //! Find whether a statement is live (i.e. not dead code)
+  //!
+  //! Inside BackwardVisitor::traverseTo, traversal_exprs_ is built, containing
+  //! all active expressions in the original graph.
+  bool isLive(Statement* stmt);
+
+  //! Check whether all outputs of an expression have been marked dead
+  bool allOutputsDead(Expr* expr);
+
+  //! Check whether all uses have been marked dead
+  bool allUsesDead(Val* val);
+
+  //! Mark a single Statement as being alive
+  void markLive(Statement* stmt);
+
+  //! Ensure that a Statement and its upstream Statements are alive. If it is an
+  //! Expr, ensure all its inputs are alive. If it's a Val with a definition,
+  //! recursive to the definition.
+  void markLiveRecursive(Statement* stmt);
+
+  //! Mark a Statement* as dead so that we avoid dereferencing it later
+  void markDead(Statement* stmt);
+
+ private:
+  //! The Fusion associated with live_statements_
+  Fusion* fusion_;
+
+  //! Statements are marked dead by removing them from this set
+  std::unordered_set<Statement*> live_statements_;
+};
+
 } // namespace nvfuser
