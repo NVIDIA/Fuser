@@ -13,6 +13,8 @@
 #include <instrumentation.h>
 #include <ir/utils.h>
 
+#include <optional>
+
 namespace nvfuser {
 
 namespace {
@@ -196,7 +198,7 @@ void PrecomputedValues::initializeValueList(
   num_of_values_ = (int)sorted_value_list.size();
   defined_ = std::vector<bool>(num_of_values_, false);
   is_constant_ = std::vector<bool>(num_of_values_, false);
-  values_ = std::vector<EvaluatorValue>(num_of_values_, EvaluatorValue(-1));
+  values_ = std::vector<EvaluatorValue>(num_of_values_, EvaluatorValue());
 
   // Fill in constants and assign evaluator indices
   for (const auto i : c10::irange(num_of_values_)) {
@@ -217,14 +219,13 @@ void PrecomputedValues::initializeValueList(
   }
 }
 
-c10::optional<EvaluatorValue> PrecomputedValues::getMaybeValueFor(
-    const Val* val) const {
+EvaluatorValue PrecomputedValues::getMaybeValueFor(const Val* val) const {
   auto index = val->evaluatorIndex();
   if (index < 0) {
-    return c10::nullopt;
+    return std::monostate{};
   }
   if (!defined_[index] && !is_constant_[index]) {
-    return c10::nullopt;
+    return std::monostate{};
   }
   return values_[index];
 }
@@ -291,7 +292,7 @@ namespace {
 //! Compares the name of given scalar with thread size strings
 //!  and returns the corresponding parallel type if a match
 //!  is found.
-c10::optional<ParallelType> getMaybeThreadSizeParallelType(
+std::optional<ParallelType> getMaybeThreadSizeParallelType(
     NamedScalar* named_scalar) {
   auto& var_name = named_scalar->name();
   for (auto ptype : kParallelTypeThreads) {
@@ -299,7 +300,7 @@ c10::optional<ParallelType> getMaybeThreadSizeParallelType(
       return ptype;
     }
   }
-  return c10::nullopt;
+  return std::nullopt;
 }
 
 } // namespace
@@ -349,7 +350,7 @@ void PrecomputedValues::bindTensorMetaData(
     if (root_domain[dim]->hasExpandedExtent()) {
       auto extent = root_domain[dim]->extent();
       auto expanded_extent = root_domain[dim]->expandedExtent();
-      bindValue(extent->evaluatorIndex(), 1);
+      bindValue(extent->evaluatorIndex(), 1L);
       bindValue(expanded_extent->evaluatorIndex(), value);
     } else {
       auto extent = root_domain[dim]->extent();
@@ -495,11 +496,11 @@ void NaiveValueMachine::runUnaryOp(int index) {
       break;
     case UnaryOpType::Cast:
       if (data_type_[index] == DataType::Double) {
-        dest = EvaluatorValue(src.template cast<double>());
+        dest = EvaluatorValue((double)src);
       } else if (data_type_[index] == DataType::Int) {
-        dest = EvaluatorValue(src.template cast<int64_t>());
+        dest = EvaluatorValue((int64_t)src);
       } else if (data_type_[index] == DataType::Bool) {
-        dest = EvaluatorValue(src.template cast<bool>());
+        dest = EvaluatorValue((bool)src);
       } else {
         TORCH_INTERNAL_ASSERT(false, "dtype not supported in evaluator");
       }

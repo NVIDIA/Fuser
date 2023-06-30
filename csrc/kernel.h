@@ -141,7 +141,7 @@ class TORCH_CUDA_CU_API KernelPerformanceProfile {
   int getNewIndex();
 
   //! Get the profile index
-  c10::optional<int> getIndex(const Expr* expr) const;
+  std::optional<int> getIndex(const Expr* expr) const;
 
  private:
   int num_profile_entries_ = 0;

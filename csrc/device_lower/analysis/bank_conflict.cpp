@@ -136,8 +136,8 @@ std::vector<int64_t> evaluateAddressesOnFirstPhase(
     num_threads = getLdMatrixNumThreads(getVectorizeSize(consumer));
   } else {
     word_size = getVectorizeSize(consumer);
-    num_threads = (bdimx ? bdimx->as<int64_t>() : 1) *
-        (bdimy ? bdimy->as<int64_t>() : 1) * (bdimz ? bdimz->as<int64_t>() : 1);
+    num_threads = (bdimx ? bdimx.as<int64_t>() : 1) *
+        (bdimy ? bdimy.as<int64_t>() : 1) * (bdimz ? bdimz.as<int64_t>() : 1);
   }
   int64_t dtype_size = (int64_t)dataTypeSize(*(ti->getDataType()));
   int64_t word_size_bytes = dtype_size * word_size;
@@ -148,13 +148,13 @@ std::vector<int64_t> evaluateAddressesOnFirstPhase(
     int64_t tidx = linear_tidx;
     int64_t tidy = 0;
     int64_t tidz = 0;
-    if (bdimx.has_value()) {
-      tidy = tidx / bdimx->as<int64_t>();
-      tidx = tidx % bdimx->as<int64_t>();
+    if (bdimx.hasValue()) {
+      tidy = tidx / bdimx.as<int64_t>();
+      tidx = tidx % bdimx.as<int64_t>();
     }
-    if (bdimy.has_value()) {
-      tidz = tidy / bdimy->as<int64_t>();
-      tidy = tidy % bdimy->as<int64_t>();
+    if (bdimy.hasValue()) {
+      tidz = tidy / bdimy.as<int64_t>();
+      tidy = tidy % bdimy.as<int64_t>();
     }
     // make a copy of the expression evaluator
     ExpressionEvaluator expr_eval = expr_eval_common;
@@ -167,12 +167,12 @@ std::vector<int64_t> evaluateAddressesOnFirstPhase(
         TORCH_INTERNAL_ASSERT(
             ns->isThreadIdx() || ns->isBlockIdx(), "unknow loop index");
       } else {
-        auto start = expr_eval.evaluate(fl->start())->as<int64_t>();
+        auto start = expr_eval.evaluate(fl->start()).as<int64_t>();
         expr_eval.bind(fl->index(), start);
       }
     }
     auto index_val = replaceBaseAddrWithZero(ti->index());
-    int64_t index = expr_eval.evaluate(index_val)->as<int64_t>();
+    int64_t index = expr_eval.evaluate(index_val).as<int64_t>();
     if (ir_utils::isLdMatrixOp(ldst) || ir_utils::isCpAsyncOp(ldst)) {
       addresses.emplace_back(index);
     } else {
@@ -223,9 +223,9 @@ class BankConflictInfo : public kir::IrVisitor {
   void bindValues(
       LaunchParams launch_params,
       const std::unordered_map<Val*, EvaluatorValue>& known_values) {
-    expr_eval_.bind("blockIdx.x", 0);
-    expr_eval_.bind("blockIdx.y", 0);
-    expr_eval_.bind("blockIdx.z", 0);
+    expr_eval_.bind("blockIdx.x", 0L);
+    expr_eval_.bind("blockIdx.y", 0L);
+    expr_eval_.bind("blockIdx.z", 0L);
     if (launch_params.bdimx() != LaunchParams::UNINITIALIZED_VAL) {
       expr_eval_.bind(ParallelType::TIDx, launch_params.bdimx());
     }
@@ -254,8 +254,8 @@ class BankConflictInfo : public kir::IrVisitor {
         kernel->summary().parallel_dimension_map_.getMap();
     for (const auto& [p, v] : parallel_dimension_map) {
       auto inferred_parallel_dim = expr_eval_.evaluate(v);
-      if (inferred_parallel_dim.has_value()) {
-        expr_eval_.bind(p, inferred_parallel_dim->as<int64_t>());
+      if (inferred_parallel_dim.hasValue()) {
+        expr_eval_.bind(p, inferred_parallel_dim.as<int64_t>());
       }
     }
   }

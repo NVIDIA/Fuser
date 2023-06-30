@@ -7,18 +7,22 @@ import torch
 import numpy as np
 
 from torch.testing import assert_close
-from pytest_framework import create_op_test, run_test_fn
+from pytest_framework import create_op_test
 from pytest_core import ReferenceType, OpInfo, SampleInput
 from pytest_opinfos import opinfos
 from typing import Callable, Optional
-from functools import partial
 
 from nvfuser import FusionDefinition
+from nvfuser.pytorch_utils import python_scalar_to_nvfuser_dtype
 
 
 def is_pre_volta():
     prop = torch.cuda.get_device_properties(torch.cuda.current_device())
     return prop.major < 7
+
+
+def is_tensor(a):
+    return isinstance(a, torch.Tensor)
 
 
 def parse_inputs_fusion_definition(fd: FusionDefinition, opinfo: OpInfo, *args):
@@ -33,10 +37,14 @@ def parse_inputs_fusion_definition(fd: FusionDefinition, opinfo: OpInfo, *args):
         if is_symbolic:
             if type(a) is torch.Tensor:
                 nvf_args.append(fd.from_pytorch(a))
+            elif type(a) is list and all(map(is_tensor, a)):
+                nvf_args.append([fd.from_pytorch(inner_a) for inner_a in a])
             elif type(a) is list or type(a) is tuple:
                 nvf_args.append(fd.define_vector(a))
             else:
-                nvf_args.append(fd.define_scalar(a))
+                # For symbolic scalars, we do not define with constant value.
+                # Otherwise, it becomes a constant and is not a fusion input.
+                nvf_args.append(fd.define_scalar(python_scalar_to_nvfuser_dtype(a)))
         else:
             assert type(a) is not torch.Tensor
             nvf_args.append(a)
@@ -47,9 +55,14 @@ def parse_args_fusion_execution(opinfo: OpInfo, *args):
     if len(args) == 0:
         return []
 
-    return [
-        a for is_symbolic, a in zip(opinfo.symbolic_parameter_list, args) if is_symbolic
-    ]
+    result = []
+    for is_symbolic, a in zip(opinfo.symbolic_parameter_list, args):
+        if is_symbolic:
+            if type(a) is list and all(map(is_tensor, a)):
+                result.extend(a)
+            else:
+                result.append(a)
+    return result
 
 
 def opinfo_fusion_func(fd: FusionDefinition, opinfo: OpInfo, *args, **kwargs):
@@ -165,12 +178,17 @@ def jax_correctness_test_fn(fusion_func: Callable, nvf_op: OpInfo, sample: Sampl
     )
 
 
-def correctness_test_fn(reference_type: ReferenceType, is_fusion_input_op: bool):
+def correctness_test_fn(
+    reference_type: ReferenceType,
+    is_fusion_input_op: bool,
+    op: OpInfo,
+    sample: SampleInput,
+):
     fusion_func = input_fusion_func if is_fusion_input_op else opinfo_fusion_func
     if reference_type == ReferenceType.Pytorch:
-        return partial(torch_correctness_test_fn, fusion_func)
+        return torch_correctness_test_fn(fusion_func, op, sample)
     elif reference_type == ReferenceType.Jax:
-        return partial(jax_correctness_test_fn, fusion_func)
+        return jax_correctness_test_fn(fusion_func, op, sample)
     else:
         return None
 
@@ -178,25 +196,18 @@ def correctness_test_fn(reference_type: ReferenceType, is_fusion_input_op: bool)
 @create_op_test(tuple(op for op in opinfos if op.reference is not None))
 def test_correctness(op: OpInfo, dtype: torch.dtype):
     for sample in op.sample_input_generator(op, dtype):
-        result = run_test_fn(
-            correctness_test_fn(op.reference_type, op.is_fusion_input_op),
-            op,
-            dtype,
-            op,
-            sample,
+        result = correctness_test_fn(
+            op.reference_type, op.is_fusion_input_op, op, sample
         )
         if result is not None:
             return result
 
 
 # TODO Maybe only test a single dtype
-@create_op_test(tuple(op for op in opinfos))
+@create_op_test(tuple(op for op in opinfos if op.sample_input_generator is not None))
 def test_definition_op_in_schedule_error(op: OpInfo, dtype: torch.dtype):
     for sample in op.sample_input_generator(op, torch.float32):
-        result = run_test_fn(
-            definition_op_in_schedule_error_test_fn,
-            op,
-            dtype,
+        result = definition_op_in_schedule_error_test_fn(
             op,
             sample,
         )
@@ -208,10 +219,8 @@ def test_definition_op_in_schedule_error(op: OpInfo, dtype: torch.dtype):
 def test_errors(op: OpInfo, dtype: torch.dtype):
     fusion_func = input_fusion_func if op.is_fusion_input_op else opinfo_fusion_func
     for sample, ex_type, ex_regex in op.error_input_generator(op, dtype):
-        result = run_test_fn(
-            partial(errors_test_fn, fusion_func),
-            op,
-            dtype,
+        result = errors_test_fn(
+            fusion_func,
             op,
             sample,
             ex_type,

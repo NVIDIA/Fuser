@@ -9,6 +9,7 @@
 #include <c10/util/complex.h>
 #include <ir/interface_nodes.h>
 #include <ops/all_ops.h>
+#include <options.h>
 #include <python_frontend/fusion_definition.h>
 #include <python_frontend/fusion_state.h>
 #include <serde/fusion_cache_generated.h>
@@ -789,7 +790,7 @@ struct BroadcastInDimOpRecord : RecordFunctor {
     return result;
   }
 
-  inline c10::optional<std::vector<Val*>> expandShape(
+  inline std::optional<std::vector<Val*>> expandShape(
       const FusionState& fd,
       const std::vector<bool>& expand_dim,
       const std::vector<OutputShapeType>& shape) const;
@@ -833,7 +834,7 @@ struct BroadcastInDimOpRecord : RecordFunctor {
 
     auto output = broadcast(arg, is_broadcast_dim);
 
-    c10::optional<std::vector<Val*>> expand_shape =
+    std::optional<std::vector<Val*>> expand_shape =
         expandShape(fd, is_expand_dim, output_shape_);
     if (expand_shape.has_value()) {
       output = expand(output, expand_shape.value());
@@ -910,7 +911,7 @@ inline size_t BroadcastInDimOpRecord<State>::outputShapeHash(
 //! expandShape Specializations used by operator()
 
 template <>
-inline c10::optional<std::vector<Val*>> BroadcastInDimOpRecord<int64_t>::
+inline std::optional<std::vector<Val*>> BroadcastInDimOpRecord<int64_t>::
     expandShape(
         const FusionState& fd,
         const std::vector<bool>& expand_dim,
@@ -927,14 +928,14 @@ inline c10::optional<std::vector<Val*>> BroadcastInDimOpRecord<int64_t>::
   }
 
   if (has_expand) {
-    return c10::optional<std::vector<Val*>>(expand_shape);
+    return std::optional<std::vector<Val*>>(expand_shape);
   } else {
-    return c10::nullopt;
+    return std::nullopt;
   }
 }
 
 template <>
-inline c10::optional<std::vector<Val*>> BroadcastInDimOpRecord<State>::
+inline std::optional<std::vector<Val*>> BroadcastInDimOpRecord<State>::
     expandShape(
         const FusionState& fd,
         const std::vector<bool>& expand_dim,
@@ -947,7 +948,7 @@ inline c10::optional<std::vector<Val*>> BroadcastInDimOpRecord<State>::
       [&fd](const State& state) {
         return fd.getFusionState(state.index)->template as<Val>();
       });
-  return c10::optional<std::vector<Val*>>(expand_shape);
+  return std::optional<std::vector<Val*>>(expand_shape);
 }
 
 //! outputShapeRecordData Specializations used by recordData()
@@ -1664,21 +1665,32 @@ struct ReductionOpRecord : RecordFunctor {
         result = result &&
             (*fusion_op_.template target<
 
-                 TensorView* (*)(TensorView*, const std::vector<int>&, bool, DataType)>() ==
+                 TensorView* (*)(TensorView*,
+                                 const std::vector<int>&,
+                                 bool,
+                                 DataType)>() ==
              *child_ptr->fusion_op_.template target<
 
-                 TensorView* (*)(TensorView*, const std::vector<int>&, bool, DataType)>());
+                 TensorView* (*)(TensorView*,
+                                 const std::vector<int>&,
+                                 bool,
+                                 DataType)>());
         if (isDebugDumpEnabled(DebugDumpOption::PythonFrontendDebug)) {
-          std::cout
-              << " Target  Ptr [self: 0x" << std::hex
-              << (size_t)*fusion_op_.template target<
+          std::cout << " Target  Ptr [self: 0x" << std::hex
+                    << (size_t)*fusion_op_.template target<
 
-                     TensorView* (*)(TensorView*, const std::vector<int>&, bool, DataType)>()
-              << "] [other: 0x" << std::hex
-              << (size_t)*child_ptr->fusion_op_.template target<
+                           TensorView* (*)(TensorView*,
+                                           const std::vector<int>&,
+                                           bool,
+                                           DataType)>()
+                    << "] [other: 0x" << std::hex
+                    << (size_t)*child_ptr->fusion_op_.template target<
 
-                     TensorView* (*)(TensorView*, const std::vector<int>&, bool, DataType)>()
-              << "]\n";
+                           TensorView* (*)(TensorView*,
+                                           const std::vector<int>&,
+                                           bool,
+                                           DataType)>()
+                    << "]\n";
         }
         result = result && (keep_dim_ == child_ptr->keep_dim_);
         result = result && (dtype_ == child_ptr->dtype_);

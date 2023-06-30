@@ -1569,7 +1569,7 @@ TEST_F(NVFuserTest, FusionResizePadWithValue_CUDA) {
   auto tv1 =
       pad(tv0,
           {IrBuilder::create<Int>(1), IrBuilder::create<Int>(1)},
-          IrBuilder::create<Int>(2));
+          IrBuilder::create<Double>(2));
   fusion.addOutput(tv1);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -1582,36 +1582,6 @@ TEST_F(NVFuserTest, FusionResizePadWithValue_CUDA) {
   auto cg_outputs = fe.runFusion(aten_inputs);
 
   auto ref = at::pad(t0, {1, 1}, "constant", 2);
-
-  TORCH_CHECK(ref.equal(cg_outputs[0]));
-}
-
-// Same as above but try to pad an int tensor with a double value
-TEST_F(NVFuserTest, FusionResizePadIntWithDoubleValue_CUDA) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
-  std::vector<int64_t> shape({9});
-
-  auto tv0 = makeSymbolicTensor(1, DataType::Int);
-  fusion.addInput(tv0);
-
-  auto tv1 =
-      pad(tv0,
-          {IrBuilder::create<Int>(1), IrBuilder::create<Int>(1)},
-          IrBuilder::create<Double>(2.5));
-  fusion.addOutput(tv1);
-
-  auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
-
-  auto t0 = at::ones(shape, options);
-  std::vector<c10::IValue> aten_inputs({t0});
-
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs);
-  auto cg_outputs = fe.runFusion(aten_inputs);
-
-  auto ref = at::pad(t0, {1, 1}, "constant", 2.5);
 
   TORCH_CHECK(ref.equal(cg_outputs[0]));
 }
@@ -2166,6 +2136,57 @@ TEST_F(NVFuserTest, FusionSqueezeSymbolic_CUDA) {
       },
       ::testing::ThrowsMessage<c10::Error>(::testing::HasSubstr(
           "must concretize to IterType::Broadcast but found")));
+}
+
+TEST_F(NVFuserTest, SliceVectorization) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  constexpr int N = 1024 * 1024 * 64;
+
+  auto tv0 = makeContigConcreteTensor({N + 1});
+  fusion.addInput(tv0);
+  auto tv1 = makeContigConcreteTensor({N});
+  fusion.addInput(tv1);
+
+  auto tv2 = slice(
+      tv0,
+      {{IrBuilder::create<Int>(1),
+        IrBuilder::create<Int>(N + 1),
+        IrBuilder::create<Int>(1)}});
+
+  auto tv3 = add(tv2, tv1);
+
+  fusion.addOutput(tv3);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn(N + 1, options);
+  at::Tensor t1 = at::randn(N, options);
+
+  std::vector<c10::IValue> inputs = {t0, t1};
+
+  auto lparams = schedulePointwise(&fusion, inputs);
+
+  // check that we vectorize 4
+  bool found_vectorize = false;
+  for (auto id : fusion.outputs().at(0)->as<TensorView>()->getLeafDomain()) {
+    if (id->getParallelType() == ParallelType::Vectorize) {
+      EXPECT_EQ(id->extent()->evaluateInt(), 4);
+      found_vectorize = true;
+      break;
+    }
+  }
+  EXPECT_TRUE(found_vectorize);
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, inputs, lparams);
+  auto cg_outputs = fe.runFusion(inputs, lparams);
+
+  auto ref = t0.narrow(0, 1, N) + t1;
+
+  // testValidate does not check that dtypes match
+  EXPECT_EQ(cg_outputs[0].dtype(), ref.dtype());
+  testValidate(&fusion, cg_outputs, inputs, {ref}, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser

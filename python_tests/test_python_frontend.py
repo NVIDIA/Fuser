@@ -5,12 +5,12 @@
 
 from copy import deepcopy
 from functools import partial
+import itertools
 import math
-import os
 import re
 from typing import List, Callable
+import tempfile
 import unittest
-import itertools
 
 import torch
 import torch.nn.functional as F
@@ -62,19 +62,16 @@ def serde_check(test_fn: Callable):
         # Run test to populate FusionCache
         test_fn(*args, **kwargs)
 
-        # Delete previous file
-        if os.path.isfile("foo.bin"):
-            os.remove("foo.bin")
+        with tempfile.NamedTemporaryFile() as tmp:
+            # Serialize FusionCache
+            fc = FusionCache.get()
+            fc.serialize(tmp.name)
 
-        # Serialize FusionCache
-        fc = FusionCache.get()
-        fc.serialize("foo.bin")
+            FusionCache.reset()
 
-        FusionCache.reset()
-
-        # Get new FusionCache because the previous one was destroyed by the reset call.
-        fc = FusionCache.get()
-        fc.deserialize("foo.bin")
+            # Get new FusionCache because the previous one was destroyed by the reset call.
+            fc = FusionCache.get()
+            fc.deserialize(tmp.name)
 
         # Run test with repopulated FusionCache
         kwargs["new_fusion_expected"] = False
@@ -2257,6 +2254,110 @@ class TestNvFuserFrontend(TestCase):
 
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
         self.assertEqual(nvf_out[0], torch.gcd(inputs[0], inputs[1]))
+
+    # See https://github.com/NVIDIA/Fuser/issues/469
+    def test_repro469(self):
+        def fusion_func(fd: FusionDefinition) -> None:
+            # Note first dimension is expanded (-1, None)
+            T0 = fd.define_tensor(
+                symbolic_sizes=[-1, -1, -1, -1, -1],
+                contiguity=[None, True, True, True, True],
+                dtype=DataType.Float,
+                is_cpu=False,
+            )
+            T1 = fd.define_tensor(
+                symbolic_sizes=[-1],
+                contiguity=[True],
+                dtype=DataType.Float,
+                is_cpu=False,
+            )
+            T2 = fd.define_tensor(
+                symbolic_sizes=[-1],
+                contiguity=[True],
+                dtype=DataType.Float,
+                is_cpu=False,
+            )
+            S3 = fd.define_scalar(None, dtype=DataType.Double)
+            S4 = fd.define_scalar(None, dtype=DataType.Double)
+            (
+                S5,
+                S6,
+                S7,
+                S8,
+                S9,
+            ) = fd.ops.tensor_sizes(T0)
+            S10 = fd.define_scalar(1, dtype=DataType.Int)
+            S11 = fd.ops.mul(S10, S5)
+            S12 = fd.ops.mul(S11, S9)
+            S13 = fd.define_scalar(1, dtype=DataType.Int)
+            S14 = fd.ops.mul(S13, S6)
+            S15 = fd.ops.mul(S14, S7)
+            S16 = fd.ops.mul(S15, S8)
+            T17, T18 = fd.ops.var_mean(T0, axes=[1, 2, 3], correction=0, keepdim=False)
+            S19 = fd.define_scalar(1.00000, dtype=DataType.Double)
+            S20 = fd.ops.sub(S19, S3)
+            T21 = fd.ops.mul(T18, S3)
+            T22 = fd.ops.mul(T1, S20)
+            T23 = fd.ops.add(T22, T21)
+            T24 = fd.ops.sum(T23, axes=[0], keepdim=False, dtype=DataType.Null)
+            S25 = fd.ops.reciprocal(S5)
+            T26 = fd.ops.mul(T24, S25)
+            fd.add_output(T26, T1)
+            S27 = fd.define_scalar(1, dtype=DataType.Int)
+            S28 = fd.ops.sub(S16, S27)
+            S29 = fd.ops.div(S16, S28)
+            T30 = fd.ops.mul(T17, S29)
+            T31 = fd.ops.mul(T30, S3)
+            T32 = fd.ops.mul(T2, S20)
+            T33 = fd.ops.add(T32, T31)
+            T34 = fd.ops.sum(T33, axes=[0], keepdim=False, dtype=DataType.Null)
+            T35 = fd.ops.mul(T34, S25)
+            fd.add_output(T35, T2)
+            T36 = fd.ops.broadcast_in_dim(
+                T18, output_shape=[S5, S6, S7, S8, S9], broadcast_dims=[0, 4]
+            )
+            T37 = fd.ops.sub(T0, T36)
+            T38 = fd.ops.add(T17, S4)
+            T39 = fd.ops.rsqrt(T38)
+            T40 = fd.ops.broadcast_in_dim(
+                T39, output_shape=[S5, S6, S7, S8, S9], broadcast_dims=[0, 4]
+            )
+            T41 = fd.ops.mul(T37, T40)
+            fd.add_output(T41)
+            fd.add_output(T18)
+            fd.add_output(T39)
+
+        inputs = [
+            torch.randn(
+                (1, 3, 3, 3, 7), dtype=torch.float32, device="cuda:0"
+            ).as_strided((1, 3, 3, 3, 7), (189, 63, 21, 7, 1)),
+            torch.randn((7,), dtype=torch.float32, device="cuda:0").as_strided(
+                (7,), (1,)
+            ),
+            torch.randn((7,), dtype=torch.float32, device="cuda:0").as_strided(
+                (7,), (1,)
+            ),
+            0.1,
+            1e-05,
+        ]
+
+        # Just test that this executes, not that it's correct
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+
+    def test_input_scalar(self):
+        inputs = [
+            torch.randn((3,), dtype=torch.float32, device="cuda:0"),
+            0.1,
+        ]
+
+        def fusion_func(fd: FusionDefinition) -> None:
+            T0 = fd.from_pytorch(inputs[0])
+            S1 = fd.define_scalar()
+            T1 = fd.ops.mul(T0, S1)
+            fd.add_output(T1)
+
+        # Just test that this executes, not that it's correct
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
 
 
 if __name__ == "__main__":

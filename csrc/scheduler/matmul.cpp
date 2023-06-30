@@ -715,7 +715,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   scheduler_utils::parallelizeAllLike(
       mma_result,
       -1,
-      {acr, bcr, ab, bb, a, b},
+      {acr, bcr, ab, bb},
       {ParallelType::TIDy, ParallelType::TIDz});
 
   scheduler_utils::BoundedDirectionalTransformPropagator::forward(

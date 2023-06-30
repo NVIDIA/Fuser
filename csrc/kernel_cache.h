@@ -201,7 +201,7 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
   //
   // Heuristics must use the index type of forced_index_type if given.
   using HeuristicsPtr = std::unique_ptr<FusionHeuristics>;
-  c10::optional<HeuristicsPtr> getMaybeHeuristicsFor(
+  std::optional<HeuristicsPtr> getMaybeHeuristicsFor(
       const KernelArgumentHolder& args,
       std::optional<PrimDataType> forced_index_type = std::nullopt);
 
