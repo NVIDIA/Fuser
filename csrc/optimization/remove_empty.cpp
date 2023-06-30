@@ -229,11 +229,9 @@ bool isTVEmpty(TensorView* tv) {
 //!   5. If empty TensorViews are input to an MmaOp and they are empty in
 //!   contracted axes, we replace with `full({m, n}, zeroVal())`.
 //!
-class EmptyTensorRemover : DeadCodeRemover {
+class EmptyTensorRemover : public DeadCodeRemover {
  public:
   EmptyTensorRemover(Fusion* fusion) : DeadCodeRemover(fusion) {}
-
-  using DeadCodeRemover::run;
 
  protected:
   using DeadCodeRemover::handle;
