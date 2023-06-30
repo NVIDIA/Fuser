@@ -103,6 +103,7 @@ def make_number(
     """
     return make_tensor([1], device="cpu", dtype=dtype, low=low, high=high).item()
 
+
 def find_nonmatching_dtype(dtype: torch.dtype):
     if dtype in int_float_dtypes:
         return torch.complex128
