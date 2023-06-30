@@ -159,7 +159,9 @@ TORCH_CUDA_CU_API Val* rand_like(Val*);
 TORCH_CUDA_CU_API TensorView* rand_like(TensorView*);
 TORCH_CUDA_CU_API TensorView* randn(
     const std::vector<Val*>& shape,
-    DataType dtype);
+    DataType dtype,
+    Val* philox_seed = nullptr,
+    Val* philox_offset = nullptr);
 TORCH_CUDA_CU_API Val* randn_like(Val*);
 TORCH_CUDA_CU_API TensorView* randn_like(TensorView*);
 

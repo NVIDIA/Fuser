@@ -111,7 +111,11 @@ TensorView* unaryOp(
 }
 
 // TENSOR FACTORIES
-TensorView* rand(const std::vector<Val*>& shape, DataType dtype, Val* philox_seed, Val* philox_offset) {
+TensorView* rand(
+    const std::vector<Val*>& shape,
+    DataType dtype,
+    Val* philox_seed,
+    Val* philox_offset) {
   auto n = shape.size();
   auto out = TensorViewBuilder()
                  .ndims(n)
@@ -119,7 +123,13 @@ TensorView* rand(const std::vector<Val*>& shape, DataType dtype, Val* philox_see
                  .contiguity(true)
                  .shape(shape)
                  .build();
-  IrBuilder::create<RNGOp>(RNGOpType::Uniform, out, dtype, std::vector<Val*>{}, philox_seed, philox_offset);
+  IrBuilder::create<RNGOp>(
+      RNGOpType::Uniform,
+      out,
+      dtype,
+      std::vector<Val*>{},
+      philox_seed,
+      philox_offset);
   return out;
 }
 
@@ -172,7 +182,11 @@ TensorView* normal(
   return out;
 }
 
-TensorView* randn(const std::vector<Val*>& shape, DataType dtype) {
+TensorView* randn(
+    const std::vector<Val*>& shape,
+    DataType dtype,
+    Val* philox_seed,
+    Val* philox_offset) {
   auto n = shape.size();
   auto out = TensorViewBuilder()
                  .ndims(n)
@@ -180,7 +194,13 @@ TensorView* randn(const std::vector<Val*>& shape, DataType dtype) {
                  .contiguity(true)
                  .shape(shape)
                  .build();
-  IrBuilder::create<RNGOp>(RNGOpType::NormalStandard, out, dtype);
+  IrBuilder::create<RNGOp>(
+      RNGOpType::NormalStandard,
+      out,
+      dtype,
+      std::vector<Val*>{},
+      philox_seed,
+      philox_offset);
   return out;
 }
 

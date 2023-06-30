@@ -2371,7 +2371,8 @@ class TestNvFuserFrontend(TestCase):
         param1 = 0.3  # low or mean
         param2 = 1.7  # hi or sigma
 
-        for randopname in ['uniform', 'normal']:
+        for randopname in ["uniform", "normal"]:
+
             def fusion_func(fd: FusionDefinition):
                 # Note: this is awkward, but we need to set the random seed
                 # each time the fusion is executed otherwise subsequent calls
