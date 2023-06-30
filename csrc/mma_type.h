@@ -14,19 +14,15 @@ namespace nvfuser {
 //! Named descriptors of domains in matmul
 enum class MatmulDomain { M = 0, N, K };
 
-// TODO: decide name for lables:
-//   - should it be simply INPUT_C, or
-//   - EPILOGUE_RO_TENSOR_INPUT (+ EPILOGUE_RO_VECTOR_INPUT for bias in
-//   future?),
-//     where RO means read-only
-
 //! Named descriptors of TensorView roles in fusion
-//!  MMA_INPUT_A - TV is a producer of MMA input A
-//!  MMA_INPUT_B - TV is a producer of MMA input B
-//!  MMA_OUTPUT - TV is a consumer of MMA op results
-//!  INPUT_C - TV is a producer of tensor used in fusion epilogue,
-//!            most likely for beta scaling fusion
-enum class MatmulRole { MMA_INPUT_A = 0, MMA_INPUT_B, MMA_OUTPUT, INPUT_C };
+//!  INPUT_A - a producer of MMA input A
+//!  INPUT_B - a producer of MMA input B
+//!  OUTPUT_D - the main consumer of MMA op results
+//!  INPUT_C - a producer of tensor used in fusion epilogue,
+//!            for example tensor used in beta scaling fusion
+//!
+//! Naming convention is based on forumla: D = alpha * A x B + beta * C
+enum class MatmulRole { INPUT_A = 0, INPUT_B, OUTPUT_D, INPUT_C };
 
 //! The expected number of occurances of core TensorView roles in fusion
 static constexpr size_t MATMUL_CORE_ROLES_EXPECTED_COUNT = 1;
