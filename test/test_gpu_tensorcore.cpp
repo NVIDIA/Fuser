@@ -3958,6 +3958,179 @@ TEST_F(NVFuserTest, FusionMatmulSegmenterEpilogueGelu_CUDA) {
   TORCH_CHECK(outputs[0].allclose(tref, 0.001, 0.001));
 }
 
+// Matmul test that relies on segmenter for fusion for Ampere:
+//  D = alpha * (A x B) + beta * C
+TEST_F(NVFuserTest, FusionMatmulSegmenterEpilogueAlphaBeta_CUDA) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 9, 0);
+  const auto layout = MatmulLayout::TT;
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  // alpha - s0, beta - s1
+  auto s0 = IrBuilder::create<Double>();
+  auto s1 = IrBuilder::create<Double>();
+
+  // A - tv 0, B - tv1, C - tv2
+  auto tv0 = makeContigTensor(2, DataType::Half);
+  auto tv1 = makeContigTensor(2, DataType::Half);
+  auto tv2 = makeContigTensor(2, DataType::Half);
+
+  auto tv3 = matmul(tv0, tv1, layout, true);
+  // tv4 := alpha * (A x B)
+  auto tv4 = mul(s0, tv3);
+
+  // tv5 := beta * C
+  auto tv5 = mul(s1, tv2);
+  // tv6 := alpha * (A x B) + beta * C
+  auto tv6 = add(tv4, tv5);
+
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  fusion->addInput(tv2);
+  fusion->addInput(s0);
+  fusion->addInput(s1);
+  fusion->addOutput(tv6);
+
+  TORCH_CHECK(
+      1 == ir_utils::getMmaOps(fusion.get()).size(),
+      "matmul fusion must have at least one MmaOp");
+  TORCH_CHECK(
+      ir_utils::getMmaOps(fusion.get()).front()->layout().has_value(),
+      "input layout has not be set for MmaOp");
+  TORCH_CHECK(
+      MatmulLayout::TN ==
+          ir_utils::getMmaOps(fusion.get()).front()->layout().value(),
+      "the MmaOp layout of Ampere MMA must always be TN");
+
+  const auto fusion_layout = mma_utils::getMatmulLayout(fusion.get());
+  TORCH_CHECK(
+      fusion_layout.isValid(),
+      "failed to get decide matmul layout through fusion definition");
+  TORCH_CHECK(
+      fusion_layout.getData() == layout,
+      "mismatch between test layout (",
+      toString(layout),
+      ") and layout inferred from fusion definition (",
+      toString(fusion_layout.getData()),
+      ")");
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+
+  const int M = 504, N = 136, K = 1024;
+
+  at::manual_seed(0);
+  const double alpha = 2.5;
+  const double beta = 2.5;
+  auto t0 = matmulAtInput(M, N, K, layout, TensorMatmulPos::A, at::kHalf);
+  auto t1 = matmulAtInput(M, N, K, layout, TensorMatmulPos::B, at::kHalf);
+  auto t2 = matmulAtInput(M, N, K, layout, TensorMatmulPos::C, at::kHalf);
+
+  auto t3 = atMatmul(t0.to(at::kHalf), t1.to(at::kHalf), layout);
+  auto t4 = at::mul(t3, alpha).to(at::kFloat);
+
+  auto t5 = at::mul(t2, beta).to(at::kFloat);
+  auto t6 = at::add(t4, t5);
+
+  auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2, alpha, beta});
+
+  TORCH_CHECK(
+      !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
+      "segmentation did happen");
+
+  TORCH_CHECK(outputs[0].allclose(t6, 0.001, 0.001));
+}
+
+// Matmul test that relies on segmenter for fusion for Ampere:
+//  D = gelu(alpha * (A x B) + beta * C)
+TEST_F(NVFuserTest, FusionMatmulSegmenterEpilogueAlphaBetaGeluOutputCast_CUDA) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 9, 0);
+  const auto layout = MatmulLayout::TT;
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  // alpha - s0, beta - s1
+  auto s0 = IrBuilder::create<Double>();
+  auto s1 = IrBuilder::create<Double>();
+
+  // A - tv 0, B - tv1, C - tv2
+  auto tv0 = makeContigTensor(2, DataType::Half);
+  auto tv1 = makeContigTensor(2, DataType::Half);
+  auto tv2 = makeContigTensor(2, DataType::Half);
+
+  auto tv3 = matmul(tv0, tv1, layout, true);
+  // tv4 := alpha * (A x B)
+  auto tv4 = mul(s0, tv3);
+
+  // tv5 := beta * C
+  auto tv5 = mul(s1, tv2);
+  // tv6 := alpha * (A x B) + beta * C
+  auto tv6 = add(tv4, tv5);
+  // tv7 := gelu(alpha * (A x B) + beta * C)
+  auto tv7 = gelu(tv6);
+  // tv8 := half(gelu(alpha * (A x B) + beta * C))
+  auto tv8 = castOp(DataType::Half, tv7);
+
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  fusion->addInput(tv2);
+  fusion->addInput(s0);
+  fusion->addInput(s1);
+  fusion->addOutput(tv8);
+
+  TORCH_CHECK(
+      1 == ir_utils::getMmaOps(fusion.get()).size(),
+      "matmul fusion must have at least one MmaOp");
+  TORCH_CHECK(
+      ir_utils::getMmaOps(fusion.get()).front()->layout().has_value(),
+      "input layout has not be set for MmaOp");
+  TORCH_CHECK(
+      MatmulLayout::TN ==
+          ir_utils::getMmaOps(fusion.get()).front()->layout().value(),
+      "the MmaOp layout of Ampere MMA must always be TN");
+
+  const auto fusion_layout = mma_utils::getMatmulLayout(fusion.get());
+  TORCH_CHECK(
+      fusion_layout.isValid(),
+      "failed to get decide matmul layout through fusion definition");
+  TORCH_CHECK(
+      fusion_layout.getData() == layout,
+      "mismatch between test layout (",
+      toString(layout),
+      ") and layout inferred from fusion definition (",
+      toString(fusion_layout.getData()),
+      ")");
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+
+  const int M = 504, N = 136, K = 1024;
+
+  at::manual_seed(0);
+  const double alpha = 2.5;
+  const double beta = 1.5;
+  auto t0 = matmulAtInput(M, N, K, layout, TensorMatmulPos::A, at::kHalf);
+  auto t1 = matmulAtInput(M, N, K, layout, TensorMatmulPos::B, at::kHalf);
+  auto t2 = matmulAtInput(M, N, K, layout, TensorMatmulPos::C, at::kHalf);
+
+  auto t3 = atMatmul(t0.to(at::kHalf), t1.to(at::kHalf), layout);
+  auto t4 = at::mul(t3, alpha).to(at::kFloat);
+
+  auto t5 = at::mul(t2, beta).to(at::kFloat);
+  auto t6 = at::add(t4, t5);
+
+  auto t7 = at::gelu(t6);
+  auto t8 = t7.to(at::kHalf);
+
+  auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2, alpha, beta});
+
+  TORCH_CHECK(
+      !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
+      "segmentation did happen");
+
+  // NOTE: increasted absolute tolerance to silence false negative verification
+  //       caused by different way of calculating reference
+  TORCH_CHECK(outputs[0].allclose(t8, 0.001, 0.06));
+}
+
 // MMA and alpha unit test, for Ampere TN
 TEST_F(NVFuserTest, FusionAmpereMMATNAlpha_CUDA) {
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 9, 0);
