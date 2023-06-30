@@ -505,7 +505,7 @@ class TORCH_CUDA_CU_API RNGOp : public Expr {
     // cppcoreguidelines-pro-type-member-init
     RNGOpType rtype = RNGOpType::Undefined;
     DataType dtype;
-    int rng_offset_int;
+    int rng_offset_int = 0;
     size_t num_parameters = 0;
 
     // TODO: Enable the following in C++20:
@@ -564,7 +564,7 @@ class TORCH_CUDA_CU_API RNGOp : public Expr {
   std::vector<Val*> getParameters() const {
     return {
         inputs().begin() + getOutputDims(),
-        inputs().begin() + (getOutputDims() + getNumParameters())};
+        inputs().begin() + (int64_t)(getOutputDims() + getNumParameters())};
   }
 
   std::vector<Val*> getShape() const {

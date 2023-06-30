@@ -2359,6 +2359,61 @@ class TestNvFuserFrontend(TestCase):
         # Just test that this executes, not that it's correct
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
 
+    def test_deterministic_uniform(self):
+        input_size = [64, 128, 1024]
+        dtype = torch.float32
+        device = "cuda"
+        inputs = [
+            torch.randn(*input_size, device=device, dtype=dtype),
+        ]
+        lo = 1.8
+        hi = 1223.5
+
+        def fusion_func(fd: FusionDefinition):
+            t0 = fd.from_pytorch(inputs[0])
+            s_lo = fd.define_scalar(lo)
+            s_hi = fd.define_scalar(hi)
+            size = fd.ops.tensor_sizes(t0)
+            t1 = fd.ops.uniform(s_lo, s_hi, size, DataType.Double)
+
+            t2 = fd.ops.uniform(
+                s_lo,
+                s_hi,
+                size,
+                DataType.Double,
+                rng_seed=fd.define_constant(0),
+                rng_offset=fd.define_constant(0),
+            )
+            fd.add_output(t2)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+
+        # Is there a better way to test distribution?!
+        self.assertTrue(
+            nvf_out[0]
+            .mean()
+            .cpu()
+            .float()
+            .isclose(torch.tensor((hi - lo) / 2.0), rtol=1e-2, atol=1e-2)
+            .item()
+        )
+        self.assertTrue(
+            nvf_out[0]
+            .min()
+            .cpu()
+            .float()
+            .isclose(torch.tensor(lo), rtol=1e-2, atol=1e-2)
+            .item()
+        )
+        self.assertTrue(
+            nvf_out[0]
+            .max()
+            .cpu()
+            .float()
+            .isclose(torch.tensor(hi), rtol=1e-2, atol=1e-2)
+            .item()
+        )
+
 
 if __name__ == "__main__":
     run_tests()
