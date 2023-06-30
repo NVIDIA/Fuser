@@ -223,7 +223,7 @@ using ProblemIterDomains = std::array<IterDomain*, 3>;
 
 //! An alias for mapping between TensorView instance and its role in
 //!  matmul fusion definition,
-using RolesMap = std::map<MatmulRole, TensorView*>;
+using RolesMap = std::map<MatmulRole, std::vector<TensorView*>>;
 
 //! A wrapper for data containers with optional error message stored if
 //!  initialization of the data fails.

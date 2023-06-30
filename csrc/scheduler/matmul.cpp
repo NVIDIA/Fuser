@@ -453,9 +453,9 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
       "scheduleMatmul supports fusion with single mma op in definition, got ",
       mma_ops.size());
 
-  TensorView* a = roles_map.at(MatmulRole::MMA_INPUT_A);
-  TensorView* b = roles_map.at(MatmulRole::MMA_INPUT_B);
-  TensorView* c = roles_map.at(MatmulRole::MMA_OUTPUT);
+  TensorView* a = roles_map.at(MatmulRole::MMA_INPUT_A).front();
+  TensorView* b = roles_map.at(MatmulRole::MMA_INPUT_B).front();
+  TensorView* c = roles_map.at(MatmulRole::MMA_OUTPUT).front();
 
   // Collect mma swizzle info
   auto mma = mma_ops.front();
