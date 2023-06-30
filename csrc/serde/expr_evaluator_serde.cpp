@@ -116,53 +116,39 @@ void bindDomain(
 // allocation, and leaf domains
 void bind(std::vector<Val*>& all_values, nvfuser::TensorView* tv) {
   bindRootDomain(all_values, tv->getRootDomain());
-
-  if (tv->hasRFactor()) {
-    bindDomain(all_values, tv->getRFactorDomain());
-  }
-
-  if (tv->hasAllocation()) {
-    bindDomain(all_values, tv->getAllocationDomain());
-  }
-
-  bindDomain(all_values, tv->getLeafDomain());
 }
 
 } // namespace
 
 flatbuffers::Offset<Instruction> ExpressionSerializer::serializeUnaryOp(
     flatbuffers::FlatBufferBuilder& builder,
-    UnaryOp* uop) const {
+    nvfuser::UnaryOp* uop) const {
   serde::DataType dtype = (uop->getUnaryOpType() == nvfuser::UnaryOpType::Cast)
       ? mapToSerdeDtype(uop->out()->getDataType().value())
       : serde::DataType_None;
-  auto inst = serde::CreateInstructionDirect(
+  auto uop_fb = serde::CreateUnaryOpDirect(
       builder,
-      serde::InstructionType_Unary,
       mapToSerdeUnaryOp(uop->getUnaryOpType()),
-      serde::BinaryOpType_None,
       dtype,
       operation_stack_.at(uop->inputs().front()),
-      0,
       (int64_t)operation_stack_.size(),
       uop->toString().c_str());
-  return inst;
+  return serde::CreateInstruction(
+      builder, serde::InstructionData_UnaryOp, uop_fb.Union());
 }
 
 flatbuffers::Offset<Instruction> ExpressionSerializer::serializeBinaryOp(
     flatbuffers::FlatBufferBuilder& builder,
-    BinaryOp* bop) const {
-  auto inst = serde::CreateInstructionDirect(
+    nvfuser::BinaryOp* bop) const {
+  auto bop_fb = serde::CreateBinaryOpDirect(
       builder,
-      serde::InstructionType_Binary,
-      serde::UnaryOpType_None,
       mapToSerdeBinaryOp(bop->getBinaryOpType()),
-      serde::DataType_None,
       operation_stack_.at(bop->inputs().front()),
       operation_stack_.at(bop->inputs().back()),
       (int64_t)operation_stack_.size(),
       bop->toString().c_str());
-  return inst;
+  return serde::CreateInstruction(
+      builder, serde::InstructionData_BinaryOp, bop_fb.Union());
 }
 
 flatbuffers::Offset<serde::NaiveValueGenerator> ExpressionSerializer::serialize(
@@ -192,7 +178,7 @@ flatbuffers::Offset<serde::NaiveValueGenerator> ExpressionSerializer::serialize(
   std::vector<nvfuser::Val*> derived_values;
   for (auto v : makeSortedEvaluationList(all_values)) {
     if (v->definition() == nullptr) {
-      if (NamedScalar* ns = dynamic_cast<NamedScalar*>(v)) {
+      if (auto ns = dynamic_cast<nvfuser::NamedScalar*>(v)) {
         named_scalar_values.insert(ns);
       } else if (v->isConstInt()) {
         const_int_values.insert(v->as<nvfuser::Int>());
@@ -239,46 +225,27 @@ flatbuffers::Offset<serde::NaiveValueGenerator> ExpressionSerializer::serialize(
   std::vector<fb_instruction> instructions_fb;
 
   for (auto& val : symbolic_values) {
-    auto inst = serde::CreateInstructionDirect(
-        builder,
-        serde::InstructionType_Symbolic,
-        serde::UnaryOpType_None,
-        serde::BinaryOpType_None,
-        serde::DataType_Int,
-        val->name(),
-        0,
-        0,
-        val->toString().c_str());
+    auto sv_fb = serde::CreateSymbolicDirect(
+        builder, val->name(), val->toString().c_str());
+    auto inst = serde::CreateInstruction(
+        builder, serde::InstructionData_Symbolic, sv_fb.Union());
     instructions_fb.push_back(inst);
     operation_stack_.emplace(val, operation_stack_.size());
   }
 
   for (const auto& ns : named_scalar_values) {
-    auto inst = serde::CreateInstructionDirect(
-        builder,
-        serde::InstructionType_NamedString,
-        serde::UnaryOpType_None,
-        serde::BinaryOpType_None,
-        serde::DataType_None,
-        0,
-        0,
-        0,
-        ns->name().c_str());
+    auto ns_fb = serde::CreateNamedScalarDirect(builder, ns->name().c_str());
+    auto inst = serde::CreateInstruction(
+        builder, serde::InstructionData_NamedScalar, ns_fb.Union());
     instructions_fb.push_back(inst);
     operation_stack_.emplace(ns, operation_stack_.size());
   }
 
   for (const auto& int_val : const_int_values) {
-    auto inst = serde::CreateInstructionDirect(
-        builder,
-        serde::InstructionType_Scalar,
-        serde::UnaryOpType_None,
-        serde::BinaryOpType_None,
-        serde::DataType_Int,
-        int_val->evaluateInt(),
-        0,
-        0,
-        nullptr /* name */);
+    auto val_fb =
+        serde::CreateLong(builder, int_val->evaluateInt(), serde::DataType_Int);
+    auto inst = serde::CreateInstruction(
+        builder, serde::InstructionData_Long, val_fb.Union());
     instructions_fb.push_back(inst);
     operation_stack_.emplace(int_val, operation_stack_.size());
   }
@@ -286,20 +253,20 @@ flatbuffers::Offset<serde::NaiveValueGenerator> ExpressionSerializer::serialize(
   for (auto& val : derived_values) {
     auto def = val->definition();
     TORCH_INTERNAL_ASSERT(def, "Expected definition with derived value.");
-    if (auto uop = dynamic_cast<UnaryOp*>(def)) {
-      auto inst = serializeUnaryOp(builder, uop);
-      instructions_fb.push_back(inst);
+    if (auto uop = dynamic_cast<nvfuser::UnaryOp*>(def)) {
+      instructions_fb.push_back(serializeUnaryOp(builder, uop));
       operation_stack_.emplace(val, operation_stack_.size());
-    } else if (auto bop = dynamic_cast<BinaryOp*>(def)) {
-      auto inst = serializeBinaryOp(builder, bop);
-      instructions_fb.push_back(inst);
+    } else if (auto bop = dynamic_cast<nvfuser::BinaryOp*>(def)) {
+      instructions_fb.push_back(serializeBinaryOp(builder, bop));
       operation_stack_.emplace(val, operation_stack_.size());
-    } else if (auto mop = dynamic_cast<Merge*>(def)) {
+    } else if (auto mop = dynamic_cast<nvfuser::Merge*>(def)) {
       std::cout << mop->toString() << std::endl;
-    } else if (auto sop = dynamic_cast<Split*>(def)) {
+    } else if (auto sop = dynamic_cast<nvfuser::Split*>(def)) {
       std::cout << sop->toString() << std::endl;
-    } else if (auto swop = dynamic_cast<Swizzle2D*>(def)) {
+    } else if (auto swop = dynamic_cast<nvfuser::Swizzle2D*>(def)) {
       std::cout << swop->toString() << std::endl;
+    } else if (auto rop = dynamic_cast<nvfuser::Resize*>(def)) {
+      std::cout << rop->toString() << std::endl;
     } else {
       TORCH_INTERNAL_ASSERT(false, "Unknown Expression.\t", def->toString());
     }
@@ -406,28 +373,30 @@ void ExpressionBuilder::deserialize(const Instruction* buffer) {
   //  name : string;
   // }
   FusionGuard fg(kernel_);
-  switch (buffer->instruction()) {
-    case serde::InstructionType_Symbolic:
-      // Add check for symbolic extent
+  switch (buffer->data_type()) {
+    case serde::InstructionData_Symbolic:
+      // TODO Add check for symbolic extent
       break;
-    case serde::InstructionType_NamedString: {
-      auto ns = IrBuilder::create<NamedScalar>(
-          buffer->name()->str(), nvfuser::DataType::Int);
+    case serde::InstructionData_NamedScalar: {
+      auto data = buffer->data_as_NamedScalar();
+      auto ns = IrBuilder::create<nvfuser::NamedScalar>(
+          data->name()->str(), nvfuser::DataType::Int);
       operation_stack_.push_back(ns);
       break;
     }
-    case serde::InstructionType_Scalar: {
-      auto int_val = IrBuilder::create<nvfuser::Int>(buffer->src0());
+    case serde::InstructionData_Long: {
+      auto data = buffer->data_as_Long();
+      auto int_val = IrBuilder::create<nvfuser::Int>(data->value());
       operation_stack_.push_back(int_val);
       break;
     }
-    case serde::InstructionType_Unary: {
-      auto uop = buildUnaryOp(buffer);
+    case serde::InstructionData_UnaryOp: {
+      auto uop = buildUnaryOp(buffer->data_as_UnaryOp());
       operation_stack_.push_back(uop);
       break;
     }
-    case serde::InstructionType_Binary: {
-      auto bop = buildBinaryOp(buffer);
+    case serde::InstructionData_BinaryOp: {
+      auto bop = buildBinaryOp(buffer->data_as_BinaryOp());
       operation_stack_.push_back(bop);
       break;
     }
@@ -436,7 +405,8 @@ void ExpressionBuilder::deserialize(const Instruction* buffer) {
   }
 }
 
-Val* ExpressionBuilder::buildUnaryOp(const Instruction* buffer) {
+Val* ExpressionBuilder::buildUnaryOp(const UnaryOp* buffer) {
+  TORCH_INTERNAL_ASSERT(buffer != nullptr, "serde::UnaryOp is nullptr.")
   switch (buffer->unary_type()) {
     case serde::UnaryOpType_Cast:
       return castOp(
@@ -450,7 +420,8 @@ Val* ExpressionBuilder::buildUnaryOp(const Instruction* buffer) {
   }
 }
 
-Val* ExpressionBuilder::buildBinaryOp(const Instruction* buffer) {
+Val* ExpressionBuilder::buildBinaryOp(const BinaryOp* buffer) {
+  TORCH_INTERNAL_ASSERT(buffer != nullptr, "serde::BinaryOp is nullptr.")
   switch (buffer->binary_type()) {
     case serde::BinaryOpType_Add:
       return add(

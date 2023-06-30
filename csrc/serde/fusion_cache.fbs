@@ -15,7 +15,8 @@ file_identifier "NV00";
 
 // Datatype enum represents the data type of a Tensor, Scalar, or Function.
 enum DataType : int {
-    Double = 0,
+    None = 0,
+    Double,
     Float,
     Half,
     Int,
@@ -24,23 +25,22 @@ enum DataType : int {
     BFloat16,
     ComplexFloat,
     ComplexDouble,
-    None
 }
 
 // The StateType enum indicates whether the state object is a Scalar or Tensor.
 enum StateType : int {
-    Tensor = 0,
+    None = 0,
     Scalar,
     Vector,
-    None,
+    Tensor,
 }
 
 // The Contiguity enum shows whether a tensor dimension is contiguous
 // with the dimension to its right.
 enum Contiguity : int {
-    Strided = 0,
+    None = 0,
+    Strided,
     Contiguous,
-    None,
 }
 
 // Each RecordFunctor is assigned a RecordType for the hash function.
@@ -111,30 +111,43 @@ enum RecordType : int {
 }
 
 enum UnaryOpType : int {
-  Cast = 0,
+  None = 0,
+  Cast,
   Neg,
-  None,
 }
 
 enum BinaryOpType : int {
-  Add = 0,
+  None = 0,
+  Add,
   CeilDiv,
   Div,
   Mod,
   Mul,
   Sub,
-  None,
 }
 
-enum InstructionType : int {
-  Binary = 0,
-  Merge,
-  NamedString,
-  Scalar,
-  Split,
+enum Swizzle2DType : int {
+  None = 0,
+  ZShape,
+  Xor,
+  Shift,
+}
+
+enum SwizzleMode : int {
+  None = 0,
+  Data,
+  Loop,
+}
+
+enum IterType : int {
+  Iteration = 0,
+  Reduction,
+  Broadcast,
+  Gather,
+  Stride,
+  GatherScatter,
+  VectorComponent,
   Symbolic,
-  Unary,
-  None,
 }
 
 // =====================================================================================
@@ -177,6 +190,19 @@ union ArgAbstractData {
   PhiloxCudaState,
   ScalarCpu,
   TensorArg,
+}
+
+// The Instruction union holds the attribute information for each Instruction in NaiveValueGenerator.
+union InstructionData {
+  BinaryOp,
+  Symbolic,
+  Long,
+  Merge,
+  NamedScalar,
+  Resize,
+  Split,
+  Swizzle2D,
+  UnaryOp,
 }
 
 // =====================================================================================
@@ -237,15 +263,65 @@ table ScalarInput {
 // =====================================================================================
 // Tables for NaiveValueGenerator and AllocateBuffer used in FusionExecutor.
 
-table Instruction {
-  instruction : InstructionType;
+table Symbolic {
+  src0 : long;
+  name : string;
+}
+
+table NamedScalar {
+  name : string;
+}
+
+table UnaryOp {
   unary_type : UnaryOpType;
-  binary_type : BinaryOpType;
   data_type : DataType;
+  src0 : long;
+  dest : long;
+  name : string;
+}
+
+table BinaryOp {
+  binary_type : BinaryOpType;
   src0 : long;
   src1 : long;
   dest : long;
   name : string;
+}
+
+table Split {
+  in : long;
+  factor : long;
+  inner : long;
+  outer : long;
+  inner_split : bool;
+  trim_out_of_bounds : bool;
+}
+
+table Merge {
+  inner : long;
+  outer : long;
+  out : long;
+}
+
+table Swizzle2D {
+  in_x : long;
+  in_y : long;
+  swizzle_type : Swizzle2DType;
+  swizzle_mode : SwizzleMode;
+  out_x : long;
+  out_y : long;
+}
+
+table Resize {
+  in : long;
+  left_expansion : long;
+  right_expansion : long;
+  mark_as_rfactor : bool;
+  iter_type : IterType;
+}
+
+table Instruction {
+  data : InstructionData;
 }
 
 // NaiveValueGenerator creates Fusion IR values

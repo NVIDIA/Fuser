@@ -35,11 +35,11 @@ class ExpressionSerializer {
  private:
   flatbuffers::Offset<Instruction> serializeUnaryOp(
       flatbuffers::FlatBufferBuilder& builder,
-      UnaryOp* uop) const;
+      nvfuser::UnaryOp* uop) const;
 
   flatbuffers::Offset<Instruction> serializeBinaryOp(
       flatbuffers::FlatBufferBuilder& builder,
-      BinaryOp* bop) const;
+      nvfuser::BinaryOp* bop) const;
 
   flatbuffers::Offset<SymbolicTensor> serialize(
       flatbuffers::FlatBufferBuilder& builder,
@@ -70,8 +70,8 @@ class ExpressionBuilder {
 
  private:
   void deserialize(const Instruction* buffer);
-  Val* buildUnaryOp(const Instruction* buffer);
-  Val* buildBinaryOp(const Instruction* buffer);
+  Val* buildUnaryOp(const UnaryOp* buffer);
+  Val* buildBinaryOp(const BinaryOp* buffer);
 
   kir::Kernel* kernel_;
   std::vector<Val*> operation_stack_;
