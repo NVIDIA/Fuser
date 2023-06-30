@@ -261,10 +261,14 @@ class EmptyTensorRemover : public DeadCodeRemover {
       // uses are dead, so remove them and skip processing them and their
       // definition.
       markDeadAndMaybeRemove(tv);
+    } else if (isTVEmpty(tv)) {
+      // Note that if there empty intermediate tensors with uses that do not
+      // lead to outputs, this check might fail.
+      TORCH_WARN_ONCE(
+          "Found unexpected empty intermediate TensorView ",
+          tv->toString(),
+          ". This TensorView has un-removed uses that might not be used in this Fusion.");
     }
-    // Note: we should not encounter isTVEmpty(tv)==true at this point if we
-    // have properly set all empty extents in non Fusion-input TensorViews to
-    // constant zeros.
   }
 
   //! Gets a vector of extents for noReduction(tv->getMaybeRFactorDomain())
