@@ -9203,60 +9203,6 @@ TEST_F(NVFuserTest, FusionOptionsGuard_CUDA) {
       << "Register spill is not captured!";
 }
 
-// Test the uninlinable option of MaxPosCalculator
-TEST_F(NVFuserTest, ComputeAtPosWithUninlinableIDs_CUDA) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
-  auto tv0 = makeSymbolicTensor(2);
-  fusion.addInput(tv0);
-
-  auto tv1 = set(tv0);
-  auto tv2 = set(tv0);
-  auto tv3 = add(tv1, tv2);
-  auto tv4 = set(tv3);
-  fusion.addOutput(tv4);
-
-  // Disallow inlining of the innermost domain of tv3
-  std::unordered_set<IterDomain*> uninlinable = {tv3->axis(-1)};
-  inlineMost(uninlinable);
-
-  for (auto tv : ir_utils::allTvs(&fusion)) {
-    if (tv == tv0) {
-      continue;
-    }
-    int64_t expeced_pos = tv == tv3 ? 1 : 2;
-    ASSERT_TRUE(tv->getComputeAtPosition() == expeced_pos)
-        << "Invalid computeAt position: " << tv->toString()
-        << ". Expected position: " << expeced_pos;
-  }
-}
-
-TEST_F(NVFuserTest, TMP) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
-  auto tv0 = makeSymbolicTensor(1);
-  fusion.addInput(tv0);
-  auto tv1 = makeSymbolicTensor(2);
-  fusion.addInput(tv1);
-
-  auto tv2 = set(tv0);
-  auto tv3 = broadcast(tv2, {false, true});
-  auto tv4 = add(tv1, tv3);
-  fusion.addOutput(tv4);
-
-  // tv3->merge(0)->split(0, 4);
-  TransformPropagatorWithCheck propagator(tv3);
-  MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
-
-  fusion.printMath();
-
-  inlineMost();
-
-  fusion.printMath();
-}
-
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser

@@ -1782,8 +1782,6 @@ void avoidRedundantInputReads(
           cached_input->getLeafDomain().begin(),
           cached_input->getLeafDomain().end(),
           [&](auto cached_input_leaf_id) {
-            std::cerr << "Cached input id: " << cached_input_leaf_id->toString()
-                      << std::endl;
             return std::any_of(
                 broadcast_tv->getLeafDomain().begin() +
                     expanded_broadcast_leaf_dim,
@@ -1810,8 +1808,8 @@ void avoidRedundantInputReads(
     }
 
     if (cached_input_ca_pos < cached_input->getComputeAtPosition()) {
-      std::cerr << "CA position of input " << cached_input->toString()
-                << " should be " << cached_input_ca_pos << std::endl;
+      std::cerr << "Lowering CA position of input " << cached_input->toString()
+                << " to " << cached_input_ca_pos << std::endl;
       cached_input->inlineAt(cached_input_ca_pos, false, nullptr, true);
     }
   }
