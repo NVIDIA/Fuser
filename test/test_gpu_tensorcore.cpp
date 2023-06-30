@@ -4045,6 +4045,123 @@ TEST_F(NVFuserTest, FusionAmpereMMATNAlpha_CUDA) {
   TORCH_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
 }
 
+// MMA and alpha + beta unit test, for Ampere TN
+TEST_F(NVFuserTest, FusionAmpereMMATNAlphaBeta_CUDA) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 9, 0);
+
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // alpha
+  auto s0 = IrBuilder::create<Double>();
+  // beta
+  auto s1 = IrBuilder::create<Double>();
+
+  // [M,K] - A
+  auto tv0 = makeConcreteTensor({16, 16}, DataType::Half);
+  // [N,K] - B
+  auto tv1 = makeConcreteTensor({8, 16}, DataType::Half);
+  // [M,N] - C
+  auto tv2 = makeConcreteTensor({16, 8}, DataType::Half);
+
+  // [M,N,K]
+  auto tv0b = broadcast(tv0, {false, true, false});
+  auto tv1b = broadcast(tv1, {true, false, false});
+
+  // Leaving both sets of mma inputs for volta outside
+  //  currently since they need to be swizzled.
+  // ops: tv4 := alpha * (A x B)
+  auto tv3 = fusedMultiplySum(tv0b, tv1b, {2});
+  auto tv4 = mul(s0, tv3);
+
+  // ops: tv5 := beta * C
+  auto tv5 = mul(s1, tv2);
+  // ops: tv6 := alpha * (A x B) + beta * C
+  auto tv6 = add(tv4, tv5);
+
+  fusion.addInput(s0);
+  fusion.addInput(s1);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+  fusion.addInput(tv2);
+
+  fusion.addOutput(tv6);
+
+  MatMulTileOptions gemm_tile;
+  gemm_tile.cta_tile = GemmTile(16, 8, 16);
+  gemm_tile.warp_tile = GemmTile(16, 8, 16);
+  gemm_tile.instruction_tile = GemmTile(16, 8, 16);
+
+  auto mma_builder =
+      MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16, gemm_tile)
+          .layout(MmaOptions::MmaLayout::TN);
+
+  auto mma_ops = ir_utils::getMmaOps(&fusion);
+  TORCH_CHECK(
+      1 == mma_ops.size(),
+      "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
+      mma_ops.size());
+  mma_builder.configureMma(mma_ops.front());
+
+  auto tv0cw = tv0b->cacheAfter();
+  auto tv0cr =
+      tv0cw->cacheAfter(mma_builder.operand(MmaOptions::Operand::A).ldMatrix());
+  auto tv1cw = tv1b->cacheAfter();
+  auto tv1cr =
+      tv1cw->cacheAfter(mma_builder.operand(MmaOptions::Operand::B).ldMatrix());
+  auto tv6c = tv6->cacheBefore();
+
+  mma_builder.accumulatorTv(tv3);
+
+  // [M,N,K] -> [N,M,K]
+  tv0cr->reorder({{-2, -3}, {-3, -2}});
+  tv0cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
+  tv1cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
+
+  // mma output := A x B
+  tv3->applyMmaSwizzle(
+      mma_builder.operand(MmaOptions::Operand::Accumulator).build());
+  // alpha scaling result := alpha * (A x B)
+  tv4->applyMmaSwizzle(
+      mma_builder.operand(MmaOptions::Operand::Accumulator).build());
+  // beta scaling result := beta * C
+  tv5->applyMmaSwizzle(
+      mma_builder.operand(MmaOptions::Operand::Accumulator).build());
+  // final result cache := alpha * (A x B) + beta * C
+  tv6c->applyMmaSwizzle(
+      mma_builder.operand(MmaOptions::Operand::Accumulator).build());
+  // final result := alpha * (A x B) + beta * C
+  tv6->applyMmaSwizzle(
+      mma_builder.operand(MmaOptions::Operand::Accumulator).build());
+
+  tv0cw->setMemoryType(MemoryType::Shared);
+  tv1cw->setMemoryType(MemoryType::Shared);
+
+  at::manual_seed(0);
+  const double alpha = 1.5;
+  const double beta = 1.5;
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+  auto t0 = at::randn({16, 16}, options);
+  auto t1 = at::randn({8, 16}, options);
+  auto t2 = at::randn({16, 8}, options);
+
+  FusionExecutor fe;
+  NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
+      8,
+      0,
+      fe.compileFusion(
+          &fusion, {alpha, beta, t0, t1, t2}, LaunchParams(), matmul_cparams));
+  auto cg_outputs = fe.runFusion({alpha, beta, t0, t1, t2});
+
+  auto t3 = t0.to(at::kFloat).matmul(t1.t().to(at::kFloat));
+  auto t4 = t3.mul(alpha);
+
+  auto t5 = t2.to(at::kFloat).mul(beta);
+  auto t6 = t4.add(t5);
+
+  TORCH_CHECK(cg_outputs[0].allclose(t6, 0.0001, 0.0001));
+}
+
 #undef NVFUSER_TEST_CUDA_ARCH_GUARD
 
 } // namespace nvfuser
