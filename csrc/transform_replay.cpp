@@ -333,7 +333,7 @@ std::pair<TensorDomain*, size_t> TransformReplay::replayPasC(
       consumer,
       (int)consumer_pos,
       root_map,
-      true,
+      opt.skip_target_swizzle,
       !opt.replay_swizzle,
       !opt.replay_resize);
 
@@ -609,7 +609,7 @@ std::pair<TensorDomain*, size_t> TransformReplay::replayCasP(
       producer,
       (int)producer_pos,
       root_map,
-      true,
+      opt.skip_target_swizzle,
       !opt.replay_swizzle,
       !opt.replay_resize);
 

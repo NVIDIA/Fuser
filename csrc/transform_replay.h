@@ -130,9 +130,15 @@ class TensorView;
 class RootDomainMap;
 
 struct TransformReplayOptions {
+  bool skip_target_swizzle = true;
   bool replay_swizzle = false;
   bool replay_resize = false;
   bool replay_allocation = false;
+
+  TransformReplayOptions& skipTargetSwizzle(bool value = true) {
+    skip_target_swizzle = value;
+    return *this;
+  }
 
   TransformReplayOptions& replaySwizzle(bool value = true) {
     replay_swizzle = value;
