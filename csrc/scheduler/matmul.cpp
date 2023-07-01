@@ -527,8 +527,8 @@ void schedule_output_tensor(TensorView* c, const MatMulTileOptions& gemm_tile) {
   // [Mo, No, m*n]
 
   // step-2, set vectorization to maximum
-  // We have a fixed TIDx of 32, so we need to make sure that the output tensor
-  // can be fully vectorized.
+  // We have fixed tidx, tidy, and tidz, so we need to make sure that the output
+  // tensor is divisible by tidx * tidy * tidz * vectorization_factor
   TORCH_INTERNAL_ASSERT(
       tot_elements % (tidx * tidy * tidz * vectorization_factor) == 0,
       "Output tensor cannot be fully vectorized! tot_elements:",
@@ -565,28 +565,6 @@ void schedule_output_tensor(TensorView* c, const MatMulTileOptions& gemm_tile) {
   c->axis(1)->parallelize(ParallelType::BIDy);
 }
 
-void scheduleEpilog(
-    TensorView* c_smem,
-    TensorView* mma_result,
-    const MatmulParams& params,
-    const MatMulTileOptions& gemm_tile,
-    const MmaOptions& mma_options) {
-  mma_utils::orderTiledConcreteIdAsRoot(c_smem);
-
-  // Swizzle the shared memory data layout
-  swizzleSharedMemory(c_smem, params, 0);
-
-  //! Epilogue tensor is scheduled same as mma output tensor.
-  //! However, if we directly propagate mma output tensor to epilogue tensor,
-  //! the swizzle information is lost and leads to bank conflict.
-  mma_utils::scheduleWarpTileWithNoReduction(c_smem, gemm_tile);
-  c_smem->applyMmaSwizzle(mma_options);
-
-  // Parallel
-  scheduler_utils::parallelizeAllLike(
-      mma_result, -1, {c_smem}, allParallelTypesExcept({ParallelType::Mma}));
-  c_smem->axis(-1)->parallelize(ParallelType::Vectorize);
-}
 } // namespace
 
 void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
@@ -885,16 +863,6 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
       {ParallelType::TIDy, ParallelType::TIDz});
 
   if (params.has_smem_epilogue) {
-    if (has_epilogue) {
-      // mma_results -> other_tvs -> c_smem -> c
-      scheduler_utils::BoundedDirectionalTransformPropagator::forward(
-          mma_result,
-          -1,
-          ir_utils::producerTvsOf(c_smem),
-          scheduler_utils::BoundedDirectionalTransformPropagator::Options()
-              .propagateParallelType()
-              .propagateToBoundary());
-    }
     c_smem->setMemoryType(MemoryType::Shared);
     swizzleSharedMemory(c_smem, params, 0);
     scheduler_utils::BoundedDirectionalTransformPropagator::forward(
@@ -903,17 +871,10 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
         {c_smem},
         scheduler_utils::BoundedDirectionalTransformPropagator::Options()
             .propagateParallelType()
-            .propagateToBoundary());    
+            .propagateToBoundary());
     c_smem->axis(-1)->parallelize(ParallelType::Vectorize);
 
-    // scheduleEpilog(
-    //     c_smem,
-    //     mma_result,
-    //     params,
-    //     gemm_tile,
-    //     mma_builder.operand(MmaOptions::Operand::Accumulator).build());
-
-    // can't propagate to c, because we want to schedule it differently for
+    // Don't propagate to c, because we want to schedule it differently for
     // better global memory access pattern.
     schedule_output_tensor(c, gemm_tile);
   } else {
