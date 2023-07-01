@@ -619,10 +619,10 @@ void initNvFuserPythonBindings(PyObject* module) {
   // of constant values.
   fusion_def.def(
       "define_vector",
-      [](FusionDefinition& self, py::list& list) -> Vector {
+      [](FusionDefinition& self, py::list& values) -> Vector {
         std::vector<Scalar> args;
         size_t idx = 0;
-        for (const auto& item : list) {
+        for (const auto& item : values) {
           if (py::isinstance<py::int_>(item)) {
             Scalar out = self.defineScalar();
             self.defineRecord(new ScalarRecord<int64_t>(
@@ -643,14 +643,8 @@ void initNvFuserPythonBindings(PyObject* module) {
         }
         return define_vector_fn(self, args);
       },
-      py::arg("value"),
+      py::arg("values"),
       py::return_value_policy::reference);
-  // Creates a Vector from exiting Scalars
-  // fusion_def.def(
-  //    "define_vector",
-  //    define_vector_fn,
-  //    py::arg("args"),
-  //    py::return_value_policy::reference);
 
   //! The Operators class is a nested class of FusionDefinition to allow the
   //! user to query the class for the list of operators.

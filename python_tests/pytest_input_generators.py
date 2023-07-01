@@ -297,6 +297,43 @@ def define_tensor_error_generator(
     for es in error_cases:
         yield SampleInput(input_tensor, **es.kwargs), es.ex_type, es.ex_str
 
+def define_vector_generator(
+    op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
+):
+    samples = [
+        SampleInput(values=[4]),
+        SampleInput(size=3)
+    ]
+
+    for s in samples: 
+        yield s 
+
+def define_vector_error_generator(
+    op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
+):
+    """
+    "define_vector",
+    [](FusionDefinition& self, size_t size) -> Vector {
+    ---
+    "define_vector",
+    [](FusionDefinition& self, py::list& values) -> Vector {
+    """
+    
+    MINIMUM_VALUE = -1
+    INT64_MAX_VALUE = 9223372036854775807
+    MAX_VECTOR_SIZE = 8
+    
+    check_below_min_value = ErrorSample(
+        {"values": [MINIMUM_VALUE - 1]},
+        "The value -2 at index 0 was neither symbolic(-1), zero_element(0), broadcast(1), or static(>1)",
+    )
+    
+    error_cases = [
+        check_below_min_value,
+    ]
+    
+    for es in error_cases:
+        yield SampleInput(**es.kwargs), es.ex_type, es.ex_str
 
 # TODO Add small value, large value, and extremal-valued samples
 def elementwise_unary_generator(
