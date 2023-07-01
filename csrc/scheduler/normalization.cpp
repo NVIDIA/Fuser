@@ -129,8 +129,13 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
   // This is needed because we enforced projection for fp32 if the feature size
   // is less or equal 14K. It leads to register spills but still faster than the
   // unprojected version due to the reuse of a input para in this grid
-  // persistent kernel. This is a tmp solution before we have a new persistent
-  // heuristics, where the projection is not solely based on size of buffers.
+  // persistent kernel. However, when we do register usage check in
+  // canScheduleRuntime, the enforced projection is not considered. Thus,
+  // max_persistent_buffer_size used here is larger than the value used in
+  // canScheduleRuntime.
+  // This is a tmp solution before we have a new persistent heuristics, where
+  // the projection is not solely based on size of buffers. The enforced buffer
+  // projection is not considered in canScheduleRuntime Thus,
   constexpr bool ignore_register_size_limit = true;
   const auto& batch_and_block_size = normalization_scheduler_utils::
       getOptionalInnerOuterPersistentBufferBatches(
