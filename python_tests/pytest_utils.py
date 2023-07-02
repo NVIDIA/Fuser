@@ -4,6 +4,7 @@
 # Owner(s): ["module: nvfuser"]
 
 import torch
+from torch.testing import make_tensor
 
 # uint8, int8, int16, bf16, fp16 are disables because nvfuser upcasts those dtypes to fp32
 # but does not return the original type.
@@ -39,6 +40,8 @@ float_complex_dtypes = (
     torch.complex128,
 )
 
+complex_dtypes = (torch.complex64, torch.complex128)
+
 map_dtype_to_str = {
     torch.bool: "bool",
     torch.uint8: "uint8",
@@ -68,3 +71,25 @@ def make_tensor_like(a):
     return torch.testing.make_tensor(
         a.shape, device=a.device, dtype=a.dtype, requires_grad=a.requires_grad
     )
+
+
+def make_number(dtype: torch.dtype):
+    """Returns a random number with desired dtype
+
+    Args:
+        dtype (torch.dtype): Desired dtype for number.
+
+    Returns:
+        (Scalar): The scalar number with specified dtype.
+    """
+    return make_tensor([1], device="cpu", dtype=dtype).item()
+
+
+def find_nonmatching_dtype(dtype: torch.dtype):
+    if dtype in int_float_dtypes:
+        return torch.complex128
+    elif dtype in complex_dtypes:
+        return torch.double
+    elif dtype is torch.bool:
+        return torch.float32
+    return None

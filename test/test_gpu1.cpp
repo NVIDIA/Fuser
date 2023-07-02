@@ -178,16 +178,16 @@ TEST_F(NVFuserTest, FusionExprEvalBindings_CUDA) {
   TORCH_CHECK(!evaluator.evaluate(a).hasValue());
   TORCH_CHECK(!evaluator.evaluate(d).hasValue());
 
-  evaluator.bind(a, 7);
-  evaluator.bind(b, 3);
+  evaluator.bind(a, 7L);
+  evaluator.bind(b, 3L);
 
   // can't bind to the results of expressions
   // NOLINTNEXTLINE(cppcoreguidelines-avoid-goto,hicpp-avoid-goto)
-  ASSERT_ANY_THROW(evaluator.bind(c, 100));
+  ASSERT_ANY_THROW(evaluator.bind(c, 100L));
 
   // can't bind to concrete values
   // NOLINTNEXTLINE(cppcoreguidelines-avoid-goto,hicpp-avoid-goto)
-  ASSERT_ANY_THROW(evaluator.bind(e, 100));
+  ASSERT_ANY_THROW(evaluator.bind(e, 100L));
 
   checkIntValue(evaluator, c, 10);
   checkIntValue(evaluator, sub(a, b), 4);
@@ -198,8 +198,8 @@ TEST_F(NVFuserTest, FusionExprEvalBindings_CUDA) {
   // Reset evaluation context
   evaluator = ExpressionEvaluator();
 
-  evaluator.bind(a, 2);
-  evaluator.bind(b, 5);
+  evaluator.bind(a, 2L);
+  evaluator.bind(b, 5L);
 
   checkIntValue(evaluator, c, 7);
   checkIntValue(evaluator, sub(a, b), -3);
@@ -247,10 +247,10 @@ TEST_F(NVFuserTest, FusionExprEvalBasic_CUDA) {
   //  (ex. `tv0->getRootDomain()[0]->extent()`
   //   instead of `tv0->axis(0)->extent()`)
   //
-  evaluator.bind(tv0->getRootDomain()[0]->extent(), 6);
-  evaluator.bind(tv0->getRootDomain()[1]->extent(), 128);
-  evaluator.bind(tv1->getRootDomain()[0]->extent(), 6);
-  evaluator.bind(tv1->getRootDomain()[1]->extent(), 128);
+  evaluator.bind(tv0->getRootDomain()[0]->extent(), 6L);
+  evaluator.bind(tv0->getRootDomain()[1]->extent(), 128L);
+  evaluator.bind(tv1->getRootDomain()[0]->extent(), 6L);
+  evaluator.bind(tv1->getRootDomain()[1]->extent(), 128L);
 
   // 3. Evaluate and check result values
   TORCH_CHECK(tv2->domain()->nDims() == 3);
@@ -291,8 +291,8 @@ TEST_F(NVFuserTest, FusionExprEvalComplex_CUDA) {
   ExpressionEvaluator evaluator;
 
   // 2. Bind values
-  evaluator.bind(tv0->getRootDomain()[0]->extent(), 129);
-  evaluator.bind(tv0->getRootDomain()[1]->extent(), 127);
+  evaluator.bind(tv0->getRootDomain()[0]->extent(), 129L);
+  evaluator.bind(tv0->getRootDomain()[1]->extent(), 127L);
 
   // Evaluate and check extent values
   TORCH_CHECK(tv0->domain()->nDims() == 2);
@@ -354,10 +354,10 @@ TEST_F(NVFuserTest, FusionExprEvalPostLower_CUDA) {
   ExpressionEvaluator evaluator;
 
   // 2. Bind values
-  evaluator.bind(tv0->getRootDomain()[0]->extent(), 6);
-  evaluator.bind(tv0->getRootDomain()[1]->extent(), 128);
-  evaluator.bind(tv1->getRootDomain()[0]->extent(), 6);
-  evaluator.bind(tv1->getRootDomain()[1]->extent(), 128);
+  evaluator.bind(tv0->getRootDomain()[0]->extent(), 6L);
+  evaluator.bind(tv0->getRootDomain()[1]->extent(), 128L);
+  evaluator.bind(tv1->getRootDomain()[0]->extent(), 6L);
+  evaluator.bind(tv1->getRootDomain()[1]->extent(), 128L);
 
   // 3. Evaluate and check result values
   TORCH_CHECK(tv2->domain()->nDims() == 3);
@@ -413,16 +413,16 @@ TEST_F(NVFuserTest, FusionKernelExprEvalBindings_CUDA) {
   TORCH_CHECK(!evaluator.evaluate(a).hasValue());
   TORCH_CHECK(!evaluator.evaluate(d).hasValue());
 
-  evaluator.bind(a, 7);
-  evaluator.bind(b, 3);
+  evaluator.bind(a, 7L);
+  evaluator.bind(b, 3L);
 
   // can't bind to the results of expressions
   // NOLINTNEXTLINE(cppcoreguidelines-avoid-goto,hicpp-avoid-goto)
-  ASSERT_ANY_THROW(evaluator.bind(c, 100));
+  ASSERT_ANY_THROW(evaluator.bind(c, 100L));
 
   // can't bind to concrete values
   // NOLINTNEXTLINE(cppcoreguidelines-avoid-goto,hicpp-avoid-goto)
-  ASSERT_ANY_THROW(evaluator.bind(e, 100));
+  ASSERT_ANY_THROW(evaluator.bind(e, 100L));
 
   checkIntValue(evaluator, c, 10);
   checkIntValue(evaluator, IrBuilder::subExpr(a, b), 4);
@@ -433,8 +433,8 @@ TEST_F(NVFuserTest, FusionKernelExprEvalBindings_CUDA) {
   // Reset the evaluation context
   evaluator = ExpressionEvaluator();
 
-  evaluator.bind(a, 2);
-  evaluator.bind(b, 5);
+  evaluator.bind(a, 2L);
+  evaluator.bind(b, 5L);
 
   checkIntValue(evaluator, c, 7);
   checkIntValue(evaluator, IrBuilder::subExpr(a, b), -3);
