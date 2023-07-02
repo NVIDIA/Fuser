@@ -91,12 +91,14 @@ void Communicator::sendRecv(
   }
   if (rank() == sender_rank) {
     // post send and wait for completion
-    TORCH_INTERNAL_ASSERT(pg_->send(tensor, receiver_rank, tag)->wait(),
-                                                "error during communication");
+    TORCH_INTERNAL_ASSERT(
+        pg_->send(tensor, receiver_rank, tag)->wait(),
+        "error during communication");
   } else if (rank() == receiver_rank) {
     // post receive and wait for completion
-    TORCH_INTERNAL_ASSERT(pg_->recv(tensor, sender_rank, tag)->wait(),
-                                                "error during communication");
+    TORCH_INTERNAL_ASSERT(
+        pg_->recv(tensor, sender_rank, tag)->wait(),
+        "error during communication");
   }
 }
 
