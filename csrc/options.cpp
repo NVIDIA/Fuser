@@ -114,6 +114,7 @@ std::unordered_map<DebugDumpOption, std::vector<std::string>> Options<
       {"dump_eff_bandwidth", DebugDumpOption::EffectiveBandwidth},
       {"expr_simplify", DebugDumpOption::ExprSimplification},
       {"expr_sort", DebugDumpOption::ExprSort},
+      {"expr_sort_verbose", DebugDumpOption::ExprSortVerbose},
       {"fusion_args", DebugDumpOption::FusionArgs},
       {"fusion_ir", DebugDumpOption::FusionIr},
       {"fusion_ir_concretized", DebugDumpOption::FusionIrConcretized},

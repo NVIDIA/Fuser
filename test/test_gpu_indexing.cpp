@@ -763,6 +763,16 @@ TEST_F(NVFuserTest, FusionIndexing17_CUDA) {
   tv2->computeAt(tv4, -1, ComputeAtMode::BestEffort);
   tv3->computeAt(tv7, -1, ComputeAtMode::BestEffort);
 
+  // Currently the computeAt position of tv2 is set at the innermost
+  // position, which is wrong. The expression sorting should fail.
+  ASSERT_TRUE(tv2->getComputeAtPosition() == tv2->nDims());
+  ASSERT_THAT(
+      [&]() { GpuLower lower(&fusion); },
+      testing::ThrowsMessage<c10::Error>(
+          testing::HasSubstr("Couldn't succcessfully sort out")));
+
+  // Re-enable below once the CA issue is fixed
+#if 0
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({5, 4, 3}, options);
   at::Tensor t1 = at::randn({4}, options);
@@ -785,6 +795,7 @@ TEST_F(NVFuserTest, FusionIndexing17_CUDA) {
 
   testValidate(
       &fusion, cg_outputs, aten_inputs, aten_outputs, __LINE__, __FILE__);
+#endif
 }
 
 // Repro of issue #2560

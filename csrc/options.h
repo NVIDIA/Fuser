@@ -63,6 +63,7 @@ enum class DebugDumpOption {
   LowerVerbose, //! Print all passes' transform in GpuLower::lower
   ExprSimplification, //! Print all passes' transform in simplifyExpr
   ExprSort, //! Print merging decisions on expression sorting
+  ExprSortVerbose, //! Print verbose debug info on expression sorting
   LoopRotation, //! Print loop rotation log
   MatmulChecks, //! Print logs from tools around matmul scheduler used in
                 //! segmenter
