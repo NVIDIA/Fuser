@@ -239,6 +239,17 @@ std::unique_ptr<Fusion> Pipeline::stageToFusion(PipelineStage*& stage) const {
   auto original_inputs = fusion_copy->inputs();
   auto original_outputs = fusion_copy->outputs();
 
+  // Remove original inputs
+  std::for_each(
+      original_inputs.begin(), original_inputs.end(), [&](auto& input) {
+        fusion_copy->removeInput(input);
+      });
+  // Remove original outputs
+  std::for_each(
+      original_outputs.begin(), original_outputs.end(), [&](auto& output) {
+        fusion_copy->removeOutput(output);
+      });
+
   // Add stage inputs
   std::for_each(
       stage->inputs().begin(), stage->inputs().end(), [&](Val* const& input) {
@@ -252,17 +263,6 @@ std::unique_ptr<Fusion> Pipeline::stageToFusion(PipelineStage*& stage) const {
       [&](Val* const& output) {
         fusion_copy->addOutput(original_to_copy_map.clone(
             output->as<PipelineVal>()->getOriginalVal()));
-      });
-
-  // Remove original inputs
-  std::for_each(
-      original_inputs.begin(), original_inputs.end(), [&](auto& input) {
-        fusion_copy->removeInput(input);
-      });
-  // Remove original outputs
-  std::for_each(
-      original_outputs.begin(), original_outputs.end(), [&](auto& output) {
-        fusion_copy->removeOutput(output);
       });
 
   return fusion_copy;
