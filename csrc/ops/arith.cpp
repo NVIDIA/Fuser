@@ -278,27 +278,47 @@ TensorView* iota(Val* length, Val* start, Val* step, DataType dtype) {
       "length must be integer, but get dtype ",
       *length->getDataType());
   TORCH_CHECK(
-      isIntegralType(*start->getDataType()) == isIntegralType(dtype) &&
+      !isComplexType(*start->getDataType()) &&
+          isIntegralType(*start->getDataType()) == isIntegralType(dtype) &&
           isFloatingPointType(*start->getDataType()) ==
               isFloatingPointType(dtype),
-      "dtype does not match for iota, should be ",
+      "iota: start dtype does not match specified dtype argument, should be ",
       dtype,
       " but get ",
       *start->getDataType());
   TORCH_CHECK(
-      isIntegralType(*step->getDataType()) == isIntegralType(dtype) &&
+      !isComplexType(*step->getDataType()) &&
+          isIntegralType(*step->getDataType()) == isIntegralType(dtype) &&
           isFloatingPointType(*step->getDataType()) ==
               isFloatingPointType(dtype),
-      "dtype does not match for iota, should be ",
+      "iota: step dtype does not match specified dtype argument, should be ",
       dtype,
       " but get ",
       *step->getDataType());
+
   if (start->getDataType() != dtype) {
     start = castOp(dtype, start);
   }
   if (step->getDataType() != dtype) {
     step = castOp(dtype, step);
   }
+
+  if (start->isConst() && start->isFloatingPointScalar()) {
+    TORCH_INTERNAL_ASSERT(
+        std::isfinite(start->getDouble().value()),
+        "iota: length, start, step must be finite numbers.");
+  }
+
+  if (step->isConst() && step->isFloatingPointScalar()) {
+    TORCH_INTERNAL_ASSERT(
+        std::isfinite(step->getDouble().value()),
+        "iota: length, start, step must be finite numbers.");
+  }
+
+  TORCH_INTERNAL_ASSERT(
+      !step->isConstScalar() || !step->isZero(),
+      "iota: step value must not equal zero.");
+
   auto out = TensorViewBuilder()
                  .ndims(1)
                  .dtype(dtype)
