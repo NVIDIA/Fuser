@@ -26,7 +26,9 @@ int parseEnv(
     RankType& rank,
     int64_t& size,
     RankType& local_rank,
-    int64_t& local_size) {
+    int64_t& local_size,
+    std::string& master_addr,
+    int& master_port) {
   char* env = nullptr;
 
   // retrieves the rank of the current process
@@ -69,6 +71,30 @@ int parseEnv(
   }
   local_size = std::atoi(env);
 
+  // retrieves master address
+  env = std::getenv("MASTER_ADDR");
+  if (env) {
+    master_addr = env;
+  } else if (local_size == size) {
+    master_addr = "localhost";
+  } else {
+    TORCH_WARN("the environment variable MASTER_ADDR "
+    "must be specified.");
+    return 1;
+  }
+
+  // retrieves master port
+  env = std::getenv("MASTER_PORT");
+  if (env) {
+    master_port = std::atoi(env);
+  } else {
+    if (master_addr != "localhost") {
+      TORCH_WARN("the environment variable MASTER_PORT "
+      "has not been specified");
+    }
+    master_port = 0;
+  }
+
   return 0;
 }
 
@@ -105,13 +131,26 @@ c10::intrusive_ptr<c10d::Backend> createBackend(
 Communicator::Communicator(CommunicatorBackend backend, RankType server_rank)
     : rank_(0), size_(0), local_rank_(0), local_size_(0) {
   // retrieves rank and communicator size
-  int status = parseEnv(rank_, size_, local_rank_, local_size_);
+  int status = parseEnv(rank_, size_, local_rank_, local_size_, master_addr_, master_port_);
   TORCH_CHECK(status == 0, "distributed configuration is not available");
+
+  if (rank_ == server_rank) {
+    char hostname_c[HOST_NAME_MAX];
+    gethostname(hostname_c, HOST_NAME_MAX);
+    std::string hostname = hostname_c;
+    if (hostname != master_addr_) {
+      TORCH_WARN("server rank's hostname=" + hostname +
+                      " but MASTER_ADDR=" + master_addr_);
+    }
+  }
 
   // creates the backend
   c10d::TCPStoreOptions store_opts;
   store_opts.isServer = (rank_ == server_rank) ? true : false;
-  auto store = c10::make_intrusive<c10d::TCPStore>("localhost", store_opts);
+  if (master_port_) {
+    store_opts.port = master_port_;
+  }
+  auto store = c10::make_intrusive<c10d::TCPStore>(master_addr_, store_opts);
   pg_ = createBackend(backend, store, rank_, size_);
 }
 

@@ -59,9 +59,9 @@ class Communicator {
       std::vector<at::Tensor>& tensor,
       int tag = 0);
 
-  // performs a barrier in the communicator
+  // performs a blocking barrier in the communicator
   void barrier() const {
-    pg_->barrier();
+    pg_->barrier()->wait();
   }
 
   // stores the process group backend
@@ -70,6 +70,8 @@ class Communicator {
   int64_t size_;
   RankType local_rank_;
   int64_t local_size_;
+  std::string master_addr_;
+  int master_port_;
   c10::intrusive_ptr<c10d::Backend> pg_;
 };
 
