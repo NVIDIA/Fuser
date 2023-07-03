@@ -306,7 +306,8 @@ flatbuffers::Offset<serde::NaiveValueGenerator> ExpressionSerializer::serialize(
     auto def = val->definition();
     derived_values.pop_front();
 
-    TORCH_INTERNAL_ASSERT(def, "Expected definition with derived value.");
+    TORCH_INTERNAL_ASSERT(
+        def != nullptr, "Expected definition with derived value.");
     if (auto uop = dynamic_cast<nvfuser::UnaryOp*>(def)) {
       instructions_fb.push_back(serializeUnaryOp(builder, uop));
       operation_stack_.emplace(val, operation_stack_.size());
@@ -396,7 +397,7 @@ flatbuffers::Offset<serde::SymbolicTensor> ExpressionSerializer::serialize(
   for (auto id : tv->getRootDomain()) {
     TORCH_INTERNAL_ASSERT(
         operation_stack_.count(id->extent()),
-        "Missing value in NaiveValueGenerator stack.\t",
+        "Missing iterDomain extent in NaiveValueGenerator stack.\t",
         id->extent()->toString());
     auto extent_id = operation_stack_.at(id->extent());
     fb_root_domain.push_back(serde::CreateIterationDomain(builder, extent_id));

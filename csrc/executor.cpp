@@ -2117,15 +2117,16 @@ void FusionExecutor::deserialize(
   fusion_ = lowered_->kernel()->as<Fusion>();
   setUsedTVs();
 
-  // GlobalBufferInfo requires lowered kernel before deserialization
+  kernel_summary_ = lowered_->kernel()->summary();
+  deserialize(buffer->summary());
+
+  // GlobalBufferInfo requires lowered kernel and kernel summary before
+  // deserialization
   for (auto idx : c10::irange(buffer->executor_entry_lookup_keys()->size())) {
     executor_entry_lookup_.emplace(
         buffer->executor_entry_lookup_keys()->Get(idx),
         deserialize(buffer->executor_entry_lookup_values()->Get(idx)));
   }
-
-  kernel_summary_ = lowered_->kernel()->summary();
-  deserialize(buffer->summary());
 
   std::tie(compiled_kernel_, last_compiler_log_, last_compiled_binary_) =
       executor_utils::getCompiledKernel(
