@@ -373,23 +373,28 @@ class TORCH_CUDA_CU_API InputsOf : public IterVisitor {
 };
 
 //! This is a generic traversal class that is used to modify a Fusion graph by
-//! replacing TensorViews so that their definitions can be altered to simplify
-//! computation or remove dead code. This differs from OptOutMutator, which is
-//! built for mutating TensorViews in a graph, and does not easily handle
-//! modifying TensorView definitions and Expr Fusion inputs during traversal.
+//! replacing Vals to simplify computation or remove dead code. This differs
+//! from OptOutMutator, which is built for mutating TensorViews in-place in a
+//! graph by altering the associated IterDomains, and which does not easily
+//! handle modifying TensorView definitions and Fusion outputs during traversal.
 //!
-//! We use unordered_set called live_statements_, which is initialized as the
+//! We use an unordered_set called live_statements_, which is initialized as the
 //! Exprs in traversal_exprs_ as well as their inputs and their outputs with
 //! live uses. Marking a Statement as dead removes it from live_statements_,
 //! and replacing a Val inserts the Val and its definition, recursively. Since
 //! we traverse backwards, and we handle all active Expr outputs, this ensures
-//! that it is safe to removing an Expr will not result in erasing definitions
-//! of active Expr outputs.
+//! that removing an Expr will not result in erasing definitions of active Expr
+//! outputs.
 //!
-//! Derived classes should override handle() and make use of replaceTV(),
-//! markDeadAndMaybeRemove(), and allUsesDead(). Note that if replacements are
-//! made using replaceTV(old_tv, new_tv), then neither new_tv or any new
-//! Statements produced in creating it will be traversed by this class.
+//! Derived classes should override handle() for relevant Exprs and they should
+//! make use of replaceVal() to change the definitions of Vals in the graph.
+//! Note that if replacements are made using replaceVal(old_val, new_val), then
+//! neither new_val nor any new Statements produced in creating it will be
+//! traversed by this class.
+//!
+//! removeVal() may also be used in derived classes to explicitly mark tensors
+//! as dead. Note that it is an error to call removeVal() on a Val that has live
+//! uses, so this should be used carefully.
 class DeadCodeRemover : BackwardVisitor {
  public:
   DeadCodeRemover(Fusion* fusion) : BackwardVisitor(false), fusion_(fusion) {}
@@ -412,24 +417,39 @@ class DeadCodeRemover : BackwardVisitor {
   void handle(Statement* stmt) override;
   void handle(Expr* expr) override;
 
-  //! Replaces a TensorView in outputs, and in all uses. If old_tv is a Fusion
-  //! input, we do not replace it. After replacement, unless it is a Fusion
-  //! input, we remove it from the fusion and set the original pointer to zero
-  //! (hence why old_tv is passed by reference).
-  void replaceTV(TensorView*& old_tv, TensorView* new_tv);
-
-  //! Guard removeVal with calls to markDead so that we always detect removed
-  //! Vals and Exprs before derefencing them.
+  //! Replaces a Val in outputs, and in all uses.
   //!
-  //! Note that we only remove val if all of its definition's outputs are marked
-  //! dead.
-  void markDeadAndMaybeRemove(Val* val);
-
-  //! Find whether a statement is live (i.e. not dead code)
+  //! The argument old_val is always marked Dead by this method. If old_val is a
+  //! Fusion input, we do not replace it. If old_val's definition is non-null
+  //! and has other outputs which are not dead, we do not remove it.
   //!
-  //! Inside BackwardVisitor::traverseTo, traversal_exprs_ is built, containing
-  //! all active expressions in the original graph.
-  bool isLive(Statement* stmt) const;
+  //! Returns whether old_val was removed from the Fusion.
+  bool replaceVal(Val* old_val, Val* new_val);
+
+  //! Remove a Val* from the Fusion, if possible.
+  //!
+  //! It is an error to call this function on a Val with any live uses, or on
+  //! any Fusion input or output.
+  //!
+  //! The Val is always marked dead by this function. Additionally, it is
+  //! removed from the Fusion if possible. Removal is possible if the Val has no
+  //! definition, or if its definition can be removed by removeExpr(), meaning
+  //! the definition has no other live outputs.
+  //!
+  //! Returns whether the Val was removed from the Fusion.
+  bool removeVal(Val* val);
+
+  //! Find whether a statement is not marked as live code. Note that if this
+  //! returns true, the pointer may be invalid.
+  inline bool isDead(Statement* stmt) const {
+    return live_statements_.find(stmt) == live_statements_.end();
+  }
+
+  //! Find whether a statement is marked as live code. Note that if this returns
+  //! false, the pointer may be invalid.
+  inline bool isLive(Statement* stmt) const {
+    return !isDead(stmt);
+  }
 
   //! Check whether all outputs of an expression have been marked dead
   bool allOutputsDead(Expr* expr) const;
@@ -437,16 +457,33 @@ class DeadCodeRemover : BackwardVisitor {
   //! Check whether all uses have been marked dead
   bool allUsesDead(Val* val) const;
 
-  //! Mark a single Statement as being alive
-  void markLive(Statement* stmt);
+ private:
+  //! Removes an Expr* from the Fusion, if possible.
+  //!
+  //! The Expr will _only_ be marked dead and removed if all of its outputs are
+  //! already marked dead. In this case all the outputs will also be removed
+  //! from the Fusion.
+  //!
+  //! Returns whether the Expr was marked dead and removed from the Fusion.
+  bool maybeRemoveExpr(Expr* expr);
+
+  //! Mark a single Statement as being alive.
+  inline void markLive(Statement* stmt) {
+    live_statements_.insert(stmt);
+  }
 
   //! Ensure that a Statement and its upstream Statements are alive. If it is an
   //! Expr, ensure all its inputs are alive. If it's a Val with a definition,
-  //! recursive to the definition.
+  //! recursive to the definition. Newly-created Statements default to being
+  //! dead, so this method is called when adding a Statement to the active path
+  //! of the Fusion inside replaceVal.
   void markLiveRecursive(Statement* stmt);
 
-  //! Mark a Statement* as dead so that we avoid dereferencing it later
-  void markDead(Statement* stmt);
+  //! Mark a single Statement as being dead. This does not remove stmt from the
+  //! Fusion.
+  //!
+  //! Returns true if the statement was previously live, and false otherwise.
+  bool markDead(Statement* stmt);
 
  private:
   //! The Fusion associated with live_statements_

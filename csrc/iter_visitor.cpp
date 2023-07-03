@@ -952,7 +952,7 @@ Fusion* DeadCodeRemover::fusion() const {
 }
 
 void DeadCodeRemover::handle(Statement* stmt) {
-  if (!isLive(stmt)) {
+  if (isDead(stmt)) {
     // We check whether stmt is dead before we dereference it, since it may
     // have been removed from the Fusion.
     return;
@@ -961,80 +961,80 @@ void DeadCodeRemover::handle(Statement* stmt) {
 }
 
 void DeadCodeRemover::handle(Expr* expr) {
-  if (allOutputsDead(expr)) {
-    markDead(expr);
-    fusion_->removeExpr(expr);
-  } else {
-    BackwardVisitor::handle(expr);
+  if (maybeRemoveExpr(expr)) {
+    // maybeRemoveExp will remove expr from the Fusion if all its uses are
+    // marked dead. In that case, we should not continue handling it since the
+    // expr pointer is invalid.
+    return;
   }
+  BackwardVisitor::handle(expr);
 }
 
-void DeadCodeRemover::replaceTV(TensorView*& old_tv, TensorView* new_tv) {
-  if (old_tv->isFusionOutput()) {
-    fusion_->replaceOutput(old_tv, new_tv);
+bool DeadCodeRemover::replaceVal(Val* old_val, Val* new_val) {
+  if (old_val->isFusionOutput()) {
+    fusion_->replaceOutput(old_val, new_val);
   }
-  for (auto use : old_tv->uses()) {
-    ir_utils::replaceValInExpr(use, old_tv, new_tv);
+  for (auto use : old_val->uses()) {
+    ir_utils::replaceValInExpr(use, old_val, new_val);
   }
-  markLiveRecursive(new_tv);
-  markDeadAndMaybeRemove(old_tv);
+  return removeVal(old_val);
 }
 
-//! Guard removeVal with calls to markDead so that we always detect removed
-//! Vals and Exprs before derefencing them.
-//!
-//! Note that we only remove val if all of its definition's outputs are marked
-//! dead.
-void DeadCodeRemover::markDeadAndMaybeRemove(Val* val) {
-  markDead(val);
+bool DeadCodeRemover::removeVal(Val* val) {
+  // Mark val dead even if we can't yet remove it due to its definition having
+  // some live outputs
+  if (!markDead(val)) {
+    // val is already marked dead
+    return false;
+  }
+
   if (val->definition()) {
-    if (allOutputsDead(val->definition())) {
-      // If all other outputs are dead, it's safe to remove the definition as
-      // well as all its outputs
-      markDead(val->definition());
-      const auto outputs = val->definition()->outputs();
-      for (auto outp : outputs) {
-        fusion_->removeVal(outp);
-      }
-    }
+    // If val has a definition, it can only be removed by removing its
+    // definition
+    return maybeRemoveExpr(val->definition());
   } else {
     TORCH_INTERNAL_ASSERT(
         !val->isFusionInput(), "Refusing to remove Fusion input");
+    markDead(val);
     fusion_->removeVal(val);
+    return true;
   }
 }
 
-//! Find whether a statement is live (i.e. not dead code)
-//!
-//! Inside BackwardVisitor::traverseTo, traversal_exprs_ is built, containing
-//! all active expressions in the original graph.
-bool DeadCodeRemover::isLive(Statement* stmt) const {
-  return live_statements_.find(stmt) != live_statements_.end();
+bool DeadCodeRemover::maybeRemoveExpr(Expr* expr) {
+  if (allOutputsDead(expr)) {
+    if (!markDead(expr)) {
+      // Expr was already marked dead, so don't try to remove it again
+      return false;
+    }
+
+    const auto outputs = expr->outputs();
+    for (auto outp : outputs) {
+      fusion_->removeVal(outp);
+    }
+    // Fusion::removeVal(val) calls removeExpr on the definition of val. That
+    // means expr will be removed while processing its first output. Here we
+    // check that it was properly removed.
+    TORCH_INTERNAL_ASSERT(!fusion_->inContainer(expr), "Failed to remove Expr");
+    return true;
+  } else {
+    return false;
+  }
 }
 
-//! Check whether all outputs of an expression have been marked dead
 bool DeadCodeRemover::allOutputsDead(Expr* expr) const {
   return std::all_of(
       expr->outputs().begin(), expr->outputs().end(), [&](Val* outp) {
-        return !isLive(outp);
+        return isDead(outp);
       });
 }
 
-//! Check whether all uses have been marked dead
 bool DeadCodeRemover::allUsesDead(Val* val) const {
   return std::all_of(val->uses().begin(), val->uses().end(), [&](Expr* use) {
-    return !isLive(use);
+    return isDead(use);
   });
 }
 
-//! Mark a single Statement as being alive
-void DeadCodeRemover::markLive(Statement* stmt) {
-  live_statements_.insert(stmt);
-}
-
-//! Ensure that a Statement and its upstream Statements are alive. If it is an
-//! Expr, ensure all its inputs are alive. If it's a Val with a definition,
-//! recursive to the definition.
 void DeadCodeRemover::markLiveRecursive(Statement* stmt) {
   if (isLive(stmt)) {
     return;
@@ -1043,14 +1043,17 @@ void DeadCodeRemover::markLiveRecursive(Statement* stmt) {
   if (stmt->isVal() && stmt->asVal()->definition()) {
     markLiveRecursive(stmt);
   } else {
-    for (const auto inp : stmt->asExpr()->inputs()) {
+    auto expr = stmt->asExpr();
+    for (const auto inp : expr->outputs()) {
+      markLive(inp);
+    }
+    for (const auto inp : expr->inputs()) {
       markLiveRecursive(inp);
     }
   }
 }
 
-//! Mark a Statement* as dead so that we avoid dereferencing it later
-void DeadCodeRemover::markDead(Statement* stmt) {
+bool DeadCodeRemover::markDead(Statement* stmt) {
   if (stmt->isVal()) {
     auto val = stmt->asVal();
     TORCH_INTERNAL_ASSERT(
@@ -1061,8 +1064,12 @@ void DeadCodeRemover::markDead(Statement* stmt) {
         !val->isFusionInput(),
         "Call to markDead on Fusion input is illegal: ",
         val->toString());
+    TORCH_INTERNAL_ASSERT(
+        allUsesDead(val),
+        "Attempted to remove Val with live uses: ",
+        val->toString());
   }
-  live_statements_.erase(stmt);
+  return (bool)live_statements_.erase(stmt);
 }
 
 } // namespace nvfuser
