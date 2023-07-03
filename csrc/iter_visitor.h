@@ -429,13 +429,13 @@ class DeadCodeRemover : BackwardVisitor {
   //!
   //! Inside BackwardVisitor::traverseTo, traversal_exprs_ is built, containing
   //! all active expressions in the original graph.
-  bool isLive(Statement* stmt);
+  bool isLive(Statement* stmt) const;
 
   //! Check whether all outputs of an expression have been marked dead
-  bool allOutputsDead(Expr* expr);
+  bool allOutputsDead(Expr* expr) const;
 
   //! Check whether all uses have been marked dead
-  bool allUsesDead(Val* val);
+  bool allUsesDead(Val* val) const;
 
   //! Mark a single Statement as being alive
   void markLive(Statement* stmt);

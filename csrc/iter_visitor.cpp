@@ -1008,12 +1008,12 @@ void DeadCodeRemover::markDeadAndMaybeRemove(Val* val) {
 //!
 //! Inside BackwardVisitor::traverseTo, traversal_exprs_ is built, containing
 //! all active expressions in the original graph.
-bool DeadCodeRemover::isLive(Statement* stmt) {
+bool DeadCodeRemover::isLive(Statement* stmt) const {
   return live_statements_.find(stmt) != live_statements_.end();
 }
 
 //! Check whether all outputs of an expression have been marked dead
-bool DeadCodeRemover::allOutputsDead(Expr* expr) {
+bool DeadCodeRemover::allOutputsDead(Expr* expr) const {
   return std::all_of(
       expr->outputs().begin(), expr->outputs().end(), [&](Val* outp) {
         return !isLive(outp);
@@ -1021,13 +1021,10 @@ bool DeadCodeRemover::allOutputsDead(Expr* expr) {
 }
 
 //! Check whether all uses have been marked dead
-bool DeadCodeRemover::allUsesDead(Val* val) {
-  for (const auto use : val->uses()) {
-    if (isLive(use)) {
-      return false;
-    }
-  }
-  return true;
+bool DeadCodeRemover::allUsesDead(Val* val) const {
+  return std::all_of(val->uses().begin(), val->uses().end(), [&](Expr* use) {
+    return !isLive(use);
+  });
 }
 
 //! Mark a single Statement as being alive
@@ -1054,6 +1051,17 @@ void DeadCodeRemover::markLiveRecursive(Statement* stmt) {
 
 //! Mark a Statement* as dead so that we avoid dereferencing it later
 void DeadCodeRemover::markDead(Statement* stmt) {
+  if (stmt->isVal()) {
+    auto val = stmt->asVal();
+    TORCH_INTERNAL_ASSERT(
+        !val->isFusionOutput(),
+        "Call to markDead on Fusion output is illegal: ",
+        val->toString());
+    TORCH_INTERNAL_ASSERT(
+        !val->isFusionInput(),
+        "Call to markDead on Fusion input is illegal: ",
+        val->toString());
+  }
   live_statements_.erase(stmt);
 }
 
