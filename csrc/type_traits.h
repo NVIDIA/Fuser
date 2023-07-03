@@ -442,7 +442,7 @@ namespace nvfuser {
 // (Void, T1, Void, T2, Void, T3, ...) -> (T1, T2, T3, ...)
 
 template <typename... Ts>
-constexpr auto remove_void_from_tuple(std::tuple<Ts...> t) {
+constexpr auto remove_void_from_tuple([[maybe_unused]] std::tuple<Ts...> t) {
   if constexpr (sizeof...(Ts) == 0) {
     return std::tuple<>{};
   } else {
