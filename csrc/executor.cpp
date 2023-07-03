@@ -2046,12 +2046,6 @@ void FusionExecutor::deserialize(
   fusion_id_counter_ = buffer->fusion_id_counter();
   kernel_code_ = buffer->kernel_code()->str();
 
-  for (auto idx : c10::irange(buffer->executor_entry_lookup_keys()->size())) {
-    executor_entry_lookup_.emplace(
-        buffer->executor_entry_lookup_keys()->Get(idx),
-        deserialize(buffer->executor_entry_lookup_values()->Get(idx)));
-  }
-
   // KernelDB query checks kernel_code string and compile_params before
   // copying cubin.
   auto default_params = CompileParams();
@@ -2062,6 +2056,13 @@ void FusionExecutor::deserialize(
   // Replace integers that are tensor sizes by named scalars like "T0.size[0]"
   fusion_ = lowered_->kernel()->as<Fusion>();
   setUsedTVs();
+
+  // GlobalBufferInfo requires lowered kernel before deserialization
+  for (auto idx : c10::irange(buffer->executor_entry_lookup_keys()->size())) {
+    executor_entry_lookup_.emplace(
+        buffer->executor_entry_lookup_keys()->Get(idx),
+        deserialize(buffer->executor_entry_lookup_values()->Get(idx)));
+  }
 
   std::tie(compiled_kernel_, last_compiler_log_, last_compiled_binary_) =
       executor_utils::getCompiledKernel(
@@ -2124,11 +2125,13 @@ FusionExecutor::GlobalBufferInfo FusionExecutor::deserialize(
   // }
   TORCH_INTERNAL_ASSERT(
       buffer != nullptr, "serde::GlobalBufferInfo is nullptr.");
-  GlobalBufferInfo info;
 
   TORCH_INTERNAL_ASSERT(
       buffer->tv() != -1, "Serialization failed to encode buffer tv position.");
 
+  TORCH_INTERNAL_ASSERT(fusion_ != nullptr, "Fusion is not initialized.");
+
+  GlobalBufferInfo info;
   if (buffer->is_fusion_output()) {
     auto out_val = fusion_->outputs().at(buffer->tv());
     TORCH_INTERNAL_ASSERT(out_val != nullptr);
