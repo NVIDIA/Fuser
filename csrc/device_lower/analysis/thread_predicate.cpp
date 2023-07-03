@@ -7,6 +7,7 @@
 // clang-format on
 #include <device_lower/analysis/thread_predicate.h>
 
+#include <debug.h>
 #include <device_lower/lower2device.h>
 #include <device_lower/utils.h>
 #include <instrumentation.h>
@@ -854,15 +855,15 @@ void ThreadPredicateMap::markAsUpdated(const TensorView* tv) {
 }
 
 void ThreadPredicateMap::print() const {
-  std::cout << "\nThreadPredicateMap\n";
-  std::cout << "--------------------------------\n";
+  nvfdebug() << "\nThreadPredicateMap\n";
+  nvfdebug() << "--------------------------------\n";
   for (const auto& kv : thread_predicates_) {
-    std::cout << "T" << kv.first->name();
-    std::cout << " {" << kv.second.limited_types.toString() << "}\n";
-    std::cout << "{" << kv.second.redundant_types.toString() << "}\n";
-    std::cout << "{" << kv.second.redundant_use_types.toString() << "}\n";
+    nvfdebug() << "T" << kv.first->name();
+    nvfdebug() << " {" << kv.second.limited_types.toString() << "}\n";
+    nvfdebug() << "{" << kv.second.redundant_types.toString() << "}\n";
+    nvfdebug() << "{" << kv.second.redundant_use_types.toString() << "}\n";
   }
-  std::cout << "--------------------------------\n\n";
+  nvfdebug() << "--------------------------------\n\n";
 }
 
 } // namespace nvfuser

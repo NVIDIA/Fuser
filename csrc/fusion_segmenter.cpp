@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <debug.h>
 #include <fusion.h>
 #include <fusion_segmenter.h>
 #include <instrumentation.h>
@@ -244,7 +245,7 @@ std::ostream& operator<<(std::ostream& os, const SegmentedGroup* group) {
 }
 
 void SegmentedGroup::print() const {
-  std::cout << this << "\n";
+  nvfdebug() << this << "\n";
 }
 
 bool SegmentedGroup::isFusionInputGroup() const {
@@ -264,7 +265,7 @@ std::ostream& operator<<(std::ostream& os, const SegmentedEdge* edge) {
 }
 
 void SegmentedEdge::print() const {
-  std::cout << this << "\n";
+  nvfdebug() << this << "\n";
 }
 
 std::string toString(const SegmentedEdge* edge) {
@@ -1424,10 +1425,10 @@ std::ostream& operator<<(
 }
 
 void SegmentedFusion::print() const {
-  std::cout << "Segmented_Fusion Dump: -- Re-written complete fusion:{\n";
+  nvfdebug() << "Segmented_Fusion Dump: -- Re-written complete fusion:{\n";
   completeFusion()->printMath();
-  std::cout << "} // {Re-written complete fusion}\n";
-  std::cout << this << "\n";
+  nvfdebug() << "} // {Re-written complete fusion}\n";
+  nvfdebug() << this << "\n";
 }
 
 std::string toString(const SegmentedFusion* segmented_fusion) {

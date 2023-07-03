@@ -8,6 +8,7 @@
 #include <device_lower/lower2device.h>
 
 #include <ATen/cuda/CUDAContext.h>
+#include <debug.h>
 #include <device_lower/analysis/divisible_split.h>
 #include <device_lower/analysis/shift.h>
 #include <device_lower/pass/alias_memory.h>
@@ -230,9 +231,9 @@ void dumpExprsIfEnabled(
         std::find(args.begin(), args.end(), pass_name) != args.end());
   };
   if (force_enable || enabled_by_env()) {
-    std::cout << "After " << pass_name << ":" << std::endl;
+    nvfdebug() << "After " << pass_name << ":" << std::endl;
     for (auto exp : exprs) {
-      std::cout << exp->toString() << std::endl;
+      nvfdebug() << exp->toString() << std::endl;
     }
   }
 }
@@ -298,7 +299,7 @@ void GpuLower::lower(Fusion* fusion) {
   dumpExprsIfEnabled(fusion_->exprs(), "resolveComputeWith");
 
   if (isDebugDumpEnabled(DebugDumpOption::ComputeAtMap)) {
-    std::cout << compute_at_map_->toString() << std::endl;
+    nvfdebug() << compute_at_map_->toString() << std::endl;
   }
   compute_at_map_->validateAndPropagatePType();
   dumpExprsIfEnabled(fusion_->exprs(), "validateAndPropagatePType");
@@ -314,8 +315,8 @@ void GpuLower::lower(Fusion* fusion) {
 
   parallelDimensionMap().build(fusion_);
   if (isDebugDumpEnabled(DebugDumpOption::ParallelDimensions)) {
-    std::cout << "Parallel dimension map:" << std::endl;
-    std::cout << parallel_dimension_map_.toString() << std::endl;
+    nvfdebug() << "Parallel dimension map:" << std::endl;
+    nvfdebug() << parallel_dimension_map_.toString() << std::endl;
   }
   dumpExprsIfEnabled(fusion_->exprs(), "build parallelDimensionMap");
 
@@ -368,7 +369,7 @@ void GpuLower::lower(Fusion* fusion) {
   // tensor views need WAR or RAW syncs
   sync_map_ = std::make_shared<const SyncMap>(fusion_);
   if (isDebugDumpEnabled(DebugDumpOption::SyncMap)) {
-    std::cout << sync_map_->toString() << std::endl;
+    nvfdebug() << sync_map_->toString() << std::endl;
   }
   dumpExprsIfEnabled(fusion_->exprs(), "SyncMap");
 

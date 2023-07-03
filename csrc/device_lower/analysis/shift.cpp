@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <debug.h>
 #include <device_lower/analysis/index_compute.h>
 #include <device_lower/analysis/shift.h>
 #include <device_lower/lower2device.h>
@@ -203,7 +204,7 @@ HaloInfo::HaloInfo(Fusion* fusion, std::shared_ptr<const ComputeAtMap> ca_map) {
   }
 
   if (isDebugDumpEnabled(DebugDumpOption::Halo)) {
-    std::cout << toString() << std::endl;
+    nvfdebug() << toString() << std::endl;
   }
 
   // Note that validation requires consumer halo info

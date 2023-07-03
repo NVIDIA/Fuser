@@ -74,14 +74,14 @@ void FusionDefinition::finalizeDefinition() {
   auto child_node = fusionCache()->queryChildren(trie_node_, end_record_.get());
   if (!child_node.has_value()) {
     if (isDebugDumpEnabled(DebugDumpOption::PythonFrontendDebug)) {
-      std::cout << "\nFusionDefinition: Terminal Node not found.\n";
+      nvfdebug() << "\nFusionDefinition: Terminal Node not found.\n";
     }
     trie_node_ = fusionCache()->createChild(trie_node_, end_record_.get());
     fusion_id_ = std::optional<size_t>(trie_node_->fusion_id);
     TORCH_CHECK(id().has_value(), "Invalid fusion id!");
 
     if (isDebugDumpEnabled(DebugDumpOption::PythonDefinition)) {
-      print(std::cout);
+      print(nvfdebug());
     }
 
     buildFusionIr(preschedFusion());
@@ -91,7 +91,7 @@ void FusionDefinition::finalizeDefinition() {
     }
   } else {
     if (isDebugDumpEnabled(DebugDumpOption::PythonFrontendDebug)) {
-      std::cout << "\nFusionDefinition: Terminal Node found!\n";
+      nvfdebug() << "\nFusionDefinition: Terminal Node found!\n";
     }
     trie_node_ = child_node.value();
     fusion_id_ = std::optional<size_t>(trie_node_->fusion_id);
@@ -316,15 +316,15 @@ void FusionDefinition::defineRecord(RecordFunctor* record) {
   // match it but it also already existed in the cache.
   if (child_node.has_value()) {
     if (isDebugDumpEnabled(DebugDumpOption::PythonFrontendDebug)) {
-      std::cout << "\nFusionDefinition: Record (hash: 0x" << std::hex
-                << record->hash() << ") hit in Fusion Cache.\n";
+      nvfdebug() << "\nFusionDefinition: Record (hash: 0x" << std::hex
+                 << record->hash() << ") hit in Fusion Cache.\n";
     }
     trie_node_ = child_node.value();
     // The FusionDefinition and the Cache will share the Record
   } else {
     if (isDebugDumpEnabled(DebugDumpOption::PythonFrontendDebug)) {
-      std::cout << "\nFusionDefinition: Record (hash: 0x" << std::hex
-                << record->hash() << ") missed in Fusion Cache.\n";
+      nvfdebug() << "\nFusionDefinition: Record (hash: 0x" << std::hex
+                 << record->hash() << ") missed in Fusion Cache.\n";
     }
     trie_node_ =
         fusionCache()->createChild(trie_node_, recording_.back().get());

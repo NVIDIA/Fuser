@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 
+#include <debug.h>
 #include <options.h>
 #include <utils.h>
 
@@ -23,7 +24,7 @@ void canScheduleMessage(const Args&... args) {
   //  alternatively may want to allow this message in debug
   //  build only but that'd be inconvenient for user support.
   if (C10_UNLIKELY(isDebugDumpEnabled(DebugDumpOption::FusionSegmenterLog))) {
-    std::cout << c10::str(args...) << "\n";
+    nvfdebug() << c10::str(args...) << "\n";
   }
 }
 

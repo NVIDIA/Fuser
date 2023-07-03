@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <debug.h>
 #include <device_lower/pass/loop_rotation.h>
 #include <device_lower/utils.h>
 #include <ir/all_nodes.h>
@@ -306,8 +307,8 @@ class RotateLoop : kir::ExprMutator {
   //   }
   void rotate(kir::ForLoop* fl) {
     if (isDebugDumpEnabled(DebugDumpOption::LoopRotation)) {
-      std::cout << "[Loop rotation] Rotating loop:" << std::endl
-                << fl->toString() << std::endl;
+      nvfdebug() << "[Loop rotation] Rotating loop:" << std::endl
+                 << fl->toString() << std::endl;
     }
     // Insert selected allocations and `prologue` before `fl`, and replace `fl`
     // with `rotated`
@@ -331,7 +332,7 @@ class RotateLoop : kir::ExprMutator {
     }
     if (prologue->empty()) {
       if (isDebugDumpEnabled(DebugDumpOption::LoopRotation)) {
-        std::cout << "[Loop rotation] Nothing to do." << std::endl;
+        nvfdebug() << "[Loop rotation] Nothing to do." << std::endl;
       }
       return;
     }
@@ -344,8 +345,8 @@ class RotateLoop : kir::ExprMutator {
     }
     registerInsertBefore(fl, prologue);
     if (isDebugDumpEnabled(DebugDumpOption::LoopRotation)) {
-      std::cout << "[Loop rotation] Prologue:" << std::endl
-                << prologue->toString() << std::endl;
+      nvfdebug() << "[Loop rotation] Prologue:" << std::endl
+                 << prologue->toString() << std::endl;
     }
     // main
     auto rotated = IrBuilder::create<kir::IfThenElse>(
@@ -360,8 +361,8 @@ class RotateLoop : kir::ExprMutator {
     }
     main->body().push_back(rotated);
     if (isDebugDumpEnabled(DebugDumpOption::LoopRotation)) {
-      std::cout << "[Loop rotation] Main:" << std::endl
-                << main->toString() << std::endl;
+      nvfdebug() << "[Loop rotation] Main:" << std::endl
+                 << main->toString() << std::endl;
     }
     registerReplace(fl, main);
   }

@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <debug.h>
 #include <device_lower/lower2device.h>
 #include <expr_evaluator.h>
 #include <instrumentation.h>
@@ -316,7 +317,7 @@ void Kernel::analyze() {
 }
 
 void Kernel::print() const {
-  IrPrinter ir_printer(std::cout);
+  IrPrinter ir_printer(nvfdebug());
   ir_printer.handle(this);
 }
 

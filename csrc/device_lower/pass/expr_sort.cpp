@@ -6,6 +6,7 @@
  */
 // clang-format on
 #include <compute_at_map.h>
+#include <debug.h>
 #include <device_lower/lower2device.h>
 #include <device_lower/pass/expr_sort.h>
 #include <device_lower/utils.h>
@@ -879,10 +880,10 @@ ExprGroup* ExprSegmentationSorter::makeMergedNode(
   }
 
   if (isDebugDumpEnabled(DebugDumpOption::ExprSort)) {
-    std::cout << "==========================================\n" << std::endl;
-    std::cout << "Producer:\n" << producer->toString() << std::endl;
-    std::cout << "Consumer:\n" << consumer->toString() << std::endl;
-    std::cout << "Merged:\n" << joined_groups->toString() << std::endl;
+    nvfdebug() << "==========================================\n" << std::endl;
+    nvfdebug() << "Producer:\n" << producer->toString() << std::endl;
+    nvfdebug() << "Consumer:\n" << consumer->toString() << std::endl;
+    nvfdebug() << "Merged:\n" << joined_groups->toString() << std::endl;
   }
 
   return joined_groups;
