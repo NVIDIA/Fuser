@@ -52,6 +52,22 @@ namespace nvfuser {
 using namespace torch::jit::fuser::cuda;
 using namespace at::indexing;
 
+bool shouldSkip(int requested_world_size) {
+  char* env = nullptr;
+  int64_t world_size;
+
+  // retrieves the size of the communicator
+  env = std::getenv("OMPI_COMM_WORLD_SIZE");
+  if (!env) {
+    env = std::getenv("WORLD_SIZE");
+    if (!env) {
+      return true;
+    }
+  }
+  world_size = std::atoi(env);
+  return world_size < requested_world_size;
+}
+
 // utility function for validation
 void testValidateMultidevice(
     std::unique_ptr<Fusion> fusion_ptr,
@@ -199,6 +215,12 @@ TEST_F(NVFuserTest, FusionMultiGPU_CUDA) {
   stage2.mesh.set({1, 3});
   stage3.mesh.set({2});
   stage4.mesh.set({4, 5});
+
+  int requested_world_size = 6;
+  if shouldSkip(requested_world_size) {
+    GTEST_SKIP() << "This test needs distributed setting with at least "
+                 << requested_world_size << " ranks";
+  }
 
   MultiDeviceRuntime runtime(&pipeline);
 
