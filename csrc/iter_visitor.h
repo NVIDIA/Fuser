@@ -423,7 +423,7 @@ class DeadCodeRemover : BackwardVisitor {
   //! Fusion input, we do not replace it. If old_val's definition is non-null
   //! and has other outputs which are not dead, we do not remove it.
   //!
-  //! Returns whether old_val was removed from the Fusion.
+  //! Returns whether old_val was registered for removal from the Fusion.
   bool replaceVal(Val* old_val, Val* new_val);
 
   //! Remove a Val* from the Fusion, if possible.
@@ -432,11 +432,11 @@ class DeadCodeRemover : BackwardVisitor {
   //! any Fusion input or output.
   //!
   //! The Val is always marked dead by this function. Additionally, it is
-  //! removed from the Fusion if possible. Removal is possible if the Val has no
-  //! definition, or if its definition can be removed by removeExpr(), meaning
-  //! the definition has no other live outputs.
+  //! registered for removal from the Fusion if possible. Removal is possible if
+  //! the Val has no definition, or if its definition can be removed by
+  //! removeExpr(), meaning the definition has no other live outputs.
   //!
-  //! Returns whether the Val was removed from the Fusion.
+  //! Returns whether the Val was registered for removal from the Fusion.
   bool removeVal(Val* val);
 
   //! Find whether a statement is not marked as live code. Note that if this
@@ -485,12 +485,35 @@ class DeadCodeRemover : BackwardVisitor {
   //! Returns true if the statement was previously live, and false otherwise.
   bool markDead(Statement* stmt);
 
+  //! Register a Val for later removal.
+  inline void registerRemoval(Val* val) {
+    vals_to_remove_.push_back(val);
+  }
+
+  //! Register an Expr for later removal.
+  //!
+  //! Note that if any of its outputs are removed, expr will be removed even if
+  //! it is not marked for removal, and all its outputs will have their
+  //! definitions set to nullptr.
+  inline void registerRemoval(Expr* expr) {
+    exprs_to_remove_.push_back(expr);
+  }
+
+  //! Actually remove Statements that were previously registered. For safety,
+  //! this should be run after traversing the graph.
+  void doRemoval() const;
+
  private:
   //! The Fusion associated with live_statements_
   Fusion* fusion_;
 
   //! Statements are marked dead by removing them from this set
   std::unordered_set<Statement*> live_statements_;
+
+  //! Statements that will be removed. We remove Vals before Exprs, so we track
+  //! them separately here.
+  std::vector<Val*> vals_to_remove_;
+  std::vector<Expr*> exprs_to_remove_;
 };
 
 } // namespace nvfuser

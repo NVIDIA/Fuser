@@ -945,6 +945,11 @@ void DeadCodeRemover::run() {
   // we could potentially refactor this so that derived classes from
   // BackwardVisitor can make use of that traversal instead of repeating it.
   traverseTo(fusion_, fusion_->outputs());
+
+  // We do not remove Statements from the Fusion while traversing, to avoid
+  // dereferencing invalid pointers. Instead, we wait until this point to do the
+  // removal.
+  doRemoval();
 }
 
 Fusion* DeadCodeRemover::fusion() const {
@@ -996,7 +1001,7 @@ bool DeadCodeRemover::removeVal(Val* val) {
     TORCH_INTERNAL_ASSERT(
         !val->isFusionInput(), "Refusing to remove Fusion input");
     markDead(val);
-    fusion_->removeVal(val);
+    registerRemoval(val);
     return true;
   }
 }
@@ -1010,12 +1015,9 @@ bool DeadCodeRemover::maybeRemoveExpr(Expr* expr) {
 
     const auto outputs = expr->outputs();
     for (auto outp : outputs) {
-      fusion_->removeVal(outp);
+      registerRemoval(outp);
     }
-    // Fusion::removeVal(val) calls removeExpr on the definition of val. That
-    // means expr will be removed while processing its first output. Here we
-    // check that it was properly removed.
-    TORCH_INTERNAL_ASSERT(!fusion_->inContainer(expr), "Failed to remove Expr");
+    registerRemoval(expr);
     return true;
   } else {
     return false;
@@ -1070,6 +1072,23 @@ bool DeadCodeRemover::markDead(Statement* stmt) {
         val->toString());
   }
   return (bool)live_statements_.erase(stmt);
+}
+
+void DeadCodeRemover::doRemoval() const {
+  for (auto val : vals_to_remove_) {
+    fusion_->removeVal(val);
+  }
+  for (auto expr : exprs_to_remove_) {
+    // Fusion::removeVal(val) actually removes val->definition() from the
+    // Fusion, and sets all its outputs' definitions to nullptr. So we should
+    // not need to manually remove Exprs here. Instead, we just assert that they
+    // have already been removed if they were registered for removal.
+    TORCH_INTERNAL_ASSERT(
+        !fusion_->inContainer(expr),
+        "Expression ",
+        expr->toString(),
+        " was marked for removal but has not yet been removed.");
+  }
 }
 
 } // namespace nvfuser
