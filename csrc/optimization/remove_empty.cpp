@@ -24,12 +24,12 @@ namespace {
 //! Get a vector of the integer positions of constant zero extent axes in the
 //! input domain. This will typically be used like
 //! `emptyAxes(TensorDomain::noReductions(tv->getMaybeRFactorDomain()))`
-std::vector<size_t> emptyAxes(std::vector<IterDomain*> domain) {
-  std::vector<size_t> empty_axes;
+std::vector<int64_t> emptyAxes(const std::vector<IterDomain*>& domain) {
+  std::vector<int64_t> empty_axes;
   for (auto ax : c10::irange(domain.size())) {
     auto id = domain.at(ax);
     if (id->extent()->isConst() && id->extent()->evaluateInt() == 0) {
-      empty_axes.push_back(ax);
+      empty_axes.push_back((int64_t)ax);
     }
   }
   return empty_axes;
