@@ -357,63 +357,79 @@ TEST_F(RNGTest, RandLikeReduction) {
 //! This is the same as the Uniform test, but we compare against
 //! functional_uniform in which we provide a seed and offset.
 TEST_F(RNGTest, FunctionalUniform) {
-  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
-  auto fusion = fusion_ptr.get();
-  FusionGuard fg(fusion);
+  for (bool do_stochastic : {false, true}) {
+    std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+    auto fusion = fusion_ptr.get();
+    FusionGuard fg(fusion);
 
-  Int* size_val = IrBuilder::create<Int>();
-  Double* low = IrBuilder::create<Double>();
-  Double* high = IrBuilder::create<Double>();
-  Int* seed = IrBuilder::create<Int>();
-  Int* first_offset = IrBuilder::create<Int>();
-  fusion->addInput(size_val);
-  fusion->addInput(low);
-  fusion->addInput(high);
-  fusion->addInput(seed);
-  fusion->addInput(first_offset);
+    Int* size_val = IrBuilder::create<Int>();
+    Double* low = IrBuilder::create<Double>();
+    Double* high = IrBuilder::create<Double>();
+    Int* seed = IrBuilder::create<Int>();
+    Int* first_offset = IrBuilder::create<Int>();
+    fusion->addInput(size_val);
+    fusion->addInput(low);
+    fusion->addInput(high);
+    fusion->addInput(seed);
+    fusion->addInput(first_offset);
 
-  TensorView* tv0 = uniform({size_val}, low, high, DataType::Float);
-  TensorView* tv1 = uniform({size_val}, low, high, DataType::Double);
-
-  auto second_offset = add(first_offset, IrBuilder::create<Int>(4));
-
-  TensorView* tv2 =
-      uniform({size_val}, low, high, DataType::Float, seed, first_offset);
-  TensorView* tv3 =
-      uniform({size_val}, low, high, DataType::Double, seed, second_offset);
-
-  fusion->addOutput(tv0);
-  fusion->addOutput(tv1);
-  fusion->addOutput(tv2);
-  fusion->addOutput(tv3);
-
-  FusionExecutorCache fec(std::move(fusion_ptr));
-
-  for (int64_t size : {16, 1024, 10001, 10002, 10003, 100000, 10000001}) {
-    at::manual_seed(0);
-    auto ref0 = generate_uniform(size, at::kFloat) * 2 - 1;
-    // Observe updated seed after first reference is generated.
-    {
-      auto gen = at::check_generator<at::CUDAGeneratorImpl>(
-          at::cuda::detail::getDefaultCUDAGenerator());
-      EXPECT_EQ(gen->current_seed(), 0);
-      EXPECT_EQ(gen->get_offset(), 4);
+    if (do_stochastic) {
+      // We test both with and without stochastic RNG ops. Testing with
+      // stochastic ops allows us to ensure that the output is consistent.
+      // Testing without them ensures that we are able to compile and run these
+      // kernels without a stochastic op present, which means we do not rely on
+      // any external philox seed info being passed to the kernel.
+      TensorView* tv0 = uniform({size_val}, low, high, DataType::Float);
+      TensorView* tv1 = uniform({size_val}, low, high, DataType::Double);
+      fusion->addOutput(tv0);
+      fusion->addOutput(tv1);
     }
 
-    auto ref1 = generate_uniform(size, at::kDouble) * 2 - 1;
+    auto second_offset = add(first_offset, IrBuilder::create<Int>(4));
 
-    std::vector<c10::IValue> aten_inputs({size, -1.0, 1.0, 0, 0});
+    TensorView* tv2 =
+        uniform({size_val}, low, high, DataType::Float, seed, first_offset);
+    TensorView* tv3 =
+        uniform({size_val}, low, high, DataType::Double, seed, second_offset);
 
-    at::manual_seed(0);
-    auto cg_outputs = fec.runFusionWithInputs(aten_inputs);
+    fusion->addOutput(tv2);
+    fusion->addOutput(tv3);
 
-    testValidate(
-        fec.fusion(),
-        cg_outputs,
-        aten_inputs,
-        {ref0, ref1, ref0, ref1},
-        __LINE__,
-        __FILE__);
+    FusionExecutorCache fec(std::move(fusion_ptr));
+
+    for (int64_t size : {16, 1024, 10001, 10002, 10003, 100000, 10000001}) {
+      at::manual_seed(0);
+      auto ref0 = generate_uniform(size, at::kFloat) * 2 - 1;
+      // Observe updated seed after first reference is generated.
+      {
+        auto gen = at::check_generator<at::CUDAGeneratorImpl>(
+            at::cuda::detail::getDefaultCUDAGenerator());
+        EXPECT_EQ(gen->current_seed(), 0);
+        EXPECT_EQ(gen->get_offset(), 4);
+      }
+
+      auto ref1 = generate_uniform(size, at::kDouble) * 2 - 1;
+
+      std::vector<c10::IValue> aten_inputs({size, -1.0, 1.0, 0, 0});
+
+      at::manual_seed(0);
+      auto cg_outputs = fec.runFusionWithInputs(aten_inputs);
+
+      std::vector<at::Tensor> aten_outputs;
+      if (do_stochastic) {
+        aten_outputs = {ref0, ref1, ref0, ref1};
+      } else {
+        aten_outputs = {ref0, ref1};
+      }
+
+      testValidate(
+          fec.fusion(),
+          cg_outputs,
+          aten_inputs,
+          aten_outputs,
+          __LINE__,
+          __FILE__);
+    }
   }
 }
 
