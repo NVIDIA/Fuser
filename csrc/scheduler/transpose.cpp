@@ -7,6 +7,7 @@
 // clang-format on
 #include <scheduler/transpose.h>
 
+#include <debug.h>
 #include <device_lower/utils.h>
 #include <executor_utils.h>
 #include <inlining.h>
@@ -722,31 +723,31 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
   params->lparams.bind(params->getThreadsPerBlock(), ParallelType::TIDx);
 
   if (isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
-    std::cerr << "\n===== Transpose Stats ========\n"
-              << "inputs: " << ir_utils::toString(fusion->inputs()) << "\n"
-              << "outputs: " << ir_utils::toString(fusion->outputs()) << "\n"
-              << "shape: " << shape_in_ref1 << "\n"
-              << "num_elems: " << n_elems << "\n"
-              << "n_input_tensors: " << n_input_tensors << "\n"
-              << "max_input_dtype_size: " << max_input_dtype_size << "\n"
-              << "group 1: " << ir_utils::toString(grouped_inputs_outputs[0])
-              << "\n"
-              << "reference1: " << reference1 << "\n"
-              << "inner_most_id1 position: " << inner_most_pos1_in_ref1
-              << " (in reference 1)\n"
-              << "group 2: " << ir_utils::toString(grouped_inputs_outputs[1])
-              << "\n"
-              << "reference2: " << reference2 << "\n"
-              << "inner_most_id2 position: " << inner_most_pos2_in_ref1
-              << " (in reference 1)" << std::endl;
+    nvfdebug() << "\n===== Transpose Stats ========\n"
+               << "inputs: " << ir_utils::toString(fusion->inputs()) << "\n"
+               << "outputs: " << ir_utils::toString(fusion->outputs()) << "\n"
+               << "shape: " << shape_in_ref1 << "\n"
+               << "num_elems: " << n_elems << "\n"
+               << "n_input_tensors: " << n_input_tensors << "\n"
+               << "max_input_dtype_size: " << max_input_dtype_size << "\n"
+               << "group 1: " << ir_utils::toString(grouped_inputs_outputs[0])
+               << "\n"
+               << "reference1: " << reference1 << "\n"
+               << "inner_most_id1 position: " << inner_most_pos1_in_ref1
+               << " (in reference 1)\n"
+               << "group 2: " << ir_utils::toString(grouped_inputs_outputs[1])
+               << "\n"
+               << "reference2: " << reference2 << "\n"
+               << "inner_most_id2 position: " << inner_most_pos2_in_ref1
+               << " (in reference 1)" << std::endl;
     if (!params->split_before_tiling.empty() ||
         !params->dims_merged_with_1.empty() ||
         !params->dims_merged_with_2.empty()) {
-      std::cerr << "small transposed dim, needs virtual inner-most dim"
-                << std::endl;
+      nvfdebug() << "small transposed dim, needs virtual inner-most dim"
+                 << std::endl;
     }
-    std::cerr << std::endl;
-    std::cerr << params->toString() << std::endl;
+    nvfdebug() << std::endl;
+    nvfdebug() << params->toString() << std::endl;
   }
 
   return params;

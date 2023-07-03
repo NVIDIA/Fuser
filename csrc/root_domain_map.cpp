@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <debug.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
 #include <iter_visitor.h>
@@ -745,7 +746,7 @@ ComputeAtRootDomainMapBuilder::ComputeAtRootDomainMapBuilder(
         ss << "\t\t" << dk.toString() << "\n";
       }
     }
-    std::cerr << ss.str();
+    nvfdebug() << ss.str();
   }
   TORCH_INTERNAL_ASSERT(pending_map_.empty());
 }

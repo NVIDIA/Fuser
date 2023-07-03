@@ -40,21 +40,21 @@ void canScheduleRejectReason(HeuristicType heuristic, const Args&... args) {
 // https://learn.microsoft.com/en-us/cpp/cpp/ellipses-and-variadic-templates?view=msvc-170#example
 inline void log() {
   if (isDebugDumpEnabled(DebugDumpOption::SchedulerVerbose)) {
-    std::cerr << std::endl;
+    nvfdebug() << std::endl;
   }
 }
 
 template <typename T>
 void log(const T& t) {
   if (isDebugDumpEnabled(DebugDumpOption::SchedulerVerbose)) {
-    std::cerr << t << std::endl;
+    nvfdebug() << t << std::endl;
   }
 }
 
 template <typename First, typename... Rest>
 void log(const First& first, const Rest&... rest) {
   if (isDebugDumpEnabled(DebugDumpOption::SchedulerVerbose)) {
-    std::cerr << first;
+    nvfdebug() << first;
     log(rest...);
   }
 }
