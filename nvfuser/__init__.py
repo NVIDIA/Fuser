@@ -163,7 +163,7 @@ class FusionDefinition(_C._FusionDefinition):
 
         return result
 
-    def get_debug_output(self):
+    def debug_output(self):
         """
         Retrieve string of captured debug information from the previous execution.
 

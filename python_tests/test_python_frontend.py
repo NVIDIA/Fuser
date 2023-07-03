@@ -2372,13 +2372,13 @@ class TestNvFuserFrontend(TestCase):
             fd.add_output(T1)
 
         out1 = fd.execute(inputs)
-        self.assertIsNone(fd.get_debug_output())
+        self.assertIsNone(fd.debug_output())
 
         # If debug output is captured, getDebugOutput() will not return None.
         # The output will depend on the NVFUSER_DUMP environment variable in
         # such case
         out2 = fd.execute(inputs, capture_debug_output=True)
-        self.assertIsNotNone(fd.get_debug_output())
+        self.assertIsNotNone(fd.debug_output())
 
 
 if __name__ == "__main__":
