@@ -808,10 +808,10 @@ RNGOp::RNGOp(
   for (auto v : parameters) {
     addInput(v);
   }
-  if (philox_seed) {
+  if (philox_seed || philox_offset) {
     TORCH_CHECK(
-        philox_offset,
-        "When providing philox_seed, philox_offset must also be provided");
+        philox_seed && philox_offset,
+        "If either philox_seed or philox_offset is provided, the other must be also");
     addInput(philox_seed);
     addInput(philox_offset);
   }
