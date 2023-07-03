@@ -497,7 +497,10 @@ void scheduleProlog(TensorView* shared_mem_tv, const MatmulParams& params) {
           .propagateParallelType());
 }
 
-void schedule_output_tensor(TensorView* c, const MatMulTileOptions& gemm_tile) {
+void schedule_output_tensor(
+    TensorView* mma_result,
+    TensorView* c,
+    const MatMulTileOptions& gemm_tile) {
   // input tensor is in the form of [Mo,No,cta_tile_m,cta_tile_n]
   check_concrete_static_dim(c->axis(-2));
   check_concrete_static_dim(c->axis(-1));
@@ -560,9 +563,9 @@ void schedule_output_tensor(TensorView* c, const MatMulTileOptions& gemm_tile) {
   c->axis(-4)->parallelize(ParallelType::TIDz);
   // [Mo, No, m*n/vect/TIDx/TIDy/TIDz, TIDz, TIDy, TIDx, vect]
 
-  // step-5, Parallel first 2 dims
-  c->axis(0)->parallelize(ParallelType::BIDx);
-  c->axis(1)->parallelize(ParallelType::BIDy);
+  // step-5, Parallel first 2 dims same as mma_result
+  scheduler_utils::parallelizeAllLike(
+      mma_result, 2, {c}, {ParallelType::BIDx, ParallelType::BIDy});
 }
 
 } // namespace
@@ -876,7 +879,8 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
 
     // Don't propagate to c, because we want to schedule it differently for
     // better global memory access pattern.
-    schedule_output_tensor(c, gemm_tile);
+    schedule_output_tensor(mma_result, c, gemm_tile);
+
   } else {
     scheduler_utils::BoundedDirectionalTransformPropagator::forward(
         mma_result,

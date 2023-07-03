@@ -4138,8 +4138,11 @@ TEST_F(NVFuserTest, FusionAmpereMatmulEpilogue_CUDA) {
 
     // check bank conflicts
     ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
-    TORCH_CHECK(cg_outputs[0].allclose(tref, 0.001, 0.001));
-    break;
+    // (0.001, 0.001) passed on local A100 but failed on CI A100
+    TORCH_CHECK(
+        cg_outputs[0].allclose(tref, 0.001, 0.001),
+        "Result validation failed. Max diff: ",
+        (cg_outputs[0] - tref).abs().max());
   }
 }
 
