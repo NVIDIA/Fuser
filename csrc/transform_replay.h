@@ -155,6 +155,7 @@ struct TransformReplayOptions {
   // schedule. So here, in order to avoid exposing one bug, we are more
   // explicitly using a wrong behavior that we have been using because this
   // wrong behavior has a better luck.
+  // For more info, see https://github.com/NVIDIA/Fuser/issues/554
   bool skip_target_swizzle = false;
   bool replay_swizzle = false;
   bool replay_resize = false;
