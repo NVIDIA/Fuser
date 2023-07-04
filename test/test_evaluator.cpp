@@ -374,9 +374,7 @@ TEST_F(ExprEvalTest, Tensor) {
   ExpressionEvaluator evaluator;
   evaluator.bind(tv, &a, sizes_vec, strides_vec);
 
-  // TODO: why the following don't compile?
-  // EXPECT_EQ(evaluator.evaluate(data), &a);
-  EXPECT_EQ(evaluator.evaluate(data), Pointer(&a));
+  EXPECT_EQ(evaluator.evaluate(data), &a);
   EXPECT_EQ((std::vector<int64_t>)evaluator.evaluate(sizes), sizes_vec);
   EXPECT_EQ((std::vector<int64_t>)evaluator.evaluate(strides), strides_vec);
 

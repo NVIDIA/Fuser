@@ -35,7 +35,7 @@ class Pointer {
       : ptr_(reinterpret_cast<std::byte*>(ptr)), size_(dataTypeSize(dtype)) {}
 
   template <typename T>
-  operator T*() const {
+  explicit operator T*() const {
     TORCH_INTERNAL_ASSERT(size_ == sizeof(T));
     return static_cast<T*>(ptr_);
   }
@@ -97,11 +97,6 @@ class Pointer {
     return ptr_ == nullptr;
   }
 
-  template <typename T>
-  bool operator==(const T* other) const {
-    return ptr_ == reinterpret_cast<const std::byte*>(other);
-  }
-
   bool operator!=(const Pointer& other) const {
     return ptr_ != other.ptr_;
   }
@@ -110,45 +105,21 @@ class Pointer {
     return ptr_ != nullptr;
   }
 
-  template <typename T>
-  bool operator!=(const T* other) const {
-    return ptr_ != reinterpret_cast<const std::byte*>(other);
-  }
-
   bool operator<(const Pointer& other) const {
     return ptr_ < other.ptr_;
-  }
-
-  template <typename T>
-  bool operator<(const T* other) const {
-    return ptr_ < reinterpret_cast<const std::byte*>(other);
   }
 
   bool operator>(const Pointer& other) const {
     return ptr_ > other.ptr_;
   }
 
-  template <typename T>
-  bool operator>(const T* other) const {
-    return ptr_ > reinterpret_cast<const std::byte*>(other);
-  }
-
   bool operator<=(const Pointer& other) const {
     return ptr_ <= other.ptr_;
   }
 
-  template <typename T>
-  bool operator<=(const T* other) const {
-    return ptr_ <= reinterpret_cast<const std::byte*>(other);
-  }
 
   bool operator>=(const Pointer& other) const {
     return ptr_ >= other.ptr_;
-  }
-
-  template <typename T>
-  bool operator>=(const T* other) const {
-    return ptr_ >= reinterpret_cast<const std::byte*>(other);
   }
 
   bool operator!() const {
