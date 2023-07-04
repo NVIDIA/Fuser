@@ -64,8 +64,6 @@ void ExpressionEvaluator::bind_(
   if (equals(value, concrete_value)) {
     return;
   }
-  // TODO: reenable this when we make Scalar a non-template class
-  // TORCH_CHECK(value->isScalar());
   TORCH_CHECK(!value->isConstScalar(), "Tried to bind to a constant value");
   TORCH_CHECK(
       value->definition() == nullptr,
@@ -163,8 +161,7 @@ ScalarValue ExpressionEvaluator::getValue(const Val* value) {
   }
 
   const auto it = known_values_.find(value);
-  return it != known_values_.end() ? it->second
-                                   : ScalarValue(std::monostate{});
+  return it != known_values_.end() ? it->second : ScalarValue(std::monostate{});
 }
 
 void ExpressionEvaluator::print() const {

@@ -7,11 +7,11 @@
 // clang-format on
 #include <device_lower/analysis/bank_conflict.h>
 
-#include <scalar_value.h>
 #include <expr_evaluator.h>
 #include <ir/utils.h>
 #include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
+#include <scalar_value.h>
 #include <type.h>
 
 #include <unordered_set>

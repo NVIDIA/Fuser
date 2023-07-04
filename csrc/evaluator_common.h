@@ -7,10 +7,10 @@
 // clang-format on
 #pragma once
 #include <device_lower/lower2device.h>
-#include <scalar_value.h>
 #include <executor_params.h>
 #include <fusion.h>
 #include <ir/all_nodes.h>
+#include <scalar_value.h>
 #include <utils.h>
 
 #include <c10/core/DeviceType.h>

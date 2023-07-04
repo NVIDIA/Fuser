@@ -7,10 +7,10 @@
 // clang-format on
 #pragma once
 
-#include <scalar_value.h>
 #include <executor_params.h>
 #include <ir/base_nodes.h>
 #include <kernel.h>
+#include <scalar_value.h>
 
 #include <unordered_map>
 #include <utility>

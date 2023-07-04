@@ -117,7 +117,6 @@ class Pointer {
     return ptr_ <= other.ptr_;
   }
 
-
   bool operator>=(const Pointer& other) const {
     return ptr_ >= other.ptr_;
   }

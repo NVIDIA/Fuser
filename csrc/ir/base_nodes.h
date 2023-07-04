@@ -11,8 +11,8 @@
 #include <c10/macros/Export.h>
 #include <c10/util/Exception.h>
 
-#include <scalar_value.h>
 #include <ir/builder_passkey.h>
+#include <scalar_value.h>
 #include <type.h>
 #include <utils.h>
 

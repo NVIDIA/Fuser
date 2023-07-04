@@ -146,7 +146,6 @@ bool StructOf::operator==(const StructOf& other) const {
   return types == other.types;
 }
 
-
 class Val;
 //! If v is a tensor, return its metadata type, otherwise return v's type
 DataType getMaybeMetaDataType(Val* v);
