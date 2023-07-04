@@ -408,7 +408,9 @@ struct DynamicType {
     for_all_types([this, &ret, &i](auto t) {                         \
       using IndexT = typename decltype(t)::type;                     \
       if constexpr (has_square_bracket<IndexT>) {                    \
-        ret = std::ref((*this)[i.template as<IndexT>()]);            \
+        if (i.template is<IndexT>()) {                               \
+          ret = std::ref((*this)[i.template as<IndexT>()]);          \
+        }                                                            \
       }                                                              \
     });                                                              \
     TORCH_CHECK(                                                     \
