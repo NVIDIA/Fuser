@@ -14,8 +14,8 @@ from pytest_input_generators import (
     cat_error_generator,
     define_tensor_generator,
     define_tensor_error_generator,
-    define_vector_generator,
-    define_vector_error_generator,
+    define_vector_constant_error_generator,
+    define_vector_input_error_generator,
     elementwise_unary_generator,
     _elementwise_unary_torch,
     gather_generator,
@@ -53,17 +53,26 @@ define_tensor_opinfo = OpInfo(
 )
 fusion_input_ops.append(define_tensor_opinfo)
 
-# NOTE: this operation only supports vectors of integers that represent
+# NOTE: "define_vector" only supports vectors of integers that represent
 # tensor shapes and is not a general interface for defining vectors of
 # data.  Vectors of data should be handled with a 1D `define_tensor`.
-define_vector_opinfo = OpInfo(
+define_vector_constant_opinfo = OpInfo(
     lambda fd: fd.define_vector,
-    "define_vector",
-    sample_input_generator=define_vector_generator,
-    error_input_generator=define_vector_error_generator,
+    "define_vector_constant",
+    sample_input_generator=None,
+    error_input_generator=define_vector_constant_error_generator,
     is_fusion_input_op=True,
 )
-fusion_input_ops.append(define_vector_opinfo)
+fusion_input_ops.append(define_vector_constant_opinfo)
+
+define_vector_input_opinfo = OpInfo(
+    lambda fd: fd.define_vector,
+    "define_vector_input",
+    sample_input_generator=None,
+    error_input_generator=define_vector_input_error_generator,
+    is_fusion_input_op=True,
+)
+fusion_input_ops.append(define_vector_input_opinfo)
 
 """ End Fusion Input Operations """
 
