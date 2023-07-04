@@ -297,6 +297,7 @@ def define_tensor_error_generator(
     for es in error_cases:
         yield SampleInput(input_tensor, **es.kwargs), es.ex_type, es.ex_str
 
+
 def define_vector_constant_error_generator(
     op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
 ):
@@ -304,11 +305,11 @@ def define_vector_constant_error_generator(
     "define_vector",
     [](FusionDefinition& self, py::list& values) -> Vector {
     """
-    
+
     MINIMUM_SYMBOLIC_SIZE = -1
     INT64_MAX = 9223372036854775807
     MAX_VECTOR_SIZE = 8
-    
+
     check_above_size_range = ErrorSample(
         {"values": [INT64_MAX + 1]},
         "define_vector(): incompatible function arguments",
@@ -319,14 +320,14 @@ def define_vector_constant_error_generator(
         {"values": [MINIMUM_SYMBOLIC_SIZE - 1]},
         "The value -2 at index 0 was neither symbolic(-1), zero_element(0), broadcast(1), or static(>1)",
     )
-    
+
     check_max_vector_size = ErrorSample(
         {
             "values": [-1 for _ in range(MAX_VECTOR_SIZE + 1)],
         },
         "The specified vector size exceeds the max tensor size for nvfuser.",
     )
-    
+
     error_cases = [
         # FIXME: The above_size_range case gives a non-sensical error message.
         # "Unable to cast Python instance to C++ type (#define PYBIND11_DETAILED_ER"
@@ -334,9 +335,10 @@ def define_vector_constant_error_generator(
         check_below_size_range,
         check_max_vector_size,
     ]
-    
+
     for es in error_cases:
         yield SampleInput(**es.kwargs), es.ex_type, es.ex_str
+
 
 def define_vector_input_error_generator(
     op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
@@ -347,7 +349,7 @@ def define_vector_input_error_generator(
     """
 
     MAX_VECTOR_SIZE = 8
-    
+
     check_max_vector_size = ErrorSample(
         {
             "size": (MAX_VECTOR_SIZE + 1),
@@ -358,9 +360,10 @@ def define_vector_input_error_generator(
     error_cases = [
         check_max_vector_size,
     ]
-    
+
     for es in error_cases:
         yield SampleInput(**es.kwargs), es.ex_type, es.ex_str
+
 
 # TODO Add small value, large value, and extremal-valued samples
 def elementwise_unary_generator(

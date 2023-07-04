@@ -93,11 +93,13 @@ def input_fusion_func(fd: FusionDefinition, opinfo: OpInfo, *args, **kwargs):
     t1 = fd.ops.add(nvf_inputs[0], this_inputs)
     fd.add_output(t1)
 
+
 # This function is purposely non-functional if executed as it is only meant to
 # check an operations API error checking
 def api_test_fusion_func(fd: FusionDefinition, opinfo: OpInfo, *args, **kwargs):
     nvf_inputs = parse_inputs_fusion_definition(fd, opinfo, *args)
     this_inputs = opinfo.op(fd)(**kwargs)
+
 
 def definition_op_in_schedule_error_test_fn(opinfo: OpInfo, sample: SampleInput):
     inputs = [

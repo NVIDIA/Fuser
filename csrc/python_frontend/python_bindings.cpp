@@ -600,7 +600,8 @@ void initNvFuserPythonBindings(PyObject* module) {
   fusion_def.def(
       "define_vector",
       [](FusionDefinition& self, size_t size) -> Vector {
-        TORCH_CHECK(size < 8,
+        TORCH_CHECK(
+            size < 8,
             "The specified vector size exceeds the max tensor size for nvfuser.");
         std::vector<Scalar> args;
         args.reserve(size);
@@ -625,16 +626,18 @@ void initNvFuserPythonBindings(PyObject* module) {
         std::vector<Scalar> args;
         size_t idx = 0;
         for (const auto& item : values) {
-          TORCH_CHECK(idx < 8,
+          TORCH_CHECK(
+              idx < 8,
               "The specified vector size exceeds the max tensor size for nvfuser.");
           if (py::isinstance<py::int_>(item)) {
             auto int_value = py::cast<int64_t>(item);
-            TORCH_CHECK(int_value >= -1,
-                  "The value ",
-                  int_value,
-                  " at index ",
-                  idx,
-                  " was neither symbolic(-1), zero_element(0), broadcast(1), or static(>1).");
+            TORCH_CHECK(
+                int_value >= -1,
+                "The value ",
+                int_value,
+                " at index ",
+                idx,
+                " was neither symbolic(-1), zero_element(0), broadcast(1), or static(>1).");
             Scalar out = self.defineScalar();
             self.defineRecord(new ScalarRecord<int64_t>(
                 {self.recordingState(out())},
