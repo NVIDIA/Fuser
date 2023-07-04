@@ -20,13 +20,32 @@ namespace nvfuser {
 
 template <typename T>
 struct Struct {
+  // In theory, we should just use std::unordered_map<std::string, T>, but this
+  // doesn't work on old gcc. See also SetTheoreticNaturalNumbers
+#if defined(__clang__) || __GNUC__ >= 12
   std::unordered_map<std::string, T> fields;
+  #define GCC_BUG_Struct
+#else
+  std::unordered_map<std::string, std::shared_ptr<T>> fields;
+  #define GCC_BUG_Struct *
+#endif
+
   const T& operator[](const std::string& key) const {
-    return fields.at(key);
+    return GCC_BUG_Struct fields.at(key);
   }
+
   T& operator[](const std::string& key) {
+#if defined(__clang__) || __GNUC__ >= 12
     return fields[key];
+#else
+    if (fields.find(key) == fields.end()) {
+      fields[key] = std::make_shared<T>();
+    }
+    return *fields.at(key);
+#endif
   }
+
+#undef GCC_BUG_Struct
 };
 
 // Use a single pointer type to represent all pointers, otherwise we would need

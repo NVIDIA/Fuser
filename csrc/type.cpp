@@ -21,13 +21,13 @@ DataType getMaybeMetaDataType(Val* v) {
   if (auto tv = dynamic_cast<TensorView*>(v)) {
     StructOf tv_metadata;
     tv_metadata.types["data"] =
-        PointerOf{std::make_shared<DataType>(tv->dtype())};
-    tv_metadata.types["sizes"] = ArrayOf{
+        GCC_BUG(PointerOf{std::make_shared<DataType>(tv->dtype())});
+    tv_metadata.types["sizes"] = GCC_BUG2(ArrayOf{
         std::make_shared<DataType>(DataType::Index),
-        TensorDomain::noReductions(tv->getMaybeRFactorDomain()).size()};
-    tv_metadata.types["strides"] = ArrayOf{
+        TensorDomain::noReductions(tv->getMaybeRFactorDomain()).size()});
+    tv_metadata.types["strides"] = GCC_BUG2(ArrayOf{
         std::make_shared<DataType>(DataType::Index),
-        TensorDomain::noReductions(tv->getMaybeAllocationDomain()).size()};
+        TensorDomain::noReductions(tv->getMaybeAllocationDomain()).size()});
     return tv_metadata;
   }
   return v->dtype();

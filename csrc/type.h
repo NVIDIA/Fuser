@@ -96,7 +96,19 @@ struct PointerOf {
 };
 
 struct StructOf {
+  // In theory, we should just use std::unordered_map<std::string, T>, but this
+  // doesn't work on old gcc. See also SetTheoreticNaturalNumbers
+#if defined(__clang__) || __GNUC__ >= 12
   std::unordered_map<std::string, DataType> types;
+#define GCC_BUG(x) x
+#define GCC_BUG2(x, y) x, y
+#define GCC_BUG_STAR
+#else
+  std::unordered_map<std::string, std::shared_ptr<DataType>> types;
+#define GCC_BUG(x) std::make_shared<DataType>(x)
+#define GCC_BUG2(x, y) std::make_shared<DataType>(x, y)
+#define GCC_BUG_STAR *
+#endif
   inline bool operator==(const StructOf& other) const;
 };
 
@@ -143,7 +155,27 @@ bool PointerOf::operator==(const PointerOf& other) const {
 }
 
 bool StructOf::operator==(const StructOf& other) const {
+#if defined(__clang__) || __GNUC__ >= 12
   return types == other.types;
+#else
+  std::unordered_set<std::string> keys;
+  for (auto& [k, v] : types) {
+    keys.insert(k);
+  }
+  std::unordered_set<std::string> other_keys;
+  for (auto& [k, v] : other.types) {
+    other_keys.insert(k);
+  }
+  if (keys != other_keys) {
+    return false;
+  }
+  for (auto& [k, v] : types) {
+    if (*v != *other.types.at(k)) {
+      return false;
+    }
+  }
+  return true;
+#endif
 }
 
 class Val;

@@ -212,7 +212,8 @@ Val* IrBuilder::getItemExpr(Val* array, Val* index) {
 
 Val* IrBuilder::getAttrExpr(Val* struct_, std::string attr) {
   auto item_dtype =
-      std::get<StructOf>(getMaybeMetaDataType(struct_).type).types.at(attr);
+      GCC_BUG_STAR std::get<StructOf>(getMaybeMetaDataType(struct_).type)
+          .types.at(attr);
   auto out = newScalar(item_dtype);
   create<GetAttr>(struct_->container(), out, struct_, std::move(attr));
   return out;

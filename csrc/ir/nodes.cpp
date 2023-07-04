@@ -788,7 +788,7 @@ GetAttr::GetAttr(
   addAttribute(IrBuilder::create<Attribute<std::string>>(
       passkey.ir_container_, std::move(attr)));
   TORCH_INTERNAL_ASSERT(
-      std::get<StructOf>(getMaybeMetaDataType(struct_).type).types.at(attr) ==
+      GCC_BUG_STAR std::get<StructOf>(getMaybeMetaDataType(struct_).type).types.at(attr) ==
           output->dtype(),
       "Data type mismatch for GetAttr");
 }
