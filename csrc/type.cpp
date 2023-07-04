@@ -18,6 +18,7 @@
 namespace nvfuser {
 
 DataType getMaybeMetaDataType(Val* v) {
+  TORCH_INTERNAL_ASSERT(v != nullptr);
   if (auto tv = dynamic_cast<TensorView*>(v)) {
     StructOf tv_metadata;
     tv_metadata.types["data"] =

@@ -705,37 +705,37 @@ class FlattenedAssocCommOp : public Expr {
     inputs_.pop_back();
     switch (getOpType()) {
       case BinaryOpType::Add:
-        for (auto i : inputs_) {
+        for (const auto& i : inputs_) {
           result += i;
         }
         break;
       case BinaryOpType::Mul:
-        for (auto i : inputs_) {
+        for (const auto& i : inputs_) {
           result *= i;
         }
         break;
       case BinaryOpType::And:
-        for (auto i : inputs_) {
+        for (const auto& i : inputs_) {
           result = result && i;
         }
         break;
       case BinaryOpType::Or:
-        for (auto i : inputs_) {
+        for (const auto& i : inputs_) {
           result = result || i;
         }
         break;
       case BinaryOpType::Xor:
-        for (auto i : inputs_) {
+        for (const auto& i : inputs_) {
           result = result ^ i;
         }
         break;
       case BinaryOpType::Min:
-        for (auto i : inputs_) {
+        for (const auto& i : inputs_) {
           result = min(result, i);
         }
         break;
       case BinaryOpType::Max:
-        for (auto i : inputs_) {
+        for (const auto& i : inputs_) {
           result = max(result, i);
         }
         break;

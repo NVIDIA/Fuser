@@ -113,7 +113,7 @@ class Pointer {
 
   int64_t operator-(const Pointer& other) const {
     TORCH_INTERNAL_ASSERT(size_ == other.size_);
-    return (ptr_ - other.ptr_) / size_;
+    return (ptr_ - other.ptr_) / (int64_t)size_;
   }
 
   bool operator==(const Pointer& other) const {

@@ -783,14 +783,14 @@ GetAttr::GetAttr(
     Val* struct_,
     std::string attr)
     : Expr(passkey) {
-  addOutput(output);
-  addInput(struct_);
-  addAttribute(IrBuilder::create<Attribute<std::string>>(
-      passkey.ir_container_, std::move(attr)));
   TORCH_INTERNAL_ASSERT(
       GCC_BUG_STAR std::get<StructOf>(getMaybeMetaDataType(struct_).type)
               .types.at(attr) == output->dtype(),
       "Data type mismatch for GetAttr");
+  addOutput(output);
+  addInput(struct_);
+  addAttribute(IrBuilder::create<Attribute<std::string>>(
+      passkey.ir_container_, std::move(attr)));
 }
 
 std::string GetAttr::toString(int indent_size) const {

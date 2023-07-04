@@ -323,7 +323,7 @@ void PrecomputedValues::initializeNamedScalars() {
 
 void PrecomputedValues::validate() {
   FUSER_PERF_SCOPE("PrecomputedValuess::Validate");
-  for (auto it : binding_log_) {
+  for (const auto& it : binding_log_) {
     TORCH_INTERNAL_ASSERT(
         values_[it.first] == it.second,
         "Precomputed values failed to validate.",
