@@ -24,10 +24,10 @@ struct Struct {
   // doesn't work on old gcc. See also SetTheoreticNaturalNumbers
 #if defined(__clang__) || __GNUC__ >= 12
   std::unordered_map<std::string, T> fields;
-  #define GCC_BUG_Struct
+#define GCC_BUG_Struct
 #else
   std::unordered_map<std::string, std::shared_ptr<T>> fields;
-  #define GCC_BUG_Struct *
+#define GCC_BUG_Struct *
 #endif
 
   const T& operator[](const std::string& key) const {
