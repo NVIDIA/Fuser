@@ -53,11 +53,17 @@ class PipelineExecutor : public IterVisitor {
       PipelineStage* stage,
       std::vector<c10::IValue> stage_input);
 
+  // Returns whether the current process should run the stage
+  bool shouldRun(PipelineStage* stage);
+
   // Stores concrete computed values,
   std::unordered_map<Val*, c10::IValue> val_to_IValue_;
 
   // Compiled kernels from multi_stage_fusion_
   std::unordered_map<PipelineStage*, CompiledKernelPtr> compiled_kernels_;
+
+  // Cache results of shouldRun method
+  std::unordered_map<PipelineStage*, bool> should_run_;
 
   // Keeps track of heuristics that are used to schedule
   //  the auto-scheduled kernels.

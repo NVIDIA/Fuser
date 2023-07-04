@@ -217,7 +217,7 @@ TEST_F(NVFuserTest, FusionMultiGPU_CUDA) {
   stage4.mesh.set({4, 5});
 
   int requested_world_size = 6;
-  if shouldSkip(requested_world_size) {
+  if (shouldSkip(requested_world_size)) {
     GTEST_SKIP() << "This test needs distributed setting with at least "
                  << requested_world_size << " ranks";
   }

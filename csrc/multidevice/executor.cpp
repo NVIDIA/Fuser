@@ -25,6 +25,16 @@ void updateLaunchParamsFromScheduler(
   }
 }
 
+bool PipelineExecutor::shouldRun(PipelineStage* stage) {
+  if (should_run_.find(stage) == should_run_.end()) {
+    should_run_[stage] = std::count(
+        stage->descriptor()->mesh.deviceIndices().begin(),
+        stage->descriptor()->mesh.deviceIndices().end(),
+        runtime_.rankToDeviceIdx(runtime_.comm_.rank()));
+  }
+  return should_run_[stage];
+}
+
 PipelineExecutor::CompiledKernelPtr PipelineExecutor::compileStage(
     PipelineStage* stage,
     std::vector<c10::IValue> stage_inputs) {
@@ -99,13 +109,7 @@ void PipelineExecutor::handle(PipelineStage* stage) {
   // Launch kernel and record the kernel output into current context
   std::vector<at::Tensor> outputs;
 
-  // bool indicating whether the current rank should run the current stage
-  bool shouldRun = std::count(
-      stage->descriptor()->mesh.deviceIndices().begin(),
-      stage->descriptor()->mesh.deviceIndices().end(),
-      runtime_.rankToDeviceIdx(runtime_.comm_.rank()));
-
-  if (shouldRun) {
+  if (shouldRun(stage)) {
     // Use default launch parameters.
     LaunchParams launch_params;
     // If the kernel was auto-scheduled, we need to

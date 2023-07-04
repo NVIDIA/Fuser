@@ -26,57 +26,57 @@ TEST_F(NVFuserTest, Pipeline_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  TensorView* tv0_ = makeContigTensor(2);
-  fusion.addInput(tv0_);
-  TensorView* tv1_ = sum(tv0_, {0});
-
-  TensorView* tv2_ = set(tv1_);
-  TensorView* tv3_ = sum(tv2_, {0});
-  fusion.addOutput(tv3_);
-
-  TensorView* tv0 = makeContigTensor(3);
+  TensorView* tv0 = makeContigTensor(2);
   fusion.addInput(tv0);
   TensorView* tv1 = sum(tv0, {0});
 
   TensorView* tv2 = set(tv1);
-  TensorView* tv2a = set(tv2);
-  TensorView* tv3 = sum(tv2a, {0});
+  TensorView* tv3 = sum(tv2, {0});
+  fusion.addOutput(tv3);
 
-  TensorView* tv4 = set(tv1);
-  TensorView* tv4a = set(tv4);
-  TensorView* tv5 = sum(tv4a, {0});
+  TensorView* tv4 = makeContigTensor(3);
+  fusion.addInput(tv4);
+  TensorView* tv5 = sum(tv4, {0});
 
-  TensorView* tv6 = set(tv2a);
-  TensorView* tv7 = sum(tv6, {0});
-  fusion.addOutput(tv7);
+  TensorView* tv6 = set(tv5);
+  TensorView* tv7 = set(tv6);
+  TensorView* tv8 = sum(tv7, {0});
 
-  TensorView* tv8 = set(tv3);
   TensorView* tv9 = set(tv5);
-  TensorView* tv10 = set(tv7);
-  TensorView* tv11 = add(tv8, tv9);
-  TensorView* tv12 = add(tv11, tv10);
+  TensorView* tv10 = set(tv9);
+  TensorView* tv11 = sum(tv10, {0});
+
+  TensorView* tv12 = set(tv7);
   TensorView* tv13 = sum(tv12, {0});
   fusion.addOutput(tv13);
 
+  TensorView* tv14 = set(tv8);
+  TensorView* tv15 = set(tv11);
+  TensorView* tv16 = set(tv13);
+  TensorView* tv17 = add(tv14, tv15);
+  TensorView* tv18 = add(tv17, tv16);
+  TensorView* tv19 = sum(tv18, {0});
+  fusion.addOutput(tv19);
+
   // Pipeline scheduling
-  PipelineStageDescriptor stage0_, stage1_, stage0, stage1, stage2, stage3,
-      stage4;
-  stage0_.addVal({tv0_, tv1_});
-  stage1_.addVal({tv2_, tv3_});
+  PipelineStageDescriptor stage0, stage1, stage2, stage3, stage4, stage5,
+      stage6;
   stage0.addVal({tv0, tv1});
-  stage1.addVal({tv2, tv2a, tv3});
-  stage2.addVal({tv4, tv4a, tv5});
-  stage3.addVal({tv6, tv7});
-  stage4.addVal({tv8, tv9, tv10, tv11, tv12, tv13});
+  stage1.addVal({tv2, tv3});
+  stage2.addVal({tv4, tv5});
+  stage3.addVal({tv6, tv7, tv8});
+  stage4.addVal({tv9, tv10, tv11});
+  stage5.addVal({tv12, tv13});
+  stage6.addVal({tv14, tv15, tv16, tv17, tv18, tv19});
 
   PipelineDescriptor descriptor{.stageDescriptors{
-      &stage0_,
-      &stage1_,
       &stage0,
       &stage1,
       &stage2,
       &stage3,
-      &stage4}}; // the order doesnt matter
+      &stage4,
+      &stage5,
+      &stage6}}; // the order doesnt matter
   Pipeline pipeline(&fusion, descriptor);
 
   // Validation

@@ -108,7 +108,7 @@ class TORCH_CUDA_CU_API MultiDeviceRuntime {
   void validate() const;
 
   Pipeline* pipeline_;
-  Communicator comm_; // TODO: put in private
+  Communicator comm_;
 };
 
 } // namespace nvfuser
