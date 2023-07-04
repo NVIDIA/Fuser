@@ -19,7 +19,15 @@
 namespace nvfuser {
 
 template <typename T>
-using Struct = std::unordered_map<std::string, T>;
+struct Struct {
+  std::unordered_map<std::string, T> fields;
+  const T& operator[](const std::string& key) const {
+    return fields.at(key);
+  }
+  T& operator[](const std::string& key) {
+    return fields[key];
+  }
+};
 
 // Use a single pointer type to represent all pointers, otherwise we would need
 // exponential compilation time for all pointer types in ScalarValue.

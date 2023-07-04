@@ -135,9 +135,10 @@ namespace nvfuser {
 #pragma clang diagnostic ignored "-Wliteral-conversion"
 #pragma clang diagnostic ignored "-Wunused-lambda-capture"
 #pragma clang diagnostic ignored "-Wunknown-warning-option"
+#pragma clang diagnostic ignored "-Wbool-operation"
 #endif
 
-#if defined(__GNUC__)
+#if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wbool-operation"
 // gcc, even the latest version (13.1.1), is complaining about the following
@@ -148,8 +149,6 @@ namespace nvfuser {
 //   return ret.value();
 // saying that ret.value() is used uninitialized. This complaint is totoally
 // nonsense.
-// Also, why clang-tidy is reading gcc's options?
-// NOLINTNEXTLINE(clang-diagnostic-unknown-warning-option)
 #pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
 #endif
 
@@ -994,7 +993,7 @@ DEFINE_ASSIGNMENT_OP(>>, >>=);
 #pragma clang diagnostic pop
 #endif
 
-#if defined(__GNUC__)
+#if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic pop
 #endif
 

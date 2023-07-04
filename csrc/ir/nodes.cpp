@@ -809,7 +809,7 @@ std::string GetAttr::toInlineString(int indent_size) const {
 std::vector<ScalarValue> GetAttr::evaluate(
     const std::vector<ScalarValue>& inputs) const {
   TORCH_INTERNAL_ASSERT(inputs.size() == 1, "GetAttr expects 1 input");
-  return {inputs.at(0).as<Struct>().at(attr())};
+  return {inputs.at(0)[attr()]};
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(GetAttr)
