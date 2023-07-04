@@ -10,7 +10,7 @@ import torch
 from torch.testing import make_tensor
 
 from pytest_core import OpInfo, SampleInput, ErrorSample
-from pytest_utils import make_number, find_nonmatching_dtype
+from pytest_utils import make_number, find_nonmatching_dtype, is_floating_dtype
 from nvfuser import DataType
 
 
@@ -349,6 +349,22 @@ def _elementwise_unary_torch(op):
     return _fn
 
 
+def full_error_generator(
+    op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
+):
+    # torch.full(size, fill_value, dtype=None)
+
+    make_arg = partial(
+        make_tensor, device="cuda", dtype=dtype, requires_grad=requires_grad
+    )
+
+    # Error: Trying to create tensor with negative dimension
+    negative_input_shape = [2, -2]
+    yield SampleInput(
+        negative_input_shape, make_number(dtype), dtype
+    ), RuntimeError, "extent_int >= 0"
+
+
 def gather_generator(
     op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
 ):
@@ -453,6 +469,50 @@ def index_select_error_generator(
     # TODO add index out-of-bounds check
     # b = make_index(index_shape, low=10, high=100, dtype=torch.long)
     # yield SampleInput(a, b, 0), RuntimeError, "out of bounds index value."
+
+
+def iota_error_generator(
+    op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
+):
+    # torch.arange(start=0, end, step=1, dtype=None)
+    # nvfuser.iota(length, start, step, dtype)
+    #
+    # length, start, step are not complex numbers and are finite numbers.
+    # step cannot be 0
+
+    yield SampleInput(
+        make_number(torch.complex64, low=1),
+        make_number(dtype, low=0),
+        make_number(dtype, low=0),
+        dtype,
+    ), RuntimeError, "length must be integer"
+
+    yield SampleInput(
+        make_number(torch.int64, low=1),
+        make_number(torch.complex64),
+        make_number(dtype, low=0),
+        dtype,
+    ), RuntimeError, "iota: start dtype does not match specified dtype argument"
+
+    yield SampleInput(
+        make_number(torch.int64, low=1),
+        make_number(dtype, low=0),
+        make_number(torch.complex64),
+        dtype,
+    ), RuntimeError, "iota: step dtype does not match specified dtype argument"
+
+    if is_floating_dtype(dtype):
+        yield SampleInput(
+            make_number(torch.int64, low=1),
+            float("inf"),
+            float("inf"),
+            dtype,
+        ), RuntimeError, "iota: length, start, step must be finite numbers."
+
+    zero_step = torch.tensor([0], dtype=dtype).item()
+    yield SampleInput(
+        10, make_number(dtype), zero_step, dtype
+    ), RuntimeError, "iota: step value must not equal zero."
 
 
 def pad_error_generator(
@@ -891,3 +951,20 @@ def var_mean_generator(
         )
         keepdim = sample.args[2] if len(sample.args) > 2 else False
         yield SampleInput(a, dim, correction=c, keepdim=keepdim)
+
+
+def where_error_generator(
+    op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
+):
+    # torch.where(condition, input, other)
+
+    make_arg = partial(
+        make_tensor, device="cuda", dtype=dtype, requires_grad=requires_grad
+    )
+
+    input_shape = (2, 3, 4)
+    yield SampleInput(
+        make_tensor(input_shape, device="cuda", dtype=torch.float32),
+        make_arg(input_shape),
+        make_arg(input_shape),
+    ), RuntimeError, "Condition should be of DataType Bool"
