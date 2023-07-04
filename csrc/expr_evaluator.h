@@ -33,7 +33,7 @@ class TORCH_CUDA_CU_API ExpressionEvaluator {
     bind_(value, ScalarValue(concrete_value));
   }
 
-  //! Bind a concrete value to an IR variable
+  //! Bind tensor metadata to a TensorView
   void bind(
       const TensorView* tv,
       void* data,

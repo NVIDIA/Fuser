@@ -19,6 +19,19 @@ namespace nvfuser {
 
 class ExprEvalTest : public NVFuserTest {};
 
+namespace {
+
+inline void checkIntValue(
+    ExpressionEvaluator& evaluator,
+    Val* val,
+    Int::ScalarType expected_value) {
+  EXPECT_TRUE(val->isIntegralScalar());
+  const auto actual_value = evaluator.evaluate(val);
+  EXPECT_TRUE(actual_value.hasValue());
+  EXPECT_EQ(actual_value, expected_value);
+}
+} // namespace
+
 // Evaluate basic scalar operations with constant values
 TEST_F(ExprEvalTest, Constants) {
   Fusion fusion;
@@ -45,7 +58,7 @@ TEST_F(ExprEvalTest, Double) {
   auto three = IrBuilder::create<Double>(3);
   auto val = castOp(DataType::Int, ceilDiv(sub(ten, two), three));
   auto reference = static_cast<int64_t>(std::ceil((10.0 - 2.0) / 3.0));
-  TORCH_CHECK(reference == val->evaluateInt());
+  EXPECT_EQ(reference, val->evaluateInt());
 }
 
 // Evaluate basic scalar operations with bound values
@@ -62,8 +75,8 @@ TEST_F(ExprEvalTest, Bindings) {
   auto* e = IrBuilder::create<Int>(0);
 
   // trying to evaluate before binding should give empty results
-  TORCH_CHECK(!evaluator.evaluate(a).hasValue());
-  TORCH_CHECK(!evaluator.evaluate(d).hasValue());
+  EXPECT_FALSE(evaluator.evaluate(a).hasValue());
+  EXPECT_FALSE(evaluator.evaluate(d).hasValue());
 
   evaluator.bind(a, 7L);
   evaluator.bind(b, 3L);
@@ -140,12 +153,12 @@ TEST_F(ExprEvalTest, Basic) {
   evaluator.bind(tv1->getRootDomain()[1]->extent(), 128L);
 
   // 3. Evaluate and check result values
-  TORCH_CHECK(tv2->domain()->nDims() == 3);
+  EXPECT_EQ(tv2->domain()->nDims(), 3);
   checkIntValue(evaluator, tv2->axis(0)->extent(), 2);
   checkIntValue(evaluator, tv2->axis(1)->extent(), 4);
   checkIntValue(evaluator, tv2->axis(2)->extent(), 128);
 
-  TORCH_CHECK(tv3->domain()->nDims() == 3);
+  EXPECT_EQ(tv3->domain()->nDims(), 3);
   checkIntValue(evaluator, tv3->axis(0)->extent(), 2);
   checkIntValue(evaluator, tv3->axis(1)->extent(), 4);
   checkIntValue(evaluator, tv3->axis(2)->extent(), 128);
@@ -182,22 +195,22 @@ TEST_F(ExprEvalTest, Complex) {
   evaluator.bind(tv0->getRootDomain()[1]->extent(), 127L);
 
   // Evaluate and check extent values
-  TORCH_CHECK(tv0->domain()->nDims() == 2);
+  EXPECT_EQ(tv0->domain()->nDims(), 2);
   checkIntValue(evaluator, tv0->axis(0)->extent(), 129);
   checkIntValue(evaluator, tv0->axis(1)->extent(), 127);
 
-  TORCH_CHECK(tv3->domain()->nDims() == 2);
+  EXPECT_EQ(tv3->domain()->nDims(), 2);
   checkIntValue(evaluator, tv3->axis(0)->extent(), 129);
   checkIntValue(evaluator, tv3->axis(1)->extent(), 127);
 
-  TORCH_CHECK(tv4->domain()->nDims() == 2);
+  EXPECT_EQ(tv4->domain()->nDims(), 2);
   checkIntValue(evaluator, tv4->axis(0)->extent(), 129);
   checkIntValue(evaluator, tv4->axis(1)->extent(), 127);
 
-  TORCH_CHECK(tv5->domain()->nDims() == 1);
+  EXPECT_EQ(tv5->domain()->nDims(), 1);
   checkIntValue(evaluator, tv5->axis(0)->extent(), 16383);
 
-  TORCH_CHECK(tv6->domain()->nDims() == 3);
+  EXPECT_EQ(tv6->domain()->nDims(), 3);
   checkIntValue(evaluator, tv6->axis(0)->extent(), 26);
   checkIntValue(evaluator, tv6->axis(1)->extent(), 5);
   checkIntValue(evaluator, tv6->axis(2)->extent(), 127);
@@ -247,12 +260,12 @@ TEST_F(ExprEvalTest, PostLower) {
   evaluator.bind(tv1->getRootDomain()[1]->extent(), 128L);
 
   // 3. Evaluate and check result values
-  TORCH_CHECK(tv2->domain()->nDims() == 3);
+  EXPECT_EQ(tv2->domain()->nDims(), 3);
   checkIntValue(evaluator, tv2->axis(0)->extent(), 2);
   checkIntValue(evaluator, tv2->axis(1)->extent(), 4);
   checkIntValue(evaluator, tv2->axis(2)->extent(), 128);
 
-  TORCH_CHECK(tv3->domain()->nDims() == 3);
+  EXPECT_EQ(tv3->domain()->nDims(), 3);
   checkIntValue(evaluator, tv3->axis(0)->extent(), 2);
   checkIntValue(evaluator, tv3->axis(1)->extent(), 4);
   checkIntValue(evaluator, tv3->axis(2)->extent(), 128);
@@ -297,8 +310,8 @@ TEST_F(ExprEvalTest, KernelBindings) {
   auto e = IrBuilder::create<Int>(0);
 
   // trying to evaluate before binding should give empty results
-  TORCH_CHECK(!evaluator.evaluate(a).hasValue());
-  TORCH_CHECK(!evaluator.evaluate(d).hasValue());
+  EXPECT_FALSE(evaluator.evaluate(a).hasValue());
+  EXPECT_FALSE(evaluator.evaluate(d).hasValue());
 
   evaluator.bind(a, 7L);
   evaluator.bind(b, 3L);
