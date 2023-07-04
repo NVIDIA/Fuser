@@ -12,7 +12,7 @@
 #include <test/utils.h>
 #include <type_traits.h>
 
-#include <dynamic_type.h>
+#include <scalar_value.h>
 
 #include <iostream>
 #include <list>

@@ -696,11 +696,11 @@ class FlattenedAssocCommOp : public Expr {
     return inputs().size() == 1;
   }
 
-  std::vector<EvaluatorValue> evaluate(
-      const std::vector<EvaluatorValue>& inputs) const override {
-    using namespace EvaluatorValue_functions;
-    std::vector<EvaluatorValue> inputs_ = inputs;
-    EvaluatorValue result;
+  std::vector<ScalarValue> evaluate(
+      const std::vector<ScalarValue>& inputs) const override {
+    using namespace ScalarValue_functions;
+    std::vector<ScalarValue> inputs_ = inputs;
+    ScalarValue result;
     result = inputs_.back();
     inputs_.pop_back();
     switch (getOpType()) {
@@ -742,7 +742,7 @@ class FlattenedAssocCommOp : public Expr {
       default:
         TORCH_INTERNAL_ASSERT(
             "Unexpected operator type encountered"
-            "in EvaluatorValue::evaluate: ",
+            "in ScalarValue::evaluate: ",
             getOpType());
     }
     return {result};

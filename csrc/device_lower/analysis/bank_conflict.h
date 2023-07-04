@@ -7,7 +7,7 @@
 // clang-format on
 #pragma once
 
-#include <dynamic_type.h>
+#include <scalar_value.h>
 #include <executor_params.h>
 #include <ir/base_nodes.h>
 #include <kernel.h>
@@ -45,6 +45,6 @@ namespace nvfuser {
 std::unordered_map<const Expr*, std::pair<int, int>> getBankConflictInfo(
     const kir::Kernel* kernel,
     LaunchParams launch_params = {},
-    const std::unordered_map<Val*, EvaluatorValue>& known_values = {});
+    const std::unordered_map<Val*, ScalarValue>& known_values = {});
 
 } // namespace nvfuser

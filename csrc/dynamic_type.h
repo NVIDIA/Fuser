@@ -356,10 +356,11 @@ struct DynamicType {
       },
       type_identities_as_tuple);
 
-  template <
-      typename IndexT,
-      typename = std::enable_if_t<has_square_bracket<IndexT>>>
-  DynamicType& operator[](const IndexT& i) {
+  template <typename IndexT>
+  std::enable_if_t<
+      !std::is_same_v<IndexT, DynamicType> && has_square_bracket<IndexT>,
+      DynamicType&>
+  operator[](const IndexT& i) {
     std::optional<std::reference_wrapper<DynamicType>> ret = std::nullopt;
     for_all_types([this, &ret, &i](auto t) {
       using T = typename decltype(t)::type;
@@ -379,6 +380,87 @@ struct DynamicType {
         type().name(),
         " with ",
         typeid(IndexT).name(),
+        " : incompatible type");
+    return ret.value();
+  }
+
+  template <typename IndexT>
+  std::enable_if_t<
+      !std::is_same_v<IndexT, DynamicType> && has_square_bracket<IndexT>,
+      const DynamicType&>
+  operator[](const IndexT& i) const {
+    std::optional<std::reference_wrapper<const DynamicType>> ret = std::nullopt;
+    for_all_types([this, &ret, &i](auto t) {
+      using T = typename decltype(t)::type;
+      if constexpr (opcheck<T>[opcheck<IndexT>]) {
+        if constexpr (std::is_same_v<
+                          decltype(std::declval<T>()[std::declval<IndexT>()]),
+                          DynamicType&>) {
+          if (is<T>()) {
+            ret = std::ref(as<T>()[i]);
+          }
+        }
+      }
+    });
+    TORCH_CHECK(
+        ret.has_value(),
+        "Cannot index ",
+        type().name(),
+        " with ",
+        typeid(IndexT).name(),
+        " : incompatible type");
+    return ret.value();
+  }
+
+  static constexpr bool has_any_square_bracket = any_check(
+      [](auto t) {
+        using IndexT = typename decltype(t)::type;
+        return has_square_bracket<IndexT>;
+      },
+      type_identities_as_tuple);
+
+  template <typename DT>
+  std::enable_if_t<
+      std::is_same_v<DT, DynamicType> && has_any_square_bracket,
+      DynamicType&>
+  operator[](const DT& i) {
+    std::optional<std::reference_wrapper<DynamicType>> ret = std::nullopt;
+    for_all_types([this, &ret, &i](auto t) {
+      using IndexT = typename decltype(t)::type;
+      if constexpr (has_square_bracket<IndexT>) {
+        ret = std::ref((*this)[i.template as<IndexT>()]);
+      }
+    });
+    TORCH_CHECK(
+        ret.has_value(),
+        "Cannot index ",
+        type().name(),
+        " with ",
+        i.type().name(),
+        " : incompatible type");
+    return ret.value();
+  }
+
+  template <typename DT>
+  std::enable_if_t<
+      std::is_same_v<DT, DynamicType> && has_any_square_bracket,
+      const DynamicType&>
+  operator[](const DT& i) const {
+    std::optional<std::reference_wrapper<const DynamicType>> ret = std::nullopt;
+    for_all_types([this, &ret, &i](auto t) {
+      using IndexT = typename decltype(t)::type;
+      if constexpr (has_square_bracket<IndexT>) {
+        if (i.template is<IndexT>()) {
+          ret = std::ref((*this)[i.template as<IndexT>()]);
+        }
+      }
+    });
+    TORCH_CHECK(
+        ret.has_value(),
+        "Cannot index ",
+        type().name(),
+        " with ",
+        i.type().name(),
         " : incompatible type");
     return ret.value();
   }
@@ -945,62 +1027,6 @@ DEFINE_ASSIGNMENT_OP(>>, >>=);
 // Intentionally not overloading operator comma",". This operator is rarely
 // overloaded, and the automatically defined version by the compiler usually
 // does what we want.
-
-using EvaluatorValue = DynamicType<NoContainers, double, int64_t, bool>;
-
-namespace EvaluatorValue_functions {
-
-inline EvaluatorValue ceildiv(
-    const EvaluatorValue& a,
-    const EvaluatorValue& b) {
-  if (a.is<int64_t>() && b.is<int64_t>()) {
-    auto aa = a.as<int64_t>();
-    auto bb = b.as<int64_t>();
-    if (bb > 0) {
-      return EvaluatorValue((aa + bb - 1) / bb);
-    } else {
-      return EvaluatorValue((aa + bb + 1) / bb);
-    }
-  }
-  return EvaluatorValue(std::ceil((a / b).as<double>()));
-}
-
-inline EvaluatorValue max(const EvaluatorValue& a, const EvaluatorValue& b) {
-  return EvaluatorValue(a > b ? a : b);
-}
-
-inline EvaluatorValue min(const EvaluatorValue& a, const EvaluatorValue& b) {
-  return EvaluatorValue(a < b ? a : b);
-}
-
-inline EvaluatorValue gcd(const EvaluatorValue& a, const EvaluatorValue& b) {
-  return EvaluatorValue(std::gcd(a.as<int64_t>(), b.as<int64_t>()));
-}
-
-inline EvaluatorValue notExpr(const EvaluatorValue& a) {
-  if (a.is<int64_t>()) {
-    return EvaluatorValue(~a.as<int64_t>());
-  }
-  if (a.is<bool>()) {
-    return EvaluatorValue(!a.as<bool>());
-  }
-  TORCH_INTERNAL_ASSERT(false);
-}
-
-inline EvaluatorValue abs(const EvaluatorValue& a) {
-  if (a.is<int64_t>()) {
-    return EvaluatorValue(std::abs(a.as<int64_t>()));
-  }
-  if (a.is<double>()) {
-    return EvaluatorValue(std::abs(a.as<double>()));
-  }
-  if (a.is<bool>()) {
-    return a;
-  }
-  TORCH_INTERNAL_ASSERT(false);
-}
-
-} // namespace EvaluatorValue_functions
 
 #if defined(__clang__)
 #pragma clang diagnostic pop

@@ -19,7 +19,8 @@ namespace nvfuser {
 
 namespace {
 
-bool equals(const Val* value, const EvaluatorValue& concrete_value) {
+// TODO: remove this after we make Scalar a non-template class
+bool equals(const Val* value, const ScalarValue& concrete_value) {
   switch (std::get<PrimDataType>(value->getDataType()->type)) {
     case DataType::Int: {
       if (!concrete_value.is<int64_t>()) {
@@ -43,30 +44,28 @@ bool equals(const Val* value, const EvaluatorValue& concrete_value) {
       return val.has_value() && val.value() == concrete_value.as<bool>();
     }
     default:
-      TORCH_INTERNAL_ASSERT(false);
+      return false;
   }
 }
 
 template <typename T>
-EvaluatorValue toOptionalEvaluatorValue(std::optional<T> i) {
+ScalarValue toOptionalScalarValue(std::optional<T> i) {
   if (!i) {
     return std::monostate{};
   }
-  return EvaluatorValue(i.value());
+  return ScalarValue(i.value());
 }
 
 } // namespace
 
 void ExpressionEvaluator::bind_(
     const Val* value,
-    const EvaluatorValue& concrete_value) {
+    const ScalarValue& concrete_value) {
   if (equals(value, concrete_value)) {
     return;
   }
-  TORCH_CHECK(value->isScalar());
-  TORCH_CHECK(
-      value->dtype() == DataType::Int || value->dtype() == DataType::Double ||
-      value->dtype() == DataType::Bool);
+  // TODO: reenable this when we make Scalar a non-template class
+  // TORCH_CHECK(value->isScalar());
   TORCH_CHECK(!value->isConstScalar(), "Tried to bind to a constant value");
   TORCH_CHECK(
       value->definition() == nullptr,
@@ -83,7 +82,7 @@ void ExpressionEvaluator::bind_(
 
 void ExpressionEvaluator::bind_(
     const std::string& name,
-    const EvaluatorValue& concrete_value) {
+    const ScalarValue& concrete_value) {
   known_named_scalars_[name] = concrete_value;
 }
 
@@ -96,11 +95,11 @@ void ExpressionEvaluator::bind(
     //  in pre-computed mode.
     precomputed_values_->bindConcreteParallelTypeValue(pt, concrete_value);
   } else {
-    bind(stringifyThreadSize(pt), EvaluatorValue(concrete_value));
+    bind(stringifyThreadSize(pt), ScalarValue(concrete_value));
   }
 }
 
-EvaluatorValue ExpressionEvaluator::evaluate(const Val* value) {
+ScalarValue ExpressionEvaluator::evaluate(const Val* value) {
   if (precomputed_values_ && precomputed_values_->ready()) {
     if (precomputed_values_->getMaybeValueFor(value).hasValue()) {
       return precomputed_values_->getMaybeValueFor(value);
@@ -114,7 +113,7 @@ EvaluatorValue ExpressionEvaluator::evaluate(const Val* value) {
       if (def->isA<kir::BaseAddress>()) {
         return std::monostate{};
       }
-      std::vector<EvaluatorValue> inputs;
+      std::vector<ScalarValue> inputs;
       inputs.reserve(def->inputs().size());
       for (auto i : def->inputs()) {
         auto eval_i = evaluate(i);
@@ -133,7 +132,7 @@ EvaluatorValue ExpressionEvaluator::evaluate(const Val* value) {
   return maybe_concrete_value;
 }
 
-EvaluatorValue ExpressionEvaluator::evaluate(ParallelType pt) {
+ScalarValue ExpressionEvaluator::evaluate(ParallelType pt) {
   auto it = known_named_scalars_.find(stringifyThreadSize(pt));
   if (it != known_named_scalars_.end()) {
     return it->second;
@@ -141,22 +140,16 @@ EvaluatorValue ExpressionEvaluator::evaluate(ParallelType pt) {
   return std::monostate{};
 }
 
-EvaluatorValue ExpressionEvaluator::getValue(const Val* value) {
-  TORCH_INTERNAL_ASSERT(
-      value->isIntegralScalar() || value->isFloatingPointScalar() ||
-          value->isABool(),
-      value->toInlineString(),
-      " is not a supported type in expression evaluation.");
-
+ScalarValue ExpressionEvaluator::getValue(const Val* value) {
   if (value->isScalar() && value->isConst()) {
     if (value->isFloatingPointScalar()) {
-      return toOptionalEvaluatorValue(value->as<Double>()->value());
+      return toOptionalScalarValue(value->as<Double>()->value());
     }
     if (value->isABool()) {
-      return toOptionalEvaluatorValue(value->as<Bool>()->value());
+      return toOptionalScalarValue(value->as<Bool>()->value());
     }
     if (value->isIntegralScalar()) {
-      return toOptionalEvaluatorValue(value->as<Int>()->value());
+      return toOptionalScalarValue(value->as<Int>()->value());
     }
     TORCH_INTERNAL_ASSERT(
         false, "Data type not supported by ExpressionEvaluator");
@@ -171,7 +164,7 @@ EvaluatorValue ExpressionEvaluator::getValue(const Val* value) {
 
   const auto it = known_values_.find(value);
   return it != known_values_.end() ? it->second
-                                   : EvaluatorValue(std::monostate{});
+                                   : ScalarValue(std::monostate{});
 }
 
 void ExpressionEvaluator::print() const {
