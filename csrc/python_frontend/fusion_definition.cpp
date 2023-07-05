@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <debug.h>
 #include <instrumentation.h>
 #include <options.h>
 #include <python_frontend/fusion_cache.h>
