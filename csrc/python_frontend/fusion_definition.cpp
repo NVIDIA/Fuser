@@ -152,11 +152,8 @@ void FusionDefinition::print(std::ostream& os) const {
 std::vector<at::Tensor> FusionDefinition::execute(
     const at::ArrayRef<c10::IValue>& inputs,
     bool override_user_schedule,
-    bool capture_debug_output,
     std::optional<int8_t> selected_device) {
-  debug_output_ = std::nullopt;
   std::stringstream debug_ss;
-  DebugStreamGuard dsg(capture_debug_output ? debug_ss : std::cout);
 
   TORCH_CHECK(id().has_value(), "Valid fusion schedule is not available!");
 
@@ -181,10 +178,6 @@ std::vector<at::Tensor> FusionDefinition::execute(
 
   outputs = scheds->auto_gen_schedules->runFusionWithInputs(
       inputs, std::nullopt, selected_device);
-
-  if (capture_debug_output) {
-    debug_output_ = debug_ss.str();
-  }
 
   return outputs;
 }
