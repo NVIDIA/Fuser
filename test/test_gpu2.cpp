@@ -8092,7 +8092,7 @@ TEST_F(NVFuserTest, FusionParallelDimensionMap5_CUDA) {
   TORCH_CHECK(pdmap.isExact(ParallelType::TIDy));
   TORCH_CHECK(
       pdmap.get(ParallelType::TIDx)->isConst() &&
-      pdmap.get(ParallelType::TIDx)->as<Scalar>()->value().value() == 4);
+      pdmap.get(ParallelType::TIDx)->as<Scalar>()->value() == 4);
   TORCH_CHECK(
       pdmap.get(ParallelType::TIDy)->isA<NamedScalar>() &&
       pdmap.get(ParallelType::TIDy)->as<NamedScalar>()->name() == "blockDim.y");
@@ -9251,18 +9251,18 @@ TEST_F(NVFuserTest, FusionIssue1133_CUDA) {
       }
       TORCH_CHECK(size->isA<Scalar>(), "Invalid allocation size");
       TORCH_CHECK(size->as<Scalar>()->isConst(), "Allocation not constant");
-      auto size_int = size->as<Scalar>()->value().value();
+      auto size_int = size->as<Scalar>()->value();
       if (alloc->buffer()->name() == 1) {
         TORCH_CHECK(
             size_int == split_factor,
             "Invalid allocation size: ",
-            size->as<Scalar>()->value().value());
+            size->as<Scalar>()->value());
         tv1_validated = true;
       } else {
         TORCH_CHECK(
             size_int == 1,
             "Invalid allocation size: ",
-            size->as<Scalar>()->value().value());
+            size->as<Scalar>()->value());
         tv2_validated = true;
       }
     }

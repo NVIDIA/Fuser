@@ -143,7 +143,7 @@ void PrecomputedValues::bindParallelExtents(
 
 void PrecomputedValues::bindConcreteParallelTypeValue(
     ParallelType pt,
-    int64_t value) {
+    EvaluatorValue value) {
   auto index_list_it = thread_dim_value_indices_.find(pt);
   if (index_list_it != thread_dim_value_indices_.end()) {
     for (auto index : *(index_list_it->second)) {

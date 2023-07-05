@@ -138,7 +138,7 @@ class TORCH_CUDA_CU_API UnswitchPredicate {
       //! predicate found.
       Scalar* static_pred = nullptr;
       //! The offset value of static_pred
-      int64_t static_offset = 0;
+      EvaluatorValue static_offset = 0;
       //! List of dynamic predicates.
       std::vector<Scalar*> dynamic_preds;
     };

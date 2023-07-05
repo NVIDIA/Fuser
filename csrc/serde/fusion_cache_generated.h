@@ -278,25 +278,21 @@ enum RecordType : int32_t {
   RecordType_ReductionProd = 43,
   RecordType_ReductionSum = 44,
   RecordType_ReshapeOp = 45,
-  RecordType_ScalarBool = 46,
-  RecordType_ScalarComplexDouble = 47,
-  RecordType_ScalarDouble = 48,
-  RecordType_ScalarInput = 49,
-  RecordType_ScalarLong = 50,
-  RecordType_SliceOp = 51,
-  RecordType_SqueezeOp = 52,
-  RecordType_Start = 53,
-  RecordType_Tensor = 54,
-  RecordType_TensorSizes = 55,
-  RecordType_VarianceOp = 56,
-  RecordType_VarianceMeanOp = 57,
-  RecordType_VectorInput = 58,
-  RecordType_VectorLong = 59,
+  RecordType_Scalar = 46,
+  RecordType_SliceOp = 47,
+  RecordType_SqueezeOp = 48,
+  RecordType_Start = 49,
+  RecordType_Tensor = 50,
+  RecordType_TensorSizes = 51,
+  RecordType_VarianceOp = 52,
+  RecordType_VarianceMeanOp = 53,
+  RecordType_VectorInput = 54,
+  RecordType_VectorLong = 55,
   RecordType_MIN = RecordType_Base,
   RecordType_MAX = RecordType_VectorLong
 };
 
-inline const RecordType (&EnumValuesRecordType())[60] {
+inline const RecordType (&EnumValuesRecordType())[56] {
   static const RecordType values[] = {
     RecordType_Base,
     RecordType_BatchNormOp,
@@ -344,11 +340,7 @@ inline const RecordType (&EnumValuesRecordType())[60] {
     RecordType_ReductionProd,
     RecordType_ReductionSum,
     RecordType_ReshapeOp,
-    RecordType_ScalarBool,
-    RecordType_ScalarComplexDouble,
-    RecordType_ScalarDouble,
-    RecordType_ScalarInput,
-    RecordType_ScalarLong,
+    RecordType_Scalar,
     RecordType_SliceOp,
     RecordType_SqueezeOp,
     RecordType_Start,
@@ -363,7 +355,7 @@ inline const RecordType (&EnumValuesRecordType())[60] {
 }
 
 inline const char * const *EnumNamesRecordType() {
-  static const char * const names[61] = {
+  static const char * const names[57] = {
     "Base",
     "BatchNormOp",
     "BroadcastOp",
@@ -410,11 +402,7 @@ inline const char * const *EnumNamesRecordType() {
     "ReductionProd",
     "ReductionSum",
     "ReshapeOp",
-    "ScalarBool",
-    "ScalarComplexDouble",
-    "ScalarDouble",
-    "ScalarInput",
-    "ScalarLong",
+    "Scalar",
     "SliceOp",
     "SqueezeOp",
     "Start",

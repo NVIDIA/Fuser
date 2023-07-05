@@ -144,7 +144,7 @@ class PrecomputedValues {
   //! Bind the NamedScalars corresponding to the
   //!  concrete parallel dimension sizes after the
   //!  actual value has been resolved.
-  void bindConcreteParallelTypeValue(ParallelType pt, int64_t value);
+  void bindConcreteParallelTypeValue(ParallelType pt, EvaluatorValue value);
 
   //! Returns if the workspace contains evaluated results.
   bool ready() {

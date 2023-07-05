@@ -511,8 +511,8 @@ at::Tensor getSwizzledTensor(
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
-  Scalar* size_x_input = IrBuilder::create<Scalar>(DataT::Int);
-  Scalar* size_y_input = IrBuilder::create<Scalar>(DataT::Int);
+  Scalar* size_x_input = IrBuilder::create<Scalar>(DataType::Int);
+  Scalar* size_y_input = IrBuilder::create<Scalar>(DataType::Int);
   fusion.addInput(size_x_input);
   fusion.addInput(size_y_input);
   auto x = arange(size_x_input);

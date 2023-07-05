@@ -470,7 +470,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   void handle(const Scalar* s) final {
     // Check the replacement map first. If there's an entry for s, use
     // the corresponding replacement.
-    auto replace_it = index_replacement_map_.find(i);
+    auto replace_it = index_replacement_map_.find(s);
     if (replace_it != index_replacement_map_.end()) {
       code_ << replace_it->second;
       return;
@@ -509,7 +509,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
             false, "Unhandled constant type: ", s->dtype(), " ", value);
       }
     } else {
-      code_ << genVariableName(c);
+      code_ << genVariableName(s);
     }
   }
 
@@ -796,14 +796,14 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     }
 
     auto rhs = bop->rhs();
-    std::optional<double> exponent;
+    EvaluatorValue exponent;
     if (auto val_int = dynamic_cast<Scalar*>(rhs)) {
       if (val_int->isConst()) {
-        exponent = val_int->value().value();
+        exponent = val_int->value();
       }
     } else if (auto val_float = dynamic_cast<Scalar*>(rhs)) {
       if (val_float->isConst()) {
-        auto fp_exp = val_float->value().value();
+        auto fp_exp = val_float->value().as<double>();
         double int_exp = 0;
         if (std::modf(fp_exp, &int_exp) == 0) {
           exponent = int_exp;
@@ -811,12 +811,12 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       }
     }
 
-    if (!exponent.has_value()) {
+    if (!exponent.hasValue()) {
       return false;
     }
 
     // Only **2 and **3 are considered
-    if (!(exponent.value() == 2 || exponent.value() == 3)) {
+    if (!(exponent == 2 || exponent == 3)) {
       return false;
     }
 
@@ -824,21 +824,21 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
     if (print_inline_) {
       code_ << lhs << " * " << lhs;
-      if (exponent.value() == 3) {
+      if (exponent == 3) {
         code_ << " * " << lhs;
       }
     } else {
       indent() << gen(bop->out());
       if (bop->out()->isScalar()) {
         code_ << " = " << lhs << " * " << lhs;
-        if (exponent.value() == 3) {
+        if (exponent == 3) {
           code_ << " * " << lhs;
         }
       } else {
         code_ << "\n";
         indent() << kTab << "= " << lhs << "\n";
         indent() << kTab << "* " << lhs;
-        if (exponent.value() == 3) {
+        if (exponent == 3) {
           code_ << "\n";
           indent() << kTab << "* " << lhs;
         }
@@ -2718,7 +2718,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     auto conditional = ite->predicate()->value();
     if (conditional->isConst()) {
       // If the conditional is a constant, then the IfThenElse is not required
-      if (conditional->value().value()) {
+      if (conditional->value()) {
         handle(ite->thenBody().exprs());
       } else {
         handle(ite->elseBody().exprs());

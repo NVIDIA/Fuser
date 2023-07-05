@@ -75,7 +75,7 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
           auto thread_pred = GpuLower::current()->threadPredMap().getPredicate(
               ir_utils::getTvOutput(expr));
           TORCH_INTERNAL_ASSERT(
-              thread_pred->isConst() && thread_pred->value().value());
+              thread_pred->isConst() && thread_pred->value());
           conditional = SimplifyingIrBuilder::andExpr(
               conditional,
               GpuLower::current()->threadPredMap().getPredicate(
@@ -124,7 +124,7 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
   // Invert the predicate of given expr.
   void invertPredicateForGmemToSharedMemInitialize(Expr* expr) {
     auto pred = expr->predicate()->value();
-    auto invert = SimplifyingIrBuilder::notExpr(pred);
+    Val* invert = SimplifyingIrBuilder::notExpr(pred);
     invert =
         GpuLower::current()->commonScalarMap().hoistScalar(invert, for_loops_);
     expr->predicate()->setValue(invert->as<Scalar>());

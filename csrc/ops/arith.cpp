@@ -2057,17 +2057,18 @@ TensorView* shift(
         "Invalid IterDomain stop offset value:",
         current_stop_offset);
 
-    const auto cur_start_offset_value = current_start_offset->value().value();
-    const auto cur_stop_offset_value = current_stop_offset->value().value();
+    const auto cur_start_offset_value = current_start_offset->value();
+    const auto cur_stop_offset_value = current_stop_offset->value();
 
-    int64_t out_start_offset = 0;
-    int64_t out_stop_offset = 0;
+    EvaluatorValue out_start_offset = 0;
+    EvaluatorValue out_stop_offset = 0;
 
     if (offset > 0) {
+      using namespace EvaluatorValue_functions;
       // shift to right; extent remains the same, start and stop
       // positions are moved right
       out_start_offset = cur_start_offset_value + offset - pad;
-      out_stop_offset = std::max(cur_stop_offset_value - offset, int64_t(0));
+      out_stop_offset = max(cur_stop_offset_value - offset, int64_t(0));
       // If pad > offset, the extent of the output ID could be larger than the
       // input, and the start offset of the output domain could become
       // negative, which is not supported.
@@ -2079,9 +2080,10 @@ TensorView* shift(
           offset,
           ".");
     } else {
+      using namespace EvaluatorValue_functions;
       // shift to left; extent remains the same, start and stop
       // positions are moved left
-      out_start_offset = std::max(cur_start_offset_value + offset, int64_t(0));
+      out_start_offset = max(cur_start_offset_value + offset, int64_t(0));
       out_stop_offset = cur_stop_offset_value - offset - pad;
       // Similar to the above case whwere offset is positive, if pad >
       // -offset (note offset is negative), the extent of the output

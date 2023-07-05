@@ -403,8 +403,8 @@ TEST_F(NVFuserTest, FusionKernelExprEvalBindings_CUDA) {
 
   ExpressionEvaluator evaluator;
 
-  auto a = IrBuilder::create<Scalar>(std::nullopt);
-  auto b = IrBuilder::create<Scalar>(std::nullopt);
+  auto a = IrBuilder::create<Scalar>(DataType::Int);
+  auto b = IrBuilder::create<Scalar>(DataType::Int);
   auto c = IrBuilder::addExpr(a, b);
   auto d = IrBuilder::negExpr(IrBuilder::ceilDivExpr(c, b));
   auto e = IrBuilder::create<Scalar>(0);
@@ -967,7 +967,7 @@ TEST_F(NVFuserTest, FusionTVSplit_CUDA) {
   TORCH_CHECK(
       inner->extent()->isScalar() &&
       static_cast<Scalar*>(inner->extent())->isConst() &&
-      static_cast<Scalar*>(inner->extent())->value().value() == 2);
+      static_cast<Scalar*>(inner->extent())->value() == 2);
 }
 
 TEST_F(NVFuserTest, FusionTVMerge_CUDA) {
@@ -1429,7 +1429,7 @@ TEST_F(NVFuserTest, FusionSimplePWiseDtypeComplex_CUDA) {
   // Do math with it, it returns a `Val*` but can be static_casted back to
   // TensorView
   std::complex<double> scalar1(2.0, 3.0);
-  TensorView* tv2 = add(tv1, IrBuilder::create<ComplexDouble>(scalar1));
+  TensorView* tv2 = add(tv1, IrBuilder::create<Scalar>(scalar1));
   TensorView* tv3 = add(tv0, tv2);
 
   // Register your outputs
@@ -3263,21 +3263,7 @@ Val* gen_jit_operand(std::pair<ValType, DataType> desc) {
   if (desc.first == ValType::TensorView) {
     return makeSymbolicTensor(2, desc.second);
   } else if (desc.first == ValType::Scalar) {
-    if (desc.second == DataType::Float) {
-      return IrBuilder::create<Scalar>(DataType::Double);
-    } else if (desc.second == DataType::Double) {
-      return IrBuilder::create<Scalar>(DataType::Double);
-    } else if (desc.second == DataType::ComplexFloat) {
-      return IrBuilder::create<ComplexDouble>();
-    } else if (desc.second == DataType::ComplexDouble) {
-      return IrBuilder::create<ComplexDouble>();
-    } else if (desc.second == DataType::Int) {
-      return IrBuilder::create<Scalar>(DataType::Int);
-    } else if (desc.second == DataType::Int32) {
-      return IrBuilder::create<Scalar>(DataType::Int);
-    } else {
-      TORCH_CHECK(false, "Not currently supported type: ", desc.first);
-    }
+    return IrBuilder::create<Scalar>(desc.second);
   } else {
     TORCH_CHECK(false, "Not currently supported type: ", desc.first);
   }

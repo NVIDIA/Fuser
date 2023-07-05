@@ -85,6 +85,11 @@ enum class PrimDataType {
   Null
 };
 
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
+#endif
+
 struct DataType;
 
 struct ArrayOf {
@@ -310,6 +315,10 @@ bool isCompatibleDataType(DataType dtype, DataType dtype2) {
   }
   return false;
 }
+
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
 
 //! Returns the number of base-10 digits required to guarantee a lossless
 //! binary->text->binary round-trip. For exact types, this function returns 0.

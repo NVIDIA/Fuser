@@ -2760,20 +2760,20 @@ bool canOmitStopPredicate(
 
   // If they are not compile-time constant, can't prove the
   // condition.
-  if (!stop_offset_val.has_value()) {
+  if (!stop_offset_val.hasValue()) {
     return false;
   }
 
   auto stop_index_val =
-      (stop_index->isA<Scalar>() ? stop_index->as<Scalar>()->value() : std::nullopt);
+      (stop_index->isA<Scalar>() ? stop_index->as<Scalar>()->value() : std::monostate{});
 
   // If stop_index is a constant, then the expr can be in a trivial loop.
   // Trivial loop is not materialized, so it is not protected under the `for`
   // statement. If this is the case, we omit stop predicate only if we can
   // prove: stop_index + stop_offset < extent
-  if (stop_index_val.has_value()) {
+  if (stop_index_val.hasValue()) {
     // Stop predicate: stop_index + stop_offset < extent
-    int64_t lhs = *stop_index_val + *stop_offset_val;
+    auto lhs = stop_index_val + stop_offset_val;
     auto in_extent = IrBuilder::ltExpr(
         IrBuilder::newConstant(lhs, *stop_index->getDataType()),
         contig_id->getMaybeExpandedExtent());
@@ -2797,7 +2797,7 @@ bool canOmitStopPredicate(
       ? gpu_lower->haloInfo()->getRootAxisInfo(contig_id).width()
       : 0;
 
-  if (halo_ext + stop_offset_val.value() >= 0) {
+  if (halo_ext + stop_offset_val >= 0) {
     return false;
   }
 

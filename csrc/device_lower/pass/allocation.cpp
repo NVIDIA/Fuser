@@ -140,7 +140,7 @@ class AllocationInserter : public kir::ExprMutator {
       if (extent_with_halo) {
         new_loop = IrBuilder::create<kir::ForLoop>(
             id,
-            IrBuilder::create<Scalar>(std::nullopt),
+            IrBuilder::create<Scalar>(DataType::Index),
             nullptr,
             extent_with_halo,
             nullptr,

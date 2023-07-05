@@ -50,6 +50,8 @@ class TORCH_CUDA_CU_API Scalar : public Val {
  public:
   explicit Scalar(IrBuilderPasskey passkey, DataType dtype)
       : Val(passkey, ValType::Scalar, dtype) {}
+  explicit Scalar(IrBuilderPasskey passkey, PrimDataType dtype)
+      : Val(passkey, ValType::Scalar, DataType(dtype)) {}
   explicit Scalar(IrBuilderPasskey passkey, EvaluatorValue value)
       : Val(passkey, ValType::Scalar, nvfuser::getDataType(value)), value_{value} {}
   explicit Scalar(
@@ -75,7 +77,7 @@ class TORCH_CUDA_CU_API Scalar : public Val {
     }
     auto dtype = getDataType().value();
     if (dtype == DataType::Bool) {
-      ss << value() ? "true" : "false";
+      ss << (value() ? "true" : "false");
     } else if (isIntegralType(dtype)) {
       ss << value();
     } else if (isFloatingPointType(dtype) || isComplexType(dtype)) {

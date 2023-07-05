@@ -16,7 +16,7 @@
 
 namespace nvfuser {
 
-using EvaluatorValue = DynamicType<std::complex<double>, double, int64_t, bool>;
+using EvaluatorValue = DynamicType<NoContainers, std::complex<double>, double, int64_t, bool>;
 
 namespace EvaluatorValue_functions {
 
@@ -36,11 +36,11 @@ inline EvaluatorValue ceildiv(
 }
 
 inline EvaluatorValue max(const EvaluatorValue& a, const EvaluatorValue& b) {
-  return EvaluatorValue((a > b).as<bool>() ? a : b);
+  return EvaluatorValue((a > b) ? a : b);
 }
 
 inline EvaluatorValue min(const EvaluatorValue& a, const EvaluatorValue& b) {
-  return EvaluatorValue((a < b).as<bool>() ? a : b);
+  return EvaluatorValue((a < b) ? a : b);
 }
 
 inline EvaluatorValue gcd(const EvaluatorValue& a, const EvaluatorValue& b) {
@@ -52,7 +52,7 @@ inline EvaluatorValue notExpr(const EvaluatorValue& a) {
     return EvaluatorValue(~a.as<int64_t>());
   }
   if (a.is<bool>()) {
-    return EvaluatorValue(!a.as<bool>());
+    return EvaluatorValue(!a);
   }
   TORCH_INTERNAL_ASSERT(false);
 }

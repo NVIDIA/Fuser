@@ -38,14 +38,14 @@ class IrNodeLabel final : private OptInConstDispatch {
   ~IrNodeLabel() final = default;
 
   void handle(const Scalar* s) override {
-    if (d->isSymbolic()) {
+    if (s->isSymbolic()) {
       label_ << ir_utils::varName(s);
     }
     if (s->isConst()) {
       if (detail_level_ >= DetailLevel::Explicit) {
         label_ << ir_utils::varName(s) << "=";
       }
-      label_ << i->value();
+      label_ << s->value();
     }
   }
 

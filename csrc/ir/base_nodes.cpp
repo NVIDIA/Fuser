@@ -274,8 +274,8 @@ int64_t Val::evaluateInt() {
       ConstCheck::isConst(this),
       "Cannot get Int of not const values through IR nodes, must use runtime ExpressionEvaluator.");
 
-  if (this->as<Scalar>()->value().has_value()) {
-    return this->as<Scalar>()->value().value();
+  if (this->as<Scalar>()->value().hasValue()) {
+    return this->as<Scalar>()->value().as<int64_t>();
   }
 
   ExpressionEvaluator ee;
@@ -292,8 +292,8 @@ double Val::evaluateDouble() {
       ConstCheck::isConst(this),
       "Cannot get Double of not const doubles through IR nodes, must use runtime ExpressionEvaluator.");
 
-  if (this->as<Scalar>()->value().has_value()) {
-    return this->as<Scalar>()->value().value();
+  if (this->as<Scalar>()->value().hasValue()) {
+    return this->as<Scalar>()->value().as<double>();
   }
 
   ExpressionEvaluator ee;
@@ -309,8 +309,8 @@ bool Val::evaluateBool() {
       ConstCheck::isConst(this),
       "Cannot get Bool of not const bools through IR nodes, must use runtime ExpressionEvaluator.");
 
-  if (this->as<Scalar>()->value().has_value()) {
-    return this->as<Scalar>()->value().value();
+  if (this->as<Scalar>()->value().hasValue()) {
+    return this->as<Scalar>()->value().as<bool>();
   }
 
   ExpressionEvaluator ee;

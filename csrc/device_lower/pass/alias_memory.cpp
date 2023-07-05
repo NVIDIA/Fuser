@@ -169,7 +169,7 @@ class SymbolicSizePrinter : private OptOutConstDispatch {
     if (auto def = node->definition()) {
       OptOutConstDispatch::handle(def);
     } else if (node->isConst()) {
-      os_ << *node->value();
+      os_ << node->value();
     } else {
       os_ << "ki" << node->name();
     }

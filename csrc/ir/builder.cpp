@@ -457,7 +457,7 @@ Val* SimplifyingIrBuilder::maxExpr(Val* lhs, Val* rhs) {
       lhs,
       rhs,
       [](Val* lhs, Val* rhs) { return IrBuilder::maxExpr(lhs, rhs); },
-      [](int64_t lhs, int64_t rhs) { return max(lhs, rhs); });
+      [](auto lhs, auto rhs) { return max(lhs, rhs); });
 }
 
 Val* SimplifyingIrBuilder::minExpr(Val* lhs, Val* rhs) {
@@ -466,7 +466,7 @@ Val* SimplifyingIrBuilder::minExpr(Val* lhs, Val* rhs) {
       lhs,
       rhs,
       [](Val* lhs, Val* rhs) { return IrBuilder::minExpr(lhs, rhs); },
-      [](int64_t lhs, int64_t rhs) { return min(lhs, rhs); });
+      [](auto lhs, auto rhs) { return min(lhs, rhs); });
 }
 
 Val* SimplifyingIrBuilder::gcdExpr(Val* lhs, Val* rhs) {

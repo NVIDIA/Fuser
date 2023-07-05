@@ -386,7 +386,7 @@ TEST_F(NVFuserTest, CombinedSchedulerSharedConsumer_CUDA) {
         : add(layer_norm_results.grad_bias, layer_norm_results.grad_weight);
 
     if (!link_inner_outer) {
-      auto out_linked_scale = mul(out_linked, IrBuilder::create<Double>(0.5));
+      auto out_linked_scale = mul(out_linked, IrBuilder::create<Scalar>(0.5));
       fusion.addOutput(out_linked_scale);
     } else {
       fusion.addOutput(out_linked);

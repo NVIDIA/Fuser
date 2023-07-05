@@ -62,7 +62,7 @@ TensorView* maybe_broadcast_index_tv(TensorView* t, size_t dim, size_t rank) {
 Val* simplifiedInt(Val* val) {
   TORCH_INTERNAL_ASSERT(
       val->isConstInt(), "Expecting Const Int's only in this routine.");
-  if (val->as<Scalar>()->value().has_value()) {
+  if (val->as<Scalar>()->value().hasValue()) {
     return val;
   }
   return IrBuilder::create<Scalar>(val->evaluateInt());
@@ -111,28 +111,7 @@ Val* newScalar(ValType vtype, DataType dtype) {
   switch (vtype) {
     case (ValType::NamedScalar):
     case (ValType::Scalar):
-      switch (std::get<PrimDataType>(dtype.type)) {
-        case DataType::Bool:
-          return IrBuilder::create<Scalar>();
-        case DataType::Float:
-        case DataType::Half:
-        case DataType::BFloat16:
-          return IrBuilder::create<Scalar>(DataType::Float);
-        case DataType::Double:
-          return IrBuilder::create<Scalar>(DataType::Double);
-        case DataType::Int32:
-          return IrBuilder::create<Scalar>(DataType::Int32);
-        case DataType::Index:
-          return IrBuilder::create<Scalar>(DataType::Index);
-        case DataType::Int:
-          return IrBuilder::create<Scalar>(DataType::Int);
-        case DataType::ComplexFloat:
-          return IrBuilder::create<ComplexDouble>(DataType::ComplexFloat);
-        case DataType::ComplexDouble:
-          return IrBuilder::create<ComplexDouble>(DataType::ComplexDouble);
-        default:
-          break;
-      }
+      return IrBuilder::create<Scalar>(dtype);
     default:
       break;
   }

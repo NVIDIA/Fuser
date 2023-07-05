@@ -232,23 +232,23 @@ Scalar* IrContainer::zeroVal() {
   if (!zero_val_) {
     auto zero_val = IrBuilder::create<Scalar>(this, 0);
     TORCH_INTERNAL_ASSERT(vals_up_.back().get() == zero_val);
-    zero_val_ = std::unique_ptr<Int>(vals_up_.back().release()->as<Scalar>());
+    zero_val_ = std::unique_ptr<Scalar>(vals_up_.back().release()->as<Scalar>());
     vals_up_.pop_back();
   }
   return zero_val_.get();
 }
 
-Val* IrContainer::zeroVal(DataType dtype) {
+Scalar* IrContainer::zeroVal(DataType dtype) {
   // NOTE: this does not cache values for floating or complex dtypes
   if (isFloatingPointType(dtype)) {
-    return (Val*)IrBuilder::create<Scalar>(0.0);
+    return IrBuilder::create<Scalar>(0.0);
   } else if (isComplexType(dtype)) {
-    return (Val*)IrBuilder::create<ComplexDouble>(
+    return IrBuilder::create<Scalar>(
         std::complex<double>(0.0, 0.0));
   } else if (isIntegralType(dtype)) {
-    return (Val*)zeroVal();
+    return zeroVal();
   } else if (isBooleanType(dtype)) {
-    return (Val*)falseVal();
+    return falseVal();
   } else {
     TORCH_CHECK(false, "Could not create zero Val for dtype: ", dtype);
   }
@@ -256,9 +256,9 @@ Val* IrContainer::zeroVal(DataType dtype) {
 
 Scalar* IrContainer::oneVal() {
   if (!one_val_) {
-    auto one_val = IrBuilder::create<Scalar>(this, DataType::Int, 1);
+    auto one_val = IrBuilder::create<Scalar>(this, 1, DataType::Int);
     TORCH_INTERNAL_ASSERT(vals_up_.back().get() == one_val);
-    one_val_ = std::unique_ptr<Int>(vals_up_.back().release()->as<Scalar>());
+    one_val_ = std::unique_ptr<Scalar>(vals_up_.back().release()->as<Scalar>());
     vals_up_.pop_back();
   }
   return one_val_.get();
@@ -267,10 +267,10 @@ Scalar* IrContainer::oneVal() {
 Scalar* IrContainer::oneVal(DataType dtype) {
   // NOTE: this does not cache values for floating or complex dtypes
   if (isFloatingPointType(dtype)) {
-    return IrBuilder::create<Scalar>(this, DataType::Double, 1.0);
+    return IrBuilder::create<Scalar>(this, 1.0, DataType::Double);
   } else if (isComplexType(dtype)) {
     return IrBuilder::create<Scalar>(
-        this, DataType::ComplexDouble, std::complex<double>(1.0, 0.0));
+        this, std::complex<double>(1.0, 0.0), DataType::ComplexDouble);
   } else if (isIntegralType(dtype)) {
     return oneVal();
   } else if (isBooleanType(dtype)) {
@@ -282,7 +282,7 @@ Scalar* IrContainer::oneVal(DataType dtype) {
 
 Scalar* IrContainer::falseVal() {
   if (!false_val_) {
-    auto false_val = IrBuilder::create<Scalar>(this, DataType::Bool, false);
+    auto false_val = IrBuilder::create<Scalar>(this, false, DataType::Bool);
     TORCH_INTERNAL_ASSERT(vals_up_.back().get() == false_val);
     false_val_ =
         std::unique_ptr<Scalar>(vals_up_.back().release()->as<Scalar>());
@@ -293,7 +293,7 @@ Scalar* IrContainer::falseVal() {
 
 Scalar* IrContainer::trueVal() {
   if (!true_val_) {
-    auto true_val = IrBuilder::create<Scalar>(this, DataType::Bool, true);
+    auto true_val = IrBuilder::create<Scalar>(this, true, DataType::Bool);
     TORCH_INTERNAL_ASSERT(vals_up_.back().get() == true_val);
     true_val_ =
         std::unique_ptr<Scalar>(vals_up_.back().release()->as<Scalar>());

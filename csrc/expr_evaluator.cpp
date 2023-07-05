@@ -88,7 +88,7 @@ void ExpressionEvaluator::bind(
     //  in pre-computed mode.
     precomputed_values_->bindConcreteParallelTypeValue(pt, concrete_value);
   } else {
-    bind(stringifyThreadSize(pt), EvaluatorValue(concrete_value));
+    bind(stringifyThreadSize(pt), concrete_value);
   }
 }
 

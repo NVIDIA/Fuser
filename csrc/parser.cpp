@@ -3650,10 +3650,10 @@ class IrParser {
             static_cast<c10::TypePtr>(at::ComplexType::get()))) {
       CgValue cg_val = nullptr;
       if (auto ival = torch::jit::constant_as<c10::complex<double>>(val)) {
-        cg_val = IrBuilder::create<ComplexDouble>(
+        cg_val = IrBuilder::create<Scalar>(
             static_cast<std::complex<double>>(ival.value()));
       } else {
-        cg_val = IrBuilder::create<ComplexDouble>();
+        cg_val = IrBuilder::create<Scalar>(DataType::ComplexDouble);
       }
       value_map_.emplace(val->unique(), cg_val);
       return true;
@@ -3686,7 +3686,7 @@ class IrParser {
       if (auto ival = torch::jit::constant_as<bool>(val)) {
         cg_val = IrBuilder::create<Scalar>(ival.value());
       } else {
-        cg_val = IrBuilder::create<Scalar>();
+        cg_val = IrBuilder::create<Scalar>(DataType::Bool);
       }
       value_map_.emplace(val->unique(), cg_val);
       return true;

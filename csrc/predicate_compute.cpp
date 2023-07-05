@@ -679,7 +679,7 @@ void UnswitchPredicate::mergeUnswitchPredicateOffsets(
     Val* offset,
     MergedPredicates::Info& merged_predicate_info,
     bool is_start) {
-  auto is_more_restrictive = [&is_start](int64_t new_val, int64_t current_val) {
+  auto is_more_restrictive = [&is_start](auto new_val, auto current_val) {
     if (is_start) {
       return new_val < current_val;
     } else {
@@ -692,7 +692,7 @@ void UnswitchPredicate::mergeUnswitchPredicateOffsets(
   // more restrictive. If it's dynamic, just adds it to the dynamic
   // predicate list.
   if (offset_int && offset_int->isConst()) {
-    auto offset_const = offset_int->value().value();
+    auto offset_const = offset_int->value();
     auto& static_pred = merged_predicate_info.static_pred;
     auto& static_offset = merged_predicate_info.static_offset;
     if (static_pred == nullptr ||

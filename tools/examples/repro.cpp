@@ -44,12 +44,12 @@ TEST_F(NVFuserTest, FusionGeneratedTest_CUDA) {
          IrBuilder::create<Scalar>(768)});
     auto tv5 = view(tv2, {1024, 768}, {1, 1024, 768});
     auto tv6 = castOp(DataType::Float, tv5);
-    auto s7 = IrBuilder::create<Double>(0.5);
+    auto s7 = IrBuilder::create<Scalar>(0.5);
     auto tv8 = mul(tv6, s7);
-    auto s9 = IrBuilder::create<Double>(0.707107);
+    auto s9 = IrBuilder::create<Scalar>(0.707107);
     auto tv10 = mul(tv6, s9);
     auto tv11 = erf(tv10);
-    auto s12 = IrBuilder::create<Double>(1.0);
+    auto s12 = IrBuilder::create<Scalar>(1.0);
     auto tv13 = add(tv11, s12);
     auto tv14 = mul(tv8, tv13);
     auto tv15 = castOp(DataType::Half, tv14);
@@ -67,7 +67,7 @@ TEST_F(NVFuserTest, FusionGeneratedTest_CUDA) {
         {IrBuilder::create<Scalar>(1),
          IrBuilder::create<Scalar>(1024),
          IrBuilder::create<Scalar>(1)});
-    auto s21 = IrBuilder::create<Double>(1e-05);
+    auto s21 = IrBuilder::create<Scalar>(1e-05);
     auto tv22 = add(tv19, s21);
     auto tv23 = expand(
         broadcast(tv20, {false, false, false}),
