@@ -4140,7 +4140,7 @@ TEST_F(NVFuserTest, FusionPartialSplit1_CUDA) {
 
   // gridDim.x is ceilDiv(numel_x - 2, 8), not ceilDiv(numel_x, 8),
   // so it's going to be just 2 rather than 3.
-  const int numel_x = 18;
+  const int64_t numel_x = 18;
 
   ExpressionEvaluator evaluator;
   auto root_extent = tv4->getRootDomain()[0]->extent();

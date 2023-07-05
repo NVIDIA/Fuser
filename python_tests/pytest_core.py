@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # Owner(s): ["module: nvfuser"]
 
-from pytest_utils import all_dtypes
+from pytest_utils import all_dtypes, ArgumentType
 from typing import Callable, Optional
 import torch
 import jax.numpy as jnp
@@ -109,4 +109,4 @@ class OpInfo:
     # symbolic_parameter_list specifies whether an operation's parameters are symbolic.
     # All keyword arguments are considered constant.
     # If symbolic_parameter_list is None, then we assume all parameters to be symbolic.
-    symbolic_parameter_list: Optional[list[bool]] = None
+    symbolic_parameter_list: Optional[list[ArgumentType]] = None

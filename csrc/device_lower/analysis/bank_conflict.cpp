@@ -223,9 +223,9 @@ class BankConflictInfo : public kir::IrVisitor {
   void bindValues(
       LaunchParams launch_params,
       const std::unordered_map<Val*, EvaluatorValue>& known_values) {
-    expr_eval_.bind("blockIdx.x", 0);
-    expr_eval_.bind("blockIdx.y", 0);
-    expr_eval_.bind("blockIdx.z", 0);
+    expr_eval_.bind("blockIdx.x", 0L);
+    expr_eval_.bind("blockIdx.y", 0L);
+    expr_eval_.bind("blockIdx.z", 0L);
     if (launch_params.bdimx() != LaunchParams::UNINITIALIZED_VAL) {
       expr_eval_.bind(ParallelType::TIDx, launch_params.bdimx());
     }

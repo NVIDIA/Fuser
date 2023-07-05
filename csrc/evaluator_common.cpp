@@ -198,7 +198,7 @@ void PrecomputedValues::initializeValueList(
   num_of_values_ = (int)sorted_value_list.size();
   defined_ = std::vector<bool>(num_of_values_, false);
   is_constant_ = std::vector<bool>(num_of_values_, false);
-  values_ = std::vector<EvaluatorValue>(num_of_values_, EvaluatorValue(-1));
+  values_ = std::vector<EvaluatorValue>(num_of_values_, EvaluatorValue());
 
   // Fill in constants and assign evaluator indices
   for (const auto i : c10::irange(num_of_values_)) {
@@ -350,7 +350,7 @@ void PrecomputedValues::bindTensorMetaData(
     if (root_domain[dim]->hasExpandedExtent()) {
       auto extent = root_domain[dim]->extent();
       auto expanded_extent = root_domain[dim]->expandedExtent();
-      bindValue(extent->evaluatorIndex(), 1);
+      bindValue(extent->evaluatorIndex(), 1L);
       bindValue(expanded_extent->evaluatorIndex(), value);
     } else {
       auto extent = root_domain[dim]->extent();

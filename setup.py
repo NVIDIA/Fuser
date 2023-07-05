@@ -318,6 +318,10 @@ def main():
         nvfuser_package_data = [
             "lib/libnvfuser_codegen.so",
             "include/nvfuser/*.h",
+            "include/nvfuser/C++20/type_traits",
+            "include/nvfuser/device_lower/*.h",
+            "include/nvfuser/device_lower/analysis/*.h",
+            "include/nvfuser/device_lower/pass/*.h",
             "include/nvfuser/kernel_db/*.h",
             "include/nvfuser/multidevice/*.h",
             "include/nvfuser/ops/*.h",
