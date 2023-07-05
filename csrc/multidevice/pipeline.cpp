@@ -63,14 +63,15 @@ class PipelineBuilder final {
   // Check (partially) that the pipeline is valid and satisfies the assumptions
   // described in pipeline.h
   // TODO: For now we only check the TensorView for simplicity.
-  //       Ideally we also need to perform the same check for Vals that are not TensorView,
-  //       but this requires slight changes in the Pipeline interface
+  //       Ideally we also need to perform the same check for Vals that are not
+  //       TensorView, but this requires slight changes in the Pipeline
+  //       interface
   void validate() {
     std::unordered_set<TensorView*> tv_in_stages;
     // Check that each TensorView belongs to at most one stage
     for (auto& stage_desc : pipeline_->descriptor().stageDescriptors) {
       for (auto val : stage_desc->vals()) {
-        if (val->isA<TensorView>()){
+        if (val->isA<TensorView>()) {
           TORCH_INTERNAL_ASSERT(
               tv_in_stages.insert(val->as<TensorView>()).second,
               "the TensorView " + val->toString() +

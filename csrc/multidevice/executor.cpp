@@ -13,10 +13,12 @@
 namespace nvfuser {
 
 bool PipelineExecutor::shouldRun(PipelineStage* stage) {
-  should_run_.try_emplace(stage, std::count(
-            stage->descriptor()->mesh.deviceIndices().begin(),
-            stage->descriptor()->mesh.deviceIndices().end(),
-            runtime_.rankToDeviceIdx(runtime_.comm_.rank())));
+  should_run_.try_emplace(
+      stage,
+      std::count(
+          stage->descriptor()->mesh.deviceIndices().begin(),
+          stage->descriptor()->mesh.deviceIndices().end(),
+          runtime_.rankToDeviceIdx(runtime_.comm_.rank())));
   return should_run_[stage];
 }
 
@@ -28,12 +30,15 @@ void PipelineExecutor::handle(PipelineStage* stage) {
   }
 
   // Create the stage executor
-  fec_.try_emplace(stage, std::make_unique<FusionExecutorCache>(runtime_.pipeline_->stageToFusion(stage)));
+  fec_.try_emplace(
+      stage,
+      std::make_unique<FusionExecutorCache>(
+          runtime_.pipeline_->stageToFusion(stage)));
   // Run the stage to get concrete outputs or placeholders
   // TODO: allocate output space only if strictly necessary
-  std::vector<at::Tensor> outputs =
-      shouldRun(stage) ? fec_[stage]->runFusionWithInputs(stage_input_IValues)
-                       : fec_[stage]->allocOutputSpace(stage_input_IValues);
+  std::vector<at::Tensor> outputs = shouldRun(stage)
+      ? fec_[stage]->runFusionWithInputs(stage_input_IValues)
+      : fec_[stage]->allocOutputSpace(stage_input_IValues);
 
   // Store the outputs or placeholders in the context
   for (auto output_idx : c10::irange(stage->outputs().size())) {

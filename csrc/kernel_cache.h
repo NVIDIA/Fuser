@@ -213,19 +213,19 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
     return executors_;
   }
 
-  std::vector<at::Tensor> allocOutputSpace(
-      KernelArgumentHolder& args) {
+  std::vector<at::Tensor> allocOutputSpace(KernelArgumentHolder& args) {
     if (!isCompiled()) {
       compileFusionParallel(args);
     }
 
     std::vector<at::Tensor> outputs;
-    for (auto& executor: executors_){
-      std::vector<at::Tensor> executor_outputs = executor.allocOutputSpace(args);
+    for (auto& executor : executors_) {
+      std::vector<at::Tensor> executor_outputs =
+          executor.allocOutputSpace(args);
       outputs.insert(
-        outputs.end(),
-        std::make_move_iterator(executor_outputs.begin()),
-        std::make_move_iterator(executor_outputs.end()));
+          outputs.end(),
+          std::make_move_iterator(executor_outputs.begin()),
+          std::make_move_iterator(executor_outputs.end()));
     }
 
     return outputs;

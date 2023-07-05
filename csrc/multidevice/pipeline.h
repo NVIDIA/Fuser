@@ -49,8 +49,8 @@ The PipelineStageDescriptor are passed to the Pipeline (through a
 PipelineDescriptor) by REFERENCE. As a consequence, after instantiation of the
 Pipeline, it is not allowed to add Vals to the PipelineStageDescriptor nor to
 free them. However, even after the Pipeline is instantiated, the user can still
-set the mesh (see multidevice/device_mesh.h) which is basically an n-array of devices
-indices on which the stage should be executed at runtime.
+set the mesh (see multidevice/device_mesh.h) which is basically an n-array of
+devices indices on which the stage should be executed at runtime.
 */
 
 namespace nvfuser {
