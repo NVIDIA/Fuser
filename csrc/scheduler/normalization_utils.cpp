@@ -625,17 +625,19 @@ int64_t partialReductionBufferSize(
   return partial_reduction_buffer_size;
 }
 
-std::optional<int64_t> getOptionalInnerOuterPersistentBufferBatches(
+std::pair<std::optional<int64_t>, int64_t>
+getOptionalInnerOuterPersistentBufferBatches(
     const int64_t inner_dim_numel,
     const int64_t outer_dim_numel,
     const int64_t persistent_buffer_size,
     const int64_t vectorize_factor,
-    const int64_t warp_size) {
+    const int64_t warp_size,
+    const bool ignore_register_size_limit) {
   // if inner_dim_numel <= 1024, we are doing multiple reductions per block
   // with a constant batch size of 1. See Step 5 of
   // innerOuterPersistentHeuristic
   if (inner_dim_numel <= 1024l) {
-    return 1l;
+    return std::make_pair(1l, inner_dim_numel / vectorize_factor);
   }
   // Set a minimum workload for each thread to take advantage of low
   // intra-threads communication cost. Tuned for layer_norm backward on A100.
@@ -659,50 +661,51 @@ std::optional<int64_t> getOptionalInnerOuterPersistentBufferBatches(
   //! in the reduction domain. vectorization_factor is the vectorization factor
   //! of inputs and outputs.
   auto getMaximumInnerOuterPersistentBufferBatch = [&]() -> int64_t {
-    int64_t register_per_batch = persistent_buffer_size / inner_dim_numel /
-        scheduler_utils::bytes_per_register * vectorize_factor;
+    int64_t register_per_batch = persistent_buffer_size / inner_dim_numel *
+        vectorize_factor / scheduler_utils::bytes_per_register;
     return scheduler_utils::safeDiv(
         scheduler_utils::max_registers_per_thread -
             scheduler_utils::register_overhead,
         register_per_batch);
   };
 
-  int64_t threads_per_block = warp_size / 4;
-  int64_t inner_batch = inner_dim_numel / vectorize_factor / threads_per_block;
-  const int64_t threads_per_block_max = inner_dim_numel >= 20480l ? 512l : 256l;
+  const int64_t after_vectorization = inner_dim_numel / vectorize_factor;
+  const int64_t threads_per_block_min = std::min(after_vectorization, 128l);
+  const int64_t threads_per_block_max = getThreadsPerSMGivenRegPerThread(255l);
   const int64_t batch_min = getMinimumBatch();
-  auto canReduceBatch = [&](auto factor) -> bool {
-    return inner_batch % factor == 0 && inner_batch / factor >= batch_min &&
-        threads_per_block * factor <= threads_per_block_max;
-  };
-  // reduce batch size by 2, 3, or 5 until we reach the minimum batch size
-  // only consider divisible splits
-  while (inner_batch > batch_min && threads_per_block < threads_per_block_max) {
-    bool modified = false;
-    for (auto factor : {2, 3, 5}) {
-      if (canReduceBatch(factor)) {
-        inner_batch /= factor;
-        threads_per_block *= factor;
-        modified = true;
-        break;
-      }
-    }
-    if (!modified) {
-      break;
-    }
-  }
-  TORCH_INTERNAL_ASSERT(
-      inner_batch >= batch_min,
-      "Batch size is larger than expected! Please report this issue.",
-      " inner_batch = ",
-      inner_batch,
-      ", batch_min = ",
-      batch_min);
   const int64_t batch_max = getMaximumInnerOuterPersistentBufferBatch();
-  if (inner_batch <= batch_max) {
-    return inner_batch;
+
+  // Start from the smallest threads_per_block. If the corresponding batch size
+  // is larger than batch_max, try increase threads per block by a warp until
+  // the threads_per_block reaches threads_per_block_max or the batch size
+  // reaches batch_min.
+  int64_t threads_per_block = threads_per_block_min;
+  int64_t inner_batch = ceilDiv(after_vectorization, threads_per_block);
+  while (inner_batch > batch_max &&
+         threads_per_block + warp_size <= threads_per_block_max &&
+         ceilDiv(after_vectorization, threads_per_block + warp_size) >=
+             batch_min) {
+    threads_per_block += warp_size;
+    inner_batch = ceilDiv(after_vectorization, threads_per_block);
+  }
+
+  // The maximum feature size can be processed without register spills and
+  // fusion segmentation for fp16 is 14K. Here, we can allow register spills to
+  // avoid fusion segmentation by incrase maximum batch size by 3. This allows
+  // us to process up to 20K features (14K + 256*8*3).
+  // Performance on A100-80G:
+  // (1) shape= 16384 x 16384, 1300 GB/s, time_us mean(var)= 1245.08 (8.89703),
+  // 64 bytes stack frame, 64 bytes spill stores, 128 bytes spill loads. (2)
+  // shape= 16384 x 18432, 1070 GB/s, time_us mean(var)= 1683.87 (19.527), 192
+  // bytes stack frame, 192 bytes spill stores, 384 bytes spill loads.
+  // (3) shape= 16384 x 20480, 730 GB/s time_us mean(var)= 2766.64 (12.3883),
+  // 320 bytes stack frame, 320 bytes spill stores, 640 bytes spill loads. As a
+  // ref, the segmented version takes time_us mean(var)= 2841.91 (5.20231)
+  // without considering the overhead of fusion segmentation.
+  if (ignore_register_size_limit || inner_batch <= batch_max + 3) {
+    return std::make_pair(inner_batch, threads_per_block);
   } else {
-    return std::nullopt;
+    return std::make_pair(std::nullopt, -1);
   }
 }
 
