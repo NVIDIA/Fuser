@@ -8847,14 +8847,13 @@ TEST_F(NVFuserTest, FusionLayerNormFusedOpsRedundantCast_CUDA) {
     auto tv18 = sum(tv15, {1}, false);
     auto tv19 = broadcast(tv18, {false, true});
 
-    nvfuser::Val* num_features =
-        IrBuilder::create<Double>(1, dtype = DataType::Double);
+    nvfuser::Val* num_features = IrBuilder::create<Double>(1.0);
     num_features = mul(num_features, tv0->getLeafDomain()[0]->extent());
     auto s20 = num_features;
 
     auto s21 = reciprocal(s20);
     auto tv22 = mul(tv19, s21);
-    auto s23 = IrBuilder::create<Double>(kEps, dtype = DataType::Double);
+    auto s23 = IrBuilder::create<Double>(kEps);
     auto tv24 = add(tv17, s23);
     auto tv25 = rsqrt(tv24);
     auto tv26 = broadcast(tv22, {false, false});
