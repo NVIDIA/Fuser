@@ -274,10 +274,6 @@ void initNvFuserPythonBindings(PyObject* module) {
           py::arg("device") = py::none(),
           py::return_value_policy::reference)
       .def(
-          "_debug_output",
-          [](FusionDefinition& self) { return self.getDebugOutput(); },
-          py::return_value_policy::reference)
-      .def(
           "_fusion_ir",
           [](FusionDefinition& self) { return self.fusionIr(); },
           py::return_value_policy::reference)
