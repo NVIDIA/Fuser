@@ -681,18 +681,16 @@ getOptionalInnerOuterPersistentBufferBatches(
   const int64_t batch_max = getMaximumInnerOuterPersistentBufferBatch();
 
   // Start from the smallest threads_per_block. If the corresponding batch size
-  // is larger than batch_max, try increase threads per block by a threads_step
-  // until the threads_per_block reaches threads_per_block_max or the batch size
-  // reaches batch_min. Here the threads_step is set to warp_size*4, it improves
-  // the chance of being divisible by bdimx and bdimy.
+  // is larger than batch_max, try increase threads per block by a warp until
+  // the threads_per_block reaches threads_per_block_max or the batch size
+  // reaches batch_min.
   int64_t threads_per_block = threads_per_block_min;
-  int64_t threads_step = warp_size * 4;
   int64_t inner_batch = ceilDiv(after_vectorization, threads_per_block);
   while (inner_batch > batch_max &&
-         threads_per_block + threads_step <= threads_per_block_max &&
-         ceilDiv(after_vectorization, threads_per_block + threads_step) >=
+         threads_per_block + warp_size <= threads_per_block_max &&
+         ceilDiv(after_vectorization, threads_per_block + warp_size) >=
              batch_min) {
-    threads_per_block += threads_step;
+    threads_per_block += warp_size;
     inner_batch = ceilDiv(after_vectorization, threads_per_block);
   }
 
