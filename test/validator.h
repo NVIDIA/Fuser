@@ -57,7 +57,6 @@ std::pair<double, double> getTolerance(
     const ValidationConstants& tolerances) {
 #if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic push
-// NOLINTNEXTLINE(clang-diagnostic-unknown-warning-option)
 #pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
 #endif
   switch (std::get<PrimDataType>(dtype.type)) {
