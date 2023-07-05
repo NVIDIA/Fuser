@@ -369,7 +369,7 @@ NVFUSER_BENCHMARK_RUN(NvFuserScheduler_LayerNorm_BWD_non64_fp32)
     ->Apply(add_args_non64)
     ->Unit(benchmark::kMicrosecond)
     ->UseManualTime();
-    
+
 //------------------------------------------------------------------------------
 
 BENCHMARK(Baseline_LayerNorm_BWD_fp32)

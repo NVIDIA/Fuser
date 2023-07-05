@@ -635,9 +635,13 @@ getOptionalInnerOuterPersistentBufferBatches(
     const bool ignore_register_size_limit) {
   // if inner_dim_numel <= 1024, we are doing multiple reductions per block
   // with a constant batch size of 1. See Step 5 of
-  // innerOuterPersistentHeuristic
+  // innerOuterPersistentHeuristic. However, if vectorize_factor is 1, we can
+  // increase the persistent batch to 4, which set a minimum workload for each
+  // thread to take advantage of low intra-threads communication cost.
   if (inner_dim_numel <= 1024l) {
-    return std::make_pair(1l, inner_dim_numel / vectorize_factor);
+    const int64_t batch = (vectorize_factor == 1) ? 4l : 1l;
+    return std::make_pair(
+        batch, ceilDiv(inner_dim_numel, batch * vectorize_factor));
   }
   // Set a minimum workload for each thread to take advantage of low
   // intra-threads communication cost. Tuned for layer_norm backward on A100.
@@ -661,8 +665,9 @@ getOptionalInnerOuterPersistentBufferBatches(
   //! in the reduction domain. vectorization_factor is the vectorization factor
   //! of inputs and outputs.
   auto getMaximumInnerOuterPersistentBufferBatch = [&]() -> int64_t {
-    int64_t register_per_batch = persistent_buffer_size / inner_dim_numel *
-        vectorize_factor / scheduler_utils::bytes_per_register;
+    int64_t register_per_batch = ceilDiv(
+        persistent_buffer_size / inner_dim_numel * vectorize_factor,
+        scheduler_utils::bytes_per_register);
     return scheduler_utils::safeDiv(
         scheduler_utils::max_registers_per_thread -
             scheduler_utils::register_overhead,
@@ -676,16 +681,18 @@ getOptionalInnerOuterPersistentBufferBatches(
   const int64_t batch_max = getMaximumInnerOuterPersistentBufferBatch();
 
   // Start from the smallest threads_per_block. If the corresponding batch size
-  // is larger than batch_max, try increase threads per block by a warp until
-  // the threads_per_block reaches threads_per_block_max or the batch size
-  // reaches batch_min.
+  // is larger than batch_max, try increase threads per block by a threads_step
+  // until the threads_per_block reaches threads_per_block_max or the batch size
+  // reaches batch_min. Here the threads_step is set to warp_size*4, it improves
+  // the chance of being divisible by bdimx and bdimy.
   int64_t threads_per_block = threads_per_block_min;
+  int64_t threads_step = warp_size * 4;
   int64_t inner_batch = ceilDiv(after_vectorization, threads_per_block);
   while (inner_batch > batch_max &&
-         threads_per_block + warp_size <= threads_per_block_max &&
-         ceilDiv(after_vectorization, threads_per_block + warp_size) >=
+         threads_per_block + threads_step <= threads_per_block_max &&
+         ceilDiv(after_vectorization, threads_per_block + threads_step) >=
              batch_min) {
-    threads_per_block += warp_size;
+    threads_per_block += threads_step;
     inner_batch = ceilDiv(after_vectorization, threads_per_block);
   }
 
@@ -702,7 +709,11 @@ getOptionalInnerOuterPersistentBufferBatches(
   // 320 bytes stack frame, 320 bytes spill stores, 640 bytes spill loads. As a
   // ref, the segmented version takes time_us mean(var)= 2841.91 (5.20231)
   // without considering the overhead of fusion segmentation.
-  if (ignore_register_size_limit || inner_batch <= batch_max + 3) {
+  // (4) Disable this optimization if vectorize_factor is 1 due to high register
+  // usage in cases can't be vectorized.
+  const int64_t batch_max_reg_spill =
+      vectorize_factor > 1 ? batch_max + 3 : batch_max;
+  if (ignore_register_size_limit || inner_batch <= batch_max_reg_spill) {
     return std::make_pair(inner_batch, threads_per_block);
   } else {
     return std::make_pair(std::nullopt, -1);

@@ -212,9 +212,9 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
     rparams->tidx_for_outer_reduction = true;
     constexpr int64_t threads_per_block_mrpb = 512;
 
-    // Step-1, InnerParams, Reduction dim: inner_vect(reuse), inner_batch, bdimx
-    iop.inner_batch = 1;
-    iop.bdimx = ceilDiv(inner_dim_numel, iop.inner_vect);
+    // Step-1, InnerParams, Reduction dim: inner_vect(reuse),
+    // inner_batch(reuse), bdimx
+    iop.bdimx = ceilDiv(inner_dim_numel, iop.inner_vect * iop.inner_batch);
 
     // Step-2, InnerParams, Iteration dim: gdimy, bdimy (in next step)
     reg_per_thread =
