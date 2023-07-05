@@ -1243,6 +1243,108 @@ bool hasNonUniqueBcast(Fusion* fusion) {
 //!        This function will be called when compiling a kernel. It should apply
 //!        scheduling to the given fusion
 
+//! NoKernel scheduler represents the case where we can avoid compiling and
+//! launching any CUDA kernels at all.
+//!
+//! For example, if the Fusion contains only slice and set operations, or if
+//! there are reshapes that can be done without copying data.
+class NoKernelScheduler : public SchedulerEntry {
+  //! Provides a dummy heuristic type to ensure
+  //!  unified interface on NoKernel scheduler.
+  class NoKernelHeuristic : public HeuristicParams {
+   public:
+    using HeuristicParams::HeuristicParams;
+
+    size_t hash() const override {
+      return 0;
+    }
+    std::shared_ptr<HeuristicParams> clone() const override {
+      return std::make_shared<NoKernelHeuristic>();
+    }
+    bool sameAs(const std::shared_ptr<HeuristicParams>& other) const override {
+      auto other_casted = std::dynamic_pointer_cast<ReductionParams>(other);
+      return other_casted != nullptr && other_casted->cparams == cparams;
+    };
+  };
+
+ public:
+  explicit NoKernelScheduler(
+      Fusion* fusion,
+      SchedulerRuntimeInfo& runtime_info,
+      HeuristicSummary* data_cache = nullptr)
+      : SchedulerEntry(ScheduleHeuristic::NoKernel) {
+    params_ =
+        std::make_shared<NoKernelHeuristic>("", runtime_info.getIndexType());
+  }
+
+  //! Check if the no-op heuristics apply in given fusion
+  static bool canScheduleCompileTime(Fusion* fusion) {
+    if (fusion->isNoOp()) {
+      return true;
+    }
+
+    auto all_stmts = StmtSort::getStmts(fusion, true, true);
+    std::unordered_map<TensorView*, std::vector<std::optional<bool>>>
+        nokernel_contiguity;
+    auto contiguity = [&nokernel_contiguity](TensorView* tv) {
+      auto it = nokernel_contiguity.find(tv);
+      return (it == nokernel_contiguity.end()) ? tv->contiguity() : it->second;
+    };
+
+    for (auto stmt : all_stmts) {
+      // Propagate modified contiguity from inputs to outputs. Even though the
+      // original output TensorView might have MemoryType local and be marked
+      // fully contiguous, when we perform a metadata-only operation we will
+      // mark the output MemoryType global and the contiguity might no longer be
+      // fully contiguous. Since contiguity affects whether or not a reshape
+      // operation is metadata-only or requires a copy, we propagate that
+      // information here without modifying the Fusion.
+
+      if (auto vop = dynamic_cast<ViewOp*>(stmt)) {
+        auto in = vop->in()->as<TensorView>();
+        const auto& contig = getContiguity(in);
+        // TODO: compute new contiguity
+      } else if (auto lsop = dynamic_cast<LoadStoreOp*>(stmt)) {
+        // The set, transpose, and permute ops all use opType() == Set
+        if (lsop->opType() != LoadStoreOpType::Set) {
+          return false;
+        }
+        // TODO: compute new contiguity
+      } else if (auto sop = dynamic_cast<SliceOp*>(stmt)) {
+        // TODO: compute new contiguity
+      } else if (auto fop = dynamic_cast<FullOp*>(stmt)) {
+        // TODO: compute new contiguity
+      } else {
+        // Check if this is a scalar op. If so, make sure it's one we can
+        // evaluate with ExpressionEvaluator.
+      }
+    }
+
+    return true;
+  }
+
+  static bool canScheduleRunTime(
+      Fusion* fusion,
+      SchedulerRuntimeInfo& runtime_info,
+      HeuristicSummary* data_cache = nullptr) {
+    return true;
+  }
+
+  void schedule(Fusion* fusion) override {
+    // Schedule is no-op.
+    return;
+  }
+
+ private:
+  void computeHeuristics(
+      Fusion* fusion,
+      SchedulerRuntimeInfo& runtime_info,
+      HeuristicSummary* data_cache = nullptr) {
+    // Heuristics is no-op.
+    return;
+  }
+};
+
 //! NoOp scheduler represents the case where scheduler will
 //!  not do any scheduling operations and forward the un-scheduled
 //!  fusion directly to code generation and kernel compilation.
@@ -2451,6 +2553,7 @@ class MatmulScheduler : public SchedulerEntry {
 // Schedule Table
 const std::vector<ScheduleHeuristic>& all_heuristics() {
   static const std::vector<ScheduleHeuristic> hlist = {
+      ScheduleHeuristic::NoKernel,
       ScheduleHeuristic::NoOp,
       ScheduleHeuristic::Reduction,
       ScheduleHeuristic::Transpose,
@@ -2496,6 +2599,9 @@ bool SchedulerEntry::canSchedule(
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache) {
   switch (sh) {
+    case ScheduleHeuristic::NoKernel:
+      return checkCanSchedule<NoKernelScheduler>(
+          fusion, runtime_info, data_cache);
     case ScheduleHeuristic::NoOp:
       return checkCanSchedule<NoOpScheduler>(fusion, runtime_info, data_cache);
     case ScheduleHeuristic::PointWise:
@@ -2527,6 +2633,10 @@ std::unique_ptr<SchedulerEntry> SchedulerEntry::makeEntry(
     HeuristicSummary* data_cache) {
   std::unique_ptr<SchedulerEntry> scheduler_entry = nullptr;
   switch (sh) {
+    case ScheduleHeuristic::NoKernel:
+      scheduler_entry =
+          std::make_unique<NoKernelScheduler>(fusion, runtime_info, data_cache);
+      break;
     case ScheduleHeuristic::NoOp:
       scheduler_entry =
           std::make_unique<NoOpScheduler>(fusion, runtime_info, data_cache);
@@ -2577,6 +2687,8 @@ size_t SchedulerEntryHash::operator()(const SchedulerEntry& se) const {
 
 std::string toString(ScheduleHeuristic sh) {
   switch (sh) {
+    case ScheduleHeuristic::NoKernel:
+      return "no-kernel";
     case ScheduleHeuristic::NoOp:
       return "no-op";
     case ScheduleHeuristic::PointWise:
@@ -2628,6 +2740,9 @@ HeuristicSummary::HeuristicSummary(
     SchedulerRuntimeInfo& runtime_info)
     : heuristic_(heuristic), recording_(true) {
   switch (heuristic) {
+    case ScheduleHeuristic::NoKernel:
+      NoKernelScheduler::canScheduleRunTime(fusion, runtime_info, this);
+      break;
     case ScheduleHeuristic::NoOp:
       NoOpScheduler::canScheduleRunTime(fusion, runtime_info, this);
       break;
@@ -2665,134 +2780,136 @@ HeuristicSummary::HeuristicSummary(
 
 void HeuristicSummary::validate() const {
   switch (heuristic_) {
-    case ScheduleHeuristic::NoOp: {
-      // TODO: need to cache the dynamically zero inputs?
-      break;
-    }
-    case ScheduleHeuristic::Transpose:
-    case ScheduleHeuristic::PointWise: {
-      if (heuristic_ == ScheduleHeuristic::PointWise) {
-        TORCH_INTERNAL_ASSERT(entry_type_map_.count(EntryType::DOMAIN_MAP));
+    case ScheduleHeuristic::NoKernel: {
+      case ScheduleHeuristic::NoOp: {
+        // TODO: need to cache the dynamically zero inputs?
+        break;
+      }
+      case ScheduleHeuristic::Transpose:
+      case ScheduleHeuristic::PointWise: {
+        if (heuristic_ == ScheduleHeuristic::PointWise) {
+          TORCH_INTERNAL_ASSERT(entry_type_map_.count(EntryType::DOMAIN_MAP));
+          TORCH_INTERNAL_ASSERT(
+              entry_type_map_.count(EntryType::REFERENCE_TENSORS));
+          TORCH_INTERNAL_ASSERT(entry_type_map_.count(
+              EntryType::VECTORIZABLE_INPUTS_AND_OUTPUTS));
+          TORCH_INTERNAL_ASSERT(
+              entry_type_map_.count(EntryType::TV_TO_CONTIG_INNER_SIZE_MAPS));
+          TORCH_INTERNAL_ASSERT(
+              entry_type_map_.count(EntryType::BROADCAST_BYTE_MULTIPLES));
+          TORCH_INTERNAL_ASSERT(
+              entry_type_map_.count(EntryType::CAN_SCHEDULE_TRANSPOSE));
+          auto can_schedule_transpose =
+              entry_type_map_.at(EntryType::CAN_SCHEDULE_TRANSPOSE)
+                  ->as<CompileTimeInfo<
+                      HeuristicCompileTime::CanScheduleTranspose>>()
+                  ->get();
+          if (!*can_schedule_transpose) {
+            break;
+          }
+        }
         TORCH_INTERNAL_ASSERT(
-            entry_type_map_.count(EntryType::REFERENCE_TENSORS));
+            entry_type_map_.count(EntryType::TRANSPOSE_DOMAIN_MAP));
+        TORCH_INTERNAL_ASSERT(entry_type_map_.count(
+            EntryType::INPUTS_AND_OUTPUTS_INNER_DIM_GROUPS));
+        TORCH_INTERNAL_ASSERT(
+            entry_type_map_.count(EntryType::REFERENCE_TENSORS_FOR_GROUPS));
+        TORCH_INTERNAL_ASSERT(
+            entry_type_map_.count(EntryType::INNER_MOST_DIMS_INFO));
+        break;
+      }
+      case ScheduleHeuristic::Reduction: {
+        TORCH_INTERNAL_ASSERT(entry_type_map_.count(EntryType::REDUCTION_TVS));
         TORCH_INTERNAL_ASSERT(
             entry_type_map_.count(EntryType::VECTORIZABLE_INPUTS_AND_OUTPUTS));
         TORCH_INTERNAL_ASSERT(
             entry_type_map_.count(EntryType::TV_TO_CONTIG_INNER_SIZE_MAPS));
         TORCH_INTERNAL_ASSERT(
-            entry_type_map_.count(EntryType::BROADCAST_BYTE_MULTIPLES));
-        TORCH_INTERNAL_ASSERT(
-            entry_type_map_.count(EntryType::CAN_SCHEDULE_TRANSPOSE));
-        auto can_schedule_transpose =
-            entry_type_map_.at(EntryType::CAN_SCHEDULE_TRANSPOSE)
-                ->as<CompileTimeInfo<
-                    HeuristicCompileTime::CanScheduleTranspose>>()
-                ->get();
-        if (!*can_schedule_transpose) {
-          break;
-        }
+            entry_type_map_.count(EntryType::UNROLLABLE_INPUTS_AND_OUTPUTS));
+        break;
       }
-      TORCH_INTERNAL_ASSERT(
-          entry_type_map_.count(EntryType::TRANSPOSE_DOMAIN_MAP));
-      TORCH_INTERNAL_ASSERT(entry_type_map_.count(
-          EntryType::INPUTS_AND_OUTPUTS_INNER_DIM_GROUPS));
-      TORCH_INTERNAL_ASSERT(
-          entry_type_map_.count(EntryType::REFERENCE_TENSORS_FOR_GROUPS));
-      TORCH_INTERNAL_ASSERT(
-          entry_type_map_.count(EntryType::INNER_MOST_DIMS_INFO));
-      break;
+      case ScheduleHeuristic::Persistent: {
+        TORCH_INTERNAL_ASSERT(entry_type_map_.count(EntryType::REDUCTION_TVS));
+        TORCH_INTERNAL_ASSERT(
+            entry_type_map_.count(EntryType::VECTORIZABLE_INPUTS_AND_OUTPUTS));
+        TORCH_INTERNAL_ASSERT(
+            entry_type_map_.count(EntryType::TV_TO_CONTIG_INNER_SIZE_MAPS));
+        TORCH_INTERNAL_ASSERT(
+            entry_type_map_.count(EntryType::UNROLLABLE_INPUTS_AND_OUTPUTS));
+        TORCH_INTERNAL_ASSERT(
+            entry_type_map_.count(EntryType::PERSISTENT_BUFFER_INFO));
+        // If check persistent factor only when persistent buffers needed.
+        auto persistent_buffer_info =
+            entry_type_map_.at(EntryType::PERSISTENT_BUFFER_INFO)
+                ->as<CompileTimeInfo<
+                    HeuristicCompileTime::PersistentBufferInfo>>()
+                ->get();
+        TORCH_INTERNAL_ASSERT(
+            !persistent_buffer_info->persistent_buffers.empty() &&
+            entry_type_map_.count(EntryType::SCOPE_PERSISTENT_FACTOR_INFO));
+        break;
+      }
+      case ScheduleHeuristic::Matmul: {
+        // TODO: add a proper set of checks
+        break;
+      }
+      default:
+        TORCH_INTERNAL_ASSERT(false, "unknown heuristic");
     }
-    case ScheduleHeuristic::Reduction: {
-      TORCH_INTERNAL_ASSERT(entry_type_map_.count(EntryType::REDUCTION_TVS));
-      TORCH_INTERNAL_ASSERT(
-          entry_type_map_.count(EntryType::VECTORIZABLE_INPUTS_AND_OUTPUTS));
-      TORCH_INTERNAL_ASSERT(
-          entry_type_map_.count(EntryType::TV_TO_CONTIG_INNER_SIZE_MAPS));
-      TORCH_INTERNAL_ASSERT(
-          entry_type_map_.count(EntryType::UNROLLABLE_INPUTS_AND_OUTPUTS));
-      break;
-    }
-    case ScheduleHeuristic::Persistent: {
-      TORCH_INTERNAL_ASSERT(entry_type_map_.count(EntryType::REDUCTION_TVS));
-      TORCH_INTERNAL_ASSERT(
-          entry_type_map_.count(EntryType::VECTORIZABLE_INPUTS_AND_OUTPUTS));
-      TORCH_INTERNAL_ASSERT(
-          entry_type_map_.count(EntryType::TV_TO_CONTIG_INNER_SIZE_MAPS));
-      TORCH_INTERNAL_ASSERT(
-          entry_type_map_.count(EntryType::UNROLLABLE_INPUTS_AND_OUTPUTS));
-      TORCH_INTERNAL_ASSERT(
-          entry_type_map_.count(EntryType::PERSISTENT_BUFFER_INFO));
-      // If check persistent factor only when persistent buffers needed.
-      auto persistent_buffer_info =
-          entry_type_map_.at(EntryType::PERSISTENT_BUFFER_INFO)
-              ->as<
-                  CompileTimeInfo<HeuristicCompileTime::PersistentBufferInfo>>()
-              ->get();
-      TORCH_INTERNAL_ASSERT(
-          !persistent_buffer_info->persistent_buffers.empty() &&
-          entry_type_map_.count(EntryType::SCOPE_PERSISTENT_FACTOR_INFO));
-      break;
-    }
-    case ScheduleHeuristic::Matmul: {
-      // TODO: add a proper set of checks
-      break;
-    }
-    default:
-      TORCH_INTERNAL_ASSERT(false, "unknown heuristic");
   }
-}
 
-void HeuristicSummary::insert(HeuristicSummary::EntryOwningPtr new_entry) {
-  TORCH_INTERNAL_ASSERT(
-      recording_, "should only insert entries at recording phase");
-  // Just override when insertion duplicates, equality not checked.
-  entry_type_map_[new_entry->type()] = new_entry.get();
-  entries_.emplace_back(std::move(new_entry));
-}
-
-template <typename EntryClass>
-HeuristicSummaryEntry<EntryClass>::HeuristicSummaryEntry(
-    HeuristicSummary* data_cache,
-    MakerFnType fn) {
-  using InfoType = CompileTimeInfo<EntryClass>;
-
-  if (!data_cache || data_cache->isRecording()) {
-    owned_data_ = fn();
-    data_ptr_ = owned_data_.get();
-
-    if (data_cache) {
-      std::unique_ptr<HeuristicCompileTime::CompileTimeInfoBase> new_entry =
-          std::make_unique<InfoType>(std::move(owned_data_));
-      data_cache->insert(std::move(new_entry));
-    }
-  } else {
-    data_ptr_ =
-        data_cache->at(EntryClass::EntryType)->template as<InfoType>()->get();
+  void HeuristicSummary::insert(HeuristicSummary::EntryOwningPtr new_entry) {
+    TORCH_INTERNAL_ASSERT(
+        recording_, "should only insert entries at recording phase");
+    // Just override when insertion duplicates, equality not checked.
+    entry_type_map_[new_entry->type()] = new_entry.get();
+    entries_.emplace_back(std::move(new_entry));
   }
-}
 
-// Template instantiation for pre-defined cache entries
-template class HeuristicSummaryEntry<HeuristicCompileTime::DomainMap>;
-template class HeuristicSummaryEntry<HeuristicCompileTime::TransposeDomainMap>;
-template class HeuristicSummaryEntry<HeuristicCompileTime::ReferenceTensors>;
-template class HeuristicSummaryEntry<
-    HeuristicCompileTime::ReferenceTensorsForGroups>;
-template class HeuristicSummaryEntry<
-    HeuristicCompileTime::VectorizableInputsAndOutputs>;
-template class HeuristicSummaryEntry<
-    HeuristicCompileTime::TvToContigInnerSizeMaps>;
-template class HeuristicSummaryEntry<
-    HeuristicCompileTime::InputsOutputsInnerDimGroups>;
-template class HeuristicSummaryEntry<
-    HeuristicCompileTime::UnrollableInputsAndOutputs>;
-template class HeuristicSummaryEntry<HeuristicCompileTime::ReductionTVs>;
-template class HeuristicSummaryEntry<
-    HeuristicCompileTime::PersistentBufferInfo>;
-template class HeuristicSummaryEntry<
-    HeuristicCompileTime::ScopePersistentFactorInfo>;
-template class HeuristicSummaryEntry<HeuristicCompileTime::BroadcastMultiples>;
-template class HeuristicSummaryEntry<HeuristicCompileTime::InnerMostDimInfo>;
-template class HeuristicSummaryEntry<
-    HeuristicCompileTime::CanScheduleTranspose>;
+  template <typename EntryClass>
+  HeuristicSummaryEntry<EntryClass>::HeuristicSummaryEntry(
+      HeuristicSummary * data_cache, MakerFnType fn) {
+    using InfoType = CompileTimeInfo<EntryClass>;
+
+    if (!data_cache || data_cache->isRecording()) {
+      owned_data_ = fn();
+      data_ptr_ = owned_data_.get();
+
+      if (data_cache) {
+        std::unique_ptr<HeuristicCompileTime::CompileTimeInfoBase> new_entry =
+            std::make_unique<InfoType>(std::move(owned_data_));
+        data_cache->insert(std::move(new_entry));
+      }
+    } else {
+      data_ptr_ =
+          data_cache->at(EntryClass::EntryType)->template as<InfoType>()->get();
+    }
+  }
+
+  // Template instantiation for pre-defined cache entries
+  template class HeuristicSummaryEntry<HeuristicCompileTime::DomainMap>;
+  template class HeuristicSummaryEntry<
+      HeuristicCompileTime::TransposeDomainMap>;
+  template class HeuristicSummaryEntry<HeuristicCompileTime::ReferenceTensors>;
+  template class HeuristicSummaryEntry<
+      HeuristicCompileTime::ReferenceTensorsForGroups>;
+  template class HeuristicSummaryEntry<
+      HeuristicCompileTime::VectorizableInputsAndOutputs>;
+  template class HeuristicSummaryEntry<
+      HeuristicCompileTime::TvToContigInnerSizeMaps>;
+  template class HeuristicSummaryEntry<
+      HeuristicCompileTime::InputsOutputsInnerDimGroups>;
+  template class HeuristicSummaryEntry<
+      HeuristicCompileTime::UnrollableInputsAndOutputs>;
+  template class HeuristicSummaryEntry<HeuristicCompileTime::ReductionTVs>;
+  template class HeuristicSummaryEntry<
+      HeuristicCompileTime::PersistentBufferInfo>;
+  template class HeuristicSummaryEntry<
+      HeuristicCompileTime::ScopePersistentFactorInfo>;
+  template class HeuristicSummaryEntry<
+      HeuristicCompileTime::BroadcastMultiples>;
+  template class HeuristicSummaryEntry<HeuristicCompileTime::InnerMostDimInfo>;
+  template class HeuristicSummaryEntry<
+      HeuristicCompileTime::CanScheduleTranspose>;
 
 } // namespace nvfuser

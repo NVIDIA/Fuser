@@ -16,6 +16,7 @@ namespace nvfuser {
 
 enum class TORCH_CUDA_CU_API ScheduleHeuristic {
   None,
+  NoKernel,
   NoOp,
   PointWise,
   Reduction,
