@@ -12,6 +12,7 @@
 
 #include <iostream>
 #include <typeinfo>
+#include <unordered_set>
 #include <vector>
 
 namespace nvfuser {
@@ -176,8 +177,11 @@ class UnionFind {
   }
 
   //! Resize the data-structure to equal or larger size than current
-  void enlarge(size_t new_size) {
+  virtual void enlarge(size_t new_size) {
     TORCH_CHECK(new_size >= size(), "Cannot shrink a UnionFind");
+    if (new_size == 0) {
+      return;
+    }
     TORCH_CHECK(
         new_size - 1 <=
             static_cast<size_t>(std::numeric_limits<IndexType>::max()),
@@ -265,7 +269,7 @@ class UnionFind {
 
   //! Merge classes of a and b so that they will share a root.
   //! Returns the new root
-  IndexType merge(IndexType a, IndexType b) {
+  virtual IndexType merge(IndexType a, IndexType b) {
     auto root_a = find(a);
     auto root_b = find(b);
     if (root_a == root_b) {
@@ -293,7 +297,7 @@ class UnionFind {
 
   //! Resize to zero losing all merge information without altering reserved
   //! capacity
-  void clear() {
+  virtual void clear() {
     parent_.clear();
     rank_.clear();
   }
@@ -301,6 +305,64 @@ class UnionFind {
  private:
   std::vector<IndexType> parent_;
   std::vector<IndexType> rank_;
+};
+
+//! This union-find holds some associated data that may optionally
+//! be bound to each equivalence class. For example, this can be used to
+//! associate a value to a class of symbolic scalars.
+template <typename IndexType, typename DataType>
+class UnionFindWithData : public UnionFind<IndexType> {
+ public:
+  //! Resize the data-structure to equal or larger size than current
+  void enlarge(size_t new_size) override {
+    UnionFind<IndexType>::enlarge(new_size);
+    data_.resize(new_size, std::nullopt);
+  }
+
+  //! Merge classes of a and b so that they will share a root.
+  //! Returns the new root.
+  IndexType merge(IndexType a, IndexType b) override {
+    auto root_a = find(a);
+    auto root_b = find(b);
+    if (root_a == root_b) {
+      return root_a;
+    }
+    // If root_a and root_b both have bound values, just check that they match.
+    // Otherwise, hold on to whichever value is bound, and ensure that after the
+    // merge it is still bound.
+    if (data_[root_a].has_value() && data_[root_b].has_value()) {
+      TORCH_INTERNAL_ASSERT(
+          data_[root_a].value() == data_[root_b].value(),
+          "Bound data values do not match in UnionFindWithData for a=",
+          a,
+          " and b=",
+          b);
+      UnionFind<IndexType>::merge(root_a, root_b);
+    } else {
+      auto bound_val =
+          data_[root_a].has_value() ? data_[root_a] : data_[root_b];
+      UnionFind<IndexType>::merge(root_a, root_b);
+      data_[find(root_a)] = bound_val;
+    }
+  }
+
+  //! Associate data with any element equivalent to a
+  void bind(IndexType a, DataType data) {
+    if (a >= UnionFind<IndexType>::size()) {
+      enlarge(a + 1);
+    }
+    data_[find(a)] = data;
+  }
+
+  //! Resize to zero losing all merge information without altering reserved
+  //! capacity
+  void clear() override {
+    UnionFind<IndexType>::clear();
+    data_.clear();
+  }
+
+ private:
+  std::vector<std::optional<DataType>> data_;
 };
 
 } // namespace nvfuser

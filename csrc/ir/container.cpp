@@ -68,6 +68,11 @@ IrCloner IrContainer::copy(const IrContainer* from, IrContainer* to) {
     }
   }
 
+  to->val_type_name_to_index_ = from->val_type_name_to_index_;
+
+  to->scalar_equality_ = from->scalar_equality_;
+  to->exact_mapping_ = from->exact_mapping_;
+
   return ir_cloner;
 }
 
@@ -174,8 +179,37 @@ void IrContainer::registerVal(Val* val) {
 
   vals_up_.emplace_back(std::unique_ptr<Val>(val));
   vals_.emplace(vals_up_.back().get());
-  val->setName(IrContainerPasskey(), getValName(vals_up_.back()->vtype()));
+  auto name = getValName(vals_up_.back()->vtype());
+  val->setName(IrContainerPasskey(), name);
+  auto index = raw_ptrs_.size();
   raw_ptrs_.emplace((void*)vals_up_.back().get());
+
+  // resize UnionFinds if necessary
+  switch (val->vtype()) {
+    case ValType::IterDomain:
+      if (val->name() >= exact_mapping_.size()) {
+        exact_mapping_.enlarge(val->name() + 1);
+      }
+      break;
+    case ValType::Scalar:
+      if (val->name() >= scalar_equality_.size()) {
+        scalar_equality_.enlarge(val->name() + 1);
+      }
+      break;
+    default: // do nothing
+      break;
+  }
+
+  // Record mapping from name to index in ValType-specific vector
+  auto vtypeInt = (size_t)val->vtype();
+  if (val_type_name_to_index_.size() <= vtypeInt) {
+    val_type_name_to_index_.resize(vtypeInt + 1);
+  }
+  auto index_vec = val_type_name_to_index_[vtypeInt];
+  if (index_vec.size() <= name) {
+    index_vec.resize(name + 1);
+  }
+  index_vec[name] = index;
 }
 
 //! Register expr with this container.
@@ -337,6 +371,28 @@ void IrContainer::assumeNonNegative(Val* val) {
   TORCH_INTERNAL_ASSERT(val->container() == this);
   lazyInitAxioms();
   axioms_->emplace_back(IrBuilder::geExpr(val, zeroVal()));
+}
+
+void IrContainer::assumeEqual(const Val* a, const Val* b) {
+  TORCH_INTERNAL_ASSERT(a->container() == this);
+  TORCH_INTERNAL_ASSERT(b->container() == this);
+  // ValType must be Scalar -- not NamedScalar
+  TORCH_INTERNAL_ASSERT(a->getValType().value() == ValType::Scalar);
+  TORCH_INTERNAL_ASSERT(b->getValType().value() == ValType::Scalar);
+  scalar_equality_.merge(a->name(), b->name());
+}
+
+bool IrContainer::areEqual(const Val* a, const Val* b) {
+  return false;
+}
+
+void IrContainer::setExactMapped(const IterDomain* a, const IterDomain* b) {
+  assumeEqual(a->getMaybeExpandedExtent(), b->getMaybeExpandedExtent());
+  exact_mapping_.merge(a->name(), b->name());
+}
+
+bool IrContainer::areExactMapped(const IterDomain* a, const IterDomain* b) {
+  return false;
 }
 
 } // namespace nvfuser

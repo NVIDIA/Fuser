@@ -10,6 +10,7 @@
 #include <c10/macros/Export.h>
 
 #include <ir/base_nodes.h>
+#include <union_find.h>
 #include <utils.h>
 
 #include <deque>
@@ -104,6 +105,24 @@ class TORCH_CUDA_CU_API IrContainer : public PolymorphicBase {
   void assumePositive(Val* val);
   void assumeNonNegative(Val* val);
 
+  //! Assume two scalar vals are equal. This merges the equivalence classes of a
+  //! and b in the scalar_equality_ UnionFind.
+  void assumeEqual(const Val* a, const Val* b);
+
+  //! Return true only if we have previously called assumeEqual(a, b)
+  //! Note this method is non-const since it will do path compression on the
+  //! underlying UnionFind.
+  bool areEqual(const Val* a, const Val* b);
+
+  //! Set two IterDomains to be part of the same equivalence class in
+  //! exact_mapping_. This also calls assumeEqual on their extents.
+  void setExactMapped(const IterDomain* a, const IterDomain* b);
+
+  //! Determine whether two IterDomains are marked as being exact mapped
+  //! Note this method is non-const since it will do path compression on the
+  //! underlying UnionFind.
+  bool areExactMapped(const IterDomain* a, const IterDomain* b);
+
  protected:
   static IrCloner copy(const IrContainer* from, IrContainer* to);
 
@@ -162,6 +181,20 @@ class TORCH_CUDA_CU_API IrContainer : public PolymorphicBase {
 
   // Values names counters
   std::unordered_map<ValType, StmtNameType> val_type_name_map_;
+
+  // We keep a mapping from name() to index in vals_up_ for each ValType. The
+  // following should hold for any Val:
+  //    v == val_type_name_to_index_[(size_t)v->valType()][v->name()]
+  // This allows us to work with integers only and still be able to retrieve a
+  // Val* for a given ValType.
+  std::vector<std::vector<size_t>> val_type_name_to_index_;
+
+  // UnionFinds represent equivalence relations. Exact mapped IterDomains are
+  // tracked with a UnionFind, and their extents are marked as equal using the
+  // more general scalar_equality_ UnionFind.
+  using UnionFindIndexType = uint16_t; // Change this if >64k Vals are expected
+  UnionFind<UnionFindIndexType> scalar_equality_;
+  UnionFind<UnionFindIndexType> exact_mapping_;
 
   // Expression names counter
   StmtNameType expr_name_counter_ = 0;
