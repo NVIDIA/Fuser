@@ -204,7 +204,7 @@ HaloInfo::HaloInfo(Fusion* fusion, std::shared_ptr<const ComputeAtMap> ca_map) {
   }
 
   if (isDebugDumpEnabled(DebugDumpOption::Halo)) {
-    nvfdebug() << toString() << std::endl;
+    debug() << toString() << std::endl;
   }
 
   // Note that validation requires consumer halo info

@@ -46,6 +46,6 @@ class TORCH_CUDA_CU_API DebugStreamGuard {
 
 //! This is just a short alias to avoid having to type
 //! DebugStreamGuard::getCurStream() for each line we want to debug-print.
-TORCH_CUDA_CU_API std::ostream& nvfdebug();
+TORCH_CUDA_CU_API std::ostream& debug();
 
 } // namespace nvfuser

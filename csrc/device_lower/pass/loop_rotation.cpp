@@ -307,8 +307,8 @@ class RotateLoop : kir::ExprMutator {
   //   }
   void rotate(kir::ForLoop* fl) {
     if (isDebugDumpEnabled(DebugDumpOption::LoopRotation)) {
-      nvfdebug() << "[Loop rotation] Rotating loop:" << std::endl
-                 << fl->toString() << std::endl;
+      debug() << "[Loop rotation] Rotating loop:" << std::endl
+              << fl->toString() << std::endl;
     }
     // Insert selected allocations and `prologue` before `fl`, and replace `fl`
     // with `rotated`
@@ -332,7 +332,7 @@ class RotateLoop : kir::ExprMutator {
     }
     if (prologue->empty()) {
       if (isDebugDumpEnabled(DebugDumpOption::LoopRotation)) {
-        nvfdebug() << "[Loop rotation] Nothing to do." << std::endl;
+        debug() << "[Loop rotation] Nothing to do." << std::endl;
       }
       return;
     }
@@ -345,8 +345,8 @@ class RotateLoop : kir::ExprMutator {
     }
     registerInsertBefore(fl, prologue);
     if (isDebugDumpEnabled(DebugDumpOption::LoopRotation)) {
-      nvfdebug() << "[Loop rotation] Prologue:" << std::endl
-                 << prologue->toString() << std::endl;
+      debug() << "[Loop rotation] Prologue:" << std::endl
+              << prologue->toString() << std::endl;
     }
     // main
     auto rotated = IrBuilder::create<kir::IfThenElse>(
@@ -361,8 +361,8 @@ class RotateLoop : kir::ExprMutator {
     }
     main->body().push_back(rotated);
     if (isDebugDumpEnabled(DebugDumpOption::LoopRotation)) {
-      nvfdebug() << "[Loop rotation] Main:" << std::endl
-                 << main->toString() << std::endl;
+      debug() << "[Loop rotation] Main:" << std::endl
+              << main->toString() << std::endl;
     }
     registerReplace(fl, main);
   }

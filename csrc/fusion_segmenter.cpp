@@ -245,7 +245,7 @@ std::ostream& operator<<(std::ostream& os, const SegmentedGroup* group) {
 }
 
 void SegmentedGroup::print() const {
-  nvfdebug() << this << "\n";
+  debug() << this << "\n";
 }
 
 bool SegmentedGroup::isFusionInputGroup() const {
@@ -265,7 +265,7 @@ std::ostream& operator<<(std::ostream& os, const SegmentedEdge* edge) {
 }
 
 void SegmentedEdge::print() const {
-  nvfdebug() << this << "\n";
+  debug() << this << "\n";
 }
 
 std::string toString(const SegmentedEdge* edge) {
@@ -1425,10 +1425,10 @@ std::ostream& operator<<(
 }
 
 void SegmentedFusion::print() const {
-  nvfdebug() << "Segmented_Fusion Dump: -- Re-written complete fusion:{\n";
+  debug() << "Segmented_Fusion Dump: -- Re-written complete fusion:{\n";
   completeFusion()->printMath();
-  nvfdebug() << "} // {Re-written complete fusion}\n";
-  nvfdebug() << this << "\n";
+  debug() << "} // {Re-written complete fusion}\n";
+  debug() << this << "\n";
 }
 
 std::string toString(const SegmentedFusion* segmented_fusion) {

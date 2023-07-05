@@ -138,7 +138,7 @@ class TORCH_CUDA_CU_API Fusion : public IrContainer {
 
   //! Print to default debugging output stream
   std::ostream& print() {
-    return print(nvfdebug());
+    return print(debug());
   }
 
   //! Print Arith exprs

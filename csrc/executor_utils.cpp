@@ -979,7 +979,7 @@ void dumpCompiledCodeToFile(
   std::stringstream file_name;
   file_name << "__tmp_kernel" << fusion_id << "."
             << (dump_cubin ? "cubin" : "ptx");
-  nvfdebug() << "PRINTING: " << file_name.str() << std::endl;
+  debug() << "PRINTING: " << file_name.str() << std::endl;
   std::ofstream out(file_name.str());
   TORCH_INTERNAL_ASSERT(out.is_open());
   out.write(code.data(), (std::streamsize)code.size());
@@ -1066,7 +1066,7 @@ class NvrtcCompileDriver {
           false, src, "\nCUDA NVRTC compile error: ", log_buf);
     }
     if (isDebugDumpEnabled(DebugDumpOption::PrintPtxasLog)) {
-      nvfdebug() << log_buf << std::endl;
+      debug() << log_buf << std::endl;
     }
     return std::string(log_buf);
   }
@@ -1121,7 +1121,7 @@ class CuModuleLoadDataDriver {
         &module, image, opts.size(), opts.data(), opt_vals.data()));
 
     if (logging_enabled_) {
-      nvfdebug() << log_ << std::endl;
+      debug() << log_ << std::endl;
     }
 
     return log_;
@@ -1299,15 +1299,14 @@ void warnRegisterSpill(const std::string& compile_log) {
       try {
         allowed_spill = std::stoi(optionArgs[0]);
       } catch (const std::exception& e) {
-        nvfdebug() << "skip invalid argument for WarnRegisterSpill, arg = "
-                   << optionArgs[0] << std::endl;
+        debug() << "skip invalid argument for WarnRegisterSpill, arg = "
+                << optionArgs[0] << std::endl;
       }
     }
   }
   if (stack_count > allowed_spill || store_count > allowed_spill ||
       load_count > allowed_spill) {
-    nvfdebug() << "WARNING: Register spill detected\n"
-               << compile_log << std::endl;
+    debug() << "WARNING: Register spill detected\n" << compile_log << std::endl;
   }
 }
 

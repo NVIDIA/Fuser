@@ -746,7 +746,7 @@ ComputeAtRootDomainMapBuilder::ComputeAtRootDomainMapBuilder(
         ss << "\t\t" << dk.toString() << "\n";
       }
     }
-    nvfdebug() << ss.str();
+    debug() << ss.str();
   }
   TORCH_INTERNAL_ASSERT(pending_map_.empty());
 }

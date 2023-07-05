@@ -378,21 +378,21 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
   }
 
   if (isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
-    nvfdebug() << "\n===== Pointwise Stats ========\n"
-               << "num_elems: " << n_elems << "\n"
-               << "elem_counts: " << elem_counts << "\n"
-               << "max_input_dtype_size: " << max_input_dtype_size << "\n"
-               << "vectorize_factor: " << vectorize_factor << std::endl;
-    nvfdebug() << "broadcast_byte_multiples: ";
+    debug() << "\n===== Pointwise Stats ========\n"
+            << "num_elems: " << n_elems << "\n"
+            << "elem_counts: " << elem_counts << "\n"
+            << "max_input_dtype_size: " << max_input_dtype_size << "\n"
+            << "vectorize_factor: " << vectorize_factor << std::endl;
+    debug() << "broadcast_byte_multiples: ";
     for (auto multiple : broadcast_byte_multiples) {
-      nvfdebug() << "(" << multiple.lhs_multiple << ", "
-                 << multiple.rhs_multiple << "), ";
+      debug() << "(" << multiple.lhs_multiple << ", " << multiple.rhs_multiple
+              << "), ";
     }
-    nvfdebug() << "LHS elems: "
-               << (right_elem_count > 0 ? n_elems / right_elem_count : 0)
-               << " RHS elems: " << right_elem_count << std::endl;
-    nvfdebug() << std::endl;
-    nvfdebug() << params->toString() << std::endl;
+    debug() << "LHS elems: "
+            << (right_elem_count > 0 ? n_elems / right_elem_count : 0)
+            << " RHS elems: " << right_elem_count << std::endl;
+    debug() << std::endl;
+    debug() << params->toString() << std::endl;
   }
 
   return params;

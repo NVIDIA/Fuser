@@ -117,7 +117,7 @@ bool LaunchParams::operator==(const LaunchParams& other) const {
 }
 
 void LaunchParams::print() const {
-  nvfdebug() << toString();
+  debug() << toString();
 }
 
 std::string LaunchParams::toString() const {

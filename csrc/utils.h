@@ -367,12 +367,12 @@ template <typename... Args>
 class DebugPrintScope {
  public:
   DebugPrintScope(std::string name, Args... args) : name_(std::move(name)) {
-    nvfdebug() << "Entering " << name_ << "("
-               << toDelimitedString(std::forward_as_tuple(args...)) << ")"
-               << std::endl;
+    debug() << "Entering " << name_ << "("
+            << toDelimitedString(std::forward_as_tuple(args...)) << ")"
+            << std::endl;
   }
   ~DebugPrintScope() {
-    nvfdebug() << "Leaving " << name_ << std::endl;
+    debug() << "Leaving " << name_ << std::endl;
   }
 
  private:

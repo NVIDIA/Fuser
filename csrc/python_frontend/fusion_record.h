@@ -259,9 +259,9 @@ struct OpRecord : RecordFunctor {
         result = result &&
             (fusion_op_.target_type() == child_ptr->fusion_op_.target_type());
         if (isDebugDumpEnabled(DebugDumpOption::PythonFrontendDebug)) {
-          nvfdebug() << "\nOpRecord: " << name_ << " Target Type [self: 0x"
-                     << fusion_op_.target_type().name() << "] [other: 0x"
-                     << child_ptr->fusion_op_.target_type().name() << "] ";
+          debug() << "\nOpRecord: " << name_ << " Target Type [self: 0x"
+                  << fusion_op_.target_type().name() << "] [other: 0x"
+                  << child_ptr->fusion_op_.target_type().name() << "] ";
         }
         // Match the nvFuser arith function pointers
         // IMPORTANT! you need to dereference the target pointer in order
@@ -271,7 +271,7 @@ struct OpRecord : RecordFunctor {
              *child_ptr->fusion_op_
                   .template target<OutType (*)(ArgTypes...)>());
         if (isDebugDumpEnabled(DebugDumpOption::PythonFrontendDebug)) {
-          nvfdebug()
+          debug()
               << "Target  Ptr [self: 0x" << std::hex
               << (size_t)*fusion_op_.template target<OutType (*)(ArgTypes...)>()
               << "] [other: 0x" << std::hex
@@ -1107,9 +1107,9 @@ struct CastOpRecord : RecordFunctor {
         result = result &&
             (fusion_op_.target_type() == child_ptr->fusion_op_.target_type());
         if (isDebugDumpEnabled(DebugDumpOption::PythonFrontendDebug)) {
-          nvfdebug() << "\nCastOpRecord: " << name_ << " Target Type [self: 0x"
-                     << fusion_op_.target_type().name() << "] [other: 0x"
-                     << child_ptr->fusion_op_.target_type().name() << "]";
+          debug() << "\nCastOpRecord: " << name_ << " Target Type [self: 0x"
+                  << fusion_op_.target_type().name() << "] [other: 0x"
+                  << child_ptr->fusion_op_.target_type().name() << "]";
         }
         // IMPORTANT! you need to dereference the target pointer in order
         // to match the function
@@ -1118,13 +1118,13 @@ struct CastOpRecord : RecordFunctor {
              *child_ptr->fusion_op_
                   .template target<OutType (*)(DataType, ArgType)>());
         if (isDebugDumpEnabled(DebugDumpOption::PythonFrontendDebug)) {
-          nvfdebug() << " Target  Ptr [self: 0x" << std::hex
-                     << (size_t)*fusion_op_
-                            .template target<OutType (*)(DataType, ArgType)>()
-                     << "] [other: 0x" << std::hex
-                     << (size_t)*child_ptr->fusion_op_
-                            .template target<OutType (*)(DataType, ArgType)>()
-                     << "]\n";
+          debug() << " Target  Ptr [self: 0x" << std::hex
+                  << (size_t)*fusion_op_
+                         .template target<OutType (*)(DataType, ArgType)>()
+                  << "] [other: 0x" << std::hex
+                  << (size_t)*child_ptr->fusion_op_
+                         .template target<OutType (*)(DataType, ArgType)>()
+                  << "]\n";
         }
         result = result && (dtype_ == child_ptr->dtype_);
       }
@@ -1656,10 +1656,10 @@ struct ReductionOpRecord : RecordFunctor {
         result = result &&
             (fusion_op_.target_type() == child_ptr->fusion_op_.target_type());
         if (isDebugDumpEnabled(DebugDumpOption::PythonFrontendDebug)) {
-          nvfdebug() << "\nReductionOpRecord: " << name_
-                     << " Target Type [self: 0x"
-                     << fusion_op_.target_type().name() << "] [other: 0x"
-                     << child_ptr->fusion_op_.target_type().name() << "]";
+          debug() << "\nReductionOpRecord: " << name_
+                  << " Target Type [self: 0x" << fusion_op_.target_type().name()
+                  << "] [other: 0x"
+                  << child_ptr->fusion_op_.target_type().name() << "]";
         }
         // IMPORTANT! you need to dereference the target pointer in order
         // to match the function
@@ -1677,21 +1677,21 @@ struct ReductionOpRecord : RecordFunctor {
                                  bool,
                                  DataType)>());
         if (isDebugDumpEnabled(DebugDumpOption::PythonFrontendDebug)) {
-          nvfdebug() << " Target  Ptr [self: 0x" << std::hex
-                     << (size_t)*fusion_op_.template target<
+          debug() << " Target  Ptr [self: 0x" << std::hex
+                  << (size_t)*fusion_op_.template target<
 
-                            TensorView* (*)(TensorView*,
-                                            const std::vector<int>&,
-                                            bool,
-                                            DataType)>()
-                     << "] [other: 0x" << std::hex
-                     << (size_t)*child_ptr->fusion_op_.template target<
+                         TensorView* (*)(TensorView*,
+                                         const std::vector<int>&,
+                                         bool,
+                                         DataType)>()
+                  << "] [other: 0x" << std::hex
+                  << (size_t)*child_ptr->fusion_op_.template target<
 
-                            TensorView* (*)(TensorView*,
-                                            const std::vector<int>&,
-                                            bool,
-                                            DataType)>()
-                     << "]\n";
+                         TensorView* (*)(TensorView*,
+                                         const std::vector<int>&,
+                                         bool,
+                                         DataType)>()
+                  << "]\n";
         }
         result = result && (keep_dim_ == child_ptr->keep_dim_);
         result = result && (dtype_ == child_ptr->dtype_);

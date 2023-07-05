@@ -603,7 +603,7 @@ class AllocationInfoMap : private kir::IrVisitor {
     handle(exprs);
     if (debug_printer_) {
       debug_printer_->popScope();
-      nvfdebug() << debug_printer_->dumpDebugInfo(this);
+      debug() << debug_printer_->dumpDebugInfo(this);
     }
     current_stack_.pop_back();
   }

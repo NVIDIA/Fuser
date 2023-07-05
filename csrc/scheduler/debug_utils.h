@@ -24,7 +24,7 @@ void canScheduleMessage(const Args&... args) {
   //  alternatively may want to allow this message in debug
   //  build only but that'd be inconvenient for user support.
   if (C10_UNLIKELY(isDebugDumpEnabled(DebugDumpOption::FusionSegmenterLog))) {
-    nvfdebug() << c10::str(args...) << "\n";
+    debug() << c10::str(args...) << "\n";
   }
 }
 
@@ -40,21 +40,21 @@ void canScheduleRejectReason(HeuristicType heuristic, const Args&... args) {
 // https://learn.microsoft.com/en-us/cpp/cpp/ellipses-and-variadic-templates?view=msvc-170#example
 inline void log() {
   if (isDebugDumpEnabled(DebugDumpOption::SchedulerVerbose)) {
-    nvfdebug() << std::endl;
+    debug() << std::endl;
   }
 }
 
 template <typename T>
 void log(const T& t) {
   if (isDebugDumpEnabled(DebugDumpOption::SchedulerVerbose)) {
-    nvfdebug() << t << std::endl;
+    debug() << t << std::endl;
   }
 }
 
 template <typename First, typename... Rest>
 void log(const First& first, const Rest&... rest) {
   if (isDebugDumpEnabled(DebugDumpOption::SchedulerVerbose)) {
-    nvfdebug() << first;
+    debug() << first;
     log(rest...);
   }
 }

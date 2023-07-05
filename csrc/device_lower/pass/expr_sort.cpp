@@ -880,10 +880,10 @@ ExprGroup* ExprSegmentationSorter::makeMergedNode(
   }
 
   if (isDebugDumpEnabled(DebugDumpOption::ExprSort)) {
-    nvfdebug() << "==========================================\n" << std::endl;
-    nvfdebug() << "Producer:\n" << producer->toString() << std::endl;
-    nvfdebug() << "Consumer:\n" << consumer->toString() << std::endl;
-    nvfdebug() << "Merged:\n" << joined_groups->toString() << std::endl;
+    debug() << "==========================================\n" << std::endl;
+    debug() << "Producer:\n" << producer->toString() << std::endl;
+    debug() << "Consumer:\n" << consumer->toString() << std::endl;
+    debug() << "Merged:\n" << joined_groups->toString() << std::endl;
   }
 
   return joined_groups;

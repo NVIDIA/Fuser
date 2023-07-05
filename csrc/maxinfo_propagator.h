@@ -265,7 +265,7 @@ class TORCH_CUDA_CU_API SpanningTreePrinter
   void propagateP2C(TensorView* from, TensorView* to) override;
   void propagateSibling(TensorView* from, TensorView* to) override;
   SpanningTreePrinter(std::ostream& stream) : stream_(stream) {}
-  SpanningTreePrinter() : SpanningTreePrinter(nvfdebug()) {}
+  SpanningTreePrinter() : SpanningTreePrinter(debug()) {}
 };
 
 // Simple selector for selecting subgraphs to build spanning trees. The selector

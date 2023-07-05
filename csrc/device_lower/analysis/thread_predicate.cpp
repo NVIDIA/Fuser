@@ -855,15 +855,15 @@ void ThreadPredicateMap::markAsUpdated(const TensorView* tv) {
 }
 
 void ThreadPredicateMap::print() const {
-  nvfdebug() << "\nThreadPredicateMap\n";
-  nvfdebug() << "--------------------------------\n";
+  debug() << "\nThreadPredicateMap\n";
+  debug() << "--------------------------------\n";
   for (const auto& kv : thread_predicates_) {
-    nvfdebug() << "T" << kv.first->name();
-    nvfdebug() << " {" << kv.second.limited_types.toString() << "}\n";
-    nvfdebug() << "{" << kv.second.redundant_types.toString() << "}\n";
-    nvfdebug() << "{" << kv.second.redundant_use_types.toString() << "}\n";
+    debug() << "T" << kv.first->name();
+    debug() << " {" << kv.second.limited_types.toString() << "}\n";
+    debug() << "{" << kv.second.redundant_types.toString() << "}\n";
+    debug() << "{" << kv.second.redundant_use_types.toString() << "}\n";
   }
-  nvfdebug() << "--------------------------------\n\n";
+  debug() << "--------------------------------\n\n";
 }
 
 } // namespace nvfuser

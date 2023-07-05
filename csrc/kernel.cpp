@@ -317,7 +317,7 @@ void Kernel::analyze() {
 }
 
 void Kernel::print() const {
-  IrPrinter ir_printer(nvfdebug());
+  IrPrinter ir_printer(debug());
   ir_printer.handle(this);
 }
 

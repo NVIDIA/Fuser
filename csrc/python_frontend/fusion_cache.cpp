@@ -267,8 +267,8 @@ TrieNode* FusionCache::createChild(TrieNode* node, RecordFunctor* rec) {
     if (isDebugDumpEnabled(DebugDumpOption::PythonFrontendDebug)) {
       std::stringstream ss;
       new_rec->print(ss);
-      nvfdebug() << "\nFusionDefinition: Create new trie node for: " << ss.str()
-                 << "\n";
+      debug() << "\nFusionDefinition: Create new trie node for: " << ss.str()
+              << "\n";
     }
   }
   return child;

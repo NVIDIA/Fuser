@@ -43,7 +43,7 @@ using ProblemShape = std::array<int64_t, 3>;
 
 //! A wrapper for printing debug details.
 void printMsg(const std::string& msg) {
-  nvfdebug() << msg << std::endl;
+  debug() << msg << std::endl;
 }
 
 //! A helper for deciding the type of MMA op for given fusion and problem shape.

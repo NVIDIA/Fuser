@@ -176,23 +176,23 @@ EvaluatorValue ExpressionEvaluator::getValue(const Val* value) {
 }
 
 void ExpressionEvaluator::print() const {
-  nvfdebug() << "\nEvaluation context\n";
-  nvfdebug() << "--------------------\n";
+  debug() << "\nEvaluation context\n";
+  debug() << "--------------------\n";
   for (const auto& kv : known_values_) {
     TORCH_INTERNAL_ASSERT(!kv.first->isConstScalar());
-    nvfdebug() << kv.first << " = " << kv.second << " ; "
-               << *kv.first->getValType() << "\n";
+    debug() << kv.first << " = " << kv.second << " ; "
+            << *kv.first->getValType() << "\n";
   }
 
   for (const auto& kv : known_named_scalars_) {
-    nvfdebug() << kv.first << " = " << kv.second << " ;\n";
+    debug() << kv.first << " = " << kv.second << " ;\n";
   }
 
-  nvfdebug() << "\nPre-computed Values\n";
+  debug() << "\nPre-computed Values\n";
   if (precomputed_values_ != nullptr) {
     precomputed_values_->print();
   }
-  nvfdebug() << "--------------------\n\n";
+  debug() << "--------------------\n\n";
 }
 
 void ExpressionEvaluator::propagateBoundValuesThroughExactMaps(Fusion* fusion) {

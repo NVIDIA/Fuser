@@ -524,8 +524,8 @@ class TORCH_CUDA_CU_API SegmentCandidateFinder {
       SegmentCandidateFinderOptions options = SegmentCandidateFinderOptions()) {
     auto fusion_copy = std::make_unique<Fusion>(*fusion);
     if (isDebugDumpEnabled(DebugDumpOption::FusionSegments)) {
-      nvfdebug() << "Segment the fusion (Original Fusion Un-modified): "
-                 << std::endl;
+      debug() << "Segment the fusion (Original Fusion Un-modified): "
+              << std::endl;
       fusion_copy->printMath();
     }
     SegmentCandidateFinder scf(std::move(fusion_copy), inputs, options);
@@ -539,8 +539,8 @@ class TORCH_CUDA_CU_API SegmentCandidateFinder {
       SegmentCandidateFinderOptions options = SegmentCandidateFinderOptions()) {
     SegmentCandidateFinder scf(std::move(fusion), inputs, options);
     if (isDebugDumpEnabled(DebugDumpOption::FusionSegments)) {
-      nvfdebug() << "Segment the fusion (Original Fusion Un-modified): "
-                 << std::endl;
+      debug() << "Segment the fusion (Original Fusion Un-modified): "
+              << std::endl;
       scf.completeFusion()->printMath();
     }
     return std::move(scf.segmented_fusion_);

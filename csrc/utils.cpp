@@ -34,7 +34,7 @@ void debugPrint(const c10::TensorTypePtr& type) {
   } else {
     sizes_s << "no size available";
   }
-  nvfdebug() << "sizes:" << sizes_s.str() << std::endl;
+  debug() << "sizes:" << sizes_s.str() << std::endl;
   if (const auto& stride_properties = type->stride_properties().sizes()) {
     std::stringstream stride_s;
     std::stringstream index_s;
@@ -59,11 +59,11 @@ void debugPrint(const c10::TensorTypePtr& type) {
         contig_s << "?, ";
       }
     }
-    nvfdebug() << "stride: " << stride_s.str() << std::endl;
-    nvfdebug() << "stride index: " << index_s.str() << std::endl;
-    nvfdebug() << "contiguous: " << contig_s.str() << std::endl;
+    debug() << "stride: " << stride_s.str() << std::endl;
+    debug() << "stride index: " << index_s.str() << std::endl;
+    debug() << "contiguous: " << contig_s.str() << std::endl;
   } else {
-    nvfdebug() << "no stride properties available" << std::endl;
+    debug() << "no stride properties available" << std::endl;
   }
 }
 C10_DIAGNOSTIC_POP()

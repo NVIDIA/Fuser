@@ -398,7 +398,7 @@ void Fusion::printKernel(const CompileParams& compile_params) {
       !this->isA<kir::Kernel>(),
       "Cannot \"print kernel\" of a kernel container. ",
       "This would require lowering during lowering.");
-  nvfdebug() << codegen::generateCudaKernel(
+  debug() << codegen::generateCudaKernel(
       GpuLower(this, compile_params).kernel());
 }
 
@@ -475,16 +475,14 @@ void Fusion::printMath(bool from_outputs_only) {
 
   FusionGuard fg(this);
   auto exprs_for_print = exprs();
-  nvfdebug() << "Inputs:" << std::endl;
+  debug() << "Inputs:" << std::endl;
   for (auto inp : inputs()) {
-    nvfdebug() << "  " << inp << ", " << inp->getDataType().value()
-               << std::endl;
+    debug() << "  " << inp << ", " << inp->getDataType().value() << std::endl;
   }
 
-  nvfdebug() << "Outputs:" << std::endl;
+  debug() << "Outputs:" << std::endl;
   for (auto out : outputs()) {
-    nvfdebug() << "  " << out << ", " << out->getDataType().value()
-               << std::endl;
+    debug() << "  " << out << ", " << out->getDataType().value() << std::endl;
   }
 
   // If we want everything in the fusion, grab all values without uses to
@@ -499,11 +497,11 @@ void Fusion::printMath(bool from_outputs_only) {
     exprs_for_print = StmtSort::getExprs(this, leaf_vals);
   }
 
-  nvfdebug() << "\n%kernel_math {\n";
+  debug() << "\n%kernel_math {\n";
   for (auto expr : exprs_for_print) {
-    nvfdebug() << expr;
+    debug() << expr;
   }
-  nvfdebug() << "}\n\n";
+  debug() << "}\n\n";
 }
 
 std::vector<Val*> Fusion::inputsAndCreated() {
@@ -523,7 +521,7 @@ void Fusion::printTransforms() {
   FUSER_PERF_SCOPE("Fusion::printTransforms");
 
   FusionGuard fg(this);
-  IrTransformPrinter t_exprs(nvfdebug());
+  IrTransformPrinter t_exprs(debug());
   t_exprs.handle(this);
 }
 

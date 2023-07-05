@@ -474,17 +474,17 @@ std::shared_ptr<ReductionParams> innerReductionHeuristic(
       bdimz > 1 ? bdimz : LaunchParams::UNINITIALIZED_VAL);
 
   if (isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
-    nvfdebug() << "\n===== Reduction Stats ========\n"
-               << "total_reduction_numel: "
-               << total_reduction_numel / inner_most_dimension_numel << " * "
-               << inner_most_dimension_numel << "\n"
-               << "total_iteration_numel: " << total_iteration_numel << "\n"
-               << "vectorize_factor: " << vectorize_factor << "\n"
-               << "n_tensor_inputs: " << n_tensor_inputs << "\n"
-               << "max_input_dtype_size: " << max_input_dtype_size << "\n"
-               << "block(" << bdimx << ", " << bdimy << ", " << bdimz << ")"
-               << std::endl;
-    nvfdebug() << rparams->toString() << std::endl;
+    debug() << "\n===== Reduction Stats ========\n"
+            << "total_reduction_numel: "
+            << total_reduction_numel / inner_most_dimension_numel << " * "
+            << inner_most_dimension_numel << "\n"
+            << "total_iteration_numel: " << total_iteration_numel << "\n"
+            << "vectorize_factor: " << vectorize_factor << "\n"
+            << "n_tensor_inputs: " << n_tensor_inputs << "\n"
+            << "max_input_dtype_size: " << max_input_dtype_size << "\n"
+            << "block(" << bdimx << ", " << bdimy << ", " << bdimz << ")"
+            << std::endl;
+    debug() << rparams->toString() << std::endl;
   }
 
   // If 3d, check if it's supported by the scheduler, otherwise force 1D
@@ -494,10 +494,10 @@ std::shared_ptr<ReductionParams> innerReductionHeuristic(
         (rparams->cross_grid_inner_reduction ||
          rparams->cross_grid_outer_reduction)) {
       if (isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
-        nvfdebug() << "\n===== UNSUPPORTED REDUCTION HEURISTIC ========\n";
-        nvfdebug() << rparams->multiple_reds_per_blk << ", "
-                   << (rparams->unroll_factor_inner_reduction > 1) << ", "
-                   << rparams->cross_grid_inner_reduction << std::endl;
+        debug() << "\n===== UNSUPPORTED REDUCTION HEURISTIC ========\n";
+        debug() << rparams->multiple_reds_per_blk << ", "
+                << (rparams->unroll_factor_inner_reduction > 1) << ", "
+                << rparams->cross_grid_inner_reduction << std::endl;
       }
       return innerReductionHeuristic(
           total_reduction_numel,
@@ -838,14 +838,14 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
       LaunchParams::UNINITIALIZED_VAL);
 
   if (isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
-    nvfdebug() << "\n===== Reduction Stats ========\n"
-               << "total_reduction_numel: " << total_reduction_numel << "\n"
-               << "total_iteration_numel: " << total_iteration_numel << "\n"
-               << "vectorize_factor: " << vectorize_factor << "\n"
-               << "n_tensor_inputs: " << n_tensor_inputs << "\n"
-               << "max_input_dtype_size: " << max_input_dtype_size << "\n"
-               << "block(" << bdimx << ", " << bdimy << ", 1)" << std::endl;
-    nvfdebug() << rparams->toString() << std::endl;
+    debug() << "\n===== Reduction Stats ========\n"
+            << "total_reduction_numel: " << total_reduction_numel << "\n"
+            << "total_iteration_numel: " << total_iteration_numel << "\n"
+            << "vectorize_factor: " << vectorize_factor << "\n"
+            << "n_tensor_inputs: " << n_tensor_inputs << "\n"
+            << "max_input_dtype_size: " << max_input_dtype_size << "\n"
+            << "block(" << bdimx << ", " << bdimy << ", 1)" << std::endl;
+    debug() << rparams->toString() << std::endl;
   }
   return rparams;
 }

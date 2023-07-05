@@ -108,12 +108,12 @@ class Logger : public NoOpLogger {
       };
 
       std::string header = "Simplifying expression:\n" + str(init_val_);
-      nvfdebug() << header << std::endl;
+      debug() << header << std::endl;
       for (auto r : record_) {
-        nvfdebug() << r.name << ":\n" << str(r.result) << std::endl;
+        debug() << r.name << ":\n" << str(r.result) << std::endl;
       }
-      nvfdebug() << std::string(std::min<size_t>(header.size(), 80), '=')
-                 << std::endl;
+      debug() << std::string(std::min<size_t>(header.size(), 80), '=')
+              << std::endl;
     } catch (...) {
       // clang-tidy don't want this function to throw, but this is just a
       // debugging helper, I don't really care if it has throw or not.

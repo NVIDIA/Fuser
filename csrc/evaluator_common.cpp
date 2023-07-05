@@ -232,11 +232,11 @@ EvaluatorValue PrecomputedValues::getMaybeValueFor(const Val* val) const {
 }
 
 void PrecomputedValues::print() const {
-  nvfdebug() << "Precomputed Values:\n";
+  debug() << "Precomputed Values:\n";
   for (auto i : c10::irange(symbols_.size())) {
     if (defined_[i]) {
-      nvfdebug() << symbols_[i]->toInlineString() << " = " << values_[i]
-                 << std::endl;
+      debug() << symbols_[i]->toInlineString() << " = " << values_[i]
+              << std::endl;
     }
   }
 }

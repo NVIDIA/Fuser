@@ -632,7 +632,7 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
       conc_info->setInitialInfo(&conc_initial_info);
 
       if (isDebugDumpEnabled(DebugDumpOption::FusionIrConcretized)) {
-        nvfdebug() << "Fusion before concretization:" << std::endl;
+        debug() << "Fusion before concretization:" << std::endl;
         conc_fusion->printMath();
       }
 
@@ -643,7 +643,7 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
       conc_fusion->stopManaging("initial_info");
 
       if (isDebugDumpEnabled(DebugDumpOption::FusionIrConcretized)) {
-        nvfdebug() << "Concretized Fusion:" << std::endl;
+        debug() << "Concretized Fusion:" << std::endl;
         conc_fusion->printMath();
       }
     }
@@ -736,26 +736,26 @@ std::vector<at::Tensor> FusionKernelRuntime::runKernelWithInput(
 
   // Print relevant information all at once for easy debuging of perf
   if (isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
-    nvfdebug() << "\nRun kernel:\n";
+    debug() << "\nRun kernel:\n";
     if (sg) {
       segmented_fusion_->makeFusion(sg)->printMath();
     } else {
       segmented_fusion_->completeFusion()->printMath();
     }
-    nvfdebug() << "With inputs:\n";
+    debug() << "With inputs:\n";
     for (auto i : c10::irange(args.size())) {
-      nvfdebug() << "  " << args[i]->toString() << std::endl;
+      debug() << "  " << args[i]->toString() << std::endl;
     }
-    nvfdebug() << "Compiler log: " << executor.compilerLog() << "\n";
-    nvfdebug() << scheduler_entry->params()->toString() << "\n";
-    nvfdebug() << "With arguments: " << executor.lastLaunchParams().toString();
-    nvfdebug() << executor.kernelName() << " " << executor.bytesProcessed()
-               << " bytes/ " << std::setprecision(3) << executor.kernelTimeMs()
-               << " ms "
-               << ((double)executor.bytesProcessed() /
-                   ((double)executor.kernelTimeMs() / 1000)) /
+    debug() << "Compiler log: " << executor.compilerLog() << "\n";
+    debug() << scheduler_entry->params()->toString() << "\n";
+    debug() << "With arguments: " << executor.lastLaunchParams().toString();
+    debug() << executor.kernelName() << " " << executor.bytesProcessed()
+            << " bytes/ " << std::setprecision(3) << executor.kernelTimeMs()
+            << " ms "
+            << ((double)executor.bytesProcessed() /
+                ((double)executor.kernelTimeMs() / 1000)) /
             (double)1.0e9
-               << " GB/s" << std::endl;
+            << " GB/s" << std::endl;
     executor.setMeasureKernelTimeFlag(false);
   }
 
@@ -921,16 +921,16 @@ std::vector<at::Tensor> FusionKernelRuntime::runWithInputs(
   FUSER_PERF_SCOPE("FusionKernelRuntime::runWithInputs");
 
   if (isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
-    nvfdebug() << "=================RUNNING FUSION SEGMENTS================="
-               << std::endl;
+    debug() << "=================RUNNING FUSION SEGMENTS================="
+            << std::endl;
   }
 
   c10::Device device(c10::DeviceType::CUDA, (int8_t)args.getDeviceIndex());
   const auto& tensor_map = runSegmentsWithInputs(args);
 
   if (isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
-    nvfdebug() << "============= FINISHED RUNNING FUSION SEGMENTS ============"
-               << std::endl;
+    debug() << "============= FINISHED RUNNING FUSION SEGMENTS ============"
+            << std::endl;
   }
 
   // Produce final global output

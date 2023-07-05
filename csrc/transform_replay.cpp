@@ -1081,9 +1081,9 @@ void TransformPropagator::propagateC2P(TensorView* from, TensorView* to) {
       TransformReplay::getMatchedLeafPosWithoutReplayPasC(to, from, pos, true);
   bool debug_print = isDebugDumpEnabled(DebugDumpOption::TransformPropagator);
   if (debug_print) {
-    nvfdebug() << "TransformPropagator::propagateC2P" << std::endl;
-    nvfdebug() << "  from: " << from << " @ " << pos << std::endl;
-    nvfdebug() << "  to: " << to << std::endl;
+    debug() << "TransformPropagator::propagateC2P" << std::endl;
+    debug() << "  from: " << from << " @ " << pos << std::endl;
+    debug() << "  to: " << to << std::endl;
   }
   if (new_pos < 0) {
     auto replay = TransformReplay::replayPasC(to, from, pos);
@@ -1097,10 +1097,10 @@ void TransformPropagator::propagateC2P(TensorView* from, TensorView* to) {
     to->setDomain(replay.first);
     new_pos = (int)replay.second;
     if (debug_print) {
-      nvfdebug() << "  replayed: " << to << " @ " << new_pos << std::endl;
+      debug() << "  replayed: " << to << " @ " << new_pos << std::endl;
     }
   } else if (debug_print) {
-    nvfdebug() << "  replay skipped. result position: " << new_pos << std::endl;
+    debug() << "  replay skipped. result position: " << new_pos << std::endl;
   }
   replayed_pos_[to] = new_pos;
 }
@@ -1112,9 +1112,9 @@ void TransformPropagator::propagateP2C(TensorView* from, TensorView* to) {
       TransformReplay::getMatchedLeafPosWithoutReplayCasP(to, from, pos, true);
   bool debug_print = isDebugDumpEnabled(DebugDumpOption::TransformPropagator);
   if (debug_print) {
-    nvfdebug() << "TransformPropagator::propagateP2C" << std::endl;
-    nvfdebug() << "  from: " << from << " @ " << pos << std::endl;
-    nvfdebug() << "  to: " << to << std::endl;
+    debug() << "TransformPropagator::propagateP2C" << std::endl;
+    debug() << "  from: " << from << " @ " << pos << std::endl;
+    debug() << "  to: " << to << std::endl;
   }
   if (new_pos < 0) {
     auto replay = TransformReplay::replayCasP(to, from, pos);
@@ -1128,10 +1128,10 @@ void TransformPropagator::propagateP2C(TensorView* from, TensorView* to) {
     to->setDomain(replay.first);
     new_pos = (int)replay.second;
     if (debug_print) {
-      nvfdebug() << "  replayed: " << to << " @ " << new_pos << std::endl;
+      debug() << "  replayed: " << to << " @ " << new_pos << std::endl;
     }
   } else if (debug_print) {
-    nvfdebug() << "  replay skipped. result position: " << new_pos << std::endl;
+    debug() << "  replay skipped. result position: " << new_pos << std::endl;
   }
   replayed_pos_[to] = new_pos;
 }
@@ -1141,9 +1141,9 @@ void TransformPropagator::propagateSibling(TensorView* from, TensorView* to) {
   // See note [Using multiple TransformPropagators]
   bool debug_print = isDebugDumpEnabled(DebugDumpOption::TransformPropagator);
   if (debug_print) {
-    nvfdebug() << "TransformPropagator::propagateSibling" << std::endl;
-    nvfdebug() << "  from: " << from << " @ " << pos << std::endl;
-    nvfdebug() << "  to: " << to << std::endl;
+    debug() << "TransformPropagator::propagateSibling" << std::endl;
+    debug() << "  from: " << from << " @ " << pos << std::endl;
+    debug() << "  to: " << to << std::endl;
   }
   if (!TransformReplay::fullSelfMatching(to, from)) {
     auto replay = TransformReplay::fullSelfReplay(to->domain(), from->domain());
@@ -1156,10 +1156,10 @@ void TransformPropagator::propagateSibling(TensorView* from, TensorView* to) {
         " but that would invalidate previously compute at position or max producer position.");
     to->setDomain(replay);
     if (debug_print) {
-      nvfdebug() << "  replayed: " << to << " @ " << pos << std::endl;
+      debug() << "  replayed: " << to << " @ " << pos << std::endl;
     }
   } else if (debug_print) {
-    nvfdebug() << "  replay skipped. result position: " << pos << std::endl;
+    debug() << "  replay skipped. result position: " << pos << std::endl;
   }
   replayed_pos_[to] = pos;
 }
@@ -1183,9 +1183,9 @@ void MostInlinedTransformPropagator::propagateC2P(
       TransformReplay::getMatchedLeafPosWithoutReplayPasC(to, from, pos, true);
   bool debug_print = isDebugDumpEnabled(DebugDumpOption::TransformPropagator);
   if (debug_print) {
-    nvfdebug() << "MostInlinedTransformPropagator::propagateC2P" << std::endl;
-    nvfdebug() << "  from: " << from << std::endl;
-    nvfdebug() << "  to: " << to << std::endl;
+    debug() << "MostInlinedTransformPropagator::propagateC2P" << std::endl;
+    debug() << "  from: " << from << std::endl;
+    debug() << "  to: " << to << std::endl;
   }
   if (new_pos < 0) {
     auto replay = TransformReplay::replayPasC(to, from, pos);
@@ -1198,10 +1198,10 @@ void MostInlinedTransformPropagator::propagateC2P(
         " but that would invalidate previously compute at position or max producer position.");
     to->setDomain(replay.first);
     if (debug_print) {
-      nvfdebug() << "  replayed: " << to << std::endl;
+      debug() << "  replayed: " << to << std::endl;
     }
   } else if (debug_print) {
-    nvfdebug() << "  replay skipped" << std::endl;
+    debug() << "  replay skipped" << std::endl;
   }
 }
 
@@ -1214,9 +1214,9 @@ void MostInlinedTransformPropagator::propagateP2C(
       TransformReplay::getMatchedLeafPosWithoutReplayCasP(to, from, pos, true);
   bool debug_print = isDebugDumpEnabled(DebugDumpOption::TransformPropagator);
   if (debug_print) {
-    nvfdebug() << "MostInlinedTransformPropagator::propagateP2C" << std::endl;
-    nvfdebug() << "  from: " << from << std::endl;
-    nvfdebug() << "  to: " << to << std::endl;
+    debug() << "MostInlinedTransformPropagator::propagateP2C" << std::endl;
+    debug() << "  from: " << from << std::endl;
+    debug() << "  to: " << to << std::endl;
   }
   if (new_pos < 0) {
     auto replay = TransformReplay::replayCasP(to, from, pos);
@@ -1229,10 +1229,10 @@ void MostInlinedTransformPropagator::propagateP2C(
         " but that would invalidate previously compute at position or max producer position.");
     to->setDomain(replay.first);
     if (debug_print) {
-      nvfdebug() << "  replayed: " << to << std::endl;
+      debug() << "  replayed: " << to << std::endl;
     }
   } else if (debug_print) {
-    nvfdebug() << "  replay skipped" << std::endl;
+    debug() << "  replay skipped" << std::endl;
   }
 }
 
@@ -1242,10 +1242,9 @@ void MostInlinedTransformPropagator::propagateSibling(
   // See note [Using multiple TransformPropagators]
   bool debug_print = isDebugDumpEnabled(DebugDumpOption::TransformPropagator);
   if (debug_print) {
-    nvfdebug() << "MostInlinedTransformPropagator::propagateSibling"
-               << std::endl;
-    nvfdebug() << "  from: " << from << std::endl;
-    nvfdebug() << "  to: " << to << std::endl;
+    debug() << "MostInlinedTransformPropagator::propagateSibling" << std::endl;
+    debug() << "  from: " << from << std::endl;
+    debug() << "  to: " << to << std::endl;
   }
   if (!TransformReplay::fullSelfMatching(to, from)) {
     auto replay = TransformReplay::fullSelfReplay(to->domain(), from->domain());
@@ -1258,10 +1257,10 @@ void MostInlinedTransformPropagator::propagateSibling(
         " but that would invalidate previously compute at position or max producer position.");
     to->setDomain(replay);
     if (debug_print) {
-      nvfdebug() << "  replayed: " << to << std::endl;
+      debug() << "  replayed: " << to << std::endl;
     }
   } else if (debug_print) {
-    nvfdebug() << "  replay skipped" << std::endl;
+    debug() << "  replay skipped" << std::endl;
   }
 }
 

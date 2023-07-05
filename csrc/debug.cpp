@@ -29,7 +29,7 @@ void DebugStreamGuard::setCurStream(std::ostream& stream) {
   ACTIVE_STREAM = &stream;
 }
 
-std::ostream& nvfdebug() {
+std::ostream& debug() {
   return DebugStreamGuard::getCurStream();
 }
 
