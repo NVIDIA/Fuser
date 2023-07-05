@@ -359,13 +359,6 @@ struct Void {};
 //  1
 //  0
 //  0.2
-//
-// TODO: actually, it would be better if we can do
-//   auto f = [](auto x) { using T = decltype(x); ... };
-// and just call f with std::declval<T>(). But unfortunately, C++ compilers are
-// just too pedantic on disallowing declval to be instantiated. So we can not
-// call a function with declval<T>() as argument, even if inside the function we
-// don't actually use the value of the argument.
 
 template <typename... Ts>
 struct ForAllTypes;
@@ -449,7 +442,7 @@ namespace nvfuser {
 // (Void, T1, Void, T2, Void, T3, ...) -> (T1, T2, T3, ...)
 
 template <typename... Ts>
-constexpr auto remove_void_from_tuple(std::tuple<Ts...> t) {
+constexpr auto remove_void_from_tuple([[maybe_unused]] std::tuple<Ts...> t) {
   if constexpr (sizeof...(Ts) == 0) {
     return std::tuple<>{};
   } else {

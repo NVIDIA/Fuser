@@ -192,9 +192,10 @@ TEST_F(NVFuserTest, CombinedSchedulerLayerNormBackward_CUDA) {
             batch_size,
             persistent_bytes_per_row,
             vectorization_factor,
-            warp_size);
+            warp_size,
+            false);
     bool expect_segmentation =
-        feature_size % n_elements_factor || !opt_inner_batch.has_value();
+        feature_size % n_elements_factor || !opt_inner_batch.first.has_value();
 
     bool is_segmented = fec.getMostRecentKernelRuntime()->isSegmented();
     TORCH_CHECK(
@@ -384,7 +385,13 @@ TEST_F(NVFuserTest, CombinedSchedulerSharedConsumer_CUDA) {
         ? add(layer_norm_results.grad_input, layer_norm_results.grad_weight)
         : add(layer_norm_results.grad_bias, layer_norm_results.grad_weight);
 
-    fusion.addOutput(out_linked);
+    if (!link_inner_outer) {
+      auto out_linked_scale = mul(out_linked, IrBuilder::create<Double>(0.5));
+      fusion.addOutput(out_linked_scale);
+    } else {
+      fusion.addOutput(out_linked);
+    }
+
     fusion.addOutput(layer_norm_results.grad_input);
     fusion.addOutput(layer_norm_results.grad_weight);
     fusion.addOutput(layer_norm_results.grad_bias);
@@ -417,19 +424,21 @@ TEST_F(NVFuserTest, CombinedSchedulerSharedConsumer_CUDA) {
     auto cg_outputs = fec.runFusionWithInputs(aten_inputs);
 
     auto aten_gradients = at::native_layer_norm_backward(
-        aten_grad_out,
-        aten_input,
+        aten_grad_out.to(at::kDouble),
+        aten_input.to(at::kDouble),
         norm_shape,
-        aten_mean,
-        aten_rstd,
-        c10::optional<at::Tensor>(aten_weight),
-        c10::optional<at::Tensor>(aten_bias),
+        aten_mean.to(at::kDouble),
+        aten_rstd.to(at::kDouble),
+        c10::optional<at::Tensor>(aten_weight.to(at::kDouble)),
+        c10::optional<at::Tensor>(aten_bias.to(at::kDouble)),
         {true, true, true});
 
     auto aten_out_linked = link_inner_outer
         ? std::get<0>(aten_gradients) + std::get<1>(aten_gradients)
         : std::get<1>(aten_gradients) + std::get<2>(aten_gradients);
-
+    if (!link_inner_outer) {
+      aten_out_linked = aten_out_linked.mul(0.5);
+    }
     bool is_segmented = fec.getMostRecentKernelRuntime()->isSegmented();
     TORCH_CHECK(is_segmented, "Fusion is not segmented");
 
