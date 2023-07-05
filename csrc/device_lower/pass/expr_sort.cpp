@@ -1115,29 +1115,29 @@ void ExprSegmentationSorter::initializeForLoopDependencies() {
     visited.emplace(id);
   }
   if (failed) {
-    nvfdebug()
-        << "ERROR: Iteration domain sorting has failed, infinite loop detected."
-        << std::endl;
-    nvfdebug() << "Failed to sort out: " << std::endl;
+    // Build error description string for exception we will raise
+    std::stringstream desc;
+    desc << "Iteration domain sorting has failed, infinite loop detected."
+         << std::endl;
+    desc << "Failed to sort out: " << std::endl;
     for (auto entry : to_visit) {
-      nvfdebug() << entry->toString();
+      desc << entry->toString();
       if (entry != to_visit.back()) {
-        nvfdebug() << ", ";
+        desc << ", ";
       }
     }
 
-    nvfdebug() << "Dependencies: " << std::endl;
+    desc << "Dependencies: " << std::endl;
     for (const auto& dep_entry : concrete_id_dependencies_) {
-      nvfdebug() << "  Deps of " << dep_entry.first->toString() << std::endl
-                 << "   ";
+      desc << "  Deps of " << dep_entry.first->toString() << std::endl << "   ";
 
       for (auto dep : dep_entry.second) {
-        nvfdebug() << dep->toString() << ", ";
+        desc << dep->toString() << ", ";
       }
-      nvfdebug() << std::endl;
+      desc << std::endl;
     }
 
-    TORCH_INTERNAL_ASSERT(false);
+    TORCH_INTERNAL_ASSERT(false, desc.str());
   }
 }
 
