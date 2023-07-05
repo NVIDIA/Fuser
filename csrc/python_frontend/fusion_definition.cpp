@@ -11,8 +11,6 @@
 #include <python_frontend/fusion_definition.h>
 #include <utils.h>
 
-#include <sstream>
-
 // Require namespace for perf scope instrumentation
 using namespace nvfuser::inst;
 
@@ -152,14 +150,10 @@ void FusionDefinition::print(std::ostream& os) const {
 std::vector<at::Tensor> FusionDefinition::execute(
     const at::ArrayRef<c10::IValue>& inputs,
     bool override_user_schedule,
-    std::optional<int8_t> selected_device) {
-  std::stringstream debug_ss;
-
+    std::optional<int8_t> selected_device) const {
   TORCH_CHECK(id().has_value(), "Valid fusion schedule is not available!");
 
   auto scheds = fusionCache()->queryFusionSchedules(id().value());
-
-  std::vector<at::Tensor> outputs;
 
   if (!override_user_schedule) {
     auto device = getCommonDeviceCUDA(inputs, selected_device);
@@ -172,14 +166,12 @@ std::vector<at::Tensor> FusionDefinition::execute(
           scheds, user_sched_id.value(), device);
       scheds->last_user_def_scheduled_ir = user_sched.schedule.get();
       scheds->last_user_def_executor = user_sched.executor.get();
-      outputs = user_sched.executor->runFusion(inputs);
+      return user_sched.executor->runFusion(inputs);
     }
   }
 
-  outputs = scheds->auto_gen_schedules->runFusionWithInputs(
+  return scheds->auto_gen_schedules->runFusionWithInputs(
       inputs, std::nullopt, selected_device);
-
-  return outputs;
 }
 
 std::string FusionDefinition::fusionIr() {

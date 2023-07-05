@@ -127,7 +127,7 @@ class TORCH_CUDA_CU_API FusionDefinition : public FusionState {
   std::vector<at::Tensor> execute(
       const at::ArrayRef<c10::IValue>& inputs,
       bool override_user_schedule,
-      std::optional<int8_t> device);
+      std::optional<int8_t> device) const;
   //! Return the unscheduled Fusion IR
   std::string fusionIr();
   //! Return the Cuda code for the last executed set of inputs
