@@ -362,14 +362,14 @@ void DynamicTransformConcretizationInfo::analyzeSlice(
     auto inp_extent = inp_extent_opt->as<int64_t>();
 
     auto getBranch = [&inp_extent](int64_t a) -> SliceIndexBranch {
-      if (a <= -inp_extent) {
-        return SliceIndexBranch::AlwaysZero;
+      if (a == 0 || a <= -inp_extent) {
+        return SliceIndexBranch::Zero;
       } else if (a < 0) {
         return SliceIndexBranch::Negative;
       } else if (a < inp_extent) {
         return SliceIndexBranch::Positive;
       } else {
-        return SliceIndexBranch::AlwaysExtent;
+        return SliceIndexBranch::Extent;
       }
     };
     slice_descs[i].start_branch = getBranch(start);
@@ -663,15 +663,18 @@ TensorView* DynamicTransformConcretizer::maybeConcretizeSlice(
   const auto ranges = slice_op->getRanges();
   auto map_index = [&fusion](
                        SliceIndexBranch branch, Val* a, Val* extent) -> Val* {
-    if (branch == SliceIndexBranch::AlwaysExtent) {
-      return extent;
-    } else if (branch == SliceIndexBranch::Negative) {
-      return SimplifyingIrBuilder::negExpr(a);
-    } else if (branch == SliceIndexBranch::Positive) {
-      return a;
-    } else {
-      return fusion->zeroVal();
+    Val* normalized_index = nullptr;
+    switch (branch) {
+      case SliceIndexBranch::Zero:
+        normalized_index = fusion->zeroVal();
+      case SliceIndexBranch::Extent:
+        normalized_index = extent;
+      case SliceIndexBranch::Negative:
+        normalized_index = SimplifyingIrBuilder::addExpr(extent, a);
+      case SliceIndexBranch::Positive:
+        normalized_index = a;
     }
+    return normalized_index;
   };
   std::vector<Slice> new_ranges;
   new_ranges.reserve(ranges.size());
@@ -689,8 +692,8 @@ TensorView* DynamicTransformConcretizer::maybeConcretizeSlice(
       auto new_stop = map_index(desc.stop_branch, range.stop, inp_extent);
       new_ranges.push_back({new_start, new_stop, range.step});
       // Trivial slices correspond to 0:extent:1
-      if (desc.start_branch != SliceIndexBranch::AlwaysZero ||
-          desc.stop_branch != SliceIndexBranch::AlwaysExtent ||
+      if (desc.start_branch != SliceIndexBranch::Zero ||
+          desc.stop_branch != SliceIndexBranch::Extent ||
           desc.step_branch != SliceStepBranch::One) {
         is_sliced = true;
       }

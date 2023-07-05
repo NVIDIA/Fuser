@@ -116,10 +116,10 @@ class TORCH_CUDA_CU_API DynamicTransformInitialInfo {
 //! slice(). Each of these leads to a different branch in the normalized form's
 //! general expression.
 enum class SliceIndexBranch {
-  AlwaysZero, // a <= -extent
-  Negative, // -ext < a < 0
-  Positive, // 0 <= a < extent
-  AlwaysExtent // extent <= a
+  Negative, // -extent < a < 0
+  Zero, // a == 0  OR  a <= -extent
+  Positive, // 0 < a < extent
+  Extent // extent <= a
 };
 
 //! This enum describes the "step" argument to slice, which can be a positive or
@@ -130,8 +130,8 @@ enum class SliceStepBranch { Negative, One, GreaterThanOne };
 //! Describes a 1D slice in terms of the start, stop, and extent values
 struct Concrete1DSliceDescriptor {
   //! These enums determine the form of the simplified expressions
-  SliceIndexBranch start_branch = SliceIndexBranch::Positive;
-  SliceIndexBranch stop_branch = SliceIndexBranch::Positive;
+  SliceIndexBranch start_branch = SliceIndexBranch::Zero;
+  SliceIndexBranch stop_branch = SliceIndexBranch::Extent;
   SliceStepBranch step_branch = SliceStepBranch::One;
 
   //! True if normalized values satisfy (stop - start) * step <= 0 in which case
