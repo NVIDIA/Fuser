@@ -764,6 +764,7 @@ void initNvFuserPythonBindings(PyObject* module) {
         return output;                                                        \
       },                                                                      \
       py::arg("arg"),                                                         \
+      py::kw_only(),                                                          \
       py::arg("rng_seed"),                                                    \
       py::arg("rng_offset"),                                                  \
       py::return_value_policy::reference);
@@ -2390,6 +2391,7 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("maxval"),
       py::arg("shape"),
       py::arg("dtype") = DataType::Float,
+      py::kw_only(),
       py::arg("rng_seed") = py::none(),
       py::arg("rng_offset") = py::none(),
       py::return_value_policy::reference);
@@ -2437,6 +2439,7 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("std"),
       py::arg("shape"),
       py::arg("dtype") = DataType::Float,
+      py::kw_only(),
       py::arg("rng_seed") = py::none(),
       py::arg("rng_offset") = py::none(),
       py::return_value_policy::reference);
