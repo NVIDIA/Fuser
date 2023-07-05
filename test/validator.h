@@ -217,7 +217,8 @@ class ReductionSizeMapper : private IterVisitor {
     int64_t reduction_elements = 1;
     for (auto id : tv->getMaybeRFactorDomain()) {
       if (id->isReduction()) {
-        auto inferred_extent = expr_eval_.evaluate(id->extent());
+        auto inferred_extent =
+            expr_eval_.evaluate(id->getMaybeExpandedExtent());
         TORCH_INTERNAL_ASSERT(
             inferred_extent.has_value(),
             "Couldn't figure out what the dimensions of a tensorview is in evaluation for validation. ",

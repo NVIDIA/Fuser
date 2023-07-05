@@ -9154,6 +9154,47 @@ TEST_F(NVFuserTest, FusionRecomputePersistentBuffer_CUDA) {
   testValidate(fusion, cg_outputs, inputs, outputs, __LINE__, __FILE__);
 }
 
+TEST_F(NVFuserTest, Repro470_CUDA) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape = {3, 5};
+
+  // Create an expanded 1D tensor
+  auto tv0 = TensorViewBuilder()
+                 .shape(shape)
+                 .expanded({false, true})
+                 .dtype(DataType::Float)
+                 .contiguity({true, std::nullopt})
+                 .build();
+  fusion.addInput(tv0);
+
+  auto tv1 = add(tv0, fusion.oneVal(DataType::Float));
+  auto tv2 = sum(tv1, {1});
+  fusion.addOutput(tv2);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({3, 1}, options).expand(shape);
+
+  auto heuristics_params = getReductionHeuristics(&fusion, {t0});
+  TORCH_CHECK(heuristics_params, "Reduction schedule was not generated!");
+  scheduleReduction(fusion_ptr.get(), *heuristics_params);
+
+  auto lparams = heuristics_params->lparams;
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, {t0}, lparams);
+  auto cg_outputs = fe.runFusion({t0}, lparams);
+
+  auto ref = (t0 + 1.0).sum({1});
+
+  std::cout << cg_outputs[0] << std::endl;
+  std::cout << ref << std::endl;
+
+  testValidate(fusion_ptr.get(), cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
+}
+
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser
