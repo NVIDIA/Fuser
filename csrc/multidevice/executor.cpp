@@ -12,85 +12,12 @@
 
 namespace nvfuser {
 
-// Update launch parameters if scheduler needs to set the launch params.
-void updateLaunchParamsFromScheduler(
-    SchedulerEntry* scheduler,
-    LaunchParams& lparams) {
-  // Set launch parameters form scheduler.
-  if (scheduler->params()->isA<ReductionParams>()) {
-    lparams = scheduler->reductionParams().lparams;
-  } else {
-    TORCH_INTERNAL_ASSERT(scheduler->params()->isA<PointwiseParams>());
-    lparams = scheduler->pointwiseParams().lparams;
-  }
-}
-
 bool PipelineExecutor::shouldRun(PipelineStage* stage) {
-  if (should_run_.find(stage) == should_run_.end()) {
-    should_run_[stage] = std::count(
-        stage->descriptor()->mesh.deviceIndices().begin(),
-        stage->descriptor()->mesh.deviceIndices().end(),
-        runtime_.rankToDeviceIdx(runtime_.comm_.rank()));
-  }
+  should_run_.try_emplace(stage, std::count(
+            stage->descriptor()->mesh.deviceIndices().begin(),
+            stage->descriptor()->mesh.deviceIndices().end(),
+            runtime_.rankToDeviceIdx(runtime_.comm_.rank())));
   return should_run_[stage];
-}
-
-PipelineExecutor::CompiledKernelPtr PipelineExecutor::compileStage(
-    PipelineStage* stage,
-    std::vector<c10::IValue> stage_inputs) {
-  // convert the stage to a Fusion
-  auto fusion_from_stage = runtime_.pipeline_->stageToFusion(stage);
-  // Placeholder for auto schedule parameters if any.
-  c10::optional<SchedulerEntry*> maybe_scheduler_entry = c10::nullopt;
-
-  // Auto schedule if requested
-  if (stage->descriptor()->auto_schedule) {
-    // Get runtime info from fusion graph and concrete tensor inputs.
-    SchedulerRuntimeInfo runtime_info(fusion_from_stage.get(), stage_inputs);
-
-    // Get heuristic tag that applies to the given fusion and input info.
-    auto heuristic = SchedulerEntry::proposeHeuristics(
-        fusion_from_stage.get(), runtime_info);
-    TORCH_INTERNAL_ASSERT(heuristic.has_value(), "cannot auto schedule fusion");
-
-    // Generate scheduler parameters from tag.
-    auto scheduler = SchedulerEntry::makeEntry(
-        heuristic.value(), fusion_from_stage.get(), runtime_info);
-
-    // Apply schedule to fusion graph.
-    scheduler->schedule(fusion_from_stage.get());
-
-    maybe_scheduler_entry = scheduler.get();
-    // Cache scheduler in registry to retrieve launch parameters.
-    auto_scheduler_registry_[stage] = std::move(scheduler);
-  }
-
-  auto executor_ptr = std::make_unique<FusionExecutor>();
-
-  // Infer which device this fusion runs from input device ids.
-  const auto device_index = getCommonDeviceCUDA(stage_inputs);
-  TORCH_CHECK(device_index >= 0, "All inputs must be on the same device");
-
-  // Set launch parameters
-  LaunchParams launch_params;
-
-  // Set compile options
-  CompileOptions options;
-  options.device = c10::Device(c10::DeviceType::CUDA, device_index);
-
-  auto args = KernelArgumentHolder::createKernelArgumentHolder(stage_inputs);
-  // Set parameters inferred by auto scheduler.
-  if (maybe_scheduler_entry.has_value()) {
-    auto scheduler_entry = maybe_scheduler_entry.value();
-    // Set launch parameters with auto scheduler.
-    updateLaunchParamsFromScheduler(scheduler_entry, launch_params);
-  }
-
-  args.setDeviceIndex(device_index);
-  // Lower the fusion and compile the generated kernel.
-  executor_ptr->compileFusion(fusion_from_stage.get(), args, launch_params, {});
-
-  return executor_ptr;
 }
 
 void PipelineExecutor::handle(PipelineStage* stage) {
@@ -100,35 +27,16 @@ void PipelineExecutor::handle(PipelineStage* stage) {
     stage_input_IValues.push_back(val_to_IValue_[input_val]);
   }
 
-  // Run the lowering and compilation step if we haven't compiled yet.
-  if (!compiled_kernels_.count(stage)) {
-    compiled_kernels_[stage] = compileStage(stage, stage_input_IValues);
-  }
-  auto& executor = compiled_kernels_[stage];
+  // Create the stage executor
+  fec_.try_emplace(stage, std::make_unique<FusionExecutorCache>(runtime_.pipeline_->stageToFusion(stage)));
+  // Run the stage to get concrete outputs or placeholders
+  // TODO: allocate output space only if strictly necessary
+  std::vector<at::Tensor> outputs =
+      shouldRun(stage) ? fec_[stage]->runFusionWithInputs(stage_input_IValues)
+                       : fec_[stage]->allocOutputSpace(stage_input_IValues);
 
-  // Launch kernel and record the kernel output into current context
-  std::vector<at::Tensor> outputs;
-
-  if (shouldRun(stage)) {
-    // Use default launch parameters.
-    LaunchParams launch_params;
-    // If the kernel was auto-scheduled, we need to
-    //  pull the launch parameters from the scheduler.
-    auto scheduler_it = auto_scheduler_registry_.find(stage);
-    if (scheduler_it != auto_scheduler_registry_.end()) {
-      updateLaunchParamsFromScheduler(
-          scheduler_it->second.get(), launch_params);
-    }
-    outputs = executor->runFusion(stage_input_IValues, launch_params, {});
-  } else {
-    // Allocate space for kernel outputs.
-    // TODO: allocate only if strictly necessary
-    outputs = executor->allocOutputSpace(stage_input_IValues);
-  }
   // Store the outputs or placeholders in the context
-  // Bind context tensors to the actual kernel outputs:
   for (auto output_idx : c10::irange(stage->outputs().size())) {
-    // Fill tensor data or placeholder to context.
     val_to_IValue_[stage->outputs().at(output_idx)] = outputs.at(output_idx);
   }
 }

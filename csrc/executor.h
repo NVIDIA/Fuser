@@ -254,7 +254,7 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
   //!  allocate output space and receive output data from
   //!  a different rank instead of computing them.
   std::vector<at::Tensor> allocOutputSpace(
-      const at::ArrayRef<c10::IValue>& inputs);
+      KernelArgumentHolder& kernel_inputs);
 
  private:
   static std::string kernelNamespace() {

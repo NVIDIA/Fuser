@@ -1141,8 +1141,7 @@ std::vector<FusionExecutor::GlobalBufferInfo> FusionExecutor::
 }
 
 std::vector<at::Tensor> FusionExecutor::allocOutputSpace(
-    const at::ArrayRef<c10::IValue>& inputs) {
-  auto kernel_inputs = KernelArgumentHolder::createKernelArgumentHolder(inputs);
+    KernelArgumentHolder& kernel_inputs) {
   auto expr_eval =
       executor_utils::bindInputs(kernel_inputs, lowered_->kernel());
 

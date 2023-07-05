@@ -42,8 +42,8 @@ class PipelineExecutor : public IterVisitor {
  private:
   // Implement the execution of exprs of the Pipeline
   // Each PipelineStage will be compiled and executed on a GPU
-  // Each PipelineCommunication will invoke the ProgressStage to perform the
-  // comm
+  // Each PipelineCommunication will invoke the communicator's process group
+  // to perform the communication
   using IterVisitor::handle;
   void handle(PipelineStage* pipelineStage) override;
   void handle(PipelineCommunication* sr) override;
@@ -59,17 +59,14 @@ class PipelineExecutor : public IterVisitor {
   // Stores concrete computed values,
   std::unordered_map<Val*, c10::IValue> val_to_IValue_;
 
-  // Compiled kernels from multi_stage_fusion_
-  std::unordered_map<PipelineStage*, CompiledKernelPtr> compiled_kernels_;
+  // Stores FusionExecutorCache for each PipelineStage
+  std::unordered_map<PipelineStage*, std::unique_ptr<FusionExecutorCache>> fec_;
 
   // Cache results of shouldRun method
   std::unordered_map<PipelineStage*, bool> should_run_;
 
   // Keeps track of heuristics that are used to schedule
   //  the auto-scheduled kernels.
-  std::unordered_map<PipelineStage*, std::unique_ptr<SchedulerEntry>>
-      auto_scheduler_registry_;
-
   MultiDeviceRuntime& runtime_;
 };
 

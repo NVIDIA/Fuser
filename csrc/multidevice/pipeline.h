@@ -49,9 +49,7 @@ The PipelineStageDescriptor are passed to the Pipeline (through a
 PipelineDescriptor) by REFERENCE. As a consequence, after instantiation of the
 Pipeline, it is not allowed to add Vals to the PipelineStageDescriptor nor to
 free them. However, even after the Pipeline is instantiated, the user can still
-set som runtime informations on the PipelineStageDescriptor, which are
-- auto_schedule: bool indicating whether the stage should be autoscheduled
-- mesh (see multidevice/device_mesh.h) which is basically an n-array of devices
+set the mesh (see multidevice/device_mesh.h) which is basically an n-array of devices
 indices on which the stage should be executed at runtime.
 */
 
@@ -68,8 +66,6 @@ class TORCH_CUDA_CU_API PipelineStageDescriptor final {
 
   // The mesh on which the stage will be executed at runtime.
   DeviceMesh mesh;
-  // whether the stage should be auto-scheduled.
-  bool auto_schedule = true;
   /* Unique identifier for the stage.
      Only used for printing/debugging to easily identify each stage.*/
   const int unique_id;
