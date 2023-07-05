@@ -7,6 +7,7 @@ from copy import deepcopy
 from functools import partial
 import itertools
 import math
+import random
 import re
 from typing import List, Callable
 import tempfile
@@ -2368,39 +2369,58 @@ class TestNvFuserFrontend(TestCase):
         inputs = [
             torch.randn(*input_size, device=device, dtype=dtype),
         ]
-        param1 = 0.3  # low or mean
-        param2 = 1.7  # hi or sigma
 
         for randopname in ["uniform", "normal"]:
 
-            def fusion_func(fd: FusionDefinition):
-                # Note: this is awkward, but we need to set the random seed
-                # each time the fusion is executed otherwise subsequent calls
-                # will compute t1 after advancing the seed
-                torch.manual_seed(0)
-
+            def fusion_func(fd: FusionDefinition, *, deterministic) -> None:
+                t1 = fd.from_pytorch(inputs[0])
+                a = fd.define_scalar(0.3, DataType.Float)
+                b = fd.define_scalar(1.7, DataType.Float)
+                shape = [fd.define_scalar(5), fd.define_scalar(9)]
                 randop = getattr(fd.ops, randopname)
-
-                t0 = fd.from_pytorch(inputs[0])
-                s1 = fd.define_scalar(param1)
-                s2 = fd.define_scalar(param1)
-                size = fd.ops.tensor_sizes(t0)
-                t1 = randop(s1, s2, size, DataType.Double)
-
-                t2 = randop(
-                    s1,
-                    s2,
-                    size,
-                    DataType.Double,
-                    rng_seed=fd.define_constant(0),
-                    rng_offset=fd.define_constant(0),
-                )
-                fd.add_output(t1)
+                if deterministic:
+                    rng_seed = fd.define_scalar(DataType.Int)
+                    rng_offset = fd.define_scalar(DataType.Int)
+                    u = randop(a, b, shape, rng_seed=rng_seed, rng_offset=rng_offset)
+                else:
+                    u = randop(a, b, shape)
+                t2 = t1 * u
                 fd.add_output(t2)
 
-            nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+            # exec_nvfuser tests printing and serde, so run that for each definition first
+            self.exec_nvfuser(partial(fusion_func, deterministic=False), inputs)
+            self.exec_nvfuser(
+                partial(fusion_func, deterministic=True), [inputs[0], 0, 0]
+            )
 
-            self.assertEqual(nvf_out[0], nvf_out[1])
+            # Now instantiate FusionDefinitions in each mode
+            with FusionDefinition() as fd_stoch:
+                fusion_func(fd_stoch, deterministic=False)
+            with FusionDefinition() as fd_det:
+                fusion_func(fd_det, deterministic=True)
+
+            # Test with three different random seeds
+            for _ in range(3):
+                max_seed = 2**63 - 1
+                seed = random.randint(0, max_seed)
+                torch.manual_seed(seed)
+
+                stateful_sequence = [fd_stoch.execute(inputs) for _ in range(10)]
+                # Each call to uniform with DataType::Float will advance the offset by 4
+                stateless_sequence = [
+                    fd_det.execute([inputs[0], seed, rng_offset])
+                    for rng_offset in range(0, 10 * 4, 4)
+                ]
+
+                for i, (sful, sless) in enumerate(
+                    zip(stateful_sequence, stateless_sequence)
+                ):
+                    try:
+                        torch.testing.assert_close(sful[0], sless[0])
+                    except AssertionError as e:
+                        print(f"Assertion failed for iteration {i} with seed {seed}")
+                        print(e)
+                        break
 
 
 if __name__ == "__main__":
