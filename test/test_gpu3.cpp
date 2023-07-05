@@ -9,6 +9,7 @@
 #include <gtest/gtest.h>
 
 #include <codegen.h>
+#include <debug.h>
 #include <device_lower/lower2device.h>
 #include <device_lower/pass/magic_zero.h>
 #include <disjoint_set.h>
@@ -9200,6 +9201,26 @@ TEST_F(NVFuserTest, FusionOptionsGuard_CUDA) {
   std::string output = testing::internal::GetCapturedStdout();
   ASSERT_NE(output.find("Register spill detected"), std::string::npos)
       << "Register spill is not captured!";
+}
+
+// Test that DebugStreamGuard captures output
+TEST_F(NVFuserTest, FusionDebugStreamGuard_CUDA) {
+  std::stringstream ss;
+  std::string text("test debug output");
+
+  nvfdebug() << "text before guard";
+
+  { // Test using the guard
+    DebugStreamGuard dsg(ss);
+
+    nvfdebug() << text;
+  }
+
+  nvfdebug() << "text after guard";
+
+  // If the guard failed, we might write nothing to ss or we might write the
+  // text after the guard to ss.
+  ASSERT_EQ(ss.str(), text);
 }
 
 // Test file size should be up to 10K LoC. Create a new file for more tests.
