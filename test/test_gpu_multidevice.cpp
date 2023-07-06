@@ -81,7 +81,7 @@ void testValidateMultidevice(
   // gathering all the inputs at tester_rank
   std::vector<c10::IValue> input_tensors;
   for (auto i : c10::irange(inputs.size())) {
-    auto sender_rank = runtime.deviceIdxToRank(runtime.pipeline()
+    auto sender_rank = runtime.dIdToRank(runtime.pipeline()
                                                    ->inputs()
                                                    .at(i)
                                                    ->as<PipelineVal>()
@@ -97,7 +97,7 @@ void testValidateMultidevice(
   // gathering all the outputs at tester_rank
   std::vector<at::Tensor> output_tensors;
   for (auto i : c10::irange(outputs.size())) {
-    auto sender_rank = runtime.deviceIdxToRank(runtime.pipeline()
+    auto sender_rank = runtime.dIdToRank(runtime.pipeline()
                                                    ->outputs()
                                                    .at(i)
                                                    ->as<PipelineVal>()

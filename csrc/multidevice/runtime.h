@@ -18,24 +18,12 @@
 
 namespace nvfuser {
 
-// default canonical mappings rank -> device ID -> concrete devices used in
-// runtime class
-static auto rankToDeviceIdx_default(RankType rank) {
-  return static_cast<DeviceIdxType>(rank);
-}
-static auto deviceIdxToDevice_default(DeviceIdxType device_id) {
-  return at::Device(
-      /* here, "% at::cuda::getNumGPUs()" is used to map device_id
-         to a valid device index within the node. */
-      "cuda:" + std::to_string(device_id % at::cuda::getNumGPUs()));
-}
-
 /*
   The MultiDeviceRuntime class gather all what is needed for executing a
   Pipeline on a multi-device setting. It is instantiated from a Pipeline and a
   Communicator (a default Communicator is built at initialization if none is
-  provided). It also holds mappings rank -> device ID -> concrete devices which
-  are defined as the canonical mappings for now.
+  provided). It also holds mappings ranks <-> device IDs, and associate a device
+  to the current node
 */
 class TORCH_CUDA_CU_API MultiDeviceRuntime {
  public:
@@ -66,30 +54,20 @@ class TORCH_CUDA_CU_API MultiDeviceRuntime {
     return comm_.rank();
   }
 
-  // mappings: rank -> virtual device id -> concrete device.
-  // for now, assuming canonical mappings but could consider other one-to-one
-  // mappings in the future
-  auto rankToDeviceIdx(RankType rank) const {
-    return rankToDeviceIdx_default(rank);
-  }
-
-  auto deviceIdxToDevice(DeviceIdxType device_id) const {
-    return deviceIdxToDevice_default(device_id);
-  }
-
+  // returns the device associated with the process
   auto device() const {
-    return deviceIdxToDevice(rankToDeviceIdx(comm_.rank()));
+    return at::Device(
+        "cuda:" + std::to_string(comm_.local_rank()));
   }
 
-  auto deviceIdxToRank(DeviceIdxType d_id) const {
-    for (auto rank : comm_.ranks()) {
-      if (rankToDeviceIdx(rank) == d_id) {
-        return rank;
-      }
-    }
-    TORCH_INTERNAL_ASSERT(
-        false,
-        "No rank is associated with device index " + std::to_string(d_id));
+  // returns the rank corresponding to device index
+  auto dIdToRank(DeviceIdxType d_id) const {
+    return static_cast<RankType>(d_id);
+  }
+
+  // returns the device index corresponding to the rank
+  auto rankToDiD(RankType rank) const {
+    return static_cast<DeviceIdxType>(rank);
   }
 
  private:

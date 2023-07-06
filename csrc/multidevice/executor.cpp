@@ -17,7 +17,7 @@ bool PipelineExecutor::shouldRun(PipelineStage* stage) {
       std::count(
           stage->descriptor()->mesh.deviceIndices().begin(),
           stage->descriptor()->mesh.deviceIndices().end(),
-          runtime_.rankToDeviceIdx(runtime_.comm_.rank())));
+          runtime_.rankToDiD(runtime_.rank())));
   return should_run_[stage];
 }
 
@@ -63,7 +63,7 @@ void PipelineExecutor::handle(PipelineCommunication* c) {
                          ->getStage()
                          ->descriptor()
                          ->mesh.deviceIndices()) {
-      sender_ranks.push_back(runtime_.deviceIdxToRank(d_id));
+      sender_ranks.push_back(runtime_.dIdToRank(d_id));
     }
 
     std::vector<RankType> receiver_ranks;
@@ -72,7 +72,7 @@ void PipelineExecutor::handle(PipelineCommunication* c) {
                          ->getStage()
                          ->descriptor()
                          ->mesh.deviceIndices()) {
-      receiver_ranks.push_back(runtime_.deviceIdxToRank(d_id));
+      receiver_ranks.push_back(runtime_.dIdToRank(d_id));
     }
 
     auto nbr_srcs = sender_ranks.size();
