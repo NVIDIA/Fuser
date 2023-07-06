@@ -1497,7 +1497,9 @@ Val* size(TensorView* inp, int64_t dim) {
   if (dim < 0) {
     dim = iter_domains.size() + dim;
   }
-  TORCH_CHECK((idx >= 0) && (static_cast<size_t>(idx) < iter_domains.size()), "The dimension requested is beyond the bounds of the shape of the indexed tensor!");
+  TORCH_CHECK(
+      (idx >= 0) && (static_cast<size_t>(idx) < iter_domains.size()),
+      "The dimension requested is beyond the bounds of the shape of the indexed tensor!");
   return iter_domains.at(idx)->getMaybeExpandedExtent();
 }
 
@@ -1506,7 +1508,9 @@ Val* at(std::vector<Val*>& inp, int64_t index) {
   if (idx < 0) {
     idx = inp.size() + idx;
   }
-  TORCH_CHECK((idx >= 0) && (static_cast<size_t>(idx) < inp.size()), "The index requested is beyond the bounds of the indexed vector!");
+  TORCH_CHECK(
+      (idx >= 0) && (static_cast<size_t>(idx) < inp.size()),
+      "The index requested is beyond the bounds of the indexed vector!");
   return inp.at(idx);
 }
 
