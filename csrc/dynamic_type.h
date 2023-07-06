@@ -356,32 +356,76 @@ struct DynamicType {
       },
       type_identities_as_tuple);
 
-  template <
-      typename IndexT,
-      typename = std::enable_if_t<has_square_bracket<IndexT>>>
-  DynamicType& operator[](const IndexT& i) {
-    std::optional<std::reference_wrapper<DynamicType>> ret = std::nullopt;
-    for_all_types([this, &ret, &i](auto t) {
-      using T = typename decltype(t)::type;
-      if constexpr (opcheck<T>[opcheck<IndexT>]) {
-        if constexpr (std::is_same_v<
-                          decltype(std::declval<T>()[std::declval<IndexT>()]),
-                          DynamicType&>) {
-          if (is<T>()) {
-            ret = std::ref(as<T>()[i]);
-          }
-        }
-      }
-    });
-    TORCH_CHECK(
-        ret.has_value(),
-        "Cannot index ",
-        type().name(),
-        " with ",
-        typeid(IndexT).name(),
-        " : incompatible type");
-    return ret.value();
+#define DEFINE_SQUARE_BRACKET_OPERATOR(__const)                                \
+  template <typename IndexT>                                                   \
+  std::enable_if_t<                                                            \
+      !std::is_same_v<IndexT, DynamicType> && has_square_bracket<IndexT>,      \
+      __const DynamicType&>                                                    \
+  operator[](const IndexT& i) __const {                                        \
+    std::optional<std::reference_wrapper<__const DynamicType>> ret =           \
+        std::nullopt;                                                          \
+    for_all_types([this, &ret, &i](auto t) {                                   \
+      using T = typename decltype(t)::type;                                    \
+      if constexpr (opcheck<T>[opcheck<IndexT>]) {                             \
+        if constexpr (std::is_same_v<                                          \
+                          decltype(std::declval<T>()[std::declval<IndexT>()]), \
+                          DynamicType&>) {                                     \
+          if (is<T>()) {                                                       \
+            ret = std::ref(as<T>()[i]);                                        \
+          }                                                                    \
+        }                                                                      \
+      }                                                                        \
+    });                                                                        \
+    TORCH_CHECK(                                                               \
+        ret.has_value(),                                                       \
+        "Cannot index ",                                                       \
+        type().name(),                                                         \
+        " with ",                                                              \
+        typeid(IndexT).name(),                                                 \
+        " : incompatible type");                                               \
+    return ret.value();                                                        \
   }
+
+  DEFINE_SQUARE_BRACKET_OPERATOR()
+  DEFINE_SQUARE_BRACKET_OPERATOR(const)
+#undef DEFINE_SQUARE_BRACKET_OPERATOR
+
+  static constexpr bool has_any_square_bracket = any_check(
+      [](auto t) {
+        using IndexT = typename decltype(t)::type;
+        return has_square_bracket<IndexT>;
+      },
+      type_identities_as_tuple);
+
+#define DEFINE_SQUARE_BRACKET_OPERATOR(__const)                      \
+  template <typename DT>                                             \
+  std::enable_if_t<                                                  \
+      std::is_same_v<DT, DynamicType> && has_any_square_bracket,     \
+      __const DynamicType&>                                          \
+  operator[](const DT& i) __const {                                  \
+    std::optional<std::reference_wrapper<__const DynamicType>> ret = \
+        std::nullopt;                                                \
+    for_all_types([this, &ret, &i](auto t) {                         \
+      using IndexT = typename decltype(t)::type;                     \
+      if constexpr (has_square_bracket<IndexT>) {                    \
+        if (i.template is<IndexT>()) {                               \
+          ret = std::ref((*this)[i.template as<IndexT>()]);          \
+        }                                                            \
+      }                                                              \
+    });                                                              \
+    TORCH_CHECK(                                                     \
+        ret.has_value(),                                             \
+        "Cannot index ",                                             \
+        type().name(),                                               \
+        " with ",                                                    \
+        i.type().name(),                                             \
+        " : incompatible type");                                     \
+    return ret.value();                                              \
+  }
+
+  DEFINE_SQUARE_BRACKET_OPERATOR()
+  DEFINE_SQUARE_BRACKET_OPERATOR(const)
+#undef DEFINE_SQUARE_BRACKET_OPERATOR
 
   // TODO: support ->* operator. This operator is rarely used, so we don't
   // implement it yet. But if in the future, it turns to be useful, we should
