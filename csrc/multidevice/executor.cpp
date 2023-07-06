@@ -12,12 +12,14 @@
 namespace nvfuser {
 
 bool PipelineExecutor::shouldRun(PipelineStage* stage) {
-  should_run_.try_emplace(
-      stage,
-      std::count(
-          stage->descriptor()->mesh.deviceIndices().begin(),
-          stage->descriptor()->mesh.deviceIndices().end(),
-          runtime_.rankToDiD(runtime_.rank())));
+  if (!should_run_.count(stage)) {
+    should_run_.emplace(
+        stage,
+        std::count(
+            stage->descriptor()->mesh.deviceIndices().begin(),
+            stage->descriptor()->mesh.deviceIndices().end(),
+            runtime_.rankToDiD(runtime_.rank())));
+  }
   return should_run_[stage];
 }
 
@@ -29,10 +31,12 @@ void PipelineExecutor::handle(PipelineStage* stage) {
   }
 
   // Create the stage executor
-  fec_.try_emplace(
-      stage,
-      std::make_unique<FusionExecutorCache>(
-          runtime_.pipeline_->stageToFusion(stage)));
+  if (!fec_.count(stage)) {
+    fec_.emplace(
+        stage,
+        std::make_unique<FusionExecutorCache>(
+            runtime_.pipeline_->stageToFusion(stage)));
+  }
   // Run the stage to get concrete outputs or placeholders
   // TODO: reimplement allocOutputSpace
   // TODO: allocate output space only if strictly necessary
