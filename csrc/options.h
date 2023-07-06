@@ -100,6 +100,7 @@ enum class DisableOption {
   IndexHoist, //! Disable index hoisting
   MagicZero, //! Disable nvfuser_zero
   Nvtx, //! Disable NVTX instrumentation
+  ParallelCompile, //! Disable compiling Fusion segments in parallel
   PredicateElimination, //! Disable predicate elimination
   VarNameRemapping, //! Disable variable name remapping
   WelfordVectorization, //! Disable vectorizaton of Welford ops
