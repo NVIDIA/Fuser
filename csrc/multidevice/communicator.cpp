@@ -105,7 +105,7 @@ c10::intrusive_ptr<c10d::Backend> createBackend(
 }
 
 Communicator::Communicator(CommunicatorBackend backend, RankType server_rank)
-    : rank_(0), size_(0) {
+    : rank_(0), size_(0), local_rank_(0), local_size_(0) {
   // retrieves rank and communicator size
   int status = parseEnv(rank_, size_, local_rank_, local_size_);
   TORCH_CHECK(status == 0, "distributed configuration is not available");
