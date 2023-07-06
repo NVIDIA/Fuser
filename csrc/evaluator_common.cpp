@@ -7,6 +7,7 @@
 // clang-format on
 #include <evaluator_common.h>
 
+#include <debug.h>
 #include <device_lower/lower2device.h>
 #include <executor_kernel_arg.h>
 #include <expr_evaluator.h>
@@ -231,11 +232,11 @@ EvaluatorValue PrecomputedValues::getMaybeValueFor(const Val* val) const {
 }
 
 void PrecomputedValues::print() const {
-  std::cout << "Precomputed Values:\n";
+  debug() << "Precomputed Values:\n";
   for (auto i : c10::irange(symbols_.size())) {
     if (defined_[i]) {
-      std::cout << symbols_[i]->toInlineString() << " = " << values_[i]
-                << std::endl;
+      debug() << symbols_[i]->toInlineString() << " = " << values_[i]
+              << std::endl;
     }
   }
 }

@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 
+#include <debug.h>
 #include <ir/interface_nodes.h>
 #include <ir/utils.h>
 
@@ -263,7 +264,8 @@ class TORCH_CUDA_CU_API SpanningTreePrinter
   void propagateC2P(TensorView* from, TensorView* to) override;
   void propagateP2C(TensorView* from, TensorView* to) override;
   void propagateSibling(TensorView* from, TensorView* to) override;
-  SpanningTreePrinter(std::ostream& stream = std::cout) : stream_(stream) {}
+  SpanningTreePrinter(std::ostream& stream) : stream_(stream) {}
+  SpanningTreePrinter() : SpanningTreePrinter(debug()) {}
 };
 
 // Simple selector for selecting subgraphs to build spanning trees. The selector

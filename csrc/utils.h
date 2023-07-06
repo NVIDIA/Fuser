@@ -11,6 +11,7 @@
 #include <c10/util/Exception.h>
 #include <torch/csrc/jit/ir/ir.h>
 
+#include <debug.h>
 #include <type.h>
 
 #include <deque>
@@ -366,12 +367,12 @@ template <typename... Args>
 class DebugPrintScope {
  public:
   DebugPrintScope(std::string name, Args... args) : name_(std::move(name)) {
-    std::cout << "Entering " << name_ << "("
-              << toDelimitedString(std::forward_as_tuple(args...)) << ")"
-              << std::endl;
+    debug() << "Entering " << name_ << "("
+            << toDelimitedString(std::forward_as_tuple(args...)) << ")"
+            << std::endl;
   }
   ~DebugPrintScope() {
-    std::cout << "Leaving " << name_ << std::endl;
+    debug() << "Leaving " << name_ << std::endl;
   }
 
  private:

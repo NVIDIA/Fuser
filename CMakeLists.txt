@@ -7,27 +7,32 @@ project(nvfuser)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # compensating the lack of PROJECT_IS_TOP_LEVEL for older cmake version
-if (CMAKE_VERSION VERSION_LESS 3.21)
-    if ("${CMAKE_PROJECT_NAME}" STREQUAL "${PROJECT_NAME}")
-        set (PROJECT_IS_TOP_LEVEL ON)
-    endif ()
-endif ()
+if(CMAKE_VERSION VERSION_LESS 3.21)
+  if("${CMAKE_PROJECT_NAME}" STREQUAL "${PROJECT_NAME}")
+    set(PROJECT_IS_TOP_LEVEL ON)
+  endif()
+endif()
 
 set(NVFUSER_ROOT ${PROJECT_SOURCE_DIR})
 set(NVFUSER_SRCS_DIR "${NVFUSER_ROOT}/csrc")
-if (PROJECT_IS_TOP_LEVEL)
+
+if(PROJECT_IS_TOP_LEVEL)
   find_package(Torch REQUIRED)
   find_package(Python REQUIRED Development Interpreter)
   find_package(pybind11 REQUIRED)
+
   # need this since the pytorch execution uses a different name
   set(PYTHON_EXECUTABLE ${Python_EXECUTABLE})
   set(ATEN_CUDA_ROOT "${TORCH_INSTALL_PREFIX}/include/ATen")
+
   # CXX flags is necessary since https://github.com/pytorch/pytorch/issues/98093
   string(APPEND CMAKE_CXX_FLAGS ${TORCH_CXX_FLAGS})
   include(cmake/FlatBuffers.cmake)
+
   if(BUILD_NVFUSER_BENCHMARK)
     include(cmake/Dependencies.cmake)
   endif()
+
   # set CUDA_ARCH for cu tests.
   if(EXISTS ${TORCH_CUDA_ARCH_LIST})
     set(ARCH_FLAGS)
@@ -37,7 +42,7 @@ if (PROJECT_IS_TOP_LEVEL)
 else() # PROJECT_IS_TOP_LEVEL
   # TODO: move this to the top~
   # if we are included by other project and `BUILD_NVFUSER` is not set, we skip
-  if (NOT BUILD_NVFUSER)
+  if(NOT BUILD_NVFUSER)
     return()
   endif()
 
@@ -56,9 +61,9 @@ if(NOT MSVC)
   find_library(LIBNVTOOLSEXT libnvToolsExt.so PATHS ${CUDA_TOOLKIT_ROOT_DIR}/lib64/)
 endif()
 
-#------------------------------
+# ------------------------------
 # build nvfuser_codegen library
-#------------------------------
+# ------------------------------
 
 # nvfuser codegen sources
 set(NVFUSER_SRCS)
@@ -68,6 +73,7 @@ list(APPEND NVFUSER_SRCS
     ${NVFUSER_SRCS_DIR}/compute_at_map.cpp
     ${NVFUSER_SRCS_DIR}/codegen.cpp
     ${NVFUSER_SRCS_DIR}/contiguity.cpp
+    ${NVFUSER_SRCS_DIR}/debug.cpp
     ${NVFUSER_SRCS_DIR}/dispatch.cpp
     ${NVFUSER_SRCS_DIR}/dynamic_transform.cpp
     ${NVFUSER_SRCS_DIR}/expr_evaluator.cpp
@@ -187,33 +193,47 @@ list(APPEND NVFUSER_SRCS
     ${NVFUSER_SRCS_DIR}/optimization/pre_segmenter.cpp
 )
 
+if(BUILD_PYTHON)
+  list(APPEND NVFUSER_SRCS
+    ${NVFUSER_SRCS_DIR}/python_frontend/fusion_cache.cpp
+    ${NVFUSER_SRCS_DIR}/python_frontend/fusion_definition.cpp
+    ${NVFUSER_SRCS_DIR}/python_frontend/fusion_state.cpp
+    ${NVFUSER_SRCS_DIR}/serde/fusion_record_serde.cpp
+    ${NVFUSER_SRCS_DIR}/serde/utils.cpp)
+endif()
+
 set(NVFUSER_CODEGEN ${PROJECT_NAME}_codegen)
 add_library(${NVFUSER_CODEGEN} SHARED ${NVFUSER_SRCS})
 target_compile_options(${NVFUSER_CODEGEN} PRIVATE -Wall -Wno-unused-function)
 target_compile_options(${NVFUSER_CODEGEN} PRIVATE "-DTORCH_CUDA_BUILD_MAIN_LIB")
+
 if(NOT MSVC)
   target_compile_options(${NVFUSER_CODEGEN} PRIVATE -Werror)
 endif()
+
 # NB: This must be target_compile_definitions, not target_compile_options,
 # as the latter is not respected by nvcc
 target_compile_definitions(${NVFUSER_CODEGEN} PRIVATE "-DTORCH_CUDA_BUILD_MAIN_LIB")
 
 # Link flatbuffers for serialization support
 target_link_libraries(${NVFUSER_CODEGEN} PRIVATE flatbuffers)
+
 # For kernel_db, linking STL Filesystem Library for backward compatability with C++14
 target_link_libraries(${NVFUSER_CODEGEN} PRIVATE stdc++fs)
 target_link_libraries(${NVFUSER_CODEGEN} PRIVATE ${CUDA_NVRTC_LIB} ${LIBNVTOOLSEXT})
 target_include_directories(${NVFUSER_CODEGEN} PRIVATE ${CUDA_INCLUDE_DIRS})
+
 # TODO: we should guard the include of gloo
 target_include_directories(${NVFUSER_CODEGEN} PRIVATE ${PROJECT_SOURCE_DIR}/third_party/gloo)
 target_include_directories(${NVFUSER_CODEGEN} PUBLIC
-                          "$<BUILD_INTERFACE:${NVFUSER_SRCS_DIR}>"
-                          "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/nvfuser>"
-                          )
+  "$<BUILD_INTERFACE:${NVFUSER_SRCS_DIR}>"
+  "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/nvfuser>"
+)
 set_property(TARGET ${NVFUSER_CODEGEN} PROPERTY CXX_STANDARD 17)
 
-if (PROJECT_IS_TOP_LEVEL)
+if(PROJECT_IS_TOP_LEVEL)
   target_link_libraries(${NVFUSER_CODEGEN} PRIVATE torch ${TORCH_LIBRARIES})
+
   # this is to find pip installed nvrtc .so
   set_target_properties(${NVFUSER_CODEGEN} PROPERTIES INSTALL_RPATH "$ORIGIN/../../nvidia/cuda_nvrtc/lib")
   install(TARGETS ${NVFUSER_CODEGEN} EXPORT NvfuserTargets DESTINATION lib)
@@ -221,87 +241,91 @@ if (PROJECT_IS_TOP_LEVEL)
   # We are keeping fusion_cache_generated.h for the submodule build because flatc is unavailable.
   add_custom_command(
     OUTPUT
-      ${NVFUSER_ROOT}/csrc/serde/fusion_cache_generated.h
+    ${NVFUSER_ROOT}/csrc/serde/fusion_cache_generated.h
     DEPENDS
-      ${NVFUSER_ROOT}/csrc/serde/fusion_cache.fbs
+    ${NVFUSER_ROOT}/csrc/serde/fusion_cache.fbs
     DEPENDS flatc
     COMMAND ${CMAKE_CURRENT_BINARY_DIR}/third_party/flatbuffers/flatc -o ${NVFUSER_ROOT}/csrc/serde/ -c -b ${NVFUSER_ROOT}/csrc/serde/fusion_cache.fbs
     COMMENT "Generating fusion_cache_generated header from fusion_cache.fbs"
     VERBATIM
-    )
+  )
   add_custom_target(build_flatbuffer_config ALL
-      DEPENDS ${NVFUSER_ROOT}/csrc/serde/fusion_cache_generated.h)
+    DEPENDS ${NVFUSER_ROOT}/csrc/serde/fusion_cache_generated.h)
 
   add_dependencies(${NVFUSER_CODEGEN} flatc build_flatbuffer_config)
 else()
   file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/nvfuser")
   target_link_libraries(${NVFUSER_CODEGEN} PRIVATE torch ${TORCHLIB_FLAVOR})
+
   # NOTE: our CI build somehow fails with find driver lib.
   target_link_libraries(${NVFUSER_CODEGEN} PUBLIC CUDA::cuda_driver)
+
   # installing nvfuser python tests
   install(DIRECTORY "${NVFUSER_ROOT}/python_tests/"
-  	DESTINATION "${TORCH_ROOT}/test/_nvfuser"
-          FILES_MATCHING PATTERN "*.py" )
+    DESTINATION "${TORCH_ROOT}/test/_nvfuser"
+    FILES_MATCHING PATTERN "*.py")
+
   # installing nvfuser lib
   install(TARGETS ${NVFUSER_CODEGEN} EXPORT NvfuserTargets DESTINATION "${TORCH_INSTALL_LIB_DIR}")
 endif()
 
 # installing nvfuser headers
 install(DIRECTORY "${NVFUSER_SRCS_DIR}/"
-      DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/nvfuser"
-      FILES_MATCHING
-      PATTERN "*.h"
-      PATTERN "csrc/C++20/type_traits")
+  DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/nvfuser"
+  FILES_MATCHING
+  PATTERN "*.h"
+  PATTERN "csrc/C++20/type_traits")
 
-#-----------------------------
+# -----------------------------
 # build nvfuser python library
-#-----------------------------
-
+# -----------------------------
 if(BUILD_PYTHON)
   # nvfuser python API sources
   set(NVFUSER_PYTHON_SRCS)
   list(APPEND NVFUSER_PYTHON_SRCS
-      ${NVFUSER_SRCS_DIR}/python_frontend/python_bindings.cpp
-      ${NVFUSER_SRCS_DIR}/python_frontend/python_bindings_extension.cpp
+    ${NVFUSER_SRCS_DIR}/python_frontend/python_bindings.cpp
+    ${NVFUSER_SRCS_DIR}/python_frontend/python_bindings_extension.cpp
   )
 
-    set(NVFUSER "${PROJECT_NAME}")
-    add_library(${NVFUSER} MODULE ${NVFUSER_PYTHON_SRCS})
-    set_property(TARGET ${NVFUSER} PROPERTY CXX_STANDARD 17)
+  set(NVFUSER "${PROJECT_NAME}")
+  add_library(${NVFUSER} MODULE ${NVFUSER_PYTHON_SRCS})
+  set_property(TARGET ${NVFUSER} PROPERTY CXX_STANDARD 17)
 
-    # setup python API version
-    add_custom_command(
-      OUTPUT ${NVFUSER_ROOT}/nvfuser/version.py
-      COMMAND
-        "${PYTHON_EXECUTABLE}" -c \"from pathlib import Path\; Path('${NVFUSER_ROOT}/tools/gen_nvfuser_version.py').touch()\"
-      COMMAND
-        "${PYTHON_EXECUTABLE}" ${NVFUSER_ROOT}/tools/gen_nvfuser_version.py
-      DEPENDS ${NVFUSER_ROOT}/tools/gen_nvfuser_version.py
-      WORKING_DIRECTORY ${NVFUSER_ROOT}/tools/
-    )
-    add_custom_target(
-      gen_nvfuser_version ALL
-      DEPENDS ${NVFUSER_ROOT}/nvfuser/version.py
-    )
-    add_dependencies(${NVFUSER} gen_nvfuser_version)
+  # setup python API version
+  add_custom_command(
+    OUTPUT ${NVFUSER_ROOT}/nvfuser/version.py
+    COMMAND
+    "${PYTHON_EXECUTABLE}" -c \"from pathlib import Path\; Path('${NVFUSER_ROOT}/tools/gen_nvfuser_version.py') .touch() \"
+    COMMAND
+    "${PYTHON_EXECUTABLE}" ${NVFUSER_ROOT}/tools/gen_nvfuser_version.py
+    DEPENDS ${NVFUSER_ROOT}/tools/gen_nvfuser_version.py
+    WORKING_DIRECTORY ${NVFUSER_ROOT}/tools/
+  )
+  add_custom_target(
+    gen_nvfuser_version ALL
+    DEPENDS ${NVFUSER_ROOT}/nvfuser/version.py
+  )
+  add_dependencies(${NVFUSER} gen_nvfuser_version)
 
-    target_compile_options(${NVFUSER} PRIVATE "-DTORCH_CUDA_BUILD_MAIN_LIB")
-    # NB: This must be target_compile_definitions, not target_compile_options,
-    # as the latter is not respected by nvcc
-    target_compile_definitions(${NVFUSER} PRIVATE "-DTORCH_CUDA_BUILD_MAIN_LIB")
-    if(NOT MSVC)
-      target_compile_options(${NVFUSER} PRIVATE -Werror)
-      set_target_properties(${NVFUSER} PROPERTIES SUFFIX ".so")
-    else()
-      set_target_properties(${NVFUSER} PROPERTIES SUFFIX ".pyd")
-    endif()
+  target_compile_options(${NVFUSER} PRIVATE "-DTORCH_CUDA_BUILD_MAIN_LIB")
 
-    target_link_libraries(${NVFUSER} PRIVATE ${LIBNVTOOLSEXT})
-    target_link_libraries(${NVFUSER} PRIVATE ${NVFUSER_CODEGEN})
+  # NB: This must be target_compile_definitions, not target_compile_options,
+  # as the latter is not respected by nvcc
+  target_compile_definitions(${NVFUSER} PRIVATE "-DTORCH_CUDA_BUILD_MAIN_LIB")
 
-    target_compile_definitions(${NVFUSER} PRIVATE EXTENSION_NAME=_C)
+  if(NOT MSVC)
+    target_compile_options(${NVFUSER} PRIVATE -Werror)
+    set_target_properties(${NVFUSER} PROPERTIES SUFFIX ".so")
+  else()
+    set_target_properties(${NVFUSER} PROPERTIES SUFFIX ".pyd")
+  endif()
 
-  if (PROJECT_IS_TOP_LEVEL)
+  target_link_libraries(${NVFUSER} PRIVATE ${LIBNVTOOLSEXT})
+  target_link_libraries(${NVFUSER} PRIVATE ${NVFUSER_CODEGEN})
+
+  target_compile_definitions(${NVFUSER} PRIVATE EXTENSION_NAME=_C)
+
+  if(PROJECT_IS_TOP_LEVEL)
     target_compile_options(${NVFUSER} PRIVATE -Wall -Wno-unused-function)
     target_link_libraries(${NVFUSER} PRIVATE ${TORCH_LIBRARIES})
     target_link_libraries(${NVFUSER} PRIVATE "${TORCH_INSTALL_PREFIX}/lib/libtorch_python.so")
@@ -314,31 +338,30 @@ if(BUILD_PYTHON)
     target_link_libraries(${NVFUSER} PRIVATE torch torch_python ${TORCHLIB_FLAVOR})
     target_include_directories(${NVFUSER} PRIVATE ${TORCH_ROOT})
 
-
     target_link_libraries(${NVFUSER} PRIVATE pybind::pybind11)
     target_compile_options(${NVFUSER} PRIVATE ${TORCH_PYTHON_COMPILE_OPTIONS})
 
     # avoid using Python3_add_library, copied from functorch
     set_target_properties(${NVFUSER} PROPERTIES PREFIX "" DEBUG_POSTFIX "")
     set_target_properties(${NVFUSER} PROPERTIES LIBRARY_OUTPUT_DIRECTORY
-          ${CMAKE_BINARY_DIR}/nvfuser)
+      ${CMAKE_BINARY_DIR}/nvfuser)
     set_target_properties(${NVFUSER} PROPERTIES INSTALL_RPATH "${_rpath_portable_origin}/../torch/lib")
+
     if(TORCH_PYTHON_LINK_FLAGS AND NOT TORCH_PYTHON_LINK_FLAGS STREQUAL "")
       set_target_properties(${NVFUSER} PROPERTIES LINK_FLAGS ${TORCH_PYTHON_LINK_FLAGS})
     endif()
+
     install(TARGETS ${NVFUSER} EXPORT NvfuserTargets DESTINATION ${TORCH_ROOT}/nvfuser/)
 
     # install nvfuser python files
     install(DIRECTORY "${NVFUSER_ROOT}/nvfuser/"
-            DESTINATION "${TORCH_ROOT}/nvfuser"
-            FILES_MATCHING PATTERN "*.py" )
+      DESTINATION "${TORCH_ROOT}/nvfuser"
+      FILES_MATCHING PATTERN "*.py")
     file(WRITE "${TORCH_ROOT}/nvfuser/.gitignore" "*")
   endif()
 endif()
 
-
 # -- build tests
-
 if(BUILD_TEST)
   # nvfuser test sources
   set(JIT_TEST_SRCS)
@@ -347,9 +370,6 @@ if(BUILD_TEST)
     ${NVFUSER_SRCS_DIR}/kernel_db/test/test_nvfuser_kernel_db_open.cpp
     ${NVFUSER_SRCS_DIR}/kernel_db/test/test_nvfuser_kernel_db_query.cpp
     ${NVFUSER_SRCS_DIR}/kernel_db/test/test_nvfuser_kernel_db_write.cpp
-    ${NVFUSER_SRCS_DIR}/python_frontend/test/test_nvfuser_fusion_definition.cpp
-    ${NVFUSER_SRCS_DIR}/python_frontend/test/test_nvfuser_fusion_cache.cpp
-    ${NVFUSER_SRCS_DIR}/python_frontend/test/test_nvfuser_fusion_record.cpp
     ${NVFUSER_ROOT}/test/main.cpp
     ${NVFUSER_ROOT}/test/utils.cpp
     ${NVFUSER_ROOT}/test/test_allocation_domain.cpp
@@ -382,22 +402,31 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/test/test_pipeline.cpp
     ${NVFUSER_ROOT}/test/test_rng.cpp
   )
+
+  if(BUILD_PYTHON)
+    list(APPEND JIT_TEST_SRCS
+      ${NVFUSER_SRCS_DIR}/python_frontend/test/test_nvfuser_fusion_definition.cpp
+      ${NVFUSER_SRCS_DIR}/python_frontend/test/test_nvfuser_fusion_cache.cpp
+      ${NVFUSER_SRCS_DIR}/python_frontend/test/test_nvfuser_fusion_record.cpp)
+  endif()
+
   list(APPEND JIT_TEST_CU_SRCS ${NVFUSER_ROOT}/test/rng_kernels.cu)
 
   set(NVFUSER_TESTS "${PROJECT_NAME}_tests")
 
   add_executable(${NVFUSER_TESTS}
-             ${JIT_TEST_SRCS}
-             ${JIT_TEST_CU_SRCS})
+    ${JIT_TEST_SRCS}
+    ${JIT_TEST_CU_SRCS})
   set_property(TARGET ${NVFUSER_TESTS} PROPERTY CXX_STANDARD 17)
   target_compile_definitions(${NVFUSER_TESTS} PRIVATE USE_GTEST)
   target_link_libraries(${NVFUSER_TESTS} PRIVATE ${NVFUSER_CODEGEN} gtest_main gmock_main flatbuffers)
   target_include_directories(${NVFUSER_TESTS} PRIVATE "${NVFUSER_ROOT}")
 
-  if (PROJECT_IS_TOP_LEVEL)
+  if(PROJECT_IS_TOP_LEVEL)
     target_compile_options(${NVFUSER_TESTS} PRIVATE -Wall -Wno-unused-function)
     target_link_libraries(${NVFUSER_TESTS} PRIVATE ${TORCH_LIBRARIES})
-    # only install nvfuser_tests with submodule build
+
+  # only install nvfuser_tests with submodule build
   else()
     torch_compile_options(${NVFUSER_TESTS})
     target_include_directories(${NVFUSER_TESTS} PRIVATE "${TORCH_ROOT}/torch/csrc/api/include/")
@@ -449,22 +478,25 @@ if(BUILD_NVFUSER_BENCHMARK)
   set(NVFUSER_BENCHMARK "${PROJECT_NAME}_bench")
   add_executable(${NVFUSER_BENCHMARK} ${BENCHMARK_SRCS})
   set_property(TARGET ${NVFUSER_BENCHMARK} PROPERTY CXX_STANDARD 17)
+
   if(PROJECT_IS_TOP_LEVEL)
     target_compile_options(${NVFUSER_BENCHMARK} PRIVATE -Wall -Wno-unused-function)
     target_link_libraries(${NVFUSER_BENCHMARK} PRIVATE ${TORCH_LIBRARIES})
     target_link_libraries(${NVFUSER_BENCHMARK} PRIVATE benchmark::benchmark)
-    # only install nvfuser_bench with submodule build
+
+  # only install nvfuser_bench with submodule build
   else()
     torch_compile_options(${NVFUSER_BENCHMARK})
     target_link_libraries(${NVFUSER_BENCHMARK} PRIVATE torch_library benchmark)
     install(TARGETS ${NVFUSER_BENCHMARK} DESTINATION bin)
   endif()
+
   if(NOT MSVC)
     target_compile_options(${NVFUSER_BENCHMARK} PRIVATE -Werror -Wno-deprecated-copy)
   endif()
+
   target_link_libraries(${NVFUSER_BENCHMARK} PRIVATE ${NVFUSER_CODEGEN})
   target_include_directories(${NVFUSER_BENCHMARK} PRIVATE ${NVFUSER_ROOT})
-
 endif()
 
 # --- generate runtime files
@@ -502,12 +534,12 @@ list(APPEND NVFUSER_RUNTIME_FILES
   ${ATEN_CUDA_ROOT}/cuda/detail/UnpackRaw.cuh
 )
 
-
 file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/include/nvfuser_resources")
 
 # "stringify" NVFUSER runtime sources
 # (generate C++ header files embedding the original input as a string literal)
 set(NVFUSER_STRINGIFY_TOOL "${NVFUSER_ROOT}/tools/stringify_file.py")
+
 foreach(src ${NVFUSER_RUNTIME_FILES})
   get_filename_component(filename ${src} NAME_WE)
   set(dst "${CMAKE_BINARY_DIR}/include/nvfuser_resources/${filename}.h")
@@ -530,7 +562,8 @@ target_include_directories(${NVFUSER_CODEGEN} PRIVATE "${CMAKE_BINARY_DIR}/inclu
 
 # -- install nvfuser cmake config files and symlink to build binaries
 install(EXPORT NvfuserTargets FILE NvfuserConfig.cmake DESTINATION share/cmake/nvfuser)
-if (PROJECT_IS_TOP_LEVEL)
+
+if(PROJECT_IS_TOP_LEVEL)
   file(CREATE_LINK "${CMAKE_BINARY_DIR}" "${NVFUSER_ROOT}/bin" SYMBOLIC)
 else()
   file(CREATE_LINK "${CMAKE_BINARY_DIR}/bin" "${NVFUSER_ROOT}/bin" SYMBOLIC)
