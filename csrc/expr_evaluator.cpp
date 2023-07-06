@@ -6,6 +6,7 @@
  */
 // clang-format on
 
+#include <debug.h>
 #include <evaluator_common.h>
 #include <expr_evaluator.h>
 #include <instrumentation.h>
@@ -165,23 +166,23 @@ ScalarValue ExpressionEvaluator::getValue(const Val* value) {
 }
 
 void ExpressionEvaluator::print() const {
-  std::cout << "\nEvaluation context\n";
-  std::cout << "--------------------\n";
+  debug() << "\nEvaluation context\n";
+  debug() << "--------------------\n";
   for (const auto& kv : known_values_) {
     TORCH_INTERNAL_ASSERT(!kv.first->isConstScalar());
-    std::cout << kv.first << " = " << kv.second << " ; "
-              << *kv.first->getValType() << "\n";
+    debug() << kv.first << " = " << kv.second << " ; "
+            << *kv.first->getValType() << "\n";
   }
 
   for (const auto& kv : known_named_scalars_) {
-    std::cout << kv.first << " = " << kv.second << " ;\n";
+    debug() << kv.first << " = " << kv.second << " ;\n";
   }
 
-  std::cout << "\nPre-computed Values\n";
+  debug() << "\nPre-computed Values\n";
   if (precomputed_values_ != nullptr) {
     precomputed_values_->print();
   }
-  std::cout << "--------------------\n\n";
+  debug() << "--------------------\n\n";
 }
 
 void ExpressionEvaluator::propagateBoundValuesThroughExactMaps(Fusion* fusion) {
