@@ -2577,12 +2577,12 @@ struct ShapeRecord : RecordFunctor {
             std::move(outputs),
             "ops.shape",
             serde::RecordType_ShapeOp) {}
-  virtual ~ShapeRecord() = default;
-  virtual RecordFunctor* clone() final {
+  ~ShapeRecord() override = default;
+  RecordFunctor* clone() final {
     return new ShapeRecord(*this);
   }
 
-  virtual bool operator==(const RecordFunctor& other) const final {
+  bool operator==(const RecordFunctor& other) const final {
     auto result = false;
     if (dynamic_cast<const ShapeRecord*>(&other)) {
       result = RecordFunctor::operator==(other);

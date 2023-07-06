@@ -1494,8 +1494,8 @@ std::vector<Val*> shape(TensorView* inp) {
 Val* size(TensorView* inp, int64_t dim) {
   auto iter_domains = TensorDomain::noReductions(inp->getMaybeRFactorDomain());
   auto idx = dim;
-  if (dim < 0) {
-    dim = iter_domains.size() + dim;
+  if (idx < 0) {
+    idx = static_cast<int64_t>(iter_domains.size()) + idx;
   }
   TORCH_CHECK(
       (idx >= 0) && (static_cast<size_t>(idx) < iter_domains.size()),
@@ -1506,7 +1506,7 @@ Val* size(TensorView* inp, int64_t dim) {
 Val* at(std::vector<Val*>& inp, int64_t index) {
   auto idx = index;
   if (idx < 0) {
-    idx = inp.size() + idx;
+    idx = static_cast<int64_t>(inp.size()) + idx;
   }
   TORCH_CHECK(
       (idx >= 0) && (static_cast<size_t>(idx) < inp.size()),
