@@ -989,8 +989,9 @@ void DeadCodeRemover::handle(TensorView* tv) {
   BackwardVisitor::handle(tv);
 }
 
-bool DeadCodeRemover::replaceVal(Val* old_val, Val* new_val) {
-  registerReplacement(old_val, new_val);
+bool DeadCodeRemover::registerReplacement(Val* old_val, Val* new_val) {
+  vals_to_replace_.emplace_back(old_val, new_val);
+
   if (old_val->isFusionInput()) {
     // Skip removing Fusion inputs
     return false;

@@ -104,7 +104,7 @@ class EmptyTensorRemover : public DeadCodeRemover {
       auto shape = noReductionShape(tv);
       auto dtype = tv->getDataType().value();
       auto new_tv = full(shape, fusion()->zeroVal(dtype), dtype);
-      replaceVal(tv, new_tv);
+      registerReplacement(tv, new_tv);
     }
   }
 
@@ -149,7 +149,7 @@ class EmptyTensorRemover : public DeadCodeRemover {
 
     auto new_tv =
         full(noReductionShape(out), rop->init(), out->getDataType().value());
-    replaceVal(out, new_tv);
+    registerReplacement(out, new_tv);
   }
 
   //! A WelfordOp is similar to a ReductionOp, but has three outputs: avg, var,
@@ -189,18 +189,18 @@ class EmptyTensorRemover : public DeadCodeRemover {
       auto nan = IrBuilder::create<Double>(
           std::numeric_limits<double>::quiet_NaN(), avg->getDataType().value());
       auto nan_tensor = full(shape, nan, avg->getDataType().value());
-      replaceVal(avg, nan_tensor);
+      registerReplacement(avg, nan_tensor);
     }
     if (isLive(var_sum)) {
       auto new_var_sum = full(
           shape,
           fusion()->zeroVal(var_sum->getDataType().value()),
           var_sum->getDataType().value());
-      replaceVal(var_sum, new_var_sum);
+      registerReplacement(var_sum, new_var_sum);
     }
     if (isLive(N)) {
       auto new_N = full(shape, fusion()->zeroVal(), N->getDataType().value());
-      replaceVal(N, new_N);
+      registerReplacement(N, new_N);
     }
   }
 
@@ -262,7 +262,7 @@ class EmptyTensorRemover : public DeadCodeRemover {
       auto old_tv = cop->outputs()[0]->as<TensorView>();
       // NOTE: cat() will translate to set() if non_empty_inputs.size() == 1
       auto new_tv = cat(non_empty_inputs, dim);
-      replaceVal(old_tv, new_tv);
+      registerReplacement(old_tv, new_tv);
     }
   }
 
@@ -278,7 +278,7 @@ class EmptyTensorRemover : public DeadCodeRemover {
       auto shape = noReductionShape(out);
       auto dtype = out->getDataType().value();
       auto new_tv = full(shape, pop->value(), dtype);
-      replaceVal(out, new_tv);
+      registerReplacement(out, new_tv);
     }
   }
 
@@ -294,7 +294,7 @@ class EmptyTensorRemover : public DeadCodeRemover {
       auto shape = noReductionShape(out);
       auto dtype = out->getDataType().value();
       auto new_tv = full(shape, fusion()->zeroVal(dtype), dtype);
-      replaceVal(out, new_tv);
+      registerReplacement(out, new_tv);
     }
   }
 };

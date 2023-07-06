@@ -377,11 +377,11 @@ class TORCH_CUDA_CU_API InputsOf : public IterVisitor {
 //! handle modifying TensorView definitions and Fusion outputs during traversal.
 //!
 //! Derived classes should override handle() for relevant Exprs and they should
-//! make use of replaceVal() to change the definitions of Vals in the graph.
-//! Note that if replacements are made using replaceVal(old_val, new_val), then
-//! neither new_val nor any new Statements produced in creating it will be
-//! traversed by this class. Also note that any Vals or Exprs that are
-//! previously marked dead will not be processed by handle().
+//! make use of registerReplacement() to change the definitions of Vals in the
+//! graph. Note that if replacements are made using registerReplacement(old_val,
+//! new_val), then neither new_val nor any new Statements produced in creating
+//! it will be traversed by this class. Also note that any Vals or Exprs that
+//! are previously marked dead will not be processed by handle().
 class DeadCodeRemover : BackwardVisitor {
  public:
   DeadCodeRemover(Fusion* fusion) : BackwardVisitor(false), fusion_(fusion) {}
@@ -412,14 +412,18 @@ class DeadCodeRemover : BackwardVisitor {
   //! is not reflected by Val::uses().
   void handle(TensorView* tv) override;
 
-  //! Replaces a Val in outputs, and in all uses.
+  //! Registers a Val for replacement in outputs and in all its uses.
+  //!
+  //! Note that replacement does not occur immediately, but will be done after
+  //! the traversal is completed. This is so that any Val* and Expr* pointers
+  //! may be safely dereferenced during traversal.
   //!
   //! The argument old_val is always marked Dead by this method. If old_val is a
   //! Fusion input, we do not replace it. If old_val's definition is non-null
   //! and has other outputs which are not dead, we do not remove old_val.
   //!
   //! Returns whether old_val was registered for removal from the Fusion.
-  bool replaceVal(Val* old_val, Val* new_val);
+  bool registerReplacement(Val* old_val, Val* new_val);
 
   //! Find whether a statement is not marked as live code.
   inline bool isDead(Statement* stmt) const {
@@ -465,7 +469,7 @@ class DeadCodeRemover : BackwardVisitor {
   //! Expr, ensure all its inputs are alive. If it's a Val with a definition,
   //! recursive to the definition. Newly-created Statements default to being
   //! dead, so this method is called when adding a Statement to the active path
-  //! of the Fusion inside replaceVal.
+  //! of the Fusion inside registerReplacement.
   void markLiveRecursive(Statement* stmt);
 
   //! Mark a single Statement as being dead. This does not remove stmt from the
@@ -476,11 +480,6 @@ class DeadCodeRemover : BackwardVisitor {
 
   //! Register a Val for later removal.
   void registerRemoval(Val* val);
-
-  //! Register a Val for later replacement
-  inline void registerReplacement(Val* old_val, Val* new_val) {
-    vals_to_replace_.emplace_back(old_val, new_val);
-  }
 
   //! Register an Expr for later removal.
   //!
