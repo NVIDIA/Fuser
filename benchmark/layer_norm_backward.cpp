@@ -369,7 +369,41 @@ NVFUSER_BENCHMARK_RUN(NvFuserScheduler_LayerNorm_BWD_non64_fp32)
     ->Apply(add_args_non64)
     ->Unit(benchmark::kMicrosecond)
     ->UseManualTime();
+//------------------------------------------------------------------------------
+// Cases where persistent batch size changed
+NVFUSER_BENCHMARK_DEFINE(
+    NvFuserScheduler_LayerNorm_BWD_Perf_fp16,
+    setupLayerNorm_BWD,
+    NvFuserScheduler_LayerNorm_BWD,
+    DataType::Half);
 
+NVFUSER_BENCHMARK_DEFINE(
+    NvFuserScheduler_LayerNorm_BWD_Perf_fp32,
+    setupLayerNorm_BWD,
+    NvFuserScheduler_LayerNorm_BWD,
+    DataType::Float);
+
+auto add_args_non64 = [](benchmark::internal::Benchmark* b) {
+  const int64_t batch_size = 16 * 1024;
+  const int64_t hidden_size = 128 * 8 * 6;
+  std::vector<std::vector<int64_t>> args;
+  for (auto p = 1 ; p <= 16; p++) {
+    args.push_back({batch_size, p * 128l + hidden_size});
+  }
+  for (const auto& a : args) {
+    b->Args(a);
+  }
+};
+
+NVFUSER_BENCHMARK_RUN(NvFuserScheduler_LayerNorm_BWD_Perf_fp16)
+    ->Apply(add_args_non64)
+    ->Unit(benchmark::kMicrosecond)
+    ->UseManualTime();
+
+NVFUSER_BENCHMARK_RUN(NvFuserScheduler_LayerNorm_BWD_Perf_fp32)
+    ->Apply(add_args_non64)
+    ->Unit(benchmark::kMicrosecond)
+    ->UseManualTime();
 //------------------------------------------------------------------------------
 
 BENCHMARK(Baseline_LayerNorm_BWD_fp32)
