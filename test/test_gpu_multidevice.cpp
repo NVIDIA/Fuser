@@ -194,20 +194,6 @@ TEST_F(NVFuserTest, FusionMultiGPU_CUDA) {
   stage3.addVal({tv6, tv7});
   stage4.addVal({tv8, tv9, tv10, tv11, tv12, tv13});
 
-  PipelineDescriptor descriptor{.stage_descriptors{
-      &stage0_,
-      &stage1_,
-      &stage0,
-      &stage1,
-      &stage2,
-      &stage3,
-      &stage4}}; // the order doesn't matter
-  Pipeline pipeline(&fusion, descriptor);
-
-  // ===========================================================
-  //        RUNTIME
-  // ===========================================================
-
   // binding each stage to a device mesh
   stage0_.mesh.set({5});
   stage1_.mesh.set({2, 4});
@@ -216,6 +202,21 @@ TEST_F(NVFuserTest, FusionMultiGPU_CUDA) {
   stage2.mesh.set({1, 3});
   stage3.mesh.set({2});
   stage4.mesh.set({4, 5});
+
+  PipelineDescriptor descriptor{.stage_descriptors{
+      std::move(stage0_),
+      std::move(stage1_),
+      std::move(stage0),
+      std::move(stage1),
+      std::move(stage2),
+      std::move(stage3),
+      std::move(stage4)}}; // the order doesn't matter
+
+  Pipeline pipeline(&fusion, std::move(descriptor));
+
+  // ===========================================================
+  //        RUNTIME
+  // ===========================================================
 
   int requested_world_size = 6;
   if (shouldSkip(requested_world_size)) {

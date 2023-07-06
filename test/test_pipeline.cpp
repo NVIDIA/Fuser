@@ -70,14 +70,14 @@ TEST_F(NVFuserTest, Pipeline_CUDA) {
   stage6.addVal({tv14, tv15, tv16, tv17, tv18, tv19});
 
   PipelineDescriptor descriptor{.stage_descriptors{
-      &stage0,
-      &stage1,
-      &stage2,
-      &stage3,
-      &stage4,
-      &stage5,
-      &stage6}}; // the order doesnt matter
-  Pipeline pipeline(&fusion, descriptor);
+      std::move(stage0),
+      std::move(stage1),
+      std::move(stage2),
+      std::move(stage3),
+      std::move(stage4),
+      std::move(stage5),
+      std::move(stage6)}}; // the order doesnt matter
+  Pipeline pipeline(&fusion, std::move(descriptor));
 
   // Validation
   std::string obtained_string = pipeline.toString();

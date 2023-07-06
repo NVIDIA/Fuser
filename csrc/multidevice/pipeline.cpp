@@ -56,8 +56,8 @@ class PipelineBuilder final {
   // which are inputs/outputs of a Stage. We need to differentiate those
   // two cases for when a stage contains only one Val, from which we create
   // two PipelineVal
-  std::unordered_map<Val*, Val*> val_to_pipeline_val_input_of_stage_;
-  std::unordered_map<Val*, Val*> val_to_pipeline_val_output_of_stage_;
+  std::unordered_map<Val*, PipelineVal*> val_to_pipeline_val_input_of_stage_;
+  std::unordered_map<Val*, PipelineVal*> val_to_pipeline_val_output_of_stage_;
 
   // Check (partially) that the pipeline is valid and satisfies the assumptions
   // described in pipeline.h
@@ -69,7 +69,7 @@ class PipelineBuilder final {
     std::unordered_set<TensorView*> tv_in_stages;
     // Check that each TensorView belongs to at most one stage
     for (auto& stage_desc : pipeline_->descriptor().stage_descriptors) {
-      for (auto val : stage_desc->vals()) {
+      for (auto val : stage_desc.vals()) {
         if (val->isA<TensorView>()) {
           TORCH_INTERNAL_ASSERT(
               tv_in_stages.insert(val->as<TensorView>()).second,
@@ -106,21 +106,21 @@ class PipelineBuilder final {
   // populates stage_input_desc_, stage_output_desc_, val_consumer_stage_desc_
   void fillInfo() {
     for (auto& stage_desc : pipeline_->descriptor().stage_descriptors) {
-      for (auto& val : stage_desc->vals()) {
+      for (auto& val : stage_desc.vals()) {
         // Add global inputs of the original fusion
         if (isGlobalInput(val)) {
-          stage_input_desc_[stage_desc].pushBack(val);
+          stage_input_desc_[&stage_desc].pushBack(val);
         }
         // Add global outputs of the original fusion
         if (isGlobalOutput(val)) {
-          stage_output_desc_[stage_desc].pushBack(val);
+          stage_output_desc_[&stage_desc].pushBack(val);
         }
         // Add Vals which are produced in-between stages
         if (val->definition()) {
           for (auto& val_producer : val->definition()->inputs()) {
-            if (!stage_desc->vals().has(val_producer)) {
-              stage_input_desc_[stage_desc].pushBack(val);
-              val_consumer_stage_desc_[val_producer].push_back(stage_desc);
+            if (!stage_desc.vals().has(val_producer)) {
+              stage_input_desc_[&stage_desc].pushBack(val);
+              val_consumer_stage_desc_[val_producer].push_back(&stage_desc);
             }
           }
         }
@@ -128,9 +128,9 @@ class PipelineBuilder final {
     }
     // Add Vals which are consumed in-between stages
     for (auto& stage_desc : pipeline_->descriptor().stage_descriptors) {
-      for (auto& val : stage_desc->vals()) {
+      for (auto& val : stage_desc.vals()) {
         if (!val_consumer_stage_desc_[val].empty()) {
-          stage_output_desc_[stage_desc].pushBack(val);
+          stage_output_desc_[&stage_desc].pushBack(val);
         }
       }
     }
@@ -141,9 +141,9 @@ class PipelineBuilder final {
      Fusion. If a Val is an I/O of the original Fusion,
      the correspondings PipelineVal are also I/O of the Pipeline */
   void buildPipelineVals() {
-    for (auto stage_desc : pipeline_->descriptor().stage_descriptors) {
+    for (auto& stage_desc : pipeline_->descriptor().stage_descriptors) {
       // Create a PipelineVal for each stage's input
-      for (auto val : stage_input_desc_[stage_desc].vector()) {
+      for (auto val : stage_input_desc_[&stage_desc]) {
         auto p_val =
             IrBuilder::create<PipelineVal>(pipeline_->as<IrContainer>(), val);
         val_to_pipeline_val_input_of_stage_[val] = p_val;
@@ -152,7 +152,7 @@ class PipelineBuilder final {
         if (isGlobalInput(val)) {
           pipeline_->addInput(p_val);
           TORCH_INTERNAL_ASSERT(
-              stage_desc->mesh.size() == 1,
+              stage_desc.mesh.size() == 1,
               "A global input must belong to a stage which mesh is of size 1");
         } else {
           // if the Val is a stage input but not a global input, it must be
@@ -167,7 +167,7 @@ class PipelineBuilder final {
         }
       }
       // Create a PipelineVal for each stage's output
-      for (auto val : stage_output_desc_[stage_desc].vector()) {
+      for (auto val : stage_output_desc_[&stage_desc]) {
         auto p_val =
             IrBuilder::create<PipelineVal>(pipeline_->as<IrContainer>(), val);
         val_to_pipeline_val_output_of_stage_[val] = p_val;
@@ -184,14 +184,14 @@ class PipelineBuilder final {
     for (auto& stage_desc : pipeline_->descriptor().stage_descriptors) {
       // containers for storing the I/O of the PipelineStage
       ValSet ins, outs;
-      for (auto& val : stage_input_desc_[stage_desc]) {
-        ins.pushBack(val_to_pipeline_val_input_of_stage_[val]);
+      for (auto val : stage_input_desc_[&stage_desc]) {
+        ins.pushBack(val_to_pipeline_val_input_of_stage_.at(val));
       }
-      for (auto& val : stage_output_desc_[stage_desc]) {
-        outs.pushBack(val_to_pipeline_val_output_of_stage_[val]);
+      for (auto val : stage_output_desc_[&stage_desc]) {
+        outs.pushBack(val_to_pipeline_val_output_of_stage_.at(val));
       }
       auto stage = IrBuilder::create<PipelineStage>(
-          pipeline_->as<IrContainer>(), stage_desc, ins, outs);
+          pipeline_->as<IrContainer>(), &stage_desc, ins, outs);
       stages_.push_back(stage);
     }
   }
