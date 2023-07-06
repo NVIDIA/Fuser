@@ -11,6 +11,7 @@
 #include <ir/utils.h>
 #include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
+#include <options.h>
 #include <scheduler/mma_utils.h>
 #include <type.h>
 #include <utils.h>
@@ -372,7 +373,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     }
 
     // Call the initialization function if using a custom block sync
-    if (std::getenv("PYTORCH_NVFUSER_USE_BLOCK_SYNC_ATOMIC")) {
+    if (getNvFuserEnv("USE_BLOCK_SYNC_ATOMIC")) {
       indent() << "block_sync::init();\n";
     }
   }
@@ -572,6 +573,16 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     TORCH_INTERNAL_ASSERT(false, "Unreachable");
   }
 
+  void handleArrayType(const Val* v) final {
+    const auto def = v->definition();
+    const bool has_alloc = alloc_map_.find(v) != alloc_map_.end();
+    if (def != nullptr && !has_alloc) {
+      code_ << v->dtype() << "(" << genInline(def) << ")";
+    } else {
+      code_ << genVariableName(v);
+    }
+  }
+
   //! Utility for generating vectorized pointer access in ldsm and
   //!  cpasync.
   //! TODO: this access pattern as is could be merged with exisiting
@@ -590,38 +601,36 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   // Utility function to emit a cp.async intrinsic
   void genCpAsync(const LoadStoreOp* ldst, size_t vec_size) {
     auto dtype = ldst->in()->getDataType().value();
+
     bool is_cg = ldst->opType() == LoadStoreOpType::CpAsyncCg;
+    std::string name = (is_cg ? "Ampere::cpAsyncCg" : "Ampere::cpAsyncCa");
 
-    if (is_cg) {
-      indent() << "Ampere::cpAsyncCg";
-    } else {
-      indent() << "Ampere::cpAsyncCa";
+    ArgumentBuilder template_args;
+    template_args.arg(dtype);
+    template_args.arg(vec_size);
+
+    ArgumentBuilder func_args;
+    func_args.arg(genInline(ldst->out()->as<kir::TensorIndex>()->index()));
+    func_args.arg(genInline(ldst->in()->as<kir::TensorIndex>()->index()));
+    if (ldst->predicate() != nullptr) {
+      func_args.arg(genInline(ldst->predicate()));
     }
 
-    if (ldst->predicate() == nullptr) {
-      // Out of line predicate variant
-      code_ << "<" << dtype << ", " << vec_size << ">("
-            << genInline(ldst->out()->as<kir::TensorIndex>()->index()) << ","
-            << genInline(ldst->in()->as<kir::TensorIndex>()->index()) << ");\n";
-    } else {
-      // Inline predicate variant
-      code_ << "<" << dtype << ", " << vec_size << ">("
-            << genInline(ldst->out()->as<kir::TensorIndex>()->index()) << ","
-            << genInline(ldst->in()->as<kir::TensorIndex>()->index()) << ","
-            << genInline(ldst->predicate()) << ");\n";
-    }
+    indent() << genCall(name, template_args, func_args) << ";\n";
   }
 
   void genLdMatrix(const LoadStoreOp* ldst, size_t vector_word_size) {
     auto dtype = ldst->in()->getDataType().value();
-    indent() << "Turing::ldMatrix";
-    if (ldst->opType() == LoadStoreOpType::LdMatrixTranspose) {
-      code_ << "T";
-    }
-    code_ << " (";
-    code_ << "*" << genVectorPointer(ldst->out(), dtype, vector_word_size)
-          << "," << genInline(ldst->in()->as<kir::TensorIndex>()->index())
-          << ");\n";
+
+    bool is_transpose = (ldst->opType() == LoadStoreOpType::LdMatrixTranspose);
+    std::string name =
+        (is_transpose ? "Turing::ldMatrixT" : "Turing::ldMatrix");
+
+    ArgumentBuilder func_args;
+    func_args.arg(genVectorPointer(ldst->out(), dtype, vector_word_size));
+    func_args.arg(genInline(ldst->in()->as<kir::TensorIndex>()->index()));
+
+    indent() << genCall(name, func_args) << ";\n";
   }
 
   void handle(const kir::BaseAddress* sop) final {
@@ -811,7 +820,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     }
 
     auto rhs = bop->rhs();
-    c10::optional<double> exponent;
+    std::optional<double> exponent;
     if (auto val_int = dynamic_cast<Int*>(rhs)) {
       if (val_int->isConst()) {
         exponent = val_int->value().value();
@@ -961,6 +970,39 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       code_ << top->getTernaryOpType() << "(" << gen(top->in1()) << ", "
             << gen(top->in2()) << ", " << gen(top->in3()) << ")";
     }
+
+    if (!print_inline_) {
+      code_ << ";\n";
+    }
+  }
+
+  void handle(const ArrayConstruct* aop) final {
+    if (!print_inline_) {
+      indent() << gen(aop->out()) << " = ";
+    }
+
+    code_ << "{";
+    bool first = true;
+    for (auto in : aop->inputs()) {
+      if (!first) {
+        code_ << ", ";
+      }
+      first = false;
+      code_ << gen(in);
+    }
+    code_ << "}";
+
+    if (!print_inline_) {
+      code_ << ";\n";
+    }
+  }
+
+  void handle(const GetItem* gop) final {
+    if (!print_inline_) {
+      indent() << gen(gop->out()) << " = ";
+    }
+
+    code_ << gen(gop->array()) << "[" << gen(gop->index()) << "]";
 
     if (!print_inline_) {
       code_ << ";\n";
@@ -2790,7 +2832,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
   void handle(const kir::BlockSync* sync) final {
     // Use a custom synchronization method if enabled
-    if (std::getenv("PYTORCH_NVFUSER_USE_BLOCK_SYNC_ATOMIC")) {
+    if (getNvFuserEnv("USE_BLOCK_SYNC_ATOMIC")) {
       indent() << "block_sync::sync();\n";
     } else if (isAligned()) {
       indent() << "__syncthreads();\n";

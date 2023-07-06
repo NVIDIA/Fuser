@@ -18,7 +18,9 @@
 #include <ir/iostream.h>
 #include <ir/utils.h>
 #include <kernel_db/kernel_db.h>
+#include <options.h>
 #include <torch/csrc/jit/resource_guard.h>
+#include <utils.h>
 
 #include <cuda_occupancy.h>
 #include <nvfuser_resources/PhiloxCudaStateRaw.h>
@@ -77,7 +79,7 @@ std::string kernelPreamble() {
   ss << nvfuser_resources::tuple_cu;
 
   // Synchronization classes
-  if (std::getenv("PYTORCH_NVFUSER_USE_BLOCK_SYNC_ATOMIC")) {
+  if (getNvFuserEnv("USE_BLOCK_SYNC_ATOMIC")) {
     ss << nvfuser_resources::block_sync_atomic_cu;
   } else {
     ss << nvfuser_resources::block_sync_default_cu;
@@ -115,7 +117,8 @@ TORCH_CUDA_CU_API void queryTargetGPUVersion(
     bool& compile_to_sass) {
   using CudaVersion = std::pair<int, int>;
   CudaVersion nvrtc_version;
-  NVRTC_SAFE_CALL(nvrtcVersion(&nvrtc_version.first, &nvrtc_version.second));
+  NVFUSER_NVRTC_SAFE_CALL(
+      nvrtcVersion(&nvrtc_version.first, &nvrtc_version.second));
 
   TORCH_CHECK(
       nvrtc_version.first >= 6,
@@ -577,7 +580,7 @@ void validateAlignedVectorizeExtents(
   for (auto id : info.contig_alloc_ids) {
     auto extent_val = expr_eval.evaluate(id->extent());
     TORCH_INTERNAL_ASSERT(
-        extent_val.has_value(),
+        extent_val.hasValue(),
         "Error vectorizing, ",
         info.consumer_tv->toString(),
         " as the extent of a vectorized root domain, ",
@@ -789,23 +792,14 @@ void validateVectorizedSplits(
   for (const auto& extent_factor : kernel->summary().splits_to_validate) {
     auto input_extent = expr_eval.evaluate(extent_factor.first);
     auto split_factor = expr_eval.evaluate(extent_factor.second);
+    auto divisible = (input_extent % split_factor == 0);
     TORCH_INTERNAL_ASSERT(
-        input_extent.has_value(),
-        "Could not check if a split with vectorization is divisible because the extent, ",
-        extent_factor.first->toString(),
-        ", is not possible to evaluate.");
-    TORCH_INTERNAL_ASSERT(
-        input_extent.has_value(),
-        "Could not check if a split with vectorization is divisible because the split factor, ",
-        extent_factor.second->toString(),
-        ", is not possible to evaluate.");
-    TORCH_INTERNAL_ASSERT(
-        input_extent.value() % split_factor.value() == 0,
+        divisible,
         "Non-divisible split with vectorization is detected. ",
         "Extent: ",
-        input_extent.value(),
+        input_extent,
         ". Factor: ",
-        split_factor.value());
+        split_factor);
   }
 }
 
@@ -867,11 +861,11 @@ void bindInputForExprEvaluation(
           // once all values are bound.
           auto maybe_expanded_size =
               expr_eval.evaluate(root_domain[dim]->expandedExtent());
-          if (maybe_expanded_size.has_value()) {
+          if (maybe_expanded_size.hasValue()) {
             TORCH_CHECK(
-                *maybe_expanded_size == tensor_arg_size,
+                maybe_expanded_size == tensor_arg_size,
                 "Expecting expanded extent of ",
-                *maybe_expanded_size,
+                maybe_expanded_size,
                 " but received value of ",
                 tensor_arg_size);
           } else {
@@ -884,15 +878,15 @@ void bindInputForExprEvaluation(
         bool should_bind = true;
         if (check_consistency) {
           const auto prev_value = expr_eval.evaluate(extent);
-          if (prev_value.has_value()) {
+          if (prev_value.hasValue()) {
             TORCH_CHECK(
-                *prev_value == value,
+                prev_value == value,
                 "Attempting to bind ",
                 extent->toString(),
                 " to ",
                 value,
                 " but it's already set to ",
-                *prev_value);
+                prev_value);
             should_bind = false;
           }
         }
@@ -954,7 +948,7 @@ size_t nvrtcGetSize(const nvrtcProgram& program, bool compile_to_sass) {
   const auto getSize = nvrtcGetPTXSize;
 #endif
   size_t size = 0;
-  NVRTC_SAFE_CALL(getSize(program, &size));
+  NVFUSER_NVRTC_SAFE_CALL(getSize(program, &size));
   return size;
 }
 
@@ -973,7 +967,7 @@ std::vector<char> nvrtcGetCode(
 #endif
 
   std::vector<char> code(size);
-  NVRTC_SAFE_CALL(getCode(program, code.data()));
+  NVFUSER_NVRTC_SAFE_CALL(getCode(program, code.data()));
   return code;
 }
 
@@ -1022,11 +1016,11 @@ std::optional<int64_t> getMaxRegCount(
   }
 
   // Overwrite the count by the environment variable
-  if (auto env_count = getenv("PYTORCH_NVFUSER_MAX_REG_COUNT")) {
+  if (auto env_count = getNvFuserEnv("MAX_REG_COUNT")) {
     auto env_max_reg_count = std::atoi(env_count);
     TORCH_CHECK(
         env_max_reg_count > 0 && env_max_reg_count <= max_register_limit,
-        "Invalid max register count specified by PYTORCH_NVFUSER_MAX_REG_COUNT: ",
+        "Invalid max register count specified by NVFUSER_MAX_REG_COUNT: ",
         env_max_reg_count);
     max_register = env_max_reg_count;
   }
@@ -1051,26 +1045,29 @@ class NvrtcCompileDriver {
     return options_;
   }
 
-  //! Call nvrtcCompileProgram with set options
   std::string invoke(nvrtcProgram program, const std::string& src) const {
     FUSER_PERF_SCOPE("executor_utils::Nvrtc::CompileProgram");
     auto opts = getOptions();
     auto result = nvrtcCompileProgram(
         program, static_cast<int>(opts.size()), opts.data());
-
     size_t logsize = 0;
-    NVRTC_SAFE_CALL(nvrtcGetProgramLogSize(program, &logsize));
-    std::string log(logsize, 0);
-    NVRTC_SAFE_CALL(nvrtcGetProgramLog(program, log.data()));
+    NVFUSER_NVRTC_SAFE_CALL(nvrtcGetProgramLogSize(program, &logsize));
+    // The log size, as returned by 'nvrtcGetProgramLogSize', appears larger
+    // than its actual size by 2. This discrepancy was noticed in NVRTC
+    // version 12.1. The log returned from 'nvrtcGetProgramLog' terminates with
+    // a NULL character, ensuring it's safe to use 'std::vector<char>' for
+    // storage before converting it to 'std::string'.
+    std::vector<char> log_backing_buf(logsize);
+    char* log_buf = log_backing_buf.data();
+    NVFUSER_NVRTC_SAFE_CALL(nvrtcGetProgramLog(program, log_buf));
     if (result != NVRTC_SUCCESS) {
-      TORCH_INTERNAL_ASSERT(false, src, "\nCUDA NVRTC compile error: ", log);
+      TORCH_INTERNAL_ASSERT(
+          false, src, "\nCUDA NVRTC compile error: ", log_buf);
     }
-
     if (isDebugDumpEnabled(DebugDumpOption::PrintPtxasLog)) {
-      std::cout << log << std::endl;
+      std::cout << log_buf << std::endl;
     }
-
-    return log;
+    return std::string(log_buf);
   }
 
  private:
@@ -1119,7 +1116,7 @@ class CuModuleLoadDataDriver {
 
     auto [opts, opt_vals] = getOptions();
 
-    CUDA_SAFE_CALL(cuModuleLoadDataEx(
+    NVFUSER_CUDA_SAFE_CALL(cuModuleLoadDataEx(
         &module, image, opts.size(), opts.data(), opt_vals.data()));
 
     if (logging_enabled_) {
@@ -1220,7 +1217,7 @@ void fillCompileOptions(
 #endif
 
   if (isOptionEnabled(EnableOption::KernelProfile)) {
-    nvrtc_compile_driver.setOption("-DPYTORCH_NVFUSER_PROFILE_KERNEL");
+    nvrtc_compile_driver.setOption("-DNVFUSER_PROFILE_KERNEL");
   }
   if (isDebugDumpEnabled(DebugDumpOption::PrintPtxasLog) ||
       isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose) ||
@@ -1235,7 +1232,7 @@ void fillCompileOptions(
     }
   }
 
-  const char* ptxas_opt_level = getenv("PYTORCH_NVFUSER_JIT_OPT_LEVEL");
+  const char* ptxas_opt_level = getNvFuserEnv("JIT_OPT_LEVEL");
 
   if (ptxas_opt_level) {
     int val = atoi(ptxas_opt_level);
@@ -1244,7 +1241,7 @@ void fillCompileOptions(
         TORCH_WARN(
             "ptxas optimization level manually set as ",
             val,
-            ", which could negatively affect performance. Try removing env variable PYTORCH_NVFUSER_JIT_OPT_LEVEL for optimal performance.");
+            ", which could negatively affect performance. Try removing env variable NVFUSER_JIT_OPT_LEVEL for optimal performance.");
       }
       if (compile_to_sass) {
         nvrtc_compile_driver.setOption("--ptxas-options");
@@ -1254,7 +1251,7 @@ void fillCompileOptions(
       }
     } else {
       TORCH_WARN_ONCE(
-          "acceptable range for PYTORCH_NVFUSER_JIT_OPT_LEVEL is between 0 and 4, but received ",
+          "acceptable range for NVFUSER_JIT_OPT_LEVEL is between 0 and 4, but received ",
           val,
           ", ignoring the option");
     }
@@ -1321,7 +1318,7 @@ void createNvrtcProgram(
   ss << "__tmp_kernel" << id << ".cu";
   std::string name = ss.str();
   FUSER_PERF_SCOPE("executor_utils::NvrtcCreateProgram");
-  NVRTC_SAFE_CALL(nvrtcCreateProgram(
+  NVFUSER_NVRTC_SAFE_CALL(nvrtcCreateProgram(
       &program, full_src_code.c_str(), name.c_str(), 0, nullptr, nullptr));
 }
 
@@ -1338,16 +1335,16 @@ std::tuple<std::vector<char>, std::string, std::string> compileSource(
   nvrtcProgram program; // NOLINT(cppcoreguidelines-init-variables)
   torch::jit::ResourceGuard holdProgram([&] {
     FUSER_PERF_SCOPE("executor_utils::NvrtcDestroyProgram");
-    NVRTC_SAFE_CALL(nvrtcDestroyProgram(&program));
+    NVFUSER_NVRTC_SAFE_CALL(nvrtcDestroyProgram(&program));
   });
 
   createNvrtcProgram(program, id, full_src_code);
 
-  NVRTC_SAFE_CALL(nvrtcAddNameExpression(program, func_name.c_str()));
+  NVFUSER_NVRTC_SAFE_CALL(nvrtcAddNameExpression(program, func_name.c_str()));
   log << nvrtc_compile.invoke(program, full_src_code) << std::endl;
 
   const char* lowered_kernel_name = nullptr;
-  NVRTC_SAFE_CALL(
+  NVFUSER_NVRTC_SAFE_CALL(
       nvrtcGetLoweredName(program, func_name.c_str(), &lowered_kernel_name));
   auto lowered_kernel_name_str = std::string(lowered_kernel_name);
 
@@ -1365,7 +1362,7 @@ std::tuple<std::vector<char>, std::string, std::string> compileSource(
 
 // Compile the source if no existing compiled binary is found in KernelDB
 std::tuple<NvrtcFunction, std::string, std::vector<char>> getCompiledKernel(
-    c10::optional<std::reference_wrapper<const std::string>> kernel_code,
+    std::optional<std::reference_wrapper<const std::string>> kernel_code,
     const std::string& full_src_code,
     const std::string& func_name,
     int64_t id,
@@ -1375,6 +1372,18 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> getCompiledKernel(
   FUSER_PERF_SCOPE("executor_utils::NVRTC");
 
   at::cuda::jit::initializeCudaContext();
+
+  // The above initialization works in some cases. However, it seems to
+  // occasionally fail to initialize a primary context. Here we check for that
+  // and if we detect that no context exists, we create one manually.
+  int device = 0;
+  cudaGetDevice(&device);
+  if (!at::detail::getCUDAHooks().hasPrimaryContext(device)) {
+    // CUDA>=12 creates a context when cudaSetDevice is called. However, before
+    // cu12, that context is not necessarily created. In that case, we create
+    // one here implicitly. See https://github.com/NVIDIA/Fuser/issues/429
+    cudaFree(nullptr);
+  }
 
   const auto prop = at::cuda::getCurrentDeviceProperties();
 
@@ -1461,7 +1470,7 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> getCompiledKernel(
     warnRegisterSpill(log.str());
   }
 
-  CUDA_SAFE_CALL(cuModuleGetFunction(
+  NVFUSER_CUDA_SAFE_CALL(cuModuleGetFunction(
       &(compiled_kernel.function),
       compiled_kernel.module,
       lowered_kernel_name_str.c_str()));

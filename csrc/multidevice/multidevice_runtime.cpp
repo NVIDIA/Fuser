@@ -34,7 +34,7 @@ MultiDeviceRuntime::CompiledKernelPtr MultiDeviceRuntime::compileCluster(
   //  CUDA kernel and compile.
   auto fusion_from_cluster = cluster->toFusion();
   // Placeholder for auto schedule parameters if any.
-  c10::optional<SchedulerEntry*> maybe_scheduler_entry = c10::nullopt;
+  std::optional<SchedulerEntry*> maybe_scheduler_entry = std::nullopt;
 
   // Auto schedule if requested
   if (cluster->params().auto_schedule) {

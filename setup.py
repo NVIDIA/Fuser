@@ -318,6 +318,10 @@ def main():
         nvfuser_package_data = [
             "lib/libnvfuser_codegen.so",
             "include/nvfuser/*.h",
+            "include/nvfuser/C++20/type_traits",
+            "include/nvfuser/device_lower/*.h",
+            "include/nvfuser/device_lower/analysis/*.h",
+            "include/nvfuser/device_lower/pass/*.h",
             "include/nvfuser/kernel_db/*.h",
             "include/nvfuser/multidevice/*.h",
             "include/nvfuser/ops/*.h",
@@ -325,6 +329,8 @@ def main():
             "include/nvfuser/scheduler/*.h",
             "include/nvfuser/serde*.h",
             "share/cmake/nvfuser/NvfuserConfig*",
+            "contrib/*",
+            "contrib/nn/*",
             # TODO(crcrpar): it'd be better to ship the following two binaries.
             # Would need some change in CMakeLists.txt.
             # "bin/nvfuser_tests",

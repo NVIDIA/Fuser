@@ -289,10 +289,10 @@ int64_t Val::evaluateInt() {
   ExpressionEvaluator ee;
   auto evaluated_val = ee.evaluate(this);
   TORCH_INTERNAL_ASSERT(
-      evaluated_val.has_value(),
+      evaluated_val.hasValue(),
       "Detected a const integer but failed to infer its value: ",
       toInlineString());
-  return evaluated_val->as<int64_t>();
+  return evaluated_val.as<int64_t>();
 }
 
 double Val::evaluateDouble() {
@@ -307,9 +307,9 @@ double Val::evaluateDouble() {
   ExpressionEvaluator ee;
   auto evaluated_val = ee.evaluate(this);
   TORCH_INTERNAL_ASSERT(
-      evaluated_val.has_value(),
+      evaluated_val.hasValue(),
       "Detected a const integer but failed to infer its value.");
-  return evaluated_val->as<double>();
+  return evaluated_val.as<double>();
 }
 
 bool Val::evaluateBool() {
@@ -324,30 +324,30 @@ bool Val::evaluateBool() {
   ExpressionEvaluator ee;
   auto evaluated_val = ee.evaluate(this);
   TORCH_INTERNAL_ASSERT(
-      evaluated_val.has_value(),
+      evaluated_val.hasValue(),
       "Detected a const integer but failed to infer its value.");
-  return evaluated_val->as<bool>();
+  return evaluated_val.as<bool>();
 }
 
-c10::optional<int64_t> Val::getInt() const {
+std::optional<int64_t> Val::getInt() const {
   if (isConstScalar() && isIntegralScalar() && isA<Int>()) {
     return this->as<Int>()->value();
   }
-  return c10::nullopt;
+  return std::nullopt;
 }
 
-c10::optional<double> Val::getDouble() const {
+std::optional<double> Val::getDouble() const {
   if (isConstScalar() && isFloatingPointScalar() && isA<Double>()) {
     return this->as<Double>()->value();
   }
-  return c10::nullopt;
+  return std::nullopt;
 }
 
-c10::optional<bool> Val::getBool() const {
+std::optional<bool> Val::getBool() const {
   if (isConstScalar() && isABool() && isA<Bool>()) {
     return this->as<Bool>()->value();
   }
-  return c10::nullopt;
+  return std::nullopt;
 }
 
 bool Val::isZero() const {
@@ -376,7 +376,7 @@ bool Val::isFalse() const {
   return getBool() == false;
 }
 
-c10::optional<DataType> Val::getDataType() const {
+std::optional<DataType> Val::getDataType() const {
   TORCH_INTERNAL_ASSERT(
       dtype_ != DataType::Null, "Value does not have a data type.");
   return dtype_;

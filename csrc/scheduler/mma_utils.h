@@ -221,6 +221,10 @@ constexpr size_t MIN_MATMUL_INPUTS_NUMBER = 2;
 //!  TODO: extend definition for handling batch matmuls
 using ProblemIterDomains = std::array<IterDomain*, 3>;
 
+//! An alias for mapping between TensorView instance and its role in
+//!  matmul fusion definition,
+using RolesMap = std::map<MatmulRole, TensorView*>;
+
 //! A wrapper for data containers with optional error message stored if
 //!  initialization of the data fails.
 template <typename DataType>
@@ -250,16 +254,39 @@ class DataWrapperOpt {
 
 using MatmulProblemLayoutOpt = DataWrapperOpt<MmaOptions::MmaLayout>;
 using ProblemIterDomainsOpt = DataWrapperOpt<ProblemIterDomains>;
+using RolesMapOpt = DataWrapperOpt<RolesMap>;
 
-//! Returns matmul input layout if supported, otherwise returns message with
-//!  failure root cause.
+using DomainsDesc = std::vector<MatmulDomain>;
+using DependenciesMap = std::map<TensorView*, DomainsDesc>;
+
+//! Returns wrapped matmul input layout data, if supported, otherwise returned
+//!  object contains a message with failure root cause.
+//!
+//! Matmul layout depends only on fusion definition while mma layout relies on
+//!  HW implementation to handle input layout from fusion definition. Detailed
+//!  explanation:
+//! - matmul layout which contains information about transposition of matmul
+//!  inputs, it is based on the order of key domains (M,N K) in fusion input
+//!  tensors,
+//! - mma layout, some architectures (e.g. Volta) support all combination of
+//!  transposition of inputs in mma instructions, while other (e.g. Turing,
+//!  Ampere) the only supported transposition is TN which means that mma
+//!  instruction first input is transposed, the second input is non-transposed.
 TORCH_CUDA_CU_API MatmulProblemLayoutOpt getMatmulLayout(Fusion* fusion);
 
-//! Returns a collection of IterDomains that can be used to get problem shape
-//!  with runtime info. Data is stored in the following order: m, n, k.
-//!  An error message is returned if valid data cannot be gathered.
+//! Returns wrapped collection of IterDomains that can be used to get
+//!  problem shape with runtime info.
+//!  Data is stored in the order in which lables are defined in MatmulDomain
+//!  enum class, that is in the following order: m, n, k.
+//!  An error message is stored in retruned object if valid data cannot
+//!  be gathered.
 //!  TODO: 4th domain must be added for batch gemm support.
 TORCH_CUDA_CU_API ProblemIterDomainsOpt getProblemIterDomains(Fusion* fusion);
+
+//! Returns wrapped collection of TensorView roles in fusion.
+//!  An error message is stored in retruned object if valid data cannot
+//!  be gathered.
+TORCH_CUDA_CU_API RolesMapOpt getTensorsRoles(Fusion* fusion);
 
 } // namespace mma_utils
 

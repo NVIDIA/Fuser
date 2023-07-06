@@ -20,7 +20,9 @@
 
 namespace nvfuser {
 
-TEST_F(NVFuserTest, FusionStandaloneFull_CUDA) {
+class TensorFactoryTest : public NVFuserTest {};
+
+TEST_F(TensorFactoryTest, StandaloneFull) {
   auto sizes = {0, 1, 10, 17, 1024};
   auto dtypes = {
       at::kBool,
@@ -83,7 +85,7 @@ TEST_F(NVFuserTest, FusionStandaloneFull_CUDA) {
   }
 }
 
-TEST_F(NVFuserTest, FusionStandaloneZeros_CUDA) {
+TEST_F(TensorFactoryTest, StandaloneZeros) {
   auto sizes = {0, 1, 10, 17, 1024};
   auto dtypes = {
       at::kBool,
@@ -140,7 +142,7 @@ TEST_F(NVFuserTest, FusionStandaloneZeros_CUDA) {
   }
 }
 
-TEST_F(NVFuserTest, FusionStandaloneOnes_CUDA) {
+TEST_F(TensorFactoryTest, StandaloneOnes) {
   auto sizes = {0, 1, 10, 17, 1024};
   auto dtypes = {
       at::kBool,
@@ -197,7 +199,7 @@ TEST_F(NVFuserTest, FusionStandaloneOnes_CUDA) {
   }
 }
 
-TEST_F(NVFuserTest, FusionStandaloneIota_CUDA) {
+TEST_F(TensorFactoryTest, StandaloneIota) {
   auto starts = {-1., 0., 10.3, 1024. * 256};
   auto steps = {-1.5, 1., 2.};
   auto lengths = {0, 1, 2, 10, 1023, 1024, 1024 * 1024};
@@ -289,7 +291,7 @@ TEST_F(NVFuserTest, FusionStandaloneIota_CUDA) {
   }
 }
 
-TEST_F(NVFuserTest, FusionStandaloneARange_CUDA) {
+TEST_F(TensorFactoryTest, StandaloneARange) {
   auto starts_ends = {-1., 0., 10.3, 1024. * 256};
   auto steps = {-1.5, 1., 2.};
   auto dtypes = {at::kFloat, at::kLong, at::kDouble};
@@ -368,7 +370,7 @@ TEST_F(NVFuserTest, FusionStandaloneARange_CUDA) {
   }
 }
 
-TEST_F(NVFuserTest, FusionStandaloneEye_CUDA) {
+TEST_F(TensorFactoryTest, StandaloneEye) {
   auto sizes = {0, 1, 10, 17, 1024};
   auto dtypes = {
       at::kBool,
@@ -424,7 +426,7 @@ TEST_F(NVFuserTest, FusionStandaloneEye_CUDA) {
   }
 }
 
-TEST_F(NVFuserTest, FusionARangeScalarHoisting1_CUDA) {
+TEST_F(TensorFactoryTest, ARangeScalarHoisting1) {
   if (isOptionDisabled(DisableOption::IndexHoist)) {
     GTEST_SKIP() << "Index hoisting disabled";
   }
@@ -483,6 +485,33 @@ __global__ void CUDAGeneratedKernel(int64_t i0, int64_t i1, int64_t i2, Tensor<i
       {t0, t1},
       __LINE__,
       __FILE__);
+}
+
+TEST_F(TensorFactoryTest, TensorConstruct) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  Val* i00 = IrBuilder::create<Int>();
+  Val* i01 = IrBuilder::create<Int>();
+  Val* i10 = IrBuilder::create<Int>();
+  Val* i11 = IrBuilder::create<Int>();
+  fusion->addInput(i00);
+  fusion->addInput(i01);
+  fusion->addInput(i10);
+  fusion->addInput(i11);
+  auto output = tensor(std::vector<std::vector<Val*>>{{i00, i01}, {i10, i11}});
+  fusion->addOutput(output);
+
+  FusionExecutor fe;
+  fe.compileFusion(fusion.get());
+  auto cg_outputs = fe.runFusion({00, 01, 10, 11});
+
+  const auto options =
+      at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+  at::Tensor expect = at::tensor({00, 01, 10, 11}, options).view({2, 2});
+
+  testValidate(
+      fusion.get(), cg_outputs, {00, 01, 10, 11}, {expect}, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser

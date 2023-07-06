@@ -29,7 +29,7 @@ Val* castOp(DataType dtype, Val* v1) {
     return set(v1);
   }
 
-  if (cast_func_str(std::make_pair(orig_dtype, dtype)) == c10::nullopt) {
+  if (cast_func_str(std::make_pair(orig_dtype, dtype)) == std::nullopt) {
     TORCH_CHECK(
         false,
         "Illegal Cast value from  DataType: ",
@@ -278,27 +278,47 @@ TensorView* iota(Val* length, Val* start, Val* step, DataType dtype) {
       "length must be integer, but get dtype ",
       *length->getDataType());
   TORCH_CHECK(
-      isIntegralType(*start->getDataType()) == isIntegralType(dtype) &&
+      !isComplexType(*start->getDataType()) &&
+          isIntegralType(*start->getDataType()) == isIntegralType(dtype) &&
           isFloatingPointType(*start->getDataType()) ==
               isFloatingPointType(dtype),
-      "dtype does not match for iota, should be ",
+      "iota: start dtype does not match specified dtype argument, should be ",
       dtype,
       " but get ",
       *start->getDataType());
   TORCH_CHECK(
-      isIntegralType(*step->getDataType()) == isIntegralType(dtype) &&
+      !isComplexType(*step->getDataType()) &&
+          isIntegralType(*step->getDataType()) == isIntegralType(dtype) &&
           isFloatingPointType(*step->getDataType()) ==
               isFloatingPointType(dtype),
-      "dtype does not match for iota, should be ",
+      "iota: step dtype does not match specified dtype argument, should be ",
       dtype,
       " but get ",
       *step->getDataType());
+
   if (start->getDataType() != dtype) {
     start = castOp(dtype, start);
   }
   if (step->getDataType() != dtype) {
     step = castOp(dtype, step);
   }
+
+  if (start->isConst() && start->isFloatingPointScalar()) {
+    TORCH_INTERNAL_ASSERT(
+        std::isfinite(start->getDouble().value()),
+        "iota: length, start, step must be finite numbers.");
+  }
+
+  if (step->isConst() && step->isFloatingPointScalar()) {
+    TORCH_INTERNAL_ASSERT(
+        std::isfinite(step->getDouble().value()),
+        "iota: length, start, step must be finite numbers.");
+  }
+
+  TORCH_INTERNAL_ASSERT(
+      !step->isConstScalar() || !step->isZero(),
+      "iota: step value must not equal zero.");
+
   auto out = TensorViewBuilder()
                  .ndims(1)
                  .dtype(dtype)
@@ -1474,19 +1494,23 @@ std::vector<Val*> shape(TensorView* inp) {
 Val* size(TensorView* inp, int64_t dim) {
   auto iter_domains = TensorDomain::noReductions(inp->getMaybeRFactorDomain());
   auto idx = dim;
-  if (dim < 0) {
-    dim = iter_domains.size() + dim;
+  if (idx < 0) {
+    idx = static_cast<int64_t>(iter_domains.size()) + idx;
   }
-  TORCH_CHECK((idx >= 0) && (static_cast<size_t>(idx) < iter_domains.size()), "The dimension requested is beyond the bounds of the shape of the indexed tensor!");
+  TORCH_CHECK(
+      (idx >= 0) && (static_cast<size_t>(idx) < iter_domains.size()),
+      "The dimension requested is beyond the bounds of the shape of the indexed tensor!");
   return iter_domains.at(idx)->getMaybeExpandedExtent();
 }
 
 Val* at(std::vector<Val*>& inp, int64_t index) {
   auto idx = index;
   if (idx < 0) {
-    idx = inp.size() + idx;
+    idx = static_cast<int64_t>(inp.size()) + idx;
   }
-  TORCH_CHECK((idx >= 0) && (static_cast<size_t>(idx) < inp.size()), "The index requested is beyond the bounds of the indexed vector!");
+  TORCH_CHECK(
+      (idx >= 0) && (static_cast<size_t>(idx) < inp.size()),
+      "The index requested is beyond the bounds of the indexed vector!");
   return inp.at(idx);
 }
 
@@ -2420,6 +2444,41 @@ TensorView* fusedMultiplySum(
   TensorView* out = newForMma(tv_a, tv_b, uint_axes);
   IrBuilder::create<MmaOp>(out, tv_a, tv_b, init);
 
+  return out;
+}
+
+TensorView* tensor(Val* val) {
+  auto dtype = val->dtype();
+  if (std::holds_alternative<PrimDataType>(dtype.type)) {
+    // scalar tensor
+    return full({}, val, dtype);
+  }
+  std::vector<int64_t> sizes;
+  while (std::holds_alternative<ArrayOf>(dtype.type)) {
+    sizes.push_back((int64_t)std::get<ArrayOf>(dtype.type).size);
+    dtype = *std::get<ArrayOf>(dtype.type).type;
+  }
+  TORCH_INTERNAL_ASSERT(
+      std::holds_alternative<PrimDataType>(dtype.type),
+      "Expected an array of scalar or nested array of scalar");
+
+  std::vector<IterDomain*> out_domain;
+  out_domain.reserve(sizes.size());
+  for (auto size : sizes) {
+    IterDomain* id =
+        IterDomainBuilder(
+            val->container()->zeroVal(), IrBuilder::create<Int>(size))
+            .build();
+    out_domain.push_back(id);
+  }
+
+  auto out = IrBuilder::create<TensorView>(
+      val->container(),
+      IrBuilder::create<TensorDomain>(
+          out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
+      dtype);
+
+  IrBuilder::create<TensorConstruct>(val->container(), out, val);
   return out;
 }
 

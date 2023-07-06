@@ -264,6 +264,58 @@ NVFUSER_BENCHMARK_RUN(NvFuserScheduler_LayerNorm_BWD_fp16)
     ->Args({16 * 1024, 1600})
     ->Unit(benchmark::kMicrosecond)
     ->UseManualTime();
+
+// Non-divisible batch split
+NVFUSER_BENCHMARK_DEFINE(
+    NvFuserScheduler_LayerNorm_BWD_nondiv_fp16,
+    setupLayerNorm_BWD,
+    NvFuserScheduler_LayerNorm_BWD,
+    DataType::Half);
+
+NVFUSER_BENCHMARK_DEFINE(
+    NvFuserScheduler_LayerNorm_BWD_nondiv_fp32,
+    setupLayerNorm_BWD,
+    NvFuserScheduler_LayerNorm_BWD,
+    DataType::Float);
+
+auto add_args = [](benchmark::internal::Benchmark* b) {
+  const int64_t batch_size = 16 * 1024;
+  std::vector<std::vector<int64_t>> args;
+  std::vector<int64_t> prime_factors = {
+      7,
+      11,
+      13,
+      17,
+      19,
+      101,
+      103,
+      107,
+      109,
+      113,
+      211,
+      223,
+      227,
+      229,
+      233,
+      239,
+      241};
+  for (auto p : prime_factors) {
+    args.push_back({batch_size, p * 64l});
+  }
+  for (const auto& a : args) {
+    b->Args(a);
+  }
+};
+
+NVFUSER_BENCHMARK_RUN(NvFuserScheduler_LayerNorm_BWD_nondiv_fp16)
+    ->Apply(add_args)
+    ->Unit(benchmark::kMicrosecond)
+    ->UseManualTime();
+
+NVFUSER_BENCHMARK_RUN(NvFuserScheduler_LayerNorm_BWD_nondiv_fp32)
+    ->Apply(add_args)
+    ->Unit(benchmark::kMicrosecond)
+    ->UseManualTime();
 //------------------------------------------------------------------------------
 
 BENCHMARK(Baseline_LayerNorm_BWD_fp32)

@@ -590,7 +590,7 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> 
     b5 = (i2 + nvfuser_zero) < T0.size[0];
     #pragma unroll
     for(nvfuser_index_t i6 = 0; i6 < 3; ++i6) {
-      Ampere::cpAsyncCa<float, 1>((i4 + (4 * i6)),(ptr3 + (T0.stride[1] * (i6 + nvfuser_zero))),b5);
+      Ampere::cpAsyncCa<float, 1>((i4 + (4 * i6)), (ptr3 + (T0.stride[1] * (i6 + nvfuser_zero))), b5);
     }
     Ampere::cpAsyncCommit();
   }
@@ -615,7 +615,7 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> 
     b13 = i9 < T0.size[0];
     #pragma unroll
     for(nvfuser_index_t i6 = 0; i6 < 3; ++i6) {
-      Ampere::cpAsyncCa<float, 1>((i10 + (4 * i6)),(ptr8 + (T0.stride[1] * (i6 + nvfuser_zero))),b13);
+      Ampere::cpAsyncCa<float, 1>((i10 + (4 * i6)), (ptr8 + (T0.stride[1] * (i6 + nvfuser_zero))), b13);
     }
     NVFUSER_UPDATE_MAGIC_ZERO;
     Ampere::cpAsyncCommit();

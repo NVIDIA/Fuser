@@ -160,12 +160,12 @@ void splitDims(
   }
 }
 
-c10::optional<size_t> mergeDims(
+std::optional<size_t> mergeDims(
     TensorView* tv,
     std::vector<size_t> to_merge,
     std::vector<size_t>& to_update) {
   if (to_merge.empty()) {
-    return c10::nullopt;
+    return std::nullopt;
   }
   if (to_merge.size() == 1) {
     return to_merge[0];
@@ -553,7 +553,7 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
   return persistent_buffer_info;
 }
 
-TvProperties getProperties(
+ReductionTvProperties getReductionProperties(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     TensorView* tv) {
@@ -575,7 +575,7 @@ TvProperties getProperties(
   // Start from the inner most dimension, and work outwards. If this is a 3D
   // pattern, i.e. theres a pattern like [r0, r1, i2, r3] or [i0, r1, r2, i3,
   // i4] then compute the inner most dimension to compute separately.
-  const auto& root_dom = tv->getMaybeRFactorDomain();
+  const auto& root_dom = tv->getRootDomain();
   for (size_t i = root_dom.size(); i > 0; i--) {
     auto id = root_dom[i - 1];
     if (id->isBroadcast()) {
@@ -588,9 +588,9 @@ TvProperties getProperties(
       auto inferred_val =
           runtime_info.expressionEvaluator().evaluate(id->extent());
       TORCH_INTERNAL_ASSERT(
-          inferred_val.has_value(), "Error inferring reduction size.");
+          inferred_val.hasValue(), "Error inferring reduction size.");
       inner_most_dimension_numel =
-          inner_most_dimension_numel * inferred_val->as<int64_t>();
+          inner_most_dimension_numel * inferred_val.as<int64_t>();
       inner_most_dimension_ndims++;
     }
   }
@@ -604,16 +604,16 @@ TvProperties getProperties(
     auto inferred_val =
         runtime_info.expressionEvaluator().evaluate(id->extent());
     TORCH_INTERNAL_ASSERT(
-        inferred_val.has_value(),
+        inferred_val.hasValue(),
         "Error inferring dimensions of reduction fusion.");
     if (id->isReduction()) {
-      total_reduction_numel *= inferred_val->as<int64_t>();
+      total_reduction_numel *= inferred_val.as<int64_t>();
     } else {
-      total_iteration_numel *= inferred_val->as<int64_t>();
+      total_iteration_numel *= inferred_val.as<int64_t>();
     }
   }
 
-  TvProperties properties;
+  ReductionTvProperties properties;
   properties.total_reduction_numel = total_reduction_numel;
   properties.total_iteration_numel = total_iteration_numel;
   properties.fastest_dim_reduction = fastest_dim_reduction;
@@ -799,11 +799,11 @@ PersistentBufferSizeReturn persistentBufferSize(
 
       auto id_size = runtime_info.expressionEvaluator().evaluate(id->extent());
       TORCH_INTERNAL_ASSERT(
-          id_size.has_value(), "Could not infer persistent buffer size.");
+          id_size.hasValue(), "Could not infer persistent buffer size.");
       if (persistent_buffer_sizes[buffer_i] == -1) {
-        persistent_buffer_sizes[buffer_i] = id_size->as<int64_t>();
+        persistent_buffer_sizes[buffer_i] = id_size.as<int64_t>();
       } else {
-        persistent_buffer_sizes[buffer_i] *= id_size->as<int64_t>();
+        persistent_buffer_sizes[buffer_i] *= id_size.as<int64_t>();
       }
     }
 
@@ -1090,7 +1090,7 @@ IterDomain* projectIdToRoot(
     } else if (expr->isA<Resize>()) {
       auto resize = expr->as<Resize>();
       if (resize->out() == projected_id) {
-        projected_id = resize->in();
+        projected_id = nullptr;
       }
     } else {
       TORCH_INTERNAL_ASSERT(
@@ -1147,7 +1147,7 @@ IterDomain* projectIdToRFactor(
     } else if (expr->isA<Resize>()) {
       auto resize = expr->as<Resize>();
       if (resize->in() == projected_id) {
-        projected_id = resize->out();
+        projected_id = nullptr;
       }
     } else {
       TORCH_INTERNAL_ASSERT(
@@ -1163,16 +1163,7 @@ IterDomain* projectIdToRFactor(
 } // namespace
 
 IterDomain* innerMostRootDim(TensorView* tv) {
-  // This is backwards from how we normally think about grabbing root dimensions
-  // to process. If we're in a reduction scheduler and we're using the rfactored
-  // reduction tensor view, we don't care about the rfactor domain, we care
-  // about the root domain because we're looking to vectorize the reads (input
-  // tensor views). Otherwise we do want the rfactor domain. So this is the
-  // reverse of our typical check, we actually want to selectively ignore the
-  // rfactor domain.
-  const auto& root_domain = tv->hasReduction() && tv->hasRFactor()
-      ? tv->getRootDomain()
-      : tv->getMaybeRFactorDomain();
+  const auto& root_domain = tv->getMaybeRFactorDomain();
 
   if (tv->nDims() == 0) {
     return nullptr;
@@ -1181,12 +1172,7 @@ IterDomain* innerMostRootDim(TensorView* tv) {
   IterDomain* inner_most_id = nullptr;
 
   for (auto it = root_domain.rbegin(); it != root_domain.rend(); it++) {
-    // If we're looking at a reduction domain on an input because of
-    // segmentation we don't want to consider those reduction domains as a
-    // vectorization opportunity. If we're looking at a reduction reference
-    // tensor we want to consider the reduction iteration domains as domains we
-    // can vectorize on.
-    if (((*it)->isReduction() && tv->isFusionInput()) || (*it)->isBroadcast()) {
+    if ((*it)->isReduction() || (*it)->isBroadcast()) {
       continue;
     }
     inner_most_id = *it;
@@ -1266,10 +1252,14 @@ void FindAllMappedDims::propagateSibling(TensorView* from, TensorView* to) {
 std::unordered_set<IterDomain*> FindAllMappedDims::get() const {
   std::unordered_set<IterDomain*> mapped_id_set;
   for (auto entry : mapped_root_ids_) {
-    mapped_id_set.emplace(entry.second);
+    if (entry.second != nullptr) {
+      mapped_id_set.emplace(entry.second);
+    }
   }
   for (auto entry : mapped_rfactor_ids_) {
-    mapped_id_set.emplace(entry.second);
+    if (entry.second != nullptr) {
+      mapped_id_set.emplace(entry.second);
+    }
   }
   return mapped_id_set;
 }
@@ -1279,8 +1269,7 @@ bool hasInnerDim(
     std::unordered_set<IterDomain*> inner_dims,
     bool should_vectorize) {
   const auto& inner_most_dim = innerMostRootDim(tv);
-  // TODO: Why "|| inner_most_dim->isReduction()"
-  if (inner_most_dim == nullptr || inner_most_dim->isReduction()) {
+  if (inner_most_dim == nullptr) {
     return false;
   }
 
@@ -1724,7 +1713,7 @@ void BoundedDirectionalTransformPropagator::backward(
     TensorView* from,
     int pos,
     std::vector<TensorView*> to,
-    c10::optional<Options> options) {
+    std::optional<Options> options) {
   if (!options.has_value()) {
     options = Options();
   }
@@ -1744,7 +1733,7 @@ void BoundedDirectionalTransformPropagator::forward(
     TensorView* from,
     int pos,
     std::vector<TensorView*> to,
-    c10::optional<Options> options) {
+    std::optional<Options> options) {
   if (!options.has_value()) {
     options = Options();
   }
@@ -1766,7 +1755,7 @@ void BoundedDirectionalTransformPropagator::bothWays(
     int pos,
     std::vector<TensorView*> backward_to,
     std::vector<TensorView*> forward_to,
-    c10::optional<Options> options) {
+    std::optional<Options> options) {
   if (!options.has_value()) {
     options = Options();
   }
@@ -2005,8 +1994,8 @@ void propagateViewTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
 }
 
 bool isFastestDimReduction(TensorView* tv) {
-  for (auto it = tv->getMaybeRFactorDomain().rbegin();
-       it != tv->getMaybeRFactorDomain().rend();
+  for (auto it = tv->getMaybeAllocationDomain().rbegin();
+       it != tv->getMaybeAllocationDomain().rend();
        ++it) {
     auto root_id = *it;
     if (root_id->isBroadcast()) {
