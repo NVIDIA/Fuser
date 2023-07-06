@@ -47,7 +47,7 @@ class PipelineExecutor : public IterVisitor {
   // Cache results of shouldRun method
   std::unordered_map<PipelineStage*, bool> should_run_;
 
- // MultiDeviceRuntime to be executed
+  // MultiDeviceRuntime to be executed
   MultiDeviceRuntime& runtime_;
 };
 

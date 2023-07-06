@@ -82,13 +82,13 @@ void testValidateMultidevice(
   std::vector<c10::IValue> input_tensors;
   for (auto i : c10::irange(inputs.size())) {
     auto sender_rank = runtime.dIdToRank(runtime.pipeline()
-                                                   ->inputs()
-                                                   .at(i)
-                                                   ->as<PipelineVal>()
-                                                   ->getStage()
-                                                   ->descriptor()
-                                                   ->mesh.deviceIndices()
-                                                   .at(0));
+                                             ->inputs()
+                                             .at(i)
+                                             ->as<PipelineVal>()
+                                             ->getStage()
+                                             ->descriptor()
+                                             ->mesh.deviceIndices()
+                                             .at(0));
     buffer = {inputs.at(i).toTensor()};
     runtime.comm().sendRecv(tester_rank, sender_rank, buffer);
     input_tensors.push_back(buffer.at(0));
@@ -98,13 +98,13 @@ void testValidateMultidevice(
   std::vector<at::Tensor> output_tensors;
   for (auto i : c10::irange(outputs.size())) {
     auto sender_rank = runtime.dIdToRank(runtime.pipeline()
-                                                   ->outputs()
-                                                   .at(i)
-                                                   ->as<PipelineVal>()
-                                                   ->getStage()
-                                                   ->descriptor()
-                                                   ->mesh.deviceIndices()
-                                                   .at(0));
+                                             ->outputs()
+                                             .at(i)
+                                             ->as<PipelineVal>()
+                                             ->getStage()
+                                             ->descriptor()
+                                             ->mesh.deviceIndices()
+                                             .at(0));
     buffer = {outputs.at(i)};
     runtime.comm().sendRecv(tester_rank, sender_rank, buffer);
     output_tensors.push_back(buffer.at(0));

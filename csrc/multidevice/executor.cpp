@@ -60,19 +60,19 @@ void PipelineExecutor::handle(PipelineCommunication* c) {
   {
     std::vector<RankType> sender_ranks;
     for (auto& d_id : c->in()
-                         ->as<PipelineVal>()
-                         ->getStage()
-                         ->descriptor()
-                         ->mesh.deviceIndices()) {
+                          ->as<PipelineVal>()
+                          ->getStage()
+                          ->descriptor()
+                          ->mesh.deviceIndices()) {
       sender_ranks.push_back(runtime_.dIdToRank(d_id));
     }
 
     std::vector<RankType> receiver_ranks;
     for (auto& d_id : c->out()
-                         ->as<PipelineVal>()
-                         ->getStage()
-                         ->descriptor()
-                         ->mesh.deviceIndices()) {
+                          ->as<PipelineVal>()
+                          ->getStage()
+                          ->descriptor()
+                          ->mesh.deviceIndices()) {
       receiver_ranks.push_back(runtime_.dIdToRank(d_id));
     }
 

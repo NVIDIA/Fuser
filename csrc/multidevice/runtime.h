@@ -56,8 +56,7 @@ class TORCH_CUDA_CU_API MultiDeviceRuntime {
 
   // returns the device associated with the process
   auto device() const {
-    return at::Device(
-        "cuda:" + std::to_string(comm_.local_rank()));
+    return at::Device("cuda:" + std::to_string(comm_.local_rank()));
   }
 
   // returns the rank corresponding to device index

@@ -22,7 +22,11 @@ namespace nvfuser {
 
 // Parse the environment to retrieve MPI rank and MPI world size and sets rank
 // and size accordingly Returns 0 in case of success, 1 otherwise
-int parseEnv(RankType& rank, int64_t& size, RankType& local_rank, int64_t& local_size) {
+int parseEnv(
+    RankType& rank,
+    int64_t& size,
+    RankType& local_rank,
+    int64_t& local_size) {
   char* env = nullptr;
 
   // retrieves the rank of the current process
