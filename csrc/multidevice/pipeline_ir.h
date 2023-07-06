@@ -8,6 +8,7 @@
 #pragma once
 #include <disjoint_set.h>
 #include <ir/base_nodes.h>
+#include <ir/printer.h>
 
 /*
   This file implements the IRs composing a Pipeline:
