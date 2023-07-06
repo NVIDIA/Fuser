@@ -6,6 +6,7 @@
  */
 // clang-format on
 #ifdef USE_DISTRIBUTED
+#include <ATen/cuda/CUDAContext.h>
 #include <device_lower/utils.h>
 #include <fusion_segmenter.h>
 #include <ir/utils.h>
@@ -44,15 +45,11 @@ void MultiDeviceRuntime::validate() const {
             " is present in the pipeline but no process in the communicator runs it");
   }
 
-  // Checks that the device index of the current process corresponds to a valid
-  // concrete device (if invovled in the pipeline)
-  auto current_device_idx = rankToDeviceIdx(comm_.rank());
-  if (device_indices.count(current_device_idx)) {
-    TORCH_INTERNAL_ASSERT(
-        true, // TODO
-        "device index " + deviceIdxToDevice(current_device_idx).str() +
-            " is present in the pipeline but does not correspond to a valid cuda device");
-  }
+  // Checks that the number of processes within the node is less or equal
+  // to the number of available GPUs.
+  TORCH_INTERNAL_ASSERT(comm_.local_size <= at::cuda::getNumGPUs(),
+     comm_.local_size.str() + " processes are spawn but only "
+     + at::cuda::getNumGPUs().str + " GPUs are available");
 }
 
 } // namespace nvfuser

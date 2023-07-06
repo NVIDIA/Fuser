@@ -22,7 +22,7 @@ namespace nvfuser {
 
 // Parse the environment to retrieve MPI rank and MPI world size and sets rank
 // and size accordingly Returns 0 in case of success, 1 otherwise
-int parseEnv(RankType& rank, int64_t& size) {
+int parseEnv(RankType& rank, int64_t& size, RankType& local_rank, int64_t& local_size) {
   char* env = nullptr;
 
   // retrieves the rank of the current process
@@ -44,6 +44,27 @@ int parseEnv(RankType& rank, int64_t& size) {
     }
   }
   size = std::atoi(env);
+
+  // retrieves the size of the communicator
+  env = std::getenv("OMPI_COMM_WORLD_LOCAL_RANK");
+  if (!env) {
+    env = std::getenv("WORLD_LOCAL_RANK");
+    if (!env) {
+      return 1;
+    }
+  }
+  local_rank = std::atoi(env);
+
+  // retrieves the size of the communicator
+  env = std::getenv("OMPI_COMM_WORLD_LOCAL_SIZE");
+  if (!env) {
+    env = std::getenv("WORLD_LOCAL_SIZE");
+    if (!env) {
+      return 1;
+    }
+  }
+  local_size = std::atoi(env);
+
   return 0;
 }
 
@@ -82,7 +103,7 @@ c10::intrusive_ptr<c10d::Backend> createBackend(
 Communicator::Communicator(CommunicatorBackend backend, RankType server_rank)
     : rank_(0), size_(0) {
   // retrieves rank and communicator size
-  int status = parseEnv(rank_, size_);
+  int status = parseEnv(rank_, size_, local_rank_, local_size_);
   TORCH_CHECK(status == 0, "distributed configuration is not available");
 
   // creates the backend

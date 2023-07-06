@@ -8,7 +8,6 @@
 #ifdef USE_DISTRIBUTED
 #pragma once
 
-#include <ATen/cuda/CUDAContext.h>
 #include <c10/core/DeviceType.h>
 #include <multidevice/communicator.h>
 #include <multidevice/pipeline.h>
@@ -26,6 +25,8 @@ static auto rankToDeviceIdx_default(RankType rank) {
 }
 static auto deviceIdxToDevice_default(DeviceIdxType device_id) {
   return at::Device(
+      /* here, "% at::cuda::getNumGPUs()" is used to map device_id
+         to a valid device index within the node. */
       "cuda:" + std::to_string(device_id % at::cuda::getNumGPUs()));
 }
 

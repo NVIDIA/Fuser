@@ -35,6 +35,16 @@ class Communicator {
     return size_;
   }
 
+  // returns the local rank of the current process (within the node)
+  auto local_rank() const {
+    return local_rank_;
+  }
+
+  // returns the local number of processes in the communicator (within the node)
+  auto local_size() const {
+    return local_size_;
+  }
+
   // returns the flattenend list of ranks of the communicator
   auto ranks() const {
     std::vector<RankType> ret(size());
@@ -58,6 +68,8 @@ class Communicator {
  private:
   RankType rank_;
   int64_t size_;
+  RankType local_rank_;
+  int64_t local_size_;
   c10::intrusive_ptr<c10d::Backend> pg_;
 };
 
