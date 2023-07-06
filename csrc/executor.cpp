@@ -1795,11 +1795,13 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
       for (auto i : c10::irange(num_inputs)) {
         if (auto tensor_arg_abstract =
                 dynamic_cast<const TensorArgAbstract*>(args[i])) {
-          bytes_processed_ += tensor_arg_abstract->numel() *
+          bytes_processed_ += getNumLoadedElements(i, tensor_arg_abstract) *
               (int64_t)dataTypeSize(tensor_arg_abstract->getDataType());
         }
       }
       for (const auto& output : outputs) {
+        // NOTE: this assumes that all output elements correspond to a single
+        // store
         bytes_processed_ += output.numel() *
             (int64_t)dataTypeSize(aten_to_data_type(output.scalar_type()));
       }
@@ -1889,6 +1891,30 @@ float FusionExecutor::runRtc(
   NVFUSER_CUDA_RT_SAFE_CALL(cudaEventDestroy(finish_event));
 
   return kernel_time_ms;
+}
+
+int64_t FusionExecutor::getNumLoadedElements(
+    int64_t input_position,
+    const TensorArgAbstract* arg) const {
+  auto input = kernel()->inputs().at(input_position);
+
+  int64_t numel = 0;
+
+  // Most of the time, the scheduler will cacheAfter the input, so that input
+  // will have a single use and it will be a LoadStoreOp.
+  for (auto use : input->uses()) {
+    if (use->isA<LoadStoreOp>()) {
+      numel += arg->numel();
+    } else {
+      std::cout
+          << "WARNING: getNumLoadedElements(): unhandled use of segment input: "
+          << use->toString() << ". Using numel(), which may be inaccurate."
+          << std::endl;
+      numel += arg->numel();
+    }
+  }
+
+  return numel;
 }
 
 } // namespace nvfuser

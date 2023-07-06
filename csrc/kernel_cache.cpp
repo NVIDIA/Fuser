@@ -757,6 +757,37 @@ std::vector<at::Tensor> FusionKernelRuntime::runKernelWithInput(
               << " GB/s" << std::endl;
     executor.setMeasureKernelTimeFlag(false);
   }
+  if (true) {
+    // if (isDebugDumpEnabled(DebugDumpOption::OverallEffectiveBandwidth)) {
+
+    // Get number of bytes read from each argument. This is done using the
+    // complete fusion, since segmentation could result in reading an input
+    // multiple times, which may not be theoretically required.
+
+    // Get peak bandwidth for device
+    int clock, width;
+    NVFUSER_CUDA_SAFE_CALL(cuDeviceGetAttribute(
+        clock, CU_DEVICE_ATTRIBUTE_MEMORY_CLOCK_RATE, args.getDeviceIndex()));
+    NVFUSER_CUDA_SAFE_CALL(cuDeviceGetAttribute(
+        width,
+        CU_DEVICE_ATTRIBUTE_GLOBAL_MEMORY_BUS_WIDTH,
+        args.getDeviceIndex()));
+    // Peak bandwidth calculation:
+    // Bus width is given in bits, so dividing by 8 converts to bytes.
+    // Clock is given in kHz
+    // A factor of 2 is multiplied to account for double data rate (DDR)
+    // (clock kHz) * (width bits) * (1000 Hz / kHz) * (1 GB / 8e9 bits) * 2
+    // = 2.5e-7 (GB Hz)
+    double peak_bw = 2.5e-7 * (double)clock * (double)width;
+
+    double percent_peak = eff_bw / peak_bw *
+            100
+
+            std::cout
+        << "Effective bandwidth (complete Fusion): " << eff_bw << " GB/s (";
+    std::cout << std::setprecision(2) << percent_peak << "\% SOL)" << std::endl;
+    ;
+  }
 
   return outputs;
 }
