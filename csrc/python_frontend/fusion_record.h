@@ -9,6 +9,7 @@
 #include <c10/util/complex.h>
 #include <ir/interface_nodes.h>
 #include <ops/all_ops.h>
+#include <options.h>
 #include <python_frontend/fusion_definition.h>
 #include <python_frontend/fusion_state.h>
 #include <serde/fusion_cache_generated.h>
@@ -789,7 +790,7 @@ struct BroadcastInDimOpRecord : RecordFunctor {
     return result;
   }
 
-  inline c10::optional<std::vector<Val*>> expandShape(
+  inline std::optional<std::vector<Val*>> expandShape(
       const FusionState& fd,
       const std::vector<bool>& expand_dim,
       const std::vector<OutputShapeType>& shape) const;
@@ -833,7 +834,7 @@ struct BroadcastInDimOpRecord : RecordFunctor {
 
     auto output = broadcast(arg, is_broadcast_dim);
 
-    c10::optional<std::vector<Val*>> expand_shape =
+    std::optional<std::vector<Val*>> expand_shape =
         expandShape(fd, is_expand_dim, output_shape_);
     if (expand_shape.has_value()) {
       output = expand(output, expand_shape.value());
@@ -910,7 +911,7 @@ inline size_t BroadcastInDimOpRecord<State>::outputShapeHash(
 //! expandShape Specializations used by operator()
 
 template <>
-inline c10::optional<std::vector<Val*>> BroadcastInDimOpRecord<int64_t>::
+inline std::optional<std::vector<Val*>> BroadcastInDimOpRecord<int64_t>::
     expandShape(
         const FusionState& fd,
         const std::vector<bool>& expand_dim,
@@ -927,14 +928,14 @@ inline c10::optional<std::vector<Val*>> BroadcastInDimOpRecord<int64_t>::
   }
 
   if (has_expand) {
-    return c10::optional<std::vector<Val*>>(expand_shape);
+    return std::optional<std::vector<Val*>>(expand_shape);
   } else {
-    return c10::nullopt;
+    return std::nullopt;
   }
 }
 
 template <>
-inline c10::optional<std::vector<Val*>> BroadcastInDimOpRecord<State>::
+inline std::optional<std::vector<Val*>> BroadcastInDimOpRecord<State>::
     expandShape(
         const FusionState& fd,
         const std::vector<bool>& expand_dim,
@@ -947,7 +948,7 @@ inline c10::optional<std::vector<Val*>> BroadcastInDimOpRecord<State>::
       [&fd](const State& state) {
         return fd.getFusionState(state.index)->template as<Val>();
       });
-  return c10::optional<std::vector<Val*>>(expand_shape);
+  return std::optional<std::vector<Val*>>(expand_shape);
 }
 
 //! outputShapeRecordData Specializations used by recordData()
@@ -1664,21 +1665,32 @@ struct ReductionOpRecord : RecordFunctor {
         result = result &&
             (*fusion_op_.template target<
 
-                 TensorView* (*)(TensorView*, const std::vector<int>&, bool, DataType)>() ==
+                 TensorView* (*)(TensorView*,
+                                 const std::vector<int>&,
+                                 bool,
+                                 DataType)>() ==
              *child_ptr->fusion_op_.template target<
 
-                 TensorView* (*)(TensorView*, const std::vector<int>&, bool, DataType)>());
+                 TensorView* (*)(TensorView*,
+                                 const std::vector<int>&,
+                                 bool,
+                                 DataType)>());
         if (isDebugDumpEnabled(DebugDumpOption::PythonFrontendDebug)) {
-          std::cout
-              << " Target  Ptr [self: 0x" << std::hex
-              << (size_t)*fusion_op_.template target<
+          std::cout << " Target  Ptr [self: 0x" << std::hex
+                    << (size_t)*fusion_op_.template target<
 
-                     TensorView* (*)(TensorView*, const std::vector<int>&, bool, DataType)>()
-              << "] [other: 0x" << std::hex
-              << (size_t)*child_ptr->fusion_op_.template target<
+                           TensorView* (*)(TensorView*,
+                                           const std::vector<int>&,
+                                           bool,
+                                           DataType)>()
+                    << "] [other: 0x" << std::hex
+                    << (size_t)*child_ptr->fusion_op_.template target<
 
-                     TensorView* (*)(TensorView*, const std::vector<int>&, bool, DataType)>()
-              << "]\n";
+                           TensorView* (*)(TensorView*,
+                                           const std::vector<int>&,
+                                           bool,
+                                           DataType)>()
+                    << "]\n";
         }
         result = result && (keep_dim_ == child_ptr->keep_dim_);
         result = result && (dtype_ == child_ptr->dtype_);
@@ -2847,8 +2859,10 @@ struct RandomOpRecord : RecordFunctor {
   PrimDataType dtype_;
 };
 
-struct VectorFromStateRecord : RecordFunctor {
-  VectorFromStateRecord(
+//! Specialized Record Functor for recording Vector of Scalars
+
+struct VectorRecord : RecordFunctor {
+  VectorRecord(
       std::vector<State> _args,
       std::vector<State> _outputs,
       PrimDataType dtype)
@@ -2856,31 +2870,31 @@ struct VectorFromStateRecord : RecordFunctor {
             std::move(_args),
             std::move(_outputs),
             "define_vector",
-            serde::RecordType_VectorFromState),
+            serde::RecordType_Vector),
         dtype_(dtype) {}
-  virtual ~VectorFromStateRecord() = default;
-  virtual RecordFunctor* clone() final {
-    return new VectorFromStateRecord(*this);
+  ~VectorRecord() override = default;
+  RecordFunctor* clone() final {
+    return new VectorRecord(*this);
   }
 
   //! Child specific hash function in lower 32 bits.
   //! | 31 ---------------------------------------  0 |
   //! | Dtype                                         |
-  virtual size_t hash() const final {
+  size_t hash() const final {
     auto result = RecordFunctor::hash();
     return result | (static_cast<size_t>(dtype_) & 0xffffffff);
   }
 
-  virtual bool operator==(const RecordFunctor& other) const final {
+  bool operator==(const RecordFunctor& other) const final {
     auto result = false;
-    if (auto child_ptr = dynamic_cast<const VectorFromStateRecord*>(&other)) {
+    if (auto child_ptr = dynamic_cast<const VectorRecord*>(&other)) {
       result = RecordFunctor::operator==(other);
       result = result && (dtype_ == child_ptr->dtype_);
     }
     return result;
   }
 
-  virtual void operator()(FusionState& fd) final {
+  void operator()(FusionState& fd) final {
     std::vector<Val*> output(args_.size(), nullptr);
     TORCH_CHECK(
         dtype_ == DataType::Int,
@@ -2905,7 +2919,7 @@ struct VectorFromStateRecord : RecordFunctor {
       }
       os << output;
     }
-    os << "fd." << name_ << "([";
+    os << " = fd." << name_ << "([";
     bool first_arg = true;
     for (auto& arg : args_) {
       if (first_arg) {
@@ -2921,123 +2935,14 @@ struct VectorFromStateRecord : RecordFunctor {
     }
   }
 
-  virtual std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
+  std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
       flatbuffers::FlatBufferBuilder& builder) const final {
     return {
-        serde::RecordData_VectorFromState,
-        serde::CreateVectorFromState(builder, serde::mapToSerdeDtype(dtype_))
-            .Union()};
+        serde::RecordData_Vector,
+        serde::CreateVector(builder, serde::mapToSerdeDtype(dtype_)).Union()};
   };
 
  private:
-  //! Scalar data type.
-  PrimDataType dtype_;
-};
-
-//! Specialized Record Functor for recording FusionState vector of sizes for
-//! both inputs and constants.
-
-template <typename ValueType>
-struct VectorRecord : RecordFunctor {
-  VectorRecord(
-      std::vector<State> _outputs,
-      serde::RecordType record_type,
-      std::optional<std::vector<ValueType>> value,
-      size_t size,
-      PrimDataType dtype)
-      : RecordFunctor({}, std::move(_outputs), "define_vector", record_type),
-        value_(std::move(value)),
-        size_(size),
-        dtype_(dtype) {}
-  ~VectorRecord() override = default;
-  RecordFunctor* clone() final {
-    return new VectorRecord(*this);
-  }
-
-  //! Child specific hash function in lower 32 bits.
-  //! | 31 --------------- 16 | 15 ---------------  0 |
-  //! | Dtype                 | Size                  |
-  size_t hash() const final {
-    auto result = RecordFunctor::hash();
-    result |= (static_cast<size_t>(dtype_) & 0xffff) << 16;
-    return result | (size_ & 0xffff);
-  }
-
-  bool operator==(const RecordFunctor& other) const final {
-    auto result = false;
-    if (auto child_ptr = dynamic_cast<const VectorRecord*>(&other)) {
-      result = RecordFunctor::operator==(other);
-      result = result && (value_ == child_ptr->value_) &&
-          (size_ == child_ptr->size_) && (dtype_ == child_ptr->dtype_);
-    }
-    return result;
-  }
-
-  void operator()(FusionState& fd) final {
-    std::vector<Val*> output(size_, nullptr);
-    TORCH_CHECK(
-        dtype_ == DataType::Int,
-        "Only Int Dtype is not supported by a vector of sizes: ",
-        dtype_);
-    if (value_.has_value()) {
-      for (size_t i = 0; i < size_; ++i) {
-        output.at(i) = IrBuilder::create<Int>(value_.value().at(i));
-      }
-    } else {
-      for (size_t i = 0; i < size_; ++i) {
-        output[i] = IrBuilder::create<Int>();
-        fd.addInput(output.at(i));
-      }
-    }
-    fd.setFusionStateVector(outputs_.at(0).index, output);
-  }
-
-  void print(std::ostream& os, bool close_function = true) const final {
-    RecordFunctor::print(os, false);
-    os << "[";
-    bool first_arg = true;
-    if (value_.has_value()) {
-      for (auto& v : value_.value()) {
-        if (first_arg) {
-          first_arg = false;
-        } else {
-          os << ", ";
-        }
-        os << v;
-      }
-      os << "]";
-    } else {
-      os << "None";
-    }
-
-    os << ", dtype=" << dtypeToPyString(dtype_);
-    if (close_function) {
-      os << ")";
-    }
-  }
-
-  std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
-      flatbuffers::FlatBufferBuilder& builder) const final {
-    if (value_.has_value()) {
-      return {
-          serde::RecordData_VectorLong,
-          serde::CreateVectorLongDirect(
-              builder, &(value_.value()), size_, serde::mapToSerdeDtype(dtype_))
-              .Union()};
-    } else {
-      return {
-          serde::RecordData_VectorInput,
-          serde::CreateVectorInput(
-              builder, size_, serde::mapToSerdeDtype(dtype_))
-              .Union()};
-    }
-  }
-
- private:
-  //! The vector's value.
-  std::optional<std::vector<ValueType>> value_;
-  //! Since the vector's value is optional, the size is stored here
-  size_t size_;
   //! Scalar data type.
   PrimDataType dtype_;
 };

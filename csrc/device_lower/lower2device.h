@@ -26,6 +26,7 @@
 #include <kernel.h>
 #include <kernel_ir.h>
 #include <non_divisible_split.h>
+#include <options.h>
 #include <parallel_dimension_map.h>
 #include <partial_split_map.h>
 #include <root_domain_map.h>

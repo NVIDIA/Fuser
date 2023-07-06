@@ -188,7 +188,7 @@ void replaceSymbolicSizes(Fusion* fusion) {
 
     size_t dim = 0;
     for (auto id : root_td) {
-      Val* orig_size = id->extent();
+      Val* orig_size = id->getMaybeExpandedExtent();
       // Output sizes could have reduction axes, which isn't what gets output.
       // NOLINTNEXTLINE(bugprone-branch-clone)
       if (id->isReduction()) {

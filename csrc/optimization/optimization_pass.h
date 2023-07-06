@@ -8,6 +8,7 @@
 #pragma once
 
 #include <ir/interface_nodes.h>
+#include <ir/utils.h>
 
 #include <atomic>
 
@@ -49,6 +50,11 @@ class TORCH_CUDA_CU_API OptimizationPass {
       return;
     }
     DerivedClass::runPass(fusion);
+#ifndef NDEBUG
+    // cycle detection is only enabled on debug run
+    TORCH_INTERNAL_ASSERT(
+        ir_utils::checkCycle(fusion).empty(), "cycle detected in fusion IR");
+#endif
   }
 
   virtual ~OptimizationPass() = default;

@@ -38,6 +38,7 @@
 #include <test/validator.h>
 #include <transform_replay.h>
 #include <transform_rfactor.h>
+#include <utils.h>
 
 #include <parser.h>
 #include <torch/csrc/jit/api/function_impl.h>
@@ -174,19 +175,19 @@ TEST_F(NVFuserTest, FusionExprEvalBindings_CUDA) {
   auto* e = IrBuilder::create<Int>(0);
 
   // trying to evaluate before binding should give empty results
-  TORCH_CHECK(!evaluator.evaluate(a).has_value());
-  TORCH_CHECK(!evaluator.evaluate(d).has_value());
+  TORCH_CHECK(!evaluator.evaluate(a).hasValue());
+  TORCH_CHECK(!evaluator.evaluate(d).hasValue());
 
-  evaluator.bind(a, 7);
-  evaluator.bind(b, 3);
+  evaluator.bind(a, 7L);
+  evaluator.bind(b, 3L);
 
   // can't bind to the results of expressions
   // NOLINTNEXTLINE(cppcoreguidelines-avoid-goto,hicpp-avoid-goto)
-  ASSERT_ANY_THROW(evaluator.bind(c, 100));
+  ASSERT_ANY_THROW(evaluator.bind(c, 100L));
 
   // can't bind to concrete values
   // NOLINTNEXTLINE(cppcoreguidelines-avoid-goto,hicpp-avoid-goto)
-  ASSERT_ANY_THROW(evaluator.bind(e, 100));
+  ASSERT_ANY_THROW(evaluator.bind(e, 100L));
 
   checkIntValue(evaluator, c, 10);
   checkIntValue(evaluator, sub(a, b), 4);
@@ -197,8 +198,8 @@ TEST_F(NVFuserTest, FusionExprEvalBindings_CUDA) {
   // Reset evaluation context
   evaluator = ExpressionEvaluator();
 
-  evaluator.bind(a, 2);
-  evaluator.bind(b, 5);
+  evaluator.bind(a, 2L);
+  evaluator.bind(b, 5L);
 
   checkIntValue(evaluator, c, 7);
   checkIntValue(evaluator, sub(a, b), -3);
@@ -246,10 +247,10 @@ TEST_F(NVFuserTest, FusionExprEvalBasic_CUDA) {
   //  (ex. `tv0->getRootDomain()[0]->extent()`
   //   instead of `tv0->axis(0)->extent()`)
   //
-  evaluator.bind(tv0->getRootDomain()[0]->extent(), 6);
-  evaluator.bind(tv0->getRootDomain()[1]->extent(), 128);
-  evaluator.bind(tv1->getRootDomain()[0]->extent(), 6);
-  evaluator.bind(tv1->getRootDomain()[1]->extent(), 128);
+  evaluator.bind(tv0->getRootDomain()[0]->extent(), 6L);
+  evaluator.bind(tv0->getRootDomain()[1]->extent(), 128L);
+  evaluator.bind(tv1->getRootDomain()[0]->extent(), 6L);
+  evaluator.bind(tv1->getRootDomain()[1]->extent(), 128L);
 
   // 3. Evaluate and check result values
   TORCH_CHECK(tv2->domain()->nDims() == 3);
@@ -290,8 +291,8 @@ TEST_F(NVFuserTest, FusionExprEvalComplex_CUDA) {
   ExpressionEvaluator evaluator;
 
   // 2. Bind values
-  evaluator.bind(tv0->getRootDomain()[0]->extent(), 129);
-  evaluator.bind(tv0->getRootDomain()[1]->extent(), 127);
+  evaluator.bind(tv0->getRootDomain()[0]->extent(), 129L);
+  evaluator.bind(tv0->getRootDomain()[1]->extent(), 127L);
 
   // Evaluate and check extent values
   TORCH_CHECK(tv0->domain()->nDims() == 2);
@@ -353,10 +354,10 @@ TEST_F(NVFuserTest, FusionExprEvalPostLower_CUDA) {
   ExpressionEvaluator evaluator;
 
   // 2. Bind values
-  evaluator.bind(tv0->getRootDomain()[0]->extent(), 6);
-  evaluator.bind(tv0->getRootDomain()[1]->extent(), 128);
-  evaluator.bind(tv1->getRootDomain()[0]->extent(), 6);
-  evaluator.bind(tv1->getRootDomain()[1]->extent(), 128);
+  evaluator.bind(tv0->getRootDomain()[0]->extent(), 6L);
+  evaluator.bind(tv0->getRootDomain()[1]->extent(), 128L);
+  evaluator.bind(tv1->getRootDomain()[0]->extent(), 6L);
+  evaluator.bind(tv1->getRootDomain()[1]->extent(), 128L);
 
   // 3. Evaluate and check result values
   TORCH_CHECK(tv2->domain()->nDims() == 3);
@@ -402,26 +403,26 @@ TEST_F(NVFuserTest, FusionKernelExprEvalBindings_CUDA) {
 
   ExpressionEvaluator evaluator;
 
-  auto a = IrBuilder::create<Int>(c10::nullopt);
-  auto b = IrBuilder::create<Int>(c10::nullopt);
+  auto a = IrBuilder::create<Int>(std::nullopt);
+  auto b = IrBuilder::create<Int>(std::nullopt);
   auto c = IrBuilder::addExpr(a, b);
   auto d = IrBuilder::negExpr(IrBuilder::ceilDivExpr(c, b));
   auto e = IrBuilder::create<Int>(0);
 
   // trying to evaluate before binding should give empty results
-  TORCH_CHECK(!evaluator.evaluate(a).has_value());
-  TORCH_CHECK(!evaluator.evaluate(d).has_value());
+  TORCH_CHECK(!evaluator.evaluate(a).hasValue());
+  TORCH_CHECK(!evaluator.evaluate(d).hasValue());
 
-  evaluator.bind(a, 7);
-  evaluator.bind(b, 3);
+  evaluator.bind(a, 7L);
+  evaluator.bind(b, 3L);
 
   // can't bind to the results of expressions
   // NOLINTNEXTLINE(cppcoreguidelines-avoid-goto,hicpp-avoid-goto)
-  ASSERT_ANY_THROW(evaluator.bind(c, 100));
+  ASSERT_ANY_THROW(evaluator.bind(c, 100L));
 
   // can't bind to concrete values
   // NOLINTNEXTLINE(cppcoreguidelines-avoid-goto,hicpp-avoid-goto)
-  ASSERT_ANY_THROW(evaluator.bind(e, 100));
+  ASSERT_ANY_THROW(evaluator.bind(e, 100L));
 
   checkIntValue(evaluator, c, 10);
   checkIntValue(evaluator, IrBuilder::subExpr(a, b), 4);
@@ -432,8 +433,8 @@ TEST_F(NVFuserTest, FusionKernelExprEvalBindings_CUDA) {
   // Reset the evaluation context
   evaluator = ExpressionEvaluator();
 
-  evaluator.bind(a, 2);
-  evaluator.bind(b, 5);
+  evaluator.bind(a, 2L);
+  evaluator.bind(b, 5L);
 
   checkIntValue(evaluator, c, 7);
   checkIntValue(evaluator, IrBuilder::subExpr(a, b), -3);
@@ -1163,7 +1164,7 @@ TEST_F(NVFuserTest, FusionParser_CUDA) {
   // This test may not pass if using a custom block sync as there may
   // be additional calls. Skip the test as it's not specifically
   // relevant with block synchronizatin.
-  if (std::getenv("PYTORCH_NVFUSER_USE_BLOCK_SYNC_ATOMIC")) {
+  if (getNvFuserEnv("USE_BLOCK_SYNC_ATOMIC")) {
     return;
   }
   auto g = std::make_shared<torch::jit::Graph>();
@@ -7465,43 +7466,67 @@ TEST_F(NVFuserTest, FusionSmemDynamicPersistentSoftmax2D_CUDA) {
 }
 
 TEST_F(NVFuserTest, FusionMagicSchedulerSoftmax_CUDA) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
+  auto test_softmax = [](int batch, int feature, DataType dtype) {
+    Fusion fusion;
+    FusionGuard fg(&fusion);
 
-  const int kReductionAxis = 3;
-  std::vector<int64_t> input_shape{10, 10, 10, 67};
-  TensorView* input = makeSymbolicTensor(input_shape.size());
-  fusion.addInput(input);
+    const int kReductionAxis = 1;
+    std::vector<int64_t> input_shape{batch, feature};
+    TensorView* input = makeSymbolicTensor(input_shape.size(), dtype);
+    fusion.addInput(input);
 
-  auto output = softmax(input, kReductionAxis);
+    if (dtype == DataType::Half) {
+      input = castOp(DataType::Float, input);
+    }
 
-  fusion.addOutput(output);
+    auto output = softmax(input, kReductionAxis);
 
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor aten_input = at::randn(input_shape, options);
-  auto aten_output =
-      at::_softmax(aten_input.to(at::kDouble), kReductionAxis, false);
+    if (dtype == DataType::Half) {
+      output = castOp(DataType::Half, output);
+    }
 
-  auto reduction_params = getPersistentHeuristics(&fusion, {aten_input});
-  TORCH_CHECK(reduction_params, "Reduction schedule was not generated!");
+    fusion.addOutput(output);
 
-  schedulePersistentKernel(&fusion, *reduction_params);
+    auto options = at::TensorOptions()
+                       .dtype(data_type_to_aten(dtype))
+                       .device(at::kCUDA, 0);
+    at::Tensor aten_input = at::randn(input_shape, options);
+    auto aten_output =
+        at::_softmax(aten_input.to(at::kDouble), kReductionAxis, false);
 
-  auto lparams = reduction_params->lparams;
+    auto reduction_params = getPersistentHeuristics(&fusion, {aten_input});
+    TORCH_CHECK(reduction_params, "Reduction schedule was not generated!");
 
-  nvfuser::FusionExecutor fe;
-  fe.compileFusion(&fusion, {aten_input}, lparams);
-  auto cg_outputs = fe.runFusion({aten_input}, lparams);
+    schedulePersistentKernel(&fusion, *reduction_params);
 
-  testValidate(
-      &fusion,
-      cg_outputs,
-      {aten_input},
-      {aten_output},
-      __LINE__,
-      __FILE__,
-      "",
-      lparams);
+    auto lparams = reduction_params->lparams;
+
+    nvfuser::FusionExecutor fe;
+    fe.compileFusion(&fusion, {aten_input}, lparams);
+    auto cg_outputs = fe.runFusion({aten_input}, lparams);
+
+    testValidate(
+        &fusion,
+        cg_outputs,
+        {aten_input},
+        {aten_output},
+        __LINE__,
+        __FILE__,
+        "",
+        lparams);
+  };
+
+  const auto dev_prop = at::cuda::getCurrentDeviceProperties();
+  const int batch = dev_prop->multiProcessorCount;
+  // test small values, values can't be vectorized, regular pupular values,
+  // prime numbers with or without vectorization, and large values
+  std::vector<int> features = {8, 9, 128, 256, 2753, 11012, 22024, 32768};
+  std::vector<DataType> test_dtypes = {DataType::Float, DataType::Half};
+  for (auto dtype : test_dtypes) {
+    for (auto feature : features) {
+      test_softmax(batch, feature, dtype);
+    }
+  }
 }
 
 TEST_F(NVFuserTest, FusionTestMaskSoftmax_CUDA) {
@@ -7757,7 +7782,7 @@ TEST_F(NVFuserTest, FusionMagicSchedulerLayerNormalization_CUDA) {
   // Check reduction axis is same for all reductions
   // Generate Launch Parameters
   auto reduction_params = getPersistentHeuristics(&fusion, {aten_input});
-  TORCH_CHECK(reduction_params, "Reduction schedule was not generated!");
+  ASSERT_TRUE(reduction_params) << "Reduction schedule was not generated!";
 
   FusionExecutorCache fec(std::move(fusion_ptr));
   auto cg_outputs = fec.runFusionWithInputs({aten_input});
@@ -7772,6 +7797,14 @@ TEST_F(NVFuserTest, FusionMagicSchedulerLayerNormalization_CUDA) {
       __LINE__,
       __FILE__,
       "");
+
+  auto rt = fec.getMostRecentKernelRuntime();
+  ASSERT_FALSE(rt->isSegmented());
+  auto kernel = rt->executors().at(0).kernel();
+
+  // tv11 and tv17 should not be predicated. See issue #496
+  ASSERT_FALSE(PredicatedChecker::isPredicated(11, kernel));
+  ASSERT_FALSE(PredicatedChecker::isPredicated(17, kernel));
 }
 
 TEST_F(NVFuserTest, FusionMagicSchedulerRMSNormalization_CUDA) {

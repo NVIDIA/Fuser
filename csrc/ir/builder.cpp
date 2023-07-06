@@ -21,6 +21,9 @@ Val* IrBuilder::newScalar(DataType dtype) {
   if (isPointerType(dtype)) {
     return IrBuilder::create<Int>(dtype);
   }
+  if (!std::holds_alternative<PrimDataType>(dtype.type)) {
+    return IrBuilder::create<Val>(ValType::Scalar, dtype);
+  }
   switch (std::get<PrimDataType>(dtype.type)) {
     case DataType::Bool:
       return IrBuilder::create<Bool>();
@@ -74,7 +77,7 @@ Bool* IrBuilder::newLogicExpr(BinaryOpType op_type, Val* lhs, Val* rhs) {
   TORCH_CHECK(
       lhs != nullptr && rhs != nullptr,
       "Either lhs or rhs is a nullptr in newLogicExpr.");
-  auto result = IrBuilder::create<Bool>(c10::nullopt);
+  auto result = IrBuilder::create<Bool>(std::nullopt);
   IrBuilder::create<BinaryOp>(op_type, result, lhs, rhs);
   // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDeleteLeaks)
   return result;
@@ -198,6 +201,13 @@ Val* IrBuilder::minExpr(Val* lhs, Val* rhs) {
 
 Val* IrBuilder::gcdExpr(Val* lhs, Val* rhs) {
   return newArithmeticExpr(BinaryOpType::Gcd, lhs, rhs);
+}
+
+Val* IrBuilder::getItemExpr(Val* array, Val* index) {
+  auto item_dtype = std::get<ArrayOf>(array->dtype().type).type;
+  auto out = newScalar(*item_dtype);
+  create<GetItem>(array->container(), out, array, index);
+  return out;
 }
 
 Val* SimplifyingIrBuilder::negExpr(Val* val) {

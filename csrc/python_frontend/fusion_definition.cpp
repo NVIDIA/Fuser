@@ -6,6 +6,7 @@
  */
 // clang-format on
 #include <instrumentation.h>
+#include <options.h>
 #include <python_frontend/fusion_cache.h>
 #include <python_frontend/fusion_definition.h>
 #include <utils.h>
@@ -44,7 +45,7 @@ const char* dtypeToPyString(PrimDataType t) {
   return nullptr;
 }
 
-FusionDefinition::FusionDefinition(c10::optional<size_t> id, size_t max_length)
+FusionDefinition::FusionDefinition(std::optional<size_t> id, size_t max_length)
     : FusionState(),
       max_length_(max_length),
       fusion_id_(id),
@@ -76,7 +77,7 @@ void FusionDefinition::finalizeDefinition() {
       std::cout << "\nFusionDefinition: Terminal Node not found.\n";
     }
     trie_node_ = fusionCache()->createChild(trie_node_, end_record_.get());
-    fusion_id_ = c10::optional<size_t>(trie_node_->fusion_id);
+    fusion_id_ = std::optional<size_t>(trie_node_->fusion_id);
     TORCH_CHECK(id().has_value(), "Invalid fusion id!");
 
     if (isDebugDumpEnabled(DebugDumpOption::PythonDefinition)) {
@@ -93,7 +94,7 @@ void FusionDefinition::finalizeDefinition() {
       std::cout << "\nFusionDefinition: Terminal Node found!\n";
     }
     trie_node_ = child_node.value();
-    fusion_id_ = c10::optional<size_t>(trie_node_->fusion_id);
+    fusion_id_ = std::optional<size_t>(trie_node_->fusion_id);
   }
 }
 
@@ -119,6 +120,7 @@ void FusionDefinition::setupSchedule(const at::ArrayRef<c10::IValue>& inputs) {
   prev_fusion_ = FusionGuard::getCurFusion();
   FusionGuard::setCurFusion(user_sched_->schedule.get());
 }
+
 void FusionDefinition::finalizeSchedule(
     const at::ArrayRef<c10::IValue>& inputs) {
   FUSER_PERF_SCOPE("FusionDefinition::finalizeSchedule");
@@ -273,7 +275,7 @@ std::string FusionDefinition::scheduledFusionIrFor(
       inputs, tensor_transforms);
 }
 
-c10::optional<size_t> FusionDefinition::id() const {
+std::optional<size_t> FusionDefinition::id() const {
   return fusion_id_;
 }
 

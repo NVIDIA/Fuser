@@ -30,6 +30,10 @@ namespace scheduler_utils {
 // but it's hard to get a better one.
 constexpr int64_t register_file_size_full = (int64_t)256 * 1024;
 constexpr int64_t register_file_size = register_file_size_full / 2;
+// Empirically observed number. Not guaranteed to be a good estimate
+constexpr int64_t register_overhead = 40l;
+constexpr int64_t max_registers_per_thread = 255l;
+constexpr int64_t bytes_per_register = 4l;
 
 constexpr int64_t x_grid_limit = ((int64_t)1 << (int64_t)31) - (int64_t)1;
 constexpr int64_t y_grid_limit = 65535;
@@ -96,12 +100,12 @@ TORCH_CUDA_CU_API inline void splitDims(
 // update the dimensions in `to_update` to the positions in the merged tensor.
 // Returns the merged dimension. All given dimensions are numbers before any
 // merge.
-TORCH_CUDA_CU_API c10::optional<size_t> mergeDims(
+TORCH_CUDA_CU_API std::optional<size_t> mergeDims(
     TensorView* tv,
     std::vector<size_t> to_merge,
     std::vector<size_t>& to_update);
 
-TORCH_CUDA_CU_API inline c10::optional<size_t> mergeDims(
+TORCH_CUDA_CU_API inline std::optional<size_t> mergeDims(
     TensorView* tv,
     std::vector<size_t> to_merge) {
   std::vector<size_t> unused;
@@ -175,7 +179,7 @@ struct PersistentBufferInfo {
 // can simply be read multiple times from GMEM in the same kernel.
 TORCH_CUDA_CU_API PersistentBufferInfo persistentBuffers(Fusion* fusion);
 
-struct TvProperties {
+struct ReductionTvProperties {
   // How many elements in tensor view are there to reduce.
   int64_t total_reduction_numel = 1;
 
@@ -199,8 +203,8 @@ struct TvProperties {
   int64_t dimensionality = 1;
 };
 
-// Fill TvProperties structure about tv
-TvProperties getProperties(
+// Fill ReductionTvProperties structure about tv
+ReductionTvProperties getReductionProperties(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     TensorView* tv);
@@ -255,14 +259,7 @@ TORCH_CUDA_CU_API std::vector<std::pair<TensorView*, TensorView*>>
 cacheAndForkOutputs(Fusion* fusion, bool unroll);
 
 // Ignores broadcast and reduction, returns iter domain in root domain that's
-// "inner most". If this is an rfactored reduction domain, actually check the
-// root domain, this is because the rfactored reduction tensorview has the
-// vectorized dimension, but that means the rfactor domain could have reordered
-// what we consider the "inner most" allocated position on it if we consider the
-// rfactor dimension.
-//
-// If reduction tv and has rfactor return root domain, otherwise return rfactor
-// domain.
+// "inner most".
 IterDomain* innerMostRootDim(TensorView* tv);
 
 // Looks through fusion and finds all dims that match to the one provided in
@@ -453,7 +450,7 @@ struct TORCH_CUDA_CU_API BoundedDirectionalTransformPropagator {
       TensorView* from,
       int pos,
       std::vector<TensorView*> to,
-      c10::optional<Options> options = c10::nullopt);
+      std::optional<Options> options = std::nullopt);
 
   //! Replay transforms from tensorview `from`
   //! to the tensorviews that are producers
@@ -462,7 +459,7 @@ struct TORCH_CUDA_CU_API BoundedDirectionalTransformPropagator {
       TensorView* from,
       int pos,
       std::vector<TensorView*> to,
-      c10::optional<Options> options = c10::nullopt);
+      std::optional<Options> options = std::nullopt);
 
   //! Replay transforms from tensorview `from`
   //!  to all the tensorviews that are consumers
@@ -474,7 +471,7 @@ struct TORCH_CUDA_CU_API BoundedDirectionalTransformPropagator {
       int pos,
       std::vector<TensorView*> backward_to,
       std::vector<TensorView*> forward_to,
-      c10::optional<Options> options = c10::nullopt);
+      std::optional<Options> options = std::nullopt);
 
  private:
   //! Utility function:

@@ -419,6 +419,81 @@ class TORCH_CUDA_CU_API TernaryOp : public Expr {
       std::string in3) const;
 };
 
+// construct an array from a list of values
+class TORCH_CUDA_CU_API ArrayConstruct : public Expr {
+ public:
+  using Expr::Expr;
+
+  ArrayConstruct(IrBuilderPasskey, Val* output, std::vector<Val*> inputs);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "ArrayConstruct";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  Val* out() const {
+    return output(0);
+  }
+};
+
+// Get an item from an array, array[index]
+class TORCH_CUDA_CU_API GetItem : public Expr {
+ public:
+  using Expr::Expr;
+
+  GetItem(IrBuilderPasskey, Val* output, Val* array, Val* index);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "GetItem";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  Val* out() const {
+    return output(0);
+  }
+
+  Val* array() const {
+    return input(0);
+  }
+
+  Val* index() const {
+    return input(1);
+  }
+};
+
+// Construct a tensor from an array
+class TORCH_CUDA_CU_API TensorConstruct : public Expr {
+ public:
+  using Expr::Expr;
+
+  TensorConstruct(IrBuilderPasskey, TensorView* output, Val* input);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "TensorConstruct";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  TensorView* out() const {
+    return output(0)->as<TensorView>();
+  }
+
+  Val* in() const {
+    return input(0);
+  }
+};
+
 //! A specialization for random number generator (RNG) operations. RNG
 //! operations take in no tensor input and produce a single output.
 class TORCH_CUDA_CU_API RNGOp : public Expr {
@@ -767,7 +842,7 @@ class TORCH_CUDA_CU_API WelfordTriplet {
 
   //! Get the name of a given val in this triplet. None is returned if
   //! not found.
-  c10::optional<ValName> getNameOf(Val* val) const;
+  std::optional<ValName> getNameOf(Val* val) const;
 
   //! Return a new triplet with outputs produced by a function applied
   //! to each of this triplet
@@ -1702,11 +1777,11 @@ class TORCH_CUDA_CU_API NamedScalar : public Val {
 
   //! Return the parallel type of this NamedScalar if it is an extent of a
   //! parallel dimension
-  c10::optional<ParallelType> getParallelDim() const;
+  std::optional<ParallelType> getParallelDim() const;
 
   //! Return the parallel type of this NamedScalar if it is an index of a
   //! parallel dimension
-  c10::optional<ParallelType> getParallelIndex() const;
+  std::optional<ParallelType> getParallelIndex() const;
 
  private:
   std::string name_;

@@ -11,6 +11,7 @@
 #include <ir/all_nodes.h>
 #include <ir/utils.h>
 #include <ops/all_ops.h>
+#include <optimization/pre_segmenter.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/matmul.h>
 #include <scheduler/matmul_heuristic.h>
@@ -141,6 +142,8 @@ static void SingleMatmulBase(
   // Define fusion graph
   setupMatmul(fusion, layout, params, turing_or_later);
 
+  optimization::OptimizationPass<optimization::PreSegmenter>::runPass(fusion);
+
   // inputs
   at::manual_seed(0);
 
@@ -163,21 +166,13 @@ static void SingleMatmulBase(
         "Shared memory bank conflict not removed.");
   }
 
+  std::vector<c10::IValue> aten_inputs({inputs.first, inputs.second});
+
   // Warm up run
-  auto outputs = fe.runFusion({inputs.first, inputs.second});
-  fe.setMeasureKernelTimeFlag(true);
+  auto outputs = fe.runFusion(aten_inputs);
   checkMatch(expected_output, outputs.at(0).to(at::kDouble), input_mnk.at(2));
 
-  // Sync everything up before we start
-  for (auto _ : benchmark_state) {
-    clearL2Cache();
-    auto outputs = fe.runFusion({inputs.first, inputs.second});
-    checkMatch(expected_output, outputs.at(0).to(at::kDouble), input_mnk.at(2));
-    benchmark_state.SetIterationTime(fe.kernelTimeMs() / 1000.0);
-  }
-  // Sync everything up before we're finished, don't want to run ahead on the
-  // cpu while benchmarking.
-  cudaDeviceSynchronize();
+  runBenchmarkIterations(benchmark_state, &fe, aten_inputs);
 
   // TODO: FLOPS calculation
 }

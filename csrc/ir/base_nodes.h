@@ -10,7 +10,6 @@
 #include <c10/core/ScalarType.h>
 #include <c10/macros/Export.h>
 #include <c10/util/Exception.h>
-#include <c10/util/Optional.h>
 
 #include <dynamic_type.h>
 #include <ir/builder_passkey.h>
@@ -123,16 +122,16 @@ class TORCH_CUDA_CU_API Statement : public NonCopyable, public PolymorphicBase {
   static void mutatorDispatch(T mutator, Statement*);
 
   // Accessor functions to types. Vals always have a DataType, Exprs never do
-  virtual c10::optional<ValType> getValType() const {
-    return c10::nullopt;
+  virtual std::optional<ValType> getValType() const {
+    return std::nullopt;
   }
-  virtual c10::optional<DataType> getDataType() const {
-    return c10::nullopt;
+  virtual std::optional<DataType> getDataType() const {
+    return std::nullopt;
   }
 
   // Short cut to figure out if it is a value/expression
   bool isVal() const {
-    return getValType() != c10::nullopt;
+    return getValType() != std::nullopt;
   }
   bool isExpr() const {
     return isA<Expr>();
@@ -233,6 +232,12 @@ class TORCH_CUDA_CU_API Val : public Statement {
 
   Val(const Val* src, IrCloner* ir_cloner);
 
+  std::string toString(int = 0) const override {
+    std::stringstream ss;
+    ss << "[" << dtype() << " value " << name() << "]";
+    return ss.str();
+  }
+
   // Dispatch functions, definitions in dispatch.cpp
   template <typename T>
   static void dispatch(T handler, Val*);
@@ -243,7 +248,7 @@ class TORCH_CUDA_CU_API Val : public Statement {
   template <typename T>
   static void mutatorDispatch(T mutator, Val*);
 
-  c10::optional<ValType> getValType() const override {
+  std::optional<ValType> getValType() const override {
     return vtype_;
   }
 
@@ -256,7 +261,7 @@ class TORCH_CUDA_CU_API Val : public Statement {
   }
 
   // Throws if no DataType is found. Vals must have a DataType
-  c10::optional<DataType> getDataType() const override;
+  std::optional<DataType> getDataType() const override;
 
   bool isScalar() const {
     return vtype_ == ValType::Scalar || vtype_ == ValType::NamedScalar;
@@ -282,21 +287,21 @@ class TORCH_CUDA_CU_API Val : public Statement {
 
   // If this Val is an integer with a direct constant value associated with it,
   // will return the value of that constant integer. If this integer has
-  // defining expressions it will return a c10::nullopt. Those values should be
+  // defining expressions it will return a std::nullopt. Those values should be
   // infered using evaluateInt.
-  c10::optional<int64_t> getInt() const;
+  std::optional<int64_t> getInt() const;
 
   // If this Val is a double with a direct constant value associated with it,
   // will return the value of that constant double. If this double has
-  // defining expressions it will return a c10::nullopt. Those values should be
+  // defining expressions it will return a std::nullopt. Those values should be
   // infered using evaluateDouble.
-  c10::optional<double> getDouble() const;
+  std::optional<double> getDouble() const;
 
   // If this Val is a bool with a direct constant value associated with it,
   // will return the value of that constant bool. If this bool has defining
-  // expressions it will return a c10::nullopt. Those values should be infered
+  // expressions it will return a std::nullopt. Those values should be infered
   // using evaluateBool.
-  c10::optional<bool> getBool() const;
+  std::optional<bool> getBool() const;
 
   // If this Val is a constant integer, and its history is comprised only of
   // constant values, will return the value of that constant integer. Cannot

@@ -6,6 +6,8 @@
  */
 // clang-format on
 #include <instrumentation.h>
+#include <options.h>
+#include <utils.h>
 
 #include <c10/macros/Export.h>
 
@@ -20,7 +22,7 @@ namespace nvfuser {
 namespace inst {
 
 Trace::Trace() {
-  const char* trace_filename = getenv("PYTORCH_NVFUSER_TRACE");
+  const char* trace_filename = getNvFuserEnv("TRACE");
   if (trace_filename != nullptr) {
     log_file_ = fopen(trace_filename, "w");
     TORCH_CHECK(log_file_ != nullptr, "Can't open trace file");

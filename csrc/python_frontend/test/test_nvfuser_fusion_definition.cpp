@@ -22,7 +22,7 @@ using namespace nvfuser::python_frontend;
 TEST_F(NVFuserTest, FusionDefinition_CUDA) {
   // Test that the FusionDefinition asserts on max_length == 0
   {
-    FusionDefinition fd(c10::nullopt, 0);
+    FusionDefinition fd(std::nullopt, 0);
 
     try {
       fd.setupDefinition();
@@ -34,7 +34,7 @@ TEST_F(NVFuserTest, FusionDefinition_CUDA) {
 
   // Create a new FusionDefinition that is not found in the cache
   {
-    FusionDefinition fd(c10::nullopt, 4);
+    FusionDefinition fd(std::nullopt, 4);
 
     try {
       fd.setupDefinition();
@@ -117,7 +117,7 @@ TEST_F(NVFuserTest, FusionDefinition_CUDA) {
 
   // Look up a FusionDefinition completely in the cache
   {
-    FusionDefinition fd(c10::nullopt, 4);
+    FusionDefinition fd(std::nullopt, 4);
 
     try {
       fd.setupDefinition();
