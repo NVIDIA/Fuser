@@ -7,6 +7,7 @@
 // clang-format on
 #include <expr_simplifier.h>
 
+#include <debug.h>
 #include <device_lower/pass/magic_zero.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
@@ -107,12 +108,12 @@ class Logger : public NoOpLogger {
       };
 
       std::string header = "Simplifying expression:\n" + str(init_val_);
-      std::cout << header << std::endl;
+      debug() << header << std::endl;
       for (auto r : record_) {
-        std::cout << r.name << ":\n" << str(r.result) << std::endl;
+        debug() << r.name << ":\n" << str(r.result) << std::endl;
       }
-      std::cout << std::string(std::min<size_t>(header.size(), 80), '=')
-                << std::endl;
+      debug() << std::string(std::min<size_t>(header.size(), 80), '=')
+              << std::endl;
     } catch (...) {
       // clang-tidy don't want this function to throw, but this is just a
       // debugging helper, I don't really care if it has throw or not.
