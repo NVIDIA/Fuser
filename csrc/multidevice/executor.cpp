@@ -34,6 +34,7 @@ void PipelineExecutor::handle(PipelineStage* stage) {
       std::make_unique<FusionExecutorCache>(
           runtime_.pipeline_->stageToFusion(stage)));
   // Run the stage to get concrete outputs or placeholders
+  // TODO: reimplement allocOutputSpace
   // TODO: allocate output space only if strictly necessary
   std::vector<at::Tensor> outputs = shouldRun(stage)
       ? fec_[stage]->runFusionWithInputs(stage_input_IValues)

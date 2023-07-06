@@ -250,11 +250,6 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
     disable_parameter_cache_ = true;
   }
 
-  //! Used in distributed setting where we only want to
-  //!  allocate output space and receive output data from
-  //!  a different rank instead of computing them.
-  std::vector<at::Tensor> allocOutputSpace(KernelArgumentHolder& kernel_inputs);
-
  private:
   static std::string kernelNamespace() {
     return "CudaCodeGen";

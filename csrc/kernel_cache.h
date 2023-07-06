@@ -213,24 +213,6 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
     return executors_;
   }
 
-  std::vector<at::Tensor> allocOutputSpace(KernelArgumentHolder& args) {
-    if (!isCompiled()) {
-      compileFusionParallel(args);
-    }
-
-    std::vector<at::Tensor> outputs;
-    for (auto& executor : executors_) {
-      std::vector<at::Tensor> executor_outputs =
-          executor.allocOutputSpace(args);
-      outputs.insert(
-          outputs.end(),
-          std::make_move_iterator(executor_outputs.begin()),
-          std::make_move_iterator(executor_outputs.end()));
-    }
-
-    return outputs;
-  }
-
  private:
   //! Runs each fusion segment given arguments. The outputs for a fusion are
   //! added back to the arguments, so they can be used as inputs to successive
@@ -636,10 +618,11 @@ class TORCH_CUDA_CU_API FusionExecutorCache {
     return rt->kernelTimeMs();
   }
 
+  //! Allocate the outputs of the Fusion given inputs
+  //! TODO: re-implement
   std::vector<at::Tensor> allocOutputSpace(
       const at::ArrayRef<c10::IValue>& inputs) {
-    auto args = prepareInputs(inputs);
-    return getKernelRuntimeFor(args)->allocOutputSpace(args);
+    return runFusionWithInputs(inputs);
   }
 
  private:
