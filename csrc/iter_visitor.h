@@ -10,6 +10,7 @@
 #include <c10/macros/Export.h>
 
 #include <dispatch.h>
+#include <ir/base_nodes.h>
 #include <type.h>
 
 #include <deque>
@@ -19,9 +20,6 @@
 namespace nvfuser {
 
 class Fusion;
-class Statement;
-class Expr;
-class Val;
 
 /*
  * IterVisitor starts from leaf nodes, fusion outputs, or the provided values.
@@ -378,23 +376,12 @@ class TORCH_CUDA_CU_API InputsOf : public IterVisitor {
 //! graph by altering the associated IterDomains, and which does not easily
 //! handle modifying TensorView definitions and Fusion outputs during traversal.
 //!
-//! We use an unordered_set called live_statements_, which is initialized as the
-//! Exprs in traversal_exprs_ as well as their inputs and their outputs with
-//! live uses. Marking a Statement as dead removes it from live_statements_,
-//! and replacing a Val inserts the Val and its definition, recursively. Since
-//! we traverse backwards, and we handle all active Expr outputs, this ensures
-//! that removing an Expr will not result in erasing definitions of active Expr
-//! outputs.
-//!
 //! Derived classes should override handle() for relevant Exprs and they should
 //! make use of replaceVal() to change the definitions of Vals in the graph.
 //! Note that if replacements are made using replaceVal(old_val, new_val), then
 //! neither new_val nor any new Statements produced in creating it will be
-//! traversed by this class.
-//!
-//! removeVal() may also be used in derived classes to explicitly mark tensors
-//! as dead. Note that it is an error to call removeVal() on a Val that has live
-//! uses, so this should be used carefully.
+//! traversed by this class. Also note that any Vals or Exprs that are
+//! previously marked dead will not be processed by handle().
 class DeadCodeRemover : BackwardVisitor {
  public:
   DeadCodeRemover(Fusion* fusion) : BackwardVisitor(false), fusion_(fusion) {}
@@ -409,7 +396,9 @@ class DeadCodeRemover : BackwardVisitor {
   //! always traverse from outputs backward to their inputs.
   void run();
 
-  Fusion* fusion() const;
+  inline Fusion* fusion() const {
+    return fusion_;
+  }
 
  protected:
   using BackwardVisitor::handle;
@@ -417,45 +406,45 @@ class DeadCodeRemover : BackwardVisitor {
   void handle(Statement* stmt) override;
   void handle(Expr* expr) override;
 
+  //! We implement this in order to remove dangling TensorViews whose uses are
+  //! all dead. Note that we do not remove other ValTypes like Scalars since
+  //! they might still be used as attributes or members of other objects, which
+  //! is not reflected by Val::uses().
+  void handle(TensorView* tv) override;
+
   //! Replaces a Val in outputs, and in all uses.
   //!
   //! The argument old_val is always marked Dead by this method. If old_val is a
   //! Fusion input, we do not replace it. If old_val's definition is non-null
-  //! and has other outputs which are not dead, we do not remove it.
+  //! and has other outputs which are not dead, we do not remove old_val.
   //!
   //! Returns whether old_val was registered for removal from the Fusion.
   bool replaceVal(Val* old_val, Val* new_val);
 
-  //! Remove a Val* from the Fusion, if possible.
-  //!
-  //! It is an error to call this function on a Val with any live uses, or on
-  //! any Fusion input or output.
-  //!
-  //! The Val is always marked dead by this function. Additionally, it is
-  //! registered for removal from the Fusion if possible. Removal is possible if
-  //! the Val has no definition, or if its definition can be removed by
-  //! removeExpr(), meaning the definition has no other live outputs.
-  //!
-  //! Returns whether the Val was registered for removal from the Fusion.
-  bool removeVal(Val* val);
-
-  //! Find whether a statement is not marked as live code. Note that if this
-  //! returns true, the pointer may be invalid.
+  //! Find whether a statement is not marked as live code.
   inline bool isDead(Statement* stmt) const {
     return live_statements_.find(stmt) == live_statements_.end();
   }
 
-  //! Find whether a statement is marked as live code. Note that if this returns
-  //! false, the pointer may be invalid.
+  //! Find whether a statement is marked as live code.
   inline bool isLive(Statement* stmt) const {
     return !isDead(stmt);
   }
 
   //! Check whether all outputs of an expression have been marked dead
-  bool allOutputsDead(Expr* expr) const;
+  inline bool allOutputsDead(Expr* expr) const {
+    return std::all_of(
+        expr->outputs().begin(), expr->outputs().end(), [&](Val* outp) {
+          return isDead(outp);
+        });
+  }
 
   //! Check whether all uses have been marked dead
-  bool allUsesDead(Val* val) const;
+  inline bool allUsesDead(Val* val) const {
+    return std::all_of(val->uses().begin(), val->uses().end(), [&](Expr* use) {
+      return isDead(use);
+    });
+  }
 
  private:
   //! Removes an Expr* from the Fusion, if possible.
@@ -480,14 +469,17 @@ class DeadCodeRemover : BackwardVisitor {
   void markLiveRecursive(Statement* stmt);
 
   //! Mark a single Statement as being dead. This does not remove stmt from the
-  //! Fusion.
+  //! Fusion. It is an error to call this on a Fusion output.
   //!
   //! Returns true if the statement was previously live, and false otherwise.
   bool markDead(Statement* stmt);
 
   //! Register a Val for later removal.
-  inline void registerRemoval(Val* val) {
-    vals_to_remove_.push_back(val);
+  void registerRemoval(Val* val);
+
+  //! Register a Val for later replacement
+  inline void registerReplacement(Val* old_val, Val* new_val) {
+    vals_to_replace_.emplace_back(old_val, new_val);
   }
 
   //! Register an Expr for later removal.
@@ -499,9 +491,10 @@ class DeadCodeRemover : BackwardVisitor {
     exprs_to_remove_.push_back(expr);
   }
 
-  //! Actually remove Statements that were previously registered. For safety,
-  //! this should be run after traversing the graph.
-  void doRemoval() const;
+  //! All modifications to the Fusion are registered during traversal then
+  //! later they are committed by this method. For safety, this should only be
+  //! run after traversing the graph.
+  void modifyFusion() const;
 
  private:
   //! The Fusion associated with live_statements_
@@ -509,6 +502,9 @@ class DeadCodeRemover : BackwardVisitor {
 
   //! Statements are marked dead by removing them from this set
   std::unordered_set<Statement*> live_statements_;
+
+  //! Vals to be replaced in outputs and with replaceValInExpr in all uses.
+  std::vector<std::pair<Val*, Val*>> vals_to_replace_;
 
   //! Statements that will be removed. We remove Vals before Exprs, so we track
   //! them separately here.

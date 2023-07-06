@@ -76,37 +76,35 @@ class EmptyTensorRemover : public DeadCodeRemover {
   //! it with full(). For non-outputs that are not inputs, we simply check that
   //! the tensor is not provably empty.
   void handle(TensorView* tv) final {
-    if (tv->isFusionInput()) {
-      // Skip inputs since they do not have a definition to redefine
+    DeadCodeRemover::handle(tv);
+    if (isDead(tv)) {
+      // DeadCodeRemover::handle might have set this dead, in which case we
+      // don't need to process it any further
       return;
     }
 
-    if (tv->isFusionOutput()) {
-      const auto rfactor =
-          TensorDomain::noReductions(tv->getMaybeRFactorDomain());
-      const auto empty_axes = emptyAxes(rfactor);
-      if (!empty_axes.empty()) {
-        std::vector<Val*> shape(rfactor.size());
-        std::transform(
-            rfactor.begin(), rfactor.end(), shape.begin(), [](IterDomain* id) {
-              return id->extent();
-            });
-        for (auto ax : empty_axes) {
-          shape[ax] = fusion()->zeroVal();
-        }
-        auto dtype = tv->getDataType().value();
-        auto new_tv = full(shape, fusion()->zeroVal(dtype), dtype);
-        replaceVal(tv, new_tv);
+    if (isTVEmpty(tv)) {
+      if (tv->isFusionInput()) {
+        TORCH_INTERNAL_ASSERT(
+            allUsesDead(tv),
+            "Empty Fusion input ",
+            tv,
+            " should not have any live uses.");
+        // Empty inputs do not have a definition to redefine
+        return;
       }
-    } else if (allUsesDead(tv)) {
-      // TensorViews that are not Fusion inputs or outputs and which have no
-      // uses are dead, so remove them.
-      removeVal(tv);
-    } else {
+
+      // Any non-input that we traverse to should be the input to an expression,
+      // or a Fusion output. If it's the input to an expression, we should have
+      // replaced that expression by handling the appropriate Expr subclass.
       TORCH_INTERNAL_ASSERT(
-          !isTVEmpty(tv),
+          tv->isFusionOutput(),
           "Found unexpected empty intermediate TensorView ",
           tv->toString());
+      auto shape = noReductionShape(tv);
+      auto dtype = tv->getDataType().value();
+      auto new_tv = full(shape, fusion()->zeroVal(dtype), dtype);
+      replaceVal(tv, new_tv);
     }
   }
 
