@@ -7,7 +7,6 @@
 // clang-format on
 #include <ir/builder.h>
 #include <ir/cloner.h>
-#include <ir/printer.h>
 #include <ir/utils.h>
 #include <iter_visitor.h>
 #include <multidevice/pipeline.h>
@@ -69,7 +68,7 @@ class PipelineBuilder final {
   void validate() {
     std::unordered_set<TensorView*> tv_in_stages;
     // Check that each TensorView belongs to at most one stage
-    for (auto& stage_desc : pipeline_->descriptor().stageDescriptors) {
+    for (auto& stage_desc : pipeline_->descriptor().stage_descriptors) {
       for (auto val : stage_desc->vals()) {
         if (val->isA<TensorView>()) {
           TORCH_INTERNAL_ASSERT(
@@ -106,7 +105,7 @@ class PipelineBuilder final {
 
   // populates stage_input_desc_, stage_output_desc_, val_consumer_stage_desc_
   void fillInfo() {
-    for (auto& stage_desc : pipeline_->descriptor().stageDescriptors) {
+    for (auto& stage_desc : pipeline_->descriptor().stage_descriptors) {
       for (auto& val : stage_desc->vals()) {
         // Add global inputs of the original fusion
         if (isGlobalInput(val)) {
@@ -128,7 +127,7 @@ class PipelineBuilder final {
       }
     }
     // Add Vals which are consumed in-between stages
-    for (auto& stage_desc : pipeline_->descriptor().stageDescriptors) {
+    for (auto& stage_desc : pipeline_->descriptor().stage_descriptors) {
       for (auto& val : stage_desc->vals()) {
         if (!val_consumer_stage_desc_[val].empty()) {
           stage_output_desc_[stage_desc].pushBack(val);
@@ -142,7 +141,7 @@ class PipelineBuilder final {
      Fusion. If a Val is an I/O of the original Fusion,
      the correspondings PipelineVal are also I/O of the Pipeline */
   void buildPipelineVals() {
-    for (auto stage_desc : pipeline_->descriptor().stageDescriptors) {
+    for (auto stage_desc : pipeline_->descriptor().stage_descriptors) {
       // Create a PipelineVal for each stage's input
       for (auto val : stage_input_desc_[stage_desc].vector()) {
         auto p_val =
@@ -182,7 +181,7 @@ class PipelineBuilder final {
   // Build the PipelineStage IR of the Pipeline
   // An PipelineStage is created for each Stage of the Fusion
   void buildPipelineStages() {
-    for (auto& stage_desc : pipeline_->descriptor().stageDescriptors) {
+    for (auto& stage_desc : pipeline_->descriptor().stage_descriptors) {
       // containers for storing the I/O of the PipelineStage
       ValSet ins, outs;
       for (auto& val : stage_input_desc_[stage_desc]) {

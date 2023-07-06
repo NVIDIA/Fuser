@@ -7,9 +7,6 @@
 // clang-format on
 #include <ir/builder.h>
 #include <ir/cloner.h>
-#include <ir/printer.h>
-#include <ir/utils.h>
-#include <iter_visitor.h>
 #include <multidevice/pipeline.h>
 #include <multidevice/pipeline_ir.h>
 

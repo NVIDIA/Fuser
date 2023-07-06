@@ -14,6 +14,9 @@
 #ifdef USE_C10D_NCCL
 #include <torch/csrc/distributed/c10d/ProcessGroupNCCL.hpp>
 #endif
+#ifdef USE_C10D_UCC
+#include <torch/csrc/distributed/c10d/ProcessGroupUCC.hpp>
+#endif
 
 namespace nvfuser {
 

@@ -26,6 +26,7 @@
 #include <kernel_ir.h>
 #include <mma_type.h>
 #include <multidevice/pipeline.h>
+#include <multidevice/pipeline_ir.h>
 #include <multidevice/runtime.h>
 #include <mutator.h>
 #include <ops/all_ops.h>
@@ -193,7 +194,7 @@ TEST_F(NVFuserTest, FusionMultiGPU_CUDA) {
   stage3.addVal({tv6, tv7});
   stage4.addVal({tv8, tv9, tv10, tv11, tv12, tv13});
 
-  PipelineDescriptor descriptor{.stageDescriptors{
+  PipelineDescriptor descriptor{.stage_descriptors{
       &stage0_,
       &stage1_,
       &stage0,
@@ -238,11 +239,6 @@ TEST_F(NVFuserTest, FusionMultiGPU_CUDA) {
   // ===========================================================
   //        VALIDATION
   // ===========================================================
-
-  // Print the  the Pipeline:
-  if (!runtime.rank()) {
-    std::cout << pipeline.toString() << std::endl;
-  }
 
   testValidateMultidevice(std::move(fusion_ptr), runtime, inputs, outputs);
 }

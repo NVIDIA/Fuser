@@ -5,10 +5,9 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <device_lower/utils.h>
-#include <fusion_segmenter.h>
 #include <ir/utils.h>
 #include <multidevice/executor.h>
+#include <multidevice/pipeline.h>
 
 namespace nvfuser {
 
@@ -59,21 +58,21 @@ void PipelineExecutor::handle(PipelineCommunication* c) {
   std::vector<SendRecvDescriptor> communications;
   {
     std::vector<RankType> sender_ranks;
-    for (auto& dId : c->in()
+    for (auto& d_id : c->in()
                          ->as<PipelineVal>()
                          ->getStage()
                          ->descriptor()
                          ->mesh.deviceIndices()) {
-      sender_ranks.push_back(runtime_.deviceIdxToRank(dId));
+      sender_ranks.push_back(runtime_.deviceIdxToRank(d_id));
     }
 
     std::vector<RankType> receiver_ranks;
-    for (auto& dId : c->out()
+    for (auto& d_id : c->out()
                          ->as<PipelineVal>()
                          ->getStage()
                          ->descriptor()
                          ->mesh.deviceIndices()) {
-      receiver_ranks.push_back(runtime_.deviceIdxToRank(dId));
+      receiver_ranks.push_back(runtime_.deviceIdxToRank(d_id));
     }
 
     auto nbr_srcs = sender_ranks.size();

@@ -8,21 +8,11 @@
 #ifdef USE_DISTRIBUTED
 #pragma once
 
-#include <disjoint_set.h>
-#include <evaluator_common.h>
-#include <executor.h>
-#include <fusion.h>
-#include <fusion_segmenter.h>
-#include <multidevice/pipeline.h>
-#include <multidevice/pipeline_ir.h>
-#include <scheduler/all_schedulers.h>
-#include <scheduler/registry.h>
-
 #include <ATen/cuda/CUDAContext.h>
 #include <c10/core/DeviceType.h>
-#include <c10/cuda/CUDAFunctions.h>
 #include <multidevice/communicator.h>
-#include <torch/csrc/distributed/c10d/TCPStore.hpp>
+#include <multidevice/pipeline.h>
+#include <multidevice/pipeline_ir.h>
 
 #define COMM_BACKEND_DEFAULT CommunicatorBackend::nccl
 #define COMM_SERVER_RANK_DEFAULT 0
@@ -90,15 +80,15 @@ class TORCH_CUDA_CU_API MultiDeviceRuntime {
     return deviceIdxToDevice(rankToDeviceIdx(comm_.rank()));
   }
 
-  auto deviceIdxToRank(DeviceIdxType dId) const {
+  auto deviceIdxToRank(DeviceIdxType d_id) const {
     for (auto rank : comm_.ranks()) {
-      if (rankToDeviceIdx(rank) == dId) {
+      if (rankToDeviceIdx(rank) == d_id) {
         return rank;
       }
     }
     TORCH_INTERNAL_ASSERT(
         false,
-        "No rank is associated with device index " + std::to_string(dId));
+        "No rank is associated with device index " + std::to_string(d_id));
   }
 
  private:

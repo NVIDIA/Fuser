@@ -91,7 +91,7 @@ class TORCH_CUDA_CU_API PipelineStageDescriptor final {
 
 // Interface to describe the composition of a Pipeline
 struct PipelineDescriptor {
-  std::vector<PipelineStageDescriptor*> stageDescriptors;
+  std::vector<PipelineStageDescriptor*> stage_descriptors;
 };
 
 /*

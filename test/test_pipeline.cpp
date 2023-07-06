@@ -69,7 +69,7 @@ TEST_F(NVFuserTest, Pipeline_CUDA) {
   stage5.addVal({tv12, tv13});
   stage6.addVal({tv14, tv15, tv16, tv17, tv18, tv19});
 
-  PipelineDescriptor descriptor{.stageDescriptors{
+  PipelineDescriptor descriptor{.stage_descriptors{
       &stage0,
       &stage1,
       &stage2,

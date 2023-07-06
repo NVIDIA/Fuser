@@ -23,9 +23,9 @@ std::vector<at::Tensor> MultiDeviceRuntime::runWithInput(
 void MultiDeviceRuntime::validate() const {
   // stores all the device indices present in the pipeline accross all stages
   std::unordered_set<DeviceIdxType> device_indices;
-  for (auto& stage_desc : pipeline_->descriptor().stageDescriptors) {
-    for (auto dId : stage_desc->mesh.deviceIndices()) {
-      device_indices.insert(dId);
+  for (auto& stage_desc : pipeline_->descriptor().stage_descriptors) {
+    for (auto d_id : stage_desc->mesh.deviceIndices()) {
+      device_indices.insert(d_id);
     }
   }
 
@@ -37,20 +37,20 @@ void MultiDeviceRuntime::validate() const {
 
   // Checks if all the devices indices involved in the pipeline are
   // associated with a rank in the communicator
-  for (auto dId : device_indices) {
+  for (auto d_id : device_indices) {
     TORCH_INTERNAL_ASSERT(
-        device_indices_in_communicator.count(dId),
-        "device index " + std::to_string(dId) +
+        device_indices_in_communicator.count(d_id),
+        "device index " + std::to_string(d_id) +
             " is present in the pipeline but no process in the communicator runs it");
   }
 
   // Checks that the device index of the current process corresponds to a valid
   // concrete device (if invovled in the pipeline)
-  auto currentDeviceIdx = rankToDeviceIdx(comm_.rank());
-  if (device_indices.count(currentDeviceIdx)) {
+  auto current_device_idx = rankToDeviceIdx(comm_.rank());
+  if (device_indices.count(current_device_idx)) {
     TORCH_INTERNAL_ASSERT(
         true, // TODO
-        "device index " + deviceIdxToDevice(currentDeviceIdx).str() +
+        "device index " + deviceIdxToDevice(current_device_idx).str() +
             " is present in the pipeline but does not correspond to a valid cuda device");
   }
 }
