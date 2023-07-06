@@ -101,6 +101,8 @@ enum class DisableOption {
   MagicZero, //! Disable nvfuser_zero
   Nvtx, //! Disable NVTX instrumentation
   PredicateElimination, //! Disable predicate elimination
+  KernelReuse, //! Disable re-using cached FusionKernelRuntimes with different
+               //! input shapes
   VarNameRemapping, //! Disable variable name remapping
   WelfordVectorization, //! Disable vectorizaton of Welford ops
   EndOfOption //! Placeholder for counting the number of elements

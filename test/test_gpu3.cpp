@@ -9223,6 +9223,53 @@ TEST_F(NVFuserTest, FusionDebugStreamGuard_CUDA) {
   ASSERT_EQ(ss.str(), text);
 }
 
+// Test that disabling kernel re-use leads to resegmented Fusion
+TEST_F(NVFuserTest, FusionDisableKernelReuse_CUDA) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  auto tv0 = makeSymbolicTensor(1);
+  fusion->addInput(tv0);
+
+  auto tv1 = add(tv0, tv0);
+  fusion->addOutput(tv1);
+
+  FusionExecutorCache fec(std::move(fusion_ptr));
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto a5 = at::zeros({5}, options);
+  auto a6 = at::zeros({6}, options);
+  auto a7 = at::zeros({7}, options);
+
+  fec.runFusionWithInputs({a5});
+
+  {
+    DisableOptionsGuard og;
+    // Ensure kernel reuse is enabled
+    DisableOptionsGuard::getCurOptions().unset(DisableOption::KernelReuse);
+
+    fec.runFusionWithInputs({a6});
+    // Since kernel reuse is enabled, we should not generate a new kernel
+    // runtime
+
+    num_runtimes = fec.getKernelRuntimes().begin()->second.size();
+    EXPECT_EQ(num_runtimes, 1);
+  }
+
+  {
+    DisableOptionsGuard og;
+    // Ensure kernel reuse is disabled
+    DisableOptionsGuard::getCurOptions().set(DisableOption::KernelReuse);
+
+    fec.runFusionWithInputs({a7});
+    // Disabling reuse means we should get a new runtime
+
+    auto num_runtimes = fec.getKernelRuntimes().begin()->second.size();
+    EXPECT_EQ(num_runtimes, 2);
+  }
+}
+
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser
