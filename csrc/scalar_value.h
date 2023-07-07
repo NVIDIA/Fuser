@@ -53,7 +53,7 @@ struct DataType;
 // exponential compilation time for all pointer types in ScalarValue.
 class Pointer {
   std::byte* ptr_;
-  size_t size_;
+  int64_t size_;
 
  public:
   template <typename T>

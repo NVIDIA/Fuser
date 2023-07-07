@@ -811,10 +811,10 @@ constexpr inline size_t primDataTypeSize(PrimDataType type) {
   }
 }
 
-TORCH_CUDA_CU_API size_t dataTypeSize(DataType type);
+TORCH_CUDA_CU_API int64_t dataTypeSize(DataType type);
 
 // If the index type is known it will be automatically used here
-TORCH_CUDA_CU_API size_t dataTypeSize(DataType type, DataType index_type);
+TORCH_CUDA_CU_API int64_t dataTypeSize(DataType type, DataType index_type);
 
 enum class LaunchConfigType {
   Compatible,

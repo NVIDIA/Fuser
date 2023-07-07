@@ -1569,7 +1569,7 @@ TEST_F(NVFuserTest, FusionResizePadWithValue_CUDA) {
   auto tv1 =
       pad(tv0,
           {IrBuilder::create<Scalar>(1), IrBuilder::create<Scalar>(1)},
-          IrBuilder::create<Scalar>(2));
+          IrBuilder::create<Scalar>(2.0));
   fusion.addOutput(tv1);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
