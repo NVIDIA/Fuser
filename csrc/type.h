@@ -12,7 +12,7 @@
 
 #include <c10/macros/Export.h>
 
-#include <evaluator_value.h>
+#include <scalar_value.h>
 
 #include <array>
 #include <complex>

@@ -13,6 +13,7 @@
 #include <complex>
 #include <cstddef>
 #include <unordered_map>
+#include <numeric>
 
 #include <type.h>
 
