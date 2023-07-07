@@ -1439,19 +1439,24 @@ RolesMapOpt getTensorsRoles(Fusion* fusion) {
           : false;
 
       if (has_m && has_k && !has_n && !processing_output) {
-        roles_map[MatmulRole::MMA_INPUT_A] = entry.first;
+        roles_map[MatmulRole::INPUT_A].push_back(entry.first);
         continue;
       }
       if (has_n && has_k && !has_m && !processing_output) {
-        roles_map[MatmulRole::MMA_INPUT_B] = entry.first;
+        roles_map[MatmulRole::INPUT_B].push_back(entry.first);
         continue;
       }
+      if (!processing_output && has_m && has_n && !has_k) {
+        roles_map[MatmulRole::INPUT_C].push_back(entry.first);
+        continue;
+      }
+
       // NOTE: depending on fusion definition k domain may appear in the output:
       //  - for mma_output == fusion output k domain is present
       //  - for mma_output != fusion output (fusion with epilogue) k domain
       //    is not present
-      if (has_m && has_n && processing_output) {
-        roles_map[MatmulRole::MMA_OUTPUT] = entry.first;
+      if (processing_output && has_m && has_n) {
+        roles_map[MatmulRole::OUTPUT_D].push_back(entry.first);
         continue;
       }
     }
