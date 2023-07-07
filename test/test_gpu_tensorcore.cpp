@@ -4325,6 +4325,7 @@ TEST_F(NVFuserTest, FusionAmpereMMATNAlpha_CUDA) {
 }
 
 TEST_F(NVFuserTest, FusionAmpereMatmulEpilogue_CUDA) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 9, 0);
   // Keep multiples of 8 to keep vectorizable.
   int M = 4096, N = 4096, K = 4096;
   // params.has_smem_epilogue = false; --> 0.574 ms to 0.578 ms
@@ -4398,6 +4399,8 @@ TEST_F(NVFuserTest, FusionAmpereMatmulEpilogue_CUDA) {
         "Result validation failed. Max diff: ",
         (cg_outputs[0] - tref).abs().max());
   }
+}
+
 // MMA and alpha + beta unit test, for Ampere TN
 TEST_F(NVFuserTest, FusionAmpereMMATNAlphaBeta_CUDA) {
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 9, 0);

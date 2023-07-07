@@ -902,7 +902,9 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   //  core roles: essential for matmul, for example mma inputs' producers
   if (has_non_mma_input_tvs) {
     scheduler_utils::BoundedDirectionalTransformPropagator::backward(
-        c, -1, roles_map.at(MatmulRole::INPUT_C));
+        params.has_smem_epilogue ? mma_result : c,
+        -1,
+        roles_map.at(MatmulRole::INPUT_C));
   }
 
   // auto inline for all tensors except register tensors and output tensor

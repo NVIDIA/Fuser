@@ -401,12 +401,14 @@ std::shared_ptr<MatmulParams> getMatmulHeuristics(
   // Disable shared memory epilogue before shared memory reuse is implemented.
   //  Otherwise, there will be performance regression due to reduced occupancy
   //  caused by extra shared memory usage.
-  constexpr bool disable_smem_epilogue = false;
-  if (!disable_smem_epilogue) {
+  constexpr bool allow_smem_epilogue = true;
+  if (allow_smem_epilogue) {
     // Check if we have enough shared memory for epilogue
     params->has_smem_epilogue = mma_utils::hasEnoughSharedMemoryForEpilogue(
         params->tile_sizes,
-        params->double_buffer_options.smem_double_buffer_stage);
+        params->double_buffer_options.smem_double_buffer_stage);    
+  }else{
+    params->has_smem_epilogue = false;
   }
 
   if (isDebugDumpEnabled(DebugDumpOption::MatmulChecks)) {
