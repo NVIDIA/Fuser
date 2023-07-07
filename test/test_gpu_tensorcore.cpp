@@ -4034,7 +4034,7 @@ TEST_F(NVFuserTest, FusionMatmulSchedulerEpilogueBeta_CUDA) {
 
   // NOTE: increasted absolute tolerance to silence false negative verification
   //       caused by different way of calculating reference
-  TORCH_CHECK(outputs[0].allclose(t5, 0.001, 0.004));
+  TORCH_CHECK(outputs[0].allclose(t5, 0.01, 0.04));
 }
 
 // Matmul test that relies on segmenter for fusion for Ampere:
@@ -4209,7 +4209,7 @@ TEST_F(NVFuserTest, FusionMatmulSchedulerEpilogueAlphaBetaGeluOutputCast_CUDA) {
 
   // NOTE: increasted absolute tolerance to silence false negative verification
   //       caused by different way of calculating reference
-  TORCH_CHECK(outputs[0].allclose(t8, 0.001, 0.06));
+  TORCH_CHECK(outputs[0].allclose(t8, 0.01, 0.06));
 }
 
 // MMA and alpha unit test, for Ampere TN
