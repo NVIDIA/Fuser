@@ -673,6 +673,12 @@ FusionKernelRuntime::FusionKernelRuntime(
   optimization::OptimizationPass<optimization::PreSegmenter>::runPass(
       fusion.get());
 
+  if (isDebugDumpEnabled(DebugDumpOption::FusionIrPreseg)) {
+    std::cout << "Fusion IR after pre-segmenter optimization passes:"
+              << std::endl;
+    fusion->printMath();
+  }
+
   all_tvs_ = ir_utils::allTvs(fusion.get());
 
   // Run segmentation on the copied fusion
@@ -852,13 +858,20 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
       group_runtime_inputs.push(args_manager.checkTensorMap(input));
     }
 
-    // launch compileKernel thread here
-    getThreadPool()->run([=]() {
+    if (num_groups == 1 || isOptionDisabled(DisableOption::ParallelCompile)) {
       FUSER_PERF_SCOPE("FusionKernelRuntime::compileFusionParallel");
       c10::cuda::CUDAGuard dg(args.getDeviceIndex());
       c10::Device device(c10::DeviceType::CUDA, args.getDeviceIndex());
       compileKernel(group_runtime_inputs, group_to_run);
-    });
+    } else {
+      // launch compileKernel thread here
+      getThreadPool()->run([=]() {
+        FUSER_PERF_SCOPE("FusionKernelRuntime::compileFusionParallel");
+        c10::cuda::CUDAGuard dg(args.getDeviceIndex());
+        c10::Device device(c10::DeviceType::CUDA, args.getDeviceIndex());
+        compileKernel(group_runtime_inputs, group_to_run);
+      });
+    }
 
     auto fusion_to_run = segmented_fusion_->makeFusion(group_to_run);
     auto group_runtime_outputs =
@@ -871,8 +884,10 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
     num_live_args_after_segment_runs_.push_back((int64_t)args.size());
   }
 
-  // wait until all segments finish compiling
-  getThreadPool()->waitWorkComplete();
+  if (num_groups != 1 && !isOptionDisabled(DisableOption::ParallelCompile)) {
+    // wait until all segments finish compiling
+    getThreadPool()->waitWorkComplete();
+  }
 }
 
 void FusionKernelRuntime::compileKernel(

@@ -117,6 +117,7 @@ std::unordered_map<DebugDumpOption, std::vector<std::string>> Options<
       {"fusion_args", DebugDumpOption::FusionArgs},
       {"fusion_ir", DebugDumpOption::FusionIr},
       {"fusion_ir_concretized", DebugDumpOption::FusionIrConcretized},
+      {"fusion_ir_preseg", DebugDumpOption::FusionIrPreseg},
       {"fusion_ir_math", DebugDumpOption::FusionIrMath},
       {"fusion_ir_presched", DebugDumpOption::FusionIrPresched},
       {"halo", DebugDumpOption::Halo},
@@ -173,6 +174,7 @@ std::unordered_map<DisableOption, std::vector<std::string>> Options<
       {"index_hoist", DisableOption::IndexHoist},
       {"magic_zero", DisableOption::MagicZero},
       {"nvtx", DisableOption::Nvtx},
+      {"parallel_compile", DisableOption::ParallelCompile},
       {"predicate_elimination", DisableOption::PredicateElimination},
       {"var_name_remapping", DisableOption::VarNameRemapping},
       {"welford_vectorization", DisableOption::WelfordVectorization}};
