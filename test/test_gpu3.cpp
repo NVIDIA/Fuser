@@ -9244,29 +9244,32 @@ TEST_F(NVFuserTest, FusionDisableKernelReuse_CUDA) {
 
   fec.runFusionWithInputs({a5});
 
+  auto numRuntimes = [&fec]() -> size_t {
+    // this is map<pair<device, conc_info>, vector<FusionKernelRuntime>>
+    const auto& runtime_map = fec.getKernelRuntimes();
+    return runtime_map
+        .begin() // There should be only one device/concretization pair
+        ->second.size();
+  };
+
   {
     DisableOptionsGuard og;
-    // Ensure kernel reuse is enabled
     DisableOptionsGuard::getCurOptions().unset(DisableOption::KernelReuse);
 
     fec.runFusionWithInputs({a6});
-    // Since kernel reuse is enabled, we should not generate a new kernel
-    // runtime
 
-    num_runtimes = fec.getKernelRuntimes().begin()->second.size();
-    EXPECT_EQ(num_runtimes, 1);
+    // Since kernel reuse is enabled, we should not generate a new runtime
+    EXPECT_EQ(numRuntimes(), 1);
   }
 
   {
     DisableOptionsGuard og;
-    // Ensure kernel reuse is disabled
     DisableOptionsGuard::getCurOptions().set(DisableOption::KernelReuse);
 
     fec.runFusionWithInputs({a7});
-    // Disabling reuse means we should get a new runtime
 
-    auto num_runtimes = fec.getKernelRuntimes().begin()->second.size();
-    EXPECT_EQ(num_runtimes, 2);
+    // Disabling reuse means we should get a new runtime
+    EXPECT_EQ(numRuntimes(), 2);
   }
 }
 
