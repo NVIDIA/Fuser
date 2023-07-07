@@ -12,7 +12,7 @@
 #include <test/utils.h>
 #include <type_traits.h>
 
-#include <dynamic_type.h>
+#include <scalar_value.h>
 
 #include <iostream>
 #include <list>
@@ -863,7 +863,7 @@ namespace container_test {
 
 // TODO: unordered set is a better fit for this case, but it does not work with
 // some old compilers (for example the old gcc on our CI). This is a workaround
-#if !defined(__GNUC__) || __GNUC__ >= 12
+#if defined(__clang__) || __GNUC__ >= 12
 
 struct StupidHash {
   template <typename T>
@@ -958,8 +958,11 @@ TEST_F(DynamicTypeTest, SetTheoreticNaturalNumbers) {
           zero, one, two, three, four, five, six, seven, eight, nine}));
 }
 
+#undef insert
+
 TEST_F(DynamicTypeTest, FromContainerToContainer) {
   using IntOrVec = DynamicType<Containers<std::vector>, int>;
+  using Vec = DynamicType<Containers<std::vector>>;
 
   static_assert(std::is_constructible_v<IntOrVec, std::vector<int>>);
   static_assert(
@@ -979,6 +982,19 @@ TEST_F(DynamicTypeTest, FromContainerToContainer) {
   static_assert(opcheck<IntOrVec>.canCastTo(
       opcheck<std::vector<std::vector<std::vector<std::vector<double>>>>>));
 
+  static_assert(opcheck<IntOrVec>[opcheck<IntOrVec>]);
+  static_assert(!opcheck<Vec>[opcheck<Vec>]);
+  static_assert(opcheck<const IntOrVec>[opcheck<IntOrVec>]);
+  static_assert(!opcheck<const Vec>[opcheck<Vec>]);
+  static_assert(opcheck<IntOrVec>[opcheck<const IntOrVec>]);
+  static_assert(!opcheck<Vec>[opcheck<const Vec>]);
+  static_assert(opcheck<const IntOrVec>[opcheck<const IntOrVec>]);
+  static_assert(!opcheck<const Vec>[opcheck<const Vec>]);
+
+  IntOrVec zero = 0;
+  IntOrVec one = 1;
+  IntOrVec two = 2;
+
   std::vector<std::vector<int>> vvi{{1, 2, 3}, {4, 5, 6}};
   IntOrVec x = vvi;
   EXPECT_EQ(x[0], IntOrVec(std::vector<int>{1, 2, 3}));
@@ -990,13 +1006,39 @@ TEST_F(DynamicTypeTest, FromContainerToContainer) {
   EXPECT_EQ(x[1][1], 5);
   EXPECT_EQ(x[1][2], 6);
 
+  EXPECT_EQ(x[zero], IntOrVec(std::vector<int>{1, 2, 3}));
+  EXPECT_EQ(x[zero][zero], 1);
+  EXPECT_EQ(x[zero][one], 2);
+  EXPECT_EQ(x[zero][two], 3);
+  EXPECT_EQ(x[one], IntOrVec(std::vector<int>{4, 5, 6}));
+  EXPECT_EQ(x[one][zero], 4);
+  EXPECT_EQ(x[one][one], 5);
+  EXPECT_EQ(x[one][two], 6);
+
+  const IntOrVec xx = vvi;
+  EXPECT_EQ(xx[0], IntOrVec(std::vector<int>{1, 2, 3}));
+  EXPECT_EQ(xx[0][0], 1);
+  EXPECT_EQ(xx[0][1], 2);
+  EXPECT_EQ(xx[0][2], 3);
+  EXPECT_EQ(xx[1], IntOrVec(std::vector<int>{4, 5, 6}));
+  EXPECT_EQ(xx[1][0], 4);
+  EXPECT_EQ(xx[1][1], 5);
+  EXPECT_EQ(xx[1][2], 6);
+
+  EXPECT_EQ(xx[zero], IntOrVec(std::vector<int>{1, 2, 3}));
+  EXPECT_EQ(xx[zero][zero], 1);
+  EXPECT_EQ(xx[zero][one], 2);
+  EXPECT_EQ(xx[zero][two], 3);
+  EXPECT_EQ(xx[one], IntOrVec(std::vector<int>{4, 5, 6}));
+  EXPECT_EQ(xx[one][zero], 4);
+  EXPECT_EQ(xx[one][one], 5);
+  EXPECT_EQ(xx[one][two], 6);
+
   std::vector<std::vector<double>> vvd{{1, 2, 3}, {4, 5, 6}};
   EXPECT_EQ((std::vector<std::vector<double>>)x, vvd);
   EXPECT_EQ((std::vector<double>)x[0], vvd[0]);
   EXPECT_EQ((std::vector<double>)x[1], vvd[1]);
 }
-
-#undef insert
 
 } // namespace container_test
 
