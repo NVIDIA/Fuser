@@ -20,6 +20,7 @@ namespace nvfuser {
 
 namespace {
 
+// TODO: remove this after we make Scalar a non-template class
 bool equals(const Val* value, const ScalarValue& concrete_value) {
   switch (std::get<PrimDataType>(value->getDataType()->type)) {
     case DataType::Int: {
@@ -44,7 +45,7 @@ bool equals(const Val* value, const ScalarValue& concrete_value) {
       return val.has_value() && val.value() == concrete_value.as<bool>();
     }
     default:
-      TORCH_INTERNAL_ASSERT(false);
+      return false;
   }
 }
 
@@ -64,10 +65,6 @@ void ExpressionEvaluator::bind_(
   if (equals(value, concrete_value)) {
     return;
   }
-  TORCH_CHECK(value->isScalar());
-  TORCH_CHECK(
-      value->dtype() == DataType::Int || value->dtype() == DataType::Double ||
-      value->dtype() == DataType::Bool);
   TORCH_CHECK(!value->isConstScalar(), "Tried to bind to a constant value");
   TORCH_CHECK(
       value->definition() == nullptr,
@@ -143,12 +140,6 @@ ScalarValue ExpressionEvaluator::evaluate(ParallelType pt) {
 }
 
 ScalarValue ExpressionEvaluator::getValue(const Val* value) {
-  TORCH_INTERNAL_ASSERT(
-      value->isIntegralScalar() || value->isFloatingPointScalar() ||
-          value->isABool(),
-      value->toInlineString(),
-      " is not a supported type in expression evaluation.");
-
   if (value->isScalar() && value->isConst()) {
     if (value->isFloatingPointScalar()) {
       return toOptionalScalarValue(value->as<Double>()->value());
