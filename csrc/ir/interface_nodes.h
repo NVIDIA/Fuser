@@ -58,6 +58,9 @@ class TORCH_CUDA_CU_API Scalar : public Val {
   explicit Scalar(IrBuilderPasskey passkey, ScalarValue value, DataType dtype)
       : Val(passkey, ValType::Scalar, std::move(dtype)),
         value_([](ScalarValue value, DataType dtype) {
+          if (!value.hasValue()) {
+            return value;
+          }
           // Cast the given value to the given data type. This enables interface
           // like: IrBuilder::create<Scalar>(0, DataType::Double) where value is
           // an integer but the desired data type is double.
