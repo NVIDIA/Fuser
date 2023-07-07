@@ -23,6 +23,9 @@
 #include <optional>
 #include <tuple>
 
+#include <pybind11/stl.h>
+#include <pybind11/complex.h>
+
 namespace nvfuser::python_frontend {
 
 // Set of local functions that are used to compose python FusionDefinition
@@ -524,7 +527,7 @@ void initNvFuserPythonBindings(PyObject* module) {
   fusion_def.def(
       "define_scalar",
       [](FusionDefinition& self,
-         ScalarValue value,
+         ScalarValue::VariantType value,
          std::optional<PrimDataType> dtype) -> Scalar {
         FUSER_PERF_SCOPE("FusionDefinition.define_scalar");
         Scalar out = self.defineScalar();
@@ -541,7 +544,7 @@ void initNvFuserPythonBindings(PyObject* module) {
   fusion_def.def(
       "define_constant",
       [](FusionDefinition& self,
-         ScalarValue value,
+         ScalarValue::VariantType value,
          std::optional<PrimDataType> dtype) -> Scalar {
         FUSER_PERF_SCOPE("FusionDefinition.define_contant");
         TORCH_WARN_ONCE(
