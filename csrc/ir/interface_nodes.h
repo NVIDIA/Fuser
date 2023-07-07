@@ -49,21 +49,36 @@ TORCH_CUDA_CU_API std::string varName(const Val* val);
 class TORCH_CUDA_CU_API Scalar : public Val {
  public:
   explicit Scalar(IrBuilderPasskey passkey, DataType dtype)
-      : Val(passkey, ValType::Scalar, dtype) {}
+      : Val(passkey, ValType::Scalar, std::move(dtype)) {}
   explicit Scalar(IrBuilderPasskey passkey, PrimDataType dtype)
       : Val(passkey, ValType::Scalar, DataType(dtype)) {}
   explicit Scalar(IrBuilderPasskey passkey, ScalarValue value)
-      : Val(passkey, ValType::Scalar, nvfuser::getDataType(value)), value_{value} {}
-  explicit Scalar(
-      IrBuilderPasskey passkey,
-      ScalarValue value,
-      DataType dtype)
-      : Val(passkey, ValType::Scalar, dtype), value_{value} {
-    // TODO: cast
-    TORCH_CHECK(
-        isCompatibleDataType(nvfuser::getDataType(value), dtype),
-        "Scalar value is not compatible with the given data type.");
-  }
+      : Val(passkey, ValType::Scalar, nvfuser::getDataType(value)),
+        value_(std::move(value)) {}
+  explicit Scalar(IrBuilderPasskey passkey, ScalarValue value, DataType dtype)
+      : Val(passkey, ValType::Scalar, std::move(dtype)),
+        value_([](ScalarValue value, DataType dtype) {
+          // Cast the given value to the given data type. This enables interface
+          // like: IrBuilder::create<Scalar>(0, DataType::Double) where value is
+          // an integer but the desired data type is double.
+          auto value_dtype = nvfuser::getDataType(value);
+          if (!isCompatibleDataType(value_dtype, dtype)) {
+            ScalarValue::for_all_types([&](auto _) {
+              using T = typename decltype(_)::type;
+              if constexpr (IsPrimitiveNativeType<T>::value) {
+                if (isCompatibleDataType(
+                        NativeTypeToDataType<T>::type, dtype)) {
+                  value = ScalarValue(static_cast<T>(value));
+                }
+              }
+              // TODO: support arrays and pointers
+            });
+          }
+          TORCH_CHECK(
+              isCompatibleDataType(nvfuser::getDataType(value), dtype),
+              "Scalar value is not compatible with the given data type.");
+          return value;
+        }(std::move(value), dtype)) {}
 
   Scalar(const Scalar* src, IrCloner* ir_cloner)
       : Val(src, ir_cloner), value_(src->value_) {}

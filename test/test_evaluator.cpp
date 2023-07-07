@@ -24,7 +24,7 @@ namespace {
 inline void checkIntValue(
     ExpressionEvaluator& evaluator,
     Val* val,
-    Int::ScalarType expected_value) {
+    int64_t expected_value) {
   EXPECT_TRUE(val->isIntegralScalar());
   const auto actual_value = evaluator.evaluate(val);
   EXPECT_TRUE(actual_value.hasValue());
