@@ -55,7 +55,14 @@ std::pair<double, double> getTolerance(
     DataType dtype,
     int64_t reduction_size,
     const ValidationConstants& tolerances) {
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
+#endif
   switch (std::get<PrimDataType>(dtype.type)) {
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
     case DataType::ComplexFloat:
     case DataType::ComplexDouble:
     case DataType::Float:

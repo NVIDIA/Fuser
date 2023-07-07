@@ -334,7 +334,7 @@ std::pair<TensorDomain*, size_t> TransformReplay::replayPasC(
       consumer,
       (int)consumer_pos,
       root_map,
-      false,
+      opt.skip_target_swizzle,
       !opt.replay_swizzle,
       !opt.replay_resize);
 
@@ -610,7 +610,7 @@ std::pair<TensorDomain*, size_t> TransformReplay::replayCasP(
       producer,
       (int)producer_pos,
       root_map,
-      false,
+      opt.skip_target_swizzle,
       !opt.replay_swizzle,
       !opt.replay_resize);
 
@@ -1086,7 +1086,8 @@ void TransformPropagator::propagateC2P(TensorView* from, TensorView* to) {
     debug() << "  to: " << to << std::endl;
   }
   if (new_pos < 0) {
-    auto replay = TransformReplay::replayPasC(to, from, pos);
+    auto replay = TransformReplay::replayPasC(
+        to, from, pos, TransformReplayOptions().skipTargetSwizzle());
     TORCH_INTERNAL_ASSERT(
         validateDomain(to, replay.first),
         "Tried to set the domain of ",
@@ -1117,7 +1118,8 @@ void TransformPropagator::propagateP2C(TensorView* from, TensorView* to) {
     debug() << "  to: " << to << std::endl;
   }
   if (new_pos < 0) {
-    auto replay = TransformReplay::replayCasP(to, from, pos);
+    auto replay = TransformReplay::replayCasP(
+        to, from, pos, TransformReplayOptions().skipTargetSwizzle());
     TORCH_INTERNAL_ASSERT(
         validateDomain(to, replay.first),
         "Tried to set the domain of ",
@@ -1188,7 +1190,8 @@ void MostInlinedTransformPropagator::propagateC2P(
     debug() << "  to: " << to << std::endl;
   }
   if (new_pos < 0) {
-    auto replay = TransformReplay::replayPasC(to, from, pos);
+    auto replay = TransformReplay::replayPasC(
+        to, from, pos, TransformReplayOptions().skipTargetSwizzle());
     TORCH_INTERNAL_ASSERT(
         validateDomain(to, replay.first),
         "Tried to set the domain of ",
@@ -1219,7 +1222,8 @@ void MostInlinedTransformPropagator::propagateP2C(
     debug() << "  to: " << to << std::endl;
   }
   if (new_pos < 0) {
-    auto replay = TransformReplay::replayCasP(to, from, pos);
+    auto replay = TransformReplay::replayCasP(
+        to, from, pos, TransformReplayOptions().skipTargetSwizzle());
     TORCH_INTERNAL_ASSERT(
         validateDomain(to, replay.first),
         "Tried to set the domain of ",

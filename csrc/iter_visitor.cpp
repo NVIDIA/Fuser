@@ -933,4 +933,163 @@ std::vector<Val*> InputsOf::outputs(
   return io.ordered_inputs;
 }
 
+/* DEAD CODE REMOVER */
+bool DeadCodeRemover::run() {
+  // First we build a set of all live Statements so that we can detect dead
+  // branches.
+  for (auto stmt : StmtSort::getStmts(fusion_, fusion_->outputs())) {
+    markLive(stmt);
+  }
+
+  // Note that StmtSort::getStmts() is also run in traverseTo. In the future,
+  // we could potentially refactor this so that derived classes from
+  // BackwardVisitor can make use of that traversal instead of repeating it.
+  traverseTo(fusion_, fusion_->outputs(), false);
+
+  // We do not remove Statements from the Fusion while traversing, to avoid
+  // dereferencing invalid pointers. Instead, we wait until this point to do the
+  // removal.
+  return modifyFusion();
+}
+
+void DeadCodeRemover::handle(Statement* stmt) {
+  if (isDead(stmt)) {
+    // We check whether stmt is dead before we dereference it, since it may
+    // have been removed from the Fusion.
+    return;
+  }
+  BackwardVisitor::handle(stmt);
+}
+
+void DeadCodeRemover::handle(Expr* expr) {
+  if (maybeRemoveExpr(expr)) {
+    // maybeRemoveExp will remove expr from the Fusion if all its uses are
+    // marked dead. In that case, we should not continue handling it since the
+    // expr pointer is invalid.
+    return;
+  }
+  BackwardVisitor::handle(expr);
+}
+
+void DeadCodeRemover::handle(TensorView* tv) {
+  if (!tv->isFusionOutput() && !tv->isFusionInput() && allUsesDead(tv)) {
+    if (!markDead(tv)) {
+      return;
+    }
+
+    if (tv->definition()) {
+      // If tv has a definition, it can only be removed by removing its
+      // definition
+      maybeRemoveExpr(tv->definition());
+    } else {
+      registerRemoval(tv);
+    }
+    return;
+  }
+  BackwardVisitor::handle(tv);
+}
+
+bool DeadCodeRemover::registerReplacement(Val* old_val, Val* new_val) {
+  vals_to_replace_.emplace_back(old_val, new_val);
+
+  if (old_val->isFusionInput()) {
+    // Skip removing Fusion inputs
+    return false;
+  }
+  TORCH_CHECK(
+      old_val->definition(),
+      "Found non-input ",
+      old_val->toString(),
+      " with no definition.");
+
+  // Mark old_val dead even if we can't yet remove it due to its definition
+  // having some live outputs
+  TORCH_CHECK(
+      markDead(old_val),
+      "Attempted to replace ",
+      old_val->toString(),
+      " which was previously marked dead.");
+
+  // If old_val has a definition, it can only be removed by removing its
+  // definition
+  return maybeRemoveExpr(old_val->definition());
+}
+
+bool DeadCodeRemover::maybeRemoveExpr(Expr* expr) {
+  if (allOutputsDead(expr)) {
+    if (!markDead(expr)) {
+      // Expr was already marked dead, so don't try to remove it again
+      return false;
+    }
+
+    const auto outputs = expr->outputs();
+    for (auto outp : outputs) {
+      registerRemoval(outp);
+    }
+    registerRemoval(expr);
+    return true;
+  } else {
+    return false;
+  }
+}
+
+void DeadCodeRemover::registerRemoval(Val* val) {
+  TORCH_INTERNAL_ASSERT(
+      !val->isFusionInput(),
+      "Call to registerRemoval on Fusion input is illegal: ",
+      val->toString());
+  vals_to_remove_.push_back(val);
+}
+
+void DeadCodeRemover::markLiveRecursive(Statement* stmt) {
+  if (isLive(stmt)) {
+    return;
+  }
+  markLive(stmt);
+  if (stmt->isVal() && stmt->asVal()->definition()) {
+    markLiveRecursive(stmt);
+  } else {
+    auto expr = stmt->asExpr();
+    for (const auto inp : expr->outputs()) {
+      markLive(inp);
+    }
+    for (const auto inp : expr->inputs()) {
+      markLiveRecursive(inp);
+    }
+  }
+}
+
+bool DeadCodeRemover::markDead(Statement* stmt) {
+  return (bool)live_statements_.erase(stmt);
+}
+
+bool DeadCodeRemover::modifyFusion() const {
+  bool modified_fusion = false;
+  for (auto [old_val, new_val] : vals_to_replace_) {
+    if (old_val->isFusionOutput()) {
+      fusion_->replaceOutput(old_val, new_val);
+    }
+    for (auto use : old_val->uses()) {
+      ir_utils::replaceValInExpr(use, old_val, new_val);
+    }
+    modified_fusion = true;
+  }
+  for (auto val : vals_to_remove_) {
+    fusion_->removeVal(val);
+    modified_fusion = true;
+  }
+  for (auto expr : exprs_to_remove_) {
+    // Fusion::removeVal(val) actually removes val->definition() from the
+    // Fusion, and sets all its outputs' definitions to nullptr. So we should
+    // not need to manually remove Exprs here. Instead, we just assert that
+    // they have already been removed if they were registered for removal.
+    TORCH_INTERNAL_ASSERT(
+        !fusion_->inContainer(expr),
+        "Expression ",
+        expr->toString(),
+        " was marked for removal but has not yet been removed.");
+  }
+  return modified_fusion;
+}
+
 } // namespace nvfuser

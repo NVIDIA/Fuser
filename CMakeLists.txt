@@ -185,6 +185,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/optimization/add_axioms.cpp
   ${NVFUSER_SRCS_DIR}/optimization/consecutive_cast.cpp
   ${NVFUSER_SRCS_DIR}/optimization/pre_segmenter.cpp
+  ${NVFUSER_SRCS_DIR}/optimization/remove_empty.cpp
 )
 
 if(BUILD_PYTHON)
@@ -369,6 +370,7 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/test/test_allocation_domain.cpp
     ${NVFUSER_ROOT}/test/test_dynamic_transform.cpp
     ${NVFUSER_ROOT}/test/test_dynamic_type.cpp
+    ${NVFUSER_ROOT}/test/test_evaluator.cpp
     ${NVFUSER_ROOT}/test/test_gather.cpp
     ${NVFUSER_ROOT}/test/test_gpu1.cpp
     ${NVFUSER_ROOT}/test/test_gpu2.cpp
