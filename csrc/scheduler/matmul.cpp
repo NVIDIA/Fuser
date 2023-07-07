@@ -58,7 +58,7 @@ void moveInnerBroadcastLeft(TensorView* tv, int number_of_inner_pos = 3) {
 }
 
 // Utility to check concrete static size:
-inline void check_concrete_static_dim(IterDomain* id) {
+inline void checkConcreteStaticDim(IterDomain* id) {
   TORCH_INTERNAL_ASSERT(
       !id->isBroadcast() && !id->isReduction(),
       "no support for reduction or broadcast domains, but got ",
@@ -74,23 +74,33 @@ inline void check_concrete_static_dim(IterDomain* id) {
 //! The shared mem data layout is always 2D currently, and this utility
 //!  function assumes that the shared_mem_tv has the following structure:
 //!  [tile_row, tile_col, ***shift***] where the parameter `shift` is the number
-//!  of IDs on the right of tile_col. The IDs of tile_row and tile_col are the
-//!  ones being swizzled.
+//!  of reduction domains to be skipped. The IDs of tile_row and tile_col are
+//!  the ones being swizzled.
 //! If the input tensorview is not stored in shared memory, the function will
 //! skip the actual swizzle. This is used to help the domain mapping between
 //! mma_result and the epilogue tensor.
 void swizzleSharedMemory(
     TensorView* shared_mem_tv,
-    const MatmulParams& params,
-    const int shift) {
+    const MatmulParams& params) {
+  // Set shift to skip all consecutive reduction domains starting from the
+  //  innermost dimension.
+  int shift = 0;
+  for (int i = shared_mem_tv->nDims() - 1; i >= 0; --i) {
+    if (shared_mem_tv->axis(i)->isReduction()) {
+      shift++;
+    } else {
+      break;
+    }
+  }
+
   // Check that the innermost 2 dimensions are concrete and static
   //  sized so that the swizzle function can be defined.
   TORCH_INTERNAL_ASSERT(
-      shared_mem_tv->nDims() >= 2,
-      "At least 2D input needed for swizzling, but get ",
+      shared_mem_tv->nDims() >= (size_t)(2 + shift),
+      "At least 2D input (excluding consecutive reduction domains starting from the innermost dim) needed for swizzling, but get ",
       shared_mem_tv->toString());
-  check_concrete_static_dim(shared_mem_tv->axis(-2 - shift));
-  check_concrete_static_dim(shared_mem_tv->axis(-1 - shift));
+  checkConcreteStaticDim(shared_mem_tv->axis(-2 - shift));
+  checkConcreteStaticDim(shared_mem_tv->axis(-1 - shift));
 
   // Extract the constant sizes of the swizzled tile
   const int64_t tile_size_x =
@@ -367,23 +377,16 @@ void swizzleSharedMemory(
      *   7|          |          |
      *    +----------+----------+
      */
-    int64_t swizzle_period = n_rows / repeated_pattern_size;
-    // tile_size_y will be splitted by n_cols and then by swizzle_period,
-    // Recalculate swizzle_period if tile_size_y is smaller than the
-    // multiplication of these two split factors. If this happens,
-    // bank conflicts can't be fully removed.
-    if (tile_size_y < n_cols * swizzle_period) {
-      swizzle_period = tile_size_y / n_cols;
-      repeated_pattern_size = n_rows / swizzle_period;
-    }
-    // If the remaining part of tile_size_y is not divisible by swizzle_period,
-    // reduce swizzle_period by half until it is divisible. If this happens,
-    // bank conflicts can't be fully removed. e.g. tile_size_y = 96 in
-    // FusionAmpereMatmulTileCheck4warp_CUDA
-    while (tile_size_y / n_cols % swizzle_period) {
-      swizzle_period /= 2;
-      repeated_pattern_size = n_rows / swizzle_period;
-    }
+    // The first para in std::gcd is from the above derivation.
+    // The second para is from the fact that we need to split tile_size_y by
+    // n_cols and then by swizzle_period. If swizzle_period is smaller than the
+    // first para, then the bank conflict can't be fully removed.
+    int64_t swizzle_period =
+        std::gcd(n_rows / repeated_pattern_size, tile_size_y / n_cols);
+    // update repeated_pattern_size to ensure n_rows / repeated_pattern_size
+    // equals to swizzle_period otherwise, this is required by 2D swizzle.
+    repeated_pattern_size = n_rows / swizzle_period;
+
     //   -2   -1
     // [row, col, ***** shift ***** ]
     TORCH_INTERNAL_ASSERT(
@@ -477,7 +480,7 @@ void scheduleProlog(TensorView* shared_mem_tv, const MatmulParams& params) {
   mma_utils::orderTiledConcreteIdAsRoot(shared_mem_tv);
 
   // Swizzle the shared memory data layout
-  swizzleSharedMemory(shared_mem_tv, params, 0);
+  swizzleSharedMemory(shared_mem_tv, params);
   // Assuming we are always vectorizing smem write by 128b at the moment:
   //   TODO: would need a data-type and alignment dependent interface
   //    to support non-vectorizable shapes.
@@ -497,13 +500,13 @@ void scheduleProlog(TensorView* shared_mem_tv, const MatmulParams& params) {
           .propagateParallelType());
 }
 
-void schedule_output_tensor(
+void scheduleOutputTensor(
     TensorView* mma_result,
     TensorView* c,
     const MatMulTileOptions& gemm_tile) {
   // input tensor is in the form of [Mo,No,cta_tile_m,cta_tile_n]
-  check_concrete_static_dim(c->axis(-2));
-  check_concrete_static_dim(c->axis(-1));
+  checkConcreteStaticDim(c->axis(-2));
+  checkConcreteStaticDim(c->axis(-1));
   const int64_t tile_size_m = c->axis(-2)->extent()->evaluateInt();
   const int64_t tile_size_n = c->axis(-1)->extent()->evaluateInt();
   TORCH_INTERNAL_ASSERT(
@@ -784,11 +787,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
     // Transform mma_result through the epilogue swizzle without actually
     // swizzling the axes. This is done to enable the domains
     // are mapped between mma_result and c_smem.
-    // epilogSwizzle by default swizzle axis -2 and -1
-    // here, needs to shift by 1 to axis -2 and -3 to skip
-    // the K axis. Merge back to original form after this swizzle
-    // walk through.
-    swizzleSharedMemory(mma_result, params, 1);
+    swizzleSharedMemory(mma_result, params);
   }
 
   // Schedule warp tile
@@ -871,7 +870,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
 
   if (params.has_smem_epilogue) {
     c_smem->setMemoryType(MemoryType::Shared);
-    swizzleSharedMemory(c_smem, params, 0);
+    swizzleSharedMemory(c_smem, params);
     scheduler_utils::BoundedDirectionalTransformPropagator::forward(
         mma_result,
         -1,
@@ -883,7 +882,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
 
     // Don't propagate to c, because we want to schedule it differently for
     // better global memory access pattern.
-    schedule_output_tensor(mma_result, c, gemm_tile);
+    scheduleOutputTensor(mma_result, c, gemm_tile);
     c->axis(-1)->parallelize(ParallelType::Vectorize);
 
   } else {

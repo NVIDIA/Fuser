@@ -3297,7 +3297,6 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck4warp_CUDA) {
             k_size);
       }
     }
-    break;
   }
 }
 
