@@ -15,8 +15,6 @@
 #include <unordered_map>
 #include <numeric>
 
-#include <type.h>
-
 namespace nvfuser {
 
 using ScalarValue =
