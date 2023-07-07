@@ -41,16 +41,16 @@ DynamicTransformInitialInfo DynamicTransformInitialInfo::clone(
       cloned_info.dynamic_resized_ids_.push_back(ir_cloner.clone(op));
     }
   }
+  cloned_info.maybe_zero_extents_set_.reserve(maybe_zero_extents_set_.size());
+  for (const auto v : maybe_zero_extents_set_) {
+    if (v) {
+      cloned_info.maybe_zero_extents_set_.insert(ir_cloner.clone(v));
+    }
+  }
   cloned_info.maybe_zero_extents_.reserve(maybe_zero_extents_.size());
   for (const auto v : maybe_zero_extents_) {
     if (v) {
-      cloned_info.maybe_zero_extents_.insert(ir_cloner.clone(v));
-    }
-  }
-  cloned_info.name_to_tensorview_.reserve(name_to_tensorview_.size());
-  for (const auto kv : name_to_tensorview_) {
-    if (kv.second) {
-      cloned_info.name_to_tensorview_[kv.first] = ir_cloner.clone(kv.second);
+      cloned_info.maybe_zero_extents_.push_back(ir_cloner.clone(v));
     }
   }
   cloned_info.root_dynamic_vals_.reserve(root_dynamic_vals_.size());
@@ -78,11 +78,6 @@ std::string DynamicTransformInitialInfo::toString() const {
   for (const auto& v : maybe_zero_extents_) {
     ss << indent << indent << v->toString() << "\n";
   }
-  ss << indent << "Name to TensorView mapping:\n";
-  for (const auto& kv : name_to_tensorview_) {
-    ss << indent << indent << kv.first << " => " << kv.second->toString()
-       << "\n";
-  }
   ss << indent << "Root dynamic Vals:\n";
   for (const auto& v : root_dynamic_vals_) {
     ss << indent << indent << v->toString() << "\n";
@@ -102,6 +97,8 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
     traverseTo(fusion, fusion->getTerminatingOutputs(), false, false);
 
     finalizeDynamicVals();
+
+    finalizeMaybeEmptyExtents();
   }
 
   const auto& getInfo() const {
@@ -132,11 +129,10 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
 
   //! Detect possibly empty TensorViews and dynamic IterDomain transforms
   void handle(TensorView* tv) override {
-    info_.name_to_tensorview_[tv->name()] = tv;
     const auto& rfd = tv->getMaybeRFactorDomain();
     for (auto id : rfd) {
       if (!id->extent()->isConstScalar() || id->extent()->evaluateInt() == 0) {
-        info_.maybe_zero_extents_.insert(id->extent());
+        info_.maybe_zero_extents_set_.insert(id->extent());
         leaf_dynamic_vals_.push_back(id->extent());
       }
       if (!id->definition() || id->getIterType() != IterType::Symbolic) {
@@ -169,6 +165,16 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
     }
   }
 
+  //! Convert the maybe_zero_extents_set_ to a vector so that we can index it.
+  void finalizeMaybeEmptyExtents() {
+    info_.maybe_zero_extents_.reserve(info_.maybe_zero_extents_set_.size());
+    for (auto val : info_.maybe_zero_extents_set_) {
+      info_.maybe_zero_extents_.push_back(val);
+    }
+    // Clear the corresponding set to free memory and avoid speed up cloning
+    info_.maybe_zero_extents_set_.clear();
+  }
+
  private:
   DynamicTransformInitialInfo info_;
 
@@ -181,66 +187,6 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
   //! to compute a minimal cache key in InputsIdLookup::lookupId().
   std::vector<Val*> leaf_dynamic_vals_;
 };
-
-namespace { // Anonymous namespace for local function findEmptyTensors
-
-//! This performs a depth-first search from outputs toward inputs for empty
-//! tensors. It does not traverse past any zero tensors it finds; this is why
-//! this is implemented as a single function instead of with BackwardVisitor.
-//! Additionally, we check inputs since they might actually be disconnected from
-//! outputs.
-std::vector<EmptyTensorDescriptor> findEmptyTensors(
-    ExpressionEvaluator* expr_eval) {
-  auto fusion = FusionGuard::getCurFusion();
-  std::vector<EmptyTensorDescriptor> empty_tensors;
-  std::vector<Val*> vals(fusion->inputs());
-  vals.insert(vals.end(), fusion->outputs().begin(), fusion->outputs().end());
-  std::unordered_set<TensorView*> visited;
-
-  while (!vals.empty()) {
-    auto val = vals.back();
-    vals.pop_back();
-    if (!val->isA<TensorView>()) {
-      continue;
-    }
-    auto tv = val->as<TensorView>();
-    if (visited.find(tv) != visited.end()) {
-      continue;
-    }
-    visited.insert(tv);
-
-    std::vector<size_t> empty_axes;
-    auto rfactor = TensorDomain::noReductions(tv->getMaybeRFactorDomain());
-    bool empty = false;
-    for (size_t i : c10::irange(rfactor.size())) {
-      auto id = rfactor.at(i);
-      auto extent_eval = expr_eval->evaluate(id->extent());
-      TORCH_INTERNAL_ASSERT(
-          extent_eval.hasValue(),
-          "When finding empty tensors: could not evaluate extent of ",
-          id->toString());
-      if (extent_eval == 0) {
-        empty_axes.push_back(i);
-        empty = true;
-      }
-    }
-    if (empty) {
-      // Replace with full. Note that even if the definition was a FullOp, we
-      // still mark this tensor for replacement, so that we can ensure the
-      // empty axes are marked with constant zeroes
-      empty_tensors.push_back(EmptyTensorDescriptor{tv->name(), empty_axes});
-      continue;
-    }
-    if (tv->definition()) {
-      for (auto inp : tv->definition()->inputs()) {
-        vals.push_back(inp);
-      }
-    }
-  }
-  return empty_tensors;
-}
-
-} // namespace
 
 DynamicTransformConcretizationInfo::DynamicTransformConcretizationInfo(
     const DynamicTransformInitialInfo* initial_info,
@@ -258,22 +204,17 @@ DynamicTransformConcretizationInfo::DynamicTransformConcretizationInfo(
 
   analyzeResizes(expr_eval);
 
-  bool has_empty_tensor = false;
-  for (auto ext : initial_info_->getMaybeZeroExtents()) {
+  auto maybe_zero_extents = initial_info_->getMaybeZeroExtents();
+  for (auto i : c10::irange(maybe_zero_extents.size())) {
+    auto ext = maybe_zero_extents.at(i);
     auto ext_opt = expr_eval->evaluate(ext);
     TORCH_INTERNAL_ASSERT(
         ext_opt.hasValue(),
         "Could not evaluate dynamic extent: ",
         ext->toString());
     if (ext_opt == 0) {
-      has_empty_tensor = true;
-      break;
+      empty_extents_.push_back(i);
     }
-  }
-  // Find a minimal set of empty tensors to replace with full() calls
-  // NOTE: this does a backward traversal from outputs.
-  if (has_empty_tensor) {
-    empty_tensors_ = findEmptyTensors(expr_eval);
   }
 }
 
@@ -405,7 +346,7 @@ bool DynamicTransformConcretizationInfo::operator==(
 
   if (reshape_transforms_.size() != other.reshape_transforms_.size() ||
       resize_itertypes_.size() != other.resize_itertypes_.size() ||
-      empty_tensors_.size() != other.empty_tensors_.size()) {
+      empty_extents_.size() != other.empty_extents_.size()) {
     return false;
   }
 
@@ -425,10 +366,10 @@ bool DynamicTransformConcretizationInfo::operator==(
     }
   }
 
-  for (const auto i : c10::irange(empty_tensors_.size())) {
-    const auto& et = empty_tensors_.at(i);
-    const auto& other_et = other.empty_tensors_.at(i);
-    if (et != other_et) {
+  for (const auto i : c10::irange(empty_extents_.size())) {
+    const auto& ee = empty_extents_.at(i);
+    const auto& other_ee = other.empty_extents_.at(i);
+    if (ee != other_ee) {
       return false;
     }
   }
@@ -440,14 +381,10 @@ std::string DynamicTransformConcretizationInfo::toString() const {
   std::stringstream ss;
   ss << "DynamicTransformConcretizationInfo\n";
   std::string indent = "  ";
-  ss << indent << "Empty tensors:\n";
-  for (const auto& kv : empty_tensors_) {
-    ss << indent << indent << initial_info_->lookUpTV(kv.tv_name)->toString()
-       << " has zero extent in these axes:";
-    for (auto i : kv.empty_axes) {
-      ss << " " << i;
-    }
-    ss << "\n";
+  ss << indent << "Empty tensor extents:\n";
+  for (const auto& i : empty_extents_) {
+    auto ext = initial_info_->getMaybeZeroExtents().at(i);
+    ss << indent << indent << ext->toString() << " is zero\n";
   }
   ss << indent << "Reshape:\n";
   for (const auto& [tv_index, analyze_result] : reshape_transforms_) {
@@ -548,87 +485,13 @@ class DynamicTransformConcretizer : public OptOutMutator {
   //!   Note that if any non-cat dimensions are empty, then the output will be
   //!   empty as well and the cat becomes dead code, as in the second example
   //!   with empty T0 from above.
-  void removeEmptyBranches();
-
-  //! Replace uses whose outputs might not be empty. Many expressions are
-  //! guaranteed to have empty outputs if any of the inputs are empty; for
-  //! example simple unary or binary ops. In those cases, we don't need to
-  //! doctor the Fusion since they will have an empty tensor downstream which
-  //! will cut off their dependence, resulting in those uses becoming dead
-  //! code. For example, suppose we determined tv2 is empty, and we have the
-  //! following Fusion:
-  //!
-  //!   auto tv4 = add(tv2, tv3);
-  //!   fusion.addOutput(tv4);
-  //!
-  //! If we know that tv2 is empty in any dimension, then either tv3 has a
-  //! matching empty dimension or it is broadcast in that dimension. Either
-  //! way, the corresponding dimension in tv4 will be empty, so tv4 is an empty
-  //! tensor. If we replace this expression with
-  //!
-  //!   auto tv4 = full(shape, zeroVal());
-  //!
-  //! Then the tensors tv2 and tv3 will become dead code if they have no other
-  //! live uses. In this case tv4 is an output tensor, so we must keep it in
-  //! the Fusion.
-  //!
-  //! Some special expressions can convert an empty tensor into a non-empty
-  //! tensor; particularly pad, cat, and reduction ops. These ops might have
-  //! non-empty outputs so in order to guarantee that all non- input or
-  //! output tensors are removed, we need to replace those ops with an
-  //! equivalent that does not have any empty inputs. For example
-  void replaceEmptyUse(ReductionOp* rop, const std::vector<size_t>& empty_axes);
-  void replaceEmptyUse(WelfordOp* wop, const std::vector<size_t>& empty_axes);
-  void replaceEmptyUse(PadOp* pop, const std::vector<size_t>& empty_axes);
-  void replaceEmptyUse(Expr* e, const std::vector<size_t>& empty_axes) {
-    if (auto rop = dynamic_cast<ReductionOp*>(e)) {
-      replaceEmptyUse(rop, empty_axes);
-    } else if (auto wop = dynamic_cast<WelfordOp*>(e)) {
-      replaceEmptyUse(wop, empty_axes);
-    } else if (auto pop = dynamic_cast<PadOp*>(e)) {
-      replaceEmptyUse(pop, empty_axes);
-    }
-  }
-
-  //! replaceWithFull modifies the Fusion by replacing tv with output of full()
-  //! expression in outputs and all uses. This is used to replace pads of empty
-  //! inputs with full tensors containing only the pad value, and it is used to
-  //! replace empty output tensors in order to eliminate dead code in their
-  //! definitions.  For example, if we have the following Fusion:
-  //!
-  //!   T0 (input)
-  //!    |
-  //!   foo (some heavy computation)
-  //!    |
-  //!   T2   T1 (input)
-  //!    \   /
-  //!     mul
-  //!      |
-  //!     T3  (output)
-  //!
-  //! Consider if T2 is Broadcast in dimension i but T2 is zero in dimension i.
-  //! Then T3 is also zero in dimension i, so T3 is empty. By replacing T3 with
-  //! full(), we still have an empty output, but its definition avoids the heavy
-  //! computation of foo:
-  //!
-  //!   T0    T1  (inputs)
-  //!
-  //!     full
-  //!      |
-  //!     T3  (output)
-  TensorView* replaceWithFull(
-      TensorView* tv,
-      std::vector<Val*>& new_shape,
-      Val* fill_value = nullptr);
-
-  //! Replace a TensorView with a new one in all uses and in Fusion outputs.
-  //! Note that we do not replace Fusion inputs, since doing so may remove
-  //! extent Vals that are used in hard-to-predict places.
-  void replaceTV(TensorView* old_tv, TensorView* new_tv);
+  // void removeEmptyBranches();
 
   void concretizeReshape();
 
   void concretizeResize();
+
+  void concretizeEmptyExtents();
 
   //! Use this instead of calling registerMutation directly, since it will also
   //! check that the concretized value is a valid input to all of its uses.
@@ -652,259 +515,36 @@ class DynamicTransformConcretizer : public OptOutMutator {
   //! its producer domains. Returns true if any root ID is concretized.
   bool propagateFromProducerToConsumer(TensorView* consumer);
 
-  TensorView* maybeReplaced(TensorView* tv) {
-    auto it = replaced_tvs_.find(tv);
-    if (it == replaced_tvs_.end()) {
-      return tv;
-    }
-    return maybeReplaced(it->second);
-  };
-
  private:
   const DynamicTransformConcretizationInfo* info_;
-
-  //! As we replace TensorViews, we want to operate on the replaced values
-  //! instead of the originals. This map lets use keep track of multiple
-  //! replacements and get the latest one.
-  std::unordered_map<TensorView*, TensorView*> replaced_tvs_;
 };
 
 void DynamicTransformConcretizer::concretize() {
-  // Concretize all dynamic reshape ops
+  //! Concretize all dynamic reshape ops
   concretizeReshape();
 
-  // Set output IterTypes for dynamic resize ops
+  //! Set output IterTypes for dynamic resize ops
   concretizeResize();
 
-  // Concretize empty tensors last in case some empty tensor are fed into
-  // replaced dynamic ops.
-  removeEmptyBranches();
+  //! Registers replacement of all empty extents with zeroVal()
+  concretizeEmptyExtents();
 
   // Finally, propagate concretized domains
   auto all_stmts = StmtSort::getStmts(info_->fusion(), true);
   for (auto stmt : all_stmts) {
-    if (stmt->isA<Val>()) {
-      mutate(stmt);
-    }
+    mutate(stmt);
   }
 }
 
-namespace {
-
-//! This function simply extracts the maybeExpandedExtent Vals from the
-//! noReductions(maybeRFactorDomain) of the provided tensorview.
-std::vector<Val*> tensor_shape(TensorView* tv) {
-  const auto& rfactor = TensorDomain::noReductions(tv->getMaybeRFactorDomain());
-  std::vector<Val*> shape;
-  shape.reserve(rfactor.size());
-  for (const auto id : rfactor) {
-    shape.push_back(id->getMaybeExpandedExtent());
-  }
-  return shape;
-}
-
-//! Return whether or not we should replace a reduction or Welford op that is
-//! given an empty input tensor. Returns false if any non-reduction axes are
-//! empty, and otherwise return true if any reduction axis is empty.
-bool reductionOutputShouldBeReplaced(
-    TensorView* out,
-    const std::vector<size_t>& empty_axes) {
-  bool has_empty_reduction = false;
-  bool has_empty_nonreduction = false;
-  // A reduction op itself should not generate an R-Factor domain anyway, but
-  // note that we use the root domain explicitly here for clarity. This is
-  // because empty_axes refers to the _input_ of the reduction op we are
-  // considering, so it maps to the root domain of the TensorView "out" in this
-  // function.
-  auto dom = out->getRootDomain();
-  for (auto ax : empty_axes) {
-    if (dom.at(ax)->isReduction()) {
-      has_empty_reduction = true;
-    } else {
-      has_empty_nonreduction = true;
-    }
-  };
-  // If a reduction has empty non-reduced axes, then its output will be
-  // empty so it should already be dead code. In those cases we skip
-  // replacing the reduction with full as that should be redundant.
-  return has_empty_reduction && !has_empty_nonreduction;
-}
-
-} // namespace
-
-void DynamicTransformConcretizer::replaceEmptyUse(
-    ReductionOp* rop,
-    const std::vector<size_t>& empty_axes) {
-  auto out = maybeReplaced(rop->out()->as<TensorView>());
-  if (reductionOutputShouldBeReplaced(out, empty_axes)) {
-    auto out_shape = tensor_shape(out);
-    replaceWithFull(out, out_shape);
-  }
-}
-
-void DynamicTransformConcretizer::replaceEmptyUse(
-    WelfordOp* wop,
-    const std::vector<size_t>& empty_axes) {
-  auto avg = maybeReplaced(wop->outAvg()->as<TensorView>());
-  auto var = maybeReplaced(wop->outVar()->as<TensorView>());
-  auto N = maybeReplaced(wop->outN()->as<TensorView>());
-  if (reductionOutputShouldBeReplaced(avg, empty_axes)) {
-    auto out_shape = tensor_shape(avg);
-    auto nan =
-        IrBuilder::create<Double>(std::numeric_limits<double>::quiet_NaN());
-    replaceWithFull(avg, out_shape, nan);
-    replaceWithFull(var, out_shape, nan);
-    replaceWithFull(N, out_shape);
-  }
-}
-
-void DynamicTransformConcretizer::replaceEmptyUse(
-    PadOp* pop,
-    const std::vector<size_t>& empty_axes) {
-  auto out = maybeReplaced(pop->out()->as<TensorView>());
-
-  // A cat op can have input empty tensors and still output a non-empty
-  // tensor. This is only possible if there is more than one input, so we
-  // only need to handle those cases. We find the non-empty inputs to cat
-  // then replace with another cat (or `set` if n=1).
-  //
-  // [Detecting cat ops]
-  // The `cat` function creates a CatOp object, but its inputs() are not
-  // the original inputs. Rather, they are the inputs after padding to the
-  // output extent in the concatenated dimension. Thus, in the IR graph,
-  // instead of the following:
-  //
-  //    T0  T1   T2
-  //      \  |  /
-  //       CatOp
-  //         |
-  //        T3
-  //
-  // a cat is represented as:
-  //
-  //    T0    T1    T2
-  //     |     |     |
-  //   PadOp PadOp PadOp
-  //       \   |   /
-  //         CatOp
-  //           |
-  //          T3
-  //
-  // If we determine that one of the inputs, T1, is empty in the cat
-  // dimension, then we rewrite this as:
-  //
-  //    T0          T2
-  //     |           |
-  //   PadOp       PadOp
-  //       \       /
-  //         CatOp
-  //           |
-  //          T3
-  //
-  // This is done by simply calling the cat() command with only {T0, T2}.
-  auto pad_uses = pop->out()->uses();
-  if (pad_uses.size() == 1 && pad_uses[0]->isA<CatOp>()) {
-    auto cop = pad_uses[0]->as<CatOp>();
-    std::vector<TensorView*> nonempty_inputs;
-    for (auto inp : cop->inputs()) {
-      // Each "input" to CatOp is a pad() of the corresponding _actual_
-      // input. Here we peel off the pad op to collect the non-padded cat
-      // inputs.
-      auto padded_inp_tv = inp->as<TensorView>();
-      TORCH_INTERNAL_ASSERT(
-          padded_inp_tv->definition() &&
-              padded_inp_tv->definition()->isA<PadOp>(),
-          "Input to cat should have definition that is a PadOp");
-      auto inp_pad_op = padded_inp_tv->definition()->as<PadOp>();
-      auto inp_tv = inp_pad_op->in()->as<TensorView>();
-
-      if (inp_pad_op != pop) {
-        // We could remove other empty tensors here while we're at it. They will
-        // get removed by further passes anyway though as tv ranges over all
-        // empty tensors.
-        nonempty_inputs.push_back(inp_tv);
-      }
-    }
-    auto old_cat = cop->output(0)->as<TensorView>();
-    auto new_cat = nonempty_inputs.size() == 1
-        ? set(nonempty_inputs[0])
-        : cat(nonempty_inputs, cop->concatenatedDim());
-    replaceTV(old_cat, new_cat);
-  } else { // Replace pads that are not part of CatOps with full()
-    auto out_shape = tensor_shape(out);
-    // Wherever there is a zero in the input, we will replace the original
-    // output extent so that we no longer reference the now-zero input
-    // extent
-    for (auto ax : empty_axes) {
-      auto pad_widths = pop->getPadWidths((int)ax);
-      out_shape[ax] = add(pad_widths.first, pad_widths.second);
-    }
-    replaceWithFull(out, out_shape, pop->value());
-  }
-}
-
-void DynamicTransformConcretizer::removeEmptyBranches() {
+void DynamicTransformConcretizer::concretizeEmptyExtents() {
   auto fusion = FusionGuard::getCurFusion();
-  for (const auto& empty_tv_descr : info_->getEmptyTensors()) {
-    auto tv = info_->initialInfo()->lookUpTV(empty_tv_descr.tv_name);
-    auto rfactor = TensorDomain::noReductions(tv->getMaybeRFactorDomain());
-    std::vector<Val*> new_shape;
-    new_shape.reserve(rfactor.size());
-    for (auto id : rfactor) {
-      new_shape.push_back(id->getMaybeExpandedExtent());
-    }
-    for (auto ax : empty_tv_descr.empty_axes) {
-      // Hard-code zero extent for empty axes. This lets us detect empty input
-      // and output tensors during scheduling/execution.
-      registerConcretization(new_shape[ax], fusion->zeroVal());
-      new_shape[ax] = fusion->zeroVal();
-    }
-
-    for (auto use : tv->uses()) {
-      replaceEmptyUse(use, empty_tv_descr.empty_axes);
-    }
-    if (!tv->isFusionInput()) {
-      replaceWithFull(tv, new_shape);
-    }
+  for (const auto& ext_index : info_->getEmptyExtents()) {
+    auto ext = info_->initialInfo()->getMaybeZeroExtents().at(ext_index);
+    auto zero = fusion->zeroVal(ext->getDataType().value());
+    // Register the concretization of this scalar, which allows us to replace it
+    // whenever it is used as an extent member of an IterDomain.
+    registerConcretization(ext, zero);
   }
-}
-
-TensorView* DynamicTransformConcretizer::replaceWithFull(
-    TensorView* tv,
-    std::vector<Val*>& new_shape,
-    Val* fill_value) {
-  TensorView* mut_tv = nullptr;
-  if (!tv->definition()) {
-    return tv;
-  }
-  if (!fill_value) {
-    fill_value = tv->fusion()->zeroVal();
-  }
-  if (fill_value->getDataType().value() != tv->getDataType().value()) {
-    fill_value = castOp(tv->getDataType().value(), fill_value);
-  }
-  mut_tv = full(new_shape, fill_value, tv->getDataType().value());
-
-  replaceTV(tv, mut_tv);
-
-  return mut_tv;
-}
-
-void DynamicTransformConcretizer::replaceTV(
-    TensorView* old_tv,
-    TensorView* new_tv) {
-  registerConcretization(old_tv, new_tv);
-  OptOutMutator::mutate(old_tv);
-
-  for (auto use : old_tv->uses()) {
-    ir_utils::replaceValInExpr(use, old_tv, new_tv);
-  }
-
-  if (old_tv->isFusionOutput()) {
-    old_tv->fusion()->replaceOutput(old_tv, new_tv);
-  }
-
-  replaced_tvs_[old_tv] = new_tv;
 }
 
 void DynamicTransformConcretizer::concretizeReshape() {

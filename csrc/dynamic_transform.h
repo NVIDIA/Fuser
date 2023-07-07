@@ -64,7 +64,7 @@ class TORCH_CUDA_CU_API DynamicTransformInitialInfo {
   //! Return a set of scalars that appear as extents in TensorViews in the
   //! Fusion. If any of these evaluate to zero, there is at least one empty
   //! TensorView present.
-  const std::unordered_set<Val*>& getMaybeZeroExtents() const {
+  const std::vector<Val*>& getMaybeZeroExtents() const {
     return maybe_zero_extents_;
   }
 
@@ -78,15 +78,6 @@ class TORCH_CUDA_CU_API DynamicTransformInitialInfo {
   //! IterTypes
   const std::vector<IterDomain*>& getDynamicResizedIterDomains() const {
     return dynamic_resized_ids_;
-  }
-
-  TensorView* lookUpTV(size_t tv_name) const {
-    auto it = name_to_tensorview_.find(tv_name);
-    TORCH_INTERNAL_ASSERT(
-        it != name_to_tensorview_.end(),
-        "Could not find TensorView with name ",
-        tv_name);
-    return it->second;
   }
 
   std::string toString() const;
@@ -107,14 +98,6 @@ class TORCH_CUDA_CU_API DynamicTransformInitialInfo {
  private:
   DynamicTransformInitialInfo(Fusion* fusion) : fusion_(fusion) {}
 
-  // Holds mapping from the name() of a TensorView to its value. This is so that
-  // we can hold only the name of a tensor in conc_info and still be able to
-  // access a cloned TensorView. Holding pointers directly would not work in
-  // such a case since after cloning we no longer have a mapping between
-  // original Vals and cloned Vals. Note that the functionality offered by this
-  // map probably belongs in Fusion instead.
-  std::unordered_map<size_t, TensorView*> name_to_tensorview_;
-
  private:
   Fusion* fusion_ = nullptr;
 
@@ -130,38 +113,14 @@ class TORCH_CUDA_CU_API DynamicTransformInitialInfo {
 
   // This is a minimal set of scalars to check for empty tensors. If any are
   // zero, we should traverse to find empty tensors.
-  std::unordered_set<Val*> maybe_zero_extents_;
+  std::unordered_set<Val*> maybe_zero_extents_set_;
+  // The set above is populated then used to create this unique vector
+  std::vector<Val*> maybe_zero_extents_;
 
   // Root Vals that determine concretization
   std::unordered_set<Val*> root_dynamic_vals_;
 
   friend class DynamicTransformInitialInfoBuilder;
-};
-
-//! Describes known empty dimensions in a TensorView's maybe RFactor domain
-struct TORCH_CUDA_CU_API EmptyTensorDescriptor {
-  size_t tv_name;
-  std::vector<size_t> empty_axes;
-
-  bool operator==(const EmptyTensorDescriptor& other) const {
-    return tv_name == other.tv_name && empty_axes == other.empty_axes;
-  }
-
-  bool operator!=(const EmptyTensorDescriptor& other) const {
-    return !operator==(other);
-  }
-
-  size_t hash() const {
-    size_t hash = 0;
-    for (auto ax : empty_axes) {
-      hash <<= 3;
-      hash ^= ax;
-    }
-    // We need to hash the tv address here, since we could conceivably find two
-    // different tensors that are empty in the same axes.
-    hash ^= std::hash<size_t>()(tv_name);
-    return hash;
-  }
 };
 
 //! A set of transformations for a symbolic fusion with concrete sizes
@@ -172,8 +131,8 @@ class TORCH_CUDA_CU_API DynamicTransformConcretizationInfo {
       const DynamicTransformInitialInfo* initial_info,
       ExpressionEvaluator* expr_eval);
 
-  const std::vector<EmptyTensorDescriptor>& getEmptyTensors() const {
-    return empty_tensors_;
+  const std::vector<size_t>& getEmptyExtents() const {
+    return empty_extents_;
   }
 
   //! Return a vector of pairs holding the index of each reshaped TensorView in
@@ -241,9 +200,9 @@ class TORCH_CUDA_CU_API DynamicTransformConcretizationInfo {
   //! result of analyzeView
   std::vector<std::pair<size_t, AnalyzeViewResult>> reshape_transforms_;
 
-  //! Holds, for each empty tensor, a pointer to the tensor along with a vector
-  //! of positions in its rfactor domain which are size 0
-  std::vector<EmptyTensorDescriptor> empty_tensors_;
+  //! Holds a vector of indices into initial_info_.getMaybeZeroExtents() which
+  //! evaluate to 0
+  std::vector<size_t> empty_extents_;
 
   //! Holds the index of the resized IterDomain (output of the Resize op) in the
   //! vector returned by initial_info_->getDynamicResizedIterDomains() along
