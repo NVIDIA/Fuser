@@ -323,21 +323,33 @@ bool Val::evaluateBool() {
 
 std::optional<int64_t> Val::getInt() const {
   if (isConstScalar() && isIntegralScalar() && isA<Scalar>()) {
-    return this->as<Scalar>()->value().as<int64_t>();
+    auto val = this->as<Scalar>()->value();
+    if (val.is<int64_t>()) {
+      return val.as<int64_t>();
+    }
+    return std::nullopt;
   }
   return std::nullopt;
 }
 
 std::optional<double> Val::getDouble() const {
   if (isConstScalar() && isFloatingPointScalar() && isA<Scalar>()) {
-    return this->as<Scalar>()->value().as<double>();
+    auto val = this->as<Scalar>()->value();
+    if (val.is<double>()) {
+      return val.as<double>();
+    }
+    return std::nullopt;
   }
   return std::nullopt;
 }
 
 std::optional<bool> Val::getBool() const {
   if (isConstScalar() && isABool() && isA<Scalar>()) {
-    return this->as<Scalar>()->value().as<bool>();
+    auto val = this->as<Scalar>()->value();
+    if (val.is<bool>()) {
+      return val.as<bool>();
+    }
+    return std::nullopt;
   }
   return std::nullopt;
 }

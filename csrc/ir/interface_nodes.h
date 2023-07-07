@@ -59,6 +59,7 @@ class TORCH_CUDA_CU_API Scalar : public Val {
       EvaluatorValue value,
       DataType dtype)
       : Val(passkey, ValType::Scalar, dtype), value_{value} {
+    // TODO: cast
     TORCH_CHECK(
         isCompatibleDataType(nvfuser::getDataType(value), dtype),
         "Scalar value is not compatible with the given data type.");

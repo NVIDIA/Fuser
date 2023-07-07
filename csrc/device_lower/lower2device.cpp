@@ -92,7 +92,7 @@ class KIRCleaner : public OptOutDispatch {
     // Visit the then block
     auto then_exprs = ite->thenBody().exprs();
     ite->thenBody().clear();
-    if (!conditional->isConst() || conditional->value()) {
+    if (!conditional->isConst() || conditional->value().as<bool>()) {
       for (auto expr : then_exprs) {
         handle(expr);
         if (!is_nop_) {
@@ -106,7 +106,7 @@ class KIRCleaner : public OptOutDispatch {
     // Visit the else block
     auto else_exprs = ite->elseBody().exprs();
     ite->elseBody().clear();
-    if (!conditional->isConst() || !conditional->value()) {
+    if (!conditional->isConst() || !conditional->value().as<bool>()) {
       for (auto expr : else_exprs) {
         handle(expr);
         if (!is_nop_) {

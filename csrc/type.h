@@ -285,7 +285,7 @@ DEFINE_DATATYPE_TO_NATIVE_TYPE(
 
 #undef DEFINE_DATATYPE_TO_NATIVE_TYPE
 
-DataType getDataType(const EvaluatorValue& value) {
+inline DataType getDataType(const EvaluatorValue& value) {
   std::optional<DataType> dtype = std::nullopt;
   EvaluatorValue::for_all_types([&](auto _) {
     using T = typename decltype(_)::type;
@@ -300,7 +300,7 @@ DataType getDataType(const EvaluatorValue& value) {
   return dtype.value();
 }
 
-bool isCompatibleDataType(DataType dtype, DataType dtype2) {
+inline bool isCompatibleDataType(DataType dtype, DataType dtype2) {
   if (dtype == dtype2) {
     return true;
   }
