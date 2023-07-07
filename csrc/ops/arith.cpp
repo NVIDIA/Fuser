@@ -2060,11 +2060,11 @@ TensorView* shift(
     const auto cur_start_offset_value = current_start_offset->value();
     const auto cur_stop_offset_value = current_stop_offset->value();
 
-    EvaluatorValue out_start_offset = 0;
-    EvaluatorValue out_stop_offset = 0;
+    ScalarValue out_start_offset = 0;
+    ScalarValue out_stop_offset = 0;
 
     if (offset > 0) {
-      using namespace EvaluatorValue_functions;
+      using namespace ScalarValue_functions;
       // shift to right; extent remains the same, start and stop
       // positions are moved right
       out_start_offset = cur_start_offset_value + offset - pad;
@@ -2080,7 +2080,7 @@ TensorView* shift(
           offset,
           ".");
     } else {
-      using namespace EvaluatorValue_functions;
+      using namespace ScalarValue_functions;
       // shift to left; extent remains the same, start and stop
       // positions are moved left
       out_start_offset = max(cur_start_offset_value + offset, int64_t(0));

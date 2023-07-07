@@ -796,7 +796,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     }
 
     auto rhs = bop->rhs();
-    EvaluatorValue exponent;
+    ScalarValue exponent;
     if (auto val_int = dynamic_cast<Scalar*>(rhs)) {
       if (val_int->isConst()) {
         exponent = val_int->value();

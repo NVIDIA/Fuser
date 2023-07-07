@@ -524,7 +524,7 @@ void initNvFuserPythonBindings(PyObject* module) {
   fusion_def.def(
       "define_scalar",
       [](FusionDefinition& self,
-         EvaluatorValue value,
+         ScalarValue value,
          PrimDataType dtype) -> Scalar {
         FUSER_PERF_SCOPE("FusionDefinition.define_scalar");
         Scalar out = self.defineScalar();
@@ -538,7 +538,7 @@ void initNvFuserPythonBindings(PyObject* module) {
   fusion_def.def(
       "define_constant",
       [](FusionDefinition& self,
-         EvaluatorValue value,
+         ScalarValue value,
          PrimDataType dtype) -> Scalar {
         FUSER_PERF_SCOPE("FusionDefinition.define_contant");
         TORCH_WARN_ONCE(

@@ -1925,7 +1925,7 @@ struct ScalarRecord : RecordFunctor {
   ScalarRecord(
       std::vector<State> _outputs,
       serde::RecordType record_type,
-      EvaluatorValue value,
+      ScalarValue value,
       PrimDataType dtype)
       : RecordFunctor({}, std::move(_outputs), "define_scalar", record_type),
         value_(std::move(value)),
@@ -2018,11 +2018,11 @@ struct ScalarRecord : RecordFunctor {
   // inline std::pair<serde::RecordData, flatbuffers::Offset<void>>
   // valueRecordData(
   //     flatbuffers::FlatBufferBuilder& builder,
-  //     EvaluatorValue value) const;
+  //     ScalarValue value) const;
 
  private:
   //! The scalar's value, an input is a nullopt
-  EvaluatorValue value_;
+  ScalarValue value_;
   //! Scalar data type.
   PrimDataType dtype_;
 };
@@ -2031,7 +2031,7 @@ struct ScalarRecord : RecordFunctor {
 // inline std::pair<serde::RecordData, flatbuffers::Offset<void>> ScalarRecord::
 //     valueRecordData(
 //         flatbuffers::FlatBufferBuilder& builder,
-//         EvaluatorValue value) const {
+//         ScalarValue value) const {
 //   if (value.hasValue()) {
 //     return {
 //         serde::RecordData_Bool,

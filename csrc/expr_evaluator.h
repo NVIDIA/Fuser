@@ -29,12 +29,12 @@ class TORCH_CUDA_CU_API ExpressionEvaluator {
  public:
   //! Bind a concrete value to an IR variable
   void bind(const Val* value, ScalarValue concrete_value) {
-    bind_(value, EvaluatorValue(concrete_value));
+    bind_(value, ScalarValue(concrete_value));
   }
 
   //! Bind a concrete value to a named scalar
   void bind(const std::string& name, ScalarValue concrete_value) {
-    bind_(name, EvaluatorValue(concrete_value));
+    bind_(name, ScalarValue(concrete_value));
   }
 
   //! Set a concrete value for a parallel dimension

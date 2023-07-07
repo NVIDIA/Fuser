@@ -216,7 +216,7 @@ Scalar* SimplifyingIrBuilder::notExpr(Val* val) {
   return IrBuilder::notExpr(val);
 }
 
-Scalar* SimplifyingIrBuilder::addExpr(Scalar* lhs, EvaluatorValue rhs) {
+Scalar* SimplifyingIrBuilder::addExpr(Scalar* lhs, ScalarValue rhs) {
   if (rhs == 0) {
     return lhs;
   } else if (lhs == nullptr) {
@@ -263,7 +263,7 @@ Val* SimplifyingIrBuilder::addExpr(Val* lhs, Val* rhs) {
   }
 }
 
-Val* SimplifyingIrBuilder::addExpr(Val* lhs, EvaluatorValue rhs) {
+Val* SimplifyingIrBuilder::addExpr(Val* lhs, ScalarValue rhs) {
   auto lhs_scalar = dynamic_cast<Scalar*>(lhs);
   if (lhs_scalar != nullptr) {
     return addExpr(lhs_scalar, rhs);
@@ -276,7 +276,7 @@ Val* SimplifyingIrBuilder::subExpr(Val* lhs, Val* rhs) {
   return addExpr(lhs, negExpr(rhs));
 }
 
-Scalar* SimplifyingIrBuilder::mulExpr(Scalar* lhs, EvaluatorValue rhs) {
+Scalar* SimplifyingIrBuilder::mulExpr(Scalar* lhs, ScalarValue rhs) {
   if (rhs == 0) {
     return lhs->container()->zeroVal();
   } else if (rhs == 1) {
@@ -290,7 +290,7 @@ Scalar* SimplifyingIrBuilder::mulExpr(Scalar* lhs, EvaluatorValue rhs) {
   }
 }
 
-Val* SimplifyingIrBuilder::mulExpr(Val* lhs, EvaluatorValue rhs) {
+Val* SimplifyingIrBuilder::mulExpr(Val* lhs, ScalarValue rhs) {
   auto lhs_scalar = dynamic_cast<Scalar*>(lhs);
   if (lhs_scalar != nullptr) {
     return mulExpr(lhs_scalar, rhs);
@@ -452,7 +452,7 @@ Val* minOrMaxExpr(
 } // namespace
 
 Val* SimplifyingIrBuilder::maxExpr(Val* lhs, Val* rhs) {
-  using namespace EvaluatorValue_functions;
+  using namespace ScalarValue_functions;
   return minOrMaxExpr(
       lhs,
       rhs,
@@ -461,7 +461,7 @@ Val* SimplifyingIrBuilder::maxExpr(Val* lhs, Val* rhs) {
 }
 
 Val* SimplifyingIrBuilder::minExpr(Val* lhs, Val* rhs) {
-  using namespace EvaluatorValue_functions;
+  using namespace ScalarValue_functions;
   return minOrMaxExpr(
       lhs,
       rhs,

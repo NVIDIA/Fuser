@@ -52,11 +52,11 @@ class TORCH_CUDA_CU_API Scalar : public Val {
       : Val(passkey, ValType::Scalar, dtype) {}
   explicit Scalar(IrBuilderPasskey passkey, PrimDataType dtype)
       : Val(passkey, ValType::Scalar, DataType(dtype)) {}
-  explicit Scalar(IrBuilderPasskey passkey, EvaluatorValue value)
+  explicit Scalar(IrBuilderPasskey passkey, ScalarValue value)
       : Val(passkey, ValType::Scalar, nvfuser::getDataType(value)), value_{value} {}
   explicit Scalar(
       IrBuilderPasskey passkey,
-      EvaluatorValue value,
+      ScalarValue value,
       DataType dtype)
       : Val(passkey, ValType::Scalar, dtype), value_{value} {
     // TODO: cast
@@ -106,7 +106,7 @@ class TORCH_CUDA_CU_API Scalar : public Val {
   bool isConst() const final {
     return value_.hasValue();
   }
-  EvaluatorValue value() const {
+  ScalarValue value() const {
     return value_;
   }
 
@@ -125,7 +125,7 @@ class TORCH_CUDA_CU_API Scalar : public Val {
   }
 
  private:
-  const EvaluatorValue value_;
+  const ScalarValue value_;
 };
 
 //! Mode during propagation of computeAt, standard will throw an error if
