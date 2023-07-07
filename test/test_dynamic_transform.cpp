@@ -58,10 +58,10 @@ TEST_F(NVFuserTest, DynamicTransform1_CUDA) {
 
     // input: 4, 3
     // output: 3, 4
-    expr_eval.bind(tv0->axis(0)->extent(), 4);
-    expr_eval.bind(tv0->axis(1)->extent(), 3);
-    expr_eval.bind(reshape_shape0, 3);
-    expr_eval.bind(reshape_shape1, 4);
+    expr_eval.bind(tv0->axis(0)->extent(), 4L);
+    expr_eval.bind(tv0->axis(1)->extent(), 3L);
+    expr_eval.bind(reshape_shape0, 3L);
+    expr_eval.bind(reshape_shape1, 4L);
 
     auto initial_info = DynamicTransform::getInitialInfo(&fusion);
     auto info = DynamicTransformConcretizationInfo(&initial_info, &expr_eval);
@@ -76,10 +76,10 @@ TEST_F(NVFuserTest, DynamicTransform1_CUDA) {
 
     // input: 4, 3
     // output: 3, -1
-    expr_eval.bind(tv0->axis(0)->extent(), 4);
-    expr_eval.bind(tv0->axis(1)->extent(), 3);
-    expr_eval.bind(reshape_shape0, 3);
-    expr_eval.bind(reshape_shape1, -1);
+    expr_eval.bind(tv0->axis(0)->extent(), 4L);
+    expr_eval.bind(tv0->axis(1)->extent(), 3L);
+    expr_eval.bind(reshape_shape0, 3L);
+    expr_eval.bind(reshape_shape1, -1L);
 
     // In this case, if we do not bind tv1->axis(1)->extent(), we get a failure
     // to evaluate it when checking whether tv1 is empty. It is possible to
@@ -101,10 +101,10 @@ TEST_F(NVFuserTest, DynamicTransform1_CUDA) {
 
     // input: 4, 3
     // output: 5, -1
-    expr_eval.bind(tv0->axis(0)->extent(), 4);
-    expr_eval.bind(tv0->axis(1)->extent(), 3);
-    expr_eval.bind(reshape_shape0, 5);
-    expr_eval.bind(reshape_shape1, -1);
+    expr_eval.bind(tv0->axis(0)->extent(), 4L);
+    expr_eval.bind(tv0->axis(1)->extent(), 3L);
+    expr_eval.bind(reshape_shape0, 5L);
+    expr_eval.bind(reshape_shape1, -1L);
 
     // This should fail as (4 * 3) is not evenly divisible by 5
     EXPECT_THAT(
@@ -142,12 +142,12 @@ TEST_F(NVFuserTest, DynamicTransform2_CUDA) {
 
     // input: 4, 3
     // output: 3, 4
-    expr_eval.bind(tv0->axis(0)->extent(), 4);
-    expr_eval.bind(tv0->axis(1)->extent(), 3);
+    expr_eval.bind(tv0->axis(0)->extent(), 4L);
+    expr_eval.bind(tv0->axis(1)->extent(), 3L);
     // Bind only tv2 extents. It should be enough as tv1 has the same
     // shape
-    expr_eval.bind(tv2->axis(0)->extent(), 3);
-    expr_eval.bind(tv2->axis(1)->extent(), 4);
+    expr_eval.bind(tv2->axis(0)->extent(), 3L);
+    expr_eval.bind(tv2->axis(1)->extent(), 4L);
 
     auto initial_info = DynamicTransform::getInitialInfo(&fusion);
     auto info = DynamicTransformConcretizationInfo(&initial_info, &expr_eval);
@@ -534,9 +534,9 @@ TEST_F(NVFuserTest, DynamicTransform9_CUDA) {
 
   ExpressionEvaluator expr_eval;
 
-  expr_eval.bind(tv0->axis(0)->extent(), 3);
-  expr_eval.bind(tv0->axis(1)->extent(), 4);
-  expr_eval.bind(reshape_shape0, 12);
+  expr_eval.bind(tv0->axis(0)->extent(), 3L);
+  expr_eval.bind(tv0->axis(1)->extent(), 4L);
+  expr_eval.bind(reshape_shape0, 12L);
 
   auto initial_info = DynamicTransform::getInitialInfo(&fusion);
   auto info = DynamicTransformConcretizationInfo(&initial_info, &expr_eval);
@@ -572,10 +572,10 @@ TEST_F(NVFuserTest, DynamicTransform10_CUDA) {
 
   ExpressionEvaluator expr_eval;
 
-  expr_eval.bind(tv0->axis(0)->extent(), 3);
-  expr_eval.bind(tv0->axis(1)->extent(), 4);
-  expr_eval.bind(tv1->axis(0)->extent(), 4);
-  expr_eval.bind(tv1->axis(1)->extent(), 3);
+  expr_eval.bind(tv0->axis(0)->extent(), 3L);
+  expr_eval.bind(tv0->axis(1)->extent(), 4L);
+  expr_eval.bind(tv1->axis(0)->extent(), 4L);
+  expr_eval.bind(tv1->axis(1)->extent(), 3L);
 
   auto initial_info = DynamicTransform::getInitialInfo(&fusion);
   auto info = DynamicTransformConcretizationInfo(&initial_info, &expr_eval);
@@ -606,11 +606,11 @@ TEST_F(NVFuserTest, DynamicTransform11_CUDA) {
   ExpressionEvaluator expr_eval1;
   // input: 4, 3
   // output: 2, 2, 3
-  expr_eval1.bind(tv0->axis(0)->extent(), 4);
-  expr_eval1.bind(tv0->axis(1)->extent(), 3);
-  expr_eval1.bind(tv1->axis(0)->extent(), 2);
-  expr_eval1.bind(tv1->axis(1)->extent(), 2);
-  expr_eval1.bind(tv1->axis(2)->extent(), 3);
+  expr_eval1.bind(tv0->axis(0)->extent(), 4L);
+  expr_eval1.bind(tv0->axis(1)->extent(), 3L);
+  expr_eval1.bind(tv1->axis(0)->extent(), 2L);
+  expr_eval1.bind(tv1->axis(1)->extent(), 2L);
+  expr_eval1.bind(tv1->axis(2)->extent(), 3L);
 
   auto initial_info1 = DynamicTransform::getInitialInfo(&fusion);
   auto info1 = DynamicTransformConcretizationInfo(&initial_info1, &expr_eval1);
@@ -619,11 +619,11 @@ TEST_F(NVFuserTest, DynamicTransform11_CUDA) {
   ;
   // input: 4, 3
   // output: 3, 2, 2
-  expr_eval2.bind(tv0->axis(0)->extent(), 4);
-  expr_eval2.bind(tv0->axis(1)->extent(), 3);
-  expr_eval2.bind(tv1->axis(0)->extent(), 3);
-  expr_eval2.bind(tv1->axis(1)->extent(), 2);
-  expr_eval2.bind(tv1->axis(2)->extent(), 2);
+  expr_eval2.bind(tv0->axis(0)->extent(), 4L);
+  expr_eval2.bind(tv0->axis(1)->extent(), 3L);
+  expr_eval2.bind(tv1->axis(0)->extent(), 3L);
+  expr_eval2.bind(tv1->axis(1)->extent(), 2L);
+  expr_eval2.bind(tv1->axis(2)->extent(), 2L);
 
   auto initial_info2 = DynamicTransform::getInitialInfo(&fusion);
   auto info2 = DynamicTransformConcretizationInfo(&initial_info2, &expr_eval2);

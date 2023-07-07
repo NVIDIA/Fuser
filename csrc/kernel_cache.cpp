@@ -7,6 +7,7 @@
 // clang-format on
 #include <kernel_cache.h>
 
+#include <debug.h>
 #include <dynamic_transform.h>
 #include <executor_params.h>
 #include <executor_utils.h>
@@ -628,7 +629,7 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
       conc_info->setInitialInfo(&conc_initial_info);
 
       if (isDebugDumpEnabled(DebugDumpOption::FusionIrConcretized)) {
-        std::cout << "Fusion before concretization:" << std::endl;
+        debug() << "Fusion before concretization:" << std::endl;
         conc_fusion->printMath();
       }
 
@@ -639,7 +640,7 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
       conc_fusion->stopManaging("initial_info");
 
       if (isDebugDumpEnabled(DebugDumpOption::FusionIrConcretized)) {
-        std::cout << "Concretized Fusion:" << std::endl;
+        debug() << "Concretized Fusion:" << std::endl;
         conc_fusion->printMath();
       }
     }
@@ -669,6 +670,12 @@ FusionKernelRuntime::FusionKernelRuntime(
 
   optimization::OptimizationPass<optimization::PreSegmenter>::runPass(
       fusion.get());
+
+  if (isDebugDumpEnabled(DebugDumpOption::FusionIrPreseg)) {
+    std::cout << "Fusion IR after pre-segmenter optimization passes:"
+              << std::endl;
+    fusion->printMath();
+  }
 
   all_tvs_ = ir_utils::allTvs(fusion.get());
 
@@ -733,26 +740,26 @@ std::vector<at::Tensor> FusionKernelRuntime::runKernelWithInput(
 
   // Print relevant information all at once for easy debuging of perf
   if (isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
-    std::cout << "\nRun kernel:\n";
+    debug() << "\nRun kernel:\n";
     if (sg) {
       segmented_fusion_->makeFusion(sg)->printMath();
     } else {
       segmented_fusion_->completeFusion()->printMath();
     }
-    std::cout << "With inputs:\n";
+    debug() << "With inputs:\n";
     for (auto i : c10::irange(args.size())) {
-      std::cout << "  " << args[i]->toString() << std::endl;
+      debug() << "  " << args[i]->toString() << std::endl;
     }
-    std::cout << "Compiler log: " << executor.compilerLog() << "\n";
-    std::cout << scheduler_entry->params()->toString() << "\n";
-    std::cout << "With arguments: " << executor.lastLaunchParams().toString();
-    std::cout << executor.kernelName() << " " << executor.bytesProcessed()
-              << " bytes/ " << std::setprecision(3) << executor.kernelTimeMs()
-              << " ms "
-              << ((double)executor.bytesProcessed() /
-                  ((double)executor.kernelTimeMs() / 1000)) /
+    debug() << "Compiler log: " << executor.compilerLog() << "\n";
+    debug() << scheduler_entry->params()->toString() << "\n";
+    debug() << "With arguments: " << executor.lastLaunchParams().toString();
+    debug() << executor.kernelName() << " " << executor.bytesProcessed()
+            << " bytes/ " << std::setprecision(3) << executor.kernelTimeMs()
+            << " ms "
+            << ((double)executor.bytesProcessed() /
+                ((double)executor.kernelTimeMs() / 1000)) /
             (double)1.0e9
-              << " GB/s" << std::endl;
+            << " GB/s" << std::endl;
     executor.setMeasureKernelTimeFlag(false);
   }
 
@@ -849,13 +856,20 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
       group_runtime_inputs.push(args_manager.checkTensorMap(input));
     }
 
-    // launch compileKernel thread here
-    getThreadPool()->run([=]() {
+    if (num_groups == 1 || isOptionDisabled(DisableOption::ParallelCompile)) {
       FUSER_PERF_SCOPE("FusionKernelRuntime::compileFusionParallel");
       c10::cuda::CUDAGuard dg(args.getDeviceIndex());
       c10::Device device(c10::DeviceType::CUDA, args.getDeviceIndex());
       compileKernel(group_runtime_inputs, group_to_run);
-    });
+    } else {
+      // launch compileKernel thread here
+      getThreadPool()->run([=]() {
+        FUSER_PERF_SCOPE("FusionKernelRuntime::compileFusionParallel");
+        c10::cuda::CUDAGuard dg(args.getDeviceIndex());
+        c10::Device device(c10::DeviceType::CUDA, args.getDeviceIndex());
+        compileKernel(group_runtime_inputs, group_to_run);
+      });
+    }
 
     auto fusion_to_run = segmented_fusion_->makeFusion(group_to_run);
     auto group_runtime_outputs =
@@ -868,8 +882,10 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
     num_live_args_after_segment_runs_.push_back((int64_t)args.size());
   }
 
-  // wait until all segments finish compiling
-  getThreadPool()->waitWorkComplete();
+  if (num_groups != 1 && !isOptionDisabled(DisableOption::ParallelCompile)) {
+    // wait until all segments finish compiling
+    getThreadPool()->waitWorkComplete();
+  }
 }
 
 void FusionKernelRuntime::compileKernel(
@@ -918,16 +934,16 @@ std::vector<at::Tensor> FusionKernelRuntime::runWithInputs(
   FUSER_PERF_SCOPE("FusionKernelRuntime::runWithInputs");
 
   if (isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
-    std::cout << "=================RUNNING FUSION SEGMENTS================="
-              << std::endl;
+    debug() << "=================RUNNING FUSION SEGMENTS================="
+            << std::endl;
   }
 
   c10::Device device(c10::DeviceType::CUDA, (int8_t)args.getDeviceIndex());
   const auto& tensor_map = runSegmentsWithInputs(args);
 
   if (isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
-    std::cout << "============= FINISHED RUNNING FUSION SEGMENTS ============"
-              << std::endl;
+    debug() << "============= FINISHED RUNNING FUSION SEGMENTS ============"
+            << std::endl;
   }
 
   // Produce final global output

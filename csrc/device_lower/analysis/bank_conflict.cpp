@@ -7,11 +7,11 @@
 // clang-format on
 #include <device_lower/analysis/bank_conflict.h>
 
-#include <dynamic_type.h>
 #include <expr_evaluator.h>
 #include <ir/utils.h>
 #include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
+#include <scalar_value.h>
 #include <type.h>
 
 #include <unordered_set>
@@ -202,7 +202,7 @@ class BankConflictInfo : public kir::IrVisitor {
   static std::unordered_map<const Expr*, std::pair<int, int>> get(
       const kir::Kernel* kernel,
       LaunchParams launch_params,
-      const std::unordered_map<Val*, EvaluatorValue>& known_values) {
+      const std::unordered_map<Val*, ScalarValue>& known_values) {
     if (kernel->topLevelExprs().empty()) {
       return {};
     }
@@ -214,7 +214,7 @@ class BankConflictInfo : public kir::IrVisitor {
   BankConflictInfo(
       const kir::Kernel* kernel,
       LaunchParams launch_params,
-      const std::unordered_map<Val*, EvaluatorValue>& known_values) {
+      const std::unordered_map<Val*, ScalarValue>& known_values) {
     bindValues(launch_params, known_values);
     inferLaunchParams(kernel);
     handle(kernel->topLevelExprs());
@@ -222,10 +222,10 @@ class BankConflictInfo : public kir::IrVisitor {
 
   void bindValues(
       LaunchParams launch_params,
-      const std::unordered_map<Val*, EvaluatorValue>& known_values) {
-    expr_eval_.bind("blockIdx.x", 0);
-    expr_eval_.bind("blockIdx.y", 0);
-    expr_eval_.bind("blockIdx.z", 0);
+      const std::unordered_map<Val*, ScalarValue>& known_values) {
+    expr_eval_.bind("blockIdx.x", 0L);
+    expr_eval_.bind("blockIdx.y", 0L);
+    expr_eval_.bind("blockIdx.z", 0L);
     if (launch_params.bdimx() != LaunchParams::UNINITIALIZED_VAL) {
       expr_eval_.bind(ParallelType::TIDx, launch_params.bdimx());
     }
@@ -294,7 +294,7 @@ class BankConflictInfo : public kir::IrVisitor {
 std::unordered_map<const Expr*, std::pair<int, int>> getBankConflictInfo(
     const kir::Kernel* kernel,
     LaunchParams launch_params,
-    const std::unordered_map<Val*, EvaluatorValue>& known_values) {
+    const std::unordered_map<Val*, ScalarValue>& known_values) {
   for (const auto& pair : known_values) {
     if (auto ns = dynamic_cast<NamedScalar*>(pair.first)) {
       TORCH_CHECK(

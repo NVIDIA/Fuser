@@ -11,6 +11,7 @@
 
 // NOTE: included to avoid compilation error caused by missing destructor in
 // 'SchedulerRuntimeInfo'
+#include <debug.h>
 #include <executor_utils.h>
 #include <ir/base_nodes.h>
 #include <ir/interface_nodes.h>
@@ -42,7 +43,7 @@ using ProblemShape = std::array<int64_t, 3>;
 
 //! A wrapper for printing debug details.
 void printMsg(const std::string& msg) {
-  std::cout << msg << std::endl;
+  debug() << msg << std::endl;
 }
 
 //! A helper for deciding the type of MMA op for given fusion and problem shape.
@@ -219,12 +220,6 @@ std::string isMatmulFusionDefinitionSupported(
     if (minimal_number_of_inputs > fusion_inputs.size()) {
       return "Fusion inputs contain at least one non-TensorView object";
     }
-    if (minimal_number_of_inputs != fusion_inputs_tvs.size()) {
-      std::stringstream ss;
-      ss << "Fusion inputs must contain at least " << minimal_number_of_inputs
-         << " TensorView objects";
-      return ss.str();
-    }
 
     // Fusion has only TVs as outputs, and we expect only one object in the list
     if ((expected_number_of_outputs != fusion_outputs_tvs.size())) {
@@ -239,28 +234,55 @@ std::string isMatmulFusionDefinitionSupported(
       return roles_map_opt.getErrorMsg();
     }
 
-    size_t core_roles_count = 0;
     const auto& roles_map = roles_map_opt.getData();
-    if (roles_map.count(MatmulRole::MMA_INPUT_A) ==
-        MATMUL_CORE_ROLES_EXPECTED_COUNT) {
-      ++core_roles_count;
+    auto entry = roles_map.find(MatmulRole::INPUT_A);
+    std::set<TensorView*> tvs_with_roles;
+
+    if (entry != roles_map.end()) {
+      if (MATMUL_CORE_ROLES_EXPECTED_COUNT == entry->second.size()) {
+        tvs_with_roles.insert(entry->second.begin(), entry->second.end());
+      } else {
+        return "There is more than a single fusion input that can be MMA first input";
+      }
     } else {
       return "No candidate in fusion inputs for MMA first input";
     }
-    if (roles_map.count(MatmulRole::MMA_INPUT_B) ==
-        MATMUL_CORE_ROLES_EXPECTED_COUNT) {
-      ++core_roles_count;
+
+    entry = roles_map.find(MatmulRole::INPUT_B);
+    if (entry != roles_map.end()) {
+      if (MATMUL_CORE_ROLES_EXPECTED_COUNT == entry->second.size()) {
+        tvs_with_roles.insert(entry->second.begin(), entry->second.end());
+      } else {
+        return "There is more than a single fusion input that can be MMA second input";
+      }
     } else {
       return "No candidate in fusion inputs for MMA second input";
     }
-    if (roles_map.count(MatmulRole::MMA_OUTPUT) ==
-        MATMUL_CORE_ROLES_EXPECTED_COUNT) {
-      ++core_roles_count;
+
+    entry = roles_map.find(MatmulRole::OUTPUT_D);
+    if (entry != roles_map.end()) {
+      if (MATMUL_CORE_ROLES_EXPECTED_COUNT == entry->second.size()) {
+        tvs_with_roles.insert(entry->second.begin(), entry->second.end());
+      } else {
+        return "There is more than a single fusion output that can be MMA output";
+      }
     } else {
       return "No candidate in fusion outputs MMA output";
     }
-    if (roles_map.size() != core_roles_count) {
-      return "Detected fusion roles that are not supported";
+
+    // Non-core roles are optional, no requirements for their presence
+    entry = roles_map.find(MatmulRole::INPUT_C);
+    if (entry != roles_map.end()) {
+      if (entry->second.size() > 1) {
+        return "Unsupported configuration: there is more than a single fusion input TV with non-core role";
+      }
+      tvs_with_roles.insert(entry->second.begin(), entry->second.end());
+    }
+
+    const auto in_out_tvs_count =
+        fusion_inputs_tvs.size() + fusion_outputs_tvs.size();
+    if (in_out_tvs_count != tvs_with_roles.size()) {
+      return "Detected input/output TVs without assigned roles";
     }
   }
 
