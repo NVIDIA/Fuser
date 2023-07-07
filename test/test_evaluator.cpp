@@ -39,8 +39,8 @@ TEST_F(ExprEvalTest, Constants) {
 
   ExpressionEvaluator evaluator;
 
-  auto* a = IrBuilder::create<Int>(7);
-  auto* b = IrBuilder::create<Int>(3);
+  auto* a = IrBuilder::create<Scalar>(7);
+  auto* b = IrBuilder::create<Scalar>(3);
 
   // Avoid div operation because it casts int operands to float
   checkIntValue(evaluator, neg(a), -7);
