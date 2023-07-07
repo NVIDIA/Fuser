@@ -862,7 +862,8 @@ namespace container_test {
 // https://en.wikipedia.org/wiki/Set-theoretic_definition_of_natural_numbers
 
 // TODO: unordered set is a better fit for this case, but it does not work with
-// some old compilers (for example the old gcc on our CI). This is a workaround
+// some old compilers (for example the old gcc on our CI). This is a workaround.
+// See [Incomplete type support in STL] for more details.
 #if defined(__clang__) || __GNUC__ >= 12
 
 struct StupidHash {
