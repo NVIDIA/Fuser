@@ -347,8 +347,8 @@ TEST_F(ExprEvalTest, Array) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  auto* a = IrBuilder::create<Int>();
-  auto* b = IrBuilder::create<Int>();
+  auto* a = IrBuilder::create<Scalar>(DataType::Int);
+  auto* b = IrBuilder::create<Scalar>(DataType::Int);
 
   auto arr = IrBuilder::arrayExpr(std::vector<Val*>{a, b});
 

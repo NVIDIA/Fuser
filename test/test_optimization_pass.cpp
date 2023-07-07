@@ -584,7 +584,7 @@ TEST_F(NVFuserTest, FusionRemoveEmptyPad_CUDA) {
   fusion.addInput(tv0);
 
   // Use a non-zero pad value to verify that it is used in the rewritten fill
-  auto pad_val = IrBuilder::create<Double>(3.14, DataType::Float);
+  auto pad_val = IrBuilder::create<Scalar>(3.14, DataType::Float);
 
   // equivalent to full({3, 2}, pad_val, DataType::Float)
   auto tv1 = pad(tv0, {fusion.oneVal(), fusion.oneVal()}, pad_val);

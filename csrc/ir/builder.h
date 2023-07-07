@@ -86,8 +86,8 @@ class TORCH_CUDA_CU_API IrBuilder {
   static Scalar* whereExpr(Val* pred, Val* lhs, Val* rhs);
 
   // Array and struct access
-  static Val* getItemExpr(Val* array, Val* index);
-  static Val* getAttrExpr(Val* struct_, std::string attr);
+  static Scalar* getItemExpr(Val* array, Val* index);
+  static Scalar* getAttrExpr(Val* struct_, std::string attr);
 
   // Construct an array of values, or nested arrays of values.
   template <typename T>

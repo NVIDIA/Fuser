@@ -192,7 +192,7 @@ Scalar* IrBuilder::getItemExpr(Val* array, Val* index) {
   return out;
 }
 
-Val* IrBuilder::getAttrExpr(Val* struct_, std::string attr) {
+Scalar* IrBuilder::getAttrExpr(Val* struct_, std::string attr) {
   auto item_dtype =
       NVFUSER_MAYBE_STAR std::get<StructOf>(getMaybeMetaDataType(struct_).type)
           .types.at(attr);
@@ -201,7 +201,7 @@ Val* IrBuilder::getAttrExpr(Val* struct_, std::string attr) {
   return out;
 }
 
-Val* SimplifyingIrBuilder::negExpr(Val* val) {
+Scalar* SimplifyingIrBuilder::negExpr(Val* val) {
   if (val->isZeroInt()) {
     return val->container()->zeroVal();
   } else if (auto scalar = dynamic_cast<Scalar*>(val)) {

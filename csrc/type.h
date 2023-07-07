@@ -833,4 +833,7 @@ const char* const kMagicZeroName = "nvfuser_zero";
 //! limit can be increased by extending struct Tuple define in tuple.cu.
 static constexpr int kMaxNumGroupedReductions = 16;
 
+Pointer::Pointer(void* ptr, DataType dtype)
+    : ptr_(reinterpret_cast<std::byte*>(ptr)), size_(dataTypeSize(dtype)) {}
+
 } // namespace nvfuser
