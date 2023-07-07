@@ -173,6 +173,7 @@ std::unordered_map<DisableOption, std::vector<std::string>> Options<
       {"index_hoist", DisableOption::IndexHoist},
       {"magic_zero", DisableOption::MagicZero},
       {"nvtx", DisableOption::Nvtx},
+      {"parallel_compile", DisableOption::ParallelCompile},
       {"predicate_elimination", DisableOption::PredicateElimination},
       {"var_name_remapping", DisableOption::VarNameRemapping},
       {"welford_vectorization", DisableOption::WelfordVectorization}};
