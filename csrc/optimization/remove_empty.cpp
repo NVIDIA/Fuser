@@ -260,8 +260,16 @@ class EmptyTensorRemover : public DeadCodeRemover {
     if (non_empty_inputs.size() != cop->inputs().size()) {
       // Replace this op with a new cat op
       auto old_tv = cop->outputs()[0]->as<TensorView>();
-      // NOTE: cat() will translate to set() if non_empty_inputs.size() == 1
-      auto new_tv = cat(non_empty_inputs, dim);
+      // NOTE: cat() will translate to set() if non_empty_inputs.size() == 1.
+      // Also note that unless we're careful this call to cat() might result in
+      // symbolic axis, since the inputs have potentially symbolic extents in
+      // the cat dimension. However, since we have already undergone
+      // concretization at this point, we can trust that the original IterType,
+      // so we pass it here to avoid creating new Symbolic axes.
+      auto iter_type = old_tv->getMaybeRFactorDomain()
+                           .at(cop->concatenatedDim())
+                           ->getIterType();
+      auto new_tv = cat(non_empty_inputs, dim, iter_type);
       registerReplacement(old_tv, new_tv);
     }
   }

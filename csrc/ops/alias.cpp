@@ -441,7 +441,8 @@ bool hasSimilarDtype(DataType base, DataType dt) {
 TensorView* pad(
     TensorView* inp,
     const std::vector<Val*>& pad_widths,
-    Val* value) {
+    Val* value,
+    std::optional<IterType> iter_type_opt) {
   DataType dt = inp->getDataType().value();
   if (!value) {
     // Create a zero of the appropriate type
@@ -510,7 +511,8 @@ TensorView* pad(
       out_root_id =
           IterDomainBuilder(inp_root_id).is_rfactor_domain(true).build();
       // Expand the root domain and mark it as a rfactor domain
-      out_rf_id = IterDomain::resize(out_root_id, left_pad, right_pad, true);
+      out_rf_id = IterDomain::resize(
+          out_root_id, left_pad, right_pad, true, iter_type_opt);
       is_padded_any = true;
     }
     root_ids.at(idx) = out_root_id;
@@ -539,7 +541,10 @@ TensorView* pad(
 // account for the size difference between each of the inputs and the
 // output. All of the inputs to CatOp have the same shape as the
 // output shape.
-TensorView* cat(const std::vector<TensorView*>& inputs, int64_t cat_dim) {
+TensorView* cat(
+    const std::vector<TensorView*>& inputs,
+    int64_t cat_dim,
+    std::optional<IterType> iter_type_opt) {
   TORCH_CHECK(!inputs.empty(), "No input tensor given");
 
   const auto dtype = inputs.at(0)->getDataType().value();
@@ -642,7 +647,8 @@ TensorView* cat(const std::vector<TensorView*>& inputs, int64_t cat_dim) {
       pad_widths.at((ndims - dim - 1) * 2 + 1) = right_pad_i;
     }
 
-    resized_inputs.at(input_idx) = pad(inputs.at(input_idx), pad_widths);
+    resized_inputs.at(input_idx) =
+        pad(inputs.at(input_idx), pad_widths, nullptr, iter_type_opt);
   }
 
   // Now all of resized_inputs have the same shape as the out tensor
