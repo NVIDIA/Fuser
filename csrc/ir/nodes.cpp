@@ -670,6 +670,11 @@ std::string ArrayConstruct::toInlineString(int indent_size) const {
   return ss.str();
 }
 
+std::vector<ScalarValue> ArrayConstruct::evaluate(
+    const std::vector<ScalarValue>& inputs) const {
+  return {ScalarValue(inputs)};
+}
+
 NVFUSER_DEFINE_CLONE_AND_CREATE(ArrayConstruct)
 
 GetItem::GetItem(IrBuilderPasskey passkey, Val* output, Val* array, Val* index)
@@ -696,7 +701,50 @@ std::string GetItem::toInlineString(int indent_size) const {
   return ss.str();
 }
 
+std::vector<ScalarValue> GetItem::evaluate(
+    const std::vector<ScalarValue>& inputs) const {
+  TORCH_INTERNAL_ASSERT(inputs.size() == 2, "GetItem expects 2 inputs");
+  return {ScalarValue(inputs.at(0)[inputs.at(1)])};
+}
+
 NVFUSER_DEFINE_CLONE_AND_CREATE(GetItem)
+
+GetAttr::GetAttr(
+    IrBuilderPasskey passkey,
+    Val* output,
+    Val* struct_,
+    std::string attr)
+    : Expr(passkey) {
+  TORCH_INTERNAL_ASSERT(
+      NVFUSER_MAYBE_STAR std::get<StructOf>(getMaybeMetaDataType(struct_).type)
+              .types.at(attr) == output->dtype(),
+      "Data type mismatch for GetAttr");
+  addOutput(output);
+  addInput(struct_);
+  addAttribute(IrBuilder::create<Attribute<std::string>>(
+      passkey.ir_container_, std::move(attr)));
+}
+
+std::string GetAttr::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << out()->toString() << " = " << struct_()->toString()
+                          << "." << attr() << "\n";
+  return ss.str();
+}
+
+std::string GetAttr::toInlineString(int indent_size) const {
+  std::stringstream ss;
+  ss << "(" << struct_()->toInlineString() << ")." << attr() << "";
+  return ss.str();
+}
+
+std::vector<ScalarValue> GetAttr::evaluate(
+    const std::vector<ScalarValue>& inputs) const {
+  TORCH_INTERNAL_ASSERT(inputs.size() == 1, "GetAttr expects 1 input");
+  return {inputs.at(0)[attr()]};
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(GetAttr)
 
 TensorConstruct::TensorConstruct(
     IrBuilderPasskey passkey,

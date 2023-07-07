@@ -17,8 +17,156 @@
 
 namespace nvfuser {
 
-using ScalarValue =
-    DynamicType<NoContainers, std::complex<double>, double, int64_t, bool>;
+template <typename T>
+struct Struct {
+  // In theory, we should just use std::unordered_map<std::string, T>, but this
+  // doesn't work on old gcc. See also SetTheoreticNaturalNumbers
+#if defined(__clang__) || __GNUC__ >= 12
+  std::unordered_map<std::string, T> fields;
+#define MAYBE_STAR
+#else
+  std::unordered_map<std::string, std::shared_ptr<T>> fields;
+#define MAYBE_STAR *
+#endif
+
+  const T& operator[](const std::string& key) const {
+    return MAYBE_STAR fields.at(key);
+  }
+
+  T& operator[](const std::string& key) {
+#if defined(__clang__) || __GNUC__ >= 12
+    return fields[key];
+#else
+    if (fields.find(key) == fields.end()) {
+      fields[key] = std::make_shared<T>();
+    }
+    return *fields.at(key);
+#endif
+  }
+
+#undef MAYBE_STAR
+};
+
+// Use a single pointer type to represent all pointers, otherwise we would need
+// exponential compilation time for all pointer types in ScalarValue.
+class Pointer {
+  std::byte* ptr_;
+  size_t size_;
+
+ public:
+  template <typename T>
+  Pointer(T* ptr) : ptr_(reinterpret_cast<std::byte*>(ptr)), size_(sizeof(T)) {}
+
+  Pointer(void* ptr, DataType dtype)
+      : ptr_(reinterpret_cast<std::byte*>(ptr)), size_(dataTypeSize(dtype)) {}
+
+  template <typename T>
+  explicit operator T*() const {
+    TORCH_INTERNAL_ASSERT(size_ == sizeof(T));
+    return static_cast<T*>(ptr_);
+  }
+
+  Pointer& operator+=(int64_t offset) {
+    ptr_ += offset * size_;
+    return *this;
+  }
+
+  Pointer& operator-=(int64_t offset) {
+    ptr_ -= offset * size_;
+    return *this;
+  }
+
+  Pointer& operator++() {
+    ptr_ += size_;
+    return *this;
+  }
+
+  Pointer& operator--() {
+    ptr_ -= size_;
+    return *this;
+  }
+
+  Pointer operator++(int) {
+    Pointer tmp = *this;
+    ++*this;
+    return tmp;
+  }
+
+  Pointer operator--(int) {
+    Pointer tmp = *this;
+    --*this;
+    return tmp;
+  }
+
+  Pointer operator+(int64_t offset) const {
+    Pointer tmp = *this;
+    tmp += offset;
+    return tmp;
+  }
+
+  Pointer operator-(int64_t offset) const {
+    Pointer tmp = *this;
+    tmp -= offset;
+    return tmp;
+  }
+
+  int64_t operator-(const Pointer& other) const {
+    TORCH_INTERNAL_ASSERT(size_ == other.size_);
+    return (ptr_ - other.ptr_) / (int64_t)size_;
+  }
+
+  bool operator==(const Pointer& other) const {
+    return ptr_ == other.ptr_;
+  }
+
+  bool operator==(std::nullptr_t) const {
+    return ptr_ == nullptr;
+  }
+
+  bool operator!=(const Pointer& other) const {
+    return ptr_ != other.ptr_;
+  }
+
+  bool operator!=(std::nullptr_t) const {
+    return ptr_ != nullptr;
+  }
+
+  bool operator<(const Pointer& other) const {
+    return ptr_ < other.ptr_;
+  }
+
+  bool operator>(const Pointer& other) const {
+    return ptr_ > other.ptr_;
+  }
+
+  bool operator<=(const Pointer& other) const {
+    return ptr_ <= other.ptr_;
+  }
+
+  bool operator>=(const Pointer& other) const {
+    return ptr_ >= other.ptr_;
+  }
+
+  bool operator!() const {
+    return !ptr_;
+  }
+
+  explicit operator bool() const {
+    return ptr_;
+  }
+};
+
+inline Pointer operator+(int64_t offset, const Pointer& ptr) {
+  return ptr + offset;
+}
+
+using ScalarValue = DynamicType<
+    Containers<std::vector, Struct>,
+    std::complex<double>,
+    double,
+    int64_t,
+    bool,
+    Pointer>;
 
 namespace ScalarValue_functions {
 

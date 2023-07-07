@@ -430,6 +430,9 @@ class TORCH_CUDA_CU_API ArrayConstruct : public Expr {
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
 
+  std::vector<ScalarValue> evaluate(
+      const std::vector<ScalarValue>& inputs) const override;
+
   Val* out() const {
     return output(0);
   }
@@ -451,6 +454,9 @@ class TORCH_CUDA_CU_API GetItem : public Expr {
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
 
+  std::vector<ScalarValue> evaluate(
+      const std::vector<ScalarValue>& inputs) const override;
+
   Val* out() const {
     return output(0);
   }
@@ -461,6 +467,38 @@ class TORCH_CUDA_CU_API GetItem : public Expr {
 
   Val* index() const {
     return input(1);
+  }
+};
+
+// Get an attribute from a struct, struct.attr
+class TORCH_CUDA_CU_API GetAttr : public Expr {
+ public:
+  using Expr::Expr;
+
+  GetAttr(IrBuilderPasskey, Val* output, Val* struct_, std::string attr);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "GetAttr";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  std::vector<ScalarValue> evaluate(
+      const std::vector<ScalarValue>& inputs) const override;
+
+  Val* out() const {
+    return output(0);
+  }
+
+  Val* struct_() const {
+    return input(0);
+  }
+
+  std::string attr() const {
+    return attribute(0)->as<Attribute<std::string>>()->value;
   }
 };
 

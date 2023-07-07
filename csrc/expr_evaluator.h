@@ -32,6 +32,19 @@ class TORCH_CUDA_CU_API ExpressionEvaluator {
     bind_(value, ScalarValue(concrete_value));
   }
 
+  //! Bind tensor metadata to a TensorView
+  void bind(
+      const TensorView* tv,
+      void* data,
+      std::vector<int64_t> sizes,
+      std::vector<int64_t> strides) {
+    Struct<ScalarValue> concrete_value;
+    concrete_value["data"] = ScalarValue(Pointer(data, tv->dtype()));
+    concrete_value["sizes"] = ScalarValue(sizes);
+    concrete_value["strides"] = ScalarValue(strides);
+    bind_(tv, ScalarValue(concrete_value));
+  }
+
   //! Bind a concrete value to a named scalar
   void bind(const std::string& name, ScalarValue concrete_value) {
     bind_(name, ScalarValue(concrete_value));
