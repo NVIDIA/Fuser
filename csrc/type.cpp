@@ -22,11 +22,11 @@ DataType getMaybeMetaDataType(Val* v) {
   if (auto tv = dynamic_cast<TensorView*>(v)) {
     StructOf tv_metadata;
     tv_metadata.types["data"] =
-        GCC_BUG(PointerOf{std::make_shared<DataType>(tv->dtype())});
-    tv_metadata.types["sizes"] = GCC_BUG2(ArrayOf{
+        NVFUSER_MAYBE_MAKE_SHARED(PointerOf{std::make_shared<DataType>(tv->dtype())});
+    tv_metadata.types["sizes"] = NVFUSER_MAYBE_MAKE_SHARED2(ArrayOf{
         std::make_shared<DataType>(DataType::Index),
         TensorDomain::noReductions(tv->getMaybeRFactorDomain()).size()});
-    tv_metadata.types["strides"] = GCC_BUG2(ArrayOf{
+    tv_metadata.types["strides"] = NVFUSER_MAYBE_MAKE_SHARED2(ArrayOf{
         std::make_shared<DataType>(DataType::Index),
         TensorDomain::noReductions(tv->getMaybeAllocationDomain()).size()});
     return tv_metadata;

@@ -784,7 +784,7 @@ GetAttr::GetAttr(
     std::string attr)
     : Expr(passkey) {
   TORCH_INTERNAL_ASSERT(
-      GCC_BUG_STAR std::get<StructOf>(getMaybeMetaDataType(struct_).type)
+      NVFUSER_MAYBE_STAR std::get<StructOf>(getMaybeMetaDataType(struct_).type)
               .types.at(attr) == output->dtype(),
       "Data type mismatch for GetAttr");
   addOutput(output);

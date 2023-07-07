@@ -96,18 +96,34 @@ struct PointerOf {
 };
 
 struct StructOf {
-  // In theory, we should just use std::unordered_map<std::string, T>, but this
-  // doesn't work on old gcc. See also SetTheoreticNaturalNumbers
+  // Note [Incomplete type support in STL]
+  // std::unordered_map<std::string, DataType> is a STL container of incomplete
+  // type. Not all C++ STL containers supports incomplete type due to historical
+  // reason: It is totally possible to implement STL containers supporting
+  // incomplete type (actually, boost has these container implementations), and
+  // it totally makes sense to implement STL containers that way. However, due
+  // to historical reason, some standard C++ libraries are not implementing STL
+  // containers that way, and after careful consideration, the C++ standard
+  // committee decided to not write the requirement on supporting incomplete
+  // type into the standard because they didn't want to deprecate these
+  // libraries. However, starting from C++17, the standard start to ask
+  // std::vector, std::list and std::forward_list to support incomplete
+  // type. So:
+  //   struct A;
+  //   std::vector<A> a; // valid on C++17
+  //   std::unordered_set<A> s; // undefined behavior, working on newer gcc.
+  //   struct A {};
+
 #if defined(__clang__) || __GNUC__ >= 12
   std::unordered_map<std::string, DataType> types;
-#define GCC_BUG(x) x
-#define GCC_BUG2(x, y) x, y
-#define GCC_BUG_STAR
+#define NVFUSER_MAYBE_MAKE_SHARED(x) x
+#define NVFUSER_MAYBE_MAKE_SHARED2(x, y) x, y
+#define NVFUSER_MAYBE_STAR
 #else
   std::unordered_map<std::string, std::shared_ptr<DataType>> types;
-#define GCC_BUG(x) std::make_shared<DataType>(x)
-#define GCC_BUG2(x, y) std::make_shared<DataType>(x, y)
-#define GCC_BUG_STAR *
+#define NVFUSER_MAYBE_MAKE_SHARED(x) std::make_shared<DataType>(x)
+#define NVFUSER_MAYBE_MAKE_SHARED2(x, y) std::make_shared<DataType>(x, y)
+#define NVFUSER_MAYBE_STAR *
 #endif
   inline bool operator==(const StructOf& other) const;
 };

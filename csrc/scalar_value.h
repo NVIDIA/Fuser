@@ -24,14 +24,14 @@ struct Struct {
   // doesn't work on old gcc. See also SetTheoreticNaturalNumbers
 #if defined(__clang__) || __GNUC__ >= 12
   std::unordered_map<std::string, T> fields;
-#define GCC_BUG_Struct
+#define MAYBE_STAR
 #else
   std::unordered_map<std::string, std::shared_ptr<T>> fields;
-#define GCC_BUG_Struct *
+#define MAYBE_STAR *
 #endif
 
   const T& operator[](const std::string& key) const {
-    return GCC_BUG_Struct fields.at(key);
+    return MAYBE_STAR fields.at(key);
   }
 
   T& operator[](const std::string& key) {
@@ -45,7 +45,7 @@ struct Struct {
 #endif
   }
 
-#undef GCC_BUG_Struct
+#undef MAYBE_STAR
 };
 
 // Use a single pointer type to represent all pointers, otherwise we would need
