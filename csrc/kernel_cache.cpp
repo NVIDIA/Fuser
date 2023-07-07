@@ -673,6 +673,12 @@ FusionKernelRuntime::FusionKernelRuntime(
   optimization::OptimizationPass<optimization::PreSegmenter>::runPass(
       fusion.get());
 
+  if (isDebugDumpEnabled(DebugDumpOption::FusionIrPreseg)) {
+    std::cout << "Fusion IR after pre-segmenter optimization passes:"
+              << std::endl;
+    fusion->printMath();
+  }
+
   all_tvs_ = ir_utils::allTvs(fusion.get());
 
   // Run segmentation on the copied fusion

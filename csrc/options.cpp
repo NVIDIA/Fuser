@@ -117,6 +117,7 @@ std::unordered_map<DebugDumpOption, std::vector<std::string>> Options<
       {"fusion_args", DebugDumpOption::FusionArgs},
       {"fusion_ir", DebugDumpOption::FusionIr},
       {"fusion_ir_concretized", DebugDumpOption::FusionIrConcretized},
+      {"fusion_ir_preseg", DebugDumpOption::FusionIrPreseg},
       {"fusion_ir_math", DebugDumpOption::FusionIrMath},
       {"fusion_ir_presched", DebugDumpOption::FusionIrPresched},
       {"halo", DebugDumpOption::Halo},
