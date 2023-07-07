@@ -222,8 +222,9 @@ constexpr size_t MIN_MATMUL_INPUTS_NUMBER = 2;
 using ProblemIterDomains = std::array<IterDomain*, 3>;
 
 //! An alias for mapping between TensorView instance and its role in
-//!  matmul fusion definition,
-using RolesMap = std::map<MatmulRole, TensorView*>;
+//!  matmul fusion definition, some roles can be assigned to more than
+//!  a single tv, for example input for beta scaling in epilogue
+using RolesMap = std::map<MatmulRole, std::vector<TensorView*>>;
 
 //! A wrapper for data containers with optional error message stored if
 //!  initialization of the data fails.
