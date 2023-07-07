@@ -934,7 +934,7 @@ std::vector<Val*> InputsOf::outputs(
 }
 
 /* DEAD CODE REMOVER */
-void DeadCodeRemover::run() {
+bool DeadCodeRemover::run() {
   // First we build a set of all live Statements so that we can detect dead
   // branches.
   for (auto stmt : StmtSort::getStmts(fusion_, fusion_->outputs())) {
@@ -949,7 +949,7 @@ void DeadCodeRemover::run() {
   // We do not remove Statements from the Fusion while traversing, to avoid
   // dereferencing invalid pointers. Instead, we wait until this point to do the
   // removal.
-  modifyFusion();
+  return modifyFusion();
 }
 
 void DeadCodeRemover::handle(Statement* stmt) {
@@ -1063,7 +1063,8 @@ bool DeadCodeRemover::markDead(Statement* stmt) {
   return (bool)live_statements_.erase(stmt);
 }
 
-void DeadCodeRemover::modifyFusion() const {
+bool DeadCodeRemover::modifyFusion() const {
+  bool modified_fusion = false;
   for (auto [old_val, new_val] : vals_to_replace_) {
     if (old_val->isFusionOutput()) {
       fusion_->replaceOutput(old_val, new_val);
@@ -1071,9 +1072,11 @@ void DeadCodeRemover::modifyFusion() const {
     for (auto use : old_val->uses()) {
       ir_utils::replaceValInExpr(use, old_val, new_val);
     }
+    modified_fusion = true;
   }
   for (auto val : vals_to_remove_) {
     fusion_->removeVal(val);
+    modified_fusion = true;
   }
   for (auto expr : exprs_to_remove_) {
     // Fusion::removeVal(val) actually removes val->definition() from the
@@ -1086,6 +1089,7 @@ void DeadCodeRemover::modifyFusion() const {
         expr->toString(),
         " was marked for removal but has not yet been removed.");
   }
+  return modified_fusion;
 }
 
 } // namespace nvfuser

@@ -394,7 +394,9 @@ class DeadCodeRemover : BackwardVisitor {
 
   //! Instead of traverseTo, run() is the entry point for this class, and we
   //! always traverse from outputs backward to their inputs.
-  void run();
+  //!
+  //! Returns a bool indicating whether the Fusion was modified or not.
+  bool run();
 
   inline Fusion* fusion() const {
     return fusion_;
@@ -493,7 +495,9 @@ class DeadCodeRemover : BackwardVisitor {
   //! All modifications to the Fusion are registered during traversal then
   //! later they are committed by this method. For safety, this should only be
   //! run after traversing the graph.
-  void modifyFusion() const;
+  //!
+  //! Returns a bool indicating whether any modifications were performed.
+  bool modifyFusion() const;
 
  private:
   //! The Fusion associated with live_statements_
