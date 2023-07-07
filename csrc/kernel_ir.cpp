@@ -444,7 +444,7 @@ ForLoop::ForLoop(
   TORCH_INTERNAL_ASSERT(
       passkey.ir_container_->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
-  TORCH_INTERNAL_ASSERT(index->dtype() == DataType::Int);
+  TORCH_INTERNAL_ASSERT(isIntegralType(index->dtype()));
   addInput(index);
   addInput(iter_domain);
   if (start == nullptr && iter_domain->isThread()) {
