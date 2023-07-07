@@ -525,31 +525,37 @@ void initNvFuserPythonBindings(PyObject* module) {
       "define_scalar",
       [](FusionDefinition& self,
          ScalarValue value,
-         PrimDataType dtype) -> Scalar {
+         std::optional<PrimDataType> dtype) -> Scalar {
         FUSER_PERF_SCOPE("FusionDefinition.define_scalar");
         Scalar out = self.defineScalar();
         self.defineRecord(new ScalarRecord(
-            {self.recordingState(out())}, Serde_RType, value, dtype));
+            {self.recordingState(out())},
+            serde::RecordType_Constant,
+            value,
+            dtype));
         return out;
       },
       py::arg("value"),
-      py::arg("dtype") = Nvfuser_DType,
+      py::arg("dtype") = std::nullopt,
       py::return_value_policy::reference);
   fusion_def.def(
       "define_constant",
       [](FusionDefinition& self,
          ScalarValue value,
-         PrimDataType dtype) -> Scalar {
+         std::optional<PrimDataType> dtype) -> Scalar {
         FUSER_PERF_SCOPE("FusionDefinition.define_contant");
         TORCH_WARN_ONCE(
             "Deprecating define_constant functions in favor of define_scalar for constants.");
         Scalar out = self.defineScalar();
         self.defineRecord(new ScalarRecord(
-            {self.recordingState(out())}, Serde_RType, value, dtype));
+            {self.recordingState(out())},
+            serde::RecordType_Constant,
+            value,
+            dtype));
         return out;
       },
       py::arg("value"),
-      py::arg("dtype") = Nvfuser_DType,
+      py::arg("dtype") = std::nullopt,
       py::return_value_policy::reference);
 
   // This is the input version of define_vector

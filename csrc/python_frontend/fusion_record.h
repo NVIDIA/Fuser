@@ -1926,10 +1926,13 @@ struct ScalarRecord : RecordFunctor {
       std::vector<State> _outputs,
       serde::RecordType record_type,
       ScalarValue value,
-      PrimDataType dtype)
+      std::optional<PrimDataType> dtype)
       : RecordFunctor({}, std::move(_outputs), "define_scalar", record_type),
         value_(std::move(value)),
-        dtype_(dtype) {}
+        dtype_(
+            dtype.has_value()
+                ? dtype.value()
+                : std::get<PrimDataType>(getDataType(value).type)) {}
   ~ScalarRecord() override = default;
   RecordFunctor* clone() final {
     return new ScalarRecord(*this);
