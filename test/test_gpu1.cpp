@@ -752,11 +752,20 @@ TEST_F(NVFuserTest, FusionEquality_CUDA) {
   TORCH_CHECK(ione->sameAs(IrBuilder::create<Scalar>(1)));
 
   BinaryOp* add1 = IrBuilder::create<BinaryOp>(
-      BinaryOpType::Add, IrBuilder::create<Scalar>(DataType::Double), fval1, ival1);
+      BinaryOpType::Add,
+      IrBuilder::create<Scalar>(DataType::Double),
+      fval1,
+      ival1);
   BinaryOp* add1_copy = IrBuilder::create<BinaryOp>(
-      BinaryOpType::Add, IrBuilder::create<Scalar>(DataType::Double), fval1, ival1);
+      BinaryOpType::Add,
+      IrBuilder::create<Scalar>(DataType::Double),
+      fval1,
+      ival1);
   BinaryOp* sub1 = IrBuilder::create<BinaryOp>(
-      BinaryOpType::Sub, IrBuilder::create<Scalar>(DataType::Double), fval1, ival1);
+      BinaryOpType::Sub,
+      IrBuilder::create<Scalar>(DataType::Double),
+      fval1,
+      ival1);
 
   UnaryOp* neg1 = IrBuilder::create<UnaryOp>(
       UnaryOpType::Neg, IrBuilder::create<Scalar>(DataType::Double), fval1);
@@ -2952,7 +2961,17 @@ Val* gen_jit_operand(std::pair<ValType, DataType> desc) {
   if (desc.first == ValType::TensorView) {
     return makeSymbolicTensor(2, desc.second);
   } else if (desc.first == ValType::Scalar) {
-    return IrBuilder::create<Scalar>(desc.second);
+    if (desc.second == DataType::Float || desc.second == DataType::Double) {
+      return IrBuilder::create<Scalar>(DataType::Double);
+    } else if (
+        desc.second == DataType::ComplexFloat ||
+        desc.second == DataType::ComplexDouble) {
+      return IrBuilder::create<Scalar>(DataType::ComplexDouble);
+    } else if (desc.second == DataType::Int || desc.second == DataType::Int32) {
+      return IrBuilder::create<Scalar>(DataType::Int);
+    } else {
+      TORCH_CHECK(false, "Not currently supported type: ", desc.first);
+    }
   } else {
     TORCH_CHECK(false, "Not currently supported type: ", desc.first);
   }
@@ -3915,8 +3934,8 @@ TEST_F(NVFuserTest, FusionReduction6_CUDA) {
   fusion.addInput(tv0);
 
   // tv1[I0, R1, R2] = tv0[I0, I1, I2]
-  TensorView* tv1 =
-      reductionOp(BinaryOpType::Add, {1, 2}, IrBuilder::create<Scalar>(0.0), tv0);
+  TensorView* tv1 = reductionOp(
+      BinaryOpType::Add, {1, 2}, IrBuilder::create<Scalar>(0.0), tv0);
   fusion.addOutput(tv1);
 
   TORCH_CHECK(
@@ -5311,8 +5330,8 @@ TEST_F(NVFuserTest, FusionGridReduction6_CUDA) {
   fusion.addInput(tv0);
 
   // tv1[I0, R1, R2] = tv0[I0, I1, I2]
-  TensorView* tv1 =
-      reductionOp(BinaryOpType::Add, {1, 2}, IrBuilder::create<Scalar>(0.0), tv0);
+  TensorView* tv1 = reductionOp(
+      BinaryOpType::Add, {1, 2}, IrBuilder::create<Scalar>(0.0), tv0);
   fusion.addOutput(tv1);
 
   TORCH_CHECK(
