@@ -2015,10 +2015,9 @@ struct ScalarRecord : RecordFunctor {
     return valueRecordData(builder, value_);
   };
 
-  // inline std::pair<serde::RecordData, flatbuffers::Offset<void>>
-  // valueRecordData(
-  //     flatbuffers::FlatBufferBuilder& builder,
-  //     ScalarValue value) const;
+  inline std::pair<serde::RecordData, flatbuffers::Offset<void>> valueRecordData(
+      flatbuffers::FlatBufferBuilder& builder,
+      ScalarValue value) const;
 
  private:
   //! The scalar's value, an input is a nullopt
@@ -2027,22 +2026,20 @@ struct ScalarRecord : RecordFunctor {
   PrimDataType dtype_;
 };
 
-// template <>
-// inline std::pair<serde::RecordData, flatbuffers::Offset<void>> ScalarRecord::
-//     valueRecordData(
-//         flatbuffers::FlatBufferBuilder& builder,
-//         ScalarValue value) const {
-//   if (value.hasValue()) {
-//     return {
-//         serde::RecordData_Bool,
-//         serde::CreateBool(builder, value).Union()};
-//   } else {
-//     return {
-//         serde::RecordData_ScalarInput,
-//         serde::CreateScalarInput(builder, serde::mapToSerdeDtype(dtype_))
-//             .Union()};
-//   }
-// }
+inline std::pair<serde::RecordData, flatbuffers::Offset<void>> ScalarRecord::
+    valueRecordData(flatbuffers::FlatBufferBuilder& builder, ScalarValue value)
+        const {
+  if (value.hasValue()) {
+    return {
+        serde::RecordData_Constant,
+        serde::mapToSerdeConstant(builder, value).Union()};
+  } else {
+    return {
+        serde::RecordData_ScalarInput,
+        serde::CreateScalarInput(builder, serde::mapToSerdeDtype(dtype_))
+            .Union()};
+  }
+}
 
 struct SliceOpRecord : RecordFunctor {
   SliceOpRecord(

@@ -68,6 +68,7 @@ enum RecordType : int {
     Binary_VAL,
     Binary_TV_VAL,
     Binary_VAL_TV,
+    Constant,
     Ternary_TV,
     Ternary_VAL,
     Ternary_TV_TV_VAL,
@@ -94,7 +95,7 @@ enum RecordType : int {
     ReductionProd,
     ReductionSum,
     ReshapeOp,
-    Scalar,
+    ScalarInput,
     SliceOp,
     SqueezeOp,
     Start,
@@ -112,15 +113,12 @@ enum RecordType : int {
 // The RecordData hold the attribute information for each Record Functor.
 union RecordData {
   BatchNorm,
-  Bool,
   Broadcast,
   BroadcastInDim,
   BroadcastInDimSymbolic,
-  ComplexDouble,
+  Constant,
   Dimension,
-  Double,
   Dtype,
-  Long,
   Norm,
   Output,
   Pad,
@@ -172,6 +170,16 @@ table ComplexDouble {
   real: double;
   imag: double;
   dtype: DataType;
+}
+
+// Data for ScalarValue
+table Constant {
+  dtype: DataType;
+  bool_value: bool;
+  long_value: long;
+  double_value: double;
+  real_value: double;
+  imag_value: double;
 }
 
 // Data representing a tensor shape

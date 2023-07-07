@@ -34,6 +34,9 @@ struct BFloat16Builder;
 struct ComplexDouble;
 struct ComplexDoubleBuilder;
 
+struct Constant;
+struct ConstantBuilder;
+
 struct TensorShape;
 struct TensorShapeBuilder;
 
@@ -252,47 +255,48 @@ enum RecordType : int32_t {
   RecordType_Binary_VAL = 17,
   RecordType_Binary_TV_VAL = 18,
   RecordType_Binary_VAL_TV = 19,
-  RecordType_Ternary_TV = 20,
-  RecordType_Ternary_VAL = 21,
-  RecordType_Ternary_TV_TV_VAL = 22,
-  RecordType_Ternary_TV_VAL_TV = 23,
-  RecordType_Ternary_VAL_TV_TV = 24,
-  RecordType_Ternary_VAL_VAL_TV = 25,
-  RecordType_Ternary_TV_VAL_VAL = 26,
-  RecordType_Ternary_VAL_TV_VAL = 27,
-  RecordType_Ternary_Alpha_TV = 28,
-  RecordType_Ternary_Alpha_VAL = 29,
-  RecordType_Ternary_Alpha_TV_TV_VAL = 30,
-  RecordType_Ternary_Alpha_TV_VAL_TV = 31,
-  RecordType_Ternary_Alpha_VAL_TV_TV = 32,
-  RecordType_Ternary_Alpha_VAL_VAL_TV = 33,
-  RecordType_Ternary_Alpha_TV_VAL_VAL = 34,
-  RecordType_Ternary_Alpha_VAL_TV_VAL = 35,
-  RecordType_OutputTv = 36,
-  RecordType_OutputVal = 37,
-  RecordType_PadOp = 38,
-  RecordType_PermuteOp = 39,
-  RecordType_RandomOp = 40,
-  RecordType_ReductionMax = 41,
-  RecordType_ReductionMin = 42,
-  RecordType_ReductionProd = 43,
-  RecordType_ReductionSum = 44,
-  RecordType_ReshapeOp = 45,
-  RecordType_Scalar = 46,
-  RecordType_SliceOp = 47,
-  RecordType_SqueezeOp = 48,
-  RecordType_Start = 49,
-  RecordType_Tensor = 50,
-  RecordType_TensorSizes = 51,
-  RecordType_VarianceOp = 52,
-  RecordType_VarianceMeanOp = 53,
-  RecordType_VectorInput = 54,
-  RecordType_VectorLong = 55,
+  RecordType_Constant = 20,
+  RecordType_Ternary_TV = 21,
+  RecordType_Ternary_VAL = 22,
+  RecordType_Ternary_TV_TV_VAL = 23,
+  RecordType_Ternary_TV_VAL_TV = 24,
+  RecordType_Ternary_VAL_TV_TV = 25,
+  RecordType_Ternary_VAL_VAL_TV = 26,
+  RecordType_Ternary_TV_VAL_VAL = 27,
+  RecordType_Ternary_VAL_TV_VAL = 28,
+  RecordType_Ternary_Alpha_TV = 29,
+  RecordType_Ternary_Alpha_VAL = 30,
+  RecordType_Ternary_Alpha_TV_TV_VAL = 31,
+  RecordType_Ternary_Alpha_TV_VAL_TV = 32,
+  RecordType_Ternary_Alpha_VAL_TV_TV = 33,
+  RecordType_Ternary_Alpha_VAL_VAL_TV = 34,
+  RecordType_Ternary_Alpha_TV_VAL_VAL = 35,
+  RecordType_Ternary_Alpha_VAL_TV_VAL = 36,
+  RecordType_OutputTv = 37,
+  RecordType_OutputVal = 38,
+  RecordType_PadOp = 39,
+  RecordType_PermuteOp = 40,
+  RecordType_RandomOp = 41,
+  RecordType_ReductionMax = 42,
+  RecordType_ReductionMin = 43,
+  RecordType_ReductionProd = 44,
+  RecordType_ReductionSum = 45,
+  RecordType_ReshapeOp = 46,
+  RecordType_ScalarInput = 47,
+  RecordType_SliceOp = 48,
+  RecordType_SqueezeOp = 49,
+  RecordType_Start = 50,
+  RecordType_Tensor = 51,
+  RecordType_TensorSizes = 52,
+  RecordType_VarianceOp = 53,
+  RecordType_VarianceMeanOp = 54,
+  RecordType_VectorInput = 55,
+  RecordType_VectorLong = 56,
   RecordType_MIN = RecordType_Base,
   RecordType_MAX = RecordType_VectorLong
 };
 
-inline const RecordType (&EnumValuesRecordType())[56] {
+inline const RecordType (&EnumValuesRecordType())[57] {
   static const RecordType values[] = {
     RecordType_Base,
     RecordType_BatchNormOp,
@@ -314,6 +318,7 @@ inline const RecordType (&EnumValuesRecordType())[56] {
     RecordType_Binary_VAL,
     RecordType_Binary_TV_VAL,
     RecordType_Binary_VAL_TV,
+    RecordType_Constant,
     RecordType_Ternary_TV,
     RecordType_Ternary_VAL,
     RecordType_Ternary_TV_TV_VAL,
@@ -340,7 +345,7 @@ inline const RecordType (&EnumValuesRecordType())[56] {
     RecordType_ReductionProd,
     RecordType_ReductionSum,
     RecordType_ReshapeOp,
-    RecordType_Scalar,
+    RecordType_ScalarInput,
     RecordType_SliceOp,
     RecordType_SqueezeOp,
     RecordType_Start,
@@ -355,7 +360,7 @@ inline const RecordType (&EnumValuesRecordType())[56] {
 }
 
 inline const char * const *EnumNamesRecordType() {
-  static const char * const names[57] = {
+  static const char * const names[58] = {
     "Base",
     "BatchNormOp",
     "BroadcastOp",
@@ -376,6 +381,7 @@ inline const char * const *EnumNamesRecordType() {
     "Binary_VAL",
     "Binary_TV_VAL",
     "Binary_VAL_TV",
+    "Constant",
     "Ternary_TV",
     "Ternary_VAL",
     "Ternary_TV_TV_VAL",
@@ -402,7 +408,7 @@ inline const char * const *EnumNamesRecordType() {
     "ReductionProd",
     "ReductionSum",
     "ReshapeOp",
-    "Scalar",
+    "ScalarInput",
     "SliceOp",
     "SqueezeOp",
     "Start",
@@ -426,46 +432,40 @@ inline const char *EnumNameRecordType(RecordType e) {
 enum RecordData : uint8_t {
   RecordData_NONE = 0,
   RecordData_BatchNorm = 1,
-  RecordData_Bool = 2,
-  RecordData_Broadcast = 3,
-  RecordData_BroadcastInDim = 4,
-  RecordData_BroadcastInDimSymbolic = 5,
-  RecordData_ComplexDouble = 6,
-  RecordData_Dimension = 7,
-  RecordData_Double = 8,
-  RecordData_Dtype = 9,
-  RecordData_Long = 10,
-  RecordData_Norm = 11,
-  RecordData_Output = 12,
-  RecordData_Pad = 13,
-  RecordData_Permute = 14,
-  RecordData_Slice = 15,
-  RecordData_Squeeze = 16,
-  RecordData_Reduction = 17,
-  RecordData_Reshape = 18,
-  RecordData_ScalarInput = 19,
-  RecordData_Tensor = 20,
-  RecordData_TensorCreation = 21,
-  RecordData_TensorCreationSymbolic = 22,
-  RecordData_VectorInput = 23,
-  RecordData_VectorLong = 24,
+  RecordData_Broadcast = 2,
+  RecordData_BroadcastInDim = 3,
+  RecordData_BroadcastInDimSymbolic = 4,
+  RecordData_Constant = 5,
+  RecordData_Dimension = 6,
+  RecordData_Dtype = 7,
+  RecordData_Norm = 8,
+  RecordData_Output = 9,
+  RecordData_Pad = 10,
+  RecordData_Permute = 11,
+  RecordData_Slice = 12,
+  RecordData_Squeeze = 13,
+  RecordData_Reduction = 14,
+  RecordData_Reshape = 15,
+  RecordData_ScalarInput = 16,
+  RecordData_Tensor = 17,
+  RecordData_TensorCreation = 18,
+  RecordData_TensorCreationSymbolic = 19,
+  RecordData_VectorInput = 20,
+  RecordData_VectorLong = 21,
   RecordData_MIN = RecordData_NONE,
   RecordData_MAX = RecordData_VectorLong
 };
 
-inline const RecordData (&EnumValuesRecordData())[25] {
+inline const RecordData (&EnumValuesRecordData())[22] {
   static const RecordData values[] = {
     RecordData_NONE,
     RecordData_BatchNorm,
-    RecordData_Bool,
     RecordData_Broadcast,
     RecordData_BroadcastInDim,
     RecordData_BroadcastInDimSymbolic,
-    RecordData_ComplexDouble,
+    RecordData_Constant,
     RecordData_Dimension,
-    RecordData_Double,
     RecordData_Dtype,
-    RecordData_Long,
     RecordData_Norm,
     RecordData_Output,
     RecordData_Pad,
@@ -485,18 +485,15 @@ inline const RecordData (&EnumValuesRecordData())[25] {
 }
 
 inline const char * const *EnumNamesRecordData() {
-  static const char * const names[26] = {
+  static const char * const names[23] = {
     "NONE",
     "BatchNorm",
-    "Bool",
     "Broadcast",
     "BroadcastInDim",
     "BroadcastInDimSymbolic",
-    "ComplexDouble",
+    "Constant",
     "Dimension",
-    "Double",
     "Dtype",
-    "Long",
     "Norm",
     "Output",
     "Pad",
@@ -530,10 +527,6 @@ template<> struct RecordDataTraits<nvfuser::serde::BatchNorm> {
   static const RecordData enum_value = RecordData_BatchNorm;
 };
 
-template<> struct RecordDataTraits<nvfuser::serde::Bool> {
-  static const RecordData enum_value = RecordData_Bool;
-};
-
 template<> struct RecordDataTraits<nvfuser::serde::Broadcast> {
   static const RecordData enum_value = RecordData_Broadcast;
 };
@@ -546,24 +539,16 @@ template<> struct RecordDataTraits<nvfuser::serde::BroadcastInDimSymbolic> {
   static const RecordData enum_value = RecordData_BroadcastInDimSymbolic;
 };
 
-template<> struct RecordDataTraits<nvfuser::serde::ComplexDouble> {
-  static const RecordData enum_value = RecordData_ComplexDouble;
+template<> struct RecordDataTraits<nvfuser::serde::Constant> {
+  static const RecordData enum_value = RecordData_Constant;
 };
 
 template<> struct RecordDataTraits<nvfuser::serde::Dimension> {
   static const RecordData enum_value = RecordData_Dimension;
 };
 
-template<> struct RecordDataTraits<nvfuser::serde::Double> {
-  static const RecordData enum_value = RecordData_Double;
-};
-
 template<> struct RecordDataTraits<nvfuser::serde::Dtype> {
   static const RecordData enum_value = RecordData_Dtype;
-};
-
-template<> struct RecordDataTraits<nvfuser::serde::Long> {
-  static const RecordData enum_value = RecordData_Long;
 };
 
 template<> struct RecordDataTraits<nvfuser::serde::Norm> {
@@ -931,6 +916,97 @@ inline ::flatbuffers::Offset<ComplexDouble> CreateComplexDouble(
   builder_.add_imag(imag);
   builder_.add_real(real);
   builder_.add_dtype(dtype);
+  return builder_.Finish();
+}
+
+struct Constant FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
+  typedef ConstantBuilder Builder;
+  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
+    VT_DTYPE = 4,
+    VT_BOOL_VALUE = 6,
+    VT_LONG_VALUE = 8,
+    VT_DOUBLE_VALUE = 10,
+    VT_REAL_VALUE = 12,
+    VT_IMAG_VALUE = 14
+  };
+  nvfuser::serde::DataType dtype() const {
+    return static_cast<nvfuser::serde::DataType>(GetField<int32_t>(VT_DTYPE, 0));
+  }
+  bool bool_value() const {
+    return GetField<uint8_t>(VT_BOOL_VALUE, 0) != 0;
+  }
+  int64_t long_value() const {
+    return GetField<int64_t>(VT_LONG_VALUE, 0);
+  }
+  double double_value() const {
+    return GetField<double>(VT_DOUBLE_VALUE, 0.0);
+  }
+  double real_value() const {
+    return GetField<double>(VT_REAL_VALUE, 0.0);
+  }
+  double imag_value() const {
+    return GetField<double>(VT_IMAG_VALUE, 0.0);
+  }
+  bool Verify(::flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyField<int32_t>(verifier, VT_DTYPE, 4) &&
+           VerifyField<uint8_t>(verifier, VT_BOOL_VALUE, 1) &&
+           VerifyField<int64_t>(verifier, VT_LONG_VALUE, 8) &&
+           VerifyField<double>(verifier, VT_DOUBLE_VALUE, 8) &&
+           VerifyField<double>(verifier, VT_REAL_VALUE, 8) &&
+           VerifyField<double>(verifier, VT_IMAG_VALUE, 8) &&
+           verifier.EndTable();
+  }
+};
+
+struct ConstantBuilder {
+  typedef Constant Table;
+  ::flatbuffers::FlatBufferBuilder &fbb_;
+  ::flatbuffers::uoffset_t start_;
+  void add_dtype(nvfuser::serde::DataType dtype) {
+    fbb_.AddElement<int32_t>(Constant::VT_DTYPE, static_cast<int32_t>(dtype), 0);
+  }
+  void add_bool_value(bool bool_value) {
+    fbb_.AddElement<uint8_t>(Constant::VT_BOOL_VALUE, static_cast<uint8_t>(bool_value), 0);
+  }
+  void add_long_value(int64_t long_value) {
+    fbb_.AddElement<int64_t>(Constant::VT_LONG_VALUE, long_value, 0);
+  }
+  void add_double_value(double double_value) {
+    fbb_.AddElement<double>(Constant::VT_DOUBLE_VALUE, double_value, 0.0);
+  }
+  void add_real_value(double real_value) {
+    fbb_.AddElement<double>(Constant::VT_REAL_VALUE, real_value, 0.0);
+  }
+  void add_imag_value(double imag_value) {
+    fbb_.AddElement<double>(Constant::VT_IMAG_VALUE, imag_value, 0.0);
+  }
+  explicit ConstantBuilder(::flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  ::flatbuffers::Offset<Constant> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = ::flatbuffers::Offset<Constant>(end);
+    return o;
+  }
+};
+
+inline ::flatbuffers::Offset<Constant> CreateConstant(
+    ::flatbuffers::FlatBufferBuilder &_fbb,
+    nvfuser::serde::DataType dtype = nvfuser::serde::DataType_Double,
+    bool bool_value = false,
+    int64_t long_value = 0,
+    double double_value = 0.0,
+    double real_value = 0.0,
+    double imag_value = 0.0) {
+  ConstantBuilder builder_(_fbb);
+  builder_.add_imag_value(imag_value);
+  builder_.add_real_value(real_value);
+  builder_.add_double_value(double_value);
+  builder_.add_long_value(long_value);
+  builder_.add_dtype(dtype);
+  builder_.add_bool_value(bool_value);
   return builder_.Finish();
 }
 
@@ -2225,9 +2301,6 @@ struct RecordFunctor FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
   const nvfuser::serde::BatchNorm *data_as_BatchNorm() const {
     return data_type() == nvfuser::serde::RecordData_BatchNorm ? static_cast<const nvfuser::serde::BatchNorm *>(data()) : nullptr;
   }
-  const nvfuser::serde::Bool *data_as_Bool() const {
-    return data_type() == nvfuser::serde::RecordData_Bool ? static_cast<const nvfuser::serde::Bool *>(data()) : nullptr;
-  }
   const nvfuser::serde::Broadcast *data_as_Broadcast() const {
     return data_type() == nvfuser::serde::RecordData_Broadcast ? static_cast<const nvfuser::serde::Broadcast *>(data()) : nullptr;
   }
@@ -2237,20 +2310,14 @@ struct RecordFunctor FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
   const nvfuser::serde::BroadcastInDimSymbolic *data_as_BroadcastInDimSymbolic() const {
     return data_type() == nvfuser::serde::RecordData_BroadcastInDimSymbolic ? static_cast<const nvfuser::serde::BroadcastInDimSymbolic *>(data()) : nullptr;
   }
-  const nvfuser::serde::ComplexDouble *data_as_ComplexDouble() const {
-    return data_type() == nvfuser::serde::RecordData_ComplexDouble ? static_cast<const nvfuser::serde::ComplexDouble *>(data()) : nullptr;
+  const nvfuser::serde::Constant *data_as_Constant() const {
+    return data_type() == nvfuser::serde::RecordData_Constant ? static_cast<const nvfuser::serde::Constant *>(data()) : nullptr;
   }
   const nvfuser::serde::Dimension *data_as_Dimension() const {
     return data_type() == nvfuser::serde::RecordData_Dimension ? static_cast<const nvfuser::serde::Dimension *>(data()) : nullptr;
   }
-  const nvfuser::serde::Double *data_as_Double() const {
-    return data_type() == nvfuser::serde::RecordData_Double ? static_cast<const nvfuser::serde::Double *>(data()) : nullptr;
-  }
   const nvfuser::serde::Dtype *data_as_Dtype() const {
     return data_type() == nvfuser::serde::RecordData_Dtype ? static_cast<const nvfuser::serde::Dtype *>(data()) : nullptr;
-  }
-  const nvfuser::serde::Long *data_as_Long() const {
-    return data_type() == nvfuser::serde::RecordData_Long ? static_cast<const nvfuser::serde::Long *>(data()) : nullptr;
   }
   const nvfuser::serde::Norm *data_as_Norm() const {
     return data_type() == nvfuser::serde::RecordData_Norm ? static_cast<const nvfuser::serde::Norm *>(data()) : nullptr;
@@ -2314,10 +2381,6 @@ template<> inline const nvfuser::serde::BatchNorm *RecordFunctor::data_as<nvfuse
   return data_as_BatchNorm();
 }
 
-template<> inline const nvfuser::serde::Bool *RecordFunctor::data_as<nvfuser::serde::Bool>() const {
-  return data_as_Bool();
-}
-
 template<> inline const nvfuser::serde::Broadcast *RecordFunctor::data_as<nvfuser::serde::Broadcast>() const {
   return data_as_Broadcast();
 }
@@ -2330,24 +2393,16 @@ template<> inline const nvfuser::serde::BroadcastInDimSymbolic *RecordFunctor::d
   return data_as_BroadcastInDimSymbolic();
 }
 
-template<> inline const nvfuser::serde::ComplexDouble *RecordFunctor::data_as<nvfuser::serde::ComplexDouble>() const {
-  return data_as_ComplexDouble();
+template<> inline const nvfuser::serde::Constant *RecordFunctor::data_as<nvfuser::serde::Constant>() const {
+  return data_as_Constant();
 }
 
 template<> inline const nvfuser::serde::Dimension *RecordFunctor::data_as<nvfuser::serde::Dimension>() const {
   return data_as_Dimension();
 }
 
-template<> inline const nvfuser::serde::Double *RecordFunctor::data_as<nvfuser::serde::Double>() const {
-  return data_as_Double();
-}
-
 template<> inline const nvfuser::serde::Dtype *RecordFunctor::data_as<nvfuser::serde::Dtype>() const {
   return data_as_Dtype();
-}
-
-template<> inline const nvfuser::serde::Long *RecordFunctor::data_as<nvfuser::serde::Long>() const {
-  return data_as_Long();
 }
 
 template<> inline const nvfuser::serde::Norm *RecordFunctor::data_as<nvfuser::serde::Norm>() const {
@@ -2665,10 +2720,6 @@ inline bool VerifyRecordData(::flatbuffers::Verifier &verifier, const void *obj,
       auto ptr = reinterpret_cast<const nvfuser::serde::BatchNorm *>(obj);
       return verifier.VerifyTable(ptr);
     }
-    case RecordData_Bool: {
-      auto ptr = reinterpret_cast<const nvfuser::serde::Bool *>(obj);
-      return verifier.VerifyTable(ptr);
-    }
     case RecordData_Broadcast: {
       auto ptr = reinterpret_cast<const nvfuser::serde::Broadcast *>(obj);
       return verifier.VerifyTable(ptr);
@@ -2681,24 +2732,16 @@ inline bool VerifyRecordData(::flatbuffers::Verifier &verifier, const void *obj,
       auto ptr = reinterpret_cast<const nvfuser::serde::BroadcastInDimSymbolic *>(obj);
       return verifier.VerifyTable(ptr);
     }
-    case RecordData_ComplexDouble: {
-      auto ptr = reinterpret_cast<const nvfuser::serde::ComplexDouble *>(obj);
+    case RecordData_Constant: {
+      auto ptr = reinterpret_cast<const nvfuser::serde::Constant *>(obj);
       return verifier.VerifyTable(ptr);
     }
     case RecordData_Dimension: {
       auto ptr = reinterpret_cast<const nvfuser::serde::Dimension *>(obj);
       return verifier.VerifyTable(ptr);
     }
-    case RecordData_Double: {
-      auto ptr = reinterpret_cast<const nvfuser::serde::Double *>(obj);
-      return verifier.VerifyTable(ptr);
-    }
     case RecordData_Dtype: {
       auto ptr = reinterpret_cast<const nvfuser::serde::Dtype *>(obj);
-      return verifier.VerifyTable(ptr);
-    }
-    case RecordData_Long: {
-      auto ptr = reinterpret_cast<const nvfuser::serde::Long *>(obj);
       return verifier.VerifyTable(ptr);
     }
     case RecordData_Norm: {

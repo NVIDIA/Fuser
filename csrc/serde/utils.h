@@ -29,6 +29,14 @@ nvfuser::DataType mapToDtypeStruct(serde::DataType t);
 //! A function to map the serde dtype to its corresponding aten dtype
 at::ScalarType mapToAtenDtype(serde::DataType t);
 
+//! A function to map nvfuser::ScalarValue to serde::Constant
+::flatbuffers::Offset<serde::Constant> mapToSerdeConstant(
+    flatbuffers::FlatBufferBuilder& builder,
+    const nvfuser::ScalarValue& v);
+
+//! A function to map serde::Constant to nvfuser::ScalarValue
+ScalarValue mapToScalarValue(const serde::Constant* c);
+
 template <typename T>
 std::vector<T> parseVector(const flatbuffers::Vector<T>* fb_vector) {
   std::vector<T> result(fb_vector->begin(), fb_vector->end());
