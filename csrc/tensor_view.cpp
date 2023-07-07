@@ -288,7 +288,7 @@ void TensorView::convertRfactorToRootDomain() {
     if (id->isRFactorProduct()) {
       // Create new symbolic extents for rfactor iterDomains
       auto domain_extent = (!kThisIsConcreteTensor)
-          ? IrBuilder::create<Scalar>(container(), DataType::Index)
+          ? IrBuilder::create<Scalar>(container(), DataType::Int)
           : id->extent();
       rfactor_extents.push_back(domain_extent);
       replacement_map.emplace(id->extent(), domain_extent);
