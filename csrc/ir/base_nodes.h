@@ -11,8 +11,8 @@
 #include <c10/macros/Export.h>
 #include <c10/util/Exception.h>
 
-#include <dynamic_type.h>
 #include <ir/builder_passkey.h>
+#include <scalar_value.h>
 #include <type.h>
 #include <utils.h>
 
@@ -533,8 +533,8 @@ class TORCH_CUDA_CU_API Expr : public Statement {
 
   bool sameAs(const Statement* other) const override;
 
-  virtual std::vector<EvaluatorValue> evaluate(
-      const std::vector<EvaluatorValue>& inputs) const;
+  virtual std::vector<ScalarValue> evaluate(
+      const std::vector<ScalarValue>& inputs) const;
 
   // Input/output accessors
   const auto& inputs() const {
