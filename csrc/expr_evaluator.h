@@ -8,11 +8,11 @@
 #pragma once
 
 #include <c10/macros/Export.h>
-#include <evaluator_value.h>
 #include <evaluator_common.h>
 #include <ir/cloner.h>
 #include <ir/interface_nodes.h>
 #include <iter_visitor.h>
+#include <scalar_value.h>
 
 #include <string>
 #include <unordered_map>
@@ -23,28 +23,28 @@ class PrecomputedValues;
 
 //! Calculate Fusion IR expressions
 class TORCH_CUDA_CU_API ExpressionEvaluator {
-  void bind_(const Val* value, const EvaluatorValue& concrete_value);
-  void bind_(const std::string& name, const EvaluatorValue& concrete_value);
+  void bind_(const Val* value, const ScalarValue& concrete_value);
+  void bind_(const std::string& name, const ScalarValue& concrete_value);
 
  public:
   //! Bind a concrete value to an IR variable
-  void bind(const Val* value, EvaluatorValue concrete_value) {
+  void bind(const Val* value, ScalarValue concrete_value) {
     bind_(value, EvaluatorValue(concrete_value));
   }
 
   //! Bind a concrete value to a named scalar
-  void bind(const std::string& name, EvaluatorValue concrete_value) {
+  void bind(const std::string& name, ScalarValue concrete_value) {
     bind_(name, EvaluatorValue(concrete_value));
   }
 
   //! Set a concrete value for a parallel dimension
-  void bind(ParallelType pt, EvaluatorValue concrete_value);
+  void bind(ParallelType pt, ScalarValue concrete_value);
 
   //! Try to evaluate a Fusion IR value
-  EvaluatorValue evaluate(const Val* value);
+  ScalarValue evaluate(const Val* value);
 
   //! Try to evaluate a parallel dimension
-  EvaluatorValue evaluate(ParallelType pt);
+  ScalarValue evaluate(ParallelType pt);
 
   //! Debugging helper, prints all the currently known values
   void print() const;
@@ -67,7 +67,7 @@ class TORCH_CUDA_CU_API ExpressionEvaluator {
   ExpressionEvaluator clone(IrCloner& ir_cloner) const;
 
  private:
-  EvaluatorValue getValue(const Val* value);
+  ScalarValue getValue(const Val* value);
 
  private:
   // TODO: Consider make this const. It can't be const as bind() of
@@ -77,8 +77,8 @@ class TORCH_CUDA_CU_API ExpressionEvaluator {
   // binding a value to ExpressionEvaluator just updates
   // known_named_scalars_.
   PrecomputedValues* precomputed_values_ = nullptr;
-  std::unordered_map<const Val*, EvaluatorValue> known_values_;
-  std::unordered_map<std::string, EvaluatorValue> known_named_scalars_;
+  std::unordered_map<const Val*, ScalarValue> known_values_;
+  std::unordered_map<std::string, ScalarValue> known_named_scalars_;
 };
 
 } // namespace nvfuser

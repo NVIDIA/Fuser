@@ -303,20 +303,20 @@ UnaryOp::UnaryOp(IrBuilderPasskey passkey, UnaryOpType type, Val* out, Val* in)
       IrBuilder::create<Attribute<UnaryOpType>>(passkey.ir_container_, type));
 }
 
-std::vector<EvaluatorValue> UnaryOp::evaluate(
-    const std::vector<EvaluatorValue>& inputs) const {
-  using namespace EvaluatorValue_functions;
+std::vector<ScalarValue> UnaryOp::evaluate(
+    const std::vector<ScalarValue>& inputs) const {
+  using namespace ScalarValue_functions;
   const auto& in = inputs.at(0);
   switch (getUnaryOpType()) {
     case UnaryOpType::Neg:
       return {-in};
     case UnaryOpType::Cast:
       if (isIntegralType(*out()->getDataType())) {
-        return {EvaluatorValue((int64_t)in)};
+        return {ScalarValue((int64_t)in)};
       } else if (isFloatingPointType(*out()->getDataType())) {
-        return {EvaluatorValue((double)in)};
+        return {ScalarValue((double)in)};
       } else if (out()->getDataType() == DataType::Bool) {
-        return {EvaluatorValue((bool)in)};
+        return {ScalarValue((bool)in)};
       } else {
         TORCH_INTERNAL_ASSERT(
             false, "dtype not supported in evaluator: ", *out()->getDataType());
@@ -402,9 +402,9 @@ BinaryOp::BinaryOp(
       IrBuilder::create<Attribute<BinaryOpType>>(passkey.ir_container_, type));
 }
 
-std::vector<EvaluatorValue> BinaryOp::evaluate(
-    const std::vector<EvaluatorValue>& inputs) const {
-  using namespace EvaluatorValue_functions;
+std::vector<ScalarValue> BinaryOp::evaluate(
+    const std::vector<ScalarValue>& inputs) const {
+  using namespace ScalarValue_functions;
   const auto& lhs = inputs.at(0);
   const auto& rhs = inputs.at(1);
 
@@ -555,9 +555,9 @@ TernaryOp::TernaryOp(
       IrBuilder::create<Attribute<TernaryOpType>>(passkey.ir_container_, type));
 }
 
-std::vector<EvaluatorValue> TernaryOp::evaluate(
-    const std::vector<EvaluatorValue>& inputs) const {
-  using namespace EvaluatorValue_functions;
+std::vector<ScalarValue> TernaryOp::evaluate(
+    const std::vector<ScalarValue>& inputs) const {
+  using namespace ScalarValue_functions;
   const auto& in1 = inputs.at(0);
   const auto& in2 = inputs.at(1);
   const auto& in3 = inputs.at(2);
@@ -2013,8 +2013,8 @@ LoadStoreOp::LoadStoreOp(
       passkey.ir_container_, op_type));
 }
 
-std::vector<EvaluatorValue> LoadStoreOp::evaluate(
-    const std::vector<EvaluatorValue>& inputs) const {
+std::vector<ScalarValue> LoadStoreOp::evaluate(
+    const std::vector<ScalarValue>& inputs) const {
   return inputs;
 }
 

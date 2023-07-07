@@ -521,8 +521,8 @@ Expr* Expr::withWritePredicate(kir::Predicate* predicate) {
   return result;
 }
 
-std::vector<EvaluatorValue> Expr::evaluate(
-    const std::vector<EvaluatorValue>& inputs) const {
+std::vector<ScalarValue> Expr::evaluate(
+    const std::vector<ScalarValue>& inputs) const {
   TORCH_INTERNAL_ASSERT(
       false,
       "`evaluate` method for expression ",

@@ -298,8 +298,8 @@ class TORCH_CUDA_CU_API UnaryOp : public Expr {
     return "UnaryOp";
   }
 
-  std::vector<EvaluatorValue> evaluate(
-      const std::vector<EvaluatorValue>& inputs) const override;
+  std::vector<ScalarValue> evaluate(
+      const std::vector<ScalarValue>& inputs) const override;
 
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
@@ -335,8 +335,8 @@ class TORCH_CUDA_CU_API BinaryOp : public Expr {
     return "BinaryOp";
   }
 
-  std::vector<EvaluatorValue> evaluate(
-      const std::vector<EvaluatorValue>& inputs) const override;
+  std::vector<ScalarValue> evaluate(
+      const std::vector<ScalarValue>& inputs) const override;
 
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
@@ -381,8 +381,8 @@ class TORCH_CUDA_CU_API TernaryOp : public Expr {
     return "TernaryOp";
   }
 
-  std::vector<EvaluatorValue> evaluate(
-      const std::vector<EvaluatorValue>& inputs) const override;
+  std::vector<ScalarValue> evaluate(
+      const std::vector<ScalarValue>& inputs) const override;
 
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
@@ -1435,8 +1435,8 @@ class TORCH_CUDA_CU_API LoadStoreOp : public Expr {
     return "LoadStoreOp";
   }
 
-  std::vector<EvaluatorValue> evaluate(
-      const std::vector<EvaluatorValue>& inputs) const override;
+  std::vector<ScalarValue> evaluate(
+      const std::vector<ScalarValue>& inputs) const override;
 
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;

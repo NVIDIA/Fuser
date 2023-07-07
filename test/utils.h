@@ -81,16 +81,6 @@ inline TensorView* makeContigConcreteTensor(
   return TensorViewBuilder().shape(shape).dtype(dtype).contiguity(true).build();
 }
 
-inline void checkIntValue(
-    ExpressionEvaluator& evaluator,
-    Val* val,
-    EvaluatorValue expected_value) {
-  TORCH_CHECK(val->isIntegralScalar());
-  const auto actual_value = evaluator.evaluate(val);
-  TORCH_CHECK(actual_value.hasValue());
-  TORCH_CHECK(actual_value == expected_value);
-}
-
 int64_t prime_number(int64_t i);
 
 inline bool deviceMajorMinorCheck(int major, int minor = 0) {
