@@ -608,10 +608,6 @@ void DynamicTransformConcretizer::checkConcretizedUses(
 // concretized. Since symbolic IDs may be propagated down to
 // consumers, those domains need to be concretized accordingly.
 void DynamicTransformConcretizer::mutate(TensorView* tv) {
-  if (!tv->domain()->hasSymbolicAxis()) {
-    return;
-  }
-
   // First, try to concretize the root domain as there may be symbolic
   // axes inherited from the producers
   propagateFromProducerToConsumer(tv);
