@@ -6,6 +6,7 @@
  */
 // clang-format on
 
+#include <debug.h>
 #include <evaluator_common.h>
 #include <expr_evaluator.h>
 #include <instrumentation.h>
@@ -19,7 +20,7 @@ namespace nvfuser {
 
 namespace {
 
-bool equals(const Val* value, const EvaluatorValue& concrete_value) {
+bool equals(const Val* value, const ScalarValue& concrete_value) {
   switch (std::get<PrimDataType>(value->getDataType()->type)) {
     case DataType::Int: {
       if (!concrete_value.is<int64_t>()) {
@@ -48,18 +49,18 @@ bool equals(const Val* value, const EvaluatorValue& concrete_value) {
 }
 
 template <typename T>
-EvaluatorValue toOptionalEvaluatorValue(std::optional<T> i) {
+ScalarValue toOptionalScalarValue(std::optional<T> i) {
   if (!i) {
     return std::monostate{};
   }
-  return EvaluatorValue(i.value());
+  return ScalarValue(i.value());
 }
 
 } // namespace
 
 void ExpressionEvaluator::bind_(
     const Val* value,
-    const EvaluatorValue& concrete_value) {
+    const ScalarValue& concrete_value) {
   if (equals(value, concrete_value)) {
     return;
   }
@@ -83,7 +84,7 @@ void ExpressionEvaluator::bind_(
 
 void ExpressionEvaluator::bind_(
     const std::string& name,
-    const EvaluatorValue& concrete_value) {
+    const ScalarValue& concrete_value) {
   known_named_scalars_[name] = concrete_value;
 }
 
@@ -96,11 +97,11 @@ void ExpressionEvaluator::bind(
     //  in pre-computed mode.
     precomputed_values_->bindConcreteParallelTypeValue(pt, concrete_value);
   } else {
-    bind(stringifyThreadSize(pt), EvaluatorValue(concrete_value));
+    bind(stringifyThreadSize(pt), ScalarValue(concrete_value));
   }
 }
 
-EvaluatorValue ExpressionEvaluator::evaluate(const Val* value) {
+ScalarValue ExpressionEvaluator::evaluate(const Val* value) {
   if (precomputed_values_ && precomputed_values_->ready()) {
     if (precomputed_values_->getMaybeValueFor(value).hasValue()) {
       return precomputed_values_->getMaybeValueFor(value);
@@ -114,7 +115,7 @@ EvaluatorValue ExpressionEvaluator::evaluate(const Val* value) {
       if (def->isA<kir::BaseAddress>()) {
         return std::monostate{};
       }
-      std::vector<EvaluatorValue> inputs;
+      std::vector<ScalarValue> inputs;
       inputs.reserve(def->inputs().size());
       for (auto i : def->inputs()) {
         auto eval_i = evaluate(i);
@@ -133,7 +134,7 @@ EvaluatorValue ExpressionEvaluator::evaluate(const Val* value) {
   return maybe_concrete_value;
 }
 
-EvaluatorValue ExpressionEvaluator::evaluate(ParallelType pt) {
+ScalarValue ExpressionEvaluator::evaluate(ParallelType pt) {
   auto it = known_named_scalars_.find(stringifyThreadSize(pt));
   if (it != known_named_scalars_.end()) {
     return it->second;
@@ -141,7 +142,7 @@ EvaluatorValue ExpressionEvaluator::evaluate(ParallelType pt) {
   return std::monostate{};
 }
 
-EvaluatorValue ExpressionEvaluator::getValue(const Val* value) {
+ScalarValue ExpressionEvaluator::getValue(const Val* value) {
   TORCH_INTERNAL_ASSERT(
       value->isIntegralScalar() || value->isFloatingPointScalar() ||
           value->isABool(),
@@ -150,13 +151,13 @@ EvaluatorValue ExpressionEvaluator::getValue(const Val* value) {
 
   if (value->isScalar() && value->isConst()) {
     if (value->isFloatingPointScalar()) {
-      return toOptionalEvaluatorValue(value->as<Double>()->value());
+      return toOptionalScalarValue(value->as<Double>()->value());
     }
     if (value->isABool()) {
-      return toOptionalEvaluatorValue(value->as<Bool>()->value());
+      return toOptionalScalarValue(value->as<Bool>()->value());
     }
     if (value->isIntegralScalar()) {
-      return toOptionalEvaluatorValue(value->as<Int>()->value());
+      return toOptionalScalarValue(value->as<Int>()->value());
     }
     TORCH_INTERNAL_ASSERT(
         false, "Data type not supported by ExpressionEvaluator");
@@ -170,28 +171,27 @@ EvaluatorValue ExpressionEvaluator::getValue(const Val* value) {
   }
 
   const auto it = known_values_.find(value);
-  return it != known_values_.end() ? it->second
-                                   : EvaluatorValue(std::monostate{});
+  return it != known_values_.end() ? it->second : ScalarValue(std::monostate{});
 }
 
 void ExpressionEvaluator::print() const {
-  std::cout << "\nEvaluation context\n";
-  std::cout << "--------------------\n";
+  debug() << "\nEvaluation context\n";
+  debug() << "--------------------\n";
   for (const auto& kv : known_values_) {
     TORCH_INTERNAL_ASSERT(!kv.first->isConstScalar());
-    std::cout << kv.first << " = " << kv.second << " ; "
-              << *kv.first->getValType() << "\n";
+    debug() << kv.first << " = " << kv.second << " ; "
+            << *kv.first->getValType() << "\n";
   }
 
   for (const auto& kv : known_named_scalars_) {
-    std::cout << kv.first << " = " << kv.second << " ;\n";
+    debug() << kv.first << " = " << kv.second << " ;\n";
   }
 
-  std::cout << "\nPre-computed Values\n";
+  debug() << "\nPre-computed Values\n";
   if (precomputed_values_ != nullptr) {
     precomputed_values_->print();
   }
-  std::cout << "--------------------\n\n";
+  debug() << "--------------------\n\n";
 }
 
 void ExpressionEvaluator::propagateBoundValuesThroughExactMaps(Fusion* fusion) {

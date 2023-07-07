@@ -584,9 +584,10 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
       "scheduleMatmul supports fusion with single mma op in definition, got ",
       mma_ops.size());
 
-  TensorView* a = roles_map.at(MatmulRole::MMA_INPUT_A);
-  TensorView* b = roles_map.at(MatmulRole::MMA_INPUT_B);
-  TensorView* c = roles_map.at(MatmulRole::MMA_OUTPUT);
+  // Core roles: there can be only one... TV with assigned core role
+  TensorView* a = roles_map.at(MatmulRole::INPUT_A).front();
+  TensorView* b = roles_map.at(MatmulRole::INPUT_B).front();
+  TensorView* c = roles_map.at(MatmulRole::OUTPUT_D).front();
 
   // Collect mma swizzle info
   auto mma = mma_ops.front();
@@ -601,6 +602,9 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
       MmaBuilder(params.mma_macro, params.tile_sizes).layout(mma_layout);
   const auto& gemm_tile = params.tile_sizes;
   const bool has_epilogue = !mma->out()->isFusionOutput();
+  const bool has_non_mma_input_tvs = has_epilogue &&
+      0 != roles_map.count(MatmulRole::INPUT_C) &&
+      !roles_map.at(MatmulRole::INPUT_C).empty();
 
   // Including current tensor naming convention for reference,
   //  this is very temporary and will change over time and
@@ -880,6 +884,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
     // Don't propagate to c, because we want to schedule it differently for
     // better global memory access pattern.
     schedule_output_tensor(mma_result, c, gemm_tile);
+    c->axis(-1)->parallelize(ParallelType::Vectorize);
 
   } else {
     scheduler_utils::BoundedDirectionalTransformPropagator::forward(
@@ -891,6 +896,15 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
             .propagateToBoundary());
     c->axis(-1)->parallelize(ParallelType::Vectorize);
   }
+
+  // propagate output transformations to all inputs that are part of epilogue
+  //  operations, input tvs with non-core roles
+  //  core roles: essential for matmul, for example mma inputs' producers
+  if (has_non_mma_input_tvs) {
+    scheduler_utils::BoundedDirectionalTransformPropagator::backward(
+        c, -1, roles_map.at(MatmulRole::INPUT_C));
+  }
+
   // auto inline for all tensors except register tensors and output tensor
   inlineMost(ir_utils::allTvsExcept(fusion, {acr, bcr, ab, bb, c_smem, c}));
 

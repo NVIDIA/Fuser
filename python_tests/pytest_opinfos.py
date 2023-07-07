@@ -16,18 +16,27 @@ from pytest_input_generators import (
     define_tensor_error_generator,
     elementwise_unary_generator,
     _elementwise_unary_torch,
+    full_error_generator,
     gather_generator,
     index_select_generator,
     index_select_error_generator,
+    iota_error_generator,
+    pad_error_generator,
+    permute_generator,
+    permute_error_generator,
+    reduction_error_generator,
+    reshape_generator,
+    reshape_error_generator,
     slice_generator,
     slice_error_generator,
-    reduction_error_generator,
     take_along_axis_generator,
     take_along_axis_error_generator,
     var_mean_generator,
+    where_error_generator,
 )
-from pytest_utils import float_complex_dtypes
+from pytest_utils import float_complex_dtypes, ArgumentType
 from functools import partial
+from typing import List
 
 eps = 1e-2
 
@@ -61,6 +70,19 @@ elementwise_unary_ops.append(acos_opinfo)
 
 """ End Unary-Float Operations """
 
+""" Start Ternary Operations """
+
+ternary_ops = []
+
+where_opinfo = OpInfo(
+    lambda fd: fd.ops.where,
+    "where",
+    error_input_generator=where_error_generator,
+)
+ternary_ops.append(where_opinfo)
+
+""" End Ternary Operations """
+
 """ Start Normalization Operations """
 normalization_ops = []
 
@@ -71,7 +93,7 @@ var_mean_opinfo = OpInfo(
     sample_input_generator=var_mean_generator,
     error_input_generator=reduction_error_generator,
     reference=torch.var_mean,
-    symbolic_parameter_list=(True, False),
+    symbolic_parameter_list=(ArgumentType.Symbolic, ArgumentType.Constant),
 )
 normalization_ops.append(var_mean_opinfo)
 
@@ -87,7 +109,7 @@ cat_opinfo = OpInfo(
     sample_input_generator=cat_generator,
     error_input_generator=cat_error_generator,
     reference=torch.cat,
-    symbolic_parameter_list=(True, False),
+    symbolic_parameter_list=(ArgumentType.Symbolic, ArgumentType.Constant),
 )
 shape_ops.append(cat_opinfo)
 
@@ -95,7 +117,7 @@ broadcast_opinfo = OpInfo(
     lambda fd: fd.ops.broadcast,
     "broadcast",
     error_input_generator=broadcast_error_generator,
-    symbolic_parameter_list=(True, False),
+    symbolic_parameter_list=(ArgumentType.Symbolic, ArgumentType.Constant),
 )
 shape_ops.append(broadcast_opinfo)
 
@@ -106,7 +128,11 @@ broadcast_in_dim_opinfo = OpInfo(
     error_input_generator=broadcast_in_dim_error_generator,
     reference=jax.lax.broadcast_in_dim,
     reference_type=ReferenceType.Jax,
-    symbolic_parameter_list=(True, False, False),
+    symbolic_parameter_list=(
+        ArgumentType.Symbolic,
+        ArgumentType.Constant,
+        ArgumentType.Constant,
+    ),
 )
 shape_ops.append(broadcast_in_dim_opinfo)
 
@@ -122,7 +148,11 @@ gather_opinfo = OpInfo(
     sample_input_generator=gather_generator,
     error_input_generator=take_along_axis_error_generator,
     reference=partial(gather_wrapper, torch.gather),
-    symbolic_parameter_list=(True, True, False),
+    symbolic_parameter_list=(
+        ArgumentType.Symbolic,
+        ArgumentType.Symbolic,
+        ArgumentType.Constant,
+    ),
 )
 shape_ops.append(gather_opinfo)
 
@@ -132,9 +162,61 @@ index_select_opinfo = OpInfo(
     sample_input_generator=index_select_generator,
     error_input_generator=index_select_error_generator,
     reference=partial(gather_wrapper, torch.index_select),
-    symbolic_parameter_list=(True, True, False),
+    symbolic_parameter_list=(
+        ArgumentType.Symbolic,
+        ArgumentType.Symbolic,
+        ArgumentType.Constant,
+    ),
 )
 shape_ops.append(index_select_opinfo)
+
+# NvFuser's API is significantly different than JAX.
+# TODO: Change python frontend api to match JAX using a cpp wrapper function.
+pad_opinfo = OpInfo(
+    lambda fd: fd.ops.pad,
+    "pad",
+    error_input_generator=pad_error_generator,
+    symbolic_parameter_list=(
+        ArgumentType.Symbolic,
+        ArgumentType.Constant,
+        ArgumentType.Symbolic,
+    ),
+)
+shape_ops.append(pad_opinfo)
+
+
+permute_opinfo = OpInfo(
+    lambda fd: fd.ops.permute,
+    "permute",
+    sample_input_generator=permute_generator,
+    error_input_generator=permute_error_generator,
+    reference=torch.permute,
+    symbolic_parameter_list=(ArgumentType.Symbolic, ArgumentType.Constant),
+)
+shape_ops.append(permute_opinfo)
+
+
+# nvfuser expects input and output shapes while pytorch only requires the output shape.
+def reshape_wrapper(
+    fn: callable, input: torch.Tensor, input_shape: List[int], output_shape: List[int]
+):
+    return fn(input, output_shape)
+
+
+reshape_opinfo = OpInfo(
+    lambda fd: fd.ops.reshape,
+    "reshape",
+    sample_input_generator=reshape_generator,
+    error_input_generator=reshape_error_generator,
+    reference=partial(reshape_wrapper, torch.reshape),
+    symbolic_parameter_list=(
+        ArgumentType.Symbolic,
+        ArgumentType.Constant,
+        ArgumentType.Constant,
+    ),
+)
+shape_ops.append(reshape_opinfo)
+
 
 slice_opinfo = OpInfo(
     lambda fd: fd.ops.slice,
@@ -152,14 +234,52 @@ take_along_axis_opinfo = OpInfo(
     sample_input_generator=take_along_axis_generator,
     error_input_generator=take_along_axis_error_generator,
     reference=torch.take_along_dim,
-    symbolic_parameter_list=(True, True, False),
+    symbolic_parameter_list=(
+        ArgumentType.Symbolic,
+        ArgumentType.Symbolic,
+        ArgumentType.Constant,
+    ),
 )
 shape_ops.append(take_along_axis_opinfo)
 
 """ End Shape Operations """
 
+""" Start Tensor Creation """
+tensor_creation_ops = []
+
+full_opinfo = OpInfo(
+    lambda fd: fd.ops.full,
+    "full",
+    error_input_generator=full_error_generator,
+    symbolic_parameter_list=(
+        ArgumentType.Constant,
+        ArgumentType.Symbolic,
+        ArgumentType.Constant,
+    ),
+)
+tensor_creation_ops.append(full_opinfo)
+
+# Dynamic scalars are not checked at runtime, so we treat length, start, step as constants.
+iota_opinfo = OpInfo(
+    lambda fd: fd.ops.iota,
+    "iota",
+    dtypes=(torch.int64, torch.float64),
+    error_input_generator=iota_error_generator,
+    symbolic_parameter_list=(
+        ArgumentType.ConstantScalar,
+        ArgumentType.ConstantScalar,
+        ArgumentType.ConstantScalar,
+        ArgumentType.Constant,
+    ),
+)
+tensor_creation_ops.append(iota_opinfo)
+
+""" End Tensor Creation """
+
 # Puts all opinfos into the "opinfos" list
 opinfos.extend(elementwise_unary_ops)
+opinfos.extend(ternary_ops)
 opinfos.extend(fusion_input_ops)
 opinfos.extend(normalization_ops)
 opinfos.extend(shape_ops)
+opinfos.extend(tensor_creation_ops)
