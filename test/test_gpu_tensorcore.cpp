@@ -3458,7 +3458,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulLargeLoadLargeK_CUDA) {
 
 // Matmul test that relies on segmenter for 'C = A x B' fusion,
 //   for Ampere with strict ref check, hence single layout check
-TEST_F(NVFuserTest, FusionMatmulSegmenterBasicMatmulStrictCheckTT_CUDA) {
+TEST_F(NVFuserTest, FusionMatmulSchedulerBasicMatmulStrictCheckTT_CUDA) {
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 8, 9);
   const int M = 128, N = 256, K = 512;
   const auto layout = MatmulLayout::TT;
@@ -3519,7 +3519,7 @@ TEST_F(NVFuserTest, FusionMatmulSegmenterBasicMatmulStrictCheckTT_CUDA) {
 }
 
 // Matmul test that reslies on segmenter for 'C = A x B' fusion, for Ampere
-TEST_F(NVFuserTest, FusionMatmulSegmenterBasicMatmulRelaxedCheck_CUDA) {
+TEST_F(NVFuserTest, FusionMatmulSchedulerBasicMatmulRelaxedCheck_CUDA) {
   // skip until we have Hopper support
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 9, 0);
   const int M = 504, N = 136, K = 2048;
@@ -3585,7 +3585,7 @@ TEST_F(NVFuserTest, FusionMatmulSegmenterBasicMatmulRelaxedCheck_CUDA) {
 // Matmul test that reslies on segmenter for 'C = A x B' fusion, for Ampere
 //  MMA first input is passed as second fusion parameter.
 //  MMA second input is passed as first fusion parameter.
-TEST_F(NVFuserTest, FusionMatmulSegmenterBasicMatmulInputShuffledTT_CUDA) {
+TEST_F(NVFuserTest, FusionMatmulSchedulerBasicMatmulInputShuffledTT_CUDA) {
   // skip until we have Hopper support
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 9, 0);
   const int M = 504, N = 136, K = 2048;
@@ -3647,7 +3647,7 @@ TEST_F(NVFuserTest, FusionMatmulSegmenterBasicMatmulInputShuffledTT_CUDA) {
 
 // Matmul test that relies on segmenter for 'C = float2half(A x B)' fusion, for
 //  Ampere
-TEST_F(NVFuserTest, FusionMatmulSegmenterEpilogueOutputCast_CUDA) {
+TEST_F(NVFuserTest, FusionMatmulSchedulerEpilogueOutputCast_CUDA) {
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 9, 0);
   const auto layout = MatmulLayout::TT;
   auto fusion = std::make_unique<Fusion>();
@@ -3708,7 +3708,7 @@ TEST_F(NVFuserTest, FusionMatmulSegmenterEpilogueOutputCast_CUDA) {
 
 // Matmul test that relies on segmenter for 'C = alpha * (A x B)' fusion, for
 //  Ampere
-TEST_F(NVFuserTest, FusionMatmulSegmenterEpilogueAlpha_CUDA) {
+TEST_F(NVFuserTest, FusionMatmulSchedulerEpilogueAlpha_CUDA) {
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 9, 0);
   const auto layout = MatmulLayout::TT;
   auto fusion = std::make_unique<Fusion>();
@@ -3772,7 +3772,7 @@ TEST_F(NVFuserTest, FusionMatmulSegmenterEpilogueAlpha_CUDA) {
 
 // Matmul test that relies on segmenter for 'C = float2half(alpha * (A x B))'
 //  fusion, for Ampere
-TEST_F(NVFuserTest, FusionMatmulSegmenterEpilogueAlphaOutputCast_CUDA) {
+TEST_F(NVFuserTest, FusionMatmulSchedulerEpilogueAlphaOutputCast_CUDA) {
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 9, 0);
   const auto layout = MatmulLayout::TT;
   auto fusion = std::make_unique<Fusion>();
@@ -3838,7 +3838,7 @@ TEST_F(NVFuserTest, FusionMatmulSegmenterEpilogueAlphaOutputCast_CUDA) {
 
 // Matmul test that relies on segmenter for 'C = relu(A x B)' fusion, for
 //  Ampere
-TEST_F(NVFuserTest, FusionMatmulSegmenterEpilogueRelu_CUDA) {
+TEST_F(NVFuserTest, FusionMatmulSchedulerEpilogueRelu_CUDA) {
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 9, 0);
   const auto layout = MatmulLayout::TT;
   auto fusion = std::make_unique<Fusion>();
@@ -3899,7 +3899,7 @@ TEST_F(NVFuserTest, FusionMatmulSegmenterEpilogueRelu_CUDA) {
 
 // Matmul test that relies on segmenter for 'C = gelu(A x B)' fusion, for
 //  Ampere
-TEST_F(NVFuserTest, FusionMatmulSegmenterEpilogueGelu_CUDA) {
+TEST_F(NVFuserTest, FusionMatmulSchedulerEpilogueGelu_CUDA) {
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 9, 0);
   const auto layout = MatmulLayout::TT;
   auto fusion = std::make_unique<Fusion>();
@@ -3960,7 +3960,7 @@ TEST_F(NVFuserTest, FusionMatmulSegmenterEpilogueGelu_CUDA) {
 
 // Matmul test that relies on segmenter for fusion for Ampere:
 //  D = (A x B) + beta * C
-TEST_F(NVFuserTest, FusionMatmulSegmenterEpilogueBeta_CUDA) {
+TEST_F(NVFuserTest, FusionMatmulSchedulerEpilogueBeta_CUDA) {
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 9, 0);
   const auto layout = MatmulLayout::TT;
   auto fusion = std::make_unique<Fusion>();
@@ -4039,7 +4039,7 @@ TEST_F(NVFuserTest, FusionMatmulSegmenterEpilogueBeta_CUDA) {
 
 // Matmul test that relies on segmenter for fusion for Ampere:
 //  D = alpha * (A x B) + beta * C
-TEST_F(NVFuserTest, FusionMatmulSegmenterEpilogueAlphaBeta_CUDA) {
+TEST_F(NVFuserTest, FusionMatmulSchedulerEpilogueAlphaBeta_CUDA) {
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 9, 0);
   const auto layout = MatmulLayout::TT;
   auto fusion = std::make_unique<Fusion>();
@@ -4123,7 +4123,7 @@ TEST_F(NVFuserTest, FusionMatmulSegmenterEpilogueAlphaBeta_CUDA) {
 
 // Matmul test that relies on segmenter for fusion for Ampere:
 //  D = gelu(alpha * (A x B) + beta * C)
-TEST_F(NVFuserTest, FusionMatmulSegmenterEpilogueAlphaBetaGeluOutputCast_CUDA) {
+TEST_F(NVFuserTest, FusionMatmulSchedulerEpilogueAlphaBetaGeluOutputCast_CUDA) {
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 9, 0);
   const auto layout = MatmulLayout::TT;
   auto fusion = std::make_unique<Fusion>();
