@@ -21,8 +21,8 @@ DataType getMaybeMetaDataType(Val* v) {
   TORCH_INTERNAL_ASSERT(v != nullptr);
   if (auto tv = dynamic_cast<TensorView*>(v)) {
     StructOf tv_metadata;
-    tv_metadata.types["data"] =
-        NVFUSER_MAYBE_MAKE_SHARED(PointerOf{std::make_shared<DataType>(tv->dtype())});
+    tv_metadata.types["data"] = NVFUSER_MAYBE_MAKE_SHARED(
+        PointerOf{std::make_shared<DataType>(tv->dtype())});
     tv_metadata.types["sizes"] = NVFUSER_MAYBE_MAKE_SHARED2(ArrayOf{
         std::make_shared<DataType>(DataType::Index),
         TensorDomain::noReductions(tv->getMaybeRFactorDomain()).size()});
