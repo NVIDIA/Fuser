@@ -9,6 +9,7 @@
 #include <gtest/gtest.h>
 
 #include <codegen.h>
+#include <debug.h>
 #include <device_lower/lower2device.h>
 #include <device_lower/pass/magic_zero.h>
 #include <disjoint_set.h>
@@ -8847,14 +8848,13 @@ TEST_F(NVFuserTest, FusionLayerNormFusedOpsRedundantCast_CUDA) {
     auto tv18 = sum(tv15, {1}, false);
     auto tv19 = broadcast(tv18, {false, true});
 
-    nvfuser::Val* num_features =
-        IrBuilder::create<Scalar>(1.0, dtype = DataType::Double);
+    nvfuser::Val* num_features = IrBuilder::create<Scalar>(1.0);
     num_features = mul(num_features, tv0->getLeafDomain()[0]->extent());
     auto s20 = num_features;
 
     auto s21 = reciprocal(s20);
     auto tv22 = mul(tv19, s21);
-    auto s23 = IrBuilder::create<Scalar>(kEps, dtype = DataType::Double);
+    auto s23 = IrBuilder::create<Scalar>(kEps);
     auto tv24 = add(tv17, s23);
     auto tv25 = rsqrt(tv24);
     auto tv26 = broadcast(tv22, {false, false});
@@ -9201,6 +9201,26 @@ TEST_F(NVFuserTest, FusionOptionsGuard_CUDA) {
   std::string output = testing::internal::GetCapturedStdout();
   ASSERT_NE(output.find("Register spill detected"), std::string::npos)
       << "Register spill is not captured!";
+}
+
+// Test that DebugStreamGuard captures output
+TEST_F(NVFuserTest, FusionDebugStreamGuard_CUDA) {
+  std::stringstream ss;
+  std::string text("test debug output");
+
+  debug() << "text before guard";
+
+  { // Test using the guard
+    DebugStreamGuard dsg(ss);
+
+    debug() << text;
+  }
+
+  debug() << "text after guard";
+
+  // If the guard failed, we might write nothing to ss or we might write the
+  // text after the guard to ss.
+  ASSERT_EQ(ss.str(), text);
 }
 
 // Test file size should be up to 10K LoC. Create a new file for more tests.

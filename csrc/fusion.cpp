@@ -6,6 +6,7 @@
  */
 // clang-format on
 #include <codegen.h>
+#include <debug.h>
 #include <device_lower/analysis/bank_conflict.h>
 #include <device_lower/lower2device.h>
 #include <disjoint_set.h>
@@ -393,7 +394,7 @@ void Fusion::printKernel(const CompileParams& compile_params) {
       !this->isA<kir::Kernel>(),
       "Cannot \"print kernel\" of a kernel container. ",
       "This would require lowering during lowering.");
-  std::cout << codegen::generateCudaKernel(
+  debug() << codegen::generateCudaKernel(
       GpuLower(this, compile_params).kernel());
 }
 
@@ -470,14 +471,14 @@ void Fusion::printMath(bool from_outputs_only) {
 
   FusionGuard fg(this);
   auto exprs_for_print = exprs();
-  std::cout << "Inputs:" << std::endl;
+  debug() << "Inputs:" << std::endl;
   for (auto inp : inputs()) {
-    std::cout << "  " << inp << ", " << inp->getDataType().value() << std::endl;
+    debug() << "  " << inp << ", " << inp->getDataType().value() << std::endl;
   }
 
-  std::cout << "Outputs:" << std::endl;
+  debug() << "Outputs:" << std::endl;
   for (auto out : outputs()) {
-    std::cout << "  " << out << ", " << out->getDataType().value() << std::endl;
+    debug() << "  " << out << ", " << out->getDataType().value() << std::endl;
   }
 
   // If we want everything in the fusion, grab all values without uses to
@@ -492,11 +493,11 @@ void Fusion::printMath(bool from_outputs_only) {
     exprs_for_print = StmtSort::getExprs(this, leaf_vals);
   }
 
-  std::cout << "\n%kernel_math {\n";
+  debug() << "\n%kernel_math {\n";
   for (auto expr : exprs_for_print) {
-    std::cout << expr;
+    debug() << expr;
   }
-  std::cout << "}\n\n";
+  debug() << "}\n\n";
 }
 
 std::vector<Val*> Fusion::inputsAndCreated() {
@@ -516,7 +517,7 @@ void Fusion::printTransforms() {
   FUSER_PERF_SCOPE("Fusion::printTransforms");
 
   FusionGuard fg(this);
-  IrTransformPrinter t_exprs(std::cout);
+  IrTransformPrinter t_exprs(debug());
   t_exprs.handle(this);
 }
 
