@@ -85,9 +85,8 @@ class TORCH_CUDA_CU_API IrBuilder {
   // Ternary operations
   static Val* whereExpr(Val* pred, Val* lhs, Val* rhs);
 
-  // Array and struct access
+  // Index an array
   static Val* getItemExpr(Val* array, Val* index);
-  static Val* getAttrExpr(Val* struct_, std::string attr);
 
   // Construct an array of values, or nested arrays of values.
   template <typename T>

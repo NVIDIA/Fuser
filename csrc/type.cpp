@@ -13,26 +13,7 @@
 #include <stdexcept>
 #include <unordered_map>
 
-#include <ir/all_nodes.h>
-
 namespace nvfuser {
-
-DataType getMaybeMetaDataType(Val* v) {
-  TORCH_INTERNAL_ASSERT(v != nullptr);
-  if (auto tv = dynamic_cast<TensorView*>(v)) {
-    StructOf tv_metadata;
-    tv_metadata.types["data"] =
-        GCC_BUG(PointerOf{std::make_shared<DataType>(tv->dtype())});
-    tv_metadata.types["sizes"] = GCC_BUG2(ArrayOf{
-        std::make_shared<DataType>(DataType::Index),
-        TensorDomain::noReductions(tv->getMaybeRFactorDomain()).size()});
-    tv_metadata.types["strides"] = GCC_BUG2(ArrayOf{
-        std::make_shared<DataType>(DataType::Index),
-        TensorDomain::noReductions(tv->getMaybeAllocationDomain()).size()});
-    return tv_metadata;
-  }
-  return v->dtype();
-}
 
 PrimDataType indexModeToDtype(KernelIndexMode index_mode) {
   switch (index_mode) {

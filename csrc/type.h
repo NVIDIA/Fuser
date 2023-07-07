@@ -95,26 +95,9 @@ struct PointerOf {
   inline bool operator==(const PointerOf& other) const;
 };
 
-struct StructOf {
-  // In theory, we should just use std::unordered_map<std::string, T>, but this
-  // doesn't work on old gcc. See also SetTheoreticNaturalNumbers
-#if defined(__clang__) || __GNUC__ >= 12
-  std::unordered_map<std::string, DataType> types;
-#define GCC_BUG(x) x
-#define GCC_BUG2(x, y) x, y
-#define GCC_BUG_STAR
-#else
-  std::unordered_map<std::string, std::shared_ptr<DataType>> types;
-#define GCC_BUG(x) std::make_shared<DataType>(x)
-#define GCC_BUG2(x, y) std::make_shared<DataType>(x, y)
-#define GCC_BUG_STAR *
-#endif
-  inline bool operator==(const StructOf& other) const;
-};
-
 struct DataType {
   using VariantOfSupportedTypes =
-      std::variant<PrimDataType, ArrayOf, PointerOf, StructOf>;
+      std::variant<PrimDataType, ArrayOf, PointerOf>;
   VariantOfSupportedTypes type = PrimDataType::Null;
 
   DataType() = default;
@@ -122,7 +105,6 @@ struct DataType {
   DataType(const PrimDataType& type) : type(type) {}
   DataType(const ArrayOf& type) : type(type) {}
   DataType(const PointerOf& type) : type(type) {}
-  DataType(const StructOf& type) : type(type) {}
 
   static constexpr PrimDataType Double = PrimDataType::Double;
   static constexpr PrimDataType Float = PrimDataType::Float;
@@ -153,34 +135,6 @@ bool ArrayOf::operator==(const ArrayOf& other) const {
 bool PointerOf::operator==(const PointerOf& other) const {
   return *type == *other.type;
 }
-
-bool StructOf::operator==(const StructOf& other) const {
-#if defined(__clang__) || __GNUC__ >= 12
-  return types == other.types;
-#else
-  std::unordered_set<std::string> keys;
-  for (auto& [k, v] : types) {
-    keys.insert(k);
-  }
-  std::unordered_set<std::string> other_keys;
-  for (auto& [k, v] : other.types) {
-    other_keys.insert(k);
-  }
-  if (keys != other_keys) {
-    return false;
-  }
-  for (auto& [k, v] : types) {
-    if (*v != *other.types.at(k)) {
-      return false;
-    }
-  }
-  return true;
-#endif
-}
-
-class Val;
-//! If v is a tensor, return its metadata type, otherwise return v's type
-DataType getMaybeMetaDataType(Val* v);
 
 enum class KernelIndexMode { INT32, INT64 };
 

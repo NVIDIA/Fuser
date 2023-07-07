@@ -45,7 +45,7 @@ bool equals(const Val* value, const ScalarValue& concrete_value) {
       return val.has_value() && val.value() == concrete_value.as<bool>();
     }
     default:
-      return false;
+      TORCH_INTERNAL_ASSERT(false);
   }
 }
 
@@ -140,6 +140,12 @@ ScalarValue ExpressionEvaluator::evaluate(ParallelType pt) {
 }
 
 ScalarValue ExpressionEvaluator::getValue(const Val* value) {
+  TORCH_INTERNAL_ASSERT(
+      value->isIntegralScalar() || value->isFloatingPointScalar() ||
+          value->isABool(),
+      value->toInlineString(),
+      " is not a supported type in expression evaluation.");
+
   if (value->isScalar() && value->isConst()) {
     if (value->isFloatingPointScalar()) {
       return toOptionalScalarValue(value->as<Double>()->value());
