@@ -1988,12 +1988,12 @@ struct ScalarRecord : RecordFunctor {
       } else if (value_.is<double>()) {
         if (std::isinf(value_.as<double>())) {
           if (std::signbit(value_.as<double>())) {
-            os << "double(\"-inf\")";
+            os << "float(\"-inf\")";
           } else {
-            os << "double(\"inf\")";
+            os << "float(\"inf\")";
           }
         } else if (std::isnan(value_.as<double>())) {
-          os << "double(\"nan\")";
+          os << "float(\"nan\")";
         } else {
           os << std::showpoint << value_.as<double>();
         }
