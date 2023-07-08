@@ -1309,10 +1309,13 @@ getReductionBroadcastMap(
       continue;
     }
 
-    // For each reduction leaf domain, check if there's any
-    // permissively mapped broadcast domain
-    for (auto reduction_leaf_id :
-         ir_utils::getTvOutput(reduction_expr)->getLeafDomain()) {
+    // For each reduction leaf domain where its input is inlined, check if
+    // there's any permissively mapped broadcast domain
+    auto reduction_out = ir_utils::getTvOutput(reduction_expr);
+    for (auto reduction_leaf_id_i :
+         c10::irange(reduction_out->getMaxProducerPosition())) {
+      auto reduction_leaf_id =
+          reduction_out->getLeafDomain().at(reduction_leaf_id_i);
       if (reduction_leaf_id->getIterType() != IterType::Reduction) {
         continue;
       }
@@ -1334,6 +1337,15 @@ getReductionBroadcastMap(
           continue;
         }
 
+        // If the broadcast expr is a producer of the reduction expr,
+        // there's no issue merging them
+        auto broadcast_expr = broadcast_map_it->second;
+
+        if (DependencyCheck::isDependencyOf(
+                ir_utils::getTvOutput(broadcast_expr), reduction_out)) {
+          continue;
+        }
+
         // If this broadcast ID or any of its consumers is not sharing
         // the loop with the reduction ID, there's no issue of persistence.
         const auto broadcast_consumer_ids =
@@ -1351,14 +1363,15 @@ getReductionBroadcastMap(
           continue;
         }
 
-        // We now know that merging this broadcast expr would result
+        // We now know that merging this broadcast expr might result
         // in a cycle
-        auto broadcast_expr = broadcast_map_it->second;
         broadcast_exprs.emplace(broadcast_expr);
       }
 
-      reduction_broadcast_map.emplace_back(
-          reduction_expr, reduction_leaf_id, broadcast_exprs);
+      if (!broadcast_exprs.empty()) {
+        reduction_broadcast_map.emplace_back(
+            reduction_expr, reduction_leaf_id, broadcast_exprs);
+      }
     }
   }
 
