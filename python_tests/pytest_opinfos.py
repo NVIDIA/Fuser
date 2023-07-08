@@ -6,6 +6,7 @@
 import torch
 import jax
 from pytest_core import OpInfo, ReferenceType, Domain
+from pytest_fd_functions import tensor_input_fd_fn
 from pytest_input_generators import (
     broadcast_error_generator,
     broadcast_in_dim_generator,
@@ -50,7 +51,8 @@ define_tensor_opinfo = OpInfo(
     "define_tensor",
     sample_input_generator=define_tensor_generator,
     error_input_generator=define_tensor_error_generator,
-    is_fusion_input_op=True,
+    fd_correctness_fn=tensor_input_fd_fn,
+    fd_error_input_fn=tensor_input_fd_fn,
 )
 fusion_input_ops.append(define_tensor_opinfo)
 

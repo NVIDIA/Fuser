@@ -1,8 +1,8 @@
 
 # Pytest Opinfo Framework
 
-* Run tests with `pytest python_tests/pytest_ops.py`
-* Filter tests with `-k` option. e.g., `pytest python_tests/pytest_ops.py -k var_mean`
+* Run tests with `pytest python_tests/pytest_def_tests.py`
+* Filter tests with `-k` option. e.g., `pytest python_tests/pytest_def_tests.py -k var_mean`
 
 ## Dependencies
 * pytest
