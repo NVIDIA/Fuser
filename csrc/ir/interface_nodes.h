@@ -56,7 +56,7 @@ class TORCH_CUDA_CU_API Scalar : public Val {
       : Val(passkey, ValType::Scalar, nvfuser::getDataType(value)),
         value_(std::move(value)) {}
   explicit Scalar(IrBuilderPasskey passkey, ScalarValue value, DataType dtype)
-      : Val(passkey, ValType::Scalar, std::move(dtype)),
+      : Val(passkey, ValType::Scalar, dtype),
         value_([](ScalarValue value, const DataType& dtype) {
           if (!value.hasValue()) {
             return value;
