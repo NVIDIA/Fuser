@@ -1954,26 +1954,20 @@ struct ScalarRecord : RecordFunctor {
       if (RecordFunctor::operator==(other)) {
         if (value_.hasValue() != child_ptr->value_.hasValue() ||
             dtype_ != child_ptr->dtype_) {
-          std::cout << "false 1" << std::endl;
           return false;
         }
         if (value_.hasValue()) {
           if (value_.is<double>() && std::isnan(value_.as<double>()) &&
               std::isnan(child_ptr->value_.as<double>())) {
-            std::cout << "true 1" << std::endl;
             return true;
           } else {
-            std::cout << "result: " << (value_ == child_ptr->value_)
-                      << std::endl;
             return value_ == child_ptr->value_;
           }
         } else {
-          std::cout << "true 2" << std::endl;
           return true;
         }
       }
     }
-    std::cout << "false 2" << std::endl;
     return false;
   }
 
