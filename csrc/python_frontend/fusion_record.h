@@ -1924,10 +1924,14 @@ struct TakeAlongAxisOpRecord : RecordFunctor {
 struct ScalarRecord : RecordFunctor {
   ScalarRecord(
       std::vector<State> _outputs,
-      serde::RecordType record_type,
       ScalarValue value,
       std::optional<PrimDataType> dtype)
-      : RecordFunctor({}, std::move(_outputs), "define_scalar", record_type),
+      : RecordFunctor(
+            {},
+            std::move(_outputs),
+            "define_scalar",
+            value.hasValue() ? serde::RecordType_Constant
+                             : serde::RecordType_ScalarInput),
         value_(std::move(value)),
         dtype_(
             dtype.has_value()

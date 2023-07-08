@@ -516,10 +516,7 @@ void initNvFuserPythonBindings(PyObject* module) {
                 "Attempting to add to a completed definition!");
             Scalar out = self.defineScalar();
             self.defineRecord(new ScalarRecord(
-                {self.recordingState(out())},
-                serde::RecordType_ScalarInput,
-                std::monostate{},
-                dtype));
+                {self.recordingState(out())}, std::monostate{}, dtype));
             return out;
           },
           py::arg("dtype") = DataType::Double,
@@ -531,13 +528,8 @@ void initNvFuserPythonBindings(PyObject* module) {
          std::optional<PrimDataType> dtype) -> Scalar {
         FUSER_PERF_SCOPE("FusionDefinition.define_scalar");
         Scalar out = self.defineScalar();
-        self.defineRecord(new ScalarRecord(
-            {self.recordingState(out())},
-            std::holds_alternative<std::monostate>(value)
-                ? serde::RecordType_ScalarInput
-                : serde::RecordType_Constant,
-            value,
-            dtype));
+        self.defineRecord(
+            new ScalarRecord({self.recordingState(out())}, value, dtype));
         return out;
       },
       py::arg("value"),
@@ -552,11 +544,8 @@ void initNvFuserPythonBindings(PyObject* module) {
         TORCH_WARN_ONCE(
             "Deprecating define_constant functions in favor of define_scalar for constants.");
         Scalar out = self.defineScalar();
-        self.defineRecord(new ScalarRecord(
-            {self.recordingState(out())},
-            serde::RecordType_Constant,
-            value,
-            dtype));
+        self.defineRecord(
+            new ScalarRecord({self.recordingState(out())}, value, dtype));
         return out;
       },
       py::arg("value"),

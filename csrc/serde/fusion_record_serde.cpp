@@ -450,7 +450,6 @@ void RecordFunctorFactory::registerAllParsers() {
   auto deserializeConstantRecord = [](const serde::RecordFunctor* buffer) {
     return new python_frontend::ScalarRecord(
         parseStateArgs(buffer->outputs()),
-        serde::RecordType_Constant,
         mapToScalarValue(buffer->data_as_Constant()),
         mapToNvfuserDtype(buffer->data_as_Constant()->dtype()));
   };
@@ -460,7 +459,6 @@ void RecordFunctorFactory::registerAllParsers() {
     auto data = buffer->data_as_ScalarInput();
     return new python_frontend::ScalarRecord(
         parseStateArgs(buffer->outputs()),
-        serde::RecordType_ScalarInput,
         std::monostate{},
         mapToNvfuserDtype(data->dtype()));
   };
