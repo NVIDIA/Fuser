@@ -836,4 +836,29 @@ static constexpr int kMaxNumGroupedReductions = 16;
 Pointer::Pointer(void* ptr, DataType dtype)
     : ptr_(reinterpret_cast<std::byte*>(ptr)), size_(dataTypeSize(dtype)) {}
 
+inline ScalarValue castToDtype(ScalarValue value, const DataType& dtype) {
+  if (!value.hasValue()) {
+    return value;
+  }
+  // Cast the given value to the given data type. This enables interface
+  // like: IrBuilder::create<Scalar>(0, DataType::Double) where value is
+  // an integer but the desired data type is double.
+  auto value_dtype = getDataType(value);
+  if (!isCompatibleDataType(value_dtype, dtype)) {
+    ScalarValue::for_all_types([&](auto _) {
+      using T = typename decltype(_)::type;
+      if constexpr (IsPrimitiveNativeType<T>::value) {
+        if (isCompatibleDataType(NativeTypeToDataType<T>::type, dtype)) {
+          value = ScalarValue(static_cast<T>(value));
+        }
+      }
+      // TODO: support arrays and pointers
+    });
+  }
+  TORCH_CHECK(
+      isCompatibleDataType(nvfuser::getDataType(value), dtype),
+      "Scalar value is not compatible with the given data type.");
+  return value;
+}
+
 } // namespace nvfuser

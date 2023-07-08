@@ -1931,7 +1931,9 @@ struct ScalarRecord : RecordFunctor {
             std::move(_outputs),
             "define_scalar",
             serde::RecordType_Scalar),
-        value_(std::move(value)),
+        value_(
+            dtype.has_value() ? castToDtype(std::move(value), dtype.value())
+                              : std::move(value)),
         dtype_(
             dtype.has_value()
                 ? dtype.value()
