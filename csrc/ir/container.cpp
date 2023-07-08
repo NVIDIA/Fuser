@@ -232,7 +232,8 @@ Scalar* IrContainer::zeroVal() {
   if (!zero_val_) {
     auto zero_val = IrBuilder::create<Scalar>(this, 0);
     TORCH_INTERNAL_ASSERT(vals_up_.back().get() == zero_val);
-    zero_val_ = std::unique_ptr<Scalar>(vals_up_.back().release()->as<Scalar>());
+    zero_val_ =
+        std::unique_ptr<Scalar>(vals_up_.back().release()->as<Scalar>());
     vals_up_.pop_back();
   }
   return zero_val_.get();
@@ -243,8 +244,7 @@ Scalar* IrContainer::zeroVal(DataType dtype) {
   if (isFloatingPointType(dtype)) {
     return IrBuilder::create<Scalar>(0.0);
   } else if (isComplexType(dtype)) {
-    return IrBuilder::create<Scalar>(
-        std::complex<double>(0.0, 0.0));
+    return IrBuilder::create<Scalar>(std::complex<double>(0.0, 0.0));
   } else if (isIntegralType(dtype)) {
     return zeroVal();
   } else if (isBooleanType(dtype)) {

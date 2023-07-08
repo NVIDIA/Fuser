@@ -225,7 +225,9 @@ def handle_call(l: ast.Call):
                 ast.Name("expand"),
                 [
                     result,
-                    list2vector([f"IrBuilder::create<Scalar>({x})" for x in output_shape]),
+                    list2vector(
+                        [f"IrBuilder::create<Scalar>({x})" for x in output_shape]
+                    ),
                 ],
                 [],
             )

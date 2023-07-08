@@ -78,7 +78,8 @@ class Instrumentor : private kir::IrVisitor {
             IrBuilder::create<Scalar>(num_profile_entries))
             .build(),
         IterDomainBuilder(
-            GpuLower::current()->kernel()->zeroVal(), IrBuilder::create<Scalar>(2))
+            GpuLower::current()->kernel()->zeroVal(),
+            IrBuilder::create<Scalar>(2))
             .build()};
 
     const auto buffer_domain = IrBuilder::create<TensorDomain>(new_buffer_ids);

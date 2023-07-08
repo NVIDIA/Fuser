@@ -74,8 +74,7 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
           TORCH_INTERNAL_ASSERT(lower_utils::supportInlinePredicate(expr));
           auto thread_pred = GpuLower::current()->threadPredMap().getPredicate(
               ir_utils::getTvOutput(expr));
-          TORCH_INTERNAL_ASSERT(
-              thread_pred->isConst() && thread_pred->value());
+          TORCH_INTERNAL_ASSERT(thread_pred->isConst() && thread_pred->value());
           conditional = SimplifyingIrBuilder::andExpr(
               conditional,
               GpuLower::current()->threadPredMap().getPredicate(

@@ -3885,7 +3885,8 @@ TEST_F(NVFuserTest, FusionExpand_CUDA) {
   fusion->addInput(tv0);
 
   auto tv1 = broadcast(tv0, {false, true});
-  auto tv2 = expand(tv1, {tv0->axis(0)->extent(), IrBuilder::create<Scalar>(y)});
+  auto tv2 =
+      expand(tv1, {tv0->axis(0)->extent(), IrBuilder::create<Scalar>(y)});
 
   // x
   auto tv3 = makeSymbolicTensor(1);
@@ -4256,8 +4257,8 @@ TEST_F(NVFuserTest, FusionIssue1770Repro_CUDA) {
   fusion->addInput(tv1);
 
   auto tv2 = ge(tv0, tv1);
-  auto tv3 =
-      where(tv2, IrBuilder::create<Scalar>(1.0), IrBuilder::create<Scalar>(2.0));
+  auto tv3 = where(
+      tv2, IrBuilder::create<Scalar>(1.0), IrBuilder::create<Scalar>(2.0));
   fusion->addOutput(tv3);
 
   std::vector<int64_t> shape({999});
@@ -4680,18 +4681,18 @@ TEST_F(NVFuserTest, FusionExpandRepro1860_CUDA) {
   std::vector<IterDomain*> domain1(3, nullptr);
   for (const auto i : c10::irange(3)) {
     if (i == 0) {
-      domain1[i] =
-          IterDomainBuilder(
-              FusionGuard::getCurFusion()->zeroVal(), IrBuilder::create<Scalar>(1))
-              .iter_type(IterType::Broadcast)
-              .build();
+      domain1[i] = IterDomainBuilder(
+                       FusionGuard::getCurFusion()->zeroVal(),
+                       IrBuilder::create<Scalar>(1))
+                       .iter_type(IterType::Broadcast)
+                       .build();
     } else {
-      domain1[i] =
-          IterDomainBuilder(
-              FusionGuard::getCurFusion()->zeroVal(), IrBuilder::create<Scalar>(1))
-              .expanded_extent(IrBuilder::create<Scalar>(1 + i))
-              .iter_type(IterType::Broadcast)
-              .build();
+      domain1[i] = IterDomainBuilder(
+                       FusionGuard::getCurFusion()->zeroVal(),
+                       IrBuilder::create<Scalar>(1))
+                       .expanded_extent(IrBuilder::create<Scalar>(1 + i))
+                       .iter_type(IterType::Broadcast)
+                       .build();
     }
   }
 
@@ -4724,8 +4725,8 @@ TEST_F(NVFuserTest, FusionExpandReduce_CUDA) {
   auto tv0 = makeConcreteTensor({1, 8});
   fusion->addInput(tv0);
 
-  auto tv1 =
-      expand(tv0, {IrBuilder::create<Scalar>(12), IrBuilder::create<Scalar>(8)});
+  auto tv1 = expand(
+      tv0, {IrBuilder::create<Scalar>(12), IrBuilder::create<Scalar>(8)});
 
   auto tv2 = sum(tv1, {0});
   fusion->addOutput(tv2);
@@ -4830,7 +4831,8 @@ TEST_F(NVFuserTest, FusionExpandBadShapeTest_CUDA) {
 
   std::vector<IterDomain*> domains = {
       IterDomainBuilder(
-          FusionGuard::getCurFusion()->zeroVal(), IrBuilder::create<Scalar>(DataType::Int))
+          FusionGuard::getCurFusion()->zeroVal(),
+          IrBuilder::create<Scalar>(DataType::Int))
           .build(),
       IterDomainBuilder(
           FusionGuard::getCurFusion()->zeroVal(), IrBuilder::create<Scalar>(1))
@@ -8465,7 +8467,10 @@ TEST_F(NVFuserTest, FusionDomainEquivalence_CUDA) {
           testing::HasSubstr("Invalid derived domain")));
 
   // Testing symbolic domains
-  auto tv2 = reshape(tv0, {IrBuilder::create<Scalar>(DataType::Int), IrBuilder::create<Scalar>(DataType::Int)});
+  auto tv2 = reshape(
+      tv0,
+      {IrBuilder::create<Scalar>(DataType::Int),
+       IrBuilder::create<Scalar>(DataType::Int)});
 
   ir_utils::validateDomainEquivalence(
       tv2->getRootDomain(), tv2->getLeafDomain());

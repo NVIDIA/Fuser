@@ -77,9 +77,7 @@ void ExpressionEvaluator::bind_(
   known_named_scalars_[name] = concrete_value;
 }
 
-void ExpressionEvaluator::bind(
-    ParallelType pt,
-    ScalarValue concrete_value) {
+void ExpressionEvaluator::bind(ParallelType pt, ScalarValue concrete_value) {
   TORCH_INTERNAL_ASSERT(isParallelTypeThread(pt));
   if (precomputed_values_) {
     // Need to bind the thread value to integer machine

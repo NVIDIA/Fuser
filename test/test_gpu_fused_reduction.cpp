@@ -1151,7 +1151,8 @@ TEST_F(NVFuserTest, FusionGroupAllreduce4_CUDA) {
   std::vector<TensorView*> reduction_tvs;
 
   for (int i = 0; i < num_reductions; ++i) {
-    auto reduction = sum(add(tv0, IrBuilder::create<Scalar>(static_cast<double>(i))), {0});
+    auto reduction =
+        sum(add(tv0, IrBuilder::create<Scalar>(static_cast<double>(i))), {0});
     reduction_tvs.push_back(reduction);
     auto avg = div(reduction, tv0->axis(0)->extent());
     auto bc = broadcast(avg, {true});

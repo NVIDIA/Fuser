@@ -1017,8 +1017,8 @@ TEST_F(NVFuserTest, FusionExpandView2_CUDA) {
   auto tv1 = makeConcreteTensor({3, 4, 8});
   fusion->addInput(tv1);
 
-  auto tv2 =
-      expand(tv0, {IrBuilder::create<Scalar>(12), IrBuilder::create<Scalar>(8)});
+  auto tv2 = expand(
+      tv0, {IrBuilder::create<Scalar>(12), IrBuilder::create<Scalar>(8)});
 
   auto tv3 = reshape(tv2, {12, 8}, {3, 4, 8});
   auto tv4 = add(tv3, tv1);

@@ -31,7 +31,8 @@ at::ScalarType mapToAtenDtype(serde::DataType t);
 
 ::flatbuffers::Offset<serde::Scalar> serializeScalar(
     flatbuffers::FlatBufferBuilder& builder,
-    const nvfuser::ScalarValue& v, serde::DataType t);
+    const nvfuser::ScalarValue& v,
+    serde::DataType t);
 
 ScalarValue parseScalarValue(const serde::Scalar* c);
 

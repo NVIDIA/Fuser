@@ -106,13 +106,14 @@ TensorView::TensorView(
       } else {
         // if size is not 1, need to expand
         sizes.push_back(
-            builder.expanded_extent(IrBuilder::create<Scalar>(DataType::Int)).build());
+            builder.expanded_extent(IrBuilder::create<Scalar>(DataType::Int))
+                .build());
       }
     } else {
-      sizes.push_back(
-          IterDomainBuilder(
-              passkey.ir_container_->zeroVal(), IrBuilder::create<Scalar>(DataType::Int))
-              .build());
+      sizes.push_back(IterDomainBuilder(
+                          passkey.ir_container_->zeroVal(),
+                          IrBuilder::create<Scalar>(DataType::Int))
+                          .build());
     }
   }
 
@@ -741,7 +742,8 @@ TensorView* TensorView::split(
     unsigned int factor,
     bool inner_split,
     bool trim_out_of_bounds) {
-  split(axis, IrBuilder::create<Scalar>(factor), inner_split, trim_out_of_bounds);
+  split(
+      axis, IrBuilder::create<Scalar>(factor), inner_split, trim_out_of_bounds);
   return this;
 }
 

@@ -446,7 +446,8 @@ TensorView* pad(
   if (!value) {
     // Create a zero of the appropriate type
     if (isComplexType(dt)) {
-      value = static_cast<Val*>(IrBuilder::create<Scalar>(std::complex<double>(0), dt));
+      value = static_cast<Val*>(
+          IrBuilder::create<Scalar>(std::complex<double>(0), dt));
     } else if (isFloatingPointType(dt)) {
       value = static_cast<Val*>(IrBuilder::create<Scalar>(0.0, dt));
     } else if (isBooleanType(dt)) {

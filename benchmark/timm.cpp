@@ -297,7 +297,8 @@ static void setup_vit_base_patch16_224_norm_inner3(Fusion* fusion, void* null) {
   auto t11 = reciprocal(t10);
   auto t12 = mul(t8, t11);
   auto t13 = rand_like(t12);
-  auto d79 = sub(IrBuilder::create<Scalar>(1.0), IrBuilder::create<Scalar>(0.0));
+  auto d79 =
+      sub(IrBuilder::create<Scalar>(1.0), IrBuilder::create<Scalar>(0.0));
   auto t14 = lt(t13, d79);
   auto t15 = castOp(DataType::Float, t14);
   auto b81 = eq(d79, IrBuilder::create<Scalar>(0.0));
@@ -373,7 +374,8 @@ static void setup_vit_base_patch16_224_bcast_outer6(
   auto t10 = mul(IrBuilder::create<Scalar>(0.5), t9);
   auto t11 = mul(t6, t10);
   auto t12 = rand_like(t11);
-  auto d66 = sub(IrBuilder::create<Scalar>(1.0), IrBuilder::create<Scalar>(0.0));
+  auto d66 =
+      sub(IrBuilder::create<Scalar>(1.0), IrBuilder::create<Scalar>(0.0));
   auto t13 = lt(t12, d66);
   auto t14 = castOp(DataType::Float, t13);
   auto t15 = mul(t11, t14);
@@ -462,7 +464,8 @@ static void setup_vit_base_patch16_224_bcast_inner6(
   auto t10 = mul(IrBuilder::create<Scalar>(0.5), t9);
   auto t11 = mul(t6, t10);
   auto t12 = rand_like(t11);
-  auto d66 = sub(IrBuilder::create<Scalar>(1.0), IrBuilder::create<Scalar>(0.0));
+  auto d66 =
+      sub(IrBuilder::create<Scalar>(1.0), IrBuilder::create<Scalar>(0.0));
   auto t13 = lt(t12, d66);
   auto t14 = castOp(DataType::Float, t13);
   auto t15 = mul(t11, t14);

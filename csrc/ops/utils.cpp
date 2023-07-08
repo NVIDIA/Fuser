@@ -253,7 +253,8 @@ std::vector<IterDomain*> newOutputDomain(
           "Could not deduce iter type for new tensor view.");
       out_domain[dim_i] =
           IterDomainBuilder(
-              IrBuilder::create<Scalar>(start_offsets[dim_i]), extent_vals[dim_i])
+              IrBuilder::create<Scalar>(start_offsets[dim_i]),
+              extent_vals[dim_i])
               .stop_offset(IrBuilder::create<Scalar>(stop_offsets[dim_i]))
               .iter_type(iter_types[dim_i].value())
               .build();
@@ -326,7 +327,8 @@ Val* getMinimumValue(DataType v) {
           -std::numeric_limits<double>::infinity());
       break;
     case (DataType::Float):
-      return IrBuilder::create<Scalar>(static_cast<double>(-std::numeric_limits<float>::infinity()));
+      return IrBuilder::create<Scalar>(
+          static_cast<double>(-std::numeric_limits<float>::infinity()));
       break;
     case (DataType::Half):
       return IrBuilder::create<Scalar>(

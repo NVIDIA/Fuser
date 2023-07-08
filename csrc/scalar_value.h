@@ -12,8 +12,8 @@
 #include <dynamic_type.h>
 #include <complex>
 #include <cstddef>
-#include <unordered_map>
 #include <numeric>
+#include <unordered_map>
 
 namespace nvfuser {
 

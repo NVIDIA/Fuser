@@ -400,8 +400,7 @@ TEST_F(NVFuserTest, FusionShiftSplit1_CUDA) {
       if (tensor_name == 1) {
         TORCH_CHECK(alloc->shape().size() == 1);
         auto size = dynamic_cast<Scalar*>(alloc->shape().at(0));
-        TORCH_CHECK(
-            size != nullptr && size->isConst() && size->value() == 7);
+        TORCH_CHECK(size != nullptr && size->isConst() && size->value() == 7);
       }
     }
   }
@@ -460,8 +459,7 @@ TEST_F(NVFuserTest, FusionShiftSplit2_CUDA) {
       if (tensor_name == 1 || tensor_name == 2) {
         TORCH_CHECK(alloc->shape().size() == 1);
         auto size = dynamic_cast<Scalar*>(alloc->shape().at(0));
-        TORCH_CHECK(
-            size != nullptr && size->isConst() && size->value() == 6);
+        TORCH_CHECK(size != nullptr && size->isConst() && size->value() == 6);
       } else if (tensor_name == 4) {
         TORCH_CHECK(alloc->shape().size() == 1);
         auto size = dynamic_cast<Scalar*>(alloc->shape().at(0));
@@ -527,8 +525,7 @@ TEST_F(NVFuserTest, FusionShiftDoubleSplit_CUDA) {
       if (tensor_name == 1 || tensor_name == 2) {
         TORCH_CHECK(alloc->shape().size() == 1);
         auto size = dynamic_cast<Scalar*>(alloc->shape().at(0));
-        TORCH_CHECK(
-            size != nullptr && size->isConst() && size->value() == 9);
+        TORCH_CHECK(size != nullptr && size->isConst() && size->value() == 9);
       }
     }
   }

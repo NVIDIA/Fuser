@@ -320,7 +320,8 @@ Val* getProducerIndexWithPartialSplit(
   }
 
   return SimplifyingIrBuilder::addExpr(
-      producer_index, SimplifyingIrBuilder::create<Scalar>(diff->evaluateInt()));
+      producer_index,
+      SimplifyingIrBuilder::create<Scalar>(diff->evaluateInt()));
 }
 
 Val* getTensorBaseAddress(TensorView* tv) {
@@ -2152,7 +2153,8 @@ std::vector<Val*> Index::getNonGlobalConsumerStridedIndices(
         // Switching index generated for main loop or epilog component.
         db_switch_index = SimplifyingIrBuilder::modExpr(
             SimplifyingIrBuilder::addExpr(
-                loop_index, SimplifyingIrBuilder::create<Scalar>(stage_depth - 1)),
+                loop_index,
+                SimplifyingIrBuilder::create<Scalar>(stage_depth - 1)),
             SimplifyingIrBuilder::create<Scalar>(stage_depth));
       }
 
@@ -2765,7 +2767,8 @@ bool canOmitStopPredicate(
   }
 
   auto stop_index_val =
-      (stop_index->isA<Scalar>() ? stop_index->as<Scalar>()->value() : std::monostate{});
+      (stop_index->isA<Scalar>() ? stop_index->as<Scalar>()->value()
+                                 : std::monostate{});
 
   // If stop_index is a constant, then the expr can be in a trivial loop.
   // Trivial loop is not materialized, so it is not protected under the `for`
