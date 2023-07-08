@@ -68,7 +68,6 @@ enum RecordType : int {
     Binary_VAL,
     Binary_TV_VAL,
     Binary_VAL_TV,
-    Constant,
     Ternary_TV,
     Ternary_VAL,
     Ternary_TV_TV_VAL,
@@ -95,7 +94,7 @@ enum RecordType : int {
     ReductionProd,
     ReductionSum,
     ReshapeOp,
-    ScalarInput,
+    Scalar,
     SliceOp,
     SqueezeOp,
     Start,
@@ -116,7 +115,6 @@ union RecordData {
   Broadcast,
   BroadcastInDim,
   BroadcastInDimSymbolic,
-  Constant,
   Dimension,
   Dtype,
   Norm,
@@ -127,7 +125,7 @@ union RecordData {
   Squeeze,
   Reduction,
   Reshape,
-  ScalarInput,
+  Scalar,
   Tensor,
   TensorCreation,
   TensorCreationSymbolic,
@@ -138,43 +136,11 @@ union RecordData {
 // =====================================================================================
 // Basic data tables
 
-// Data for Constant Bool
-table Bool {
-  value: bool;
-}
-
-// Data for Constant Double and Float
-table Double {
-  value: double;
-  dtype: DataType;
-}
-
-// Data for Constant Long and Int32
-table Long {
-  value: long;
-  dtype: DataType;
-}
-
-// Data for Half
-table Half {
-  value: ushort;
-}
-
-// Data for BFloat16
-table BFloat16 {
-  value: ushort;
-}
-
-// Data for Constant Complex Double and Float
-table ComplexDouble {
-  real: double;
-  imag: double;
-  dtype: DataType;
-}
-
 // Data for ScalarValue
-table Constant {
+table Scalar {
   dtype: DataType;
+  has_value: bool;
+  value_type: DataType;
   bool_value: bool;
   long_value: long;
   double_value: double;

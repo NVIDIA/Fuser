@@ -122,46 +122,56 @@ PrimDataType mapToNvfuserDtype(serde::DataType t) {
   return PrimDataType::Null;
 }
 
-::flatbuffers::Offset<serde::Constant> mapToSerdeConstant(
+::flatbuffers::Offset<serde::Scalar> serializeScalar(
     flatbuffers::FlatBufferBuilder& builder,
-    const nvfuser::ScalarValue& v) {
-  ConstantBuilder builder_(builder);
-  if (v.is<double>()) {
-    builder_.add_dtype(serde::DataType::DataType_Double);
+    const nvfuser::ScalarValue& v,
+    serde::DataType t) {
+  ScalarBuilder builder_(builder);
+  builder_.add_dtype(t);
+  if (v.is<std::monostate>()) {
+    builder_.add_has_value(false);
+    return builder_.Finish();
+  } else if (v.is<double>()) {
+    builder_.add_has_value(true);
+    builder_.add_value_type(serde::DataType::DataType_Double);
     builder_.add_double_value(v.as<double>());
     return builder_.Finish();
   } else if (v.is<int64_t>()) {
-    builder_.add_dtype(serde::DataType::DataType_Int);
+    builder_.add_has_value(true);
+    builder_.add_value_type(serde::DataType::DataType_Int);
     builder_.add_long_value(v.as<int64_t>());
     return builder_.Finish();
   } else if (v.is<bool>()) {
-    builder_.add_dtype(serde::DataType::DataType_Bool);
+    builder_.add_has_value(true);
+    builder_.add_value_type(serde::DataType::DataType_Bool);
     builder_.add_bool_value(v.as<bool>());
     return builder_.Finish();
   } else if (v.is<std::complex<double>>()) {
+    builder_.add_has_value(true);
     auto c = v.as<std::complex<double>>();
-    builder_.add_dtype(serde::DataType::DataType_ComplexDouble);
+    builder_.add_value_type(serde::DataType::DataType_ComplexDouble);
     builder_.add_real_value(std::real(c));
     builder_.add_imag_value(std::imag(c));
     return builder_.Finish();
   }
   TORCH_INTERNAL_ASSERT(
-      false, "Unable to convert ", v.type().name(), " to serde::Constant.");
+      false, "Unable to convert ", v.type().name(), " to serde::Scalar.");
 }
 
-ScalarValue mapToScalarValue(const serde::Constant* c) {
-  if (c->dtype() == DataType::DataType_Double) {
+ScalarValue parseScalarValue(const serde::Scalar* c) {
+  if (!c->has_value()) {
+    return {};
+  } else if (c->value_type() == DataType::DataType_Double) {
     return ScalarValue(c->double_value());
-  } else if (c->dtype() == DataType::DataType_Int) {
+  } else if (c->value_type() == DataType::DataType_Int) {
     return ScalarValue(c->long_value());
-  } else if (c->dtype() == DataType::DataType_Bool) {
+  } else if (c->value_type() == DataType::DataType_Bool) {
     return ScalarValue(c->bool_value());
-  } else if (c->dtype() == DataType::DataType_ComplexDouble) {
-    return ScalarValue(std::complex<double>(
-        c->real_value(), c->imag_value()));
+  } else if (c->value_type() == DataType::DataType_ComplexDouble) {
+    return ScalarValue(std::complex<double>(c->real_value(), c->imag_value()));
   }
   TORCH_INTERNAL_ASSERT(
-      false, "Unable to deserialize serde::Constant as ScalarValue.");
+      false, "Unable to deserialize serde::Scalar as ScalarValue.");
 }
 
 std::vector<bool> parseBoolVector(

@@ -1930,8 +1930,7 @@ struct ScalarRecord : RecordFunctor {
             {},
             std::move(_outputs),
             "define_scalar",
-            value.hasValue() ? serde::RecordType_Constant
-                             : serde::RecordType_ScalarInput),
+            serde::RecordType_Scalar),
         value_(std::move(value)),
         dtype_(
             dtype.has_value()
@@ -1955,20 +1954,26 @@ struct ScalarRecord : RecordFunctor {
       if (RecordFunctor::operator==(other)) {
         if (value_.hasValue() != child_ptr->value_.hasValue() ||
             dtype_ != child_ptr->dtype_) {
+          std::cout << "false 1" << std::endl;
           return false;
         }
         if (value_.hasValue()) {
           if (value_.is<double>() && std::isnan(value_.as<double>()) &&
               std::isnan(child_ptr->value_.as<double>())) {
+            std::cout << "true 1" << std::endl;
             return true;
           } else {
+            std::cout << "result: " << (value_ == child_ptr->value_)
+                      << std::endl;
             return value_ == child_ptr->value_;
           }
         } else {
+          std::cout << "true 2" << std::endl;
           return true;
         }
       }
     }
+    std::cout << "false 2" << std::endl;
     return false;
   }
 
@@ -2019,8 +2024,11 @@ struct ScalarRecord : RecordFunctor {
 
   std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
       flatbuffers::FlatBufferBuilder& builder) const final {
-    return valueRecordData(builder, value_);
-  };
+    return {
+        serde::RecordData_Scalar,
+        serde::serializeScalar(builder, value_, serde::mapToSerdeDtype(dtype_))
+            .Union()};
+  }
 
   inline std::pair<serde::RecordData, flatbuffers::Offset<void>> valueRecordData(
       flatbuffers::FlatBufferBuilder& builder,
@@ -2032,21 +2040,6 @@ struct ScalarRecord : RecordFunctor {
   //! Scalar data type.
   PrimDataType dtype_;
 };
-
-inline std::pair<serde::RecordData, flatbuffers::Offset<void>> ScalarRecord::
-    valueRecordData(flatbuffers::FlatBufferBuilder& builder, ScalarValue value)
-        const {
-  if (value.hasValue()) {
-    return {
-        serde::RecordData_Constant,
-        serde::mapToSerdeConstant(builder, value).Union()};
-  } else {
-    return {
-        serde::RecordData_ScalarInput,
-        serde::CreateScalarInput(builder, serde::mapToSerdeDtype(dtype_))
-            .Union()};
-  }
-}
 
 struct SliceOpRecord : RecordFunctor {
   SliceOpRecord(

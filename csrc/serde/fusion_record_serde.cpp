@@ -447,22 +447,13 @@ void RecordFunctorFactory::registerAllParsers() {
   };
   registerParser(serde::RecordType_CastVal, deserializeCastValRecord);
 
-  auto deserializeConstantRecord = [](const serde::RecordFunctor* buffer) {
+  auto deserializeScalarRecord = [](const serde::RecordFunctor* buffer) {
     return new python_frontend::ScalarRecord(
         parseStateArgs(buffer->outputs()),
-        mapToScalarValue(buffer->data_as_Constant()),
-        mapToNvfuserDtype(buffer->data_as_Constant()->dtype()));
+        parseScalarValue(buffer->data_as_Scalar()),
+        mapToNvfuserDtype(buffer->data_as_Scalar()->dtype()));
   };
-  registerParser(serde::RecordType_Constant, deserializeConstantRecord);
-
-  auto deserializeScalarInputRecord = [](const serde::RecordFunctor* buffer) {
-    auto data = buffer->data_as_ScalarInput();
-    return new python_frontend::ScalarRecord(
-        parseStateArgs(buffer->outputs()),
-        std::monostate{},
-        mapToNvfuserDtype(data->dtype()));
-  };
-  registerParser(serde::RecordType_ScalarInput, deserializeScalarInputRecord);
+  registerParser(serde::RecordType_Scalar, deserializeScalarRecord);
 
   auto deserializeFullRecord = [](const serde::RecordFunctor* buffer) {
     auto data = buffer->data_as_TensorCreation();
