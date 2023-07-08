@@ -1935,7 +1935,7 @@ struct ScalarRecord : RecordFunctor {
         dtype_(
             dtype.has_value()
                 ? dtype.value()
-                : std::get<PrimDataType>(getDataType(value).type)) {}
+                : std::get<PrimDataType>(getDataType(value_).type)) {}
   ~ScalarRecord() override = default;
   RecordFunctor* clone() final {
     return new ScalarRecord(*this);
