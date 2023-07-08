@@ -349,7 +349,7 @@ DEFINE_DATATYPE_TO_NATIVE_TYPE(
 
 inline DataType getDataType(const ScalarValue& value) {
   std::optional<DataType> dtype = std::nullopt;
-  ScalarValue::for_all_types([&](auto _) {
+  ScalarValue::for_all_types([&value, &dtype](auto _) {
     using T = typename decltype(_)::type;
     if constexpr (IsPrimitiveNativeType<T>::value) {
       if (value.is<T>()) {

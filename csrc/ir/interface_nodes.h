@@ -57,7 +57,7 @@ class TORCH_CUDA_CU_API Scalar : public Val {
         value_(std::move(value)) {}
   explicit Scalar(IrBuilderPasskey passkey, ScalarValue value, DataType dtype)
       : Val(passkey, ValType::Scalar, std::move(dtype)),
-        value_([](ScalarValue value, DataType dtype) {
+        value_([](ScalarValue value, const DataType& dtype) {
           if (!value.hasValue()) {
             return value;
           }
@@ -81,7 +81,7 @@ class TORCH_CUDA_CU_API Scalar : public Val {
               isCompatibleDataType(nvfuser::getDataType(value), dtype),
               "Scalar value is not compatible with the given data type.");
           return value;
-        }(std::move(value), dtype)) {}
+        }(std::move(value), dtype_)) {}
 
   Scalar(const Scalar* src, IrCloner* ir_cloner)
       : Val(src, ir_cloner), value_(src->value_) {}

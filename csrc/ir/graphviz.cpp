@@ -19,6 +19,7 @@ namespace nvfuser {
 namespace {
 
 // Private helper, generating node labels for IrGraphGenerator
+// NOLINTNEXTLINE(cppcoreguidelines-virtual-class-destructor)
 class IrNodeLabel final : private OptInConstDispatch {
   using DetailLevel = IrGraphGenerator::DetailLevel;
 

@@ -38,6 +38,7 @@ Predicate::Predicate(
       ptype_(ptype),
       expr_(expr),
       thread_pred_(thread_pred) {
+  TORCH_INTERNAL_ASSERT(passkey.ir_container_ != nullptr);
   TORCH_INTERNAL_ASSERT(
       passkey.ir_container_->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
@@ -49,6 +50,7 @@ Predicate::Predicate(IrBuilderPasskey passkey, ForLoop* unrolled_loop)
     : Val(passkey, ValType::Predicate, DataType::Bool),
       ptype_(PredicateType::Unswitch),
       unrolled_loop_(unrolled_loop) {
+  TORCH_INTERNAL_ASSERT(passkey.ir_container_ != nullptr);
   TORCH_INTERNAL_ASSERT(
       passkey.ir_container_->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
@@ -59,6 +61,7 @@ Predicate::Predicate(IrBuilderPasskey passkey, Scalar* value)
     : Val(passkey, ValType::Predicate, DataType::Bool),
       ptype_(PredicateType::Manual),
       value_(value) {
+  TORCH_INTERNAL_ASSERT(passkey.ir_container_ != nullptr);
   TORCH_INTERNAL_ASSERT(
       passkey.ir_container_->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
@@ -85,6 +88,7 @@ TensorIndex::TensorIndex(
     : Val(passkey, ValType::TensorIndex, view->getDataType().value()),
       view_(view),
       index_(index) {
+  TORCH_INTERNAL_ASSERT(passkey.ir_container_ != nullptr);
   TORCH_INTERNAL_ASSERT(
       passkey.ir_container_->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
@@ -128,6 +132,7 @@ Allocate::Allocate(
     bool zero_init,
     Allocate* alias)
     : Expr(passkey) {
+  TORCH_INTERNAL_ASSERT(passkey.ir_container_ != nullptr);
   TORCH_INTERNAL_ASSERT(
       passkey.ir_container_->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
@@ -215,6 +220,7 @@ std::string Allocate::toInlineString(int indent_size) const {
 NVFUSER_DEFINE_CLONE_AND_CREATE(Allocate)
 
 BlockSync::BlockSync(IrBuilderPasskey passkey, bool war_sync) : Expr(passkey) {
+  TORCH_INTERNAL_ASSERT(passkey.ir_container_ != nullptr);
   TORCH_INTERNAL_ASSERT(
       passkey.ir_container_->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
@@ -242,6 +248,7 @@ GridSync::GridSync(
     ParallelTypeBitmap sync_dims,
     Val* sync_buffer)
     : Expr(passkey) {
+  TORCH_INTERNAL_ASSERT(passkey.ir_container_ != nullptr);
   addAttribute(IrBuilder::create<Attribute<ParallelTypeBitmap>>(
       passkey.ir_container_, sync_dims));
   addAttribute(sync_buffer);
@@ -262,6 +269,7 @@ NVFUSER_DEFINE_CLONE_AND_CREATE(GridSync)
 
 CpAsyncWait::CpAsyncWait(IrBuilderPasskey passkey, unsigned int keep_stages)
     : Expr(passkey) {
+  TORCH_INTERNAL_ASSERT(passkey.ir_container_ != nullptr);
   TORCH_INTERNAL_ASSERT(
       passkey.ir_container_->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
@@ -282,6 +290,7 @@ std::string CpAsyncWait::toInlineString(int indent_size) const {
 NVFUSER_DEFINE_CLONE_AND_CREATE(CpAsyncWait)
 
 CpAsyncCommit::CpAsyncCommit(IrBuilderPasskey passkey) : Expr(passkey) {
+  TORCH_INTERNAL_ASSERT(passkey.ir_container_ != nullptr);
   TORCH_INTERNAL_ASSERT(
       passkey.ir_container_->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
@@ -300,6 +309,7 @@ std::string CpAsyncCommit::toInlineString(int indent_size) const {
 NVFUSER_DEFINE_CLONE_AND_CREATE(CpAsyncCommit)
 
 InitMagicZero::InitMagicZero(IrBuilderPasskey passkey) : Expr(passkey) {
+  TORCH_INTERNAL_ASSERT(passkey.ir_container_ != nullptr);
   TORCH_INTERNAL_ASSERT(
       passkey.ir_container_->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
@@ -318,6 +328,7 @@ std::string InitMagicZero::toInlineString(int indent_size) const {
 NVFUSER_DEFINE_CLONE_AND_CREATE(InitMagicZero)
 
 UpdateMagicZero::UpdateMagicZero(IrBuilderPasskey passkey) : Expr(passkey) {
+  TORCH_INTERNAL_ASSERT(passkey.ir_container_ != nullptr);
   TORCH_INTERNAL_ASSERT(
       passkey.ir_container_->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
@@ -337,6 +348,7 @@ NVFUSER_DEFINE_CLONE_AND_CREATE(UpdateMagicZero)
 
 BaseAddress::BaseAddress(IrBuilderPasskey passkey, Val* out, TensorView* tv)
     : Expr(passkey) {
+  TORCH_INTERNAL_ASSERT(passkey.ir_container_ != nullptr);
   TORCH_INTERNAL_ASSERT(
       passkey.ir_container_->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
@@ -441,6 +453,7 @@ ForLoop::ForLoop(
     bool unroll_required,
     DoubleBufferLoopStage double_buffer_loop_stage)
     : Expr(passkey) {
+  TORCH_INTERNAL_ASSERT(passkey.ir_container_ != nullptr);
   TORCH_INTERNAL_ASSERT(
       passkey.ir_container_->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
@@ -738,6 +751,7 @@ GridReduction::GridReduction(
     Val* entrances,
     bool is_allreduce)
     : ReductionOp(passkey, reduction_op_type, init, out, in, is_allreduce) {
+  TORCH_INTERNAL_ASSERT(passkey.ir_container_ != nullptr);
   TORCH_INTERNAL_ASSERT(
       passkey.ir_container_->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
@@ -811,6 +825,7 @@ GroupedGridReduction::GroupedGridReduction(
           std::move(outputs),
           std::move(inputs),
           is_allreduce) {
+  TORCH_INTERNAL_ASSERT(passkey.ir_container_ != nullptr);
   TORCH_INTERNAL_ASSERT(
       passkey.ir_container_->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
@@ -877,6 +892,7 @@ GridBroadcast::GridBroadcast(
     Allocate* broadcast_buffer,
     Allocate* sync_buffer)
     : Expr(passkey) {
+  TORCH_INTERNAL_ASSERT(passkey.ir_container_ != nullptr);
   TORCH_INTERNAL_ASSERT(
       passkey.ir_container_->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
@@ -914,6 +930,7 @@ GridWelford::GridWelford(
     Val* entrance_index,
     Val* entrances)
     : Expr(passkey) {
+  TORCH_INTERNAL_ASSERT(passkey.ir_container_ != nullptr);
   TORCH_INTERNAL_ASSERT(
       passkey.ir_container_->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
@@ -1013,6 +1030,7 @@ GroupedGridWelford::GroupedGridWelford(
           std::move(input_vals),
           std::move(init_vals),
           is_allreduce) {
+  TORCH_INTERNAL_ASSERT(passkey.ir_container_ != nullptr);
   TORCH_INTERNAL_ASSERT(
       passkey.ir_container_->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
@@ -1147,6 +1165,10 @@ VectorizedWelfordOp::VectorizedWelfordOp(
     Val* reciprocal_of_count,
     Scalar* hoisted_predicate)
     : WelfordOp(passkey, output, input, init, false) {
+  TORCH_INTERNAL_ASSERT(passkey.ir_container_ != nullptr);
+  TORCH_INTERNAL_ASSERT(
+      passkey.ir_container_->isA<kir::Kernel>(),
+      "IR type only valid for Kernel container.");
   addAttribute(count);
   addAttribute(reciprocal_of_count);
   addAttribute(hoisted_predicate);
@@ -1158,6 +1180,7 @@ AllocateFusedReduction::AllocateFusedReduction(
     IrBuilderPasskey passkey,
     Expr* grid_expr)
     : Expr(passkey) {
+  TORCH_INTERNAL_ASSERT(passkey.ir_container_ != nullptr);
   TORCH_INTERNAL_ASSERT(
       passkey.ir_container_->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
