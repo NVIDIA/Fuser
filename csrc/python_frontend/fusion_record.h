@@ -1947,25 +1947,25 @@ struct ScalarRecord : RecordFunctor {
   }
 
   bool operator==(const RecordFunctor& other) const final {
-    auto result = false;
     if (auto child_ptr = dynamic_cast<const ScalarRecord*>(&other)) {
-      result = RecordFunctor::operator==(other);
-      if (result) {
+      if (RecordFunctor::operator==(other)) {
+        if (value_.hasValue() != child_ptr->value_.hasValue() ||
+            dtype_ != child_ptr->dtype_) {
+          return false;
+        }
         if (value_.hasValue()) {
-          if (value_.is<double>()) {
-            if (std::isnan(value_.as<double>()) &&
-                std::isnan(child_ptr->value_.as<double>())) {
-              return true;
-            } else {
-              result = (value_ == child_ptr->value_);
-            }
+          if (value_.is<double>() && std::isnan(value_.as<double>()) &&
+              std::isnan(child_ptr->value_.as<double>())) {
+            return true;
           } else {
-            result = (value_ == child_ptr->value_);
+            return value_ == child_ptr->value_;
           }
+        } else {
+          return true;
         }
       }
     }
-    return result;
+    return false;
   }
 
   void operator()(FusionState& fd) final {

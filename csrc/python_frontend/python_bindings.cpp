@@ -23,8 +23,8 @@
 #include <optional>
 #include <tuple>
 
-#include <pybind11/stl.h>
 #include <pybind11/complex.h>
+#include <pybind11/stl.h>
 
 namespace nvfuser::python_frontend {
 
@@ -533,7 +533,9 @@ void initNvFuserPythonBindings(PyObject* module) {
         Scalar out = self.defineScalar();
         self.defineRecord(new ScalarRecord(
             {self.recordingState(out())},
-            serde::RecordType_Constant,
+            std::holds_alternative<std::monostate>(value)
+                ? serde::RecordType_ScalarInput
+                : serde::RecordType_Constant,
             value,
             dtype));
         return out;
