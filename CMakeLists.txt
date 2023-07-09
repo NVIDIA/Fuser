@@ -155,9 +155,6 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/partial_split_map.cpp
   ${NVFUSER_SRCS_DIR}/partition.cpp
   ${NVFUSER_SRCS_DIR}/predicate_compute.cpp
-  ${NVFUSER_SRCS_DIR}/python_frontend/fusion_cache.cpp
-  ${NVFUSER_SRCS_DIR}/python_frontend/fusion_definition.cpp
-  ${NVFUSER_SRCS_DIR}/python_frontend/fusion_state.cpp
   ${NVFUSER_SRCS_DIR}/register_interface.cpp
   ${NVFUSER_SRCS_DIR}/root_domain_map.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/pointwise.cpp
@@ -172,8 +169,6 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/scheduler/registry.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/utils.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/vectorize_helper.cpp
-  ${NVFUSER_SRCS_DIR}/serde/fusion_record_serde.cpp
-  ${NVFUSER_SRCS_DIR}/serde/utils.cpp
   ${NVFUSER_SRCS_DIR}/swizzle.cpp
   ${NVFUSER_SRCS_DIR}/sys_utils.cpp
   ${NVFUSER_SRCS_DIR}/type_inference.cpp
