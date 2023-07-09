@@ -852,7 +852,7 @@ std::vector<ScalarValue> GetMetaData::evaluate(
   // domain, but input.strides() is on the rFactor domain. We need to refactor
   // our executor to move related logic here.
   concrete_value["strides"] = ScalarValue(input.strides().vec());
-  return {ScalarValue(std::move(concrete_value))};
+  return {ScalarValue(concrete_value)};
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(GetMetaData)
