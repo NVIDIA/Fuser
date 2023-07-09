@@ -1117,7 +1117,7 @@ std::vector<ScalarValue> SqueezeOp::evaluate(
   TORCH_INTERNAL_ASSERT(
       (int64_t)is_squeeze_dims.size() == in.dim(),
       "The dimensions of input tensor and does not match with is_squeeze_dims");
-  for (int64_t i : c10::irange(is_squeeze_dims.size())) {
+  for (int64_t i : c10::irange((int64_t)is_squeeze_dims.size())) {
     if (!is_squeeze_dims[i]) {
       out_shape.push_back(in.sizes()[i]);
     }
