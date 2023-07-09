@@ -6306,12 +6306,7 @@ TEST_F(NVFuserTest, FusionHuggingFaceRepro2064Squeeze_CUDA) {
   auto cg_outputs = executor_cache.runFusionWithInputs({t0});
 
   testValidate(
-      executor_cache.fusion(),
-      cg_outputs,
-      {t0},
-      __LINE__,
-      __FILE__,
-      "");
+      executor_cache.fusion(), cg_outputs, {t0}, __LINE__, __FILE__, "");
 }
 
 TEST_F(NVFuserTest, FusionSqueezeTransformPropagation_CUDA) {
