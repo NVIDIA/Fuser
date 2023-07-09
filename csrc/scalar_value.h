@@ -204,7 +204,8 @@ inline ScalarValue notExpr(const ScalarValue& a) {
   if (a.is<bool>()) {
     return ScalarValue(!a.as<bool>());
   }
-  TORCH_INTERNAL_ASSERT(false);
+  TORCH_INTERNAL_ASSERT(
+      false, "ScalarValue notExpr not implemented for ", a.type().name());
 }
 
 inline ScalarValue abs(const ScalarValue& a) {
@@ -217,7 +218,8 @@ inline ScalarValue abs(const ScalarValue& a) {
   if (a.is<bool>()) {
     return a;
   }
-  TORCH_INTERNAL_ASSERT(false);
+  TORCH_INTERNAL_ASSERT(
+      false, "ScalarValue abs not implemented for ", a.type().name());
 }
 
 inline ScalarValue erf(const ScalarValue& a) {
