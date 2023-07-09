@@ -195,8 +195,8 @@ bool StructOf::operator==(const StructOf& other) const {
 }
 
 class Val;
-//! If v is a tensor, return its metadata type, otherwise return v's type
-DataType getMaybeMetaDataType(Val* v);
+//! Get the type of a Val's metadata, currently only supporting tensors
+DataType metaDataTypeOf(Val* tv);
 
 enum class KernelIndexMode { INT32, INT64 };
 

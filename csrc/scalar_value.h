@@ -7,14 +7,14 @@
 // clang-format on
 #pragma once
 
-#include <c10/util/BFloat16.h>
-#include <c10/util/Half.h>
 #include <dynamic_type.h>
 #include <complex>
 #include <cstddef>
 #include <unordered_map>
 
 #include <type.h>
+
+#include <ATen/ATen.h>
 
 namespace nvfuser {
 
@@ -163,6 +163,7 @@ inline Pointer operator+(int64_t offset, const Pointer& ptr) {
 
 using ScalarValue = DynamicType<
     Containers<std::vector, Struct>,
+    at::Tensor,
     std::complex<double>,
     double,
     int64_t,

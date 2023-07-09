@@ -784,7 +784,7 @@ GetAttr::GetAttr(
     std::string attr)
     : Expr(passkey) {
   TORCH_INTERNAL_ASSERT(
-      NVFUSER_MAYBE_STAR std::get<StructOf>(getMaybeMetaDataType(struct_).type)
+      NVFUSER_MAYBE_STAR std::get<StructOf>(struct_->dtype().type)
               .types.at(attr) == output->dtype(),
       "Data type mismatch for GetAttr");
   addOutput(output);
@@ -802,7 +802,7 @@ std::string GetAttr::toString(int indent_size) const {
 
 std::string GetAttr::toInlineString(int indent_size) const {
   std::stringstream ss;
-  ss << "(" << struct_()->toInlineString() << ")." << attr() << "";
+  ss << "(" << struct_()->toInlineString() << ")." << attr();
   return ss.str();
 }
 
@@ -813,6 +813,49 @@ std::vector<ScalarValue> GetAttr::evaluate(
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(GetAttr)
+
+GetMetaData::GetMetaData(IrBuilderPasskey passkey, Val* output, Val* input)
+    : Expr(passkey) {
+  addOutput(output);
+  addInput(input);
+  TORCH_INTERNAL_ASSERT(
+      out()->dtype() == metaDataTypeOf(in()),
+      "Data type mismatch for GetMetaData")
+}
+
+std::string GetMetaData::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << out()->toString() << " = getMetaData("
+                          << in()->toString() << ")\n";
+  return ss.str();
+}
+
+std::string GetMetaData::toInlineString(int indent_size) const {
+  std::stringstream ss;
+  ss << "getMetaData(" << in()->toInlineString() << ")";
+  return ss.str();
+}
+
+std::vector<ScalarValue> GetMetaData::evaluate(
+    const std::vector<ScalarValue>& inputs) const {
+  TORCH_INTERNAL_ASSERT(inputs.size() == 1, "GetMetaData expects 1 input");
+  TORCH_INTERNAL_ASSERT(
+      in()->isA<TensorView>(),
+      "Currently, GetMetaData only supports TensorView");
+  TensorView* tv = in()->as<TensorView>();
+  at::Tensor input = inputs.at(0).as<at::Tensor>();
+
+  Struct<ScalarValue> concrete_value;
+  concrete_value["data"] = ScalarValue(Pointer(input.data_ptr(), tv->dtype()));
+  concrete_value["sizes"] = ScalarValue(input.sizes().vec());
+  // TODO: this is not correct, strides actually needs to be based on allocation
+  // domain, but input.strides() is on the rFactor domain. We need to refactor
+  // our executor to move related logic here.
+  concrete_value["strides"] = ScalarValue(input.strides().vec());
+  return {ScalarValue(std::move(concrete_value))};
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(GetMetaData)
 
 TensorConstruct::TensorConstruct(
     IrBuilderPasskey passkey,
