@@ -3262,7 +3262,9 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck4warp_CUDA) {
         params.async_gmem_load_operands = true;
         params.double_buffer_options.double_buffer_smem_write = true;
         params.has_smem_epilogue = mma_utils::hasEnoughSharedMemoryForEpilogue(
-            gemm_tile, params.double_buffer_options.smem_double_buffer_stage);
+            gemm_tile,
+            params.double_buffer_options.smem_double_buffer_stage,
+            {DataType::Half, DataType::Half, DataType::Float});
         scheduleMatmul(&fusion, params);
 
         auto inputs = matmulAtInput(M, N, K, layout);
@@ -3336,7 +3338,8 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck8warp_CUDA) {
           params.has_smem_epilogue =
               mma_utils::hasEnoughSharedMemoryForEpilogue(
                   gemm_tile,
-                  params.double_buffer_options.smem_double_buffer_stage);
+                  params.double_buffer_options.smem_double_buffer_stage,
+                  {DataType::Half, DataType::Half, DataType::Float});
 
           scheduleMatmul(&fusion, params);
 
@@ -3403,7 +3406,9 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck6warp_CUDA) {
       params.double_buffer_options.double_buffer_smem_read = true;
       params.double_buffer_options.smem_double_buffer_stage = 2;
       params.has_smem_epilogue = mma_utils::hasEnoughSharedMemoryForEpilogue(
-          gemm_tile, params.double_buffer_options.smem_double_buffer_stage);
+          gemm_tile,
+          params.double_buffer_options.smem_double_buffer_stage,
+          {DataType::Half, DataType::Half, DataType::Float});
       scheduleMatmul(&fusion, params);
 
       auto inputs = matmulAtInput(M, N, K, layout);

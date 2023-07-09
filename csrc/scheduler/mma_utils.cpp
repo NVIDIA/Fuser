@@ -21,29 +21,40 @@ namespace mma_utils {
 
 bool hasEnoughSharedMemoryForEpilogue(
     const MatMulTileOptions& gemm_tile,
-    const int smem_double_buffer_stage) {
-  auto properties = at::cuda::getDeviceProperties(
-      c10::Device(c10::DeviceType::CUDA, 0).index());
+    const int smem_double_buffer_stage,
+    std::vector<DataType> data_types) {
+  const auto properties = at::cuda::getCurrentDeviceProperties();
   const size_t device_smem_limit = properties->sharedMemPerBlockOptin;
 
+  auto warp_dims = gemm_tile.cta_tile / gemm_tile.warp_tile;
+  const auto threads_per_block =
+      warp_dims.m * warp_dims.n * warp_dims.k * properties->warpSize;
+  // a thread can use up to 255 registers, blocks per sm is limited by available
+  // registers
+  const auto threads_per_sm = getThreadsPerSMGivenRegPerThread(255);
+  const auto blocks_per_sm = threads_per_sm / threads_per_block;
   // see scheduleContiguousVectorLoad
   const int vector_word = 8;
-  auto warp_dims = gemm_tile.cta_tile / gemm_tile.warp_tile;
-  const int round_to_factor =
-      warp_dims.m * warp_dims.n * warp_dims.k * 32 * vector_word;
+  const int round_to_factor = warp_dims.m * warp_dims.n * warp_dims.k *
+      properties->warpSize * vector_word;
   const int mk = gemm_tile.cta_tile.m * gemm_tile.cta_tile.k;
   const int nk = gemm_tile.cta_tile.n * gemm_tile.cta_tile.k;
   const size_t smem_a = (size_t)(ceilDiv(mk, round_to_factor) *
                                  round_to_factor * smem_double_buffer_stage) *
-      dataTypeSize(DataType::Half);
+      dataTypeSize(data_types[0]);
   const size_t smem_b = (size_t)(ceilDiv(nk, round_to_factor) *
                                  round_to_factor * smem_double_buffer_stage) *
-      dataTypeSize(DataType::Half);
+      dataTypeSize(data_types[1]);
   const size_t smem_c = (size_t)(gemm_tile.cta_tile.m * gemm_tile.cta_tile.n) *
-      dataTypeSize(DataType::Float);
-  const size_t smem_size = smem_a + smem_b + smem_c;
+      dataTypeSize(data_types[2]);
 
-  return smem_size <= device_smem_limit;
+  // use additional shared memory for epilogue if blocks per sm is not changed
+  const auto blocks_per_sm_without_smem_epilogue =
+      std::min(device_smem_limit / (smem_a + smem_b), (size_t)blocks_per_sm);
+  const auto blocks_per_sm_with_smem_epilogue = std::min(
+      device_smem_limit / (smem_a + smem_b + smem_c), (size_t)blocks_per_sm);
+  return blocks_per_sm_with_smem_epilogue ==
+      blocks_per_sm_without_smem_epilogue;
 }
 
 void scheduleWarpTileWithReduction(TensorView* tv, MatMulTileOptions tile) {

@@ -20,7 +20,8 @@ namespace mma_utils {
 //! Check if there is enough shared memory for the given tile options
 TORCH_CUDA_CU_API bool hasEnoughSharedMemoryForEpilogue(
     const MatMulTileOptions& gemm_tile,
-    const int smem_double_buffer_stage);
+    const int smem_double_buffer_stage,
+    std::vector<DataType> data_types);
 
 //! Utilities in this namespace facilitates scheduling matmul kernels with
 //!  hierarchichal tiling specified in MatMulTileOptions.
