@@ -832,6 +832,8 @@ void bindInputForExprEvaluation(
     ExpressionEvaluator& expr_eval) {
   if (val->getValType() == ValType::TensorView) {
     TensorView* cg_tensor = val->as<TensorView>();
+    expr_eval.bind(
+        cg_tensor, dynamic_cast<const TensorArgAbstract*>(arg)->getTensor());
     auto root_domain =
         TensorDomain::noReductions(cg_tensor->getMaybeRFactorDomain());
 
