@@ -37,7 +37,7 @@ struct Struct {
   }
 
   T& operator[](const std::string& key) {
-#if defined(__clang__) || __GNUC__ >= 12
+#if defined(STD_UNORDERED_SET_SUPPORTS_INCOMPLETE_TYPE)
     return fields[key];
 #else
     if (fields.find(key) == fields.end()) {
