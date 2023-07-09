@@ -95,9 +95,42 @@ struct PointerOf {
   inline bool operator==(const PointerOf& other) const;
 };
 
+struct StructOf {
+  // Note [Incomplete type support in STL]
+  // std::unordered_map<std::string, DataType> is a STL container of incomplete
+  // type. Not all C++ STL containers supports incomplete type due to historical
+  // reason: It is totally possible to implement STL containers supporting
+  // incomplete type (actually, boost has these container implementations), and
+  // it totally makes sense to implement STL containers that way. However, due
+  // to historical reason, some standard C++ libraries are not implementing STL
+  // containers that way, and after careful consideration, the C++ standard
+  // committee decided to not write the requirement on supporting incomplete
+  // type into the standard because they didn't want to deprecate these
+  // libraries. However, starting from C++17, the standard start to ask
+  // std::vector, std::list and std::forward_list to support incomplete
+  // type. So:
+  //   struct A;
+  //   std::vector<A> a; // valid on C++17
+  //   std::unordered_set<A> s; // undefined behavior, working on newer gcc.
+  //   struct A {};
+
+#if defined(__clang__) || __GNUC__ >= 12
+  std::unordered_map<std::string, DataType> types;
+#define NVFUSER_MAYBE_MAKE_SHARED(x) x
+#define NVFUSER_MAYBE_MAKE_SHARED2(x, y) x, y
+#define NVFUSER_MAYBE_STAR
+#else
+  std::unordered_map<std::string, std::shared_ptr<DataType>> types;
+#define NVFUSER_MAYBE_MAKE_SHARED(x) std::make_shared<DataType>(x)
+#define NVFUSER_MAYBE_MAKE_SHARED2(x, y) std::make_shared<DataType>(x, y)
+#define NVFUSER_MAYBE_STAR *
+#endif
+  inline bool operator==(const StructOf& other) const;
+};
+
 struct DataType {
   using VariantOfSupportedTypes =
-      std::variant<PrimDataType, ArrayOf, PointerOf>;
+      std::variant<PrimDataType, ArrayOf, PointerOf, StructOf>;
   VariantOfSupportedTypes type = PrimDataType::Null;
 
   DataType() = default;
@@ -105,6 +138,7 @@ struct DataType {
   DataType(const PrimDataType& type) : type(type) {}
   DataType(const ArrayOf& type) : type(type) {}
   DataType(const PointerOf& type) : type(type) {}
+  DataType(const StructOf& type) : type(type) {}
 
   static constexpr PrimDataType Double = PrimDataType::Double;
   static constexpr PrimDataType Float = PrimDataType::Float;
@@ -135,6 +169,34 @@ bool ArrayOf::operator==(const ArrayOf& other) const {
 bool PointerOf::operator==(const PointerOf& other) const {
   return *type == *other.type;
 }
+
+bool StructOf::operator==(const StructOf& other) const {
+#if defined(__clang__) || __GNUC__ >= 12
+  return types == other.types;
+#else
+  std::unordered_set<std::string> keys;
+  for (auto& [k, v] : types) {
+    keys.insert(k);
+  }
+  std::unordered_set<std::string> other_keys;
+  for (auto& [k, v] : other.types) {
+    other_keys.insert(k);
+  }
+  if (keys != other_keys) {
+    return false;
+  }
+  for (auto& [k, v] : types) {
+    if (*v != *other.types.at(k)) {
+      return false;
+    }
+  }
+  return true;
+#endif
+}
+
+class Val;
+//! If v is a tensor, return its metadata type, otherwise return v's type
+DataType getMaybeMetaDataType(Val* v);
 
 enum class KernelIndexMode { INT32, INT64 };
 

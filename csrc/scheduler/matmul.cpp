@@ -437,6 +437,37 @@ void scheduleProlog(TensorView* shared_mem_tv, const MatmulParams& params) {
           .propagateParallelType());
 }
 
+//! Propagates transformations from fusion output to fusion tv inputs that are
+//!  producers in the epilogue. Transformations' propagation aims at input tvs
+//!  which are not assigned to core roles, that is, are not MMA inputs.
+void scheduleFusionInputsForEpilogue(const mma_utils::RolesMap& roles_map) {
+  std::vector<TensorView*> cached_tvs;
+
+  // Handling transformations in fusion input tvs with assigned INPUT_C role by
+  //  propagating fusion output transformations through cached views of INPUT_C
+  //  fusion input tvs and by setting vectorization of the inner most iterdomain
+  //  of these cached views
+  {
+    auto& c_tvs = roles_map.at(MatmulRole::INPUT_C);
+    for (auto* c : c_tvs) {
+      cached_tvs.push_back(c->cacheAfter());
+    }
+
+    // The system supports only scenario where there is only one fusion output
+    //  with assigned OUTPUT_D role, this condition is already verified so there
+    //  is no need for an additional checks here
+    scheduler_utils::BoundedDirectionalTransformPropagator::backward(
+        roles_map.at(MatmulRole::OUTPUT_D).front(), -1, c_tvs);
+
+    for (auto* cc : cached_tvs) {
+      cc->axis(-1)->parallelize(ParallelType::Vectorize);
+    }
+
+    // The cached INPUT_C tvs are not needed anymore
+    cached_tvs.clear();
+  }
+}
+
 } // namespace
 
 void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
@@ -453,9 +484,10 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
       "scheduleMatmul supports fusion with single mma op in definition, got ",
       mma_ops.size());
 
-  TensorView* a = roles_map.at(MatmulRole::MMA_INPUT_A);
-  TensorView* b = roles_map.at(MatmulRole::MMA_INPUT_B);
-  TensorView* c = roles_map.at(MatmulRole::MMA_OUTPUT);
+  // Core roles: there can be only one... TV with assigned core role
+  TensorView* a = roles_map.at(MatmulRole::INPUT_A).front();
+  TensorView* b = roles_map.at(MatmulRole::INPUT_B).front();
+  TensorView* d = roles_map.at(MatmulRole::OUTPUT_D).front();
 
   // Collect mma swizzle info
   auto mma = mma_ops.front();
@@ -470,6 +502,9 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
       MmaBuilder(params.mma_macro, params.tile_sizes).layout(mma_layout);
   const auto& gemm_tile = params.tile_sizes;
   const bool has_epilogue = !mma->out()->isFusionOutput();
+  const bool has_non_mma_input_tvs = has_epilogue &&
+      0 != roles_map.count(MatmulRole::INPUT_C) &&
+      !roles_map.at(MatmulRole::INPUT_C).empty();
 
   // Including current tensor naming convention for reference,
   //  this is very temporary and will change over time and
@@ -478,9 +513,13 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   //  sections of matmul(fusion) kernels, with
   //  each having its own build out to do.
   //
-  // Current naming convention:
+  // Current naming convention is based on the following formula:
   //
-  //  operands assumed in global memory : a, b
+  //  d = alpha * (a x b) + beta * c
+  //
+  // and is defined in the following way:
+  //
+  //  operands assumed in global memory : a, b, c
   //
   //  registers staging global load : ar, br (short for a/b read)
   //
@@ -495,12 +534,12 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   //
   //  accumulator register: mma_result
   //   - mma_result is MmaOp output if there is epilogue
-  //   - mma_result is cc (short for c cache) if there is no epilogue
+  //   - mma_result is dc (short for d cache) if there is no epilogue
   //
-  //  result in global memory: c
+  //  result in global memory: d
 
-  // Currently only support a, b, c as fusion inputs/outputs
-  //  aka. no prolog and epilog fusion yet.
+  // Currently the support is for a, b, c and d as fusion inputs/outputs
+  //  aka. no prolog fusion yet.
 
   mma_builder.configureMma(mma);
 
@@ -521,10 +560,10 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   auto bb = mma->inB()->as<TensorView>();
 
   // Setup accumulator register.
-  auto cc = c->cacheBefore();
+  auto dc = d->cacheBefore();
   // Mma object is valid only because cacheBefore has been done on
   //  TV which is not output of MmaOp, as there is an epilogue
-  auto mma_result = has_epilogue ? mma->out()->as<TensorView>() : cc;
+  auto mma_result = has_epilogue ? mma->out()->as<TensorView>() : dc;
   // Clear MmaOp pointer, it's not needed from now on
   mma = nullptr;
 
@@ -646,7 +685,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
 
   // Propagate warp tile to main loop and epilog/output tvs
   scheduler_utils::BoundedDirectionalTransformPropagator::bothWays(
-      mma_result, -1, {acw_smem, bcw_smem}, {c});
+      mma_result, -1, {acw_smem, bcw_smem}, {d});
 
   // Schedule prolog:
   //   TODO: this section needs more configurability.
@@ -721,15 +760,22 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   scheduler_utils::BoundedDirectionalTransformPropagator::forward(
       mma_result,
       -1,
-      {c},
+      {d},
       scheduler_utils::BoundedDirectionalTransformPropagator::Options()
           .propagateParallelType()
           .propagateToBoundary());
 
-  c->axis(-1)->parallelize(ParallelType::Vectorize);
+  d->axis(-1)->parallelize(ParallelType::Vectorize);
+
+  // propagate output transformations to all inputs that are part of epilogue
+  //  operations, input tvs with non-core roles
+  //  core roles: essential for matmul, for example mma inputs' producers
+  if (has_non_mma_input_tvs) {
+    scheduleFusionInputsForEpilogue(roles_map);
+  }
 
   // auto inline for all tensors except register tensors and output tensor
-  inlineMost(ir_utils::allTvsExcept(fusion, {acr, bcr, ab, bb, c}));
+  inlineMost(ir_utils::allTvsExcept(fusion, {acr, bcr, ab, bb, d}));
 
   // if auto inline, will inline to position-7, leads to performance regression
   inlineSelectedAt({acr, bcr, ab, bb}, mma_result, 6);
