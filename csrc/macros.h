@@ -9,7 +9,7 @@
 #pragma once
 
 #if __has_include(<bits/c++config.h>)
-# include <bits/c++config.h>
+#include <bits/c++config.h>
 #endif
 
 #if defined(__GLIBCXX__) && __GLIBCXX__ >= 20230000
