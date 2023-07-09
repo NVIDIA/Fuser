@@ -658,6 +658,9 @@ class TORCH_CUDA_CU_API BroadcastOp : public Expr {
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
 
+  std::vector<ScalarValue> evaluate(
+      const std::vector<ScalarValue>& inputs) const override;
+
   Val* out() const {
     return output(0);
   }

@@ -4478,7 +4478,7 @@ TEST_F(NVFuserTest, FusionIssue1785Repro_CUDA) {
 
   auto tv_ref = in1 + in2;
 
-  testValidate(&fusion, cg_outputs, {in1, in2}, {tv_ref}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, {in1, in2}, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionSkipReplay_CUDA) {

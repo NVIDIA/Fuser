@@ -1005,6 +1005,25 @@ std::string BroadcastOp::toInlineString(int indent_size) const {
   TORCH_CHECK(false, "Tensor op can not be printed inline");
 }
 
+std::vector<ScalarValue> BroadcastOp::evaluate(
+    const std::vector<ScalarValue>& inputs) const {
+  TORCH_INTERNAL_ASSERT(
+      inputs.size() == 1,
+      "BroadcastOp expects exactly 1 input, but received ",
+      inputs.size());
+  std::vector<int64_t> out_shape;
+  const auto& in = inputs.at(0).as<at::Tensor>();
+  int64_t idx = 0;
+  for (bool b : getBroadcastDimFlags()) {
+    if (b) {
+      out_shape.push_back(1);
+    } else {
+      out_shape.push_back(in.sizes()[idx++]);
+    }
+  }
+  return {in.view(out_shape)};
+}
+
 NVFUSER_DEFINE_CLONE_AND_CREATE(BroadcastOp)
 
 SqueezeOp::SqueezeOp(
