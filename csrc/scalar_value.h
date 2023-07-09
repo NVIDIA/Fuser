@@ -220,6 +220,14 @@ inline ScalarValue abs(const ScalarValue& a) {
   TORCH_INTERNAL_ASSERT(false);
 }
 
+inline ScalarValue erf(const ScalarValue& a) {
+  if (a.is<at::Tensor>()) {
+    return ScalarValue(a.as<at::Tensor>().erf());
+  }
+  TORCH_INTERNAL_ASSERT(
+      false, "ScalarValue erf not implemented for ", a.type().name());
+}
+
 } // namespace ScalarValue_functions
 
 } // namespace nvfuser
