@@ -406,8 +406,8 @@ std::shared_ptr<MatmulParams> getMatmulHeuristics(
     // Check if we have enough shared memory for epilogue
     params->has_smem_epilogue = mma_utils::hasEnoughSharedMemoryForEpilogue(
         params->tile_sizes,
-        params->double_buffer_options.smem_double_buffer_stage);    
-  }else{
+        params->double_buffer_options.smem_double_buffer_stage);
+  } else {
     params->has_smem_epilogue = false;
   }
 

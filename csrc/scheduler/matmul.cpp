@@ -85,7 +85,7 @@ void swizzleSharedMemory(
   // Set shift to skip all consecutive reduction domains starting from the
   //  innermost dimension.
   int shift = 0;
-  for (int i = shared_mem_tv->nDims() - 1; i >= 0; --i) {
+  for (int i = (int)shared_mem_tv->nDims() - 1; i >= 0; --i) {
     if (shared_mem_tv->axis(i)->isReduction()) {
       shift++;
     } else {
