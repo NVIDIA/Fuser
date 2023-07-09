@@ -8,8 +8,6 @@
 
 #pragma once
 
-#include <c++config.h>
-
 #if defined(__GLIBCXX__) && __GLIBCXX__ >= 20230000
 #define STD_UNORDERED_SET_SUPPORTS_INCOMPLETE_TYPE 1
 #endif
