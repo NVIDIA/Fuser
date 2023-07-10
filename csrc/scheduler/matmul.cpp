@@ -73,7 +73,7 @@ inline void checkConcreteStaticDim(IterDomain* id) {
 //!  for matmul mainloop and epilogue.
 //! The shared mem data layout is always 2D currently, and this utility
 //!  function assumes that the shared_mem_tv has the following structure:
-//!  [tile_row, tile_col, ***shift***] where the parameter `shift` is the number
+//!  [tile_row, tile_col, ***skip***] where the parameter `skip` is the number
 //!  of reduction domains to be skipped. The IDs of tile_row and tile_col are
 //!  the ones being swizzled.
 //! If the input tensorview is not stored in shared memory, the function will
@@ -82,12 +82,12 @@ inline void checkConcreteStaticDim(IterDomain* id) {
 void swizzleSharedMemory(
     TensorView* shared_mem_tv,
     const MatmulParams& params) {
-  // Set shift to skip all consecutive reduction domains starting from the
+  // Set skip to skip all consecutive reduction domains starting from the
   //  innermost dimension.
-  int shift = 0;
+  int skip = 0;
   for (int i = (int)shared_mem_tv->nDims() - 1; i >= 0; --i) {
     if (shared_mem_tv->axis(i)->isReduction()) {
-      shift++;
+      skip++;
     } else {
       break;
     }
@@ -96,17 +96,17 @@ void swizzleSharedMemory(
   // Check that the innermost 2 dimensions are concrete and static
   //  sized so that the swizzle function can be defined.
   TORCH_INTERNAL_ASSERT(
-      shared_mem_tv->nDims() >= (size_t)(2 + shift),
+      shared_mem_tv->nDims() >= (size_t)(2 + skip),
       "At least 2D input (excluding consecutive reduction domains starting from the innermost dim) needed for swizzling, but get ",
       shared_mem_tv->toString());
-  checkConcreteStaticDim(shared_mem_tv->axis(-2 - shift));
-  checkConcreteStaticDim(shared_mem_tv->axis(-1 - shift));
+  checkConcreteStaticDim(shared_mem_tv->axis(-2 - skip));
+  checkConcreteStaticDim(shared_mem_tv->axis(-1 - skip));
 
   // Extract the constant sizes of the swizzled tile
   const int64_t tile_size_x =
-      shared_mem_tv->axis(-2 - shift)->extent()->evaluateInt();
+      shared_mem_tv->axis(-2 - skip)->extent()->evaluateInt();
   const int64_t tile_size_y =
-      shared_mem_tv->axis(-1 - shift)->extent()->evaluateInt();
+      shared_mem_tv->axis(-1 - skip)->extent()->evaluateInt();
 
   if (isTuring(params.mma_macro) || isAmpere(params.mma_macro)) {
     // Only tested for (1) ldmatrix access with sizeof(T) == 16bit (i.e.
@@ -384,44 +384,42 @@ void swizzleSharedMemory(
     int64_t swizzle_period =
         std::gcd(n_rows / repeated_pattern_size, tile_size_y / n_cols);
     // update repeated_pattern_size to ensure n_rows / repeated_pattern_size
-    // equals to swizzle_period otherwise, this is required by 2D swizzle.
+    // equals to swizzle_period, this is required by 2D swizzle.
     repeated_pattern_size = n_rows / swizzle_period;
 
     //   -2   -1
-    // [row, col, ***** shift ***** ]
+    // [row, col, ***** skip ***** ]
     TORCH_INTERNAL_ASSERT(
         tile_size_x % n_rows == 0, "Partial matrices not supported");
-    shared_mem_tv->split(-2 - shift, n_rows);
+    shared_mem_tv->split(-2 - skip, n_rows);
     TORCH_INTERNAL_ASSERT(
         tile_size_y % n_cols == 0, "Partial matrices not supported");
-    shared_mem_tv->split(-1 - shift, n_cols);
+    shared_mem_tv->split(-1 - skip, n_cols);
     //     -4        -3      -2         -1
-    // [matrix id, matrix, matrix id, matrix, ***** shift ***** ]
+    // [matrix id, matrix, matrix id, matrix, ***** skip ***** ]
     TORCH_INTERNAL_ASSERT(
         n_rows % repeated_pattern_size == 0,
         "n_rows is assumed to be a multiple of repeated_pattern_size");
     if (repeated_pattern_size > 1) {
-      shared_mem_tv->split(-3 - shift, repeated_pattern_size);
+      shared_mem_tv->split(-3 - skip, repeated_pattern_size);
     }
     //     -5        -4      -3       -2         -1
-    // [matrix id, repeat, pattern, matrix id, matrix, ***** shift ***** ]
-    if (!shift) {
-      TORCH_INTERNAL_ASSERT(
-          tile_size_y % (swizzle_period * n_cols) == 0,
-          "need aperiodic swizzle config for tile size ",
-          tile_size_x,
-          "x",
-          tile_size_y,
-          "with units ",
-          n_rows,
-          "x",
-          n_cols);
-    }
+    // [matrix id, repeat, pattern, matrix id, matrix, ***** skip ***** ]
+    TORCH_INTERNAL_ASSERT(
+        tile_size_y % (swizzle_period * n_cols) == 0,
+        "need aperiodic swizzle config for tile size ",
+        tile_size_x,
+        "x",
+        tile_size_y,
+        "with units ",
+        n_rows,
+        "x",
+        n_cols);
 
-    shared_mem_tv->split(-2 - shift, swizzle_period);
+    shared_mem_tv->split(-2 - skip, swizzle_period);
     //     -6        -5      -4            -3           -2         -1
     // [matrix id, repeat, pattern, matrix id outer, pattern id, matrix, *****
-    // shift ***** ]
+    // skip ***** ]
     // swizzle repeat with pattern id to make repeat no longer repeat.
     // Apply swizzle only when shared_mem_tv is stored in shared memory.
     // TODO: This is a temporary workaround for the following issue:
@@ -443,21 +441,21 @@ void swizzleSharedMemory(
       int swizzle_axis0 = repeated_pattern_size > 1 ? -5 : -4;
       if (isPowOf2(swizzle_period)) {
         shared_mem_tv->swizzle(
-            Swizzle2DType::XOR, swizzle_axis0 - shift, -2 - shift);
+            Swizzle2DType::XOR, swizzle_axis0 - skip, -2 - skip);
       } else {
         shared_mem_tv->swizzle(
-            Swizzle2DType::CyclicShift, swizzle_axis0 - shift, -2 - shift);
+            Swizzle2DType::CyclicShift, swizzle_axis0 - skip, -2 - skip);
       }
     }
 
     // Merge back the tile for subsequent vectorization scheduling
     //  TODO: could potentially simplify away the merges
     if (repeated_pattern_size > 1) {
-      shared_mem_tv->merge(-6 - shift);
+      shared_mem_tv->merge(-6 - skip);
     }
-    shared_mem_tv->merge(-5 - shift);
-    shared_mem_tv->merge(-3 - shift);
-    shared_mem_tv->merge(-2 - shift);
+    shared_mem_tv->merge(-5 - skip);
+    shared_mem_tv->merge(-3 - skip);
+    shared_mem_tv->merge(-2 - skip);
   } else if (isVolta(params.mma_macro)) {
     // TODO: Volta is slightly more complex, and a fixed recipe would
     //  not scale. In a follow up this would be inferred from the mma
@@ -915,11 +913,12 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
             .propagateToBoundary());
     smem_epilogue->axis(-1)->parallelize(ParallelType::Vectorize);
 
-    // Don't propagate to c, because we want to schedule it differently for
-    // better global memory access pattern.
+    // Schedule output tensor differently for better global memory access
+    // pattern.
     scheduleOutputTensor(mma_result, d, gemm_tile);
     d->axis(-1)->parallelize(ParallelType::Vectorize);
 
+    // Propagate output tensor transformations back to smem_epilogue
     scheduler_utils::BoundedDirectionalTransformPropagator::backward(
         d, -1, {smem_epilogue});
   } else {
@@ -939,9 +938,8 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
     scheduleFusionInputsForEpilogue(roles_map);
   }
 
-  // auto inline for all tensors except register tensors and output tensor
-  inlineMost(
-      ir_utils::allTvsExcept(fusion, {acr, bcr, ab, bb, smem_epilogue, d}));
+  // auto inline for all tensors except register tensors
+  inlineMost(ir_utils::allTvsExcept(fusion, {acr, bcr, ab, bb}));
 
   // if auto inline, will inline to position-7, leads to performance regression
   inlineSelectedAt({acr, bcr, ab, bb}, mma_result, 6);
