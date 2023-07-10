@@ -543,25 +543,31 @@ class TORCH_CUDA_CU_API RNGOp : public Expr {
     // cppcoreguidelines-pro-type-member-init
     RNGOpType rtype = RNGOpType::Undefined;
     DataType dtype;
-    int rng_offset = 0;
+    int rng_offset_int = 0;
+    size_t num_parameters = 0;
 
     // TODO: Enable the following in C++20:
     // bool operator==(const Attributes &other) const = default;
     bool operator==(const Attributes& other) const {
+      // Note: we do not need to explicitly compare num_parameters since it is
+      // tied to rtype
       return rtype == other.rtype && dtype == other.dtype &&
-          rng_offset == other.rng_offset;
+          rng_offset_int == other.rng_offset_int;
     }
   };
 
   using Expr::Expr;
 
+  //! Note that if philox_offset is provided, then rng_offset will be ignored.
   RNGOp(
       IrBuilderPasskey,
       RNGOpType type,
       Val* out,
       DataType dtype,
       std::vector<Val*> parameters = {},
-      int rng_offset = 0,
+      Val* philox_seed = nullptr,
+      Val* philox_offset = nullptr,
+      int rng_offset_int = 0,
       Val* philox_index = nullptr);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
@@ -582,19 +588,44 @@ class TORCH_CUDA_CU_API RNGOp : public Expr {
   }
 
   int getRNGOffset() const {
-    return attribute(0)->as<Attribute<Attributes>>()->value.rng_offset;
+    return attribute(0)->as<Attribute<Attributes>>()->value.rng_offset_int;
   }
 
   void setRNGOffset(int val) {
-    attribute(0)->as<Attribute<Attributes>>()->value.rng_offset = val;
+    attribute(0)->as<Attribute<Attributes>>()->value.rng_offset_int = val;
+  }
+
+  size_t getNumParameters() const {
+    return attribute(0)->as<Attribute<Attributes>>()->value.num_parameters;
   }
 
   std::vector<Val*> getParameters() const {
-    return {inputs().begin() + getOutputDims(), inputs().end()};
+    return {
+        inputs().begin() + getOutputDims(),
+        inputs().begin() + (int64_t)(getOutputDims() + getNumParameters())};
   }
 
   std::vector<Val*> getShape() const {
     return {inputs().begin(), inputs().begin() + getOutputDims()};
+  }
+
+  Val* getRNGSeedVal() const {
+    // Note that inputs() consists of:
+    // output dims | parameters | philox seed | philox_offset
+    auto seed_index = getOutputDims() + getNumParameters();
+    return (inputs().size() > seed_index) ? inputs().at(seed_index) : nullptr;
+  }
+
+  Val* getRNGOffsetVal() const {
+    // Note that inputs() consists of:
+    // output dims | parameters | philox seed | philox_offset
+    auto offset_index = getOutputDims() + getNumParameters() + 1;
+    return (inputs().size() > offset_index) ? inputs().at(offset_index)
+                                            : nullptr;
+  }
+
+  bool isDeterministic() const {
+    return inputs().size() == getOutputDims() + getNumParameters() + 2;
   }
 
   Val* getPhiloxIndex() const {
