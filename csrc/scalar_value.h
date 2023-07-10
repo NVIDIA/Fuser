@@ -7,6 +7,8 @@
 // clang-format on
 #pragma once
 
+#include <macros.h>
+
 #include <c10/util/BFloat16.h>
 #include <c10/util/Half.h>
 #include <dynamic_type.h>
@@ -22,7 +24,7 @@ template <typename T>
 struct Struct {
   // In theory, we should just use std::unordered_map<std::string, T>, but this
   // doesn't work on old gcc. See also SetTheoreticNaturalNumbers
-#if defined(__clang__) || __GNUC__ >= 12
+#if defined(STD_UNORDERED_SET_SUPPORTS_INCOMPLETE_TYPE)
   std::unordered_map<std::string, T> fields;
 #define MAYBE_STAR
 #else
@@ -35,7 +37,7 @@ struct Struct {
   }
 
   T& operator[](const std::string& key) {
-#if defined(__clang__) || __GNUC__ >= 12
+#if defined(STD_UNORDERED_SET_SUPPORTS_INCOMPLETE_TYPE)
     return fields[key];
 #else
     if (fields.find(key) == fields.end()) {
