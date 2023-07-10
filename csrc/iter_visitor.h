@@ -27,6 +27,12 @@ class Fusion;
  * the dag will be called with handle(Statement*) in topolgical order inputs of
  * the fusion to outputs of the fusion.
  *
+ * Note that for any Val whose definition is non-null, the following are
+ * processed in order: definition, attributes, members. In particular, this
+ * means that a TensorView's domain() is processed after its definition, meaning
+ * producer TVs and their IterDomains are all processed before those of
+ * consumers.
+ *
  * TODO: We may want a BFS version of this code to extract ILP, not implemented
  * yet.
  *
