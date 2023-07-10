@@ -573,7 +573,7 @@ void scheduleOutputTensor(
 //! Propagates transformations from fusion output to fusion tv inputs that are
 //!  producers in the epilogue. Transformations' propagation aims at input tvs
 //!  which are not assigned to core roles, that is, are not MMA inputs.
-void scheduleFusionInputsForEpilogue(const mma_utils::RolesMap& roles_map, TensorView* mma_result, bool shared_mem_epilogue) {
+void scheduleFusionInputsForEpilogue(const mma_utils::RolesMap& roles_map) {
   std::vector<TensorView*> cached_tvs;
 
   // Handling transformations in fusion input tvs with assigned INPUT_C role by
@@ -590,11 +590,9 @@ void scheduleFusionInputsForEpilogue(const mma_utils::RolesMap& roles_map, Tenso
     //  with assigned OUTPUT_D role, this condition is already verified so there
     //  is no need for an additional checks here
     scheduler_utils::BoundedDirectionalTransformPropagator::backward(
-        shared_mem_epilogue ? mma_result : roles_map.at(MatmulRole::OUTPUT_D).front(), -1, c_tvs);
+        roles_map.at(MatmulRole::OUTPUT_D).front(), -1, c_tvs);
 
-    std::cout << "mma_result: " << mma_result->toString() << std::endl;
     for (auto* cc : cached_tvs) {
-    std::cout << "cc: " << cc->toString() << std::endl;
       cc->axis(-1)->parallelize(ParallelType::Vectorize);
     }
 
@@ -699,9 +697,9 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   // Mma object is valid only because cacheBefore has been done on
   //  TV which is not output of MmaOp, as there is an epilogue
   auto mma_result = has_epilogue ? mma->out()->as<TensorView>() : dc;
-  // epilogue shared memory tensor if use shared memory epilogue
-  // mma_result -> dc -> c_smem -> d
-  auto c_smem = params.has_smem_epilogue ? d->cacheBefore() : d;
+
+  // Unswizzle mma result in shared memory
+  auto smem_epilogue = params.has_smem_epilogue ? mma_result->cacheAfter() : mma_result;
 
   // Clear MmaOp pointer, it's not needed from now on
   mma = nullptr;
@@ -822,7 +820,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   if (params.has_smem_epilogue) {
     // Transform mma_result through the epilogue swizzle without actually
     // swizzling the axes. This is done to enable the domains
-    // are mapped between mma_result and c_smem.
+    // are mapped between mma_result and smem_epilogue.
     swizzleSharedMemory(mma_result, params);
   }
 
@@ -833,7 +831,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
 
   // Propagate warp tile to main loop and epilog/output tvs
   scheduler_utils::BoundedDirectionalTransformPropagator::bothWays(
-      mma_result, -1, {acw_smem, bcw_smem}, {c_smem});
+      mma_result, -1, {acw_smem, bcw_smem}, {smem_epilogue});
 
   // Schedule prolog:
   //   TODO: this section needs more configurability.
@@ -905,22 +903,24 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
       {ParallelType::TIDy, ParallelType::TIDz});
 
   if (params.has_smem_epilogue) {
-    c_smem->setMemoryType(MemoryType::Shared);
-    swizzleSharedMemory(c_smem, params);
+    smem_epilogue->setMemoryType(MemoryType::Shared);
+    swizzleSharedMemory(smem_epilogue, params);
     scheduler_utils::BoundedDirectionalTransformPropagator::forward(
         mma_result,
         -1,
-        {c_smem},
+        {smem_epilogue},
         scheduler_utils::BoundedDirectionalTransformPropagator::Options()
             .propagateParallelType()
             .propagateToBoundary());
-    c_smem->axis(-1)->parallelize(ParallelType::Vectorize);
+    smem_epilogue->axis(-1)->parallelize(ParallelType::Vectorize);
 
     // Don't propagate to c, because we want to schedule it differently for
     // better global memory access pattern.
     scheduleOutputTensor(mma_result, d, gemm_tile);
     d->axis(-1)->parallelize(ParallelType::Vectorize);
 
+    scheduler_utils::BoundedDirectionalTransformPropagator::backward(
+        d, -1, {smem_epilogue});
   } else {
     scheduler_utils::BoundedDirectionalTransformPropagator::forward(
       mma_result,
@@ -936,11 +936,11 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   //  core roles: essential for matmul, for example mma inputs' producers
   if (has_non_mma_input_tvs) {
     std::cout << "has_non_mma_input_tvs" << std::endl;
-    scheduleFusionInputsForEpilogue(roles_map, mma_result, params.has_smem_epilogue);
+    scheduleFusionInputsForEpilogue(roles_map);
   }
 
   // auto inline for all tensors except register tensors and output tensor
-  inlineMost(ir_utils::allTvsExcept(fusion, {acr, bcr, ab, bb, c_smem, d}));
+  inlineMost(ir_utils::allTvsExcept(fusion, {acr, bcr, ab, bb, smem_epilogue, d}));
 
   // if auto inline, will inline to position-7, leads to performance regression
   inlineSelectedAt({acr, bcr, ab, bb}, mma_result, 6);
