@@ -196,6 +196,14 @@ struct RecordFunctor {
     return record_type_;
   }
 
+  //! Set the name of an argument. If given, it will be listed as a keyword
+  //! argument during printing using the given name as the key. Unnamed
+  //! arguments are the default, and are listed as positional arguments before
+  //! any named arguments.
+  void setArgName(size_t pos, std::string name) {
+    arg_names_.at(pos) = name;
+  }
+
  protected:
   //! Inputs that are indices into the FusionState's Recorded State.
   std::vector<State> args_;
@@ -2732,7 +2740,13 @@ struct RandomOpRecord : RecordFunctor {
             _name,
             serde::RecordType_RandomOp),
         output_shape_(std::move(output_shape)),
-        dtype_(dtype) {}
+        dtype_(dtype) {
+    if (args_.size() == 4) {
+      // seed and offset were provided in addition to the usual 2 arguments
+      setArgName(2, "rng_seed");
+      setArgName(3, "rng_offset");
+    }
+  }
   ~RandomOpRecord() override = default;
   RecordFunctor* clone() final {
     return new RandomOpRecord(*this);
@@ -2780,9 +2794,21 @@ struct RandomOpRecord : RecordFunctor {
         });
     Val* output = nullptr;
     if (name_.compare("ops.uniform") == 0) {
-      output = uniform(output_shape, arg1, arg2, dtype_);
+      if (args_.size() == 2) { // stochastic uniform
+        output = uniform(output_shape, arg1, arg2, dtype_);
+      } else if (args_.size() == 4) { // provided seed and offset
+        auto seed = fd.getFusionState(args_.at(2).index);
+        auto offset = fd.getFusionState(args_.at(3).index);
+        output = uniform(output_shape, arg1, arg2, dtype_, seed, offset);
+      }
     } else if (name_.compare("ops.normal") == 0) {
-      output = normal(output_shape, arg1, arg2, dtype_);
+      if (args_.size() == 2) { // stochastic normal
+        output = normal(output_shape, arg1, arg2, dtype_);
+      } else if (args_.size() == 4) { // provided seed and offset
+        auto seed = fd.getFusionState(args_.at(2).index);
+        auto offset = fd.getFusionState(args_.at(3).index);
+        output = normal(output_shape, arg1, arg2, dtype_, seed, offset);
+      }
     } else {
       TORCH_INTERNAL_ASSERT(
           false, "random distribution not recognized:", name_);
