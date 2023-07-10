@@ -54,7 +54,8 @@ bool hasEnoughSharedMemoryForEpilogue(
   const auto blocks_per_sm_with_smem_epilogue = std::min(
       device_smem_limit / (smem_a + smem_b + smem_c), (size_t)blocks_per_sm);
   return blocks_per_sm_with_smem_epilogue ==
-      blocks_per_sm_without_smem_epilogue || blocks_per_sm_with_smem_epilogue > 0;
+      blocks_per_sm_without_smem_epilogue ||
+      blocks_per_sm_with_smem_epilogue > 0;
 }
 
 void scheduleWarpTileWithReduction(TensorView* tv, MatMulTileOptions tile) {

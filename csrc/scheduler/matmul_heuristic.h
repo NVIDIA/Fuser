@@ -116,6 +116,7 @@ class MatmulParams : public HeuristicParams {
                                                            : "column-major")
        << "\n"
        << "Grid swizzle factor: " << grid_swizzle_factor << "\n"
+       << "Use shared memory epilogue: " << has_smem_epilogue << "\n"
        << "====================================\n";
     return ss.str();
   }

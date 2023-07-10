@@ -699,7 +699,8 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   auto mma_result = has_epilogue ? mma->out()->as<TensorView>() : dc;
 
   // Unswizzle mma result in shared memory
-  auto smem_epilogue = params.has_smem_epilogue ? mma_result->cacheAfter() : mma_result;
+  auto smem_epilogue =
+      params.has_smem_epilogue ? mma_result->cacheAfter() : mma_result;
 
   // Clear MmaOp pointer, it's not needed from now on
   mma = nullptr;
@@ -923,24 +924,24 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
         d, -1, {smem_epilogue});
   } else {
     scheduler_utils::BoundedDirectionalTransformPropagator::forward(
-      mma_result,
-      -1,
-      {d},
-      scheduler_utils::BoundedDirectionalTransformPropagator::Options()
-          .propagateParallelType()
-          .propagateToBoundary());
+        mma_result,
+        -1,
+        {d},
+        scheduler_utils::BoundedDirectionalTransformPropagator::Options()
+            .propagateParallelType()
+            .propagateToBoundary());
     d->axis(-1)->parallelize(ParallelType::Vectorize);
   }
   // propagate output transformations to all inputs that are part of epilogue
   //  operations, input tvs with non-core roles
   //  core roles: essential for matmul, for example mma inputs' producers
   if (has_non_mma_input_tvs) {
-    std::cout << "has_non_mma_input_tvs" << std::endl;
     scheduleFusionInputsForEpilogue(roles_map);
   }
 
   // auto inline for all tensors except register tensors and output tensor
-  inlineMost(ir_utils::allTvsExcept(fusion, {acr, bcr, ab, bb, smem_epilogue, d}));
+  inlineMost(
+      ir_utils::allTvsExcept(fusion, {acr, bcr, ab, bb, smem_epilogue, d}));
 
   // if auto inline, will inline to position-7, leads to performance regression
   inlineSelectedAt({acr, bcr, ab, bb}, mma_result, 6);
