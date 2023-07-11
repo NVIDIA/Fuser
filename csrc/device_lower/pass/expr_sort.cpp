@@ -332,7 +332,8 @@ class ExprSegmentationSorter {
   void initializeIndirectPersistencyConstraints();
 
   // Check if merging groups results in a persistent pattern
-  bool violateInnerPersistentConstraints(ExprGroup* g1, ExprGroup* g2) const;
+  bool violateIndirectPersistencyConstraints(ExprGroup* g1, ExprGroup* g2)
+      const;
 
   bool hasCADomains(const std::unordered_set<IterDomain*>& domains) const;
 
@@ -1456,7 +1457,7 @@ void ExprSegmentationSorter::initializeIndirectPersistencyConstraints() {
   }
 }
 
-bool ExprSegmentationSorter::violateInnerPersistentConstraints(
+bool ExprSegmentationSorter::violateIndirectPersistencyConstraints(
     ExprGroup* sg1,
     ExprGroup* sg2) const {
   auto producer_group = getProducer(sg1, sg2);
@@ -1673,7 +1674,7 @@ bool ExprSegmentationSorter::supportedMerge(ExprGroup* sg1, ExprGroup* sg2) {
     }
   }
 
-  if (violateInnerPersistentConstraints(producer_group, consumer_group)) {
+  if (violateIndirectPersistencyConstraints(producer_group, consumer_group)) {
     if (isDebugDumpEnabled(DebugDumpOption::ExprSortVerbose)) {
       debug() << "Persistent constraint violation detected.";
     }
