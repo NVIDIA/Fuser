@@ -260,24 +260,20 @@ enum RecordType : int32_t {
   RecordType_ReductionProd = 43,
   RecordType_ReductionSum = 44,
   RecordType_ReshapeOp = 45,
-  RecordType_ScalarBool = 46,
-  RecordType_ScalarComplexDouble = 47,
-  RecordType_ScalarDouble = 48,
-  RecordType_ScalarInput = 49,
-  RecordType_ScalarLong = 50,
-  RecordType_SliceOp = 51,
-  RecordType_SqueezeOp = 52,
-  RecordType_Start = 53,
-  RecordType_Tensor = 54,
-  RecordType_TensorSizes = 55,
-  RecordType_VarianceOp = 56,
-  RecordType_VarianceMeanOp = 57,
-  RecordType_Vector = 58,
+  RecordType_Scalar = 46,
+  RecordType_SliceOp = 47,
+  RecordType_SqueezeOp = 48,
+  RecordType_Start = 49,
+  RecordType_Tensor = 50,
+  RecordType_TensorSizes = 51,
+  RecordType_VarianceOp = 52,
+  RecordType_VarianceMeanOp = 53,
+  RecordType_Vector = 54,
   RecordType_MIN = RecordType_Base,
   RecordType_MAX = RecordType_Vector
 };
 
-inline const RecordType (&EnumValuesRecordType())[59] {
+inline const RecordType (&EnumValuesRecordType())[55] {
   static const RecordType values[] = {
     RecordType_Base,
     RecordType_BatchNormOp,
@@ -339,7 +335,7 @@ inline const RecordType (&EnumValuesRecordType())[59] {
 }
 
 inline const char * const *EnumNamesRecordType() {
-  static const char * const names[60] = {
+  static const char * const names[56] = {
     "Base",
     "BatchNormOp",
     "BroadcastOp",
@@ -409,33 +405,29 @@ inline const char *EnumNameRecordType(RecordType e) {
 enum RecordData : uint8_t {
   RecordData_NONE = 0,
   RecordData_BatchNorm = 1,
-  RecordData_Bool = 2,
-  RecordData_Broadcast = 3,
-  RecordData_BroadcastInDim = 4,
-  RecordData_BroadcastInDimSymbolic = 5,
-  RecordData_ComplexDouble = 6,
-  RecordData_Dimension = 7,
-  RecordData_Double = 8,
-  RecordData_Dtype = 9,
-  RecordData_Long = 10,
-  RecordData_Norm = 11,
-  RecordData_Output = 12,
-  RecordData_Pad = 13,
-  RecordData_Permute = 14,
-  RecordData_Slice = 15,
-  RecordData_Squeeze = 16,
-  RecordData_Reduction = 17,
-  RecordData_Reshape = 18,
-  RecordData_ScalarInput = 19,
-  RecordData_Tensor = 20,
-  RecordData_TensorCreation = 21,
-  RecordData_TensorCreationSymbolic = 22,
-  RecordData_Vector = 23,
+  RecordData_Broadcast = 2,
+  RecordData_BroadcastInDim = 3,
+  RecordData_BroadcastInDimSymbolic = 4,
+  RecordData_Dimension = 5,
+  RecordData_Dtype = 6,
+  RecordData_Norm = 7,
+  RecordData_Output = 8,
+  RecordData_Pad = 9,
+  RecordData_Permute = 10,
+  RecordData_Slice = 11,
+  RecordData_Squeeze = 12,
+  RecordData_Reduction = 13,
+  RecordData_Reshape = 14,
+  RecordData_Scalar = 15,
+  RecordData_Tensor = 16,
+  RecordData_TensorCreation = 17,
+  RecordData_TensorCreationSymbolic = 18,
+  RecordData_Vector = 19,
   RecordData_MIN = RecordData_NONE,
   RecordData_MAX = RecordData_Vector
 };
 
-inline const RecordData (&EnumValuesRecordData())[24] {
+inline const RecordData (&EnumValuesRecordData())[20] {
   static const RecordData values[] = {
     RecordData_NONE,
     RecordData_BatchNorm,
@@ -462,7 +454,7 @@ inline const RecordData (&EnumValuesRecordData())[24] {
 }
 
 inline const char * const *EnumNamesRecordData() {
-  static const char * const names[25] = {
+  static const char * const names[21] = {
     "NONE",
     "BatchNorm",
     "Broadcast",

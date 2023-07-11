@@ -566,11 +566,8 @@ void initNvFuserPythonBindings(PyObject* module) {
         args.reserve(size);
         for (size_t i = 0; i < size; ++i) {
           Scalar out = self.defineScalar();
-          self.defineRecord(new ScalarRecord<int64_t>(
-              {self.recordingState(out())},
-              serde::RecordType_ScalarInput,
-              std::nullopt,
-              DataType::Int));
+          self.defineRecord(new ScalarRecord(
+              {self.recordingState(out())}, std::monostate{}, DataType::Int));
           args.emplace_back(out);
         }
         return define_vector_fn(self, args);
@@ -598,9 +595,8 @@ void initNvFuserPythonBindings(PyObject* module) {
                 idx,
                 " was neither symbolic(-1), zero_element(0), broadcast(1), or static(>1).");
             Scalar out = self.defineScalar();
-            self.defineRecord(new ScalarRecord<int64_t>(
+            self.defineRecord(new ScalarRecord(
                 {self.recordingState(out())},
-                serde::RecordType_ScalarLong,
                 py::cast<int64_t>(item),
                 DataType::Int));
             args.emplace_back(out);

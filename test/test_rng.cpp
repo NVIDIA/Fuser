@@ -362,11 +362,11 @@ TEST_F(RNGTest, FunctionalUniform) {
     auto fusion = fusion_ptr.get();
     FusionGuard fg(fusion);
 
-    Int* size_val = IrBuilder::create<Int>();
-    Double* low = IrBuilder::create<Double>();
-    Double* high = IrBuilder::create<Double>();
-    Int* seed = IrBuilder::create<Int>();
-    Int* first_offset = IrBuilder::create<Int>();
+    Scalar* size_val = IrBuilder::create<Scalar>(DataType::Int);
+    Scalar* low = IrBuilder::create<Scalar>(DataType::Double);
+    Scalar* high = IrBuilder::create<Scalar>(DataType::Double);
+    Scalar* seed = IrBuilder::create<Scalar>(DataType::Int);
+    Scalar* first_offset = IrBuilder::create<Scalar>(DataType::Int);
     fusion->addInput(size_val);
     fusion->addInput(low);
     fusion->addInput(high);
@@ -385,7 +385,7 @@ TEST_F(RNGTest, FunctionalUniform) {
       fusion->addOutput(tv1);
     }
 
-    auto second_offset = add(first_offset, IrBuilder::create<Int>(4));
+    auto second_offset = add(first_offset, IrBuilder::create<Scalar>(4));
 
     TensorView* tv2 =
         uniform({size_val}, low, high, DataType::Float, seed, first_offset);
