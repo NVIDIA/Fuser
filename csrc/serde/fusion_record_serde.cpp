@@ -865,6 +865,14 @@ void RecordFunctorFactory::setupFunctionMaps() {
   NVFUSER_TERNARY_TV_OP("lerp", lerp)
   NVFUSER_TERNARY_TV_OP("where", where)
 
+  // The following ops behave like TernaryOps but are only TV_VAL_VAL
+  ternary_tv_val_val.emplace(
+      "ops.rand_like",
+      static_cast<TensorView* (*)(TensorView*, Val*, Val*)>(rand_like));
+  ternary_tv_val_val.emplace(
+      "ops.randn_like",
+      static_cast<TensorView* (*)(TensorView*, Val*, Val*)>(randn_like));
+
   NVFUSER_THRESHOLD_TV_OP("clamp", clamp)
   NVFUSER_THRESHOLD_TV_OP("threshold", threshold)
 

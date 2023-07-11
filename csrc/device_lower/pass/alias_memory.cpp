@@ -7,6 +7,7 @@
 // clang-format on
 #include <device_lower/pass/alias_memory.h>
 
+#include <debug.h>
 #include <device_lower/lower2device.h>
 #include <device_lower/utils.h>
 #include <expr_evaluator.h>
@@ -602,7 +603,7 @@ class AllocationInfoMap : private kir::IrVisitor {
     handle(exprs);
     if (debug_printer_) {
       debug_printer_->popScope();
-      std::cout << debug_printer_->dumpDebugInfo(this);
+      debug() << debug_printer_->dumpDebugInfo(this);
     }
     current_stack_.pop_back();
   }

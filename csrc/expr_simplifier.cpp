@@ -7,6 +7,7 @@
 // clang-format on
 #include <expr_simplifier.h>
 
+#include <debug.h>
 #include <device_lower/pass/magic_zero.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
@@ -107,12 +108,12 @@ class Logger : public NoOpLogger {
       };
 
       std::string header = "Simplifying expression:\n" + str(init_val_);
-      std::cout << header << std::endl;
+      debug() << header << std::endl;
       for (auto r : record_) {
-        std::cout << r.name << ":\n" << str(r.result) << std::endl;
+        debug() << r.name << ":\n" << str(r.result) << std::endl;
       }
-      std::cout << std::string(std::min<size_t>(header.size(), 80), '=')
-                << std::endl;
+      debug() << std::string(std::min<size_t>(header.size(), 80), '=')
+              << std::endl;
     } catch (...) {
       // clang-tidy don't want this function to throw, but this is just a
       // debugging helper, I don't really care if it has throw or not.
@@ -696,53 +697,53 @@ class FlattenedAssocCommOp : public Expr {
     return inputs().size() == 1;
   }
 
-  std::vector<EvaluatorValue> evaluate(
-      const std::vector<EvaluatorValue>& inputs) const override {
-    using namespace EvaluatorValue_functions;
-    std::vector<EvaluatorValue> inputs_ = inputs;
-    EvaluatorValue result;
+  std::vector<ScalarValue> evaluate(
+      const std::vector<ScalarValue>& inputs) const override {
+    using namespace ScalarValue_functions;
+    std::vector<ScalarValue> inputs_ = inputs;
+    ScalarValue result;
     result = inputs_.back();
     inputs_.pop_back();
     switch (getOpType()) {
       case BinaryOpType::Add:
-        for (auto i : inputs_) {
+        for (const auto& i : inputs_) {
           result += i;
         }
         break;
       case BinaryOpType::Mul:
-        for (auto i : inputs_) {
+        for (const auto& i : inputs_) {
           result *= i;
         }
         break;
       case BinaryOpType::And:
-        for (auto i : inputs_) {
+        for (const auto& i : inputs_) {
           result = result && i;
         }
         break;
       case BinaryOpType::Or:
-        for (auto i : inputs_) {
+        for (const auto& i : inputs_) {
           result = result || i;
         }
         break;
       case BinaryOpType::Xor:
-        for (auto i : inputs_) {
+        for (const auto& i : inputs_) {
           result = result ^ i;
         }
         break;
       case BinaryOpType::Min:
-        for (auto i : inputs_) {
+        for (const auto& i : inputs_) {
           result = min(result, i);
         }
         break;
       case BinaryOpType::Max:
-        for (auto i : inputs_) {
+        for (const auto& i : inputs_) {
           result = max(result, i);
         }
         break;
       default:
         TORCH_INTERNAL_ASSERT(
             "Unexpected operator type encountered"
-            "in EvaluatorValue::evaluate: ",
+            "in ScalarValue::evaluate: ",
             getOpType());
     }
     return {result};
