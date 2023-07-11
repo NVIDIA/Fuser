@@ -124,7 +124,7 @@ PrimDataType mapToNvfuserDtype(serde::DataType t) {
 
 ::flatbuffers::Offset<serde::Scalar> serializeScalar(
     flatbuffers::FlatBufferBuilder& builder,
-    const nvfuser::ScalarValue& v,
+    const nvfuser::PolymorphicValue& v,
     serde::DataType t) {
   ScalarBuilder builder_(builder);
   builder_.add_dtype(t);
@@ -158,20 +158,21 @@ PrimDataType mapToNvfuserDtype(serde::DataType t) {
       false, "Unable to convert ", v.type().name(), " to serde::Scalar.");
 }
 
-ScalarValue parseScalarValue(const serde::Scalar* c) {
+PolymorphicValue parsePolymorphicValue(const serde::Scalar* c) {
   if (!c->has_value()) {
     return {};
   } else if (c->value_type() == DataType::DataType_Double) {
-    return ScalarValue(c->double_value());
+    return PolymorphicValue(c->double_value());
   } else if (c->value_type() == DataType::DataType_Int) {
-    return ScalarValue(c->long_value());
+    return PolymorphicValue(c->long_value());
   } else if (c->value_type() == DataType::DataType_Bool) {
-    return ScalarValue(c->bool_value());
+    return PolymorphicValue(c->bool_value());
   } else if (c->value_type() == DataType::DataType_ComplexDouble) {
-    return ScalarValue(std::complex<double>(c->real_value(), c->imag_value()));
+    return PolymorphicValue(
+        std::complex<double>(c->real_value(), c->imag_value()));
   }
   TORCH_INTERNAL_ASSERT(
-      false, "Unable to deserialize serde::Scalar as ScalarValue.");
+      false, "Unable to deserialize serde::Scalar as PolymorphicValue.");
 }
 
 std::vector<bool> parseBoolVector(

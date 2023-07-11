@@ -31,10 +31,10 @@ at::ScalarType mapToAtenDtype(serde::DataType t);
 
 ::flatbuffers::Offset<serde::Scalar> serializeScalar(
     flatbuffers::FlatBufferBuilder& builder,
-    const nvfuser::ScalarValue& v,
+    const nvfuser::PolymorphicValue& v,
     serde::DataType t);
 
-ScalarValue parseScalarValue(const serde::Scalar* c);
+PolymorphicValue parsePolymorphicValue(const serde::Scalar* c);
 
 template <typename T>
 std::vector<T> parseVector(const flatbuffers::Vector<T>* fb_vector) {

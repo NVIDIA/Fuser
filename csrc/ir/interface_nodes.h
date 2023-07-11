@@ -52,10 +52,13 @@ class TORCH_CUDA_CU_API Scalar : public Val {
       : Val(passkey, ValType::Scalar, std::move(dtype)) {}
   explicit Scalar(IrBuilderPasskey passkey, PrimDataType dtype)
       : Val(passkey, ValType::Scalar, DataType(dtype)) {}
-  explicit Scalar(IrBuilderPasskey passkey, ScalarValue value)
+  explicit Scalar(IrBuilderPasskey passkey, PolymorphicValue value)
       : Val(passkey, ValType::Scalar, nvfuser::getDataType(value)),
         value_(std::move(value)) {}
-  explicit Scalar(IrBuilderPasskey passkey, ScalarValue value, DataType dtype)
+  explicit Scalar(
+      IrBuilderPasskey passkey,
+      PolymorphicValue value,
+      DataType dtype)
       : Val(passkey, ValType::Scalar, dtype),
         value_(castToDtype(std::move(value), dtype)) {}
 
@@ -100,7 +103,7 @@ class TORCH_CUDA_CU_API Scalar : public Val {
   bool isConst() const final {
     return value_.hasValue();
   }
-  ScalarValue value() const {
+  PolymorphicValue value() const {
     return value_;
   }
 
@@ -119,7 +122,7 @@ class TORCH_CUDA_CU_API Scalar : public Val {
   }
 
  private:
-  const ScalarValue value_;
+  const PolymorphicValue value_;
 };
 
 //! Mode during propagation of computeAt, standard will throw an error if

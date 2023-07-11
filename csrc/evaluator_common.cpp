@@ -144,7 +144,7 @@ void PrecomputedValues::bindParallelExtents(
 
 void PrecomputedValues::bindConcreteParallelTypeValue(
     ParallelType pt,
-    ScalarValue value) {
+    PolymorphicValue value) {
   auto index_list_it = thread_dim_value_indices_.find(pt);
   if (index_list_it != thread_dim_value_indices_.end()) {
     for (auto index : *(index_list_it->second)) {
@@ -199,7 +199,7 @@ void PrecomputedValues::initializeValueList(
   num_of_values_ = (int)sorted_value_list.size();
   defined_ = std::vector<bool>(num_of_values_, false);
   is_constant_ = std::vector<bool>(num_of_values_, false);
-  values_ = std::vector<ScalarValue>(num_of_values_, ScalarValue());
+  values_ = std::vector<PolymorphicValue>(num_of_values_, PolymorphicValue());
 
   // Fill in constants and assign evaluator indices
   for (const auto i : c10::irange(num_of_values_)) {
@@ -207,20 +207,20 @@ void PrecomputedValues::initializeValueList(
     if (sorted_value_list[i]->isConstScalar()) {
       is_constant_[i] = true;
       if (sorted_value_list[i]->isIntegralScalar()) {
-        values_[i] = ScalarValue(sorted_value_list[i]->evaluateInt());
+        values_[i] = PolymorphicValue(sorted_value_list[i]->evaluateInt());
       }
       if (sorted_value_list[i]->isFloatingPointScalar()) {
-        values_[i] = ScalarValue(sorted_value_list[i]->evaluateDouble());
+        values_[i] = PolymorphicValue(sorted_value_list[i]->evaluateDouble());
       }
       if (sorted_value_list[i]->isABool()) {
-        values_[i] = ScalarValue(sorted_value_list[i]->evaluateBool());
+        values_[i] = PolymorphicValue(sorted_value_list[i]->evaluateBool());
       }
     }
     sorted_value_list[i]->setEvaluatorIndex(i);
   }
 }
 
-ScalarValue PrecomputedValues::getMaybeValueFor(const Val* val) const {
+PolymorphicValue PrecomputedValues::getMaybeValueFor(const Val* val) const {
   auto index = val->evaluatorIndex();
   if (index < 0) {
     return std::monostate{};
@@ -478,7 +478,7 @@ void NaiveValueMachine::runInstruction(int index) {
 }
 
 void NaiveValueMachine::runUnaryOp(int index) {
-  using namespace ScalarValue_functions;
+  using namespace PolymorphicValue_functions;
   int src_index = src0_[index];
   bool src_defined = precomputed_values_.defined_[src_index];
   bool src_is_const = precomputed_values_.is_constant_[src_index];
@@ -497,11 +497,11 @@ void NaiveValueMachine::runUnaryOp(int index) {
       break;
     case UnaryOpType::Cast:
       if (data_type_[index] == DataType::Double) {
-        dest = ScalarValue((double)src);
+        dest = PolymorphicValue((double)src);
       } else if (data_type_[index] == DataType::Int) {
-        dest = ScalarValue((int64_t)src);
+        dest = PolymorphicValue((int64_t)src);
       } else if (data_type_[index] == DataType::Bool) {
-        dest = ScalarValue((bool)src);
+        dest = PolymorphicValue((bool)src);
       } else {
         TORCH_INTERNAL_ASSERT(false, "dtype not supported in evaluator");
       }
@@ -517,7 +517,7 @@ void NaiveValueMachine::runUnaryOp(int index) {
 }
 
 void NaiveValueMachine::runBinaryOp(int index) {
-  using namespace ScalarValue_functions;
+  using namespace PolymorphicValue_functions;
   int src0_index = src0_[index];
   int src1_index = src1_[index];
   bool src0_is_const = precomputed_values_.is_constant_[src0_index];

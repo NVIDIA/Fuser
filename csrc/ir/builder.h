@@ -117,7 +117,7 @@ class TORCH_CUDA_CU_API IrBuilder {
 
   static Scalar* newScalar(DataType dtype);
 
-  static Scalar* newConstant(ScalarValue value, DataType dtype) {
+  static Scalar* newConstant(PolymorphicValue value, DataType dtype) {
     return IrBuilder::create<Scalar>(value, dtype);
   }
 
@@ -142,15 +142,15 @@ class TORCH_CUDA_CU_API SimplifyingIrBuilder : public IrBuilder {
   static Scalar* negExpr(Val* val);
   static Scalar* notExpr(Val* val);
 
-  static Scalar* addExpr(Scalar* lhs, ScalarValue rhs);
-  static Val* addExpr(Val* lhs, ScalarValue rhs);
+  static Scalar* addExpr(Scalar* lhs, PolymorphicValue rhs);
+  static Val* addExpr(Val* lhs, PolymorphicValue rhs);
   static Scalar* addExpr(Scalar* lhs, Scalar* rhs);
   static Val* addExpr(Val* lhs, Val* rhs);
 
   static Val* subExpr(Val* lhs, Val* rhs);
 
-  static Scalar* mulExpr(Scalar* lhs, ScalarValue rhs);
-  static Val* mulExpr(Val* lhs, ScalarValue rhs);
+  static Scalar* mulExpr(Scalar* lhs, PolymorphicValue rhs);
+  static Val* mulExpr(Val* lhs, PolymorphicValue rhs);
   static Scalar* mulExpr(Scalar* lhs, Scalar* rhs);
   static Val* mulExpr(Val* lhs, Val* rhs);
 

@@ -225,7 +225,7 @@ Scalar* SimplifyingIrBuilder::notExpr(Val* val) {
   return IrBuilder::notExpr(val);
 }
 
-Scalar* SimplifyingIrBuilder::addExpr(Scalar* lhs, ScalarValue rhs) {
+Scalar* SimplifyingIrBuilder::addExpr(Scalar* lhs, PolymorphicValue rhs) {
   if (rhs == 0) {
     return lhs;
   } else if (lhs == nullptr) {
@@ -272,7 +272,7 @@ Val* SimplifyingIrBuilder::addExpr(Val* lhs, Val* rhs) {
   }
 }
 
-Val* SimplifyingIrBuilder::addExpr(Val* lhs, ScalarValue rhs) {
+Val* SimplifyingIrBuilder::addExpr(Val* lhs, PolymorphicValue rhs) {
   auto lhs_scalar = dynamic_cast<Scalar*>(lhs);
   if (lhs_scalar != nullptr) {
     return addExpr(lhs_scalar, rhs);
@@ -285,7 +285,7 @@ Val* SimplifyingIrBuilder::subExpr(Val* lhs, Val* rhs) {
   return addExpr(lhs, negExpr(rhs));
 }
 
-Scalar* SimplifyingIrBuilder::mulExpr(Scalar* lhs, ScalarValue rhs) {
+Scalar* SimplifyingIrBuilder::mulExpr(Scalar* lhs, PolymorphicValue rhs) {
   if (rhs == 0) {
     return lhs->container()->zeroVal();
   } else if (rhs == 1) {
@@ -299,7 +299,7 @@ Scalar* SimplifyingIrBuilder::mulExpr(Scalar* lhs, ScalarValue rhs) {
   }
 }
 
-Val* SimplifyingIrBuilder::mulExpr(Val* lhs, ScalarValue rhs) {
+Val* SimplifyingIrBuilder::mulExpr(Val* lhs, PolymorphicValue rhs) {
   auto lhs_scalar = dynamic_cast<Scalar*>(lhs);
   if (lhs_scalar != nullptr) {
     return mulExpr(lhs_scalar, rhs);
@@ -461,7 +461,7 @@ Val* minOrMaxExpr(
 } // namespace
 
 Val* SimplifyingIrBuilder::maxExpr(Val* lhs, Val* rhs) {
-  using namespace ScalarValue_functions;
+  using namespace PolymorphicValue_functions;
   return minOrMaxExpr(
       lhs,
       rhs,
@@ -470,7 +470,7 @@ Val* SimplifyingIrBuilder::maxExpr(Val* lhs, Val* rhs) {
 }
 
 Val* SimplifyingIrBuilder::minExpr(Val* lhs, Val* rhs) {
-  using namespace ScalarValue_functions;
+  using namespace PolymorphicValue_functions;
   return minOrMaxExpr(
       lhs,
       rhs,

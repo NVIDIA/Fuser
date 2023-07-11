@@ -134,7 +134,7 @@ union RecordData {
 // =====================================================================================
 // Basic data tables
 
-// Data for ScalarValue
+// Data for Scalar
 table Scalar {
   dtype: DataType;
   has_value: bool;

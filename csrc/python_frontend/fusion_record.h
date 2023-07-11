@@ -1932,7 +1932,7 @@ struct TakeAlongAxisOpRecord : RecordFunctor {
 struct ScalarRecord : RecordFunctor {
   ScalarRecord(
       std::vector<State> _outputs,
-      ScalarValue value,
+      PolymorphicValue value,
       std::optional<PrimDataType> dtype)
       : RecordFunctor(
             {},
@@ -2036,11 +2036,11 @@ struct ScalarRecord : RecordFunctor {
 
   inline std::pair<serde::RecordData, flatbuffers::Offset<void>> valueRecordData(
       flatbuffers::FlatBufferBuilder& builder,
-      ScalarValue value) const;
+      PolymorphicValue value) const;
 
  private:
   //! The scalar's value, an input is a nullopt
-  ScalarValue value_;
+  PolymorphicValue value_;
   //! Scalar data type.
   PrimDataType dtype_;
 };

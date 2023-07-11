@@ -349,9 +349,9 @@ DEFINE_DATATYPE_TO_NATIVE_TYPE(
 
 #undef DEFINE_DATATYPE_TO_NATIVE_TYPE
 
-inline DataType getDataType(const ScalarValue& value) {
+inline DataType getDataType(const PolymorphicValue& value) {
   std::optional<DataType> dtype = std::nullopt;
-  ScalarValue::for_all_types([&value, &dtype](auto _) {
+  PolymorphicValue::for_all_types([&value, &dtype](auto _) {
     using T = typename decltype(_)::type;
     if constexpr (IsPrimitiveNativeType<T>::value) {
       if (value.is<T>()) {
@@ -838,7 +838,9 @@ static constexpr int kMaxNumGroupedReductions = 16;
 Pointer::Pointer(void* ptr, DataType dtype)
     : ptr_(reinterpret_cast<std::byte*>(ptr)), size_(dataTypeSize(dtype)) {}
 
-inline ScalarValue castToDtype(ScalarValue value, const DataType& dtype) {
+inline PolymorphicValue castToDtype(
+    PolymorphicValue value,
+    const DataType& dtype) {
   if (!value.hasValue()) {
     return value;
   }
@@ -847,11 +849,11 @@ inline ScalarValue castToDtype(ScalarValue value, const DataType& dtype) {
   // an integer but the desired data type is double.
   auto value_dtype = getDataType(value);
   if (!isCompatibleDataType(value_dtype, dtype)) {
-    ScalarValue::for_all_types([&](auto _) {
+    PolymorphicValue::for_all_types([&](auto _) {
       using T = typename decltype(_)::type;
       if constexpr (IsPrimitiveNativeType<T>::value) {
         if (isCompatibleDataType(NativeTypeToDataType<T>::type, dtype)) {
-          value = ScalarValue(static_cast<T>(value));
+          value = PolymorphicValue(static_cast<T>(value));
         }
       }
       // TODO: support arrays and pointers

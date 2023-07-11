@@ -697,11 +697,11 @@ class FlattenedAssocCommOp : public Expr {
     return inputs().size() == 1;
   }
 
-  std::vector<ScalarValue> evaluate(
-      const std::vector<ScalarValue>& inputs) const override {
-    using namespace ScalarValue_functions;
-    std::vector<ScalarValue> inputs_ = inputs;
-    ScalarValue result;
+  std::vector<PolymorphicValue> evaluate(
+      const std::vector<PolymorphicValue>& inputs) const override {
+    using namespace PolymorphicValue_functions;
+    std::vector<PolymorphicValue> inputs_ = inputs;
+    PolymorphicValue result;
     result = inputs_.back();
     inputs_.pop_back();
     switch (getOpType()) {
@@ -743,7 +743,7 @@ class FlattenedAssocCommOp : public Expr {
       default:
         TORCH_INTERNAL_ASSERT(
             "Unexpected operator type encountered"
-            "in ScalarValue::evaluate: ",
+            "in PolymorphicValue::evaluate: ",
             getOpType());
     }
     return {result};

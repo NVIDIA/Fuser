@@ -52,7 +52,7 @@ struct Struct {
 struct DataType;
 
 // Use a single pointer type to represent all pointers, otherwise we would need
-// exponential compilation time for all pointer types in ScalarValue.
+// exponential compilation time for all pointer types in PolymorphicValue.
 class Pointer {
   std::byte* ptr_;
   int64_t size_;
@@ -163,7 +163,7 @@ inline Pointer operator+(int64_t offset, const Pointer& ptr) {
   return ptr + offset;
 }
 
-using ScalarValue = DynamicType<
+using PolymorphicValue = DynamicType<
     Containers<std::vector, Struct>,
     std::complex<double>,
     double,
@@ -171,49 +171,57 @@ using ScalarValue = DynamicType<
     bool,
     Pointer>;
 
-namespace ScalarValue_functions {
+namespace PolymorphicValue_functions {
 
-inline ScalarValue ceildiv(const ScalarValue& a, const ScalarValue& b) {
+inline PolymorphicValue ceildiv(
+    const PolymorphicValue& a,
+    const PolymorphicValue& b) {
   if (a.is<int64_t>() && b.is<int64_t>()) {
     auto aa = a.as<int64_t>();
     auto bb = b.as<int64_t>();
     if (bb > 0) {
-      return ScalarValue((aa + bb - 1) / bb);
+      return PolymorphicValue((aa + bb - 1) / bb);
     } else {
-      return ScalarValue((aa + bb + 1) / bb);
+      return PolymorphicValue((aa + bb + 1) / bb);
     }
   }
-  return ScalarValue(std::ceil((a / b).as<double>()));
+  return PolymorphicValue(std::ceil((a / b).as<double>()));
 }
 
-inline ScalarValue max(const ScalarValue& a, const ScalarValue& b) {
-  return ScalarValue(a > b ? a : b);
+inline PolymorphicValue max(
+    const PolymorphicValue& a,
+    const PolymorphicValue& b) {
+  return PolymorphicValue(a > b ? a : b);
 }
 
-inline ScalarValue min(const ScalarValue& a, const ScalarValue& b) {
-  return ScalarValue(a < b ? a : b);
+inline PolymorphicValue min(
+    const PolymorphicValue& a,
+    const PolymorphicValue& b) {
+  return PolymorphicValue(a < b ? a : b);
 }
 
-inline ScalarValue gcd(const ScalarValue& a, const ScalarValue& b) {
-  return ScalarValue(std::gcd(a.as<int64_t>(), b.as<int64_t>()));
+inline PolymorphicValue gcd(
+    const PolymorphicValue& a,
+    const PolymorphicValue& b) {
+  return PolymorphicValue(std::gcd(a.as<int64_t>(), b.as<int64_t>()));
 }
 
-inline ScalarValue notExpr(const ScalarValue& a) {
+inline PolymorphicValue notExpr(const PolymorphicValue& a) {
   if (a.is<int64_t>()) {
-    return ScalarValue(~a.as<int64_t>());
+    return PolymorphicValue(~a.as<int64_t>());
   }
   if (a.is<bool>()) {
-    return ScalarValue(!a.as<bool>());
+    return PolymorphicValue(!a.as<bool>());
   }
   TORCH_INTERNAL_ASSERT(false);
 }
 
-inline ScalarValue abs(const ScalarValue& a) {
+inline PolymorphicValue abs(const PolymorphicValue& a) {
   if (a.is<int64_t>()) {
-    return ScalarValue(std::abs(a.as<int64_t>()));
+    return PolymorphicValue(std::abs(a.as<int64_t>()));
   }
   if (a.is<double>()) {
-    return ScalarValue(std::abs(a.as<double>()));
+    return PolymorphicValue(std::abs(a.as<double>()));
   }
   if (a.is<bool>()) {
     return a;
@@ -221,6 +229,6 @@ inline ScalarValue abs(const ScalarValue& a) {
   TORCH_INTERNAL_ASSERT(false);
 }
 
-} // namespace ScalarValue_functions
+} // namespace PolymorphicValue_functions
 
 } // namespace nvfuser

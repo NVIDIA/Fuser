@@ -303,20 +303,20 @@ UnaryOp::UnaryOp(IrBuilderPasskey passkey, UnaryOpType type, Val* out, Val* in)
       IrBuilder::create<Attribute<UnaryOpType>>(passkey.ir_container_, type));
 }
 
-std::vector<ScalarValue> UnaryOp::evaluate(
-    const std::vector<ScalarValue>& inputs) const {
-  using namespace ScalarValue_functions;
+std::vector<PolymorphicValue> UnaryOp::evaluate(
+    const std::vector<PolymorphicValue>& inputs) const {
+  using namespace PolymorphicValue_functions;
   const auto& in = inputs.at(0);
   switch (getUnaryOpType()) {
     case UnaryOpType::Neg:
       return {-in};
     case UnaryOpType::Cast:
       if (isIntegralType(*out()->getDataType())) {
-        return {ScalarValue((int64_t)in)};
+        return {PolymorphicValue((int64_t)in)};
       } else if (isFloatingPointType(*out()->getDataType())) {
-        return {ScalarValue((double)in)};
+        return {PolymorphicValue((double)in)};
       } else if (out()->getDataType() == DataType::Bool) {
-        return {ScalarValue((bool)in)};
+        return {PolymorphicValue((bool)in)};
       } else {
         TORCH_INTERNAL_ASSERT(
             false, "dtype not supported in evaluator: ", *out()->getDataType());
@@ -402,9 +402,9 @@ BinaryOp::BinaryOp(
       IrBuilder::create<Attribute<BinaryOpType>>(passkey.ir_container_, type));
 }
 
-std::vector<ScalarValue> BinaryOp::evaluate(
-    const std::vector<ScalarValue>& inputs) const {
-  using namespace ScalarValue_functions;
+std::vector<PolymorphicValue> BinaryOp::evaluate(
+    const std::vector<PolymorphicValue>& inputs) const {
+  using namespace PolymorphicValue_functions;
   const auto& lhs = inputs.at(0);
   const auto& rhs = inputs.at(1);
 
@@ -555,9 +555,9 @@ TernaryOp::TernaryOp(
       IrBuilder::create<Attribute<TernaryOpType>>(passkey.ir_container_, type));
 }
 
-std::vector<ScalarValue> TernaryOp::evaluate(
-    const std::vector<ScalarValue>& inputs) const {
-  using namespace ScalarValue_functions;
+std::vector<PolymorphicValue> TernaryOp::evaluate(
+    const std::vector<PolymorphicValue>& inputs) const {
+  using namespace PolymorphicValue_functions;
   const auto& in1 = inputs.at(0);
   const auto& in2 = inputs.at(1);
   const auto& in3 = inputs.at(2);
@@ -670,9 +670,9 @@ std::string ArrayConstruct::toInlineString(int indent_size) const {
   return ss.str();
 }
 
-std::vector<ScalarValue> ArrayConstruct::evaluate(
-    const std::vector<ScalarValue>& inputs) const {
-  return {ScalarValue(inputs)};
+std::vector<PolymorphicValue> ArrayConstruct::evaluate(
+    const std::vector<PolymorphicValue>& inputs) const {
+  return {PolymorphicValue(inputs)};
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(ArrayConstruct)
@@ -701,10 +701,10 @@ std::string GetItem::toInlineString(int indent_size) const {
   return ss.str();
 }
 
-std::vector<ScalarValue> GetItem::evaluate(
-    const std::vector<ScalarValue>& inputs) const {
+std::vector<PolymorphicValue> GetItem::evaluate(
+    const std::vector<PolymorphicValue>& inputs) const {
   TORCH_INTERNAL_ASSERT(inputs.size() == 2, "GetItem expects 2 inputs");
-  return {ScalarValue(inputs.at(0)[inputs.at(1)])};
+  return {PolymorphicValue(inputs.at(0)[inputs.at(1)])};
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(GetItem)
@@ -738,8 +738,8 @@ std::string GetAttr::toInlineString(int indent_size) const {
   return ss.str();
 }
 
-std::vector<ScalarValue> GetAttr::evaluate(
-    const std::vector<ScalarValue>& inputs) const {
+std::vector<PolymorphicValue> GetAttr::evaluate(
+    const std::vector<PolymorphicValue>& inputs) const {
   TORCH_INTERNAL_ASSERT(inputs.size() == 1, "GetAttr expects 1 input");
   return {inputs.at(0)[attr()]};
 }
@@ -2079,8 +2079,8 @@ LoadStoreOp::LoadStoreOp(
       passkey.ir_container_, op_type));
 }
 
-std::vector<ScalarValue> LoadStoreOp::evaluate(
-    const std::vector<ScalarValue>& inputs) const {
+std::vector<PolymorphicValue> LoadStoreOp::evaluate(
+    const std::vector<PolymorphicValue>& inputs) const {
   return inputs;
 }
 
@@ -2114,9 +2114,10 @@ std::string LoadStoreOp::toInlineString(int indent_size) const {
   TORCH_CHECK(false, "Tensor op can not be printed inline");
 }
 
-bool LoadStoreOp::hasTranspose() const {
+bool LoadStoreOp::hasInnerTranspose() const {
   if (auto out_tv = dynamic_cast<TensorView*>(out())) {
-    return out_tv->hasRFactor();
+    return out_tv->hasRFactor() &&
+        out_tv->getRootDomain().back() != out_tv->getRFactorDomain().back();
   }
   return false;
 }
