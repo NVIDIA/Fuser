@@ -534,13 +534,35 @@ TensorView* matmul(
     bool turing_or_later // TODO: This is a temporary solution. Remove this!
 );
 
+// Generic interface to get splitK-like batched matmul op with the given layout.
+// For splitK like batched matmul, there is only one batch dimension, and that
+// dimension should be right before the K dimension. This function currently
+// assume Ampere or Turing.
+TensorView* splitkLikeBatchedMatmul(
+    TensorView* a,
+    TensorView* b,
+    MatmulLayout layout
+);
+
 // Utility to generate matmul input tensors based on given layout
 at::Tensor atMatmul(at::Tensor a, at::Tensor b, MatmulLayout layout);
 
-// Utility to generate reference results based on given layout
+// Utility to generate matmul input tensors based on given layout
+at::Tensor splitkLikeAtMatmul(at::Tensor a, at::Tensor b, MatmulLayout layout);
+
+// Utility to generate inputs based on given layout
 std::pair<at::Tensor, at::Tensor> matmulAtInput(
     int M,
     int N,
+    int K,
+    MatmulLayout layout,
+    c10::ScalarType dtype = at::kHalf);
+
+// Utility to generate inputs based on given layout
+std::pair<at::Tensor, at::Tensor> splitkLikeBatchedMatmulAtInput(
+    int M,
+    int N,
+    int B,
     int K,
     MatmulLayout layout,
     c10::ScalarType dtype = at::kHalf);

@@ -626,17 +626,23 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
     bcw_smem = br->cacheAfter(load_op);
     TORCH_INTERNAL_ASSERT(acw_smem->uses().size() == 1);
     TORCH_INTERNAL_ASSERT(bcw_smem->uses().size() == 1);
-    if (auto ldst = dynamic_cast<LoadStoreOp*>(acw_smem->uses().at(0));
-        ldst != nullptr && ldst->hasTranspose()) {
+    if (auto ldst = dynamic_cast<LoadStoreOp*>(acw_smem->uses().at(0))) {
       acr = ldst->out()->as<TensorView>();
-      ldst->setOpType(LoadStoreOpType::LdMatrixTranspose);
+      if (ldst->hasInnerTranspose()) {
+        ldst->setOpType(LoadStoreOpType::LdMatrixTranspose);
+      } else {
+        ldst->setOpType(LoadStoreOpType::LdMatrix);
+      }
     } else {
       acr = acw_smem->cacheAfter(LoadStoreOpType::LdMatrix);
     }
-    if (auto ldst = dynamic_cast<LoadStoreOp*>(bcw_smem->uses().at(0));
-        ldst != nullptr && ldst->hasTranspose()) {
+    if (auto ldst = dynamic_cast<LoadStoreOp*>(bcw_smem->uses().at(0))) {
       bcr = ldst->out()->as<TensorView>();
-      ldst->setOpType(LoadStoreOpType::LdMatrixTranspose);
+      if (ldst->hasInnerTranspose()) {
+        ldst->setOpType(LoadStoreOpType::LdMatrixTranspose);
+      } else {
+        ldst->setOpType(LoadStoreOpType::LdMatrix);
+      }
     } else {
       bcr = bcw_smem->cacheAfter(LoadStoreOpType::LdMatrix);
     }
@@ -652,6 +658,12 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   // Make a CTA tile
   // ------------------------------------------------------------------
   mma_utils::canonicalizeMmaTvOrdering(mma_result);
+  TORCH_INTERNAL_ASSERT(
+      mma_result->nDims() == 3 || mma_result->nDims() == 4,
+      "Currently, we only support B, M, N and K being a single dimension.",
+      " More general tensor contraction is not supported yet.");
+  const int64_t num_batch_dims = mma_result->nDims() - 3;
+
   // [... M,N,K]
   mma_utils::makeTile(mma_result, gemm_tile.cta_tile.toVector());
 
@@ -659,19 +671,19 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   if (params.grid_swizzle_factor != 1) {
     int factor = std::max(1, params.grid_swizzle_factor); // must be >=1
     if (params.cta_order == MatmulParams::TileRasterizationOrder::RowMajor) {
-      mma_result->split(1, factor);
+      mma_result->split(num_batch_dims + 1, factor);
       // [I1, I2/factor, factor]
-      mma_result->reorder({{1, 2}});
+      mma_result->reorder({{num_batch_dims + 1, num_batch_dims + 2}});
       // [I1, factor, I2/factor]
-      mma_result->merge(0);
+      mma_result->merge(num_batch_dims);
       // [I1*factor, I2/factor]
     } else if (
         params.cta_order == MatmulParams::TileRasterizationOrder::ColumnMajor) {
-      mma_result->split(0, factor);
+      mma_result->split(num_batch_dims, factor);
       // [I1/factor, factor, I2]
-      mma_result->reorder({{1, 2}});
+      mma_result->reorder({{num_batch_dims + 1, num_batch_dims + 2}});
       // [I1/factor, I2, factor]
-      mma_result->merge(1);
+      mma_result->merge(num_batch_dims + 1);
       // [I1/factor, I2*factor]
     }
   }
@@ -734,22 +746,25 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
 
   //  0   1  2  3   4   5   6  7  8  9  10
   // [Mo No Ko Kwo Mwo Nwo Mw Nw (Mi Ni Ki)]
+  if (num_batch_dims != 0) {
+    mma_result->axis(0)->parallelize(ParallelType::BIDz);
+  }
   switch (params.cta_order) {
     case MatmulParams::TileRasterizationOrder::RowMajor:
-      mma_result->axis(0)->parallelize(ParallelType::BIDx);
-      mma_result->axis(1)->parallelize(ParallelType::BIDy);
+      mma_result->axis(num_batch_dims)->parallelize(ParallelType::BIDx);
+      mma_result->axis(num_batch_dims + 1)->parallelize(ParallelType::BIDy);
       break;
     case MatmulParams::TileRasterizationOrder::ColumnMajor:
-      mma_result->axis(0)->parallelize(ParallelType::BIDy);
-      mma_result->axis(1)->parallelize(ParallelType::BIDx);
+      mma_result->axis(num_batch_dims)->parallelize(ParallelType::BIDy);
+      mma_result->axis(num_batch_dims + 1)->parallelize(ParallelType::BIDx);
       break;
     default:
       TORCH_INTERNAL_ASSERT(
           false, "Invalid TileRasterizationOrder passed to Matmul scheduler");
   }
 
-  mma_result->axis(4)->parallelize(ParallelType::TIDz);
-  mma_result->axis(5)->parallelize(ParallelType::TIDy);
+  mma_result->axis(num_batch_dims + 4)->parallelize(ParallelType::TIDz);
+  mma_result->axis(num_batch_dims + 5)->parallelize(ParallelType::TIDy);
 
   scheduler_utils::parallelizeAllLike(
       mma_result,
@@ -778,7 +793,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   inlineMost(ir_utils::allTvsExcept(fusion, {acr, bcr, ab, bb, d}));
 
   // if auto inline, will inline to position-7, leads to performance regression
-  inlineSelectedAt({acr, bcr, ab, bb}, mma_result, 6);
+  inlineSelectedAt({acr, bcr, ab, bb}, mma_result, num_batch_dims + 6);
 
   // Propagate mma output swizzle and parallelization down the DAG
   if (params.double_buffer_options.double_buffer_smem_write) {
@@ -804,7 +819,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
 
   if (params.double_buffer_options.double_buffer_smem_read &&
       params.double_buffer_options.double_buffer_smem_write) {
-    scheduler_utils::rotateLoop(mma_result, 2, {acr, bcr});
+    scheduler_utils::rotateLoop(mma_result, num_batch_dims + 2, {acr, bcr});
   }
 }
 
