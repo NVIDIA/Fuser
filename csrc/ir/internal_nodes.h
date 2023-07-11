@@ -303,8 +303,8 @@ class TORCH_CUDA_CU_API UnaryOp : public Expr {
     return "UnaryOp";
   }
 
-  std::vector<ScalarValue> evaluate(
-      const std::vector<ScalarValue>& inputs) const override;
+  std::vector<PolymorphicValue> evaluate(
+      const std::vector<PolymorphicValue>& inputs) const override;
 
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
@@ -340,8 +340,8 @@ class TORCH_CUDA_CU_API BinaryOp : public Expr {
     return "BinaryOp";
   }
 
-  std::vector<ScalarValue> evaluate(
-      const std::vector<ScalarValue>& inputs) const override;
+  std::vector<PolymorphicValue> evaluate(
+      const std::vector<PolymorphicValue>& inputs) const override;
 
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
@@ -386,8 +386,8 @@ class TORCH_CUDA_CU_API TernaryOp : public Expr {
     return "TernaryOp";
   }
 
-  std::vector<ScalarValue> evaluate(
-      const std::vector<ScalarValue>& inputs) const override;
+  std::vector<PolymorphicValue> evaluate(
+      const std::vector<PolymorphicValue>& inputs) const override;
 
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
@@ -435,8 +435,8 @@ class TORCH_CUDA_CU_API ArrayConstruct : public Expr {
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
 
-  std::vector<ScalarValue> evaluate(
-      const std::vector<ScalarValue>& inputs) const override;
+  std::vector<PolymorphicValue> evaluate(
+      const std::vector<PolymorphicValue>& inputs) const override;
 
   Val* out() const {
     return output(0);
@@ -459,8 +459,8 @@ class TORCH_CUDA_CU_API GetItem : public Expr {
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
 
-  std::vector<ScalarValue> evaluate(
-      const std::vector<ScalarValue>& inputs) const override;
+  std::vector<PolymorphicValue> evaluate(
+      const std::vector<PolymorphicValue>& inputs) const override;
 
   Val* out() const {
     return output(0);
@@ -491,8 +491,8 @@ class TORCH_CUDA_CU_API GetAttr : public Expr {
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
 
-  std::vector<ScalarValue> evaluate(
-      const std::vector<ScalarValue>& inputs) const override;
+  std::vector<PolymorphicValue> evaluate(
+      const std::vector<PolymorphicValue>& inputs) const override;
 
   Val* out() const {
     return output(0);
@@ -1509,8 +1509,8 @@ class TORCH_CUDA_CU_API LoadStoreOp : public Expr {
     return "LoadStoreOp";
   }
 
-  std::vector<ScalarValue> evaluate(
-      const std::vector<ScalarValue>& inputs) const override;
+  std::vector<PolymorphicValue> evaluate(
+      const std::vector<PolymorphicValue>& inputs) const override;
 
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;

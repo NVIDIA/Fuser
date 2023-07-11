@@ -12,7 +12,7 @@
 #include <ir/cloner.h>
 #include <ir/interface_nodes.h>
 #include <iter_visitor.h>
-#include <scalar_value.h>
+#include <polymorphic_value.h>
 
 #include <string>
 #include <unordered_map>
@@ -23,14 +23,14 @@ class PrecomputedValues;
 
 //! Calculate Fusion IR expressions
 class TORCH_CUDA_CU_API ExpressionEvaluator {
-  void bind_(const Val* value, const ScalarValue& concrete_value);
-  void bind_(const std::string& name, const ScalarValue& concrete_value);
+  void bind_(const Val* value, const PolymorphicValue& concrete_value);
+  void bind_(const std::string& name, const PolymorphicValue& concrete_value);
 
  public:
   //! Bind a concrete value to an IR variable
   template <typename T>
   void bind(const Val* value, const T& concrete_value) {
-    bind_(value, ScalarValue(concrete_value));
+    bind_(value, PolymorphicValue(concrete_value));
   }
 
   //! Bind tensor metadata to a TensorView
@@ -39,27 +39,27 @@ class TORCH_CUDA_CU_API ExpressionEvaluator {
       void* data,
       std::vector<int64_t> sizes,
       std::vector<int64_t> strides) {
-    Struct<ScalarValue> concrete_value;
-    concrete_value["data"] = ScalarValue(Pointer(data, tv->dtype()));
-    concrete_value["sizes"] = ScalarValue(sizes);
-    concrete_value["strides"] = ScalarValue(strides);
-    bind_(tv, ScalarValue(concrete_value));
+    Struct<PolymorphicValue> concrete_value;
+    concrete_value["data"] = PolymorphicValue(Pointer(data, tv->dtype()));
+    concrete_value["sizes"] = PolymorphicValue(sizes);
+    concrete_value["strides"] = PolymorphicValue(strides);
+    bind_(tv, PolymorphicValue(concrete_value));
   }
 
   //! Bind a concrete value to a named scalar
   template <typename T>
   void bind(const std::string& name, const T& concrete_value) {
-    bind_(name, ScalarValue(concrete_value));
+    bind_(name, PolymorphicValue(concrete_value));
   }
 
   //! Set a concrete value for a parallel dimension
   void bind(ParallelType pt, Int::ScalarType concrete_value);
 
   //! Try to evaluate a Fusion IR value
-  ScalarValue evaluate(const Val* value);
+  PolymorphicValue evaluate(const Val* value);
 
   //! Try to evaluate a parallel dimension
-  ScalarValue evaluate(ParallelType pt);
+  PolymorphicValue evaluate(ParallelType pt);
 
   //! Debugging helper, prints all the currently known values
   void print() const;
@@ -82,7 +82,7 @@ class TORCH_CUDA_CU_API ExpressionEvaluator {
   ExpressionEvaluator clone(IrCloner& ir_cloner) const;
 
  private:
-  ScalarValue getValue(const Val* value);
+  PolymorphicValue getValue(const Val* value);
 
  private:
   // TODO: Consider make this const. It can't be const as bind() of
@@ -92,8 +92,8 @@ class TORCH_CUDA_CU_API ExpressionEvaluator {
   // binding a value to ExpressionEvaluator just updates
   // known_named_scalars_.
   PrecomputedValues* precomputed_values_ = nullptr;
-  std::unordered_map<const Val*, ScalarValue> known_values_;
-  std::unordered_map<std::string, ScalarValue> known_named_scalars_;
+  std::unordered_map<const Val*, PolymorphicValue> known_values_;
+  std::unordered_map<std::string, PolymorphicValue> known_named_scalars_;
 };
 
 } // namespace nvfuser
