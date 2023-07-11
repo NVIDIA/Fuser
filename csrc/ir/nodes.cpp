@@ -774,6 +774,8 @@ RNGOp::RNGOp(
     Val* out,
     DataType dtype,
     std::vector<Val*> parameters,
+    Val* philox_seed,
+    Val* philox_offset,
     int rng_offset,
     Val* philox_index)
     : Expr(passkey) {
@@ -786,8 +788,15 @@ RNGOp::RNGOp(
   for (auto v : parameters) {
     addInput(v);
   }
+  if (philox_seed || philox_offset) {
+    TORCH_CHECK(
+        philox_seed && philox_offset,
+        "If either philox_seed or philox_offset is provided, the other must be also");
+    addInput(philox_seed);
+    addInput(philox_offset);
+  }
   addOutput(out);
-  RNGOp::Attributes attr{type, dtype, rng_offset};
+  RNGOp::Attributes attr{type, dtype, rng_offset, parameters.size()};
   addAttribute(IrBuilder::create<Attribute<RNGOp::Attributes>>(
       passkey.ir_container_, attr));
   addAttribute(philox_index);
@@ -804,7 +813,16 @@ std::string RNGOp::toString(int indent_size) const {
   if (!getParameters().empty()) {
     ss << toDelimitedString(getParameters()) << ", ";
   }
-  ss << dtype() << ");\n";
+  ss << dtype();
+  auto seed = getRNGSeedVal();
+  if (seed) {
+    ss << ", " << seed->toInlineString();
+  }
+  auto offset = getRNGOffsetVal();
+  if (offset) {
+    ss << ", " << offset->toInlineString();
+  }
+  ss << ");\n";
   return ss.str();
 }
 
