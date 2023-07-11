@@ -666,27 +666,14 @@ void RecordFunctorFactory::registerAllParsers() {
   registerParser(
       serde::RecordType_VarianceMeanOp, deserializeVarianceMeanRecord);
 
-  auto deserializeVectorInputRecord = [](const serde::RecordFunctor* buffer) {
-    auto data = buffer->data_as_VectorInput();
-    return new python_frontend::VectorRecord<int64_t>(
+  auto deserializeVectorRecord = [](const serde::RecordFunctor* buffer) {
+    auto data = buffer->data_as_Vector();
+    return new python_frontend::VectorRecord(
+        parseStateArgs(buffer->args()),
         parseStateArgs(buffer->outputs()),
-        serde::RecordType_VectorInput,
-        std::nullopt,
-        data->size(),
         mapToNvfuserDtype(data->dtype()));
   };
-  registerParser(serde::RecordType_VectorInput, deserializeVectorInputRecord);
-
-  auto deserializeVectorLongRecord = [](const serde::RecordFunctor* buffer) {
-    auto data = buffer->data_as_VectorLong();
-    return new python_frontend::VectorRecord<int64_t>(
-        parseStateArgs(buffer->outputs()),
-        serde::RecordType_VectorLong,
-        std::optional<std::vector<int64_t>>(parseVector(data->value())),
-        data->size(),
-        mapToNvfuserDtype(data->dtype()));
-  };
-  registerParser(serde::RecordType_VectorLong, deserializeVectorLongRecord);
+  registerParser(serde::RecordType_Vector, deserializeVectorRecord);
 }
 
 void RecordFunctorFactory::setupFunctionMaps() {
@@ -877,6 +864,14 @@ void RecordFunctorFactory::setupFunctionMaps() {
 
   NVFUSER_TERNARY_TV_OP("lerp", lerp)
   NVFUSER_TERNARY_TV_OP("where", where)
+
+  // The following ops behave like TernaryOps but are only TV_VAL_VAL
+  ternary_tv_val_val.emplace(
+      "ops.rand_like",
+      static_cast<TensorView* (*)(TensorView*, Val*, Val*)>(rand_like));
+  ternary_tv_val_val.emplace(
+      "ops.randn_like",
+      static_cast<TensorView* (*)(TensorView*, Val*, Val*)>(randn_like));
 
   NVFUSER_THRESHOLD_TV_OP("clamp", clamp)
   NVFUSER_THRESHOLD_TV_OP("threshold", threshold)

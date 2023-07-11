@@ -7,6 +7,8 @@
 // clang-format on
 #pragma once
 
+#include <macros.h>
+
 #include <c10/core/ScalarType.h>
 #include <c10/util/Exception.h>
 
@@ -114,7 +116,7 @@ struct StructOf {
   //   std::unordered_set<A> s; // undefined behavior, working on newer gcc.
   //   struct A {};
 
-#if defined(__clang__) || __GNUC__ >= 12
+#if defined(STD_UNORDERED_SET_SUPPORTS_INCOMPLETE_TYPE)
   std::unordered_map<std::string, DataType> types;
 #define NVFUSER_MAYBE_MAKE_SHARED(x) x
 #define NVFUSER_MAYBE_MAKE_SHARED2(x, y) x, y
@@ -171,7 +173,7 @@ bool PointerOf::operator==(const PointerOf& other) const {
 }
 
 bool StructOf::operator==(const StructOf& other) const {
-#if defined(__clang__) || __GNUC__ >= 12
+#if defined(STD_UNORDERED_SET_SUPPORTS_INCOMPLETE_TYPE)
   return types == other.types;
 #else
   std::unordered_set<std::string> keys;
