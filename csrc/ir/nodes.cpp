@@ -846,7 +846,8 @@ std::vector<PolymorphicValue> GetMetaData::evaluate(
   at::Tensor input = inputs.at(0).as<at::Tensor>();
 
   Struct<PolymorphicValue> concrete_value;
-  concrete_value["data"] = PolymorphicValue(Pointer(input.data_ptr(), tv->dtype()));
+  concrete_value["data"] =
+      PolymorphicValue(Pointer(input.data_ptr(), tv->dtype()));
   concrete_value["sizes"] = PolymorphicValue(input.sizes().vec());
   // TODO: this is not correct, strides actually needs to be based on allocation
   // domain, but input.strides() is on the rFactor domain. We need to refactor
