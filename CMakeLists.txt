@@ -219,6 +219,17 @@ target_link_libraries(${NVFUSER_CODEGEN} PRIVATE stdc++fs)
 target_link_libraries(${NVFUSER_CODEGEN} PRIVATE ${CUDA_NVRTC_LIB} ${LIBNVTOOLSEXT})
 target_include_directories(${NVFUSER_CODEGEN} PRIVATE ${CUDA_INCLUDE_DIRS})
 
+if (NOT UCC_FOUND)
+  # This probably means a "standalone" build, where UCC_FOUND is not inherited from pytorch's CMake configuration.
+  # It's required to set env vars UCC_DIR, UCX_DIR, UCC_HOME, UCX_HOME for CMake's find UCC to work.
+  find_package(UCC REQUIRED)
+  find_package(UCX REQUIRED)
+endif()
+add_library(__nvfuser_ucc INTERFACE)
+target_link_libraries(__nvfuser_ucc INTERFACE ucx::ucs ucx::ucp ucc::ucc)
+target_include_directories(__nvfuser_ucc INTERFACE ${UCC_INCLUDE_DIRS})
+target_link_libraries(${NVFUSER_CODEGEN} PRIVATE __nvfuser_ucc)
+
 # TODO: we should guard the include of gloo
 target_include_directories(${NVFUSER_CODEGEN} PRIVATE ${PROJECT_SOURCE_DIR}/third_party/gloo)
 target_include_directories(${NVFUSER_CODEGEN} PUBLIC
