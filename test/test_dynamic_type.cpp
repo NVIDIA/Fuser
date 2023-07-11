@@ -14,7 +14,7 @@
 #include <test/utils.h>
 #include <type_traits.h>
 
-#include <scalar_value.h>
+#include <polymorphic_value.h>
 
 #include <iostream>
 #include <list>
