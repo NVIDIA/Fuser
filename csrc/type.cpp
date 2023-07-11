@@ -215,8 +215,8 @@ static const char* val_type2string(ValType t) {
       return "Predicate";
     case ValType::TensorIndex:
       return "TensorIndex";
-    case ValType::AggregateVal:
-      return "AggregateVal";
+    case ValType::PipelineVal:
+      return "PipelineVal";
     case ValType::Attribute:
       return "Attribute";
     default:

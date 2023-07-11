@@ -68,8 +68,8 @@ void Val::dispatch(T handler, Val* val) {
     case ValType::TensorIndex:
       ptr(handler)->handle(val->as<kir::TensorIndex>());
       return;
-    case ValType::AggregateVal:
-      ptr(handler)->handle(val->as<AggregateVal>());
+    case ValType::PipelineVal:
+      ptr(handler)->handle(val->as<PipelineVal>());
       return;
     case ValType::Attribute:
       TORCH_INTERNAL_ASSERT(
@@ -292,12 +292,12 @@ void Expr::dispatch(T handler, Expr* expr) {
     ptr(handler)->handle(expr->as<kir::BaseAddress>());
     return;
   }
-  if (expr->isStrictlyA<AggregateExpr>()) {
-    ptr(handler)->handle(expr->as<AggregateExpr>());
+  if (expr->isStrictlyA<PipelineStage>()) {
+    ptr(handler)->handle(expr->as<PipelineStage>());
     return;
   }
-  if (expr->isStrictlyA<SendRecv>()) {
-    ptr(handler)->handle(expr->as<SendRecv>());
+  if (expr->isStrictlyA<PipelineCommunication>()) {
+    ptr(handler)->handle(expr->as<PipelineCommunication>());
     return;
   }
   TORCH_INTERNAL_ASSERT(false, "Unknown exprtype in dispatch!");
@@ -337,8 +337,8 @@ void Val::constDispatch(T handler, const Val* val) {
     case ValType::TensorIndex:
       ptr(handler)->handle(val->as<kir::TensorIndex>());
       return;
-    case ValType::AggregateVal:
-      ptr(handler)->handle(val->as<AggregateVal>());
+    case ValType::PipelineVal:
+      ptr(handler)->handle(val->as<PipelineVal>());
       return;
     case ValType::Attribute:
       // Attribute Val is just a wrapper for non-IR data, so there is nothing to
@@ -561,12 +561,12 @@ void Expr::constDispatch(T handler, const Expr* expr) {
     ptr(handler)->handle(expr->as<kir::BaseAddress>());
     return;
   }
-  if (expr->isStrictlyA<AggregateExpr>()) {
-    ptr(handler)->handle(expr->as<AggregateExpr>());
+  if (expr->isStrictlyA<PipelineStage>()) {
+    ptr(handler)->handle(expr->as<PipelineStage>());
     return;
   }
-  if (expr->isStrictlyA<SendRecv>()) {
-    ptr(handler)->handle(expr->as<SendRecv>());
+  if (expr->isStrictlyA<PipelineCommunication>()) {
+    ptr(handler)->handle(expr->as<PipelineCommunication>());
     return;
   }
   TORCH_INTERNAL_ASSERT(false, "Unknown exprtype in dispatch!");
@@ -617,8 +617,8 @@ void Val::mutatorDispatch(T mutator, Val* val) {
     case ValType::TensorIndex:
       ptr(mutator)->mutate(val->as<kir::TensorIndex>());
       return;
-    case ValType::AggregateVal:
-      ptr(mutator)->mutate(val->as<AggregateVal>());
+    case ValType::PipelineVal:
+      ptr(mutator)->mutate(val->as<PipelineVal>());
       return;
     case ValType::Attribute:
       TORCH_INTERNAL_ASSERT(
@@ -759,7 +759,7 @@ void OptOutConstDispatch::handle(const kir::TensorIndex* stmt) {
   unhandled(stmt);
 }
 
-void OptOutConstDispatch::handle(const AggregateVal* stmt) {
+void OptOutConstDispatch::handle(const PipelineVal* stmt) {
   unhandled(stmt);
 }
 
@@ -924,10 +924,10 @@ void OptOutConstDispatch::handle(const kir::BaseAddress* stmt) {
   unhandled(stmt);
 }
 
-void OptOutConstDispatch::handle(const AggregateExpr* stmt) {
+void OptOutConstDispatch::handle(const PipelineStage* stmt) {
   unhandled(stmt);
 }
-void OptOutConstDispatch::handle(const SendRecv* stmt) {
+void OptOutConstDispatch::handle(const PipelineCommunication* stmt) {
   unhandled(stmt);
 }
 
@@ -957,7 +957,7 @@ void OptOutDispatch::handle(kir::TensorIndex* stmt) {
   unhandled(stmt);
 }
 
-void OptOutDispatch::handle(AggregateVal* stmt) {
+void OptOutDispatch::handle(PipelineVal* stmt) {
   unhandled(stmt);
 }
 
@@ -1121,10 +1121,10 @@ void OptOutDispatch::handle(kir::AllocateFusedReduction* stmt) {
 void OptOutDispatch::handle(kir::BaseAddress* stmt) {
   unhandled(stmt);
 }
-void OptOutDispatch::handle(AggregateExpr* stmt) {
+void OptOutDispatch::handle(PipelineStage* stmt) {
   unhandled(stmt);
 }
-void OptOutDispatch::handle(SendRecv* stmt) {
+void OptOutDispatch::handle(PipelineCommunication* stmt) {
   unhandled(stmt);
 }
 
