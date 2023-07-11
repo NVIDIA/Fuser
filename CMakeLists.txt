@@ -135,10 +135,11 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/device_lower/lower2device.cpp
   ${NVFUSER_SRCS_DIR}/manager.cpp
   ${NVFUSER_SRCS_DIR}/maxinfo_propagator.cpp
-  ${NVFUSER_SRCS_DIR}/multidevice/aggregate_dag.cpp
-  ${NVFUSER_SRCS_DIR}/multidevice/multidevice_runtime.cpp
-  ${NVFUSER_SRCS_DIR}/multidevice/multicluster_fusion.cpp
-  ${NVFUSER_SRCS_DIR}/multidevice/ProcessGroupBuilder.cpp
+  ${NVFUSER_SRCS_DIR}/multidevice/communicator.cpp
+  ${NVFUSER_SRCS_DIR}/multidevice/executor.cpp
+  ${NVFUSER_SRCS_DIR}/multidevice/runtime.cpp
+  ${NVFUSER_SRCS_DIR}/multidevice/pipeline.cpp
+  ${NVFUSER_SRCS_DIR}/multidevice/pipeline_ir.cpp
   ${NVFUSER_SRCS_DIR}/mutator.cpp
   ${NVFUSER_SRCS_DIR}/non_divisible_split.cpp
   ${NVFUSER_SRCS_DIR}/ops/alias.cpp
@@ -393,9 +394,9 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/test/test_gpu_indexing_ops.cpp
     ${NVFUSER_ROOT}/test/test_gpu_indexing.cpp
     ${NVFUSER_ROOT}/test/test_gpu_multidevice.cpp
-    ${NVFUSER_ROOT}/test/test_multicluster_fusion.cpp
     ${NVFUSER_ROOT}/test/test_combined_inner_outer_reduction.cpp
     ${NVFUSER_ROOT}/test/test_optimization_pass.cpp
+    ${NVFUSER_ROOT}/test/test_pipeline.cpp
     ${NVFUSER_ROOT}/test/test_rng.cpp
   )
 

@@ -74,7 +74,7 @@ using Int = Scalar<int64_t>;
 using ComplexDouble = Scalar<std::complex<double>>;
 class NamedScalar;
 
-class AggregateVal;
+class PipelineVal;
 
 // Exprs
 class FullOp;
@@ -108,8 +108,8 @@ class CatOp;
 class PadOp;
 class SliceOp;
 
-class AggregateExpr;
-class SendRecv;
+class PipelineStage;
+class PipelineCommunication;
 
 // Exprs
 class Split;
@@ -166,7 +166,7 @@ class TORCH_CUDA_CU_API OptOutConstDispatch : public PolymorphicBase {
   virtual void handle(const kir::Predicate*);
   virtual void handle(const kir::TensorIndex*);
 
-  virtual void handle(const AggregateVal*);
+  virtual void handle(const PipelineVal*);
 
   virtual void handleArrayType(const Val*);
 
@@ -225,8 +225,8 @@ class TORCH_CUDA_CU_API OptOutConstDispatch : public PolymorphicBase {
   virtual void handle(const kir::AllocateFusedReduction*);
   virtual void handle(const kir::BaseAddress*);
 
-  virtual void handle(const AggregateExpr*);
-  virtual void handle(const SendRecv*);
+  virtual void handle(const PipelineStage*);
+  virtual void handle(const PipelineCommunication*);
 };
 
 class TORCH_CUDA_CU_API OptOutDispatch : public PolymorphicBase {
@@ -252,7 +252,7 @@ class TORCH_CUDA_CU_API OptOutDispatch : public PolymorphicBase {
   virtual void handle(kir::Predicate*);
   virtual void handle(kir::TensorIndex*);
 
-  virtual void handle(AggregateVal*);
+  virtual void handle(PipelineVal*);
 
   virtual void handleArrayType(Val*);
 
@@ -311,8 +311,8 @@ class TORCH_CUDA_CU_API OptOutDispatch : public PolymorphicBase {
   virtual void handle(kir::AllocateFusedReduction* stmt);
   virtual void handle(kir::BaseAddress* stmt);
 
-  virtual void handle(AggregateExpr* stmt);
-  virtual void handle(SendRecv* stmt);
+  virtual void handle(PipelineStage* stmt);
+  virtual void handle(PipelineCommunication* stmt);
 };
 
 class TORCH_CUDA_CU_API OptInConstDispatch : public OptOutConstDispatch {
