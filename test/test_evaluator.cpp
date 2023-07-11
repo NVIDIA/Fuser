@@ -360,7 +360,7 @@ TEST_F(ExprEvalTest, Array) {
   evaluator.bind(b, 5L);
 
   auto arr_val = evaluator.evaluate(arr);
-  std::vector<ScalarValue> arr_vec = {2, 5};
+  std::vector<ScalarValue> arr_vec = {2L, 5L};
   EXPECT_EQ(arr_val, arr_vec);
 
   checkIntValue(evaluator, aa, 2L);
