@@ -541,8 +541,7 @@ TensorView* matmul(
 TensorView* splitkLikeBatchedMatmul(
     TensorView* a,
     TensorView* b,
-    MatmulLayout layout
-);
+    MatmulLayout layout);
 
 // Utility to generate matmul input tensors based on given layout
 at::Tensor atMatmul(at::Tensor a, at::Tensor b, MatmulLayout layout);
