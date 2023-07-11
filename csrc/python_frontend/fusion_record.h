@@ -2856,20 +2856,18 @@ struct RandomOpRecord : RecordFunctor {
   PrimDataType dtype_;
 };
 
-//! Specialized Record Functor for recording FusionState vector of sizes for
-//! both inputs and constants.
+//! Specialized Record Functor for recording Vector of Scalars
 
-template <typename ValueType>
 struct VectorRecord : RecordFunctor {
   VectorRecord(
+      std::vector<State> _args,
       std::vector<State> _outputs,
-      serde::RecordType record_type,
-      std::optional<std::vector<ValueType>> value,
-      size_t size,
       PrimDataType dtype)
-      : RecordFunctor({}, std::move(_outputs), "define_vector", record_type),
-        value_(std::move(value)),
-        size_(size),
+      : RecordFunctor(
+            std::move(_args),
+            std::move(_outputs),
+            "define_vector",
+            serde::RecordType_Vector),
         dtype_(dtype) {}
   ~VectorRecord() override = default;
   RecordFunctor* clone() final {
@@ -2877,62 +2875,58 @@ struct VectorRecord : RecordFunctor {
   }
 
   //! Child specific hash function in lower 32 bits.
-  //! | 31 --------------- 16 | 15 ---------------  0 |
-  //! | Dtype                 | Size                  |
+  //! | 31 ---------------------------------------  0 |
+  //! | Dtype                                         |
   size_t hash() const final {
     auto result = RecordFunctor::hash();
-    result |= (static_cast<size_t>(dtype_) & 0xffff) << 16;
-    return result | (size_ & 0xffff);
+    return result | (static_cast<size_t>(dtype_) & 0xffffffff);
   }
 
   bool operator==(const RecordFunctor& other) const final {
     auto result = false;
     if (auto child_ptr = dynamic_cast<const VectorRecord*>(&other)) {
       result = RecordFunctor::operator==(other);
-      result = result && (value_ == child_ptr->value_) &&
-          (size_ == child_ptr->size_) && (dtype_ == child_ptr->dtype_);
+      result = result && (dtype_ == child_ptr->dtype_);
     }
     return result;
   }
 
   void operator()(FusionState& fd) final {
-    std::vector<Val*> output(size_, nullptr);
+    std::vector<Val*> output(args_.size(), nullptr);
     TORCH_CHECK(
         dtype_ == DataType::Int,
         "Only Int Dtype is not supported by a vector of sizes: ",
         dtype_);
-    if (value_.has_value()) {
-      for (size_t i = 0; i < size_; ++i) {
-        output.at(i) = IrBuilder::create<Int>(value_.value().at(i));
-      }
-    } else {
-      for (size_t i = 0; i < size_; ++i) {
-        output[i] = IrBuilder::create<Int>();
-        fd.addInput(output.at(i));
-      }
+    for (size_t i = 0; i < args_.size(); ++i) {
+      TORCH_CHECK(
+          args_.at(i).stype == serde::StateType_Scalar,
+          "Unsupported State type!");
+      output.at(i) = fd.getFusionState(args_.at(i).index);
     }
     fd.setFusionStateVector(outputs_.at(0).index, output);
   }
 
   void print(std::ostream& os, bool close_function = true) const final {
-    RecordFunctor::print(os, false);
-    os << "[";
-    bool first_arg = true;
-    if (value_.has_value()) {
-      for (auto& v : value_.value()) {
-        if (first_arg) {
-          first_arg = false;
-        } else {
-          os << ", ";
-        }
-        os << v;
+    bool first_output = true;
+    for (auto& output : outputs_) {
+      if (first_output) {
+        first_output = false;
+      } else {
+        os << ", ";
       }
-      os << "]";
-    } else {
-      os << "None";
+      os << output;
     }
-
-    os << ", dtype=" << dtypeToPyString(dtype_);
+    os << " = fd." << name_ << "([";
+    bool first_arg = true;
+    for (auto& arg : args_) {
+      if (first_arg) {
+        first_arg = false;
+      } else {
+        os << ", ";
+      }
+      os << arg;
+    }
+    os << "], dtype=" << dtypeToPyString(dtype_);
     if (close_function) {
       os << ")";
     }
@@ -2940,26 +2934,12 @@ struct VectorRecord : RecordFunctor {
 
   std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
       flatbuffers::FlatBufferBuilder& builder) const final {
-    if (value_.has_value()) {
-      return {
-          serde::RecordData_VectorLong,
-          serde::CreateVectorLongDirect(
-              builder, &(value_.value()), size_, serde::mapToSerdeDtype(dtype_))
-              .Union()};
-    } else {
-      return {
-          serde::RecordData_VectorInput,
-          serde::CreateVectorInput(
-              builder, size_, serde::mapToSerdeDtype(dtype_))
-              .Union()};
-    }
-  }
+    return {
+        serde::RecordData_Vector,
+        serde::CreateVector(builder, serde::mapToSerdeDtype(dtype_)).Union()};
+  };
 
  private:
-  //! The vector's value.
-  std::optional<std::vector<ValueType>> value_;
-  //! Since the vector's value is optional, the size is stored here
-  size_t size_;
   //! Scalar data type.
   PrimDataType dtype_;
 };
