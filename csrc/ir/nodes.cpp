@@ -1124,8 +1124,8 @@ std::string SqueezeOp::toInlineString(int indent_size) const {
   TORCH_CHECK(false, "Tensor op can not be printed inline");
 }
 
-std::vector<ScalarValue> SqueezeOp::evaluate(
-    const std::vector<ScalarValue>& inputs) const {
+std::vector<PolymorphicValue> SqueezeOp::evaluate(
+    const std::vector<PolymorphicValue>& inputs) const {
   TORCH_INTERNAL_ASSERT(
       inputs.size() == 1,
       "SqueezeOp expects exactly 1 input, but received ",
