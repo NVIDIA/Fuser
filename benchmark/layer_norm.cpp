@@ -306,6 +306,46 @@ NVFUSER_BENCHMARK_RUN(NvFuserScheduler_LayerNorm_fp16)
     ->Unit(benchmark::kMicrosecond)
     ->UseManualTime();
 
+// large hidden size
+NVFUSER_BENCHMARK_DEFINE(
+    NvFuserScheduler_LayerNorm_LargeHiddenSize_fp16,
+    setupLayerNorm,
+    NvFuserScheduler_LayerNorm,
+    DataType::Half);
+NVFUSER_BENCHMARK_RUN(NvFuserScheduler_LayerNorm_LargeHiddenSize_fp16)
+    ->Args({8192, 60 * 1024})
+    ->Args({8192, 62 * 1024})
+    ->Args({8192, 64 * 1024})
+    ->Args({8192, 66 * 1024})
+    ->Args({8192, 68 * 1024})
+    ->Args({8192, 70 * 1024})
+    ->Args({8192, 72 * 1024})
+    ->Args({8192, 74 * 1024})
+    ->Args({8192, 76 * 1024})
+    ->Args({8192, 78 * 1024})
+    ->Args({8192, 80 * 1024})
+    ->Unit(benchmark::kMicrosecond)
+    ->UseManualTime();
+
+NVFUSER_BENCHMARK_DEFINE(
+    NvFuserScheduler_LayerNorm_LargeHiddenSize_fp32,
+    setupLayerNorm,
+    NvFuserScheduler_LayerNorm,
+    DataType::Float);
+NVFUSER_BENCHMARK_RUN(NvFuserScheduler_LayerNorm_LargeHiddenSize_fp32)
+    ->Args({8192, 30 * 1024})
+    ->Args({8192, 31 * 1024})
+    ->Args({8192, 32 * 1024})
+    ->Args({8192, 33 * 1024})
+    ->Args({8192, 34 * 1024})
+    ->Args({8192, 35 * 1024})
+    ->Args({8192, 36 * 1024})
+    ->Args({8192, 37 * 1024})
+    ->Args({8192, 38 * 1024})
+    ->Args({8192, 39 * 1024})
+    ->Args({8192, 40 * 1024})
+    ->Unit(benchmark::kMicrosecond)
+    ->UseManualTime();
 //------------------------------------------------------------------------------
 
 BENCHMARK(Baseline_LayerNorm_fp32)

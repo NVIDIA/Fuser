@@ -2166,13 +2166,34 @@ class PersistentKernelScheduler : public SchedulerEntry {
           normalization_scheduler_utils::partialReductionBufferSize(
               outer_reduction_tvs, runtime_info);
     }
+
     // At this point, we use the full register file size only for the
     // inner-outer case. It does not mean the full size shouldn't be used
     // otherwise, but more detailed tuning of the heuristics would be required.
-    const int64_t available_persistent_buffer_size =
-        combined_inner_outer_reduction
+    int64_t available_persistent_buffer_size = combined_inner_outer_reduction
         ? scheduler_utils::register_file_size_full
         : scheduler_utils::register_file_size;
+
+    // Use shared memory for persistent buffer is only tested for inner
+    // reduction
+    // TODO: extend to outer reduction and combined reduction
+    const bool allow_shared_memory =
+        inner_reduction_count > 0 && outer_reduction_count == 0;
+    if (allow_shared_memory) {
+      const auto dev_prop = at::cuda::getCurrentDeviceProperties();
+      const int64_t max_shared_memory_size = dev_prop->sharedMemPerBlockOptin;
+      // Some shared memories are reserved for kernel overhead and
+      // reduction_broadcast_workspace. Estimation is conservative, but should
+      // be good enough.
+      // TODO: More accurate estimation of available shared memory size
+      const int64_t kernel_overhead = dev_prop->reservedSharedMemPerBlock;
+      const int64_t reduction_broadcast_workspace =
+          dev_prop->maxThreadsPerBlock * sizeof(float);
+      const int64_t available_shared_memory_size = max_shared_memory_size -
+          kernel_overhead - reduction_broadcast_workspace;
+      available_persistent_buffer_size = std::max(
+          available_persistent_buffer_size, available_shared_memory_size);
+    }
 
     return std::make_pair(
         persistent_buffer_size, available_persistent_buffer_size);
