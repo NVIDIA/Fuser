@@ -1024,8 +1024,8 @@ std::string BroadcastOp::toInlineString(int indent_size) const {
   TORCH_CHECK(false, "Tensor op can not be printed inline");
 }
 
-std::vector<ScalarValue> BroadcastOp::evaluate(
-    const std::vector<ScalarValue>& inputs) const {
+std::vector<PolymorphicValue> BroadcastOp::evaluate(
+    const std::vector<PolymorphicValue>& inputs) const {
   TORCH_INTERNAL_ASSERT(
       inputs.size() == 1,
       "BroadcastOp expects exactly 1 input, but received ",
