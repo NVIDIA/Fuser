@@ -94,6 +94,13 @@ def input_fusion_func(fd: FusionDefinition, opinfo: OpInfo, *args, **kwargs):
     fd.add_output(t1)
 
 
+# This function is purposely non-functional if executed as it is only meant to
+# check an operations API error checking
+def api_test_fusion_func(fd: FusionDefinition, opinfo: OpInfo, *args, **kwargs):
+    nvf_inputs = parse_inputs_fusion_definition(fd, opinfo, *args)
+    this_inputs = opinfo.op(fd)(**kwargs)
+
+
 def definition_op_in_schedule_error_test_fn(opinfo: OpInfo, sample: SampleInput):
     inputs = [
         torch.randn(8, 8, 8, device="cuda"),
@@ -141,10 +148,10 @@ def errors_test_fn(
     assert exception is not None, "Expected an exception"
     assert exception_type is type(
         exception
-    ), f"Expected an exception with type {exception_type}, but found exception={exception}"
+    ), f"Expected an exception with type {exception_type} and message {exception_str}, but found exception={exception}"
     assert exception_str is None or exception_str in str(
         exception
-    ), "Failed to find correct expection error message"
+    ), f"Failed to match exception -- Expected exception: {exception_str}, Found exception: {exception}"
 
 
 def torch_correctness_test_fn(
@@ -229,7 +236,7 @@ def test_definition_op_in_schedule_error(op: OpInfo, dtype: torch.dtype):
 
 @create_op_test(tuple(op for op in opinfos if op.error_input_generator is not None))
 def test_errors(op: OpInfo, dtype: torch.dtype):
-    fusion_func = input_fusion_func if op.is_fusion_input_op else opinfo_fusion_func
+    fusion_func = api_test_fusion_func if op.is_fusion_input_op else opinfo_fusion_func
     for sample, ex_type, ex_regex in op.error_input_generator(op, dtype):
         result = errors_test_fn(
             fusion_func,

@@ -42,6 +42,9 @@ struct KernelSummary {
   std::vector<const kir::Allocate*> static_smem_allocations;
 
   //! Indicate the need to generate random numbers
+  bool has_philox_op = false;
+
+  //! Maximum RNG offset used
   int max_rng_offsets = -1;
 
   //! Do we have any block reductions?
