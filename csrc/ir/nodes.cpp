@@ -836,8 +836,8 @@ std::string GetMetaData::toInlineString(int indent_size) const {
   return ss.str();
 }
 
-std::vector<ScalarValue> GetMetaData::evaluate(
-    const std::vector<ScalarValue>& inputs) const {
+std::vector<PolymorphicValue> GetMetaData::evaluate(
+    const std::vector<PolymorphicValue>& inputs) const {
   TORCH_INTERNAL_ASSERT(inputs.size() == 1, "GetMetaData expects 1 input");
   TORCH_INTERNAL_ASSERT(
       in()->isA<TensorView>(),
@@ -845,14 +845,14 @@ std::vector<ScalarValue> GetMetaData::evaluate(
   TensorView* tv = in()->as<TensorView>();
   at::Tensor input = inputs.at(0).as<at::Tensor>();
 
-  Struct<ScalarValue> concrete_value;
-  concrete_value["data"] = ScalarValue(Pointer(input.data_ptr(), tv->dtype()));
-  concrete_value["sizes"] = ScalarValue(input.sizes().vec());
+  Struct<PolymorphicValue> concrete_value;
+  concrete_value["data"] = PolymorphicValue(Pointer(input.data_ptr(), tv->dtype()));
+  concrete_value["sizes"] = PolymorphicValue(input.sizes().vec());
   // TODO: this is not correct, strides actually needs to be based on allocation
   // domain, but input.strides() is on the rFactor domain. We need to refactor
   // our executor to move related logic here.
-  concrete_value["strides"] = ScalarValue(input.strides().vec());
-  return {ScalarValue(concrete_value)};
+  concrete_value["strides"] = PolymorphicValue(input.strides().vec());
+  return {PolymorphicValue(concrete_value)};
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(GetMetaData)
