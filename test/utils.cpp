@@ -13,6 +13,7 @@
 
 #include <sstream>
 #include <string_view>
+#include "ops/arith.h"
 
 namespace nvfuser {
 
@@ -597,6 +598,41 @@ void validateSegmentation(
         group->heuristic(),
         " was used");
   }
+}
+
+TensorView* biasEpilogue(TensorView* tv, TensorView* bias) {
+  const auto t = tv->dtype();
+  // TORCH_CHECK(a->dtype() == bias->dtype(), "bias vector must have the same
+  // type as tensor with two domains");
+  TORCH_CHECK(
+      tv->nDims() == 2 && bias->nDims() == 1,
+      "bias vector can be only applied only tensor with two domains");
+
+  TensorView *biasb = nullptr, *tv2 = nullptr;
+  biasb = broadcast(bias, {false, true});
+  tv2 = add(tv, biasb);
+  return tv2;
+}
+
+at::Tensor biasEpilogueAtInput(
+    const at::Tensor& tensor,
+    const at::Tensor& bias) {
+  TORCH_CHECK(bias.dim() == 1, "Bias must be a vector");
+  TORCH_CHECK(
+      tensor.dim() == 2, "Only 2d tensors have support for bias epilogue");
+  const int64_t rows = bias.size(0);
+
+  // We skip number of columns and access directly dim for rows, hence '-2'
+  TORCH_CHECK(
+      tensor.size(tensor.dim() - 2) == rows,
+      "Tensor must have the same number of rows as bias vector");
+
+  auto biasExt = tensor.clone();
+  for (int64_t row = 0; row < rows; ++row) {
+    biasExt[row].copy_(bias[row]);
+  }
+
+  return tensor.add(biasExt);
 }
 
 } // namespace nvfuser

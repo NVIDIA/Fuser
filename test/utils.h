@@ -28,6 +28,7 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+#include "ATen/core/TensorBody.h"
 
 namespace nvfuser {
 
@@ -604,4 +605,12 @@ void validateSegmentation(
     FusionKernelRuntime* runtime,
     const std::vector<ScheduleHeuristic>& expected_heuristics);
 
+// Utility to generate tensor with bias applied on the input tensor
+TensorView* biasEpilogue(TensorView* tensor, TensorView* bias);
+
+// Utility to generate tensor with bias applied on the input tensor,
+// to be used to caldulate reference data
+at::Tensor biasEpilogueAtInput(
+    const at::Tensor& tensor,
+    const at::Tensor& bias);
 } // namespace nvfuser

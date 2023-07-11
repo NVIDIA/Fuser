@@ -4429,6 +4429,103 @@ TEST_F(NVFuserTest, FusionAmpereMMATNAlphaBeta_CUDA) {
   TORCH_CHECK(cg_outputs[0].allclose(t6, 0.0001, 0.0001));
 }
 
+// MMA and bias epilogue unit test, for Ampere TN
+TEST_F(NVFuserTest, FusionAmpereMMATNBias_CUDA) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 9, 0);
+
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // [M,K] - A
+  auto tv0 = makeConcreteTensor({16, 16}, DataType::Half);
+  // [N,K] - B
+  auto tv1 = makeConcreteTensor({8, 16}, DataType::Half);
+  // [M] - bias
+  auto tv2 = makeConcreteTensor({16}, DataType::Half);
+
+  // [M,N,K]
+  auto tv0b = broadcast(tv0, {false, true, false});
+  auto tv1b = broadcast(tv1, {true, false, false});
+  // [M,N]
+  auto tv2b = broadcast(tv2, {false, true});
+
+  // Leaving both sets of mma inputs for volta outside
+  //  currently since they need to be swizzled.
+  // ops: tv3 := A x B
+  auto tv3 = fusedMultiplySum(tv0b, tv1b, {2});
+
+  // ops: tv4 := (A x B) + bias
+  auto tv4 = add(tv3, tv2b);
+
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+  fusion.addInput(tv2);
+
+  fusion.addOutput(tv4);
+
+  MatMulTileOptions gemm_tile;
+  gemm_tile.cta_tile = GemmTile(16, 8, 16);
+  gemm_tile.warp_tile = GemmTile(16, 8, 16);
+  gemm_tile.instruction_tile = GemmTile(16, 8, 16);
+
+  auto mma_builder =
+      MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16, gemm_tile)
+          .layout(MmaOptions::MmaLayout::TN);
+
+  auto mma_ops = ir_utils::getMmaOps(&fusion);
+  TORCH_CHECK(
+      1 == mma_ops.size(),
+      "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
+      mma_ops.size());
+  mma_builder.configureMma(mma_ops.front());
+
+  auto tv0cw = tv0b->cacheAfter();
+  auto tv0cr =
+      tv0cw->cacheAfter(mma_builder.operand(MmaOptions::Operand::A).ldMatrix());
+  auto tv1cw = tv1b->cacheAfter();
+  auto tv1cr =
+      tv1cw->cacheAfter(mma_builder.operand(MmaOptions::Operand::B).ldMatrix());
+  auto tv4c = tv4->cacheBefore();
+
+  mma_builder.accumulatorTv(tv3);
+
+  // [M,N,K] -> [N,M,K]
+  tv0cr->reorder({{-2, -3}, {-3, -2}});
+  tv0cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
+  tv1cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
+
+  // mma output := A x B
+  tv3->applyMmaSwizzle(
+      mma_builder.operand(MmaOptions::Operand::Accumulator).build());
+  // bias result cache := (A x B) + bias
+  tv4c->applyMmaSwizzle(
+      mma_builder.operand(MmaOptions::Operand::Accumulator).build());
+  // bias result := (A x B) + bias
+  tv4->applyMmaSwizzle(
+      mma_builder.operand(MmaOptions::Operand::Accumulator).build());
+
+  tv0cw->setMemoryType(MemoryType::Shared);
+  tv1cw->setMemoryType(MemoryType::Shared);
+
+  at::manual_seed(0);
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+  auto t0 = at::randn({16, 16}, options);
+  auto t1 = at::randn({8, 16}, options);
+  auto t2 = at::randn({16}, options);
+
+  FusionExecutor fe;
+  NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
+      8,
+      0,
+      fe.compileFusion(&fusion, {t0, t1, t2}, LaunchParams(), matmul_cparams));
+  auto cg_outputs = fe.runFusion({t0, t1, t2});
+
+  auto t3 = t0.to(at::kFloat).matmul(t1.t().to(at::kFloat));
+  auto t4 = biasEpilogueAtInput(t3, t2);
+
+  TORCH_CHECK(cg_outputs[0].allclose(t4, 0.0001, 0.0001));
+}
+
 // Matmul test for Ampere MMA: across supported layouts
 TEST_F(NVFuserTest, FusionAmpereSplitKLikeStridedBatchedMatmul_CUDA) {
   // Keep multiples of 8 to keep vectorizable.
