@@ -176,16 +176,15 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
   // from inner_vect due to different data types, e.g. input is half and
   // tmp_gmem is float
   constexpr int64_t max_gmem_vect_access_bytes = 16;
-  const int64_t max_tmp_gmem_vect_factor =
-      max_gmem_vect_access_bytes / (int64_t)tmp_gmem_dtype_size;
-  iop.tmp_gmem_write_vect = std::min(max_tmp_gmem_vect_factor, iop.inner_vect);
+  const int64_t max_tmp_gmem_vect_factor = std::min(
+      max_gmem_vect_access_bytes / (int64_t)tmp_gmem_dtype_size,
+      iop.inner_vect);
+  iop.tmp_gmem_write_vect = max_tmp_gmem_vect_factor;
 
   // Step-3, set OuterParams Iteration dim: vectorization_factor_outer, bdimx,
   // gdimy (already done) The partial outer reduction result is stored in tmp
   // gmem, set the vectorization factor for write and read
-  const int64_t workload_per_thread = inner_dim_numel >= 4096
-      ? std::min(4l, iop.inner_vect)
-      : std::min(2l, iop.inner_vect);
+  const int64_t workload_per_thread = inner_dim_numel >= 4096 ? 4l : 2l;
   iop.vectorization_factor_outer =
       std::min(workload_per_thread, max_tmp_gmem_vect_factor);
   // For widely used hidden sizes, threads_per_block has factor of 8, roundup to
