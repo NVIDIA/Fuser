@@ -14,7 +14,7 @@
 
 #include <c10/macros/Export.h>
 
-#include <scalar_value.h>
+#include <polymorphic_value.h>
 
 #include <array>
 #include <complex>
