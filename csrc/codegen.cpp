@@ -310,6 +310,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       indent()
           << "  static_cast<uint64_t>(*(philox_args.offset_.ptr) + philox_args.offset_intragraph_) :\n";
       indent() << "  philox_args.offset_.val;\n";
+    }
+    if (kernel_summary.has_philox_op) {
       indent() << "uint4 rng_result;\n";
       indent() << "nvfuser_index_t rng_subseq = -1;\n";
       indent() << "nvfuser_index_t rng_offset = -1;\n";
@@ -713,11 +715,21 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
              << rop->getRNGOffset() << ";\n";
     indent() << "if (rng_subseq != rng_subseq" << rop->name()
              << " || rng_offset != rng_offset" << rop->name() << ") {\n";
-    indent() << "  auto seed = philox_args.captured_ ?\n"
-             << "      static_cast<uint64_t>(*(philox_args.seed_.ptr)) : \n"
-             << "      philox_args.seed_.val;\n";
-    indent() << "  rng_result = philox(seed, rng_subseq" << rop->name()
-             << ", philox_offset / 4 + rng_offset" << rop->name() << ");\n";
+    if (rop->getRNGSeedVal()) {
+      indent() << "  auto seed = " << genInline(rop->getRNGSeedVal()) << ";\n";
+    } else {
+      indent() << "  auto seed = philox_args.captured_ ?\n";
+      indent() << "      static_cast<uint64_t>(*(philox_args.seed_.ptr)) : \n";
+      indent() << "      philox_args.seed_.val;\n";
+    }
+    if (rop->getRNGOffsetVal()) {
+      indent() << "  rng_result = philox(seed, rng_subseq" << rop->name()
+               << ", " << genInline(rop->getRNGOffsetVal())
+               << " / 4 + rng_offset" << rop->name() << ");\n";
+    } else {
+      indent() << "  rng_result = philox(seed, rng_subseq" << rop->name()
+               << ", philox_offset / 4 + rng_offset" << rop->name() << ");\n";
+    }
     indent() << "  rng_subseq = rng_subseq" << rop->name() << ";\n";
     indent() << "  rng_offset = rng_offset" << rop->name() << ";\n";
     indent() << "}\n";

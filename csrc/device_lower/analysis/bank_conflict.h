@@ -10,7 +10,7 @@
 #include <executor_params.h>
 #include <ir/base_nodes.h>
 #include <kernel.h>
-#include <scalar_value.h>
+#include <polymorphic_value.h>
 
 #include <unordered_map>
 #include <utility>
@@ -45,6 +45,6 @@ namespace nvfuser {
 std::unordered_map<const Expr*, std::pair<int, int>> getBankConflictInfo(
     const kir::Kernel* kernel,
     LaunchParams launch_params = {},
-    const std::unordered_map<Val*, ScalarValue>& known_values = {});
+    const std::unordered_map<Val*, PolymorphicValue>& known_values = {});
 
 } // namespace nvfuser
