@@ -7,6 +7,7 @@
 // clang-format on
 #include <scheduler/reduction.h>
 
+#include <debug.h>
 #include <executor_utils.h>
 #include <grouped_reduction.h>
 #include <inlining.h>
@@ -269,23 +270,22 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
   rparams->tag = "InnerOuter Persistent Heuristic.\n";
 
   if (isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
-    std::cerr << "\n===== Combined InnerOuter Reduction Stats ========\n"
-              << "outer_dim_numel: " << outer_dim_numel << "\n"
-              << "inner_dim_numel: " << inner_dim_numel << "\n"
-              << "max_persistent_buffer_size: " << max_persistent_buffer_size
-              << "\n"
-              << "vectorize_factor_input: " << iop.inner_vect << "\n"
-              << "vectorization_factor_tmp_gmem_write: "
-              << iop.tmp_gmem_write_vect << "\n"
-              << "vectorization_factor_outer: "
-              << iop.vectorization_factor_outer << "\n"
-              << "multiple_reds_per_blk: " << rparams->multiple_reds_per_blk
-              << "\n"
-              << "threads_per_sm: " << threads_per_sm << "\n"
-              << "gdimy: " << iop.gdimy << "\n"
-              << "block(" << (iop.bdimx) << ", " << iop.bdimy << ", " << 1
-              << ")";
-    std::cerr << rparams->toString() << std::endl;
+    debug() << "\n===== Combined InnerOuter Reduction Stats ========\n"
+            << "outer_dim_numel: " << outer_dim_numel << "\n"
+            << "inner_dim_numel: " << inner_dim_numel << "\n"
+            << "max_persistent_buffer_size: " << max_persistent_buffer_size
+            << "\n"
+            << "vectorize_factor_input: " << iop.inner_vect << "\n"
+            << "vectorization_factor_tmp_gmem_write: "
+            << iop.tmp_gmem_write_vect << "\n"
+            << "vectorization_factor_outer: " << iop.vectorization_factor_outer
+            << "\n"
+            << "multiple_reds_per_blk: " << rparams->multiple_reds_per_blk
+            << "\n"
+            << "threads_per_sm: " << threads_per_sm << "\n"
+            << "gdimy: " << iop.gdimy << "\n"
+            << "block(" << (iop.bdimx) << ", " << iop.bdimy << ", " << 1 << ")";
+    debug() << rparams->toString() << std::endl;
   }
   return rparams;
 }
@@ -799,21 +799,21 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
   rparams->tag = "Inner Persistent Heuristic.\n";
 
   if (isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
-    std::cerr << "\n===== Reduction Stats ========\n"
-              << "total_reduction_numel: " << total_reduction_numel << "\n"
-              << "total_iteration_numel: " << total_iteration_numel << "\n"
-              << "inner_most_dimension_numel: " << inner_most_dimension_numel
-              << "\n"
-              << "vectorize_factor: " << vectorize_factor << "\n"
-              << "n_tensor_inputs: " << n_tensor_inputs << "\n"
-              << "max_input_dtype_size: " << max_input_dtype_size << "\n"
-              << "max_persistent_buffer_size: " << max_persistent_buffer_size
-              << "\n"
-              << "max_multi_reduction_factor: " << max_multi_reduction_factor
-              << "\n"
-              << "block(" << (pad_bdimx ? padded_bdimx : bdimx) << ", " << bdimy
-              << ", " << bdimz << ")";
-    std::cerr << rparams->toString() << std::endl;
+    debug() << "\n===== Reduction Stats ========\n"
+            << "total_reduction_numel: " << total_reduction_numel << "\n"
+            << "total_iteration_numel: " << total_iteration_numel << "\n"
+            << "inner_most_dimension_numel: " << inner_most_dimension_numel
+            << "\n"
+            << "vectorize_factor: " << vectorize_factor << "\n"
+            << "n_tensor_inputs: " << n_tensor_inputs << "\n"
+            << "max_input_dtype_size: " << max_input_dtype_size << "\n"
+            << "max_persistent_buffer_size: " << max_persistent_buffer_size
+            << "\n"
+            << "max_multi_reduction_factor: " << max_multi_reduction_factor
+            << "\n"
+            << "block(" << (pad_bdimx ? padded_bdimx : bdimx) << ", " << bdimy
+            << ", " << bdimz << ")";
+    debug() << rparams->toString() << std::endl;
   }
 
   return rparams;
@@ -873,18 +873,18 @@ std::shared_ptr<ReductionParams> gridOuterPersistentHeuristic(
       LaunchParams::UNINITIALIZED_VAL);
 
   if (isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
-    std::cerr << "\n===== Reduction Stats ========\n"
-              << "total_reduction_numel: " << total_reduction_numel << "\n"
-              << "total_iteration_numel: " << total_iteration_numel << "\n"
-              << "vectorize_factor: " << vectorize_factor << "\n"
-              << "n_tensor_inputs: " << n_tensor_inputs << "\n"
-              << "max_input_dtype_size: " << max_input_dtype_size << "\n"
-              << "max_persistent_buffer_size: " << max_persistent_buffer_size
-              << "\n"
-              << "persistent_buffer_factor: " << pb_size << "\n"
-              << "block(" << outer_params->launch_params.bdimx() << ", "
-              << outer_params->launch_params.bdimy() << ", 1)" << std::endl;
-    std::cerr << rparams->toString() << std::endl;
+    debug() << "\n===== Reduction Stats ========\n"
+            << "total_reduction_numel: " << total_reduction_numel << "\n"
+            << "total_iteration_numel: " << total_iteration_numel << "\n"
+            << "vectorize_factor: " << vectorize_factor << "\n"
+            << "n_tensor_inputs: " << n_tensor_inputs << "\n"
+            << "max_input_dtype_size: " << max_input_dtype_size << "\n"
+            << "max_persistent_buffer_size: " << max_persistent_buffer_size
+            << "\n"
+            << "persistent_buffer_factor: " << pb_size << "\n"
+            << "block(" << outer_params->launch_params.bdimx() << ", "
+            << outer_params->launch_params.bdimy() << ", 1)" << std::endl;
+    debug() << rparams->toString() << std::endl;
   }
 
   return rparams;
@@ -1170,18 +1170,18 @@ std::shared_ptr<ReductionParams> outerPersistentHeuristic(
   rparams->tag = "Outer persistent kernel heuristic.\n";
 
   if (isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
-    std::cerr << "\n===== Reduction Stats ========\n"
-              << "total_reduction_numel: " << total_reduction_numel << "\n"
-              << "total_iteration_numel: " << total_iteration_numel << "\n"
-              << "vectorize_factor: " << vectorize_factor << "\n"
-              << "n_tensor_inputs: " << n_tensor_inputs << "\n"
-              << "max_input_dtype_size: " << max_input_dtype_size << "\n"
-              << "max_persistent_buffer_size: " << max_persistent_buffer_size
-              << "\n"
-              << "max_multi_reduction_factor: " << max_multi_reduction_factor
-              << "\n"
-              << "block(" << bdimx << ", " << bdimy << ", 1)" << std::endl;
-    std::cerr << rparams->toString() << std::endl;
+    debug() << "\n===== Reduction Stats ========\n"
+            << "total_reduction_numel: " << total_reduction_numel << "\n"
+            << "total_iteration_numel: " << total_iteration_numel << "\n"
+            << "vectorize_factor: " << vectorize_factor << "\n"
+            << "n_tensor_inputs: " << n_tensor_inputs << "\n"
+            << "max_input_dtype_size: " << max_input_dtype_size << "\n"
+            << "max_persistent_buffer_size: " << max_persistent_buffer_size
+            << "\n"
+            << "max_multi_reduction_factor: " << max_multi_reduction_factor
+            << "\n"
+            << "block(" << bdimx << ", " << bdimy << ", 1)" << std::endl;
+    debug() << rparams->toString() << std::endl;
   }
 
   return rparams;

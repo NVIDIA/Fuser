@@ -6,6 +6,7 @@
  */
 // clang-format on
 #include <compute_at_map.h>
+#include <debug.h>
 #include <device_lower/lower2device.h>
 #include <device_lower/pass/expr_sort.h>
 #include <device_lower/utils.h>
@@ -879,10 +880,10 @@ ExprGroup* ExprSegmentationSorter::makeMergedNode(
   }
 
   if (isDebugDumpEnabled(DebugDumpOption::ExprSort)) {
-    std::cout << "==========================================\n" << std::endl;
-    std::cout << "Producer:\n" << producer->toString() << std::endl;
-    std::cout << "Consumer:\n" << consumer->toString() << std::endl;
-    std::cout << "Merged:\n" << joined_groups->toString() << std::endl;
+    debug() << "==========================================\n" << std::endl;
+    debug() << "Producer:\n" << producer->toString() << std::endl;
+    debug() << "Consumer:\n" << consumer->toString() << std::endl;
+    debug() << "Merged:\n" << joined_groups->toString() << std::endl;
   }
 
   return joined_groups;
@@ -1114,29 +1115,29 @@ void ExprSegmentationSorter::initializeForLoopDependencies() {
     visited.emplace(id);
   }
   if (failed) {
-    std::cerr
-        << "ERROR: Iteration domain sorting has failed, infinite loop detected."
-        << std::endl;
-    std::cerr << "Failed to sort out: " << std::endl;
+    // Build error description string for exception we will raise
+    std::stringstream desc;
+    desc << "Iteration domain sorting has failed, infinite loop detected."
+         << std::endl;
+    desc << "Failed to sort out: " << std::endl;
     for (auto entry : to_visit) {
-      std::cerr << entry->toString();
+      desc << entry->toString();
       if (entry != to_visit.back()) {
-        std::cerr << ", ";
+        desc << ", ";
       }
     }
 
-    std::cerr << "Dependencies: " << std::endl;
+    desc << "Dependencies: " << std::endl;
     for (const auto& dep_entry : concrete_id_dependencies_) {
-      std::cerr << "  Deps of " << dep_entry.first->toString() << std::endl
-                << "   ";
+      desc << "  Deps of " << dep_entry.first->toString() << std::endl << "   ";
 
       for (auto dep : dep_entry.second) {
-        std::cerr << dep->toString() << ", ";
+        desc << dep->toString() << ", ";
       }
-      std::cerr << std::endl;
+      desc << std::endl;
     }
 
-    TORCH_INTERNAL_ASSERT(false);
+    TORCH_INTERNAL_ASSERT(false, desc.str());
   }
 }
 
