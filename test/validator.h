@@ -452,7 +452,8 @@ void testValidate(
   }
 }
 
-// The variant with automatically inferred aten outputs
+// The variant with automatically inferred aten outputs. The `evaluate` method
+// of the exprs in the fusion must be overriden to handle at::Tensor.
 void testValidate(
     Fusion* fusion,
     const std::vector<at::Tensor>& fusion_outputs,

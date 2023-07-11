@@ -4476,8 +4476,6 @@ TEST_F(NVFuserTest, FusionIssue1785Repro_CUDA) {
   fe.compileFusion(&fusion, {in1, in2});
   auto cg_outputs = fe.runFusion({in1, in2});
 
-  auto tv_ref = in1 + in2;
-
   testValidate(&fusion, cg_outputs, {in1, in2}, __LINE__, __FILE__);
 }
 
