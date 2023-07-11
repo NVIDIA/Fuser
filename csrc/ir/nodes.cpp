@@ -2182,9 +2182,10 @@ std::string LoadStoreOp::toInlineString(int indent_size) const {
   TORCH_CHECK(false, "Tensor op can not be printed inline");
 }
 
-bool LoadStoreOp::hasTranspose() const {
+bool LoadStoreOp::hasInnerTranspose() const {
   if (auto out_tv = dynamic_cast<TensorView*>(out())) {
-    return out_tv->hasRFactor();
+    return out_tv->hasRFactor() &&
+        out_tv->getRootDomain().back() != out_tv->getRFactorDomain().back();
   }
   return false;
 }

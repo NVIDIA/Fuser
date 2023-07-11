@@ -1527,7 +1527,7 @@ class TORCH_CUDA_CU_API LoadStoreOp : public Expr {
     return attribute(0)->as<Attribute<LoadStoreOpType>>()->value;
   }
 
-  bool hasTranspose() const;
+  bool hasInnerTranspose() const;
 
   void setOpType(LoadStoreOpType op) {
     attribute(0)->as<Attribute<LoadStoreOpType>>()->value = op;
