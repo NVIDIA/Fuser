@@ -5,10 +5,14 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+
 #pragma once
 
-#include <ir/base_nodes.h>
-#include <ir/interface_nodes.h>
-#include <ir/internal_nodes.h>
-#include <kernel_ir.h>
-#include <multidevice/pipeline_ir.h>
+#include <c10/core/Device.h>
+
+namespace nvfuser {
+using RankType = int;
+using DeviceIdxType = RankType;
+using DimensionType = int;
+using DeviceType = c10::Device;
+} // namespace nvfuser
