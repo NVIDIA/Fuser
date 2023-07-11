@@ -214,7 +214,8 @@ inline PolymorphicValue notExpr(const PolymorphicValue& a) {
   if (a.is<bool>()) {
     return PolymorphicValue(!a.as<bool>());
   }
-  TORCH_INTERNAL_ASSERT(false);
+  TORCH_INTERNAL_ASSERT(
+      false, "PolymorphicValue notExpr not implemented for ", a.type().name());
 }
 
 inline PolymorphicValue abs(const PolymorphicValue& a) {
@@ -227,7 +228,8 @@ inline PolymorphicValue abs(const PolymorphicValue& a) {
   if (a.is<bool>()) {
     return a;
   }
-  TORCH_INTERNAL_ASSERT(false);
+  TORCH_INTERNAL_ASSERT(
+      false, "PolymorphicValue abs not implemented for ", a.type().name());
 }
 
 } // namespace PolymorphicValue_functions
