@@ -672,7 +672,9 @@ Expr* Fusion::definition(const Val* val) const {
 bool Fusion::isStochastic() {
   for (auto expr : exprs()) {
     if (expr->isA<RNGOp>()) {
-      return true;
+      // Note that RNGOps without seed is not stochastic since the random seed
+      // and offset are given as Vals.
+      return !expr->as<RNGOp>()->isDeterministic();
     }
   }
   return false;
