@@ -28,19 +28,17 @@ class TORCH_CUDA_CU_API ExpressionEvaluator {
 
  public:
   //! Bind a concrete value to an IR variable
-  template <typename T>
-  void bind(const Val* value, const T& concrete_value) {
-    bind_(value, PolymorphicValue(concrete_value));
+  void bind(const Val* value, const PolymorphicValue& concrete_value) {
+    bind_(value, concrete_value);
   }
 
   //! Bind a concrete value to a named scalar
-  template <typename T>
-  void bind(const std::string& name, const T& concrete_value) {
-    bind_(name, PolymorphicValue(concrete_value));
+  void bind(const std::string& name, const PolymorphicValue& concrete_value) {
+    bind_(name, concrete_value);
   }
 
   //! Set a concrete value for a parallel dimension
-  void bind(ParallelType pt, Int::ScalarType concrete_value);
+  void bind(ParallelType pt, const PolymorphicValue& concrete_value);
 
   //! Try to evaluate a Fusion IR value
   PolymorphicValue evaluate(const Val* value);
