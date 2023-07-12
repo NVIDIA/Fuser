@@ -6,7 +6,7 @@
 import torch
 import jax
 from pytest_core import OpInfo, ReferenceType, Domain
-from pytest_fd_functions import tensor_input_fd_fn
+from pytest_fusion_definitions import api_test_fd_fn, tensor_input_fd_fn
 from pytest_input_generators import (
     broadcast_error_generator,
     broadcast_in_dim_generator,
@@ -66,7 +66,7 @@ define_vector_constant_opinfo = OpInfo(
     "define_vector_constant",
     sample_input_generator=None,
     error_input_generator=define_vector_constant_error_generator,
-    is_fusion_input_op=True,
+    fd_error_input_fn=api_test_fd_fn,
 )
 fusion_input_ops.append(define_vector_constant_opinfo)
 
@@ -75,7 +75,7 @@ define_vector_input_opinfo = OpInfo(
     "define_vector_input",
     sample_input_generator=None,
     error_input_generator=define_vector_input_error_generator,
-    is_fusion_input_op=True,
+    fd_error_input_fn=api_test_fd_fn,
 )
 fusion_input_ops.append(define_vector_input_opinfo)
 

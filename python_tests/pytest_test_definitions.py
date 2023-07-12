@@ -7,7 +7,7 @@ import torch
 import numpy as np
 
 from torch.testing import assert_close
-from pytest_fd_functions import default_fd_fn, parse_inputs_fusion_definition
+from pytest_fusion_definitions import default_fd_fn, parse_inputs_fusion_definition
 from pytest_framework import create_op_test
 from pytest_core import ReferenceType, OpInfo, SampleInput
 from pytest_opinfos import opinfos
