@@ -261,6 +261,7 @@ if(PROJECT_IS_TOP_LEVEL)
     target_link_libraries(__nvfuser_ucc INTERFACE ucx::ucs ucx::ucp ucc::ucc)
     target_include_directories(__nvfuser_ucc INTERFACE ${UCC_INCLUDE_DIRS})
     target_link_libraries(${NVFUSER_CODEGEN} PRIVATE __nvfuser_ucc)
+    target_compile_definitions(${NVFUSER_CODEGEN} PRIVATE NVFUSER_BUILD_WITH_UCC)
   endif()
 
   add_dependencies(${NVFUSER_CODEGEN} flatc build_flatbuffer_config)
@@ -276,6 +277,7 @@ else()
     target_link_libraries(__nvfuser_ucc INTERFACE ucx::ucs ucx::ucp ucc::ucc)
     target_include_directories(__nvfuser_ucc INTERFACE ${UCC_INCLUDE_DIRS})
     target_link_libraries(${NVFUSER_CODEGEN} PRIVATE __nvfuser_ucc)
+    target_compile_definitions(${NVFUSER_CODEGEN} PRIVATE NVFUSER_BUILD_WITH_UCC)
   endif()
 
   # installing nvfuser python tests
