@@ -689,6 +689,9 @@ class TORCH_CUDA_CU_API BroadcastOp : public Expr {
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
 
+  std::vector<PolymorphicValue> evaluate(
+      const std::vector<PolymorphicValue>& inputs) const override;
+
   Val* out() const {
     return output(0);
   }
@@ -735,6 +738,9 @@ class TORCH_CUDA_CU_API SqueezeOp : public Expr {
 
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
+
+  std::vector<PolymorphicValue> evaluate(
+      const std::vector<PolymorphicValue>& inputs) const override;
 
   Val* out() const {
     return output(0);
