@@ -228,7 +228,10 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
     // bdimy, gdimy (in previous step). vectorization_factor_outer is set to 2
     // as a small workload per thread is preferred for small sizes and we only
     // process vectorized cases.
-    iop.bdimy = scheduler_utils::safeDiv(threads_per_block_mrpb, iop.bdimx);
+    iop.bdimy = std::min(
+        ceilDiv(inner_dim_numel / iop.vectorization_factor_outer, iop.gdimy),
+        scheduler_utils::safeDiv(threads_per_block_mrpb, iop.bdimx));
+    iop.bdimy = iop.bdimy;
 
     // Step-4, OuterParams, Reduction dim: bdimx (already done)
 
