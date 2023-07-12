@@ -2148,13 +2148,10 @@ TEST_F(NVFuserTest, FusionResizeMultiSliceEmpty_CUDA) {
   auto tv0 = makeConcreteTensor(shape);
   fusion->addInput(tv0);
 
-  // Perform a size-1 slice and a size-0 slice on tv0. The size-1 slice
-  // could be size >1 with no change in the error. The order does not
-  // matter. Performing only one of these slices does not trigger the
-  // error and the output is correct in that case. If there are
-  // multiple size-0 slices the error is not triggered. It only seems
-  // to appear when there are both size-0 and size non-zero slices of
-  // the same tensor.
+  // In issue #365, this triggered an error in vectorization when there were
+  // multiple slices, and one of them was empty. If this is properly handled in
+  // the pre-segmentation RemoveEmptyPass as it should be, then the size-zero
+  // slices will be replaced with full(), and vectorization can work properly.
   auto tv1 = slice(
       tv0,
       {{IrBuilder::create<Int>(0),
