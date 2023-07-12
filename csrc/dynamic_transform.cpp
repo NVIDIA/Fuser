@@ -357,7 +357,6 @@ class DynamicTransformConcretizer : public OptOutMutator {
 
   using OptOutMutator::mutate;
 
-  void mutate(TensorDomain* td) final;
   void mutate(IterDomain* id) final;
 
  private:
@@ -506,65 +505,6 @@ void DynamicTransformConcretizer::checkConcretizedUses(
   for (const auto use : old_val->uses()) {
     use->checkConcretization(old_val, new_val);
   }
-}
-
-// Almost an exact copy of OptOutMutator::mutate(TensorDomain*), but
-// the contiguity vector may need to be updated as well as symbolic
-// domains may be mutated to broadcast domains, which means contiguity
-// may need to be changed to nullopt
-void DynamicTransformConcretizer::mutate(TensorDomain* td) {
-  bool mutated = false;
-
-  auto updateIdVec = [&](const std::vector<IterDomain*>& ids) {
-    std::vector<IterDomain*> updated_ids;
-    for (auto id : ids) {
-      auto updated_id = maybeMutated(id)->as<IterDomain>();
-      updated_ids.push_back(updated_id);
-      if (!updated_id->sameAs(id)) {
-        mutated = true;
-      }
-    }
-    return updated_ids;
-  };
-
-  std::vector<IterDomain*> root_dom = updateIdVec(td->root());
-  std::vector<IterDomain*> rfactor_dom = td->hasRFactor()
-      ? updateIdVec(td->maybeRFactor())
-      : std::vector<IterDomain*>();
-  std::vector<IterDomain*> domain = updateIdVec(td->leaf());
-
-  if (!mutated) {
-    return;
-  }
-
-  // Update the contiguity vector. Drop the contig val if mutated to broadcast
-  auto contig = td->contiguity();
-
-  for (const auto i : c10::irange(td->maybeRFactor().size())) {
-    auto original_id = td->maybeRFactor().at(i);
-    if (original_id->getIterType() != IterType::Symbolic) {
-      continue;
-    }
-
-    TORCH_INTERNAL_ASSERT(
-        contig.at(i),
-        "Unexpected to have a non-contig symbolic domain: ",
-        original_id->toString());
-
-    auto updated_id = td->hasRFactor() ? rfactor_dom.at(i) : root_dom.at(i);
-
-    // If the concretized ID is a broadcast domain, drop the contig val
-    if (updated_id->isBroadcast()) {
-      contig.at(i) = std::nullopt;
-    }
-  }
-
-  // NOTE: definitions for replacement rfactor IDs must have been properly set
-  // at this point. This will only happen after `mutate(Expr)` has been called
-  // on each intermediate ID expression connecting root to rfactor.
-  Val* mutated_val = IrBuilder::create<TensorDomain>(
-      td->container(), root_dom, rfactor_dom, domain, contig);
-  registerConcretization(td, mutated_val);
 }
 
 void DynamicTransformConcretizer::mutate(IterDomain* id) {

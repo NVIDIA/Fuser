@@ -107,13 +107,30 @@ void OptOutMutator::mutate(TensorDomain* td) {
     return;
   }
 
+  // Update the contiguity vector. Drop the contig val if mutated to broadcast
+  auto contig = td->contiguity();
+
+  for (const auto i : c10::irange(td->maybeRFactor().size())) {
+    auto original_id = td->maybeRFactor().at(i);
+    if (original_id->getIterType() != IterType::Symbolic) {
+      continue;
+    }
+
+    TORCH_INTERNAL_ASSERT(
+        contig.at(i),
+        "Unexpected to have a non-contig symbolic domain: ",
+        original_id->toString());
+
+    auto updated_id = td->hasRFactor() ? rfactor_dom.at(i) : root_dom.at(i);
+
+    // If the mutated ID is a broadcast domain, drop the contig val
+    if (updated_id->isBroadcast()) {
+      contig.at(i) = std::nullopt;
+    }
+  }
+
   Val* mutated_val = IrBuilder::create<TensorDomain>(
-      td->container(),
-      root_dom,
-      rfactor_dom,
-      allocation_dom,
-      domain,
-      td->contiguity());
+      td->container(), root_dom, rfactor_dom, allocation_dom, domain, contig);
   registerMutation(td, mutated_val);
 }
 
