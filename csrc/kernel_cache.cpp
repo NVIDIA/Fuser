@@ -24,6 +24,9 @@
 #include <c10/cuda/CUDAGuard.h>
 #include <c10/util/irange.h>
 #include <torch/csrc/jit/jit_log.h>
+
+#include <chrono>
+
 namespace nvfuser {
 
 namespace {
@@ -757,37 +760,6 @@ std::vector<at::Tensor> FusionKernelRuntime::runKernelWithInput(
               << " GB/s" << std::endl;
     executor.setMeasureKernelTimeFlag(false);
   }
-  if (true) {
-    // if (isDebugDumpEnabled(DebugDumpOption::OverallEffectiveBandwidth)) {
-
-    // Get number of bytes read from each argument. This is done using the
-    // complete fusion, since segmentation could result in reading an input
-    // multiple times, which may not be theoretically required.
-
-    // Get peak bandwidth for device
-    int clock, width;
-    NVFUSER_CUDA_SAFE_CALL(cuDeviceGetAttribute(
-        clock, CU_DEVICE_ATTRIBUTE_MEMORY_CLOCK_RATE, args.getDeviceIndex()));
-    NVFUSER_CUDA_SAFE_CALL(cuDeviceGetAttribute(
-        width,
-        CU_DEVICE_ATTRIBUTE_GLOBAL_MEMORY_BUS_WIDTH,
-        args.getDeviceIndex()));
-    // Peak bandwidth calculation:
-    // Bus width is given in bits, so dividing by 8 converts to bytes.
-    // Clock is given in kHz
-    // A factor of 2 is multiplied to account for double data rate (DDR)
-    // (clock kHz) * (width bits) * (1000 Hz / kHz) * (1 GB / 8e9 bits) * 2
-    // = 2.5e-7 (GB Hz)
-    double peak_bw = 2.5e-7 * (double)clock * (double)width;
-
-    double percent_peak = eff_bw / peak_bw *
-            100
-
-            std::cout
-        << "Effective bandwidth (complete Fusion): " << eff_bw << " GB/s (";
-    std::cout << std::setprecision(2) << percent_peak << "\% SOL)" << std::endl;
-    ;
-  }
 
   return outputs;
 }
@@ -1035,6 +1007,17 @@ std::unordered_map<Val*, const ArgAbstract*> FusionKernelRuntime::
       " inputs but expected ",
       segmented_fusion_->inputs().size());
 
+  bool compute_overall_bw =
+      isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose);
+  // TODO: Start a CPU timer here if compute_overall_bw
+  std::chrono::steady_clock::time_point start_cpu_time;
+  if (compute_overall_bw) {
+    start_cpu_time = std::chrono::steady_clock::now();
+  }
+
+  int64_t total_bytes_processed = 0;
+  int64_t total_io_bytes_processed = 0;
+
   ArgumentManager args_manager(
       args, runtime_workspace_, segmented_fusion_->inputs());
 
@@ -1065,6 +1048,107 @@ std::unordered_map<Val*, const ArgAbstract*> FusionKernelRuntime::
     args_manager.updateWithSegmentOutputs(
         group_to_run->outputs(), group_runtime_outputs, group_id);
     num_live_args_after_segment_runs_.push_back((int64_t)args.size());
+
+    if (compute_overall_bw) {
+      const auto& executor = executors_.at(group_id);
+      total_bytes_processed += executor.bytesProcessed();
+      for (auto seg_input :
+           ir_utils::filterByType<TensorView>(group_to_run.input_vals)) {
+        total_io_bytes_processed += ;
+      }
+    }
+  }
+
+  if (compute_overall_bw) {
+    auto total_wall_time_ms =
+        std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - start_cpu_time)
+            .count();
+
+    // Get number of bytes read from each argument. This is done using the
+    // complete fusion, since segmentation could result in reading an input
+    // multiple times, which may not be theoretically required.
+
+    // Get peak bandwidth for device
+    int clock, width;
+    char gpuname[100];
+    NVFUSER_CUDA_SAFE_CALL(cuDeviceGetAttribute(
+        &clock, CU_DEVICE_ATTRIBUTE_MEMORY_CLOCK_RATE, args.getDeviceIndex()));
+    NVFUSER_CUDA_SAFE_CALL(cuDeviceGetAttribute(
+        &width,
+        CU_DEVICE_ATTRIBUTE_GLOBAL_MEMORY_BUS_WIDTH,
+        args.getDeviceIndex()));
+    NVFUSER_CUDA_SAFE_CALL(
+        cuDeviceGetName(gpuname, 100, args.getDeviceIndex()));
+    // Peak bandwidth calculation:
+    // Bus width is given in bits, so dividing by 8 converts to bytes.
+    // Clock is given in kHz. 1 GB = 1e9 bytes (don't report GiB = 1024^3 bytes)
+    // A factor of 2 is multiplied to account for double data rate (DDR):
+    // (clock in kHz * width in bits) * (1000 Hz / kHz) * (1 GB / 8e9 bits) * 2
+    // factor = 2.5e-7
+    double peak_bw = 2.5e-7 * (double)clock * (double)width;
+
+    double eff_bw = 100;
+    double eff_bw_with_overhead = 10;
+
+    double percent_peak = eff_bw / peak_bw * 100;
+    double percent_peak_with_overhead = eff_bw_with_overhead / peak_bw * 100;
+
+    auto print_row = [&](std::string segname,
+                         float ktime,
+                         int64_t bproc,
+                         int64_t ioproc) {
+      std::cout << " " << std::setw(7) << segname << " | ";
+      std::cout << std::setw(10) << std::setprecision(3) << ktime << " (";
+      std::cout << (ktime / kernel_time_ms_ * 100.0) << "%) | ";
+      std::cout << std::setw(10) << std::setprecision(3) << bproc << " B (";
+      std::cout << (bproc / total_bytes_processed * 100.0) << "%) | ";
+      std::cout << std::setw(10) << std::setprecision(3) << ioproc << " B (";
+      std::cout << (ioproc / total_io_bytes_processed * 100.0) << "%)";
+      auto interm = bproc - ioproc;
+      std::cout << std::setw(10) << std::setprecision(3) << interm << " B (";
+      std::cout << (interm / total_bytes_processed * 100.0) << "%)";
+      std::cout << std::endl;
+    };
+
+    std::cout
+        << " Segment | Kernel Time (ms) | Processed | Inputs/Outputs Proc. | Interm. Proc."
+        << std::endl;
+    std::cout
+        << "---------+------------------+-----------+----------------------+--------------"
+        << std::endl;
+    for (auto group_id : c10::irange(num_groups)) {
+      const auto& executor = executors_.at(group_id);
+      print_row(
+          std::to_string(group_id),
+          executor.kernelTimeMs(),
+          executor.bytesProcessed(),
+          0);
+    }
+    std::cout
+        << "---------+------------------+-----------+----------------------+--------------"
+        << std::endl;
+    print_row(
+        "Total",
+        kernel_time_ms_,
+        total_bytes_processed,
+        total_io_bytes_processed);
+
+    std::cout << "Fusion wall time: " << total_wall_time_ms << " ms"
+              << std::endl;
+    std::cout << "CUDA kernel time: " << kernel_time_ms_ << " ms ("
+              << (kernel_time_ms_ / total_wall_time_ms * 100.0) << "%)"
+              << std::endl;
+    std::cout << "Peak BW (" << gpuname << "): " << peak_bw << " GB/s"
+              << std::endl;
+    std::cout << "Complete Fusion eff. bandwidth (with CPU overhead): "
+              << eff_bw_with_overhead << " GB/s (";
+    std::cout << std::setprecision(2) << percent_peak_with_overhead << "\% SOL)"
+              << std::endl;
+    std::cout << "Complete Fusion eff. bandwidth (CUDA kernel time only): "
+              << eff_bw << " GB/s (";
+    std::cout << std::setprecision(2) << percent_peak << "\% SOL)" << std::endl;
+    ;
   }
 
   return args_manager.getTensorMap();

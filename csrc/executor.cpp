@@ -1790,25 +1790,28 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     if (measure_kernel_time) {
       kernel_time_ms_ = timer.elapsed();
 
-      bytes_processed_ = 0;
+      bytes_processed_per_input_.reserve(num_inputs);
       // Figure how many bytes are inputs, outputs, and temporary buffers
       for (auto i : c10::irange(num_inputs)) {
         if (auto tensor_arg_abstract =
                 dynamic_cast<const TensorArgAbstract*>(args[i])) {
-          bytes_processed_ += getNumLoadedElements(i, tensor_arg_abstract) *
+          auto num_bytes = getNumLoadedElements(i, tensor_arg_abstract) *
               (int64_t)dataTypeSize(tensor_arg_abstract->getDataType());
+          bytes_processed_per_input_.at(i) = num_bytes;
         }
       }
-      for (const auto& output : outputs) {
+      bytes_processed_per_output_.reserve(outputs.size());
+      for (auto i : c10::irange(outputs.size())) {
+        const auto& output = outputs.at(i);
         // NOTE: this assumes that all output elements correspond to a single
         // store
-        bytes_processed_ += output.numel() *
+        bytes_processed_per_output_.at(i) = output.numel() *
             (int64_t)dataTypeSize(aten_to_data_type(output.scalar_type()));
       }
 
       if (isDebugDumpEnabled(DebugDumpOption::EffectiveBandwidth)) {
         double gb_per_s =
-            ((double)bytes_processed_ / ((double)kernel_time_ms_ / 1000)) /
+            ((double)bytesProcessed() / ((double)kernel_time_ms_ / 1000)) /
             (double)1.0e9;
         std::cout << "kernel" << fusion_id_ << " run in " << kernel_time_ms_
                   << " ms, achieved: " << gb_per_s << " GB/s" << std::endl;
