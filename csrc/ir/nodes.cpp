@@ -327,6 +327,9 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
     case UnaryOpType::Not:
       return {notExpr(in)};
       break;
+    case UnaryOpType::Erf:
+      return {erf(in)};
+      break;
     default:
       TORCH_CHECK(
           false,
@@ -716,7 +719,7 @@ GetAttr::GetAttr(
     std::string attr)
     : Expr(passkey) {
   TORCH_INTERNAL_ASSERT(
-      NVFUSER_MAYBE_STAR std::get<StructOf>(getMaybeMetaDataType(struct_).type)
+      NVFUSER_MAYBE_STAR std::get<StructOf>(struct_->dtype().type)
               .types.at(attr) == output->dtype(),
       "Data type mismatch for GetAttr");
   addOutput(output);
@@ -734,7 +737,7 @@ std::string GetAttr::toString(int indent_size) const {
 
 std::string GetAttr::toInlineString(int indent_size) const {
   std::stringstream ss;
-  ss << "(" << struct_()->toInlineString() << ")." << attr() << "";
+  ss << "(" << struct_()->toInlineString() << ")." << attr();
   return ss.str();
 }
 
@@ -745,6 +748,50 @@ std::vector<PolymorphicValue> GetAttr::evaluate(
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(GetAttr)
+
+GetMetaData::GetMetaData(IrBuilderPasskey passkey, Val* output, Val* input)
+    : Expr(passkey) {
+  addOutput(output);
+  addInput(input);
+  TORCH_INTERNAL_ASSERT(
+      out()->dtype() == metaDataTypeOf(in()),
+      "Data type mismatch for GetMetaData")
+}
+
+std::string GetMetaData::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << out()->toString() << " = getMetaData("
+                          << in()->toString() << ")\n";
+  return ss.str();
+}
+
+std::string GetMetaData::toInlineString(int indent_size) const {
+  std::stringstream ss;
+  ss << "getMetaData(" << in()->toInlineString() << ")";
+  return ss.str();
+}
+
+std::vector<PolymorphicValue> GetMetaData::evaluate(
+    const std::vector<PolymorphicValue>& inputs) const {
+  TORCH_INTERNAL_ASSERT(inputs.size() == 1, "GetMetaData expects 1 input");
+  TORCH_INTERNAL_ASSERT(
+      in()->isA<TensorView>(),
+      "Currently, GetMetaData only supports TensorView");
+  TensorView* tv = in()->as<TensorView>();
+  at::Tensor input = inputs.at(0).as<at::Tensor>();
+
+  Struct<PolymorphicValue> concrete_value;
+  concrete_value["data"] =
+      PolymorphicValue(Pointer(input.data_ptr(), tv->dtype()));
+  concrete_value["sizes"] = PolymorphicValue(input.sizes().vec());
+  // TODO: this is not correct, strides actually needs to be based on allocation
+  // domain, but input.strides() is on the rFactor domain. We need to refactor
+  // our executor to move related logic here.
+  concrete_value["strides"] = PolymorphicValue(input.strides().vec());
+  return {PolymorphicValue(concrete_value)};
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(GetMetaData)
 
 TensorConstruct::TensorConstruct(
     IrBuilderPasskey passkey,
@@ -912,6 +959,25 @@ std::string BroadcastOp::toInlineString(int indent_size) const {
   TORCH_CHECK(false, "Tensor op can not be printed inline");
 }
 
+std::vector<PolymorphicValue> BroadcastOp::evaluate(
+    const std::vector<PolymorphicValue>& inputs) const {
+  TORCH_INTERNAL_ASSERT(
+      inputs.size() == 1,
+      "BroadcastOp expects exactly 1 input, but received ",
+      inputs.size());
+  std::vector<int64_t> out_shape;
+  const auto& in = inputs.at(0).as<at::Tensor>();
+  int64_t idx = 0;
+  for (bool b : getBroadcastDimFlags()) {
+    if (b) {
+      out_shape.push_back(1);
+    } else {
+      out_shape.push_back(in.sizes()[idx++]);
+    }
+  }
+  return {in.view(out_shape)};
+}
+
 NVFUSER_DEFINE_CLONE_AND_CREATE(BroadcastOp)
 
 SqueezeOp::SqueezeOp(
@@ -988,6 +1054,26 @@ std::string SqueezeOp::toString(int indent_size) const {
 
 std::string SqueezeOp::toInlineString(int indent_size) const {
   TORCH_CHECK(false, "Tensor op can not be printed inline");
+}
+
+std::vector<PolymorphicValue> SqueezeOp::evaluate(
+    const std::vector<PolymorphicValue>& inputs) const {
+  TORCH_INTERNAL_ASSERT(
+      inputs.size() == 1,
+      "SqueezeOp expects exactly 1 input, but received ",
+      inputs.size());
+  std::vector<int64_t> out_shape;
+  const auto& in = inputs.at(0).as<at::Tensor>();
+  const auto& is_squeeze_dims = getSqueezeDimFlags();
+  TORCH_INTERNAL_ASSERT(
+      (int64_t)is_squeeze_dims.size() == in.dim(),
+      "The dimensions of input tensor and does not match with is_squeeze_dims");
+  for (int64_t i : c10::irange((int64_t)is_squeeze_dims.size())) {
+    if (!is_squeeze_dims[i]) {
+      out_shape.push_back(in.sizes()[i]);
+    }
+  }
+  return {in.view(out_shape)};
 }
 
 void SqueezeOp::checkConcretization(Val* old_val, Val* new_val) const {

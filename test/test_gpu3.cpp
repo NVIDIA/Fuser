@@ -4477,9 +4477,7 @@ TEST_F(NVFuserTest, FusionIssue1785Repro_CUDA) {
   fe.compileFusion(&fusion, {in1, in2});
   auto cg_outputs = fe.runFusion({in1, in2});
 
-  auto tv_ref = in1 + in2;
-
-  testValidate(&fusion, cg_outputs, {in1, in2}, {tv_ref}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, {in1, in2}, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionSkipReplay_CUDA) {
@@ -6303,23 +6301,12 @@ TEST_F(NVFuserTest, FusionHuggingFaceRepro2064Squeeze_CUDA) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({2, 8}, options);
-  auto t1 = t0.unsqueeze(0);
-  auto t2 = t1 * 0.5;
-  auto t5 = (t1 * 0.707107).erf() + 1.0;
-  auto t6 = t2 * t5;
-  auto t7 = t6.squeeze(0);
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto cg_outputs = executor_cache.runFusionWithInputs({t0});
 
   testValidate(
-      executor_cache.fusion(),
-      cg_outputs,
-      {t0},
-      {t1, t7},
-      __LINE__,
-      __FILE__,
-      "");
+      executor_cache.fusion(), cg_outputs, {t0}, __LINE__, __FILE__, "");
 }
 
 TEST_F(NVFuserTest, FusionSqueezeTransformPropagation_CUDA) {

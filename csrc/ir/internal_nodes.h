@@ -502,6 +502,34 @@ class TORCH_CUDA_CU_API GetAttr : public Expr {
   }
 };
 
+// Get an attribute from a struct, struct.attr
+class TORCH_CUDA_CU_API GetMetaData : public Expr {
+ public:
+  using Expr::Expr;
+
+  GetMetaData(IrBuilderPasskey, Val* output, Val* input);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "GetMetaData";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  std::vector<PolymorphicValue> evaluate(
+      const std::vector<PolymorphicValue>& inputs) const override;
+
+  Val* out() const {
+    return output(0);
+  }
+
+  Val* in() const {
+    return input(0);
+  }
+};
+
 // Construct a tensor from an array
 class TORCH_CUDA_CU_API TensorConstruct : public Expr {
  public:
@@ -656,6 +684,9 @@ class TORCH_CUDA_CU_API BroadcastOp : public Expr {
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
 
+  std::vector<PolymorphicValue> evaluate(
+      const std::vector<PolymorphicValue>& inputs) const override;
+
   Val* out() const {
     return output(0);
   }
@@ -702,6 +733,9 @@ class TORCH_CUDA_CU_API SqueezeOp : public Expr {
 
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
+
+  std::vector<PolymorphicValue> evaluate(
+      const std::vector<PolymorphicValue>& inputs) const override;
 
   Val* out() const {
     return output(0);

@@ -193,11 +193,16 @@ Scalar* IrBuilder::getItemExpr(Val* array, Val* index) {
 }
 
 Scalar* IrBuilder::getAttrExpr(Val* struct_, std::string attr) {
-  auto item_dtype =
-      NVFUSER_MAYBE_STAR std::get<StructOf>(getMaybeMetaDataType(struct_).type)
-          .types.at(attr);
+  auto item_dtype = NVFUSER_MAYBE_STAR std::get<StructOf>(struct_->dtype().type)
+                        .types.at(attr);
   auto out = newScalar(item_dtype);
   create<GetAttr>(struct_->container(), out, struct_, std::move(attr));
+  return out;
+}
+
+Scalar* IrBuilder::metadataExpr(TensorView* tv) {
+  auto out = newScalar(metaDataTypeOf(tv));
+  create<GetMetaData>(tv->container(), out, tv);
   return out;
 }
 
