@@ -22,7 +22,7 @@ namespace mma_utils {
 bool hasEnoughSharedMemoryForEpilogue(
     const MatMulTileOptions& gemm_tile,
     const int smem_double_buffer_stage,
-    std::vector<DataType> data_types) {
+    const MmaDataTypes& data_types) {
   const auto properties = at::cuda::getCurrentDeviceProperties();
   const size_t device_smem_limit = properties->sharedMemPerBlockOptin;
 

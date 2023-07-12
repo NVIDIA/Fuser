@@ -151,7 +151,8 @@ inline bool initExtraHeuristics(
 }
 
 //! A wrapper to get MMA Tensor data types
-inline std::vector<DataType> getMmaDataTypes(
+//!   The order of returned types: INPUT_A, INPUT_B, OUTPUT_D
+inline mma_utils::MmaDataTypes getMmaDataTypes(
     const std::map<MatmulRole, std::vector<TensorView*>>& roles_map) {
   auto getMMADataType = [&](MatmulRole role) {
     auto entry = roles_map.find(role);
@@ -163,7 +164,7 @@ inline std::vector<DataType> getMmaDataTypes(
   const auto a_type = getMMADataType(MatmulRole::INPUT_A);
   const auto b_type = getMMADataType(MatmulRole::INPUT_B);
   const auto c_type = getMMADataType(MatmulRole::OUTPUT_D);
-  return {a_type, b_type, c_type};
+  return mma_utils::MmaDataTypes{a_type, b_type, c_type};
 }
 
 //! A helper for getting problem shape from fusion and runtime info.

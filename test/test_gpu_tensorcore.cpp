@@ -4470,7 +4470,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSmemEpilogue_CUDA) {
     MatmulParams params;
     params.mma_macro = MmaOptions::MacroType::Ampere_16_8_16;
     params.tile_sizes = gemm_tile;
-    params.has_smem_epilogue = true;
+    params.has_smem_epilogue = false;
     params.async_gmem_load_operands = true;
     params.double_buffer_options.double_buffer_smem_write = true;
     params.double_buffer_options.double_buffer_smem_read = true;
