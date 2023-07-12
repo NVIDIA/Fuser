@@ -20,6 +20,9 @@
 #   --no-ninja
 #     In case you want to use make instead of ninja for build
 #
+#   --build-with-ucc
+#     Build nvfuser with UCC support. Need to specify environment variables of UCC_HOME, UCC_DIR, UCX_HOME, UCX_DIR.
+#
 #   --debug
 #     Building nvfuser in debug mode
 #
@@ -57,6 +60,7 @@ NO_PYTHON = False
 NO_TEST = False
 NO_BENCHMARK = False
 NO_NINJA = False
+BUILD_WITH_UCC = False
 PATCH_NVFUSER = True
 OVERWRITE_VERSION = False
 VERSION_TAG = None
@@ -79,6 +83,9 @@ for i, arg in enumerate(sys.argv):
         continue
     if arg == "--no-ninja":
         NO_NINJA = True
+        continue
+    if arg == "--build-with-ucc":
+        BUILD_WITH_UCC = True
         continue
     if arg == "--debug":
         BUILD_TYPE = "Debug"
@@ -274,6 +281,8 @@ def cmake(build_dir: str = "", install_prefix: str = "./nvfuser"):
         "-B",
         cmake_build_dir,
     ]
+    if BUILD_WITH_UCC:
+        cmd_str.append("-DNVFUSER_STANDALONE_BUILD_WITH_UCC=ON")
     if not NO_NINJA:
         cmd_str.append("-G")
         cmd_str.append("Ninja")
