@@ -472,6 +472,8 @@ at::Tensor matmulAtInput(
     case TensorMatmulPos::C:
     case TensorMatmulPos::D:
       return at::randn({M, N}, options);
+    case TensorMatmulPos::Bias:
+      return at::randn({M}, options);
     default:
       break;
   }
@@ -600,18 +602,34 @@ void validateSegmentation(
   }
 }
 
-TensorView* biasEpilogue(TensorView* tv, TensorView* bias) {
-  const auto t = tv->dtype();
-  // TORCH_CHECK(a->dtype() == bias->dtype(), "bias vector must have the same
-  // type as tensor with two domains");
+TensorView* biasEpilogue(TensorView* tensor, TensorView* bias) {
   TORCH_CHECK(
-      tv->nDims() == 2 && bias->nDims() == 1,
-      "bias vector can be only applied only tensor with two domains");
+      tensor->dtype() == bias->dtype(),
+      "bias vector must have the same type as tensor with two domains, bias: ",
+      bias->dtype(),
+      ", tensor: ",
+      tensor->dtype());
+  const auto leaf_domains = tensor->getLeafDomain();
+  const auto concrete =
+      TensorDomain::noReductions(TensorDomain::noBroadcasts(leaf_domains));
+  TORCH_CHECK(
+      concrete.size() == 2,
+      "Only tensors with two concrete domains have support for bias epilogue enabled, got ",
+      concrete.size());
+  TORCH_CHECK(
+      tensor->nDims() == 3,
+      "Tensors to have bias applied needs to have 3 domains, got ",
+      tensor->nDims());
+  TORCH_CHECK(
+      bias->nDims() == 1,
+      "bias vector must have one dimension, got",
+      bias->nDims());
 
-  TensorView *biasb = nullptr, *tv2 = nullptr;
-  biasb = broadcast(bias, {false, true});
-  tv2 = add(tv, biasb);
-  return tv2;
+  TensorView *biasb = nullptr, *biased = nullptr;
+  biasb = broadcast(bias, {false, true, true});
+
+  biased = add(tensor, biasb);
+  return biased;
 }
 
 at::Tensor biasEpilogueAtInput(
