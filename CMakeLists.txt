@@ -221,8 +221,6 @@ target_link_libraries(${NVFUSER_CODEGEN} PRIVATE stdc++fs)
 target_link_libraries(${NVFUSER_CODEGEN} PRIVATE ${CUDA_NVRTC_LIB} ${LIBNVTOOLSEXT})
 target_include_directories(${NVFUSER_CODEGEN} PRIVATE ${CUDA_INCLUDE_DIRS})
 
-
-
 # TODO: we should guard the include of gloo
 target_include_directories(${NVFUSER_CODEGEN} PRIVATE ${PROJECT_SOURCE_DIR}/third_party/gloo)
 target_include_directories(${NVFUSER_CODEGEN} PUBLIC
