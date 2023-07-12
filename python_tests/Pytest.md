@@ -19,11 +19,10 @@ See https://github.com/google/jax#pip-installation-gpu-cuda-installed-locally-ha
 * `pytest_input_generators.py`: A set of correctness and error input generators are needed to create test cases for each operation.
 * `pytest_fusion_definitions.py` (Less Frequent): A specific operation might need a unique `FusionDefinition` function in order to test the new operation and that function would be added in this file.
 
-### Structural Code Used By All Tests 
+### Structural Code Used By All Tests
 * `pytest_core.py`: Contains the defintion of the `Opinfo` object.
 * `pytest_framework.py`: Contains the decorator template to iterate over all ops for a given test case.
 * `pytest_test_definitions.py`: Defines correctness and error tests for `FusionDefinition` `definition` operations.
 
 ### Misc
 * `pytest_utils.py`: Common helper functions
-
