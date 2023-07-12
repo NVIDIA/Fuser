@@ -386,7 +386,7 @@ TEST_F(NVFuserTest, CombinedSchedulerSharedConsumer_CUDA) {
         : add(layer_norm_results.grad_bias, layer_norm_results.grad_weight);
 
     if (!link_inner_outer) {
-      auto out_linked_scale = mul(out_linked, IrBuilder::create<Double>(0.5));
+      auto out_linked_scale = mul(out_linked, IrBuilder::create<Scalar>(0.5));
       fusion.addOutput(out_linked_scale);
     } else {
       fusion.addOutput(out_linked);
@@ -564,9 +564,9 @@ TEST_F(NVFuserTest, CombinedSchedulerSharedProducer_CUDA) {
         // tensor bias is a producer of the two outer reductions' consumers,
         // expect segmented
         auto outer_1_consumer =
-            add(layer_norm_results.grad_weight, IrBuilder::create<Double>(1));
+            add(layer_norm_results.grad_weight, IrBuilder::create<Scalar>(1.0));
         auto outer_2_consumer =
-            add(layer_norm_results.grad_bias, IrBuilder::create<Double>(1));
+            add(layer_norm_results.grad_bias, IrBuilder::create<Scalar>(1.0));
         auto use_producer_1 = add(outer_1_consumer, bias);
         auto use_producer_2 = add(outer_2_consumer, bias);
         fusion.addOutput(use_producer_1);

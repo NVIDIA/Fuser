@@ -48,44 +48,11 @@ template <typename T>
 void Val::dispatch(T handler, Val* val) {
   switch (*(val->getValType())) {
     case ValType::Scalar:
-      if (std::holds_alternative<PointerOf>(val->getDataType()->type)) {
-        ptr(handler)->handle(val->as<Int>());
-        return;
-      }
-      if (std::holds_alternative<ArrayOf>(val->getDataType()->type)) {
-        ptr(handler)->handleArrayType(val);
-        return;
-      }
-      switch (std::get<PrimDataType>(val->getDataType()->type)) {
-        case DataType::Bool:
-          ptr(handler)->handle(val->as<Bool>());
-          return;
-        case DataType::Float:
-        case DataType::Double:
-        case DataType::Half:
-        case DataType::BFloat16:
-          ptr(handler)->handle(val->as<Double>());
-          return;
-        case DataType::Int:
-        case DataType::Int32:
-        case DataType::Index:
-        case DataType::SMemAddress:
-          // Dispatch to Int even with Int32 as we don't have Int32 IR
-          // node.
-          ptr(handler)->handle(val->as<Int>());
-          return;
-        case DataType::ComplexFloat:
-        case DataType::ComplexDouble:
-          ptr(handler)->handle(val->as<ComplexDouble>());
-          return;
-        default:
-          break;
-      }
-      break;
+      ptr(handler)->handle(val->as<Scalar>());
+      return;
     case ValType::NamedScalar:
       ptr(handler)->handle(val->as<NamedScalar>());
       return;
-
     case ValType::IterDomain:
       ptr(handler)->handle(val->as<IterDomain>());
       return;
@@ -350,44 +317,11 @@ template <typename T>
 void Val::constDispatch(T handler, const Val* val) {
   switch (*(val->getValType())) {
     case ValType::Scalar:
-      if (std::holds_alternative<PointerOf>(val->getDataType()->type)) {
-        ptr(handler)->handle(val->as<Int>());
-        return;
-      }
-      if (std::holds_alternative<ArrayOf>(val->getDataType()->type)) {
-        ptr(handler)->handleArrayType(val);
-        return;
-      }
-      switch (std::get<PrimDataType>(val->getDataType()->type)) {
-        case DataType::Bool:
-          ptr(handler)->handle(val->as<Bool>());
-          return;
-        case DataType::Float:
-        case DataType::Double:
-        case DataType::Half:
-        case DataType::BFloat16:
-          ptr(handler)->handle(val->as<Double>());
-          return;
-        case DataType::Int:
-        case DataType::Index:
-        case DataType::Int32:
-        case DataType::SMemAddress:
-          // Dispatch to Int even with Int32 as we don't have Int32 IR
-          // node.
-          ptr(handler)->handle(val->as<Int>());
-          return;
-        case DataType::ComplexFloat:
-        case DataType::ComplexDouble:
-          ptr(handler)->handle(val->as<ComplexDouble>());
-          return;
-        default:
-          break;
-      }
-      break;
+      ptr(handler)->handle(val->as<Scalar>());
+      return;
     case ValType::NamedScalar:
       ptr(handler)->handle(val->as<NamedScalar>());
       return;
-
     case ValType::IterDomain:
       ptr(handler)->handle(val->as<IterDomain>());
       return;
@@ -663,42 +597,11 @@ template <typename T>
 void Val::mutatorDispatch(T mutator, Val* val) {
   switch (*(val->getValType())) {
     case ValType::Scalar:
-      if (std::holds_alternative<PointerOf>(val->getDataType()->type)) {
-        ptr(mutator)->mutate(val->as<Int>());
-        return;
-      }
-      if (std::holds_alternative<ArrayOf>(val->getDataType()->type)) {
-        ptr(mutator)->mutateArrayType(val);
-        return;
-      }
-      switch (std::get<PrimDataType>(val->getDataType()->type)) {
-        case DataType::Bool:
-          ptr(mutator)->mutate(val->as<Bool>());
-          return;
-        case DataType::Half:
-        case DataType::BFloat16:
-        case DataType::Float:
-        case DataType::Double:
-          ptr(mutator)->mutate(val->as<Double>());
-          return;
-        case DataType::Int:
-        case DataType::Int32:
-        case DataType::Index:
-        case DataType::SMemAddress:
-          ptr(mutator)->mutate(val->as<Int>());
-          return;
-        case DataType::ComplexFloat:
-        case DataType::ComplexDouble:
-          ptr(mutator)->mutate(val->as<ComplexDouble>());
-          return;
-        default:
-          break;
-      }
-      break;
+      ptr(mutator)->mutate(val->as<Scalar>());
+      return;
     case ValType::NamedScalar:
       ptr(mutator)->mutate(val->as<NamedScalar>());
       return;
-
     case ValType::IterDomain:
       ptr(mutator)->mutate(val->as<IterDomain>());
       return;
@@ -833,16 +736,7 @@ void OptInDispatch::unhandled(Statement* stmt) {
 }
 
 // Vals
-void OptOutConstDispatch::handle(const Bool* stmt) {
-  unhandled(stmt);
-}
-void OptOutConstDispatch::handle(const Double* stmt) {
-  unhandled(stmt);
-}
-void OptOutConstDispatch::handle(const Int* stmt) {
-  unhandled(stmt);
-}
-void OptOutConstDispatch::handle(const ComplexDouble* stmt) {
+void OptOutConstDispatch::handle(const Scalar* stmt) {
   unhandled(stmt);
 }
 void OptOutConstDispatch::handle(const NamedScalar* stmt) {
@@ -1040,16 +934,7 @@ void OptOutConstDispatch::handle(const PipelineCommunication* stmt) {
 void OptOutDispatch::unhandled(Statement*) {}
 
 // Vals
-void OptOutDispatch::handle(Bool* stmt) {
-  unhandled(stmt);
-}
-void OptOutDispatch::handle(Double* stmt) {
-  unhandled(stmt);
-}
-void OptOutDispatch::handle(Int* stmt) {
-  unhandled(stmt);
-}
-void OptOutDispatch::handle(ComplexDouble* stmt) {
+void OptOutDispatch::handle(Scalar* stmt) {
   unhandled(stmt);
 }
 void OptOutDispatch::handle(NamedScalar* stmt) {

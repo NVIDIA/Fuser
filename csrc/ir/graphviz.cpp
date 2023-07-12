@@ -19,6 +19,7 @@ namespace nvfuser {
 namespace {
 
 // Private helper, generating node labels for IrGraphGenerator
+// NOLINTNEXTLINE(cppcoreguidelines-virtual-class-destructor)
 class IrNodeLabel final : private OptInConstDispatch {
   using DetailLevel = IrGraphGenerator::DetailLevel;
 
@@ -37,36 +38,15 @@ class IrNodeLabel final : private OptInConstDispatch {
 
   ~IrNodeLabel() final = default;
 
-  void handle(const Bool* b) override {
-    if (b->isSymbolic()) {
-      label_ << "b" << b->name();
-    } else {
-      if (detail_level_ >= DetailLevel::Explicit) {
-        label_ << "b" << b->name() << "=";
-      }
-      label_ << *b->value();
+  void handle(const Scalar* s) override {
+    if (s->isSymbolic()) {
+      label_ << ir_utils::varName(s);
     }
-  }
-
-  void handle(const Double* d) override {
-    if (d->isSymbolic()) {
-      label_ << typePrefix(d->getDataType().value()) << d->name();
-    } else {
+    if (s->isConst()) {
       if (detail_level_ >= DetailLevel::Explicit) {
-        label_ << typePrefix(d->getDataType().value()) << d->name() << "=";
+        label_ << ir_utils::varName(s) << "=";
       }
-      label_ << *d->value();
-    }
-  }
-
-  void handle(const Int* i) override {
-    if (i->isSymbolic()) {
-      label_ << "i" << i->name();
-    } else {
-      if (detail_level_ >= DetailLevel::Explicit) {
-        label_ << "i" << i->name() << "=";
-      }
-      label_ << *i->value();
+      label_ << s->value();
     }
   }
 
@@ -373,20 +353,8 @@ void IrGraphGenerator::handle(const IterDomain* id) {
   addArc(id->extent(), id, "[color=gray]");
 }
 
-void IrGraphGenerator::handle(const Bool* b) {
-  printValue(b, IrNodeLabel::gen(b, detail_level_));
-}
-
-void IrGraphGenerator::handle(const Double* d) {
-  printValue(d, IrNodeLabel::gen(d, detail_level_));
-}
-
-void IrGraphGenerator::handle(const Int* i) {
-  printValue(i, IrNodeLabel::gen(i, detail_level_));
-}
-
-void IrGraphGenerator::handle(const ComplexDouble* i) {
-  printValue(i, IrNodeLabel::gen(i, detail_level_));
+void IrGraphGenerator::handle(const Scalar* s) {
+  printValue(s, IrNodeLabel::gen(s, detail_level_));
 }
 
 void IrGraphGenerator::handle(const NamedScalar* i) {

@@ -81,10 +81,7 @@ class TORCH_CUDA_CU_API IrGraphGenerator : private OptInConstDispatch {
   void handle(const TensorView*) override;
   void handle(const IterDomain*) override;
 
-  void handle(const Bool*) override;
-  void handle(const Double*) override;
-  void handle(const Int*) override;
-  void handle(const ComplexDouble*) override;
+  void handle(const Scalar*) override;
   void handle(const NamedScalar*) override;
 
   // lookup the graph id, creating one if not found

@@ -158,7 +158,7 @@ class Context {
 
   Context(
       const std::list<VarInfo>& variables,
-      std::vector<Bool*> assumptions,
+      std::vector<Scalar*> assumptions,
       bool preserve_error)
       : preserve_error_(preserve_error) {
     var_order_.reserve(variables.size());
@@ -183,8 +183,8 @@ class Context {
       if (bop == nullptr || bop->getBinaryOpType() != BinaryOpType::And) {
         assume(back);
       } else {
-        assumptions.push_back(bop->lhs()->as<Bool>());
-        assumptions.push_back(bop->rhs()->as<Bool>());
+        assumptions.push_back(bop->lhs()->as<Scalar>());
+        assumptions.push_back(bop->rhs()->as<Scalar>());
       }
     }
   }
@@ -214,7 +214,7 @@ class Context {
   }
 
  private:
-  void assume(Bool* a) {
+  void assume(Scalar* a) {
     auto def = a->definition();
     if (auto bop = dynamic_cast<BinaryOp*>(def)) {
       switch (bop->getBinaryOpType()) {
@@ -273,15 +273,15 @@ Val* foldConstants(Val* value) {
     return value;
   }
   if (value->isConstScalar()) {
-    if (value->isIntegralScalar() && value->isA<Int>()) {
+    if (value->isIntegralScalar() && value->isA<Scalar>()) {
       return IrBuilder::newConstant(
           value->evaluateInt(), *value->getDataType());
     }
-    if (value->isFloatingPointScalar() && value->isA<Double>()) {
+    if (value->isFloatingPointScalar() && value->isA<Scalar>()) {
       return IrBuilder::newConstant(
           value->evaluateDouble(), *value->getDataType());
     }
-    if (value->isABool() && value->isA<Bool>()) {
+    if (value->isABool() && value->isA<Scalar>()) {
       return IrBuilder::newConstant(
           value->evaluateBool(), *value->getDataType());
     }
@@ -2463,7 +2463,7 @@ Val* factorizeGcd(Val* value, const Context& context) {
 Val* simplifyExpr(
     Val* value,
     const std::list<VarInfo>& variables,
-    std::vector<Bool*> assumptions,
+    std::vector<Scalar*> assumptions,
     bool preserve_error) {
   FusionGuard fg(value->fusion());
   const Context context(variables, assumptions, preserve_error);
