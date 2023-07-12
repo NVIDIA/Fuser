@@ -32,7 +32,7 @@ at::ScalarType mapToAtenDtype(serde::DataType t);
 ::flatbuffers::Offset<serde::Scalar> serializeScalar(
     flatbuffers::FlatBufferBuilder& builder,
     const nvfuser::PolymorphicValue& v,
-    serde::DataType t);
+    nvfuser::DataType t);
 
 PolymorphicValue parsePolymorphicValue(const serde::Scalar* c);
 

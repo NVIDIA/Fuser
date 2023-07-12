@@ -125,9 +125,9 @@ PrimDataType mapToNvfuserDtype(serde::DataType t) {
 ::flatbuffers::Offset<serde::Scalar> serializeScalar(
     flatbuffers::FlatBufferBuilder& builder,
     const nvfuser::PolymorphicValue& v,
-    serde::DataType t) {
+    nvfuser::DataType t) {
   ScalarBuilder builder_(builder);
-  builder_.add_dtype(t);
+  builder_.add_dtype(mapToSerdeDtype(t));
   if (v.is<std::monostate>()) {
     builder_.add_has_value(false);
     return builder_.Finish();
