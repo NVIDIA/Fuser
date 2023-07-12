@@ -2179,6 +2179,14 @@ TEST_F(NVFuserTest, FusionResizeMultiSliceEmpty_CUDA) {
 
   TORCH_CHECK(ref0.equal(cg_outputs[0]));
   TORCH_CHECK(ref1.equal(cg_outputs[1]));
+
+  // Check that tv2 is replaced by a FullOp
+  const auto runtime = executor_cache.getMostRecentKernelRuntime();
+  const auto preseg_fusion = runtime->fusionSegments()->completeFusion();
+  EXPECT_EQ(preseg_fusion->outputs().size(), 2);
+  EXPECT_NE(preseg_fusion->outputs().at(1), tv1);
+  EXPECT_NE(preseg_fusion->outputs().at(1)->definition(), nullptr);
+  EXPECT_TRUE(preseg_fusion->outputs().at(1)->definition()->isA<FullOp>());
 }
 
 TEST_F(NVFuserTest, SliceVectorization) {
