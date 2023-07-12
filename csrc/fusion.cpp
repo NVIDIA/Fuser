@@ -286,35 +286,6 @@ void Fusion::removeOutput(Val* output) {
   all_tv_uses_valid_ = false;
 }
 
-void Fusion::replaceInput(Val* input, Val* replacement) {
-  auto find_input = std::find(inputs_.begin(), inputs_.end(), input);
-  TORCH_CHECK(find_input != inputs_.end(), "Unable to find input in Fusion");
-
-  std::replace_if(
-      inputs_.begin(),
-      inputs_.end(),
-      [&input](Val* v) { return v == input; },
-      replacement);
-
-  if (replacement->getValType().value() == ValType::TensorView) {
-    replacement->setIsFusionInput(true);
-    replacement->as<TensorView>()->setMemoryType(MemoryType::Global);
-  }
-  if (input->getValType().value() == ValType::TensorView) {
-    input->setIsFusionInput(false);
-    input->as<TensorView>()->setMemoryType(MemoryType::Local);
-  }
-  // Mark uses invalid so that they will be reset next time uses() is called
-  invalidateTvUses();
-
-  // Maintain aliased inputs
-  for (auto [aliased_output, aliased_input] : io_alias_) {
-    if (aliased_input == input) {
-      io_alias_[aliased_output] = replacement;
-    }
-  }
-}
-
 void Fusion::replaceOutput(Val* output, Val* replacement) {
   auto find_output = std::find(outputs_.begin(), outputs_.end(), output);
   TORCH_CHECK(find_output != outputs_.end(), "Unable to find output in Fusion");
