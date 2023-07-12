@@ -251,7 +251,7 @@ if(PROJECT_IS_TOP_LEVEL)
     DEPENDS ${NVFUSER_ROOT}/csrc/serde/fusion_cache_generated.h)
 
   if(NVFUSER_STANDALONE_BUILD_WITH_UCC)
-    # It's required to set env vars UCC_DIR, UCX_DIR, UCC_HOME, UCX_HOME for CMake's Find_UCC to work.
+    # User may need to set env vars UCC_DIR, UCX_DIR, UCC_HOME, UCX_HOME for CMake's Find_UCC to work.
     find_package(UCC REQUIRED)
     find_package(UCX REQUIRED)
 
