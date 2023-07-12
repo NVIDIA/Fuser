@@ -53,8 +53,8 @@ static void setupInstanceNorm(
   const bool kTraining = true;
   const float kMomentum = 0.1;
   const float kEps = 1e-5;
-  auto momentum_ptr = IrBuilder::create<Double>(kMomentum);
-  auto eps_ptr = IrBuilder::create<Double>(kEps);
+  auto momentum_ptr = IrBuilder::create<Scalar>(kMomentum);
+  auto eps_ptr = IrBuilder::create<Scalar>(kEps);
 
   auto norm = instance_norm(
       input,

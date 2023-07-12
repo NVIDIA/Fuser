@@ -447,57 +447,13 @@ void RecordFunctorFactory::registerAllParsers() {
   };
   registerParser(serde::RecordType_CastVal, deserializeCastValRecord);
 
-  auto deserializeScalarBoolRecord = [](const serde::RecordFunctor* buffer) {
-    return new python_frontend::ScalarRecord<bool>(
+  auto deserializeScalarRecord = [](const serde::RecordFunctor* buffer) {
+    return new python_frontend::ScalarRecord(
         parseStateArgs(buffer->outputs()),
-        serde::RecordType_ScalarBool,
-        buffer->data_as_Bool()->value(),
-        nvfuser::DataType::Bool);
+        parsePolymorphicValue(buffer->data_as_Scalar()),
+        mapToNvfuserDtype(buffer->data_as_Scalar()->dtype()));
   };
-  registerParser(serde::RecordType_ScalarBool, deserializeScalarBoolRecord);
-
-  auto deserializeScalarDoubleRecord = [](const serde::RecordFunctor* buffer) {
-    auto data = buffer->data_as_Double();
-    return new python_frontend::ScalarRecord<double>(
-        parseStateArgs(buffer->outputs()),
-        serde::RecordType_ScalarDouble,
-        data->value(),
-        mapToNvfuserDtype(data->dtype()));
-  };
-  registerParser(serde::RecordType_ScalarDouble, deserializeScalarDoubleRecord);
-
-  auto deserializeScalarComplexDoubleRecord =
-      [](const serde::RecordFunctor* buffer) {
-        auto data = buffer->data_as_ComplexDouble();
-        return new python_frontend::ScalarRecord<std::complex<double>>(
-            parseStateArgs(buffer->outputs()),
-            serde::RecordType_ScalarComplexDouble,
-            std::complex<double>(data->real(), data->imag()),
-            mapToNvfuserDtype(data->dtype()));
-      };
-  registerParser(
-      serde::RecordType_ScalarComplexDouble,
-      deserializeScalarComplexDoubleRecord);
-
-  auto deserializeScalarLongRecord = [](const serde::RecordFunctor* buffer) {
-    auto data = buffer->data_as_Long();
-    return new python_frontend::ScalarRecord<int64_t>(
-        parseStateArgs(buffer->outputs()),
-        serde::RecordType_ScalarLong,
-        data->value(),
-        mapToNvfuserDtype(data->dtype()));
-  };
-  registerParser(serde::RecordType_ScalarLong, deserializeScalarLongRecord);
-
-  auto deserializeScalarInputRecord = [](const serde::RecordFunctor* buffer) {
-    auto data = buffer->data_as_ScalarInput();
-    return new python_frontend::ScalarRecord<double>(
-        parseStateArgs(buffer->outputs()),
-        serde::RecordType_ScalarInput,
-        std::nullopt,
-        mapToNvfuserDtype(data->dtype()));
-  };
-  registerParser(serde::RecordType_ScalarInput, deserializeScalarInputRecord);
+  registerParser(serde::RecordType_Scalar, deserializeScalarRecord);
 
   auto deserializeFullRecord = [](const serde::RecordFunctor* buffer) {
     auto data = buffer->data_as_TensorCreation();
@@ -666,27 +622,14 @@ void RecordFunctorFactory::registerAllParsers() {
   registerParser(
       serde::RecordType_VarianceMeanOp, deserializeVarianceMeanRecord);
 
-  auto deserializeVectorInputRecord = [](const serde::RecordFunctor* buffer) {
-    auto data = buffer->data_as_VectorInput();
-    return new python_frontend::VectorRecord<int64_t>(
+  auto deserializeVectorRecord = [](const serde::RecordFunctor* buffer) {
+    auto data = buffer->data_as_Vector();
+    return new python_frontend::VectorRecord(
+        parseStateArgs(buffer->args()),
         parseStateArgs(buffer->outputs()),
-        serde::RecordType_VectorInput,
-        std::nullopt,
-        data->size(),
         mapToNvfuserDtype(data->dtype()));
   };
-  registerParser(serde::RecordType_VectorInput, deserializeVectorInputRecord);
-
-  auto deserializeVectorLongRecord = [](const serde::RecordFunctor* buffer) {
-    auto data = buffer->data_as_VectorLong();
-    return new python_frontend::VectorRecord<int64_t>(
-        parseStateArgs(buffer->outputs()),
-        serde::RecordType_VectorLong,
-        std::optional<std::vector<int64_t>>(parseVector(data->value())),
-        data->size(),
-        mapToNvfuserDtype(data->dtype()));
-  };
-  registerParser(serde::RecordType_VectorLong, deserializeVectorLongRecord);
+  registerParser(serde::RecordType_Vector, deserializeVectorRecord);
 }
 
 void RecordFunctorFactory::setupFunctionMaps() {

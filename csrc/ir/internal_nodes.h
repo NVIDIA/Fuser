@@ -37,11 +37,6 @@ class Scope;
 class IrCloner;
 struct AnalyzeViewResult;
 
-//! Returns true if both v1 and v2 are scalars, are the same type of scalars,
-//! and dispatches to the inherited Val type's `->sameAs` call. e.g. if both
-//! vals are `Int` will dispatch to v1->as<Int>()->sameAs(v2.as<Int>())
-bool areEqualScalars(Val* v1, Val* v2);
-
 class TORCH_CUDA_CU_API FullOp : public Expr {
  public:
   using Expr::Expr;
@@ -303,8 +298,8 @@ class TORCH_CUDA_CU_API UnaryOp : public Expr {
     return "UnaryOp";
   }
 
-  std::vector<ScalarValue> evaluate(
-      const std::vector<ScalarValue>& inputs) const override;
+  std::vector<PolymorphicValue> evaluate(
+      const std::vector<PolymorphicValue>& inputs) const override;
 
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
@@ -340,8 +335,8 @@ class TORCH_CUDA_CU_API BinaryOp : public Expr {
     return "BinaryOp";
   }
 
-  std::vector<ScalarValue> evaluate(
-      const std::vector<ScalarValue>& inputs) const override;
+  std::vector<PolymorphicValue> evaluate(
+      const std::vector<PolymorphicValue>& inputs) const override;
 
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
@@ -386,8 +381,8 @@ class TORCH_CUDA_CU_API TernaryOp : public Expr {
     return "TernaryOp";
   }
 
-  std::vector<ScalarValue> evaluate(
-      const std::vector<ScalarValue>& inputs) const override;
+  std::vector<PolymorphicValue> evaluate(
+      const std::vector<PolymorphicValue>& inputs) const override;
 
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
@@ -435,8 +430,8 @@ class TORCH_CUDA_CU_API ArrayConstruct : public Expr {
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
 
-  std::vector<ScalarValue> evaluate(
-      const std::vector<ScalarValue>& inputs) const override;
+  std::vector<PolymorphicValue> evaluate(
+      const std::vector<PolymorphicValue>& inputs) const override;
 
   Val* out() const {
     return output(0);
@@ -459,8 +454,8 @@ class TORCH_CUDA_CU_API GetItem : public Expr {
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
 
-  std::vector<ScalarValue> evaluate(
-      const std::vector<ScalarValue>& inputs) const override;
+  std::vector<PolymorphicValue> evaluate(
+      const std::vector<PolymorphicValue>& inputs) const override;
 
   Val* out() const {
     return output(0);
@@ -491,8 +486,8 @@ class TORCH_CUDA_CU_API GetAttr : public Expr {
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
 
-  std::vector<ScalarValue> evaluate(
-      const std::vector<ScalarValue>& inputs) const override;
+  std::vector<PolymorphicValue> evaluate(
+      const std::vector<PolymorphicValue>& inputs) const override;
 
   Val* out() const {
     return output(0);
@@ -504,6 +499,34 @@ class TORCH_CUDA_CU_API GetAttr : public Expr {
 
   std::string attr() const {
     return attribute(0)->as<Attribute<std::string>>()->value;
+  }
+};
+
+// Get an attribute from a struct, struct.attr
+class TORCH_CUDA_CU_API GetMetaData : public Expr {
+ public:
+  using Expr::Expr;
+
+  GetMetaData(IrBuilderPasskey, Val* output, Val* input);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "GetMetaData";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  std::vector<PolymorphicValue> evaluate(
+      const std::vector<PolymorphicValue>& inputs) const override;
+
+  Val* out() const {
+    return output(0);
+  }
+
+  Val* in() const {
+    return input(0);
   }
 };
 
@@ -661,6 +684,9 @@ class TORCH_CUDA_CU_API BroadcastOp : public Expr {
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
 
+  std::vector<PolymorphicValue> evaluate(
+      const std::vector<PolymorphicValue>& inputs) const override;
+
   Val* out() const {
     return output(0);
   }
@@ -707,6 +733,9 @@ class TORCH_CUDA_CU_API SqueezeOp : public Expr {
 
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
+
+  std::vector<PolymorphicValue> evaluate(
+      const std::vector<PolymorphicValue>& inputs) const override;
 
   Val* out() const {
     return output(0);
@@ -1509,8 +1538,8 @@ class TORCH_CUDA_CU_API LoadStoreOp : public Expr {
     return "LoadStoreOp";
   }
 
-  std::vector<ScalarValue> evaluate(
-      const std::vector<ScalarValue>& inputs) const override;
+  std::vector<PolymorphicValue> evaluate(
+      const std::vector<PolymorphicValue>& inputs) const override;
 
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
@@ -1527,7 +1556,7 @@ class TORCH_CUDA_CU_API LoadStoreOp : public Expr {
     return attribute(0)->as<Attribute<LoadStoreOpType>>()->value;
   }
 
-  bool hasTranspose() const;
+  bool hasInnerTranspose() const;
 
   void setOpType(LoadStoreOpType op) {
     attribute(0)->as<Attribute<LoadStoreOpType>>()->value = op;
@@ -1992,7 +2021,7 @@ class TORCH_CUDA_CU_API CatOp : public Expr {
       const std::vector<Val*>& inputs,
       int concatenated_dim,
       Val* concatenated_domain_index,
-      const std::vector<Bool*>& preds);
+      const std::vector<Scalar*>& preds);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
@@ -2015,7 +2044,7 @@ class TORCH_CUDA_CU_API CatOp : public Expr {
   //! Gets a Bool indicating if the input tensor specified by
   //! tensor_idx should be used to fill the output tensor. Only valid
   //! with the Kernel container
-  Bool* getPred(int input_idx) const;
+  Scalar* getPred(int input_idx) const;
 };
 
 } // namespace nvfuser

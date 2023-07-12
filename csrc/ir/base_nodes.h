@@ -12,7 +12,7 @@
 #include <c10/util/Exception.h>
 
 #include <ir/builder_passkey.h>
-#include <scalar_value.h>
+#include <polymorphic_value.h>
 #include <type.h>
 #include <utils.h>
 
@@ -215,7 +215,7 @@ class TORCH_CUDA_CU_API Statement : public NonCopyable, public PolymorphicBase {
 //!     - Must call Val constructor, Val constructor registers with fusion
 //!     - Implementation of bool sameAs(...)
 //!     - Must implement a "cloning" constructor, ex.
-//!        Int::Int(const Int* src, IrCloner* ir_cloner)
+//!        Scalar::Scalar(const Scalar* src, IrCloner* ir_cloner)
 //! 2) dispatch.h/.cpp must be updated to include dispatch of the new Val
 //! 3) Default mutator function should be added to mutator.cpp
 //! 4a) Printing functions should be added to ir/iostream.h/.cpp
@@ -533,8 +533,8 @@ class TORCH_CUDA_CU_API Expr : public Statement {
 
   bool sameAs(const Statement* other) const override;
 
-  virtual std::vector<ScalarValue> evaluate(
-      const std::vector<ScalarValue>& inputs) const;
+  virtual std::vector<PolymorphicValue> evaluate(
+      const std::vector<PolymorphicValue>& inputs) const;
 
   // Input/output accessors
   const auto& inputs() const {
