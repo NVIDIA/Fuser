@@ -252,10 +252,11 @@ if(PROJECT_IS_TOP_LEVEL)
   add_custom_target(build_flatbuffer_config ALL
     DEPENDS ${NVFUSER_ROOT}/csrc/serde/fusion_cache_generated.h)
 
-  if (NVFUSER_STANDALONE_BUILD_WITH_UCC)
-    # It's required to set env vars UCC_DIR, UCX_DIR, UCC_HOME, UCX_HOME for CMake's find UCC to work.
+  if(NVFUSER_STANDALONE_BUILD_WITH_UCC)
+    # It's required to set env vars UCC_DIR, UCX_DIR, UCC_HOME, UCX_HOME for CMake's Find_UCC to work.
     find_package(UCC REQUIRED)
     find_package(UCX REQUIRED)
+
     add_library(__nvfuser_ucc INTERFACE)
     target_link_libraries(__nvfuser_ucc INTERFACE ucx::ucs ucx::ucp ucc::ucc)
     target_include_directories(__nvfuser_ucc INTERFACE ${UCC_INCLUDE_DIRS})
@@ -270,7 +271,7 @@ else()
   # NOTE: our CI build somehow fails with find driver lib.
   target_link_libraries(${NVFUSER_CODEGEN} PUBLIC CUDA::cuda_driver)
 
-  if (UCC_FOUND)  # inherited from pytorch source build
+  if(UCC_FOUND)  # inherited from pytorch source build
     add_library(__nvfuser_ucc INTERFACE)
     target_link_libraries(__nvfuser_ucc INTERFACE ucx::ucs ucx::ucp ucc::ucc)
     target_include_directories(__nvfuser_ucc INTERFACE ${UCC_INCLUDE_DIRS})
