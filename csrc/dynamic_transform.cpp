@@ -520,19 +520,19 @@ class DynamicTransformConcretizer : public OptOutMutator {
 };
 
 void DynamicTransformConcretizer::concretize() {
-  //! Concretize all dynamic reshape ops
+  // Concretize all dynamic reshape ops
   concretizeReshape();
 
-  //! Set output IterTypes for dynamic resize ops
+  // Set output IterTypes for dynamic resize ops
   concretizeResize();
 
-  //! Registers replacement of all empty extents with zeroVal()
+  // Registers replacement of all empty extents with zeroVal()
   concretizeEmptyExtents();
 
   // Finally, propagate concretized domains
-  auto all_stmts = StmtSort::getStmts(info_->fusion(), true);
-  for (auto stmt : all_stmts) {
-    mutate(stmt);
+  auto all_stmts = StmtSort::getStmts(info_->fusion());
+  for (auto tv : ir_utils::filterByType<TensorView>(all_stmts)) {
+    mutate(tv);
   }
 }
 
@@ -541,6 +541,10 @@ void DynamicTransformConcretizer::concretizeEmptyExtents() {
   for (const auto& ext_index : info_->getEmptyExtents()) {
     auto ext = info_->initialInfo()->getMaybeZeroExtents().at(ext_index);
     auto zero = fusion->zeroVal(ext->getDataType().value());
+    auto uses = ext->uses();
+    for (auto use : uses) {
+      ir_utils::replaceValInExpr(use, ext, zero);
+    }
     // Register the concretization of this scalar, which allows us to replace it
     // whenever it is used as an extent member of an IterDomain.
     registerConcretization(ext, zero);
@@ -562,7 +566,8 @@ void DynamicTransformConcretizer::concretizeReshape() {
     checkConcretizedUses(incomplete_out_tv, concrete_reshape_out_tv);
 
     // Replace the old tensor with the new concretized tensor
-    for (auto use_of_old_tv : incomplete_out_tv->uses()) {
+    auto uses = incomplete_out_tv->uses();
+    for (auto use_of_old_tv : uses) {
       ir_utils::replaceValInExpr(
           use_of_old_tv, incomplete_out_tv, concrete_reshape_out_tv);
     }
@@ -608,6 +613,12 @@ void DynamicTransformConcretizer::checkConcretizedUses(
 // concretized. Since symbolic IDs may be propagated down to
 // consumers, those domains need to be concretized accordingly.
 void DynamicTransformConcretizer::mutate(TensorView* tv) {
+  for (auto root_id : tv->getRootDomain()) {
+    // This will register root_id for mutation if its extent, start, or
+    // stop_offset is registered for mutation
+    OptOutMutator::mutate(root_id);
+  }
+
   // First, try to concretize the root domain as there may be symbolic
   // axes inherited from the producers
   propagateFromProducerToConsumer(tv);
@@ -680,12 +691,14 @@ void DynamicTransformConcretizer::mutate(TensorView* tv) {
           continue;
         }
         auto concretized_out_id =
-            IterDomainBuilder(out_id).iter_type(iter_type).build();
+            IterDomainBuilder(maybeMutated(out_id)->as<IterDomain>())
+                .iter_type(iter_type)
+                .build();
         registerConcretization(out_id, concretized_out_id);
       }
 
-      // The expr itself needs to be mutated as well in case the outputs are
-      // mutated, which can be done by the mutate method
+      // expr must be mutated in order to set it as the definition for the
+      // concretized outputs.
       OptOutMutator::mutate(expr);
     }
   }
@@ -814,7 +827,9 @@ bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
         consumer->toString());
 
     auto concretized_id =
-        IterDomainBuilder(root_id).iter_type(*id_type).build();
+        IterDomainBuilder(maybeMutated(root_id)->as<IterDomain>())
+            .iter_type(*id_type)
+            .build();
 
     registerConcretization(root_id, concretized_id);
     is_concretized = true;
