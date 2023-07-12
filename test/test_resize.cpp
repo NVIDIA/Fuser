@@ -2167,15 +2167,15 @@ TEST_F(NVFuserTest, FusionResizeMultiSliceEmpty_CUDA) {
   // slices will be replaced with full(), and vectorization can work properly.
   auto tv1 = slice(
       tv0,
-      {{IrBuilder::create<Int>(0),
-        IrBuilder::create<Int>(1),
-        IrBuilder::create<Int>(1)}});
+      {{IrBuilder::create<Scalar>(0),
+        IrBuilder::create<Scalar>(1),
+        IrBuilder::create<Scalar>(1)}});
   fusion->addOutput(tv1);
   auto tv2 = slice(
       tv0,
-      {{IrBuilder::create<Int>(0),
-        IrBuilder::create<Int>(0),
-        IrBuilder::create<Int>(1)}});
+      {{IrBuilder::create<Scalar>(0),
+        IrBuilder::create<Scalar>(0),
+        IrBuilder::create<Scalar>(1)}});
   fusion->addOutput(tv2);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
