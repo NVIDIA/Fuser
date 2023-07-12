@@ -638,7 +638,7 @@ struct ReplaceValInIndexVal : public OptInDispatch {
 
   void handle(Val* val) override {
     TORCH_INTERNAL_ASSERT(
-        val->isA<Int>() || val->isA<Bool>() || val->isA<NamedScalar>(),
+        val->isA<Scalar>() || val->isA<NamedScalar>(),
         "Invalid Val type: ",
         val->toString());
 
@@ -670,10 +670,10 @@ struct ReplaceValInIndexVal : public OptInDispatch {
     handle(uop->in());
     auto inp = last_visited_val_;
     TORCH_INTERNAL_ASSERT(
-        uop->out()->isA<Int>() || uop->out()->isA<Bool>(),
+        uop->out()->isA<Scalar>(),
         "Unknown output type for expr ",
         uop->toInlineString());
-    auto out = IrBuilder::create<Int>(std::nullopt);
+    auto out = IrBuilder::create<Scalar>(DataType::Int);
     IrBuilder::create<UnaryOp>(uop->getUnaryOpType(), out, inp);
     last_visited_val_ = out;
   }
@@ -685,10 +685,10 @@ struct ReplaceValInIndexVal : public OptInDispatch {
     handle(bop->rhs());
     auto rhs = last_visited_val_;
     TORCH_INTERNAL_ASSERT(
-        bop->out()->isA<Int>() || bop->out()->isA<Bool>(),
+        bop->out()->isA<Scalar>(),
         "Unknown output type for expr ",
         bop->toInlineString());
-    auto out = IrBuilder::create<Int>(std::nullopt);
+    auto out = IrBuilder::create<Scalar>(DataType::Int);
     IrBuilder::create<BinaryOp>(bop->getBinaryOpType(), out, lhs, rhs);
     last_visited_val_ = out;
   }
@@ -702,10 +702,10 @@ struct ReplaceValInIndexVal : public OptInDispatch {
     handle(top->in3());
     auto in3 = last_visited_val_;
     TORCH_INTERNAL_ASSERT(
-        top->out()->isA<Int>() || top->out()->isA<Bool>(),
+        top->out()->isA<Scalar>(),
         "Unknown output type for expr ",
         top->toInlineString());
-    auto out = IrBuilder::create<Int>(std::nullopt);
+    auto out = IrBuilder::create<Scalar>(DataType::Int);
     IrBuilder::create<TernaryOp>(top->getTernaryOpType(), out, in1, in2, in3);
     last_visited_val_ = out;
   }

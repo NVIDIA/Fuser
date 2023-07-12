@@ -743,7 +743,10 @@ bool checkLdMatrixTv(TensorView* tv) {
     TORCH_CHECK(tv_def != nullptr, "ldmatrix : invalid tv");
     is_immediate_output = false;
   }
-  TORCH_CHECK(ir_utils::isLdMatrixOp(tv_def), "ldmatrix : invalid op type");
+  TORCH_CHECK(
+      ir_utils::isLdMatrixOp(tv_def),
+      "ldmatrix : invalid op type: ",
+      tv_def->toString());
   TORCH_CHECK(
       tv->nDims() >= 2,
       "ldmatrix: scheduled tv needs to be at least 2 dimensional");

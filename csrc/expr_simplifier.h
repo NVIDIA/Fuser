@@ -648,7 +648,7 @@ RegisterType getRegisterType(Val* value);
 TORCH_CUDA_CU_API Val* simplifyExpr(
     Val* value,
     const std::list<VarInfo>& variables = {},
-    std::vector<Bool*> assumptions = {},
+    std::vector<Scalar*> assumptions = {},
     bool preserve_error = false);
 
 } // namespace nvfuser

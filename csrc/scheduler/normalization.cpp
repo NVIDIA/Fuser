@@ -1398,12 +1398,12 @@ std::shared_ptr<ReductionParams> getPersistentHeuristics(
 
   // Base max dtype and n_tensor_inputs on tensors that are vectorizable (i.e.
   // share inner dimension with data pattern we're looking at).
-  size_t max_dtype_size = 1;
+  int64_t max_dtype_size = 1;
 
   // TODO: This might be better if it was the larger of input or outputs. Would
   // be even better if we had better analysis as not all unrolled elements have
   // to be alive at the same time.
-  size_t n_tensor_inputs = 0;
+  int64_t n_tensor_inputs = 0;
   for (auto tv : unrollable_inputs_outputs) {
     if (!tv->isFusionInput()) {
       continue;
@@ -1416,12 +1416,12 @@ std::shared_ptr<ReductionParams> getPersistentHeuristics(
   }
 
   // dtype used to store partial outer reduction in combined reduction
-  const size_t tmp_gmem_dtype_size = combined_inner_outer_reduction
+  const int64_t tmp_gmem_dtype_size = combined_inner_outer_reduction
       ? dataTypeSize(outer_reduction_tvs[0]->getDataType().value())
       : dataTypeSize(first_red_tv->getDataType().value());
 
   // Protect heuristics div by 0:
-  n_tensor_inputs = std::max(n_tensor_inputs, (size_t)1);
+  n_tensor_inputs = std::max(n_tensor_inputs, (int64_t)1);
 
   auto heuristic = persistentHeuristic(
       properties.total_reduction_numel,

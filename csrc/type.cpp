@@ -17,21 +17,20 @@
 
 namespace nvfuser {
 
-DataType getMaybeMetaDataType(Val* v) {
-  TORCH_INTERNAL_ASSERT(v != nullptr);
-  if (auto tv = dynamic_cast<TensorView*>(v)) {
-    StructOf tv_metadata;
-    tv_metadata.types["data"] = NVFUSER_MAYBE_MAKE_SHARED(
-        PointerOf{std::make_shared<DataType>(tv->dtype())});
-    tv_metadata.types["sizes"] = NVFUSER_MAYBE_MAKE_SHARED2(ArrayOf{
-        std::make_shared<DataType>(DataType::Index),
-        TensorDomain::noReductions(tv->getMaybeRFactorDomain()).size()});
-    tv_metadata.types["strides"] = NVFUSER_MAYBE_MAKE_SHARED2(ArrayOf{
-        std::make_shared<DataType>(DataType::Index),
-        TensorDomain::noReductions(tv->getMaybeAllocationDomain()).size()});
-    return tv_metadata;
-  }
-  return v->dtype();
+DataType metaDataTypeOf(Val* v) {
+  auto tv = dynamic_cast<TensorView*>(v);
+  TORCH_INTERNAL_ASSERT(
+      tv != nullptr, "Currently, only supports getting metadata of TensorView");
+  StructOf tv_metadata;
+  tv_metadata.types["data"] = NVFUSER_MAYBE_MAKE_SHARED(
+      PointerOf{std::make_shared<DataType>(tv->dtype())});
+  tv_metadata.types["sizes"] = NVFUSER_MAYBE_MAKE_SHARED2(ArrayOf{
+      std::make_shared<DataType>(DataType::Index),
+      TensorDomain::noReductions(tv->getMaybeRFactorDomain()).size()});
+  tv_metadata.types["strides"] = NVFUSER_MAYBE_MAKE_SHARED2(ArrayOf{
+      std::make_shared<DataType>(DataType::Index),
+      TensorDomain::noReductions(tv->getMaybeAllocationDomain()).size()});
+  return tv_metadata;
 }
 
 PrimDataType indexModeToDtype(KernelIndexMode index_mode) {
@@ -215,8 +214,8 @@ static const char* val_type2string(ValType t) {
       return "Predicate";
     case ValType::TensorIndex:
       return "TensorIndex";
-    case ValType::AggregateVal:
-      return "AggregateVal";
+    case ValType::PipelineVal:
+      return "PipelineVal";
     case ValType::Attribute:
       return "Attribute";
     default:
@@ -1163,9 +1162,9 @@ std::optional<std::string> cast_func_str(
                         : std::nullopt;
 }
 
-size_t dataTypeSize(DataType type) {
+int64_t dataTypeSize(DataType type) {
   return std::visit(
-      [](auto&& dtype) -> size_t {
+      [](auto&& dtype) -> int64_t {
         using T = std::decay_t<decltype(dtype)>;
         if constexpr (std::is_same_v<T, PrimDataType>) {
           return primDataTypeSize(dtype);
@@ -1179,7 +1178,7 @@ size_t dataTypeSize(DataType type) {
       type.type);
 }
 
-size_t dataTypeSize(DataType type, DataType index_type) {
+int64_t dataTypeSize(DataType type, DataType index_type) {
   if (type == DataType::Index) {
     TORCH_INTERNAL_ASSERT(
         index_type == DataType::Int32 || index_type == DataType::Int,

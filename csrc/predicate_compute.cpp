@@ -48,8 +48,8 @@ bool ParallelizedDomainPredicate::PredicateInfo::addDomain(IterDomain* id) {
   }
 }
 
-Bool* ParallelizedDomainPredicate::PredicateInfo::getPredicate() const {
-  Bool* pred = nullptr;
+Scalar* ParallelizedDomainPredicate::PredicateInfo::getPredicate() const {
+  Scalar* pred = nullptr;
 
   auto index = SimplifyingIrBuilder::create<NamedScalar>(
       stringifyThread(pt_), DataType::Int);
@@ -61,7 +61,7 @@ Bool* ParallelizedDomainPredicate::PredicateInfo::getPredicate() const {
         GpuLower::current()->caMap()->getConcreteMappedID(
             pred_id, IdMappingMode::EXACT));
     auto new_pred = SimplifyingIrBuilder::ltExpr(index, pred_id->extent());
-    pred = SimplifyingIrBuilder::andExpr(pred, new_pred)->as<Bool>();
+    pred = SimplifyingIrBuilder::andExpr(pred, new_pred)->as<Scalar>();
   }
 
   return pred;
@@ -215,7 +215,7 @@ ParallelizedDomainPredicate::getPredicateMap(
   return map;
 }
 
-Bool* ParallelizedDomainPredicate::getPredicate(
+Scalar* ParallelizedDomainPredicate::getPredicate(
     const Expr* expr,
     const std::vector<kir::ForLoop*>& loops) {
   auto pred_map = getPredicateMap(expr, loops);
@@ -232,7 +232,7 @@ Bool* ParallelizedDomainPredicate::getPredicate(
   }
 
   TORCH_INTERNAL_ASSERT(pred != nullptr);
-  return pred->as<Bool>();
+  return pred->as<Scalar>();
 }
 
 UnswitchPredicateKey::UnswitchPredicateKey()
@@ -330,11 +330,11 @@ std::size_t UnswitchPredicateKeyHash::operator()(
   return h;
 };
 
-Bool* PredicateCompute::getInlinePredicate(
+Scalar* PredicateCompute::getInlinePredicate(
     const Expr* expr,
     const std::vector<kir::ForLoop*>& loops,
     const std::unordered_set<kir::ForLoop*>& rotated_loops,
-    Bool* thread_pred,
+    Scalar* thread_pred,
     PredicateType pred_type) {
   FUSER_PERF_SCOPE("GpuLower::Lower::getInlinePredicate");
 
@@ -368,7 +368,7 @@ Bool* PredicateCompute::getInlinePredicate(
       nullptr,
       pred_type == PredicateType::Padding);
 
-  std::vector<Bool*> preds;
+  std::vector<Scalar*> preds;
 
   // When pred_type is ReductionWrite, filter out predicates for
   // reduction axes. For blockReduce, this is necessary when reduction
@@ -427,10 +427,10 @@ Bool* PredicateCompute::getInlinePredicate(
     cond = SimplifyingIrBuilder::andExpr(cond, preds[i]);
   }
 
-  return cond->as<Bool>();
+  return cond->as<Scalar>();
 }
 
-Bool* UnswitchPredicate::get(
+Scalar* UnswitchPredicate::get(
     const std::vector<kir::ForLoop*>& outer_loops,
     kir::ForLoop* unrolled_loop) {
   FUSER_PERF_SCOPE("GpuLower::Lower::UnswitchPredicate::get");
@@ -442,7 +442,7 @@ Bool* UnswitchPredicate::get(
     unswitch_pred = SimplifyingIrBuilder::andExpr(unswitch_pred, pred);
   }
 
-  return unswitch_pred->as<Bool>();
+  return unswitch_pred->as<Scalar>();
 }
 
 void UnswitchPredicate::predicateOn(Expr* tv_expr) {
@@ -675,11 +675,11 @@ void UnswitchPredicate::finalize() {
 }
 
 void UnswitchPredicate::mergeUnswitchPredicateOffsets(
-    Bool* predicate,
+    Scalar* predicate,
     Val* offset,
     MergedPredicates::Info& merged_predicate_info,
     bool is_start) {
-  auto is_more_restrictive = [&is_start](int64_t new_val, int64_t current_val) {
+  auto is_more_restrictive = [&is_start](auto new_val, auto current_val) {
     if (is_start) {
       return new_val < current_val;
     } else {
@@ -687,12 +687,12 @@ void UnswitchPredicate::mergeUnswitchPredicateOffsets(
     }
   };
 
-  auto offset_int = dynamic_cast<Int*>(offset);
+  auto offset_int = dynamic_cast<Scalar*>(offset);
   // If it's a static predicate, replace the current one if it's
   // more restrictive. If it's dynamic, just adds it to the dynamic
   // predicate list.
   if (offset_int && offset_int->isConst()) {
-    auto offset_const = offset_int->value().value();
+    auto offset_const = offset_int->value();
     auto& static_pred = merged_predicate_info.static_pred;
     auto& static_offset = merged_predicate_info.static_offset;
     if (static_pred == nullptr ||

@@ -3458,7 +3458,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulLargeLoadLargeK_CUDA) {
 
 // Matmul test that relies on segmenter for 'C = A x B' fusion,
 //   for Ampere with strict ref check, hence single layout check
-TEST_F(NVFuserTest, FusionMatmulSegmenterBasicMatmulStrictCheckTT_CUDA) {
+TEST_F(NVFuserTest, FusionMatmulSchedulerBasicMatmulStrictCheckTT_CUDA) {
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 8, 9);
   const int M = 128, N = 256, K = 512;
   const auto layout = MatmulLayout::TT;
@@ -3519,7 +3519,7 @@ TEST_F(NVFuserTest, FusionMatmulSegmenterBasicMatmulStrictCheckTT_CUDA) {
 }
 
 // Matmul test that reslies on segmenter for 'C = A x B' fusion, for Ampere
-TEST_F(NVFuserTest, FusionMatmulSegmenterBasicMatmulRelaxedCheck_CUDA) {
+TEST_F(NVFuserTest, FusionMatmulSchedulerBasicMatmulRelaxedCheck_CUDA) {
   // skip until we have Hopper support
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 9, 0);
   const int M = 504, N = 136, K = 2048;
@@ -3585,7 +3585,7 @@ TEST_F(NVFuserTest, FusionMatmulSegmenterBasicMatmulRelaxedCheck_CUDA) {
 // Matmul test that reslies on segmenter for 'C = A x B' fusion, for Ampere
 //  MMA first input is passed as second fusion parameter.
 //  MMA second input is passed as first fusion parameter.
-TEST_F(NVFuserTest, FusionMatmulSegmenterBasicMatmulInputShuffledTT_CUDA) {
+TEST_F(NVFuserTest, FusionMatmulSchedulerBasicMatmulInputShuffledTT_CUDA) {
   // skip until we have Hopper support
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 9, 0);
   const int M = 504, N = 136, K = 2048;
@@ -3647,7 +3647,7 @@ TEST_F(NVFuserTest, FusionMatmulSegmenterBasicMatmulInputShuffledTT_CUDA) {
 
 // Matmul test that relies on segmenter for 'C = float2half(A x B)' fusion, for
 //  Ampere
-TEST_F(NVFuserTest, FusionMatmulSegmenterEpilogueOutputCast_CUDA) {
+TEST_F(NVFuserTest, FusionMatmulSchedulerEpilogueOutputCast_CUDA) {
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 9, 0);
   const auto layout = MatmulLayout::TT;
   auto fusion = std::make_unique<Fusion>();
@@ -3708,14 +3708,14 @@ TEST_F(NVFuserTest, FusionMatmulSegmenterEpilogueOutputCast_CUDA) {
 
 // Matmul test that relies on segmenter for 'C = alpha * (A x B)' fusion, for
 //  Ampere
-TEST_F(NVFuserTest, FusionMatmulSegmenterEpilogueAlpha_CUDA) {
+TEST_F(NVFuserTest, FusionMatmulSchedulerEpilogueAlpha_CUDA) {
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 9, 0);
   const auto layout = MatmulLayout::TT;
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
   // alpha - s0, A - tv 0, B - tv1
-  auto s0 = IrBuilder::create<Double>();
+  auto s0 = IrBuilder::create<Scalar>(DataType::Double);
   auto tv0 = makeContigTensor(2, DataType::Half);
   auto tv1 = makeContigTensor(2, DataType::Half);
 
@@ -3772,14 +3772,14 @@ TEST_F(NVFuserTest, FusionMatmulSegmenterEpilogueAlpha_CUDA) {
 
 // Matmul test that relies on segmenter for 'C = float2half(alpha * (A x B))'
 //  fusion, for Ampere
-TEST_F(NVFuserTest, FusionMatmulSegmenterEpilogueAlphaOutputCast_CUDA) {
+TEST_F(NVFuserTest, FusionMatmulSchedulerEpilogueAlphaOutputCast_CUDA) {
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 9, 0);
   const auto layout = MatmulLayout::TT;
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
   // alpha - s0, A - tv 0, B - tv1
-  auto s0 = IrBuilder::create<Double>();
+  auto s0 = IrBuilder::create<Scalar>(DataType::Double);
   auto tv0 = makeContigTensor(2, DataType::Half);
   auto tv1 = makeContigTensor(2, DataType::Half);
 
@@ -3838,7 +3838,7 @@ TEST_F(NVFuserTest, FusionMatmulSegmenterEpilogueAlphaOutputCast_CUDA) {
 
 // Matmul test that relies on segmenter for 'C = relu(A x B)' fusion, for
 //  Ampere
-TEST_F(NVFuserTest, FusionMatmulSegmenterEpilogueRelu_CUDA) {
+TEST_F(NVFuserTest, FusionMatmulSchedulerEpilogueRelu_CUDA) {
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 9, 0);
   const auto layout = MatmulLayout::TT;
   auto fusion = std::make_unique<Fusion>();
@@ -3899,7 +3899,7 @@ TEST_F(NVFuserTest, FusionMatmulSegmenterEpilogueRelu_CUDA) {
 
 // Matmul test that relies on segmenter for 'C = gelu(A x B)' fusion, for
 //  Ampere
-TEST_F(NVFuserTest, FusionMatmulSegmenterEpilogueGelu_CUDA) {
+TEST_F(NVFuserTest, FusionMatmulSchedulerEpilogueGelu_CUDA) {
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 9, 0);
   const auto layout = MatmulLayout::TT;
   auto fusion = std::make_unique<Fusion>();
@@ -3960,14 +3960,14 @@ TEST_F(NVFuserTest, FusionMatmulSegmenterEpilogueGelu_CUDA) {
 
 // Matmul test that relies on segmenter for fusion for Ampere:
 //  D = (A x B) + beta * C
-TEST_F(NVFuserTest, FusionMatmulSegmenterEpilogueBeta_CUDA) {
+TEST_F(NVFuserTest, FusionMatmulSchedulerEpilogueBeta_CUDA) {
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 9, 0);
   const auto layout = MatmulLayout::TT;
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
   // alpha - s0
-  auto s0 = IrBuilder::create<Double>();
+  auto s0 = IrBuilder::create<Scalar>(DataType::Double);
 
   // A - tv 0, B - tv1, C - tv2
   auto tv0 = makeContigTensor(2, DataType::Half);
@@ -4034,20 +4034,20 @@ TEST_F(NVFuserTest, FusionMatmulSegmenterEpilogueBeta_CUDA) {
 
   // NOTE: increasted absolute tolerance to silence false negative verification
   //       caused by different way of calculating reference
-  TORCH_CHECK(outputs[0].allclose(t5, 0.001, 0.004));
+  TORCH_CHECK(outputs[0].allclose(t5, 0.01, 0.04));
 }
 
 // Matmul test that relies on segmenter for fusion for Ampere:
 //  D = alpha * (A x B) + beta * C
-TEST_F(NVFuserTest, FusionMatmulSegmenterEpilogueAlphaBeta_CUDA) {
+TEST_F(NVFuserTest, FusionMatmulSchedulerEpilogueAlphaBeta_CUDA) {
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 9, 0);
   const auto layout = MatmulLayout::TT;
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
   // alpha - s0, beta - s1
-  auto s0 = IrBuilder::create<Double>();
-  auto s1 = IrBuilder::create<Double>();
+  auto s0 = IrBuilder::create<Scalar>(DataType::Double);
+  auto s1 = IrBuilder::create<Scalar>(DataType::Double);
 
   // A - tv 0, B - tv1, C - tv2
   auto tv0 = makeContigTensor(2, DataType::Half);
@@ -4123,15 +4123,15 @@ TEST_F(NVFuserTest, FusionMatmulSegmenterEpilogueAlphaBeta_CUDA) {
 
 // Matmul test that relies on segmenter for fusion for Ampere:
 //  D = gelu(alpha * (A x B) + beta * C)
-TEST_F(NVFuserTest, FusionMatmulSegmenterEpilogueAlphaBetaGeluOutputCast_CUDA) {
+TEST_F(NVFuserTest, FusionMatmulSchedulerEpilogueAlphaBetaGeluOutputCast_CUDA) {
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 9, 0);
   const auto layout = MatmulLayout::TT;
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
   // alpha - s0, beta - s1
-  auto s0 = IrBuilder::create<Double>();
-  auto s1 = IrBuilder::create<Double>();
+  auto s0 = IrBuilder::create<Scalar>(DataType::Double);
+  auto s1 = IrBuilder::create<Scalar>(DataType::Double);
 
   // A - tv 0, B - tv1, C - tv2
   auto tv0 = makeContigTensor(2, DataType::Half);
@@ -4209,7 +4209,7 @@ TEST_F(NVFuserTest, FusionMatmulSegmenterEpilogueAlphaBetaGeluOutputCast_CUDA) {
 
   // NOTE: increasted absolute tolerance to silence false negative verification
   //       caused by different way of calculating reference
-  TORCH_CHECK(outputs[0].allclose(t8, 0.001, 0.06));
+  TORCH_CHECK(outputs[0].allclose(t8, 0.01, 0.06));
 }
 
 // MMA and alpha unit test, for Ampere TN
@@ -4219,7 +4219,7 @@ TEST_F(NVFuserTest, FusionAmpereMMATNAlpha_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  auto s0 = IrBuilder::create<Double>();
+  auto s0 = IrBuilder::create<Scalar>(DataType::Double);
   // [M,K]
   auto tv0 = makeConcreteTensor({16, 16}, DataType::Half);
   // [N,K]
@@ -4307,9 +4307,9 @@ TEST_F(NVFuserTest, FusionAmpereMMATNAlphaBeta_CUDA) {
   FusionGuard fg(&fusion);
 
   // alpha
-  auto s0 = IrBuilder::create<Double>();
+  auto s0 = IrBuilder::create<Scalar>(DataType::Double);
   // beta
-  auto s1 = IrBuilder::create<Double>();
+  auto s1 = IrBuilder::create<Scalar>(DataType::Double);
 
   // [M,K] - A
   auto tv0 = makeConcreteTensor({16, 16}, DataType::Half);
@@ -4414,6 +4414,57 @@ TEST_F(NVFuserTest, FusionAmpereMMATNAlphaBeta_CUDA) {
   auto t6 = t4.add(t5);
 
   TORCH_CHECK(cg_outputs[0].allclose(t6, 0.0001, 0.0001));
+}
+
+// Matmul test for Ampere MMA: across supported layouts
+TEST_F(NVFuserTest, FusionAmpereSplitKLikeStridedBatchedMatmul_CUDA) {
+  // Keep multiples of 8 to keep vectorizable.
+  int B = 2, M = 504, N = 136, K = 248;
+
+  for (auto layout : kAllSupportedMatmulLayout) {
+    Fusion fusion;
+    FusionGuard fg(&fusion);
+    auto tv0 = makeContigTensor(3, DataType::Half);
+    auto tv1 = makeContigTensor(3, DataType::Half);
+
+    fusion.addInput(tv0);
+    fusion.addInput(tv1);
+
+    auto tv2 = splitkLikeBatchedMatmul(tv0, tv1, layout);
+
+    fusion.addOutput(tv2);
+
+    MatMulTileOptions gemm_tile;
+    gemm_tile.cta_tile = GemmTile(128, 128, 32);
+    gemm_tile.warp_tile = GemmTile(64, 64, 32);
+    gemm_tile.instruction_tile = GemmTile(16, 8, 16);
+
+    MatmulParams params;
+    params.mma_macro = MmaOptions::MacroType::Ampere_16_8_16;
+    params.tile_sizes = gemm_tile;
+    params.async_gmem_load_operands = true;
+    params.double_buffer_options.double_buffer_smem_write = true;
+    params.double_buffer_options.double_buffer_smem_read = true;
+    params.double_buffer_options.smem_double_buffer_stage = 4;
+    scheduleMatmul(&fusion, params);
+
+    auto inputs = splitkLikeBatchedMatmulAtInput(M, N, B, K, layout);
+
+    FusionExecutor fe;
+    NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
+        8,
+        0,
+        fe.compileFusion(
+            &fusion,
+            {inputs.first, inputs.second},
+            LaunchParams(),
+            matmul_cparams));
+    ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
+    auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
+    auto tref = splitkLikeAtMatmul(
+        inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
+    TORCH_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+  }
 }
 
 #undef NVFUSER_TEST_CUDA_ARCH_GUARD

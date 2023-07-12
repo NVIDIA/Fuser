@@ -1044,8 +1044,8 @@ LaunchParams FusionExecutor::computeLaunchParams(
         p_type,
         " to set launch bounds but could not.");
 
-    if (val.as<int64_t>() > 0) {
-      expr_eval.bind(p_type, val.as<int64_t>());
+    if (val > 0) {
+      expr_eval.bind(p_type, val);
       launch_params.bind(val.as<int64_t>(), p_type);
     }
   }
@@ -1139,34 +1139,6 @@ std::vector<FusionExecutor::GlobalBufferInfo> FusionExecutor::
   }
 
   return global_buffers;
-}
-
-std::vector<at::Tensor> FusionExecutor::allocOutputSpace(
-    const at::ArrayRef<c10::IValue>& inputs) {
-  auto kernel_inputs = KernelArgumentHolder::createKernelArgumentHolder(inputs);
-  auto expr_eval =
-      executor_utils::bindInputs(kernel_inputs, lowered_->kernel());
-
-  auto input_alias_indices_entry =
-      executor_utils::caching::ExecutorCompileTimeEntry<
-          executor_utils::caching::InputAliasIndices>(
-          compileTimeDataCache(), [&]() {
-            return std::make_unique<std::vector<std::pair<int, int>>>(
-                fusion_->getOutputToInputAliasIndices());
-          });
-
-  const auto& output_to_input_aliases = input_alias_indices_entry.get();
-
-  auto output_info =
-      getOutputBufferInfo(kernel_inputs, expr_eval, output_to_input_aliases);
-
-  return allocOutputs(
-      kernel(),
-      output_info,
-      output_to_input_aliases,
-      kernel_inputs,
-      options_.device,
-      expr_eval);
 }
 
 std::vector<FusionExecutor::GlobalBufferInfo> FusionExecutor::
