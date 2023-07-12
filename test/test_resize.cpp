@@ -1695,6 +1695,9 @@ TEST_F(NVFuserTest, FusionSliceForNanoGPT2_CUDA) {
   auto& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());
 
+  EnableOptionsGuard opt_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::MemoryPromotion);
+
   std::vector<int64_t> input_shape0{100, 100};
   std::vector<int64_t> input_shape1{32, 32};
 
@@ -1820,6 +1823,9 @@ TEST_F(NVFuserTest, FusionSliceForNanoGPT3_CUDA) {
   auto& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());
 
+  EnableOptionsGuard opt_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::MemoryPromotion);
+
   std::vector<int64_t> input_shape{16, 128, 3072};
 
   auto tv0 = makeSymbolicTensor(3);
@@ -1893,6 +1899,9 @@ TEST_F(NVFuserTest, ResizeReshapeAndSlice_CUDA) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
+  EnableOptionsGuard opt_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::MemoryPromotion);
+
   auto tv0 = makeSymbolicTensor(2);
   fusion->addInput(tv0);
 
@@ -1926,6 +1935,9 @@ TEST_F(NVFuserTest, ResizeReshapeAndSlice_CUDA) {
 TEST_F(NVFuserTest, ResizePermuteAndSlice_CUDA) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
+
+  EnableOptionsGuard opt_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::MemoryPromotion);
 
   // Set the problem size so that it can trigger the transpose
   // scheduler. The scheduler selection is validated below.
