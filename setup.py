@@ -21,7 +21,7 @@
 #     In case you want to use make instead of ninja for build
 #
 #   --build-with-ucc
-#     Build nvfuser with UCC support. Need to specify environment variables of UCC_HOME, UCC_DIR, UCX_HOME, UCX_DIR.
+#     Build nvfuser with UCC support. You may need to specify environment variables of UCC_HOME, UCC_DIR, UCX_HOME, UCX_DIR.
 #
 #   --debug
 #     Building nvfuser in debug mode
