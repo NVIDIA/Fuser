@@ -5,10 +5,13 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+
 #pragma once
 
-#include <ir/base_nodes.h>
-#include <ir/interface_nodes.h>
-#include <ir/internal_nodes.h>
-#include <kernel_ir.h>
-#include <multidevice/pipeline_ir.h>
+#if __has_include(<bits/c++config.h>)
+#include <bits/c++config.h>
+#endif
+
+#if defined(__GLIBCXX__) && __GLIBCXX__ >= 20230000
+#define STD_UNORDERED_SET_SUPPORTS_INCOMPLETE_TYPE 1
+#endif

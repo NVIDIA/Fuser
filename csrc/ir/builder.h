@@ -89,6 +89,9 @@ class TORCH_CUDA_CU_API IrBuilder {
   static Val* getItemExpr(Val* array, Val* index);
   static Val* getAttrExpr(Val* struct_, std::string attr);
 
+  // Get tensor metadata
+  static Val* metadataExpr(TensorView* tv);
+
   // Construct an array of values, or nested arrays of values.
   template <typename T>
   static Val* arrayExpr(std::vector<T> members) {
