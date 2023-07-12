@@ -380,20 +380,32 @@ void DynamicTransformConcretizer::concretize() {
   // Set output IterTypes for dynamic resize ops
   concretizeResize();
 
-  // The methods above do not traverse the graph. Instead they fill in
-  // root->rfactor expressions by replacing the dynamic reshaped TV with a
-  // static reshaped one, and by registering concretization of dynamic Resized
-  // IterDomains. From this point forward, we will not modify any TensorView
-  // expressions. This restriction makes it safe for us to to traverse forward
-  // through the graph and mutate IterDomains and TensorDomains in order to
-  // properly propagate IterTypes and concretized extent expressions, without
-  // breaking the topological ordering of these expressions.
-  //
+  // This fixes the set of statements we will process over the course of
+  // multiple passes.
+  // Since we will traverse these Statements after some have been removed, we
+  // will not be able to safely check the types of each Statement in later
+  // loops. To avoid segfaults, we first split all_statements into subsets for
+  // each traversal.
+  std::vector<Val*> non_tds_tvs;
+  std::vector<Expr*> all_exprs;
+  std::vector<Val*> tvs_and_tds;
+  for (auto stmt : StmtSort::getStmts(info_->fusion(), true)) {
+    if (stmt->isExpr()) {
+      all_exprs.push_back(stmt->asExpr());
+    } else {
+      auto val = stmt->asVal();
+      if (val->isA<TensorView>() || val->isA<TensorDomain>()) {
+        tvs_and_tds.push_back(val);
+      } else {
+        non_tds_tvs.push_back(val);
+      }
+    }
+  }
+
   // When propagating IterTypes across expressions, we need to know the producer
   // IterDomains corresponding to a consumer ID. This mapping helps facilitate
-  // this and is used later in mutate(IterDomain*).
-  auto all_stmts = StmtSort::getStmts(info_->fusion(), true);
-  for (auto expr : ir_utils::filterByType<Expr>(all_stmts)) {
+  // this and is used later by mutate(IterDomain*) in the first pass below.
+  for (auto expr : all_exprs) {
     for (auto consumer : ir_utils::filterByType<TensorView>(expr->outputs())) {
       for (auto producer : ir_utils::filterByType<TensorView>(expr->inputs())) {
         PairwiseRootDomainMap root_map(producer, consumer);
@@ -408,25 +420,22 @@ void DynamicTransformConcretizer::concretize() {
   }
 
   // In this first pass, we only mutate Vals that are not TensorDomains or
-  // TensorViews. This does not change the traversal order as no expressions are
-  // changed.
-  for (auto stmt : all_stmts) {
-    if (stmt->isVal() && !stmt->isA<TensorDomain>() &&
-        !stmt->isA<TensorView>()) {
-      mutate(stmt);
-    }
+  // TensorViews.
+  //
+  // This pass does not modify the Fusion.
+  for (auto val : non_tds_tvs) {
+    mutate(val);
   }
-  // After this point, we should only call `registerExpr` on the unhandled
-  // TensorDomains.
 
   // In the second pass, we only mutate Exprs. For each expr, if any of its
   // inputs, outputs, or attributes are registered for mutation, a new expr will
   // be created and the original expr will be removed. This is the mechanism
   // OptOutMutator provides for setting the `definition()` of replaced Vals.
-  for (auto stmt : all_stmts) {
-    if (stmt->isExpr()) {
-      mutate(stmt);
-    }
+  //
+  // This pass may add and remove Exprs, so elements of all_exprs are invalid
+  // after this pass.
+  for (auto expr : all_exprs) {
+    mutate(expr);
   }
 
   // In the third pass, we mutate the TensorDomains and TensorViews, without
@@ -435,10 +444,11 @@ void DynamicTransformConcretizer::concretize() {
   // IterDomains are registered for mutation. This must happen last, as Expr
   // mutation is required in order to properly connect root and rfactor domains,
   // which is checked when creating new TensorDomains.
-  for (auto stmt : all_stmts) {
-    if (stmt->isA<TensorDomain>() || stmt->isA<TensorView>()) {
-      mutate(stmt);
-    }
+  //
+  // This pass modifies the Fusion by creating new TensorDomains and swapping
+  // them into TensorViews.
+  for (auto val : tvs_and_tds) {
+    mutate(val);
   }
 }
 
@@ -460,18 +470,6 @@ void DynamicTransformConcretizer::concretizeReshape() {
     for (auto use_of_old_tv : incomplete_out_tv->uses()) {
       ir_utils::replaceValInExpr(
           use_of_old_tv, incomplete_out_tv, concrete_reshape_out_tv);
-    }
-
-    // Replace old extents with new ones in downstream expressions
-    for (auto i :
-         c10::irange(incomplete_out_tv->getMaybeRFactorDomain().size())) {
-      auto old_extent =
-          incomplete_out_tv->getMaybeRFactorDomain().at(i)->extent();
-      auto new_extent =
-          concrete_reshape_out_tv->getMaybeRFactorDomain().at(i)->extent();
-      if (!new_extent->sameAs(old_extent)) {
-        registerConcretization(old_extent, new_extent);
-      }
     }
 
     if (incomplete_out_tv->isFusionOutput()) {
@@ -580,9 +578,9 @@ void DynamicTransformConcretizer::mutate(IterDomain* id) {
 
   IterDomain* concretized_id = nullptr;
 
-  if (auto def = id->definition()) {
-    IterType iter_type = id->getIterType();
-    if (iter_type == IterType::Symbolic) {
+  if (mut_id->isSymbolic()) {
+    if (auto def = id->definition()) {
+      IterType iter_type = mut_id->getIterType();
       // Determine concrete IterType based on promotion of inputs to def
       for (auto inp_id : ir_utils::filterByType<IterDomain>(def->inputs())) {
         auto updated_id = maybeMutated(inp_id)->as<IterDomain>();
@@ -592,40 +590,43 @@ void DynamicTransformConcretizer::mutate(IterDomain* id) {
           iter_type != IterType::Symbolic,
           "Failed to concretize an output IterType for expression: ",
           def->toString());
-    }
-    concretized_id = IterDomainBuilder(mut_id).iter_type(iter_type).build();
-  } else {
-    // IterDomains without definitions might be root domains for the output of a
-    // TensorView expression. If so, we should propagate their concretization in
-    // the producer to consumer direction.
+      concretized_id = IterDomainBuilder(mut_id).iter_type(iter_type).build();
+    } else {
+      // IterDomains without definitions might be root domains for the output of
+      // a TensorView expression. If so, we should propagate their
+      // concretization in the producer to consumer direction.
 
-    auto producers_it = id_producers_.find(id);
-    if (producers_it != id_producers_.end()) {
-      // id was a consumer root ID in some TV expression
+      auto producers_it = id_producers_.find(id);
+      if (producers_it != id_producers_.end()) {
+        // id was a consumer root ID in some TV expression
 
-      std::optional<IterType> id_type;
-      for (auto producer_id : producers_it->second) {
-        producer_id = maybeMutated(producer_id)->as<IterDomain>();
-        if (id_type.has_value()) {
-          id_type = ops::promoteIterType(*id_type, producer_id->getIterType());
-        } else {
-          id_type = producer_id->getIterType();
+        std::optional<IterType> id_type;
+        for (auto producer_id : producers_it->second) {
+          producer_id = maybeMutated(producer_id)->as<IterDomain>();
+          if (id_type.has_value()) {
+            id_type =
+                ops::promoteIterType(*id_type, producer_id->getIterType());
+          } else {
+            id_type = producer_id->getIterType();
+          }
         }
+
+        TORCH_INTERNAL_ASSERT(
+            id_type.has_value(),
+            "Did not find id_type for consumer root domain ",
+            id->toString(),
+            ". Perhaps consumer def has no inputs.");
+
+        TORCH_INTERNAL_ASSERT(
+            id_type.value() != IterType::Symbolic,
+            "Failed to concretize ",
+            id->toString());
+
+        if (id_type.value() != id->getIterType())
+
+          concretized_id =
+              IterDomainBuilder(mut_id).iter_type(id_type.value()).build();
       }
-
-      TORCH_INTERNAL_ASSERT(
-          id_type.has_value(),
-          "Did not find id_type for consumer root domain ",
-          id->toString(),
-          ". Perhaps consumer def has no inputs.");
-
-      TORCH_INTERNAL_ASSERT(
-          id_type.value() != IterType::Symbolic,
-          "Failed to concretize ",
-          id->toString());
-
-      concretized_id =
-          IterDomainBuilder(mut_id).iter_type(id_type.value()).build();
     }
   }
 
