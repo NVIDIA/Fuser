@@ -232,6 +232,14 @@ inline PolymorphicValue abs(const PolymorphicValue& a) {
       false, "PolymorphicValue abs not implemented for ", a.type().name());
 }
 
+inline PolymorphicValue erf(const PolymorphicValue& a) {
+  if (a.is<at::Tensor>()) {
+    return PolymorphicValue(a.as<at::Tensor>().erf());
+  }
+  TORCH_INTERNAL_ASSERT(
+      false, "PolymorphicValue erf not implemented for ", a.type().name());
+}
+
 } // namespace PolymorphicValue_functions
 
 } // namespace nvfuser

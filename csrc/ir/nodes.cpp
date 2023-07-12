@@ -395,6 +395,9 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
     case UnaryOpType::Not:
       return {notExpr(in)};
       break;
+    case UnaryOpType::Erf:
+      return {erf(in)};
+      break;
     default:
       TORCH_CHECK(
           false,
@@ -1119,6 +1122,26 @@ std::string SqueezeOp::toString(int indent_size) const {
 
 std::string SqueezeOp::toInlineString(int indent_size) const {
   TORCH_CHECK(false, "Tensor op can not be printed inline");
+}
+
+std::vector<PolymorphicValue> SqueezeOp::evaluate(
+    const std::vector<PolymorphicValue>& inputs) const {
+  TORCH_INTERNAL_ASSERT(
+      inputs.size() == 1,
+      "SqueezeOp expects exactly 1 input, but received ",
+      inputs.size());
+  std::vector<int64_t> out_shape;
+  const auto& in = inputs.at(0).as<at::Tensor>();
+  const auto& is_squeeze_dims = getSqueezeDimFlags();
+  TORCH_INTERNAL_ASSERT(
+      (int64_t)is_squeeze_dims.size() == in.dim(),
+      "The dimensions of input tensor and does not match with is_squeeze_dims");
+  for (int64_t i : c10::irange((int64_t)is_squeeze_dims.size())) {
+    if (!is_squeeze_dims[i]) {
+      out_shape.push_back(in.sizes()[i]);
+    }
+  }
+  return {in.view(out_shape)};
 }
 
 void SqueezeOp::checkConcretization(Val* old_val, Val* new_val) const {
