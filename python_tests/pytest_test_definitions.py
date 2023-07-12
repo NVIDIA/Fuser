@@ -75,7 +75,11 @@ def errors_test_fn(
     exception_type: Exception,
     exception_str: Optional[str],
 ):
-    _fd_fn = nvf_op.fd_error_input_fn if nvf_op.fd_error_input_fn is not None else default_fd_fn
+    _fd_fn = (
+        nvf_op.fd_error_input_fn
+        if nvf_op.fd_error_input_fn is not None
+        else default_fd_fn
+    )
     exception = None
     try:
         with FusionDefinition() as fd:
@@ -93,9 +97,7 @@ def errors_test_fn(
     ), f"Failed to match exception -- Expected exception: {exception_str}, Found exception: {exception}"
 
 
-def torch_correctness_test_fn(
-    fd_fn: Callable, nvf_op: OpInfo, sample: SampleInput
-):
+def torch_correctness_test_fn(fd_fn: Callable, nvf_op: OpInfo, sample: SampleInput):
     with FusionDefinition() as fd:
         fd_fn(fd, nvf_op, *sample.args, **sample.kwargs)
     nvfuser_result = fd.execute(parse_args_fusion_execution(nvf_op, *sample.args))
@@ -141,7 +143,11 @@ def correctness_test_fn(
     nvf_op: OpInfo,
     sample: SampleInput,
 ):
-    _fd_fn = nvf_op.fd_correctness_fn if nvf_op.fd_correctness_fn is not None else default_fd_fn
+    _fd_fn = (
+        nvf_op.fd_correctness_fn
+        if nvf_op.fd_correctness_fn is not None
+        else default_fd_fn
+    )
     if reference_type == ReferenceType.Pytorch:
         return torch_correctness_test_fn(_fd_fn, nvf_op, sample)
     elif reference_type == ReferenceType.Jax:
@@ -149,14 +155,14 @@ def correctness_test_fn(
     else:
         return None
 
-###### Decorated (templated) tests that create a test per Opinfo ###### 
+
+###### Decorated (templated) tests that create a test per Opinfo ######
+
 
 @create_op_test(tuple(op for op in opinfos if op.reference is not None))
 def test_correctness(op: OpInfo, dtype: torch.dtype):
     for sample in op.sample_input_generator(op, dtype):
-        result = correctness_test_fn(
-            op.reference_type, op, sample
-        )
+        result = correctness_test_fn(op.reference_type, op, sample)
         if result is not None:
             return result
 

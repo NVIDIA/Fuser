@@ -98,7 +98,7 @@ class OpInfo:
 
     # Function of FusionDefintion operations for valid inputs
     fd_correctness_fn: Callable = None
-    
+
     # Function of FusionDefintion operations for error inputs
     fd_error_input_fn: Callable = None
 

@@ -15,6 +15,7 @@ from nvfuser.pytorch_utils import (
     torch_dtype_to_nvfuser_dtype,
 )
 
+
 def parse_inputs_fusion_definition(fd: FusionDefinition, opinfo: OpInfo, *args):
     if len(args) == 0:
         return []
