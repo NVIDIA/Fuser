@@ -161,13 +161,13 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
     }
   }
 
-  //! Convert the maybe_zero_extents_set_ to a vector so that we can index it.
+  //! Convert maybe_zero_extents_set_ to a vector so we can index it reliably
   void finalizeMaybeEmptyExtents() {
     info_.maybe_zero_extents_.reserve(info_.maybe_zero_extents_set_.size());
     for (auto val : info_.maybe_zero_extents_set_) {
       info_.maybe_zero_extents_.push_back(val);
     }
-    // Clear the corresponding set to free memory and avoid speed up cloning
+    // Clear the corresponding set to free memory and speed up cloning
     info_.maybe_zero_extents_set_.clear();
   }
 
