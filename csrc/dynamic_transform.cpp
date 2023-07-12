@@ -407,9 +407,38 @@ void DynamicTransformConcretizer::concretize() {
     }
   }
 
-  // Finally, propagate concretized domains with forward traversal
+  // In this first pass, we only mutate Vals that are not TensorDomains or
+  // TensorViews. This does not change the traversal order as no expressions are
+  // changed.
   for (auto stmt : all_stmts) {
-    mutate(stmt);
+    if (stmt->isVal() && !stmt->isA<TensorDomain>() &&
+        !stmt->isA<TensorView>()) {
+      mutate(stmt);
+    }
+  }
+  // After this point, we should only call `registerExpr` on the unhandled
+  // TensorDomains.
+
+  // In the second pass, we only mutate Exprs. For each expr, if any of its
+  // inputs, outputs, or attributes are registered for mutation, a new expr will
+  // be created and the original expr will be removed. This is the mechanism
+  // OptOutMutator provides for setting the `definition()` of replaced Vals.
+  for (auto stmt : all_stmts) {
+    if (stmt->isExpr()) {
+      mutate(stmt);
+    }
+  }
+
+  // In the third pass, we mutate the TensorDomains and TensorViews, without
+  // touching any other Vals or Exprs. The only change made to the Fusion at
+  // this stage is that TensorViews have their domain() replaced if any of their
+  // IterDomains are registered for mutation. This must happen last, as Expr
+  // mutation is required in order to properly connect root and rfactor domains,
+  // which is checked when creating new TensorDomains.
+  for (auto stmt : all_stmts) {
+    if (stmt->isA<TensorDomain>() || stmt->isA<TensorView>()) {
+      mutate(stmt);
+    }
   }
 }
 
@@ -532,6 +561,9 @@ void DynamicTransformConcretizer::mutate(TensorDomain* td) {
     }
   }
 
+  // NOTE: definitions for replacement rfactor IDs must have been properly set
+  // at this point. This will only happen after `mutate(Expr)` has been called
+  // on each intermediate ID expression connecting root to rfactor.
   Val* mutated_val = IrBuilder::create<TensorDomain>(
       td->container(), root_dom, rfactor_dom, domain, contig);
   registerConcretization(td, mutated_val);
