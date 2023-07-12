@@ -29,25 +29,19 @@ namespace nvfuser::python_frontend {
 // bindings. Ideally, these would be templated lambda functions but those
 // are not available without C++20.
 namespace {
-Vector define_vector_fn(
-    FusionDefinition& fd,
-    std::optional<std::vector<int64_t>> value,
-    size_t size,
-    PrimDataType dtype = DataType::Int) {
-  FUSER_PERF_SCOPE("FusionDefinition.define_vector (canonical)");
-  if (value.has_value()) {
-    TORCH_CHECK(
-        value.value().size() == size,
-        "value size and input size do not match!");
+Vector define_vector_fn(FusionDefinition& fd, std::vector<Scalar>& args) {
+  FUSER_PERF_SCOPE("FusionDefinition.define_vector (from Scalars)");
+  TORCH_CHECK(!fd.completed(), "Attempting to add to a completed definition!");
+  std::vector<State> inputs;
+  inputs.reserve(args.size());
+  for (const auto& arg : args) {
+    inputs.push_back(fd.recordingState(arg()));
   }
-  Vector out = fd.defineVector(size);
-  auto rtype = value.has_value() ? serde::RecordType_VectorLong
-                                 : serde::RecordType_VectorInput;
-  fd.defineRecord(new VectorRecord<int64_t>(
-      {fd.recordingState(out())}, rtype, value, size, dtype));
+  Vector out = fd.defineVector(inputs.size());
+  fd.defineRecord(
+      new VectorRecord(inputs, {fd.recordingState(out())}, DataType::Int));
   return out;
 }
-
 } // namespace
 
 std::vector<std::optional<bool>> computeContiguity(
@@ -259,7 +253,16 @@ void initNvFuserPythonBindings(PyObject* module) {
              std::optional<int64_t> device) {
             std::vector<c10::IValue> inputs;
             for (py::handle obj : iter) {
-              inputs.push_back(torch::jit::toIValue(obj, c10::AnyType::get()));
+              // Allows for a Vector of Sizes to be inputed as a list
+              if (py::isinstance<py::list>(obj)) {
+                for (py::handle item : obj) {
+                  inputs.push_back(
+                      torch::jit::toIValue(item, c10::AnyType::get()));
+                }
+              } else {
+                inputs.push_back(
+                    torch::jit::toIValue(obj, c10::AnyType::get()));
+              }
             }
             std::optional<int8_t> int8_device = std::nullopt;
             if (device.has_value()) {
@@ -596,40 +599,65 @@ void initNvFuserPythonBindings(PyObject* module) {
   // This is the input version of define_vector
   fusion_def.def(
       "define_vector",
-      [](FusionDefinition& self,
-         size_t size,
-         PrimDataType dtype = DataType::Int) -> Vector {
-        return define_vector_fn(self, std::nullopt, size, dtype);
+      [](FusionDefinition& self, size_t size) -> Vector {
+        TORCH_CHECK(
+            size < 8,
+            "The specified vector size exceeds the max tensor size for nvfuser.");
+        std::vector<Scalar> args;
+        args.reserve(size);
+        for (size_t i = 0; i < size; ++i) {
+          Scalar out = self.defineScalar();
+          self.defineRecord(new ScalarRecord<int64_t>(
+              {self.recordingState(out())},
+              serde::RecordType_ScalarInput,
+              std::nullopt,
+              DataType::Int));
+          args.emplace_back(out);
+        }
+        return define_vector_fn(self, args);
       },
       py::arg("size"),
-      py::arg("dtype") = DataType::Int,
-      py::return_value_policy::reference);
-  // This is the canonical version of define_vector that accepts either a
-  // nullptr or a vector of values to indicate either an input or a constant
-  // for use when printing out the associated Fusion Record.
-  fusion_def.def(
-      "define_vector",
-      [](FusionDefinition& self,
-         std::optional<std::vector<int64_t>> value,
-         size_t size,
-         PrimDataType dtype) -> Vector {
-        return define_vector_fn(self, value, size, dtype);
-      },
-      py::arg("value").none(true),
-      py::arg("size"),
-      py::arg("dtype") = DataType::Int,
       py::return_value_policy::reference);
   // This is the constant version of define_vector when given a vector
   // of constant values.
   fusion_def.def(
       "define_vector",
-      [](FusionDefinition& self,
-         std::vector<int64_t> value,
-         PrimDataType dtype) -> Vector {
-        return define_vector_fn(self, value, value.size(), dtype);
+      [](FusionDefinition& self, py::list& values) -> Vector {
+        std::vector<Scalar> args;
+        size_t idx = 0;
+        for (const auto& item : values) {
+          TORCH_CHECK(
+              idx < 8,
+              "The specified vector size exceeds the max tensor size for nvfuser.");
+          if (py::isinstance<py::int_>(item)) {
+            auto int_value = py::cast<int64_t>(item);
+            TORCH_CHECK(
+                int_value >= -1,
+                "The value ",
+                int_value,
+                " at index ",
+                idx,
+                " was neither symbolic(-1), zero_element(0), broadcast(1), or static(>1).");
+            Scalar out = self.defineScalar();
+            self.defineRecord(new ScalarRecord<int64_t>(
+                {self.recordingState(out())},
+                serde::RecordType_ScalarLong,
+                py::cast<int64_t>(item),
+                DataType::Int));
+            args.emplace_back(out);
+          } else if (py::isinstance<Scalar>(item)) {
+            args.emplace_back(py::cast<Scalar>(item));
+          } else {
+            TORCH_CHECK(
+                false,
+                "Unsupported iterable object type for define_vector! Index:",
+                idx);
+          }
+          ++idx;
+        }
+        return define_vector_fn(self, args);
       },
-      py::arg("value"),
-      py::arg("dtype") = DataType::Int,
+      py::arg("values"),
       py::return_value_policy::reference);
 
   //! The Operators class is a nested class of FusionDefinition to allow the
@@ -734,6 +762,45 @@ void initNvFuserPythonBindings(PyObject* module) {
   NVFUSER_PYTHON_BINDING_UNARY_OP("real", real)
   NVFUSER_PYTHON_BINDING_UNARY_OP("imag", imag)
 #undef NVFUSER_PYTHON_BINDING_UNARY_OP
+
+// rand_like and randn_like are normally used with a single TensorView argument,
+// like a UnaryOp. However, they also take an optional pair (rng_seed,
+// rng_offset) which converts them to deterministic ops. When those args are
+// provided, and they must both be provided if either is, then the op behaves
+// like a ternary op. We handle the UnaryOp case above and the TernaryOp case
+// here.
+#define NVFUSER_PYTHON_BINDING_TERNARY_RANDOM_OP(op_str, op_name)             \
+  nvf_ops.def(                                                                \
+      op_str,                                                                 \
+      [](FusionDefinition::Operators& self,                                   \
+         Tensor input,                                                        \
+         Scalar rng_seed,                                                     \
+         Scalar rng_offset) -> Tensor {                                       \
+        FUSER_PERF_SCOPE("Operators." op_str);                                \
+        TORCH_CHECK(                                                          \
+            self.validUse(), "Attempting to add to a completed definition!"); \
+        FusionDefinition* fd = self.fusion_definition;                        \
+        Tensor output = fd->defineTensor(input.dims);                         \
+        fd->defineRecord(new OpRecord<TensorView*, TensorView*>(              \
+            {fd->recordingState(input()),                                     \
+             fd->recordingState(rng_seed()),                                  \
+             fd->recordingState(rng_offset())},                               \
+            {fd->recordingState(output())},                                   \
+            ("ops." op_str),                                                  \
+            serde::RecordType_Ternary_TV_VAL_VAL,                             \
+            static_cast<TensorView* (*)(TensorView*)>(op_name)));             \
+        return output;                                                        \
+      },                                                                      \
+      py::arg("arg"),                                                         \
+      py::kw_only(),                                                          \
+      py::arg("rng_seed"),                                                    \
+      py::arg("rng_offset"),                                                  \
+      py::return_value_policy::reference);
+
+  NVFUSER_PYTHON_BINDING_TERNARY_RANDOM_OP("rand_like", rand_like)
+  NVFUSER_PYTHON_BINDING_TERNARY_RANDOM_OP("randn_like", randn_like)
+
+#undef NVFUSER_PYTHON_BINDING_UNARY_RANDOM_OP
 
 #define NVFUSER_PYTHON_BINDING_UNARY_OP_SPECIAL(op_str, op_name)               \
   tensor_class.def(                                                            \
@@ -2314,7 +2381,9 @@ void initNvFuserPythonBindings(PyObject* module) {
          Scalar minval,
          Scalar maxval,
          std::vector<Scalar>& shape,
-         PrimDataType dtype) -> Tensor {
+         PrimDataType dtype,
+         std::optional<Scalar> rng_seed,
+         std::optional<Scalar> rng_offset) -> Tensor {
         FUSER_PERF_SCOPE("Operators.uniform");
         TORCH_CHECK(
             self.validUse(), "Attempting to add to a completed definition!");
@@ -2327,11 +2396,19 @@ void initNvFuserPythonBindings(PyObject* module) {
             shape.end(),
             output_shape_states.begin(),
             [&fd](const Scalar& s) { return fd->recordingState(s()); });
+        std::vector<State> arg_states = {
+            fd->recordingState(minval()),
+            fd->recordingState(maxval()),
+        };
+        if (rng_seed.has_value()) {
+          TORCH_CHECK(
+              rng_offset.has_value(),
+              "When providing rng_seed, rng_offset must also be provided");
+          arg_states.push_back(fd->recordingState(rng_seed.value()()));
+          arg_states.push_back(fd->recordingState(rng_offset.value()()));
+        }
         fd->defineRecord(new RandomOpRecord(
-            {
-                fd->recordingState(minval()),
-                fd->recordingState(maxval()),
-            },
+            arg_states,
             {fd->recordingState(output())},
             output_shape_states,
             "ops.uniform",
@@ -2342,6 +2419,9 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("maxval"),
       py::arg("shape"),
       py::arg("dtype") = DataType::Float,
+      py::kw_only(),
+      py::arg("rng_seed") = py::none(),
+      py::arg("rng_offset") = py::none(),
       py::return_value_policy::reference);
   nvf_ops.def(
       "normal",
@@ -2349,7 +2429,9 @@ void initNvFuserPythonBindings(PyObject* module) {
          Scalar mean,
          Scalar std,
          std::vector<Scalar>& shape,
-         PrimDataType dtype) -> Tensor {
+         PrimDataType dtype,
+         std::optional<Scalar> rng_seed,
+         std::optional<Scalar> rng_offset) -> Tensor {
         FUSER_PERF_SCOPE("Operators.normal");
         TORCH_CHECK(
             self.validUse(), "Attempting to add to a completed definition!");
@@ -2362,11 +2444,19 @@ void initNvFuserPythonBindings(PyObject* module) {
             shape.end(),
             output_shape_states.begin(),
             [&fd](const Scalar& s) { return fd->recordingState(s()); });
+        std::vector<State> arg_states = {
+            fd->recordingState(mean()),
+            fd->recordingState(std()),
+        };
+        if (rng_seed.has_value()) {
+          TORCH_CHECK(
+              rng_offset.has_value(),
+              "When providing rng_seed, rng_offset must also be provided");
+          arg_states.push_back(fd->recordingState(rng_seed.value()()));
+          arg_states.push_back(fd->recordingState(rng_offset.value()()));
+        }
         fd->defineRecord(new RandomOpRecord(
-            {
-                fd->recordingState(mean()),
-                fd->recordingState(std()),
-            },
+            arg_states,
             {fd->recordingState(output())},
             output_shape_states,
             "ops.normal",
@@ -2377,6 +2467,9 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("std"),
       py::arg("shape"),
       py::arg("dtype") = DataType::Float,
+      py::kw_only(),
+      py::arg("rng_seed") = py::none(),
+      py::arg("rng_offset") = py::none(),
       py::return_value_policy::reference);
   //! The ScedOperators class is a nested class of FusionDefinition to allow the
   //! user to query the class for the list of schedule operators.

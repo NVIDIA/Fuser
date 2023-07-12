@@ -87,10 +87,10 @@ def errors_test_fn(
     assert exception is not None, "Expected an exception"
     assert exception_type is type(
         exception
-    ), f"Expected an exception with type {exception_type}, but found exception={exception}"
+    ), f"Expected an exception with type {exception_type} and message {exception_str}, but found exception={exception}"
     assert exception_str is None or exception_str in str(
         exception
-    ), "Failed to find correct expection error message"
+    ), f"Failed to match exception -- Expected exception: {exception_str}, Found exception: {exception}"
 
 
 def torch_correctness_test_fn(

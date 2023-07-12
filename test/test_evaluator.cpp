@@ -360,34 +360,54 @@ TEST_F(ExprEvalTest, Array) {
   evaluator.bind(b, 5L);
 
   auto arr_val = evaluator.evaluate(arr);
-  std::vector<ScalarValue> arr_vec = {2, 5};
+  std::vector<PolymorphicValue> arr_vec = {2L, 5L};
   EXPECT_EQ(arr_val, arr_vec);
 
   checkIntValue(evaluator, aa, 2L);
   checkIntValue(evaluator, bb, 5L);
 }
 
-TEST_F(ExprEvalTest, Tensor) {
+TEST_F(ExprEvalTest, TensorEagerExecution) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* tv0 = makeSymbolicTensor(2);
+  TensorView* tv1 = makeSymbolicTensor(2);
+  auto tv2 = add(tv0, tv1);
+
+  at::Tensor a = at::rand({6, 128});
+  at::Tensor b = at::rand({6, 128});
+
+  ExpressionEvaluator evaluator;
+  evaluator.bind(tv0, a);
+  evaluator.bind(tv1, b);
+
+  EXPECT_TRUE(at::allclose(evaluator.evaluate(tv2).as<at::Tensor>(), a + b));
+}
+
+TEST_F(ExprEvalTest, TensorMetaData) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
   TensorView* tv = makeSymbolicTensor(2);
-  auto data = IrBuilder::getAttrExpr(tv, "data");
-  auto sizes = IrBuilder::getAttrExpr(tv, "sizes");
-  auto strides = IrBuilder::getAttrExpr(tv, "strides");
+  auto metadata = IrBuilder::metadataExpr(tv);
+  auto data = IrBuilder::getAttrExpr(metadata, "data");
+  auto sizes = IrBuilder::getAttrExpr(metadata, "sizes");
+  auto strides = IrBuilder::getAttrExpr(metadata, "strides");
   auto size0 = IrBuilder::getItemExpr(sizes, fusion.zeroVal());
   auto size1 = IrBuilder::getItemExpr(sizes, fusion.oneVal());
   auto stride0 = IrBuilder::getItemExpr(strides, fusion.zeroVal());
   auto stride1 = IrBuilder::getItemExpr(strides, fusion.oneVal());
 
-  float a;
+  at::Tensor a = at::rand({6, 128});
+
+  ExpressionEvaluator evaluator;
+  evaluator.bind(tv, a);
+
   std::vector<int64_t> sizes_vec = {6, 128};
   std::vector<int64_t> strides_vec = {128, 1};
 
-  ExpressionEvaluator evaluator;
-  evaluator.bind(tv, &a, sizes_vec, strides_vec);
-
-  EXPECT_EQ(evaluator.evaluate(data), &a);
+  EXPECT_EQ(evaluator.evaluate(data), Pointer(a.data_ptr(), tv->dtype()));
   EXPECT_EQ((std::vector<int64_t>)evaluator.evaluate(sizes), sizes_vec);
   EXPECT_EQ((std::vector<int64_t>)evaluator.evaluate(strides), strides_vec);
 

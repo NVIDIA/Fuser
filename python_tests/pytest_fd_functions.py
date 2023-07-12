@@ -49,6 +49,14 @@ def parse_inputs_fusion_definition(fd: FusionDefinition, opinfo: OpInfo, *args):
     return nvf_args
 
 
+# This function will purposely not generate a functional FusionDefintion as
+# it lacks defining an output.  It is only meant to test the error checking
+# of an operation.
+def api_test_fd_fn(fd: FusionDefinition, opinfo: OpInfo, *args, **kwargs):
+    nvf_inputs = parse_inputs_fusion_definition(fd, opinfo, *args)
+    this_inputs = opinfo.op(fd)(**kwargs)
+
+
 def default_fd_fn(fd: FusionDefinition, opinfo: OpInfo, *args, **kwargs):
     nvf_inputs = parse_inputs_fusion_definition(fd, opinfo, *args)
     result = opinfo.op(fd)(*nvf_inputs, **kwargs)
