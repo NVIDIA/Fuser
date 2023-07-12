@@ -4445,6 +4445,57 @@ TEST_F(NVFuserTest, FusionAmpereMMATNAlphaBeta_CUDA) {
   TORCH_CHECK(cg_outputs[0].allclose(t6, 0.0001, 0.0001));
 }
 
+// Matmul test for Ampere MMA: across supported layouts
+TEST_F(NVFuserTest, FusionAmpereSplitKLikeStridedBatchedMatmul_CUDA) {
+  // Keep multiples of 8 to keep vectorizable.
+  int B = 2, M = 504, N = 136, K = 248;
+
+  for (auto layout : kAllSupportedMatmulLayout) {
+    Fusion fusion;
+    FusionGuard fg(&fusion);
+    auto tv0 = makeContigTensor(3, DataType::Half);
+    auto tv1 = makeContigTensor(3, DataType::Half);
+
+    fusion.addInput(tv0);
+    fusion.addInput(tv1);
+
+    auto tv2 = splitkLikeBatchedMatmul(tv0, tv1, layout);
+
+    fusion.addOutput(tv2);
+
+    MatMulTileOptions gemm_tile;
+    gemm_tile.cta_tile = GemmTile(128, 128, 32);
+    gemm_tile.warp_tile = GemmTile(64, 64, 32);
+    gemm_tile.instruction_tile = GemmTile(16, 8, 16);
+
+    MatmulParams params;
+    params.mma_macro = MmaOptions::MacroType::Ampere_16_8_16;
+    params.tile_sizes = gemm_tile;
+    params.async_gmem_load_operands = true;
+    params.double_buffer_options.double_buffer_smem_write = true;
+    params.double_buffer_options.double_buffer_smem_read = true;
+    params.double_buffer_options.smem_double_buffer_stage = 4;
+    scheduleMatmul(&fusion, params);
+
+    auto inputs = splitkLikeBatchedMatmulAtInput(M, N, B, K, layout);
+
+    FusionExecutor fe;
+    NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
+        8,
+        0,
+        fe.compileFusion(
+            &fusion,
+            {inputs.first, inputs.second},
+            LaunchParams(),
+            matmul_cparams));
+    ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
+    auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
+    auto tref = splitkLikeAtMatmul(
+        inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
+    TORCH_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+  }
+}
+
 TEST_F(NVFuserTest, FusionAmpereMatmulSmemEpilogue_CUDA) {
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 9, 0);
   // Keep multiples of 8 to keep vectorizable.
