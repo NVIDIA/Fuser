@@ -8,19 +8,15 @@
 #include <device_lower/utils.h>
 #include <dynamic_transform.h>
 #include <executor_kernel_arg.h>
-#include <executor_utils.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
 #include <ir/cloner.h>
 #include <ir/utils.h>
-#include <ops/alias.h>
-#include <ops/arith.h>
 #include <ops/utils.h>
 #include <transform_iter.h>
 #include <transform_view.h>
 #include <utils.h>
 
-#include <limits>
 #include <optional>
 
 namespace nvfuser {
@@ -417,75 +413,6 @@ class DynamicTransformConcretizer : public OptOutMutator {
 
  private:
   void concretize();
-
-  //! removeEmptyBranches sets definitions of empty tensors to full(), and
-  //! replaces uses like reductions over empty axes with full calls.
-  //!
-  //! Consider the following Fusion with input T0, T1 and output T3:
-  //!
-  //!    T0
-  //!     |
-  //!    sum
-  //!     |
-  //!    T2    T1
-  //!      \   /
-  //!       mul
-  //!        |
-  //!       T3
-  //!
-  //! If T1 has any size-zero dimensions, then we know that T3 is also empty,
-  //! and T2 may be empty as well (unless it's broadcasting in all the empty
-  //! dimensions of T1). In this case, we can replace the entire Fusion with a
-  //! single call to full():
-  //!
-  //!     T0    T1
-  //!
-  //!       full
-  //!        |
-  //!       T3
-  //!
-  //! Notice that the graph is now disconnected since T0 and T1 remain as Fusion
-  //! inputs.
-  //!
-  //! If instead, T1 is not empty, but T0 is, then there are two possibilities:
-  //!   a) If any empty axes of T0 are not reduced, then T2 shares those empty
-  //!   axes, in which case T3 must also be empty, so we can rewrite the Fusion
-  //!   the same way as above, by redefining T3 = full(shape)
-  //!
-  //!   b) If instead the empty axes of T0 are all being reduced in the sum,
-  //!   then T2 is not empty. In this case, since T0 is an input, rewriting it
-  //!   as a full() output is not helpful. However, we know that any use of an
-  //!   empty tensor does not require computation over T0, so we can rewrite it.
-  //!   In this case, we can rewrite the sum as a full(shape, 0) since the sum
-  //!   over an empty tensor is 0 (more generally, the initial value of the
-  //!   reduction). This leads to the following rewritten Fusion:
-  //!
-  //!    T0
-  //!
-  //!    full
-  //!     |
-  //!    T2    T1
-  //!      \   /
-  //!       mul
-  //!        |
-  //!       T3
-  //!
-  //! After this call, the Fusion will only contain empty tensors if they are
-  //! Fusion inputs or outputs. Furthermore, output tensors will have constant
-  //! zeros for the extents of empty axes.
-  //!
-  //! Instead of sum, we may encounter pad or cat ops. These are handled as
-  //! follows:
-  //!
-  //!   Pads of empty tensors are replaced with full() using a fill value equal
-  //!   to the pad value.
-  //!
-  //!   Cat of tensors including some that are empty in the cat dimension are
-  //!   simply replaced with a call to cat() that excludes the empty tensors.
-  //!   Note that if any non-cat dimensions are empty, then the output will be
-  //!   empty as well and the cat becomes dead code, as in the second example
-  //!   with empty T0 from above.
-  // void removeEmptyBranches();
 
   void concretizeReshape();
 
