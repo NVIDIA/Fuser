@@ -96,7 +96,7 @@ c10::intrusive_ptr<c10d::Backend> createBackend(
 
 #ifdef USE_C10D_UCC
   if (backend == CommunicatorBackend::ucc) {
-    return c10::make_intrusive<::c10d::ProcessGroupUcc>(store, rank, size);
+    return c10::make_intrusive<::c10d::ProcessGroupUCC>(store, rank, size);
   }
 #endif
   TORCH_CHECK(false, "no distributed backend available");
