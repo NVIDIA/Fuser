@@ -634,10 +634,14 @@ getOptionalInnerOuterPersistentBufferBatches(
     const int64_t warp_size,
     const bool ignore_register_size_limit) {
   // if inner_dim_numel <= 1024, we are doing multiple reductions per block
-  // with a constant batch size of 1. See Step 5 of
-  // innerOuterPersistentHeuristic. However, if vectorize_factor is 1, we can
-  // increase the persistent batch to 4, which set a minimum workload for each
-  // thread to take advantage of low intra-threads communication cost.
+  // with a constant batch size of 1 if vectorized. See Step 5 of
+  // innerOuterPersistentHeuristic. Although batch size is 1, each thread also
+  // needs to do serial reduction of [vectorize_factor] elements. However, if
+  // vectorize_factor is 1, we can increase batch size to set a minimum serial
+  // reduction workload for each thread to take advantage of zero intra-threads
+  // communication cost. Here a middle value of 4 is selected without spending
+  // time to tune as these un-vectorized small cases should be rare in real
+  // world.
   if (inner_dim_numel <= 1024l) {
     const int64_t batch = (vectorize_factor == 1) ? 4l : 1l;
     return std::make_pair(

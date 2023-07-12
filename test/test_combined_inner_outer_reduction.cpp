@@ -161,9 +161,16 @@ TEST_F(NVFuserTest, CombinedSchedulerLayerNormBackward_CUDA) {
         __LINE__,
         __FILE__);
 
+    int64_t hidden_size = 1;
+    for (auto s : norm_shape) {
+      hidden_size *= s;
+    }
     TORCH_CHECK(
         !fec.getMostRecentKernelRuntime()->isSegmented(),
-        "Fusion segmentation is segmented!");
+        "Fusion shouldn't be segmented! hidden size= ",
+        hidden_size,
+        ", dtype= ",
+        dtype == DataType::Float ? "Float." : "Half.");
 
     if (isBenchmark) {
       FusionKernelRuntime* fkr = fec.getMostRecentKernelRuntime();
