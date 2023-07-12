@@ -3402,7 +3402,7 @@ void SegmentCandidateFinder::forwardInputs() {
       // expr is a unary op so there is a single output. Here we look at that
       // output's further uses
       auto output_uses = expr->output(0)->uses();
-      if (output_uses.size() == 0) {
+      if (output_uses.empty()) {
         // Unused outputs terminate here
         continue;
       }
