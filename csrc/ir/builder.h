@@ -90,7 +90,7 @@ class TORCH_CUDA_CU_API IrBuilder {
   static Scalar* getAttrExpr(Val* struct_, std::string attr);
 
   // Get tensor metadata
-  static Val* metadataExpr(TensorView* tv);
+  static Scalar* metadataExpr(TensorView* tv);
 
   // Construct an array of values, or nested arrays of values.
   template <typename T>
