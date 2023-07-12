@@ -5,9 +5,7 @@
 
 import torch
 
-from pytest_core import ReferenceType, OpInfo, SampleInput
-from pytest_utils import all_dtypes, ArgumentType, is_tensor
-from typing import Callable, Optional
+from pytest_core import OpInfo
 
 from nvfuser import FusionDefinition
 from nvfuser.pytorch_utils import (

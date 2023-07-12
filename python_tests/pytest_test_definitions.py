@@ -15,10 +15,6 @@ from pytest_utils import ArgumentType, is_tensor
 from typing import Callable, Optional
 
 from nvfuser import FusionDefinition
-from nvfuser.pytorch_utils import (
-    python_scalar_to_nvfuser_dtype,
-    torch_dtype_to_nvfuser_dtype,
-)
 
 
 def is_pre_volta():
@@ -156,7 +152,7 @@ def correctness_test_fn(
         return None
 
 
-###### Decorated (templated) tests that create a test per Opinfo ######
+# Decorated (templated) tests that create a test per Opinfo
 
 
 @create_op_test(tuple(op for op in opinfos if op.reference is not None))
