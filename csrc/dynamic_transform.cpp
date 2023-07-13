@@ -163,7 +163,9 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
 
   //! Convert maybe_zero_extents_set_ to a vector so we can index it reliably
   void finalizeMaybeEmptyExtents() {
-    info_.maybe_zero_extents_ = std::vector<IterDomain*>(info_.maybe_zero_extents_set_.begin(), info_.maybe_zero_extents_set_.end());
+    info_.maybe_zero_extents_ = std::vector<Val*>(
+        info_.maybe_zero_extents_set_.begin(),
+        info_.maybe_zero_extents_set_.end());
     // Clear the corresponding set to free memory and speed up cloning
     info_.maybe_zero_extents_set_.clear();
   }
