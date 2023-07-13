@@ -72,11 +72,7 @@ bool rejectScheduleForMemoryPromotion(
       // For now, only relax the input requirement when it's
       // take_along_axis. Also since this would require memory
       // promotion, i.e., persistent global sync in the case of
-      // block-parallel ops, it needs to be explictly enabled unless
-      // it's for the persistent scheuduler, which is already
-      // persistent. For block-parallel ops, it means the problem size
-      // is small enough to fit in registers, so the required capacity
-      // of the shared memory is likely small enough.
+      // block-parallel ops, it needs to be explictly enabled.
       if (expr->isA<TorchGatherOp>() &&
           expr->as<TorchGatherOp>()->exactSizes() &&
           isOptionEnabled(EnableOption::MemoryPromotion)) {
