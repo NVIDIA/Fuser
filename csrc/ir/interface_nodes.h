@@ -103,7 +103,12 @@ class TORCH_CUDA_CU_API Scalar : public Val {
   bool isConst() const final {
     return value_.hasValue();
   }
-  PolymorphicValue value() const {
+
+  const PolymorphicValue& value() const {
+    return value_;
+  }
+
+  PolymorphicValue& value() {
     return value_;
   }
 
@@ -122,8 +127,18 @@ class TORCH_CUDA_CU_API Scalar : public Val {
   }
 
  private:
-  const PolymorphicValue value_;
+  PolymorphicValue value_;
 };
+
+template <typename T>
+T& Expr::attribute(size_t index) const {
+  if constexpr (PolymorphicValue::is_candidate_type<T>) {
+    return attributes_.at(index)->as<Scalar>()->value().as<T>();
+  } else {
+    return std::any_cast<T&>(
+        attributes_.at(index)->as<Scalar>()->value().as<Opaque>().value);
+  }
+}
 
 //! Mode during propagation of computeAt, standard will throw an error if
 //! computeAt position provided can't be satisfied, best effort will lower the

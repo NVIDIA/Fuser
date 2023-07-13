@@ -10,8 +10,10 @@
 #include <macros.h>
 
 #include <dynamic_type.h>
+#include <any>
 #include <complex>
 #include <cstddef>
+#include <functional>
 #include <numeric>
 #include <unordered_map>
 
@@ -163,14 +165,36 @@ inline Pointer operator+(int64_t offset, const Pointer& ptr) {
   return ptr + offset;
 }
 
+struct Opaque {
+  std::any value;
+
+  std::function<bool(const Opaque&, const Opaque&)> equals =
+      [](const Opaque& a, const Opaque& b) { return &a == &b; };
+
+  bool operator==(const Opaque& other) const {
+    return equals(*this, other);
+  }
+};
+
+template <typename T>
+struct OpaqueEquals {
+  bool operator()(const Opaque& a, const Opaque& b) const {
+    if (a.value.type() != typeid(T) || b.value.type() != typeid(T)) {
+      return false;
+    }
+    return std::any_cast<T>(a.value) == std::any_cast<T>(b.value);
+  }
+};
+
 using PolymorphicValue = DynamicType<
     Containers<std::vector, Struct>,
+    Pointer,
+    Opaque,
     at::Tensor,
     std::complex<double>,
     double,
     int64_t,
-    bool,
-    Pointer>;
+    bool>;
 
 namespace PolymorphicValue_functions {
 

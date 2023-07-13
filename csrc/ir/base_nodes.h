@@ -435,39 +435,6 @@ class TORCH_CUDA_CU_API Val : public Statement {
   int evaluator_index_ = -1;
 };
 
-//! A Val object that stores a plain data. Note that this class is only intended
-//! to hold non-IR data, such as DataType, std::vector<int>, etc. Please don't
-//! use this class to hold IR nodes or their pointers.
-template <typename T>
-class TORCH_CUDA_CU_API Attribute : public Val {
- public:
-  T value;
-  Attribute(IrBuilderPasskey passkey, const T& value)
-      : Val(passkey, ValType::Attribute), value(value) {}
-  Attribute(const Attribute* src, IrCloner* ir_cloner)
-      : Val(src, ir_cloner), value(src->value) {}
-  template <typename... Args>
-  Attribute(IrBuilderPasskey passkey, Args... args)
-      : Val(passkey, ValType::Attribute), value(std::forward<Args>(args)...) {}
-
-  NVFUSER_DECLARE_CLONE
-
-  bool sameAs(const Statement* other) const override {
-    if (auto pv = dynamic_cast<const Attribute*>(other)) {
-      return pv->value == value;
-    }
-    return false;
-  }
-
-  std::string toString(int) const override {
-    return Printer<T>::toString(value);
-  }
-
-  std::string toInlineString(int) const override {
-    return Printer<T>::toString(value);
-  }
-};
-
 using newObjectFuncType = Expr*(
     IrContainer*,
     std::vector<Val*>,
@@ -565,6 +532,9 @@ class TORCH_CUDA_CU_API Expr : public Statement {
     return dynamic_cast<Val*>(attributes_.at(index));
   }
 
+  template <typename T>
+  T& attribute(size_t index) const;
+
   // Dispatch functions, definitions in dispatch.cpp
   template <typename T>
   static void dispatch(T handler, Expr*);
@@ -620,6 +590,19 @@ class TORCH_CUDA_CU_API Expr : public Statement {
   // TODO: Add Fusion passkey
   void addAttribute(Statement* attr) {
     attributes_.push_back(attr);
+  }
+
+  // TODO: Add Fusion passkey
+  void addScalarAttribute(const PolymorphicValue& attr);
+
+  // TODO: Add Fusion passkey
+  template <typename T>
+  void addDataAttribute(const T& attr) {
+    if constexpr (PolymorphicValue::is_candidate_type<T>) {
+      addScalarAttribute(attr);
+    } else {
+      addScalarAttribute(Opaque{std::any(attr), OpaqueEquals<T>{}});
+    }
   }
 
   ExprPasskey exprPasskey() {
