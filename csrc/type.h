@@ -340,19 +340,34 @@ struct IsPrimitiveNativeType : std::false_type {};
     using type = native_type;                                    \
   }
 
-DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(DataType::Float, at::ScalarType::Float, float);
+DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
+    DataType::Float,
+    at::ScalarType::Float,
+    float);
 DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
     DataType::Double,
     at::ScalarType::Double,
     double);
-DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(DataType::Half, at::ScalarType::Half, at::Half);
+DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
+    DataType::Half,
+    at::ScalarType::Half,
+    at::Half);
 DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
     DataType::BFloat16,
     at::ScalarType::BFloat16,
     at::BFloat16);
-DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(DataType::Int, at::ScalarType::Long, int64_t);
-DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(DataType::Int32, at::ScalarType::Int, int);
-DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(DataType::Bool, at::ScalarType::Bool, bool);
+DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
+    DataType::Int,
+    at::ScalarType::Long,
+    int64_t);
+DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
+    DataType::Int32,
+    at::ScalarType::Int,
+    int);
+DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
+    DataType::Bool,
+    at::ScalarType::Bool,
+    bool);
 DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
     DataType::ComplexFloat,
     at::ScalarType::ComplexFloat,
