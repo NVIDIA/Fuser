@@ -225,13 +225,11 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
     iop.gdimy = blocks_per_sm * device_multiprocessor_count;
 
     // Step-3, OuterParams, Iteration dim: vectorization_factor_outer(reuse),
-    // bdimy, gdimy (in previous step). vectorization_factor_outer is set to 2
-    // as a small workload per thread is preferred for small sizes and we only
-    // process vectorized cases.
-    iop.bdimy = std::min(
-        ceilDiv(inner_dim_numel / iop.vectorization_factor_outer, iop.gdimy),
-        scheduler_utils::safeDiv(threads_per_block_mrpb, iop.bdimx));
-    iop.bdimy = iop.bdimy;
+    // bdimy, gdimy (in previous step). Here bdimy is set to the largest
+    // possible value limited by threads_per_block_mrpb to maximize
+    // multi-inner-reductions per block. It may be larger than the value
+    // required by the workload in iteration dim of the outer reduction.
+    iop.bdimy = threads_per_block_mrpb / iop.bdimx;
 
     // Step-4, OuterParams, Reduction dim: bdimx (already done)
 
