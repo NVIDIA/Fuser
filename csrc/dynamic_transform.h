@@ -40,7 +40,7 @@ class TORCH_CUDA_CU_API DynamicTransformInitialInfo {
 
   //! Return whether any dynamic transforms exist in the Fusion
   bool hasDynamicTransforms() const {
-    return !dynamic_reshaped_tvs_.empty() || !dynamic_resized_ids_.empty();
+    return !dynamic_reshaped_tvs_.empty() || !dynamic_resized_tvs_.empty();
   }
 
   //! Return a set of scalars that are inputs or extents of input TensorViews
@@ -56,10 +56,10 @@ class TORCH_CUDA_CU_API DynamicTransformInitialInfo {
     return dynamic_reshaped_tvs_;
   }
 
-  //! Return a vector of outputs of Resize expressions that have symbolic output
-  //! IterTypes
-  const std::vector<IterDomain*>& getDynamicResizedIterDomains() const {
-    return dynamic_resized_ids_;
+  //! Return a vector of outputs of TensorViews that are outputs of cat, pad, or
+  //! slice.
+  const std::vector<TensorView*>& getDynamicResizedTensorViews() const {
+    return dynamic_resized_tvs_;
   }
 
   std::string toString() const;
@@ -91,7 +91,7 @@ class TORCH_CUDA_CU_API DynamicTransformInitialInfo {
   // to the outputs avoids this issue.
   std::vector<TensorView*> dynamic_reshaped_tvs_;
 
-  std::vector<IterDomain*> dynamic_resized_ids_;
+  std::vector<TensorView*> dynamic_resized_tvs_;
 
   // Root Vals that determine concretization
   std::unordered_set<Val*> root_dynamic_vals_;
@@ -118,6 +118,8 @@ class TORCH_CUDA_CU_API DynamicTransformConcretizationInfo {
     analyzeReshapes(expr_eval);
 
     analyzeResizes(expr_eval);
+
+    std::cout << toString() << std::endl;
   }
 
   //! Return a vector of pairs holding the index of each reshaped TensorView in
@@ -131,8 +133,9 @@ class TORCH_CUDA_CU_API DynamicTransformConcretizationInfo {
 
   //! Return a vector of pairs holding the index of each resized IterDomain in
   //! the vector returned by initialInfo()->getDynamicResizedIterDomains(),
-  //! along with the IterType it should be concretized to.
-  const std::vector<std::pair<size_t, IterType>>& getResizeIterTypes() const {
+  //! along with a vector of IterTypes that the rfactor domain should be
+  //! concretized to.
+  const auto& getResizeIterTypes() const {
     return resize_itertypes_;
   }
 
@@ -185,10 +188,10 @@ class TORCH_CUDA_CU_API DynamicTransformConcretizationInfo {
   //! result of analyzeView
   std::vector<std::pair<size_t, AnalyzeViewResult>> reshape_transforms_;
 
-  //! Holds the index of the resized IterDomain (output of the Resize op) in the
-  //! vector returned by initial_info_->getDynamicResizedIterDomains() along
-  //! with its concretized IterType
-  std::vector<std::pair<size_t, IterType>> resize_itertypes_;
+  //! Holds the index of the resized TensorView in the vector returned by
+  //! initial_info_->getDynamicResizedTensorViews() along with its concretized
+  //! IterTypes, at each position in its rfactor domain
+  std::vector<std::pair<size_t, std::vector<IterType>>> resize_itertypes_;
 };
 
 class TORCH_CUDA_CU_API DynamicTransform {

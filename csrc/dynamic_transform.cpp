@@ -31,10 +31,10 @@ DynamicTransformInitialInfo DynamicTransformInitialInfo::clone(
       cloned_info.dynamic_reshaped_tvs_.push_back(ir_cloner.clone(op));
     }
   }
-  cloned_info.dynamic_resized_ids_.reserve(dynamic_resized_ids_.size());
-  for (const auto op : dynamic_resized_ids_) {
+  cloned_info.dynamic_resized_tvs_.reserve(dynamic_resized_tvs_.size());
+  for (const auto op : dynamic_resized_tvs_) {
     if (op) {
-      cloned_info.dynamic_resized_ids_.push_back(ir_cloner.clone(op));
+      cloned_info.dynamic_resized_tvs_.push_back(ir_cloner.clone(op));
     }
   }
   cloned_info.root_dynamic_vals_.reserve(root_dynamic_vals_.size());
@@ -54,8 +54,8 @@ std::string DynamicTransformInitialInfo::toString() const {
   for (const auto& op : dynamic_reshaped_tvs_) {
     ss << indent << indent << op->toString() << "\n";
   }
-  ss << indent << "Dynamic resized IterDomains:\n";
-  for (const auto& op : dynamic_resized_ids_) {
+  ss << indent << "Dynamic resized TensorViews:\n";
+  for (const auto& op : dynamic_resized_tvs_) {
     ss << indent << indent << op->toString() << "\n";
   }
   ss << indent << "Root dynamic Vals:\n";
@@ -109,16 +109,30 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
 
   //! Detect dynamic IterDomain transforms when handling TensorViews
   void handle(TensorView* tv) override {
+    if (!tv->definition()) {
+      return;
+    }
+    if (tv->definition()->isA<PadOp>()) {
+      // Don't add this PadOp output if it is only used in a CatOp, since that
+      // means it is an intermediate tensor used in `cat()`.
+      if (!tv->isFusionOutput() &&
+          std::all_of(tv->uses().begin(), tv->uses().end(), [](Expr* expr) {
+            return expr->isA<CatOp>();
+          })) {
+        return;
+      }
+    } else if (
+        !tv->definition()->isA<CatOp>() && !tv->definition()->isA<SliceOp>()) {
+      return;
+    }
+    info_.dynamic_resized_tvs_.push_back(tv);
     const auto& rfd = tv->getMaybeRFactorDomain();
     for (auto id : rfd) {
       if (!id->definition() || id->getIterType() != IterType::Symbolic) {
         continue;
       }
-      if (id->definition()->isA<Resize>()) {
-        info_.dynamic_resized_ids_.push_back(id);
-        // extent of output determines its IterType
-        leaf_dynamic_vals_.push_back(id->extent());
-      }
+      // extents of all symbolic outputs determine their IterTypes
+      leaf_dynamic_vals_.push_back(id->extent());
     }
   }
 
@@ -240,37 +254,41 @@ void DynamicTransformConcretizationInfo::analyzeReshapes(
 
 void DynamicTransformConcretizationInfo::analyzeResizes(
     ExpressionEvaluator* expr_eval) {
-  const auto& resize_ids = initial_info_->getDynamicResizedIterDomains();
-  for (const auto id_index : c10::irange(resize_ids.size())) {
-    auto out_id = resize_ids.at(id_index);
-    auto op = out_id->definition()->as<Resize>();
+  const auto& resize_tvs = initial_info_->getDynamicResizedTensorViews();
+  for (const auto id_index : c10::irange(resize_tvs.size())) {
+    auto out_tv = resize_tvs.at(id_index);
+    const auto& rfd = out_tv->getMaybeRFactorDomain();
+    std::vector<IterType> conc_iter_types;
+    conc_iter_types.reserve(rfd.size());
+    for (const auto out_id : rfd) {
+      if (out_id->getIterType() != IterType::Symbolic) {
+        conc_iter_types.push_back(out_id->getIterType());
+        continue;
+      }
 
-    TORCH_CHECK(
-        out_id->getIterType() == IterType::Symbolic,
-        "Found non-dynamic Resize in initial concretization info: ",
-        op->toString());
+      auto extent_val = expr_eval->evaluate(out_id->extent());
+      TORCH_INTERNAL_ASSERT(
+          extent_val.hasValue(),
+          "Cannot evaluate the extent of a resized domain: ",
+          out_id->toString());
+      TORCH_INTERNAL_ASSERT(
+          extent_val.is<int64_t>(),
+          "Invalid evaluated value of resized domain extent: ",
+          out_id->toString());
+      auto extent_int = extent_val.as<int64_t>();
+      TORCH_INTERNAL_ASSERT(
+          extent_int > 0,
+          "Invalid resized domain extent ",
+          extent_int,
+          " for domain ",
+          out_id->toString());
 
-    auto extent_val = expr_eval->evaluate(out_id->extent());
-    TORCH_INTERNAL_ASSERT(
-        extent_val.hasValue(),
-        "Cannot evaluate the extent of a resized domain: ",
-        out_id->toString());
-    TORCH_INTERNAL_ASSERT(
-        extent_val.is<int64_t>(),
-        "Invalid evaluated value of resized domain extent: ",
-        out_id->toString());
-    auto extent_int = extent_val.as<int64_t>();
-    TORCH_INTERNAL_ASSERT(
-        extent_int > 0,
-        "Invalid resized domain extent ",
-        extent_int,
-        " for domain ",
-        out_id->toString());
+      auto iter_type =
+          extent_int == 1 ? IterType::Broadcast : IterType::Iteration;
 
-    auto iter_type =
-        extent_int == 1 ? IterType::Broadcast : IterType::Iteration;
-
-    resize_itertypes_.emplace_back(id_index, iter_type);
+      conc_iter_types.push_back(iter_type);
+    }
+    resize_itertypes_.emplace_back(id_index, conc_iter_types);
   }
 }
 
@@ -315,10 +333,10 @@ std::string DynamicTransformConcretizationInfo::toString() const {
        << analyze_result.toString() << "\n";
   }
   ss << indent << "Resize:\n";
-  for (const auto& [id_index, iter_type] : resize_itertypes_) {
-    auto id = initial_info_->getDynamicResizedIterDomains().at(id_index);
-    ss << indent << indent << id->toString() << " (index=" << id_index << "), "
-       << iter_type << "\n";
+  for (const auto& [tv_index, iter_types] : resize_itertypes_) {
+    auto tv = initial_info_->getDynamicResizedTensorViews().at(tv_index);
+    ss << indent << indent << tv->toString() << " (index=" << tv_index << "), "
+       << iter_types << "\n";
   }
   return ss.str();
 }
@@ -416,20 +434,104 @@ void DynamicTransformConcretizer::concretizeReshape() {
 
 void DynamicTransformConcretizer::concretizeResize() {
   // Concretize each resize op.
-  for (const auto& [id_index, iter_type] : info_->getResizeIterTypes()) {
-    auto id = info_->initialInfo()->getDynamicResizedIterDomains().at(id_index);
-    TORCH_CHECK(
-        id->definition() && id->definition()->isA<Resize>(),
-        "Resized IterDomain must have a Resize definition");
-    auto def = id->definition()->as<Resize>();
-    auto new_id = IterDomain::resize(
-        def->in(),
-        def->leftExpand(),
-        def->rightExpand(),
-        id->isRFactorProduct(),
-        iter_type);
 
-    registerConcretization(id, new_id);
+  // Concretizes any Resize op as output iter_type Iteration
+  auto concretizeResizesAsIteration = [&](TensorView* tv) {
+    const auto& rfd = tv->getMaybeRFactorDomain();
+    for (auto rf_id : rfd) {
+      auto def = rf_id->definition();
+      if (!def || !def->isA<Resize>()) {
+        continue;
+      }
+      auto rop = def->as<Resize>();
+      auto new_id = IterDomain::resize(
+          rop->in(),
+          rop->leftExpand(),
+          rop->rightExpand(),
+          rf_id->isRFactorProduct(),
+          IterType::Iteration);
+
+      registerConcretization(rf_id, new_id);
+    }
+    // This modifies tv to reflect the new ID
+    OptOutMutator::mutate(tv->domain());
+    OptOutMutator::mutate(tv);
+  };
+
+  for (const auto& [tv_index, iter_types] : info_->getResizeIterTypes()) {
+    auto tv = info_->initialInfo()->getDynamicResizedTensorViews().at(tv_index);
+
+    const auto& rfd = tv->getMaybeRFactorDomain();
+    TORCH_CHECK(
+        iter_types.size() == rfd.size(),
+        "Number of IterTypes must match size of rfactor domain");
+    // If all Resized iter_types are Iteration, we can just replace each Resize.
+    // If we encounter any Resize that outputs a Broadcast, then we should
+    // instead translate the TensorView op to something followed by a
+    // broadcast().
+    bool resize_to_broadcast = false;
+    for (auto i : c10::irange(iter_types.size())) {
+      auto rf_id = rfd.at(i);
+      if (!rf_id->definition() || !rf_id->definition()->isA<Resize>()) {
+        continue;
+      }
+      auto iter_type = iter_types.at(i);
+      if (iter_type == IterType::Broadcast) {
+        resize_to_broadcast = true;
+        break;
+      } else {
+        TORCH_CHECK(
+            iter_type == IterType::Iteration,
+            "Concretized IterType should be Iteration or Broadcast. Found ",
+            iter_type);
+      }
+    }
+
+    // Replace entire TensorView here with another op plus a broadcast
+    TORCH_CHECK(tv->definition(), "Resized TensorView must have definition");
+    if (auto pop = dynamic_cast<PadOp*>(tv->definition())) {
+      // This should never be an intermediate pad as part of a CatOp
+      if (resize_to_broadcast) {
+        // Convert to select + broadcast
+        TORCH_CHECK(!resize_to_broadcast);
+      } else {
+        concretizeResizesAsIteration(tv);
+      }
+    } else if (auto cop = dynamic_cast<CatOp*>(tv->definition())) {
+      if (resize_to_broadcast) {
+        // If a CatOp results in a broadcast in the cat dimension, then one of
+        // the inputs must be broadcast and the others are empty, so this should
+        // translate to a set operation using the broadcasted input.
+        TORCH_CHECK(!resize_to_broadcast);
+      } else {
+        // The inputs to CatOp are actually padded versions of the original
+        // inputs to cat(). So we concretize those intermediate padded versions
+        // here.
+        for (auto pad_input : cop->inputs()) {
+          concretizeResizesAsIteration(pad_input->as<TensorView>());
+        }
+        auto cat_id = tv->getMaybeRFactorDomain().at(cop->concatenatedDim());
+        auto new_cat_id =
+            IterDomainBuilder(cat_id).iter_type(IterType::Iteration).build();
+        registerConcretization(cat_id, new_cat_id);
+        // This modifies tv to reflect the new ID
+        OptOutMutator::mutate(tv->domain());
+        OptOutMutator::mutate(tv);
+      }
+    } else if (auto sop = dynamic_cast<SliceOp*>(tv->definition())) {
+      if (resize_to_broadcast) {
+        // Assumes slice expressions are normalized so slices that result in
+        // broadcasts are selects + broadcasts.
+        TORCH_CHECK(!resize_to_broadcast);
+      } else {
+        concretizeResizesAsIteration(tv);
+      }
+    } else {
+      TORCH_CHECK(
+          false,
+          "Unhandled Resize-based op found: ",
+          tv->definition()->toString());
+    }
   }
 }
 
@@ -518,11 +620,12 @@ void DynamicTransformConcretizer::mutate(TensorView* tv) {
 
       // Update the IterType of each output
       for (auto out_id : ir_utils::filterByType<IterDomain>(expr->outputs())) {
-        if (!out_id->isSymbolic()) {
+        auto mut_id = maybeMutated(out_id)->as<IterDomain>();
+        if (!mut_id->isSymbolic()) {
           continue;
         }
         auto concretized_out_id =
-            IterDomainBuilder(out_id).iter_type(iter_type).build();
+            IterDomainBuilder(mut_id).iter_type(iter_type).build();
         registerConcretization(out_id, concretized_out_id);
       }
 
@@ -620,6 +723,7 @@ bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
 
     for (auto producer : ir_utils::filterByType<TensorView>(def->inputs())) {
       PairwiseRootDomainMap root_map(producer, consumer);
+      root_map.mapSymbolic(true);
       auto c2p = root_map.mapConsumerToProducer(
           consumer->domain(), producer->domain());
 
@@ -679,10 +783,14 @@ void DynamicTransform::concretizeFusion(
 size_t DynamicTransformConcretizationInfo::hash() const {
   size_t hash = 0;
   for (const auto& [tv, view_result] : getReshapeTransforms()) {
+    hashCombine(hash, (size_t)tv);
     hashCombine(hash, view_result.hash());
   }
-  for (const auto& [id, iter_type] : getResizeIterTypes()) {
-    hashCombine(hash, (size_t)iter_type);
+  for (const auto& [tv, iter_types] : getResizeIterTypes()) {
+    hashCombine(hash, (size_t)tv);
+    for (auto iter_type : iter_types) {
+      hashCombine(hash, (size_t)iter_type);
+    }
   }
   return hash;
 }
