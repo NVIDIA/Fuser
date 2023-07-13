@@ -79,8 +79,7 @@ bool rejectScheduleForMemoryPromotion(
       // of the shared memory is likely small enough.
       if (expr->isA<TorchGatherOp>() &&
           expr->as<TorchGatherOp>()->exactSizes() &&
-          (isOptionEnabled(EnableOption::MemoryPromotion) ||
-           schedule_strategy == ScheduleHeuristic::Persistent)) {
+          isOptionEnabled(EnableOption::MemoryPromotion)) {
         continue;
       }
       if (rejectScheduleFusionInputRequirement(expr, schedule_strategy)) {

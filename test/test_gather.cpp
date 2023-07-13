@@ -842,6 +842,9 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorNormalization1_CUDA) {
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
+  EnableOptionsGuard opt_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::MemoryPromotion);
+
   std::vector<int64_t> shape({32, 1024});
 
   auto tv0 = makeSymbolicTensor(2);
@@ -924,6 +927,9 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorNormalization3_CUDA) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
+
+  EnableOptionsGuard opt_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::MemoryPromotion);
 
   std::vector<int64_t> shape_before_gather({100, 100});
   std::vector<int64_t> shape_after_gather({shape_before_gather[0], 120});
@@ -1014,6 +1020,9 @@ TEST_F(
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
+
+  EnableOptionsGuard opt_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::MemoryPromotion);
 
   std::vector<int64_t> shape({32, 1024});
 
