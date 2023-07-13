@@ -81,6 +81,8 @@ class TORCH_CUDA_CU_API Scalar : public Val {
     } else if (isFloatingPointType(dtype) || isComplexType(dtype)) {
       ss << dtype << "(" << std::setprecision(max_digits10(dtype)) << value()
          << ")";
+    } else if (dtype == DataType::Opaque) {
+      ss << "<opaque value>";
     } else {
       TORCH_INTERNAL_ASSERT(false, "Unknown scalar type: ", dtype);
     }

@@ -15,6 +15,7 @@
 #include <cstddef>
 #include <functional>
 #include <numeric>
+#include <ostream>
 #include <unordered_map>
 
 #include <ATen/ATen.h>
@@ -175,6 +176,11 @@ struct Opaque {
     return equals(*this, other);
   }
 };
+
+inline std::ostream& operator<<(std::ostream& os, const Opaque& opaque) {
+  os << "Opaque<" << opaque.value.type().name() << ">";
+  return os;
+}
 
 template <typename T>
 struct OpaqueEquals {

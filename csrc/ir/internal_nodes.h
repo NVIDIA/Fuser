@@ -2030,8 +2030,8 @@ class TORCH_CUDA_CU_API CatOp : public Expr {
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
 
-  int concatenatedDim() const {
-    return attribute<int>(0);
+  int64_t concatenatedDim() const {
+    return attribute<int64_t>(0);
   }
 
   //! The index val that determines which input tensor should be used
