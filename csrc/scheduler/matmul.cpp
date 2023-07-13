@@ -376,44 +376,81 @@ void swizzleSharedMemory(
      *   6|          |          |
      *   7|          |          |
      *    +----------+----------+
+     *
+     * We can consider each repeated_pattern_size rows as a gigarow, and each
+     * repeated_pattern_size megabanks as a gigabank. Note that megabank is a
+     * contiguous chunk of banks, but gigabank is not contiguous. Indeed,
+     * nearby megabanks in a gigabank has a distance of `g` megabanks
      */
-    // The first para in std::gcd is from the above derivation.
-    // The second para is from the fact that we need to split tile_size_y by
-    // n_cols and then by swizzle_period. If swizzle_period is smaller than
-    // the first para, we need to do a further split on n_rows to get
-    // [n_rows_outer, swizzle_period, repeated_pattern_size]
-    int64_t swizzle_period =
-        std::gcd(n_rows / repeated_pattern_size, tile_size_y / n_cols);
 
-    //   -2   -1
-    // [row, col, ***** skip ***** ]
-    TORCH_INTERNAL_ASSERT(
-        tile_size_x % n_rows == 0, "Partial matrices not supported");
-    shared_mem_tv->split(-2 - skip, n_rows);
-    TORCH_INTERNAL_ASSERT(
-        tile_size_y % n_cols == 0, "Partial matrices not supported");
-    shared_mem_tv->split(-1 - skip, n_cols);
-    //     -4        -3      -2         -1
-    // [matrix id, matrix, matrix id, matrix, ***** skip ***** ]
     TORCH_INTERNAL_ASSERT(
         n_rows % repeated_pattern_size == 0,
-        "n_rows is assumed to be a multiple of repeated_pattern_size");
+        "Can not partition matrix into megarows");
+    int64_t num_gigarows = n_rows / repeated_pattern_size;
+    int64_t num_gigabanks = g; // also = num_megabanks / repeated_pattern_size
+
+    //   -2   -1
+    // [row, col]
     if (repeated_pattern_size > 1) {
-      shared_mem_tv->split(-3 - skip, repeated_pattern_size);
+      shared_mem_tv->split(-2 - skip, repeated_pattern_size);
     }
-    //     -5        -4      -3       -2         -1
-    // [matrix id, repeat, pattern, matrix id, matrix, ***** skip ***** ]
+    shared_mem_tv->split(-1 - skip, n_cols);
+    //      -4         -3       -2        -1
+    // [gigarow id, gigarow, matrix id, matrix]
+    shared_mem_tv->split(-2 - skip, num_gigabanks);
+    //      -5        -4        -3        -2         -1
+    // [gigarow id, gigarow, y outer, gigabank id, matrix]
+    // Note that megabanks inside a gigabank are not contiguous, so the gigabank
+    // id is -2 instead of -3
 
-    // further split n_rows to [outer, swizzle_period, repeated_pattern_size]
-    if (swizzle_period < n_rows / repeated_pattern_size) {
-      const int repeat_axis = repeated_pattern_size > 1 ? -4 - skip : -3 - skip;
-      shared_mem_tv->split(repeat_axis, swizzle_period);
-      //     -6      -5             -4              -3       -2         -1
-      // [matrix id, nrows_outer, swizzle_period, pattern, matrix id, matrix,
-      // ***** skip ***** ]
-    }
+    /* We want to evenly distribute gigarows across gigabanks, for example, if
+     * we have 7 gigarows and 3 gigabanks, then we might distribute them as:
+     *  +---+
+     *  |x  |
+     *  | x |
+     *  |  x|
+     *  |x  |
+     *  | x |
+     *  |  x|
+     *  |x  |
+     *  +---+
+     * considering all matrices, this is a swizzle function like:
+     *  +---+
+     *  |012|
+     *  |201|
+     *  |120|
+     *  |012|
+     *  |201|
+     *  |120|
+     *  |012|
+     *  +---+
+     * which is a cyclic shift.
+     *
+     * Note that because num_gigabanks (a.k.a. g) divide num_megabanks and
+     * row_stride_znz (which is row_stride % num_megabanks), g should also
+     * divide row_stride, because according to the fundamental
+     * division-with-remainder property (see comment in expr_simplifier.h):
+     *   row_stride = q * num_megabanks + row_stride_znz
+     * which means, we can just consider each num_gigabanks matrices as a group,
+     * and we always have complete groups (i.e. no group has less than
+     * num_gigabanks matrices). Interleaving the memory of matrices within each
+     * group should be enough to fully remove bank conflict.
+     */
 
-    shared_mem_tv->split(-2 - skip, swizzle_period);
+    /* To further simplify the problem, if we assume: */
+    TORCH_INTERNAL_ASSERT(
+        num_gigarows % num_gigabanks == 0,
+        "Requires non-square swizzle, which is not supported yet");
+    /* Then we can partition gigarows into full waves, each wave has
+     * num_gigabanks gigarows. This partition creates square dimensions, making
+     * the swizzle implementation easier */
+
+    //      -5        -4        -3        -2         -1
+    // [gigarow id, gigarow, y outer, gigabank id, matrix]
+    int axis_of_gigarow_id = repeated_pattern_size > 1 ? -5 : -4;
+    shared_mem_tv->split(axis_of_gigarow_id - skip, num_gigabanks);
+    //     -6     -5     -4       -3        -2         -1
+    // [wave id, wave, gigarow, y outer, gigabank id, matrix]
 
     //     -7        -6         -5              -4       -3
     // [matrix id, nrows_outer, swizzle_period, pattern, matrix id outer,
@@ -438,7 +475,7 @@ void swizzleSharedMemory(
     // mapping.
     if (shared_mem_tv->getMemoryType() == MemoryType::Shared) {
       int swizzle_axis0 = repeated_pattern_size > 1 ? -5 : -4;
-      if (isPowOf2(swizzle_period)) {
+      if (isPowOf2(num_gigabanks)) {
         shared_mem_tv->swizzle(
             Swizzle2DType::XOR, swizzle_axis0 - skip, -2 - skip);
       } else {
@@ -447,18 +484,7 @@ void swizzleSharedMemory(
       }
     }
 
-    // Merge back the tile for subsequent vectorization scheduling
-    //  TODO: could potentially simplify away the merges
-    // merge back tile_size_x
-    if (swizzle_period < n_rows / repeated_pattern_size &&
-        repeated_pattern_size > 1) {
-      // we did two additional splits, so we need to merge twice
-      shared_mem_tv->merge(-7 - skip);
-      shared_mem_tv->merge(-6 - skip);
-    } else if (
-        repeated_pattern_size > 1 ||
-        swizzle_period < n_rows / repeated_pattern_size) {
-      // we did one additional split, so we need to merge once
+    if (repeated_pattern_size > 1) {
       shared_mem_tv->merge(-6 - skip);
     }
     shared_mem_tv->merge(-5 - skip);
