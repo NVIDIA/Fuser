@@ -1987,14 +1987,6 @@ class PersistentKernelScheduler : public SchedulerEntry {
           reduced_tv,
           data_cache,
           (int)(reduced_tv->nDims() - properties.inner_most_dimension_ndims));
-      if (!checkCombinedReductionShape(
-              runtime_info, reduction_tvs, (int64_t)vectorize_factor)) {
-        scheduler_debug_utils::canScheduleRejectReason(
-            ScheduleHeuristic::Persistent,
-            "Inner dim of combined reduction should be a multiplication of a quarter warp and max vectorization factor!");
-        return false;
-      }
-
       // check if we can schedule the combined reductions with a reasonable
       // batch size without register spills.
       if (!normalization_scheduler_utils::
@@ -2123,41 +2115,6 @@ class PersistentKernelScheduler : public SchedulerEntry {
         scheduler_debug_utils::canScheduleRejectReason(
             ScheduleHeuristic::Persistent,
             "to use combined reduction, inner reduction and outer reduction should not have shared consumer, their consumers should not have shared non-outer-reduction producer.");
-        return false;
-      }
-    }
-    return true;
-  }
-
-  static bool checkCombinedReductionShape(
-      SchedulerRuntimeInfo& runtime_info,
-      const std::vector<TensorView*>& reduction_tvs,
-      const int64_t vectorization_factor) {
-    // In combined_inner_outer_reduction, the inner dim should be a
-    // multiplication of a quarter warp and vectorization factor. Otherwise,
-    // will use segregated version. Since inner reduction dim is splitted by
-    // bdimx, this ensures the largest possible bdimx can be at least of a
-    // quarter warp. So we have enough bdimx threads to cover the iteration
-    // domain of the outer reductions to avoid low performance.
-    const int64_t quarter_warp =
-        at::cuda::getCurrentDeviceProperties()->warpSize / 4;
-    for (auto tv : reduction_tvs) {
-      int64_t n_elements = 1;
-      const int64_t n_elements_factor = quarter_warp * vectorization_factor;
-      const bool is_inner_reduction =
-          scheduler_utils::isFastestDimReduction(tv);
-      for (auto id : tv->getMaybeRFactorDomain()) {
-        // check reduction domain for inner reduction and iteration domain for
-        // outer reduction
-        if (id->isReduction() == is_inner_reduction) {
-          auto id_size =
-              runtime_info.expressionEvaluator().evaluate(id->extent());
-          TORCH_INTERNAL_ASSERT(
-              id_size.hasValue(), "Could not infer reduction dim size.");
-          n_elements *= id_size.as<int64_t>();
-        }
-      }
-      if (n_elements % n_elements_factor) {
         return false;
       }
     }

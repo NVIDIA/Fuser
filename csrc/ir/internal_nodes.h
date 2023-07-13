@@ -37,11 +37,6 @@ class Scope;
 class IrCloner;
 struct AnalyzeViewResult;
 
-//! Returns true if both v1 and v2 are scalars, are the same type of scalars,
-//! and dispatches to the inherited Val type's `->sameAs` call. e.g. if both
-//! vals are `Int` will dispatch to v1->as<Int>()->sameAs(v2.as<Int>())
-bool areEqualScalars(Val* v1, Val* v2);
-
 class TORCH_CUDA_CU_API FullOp : public Expr {
  public:
   using Expr::Expr;
@@ -2026,7 +2021,7 @@ class TORCH_CUDA_CU_API CatOp : public Expr {
       const std::vector<Val*>& inputs,
       int concatenated_dim,
       Val* concatenated_domain_index,
-      const std::vector<Bool*>& preds);
+      const std::vector<Scalar*>& preds);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
@@ -2049,7 +2044,7 @@ class TORCH_CUDA_CU_API CatOp : public Expr {
   //! Gets a Bool indicating if the input tensor specified by
   //! tensor_idx should be used to fill the output tensor. Only valid
   //! with the Kernel container
-  Bool* getPred(int input_idx) const;
+  Scalar* getPred(int input_idx) const;
 };
 
 } // namespace nvfuser

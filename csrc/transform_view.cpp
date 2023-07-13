@@ -265,7 +265,7 @@ class SplitTransform final : public ViewTransform {
         "\t Domain Size:\t",
         current_transformed_domain.size());
 
-    auto factor = IrBuilder::create<Int>(split_factor_);
+    auto factor = IrBuilder::create<Scalar>(split_factor_);
 
     IterDomain* id = current_transformed_domain.at(index_);
     if (!id->isRFactorProduct()) {
@@ -290,7 +290,7 @@ class SplitTransform final : public ViewTransform {
     // inner loop IterDomain
     IterDomain* remainder_id =
         IterDomainBuilder(
-            FusionGuard::getCurFusion()->zeroVal(), remainder->as<Int>())
+            FusionGuard::getCurFusion()->zeroVal(), remainder->as<Scalar>())
             .is_rfactor_domain(true)
             .build();
 

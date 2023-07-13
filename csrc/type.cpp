@@ -1162,9 +1162,9 @@ std::optional<std::string> cast_func_str(
                         : std::nullopt;
 }
 
-size_t dataTypeSize(DataType type) {
+int64_t dataTypeSize(DataType type) {
   return std::visit(
-      [](auto&& dtype) -> size_t {
+      [](auto&& dtype) -> int64_t {
         using T = std::decay_t<decltype(dtype)>;
         if constexpr (std::is_same_v<T, PrimDataType>) {
           return primDataTypeSize(dtype);
@@ -1178,7 +1178,7 @@ size_t dataTypeSize(DataType type) {
       type.type);
 }
 
-size_t dataTypeSize(DataType type, DataType index_type) {
+int64_t dataTypeSize(DataType type, DataType index_type) {
   if (type == DataType::Index) {
     TORCH_INTERNAL_ASSERT(
         index_type == DataType::Int32 || index_type == DataType::Int,
