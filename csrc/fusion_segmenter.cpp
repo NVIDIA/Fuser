@@ -3399,12 +3399,22 @@ void SegmentCandidateFinder::forwardInputs() {
         continue;
       }
 
-      if (expr->output(0)->uses().size() > 1) {
+      // expr is a unary op so there is a single output. Here we look at that
+      // output's further uses
+      auto output_uses = expr->output(0)->uses();
+      if (output_uses.empty()) {
+        // Unused outputs terminate here
+        continue;
+      }
+
+      if (output_uses.size() > 1) {
         excluded_inp_unary_exprs_.pushBack(expr);
         forwarded_inputs.pushBack(expr->output(0));
         continue;
       }
 
+      // If there is a single use, visit it to try and extend the chain of
+      // unaryOps
       to_visit.emplace_back(expr->output(0)->uses()[0]);
     }
   }
