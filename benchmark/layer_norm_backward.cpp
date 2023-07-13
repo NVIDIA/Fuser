@@ -353,7 +353,8 @@ NVFUSER_BENCHMARK_DEFINE(
     setupLayerNorm_BWD,
     NvFuserScheduler_LayerNorm_BWD,
     DataType::Half);
-NVFUSER_BENCHMARK_RUN(NvFuserScheduler_LayerNorm_BWD_MultiReductionsPerBlock_fp16)
+NVFUSER_BENCHMARK_RUN(
+    NvFuserScheduler_LayerNorm_BWD_MultiReductionsPerBlock_fp16)
     ->Args({8 * 1024, 128})
     ->Args({8 * 1024, 256})
     ->Args({8 * 1024, 384})
