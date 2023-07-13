@@ -100,6 +100,11 @@ class TORCH_CUDA_CU_API PairwiseRootDomainMap : public RootDomainMap {
     return *this;
   }
 
+  PairwiseRootDomainMap& mapSymbolic(bool b) {
+    map_symbolic_ = b;
+    return *this;
+  }
+
   PairwiseRootDomainMap& mapDifferentExtents(bool b) {
     map_different_extents_ = b;
     return *this;
@@ -136,6 +141,8 @@ class TORCH_CUDA_CU_API PairwiseRootDomainMap : public RootDomainMap {
   //! Map broadcast and non-broadcast domains. Note that this is on by
   //! default
   bool map_broadcast_ = true;
+  //! If false, map Symbolic IterDomains only if extents match exactly.
+  bool map_symbolic_ = false;
   //! Map domains that may have different extents, e.g., torch_gather
   bool map_different_extents_ = false;
   //! Map domains that are indirectly accessed, e.g., index_select
