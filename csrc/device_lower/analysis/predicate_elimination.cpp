@@ -91,7 +91,6 @@ class PredicateAnalyzer : public OptOutDispatch {
 
     for (auto id : consumer->getLeafDomain()) {
       if (analyzer.needsPredicate(id)) {
-        producer->fusion()->print();
         return true;
       }
     }
