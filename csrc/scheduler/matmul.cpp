@@ -379,13 +379,11 @@ void swizzleSharedMemory(
      */
     // The first para in std::gcd is from the above derivation.
     // The second para is from the fact that we need to split tile_size_y by
-    // n_cols and then by swizzle_period. If swizzle_period is smaller than the
-    // first para, then the bank conflict can't be fully removed.
+    // n_cols and then by swizzle_period. If swizzle_period is smaller than
+    // the first para, we need to do a further split on n_rows to get
+    // [n_rows_outer, swizzle_period, repeated_pattern_size]
     int64_t swizzle_period =
         std::gcd(n_rows / repeated_pattern_size, tile_size_y / n_cols);
-    // update repeated_pattern_size to ensure n_rows / repeated_pattern_size
-    // equals to swizzle_period, this is required by 2D swizzle.
-    repeated_pattern_size = n_rows / swizzle_period;
 
     //   -2   -1
     // [row, col, ***** skip ***** ]
@@ -405,21 +403,22 @@ void swizzleSharedMemory(
     }
     //     -5        -4      -3       -2         -1
     // [matrix id, repeat, pattern, matrix id, matrix, ***** skip ***** ]
-    TORCH_INTERNAL_ASSERT(
-        tile_size_y % (swizzle_period * n_cols) == 0,
-        "need aperiodic swizzle config for tile size ",
-        tile_size_x,
-        "x",
-        tile_size_y,
-        "with units ",
-        n_rows,
-        "x",
-        n_cols);
+
+    // further split n_rows to [outer, swizzle_period, repeated_pattern_size]
+    if (swizzle_period < n_rows / repeated_pattern_size) {
+      const int repeat_axis = repeated_pattern_size > 1 ? -4 - skip : -3 - skip;
+      shared_mem_tv->split(repeat_axis, swizzle_period);
+      //     -6      -5             -4              -3       -2         -1
+      // [matrix id, nrows_outer, swizzle_period, pattern, matrix id, matrix,
+      // ***** skip ***** ]
+    }
 
     shared_mem_tv->split(-2 - skip, swizzle_period);
-    //     -6        -5      -4            -3           -2         -1
-    // [matrix id, repeat, pattern, matrix id outer, pattern id, matrix, *****
-    // skip ***** ]
+
+    //     -7        -6         -5              -4       -3
+    // [matrix id, nrows_outer, swizzle_period, pattern, matrix id outer,
+    //  -2         -1
+    // pattern id, matrix,***** skip ***** ]
     // swizzle repeat with pattern id to make repeat no longer repeat.
     // Apply swizzle only when shared_mem_tv is stored in shared memory.
     // TODO: This is a temporary workaround for the following issue:
@@ -450,12 +449,24 @@ void swizzleSharedMemory(
 
     // Merge back the tile for subsequent vectorization scheduling
     //  TODO: could potentially simplify away the merges
-    if (repeated_pattern_size > 1) {
+    // merge back tile_size_x
+    if (swizzle_period < n_rows / repeated_pattern_size &&
+        repeated_pattern_size > 1) {
+      // we did two additional splits, so we need to merge twice
+      shared_mem_tv->merge(-7 - skip);
+      shared_mem_tv->merge(-6 - skip);
+    } else if (
+        repeated_pattern_size > 1 ||
+        swizzle_period < n_rows / repeated_pattern_size) {
+      // we did one additional split, so we need to merge once
       shared_mem_tv->merge(-6 - skip);
     }
     shared_mem_tv->merge(-5 - skip);
+
+    // merge back tile_size_y
     shared_mem_tv->merge(-3 - skip);
     shared_mem_tv->merge(-2 - skip);
+
   } else if (isVolta(params.mma_macro)) {
     // TODO: Volta is slightly more complex, and a fixed recipe would
     //  not scale. In a follow up this would be inferred from the mma

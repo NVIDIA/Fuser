@@ -3278,14 +3278,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck4warp_CUDA) {
                 {inputs.first, inputs.second},
                 LaunchParams(),
                 matmul_cparams));
-        // if cta_tile.n can't be fully divided by 64 (n_cols *
-        // swizzle_period), then we can't fully remove the bank conflict, see
-        // swizzleSharedMemory
-        const bool expected_bank_conflict =
-            params.has_smem_epilogue && gemm_tile.cta_tile.n % 64 > 0;
-        if (!expected_bank_conflict) {
-          ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
-        }
+        ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
         auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
         auto tref = atMatmul(
             inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
@@ -3354,14 +3347,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck8warp_CUDA) {
                   {inputs.first, inputs.second},
                   LaunchParams(),
                   matmul_cparams));
-          // if cta_tile.n can't be fully divided by 64 (n_cols *
-          // swizzle_period), then we can't fully remove the bank conflict, see
-          // swizzleSharedMemory
-          const bool expected_bank_conflict =
-              params.has_smem_epilogue && gemm_tile.cta_tile.n % 64 > 0;
-          if (!expected_bank_conflict) {
-            ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
-          }
+          ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
           auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
           auto tref = atMatmul(
               inputs.first.to(at::kFloat),
@@ -3422,11 +3408,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck6warp_CUDA) {
               {inputs.first, inputs.second},
               LaunchParams(),
               matmul_cparams));
-      const bool expected_bank_conflict =
-          params.has_smem_epilogue && gemm_tile.cta_tile.n % 64 > 0;
-      if (!expected_bank_conflict) {
-        ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
-      }
+      ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
       auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
       auto tref = atMatmul(
           inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
