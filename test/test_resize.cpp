@@ -2202,4 +2202,60 @@ TEST_F(NVFuserTest, SliceVectorization) {
   testValidate(&fusion, cg_outputs, inputs, {ref}, __LINE__, __FILE__);
 }
 
+// Concretize a symbolic pad that results in a broadcast
+TEST_F(NVFuserTest, ResizePadToBroadcast_CUDA) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion->addInput(tv0);
+  auto tv1 = makeSymbolicTensor(2);
+  fusion->addInput(tv1);
+  auto s0 = IrBuilder::create<Scalar>(DataType::Int);
+  fusion->addInput(s0);
+  auto s1 = IrBuilder::create<Scalar>(DataType::Int);
+  fusion->addInput(s1);
+
+  // tv2 should be Broadcast in second dimension
+  auto tv2 = pad(tv0, {s0, s1});
+  auto tv3 = mul(tv1, tv2);
+  fusion->addOutput(tv3);
+
+  fusion->printMath();
+  fusion->printTransforms();
+
+  EXPECT_TRUE(fusion->hasDynamicTransform());
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  auto t0 = at::randn({2, 3}, options);
+  auto t1 = at::randn({2, 5}, options);
+  std::vector<c10::IValue> aten_inputs({t0, t1, 0, -2});
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+
+  auto runtime = executor_cache.getMostRecentKernelRuntime();
+  auto concretized_fusion = runtime->fusionSegments()->completeFusion();
+
+  auto conc_t2 = concretized_fusion->outputs()[0]
+                     ->definition()
+                     ->inputs()[1]
+                     ->as<TensorView>();
+  EXPECT_EQ(conc_t2->axis(1)->getIterType(), IterType::Broadcast);
+
+  auto ref_t2 = t1 * at::pad(t0, {0, -2});
+
+  std::cout << "NVFuser: " << cg_outputs[0] << std::endl;
+  std::cout << "ATen: " << ref_t2 << std::endl;
+
+  testValidate(
+      concretized_fusion,
+      cg_outputs,
+      aten_inputs,
+      {ref_t2},
+      __LINE__,
+      __FILE__);
+}
+
 } // namespace nvfuser
