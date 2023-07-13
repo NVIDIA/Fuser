@@ -473,6 +473,12 @@ void DynamicTransformConcretizer::concretizeEmptyExtents() {
     }
     // Register the concretization of this scalar, which allows us to replace it
     // whenever it is used as an extent member of an IterDomain.
+    //
+    // When we ext in all uses above, it affects downstream expressions. For
+    // example we might replace i0 with 0 in (i0 + i1) + i2 to form (0 + i1) +
+    // i2. However, i0 itself might be used as the extent, start, or stop values
+    // in an IterDomain, so we register the concretization here so that we can
+    // replace these values whenever we encounter them.
     registerConcretization(ext, zero);
   }
 }
