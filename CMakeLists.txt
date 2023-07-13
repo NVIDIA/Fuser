@@ -16,6 +16,8 @@ endif()
 set(NVFUSER_ROOT ${PROJECT_SOURCE_DIR})
 set(NVFUSER_SRCS_DIR "${NVFUSER_ROOT}/csrc")
 
+option(NVFUSER_STANDALONE_BUILD_WITH_UCC "" OFF)
+
 if(PROJECT_IS_TOP_LEVEL)
   find_package(Torch REQUIRED)
   find_package(Python REQUIRED Development Interpreter)
@@ -248,6 +250,18 @@ if(PROJECT_IS_TOP_LEVEL)
   add_custom_target(build_flatbuffer_config ALL
     DEPENDS ${NVFUSER_ROOT}/csrc/serde/fusion_cache_generated.h)
 
+  if(NVFUSER_STANDALONE_BUILD_WITH_UCC)
+    # User may need to set env vars UCC_DIR, UCX_DIR, UCC_HOME, UCX_HOME for CMake's Find_UCC to work.
+    find_package(UCC REQUIRED)
+    find_package(UCX REQUIRED)
+
+    add_library(__nvfuser_ucc INTERFACE)
+    target_link_libraries(__nvfuser_ucc INTERFACE ucx::ucs ucx::ucp ucc::ucc)
+    target_include_directories(__nvfuser_ucc INTERFACE ${UCC_INCLUDE_DIRS})
+    target_link_libraries(${NVFUSER_CODEGEN} PRIVATE __nvfuser_ucc)
+    target_compile_definitions(${NVFUSER_CODEGEN} PRIVATE NVFUSER_BUILD_WITH_UCC)
+  endif()
+
   add_dependencies(${NVFUSER_CODEGEN} flatc build_flatbuffer_config)
 else()
   file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/nvfuser")
@@ -255,6 +269,14 @@ else()
 
   # NOTE: our CI build somehow fails with find driver lib.
   target_link_libraries(${NVFUSER_CODEGEN} PUBLIC CUDA::cuda_driver)
+
+  if(UCC_FOUND)  # inherited from pytorch source build
+    add_library(__nvfuser_ucc INTERFACE)
+    target_link_libraries(__nvfuser_ucc INTERFACE ucx::ucs ucx::ucp ucc::ucc)
+    target_include_directories(__nvfuser_ucc INTERFACE ${UCC_INCLUDE_DIRS})
+    target_link_libraries(${NVFUSER_CODEGEN} PRIVATE __nvfuser_ucc)
+    target_compile_definitions(${NVFUSER_CODEGEN} PRIVATE NVFUSER_BUILD_WITH_UCC)
+  endif()
 
   # installing nvfuser python tests
   install(DIRECTORY "${NVFUSER_ROOT}/python_tests/"
@@ -567,3 +589,15 @@ else()
   file(CREATE_LINK "${CMAKE_BINARY_DIR}/bin" "${NVFUSER_ROOT}/bin" SYMBOLIC)
   file(CREATE_LINK "${CMAKE_BINARY_DIR}" "${NVFUSER_ROOT}/build" SYMBOLIC)
 endif()
+
+message(STATUS "")
+message(STATUS "******** Nvfuser configuration summary ********")
+message(STATUS "  UCC_FOUND: ${UCC_FOUND}")
+message(STATUS "  NVFUSER_STANDALONE_BUILD_WITH_UCC  : ${NVFUSER_STANDALONE_BUILD_WITH_UCC}" )
+if(NVFUSER_STANDALONE_BUILD_WITH_UCC)
+  message(STATUS "    UCC_HOME: $ENV{UCC_HOME}")
+  message(STATUS "    UCC_DIR : $ENV{UCC_DIR}")
+  message(STATUS "    UCX_HOME: $ENV{UCX_HOME}")
+  message(STATUS "    UCX_DIR : $ENV{UCX_DIR}")
+endif()
+message(STATUS "******** End of Nvfuser configuration summary ********")

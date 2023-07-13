@@ -38,10 +38,10 @@ TEST_F(TensorFactoryTest, StandaloneFull) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
-  Val* size = IrBuilder::create<Int>();
-  Val* fill_val1 = IrBuilder::create<Int>();
-  Val* fill_val2 = IrBuilder::create<Int>();
-  Val* fill_val3 = IrBuilder::create<Int>();
+  Val* size = IrBuilder::create<Scalar>(DataType::Int);
+  Val* fill_val1 = IrBuilder::create<Scalar>(DataType::Int);
+  Val* fill_val2 = IrBuilder::create<Scalar>(DataType::Int);
+  Val* fill_val3 = IrBuilder::create<Scalar>(DataType::Int);
   fusion->addInput(size);
   fusion->addInput(fill_val1);
   fusion->addInput(fill_val2);
@@ -101,7 +101,7 @@ TEST_F(TensorFactoryTest, StandaloneZeros) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
-  Val* size = IrBuilder::create<Int>();
+  Val* size = IrBuilder::create<Scalar>(DataType::Int);
   fusion->addInput(size);
   for (auto dtype : dtypes) {
     if (!isSupportedTypeByDevice(aten_to_data_type(dtype))) {
@@ -158,7 +158,7 @@ TEST_F(TensorFactoryTest, StandaloneOnes) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
-  Val* size = IrBuilder::create<Int>();
+  Val* size = IrBuilder::create<Scalar>(DataType::Int);
   fusion->addInput(size);
   for (auto dtype : dtypes) {
     if (!isSupportedTypeByDevice(aten_to_data_type(dtype))) {
@@ -215,7 +215,7 @@ TEST_F(TensorFactoryTest, StandaloneIota) {
     auto fusion = std::make_unique<Fusion>();
     FusionGuard fg(fusion.get());
 
-    Val* length = IrBuilder::create<Int>();
+    Val* length = IrBuilder::create<Scalar>(DataType::Int);
 
     Val* start = IrBuilder::newScalar(input_type);
     Val* step = IrBuilder::newScalar(input_type);
@@ -300,12 +300,12 @@ TEST_F(TensorFactoryTest, StandaloneARange) {
     auto fusion = std::make_unique<Fusion>();
     FusionGuard fg(fusion.get());
 
-    Val* start_int = IrBuilder::create<Int>();
-    Val* end_int = IrBuilder::create<Int>();
-    Val* step_int = IrBuilder::create<Int>();
-    Val* start_double = IrBuilder::create<Double>();
-    Val* end_double = IrBuilder::create<Double>();
-    Val* step_double = IrBuilder::create<Double>();
+    Val* start_int = IrBuilder::create<Scalar>(DataType::Int);
+    Val* end_int = IrBuilder::create<Scalar>(DataType::Int);
+    Val* step_int = IrBuilder::create<Scalar>(DataType::Int);
+    Val* start_double = IrBuilder::create<Scalar>(DataType::Double);
+    Val* end_double = IrBuilder::create<Scalar>(DataType::Double);
+    Val* step_double = IrBuilder::create<Scalar>(DataType::Double);
     fusion->addInput(start_int);
     fusion->addInput(end_int);
     fusion->addInput(step_int);
@@ -386,8 +386,8 @@ TEST_F(TensorFactoryTest, StandaloneEye) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
-  Val* size = IrBuilder::create<Int>();
-  Val* maybe_m = IrBuilder::create<Int>();
+  Val* size = IrBuilder::create<Scalar>(DataType::Int);
+  Val* maybe_m = IrBuilder::create<Scalar>(DataType::Int);
   fusion->addInput(size);
   fusion->addInput(maybe_m);
   for (auto dtype : dtypes) {
@@ -433,9 +433,9 @@ TEST_F(TensorFactoryTest, ARangeScalarHoisting1) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
-  Val* start_int = IrBuilder::create<Int>();
-  Val* end_int = IrBuilder::create<Int>();
-  Val* step_int = IrBuilder::create<Int>();
+  Val* start_int = IrBuilder::create<Scalar>(DataType::Int);
+  Val* end_int = IrBuilder::create<Scalar>(DataType::Int);
+  Val* step_int = IrBuilder::create<Scalar>(DataType::Int);
   fusion->addInput(start_int);
   fusion->addInput(end_int);
   fusion->addInput(step_int);
@@ -491,10 +491,10 @@ TEST_F(TensorFactoryTest, TensorConstruct) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
-  Val* i00 = IrBuilder::create<Int>();
-  Val* i01 = IrBuilder::create<Int>();
-  Val* i10 = IrBuilder::create<Int>();
-  Val* i11 = IrBuilder::create<Int>();
+  Val* i00 = IrBuilder::create<Scalar>(DataType::Int);
+  Val* i01 = IrBuilder::create<Scalar>(DataType::Int);
+  Val* i10 = IrBuilder::create<Scalar>(DataType::Int);
+  Val* i11 = IrBuilder::create<Scalar>(DataType::Int);
   fusion->addInput(i00);
   fusion->addInput(i01);
   fusion->addInput(i10);

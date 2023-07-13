@@ -9,14 +9,13 @@
 
 #include <macros.h>
 
-#include <c10/util/BFloat16.h>
-#include <c10/util/Half.h>
 #include <dynamic_type.h>
 #include <complex>
 #include <cstddef>
+#include <numeric>
 #include <unordered_map>
 
-#include <type.h>
+#include <ATen/ATen.h>
 
 namespace nvfuser {
 
@@ -50,18 +49,19 @@ struct Struct {
 #undef MAYBE_STAR
 };
 
+struct DataType;
+
 // Use a single pointer type to represent all pointers, otherwise we would need
 // exponential compilation time for all pointer types in PolymorphicValue.
 class Pointer {
   std::byte* ptr_;
-  size_t size_;
+  int64_t size_;
 
  public:
   template <typename T>
   Pointer(T* ptr) : ptr_(reinterpret_cast<std::byte*>(ptr)), size_(sizeof(T)) {}
 
-  Pointer(void* ptr, DataType dtype)
-      : ptr_(reinterpret_cast<std::byte*>(ptr)), size_(dataTypeSize(dtype)) {}
+  inline Pointer(void* ptr, DataType dtype);
 
   template <typename T>
   explicit operator T*() const {
@@ -165,6 +165,7 @@ inline Pointer operator+(int64_t offset, const Pointer& ptr) {
 
 using PolymorphicValue = DynamicType<
     Containers<std::vector, Struct>,
+    at::Tensor,
     std::complex<double>,
     double,
     int64_t,
@@ -213,7 +214,8 @@ inline PolymorphicValue notExpr(const PolymorphicValue& a) {
   if (a.is<bool>()) {
     return PolymorphicValue(!a.as<bool>());
   }
-  TORCH_INTERNAL_ASSERT(false);
+  TORCH_INTERNAL_ASSERT(
+      false, "PolymorphicValue notExpr not implemented for ", a.type().name());
 }
 
 inline PolymorphicValue abs(const PolymorphicValue& a) {
@@ -226,7 +228,16 @@ inline PolymorphicValue abs(const PolymorphicValue& a) {
   if (a.is<bool>()) {
     return a;
   }
-  TORCH_INTERNAL_ASSERT(false);
+  TORCH_INTERNAL_ASSERT(
+      false, "PolymorphicValue abs not implemented for ", a.type().name());
+}
+
+inline PolymorphicValue erf(const PolymorphicValue& a) {
+  if (a.is<at::Tensor>()) {
+    return PolymorphicValue(a.as<at::Tensor>().erf());
+  }
+  TORCH_INTERNAL_ASSERT(
+      false, "PolymorphicValue erf not implemented for ", a.type().name());
 }
 
 } // namespace PolymorphicValue_functions

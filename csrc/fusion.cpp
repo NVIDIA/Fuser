@@ -224,18 +224,14 @@ void Fusion::addInput(Val* input) {
         !input->isConst(),
         "Immediate scalar value cannot be added as an input. It is not necessary to pass it as an input.");
     TORCH_CHECK(
-        !(input->isA<Double>() && input->getDataType() != DataType::Double),
+        !(input->isA<Scalar>() && input->getDataType() != DataType::Double &&
+          input->getDataType() != DataType::Int &&
+          input->getDataType() != DataType::ComplexDouble &&
+          input->getDataType() != DataType::Bool),
         "Found ",
         input->getDataType().value(),
-        ". Using a Double scalar as an input with dtype other than DataType::Double is not supported ",
-        "as double is the only floating-point type in Python.");
-    TORCH_CHECK(
-        !(input->isA<ComplexDouble>() &&
-          input->getDataType() != DataType::ComplexDouble),
-        "Found ",
-        input->getDataType().value(),
-        ". Using a ComplexDouble scalar as an input with dtype other than DataType::ComplexDouble ",
-        "is not supported as complex double is the only complex type in Python.");
+        ". Using a  scalar as an input with dtype other than DataType::{Double,Int,ComplexDouble,Bool} is not supported ",
+        "as they are the only supported types in Python.");
   }
 
   inputs_.push_back(input);
