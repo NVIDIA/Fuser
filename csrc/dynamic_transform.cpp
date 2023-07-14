@@ -456,23 +456,13 @@ void DynamicTransformConcretizer::concretize() {
   concretizeEmptyExtents();
 
   // Finally, propagate concretized domains
-  auto all_stmts = StmtSort::getStmts(info_->fusion());
-  std::unordered_set<TensorView*> visited_tvs;
+  auto all_stmts = StmtSort::getStmts(
+      info_->fusion(),
+      /*traverse_members*/ false,
+      /*traverse_attributes*/ false,
+      /*traverse_siblings*/ true);
   for (auto tv : ir_utils::filterByType<TensorView>(all_stmts)) {
-    if (tv->definition()) {
-      for (auto outp :
-           ir_utils::filterByType<TensorView>(tv->definition()->outputs())) {
-        if (visited_tvs.find(outp) == visited_tvs.end()) {
-          mutate(outp);
-          visited_tvs.insert(tv);
-        }
-      }
-    } else {
-      if (visited_tvs.find(tv) == visited_tvs.end()) {
-        mutate(tv);
-        visited_tvs.insert(tv);
-      }
-    }
+    mutate(tv);
   }
 }
 

@@ -1058,7 +1058,7 @@ IterDomain* projectIdToRoot(
   }
 
   auto replay_exprs =
-      StmtSort::getExprs(tv->fusion(), {reference_id}, false, false);
+      StmtSort::getExprs(tv->fusion(), {reference_id}, false, false, false);
   if (replay_exprs.empty()) {
     return reference_id;
   }

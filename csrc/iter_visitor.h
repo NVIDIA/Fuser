@@ -94,12 +94,16 @@ class TORCH_CUDA_CU_API IterVisitor : public OptOutDispatch {
   //! \param traverse_attributes When true, traverse into expr
   //! attributes. Note that attributes of template type Attribute are
   //! not traversed as there's no dispatch support.
+  //! \param traverse_siblings When true, traverse all outputs of
+  //! active multi-output expressions, even if those Expr outputs are not used
+  //! in paths to Fusion outputs.
   void traverseTo(
       Fusion* fusion,
       const std::vector<Val*>& to,
       bool traverse_all_paths = false,
       bool traverse_into_members = false,
-      bool traverse_attributes = false);
+      bool traverse_attributes = false,
+      bool traverse_siblings = false);
 
   //! Traverses nodes in Fusion from inputs in topological order to "to". i.e.
   //! from inputs towards outputs.
@@ -117,13 +121,17 @@ class TORCH_CUDA_CU_API IterVisitor : public OptOutDispatch {
   //! \param traverse_attributes When true, traverse into expr
   //! attributes. Note that attributes of template type Attribute are
   //! not traversed as there's no dispatch support.
+  //! \param traverse_siblings When true, traverse all outputs of
+  //! active multi-output expressions, even if those Expr outputs are not used
+  //! in paths to Fusion outputs.
   void traverseBetween(
       Fusion* fusion,
       const std::unordered_set<Val*>& from,
       const std::vector<Val*>& to,
       bool traverse_all_paths = false,
       bool traverse_into_members = false,
-      bool traverse_attributes = false);
+      bool traverse_attributes = false,
+      bool traverse_siblings = false);
 
   // Iterates from terminating outputs registered with the fusion. Terminating
   // means value is not used to generate any other value used in producing
@@ -299,14 +307,16 @@ class StmtSort : public IterVisitor {
   static std::vector<Statement*> getStmts(
       Fusion* fusion,
       bool traverse_members = false,
-      bool traverse_attributes = false);
+      bool traverse_attributes = false,
+      bool traverse_siblings = false);
 
   // Returns ordered Statements required to produce 'to', including 'to'.
   static std::vector<Statement*> getStmts(
       Fusion* fusion,
       const std::vector<Val*>& to,
       bool traverse_members = false,
-      bool traverse_attributes = false);
+      bool traverse_attributes = false,
+      bool traverse_siblings = false);
 
   // Returns ordered Statements required to produce from, including from.
   // Stops traversal once hiting any Statements in to. Includes Statements in
@@ -330,20 +340,23 @@ class StmtSort : public IterVisitor {
       const std::vector<Val*>& from,
       const std::vector<Val*>& to,
       bool traverse_members = false,
-      bool traverse_attributes = false);
+      bool traverse_attributes = false,
+      bool traverse_siblings = false);
 
   // Same as getStmts version but filters to only return the Expr*s
   static std::vector<Expr*> getExprs(
       Fusion* fusion,
       bool traverse_members = false,
-      bool traverse_attributes = false);
+      bool traverse_attributes = false,
+      bool traverse_siblings = false);
 
   // Same as getStmts version but filters to only return the Expr*s
   static std::vector<Expr*> getExprs(
       Fusion* fusion,
       const std::vector<Val*>& to,
       bool traverse_members = false,
-      bool traverse_attributes = false);
+      bool traverse_attributes = false,
+      bool traverse_siblings = false);
 
   // Same as getStmts version but filters to only return the Expr*s
   static std::vector<Expr*> getExprsBetween(
@@ -351,7 +364,8 @@ class StmtSort : public IterVisitor {
       const std::vector<Val*>& from,
       const std::vector<Val*>& to,
       bool traverse_members = false,
-      bool traverse_attributes = false);
+      bool traverse_attributes = false,
+      bool traverse_siblings = false);
 };
 
 class TORCH_CUDA_CU_API InputsOf : public IterVisitor {
