@@ -384,20 +384,13 @@ void swizzleSharedMemory(
      */
 
     TORCH_INTERNAL_ASSERT(
-<<<<<<< HEAD
         n_rows % repeated_pattern_size == 0,
         "Can not partition matrix into megarows");
     int64_t num_gigarows = n_rows / repeated_pattern_size;
-=======
-        ldmatrix_rows % repeated_pattern_size == 0,
-        "Can not partition matrix into megarows");
-    int64_t num_gigarows = ldmatrix_rows / repeated_pattern_size;
->>>>>>> main
     int64_t num_gigabanks = g; // also = num_megabanks / repeated_pattern_size
 
     //   -2   -1
     // [row, col]
-<<<<<<< HEAD
     if (repeated_pattern_size > 1) {
       shared_mem_tv->split(-2 - skip, repeated_pattern_size);
     }
@@ -405,13 +398,6 @@ void swizzleSharedMemory(
     //      -4         -3       -2        -1
     // [gigarow id, gigarow, matrix id, matrix]
     shared_mem_tv->split(-2 - skip, num_gigabanks);
-=======
-    shared_mem_tv->split(-2, repeated_pattern_size);
-    shared_mem_tv->split(-1, ldmatrix_cols);
-    //      -4         -3       -2        -1
-    // [gigarow id, gigarow, matrix id, matrix]
-    shared_mem_tv->split(-2, num_gigabanks);
->>>>>>> main
     //      -5        -4        -3        -2         -1
     // [gigarow id, gigarow, y outer, gigabank id, matrix]
     // Note that megabanks inside a gigabank are not contiguous, so the gigabank
@@ -461,7 +447,6 @@ void swizzleSharedMemory(
 
     //      -5        -4        -3        -2         -1
     // [gigarow id, gigarow, y outer, gigabank id, matrix]
-<<<<<<< HEAD
     int axis_of_gigarow_id = repeated_pattern_size > 1 ? -5 : -4;
     shared_mem_tv->split(axis_of_gigarow_id - skip, num_gigabanks);
     //     -6     -5     -4       -3        -2         -1
@@ -497,16 +482,6 @@ void swizzleSharedMemory(
         shared_mem_tv->swizzle(
             Swizzle2DType::CyclicShift, swizzle_axis0 - skip, -2 - skip);
       }
-=======
-    shared_mem_tv->split(-5, num_gigabanks);
-    //     -6     -5     -4       -3        -2         -1
-    // [wave id, wave, gigarow, y outer, gigabank id, matrix]
-
-    if (isPowOf2(num_gigabanks)) {
-      shared_mem_tv->swizzle(Swizzle2DType::XOR, -5, -2);
-    } else {
-      shared_mem_tv->swizzle(Swizzle2DType::CyclicShift, -5, -2);
->>>>>>> main
     }
 
     if (repeated_pattern_size > 1) {
