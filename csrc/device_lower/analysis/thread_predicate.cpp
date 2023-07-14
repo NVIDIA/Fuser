@@ -22,7 +22,7 @@ namespace nvfuser {
 
 namespace {
 
-Bool* getPredicatePerParallelType(
+Scalar* getPredicatePerParallelType(
     ParallelType pt,
     const ThreadPredicateMap::PredicateInfo& pred_info) {
   auto pt_dim = GpuLower::current()->parallelDimensionMap().get(pt);
@@ -40,7 +40,7 @@ Bool* getPredicatePerParallelType(
                SimplifyingIrBuilder::subExpr(
                    NamedScalar::getParallelDim(pt),
                    GpuLower::current()->kernel()->oneVal()))
-        ->as<Bool>();
+        ->as<Scalar>();
   }
 
   const auto& broadcast_rd_indices_map = pred_info.broadcast_rd_indices_map;
@@ -49,7 +49,7 @@ Bool* getPredicatePerParallelType(
     // skip concretized broadcast root domains
     const auto& broadcast_rd_indices = it->second;
     Val* zero = GpuLower::current()->kernel()->zeroVal();
-    Bool* pred = GpuLower::current()->kernel()->trueVal();
+    Scalar* pred = GpuLower::current()->kernel()->trueVal();
     for (auto broadcast_rd_index : broadcast_rd_indices) {
       pred = SimplifyingIrBuilder::andExpr(
           pred, SimplifyingIrBuilder::eqExpr(broadcast_rd_index, zero));
@@ -60,12 +60,12 @@ Bool* getPredicatePerParallelType(
   return SimplifyingIrBuilder::eqExpr(
              NamedScalar::getParallelIndex(pt),
              GpuLower::current()->kernel()->zeroVal())
-      ->as<Bool>();
+      ->as<Scalar>();
 }
 
 } // namespace
 
-Bool* ThreadPredicateMap::getPredicateFromPredicateInfo(
+Scalar* ThreadPredicateMap::getPredicateFromPredicateInfo(
     const ThreadPredicateMap::PredicateInfo& pred_info,
     const ParallelTypeBitmap& mask) {
   const auto pred_types =
@@ -75,10 +75,10 @@ Bool* ThreadPredicateMap::getPredicateFromPredicateInfo(
     return GpuLower::current()->kernel()->trueVal();
   }
 
-  Bool* pred = nullptr;
+  Scalar* pred = nullptr;
   for (const auto pt : pred_types) {
     const auto tp = getPredicatePerParallelType(pt, pred_info);
-    pred = SimplifyingIrBuilder::andExpr(pred, tp)->as<Bool>();
+    pred = SimplifyingIrBuilder::andExpr(pred, tp)->as<Scalar>();
   }
   TORCH_INTERNAL_ASSERT(pred != nullptr);
 
@@ -794,7 +794,7 @@ bool ThreadPredicateMap::update(
   }
 }
 
-Bool* ThreadPredicateMap::getPredicate(
+Scalar* ThreadPredicateMap::getPredicate(
     const TensorView* tv,
     ParallelTypeBitmap mask) const {
   TORCH_INTERNAL_ASSERT(find(tv) != end(), "Couldn't find ", tv);

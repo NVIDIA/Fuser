@@ -25,6 +25,7 @@ enum class DebugDumpOption {
   FusionIrMath, //!< Dump just the compute (math) part of the Fusion IR
   FusionIrPresched, //!< Dump the Fusion IR before it is scheduled.
   FusionIrConcretized, //!< Dump the Fusion IR after concretization
+  FusionIrPreseg, //!< Dump the Fusion IR after pre-segmenter optimization
   KernelIr, //!< Dump the compiler Kernel IR
   ComputeAtMap, //!< Dump the computeAt map
   CudaKernel, //!< Dump the generated CUDA C++ kernel code
@@ -81,6 +82,7 @@ enum class EnableOption {
   KernelDb, //! Enable Kernel Database
   KernelProfile, //! Enable intra-kernel performance profiling
   LinearDecomposition, //! Enable linear-bias decomposition
+  MemoryPromotion, //! Enable promotion of memory types for non-pointwise ops
   WarnRegisterSpill, //! Enable warnings of register spill
   EndOfOption //! Placeholder for counting the number of elements
 };
@@ -100,6 +102,7 @@ enum class DisableOption {
   IndexHoist, //! Disable index hoisting
   MagicZero, //! Disable nvfuser_zero
   Nvtx, //! Disable NVTX instrumentation
+  ParallelCompile, //! Disable compiling Fusion segments in parallel
   PredicateElimination, //! Disable predicate elimination
   KernelReuse, //! Disable re-using cached FusionKernelRuntimes with different
                //! input shapes

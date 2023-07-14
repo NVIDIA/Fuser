@@ -63,17 +63,38 @@ bool rejectScheduleFusionInputRequirement(
   return false;
 }
 
-bool rejectScheduleForSelectLikeOps(
+// TODO: remove this requirement entirely
+bool rejectScheduleForMemoryPromotion(
     Fusion* fusion,
     ScheduleHeuristic schedule_strategy) {
   for (auto expr : fusion->exprs()) {
-    // For now, only relax the input requirement with take_along_axis.
-    // TODO: remove this requirement entirely
-    if ((expr->isOneOf<SelectOp, IndexSelectOp>() ||
-         (expr->isA<TorchGatherOp>() &&
-          !expr->as<TorchGatherOp>()->exactSizes())) &&
-        rejectScheduleFusionInputRequirement(expr, schedule_strategy)) {
-      return true;
+    if (expr->isOneOf<SelectOp, IndexSelectOp, TorchGatherOp>()) {
+      // For now, only relax the input requirement when it's
+      // take_along_axis. Also since this would require memory
+      // promotion, i.e., persistent global sync in the case of
+      // block-parallel ops, it needs to be explictly enabled.
+      if (expr->isA<TorchGatherOp>() &&
+          expr->as<TorchGatherOp>()->exactSizes() &&
+          isOptionEnabled(EnableOption::MemoryPromotion)) {
+        continue;
+      }
+      if (rejectScheduleFusionInputRequirement(expr, schedule_strategy)) {
+        return true;
+      }
+    }
+
+    // Similarly, ops based resize, such as like slice, pad and cat,
+    // may require memory promotion. Require them to be done with
+    // fusion inputs unless explicitly allowed
+    if (!isOptionEnabled(EnableOption::MemoryPromotion) &&
+        std::any_of(
+            expr->outputs().begin(), expr->outputs().end(), [](Val* output) {
+              return output->isA<TensorView>() &&
+                  ir_utils::hasResizedRfactor(output->as<TensorView>());
+            })) {
+      if (rejectScheduleFusionInputRequirement(expr, schedule_strategy)) {
+        return true;
+      }
     }
   }
   return false;
@@ -1313,7 +1334,7 @@ class NoOpScheduler : public SchedulerEntry {
     }
 
     // Check that inputs of all select/gather-like ops are fusion inputs
-    if (rejectScheduleForSelectLikeOps(fusion, ScheduleHeuristic::NoOp)) {
+    if (rejectScheduleForMemoryPromotion(fusion, ScheduleHeuristic::NoOp)) {
       return false;
     }
 
@@ -1375,7 +1396,8 @@ class ReductionScheduler : public SchedulerEntry {
     }
 
     // Check that inputs of all select/gather-like ops are fusion inputs
-    if (rejectScheduleForSelectLikeOps(fusion, ScheduleHeuristic::Reduction)) {
+    if (rejectScheduleForMemoryPromotion(
+            fusion, ScheduleHeuristic::Reduction)) {
       return false;
     }
 
@@ -1546,7 +1568,8 @@ class TransposeScheduler : public SchedulerEntry {
     }
 
     // Check that inputs of all select/gather-like ops are fusion inputs
-    if (rejectScheduleForSelectLikeOps(fusion, ScheduleHeuristic::Transpose)) {
+    if (rejectScheduleForMemoryPromotion(
+            fusion, ScheduleHeuristic::Transpose)) {
       return false;
     }
 
@@ -1668,7 +1691,8 @@ class PointWiseScheduler : public SchedulerEntry {
     }
 
     // Check that inputs of all select/gather-like ops are fusion inputs
-    if (rejectScheduleForSelectLikeOps(fusion, ScheduleHeuristic::PointWise)) {
+    if (rejectScheduleForMemoryPromotion(
+            fusion, ScheduleHeuristic::PointWise)) {
       return false;
     }
 
@@ -1772,7 +1796,8 @@ class PersistentKernelScheduler : public SchedulerEntry {
     }
 
     // Check that inputs of all select/gather-like ops are fusion inputs
-    if (rejectScheduleForSelectLikeOps(fusion, ScheduleHeuristic::Persistent)) {
+    if (rejectScheduleForMemoryPromotion(
+            fusion, ScheduleHeuristic::Persistent)) {
       return false;
     }
 
@@ -1962,14 +1987,6 @@ class PersistentKernelScheduler : public SchedulerEntry {
           reduced_tv,
           data_cache,
           (int)(reduced_tv->nDims() - properties.inner_most_dimension_ndims));
-      if (!checkCombinedReductionShape(
-              runtime_info, reduction_tvs, (int64_t)vectorize_factor)) {
-        scheduler_debug_utils::canScheduleRejectReason(
-            ScheduleHeuristic::Persistent,
-            "Inner dim of combined reduction should be a multiplication of a quarter warp and max vectorization factor!");
-        return false;
-      }
-
       // check if we can schedule the combined reductions with a reasonable
       // batch size without register spills.
       if (!normalization_scheduler_utils::
@@ -2098,41 +2115,6 @@ class PersistentKernelScheduler : public SchedulerEntry {
         scheduler_debug_utils::canScheduleRejectReason(
             ScheduleHeuristic::Persistent,
             "to use combined reduction, inner reduction and outer reduction should not have shared consumer, their consumers should not have shared non-outer-reduction producer.");
-        return false;
-      }
-    }
-    return true;
-  }
-
-  static bool checkCombinedReductionShape(
-      SchedulerRuntimeInfo& runtime_info,
-      const std::vector<TensorView*>& reduction_tvs,
-      const int64_t vectorization_factor) {
-    // In combined_inner_outer_reduction, the inner dim should be a
-    // multiplication of a quarter warp and vectorization factor. Otherwise,
-    // will use segregated version. Since inner reduction dim is splitted by
-    // bdimx, this ensures the largest possible bdimx can be at least of a
-    // quarter warp. So we have enough bdimx threads to cover the iteration
-    // domain of the outer reductions to avoid low performance.
-    const int64_t quarter_warp =
-        at::cuda::getCurrentDeviceProperties()->warpSize / 4;
-    for (auto tv : reduction_tvs) {
-      int64_t n_elements = 1;
-      const int64_t n_elements_factor = quarter_warp * vectorization_factor;
-      const bool is_inner_reduction =
-          scheduler_utils::isFastestDimReduction(tv);
-      for (auto id : tv->getMaybeRFactorDomain()) {
-        // check reduction domain for inner reduction and iteration domain for
-        // outer reduction
-        if (id->isReduction() == is_inner_reduction) {
-          auto id_size =
-              runtime_info.expressionEvaluator().evaluate(id->extent());
-          TORCH_INTERNAL_ASSERT(
-              id_size.hasValue(), "Could not infer reduction dim size.");
-          n_elements *= id_size.as<int64_t>();
-        }
-      }
-      if (n_elements % n_elements_factor) {
         return false;
       }
     }

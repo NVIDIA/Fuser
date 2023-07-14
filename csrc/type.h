@@ -7,10 +7,14 @@
 // clang-format on
 #pragma once
 
+#include <macros.h>
+
 #include <c10/core/ScalarType.h>
 #include <c10/util/Exception.h>
 
 #include <c10/macros/Export.h>
+
+#include <polymorphic_value.h>
 
 #include <array>
 #include <complex>
@@ -18,6 +22,7 @@
 #include <iostream>
 #include <optional>
 #include <string>
+#include <type_traits>
 #include <unordered_set>
 #include <variant>
 
@@ -32,7 +37,7 @@ enum class ValType {
   NamedScalar,
   Predicate,
   TensorIndex,
-  AggregateVal,
+  PipelineVal,
   Attribute
 };
 
@@ -82,6 +87,11 @@ enum class PrimDataType {
   Null
 };
 
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
+#endif
+
 struct DataType;
 
 struct ArrayOf {
@@ -95,9 +105,42 @@ struct PointerOf {
   inline bool operator==(const PointerOf& other) const;
 };
 
+struct StructOf {
+  // Note [Incomplete type support in STL]
+  // std::unordered_map<std::string, DataType> is a STL container of incomplete
+  // type. Not all C++ STL containers supports incomplete type due to historical
+  // reason: It is totally possible to implement STL containers supporting
+  // incomplete type (actually, boost has these container implementations), and
+  // it totally makes sense to implement STL containers that way. However, due
+  // to historical reason, some standard C++ libraries are not implementing STL
+  // containers that way, and after careful consideration, the C++ standard
+  // committee decided to not write the requirement on supporting incomplete
+  // type into the standard because they didn't want to deprecate these
+  // libraries. However, starting from C++17, the standard start to ask
+  // std::vector, std::list and std::forward_list to support incomplete
+  // type. So:
+  //   struct A;
+  //   std::vector<A> a; // valid on C++17
+  //   std::unordered_set<A> s; // undefined behavior, working on newer gcc.
+  //   struct A {};
+
+#if defined(STD_UNORDERED_SET_SUPPORTS_INCOMPLETE_TYPE)
+  std::unordered_map<std::string, DataType> types;
+#define NVFUSER_MAYBE_MAKE_SHARED(x) x
+#define NVFUSER_MAYBE_MAKE_SHARED2(x, y) x, y
+#define NVFUSER_MAYBE_STAR
+#else
+  std::unordered_map<std::string, std::shared_ptr<DataType>> types;
+#define NVFUSER_MAYBE_MAKE_SHARED(x) std::make_shared<DataType>(x)
+#define NVFUSER_MAYBE_MAKE_SHARED2(x, y) std::make_shared<DataType>(x, y)
+#define NVFUSER_MAYBE_STAR *
+#endif
+  inline bool operator==(const StructOf& other) const;
+};
+
 struct DataType {
   using VariantOfSupportedTypes =
-      std::variant<PrimDataType, ArrayOf, PointerOf>;
+      std::variant<PrimDataType, ArrayOf, PointerOf, StructOf>;
   VariantOfSupportedTypes type = PrimDataType::Null;
 
   DataType() = default;
@@ -105,6 +148,7 @@ struct DataType {
   DataType(const PrimDataType& type) : type(type) {}
   DataType(const ArrayOf& type) : type(type) {}
   DataType(const PointerOf& type) : type(type) {}
+  DataType(const StructOf& type) : type(type) {}
 
   static constexpr PrimDataType Double = PrimDataType::Double;
   static constexpr PrimDataType Float = PrimDataType::Float;
@@ -135,6 +179,34 @@ bool ArrayOf::operator==(const ArrayOf& other) const {
 bool PointerOf::operator==(const PointerOf& other) const {
   return *type == *other.type;
 }
+
+bool StructOf::operator==(const StructOf& other) const {
+#if defined(STD_UNORDERED_SET_SUPPORTS_INCOMPLETE_TYPE)
+  return types == other.types;
+#else
+  std::unordered_set<std::string> keys;
+  for (auto& [k, v] : types) {
+    keys.insert(k);
+  }
+  std::unordered_set<std::string> other_keys;
+  for (auto& [k, v] : other.types) {
+    other_keys.insert(k);
+  }
+  if (keys != other_keys) {
+    return false;
+  }
+  for (auto& [k, v] : types) {
+    if (*v != *other.types.at(k)) {
+      return false;
+    }
+  }
+  return true;
+#endif
+}
+
+class Val;
+//! Get the type of a Val's metadata, currently only supporting tensors
+DataType metaDataTypeOf(Val* tv);
 
 enum class KernelIndexMode { INT32, INT64 };
 
@@ -215,16 +287,10 @@ template <PrimDataType DT>
 struct DataTypeToNativeType;
 
 template <PrimDataType DT>
-struct DataTypeToNativeTypeWithC10Complex;
-
-template <PrimDataType DT>
 struct DataTypeToAtenType;
 
 template <typename NativeType>
 struct NativeTypeToDataType;
-
-template <typename NativeType>
-struct NativeTypeWithC10ComplexToDataType;
 
 template <at::ScalarType aten_type>
 struct AtenTypeToDataType;
@@ -232,87 +298,91 @@ struct AtenTypeToDataType;
 template <at::ScalarType aten_type>
 struct AtenTypeToNativeType;
 
-template <at::ScalarType aten_type>
-struct AtenTypeToNativeTypeWithC10Complex;
+template <typename NativeType>
+struct IsPrimitiveNativeType : std::false_type {};
 
-#define DEFINE_DATATYPE_TO_NATIVE_TYPE(                                     \
-    data_type, at_type, native_type, native_type_with_c10_complex)          \
-  template <>                                                               \
-  struct DataTypeToNativeType<data_type> {                                  \
-    using type = native_type;                                               \
-  };                                                                        \
-  template <>                                                               \
-  struct DataTypeToNativeTypeWithC10Complex<data_type> {                    \
-    using type = native_type_with_c10_complex;                              \
-  };                                                                        \
-  template <>                                                               \
-  struct DataTypeToAtenType<data_type> {                                    \
-    static constexpr at::ScalarType type = at_type;                         \
-  };                                                                        \
-  template <>                                                               \
-  struct NativeTypeToDataType<native_type> {                                \
-    static constexpr PrimDataType type = data_type;                         \
-  };                                                                        \
-  template <>                                                               \
-  struct NativeTypeWithC10ComplexToDataType<native_type_with_c10_complex> { \
-    static constexpr PrimDataType type = data_type;                         \
-  };                                                                        \
-  template <>                                                               \
-  struct AtenTypeToDataType<at_type> {                                      \
-    static constexpr PrimDataType type = data_type;                         \
-  };                                                                        \
-  template <>                                                               \
-  struct AtenTypeToNativeType<at_type> {                                    \
-    using type = native_type;                                               \
-  };                                                                        \
-  template <>                                                               \
-  struct AtenTypeToNativeTypeWithC10Complex<at_type> {                      \
-    using type = native_type_with_c10_complex;                              \
-  };
+#define DEFINE_DATATYPE_TO_NATIVE_TYPE(data_type, at_type, native_type) \
+  template <>                                                           \
+  struct DataTypeToNativeType<data_type> {                              \
+    using type = native_type;                                           \
+  };                                                                    \
+  template <>                                                           \
+  struct DataTypeToAtenType<data_type> {                                \
+    static constexpr at::ScalarType type = at_type;                     \
+  };                                                                    \
+  template <>                                                           \
+  struct NativeTypeToDataType<native_type> {                            \
+    static constexpr PrimDataType type = data_type;                     \
+  };                                                                    \
+  template <>                                                           \
+  struct IsPrimitiveNativeType<native_type> : std::true_type {};        \
+  template <>                                                           \
+  struct AtenTypeToDataType<at_type> {                                  \
+    static constexpr PrimDataType type = data_type;                     \
+  };                                                                    \
+  template <>                                                           \
+  struct AtenTypeToNativeType<at_type> {                                \
+    using type = native_type;                                           \
+  }
 
-DEFINE_DATATYPE_TO_NATIVE_TYPE(
-    DataType::Float,
-    at::ScalarType::Float,
-    float,
-    float);
+DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::Float, at::ScalarType::Float, float);
 DEFINE_DATATYPE_TO_NATIVE_TYPE(
     DataType::Double,
     at::ScalarType::Double,
-    double,
     double);
-DEFINE_DATATYPE_TO_NATIVE_TYPE(
-    DataType::Half,
-    at::ScalarType::Half,
-    at::Half,
-    at::Half);
+DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::Half, at::ScalarType::Half, at::Half);
 DEFINE_DATATYPE_TO_NATIVE_TYPE(
     DataType::BFloat16,
     at::ScalarType::BFloat16,
-    at::BFloat16,
     at::BFloat16);
-DEFINE_DATATYPE_TO_NATIVE_TYPE(
-    DataType::Int,
-    at::ScalarType::Long,
-    int64_t,
-    int64_t);
-DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::Int32, at::ScalarType::Int, int, int);
-DEFINE_DATATYPE_TO_NATIVE_TYPE(
-    DataType::Bool,
-    at::ScalarType::Bool,
-    bool,
-    bool);
+DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::Int, at::ScalarType::Long, int64_t);
+DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::Int32, at::ScalarType::Int, int);
+DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::Bool, at::ScalarType::Bool, bool);
 DEFINE_DATATYPE_TO_NATIVE_TYPE(
     DataType::ComplexFloat,
     at::ScalarType::ComplexFloat,
-    std::complex<float>,
-    c10::complex<float>);
+    std::complex<float>);
 DEFINE_DATATYPE_TO_NATIVE_TYPE(
     DataType::ComplexDouble,
     at::ScalarType::ComplexDouble,
-    std::complex<double>,
-    c10::complex<double>);
+    std::complex<double>);
 
 #undef DEFINE_DATATYPE_TO_NATIVE_TYPE
+
+inline DataType getDataType(const PolymorphicValue& value) {
+  std::optional<DataType> dtype = std::nullopt;
+  PolymorphicValue::for_all_types([&value, &dtype](auto _) {
+    using T = typename decltype(_)::type;
+    if constexpr (IsPrimitiveNativeType<T>::value) {
+      if (value.is<T>()) {
+        dtype = NativeTypeToDataType<T>::type;
+      }
+    }
+    // TODO: support arrays and pointers
+  });
+  TORCH_CHECK(dtype.has_value(), "Unknown dtype for ", value);
+  return dtype.value();
+}
+
+inline bool isCompatibleDataType(DataType dtype, DataType dtype2) {
+  if (dtype == dtype2) {
+    return true;
+  }
+  if (isIntegralType(dtype) && isIntegralType(dtype2)) {
+    return true;
+  }
+  if (isFloatingPointType(dtype) && isFloatingPointType(dtype2)) {
+    return true;
+  }
+  if (isComplexType(dtype) && isComplexType(dtype2)) {
+    return true;
+  }
+  return false;
+}
+
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
 
 //! Returns the number of base-10 digits required to guarantee a lossless
 //! binary->text->binary round-trip. For exact types, this function returns 0.
@@ -743,10 +813,10 @@ constexpr inline size_t primDataTypeSize(PrimDataType type) {
   }
 }
 
-TORCH_CUDA_CU_API size_t dataTypeSize(DataType type);
+TORCH_CUDA_CU_API int64_t dataTypeSize(DataType type);
 
 // If the index type is known it will be automatically used here
-TORCH_CUDA_CU_API size_t dataTypeSize(DataType type, DataType index_type);
+TORCH_CUDA_CU_API int64_t dataTypeSize(DataType type, DataType index_type);
 
 enum class LaunchConfigType {
   Compatible,
@@ -764,5 +834,35 @@ const char* const kMagicZeroName = "nvfuser_zero";
 //! Maximum number of reductions that can be grouped together. The
 //! limit can be increased by extending struct Tuple define in tuple.cu.
 static constexpr int kMaxNumGroupedReductions = 16;
+
+Pointer::Pointer(void* ptr, DataType dtype)
+    : ptr_(reinterpret_cast<std::byte*>(ptr)), size_(dataTypeSize(dtype)) {}
+
+inline PolymorphicValue castToDtype(
+    PolymorphicValue value,
+    const DataType& dtype) {
+  if (!value.hasValue()) {
+    return value;
+  }
+  // Cast the given value to the given data type. This enables interface
+  // like: IrBuilder::create<Scalar>(0, DataType::Double) where value is
+  // an integer but the desired data type is double.
+  auto value_dtype = getDataType(value);
+  if (!isCompatibleDataType(value_dtype, dtype)) {
+    PolymorphicValue::for_all_types([&](auto _) {
+      using T = typename decltype(_)::type;
+      if constexpr (IsPrimitiveNativeType<T>::value) {
+        if (isCompatibleDataType(NativeTypeToDataType<T>::type, dtype)) {
+          value = PolymorphicValue(static_cast<T>(value));
+        }
+      }
+      // TODO: support arrays and pointers
+    });
+  }
+  TORCH_CHECK(
+      isCompatibleDataType(nvfuser::getDataType(value), dtype),
+      "Scalar value is not compatible with the given data type.");
+  return value;
+}
 
 } // namespace nvfuser

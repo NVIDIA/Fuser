@@ -20,7 +20,8 @@ namespace nvfuser {
 
 namespace {
 
-bool equals(const Val* value, const ScalarValue& concrete_value) {
+// TODO: remove this after we make Scalar a non-template class
+bool equals(const Val* value, const PolymorphicValue& concrete_value) {
   switch (std::get<PrimDataType>(value->getDataType()->type)) {
     case DataType::Int: {
       if (!concrete_value.is<int64_t>()) {
@@ -44,30 +45,18 @@ bool equals(const Val* value, const ScalarValue& concrete_value) {
       return val.has_value() && val.value() == concrete_value.as<bool>();
     }
     default:
-      TORCH_INTERNAL_ASSERT(false);
+      return false;
   }
-}
-
-template <typename T>
-ScalarValue toOptionalScalarValue(std::optional<T> i) {
-  if (!i) {
-    return std::monostate{};
-  }
-  return ScalarValue(i.value());
 }
 
 } // namespace
 
 void ExpressionEvaluator::bind_(
     const Val* value,
-    const ScalarValue& concrete_value) {
+    const PolymorphicValue& concrete_value) {
   if (equals(value, concrete_value)) {
     return;
   }
-  TORCH_CHECK(value->isScalar());
-  TORCH_CHECK(
-      value->dtype() == DataType::Int || value->dtype() == DataType::Double ||
-      value->dtype() == DataType::Bool);
   TORCH_CHECK(!value->isConstScalar(), "Tried to bind to a constant value");
   TORCH_CHECK(
       value->definition() == nullptr,
@@ -84,24 +73,24 @@ void ExpressionEvaluator::bind_(
 
 void ExpressionEvaluator::bind_(
     const std::string& name,
-    const ScalarValue& concrete_value) {
+    const PolymorphicValue& concrete_value) {
   known_named_scalars_[name] = concrete_value;
 }
 
 void ExpressionEvaluator::bind(
     ParallelType pt,
-    Int::ScalarType concrete_value) {
+    const PolymorphicValue& concrete_value) {
   TORCH_INTERNAL_ASSERT(isParallelTypeThread(pt));
   if (precomputed_values_) {
     // Need to bind the thread value to integer machine
     //  in pre-computed mode.
     precomputed_values_->bindConcreteParallelTypeValue(pt, concrete_value);
   } else {
-    bind(stringifyThreadSize(pt), ScalarValue(concrete_value));
+    bind(stringifyThreadSize(pt), concrete_value);
   }
 }
 
-ScalarValue ExpressionEvaluator::evaluate(const Val* value) {
+PolymorphicValue ExpressionEvaluator::evaluate(const Val* value) {
   if (precomputed_values_ && precomputed_values_->ready()) {
     if (precomputed_values_->getMaybeValueFor(value).hasValue()) {
       return precomputed_values_->getMaybeValueFor(value);
@@ -115,7 +104,7 @@ ScalarValue ExpressionEvaluator::evaluate(const Val* value) {
       if (def->isA<kir::BaseAddress>()) {
         return std::monostate{};
       }
-      std::vector<ScalarValue> inputs;
+      std::vector<PolymorphicValue> inputs;
       inputs.reserve(def->inputs().size());
       for (auto i : def->inputs()) {
         auto eval_i = evaluate(i);
@@ -134,7 +123,7 @@ ScalarValue ExpressionEvaluator::evaluate(const Val* value) {
   return maybe_concrete_value;
 }
 
-ScalarValue ExpressionEvaluator::evaluate(ParallelType pt) {
+PolymorphicValue ExpressionEvaluator::evaluate(ParallelType pt) {
   auto it = known_named_scalars_.find(stringifyThreadSize(pt));
   if (it != known_named_scalars_.end()) {
     return it->second;
@@ -142,25 +131,9 @@ ScalarValue ExpressionEvaluator::evaluate(ParallelType pt) {
   return std::monostate{};
 }
 
-ScalarValue ExpressionEvaluator::getValue(const Val* value) {
-  TORCH_INTERNAL_ASSERT(
-      value->isIntegralScalar() || value->isFloatingPointScalar() ||
-          value->isABool(),
-      value->toInlineString(),
-      " is not a supported type in expression evaluation.");
-
+PolymorphicValue ExpressionEvaluator::getValue(const Val* value) {
   if (value->isScalar() && value->isConst()) {
-    if (value->isFloatingPointScalar()) {
-      return toOptionalScalarValue(value->as<Double>()->value());
-    }
-    if (value->isABool()) {
-      return toOptionalScalarValue(value->as<Bool>()->value());
-    }
-    if (value->isIntegralScalar()) {
-      return toOptionalScalarValue(value->as<Int>()->value());
-    }
-    TORCH_INTERNAL_ASSERT(
-        false, "Data type not supported by ExpressionEvaluator");
+    return value->as<Scalar>()->value();
   }
 
   if (value->isA<NamedScalar>()) {
@@ -171,7 +144,8 @@ ScalarValue ExpressionEvaluator::getValue(const Val* value) {
   }
 
   const auto it = known_values_.find(value);
-  return it != known_values_.end() ? it->second : ScalarValue(std::monostate{});
+  return it != known_values_.end() ? it->second
+                                   : PolymorphicValue(std::monostate{});
 }
 
 void ExpressionEvaluator::print() const {
