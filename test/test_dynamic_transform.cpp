@@ -1070,4 +1070,39 @@ TEST_F(NVFuserTest, FusionDynamicEmptyCat2_CUDA) {
   EXPECT_EQ(output_def->input(0), seg_fusion->inputs()[0]);
 }
 
+TEST_F(NVFuserTest, Issue249_CUDA) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  TensorView* tv0 = makeSymbolicTensor(4);
+  fusion.addInput(tv0);
+
+  auto tv1 = add(tv0, tv0);
+  auto tv2 = reshape(
+      tv1,
+      {tv1->axis(0)->extent(),
+       tv1->axis(2)->extent(),
+       IrBuilder::create<Scalar>(-1)});
+  auto tv3 = add(tv2, tv2);
+  fusion.addOutput(tv3);
+
+  FusionExecutorCache fusion_executor_cache(std::move(fusion_ptr));
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor at_x = at::randn({2, 3, 4, 5}, options);
+  auto at_y = (at_x + at_x).reshape({2, 4, -1});
+  auto at_z = at_y + at_y;
+
+  auto outputs = fusion_executor_cache.runFusionWithInputs({at_x});
+
+  testValidate(
+      fusion_executor_cache.fusion(),
+      outputs,
+      {at_x},
+      {at_z},
+      __LINE__,
+      __FILE__);
+}
+
 } // namespace nvfuser
