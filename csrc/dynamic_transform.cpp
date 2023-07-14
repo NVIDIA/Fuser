@@ -276,7 +276,14 @@ void DynamicTransformConcretizationInfo::analyzeReshapes(
           extent_val.is<int64_t>(),
           "Invalid evaluated value of domain extent: ",
           out_id->toString());
-      out_shape.at(i) = extent_val.as<int64_t>();
+      auto extent_int = extent_val.as<int64_t>();
+      if (extent_int == -1) {
+        // For non-constant Scalar sizes, check that we have not passed -1.
+        TORCH_CHECK(
+            out_id->extent()->isConst(),
+            "Values of -1 passed to reshape must be constant at definition.")
+      }
+      out_shape.at(i) = extent_int;
     }
 
     auto view_result = analyzeView(inp_tv, inp_shape, out_shape);
