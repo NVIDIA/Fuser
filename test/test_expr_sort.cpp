@@ -24,6 +24,40 @@ namespace nvfuser {
 
 class ExprSortTest : public NVFuserTest {};
 
+TEST_F(ExprSortTest, TMP1) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(1);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  auto tv3 = set(tv2);
+  fusion.addOutput(tv3);
+
+  tv1->inlineAt(1);
+
+  fusion.printKernel();
+}
+
+TEST_F(ExprSortTest, TMP2) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(1);
+  fusion.addInput(tv0);
+
+  auto tv1 = sum(tv0, {0});
+  auto tv2 = set(tv1);
+  auto tv3 = set(tv2);
+  fusion.addOutput(tv3);
+
+  inlineMost();
+
+  fusion.printKernel();
+}
+
 // Indirect normalization pattern with zero-dimensional tensors. Originally
 // showed up in issue #537.
 TEST_F(ExprSortTest, IndirectNormalizationWithZeroDimTensors) {
