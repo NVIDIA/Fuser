@@ -728,6 +728,8 @@ void IterDomainGraph::build(Fusion* fusion) {
           almost_exact_nodes_.mapEntries(split->in(), split->inner());
         }
       }
+      // No idea if I'm doing the right thing yet.
+      permissive_resize_nodes_.mapEntries(split->in(), split->inner());
     }
   }
 
