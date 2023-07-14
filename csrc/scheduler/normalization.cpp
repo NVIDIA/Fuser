@@ -1015,7 +1015,7 @@ std::shared_ptr<ReductionParams> outerPersistentHeuristic(
   // threshold based on test results on A100.
   const int64_t large_size = 2097152l;
   int64_t tmp_iter_unroll =
-      total_iteration_numel >= large_size ? vectorize_factor : 1l;
+      total_iteration_numel >= large_size ? (int64_t)vectorize_factor : 1l;
   hp.iter_unroll_factor.set(tmp_iter_unroll);
   hp.iter_unroll_factor.final();
 
