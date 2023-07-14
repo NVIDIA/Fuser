@@ -177,11 +177,21 @@ struct Opaque {
       [](const Opaque& a, const Opaque& b) { return &a == &b; };
 
   bool operator==(const Opaque& other) const {
-    return equals(*this, other);
+    if (this == &other) {
+      return true;
+    }
+    if (value.type() != other.value.type()) {
+      return false;
+    }
+    bool result1 = equals(*this, other);
+    bool result2 = equals(other, *this);
+    TORCH_INTERNAL_ASSERT(
+        result1 == result2, "Opaque equality is not symmetric");
+    return result1;
   }
 
   bool operator!=(const Opaque& other) const {
-    return !equals(*this, other);
+    return !(*this == other);
   }
 };
 
@@ -193,9 +203,6 @@ inline std::ostream& operator<<(std::ostream& os, const Opaque& opaque) {
 template <typename T>
 struct OpaqueEquals {
   bool operator()(const Opaque& a, const Opaque& b) const {
-    if (a.value.type() != typeid(T) || b.value.type() != typeid(T)) {
-      return false;
-    }
     return std::any_cast<T>(a.value) == std::any_cast<T>(b.value);
   }
 };
