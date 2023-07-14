@@ -3406,7 +3406,7 @@ void SegmentCandidateFinder::forwardInputs() {
       if (output_uses.size() == 1) {
         // If there is a single use, visit it to try and extend the chain of
         // unaryOps
-        to_visit.emplace_back(output_uses[0]);
+        to_visit.emplace_back(output_uses.at(0));
       } else {
         // If there are either no more uses, or more than one use, we cannot
         // extend the chain of unary Ops. In either case, finalize this chain by
