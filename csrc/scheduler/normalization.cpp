@@ -1024,11 +1024,11 @@ std::shared_ptr<ReductionParams> outerPersistentHeuristic(
 
   // set redu_unroll_factor
   // This controls unroll along the reduction dimension.
-  // Test on A100 shows performance regression when redu_unroll_factor > 1.
   // For case InstanceNormFP32 of [256, 28, 28, 128], if unroll 2, register
   // usage increased from 89 to 118 but the occupancy is not changed. However,
   // the bandwidth is dropped from 1029 GB/s to 840 GB/s due to more stalled
-  // warps.
+  // warps. Unroll by 4 increased performance for some cases but has regression
+  // in many others. So we set redu_unroll_factor to 1.
   hp.redu_unroll_factor.set(1l);
   hp.redu_unroll_factor.final();
 
@@ -1079,7 +1079,7 @@ std::shared_ptr<ReductionParams> outerPersistentHeuristic(
   const int64_t after_unroll =
       total_reduction_numel / hp.redu_unroll_factor.get();
   const int64_t bdimy_max = std::min(
-      ceilDiv(total_reduction_numel, batches_per_block_min),
+      ceilDiv(after_unroll, batches_per_block_min),
       max_threads_in_block / hp.bdimx.get());
   const int64_t bdimy_min =
       std::min(bdimy_max, min_threads_in_block / hp.bdimx.get());
@@ -1088,9 +1088,6 @@ std::shared_ptr<ReductionParams> outerPersistentHeuristic(
       device_warp_size % hp.bdimx.get() == 0,
       "bdimx is no divisible by warp_size. bdimx= ",
       hp.bdimx.get());
-  auto getBatch = [&](int64_t bdimy) {
-    return ceilDiv(total_reduction_numel, bdimy * hp.redu_unroll_factor.get());
-  };
 
   auto nextDivisibleFactor = [&](int64_t next) {
     while (after_unroll % next) {
@@ -1102,10 +1099,10 @@ std::shared_ptr<ReductionParams> outerPersistentHeuristic(
     return next;
   };
   int64_t tmp_bdimy = bdimy_min;
-  int64_t tmp_batch = getBatch(tmp_bdimy);
+  int64_t tmp_batch = ceilDiv(after_unroll, tmp_bdimy);
   while (tmp_bdimy < bdimy_max) {
     int64_t next_bdimy = nextDivisibleFactor(tmp_bdimy + bdimy_step);
-    int64_t next_batch = getBatch(next_bdimy);
+    int64_t next_batch = ceilDiv(after_unroll, next_bdimy);
     if (next_bdimy <= bdimy_max && next_batch >= batches_per_block_min) {
       tmp_bdimy = next_bdimy;
       tmp_batch = next_batch;
