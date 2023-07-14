@@ -169,11 +169,19 @@ inline Pointer operator+(int64_t offset, const Pointer& ptr) {
 struct Opaque {
   std::any value;
 
+  // Because the type information is not available at compile time, we can't
+  // accurately compare the values of two opaque values. So, by default,
+  // equality check is done by pointer compare. However, we also support
+  // manually specifying the equality comparator.
   std::function<bool(const Opaque&, const Opaque&)> equals =
       [](const Opaque& a, const Opaque& b) { return &a == &b; };
 
   bool operator==(const Opaque& other) const {
     return equals(*this, other);
+  }
+
+  bool operator!=(const Opaque& other) const {
+    return !equals(*this, other);
   }
 };
 

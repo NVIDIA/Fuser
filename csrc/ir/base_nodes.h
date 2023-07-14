@@ -593,15 +593,15 @@ class TORCH_CUDA_CU_API Expr : public Statement {
   }
 
   // TODO: Add Fusion passkey
-  void addScalarAttribute(const PolymorphicValue& attr);
+  void addScalarAttribute(PolymorphicValue attr);
 
   // TODO: Add Fusion passkey
   template <typename T>
-  void addDataAttribute(const T& attr) {
+  void addDataAttribute(T attr) {
     if constexpr (PolymorphicValue::is_candidate_type<T>) {
-      addScalarAttribute(attr);
+      addScalarAttribute(std::move(attr));
     } else {
-      addScalarAttribute(Opaque{std::any(attr), OpaqueEquals<T>{}});
+      addScalarAttribute(Opaque{std::any(std::move(attr)), OpaqueEquals<T>{}});
     }
   }
 

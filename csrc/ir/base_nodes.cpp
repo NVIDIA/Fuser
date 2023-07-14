@@ -531,8 +531,8 @@ std::vector<PolymorphicValue> Expr::evaluate(
       "Please override the evaluate method");
 }
 
-void Expr::addScalarAttribute(const PolymorphicValue& attr) {
-  addAttribute(IrBuilder::create<Scalar>(container(), attr));
+void Expr::addScalarAttribute(PolymorphicValue attr) {
+  addAttribute(IrBuilder::create<Scalar>(container(), std::move(attr)));
 }
 
 } // namespace nvfuser
