@@ -366,7 +366,19 @@ NVFUSER_BENCHMARK_RUN(
     ->Args({8 * 1024, 1024})
     ->Unit(benchmark::kMicrosecond)
     ->UseManualTime();
-
+NVFUSER_BENCHMARK_RUN(
+    NvFuserScheduler_LayerNorm_BWD_MultiReductionsPerBlock_fp16)
+    ->Args({128, 128})
+    ->Args({128, 256})
+    ->Args({128, 384})
+    ->Args({128, 512})
+    ->Args({128, 640})
+    ->Args({128, 768})
+    ->Args({128, 896})
+    ->Args({128, 1023})
+    ->Args({128, 1024})
+    ->Unit(benchmark::kMicrosecond)
+    ->UseManualTime();
 //------------------------------------------------------------------------------
 
 BENCHMARK(Baseline_LayerNorm_BWD_fp32)
