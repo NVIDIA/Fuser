@@ -3401,7 +3401,7 @@ void SegmentCandidateFinder::forwardInputs() {
 
       // expr is a unary op so there is a single output. Here we look at that
       // output's further uses
-      auto output_uses = expr->output(0)->uses();
+      const auto& output_uses = expr->output(0)->uses();
 
       if (output_uses.size() == 1) {
         // If there is a single use, visit it to try and extend the chain of
