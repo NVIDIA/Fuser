@@ -49,14 +49,6 @@ bool equals(const Val* value, const PolymorphicValue& concrete_value) {
   }
 }
 
-template <typename T>
-PolymorphicValue toOptionalPolymorphicValue(std::optional<T> i) {
-  if (!i) {
-    return std::monostate{};
-  }
-  return PolymorphicValue(i.value());
-}
-
 } // namespace
 
 void ExpressionEvaluator::bind_(
@@ -87,14 +79,14 @@ void ExpressionEvaluator::bind_(
 
 void ExpressionEvaluator::bind(
     ParallelType pt,
-    Int::ScalarType concrete_value) {
+    const PolymorphicValue& concrete_value) {
   TORCH_INTERNAL_ASSERT(isParallelTypeThread(pt));
   if (precomputed_values_) {
     // Need to bind the thread value to integer machine
     //  in pre-computed mode.
     precomputed_values_->bindConcreteParallelTypeValue(pt, concrete_value);
   } else {
-    bind(stringifyThreadSize(pt), PolymorphicValue(concrete_value));
+    bind(stringifyThreadSize(pt), concrete_value);
   }
 }
 
@@ -141,17 +133,7 @@ PolymorphicValue ExpressionEvaluator::evaluate(ParallelType pt) {
 
 PolymorphicValue ExpressionEvaluator::getValue(const Val* value) {
   if (value->isScalar() && value->isConst()) {
-    if (value->isFloatingPointScalar()) {
-      return toOptionalPolymorphicValue(value->as<Double>()->value());
-    }
-    if (value->isABool()) {
-      return toOptionalPolymorphicValue(value->as<Bool>()->value());
-    }
-    if (value->isIntegralScalar()) {
-      return toOptionalPolymorphicValue(value->as<Int>()->value());
-    }
-    TORCH_INTERNAL_ASSERT(
-        false, "Data type not supported by ExpressionEvaluator");
+    return value->as<Scalar>()->value();
   }
 
   if (value->isA<NamedScalar>()) {

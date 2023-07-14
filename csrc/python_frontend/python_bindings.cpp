@@ -23,6 +23,9 @@
 #include <optional>
 #include <tuple>
 
+#include <pybind11/complex.h>
+#include <pybind11/stl.h>
+
 namespace nvfuser::python_frontend {
 
 // Set of local functions that are used to compose python FusionDefinition
@@ -515,86 +518,42 @@ void initNvFuserPythonBindings(PyObject* module) {
                 !self.completed(),
                 "Attempting to add to a completed definition!");
             Scalar out = self.defineScalar();
-            // ScalarRecord<double> is used for all input scalars. The template
-            // type is unused, but it is important that we ensure that all input
-            // scalars, regardless of dtype, make use of the same template type,
-            // so we standardize on double.
-            self.defineRecord(new ScalarRecord<double>(
-                {self.recordingState(out())},
-                serde::RecordType_ScalarInput,
-                std::nullopt,
-                dtype));
+            self.defineRecord(new ScalarRecord(
+                {self.recordingState(out())}, std::monostate{}, dtype));
             return out;
           },
           py::arg("dtype") = DataType::Double,
           py::return_value_policy::reference);
-
-// Below is the canonical version of define_scalar. When the `value` argument is
-// omitted, the definition above will be used. However, when an explicit value
-// of `None` is provided, one of the definitions below will be used instead. In
-// such case, we must ensure that the standard template argument `double` is
-// used for all input scalars, in contrast to `CType` corresponding to the
-// default `dtype`.
-#define NVFUSER_PYTHON_BINDING_CANONICAL_SCALAR(                                               \
-    Nvfuser_DType, Serde_RType, CType)                                                         \
-  fusion_def.def(                                                                              \
-      "define_scalar",                                                                         \
-      [](FusionDefinition& self,                                                               \
-         std::optional<CType> value,                                                           \
-         PrimDataType dtype) -> Scalar {                                                       \
-        FUSER_PERF_SCOPE("FusionDefinition.define_scalar");                                    \
-        Scalar out = self.defineScalar();                                                      \
-        if (value.has_value()) {                                                               \
-          self.defineRecord(new ScalarRecord<CType>(                                           \
-              {self.recordingState(out())}, Serde_RType, value, dtype));                       \
-        } else {                                                                               \
-          self.defineRecord(new ScalarRecord<double>(                                          \
-              {self.recordingState(out())},                                                    \
-              serde::RecordType_ScalarInput,                                                   \
-              std::nullopt,                                                                    \
-              dtype));                                                                         \
-        }                                                                                      \
-        return out;                                                                            \
-      },                                                                                       \
-      py::arg("value"),                                                                        \
-      py::arg("dtype") = Nvfuser_DType,                                                        \
-      py::return_value_policy::reference);                                                     \
-  fusion_def.def(                                                                              \
-      "define_constant",                                                                       \
-      [](FusionDefinition& self,                                                               \
-         std::optional<CType> value,                                                           \
-         PrimDataType dtype) -> Scalar {                                                       \
-        FUSER_PERF_SCOPE("FusionDefinition.define_contant");                                   \
-        TORCH_WARN_ONCE(                                                                       \
-            "Deprecating define_constant functions in favor of define_scalar for constants."); \
-        Scalar out = self.defineScalar();                                                      \
-        if (value.has_value()) {                                                               \
-          self.defineRecord(new ScalarRecord<CType>(                                           \
-              {self.recordingState(out())}, Serde_RType, value, dtype));                       \
-        } else {                                                                               \
-          self.defineRecord(new ScalarRecord<double>(                                          \
-              {self.recordingState(out())},                                                    \
-              serde::RecordType_ScalarInput,                                                   \
-              std::nullopt,                                                                    \
-              dtype));                                                                         \
-        }                                                                                      \
-        return out;                                                                            \
-      },                                                                                       \
-      py::arg("value"),                                                                        \
-      py::arg("dtype") = Nvfuser_DType,                                                        \
+  fusion_def.def(
+      "define_scalar",
+      [](FusionDefinition& self,
+         PolymorphicValue::VariantType value,
+         std::optional<PrimDataType> dtype) -> Scalar {
+        FUSER_PERF_SCOPE("FusionDefinition.define_scalar");
+        Scalar out = self.defineScalar();
+        self.defineRecord(
+            new ScalarRecord({self.recordingState(out())}, value, dtype));
+        return out;
+      },
+      py::arg("value"),
+      py::arg("dtype") = std::nullopt,
       py::return_value_policy::reference);
-
-  NVFUSER_PYTHON_BINDING_CANONICAL_SCALAR(
-      DataType::Bool, serde::RecordType_ScalarBool, bool);
-  NVFUSER_PYTHON_BINDING_CANONICAL_SCALAR(
-      DataType::ComplexDouble,
-      serde::RecordType_ScalarComplexDouble,
-      std::complex<double>);
-  NVFUSER_PYTHON_BINDING_CANONICAL_SCALAR(
-      DataType::Double, serde::RecordType_ScalarDouble, double);
-  NVFUSER_PYTHON_BINDING_CANONICAL_SCALAR(
-      DataType::Int, serde::RecordType_ScalarLong, int64_t);
-#undef NVFUSER_PYTHON_BINDING_CANONICAL_SCALAR
+  fusion_def.def(
+      "define_constant",
+      [](FusionDefinition& self,
+         PolymorphicValue::VariantType value,
+         std::optional<PrimDataType> dtype) -> Scalar {
+        FUSER_PERF_SCOPE("FusionDefinition.define_contant");
+        TORCH_WARN_ONCE(
+            "Deprecating define_constant functions in favor of define_scalar for constants.");
+        Scalar out = self.defineScalar();
+        self.defineRecord(
+            new ScalarRecord({self.recordingState(out())}, value, dtype));
+        return out;
+      },
+      py::arg("value"),
+      py::arg("dtype") = std::nullopt,
+      py::return_value_policy::reference);
 
   // This is the input version of define_vector
   fusion_def.def(
@@ -607,11 +566,8 @@ void initNvFuserPythonBindings(PyObject* module) {
         args.reserve(size);
         for (size_t i = 0; i < size; ++i) {
           Scalar out = self.defineScalar();
-          self.defineRecord(new ScalarRecord<int64_t>(
-              {self.recordingState(out())},
-              serde::RecordType_ScalarInput,
-              std::nullopt,
-              DataType::Int));
+          self.defineRecord(new ScalarRecord(
+              {self.recordingState(out())}, std::monostate{}, DataType::Int));
           args.emplace_back(out);
         }
         return define_vector_fn(self, args);
@@ -639,9 +595,8 @@ void initNvFuserPythonBindings(PyObject* module) {
                 idx,
                 " was neither symbolic(-1), zero_element(0), broadcast(1), or static(>1).");
             Scalar out = self.defineScalar();
-            self.defineRecord(new ScalarRecord<int64_t>(
+            self.defineRecord(new ScalarRecord(
                 {self.recordingState(out())},
-                serde::RecordType_ScalarLong,
                 py::cast<int64_t>(item),
                 DataType::Int));
             args.emplace_back(out);

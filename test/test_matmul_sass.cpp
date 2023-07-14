@@ -100,7 +100,7 @@ sass::Container getBinaryOpMulEpilogueSASSFor(
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  auto s0 = IrBuilder::create<Double>();
+  auto s0 = IrBuilder::create<Scalar>(DataType::Double);
   auto tv0 = makeContigTensor(2, DataType::Half);
   auto tv1 = makeContigTensor(2, DataType::Half);
 

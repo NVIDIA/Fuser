@@ -106,7 +106,7 @@ std::vector<Val*> collectRuntimeUsedValues(Fusion* fusion) {
     }
   }
   for (auto inp : fusion->inputs()) {
-    if (inp->isA<Int>() || inp->isA<Double>()) {
+    if (inp->isA<Scalar>()) {
       ret.push_back(inp);
     }
   }
@@ -144,7 +144,7 @@ void PrecomputedValues::bindParallelExtents(
 
 void PrecomputedValues::bindConcreteParallelTypeValue(
     ParallelType pt,
-    int64_t value) {
+    PolymorphicValue value) {
   auto index_list_it = thread_dim_value_indices_.find(pt);
   if (index_list_it != thread_dim_value_indices_.end()) {
     for (auto index : *(index_list_it->second)) {

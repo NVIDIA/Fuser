@@ -32,7 +32,7 @@ static void setupLayerNorm(Fusion* fusion, DataType dtype) {
 
   const float kEps = 1e-5;
 
-  Double* eps_ptr = IrBuilder::create<Double>(kEps);
+  Scalar* eps_ptr = IrBuilder::create<Scalar>(kEps);
 
   // setup fusion
   auto input = makeContigTensor(2, dtype);

@@ -482,7 +482,7 @@ struct PadOpRecord : RecordFunctor {
     std::vector<Val*> val_widths;
     val_widths.reserve(pad_widths_.size());
     for (auto p : pad_widths_) {
-      auto pval = IrBuilder::create<Int>(p);
+      auto pval = IrBuilder::create<nvfuser::Scalar>(p);
       val_widths.push_back(pval);
     }
 
@@ -929,10 +929,10 @@ inline std::optional<std::vector<Val*>> BroadcastInDimOpRecord<int64_t>::
   bool has_expand = false;
   for (const auto idx : c10::irange(shape.size())) {
     if (expand_dim[idx] && shape[idx] != 1 && shape[idx] != -1) {
-      expand_shape[idx] = IrBuilder::create<Int>(shape[idx]);
+      expand_shape[idx] = IrBuilder::create<nvfuser::Scalar>(shape[idx]);
       has_expand = true;
     } else {
-      expand_shape[idx] = IrBuilder::create<Int>(-1);
+      expand_shape[idx] = IrBuilder::create<nvfuser::Scalar>(-1);
     }
   }
 
@@ -1929,16 +1929,23 @@ struct TakeAlongAxisOpRecord : RecordFunctor {
 //! Specialized Record Functor for recording FusionState scalars for both
 //! inputs and constants.
 
-template <typename ValueType>
 struct ScalarRecord : RecordFunctor {
   ScalarRecord(
       std::vector<State> _outputs,
-      serde::RecordType record_type,
-      std::optional<ValueType> value,
-      PrimDataType dtype)
-      : RecordFunctor({}, std::move(_outputs), "define_scalar", record_type),
-        value_(std::move(value)),
-        dtype_(dtype) {}
+      PolymorphicValue value,
+      std::optional<PrimDataType> dtype)
+      : RecordFunctor(
+            {},
+            std::move(_outputs),
+            "define_scalar",
+            serde::RecordType_Scalar),
+        value_(
+            dtype.has_value() ? castToDtype(std::move(value), dtype.value())
+                              : std::move(value)),
+        dtype_(
+            dtype.has_value()
+                ? dtype.value()
+                : std::get<PrimDataType>(getDataType(value_).type)) {}
   ~ScalarRecord() override = default;
   RecordFunctor* clone() final {
     return new ScalarRecord(*this);
@@ -1953,48 +1960,30 @@ struct ScalarRecord : RecordFunctor {
   }
 
   bool operator==(const RecordFunctor& other) const final {
-    auto result = false;
     if (auto child_ptr = dynamic_cast<const ScalarRecord*>(&other)) {
-      result = RecordFunctor::operator==(other);
-      if (result) {
-        if (value_.has_value()) {
-          if constexpr (
-              std::is_same_v<ValueType, float> ||
-              std::is_same_v<ValueType, double>) {
-            if (std::isnan(value_.value()) &&
-                std::isnan(child_ptr->value_.value())) {
-              return true;
-            } else {
-              result = (value_ == child_ptr->value_);
-            }
+      if (RecordFunctor::operator==(other)) {
+        if (value_.hasValue() != child_ptr->value_.hasValue() ||
+            dtype_ != child_ptr->dtype_) {
+          return false;
+        }
+        if (value_.hasValue()) {
+          if (value_.is<double>() && std::isnan(value_.as<double>()) &&
+              std::isnan(child_ptr->value_.as<double>())) {
+            return true;
           } else {
-            result = (value_ == child_ptr->value_);
+            return value_ == child_ptr->value_;
           }
+        } else {
+          return true;
         }
       }
     }
-    return result;
+    return false;
   }
 
   void operator()(FusionState& fd) final {
-    Val* output = nullptr;
-    if (value_.has_value()) {
-      output =
-          IrBuilder::create<nvfuser::Scalar<ValueType>>(value_.value(), dtype_);
-    } else {
-      if ((dtype_ == DataType::Double) || (dtype_ == DataType::Float)) {
-        output = IrBuilder::create<Double>(dtype_);
-      } else if (
-          (dtype_ == DataType::ComplexDouble) ||
-          (dtype_ == DataType::ComplexFloat)) {
-        output = IrBuilder::create<ComplexDouble>(dtype_);
-      } else if (dtype_ == DataType::Bool) {
-        output = IrBuilder::create<Bool>();
-      } else if (dtype_ == DataType::Int) {
-        output = IrBuilder::create<Int>();
-      } else {
-        TORCH_CHECK(false, "Dtype is not supported as a Scalar input:", dtype_);
-      }
+    Val* output = IrBuilder::create<nvfuser::Scalar>(value_, dtype_);
+    if (!value_.hasValue()) {
       fd.addInput(output);
     }
     fd.setFusionState(outputs_.at(0).index, output);
@@ -2002,32 +1991,27 @@ struct ScalarRecord : RecordFunctor {
 
   void print(std::ostream& os, bool close_function = true) const final {
     RecordFunctor::print(os, false);
-    if (value_.has_value()) {
-      auto val = value_.value();
-      if constexpr (std::is_same_v<ValueType, bool>) {
-        bool value = __toBool(val);
-        os << (value ? "True" : "False");
-      } else if constexpr (
-          std::is_same_v<ValueType, std::complex<float>> ||
-          std::is_same_v<ValueType, std::complex<double>>) {
-        os << std::showpoint << std::real(val) << "+" << std::showpoint
-           << std::imag(val) << "j";
-      } else if constexpr (
-          std::is_same_v<ValueType, float> ||
-          std::is_same_v<ValueType, double>) {
-        if (std::isinf(val)) {
-          if (std::signbit(val)) {
+    if (value_.hasValue()) {
+      if (value_.is<bool>()) {
+        os << ((bool)value_ ? "True" : "False");
+      } else if (value_.is<std::complex<double>>()) {
+        os << std::showpoint << std::real(value_.as<std::complex<double>>())
+           << "+" << std::showpoint
+           << std::imag(value_.as<std::complex<double>>()) << "j";
+      } else if (value_.is<double>()) {
+        if (std::isinf(value_.as<double>())) {
+          if (std::signbit(value_.as<double>())) {
             os << "float(\"-inf\")";
           } else {
             os << "float(\"inf\")";
           }
-        } else if (std::isnan(val)) {
+        } else if (std::isnan(value_.as<double>())) {
           os << "float(\"nan\")";
         } else {
-          os << std::showpoint << val;
+          os << std::showpoint << value_.as<double>();
         }
-      } else if constexpr (std::is_same_v<ValueType, int64_t>) {
-        os << val;
+      } else if (value_.is<int64_t>()) {
+        os << value_;
       } else {
         TORCH_CHECK(false, "Unsupported dtype.");
       }
@@ -2044,105 +2028,21 @@ struct ScalarRecord : RecordFunctor {
 
   std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
       flatbuffers::FlatBufferBuilder& builder) const final {
-    return valueRecordData(builder, value_);
-  };
+    return {
+        serde::RecordData_Scalar,
+        serde::serializeScalar(builder, value_, dtype_).Union()};
+  }
 
   inline std::pair<serde::RecordData, flatbuffers::Offset<void>> valueRecordData(
       flatbuffers::FlatBufferBuilder& builder,
-      std::optional<ValueType> value) const;
+      PolymorphicValue value) const;
 
  private:
   //! The scalar's value, an input is a nullopt
-  std::optional<ValueType> value_;
+  PolymorphicValue value_;
   //! Scalar data type.
   PrimDataType dtype_;
 };
-
-//! valueRecordData Specializations used by recordData() for ScalarRecord
-
-template <>
-inline std::pair<serde::RecordData, flatbuffers::Offset<void>> ScalarRecord<
-    bool>::
-    valueRecordData(
-        flatbuffers::FlatBufferBuilder& builder,
-        std::optional<bool> value) const {
-  if (value.has_value()) {
-    return {
-        serde::RecordData_Bool,
-        serde::CreateBool(builder, value.value()).Union()};
-  } else {
-    return {
-        serde::RecordData_ScalarInput,
-        serde::CreateScalarInput(builder, serde::mapToSerdeDtype(dtype_))
-            .Union()};
-  }
-}
-
-template <>
-inline std::pair<serde::RecordData, flatbuffers::Offset<void>> ScalarRecord<
-    std::complex<double>>::
-    valueRecordData(
-        flatbuffers::FlatBufferBuilder& builder,
-        std::optional<std::complex<double>> value) const {
-  if (value.has_value()) {
-    return {
-        serde::RecordData_ComplexDouble,
-        serde::CreateComplexDouble(
-            builder,
-            value.value().real(),
-            value.value().imag(),
-            serde::mapToSerdeDtype(dtype_))
-            .Union()};
-  } else {
-    return {
-        serde::RecordData_ScalarInput,
-        serde::CreateScalarInput(builder, serde::mapToSerdeDtype(dtype_))
-            .Union()};
-  }
-}
-
-template <>
-inline std::pair<serde::RecordData, flatbuffers::Offset<void>> ScalarRecord<
-    double>::
-    valueRecordData(
-        flatbuffers::FlatBufferBuilder& builder,
-        std::optional<double> value) const {
-  if (value.has_value()) {
-    return {
-        serde::RecordData_Double,
-        serde::CreateDouble(
-            builder, value.value(), serde::mapToSerdeDtype(dtype_))
-            .Union()};
-  } else {
-    return {
-        serde::RecordData_ScalarInput,
-        serde::CreateScalarInput(builder, serde::mapToSerdeDtype(dtype_))
-            .Union()};
-  }
-}
-
-template <>
-inline std::pair<serde::RecordData, flatbuffers::Offset<void>> ScalarRecord<
-    int64_t>::
-    valueRecordData(
-        flatbuffers::FlatBufferBuilder& builder,
-        std::optional<int64_t> value) const {
-  if (value.has_value()) {
-    return {
-        serde::RecordData_Long,
-        serde::CreateLong(
-            builder, value.value(), serde::mapToSerdeDtype(dtype_))
-            .Union()};
-  } else {
-    return {
-        serde::RecordData_ScalarInput,
-        serde::CreateScalarInput(builder, serde::mapToSerdeDtype(dtype_))
-            .Union()};
-  }
-}
-
-//! Specialized Record Functor for the slice operation.
-//! Note: the python API is significantly different from the Codegen function.
 
 struct SliceOpRecord : RecordFunctor {
   SliceOpRecord(
@@ -2204,9 +2104,9 @@ struct SliceOpRecord : RecordFunctor {
     ranges.reserve(ndims);
     for (const auto i : c10::irange(ndims)) {
       Slice tmp;
-      tmp.start = IrBuilder::create<Int>(start_indices_[i]);
-      tmp.stop = IrBuilder::create<Int>(end_indices_[i]);
-      tmp.step = IrBuilder::create<Int>(strides_[i]);
+      tmp.start = IrBuilder::create<nvfuser::Scalar>(start_indices_[i]);
+      tmp.stop = IrBuilder::create<nvfuser::Scalar>(end_indices_[i]);
+      tmp.step = IrBuilder::create<nvfuser::Scalar>(strides_[i]);
       ranges.emplace_back(tmp);
     }
 
@@ -2622,7 +2522,7 @@ struct FullOpRecord : RecordFunctor {
 
     std::vector<Val*> nvf_shape(shape_.size(), nullptr);
     for (const auto idx : c10::irange(shape_.size())) {
-      nvf_shape[idx] = IrBuilder::create<Int>(shape_.at(idx));
+      nvf_shape[idx] = IrBuilder::create<nvfuser::Scalar>(shape_.at(idx));
     }
     auto output = full(nvf_shape, arg, dtype_);
     fd.setFusionState(outputs_.at(0).index, output);

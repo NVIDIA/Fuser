@@ -287,9 +287,9 @@ class RootPredicateInfo {
 
  private:
   // prdicate for lower end
-  Bool* start_predicate_ = nullptr;
+  Scalar* start_predicate_ = nullptr;
   // prdicate for upper end
-  Bool* stop_predicate_ = nullptr;
+  Scalar* stop_predicate_ = nullptr;
   // Offset of the start predicate
   Val* start_offset_ = nullptr;
   // Offset of the stop predicate

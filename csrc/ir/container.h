@@ -22,10 +22,7 @@ class IrBuilderPasskey;
 class ExprPasskey;
 class OptOutMutator;
 
-template <typename DT>
 class Scalar;
-using Int = Scalar<int64_t>;
-using Bool = Scalar<bool>;
 class NamedScalar;
 
 // Passkey for container to register names with statements
@@ -88,15 +85,15 @@ class TORCH_CUDA_CU_API IrContainer : public PolymorphicBase {
   }
 
   // Shortcuts for frequently used vals
-  Int* zeroVal();
-  Int* oneVal();
-  Bool* falseVal();
-  Bool* trueVal();
+  Scalar* zeroVal();
+  Scalar* oneVal();
+  Scalar* falseVal();
+  Scalar* trueVal();
   NamedScalar* magicZeroVal();
-  Val* zeroVal(DataType dtype);
-  Val* oneVal(DataType dtype);
+  Scalar* zeroVal(DataType dtype);
+  Scalar* oneVal(DataType dtype);
   // Axioms about CUDA programming, for example: threadIdx.x < blockDim.x
-  const std::vector<Bool*>& axioms() {
+  const std::vector<Scalar*>& axioms() {
     lazyInitAxioms();
     return *axioms_;
   }
@@ -174,12 +171,12 @@ class TORCH_CUDA_CU_API IrContainer : public PolymorphicBase {
   // to know when we're using a different container as in FusionCopy_test
   // demonstrates deleting then creating containers can result in the same
   // pointer for the container.
-  std::unique_ptr<Bool> true_val_;
-  std::unique_ptr<Bool> false_val_;
-  std::unique_ptr<Int> one_val_;
-  std::unique_ptr<Int> zero_val_;
+  std::unique_ptr<Scalar> true_val_;
+  std::unique_ptr<Scalar> false_val_;
+  std::unique_ptr<Scalar> one_val_;
+  std::unique_ptr<Scalar> zero_val_;
   std::unique_ptr<NamedScalar> magic_zero_val_;
-  std::unique_ptr<std::vector<Bool*>> axioms_;
+  std::unique_ptr<std::vector<Scalar*>> axioms_;
 };
 
 } // namespace nvfuser

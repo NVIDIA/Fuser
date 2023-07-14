@@ -16,23 +16,8 @@ static_assert(FLATBUFFERS_VERSION_MAJOR == 23 &&
 namespace nvfuser {
 namespace serde {
 
-struct Bool;
-struct BoolBuilder;
-
-struct Double;
-struct DoubleBuilder;
-
-struct Long;
-struct LongBuilder;
-
-struct Half;
-struct HalfBuilder;
-
-struct BFloat16;
-struct BFloat16Builder;
-
-struct ComplexDouble;
-struct ComplexDoubleBuilder;
+struct Scalar;
+struct ScalarBuilder;
 
 struct TensorShape;
 struct TensorShapeBuilder;
@@ -275,24 +260,20 @@ enum RecordType : int32_t {
   RecordType_ReductionProd = 43,
   RecordType_ReductionSum = 44,
   RecordType_ReshapeOp = 45,
-  RecordType_ScalarBool = 46,
-  RecordType_ScalarComplexDouble = 47,
-  RecordType_ScalarDouble = 48,
-  RecordType_ScalarInput = 49,
-  RecordType_ScalarLong = 50,
-  RecordType_SliceOp = 51,
-  RecordType_SqueezeOp = 52,
-  RecordType_Start = 53,
-  RecordType_Tensor = 54,
-  RecordType_TensorSizes = 55,
-  RecordType_VarianceOp = 56,
-  RecordType_VarianceMeanOp = 57,
-  RecordType_Vector = 58,
+  RecordType_Scalar = 46,
+  RecordType_SliceOp = 47,
+  RecordType_SqueezeOp = 48,
+  RecordType_Start = 49,
+  RecordType_Tensor = 50,
+  RecordType_TensorSizes = 51,
+  RecordType_VarianceOp = 52,
+  RecordType_VarianceMeanOp = 53,
+  RecordType_Vector = 54,
   RecordType_MIN = RecordType_Base,
   RecordType_MAX = RecordType_Vector
 };
 
-inline const RecordType (&EnumValuesRecordType())[59] {
+inline const RecordType (&EnumValuesRecordType())[55] {
   static const RecordType values[] = {
     RecordType_Base,
     RecordType_BatchNormOp,
@@ -340,11 +321,7 @@ inline const RecordType (&EnumValuesRecordType())[59] {
     RecordType_ReductionProd,
     RecordType_ReductionSum,
     RecordType_ReshapeOp,
-    RecordType_ScalarBool,
-    RecordType_ScalarComplexDouble,
-    RecordType_ScalarDouble,
-    RecordType_ScalarInput,
-    RecordType_ScalarLong,
+    RecordType_Scalar,
     RecordType_SliceOp,
     RecordType_SqueezeOp,
     RecordType_Start,
@@ -358,7 +335,7 @@ inline const RecordType (&EnumValuesRecordType())[59] {
 }
 
 inline const char * const *EnumNamesRecordType() {
-  static const char * const names[60] = {
+  static const char * const names[56] = {
     "Base",
     "BatchNormOp",
     "BroadcastOp",
@@ -405,11 +382,7 @@ inline const char * const *EnumNamesRecordType() {
     "ReductionProd",
     "ReductionSum",
     "ReshapeOp",
-    "ScalarBool",
-    "ScalarComplexDouble",
-    "ScalarDouble",
-    "ScalarInput",
-    "ScalarLong",
+    "Scalar",
     "SliceOp",
     "SqueezeOp",
     "Start",
@@ -432,45 +405,37 @@ inline const char *EnumNameRecordType(RecordType e) {
 enum RecordData : uint8_t {
   RecordData_NONE = 0,
   RecordData_BatchNorm = 1,
-  RecordData_Bool = 2,
-  RecordData_Broadcast = 3,
-  RecordData_BroadcastInDim = 4,
-  RecordData_BroadcastInDimSymbolic = 5,
-  RecordData_ComplexDouble = 6,
-  RecordData_Dimension = 7,
-  RecordData_Double = 8,
-  RecordData_Dtype = 9,
-  RecordData_Long = 10,
-  RecordData_Norm = 11,
-  RecordData_Output = 12,
-  RecordData_Pad = 13,
-  RecordData_Permute = 14,
-  RecordData_Slice = 15,
-  RecordData_Squeeze = 16,
-  RecordData_Reduction = 17,
-  RecordData_Reshape = 18,
-  RecordData_ScalarInput = 19,
-  RecordData_Tensor = 20,
-  RecordData_TensorCreation = 21,
-  RecordData_TensorCreationSymbolic = 22,
-  RecordData_Vector = 23,
+  RecordData_Broadcast = 2,
+  RecordData_BroadcastInDim = 3,
+  RecordData_BroadcastInDimSymbolic = 4,
+  RecordData_Dimension = 5,
+  RecordData_Dtype = 6,
+  RecordData_Norm = 7,
+  RecordData_Output = 8,
+  RecordData_Pad = 9,
+  RecordData_Permute = 10,
+  RecordData_Slice = 11,
+  RecordData_Squeeze = 12,
+  RecordData_Reduction = 13,
+  RecordData_Reshape = 14,
+  RecordData_Scalar = 15,
+  RecordData_Tensor = 16,
+  RecordData_TensorCreation = 17,
+  RecordData_TensorCreationSymbolic = 18,
+  RecordData_Vector = 19,
   RecordData_MIN = RecordData_NONE,
   RecordData_MAX = RecordData_Vector
 };
 
-inline const RecordData (&EnumValuesRecordData())[24] {
+inline const RecordData (&EnumValuesRecordData())[20] {
   static const RecordData values[] = {
     RecordData_NONE,
     RecordData_BatchNorm,
-    RecordData_Bool,
     RecordData_Broadcast,
     RecordData_BroadcastInDim,
     RecordData_BroadcastInDimSymbolic,
-    RecordData_ComplexDouble,
     RecordData_Dimension,
-    RecordData_Double,
     RecordData_Dtype,
-    RecordData_Long,
     RecordData_Norm,
     RecordData_Output,
     RecordData_Pad,
@@ -479,7 +444,7 @@ inline const RecordData (&EnumValuesRecordData())[24] {
     RecordData_Squeeze,
     RecordData_Reduction,
     RecordData_Reshape,
-    RecordData_ScalarInput,
+    RecordData_Scalar,
     RecordData_Tensor,
     RecordData_TensorCreation,
     RecordData_TensorCreationSymbolic,
@@ -489,18 +454,14 @@ inline const RecordData (&EnumValuesRecordData())[24] {
 }
 
 inline const char * const *EnumNamesRecordData() {
-  static const char * const names[25] = {
+  static const char * const names[21] = {
     "NONE",
     "BatchNorm",
-    "Bool",
     "Broadcast",
     "BroadcastInDim",
     "BroadcastInDimSymbolic",
-    "ComplexDouble",
     "Dimension",
-    "Double",
     "Dtype",
-    "Long",
     "Norm",
     "Output",
     "Pad",
@@ -509,7 +470,7 @@ inline const char * const *EnumNamesRecordData() {
     "Squeeze",
     "Reduction",
     "Reshape",
-    "ScalarInput",
+    "Scalar",
     "Tensor",
     "TensorCreation",
     "TensorCreationSymbolic",
@@ -533,10 +494,6 @@ template<> struct RecordDataTraits<nvfuser::serde::BatchNorm> {
   static const RecordData enum_value = RecordData_BatchNorm;
 };
 
-template<> struct RecordDataTraits<nvfuser::serde::Bool> {
-  static const RecordData enum_value = RecordData_Bool;
-};
-
 template<> struct RecordDataTraits<nvfuser::serde::Broadcast> {
   static const RecordData enum_value = RecordData_Broadcast;
 };
@@ -549,24 +506,12 @@ template<> struct RecordDataTraits<nvfuser::serde::BroadcastInDimSymbolic> {
   static const RecordData enum_value = RecordData_BroadcastInDimSymbolic;
 };
 
-template<> struct RecordDataTraits<nvfuser::serde::ComplexDouble> {
-  static const RecordData enum_value = RecordData_ComplexDouble;
-};
-
 template<> struct RecordDataTraits<nvfuser::serde::Dimension> {
   static const RecordData enum_value = RecordData_Dimension;
 };
 
-template<> struct RecordDataTraits<nvfuser::serde::Double> {
-  static const RecordData enum_value = RecordData_Double;
-};
-
 template<> struct RecordDataTraits<nvfuser::serde::Dtype> {
   static const RecordData enum_value = RecordData_Dtype;
-};
-
-template<> struct RecordDataTraits<nvfuser::serde::Long> {
-  static const RecordData enum_value = RecordData_Long;
 };
 
 template<> struct RecordDataTraits<nvfuser::serde::Norm> {
@@ -601,8 +546,8 @@ template<> struct RecordDataTraits<nvfuser::serde::Reshape> {
   static const RecordData enum_value = RecordData_Reshape;
 };
 
-template<> struct RecordDataTraits<nvfuser::serde::ScalarInput> {
-  static const RecordData enum_value = RecordData_ScalarInput;
+template<> struct RecordDataTraits<nvfuser::serde::Scalar> {
+  static const RecordData enum_value = RecordData_Scalar;
 };
 
 template<> struct RecordDataTraits<nvfuser::serde::Tensor> {
@@ -647,289 +592,114 @@ FLATBUFFERS_MANUALLY_ALIGNED_STRUCT(4) State FLATBUFFERS_FINAL_CLASS {
 };
 FLATBUFFERS_STRUCT_END(State, 8);
 
-struct Bool FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
-  typedef BoolBuilder Builder;
+struct Scalar FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
+  typedef ScalarBuilder Builder;
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_VALUE = 4
+    VT_DTYPE = 4,
+    VT_HAS_VALUE = 6,
+    VT_VALUE_TYPE = 8,
+    VT_BOOL_VALUE = 10,
+    VT_LONG_VALUE = 12,
+    VT_DOUBLE_VALUE = 14,
+    VT_REAL_VALUE = 16,
+    VT_IMAG_VALUE = 18
   };
-  bool value() const {
-    return GetField<uint8_t>(VT_VALUE, 0) != 0;
-  }
-  bool Verify(::flatbuffers::Verifier &verifier) const {
-    return VerifyTableStart(verifier) &&
-           VerifyField<uint8_t>(verifier, VT_VALUE, 1) &&
-           verifier.EndTable();
-  }
-};
-
-struct BoolBuilder {
-  typedef Bool Table;
-  ::flatbuffers::FlatBufferBuilder &fbb_;
-  ::flatbuffers::uoffset_t start_;
-  void add_value(bool value) {
-    fbb_.AddElement<uint8_t>(Bool::VT_VALUE, static_cast<uint8_t>(value), 0);
-  }
-  explicit BoolBuilder(::flatbuffers::FlatBufferBuilder &_fbb)
-        : fbb_(_fbb) {
-    start_ = fbb_.StartTable();
-  }
-  ::flatbuffers::Offset<Bool> Finish() {
-    const auto end = fbb_.EndTable(start_);
-    auto o = ::flatbuffers::Offset<Bool>(end);
-    return o;
-  }
-};
-
-inline ::flatbuffers::Offset<Bool> CreateBool(
-    ::flatbuffers::FlatBufferBuilder &_fbb,
-    bool value = false) {
-  BoolBuilder builder_(_fbb);
-  builder_.add_value(value);
-  return builder_.Finish();
-}
-
-struct Double FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
-  typedef DoubleBuilder Builder;
-  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_VALUE = 4,
-    VT_DTYPE = 6
-  };
-  double value() const {
-    return GetField<double>(VT_VALUE, 0.0);
-  }
   nvfuser::serde::DataType dtype() const {
     return static_cast<nvfuser::serde::DataType>(GetField<int32_t>(VT_DTYPE, 0));
   }
+  bool has_value() const {
+    return GetField<uint8_t>(VT_HAS_VALUE, 0) != 0;
+  }
+  nvfuser::serde::DataType value_type() const {
+    return static_cast<nvfuser::serde::DataType>(GetField<int32_t>(VT_VALUE_TYPE, 0));
+  }
+  bool bool_value() const {
+    return GetField<uint8_t>(VT_BOOL_VALUE, 0) != 0;
+  }
+  int64_t long_value() const {
+    return GetField<int64_t>(VT_LONG_VALUE, 0);
+  }
+  double double_value() const {
+    return GetField<double>(VT_DOUBLE_VALUE, 0.0);
+  }
+  double real_value() const {
+    return GetField<double>(VT_REAL_VALUE, 0.0);
+  }
+  double imag_value() const {
+    return GetField<double>(VT_IMAG_VALUE, 0.0);
+  }
   bool Verify(::flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
-           VerifyField<double>(verifier, VT_VALUE, 8) &&
            VerifyField<int32_t>(verifier, VT_DTYPE, 4) &&
+           VerifyField<uint8_t>(verifier, VT_HAS_VALUE, 1) &&
+           VerifyField<int32_t>(verifier, VT_VALUE_TYPE, 4) &&
+           VerifyField<uint8_t>(verifier, VT_BOOL_VALUE, 1) &&
+           VerifyField<int64_t>(verifier, VT_LONG_VALUE, 8) &&
+           VerifyField<double>(verifier, VT_DOUBLE_VALUE, 8) &&
+           VerifyField<double>(verifier, VT_REAL_VALUE, 8) &&
+           VerifyField<double>(verifier, VT_IMAG_VALUE, 8) &&
            verifier.EndTable();
   }
 };
 
-struct DoubleBuilder {
-  typedef Double Table;
+struct ScalarBuilder {
+  typedef Scalar Table;
   ::flatbuffers::FlatBufferBuilder &fbb_;
   ::flatbuffers::uoffset_t start_;
-  void add_value(double value) {
-    fbb_.AddElement<double>(Double::VT_VALUE, value, 0.0);
-  }
   void add_dtype(nvfuser::serde::DataType dtype) {
-    fbb_.AddElement<int32_t>(Double::VT_DTYPE, static_cast<int32_t>(dtype), 0);
+    fbb_.AddElement<int32_t>(Scalar::VT_DTYPE, static_cast<int32_t>(dtype), 0);
   }
-  explicit DoubleBuilder(::flatbuffers::FlatBufferBuilder &_fbb)
+  void add_has_value(bool has_value) {
+    fbb_.AddElement<uint8_t>(Scalar::VT_HAS_VALUE, static_cast<uint8_t>(has_value), 0);
+  }
+  void add_value_type(nvfuser::serde::DataType value_type) {
+    fbb_.AddElement<int32_t>(Scalar::VT_VALUE_TYPE, static_cast<int32_t>(value_type), 0);
+  }
+  void add_bool_value(bool bool_value) {
+    fbb_.AddElement<uint8_t>(Scalar::VT_BOOL_VALUE, static_cast<uint8_t>(bool_value), 0);
+  }
+  void add_long_value(int64_t long_value) {
+    fbb_.AddElement<int64_t>(Scalar::VT_LONG_VALUE, long_value, 0);
+  }
+  void add_double_value(double double_value) {
+    fbb_.AddElement<double>(Scalar::VT_DOUBLE_VALUE, double_value, 0.0);
+  }
+  void add_real_value(double real_value) {
+    fbb_.AddElement<double>(Scalar::VT_REAL_VALUE, real_value, 0.0);
+  }
+  void add_imag_value(double imag_value) {
+    fbb_.AddElement<double>(Scalar::VT_IMAG_VALUE, imag_value, 0.0);
+  }
+  explicit ScalarBuilder(::flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
     start_ = fbb_.StartTable();
   }
-  ::flatbuffers::Offset<Double> Finish() {
+  ::flatbuffers::Offset<Scalar> Finish() {
     const auto end = fbb_.EndTable(start_);
-    auto o = ::flatbuffers::Offset<Double>(end);
+    auto o = ::flatbuffers::Offset<Scalar>(end);
     return o;
   }
 };
 
-inline ::flatbuffers::Offset<Double> CreateDouble(
+inline ::flatbuffers::Offset<Scalar> CreateScalar(
     ::flatbuffers::FlatBufferBuilder &_fbb,
-    double value = 0.0,
-    nvfuser::serde::DataType dtype = nvfuser::serde::DataType_Double) {
-  DoubleBuilder builder_(_fbb);
-  builder_.add_value(value);
+    nvfuser::serde::DataType dtype = nvfuser::serde::DataType_Double,
+    bool has_value = false,
+    nvfuser::serde::DataType value_type = nvfuser::serde::DataType_Double,
+    bool bool_value = false,
+    int64_t long_value = 0,
+    double double_value = 0.0,
+    double real_value = 0.0,
+    double imag_value = 0.0) {
+  ScalarBuilder builder_(_fbb);
+  builder_.add_imag_value(imag_value);
+  builder_.add_real_value(real_value);
+  builder_.add_double_value(double_value);
+  builder_.add_long_value(long_value);
+  builder_.add_value_type(value_type);
   builder_.add_dtype(dtype);
-  return builder_.Finish();
-}
-
-struct Long FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
-  typedef LongBuilder Builder;
-  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_VALUE = 4,
-    VT_DTYPE = 6
-  };
-  int64_t value() const {
-    return GetField<int64_t>(VT_VALUE, 0);
-  }
-  nvfuser::serde::DataType dtype() const {
-    return static_cast<nvfuser::serde::DataType>(GetField<int32_t>(VT_DTYPE, 0));
-  }
-  bool Verify(::flatbuffers::Verifier &verifier) const {
-    return VerifyTableStart(verifier) &&
-           VerifyField<int64_t>(verifier, VT_VALUE, 8) &&
-           VerifyField<int32_t>(verifier, VT_DTYPE, 4) &&
-           verifier.EndTable();
-  }
-};
-
-struct LongBuilder {
-  typedef Long Table;
-  ::flatbuffers::FlatBufferBuilder &fbb_;
-  ::flatbuffers::uoffset_t start_;
-  void add_value(int64_t value) {
-    fbb_.AddElement<int64_t>(Long::VT_VALUE, value, 0);
-  }
-  void add_dtype(nvfuser::serde::DataType dtype) {
-    fbb_.AddElement<int32_t>(Long::VT_DTYPE, static_cast<int32_t>(dtype), 0);
-  }
-  explicit LongBuilder(::flatbuffers::FlatBufferBuilder &_fbb)
-        : fbb_(_fbb) {
-    start_ = fbb_.StartTable();
-  }
-  ::flatbuffers::Offset<Long> Finish() {
-    const auto end = fbb_.EndTable(start_);
-    auto o = ::flatbuffers::Offset<Long>(end);
-    return o;
-  }
-};
-
-inline ::flatbuffers::Offset<Long> CreateLong(
-    ::flatbuffers::FlatBufferBuilder &_fbb,
-    int64_t value = 0,
-    nvfuser::serde::DataType dtype = nvfuser::serde::DataType_Double) {
-  LongBuilder builder_(_fbb);
-  builder_.add_value(value);
-  builder_.add_dtype(dtype);
-  return builder_.Finish();
-}
-
-struct Half FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
-  typedef HalfBuilder Builder;
-  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_VALUE = 4
-  };
-  uint16_t value() const {
-    return GetField<uint16_t>(VT_VALUE, 0);
-  }
-  bool Verify(::flatbuffers::Verifier &verifier) const {
-    return VerifyTableStart(verifier) &&
-           VerifyField<uint16_t>(verifier, VT_VALUE, 2) &&
-           verifier.EndTable();
-  }
-};
-
-struct HalfBuilder {
-  typedef Half Table;
-  ::flatbuffers::FlatBufferBuilder &fbb_;
-  ::flatbuffers::uoffset_t start_;
-  void add_value(uint16_t value) {
-    fbb_.AddElement<uint16_t>(Half::VT_VALUE, value, 0);
-  }
-  explicit HalfBuilder(::flatbuffers::FlatBufferBuilder &_fbb)
-        : fbb_(_fbb) {
-    start_ = fbb_.StartTable();
-  }
-  ::flatbuffers::Offset<Half> Finish() {
-    const auto end = fbb_.EndTable(start_);
-    auto o = ::flatbuffers::Offset<Half>(end);
-    return o;
-  }
-};
-
-inline ::flatbuffers::Offset<Half> CreateHalf(
-    ::flatbuffers::FlatBufferBuilder &_fbb,
-    uint16_t value = 0) {
-  HalfBuilder builder_(_fbb);
-  builder_.add_value(value);
-  return builder_.Finish();
-}
-
-struct BFloat16 FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
-  typedef BFloat16Builder Builder;
-  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_VALUE = 4
-  };
-  uint16_t value() const {
-    return GetField<uint16_t>(VT_VALUE, 0);
-  }
-  bool Verify(::flatbuffers::Verifier &verifier) const {
-    return VerifyTableStart(verifier) &&
-           VerifyField<uint16_t>(verifier, VT_VALUE, 2) &&
-           verifier.EndTable();
-  }
-};
-
-struct BFloat16Builder {
-  typedef BFloat16 Table;
-  ::flatbuffers::FlatBufferBuilder &fbb_;
-  ::flatbuffers::uoffset_t start_;
-  void add_value(uint16_t value) {
-    fbb_.AddElement<uint16_t>(BFloat16::VT_VALUE, value, 0);
-  }
-  explicit BFloat16Builder(::flatbuffers::FlatBufferBuilder &_fbb)
-        : fbb_(_fbb) {
-    start_ = fbb_.StartTable();
-  }
-  ::flatbuffers::Offset<BFloat16> Finish() {
-    const auto end = fbb_.EndTable(start_);
-    auto o = ::flatbuffers::Offset<BFloat16>(end);
-    return o;
-  }
-};
-
-inline ::flatbuffers::Offset<BFloat16> CreateBFloat16(
-    ::flatbuffers::FlatBufferBuilder &_fbb,
-    uint16_t value = 0) {
-  BFloat16Builder builder_(_fbb);
-  builder_.add_value(value);
-  return builder_.Finish();
-}
-
-struct ComplexDouble FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
-  typedef ComplexDoubleBuilder Builder;
-  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_REAL = 4,
-    VT_IMAG = 6,
-    VT_DTYPE = 8
-  };
-  double real() const {
-    return GetField<double>(VT_REAL, 0.0);
-  }
-  double imag() const {
-    return GetField<double>(VT_IMAG, 0.0);
-  }
-  nvfuser::serde::DataType dtype() const {
-    return static_cast<nvfuser::serde::DataType>(GetField<int32_t>(VT_DTYPE, 0));
-  }
-  bool Verify(::flatbuffers::Verifier &verifier) const {
-    return VerifyTableStart(verifier) &&
-           VerifyField<double>(verifier, VT_REAL, 8) &&
-           VerifyField<double>(verifier, VT_IMAG, 8) &&
-           VerifyField<int32_t>(verifier, VT_DTYPE, 4) &&
-           verifier.EndTable();
-  }
-};
-
-struct ComplexDoubleBuilder {
-  typedef ComplexDouble Table;
-  ::flatbuffers::FlatBufferBuilder &fbb_;
-  ::flatbuffers::uoffset_t start_;
-  void add_real(double real) {
-    fbb_.AddElement<double>(ComplexDouble::VT_REAL, real, 0.0);
-  }
-  void add_imag(double imag) {
-    fbb_.AddElement<double>(ComplexDouble::VT_IMAG, imag, 0.0);
-  }
-  void add_dtype(nvfuser::serde::DataType dtype) {
-    fbb_.AddElement<int32_t>(ComplexDouble::VT_DTYPE, static_cast<int32_t>(dtype), 0);
-  }
-  explicit ComplexDoubleBuilder(::flatbuffers::FlatBufferBuilder &_fbb)
-        : fbb_(_fbb) {
-    start_ = fbb_.StartTable();
-  }
-  ::flatbuffers::Offset<ComplexDouble> Finish() {
-    const auto end = fbb_.EndTable(start_);
-    auto o = ::flatbuffers::Offset<ComplexDouble>(end);
-    return o;
-  }
-};
-
-inline ::flatbuffers::Offset<ComplexDouble> CreateComplexDouble(
-    ::flatbuffers::FlatBufferBuilder &_fbb,
-    double real = 0.0,
-    double imag = 0.0,
-    nvfuser::serde::DataType dtype = nvfuser::serde::DataType_Double) {
-  ComplexDoubleBuilder builder_(_fbb);
-  builder_.add_imag(imag);
-  builder_.add_real(real);
-  builder_.add_dtype(dtype);
+  builder_.add_bool_value(bool_value);
+  builder_.add_has_value(has_value);
   return builder_.Finish();
 }
 
@@ -2139,9 +1909,6 @@ struct RecordFunctor FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
   const nvfuser::serde::BatchNorm *data_as_BatchNorm() const {
     return data_type() == nvfuser::serde::RecordData_BatchNorm ? static_cast<const nvfuser::serde::BatchNorm *>(data()) : nullptr;
   }
-  const nvfuser::serde::Bool *data_as_Bool() const {
-    return data_type() == nvfuser::serde::RecordData_Bool ? static_cast<const nvfuser::serde::Bool *>(data()) : nullptr;
-  }
   const nvfuser::serde::Broadcast *data_as_Broadcast() const {
     return data_type() == nvfuser::serde::RecordData_Broadcast ? static_cast<const nvfuser::serde::Broadcast *>(data()) : nullptr;
   }
@@ -2151,20 +1918,11 @@ struct RecordFunctor FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
   const nvfuser::serde::BroadcastInDimSymbolic *data_as_BroadcastInDimSymbolic() const {
     return data_type() == nvfuser::serde::RecordData_BroadcastInDimSymbolic ? static_cast<const nvfuser::serde::BroadcastInDimSymbolic *>(data()) : nullptr;
   }
-  const nvfuser::serde::ComplexDouble *data_as_ComplexDouble() const {
-    return data_type() == nvfuser::serde::RecordData_ComplexDouble ? static_cast<const nvfuser::serde::ComplexDouble *>(data()) : nullptr;
-  }
   const nvfuser::serde::Dimension *data_as_Dimension() const {
     return data_type() == nvfuser::serde::RecordData_Dimension ? static_cast<const nvfuser::serde::Dimension *>(data()) : nullptr;
   }
-  const nvfuser::serde::Double *data_as_Double() const {
-    return data_type() == nvfuser::serde::RecordData_Double ? static_cast<const nvfuser::serde::Double *>(data()) : nullptr;
-  }
   const nvfuser::serde::Dtype *data_as_Dtype() const {
     return data_type() == nvfuser::serde::RecordData_Dtype ? static_cast<const nvfuser::serde::Dtype *>(data()) : nullptr;
-  }
-  const nvfuser::serde::Long *data_as_Long() const {
-    return data_type() == nvfuser::serde::RecordData_Long ? static_cast<const nvfuser::serde::Long *>(data()) : nullptr;
   }
   const nvfuser::serde::Norm *data_as_Norm() const {
     return data_type() == nvfuser::serde::RecordData_Norm ? static_cast<const nvfuser::serde::Norm *>(data()) : nullptr;
@@ -2190,8 +1948,8 @@ struct RecordFunctor FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
   const nvfuser::serde::Reshape *data_as_Reshape() const {
     return data_type() == nvfuser::serde::RecordData_Reshape ? static_cast<const nvfuser::serde::Reshape *>(data()) : nullptr;
   }
-  const nvfuser::serde::ScalarInput *data_as_ScalarInput() const {
-    return data_type() == nvfuser::serde::RecordData_ScalarInput ? static_cast<const nvfuser::serde::ScalarInput *>(data()) : nullptr;
+  const nvfuser::serde::Scalar *data_as_Scalar() const {
+    return data_type() == nvfuser::serde::RecordData_Scalar ? static_cast<const nvfuser::serde::Scalar *>(data()) : nullptr;
   }
   const nvfuser::serde::Tensor *data_as_Tensor() const {
     return data_type() == nvfuser::serde::RecordData_Tensor ? static_cast<const nvfuser::serde::Tensor *>(data()) : nullptr;
@@ -2225,10 +1983,6 @@ template<> inline const nvfuser::serde::BatchNorm *RecordFunctor::data_as<nvfuse
   return data_as_BatchNorm();
 }
 
-template<> inline const nvfuser::serde::Bool *RecordFunctor::data_as<nvfuser::serde::Bool>() const {
-  return data_as_Bool();
-}
-
 template<> inline const nvfuser::serde::Broadcast *RecordFunctor::data_as<nvfuser::serde::Broadcast>() const {
   return data_as_Broadcast();
 }
@@ -2241,24 +1995,12 @@ template<> inline const nvfuser::serde::BroadcastInDimSymbolic *RecordFunctor::d
   return data_as_BroadcastInDimSymbolic();
 }
 
-template<> inline const nvfuser::serde::ComplexDouble *RecordFunctor::data_as<nvfuser::serde::ComplexDouble>() const {
-  return data_as_ComplexDouble();
-}
-
 template<> inline const nvfuser::serde::Dimension *RecordFunctor::data_as<nvfuser::serde::Dimension>() const {
   return data_as_Dimension();
 }
 
-template<> inline const nvfuser::serde::Double *RecordFunctor::data_as<nvfuser::serde::Double>() const {
-  return data_as_Double();
-}
-
 template<> inline const nvfuser::serde::Dtype *RecordFunctor::data_as<nvfuser::serde::Dtype>() const {
   return data_as_Dtype();
-}
-
-template<> inline const nvfuser::serde::Long *RecordFunctor::data_as<nvfuser::serde::Long>() const {
-  return data_as_Long();
 }
 
 template<> inline const nvfuser::serde::Norm *RecordFunctor::data_as<nvfuser::serde::Norm>() const {
@@ -2293,8 +2035,8 @@ template<> inline const nvfuser::serde::Reshape *RecordFunctor::data_as<nvfuser:
   return data_as_Reshape();
 }
 
-template<> inline const nvfuser::serde::ScalarInput *RecordFunctor::data_as<nvfuser::serde::ScalarInput>() const {
-  return data_as_ScalarInput();
+template<> inline const nvfuser::serde::Scalar *RecordFunctor::data_as<nvfuser::serde::Scalar>() const {
+  return data_as_Scalar();
 }
 
 template<> inline const nvfuser::serde::Tensor *RecordFunctor::data_as<nvfuser::serde::Tensor>() const {
@@ -2572,10 +2314,6 @@ inline bool VerifyRecordData(::flatbuffers::Verifier &verifier, const void *obj,
       auto ptr = reinterpret_cast<const nvfuser::serde::BatchNorm *>(obj);
       return verifier.VerifyTable(ptr);
     }
-    case RecordData_Bool: {
-      auto ptr = reinterpret_cast<const nvfuser::serde::Bool *>(obj);
-      return verifier.VerifyTable(ptr);
-    }
     case RecordData_Broadcast: {
       auto ptr = reinterpret_cast<const nvfuser::serde::Broadcast *>(obj);
       return verifier.VerifyTable(ptr);
@@ -2588,24 +2326,12 @@ inline bool VerifyRecordData(::flatbuffers::Verifier &verifier, const void *obj,
       auto ptr = reinterpret_cast<const nvfuser::serde::BroadcastInDimSymbolic *>(obj);
       return verifier.VerifyTable(ptr);
     }
-    case RecordData_ComplexDouble: {
-      auto ptr = reinterpret_cast<const nvfuser::serde::ComplexDouble *>(obj);
-      return verifier.VerifyTable(ptr);
-    }
     case RecordData_Dimension: {
       auto ptr = reinterpret_cast<const nvfuser::serde::Dimension *>(obj);
       return verifier.VerifyTable(ptr);
     }
-    case RecordData_Double: {
-      auto ptr = reinterpret_cast<const nvfuser::serde::Double *>(obj);
-      return verifier.VerifyTable(ptr);
-    }
     case RecordData_Dtype: {
       auto ptr = reinterpret_cast<const nvfuser::serde::Dtype *>(obj);
-      return verifier.VerifyTable(ptr);
-    }
-    case RecordData_Long: {
-      auto ptr = reinterpret_cast<const nvfuser::serde::Long *>(obj);
       return verifier.VerifyTable(ptr);
     }
     case RecordData_Norm: {
@@ -2640,8 +2366,8 @@ inline bool VerifyRecordData(::flatbuffers::Verifier &verifier, const void *obj,
       auto ptr = reinterpret_cast<const nvfuser::serde::Reshape *>(obj);
       return verifier.VerifyTable(ptr);
     }
-    case RecordData_ScalarInput: {
-      auto ptr = reinterpret_cast<const nvfuser::serde::ScalarInput *>(obj);
+    case RecordData_Scalar: {
+      auto ptr = reinterpret_cast<const nvfuser::serde::Scalar *>(obj);
       return verifier.VerifyTable(ptr);
     }
     case RecordData_Tensor: {

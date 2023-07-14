@@ -1044,8 +1044,8 @@ LaunchParams FusionExecutor::computeLaunchParams(
         p_type,
         " to set launch bounds but could not.");
 
-    if (val.as<int64_t>() > 0) {
-      expr_eval.bind(p_type, val.as<int64_t>());
+    if (val > 0) {
+      expr_eval.bind(p_type, val);
       launch_params.bind(val.as<int64_t>(), p_type);
     }
   }
