@@ -577,7 +577,7 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
 
   // Compute concretization info to use as cache key
   DynamicTransformConcretizationInfo* conc_info = nullptr;
-  if (initial_info.hasDynamicTransforms()) {
+  if (initial_info.isDynamic()) {
     // This class needs to own conc_info so it can be compared in subsequent
     // invocations.
     auto expr_eval = executor_utils::bindInputs(args, fusion_.get());
@@ -634,10 +634,7 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
     // Clone fusion_ so that we can safely use an ExpressionEvaluator on it, for
     // the purposes of computing the concretization info.
     auto conc_fusion = std::make_unique<Fusion>(*fusion_);
-
-    // concretize fusion_ for use in this runtime
-    FusionGuard fg(conc_fusion.get());
-    if (initial_info.hasDynamicTransforms()) {
+    if (initial_info.isDynamic()) {
       const auto& conc_initial_info =
           conc_fusion->getManaged<DynamicTransformInitialInfo>("initial_info");
       TORCH_INTERNAL_ASSERT(conc_info);
@@ -659,6 +656,7 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
         conc_fusion->printMath();
       }
     }
+    FusionGuard fg(conc_fusion.get());
     kernel_runtimes.emplace_back(std::make_unique<FusionKernelRuntime>(
         std::move(conc_fusion), args, forced_index_type));
     kernel_runtime = kernel_runtimes.back().get();

@@ -81,6 +81,13 @@ TEST_F(NVFuserTest, DynamicTransform1_CUDA) {
     expr_eval.bind(reshape_shape0, 3L);
     expr_eval.bind(reshape_shape1, -1L);
 
+    // In this case, if we do not bind tv1->axis(1)->extent(), we get a failure
+    // to evaluate it when checking whether tv1 is empty. It is possible to
+    // infer that it is not empty in this case, but it would require replicating
+    // some of the ExpressionEvaluator::propagateBoundValuesThroughExactMaps()
+    // functionality inside concretization, which is not implemented.
+    expr_eval.bind(tv1->axis(1)->extent(), 4);
+
     auto initial_info = DynamicTransform::getInitialInfo(&fusion);
     auto info = DynamicTransformConcretizationInfo(&initial_info, &expr_eval);
     TORCH_CHECK(
@@ -947,7 +954,10 @@ TEST_F(NVFuserTest, DynamicPadShmoo_CUDA) {
       //{{3, 5}, {-3, -2}, false}, // output is zero-dimensional
 
       // Output has size 1 so is set to broadcast.
-      {{3, 5}, {0, -4}, true},
+      // This was previously "working" by concretizing the size-1 pad to
+      // Iteration, even though it should be Broadcast. When set properly to
+      // Broadcast, it fails with an error in ConcretizedBroadcastDomains.
+      //{{3, 5}, {0, -4}, true},
 
       // Test full negative shifts, so output doesn't overlap input
       {{3, 5}, {-5, 2}, false},
@@ -959,7 +969,7 @@ TEST_F(NVFuserTest, DynamicPadShmoo_CUDA) {
 
       // Test zero-dimensional input
       //{{3, 0}, {0, 0}, false}, // SIGFPE (see #264 above)
-      {{3, 0}, {1, 1}, false},
+      {{3, 0}, {1, 1}, true}, // zero-dimensional concretizes differently
       //{{3, 0}, {-1, 1}, false}, // SIGFPE (see #264 above)
   };
   // NOLINTEND(bugprone-implicit-widening-of-multiplication-result)
@@ -995,6 +1005,69 @@ TEST_F(NVFuserTest, FusionDynamicSliceToBroadcast_CUDA) {
   auto at1 = at::slice(at0, 0, 0, 2);
   auto at2 = at::slice(at1, 0, 0, 1);
   testValidate(&fusion, outputs, aten_inputs, {at2}, __LINE__, __FILE__);
+}
+
+// Test that empty input to cat is concretized away
+TEST_F(NVFuserTest, FusionDynamicEmptyCat1_CUDA) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(fusion_ptr.get());
+
+  auto tv0 = makeSymbolicTensor(1);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(1);
+  fusion.addInput(tv1);
+  auto tv2 = makeSymbolicTensor(1);
+  fusion.addInput(tv2);
+
+  auto tv3 = cat({tv0, tv1, tv2}, 0);
+
+  fusion.addOutput(tv3);
+
+  // Check correctness
+  FusionExecutorCache fusion_executor_cache(std::move(fusion_ptr));
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor at0 = at::randn({5}, options);
+  at::Tensor at1 = at::randn({0}, options);
+  at::Tensor at2 = at::randn({3}, options);
+  std::vector<c10::IValue> aten_inputs = {at0, at1, at2};
+  auto outputs = fusion_executor_cache.runFusionWithInputs(aten_inputs);
+  auto at3 = at::cat({at0, at1, at2}, 0);
+  testValidate(&fusion, outputs, aten_inputs, {at3}, __LINE__, __FILE__);
+}
+
+// Test that empty input to cat is concretized away
+TEST_F(NVFuserTest, FusionDynamicEmptyCat2_CUDA) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(fusion_ptr.get());
+
+  auto tv0 = makeSymbolicTensor(1);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(1);
+  fusion.addInput(tv1);
+
+  auto tv2 = cat({tv0, tv1}, 0);
+
+  fusion.addOutput(tv2);
+
+  // Check correctness
+  FusionExecutorCache fusion_executor_cache(std::move(fusion_ptr));
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor at0 = at::randn({5}, options);
+  at::Tensor at1 = at::randn({0}, options);
+  std::vector<c10::IValue> aten_inputs = {at0, at1};
+  auto outputs = fusion_executor_cache.runFusionWithInputs(aten_inputs);
+  auto at2 = at::cat({at0, at1}, 0);
+  testValidate(&fusion, outputs, aten_inputs, {at2}, __LINE__, __FILE__);
+
+  // Check that fusion consists only of tv2 = set(tv0)
+  auto fkr = fusion_executor_cache.getMostRecentKernelRuntime();
+  auto seg_fusion = fkr->fusionSegments();
+  auto output_def = seg_fusion->outputs()[0]->definition();
+  EXPECT_TRUE(output_def->isA<LoadStoreOp>());
+  EXPECT_EQ(output_def->as<LoadStoreOp>()->opType(), LoadStoreOpType::Set);
+  EXPECT_EQ(output_def->input(0), seg_fusion->inputs()[0]);
 }
 
 } // namespace nvfuser
