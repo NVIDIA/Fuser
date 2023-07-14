@@ -349,40 +349,80 @@ void prologSwizzle(TensorView* shared_mem_tv, const MatmulParams& params) {
      *   6|          |          |
      *   7|          |          |
      *    +----------+----------+
+     *
+     * We can consider each repeated_pattern_size rows as a gigarow, and each
+     * repeated_pattern_size megabanks as a gigabank. Note that megabank is a
+     * contiguous chunk of banks, but gigabank is not contiguous. Indeed,
+     * nearby megabanks in a gigabank has a distance of `g` megabanks
      */
+
+    TORCH_INTERNAL_ASSERT(
+        ldmatrix_rows % repeated_pattern_size == 0,
+        "Can not partition matrix into megarows");
+    int64_t num_gigarows = ldmatrix_rows / repeated_pattern_size;
+    int64_t num_gigabanks = g; // also = num_megabanks / repeated_pattern_size
 
     //   -2   -1
     // [row, col]
-    TORCH_INTERNAL_ASSERT(
-        tile_size_x % ldmatrix_rows == 0, "Partial matrices not supported");
-    shared_mem_tv->split(-2, ldmatrix_rows);
-    TORCH_INTERNAL_ASSERT(
-        tile_size_y % ldmatrix_cols == 0, "Partial matrices not supported");
+    shared_mem_tv->split(-2, repeated_pattern_size);
     shared_mem_tv->split(-1, ldmatrix_cols);
-    //     -4        -3      -2         -1
-    // [matrix id, matrix, matrix id, matrix]
+    //      -4         -3       -2        -1
+    // [gigarow id, gigarow, matrix id, matrix]
+    shared_mem_tv->split(-2, num_gigabanks);
+    //      -5        -4        -3        -2         -1
+    // [gigarow id, gigarow, y outer, gigabank id, matrix]
+    // Note that megabanks inside a gigabank are not contiguous, so the gigabank
+    // id is -2 instead of -3
+
+    /* We want to evenly distribute gigarows across gigabanks, for example, if
+     * we have 7 gigarows and 3 gigabanks, then we might distribute them as:
+     *  +---+
+     *  |x  |
+     *  | x |
+     *  |  x|
+     *  |x  |
+     *  | x |
+     *  |  x|
+     *  |x  |
+     *  +---+
+     * considering all matrices, this is a swizzle function like:
+     *  +---+
+     *  |012|
+     *  |201|
+     *  |120|
+     *  |012|
+     *  |201|
+     *  |120|
+     *  |012|
+     *  +---+
+     * which is a cyclic shift.
+     *
+     * Note that because num_gigabanks (a.k.a. g) divide num_megabanks and
+     * row_stride_znz (which is row_stride % num_megabanks), g should also
+     * divide row_stride, because according to the fundamental
+     * division-with-remainder property (see comment in expr_simplifier.h):
+     *   row_stride = q * num_megabanks + row_stride_znz
+     * which means, we can just consider each num_gigabanks matrices as a group,
+     * and we always have complete groups (i.e. no group has less than
+     * num_gigabanks matrices). Interleaving the memory of matrices within each
+     * group should be enough to fully remove bank conflict.
+     */
+
+    /* To further simplify the problem, if we assume: */
     TORCH_INTERNAL_ASSERT(
-        ldmatrix_rows % repeated_pattern_size == 0,
-        "ldmatrix_rows is assumed to be a multiple of repeated_pattern_size");
-    shared_mem_tv->split(-3, repeated_pattern_size);
-    //     -5        -4      -3       -2         -1
-    // [matrix id, repeat, pattern, matrix id, matrix]
-    int64_t swizzle_period = ldmatrix_rows / repeated_pattern_size;
-    TORCH_INTERNAL_ASSERT(
-        tile_size_y % (swizzle_period * ldmatrix_cols) == 0,
-        "need aperiodic swizzle config for tile size ",
-        tile_size_x,
-        "x",
-        tile_size_y,
-        "with units ",
-        ldmatrix_rows,
-        "x",
-        ldmatrix_cols);
-    shared_mem_tv->split(-2, swizzle_period);
-    //     -6        -5      -4            -3           -2         -1
-    // [matrix id, repeat, pattern, matrix id outer, pattern id, matrix]
-    // swizzle repeat with pattern id to make repeat no longer repeat
-    if (isPowOf2(swizzle_period)) {
+        num_gigarows % num_gigabanks == 0,
+        "Requires non-square swizzle, which is not supported yet");
+    /* Then we can partition gigarows into full waves, each wave has
+     * num_gigabanks gigarows. This partition creates square dimensions, making
+     * the swizzle implementation easier */
+
+    //      -5        -4        -3        -2         -1
+    // [gigarow id, gigarow, y outer, gigabank id, matrix]
+    shared_mem_tv->split(-5, num_gigabanks);
+    //     -6     -5     -4       -3        -2         -1
+    // [wave id, wave, gigarow, y outer, gigabank id, matrix]
+
+    if (isPowOf2(num_gigabanks)) {
       shared_mem_tv->swizzle(Swizzle2DType::XOR, -5, -2);
     } else {
       shared_mem_tv->swizzle(Swizzle2DType::CyclicShift, -5, -2);
@@ -626,17 +666,23 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
     bcw_smem = br->cacheAfter(load_op);
     TORCH_INTERNAL_ASSERT(acw_smem->uses().size() == 1);
     TORCH_INTERNAL_ASSERT(bcw_smem->uses().size() == 1);
-    if (auto ldst = dynamic_cast<LoadStoreOp*>(acw_smem->uses().at(0));
-        ldst != nullptr && ldst->hasTranspose()) {
+    if (auto ldst = dynamic_cast<LoadStoreOp*>(acw_smem->uses().at(0))) {
       acr = ldst->out()->as<TensorView>();
-      ldst->setOpType(LoadStoreOpType::LdMatrixTranspose);
+      if (ldst->hasInnerTranspose()) {
+        ldst->setOpType(LoadStoreOpType::LdMatrixTranspose);
+      } else {
+        ldst->setOpType(LoadStoreOpType::LdMatrix);
+      }
     } else {
       acr = acw_smem->cacheAfter(LoadStoreOpType::LdMatrix);
     }
-    if (auto ldst = dynamic_cast<LoadStoreOp*>(bcw_smem->uses().at(0));
-        ldst != nullptr && ldst->hasTranspose()) {
+    if (auto ldst = dynamic_cast<LoadStoreOp*>(bcw_smem->uses().at(0))) {
       bcr = ldst->out()->as<TensorView>();
-      ldst->setOpType(LoadStoreOpType::LdMatrixTranspose);
+      if (ldst->hasInnerTranspose()) {
+        ldst->setOpType(LoadStoreOpType::LdMatrixTranspose);
+      } else {
+        ldst->setOpType(LoadStoreOpType::LdMatrix);
+      }
     } else {
       bcr = bcw_smem->cacheAfter(LoadStoreOpType::LdMatrix);
     }
@@ -652,6 +698,12 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   // Make a CTA tile
   // ------------------------------------------------------------------
   mma_utils::canonicalizeMmaTvOrdering(mma_result);
+  TORCH_INTERNAL_ASSERT(
+      mma_result->nDims() == 3 || mma_result->nDims() == 4,
+      "Currently, we only support B, M, N and K being a single dimension.",
+      " More general tensor contraction is not supported yet.");
+  const int num_batch_dims = (int)mma_result->nDims() - 3;
+
   // [... M,N,K]
   mma_utils::makeTile(mma_result, gemm_tile.cta_tile.toVector());
 
@@ -659,19 +711,19 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   if (params.grid_swizzle_factor != 1) {
     int factor = std::max(1, params.grid_swizzle_factor); // must be >=1
     if (params.cta_order == MatmulParams::TileRasterizationOrder::RowMajor) {
-      mma_result->split(1, factor);
+      mma_result->split(num_batch_dims + 1, factor);
       // [I1, I2/factor, factor]
-      mma_result->reorder({{1, 2}});
+      mma_result->reorder({{num_batch_dims + 1, num_batch_dims + 2}});
       // [I1, factor, I2/factor]
-      mma_result->merge(0);
+      mma_result->merge(num_batch_dims);
       // [I1*factor, I2/factor]
     } else if (
         params.cta_order == MatmulParams::TileRasterizationOrder::ColumnMajor) {
-      mma_result->split(0, factor);
+      mma_result->split(num_batch_dims, factor);
       // [I1/factor, factor, I2]
-      mma_result->reorder({{1, 2}});
+      mma_result->reorder({{num_batch_dims + 1, num_batch_dims + 2}});
       // [I1/factor, I2, factor]
-      mma_result->merge(1);
+      mma_result->merge(num_batch_dims + 1);
       // [I1/factor, I2*factor]
     }
   }
@@ -732,24 +784,27 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   acr->axis(-1)->parallelize(ParallelType::Vectorize);
   bcr->axis(-1)->parallelize(ParallelType::Vectorize);
 
-  //  0   1  2  3   4   5   6  7  8  9  10
-  // [Mo No Ko Kwo Mwo Nwo Mw Nw (Mi Ni Ki)]
+  //  0  1  2  3  4   5   6   7  8  9  10 11
+  // [B Mo No Ko Kwo Mwo Nwo Mw Nw (Mi Ni Ki)]
+  if (num_batch_dims != 0) {
+    mma_result->axis(0)->parallelize(ParallelType::BIDz);
+  }
   switch (params.cta_order) {
     case MatmulParams::TileRasterizationOrder::RowMajor:
-      mma_result->axis(0)->parallelize(ParallelType::BIDx);
-      mma_result->axis(1)->parallelize(ParallelType::BIDy);
+      mma_result->axis(num_batch_dims)->parallelize(ParallelType::BIDx);
+      mma_result->axis(num_batch_dims + 1)->parallelize(ParallelType::BIDy);
       break;
     case MatmulParams::TileRasterizationOrder::ColumnMajor:
-      mma_result->axis(0)->parallelize(ParallelType::BIDy);
-      mma_result->axis(1)->parallelize(ParallelType::BIDx);
+      mma_result->axis(num_batch_dims)->parallelize(ParallelType::BIDy);
+      mma_result->axis(num_batch_dims + 1)->parallelize(ParallelType::BIDx);
       break;
     default:
       TORCH_INTERNAL_ASSERT(
           false, "Invalid TileRasterizationOrder passed to Matmul scheduler");
   }
 
-  mma_result->axis(4)->parallelize(ParallelType::TIDz);
-  mma_result->axis(5)->parallelize(ParallelType::TIDy);
+  mma_result->axis(num_batch_dims + 4)->parallelize(ParallelType::TIDz);
+  mma_result->axis(num_batch_dims + 5)->parallelize(ParallelType::TIDy);
 
   scheduler_utils::parallelizeAllLike(
       mma_result,
@@ -778,7 +833,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   inlineMost(ir_utils::allTvsExcept(fusion, {acr, bcr, ab, bb, d}));
 
   // if auto inline, will inline to position-7, leads to performance regression
-  inlineSelectedAt({acr, bcr, ab, bb}, mma_result, 6);
+  inlineSelectedAt({acr, bcr, ab, bb}, mma_result, num_batch_dims + 6);
 
   // Propagate mma output swizzle and parallelization down the DAG
   if (params.double_buffer_options.double_buffer_smem_write) {
@@ -804,7 +859,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
 
   if (params.double_buffer_options.double_buffer_smem_read &&
       params.double_buffer_options.double_buffer_smem_write) {
-    scheduler_utils::rotateLoop(mma_result, 2, {acr, bcr});
+    scheduler_utils::rotateLoop(mma_result, num_batch_dims + 2, {acr, bcr});
   }
 }
 

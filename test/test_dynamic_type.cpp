@@ -6,13 +6,15 @@
  */
 // clang-format on
 
+#include <macros.h>
+
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
 #include <test/utils.h>
 #include <type_traits.h>
 
-#include <scalar_value.h>
+#include <polymorphic_value.h>
 
 #include <iostream>
 #include <list>
@@ -864,7 +866,7 @@ namespace container_test {
 // TODO: unordered set is a better fit for this case, but it does not work with
 // some old compilers (for example the old gcc on our CI). This is a workaround.
 // See [Incomplete type support in STL] for more details.
-#if defined(__clang__) || __GNUC__ >= 12
+#if defined(STD_UNORDERED_SET_SUPPORTS_INCOMPLETE_TYPE)
 
 struct StupidHash {
   template <typename T>

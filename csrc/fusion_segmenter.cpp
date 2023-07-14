@@ -2441,7 +2441,7 @@ void TranslateApplicableWelford::translateSingleWelford(WelfordOp* welford) {
 
   // Create scalar version of the feature element
   //  counting.
-  Val* num_features = IrBuilder::create<Double>(1);
+  Val* num_features = IrBuilder::create<Scalar>(1.0);
   std::vector<bool> broadcast_mask(in_root.size(), false);
   for (const auto i : c10::irange(in_root.size())) {
     if (out_root.at(i)->isReduction()) {
@@ -2476,7 +2476,7 @@ void TranslateApplicableWelford::translateSingleWelford(WelfordOp* welford) {
   auto x_mean_sub_pow = mul(x_mean_sub, x_mean_sub);
   IrBuilder::create<ReductionOp>(
       BinaryOpType::Add,
-      IrBuilder::create<Double>(0.0),
+      IrBuilder::create<Scalar>(0.0),
       out_var,
       x_mean_sub_pow);
   IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out_N, num_features);
@@ -3399,13 +3399,21 @@ void SegmentCandidateFinder::forwardInputs() {
         continue;
       }
 
-      if (expr->output(0)->uses().size() > 1) {
+      // expr is a unary op so there is a single output. Here we look at that
+      // output's further uses
+      const auto& output_uses = expr->output(0)->uses();
+
+      if (output_uses.size() == 1) {
+        // If there is a single use, visit it to try and extend the chain of
+        // unaryOps
+        to_visit.emplace_back(output_uses.at(0));
+      } else {
+        // If there are either no more uses, or more than one use, we cannot
+        // extend the chain of unary Ops. In either case, finalize this chain by
+        // saving the expr and its output.
         excluded_inp_unary_exprs_.pushBack(expr);
         forwarded_inputs.pushBack(expr->output(0));
-        continue;
       }
-
-      to_visit.emplace_back(expr->output(0)->uses()[0]);
     }
   }
 

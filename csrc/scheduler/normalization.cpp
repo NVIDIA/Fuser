@@ -192,10 +192,6 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
   TORCH_INTERNAL_ASSERT(
       iop.inner_vect * iop.inner_batch * threads_per_block >= inner_dim_numel,
       " iop.inner_vect * iop.inner_batch * threads_per_block should >= inner_dim_numel.");
-  const int64_t factor_of_block_size = dev_prop->warpSize / 4;
-  TORCH_INTERNAL_ASSERT(
-      threads_per_block % factor_of_block_size == 0,
-      " threads_per_block must have a factor of warp_size / 4.");
 
   // Step-2, set InnerParams Iteration dim: gdimy. reg_per_thread is estimated
   // from buffer size, then it is used to calculate threads_per_sm and gdimy.
@@ -219,26 +215,24 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
   // from inner_vect due to different data types, e.g. input is half and
   // tmp_gmem is float
   constexpr int64_t max_gmem_vect_access_bytes = 16;
-  const int64_t max_tmp_gmem_vect_factor =
-      max_gmem_vect_access_bytes / (int64_t)tmp_gmem_dtype_size;
-  iop.tmp_gmem_write_vect = std::min(max_tmp_gmem_vect_factor, iop.inner_vect);
+  const int64_t max_tmp_gmem_vect_factor = std::min(
+      max_gmem_vect_access_bytes / (int64_t)tmp_gmem_dtype_size,
+      iop.inner_vect);
+  iop.tmp_gmem_write_vect = max_tmp_gmem_vect_factor;
 
   // Step-3, set OuterParams Iteration dim: vectorization_factor_outer, bdimx,
   // gdimy (already done) The partial outer reduction result is stored in tmp
   // gmem, set the vectorization factor for write and read
-  const int64_t workload_per_thread = inner_dim_numel >= 4096 ? 4 : 2;
+  const int64_t workload_per_thread = inner_dim_numel >= 4096 ? 4l : 2l;
   iop.vectorization_factor_outer =
       std::min(workload_per_thread, max_tmp_gmem_vect_factor);
-  // threads_per_block has factor of 8, roundup to increase the probability of
-  // bdimx * bdimy == threads_per_block.
-  TORCH_INTERNAL_ASSERT(
-      threads_per_block % 8 == 0,
-      " threads_per_block should have a factor of 8.");
+  // For widely used hidden sizes, threads_per_block has factor of 8, roundup to
+  // increase the probability of bdimx * bdimy == threads_per_block.
   iop.bdimx = scheduler_utils::roundUpPow2Or8(
       ceilDiv(inner_dim_numel / iop.vectorization_factor_outer, iop.gdimy));
   // if still not divisible, e.g. threads_per_block = 256, bdimx = 40.
-  // increase bdimx to make it divisible. This will avoid the increase of
-  // threads per block which may cause register spills.
+  // increase bdimx to make it divisible. Under worst case, bdimx equals to
+  // threads_per_block.
   while (threads_per_block % iop.bdimx) {
     iop.bdimx = std::min(iop.bdimx + 8, threads_per_block);
   }
@@ -256,9 +250,9 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
     rparams->tidx_for_outer_reduction = true;
     constexpr int64_t threads_per_block_mrpb = 512;
 
-    // Step-1, InnerParams, Reduction dim: inner_vect(reuse), inner_batch, bdimx
-    iop.inner_batch = 1;
-    iop.bdimx = inner_dim_numel / iop.inner_vect;
+    // Step-1, InnerParams, Reduction dim: inner_vect(reuse),
+    // inner_batch(reuse), bdimx
+    iop.bdimx = ceilDiv(inner_dim_numel, iop.inner_vect * iop.inner_batch);
 
     // Step-2, InnerParams, Iteration dim: gdimy, bdimy (in next step)
     reg_per_thread =
@@ -1405,12 +1399,12 @@ std::shared_ptr<ReductionParams> getPersistentHeuristics(
 
   // Base max dtype and n_tensor_inputs on tensors that are vectorizable (i.e.
   // share inner dimension with data pattern we're looking at).
-  size_t max_dtype_size = 1;
+  int64_t max_dtype_size = 1;
 
   // TODO: This might be better if it was the larger of input or outputs. Would
   // be even better if we had better analysis as not all unrolled elements have
   // to be alive at the same time.
-  size_t n_tensor_inputs = 0;
+  int64_t n_tensor_inputs = 0;
   for (auto tv : unrollable_inputs_outputs) {
     if (!tv->isFusionInput()) {
       continue;
@@ -1423,12 +1417,12 @@ std::shared_ptr<ReductionParams> getPersistentHeuristics(
   }
 
   // dtype used to store partial outer reduction in combined reduction
-  const size_t tmp_gmem_dtype_size = combined_inner_outer_reduction
+  const int64_t tmp_gmem_dtype_size = combined_inner_outer_reduction
       ? dataTypeSize(outer_reduction_tvs[0]->getDataType().value())
       : dataTypeSize(first_red_tv->getDataType().value());
 
   // Protect heuristics div by 0:
-  n_tensor_inputs = std::max(n_tensor_inputs, (size_t)1);
+  n_tensor_inputs = std::max(n_tensor_inputs, (int64_t)1);
 
   auto heuristic = persistentHeuristic(
       properties.total_reduction_numel,
