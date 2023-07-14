@@ -1010,9 +1010,12 @@ std::shared_ptr<ReductionParams> outerPersistentHeuristic(
 
   // set iter_unroll_factor
   // This controls vectorized load/store along the iteration dimension.
-  // Test shows performance regression when iter_unroll_factor > 1 unless
-  // total_iteration_numel is extremely large. Here 2097152 is chosen as the
-  // threshold based on test results on A100.
+  // The kernel calls block reduction [iter_unroll_factor] times.
+  // Test shows performance regression when iter_unroll_factor > 1 due to
+  // the high cost of calling block reduction multiple times per block.
+  // However, if total_iteration_numel is extremely large, set
+  // iter_unroll_factor > 1 can reduce the required number of CTAs. Here 2097152
+  // is chosen as the threshold based on test results on A100.
   const int64_t large_size = 2097152l;
   int64_t tmp_iter_unroll =
       total_iteration_numel >= large_size ? (int64_t)vectorize_factor : 1l;
@@ -1022,6 +1025,10 @@ std::shared_ptr<ReductionParams> outerPersistentHeuristic(
   // set redu_unroll_factor
   // This controls unroll along the reduction dimension.
   // Test on A100 shows performance regression when redu_unroll_factor > 1.
+  // For case InstanceNormFP32 of [256, 28, 28, 128], if unroll 2, register
+  // usage increased from 89 to 118 but the occupancy is not changed. However,
+  // the bandwidth is dropped from 1029 GB/s to 840 GB/s due to more stalled
+  // warps.
   hp.redu_unroll_factor.set(1l);
   hp.redu_unroll_factor.final();
 
