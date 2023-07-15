@@ -12,9 +12,8 @@
 #include <dynamic_type.h>
 #include <complex>
 #include <cstddef>
+#include <numeric>
 #include <unordered_map>
-
-#include <type.h>
 
 #include <ATen/ATen.h>
 
@@ -50,18 +49,19 @@ struct Struct {
 #undef MAYBE_STAR
 };
 
+struct DataType;
+
 // Use a single pointer type to represent all pointers, otherwise we would need
 // exponential compilation time for all pointer types in PolymorphicValue.
 class Pointer {
   std::byte* ptr_;
-  size_t size_;
+  int64_t size_;
 
  public:
   template <typename T>
   Pointer(T* ptr) : ptr_(reinterpret_cast<std::byte*>(ptr)), size_(sizeof(T)) {}
 
-  Pointer(void* ptr, DataType dtype)
-      : ptr_(reinterpret_cast<std::byte*>(ptr)), size_(dataTypeSize(dtype)) {}
+  inline Pointer(void* ptr, DataType dtype);
 
   template <typename T>
   explicit operator T*() const {

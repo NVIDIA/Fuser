@@ -82,6 +82,7 @@ enum class EnableOption {
   KernelDb, //! Enable Kernel Database
   KernelProfile, //! Enable intra-kernel performance profiling
   LinearDecomposition, //! Enable linear-bias decomposition
+  MemoryPromotion, //! Enable promotion of memory types for non-pointwise ops
   WarnRegisterSpill, //! Enable warnings of register spill
   EndOfOption //! Placeholder for counting the number of elements
 };
@@ -103,6 +104,8 @@ enum class DisableOption {
   Nvtx, //! Disable NVTX instrumentation
   ParallelCompile, //! Disable compiling Fusion segments in parallel
   PredicateElimination, //! Disable predicate elimination
+  KernelReuse, //! Disable re-using cached FusionKernelRuntimes with different
+               //! input shapes
   VarNameRemapping, //! Disable variable name remapping
   WelfordVectorization, //! Disable vectorizaton of Welford ops
   EndOfOption //! Placeholder for counting the number of elements

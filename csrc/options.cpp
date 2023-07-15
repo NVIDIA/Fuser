@@ -156,6 +156,7 @@ std::unordered_map<EnableOption, std::vector<std::string>> Options<
       {"kernel_db", EnableOption::KernelDb},
       {"kernel_profile", EnableOption::KernelProfile},
       {"linear_decomposition", EnableOption::LinearDecomposition},
+      {"memory_promotion", EnableOption::MemoryPromotion},
       {"warn_register_spill", EnableOption::WarnRegisterSpill}};
 
   return parseEnvOptions("ENABLE", available_options);
@@ -176,6 +177,7 @@ std::unordered_map<DisableOption, std::vector<std::string>> Options<
       {"nvtx", DisableOption::Nvtx},
       {"parallel_compile", DisableOption::ParallelCompile},
       {"predicate_elimination", DisableOption::PredicateElimination},
+      {"kernel_reuse", DisableOption::KernelReuse},
       {"var_name_remapping", DisableOption::VarNameRemapping},
       {"welford_vectorization", DisableOption::WelfordVectorization}};
 

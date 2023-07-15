@@ -14,7 +14,7 @@
 #ifdef USE_C10D_NCCL
 #include <torch/csrc/distributed/c10d/ProcessGroupNCCL.hpp>
 #endif
-#ifdef USE_C10D_UCC
+#if defined(USE_C10D_UCC) && defined(NVFUSER_BUILD_WITH_UCC)
 #include <torch/csrc/distributed/c10d/ProcessGroupUCC.hpp>
 #endif
 
@@ -94,11 +94,9 @@ c10::intrusive_ptr<c10d::Backend> createBackend(
   }
 #endif
 
-#ifdef USE_C10D_UCC
+#if defined(USE_C10D_UCC) && defined(NVFUSER_BUILD_WITH_UCC)
   if (backend == CommunicatorBackend::ucc) {
-    auto pg_opts = c10d::ProcessGroupUCC::Options::create();
-    return c10::make_intrusive<::c10d::ProcessGroupUCC>(
-        store, rank, size, pg_opts);
+    return c10::make_intrusive<::c10d::ProcessGroupUCC>(store, rank, size);
   }
 #endif
   TORCH_CHECK(false, "no distributed backend available");

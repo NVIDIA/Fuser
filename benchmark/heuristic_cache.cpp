@@ -125,7 +125,7 @@ static auto getLayerForwardNormRuntime(
   Fusion& fusion = *fusion_ptr.get();
 
   const float kEps = 1e-5;
-  Double* eps_ptr = IrBuilder::create<Double>(kEps);
+  Scalar* eps_ptr = IrBuilder::create<Scalar>(kEps);
 
   auto input = makeSymbolicTensor(shape.size());
   fusion.addInput(input);
