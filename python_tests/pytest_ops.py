@@ -7,60 +7,19 @@ import torch
 import numpy as np
 
 from torch.testing import assert_close
+from pytest_fusion_definitions import default_fd_fn, parse_inputs_fusion_definition
 from pytest_framework import create_op_test
 from pytest_core import ReferenceType, OpInfo, SampleInput
 from pytest_opinfos import opinfos
-from pytest_utils import ArgumentType
+from pytest_utils import ArgumentType, is_tensor
 from typing import Callable, Optional
 
 from nvfuser import FusionDefinition
-from nvfuser.pytorch_utils import (
-    python_scalar_to_nvfuser_dtype,
-    torch_dtype_to_nvfuser_dtype,
-)
 
 
 def is_pre_volta():
     prop = torch.cuda.get_device_properties(torch.cuda.current_device())
     return prop.major < 7
-
-
-def is_tensor(a):
-    return isinstance(a, torch.Tensor)
-
-
-def parse_inputs_fusion_definition(fd: FusionDefinition, opinfo: OpInfo, *args):
-    if len(args) == 0:
-        return []
-
-    nvf_args = []
-
-    if opinfo.symbolic_parameter_list is None:
-        opinfo.symbolic_parameter_list = [ArgumentType.Symbolic] * len(args)
-    assert len(opinfo.symbolic_parameter_list) == len(args)
-
-    for arg_type, a in zip(opinfo.symbolic_parameter_list, args):
-        if arg_type == ArgumentType.Symbolic:
-            if type(a) is torch.Tensor:
-                nvf_args.append(fd.from_pytorch(a))
-            elif type(a) is list and all(map(is_tensor, a)):
-                nvf_args.append([fd.from_pytorch(inner_a) for inner_a in a])
-            elif type(a) is list or type(a) is tuple:
-                nvf_args.append(fd.define_vector(a))
-            else:
-                # For symbolic scalars, we do not define with constant value.
-                # Otherwise, it becomes a constant and is not a fusion input.
-                nvf_args.append(fd.define_scalar(python_scalar_to_nvfuser_dtype(a)))
-        elif arg_type == ArgumentType.ConstantScalar:
-            assert type(a) is not torch.Tensor
-            nvf_args.append(fd.define_scalar(a))
-        elif isinstance(a, torch.dtype):
-            nvf_args.append(torch_dtype_to_nvfuser_dtype(a))
-        else:
-            assert type(a) is not torch.Tensor
-            assert arg_type == ArgumentType.Constant
-            nvf_args.append(a)
-    return nvf_args
 
 
 def parse_args_fusion_execution(opinfo: OpInfo, *args):
@@ -75,30 +34,6 @@ def parse_args_fusion_execution(opinfo: OpInfo, *args):
             else:
                 result.append(a)
     return result
-
-
-def opinfo_fusion_func(fd: FusionDefinition, opinfo: OpInfo, *args, **kwargs):
-    nvf_inputs = parse_inputs_fusion_definition(fd, opinfo, *args)
-    result = opinfo.op(fd)(*nvf_inputs, **kwargs)
-    if type(result) is tuple:
-        for a in result:
-            fd.add_output(a)
-    else:
-        fd.add_output(result)
-
-
-def input_fusion_func(fd: FusionDefinition, opinfo: OpInfo, *args, **kwargs):
-    nvf_inputs = parse_inputs_fusion_definition(fd, opinfo, *args)
-    this_inputs = opinfo.op(fd)(**kwargs)
-    t1 = fd.ops.add(nvf_inputs[0], this_inputs)
-    fd.add_output(t1)
-
-
-# This function is purposely non-functional if executed as it is only meant to
-# check an operations API error checking
-def api_test_fusion_func(fd: FusionDefinition, opinfo: OpInfo, *args, **kwargs):
-    nvf_inputs = parse_inputs_fusion_definition(fd, opinfo, *args)
-    this_inputs = opinfo.op(fd)(**kwargs)
 
 
 def definition_op_in_schedule_error_test_fn(opinfo: OpInfo, sample: SampleInput):
@@ -131,16 +66,20 @@ def definition_op_in_schedule_error_test_fn(opinfo: OpInfo, sample: SampleInput)
 
 
 def errors_test_fn(
-    fusion_func: Callable,
     nvf_op: OpInfo,
     sample: SampleInput,
     exception_type: Exception,
     exception_str: Optional[str],
 ):
+    _fd_fn = (
+        nvf_op.fd_error_input_fn
+        if nvf_op.fd_error_input_fn is not None
+        else default_fd_fn
+    )
     exception = None
     try:
         with FusionDefinition() as fd:
-            fusion_func(fd, nvf_op, *sample.args, **sample.kwargs)
+            _fd_fn(fd, nvf_op, *sample.args, **sample.kwargs)
         fd.execute(parse_args_fusion_execution(nvf_op, *sample.args))
     except Exception as e:
         exception = e
@@ -154,11 +93,9 @@ def errors_test_fn(
     ), f"Failed to match exception -- Expected exception: {exception_str}, Found exception: {exception}"
 
 
-def torch_correctness_test_fn(
-    fusion_func: Callable, nvf_op: OpInfo, sample: SampleInput
-):
+def torch_correctness_test_fn(fd_fn: Callable, nvf_op: OpInfo, sample: SampleInput):
     with FusionDefinition() as fd:
-        fusion_func(fd, nvf_op, *sample.args, **sample.kwargs)
+        fd_fn(fd, nvf_op, *sample.args, **sample.kwargs)
     nvfuser_result = fd.execute(parse_args_fusion_execution(nvf_op, *sample.args))
     torch_result = nvf_op.reference(*sample.args, **sample.kwargs)
 
@@ -171,9 +108,9 @@ def torch_correctness_test_fn(
     assert_close(nvfuser_result, torch_result, equal_nan=True, atol=1e-3, rtol=0)
 
 
-def jax_correctness_test_fn(fusion_func: Callable, nvf_op: OpInfo, sample: SampleInput):
+def jax_correctness_test_fn(fd_fn: Callable, nvf_op: OpInfo, sample: SampleInput):
     with FusionDefinition() as fd:
-        fusion_func(fd, nvf_op, *sample.args, **sample.kwargs)
+        fd_fn(fd, nvf_op, *sample.args, **sample.kwargs)
     nvfuser_result = fd.execute(parse_args_fusion_execution(nvf_op, *sample.args))
 
     jax_sample = sample.jax()
@@ -199,25 +136,29 @@ def jax_correctness_test_fn(fusion_func: Callable, nvf_op: OpInfo, sample: Sampl
 
 def correctness_test_fn(
     reference_type: ReferenceType,
-    is_fusion_input_op: bool,
-    op: OpInfo,
+    nvf_op: OpInfo,
     sample: SampleInput,
 ):
-    fusion_func = input_fusion_func if is_fusion_input_op else opinfo_fusion_func
+    _fd_fn = (
+        nvf_op.fd_correctness_fn
+        if nvf_op.fd_correctness_fn is not None
+        else default_fd_fn
+    )
     if reference_type == ReferenceType.Pytorch:
-        return torch_correctness_test_fn(fusion_func, op, sample)
+        return torch_correctness_test_fn(_fd_fn, nvf_op, sample)
     elif reference_type == ReferenceType.Jax:
-        return jax_correctness_test_fn(fusion_func, op, sample)
+        return jax_correctness_test_fn(_fd_fn, nvf_op, sample)
     else:
         return None
+
+
+# Decorated (templated) tests that create a test per Opinfo
 
 
 @create_op_test(tuple(op for op in opinfos if op.reference is not None))
 def test_correctness(op: OpInfo, dtype: torch.dtype):
     for sample in op.sample_input_generator(op, dtype):
-        result = correctness_test_fn(
-            op.reference_type, op.is_fusion_input_op, op, sample
-        )
+        result = correctness_test_fn(op.reference_type, op, sample)
         if result is not None:
             return result
 
@@ -236,10 +177,8 @@ def test_definition_op_in_schedule_error(op: OpInfo, dtype: torch.dtype):
 
 @create_op_test(tuple(op for op in opinfos if op.error_input_generator is not None))
 def test_errors(op: OpInfo, dtype: torch.dtype):
-    fusion_func = api_test_fusion_func if op.is_fusion_input_op else opinfo_fusion_func
     for sample, ex_type, ex_regex in op.error_input_generator(op, dtype):
         result = errors_test_fn(
-            fusion_func,
             op,
             sample,
             ex_type,

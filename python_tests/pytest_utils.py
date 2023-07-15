@@ -124,3 +124,7 @@ def is_floating_dtype(dtype: torch.dtype):
 
 def is_integer_dtype(dtype: torch.dtype):
     return dtype in int_dtypes
+
+
+def is_tensor(a):
+    return isinstance(a, torch.Tensor)
