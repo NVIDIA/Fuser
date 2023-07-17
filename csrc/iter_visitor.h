@@ -311,7 +311,7 @@ class StmtSort : public IterVisitor {
       bool traverse_siblings = false);
 
   // Returns ordered Statements required to produce 'to', including 'to'.
-  static std::vector<Statement*> getStmts(
+  static std::vector<Statement*> getStmtsTo(
       Fusion* fusion,
       const std::vector<Val*>& to,
       bool traverse_members = false,
@@ -351,7 +351,7 @@ class StmtSort : public IterVisitor {
       bool traverse_siblings = false);
 
   // Same as getStmts version but filters to only return the Expr*s
-  static std::vector<Expr*> getExprs(
+  static std::vector<Expr*> getExprsTo(
       Fusion* fusion,
       const std::vector<Val*>& to,
       bool traverse_members = false,

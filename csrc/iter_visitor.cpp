@@ -455,7 +455,7 @@ void BackwardVisitor::traverseTo(
   }
 
   auto vals = AllVals::get(fusion, from);
-  auto exprs = StmtSort::getExprs(fusion, from);
+  auto exprs = StmtSort::getExprsTo(fusion, from);
 
   {
     size_t pos = 0;
@@ -869,7 +869,7 @@ std::vector<Expr*> StmtSort::getExprs(
     bool traverse_attributes,
     bool traverse_siblings) {
   auto terminating_outputs = fusion->getTerminatingOutputs();
-  return StmtSort::getExprs(
+  return StmtSort::getExprsTo(
       fusion,
       terminating_outputs,
       traverse_members,
@@ -877,13 +877,13 @@ std::vector<Expr*> StmtSort::getExprs(
       traverse_siblings);
 }
 
-std::vector<Expr*> StmtSort::getExprs(
+std::vector<Expr*> StmtSort::getExprsTo(
     Fusion* fusion,
     const std::vector<Val*>& to,
     bool traverse_members,
     bool traverse_attributes,
     bool traverse_siblings) {
-  auto stmts = StmtSort::getStmts(
+  auto stmts = StmtSort::getStmtsTo(
       fusion, to, traverse_members, traverse_attributes, traverse_siblings);
   auto filter = ir_utils::filterByType<Expr>(stmts.begin(), stmts.end());
   std::vector<Expr*> exprs(filter.begin(), filter.end());
@@ -915,7 +915,7 @@ std::vector<Statement*> StmtSort::getStmts(
     bool traverse_attributes,
     bool traverse_siblings) {
   auto terminating_outputs = fusion->getTerminatingOutputs();
-  return StmtSort::getStmts(
+  return StmtSort::getStmtsTo(
       fusion,
       terminating_outputs,
       traverse_members,
@@ -923,7 +923,7 @@ std::vector<Statement*> StmtSort::getStmts(
       traverse_siblings);
 }
 
-std::vector<Statement*> StmtSort::getStmts(
+std::vector<Statement*> StmtSort::getStmtsTo(
     Fusion* fusion,
     const std::vector<Val*>& to,
     bool traverse_members,
@@ -983,11 +983,11 @@ std::vector<Val*> InputsOf::outputs(
 bool DeadCodeRemover::run() {
   // First we build a set of all live Statements so that we can detect dead
   // branches.
-  for (auto stmt : StmtSort::getStmts(fusion_, fusion_->outputs())) {
+  for (auto stmt : StmtSort::getStmtsTo(fusion_, fusion_->outputs())) {
     markLive(stmt);
   }
 
-  // Note that StmtSort::getStmts() is also run in traverseTo. In the future,
+  // Note that StmtSort::getStmtsTo() is also run in traverseTo. In the future,
   // we could potentially refactor this so that derived classes from
   // BackwardVisitor can make use of that traversal instead of repeating it.
   traverseTo(fusion_, fusion_->outputs(), false);

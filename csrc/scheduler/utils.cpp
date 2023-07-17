@@ -1057,8 +1057,7 @@ IterDomain* projectIdToRoot(
     return reference_id;
   }
 
-  auto replay_exprs =
-      StmtSort::getExprs(tv->fusion(), {reference_id}, false, false, false);
+  auto replay_exprs = StmtSort::getExprsTo(tv->fusion(), {reference_id});
   if (replay_exprs.empty()) {
     return reference_id;
   }
@@ -1118,7 +1117,7 @@ IterDomain* projectIdToRFactor(
     return reference_id;
   }
 
-  auto replay_exprs = StmtSort::getExprs(
+  auto replay_exprs = StmtSort::getExprsTo(
       tv->fusion(),
       {tv->getRFactorDomain().begin(), tv->getRFactorDomain().end()},
       false);
@@ -1786,7 +1785,7 @@ DisjointSets<IterDomain*> disjointRFactorSets(Fusion* fusion) {
   // If iter domains are involved in any transformation from root domains to
   // rfactor domains they should be considered "contaminated".
   for (auto tv : ir_utils::allTvs(fusion)) {
-    for (auto expr : StmtSort::getExprs(
+    for (auto expr : StmtSort::getExprsTo(
              fusion,
              {tv->getMaybeRFactorDomain().begin(),
               tv->getMaybeRFactorDomain().end()})) {
@@ -1837,7 +1836,7 @@ bool breakIsDisjoint(std::vector<int> group_ids, int pos) {
 
 std::unordered_map<int, int> domainReorderAsRfactorMap(TensorView* tv) {
   FusionGuard fg(tv->fusion());
-  auto transform_exprs = StmtSort::getExprs(
+  auto transform_exprs = StmtSort::getExprsTo(
       tv->fusion(), {tv->getLeafDomain().begin(), tv->getLeafDomain().end()});
   // simply update this vector of id's as progressing through the transformation
   // expressions. We'll always insert the result of split in the location of the
