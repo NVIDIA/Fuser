@@ -81,32 +81,25 @@ TEST_F(NVFuserTest, DynamicTransform1_CUDA) {
     expr_eval.bind(reshape_shape0, 3L);
     expr_eval.bind(reshape_shape1, -1L);
 
-    // In this case, if we do not bind tv1->axis(1)->extent(), we get a failure
-    // to evaluate it when checking whether tv1 is empty. It is possible to
-    // infer that it is not empty in this case, but it would require replicating
-    // some of the ExpressionEvaluator::propagateBoundValuesThroughExactMaps()
-    // functionality inside concretization, which is not implemented.
-    expr_eval.bind(tv1->axis(1)->extent(), 4);
-
     auto initial_info = DynamicTransform::getInitialInfo(&fusion);
-    auto info = DynamicTransformConcretizationInfo(&initial_info, &expr_eval);
-    TORCH_CHECK(
-        info.getReshapeTransforms().size() == 1,
-        "Expected to have one reshape transform: ",
-        info.toString());
+    // This should throw an exception since any reshape size of -1 must be
+    // specified as a definition-time constant, as opposed to an input scalar.
+    EXPECT_THROW(
+        DynamicTransformConcretizationInfo(&initial_info, &expr_eval),
+        std::exception);
   }
 
   {
     ExpressionEvaluator expr_eval;
 
     // input: 4, 3
-    // output: 5, -1
+    // output: 5, 4
     expr_eval.bind(tv0->axis(0)->extent(), 4L);
     expr_eval.bind(tv0->axis(1)->extent(), 3L);
     expr_eval.bind(reshape_shape0, 5L);
-    expr_eval.bind(reshape_shape1, -1L);
+    expr_eval.bind(reshape_shape1, 4L);
 
-    // This should fail as (4 * 3) is not evenly divisible by 5
+    // This should fail as (4 * 3) is not equal to (5 * 4)
     EXPECT_THAT(
         [&]() {
           auto initial_info = DynamicTransform::getInitialInfo(&fusion);
@@ -1068,6 +1061,51 @@ TEST_F(NVFuserTest, FusionDynamicEmptyCat2_CUDA) {
   EXPECT_TRUE(output_def->isA<LoadStoreOp>());
   EXPECT_EQ(output_def->as<LoadStoreOp>()->opType(), LoadStoreOpType::Set);
   EXPECT_EQ(output_def->input(0), seg_fusion->inputs()[0]);
+}
+
+// Repro of https://github.com/NVIDIA/Fuser/issues/418
+TEST_F(NVFuserTest, DynamicTransformIssue418Concretization_CUDA) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeSymbolicTensor(4);
+  fusion->addInput(tv0);
+  auto s0 = IrBuilder::create<Scalar>(DataType::Int);
+  fusion->addInput(s0);
+
+  auto v00 = tv0->axis(0)->extent();
+  auto v01 = tv0->axis(1)->extent();
+  auto v02 = tv0->axis(2)->extent();
+  auto v03 = tv0->axis(3)->extent();
+
+  auto tv1 = reshape(tv0, {v00, div(v01, s0), s0, v02, v03});
+  auto vm = variance_mean(tv1, {2, 3, 4}, 0, true);
+  fusion->addOutput(vm.mean);
+  fusion->addOutput(vm.var);
+
+  {
+    ExpressionEvaluator expr_eval;
+
+    expr_eval.bind(tv0->axis(0)->extent(), 256L);
+    expr_eval.bind(tv0->axis(1)->extent(), 128L);
+    expr_eval.bind(tv0->axis(2)->extent(), 28L);
+    expr_eval.bind(tv0->axis(3)->extent(), 28L);
+    expr_eval.bind(s0, 4L);
+
+    auto initial_info = DynamicTransform::getInitialInfo(fusion.get());
+    auto info = DynamicTransformConcretizationInfo(&initial_info, &expr_eval);
+
+    TORCH_CHECK(
+        info.getReshapeTransforms().size() == 1,
+        "Expected to have one reshape transform: ",
+        info.toString());
+
+    DynamicTransform::concretizeFusion(fusion.get(), &info);
+
+    TORCH_CHECK(
+        !fusion->hasDynamicTransform(),
+        "Expected to have no dynamic transform");
+  }
 }
 
 TEST_F(NVFuserTest, Issue249_CUDA) {
