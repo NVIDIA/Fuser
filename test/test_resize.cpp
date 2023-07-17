@@ -2163,6 +2163,57 @@ TEST_F(NVFuserTest, FusionSqueezeSymbolic_CUDA) {
           "must concretize to IterType::Broadcast but found")));
 }
 
+// See https://github.com/NVIDIA/Fuser/issues/365
+TEST_F(NVFuserTest, FusionResizeMultiSliceEmpty_CUDA) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  std::vector<int64_t> shape({9});
+  // concrete shapes to avoid dynamic Fusion
+  auto tv0 = makeConcreteTensor(shape);
+  fusion->addInput(tv0);
+
+  // In issue #365, this triggered an error in vectorization when there were
+  // multiple slices, and one of them was empty. If this is properly handled in
+  // the pre-segmentation RemoveEmptyPass as it should be, then the size-zero
+  // slices will be replaced with full(), and vectorization can work properly.
+  auto tv1 = slice(
+      tv0,
+      {{IrBuilder::create<Scalar>(0),
+        IrBuilder::create<Scalar>(1),
+        IrBuilder::create<Scalar>(1)}});
+  fusion->addOutput(tv1);
+  auto tv2 = slice(
+      tv0,
+      {{IrBuilder::create<Scalar>(0),
+        IrBuilder::create<Scalar>(0),
+        IrBuilder::create<Scalar>(1)}});
+  fusion->addOutput(tv2);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::manual_seed(0);
+
+  auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+
+  auto ref0 = t0.index({at::indexing::Slice(0, 1)});
+  auto ref1 = t0.index({at::indexing::Slice(0, 0)});
+
+  TORCH_CHECK(ref0.equal(cg_outputs[0]));
+  TORCH_CHECK(ref1.equal(cg_outputs[1]));
+
+  // Check that tv2 is replaced by a FullOp
+  const auto runtime = executor_cache.getMostRecentKernelRuntime();
+  const auto preseg_fusion = runtime->fusionSegments()->completeFusion();
+  EXPECT_EQ(preseg_fusion->outputs().size(), 2);
+  EXPECT_NE(preseg_fusion->outputs().at(1), tv1);
+  EXPECT_NE(preseg_fusion->outputs().at(1)->definition(), nullptr);
+  EXPECT_TRUE(preseg_fusion->outputs().at(1)->definition()->isA<FullOp>());
+}
+
 TEST_F(NVFuserTest, SliceVectorization) {
   Fusion fusion;
   FusionGuard fg(&fusion);

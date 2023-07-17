@@ -96,14 +96,17 @@ class OpInfo:
     # Generates error inputs
     error_input_generator: Callable = None
 
+    # Function of FusionDefintion operations for valid inputs
+    fd_correctness_fn: Callable = None
+
+    # Function of FusionDefintion operations for error inputs
+    fd_error_input_fn: Callable = None
+
     # Reference function for operation
     reference: Callable = None
 
     # Designate which framework defines the reference
     reference_type: ReferenceType = ReferenceType.Pytorch
-
-    # Operations that define fusion inputs such as define_tensor, define_vector, define_scalar
-    is_fusion_input_op: bool = False
 
     # Nvfuser requires reduction axes to be constant values.
     # symbolic_parameter_list specifies whether an operation's parameters are symbolic.

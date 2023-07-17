@@ -9215,6 +9215,56 @@ TEST_F(NVFuserTest, FusionDebugStreamGuard_CUDA) {
   ASSERT_EQ(ss.str(), text);
 }
 
+// Test that disabling kernel re-use leads to resegmented Fusion
+TEST_F(NVFuserTest, FusionDisableKernelReuse_CUDA) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  auto tv0 = makeSymbolicTensor(1);
+  fusion->addInput(tv0);
+
+  auto tv1 = add(tv0, tv0);
+  fusion->addOutput(tv1);
+
+  FusionExecutorCache fec(std::move(fusion_ptr));
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto a5 = at::zeros({5}, options);
+  auto a6 = at::zeros({6}, options);
+  auto a7 = at::zeros({7}, options);
+
+  fec.runFusionWithInputs({a5});
+
+  auto numRuntimes = [&fec]() -> size_t {
+    // this is map<pair<device, conc_info>, vector<FusionKernelRuntime>>
+    const auto& runtime_map = fec.getKernelRuntimes();
+    return runtime_map
+        .begin() // There should be only one device/concretization pair
+        ->second.size();
+  };
+
+  {
+    DisableOptionsGuard og;
+    DisableOptionsGuard::getCurOptions().unset(DisableOption::KernelReuse);
+
+    fec.runFusionWithInputs({a6});
+
+    // Since kernel reuse is enabled, we should not generate a new runtime
+    EXPECT_EQ(numRuntimes(), 1);
+  }
+
+  {
+    DisableOptionsGuard og;
+    DisableOptionsGuard::getCurOptions().set(DisableOption::KernelReuse);
+
+    fec.runFusionWithInputs({a7});
+
+    // Disabling reuse means we should get a new runtime
+    EXPECT_EQ(numRuntimes(), 2);
+  }
+}
+
 // Repro of https://github.com/NVIDIA/Fuser/issues/585
 TEST_F(NVFuserTest, FusionDanglingUnaryOp_CUDA) {
   auto fusion = std::make_unique<Fusion>();

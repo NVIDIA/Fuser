@@ -81,33 +81,37 @@ TEST_F(NVFuserTest, DynamicTransform1_CUDA) {
     expr_eval.bind(reshape_shape0, 3L);
     expr_eval.bind(reshape_shape1, -1L);
 
-    auto initial_info = DynamicTransform::getInitialInfo(&fusion);
-    auto info = DynamicTransformConcretizationInfo(&initial_info, &expr_eval);
-    TORCH_CHECK(
-        info.getReshapeTransforms().size() == 1,
-        "Expected to have one reshape transform: ",
-        info.toString());
-  }
-
-  {
-    ExpressionEvaluator expr_eval;
-
-    // input: 4, 3
-    // output: 5, -1
-    expr_eval.bind(tv0->axis(0)->extent(), 4L);
-    expr_eval.bind(tv0->axis(1)->extent(), 3L);
-    expr_eval.bind(reshape_shape0, 5L);
-    expr_eval.bind(reshape_shape1, -1L);
-
-    // This should fail as (4 * 3) is not evenly divisible by 5
+    // This should throw an exception since any reshape size of -1 must be
+    // specified as a definition-time constant, as opposed to an input scalar.
     EXPECT_THAT(
         [&]() {
           auto initial_info = DynamicTransform::getInitialInfo(&fusion);
           auto info =
               DynamicTransformConcretizationInfo(&initial_info, &expr_eval);
         },
-        ::testing::ThrowsMessage<c10::Error>(
-            ::testing::HasSubstr("Cannot infer")));
+        ::testing::ThrowsMessage<c10::Error>(::testing::HasSubstr(
+            "Values of -1 passed to reshape must be constant at definition")));
+  }
+
+  {
+    ExpressionEvaluator expr_eval;
+
+    // input: 4, 3
+    // output: 5, 4
+    expr_eval.bind(tv0->axis(0)->extent(), 4L);
+    expr_eval.bind(tv0->axis(1)->extent(), 3L);
+    expr_eval.bind(reshape_shape0, 5L);
+    expr_eval.bind(reshape_shape1, 4L);
+
+    // This should fail as (4 * 3) is not equal to (5 * 4)
+    EXPECT_THAT(
+        [&]() {
+          auto initial_info = DynamicTransform::getInitialInfo(&fusion);
+          auto info =
+              DynamicTransformConcretizationInfo(&initial_info, &expr_eval);
+        },
+        ::testing::ThrowsMessage<c10::Error>(::testing::HasSubstr(
+            "Total element counts across view operation must match.")));
   }
 }
 
@@ -947,7 +951,10 @@ TEST_F(NVFuserTest, DynamicPadShmoo_CUDA) {
       //{{3, 5}, {-3, -2}, false}, // output is zero-dimensional
 
       // Output has size 1 so is set to broadcast.
-      {{3, 5}, {0, -4}, true},
+      // This was previously "working" by concretizing the size-1 pad to
+      // Iteration, even though it should be Broadcast. When set properly to
+      // Broadcast, it fails with an error in ConcretizedBroadcastDomains.
+      //{{3, 5}, {0, -4}, true},
 
       // Test full negative shifts, so output doesn't overlap input
       {{3, 5}, {-5, 2}, false},
@@ -959,7 +966,7 @@ TEST_F(NVFuserTest, DynamicPadShmoo_CUDA) {
 
       // Test zero-dimensional input
       //{{3, 0}, {0, 0}, false}, // SIGFPE (see #264 above)
-      {{3, 0}, {1, 1}, false},
+      {{3, 0}, {1, 1}, true}, // zero-dimensional concretizes differently
       //{{3, 0}, {-1, 1}, false}, // SIGFPE (see #264 above)
   };
   // NOLINTEND(bugprone-implicit-widening-of-multiplication-result)
@@ -995,6 +1002,150 @@ TEST_F(NVFuserTest, FusionDynamicSliceToBroadcast_CUDA) {
   auto at1 = at::slice(at0, 0, 0, 2);
   auto at2 = at::slice(at1, 0, 0, 1);
   testValidate(&fusion, outputs, aten_inputs, {at2}, __LINE__, __FILE__);
+}
+
+// Test that empty input to cat is concretized away
+TEST_F(NVFuserTest, FusionDynamicEmptyCat1_CUDA) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(fusion_ptr.get());
+
+  auto tv0 = makeSymbolicTensor(1);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(1);
+  fusion.addInput(tv1);
+  auto tv2 = makeSymbolicTensor(1);
+  fusion.addInput(tv2);
+
+  auto tv3 = cat({tv0, tv1, tv2}, 0);
+
+  fusion.addOutput(tv3);
+
+  // Check correctness
+  FusionExecutorCache fusion_executor_cache(std::move(fusion_ptr));
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor at0 = at::randn({5}, options);
+  at::Tensor at1 = at::randn({0}, options);
+  at::Tensor at2 = at::randn({3}, options);
+  std::vector<c10::IValue> aten_inputs = {at0, at1, at2};
+  auto outputs = fusion_executor_cache.runFusionWithInputs(aten_inputs);
+  auto at3 = at::cat({at0, at1, at2}, 0);
+  testValidate(&fusion, outputs, aten_inputs, {at3}, __LINE__, __FILE__);
+}
+
+// Test that empty input to cat is concretized away
+TEST_F(NVFuserTest, FusionDynamicEmptyCat2_CUDA) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(fusion_ptr.get());
+
+  auto tv0 = makeSymbolicTensor(1);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(1);
+  fusion.addInput(tv1);
+
+  auto tv2 = cat({tv0, tv1}, 0);
+
+  fusion.addOutput(tv2);
+
+  // Check correctness
+  FusionExecutorCache fusion_executor_cache(std::move(fusion_ptr));
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor at0 = at::randn({5}, options);
+  at::Tensor at1 = at::randn({0}, options);
+  std::vector<c10::IValue> aten_inputs = {at0, at1};
+  auto outputs = fusion_executor_cache.runFusionWithInputs(aten_inputs);
+  auto at2 = at::cat({at0, at1}, 0);
+  testValidate(&fusion, outputs, aten_inputs, {at2}, __LINE__, __FILE__);
+
+  // Check that fusion consists only of tv2 = set(tv0)
+  auto fkr = fusion_executor_cache.getMostRecentKernelRuntime();
+  auto seg_fusion = fkr->fusionSegments();
+  auto output_def = seg_fusion->outputs()[0]->definition();
+  EXPECT_TRUE(output_def->isA<LoadStoreOp>());
+  EXPECT_EQ(output_def->as<LoadStoreOp>()->opType(), LoadStoreOpType::Set);
+  EXPECT_EQ(output_def->input(0), seg_fusion->inputs()[0]);
+}
+
+TEST_F(NVFuserTest, Issue249_CUDA) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  TensorView* tv0 = makeSymbolicTensor(4);
+  fusion.addInput(tv0);
+
+  auto tv1 = add(tv0, tv0);
+  auto tv2 = reshape(
+      tv1,
+      {tv1->axis(0)->extent(),
+       tv1->axis(2)->extent(),
+       IrBuilder::create<Scalar>(-1)});
+  auto tv3 = add(tv2, tv2);
+  fusion.addOutput(tv3);
+
+  FusionExecutorCache fusion_executor_cache(std::move(fusion_ptr));
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor at_x = at::randn({2, 3, 4, 5}, options);
+  auto at_y = (at_x + at_x).reshape({2, 4, -1});
+  auto at_z = at_y + at_y;
+
+  auto outputs = fusion_executor_cache.runFusionWithInputs({at_x});
+
+  testValidate(
+      fusion_executor_cache.fusion(),
+      outputs,
+      {at_x},
+      {at_z},
+      __LINE__,
+      __FILE__);
+}
+
+// This is just like the test above, but uses an input scalar with value -1
+TEST_F(NVFuserTest, Issue249InputNegative1_CUDA) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  TensorView* tv0 = makeSymbolicTensor(4);
+  fusion.addInput(tv0);
+
+  auto s0 = IrBuilder::create<Scalar>(DataType::Int);
+  auto s1 = IrBuilder::create<Scalar>(DataType::Int);
+  auto s2 = IrBuilder::create<Scalar>(DataType::Int);
+  fusion.addInput(s0);
+  fusion.addInput(s1);
+  fusion.addInput(s2);
+
+  auto tv1 = add(tv0, tv0);
+  auto tv2 = reshape(tv1, {s0, s1, s2});
+  auto tv3 = add(tv2, tv2);
+  fusion.addOutput(tv3);
+
+  FusionExecutorCache fusion_executor_cache(std::move(fusion_ptr));
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor at_x = at::randn({2, 3, 4, 5}, options);
+  auto at_y = (at_x + at_x).reshape({2, 4, -1});
+  auto at_z = at_y + at_y;
+
+  // Dynamic reshape sizes that are not constant at definition must be explicit:
+  // no -1 allowed
+  EXPECT_THROW(
+      fusion_executor_cache.runFusionWithInputs({at_x, 2, 4, -1}),
+      std::exception);
+
+  // Passing explicit sizes works fine
+  auto outputs = fusion_executor_cache.runFusionWithInputs({at_x, 2, 4, 15});
+
+  testValidate(
+      fusion_executor_cache.fusion(),
+      outputs,
+      {at_x, 2, 4, 15},
+      {at_z},
+      __LINE__,
+      __FILE__);
 }
 
 } // namespace nvfuser
