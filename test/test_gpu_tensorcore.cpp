@@ -4495,19 +4495,24 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSmemEpilogue_CUDA) {
 
     fusion.addOutput(tv2);
 
+    // The settings of cta_tile, warp_tile, and smem_double_buffer_stage have
+    // been purposefully selected to produce a constant occupancy of 25%. This
+    // allows us to effectively evaluate the influence of the has_smem_epilogue
+    // parameter on performance, since changing its value to either true or
+    // false will not affect the occupancy rate.
     MatMulTileOptions gemm_tile;
-    gemm_tile.cta_tile = GemmTile(128, 128, 32);
-    gemm_tile.warp_tile = GemmTile(64, 64, 32);
+    gemm_tile.cta_tile = GemmTile(64, 128, 32);
+    gemm_tile.warp_tile = GemmTile(32, 32, 32);
     gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
     MatmulParams params;
     params.mma_macro = MmaOptions::MacroType::Ampere_16_8_16;
     params.tile_sizes = gemm_tile;
-    params.has_smem_epilogue = false;
+    params.has_smem_epilogue = true;
     params.async_gmem_load_operands = true;
     params.double_buffer_options.double_buffer_smem_write = true;
     params.double_buffer_options.double_buffer_smem_read = true;
-    params.double_buffer_options.smem_double_buffer_stage = 4;
+    params.double_buffer_options.smem_double_buffer_stage = 2;
     scheduleMatmul(&fusion, params);
 
     // If has_smem_epilogue is true, there should be 3 shared memory tensors 2

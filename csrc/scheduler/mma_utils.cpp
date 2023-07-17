@@ -32,7 +32,7 @@ bool hasEnoughSharedMemoryForEpilogue(
   // a thread can use up to 255 registers, blocks per sm is limited by available
   // registers
   const auto threads_per_sm = getThreadsPerSMGivenRegPerThread(255);
-  const auto blocks_per_sm = threads_per_sm / threads_per_block;
+  const auto blocks_per_sm_by_register = threads_per_sm / threads_per_block;
   // see scheduleContiguousVectorLoad
   const int vector_word = 8;
   const int round_to_factor = warp_dims.m * warp_dims.n * warp_dims.k *
@@ -50,12 +50,11 @@ bool hasEnoughSharedMemoryForEpilogue(
 
   // use additional shared memory for epilogue if blocks per sm is not changed
   const auto blocks_per_sm_without_smem_epilogue =
-      std::min(device_smem_limit / (smem_a + smem_b), (size_t)blocks_per_sm);
+      std::min(device_smem_limit / (smem_a + smem_b), (size_t)blocks_per_sm_by_register);
   const auto blocks_per_sm_with_smem_epilogue = std::min(
-      device_smem_limit / (smem_a + smem_b + smem_c), (size_t)blocks_per_sm);
+      device_smem_limit / (smem_a + smem_b + smem_c), (size_t)blocks_per_sm_by_register);
   return blocks_per_sm_with_smem_epilogue ==
-      blocks_per_sm_without_smem_epilogue ||
-      blocks_per_sm_with_smem_epilogue > 0;
+      blocks_per_sm_without_smem_epilogue;
 }
 
 void scheduleWarpTileWithReduction(TensorView* tv, MatMulTileOptions tile) {
@@ -732,13 +731,6 @@ void validateMmaRootInnerMNK(
 //!  swizzles to the right axes.
 //! This check will be relaxed as we build out the mma usage patterns.
 void validateMmaRootInnerMN(TensorView* tv, MmaOptions options, int m, int n) {
-  auto is_mma_output =
-      tv->definition() != nullptr && tv->definition()->isA<MmaOp>();
-  // This function is also used to transform epilogue tensor. It is not a mma
-  // output and can skip the following checks.
-  if (!is_mma_output) {
-    return;
-  }
   auto mma = options.mmaOp();
   auto m_dims = getMmaRootDimensions(tv, mma, MmaDimension::M);
   auto n_dims = getMmaRootDimensions(tv, mma, MmaDimension::N);

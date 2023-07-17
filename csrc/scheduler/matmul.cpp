@@ -452,11 +452,7 @@ void swizzleSharedMemory(
     //     -6     -5     -4       -3        -2         -1
     // [wave id, wave, gigarow, y outer, gigabank id, matrix]
 
-    //     -7        -6         -5              -4       -3
-    // [matrix id, nrows_outer, swizzle_period, pattern, matrix id outer,
-    //  -2         -1
-    // pattern id, matrix,***** skip ***** ]
-    // swizzle repeat with pattern id to make repeat no longer repeat.
+    // swizzle wave with gigabank id to make threads in a wave access different gigabank.
     // Apply swizzle only when shared_mem_tv is stored in shared memory.
     // TODO: This is a temporary workaround for the following issue:
     // For the mma output, we have the following schedule:
@@ -474,13 +470,13 @@ void swizzleSharedMemory(
     // specific case. We should remove this special handling when we fix our CA
     // mapping.
     if (shared_mem_tv->getMemoryType() == MemoryType::Shared) {
-      int swizzle_axis0 = repeated_pattern_size > 1 ? -5 : -4;
+      int axis_of_gigarow_id = repeated_pattern_size > 1 ? -5 : -4;
       if (isPowOf2(num_gigabanks)) {
         shared_mem_tv->swizzle(
-            Swizzle2DType::XOR, swizzle_axis0 - skip, -2 - skip);
+            Swizzle2DType::XOR, axis_of_gigarow_id - skip, -2 - skip);
       } else {
         shared_mem_tv->swizzle(
-            Swizzle2DType::CyclicShift, swizzle_axis0 - skip, -2 - skip);
+            Swizzle2DType::CyclicShift, axis_of_gigarow_id - skip, -2 - skip);
       }
     }
 
@@ -603,7 +599,7 @@ void scheduleOutputTensor(
 
   // step-5, Parallel first 2 dims same as mma_result
   scheduler_utils::parallelizeAllLike(
-      mma_result, 2, {c}, {ParallelType::BIDx, ParallelType::BIDy});
+      mma_result, 2, {c}, {ParallelType::BIDx, ParallelType::BIDy, ParallelType::BIDz});
 }
 //! Propagates transformations from fusion output to fusion tv inputs that are
 //!  producers in the epilogue. Transformations' propagation aims at input tvs
@@ -874,7 +870,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
 
   // Schedule warp tile
   mma_utils::scheduleWarpTileWithReduction(mma_result, gemm_tile);
-  //  0   1  2  3   4   5   6   7  8  9  10
+  //  0   1  2  3   4   5   6   7  8   9  10
   // [Mo  No Ko Kw Mwo Nwo Mwi Nwi Mi, Ni, Ki]
 
   // Propagate warp tile to main loop and epilog/output tvs
