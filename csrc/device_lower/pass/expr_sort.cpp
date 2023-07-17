@@ -244,6 +244,9 @@ class ExprGroup {
 // if the reduction input is inlined. This struct is to keep track of
 // expressions that IDs to enforce merge ordering to presere the DAG
 // property.
+//
+// This should be prevented to happen by ComputeAtRootDomainMap. See
+// issue #597 and its related issues and PRs.
 struct IndirectPersistencyConstraint {
   // A reduced IterDomain
   IterDomain* reduction_id = nullptr;
@@ -418,12 +421,18 @@ class ExprSegmentationSorter {
   std::unordered_map<IterDomain*, std::unordered_set<IterDomain*>>
       concrete_id_dependencies_;
 
+  // Keep track of exprs that can end up resultiing a persistent
+  // pattern. This should not be necessary once ComputeAtRootDomainMap
+  // is fixed. See issue #597
   std::unordered_map<Expr*, std::vector<IndirectPersistencyConstraint>>
       persistent_constraints_;
 
   // ID representing the outermost scope of the kernel being
   // generated. We may want to have this defined in the Kernel
-  // container itself, but for now just define here as it's only used here.
+  // container itself, but for now just define here as it's only used
+  // here.
+  //
+  // See also #569 and the IndirectNormalizationWithZeroDimTensors test.
   IterDomain* kernel_scope_domain_ = nullptr;
 };
 
@@ -1035,7 +1044,8 @@ bool ExprSegmentationSorter::canReducePA(ExprGroup* group) const {
   IterDomain* group_pa_last_id = group->payload()->pa_domains.back();
 
   // If the last ID is the kernel scope, there should still be
-  // consumer groups, so we should not remove it from the PA set
+  // consumer groups that use tensors produced by this group, so we
+  // should not remove it from the PA set yet
   if (group_pa_last_id == kernelScopeDomain()) {
     return false;
   }
@@ -1715,10 +1725,6 @@ bool ExprSegmentationSorter::supportedMerge(ExprGroup* sg1, ExprGroup* sg2) {
       auto compute_at_dim = compute_at_pos > 0
           ? producer_tv->axis((int)compute_at_pos - 1)
           : kernelScopeDomain();
-
-      if (compute_at_dim == nullptr) {
-        continue;
-      }
 
       if (!areMapped(compute_at_dim, producer_ca_domain.back())) {
         continue;
