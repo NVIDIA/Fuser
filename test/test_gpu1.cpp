@@ -7803,8 +7803,8 @@ TEST_F(NVFuserTest, FusionMagicSchedulerInstanceNormalizationBackward_CUDA) {
       at_input_nvfuser,
       at_grad_nvfuser,
       at_weight_nvfuser,
-      at::empty({}),
-      at::empty({}),
+      at::empty({}, options),
+      at::empty({}, options),
       outputs_forward[1],
       outputs_forward[2]};
   auto outputs_backward =
