@@ -105,6 +105,8 @@ enum class DisableOption {
   Nvtx, //! Disable NVTX instrumentation
   ParallelCompile, //! Disable compiling Fusion segments in parallel
   PredicateElimination, //! Disable predicate elimination
+  KernelReuse, //! Disable re-using cached FusionKernelRuntimes with different
+               //! input shapes
   VarNameRemapping, //! Disable variable name remapping
   WelfordVectorization, //! Disable vectorizaton of Welford ops
   EndOfOption //! Placeholder for counting the number of elements
