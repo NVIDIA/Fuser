@@ -19,7 +19,7 @@ namespace nvfuser {
 
 namespace mma_utils {
 
-bool hasEnoughSharedMemoryForEpilogue(
+bool generateSharedMemoryEpilogueHeuristics(
     const MatMulTileOptions& gemm_tile,
     const int smem_double_buffer_stage,
     const MmaDataTypes& data_types) {
@@ -49,10 +49,11 @@ bool hasEnoughSharedMemoryForEpilogue(
       dataTypeSize(data_types[2]);
 
   // use additional shared memory for epilogue if blocks per sm is not changed
-  const auto blocks_per_sm_without_smem_epilogue =
-      std::min(device_smem_limit / (smem_a + smem_b), (size_t)blocks_per_sm_by_register);
+  const auto blocks_per_sm_without_smem_epilogue = std::min(
+      device_smem_limit / (smem_a + smem_b), (size_t)blocks_per_sm_by_register);
   const auto blocks_per_sm_with_smem_epilogue = std::min(
-      device_smem_limit / (smem_a + smem_b + smem_c), (size_t)blocks_per_sm_by_register);
+      device_smem_limit / (smem_a + smem_b + smem_c),
+      (size_t)blocks_per_sm_by_register);
   return blocks_per_sm_with_smem_epilogue ==
       blocks_per_sm_without_smem_epilogue;
 }

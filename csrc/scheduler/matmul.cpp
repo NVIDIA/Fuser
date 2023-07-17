@@ -452,8 +452,9 @@ void swizzleSharedMemory(
     //     -6     -5     -4       -3        -2         -1
     // [wave id, wave, gigarow, y outer, gigabank id, matrix]
 
-    // swizzle wave with gigabank id to make threads in a wave access different gigabank.
-    // Apply swizzle only when shared_mem_tv is stored in shared memory.
+    // swizzle wave with gigabank id to make threads in a wave access different
+    // gigabank. Apply swizzle only when shared_mem_tv is stored in shared
+    // memory.
     // TODO: This is a temporary workaround for the following issue:
     // For the mma output, we have the following schedule:
     // rFactor: [...., X, Y] -> mma-swizzle transformations -> leaf
@@ -599,7 +600,10 @@ void scheduleOutputTensor(
 
   // step-5, Parallel first 2 dims same as mma_result
   scheduler_utils::parallelizeAllLike(
-      mma_result, 2, {c}, {ParallelType::BIDx, ParallelType::BIDy, ParallelType::BIDz});
+      mma_result,
+      2,
+      {c},
+      {ParallelType::BIDx, ParallelType::BIDy, ParallelType::BIDz});
 }
 //! Propagates transformations from fusion output to fusion tv inputs that are
 //!  producers in the epilogue. Transformations' propagation aims at input tvs
@@ -731,7 +735,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
 
   // Unswizzle mma result in shared memory
   auto smem_epilogue =
-      params.has_smem_epilogue ? mma_result->cacheAfter() : mma_result;
+      params.use_smem_epilogue ? mma_result->cacheAfter() : mma_result;
 
   // Clear MmaOp pointer, it's not needed from now on
   mma = nullptr;
@@ -861,7 +865,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   // Propagate tiling globally
   scheduler_utils::transformPropagateToAllFrom(mma_result, -1);
 
-  if (params.has_smem_epilogue) {
+  if (params.use_smem_epilogue) {
     // Transform mma_result through the epilogue swizzle without actually
     // swizzling the axes. This is done to enable the domains
     // are mapped between mma_result and smem_epilogue.
@@ -949,7 +953,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
       {acr, bcr, ab, bb},
       {ParallelType::TIDy, ParallelType::TIDz});
 
-  if (params.has_smem_epilogue) {
+  if (params.use_smem_epilogue) {
     smem_epilogue->setMemoryType(MemoryType::Shared);
     swizzleSharedMemory(smem_epilogue, params);
     scheduler_utils::BoundedDirectionalTransformPropagator::forward(

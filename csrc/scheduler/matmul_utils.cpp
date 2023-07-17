@@ -415,22 +415,14 @@ std::shared_ptr<MatmulParams> getMatmulHeuristics(
   // Disable magic zero for matmul kernels
   params->cparams.enable_magic_zero = false;
 
-  // Disable shared memory epilogue before shared memory reuse is implemented.
-  //  Otherwise, there will be performance regression due to reduced occupancy
-  //  caused by extra shared memory usage.
-  constexpr bool allow_smem_epilogue = true;
-  if (allow_smem_epilogue) {
-    const auto& roles_map_opt = mma_utils::getTensorsRoles(fusion);
-    TORCH_INTERNAL_ASSERT(
-        roles_map_opt.isValid(), "Tensor roles map in mma is not valid.");
-    // Check if we have enough shared memory for epilogue
-    params->has_smem_epilogue = mma_utils::hasEnoughSharedMemoryForEpilogue(
-        params->tile_sizes,
-        params->double_buffer_options.smem_double_buffer_stage,
-        getMmaDataTypes(roles_map_opt.getData()));
-  } else {
-    params->has_smem_epilogue = false;
-  }
+  // Set whether to use shared memory for epilogue
+  const auto& roles_map_opt = mma_utils::getTensorsRoles(fusion);
+  TORCH_INTERNAL_ASSERT(
+      roles_map_opt.isValid(), "Tensor roles map in mma is not valid.");
+  params->use_smem_epilogue = mma_utils::generateSharedMemoryEpilogueHeuristics(
+      params->tile_sizes,
+      params->double_buffer_options.smem_double_buffer_stage,
+      getMmaDataTypes(roles_map_opt.getData()));
 
   if (isDebugDumpEnabled(DebugDumpOption::MatmulChecks)) {
     printMsg(params->toString());

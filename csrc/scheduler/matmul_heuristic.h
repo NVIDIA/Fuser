@@ -92,7 +92,7 @@ class MatmulParams : public HeuristicParams {
 
   //! Unswizzle MMA results in shared memory to get
   //!  coalesced write to global memory
-  bool has_smem_epilogue = true;
+  bool use_smem_epilogue = true;
 
   std::string toString() const override {
     std::stringstream ss;
@@ -116,7 +116,7 @@ class MatmulParams : public HeuristicParams {
                                                            : "column-major")
        << "\n"
        << "Grid swizzle factor: " << grid_swizzle_factor << "\n"
-       << "Use shared memory epilogue: " << has_smem_epilogue << "\n"
+       << "Use shared memory epilogue: " << use_smem_epilogue << "\n"
        << "====================================\n";
     return ss.str();
   }

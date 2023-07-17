@@ -63,7 +63,7 @@ sass::Container getSASSFor(
   gemm_tile.instruction_tile = instruction_tile;
 
   MatmulParams params;
-  params.has_smem_epilogue = use_shared_epilogue;
+  params.use_smem_epilogue = use_shared_epilogue;
   params.mma_macro = macro;
   params.tile_sizes = gemm_tile;
   params.async_gmem_load_operands = true;

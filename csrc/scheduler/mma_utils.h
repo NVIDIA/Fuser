@@ -293,8 +293,11 @@ TORCH_CUDA_CU_API ProblemIterDomainsOpt getProblemIterDomains(Fusion* fusion);
 //!  be gathered.
 TORCH_CUDA_CU_API RolesMapOpt getTensorsRoles(Fusion* fusion);
 
-//! Check if there is enough shared memory for the given tile options
-TORCH_CUDA_CU_API bool hasEnoughSharedMemoryForEpilogue(
+//! Return whether use shared memory epilogue or not.
+//!  Returns true if using shared memory epilogue won't cause
+//!  the decrease of occupancy ratio. The occupancy ratio is
+//!  estimated using register and shared memory usage.
+TORCH_CUDA_CU_API bool generateSharedMemoryEpilogueHeuristics(
     const MatMulTileOptions& gemm_tile,
     const int smem_double_buffer_stage,
     const MmaDataTypes& data_types);

@@ -3261,10 +3261,11 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck4warp_CUDA) {
         params.tile_sizes = gemm_tile;
         params.async_gmem_load_operands = true;
         params.double_buffer_options.double_buffer_smem_write = true;
-        params.has_smem_epilogue = mma_utils::hasEnoughSharedMemoryForEpilogue(
-            gemm_tile,
-            params.double_buffer_options.smem_double_buffer_stage,
-            {DataType::Half, DataType::Half, DataType::Float});
+        params.use_smem_epilogue =
+            mma_utils::generateSharedMemoryEpilogueHeuristics(
+                gemm_tile,
+                params.double_buffer_options.smem_double_buffer_stage,
+                {DataType::Half, DataType::Half, DataType::Float});
         scheduleMatmul(&fusion, params);
 
         auto inputs = matmulAtInput(M, N, K, layout);
@@ -3328,8 +3329,8 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck8warp_CUDA) {
           params.double_buffer_options.double_buffer_smem_write = true;
           params.double_buffer_options.double_buffer_smem_read = true;
           params.double_buffer_options.smem_double_buffer_stage = 2;
-          params.has_smem_epilogue =
-              mma_utils::hasEnoughSharedMemoryForEpilogue(
+          params.use_smem_epilogue =
+              mma_utils::generateSharedMemoryEpilogueHeuristics(
                   gemm_tile,
                   params.double_buffer_options.smem_double_buffer_stage,
                   {DataType::Half, DataType::Half, DataType::Float});
@@ -3391,10 +3392,11 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck6warp_CUDA) {
       params.double_buffer_options.double_buffer_smem_write = true;
       params.double_buffer_options.double_buffer_smem_read = true;
       params.double_buffer_options.smem_double_buffer_stage = 2;
-      params.has_smem_epilogue = mma_utils::hasEnoughSharedMemoryForEpilogue(
-          gemm_tile,
-          params.double_buffer_options.smem_double_buffer_stage,
-          {DataType::Half, DataType::Half, DataType::Float});
+      params.use_smem_epilogue =
+          mma_utils::generateSharedMemoryEpilogueHeuristics(
+              gemm_tile,
+              params.double_buffer_options.smem_double_buffer_stage,
+              {DataType::Half, DataType::Half, DataType::Float});
       scheduleMatmul(&fusion, params);
 
       auto inputs = matmulAtInput(M, N, K, layout);
@@ -4497,7 +4499,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSmemEpilogue_CUDA) {
 
     // The settings of cta_tile, warp_tile, and smem_double_buffer_stage have
     // been purposefully selected to produce a constant occupancy of 25%. This
-    // allows us to effectively evaluate the influence of the has_smem_epilogue
+    // allows us to effectively evaluate the influence of the use_smem_epilogue
     // parameter on performance, since changing its value to either true or
     // false will not affect the occupancy rate.
     MatMulTileOptions gemm_tile;
@@ -4508,17 +4510,17 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSmemEpilogue_CUDA) {
     MatmulParams params;
     params.mma_macro = MmaOptions::MacroType::Ampere_16_8_16;
     params.tile_sizes = gemm_tile;
-    params.has_smem_epilogue = true;
+    params.use_smem_epilogue = true;
     params.async_gmem_load_operands = true;
     params.double_buffer_options.double_buffer_smem_write = true;
     params.double_buffer_options.double_buffer_smem_read = true;
     params.double_buffer_options.smem_double_buffer_stage = 2;
     scheduleMatmul(&fusion, params);
 
-    // If has_smem_epilogue is true, there should be 3 shared memory tensors 2
+    // If use_smem_epilogue is true, there should be 3 shared memory tensors 2
     // for prologue and 1 for epilogue.
     int num_shared_mem_tensors = 0;
-    int expected_num_shared_mem_tensors = params.has_smem_epilogue ? 3 : 2;
+    int expected_num_shared_mem_tensors = params.use_smem_epilogue ? 3 : 2;
     for (const auto& tv : ir_utils::allTvs(&fusion)) {
       if (tv->getMemoryType() == MemoryType::Shared) {
         num_shared_mem_tensors++;
@@ -4584,17 +4586,17 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSmemEpilogueCast_CUDA) {
     MatmulParams params;
     params.mma_macro = MmaOptions::MacroType::Ampere_16_8_16;
     params.tile_sizes = gemm_tile;
-    params.has_smem_epilogue = true;
+    params.use_smem_epilogue = true;
     params.async_gmem_load_operands = true;
     params.double_buffer_options.double_buffer_smem_write = true;
     params.double_buffer_options.double_buffer_smem_read = true;
     params.double_buffer_options.smem_double_buffer_stage = 4;
     scheduleMatmul(&fusion, params);
 
-    // If has_smem_epilogue is true, there should be 3 shared memory tensors 2
+    // If use_smem_epilogue is true, there should be 3 shared memory tensors 2
     // for prologue and 1 for epilogue.
     int num_shared_mem_tensors = 0;
-    int expected_num_shared_mem_tensors = params.has_smem_epilogue ? 3 : 2;
+    int expected_num_shared_mem_tensors = params.use_smem_epilogue ? 3 : 2;
     for (const auto& tv : ir_utils::allTvs(&fusion)) {
       if (tv->getMemoryType() == MemoryType::Shared) {
         num_shared_mem_tensors++;
@@ -4660,17 +4662,17 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSmemEpilogueRelu_CUDA) {
     MatmulParams params;
     params.mma_macro = MmaOptions::MacroType::Ampere_16_8_16;
     params.tile_sizes = gemm_tile;
-    params.has_smem_epilogue = true;
+    params.use_smem_epilogue = true;
     params.async_gmem_load_operands = true;
     params.double_buffer_options.double_buffer_smem_write = true;
     params.double_buffer_options.double_buffer_smem_read = true;
     params.double_buffer_options.smem_double_buffer_stage = 4;
     scheduleMatmul(&fusion, params);
 
-    // If has_smem_epilogue is true, there should be 3 shared memory tensors 2
+    // If use_smem_epilogue is true, there should be 3 shared memory tensors 2
     // for prologue and 1 for epilogue.
     int num_shared_mem_tensors = 0;
-    int expected_num_shared_mem_tensors = params.has_smem_epilogue ? 3 : 2;
+    int expected_num_shared_mem_tensors = params.use_smem_epilogue ? 3 : 2;
     for (const auto& tv : ir_utils::allTvs(&fusion)) {
       if (tv->getMemoryType() == MemoryType::Shared) {
         num_shared_mem_tensors++;
