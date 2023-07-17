@@ -12,6 +12,8 @@
 #include <fusion.h>
 #include <ir/cloner.h>
 #include <ir/utils.h>
+#include <ops/arith.h>
+#include <ops/indexing.h>
 #include <ops/utils.h>
 #include <transform_iter.h>
 #include <transform_view.h>
@@ -361,6 +363,8 @@ class DynamicTransformConcretizer : public OptOutMutator {
 
   void concretizeResize();
 
+  void replaceTV(TensorView* old_tv, TensorView* new_tv);
+
   //! Use this instead of calling registerMutation directly, since it will also
   //! check that the concretized value is a valid input to all of its uses.
   void registerConcretization(Val* old_val, Val* new_val) {
@@ -403,6 +407,25 @@ void DynamicTransformConcretizer::concretize() {
   }
 }
 
+void DynamicTransformConcretizer::replaceTV(
+    TensorView* old_tv,
+    TensorView* new_tv) {
+  // We do the replacement directly here, but we must still check that the
+  // replacement is valid
+  checkConcretizedUses(old_tv, new_tv);
+
+  // Replace the old tensor with the new concretized tensor
+  for (auto use_of_old_tv : old_tv->uses()) {
+    ir_utils::replaceValInExpr(use_of_old_tv, old_tv, new_tv);
+  }
+
+  if (old_tv->isFusionOutput()) {
+    old_tv->fusion()->replaceOutput(old_tv, new_tv);
+  }
+
+  info_->fusion()->removeVal(old_tv);
+}
+
 void DynamicTransformConcretizer::concretizeReshape() {
   // Concretize each reshape op.
   for (const auto& [tv_index, view_analysis] : info_->getReshapeTransforms()) {
@@ -413,22 +436,7 @@ void DynamicTransformConcretizer::concretizeReshape() {
 
     auto concrete_reshape_out_tv = reshape(inp_tv, view_analysis);
 
-    // We do the replacement directly here, but we must still check that the
-    // replacement is valid
-    checkConcretizedUses(incomplete_out_tv, concrete_reshape_out_tv);
-
-    // Replace the old tensor with the new concretized tensor
-    for (auto use_of_old_tv : incomplete_out_tv->uses()) {
-      ir_utils::replaceValInExpr(
-          use_of_old_tv, incomplete_out_tv, concrete_reshape_out_tv);
-    }
-
-    if (incomplete_out_tv->isFusionOutput()) {
-      incomplete_out_tv->fusion()->replaceOutput(
-          incomplete_out_tv, concrete_reshape_out_tv);
-    }
-
-    info_->fusion()->removeVal(incomplete_out_tv);
+    replaceTV(incomplete_out_tv, concrete_reshape_out_tv);
   }
 }
 
@@ -490,9 +498,46 @@ void DynamicTransformConcretizer::concretizeResize() {
     // Replace entire TensorView here with another op plus a broadcast
     TORCH_CHECK(tv->definition(), "Resized TensorView must have definition");
     if (auto pop = dynamic_cast<PadOp*>(tv->definition())) {
-      // This should never be an intermediate pad as part of a CatOp
-      if (resize_to_broadcast) {
-        // Convert to select + broadcast
+      // NOTE: tv should not be an intermediate pad as part of a CatOp if it
+      // appears here, since we only record the output of the CatOp as a dynamic
+      // resize, explicitly avoiding the intermediate PadOps.
+      if (resize_to_broadcast) { // Convert to select + broadcast
+        // Collect symbolic resizes. There might be multiple dimensions that get
+        // padded to broadcast size in one PadOp. We perform a separate select()
+        // for each of these, then we perform any remaining non-broadcast pads,
+        // and finally we do a single broadcast.
+        auto rfd = tv->getMaybeRFactorDomain();
+        std::vector<bool> broadcast_axes(rfd.size(), false);
+        std::vector<size_t> select_dims;
+        std::vector<size_t> select_positions;
+        auto pad_widths = pop->getPadWidths();
+        std::vector<Val*> new_pad_widths;
+        auto pad_input = pop->in()->as<TensorView>();
+        auto selected_tv = pop->in()->as<TensorView>();
+        auto select_dim = 0;
+        for (auto i : c10::irange(rfd.size())) {
+          auto id = rfd.at(i);
+          auto iter_type = iter_types.at(i);
+          auto left_pad = pad_widths.at(i * 2);
+          auto right_pad = pad_widths.at(i * 2 + 1);
+          if (id->definition() && id->definition()->isA<Resize>()) {
+            if (iter_type == IterType::Iteration) {
+              new_pad_widths.push_back(left_pad);
+              new_pad_widths.push_back(right_pad);
+              select_dim++;
+            } else if (iter_type == IterType::Broadcast) {
+              // This corresponds to right_pad = left_pad + 1
+              broadcast_axes.at(i) = true;
+              select(selected_tv, select_dim, left_pad);
+            } else {
+              TORCH_CHECK(
+                  false,
+                  "PadOp IterDomains must concretized to Iteration or Broadcast");
+            }
+          }
+          auto broadcasted = broadcast(selected_tv, broadcast_axes);
+          replaceTV(pad_input, broadcasted);
+        }
         TORCH_CHECK(!resize_to_broadcast);
       } else {
         concretizeResizesAsIteration(tv);
@@ -500,9 +545,13 @@ void DynamicTransformConcretizer::concretizeResize() {
     } else if (auto cop = dynamic_cast<CatOp*>(tv->definition())) {
       if (resize_to_broadcast) {
         // If a CatOp results in a broadcast in the cat dimension, then one of
-        // the inputs must be broadcast and the others are empty, so this should
-        // translate to a set operation using the broadcasted input.
-        TORCH_CHECK(!resize_to_broadcast);
+        // the inputs must be broadcast and the others are empty in that
+        // dimension, so this should translate to a set operation using the
+        // broadcasted input.
+        //
+        // This case is handled by empty tensor concretization; as empty tensors
+        // are removed in RemoveEmptyPass, they are removed from the CatOp. When
+        // a single tensor remains, the cat is replaced with set().
       } else {
         // The inputs to CatOp are actually padded versions of the original
         // inputs to cat(). So we concretize those intermediate padded versions
@@ -518,7 +567,7 @@ void DynamicTransformConcretizer::concretizeResize() {
         OptOutMutator::mutate(tv->domain());
         OptOutMutator::mutate(tv);
       }
-    } else if (auto sop = dynamic_cast<SliceOp*>(tv->definition())) {
+    } else if (dynamic_cast<SliceOp*>(tv->definition())) {
       if (resize_to_broadcast) {
         // Assumes slice expressions are normalized so slices that result in
         // broadcasts are selects + broadcasts.
