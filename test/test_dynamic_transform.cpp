@@ -81,12 +81,16 @@ TEST_F(NVFuserTest, DynamicTransform1_CUDA) {
     expr_eval.bind(reshape_shape0, 3L);
     expr_eval.bind(reshape_shape1, -1L);
 
-    auto initial_info = DynamicTransform::getInitialInfo(&fusion);
     // This should throw an exception since any reshape size of -1 must be
     // specified as a definition-time constant, as opposed to an input scalar.
-    EXPECT_THROW(
-        DynamicTransformConcretizationInfo(&initial_info, &expr_eval),
-        std::exception);
+    EXPECT_THAT(
+        [&]() {
+          auto initial_info = DynamicTransform::getInitialInfo(&fusion);
+          auto info =
+              DynamicTransformConcretizationInfo(&initial_info, &expr_eval);
+        },
+        ::testing::ThrowsMessage<c10::Error>(::testing::HasSubstr(
+            "Values of -1 passed to reshape must be constant at definition")));
   }
 
   {
@@ -106,8 +110,8 @@ TEST_F(NVFuserTest, DynamicTransform1_CUDA) {
           auto info =
               DynamicTransformConcretizationInfo(&initial_info, &expr_eval);
         },
-        ::testing::ThrowsMessage<c10::Error>(
-            ::testing::HasSubstr("Cannot infer")));
+        ::testing::ThrowsMessage<c10::Error>(::testing::HasSubstr(
+            "Total element counts across view operation must match.")));
   }
 }
 
