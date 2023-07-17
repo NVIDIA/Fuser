@@ -148,6 +148,7 @@ void IterVisitor::traverseBetween(
 
   std::unordered_set<Statement*> visited;
   std::unordered_set<Statement*> nodes_on_path;
+  std::vector<Statement*> maybe_orphaned_sibs;
 
   stmt_stack.clear();
   stmt_stack.emplace_back(to.rbegin(), to.rend());
@@ -231,18 +232,13 @@ void IterVisitor::traverseBetween(
 
       if (traverse_siblings) {
         // Add unvisited siblings to next_stmts
-        std::vector<Statement*> unvisited_sibs;
         for (auto next_val : ir_utils::filterByType<Val>(next_stmts)) {
           for (auto sib : ir_utils::siblingValsOf(next_val)) {
-            if (visited.find(sib) == visited.end()) {
-              // Push to separate vector so that we don't modify next_stmts
-              // while looping
-              unvisited_sibs.push_back(sib);
+            if (traverse_all_paths || visited.find(sib) == visited.end()) {
+              maybe_orphaned_sibs.push_back(sib);
             }
           }
         }
-        next_stmts.insert(
-            next_stmts.end(), unvisited_sibs.begin(), unvisited_sibs.end());
       }
 
       if (next_stmts.empty()) {
@@ -272,6 +268,14 @@ void IterVisitor::traverseBetween(
         // We have new things to visit,
         all_inputs_visited = false;
       }
+    }
+  }
+  // Handle any sibling Vals that have not yet been handled
+  // If traverse_siblings is false, this vector will be empty
+  for (auto val : maybe_orphaned_sibs) {
+    if (visited.find(val) != visited.end()) {
+      visited.insert(val);
+      handle(val);
     }
   }
 }
