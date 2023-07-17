@@ -81,8 +81,8 @@ TEST_F(NVFuserTest, FusionIrGraphGenerator_CUDA) {
   TensorView* tv3 = broadcast(tv0, {false, true, false, true});
   TensorView* tv4 =
       reductionOp(BinaryOpType::Add, {2}, IrBuilder::create<Val>(0.0), tv3);
-  TensorView* tv5 = clamp(
-      tv4, IrBuilder::create<Val>(0.f), IrBuilder::create<Val>(1.f));
+  TensorView* tv5 =
+      clamp(tv4, IrBuilder::create<Val>(0.f), IrBuilder::create<Val>(1.f));
   TensorView* tv6 = add(tv2, tv2);
 
   // Another checkpoint before adding outputs
@@ -611,27 +611,23 @@ TEST_F(NVFuserTest, FusionFilterVals_CUDA) {
   auto scalar1 = IrBuilder::create<Val>(0);
   auto scalar2 = IrBuilder::create<Val>(1);
 
-  const std::vector<Val*> vals = {tv0, scalar0, tv1, scalar1, scalar2};
+  const std::vector<Val*> all_vals = {tv0, scalar0, tv1, scalar1, scalar2};
 
   std::vector<TensorView*> tvs(
-      ir_utils::filterByType<TensorView>(vals).begin(),
-      ir_utils::filterByType<TensorView>(vals).end());
-  TORCH_CHECK(tvs.size() == 2);
-  TORCH_CHECK(tvs[0] == tv0);
-  TORCH_CHECK(tvs[1] == tv1);
+      ir_utils::filterByType<TensorView>(all_vals).begin(),
+      ir_utils::filterByType<TensorView>(all_vals).end());
+  EXPECT_EQ(tvs.size(), 2);
+  EXPECT_EQ(tvs[0], tv0);
+  EXPECT_EQ(tvs[1], tv1);
 
-  std::vector<Val*> scalars(
-      ir_utils::filterByType<Scalar>(vals).begin(),
-      ir_utils::filterByType<Scalar>(vals).end());
-  TORCH_CHECK(scalars.size() == 3);
-  TORCH_CHECK(scalars[0] == scalar0);
-  TORCH_CHECK(scalars[1] == scalar1);
-  TORCH_CHECK(scalars[2] == scalar2);
+  std::vector<Val*> vals(
+      ir_utils::filterByType<Val>(all_vals).begin(),
+      ir_utils::filterByType<Val>(all_vals).end());
+  EXPECT_EQ(vals, all_vals);
 
-  TORCH_CHECK(
-      ir_utils::filterByType<Expr>(vals).begin() ==
-          ir_utils::filterByType<Expr>(vals).end(),
-      "Not expecting any results");
+  EXPECT_EQ(
+      ir_utils::filterByType<Expr>(vals).begin(),
+      ir_utils::filterByType<Expr>(vals).end());
 }
 
 TEST_F(NVFuserTest, FusionTVSplit_CUDA) {
@@ -3935,8 +3931,8 @@ TEST_F(NVFuserTest, FusionReduction6_CUDA) {
   fusion.addInput(tv0);
 
   // tv1[I0, R1, R2] = tv0[I0, I1, I2]
-  TensorView* tv1 = reductionOp(
-      BinaryOpType::Add, {1, 2}, IrBuilder::create<Val>(0.0), tv0);
+  TensorView* tv1 =
+      reductionOp(BinaryOpType::Add, {1, 2}, IrBuilder::create<Val>(0.0), tv0);
   fusion.addOutput(tv1);
 
   TORCH_CHECK(
@@ -5331,8 +5327,8 @@ TEST_F(NVFuserTest, FusionGridReduction6_CUDA) {
   fusion.addInput(tv0);
 
   // tv1[I0, R1, R2] = tv0[I0, I1, I2]
-  TensorView* tv1 = reductionOp(
-      BinaryOpType::Add, {1, 2}, IrBuilder::create<Val>(0.0), tv0);
+  TensorView* tv1 =
+      reductionOp(BinaryOpType::Add, {1, 2}, IrBuilder::create<Val>(0.0), tv0);
   fusion.addOutput(tv1);
 
   TORCH_CHECK(

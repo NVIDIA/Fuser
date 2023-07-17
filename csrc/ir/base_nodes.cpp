@@ -161,7 +161,7 @@ class ConstCheck : private OptOutConstDispatch {
   // important to check it is one.
   bool is_int_ = true;
 
-  void handle(const Val* b) final {
+  void handleGeneric(const Val* b) final {
     is_const_ = is_const_ && b->isConst();
   }
 
@@ -183,7 +183,7 @@ class ConstCheck : private OptOutConstDispatch {
     }
   }
 
-  void handleGeneric(const Val* val) final {
+  void handle(const Val* val) final {
     if (!val->isIntegralScalar()) {
       is_int_ = false;
     }

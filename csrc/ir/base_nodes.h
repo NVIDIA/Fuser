@@ -362,7 +362,7 @@ class TORCH_CUDA_CU_API Val : public Statement {
 
   // Returns if no dependencies and is a constant scalar.
   virtual bool isConst() const {
-    return false;
+    return value_.hasValue() && definition() == nullptr;
   }
 
   bool isZero() const;

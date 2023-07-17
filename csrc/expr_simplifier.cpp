@@ -1026,12 +1026,17 @@ Val* divideFactorized(Val* x, Val* y) {
   auto x_factors = getConstAndSymbolicFactors(x);
   auto y_factors = getConstAndSymbolicFactors(y);
 
-  if (*x_factors.first->getInt() % *y_factors.first->getInt() != 0) {
+  auto xx = x_factors.first->getInt();
+  auto yy = y_factors.first->getInt();
+
+  TORCH_INTERNAL_ASSERT(xx.has_value());
+  TORCH_INTERNAL_ASSERT(yy.has_value());
+
+  if (*xx % *yy != 0) {
     // not divisible
     return nullptr;
   }
-  int64_t quoient_const_factor =
-      *x_factors.first->getInt() / *y_factors.first->getInt();
+  int64_t quoient_const_factor = *xx / *yy;
 
   std::vector<Val*> quotient_symbolic_factors;
 
