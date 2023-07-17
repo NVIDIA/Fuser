@@ -540,8 +540,7 @@ class FlattenedAssocCommOp : public Expr {
     TORCH_CHECK(
         isAssociativeAndCommutative(op),
         "Can only flatten associative and commutative ops");
-    addAttribute(
-        IrBuilder::create<Attribute<BinaryOpType>>(passkey.ir_container_, op));
+    addDataAttribute(op);
     addOutput(out);
     for (auto v : terms) {
       TORCH_CHECK(
@@ -642,7 +641,7 @@ class FlattenedAssocCommOp : public Expr {
   }
 
   BinaryOpType getOpType() const {
-    return attribute(0)->as<Attribute<BinaryOpType>>()->value;
+    return attribute<BinaryOpType>(0);
   }
 
   // Get a vector of inputs, sorted as the order given by `variables`. Note that
