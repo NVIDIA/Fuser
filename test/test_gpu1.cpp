@@ -2961,7 +2961,7 @@ TEST_F(NVFuserTest, FusionLoopUnroll_CUDA) {
 Val* gen_jit_operand(std::pair<ValType, DataType> desc) {
   if (desc.first == ValType::TensorView) {
     return makeSymbolicTensor(2, desc.second);
-  } else if (desc.first == ValType::Scalar) {
+  } else if (desc.first == ValType::Others) {
     if (desc.second == DataType::Float || desc.second == DataType::Double) {
       return IrBuilder::create<Val>(DataType::Double);
     } else if (
@@ -3026,7 +3026,7 @@ at::IValue gen_aten_operand(
     } else {
       TORCH_CHECK(false, "Not currently supported type: ", desc.second)
     }
-  } else if (desc.first == ValType::Scalar) {
+  } else if (desc.first == ValType::Others) {
     // IValue scalars can only be double int64 or bool
     if (desc.second == DataType::ComplexDouble ||
         desc.second == DataType::ComplexFloat) {
@@ -3427,7 +3427,7 @@ TEST_F(NVFuserTest, FusionBinaryOps_CUDA) {
         std::make_tuple(
             std::make_pair(ValType::TensorView, dtype),
             std::make_pair(ValType::TensorView, dtype),
-            std::make_pair(ValType::Scalar, dtype)));
+            std::make_pair(ValType::Others, dtype)));
 
     test_op(
         /*blocks*/ 640,
@@ -3444,7 +3444,7 @@ TEST_F(NVFuserTest, FusionBinaryOps_CUDA) {
         std::make_tuple(
             std::make_pair(ValType::TensorView, dtype),
             std::make_pair(ValType::TensorView, dtype),
-            std::make_pair(ValType::Scalar, dtype)));
+            std::make_pair(ValType::Others, dtype)));
   }
 }
 
@@ -3572,7 +3572,7 @@ TEST_F(NVFuserTest, FusionCompoundOps_CUDA) {
             std::make_pair(ValType::TensorView, dtype),
             std::make_pair(ValType::TensorView, dtype),
             std::make_pair(ValType::TensorView, dtype),
-            std::make_pair(ValType::Scalar, dtype)));
+            std::make_pair(ValType::Others, dtype)));
   }
 }
 

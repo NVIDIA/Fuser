@@ -88,19 +88,6 @@ kir::Kernel* Statement::kernel() const {
   return ir_container_->as<kir::Kernel>();
 }
 
-// When we create a Val we immediately register them with the active fusion.
-Val::Val(IrBuilderPasskey passkey, ValType _vtype, DataType _dtype)
-    : Statement(passkey), vtype_(_vtype), dtype_(std::move(_dtype)) {}
-
-// NOTE: we don't clone the definition_ and uses_ here
-//  since they may introduce cloning cycles. Instead, we copy
-//  the original pointers and we'll fix them up later part of the
-//  Fusion copy. Neither definition_ nor uses_ are copied through
-//  this constructor now leaving them to be resolved by later stages
-//
-Val::Val(const Val* src, IrCloner* ir_cloner)
-    : Statement(src, ir_cloner), vtype_(src->vtype_), dtype_(src->dtype_) {}
-
 NVFUSER_DEFINE_CLONE(Val)
 
 const std::vector<Expr*>& Val::uses() const {
@@ -139,7 +126,7 @@ bool Val::removeUse(Expr* expr) {
 // for index expressions.
 void Val::resolveIndexDtype() {
   TORCH_INTERNAL_ASSERT(
-      vtype_ == ValType::TensorView || vtype_ == ValType::Scalar ||
+      vtype_ == ValType::TensorView || vtype_ == ValType::Others ||
           vtype_ == ValType::NamedScalar,
       "Resolving index type is currently only supported on tensor view or scalar values. "
       "Value type: ",
@@ -196,7 +183,7 @@ class ConstCheck : private OptOutConstDispatch {
     }
   }
 
-  void handle(const Val* val) final {
+  void handleGeneric(const Val* val) final {
     if (!val->isIntegralScalar()) {
       is_int_ = false;
     }
@@ -274,8 +261,8 @@ int64_t Val::evaluateInt() {
       ConstCheck::isConst(this),
       "Cannot get Int of not const values through IR nodes, must use runtime ExpressionEvaluator.");
 
-  if (this->as<Scalar>()->value().hasValue()) {
-    return this->as<Scalar>()->value().as<int64_t>();
+  if (this->value().hasValue()) {
+    return this->value().as<int64_t>();
   }
 
   ExpressionEvaluator ee;
@@ -292,8 +279,8 @@ double Val::evaluateDouble() {
       ConstCheck::isConst(this),
       "Cannot get Double of not const doubles through IR nodes, must use runtime ExpressionEvaluator.");
 
-  if (this->as<Scalar>()->value().hasValue()) {
-    return this->as<Scalar>()->value().as<double>();
+  if (this->value().hasValue()) {
+    return this->value().as<double>();
   }
 
   ExpressionEvaluator ee;
@@ -309,8 +296,8 @@ bool Val::evaluateBool() {
       ConstCheck::isConst(this),
       "Cannot get Bool of not const bools through IR nodes, must use runtime ExpressionEvaluator.");
 
-  if (this->as<Scalar>()->value().hasValue()) {
-    return this->as<Scalar>()->value().as<bool>();
+  if (this->value().hasValue()) {
+    return this->value().as<bool>();
   }
 
   ExpressionEvaluator ee;
@@ -322,8 +309,8 @@ bool Val::evaluateBool() {
 }
 
 std::optional<int64_t> Val::getInt() const {
-  if (isConstScalar() && isIntegralScalar() && isA<Scalar>()) {
-    auto val = this->as<Scalar>()->value();
+  if (isConstScalar() && isIntegralScalar()) {
+    auto val = this->value();
     if (val.is<int64_t>()) {
       return val.as<int64_t>();
     }
@@ -333,8 +320,8 @@ std::optional<int64_t> Val::getInt() const {
 }
 
 std::optional<double> Val::getDouble() const {
-  if (isConstScalar() && isFloatingPointScalar() && isA<Scalar>()) {
-    auto val = this->as<Scalar>()->value();
+  if (isConstScalar() && isFloatingPointScalar()) {
+    auto val = this->value();
     if (val.is<double>()) {
       return val.as<double>();
     }
@@ -344,8 +331,8 @@ std::optional<double> Val::getDouble() const {
 }
 
 std::optional<bool> Val::getBool() const {
-  if (isConstScalar() && isABool() && isA<Scalar>()) {
-    auto val = this->as<Scalar>()->value();
+  if (isConstScalar() && isABool()) {
+    auto val = this->value();
     if (val.is<bool>()) {
       return val.as<bool>();
     }

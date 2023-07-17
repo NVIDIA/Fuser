@@ -46,10 +46,9 @@ TORCH_CUDA_CU_API std::string varName(const Val* val);
 template <typename T>
 T& Expr::attribute(size_t index) const {
   if constexpr (PolymorphicValue::is_candidate_type<T>) {
-    return attributes_.at(index)->as<Scalar>()->value().as<T>();
+    return attributeVal(index)->value().as<T>();
   } else {
-    return std::any_cast<T&>(
-        attributes_.at(index)->as<Scalar>()->value().as<Opaque>().value);
+    return std::any_cast<T&>(attributeVal(index)->value().as<Opaque>().value);
   }
 }
 

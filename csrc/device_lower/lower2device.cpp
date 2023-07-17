@@ -122,7 +122,7 @@ class KIRCleaner : public OptOutDispatch {
     // block.
     if (then_nop && !else_nop) {
       Val* pred = ite->predicate()->value();
-      Val* not_pred = SimplifyingIrBuilder::notExpr(pred)->as<Scalar>();
+      Val* not_pred = SimplifyingIrBuilder::notExpr(pred);
       ite->predicate()->setValue(not_pred);
       for (auto expr : ite->elseBody().exprs()) {
         ite->thenBody().push_back(expr);

@@ -416,7 +416,7 @@ Val* operator""_(const char* str, size_t) {
 }
 
 Val*operator""_b(const char* str, size_t) {
-  return parse(str)->as<Scalar>();
+  return parse(str);
 }
 
 } // namespace ops
@@ -481,7 +481,7 @@ TEST_F(ExprSimplifierTest, AssociativeAndCommutativeReordering_CUDA) {
 
 TEST_F(ExprSimplifierTest, EliminateTrivialComputation_CUDA) {
   auto simplify = [](Val* x, Val* assumption) {
-    return simplifyExpr(x, {}, {assumption->as<Scalar>()});
+    return simplifyExpr(x, {}, {assumption});
   };
 
   // constant folding
@@ -782,7 +782,7 @@ TEST_F(ExprSimplifierTest, DistributeMul_CUDA) {
 
 TEST_F(ExprSimplifierTest, Compare_CUDA) {
   auto simplify = [](Val* x, Val* assumption) {
-    return simplifyExpr(x, {}, {assumption->as<Scalar>()})->getBool();
+    return simplifyExpr(x, {}, {assumption})->getBool();
   };
 
   EXPECT_TRUE(*simplify("i1 <= i1"_, "i1 < i2"_));
@@ -1005,7 +1005,7 @@ TEST_F(ExprSimplifierTest, ReducePredicateRegisterUsage_CUDA) {
 
 TEST_F(ExprSimplifierTest, MinMax_CUDA) {
   auto simplify = [](Val* x, Val* assumption) {
-    return simplifyExpr(x, {}, {assumption->as<Scalar>()});
+    return simplifyExpr(x, {}, {assumption});
   };
 
   auto expr =

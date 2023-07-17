@@ -228,18 +228,17 @@ bool IrContainer::inContainer(const Statement* stmt) const {
 }
 
 // Shortcuts for frequently used vals
-Val*IrContainer::zeroVal() {
+Val* IrContainer::zeroVal() {
   if (!zero_val_) {
     auto zero_val = IrBuilder::create<Val>(this, 0);
     TORCH_INTERNAL_ASSERT(vals_up_.back().get() == zero_val);
-    zero_val_ =
-        std::unique_ptr<Scalar>(vals_up_.back().release()->as<Scalar>());
+    zero_val_ = std::unique_ptr<Val>(vals_up_.back().release());
     vals_up_.pop_back();
   }
   return zero_val_.get();
 }
 
-Val*IrContainer::zeroVal(DataType dtype) {
+Val* IrContainer::zeroVal(DataType dtype) {
   // NOTE: this does not cache values for floating or complex dtypes
   if (isFloatingPointType(dtype)) {
     return IrBuilder::create<Val>(0.0);
@@ -254,17 +253,17 @@ Val*IrContainer::zeroVal(DataType dtype) {
   }
 }
 
-Val*IrContainer::oneVal() {
+Val* IrContainer::oneVal() {
   if (!one_val_) {
     auto one_val = IrBuilder::create<Val>(this, 1, DataType::Int);
     TORCH_INTERNAL_ASSERT(vals_up_.back().get() == one_val);
-    one_val_ = std::unique_ptr<Scalar>(vals_up_.back().release()->as<Scalar>());
+    one_val_ = std::unique_ptr<Val>(vals_up_.back().release());
     vals_up_.pop_back();
   }
   return one_val_.get();
 }
 
-Val*IrContainer::oneVal(DataType dtype) {
+Val* IrContainer::oneVal(DataType dtype) {
   // NOTE: this does not cache values for floating or complex dtypes
   if (isFloatingPointType(dtype)) {
     return IrBuilder::create<Val>(this, 1.0, DataType::Double);
@@ -280,23 +279,21 @@ Val*IrContainer::oneVal(DataType dtype) {
   }
 }
 
-Val*IrContainer::falseVal() {
+Val* IrContainer::falseVal() {
   if (!false_val_) {
     auto false_val = IrBuilder::create<Val>(this, false, DataType::Bool);
     TORCH_INTERNAL_ASSERT(vals_up_.back().get() == false_val);
-    false_val_ =
-        std::unique_ptr<Scalar>(vals_up_.back().release()->as<Scalar>());
+    false_val_ = std::unique_ptr<Val>(vals_up_.back().release());
     vals_up_.pop_back();
   }
   return false_val_.get();
 }
 
-Val*IrContainer::trueVal() {
+Val* IrContainer::trueVal() {
   if (!true_val_) {
     auto true_val = IrBuilder::create<Val>(this, true, DataType::Bool);
     TORCH_INTERNAL_ASSERT(vals_up_.back().get() == true_val);
-    true_val_ =
-        std::unique_ptr<Scalar>(vals_up_.back().release()->as<Scalar>());
+    true_val_ = std::unique_ptr<Val>(vals_up_.back().release());
     vals_up_.pop_back();
   }
   return true_val_.get();

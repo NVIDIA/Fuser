@@ -1043,7 +1043,7 @@ class TORCH_CUDA_CU_API VectorizedWelfordOp final : public WelfordOp {
 
   //! Predicate of this expression hoisted out of an innermost loop
   Val* hoistedPredicate() const {
-    return attributeVal(WelfordOp::kNumAttrs + 2)->as<Scalar>();
+    return attributeVal(WelfordOp::kNumAttrs + 2);
   }
 };
 

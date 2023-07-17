@@ -290,7 +290,7 @@ class SplitTransform final : public ViewTransform {
     // inner loop IterDomain
     IterDomain* remainder_id =
         IterDomainBuilder(
-            FusionGuard::getCurFusion()->zeroVal(), remainder->as<Scalar>())
+            FusionGuard::getCurFusion()->zeroVal(), remainder)
             .is_rfactor_domain(true)
             .build();
 

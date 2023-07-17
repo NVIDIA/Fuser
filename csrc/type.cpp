@@ -136,16 +136,16 @@ ValType promoteType(const ValType& t1, const ValType& t2) {
   if (t1 == ValType::TensorView || t2 == ValType::TensorView) {
     return ValType::TensorView;
   }
-  if (t1 == ValType::Scalar &&
-      (t2 == ValType::Scalar || t2 == ValType::NamedScalar)) {
-    return ValType::Scalar;
+  if (t1 == ValType::Others &&
+      (t2 == ValType::Others || t2 == ValType::NamedScalar)) {
+    return ValType::Others;
   }
-  if (t2 == ValType::Scalar &&
-      (t1 == ValType::Scalar || t1 == ValType::NamedScalar)) {
-    return ValType::Scalar;
+  if (t2 == ValType::Others &&
+      (t1 == ValType::Others || t1 == ValType::NamedScalar)) {
+    return ValType::Others;
   }
   if (t1 == ValType::NamedScalar && t2 == ValType::NamedScalar) {
-    return ValType::Scalar;
+    return ValType::Others;
   }
   TORCH_CHECK(false, "Expected promotable ValTypes but got: ", t1, " and ", t2);
 }
@@ -208,7 +208,7 @@ static const char* val_type2string(ValType t) {
       return "TensorDomain";
     case ValType::IterDomain:
       return "IterDomain";
-    case ValType::Scalar:
+    case ValType::Others:
       return "Scalar";
     case ValType::NamedScalar:
       return "NamedScalar";

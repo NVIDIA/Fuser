@@ -1921,7 +1921,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         grouped_loops_.begin(),
         grouped_loops_.end(),
         std::back_inserter(loop_indices),
-        [](const kir::ForLoop* loop) { return loop->index()->as<Scalar>(); });
+        [](const kir::ForLoop* loop) { return loop->index(); });
 
     // All combinations of loop index integer values
     const auto index_val_sets = getGroupedLoopIndexConcreteIntSets();

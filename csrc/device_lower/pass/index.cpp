@@ -1521,7 +1521,7 @@ void IndexLowering::handle(const CatOp* cat) {
                              .at(cat->concatenatedDim());
     cur_extent = add(cur_extent, inp_concat_id->extent());
     preds.at(i) =
-        IrBuilder::ltExpr(concatenated_dim_idx, cur_extent)->as<Scalar>();
+        IrBuilder::ltExpr(concatenated_dim_idx, cur_extent);
   }
 
   auto lowered = IrBuilder::create<CatOp>(

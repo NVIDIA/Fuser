@@ -183,8 +183,8 @@ class Context {
       if (bop == nullptr || bop->getBinaryOpType() != BinaryOpType::And) {
         assume(back);
       } else {
-        assumptions.push_back(bop->lhs()->as<Scalar>());
-        assumptions.push_back(bop->rhs()->as<Scalar>());
+        assumptions.push_back(bop->lhs());
+        assumptions.push_back(bop->rhs());
       }
     }
   }
@@ -273,15 +273,15 @@ Val* foldConstants(Val* value) {
     return value;
   }
   if (value->isConstScalar()) {
-    if (value->isIntegralScalar() && value->isA<Scalar>()) {
+    if (value->isIntegralScalar()) {
       return IrBuilder::newConstant(
           value->evaluateInt(), *value->getDataType());
     }
-    if (value->isFloatingPointScalar() && value->isA<Scalar>()) {
+    if (value->isFloatingPointScalar()) {
       return IrBuilder::newConstant(
           value->evaluateDouble(), *value->getDataType());
     }
-    if (value->isABool() && value->isA<Scalar>()) {
+    if (value->isABool()) {
       return IrBuilder::newConstant(
           value->evaluateBool(), *value->getDataType());
     }

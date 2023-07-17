@@ -62,7 +62,7 @@ TensorView* maybe_broadcast_index_tv(TensorView* t, size_t dim, size_t rank) {
 Val* simplifiedInt(Val* val) {
   TORCH_INTERNAL_ASSERT(
       val->isConstInt(), "Expecting Const Int's only in this routine.");
-  if (val->as<Scalar>()->value().hasValue()) {
+  if (val->value().hasValue()) {
     return val;
   }
   return IrBuilder::create<Val>(val->evaluateInt());
@@ -110,7 +110,7 @@ Val* promoteSize(Val* v1, Val* v2) {
 Val* newScalar(ValType vtype, DataType dtype) {
   switch (vtype) {
     case (ValType::NamedScalar):
-    case (ValType::Scalar):
+    case (ValType::Others):
       return IrBuilder::create<Val>(dtype);
     default:
       break;
@@ -230,8 +230,8 @@ std::vector<IterDomain*> newOutputDomain(
         iter_types[i] = dom[i]->getIterType();
       }
 
-      auto start_offset = dom[i]->start()->as<Scalar>();
-      auto stop_offset = dom[i]->stopOffset()->as<Scalar>();
+      auto start_offset = dom[i]->start();
+      auto stop_offset = dom[i]->stopOffset();
       // Currently, start is always constant
       TORCH_INTERNAL_ASSERT(
           start_offset->isConstInt(),

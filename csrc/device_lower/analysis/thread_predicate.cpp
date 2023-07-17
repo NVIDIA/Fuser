@@ -40,7 +40,7 @@ Val*getPredicatePerParallelType(
                SimplifyingIrBuilder::subExpr(
                    NamedScalar::getParallelDim(pt),
                    GpuLower::current()->kernel()->oneVal()))
-        ->as<Scalar>();
+        ;
   }
 
   const auto& broadcast_rd_indices_map = pred_info.broadcast_rd_indices_map;
@@ -60,7 +60,7 @@ Val*getPredicatePerParallelType(
   return SimplifyingIrBuilder::eqExpr(
              NamedScalar::getParallelIndex(pt),
              GpuLower::current()->kernel()->zeroVal())
-      ->as<Scalar>();
+      ;
 }
 
 } // namespace
@@ -78,7 +78,7 @@ Val*ThreadPredicateMap::getPredicateFromPredicateInfo(
   Val* pred = nullptr;
   for (const auto pt : pred_types) {
     const auto tp = getPredicatePerParallelType(pt, pred_info);
-    pred = SimplifyingIrBuilder::andExpr(pred, tp)->as<Scalar>();
+    pred = SimplifyingIrBuilder::andExpr(pred, tp);
   }
   TORCH_INTERNAL_ASSERT(pred != nullptr);
 

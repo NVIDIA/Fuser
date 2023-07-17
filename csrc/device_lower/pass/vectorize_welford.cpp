@@ -258,7 +258,7 @@ class WelfordVectorizer : public kir::ExprMutator {
     auto conditional = wop_ite->predicate()->value();
 
     // Allocate a boolean scalar for cond
-    auto pred_var = defineScalar(DataType::Bool)->as<Scalar>();
+    auto pred_var = defineScalar(DataType::Bool);
 
     registerInsertBeforeInnerMostLoop(IrBuilder::create<LoadStoreOp>(
         LoadStoreOpType::Set, pred_var, conditional));
@@ -331,7 +331,7 @@ class WelfordVectorizer : public kir::ExprMutator {
       count_increment = GpuLower::current()->kernel()->oneVal();
     } else {
       // count_increment = (int)pred;
-      count_increment = defineScalar(index_type)->as<Scalar>();
+      count_increment = defineScalar(index_type);
       registerInsertBeforeInnerMostLoop(
           IrBuilder::create<UnaryOp>(UnaryOpType::Cast, count_increment, pred));
     }

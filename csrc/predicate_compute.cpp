@@ -61,7 +61,7 @@ Val*ParallelizedDomainPredicate::PredicateInfo::getPredicate() const {
         GpuLower::current()->caMap()->getConcreteMappedID(
             pred_id, IdMappingMode::EXACT));
     auto new_pred = SimplifyingIrBuilder::ltExpr(index, pred_id->extent());
-    pred = SimplifyingIrBuilder::andExpr(pred, new_pred)->as<Scalar>();
+    pred = SimplifyingIrBuilder::andExpr(pred, new_pred);
   }
 
   return pred;
@@ -232,7 +232,7 @@ Val*ParallelizedDomainPredicate::getPredicate(
   }
 
   TORCH_INTERNAL_ASSERT(pred != nullptr);
-  return pred->as<Scalar>();
+  return pred;
 }
 
 UnswitchPredicateKey::UnswitchPredicateKey()
@@ -427,7 +427,7 @@ Val*PredicateCompute::getInlinePredicate(
     cond = SimplifyingIrBuilder::andExpr(cond, preds[i]);
   }
 
-  return cond->as<Scalar>();
+  return cond;
 }
 
 Val*UnswitchPredicate::get(
@@ -442,7 +442,7 @@ Val*UnswitchPredicate::get(
     unswitch_pred = SimplifyingIrBuilder::andExpr(unswitch_pred, pred);
   }
 
-  return unswitch_pred->as<Scalar>();
+  return unswitch_pred;
 }
 
 void UnswitchPredicate::predicateOn(Expr* tv_expr) {

@@ -1700,7 +1700,7 @@ WelfordResult::WelfordResult(
 // add_alpha
 Val* add_alpha(Val* v1, Val* v2, Val* s) {
   TORCH_CHECK(
-      s->getValType().value() == ValType::Scalar,
+      s->getValType().value() == ValType::Others,
       "Alpha value should be a Scalar Valtype and not ",
       s->getValType().value());
 
@@ -1723,7 +1723,7 @@ TensorView* add_alpha(TensorView* v1, TensorView* v2, Val* v3) {
 // sub_alpha
 Val* sub_alpha(Val* v1, Val* v2, Val* s) {
   TORCH_CHECK(
-      s->getValType().value() == ValType::Scalar,
+      s->getValType().value() == ValType::Others,
       "Alpha value should be a Scalar Valtype and not ",
       s->getValType().value());
 
@@ -1793,7 +1793,7 @@ TensorView* lerp(TensorView* v1, TensorView* v2, TensorView* v3) {
 // addcmul
 Val* addcmul(Val* v1, Val* v2, Val* v3, Val* s) {
   TORCH_CHECK(
-      s->getValType().value() == ValType::Scalar,
+      s->getValType().value() == ValType::Others,
       "Alpha value should be a Scalar Valtype and not ",
       s->getValType().value());
 
@@ -1889,9 +1889,9 @@ TensorView* where(TensorView* v1, TensorView* v2, TensorView* v3) {
 
 Val* threshold(Val* in, Val* thresh, Val* value) {
   TORCH_CHECK(
-      (thresh->getValType().value() == ValType::Scalar ||
+      (thresh->getValType().value() == ValType::Others ||
        thresh->getValType().value() == ValType::NamedScalar) &&
-          (value->getValType().value() == ValType::Scalar ||
+          (value->getValType().value() == ValType::Others ||
            value->getValType().value() == ValType::NamedScalar),
       "For Threshold operation: Thresh and Value values should be Scalars.");
 
@@ -1910,10 +1910,10 @@ TensorView* threshold(TensorView* in, Val* thresh, Val* value) {
 
 Val* clamp(Val* in, Val* min_val, Val* max_val) {
   TORCH_CHECK(
-      (min_val == nullptr || min_val->getValType().value() == ValType::Scalar ||
+      (min_val == nullptr || min_val->getValType().value() == ValType::Others ||
        min_val->getValType().value() == ValType::NamedScalar) &&
           (max_val == nullptr ||
-           max_val->getValType().value() == ValType::Scalar ||
+           max_val->getValType().value() == ValType::Others ||
            max_val->getValType().value() == ValType::NamedScalar),
       "For Clamp operation: Min and Max values should be Scalars.");
 

@@ -85,7 +85,7 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
       conditional = GpuLower::current()
                         ->commonScalarMap()
                         .hoistScalar(conditional, for_loops_)
-                        ->as<Scalar>();
+                        ;
       expr->predicate()->setValue(conditional);
       TORCH_INTERNAL_ASSERT(expr->predicate()->value() != nullptr);
       setWritePredicate(expr);
@@ -126,7 +126,7 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
     Val* invert = SimplifyingIrBuilder::notExpr(pred);
     invert =
         GpuLower::current()->commonScalarMap().hoistScalar(invert, for_loops_);
-    expr->predicate()->setValue(invert->as<Scalar>());
+    expr->predicate()->setValue(invert);
   }
 
   // Detect if this expr is an initialization for vectorized
@@ -148,7 +148,7 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
         write_cond = GpuLower::current()
                          ->commonScalarMap()
                          .hoistScalar(write_cond, for_loops_)
-                         ->as<Scalar>();
+                         ;
         expr->writePredicate()->setValue(write_cond);
       } else {
         // If generateConditional returns null, it means no specific
@@ -190,7 +190,7 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
       conditional = GpuLower::current()
                         ->commonScalarMap()
                         .hoistScalar(conditional, for_loops_)
-                        ->as<Scalar>();
+                        ;
 
       // Update bool conditional in-place
       ite->predicate()->setValue(conditional);
@@ -245,7 +245,7 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
         // condition of loop_index + step < end, so nothing to do here. In the
         // future, if we decide that we need to predicate this then we can do it
         // here.
-        return IrBuilder::newConstant(true, DataType::Bool)->as<Scalar>();
+        return IrBuilder::newConstant(true, DataType::Bool);
       }
       default:
         break;

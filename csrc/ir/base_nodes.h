@@ -225,26 +225,42 @@ class TORCH_CUDA_CU_API Statement : public NonCopyable, public PolymorphicBase {
 //!
 class TORCH_CUDA_CU_API Val : public Statement {
  public:
+  // When we create a Val we immediately register them with the active fusion.
   explicit Val(
-      IrBuilderPasskey,
+      IrBuilderPasskey passkey,
       ValType _vtype,
-      DataType _dtype = DataType::Null);
-
+      DataType _dtype = DataType::Null,
+      PolymorphicValue _value = std::monostate{})
+      : Statement(passkey),
+        vtype_(_vtype),
+        dtype_(std::move(_dtype)),
+        value_(std::move(_value)) {}
   explicit Val(IrBuilderPasskey passkey, DataType dtype)
       : Val(passkey, ValType::Others, std::move(dtype)) {}
   explicit Val(IrBuilderPasskey passkey, PrimDataType dtype)
       : Val(passkey, ValType::Others, DataType(dtype)) {}
   explicit Val(IrBuilderPasskey passkey, PolymorphicValue value)
-      : Val(passkey, ValType::Others, nvfuser::getDataType(value)),
-        value_(std::move(value)) {}
-  explicit Val(
-      IrBuilderPasskey passkey,
-      PolymorphicValue value,
-      DataType dtype)
-      : Val(passkey, ValType::Others, dtype),
-        value_(castToDtype(std::move(value), dtype)) {}
+      : Val(passkey,
+            ValType::Others,
+            nvfuser::getDataType(value),
+            std::move(value)) {}
+  explicit Val(IrBuilderPasskey passkey, PolymorphicValue value, DataType dtype)
+      : Val(passkey,
+            ValType::Others,
+            dtype,
+            castToDtype(std::move(value), dtype)) {}
 
-  Val(const Val* src, IrCloner* ir_cloner);
+  // NOTE: we don't clone the definition_ and uses_ here
+  //  since they may introduce cloning cycles. Instead, we copy
+  //  the original pointers and we'll fix them up later part of the
+  //  Fusion copy. Neither definition_ nor uses_ are copied through
+  //  this constructor now leaving them to be resolved by later stages
+  //
+  Val(const Val* src, IrCloner* ir_cloner)
+      : Statement(src, ir_cloner),
+        vtype_(src->vtype_),
+        dtype_(src->dtype_),
+        value_(src->value_){};
 
   std::string toString(int = 0) const override {
     std::stringstream ss;
@@ -274,11 +290,19 @@ class TORCH_CUDA_CU_API Val : public Statement {
     return dtype_;
   }
 
+  const PolymorphicValue& value() const {
+    return value_;
+  }
+
+  PolymorphicValue& value() {
+    return value_;
+  }
+
   // Throws if no DataType is found. Vals must have a DataType
   std::optional<DataType> getDataType() const override;
 
   bool isScalar() const {
-    return vtype_ == ValType::Scalar || vtype_ == ValType::NamedScalar;
+    return vtype_ == ValType::Others || vtype_ == ValType::NamedScalar;
   }
 
   // Returns if all dependencies are constant scalars

@@ -2758,7 +2758,7 @@ bool canOmitStopPredicate(
 
   const auto gpu_lower = GpuLower::current();
 
-  auto stop_offset_val = stop_offset->as<Scalar>()->value();
+  auto stop_offset_val = stop_offset->value();
 
   // If they are not compile-time constant, can't prove the
   // condition.
@@ -2766,9 +2766,7 @@ bool canOmitStopPredicate(
     return false;
   }
 
-  auto stop_index_val =
-      (stop_index->isA<Scalar>() ? stop_index->as<Scalar>()->value()
-                                 : std::monostate{});
+  auto stop_index_val = stop_index->value();
 
   // If stop_index is a constant, then the expr can be in a trivial loop.
   // Trivial loop is not materialized, so it is not protected under the `for`
@@ -2976,7 +2974,7 @@ std::vector<RootPredicateInfo> Index::getReferenceRootPredicates(
     auto start_pred =
         SimplifyingIrBuilder::geExpr(
             offsetted_start_index, GpuLower::current()->kernel()->zeroVal())
-            ->as<Scalar>();
+            ;
     info.start_predicate_ = start_pred;
 
     // Build predicates for stop positions as:
@@ -2989,7 +2987,7 @@ std::vector<RootPredicateInfo> Index::getReferenceRootPredicates(
           SimplifyingIrBuilder::addExpr(stop_index, stop_offset);
       auto stop_pred = SimplifyingIrBuilder::ltExpr(
                            offsetted_stop_index, contig_id->extent())
-                           ->as<Scalar>();
+                           ;
       info.stop_predicate_ = stop_pred;
     }
 
