@@ -54,7 +54,7 @@ class TORCH_CUDA_CU_API PipelineStage : public Expr {
   bool sameAs(const Statement* other) const override;
 
   const PipelineStageDescriptor* descriptor() const {
-    return attribute(0)->as<Attribute<const PipelineStageDescriptor*>>()->value;
+    return attribute<const PipelineStageDescriptor*>(0);
   }
 };
 

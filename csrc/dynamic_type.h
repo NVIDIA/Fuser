@@ -206,7 +206,7 @@ struct DynamicType {
   constexpr DynamicType() = default;
 
   template <typename T>
-  constexpr DynamicType(const T& value) : value_(value) {}
+  constexpr DynamicType(T value) : value_(std::move(value)) {}
 
   template <
       template <typename...>
@@ -215,16 +215,16 @@ struct DynamicType {
       typename = std::enable_if_t<
           is_candidate_type<Template<DynamicType>> &&
           !std::is_same_v<ItemT, DynamicType>>>
-  constexpr DynamicType(const Template<ItemT>& value)
-      : value_([](const auto& input) {
+  constexpr DynamicType(Template<ItemT> value)
+      : value_([](auto input) {
           Template<DynamicType> result;
           std::transform(
               input.begin(),
               input.end(),
               std::back_inserter(result),
-              [](const auto& item) { return DynamicType(item); });
+              [](auto& item) { return DynamicType(std::move(item)); });
           return result;
-        }(value)) {}
+        }(std::move(value))) {}
 
   // Returns the type_info of the actual type of the variant value_. For
   // example, if value_ holds an int, then this will return typeid(int).
