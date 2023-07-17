@@ -81,40 +81,37 @@ TEST_F(NVFuserTest, DynamicTransform1_CUDA) {
     expr_eval.bind(reshape_shape0, 3L);
     expr_eval.bind(reshape_shape1, -1L);
 
-    // In this case, if we do not bind tv1->axis(1)->extent(), we get a failure
-    // to evaluate it when checking whether tv1 is empty. It is possible to
-    // infer that it is not empty in this case, but it would require replicating
-    // some of the ExpressionEvaluator::propagateBoundValuesThroughExactMaps()
-    // functionality inside concretization, which is not implemented.
-    expr_eval.bind(tv1->axis(1)->extent(), 4);
-
-    auto initial_info = DynamicTransform::getInitialInfo(&fusion);
-    auto info = DynamicTransformConcretizationInfo(&initial_info, &expr_eval);
-    TORCH_CHECK(
-        info.getReshapeTransforms().size() == 1,
-        "Expected to have one reshape transform: ",
-        info.toString());
-  }
-
-  {
-    ExpressionEvaluator expr_eval;
-
-    // input: 4, 3
-    // output: 5, -1
-    expr_eval.bind(tv0->axis(0)->extent(), 4L);
-    expr_eval.bind(tv0->axis(1)->extent(), 3L);
-    expr_eval.bind(reshape_shape0, 5L);
-    expr_eval.bind(reshape_shape1, -1L);
-
-    // This should fail as (4 * 3) is not evenly divisible by 5
+    // This should throw an exception since any reshape size of -1 must be
+    // specified as a definition-time constant, as opposed to an input scalar.
     EXPECT_THAT(
         [&]() {
           auto initial_info = DynamicTransform::getInitialInfo(&fusion);
           auto info =
               DynamicTransformConcretizationInfo(&initial_info, &expr_eval);
         },
-        ::testing::ThrowsMessage<c10::Error>(
-            ::testing::HasSubstr("Cannot infer")));
+        ::testing::ThrowsMessage<c10::Error>(::testing::HasSubstr(
+            "Values of -1 passed to reshape must be constant at definition")));
+  }
+
+  {
+    ExpressionEvaluator expr_eval;
+
+    // input: 4, 3
+    // output: 5, 4
+    expr_eval.bind(tv0->axis(0)->extent(), 4L);
+    expr_eval.bind(tv0->axis(1)->extent(), 3L);
+    expr_eval.bind(reshape_shape0, 5L);
+    expr_eval.bind(reshape_shape1, 4L);
+
+    // This should fail as (4 * 3) is not equal to (5 * 4)
+    EXPECT_THAT(
+        [&]() {
+          auto initial_info = DynamicTransform::getInitialInfo(&fusion);
+          auto info =
+              DynamicTransformConcretizationInfo(&initial_info, &expr_eval);
+        },
+        ::testing::ThrowsMessage<c10::Error>(::testing::HasSubstr(
+            "Total element counts across view operation must match.")));
   }
 }
 
