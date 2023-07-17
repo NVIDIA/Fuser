@@ -230,13 +230,19 @@ void IterVisitor::traverseBetween(
       }
 
       if (traverse_siblings) {
+        // Add unvisited siblings to next_stmts
+        std::vector<Statement*> unvisited_sibs;
         for (auto next_val : ir_utils::filterByType<Val>(next_stmts)) {
           for (auto sib : ir_utils::siblingValsOf(next_val)) {
             if (visited.find(sib) == visited.end()) {
-              next_stmts.push_back(sib);
+              // Push to separate vector so that we don't modify next_stmts
+              // while looping
+              unvisited_sibs.push_back(sib);
             }
           }
         }
+        next_stmts.insert(
+            next_stmts.end(), unvisited_sibs.begin(), unvisited_sibs.end());
       }
 
       if (next_stmts.empty()) {
