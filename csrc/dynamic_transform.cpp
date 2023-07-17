@@ -12,6 +12,7 @@
 #include <fusion.h>
 #include <ir/cloner.h>
 #include <ir/utils.h>
+#include <ops/alias.h>
 #include <ops/arith.h>
 #include <ops/indexing.h>
 #include <ops/utils.h>
@@ -508,14 +509,12 @@ void DynamicTransformConcretizer::concretizeResize() {
         // and finally we do a single broadcast.
         auto rfd = tv->getMaybeRFactorDomain();
         std::vector<bool> broadcast_axes(rfd.size(), false);
-        std::vector<size_t> select_dims;
-        std::vector<size_t> select_positions;
         auto pad_widths = pop->getPadWidths();
         std::vector<Val*> new_pad_widths;
-        auto pad_input = pop->in()->as<TensorView>();
         auto selected_tv = pop->in()->as<TensorView>();
-        auto select_dim = 0;
-        for (auto i : c10::irange(rfd.size())) {
+        // Loop in reverse order, to make select() dim easier to track, and
+        // because getPadWidths does not reverse the order of pad axes
+        for (auto i = rfd.size() - 1; i > 0; --i) {
           auto id = rfd.at(i);
           auto iter_type = iter_types.at(i);
           auto left_pad = pad_widths.at(i * 2);
@@ -524,21 +523,21 @@ void DynamicTransformConcretizer::concretizeResize() {
             if (iter_type == IterType::Iteration) {
               new_pad_widths.push_back(left_pad);
               new_pad_widths.push_back(right_pad);
-              select_dim++;
             } else if (iter_type == IterType::Broadcast) {
               // This corresponds to right_pad = left_pad + 1
               broadcast_axes.at(i) = true;
-              select(selected_tv, select_dim, left_pad);
+              selected_tv = select(selected_tv, i, left_pad);
             } else {
               TORCH_CHECK(
                   false,
                   "PadOp IterDomains must concretized to Iteration or Broadcast");
             }
           }
-          auto broadcasted = broadcast(selected_tv, broadcast_axes);
-          replaceTV(pad_input, broadcasted);
         }
-        TORCH_CHECK(!resize_to_broadcast);
+        // select, then pad, then broadcast
+        auto padded = pad(selected_tv, new_pad_widths);
+        auto broadcasted = broadcast(padded, broadcast_axes);
+        replaceTV(tv, broadcasted);
       } else {
         concretizeResizesAsIteration(tv);
       }
