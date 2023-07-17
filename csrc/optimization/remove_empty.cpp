@@ -186,7 +186,7 @@ class EmptyTensorRemover : public DeadCodeRemover {
     // one.
     auto shape = noReductionShape(avg);
     if (isLive(avg)) {
-      auto nan = IrBuilder::create<Scalar>(
+      auto nan = IrBuilder::create<Val>(
           std::numeric_limits<double>::quiet_NaN(), avg->getDataType().value());
       auto nan_tensor = full(shape, nan, avg->getDataType().value());
       registerReplacement(avg, nan_tensor);

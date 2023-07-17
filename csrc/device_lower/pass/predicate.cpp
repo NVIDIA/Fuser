@@ -204,7 +204,7 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
   }
 
   // Generate conditional according to PredicateType
-  Scalar* generateConditional(kir::Predicate* pred) {
+  Val* generateConditional(kir::Predicate* pred) {
     switch (pred->predicate_type()) {
       case PredicateType::Inline:
       case PredicateType::ReductionWrite:

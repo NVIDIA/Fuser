@@ -2441,7 +2441,7 @@ void TranslateApplicableWelford::translateSingleWelford(WelfordOp* welford) {
 
   // Create scalar version of the feature element
   //  counting.
-  Val* num_features = IrBuilder::create<Scalar>(1.0);
+  Val* num_features = IrBuilder::create<Val>(1.0);
   std::vector<bool> broadcast_mask(in_root.size(), false);
   for (const auto i : c10::irange(in_root.size())) {
     if (out_root.at(i)->isReduction()) {
@@ -2476,7 +2476,7 @@ void TranslateApplicableWelford::translateSingleWelford(WelfordOp* welford) {
   auto x_mean_sub_pow = mul(x_mean_sub, x_mean_sub);
   IrBuilder::create<ReductionOp>(
       BinaryOpType::Add,
-      IrBuilder::create<Scalar>(0.0),
+      IrBuilder::create<Val>(0.0),
       out_var,
       x_mean_sub_pow);
   IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out_N, num_features);

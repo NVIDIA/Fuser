@@ -215,7 +215,7 @@ class TORCH_CUDA_CU_API Statement : public NonCopyable, public PolymorphicBase {
 //!     - Must call Val constructor, Val constructor registers with fusion
 //!     - Implementation of bool sameAs(...)
 //!     - Must implement a "cloning" constructor, ex.
-//!        Scalar::Scalar(const Scalar* src, IrCloner* ir_cloner)
+//!        Scalar::Scalar(const Val* src, IrCloner* ir_cloner)
 //! 2) dispatch.h/.cpp must be updated to include dispatch of the new Val
 //! 3) Default mutator function should be added to mutator.cpp
 //! 4a) Printing functions should be added to ir/iostream.h/.cpp
@@ -229,6 +229,20 @@ class TORCH_CUDA_CU_API Val : public Statement {
       IrBuilderPasskey,
       ValType _vtype,
       DataType _dtype = DataType::Null);
+
+  explicit Val(IrBuilderPasskey passkey, DataType dtype)
+      : Val(passkey, ValType::Others, std::move(dtype)) {}
+  explicit Val(IrBuilderPasskey passkey, PrimDataType dtype)
+      : Val(passkey, ValType::Others, DataType(dtype)) {}
+  explicit Val(IrBuilderPasskey passkey, PolymorphicValue value)
+      : Val(passkey, ValType::Others, nvfuser::getDataType(value)),
+        value_(std::move(value)) {}
+  explicit Val(
+      IrBuilderPasskey passkey,
+      PolymorphicValue value,
+      DataType dtype)
+      : Val(passkey, ValType::Others, dtype),
+        value_(castToDtype(std::move(value), dtype)) {}
 
   Val(const Val* src, IrCloner* ir_cloner);
 
@@ -433,6 +447,8 @@ class TORCH_CUDA_CU_API Val : public Statement {
 
   // Expr evaluator idx;
   int evaluator_index_ = -1;
+
+  PolymorphicValue value_;
 };
 
 using newObjectFuncType = Expr*(

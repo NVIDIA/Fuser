@@ -174,7 +174,7 @@ class ConstCheck : private OptOutConstDispatch {
   // important to check it is one.
   bool is_int_ = true;
 
-  void handle(const Scalar* b) final {
+  void handle(const Val* b) final {
     is_const_ = is_const_ && b->isConst();
   }
 
@@ -253,7 +253,7 @@ bool Val::sameAs(const Statement* other) const {
         return false;
       }
     }
-    return true;
+    return value_ == other_val->value_;
   }
   return false;
 }
@@ -532,7 +532,7 @@ std::vector<PolymorphicValue> Expr::evaluate(
 }
 
 void Expr::addScalarAttribute(PolymorphicValue attr) {
-  addAttribute(IrBuilder::create<Scalar>(container(), std::move(attr)));
+  addAttribute(IrBuilder::create<Val>(container(), std::move(attr)));
 }
 
 } // namespace nvfuser

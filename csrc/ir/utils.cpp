@@ -673,7 +673,7 @@ struct ReplaceValInIndexVal : public OptInDispatch {
         uop->out()->isA<Scalar>(),
         "Unknown output type for expr ",
         uop->toInlineString());
-    auto out = IrBuilder::create<Scalar>(DataType::Int);
+    auto out = IrBuilder::create<Val>(DataType::Int);
     IrBuilder::create<UnaryOp>(uop->getUnaryOpType(), out, inp);
     last_visited_val_ = out;
   }
@@ -688,7 +688,7 @@ struct ReplaceValInIndexVal : public OptInDispatch {
         bop->out()->isA<Scalar>(),
         "Unknown output type for expr ",
         bop->toInlineString());
-    auto out = IrBuilder::create<Scalar>(DataType::Int);
+    auto out = IrBuilder::create<Val>(DataType::Int);
     IrBuilder::create<BinaryOp>(bop->getBinaryOpType(), out, lhs, rhs);
     last_visited_val_ = out;
   }
@@ -705,7 +705,7 @@ struct ReplaceValInIndexVal : public OptInDispatch {
         top->out()->isA<Scalar>(),
         "Unknown output type for expr ",
         top->toInlineString());
-    auto out = IrBuilder::create<Scalar>(DataType::Int);
+    auto out = IrBuilder::create<Val>(DataType::Int);
     IrBuilder::create<TernaryOp>(top->getTernaryOpType(), out, in1, in2, in3);
     last_visited_val_ = out;
   }

@@ -724,7 +724,7 @@ void OptInDispatch::unhandled(Statement* stmt) {
 }
 
 // Vals
-void OptOutConstDispatch::handle(const Scalar* stmt) {
+void OptOutConstDispatch::handle(const Val* stmt) {
   unhandled(stmt);
 }
 void OptOutConstDispatch::handle(const NamedScalar* stmt) {
@@ -922,7 +922,7 @@ void OptOutConstDispatch::handle(const PipelineCommunication* stmt) {
 void OptOutDispatch::unhandled(Statement*) {}
 
 // Vals
-void OptOutDispatch::handle(Scalar* stmt) {
+void OptOutDispatch::handle(Val* stmt) {
   unhandled(stmt);
 }
 void OptOutDispatch::handle(NamedScalar* stmt) {

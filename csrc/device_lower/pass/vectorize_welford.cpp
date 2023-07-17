@@ -310,7 +310,7 @@ class WelfordVectorizer : public kir::ExprMutator {
 
   kir::VectorizedWelfordOp* applyVectorizeTransformation(
       WelfordOp* wop,
-      Scalar* pred) {
+      Val* pred) {
     DataType data_type = wop->outAvg()->getDataType().value();
     DataType index_type = wop->outN()->getDataType().value();
 
@@ -326,7 +326,7 @@ class WelfordVectorizer : public kir::ExprMutator {
 
     auto hoisted_count = hoistCount(wop->outN()->as<kir::TensorIndex>());
 
-    Scalar* count_increment = nullptr;
+    Val* count_increment = nullptr;
     if (!is_predicated) {
       count_increment = GpuLower::current()->kernel()->oneVal();
     } else {

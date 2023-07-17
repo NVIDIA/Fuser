@@ -451,7 +451,7 @@ GridCommWorkBufferSizeInfo getGridCommWorkBufferSize(
 
   if (is_doubled) {
     size_of_privatized_buffer = SimplifyingIrBuilder::mulExpr(
-        size_of_privatized_buffer, IrBuilder::create<Scalar>(2));
+        size_of_privatized_buffer, IrBuilder::create<Val>(2));
   }
 
   GridCommWorkBufferSizeInfo info;
@@ -459,7 +459,7 @@ GridCommWorkBufferSizeInfo getGridCommWorkBufferSize(
   info.buffer_stride = size_of_single_buffer;
   if (is_doubled) {
     info.buffer_stride = SimplifyingIrBuilder::mulExpr(
-        info.buffer_stride, IrBuilder::create<Scalar>(2));
+        info.buffer_stride, IrBuilder::create<Val>(2));
   }
 
   return info;
@@ -1465,7 +1465,7 @@ void IndexLowering::handle(const PadOp* pad) {
       producer_tv, consumer_tv, for_loops_, getRotatedLoop());
 
   // Build a predicate for where
-  Val* pred = IrBuilder::create<Scalar>(true);
+  Val* pred = IrBuilder::create<Val>(true);
   for (auto padded_axis : pad->getPaddedAxes()) {
     auto producer_idx = producer_root_indices.at(padded_axis);
     auto producer_root_id = producer_doms.at(padded_axis);
@@ -1507,7 +1507,7 @@ void IndexLowering::handle(const CatOp* cat) {
   auto concatenated_dim_idx = out_indices.at(cat->concatenatedDim());
 
   std::vector<Val*> inputs(cat->inputs().size());
-  std::vector<Scalar*> preds(cat->inputs().size());
+  std::vector<Val*> preds(cat->inputs().size());
   Val* cur_extent = GpuLower::current()->kernel()->zeroVal();
 
   for (const auto i : c10::irange(cat->inputs().size())) {

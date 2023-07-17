@@ -239,7 +239,7 @@ class TORCH_CUDA_CU_API ContiguousInnerDimensionsMapper
   }
 
   // Return a boolean predicate indicating if the given ID is fully projected.
-  Scalar* isFullyProjected(IterDomain* id);
+  Val* isFullyProjected(IterDomain* id);
 
   // From the projected extent (PE) of I1 and I2, update the PE of I1*I2.
   template <typename MergeOrSplit>

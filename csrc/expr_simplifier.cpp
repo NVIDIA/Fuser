@@ -158,7 +158,7 @@ class Context {
 
   Context(
       const std::list<VarInfo>& variables,
-      std::vector<Scalar*> assumptions,
+      std::vector<Val*> assumptions,
       bool preserve_error)
       : preserve_error_(preserve_error) {
     var_order_.reserve(variables.size());
@@ -214,7 +214,7 @@ class Context {
   }
 
  private:
-  void assume(Scalar* a) {
+  void assume(Val* a) {
     auto def = a->definition();
     if (auto bop = dynamic_cast<BinaryOp*>(def)) {
       switch (bop->getBinaryOpType()) {
@@ -2462,7 +2462,7 @@ Val* factorizeGcd(Val* value, const Context& context) {
 Val* simplifyExpr(
     Val* value,
     const std::list<VarInfo>& variables,
-    std::vector<Scalar*> assumptions,
+    std::vector<Val*> assumptions,
     bool preserve_error) {
   FusionGuard fg(value->fusion());
   const Context context(variables, assumptions, preserve_error);

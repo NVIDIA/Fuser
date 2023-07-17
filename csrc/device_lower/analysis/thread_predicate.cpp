@@ -22,7 +22,7 @@ namespace nvfuser {
 
 namespace {
 
-Scalar* getPredicatePerParallelType(
+Val*getPredicatePerParallelType(
     ParallelType pt,
     const ThreadPredicateMap::PredicateInfo& pred_info) {
   auto pt_dim = GpuLower::current()->parallelDimensionMap().get(pt);
@@ -49,7 +49,7 @@ Scalar* getPredicatePerParallelType(
     // skip concretized broadcast root domains
     const auto& broadcast_rd_indices = it->second;
     Val* zero = GpuLower::current()->kernel()->zeroVal();
-    Scalar* pred = GpuLower::current()->kernel()->trueVal();
+    Val* pred = GpuLower::current()->kernel()->trueVal();
     for (auto broadcast_rd_index : broadcast_rd_indices) {
       pred = SimplifyingIrBuilder::andExpr(
           pred, SimplifyingIrBuilder::eqExpr(broadcast_rd_index, zero));
@@ -65,7 +65,7 @@ Scalar* getPredicatePerParallelType(
 
 } // namespace
 
-Scalar* ThreadPredicateMap::getPredicateFromPredicateInfo(
+Val*ThreadPredicateMap::getPredicateFromPredicateInfo(
     const ThreadPredicateMap::PredicateInfo& pred_info,
     const ParallelTypeBitmap& mask) {
   const auto pred_types =
@@ -75,7 +75,7 @@ Scalar* ThreadPredicateMap::getPredicateFromPredicateInfo(
     return GpuLower::current()->kernel()->trueVal();
   }
 
-  Scalar* pred = nullptr;
+  Val* pred = nullptr;
   for (const auto pt : pred_types) {
     const auto tp = getPredicatePerParallelType(pt, pred_info);
     pred = SimplifyingIrBuilder::andExpr(pred, tp)->as<Scalar>();
@@ -794,7 +794,7 @@ bool ThreadPredicateMap::update(
   }
 }
 
-Scalar* ThreadPredicateMap::getPredicate(
+Val*ThreadPredicateMap::getPredicate(
     const TensorView* tv,
     ParallelTypeBitmap mask) const {
   TORCH_INTERNAL_ASSERT(find(tv) != end(), "Couldn't find ", tv);

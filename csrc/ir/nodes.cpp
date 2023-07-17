@@ -2601,7 +2601,7 @@ std::pair<IterDomain*, IterDomain*> IterDomain::split(
 std::pair<IterDomain*, IterDomain*> IterDomain::stridedSplit(int factor) {
   // Use partial split so that only valid values are retained
   auto split_out = IterDomain::split(
-      this, IrBuilder::create<Scalar>(container(), factor), true, true);
+      this, IrBuilder::create<Val>(container(), factor), true, true);
 
   split_out.second->iter_type_ = IterType::Stride;
   split_out.first->is_rfactor_domain_ = true;
@@ -3865,7 +3865,7 @@ CatOp::CatOp(
     const std::vector<Val*>& inputs,
     int64_t concatenated_dim,
     Val* concatenated_domain_index,
-    const std::vector<Scalar*>& preds)
+    const std::vector<Val*>& preds)
     : Expr(passkey) {
   TORCH_INTERNAL_ASSERT(
       passkey.ir_container_ != nullptr,
@@ -3912,7 +3912,7 @@ Val* CatOp::getConcatenatedDomainIndex() const {
   return idx;
 }
 
-Scalar* CatOp::getPred(int input_idx) const {
+Val*CatOp::getPred(int input_idx) const {
   TORCH_INTERNAL_ASSERT(
       container()->isA<kir::Kernel>(),
       "Should only be used for Kernel container.");

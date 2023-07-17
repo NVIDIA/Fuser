@@ -121,8 +121,8 @@ class KIRCleaner : public OptOutDispatch {
     // conditional and move the exprs in the else block to the then
     // block.
     if (then_nop && !else_nop) {
-      Scalar* pred = ite->predicate()->value();
-      Scalar* not_pred = SimplifyingIrBuilder::notExpr(pred)->as<Scalar>();
+      Val* pred = ite->predicate()->value();
+      Val* not_pred = SimplifyingIrBuilder::notExpr(pred)->as<Scalar>();
       ite->predicate()->setValue(not_pred);
       for (auto expr : ite->elseBody().exprs()) {
         ite->thenBody().push_back(expr);

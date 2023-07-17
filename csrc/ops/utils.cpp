@@ -65,7 +65,7 @@ Val* simplifiedInt(Val* val) {
   if (val->as<Scalar>()->value().hasValue()) {
     return val;
   }
-  return IrBuilder::create<Scalar>(val->evaluateInt());
+  return IrBuilder::create<Val>(val->evaluateInt());
 }
 
 // If one size is nullptr, return the other. If both symbolic just return v1. If
@@ -111,7 +111,7 @@ Val* newScalar(ValType vtype, DataType dtype) {
   switch (vtype) {
     case (ValType::NamedScalar):
     case (ValType::Scalar):
-      return IrBuilder::create<Scalar>(dtype);
+      return IrBuilder::create<Val>(dtype);
     default:
       break;
   }
@@ -253,9 +253,9 @@ std::vector<IterDomain*> newOutputDomain(
           "Could not deduce iter type for new tensor view.");
       out_domain[dim_i] =
           IterDomainBuilder(
-              IrBuilder::create<Scalar>(start_offsets[dim_i]),
+              IrBuilder::create<Val>(start_offsets[dim_i]),
               extent_vals[dim_i])
-              .stop_offset(IrBuilder::create<Scalar>(stop_offsets[dim_i]))
+              .stop_offset(IrBuilder::create<Val>(stop_offsets[dim_i]))
               .iter_type(iter_types[dim_i].value())
               .build();
     } else {
@@ -323,29 +323,29 @@ Val* newValLike(Val* val, DataType dtype) {
 Val* getMinimumValue(DataType v) {
   switch (std::get<PrimDataType>(v.type)) {
     case (DataType::Double):
-      return IrBuilder::create<Scalar>(
+      return IrBuilder::create<Val>(
           -std::numeric_limits<double>::infinity());
       break;
     case (DataType::Float):
-      return IrBuilder::create<Scalar>(
+      return IrBuilder::create<Val>(
           static_cast<double>(-std::numeric_limits<float>::infinity()));
       break;
     case (DataType::Half):
-      return IrBuilder::create<Scalar>(
+      return IrBuilder::create<Val>(
           static_cast<double>(-std::numeric_limits<c10::Half>::infinity()));
       break;
     case DataType::BFloat16:
-      return IrBuilder::create<Scalar>(
+      return IrBuilder::create<Val>(
           static_cast<double>(-std::numeric_limits<c10::BFloat16>::infinity()));
       break;
     case (DataType::Int):
-      return IrBuilder::create<Scalar>(std::numeric_limits<int64_t>::lowest());
+      return IrBuilder::create<Val>(std::numeric_limits<int64_t>::lowest());
       break;
     case (DataType::Int32):
-      return IrBuilder::create<Scalar>(std::numeric_limits<int32_t>::lowest());
+      return IrBuilder::create<Val>(std::numeric_limits<int32_t>::lowest());
       break;
     case (DataType::Bool):
-      return IrBuilder::create<Scalar>(false);
+      return IrBuilder::create<Val>(false);
       break;
     default:
       TORCH_CHECK(
@@ -361,27 +361,27 @@ Val* getMinimumValue(DataType v) {
 Val* getMaximumValue(DataType v) {
   switch (std::get<PrimDataType>(v.type)) {
     case (DataType::Double):
-      return IrBuilder::create<Scalar>(std::numeric_limits<double>::infinity());
+      return IrBuilder::create<Val>(std::numeric_limits<double>::infinity());
       break;
     case (DataType::Float):
-      return IrBuilder::create<Scalar>(std::numeric_limits<float>::infinity());
+      return IrBuilder::create<Val>(std::numeric_limits<float>::infinity());
       break;
     case (DataType::Half):
-      return IrBuilder::create<Scalar>(
+      return IrBuilder::create<Val>(
           static_cast<double>(std::numeric_limits<c10::Half>::infinity()));
       break;
     case DataType::BFloat16:
-      return IrBuilder::create<Scalar>(
+      return IrBuilder::create<Val>(
           static_cast<double>(std::numeric_limits<c10::BFloat16>::infinity()));
       break;
     case (DataType::Int):
-      return IrBuilder::create<Scalar>(std::numeric_limits<int64_t>::max());
+      return IrBuilder::create<Val>(std::numeric_limits<int64_t>::max());
       break;
     case (DataType::Int32):
-      return IrBuilder::create<Scalar>(std::numeric_limits<int32_t>::max());
+      return IrBuilder::create<Val>(std::numeric_limits<int32_t>::max());
       break;
     case (DataType::Bool):
-      return IrBuilder::create<Scalar>(true);
+      return IrBuilder::create<Val>(true);
       break;
     default:
       TORCH_CHECK(

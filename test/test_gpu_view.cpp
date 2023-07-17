@@ -124,7 +124,7 @@ TEST_F(NVFuserTest, FusionViewAsRealOutput_CUDA) {
   TensorView* y = makeSymbolicTensor(output_shape.size());
   fusion.addInput(y);
 
-  auto y_plus_1 = add(y, IrBuilder::create<Scalar>(1.0));
+  auto y_plus_1 = add(y, IrBuilder::create<Val>(1.0));
 
   auto x_add_bias = add(x, bias);
   auto x_view = view_as_real(x_add_bias);
@@ -166,7 +166,7 @@ TEST_F(NVFuserTest, FusionReshapeRfactorExtentReplacement_CUDA) {
 
   auto tv2 = reshape(tv0, {12, 8}, {4, 3, 8});
   auto tv3 = sum(tv2, {-1});
-  auto tv4 = add(tv3, IrBuilder::create<Scalar>(1.0));
+  auto tv4 = add(tv3, IrBuilder::create<Val>(1.0));
   auto tv5 = add(tv1, tv4);
   fusion->addOutput(tv5);
 
@@ -654,7 +654,7 @@ TEST_F(NVFuserTest, FusionReshapeConcreteDomain_CUDA) {
   fusion.addInput(tv1);
 
   auto tv2 = reshape(tv0, {2, 3}, {6});
-  auto tv3 = add(tv2, IrBuilder::create<Scalar>(1.0));
+  auto tv3 = add(tv2, IrBuilder::create<Val>(1.0));
   auto tv4 = broadcast(tv3, {true, false});
   auto tv5 = add(tv4, tv1);
 
@@ -913,7 +913,7 @@ TEST_F(NVFuserTest, FusionComputeAtRootDomainMapWithView_CUDA) {
   auto tv0 = makeSymbolicTensor(2);
   fusion.addInput(tv0);
 
-  auto tv1 = add(tv0, IrBuilder::create<Scalar>(1.0));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
 
   // reduction followed by broadcast
   auto tv2 = sum(tv1, {1});
@@ -986,9 +986,9 @@ TEST_F(NVFuserTest, FusionExpandView1_CUDA) {
 
   auto tv2 = expand(
       tv0,
-      {IrBuilder::create<Scalar>(4),
-       IrBuilder::create<Scalar>(3),
-       IrBuilder::create<Scalar>(8)});
+      {IrBuilder::create<Val>(4),
+       IrBuilder::create<Val>(3),
+       IrBuilder::create<Val>(8)});
 
   auto tv3 = reshape(tv2, {4, 3, 8}, {12, 8});
   auto tv4 = add(tv3, tv1);
@@ -1018,7 +1018,7 @@ TEST_F(NVFuserTest, FusionExpandView2_CUDA) {
   fusion->addInput(tv1);
 
   auto tv2 = expand(
-      tv0, {IrBuilder::create<Scalar>(12), IrBuilder::create<Scalar>(8)});
+      tv0, {IrBuilder::create<Val>(12), IrBuilder::create<Val>(8)});
 
   auto tv3 = reshape(tv2, {12, 8}, {3, 4, 8});
   auto tv4 = add(tv3, tv1);
@@ -1302,7 +1302,7 @@ TEST_F(NVFuserTest, FusionExpandFlatten_CUDA) {
       tv0,
       {tv0->axis(0)->extent(),
        tv0->axis(1)->extent(),
-       IrBuilder::create<Scalar>(8)});
+       IrBuilder::create<Val>(8)});
   auto tv2 = flatten(tv1, 1, 2);
   auto tv3 = sum(tv2, {1});
   fusion->addOutput(tv3);
@@ -1912,7 +1912,7 @@ TEST_F(NVFuserTest, FusionReshapeMagicSchedule9_CUDA) {
   auto tv8 = broadcast(tv3, {false, false, true});
   auto tv9 = set(tv6);
 
-  auto s10 = IrBuilder::create<Scalar>(1e-12);
+  auto s10 = IrBuilder::create<Val>(1e-12);
   auto tv11 = add(abs(tv8), s10);
 
   auto tv12 = sub(tv4, tv9);
@@ -2176,17 +2176,17 @@ TEST_F(NVFuserTest, FusionIssue2076_CUDA) {
   auto tv3 = castOp(DataType::Float, tv0);
   auto tv4 = reshape(tv1, {48, 128, 128}, {4, 12, 128, 128});
 
-  auto tv5 = mul(tv3, IrBuilder::create<Scalar>(1.0));
-  auto tv6 = sub(IrBuilder::create<Scalar>(1.0), tv5);
+  auto tv5 = mul(tv3, IrBuilder::create<Val>(1.0));
+  auto tv6 = sub(IrBuilder::create<Val>(1.0), tv5);
   auto tv7 = castOp(DataType::Bool, tv6);
   auto tv8 =
-      where(tv7, IrBuilder::create<Scalar>(-3.4028200000000001e+38), tv6);
+      where(tv7, IrBuilder::create<Val>(-3.4028200000000001e+38), tv6);
   auto tv9 = add(tv8, tv2);
   auto tv10 = set(tv9);
   auto tv11 = expand(
       tv10,
       {tv10->axis(0)->extent(),
-       IrBuilder::create<Scalar>(12),
+       IrBuilder::create<Val>(12),
        tv10->axis(2)->extent(),
        tv10->axis(3)->extent()});
 
@@ -2199,7 +2199,7 @@ TEST_F(NVFuserTest, FusionIssue2076_CUDA) {
       tv16,
       {tv16->axis(0)->extent(),
        tv16->axis(1)->extent(),
-       IrBuilder::create<Scalar>(128)});
+       IrBuilder::create<Val>(128)});
   auto tv18 = sub(tv13, tv17);
   auto tv19 = exp(tv18);
   auto tv20 = sum(tv19, {2});
@@ -2209,7 +2209,7 @@ TEST_F(NVFuserTest, FusionIssue2076_CUDA) {
       tv22,
       {tv22->axis(0)->extent(),
        tv22->axis(1)->extent(),
-       IrBuilder::create<Scalar>(128)});
+       IrBuilder::create<Val>(128)});
   auto tv24 = div(tv19, tv23);
 
   fusion.addOutput(tv9);

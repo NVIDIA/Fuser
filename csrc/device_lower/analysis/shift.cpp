@@ -26,7 +26,7 @@ namespace nvfuser {
 Expr* ShiftPredicateInserter::insert(
     Expr* expr,
     const std::vector<kir::ForLoop*>& loops,
-    Scalar* thread_pred,
+    Val* thread_pred,
     bool within_unswitch) {
   const auto gpu_lower = GpuLower::current();
 
@@ -90,7 +90,7 @@ Expr* ShiftPredicateInserter::insert(
   auto bounds_ite = IrBuilder::create<kir::IfThenElse>(padding_pred);
   const int pad_value = 0;
   auto pad_expr = IrBuilder::create<LoadStoreOp>(
-      LoadStoreOpType::Set, out_tv, IrBuilder::create<Scalar>(pad_value));
+      LoadStoreOpType::Set, out_tv, IrBuilder::create<Val>(pad_value));
   bounds_ite->thenBody().push_back(pad_expr);
   // Insert the else block
   shift_ite->elseBody().push_back(bounds_ite);
@@ -343,7 +343,7 @@ void HaloInfo::initializeFromRootAxisInfo(IterDomain* id) {
   }
 
   auto expanded_extent =
-      IrBuilder::addExpr(id->extent(), IrBuilder::create<Scalar>(halo_width));
+      IrBuilder::addExpr(id->extent(), IrBuilder::create<Val>(halo_width));
   extent_map_[id] = expanded_extent;
   halo_width_map_[id] = halo_width;
 

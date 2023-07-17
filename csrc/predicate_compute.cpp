@@ -48,8 +48,8 @@ bool ParallelizedDomainPredicate::PredicateInfo::addDomain(IterDomain* id) {
   }
 }
 
-Scalar* ParallelizedDomainPredicate::PredicateInfo::getPredicate() const {
-  Scalar* pred = nullptr;
+Val*ParallelizedDomainPredicate::PredicateInfo::getPredicate() const {
+  Val* pred = nullptr;
 
   auto index = SimplifyingIrBuilder::create<NamedScalar>(
       stringifyThread(pt_), DataType::Int);
@@ -215,7 +215,7 @@ ParallelizedDomainPredicate::getPredicateMap(
   return map;
 }
 
-Scalar* ParallelizedDomainPredicate::getPredicate(
+Val*ParallelizedDomainPredicate::getPredicate(
     const Expr* expr,
     const std::vector<kir::ForLoop*>& loops) {
   auto pred_map = getPredicateMap(expr, loops);
@@ -330,11 +330,11 @@ std::size_t UnswitchPredicateKeyHash::operator()(
   return h;
 };
 
-Scalar* PredicateCompute::getInlinePredicate(
+Val*PredicateCompute::getInlinePredicate(
     const Expr* expr,
     const std::vector<kir::ForLoop*>& loops,
     const std::unordered_set<kir::ForLoop*>& rotated_loops,
-    Scalar* thread_pred,
+    Val* thread_pred,
     PredicateType pred_type) {
   FUSER_PERF_SCOPE("GpuLower::Lower::getInlinePredicate");
 
@@ -368,7 +368,7 @@ Scalar* PredicateCompute::getInlinePredicate(
       nullptr,
       pred_type == PredicateType::Padding);
 
-  std::vector<Scalar*> preds;
+  std::vector<Val*> preds;
 
   // When pred_type is ReductionWrite, filter out predicates for
   // reduction axes. For blockReduce, this is necessary when reduction
@@ -430,7 +430,7 @@ Scalar* PredicateCompute::getInlinePredicate(
   return cond->as<Scalar>();
 }
 
-Scalar* UnswitchPredicate::get(
+Val*UnswitchPredicate::get(
     const std::vector<kir::ForLoop*>& outer_loops,
     kir::ForLoop* unrolled_loop) {
   FUSER_PERF_SCOPE("GpuLower::Lower::UnswitchPredicate::get");
@@ -675,7 +675,7 @@ void UnswitchPredicate::finalize() {
 }
 
 void UnswitchPredicate::mergeUnswitchPredicateOffsets(
-    Scalar* predicate,
+    Val* predicate,
     Val* offset,
     MergedPredicates::Info& merged_predicate_info,
     bool is_start) {
@@ -687,7 +687,7 @@ void UnswitchPredicate::mergeUnswitchPredicateOffsets(
     }
   };
 
-  auto offset_int = dynamic_cast<Scalar*>(offset);
+  auto offset_int = dynamic_cast<Val*>(offset);
   // If it's a static predicate, replace the current one if it's
   // more restrictive. If it's dynamic, just adds it to the dynamic
   // predicate list.

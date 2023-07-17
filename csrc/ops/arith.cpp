@@ -1529,7 +1529,7 @@ WelfordResult WelfordRaw(
     const std::vector<int>& axes,
     TensorView* init_avg,
     TensorView* init_var,
-    Scalar* init_N) {
+    Val* init_N) {
   TORCH_CHECK(
       TensorDomain::sameAs(tv->getMaybeRFactorDomain(), tv->getLeafDomain()),
       "Reducing a tensor once it's gone under transformations is not permitted at this time. \n",
@@ -1565,8 +1565,8 @@ WelfordResult WelfordRaw(
     init_avg_val = init_avg;
     init_var_val = init_var;
   } else {
-    init_avg_val = IrBuilder::create<Scalar>(0.0);
-    init_var_val = IrBuilder::create<Scalar>(0.0);
+    init_avg_val = IrBuilder::create<Val>(0.0);
+    init_var_val = IrBuilder::create<Val>(0.0);
   }
 
   // Check and collect reduction axes
@@ -1595,7 +1595,7 @@ WelfordResult Welford(
     const std::vector<int>& axes,
     TensorView* init_avg,
     TensorView* init_var,
-    Scalar* init_N) {
+    Val* init_N) {
   TORCH_CHECK(
       TensorDomain::sameAs(tv->getMaybeRFactorDomain(), tv->getLeafDomain()),
       "Reducing a tensor once it's gone under transformations is not permitted at this time. \n",
@@ -1674,7 +1674,7 @@ WelfordResult Welford(
   } else {
     return WelfordResult(
         squeezed,
-        full_like(squeezed, IrBuilder::create<Scalar>(0.0)),
+        full_like(squeezed, IrBuilder::create<Val>(0.0)),
         out_N,
         false);
   }
@@ -1938,7 +1938,7 @@ TensorView* clamp(TensorView* in, Val* min_val, Val* max_val) {
 
 // sum_to operator
 
-TensorView* sum_to(TensorView* in, const std::vector<Scalar*>& sum_to_size) {
+TensorView* sum_to(TensorView* in, const std::vector<Val*>& sum_to_size) {
   const auto& root = TensorDomain::noReductions(in->getMaybeRFactorDomain());
 
   TORCH_CHECK(
@@ -2089,13 +2089,13 @@ TensorView* shift(
       continue;
     }
 
-    Scalar* current_start_offset = dynamic_cast<Scalar*>(inp_axis->start());
+    Val* current_start_offset = dynamic_cast<Val*>(inp_axis->start());
     TORCH_INTERNAL_ASSERT(
         current_start_offset != nullptr && current_start_offset->isConst(),
         "Invalid IterDomain start value:",
         current_start_offset);
 
-    Scalar* current_stop_offset = dynamic_cast<Scalar*>(inp_axis->stopOffset());
+    Val* current_stop_offset = dynamic_cast<Val*>(inp_axis->stopOffset());
     TORCH_INTERNAL_ASSERT(
         current_stop_offset != nullptr && current_stop_offset->isConst(),
         "Invalid IterDomain stop offset value:",
@@ -2144,8 +2144,8 @@ TensorView* shift(
 
     out_dom.push_back(
         IterDomainBuilder(
-            IrBuilder::create<Scalar>(out_start_offset), inp_axis->extent())
-            .stop_offset(IrBuilder::create<Scalar>(out_stop_offset))
+            IrBuilder::create<Val>(out_start_offset), inp_axis->extent())
+            .stop_offset(IrBuilder::create<Val>(out_stop_offset))
             .iter_type(inp_axis->getIterType())
             .build());
   }
@@ -2282,13 +2282,13 @@ TensorView* gather(
     out_root_domains.push_back(
         IterDomainBuilder(
             FusionGuard::getCurFusion()->zeroVal(), inp_axis->extent())
-            .stop_offset(IrBuilder::create<Scalar>(out_stop_offset))
+            .stop_offset(IrBuilder::create<Val>(out_stop_offset))
             .iter_type(inp_axis->getIterType())
             .build());
     // create a new axis for the gathered domain
     out_gather_dom.push_back(IterDomainBuilder(
                                  FusionGuard::getCurFusion()->zeroVal(),
-                                 IrBuilder::create<Scalar>(window_dim))
+                                 IrBuilder::create<Val>(window_dim))
                                  .iter_type(IterType::Gather)
                                  .build());
   }
@@ -2328,7 +2328,7 @@ TensorView* viewAsScalar(TensorView* inp) {
 
   IterDomain* id = IterDomainBuilder(
                        inp_domain[0]->container()->zeroVal(),
-                       IrBuilder::create<Scalar>((int64_t)vec_size))
+                       IrBuilder::create<Val>((int64_t)vec_size))
                        .iter_type(IterType::VectorComponent)
                        .build();
   out_domain.push_back(id);
@@ -2418,7 +2418,7 @@ TensorView* fusedMultiplySum(
     const std::vector<int>& axes,
     Val* init) {
   if (init == nullptr) {
-    init = IrBuilder::create<Scalar>(0.0);
+    init = IrBuilder::create<Val>(0.0);
   }
 
   // TODO:
@@ -2479,7 +2479,7 @@ TensorView* tensor(Val* val) {
   for (auto size : sizes) {
     IterDomain* id =
         IterDomainBuilder(
-            val->container()->zeroVal(), IrBuilder::create<Scalar>(size))
+            val->container()->zeroVal(), IrBuilder::create<Val>(size))
             .build();
     out_domain.push_back(id);
   }

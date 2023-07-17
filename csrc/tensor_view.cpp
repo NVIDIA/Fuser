@@ -106,13 +106,13 @@ TensorView::TensorView(
       } else {
         // if size is not 1, need to expand
         sizes.push_back(
-            builder.expanded_extent(IrBuilder::create<Scalar>(DataType::Int))
+            builder.expanded_extent(IrBuilder::create<Val>(DataType::Int))
                 .build());
       }
     } else {
       sizes.push_back(IterDomainBuilder(
                           passkey.ir_container_->zeroVal(),
-                          IrBuilder::create<Scalar>(DataType::Int))
+                          IrBuilder::create<Val>(DataType::Int))
                           .build());
     }
   }
@@ -289,7 +289,7 @@ void TensorView::convertRfactorToRootDomain() {
     if (id->isRFactorProduct()) {
       // Create new symbolic extents for rfactor iterDomains
       auto domain_extent = (!kThisIsConcreteTensor)
-          ? IrBuilder::create<Scalar>(container(), DataType::Int)
+          ? IrBuilder::create<Val>(container(), DataType::Int)
           : id->extent();
       rfactor_extents.push_back(domain_extent);
       replacement_map.emplace(id->extent(), domain_extent);
@@ -743,7 +743,7 @@ TensorView* TensorView::split(
     bool inner_split,
     bool trim_out_of_bounds) {
   split(
-      axis, IrBuilder::create<Scalar>(factor), inner_split, trim_out_of_bounds);
+      axis, IrBuilder::create<Val>(factor), inner_split, trim_out_of_bounds);
   return this;
 }
 
@@ -1504,7 +1504,7 @@ TensorViewBuilder& TensorViewBuilder::shape(const std::vector<int64_t>& shape) {
   shape_.reserve(shape.size());
   for (int64_t i : shape) {
     if (i == -1) {
-      shape_.emplace_back(IrBuilder::create<Scalar>(DataType::Int));
+      shape_.emplace_back(IrBuilder::create<Val>(DataType::Int));
     } else if (i == 1) {
       shape_.emplace_back(FusionGuard::getCurFusion()->oneVal());
     } else if (i == 0) {
@@ -1514,7 +1514,7 @@ TensorViewBuilder& TensorViewBuilder::shape(const std::vector<int64_t>& shape) {
           i >= 0,
           "Invalid extent value. ",
           "For a tensor representing a single scalar use ndims = 0 with no sizes set.");
-      shape_.emplace_back(IrBuilder::create<Scalar>(i));
+      shape_.emplace_back(IrBuilder::create<Val>(i));
     }
   }
   return *this;
@@ -1564,7 +1564,7 @@ TensorView* TensorViewBuilder::build() const {
       shape_extent = &expanded_extent;
     }
     if (shape_.empty()) {
-      *shape_extent = IrBuilder::create<Scalar>(DataType::Int);
+      *shape_extent = IrBuilder::create<Val>(DataType::Int);
     } else {
       *shape_extent = shape_.at(i);
     }

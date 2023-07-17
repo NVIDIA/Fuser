@@ -149,7 +149,7 @@ Val* getProducerOffsetWithGather(
 
   // producer offset: window_index - padding
   auto producer_offset = SimplifyingIrBuilder::subExpr(
-      window_idx, SimplifyingIrBuilder::create<Scalar>(pad_width));
+      window_idx, SimplifyingIrBuilder::create<Val>(pad_width));
   return producer_offset;
 }
 
@@ -202,7 +202,7 @@ Val* getConcreteProducerOffsetWithGather(
 
   // producer offset: window_index - padding
   auto producer_offset = SimplifyingIrBuilder::subExpr(
-      window_idx, SimplifyingIrBuilder::create<Scalar>(pad_width));
+      window_idx, SimplifyingIrBuilder::create<Val>(pad_width));
   return producer_offset;
 }
 
@@ -321,7 +321,7 @@ Val* getProducerIndexWithPartialSplit(
 
   return SimplifyingIrBuilder::addExpr(
       producer_index,
-      SimplifyingIrBuilder::create<Scalar>(diff->evaluateInt()));
+      SimplifyingIrBuilder::create<Val>(diff->evaluateInt()));
 }
 
 Val* getTensorBaseAddress(TensorView* tv) {
@@ -1020,7 +1020,7 @@ Val* getHaloExtentOfRootAxis(IterDomain* id, Val* normal_extent = nullptr) {
   const auto& halo = GpuLower::current()->haloInfo()->getRootAxisInfo(id);
   if (halo.hasHalo()) {
     auto halo_extent = SimplifyingIrBuilder::addExpr(
-        normal_extent, SimplifyingIrBuilder::create<Scalar>(halo.width()));
+        normal_extent, SimplifyingIrBuilder::create<Val>(halo.width()));
     return halo_extent;
   } else {
     return normal_extent;
@@ -1294,7 +1294,7 @@ indexMapFromTV(
           GpuLower::current()->doubleBufferInfo().getStageDepthFor(
               loop->iter_domain());
       idx = SimplifyingIrBuilder::addExpr(
-          idx, SimplifyingIrBuilder::create<Scalar>(stage_depth - 1));
+          idx, SimplifyingIrBuilder::create<Val>(stage_depth - 1));
     }
 
     loop_to_ind_map[loop] = idx;
@@ -1701,7 +1701,7 @@ std::vector<Val*> Index::getNonGlobalProducerStridedIndices(
         loop_index = SimplifyingIrBuilder::addExpr(loop_index, db_loop->step());
       }
       auto db_switch_index = SimplifyingIrBuilder::modExpr(
-          loop_index, SimplifyingIrBuilder::create<Scalar>(stage_depth));
+          loop_index, SimplifyingIrBuilder::create<Val>(stage_depth));
       auto original_alloc_size =
           gpu_lower->doubleBufferInfo().getOriginalAllocSize(producer_tv);
       auto db_strided_index =
@@ -2154,8 +2154,8 @@ std::vector<Val*> Index::getNonGlobalConsumerStridedIndices(
         db_switch_index = SimplifyingIrBuilder::modExpr(
             SimplifyingIrBuilder::addExpr(
                 loop_index,
-                SimplifyingIrBuilder::create<Scalar>(stage_depth - 1)),
-            SimplifyingIrBuilder::create<Scalar>(stage_depth));
+                SimplifyingIrBuilder::create<Val>(stage_depth - 1)),
+            SimplifyingIrBuilder::create<Val>(stage_depth));
       }
 
       // Use the generated switching buffer index to access the buffer space.
@@ -2507,8 +2507,8 @@ std::pair<Val*, Val*> getStartAndStopOffsetsForShift(
   }
 
   return {
-      SimplifyingIrBuilder::create<Scalar>(start_offset),
-      SimplifyingIrBuilder::create<Scalar>(stop_offset)};
+      SimplifyingIrBuilder::create<Val>(start_offset),
+      SimplifyingIrBuilder::create<Val>(stop_offset)};
 }
 
 std::pair<Val*, Val*> getStartAndStopOffsetsForGather(
@@ -2577,7 +2577,7 @@ std::pair<Val*, Val*> getStartAndStopOffsetsForGather(
   const auto producer_ext_adj = window_size - 1 - pad_left - pad_right;
   producer_stop_offset = SimplifyingIrBuilder::subExpr(
       producer_stop_offset,
-      SimplifyingIrBuilder::create<Scalar>(producer_ext_adj));
+      SimplifyingIrBuilder::create<Val>(producer_ext_adj));
 
   // As commented above, when pad_left is zero, the consumer predicate
   // is always more restrictive than the producer predicate.

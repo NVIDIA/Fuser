@@ -1823,7 +1823,7 @@ class IrParser {
               // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
               if (auto momentum =
                       torch::jit::constant_as<float>(node->input(6))) {
-                momentum_ptr = IrBuilder::create<Scalar>(momentum.value());
+                momentum_ptr = IrBuilder::create<Val>(momentum.value());
               } else {
                 // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
                 momentum_ptr = value_map[node->input(6)->unique()];
@@ -1832,7 +1832,7 @@ class IrParser {
               Val* eps_ptr = nullptr;
               // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
               if (auto eps = torch::jit::constant_as<float>(node->input(7))) {
-                eps_ptr = IrBuilder::create<Scalar>(eps.value());
+                eps_ptr = IrBuilder::create<Val>(eps.value());
               } else {
                 // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
                 eps_ptr = value_map[node->input(7)->unique()];
@@ -1924,7 +1924,7 @@ class IrParser {
               // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
               if (auto momentum =
                       torch::jit::constant_as<float>(node->input(6))) {
-                momentum_ptr = IrBuilder::create<Scalar>(momentum.value());
+                momentum_ptr = IrBuilder::create<Val>(momentum.value());
               } else {
                 // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
                 momentum_ptr = value_map[node->input(6)->unique()];
@@ -1933,7 +1933,7 @@ class IrParser {
               Val* eps_ptr = nullptr;
               // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
               if (auto eps = torch::jit::constant_as<float>(node->input(7))) {
-                eps_ptr = IrBuilder::create<Scalar>(eps.value());
+                eps_ptr = IrBuilder::create<Val>(eps.value());
               } else {
                 // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
                 eps_ptr = value_map[node->input(7)->unique()];
@@ -2106,7 +2106,7 @@ class IrParser {
               Val* eps_ptr = nullptr;
               // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
               if (auto eps = torch::jit::constant_as<float>(ts_eps)) {
-                eps_ptr = IrBuilder::create<Scalar>(eps.value());
+                eps_ptr = IrBuilder::create<Val>(eps.value());
               } else {
                 // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
                 eps_ptr = value_map[ts_eps->unique()];
@@ -2257,7 +2257,7 @@ class IrParser {
 
               Val* eps_ptr = nullptr;
               if (auto eps = torch::jit::constant_as<float>(node->input(4))) {
-                eps_ptr = IrBuilder::create<Scalar>(eps.value());
+                eps_ptr = IrBuilder::create<Val>(eps.value());
               } else {
                 eps_ptr = value_map[node->input(4)->unique()];
               }
@@ -2731,7 +2731,7 @@ class IrParser {
                 keepdim.has_value(),
                 "aten::mean cannot be fused with dynamic keepdim");
             auto o_sum = sum(self, dims, keepdim.value());
-            Val* num_features = IrBuilder::create<Scalar>(1.0);
+            Val* num_features = IrBuilder::create<Val>(1.0);
             for (auto axis : dims) {
               if (axis < 0) {
                 axis += int(self->nDims());
@@ -3485,7 +3485,7 @@ class IrParser {
             std::vector<CgValue> expand_sizes_vec;
             for (const auto& size : expand_sizes.value()) {
               expand_sizes_vec.push_back(
-                  IrBuilder::create<Scalar>((int64_t)size));
+                  IrBuilder::create<Val>((int64_t)size));
             }
 
             // TODO: we should be able to support dynamic expand values
@@ -3651,10 +3651,10 @@ class IrParser {
             static_cast<c10::TypePtr>(at::ComplexType::get()))) {
       CgValue cg_val = nullptr;
       if (auto ival = torch::jit::constant_as<c10::complex<double>>(val)) {
-        cg_val = IrBuilder::create<Scalar>(
+        cg_val = IrBuilder::create<Val>(
             static_cast<std::complex<double>>(ival.value()));
       } else {
-        cg_val = IrBuilder::create<Scalar>(DataType::ComplexDouble);
+        cg_val = IrBuilder::create<Val>(DataType::ComplexDouble);
       }
       value_map_.emplace(val->unique(), cg_val);
       return true;
@@ -3663,9 +3663,9 @@ class IrParser {
       // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
       CgValue cg_val;
       if (auto ival = torch::jit::constant_as<double>(val)) {
-        cg_val = IrBuilder::create<Scalar>(ival.value());
+        cg_val = IrBuilder::create<Val>(ival.value());
       } else {
-        cg_val = IrBuilder::create<Scalar>(DataType::Double);
+        cg_val = IrBuilder::create<Val>(DataType::Double);
       }
       value_map_.emplace(val->unique(), cg_val);
       return true;
@@ -3674,9 +3674,9 @@ class IrParser {
       // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
       CgValue cg_val;
       if (auto ival = torch::jit::constant_as<int64_t>(val)) {
-        cg_val = IrBuilder::create<Scalar>(ival.value());
+        cg_val = IrBuilder::create<Val>(ival.value());
       } else {
-        cg_val = IrBuilder::create<Scalar>(DataType::Int);
+        cg_val = IrBuilder::create<Val>(DataType::Int);
       }
       value_map_.emplace(val->unique(), cg_val);
       return true;
@@ -3685,9 +3685,9 @@ class IrParser {
       // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
       CgValue cg_val;
       if (auto ival = torch::jit::constant_as<bool>(val)) {
-        cg_val = IrBuilder::create<Scalar>(ival.value());
+        cg_val = IrBuilder::create<Val>(ival.value());
       } else {
-        cg_val = IrBuilder::create<Scalar>(DataType::Bool);
+        cg_val = IrBuilder::create<Val>(DataType::Bool);
       }
       value_map_.emplace(val->unique(), cg_val);
       return true;
