@@ -158,18 +158,19 @@ struct Containers {
 
   template <typename DynamicType, typename... MemberTypes>
   using TypeIdentitiesAsTuple = std::tuple<
+      std::type_identity<std::monostate>,
       std::type_identity<MemberTypes>...,
       std::type_identity<Templates<DynamicType>>...>;
 
   template <typename DynamicType, typename... MemberTypes>
-  using ForAllTypes =
-      nvfuser::ForAllTypes<MemberTypes..., Templates<DynamicType>...>;
+  using ForAllTypes = nvfuser::
+      ForAllTypes<std::monostate, MemberTypes..., Templates<DynamicType>...>;
 
   // Check if T is one of the types in the type list MemberTypes..., or a
   // container
   template <typename T, typename DynamicType, typename... MemberTypes>
-  static constexpr auto is_candidate_type =
-      nvfuser::belongs_to<T, MemberTypes..., Templates<DynamicType>...>;
+  static constexpr auto is_candidate_type = nvfuser::
+      belongs_to<T, std::monostate, MemberTypes..., Templates<DynamicType>...>;
 };
 
 using NoContainers = Containers<>;
