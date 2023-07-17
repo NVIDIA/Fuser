@@ -8,6 +8,7 @@
 #include <device_lower/lower2device.h>
 #include <executor.h>
 #include <fusion.h>
+#include <ir/all_nodes.h>
 #include <ir/builder.h>
 #include <ir/utils.h>
 #include <ops/arith.h>

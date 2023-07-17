@@ -32,8 +32,6 @@
 
 namespace nvfuser {
 
-NVFUSER_DEFINE_CLONE(Scalar)
-
 FullOp::FullOp(IrBuilderPasskey passkey, Val* out, Val* fill_value)
     : Expr(passkey) {
   if (out->isA<TensorView>()) {
@@ -3926,7 +3924,7 @@ Val*CatOp::getPred(int input_idx) const {
       attr_idx,
       ", number of attributes: ",
       attributes().size());
-  auto attr = attribute(attr_idx);
+  auto attr = attributeVal(attr_idx);
   TORCH_INTERNAL_ASSERT(attr != nullptr, "nullptr attribute is invalid");
   TORCH_INTERNAL_ASSERT(
       attr->dtype() == DataType::Bool,

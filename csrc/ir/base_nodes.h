@@ -298,6 +298,10 @@ class TORCH_CUDA_CU_API Val : public Statement {
     return value_;
   }
 
+  bool isSymbolic() const {
+    return !value_.hasValue();
+  }
+
   // Throws if no DataType is found. Vals must have a DataType
   std::optional<DataType> getDataType() const override;
 

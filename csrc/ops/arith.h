@@ -9,12 +9,11 @@
 
 #include <c10/macros/Export.h>
 
+#include <ir/base_nodes.h>
 #include <ir/builder.h>
 #include <ir/interface_nodes.h>
 #include <type.h>
 #include <type_promotion.h>
-
-class Val;
 
 /*
  * The operations defined in this header is intended as user facing functions.
