@@ -700,6 +700,7 @@ void IterDomainGraph::build(Fusion* fusion) {
     }
   }
 
+  permissive_relaxed_resize_nodes_ = permissive_resize_nodes_;
   // Build almost exact map by forwarding through broadcast axes
   almost_exact_nodes_ = exact_nodes_;
   std::unordered_set<Expr*> visited;
@@ -729,7 +730,7 @@ void IterDomainGraph::build(Fusion* fusion) {
         }
       }
       // No idea if I'm doing the right thing yet.
-      permissive_resize_nodes_.mapEntries(split->in(), split->inner());
+      permissive_relaxed_resize_nodes_.mapEntries(split->in(), split->inner());
     }
   }
 
