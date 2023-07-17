@@ -198,7 +198,10 @@ std::vector<Expr*> replaceInputsInExpr(
 // across groups. If the domain is not in a produce at position in the producer
 // edges, or a compute at position in the consumer edges, the expressions we
 // look at may not have a unique ordering.
-
+//
+// The optional kernel_scope_domain parameter is only used in
+// expression sorting. It isn't in the CA map, but since we only have
+// a single unique IterDomain, the conrete ID is just itself.
 struct TORCH_CUDA_CU_API IterDomainDependencySorter {
   IterDomainDependencySorter(
       const std::unordered_map<IterDomain*, std::unordered_set<IterDomain*>>&

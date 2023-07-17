@@ -693,8 +693,8 @@ ExprGroup* ExprSegmentationSorter::makeEmptyGroup(
     // Grab all id's that are shared with other tensors.
     // If not connected to consumers, doesn't matter what compute at is set to
     if (!terminating_expr) {
-      // Each expr should at least have the kernel scope to enforce
-      // the global dependency
+      // Each non-terminating TV expr should at least have the kernel
+      // scope to enforce the global dependency
       group->payload()->ca_domains.push_back(kernelScopeDomain());
       for (const auto tv_i : c10::irange(
                out_tv->hasResolvedComputeWith()
@@ -1740,13 +1740,11 @@ bool ExprSegmentationSorter::supportedMerge(ExprGroup* sg1, ExprGroup* sg2) {
     }
   }
 
-  if (getenv("INDIRECT_PERSISTENCY")) {
-    if (violateIndirectPersistencyConstraints(producer_group, consumer_group)) {
-      if (isDebugDumpEnabled(DebugDumpOption::ExprSortVerbose)) {
-        debug() << "Persistent constraint violation detected.";
-      }
-      return false;
+  if (violateIndirectPersistencyConstraints(producer_group, consumer_group)) {
+    if (isDebugDumpEnabled(DebugDumpOption::ExprSortVerbose)) {
+      debug() << "Persistent constraint violation detected.";
     }
+    return false;
   }
 
   if (isDebugDumpEnabled(DebugDumpOption::ExprSortVerbose)) {
