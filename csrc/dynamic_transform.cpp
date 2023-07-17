@@ -265,7 +265,6 @@ void DynamicTransformConcretizationInfo::analyzeReshapes(
     // Determine output shape using expr evaluator. Note there may be
     // one domain of extent -1
     std::vector<int64_t> out_shape(out_dom.size(), 0);
-    bool extent_m1_found = false;
     for (const auto i : c10::irange(out_dom.size())) {
       auto out_id = out_dom.at(i);
       auto extent_val = expr_eval->evaluate(out_id->extent());
@@ -277,16 +276,12 @@ void DynamicTransformConcretizationInfo::analyzeReshapes(
           extent_val.is<int64_t>(),
           "Invalid evaluated value of domain extent: ",
           out_id->toString());
-      const auto extent_int = extent_val.as<int64_t>();
+      auto extent_int = extent_val.as<int64_t>();
       if (extent_int == -1) {
-        TORCH_INTERNAL_ASSERT(
-            !extent_m1_found,
-            "Multiple output domains of size -1 not allowed",
-            out_tv->toString());
-        extent_m1_found = true;
-      } else {
-        TORCH_INTERNAL_ASSERT(
-            extent_int > 0, "Invalid output domain extent: ", extent_int);
+        // For non-constant Scalar sizes, check that we have not passed -1.
+        TORCH_CHECK(
+            out_id->extent()->isConst(),
+            "Values of -1 passed to reshape must be constant at definition.")
       }
       out_shape.at(i) = extent_int;
     }

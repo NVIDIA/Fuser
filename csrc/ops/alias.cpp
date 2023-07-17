@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <expr_simplifier.h>
 #include <ir/builder.h>
 #include <ir/utils.h>
 #include <ops/alias.h>
@@ -121,12 +122,38 @@ TensorView* reshape(TensorView* inp_tv, const std::vector<Val*>& new_sizes) {
   // Create placeholder rfactor domain. Note it's not connected with the root
   // domain.
   std::vector<IterDomain*> rfactor_domain(new_sizes.size(), nullptr);
+  bool found_neg_one = false;
   for (const auto i : c10::irange(new_sizes.size())) {
-    auto rf_id = IterDomainBuilder(
-                     FusionGuard::getCurFusion()->zeroVal(), new_sizes.at(i))
-                     .iter_type(IterType::Symbolic)
-                     .is_rfactor_domain(true)
-                     .build();
+    auto new_size = new_sizes.at(i);
+    if (new_size->isConstScalar() && new_size->evaluateInt() == -1) {
+      // It is usually safe to use the provided scalars as the output shapes.
+      // However, if -1 is provided for some position, it will not correspond to
+      // the actual extent in that position.
+
+      TORCH_CHECK(
+          !found_neg_one,
+          "A maximum of one value of -1 can be provided to reshape.");
+      found_neg_one = true;
+
+      Val* numel = FusionGuard::getCurFusion()->oneVal();
+      Val* other_new_numel = FusionGuard::getCurFusion()->oneVal();
+      for (const auto j : c10::irange(inp_dom.size())) {
+        numel = mul(numel, inp_dom.at(j)->extent());
+      }
+      for (const auto j : c10::irange(new_sizes.size())) {
+        if (i == j) {
+          continue;
+        }
+        other_new_numel = mul(other_new_numel, new_sizes.at(j));
+      }
+      new_size = div(numel, other_new_numel);
+      new_size = simplifyExpr(new_size);
+    }
+    auto rf_id =
+        IterDomainBuilder(FusionGuard::getCurFusion()->zeroVal(), new_size)
+            .iter_type(IterType::Symbolic)
+            .is_rfactor_domain(true)
+            .build();
     rfactor_domain.at(i) = rf_id;
   }
 
