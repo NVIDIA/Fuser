@@ -226,6 +226,10 @@ using ProblemIterDomains = std::array<IterDomain*, 3>;
 //!  a single tv, for example input for beta scaling in epilogue
 using RolesMap = std::map<MatmulRole, std::vector<TensorView*>>;
 
+//! An alias for storing data types of the tensors in the mma op
+//!  the order is INPUT_A, INPUT_B, OUTPUT_D
+using MmaDataTypes = std::array<DataType, 3>;
+
 //! A wrapper for data containers with optional error message stored if
 //!  initialization of the data fails.
 template <typename DataType>
@@ -288,6 +292,15 @@ TORCH_CUDA_CU_API ProblemIterDomainsOpt getProblemIterDomains(Fusion* fusion);
 //!  An error message is stored in retruned object if valid data cannot
 //!  be gathered.
 TORCH_CUDA_CU_API RolesMapOpt getTensorsRoles(Fusion* fusion);
+
+//! Return whether use shared memory epilogue or not.
+//!  Returns true if using shared memory epilogue won't cause
+//!  the decrease of occupancy ratio. The occupancy ratio is
+//!  estimated using register and shared memory usage.
+TORCH_CUDA_CU_API bool generateSharedMemoryEpilogueHeuristics(
+    const MatMulTileOptions& gemm_tile,
+    const int smem_double_buffer_stage,
+    const MmaDataTypes& data_types);
 
 } // namespace mma_utils
 
