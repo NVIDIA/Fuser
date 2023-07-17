@@ -577,7 +577,7 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
 
   // Compute concretization info to use as cache key
   DynamicTransformConcretizationInfo* conc_info = nullptr;
-  if (initial_info.hasDynamicTransforms()) {
+  if (initial_info.isDynamic()) {
     // This class needs to own conc_info so it can be compared in subsequent
     // invocations.
     auto expr_eval = executor_utils::bindInputs(args, fusion_.get());
@@ -599,33 +599,42 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
   //  kernels have the same heuristic parameters
   std::unique_ptr<FusionHeuristics> new_heuristics;
 
-  auto reuse_it = std::find_if(
-      kernel_runtimes.begin(),
-      kernel_runtimes.end(),
-      [&args, &new_heuristics, &forced_index_type](auto& kernel_runtime) {
-        auto maybe_heuristics =
-            kernel_runtime->getMaybeHeuristicsFor(args, forced_index_type);
-        if (!maybe_heuristics.has_value()) {
-          return false;
-        }
-        new_heuristics = std::move(maybe_heuristics.value());
-        return true;
-      });
-
   FusionKernelRuntime* kernel_runtime = nullptr;
-  if (reuse_it != kernel_runtimes.end()) {
-    kernel_runtime = reuse_it->get();
-    kernel_runtime->updateHeuristicsLaunchParams(new_heuristics.get());
-  } else {
+
+  bool reusing = false;
+  // By default, we try to avoid recompiling whenever possible. However, this
+  // can lead to suboptimal code if we only check that a compiled kernel is able
+  // to run with some inputs, instead of whether it is optimal to do so. The
+  // NVFUSER_DISABLE=kernel_reuse option is a coarse tool that just enforces
+  // that whenever we encounter a new set of input shapes we segment and compile
+  // a new FusionKernelRuntime.
+  if (!isOptionDisabled(DisableOption::KernelReuse)) {
+    auto reuse_it = std::find_if(
+        kernel_runtimes.begin(),
+        kernel_runtimes.end(),
+        [&args, &new_heuristics, &forced_index_type](auto& kernel_runtime) {
+          auto maybe_heuristics =
+              kernel_runtime->getMaybeHeuristicsFor(args, forced_index_type);
+          if (!maybe_heuristics.has_value()) {
+            return false;
+          }
+          new_heuristics = std::move(maybe_heuristics.value());
+          return true;
+        });
+    if (reuse_it != kernel_runtimes.end()) {
+      kernel_runtime = reuse_it->get();
+      kernel_runtime->updateHeuristicsLaunchParams(new_heuristics.get());
+      reusing = true;
+    }
+  }
+
+  if (!reusing) {
     // cache miss, need to re-build an optimized graph for this case
 
     // Clone fusion_ so that we can safely use an ExpressionEvaluator on it, for
     // the purposes of computing the concretization info.
     auto conc_fusion = std::make_unique<Fusion>(*fusion_);
-
-    // concretize fusion_ for use in this runtime
-    FusionGuard fg(conc_fusion.get());
-    if (initial_info.hasDynamicTransforms()) {
+    if (initial_info.isDynamic()) {
       const auto& conc_initial_info =
           conc_fusion->getManaged<DynamicTransformInitialInfo>("initial_info");
       TORCH_INTERNAL_ASSERT(conc_info);
@@ -647,6 +656,7 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
         conc_fusion->printMath();
       }
     }
+    FusionGuard fg(conc_fusion.get());
     kernel_runtimes.emplace_back(std::make_unique<FusionKernelRuntime>(
         std::move(conc_fusion), args, forced_index_type));
     kernel_runtime = kernel_runtimes.back().get();

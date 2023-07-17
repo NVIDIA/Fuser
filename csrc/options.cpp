@@ -177,6 +177,7 @@ std::unordered_map<DisableOption, std::vector<std::string>> Options<
       {"nvtx", DisableOption::Nvtx},
       {"parallel_compile", DisableOption::ParallelCompile},
       {"predicate_elimination", DisableOption::PredicateElimination},
+      {"kernel_reuse", DisableOption::KernelReuse},
       {"var_name_remapping", DisableOption::VarNameRemapping},
       {"welford_vectorization", DisableOption::WelfordVectorization}};
 

@@ -9215,6 +9215,92 @@ TEST_F(NVFuserTest, FusionDebugStreamGuard_CUDA) {
   ASSERT_EQ(ss.str(), text);
 }
 
+// Test that disabling kernel re-use leads to resegmented Fusion
+TEST_F(NVFuserTest, FusionDisableKernelReuse_CUDA) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  auto tv0 = makeSymbolicTensor(1);
+  fusion->addInput(tv0);
+
+  auto tv1 = add(tv0, tv0);
+  fusion->addOutput(tv1);
+
+  FusionExecutorCache fec(std::move(fusion_ptr));
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto a5 = at::zeros({5}, options);
+  auto a6 = at::zeros({6}, options);
+  auto a7 = at::zeros({7}, options);
+
+  fec.runFusionWithInputs({a5});
+
+  auto numRuntimes = [&fec]() -> size_t {
+    // this is map<pair<device, conc_info>, vector<FusionKernelRuntime>>
+    const auto& runtime_map = fec.getKernelRuntimes();
+    return runtime_map
+        .begin() // There should be only one device/concretization pair
+        ->second.size();
+  };
+
+  {
+    DisableOptionsGuard og;
+    DisableOptionsGuard::getCurOptions().unset(DisableOption::KernelReuse);
+
+    fec.runFusionWithInputs({a6});
+
+    // Since kernel reuse is enabled, we should not generate a new runtime
+    EXPECT_EQ(numRuntimes(), 1);
+  }
+
+  {
+    DisableOptionsGuard og;
+    DisableOptionsGuard::getCurOptions().set(DisableOption::KernelReuse);
+
+    fec.runFusionWithInputs({a7});
+
+    // Disabling reuse means we should get a new runtime
+    EXPECT_EQ(numRuntimes(), 2);
+  }
+}
+
+// Repro of https://github.com/NVIDIA/Fuser/issues/585
+TEST_F(NVFuserTest, FusionDanglingUnaryOp_CUDA) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  // Create a segmented Fusion. We call segment_set here to ensure the whole
+  // Fusion cannot be scheduled. This triggers segmentation, so that
+  // forwardInputs() is called. The structure of this Fusion is not important;
+  // it is only important that it must be segmented.
+  auto size = IrBuilder::create<Scalar>(5);
+  auto tv0 = full({size}, fusion->zeroVal(), DataType::Int);
+  auto tv1 = segment_set(tv0);
+  fusion->addOutput(tv1);
+
+  // Now take in an input that has a chain of UnaryOp uses that terminates in a
+  // Val with no uses. This triggers a segfault in forwardInputs().
+  Val* alpha = IrBuilder::create<Scalar>(DataType::Int);
+  fusion->addInput(alpha);
+  neg(castOp(DataType::Float, alpha));
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+
+  auto cg_outputs = executor_cache.runFusionWithInputs({11});
+
+  auto options = at::TensorOptions().dtype(at::kInt).device(at::kCUDA, 0);
+  auto aten_out = at::zeros({5}, options);
+
+  testValidate(
+      executor_cache.fusion(),
+      cg_outputs,
+      {11},
+      {aten_out},
+      __LINE__,
+      __FILE__);
+}
+
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser
