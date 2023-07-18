@@ -436,7 +436,7 @@ class ExprSimplifierTest : public NVFuserTest {
   }
 };
 
-TEST_F(ExprSimplifierTest, StupidSimpleCompiler_CUDA) {
+TEST_F(ExprSimplifierTest, StupidSimpleCompiler) {
   EXPECT_EQ(
       "( ( ( ( ( i2 * i3 ) + ( ( i4 + i5 ) + 3 ) ) + 3 ) * ( ( ( ( i0 + i1 ) + 3 ) + 5 ) + i2 ) ) * i0 )"_
           ->toInlineString(),
@@ -446,7 +446,7 @@ TEST_F(ExprSimplifierTest, StupidSimpleCompiler_CUDA) {
       "( ( i1 * i2 ) - ( i2 * i1 ) )");
 }
 
-TEST_F(ExprSimplifierTest, AssociativeAndCommutativeReordering_CUDA) {
+TEST_F(ExprSimplifierTest, AssociativeAndCommutativeReordering) {
   std::vector<VarInfo> variables(6);
   variables[0].variable = "i0"_;
   variables[1].variable = "i1"_;
@@ -479,7 +479,7 @@ TEST_F(ExprSimplifierTest, AssociativeAndCommutativeReordering_CUDA) {
   }
 }
 
-TEST_F(ExprSimplifierTest, EliminateTrivialComputation_CUDA) {
+TEST_F(ExprSimplifierTest, EliminateTrivialComputation) {
   auto simplify = [](Val* x, Val* assumption) {
     return simplifyExpr(x, {}, {assumption->as<Scalar>()});
   };
@@ -546,7 +546,7 @@ TEST_F(ExprSimplifierTest, EliminateTrivialComputation_CUDA) {
   EXPECT_TRUE(simplifyExpr("abs( i )"_, {}, {"i >= 0"_b})->sameAs("i"_));
 }
 
-TEST_F(ExprSimplifierTest, SimplifyDivisibleDivMod_CUDA) {
+TEST_F(ExprSimplifierTest, SimplifyDivisibleDivMod) {
   // assert that our system can correctly find that x is a multiple of y and z,
   // and simplify:
   // x % y -> 0
@@ -606,7 +606,7 @@ TEST_F(ExprSimplifierTest, SimplifyDivisibleDivMod_CUDA) {
   expectSimplifiedDivMod("i1 * i2 * 3 + i2 * i1 * 6"_, "3 * i2 * i1"_, "3"_);
 }
 
-TEST_F(ExprSimplifierTest, SignProve_CUDA) {
+TEST_F(ExprSimplifierTest, SignProve) {
   auto assertProvedPositive = [](Val* x,
                                  const std::vector<Scalar*>& assumptions = {}) {
     auto proved =
@@ -705,7 +705,7 @@ TEST_F(ExprSimplifierTest, SignProve_CUDA) {
       "( i4 + 1 ) % ( ( i1 + 2 ) + ( i2 + i3 ) )"_, assumptions);
 }
 
-TEST_F(ExprSimplifierTest, PredicateProve_CUDA) {
+TEST_F(ExprSimplifierTest, PredicateProve) {
   std::vector<Scalar*> assumptions{"i1 < 5 && i2 <= 5 && i3 > 5 && i4 >= 5"_b};
   EXPECT_EQ(simplifyExpr("i1 < 5"_, {}, assumptions)->getBool(), true);
   EXPECT_EQ(simplifyExpr("i1 <= 5"_, {}, assumptions)->getBool(), true);
@@ -721,7 +721,7 @@ TEST_F(ExprSimplifierTest, PredicateProve_CUDA) {
   EXPECT_EQ(simplifyExpr("5 <= i4"_, {}, assumptions)->getBool(), true);
 }
 
-TEST_F(ExprSimplifierTest, EquivalenceSimplification_CUDA) {
+TEST_F(ExprSimplifierTest, EquivalenceSimplification) {
   auto assertProvedEquiv = [](Val* x, Val* y) {
     auto proved = (simplifyExpr(IrBuilder::eqExpr(x, y))->getBool() == true) &&
         (simplifyExpr(IrBuilder::neExpr(x, y))->getBool() == false);
@@ -734,7 +734,7 @@ TEST_F(ExprSimplifierTest, EquivalenceSimplification_CUDA) {
   assertProvedEquiv("( i1 * i3 ) % i2"_, "( i3 * i1 ) % i2"_);
 }
 
-TEST_F(ExprSimplifierTest, CancelDivMod_CUDA) {
+TEST_F(ExprSimplifierTest, CancelDivMod) {
   expectSimplifiedDiv(
       "6 * ( i1 * i3 )"_, "15 * ( i1 * i2 )"_, "( 2 * i3 ) / ( 5 * i2 )"_);
   expectSimplifiedMod(
@@ -746,14 +746,14 @@ TEST_F(ExprSimplifierTest, CancelDivMod_CUDA) {
       "( 3 * i1 )"_, "15 * ( i1 * i2 )"_, "( 1 % ( 5 * i2 ) ) * ( 3 * i1 )"_);
 }
 
-TEST_F(ExprSimplifierTest, DistributeDivisibleDivMod_CUDA) {
+TEST_F(ExprSimplifierTest, DistributeDivisibleDivMod) {
   std::vector<Scalar*> assumptions{"i1 >= 0 && i2 >= 0 && i3 >= 0"_b};
 
   expectSimplifiedDiv("i1 * i2 + i3"_, "i1"_, "i2 + i3 / i1"_, assumptions);
   expectSimplifiedMod("i1 * i2 + i3"_, "i1"_, "i3 % i1"_, assumptions);
 }
 
-TEST_F(ExprSimplifierTest, DistributeGcdRemainderDivMod_CUDA) {
+TEST_F(ExprSimplifierTest, DistributeGcdRemainderDivMod) {
   expectSimplifiedDiv("i1 * 3 + 2"_, "6"_, "i1 / 2"_, {"i1 >= 0"_b});
   expectSimplifiedMod(
       "i1 * 3 + 2"_, "6"_, "( i1 % 2 ) * 3 + 2"_, {"i1 >= 0"_b});
@@ -774,13 +774,13 @@ TEST_F(ExprSimplifierTest, DistributeGcdRemainderDivMod_CUDA) {
       {});
 }
 
-TEST_F(ExprSimplifierTest, DistributeMul_CUDA) {
+TEST_F(ExprSimplifierTest, DistributeMul) {
   EXPECT_TRUE(isEquivalent("i1 * ( i2 + i3 )"_, "( i1 * i2 ) + ( i1 * i3 )"_));
   EXPECT_TRUE(isEquivalent(
       "i1 * ( i2 + i3 + i4 )"_, "( i1 * i2 ) + ( i1 * i3 ) + ( i1 * i4 )"_));
 }
 
-TEST_F(ExprSimplifierTest, Compare_CUDA) {
+TEST_F(ExprSimplifierTest, Compare) {
   auto simplify = [](Val* x, Val* assumption) {
     return simplifyExpr(x, {}, {assumption->as<Scalar>()})->getBool();
   };
@@ -830,7 +830,7 @@ TEST_F(ExprSimplifierTest, Compare_CUDA) {
   EXPECT_TRUE(*simplify("i1 % i2 < i2"_, "i2 >= 0"_));
 }
 
-TEST_F(ExprSimplifierTest, FundamentalDivisionWithRemainderProperty_CUDA) {
+TEST_F(ExprSimplifierTest, FundamentalDivisionWithRemainderProperty) {
   EXPECT_TRUE(
       isEquivalent("i1 / T1.size[0] * T1.size[0] + i1 % T1.size[0]"_, "i1"_));
   EXPECT_TRUE(isEquivalent(
@@ -843,7 +843,7 @@ TEST_F(ExprSimplifierTest, FundamentalDivisionWithRemainderProperty_CUDA) {
       "i1 * T1.size[1] + i2"_));
 }
 
-TEST_F(ExprSimplifierTest, ReducePredicateRegisterUsage_CUDA) {
+TEST_F(ExprSimplifierTest, ReducePredicateRegisterUsage) {
   auto a = IrBuilder::create<NamedScalar>("a", DataType::Int);
   auto b = IrBuilder::create<NamedScalar>("b", DataType::Int);
   auto u1 = IrBuilder::create<NamedScalar>("u1", DataType::Int);
@@ -1003,7 +1003,7 @@ TEST_F(ExprSimplifierTest, ReducePredicateRegisterUsage_CUDA) {
   }
 }
 
-TEST_F(ExprSimplifierTest, MinMax_CUDA) {
+TEST_F(ExprSimplifierTest, MinMax) {
   auto simplify = [](Val* x, Val* assumption) {
     return simplifyExpr(x, {}, {assumption->as<Scalar>()});
   };
@@ -1014,14 +1014,14 @@ TEST_F(ExprSimplifierTest, MinMax_CUDA) {
                   ->sameAs("ceilDiv( T0.size[0] , 128 ) * 4"_));
 }
 
-TEST_F(ExprSimplifierTest, PredicateDivToMul_CUDA) {
+TEST_F(ExprSimplifierTest, PredicateDivToMul) {
   auto simplified = simplifyExpr("i1 / T0.size[0] < i2"_, {}, {"i1 >= 0"_b});
   auto expect = "i1 < ( i2 * T0.size[0] )"_;
 
   EXPECT_TRUE(simplified->sameAs(expect));
 }
 
-TEST_F(ExprSimplifierTest, FactorizeGcd_CUDA) {
+TEST_F(ExprSimplifierTest, FactorizeGcd) {
   EXPECT_TRUE(simplifyExpr("gcd( i1 * i2 , i3 * i2 )"_)
                   ->sameAs("gcd( i1 , i3 ) * abs( i2 )"_));
   EXPECT_TRUE(simplifyExpr("gcd( i1 * i2 , i3 * i2 )"_, {}, {"i2 >= 0"_b})
