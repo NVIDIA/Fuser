@@ -1536,6 +1536,15 @@ class TransposeScheduler : public SchedulerEntry {
   }
 
   static bool canScheduleCompileTime(Fusion* fusion) {
+    // NOTE scheduling fails for test FusionSliceForNanoGPT3_CUDA
+    // skips slice to pass the test.
+    for (auto expr : fusion->exprs()) {
+      if (expr->isA<SliceOp>()) {
+        scheduler_debug_utils::canScheduleRejectReason(
+            ScheduleHeuristic::Transpose, "No support for slice op");
+        return false;
+      }
+    }
     // Check that inputs of all select/gather-like ops are fusion inputs
     if (rejectScheduleForSelectLikeOps(fusion, ScheduleHeuristic::Transpose)) {
       return false;
