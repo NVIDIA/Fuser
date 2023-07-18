@@ -39,8 +39,8 @@ TEST_F(ExprEvalTest, Constants) {
 
   ExpressionEvaluator evaluator;
 
-  auto* a = IrBuilder::create<Scalar>(7);
-  auto* b = IrBuilder::create<Scalar>(3);
+  auto* a = IrBuilder::create<Scalar>(7L);
+  auto* b = IrBuilder::create<Scalar>(3L);
 
   // Avoid div operation because it casts int operands to float
   checkIntValue(evaluator, neg(a), -7);
@@ -72,7 +72,7 @@ TEST_F(ExprEvalTest, Bindings) {
   auto* b = IrBuilder::create<Scalar>(DataType::Int);
   auto* c = add(a, b);
   auto* d = neg(ceilDiv(c, b));
-  auto* e = IrBuilder::create<Scalar>(0);
+  auto* e = IrBuilder::create<Scalar>(0L);
 
   // trying to evaluate before binding should give empty results
   EXPECT_FALSE(evaluator.evaluate(a).hasValue());
@@ -244,8 +244,8 @@ TEST_F(ExprEvalTest, PostLower) {
   tv2->axis(-1)->parallelize(ParallelType::TIDx);
   tv3->axis(-1)->parallelize(ParallelType::TIDx);
 
-  auto* bid_x = add(tv3->axis(0)->extent(), IrBuilder::create<Scalar>(0));
-  auto* tid_x = add(tv3->axis(-1)->extent(), IrBuilder::create<Scalar>(0));
+  auto* bid_x = add(tv3->axis(0)->extent(), IrBuilder::create<Scalar>(0L));
+  auto* tid_x = add(tv3->axis(-1)->extent(), IrBuilder::create<Scalar>(0L));
 
   // Lower
   GpuLower gpulw(&fusion);
@@ -280,8 +280,8 @@ TEST_F(ExprEvalTest, KernelConstants) {
   kir::Kernel kernel(&fusion);
   FusionGuard fg((&kernel)->as<Fusion>());
 
-  auto a = IrBuilder::create<Scalar>(7);
-  auto b = IrBuilder::create<Scalar>(3);
+  auto a = IrBuilder::create<Scalar>(7L);
+  auto b = IrBuilder::create<Scalar>(3L);
   auto c = IrBuilder::subExpr(a, b);
   auto d = IrBuilder::divExpr(a, b);
   auto e = IrBuilder::mulExpr(c, d);
@@ -307,7 +307,7 @@ TEST_F(ExprEvalTest, KernelBindings) {
   auto b = IrBuilder::create<Scalar>(DataType::Int);
   auto c = IrBuilder::addExpr(a, b);
   auto d = IrBuilder::negExpr(IrBuilder::ceilDivExpr(c, b));
-  auto e = IrBuilder::create<Scalar>(0);
+  auto e = IrBuilder::create<Scalar>(0L);
 
   // trying to evaluate before binding should give empty results
   EXPECT_FALSE(evaluator.evaluate(a).hasValue());

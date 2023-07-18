@@ -63,7 +63,8 @@ class Instrumentor : private kir::IrVisitor {
   }
 
   void allocateBuffer() {
-    const auto num_profile_entries = profile_.getNumberOfProfileEntries();
+    const auto num_profile_entries =
+        (int64_t)profile_.getNumberOfProfileEntries();
 
     // If nothing to profile, do not allocate anything
     if (num_profile_entries == 0) {
@@ -79,7 +80,7 @@ class Instrumentor : private kir::IrVisitor {
             .build(),
         IterDomainBuilder(
             GpuLower::current()->kernel()->zeroVal(),
-            IrBuilder::create<Scalar>(2))
+            IrBuilder::create<Scalar>(2L))
             .build()};
 
     const auto buffer_domain = IrBuilder::create<TensorDomain>(new_buffer_ids);
