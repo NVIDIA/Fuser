@@ -285,10 +285,10 @@ TEST_F(NVFuserTest, DynamicTransform5_CUDA) {
     auto tv1 = reshape(tv0, {reshape_shape0, reshape_shape1});
     auto tv2 =
         pad(tv1,
-            {IrBuilder::create<Scalar>(1),
-             IrBuilder::create<Scalar>(1),
-             IrBuilder::create<Scalar>(1),
-             IrBuilder::create<Scalar>(1)});
+            {IrBuilder::create<Scalar>(1L),
+             IrBuilder::create<Scalar>(1L),
+             IrBuilder::create<Scalar>(1L),
+             IrBuilder::create<Scalar>(1L)});
     auto tv3 = set(tv2);
 
     fusion.addOutput(tv3);
@@ -492,7 +492,7 @@ TEST_F(NVFuserTest, DynamicTransform8_CUDA) {
   fusion.addInput(tv0);
 
   auto tv1 = reshape(
-      tv0, {IrBuilder::create<Scalar>(4), IrBuilder::create<Scalar>(3)});
+      tv0, {IrBuilder::create<Scalar>(4L), IrBuilder::create<Scalar>(3L)});
   fusion.addOutput(tv1);
 
   // Make sure the reshape is recognized as a static reshape
@@ -562,8 +562,8 @@ TEST_F(NVFuserTest, DynamicTransform10_CUDA) {
   auto tv2 = slice(
       tv1,
       {Slice(),
-       {IrBuilder::create<Scalar>(1),
-        sub(tv1->axis(0)->extent(), IrBuilder::create<Scalar>(1))}});
+       {IrBuilder::create<Scalar>(1L),
+        sub(tv1->axis(0)->extent(), IrBuilder::create<Scalar>(1L))}});
   fusion.addOutput(tv2);
 
   // tv2 has an rfactor expr (i.e., resize). The input to the expr is
@@ -983,7 +983,8 @@ TEST_F(NVFuserTest, FusionDynamicSliceToBroadcast_CUDA) {
   fusion.addInput(tv0);
   // tv0[:2] introduces symbolic IterDomain
   auto tv1 = slice(
-      tv0, {{fusion.zeroVal(), IrBuilder::create<Scalar>(2), fusion.oneVal()}});
+      tv0,
+      {{fusion.zeroVal(), IrBuilder::create<Scalar>(2L), fusion.oneVal()}});
   // tv1 has Broadcast rfactor, Iteration root
   auto tv2 = slice(tv1, {{fusion.zeroVal(), fusion.oneVal(), fusion.oneVal()}});
   // tv2 has a Symbolic root related to a Broadcast rfactor through a Resize op
@@ -1080,7 +1081,7 @@ TEST_F(NVFuserTest, Issue249_CUDA) {
       tv1,
       {tv1->axis(0)->extent(),
        tv1->axis(2)->extent(),
-       IrBuilder::create<Scalar>(-1)});
+       IrBuilder::create<Scalar>(-1L)});
   auto tv3 = add(tv2, tv2);
   fusion.addOutput(tv3);
 

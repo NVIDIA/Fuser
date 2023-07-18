@@ -88,7 +88,7 @@ Expr* ShiftPredicateInserter::insert(
   kir::Predicate* padding_pred = IrBuilder::create<kir::Predicate>(
       PredicateType::Padding, expr, thread_pred);
   auto bounds_ite = IrBuilder::create<kir::IfThenElse>(padding_pred);
-  const int pad_value = 0;
+  const int64_t pad_value = 0L;
   auto pad_expr = IrBuilder::create<LoadStoreOp>(
       LoadStoreOpType::Set, out_tv, IrBuilder::create<Scalar>(pad_value));
   bounds_ite->thenBody().push_back(pad_expr);
@@ -342,8 +342,8 @@ void HaloInfo::initializeFromRootAxisInfo(IterDomain* id) {
     return;
   }
 
-  auto expanded_extent =
-      IrBuilder::addExpr(id->extent(), IrBuilder::create<Scalar>(halo_width));
+  auto expanded_extent = IrBuilder::addExpr(
+      id->extent(), IrBuilder::create<Scalar>((int64_t)halo_width));
   extent_map_[id] = expanded_extent;
   halo_width_map_[id] = halo_width;
 
@@ -421,7 +421,7 @@ void HaloInfo::build(TensorDomain* td) {
       auto out_id = split->inner();
 
       auto expanded_extent =
-          SimplifyingIrBuilder::addExpr(out_id->extent(), halo_width);
+          SimplifyingIrBuilder::addExpr(out_id->extent(), (int64_t)halo_width);
       extent_map_.insert({out_id, expanded_extent});
 
       setHaloWidth(split->outer(), 0);
@@ -820,7 +820,7 @@ std::unordered_map<IterDomain*, Val*> HaloInfo::buildConcreteHaloExtentMap(
           split->inner(), IdMappingMode::EXACT);
 
       auto expanded_extent =
-          SimplifyingIrBuilder::addExpr(out_id->extent(), halo_width);
+          SimplifyingIrBuilder::addExpr(out_id->extent(), (int64_t)halo_width);
       local_halo_info.extent_map_.insert({out_id, expanded_extent});
 
       local_halo_info.setHaloWidth(

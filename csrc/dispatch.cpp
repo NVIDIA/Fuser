@@ -71,10 +71,6 @@ void Val::dispatch(T handler, Val* val) {
     case ValType::PipelineVal:
       ptr(handler)->handle(val->as<PipelineVal>());
       return;
-    case ValType::Attribute:
-      TORCH_INTERNAL_ASSERT(
-          false,
-          "ValType::Attribute can not be dispatched. Template type is needed.");
     default:
       break;
   }
@@ -339,10 +335,6 @@ void Val::constDispatch(T handler, const Val* val) {
       return;
     case ValType::PipelineVal:
       ptr(handler)->handle(val->as<PipelineVal>());
-      return;
-    case ValType::Attribute:
-      // Attribute Val is just a wrapper for non-IR data, so there is nothing to
-      // handle
       return;
     default:
       break;
@@ -620,10 +612,6 @@ void Val::mutatorDispatch(T mutator, Val* val) {
     case ValType::PipelineVal:
       ptr(mutator)->mutate(val->as<PipelineVal>());
       return;
-    case ValType::Attribute:
-      TORCH_INTERNAL_ASSERT(
-          false,
-          "ValType::Attribute can not be dispatched. Template type is needed.");
     default:
       break;
   }

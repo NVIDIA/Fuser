@@ -342,7 +342,8 @@ Val* getMinimumValue(DataType v) {
       return IrBuilder::create<Scalar>(std::numeric_limits<int64_t>::lowest());
       break;
     case (DataType::Int32):
-      return IrBuilder::create<Scalar>(std::numeric_limits<int32_t>::lowest());
+      return IrBuilder::create<Scalar>(
+          (int64_t)std::numeric_limits<int32_t>::lowest());
       break;
     case (DataType::Bool):
       return IrBuilder::create<Scalar>(false);
@@ -378,7 +379,8 @@ Val* getMaximumValue(DataType v) {
       return IrBuilder::create<Scalar>(std::numeric_limits<int64_t>::max());
       break;
     case (DataType::Int32):
-      return IrBuilder::create<Scalar>(std::numeric_limits<int32_t>::max());
+      return IrBuilder::create<Scalar>(
+          (int64_t)std::numeric_limits<int32_t>::max());
       break;
     case (DataType::Bool):
       return IrBuilder::create<Scalar>(true);

@@ -932,7 +932,7 @@ inline std::optional<std::vector<Val*>> BroadcastInDimOpRecord<int64_t>::
       expand_shape[idx] = IrBuilder::create<nvfuser::Scalar>(shape[idx]);
       has_expand = true;
     } else {
-      expand_shape[idx] = IrBuilder::create<nvfuser::Scalar>(-1);
+      expand_shape[idx] = IrBuilder::create<nvfuser::Scalar>(-1L);
     }
   }
 

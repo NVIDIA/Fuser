@@ -481,7 +481,7 @@ TensorView* pad(
     } else if (isBooleanType(dt)) {
       value = static_cast<Val*>(IrBuilder::create<Scalar>(false, dt));
     } else {
-      value = static_cast<Val*>(IrBuilder::create<Scalar>(0, dt));
+      value = static_cast<Val*>(IrBuilder::create<Scalar>(0L, dt));
     }
   }
   TORCH_CHECK(
