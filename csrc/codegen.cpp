@@ -469,7 +469,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     code_ << gen(pred->value());
   }
 
-  void handle(const Val* s) final {
+  void handleGeneric(const Val* s) final {
     // Check the replacement map first. If there's an entry for s, use
     // the corresponding replacement.
     auto replace_it = index_replacement_map_.find(s);
@@ -549,16 +549,6 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
   void handle(const TensorView*) final {
     TORCH_INTERNAL_ASSERT(false, "Unreachable");
-  }
-
-  void handleArrayType(const Val* v) final {
-    const auto def = v->definition();
-    const bool has_alloc = alloc_map_.find(v) != alloc_map_.end();
-    if (def != nullptr && !has_alloc) {
-      code_ << v->dtype() << "(" << genInline(def) << ")";
-    } else {
-      code_ << genVariableName(v);
-    }
   }
 
   //! Utility for generating vectorized pointer access in ldsm and

@@ -216,6 +216,9 @@ bool Val::sameAs(const Statement* other) const {
     return true;
   }
   if (auto other_val = dynamic_cast<const Val*>(other)) {
+    if (typeid(*this) != typeid(*other_val)) {
+      return false;
+    }
     if ((definition_ == nullptr) != (other_val->definition_ == nullptr)) {
       return false;
     }
@@ -223,6 +226,9 @@ bool Val::sameAs(const Statement* other) const {
       return false;
     }
     if (dtype_ != other_val->dtype_) {
+      return false;
+    }
+    if (value_.hasValue() != other_val->value_.hasValue()) {
       return false;
     }
     if (definition_ == nullptr) {

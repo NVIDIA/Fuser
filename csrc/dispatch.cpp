@@ -745,10 +745,6 @@ void OptOutConstDispatch::handle(const PipelineVal* stmt) {
   unhandled(stmt);
 }
 
-void OptOutConstDispatch::handleArrayType(const Val* stmt) {
-  unhandled(stmt);
-}
-
 // Exprs
 void OptOutConstDispatch::handle(const FullOp* stmt) {
   unhandled(stmt);
@@ -940,10 +936,6 @@ void OptOutDispatch::handle(kir::TensorIndex* stmt) {
 }
 
 void OptOutDispatch::handle(PipelineVal* stmt) {
-  unhandled(stmt);
-}
-
-void OptOutDispatch::handleArrayType(Val* stmt) {
   unhandled(stmt);
 }
 
