@@ -306,11 +306,7 @@ Val* SimplifyingIrBuilder::ceilDivExpr(Val* lhs, Val* rhs) {
     auto l = lhs->value();
     auto r = rhs->value();
     using namespace PolymorphicValue_functions;
-    if (r > 0) {
-      return IrBuilder::IrBuilder::create<Val>(ceildiv(l, r));
-    } else {
-      return IrBuilder::IrBuilder::create<Val>(ceildiv(l, r));
-    }
+    return IrBuilder::IrBuilder::create<Val>(ceildiv(l, r));
   } else {
     return IrBuilder::ceilDivExpr(lhs, rhs);
   }
