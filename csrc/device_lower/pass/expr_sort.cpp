@@ -1005,7 +1005,7 @@ bool ExprSegmentationSorter::canReducePA(ExprGroup* group) const {
   IterDomain* group_pa_last_id = group->payload()->pa_domains.back();
 
   // If the last ID is the kernel scope, there should still be
-  // consumer groups that use tensors produced by this group, so we
+  // producer groups that produce tensors used by this group, so we
   // should not remove it from the PA set yet
   if (group_pa_last_id == kernelScopeDomain()) {
     return false;
