@@ -358,6 +358,8 @@ TEST_F(DynamicTypeTest, MoveCtor) {
   // This should not compile:
   // NonCopyableType bb(a);
   NonCopyableType b(std::move(a));
+  // Suppress unused var warning
+  (void)b;
 }
 
 namespace null_tests {
