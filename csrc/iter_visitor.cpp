@@ -273,7 +273,7 @@ void IterVisitor::traverseBetween(
   // Handle any sibling Vals that have not yet been handled
   // If traverse_siblings is false, this vector will be empty
   for (auto val : maybe_orphaned_sibs) {
-    if (visited.find(val) != visited.end()) {
+    if (visited.find(val) == visited.end()) {
       visited.insert(val);
       handle(val);
     }
