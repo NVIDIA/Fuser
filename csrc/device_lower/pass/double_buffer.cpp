@@ -208,7 +208,7 @@ class DoubleBufferLoopCloner : public kir::IrVisitor {
 
     if (loop_type_ == DoubleBufferLoopStage::Prolog) {
       TORCH_INTERNAL_ASSERT(start->isZeroInt());
-      stop = SimplifyingIrBuilder::create<Scalar>(stage_depth - 1);
+      stop = SimplifyingIrBuilder::create<Scalar>(int64_t(stage_depth - 1));
     } else if (
         loop_type_ == DoubleBufferLoopStage::Main &&
         requireEpilogue(double_buffer_load_exprs_)) {
@@ -218,7 +218,7 @@ class DoubleBufferLoopCloner : public kir::IrVisitor {
       TORCH_INTERNAL_ASSERT(requireEpilogue(double_buffer_load_exprs_));
       start = IrBuilder::subExpr(
           double_buffer_loop_->stop(),
-          SimplifyingIrBuilder::create<Scalar>(stage_depth - 1));
+          SimplifyingIrBuilder::create<Scalar>(int64_t(stage_depth - 1)));
     }
 
     cloned_top_level_loop_ = IrBuilder::create<kir::ForLoop>(

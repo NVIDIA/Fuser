@@ -385,7 +385,7 @@ TEST_F(RNGTest, FunctionalUniform) {
       fusion->addOutput(tv1);
     }
 
-    auto second_offset = add(first_offset, IrBuilder::create<Scalar>(4));
+    auto second_offset = add(first_offset, IrBuilder::create<Scalar>(4L));
 
     TensorView* tv2 =
         uniform({size_val}, low, high, DataType::Float, seed, first_offset);
