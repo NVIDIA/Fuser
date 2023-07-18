@@ -160,6 +160,14 @@ class Pointer {
   explicit operator bool() const {
     return ptr_;
   }
+
+  explicit operator int64_t() const {
+    return reinterpret_cast<int64_t>(ptr_);
+  }
+
+  explicit operator unsigned() const {
+    return (unsigned)(int64_t)*this;
+  }
 };
 
 inline Pointer operator+(int64_t offset, const Pointer& ptr) {

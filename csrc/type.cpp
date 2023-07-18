@@ -21,6 +21,10 @@ DataType metaDataTypeOf(Val* v) {
   auto tv = dynamic_cast<TensorView*>(v);
   TORCH_INTERNAL_ASSERT(
       tv != nullptr, "Currently, only supports getting metadata of TensorView");
+  if (tv->getMemoryType() == MemoryType::Shared) {
+    // Smem tensor is defined locally as a pointer
+    return PointerOf{std::make_shared<DataType>(tv->dtype())};
+  }
   StructOf tv_metadata;
   tv_metadata.types["data"] = NVFUSER_MAYBE_MAKE_SHARED(
       PointerOf{std::make_shared<DataType>(tv->dtype())});
@@ -269,6 +273,7 @@ bool needFloatSuffix(UnaryOpType t) {
     case UnaryOpType::IsPosInf:
     case UnaryOpType::IsReal:
     case UnaryOpType::Print:
+    case UnaryOpType::ToUnsignedSmemAddr:
       return false;
     default:
       return true;
@@ -381,6 +386,8 @@ static const char* unary_op_type2string(UnaryOpType t) {
       return "std::real";
     case UnaryOpType::Imag:
       return "std::imag";
+    case UnaryOpType::ToUnsignedSmemAddr:
+      return "toSmem";
     default:
       TORCH_INTERNAL_ASSERT(false, "No string found for unary op type.");
   }

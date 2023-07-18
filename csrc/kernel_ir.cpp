@@ -338,30 +338,6 @@ std::string UpdateMagicZero::toInlineString(int indent_size) const {
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(UpdateMagicZero)
 
-BaseAddress::BaseAddress(IrBuilderPasskey passkey, Val* out, TensorView* tv)
-    : Expr(passkey) {
-  TORCH_INTERNAL_ASSERT(passkey.ir_container_ != nullptr);
-  TORCH_INTERNAL_ASSERT(
-      passkey.ir_container_->isA<kir::Kernel>(),
-      "IR type only valid for Kernel container.");
-  addOutput(out);
-  addInput(tv);
-}
-
-std::string BaseAddress::toString(int indent_size) const {
-  std::stringstream ss;
-  indent(ss, indent_size) << "BaseAddress(" << ir_utils::varName(tv()) << ")\n";
-  return ss.str();
-}
-
-std::string BaseAddress::toInlineString(int indent_size) const {
-  std::stringstream ss;
-  ss << "BaseAddress(" << ir_utils::varName(tv()) << ")";
-  return ss.str();
-}
-
-NVFUSER_DEFINE_CLONE_AND_CREATE(BaseAddress)
-
 std::string Scope::toString(int indent_size) const {
   std::stringstream ss;
   for (auto expr : exprs()) {
