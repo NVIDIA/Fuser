@@ -2607,7 +2607,7 @@ std::pair<IterDomain*, IterDomain*> IterDomain::split(
   return IterDomain::split(in, factor, inner_split, start_offset, stop_offset);
 }
 
-std::pair<IterDomain*, IterDomain*> IterDomain::stridedSplit(int factor) {
+std::pair<IterDomain*, IterDomain*> IterDomain::stridedSplit(int64_t factor) {
   // Use partial split so that only valid values are retained
   auto split_out = IterDomain::split(
       this, IrBuilder::create<Scalar>(container(), factor), true, true);
