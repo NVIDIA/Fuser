@@ -1185,7 +1185,9 @@ void ComputeAtRootDomainMapBuilder::handle(TensorView* tv) {
         if (root_set.find(id) == root_set.end() || rf_id == id) {
           continue;
         }
-        setMaybeMapped(td, id, td, rf_id);
+        if (id->getIterType() == rf_id->getIterType()) {
+          setMaybeMapped(td, id, td, rf_id);
+        }
       }
     }
     // Once mappings for rfactor axes are propagated to root axes,
