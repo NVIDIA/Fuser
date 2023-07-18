@@ -416,7 +416,7 @@ TEST_F(IndexingOpTest, TorchGatherIndexTvExtentIsOne_CUDA) {
 
   auto tv_gather = torch_gather(tv_in1, 1, tv_idx);
   auto tv_add = clamp(
-      tv_gather, IrBuilder::create<Scalar>(-1), IrBuilder::create<Scalar>(1));
+      tv_gather, IrBuilder::create<Scalar>(-1L), IrBuilder::create<Scalar>(1L));
   auto tv_out = mul(tv_add, tv_in2);
   fusion.addOutput(tv_out);
 
@@ -1210,19 +1210,19 @@ TEST_F(IndexingOpTest, TakeAlongAxisCrossEntropyLoss_CUDA) {
   auto tv2 = max(tv0, {1});
   auto tv3 = broadcast(tv2, {false, true});
   auto tv4 = expand(
-      tv3, {IrBuilder::create<Scalar>(128), IrBuilder::create<Scalar>(371)});
+      tv3, {IrBuilder::create<Scalar>(128L), IrBuilder::create<Scalar>(371L)});
   auto tv5 = sub(tv0, tv4);
   auto tv6 = exp(tv5);
   auto tv7 = sum(tv6, {1});
   auto tv8 = broadcast(tv7, {false, true});
   auto tv9 = expand(
-      tv8, {IrBuilder::create<Scalar>(128), IrBuilder::create<Scalar>(371)});
+      tv8, {IrBuilder::create<Scalar>(128L), IrBuilder::create<Scalar>(371L)});
   auto tv10 = div(tv6, tv9);
   auto tv11 = log(tv10);
   auto tv12 = neg(tv11);
   auto tv13 = reshape(tv1, {128}, {128, 1});
   auto tv14 = take_along_axis(tv12, tv13, 1);
-  auto s15 = IrBuilder::create<Scalar>(5);
+  auto s15 = IrBuilder::create<Scalar>(5L);
   auto tv16 = eq(tv13, s15);
   auto s17 = IrBuilder::create<Scalar>(0.0);
   auto tv18 = where(tv16, s17, tv14);

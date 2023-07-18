@@ -526,7 +526,7 @@ class WelfordVectorizer : public kir::ExprMutator {
 
       // Check if the predicate of the expr is known to be true
       if (expr_ite->predicate()->isConst() &&
-          expr_ite->predicate()->value()->value()) {
+          expr_ite->predicate()->value()->value().as<bool>()) {
         continue;
       }
 

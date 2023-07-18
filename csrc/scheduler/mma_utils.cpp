@@ -22,17 +22,18 @@ namespace mma_utils {
 bool generateSharedMemoryEpilogueHeuristics(
     const MatMulTileOptions& gemm_tile,
     const int smem_double_buffer_stage,
-    const MmaDataTypes& data_types) {
+    const MmaDataTypes& data_types,
+    const bool ignore_occupancy_drop) {
   const auto properties = at::cuda::getCurrentDeviceProperties();
   const size_t device_smem_limit = properties->sharedMemPerBlockOptin;
+  const size_t shared_memory_overhead = properties->reservedSharedMemPerBlock;
+  const size_t shared_memory_available =
+      device_smem_limit - shared_memory_overhead;
 
   auto warp_dims = gemm_tile.cta_tile / gemm_tile.warp_tile;
   const auto threads_per_block =
       warp_dims.m * warp_dims.n * warp_dims.k * properties->warpSize;
-  // a thread can use up to 255 registers, blocks per sm is limited by available
-  // registers
-  const auto threads_per_sm = getThreadsPerSMGivenRegPerThread(255);
-  const auto blocks_per_sm_by_register = threads_per_sm / threads_per_block;
+
   // see scheduleContiguousVectorLoad
   const int vector_word = 8;
   const int round_to_factor = warp_dims.m * warp_dims.n * warp_dims.k *
@@ -48,11 +49,20 @@ bool generateSharedMemoryEpilogueHeuristics(
   const size_t smem_c = (size_t)(gemm_tile.cta_tile.m * gemm_tile.cta_tile.n) *
       dataTypeSize(data_types[2]);
 
-  // use additional shared memory for epilogue if blocks per sm is not changed
+  // shortcut where occupancy change is ignored.
+  if (ignore_occupancy_drop) {
+    return shared_memory_available >= smem_a + smem_b + smem_c;
+  }
+
+  // use additional shared memory for epilogue if occupancy is not changed.
+  // occupancy is estimated using register and shared memory usage.
+  const auto threads_per_sm = getThreadsPerSMGivenRegPerThread(255);
+  const auto blocks_per_sm_by_register = threads_per_sm / threads_per_block;
   const auto blocks_per_sm_without_smem_epilogue = std::min(
-      device_smem_limit / (smem_a + smem_b), (size_t)blocks_per_sm_by_register);
+      shared_memory_available / (smem_a + smem_b),
+      (size_t)blocks_per_sm_by_register);
   const auto blocks_per_sm_with_smem_epilogue = std::min(
-      device_smem_limit / (smem_a + smem_b + smem_c),
+      shared_memory_available / (smem_a + smem_b + smem_c),
       (size_t)blocks_per_sm_by_register);
   return blocks_per_sm_with_smem_epilogue ==
       blocks_per_sm_without_smem_epilogue;
