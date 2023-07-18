@@ -1149,6 +1149,9 @@ TEST_F(NVFuserTest, FusionResizeSliceScheduler1_CUDA) {
         sub(tv0->axis(0)->extent(), IrBuilder::create<Scalar>(1L))}});
   fusion.addOutput(tv1);
 
+  ComputeAtMap ca_map(&fusion);
+  std::cout << ca_map.toString();
+
   std::vector<int64_t> shape({9});
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
