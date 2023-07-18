@@ -370,8 +370,8 @@ void IndexLowering::handle(const ViewAsScalar* uop) {
             IdMappingMode::LOOP)) {
       // TODO: this doesn't work with loop rotation
       Val* index = loop->indexOrStartIfTrivial();
-      pushBack(
-          IrBuilder::create<ViewAsScalar>(out, in, uop->vector_id(), index));
+      pushBack(IrBuilder::create<LoadStoreOp>(
+          LoadStoreOpType::Set, out, IrBuilder::getItemExpr(in, index)));
       GpuLower::current()->propagateExprInfo(uop, back());
       return;
     }

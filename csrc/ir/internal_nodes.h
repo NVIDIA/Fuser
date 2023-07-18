@@ -1459,12 +1459,7 @@ class TORCH_CUDA_CU_API ViewAsScalar : public Expr {
  public:
   using Expr::Expr;
 
-  ViewAsScalar(
-      IrBuilderPasskey,
-      Val* out,
-      Val* in,
-      IterDomain* vector_id,
-      Val* index = nullptr);
+  ViewAsScalar(IrBuilderPasskey, Val* out, Val* in, IterDomain* vector_id);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
@@ -1486,11 +1481,6 @@ class TORCH_CUDA_CU_API ViewAsScalar : public Expr {
   // The IterDomain of type VectorComponent newly appended to the output
   IterDomain* vector_id() const {
     return attribute(0)->as<IterDomain>();
-  }
-
-  // The index that vector_id_ is lowered into
-  Val* index() const {
-    return attributeVal(1);
   }
 };
 
