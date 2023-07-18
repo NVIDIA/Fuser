@@ -1463,7 +1463,6 @@ bool ExprSegmentationSorter::testStillDag(ExprGroup* sg1, ExprGroup* sg2) {
     }
   }
 
-  std::vector<ExprGroup*> visited_order;
   while (!to_visit.empty()) {
     auto group = to_visit.front();
     // Arrived back at one of the original groups, merging these two groups

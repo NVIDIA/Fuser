@@ -53,13 +53,13 @@ TEST_F(ExprSortTest, IndirectNormalizationWithZeroDimTensors) {
 
   // Here, the fusion graph looks like:
   //
-  //         +-----------------------------------------+
-  //         |                                         |
-  // tv0 -> tv2 -> (reduction) -> tv3 -+               |
-  //                                   |               |
-  // tv1 -> tv4 -> tv5 ->tv 6 -> tv7  -+-> tv8         +-> tv10
-  //                              |                    |
-  //                              +--> (broadcast) -> tv9
+  //         +----------------------------------------+
+  //         |                                        |
+  // tv0 -> tv2 -> (reduction) -> tv3 -+              |
+  //                                   |              |
+  // tv1 -> tv4 -> tv5 ->tv6 -> tv7  -+-> tv8         +-> tv10
+  //                             |                    |
+  //                             +--> (broadcast) -> tv9
   //
   // This fusion may appear to have the persistent pattern, but it
   // isn't the case. The reduction output, tv3, is never used with the
