@@ -389,7 +389,7 @@ TEST_F(NVFuserTest, FusionScalarTypePromote_CUDA) {
 
   Scalar* b = IrBuilder::create<Scalar>(true);
   Scalar* d = IrBuilder::create<Scalar>(4.f);
-  Scalar* i = IrBuilder::create<Scalar>(3);
+  Scalar* i = IrBuilder::create<Scalar>(3L);
   Scalar* c = IrBuilder::create<Scalar>(std::complex<double>(1, 2));
 
   TORCH_CHECK(add(b, b)->getDataType() == DataType::Bool);
@@ -608,8 +608,8 @@ TEST_F(NVFuserTest, FusionFilterVals_CUDA) {
   auto tv0 = makeSymbolicTensor(1);
   auto tv1 = makeSymbolicTensor(1);
   auto scalar0 = IrBuilder::create<Scalar>(0.0);
-  auto scalar1 = IrBuilder::create<Scalar>(0);
-  auto scalar2 = IrBuilder::create<Scalar>(1);
+  auto scalar1 = IrBuilder::create<Scalar>(0L);
+  auto scalar2 = IrBuilder::create<Scalar>(1L);
 
   const std::vector<Val*> vals = {tv0, scalar0, tv1, scalar1, scalar2};
 
@@ -651,7 +651,7 @@ TEST_F(NVFuserTest, FusionTVSplit_CUDA) {
       static_cast<BinaryOp*>(outer)->lhs()->sameAs(
           tv->getRootDomain()[2]->extent()) &&
       static_cast<Scalar*>(static_cast<BinaryOp*>(outer)->rhs())
-          ->sameAs(IrBuilder::create<Scalar>(2)));
+          ->sameAs(IrBuilder::create<Scalar>(2L)));
 
   IterDomain* inner = static_cast<IterDomain*>(tv->axis(3));
   TORCH_CHECK(
@@ -745,12 +745,12 @@ TEST_F(NVFuserTest, FusionEquality_CUDA) {
   Scalar* ival1 = IrBuilder::create<Scalar>(DataType::Int);
   Scalar* ival1_copy = ival1;
   Scalar* ival2 = IrBuilder::create<Scalar>(DataType::Int);
-  Scalar* ione = IrBuilder::create<Scalar>(1);
+  Scalar* ione = IrBuilder::create<Scalar>(1L);
 
   TORCH_CHECK(ival1->sameAs(ival1_copy));
   TORCH_CHECK(!ival1->sameAs(ival2));
   TORCH_CHECK(!ione->sameAs(ival1));
-  TORCH_CHECK(ione->sameAs(IrBuilder::create<Scalar>(1)));
+  TORCH_CHECK(ione->sameAs(IrBuilder::create<Scalar>(1L)));
 
   BinaryOp* add1 = IrBuilder::create<BinaryOp>(
       BinaryOpType::Add,
@@ -6033,7 +6033,7 @@ TEST_F(NVFuserTest, FusionSumTo_CUDA) {
       sum_to_shape.begin(),
       sum_to_shape.end(),
       std::back_inserter(sum_to_symb),
-      [](int s) -> Scalar* { return IrBuilder::create<Scalar>(s); });
+      [](int64_t s) -> Scalar* { return IrBuilder::create<Scalar>(s); });
 
   TensorView* tv0 = makeConcreteTensor(tensor_shape);
   fusion.addInput(tv0);
@@ -6074,7 +6074,7 @@ TEST_F(NVFuserTest, FusionSumToNoop_CUDA) {
       sum_to_shape.begin(),
       sum_to_shape.end(),
       std::back_inserter(sum_to_symb),
-      [](int s) -> Scalar* { return IrBuilder::create<Scalar>(s); });
+      [](int64_t s) -> Scalar* { return IrBuilder::create<Scalar>(s); });
 
   TensorView* tv0 = makeConcreteTensor(tensor_shape);
   fusion.addInput(tv0);

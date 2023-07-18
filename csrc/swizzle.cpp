@@ -28,7 +28,7 @@ namespace swizzles {
 std::pair<Val*, Val*> ZShape(Val* x, Val* y, Val* size_y) {
   auto zero = x->fusion()->zeroVal();
   auto one = x->fusion()->oneVal();
-  auto two = IrBuilder::create<Scalar>(2);
+  auto two = IrBuilder::create<Scalar>(2L);
   return {x, where(eq(mod(x, two), zero), y, sub(sub(size_y, one), y))};
 }
 
