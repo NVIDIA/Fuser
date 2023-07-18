@@ -166,7 +166,7 @@ class Pointer {
   }
 
   explicit operator unsigned() const {
-    return (unsigned)(int64_t)*this;
+    return (unsigned)(int64_t)(*this);
   }
 };
 
