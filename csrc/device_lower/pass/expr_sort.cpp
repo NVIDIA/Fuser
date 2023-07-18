@@ -236,27 +236,6 @@ class ExprGroup {
   bool is_scalar_only_ = false;
 };
 
-// A fusion may have a pattern that can lead to a persistent
-// pattern. If a consumer expression of a reduction output tensor has
-// a producer expression that has a broadcast consumer, merging the
-// reduction consumer and the broadcast producer needs to be done
-// after the reduction ID is merged. Otherwise, there can be a cycle
-// if the reduction input is inlined. This struct is to keep track of
-// expressions that IDs to enforce merge ordering to presere the DAG
-// property.
-//
-// This should be prevented to happen by ComputeAtRootDomainMap. See
-// issue #597 and its related issues and PRs.
-struct IndirectPersistencyConstraint {
-  // A reduced IterDomain
-  IterDomain* reduction_id = nullptr;
-  // An expression that is a consumer of the reduction output tensor
-  Expr* reduction_consumer = nullptr;
-  // Expression that are a producer to a broadcast expr that generates a
-  // broadcast domain that is permissively mapped with reduction_id
-  std::unordered_set<Expr*> broadcast_producers;
-};
-
 // This class sorts expressions guarantees two things, 1) Tensors are produced
 // before they're consumed 2) If the production of two tensors are supposed to
 // share a for loop, they're in an order where they can. (1) is pretty standard
@@ -336,22 +315,11 @@ class ExprSegmentationSorter {
   // Initialize concrete_id_dependencies
   void initializeForLoopDependencies();
 
-  // Finds all the potential patterns of indirect persistent constraints
-  void initializeIndirectPersistencyConstraints();
-
-  // Check if merging groups results in a persistent pattern
-  bool violateIndirectPersistencyConstraints(ExprGroup* g1, ExprGroup* g2)
-      const;
-
   bool hasCADomains(const std::unordered_set<IterDomain*>& domains) const;
 
   // Checks if the for loop associated with the concrete ID is ready to be
   // resolved in sorting.
   bool loopReady(IterDomain* concrete_id) const;
-
-  // Similar to loopReady, but this also makes sure the given ID
-  // itself has already been processed
-  bool isDomainProcessed(IterDomain* concrete_id) const;
 
   // Disconnect the edges connecting group to the rest of the graph, and return
   // all the edges that were disconnected
@@ -420,12 +388,6 @@ class ExprSegmentationSorter {
   // others, however, we need a "global" view to track these dependencies.
   std::unordered_map<IterDomain*, std::unordered_set<IterDomain*>>
       concrete_id_dependencies_;
-
-  // Keep track of exprs that can end up resultiing a persistent
-  // pattern. This should not be necessary once ComputeAtRootDomainMap
-  // is fixed. See issue #597
-  std::unordered_map<Expr*, std::vector<IndirectPersistencyConstraint>>
-      persistent_constraints_;
 
   // ID representing the outermost scope of the kernel being
   // generated. We may want to have this defined in the Kernel
@@ -725,7 +687,6 @@ ExprGroup* ExprSegmentationSorter::makeEmptyGroup(
       group->payload()->pa_domains.push_back(concrete_id);
     }
   }
-
   return group;
 }
 
@@ -1298,168 +1259,6 @@ void ExprSegmentationSorter::initializeForLoopDependencies() {
   }
 }
 
-// Already in an anonymous namespace, but here another nested
-// anonymous namespace is just used to indicate a grouping of related functions
-namespace {
-
-// Build a map from all broadcast domains to the BroadcastOp expr. The
-// broadcast domains are only considered when they are first created
-// by BroadcastOp exprs. Broadcast domains in subsequent consumer
-// tensors are not included.
-std::unordered_map<IterDomain*, BroadcastOp*> getBroadcastMap(Fusion* fusion) {
-  std::unordered_map<IterDomain*, BroadcastOp*> broadcast_map;
-
-  for (auto expr : fusion->exprs()) {
-    if (expr->isA<BroadcastOp>()) {
-      auto broadcast_expr = expr->as<BroadcastOp>();
-      auto broadcast_out = ir_utils::getTvOutput(broadcast_expr);
-
-      std::unordered_set<Val*> root_broadcast_domains;
-      for (auto root_i : c10::irange(broadcast_out->getRootDomain().size())) {
-        if (!broadcast_expr->isBroadcastDim(root_i)) {
-          continue;
-        }
-        root_broadcast_domains.emplace(
-            broadcast_out->getRootDomain().at(root_i));
-      }
-
-      auto all_dep_ids = DependencyCheck::getAllValsBetween(
-          root_broadcast_domains,
-          {broadcast_out->getLeafDomain().begin(),
-           broadcast_out->getLeafDomain().end()});
-
-      for (auto all_dep_id : ir_utils::filterByType<IterDomain>(all_dep_ids)) {
-        TORCH_INTERNAL_ASSERT(
-            broadcast_map.emplace(all_dep_id, broadcast_expr).second,
-            "Duplicated broadcast map detected: ",
-            all_dep_id->toString(),
-            " of ",
-            broadcast_expr->toString());
-      }
-    }
-  }
-
-  return broadcast_map;
-}
-
-// Grab all consumer IDs
-std::unordered_set<IterDomain*> getAllConsumerIDs(IterDomain* id) {
-  const auto& ca_map = GpuLower::current()->caMap();
-
-  std::unordered_set<IterDomain*> consumer_ids;
-  std::unordered_set<IterDomain*> visited;
-  std::vector<IterDomain*> to_visit;
-
-  to_visit.push_back(id);
-
-  while (!to_visit.empty()) {
-    auto id = to_visit.back();
-    to_visit.pop_back();
-    visited.emplace(id);
-    const auto& consumers = ca_map->idGraph().consumers().at(id);
-    for (auto consumer_id : consumers) {
-      consumer_ids.emplace(consumer_id);
-      if (!visited.count(consumer_id)) {
-        to_visit.push_back(consumer_id);
-      }
-    }
-  }
-
-  return consumer_ids;
-}
-
-// Get all reduction exprs and their reduction domains when there's a
-// broadcast expr that should not be merged with the reduction domains
-// to avoid cycles in a given fusion DAG.
-//
-// Returns a vector of tuples of reduction expr, its reduction ID and
-// associated broadcast exprs.
-std::vector<std::tuple<Expr*, IterDomain*, std::unordered_set<BroadcastOp*>>>
-getReductionBroadcastMap(
-    Fusion* fusion,
-    const std::unordered_map<IterDomain*, BroadcastOp*>& broadcast_map) {
-  std::vector<std::tuple<Expr*, IterDomain*, std::unordered_set<BroadcastOp*>>>
-      reduction_broadcast_map;
-
-  const auto& ca_map = GpuLower::current()->caMap();
-
-  // Check all reduction exprs
-  for (auto reduction_expr : fusion->exprs()) {
-    if (!ir_utils::isReductionOp(reduction_expr)) {
-      continue;
-    }
-
-    // For each reduction leaf domain where its input is inlined, check if
-    // there's any permissively mapped broadcast domain
-    auto reduction_out = ir_utils::getTvOutput(reduction_expr);
-    for (auto reduction_leaf_id_i :
-         c10::irange(reduction_out->getMaxProducerPosition())) {
-      auto reduction_leaf_id =
-          reduction_out->getLeafDomain().at(reduction_leaf_id_i);
-      if (reduction_leaf_id->getIterType() != IterType::Reduction) {
-        continue;
-      }
-
-      const auto& permissive_set =
-          ca_map->disjointSetOf(reduction_leaf_id, IdMappingMode::PERMISSIVE);
-
-      std::unordered_set<BroadcastOp*> broadcast_exprs;
-      for (auto mapped_broadcast_id : *permissive_set) {
-        if (mapped_broadcast_id->getIterType() != IterType::Broadcast) {
-          continue;
-        }
-
-        auto broadcast_map_it = broadcast_map.find(mapped_broadcast_id);
-        if (broadcast_map_it == broadcast_map.end()) {
-          //  This should be fine to ignore. All "new" broadcast IDs
-          //  should be registered, so if not, they are just
-          //  inherited from producers
-          continue;
-        }
-
-        // If the broadcast expr is a producer of the reduction expr,
-        // there's no issue merging them
-        auto broadcast_expr = broadcast_map_it->second;
-
-        if (DependencyCheck::isDependencyOf(
-                ir_utils::getTvOutput(broadcast_expr), reduction_out)) {
-          continue;
-        }
-
-        // If this broadcast ID or any of its consumers is not sharing
-        // the loop with the reduction ID, there's no issue of persistence.
-        const auto broadcast_consumer_ids =
-            getAllConsumerIDs(mapped_broadcast_id);
-        auto broadcast_consumer_id_it = std::find_if(
-            broadcast_consumer_ids.begin(),
-            broadcast_consumer_ids.end(),
-            [&](auto broadcast_consumer_id) {
-              return ca_map->areMapped(
-                  reduction_leaf_id,
-                  broadcast_consumer_id,
-                  IdMappingMode::LOOP);
-            });
-        if (broadcast_consumer_id_it == broadcast_consumer_ids.end()) {
-          continue;
-        }
-
-        // We now know that merging this broadcast expr might result
-        // in a cycle
-        broadcast_exprs.emplace(broadcast_expr);
-      }
-
-      if (!broadcast_exprs.empty()) {
-        reduction_broadcast_map.emplace_back(
-            reduction_expr, reduction_leaf_id, broadcast_exprs);
-      }
-    }
-  }
-
-  return reduction_broadcast_map;
-}
-
-} // namespace
-
 bool ExprSegmentationSorter::hasCADomains(
     const std::unordered_set<IterDomain*>& domains) const {
   for (auto& group : groups_) {
@@ -1470,112 +1269,6 @@ bool ExprSegmentationSorter::hasCADomains(
       return true;
     }
   }
-  return false;
-}
-
-// Similar to loopReady, but this also makes sure the given ID itself
-// is already processed
-bool ExprSegmentationSorter::isDomainProcessed(IterDomain* concrete_id) const {
-  return loopReady(concrete_id) && !hasCADomains({concrete_id});
-};
-
-void ExprSegmentationSorter::initializeIndirectPersistencyConstraints() {
-  TORCH_INTERNAL_ASSERT(
-      persistent_constraints_.empty(),
-      "Persistent constraints have already been initialized.");
-
-  const auto broadcast_map = getBroadcastMap(fusion_);
-
-  const auto reduction_broadcast_map =
-      getReductionBroadcastMap(fusion_, broadcast_map);
-
-  // Each consumer of a reduction expr in the reduction_broadcast
-  // map must not be merged with any of the producers of the
-  // associated broadcast exprs before the reduction ID is merged since that
-  // would lead to a cyclic dependency.
-  //
-  // For each of consumer exprs of a reduction expr, create a
-  // IndirectPersistentConstraint with the producers of the associated
-  // broadcast exprs.
-  for (const auto& [reduction_expr, reduction_id, broadcast_exprs] :
-       reduction_broadcast_map) {
-    auto all_reduction_consumer_exprs = DependencyCheck::getAllExprsBetween(
-        {ir_utils::getTvOutput(reduction_expr)}, fusion_->outputs());
-
-    std::vector<Val*> broadcast_outputs;
-    std::transform(
-        broadcast_exprs.begin(),
-        broadcast_exprs.end(),
-        std::back_inserter(broadcast_outputs),
-        [](BroadcastOp* broadcast_expr) {
-          return ir_utils::getTvOutput(broadcast_expr);
-        });
-
-    auto all_broadcast_producer_exprs = DependencyCheck::getAllExprsBetween(
-        {fusion_->inputs().begin(), fusion_->inputs().end()},
-        broadcast_outputs);
-
-    for (auto reduction_consumer_expr : all_reduction_consumer_exprs) {
-      IndirectPersistencyConstraint constraint = {
-          .reduction_id = reduction_id,
-          .reduction_consumer = reduction_consumer_expr,
-          .broadcast_producers = {
-              all_broadcast_producer_exprs.begin(),
-              all_broadcast_producer_exprs.end()}};
-      persistent_constraints_[reduction_consumer_expr].emplace_back(constraint);
-      if (isDebugDumpEnabled(DebugDumpOption::ExprSortVerbose)) {
-        debug() << "IndirectConstraint: " << constraint.reduction_id->toString()
-                << "\n"
-                << ", " << constraint.reduction_consumer->toString() << "\n"
-                << ", " << toDelimitedString(constraint.broadcast_producers)
-                << "\n"
-                << ", src reduction expr: " << reduction_expr->toString()
-                << std::endl;
-      }
-    }
-  }
-}
-
-bool ExprSegmentationSorter::violateIndirectPersistencyConstraints(
-    ExprGroup* sg1,
-    ExprGroup* sg2) const {
-  auto producer_group = getProducer(sg1, sg2);
-  auto consumer_group = sg1 == producer_group ? sg2 : sg1;
-
-  // Do not allow merging the producer and the consumer if there's an
-  // indirect persistency constraint and its corresponding domain is
-  // not yet merged
-
-  for (auto consumer_expr : consumer_group->exprs()) {
-    if (!persistent_constraints_.count(consumer_expr)) {
-      // No constraint for this consumer expr
-      continue;
-    }
-
-    const auto& constraints = persistent_constraints_.at(consumer_expr);
-
-    // Check if any of the producer expr hits any of the constraints
-    for (auto producer_expr : producer_group->exprs()) {
-      for (const auto& constraint : constraints) {
-        if (!constraint.broadcast_producers.count(producer_expr)) {
-          // This producer_expr is not a producer of this
-          // constraint.
-          continue;
-        }
-
-        // Check if the corresponding reduction domain is
-        // already taken care of
-        if (!isDomainProcessed(getConcreteID(constraint.reduction_id))) {
-          if (isDebugDumpEnabled(DebugDumpOption::ExprSortVerbose)) {
-            debug() << "Persistent constraint violation detected."
-                    << constraint.reduction_id->toString() << std::endl;
-          }
-          return true;
-        }
-      }
-    }
-  }
-
   return false;
 }
 
@@ -1746,13 +1439,6 @@ bool ExprSegmentationSorter::supportedMerge(ExprGroup* sg1, ExprGroup* sg2) {
     }
   }
 
-  if (violateIndirectPersistencyConstraints(producer_group, consumer_group)) {
-    if (isDebugDumpEnabled(DebugDumpOption::ExprSortVerbose)) {
-      debug() << "Persistent constraint violation detected.";
-    }
-    return false;
-  }
-
   if (isDebugDumpEnabled(DebugDumpOption::ExprSortVerbose)) {
     debug() << "Supported merge found" << std::endl;
   }
@@ -1866,8 +1552,6 @@ void ExprSegmentationSorter::sort() {
 
   // Initialize loop dependency maps
   initializeForLoopDependencies();
-
-  initializeIndirectPersistencyConstraints();
 
   bool inter_iter_update = true;
   while (inter_iter_update) {
