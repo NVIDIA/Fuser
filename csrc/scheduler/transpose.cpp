@@ -92,12 +92,14 @@ class DomainMap : public pointwise_utils::DomainMap {
       return false;
     }
     for (auto ref : grouped_inputs_outputs[0]) {
-      if (domain_map.getMappedRootDimIn(ref, innermost1)->isRFactorProduct()) {
+      auto innermost = domain_map.getMappedRootDimIn(ref, innermost1);
+      if (innermost && innermost->isRFactorProduct()) {
         return false;
       }
     }
     for (auto ref : grouped_inputs_outputs[1]) {
-      if (domain_map.getMappedRootDimIn(ref, innermost2)->isRFactorProduct()) {
+      auto innermost = domain_map.getMappedRootDimIn(ref, innermost2);
+      if (innermost && innermost->isRFactorProduct()) {
         return false;
       }
     }
