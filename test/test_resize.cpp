@@ -2291,20 +2291,6 @@ TEST_F(NVFuserTest, ResizePadToBroadcastStatic_CUDA) {
       IterType::Broadcast,
       IterType::Iteration,
   };
- /* 
-  std::vector<int64_t> t0_size = {2, 3};
-  std::vector<int64_t> t1_size = {2, 4};
-  // Note there are only 8 input scalars for 5D input. Implicit no-pad of dim 0
-  std::vector<int64_t> pad_widths = {
-      -1,
-      -1, // dim=1 pad to broadcast of second element
-      // dim=0 is implicit 0, 0
-  };
-  std::vector<IterType> expected_itertypes = {
-      IterType::Iteration,
-      IterType::Broadcast,
-  };
-  */
 
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
