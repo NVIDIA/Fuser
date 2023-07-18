@@ -341,6 +341,59 @@ TEST_F(DynamicTypeTest, Typing) {
           ::testing::HasSubstr("Cannot cast from ")));
 }
 
+TEST_F(DynamicTypeTest, MoveCtor) {
+  struct NonCopyable {
+    NonCopyable() = default;
+    NonCopyable(const NonCopyable&) = delete;
+    NonCopyable(NonCopyable&&) = default;
+    NonCopyable& operator=(const NonCopyable&) = delete;
+    NonCopyable& operator=(NonCopyable&&) = default;
+  };
+  using NonCopyableType = DynamicType<NoContainers, NonCopyable>;
+  static_assert(std::is_move_constructible_v<NonCopyableType>);
+  static_assert(std::is_move_assignable_v<NonCopyableType>);
+  static_assert(std::is_nothrow_move_constructible_v<NonCopyableType>);
+  static_assert(std::is_nothrow_move_assignable_v<NonCopyableType>);
+  NonCopyable a;
+  // This should not compile:
+  // NonCopyableType bb(a);
+  NonCopyableType b(std::move(a));
+}
+
+namespace null_tests {
+
+constexpr DoubleInt64Bool a, b;
+static_assert(a.isNull());
+static_assert(!a.hasValue());
+static_assert(b.isNull());
+static_assert(!b.hasValue());
+static_assert(a == b);
+static_assert(b == a);
+static_assert(!(a != b));
+static_assert(!(b != a));
+static_assert(!(a < b));
+static_assert(!(b < a));
+static_assert(!(a > b));
+static_assert(!(b > a));
+static_assert(a <= b);
+static_assert(b <= a);
+static_assert(a >= b);
+static_assert(b >= a);
+static_assert(a == std::monostate{});
+static_assert(std::monostate{} == a);
+static_assert(!(a != std::monostate{}));
+static_assert(!(std::monostate{} != a));
+static_assert(!(a < std::monostate{}));
+static_assert(!(std::monostate{} < a));
+static_assert(!(a > std::monostate{}));
+static_assert(!(std::monostate{} > a));
+static_assert(a <= std::monostate{});
+static_assert(std::monostate{} <= a);
+static_assert(a >= std::monostate{});
+static_assert(std::monostate{} >= a);
+
+} // namespace null_tests
+
 #define TEST_BINARY_OP_ALLTYPE(name, op)                                       \
   TEST_F(DynamicTypeTest, name) {                                              \
     static_assert(opcheck<DoubleInt64Bool> op opcheck<DoubleInt64Bool>);       \

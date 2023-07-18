@@ -220,11 +220,6 @@ void IterVisitor::traverseBetween(
           if (x == nullptr) {
             continue;
           }
-          // Note that attributes of type Attribute is not possible to
-          // dispatch as it's a template type.
-          if (x->getValType() == ValType::Attribute) {
-            continue;
-          }
           next_stmts.push_back(x);
         }
       }

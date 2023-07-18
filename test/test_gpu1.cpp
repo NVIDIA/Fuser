@@ -441,10 +441,11 @@ TEST_F(NVFuserTest, FusionRegister_CUDA) {
   Scalar* v2 = IrBuilder::create<Scalar>(2.f);
   Val* v3 = binaryOp(BinaryOpType::Add, v1, v2);
   Val* v4 = binaryOp(BinaryOpType::Add, v1, v2);
-  TORCH_CHECK(v1->name() + 1 == v2->name());
-  TORCH_CHECK(v2->name() + 1 == v3->name());
-  TORCH_CHECK(v3->name() + 1 == v4->name());
-  TORCH_CHECK(v3->definition()->name() + 1 == v4->definition()->name());
+  EXPECT_EQ(v1->name() + 1, v2->name());
+  EXPECT_EQ(v2->name() + 1, v3->name());
+  // we need a scalar to store BinaryOpType, therefore +2
+  EXPECT_EQ(v3->name() + 2, v4->name());
+  EXPECT_EQ(v3->definition()->name() + 1, v4->definition()->name());
 }
 
 // dummy expr with 2 outputs only for toposort test.
