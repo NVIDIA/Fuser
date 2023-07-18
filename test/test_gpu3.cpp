@@ -4724,8 +4724,8 @@ TEST_F(NVFuserTest, FusionExpandReduce_CUDA) {
   auto tv0 = makeConcreteTensor({1, 8});
   fusion->addInput(tv0);
 
-  auto tv1 = expand(
-      tv0, {IrBuilder::create<Val>(12L), IrBuilder::create<Val>(8L)});
+  auto tv1 =
+      expand(tv0, {IrBuilder::create<Val>(12L), IrBuilder::create<Val>(8L)});
 
   auto tv2 = sum(tv1, {0});
   fusion->addOutput(tv2);
@@ -4750,8 +4750,8 @@ TEST_F(NVFuserTest, FusionExpandReduce2_CUDA) {
   auto tv0 = makeConcreteTensor({1, 4});
   fusion->addInput(tv0);
 
-  auto tv1 = expand(
-      tv0, {IrBuilder::create<Val>(3L), IrBuilder::create<Val>(4L)});
+  auto tv1 =
+      expand(tv0, {IrBuilder::create<Val>(3L), IrBuilder::create<Val>(4L)});
 
   auto tv2 = sum(tv1, {0});
   fusion->addOutput(tv2);

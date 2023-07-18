@@ -491,8 +491,8 @@ TEST_F(NVFuserTest, DynamicTransform8_CUDA) {
   auto tv0 = makeConcreteTensor({3, 4});
   fusion.addInput(tv0);
 
-  auto tv1 = reshape(
-      tv0, {IrBuilder::create<Val>(4L), IrBuilder::create<Val>(3L)});
+  auto tv1 =
+      reshape(tv0, {IrBuilder::create<Val>(4L), IrBuilder::create<Val>(3L)});
   fusion.addOutput(tv1);
 
   // Make sure the reshape is recognized as a static reshape
@@ -983,8 +983,7 @@ TEST_F(NVFuserTest, FusionDynamicSliceToBroadcast_CUDA) {
   fusion.addInput(tv0);
   // tv0[:2] introduces symbolic IterDomain
   auto tv1 = slice(
-      tv0,
-      {{fusion.zeroVal(), IrBuilder::create<Val>(2L), fusion.oneVal()}});
+      tv0, {{fusion.zeroVal(), IrBuilder::create<Val>(2L), fusion.oneVal()}});
   // tv1 has Broadcast rfactor, Iteration root
   auto tv2 = slice(tv1, {{fusion.zeroVal(), fusion.oneVal(), fusion.oneVal()}});
   // tv2 has a Symbolic root related to a Broadcast rfactor through a Resize op

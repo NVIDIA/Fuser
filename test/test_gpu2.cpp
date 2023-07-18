@@ -5703,8 +5703,7 @@ TEST_F(NVFuserTest, FusionBNBackwardRepro_CUDA) {
       makeSymbolicTensor(numDims); // single tensor broadcasted is dangerous.
   fusion.addInput(gt_0);
 
-  auto gt_bool =
-      binaryOp(BinaryOpType::GT, gt_0, IrBuilder::create<Val>(1L));
+  auto gt_bool = binaryOp(BinaryOpType::GT, gt_0, IrBuilder::create<Val>(1L));
   auto gt_float = castOp(DataType::Float, gt_bool);
 
   auto grad_out = mul(grad_out_prev, gt_float);
@@ -5772,8 +5771,7 @@ TEST_F(NVFuserTest, FusionBNBackwardRepro2_CUDA) {
   auto gt_0 = makeConcreteTensor({-1, -1, 1, 1});
   fusion.addInput(gt_0);
 
-  auto gt_bool =
-      binaryOp(BinaryOpType::GT, gt_0, IrBuilder::create<Val>(1L));
+  auto gt_bool = binaryOp(BinaryOpType::GT, gt_0, IrBuilder::create<Val>(1L));
   auto gt_float = castOp(DataType::Float, gt_bool);
 
   auto grad_out = mul(grad_out_prev, gt_float);
