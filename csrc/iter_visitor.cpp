@@ -153,6 +153,16 @@ void IterVisitor::traverseBetween(
   stmt_stack.clear();
   stmt_stack.emplace_back(to.rbegin(), to.rend());
 
+  if (traverse_siblings) {
+    // Append siblings of entries in "to" to bottom of stack
+    auto& bottom_stack = stmt_stack.back();
+    for (auto val : ir_utils::filterByType<Val>(bottom_stack)) {
+      for (auto sib : ir_utils::siblingValsOf(val)) {
+        maybe_orphaned_sibs.push_back(sib);
+      }
+    }
+  }
+
   bool all_inputs_visited = false;
 
   while (!stmt_stack.empty()) {

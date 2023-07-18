@@ -9328,6 +9328,21 @@ TEST_F(NVFuserTest, IterVisitorTraverseSiblings_CUDA) {
   TORCH_CHECK(
       std::find(stmts.begin(), stmts.end(), wf.n) != stmts.end(),
       "Welford n not traversed");
+
+  // Test getting statements "to" a tensor with siblings
+  stmts = StmtSort::getStmtsTo(
+      &fusion,
+      {wf.n},
+      /*traverse_all_paths*/ false,
+      /*traverse_attributes*/ false,
+      /*traverse_siblings*/ true);
+  // Make sure the expansion parameters of tv1_resize are visited
+  TORCH_CHECK(
+      std::find(stmts.begin(), stmts.end(), wf.avg) != stmts.end(),
+      "Welford avg not traversed in getStmtsTo({n})");
+  TORCH_CHECK(
+      std::find(stmts.begin(), stmts.end(), wf.var_sum) != stmts.end(),
+      "Welford var_sum not traversed in getStmtsTo({n})");
 }
 
 // Test file size should be up to 10K LoC. Create a new file for more tests.
