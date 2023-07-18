@@ -48,7 +48,7 @@ bool ParallelizedDomainPredicate::PredicateInfo::addDomain(IterDomain* id) {
   }
 }
 
-Val*ParallelizedDomainPredicate::PredicateInfo::getPredicate() const {
+Val* ParallelizedDomainPredicate::PredicateInfo::getPredicate() const {
   Val* pred = nullptr;
 
   auto index = SimplifyingIrBuilder::create<NamedScalar>(
@@ -215,7 +215,7 @@ ParallelizedDomainPredicate::getPredicateMap(
   return map;
 }
 
-Val*ParallelizedDomainPredicate::getPredicate(
+Val* ParallelizedDomainPredicate::getPredicate(
     const Expr* expr,
     const std::vector<kir::ForLoop*>& loops) {
   auto pred_map = getPredicateMap(expr, loops);
@@ -330,7 +330,7 @@ std::size_t UnswitchPredicateKeyHash::operator()(
   return h;
 };
 
-Val*PredicateCompute::getInlinePredicate(
+Val* PredicateCompute::getInlinePredicate(
     const Expr* expr,
     const std::vector<kir::ForLoop*>& loops,
     const std::unordered_set<kir::ForLoop*>& rotated_loops,
@@ -430,7 +430,7 @@ Val*PredicateCompute::getInlinePredicate(
   return cond;
 }
 
-Val*UnswitchPredicate::get(
+Val* UnswitchPredicate::get(
     const std::vector<kir::ForLoop*>& outer_loops,
     kir::ForLoop* unrolled_loop) {
   FUSER_PERF_SCOPE("GpuLower::Lower::UnswitchPredicate::get");

@@ -224,7 +224,8 @@ void Fusion::addInput(Val* input) {
         !input->isConst(),
         "Immediate scalar value cannot be added as an input. It is not necessary to pass it as an input.");
     TORCH_CHECK(
-        !(!input->isA<TensorView>() && input->getDataType() != DataType::Double &&
+        !(!input->isA<TensorView>() &&
+          input->getDataType() != DataType::Double &&
           input->getDataType() != DataType::Int &&
           input->getDataType() != DataType::ComplexDouble &&
           input->getDataType() != DataType::Bool),

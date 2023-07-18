@@ -415,7 +415,7 @@ Val* operator""_(const char* str, size_t) {
   return parse(str);
 }
 
-Val*operator""_b(const char* str, size_t) {
+Val* operator""_b(const char* str, size_t) {
   return parse(str);
 }
 
@@ -629,8 +629,7 @@ TEST_F(ExprSimplifierTest, SignProve_CUDA) {
     EXPECT_TRUE(proved) << "Unable to prove " << x->toInlineString() << " > 0";
   };
   auto assertProvedNonNegative = [](Val* x,
-                                    const std::vector<Val*>& assumptions =
-                                        {}) {
+                                    const std::vector<Val*>& assumptions = {}) {
     auto proved =
         (simplifyExpr(IrBuilder::geExpr(x, "0"_), {}, assumptions)->getBool() ==
          true) &&

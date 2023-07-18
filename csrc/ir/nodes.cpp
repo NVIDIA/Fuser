@@ -2496,8 +2496,7 @@ IterDomain* IterDomain::merge(IterDomain* outer, IterDomain* inner) {
   }
 
   IterDomain* merged_id =
-      IterDomainBuilder(
-          outer->container()->zeroVal(), merged_id_size)
+      IterDomainBuilder(outer->container()->zeroVal(), merged_id_size)
           .parallel_type(outer->getParallelType())
           .expanded_extent(expanded_extent)
           .iter_type(itype)
@@ -2553,8 +2552,7 @@ std::pair<IterDomain*, IterDomain*> IterDomain::split(
   // outer loop IterDomain
   IterDomain* ido =
       IterDomainBuilder(
-          in->container()->zeroVal(),
-          inner_split ? remainder : factor)
+          in->container()->zeroVal(), inner_split ? remainder : factor)
           .expanded_extent(
               in->hasExpandedExtent() && inner_split ? expanded_remainder
                                                      : nullptr)
@@ -2565,8 +2563,7 @@ std::pair<IterDomain*, IterDomain*> IterDomain::split(
   // inner loop IterDomain
   IterDomain* idi =
       IterDomainBuilder(
-          in->container()->zeroVal(),
-          inner_split ? factor : remainder)
+          in->container()->zeroVal(), inner_split ? factor : remainder)
           .expanded_extent(
               in->hasExpandedExtent() && !inner_split ? expanded_remainder
                                                       : nullptr)
@@ -2709,8 +2706,7 @@ IterDomain* IterDomain::resize(
   }
 
   auto resized_id =
-      IterDomainBuilder(
-          in->container()->zeroVal(), resized_id_size)
+      IterDomainBuilder(in->container()->zeroVal(), resized_id_size)
           .is_rfactor_domain(mark_as_rfactor)
           .iter_type(iter_type)
           .build();
@@ -3910,7 +3906,7 @@ Val* CatOp::getConcatenatedDomainIndex() const {
   return idx;
 }
 
-Val*CatOp::getPred(int input_idx) const {
+Val* CatOp::getPred(int input_idx) const {
   TORCH_INTERNAL_ASSERT(
       container()->isA<kir::Kernel>(),
       "Should only be used for Kernel container.");

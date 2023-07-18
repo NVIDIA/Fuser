@@ -65,8 +65,8 @@ TensorView* variance(
 
   auto num_features = numFeatures(x, dims, kNumberOfDims);
   if (correction > 0) {
-    num_features = sub(
-        num_features, IrBuilder::create<Val>(x->container(), correction));
+    num_features =
+        sub(num_features, IrBuilder::create<Val>(x->container(), correction));
   }
   auto y = div(sum_x_mean_sub_sq, num_features);
 
@@ -106,8 +106,8 @@ VarMeanResult variance_mean(
       TensorDomain::noReductions(x->getMaybeRFactorDomain()).size();
   auto num_features = numFeatures(x, dims, kNumberOfDims);
   if (correction > 0) {
-    num_features = sub(
-        num_features, IrBuilder::create<Val>(x->container(), correction));
+    num_features =
+        sub(num_features, IrBuilder::create<Val>(x->container(), correction));
   }
 
   auto welford_out = Welford(x, dims);

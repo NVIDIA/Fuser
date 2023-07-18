@@ -1017,8 +1017,8 @@ TEST_F(NVFuserTest, FusionExpandView2_CUDA) {
   auto tv1 = makeConcreteTensor({3, 4, 8});
   fusion->addInput(tv1);
 
-  auto tv2 = expand(
-      tv0, {IrBuilder::create<Val>(12), IrBuilder::create<Val>(8)});
+  auto tv2 =
+      expand(tv0, {IrBuilder::create<Val>(12), IrBuilder::create<Val>(8)});
 
   auto tv3 = reshape(tv2, {12, 8}, {3, 4, 8});
   auto tv4 = add(tv3, tv1);
@@ -2179,8 +2179,7 @@ TEST_F(NVFuserTest, FusionIssue2076_CUDA) {
   auto tv5 = mul(tv3, IrBuilder::create<Val>(1.0));
   auto tv6 = sub(IrBuilder::create<Val>(1.0), tv5);
   auto tv7 = castOp(DataType::Bool, tv6);
-  auto tv8 =
-      where(tv7, IrBuilder::create<Val>(-3.4028200000000001e+38), tv6);
+  auto tv8 = where(tv7, IrBuilder::create<Val>(-3.4028200000000001e+38), tv6);
   auto tv9 = add(tv8, tv2);
   auto tv10 = set(tv9);
   auto tv11 = expand(

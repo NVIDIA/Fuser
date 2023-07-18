@@ -82,10 +82,8 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
         }
       }
       TORCH_INTERNAL_ASSERT(conditional != nullptr);
-      conditional = GpuLower::current()
-                        ->commonScalarMap()
-                        .hoistScalar(conditional, for_loops_)
-                        ;
+      conditional = GpuLower::current()->commonScalarMap().hoistScalar(
+          conditional, for_loops_);
       expr->predicate()->setValue(conditional);
       TORCH_INTERNAL_ASSERT(expr->predicate()->value() != nullptr);
       setWritePredicate(expr);
@@ -145,10 +143,8 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
     if (expr->writePredicate() != nullptr) {
       auto write_cond = generateConditional(expr->writePredicate());
       if (write_cond) {
-        write_cond = GpuLower::current()
-                         ->commonScalarMap()
-                         .hoistScalar(write_cond, for_loops_)
-                         ;
+        write_cond = GpuLower::current()->commonScalarMap().hoistScalar(
+            write_cond, for_loops_);
         expr->writePredicate()->setValue(write_cond);
       } else {
         // If generateConditional returns null, it means no specific
@@ -187,10 +183,8 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
     if (!ite->predicate()->hasValue()) {
       auto conditional = generateConditional(ite->predicate());
       TORCH_INTERNAL_ASSERT(conditional != nullptr);
-      conditional = GpuLower::current()
-                        ->commonScalarMap()
-                        .hoistScalar(conditional, for_loops_)
-                        ;
+      conditional = GpuLower::current()->commonScalarMap().hoistScalar(
+          conditional, for_loops_);
 
       // Update bool conditional in-place
       ite->predicate()->setValue(conditional);

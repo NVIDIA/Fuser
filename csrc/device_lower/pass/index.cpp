@@ -1520,8 +1520,7 @@ void IndexLowering::handle(const CatOp* cat) {
                              cat->input(i)->as<TensorView>()->getRootDomain())
                              .at(cat->concatenatedDim());
     cur_extent = add(cur_extent, inp_concat_id->extent());
-    preds.at(i) =
-        IrBuilder::ltExpr(concatenated_dim_idx, cur_extent);
+    preds.at(i) = IrBuilder::ltExpr(concatenated_dim_idx, cur_extent);
   }
 
   auto lowered = IrBuilder::create<CatOp>(

@@ -3484,8 +3484,7 @@ class IrParser {
 
             std::vector<CgValue> expand_sizes_vec;
             for (const auto& size : expand_sizes.value()) {
-              expand_sizes_vec.push_back(
-                  IrBuilder::create<Val>((int64_t)size));
+              expand_sizes_vec.push_back(IrBuilder::create<Val>((int64_t)size));
             }
 
             // TODO: we should be able to support dynamic expand values

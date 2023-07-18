@@ -22,7 +22,7 @@ namespace nvfuser {
 
 namespace {
 
-Val*getPredicatePerParallelType(
+Val* getPredicatePerParallelType(
     ParallelType pt,
     const ThreadPredicateMap::PredicateInfo& pred_info) {
   auto pt_dim = GpuLower::current()->parallelDimensionMap().get(pt);
@@ -36,11 +36,10 @@ Val*getPredicatePerParallelType(
   // value from the grid reduce.
   if (isParallelTypeBlockDim(pt) && pred_info.limited_types.get(pt)) {
     return SimplifyingIrBuilder::eqExpr(
-               NamedScalar::getParallelIndex(pt),
-               SimplifyingIrBuilder::subExpr(
-                   NamedScalar::getParallelDim(pt),
-                   GpuLower::current()->kernel()->oneVal()))
-        ;
+        NamedScalar::getParallelIndex(pt),
+        SimplifyingIrBuilder::subExpr(
+            NamedScalar::getParallelDim(pt),
+            GpuLower::current()->kernel()->oneVal()));
   }
 
   const auto& broadcast_rd_indices_map = pred_info.broadcast_rd_indices_map;
@@ -58,14 +57,13 @@ Val*getPredicatePerParallelType(
   }
 
   return SimplifyingIrBuilder::eqExpr(
-             NamedScalar::getParallelIndex(pt),
-             GpuLower::current()->kernel()->zeroVal())
-      ;
+      NamedScalar::getParallelIndex(pt),
+      GpuLower::current()->kernel()->zeroVal());
 }
 
 } // namespace
 
-Val*ThreadPredicateMap::getPredicateFromPredicateInfo(
+Val* ThreadPredicateMap::getPredicateFromPredicateInfo(
     const ThreadPredicateMap::PredicateInfo& pred_info,
     const ParallelTypeBitmap& mask) {
   const auto pred_types =
@@ -794,7 +792,7 @@ bool ThreadPredicateMap::update(
   }
 }
 
-Val*ThreadPredicateMap::getPredicate(
+Val* ThreadPredicateMap::getPredicate(
     const TensorView* tv,
     ParallelTypeBitmap mask) const {
   TORCH_INTERNAL_ASSERT(find(tv) != end(), "Couldn't find ", tv);

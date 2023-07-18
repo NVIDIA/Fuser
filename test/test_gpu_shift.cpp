@@ -1574,8 +1574,8 @@ TEST_F(NVFuserTest, FusionShift5ptStencilChain_CUDA) {
     tv_stencil1 = add(tv_stencil1, tv);
   }
 
-  tv_stencil1 = div(
-      tv_stencil1, IrBuilder::create<Val>(tv_stencil1_shifts.size() + 1.0));
+  tv_stencil1 =
+      div(tv_stencil1, IrBuilder::create<Val>(tv_stencil1_shifts.size() + 1.0));
 
   // Second stencil: Same 5pt stencil
   std::vector<TensorView*> tv_stencil2_shifts;
@@ -1588,8 +1588,8 @@ TEST_F(NVFuserTest, FusionShift5ptStencilChain_CUDA) {
     tv_stencil2 = add(tv_stencil2, tv);
   }
 
-  tv_stencil2 = div(
-      tv_stencil2, IrBuilder::create<Val>(tv_stencil2_shifts.size() + 1.0));
+  tv_stencil2 =
+      div(tv_stencil2, IrBuilder::create<Val>(tv_stencil2_shifts.size() + 1.0));
 
   auto tv_out = tv_stencil2;
 
@@ -4269,8 +4269,8 @@ TEST_F(NVFuserTest, FusionPartialSplit4_CUDA) {
     tv_stencil1 = add(tv_stencil1, tv);
   }
 
-  tv_stencil1 = div(
-      tv_stencil1, IrBuilder::create<Val>(tv_stencil1_shifts.size() + 1.0));
+  tv_stencil1 =
+      div(tv_stencil1, IrBuilder::create<Val>(tv_stencil1_shifts.size() + 1.0));
 
   // Second stencil: Same 5pt stencil
   std::vector<TensorView*> tv_stencil2_shifts;
@@ -4283,8 +4283,8 @@ TEST_F(NVFuserTest, FusionPartialSplit4_CUDA) {
     tv_stencil2 = add(tv_stencil2, tv);
   }
 
-  tv_stencil2 = div(
-      tv_stencil2, IrBuilder::create<Val>(tv_stencil2_shifts.size() + 1.0));
+  tv_stencil2 =
+      div(tv_stencil2, IrBuilder::create<Val>(tv_stencil2_shifts.size() + 1.0));
 
   auto tv_out = tv_stencil2;
 

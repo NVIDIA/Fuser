@@ -491,8 +491,8 @@ TEST_F(NVFuserTest, DynamicTransform8_CUDA) {
   auto tv0 = makeConcreteTensor({3, 4});
   fusion.addInput(tv0);
 
-  auto tv1 = reshape(
-      tv0, {IrBuilder::create<Val>(4), IrBuilder::create<Val>(3)});
+  auto tv1 =
+      reshape(tv0, {IrBuilder::create<Val>(4), IrBuilder::create<Val>(3)});
   fusion.addOutput(tv1);
 
   // Make sure the reshape is recognized as a static reshape

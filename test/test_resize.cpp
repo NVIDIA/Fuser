@@ -23,8 +23,7 @@ TEST_F(NVFuserTest, FusionResizePad1_CUDA) {
   auto tv0 = makeSymbolicTensor(1);
   fusion.addInput(tv0);
 
-  auto tv1 =
-      pad(tv0, {IrBuilder::create<Val>(1), IrBuilder::create<Val>(1)});
+  auto tv1 = pad(tv0, {IrBuilder::create<Val>(1), IrBuilder::create<Val>(1)});
   fusion.addOutput(tv1);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -51,8 +50,7 @@ TEST_F(NVFuserTest, FusionResizePad2_CUDA) {
   auto tv0 = makeSymbolicTensor(1);
   fusion.addInput(tv0);
 
-  auto tv1 =
-      pad(tv0, {IrBuilder::create<Val>(1), IrBuilder::create<Val>(1)});
+  auto tv1 = pad(tv0, {IrBuilder::create<Val>(1), IrBuilder::create<Val>(1)});
   fusion.addOutput(tv1);
 
   tv1->split(0, 4);
@@ -85,8 +83,7 @@ TEST_F(NVFuserTest, FusionResizePad3_CUDA) {
   fusion.addInput(tv1);
 
   auto tv2 = set(tv0);
-  auto tv3 =
-      pad(tv2, {IrBuilder::create<Val>(1), IrBuilder::create<Val>(1)});
+  auto tv3 = pad(tv2, {IrBuilder::create<Val>(1), IrBuilder::create<Val>(1)});
   auto tv4 = add(tv3, tv1);
   fusion.addOutput(tv4);
 
@@ -129,8 +126,7 @@ TEST_F(NVFuserTest, FusionResizePad4_CUDA) {
   auto tv0 = makeSymbolicTensor(1);
   fusion.addInput(tv0);
 
-  auto tv1 =
-      pad(tv0, {IrBuilder::create<Val>(1), IrBuilder::create<Val>(1)});
+  auto tv1 = pad(tv0, {IrBuilder::create<Val>(1), IrBuilder::create<Val>(1)});
   fusion.addOutput(tv1);
 
   tv1->axis(0)->parallelize(ParallelType::TIDx);
@@ -160,8 +156,7 @@ TEST_F(NVFuserTest, FusionResizePad5_CUDA) {
   fusion.addInput(tv0);
 
   auto tv1 = set(tv0);
-  auto tv2 =
-      pad(tv1, {IrBuilder::create<Val>(1), IrBuilder::create<Val>(1)});
+  auto tv2 = pad(tv1, {IrBuilder::create<Val>(1), IrBuilder::create<Val>(1)});
   fusion.addOutput(tv2);
 
   tv1->axis(0)->parallelize(ParallelType::TIDx);
@@ -212,8 +207,7 @@ TEST_F(NVFuserTest, FusionResizePad6_CUDA) {
   fusion.addInput(tv1);
 
   auto tv2 = add(tv0, IrBuilder::create<Val>(1.0));
-  auto tv3 =
-      pad(tv2, {IrBuilder::create<Val>(1), IrBuilder::create<Val>(1)});
+  auto tv3 = pad(tv2, {IrBuilder::create<Val>(1), IrBuilder::create<Val>(1)});
   auto tv4 = add(tv3, tv1);
   fusion.addOutput(tv4);
 
@@ -257,8 +251,7 @@ TEST_F(NVFuserTest, FusionResizePad7_CUDA) {
   fusion.addInput(tv0);
 
   auto tv1 = set(tv0);
-  auto tv2 =
-      pad(tv1, {IrBuilder::create<Val>(1), IrBuilder::create<Val>(1)});
+  auto tv2 = pad(tv1, {IrBuilder::create<Val>(1), IrBuilder::create<Val>(1)});
   auto tv3 = set(tv2);
   fusion.addOutput(tv3);
 
@@ -347,8 +340,7 @@ TEST_F(NVFuserTest, FusionResizePadScheduler1_CUDA) {
   auto tv0 = makeSymbolicTensor(2);
   fusion->addInput(tv0);
 
-  auto tv1 =
-      pad(tv0, {IrBuilder::create<Val>(1), IrBuilder::create<Val>(1)});
+  auto tv1 = pad(tv0, {IrBuilder::create<Val>(1), IrBuilder::create<Val>(1)});
   fusion->addOutput(tv1);
 
   std::vector<int64_t> shape({99, 111});
@@ -380,8 +372,7 @@ TEST_F(NVFuserTest, FusionResizePadScheduler2_CUDA) {
   fusion.addInput(tv1);
 
   auto tv2 = set(tv0);
-  auto tv3 =
-      pad(tv2, {IrBuilder::create<Val>(1), IrBuilder::create<Val>(1)});
+  auto tv3 = pad(tv2, {IrBuilder::create<Val>(1), IrBuilder::create<Val>(1)});
   auto tv4 = add(tv3, tv1);
   fusion.addOutput(tv4);
 
@@ -946,8 +937,7 @@ TEST_F(NVFuserTest, FusionResizeSlice2_CUDA) {
   auto tv1 = slice(
       tv0,
       {Slice(),
-       {IrBuilder::create<Val>(0),
-        IrBuilder::create<Val>(shape[1] / 2)}});
+       {IrBuilder::create<Val>(0), IrBuilder::create<Val>(shape[1] / 2)}});
   auto tv2 = slice(tv0, {Slice(), {IrBuilder::create<Val>(shape[1] / 2)}});
   auto tv3 = add(tv1, tv2);
   fusion.addOutput(tv3);
@@ -1009,8 +999,7 @@ TEST_F(NVFuserTest, FusionResizeSlice4_CUDA) {
 
   // Split the input to [0:2, :] and [2:, :]
   auto tv1 = slice(
-      tv0,
-      {{IrBuilder::create<Val>(0), IrBuilder::create<Val>(2)}, Slice()});
+      tv0, {{IrBuilder::create<Val>(0), IrBuilder::create<Val>(2)}, Slice()});
   auto tv2 = slice(tv0, {{IrBuilder::create<Val>(2)}, Slice()});
 
   auto tv3 = add(tv1, IrBuilder::create<Val>(1.0));
@@ -1962,10 +1951,8 @@ TEST_F(NVFuserTest, ResizePermuteAndSlice_CUDA) {
   auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
   auto tv2 = slice(
       tv1,
-      {{IrBuilder::create<Val>(1),
-        IrBuilder::create<Val>(shape.at(0) - 1)},
-       {IrBuilder::create<Val>(2),
-        IrBuilder::create<Val>(shape.at(1) - 2)}});
+      {{IrBuilder::create<Val>(1), IrBuilder::create<Val>(shape.at(0) - 1)},
+       {IrBuilder::create<Val>(2), IrBuilder::create<Val>(shape.at(1) - 2)}});
   auto tv3 = transpose(tv2, 0, 1);
   fusion->addOutput(tv3);
   auto tv4 = add(tv2, IrBuilder::create<Val>(1.0));

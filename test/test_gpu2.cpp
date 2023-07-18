@@ -8157,8 +8157,7 @@ TEST_F(NVFuserTest, FusionSegmenterCombineReductionsCycleRepro_CUDA) {
   auto t29 = mul(t25, t23);
   auto t30 = sum(t29, {2});
   auto t31 = broadcast(t30, {false, false, true});
-  auto d59 =
-      mul(t1->getRootDomain()[2]->extent(), IrBuilder::create<Val>(1.0));
+  auto d59 = mul(t1->getRootDomain()[2]->extent(), IrBuilder::create<Val>(1.0));
   auto t26 = mul(d59, t25);
   auto txx = mul(t26, IrBuilder::create<Val>(1.0));
   auto t33 = sub(txx, t28);
@@ -9258,10 +9257,7 @@ TEST_F(NVFuserTest, FusionIssue1133_CUDA) {
             size->value());
         tv1_validated = true;
       } else {
-        TORCH_CHECK(
-            size_int == 1,
-            "Invalid allocation size: ",
-            size->value());
+        TORCH_CHECK(size_int == 1, "Invalid allocation size: ", size->value());
         tv2_validated = true;
       }
     }

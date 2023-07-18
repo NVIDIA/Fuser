@@ -158,8 +158,7 @@ class MisalignedVectorizationModifier : public kir::ExprMutator {
 
     // >>>>>>>>>>>>>
     // Number of elements in vectorize access
-    auto vector_size =
-        tensors.vec_tv->getLeafDomain().back()->extent();
+    auto vector_size = tensors.vec_tv->getLeafDomain().back()->extent();
 
     // Size of memory type for the elements
     Val* data_size_in_bytes =
@@ -418,8 +417,7 @@ class MisalignedVectorizationModifier : public kir::ExprMutator {
       if (pred_stop != nullptr) {
         // TODO: this doesn't work with loop rotation
         auto body_pred = IrBuilder::create<kir::Predicate>(
-            IrBuilder::ltExpr(new_loop->indexOrStartIfTrivial(), pred_stop)
-                );
+            IrBuilder::ltExpr(new_loop->indexOrStartIfTrivial(), pred_stop));
         auto body_ite = IrBuilder::create<kir::IfThenElse>(body_pred);
         body->push_back(body_ite);
         body = &body_ite->thenBody();

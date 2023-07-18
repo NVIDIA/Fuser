@@ -320,8 +320,7 @@ Val* getProducerIndexWithPartialSplit(
   }
 
   return SimplifyingIrBuilder::addExpr(
-      producer_index,
-      SimplifyingIrBuilder::create<Val>(diff->evaluateInt()));
+      producer_index, SimplifyingIrBuilder::create<Val>(diff->evaluateInt()));
 }
 
 Val* getTensorBaseAddress(TensorView* tv) {
@@ -2153,8 +2152,7 @@ std::vector<Val*> Index::getNonGlobalConsumerStridedIndices(
         // Switching index generated for main loop or epilog component.
         db_switch_index = SimplifyingIrBuilder::modExpr(
             SimplifyingIrBuilder::addExpr(
-                loop_index,
-                SimplifyingIrBuilder::create<Val>(stage_depth - 1)),
+                loop_index, SimplifyingIrBuilder::create<Val>(stage_depth - 1)),
             SimplifyingIrBuilder::create<Val>(stage_depth));
       }
 
@@ -2971,10 +2969,8 @@ std::vector<RootPredicateInfo> Index::getReferenceRootPredicates(
     //   start_index + start_offset >= 0
     auto offsetted_start_index =
         SimplifyingIrBuilder::addExpr(start_index, info.start_offset_);
-    auto start_pred =
-        SimplifyingIrBuilder::geExpr(
-            offsetted_start_index, GpuLower::current()->kernel()->zeroVal())
-            ;
+    auto start_pred = SimplifyingIrBuilder::geExpr(
+        offsetted_start_index, GpuLower::current()->kernel()->zeroVal());
     info.start_predicate_ = start_pred;
 
     // Build predicates for stop positions as:
@@ -2986,8 +2982,7 @@ std::vector<RootPredicateInfo> Index::getReferenceRootPredicates(
       auto offsetted_stop_index =
           SimplifyingIrBuilder::addExpr(stop_index, stop_offset);
       auto stop_pred = SimplifyingIrBuilder::ltExpr(
-                           offsetted_stop_index, contig_id->extent())
-                           ;
+          offsetted_stop_index, contig_id->extent());
       info.stop_predicate_ = stop_pred;
     }
 

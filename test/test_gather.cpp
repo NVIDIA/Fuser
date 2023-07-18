@@ -415,8 +415,8 @@ TEST_F(IndexingOpTest, TorchGatherIndexTvExtentIsOne_CUDA) {
   fusion.addInput(tv_in2);
 
   auto tv_gather = torch_gather(tv_in1, 1, tv_idx);
-  auto tv_add = clamp(
-      tv_gather, IrBuilder::create<Val>(-1), IrBuilder::create<Val>(1));
+  auto tv_add =
+      clamp(tv_gather, IrBuilder::create<Val>(-1), IrBuilder::create<Val>(1));
   auto tv_out = mul(tv_add, tv_in2);
   fusion.addOutput(tv_out);
 
@@ -1209,14 +1209,14 @@ TEST_F(IndexingOpTest, TakeAlongAxisCrossEntropyLoss_CUDA) {
   fusion->addInput(tv1);
   auto tv2 = max(tv0, {1});
   auto tv3 = broadcast(tv2, {false, true});
-  auto tv4 = expand(
-      tv3, {IrBuilder::create<Val>(128), IrBuilder::create<Val>(371)});
+  auto tv4 =
+      expand(tv3, {IrBuilder::create<Val>(128), IrBuilder::create<Val>(371)});
   auto tv5 = sub(tv0, tv4);
   auto tv6 = exp(tv5);
   auto tv7 = sum(tv6, {1});
   auto tv8 = broadcast(tv7, {false, true});
-  auto tv9 = expand(
-      tv8, {IrBuilder::create<Val>(128), IrBuilder::create<Val>(371)});
+  auto tv9 =
+      expand(tv8, {IrBuilder::create<Val>(128), IrBuilder::create<Val>(371)});
   auto tv10 = div(tv6, tv9);
   auto tv11 = log(tv10);
   auto tv12 = neg(tv11);

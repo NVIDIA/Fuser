@@ -418,7 +418,7 @@ TEST_F(LoopRotationTest, SelectDoubleBufferLoad_CUDA) {
 __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> T4) {
   NVFUSER_DEFINE_MAGIC_ZERO;
   int64_t i0;
-  i0 = 4 * T0.stride[0];
+  i0 = T0.stride[0] * 4;
   int64_t i1;
   i1 = T0.stride[0] * 5;
   bool b2;

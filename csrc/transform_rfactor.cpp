@@ -186,8 +186,7 @@ class ReplayRFactor : public ReplayTransformations {
         mul(id_outer_mapped->extent(), id_inner_mapped->extent());
 
     IterDomain* merged_id =
-        IterDomainBuilder(
-            m->container()->zeroVal(), merged_id_size)
+        IterDomainBuilder(m->container()->zeroVal(), merged_id_size)
             .iter_type(
                 rfactor_axes_.count(m->out()) ? IterType::Reduction
                                               : IterType::Iteration)

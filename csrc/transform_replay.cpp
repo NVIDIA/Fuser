@@ -59,18 +59,16 @@ class ReplaySelf : public ReplayTransformations {
 
     // Manually replay the split, following the output of the operations.
     // This is so rfactor ops are replayed correctly.
-    IterDomain* ido =
-        IterDomainBuilder(s->outer())
-            .start(s->container()->zeroVal())
-            .extent(s->innerSplit() ? remainder : s->factor())
-            .build();
+    IterDomain* ido = IterDomainBuilder(s->outer())
+                          .start(s->container()->zeroVal())
+                          .extent(s->innerSplit() ? remainder : s->factor())
+                          .build();
 
     // inner IterDomain
-    IterDomain* idi =
-        IterDomainBuilder(s->inner())
-            .start(s->container()->zeroVal())
-            .extent(s->innerSplit() ? s->factor() : remainder)
-            .build();
+    IterDomain* idi = IterDomainBuilder(s->inner())
+                          .start(s->container()->zeroVal())
+                          .extent(s->innerSplit() ? s->factor() : remainder)
+                          .build();
 
     // Generate the split node
     IrBuilder::create<Split>(

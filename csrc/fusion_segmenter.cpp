@@ -2475,10 +2475,7 @@ void TranslateApplicableWelford::translateSingleWelford(WelfordOp* welford) {
 
   auto x_mean_sub_pow = mul(x_mean_sub, x_mean_sub);
   IrBuilder::create<ReductionOp>(
-      BinaryOpType::Add,
-      IrBuilder::create<Val>(0.0),
-      out_var,
-      x_mean_sub_pow);
+      BinaryOpType::Add, IrBuilder::create<Val>(0.0), out_var, x_mean_sub_pow);
   IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out_N, num_features);
 
   // out_avg, out_N are now outputs of a pointwise ops and we

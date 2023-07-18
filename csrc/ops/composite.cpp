@@ -190,8 +190,8 @@ TensorView* gelu_backward(TensorView* dy, TensorView* x) {
   auto pdf_2 = mul(pdf_1, IrBuilder::create<Val>(x->container(), -kHalf));
   auto pdf_3 = exp(pdf_2);
 
-  auto out = addcmul(
-      cdf_4, x, pdf_3, IrBuilder::create<Val>(x->container(), kAlpha));
+  auto out =
+      addcmul(cdf_4, x, pdf_3, IrBuilder::create<Val>(x->container(), kAlpha));
   auto dx = mul(out, dy);
   return dx;
 }

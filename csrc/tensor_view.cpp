@@ -742,8 +742,7 @@ TensorView* TensorView::split(
     unsigned int factor,
     bool inner_split,
     bool trim_out_of_bounds) {
-  split(
-      axis, IrBuilder::create<Val>(factor), inner_split, trim_out_of_bounds);
+  split(axis, IrBuilder::create<Val>(factor), inner_split, trim_out_of_bounds);
   return this;
 }
 
