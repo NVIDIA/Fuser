@@ -4034,7 +4034,7 @@ TEST_F(NVFuserTest, FusionMatmulSchedulerEpilogueBeta_CUDA) {
   auto t1 = matmulAtInput(M, N, K, layout, TensorMatmulPos::B, at::kHalf);
   auto t2 = matmulAtInput(M, N, K, layout, TensorMatmulPos::C, at::kHalf);
 
-  auto t3 = atMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout).to(at::kFloat);
+  auto t3 = atMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout);
 
   auto t4 = at::mul(t2, beta).to(at::kFloat);
   auto t5 = at::add(t3, t4);
