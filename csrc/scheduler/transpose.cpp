@@ -85,10 +85,10 @@ class DomainMap : public pointwise_utils::DomainMap {
       return false;
     }
     auto innermost2 = scheduler_utils::innerMostRootDim(ref2);
-    auto innermost1 = domain_map.getMappedRootDimIn(ref1, innermost2)
+    auto innermost1 = domain_map.getMappedRootDimIn(ref1, innermost2);
     // reference 1 is the global reference, so it must have dim mapped the
     // innermost dim of both groups
-    if (innermost1 != nullptr) {
+    if (innermost1 == nullptr) {
       return false;
     }
     for (auto ref : grouped_inputs_outputs[0]) {
