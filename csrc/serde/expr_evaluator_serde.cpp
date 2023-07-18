@@ -125,6 +125,9 @@ void bindDomain(
 // allocation, and leaf domains
 void bind(std::vector<Val*>& all_values, nvfuser::TensorView* tv) {
   bindRootDomain(all_values, tv->getRootDomain());
+  bindDomain(all_values, tv->getRFactorDomain());
+  bindDomain(all_values, tv->getAllocationDomain());
+  bindDomain(all_values, tv->getLeafDomain());
 }
 
 } // namespace
@@ -188,6 +191,10 @@ flatbuffers::Offset<Instruction> ExpressionSerializer::serializeResize(
 flatbuffers::Offset<Instruction> ExpressionSerializer::serializeSplit(
     flatbuffers::FlatBufferBuilder& builder,
     nvfuser::Split* split) const {
+  std::cout << operation_stack_.count(split->in()) << std::endl;
+  std::cout << operation_stack_.count(split->factor()) << std::endl;
+  std::cout << split->in()->toString() << std::endl;
+  std::cout << split->factor()->toString() << std::endl;
   auto split_fb = serde::CreateSplit(
       builder,
       operation_stack_.at(split->in()),
@@ -306,8 +313,7 @@ flatbuffers::Offset<serde::NaiveValueGenerator> ExpressionSerializer::serialize(
     auto def = val->definition();
     derived_values.pop_front();
 
-    TORCH_INTERNAL_ASSERT(
-        def != nullptr, "Expected definition with derived value.");
+    TORCH_INTERNAL_ASSERT(def != nullptr, "Expected definition with derived value.");
     if (auto uop = dynamic_cast<nvfuser::UnaryOp*>(def)) {
       instructions_fb.push_back(serializeUnaryOp(builder, uop));
       operation_stack_.emplace(val, operation_stack_.size());
