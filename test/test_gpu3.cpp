@@ -3872,7 +3872,8 @@ TEST_F(NVFuserTest, FusionExpand_CUDA) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
-  auto w = 2, x = 3, y = 4, z = 5;
+  auto w = 2, x = 3, z = 5;
+  auto y = 4L;
 
   // Test
   // a simple expand
@@ -3962,7 +3963,8 @@ TEST_F(NVFuserTest, FusionExpandIssue1751_CUDA) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
-  auto x = 3, y = 4, z = 5;
+  auto x = 3L;
+  auto y = 4, z = 5;
 
   // y, z
   auto tv0 = makeSymbolicTensor(2);
@@ -3976,8 +3978,8 @@ TEST_F(NVFuserTest, FusionExpandIssue1751_CUDA) {
   auto tv2 = expand(
       tv1,
       {IrBuilder::create<Val>(x),
-       IrBuilder::create<Val>(-1),
-       IrBuilder::create<Val>(-1)});
+       IrBuilder::create<Val>(-1L),
+       IrBuilder::create<Val>(-1L)});
 
   auto tv3 = expand(
       tv1,
@@ -4013,7 +4015,7 @@ TEST_F(NVFuserTest, FusionExpandToConcrete_CUDA) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
-  auto x = 3, y = 4;
+  auto x = 3L, y = 4L;
 
   auto tv0 = makeSymbolicTensor(1);
   fusion->addInput(tv0);
@@ -4589,7 +4591,7 @@ TEST_F(NVFuserTest, FusionIssueRepro1844_CUDA) {
       sum_to_shape.begin(),
       sum_to_shape.end(),
       std::back_inserter(sum_to_symb),
-      [](int s) -> Val* { return IrBuilder::create<Val>(s); });
+      [](int64_t s) -> Val* { return IrBuilder::create<Val>(s); });
 
   TensorView* tv0 = makeContigConcreteTensor(shape);
   TensorView* tv1 = makeContigConcreteTensor(shape);
@@ -4678,18 +4680,18 @@ TEST_F(NVFuserTest, FusionExpandRepro1860_CUDA) {
   std::vector<IterDomain*> domain1(3, nullptr);
   for (const auto i : c10::irange(3)) {
     if (i == 0) {
-      domain1[i] =
-          IterDomainBuilder(
-              FusionGuard::getCurFusion()->zeroVal(), IrBuilder::create<Val>(1))
-              .iter_type(IterType::Broadcast)
-              .build();
+      domain1[i] = IterDomainBuilder(
+                       FusionGuard::getCurFusion()->zeroVal(),
+                       IrBuilder::create<Val>(1L))
+                       .iter_type(IterType::Broadcast)
+                       .build();
     } else {
-      domain1[i] =
-          IterDomainBuilder(
-              FusionGuard::getCurFusion()->zeroVal(), IrBuilder::create<Val>(1))
-              .expanded_extent(IrBuilder::create<Val>(1 + i))
-              .iter_type(IterType::Broadcast)
-              .build();
+      domain1[i] = IterDomainBuilder(
+                       FusionGuard::getCurFusion()->zeroVal(),
+                       IrBuilder::create<Val>(1L))
+                       .expanded_extent(IrBuilder::create<Val>(1L + i))
+                       .iter_type(IterType::Broadcast)
+                       .build();
     }
   }
 
@@ -4722,8 +4724,8 @@ TEST_F(NVFuserTest, FusionExpandReduce_CUDA) {
   auto tv0 = makeConcreteTensor({1, 8});
   fusion->addInput(tv0);
 
-  auto tv1 =
-      expand(tv0, {IrBuilder::create<Val>(12), IrBuilder::create<Val>(8)});
+  auto tv1 = expand(
+      tv0, {IrBuilder::create<Val>(12L), IrBuilder::create<Val>(8L)});
 
   auto tv2 = sum(tv1, {0});
   fusion->addOutput(tv2);
@@ -4748,8 +4750,8 @@ TEST_F(NVFuserTest, FusionExpandReduce2_CUDA) {
   auto tv0 = makeConcreteTensor({1, 4});
   fusion->addInput(tv0);
 
-  auto tv1 =
-      expand(tv0, {IrBuilder::create<Val>(3), IrBuilder::create<Val>(4)});
+  auto tv1 = expand(
+      tv0, {IrBuilder::create<Val>(3L), IrBuilder::create<Val>(4L)});
 
   auto tv2 = sum(tv1, {0});
   fusion->addOutput(tv2);
@@ -4832,8 +4834,8 @@ TEST_F(NVFuserTest, FusionExpandBadShapeTest_CUDA) {
           IrBuilder::create<Val>(DataType::Int))
           .build(),
       IterDomainBuilder(
-          FusionGuard::getCurFusion()->zeroVal(), IrBuilder::create<Val>(1))
-          .expanded_extent(IrBuilder::create<Val>(10))
+          FusionGuard::getCurFusion()->zeroVal(), IrBuilder::create<Val>(1L))
+          .expanded_extent(IrBuilder::create<Val>(10L))
           .iter_type(IterType::Broadcast)
           .build()};
 
@@ -5985,7 +5987,7 @@ TEST_F(NVFuserTest, FusionVectorizeRepro1843_CUDA) {
 
   auto tv7 = sum(tv0, {1}, true);
   auto tv_exp =
-      expand(tv7, {tv0->axis(0)->extent(), IrBuilder::create<Val>(32128)});
+      expand(tv7, {tv0->axis(0)->extent(), IrBuilder::create<Val>(32128L)});
   auto tv3 = exp(tv1);
   auto tv8 = mul(tv3, tv_exp);
   auto tv13 = sub(tv0, tv8);
@@ -6064,14 +6066,14 @@ TEST_F(NVFuserTest, FusionRepro2094_CUDA) {
     fusion->addInput(tv2);
     auto tv3 = expand(
         broadcast(tv0, {true, true, false}),
-        {IrBuilder::create<Val>(1),
-         IrBuilder::create<Val>(1024),
-         IrBuilder::create<Val>(768)});
+        {IrBuilder::create<Val>(1L),
+         IrBuilder::create<Val>(1024L),
+         IrBuilder::create<Val>(768L)});
     auto tv4 = expand(
         broadcast(tv1, {true, true, false}),
-        {IrBuilder::create<Val>(1),
-         IrBuilder::create<Val>(1024),
-         IrBuilder::create<Val>(768)});
+        {IrBuilder::create<Val>(1L),
+         IrBuilder::create<Val>(1024L),
+         IrBuilder::create<Val>(768L)});
     auto tv5 = reshape(tv2, {1024, 768}, {1, 1024, 768});
     auto tv6 = castOp(DataType::Float, tv5);
     auto s7 = IrBuilder::create<Val>(0.5);
@@ -6089,28 +6091,28 @@ TEST_F(NVFuserTest, FusionRepro2094_CUDA) {
     auto tv18 = std::get<1>(tv17_tv18);
     auto tv19 = expand(
         broadcast(tv17, {false, false, true}),
-        {IrBuilder::create<Val>(1),
-         IrBuilder::create<Val>(1024),
-         IrBuilder::create<Val>(1)});
+        {IrBuilder::create<Val>(1L),
+         IrBuilder::create<Val>(1024L),
+         IrBuilder::create<Val>(1L)});
     auto tv20 = expand(
         broadcast(tv18, {false, false, true}),
-        {IrBuilder::create<Val>(1),
-         IrBuilder::create<Val>(1024),
-         IrBuilder::create<Val>(1)});
+        {IrBuilder::create<Val>(1L),
+         IrBuilder::create<Val>(1024L),
+         IrBuilder::create<Val>(1L)});
     auto s21 = IrBuilder::create<Val>(1e-05);
     auto tv22 = add(tv19, s21);
     auto tv23 = expand(
         broadcast(tv20, {false, false, false}),
-        {IrBuilder::create<Val>(1),
-         IrBuilder::create<Val>(1024),
-         IrBuilder::create<Val>(768)});
+        {IrBuilder::create<Val>(1L),
+         IrBuilder::create<Val>(1024L),
+         IrBuilder::create<Val>(768L)});
     auto tv24 = rsqrt(tv22);
     auto tv25 = sub(tv16, tv23);
     auto tv26 = expand(
         broadcast(tv24, {false, false, false}),
-        {IrBuilder::create<Val>(1),
-         IrBuilder::create<Val>(1024),
-         IrBuilder::create<Val>(768)});
+        {IrBuilder::create<Val>(1L),
+         IrBuilder::create<Val>(1024L),
+         IrBuilder::create<Val>(768L)});
     auto tv27 = mul(tv25, tv26);
     auto tv28 = mul(tv27, tv3);
     auto tv29 = add(tv28, tv4);
@@ -6185,7 +6187,7 @@ TEST_F(NVFuserTest, FusionIssue2068_CUDA) {
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
-  int w = 32, x = 56, y = 56, z = 128;
+  int64_t w = 32, x = 56, y = 56, z = 128;
 
   auto tv0 = makeContigTensor(3);
   auto tv1 = makeContigTensor(1);
@@ -6508,10 +6510,10 @@ TEST_F(NVFuserTest, FusionIssue2074_CUDA) {
 
   auto tv0 = makeContigTensor(2, DataType::Int32);
   fusion.addInput(tv0);
-  auto tv1 = ne(tv0, IrBuilder::create<Val>(0));
+  auto tv1 = ne(tv0, IrBuilder::create<Val>(0L));
   auto tv2 = castOp(DataType::Int32, tv1);
   auto tv3 = sum(tv2, {1});
-  auto tv4 = sub(tv3, IrBuilder::create<Val>(1));
+  auto tv4 = sub(tv3, IrBuilder::create<Val>(1L));
   fusion.addOutput(tv0);
   fusion.addOutput(tv4);
 
@@ -6537,7 +6539,7 @@ TEST_F(NVFuserTest, FusionIssue2077_CUDA) {
   fusion.addInput(tv0);
 
   auto tv1 = castOp(DataType::Float, tv0);
-  auto tv3 = mul(tv1, IrBuilder::create<Val>(1));
+  auto tv3 = mul(tv1, IrBuilder::create<Val>(1L));
   auto tv5 = sub(IrBuilder::create<Val>(1.), tv3);
   auto tv6 = castOp(DataType::Half, tv5);
   auto tv7 = castOp(DataType::Bool, tv6);
@@ -6619,7 +6621,7 @@ TEST_F(NVFuserTest, FusionIssue2075_CUDA) {
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
-  int x = 2, y = 128, z = 128;
+  int64_t x = 2, y = 128, z = 128;
 
   auto tv0 = makeContigConcreteTensor({1, -1, 1});
   fusion.addInput(tv0);
@@ -7001,7 +7003,7 @@ TEST_F(NVFuserTest, FusionIntegerType_CUDA) {
     fusion.addInput(tv0);
 
     auto i2 = IrBuilder::create<Val>(int64_val, DataType::Int);
-    auto i3 = IrBuilder::create<Val>(int_val, DataType::Int32);
+    auto i3 = IrBuilder::create<Val>((int64_t)int_val, DataType::Int32);
 
     // Adding two Ints produces an Int
     auto i4 = add(i2, i2);
@@ -7973,8 +7975,8 @@ TEST_F(NVFuserTest, IterVisitorTraverseAttributes_CUDA) {
 
   auto tv1 = slice(
       tv0,
-      {{IrBuilder::create<Val>(1),
-        sub(tv0->axis(0)->extent(), IrBuilder::create<Val>(1))}});
+      {{IrBuilder::create<Val>(1L),
+        sub(tv0->axis(0)->extent(), IrBuilder::create<Val>(1L))}});
   fusion.addOutput(tv1);
 
   auto tv1_resize = tv1->axis(0)->definition()->as<Resize>();
@@ -8668,9 +8670,9 @@ TEST_F(ExpandedBroadcastGlobalIntermediateTest, TheTest_CUDA) {
   fusion.addInput(tv0);
   auto tv1 = expand(
       tv0,
-      {IrBuilder::create<Val>(2),
+      {IrBuilder::create<Val>(2L),
        IrBuilder::create<Val>(1L << 60L),
-       IrBuilder::create<Val>(2)});
+       IrBuilder::create<Val>(2L)});
   auto tv2 = set(tv1);
   fusion.addOutput(tv2);
   tv1->setMemoryType(MemoryType::Global);
@@ -9273,7 +9275,7 @@ TEST_F(NVFuserTest, FusionDanglingUnaryOp_CUDA) {
   // Fusion cannot be scheduled. This triggers segmentation, so that
   // forwardInputs() is called. The structure of this Fusion is not important;
   // it is only important that it must be segmented.
-  auto size = IrBuilder::create<Val>(5);
+  auto size = IrBuilder::create<Val>(5L);
   auto tv0 = full({size}, fusion->zeroVal(), DataType::Int);
   auto tv1 = segment_set(tv0);
   fusion->addOutput(tv1);

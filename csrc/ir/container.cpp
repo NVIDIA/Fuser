@@ -230,7 +230,7 @@ bool IrContainer::inContainer(const Statement* stmt) const {
 // Shortcuts for frequently used vals
 Val* IrContainer::zeroVal() {
   if (!zero_val_) {
-    auto zero_val = IrBuilder::create<Val>(this, 0);
+    auto zero_val = IrBuilder::create<Val>(this, 0L);
     TORCH_INTERNAL_ASSERT(vals_up_.back().get() == zero_val);
     zero_val_ = std::unique_ptr<Val>(vals_up_.back().release());
     vals_up_.pop_back();
@@ -255,7 +255,7 @@ Val* IrContainer::zeroVal(DataType dtype) {
 
 Val* IrContainer::oneVal() {
   if (!one_val_) {
-    auto one_val = IrBuilder::create<Val>(this, 1, DataType::Int);
+    auto one_val = IrBuilder::create<Val>(this, 1L, DataType::Int);
     TORCH_INTERNAL_ASSERT(vals_up_.back().get() == one_val);
     one_val_ = std::unique_ptr<Val>(vals_up_.back().release());
     vals_up_.pop_back();

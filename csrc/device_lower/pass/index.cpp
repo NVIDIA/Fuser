@@ -451,7 +451,7 @@ GridCommWorkBufferSizeInfo getGridCommWorkBufferSize(
 
   if (is_doubled) {
     size_of_privatized_buffer = SimplifyingIrBuilder::mulExpr(
-        size_of_privatized_buffer, IrBuilder::create<Val>(2));
+        size_of_privatized_buffer, IrBuilder::create<Val>(2L));
   }
 
   GridCommWorkBufferSizeInfo info;
@@ -459,7 +459,7 @@ GridCommWorkBufferSizeInfo getGridCommWorkBufferSize(
   info.buffer_stride = size_of_single_buffer;
   if (is_doubled) {
     info.buffer_stride = SimplifyingIrBuilder::mulExpr(
-        info.buffer_stride, IrBuilder::create<Val>(2));
+        info.buffer_stride, IrBuilder::create<Val>(2L));
   }
 
   return info;

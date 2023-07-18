@@ -82,7 +82,7 @@ Val* getProducerIndexWithHalo(
     Val* producer_index,
     const TensorView* consumer_tv,
     bool is_overriden_index) {
-  const auto offset = is_overriden_index
+  const int64_t offset = is_overriden_index
       ? 0
       : getProducerHaloOffset(producer_tv, producer_axis, consumer_tv);
 
@@ -145,7 +145,7 @@ Val* getProducerOffsetWithGather(
 
   // Positive padding at offset zero means the indexing shifted to the
   // negative direction.
-  auto pad_width = gather_expr->padWidth()[consumer_root_axis][0];
+  auto pad_width = (int64_t)gather_expr->padWidth()[consumer_root_axis][0];
 
   // producer offset: window_index - padding
   auto producer_offset = SimplifyingIrBuilder::subExpr(
@@ -198,7 +198,7 @@ Val* getConcreteProducerOffsetWithGather(
 
   // Positive padding at offset zero means the indexing shifted to the
   // negative direction.
-  auto pad_width = gather_expr->padWidth()[consumer_root_axis][0];
+  auto pad_width = (int64_t)gather_expr->padWidth()[consumer_root_axis][0];
 
   // producer offset: window_index - padding
   auto producer_offset = SimplifyingIrBuilder::subExpr(
@@ -1019,7 +1019,8 @@ Val* getHaloExtentOfRootAxis(IterDomain* id, Val* normal_extent = nullptr) {
   const auto& halo = GpuLower::current()->haloInfo()->getRootAxisInfo(id);
   if (halo.hasHalo()) {
     auto halo_extent = SimplifyingIrBuilder::addExpr(
-        normal_extent, SimplifyingIrBuilder::create<Val>(halo.width()));
+        normal_extent,
+        SimplifyingIrBuilder::create<Val>((int64_t)halo.width()));
     return halo_extent;
   } else {
     return normal_extent;
@@ -1289,11 +1290,11 @@ indexMapFromTV(
     }
 
     if (loop == double_buffer_loop) {
-      auto stage_depth =
+      const int64_t stage_depth =
           GpuLower::current()->doubleBufferInfo().getStageDepthFor(
               loop->iter_domain());
       idx = SimplifyingIrBuilder::addExpr(
-          idx, SimplifyingIrBuilder::create<Val>(stage_depth - 1));
+          idx, SimplifyingIrBuilder::create<Val>(stage_depth - 1L));
     }
 
     loop_to_ind_map[loop] = idx;
@@ -1693,8 +1694,9 @@ std::vector<Val*> Index::getNonGlobalProducerStridedIndices(
     auto db_loop = gpu_lower->doubleBufferInfo().getDoubleBufferLoop(
         producer_tv, loops, true);
     if (db_loop != nullptr) {
-      auto stage_depth = gpu_lower->doubleBufferInfo().getStageDepthFor(
-          db_loop->iter_domain());
+      const auto stage_depth =
+          (int64_t)gpu_lower->doubleBufferInfo().getStageDepthFor(
+              db_loop->iter_domain());
       auto loop_index = db_loop->indexOrStartIfTrivial();
       if (rotated_loops.count(db_loop) > 0) {
         loop_index = SimplifyingIrBuilder::addExpr(loop_index, db_loop->step());
@@ -2122,8 +2124,8 @@ std::vector<Val*> Index::getNonGlobalConsumerStridedIndices(
   if (consumer_tv->isDoubleBuffered() || consumer_tv->isCircularBuffered()) {
     auto db_loop =
         gpu_lower->doubleBufferInfo().getDoubleBufferLoop(consumer_tv, loops);
-    auto stage_depth =
-        gpu_lower->doubleBufferInfo().getStageDepthFor(db_loop->iter_domain());
+    auto stage_depth = (int64_t)gpu_lower->doubleBufferInfo().getStageDepthFor(
+        db_loop->iter_domain());
     bool is_circular_buffer_loop = stage_depth > 2;
     bool is_prolog =
         db_loop->doubleBufferLoopStage() == DoubleBufferLoopStage::Prolog;
@@ -2432,7 +2434,7 @@ bool needsPadding(TensorView* tv) {
 // at the additional offsets.
 //
 // consumer_root_id: the domain for which a stop predicate is being built.
-int getUnswitchStopOffset(
+int64_t getUnswitchStopOffset(
     IterDomain* consumer_root_id,
     TensorView* consumer_tv) {
   const auto gpu_lower = GpuLower::current();
@@ -2495,8 +2497,8 @@ std::pair<Val*, Val*> getStartAndStopOffsetsForShift(
   const auto shift_offset = shift_expr->offset(root_axis_pos);
   const auto pad_width = shift_expr->padWidth().at(root_axis_pos);
 
-  int start_offset = 0;
-  int stop_offset = 0;
+  int64_t start_offset = 0;
+  int64_t stop_offset = 0;
 
   if (shift_offset > 0) {
     start_offset = -pad_width;
@@ -2575,7 +2577,7 @@ std::pair<Val*, Val*> getStartAndStopOffsetsForGather(
   const auto producer_ext_adj = window_size - 1 - pad_left - pad_right;
   producer_stop_offset = SimplifyingIrBuilder::subExpr(
       producer_stop_offset,
-      SimplifyingIrBuilder::create<Val>(producer_ext_adj));
+      SimplifyingIrBuilder::create<Val>((int64_t)producer_ext_adj));
 
   // As commented above, when pad_left is zero, the consumer predicate
   // is always more restrictive than the producer predicate.
@@ -2631,14 +2633,15 @@ std::pair<Val*, Val*> getStartAndStopLimitOffsets(
     // [0, left halo)[start_limit, stop_limit)[0, right halo)
     //
     if (!padding_predicate) {
-      start_limit =
-          SimplifyingIrBuilder::addExpr(start_limit, halo_info.width(0));
-      stop_limit =
-          SimplifyingIrBuilder::addExpr(stop_limit, halo_info.width(0));
+      start_limit = SimplifyingIrBuilder::addExpr(
+          start_limit, (int64_t)halo_info.width(0));
+      stop_limit = SimplifyingIrBuilder::addExpr(
+          stop_limit, (int64_t)halo_info.width(0));
     } else {
       // In case of the padding predicate, the whole range, including both left
       // and right halo regions, is computed.
-      stop_limit = SimplifyingIrBuilder::addExpr(stop_limit, halo_info.width());
+      stop_limit =
+          SimplifyingIrBuilder::addExpr(stop_limit, (int64_t)halo_info.width());
     }
   } else {
     // For non-divisible predicates, the index must be predicated such
@@ -2647,7 +2650,7 @@ std::pair<Val*, Val*> getStartAndStopLimitOffsets(
     // isn't a root domain.
     if (gpu_lower->haloInfo()->hasHaloWidth(consumer_id)) {
       auto halo = gpu_lower->haloInfo()->getHaloWidth(consumer_id);
-      stop_limit = SimplifyingIrBuilder::addExpr(stop_limit, halo);
+      stop_limit = SimplifyingIrBuilder::addExpr(stop_limit, (int64_t)halo);
     }
   }
 

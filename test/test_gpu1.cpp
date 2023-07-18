@@ -387,10 +387,10 @@ TEST_F(NVFuserTest, FusionScalarTypePromote_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  Val* b = IrBuilder::create<Val>(true);
-  Val* d = IrBuilder::create<Val>(4.f);
-  Val* i = IrBuilder::create<Val>(3);
-  Val* c = IrBuilder::create<Val>(std::complex<double>(1, 2));
+  Scalar* b = IrBuilder::create<Val>(true);
+  Scalar* d = IrBuilder::create<Val>(4.f);
+  Scalar* i = IrBuilder::create<Val>(3L);
+  Scalar* c = IrBuilder::create<Val>(std::complex<double>(1, 2));
 
   TORCH_CHECK(add(b, b)->getDataType() == DataType::Bool);
   TORCH_CHECK(add(b, d)->getDataType() == DataType::Double);
@@ -608,8 +608,8 @@ TEST_F(NVFuserTest, FusionFilterVals_CUDA) {
   auto tv0 = makeSymbolicTensor(1);
   auto tv1 = makeSymbolicTensor(1);
   auto scalar0 = IrBuilder::create<Val>(0.0);
-  auto scalar1 = IrBuilder::create<Val>(0);
-  auto scalar2 = IrBuilder::create<Val>(1);
+  auto scalar1 = IrBuilder::create<Val>(0L);
+  auto scalar2 = IrBuilder::create<Val>(1L);
 
   const std::vector<Val*> all_vals = {tv0, scalar0, tv1, scalar1, scalar2};
 
@@ -647,7 +647,7 @@ TEST_F(NVFuserTest, FusionTVSplit_CUDA) {
       static_cast<BinaryOp*>(outer)->lhs()->sameAs(
           tv->getRootDomain()[2]->extent()) &&
       static_cast<Val*>(static_cast<BinaryOp*>(outer)->rhs())
-          ->sameAs(IrBuilder::create<Val>(2)));
+          ->sameAs(IrBuilder::create<Val>(2L)));
 
   IterDomain* inner = static_cast<IterDomain*>(tv->axis(3));
   TORCH_CHECK(
@@ -738,15 +738,15 @@ TEST_F(NVFuserTest, FusionEquality_CUDA) {
   TORCH_CHECK(!fone->sameAs(fval1));
   TORCH_CHECK(fone->sameAs(IrBuilder::create<Val>(1.0)));
 
-  Val* ival1 = IrBuilder::create<Val>(DataType::Int);
-  Val* ival1_copy = ival1;
-  Val* ival2 = IrBuilder::create<Val>(DataType::Int);
-  Val* ione = IrBuilder::create<Val>(1);
+  Scalar* ival1 = IrBuilder::create<Val>(DataType::Int);
+  Scalar* ival1_copy = ival1;
+  Scalar* ival2 = IrBuilder::create<Val>(DataType::Int);
+  Scalar* ione = IrBuilder::create<Val>(1L);
 
   TORCH_CHECK(ival1->sameAs(ival1_copy));
   TORCH_CHECK(!ival1->sameAs(ival2));
   TORCH_CHECK(!ione->sameAs(ival1));
-  TORCH_CHECK(ione->sameAs(IrBuilder::create<Val>(1)));
+  TORCH_CHECK(ione->sameAs(IrBuilder::create<Val>(1L)));
 
   BinaryOp* add1 = IrBuilder::create<BinaryOp>(
       BinaryOpType::Add,
@@ -6029,7 +6029,7 @@ TEST_F(NVFuserTest, FusionSumTo_CUDA) {
       sum_to_shape.begin(),
       sum_to_shape.end(),
       std::back_inserter(sum_to_symb),
-      [](int s) -> Val* { return IrBuilder::create<Val>(s); });
+      [](int64_t s) -> Val* { return IrBuilder::create<Val>(s); });
 
   TensorView* tv0 = makeConcreteTensor(tensor_shape);
   fusion.addInput(tv0);
@@ -6070,7 +6070,7 @@ TEST_F(NVFuserTest, FusionSumToNoop_CUDA) {
       sum_to_shape.begin(),
       sum_to_shape.end(),
       std::back_inserter(sum_to_symb),
-      [](int s) -> Val* { return IrBuilder::create<Val>(s); });
+      [](int64_t s) -> Val* { return IrBuilder::create<Val>(s); });
 
   TensorView* tv0 = makeConcreteTensor(tensor_shape);
   fusion.addInput(tv0);

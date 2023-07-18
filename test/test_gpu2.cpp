@@ -158,7 +158,7 @@ TEST_F(NVFuserTest, FusionConstCheck_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  auto one = IrBuilder::create<Val>(1);
+  auto one = IrBuilder::create<Val>(1L);
   TORCH_CHECK(one->isConstScalar());
 
   auto one_x2 = mul(one, one);
@@ -219,8 +219,8 @@ TEST_F(NVFuserTest, FusionIsZeroInt_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  Val* x = IrBuilder::create<Val>(0);
-  Val* y = IrBuilder::create<Val>(1);
+  Scalar* x = IrBuilder::create<Val>(0L);
+  Scalar* y = IrBuilder::create<Val>(1L);
   Val* z = mul(x, y);
   TORCH_CHECK(x->isZeroInt());
   TORCH_CHECK(!y->isZeroInt());
@@ -232,8 +232,8 @@ TEST_F(NVFuserTest, FusionIsOneInt_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  Val* x = IrBuilder::create<Val>(1);
-  Val* y = IrBuilder::create<Val>(1);
+  Scalar* x = IrBuilder::create<Val>(1L);
+  Scalar* y = IrBuilder::create<Val>(1L);
   Val* z = mul(x, y);
   TORCH_CHECK(x->isOneInt());
   TORCH_CHECK(y->isOneInt());
@@ -1361,10 +1361,10 @@ TEST_F(NVFuserTest, FusionBiasGeluFwd_CUDA) {
   auto t7 = mul(t5, IrBuilder::create<Val>(k_079));
   auto t8 = mul(t5, IrBuilder::create<Val>(k_004));
   auto t9 = mul(t8, t5);
-  auto t10 = add(t9, IrBuilder::create<Val>(1));
+  auto t10 = add(t9, IrBuilder::create<Val>(1L));
   auto t11 = mul(t7, t10);
   auto t12 = unaryOp(UnaryOpType::Tanh, t11);
-  auto t13 = add(t12, IrBuilder::create<Val>(1));
+  auto t13 = add(t12, IrBuilder::create<Val>(1L));
   auto t14 = mul(t6, t13);
   auto t15 = castOp(DataType::Half, t14);
   fusion.addOutput(t15);
@@ -1429,19 +1429,19 @@ TEST_F(NVFuserTest, FusionBiasGeluBwd_CUDA) {
   auto t8 = mul(t7, IrBuilder::create<Val>(k_079));
   auto t9 = mul(t7, IrBuilder::create<Val>(k_004));
   auto t10 = mul(t9, t7);
-  auto t11 = add(t10, IrBuilder::create<Val>(1));
+  auto t11 = add(t10, IrBuilder::create<Val>(1L));
   auto t12 = mul(t8, t11);
   auto t13 = unaryOp(UnaryOpType::Tanh, t12);
   auto t14 = mul(t7, IrBuilder::create<Val>(0.5));
   auto t15 = mul(t13, t13);
   auto t16 = unaryOp(UnaryOpType::Neg, t15);
-  auto t17 = add(t16, IrBuilder::create<Val>(1));
+  auto t17 = add(t16, IrBuilder::create<Val>(1L));
   auto t18 = mul(t7, IrBuilder::create<Val>(k_010));
   auto t19 = mul(t18, t7);
   auto t20 = add(t19, IrBuilder::create<Val>(k_079));
   auto t21 = mul(t17, t20);
   auto t22 = mul(t14, t21);
-  auto t23 = add(t13, IrBuilder::create<Val>(1));
+  auto t23 = add(t13, IrBuilder::create<Val>(1L));
   auto t24 = mul(t23, IrBuilder::create<Val>(0.5));
   auto t25 = add(t22, t24);
   auto t26 = mul(t25, t1);
@@ -5703,7 +5703,8 @@ TEST_F(NVFuserTest, FusionBNBackwardRepro_CUDA) {
       makeSymbolicTensor(numDims); // single tensor broadcasted is dangerous.
   fusion.addInput(gt_0);
 
-  auto gt_bool = binaryOp(BinaryOpType::GT, gt_0, IrBuilder::create<Val>(1));
+  auto gt_bool =
+      binaryOp(BinaryOpType::GT, gt_0, IrBuilder::create<Val>(1L));
   auto gt_float = castOp(DataType::Float, gt_bool);
 
   auto grad_out = mul(grad_out_prev, gt_float);
@@ -5771,7 +5772,8 @@ TEST_F(NVFuserTest, FusionBNBackwardRepro2_CUDA) {
   auto gt_0 = makeConcreteTensor({-1, -1, 1, 1});
   fusion.addInput(gt_0);
 
-  auto gt_bool = binaryOp(BinaryOpType::GT, gt_0, IrBuilder::create<Val>(1));
+  auto gt_bool =
+      binaryOp(BinaryOpType::GT, gt_0, IrBuilder::create<Val>(1L));
   auto gt_float = castOp(DataType::Float, gt_bool);
 
   auto grad_out = mul(grad_out_prev, gt_float);
@@ -8912,12 +8914,12 @@ TEST_F(NVFuserTest, FusionFloatPow_CUDA) {
   auto tv0 = makeSymbolicTensor(1);
   fusion.addInput(tv0);
 
-  auto tv1 = binaryOp(BinaryOpType::Pow, tv0, IrBuilder::create<Val>(4));
+  auto tv1 = binaryOp(BinaryOpType::Pow, tv0, IrBuilder::create<Val>(4L));
   // To check if pow(tv0, 2) is replaced with tv0 * tv0
-  auto tv2 = binaryOp(BinaryOpType::Pow, tv0, IrBuilder::create<Val>(2));
+  auto tv2 = binaryOp(BinaryOpType::Pow, tv0, IrBuilder::create<Val>(2L));
   // To check if pow(tv0, 2.0) is replaced with tv0 * tv0
   auto tv3 = binaryOp(BinaryOpType::Pow, tv0, IrBuilder::create<Val>(2.0));
-  auto tv4 = binaryOp(BinaryOpType::Pow, tv0, IrBuilder::create<Val>(3));
+  auto tv4 = binaryOp(BinaryOpType::Pow, tv0, IrBuilder::create<Val>(3L));
   auto tv5 = binaryOp(BinaryOpType::Pow, tv0, IrBuilder::create<Val>(3.0));
   auto s = binaryOp(
       BinaryOpType::Pow,

@@ -986,9 +986,9 @@ TEST_F(NVFuserTest, FusionExpandView1_CUDA) {
 
   auto tv2 = expand(
       tv0,
-      {IrBuilder::create<Val>(4),
-       IrBuilder::create<Val>(3),
-       IrBuilder::create<Val>(8)});
+      {IrBuilder::create<Val>(4L),
+       IrBuilder::create<Val>(3L),
+       IrBuilder::create<Val>(8L)});
 
   auto tv3 = reshape(tv2, {4, 3, 8}, {12, 8});
   auto tv4 = add(tv3, tv1);
@@ -1017,8 +1017,8 @@ TEST_F(NVFuserTest, FusionExpandView2_CUDA) {
   auto tv1 = makeConcreteTensor({3, 4, 8});
   fusion->addInput(tv1);
 
-  auto tv2 =
-      expand(tv0, {IrBuilder::create<Val>(12), IrBuilder::create<Val>(8)});
+  auto tv2 = expand(
+      tv0, {IrBuilder::create<Val>(12L), IrBuilder::create<Val>(8L)});
 
   auto tv3 = reshape(tv2, {12, 8}, {3, 4, 8});
   auto tv4 = add(tv3, tv1);
@@ -1302,7 +1302,7 @@ TEST_F(NVFuserTest, FusionExpandFlatten_CUDA) {
       tv0,
       {tv0->axis(0)->extent(),
        tv0->axis(1)->extent(),
-       IrBuilder::create<Val>(8)});
+       IrBuilder::create<Val>(8L)});
   auto tv2 = flatten(tv1, 1, 2);
   auto tv3 = sum(tv2, {1});
   fusion->addOutput(tv3);
@@ -2185,7 +2185,7 @@ TEST_F(NVFuserTest, FusionIssue2076_CUDA) {
   auto tv11 = expand(
       tv10,
       {tv10->axis(0)->extent(),
-       IrBuilder::create<Val>(12),
+       IrBuilder::create<Val>(12L),
        tv10->axis(2)->extent(),
        tv10->axis(3)->extent()});
 
@@ -2198,7 +2198,7 @@ TEST_F(NVFuserTest, FusionIssue2076_CUDA) {
       tv16,
       {tv16->axis(0)->extent(),
        tv16->axis(1)->extent(),
-       IrBuilder::create<Val>(128)});
+       IrBuilder::create<Val>(128L)});
   auto tv18 = sub(tv13, tv17);
   auto tv19 = exp(tv18);
   auto tv20 = sum(tv19, {2});
@@ -2208,7 +2208,7 @@ TEST_F(NVFuserTest, FusionIssue2076_CUDA) {
       tv22,
       {tv22->axis(0)->extent(),
        tv22->axis(1)->extent(),
-       IrBuilder::create<Val>(128)});
+       IrBuilder::create<Val>(128L)});
   auto tv24 = div(tv19, tv23);
 
   fusion.addOutput(tv9);

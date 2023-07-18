@@ -138,7 +138,7 @@ class TORCH_CUDA_CU_API UnswitchPredicate {
       //! predicate found.
       Val* static_pred = nullptr;
       //! The offset value of static_pred
-      PolymorphicValue static_offset = 0;
+      PolymorphicValue static_offset = 0L;
       //! List of dynamic predicates.
       std::vector<Val*> dynamic_preds;
     };
