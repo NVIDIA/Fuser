@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#ifdef USE_DISTRIBUTED
 #include <ir/utils.h>
 #include <multidevice/executor.h>
 #include <multidevice/pipeline.h>
@@ -142,3 +143,5 @@ std::vector<at::Tensor> PipelineExecutor::runWithInput(
 }
 
 } // namespace nvfuser
+
+#endif

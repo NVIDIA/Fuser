@@ -176,7 +176,7 @@ class AllocationInserter : public kir::ExprMutator {
       auto halo_extent = gpu_lower->haloInfo()->getRootAxisInfo(id);
       if (halo_extent.hasHalo()) {
         extent = IrBuilder::addExpr(
-            extent, IrBuilder::create<Scalar>(halo_extent.width()));
+            extent, IrBuilder::create<Scalar>((int64_t)halo_extent.width()));
       }
       alloc_dims.emplace_back(extent);
     }
@@ -426,9 +426,9 @@ class AllocationInserter : public kir::ExprMutator {
       }
       GpuLower::current()->doubleBufferInfo().setOriginalAllocSize(
           info.buffer, original_alloc_size);
-      int double_buffer_stage = 2;
+      int64_t double_buffer_stage = 2L;
       if (info.buffer->isCircularBuffered()) {
-        double_buffer_stage = (int)info.buffer->circularBufferDepth();
+        double_buffer_stage = (int64_t)info.buffer->circularBufferDepth();
       }
       alloc_dims.push_back(IrBuilder::create<Scalar>(double_buffer_stage));
     }
