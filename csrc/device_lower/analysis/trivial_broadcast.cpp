@@ -78,9 +78,6 @@ void ConcretizedBroadcastDomains::handle(Expr* expr) {
         producer_broadcasts.insert(producer_id);
       }
     }
-    if (producer_broadcasts.empty()) {
-      continue;
-    }
 
     for (auto consumer : ir_utils::filterByType<TensorView>(expr->outputs())) {
       auto p2c_map =
@@ -95,6 +92,14 @@ void ConcretizedBroadcastDomains::handle(Expr* expr) {
         const bool is_concretized =
             !c_id->isBroadcast() && !c_id->isReduction();
         auto it = broadcast_origin_map_.find(p_id);
+        if (it == broadcast_origin_map_.end()) {
+          // The consumer might be broadcast even though the producer is not, if
+          // this is a pad to size 1. In such case, we set the consumer as the
+          // origin of the broadcast.
+          broadcast_origin_map_.emplace(
+              c_id, std::unordered_set<IterDomain*>({c_id}));
+          continue;
+        }
         TORCH_INTERNAL_ASSERT(
             it != broadcast_origin_map_.end(),
             "Broadcast origin info not found for producer broadcast domain: ",
