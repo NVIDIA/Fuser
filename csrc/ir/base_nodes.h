@@ -262,11 +262,9 @@ class TORCH_CUDA_CU_API Val : public Statement {
         dtype_(src->dtype_),
         value_(src->value_){};
 
-  std::string toString(int = 0) const override {
-    std::stringstream ss;
-    ss << "[" << dtype() << " value " << name() << "]";
-    return ss.str();
-  }
+  std::string toString(int indent_size = 0) const override;
+
+  std::string toInlineString(int indent_size = 0) const override;
 
   // Dispatch functions, definitions in dispatch.cpp
   template <typename T>

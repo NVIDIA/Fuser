@@ -216,7 +216,7 @@ bool Val::sameAs(const Statement* other) const {
     return true;
   }
   if (auto other_val = dynamic_cast<const Val*>(other)) {
-    if (definition_ == nullptr || other_val->definition_ == nullptr) {
+    if ((definition_ == nullptr) != (other_val->definition_ == nullptr)) {
       return false;
     }
     if (vtype_ != other_val->vtype_) {
@@ -224,6 +224,9 @@ bool Val::sameAs(const Statement* other) const {
     }
     if (dtype_ != other_val->dtype_) {
       return false;
+    }
+    if (definition_ == nullptr) {
+      return value_ == other_val->value_;
     }
     if (!definition_->sameAs(other_val->definition_)) {
       return false;
@@ -240,9 +243,41 @@ bool Val::sameAs(const Statement* other) const {
         return false;
       }
     }
-    return value_ == other_val->value_;
+    return true;
   }
   return false;
+}
+
+std::string Val::toString(int indent_size) const {
+  std::stringstream ss;
+  if (isSymbolic()) {
+    ss << ir_utils::varName(this);
+    return ss.str();
+  }
+  auto dtype = getDataType().value();
+  if (dtype == DataType::Bool) {
+    ss << (value() ? "true" : "false");
+  } else if (isIntegralType(dtype)) {
+    ss << value();
+  } else if (isFloatingPointType(dtype) || isComplexType(dtype)) {
+    ss << dtype << "(" << std::setprecision(max_digits10(dtype)) << value()
+       << ")";
+  } else if (dtype == DataType::Opaque) {
+    ss << "<opaque value>";
+  } else {
+    TORCH_INTERNAL_ASSERT(false, "Unknown scalar type: ", dtype);
+  }
+  return ss.str();
+}
+
+std::string Val::toInlineString(int indent_size) const {
+  if (definition() != nullptr) {
+    std::stringstream ss;
+    ss << "( " << definition()->toInlineString(indent_size) << " )";
+    return ss.str();
+  } else {
+    return toString(indent_size);
+  }
 }
 
 bool Val::isConstScalar() const {
