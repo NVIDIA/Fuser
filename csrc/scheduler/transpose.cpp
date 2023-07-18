@@ -84,10 +84,24 @@ class DomainMap : public pointwise_utils::DomainMap {
     if (ref1 == nullptr || ref2 == nullptr) {
       return false;
     }
+    auto innermost2 = scheduler_utils::innerMostRootDim(ref2);
+    auto innermost1 = domain_map.getMappedRootDimIn(ref1, innermost2)
     // reference 1 is the global reference, so it must have dim mapped the
     // innermost dim of both groups
-    auto innermost2 = scheduler_utils::innerMostRootDim(ref2);
-    return domain_map.getMappedRootDimIn(ref1, innermost2) != nullptr;
+    if (innermost1 != nullptr) {
+      return false;
+    }
+    for (auto ref : grouped_inputs_outputs[0]) {
+      if (domain_map.getMappedRootDimIn(ref, innermost1)->isRFactorProduct()) {
+        return false;
+      }
+    }
+    for (auto ref : grouped_inputs_outputs[1]) {
+      if (domain_map.getMappedRootDimIn(ref, innermost2)->isRFactorProduct()) {
+        return false;
+      }
+    }
+    return true;
   }
 
   size_t getInnerLeafDim(TensorView* tv, IterDomain* root_dim) const {
