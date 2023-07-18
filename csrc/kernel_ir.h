@@ -199,7 +199,7 @@ class TORCH_CUDA_CU_API Allocate final : public Expr {
   }
 
   MemoryType memoryType() const {
-    return attribute(1)->as<Attribute<MemoryType>>()->value;
+    return attribute<MemoryType>(1);
   }
 
   //! Total size
@@ -218,7 +218,7 @@ class TORCH_CUDA_CU_API Allocate final : public Expr {
   }
 
   bool zeroInit() const {
-    return attribute(2)->as<Attribute<bool>>()->value;
+    return attribute<bool>(2);
   }
 
   // This alias tracks the next Allocate node in a linked chain of aliases
@@ -249,17 +249,7 @@ class TORCH_CUDA_CU_API BlockSync final : public Expr {
 
   // TODO: war_sync_ is only used for testing/validation purposes.
   bool isWarHazardSync() const {
-    return attribute(0)->as<Attribute<bool>>()->value;
-  }
-
-  //! Sets the flag signifying that this block sync is
-  //!  thread aligned.
-  void convertToAligned() {
-    attribute(1)->as<Attribute<bool>>()->value = true;
-  }
-
-  bool isAligned() const {
-    return attribute(1)->as<Attribute<bool>>()->value;
+    return attribute<bool>(0);
   }
 };
 
@@ -284,7 +274,7 @@ class TORCH_CUDA_CU_API GridSync final : public Expr {
   std::string toInlineString(int indent_size = 0) const override;
 
   ParallelTypeBitmap syncDims() const {
-    return attribute(0)->as<Attribute<ParallelTypeBitmap>>()->value;
+    return attribute<ParallelTypeBitmap>(0);
   }
 
   Val* syncBuffer() const {
@@ -297,7 +287,7 @@ class TORCH_CUDA_CU_API CpAsyncWait final : public Expr {
  public:
   using Expr::Expr;
 
-  explicit CpAsyncWait(IrBuilderPasskey passkey, unsigned int keep_stages = 0);
+  explicit CpAsyncWait(IrBuilderPasskey passkey, int64_t keep_stages = 0);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
@@ -310,8 +300,8 @@ class TORCH_CUDA_CU_API CpAsyncWait final : public Expr {
 
   //! Returns the remaining number of stages that are not synchronized
   //!  after this op.
-  unsigned int keepStages() const {
-    return attribute(0)->as<Attribute<unsigned int>>()->value;
+  int64_t keepStages() const {
+    return attribute<int64_t>(0);
   }
 };
 
@@ -562,11 +552,11 @@ class TORCH_CUDA_CU_API ForLoop final : public Expr {
 
   // TODO: Return pointer instead of reference to be more consistent
   Scope& body() {
-    return attribute(7)->as<Attribute<Scope>>()->value;
+    return attribute<Scope>(7);
   }
 
   const Scope& body() const {
-    return attribute(7)->as<Attribute<Scope>>()->value;
+    return attribute<Scope>(7);
   }
 
   bool empty() const {
@@ -576,7 +566,7 @@ class TORCH_CUDA_CU_API ForLoop final : public Expr {
   // vectorize is true when the for-loop contains a vectorize set
   // the flag is used to omit the for-loop from the kernel
   bool vectorize() const {
-    return attribute(3)->as<Attribute<bool>>()->value;
+    return attribute<bool>(3);
   }
 
   //! True if unrolled (i.e., "#pragma unroll" is attached)
@@ -584,12 +574,12 @@ class TORCH_CUDA_CU_API ForLoop final : public Expr {
 
   //! True if unroll is required for avoiding stack allocation
   bool isUnrollRequired() const {
-    return attribute(5)->as<Attribute<bool>>()->value;
+    return attribute<bool>(5);
   }
 
   //! Set unrolling required
   void requireUnroll() {
-    attribute(5)->as<Attribute<bool>>()->value = true;
+    attribute<bool>(5) = true;
   }
 
   //! True if no actual for-loop is materialized
@@ -601,7 +591,7 @@ class TORCH_CUDA_CU_API ForLoop final : public Expr {
   //! Returns the stage of a double buffered iterdomain
   //!  that this for loop materializes.
   auto doubleBufferLoopStage() const {
-    return attribute(6)->as<Attribute<DoubleBufferLoopStage>>()->value;
+    return attribute<DoubleBufferLoopStage>(6);
   }
 
  private:
@@ -632,18 +622,18 @@ class TORCH_CUDA_CU_API IfThenElse final : public Expr {
   std::string toInlineString(int indent_size = 0) const override;
 
   Scope& thenBody() {
-    return attribute(0)->as<Attribute<Scope>>()->value;
+    return attribute<Scope>(0);
   }
   const Scope& thenBody() const {
-    return attribute(0)->as<Attribute<Scope>>()->value;
+    return attribute<Scope>(0);
   }
 
   Scope& elseBody() {
-    return attribute(1)->as<Attribute<Scope>>()->value;
+    return attribute<Scope>(1);
   }
 
   const Scope& elseBody() const {
-    return attribute(1)->as<Attribute<Scope>>()->value;
+    return attribute<Scope>(1);
   }
 
   bool hasElse() const {
@@ -711,15 +701,11 @@ class TORCH_CUDA_CU_API GridReduction final : public ReductionOp {
   // use them, the thread predicate is held here separately from
   // Expr::predicate_.
   const ParallelTypeBitmap& threadPredicate() const {
-    return attribute(num_reduction_op_attr + 4)
-        ->as<Attribute<ParallelTypeBitmap>>()
-        ->value;
+    return attribute<ParallelTypeBitmap>(num_reduction_op_attr + 4);
   }
 
   ParallelTypeBitmap& threadPredicate() {
-    return attribute(num_reduction_op_attr + 4)
-        ->as<Attribute<ParallelTypeBitmap>>()
-        ->value;
+    return attribute<ParallelTypeBitmap>(num_reduction_op_attr + 4);
   }
 
   GridReduction* withThreadPredicate(
@@ -799,15 +785,11 @@ class TORCH_CUDA_CU_API GroupedGridReduction final : public GroupedReductionOp {
   // use them, the thread predicate is held here separately from
   // Expr::predicate_.
   const ParallelTypeBitmap& threadPredicate() const {
-    return attribute(numGroupedReductionOpAttr() + 4)
-        ->as<Attribute<ParallelTypeBitmap>>()
-        ->value;
+    return attribute<ParallelTypeBitmap>(numGroupedReductionOpAttr() + 4);
   }
 
   ParallelTypeBitmap& threadPredicate() {
-    return attribute(numGroupedReductionOpAttr() + 4)
-        ->as<Attribute<ParallelTypeBitmap>>()
-        ->value;
+    return attribute<ParallelTypeBitmap>(numGroupedReductionOpAttr() + 4);
   }
 
   GroupedGridReduction* withThreadPredicate(
@@ -923,10 +905,10 @@ class TORCH_CUDA_CU_API GridWelford final : public Expr {
   // use them, the thread predicate is held here separately from
   // Expr::predicate_.
   const ParallelTypeBitmap& threadPredicate() const {
-    return attribute(7)->as<Attribute<ParallelTypeBitmap>>()->value;
+    return attribute<ParallelTypeBitmap>(7);
   }
   ParallelTypeBitmap& threadPredicate() {
-    return attribute(7)->as<Attribute<ParallelTypeBitmap>>()->value;
+    return attribute<ParallelTypeBitmap>(7);
   }
 
   GridWelford* withThreadPredicate(const ParallelTypeBitmap& thread_predicate) {
@@ -1005,14 +987,10 @@ class TORCH_CUDA_CU_API GroupedGridWelford final : public GroupedWelfordOp {
   // use them, the thread predicate is held here separately from
   // Expr::predicate_.
   const ParallelTypeBitmap& threadPredicate() const {
-    return attribute(numGroupedWelfordOpAttr() + 4)
-        ->as<Attribute<ParallelTypeBitmap>>()
-        ->value;
+    return attribute<ParallelTypeBitmap>(numGroupedWelfordOpAttr() + 4);
   }
   ParallelTypeBitmap& threadPredicate() {
-    return attribute(numGroupedWelfordOpAttr() + 4)
-        ->as<Attribute<ParallelTypeBitmap>>()
-        ->value;
+    return attribute<ParallelTypeBitmap>(numGroupedWelfordOpAttr() + 4);
   }
 
   GroupedGridWelford* withThreadPredicate(
@@ -1025,7 +1003,7 @@ class TORCH_CUDA_CU_API GroupedGridWelford final : public GroupedWelfordOp {
   // True if the outer-optimized kernel should be used
   bool useOuterOpt() const {
     auto offset = numGroupedWelfordOpAttr() + 5 + outputs().size();
-    return attribute(offset)->as<Attribute<bool>>()->value;
+    return attribute<bool>(offset);
   }
 
   //! Return the required smem buffer size

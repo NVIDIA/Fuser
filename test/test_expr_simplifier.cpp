@@ -850,8 +850,8 @@ TEST_F(ExprSimplifierTest, ReducePredicateRegisterUsage_CUDA) {
   auto u2 = IrBuilder::create<NamedScalar>("u2", DataType::Int);
   auto tidx = NamedScalar::getParallelIndex(ParallelType::TIDx);
   auto zero = "0"_;
-  auto five = IrBuilder::create<Scalar>(5);
-  auto neg_five = IrBuilder::create<Scalar>(-5);
+  auto five = IrBuilder::create<Scalar>(5L);
+  auto neg_five = IrBuilder::create<Scalar>(-5L);
 
   auto unroll_gp1 = mul(tidx, u1);
   auto unroll_uniform1 = mul(a, u1);
