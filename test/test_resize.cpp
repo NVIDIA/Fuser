@@ -2269,7 +2269,6 @@ TEST_F(NVFuserTest, SliceVectorization) {
 // In this test, the sizes and pad widths are static, so there should be nothing
 // to concretize.
 TEST_F(NVFuserTest, ResizePadToBroadcastStatic_CUDA) {
-  /*
   std::vector<int64_t> t0_size = {2, 3, 2, 5, 6};
   std::vector<int64_t> t1_size = {2, 4, 4, 3, 5};
   // Note there are only 8 input scalars for 5D input. Implicit no-pad of dim 0
@@ -2291,7 +2290,7 @@ TEST_F(NVFuserTest, ResizePadToBroadcastStatic_CUDA) {
       IterType::Broadcast,
       IterType::Iteration,
   };
-  */
+ /* 
   std::vector<int64_t> t0_size = {2, 3};
   std::vector<int64_t> t1_size = {2, 4};
   // Note there are only 8 input scalars for 5D input. Implicit no-pad of dim 0
@@ -2304,6 +2303,7 @@ TEST_F(NVFuserTest, ResizePadToBroadcastStatic_CUDA) {
       IterType::Iteration,
       IterType::Broadcast,
   };
+  */
 
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -2322,9 +2322,6 @@ TEST_F(NVFuserTest, ResizePadToBroadcastStatic_CUDA) {
   auto tv2 = pad(tv0, pad_width_vals);
   auto tv3 = mul(tv1, tv2);
   fusion->addOutput(tv3);
-
-  fusion->printMath();
-  fusion->printTransforms();
 
   EXPECT_FALSE(fusion->hasDynamicTransform());
 
@@ -2350,9 +2347,6 @@ TEST_F(NVFuserTest, ResizePadToBroadcastStatic_CUDA) {
 
   auto t2_padded = at::pad(t0, pad_widths);
   auto ref_t2 = t1 * t2_padded;
-
-  std::cout << "ATen: " << ref_t2 << std::endl;
-  std::cout << "NVFuser: " << cg_outputs[0] << std::endl;
 
   testValidate(
       concretized_fusion,
@@ -2397,9 +2391,6 @@ TEST_F(NVFuserTest, ResizePadToBroadcastDynamic_CUDA) {
   auto tv3 = mul(tv1, tv2);
   fusion->addOutput(tv3);
 
-  fusion->printMath();
-  fusion->printTransforms();
-
   EXPECT_TRUE(fusion->hasDynamicTransform());
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -2433,9 +2424,6 @@ TEST_F(NVFuserTest, ResizePadToBroadcastDynamic_CUDA) {
   auto t2_padded = at::pad(t0, pad_widths);
   auto ref_t2 = t1 * t2_padded;
 
-  std::cout << "ATen: " << ref_t2 << std::endl;
-  std::cout << "NVFuser: " << cg_outputs[0] << std::endl;
-
   testValidate(
       concretized_fusion,
       cg_outputs,
@@ -2460,8 +2448,6 @@ TEST_F(NVFuserTest, ResizeIssue596_CUDA) {
 
   // Fusion is not dynamic
   EXPECT_FALSE(fusion->hasDynamicTransform());
-
-  fusion->printMath();
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
