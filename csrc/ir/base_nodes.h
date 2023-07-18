@@ -16,11 +16,13 @@
 #include <type.h>
 #include <utils.h>
 
+#include <cstddef>
 #include <cstdint>
 #include <iostream>
 #include <limits>
 #include <memory>
 #include <stdexcept>
+#include <string>
 #include <unordered_map>
 #include <vector>
 
@@ -49,10 +51,7 @@ namespace nvfuser {
 
 using ValueId = int32_t;
 
-using StmtNameType = unsigned int;
-
-constexpr StmtNameType kInvalidStmName =
-    std::numeric_limits<unsigned int>::max();
+using StmtNameType = DynamicType<NoContainers, int64_t, std::string>;
 
 class NonCopyable;
 class PolymorphicBase;
@@ -155,8 +154,12 @@ class TORCH_CUDA_CU_API Statement : public NonCopyable, public PolymorphicBase {
   }
 
   // Return the int that represents its name
-  StmtNameType name() const {
+  const StmtNameType& name() const {
     return name_;
+  }
+
+  void rename(StmtNameType name) {
+    name_ = std::move(name);
   }
 
   // Set the statements' name. Typically the container will set the name,
@@ -188,7 +191,7 @@ class TORCH_CUDA_CU_API Statement : public NonCopyable, public PolymorphicBase {
   Statement(IrBuilderPasskey);
 
   // NOLINTNEXTLINE(cppcoreguidelines-non-private-member-variables-in-classes)
-  StmtNameType name_ = kInvalidStmName;
+  StmtNameType name_;
 
   // NOLINTNEXTLINE(cppcoreguidelines-non-private-member-variables-in-classes)
   IrContainer* ir_container_ = nullptr;

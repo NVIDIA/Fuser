@@ -3616,10 +3616,12 @@ NamedScalar::NamedScalar(
     IrBuilderPasskey passkey,
     std::string name,
     DataType dtype)
-    : Val(passkey, ValType::NamedScalar, dtype), name_(std::move(name)) {}
+    : Val(passkey, ValType::NamedScalar, dtype) {
+  rename(std::move(name));
+}
 
 NamedScalar::NamedScalar(const NamedScalar* src, IrCloner* ir_cloner)
-    : Val(src, ir_cloner), name_(src->name_) {}
+    : Val(src, ir_cloner) {}
 
 NVFUSER_DEFINE_CLONE(NamedScalar)
 
@@ -3630,17 +3632,17 @@ bool NamedScalar::sameAs(const Statement* other) const {
   if (!other->isA<NamedScalar>()) {
     return false;
   }
-  return other->as<NamedScalar>()->name().compare(name()) == 0;
+  return other->as<NamedScalar>()->name() == name();
 }
 
 bool NamedScalar::isTensorSize() const {
   static const std::regex r(R"(T\d+\.size\[\d+\])");
-  return std::regex_match(name(), r);
+  return std::regex_match(name().as<std::string>(), r);
 }
 
 bool NamedScalar::isTensorStride() const {
   static const std::regex r(R"(T\d+\.stride\[\d+\])");
-  return std::regex_match(name(), r);
+  return std::regex_match(name().as<std::string>(), r);
 }
 
 NamedScalar* NamedScalar::getParallelDim(ParallelType p_type) {
@@ -3660,34 +3662,34 @@ NamedScalar* NamedScalar::getParallelIndex(ParallelType p_type) {
 }
 
 std::optional<ParallelType> NamedScalar::getParallelDim() const {
-  if (stringifyThreadSize(ParallelType::TIDx).compare(name()) == 0) {
+  if (stringifyThreadSize(ParallelType::TIDx) == name()) {
     return std::optional<ParallelType>(ParallelType::TIDx);
-  } else if (stringifyThreadSize(ParallelType::TIDy).compare(name()) == 0) {
+  } else if (stringifyThreadSize(ParallelType::TIDy) == name()) {
     return std::optional<ParallelType>(ParallelType::TIDy);
-  } else if (stringifyThreadSize(ParallelType::TIDz).compare(name()) == 0) {
+  } else if (stringifyThreadSize(ParallelType::TIDz) == name()) {
     return std::optional<ParallelType>(ParallelType::TIDz);
-  } else if (stringifyThreadSize(ParallelType::BIDx).compare(name()) == 0) {
+  } else if (stringifyThreadSize(ParallelType::BIDx) == name()) {
     return std::optional<ParallelType>(ParallelType::BIDx);
-  } else if (stringifyThreadSize(ParallelType::BIDy).compare(name()) == 0) {
+  } else if (stringifyThreadSize(ParallelType::BIDy) == name()) {
     return std::optional<ParallelType>(ParallelType::BIDy);
-  } else if (stringifyThreadSize(ParallelType::BIDz).compare(name()) == 0) {
+  } else if (stringifyThreadSize(ParallelType::BIDz) == name()) {
     return std::optional<ParallelType>(ParallelType::BIDz);
   }
   return std::nullopt;
 }
 
 std::optional<ParallelType> NamedScalar::getParallelIndex() const {
-  if (stringifyThread(ParallelType::TIDx).compare(name()) == 0) {
+  if (stringifyThread(ParallelType::TIDx) == name()) {
     return std::optional<ParallelType>(ParallelType::TIDx);
-  } else if (stringifyThread(ParallelType::TIDy).compare(name()) == 0) {
+  } else if (stringifyThread(ParallelType::TIDy) == name()) {
     return std::optional<ParallelType>(ParallelType::TIDy);
-  } else if (stringifyThread(ParallelType::TIDz).compare(name()) == 0) {
+  } else if (stringifyThread(ParallelType::TIDz) == name()) {
     return std::optional<ParallelType>(ParallelType::TIDz);
-  } else if (stringifyThread(ParallelType::BIDx).compare(name()) == 0) {
+  } else if (stringifyThread(ParallelType::BIDx) == name()) {
     return std::optional<ParallelType>(ParallelType::BIDx);
-  } else if (stringifyThread(ParallelType::BIDy).compare(name()) == 0) {
+  } else if (stringifyThread(ParallelType::BIDy) == name()) {
     return std::optional<ParallelType>(ParallelType::BIDy);
-  } else if (stringifyThread(ParallelType::BIDz).compare(name()) == 0) {
+  } else if (stringifyThread(ParallelType::BIDz) == name()) {
     return std::optional<ParallelType>(ParallelType::BIDz);
   }
   return std::nullopt;

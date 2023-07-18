@@ -123,7 +123,7 @@ class TORCH_CUDA_CU_API IrContainer : public PolymorphicBase {
 
   StmtNameType getValName(ValType vtype) {
     if (val_type_name_map_.find(vtype) == val_type_name_map_.end()) {
-      val_type_name_map_[vtype] = 0;
+      val_type_name_map_[vtype] = 0L;
     }
     return val_type_name_map_[vtype]++;
   }

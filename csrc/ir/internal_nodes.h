@@ -1811,18 +1811,14 @@ class TORCH_CUDA_CU_API NamedScalar : public Val {
 
   NVFUSER_DECLARE_CLONE
 
-  const std::string& name() const {
-    return name_;
-  }
-
   bool sameAs(const Statement* other) const override;
 
   std::string toString(int indent_size = 0) const override {
-    return name_;
+    return (std::string)name_;
   }
 
   std::string toInlineString(int indent_size = 0) const override {
-    return name_;
+    return (std::string)name_;
   }
 
   //! Check if this is something like T0.size[1]
@@ -1878,9 +1874,6 @@ class TORCH_CUDA_CU_API NamedScalar : public Val {
   //! Return the parallel type of this NamedScalar if it is an index of a
   //! parallel dimension
   std::optional<ParallelType> getParallelIndex() const;
-
- private:
-  std::string name_;
 };
 
 class TORCH_CUDA_CU_API PadOp : public Expr {

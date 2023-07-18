@@ -1402,7 +1402,7 @@ TEST_F(NVFuserTest, FusionCodegenAllocatedScalars_CUDA) {
   const auto indent = "  ";
   const auto ks0_name = "i0";
   const auto ks1_name = "i1";
-  const auto tk0_name = "T" + std::to_string(tk0->name());
+  const auto tk0_name = "T" + std::to_string(tk0->name().as<int64_t>());
 
   auto& exprs = proxy.topLevelExprs();
   exprs.push_back(tk0_expr);

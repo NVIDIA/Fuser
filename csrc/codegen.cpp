@@ -192,9 +192,9 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       // support negative indexing
       if (ns->getParallelIndex().has_value() ||
           ns->getParallelDim().has_value()) {
-        return "((nvfuser_index_t)" + ns->name() + ")";
+        return ("((nvfuser_index_t)" + ns->name() + ")").as<std::string>();
       } else {
-        return ns->name();
+        return ns->name().as<std::string>();
       }
     }
     // We keep the name of TensorIndex and TensorView as is, because in our unit

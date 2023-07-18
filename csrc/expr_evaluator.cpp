@@ -65,7 +65,8 @@ void ExpressionEvaluator::bind_(
       " with ",
       concrete_value);
   if (value->isA<NamedScalar>()) {
-    known_named_scalars_[value->as<NamedScalar>()->name()] = concrete_value;
+    known_named_scalars_[value->as<NamedScalar>()->name().as<std::string>()] =
+        concrete_value;
   } else {
     known_values_[value] = concrete_value;
   }
@@ -137,7 +138,8 @@ PolymorphicValue ExpressionEvaluator::getValue(const Val* value) {
   }
 
   if (value->isA<NamedScalar>()) {
-    const auto it = known_named_scalars_.find(value->as<NamedScalar>()->name());
+    const auto it = known_named_scalars_.find(
+        value->as<NamedScalar>()->name().as<std::string>());
     if (it != known_named_scalars_.end()) {
       return it->second;
     }
