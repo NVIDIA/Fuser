@@ -232,7 +232,11 @@ bool Val::sameAs(const Statement* other) const {
       return false;
     }
     if (definition_ == nullptr) {
-      return value_ == other_val->value_;
+      if (value_.hasValue()) {
+        return value_ == other_val->value_;
+      } else {
+        return false;
+      }
     }
     if (!definition_->sameAs(other_val->definition_)) {
       return false;
