@@ -219,8 +219,8 @@ TEST_F(NVFuserTest, FusionIsZeroInt_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  Scalar* x = IrBuilder::create<Val>(0L);
-  Scalar* y = IrBuilder::create<Val>(1L);
+  Val* x = IrBuilder::create<Val>(0L);
+  Val* y = IrBuilder::create<Val>(1L);
   Val* z = mul(x, y);
   TORCH_CHECK(x->isZeroInt());
   TORCH_CHECK(!y->isZeroInt());
@@ -232,8 +232,8 @@ TEST_F(NVFuserTest, FusionIsOneInt_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  Scalar* x = IrBuilder::create<Val>(1L);
-  Scalar* y = IrBuilder::create<Val>(1L);
+  Val* x = IrBuilder::create<Val>(1L);
+  Val* y = IrBuilder::create<Val>(1L);
   Val* z = mul(x, y);
   TORCH_CHECK(x->isOneInt());
   TORCH_CHECK(y->isOneInt());
