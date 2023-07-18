@@ -26,9 +26,9 @@ bool generateSharedMemoryEpilogueHeuristics(
     const bool ignore_occupancy_drop) {
   const auto properties = at::cuda::getCurrentDeviceProperties();
   const size_t device_smem_limit = properties->sharedMemPerBlockOptin;
-  // 1024 bytes are reserved for kernel launch overhead
-  const size_t shared_memory_overhead = 1024;
-  const size_t shared_memory_available = device_smem_limit - shared_memory_overhead;
+  const size_t shared_memory_overhead = properties->reservedSharedMemPerBlock;
+  const size_t shared_memory_available =
+      device_smem_limit - shared_memory_overhead;
 
   auto warp_dims = gemm_tile.cta_tile / gemm_tile.warp_tile;
   const auto threads_per_block =
@@ -50,16 +50,17 @@ bool generateSharedMemoryEpilogueHeuristics(
       dataTypeSize(data_types[2]);
 
   // shortcut where occupancy change is ignored.
-  if(ignore_occupancy_drop){
+  if (ignore_occupancy_drop) {
     return shared_memory_available >= smem_a + smem_b + smem_c;
   }
 
   // use additional shared memory for epilogue if occupancy is not changed.
   // occupancy is estimated using register and shared memory usage.
   const auto threads_per_sm = getThreadsPerSMGivenRegPerThread(255);
-  const auto blocks_per_sm_by_register = threads_per_sm / threads_per_block;  
+  const auto blocks_per_sm_by_register = threads_per_sm / threads_per_block;
   const auto blocks_per_sm_without_smem_epilogue = std::min(
-      shared_memory_available / (smem_a + smem_b), (size_t)blocks_per_sm_by_register);
+      shared_memory_available / (smem_a + smem_b),
+      (size_t)blocks_per_sm_by_register);
   const auto blocks_per_sm_with_smem_epilogue = std::min(
       shared_memory_available / (smem_a + smem_b + smem_c),
       (size_t)blocks_per_sm_by_register);
