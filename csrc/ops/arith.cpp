@@ -312,10 +312,10 @@ Val* ones_like(Val* v) {
 
 TensorView* iota(Val* length, Val* start, Val* step, DataType dtype) {
   if (start == nullptr) {
-    start = IrBuilder::newConstant(0, dtype);
+    start = IrBuilder::newConstant(0L, dtype);
   }
   if (step == nullptr) {
-    step = IrBuilder::newConstant(1, dtype);
+    step = IrBuilder::newConstant(1L, dtype);
   }
   TORCH_CHECK(
       isIntegralType(*length->getDataType()),
@@ -2104,8 +2104,8 @@ TensorView* shift(
     const auto cur_start_offset_value = current_start_offset->value();
     const auto cur_stop_offset_value = current_stop_offset->value();
 
-    PolymorphicValue out_start_offset = 0;
-    PolymorphicValue out_stop_offset = 0;
+    PolymorphicValue out_start_offset = 0L;
+    PolymorphicValue out_stop_offset = 0L;
 
     if (offset > 0) {
       using namespace PolymorphicValue_functions;
@@ -2288,7 +2288,7 @@ TensorView* gather(
     // create a new axis for the gathered domain
     out_gather_dom.push_back(IterDomainBuilder(
                                  FusionGuard::getCurFusion()->zeroVal(),
-                                 IrBuilder::create<Scalar>(window_dim))
+                                 IrBuilder::create<Scalar>((int64_t)window_dim))
                                  .iter_type(IterType::Gather)
                                  .build());
   }
