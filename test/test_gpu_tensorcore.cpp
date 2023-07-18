@@ -3707,7 +3707,7 @@ TEST_F(NVFuserTest, FusionMatmulSchedulerEpilogueOutputCast_CUDA) {
   at::manual_seed(0);
   at::Tensor t0 = matmulAtInput(M, N, K, layout, TensorMatmulPos::A, at::kHalf);
   at::Tensor t1 = matmulAtInput(M, N, K, layout, TensorMatmulPos::B, at::kHalf);
-  at::Tensor t2 = atMatmul(t0.to(at::kHalf), t1.to(at::kHalf), layout);
+  at::Tensor t2 = atMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout);
   at::Tensor tref = t2.to(at::kHalf);
 
   auto outputs = executor_cache.runFusionWithInputs({t0, t1});
@@ -3771,7 +3771,7 @@ TEST_F(NVFuserTest, FusionMatmulSchedulerEpilogueAlpha_CUDA) {
   const double alpha = 2.5;
   at::Tensor t0 = matmulAtInput(M, N, K, layout, TensorMatmulPos::A, at::kHalf);
   at::Tensor t1 = matmulAtInput(M, N, K, layout, TensorMatmulPos::B, at::kHalf);
-  at::Tensor t2 = atMatmul(t0.to(at::kHalf), t1.to(at::kHalf), layout);
+  at::Tensor t2 = atMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout);
   at::Tensor tref = at::mul(t2, alpha).to(at::kFloat);
 
   auto outputs = executor_cache.runFusionWithInputs({t0, t1, alpha});
@@ -3836,7 +3836,7 @@ TEST_F(NVFuserTest, FusionMatmulSchedulerEpilogueAlphaOutputCast_CUDA) {
   const double alpha = 2.5;
   at::Tensor t0 = matmulAtInput(M, N, K, layout, TensorMatmulPos::A, at::kHalf);
   at::Tensor t1 = matmulAtInput(M, N, K, layout, TensorMatmulPos::B, at::kHalf);
-  at::Tensor t2 = atMatmul(t0.to(at::kHalf), t1.to(at::kHalf), layout);
+  at::Tensor t2 = atMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout);
   at::Tensor t3 = at::mul(t2, alpha).to(at::kFloat);
   at::Tensor tref = t3.to(at::kHalf);
 
@@ -3898,7 +3898,7 @@ TEST_F(NVFuserTest, FusionMatmulSchedulerEpilogueRelu_CUDA) {
   at::manual_seed(0);
   at::Tensor t0 = matmulAtInput(M, N, K, layout, TensorMatmulPos::A, at::kHalf);
   at::Tensor t1 = matmulAtInput(M, N, K, layout, TensorMatmulPos::B, at::kHalf);
-  at::Tensor t2 = atMatmul(t0.to(at::kHalf), t1.to(at::kHalf), layout);
+  at::Tensor t2 = atMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout);
   at::Tensor tref = at::relu(t2).to(at::kFloat);
 
   auto outputs = executor_cache.runFusionWithInputs({t0, t1});
@@ -3959,7 +3959,7 @@ TEST_F(NVFuserTest, FusionMatmulSchedulerEpilogueGelu_CUDA) {
   at::manual_seed(0);
   at::Tensor t0 = matmulAtInput(M, N, K, layout, TensorMatmulPos::A, at::kHalf);
   at::Tensor t1 = matmulAtInput(M, N, K, layout, TensorMatmulPos::B, at::kHalf);
-  at::Tensor t2 = atMatmul(t0.to(at::kHalf), t1.to(at::kHalf), layout);
+  at::Tensor t2 = atMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout);
   at::Tensor tref = at::gelu(t2).to(at::kFloat);
 
   auto outputs = executor_cache.runFusionWithInputs({t0, t1});
@@ -4034,7 +4034,7 @@ TEST_F(NVFuserTest, FusionMatmulSchedulerEpilogueBeta_CUDA) {
   auto t1 = matmulAtInput(M, N, K, layout, TensorMatmulPos::B, at::kHalf);
   auto t2 = matmulAtInput(M, N, K, layout, TensorMatmulPos::C, at::kHalf);
 
-  auto t3 = atMatmul(t0.to(at::kHalf), t1.to(at::kHalf), layout).to(at::kFloat);
+  auto t3 = atMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout).to(at::kFloat);
 
   auto t4 = at::mul(t2, beta).to(at::kFloat);
   auto t5 = at::add(t3, t4);
@@ -4117,7 +4117,7 @@ TEST_F(NVFuserTest, FusionMatmulSchedulerEpilogueAlphaBeta_CUDA) {
   auto t1 = matmulAtInput(M, N, K, layout, TensorMatmulPos::B, at::kHalf);
   auto t2 = matmulAtInput(M, N, K, layout, TensorMatmulPos::C, at::kHalf);
 
-  auto t3 = atMatmul(t0.to(at::kHalf), t1.to(at::kHalf), layout);
+  auto t3 = atMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout);
   auto t4 = at::mul(t3, alpha).to(at::kFloat);
 
   auto t5 = at::mul(t2, beta).to(at::kFloat);
@@ -4205,7 +4205,7 @@ TEST_F(NVFuserTest, FusionMatmulSchedulerEpilogueAlphaBetaGeluOutputCast_CUDA) {
   auto t1 = matmulAtInput(M, N, K, layout, TensorMatmulPos::B, at::kHalf);
   auto t2 = matmulAtInput(M, N, K, layout, TensorMatmulPos::C, at::kHalf);
 
-  auto t3 = atMatmul(t0.to(at::kHalf), t1.to(at::kHalf), layout);
+  auto t3 = atMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout);
   auto t4 = at::mul(t3, alpha).to(at::kFloat);
 
   auto t5 = at::mul(t2, beta).to(at::kFloat);
