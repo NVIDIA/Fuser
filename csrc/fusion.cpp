@@ -490,7 +490,7 @@ void Fusion::printMath(bool from_outputs_only) {
         leaf_vals.push_back(val);
       }
     }
-    exprs_for_print = StmtSort::getExprs(this, leaf_vals);
+    exprs_for_print = StmtSort::getExprsTo(this, leaf_vals);
   }
 
   debug() << "\n%kernel_math {\n";
