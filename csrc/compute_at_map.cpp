@@ -605,7 +605,7 @@ void IterDomainGraph::build(Fusion* fusion) {
 
   // Grab all the rfactor ids.
   for (auto consumer_tv : all_consumer_tvs) {
-    auto exprs = StmtSort::getExprs(
+    auto exprs = StmtSort::getExprsTo(
         fusion,
         {consumer_tv->getMaybeRFactorDomain().begin(),
          consumer_tv->getMaybeRFactorDomain().end()});

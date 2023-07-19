@@ -547,8 +547,9 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     TORCH_INTERNAL_ASSERT(false, "Unreachable");
   }
 
-  void handle(const TensorView*) final {
-    TORCH_INTERNAL_ASSERT(false, "Unreachable");
+  void handle(const TensorView* tv) final {
+    TORCH_INTERNAL_ASSERT(print_inline_);
+    code_ << genVariableName(tv);
   }
 
   //! Utility for generating vectorized pointer access in ldsm and
@@ -601,20 +602,16 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     indent() << genCall(name, func_args) << ";\n";
   }
 
-  void handle(const kir::BaseAddress* sop) final {
+  void handle(const GetMetaData* gop) final {
+    TORCH_INTERNAL_ASSERT(print_inline_);
+    code_ << gen(gop->in());
+  }
+
+  void handle(const GetAttr* gop) final {
     if (!print_inline_) {
-      indent() << gen(sop->output(0)) << " = ";
+      indent() << gen(gop->output(0)) << " = ";
     }
-    switch (sop->tv()->getMemoryType()) {
-      case MemoryType::Shared:
-        code_ << "toSmem(" << genVariableName(sop->tv()) << ")";
-        break;
-      case MemoryType::Global:
-        code_ << genVariableName(sop->tv()) << ".data";
-        break;
-      default:
-        TORCH_INTERNAL_ASSERT(false, "Unsupported input for kir::BaseAddress");
-    }
+    code_ << gen(gop->struct_()) << "." << gop->attr();
     if (!print_inline_) {
       code_ << ";\n";
     }

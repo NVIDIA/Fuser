@@ -518,6 +518,20 @@ class TORCH_CUDA_CU_API GetMetaData : public Expr {
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
 
+  bool sameAs(const Statement* other) const override {
+    auto other_meta = dynamic_cast<const GetMetaData*>(other);
+    if (other_meta == nullptr) {
+      return false;
+    }
+    // Do not recursively check input, because if we have
+    // T1 = set(T0)
+    // T2 = set(T0)
+    // Then even if T1->sameAs(T2), they should not have the same metadata.
+    // For example, T1 and T2 may be different fusion outputs, so their data
+    // pointers are different.
+    return other_meta->in() == in();
+  }
+
   std::vector<PolymorphicValue> evaluate(
       const std::vector<PolymorphicValue>& inputs) const override;
 

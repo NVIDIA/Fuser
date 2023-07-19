@@ -81,12 +81,7 @@ TEST_F(ExprEvalTest, Bindings) {
   evaluator.bind(a, 7L);
   evaluator.bind(b, 3L);
 
-  // can't bind to the results of expressions
-  // NOLINTNEXTLINE(cppcoreguidelines-avoid-goto,hicpp-avoid-goto)
-  ASSERT_ANY_THROW(evaluator.bind(c, 100L));
-
   // can't bind to concrete values
-  // NOLINTNEXTLINE(cppcoreguidelines-avoid-goto,hicpp-avoid-goto)
   ASSERT_ANY_THROW(evaluator.bind(e, 100L));
 
   checkIntValue(evaluator, c, 10);
@@ -272,75 +267,6 @@ TEST_F(ExprEvalTest, PostLower) {
 
   checkIntValue(evaluator, bid_x, 2);
   checkIntValue(evaluator, tid_x, 128);
-}
-
-// Kernel IR: Evaluate basic scalar operations with constant values
-TEST_F(ExprEvalTest, KernelConstants) {
-  Fusion fusion;
-  kir::Kernel kernel(&fusion);
-  FusionGuard fg((&kernel)->as<Fusion>());
-
-  auto a = IrBuilder::create<Val>(7L);
-  auto b = IrBuilder::create<Val>(3L);
-  auto c = IrBuilder::subExpr(a, b);
-  auto d = IrBuilder::divExpr(a, b);
-  auto e = IrBuilder::mulExpr(c, d);
-
-  ExpressionEvaluator evaluator;
-
-  checkIntValue(evaluator, IrBuilder::negExpr(a), -7);
-  checkIntValue(evaluator, IrBuilder::addExpr(a, b), 10);
-  checkIntValue(evaluator, IrBuilder::negExpr(e), -8);
-  checkIntValue(evaluator, IrBuilder::modExpr(a, b), 1);
-  checkIntValue(evaluator, IrBuilder::ceilDivExpr(a, b), 3);
-}
-
-// Kernel IR: Evaluate basic scalar operations with bound values
-TEST_F(ExprEvalTest, KernelBindings) {
-  Fusion fusion;
-  kir::Kernel kernel(&fusion);
-  FusionGuard fg((&kernel)->as<Fusion>());
-
-  ExpressionEvaluator evaluator;
-
-  auto a = IrBuilder::create<Val>(DataType::Int);
-  auto b = IrBuilder::create<Val>(DataType::Int);
-  auto c = IrBuilder::addExpr(a, b);
-  auto d = IrBuilder::negExpr(IrBuilder::ceilDivExpr(c, b));
-  auto e = IrBuilder::create<Val>(0L);
-
-  // trying to evaluate before binding should give empty results
-  EXPECT_FALSE(evaluator.evaluate(a).hasValue());
-  EXPECT_FALSE(evaluator.evaluate(d).hasValue());
-
-  evaluator.bind(a, 7L);
-  evaluator.bind(b, 3L);
-
-  // can't bind to the results of expressions
-  // NOLINTNEXTLINE(cppcoreguidelines-avoid-goto,hicpp-avoid-goto)
-  ASSERT_ANY_THROW(evaluator.bind(c, 100L));
-
-  // can't bind to concrete values
-  // NOLINTNEXTLINE(cppcoreguidelines-avoid-goto,hicpp-avoid-goto)
-  ASSERT_ANY_THROW(evaluator.bind(e, 100L));
-
-  checkIntValue(evaluator, c, 10);
-  checkIntValue(evaluator, IrBuilder::subExpr(a, b), 4);
-  checkIntValue(evaluator, IrBuilder::modExpr(a, b), 1);
-  checkIntValue(evaluator, IrBuilder::ceilDivExpr(a, b), 3);
-  checkIntValue(evaluator, d, -4);
-
-  // Reset the evaluation context
-  evaluator = ExpressionEvaluator();
-
-  evaluator.bind(a, 2L);
-  evaluator.bind(b, 5L);
-
-  checkIntValue(evaluator, c, 7);
-  checkIntValue(evaluator, IrBuilder::subExpr(a, b), -3);
-  checkIntValue(evaluator, IrBuilder::modExpr(a, b), 2);
-  checkIntValue(evaluator, IrBuilder::ceilDivExpr(a, b), 1);
-  checkIntValue(evaluator, d, -2);
 }
 
 TEST_F(ExprEvalTest, Array) {

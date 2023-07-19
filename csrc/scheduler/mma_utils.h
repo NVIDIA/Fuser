@@ -297,10 +297,15 @@ TORCH_CUDA_CU_API RolesMapOpt getTensorsRoles(Fusion* fusion);
 //!  Returns true if using shared memory epilogue won't cause
 //!  the decrease of occupancy ratio. The occupancy ratio is
 //!  estimated using register and shared memory usage.
+//!  If ignore_occupancy_drop is set to true, returns true if
+//!  there is enough shared memory to launch the kernel without
+//!  considering the occupancy, useful for debug and validate
+//!  shared memory epilogue implementation.
 TORCH_CUDA_CU_API bool generateSharedMemoryEpilogueHeuristics(
     const MatMulTileOptions& gemm_tile,
     const int smem_double_buffer_stage,
-    const MmaDataTypes& data_types);
+    const MmaDataTypes& data_types,
+    const bool ignore_occupancy_drop = false);
 
 } // namespace mma_utils
 
