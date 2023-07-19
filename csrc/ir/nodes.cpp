@@ -2085,13 +2085,11 @@ ViewAsScalar::ViewAsScalar(
     IrBuilderPasskey passkey,
     Val* out,
     Val* in,
-    IterDomain* vector_id,
-    Val* index)
+    IterDomain* vector_id)
     : Expr(passkey) {
   addOutput(out);
   addInput(in);
   addAttribute(vector_id);
-  addAttribute(index);
 }
 
 std::string ViewAsScalar::toString(int indent_size) const {
