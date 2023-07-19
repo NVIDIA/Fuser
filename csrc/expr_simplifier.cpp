@@ -579,18 +579,14 @@ class FlattenedAssocCommOp : public Expr {
   // FlattenedAssocCommOp is unordered, so we should have
   // FlattenedAdd(a, b)->sameAs(FlattenedAdd(b, a))
   bool sameAs(const Statement* other) const override {
-    DEBUG_PRINT_SCOPE(this->toInlineString(), other->toInlineString());
     if (this == other) {
       return true;
     }
     if (!other->isA<FlattenedAssocCommOp>()) {
-      std::cout << "Not a flattened associative and commutative op\n";
       return false;
     }
     auto other_fop = other->as<FlattenedAssocCommOp>();
     if (getOpType() != other_fop->getOpType()) {
-      std::cout << "Different op type: " << getOpType() << " vs "
-                << other_fop->getOpType() << "\n";
       return false;
     }
     // check if we can establish a 1:1 mapping between inputs() and
@@ -603,8 +599,6 @@ class FlattenedAssocCommOp : public Expr {
             return v->sameAs(inp);
           });
       if (it == other_inputs.end()) {
-        std::cout << "Nothing equals to " << inp->toInlineString() << "\n";
-        std::cout << "In " << this->toInlineString() << "\n";
         return false;
       }
       other_inputs.erase(it);
@@ -992,14 +986,26 @@ std::pair<Val*, std::list<Val*>> getConstAndSymbolicFactors(Val* x) {
 }
 
 inline Val* maybeFlattenedOpOf(BinaryOpType bop, std::vector<Val*> inputs) {
-  if (inputs.size() == 1) {
-    if (bop == BinaryOpType::Gcd) {
-      return IrBuilder::absExpr(inputs.at(0));
+  std::vector<Val*> nontrivial_inputs;
+  std::vector<Val*> trivial_inputs;
+  for (auto inp : inputs) {
+    if (!assoc_comm::isNoOpTerm(inp, bop)) {
+      nontrivial_inputs.emplace_back(inp);
+    } else {
+      trivial_inputs.emplace_back(inp);
     }
-    return inputs.at(0);
   }
-  auto result = IrBuilder::newScalar(inferDtypes(inputs));
-  IrBuilder::create<FOp>(bop, result, std::move(inputs));
+  if (nontrivial_inputs.empty()) {
+    return trivial_inputs.at(0);
+  }
+  if (nontrivial_inputs.size() == 1) {
+    if (bop == BinaryOpType::Gcd) {
+      return IrBuilder::absExpr(nontrivial_inputs.at(0));
+    }
+    return nontrivial_inputs.at(0);
+  }
+  auto result = IrBuilder::newScalar(inferDtypes(nontrivial_inputs));
+  IrBuilder::create<FOp>(bop, result, std::move(nontrivial_inputs));
   return result;
 }
 
@@ -1781,7 +1787,6 @@ Val* eliminateTrivialComputation(Val* value, const Context& context) {
 // if x->sameAs(y), then replace x == y as true, replace x != y as false
 Val* eliminateTrivialPredicate(Val* value, const Context& context) {
   if (!value->isABool()) {
-    std::cout << value->toInlineString() << " is not a bool" << std::endl;
     return value;
   }
 
@@ -1794,13 +1799,6 @@ Val* eliminateTrivialPredicate(Val* value, const Context& context) {
   auto lhs = bop->lhs();
   auto rhs = bop->rhs();
   if (op == BinaryOpType::Eq) {
-    std::cout << "Eq testing " << value->toInlineString() << std::endl;
-    std::cout << "lhs: " << lhs->toInlineString() << std::endl;
-    std::cout << "rhs: " << rhs->toInlineString() << std::endl;
-    std::cout << typeid(*lhs).name() << std::endl;
-    std::cout << typeid(*rhs).name() << std::endl;
-    std::cout << typeid(*(lhs->definition())).name() << std::endl;
-    std::cout << typeid(*(rhs->definition())).name() << std::endl;
     if (lhs->sameAs(rhs)) {
       return value->fusion()->trueVal();
     } else if (
@@ -2427,17 +2425,16 @@ Val* fundamentalDivisionWithRemainderProperty(
       if (!isValidDenominator(b1, context)) {
         continue;
       }
-      auto factorized_b = sym_algebra::factorize(b1);
+      auto factorized_b1c = sym_algebra::factorize(
+          maybeFlattenedOpOf(BinaryOpType::Mul, {b1, c}));
       auto factorized_bc = sym_algebra::factorize(bc);
       auto quotient =
-          sym_algebra::divideFactorized(factorized_bc, factorized_b);
-      if (quotient != nullptr && quotient->sameAs(c)) {
+          sym_algebra::divideFactorized(factorized_bc, factorized_b1c);
+      if (quotient->isOne()) {
         // Found match!
         // Simplify [1] + [2] + ... + [i] + ... + [j] + ...
         // As: [1] + [2] + a * c ... + ...  + ...
-        Val* ac = IrBuilder::newScalar(
-            promoteType(*a1->getDataType(), *c->getDataType()));
-        IrBuilder::create<FOp>(BinaryOpType::Mul, ac, std::vector<Val*>{a1, c});
+        Val* ac = maybeFlattenedOpOf(BinaryOpType::Mul, {a1, c});
         std::vector<Val*> terms{ac};
         for (auto k : c10::irange(fadd->inputs().size())) {
           if (k == i || k == j) {

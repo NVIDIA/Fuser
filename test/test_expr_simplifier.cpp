@@ -857,8 +857,6 @@ TEST_F(ExprSimplifierTest, Compare) {
 }
 
 TEST_F(ExprSimplifierTest, FundamentalDivisionWithRemainderProperty) {
-  std::cout << simplifyExpr("( i2 + i1 / T1.size[0] * T1.size[0] ) + i1 % T1.size[0] == i1 + i2"_)->toInlineString() << std::endl;
-  return;
   EXPECT_TRUE(
       isEquivalent("i1 / T1.size[0] * T1.size[0] + i1 % T1.size[0]"_, "i1"_));
   EXPECT_TRUE(isEquivalent(
