@@ -9303,6 +9303,50 @@ TEST_F(NVFuserTest, FusionDanglingUnaryOp_CUDA) {
       __FILE__);
 }
 
+// Test that traversing siblings with IterVisitor visits "orphans", i.e. unused
+// outputs of multi-output Exprs.
+TEST_F(NVFuserTest, IterVisitorTraverseSiblings_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(1);
+  fusion.addInput(tv0);
+
+  auto wf = Welford(tv0, {0});
+  // wf.var_sum is used, but wf.avg and wf.n are orphaned
+  auto tv1 = neg(wf.var_sum);
+  fusion.addOutput(tv1);
+
+  auto stmts = StmtSort::getStmts(
+      &fusion,
+      /*traverse_all_paths*/ false,
+      /*traverse_attributes*/ false,
+      /*traverse_siblings*/ true);
+
+  // Make sure the expansion parameters of tv1_resize are visited
+  TORCH_CHECK(
+      std::find(stmts.begin(), stmts.end(), wf.avg) != stmts.end(),
+      "Welford avg not traversed");
+  TORCH_CHECK(
+      std::find(stmts.begin(), stmts.end(), wf.n) != stmts.end(),
+      "Welford n not traversed");
+
+  // Test getting statements "to" a tensor with siblings
+  stmts = StmtSort::getStmtsTo(
+      &fusion,
+      {wf.n},
+      /*traverse_all_paths*/ false,
+      /*traverse_attributes*/ false,
+      /*traverse_siblings*/ true);
+  // Make sure the expansion parameters of tv1_resize are visited
+  TORCH_CHECK(
+      std::find(stmts.begin(), stmts.end(), wf.avg) != stmts.end(),
+      "Welford avg not traversed in getStmtsTo({n})");
+  TORCH_CHECK(
+      std::find(stmts.begin(), stmts.end(), wf.var_sum) != stmts.end(),
+      "Welford var_sum not traversed in getStmtsTo({n})");
+}
+
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser

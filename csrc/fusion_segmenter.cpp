@@ -3600,7 +3600,7 @@ void SegmentCandidateFinder::resolveInputsInGroup(SegmentedGroup* group) {
   group->input_vals = IterVisitor::getInputsTo(group->inputs());
 
   // Grab all expressions needed to produce to_visit
-  auto input_exprs = StmtSort::getExprs(completeFusion(), to_visit);
+  auto input_exprs = StmtSort::getExprsTo(completeFusion(), to_visit);
 
   // Insert those expressions at the beginning of the group
   group->exprs_.insert(
