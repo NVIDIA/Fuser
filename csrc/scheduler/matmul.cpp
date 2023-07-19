@@ -634,6 +634,13 @@ void scheduleFusionInputsForEpilogue(const mma_utils::RolesMap& roles_map) {
     // The cached INPUT_C tvs are not needed anymore
     cached_tvs.clear();
   }
+
+  {
+    auto& bias_tvs = roles_map.at(MatmulRole::BIAS);
+
+    scheduler_utils::BoundedDirectionalTransformPropagator::backward(
+        roles_map.at(MatmulRole::OUTPUT_D).front(), -1, bias_tvs);
+  }
 }
 
 } // namespace
@@ -670,9 +677,15 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
       MmaBuilder(params.mma_macro, params.tile_sizes).layout(mma_layout);
   const auto& gemm_tile = params.tile_sizes;
   const bool has_epilogue = !mma->out()->isFusionOutput();
-  const bool has_non_mma_input_tvs = has_epilogue &&
-      0 != roles_map.count(MatmulRole::INPUT_C) &&
-      !roles_map.at(MatmulRole::INPUT_C).empty();
+
+  const bool has_fusion_c_roles =
+      (0 != roles_map.count(MatmulRole::INPUT_C) &&
+       !roles_map.at(MatmulRole::INPUT_C).empty());
+  const bool has_fusion_bias_roles =
+      (0 != roles_map.count(MatmulRole::BIAS) &&
+       !roles_map.at(MatmulRole::BIAS).empty());
+  const bool has_non_mma_input_tvs =
+      has_epilogue && has_fusion_c_roles && has_fusion_bias_roles;
 
   // Including current tensor naming convention for reference,
   //  this is very temporary and will change over time and

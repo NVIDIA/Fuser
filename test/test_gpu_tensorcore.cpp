@@ -4229,7 +4229,7 @@ TEST_F(NVFuserTest, FusionMatmulSchedulerEpilogueAlphaBetaGeluOutputCast_CUDA) {
 //  D = (A x B) + bias
 TEST_F(NVFuserTest, FusionMatmulSchedulerEpilogueBias_CUDA) {
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 9, 0);
-  const auto layout = MatmulLayout::NT;
+  const auto layout = MatmulLayout::TT;
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -4283,9 +4283,15 @@ TEST_F(NVFuserTest, FusionMatmulSchedulerEpilogueBias_CUDA) {
 
   auto t3 = atMatmul(t0.to(at::kHalf), t1.to(at::kHalf), layout).to(at::kFloat);
 
-  auto t4 = biasEpilogueAtInput(t3, t2).to(at::kFloat);
+  auto t4 = atBiasEpilogue(t3, t2).to(at::kFloat);
 
   auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
+
+#if 0
+  std::cout << "[DEBUG] ==================================================== kernel sources, start\n"
+            << executor_cache.getMostRecentCode()
+            << "[DEBUG] ==================================================== kernel sources, end\n";
+#endif
 
   TORCH_CHECK(
       !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
@@ -4592,7 +4598,7 @@ TEST_F(NVFuserTest, FusionAmpereMMATNBias_CUDA) {
   auto cg_outputs = fe.runFusion({t0, t1, t2});
 
   auto t3 = t0.to(at::kFloat).matmul(t1.t().to(at::kFloat));
-  auto t4 = biasEpilogueAtInput(t3, t2);
+  auto t4 = atBiasEpilogue(t3, t2);
 
   TORCH_CHECK(cg_outputs[0].allclose(t4, 0.0001, 0.0001));
 }

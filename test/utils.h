@@ -611,7 +611,5 @@ TensorView* biasEpilogue(TensorView* tensor, TensorView* bias);
 
 // Utility to generate tensor with bias applied on the input tensor,
 // to be used to caldulate reference data
-at::Tensor biasEpilogueAtInput(
-    const at::Tensor& tensor,
-    const at::Tensor& bias);
+at::Tensor atBiasEpilogue(const at::Tensor& tensor, const at::Tensor& bias);
 } // namespace nvfuser

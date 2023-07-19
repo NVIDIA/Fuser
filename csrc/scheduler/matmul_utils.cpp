@@ -291,8 +291,13 @@ std::string isMatmulFusionDefinitionSupported(
     entry = roles_map.find(MatmulRole::INPUT_C);
     if (entry != roles_map.end()) {
       if (entry->second.size() > 1) {
-        return "Unsupported configuration: there is more than a single fusion input TV with non-core role";
+        return "Unsupported configuration: there is more than a single fusion"
+               "input TV with two concrete iterdomains with non-core role";
       }
+      tvs_with_roles.insert(entry->second.begin(), entry->second.end());
+    }
+    entry = roles_map.find(MatmulRole::BIAS);
+    if (entry != roles_map.end()) {
       tvs_with_roles.insert(entry->second.begin(), entry->second.end());
     }
 

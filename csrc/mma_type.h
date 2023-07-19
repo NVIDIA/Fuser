@@ -18,11 +18,13 @@ enum class MatmulDomain { M = 0, N, K };
 //!  INPUT_A - a producer of MMA input A
 //!  INPUT_B - a producer of MMA input B
 //!  OUTPUT_D - the main consumer of MMA op results
-//!  INPUT_C - a producer of tensor used in fusion epilogue,
+//!  INPUT_C - a producer of a tensor used in fusion epilogue,
 //!            for example tensor used in beta scaling fusion
+//!  BIAS - a producer of a tensor used in fusion epilogue,
+//!         it has to be broadcasted to match OUTPUT_D domains
 //!
 //! Naming convention is based on forumla: D = alpha * A x B + beta * C
-enum class MatmulRole { INPUT_A = 0, INPUT_B, OUTPUT_D, INPUT_C };
+enum class MatmulRole { INPUT_A = 0, INPUT_B, OUTPUT_D, INPUT_C, BIAS };
 
 //! The expected number of occurances of core TensorView roles in fusion
 static constexpr size_t MATMUL_CORE_ROLES_EXPECTED_COUNT = 1;

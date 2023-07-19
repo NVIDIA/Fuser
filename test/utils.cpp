@@ -609,9 +609,8 @@ TensorView* biasEpilogue(TensorView* tensor, TensorView* bias) {
       bias->dtype(),
       ", tensor: ",
       tensor->dtype());
-  const auto leaf_domains = tensor->getLeafDomain();
-  const auto concrete =
-      TensorDomain::noReductions(TensorDomain::noBroadcasts(leaf_domains));
+  const auto concrete = TensorDomain::noReductions(
+      TensorDomain::noBroadcasts(tensor->getLeafDomain()));
   TORCH_CHECK(
       concrete.size() == 2,
       "Only tensors with two concrete domains have support for bias epilogue enabled, got ",
@@ -626,15 +625,12 @@ TensorView* biasEpilogue(TensorView* tensor, TensorView* bias) {
       bias->nDims());
 
   TensorView *biasb = nullptr, *biased = nullptr;
-  biasb = broadcast(bias, {false, true, true});
-
+  biasb = broadcast(bias, {false, true});
   biased = add(tensor, biasb);
   return biased;
 }
 
-at::Tensor biasEpilogueAtInput(
-    const at::Tensor& tensor,
-    const at::Tensor& bias) {
+at::Tensor atBiasEpilogue(const at::Tensor& tensor, const at::Tensor& bias) {
   TORCH_CHECK(bias.dim() == 1, "Bias must be a vector");
   TORCH_CHECK(
       tensor.dim() == 2, "Only 2d tensors have support for bias epilogue");
