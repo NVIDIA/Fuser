@@ -61,8 +61,6 @@ TEST_F(KernelInputsTest, HoistToHost2) {
 
   tv1->axis(0)->parallelize(ParallelType::TIDx);
 
-  // TODO: d2 below is not used, but it is generated in the kernel
-  // write a dead code elimination pass to remove it
   const std::string expected_kernel = R"(
 __global__ void CUDAGeneratedKernel(Tensor<float, 1, 1> T0, double d0, double d1, Tensor<float, 1, 1> T1) {
   T1[((nvfuser_index_t)threadIdx.x)]
