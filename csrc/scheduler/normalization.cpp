@@ -55,7 +55,7 @@ class HeuristicParaWrapper {
     return value_;
   }
 
-  void final() {
+  void finalize() {
     TORCH_INTERNAL_ASSERT(value_ != -1, "Heuristic parameter is not set!");
     mutable_ = false;
   }
