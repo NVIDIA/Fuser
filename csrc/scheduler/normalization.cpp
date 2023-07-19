@@ -1086,14 +1086,13 @@ std::shared_ptr<ReductionParams> outerPersistentHeuristic(
       "bdimx is no divisible by warp_size. bdimx= ",
       hp.bdimx.get());
 
-  auto nextDivisibleFactor = [&](int64_t next) {
-    while (after_unroll % next) {
+  auto maybeNextDivisibleFactor = [&after_unroll, &device_warp_size, &hp](int64_t cur) {
+    const int64_t bdimy_step = std::max(1l, device_warp_size / hp.bdimx.get());
+    auto next = cur + next;
+    while (after_unroll % next && next < after_unroll) {
       next += bdimy_step;
-      if (next >= after_unroll) {
-        return after_unroll;
-      }
     }
-    return next;
+    return std::min(next, after_unroll);
   };
   int64_t tmp_bdimy = bdimy_min;
   int64_t tmp_batch = ceilDiv(after_unroll, tmp_bdimy);
