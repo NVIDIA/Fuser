@@ -534,11 +534,6 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           << "]";
   }
 
-  void handle(const ViewAsScalar* sv) final {
-    indent() << gen(sv->output(0)) << " = " << gen(sv->input(0)) << "["
-             << gen(sv->index()) << "];\n";
-  }
-
   void handle(const IterDomain*) final {
     TORCH_INTERNAL_ASSERT(false, "Unreachable");
   }
