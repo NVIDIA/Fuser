@@ -479,6 +479,9 @@ enum class UnaryOpType {
   IsNegInf,
   IsPosInf,
   IsReal,
+
+  // Special unary ops
+  ToUnsignedSmemAddr
 };
 
 // Primarily for Not, which could be Not a boolean, or a bitwise not.
