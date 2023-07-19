@@ -10,6 +10,7 @@
 #include <expr_evaluator.h>
 #include <instrumentation.h>
 #include <ir/iostream.h>
+#include <ir/utils.h>
 #include <kernel.h>
 #include <kernel_ir_dispatch.h>
 
@@ -381,6 +382,17 @@ void Kernel::registerExpr(Expr* expr) {
   // Register expr is explicitly non-SSA when coming from a kernel. This is
   // detected inside Fusion::registerExpr
   Fusion::registerExpr(expr);
+}
+
+void Kernel::setKernelInputs(std::vector<Val*> kernel_inputs) {
+  ir_utils::dependenciesSatisfied(
+      kernel_inputs, {inputs().begin(), inputs().end()});
+  kernel_inputs_ = std::move(kernel_inputs);
+}
+
+void Kernel::addKernelInput(Val* input) {
+  ir_utils::dependenciesSatisfied({input}, {inputs().begin(), inputs().end()});
+  kernel_inputs_.push_back(input);
 }
 
 std::vector<Expr*>& KernelInternalProxy::topLevelExprs() {

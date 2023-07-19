@@ -12,6 +12,7 @@
 #include <ir/builder.h>
 #include <ir/cloner.h>
 #include <ir/printer.h>
+#include <ir/utils.h>
 #include <kernel.h>
 #include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
@@ -160,70 +161,6 @@ void Val::resolveIndexDtype() {
   dtype_ = index_dtype;
 }
 
-namespace {
-
-// Traverse definition of all values involved in constructing the provided val.
-// Check if all values involved are constant values, meaning the provided
-// val is also a constant value.
-class ConstCheck : private OptOutConstDispatch {
- private:
-  bool is_const_ = true;
-
-  // Returns true if all Val's in the hisotry of provided Val is an Int. Since
-  // our expression evaluator doesn't support any type besides int, it's
-  // important to check it is one.
-  bool is_int_ = true;
-
-  void handle(const Scalar* b) final {
-    is_const_ = is_const_ && b->isConst();
-  }
-
-  void handle(const NamedScalar* ns) final {
-    is_const_ = false;
-  }
-
-  void handle(const TensorView* ns) final {
-    is_const_ = false;
-  }
-
-  void handle(const kir::TensorIndex* ns) final {
-    is_const_ = false;
-  }
-
-  void handle(const Expr* expr) final {
-    for (auto inp : expr->inputs()) {
-      handle(inp);
-    }
-  }
-
-  void handle(const Val* val) final {
-    if (!val->isIntegralScalar()) {
-      is_int_ = false;
-    }
-
-    if (val->definition() != nullptr) {
-      handle(val->definition());
-    } else {
-      OptOutConstDispatch::handle(val);
-    }
-  }
-
- public:
-  static bool isConst(const Val* val) {
-    ConstCheck cc;
-    cc.handle(val);
-    return cc.is_const_;
-  }
-
-  static bool isConstInt(const Val* val) {
-    ConstCheck cc;
-    cc.handle(val);
-    return cc.is_const_ && cc.is_int_;
-  }
-};
-
-} // namespace
-
 bool Val::sameAs(const Statement* other) const {
   if (this == other) {
     return true;
@@ -262,16 +199,21 @@ bool Val::isConstScalar() const {
   if (!isScalar()) {
     return false;
   }
-  return ConstCheck::isConst(this);
+  // Unfortunately const model is broken. We can not easily cast a
+  // std::vector<T*> into a std::vector<const T*> in C++.
+  return ir_utils::dependenciesSatisfied({const_cast<Val*>(this)}, {});
 }
 
 bool Val::isConstInt() const {
-  return ConstCheck::isConst(this) && isIntegralScalar();
+  // Unfortunately const model is broken. We can not easily cast a
+  // std::vector<T*> into a std::vector<const T*> in C++.
+  return ir_utils::dependenciesSatisfied({const_cast<Val*>(this)}, {}) &&
+      isIntegralScalar();
 }
 
 int64_t Val::evaluateInt() {
   TORCH_INTERNAL_ASSERT(
-      ConstCheck::isConst(this),
+      ir_utils::dependenciesSatisfied({this}, {}),
       "Cannot get Int of not const values through IR nodes, must use runtime ExpressionEvaluator.");
 
   if (this->as<Scalar>()->value().hasValue()) {
@@ -289,7 +231,7 @@ int64_t Val::evaluateInt() {
 
 double Val::evaluateDouble() {
   TORCH_INTERNAL_ASSERT(
-      ConstCheck::isConst(this),
+      ir_utils::dependenciesSatisfied({this}, {}),
       "Cannot get Double of not const doubles through IR nodes, must use runtime ExpressionEvaluator.");
 
   if (this->as<Scalar>()->value().hasValue()) {
@@ -306,7 +248,7 @@ double Val::evaluateDouble() {
 
 bool Val::evaluateBool() {
   TORCH_INTERNAL_ASSERT(
-      ConstCheck::isConst(this),
+      ir_utils::dependenciesSatisfied({this}, {}),
       "Cannot get Bool of not const bools through IR nodes, must use runtime ExpressionEvaluator.");
 
   if (this->as<Scalar>()->value().hasValue()) {

@@ -228,6 +228,14 @@ class TORCH_CUDA_CU_API Kernel final : public Fusion {
   //! Debug dump of the Kernel IR
   void print() const;
 
+  void setKernelInputs(std::vector<Val*> kernel_inputs);
+
+  void addKernelInput(Val* input);
+
+  const std::vector<Val*>& getKernelInputs() const {
+    return kernel_inputs_;
+  }
+
  protected:
   using IrContainer::registerExpr;
   using IrContainer::registerVal;
@@ -257,6 +265,14 @@ class TORCH_CUDA_CU_API Kernel final : public Fusion {
   WarpPaddedParallelInfo warp_padded_parallel_info_;
 
   KernelPerformanceProfile profile_;
+
+  // Inputs to the kernel, can be different from Fusion::inputs(). The
+  // relationship between kernel_inputs_ and Fusion::inputs() is similar to the
+  // relationship between root domain and rFactor domain. Fusion::inputs() are
+  // the inputs provided by the user, kernel_inputs_ are the inputs that will be
+  // sent to the kernel. Vals in kernel_inputs_ must be evaluatable from
+  // Fusion::inputs().
+  std::vector<Val*> kernel_inputs_;
 };
 
 //! A special debugging proxy for Kernel.

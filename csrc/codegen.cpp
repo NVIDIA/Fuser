@@ -233,8 +233,9 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     std::vector<Val*> params;
 
     // Inputs & Outputs
-    for (auto val : kernel_->inputs()) {
+    for (auto val : kernel_->getKernelInputs()) {
       params.push_back(val);
+      kernel_inputs_.insert(val);
     }
     for (auto val : kernel_->outputs()) {
       TORCH_INTERNAL_ASSERT(
@@ -273,7 +274,6 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         }
       } else {
         TORCH_INTERNAL_ASSERT(params[i]->isScalar()); // NOLINT (LLVM bug 48525)
-        TORCH_INTERNAL_ASSERT(params[i]->definition() == nullptr);
         code_ << params[i]->dtype() << " " << var_name_ss.str();
       }
 
@@ -479,7 +479,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     }
     const auto def = s->definition();
     const bool has_alloc = alloc_map_.find(s) != alloc_map_.end();
-    if (def != nullptr && !has_alloc) {
+    const bool is_param = kernel_inputs_.find(s) != kernel_inputs_.end();
+    if (def != nullptr && !has_alloc && !is_param) {
       code_ << "(" << genInline(def) << ")";
     } else if (s->isConst()) {
       auto value = s->value();
@@ -2941,6 +2942,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   std::vector<bool> aligned_scope_exprs_;
   //! Keep track of the Val* and its generated variable name
   std::unordered_map<const Val*, std::string> val_to_name_;
+  //! Keep track of variables in the kernel inputs
+  std::unordered_set<const Val*> kernel_inputs_;
 };
 
 } // namespace

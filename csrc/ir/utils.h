@@ -427,6 +427,11 @@ void validateDomainEquivalence(
     const std::vector<IterDomain*>& initial_domain,
     const std::vector<IterDomain*>& derived_domain);
 
+//! Check if all the inputs required to compute needed_val are known
+bool dependenciesSatisfied(
+    std::vector<Val*> needed_vals,
+    std::unordered_set<Val*> known_vals);
+
 //! Check if a conditional scope, i.e., ForLoop or IfThenElse, is
 //! guaranteed not to cause thread divergence
 bool isAlignedScopeExpr(const Expr* expr);

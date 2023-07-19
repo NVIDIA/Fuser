@@ -16,6 +16,7 @@
 #include <device_lower/pass/double_buffer.h>
 #include <device_lower/pass/expr_sort.h>
 #include <device_lower/pass/fusion_simplifier.h>
+#include <device_lower/pass/hoist_to_host.h>
 #include <device_lower/pass/index.h>
 #include <device_lower/pass/insert_syncs.h>
 #include <device_lower/pass/instrument.h>
@@ -274,7 +275,12 @@ void GpuLower::lower(Fusion* fusion) {
   assignRNGOffset(fusion_);
 
   FusionGuard fg(fusion_);
+  kernel_->setKernelInputs(kernel_->inputs());
+
   dumpExprsIfEnabled(fusion_->exprs(), "initialize lowering");
+
+  hoistScalarComputationToHost(kernel_.get());
+  dumpExprsIfEnabled(fusion_->exprs(), "hoistScalarComputationToHost");
 
   // prepare for lowering
   validateIr(fusion_);
@@ -400,9 +406,13 @@ void GpuLower::lower(Fusion* fusion) {
   const auto exprs_sorted = reorderExprsForComputeAt();
   dumpExprsIfEnabled(exprs_sorted, "reorderExprsForComputeAt");
 
+  // Remove expressions that are hoisted to host
+  const auto host_removed = removeExprsHoistedToHost(kernel_.get(), exprs_sorted);
+  dumpExprsIfEnabled(host_removed, "reorderExprsForComputeAt");
+
   // Generate loop-nests and place each expression at its
   // corresponding loop
-  const auto exprs_lowered = LoopNestGenerator::loweredExprs(exprs_sorted);
+  const auto exprs_lowered = LoopNestGenerator::loweredExprs(host_removed);
   dumpExprsIfEnabled(exprs_lowered, "LoopNestGenerator");
 
   // Replace squeezes, Transpose, Shift, Gather, and View ops with
