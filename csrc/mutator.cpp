@@ -26,8 +26,8 @@ void OptOutMutator::mutate(Val* v) {
 void OptOutMutator::registerMutation(Val* val, Val* mutation) {
   bool val_is_ns = val->vtype() == ValType::NamedScalar;
   bool mutation_is_ns = mutation->vtype() == ValType::NamedScalar;
-  bool val_is_scalar = val->vtype() == ValType::Scalar;
-  bool mutation_is_scalar = mutation->vtype() == ValType::Scalar;
+  bool val_is_scalar = val->vtype() == ValType::Others;
+  bool mutation_is_scalar = mutation->vtype() == ValType::Others;
   TORCH_INTERNAL_ASSERT(
       mutation->dtype() == val->dtype() &&
           (mutation->vtype() == val->vtype() ||
@@ -45,7 +45,7 @@ void OptOutMutator::registerMutation(Val* val, Val* mutation) {
   mutations_[val] = mutation;
 }
 
-void OptOutMutator::mutate(Scalar* s) {}
+void OptOutMutator::mutateGeneric(Val* s) {}
 
 void OptOutMutator::mutate(NamedScalar* ns) {}
 

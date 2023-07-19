@@ -469,7 +469,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     code_ << gen(pred->value());
   }
 
-  void handle(const Scalar* s) final {
+  void handleGeneric(const Val* s) final {
     // Check the replacement map first. If there's an entry for s, use
     // the corresponding replacement.
     auto replace_it = index_replacement_map_.find(s);
@@ -547,18 +547,9 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     TORCH_INTERNAL_ASSERT(false, "Unreachable");
   }
 
-  void handle(const TensorView*) final {
-    TORCH_INTERNAL_ASSERT(false, "Unreachable");
-  }
-
-  void handleArrayType(const Val* v) final {
-    const auto def = v->definition();
-    const bool has_alloc = alloc_map_.find(v) != alloc_map_.end();
-    if (def != nullptr && !has_alloc) {
-      code_ << v->dtype() << "(" << genInline(def) << ")";
-    } else {
-      code_ << genVariableName(v);
-    }
+  void handle(const TensorView* tv) final {
+    TORCH_INTERNAL_ASSERT(print_inline_);
+    code_ << genVariableName(tv);
   }
 
   //! Utility for generating vectorized pointer access in ldsm and
@@ -611,20 +602,16 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     indent() << genCall(name, func_args) << ";\n";
   }
 
-  void handle(const kir::BaseAddress* sop) final {
+  void handle(const GetMetaData* gop) final {
+    TORCH_INTERNAL_ASSERT(print_inline_);
+    code_ << gen(gop->in());
+  }
+
+  void handle(const GetAttr* gop) final {
     if (!print_inline_) {
-      indent() << gen(sop->output(0)) << " = ";
+      indent() << gen(gop->output(0)) << " = ";
     }
-    switch (sop->tv()->getMemoryType()) {
-      case MemoryType::Shared:
-        code_ << "toSmem(" << genVariableName(sop->tv()) << ")";
-        break;
-      case MemoryType::Global:
-        code_ << genVariableName(sop->tv()) << ".data";
-        break;
-      default:
-        TORCH_INTERNAL_ASSERT(false, "Unsupported input for kir::BaseAddress");
-    }
+    code_ << gen(gop->struct_()) << "." << gop->attr();
     if (!print_inline_) {
       code_ << ";\n";
     }
@@ -809,11 +796,11 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
     auto rhs = bop->rhs();
     PolymorphicValue exponent;
-    if (auto val_int = dynamic_cast<Scalar*>(rhs)) {
+    if (auto val_int = dynamic_cast<Val*>(rhs)) {
       if (val_int->isConst()) {
         exponent = val_int->value();
       }
-    } else if (auto val_float = dynamic_cast<Scalar*>(rhs)) {
+    } else if (auto val_float = dynamic_cast<Val*>(rhs)) {
       if (val_float->isConst()) {
         auto fp_exp = val_float->value().as<double>();
         double int_exp = 0;
@@ -1906,22 +1893,22 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
   //! Returns all combinations of maps from index Vals of grouped loops to their
   //! conrete integers.
-  std::vector<std::unordered_map<const Scalar*, int64_t>>
+  std::vector<std::unordered_map<const Val*, int64_t>>
   getLoopIndexReplacementMaps() {
-    std::vector<std::unordered_map<const Scalar*, int64_t>> maps;
+    std::vector<std::unordered_map<const Val*, int64_t>> maps;
 
     if (grouped_loops_.empty()) {
-      std::unordered_map<const Scalar*, int64_t> empty_map;
+      std::unordered_map<const Val*, int64_t> empty_map;
       return {empty_map};
     }
 
     // Vector of indices of grouped loops
-    std::vector<Scalar*> loop_indices;
+    std::vector<Val*> loop_indices;
     std::transform(
         grouped_loops_.begin(),
         grouped_loops_.end(),
         std::back_inserter(loop_indices),
-        [](const kir::ForLoop* loop) { return loop->index()->as<Scalar>(); });
+        [](const kir::ForLoop* loop) { return loop->index(); });
 
     // All combinations of loop index integer values
     const auto index_val_sets = getGroupedLoopIndexConcreteIntSets();
@@ -1929,7 +1916,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     // Create maps from loop index Vals to integers
     for (const auto& index_values : index_val_sets) {
       TORCH_INTERNAL_ASSERT(loop_indices.size() == index_values.size());
-      std::unordered_map<const Scalar*, int64_t> index_val_map;
+      std::unordered_map<const Val*, int64_t> index_val_map;
       for (const auto i : c10::irange(loop_indices.size())) {
         auto loop_index = loop_indices.at(i);
         auto index_val = index_values.at(i);
@@ -2936,7 +2923,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   //! Keep track of grouped loops
   std::deque<const kir::ForLoop*> grouped_loops_;
   //! Used to replace symbolic indices with concrete values
-  std::unordered_map<const Scalar*, int64_t> index_replacement_map_;
+  std::unordered_map<const Val*, int64_t> index_replacement_map_;
   //! Keep track of thread alignment property
   std::vector<bool> aligned_scope_exprs_;
   //! Keep track of the Val* and its generated variable name

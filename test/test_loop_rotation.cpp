@@ -418,7 +418,7 @@ TEST_F(LoopRotationTest, SelectDoubleBufferLoad_CUDA) {
 __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> T4) {
   NVFUSER_DEFINE_MAGIC_ZERO;
   int64_t i0;
-  i0 = 4 * T0.stride[0];
+  i0 = T0.stride[0] * 4;
   int64_t i1;
   i1 = T0.stride[0] * 5;
   bool b2;
@@ -574,7 +574,7 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> 
   unsigned smem_offset = 0;
   NVFUSER_DEFINE_MAGIC_ZERO;
   float* ptr0;
-  ptr0 = T0.data;
+  ptr0 = (T0).data;
   float* ptr1;
   ptr1 = (T0.stride[0] * 4) + ptr0;
   smem_offset = alignBufferSize(smem_offset, 16);
@@ -585,7 +585,7 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> 
     float* ptr3;
     ptr3 = ptr0 + (T0.stride[0] * i2);
     unsigned i4;
-    i4 = (toSmem(T4)) + (12 * i2);
+    i4 = (toSmem((T4))) + (12 * i2);
     bool b5;
     b5 = (i2 + nvfuser_zero) < T0.size[0];
     #pragma unroll
@@ -606,7 +606,7 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> 
     int64_t i9;
     i9 = 4 + i7;
     unsigned i10;
-    i10 = (toSmem(T4)) + (12 * (i9 % 5));
+    i10 = (toSmem((T4))) + (12 * (i9 % 5));
     int64_t i11;
     i11 = 1 + (3 * (i7 % 5));
     int64_t i12;

@@ -33,11 +33,11 @@ enum class ValType {
   TensorDomain,
   IterDomain,
   TensorView,
-  Scalar,
   NamedScalar,
   Predicate,
   TensorIndex,
   PipelineVal,
+  Others
 };
 
 // Manual - The user provides the Bool value. Predicate generation is bypassed.
@@ -479,6 +479,9 @@ enum class UnaryOpType {
   IsNegInf,
   IsPosInf,
   IsReal,
+
+  // Special unary ops
+  ToUnsignedSmemAddr
 };
 
 // Primarily for Not, which could be Not a boolean, or a bitwise not.
@@ -877,7 +880,7 @@ inline PolymorphicValue castToDtype(
     return value;
   }
   // Cast the given value to the given data type. This enables interface
-  // like: IrBuilder::create<Scalar>(0, DataType::Double) where value is
+  // like: IrBuilder::create<Val>(0, DataType::Double) where value is
   // an integer but the desired data type is double.
   auto value_dtype = getDataType(value);
   if (!isCompatibleDataType(value_dtype, dtype)) {
