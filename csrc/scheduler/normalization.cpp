@@ -997,13 +997,13 @@ std::shared_ptr<ReductionParams> outerPersistentHeuristic(
     HeuristicParaWrapper bdimy;
     void verify() {
       TORCH_INTERNAL_ASSERT(
-          !iter_unroll_factor.isMutable(), "iter_unroll_factor is not set.");
-      TORCH_INTERNAL_ASSERT(!bdimx.isMutable(), "bdimx is not set.");
+          !iter_unroll_factor.isMutable(), "iter_unroll_factor is not finalized.");
+      TORCH_INTERNAL_ASSERT(!bdimx.isMutable(), "bdimx is not finalized.");
       TORCH_INTERNAL_ASSERT(
-          !redu_unroll_factor.isMutable(), "redu_unroll_factor is not set.");
+          !redu_unroll_factor.isMutable(), "redu_unroll_factor is not finalized.");
       TORCH_INTERNAL_ASSERT(
-          !batches_per_block.isMutable(), "batches_per_block is not set.");
-      TORCH_INTERNAL_ASSERT(!bdimy.isMutable(), "bdimy is not set.");
+          !batches_per_block.isMutable(), "batches_per_block is not finalized.");
+      TORCH_INTERNAL_ASSERT(!bdimy.isMutable(), "bdimy is not finalized.");
     }
   };
   HeuristicParams hp;
