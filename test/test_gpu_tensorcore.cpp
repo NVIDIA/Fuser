@@ -3153,7 +3153,6 @@ TEST_F(NVFuserTest, FusionAmpereMatmulLargeLoad_CUDA) {
     gemm_tile.cta_tile = GemmTile(128, 128, 64);
     gemm_tile.warp_tile = GemmTile(64, 64, 64);
     gemm_tile.instruction_tile = GemmTile(16, 16, 16);
-
     MatmulParams params;
     params.mma_macro = MmaOptions::MacroType::Ampere_16_16_16;
     params.tile_sizes = gemm_tile;
@@ -3262,6 +3261,11 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck4warp_CUDA) {
         params.tile_sizes = gemm_tile;
         params.async_gmem_load_operands = true;
         params.double_buffer_options.double_buffer_smem_write = true;
+        params.use_smem_epilogue =
+            mma_utils::generateSharedMemoryEpilogueHeuristics(
+                gemm_tile,
+                params.double_buffer_options.smem_double_buffer_stage,
+                {DataType::Half, DataType::Half, DataType::Float});
         scheduleMatmul(&fusion, params);
 
         auto inputs = matmulAtInput(M, N, K, layout);
@@ -3325,6 +3329,11 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck8warp_CUDA) {
           params.double_buffer_options.double_buffer_smem_write = true;
           params.double_buffer_options.double_buffer_smem_read = true;
           params.double_buffer_options.smem_double_buffer_stage = 2;
+          params.use_smem_epilogue =
+              mma_utils::generateSharedMemoryEpilogueHeuristics(
+                  gemm_tile,
+                  params.double_buffer_options.smem_double_buffer_stage,
+                  {DataType::Half, DataType::Half, DataType::Float});
 
           scheduleMatmul(&fusion, params);
 
@@ -3383,7 +3392,11 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck6warp_CUDA) {
       params.double_buffer_options.double_buffer_smem_write = true;
       params.double_buffer_options.double_buffer_smem_read = true;
       params.double_buffer_options.smem_double_buffer_stage = 2;
-
+      params.use_smem_epilogue =
+          mma_utils::generateSharedMemoryEpilogueHeuristics(
+              gemm_tile,
+              params.double_buffer_options.smem_double_buffer_stage,
+              {DataType::Half, DataType::Half, DataType::Float});
       scheduleMatmul(&fusion, params);
 
       auto inputs = matmulAtInput(M, N, K, layout);
@@ -3694,7 +3707,7 @@ TEST_F(NVFuserTest, FusionMatmulSchedulerEpilogueOutputCast_CUDA) {
   at::manual_seed(0);
   at::Tensor t0 = matmulAtInput(M, N, K, layout, TensorMatmulPos::A, at::kHalf);
   at::Tensor t1 = matmulAtInput(M, N, K, layout, TensorMatmulPos::B, at::kHalf);
-  at::Tensor t2 = atMatmul(t0.to(at::kHalf), t1.to(at::kHalf), layout);
+  at::Tensor t2 = atMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout);
   at::Tensor tref = t2.to(at::kHalf);
 
   auto outputs = executor_cache.runFusionWithInputs({t0, t1});
@@ -3758,7 +3771,7 @@ TEST_F(NVFuserTest, FusionMatmulSchedulerEpilogueAlpha_CUDA) {
   const double alpha = 2.5;
   at::Tensor t0 = matmulAtInput(M, N, K, layout, TensorMatmulPos::A, at::kHalf);
   at::Tensor t1 = matmulAtInput(M, N, K, layout, TensorMatmulPos::B, at::kHalf);
-  at::Tensor t2 = atMatmul(t0.to(at::kHalf), t1.to(at::kHalf), layout);
+  at::Tensor t2 = atMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout);
   at::Tensor tref = at::mul(t2, alpha).to(at::kFloat);
 
   auto outputs = executor_cache.runFusionWithInputs({t0, t1, alpha});
@@ -3823,7 +3836,7 @@ TEST_F(NVFuserTest, FusionMatmulSchedulerEpilogueAlphaOutputCast_CUDA) {
   const double alpha = 2.5;
   at::Tensor t0 = matmulAtInput(M, N, K, layout, TensorMatmulPos::A, at::kHalf);
   at::Tensor t1 = matmulAtInput(M, N, K, layout, TensorMatmulPos::B, at::kHalf);
-  at::Tensor t2 = atMatmul(t0.to(at::kHalf), t1.to(at::kHalf), layout);
+  at::Tensor t2 = atMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout);
   at::Tensor t3 = at::mul(t2, alpha).to(at::kFloat);
   at::Tensor tref = t3.to(at::kHalf);
 
@@ -3885,7 +3898,7 @@ TEST_F(NVFuserTest, FusionMatmulSchedulerEpilogueRelu_CUDA) {
   at::manual_seed(0);
   at::Tensor t0 = matmulAtInput(M, N, K, layout, TensorMatmulPos::A, at::kHalf);
   at::Tensor t1 = matmulAtInput(M, N, K, layout, TensorMatmulPos::B, at::kHalf);
-  at::Tensor t2 = atMatmul(t0.to(at::kHalf), t1.to(at::kHalf), layout);
+  at::Tensor t2 = atMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout);
   at::Tensor tref = at::relu(t2).to(at::kFloat);
 
   auto outputs = executor_cache.runFusionWithInputs({t0, t1});
@@ -3946,7 +3959,7 @@ TEST_F(NVFuserTest, FusionMatmulSchedulerEpilogueGelu_CUDA) {
   at::manual_seed(0);
   at::Tensor t0 = matmulAtInput(M, N, K, layout, TensorMatmulPos::A, at::kHalf);
   at::Tensor t1 = matmulAtInput(M, N, K, layout, TensorMatmulPos::B, at::kHalf);
-  at::Tensor t2 = atMatmul(t0.to(at::kHalf), t1.to(at::kHalf), layout);
+  at::Tensor t2 = atMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout);
   at::Tensor tref = at::gelu(t2).to(at::kFloat);
 
   auto outputs = executor_cache.runFusionWithInputs({t0, t1});
@@ -4021,7 +4034,7 @@ TEST_F(NVFuserTest, FusionMatmulSchedulerEpilogueBeta_CUDA) {
   auto t1 = matmulAtInput(M, N, K, layout, TensorMatmulPos::B, at::kHalf);
   auto t2 = matmulAtInput(M, N, K, layout, TensorMatmulPos::C, at::kHalf);
 
-  auto t3 = atMatmul(t0.to(at::kHalf), t1.to(at::kHalf), layout).to(at::kFloat);
+  auto t3 = atMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout);
 
   auto t4 = at::mul(t2, beta).to(at::kFloat);
   auto t5 = at::add(t3, t4);
@@ -4104,7 +4117,7 @@ TEST_F(NVFuserTest, FusionMatmulSchedulerEpilogueAlphaBeta_CUDA) {
   auto t1 = matmulAtInput(M, N, K, layout, TensorMatmulPos::B, at::kHalf);
   auto t2 = matmulAtInput(M, N, K, layout, TensorMatmulPos::C, at::kHalf);
 
-  auto t3 = atMatmul(t0.to(at::kHalf), t1.to(at::kHalf), layout);
+  auto t3 = atMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout);
   auto t4 = at::mul(t3, alpha).to(at::kFloat);
 
   auto t5 = at::mul(t2, beta).to(at::kFloat);
@@ -4192,7 +4205,7 @@ TEST_F(NVFuserTest, FusionMatmulSchedulerEpilogueAlphaBetaGeluOutputCast_CUDA) {
   auto t1 = matmulAtInput(M, N, K, layout, TensorMatmulPos::B, at::kHalf);
   auto t2 = matmulAtInput(M, N, K, layout, TensorMatmulPos::C, at::kHalf);
 
-  auto t3 = atMatmul(t0.to(at::kHalf), t1.to(at::kHalf), layout);
+  auto t3 = atMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout);
   auto t4 = at::mul(t3, alpha).to(at::kFloat);
 
   auto t5 = at::mul(t2, beta).to(at::kFloat);
@@ -4467,6 +4480,271 @@ TEST_F(NVFuserTest, FusionAmpereSplitKLikeStridedBatchedMatmul_CUDA) {
   }
 }
 
+TEST_F(NVFuserTest, FusionAmpereMatmulSmemEpilogue_CUDA) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 9, 0);
+  constexpr bool ignore_occupancy_drop = true;
+  // Keep multiples of 8 to keep vectorizable.
+  int M = 4096, N = 4096, K = 4096;
+  for (auto layout : kAllSupportedMatmulLayout) {
+    Fusion fusion;
+    FusionGuard fg(&fusion);
+    auto tv0 = makeContigTensor(2, DataType::Half);
+    auto tv1 = makeContigTensor(2, DataType::Half);
+
+    fusion.addInput(tv0);
+    fusion.addInput(tv1);
+
+    auto tv2 = matmul(tv0, tv1, layout, true);
+
+    fusion.addOutput(tv2);
+
+    // The settings of cta_tile, warp_tile, and smem_double_buffer_stage have
+    // been purposefully selected to produce a constant occupancy of 25%. This
+    // allows us to effectively evaluate the influence of the use_smem_epilogue
+    // parameter on performance, since changing its value to either true or
+    // false will not affect the occupancy rate.
+    MatMulTileOptions gemm_tile;
+    gemm_tile.cta_tile = GemmTile(64, 128, 32);
+    gemm_tile.warp_tile = GemmTile(32, 32, 32);
+    gemm_tile.instruction_tile = GemmTile(16, 8, 16);
+
+    MatmulParams params;
+    params.mma_macro = MmaOptions::MacroType::Ampere_16_8_16;
+    params.tile_sizes = gemm_tile;
+    params.async_gmem_load_operands = true;
+    params.double_buffer_options.double_buffer_smem_write = true;
+    params.double_buffer_options.double_buffer_smem_read = true;
+    params.double_buffer_options.smem_double_buffer_stage = 2;
+    params.use_smem_epilogue =
+        mma_utils::generateSharedMemoryEpilogueHeuristics(
+            gemm_tile,
+            params.double_buffer_options.smem_double_buffer_stage,
+            {DataType::Half, DataType::Half, DataType::Float},
+            ignore_occupancy_drop);
+    scheduleMatmul(&fusion, params);
+
+    // If use_smem_epilogue is true, there should be 3 shared memory tensors 2
+    // for prologue and 1 for epilogue.
+    int num_shared_mem_tensors = 0;
+    int expected_num_shared_mem_tensors = params.use_smem_epilogue ? 3 : 2;
+    for (const auto& tv : ir_utils::allTvs(&fusion)) {
+      if (tv->getMemoryType() == MemoryType::Shared) {
+        num_shared_mem_tensors++;
+      }
+    }
+    TORCH_CHECK(
+        num_shared_mem_tensors == expected_num_shared_mem_tensors,
+        "Number of shared memory tensors doesn't match!",
+        "Expected: ",
+        expected_num_shared_mem_tensors,
+        ", Got: ",
+        num_shared_mem_tensors);
+
+    at::manual_seed(0);
+    auto inputs = matmulAtInput(M, N, K, layout);
+
+    FusionExecutor fe;
+    NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
+        8,
+        0,
+        fe.compileFusion(
+            &fusion,
+            {inputs.first, inputs.second},
+            LaunchParams(),
+            matmul_cparams));
+    auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
+    auto tref = atMatmul(
+        inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
+
+    // check bank conflicts
+    ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
+    // (0.001, 0.001) passed on local A100 but failed on CI A100
+    TORCH_CHECK(
+        cg_outputs[0].allclose(tref, 0.01, 0.01),
+        "Result validation failed. Max diff: ",
+        (cg_outputs[0] - tref).abs().max());
+
+    if (!params.use_smem_epilogue) {
+      GTEST_SKIP()
+          << "Test conducted without utilizing shared memory epilogue due to the device's constrained shared memory capacity.";
+    }
+  }
+}
+
+TEST_F(NVFuserTest, FusionAmpereMatmulSmemEpilogueCast_CUDA) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 9, 0);
+  constexpr bool ignore_occupancy_drop = true;
+  // Keep multiples of 8 to keep vectorizable.
+  int M = 4096, N = 4096, K = 4096;
+  for (auto layout : kAllSupportedMatmulLayout) {
+    Fusion fusion;
+    FusionGuard fg(&fusion);
+    auto tv0 = makeContigTensor(2, DataType::Half);
+    auto tv1 = makeContigTensor(2, DataType::Half);
+
+    fusion.addInput(tv0);
+    fusion.addInput(tv1);
+
+    auto tv2 = matmul(tv0, tv1, layout, true);
+    auto tv3 = castOp(DataType::Half, tv2);
+
+    fusion.addOutput(tv3);
+
+    MatMulTileOptions gemm_tile;
+    gemm_tile.cta_tile = GemmTile(128, 128, 32);
+    gemm_tile.warp_tile = GemmTile(64, 64, 32);
+    gemm_tile.instruction_tile = GemmTile(16, 8, 16);
+
+    MatmulParams params;
+    params.mma_macro = MmaOptions::MacroType::Ampere_16_8_16;
+    params.tile_sizes = gemm_tile;
+    params.async_gmem_load_operands = true;
+    params.double_buffer_options.double_buffer_smem_write = true;
+    params.double_buffer_options.double_buffer_smem_read = true;
+    params.double_buffer_options.smem_double_buffer_stage = 4;
+    params.use_smem_epilogue =
+        mma_utils::generateSharedMemoryEpilogueHeuristics(
+            gemm_tile,
+            params.double_buffer_options.smem_double_buffer_stage,
+            {DataType::Half, DataType::Half, DataType::Float},
+            ignore_occupancy_drop);
+    scheduleMatmul(&fusion, params);
+
+    // If use_smem_epilogue is true, there should be 3 shared memory tensors 2
+    // for prologue and 1 for epilogue.
+    int num_shared_mem_tensors = 0;
+    int expected_num_shared_mem_tensors = params.use_smem_epilogue ? 3 : 2;
+    for (const auto& tv : ir_utils::allTvs(&fusion)) {
+      if (tv->getMemoryType() == MemoryType::Shared) {
+        num_shared_mem_tensors++;
+      }
+    }
+    TORCH_CHECK(
+        num_shared_mem_tensors == expected_num_shared_mem_tensors,
+        "Number of shared memory tensors doesn't match!",
+        "Expected: ",
+        expected_num_shared_mem_tensors,
+        ", Got: ",
+        num_shared_mem_tensors);
+
+    at::manual_seed(0);
+    auto inputs = matmulAtInput(M, N, K, layout);
+
+    FusionExecutor fe;
+    NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
+        8,
+        0,
+        fe.compileFusion(
+            &fusion,
+            {inputs.first, inputs.second},
+            LaunchParams(),
+            matmul_cparams));
+    auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
+    auto tref = atMatmul(
+        inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
+    tref = tref.to(at::kHalf);
+    // check bank conflicts
+    ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
+    // (0.001, 0.001) passed on local A100 but failed on CI A100
+    TORCH_CHECK(
+        cg_outputs[0].allclose(tref, 0.01, 0.01),
+        "Result validation failed. Max diff: ",
+        (cg_outputs[0] - tref).abs().max());
+
+    if (!params.use_smem_epilogue) {
+      GTEST_SKIP()
+          << "Test conducted without utilizing shared memory epilogue due to the device's constrained shared memory capacity.";
+    }
+  }
+}
+
+TEST_F(NVFuserTest, FusionAmpereMatmulSmemEpilogueRelu_CUDA) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 9, 0);
+  constexpr bool ignore_occupancy_drop = true;
+  // Keep multiples of 8 to keep vectorizable.
+  int M = 4096, N = 4096, K = 4096;
+  for (auto layout : kAllSupportedMatmulLayout) {
+    Fusion fusion;
+    FusionGuard fg(&fusion);
+    auto tv0 = makeContigTensor(2, DataType::Half);
+    auto tv1 = makeContigTensor(2, DataType::Half);
+
+    fusion.addInput(tv0);
+    fusion.addInput(tv1);
+
+    auto tv2 = matmul(tv0, tv1, layout, true);
+    auto tv3 = relu(tv2);
+
+    fusion.addOutput(tv3);
+
+    MatMulTileOptions gemm_tile;
+    gemm_tile.cta_tile = GemmTile(128, 128, 32);
+    gemm_tile.warp_tile = GemmTile(64, 64, 32);
+    gemm_tile.instruction_tile = GemmTile(16, 8, 16);
+
+    MatmulParams params;
+    params.mma_macro = MmaOptions::MacroType::Ampere_16_8_16;
+    params.tile_sizes = gemm_tile;
+    params.async_gmem_load_operands = true;
+    params.double_buffer_options.double_buffer_smem_write = true;
+    params.double_buffer_options.double_buffer_smem_read = true;
+    params.double_buffer_options.smem_double_buffer_stage = 4;
+    params.use_smem_epilogue =
+        mma_utils::generateSharedMemoryEpilogueHeuristics(
+            gemm_tile,
+            params.double_buffer_options.smem_double_buffer_stage,
+            {DataType::Half, DataType::Half, DataType::Float},
+            ignore_occupancy_drop);
+    scheduleMatmul(&fusion, params);
+
+    // If use_smem_epilogue is true, there should be 3 shared memory tensors 2
+    // for prologue and 1 for epilogue.
+    int num_shared_mem_tensors = 0;
+    int expected_num_shared_mem_tensors = params.use_smem_epilogue ? 3 : 2;
+    for (const auto& tv : ir_utils::allTvs(&fusion)) {
+      if (tv->getMemoryType() == MemoryType::Shared) {
+        num_shared_mem_tensors++;
+      }
+    }
+    TORCH_CHECK(
+        num_shared_mem_tensors == expected_num_shared_mem_tensors,
+        "Number of shared memory tensors doesn't match!",
+        "Expected: ",
+        expected_num_shared_mem_tensors,
+        ", Got: ",
+        num_shared_mem_tensors);
+
+    at::manual_seed(0);
+    auto inputs = matmulAtInput(M, N, K, layout);
+
+    FusionExecutor fe;
+    NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
+        8,
+        0,
+        fe.compileFusion(
+            &fusion,
+            {inputs.first, inputs.second},
+            LaunchParams(),
+            matmul_cparams));
+    auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
+    auto t2 = atMatmul(
+        inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
+    auto tref = at::relu(t2).to(at::kFloat);
+
+    // check bank conflicts
+    ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
+    // (0.001, 0.001) passed on local A100 but failed on CI A100
+    TORCH_CHECK(
+        cg_outputs[0].allclose(tref, 0.01, 0.01),
+        "Result validation failed. Max diff: ",
+        (cg_outputs[0] - tref).abs().max());
+
+    if (!params.use_smem_epilogue) {
+      GTEST_SKIP()
+          << "Test conducted without utilizing shared memory epilogue due to the device's constrained shared memory capacity.";
+    }
+  }
+}
 #undef NVFUSER_TEST_CUDA_ARCH_GUARD
 
 } // namespace nvfuser

@@ -63,17 +63,38 @@ bool rejectScheduleFusionInputRequirement(
   return false;
 }
 
-bool rejectScheduleForSelectLikeOps(
+// TODO: remove this requirement entirely
+bool rejectScheduleForMemoryPromotion(
     Fusion* fusion,
     ScheduleHeuristic schedule_strategy) {
   for (auto expr : fusion->exprs()) {
-    // For now, only relax the input requirement with take_along_axis.
-    // TODO: remove this requirement entirely
-    if ((expr->isOneOf<SelectOp, IndexSelectOp>() ||
-         (expr->isA<TorchGatherOp>() &&
-          !expr->as<TorchGatherOp>()->exactSizes())) &&
-        rejectScheduleFusionInputRequirement(expr, schedule_strategy)) {
-      return true;
+    if (expr->isOneOf<SelectOp, IndexSelectOp, TorchGatherOp>()) {
+      // For now, only relax the input requirement when it's
+      // take_along_axis. Also since this would require memory
+      // promotion, i.e., persistent global sync in the case of
+      // block-parallel ops, it needs to be explictly enabled.
+      if (expr->isA<TorchGatherOp>() &&
+          expr->as<TorchGatherOp>()->exactSizes() &&
+          isOptionEnabled(EnableOption::MemoryPromotion)) {
+        continue;
+      }
+      if (rejectScheduleFusionInputRequirement(expr, schedule_strategy)) {
+        return true;
+      }
+    }
+
+    // Similarly, ops based resize, such as like slice, pad and cat,
+    // may require memory promotion. Require them to be done with
+    // fusion inputs unless explicitly allowed
+    if (!isOptionEnabled(EnableOption::MemoryPromotion) &&
+        std::any_of(
+            expr->outputs().begin(), expr->outputs().end(), [](Val* output) {
+              return output->isA<TensorView>() &&
+                  ir_utils::hasResizedRfactor(output->as<TensorView>());
+            })) {
+      if (rejectScheduleFusionInputRequirement(expr, schedule_strategy)) {
+        return true;
+      }
     }
   }
   return false;
@@ -1313,7 +1334,7 @@ class NoOpScheduler : public SchedulerEntry {
     }
 
     // Check that inputs of all select/gather-like ops are fusion inputs
-    if (rejectScheduleForSelectLikeOps(fusion, ScheduleHeuristic::NoOp)) {
+    if (rejectScheduleForMemoryPromotion(fusion, ScheduleHeuristic::NoOp)) {
       return false;
     }
 
@@ -1375,7 +1396,8 @@ class ReductionScheduler : public SchedulerEntry {
     }
 
     // Check that inputs of all select/gather-like ops are fusion inputs
-    if (rejectScheduleForSelectLikeOps(fusion, ScheduleHeuristic::Reduction)) {
+    if (rejectScheduleForMemoryPromotion(
+            fusion, ScheduleHeuristic::Reduction)) {
       return false;
     }
 
@@ -1537,7 +1559,8 @@ class TransposeScheduler : public SchedulerEntry {
 
   static bool canScheduleCompileTime(Fusion* fusion) {
     // Check that inputs of all select/gather-like ops are fusion inputs
-    if (rejectScheduleForSelectLikeOps(fusion, ScheduleHeuristic::Transpose)) {
+    if (rejectScheduleForMemoryPromotion(
+            fusion, ScheduleHeuristic::Transpose)) {
       return false;
     }
 
@@ -1659,7 +1682,8 @@ class PointWiseScheduler : public SchedulerEntry {
     }
 
     // Check that inputs of all select/gather-like ops are fusion inputs
-    if (rejectScheduleForSelectLikeOps(fusion, ScheduleHeuristic::PointWise)) {
+    if (rejectScheduleForMemoryPromotion(
+            fusion, ScheduleHeuristic::PointWise)) {
       return false;
     }
 
@@ -1763,7 +1787,8 @@ class PersistentKernelScheduler : public SchedulerEntry {
     }
 
     // Check that inputs of all select/gather-like ops are fusion inputs
-    if (rejectScheduleForSelectLikeOps(fusion, ScheduleHeuristic::Persistent)) {
+    if (rejectScheduleForMemoryPromotion(
+            fusion, ScheduleHeuristic::Persistent)) {
       return false;
     }
 

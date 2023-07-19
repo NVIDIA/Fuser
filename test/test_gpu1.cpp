@@ -389,7 +389,7 @@ TEST_F(NVFuserTest, FusionScalarTypePromote_CUDA) {
 
   Scalar* b = IrBuilder::create<Scalar>(true);
   Scalar* d = IrBuilder::create<Scalar>(4.f);
-  Scalar* i = IrBuilder::create<Scalar>(3);
+  Scalar* i = IrBuilder::create<Scalar>(3L);
   Scalar* c = IrBuilder::create<Scalar>(std::complex<double>(1, 2));
 
   TORCH_CHECK(add(b, b)->getDataType() == DataType::Bool);
@@ -441,10 +441,11 @@ TEST_F(NVFuserTest, FusionRegister_CUDA) {
   Scalar* v2 = IrBuilder::create<Scalar>(2.f);
   Val* v3 = binaryOp(BinaryOpType::Add, v1, v2);
   Val* v4 = binaryOp(BinaryOpType::Add, v1, v2);
-  TORCH_CHECK(v1->name() + 1 == v2->name());
-  TORCH_CHECK(v2->name() + 1 == v3->name());
-  TORCH_CHECK(v3->name() + 1 == v4->name());
-  TORCH_CHECK(v3->definition()->name() + 1 == v4->definition()->name());
+  EXPECT_EQ(v1->name() + 1, v2->name());
+  EXPECT_EQ(v2->name() + 1, v3->name());
+  // we need a scalar to store BinaryOpType, therefore +2
+  EXPECT_EQ(v3->name() + 2, v4->name());
+  EXPECT_EQ(v3->definition()->name() + 1, v4->definition()->name());
 }
 
 // dummy expr with 2 outputs only for toposort test.
@@ -607,8 +608,8 @@ TEST_F(NVFuserTest, FusionFilterVals_CUDA) {
   auto tv0 = makeSymbolicTensor(1);
   auto tv1 = makeSymbolicTensor(1);
   auto scalar0 = IrBuilder::create<Scalar>(0.0);
-  auto scalar1 = IrBuilder::create<Scalar>(0);
-  auto scalar2 = IrBuilder::create<Scalar>(1);
+  auto scalar1 = IrBuilder::create<Scalar>(0L);
+  auto scalar2 = IrBuilder::create<Scalar>(1L);
 
   const std::vector<Val*> vals = {tv0, scalar0, tv1, scalar1, scalar2};
 
@@ -650,7 +651,7 @@ TEST_F(NVFuserTest, FusionTVSplit_CUDA) {
       static_cast<BinaryOp*>(outer)->lhs()->sameAs(
           tv->getRootDomain()[2]->extent()) &&
       static_cast<Scalar*>(static_cast<BinaryOp*>(outer)->rhs())
-          ->sameAs(IrBuilder::create<Scalar>(2)));
+          ->sameAs(IrBuilder::create<Scalar>(2L)));
 
   IterDomain* inner = static_cast<IterDomain*>(tv->axis(3));
   TORCH_CHECK(
@@ -744,12 +745,12 @@ TEST_F(NVFuserTest, FusionEquality_CUDA) {
   Scalar* ival1 = IrBuilder::create<Scalar>(DataType::Int);
   Scalar* ival1_copy = ival1;
   Scalar* ival2 = IrBuilder::create<Scalar>(DataType::Int);
-  Scalar* ione = IrBuilder::create<Scalar>(1);
+  Scalar* ione = IrBuilder::create<Scalar>(1L);
 
   TORCH_CHECK(ival1->sameAs(ival1_copy));
   TORCH_CHECK(!ival1->sameAs(ival2));
   TORCH_CHECK(!ione->sameAs(ival1));
-  TORCH_CHECK(ione->sameAs(IrBuilder::create<Scalar>(1)));
+  TORCH_CHECK(ione->sameAs(IrBuilder::create<Scalar>(1L)));
 
   BinaryOp* add1 = IrBuilder::create<BinaryOp>(
       BinaryOpType::Add,
@@ -6032,7 +6033,7 @@ TEST_F(NVFuserTest, FusionSumTo_CUDA) {
       sum_to_shape.begin(),
       sum_to_shape.end(),
       std::back_inserter(sum_to_symb),
-      [](int s) -> Scalar* { return IrBuilder::create<Scalar>(s); });
+      [](int64_t s) -> Scalar* { return IrBuilder::create<Scalar>(s); });
 
   TensorView* tv0 = makeConcreteTensor(tensor_shape);
   fusion.addInput(tv0);
@@ -6073,7 +6074,7 @@ TEST_F(NVFuserTest, FusionSumToNoop_CUDA) {
       sum_to_shape.begin(),
       sum_to_shape.end(),
       std::back_inserter(sum_to_symb),
-      [](int s) -> Scalar* { return IrBuilder::create<Scalar>(s); });
+      [](int64_t s) -> Scalar* { return IrBuilder::create<Scalar>(s); });
 
   TensorView* tv0 = makeConcreteTensor(tensor_shape);
   fusion.addInput(tv0);
@@ -7803,8 +7804,8 @@ TEST_F(NVFuserTest, FusionMagicSchedulerInstanceNormalizationBackward_CUDA) {
       at_input_nvfuser,
       at_grad_nvfuser,
       at_weight_nvfuser,
-      at::empty({}),
-      at::empty({}),
+      at::empty({}, options),
+      at::empty({}, options),
       outputs_forward[1],
       outputs_forward[2]};
   auto outputs_backward =
