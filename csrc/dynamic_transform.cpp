@@ -115,10 +115,10 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
       // Input and output extent expressions both affect concretization
       for (const auto& id :
            TensorDomain::noReductions(inp_tv->getMaybeRFactorDomain())) {
-        leaf_dynamic_vals_.push_back(id->extent());
+        leaf_dynamic_vals_.push_back(id->getMaybeExpandedExtent());
       }
       for (const auto& id : out_tv->getMaybeRFactorDomain()) {
-        leaf_dynamic_vals_.push_back(id->extent());
+        leaf_dynamic_vals_.push_back(id->getMaybeExpandedExtent());
       }
     }
   }
@@ -127,9 +127,10 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
   void handle(TensorView* tv) override {
     const auto& rfd = tv->getMaybeRFactorDomain();
     for (auto id : rfd) {
-      if (!id->extent()->isConstScalar() || id->extent()->evaluateInt() == 0) {
-        info_.maybe_zero_extents_set_.insert(id->extent());
-        leaf_dynamic_vals_.push_back(id->extent());
+      if (!id->getMaybeExpandedExtent()->isConstScalar() ||
+          id->getMaybeExpandedExtent()->evaluateInt() == 0) {
+        info_.maybe_zero_extents_set_.insert(id->getMaybeExpandedExtent());
+        leaf_dynamic_vals_.push_back(id->getMaybeExpandedExtent());
       }
       if (!id->definition() || id->getIterType() != IterType::Symbolic) {
         continue;
@@ -451,7 +452,11 @@ void DynamicTransformConcretizer::concretize() {
   concretizeEmptyExtents();
 
   // Finally, propagate concretized domains
-  auto all_stmts = StmtSort::getStmts(info_->fusion());
+  auto all_stmts = StmtSort::getStmts(
+      info_->fusion(),
+      /*traverse_members*/ false,
+      /*traverse_attributes*/ false,
+      /*traverse_siblings*/ true);
   for (auto tv : ir_utils::filterByType<TensorView>(all_stmts)) {
     mutate(tv);
   }
