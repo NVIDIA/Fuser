@@ -1074,7 +1074,7 @@ TEST_F(NVFuserTest, DynamicTransformIssue418Concretization_CUDA) {
 
   auto tv0 = makeSymbolicTensor(4);
   fusion->addInput(tv0);
-  auto s0 = IrBuilder::create<Scalar>(DataType::Int);
+  auto s0 = IrBuilder::create<Val>(DataType::Int);
   fusion->addInput(s0);
 
   auto v00 = tv0->axis(0)->extent();
