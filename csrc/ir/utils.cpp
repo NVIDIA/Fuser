@@ -1113,12 +1113,47 @@ std::vector<Statement*> checkCycle(Fusion* fusion) {
   return checkCycle(fusion, {}, fusion->outputs());
 }
 
+namespace {
+
+inline bool isTensorAttr(const Val* val, const std::string& attr_name) {
+  auto getitem = dynamic_cast<GetItem*>(val->definition());
+  if (getitem == nullptr) {
+    return false;
+  }
+  auto getattr = dynamic_cast<GetAttr*>(getitem->array()->definition());
+  if (getattr == nullptr) {
+    return false;
+  }
+  if (getattr->attr() != attr_name) {
+    return false;
+  }
+  auto metadata = dynamic_cast<GetMetaData*>(getattr->struct_()->definition());
+  if (metadata == nullptr) {
+    return false;
+  }
+  return metadata->in()->isA<TensorView>();
+}
+
+} // namespace
+
 bool isTensorSize(const Val* val) {
-  return false;
+  if (auto ns = dynamic_cast<const NamedScalar*>(val)) {
+    // TODO: make tensor size an expr
+    if (ns->isTensorSize()) {
+      return true;
+    }
+  }
+  return isTensorAttr(val, "size");
 }
 
 bool isTensorStride(const Val* val) {
-  return false;
+  // TODO: remove this
+  if (auto ns = dynamic_cast<const NamedScalar*>(val)) {
+    if (ns->isTensorStride()) {
+      return true;
+    }
+  }
+  return isTensorAttr(val, "stride");
 }
 
 } // namespace nvfuser::ir_utils

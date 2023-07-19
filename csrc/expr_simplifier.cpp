@@ -1285,11 +1285,8 @@ bool isNonNegative(Val* value, const Context& context) {
 }
 
 bool isNonNegativeHelper(Val* value, const Context& context) {
-  if (auto ns = dynamic_cast<NamedScalar*>(value)) {
-    // TODO: make tensor size and tensor stride an expr
-    if (ns->isTensorSize() || ns->isTensorStride()) {
-      return true;
-    }
+  if (ir_utils::isTensorSize(value) || ir_utils::isTensorStride(value)) {
+    return true;
   }
   if (auto fop = dynamic_cast<FOp*>(value->definition())) {
     auto op = fop->getOpType();
@@ -1324,6 +1321,9 @@ bool isNonNegativeHelper(Val* value, const Context& context) {
 }
 
 bool isPositiveHelper(Val* value, const Context& context) {
+  if (ir_utils::isTensorSize(value)) {
+    return true;
+  }
   if (auto fop = dynamic_cast<FOp*>(value->definition())) {
     auto op = fop->getOpType();
     if (op == BinaryOpType::Add) {
