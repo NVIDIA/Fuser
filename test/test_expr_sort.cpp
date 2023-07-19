@@ -159,4 +159,102 @@ TEST_F(ExprSortTest, IndirectInnerNormalization) {
   ASSERT_NO_THROW({ GpuLower lower(&fusion); });
 }
 
+// Similar to IndirectInnerNormalization but outer
+// normalization. Here, unlike the inner case, there's no valid
+// ordering if tv2 is fully inlined. To make this run correctly,
+// ComputeAtRootDomainMap needs to be fixed.
+TEST_F(ExprSortTest, IndirectOuterNormalization) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(1);
+  fusion.addInput(tv1);
+
+  auto tv2 = set(tv0);
+
+  auto tv3 = sum(tv2, {0});
+
+  auto tv4 = set(tv1);
+  auto tv5 = set(tv4);
+  auto tv6 = set(tv5);
+  auto tv7 = set(tv6);
+
+  auto tv8 = add(tv3, tv7);
+  fusion.addOutput(tv8);
+
+  auto tv9 = broadcast(tv7, {true, false});
+  auto tv10 = add(tv2, tv9);
+  fusion.addOutput(tv10);
+
+  inlineMost();
+
+  // Currently, ComputeAtRootDomainMap fails to flag tv2
+  // non-inlinable, so its computeAt position is expected to 2,
+  // although the corect position should be 0.
+  // TODO: Fix ComputeAtRootDomainMap and change the assertions
+  // below.
+  ASSERT_TRUE(tv2->getComputeAtPosition() == tv2->nDims())
+      << "Unexpected computeAt position of tv2. " << tv2->toString();
+
+  // Due to the incorrect ComputeAt position, there's no valid
+  // expression ordering. Expression sorting should fail.
+  ASSERT_THAT(
+      [&]() { GpuLower lower(&fusion); },
+      testing::ThrowsMessage<c10::Error>(
+          testing::HasSubstr("Couldn't succcessfully sort out")));
+}
+
+// Same as IndirectOuterNormalization but with reduction rfactor
+TEST_F(ExprSortTest, IndirectOuterNormalizationRfactor) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(1);
+  fusion.addInput(tv1);
+
+  auto tv2 = set(tv0);
+
+  auto tv3 = sum(tv2, {0});
+
+  auto tv4 = set(tv1);
+  auto tv5 = set(tv4);
+  auto tv6 = set(tv5);
+  auto tv7 = set(tv6);
+
+  auto tv8 = add(tv3, tv7);
+  fusion.addOutput(tv8);
+
+  auto tv9 = broadcast(tv7, {true, false});
+  auto tv10 = add(tv2, tv9);
+  fusion.addOutput(tv10);
+
+  tv3->split(0, 4);
+  auto tv11 = tv3->rFactor({1});
+
+  MaxRootDomainInfoSpanningTree tree(tv11);
+  TransformPropagator tp(tv11);
+  tree.traverse(&tp);
+
+  inlineMost();
+
+  // Currently, ComputeAtRootDomainMap fails to flag tv2
+  // non-inlinable, so its computeAt position is expected to 2,
+  // although the corect position should be 0.
+  // TODO: Fix ComputeAtRootDomainMap and change the assertions
+  // below.
+  ASSERT_TRUE(tv2->getComputeAtPosition() == tv2->nDims())
+      << "Unexpected computeAt position of tv2. " << tv2->toString();
+
+  // Due to the incorrect ComputeAt position, there's no valid
+  // expression ordering. Expression sorting should fail.
+  ASSERT_THAT(
+      [&]() { GpuLower lower(&fusion); },
+      testing::ThrowsMessage<c10::Error>(
+          testing::HasSubstr("Couldn't succcessfully sort out")));
+}
+
 } // namespace nvfuser
