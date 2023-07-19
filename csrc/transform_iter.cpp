@@ -322,7 +322,7 @@ BestEffortReplay::BestEffortReplay(
   }
 
   // Grab expr history of iter domains in target_domain
-  std::vector<Expr*> target_exprs = StmtSort::getExprs(
+  std::vector<Expr*> target_exprs = StmtSort::getExprsTo(
       FusionGuard::getCurFusion(),
       std::vector<Val*>(target_domain.begin(), target_domain.end()));
 
@@ -333,7 +333,7 @@ BestEffortReplay::BestEffortReplay(
   // replay_domain map.
 
   // Map replay domain's IterDomains to the Exprs they're used in
-  std::vector<Expr*> replay_exprs = StmtSort::getExprs(
+  std::vector<Expr*> replay_exprs = StmtSort::getExprsTo(
       FusionGuard::getCurFusion(),
       std::vector<Val*>(replay_domain.begin(), replay_domain.end()));
 
@@ -752,7 +752,7 @@ struct ForwardingInfo {
     // We have root axes in active_tv that don't exist in the inactive tensor,
     // now forward those to include all id's in active_tv comprised of only axes
     // not in the inactive tensor.
-    std::vector<Expr*> active_tv_history = StmtSort::getExprs(
+    std::vector<Expr*> active_tv_history = StmtSort::getExprsTo(
         FusionGuard::getCurFusion(),
         std::vector<Val*>(
             active_tv->getLeafDomain().begin(),
@@ -903,7 +903,7 @@ void BestEffortReplay::addComplimentLeafIDs(
   }
 
   // Grab all exprs used to make the forwarded compliments
-  auto compliment_exprs = StmtSort::getExprs(
+  auto compliment_exprs = StmtSort::getExprsTo(
       FusionGuard::getCurFusion(), {compliments.begin(), compliments.end()});
 
   // Figure out if there are any leaves in compliment_exprs that aren't

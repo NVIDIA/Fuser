@@ -325,20 +325,19 @@ Val* getProducerIndexWithPartialSplit(
 }
 
 Val* getTensorBaseAddress(TensorView* tv) {
-  Val* output = nullptr;
+  auto metadata = IrBuilder::metadataExpr(tv);
   switch (auto memtype = tv->getMemoryType()) {
     case MemoryType::Global:
-      output = IrBuilder::newScalar(
-          PointerOf{std::make_shared<DataType>(*tv->getDataType())});
-      break;
-    case MemoryType::Shared:
-      output = IrBuilder::newScalar(DataType::SMemAddress);
-      break;
+      return IrBuilder::getAttrExpr(metadata, "data");
+    case MemoryType::Shared: {
+      auto output = IrBuilder::newScalar(DataType::SMemAddress);
+      IrBuilder::create<UnaryOp>(
+          UnaryOpType::ToUnsignedSmemAddr, output, metadata);
+      return output;
+    }
     default:
       TORCH_CHECK(false, "Unsupported memory type ", memtype);
   }
-  IrBuilder::create<kir::BaseAddress>(output, tv);
-  return output;
 }
 
 } // namespace

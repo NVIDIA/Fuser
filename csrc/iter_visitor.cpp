@@ -142,14 +142,26 @@ void IterVisitor::traverseBetween(
     const std::vector<Val*>& to,
     bool traverse_all_paths,
     bool traverse_into_members,
-    bool traverse_attributes) {
+    bool traverse_attributes,
+    bool traverse_siblings) {
   FusionGuard fg(fusion);
 
   std::unordered_set<Statement*> visited;
   std::unordered_set<Statement*> nodes_on_path;
+  std::vector<Statement*> maybe_orphaned_sibs;
 
   stmt_stack.clear();
   stmt_stack.emplace_back(to.rbegin(), to.rend());
+
+  if (traverse_siblings) {
+    // Append siblings of entries in "to" to bottom of stack
+    auto& bottom_stack = stmt_stack.back();
+    for (auto val : ir_utils::filterByType<Val>(bottom_stack)) {
+      for (auto sib : ir_utils::siblingValsOf(val)) {
+        maybe_orphaned_sibs.push_back(sib);
+      }
+    }
+  }
 
   bool all_inputs_visited = false;
 
@@ -222,6 +234,18 @@ void IterVisitor::traverseBetween(
         // If we don't want to retraverse, remove nodes we already visisted.
         remove_visited(next_stmts, visited);
       }
+
+      if (traverse_siblings) {
+        // Add unvisited siblings to next_stmts
+        for (auto next_val : ir_utils::filterByType<Val>(next_stmts)) {
+          for (auto sib : ir_utils::siblingValsOf(next_val)) {
+            if (traverse_all_paths || visited.find(sib) == visited.end()) {
+              maybe_orphaned_sibs.push_back(sib);
+            }
+          }
+        }
+      }
+
       if (next_stmts.empty()) {
         // If there's nothing to visit because it was all already visited, mark
         // to process
@@ -251,6 +275,14 @@ void IterVisitor::traverseBetween(
       }
     }
   }
+  // Handle any sibling Vals that have not yet been handled
+  // If traverse_siblings is false, this vector will be empty
+  for (auto val : maybe_orphaned_sibs) {
+    if (visited.find(val) == visited.end()) {
+      visited.insert(val);
+      handle(val);
+    }
+  }
 }
 
 void IterVisitor::traverseTo(
@@ -258,14 +290,16 @@ void IterVisitor::traverseTo(
     const std::vector<Val*>& to,
     bool traverse_all_paths,
     bool traverse_into_members,
-    bool traverse_attributes) {
+    bool traverse_attributes,
+    bool traverse_siblings) {
   traverseBetween(
       fusion,
       {},
       to,
       traverse_all_paths,
       traverse_into_members,
-      traverse_attributes);
+      traverse_attributes,
+      traverse_siblings);
 }
 
 void IterVisitor::traverseHelper(Fusion* fusion, bool traverse_all_paths) {
@@ -430,7 +464,7 @@ void BackwardVisitor::traverseTo(
   }
 
   auto vals = AllVals::get(fusion, from);
-  auto exprs = StmtSort::getExprs(fusion, from);
+  auto exprs = StmtSort::getExprsTo(fusion, from);
 
   {
     size_t pos = 0;
@@ -841,19 +875,25 @@ void StmtSort::handle(Statement* stmt) {
 std::vector<Expr*> StmtSort::getExprs(
     Fusion* fusion,
     bool traverse_members,
-    bool traverse_attributes) {
+    bool traverse_attributes,
+    bool traverse_siblings) {
   auto terminating_outputs = fusion->getTerminatingOutputs();
-  return StmtSort::getExprs(
-      fusion, terminating_outputs, traverse_members, traverse_attributes);
+  return StmtSort::getExprsTo(
+      fusion,
+      terminating_outputs,
+      traverse_members,
+      traverse_attributes,
+      traverse_siblings);
 }
 
-std::vector<Expr*> StmtSort::getExprs(
+std::vector<Expr*> StmtSort::getExprsTo(
     Fusion* fusion,
     const std::vector<Val*>& to,
     bool traverse_members,
-    bool traverse_attributes) {
-  auto stmts =
-      StmtSort::getStmts(fusion, to, traverse_members, traverse_attributes);
+    bool traverse_attributes,
+    bool traverse_siblings) {
+  auto stmts = StmtSort::getStmtsTo(
+      fusion, to, traverse_members, traverse_attributes, traverse_siblings);
   auto filter = ir_utils::filterByType<Expr>(stmts.begin(), stmts.end());
   std::vector<Expr*> exprs(filter.begin(), filter.end());
   return exprs;
@@ -864,9 +904,15 @@ std::vector<Expr*> StmtSort::getExprsBetween(
     const std::vector<Val*>& from,
     const std::vector<Val*>& to,
     bool traverse_members,
-    bool traverse_attributes) {
+    bool traverse_attributes,
+    bool traverse_siblings) {
   auto stmts = StmtSort::getStmtsBetween(
-      fusion, from, to, traverse_members, traverse_attributes);
+      fusion,
+      from,
+      to,
+      traverse_members,
+      traverse_attributes,
+      traverse_siblings);
   auto filter = ir_utils::filterByType<Expr>(stmts.begin(), stmts.end());
   std::vector<Expr*> exprs(filter.begin(), filter.end());
   return exprs;
@@ -875,19 +921,31 @@ std::vector<Expr*> StmtSort::getExprsBetween(
 std::vector<Statement*> StmtSort::getStmts(
     Fusion* fusion,
     bool traverse_members,
-    bool traverse_attributes) {
+    bool traverse_attributes,
+    bool traverse_siblings) {
   auto terminating_outputs = fusion->getTerminatingOutputs();
-  return StmtSort::getStmts(
-      fusion, terminating_outputs, traverse_members, traverse_attributes);
+  return StmtSort::getStmtsTo(
+      fusion,
+      terminating_outputs,
+      traverse_members,
+      traverse_attributes,
+      traverse_siblings);
 }
 
-std::vector<Statement*> StmtSort::getStmts(
+std::vector<Statement*> StmtSort::getStmtsTo(
     Fusion* fusion,
     const std::vector<Val*>& to,
     bool traverse_members,
-    bool traverse_attributes) {
+    bool traverse_attributes,
+    bool traverse_siblings) {
   StmtSort es;
-  es.traverseTo(fusion, to, false, traverse_members, traverse_attributes);
+  es.traverseTo(
+      fusion,
+      to,
+      false,
+      traverse_members,
+      traverse_attributes,
+      traverse_siblings);
   return es.stmts;
 }
 
@@ -896,7 +954,8 @@ std::vector<Statement*> StmtSort::getStmtsBetween(
     const std::vector<Val*>& from,
     const std::vector<Val*>& to,
     bool traverse_members,
-    bool traverse_attributes) {
+    bool traverse_attributes,
+    bool traverse_siblings) {
   StmtSort es;
   es.traverseBetween(
       fusion,
@@ -904,7 +963,8 @@ std::vector<Statement*> StmtSort::getStmtsBetween(
       to,
       false,
       traverse_members,
-      traverse_attributes);
+      traverse_attributes,
+      traverse_siblings);
   return es.stmts;
 }
 
@@ -932,11 +992,11 @@ std::vector<Val*> InputsOf::outputs(
 bool DeadCodeRemover::run() {
   // First we build a set of all live Statements so that we can detect dead
   // branches.
-  for (auto stmt : StmtSort::getStmts(fusion_, fusion_->outputs())) {
+  for (auto stmt : StmtSort::getStmtsTo(fusion_, fusion_->outputs())) {
     markLive(stmt);
   }
 
-  // Note that StmtSort::getStmts() is also run in traverseTo. In the future,
+  // Note that StmtSort::getStmtsTo() is also run in traverseTo. In the future,
   // we could potentially refactor this so that derived classes from
   // BackwardVisitor can make use of that traversal instead of repeating it.
   traverseTo(fusion_, fusion_->outputs(), false);
