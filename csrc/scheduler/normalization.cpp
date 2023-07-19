@@ -34,7 +34,7 @@ namespace {
 // persistent batch size, unroll factors, thread block size, etc. This wrapper
 // class is used to make sure the parameters are set before they are used and
 // they will not be changed after they are finalized.
-class HeuristicParaWrapper {
+class HeuristicParameterWrapper {
  private:
   int64_t value_;
   bool mutable_;
