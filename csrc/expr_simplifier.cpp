@@ -579,14 +579,18 @@ class FlattenedAssocCommOp : public Expr {
   // FlattenedAssocCommOp is unordered, so we should have
   // FlattenedAdd(a, b)->sameAs(FlattenedAdd(b, a))
   bool sameAs(const Statement* other) const override {
+    DEBUG_PRINT_SCOPE(this->toInlineString(), other->toInlineString());
     if (this == other) {
       return true;
     }
     if (!other->isA<FlattenedAssocCommOp>()) {
+      std::cout << "Not a flattened associative and commutative op\n";
       return false;
     }
     auto other_fop = other->as<FlattenedAssocCommOp>();
     if (getOpType() != other_fop->getOpType()) {
+      std::cout << "Different op type: " << getOpType() << " vs "
+                << other_fop->getOpType() << "\n";
       return false;
     }
     // check if we can establish a 1:1 mapping between inputs() and
@@ -599,6 +603,8 @@ class FlattenedAssocCommOp : public Expr {
             return v->sameAs(inp);
           });
       if (it == other_inputs.end()) {
+        std::cout << "Nothing equals to " << inp->toInlineString() << "\n";
+        std::cout << "In " << this->toInlineString() << "\n";
         return false;
       }
       other_inputs.erase(it);
@@ -1770,6 +1776,7 @@ Val* eliminateTrivialComputation(Val* value, const Context& context) {
 // if x->sameAs(y), then replace x == y as true, replace x != y as false
 Val* eliminateTrivialPredicate(Val* value, const Context& context) {
   if (!value->isABool()) {
+    std::cout << value->toInlineString() << " is not a bool" << std::endl;
     return value;
   }
 
@@ -1782,6 +1789,13 @@ Val* eliminateTrivialPredicate(Val* value, const Context& context) {
   auto lhs = bop->lhs();
   auto rhs = bop->rhs();
   if (op == BinaryOpType::Eq) {
+    std::cout << "Eq testing " << value->toInlineString() << std::endl;
+    std::cout << "lhs: " << lhs->toInlineString() << std::endl;
+    std::cout << "rhs: " << rhs->toInlineString() << std::endl;
+    std::cout << typeid(*lhs).name() << std::endl;
+    std::cout << typeid(*rhs).name() << std::endl;
+    std::cout << typeid(*(lhs->definition())).name() << std::endl;
+    std::cout << typeid(*(rhs->definition())).name() << std::endl;
     if (lhs->sameAs(rhs)) {
       return value->fusion()->trueVal();
     } else if (
