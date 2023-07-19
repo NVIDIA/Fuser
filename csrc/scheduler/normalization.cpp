@@ -60,7 +60,7 @@ class HeuristicParameterWrapper {
     mutable_ = false;
   }
 
-  bool isMutable() {
+  bool isMutable() const {
     return mutable_;
   }
 };
