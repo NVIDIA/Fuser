@@ -2212,7 +2212,7 @@ TEST_F(NVFuserTest, ResizePermuteTransposeScheduler_CUDA) {
   fusion->addInput(tv0);
 
   auto tv1 = reshape(tv0, {256, 128, 64}, {256, 128, 8, 8});
-  auto tv3 = transpose(tv1, 1, 2);
+  auto tv3 = transpose(tv1, 1, 3);
   fusion->addOutput(tv3);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -2233,7 +2233,7 @@ TEST_F(NVFuserTest, ResizePermuteTransposeScheduler_CUDA) {
       "Unexpected heuristic: ",
       heuristic);
 
-  auto at_out = t0.reshape({256, 128, 8, 8}).transpose(1, 2);
+  auto at_out = t0.reshape({256, 128, 8, 8}).transpose(1, 3);
 
   testValidate(
       executor_cache.fusion(),
