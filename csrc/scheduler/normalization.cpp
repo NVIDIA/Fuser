@@ -34,7 +34,7 @@ namespace {
 // persistent batch size, unroll factors, thread block size, etc. This wrapper
 // class is used to make sure the parameters are set before they are used and
 // they will not be changed after they are finalized.
-class HeuristicParaWrapper {
+class HeuristicParameterWrapper {
  private:
   int64_t value_;
   bool mutable_;
@@ -55,12 +55,12 @@ class HeuristicParaWrapper {
     return value_;
   }
 
-  void final() {
+  void finalize() {
     TORCH_INTERNAL_ASSERT(value_ != -1, "Heuristic parameter is not set!");
     mutable_ = false;
   }
 
-  bool isMutable() {
+  bool isMutable() const {
     return mutable_;
   }
 };
