@@ -452,7 +452,11 @@ void DynamicTransformConcretizer::concretize() {
   concretizeEmptyExtents();
 
   // Finally, propagate concretized domains
-  auto all_stmts = StmtSort::getStmts(info_->fusion());
+  auto all_stmts = StmtSort::getStmts(
+      info_->fusion(),
+      /*traverse_members*/ false,
+      /*traverse_attributes*/ false,
+      /*traverse_siblings*/ true);
   for (auto tv : ir_utils::filterByType<TensorView>(all_stmts)) {
     mutate(tv);
   }
