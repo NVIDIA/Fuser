@@ -124,7 +124,7 @@ PolymorphicValue ExpressionEvaluator::evaluate(ParallelType pt) {
 
 PolymorphicValue ExpressionEvaluator::getValue(const Val* value) {
   if (value->isScalar() && value->isConst()) {
-    return value->as<Scalar>()->value();
+    return value->value();
   }
 
   if (value->isA<NamedScalar>()) {

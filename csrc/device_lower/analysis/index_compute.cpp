@@ -158,7 +158,7 @@ IndexingParameters getLinearIndexParameters(
         index_parameters.initial_concrete_id_index[concrete_loop_id] =
             SimplifyingIrBuilder::addExpr(
                 index_parameters.initial_concrete_id_index[concrete_loop_id],
-                SimplifyingIrBuilder::create<Scalar>(stage_depth - 1L));
+                SimplifyingIrBuilder::create<Val>(stage_depth - 1L));
       }
     }
   }
@@ -446,7 +446,7 @@ IndexingParameters getPredicateInitialIndexParameters(
                : cur_index == db_loop->indexOrStartIfTrivial());
       if (is_same) {
         loop_to_ind_map[db_loop] = SimplifyingIrBuilder::addExpr(
-            cur_index, SimplifyingIrBuilder::create<Scalar>(stage_depth - 1L));
+            cur_index, SimplifyingIrBuilder::create<Val>(stage_depth - 1L));
       }
     }
   }

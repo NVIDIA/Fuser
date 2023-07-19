@@ -106,7 +106,7 @@ std::vector<Val*> collectRuntimeUsedValues(Fusion* fusion) {
     }
   }
   for (auto inp : fusion->inputs()) {
-    if (inp->isA<Scalar>()) {
+    if (!inp->isA<TensorView>()) {
       ret.push_back(inp);
     }
   }

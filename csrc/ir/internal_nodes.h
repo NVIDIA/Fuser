@@ -2033,7 +2033,7 @@ class TORCH_CUDA_CU_API CatOp : public Expr {
       const std::vector<Val*>& inputs,
       int64_t concatenated_dim,
       Val* concatenated_domain_index,
-      const std::vector<Scalar*>& preds);
+      const std::vector<Val*>& preds);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
@@ -2056,7 +2056,7 @@ class TORCH_CUDA_CU_API CatOp : public Expr {
   //! Gets a Bool indicating if the input tensor specified by
   //! tensor_idx should be used to fill the output tensor. Only valid
   //! with the Kernel container
-  Scalar* getPred(int input_idx) const;
+  Val* getPred(int input_idx) const;
 };
 
 } // namespace nvfuser
