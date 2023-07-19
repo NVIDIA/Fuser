@@ -36,8 +36,7 @@ TensorView* scheduleReductionTV(
 
   const bool is_outer_grid_persistence = rparams.persistent_kernel &&
       rparams.cross_grid_inner_reduction && !rparams.fastest_dim;
-  const bool is_outer_persistent =
-      rparams.persistent_kernel && !rparams.fastest_dim;
+
   TORCH_INTERNAL_ASSERT(
       (int)reduction_tv->nDims() >
           std::max(iter_axis, std::max(outer_reduce_axis, inner_reduce_axis)),
@@ -251,9 +250,9 @@ TensorView* scheduleReductionTV(
       inner_unroll(iter_axis, rparams.unroll_factor_iter_dom);
     }
 
-    // Do not unswitch interation domain in the case of outer
+    // Do not unswitch interation domain in the case of outer grid
     // persistence as it's unclear if it's beneficial.
-    if (rparams.unroll_factor_iter_dom > 1 && !is_outer_persistent) {
+    if (rparams.unroll_factor_iter_dom > 1 && !is_outer_grid_persistence) {
       inner_unswitch(iter_axis);
     }
 

@@ -40,7 +40,7 @@ class HeuristicParameterWrapper {
   bool mutable_;
 
  public:
-  HeuristicParaWrapper() : value_(-1), mutable_(true) {}
+  HeuristicParameterWrapper() : value_(-1), mutable_(true) {}
   void set(int64_t val) {
     if (mutable_) {
       value_ = val;
@@ -986,23 +986,26 @@ std::shared_ptr<ReductionParams> outerPersistentHeuristic(
   struct HeuristicParams {
     // Iteration dim, each CTA covers [bdimx] * [iter_unroll_factor] reductions.
     // Needs total_iteration_numel / (bdimx * iter_unroll_factor) CTAs.
-    HeuristicParaWrapper iter_unroll_factor;
-    HeuristicParaWrapper bdimx;
+    HeuristicParameterWrapper iter_unroll_factor;
+    HeuristicParameterWrapper bdimx;
     // Reduction dim, each thread do [batches_per_block * redu_unroll_factor]
     // serial reductions, then do block reductions along [bdimy].
     // Total_reduction_numel <= bdimy [dynamic] * batches_per_block *
     // redu_unroll_factor
-    HeuristicParaWrapper redu_unroll_factor;
-    HeuristicParaWrapper batches_per_block;
-    HeuristicParaWrapper bdimy;
+    HeuristicParameterWrapper redu_unroll_factor;
+    HeuristicParameterWrapper batches_per_block;
+    HeuristicParameterWrapper bdimy;
     void verify() {
       TORCH_INTERNAL_ASSERT(
-          !iter_unroll_factor.isMutable(), "iter_unroll_factor is not finalized.");
+          !iter_unroll_factor.isMutable(),
+          "iter_unroll_factor is not finalized.");
       TORCH_INTERNAL_ASSERT(!bdimx.isMutable(), "bdimx is not finalized.");
       TORCH_INTERNAL_ASSERT(
-          !redu_unroll_factor.isMutable(), "redu_unroll_factor is not finalized.");
+          !redu_unroll_factor.isMutable(),
+          "redu_unroll_factor is not finalized.");
       TORCH_INTERNAL_ASSERT(
-          !batches_per_block.isMutable(), "batches_per_block is not finalized.");
+          !batches_per_block.isMutable(),
+          "batches_per_block is not finalized.");
       TORCH_INTERNAL_ASSERT(!bdimy.isMutable(), "bdimy is not finalized.");
     }
   };
@@ -1020,7 +1023,7 @@ std::shared_ptr<ReductionParams> outerPersistentHeuristic(
   int64_t tmp_iter_unroll =
       total_iteration_numel >= large_size ? (int64_t)vectorize_factor : 1l;
   hp.iter_unroll_factor.set(tmp_iter_unroll);
-  hp.iter_unroll_factor.final();
+  hp.iter_unroll_factor.finalize();
 
   // set redu_unroll_factor
   // This controls unroll along the reduction dimension.
@@ -1030,7 +1033,7 @@ std::shared_ptr<ReductionParams> outerPersistentHeuristic(
   // warps. Unroll by 4 increased performance for some cases but has regression
   // in many others. So we set redu_unroll_factor to 1.
   hp.redu_unroll_factor.set(1l);
-  hp.redu_unroll_factor.final();
+  hp.redu_unroll_factor.finalize();
 
   // set bdimx
   // Start from warp_size, and decrease it until we can make more than 4 waves
@@ -1112,15 +1115,15 @@ std::shared_ptr<ReductionParams> outerPersistentHeuristic(
   }
 
   hp.bdimy.set(tmp_bdimy);
-  hp.bdimy.final();
+  hp.bdimy.finalize();
   hp.batches_per_block.set(tmp_batch);
-  hp.batches_per_block.final();
+  hp.batches_per_block.finalize();
 
   // final check on bdimx to avoid small threads_in_block
   if (hp.bdimx.get() * hp.bdimy.get() < min_threads_in_block) {
     hp.bdimx.set(min_threads_in_block / hp.bdimy.get());
   }
-  hp.bdimx.final();
+  hp.bdimx.finalize();
 
   // make sure all paras are set
   hp.verify();
