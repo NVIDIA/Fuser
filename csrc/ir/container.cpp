@@ -62,7 +62,7 @@ IrCloner IrContainer::copy(const IrContainer* from, IrContainer* to) {
   to->expr_name_counter_ = from->expr_name_counter_;
 
   if (from->axioms_ != nullptr) {
-    to->axioms_ = std::make_unique<std::vector<Scalar*>>();
+    to->axioms_ = std::make_unique<std::vector<Val*>>();
     for (auto pred : *from->axioms_) {
       to->axioms_->emplace_back(ir_cloner.clone(pred));
     }
@@ -228,23 +228,22 @@ bool IrContainer::inContainer(const Statement* stmt) const {
 }
 
 // Shortcuts for frequently used vals
-Scalar* IrContainer::zeroVal() {
+Val* IrContainer::zeroVal() {
   if (!zero_val_) {
-    auto zero_val = IrBuilder::create<Scalar>(this, 0L);
+    auto zero_val = IrBuilder::create<Val>(this, 0L);
     TORCH_INTERNAL_ASSERT(vals_up_.back().get() == zero_val);
-    zero_val_ =
-        std::unique_ptr<Scalar>(vals_up_.back().release()->as<Scalar>());
+    zero_val_ = std::unique_ptr<Val>(vals_up_.back().release());
     vals_up_.pop_back();
   }
   return zero_val_.get();
 }
 
-Scalar* IrContainer::zeroVal(DataType dtype) {
+Val* IrContainer::zeroVal(DataType dtype) {
   // NOTE: this does not cache values for floating or complex dtypes
   if (isFloatingPointType(dtype)) {
-    return IrBuilder::create<Scalar>(0.0);
+    return IrBuilder::create<Val>(0.0);
   } else if (isComplexType(dtype)) {
-    return IrBuilder::create<Scalar>(std::complex<double>(0.0, 0.0));
+    return IrBuilder::create<Val>(std::complex<double>(0.0, 0.0));
   } else if (isIntegralType(dtype)) {
     return zeroVal();
   } else if (isBooleanType(dtype)) {
@@ -254,22 +253,22 @@ Scalar* IrContainer::zeroVal(DataType dtype) {
   }
 }
 
-Scalar* IrContainer::oneVal() {
+Val* IrContainer::oneVal() {
   if (!one_val_) {
-    auto one_val = IrBuilder::create<Scalar>(this, 1L, DataType::Int);
+    auto one_val = IrBuilder::create<Val>(this, 1L, DataType::Int);
     TORCH_INTERNAL_ASSERT(vals_up_.back().get() == one_val);
-    one_val_ = std::unique_ptr<Scalar>(vals_up_.back().release()->as<Scalar>());
+    one_val_ = std::unique_ptr<Val>(vals_up_.back().release());
     vals_up_.pop_back();
   }
   return one_val_.get();
 }
 
-Scalar* IrContainer::oneVal(DataType dtype) {
+Val* IrContainer::oneVal(DataType dtype) {
   // NOTE: this does not cache values for floating or complex dtypes
   if (isFloatingPointType(dtype)) {
-    return IrBuilder::create<Scalar>(this, 1.0, DataType::Double);
+    return IrBuilder::create<Val>(this, 1.0, DataType::Double);
   } else if (isComplexType(dtype)) {
-    return IrBuilder::create<Scalar>(
+    return IrBuilder::create<Val>(
         this, std::complex<double>(1.0, 0.0), DataType::ComplexDouble);
   } else if (isIntegralType(dtype)) {
     return oneVal();
@@ -280,23 +279,21 @@ Scalar* IrContainer::oneVal(DataType dtype) {
   }
 }
 
-Scalar* IrContainer::falseVal() {
+Val* IrContainer::falseVal() {
   if (!false_val_) {
-    auto false_val = IrBuilder::create<Scalar>(this, false, DataType::Bool);
+    auto false_val = IrBuilder::create<Val>(this, false, DataType::Bool);
     TORCH_INTERNAL_ASSERT(vals_up_.back().get() == false_val);
-    false_val_ =
-        std::unique_ptr<Scalar>(vals_up_.back().release()->as<Scalar>());
+    false_val_ = std::unique_ptr<Val>(vals_up_.back().release());
     vals_up_.pop_back();
   }
   return false_val_.get();
 }
 
-Scalar* IrContainer::trueVal() {
+Val* IrContainer::trueVal() {
   if (!true_val_) {
-    auto true_val = IrBuilder::create<Scalar>(this, true, DataType::Bool);
+    auto true_val = IrBuilder::create<Val>(this, true, DataType::Bool);
     TORCH_INTERNAL_ASSERT(vals_up_.back().get() == true_val);
-    true_val_ =
-        std::unique_ptr<Scalar>(vals_up_.back().release()->as<Scalar>());
+    true_val_ = std::unique_ptr<Val>(vals_up_.back().release());
     vals_up_.pop_back();
   }
   return true_val_.get();
@@ -316,7 +313,7 @@ NamedScalar* IrContainer::magicZeroVal() {
 
 void IrContainer::lazyInitAxioms() {
   if (!axioms_) {
-    axioms_ = std::make_unique<std::vector<Scalar*>>();
+    axioms_ = std::make_unique<std::vector<Val*>>();
     axioms_->reserve(kParallelTypeThreads.size() * 3);
     auto zero = zeroVal();
     for (auto p : kParallelTypeThreads) {

@@ -33,7 +33,7 @@ Predicate::Predicate(
     IrBuilderPasskey passkey,
     PredicateType ptype,
     const Expr* expr,
-    Scalar* thread_pred)
+    Val* thread_pred)
     : Val(passkey, ValType::Predicate, DataType::Bool),
       ptype_(ptype),
       expr_(expr),
@@ -57,7 +57,7 @@ Predicate::Predicate(IrBuilderPasskey passkey, ForLoop* unrolled_loop)
   TORCH_INTERNAL_ASSERT(unrolled_loop != nullptr);
 }
 
-Predicate::Predicate(IrBuilderPasskey passkey, Scalar* value)
+Predicate::Predicate(IrBuilderPasskey passkey, Val* value)
     : Val(passkey, ValType::Predicate, DataType::Bool),
       ptype_(PredicateType::Manual),
       value_(value) {
@@ -337,30 +337,6 @@ std::string UpdateMagicZero::toInlineString(int indent_size) const {
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(UpdateMagicZero)
-
-BaseAddress::BaseAddress(IrBuilderPasskey passkey, Val* out, TensorView* tv)
-    : Expr(passkey) {
-  TORCH_INTERNAL_ASSERT(passkey.ir_container_ != nullptr);
-  TORCH_INTERNAL_ASSERT(
-      passkey.ir_container_->isA<kir::Kernel>(),
-      "IR type only valid for Kernel container.");
-  addOutput(out);
-  addInput(tv);
-}
-
-std::string BaseAddress::toString(int indent_size) const {
-  std::stringstream ss;
-  indent(ss, indent_size) << "BaseAddress(" << ir_utils::varName(tv()) << ")\n";
-  return ss.str();
-}
-
-std::string BaseAddress::toInlineString(int indent_size) const {
-  std::stringstream ss;
-  ss << "BaseAddress(" << ir_utils::varName(tv()) << ")";
-  return ss.str();
-}
-
-NVFUSER_DEFINE_CLONE_AND_CREATE(BaseAddress)
 
 std::string Scope::toString(int indent_size) const {
   std::stringstream ss;
@@ -1144,7 +1120,7 @@ VectorizedWelfordOp::VectorizedWelfordOp(
     const WelfordTriplet& init,
     Val* count,
     Val* reciprocal_of_count,
-    Scalar* hoisted_predicate)
+    Val* hoisted_predicate)
     : WelfordOp(passkey, output, input, init, false) {
   TORCH_INTERNAL_ASSERT(passkey.ir_container_ != nullptr);
   TORCH_INTERNAL_ASSERT(

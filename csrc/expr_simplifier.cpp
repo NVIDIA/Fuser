@@ -158,7 +158,7 @@ class Context {
 
   Context(
       const std::list<VarInfo>& variables,
-      std::vector<Scalar*> assumptions,
+      std::vector<Val*> assumptions,
       bool preserve_error)
       : preserve_error_(preserve_error) {
     var_order_.reserve(variables.size());
@@ -183,8 +183,8 @@ class Context {
       if (bop == nullptr || bop->getBinaryOpType() != BinaryOpType::And) {
         assume(back);
       } else {
-        assumptions.push_back(bop->lhs()->as<Scalar>());
-        assumptions.push_back(bop->rhs()->as<Scalar>());
+        assumptions.push_back(bop->lhs());
+        assumptions.push_back(bop->rhs());
       }
     }
   }
@@ -214,7 +214,7 @@ class Context {
   }
 
  private:
-  void assume(Scalar* a) {
+  void assume(Val* a) {
     auto def = a->definition();
     if (auto bop = dynamic_cast<BinaryOp*>(def)) {
       switch (bop->getBinaryOpType()) {
@@ -273,15 +273,15 @@ Val* foldConstants(Val* value) {
     return value;
   }
   if (value->isConstScalar()) {
-    if (value->isIntegralScalar() && value->isA<Scalar>()) {
+    if (value->isIntegralScalar()) {
       return IrBuilder::newConstant(
           value->evaluateInt(), *value->getDataType());
     }
-    if (value->isFloatingPointScalar() && value->isA<Scalar>()) {
+    if (value->isFloatingPointScalar()) {
       return IrBuilder::newConstant(
           value->evaluateDouble(), *value->getDataType());
     }
-    if (value->isABool() && value->isA<Scalar>()) {
+    if (value->isABool()) {
       return IrBuilder::newConstant(
           value->evaluateBool(), *value->getDataType());
     }
@@ -1026,12 +1026,17 @@ Val* divideFactorized(Val* x, Val* y) {
   auto x_factors = getConstAndSymbolicFactors(x);
   auto y_factors = getConstAndSymbolicFactors(y);
 
-  if (*x_factors.first->getInt() % *y_factors.first->getInt() != 0) {
+  auto xx = x_factors.first->getInt();
+  auto yy = y_factors.first->getInt();
+
+  TORCH_INTERNAL_ASSERT(xx.has_value());
+  TORCH_INTERNAL_ASSERT(yy.has_value());
+
+  if (*xx % *yy != 0) {
     // not divisible
     return nullptr;
   }
-  int64_t quoient_const_factor =
-      *x_factors.first->getInt() / *y_factors.first->getInt();
+  int64_t quoient_const_factor = *xx / *yy;
 
   std::vector<Val*> quotient_symbolic_factors;
 
@@ -2462,7 +2467,7 @@ Val* factorizeGcd(Val* value, const Context& context) {
 Val* simplifyExpr(
     Val* value,
     const std::list<VarInfo>& variables,
-    std::vector<Scalar*> assumptions,
+    std::vector<Val*> assumptions,
     bool preserve_error) {
   FusionGuard fg(value->fusion());
   const Context context(variables, assumptions, preserve_error);

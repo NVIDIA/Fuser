@@ -463,7 +463,7 @@ class ValReplacementMutator : private OptOutMutator {
     // typically not used by anything else. If we don't grab that count, then it
     // would be a tensorview that doesn't get updated extents. Therefore, first
     // grab all leaves towards outputs and grab stmts from there.
-    auto stmts = StmtSort::getStmts(fusion, allLeafOuts(fusion), true, true);
+    auto stmts = StmtSort::getStmtsTo(fusion, allLeafOuts(fusion), true, true);
 
     // Some fusions, such as standalone rand_like, can have disconnected DAG, so
     // we need some mechanism to make sure our replacement set is as complete as
@@ -481,7 +481,7 @@ class ValReplacementMutator : private OptOutMutator {
         more.emplace_back(v);
       }
     }
-    auto more_stmts = StmtSort::getStmts(fusion, more, true, true);
+    auto more_stmts = StmtSort::getStmtsTo(fusion, more, true, true);
     more_stmts.insert(more_stmts.end(), stmts.begin(), stmts.end());
 
     for (auto stmt : more_stmts) {
@@ -637,11 +637,6 @@ struct ReplaceValInIndexVal : public OptInDispatch {
   using OptOutDispatch::handle;
 
   void handle(Val* val) override {
-    TORCH_INTERNAL_ASSERT(
-        val->isA<Scalar>() || val->isA<NamedScalar>(),
-        "Invalid Val type: ",
-        val->toString());
-
     // if val appears in the replacement map, stop traversing and set
     // the current val with the replacement
     auto it = replacement_map_.find(val);
@@ -669,11 +664,7 @@ struct ReplaceValInIndexVal : public OptInDispatch {
   void handle(UnaryOp* uop) override {
     handle(uop->in());
     auto inp = last_visited_val_;
-    TORCH_INTERNAL_ASSERT(
-        uop->out()->isA<Scalar>(),
-        "Unknown output type for expr ",
-        uop->toInlineString());
-    auto out = IrBuilder::create<Scalar>(DataType::Int);
+    auto out = IrBuilder::create<Val>(uop->out()->dtype());
     IrBuilder::create<UnaryOp>(uop->getUnaryOpType(), out, inp);
     last_visited_val_ = out;
   }
@@ -684,11 +675,7 @@ struct ReplaceValInIndexVal : public OptInDispatch {
     auto lhs = last_visited_val_;
     handle(bop->rhs());
     auto rhs = last_visited_val_;
-    TORCH_INTERNAL_ASSERT(
-        bop->out()->isA<Scalar>(),
-        "Unknown output type for expr ",
-        bop->toInlineString());
-    auto out = IrBuilder::create<Scalar>(DataType::Int);
+    auto out = IrBuilder::create<Val>(bop->out()->dtype());
     IrBuilder::create<BinaryOp>(bop->getBinaryOpType(), out, lhs, rhs);
     last_visited_val_ = out;
   }
@@ -701,11 +688,7 @@ struct ReplaceValInIndexVal : public OptInDispatch {
     auto in2 = last_visited_val_;
     handle(top->in3());
     auto in3 = last_visited_val_;
-    TORCH_INTERNAL_ASSERT(
-        top->out()->isA<Scalar>(),
-        "Unknown output type for expr ",
-        top->toInlineString());
-    auto out = IrBuilder::create<Scalar>(DataType::Int);
+    auto out = IrBuilder::create<Val>(top->out()->dtype());
     IrBuilder::create<TernaryOp>(top->getTernaryOpType(), out, in1, in2, in3);
     last_visited_val_ = out;
   }
