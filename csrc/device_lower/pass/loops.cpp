@@ -104,7 +104,7 @@ void LoopNestGenerator::handle(Expr* expr) {
 
     for (auto out : expr->outputs()) {
       TORCH_INTERNAL_ASSERT(
-          out->getValType().value() == ValType::Scalar,
+          out->getValType().value() == ValType::Others,
           "Unrecognized output type found in expr ",
           expr,
           " cannot lower ",

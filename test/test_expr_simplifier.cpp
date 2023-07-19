@@ -36,7 +36,7 @@ void expectSimplifiedDiv(
     Val* x,
     Val* y,
     Val* z,
-    std::vector<Scalar*> assumptions = {}) {
+    std::vector<Val*> assumptions = {}) {
   auto simplified = simplifyExpr(IrBuilder::divExpr(x, y), {}, assumptions);
   EXPECT_TRUE(isEquivalent(simplified, z))
       << "Expect " << x->toInlineString() << " / " << y->toInlineString()
@@ -49,7 +49,7 @@ void expectSimplifiedMod(
     Val* x,
     Val* y,
     Val* z,
-    std::vector<Scalar*> assumptions = {}) {
+    std::vector<Val*> assumptions = {}) {
   auto simplified = simplifyExpr(IrBuilder::modExpr(x, y), {}, assumptions);
   EXPECT_TRUE(isEquivalent(simplified, z))
       << "Expect " << x->toInlineString() << " % " << y->toInlineString()
@@ -442,8 +442,8 @@ Val* operator""_(const char* str, size_t) {
   return parse(str);
 }
 
-Scalar* operator""_b(const char* str, size_t) {
-  return parse(str)->as<Scalar>();
+Val* operator""_b(const char* str, size_t) {
+  return parse(str);
 }
 
 } // namespace ops
@@ -508,7 +508,7 @@ TEST_F(ExprSimplifierTest, AssociativeAndCommutativeReordering) {
 
 TEST_F(ExprSimplifierTest, EliminateTrivialComputation) {
   auto simplify = [](Val* x, Val* assumption) {
-    return simplifyExpr(x, {}, {assumption->as<Scalar>()});
+    return simplifyExpr(x, {}, {assumption});
   };
 
   // constant folding
@@ -635,7 +635,7 @@ TEST_F(ExprSimplifierTest, SimplifyDivisibleDivMod) {
 
 TEST_F(ExprSimplifierTest, SignProve) {
   auto assertProvedPositive = [](Val* x,
-                                 const std::vector<Scalar*>& assumptions = {}) {
+                                 const std::vector<Val*>& assumptions = {}) {
     auto proved =
         (simplifyExpr(IrBuilder::gtExpr(x, "0"_), {}, assumptions)->getBool() ==
          true) &&
@@ -656,8 +656,7 @@ TEST_F(ExprSimplifierTest, SignProve) {
     EXPECT_TRUE(proved) << "Unable to prove " << x->toInlineString() << " > 0";
   };
   auto assertProvedNonNegative = [](Val* x,
-                                    const std::vector<Scalar*>& assumptions =
-                                        {}) {
+                                    const std::vector<Val*>& assumptions = {}) {
     auto proved =
         (simplifyExpr(IrBuilder::geExpr(x, "0"_), {}, assumptions)->getBool() ==
          true) &&
@@ -670,7 +669,7 @@ TEST_F(ExprSimplifierTest, SignProve) {
     EXPECT_TRUE(proved) << "Unable to prove " << x->toInlineString() << " >= 0";
   };
   auto assertProvedNonZero = [](Val* x,
-                                const std::vector<Scalar*>& assumptions = {}) {
+                                const std::vector<Val*>& assumptions = {}) {
     auto proved =
         (simplifyExpr(IrBuilder::neExpr(x, "0"_), {}, assumptions)->getBool() ==
          true) &&
@@ -707,7 +706,7 @@ TEST_F(ExprSimplifierTest, SignProve) {
   assertProvedNonNegative("T123.size[3]"_);
   assertProvedNonNegative("T123.stride[3]"_);
 
-  std::vector<Scalar*> assumptions{
+  std::vector<Val*> assumptions{
       "i1 < 2 && i1 >= 0"_b,
       "i2 < 2 && i2 >= 0"_b,
       "i3 < 2 && i3 >= 0"_b,
@@ -733,7 +732,7 @@ TEST_F(ExprSimplifierTest, SignProve) {
 }
 
 TEST_F(ExprSimplifierTest, PredicateProve) {
-  std::vector<Scalar*> assumptions{"i1 < 5 && i2 <= 5 && i3 > 5 && i4 >= 5"_b};
+  std::vector<Val*> assumptions{"i1 < 5 && i2 <= 5 && i3 > 5 && i4 >= 5"_b};
   EXPECT_EQ(simplifyExpr("i1 < 5"_, {}, assumptions)->getBool(), true);
   EXPECT_EQ(simplifyExpr("i1 <= 5"_, {}, assumptions)->getBool(), true);
   EXPECT_EQ(simplifyExpr("5 > i1"_, {}, assumptions)->getBool(), true);
@@ -774,7 +773,7 @@ TEST_F(ExprSimplifierTest, CancelDivMod) {
 }
 
 TEST_F(ExprSimplifierTest, DistributeDivisibleDivMod) {
-  std::vector<Scalar*> assumptions{"i1 >= 0 && i2 >= 0 && i3 >= 0"_b};
+  std::vector<Val*> assumptions{"i1 >= 0 && i2 >= 0 && i3 >= 0"_b};
 
   expectSimplifiedDiv("i1 * i2 + i3"_, "i1"_, "i2 + i3 / i1"_, assumptions);
   expectSimplifiedMod("i1 * i2 + i3"_, "i1"_, "i3 % i1"_, assumptions);
@@ -809,7 +808,7 @@ TEST_F(ExprSimplifierTest, DistributeMul) {
 
 TEST_F(ExprSimplifierTest, Compare) {
   auto simplify = [](Val* x, Val* assumption) {
-    return simplifyExpr(x, {}, {assumption->as<Scalar>()})->getBool();
+    return simplifyExpr(x, {}, {assumption})->getBool();
   };
 
   EXPECT_TRUE(*simplify("i1 <= i1"_, "i1 < i2"_));
@@ -879,8 +878,8 @@ TEST_F(ExprSimplifierTest, ReducePredicateRegisterUsage) {
   auto u2 = IrBuilder::create<NamedScalar>("u2", DataType::Int);
   auto tidx = NamedScalar::getParallelIndex(ParallelType::TIDx);
   auto zero = "0"_;
-  auto five = IrBuilder::create<Scalar>(5L);
-  auto neg_five = IrBuilder::create<Scalar>(-5L);
+  auto five = IrBuilder::create<Val>(5L);
+  auto neg_five = IrBuilder::create<Val>(-5L);
 
   auto unroll_gp1 = mul(tidx, u1);
   auto unroll_uniform1 = mul(a, u1);
@@ -1034,7 +1033,7 @@ TEST_F(ExprSimplifierTest, ReducePredicateRegisterUsage) {
 
 TEST_F(ExprSimplifierTest, MinMax) {
   auto simplify = [](Val* x, Val* assumption) {
-    return simplifyExpr(x, {}, {assumption->as<Scalar>()});
+    return simplifyExpr(x, {}, {assumption});
   };
 
   auto expr =
