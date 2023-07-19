@@ -474,6 +474,10 @@ class TORCH_CUDA_CU_API Val : public Statement {
   // Expr evaluator idx;
   int evaluator_index_ = -1;
 
+  // The concrete value of this Val. This is only used for constant Vals.
+  // Depending on the actual type of the Val, the allowed types of the
+  // value_ can be different. For example, for a TensorView, the value_ must be
+  // a at::Tensor, while for IterDomain, the value_ must be std::monostate{}.
   PolymorphicValue value_;
 };
 
