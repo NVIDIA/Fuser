@@ -236,6 +236,27 @@ class ExprGroup {
   bool is_scalar_only_ = false;
 };
 
+// A fusion may have a pattern that can lead to a persistent
+// pattern. If a consumer expression of a reduction output tensor has
+// a producer expression that has a broadcast consumer, merging the
+// reduction consumer and the broadcast producer needs to be done
+// after the reduction ID is merged. Otherwise, there can be a cycle
+// if the reduction input is inlined. This struct is to keep track of
+// expressions that IDs to enforce merge ordering to presere the DAG
+// property.
+//
+// This should be prevented to happen by ComputeAtRootDomainMap. See
+// issue #597 and its related issues and PRs.
+struct IndirectPersistencyConstraint {
+  // A reduced IterDomain
+  IterDomain* reduction_id = nullptr;
+  // An expression that is a consumer of the reduction output tensor
+  Expr* reduction_consumer = nullptr;
+  // Expression that are a producer to a broadcast expr that generates a
+  // broadcast domain that is permissively mapped with reduction_id
+  std::unordered_set<Expr*> broadcast_producers;
+};
+
 // This class sorts expressions guarantees two things, 1) Tensors are produced
 // before they're consumed 2) If the production of two tensors are supposed to
 // share a for loop, they're in an order where they can. (1) is pretty standard
@@ -262,7 +283,12 @@ class ExprGroup {
 // 1).
 class ExprSegmentationSorter {
  public:
-  ExprSegmentationSorter(Fusion* fusion) : fusion_(fusion) {}
+  ExprSegmentationSorter(Fusion* fusion) : fusion_(fusion) {
+    // ID representing the kernel scope. Attributes like extent can be
+    // arbitrary. May want to use a special IterType?
+    kernel_scope_domain_ =
+        IterDomainBuilder(fusion->zeroVal(), fusion->oneVal()).build();
+  }
 
   void sort();
 
@@ -310,9 +336,22 @@ class ExprSegmentationSorter {
   // Initialize concrete_id_dependencies
   void initializeForLoopDependencies();
 
+  // Finds all the potential patterns of indirect persistent constraints
+  void initializeIndirectPersistencyConstraints();
+
+  // Check if merging groups results in a persistent pattern
+  bool violateIndirectPersistencyConstraints(ExprGroup* g1, ExprGroup* g2)
+      const;
+
+  bool hasCADomains(const std::unordered_set<IterDomain*>& domains) const;
+
   // Checks if the for loop associated with the concrete ID is ready to be
   // resolved in sorting.
   bool loopReady(IterDomain* concrete_id) const;
+
+  // Similar to loopReady, but this also makes sure the given ID
+  // itself has already been processed
+  bool isDomainProcessed(IterDomain* concrete_id) const;
 
   // Disconnect the edges connecting group to the rest of the graph, and return
   // all the edges that were disconnected
@@ -320,6 +359,30 @@ class ExprSegmentationSorter {
 
   // Add (g1, g2) to the pending "to merge" list.
   void setToMerge(ExprGroup* g1, ExprGroup* g2);
+
+  // Get the LOOP concrete ID of a given ID. If the ID is the kernel
+  // scope ID, just return itself. Note that the kernel scope ID is
+  // not registered in the CA map.
+  IterDomain* getConcreteID(IterDomain* id) const {
+    if (id == kernelScopeDomain()) {
+      return id;
+    } else {
+      return GpuLower::current()->caMap()->getConcreteMappedID(
+          id, IdMappingMode::LOOP);
+    }
+  }
+
+  bool areMapped(IterDomain* id0, IterDomain* id1) const {
+    auto concrete_id0 = getConcreteID(id0);
+    auto concrete_id1 = getConcreteID(id1);
+    return concrete_id0 == concrete_id1;
+  }
+
+  bool canReducePA(ExprGroup* group) const;
+
+  IterDomain* kernelScopeDomain() const {
+    return kernel_scope_domain_;
+  }
 
  private:
   // Track how many groups we have from iteration to iteration so we can track
@@ -357,6 +420,20 @@ class ExprSegmentationSorter {
   // others, however, we need a "global" view to track these dependencies.
   std::unordered_map<IterDomain*, std::unordered_set<IterDomain*>>
       concrete_id_dependencies_;
+
+  // Keep track of exprs that can end up resultiing a persistent
+  // pattern. This should not be necessary once ComputeAtRootDomainMap
+  // is fixed. See issue #597
+  std::unordered_map<Expr*, std::vector<IndirectPersistencyConstraint>>
+      persistent_constraints_;
+
+  // ID representing the outermost scope of the kernel being
+  // generated. We may want to have this defined in the Kernel
+  // container itself, but for now just define here as it's only used
+  // here.
+  //
+  // See also #569 and the IndirectNormalizationWithZeroDimTensors test.
+  IterDomain* kernel_scope_domain_ = nullptr;
 };
 
 // // Debug printing, disabled due to clang-tidy see above for declarations.
@@ -406,6 +483,10 @@ std::vector<ExprGroup*> ExprGroup::getMergeCandidates(
     return {};
   }
 
+  if (isDebugDumpEnabled(DebugDumpOption::ExprSortVerbose)) {
+    debug() << "getMergeCandidates: " << toString() << std::endl;
+  }
+
   // Can this node be merged with another? Check if neighbors are merged, if
   // so and merged neighbor is within 1 level or node merged with neighbor is
   // within 1 level, can't merge this node with anything else.
@@ -429,6 +510,11 @@ std::vector<ExprGroup*> ExprGroup::getMergeCandidates(
   // If something prevents us from merging this node, and we're not in fallback
   // mode, return empty set.
   if (!can_merge_this && !fallback_mode_enabled) {
+    if (isDebugDumpEnabled(DebugDumpOption::ExprSortVerbose)) {
+      debug() << "No merge candidate. can_merge_this: " << can_merge_this
+              << "; fallback_mode_enabled: " << fallback_mode_enabled
+              << std::endl;
+    }
     return {};
   }
 
@@ -447,6 +533,10 @@ std::vector<ExprGroup*> ExprGroup::getMergeCandidates(
   for (const auto i : c10::irange(neighbors.size())) {
     if (std::abs(neighbors[i]->payload()->level - payload()->level) > 1) {
       can_merge.at(i) = false;
+      if (isDebugDumpEnabled(DebugDumpOption::ExprSortVerbose)) {
+        debug() << "Can't merge with " << neighbors[i]->toString()
+                << " as the level is too far" << std::endl;
+      }
     }
   }
 
@@ -467,11 +557,23 @@ std::vector<ExprGroup*> ExprGroup::getMergeCandidates(
         // check neighbor_neighbor level
         if (std::abs(neighbor_neighbor->payload()->level - payload()->level) <=
             1) {
+          if (isDebugDumpEnabled(DebugDumpOption::ExprSortVerbose)) {
+            debug() << "Can't merge with " << neighbors[i]->toString()
+                    << " as a neighbor of the neigbor, "
+                    << neighbor_neighbor->toString() << ", is too far"
+                    << std::endl;
+          }
           can_merge.at(i) = false;
         }
         if (std::abs(
                 neighbor_neighbor->payload()->level -
                 neighbors.at(i)->payload()->level) <= 1) {
+          if (isDebugDumpEnabled(DebugDumpOption::ExprSortVerbose)) {
+            debug() << "Can't merge with " << neighbors[i]->toString()
+                    << " as a neighbor of the neigbor, "
+                    << neighbor_neighbor->toString()
+                    << ", is too far from the neighbor" << std::endl;
+          }
           can_merge.at(i) = false;
         }
 
@@ -479,11 +581,25 @@ std::vector<ExprGroup*> ExprGroup::getMergeCandidates(
         if (std::abs(
                 neighbor_neighbor->payload()->merge_with->payload()->level -
                 payload()->level) <= 1) {
+          if (isDebugDumpEnabled(DebugDumpOption::ExprSortVerbose)) {
+            debug() << "Can't merge with " << neighbors[i]->toString()
+                    << " as a neighbor of the neigbor, "
+                    << neighbor_neighbor->toString() << ", is merged with "
+                    << neighbor_neighbor->payload()->merge_with->toString()
+                    << ", which is too far" << std::endl;
+          }
           can_merge.at(i) = false;
         }
         if (std::abs(
                 neighbor_neighbor->payload()->merge_with->payload()->level -
                 neighbors.at(i)->payload()->level) <= 1) {
+          if (isDebugDumpEnabled(DebugDumpOption::ExprSortVerbose)) {
+            debug() << "Can't merge with " << neighbors[i]->toString()
+                    << " as a neighbor of the neigbor, "
+                    << neighbor_neighbor->toString() << ", is merged with "
+                    << neighbor_neighbor->payload()->merge_with->toString()
+                    << ", which is too far from the neighbor" << std::endl;
+          }
           can_merge.at(i) = false;
         }
       }
@@ -496,6 +612,10 @@ std::vector<ExprGroup*> ExprGroup::getMergeCandidates(
         (!can_merge.at(i) && fallback_mode_enabled)) {
       auto neighbor = neighbors.at(i);
       if (isScalarOnly() == neighbor->isScalarOnly() || !preferred_merge_only) {
+        if (isDebugDumpEnabled(DebugDumpOption::ExprSortVerbose)) {
+          debug() << "Merge candidate found: " << neighbor->toString()
+                  << std::endl;
+        }
         merge_candidates.push_back(neighbor);
       }
     }
@@ -580,23 +700,32 @@ ExprGroup* ExprSegmentationSorter::makeEmptyGroup(
   if (ir_utils::isTvOp(expr)) {
     auto out_tv = expr->outputs()[0]->as<TensorView>();
     // Grab all id's that are shared with other tensors.
-    // If not connected to consumers, doesn't mater what compute at is set to
+    // If not connected to consumers, doesn't matter what compute at is set to
     if (!terminating_expr) {
+      // Each non-terminating TV expr should at least have the kernel
+      // scope to enforce the global dependency
+      group->payload()->ca_domains.push_back(kernelScopeDomain());
       for (const auto tv_i : c10::irange(
                out_tv->hasResolvedComputeWith()
                    ? out_tv->getComputeWithPosition()
                    : out_tv->getComputeAtPosition())) {
-        auto concrete_id = GpuLower::current()->caMap()->getConcreteMappedID(
-            out_tv->axis((int)tv_i), IdMappingMode::LOOP);
+        auto concrete_id = getConcreteID(out_tv->axis((int)tv_i));
         group->payload()->ca_domains.push_back(concrete_id);
       }
     }
+    // Similarly for PA, unless all the inputs are either fusion
+    // inputs or just scalar Vals, we need to have the global scope domain
+    if (std::any_of(expr->inputs().begin(), expr->inputs().end(), [](Val* inp) {
+          return !inp->isFusionInput() && inp->isA<TensorView>();
+        })) {
+      group->payload()->pa_domains.push_back(kernelScopeDomain());
+    }
     for (const auto tv_i : c10::irange(out_tv->getMaxProducerPosition())) {
-      auto concrete_id = GpuLower::current()->caMap()->getConcreteMappedID(
-          out_tv->axis((int)tv_i), IdMappingMode::LOOP);
+      auto concrete_id = getConcreteID(out_tv->axis((int)tv_i));
       group->payload()->pa_domains.push_back(concrete_id);
     }
   }
+
   return group;
 }
 
@@ -837,14 +966,17 @@ ExprGroup* ExprSegmentationSorter::makeMergedNode(
     auto producer_of_consumer_edge =
         dynamic_cast<TensorView*>(consumer_group_edge->producer_val);
     if (producer_of_consumer_edge != nullptr) {
+      // If there's a consumer group that uses a tensor from this group,
+      // we need to have the kernel scope domain as a CA ID
+      ca_ids.emplace(kernelScopeDomain());
       auto consumer_of_consumer_edge =
           dynamic_cast<TensorView*>(consumer_group_edge->consumer_val);
       TORCH_INTERNAL_ASSERT(consumer_of_consumer_edge != nullptr);
       for (const auto tv_i :
            c10::irange(producer_of_consumer_edge->getComputePosition(
                consumer_of_consumer_edge))) {
-        ca_ids.emplace(GpuLower::current()->caMap()->getConcreteMappedID(
-            producer_of_consumer_edge->axis((int)tv_i), IdMappingMode::LOOP));
+        ca_ids.emplace(
+            getConcreteID(producer_of_consumer_edge->axis((int)tv_i)));
       }
     }
   }
@@ -856,10 +988,15 @@ ExprGroup* ExprSegmentationSorter::makeMergedNode(
   for (auto producer_group_edge : joined_groups->producerEdges()) {
     auto consumer_of_producer_edge = producer_group_edge->consumer_val;
     if (consumer_of_producer_edge->isA<TensorView>()) {
+      // If there's a producer group that producers an input tensor of
+      // this group, we need to have the kernel scope domain as a PA ID
+      if (producer_group_edge->producer_val->isA<TensorView>() &&
+          !producer_group_edge->producer_val->isFusionInput()) {
+        pa_ids.emplace(kernelScopeDomain());
+      }
       auto tv = consumer_of_producer_edge->as<TensorView>();
       for (const auto tv_i : c10::irange(tv->getMaxProducerPosition())) {
-        pa_ids.emplace(GpuLower::current()->caMap()->getConcreteMappedID(
-            tv->axis((int)tv_i), IdMappingMode::LOOP));
+        pa_ids.emplace(getConcreteID(tv->axis((int)tv_i)));
       }
     }
   }
@@ -870,6 +1007,15 @@ ExprGroup* ExprSegmentationSorter::makeMergedNode(
   auto ordered_ids = getLocalDomainOrdering(
       joined_groups->exprs(), all_ca_pa_ids, concrete_id_dependencies_);
 
+  // Add the global scope first if necessary
+  if (pa_ids.count(kernelScopeDomain())) {
+    joined_groups->payload()->pa_domains.emplace_back(kernelScopeDomain());
+  }
+
+  if (ca_ids.count(kernelScopeDomain())) {
+    joined_groups->payload()->ca_domains.emplace_back(kernelScopeDomain());
+  }
+
   for (auto id : ordered_ids) {
     if (ca_ids.count(id)) {
       joined_groups->payload()->ca_domains.emplace_back(id);
@@ -879,7 +1025,8 @@ ExprGroup* ExprSegmentationSorter::makeMergedNode(
     }
   }
 
-  if (isDebugDumpEnabled(DebugDumpOption::ExprSort)) {
+  if (isDebugDumpEnabled(DebugDumpOption::ExprSort) ||
+      isDebugDumpEnabled(DebugDumpOption::ExprSortVerbose)) {
     debug() << "==========================================\n" << std::endl;
     debug() << "Producer:\n" << producer->toString() << std::endl;
     debug() << "Consumer:\n" << consumer->toString() << std::endl;
@@ -889,12 +1036,19 @@ ExprGroup* ExprSegmentationSorter::makeMergedNode(
   return joined_groups;
 }
 
-bool canReducePA(ExprGroup* group) {
+bool ExprSegmentationSorter::canReducePA(ExprGroup* group) const {
   if (group->payload()->pa_domains.empty()) {
     return false;
   }
 
   IterDomain* group_pa_last_id = group->payload()->pa_domains.back();
+
+  // If the last ID is the kernel scope, there should still be
+  // consumer groups that use tensors produced by this group, so we
+  // should not remove it from the PA set yet
+  if (group_pa_last_id == kernelScopeDomain()) {
+    return false;
+  }
 
   // Look through producer edges to see if we can reduce our produce at domain
   for (auto producer_edge : group->producerEdges()) {
@@ -921,10 +1075,7 @@ bool canReducePA(ExprGroup* group) {
     // it can't decide if it can be reduced
     bool has_matching_pa = false;
     for (const auto i : c10::irange(consumer_tv->getMaxProducerPosition())) {
-      if (GpuLower::current()->caMap()->areMapped(
-              consumer_tv->axis((int)i),
-              group_pa_last_id,
-              IdMappingMode::LOOP)) {
+      if (areMapped(consumer_tv->axis((int)i), group_pa_last_id)) {
         has_matching_pa = true;
         break;
       }
@@ -940,10 +1091,7 @@ bool canReducePA(ExprGroup* group) {
              static_cast<int>(producer_tv->getComputePosition(consumer_tv));
          producer_pos_i > 0;
          producer_pos_i--) {
-      if (GpuLower::current()->caMap()->areMapped(
-              producer_tv->axis(producer_pos_i - 1),
-              group_pa_last_id,
-              IdMappingMode::LOOP)) {
+      if (areMapped(producer_tv->axis(producer_pos_i - 1), group_pa_last_id)) {
         return false;
       }
     }
@@ -1042,8 +1190,7 @@ void ExprSegmentationSorter::initializeForLoopDependencies() {
          tv_id_i > 0;
          tv_id_i--) {
       auto tv_id = tv->axis((int)(tv_id_i - 1));
-      auto concrete_id = GpuLower::current()->caMap()->getConcreteMappedID(
-          tv_id, IdMappingMode::LOOP);
+      auto concrete_id = getConcreteID(tv_id);
 
       if (concrete_id_dependencies_.find(concrete_id) ==
           concrete_id_dependencies_.end()) {
@@ -1054,8 +1201,7 @@ void ExprSegmentationSorter::initializeForLoopDependencies() {
       }
 
       // Loops after tv_id are dependent on tv_id
-      dependencies.emplace(GpuLower::current()->caMap()->getConcreteMappedID(
-          tv_id, IdMappingMode::LOOP));
+      dependencies.emplace(getConcreteID(tv_id));
     }
   }
 
@@ -1114,6 +1260,17 @@ void ExprSegmentationSorter::initializeForLoopDependencies() {
     }
     visited.emplace(id);
   }
+
+  // Set the dependency of the kernel scope. Since it depends on all
+  // IDs, just grab them all and set them as the dependency
+  std::unordered_set<IterDomain*> all_ids;
+  for (const auto& [id, id_dep] : concrete_id_dependencies_) {
+    all_ids.insert(id);
+    std::copy(
+        id_dep.begin(), id_dep.end(), std::inserter(all_ids, all_ids.end()));
+  }
+  concrete_id_dependencies_.emplace(kernelScopeDomain(), all_ids);
+
   if (failed) {
     // Build error description string for exception we will raise
     std::stringstream desc;
@@ -1141,22 +1298,298 @@ void ExprSegmentationSorter::initializeForLoopDependencies() {
   }
 }
 
+// Already in an anonymous namespace, but here another nested
+// anonymous namespace is just used to indicate a grouping of related functions
+namespace {
+
+// Build a map from all broadcast domains to the BroadcastOp expr. The
+// broadcast domains are only considered when they are first created
+// by BroadcastOp exprs. Broadcast domains in subsequent consumer
+// tensors are not included.
+std::unordered_map<IterDomain*, BroadcastOp*> getBroadcastMap(Fusion* fusion) {
+  std::unordered_map<IterDomain*, BroadcastOp*> broadcast_map;
+
+  for (auto expr : fusion->exprs()) {
+    if (expr->isA<BroadcastOp>()) {
+      auto broadcast_expr = expr->as<BroadcastOp>();
+      auto broadcast_out = ir_utils::getTvOutput(broadcast_expr);
+
+      std::unordered_set<Val*> root_broadcast_domains;
+      for (auto root_i : c10::irange(broadcast_out->getRootDomain().size())) {
+        if (!broadcast_expr->isBroadcastDim(root_i)) {
+          continue;
+        }
+        root_broadcast_domains.emplace(
+            broadcast_out->getRootDomain().at(root_i));
+      }
+
+      auto all_dep_ids = DependencyCheck::getAllValsBetween(
+          root_broadcast_domains,
+          {broadcast_out->getLeafDomain().begin(),
+           broadcast_out->getLeafDomain().end()});
+
+      for (auto all_dep_id : ir_utils::filterByType<IterDomain>(all_dep_ids)) {
+        TORCH_INTERNAL_ASSERT(
+            broadcast_map.emplace(all_dep_id, broadcast_expr).second,
+            "Duplicated broadcast map detected: ",
+            all_dep_id->toString(),
+            " of ",
+            broadcast_expr->toString());
+      }
+    }
+  }
+
+  return broadcast_map;
+}
+
+// Grab all consumer IDs
+std::unordered_set<IterDomain*> getAllConsumerIDs(IterDomain* id) {
+  const auto& ca_map = GpuLower::current()->caMap();
+
+  std::unordered_set<IterDomain*> consumer_ids;
+  std::unordered_set<IterDomain*> visited;
+  std::vector<IterDomain*> to_visit;
+
+  to_visit.push_back(id);
+
+  while (!to_visit.empty()) {
+    auto id = to_visit.back();
+    to_visit.pop_back();
+    visited.emplace(id);
+    const auto& consumers = ca_map->idGraph().consumers().at(id);
+    for (auto consumer_id : consumers) {
+      consumer_ids.emplace(consumer_id);
+      if (!visited.count(consumer_id)) {
+        to_visit.push_back(consumer_id);
+      }
+    }
+  }
+
+  return consumer_ids;
+}
+
+// Get all reduction exprs and their reduction domains when there's a
+// broadcast expr that should not be merged with the reduction domains
+// to avoid cycles in a given fusion DAG.
+//
+// Returns a vector of tuples of reduction expr, its reduction ID and
+// associated broadcast exprs.
+std::vector<std::tuple<Expr*, IterDomain*, std::unordered_set<BroadcastOp*>>>
+getReductionBroadcastMap(
+    Fusion* fusion,
+    const std::unordered_map<IterDomain*, BroadcastOp*>& broadcast_map) {
+  std::vector<std::tuple<Expr*, IterDomain*, std::unordered_set<BroadcastOp*>>>
+      reduction_broadcast_map;
+
+  const auto& ca_map = GpuLower::current()->caMap();
+
+  // Check all reduction exprs
+  for (auto reduction_expr : fusion->exprs()) {
+    if (!ir_utils::isReductionOp(reduction_expr)) {
+      continue;
+    }
+
+    // For each reduction leaf domain where its input is inlined, check if
+    // there's any permissively mapped broadcast domain
+    auto reduction_out = ir_utils::getTvOutput(reduction_expr);
+    for (auto reduction_leaf_id_i :
+         c10::irange(reduction_out->getMaxProducerPosition())) {
+      auto reduction_leaf_id =
+          reduction_out->getLeafDomain().at(reduction_leaf_id_i);
+      if (reduction_leaf_id->getIterType() != IterType::Reduction) {
+        continue;
+      }
+
+      const auto& permissive_set =
+          ca_map->disjointSetOf(reduction_leaf_id, IdMappingMode::PERMISSIVE);
+
+      std::unordered_set<BroadcastOp*> broadcast_exprs;
+      for (auto mapped_broadcast_id : *permissive_set) {
+        if (mapped_broadcast_id->getIterType() != IterType::Broadcast) {
+          continue;
+        }
+
+        auto broadcast_map_it = broadcast_map.find(mapped_broadcast_id);
+        if (broadcast_map_it == broadcast_map.end()) {
+          //  This should be fine to ignore. All "new" broadcast IDs
+          //  should be registered, so if not, they are just
+          //  inherited from producers
+          continue;
+        }
+
+        // If the broadcast expr is a producer of the reduction expr,
+        // there's no issue merging them
+        auto broadcast_expr = broadcast_map_it->second;
+
+        if (DependencyCheck::isDependencyOf(
+                ir_utils::getTvOutput(broadcast_expr), reduction_out)) {
+          continue;
+        }
+
+        // If this broadcast ID or any of its consumers is not sharing
+        // the loop with the reduction ID, there's no issue of persistence.
+        const auto broadcast_consumer_ids =
+            getAllConsumerIDs(mapped_broadcast_id);
+        auto broadcast_consumer_id_it = std::find_if(
+            broadcast_consumer_ids.begin(),
+            broadcast_consumer_ids.end(),
+            [&](auto broadcast_consumer_id) {
+              return ca_map->areMapped(
+                  reduction_leaf_id,
+                  broadcast_consumer_id,
+                  IdMappingMode::LOOP);
+            });
+        if (broadcast_consumer_id_it == broadcast_consumer_ids.end()) {
+          continue;
+        }
+
+        // We now know that merging this broadcast expr might result
+        // in a cycle
+        broadcast_exprs.emplace(broadcast_expr);
+      }
+
+      if (!broadcast_exprs.empty()) {
+        reduction_broadcast_map.emplace_back(
+            reduction_expr, reduction_leaf_id, broadcast_exprs);
+      }
+    }
+  }
+
+  return reduction_broadcast_map;
+}
+
+} // namespace
+
+bool ExprSegmentationSorter::hasCADomains(
+    const std::unordered_set<IterDomain*>& domains) const {
+  for (auto& group : groups_) {
+    if (std::any_of(
+            group->payload()->ca_domains.begin(),
+            group->payload()->ca_domains.end(),
+            [&](auto ca_domain) { return domains.count(ca_domain); })) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// Similar to loopReady, but this also makes sure the given ID itself
+// is already processed
+bool ExprSegmentationSorter::isDomainProcessed(IterDomain* concrete_id) const {
+  return loopReady(concrete_id) && !hasCADomains({concrete_id});
+};
+
+void ExprSegmentationSorter::initializeIndirectPersistencyConstraints() {
+  TORCH_INTERNAL_ASSERT(
+      persistent_constraints_.empty(),
+      "Persistent constraints have already been initialized.");
+
+  const auto broadcast_map = getBroadcastMap(fusion_);
+
+  const auto reduction_broadcast_map =
+      getReductionBroadcastMap(fusion_, broadcast_map);
+
+  // Each consumer of a reduction expr in the reduction_broadcast
+  // map must not be merged with any of the producers of the
+  // associated broadcast exprs before the reduction ID is merged since that
+  // would lead to a cyclic dependency.
+  //
+  // For each of consumer exprs of a reduction expr, create a
+  // IndirectPersistentConstraint with the producers of the associated
+  // broadcast exprs.
+  for (const auto& [reduction_expr, reduction_id, broadcast_exprs] :
+       reduction_broadcast_map) {
+    auto all_reduction_consumer_exprs = DependencyCheck::getAllExprsBetween(
+        {ir_utils::getTvOutput(reduction_expr)}, fusion_->outputs());
+
+    std::vector<Val*> broadcast_outputs;
+    std::transform(
+        broadcast_exprs.begin(),
+        broadcast_exprs.end(),
+        std::back_inserter(broadcast_outputs),
+        [](BroadcastOp* broadcast_expr) {
+          return ir_utils::getTvOutput(broadcast_expr);
+        });
+
+    auto all_broadcast_producer_exprs = DependencyCheck::getAllExprsBetween(
+        {fusion_->inputs().begin(), fusion_->inputs().end()},
+        broadcast_outputs);
+
+    for (auto reduction_consumer_expr : all_reduction_consumer_exprs) {
+      IndirectPersistencyConstraint constraint = {
+          .reduction_id = reduction_id,
+          .reduction_consumer = reduction_consumer_expr,
+          .broadcast_producers = {
+              all_broadcast_producer_exprs.begin(),
+              all_broadcast_producer_exprs.end()}};
+      persistent_constraints_[reduction_consumer_expr].emplace_back(constraint);
+      if (isDebugDumpEnabled(DebugDumpOption::ExprSortVerbose)) {
+        debug() << "IndirectConstraint: " << constraint.reduction_id->toString()
+                << "\n"
+                << ", " << constraint.reduction_consumer->toString() << "\n"
+                << ", " << toDelimitedString(constraint.broadcast_producers)
+                << "\n"
+                << ", src reduction expr: " << reduction_expr->toString()
+                << std::endl;
+      }
+    }
+  }
+}
+
+bool ExprSegmentationSorter::violateIndirectPersistencyConstraints(
+    ExprGroup* sg1,
+    ExprGroup* sg2) const {
+  auto producer_group = getProducer(sg1, sg2);
+  auto consumer_group = sg1 == producer_group ? sg2 : sg1;
+
+  // Do not allow merging the producer and the consumer if there's an
+  // indirect persistency constraint and its corresponding domain is
+  // not yet merged
+
+  for (auto consumer_expr : consumer_group->exprs()) {
+    if (!persistent_constraints_.count(consumer_expr)) {
+      // No constraint for this consumer expr
+      continue;
+    }
+
+    const auto& constraints = persistent_constraints_.at(consumer_expr);
+
+    // Check if any of the producer expr hits any of the constraints
+    for (auto producer_expr : producer_group->exprs()) {
+      for (const auto& constraint : constraints) {
+        if (!constraint.broadcast_producers.count(producer_expr)) {
+          // This producer_expr is not a producer of this
+          // constraint.
+          continue;
+        }
+
+        // Check if the corresponding reduction domain is
+        // already taken care of
+        if (!isDomainProcessed(getConcreteID(constraint.reduction_id))) {
+          if (isDebugDumpEnabled(DebugDumpOption::ExprSortVerbose)) {
+            debug() << "Persistent constraint violation detected."
+                    << constraint.reduction_id->toString() << std::endl;
+          }
+          return true;
+        }
+      }
+    }
+  }
+
+  return false;
+}
+
 // Checks if the for loop associated with the concrete ID is ready to be
 // resolved in sorting. This could be done more efficiently with some
 // additional tracking, however we recreate ca_domain_ when we merge groups,
 // so it's hard to track what is no longer needed.
 bool ExprSegmentationSorter::loopReady(IterDomain* concrete_id) const {
   TORCH_INTERNAL_ASSERT(
-      concrete_id ==
-          GpuLower::current()->caMap()->getConcreteMappedID(
-              concrete_id, IdMappingMode::LOOP),
+      concrete_id == getConcreteID(concrete_id),
       "Received a non-concrete ID: ",
       concrete_id->toString(),
       ", LOOP concrete ID: ",
-      GpuLower::current()
-          ->caMap()
-          ->getConcreteMappedID(concrete_id, IdMappingMode::LOOP)
-          ->toString());
+      getConcreteID(concrete_id)->toString());
   TORCH_INTERNAL_ASSERT(
       concrete_id_dependencies_.find(concrete_id) !=
           concrete_id_dependencies_.end(),
@@ -1164,17 +1597,10 @@ bool ExprSegmentationSorter::loopReady(IterDomain* concrete_id) const {
       concrete_id->toString());
 
   const auto& dependencies = concrete_id_dependencies_.at(concrete_id);
-  for (auto& group : groups_) {
-    // Only need to check compute at domain here, because if there's an entry in
-    // produce at, that has no matching entry in compute at, then that ID can be
-    // removed as in canReducePA
-    for (auto ca_domain : group->payload()->ca_domains) {
-      if (dependencies.count(ca_domain)) {
-        return false;
-      }
-    }
-  }
-  return true;
+  // Only need to check compute at domain here, because if there's an entry in
+  // produce at, that has no matching entry in compute at, then that ID can be
+  // removed as in canReducePA
+  return !hasCADomains(dependencies);
 }
 
 // Two expression groups can be merged together if there's a value produced by
@@ -1192,8 +1618,18 @@ bool ExprSegmentationSorter::supportedMerge(ExprGroup* sg1, ExprGroup* sg2) {
   auto producer_group = getProducer(sg1, sg2);
   auto consumer_group = sg1 == producer_group ? sg2 : sg1;
 
+  if (isDebugDumpEnabled(DebugDumpOption::ExprSortVerbose)) {
+    debug() << "supportedMerge: " << producer_group->toString() << ", "
+            << consumer_group->toString() << std::endl;
+  }
+
   if (producer_group->payload()->ca_domains.size() <
       producer_group->payload()->pa_domains.size()) {
+    if (isDebugDumpEnabled(DebugDumpOption::ExprSortVerbose)) {
+      debug()
+          << "Not supported as the producer has more PA domains than CA domains"
+          << std::endl;
+    }
     return false;
   }
 
@@ -1204,8 +1640,14 @@ bool ExprSegmentationSorter::supportedMerge(ExprGroup* sg1, ExprGroup* sg2) {
   // not possible to merge
   if (!consumer_pa_domain.empty() && !consumer_ca_domain.empty() &&
       ir_utils::IterDomainDependencySorter(
-          concrete_id_dependencies_, GpuLower::current()->caMap())(
+          concrete_id_dependencies_,
+          GpuLower::current()->caMap(),
+          kernelScopeDomain())(
           consumer_pa_domain.back(), consumer_ca_domain.back())) {
+    if (isDebugDumpEnabled(DebugDumpOption::ExprSortVerbose)) {
+      debug() << "Not supported as the consumer has a dependency from PA to CA"
+              << std::endl;
+    }
     return false;
   }
 
@@ -1215,68 +1657,107 @@ bool ExprSegmentationSorter::supportedMerge(ExprGroup* sg1, ExprGroup* sg2) {
   if (consumer_pa_domain.size() < consumer_ca_domain.size() &&
       !(!consumer_pa_domain.empty() && !consumer_ca_domain.empty() &&
         ir_utils::IterDomainDependencySorter(
-            concrete_id_dependencies_, GpuLower::current()->caMap())(
+            concrete_id_dependencies_,
+            GpuLower::current()->caMap(),
+            kernelScopeDomain())(
             consumer_ca_domain.back(), consumer_pa_domain.back()))) {
+    if (isDebugDumpEnabled(DebugDumpOption::ExprSortVerbose)) {
+      debug() << "Not supported as the consumer has more PA domains than CA"
+              << std::endl;
+    }
     return false;
   }
 
   const auto& producer_ca_domain = producer_group->payload()->ca_domains;
 
-  if (producer_ca_domain.empty() && consumer_pa_domain.empty()) {
-    return true;
+  const auto both_empty =
+      producer_ca_domain.empty() && consumer_pa_domain.empty();
+
+  if (!both_empty) {
+    if (producer_ca_domain.empty() || consumer_pa_domain.empty()) {
+      if (isDebugDumpEnabled(DebugDumpOption::ExprSortVerbose)) {
+        debug()
+            << "Not supported as only either of producer CA or consumer PA domain is empty."
+            << std::endl;
+      }
+      return false;
+    }
+
+    // If inner loop dependencies have not been resolved, cannot merge.
+    if (!loopReady(producer_ca_domain.back()) ||
+        !loopReady(consumer_pa_domain.back())) {
+      if (isDebugDumpEnabled(DebugDumpOption::ExprSortVerbose)) {
+        debug()
+            << "Not supported as innermost loop dependencies are not yet resolved. "
+            << ". Producer ready: " << loopReady(producer_ca_domain.back())
+            << ". Consumer ready: " << loopReady(consumer_pa_domain.back())
+            << std::endl;
+      }
+      return false;
+    }
+
+    bool producer_consumer_mapped = false;
+    for (auto edge : producer_group->consumerEdges()) {
+      if (edge->to != consumer_group) {
+        continue;
+      }
+      auto producer_val = edge->producer_val;
+      auto consumer_val = edge->consumer_val;
+
+      if (!producer_val->isA<TensorView>()) {
+        continue;
+      }
+
+      TORCH_INTERNAL_ASSERT(
+          consumer_val->isA<TensorView>(),
+          "Mismatched tensorview to non-tensorview in expression sorting. ",
+          producer_val,
+          " is consumed by ",
+          consumer_val);
+
+      auto producer_tv = producer_val->as<TensorView>();
+      auto consumer_tv = consumer_val->as<TensorView>();
+
+      auto compute_at_pos = producer_tv->getComputePosition(consumer_tv);
+
+      // When the CA position is 0, it means these two groups should
+      // just share the kernel scope domain
+      auto compute_at_dim = compute_at_pos > 0
+          ? producer_tv->axis((int)compute_at_pos - 1)
+          : kernelScopeDomain();
+
+      if (!areMapped(compute_at_dim, producer_ca_domain.back())) {
+        continue;
+      }
+
+      if (areMapped(compute_at_dim, consumer_pa_domain.back())) {
+        producer_consumer_mapped = true;
+        break;
+      }
+    }
+
+    if (!producer_consumer_mapped) {
+      if (isDebugDumpEnabled(DebugDumpOption::ExprSortVerbose)) {
+        debug()
+            << "Not supported as the producer CA and consumer CA domains are not mapped"
+            << std::endl;
+      }
+      return false;
+    }
   }
 
-  if (producer_ca_domain.empty() || consumer_pa_domain.empty()) {
+  if (violateIndirectPersistencyConstraints(producer_group, consumer_group)) {
+    if (isDebugDumpEnabled(DebugDumpOption::ExprSortVerbose)) {
+      debug() << "Persistent constraint violation detected.";
+    }
     return false;
   }
 
-  // If inner loop dependencies have not been resolved, cannot merge.
-  if (!loopReady(producer_ca_domain.back()) ||
-      !loopReady(consumer_pa_domain.back())) {
-    return false;
+  if (isDebugDumpEnabled(DebugDumpOption::ExprSortVerbose)) {
+    debug() << "Supported merge found" << std::endl;
   }
 
-  for (auto edge : producer_group->consumerEdges()) {
-    if (edge->to != consumer_group) {
-      continue;
-    }
-    auto producer_val = edge->producer_val;
-    auto consumer_val = edge->consumer_val;
-
-    if (!producer_val->isA<TensorView>()) {
-      continue;
-    }
-
-    TORCH_INTERNAL_ASSERT(
-        consumer_val->isA<TensorView>(),
-        "Mismatched tensorview to non-tensorview in expression sorting. ",
-        producer_val,
-        " is consumed by ",
-        consumer_val);
-
-    auto producer_tv = producer_val->as<TensorView>();
-    auto consumer_tv = consumer_val->as<TensorView>();
-
-    auto compute_at_pos = producer_tv->getComputePosition(consumer_tv);
-    auto compute_at_dim = compute_at_pos > 0
-        ? producer_tv->axis((int)compute_at_pos - 1)
-        : nullptr;
-
-    if (compute_at_dim == nullptr) {
-      continue;
-    }
-
-    if (!GpuLower::current()->caMap()->areMapped(
-            compute_at_dim, producer_ca_domain.back(), IdMappingMode::LOOP)) {
-      continue;
-    }
-
-    if (GpuLower::current()->caMap()->areMapped(
-            compute_at_dim, consumer_pa_domain.back(), IdMappingMode::LOOP)) {
-      return true;
-    }
-  }
-  return false;
+  return true;
 }
 
 bool ExprSegmentationSorter::testStillDag(ExprGroup* sg1, ExprGroup* sg2) {
@@ -1296,11 +1777,18 @@ bool ExprSegmentationSorter::testStillDag(ExprGroup* sg1, ExprGroup* sg2) {
     }
   }
 
+  std::vector<ExprGroup*> visited_order;
   while (!to_visit.empty()) {
     auto group = to_visit.front();
     // Arrived back at one of the original groups, merging these two groups
     // would generate a cycle
     if (group == sg1 || group == sg2) {
+      if (isDebugDumpEnabled(DebugDumpOption::ExprSortVerbose)) {
+        debug() << "Cycle detected at " << group->toString() << std::endl;
+        for (auto v : visited) {
+          debug() << "Visited: " << v->toString() << std::endl;
+        }
+      }
       return false;
     }
     to_visit.pop_front();
@@ -1379,10 +1867,16 @@ void ExprSegmentationSorter::sort() {
   // Initialize loop dependency maps
   initializeForLoopDependencies();
 
+  initializeIndirectPersistencyConstraints();
+
   bool inter_iter_update = true;
   while (inter_iter_update) {
     // If we didn't do any update, stop traversal, we're done.
     if (!fallback_mode_enabled_) {
+      if (isDebugDumpEnabled(DebugDumpOption::ExprSortVerbose)) {
+        debug() << "Non-fallback mode" << std::endl;
+      }
+
       // Merge expressions in sorted order
       bool merged_nodes = true;
       while (merged_nodes) {
@@ -1392,6 +1886,12 @@ void ExprSegmentationSorter::sort() {
 
         for (bool preferred_merge_only : {true, false}) {
           for (auto& group : groups_) {
+            if (isDebugDumpEnabled(DebugDumpOption::ExprSortVerbose)) {
+              debug() << "Visiting " << group->toString()
+                      << ", fallback_mode_enabled: " << fallback_mode_enabled_
+                      << ", preferred_merge_only: " << preferred_merge_only
+                      << std::endl;
+            }
             if (group->payload()->merged) {
               continue;
             }
@@ -1438,8 +1938,18 @@ void ExprSegmentationSorter::sort() {
       resetTraversal();
       resetLevels();
 
+      if (isDebugDumpEnabled(DebugDumpOption::ExprSortVerbose)) {
+        debug() << "Fallback mode" << std::endl;
+      }
+
       for (bool preferred_merge_only : {true, false}) {
         for (auto& group : groups_) {
+          if (isDebugDumpEnabled(DebugDumpOption::ExprSortVerbose)) {
+            debug() << "Visiting " << group->toString()
+                    << ", fallback_mode_enabled: " << fallback_mode_enabled_
+                    << ", preferred_merge_only: " << preferred_merge_only
+                    << std::endl;
+          }
           if (group->payload()->merged) {
             continue;
           }
@@ -1468,6 +1978,10 @@ void ExprSegmentationSorter::sort() {
               // though we will only merge once with the fallback
               setToMerge(group.get(), *candidate_it);
               break;
+            } else {
+              if (isDebugDumpEnabled(DebugDumpOption::ExprSortVerbose)) {
+                debug() << "Not merged due to a cycle\n";
+              }
             }
 
             candidate_it++;
