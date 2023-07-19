@@ -407,7 +407,8 @@ void GpuLower::lower(Fusion* fusion) {
   dumpExprsIfEnabled(exprs_sorted, "reorderExprsForComputeAt");
 
   // Remove expressions that are hoisted to host
-  const auto host_removed = removeExprsHoistedToHost(kernel_.get(), exprs_sorted);
+  const auto host_removed =
+      removeExprsHoistedToHost(kernel_.get(), exprs_sorted);
   dumpExprsIfEnabled(host_removed, "reorderExprsForComputeAt");
 
   // Generate loop-nests and place each expression at its
