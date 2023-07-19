@@ -11,10 +11,8 @@
 
 namespace nvfuser {
 
-void hoistScalarComputationToHost(kir::Kernel* kernel);
-
-std::vector<Expr*> removeExprsHoistedToHost(
-    kir::Kernel* kernel,
-    const std::vector<Expr*>& exprs);
+void hoistScalarComputationToHost(
+    Fusion* kernel,
+    std::vector<Val*>& all_known_vals);
 
 } // namespace nvfuser

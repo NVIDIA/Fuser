@@ -228,11 +228,7 @@ class TORCH_CUDA_CU_API Kernel final : public Fusion {
   //! Debug dump of the Kernel IR
   void print() const;
 
-  void setKernelInputs(std::vector<Val*> kernel_inputs);
-
-  void addKernelInput(Val* input);
-
-  const std::vector<Val*>& getKernelInputs() const {
+  const std::vector<Val*>& kernelInputs() const {
     return kernel_inputs_;
   }
 

@@ -1333,7 +1333,7 @@ void ExprSegmentationSorter::sort() {
 
   auto all_exprs = StmtSort::getExprsBetween(
       fusion_,
-      fusion_->as<kir::Kernel>()->getKernelInputs(),
+      GpuLower::current()->allKnownVals(),
       fusion_->getTerminatingOutputs());
 
   // Figure out all the values used as inputs to the expressions we're sorting
@@ -1361,8 +1361,8 @@ void ExprSegmentationSorter::sort() {
     auto out = expr->outputs()[0];
     for (auto inp : expr->inputs()) {
       if (std::any_of(
-              fusion_->as<kir::Kernel>()->getKernelInputs().begin(),
-              fusion_->as<kir::Kernel>()->getKernelInputs().end(),
+              GpuLower::current()->allKnownVals().begin(),
+              GpuLower::current()->allKnownVals().end(),
               [&inp](Val* input) { return input == inp; })) {
         continue;
       }

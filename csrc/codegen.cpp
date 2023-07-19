@@ -233,7 +233,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     std::vector<Val*> params;
 
     // Inputs & Outputs
-    for (auto val : kernel_->getKernelInputs()) {
+    for (auto val : kernel_->kernelInputs()) {
       params.push_back(val);
       kernel_inputs_.insert(val);
     }

@@ -275,11 +275,10 @@ void GpuLower::lower(Fusion* fusion) {
   assignRNGOffset(fusion_);
 
   FusionGuard fg(fusion_);
-  kernel_->setKernelInputs(kernel_->inputs());
 
   dumpExprsIfEnabled(fusion_->exprs(), "initialize lowering");
 
-  hoistScalarComputationToHost(kernel_.get());
+  hoistScalarComputationToHost(fusion_, allKnownVals());
   dumpExprsIfEnabled(fusion_->exprs(), "hoistScalarComputationToHost");
 
   // prepare for lowering
