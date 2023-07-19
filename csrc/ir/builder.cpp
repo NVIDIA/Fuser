@@ -192,6 +192,14 @@ Scalar* IrBuilder::getItemExpr(Val* array, Val* index) {
   return out;
 }
 
+Scalar* IrBuilder::getItemExpr(Val* array, PolymorphicValue index) {
+  auto item_dtype = std::get<ArrayOf>(array->dtype().type).type;
+  auto out = newScalar(*item_dtype);
+  create<GetItem>(
+      array->container(), out, array, newConstant(index, DataType::Int));
+  return out;
+}
+
 Scalar* IrBuilder::getAttrExpr(Val* struct_, std::string attr) {
   auto item_dtype = NVFUSER_MAYBE_STAR std::get<StructOf>(struct_->dtype().type)
                         .types.at(attr);

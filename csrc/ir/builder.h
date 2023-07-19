@@ -87,6 +87,7 @@ class TORCH_CUDA_CU_API IrBuilder {
 
   // Array and struct access
   static Scalar* getItemExpr(Val* array, Val* index);
+  static Scalar* getItemExpr(Val* array, PolymorphicValue index);
   static Scalar* getAttrExpr(Val* struct_, std::string attr);
 
   // Get tensor metadata

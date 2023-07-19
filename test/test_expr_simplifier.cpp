@@ -15,6 +15,7 @@
 #include <cctype>
 #include <deque>
 #include <memory>
+#include <regex>
 #include <string>
 #include <string_view>
 #include <variant>
@@ -95,14 +96,33 @@ Val* parseIdentifier(std::string_view token_str) {
     return IrBuilder::newConstant(true, DataType::Bool);
   } else if (token_str == "false") {
     return IrBuilder::newConstant(false, DataType::Bool);
+  } else if (token_str.at(0) == 'T') {
+    std::string s(token_str);
+    std::regex regex(R"((T\d+)\.(\w+)\[(\d+)\])");
+    std::smatch match;
+    std::regex_search(s, match, regex);
+    TORCH_CHECK(match.size() == 4, "Invalid tensor access: ", token_str);
+    auto tensor_name = match[1];
+    auto attr = match[2];
+    auto index = std::stol(match[3]);
+    Fusion* fusion = FusionGuard::getCurFusion();
+    TensorView* tv = nullptr;
+    if (fusion->hasManaged(tensor_name)) {
+      tv = fusion->getManaged<TensorView*>(tensor_name);
+    } else {
+      tv = makeSymbolicTensor(100);
+      fusion->manage(tensor_name, tv);
+    }
+    return IrBuilder::getItemExpr(
+        IrBuilder::getAttrExpr(IrBuilder::metadataExpr(tv), attr), index);
   } else if (
-      token_str.at(0) == 'i' || token_str.at(0) == 'T' ||
-      token_str == "threadIdx.x" || token_str == "threadIdx.y" ||
-      token_str == "threadIdx.z" || token_str == "blockIdx.x" ||
-      token_str == "blockIdx.y" || token_str == "blockIdx.z" ||
-      token_str == "blockDim.x" || token_str == "blockDim.y" ||
-      token_str == "blockDim.z" || token_str == "gridDim.x" ||
-      token_str == "gridDim.y" || token_str == "gridDim.z") {
+      token_str.at(0) == 'i' || token_str == "threadIdx.x" ||
+      token_str == "threadIdx.y" || token_str == "threadIdx.z" ||
+      token_str == "blockIdx.x" || token_str == "blockIdx.y" ||
+      token_str == "blockIdx.z" || token_str == "blockDim.x" ||
+      token_str == "blockDim.y" || token_str == "blockDim.z" ||
+      token_str == "gridDim.x" || token_str == "gridDim.y" ||
+      token_str == "gridDim.z") {
     return IrBuilder::create<NamedScalar>(
         std::string(token_str), DataType::Int);
   } else if (token_str.at(0) == 'b') {

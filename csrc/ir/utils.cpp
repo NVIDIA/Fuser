@@ -1113,4 +1113,12 @@ std::vector<Statement*> checkCycle(Fusion* fusion) {
   return checkCycle(fusion, {}, fusion->outputs());
 }
 
+bool isTensorSize(const Val* val) {
+  return false;
+}
+
+bool isTensorStride(const Val* val) {
+  return false;
+}
+
 } // namespace nvfuser::ir_utils
