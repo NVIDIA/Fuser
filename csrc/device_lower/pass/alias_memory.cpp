@@ -166,7 +166,7 @@ class SymbolicSizePrinter : private OptOutConstDispatch {
  private:
   using OptOutConstDispatch::handle;
 
-  void handle(const Val* node) final {
+  void dispatch(const Val* node) final {
     if (auto def = node->definition()) {
       OptOutConstDispatch::handle(def);
     } else if (node->isConst()) {

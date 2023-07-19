@@ -636,7 +636,7 @@ struct ReplaceValInIndexVal : public OptInDispatch {
 
   using OptOutDispatch::handle;
 
-  void handle(Val* val) override {
+  void dispatch(Val* val) override {
     // if val appears in the replacement map, stop traversing and set
     // the current val with the replacement
     auto it = replacement_map_.find(val);

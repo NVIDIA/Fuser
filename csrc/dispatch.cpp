@@ -46,6 +46,7 @@ T* ptr(T* obj) {
 
 template <typename T>
 void Val::dispatch(T handler, Val* val) {
+  std::cout << "dispatch val" << std::endl;
   switch (*(val->getValType())) {
     case ValType::NamedScalar:
       ptr(handler)->handle(val->as<NamedScalar>());
@@ -679,7 +680,7 @@ void OptOutDispatch::handle(Expr* e) {
   Expr::dispatch(this, e);
 }
 
-void OptOutDispatch::handle(Val* v) {
+void OptOutDispatch::dispatch(Val* v) {
   Val::dispatch(this, v);
 }
 
@@ -691,7 +692,7 @@ void OptOutConstDispatch::handle(const Expr* e) {
   Expr::constDispatch(this, e);
 }
 
-void OptOutConstDispatch::handle(const Val* v) {
+void OptOutConstDispatch::dispatch(const Val* v) {
   Val::constDispatch(this, v);
 }
 

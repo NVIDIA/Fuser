@@ -179,11 +179,11 @@ class ConstCheck : private OptOutConstDispatch {
 
   void handle(const Expr* expr) final {
     for (auto inp : expr->inputs()) {
-      handle(inp);
+      dispatch(inp);
     }
   }
 
-  void handle(const Val* val) final {
+  void dispatch(const Val* val) final {
     if (!val->isIntegralScalar()) {
       is_int_ = false;
     }
@@ -191,20 +191,20 @@ class ConstCheck : private OptOutConstDispatch {
     if (val->definition() != nullptr) {
       handle(val->definition());
     } else {
-      OptOutConstDispatch::handle(val);
+      OptOutConstDispatch::dispatch(val);
     }
   }
 
  public:
   static bool isConst(const Val* val) {
     ConstCheck cc;
-    cc.handle(val);
+    cc.dispatch(val);
     return cc.is_const_;
   }
 
   static bool isConstInt(const Val* val) {
     ConstCheck cc;
-    cc.handle(val);
+    cc.dispatch(val);
     return cc.is_const_ && cc.is_int_;
   }
 };

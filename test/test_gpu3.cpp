@@ -7539,7 +7539,7 @@ class ThreadPredChecker : public kir::IrVisitor {
     }
   }
 
-  void handle(Val* val) final {
+  void dispatch(Val* val) final {
     if (val->definition()) {
       handle(val->definition());
     }

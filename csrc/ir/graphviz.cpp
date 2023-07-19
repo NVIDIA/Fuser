@@ -306,13 +306,13 @@ void IrGraphGenerator::handle(const Statement* s) {
   OptInConstDispatch::handle(s);
 }
 
-void IrGraphGenerator::handle(const Val* v) {
+void IrGraphGenerator::dispatch(const Val* v) {
   if (!visited(v)) {
     visited_.insert(v);
     if (const auto* def = v->definition()) {
       handle(def);
     }
-    OptInConstDispatch::handle(v);
+    OptInConstDispatch::dispatch(v);
   }
 }
 

@@ -287,7 +287,7 @@ class PredicateMagicZeroChecker : public kir::IrVisitor {
     return {predicate};
   }
 
-  void handle(Val* val) final {
+  void dispatch(Val* val) final {
     if (isMagicZero(val)) {
       is_magic_zero_found_ = true;
       return;

@@ -74,7 +74,7 @@ class TORCH_CUDA_CU_API IrGraphGenerator : private OptInConstDispatch {
   void generateScheduleGraph();
 
   void handle(const Statement*) override;
-  void handle(const Val*) override;
+  void dispatch(const Val*) override;
   void handle(const Expr*) override;
 
   void handle(const TensorDomain*) override;

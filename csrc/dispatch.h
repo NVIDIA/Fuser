@@ -146,7 +146,7 @@ class TORCH_CUDA_CU_API OptOutConstDispatch : public PolymorphicBase {
   // Hierarchal dispatch functions for handle
   virtual void handle(const Statement*);
   virtual void handle(const Expr*);
-  virtual void handle(const Val*);
+  virtual void dispatch(const Val*);
 
   // Vals
   virtual void handle(const IterDomain* stmt);
@@ -228,7 +228,7 @@ class TORCH_CUDA_CU_API OptOutDispatch : public PolymorphicBase {
   // Hierarchal dispatch functions for handle
   virtual void handle(Statement*);
   virtual void handle(Expr*);
-  virtual void handle(Val*);
+  virtual void dispatch(Val*);
 
   // Vals
   virtual void handleGeneric(Val* stmt);
