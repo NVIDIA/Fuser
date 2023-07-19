@@ -1331,7 +1331,10 @@ void ExprSegmentationSorter::sort() {
   // Need this for initialization of the DAG that is processed
   std::unordered_map<Expr*, ExprGroup*> expr2group;
 
-  auto all_exprs = fusion_->exprs();
+  auto all_exprs = StmtSort::getExprsBetween(
+      fusion_,
+      fusion_->as<kir::Kernel>()->getKernelInputs(),
+      fusion_->getTerminatingOutputs());
 
   // Figure out all the values used as inputs to the expressions we're sorting
   // (to find terminating expressions). There could be branches of expressions
@@ -1353,11 +1356,14 @@ void ExprSegmentationSorter::sort() {
   }
 
   // Create edges between the Exprs. Mark inputs and outputs of the fusion.
-  for (auto expr : fusion_->exprs()) {
+  for (auto expr : all_exprs) {
     auto expr_group = expr2group.at(expr);
     auto out = expr->outputs()[0];
     for (auto inp : expr->inputs()) {
-      if (inp->isFusionInput()) {
+      if (std::any_of(
+              fusion_->as<kir::Kernel>()->getKernelInputs().begin(),
+              fusion_->as<kir::Kernel>()->getKernelInputs().end(),
+              [&inp](Val* input) { return input == inp; })) {
         continue;
       }
 

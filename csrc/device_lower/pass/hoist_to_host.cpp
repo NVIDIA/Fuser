@@ -22,33 +22,4 @@ void hoistScalarComputationToHost(kir::Kernel* kernel) {
   }
 }
 
-std::vector<Expr*> removeExprsHoistedToHost(
-    kir::Kernel* kernel,
-    const std::vector<Expr*>& exprs) {
-  std::unordered_set<Val*> hoisted_vals(
-      kernel->getKernelInputs().begin(), kernel->getKernelInputs().end());
-  std::vector<Expr*> new_exprs;
-  for (auto expr : exprs) {
-    bool all_outputs_hoisted = true;
-    bool any_outputs_hoisted = false;
-    for (auto out : expr->outputs()) {
-      if (hoisted_vals.count(out)) {
-        any_outputs_hoisted = true;
-      } else {
-        all_outputs_hoisted = false;
-      }
-    }
-    TORCH_INTERNAL_ASSERT(
-        all_outputs_hoisted == any_outputs_hoisted,
-        "Expression cannot have both hoisted and non-hoisted outputs");
-    if (!all_outputs_hoisted) {
-      new_exprs.push_back(expr);
-    }
-  }
-  // TODO: this will leave some dead code in the kernel, but it is not a big
-  // deal for now. In a followup PR, we should write a dead code elimination
-  // pass to remove the dead code.
-  return new_exprs;
-}
-
 } // namespace nvfuser

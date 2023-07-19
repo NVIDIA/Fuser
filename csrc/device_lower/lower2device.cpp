@@ -406,14 +406,9 @@ void GpuLower::lower(Fusion* fusion) {
   const auto exprs_sorted = reorderExprsForComputeAt();
   dumpExprsIfEnabled(exprs_sorted, "reorderExprsForComputeAt");
 
-  // Remove expressions that are hoisted to host
-  const auto host_removed =
-      removeExprsHoistedToHost(kernel_.get(), exprs_sorted);
-  dumpExprsIfEnabled(host_removed, "reorderExprsForComputeAt");
-
   // Generate loop-nests and place each expression at its
   // corresponding loop
-  const auto exprs_lowered = LoopNestGenerator::loweredExprs(host_removed);
+  const auto exprs_lowered = LoopNestGenerator::loweredExprs(exprs_sorted);
   dumpExprsIfEnabled(exprs_lowered, "LoopNestGenerator");
 
   // Replace squeezes, Transpose, Shift, Gather, and View ops with

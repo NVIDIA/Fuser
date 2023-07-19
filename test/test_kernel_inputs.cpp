@@ -65,8 +65,6 @@ TEST_F(KernelInputsTest, HoistToHost2) {
   // write a dead code elimination pass to remove it
   const std::string expected_kernel = R"(
 __global__ void CUDAGeneratedKernel(Tensor<float, 1, 1> T0, double d0, double d1, Tensor<float, 1, 1> T1) {
-  double d2;
-  d2 = 1.00000000000000000e+00 / d0;
   T1[((nvfuser_index_t)threadIdx.x)]
     = T0[(T0.stride[0] * ((nvfuser_index_t)threadIdx.x))]
     * (float) d1;
