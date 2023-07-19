@@ -158,7 +158,7 @@ class Context {
 
   Context(
       const std::list<VarInfo>& variables,
-      std::vector<Scalar*> assumptions,
+      std::vector<Val*> assumptions,
       bool preserve_error)
       : preserve_error_(preserve_error) {
     var_order_.reserve(variables.size());
@@ -183,8 +183,8 @@ class Context {
       if (bop == nullptr || bop->getBinaryOpType() != BinaryOpType::And) {
         assume(back);
       } else {
-        assumptions.push_back(bop->lhs()->as<Scalar>());
-        assumptions.push_back(bop->rhs()->as<Scalar>());
+        assumptions.push_back(bop->lhs());
+        assumptions.push_back(bop->rhs());
       }
     }
   }
@@ -214,7 +214,7 @@ class Context {
   }
 
  private:
-  void assume(Scalar* a) {
+  void assume(Val* a) {
     auto def = a->definition();
     if (auto bop = dynamic_cast<BinaryOp*>(def)) {
       switch (bop->getBinaryOpType()) {
@@ -273,15 +273,15 @@ Val* foldConstants(Val* value) {
     return value;
   }
   if (value->isConstScalar()) {
-    if (value->isIntegralScalar() && value->isA<Scalar>()) {
+    if (value->isIntegralScalar()) {
       return IrBuilder::newConstant(
           value->evaluateInt(), *value->getDataType());
     }
-    if (value->isFloatingPointScalar() && value->isA<Scalar>()) {
+    if (value->isFloatingPointScalar()) {
       return IrBuilder::newConstant(
           value->evaluateDouble(), *value->getDataType());
     }
-    if (value->isABool() && value->isA<Scalar>()) {
+    if (value->isABool()) {
       return IrBuilder::newConstant(
           value->evaluateBool(), *value->getDataType());
     }
@@ -540,8 +540,7 @@ class FlattenedAssocCommOp : public Expr {
     TORCH_CHECK(
         isAssociativeAndCommutative(op),
         "Can only flatten associative and commutative ops");
-    addAttribute(
-        IrBuilder::create<Attribute<BinaryOpType>>(passkey.ir_container_, op));
+    addDataAttribute(op);
     addOutput(out);
     for (auto v : terms) {
       TORCH_CHECK(
@@ -642,7 +641,7 @@ class FlattenedAssocCommOp : public Expr {
   }
 
   BinaryOpType getOpType() const {
-    return attribute(0)->as<Attribute<BinaryOpType>>()->value;
+    return attribute<BinaryOpType>(0);
   }
 
   // Get a vector of inputs, sorted as the order given by `variables`. Note that
@@ -1003,7 +1002,7 @@ Val* productOfFactors(Val* const_factor, std::vector<Val*> symbolic_factors) {
     symbolic_factors.emplace_back(const_factor);
   }
   if (symbolic_factors.empty()) {
-    return IrBuilder::newConstant(1, *const_factor->getDataType());
+    return IrBuilder::newConstant(1L, *const_factor->getDataType());
   }
   return maybeFlattenedOpOf(BinaryOpType::Mul, std::move(symbolic_factors));
 }
@@ -1027,12 +1026,17 @@ Val* divideFactorized(Val* x, Val* y) {
   auto x_factors = getConstAndSymbolicFactors(x);
   auto y_factors = getConstAndSymbolicFactors(y);
 
-  if (*x_factors.first->getInt() % *y_factors.first->getInt() != 0) {
+  auto xx = x_factors.first->getInt();
+  auto yy = y_factors.first->getInt();
+
+  TORCH_INTERNAL_ASSERT(xx.has_value());
+  TORCH_INTERNAL_ASSERT(yy.has_value());
+
+  if (*xx % *yy != 0) {
     // not divisible
     return nullptr;
   }
-  int64_t quoient_const_factor =
-      *x_factors.first->getInt() / *y_factors.first->getInt();
+  int64_t quoient_const_factor = *xx / *yy;
 
   std::vector<Val*> quotient_symbolic_factors;
 
@@ -1276,12 +1280,12 @@ bool greaterEqual(Val* x, Val* y, const Context& context) {
 }
 
 bool isPositive(Val* value, const Context& context) {
-  auto zero = IrBuilder::newConstant(0, *value->getDataType());
+  auto zero = IrBuilder::newConstant(0L, *value->getDataType());
   return greaterThan(value, zero, context);
 }
 
 bool isNonNegative(Val* value, const Context& context) {
-  auto zero = IrBuilder::newConstant(0, *value->getDataType());
+  auto zero = IrBuilder::newConstant(0L, *value->getDataType());
   return greaterEqual(value, zero, context);
 }
 
@@ -1487,11 +1491,11 @@ bool lessEqual(Val* x, Val* y, const Context& context) {
       remaining_inputs.emplace_back(inp);
     }
     if (found) {
-      auto zero = IrBuilder::newConstant(0, *x->getDataType());
+      auto zero = IrBuilder::newConstant(0L, *x->getDataType());
       if (lessEqual(zero, x, context)) {
         auto remaining =
             maybeFlattenedOpOf(BinaryOpType::Mul, std::move(remaining_inputs));
-        auto one = IrBuilder::newConstant(1, *remaining->getDataType());
+        auto one = IrBuilder::newConstant(1L, *remaining->getDataType());
         if (lessEqual(one, remaining, context)) {
           return true;
         }
@@ -1511,11 +1515,11 @@ bool lessEqual(Val* x, Val* y, const Context& context) {
       remaining_inputs.emplace_back(inp);
     }
     if (found) {
-      auto zero = IrBuilder::newConstant(0, *y->getDataType());
+      auto zero = IrBuilder::newConstant(0L, *y->getDataType());
       if (lessEqual(y, zero, context)) {
         auto remaining =
             maybeFlattenedOpOf(BinaryOpType::Mul, std::move(remaining_inputs));
-        auto one = IrBuilder::newConstant(1, *remaining->getDataType());
+        auto one = IrBuilder::newConstant(1L, *remaining->getDataType());
         if (lessEqual(one, remaining, context)) {
           return true;
         }
@@ -1713,7 +1717,7 @@ Val* eliminateTrivialComputation(Val* value, const Context& context) {
     if (bop->getBinaryOpType() == BinaryOpType::Mod) {
       // a % 1 -> 0
       if (rhs->isOneInt()) {
-        return IrBuilder::newConstant(0, *value->getDataType());
+        return IrBuilder::newConstant(0L, *value->getDataType());
       }
     } else if (
         bop->getBinaryOpType() == BinaryOpType::Div ||
@@ -1726,7 +1730,7 @@ Val* eliminateTrivialComputation(Val* value, const Context& context) {
       }
     } else if (bop->getBinaryOpType() == BinaryOpType::Sub) {
       if (lhs->sameAs(rhs)) {
-        return IrBuilder::newConstant(0, *value->getDataType());
+        return IrBuilder::newConstant(0L, *value->getDataType());
       }
     }
   } else if (auto uop = dynamic_cast<UnaryOp*>(value->definition())) {
@@ -1870,7 +1874,7 @@ Val* simplifyDivisibleDivMod(Val* value, const Context& context) {
   }
   if (bop->getBinaryOpType() == BinaryOpType::Mod) {
     if (prove::isMultipleOf(bop->lhs(), bop->rhs())) {
-      return IrBuilder::newConstant(0, *value->getDataType());
+      return IrBuilder::newConstant(0L, *value->getDataType());
     }
   } else if (bop->getBinaryOpType() == BinaryOpType::Div) {
     auto lhs = sym_algebra::factorize(bop->lhs());
@@ -2293,12 +2297,12 @@ Val* reducePredicateRegisterUsage(Val* value, const Context& context) {
   Val* lhs = nullptr;
   Val* rhs = nullptr;
   if (new_lhs.empty()) {
-    lhs = IrBuilder::newConstant(0, ltype);
+    lhs = IrBuilder::newConstant(0L, ltype);
   } else {
     lhs = maybeFlattenedOpOf(BinaryOpType::Add, std::move(new_lhs));
   }
   if (new_rhs.empty()) {
-    rhs = IrBuilder::newConstant(0, rtype);
+    rhs = IrBuilder::newConstant(0L, rtype);
   } else {
     rhs = maybeFlattenedOpOf(BinaryOpType::Add, std::move(new_rhs));
   }
@@ -2391,7 +2395,7 @@ Val* fundamentalDivisionWithRemainderProperty(
           i,
           bop->lhs(),
           bop->rhs(),
-          IrBuilder::newConstant(1, *vadd->getDataType()));
+          IrBuilder::newConstant(1L, *vadd->getDataType()));
     }
     for (auto& [a, b, c] : get_a_op_b_mul_c(BinaryOpType::Mod, vadd)) {
       modmuls.emplace_back(i, a, b, c);
@@ -2463,7 +2467,7 @@ Val* factorizeGcd(Val* value, const Context& context) {
 Val* simplifyExpr(
     Val* value,
     const std::list<VarInfo>& variables,
-    std::vector<Scalar*> assumptions,
+    std::vector<Val*> assumptions,
     bool preserve_error) {
   FusionGuard fg(value->fusion());
   const Context context(variables, assumptions, preserve_error);

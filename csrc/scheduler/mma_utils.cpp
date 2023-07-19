@@ -6,6 +6,7 @@
  */
 // clang-format on
 
+#include <ATen/cuda/CUDAContext.h>
 #include <device_lower/utils.h>
 #include <expr_evaluator.h>
 #include <ir/printer.h>
@@ -14,10 +15,58 @@
 #include <scheduler/utils.h>
 #include <variant>
 #include "mma_type.h"
-
 namespace nvfuser {
 
 namespace mma_utils {
+
+bool generateSharedMemoryEpilogueHeuristics(
+    const MatMulTileOptions& gemm_tile,
+    const int smem_double_buffer_stage,
+    const MmaDataTypes& data_types,
+    const bool ignore_occupancy_drop) {
+  const auto properties = at::cuda::getCurrentDeviceProperties();
+  const size_t device_smem_limit = properties->sharedMemPerBlockOptin;
+  const size_t shared_memory_overhead = properties->reservedSharedMemPerBlock;
+  const size_t shared_memory_available =
+      device_smem_limit - shared_memory_overhead;
+
+  auto warp_dims = gemm_tile.cta_tile / gemm_tile.warp_tile;
+  const auto threads_per_block =
+      warp_dims.m * warp_dims.n * warp_dims.k * properties->warpSize;
+
+  // see scheduleContiguousVectorLoad
+  const int vector_word = 8;
+  const int round_to_factor = warp_dims.m * warp_dims.n * warp_dims.k *
+      properties->warpSize * vector_word;
+  const int mk = gemm_tile.cta_tile.m * gemm_tile.cta_tile.k;
+  const int nk = gemm_tile.cta_tile.n * gemm_tile.cta_tile.k;
+  const size_t smem_a = (size_t)(ceilDiv(mk, round_to_factor) *
+                                 round_to_factor * smem_double_buffer_stage) *
+      dataTypeSize(data_types[0]);
+  const size_t smem_b = (size_t)(ceilDiv(nk, round_to_factor) *
+                                 round_to_factor * smem_double_buffer_stage) *
+      dataTypeSize(data_types[1]);
+  const size_t smem_c = (size_t)(gemm_tile.cta_tile.m * gemm_tile.cta_tile.n) *
+      dataTypeSize(data_types[2]);
+
+  // shortcut where occupancy change is ignored.
+  if (ignore_occupancy_drop) {
+    return shared_memory_available >= smem_a + smem_b + smem_c;
+  }
+
+  // use additional shared memory for epilogue if occupancy is not changed.
+  // occupancy is estimated using register and shared memory usage.
+  const auto threads_per_sm = getThreadsPerSMGivenRegPerThread(255);
+  const auto blocks_per_sm_by_register = threads_per_sm / threads_per_block;
+  const auto blocks_per_sm_without_smem_epilogue = std::min(
+      shared_memory_available / (smem_a + smem_b),
+      (size_t)blocks_per_sm_by_register);
+  const auto blocks_per_sm_with_smem_epilogue = std::min(
+      shared_memory_available / (smem_a + smem_b + smem_c),
+      (size_t)blocks_per_sm_by_register);
+  return blocks_per_sm_with_smem_epilogue ==
+      blocks_per_sm_without_smem_epilogue;
+}
 
 void scheduleWarpTileWithReduction(TensorView* tv, MatMulTileOptions tile) {
   // Assumes
@@ -379,11 +428,6 @@ bool canValidateIsInnerDim(
       if (!split->factor()->isConstInt()) {
         return false;
       }
-      if (split->factor()->evaluateInt() < inner_dim_size) {
-        // This might be too restrictive. Would need more
-        //   bookkeeping to relax.
-        return false;
-      }
       leaf = split->in();
     } else if (auto merge = dynamic_cast<Merge*>(expr)) {
       // Might consider just rejecting merge.
@@ -394,9 +438,6 @@ bool canValidateIsInnerDim(
 
       // Only support merging with constant sized dims
       if (!leaf->extent()->isConstInt()) {
-        return false;
-      }
-      if (leaf->extent()->evaluateInt() != inner_dim_size) {
         return false;
       }
       leaf = merge->inner();
@@ -438,7 +479,9 @@ void checkDimSize(
         ":",
         id->extent()->evaluateInt(),
         "vs",
-        expect[axis_index]);
+        expect[axis_index],
+        "\n for tv: ",
+        tv->toString());
   }
 }
 

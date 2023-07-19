@@ -33,7 +33,7 @@ Predicate::Predicate(
     IrBuilderPasskey passkey,
     PredicateType ptype,
     const Expr* expr,
-    Scalar* thread_pred)
+    Val* thread_pred)
     : Val(passkey, ValType::Predicate, DataType::Bool),
       ptype_(ptype),
       expr_(expr),
@@ -57,7 +57,7 @@ Predicate::Predicate(IrBuilderPasskey passkey, ForLoop* unrolled_loop)
   TORCH_INTERNAL_ASSERT(unrolled_loop != nullptr);
 }
 
-Predicate::Predicate(IrBuilderPasskey passkey, Scalar* value)
+Predicate::Predicate(IrBuilderPasskey passkey, Val* value)
     : Val(passkey, ValType::Predicate, DataType::Bool),
       ptype_(PredicateType::Manual),
       value_(value) {
@@ -172,11 +172,8 @@ Allocate::Allocate(
 
   addInput(size);
   addAttribute(buffer);
-  addAttribute(IrBuilder::create<Attribute<MemoryType>>(
-      passkey.ir_container_, memory_type));
-  addAttribute(
-      IrBuilder::create<Attribute<bool>>(passkey.ir_container_, zero_init));
-
+  addDataAttribute(memory_type);
+  addDataAttribute(zero_init);
   addAttribute(alias);
 
   for (auto s : shape) {
@@ -224,10 +221,7 @@ BlockSync::BlockSync(IrBuilderPasskey passkey, bool war_sync) : Expr(passkey) {
   TORCH_INTERNAL_ASSERT(
       passkey.ir_container_->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
-  addAttribute(
-      IrBuilder::create<Attribute<bool>>(passkey.ir_container_, war_sync));
-  addAttribute(
-      IrBuilder::create<Attribute<bool>>(passkey.ir_container_, false));
+  addDataAttribute(war_sync);
 }
 
 std::string BlockSync::toString(int indent_size) const {
@@ -249,8 +243,7 @@ GridSync::GridSync(
     Val* sync_buffer)
     : Expr(passkey) {
   TORCH_INTERNAL_ASSERT(passkey.ir_container_ != nullptr);
-  addAttribute(IrBuilder::create<Attribute<ParallelTypeBitmap>>(
-      passkey.ir_container_, sync_dims));
+  addDataAttribute(sync_dims);
   addAttribute(sync_buffer);
 }
 
@@ -267,14 +260,13 @@ std::string GridSync::toInlineString(int indent_size) const {
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(GridSync)
 
-CpAsyncWait::CpAsyncWait(IrBuilderPasskey passkey, unsigned int keep_stages)
+CpAsyncWait::CpAsyncWait(IrBuilderPasskey passkey, int64_t keep_stages)
     : Expr(passkey) {
   TORCH_INTERNAL_ASSERT(passkey.ir_container_ != nullptr);
   TORCH_INTERNAL_ASSERT(
       passkey.ir_container_->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
-  addAttribute(IrBuilder::create<Attribute<unsigned int>>(
-      passkey.ir_container_, keep_stages));
+  addDataAttribute(keep_stages);
 }
 
 std::string CpAsyncWait::toString(int indent_size) const {
@@ -345,30 +337,6 @@ std::string UpdateMagicZero::toInlineString(int indent_size) const {
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(UpdateMagicZero)
-
-BaseAddress::BaseAddress(IrBuilderPasskey passkey, Val* out, TensorView* tv)
-    : Expr(passkey) {
-  TORCH_INTERNAL_ASSERT(passkey.ir_container_ != nullptr);
-  TORCH_INTERNAL_ASSERT(
-      passkey.ir_container_->isA<kir::Kernel>(),
-      "IR type only valid for Kernel container.");
-  addOutput(out);
-  addInput(tv);
-}
-
-std::string BaseAddress::toString(int indent_size) const {
-  std::stringstream ss;
-  indent(ss, indent_size) << "BaseAddress(" << ir_utils::varName(tv()) << ")\n";
-  return ss.str();
-}
-
-std::string BaseAddress::toInlineString(int indent_size) const {
-  std::stringstream ss;
-  ss << "BaseAddress(" << ir_utils::varName(tv()) << ")";
-  return ss.str();
-}
-
-NVFUSER_DEFINE_CLONE_AND_CREATE(BaseAddress)
 
 std::string Scope::toString(int indent_size) const {
   std::stringstream ss;
@@ -473,17 +441,13 @@ ForLoop::ForLoop(
   addAttribute(start);
   addAttribute(stop);
   addAttribute(step);
-  addAttribute(
-      IrBuilder::create<Attribute<bool>>(passkey.ir_container_, vectorize));
+  addDataAttribute(vectorize);
   addAttribute(vectorize_shift);
-  addAttribute(IrBuilder::create<Attribute<bool>>(
-      passkey.ir_container_, unroll_required));
-  addAttribute(IrBuilder::create<Attribute<DoubleBufferLoopStage>>(
-      passkey.ir_container_, double_buffer_loop_stage));
+  addDataAttribute(unroll_required);
+  addDataAttribute(double_buffer_loop_stage);
   // Storing IR nodes as Attribute is not safe with IrCloner, but fortunately
   // kernel IR does not need this feature.
-  addAttribute(
-      IrBuilder::create<Attribute<Scope>>(passkey.ir_container_, this));
+  addDataAttribute(Scope(this));
 }
 
 ForLoop::ForLoop(
@@ -716,10 +680,8 @@ IfThenElse::IfThenElse(IrBuilderPasskey passkey, Predicate* cond)
   addInput(cond);
   // Storing IR nodes as Attribute is not safe with IrCloner, but fortunately
   // kernel IR does not need this feature.
-  addAttribute(
-      IrBuilder::create<Attribute<Scope>>(passkey.ir_container_, this));
-  addAttribute(
-      IrBuilder::create<Attribute<Scope>>(passkey.ir_container_, this));
+  addDataAttribute(Scope(this));
+  addDataAttribute(Scope(this));
 }
 
 std::string IfThenElse::toString(int indent_size) const {
@@ -763,8 +725,7 @@ GridReduction::GridReduction(
   addAttribute(sync_buffer);
   addAttribute(entrance_index);
   addAttribute(entrances);
-  addAttribute(
-      IrBuilder::create<Attribute<ParallelTypeBitmap>>(passkey.ir_container_));
+  addDataAttribute(ParallelTypeBitmap{});
 }
 
 std::string GridReduction::toString(int indent_size) const {
@@ -837,8 +798,7 @@ GroupedGridReduction::GroupedGridReduction(
   addAttribute(entrance_index);
   addAttribute(entrances);
   addAttribute(buffer_stride);
-  addAttribute(
-      IrBuilder::create<Attribute<ParallelTypeBitmap>>(passkey.ir_container_));
+  addDataAttribute(ParallelTypeBitmap{});
   for (auto buffer : reduction_buffers) {
     addAttribute(buffer);
   }
@@ -941,8 +901,7 @@ GridWelford::GridWelford(
   addAttribute(sync_buffer);
   addAttribute(entrance_index);
   addAttribute(entrances);
-  addAttribute(
-      IrBuilder::create<Attribute<ParallelTypeBitmap>>(passkey.ir_container_));
+  addDataAttribute(ParallelTypeBitmap{});
 }
 
 std::string GridWelford::toString(int indent_size) const {
@@ -1042,8 +1001,7 @@ GroupedGridWelford::GroupedGridWelford(
   addAttribute(entrance_index);
   addAttribute(entrances);
   addAttribute(buffer_stride);
-  addAttribute(
-      IrBuilder::create<Attribute<ParallelTypeBitmap>>(passkey.ir_container_));
+  addDataAttribute(ParallelTypeBitmap{});
   TORCH_INTERNAL_ASSERT(
       reduction_buffers[0].size() == reduction_buffers[1].size());
   TORCH_INTERNAL_ASSERT(
@@ -1054,8 +1012,7 @@ GroupedGridWelford::GroupedGridWelford(
     addAttribute(reduction_buffers[2].at(i));
   }
 
-  addAttribute(
-      IrBuilder::create<Attribute<bool>>(passkey.ir_container_, use_outer_opt));
+  addDataAttribute(use_outer_opt);
 }
 
 int GroupedGridWelford::getSmemBufferSize(int bdimx, int bdimy, int bdimz)
@@ -1163,7 +1120,7 @@ VectorizedWelfordOp::VectorizedWelfordOp(
     const WelfordTriplet& init,
     Val* count,
     Val* reciprocal_of_count,
-    Scalar* hoisted_predicate)
+    Val* hoisted_predicate)
     : WelfordOp(passkey, output, input, init, false) {
   TORCH_INTERNAL_ASSERT(passkey.ir_container_ != nullptr);
   TORCH_INTERNAL_ASSERT(

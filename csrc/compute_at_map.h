@@ -162,7 +162,7 @@ class TORCH_CUDA_CU_API IterDomainGraph {
       self_mapping_info_ = std::nullopt;
 };
 
-using DoubleBufferIndices = std::unordered_map<DoubleBufferLoopStage, Scalar*>;
+using DoubleBufferIndices = std::unordered_map<DoubleBufferLoopStage, Val*>;
 
 class TORCH_CUDA_CU_API ComputeAtMap {
  public:
