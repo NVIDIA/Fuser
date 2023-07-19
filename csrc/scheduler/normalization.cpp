@@ -1016,15 +1016,7 @@ std::shared_ptr<ReductionParams> outerPersistentHeuristic(
   // The kernel calls block reduction [iter_unroll_factor] times.
   // Test shows performance regression when iter_unroll_factor > 1 due to
   // the high cost of calling block reduction multiple times per block.
-  // However, if total_iteration_numel is extremely large, set
-  // iter_unroll_factor > 1 can help the performance because in these cases
-  // there are already enough CTAs to cover the latency of other active CTAs. 
-  // The efficient vectorized gmem access provides the performance gains.
-  // Here 2097152 is chosen as the threshold based on test results on A100.
-  const int64_t large_size = 2097152l;
-  int64_t tmp_iter_unroll =
-      total_iteration_numel >= large_size ? (int64_t)4 : 1l;
-  hp.iter_unroll_factor.set(tmp_iter_unroll);
+  hp.iter_unroll_factor.set(1l);
   hp.iter_unroll_factor.finalize();
 
   // set redu_unroll_factor
@@ -1039,7 +1031,8 @@ std::shared_ptr<ReductionParams> outerPersistentHeuristic(
 
   // set bdimx
   // Start from warp_size, and decrease it until we can make more than 4 waves
-  const int64_t bdimx_max = max_multi_reduction_factor / hp.iter_unroll_factor.get();
+  const int64_t bdimx_max =
+      max_multi_reduction_factor / hp.iter_unroll_factor.get();
   int64_t tmp_bdimx = std::min(bdimx_max, warp_size);
   if (tmp_bdimx < warp_size) {
     tmp_bdimx = scheduler_utils::lastPow2(tmp_bdimx);
