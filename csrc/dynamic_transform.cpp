@@ -614,6 +614,7 @@ void DynamicTransformConcretizer::mutate(TensorView* tv) {
 
       // Update the IterType of each output
       for (auto out_id : ir_utils::filterByType<IterDomain>(expr->outputs())) {
+        out_id = maybeMutated(out_id)->as<IterDomain>();
         if (!out_id->isSymbolic()) {
           continue;
         }
@@ -721,12 +722,13 @@ bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
       auto c2p = root_map.mapConsumerToProducer(
           consumer->domain(), producer->domain());
 
+      auto p_it = c2p.find(root_id);
       TORCH_INTERNAL_ASSERT(
-          c2p.find(root_id) != c2p.end(),
+          p_it != c2p.end(),
           "No input ID found to map with output ID: ",
           root_id->toString());
 
-      auto input_id = c2p.at(root_id);
+      auto input_id = p_it->second;
       TORCH_INTERNAL_ASSERT(
           input_id->getIterType() != IterType::Symbolic,
           "Producer ID not concretized: ",
