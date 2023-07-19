@@ -325,7 +325,7 @@ class TORCH_CUDA_CU_API InputsIdLookup : public NonCopyable {
   //! of input tensors, but on input scalars. For example,
   //!
   //!    auto s = IrBuilder::create<int>();
-  //!    auto tv1 = reshape(tv0, {IrBuilder::create<Scalar>(-1), s});
+  //!    auto tv1 = reshape(tv0, {IrBuilder::create<Val>(-1), s});
   //!
   //!
   //! This code will accept an integer s and reshape tv0 such that its last

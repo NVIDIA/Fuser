@@ -47,9 +47,6 @@ T* ptr(T* obj) {
 template <typename T>
 void Val::dispatch(T handler, Val* val) {
   switch (*(val->getValType())) {
-    case ValType::Scalar:
-      ptr(handler)->handle(val->as<Scalar>());
-      return;
     case ValType::NamedScalar:
       ptr(handler)->handle(val->as<NamedScalar>());
       return;
@@ -72,7 +69,8 @@ void Val::dispatch(T handler, Val* val) {
       ptr(handler)->handle(val->as<PipelineVal>());
       return;
     default:
-      break;
+      ptr(handler)->handleGeneric(val);
+      return;
   }
   TORCH_INTERNAL_ASSERT(
       false,
@@ -316,9 +314,6 @@ void Statement::dispatch(T handler, Statement* stmt) {
 template <typename T>
 void Val::constDispatch(T handler, const Val* val) {
   switch (*(val->getValType())) {
-    case ValType::Scalar:
-      ptr(handler)->handle(val->as<Scalar>());
-      return;
     case ValType::NamedScalar:
       ptr(handler)->handle(val->as<NamedScalar>());
       return;
@@ -341,7 +336,8 @@ void Val::constDispatch(T handler, const Val* val) {
       ptr(handler)->handle(val->as<PipelineVal>());
       return;
     default:
-      break;
+      ptr(handler)->handleGeneric(val);
+      return;
   }
   TORCH_INTERNAL_ASSERT(
       false,
@@ -596,9 +592,6 @@ void Statement::constDispatch(T handler, const Statement* stmt) {
 template <typename T>
 void Val::mutatorDispatch(T mutator, Val* val) {
   switch (*(val->getValType())) {
-    case ValType::Scalar:
-      ptr(mutator)->mutate(val->as<Scalar>());
-      return;
     case ValType::NamedScalar:
       ptr(mutator)->mutate(val->as<NamedScalar>());
       return;
@@ -621,7 +614,8 @@ void Val::mutatorDispatch(T mutator, Val* val) {
       ptr(mutator)->mutate(val->as<PipelineVal>());
       return;
     default:
-      break;
+      ptr(mutator)->mutateGeneric(val);
+      return;
   }
   TORCH_INTERNAL_ASSERT(false, "Unknown valtype in dispatch!");
 }
@@ -732,7 +726,7 @@ void OptInDispatch::unhandled(Statement* stmt) {
 }
 
 // Vals
-void OptOutConstDispatch::handle(const Scalar* stmt) {
+void OptOutConstDispatch::handleGeneric(const Val* stmt) {
   unhandled(stmt);
 }
 void OptOutConstDispatch::handle(const NamedScalar* stmt) {
@@ -756,10 +750,6 @@ void OptOutConstDispatch::handle(const kir::TensorIndex* stmt) {
 }
 
 void OptOutConstDispatch::handle(const PipelineVal* stmt) {
-  unhandled(stmt);
-}
-
-void OptOutConstDispatch::handleArrayType(const Val* stmt) {
   unhandled(stmt);
 }
 
@@ -933,7 +923,7 @@ void OptOutConstDispatch::handle(const PipelineCommunication* stmt) {
 void OptOutDispatch::unhandled(Statement*) {}
 
 // Vals
-void OptOutDispatch::handle(Scalar* stmt) {
+void OptOutDispatch::handleGeneric(Val* stmt) {
   unhandled(stmt);
 }
 void OptOutDispatch::handle(NamedScalar* stmt) {
@@ -957,10 +947,6 @@ void OptOutDispatch::handle(kir::TensorIndex* stmt) {
 }
 
 void OptOutDispatch::handle(PipelineVal* stmt) {
-  unhandled(stmt);
-}
-
-void OptOutDispatch::handleArrayType(Val* stmt) {
   unhandled(stmt);
 }
 

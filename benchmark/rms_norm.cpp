@@ -34,7 +34,7 @@ static void setupRMSNorm(Fusion* fusion, DataType dtype) {
 
   const float kEps = 1e-6;
 
-  Scalar* eps_ptr = IrBuilder::create<Scalar>(kEps);
+  Val* eps_ptr = IrBuilder::create<Val>(kEps);
 
   // setup fusion
   auto input = makeContigTensor(3, dtype);
