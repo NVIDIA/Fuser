@@ -26,10 +26,10 @@ TEST_F(KernelInputsTest, HoistToHost1) {
   tv1->axis(0)->parallelize(ParallelType::TIDx);
 
   const std::string expected_kernel = R"(
-__global__ void CUDAGeneratedKernel(Tensor<float, 1, 1> T0, double d0, double d1, Tensor<float, 1, 1> T1) {
+__global__ void CUDAGeneratedKernel(Tensor<float, 1, 1> T0, double d0, Tensor<float, 1, 1> T1) {
   T1[((nvfuser_index_t)threadIdx.x)]
     = T0[(T0.stride[0] * ((nvfuser_index_t)threadIdx.x))]
-    * (float) d1;
+    * (float) d0;
 }
 )";
 
@@ -62,10 +62,10 @@ TEST_F(KernelInputsTest, HoistToHost2) {
   tv1->axis(0)->parallelize(ParallelType::TIDx);
 
   const std::string expected_kernel = R"(
-__global__ void CUDAGeneratedKernel(Tensor<float, 1, 1> T0, double d0, double d1, Tensor<float, 1, 1> T1) {
+__global__ void CUDAGeneratedKernel(Tensor<float, 1, 1> T0, double d0, Tensor<float, 1, 1> T1) {
   T1[((nvfuser_index_t)threadIdx.x)]
     = T0[(T0.stride[0] * ((nvfuser_index_t)threadIdx.x))]
-    * (float) d1;
+    * (float) d0;
 }
 )";
 

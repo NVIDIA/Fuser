@@ -314,7 +314,13 @@ void Kernel::finalize(std::vector<Expr*> top_level_exprs) {
   summary_.sync_map = GpuLower::current()->syncMap();
   summary_.parallel_dimension_map_ =
       GpuLower::current()->parallelDimensionMap();
-  kernel_inputs_ = GpuLower::current()->allKnownVals();
+  auto kernel_inputs =
+      IterVisitor::getInputsTo(outputs(), GpuLower::current()->allKnownVals());
+  std::copy_if(
+      kernel_inputs.begin(),
+      kernel_inputs.end(),
+      std::back_inserter(kernel_inputs_),
+      [](Val* v) { return !v->isConst(); });
 }
 
 void Kernel::analyze() {
