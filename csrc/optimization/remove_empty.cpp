@@ -28,7 +28,8 @@ std::vector<int64_t> emptyAxes(const std::vector<IterDomain*>& domain) {
   std::vector<int64_t> empty_axes;
   for (auto ax : c10::irange(domain.size())) {
     auto id = domain.at(ax);
-    if (id->extent()->isConst() && id->extent()->evaluateInt() == 0) {
+    if (id->getMaybeExpandedExtent()->isConst() &&
+        id->getMaybeExpandedExtent()->evaluateInt() == 0) {
       empty_axes.push_back((int64_t)ax);
     }
   }
@@ -112,7 +113,7 @@ class EmptyTensorRemover : public DeadCodeRemover {
   static std::vector<Val*> noReductionShape(TensorView* tv) {
     std::vector<Val*> shape;
     for (auto id : TensorDomain::noReductions(tv->getMaybeRFactorDomain())) {
-      shape.push_back(id->extent());
+      shape.push_back(id->getMaybeExpandedExtent());
     }
     return shape;
   }
@@ -252,7 +253,8 @@ class EmptyTensorRemover : public DeadCodeRemover {
       auto tv = inp->definition()->as<PadOp>()->in()->as<TensorView>();
       auto cat_id =
           TensorDomain::noReductions(tv->getMaybeRFactorDomain()).at(dim);
-      if (cat_id->extent()->isConst() && cat_id->extent()->evaluateInt() == 0) {
+      if (cat_id->getMaybeExpandedExtent()->isConst() &&
+          cat_id->getMaybeExpandedExtent()->evaluateInt() == 0) {
         continue;
       }
       non_empty_inputs.push_back(tv);
