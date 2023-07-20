@@ -94,11 +94,7 @@ enum RecordType : int {
     ReductionProd,
     ReductionSum,
     ReshapeOp,
-    ScalarBool,
-    ScalarComplexDouble,
-    ScalarDouble,
-    ScalarInput,
-    ScalarLong,
+    Scalar,
     SliceOp,
     SqueezeOp,
     Start,
@@ -106,8 +102,7 @@ enum RecordType : int {
     TensorSizes,
     VarianceOp,
     VarianceMeanOp,
-    VectorInput,
-    VectorLong,
+    Vector,
 }
 
 // =====================================================================================
@@ -116,15 +111,11 @@ enum RecordType : int {
 // The RecordData hold the attribute information for each Record Functor.
 union RecordData {
   BatchNorm,
-  Bool,
   Broadcast,
   BroadcastInDim,
   BroadcastInDimSymbolic,
-  ComplexDouble,
   Dimension,
-  Double,
   Dtype,
-  Long,
   Norm,
   Output,
   Pad,
@@ -133,20 +124,16 @@ union RecordData {
   Squeeze,
   Reduction,
   Reshape,
-  ScalarInput,
+  Scalar,
   Tensor,
   TensorCreation,
   TensorCreationSymbolic,
-  VectorInput,
-  VectorLong,
+  Vector,
 }
 
 // The ArgAbstractData union holds the attribute information for each ArgAbstract.
 union ArgAbstractData {
-  Bool,
-  ComplexDouble,
-  Double,
-  Long,
+  Scalar,
   PhiloxCudaState,
   ScalarCpu,
   TensorArg,
@@ -162,38 +149,16 @@ struct State {
   type: StateType;
 }
 
-// Data for Constant Bool
-table Bool {
-  value: bool;
-}
-
-// Data for Constant Double and Float
-table Double {
-  value: double;
+// Data for Scalar
+table Scalar {
   dtype: DataType;
-}
-
-// Data for Constant Long and Int32
-table Long {
-  value: long;
-  dtype: DataType;
-}
-
-// Data for Half
-table Half {
-  value: ushort;
-}
-
-// Data for BFloat16
-table BFloat16 {
-  value: ushort;
-}
-
-// Data for Constant Complex Double and Float
-table ComplexDouble {
-  real: double;
-  imag: double;
-  dtype: DataType;
+  has_value: bool;
+  value_type: DataType;
+  bool_value: bool;
+  long_value: long;
+  double_value: double;
+  real_value: double;
+  imag_value: double;
 }
 
 // Data representing a tensor shape
@@ -395,16 +360,8 @@ table TensorCreationSymbolic {
   dtype: DataType;
 }
 
-// Data for Input Vector
-table VectorInput {
-  size: long;
-  dtype: DataType;
-}
-
-// Data for Vector of Constant Int or Long
-table VectorLong {
-  value: [long];
-  size: long;
+// Data for Vector
+table Vector {
   dtype: DataType;
 }
 

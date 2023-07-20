@@ -231,7 +231,7 @@ class ShiftPredicateInserter {
   static Expr* insert(
       Expr* expr,
       const std::vector<kir::ForLoop*>& loops,
-      Bool* thread_pred,
+      Val* thread_pred,
       bool within_unswitch);
 };
 

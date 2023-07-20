@@ -47,7 +47,7 @@ Val* commonOrConstExtent(
 
 } // namespace
 
-Bool* ContiguousInnerDimensionsMapper::isFullyProjected(IterDomain* id) {
+Val* ContiguousInnerDimensionsMapper::isFullyProjected(IterDomain* id) {
   return SimplifyingIrBuilder::eqExpr(
       getProjectedExtent(id), commonOrConstExtent(ca_map_, id));
 }

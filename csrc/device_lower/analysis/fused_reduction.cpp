@@ -114,8 +114,8 @@ class FusionInspector : private IterVisitor {
     }
   }
 
-  void handle(Expr* expr) final {
-    IterVisitor::handle(expr);
+  void dispatch(Expr* expr) final {
+    IterVisitor::dispatch(expr);
     for (auto in_tv : ir_utils::filterByType<TensorView>(expr->inputs())) {
       for (auto reduction_op : reduction_dep_[in_tv]) {
         if (fused_exprs_.find(reduction_op) != fused_exprs_.end()) {

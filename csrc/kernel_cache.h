@@ -325,7 +325,7 @@ class TORCH_CUDA_CU_API InputsIdLookup : public NonCopyable {
   //! of input tensors, but on input scalars. For example,
   //!
   //!    auto s = IrBuilder::create<int>();
-  //!    auto tv1 = reshape(tv0, {IrBuilder::create<Int>(-1), s});
+  //!    auto tv1 = reshape(tv0, {IrBuilder::create<Val>(-1), s});
   //!
   //!
   //! This code will accept an integer s and reshape tv0 such that its last
@@ -616,6 +616,13 @@ class TORCH_CUDA_CU_API FusionExecutorCache {
     auto rt = getMostRecentKernelRuntime();
     TORCH_INTERNAL_ASSERT(rt != nullptr);
     return rt->kernelTimeMs();
+  }
+
+  //! Allocate the outputs of the Fusion given inputs
+  //! TODO: re-implement
+  std::vector<at::Tensor> allocOutputSpace(
+      const at::ArrayRef<c10::IValue>& inputs) {
+    return runFusionWithInputs(inputs);
   }
 
  private:
