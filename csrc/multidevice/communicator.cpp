@@ -21,8 +21,8 @@
 namespace nvfuser {
 
 // Parse the environment to retrieve MPI rank and MPI world size and sets rank
-// and size accordingly Returns 0 in case of success, 1 otherwise
-int parseEnv(
+// and size accordingly Returns true in case of success, false otherwise
+bool parseEnv(
     RankType& rank,
     int64_t& size,
     RankType& local_rank,
@@ -36,7 +36,7 @@ int parseEnv(
   if (!env) {
     env = std::getenv("WORLD_RANK");
     if (!env) {
-      return 1;
+      return false;
     }
   }
   rank = std::atoi(env);
@@ -46,7 +46,7 @@ int parseEnv(
   if (!env) {
     env = std::getenv("WORLD_SIZE");
     if (!env) {
-      return 1;
+      return false;
     }
   }
   size = std::atoi(env);
@@ -56,7 +56,7 @@ int parseEnv(
   if (!env) {
     env = std::getenv("WORLD_LOCAL_RANK");
     if (!env) {
-      return 1;
+      return false;
     }
   }
   local_rank = std::atoi(env);
@@ -66,7 +66,7 @@ int parseEnv(
   if (!env) {
     env = std::getenv("WORLD_LOCAL_SIZE");
     if (!env) {
-      return 1;
+      return false;
     }
   }
   local_size = std::atoi(env);
@@ -78,9 +78,10 @@ int parseEnv(
   } else if (local_size == size) {
     master_addr = "localhost";
   } else {
-    TORCH_WARN("the environment variable MASTER_ADDR "
-    "must be specified.");
-    return 1;
+    TORCH_WARN(
+        "the environment variable MASTER_ADDR "
+        "must be specified in multi-node environment");
+    return false;
   }
 
   // retrieves master port
@@ -89,13 +90,14 @@ int parseEnv(
     master_port = std::atoi(env);
   } else {
     if (master_addr != "localhost") {
-      TORCH_WARN("the environment variable MASTER_PORT "
-      "has not been specified");
+      TORCH_WARN(
+          "the environment variable MASTER_PORT "
+          "has not been specified. Set to default");
     }
     master_port = 0;
   }
 
-  return 0;
+  return true;
 }
 
 // creates and return a process group backend
@@ -128,20 +130,14 @@ c10::intrusive_ptr<c10d::Backend> createBackend(
   TORCH_CHECK(false, "no distributed backend available");
 }
 
-Communicator::Communicator(CommunicatorBackend backend, RankType server_rank)
-    : rank_(0), size_(0), local_rank_(0), local_size_(0) {
+Communicator::Communicator(CommunicatorBackend backend, RankType server_local_rank)
+    : is_available_(false), rank_(0), size_(0), local_rank_(0), local_size_(0) {
   // retrieves rank and communicator size
-  int status = parseEnv(rank_, size_, local_rank_, local_size_, master_addr_, master_port_);
-  TORCH_CHECK(status == 0, "distributed configuration is not available");
+  is_available_ = parseEnv(
+      rank_, size_, local_rank_, local_size_, master_addr_, master_port_);
 
-  if (rank_ == server_rank) {
-    char hostname_c[HOST_NAME_MAX];
-    gethostname(hostname_c, HOST_NAME_MAX);
-    std::string hostname = hostname_c;
-    if (hostname != master_addr_) {
-      TORCH_WARN("server rank's hostname=" + hostname +
-                      " but MASTER_ADDR=" + master_addr_);
-    }
+  if (!is_available_) {
+    return;
   }
 
   // creates the backend
