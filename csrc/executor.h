@@ -92,7 +92,7 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
       const std::vector<at::Tensor>& outputs,
       const LaunchParams& launch_constraints = LaunchParams(),
       CompileParams compile_params = CompileParams(),
-      const c10::optional<size_t>& opt_code = c10::nullopt) {
+      const std::optional<size_t>& opt_code = std::nullopt) {
     KernelArgumentHolder args =
         KernelArgumentHolder::createKernelArgumentHolder(inputs);
     if (opt_code.has_value()) {
@@ -105,7 +105,7 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
       const at::ArrayRef<c10::IValue>& inputs,
       const LaunchParams& launch_constraints = LaunchParams(),
       CompileParams compile_params = CompileParams(),
-      const c10::optional<size_t>& opt_code = c10::nullopt) {
+      const std::optional<size_t>& opt_code = std::nullopt) {
     return runFusion(inputs, {}, launch_constraints, compile_params, opt_code);
   }
 
@@ -142,6 +142,10 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
   kir::Kernel* kernel() const {
     TORCH_INTERNAL_ASSERT(lowered_);
     return lowered_->kernel();
+  }
+
+  const ThreadPredicateMap& threadPredMap() const {
+    return lowered_->threadPredMap();
   }
 
   //! Internal knob used for debugging/profiling only
@@ -245,12 +249,6 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
   void disableLaunchParamCache() {
     disable_parameter_cache_ = true;
   }
-
-  //! Used in distributed setting where we only want to
-  //!  allocate output space and receive output data from
-  //!  a different rank instead of computing them.
-  std::vector<at::Tensor> allocOutputSpace(
-      const at::ArrayRef<c10::IValue>& inputs);
 
  private:
   static std::string kernelNamespace() {

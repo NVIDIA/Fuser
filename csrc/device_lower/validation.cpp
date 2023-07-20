@@ -42,9 +42,9 @@ class ValidateSiblings : public IterVisitor {
  private:
   using IterVisitor::handle;
 
-  void handle(Expr* expr) final {
+  void dispatch(Expr* expr) final {
     if (!ir_utils::isTvOp(expr) || expr->outputs().size() < 2) {
-      IterVisitor::handle(expr);
+      IterVisitor::dispatch(expr);
       return;
     }
 
@@ -328,7 +328,7 @@ class VectorizeValidator : public OptInDispatch {
     for (auto expr_it = replay_exprs.rbegin(); expr_it != replay_exprs.rend();
          ++expr_it) {
       auto expr = *expr_it;
-      validator.handle(expr);
+      validator.dispatch(expr);
     }
 
     TORCH_CHECK(
@@ -828,7 +828,7 @@ void validatePartialSplit(Fusion* fusion) {
   auto range_info = getLiveRangeOffsets(fusion);
 
   for (auto tv : ir_utils::allTvs(fusion)) {
-    auto exprs = StmtSort::getExprs(
+    auto exprs = StmtSort::getExprsTo(
         tv->fusion(), {tv->getLeafDomain().begin(), tv->getLeafDomain().end()});
     for (auto split : ir_utils::filterByType<Split>(exprs)) {
       // When the start and stop offsets are not zero, make sure the

@@ -11,6 +11,22 @@
 
 namespace nvfuser {
 
+//! Named descriptors of domains in matmul
+enum class MatmulDomain { M = 0, N, K };
+
+//! Named descriptors of TensorView roles in fusion
+//!  INPUT_A - a producer of MMA input A
+//!  INPUT_B - a producer of MMA input B
+//!  OUTPUT_D - the main consumer of MMA op results
+//!  INPUT_C - a producer of tensor used in fusion epilogue,
+//!            for example tensor used in beta scaling fusion
+//!
+//! Naming convention is based on forumla: D = alpha * A x B + beta * C
+enum class MatmulRole { INPUT_A = 0, INPUT_B, OUTPUT_D, INPUT_C };
+
+//! The expected number of occurances of core TensorView roles in fusion
+static constexpr size_t MATMUL_CORE_ROLES_EXPECTED_COUNT = 1;
+
 //! Utility data structure for recording gemm tiles
 struct GemmTile {
   int m, n, k;
@@ -162,7 +178,7 @@ class TORCH_CUDA_CU_API MmaBuilder {
   //! TODO: This step will very likely be removed in a follow up PR. All of
   //!  the options configured here could actually be inferred from fusion IR
   //!  once we are feature complete.
-  void configureMma(TensorView* mma_output) const;
+  void configureMma(MmaOp* mma) const;
 
   //! Export all the parameters with user's configurations applied.
   MmaOptions build() const;

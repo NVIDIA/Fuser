@@ -11,6 +11,7 @@
 #include <ir/utils.h>
 #include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
+#include <options.h>
 #include <scheduler/mma_utils.h>
 #include <type.h>
 #include <utils.h>
@@ -309,6 +310,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       indent()
           << "  static_cast<uint64_t>(*(philox_args.offset_.ptr) + philox_args.offset_intragraph_) :\n";
       indent() << "  philox_args.offset_.val;\n";
+    }
+    if (kernel_summary.has_philox_op) {
       indent() << "uint4 rng_result;\n";
       indent() << "nvfuser_index_t rng_subseq = -1;\n";
       indent() << "nvfuser_index_t rng_offset = -1;\n";
@@ -372,7 +375,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     }
 
     // Call the initialization function if using a custom block sync
-    if (std::getenv("PYTORCH_NVFUSER_USE_BLOCK_SYNC_ATOMIC")) {
+    if (getNvFuserEnv("USE_BLOCK_SYNC_ATOMIC")) {
       indent() << "block_sync::init();\n";
     }
   }
@@ -382,7 +385,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   // non-const Expr*.
   void handle(const std::vector<Expr*>& exprs) {
     for (Expr* expr : exprs) {
-      kir::ConstIrVisitor::handle(expr);
+      kir::ConstIrVisitor::dispatch(expr);
     }
   }
 
@@ -447,7 +450,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     std::stringstream tmp_code;
     initStringStreamFormat(tmp_code);
     std::swap(tmp_code, code_);
-    handle(stmt);
+    dispatch(stmt);
     std::swap(tmp_code, code_);
     return tmp_code.str();
   }
@@ -466,73 +469,49 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     code_ << gen(pred->value());
   }
 
-  void handle(const Bool* pred) final {
-    const auto def = pred->definition();
-    const bool has_alloc = alloc_map_.find(pred) != alloc_map_.end();
-    if (def != nullptr && !has_alloc) {
-      code_ << "(" << genInline(def) << ")";
-    } else if (pred->isConst()) {
-      code_ << (*pred->value() ? "true" : "false");
-    } else {
-      code_ << genVariableName(pred);
-    }
-  }
-
-  void handle(const Double* d) final {
-    const auto def = d->definition();
-    const bool has_alloc = alloc_map_.find(d) != alloc_map_.end();
-    if (def != nullptr && !has_alloc) {
-      code_ << "(" << genInline(def) << ")";
-    } else if (d->isConst()) {
-      auto val = *d->value();
-      // note: default inf/nan doesn't work and should be replaced with macros
-      // `NAN`, `POS_INFINITY` and `NEG_INFINITY` instead.
-      if (std::isinf(val)) {
-        if (val > 0) {
-          code_ << "POS_INFINITY";
-        } else {
-          code_ << "NEG_INFINITY";
-        }
-      } else if (std::isnan(val)) {
-        code_ << "NAN";
-      } else {
-        setPrecision(code_, d->getDataType().value());
-        code_ << val << getLiteralSuffix(d->getDataType().value());
-      }
-    } else {
-      code_ << genVariableName(d);
-    }
-  }
-
-  void handle(const Int* i) final {
-    // Check the replacement map first. If there's an entry for i, use
+  void handle(const Val* s) final {
+    // Check the replacement map first. If there's an entry for s, use
     // the corresponding replacement.
-    auto replace_it = index_replacement_map_.find(i);
+    auto replace_it = index_replacement_map_.find(s);
     if (replace_it != index_replacement_map_.end()) {
       code_ << replace_it->second;
       return;
     }
-
-    const auto def = i->definition();
-    const bool has_alloc = alloc_map_.find(i) != alloc_map_.end();
+    const auto def = s->definition();
+    const bool has_alloc = alloc_map_.find(s) != alloc_map_.end();
     if (def != nullptr && !has_alloc) {
       code_ << "(" << genInline(def) << ")";
-    } else if (i->isConst()) {
-      code_ << *i->value() << getLiteralSuffix(i->getDataType().value());
+    } else if (s->isConst()) {
+      auto value = s->value();
+      auto dtype = s->dtype();
+      if (value.is<bool>()) {
+        code_ << (value ? "true" : "false");
+      } else if (value.is<int64_t>()) {
+        code_ << value << getLiteralSuffix(dtype);
+      } else if (value.is<double>()) {
+        auto val = value.as<double>();
+        // note: default inf/nan doesn't work and should be replaced with macros
+        // `NAN`, `POS_INFINITY` and `NEG_INFINITY` instead.
+        if (std::isinf(val)) {
+          if (val > 0) {
+            code_ << "POS_INFINITY";
+          } else {
+            code_ << "NEG_INFINITY";
+          }
+        } else if (std::isnan(val)) {
+          code_ << "NAN";
+        } else {
+          setPrecision(code_, dtype);
+          code_ << val << getLiteralSuffix(dtype);
+        }
+      } else if (value.is<std::complex<double>>()) {
+        code_ << "std::complex<double>" << value;
+      } else {
+        TORCH_INTERNAL_ASSERT(
+            false, "Unhandled constant type: ", s->dtype(), " ", value);
+      }
     } else {
-      code_ << genVariableName(i);
-    }
-  }
-
-  void handle(const ComplexDouble* c) final {
-    const auto def = c->definition();
-    const bool has_alloc = alloc_map_.find(c) != alloc_map_.end();
-    if (def != nullptr && !has_alloc) {
-      code_ << "(" << genInline(def) << ")";
-    } else if (c->isConst()) {
-      code_ << "std::complex<double>" << *c->value();
-    } else {
-      code_ << genVariableName(c);
+      code_ << genVariableName(s);
     }
   }
 
@@ -555,11 +534,6 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           << "]";
   }
 
-  void handle(const ViewAsScalar* sv) final {
-    indent() << gen(sv->output(0)) << " = " << gen(sv->input(0)) << "["
-             << gen(sv->index()) << "];\n";
-  }
-
   void handle(const IterDomain*) final {
     TORCH_INTERNAL_ASSERT(false, "Unreachable");
   }
@@ -568,8 +542,9 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     TORCH_INTERNAL_ASSERT(false, "Unreachable");
   }
 
-  void handle(const TensorView*) final {
-    TORCH_INTERNAL_ASSERT(false, "Unreachable");
+  void handle(const TensorView* tv) final {
+    TORCH_INTERNAL_ASSERT(print_inline_);
+    code_ << genVariableName(tv);
   }
 
   //! Utility for generating vectorized pointer access in ldsm and
@@ -590,54 +565,48 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   // Utility function to emit a cp.async intrinsic
   void genCpAsync(const LoadStoreOp* ldst, size_t vec_size) {
     auto dtype = ldst->in()->getDataType().value();
+
     bool is_cg = ldst->opType() == LoadStoreOpType::CpAsyncCg;
+    std::string name = (is_cg ? "Ampere::cpAsyncCg" : "Ampere::cpAsyncCa");
 
-    if (is_cg) {
-      indent() << "Ampere::cpAsyncCg";
-    } else {
-      indent() << "Ampere::cpAsyncCa";
+    ArgumentBuilder template_args;
+    template_args.arg(dtype);
+    template_args.arg(vec_size);
+
+    ArgumentBuilder func_args;
+    func_args.arg(genInline(ldst->out()->as<kir::TensorIndex>()->index()));
+    func_args.arg(genInline(ldst->in()->as<kir::TensorIndex>()->index()));
+    if (ldst->predicate() != nullptr) {
+      func_args.arg(genInline(ldst->predicate()));
     }
 
-    if (ldst->predicate() == nullptr) {
-      // Out of line predicate variant
-      code_ << "<" << dtype << ", " << vec_size << ">("
-            << genInline(ldst->out()->as<kir::TensorIndex>()->index()) << ","
-            << genInline(ldst->in()->as<kir::TensorIndex>()->index()) << ");\n";
-    } else {
-      // Inline predicate variant
-      code_ << "<" << dtype << ", " << vec_size << ">("
-            << genInline(ldst->out()->as<kir::TensorIndex>()->index()) << ","
-            << genInline(ldst->in()->as<kir::TensorIndex>()->index()) << ","
-            << genInline(ldst->predicate()) << ");\n";
-    }
+    indent() << genCall(name, template_args, func_args) << ";\n";
   }
 
   void genLdMatrix(const LoadStoreOp* ldst, size_t vector_word_size) {
     auto dtype = ldst->in()->getDataType().value();
-    indent() << "Turing::ldMatrix";
-    if (ldst->opType() == LoadStoreOpType::LdMatrixTranspose) {
-      code_ << "T";
-    }
-    code_ << " (";
-    code_ << "*" << genVectorPointer(ldst->out(), dtype, vector_word_size)
-          << "," << genInline(ldst->in()->as<kir::TensorIndex>()->index())
-          << ");\n";
+
+    bool is_transpose = (ldst->opType() == LoadStoreOpType::LdMatrixTranspose);
+    std::string name =
+        (is_transpose ? "Turing::ldMatrixT" : "Turing::ldMatrix");
+
+    ArgumentBuilder func_args;
+    func_args.arg(genVectorPointer(ldst->out(), dtype, vector_word_size));
+    func_args.arg(genInline(ldst->in()->as<kir::TensorIndex>()->index()));
+
+    indent() << genCall(name, func_args) << ";\n";
   }
 
-  void handle(const kir::BaseAddress* sop) final {
+  void handle(const GetMetaData* gop) final {
+    TORCH_INTERNAL_ASSERT(print_inline_);
+    code_ << gen(gop->in());
+  }
+
+  void handle(const GetAttr* gop) final {
     if (!print_inline_) {
-      indent() << gen(sop->output(0)) << " = ";
+      indent() << gen(gop->output(0)) << " = ";
     }
-    switch (sop->tv()->getMemoryType()) {
-      case MemoryType::Shared:
-        code_ << "toSmem(" << genVariableName(sop->tv()) << ")";
-        break;
-      case MemoryType::Global:
-        code_ << genVariableName(sop->tv()) << ".data";
-        break;
-      default:
-        TORCH_INTERNAL_ASSERT(false, "Unsupported input for kir::BaseAddress");
-    }
+    code_ << gen(gop->struct_()) << "." << gop->attr();
     if (!print_inline_) {
       code_ << ";\n";
     }
@@ -704,11 +673,21 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
              << rop->getRNGOffset() << ";\n";
     indent() << "if (rng_subseq != rng_subseq" << rop->name()
              << " || rng_offset != rng_offset" << rop->name() << ") {\n";
-    indent() << "  auto seed = philox_args.captured_ ?\n"
-             << "      static_cast<uint64_t>(*(philox_args.seed_.ptr)) : \n"
-             << "      philox_args.seed_.val;\n";
-    indent() << "  rng_result = philox(seed, rng_subseq" << rop->name()
-             << ", philox_offset / 4 + rng_offset" << rop->name() << ");\n";
+    if (rop->getRNGSeedVal()) {
+      indent() << "  auto seed = " << genInline(rop->getRNGSeedVal()) << ";\n";
+    } else {
+      indent() << "  auto seed = philox_args.captured_ ?\n";
+      indent() << "      static_cast<uint64_t>(*(philox_args.seed_.ptr)) : \n";
+      indent() << "      philox_args.seed_.val;\n";
+    }
+    if (rop->getRNGOffsetVal()) {
+      indent() << "  rng_result = philox(seed, rng_subseq" << rop->name()
+               << ", " << genInline(rop->getRNGOffsetVal())
+               << " / 4 + rng_offset" << rop->name() << ");\n";
+    } else {
+      indent() << "  rng_result = philox(seed, rng_subseq" << rop->name()
+               << ", philox_offset / 4 + rng_offset" << rop->name() << ");\n";
+    }
     indent() << "  rng_subseq = rng_subseq" << rop->name() << ";\n";
     indent() << "  rng_offset = rng_offset" << rop->name() << ";\n";
     indent() << "}\n";
@@ -811,14 +790,14 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     }
 
     auto rhs = bop->rhs();
-    c10::optional<double> exponent;
-    if (auto val_int = dynamic_cast<Int*>(rhs)) {
+    PolymorphicValue exponent;
+    if (auto val_int = dynamic_cast<Val*>(rhs)) {
       if (val_int->isConst()) {
-        exponent = val_int->value().value();
+        exponent = val_int->value();
       }
-    } else if (auto val_float = dynamic_cast<Double*>(rhs)) {
+    } else if (auto val_float = dynamic_cast<Val*>(rhs)) {
       if (val_float->isConst()) {
-        auto fp_exp = val_float->value().value();
+        auto fp_exp = val_float->value().as<double>();
         double int_exp = 0;
         if (std::modf(fp_exp, &int_exp) == 0) {
           exponent = int_exp;
@@ -826,12 +805,12 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       }
     }
 
-    if (!exponent.has_value()) {
+    if (!exponent.hasValue()) {
       return false;
     }
 
     // Only **2 and **3 are considered
-    if (!(exponent.value() == 2 || exponent.value() == 3)) {
+    if (!(exponent == 2 || exponent == 3)) {
       return false;
     }
 
@@ -839,21 +818,21 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
     if (print_inline_) {
       code_ << lhs << " * " << lhs;
-      if (exponent.value() == 3) {
+      if (exponent == 3) {
         code_ << " * " << lhs;
       }
     } else {
       indent() << gen(bop->out());
       if (bop->out()->isScalar()) {
         code_ << " = " << lhs << " * " << lhs;
-        if (exponent.value() == 3) {
+        if (exponent == 3) {
           code_ << " * " << lhs;
         }
       } else {
         code_ << "\n";
         indent() << kTab << "= " << lhs << "\n";
         indent() << kTab << "* " << lhs;
-        if (exponent.value() == 3) {
+        if (exponent == 3) {
           code_ << "\n";
           indent() << kTab << "* " << lhs;
         }
@@ -961,6 +940,39 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       code_ << top->getTernaryOpType() << "(" << gen(top->in1()) << ", "
             << gen(top->in2()) << ", " << gen(top->in3()) << ")";
     }
+
+    if (!print_inline_) {
+      code_ << ";\n";
+    }
+  }
+
+  void handle(const ArrayConstruct* aop) final {
+    if (!print_inline_) {
+      indent() << gen(aop->out()) << " = ";
+    }
+
+    code_ << "{";
+    bool first = true;
+    for (auto in : aop->inputs()) {
+      if (!first) {
+        code_ << ", ";
+      }
+      first = false;
+      code_ << gen(in);
+    }
+    code_ << "}";
+
+    if (!print_inline_) {
+      code_ << ";\n";
+    }
+  }
+
+  void handle(const GetItem* gop) final {
+    if (!print_inline_) {
+      indent() << gen(gop->out()) << " = ";
+    }
+
+    code_ << gen(gop->array()) << "[" << gen(gop->index()) << "]";
 
     if (!print_inline_) {
       code_ << ";\n";
@@ -1876,22 +1888,22 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
   //! Returns all combinations of maps from index Vals of grouped loops to their
   //! conrete integers.
-  std::vector<std::unordered_map<const Int*, int64_t>>
+  std::vector<std::unordered_map<const Val*, int64_t>>
   getLoopIndexReplacementMaps() {
-    std::vector<std::unordered_map<const Int*, int64_t>> maps;
+    std::vector<std::unordered_map<const Val*, int64_t>> maps;
 
     if (grouped_loops_.empty()) {
-      std::unordered_map<const Int*, int64_t> empty_map;
+      std::unordered_map<const Val*, int64_t> empty_map;
       return {empty_map};
     }
 
     // Vector of indices of grouped loops
-    std::vector<Int*> loop_indices;
+    std::vector<Val*> loop_indices;
     std::transform(
         grouped_loops_.begin(),
         grouped_loops_.end(),
         std::back_inserter(loop_indices),
-        [](const kir::ForLoop* loop) { return loop->index()->as<Int>(); });
+        [](const kir::ForLoop* loop) { return loop->index(); });
 
     // All combinations of loop index integer values
     const auto index_val_sets = getGroupedLoopIndexConcreteIntSets();
@@ -1899,7 +1911,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     // Create maps from loop index Vals to integers
     for (const auto& index_values : index_val_sets) {
       TORCH_INTERNAL_ASSERT(loop_indices.size() == index_values.size());
-      std::unordered_map<const Int*, int64_t> index_val_map;
+      std::unordered_map<const Val*, int64_t> index_val_map;
       for (const auto i : c10::irange(loop_indices.size())) {
         auto loop_index = loop_indices.at(i);
         auto index_val = index_values.at(i);
@@ -2700,7 +2712,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     auto conditional = ite->predicate()->value();
     if (conditional->isConst()) {
       // If the conditional is a constant, then the IfThenElse is not required
-      if (conditional->value().value()) {
+      if (conditional->value()) {
         handle(ite->thenBody().exprs());
       } else {
         handle(ite->elseBody().exprs());
@@ -2790,7 +2802,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
   void handle(const kir::BlockSync* sync) final {
     // Use a custom synchronization method if enabled
-    if (std::getenv("PYTORCH_NVFUSER_USE_BLOCK_SYNC_ATOMIC")) {
+    if (getNvFuserEnv("USE_BLOCK_SYNC_ATOMIC")) {
       indent() << "block_sync::sync();\n";
     } else if (isAligned()) {
       indent() << "__syncthreads();\n";
@@ -2906,7 +2918,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   //! Keep track of grouped loops
   std::deque<const kir::ForLoop*> grouped_loops_;
   //! Used to replace symbolic indices with concrete values
-  std::unordered_map<const Int*, int64_t> index_replacement_map_;
+  std::unordered_map<const Val*, int64_t> index_replacement_map_;
   //! Keep track of thread alignment property
   std::vector<bool> aligned_scope_exprs_;
   //! Keep track of the Val* and its generated variable name

@@ -104,7 +104,9 @@ class TORCH_CUDA_CU_API IrCloner {
 class TORCH_CUDA_CU_API RecomputeTv : private IrCloner {
  public:
   // Replicates expressions and values in provided expressions.
-  static TensorView* recompute(TensorView* tv);
+  static TensorView* recompute(
+      TensorView* tv,
+      const std::vector<Val*>& from = {});
 
  private:
   RecomputeTv(Fusion* fusion);
@@ -142,9 +144,6 @@ T* IrBuilder::clone(const T* src, IrCloner* ir_cloner) {
 
   return dest;
 }
-
-template <typename T>
-NVFUSER_DEFINE_CLONE(Attribute<T>)
 
 template <typename T>
 size_t Fusion::manage(T data) {

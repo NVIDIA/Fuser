@@ -6,6 +6,7 @@
  */
 // clang-format on
 
+#include <debug.h>
 #include <evaluator_common.h>
 #include <expr_evaluator.h>
 #include <instrumentation.h>
@@ -19,61 +20,44 @@ namespace nvfuser {
 
 namespace {
 
-bool equals(const Val* value, const EvaluatorValue& concrete_value) {
+// TODO: remove this after we make Scalar a non-template class
+bool equals(const Val* value, const PolymorphicValue& concrete_value) {
   switch (std::get<PrimDataType>(value->getDataType()->type)) {
     case DataType::Int: {
-      if (!concrete_value.isInt()) {
+      if (!concrete_value.is<int64_t>()) {
         return false;
       }
       auto val = value->getInt();
       return val.has_value() && val.value() == concrete_value.as<int64_t>();
     }
     case DataType::Double: {
-      if (!concrete_value.isDouble()) {
+      if (!concrete_value.is<double>()) {
         return false;
       }
       auto val = value->getDouble();
       return val.has_value() && val.value() == concrete_value.as<double>();
     }
     case DataType::Bool: {
-      if (!concrete_value.isBool()) {
+      if (!concrete_value.is<bool>()) {
         return false;
       }
       auto val = value->getBool();
       return val.has_value() && val.value() == concrete_value.as<bool>();
     }
     default:
-      TORCH_INTERNAL_ASSERT(false);
+      return false;
   }
-}
-
-template <typename T>
-c10::optional<EvaluatorValue> toOptionalEvaluatorValue(c10::optional<T> i) {
-  if (!i) {
-    return c10::nullopt;
-  }
-  return EvaluatorValue(i.value());
 }
 
 } // namespace
 
 void ExpressionEvaluator::bind_(
     const Val* value,
-    const EvaluatorValue& concrete_value) {
+    const PolymorphicValue& concrete_value) {
   if (equals(value, concrete_value)) {
     return;
   }
-  TORCH_CHECK(value->isScalar());
-  TORCH_CHECK(
-      value->dtype() == DataType::Int || value->dtype() == DataType::Double ||
-      value->dtype() == DataType::Bool);
   TORCH_CHECK(!value->isConstScalar(), "Tried to bind to a constant value");
-  TORCH_CHECK(
-      value->definition() == nullptr,
-      "Tried to bind to a value that is computed in the Fusion IR: ",
-      value->toInlineString(),
-      " with ",
-      concrete_value);
   if (value->isA<NamedScalar>()) {
     known_named_scalars_[value->as<NamedScalar>()->name()] = concrete_value;
   } else {
@@ -83,46 +67,42 @@ void ExpressionEvaluator::bind_(
 
 void ExpressionEvaluator::bind_(
     const std::string& name,
-    const EvaluatorValue& concrete_value) {
+    const PolymorphicValue& concrete_value) {
   known_named_scalars_[name] = concrete_value;
 }
 
 void ExpressionEvaluator::bind(
     ParallelType pt,
-    Int::ScalarType concrete_value) {
+    const PolymorphicValue& concrete_value) {
   TORCH_INTERNAL_ASSERT(isParallelTypeThread(pt));
   if (precomputed_values_) {
     // Need to bind the thread value to integer machine
     //  in pre-computed mode.
     precomputed_values_->bindConcreteParallelTypeValue(pt, concrete_value);
   } else {
-    bind(stringifyThreadSize(pt), EvaluatorValue(concrete_value));
+    bind(stringifyThreadSize(pt), concrete_value);
   }
 }
 
-c10::optional<EvaluatorValue> ExpressionEvaluator::evaluate(const Val* value) {
+PolymorphicValue ExpressionEvaluator::evaluate(const Val* value) {
   if (precomputed_values_ && precomputed_values_->ready()) {
-    if (precomputed_values_->getMaybeValueFor(value).has_value()) {
-      return toOptionalEvaluatorValue(
-          precomputed_values_->getMaybeValueFor(value));
+    if (precomputed_values_->getMaybeValueFor(value).hasValue()) {
+      return precomputed_values_->getMaybeValueFor(value);
     }
   }
 
   auto maybe_concrete_value = getValue(value);
-  if (!maybe_concrete_value.has_value()) {
+  if (!maybe_concrete_value.hasValue()) {
     if (auto def = value->definition()) {
       FUSER_PERF_SCOPE("ExpressionEvaluator::evaluate");
-      if (def->isA<kir::BaseAddress>()) {
-        return c10::nullopt;
-      }
-      std::vector<EvaluatorValue> inputs;
+      std::vector<PolymorphicValue> inputs;
       inputs.reserve(def->inputs().size());
       for (auto i : def->inputs()) {
         auto eval_i = evaluate(i);
-        if (!eval_i.has_value()) {
-          return c10::nullopt;
+        if (!eval_i.hasValue()) {
+          return std::monostate{};
         }
-        inputs.emplace_back(*eval_i);
+        inputs.emplace_back(eval_i);
       }
       auto outputs = def->evaluate(inputs);
       for (auto i : c10::irange(def->outputs().size())) {
@@ -134,65 +114,49 @@ c10::optional<EvaluatorValue> ExpressionEvaluator::evaluate(const Val* value) {
   return maybe_concrete_value;
 }
 
-c10::optional<EvaluatorValue> ExpressionEvaluator::evaluate(ParallelType pt) {
+PolymorphicValue ExpressionEvaluator::evaluate(ParallelType pt) {
   auto it = known_named_scalars_.find(stringifyThreadSize(pt));
   if (it != known_named_scalars_.end()) {
     return it->second;
   }
-  return c10::nullopt;
+  return std::monostate{};
 }
 
-c10::optional<EvaluatorValue> ExpressionEvaluator::getValue(const Val* value) {
-  TORCH_INTERNAL_ASSERT(
-      value->isIntegralScalar() || value->isFloatingPointScalar() ||
-          value->isABool(),
-      value->toInlineString(),
-      " is not a supported type in expression evaluation.");
-
+PolymorphicValue ExpressionEvaluator::getValue(const Val* value) {
   if (value->isScalar() && value->isConst()) {
-    if (value->isFloatingPointScalar()) {
-      return toOptionalEvaluatorValue(value->as<Double>()->value());
-    }
-    if (value->isABool()) {
-      return toOptionalEvaluatorValue(value->as<Bool>()->value());
-    }
-    if (value->isIntegralScalar()) {
-      return toOptionalEvaluatorValue(value->as<Int>()->value());
-    }
-    TORCH_INTERNAL_ASSERT(
-        false, "Data type not supported by ExpressionEvaluator");
+    return value->value();
   }
 
   if (value->isA<NamedScalar>()) {
     const auto it = known_named_scalars_.find(value->as<NamedScalar>()->name());
     if (it != known_named_scalars_.end()) {
-      return c10::optional<EvaluatorValue>(it->second);
+      return it->second;
     }
   }
 
   const auto it = known_values_.find(value);
-  return it != known_values_.end() ? c10::optional<EvaluatorValue>(it->second)
-                                   : c10::nullopt;
+  return it != known_values_.end() ? it->second
+                                   : PolymorphicValue(std::monostate{});
 }
 
 void ExpressionEvaluator::print() const {
-  std::cout << "\nEvaluation context\n";
-  std::cout << "--------------------\n";
+  debug() << "\nEvaluation context\n";
+  debug() << "--------------------\n";
   for (const auto& kv : known_values_) {
     TORCH_INTERNAL_ASSERT(!kv.first->isConstScalar());
-    std::cout << kv.first << " = " << kv.second << " ; "
-              << *kv.first->getValType() << "\n";
+    debug() << kv.first << " = " << kv.second << " ; "
+            << *kv.first->getValType() << "\n";
   }
 
   for (const auto& kv : known_named_scalars_) {
-    std::cout << kv.first << " = " << kv.second << " ;\n";
+    debug() << kv.first << " = " << kv.second << " ;\n";
   }
 
-  std::cout << "\nPre-computed Values\n";
+  debug() << "\nPre-computed Values\n";
   if (precomputed_values_ != nullptr) {
     precomputed_values_->print();
   }
-  std::cout << "--------------------\n\n";
+  debug() << "--------------------\n\n";
 }
 
 void ExpressionEvaluator::propagateBoundValuesThroughExactMaps(Fusion* fusion) {
@@ -203,9 +167,9 @@ void ExpressionEvaluator::propagateBoundValuesThroughExactMaps(Fusion* fusion) {
     std::vector<Val*> unknown_vals;
     for (const auto id : *set) {
       auto eval_val = evaluate(id->extent());
-      if (eval_val.has_value()) {
-        TORCH_INTERNAL_ASSERT(eval_val->isInt(), "Invalid extent value");
-        int64_t this_size = eval_val->as<int64_t>();
+      if (eval_val.hasValue()) {
+        TORCH_INTERNAL_ASSERT(eval_val.is<int64_t>(), "Invalid extent value");
+        int64_t this_size = eval_val.as<int64_t>();
         if (known_size != -1) {
           TORCH_INTERNAL_ASSERT(
               known_size == this_size,

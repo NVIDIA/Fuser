@@ -33,8 +33,8 @@ TORCH_CUDA_CU_API const char* dtypeToPyString(PrimDataType t);
 //! Example:
 //!
 //!   add(Tensor* arg1, Tensor* arg2) -> Tensor*
-//!   add(Tensor* arg1, Scalar* arg2) -> Tensor*
-//!   add(Scalar* arg1, Scalar* arg2) -> Scalar*
+//!   add(Tensor* arg1, Val* arg2) -> Tensor*
+//!   add(Val* arg1, Val* arg2) -> Val*
 struct TORCH_CUDA_CU_API Tensor {
   Tensor(size_t _index, size_t _dims, FusionDefinition* _fd)
       : index(_index), dims(_dims), fusion_definition(_fd) {}
@@ -71,8 +71,8 @@ struct TORCH_CUDA_CU_API Scalar {
 };
 
 struct TORCH_CUDA_CU_API Vector {
-  Vector(size_t _index, FusionDefinition* _fd)
-      : index(_index), fusion_definition(_fd) {}
+  Vector(size_t _index, size_t _size, FusionDefinition* _fd)
+      : index(_index), size(_size), fusion_definition(_fd) {}
 
   size_t operator()() const {
     return index;
@@ -80,6 +80,8 @@ struct TORCH_CUDA_CU_API Vector {
 
   //! A unique index to identifiy each recorded state item.
   size_t index;
+  //! Elements in the vector
+  size_t size;
 
   //! Pointer to the FusionDefinition used to create this scalar
   FusionDefinition* fusion_definition;
@@ -100,7 +102,7 @@ struct TORCH_CUDA_CU_API Vector {
 //!   help(FusionDefinition.Operators)
 class TORCH_CUDA_CU_API FusionDefinition : public FusionState {
  public:
-  FusionDefinition(c10::optional<size_t> id, size_t max_length = 256);
+  FusionDefinition(std::optional<size_t> id, size_t max_length = 256);
 
   // The copy/move/assign constructors/operators are removed
   FusionDefinition(const FusionDefinition& fd) = delete;
@@ -146,7 +148,7 @@ class TORCH_CUDA_CU_API FusionDefinition : public FusionState {
       bool tensor_transforms,
       bool override_user_schedule) const;
   //! Return fusion id of defined FusionDefinition
-  c10::optional<size_t> id() const;
+  std::optional<size_t> id() const;
   //! Prints the Prescheduled Fusion IR representation
   void printMathIr();
 
@@ -160,6 +162,8 @@ class TORCH_CUDA_CU_API FusionDefinition : public FusionState {
   Scalar defineScalar();
   //! Defines a Tensor State Record
   Tensor defineTensor(size_t dims);
+  //! Defines a Vector State Record
+  Vector defineVector(size_t size);
   //! Defines a Record that records the operation required to
   //! build the corresponding Fusion IR operation on cache miss.
   void defineRecord(RecordFunctor* record);
@@ -177,7 +181,7 @@ class TORCH_CUDA_CU_API FusionDefinition : public FusionState {
   //! number as appropriate.
   size_t max_length_;
   //! Fusion Cache Id for Scheduled Fusion.
-  c10::optional<size_t> fusion_id_;
+  std::optional<size_t> fusion_id_;
   //! A pointer to the FusionCache.
   FusionCache* fusion_cache_;
   //! Current pointer to node in FusionCache.

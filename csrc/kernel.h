@@ -42,6 +42,9 @@ struct KernelSummary {
   std::vector<const kir::Allocate*> static_smem_allocations;
 
   //! Indicate the need to generate random numbers
+  bool has_philox_op = false;
+
+  //! Maximum RNG offset used
   int max_rng_offsets = -1;
 
   //! Do we have any block reductions?
@@ -141,7 +144,7 @@ class TORCH_CUDA_CU_API KernelPerformanceProfile {
   int getNewIndex();
 
   //! Get the profile index
-  c10::optional<int> getIndex(const Expr* expr) const;
+  std::optional<int> getIndex(const Expr* expr) const;
 
  private:
   int num_profile_entries_ = 0;

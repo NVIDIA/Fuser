@@ -81,16 +81,6 @@ inline TensorView* makeContigConcreteTensor(
   return TensorViewBuilder().shape(shape).dtype(dtype).contiguity(true).build();
 }
 
-inline void checkIntValue(
-    ExpressionEvaluator& evaluator,
-    Val* val,
-    Int::ScalarType expected_value) {
-  TORCH_CHECK(val->isIntegralScalar());
-  const auto actual_value = evaluator.evaluate(val);
-  TORCH_CHECK(actual_value.has_value());
-  TORCH_CHECK(actual_value.value() == expected_value);
-}
-
 int64_t prime_number(int64_t i);
 
 inline bool deviceMajorMinorCheck(int major, int minor = 0) {
@@ -137,28 +127,36 @@ inline TensorView* loweredTv(TensorView* tv, GpuLower& gpulw) {
 class PredicatedChecker : public kir::IrVisitor {
  public:
   // Checks if the provided tv is written to within a non-trivial conditional
-  static bool isPredicated(TensorView* tv, GpuLower& gpulw) {
-    PredicatedChecker checker(
-        loweredTv(tv, gpulw), gpulw.kernel()->topLevelExprs());
+  static bool isPredicated(StmtNameType tv_name, GpuLower& gpulw) {
+    PredicatedChecker checker(tv_name, gpulw.kernel()->topLevelExprs());
     return checker.is_predicated_;
   }
 
-  static bool isPredicated(TensorView* tv, kir::Kernel* kernel) {
-    PredicatedChecker checker(loweredTv(tv, kernel), kernel->topLevelExprs());
+  static bool isPredicated(StmtNameType tv_name, kir::Kernel* kernel) {
+    PredicatedChecker checker(tv_name, kernel->topLevelExprs());
     return checker.is_predicated_;
+  }
+
+  static bool isPredicated(TensorView* tv, GpuLower& gpulw) {
+    return isPredicated(tv->name(), gpulw);
+  }
+
+  static bool isPredicated(TensorView* tv, kir::Kernel* kernel) {
+    return isPredicated(tv->name(), kernel);
   }
 
  private:
   PredicatedChecker() = delete;
 
-  PredicatedChecker(TensorView* tv, std::vector<Expr*> exprs) : tv_(tv) {
+  PredicatedChecker(StmtNameType tv_name, std::vector<Expr*> exprs)
+      : tv_name_(tv_name) {
     kir::IrVisitor::handle(exprs);
   }
 
   using kir::IrVisitor::handle;
   bool is_predicated_ = false;
   bool predicated_ite_ = false;
-  TensorView* tv_ = nullptr;
+  StmtNameType tv_name_ = 0;
 
   void handle(kir::IfThenElse* ite) final {
     auto prev_ite = predicated_ite_;
@@ -167,10 +165,10 @@ class PredicatedChecker : public kir::IrVisitor {
     predicated_ite_ = prev_ite;
   }
 
-  void handle(Expr* expr) final {
+  void dispatch(Expr* expr) final {
     if (expr->outputs().size() && expr->outputs()[0]->isA<kir::TensorIndex>()) {
       auto ti = expr->outputs()[0]->as<kir::TensorIndex>();
-      if (ti->view() == tv_) {
+      if (ti->view()->name() == tv_name_) {
         is_predicated_ = is_predicated_ | predicated_ite_;
         if (expr->predicate() != nullptr &&
             !expr->predicate()->value()->isConst()) {
@@ -178,7 +176,7 @@ class PredicatedChecker : public kir::IrVisitor {
         }
       }
     }
-    kir::IrVisitor::handle(expr);
+    kir::IrVisitor::dispatch(expr);
   }
 };
 
@@ -226,6 +224,7 @@ class PredicateMagicZeroChecker : public kir::IrVisitor {
   }
 
  private:
+  using kir::IrVisitor::dispatch;
   using kir::IrVisitor::handle;
 
   PredicateMagicZeroChecker(TensorView* tv, std::vector<Expr*> exprs)
@@ -240,7 +239,7 @@ class PredicateMagicZeroChecker : public kir::IrVisitor {
     predicate_ = prev_predicate;
   }
 
-  void handle(Expr* expr) final {
+  void dispatch(Expr* expr) final {
     if (expr->outputs().size() && expr->outputs()[0]->isA<kir::TensorIndex>()) {
       auto ti = expr->outputs()[0]->as<kir::TensorIndex>();
       if (ti->view() == tv_) {
@@ -255,7 +254,7 @@ class PredicateMagicZeroChecker : public kir::IrVisitor {
       handle(expr->as<kir::IfThenElse>());
     } else {
       for (auto input : expr->inputs()) {
-        handle(input);
+        dispatch(input);
       }
     }
   }
@@ -267,7 +266,7 @@ class PredicateMagicZeroChecker : public kir::IrVisitor {
       // Just check if nvfuser_zero is used. Not perfect but probably
       // good enough.
       is_magic_zero_found_ = false;
-      handle(id_predicate);
+      dispatch(id_predicate);
       if (!is_magic_zero_found_) {
         return false;
       }
@@ -289,7 +288,7 @@ class PredicateMagicZeroChecker : public kir::IrVisitor {
     return {predicate};
   }
 
-  void handle(Val* val) final {
+  void dispatch(Val* val) final {
     if (isMagicZero(val)) {
       is_magic_zero_found_ = true;
       return;
@@ -297,7 +296,7 @@ class PredicateMagicZeroChecker : public kir::IrVisitor {
 
     auto def = val->definition();
     if (def != nullptr) {
-      handle(def);
+      dispatch(def);
     }
   }
 
@@ -358,9 +357,9 @@ class KernelExprVisitor : private kir::IrVisitor {
 
   using kir::IrVisitor::handle;
 
-  void handle(Expr* expr) final {
+  void dispatch(Expr* expr) final {
     all_exprs_.push_back(expr);
-    kir::IrVisitor::handle(expr);
+    kir::IrVisitor::dispatch(expr);
   }
 
  private:
@@ -536,13 +535,34 @@ TensorView* matmul(
     bool turing_or_later // TODO: This is a temporary solution. Remove this!
 );
 
+// Generic interface to get splitK-like batched matmul op with the given layout.
+// For splitK like batched matmul, there is only one batch dimension, and that
+// dimension should be right before the K dimension. This function currently
+// assume Ampere or Turing.
+TensorView* splitkLikeBatchedMatmul(
+    TensorView* a,
+    TensorView* b,
+    MatmulLayout layout);
+
 // Utility to generate matmul input tensors based on given layout
 at::Tensor atMatmul(at::Tensor a, at::Tensor b, MatmulLayout layout);
 
-// Utility to generate reference results based on given layout
+// Utility to generate matmul input tensors based on given layout
+at::Tensor splitkLikeAtMatmul(at::Tensor a, at::Tensor b, MatmulLayout layout);
+
+// Utility to generate inputs based on given layout
 std::pair<at::Tensor, at::Tensor> matmulAtInput(
     int M,
     int N,
+    int K,
+    MatmulLayout layout,
+    c10::ScalarType dtype = at::kHalf);
+
+// Utility to generate inputs based on given layout
+std::pair<at::Tensor, at::Tensor> splitkLikeBatchedMatmulAtInput(
+    int M,
+    int N,
+    int B,
     int K,
     MatmulLayout layout,
     c10::ScalarType dtype = at::kHalf);

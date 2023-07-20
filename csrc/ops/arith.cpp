@@ -29,7 +29,7 @@ Val* castOp(DataType dtype, Val* v1) {
     return set(v1);
   }
 
-  if (cast_func_str(std::make_pair(orig_dtype, dtype)) == c10::nullopt) {
+  if (cast_func_str(std::make_pair(orig_dtype, dtype)) == std::nullopt) {
     TORCH_CHECK(
         false,
         "Illegal Cast value from  DataType: ",
@@ -111,7 +111,11 @@ TensorView* unaryOp(
 }
 
 // TENSOR FACTORIES
-TensorView* rand(const std::vector<Val*>& shape, DataType dtype) {
+TensorView* rand(
+    const std::vector<Val*>& shape,
+    DataType dtype,
+    Val* philox_seed,
+    Val* philox_offset) {
   auto n = shape.size();
   auto out = TensorViewBuilder()
                  .ndims(n)
@@ -119,7 +123,13 @@ TensorView* rand(const std::vector<Val*>& shape, DataType dtype) {
                  .contiguity(true)
                  .shape(shape)
                  .build();
-  IrBuilder::create<RNGOp>(RNGOpType::Uniform, out, dtype);
+  IrBuilder::create<RNGOp>(
+      RNGOpType::Uniform,
+      out,
+      dtype,
+      std::vector<Val*>{},
+      philox_seed,
+      philox_offset);
   return out;
 }
 
@@ -128,7 +138,9 @@ TensorView* uniform(
     const std::vector<Val*>& shape,
     Val* low,
     Val* high,
-    DataType dtype) {
+    DataType dtype,
+    Val* philox_seed,
+    Val* philox_offset) {
   auto n = shape.size();
   auto out = TensorViewBuilder()
                  .ndims(n)
@@ -137,7 +149,12 @@ TensorView* uniform(
                  .shape(shape)
                  .build();
   IrBuilder::create<RNGOp>(
-      RNGOpType::UniformRange, out, dtype, std::vector<Val*>{low, high});
+      RNGOpType::UniformRange,
+      out,
+      dtype,
+      std::vector<Val*>{low, high},
+      philox_seed,
+      philox_offset);
   return out;
 }
 
@@ -145,7 +162,9 @@ TensorView* normal(
     const std::vector<Val*>& shape,
     Val* mean,
     Val* std,
-    DataType dtype) {
+    DataType dtype,
+    Val* philox_seed,
+    Val* philox_offset) {
   auto n = shape.size();
   auto out = TensorViewBuilder()
                  .ndims(n)
@@ -154,11 +173,20 @@ TensorView* normal(
                  .shape(shape)
                  .build();
   IrBuilder::create<RNGOp>(
-      RNGOpType::NormalGeneral, out, dtype, std::vector<Val*>{mean, std});
+      RNGOpType::NormalGeneral,
+      out,
+      dtype,
+      std::vector<Val*>{mean, std},
+      philox_seed,
+      philox_offset);
   return out;
 }
 
-TensorView* randn(const std::vector<Val*>& shape, DataType dtype) {
+TensorView* randn(
+    const std::vector<Val*>& shape,
+    DataType dtype,
+    Val* philox_seed,
+    Val* philox_offset) {
   auto n = shape.size();
   auto out = TensorViewBuilder()
                  .ndims(n)
@@ -166,29 +194,40 @@ TensorView* randn(const std::vector<Val*>& shape, DataType dtype) {
                  .contiguity(true)
                  .shape(shape)
                  .build();
-  IrBuilder::create<RNGOp>(RNGOpType::NormalStandard, out, dtype);
+  IrBuilder::create<RNGOp>(
+      RNGOpType::NormalStandard,
+      out,
+      dtype,
+      std::vector<Val*>{},
+      philox_seed,
+      philox_offset);
   return out;
 }
 
+TensorView* randn_like(TensorView* tv, Val* philox_seed, Val* philox_offset) {
+  TORCH_CHECK(
+      isFloatingPointType(tv->dtype()),
+      "input must have floating point type, but got ",
+      tv->dtype());
+  std::vector<Val*> shape;
+  auto dom = TensorDomain::noReductions(tv->getMaybeRFactorDomain());
+  shape.reserve(dom.size());
+  for (auto id : dom) {
+    shape.emplace_back(id->getMaybeExpandedExtent());
+  }
+  return randn(shape, tv->dtype(), philox_seed, philox_offset);
+}
 TensorView* randn_like(TensorView* tv) {
-  TORCH_CHECK(
-      isFloatingPointType(tv->dtype()),
-      "input must have floating point type, but got ",
-      tv->dtype());
-  std::vector<Val*> shape;
-  auto dom = TensorDomain::noReductions(tv->getMaybeRFactorDomain());
-  shape.reserve(dom.size());
-  for (auto id : dom) {
-    shape.emplace_back(id->getMaybeExpandedExtent());
-  }
-  return randn(shape, tv->dtype());
+  return randn_like(tv, nullptr, nullptr);
 }
-
+Val* randn_like(Val* v, Val* philox_seed, Val* philox_offset) {
+  return randn_like(v->as<TensorView>(), philox_seed, philox_offset);
+}
 Val* randn_like(Val* v) {
-  return randn_like(v->as<TensorView>());
+  return randn_like(v->as<TensorView>(), nullptr, nullptr);
 }
 
-TensorView* rand_like(TensorView* tv) {
+TensorView* rand_like(TensorView* tv, Val* philox_seed, Val* philox_offset) {
   TORCH_CHECK(
       isFloatingPointType(tv->dtype()),
       "input must have floating point type, but got ",
@@ -199,11 +238,16 @@ TensorView* rand_like(TensorView* tv) {
   for (auto id : dom) {
     shape.emplace_back(id->getMaybeExpandedExtent());
   }
-  return rand(shape, tv->dtype());
+  return rand(shape, tv->dtype(), philox_seed, philox_offset);
 }
-
+TensorView* rand_like(TensorView* tv) {
+  return rand_like(tv, nullptr, nullptr);
+}
+Val* rand_like(Val* v, Val* philox_seed, Val* philox_offset) {
+  return rand_like(v->as<TensorView>(), philox_seed, philox_offset);
+}
 Val* rand_like(Val* v) {
-  return rand_like(v->as<TensorView>());
+  return rand_like(v->as<TensorView>(), nullptr, nullptr);
 }
 
 TensorView* full(
@@ -268,37 +312,57 @@ Val* ones_like(Val* v) {
 
 TensorView* iota(Val* length, Val* start, Val* step, DataType dtype) {
   if (start == nullptr) {
-    start = IrBuilder::newConstant(0, dtype);
+    start = IrBuilder::newConstant(0L, dtype);
   }
   if (step == nullptr) {
-    step = IrBuilder::newConstant(1, dtype);
+    step = IrBuilder::newConstant(1L, dtype);
   }
   TORCH_CHECK(
       isIntegralType(*length->getDataType()),
       "length must be integer, but get dtype ",
       *length->getDataType());
   TORCH_CHECK(
-      isIntegralType(*start->getDataType()) == isIntegralType(dtype) &&
+      !isComplexType(*start->getDataType()) &&
+          isIntegralType(*start->getDataType()) == isIntegralType(dtype) &&
           isFloatingPointType(*start->getDataType()) ==
               isFloatingPointType(dtype),
-      "dtype does not match for iota, should be ",
+      "iota: start dtype does not match specified dtype argument, should be ",
       dtype,
       " but get ",
       *start->getDataType());
   TORCH_CHECK(
-      isIntegralType(*step->getDataType()) == isIntegralType(dtype) &&
+      !isComplexType(*step->getDataType()) &&
+          isIntegralType(*step->getDataType()) == isIntegralType(dtype) &&
           isFloatingPointType(*step->getDataType()) ==
               isFloatingPointType(dtype),
-      "dtype does not match for iota, should be ",
+      "iota: step dtype does not match specified dtype argument, should be ",
       dtype,
       " but get ",
       *step->getDataType());
+
   if (start->getDataType() != dtype) {
     start = castOp(dtype, start);
   }
   if (step->getDataType() != dtype) {
     step = castOp(dtype, step);
   }
+
+  if (start->isConst() && start->isFloatingPointScalar()) {
+    TORCH_INTERNAL_ASSERT(
+        std::isfinite(start->getDouble().value()),
+        "iota: length, start, step must be finite numbers.");
+  }
+
+  if (step->isConst() && step->isFloatingPointScalar()) {
+    TORCH_INTERNAL_ASSERT(
+        std::isfinite(step->getDouble().value()),
+        "iota: length, start, step must be finite numbers.");
+  }
+
+  TORCH_INTERNAL_ASSERT(
+      !step->isConstScalar() || !step->isZero(),
+      "iota: step value must not equal zero.");
+
   auto out = TensorViewBuilder()
                  .ndims(1)
                  .dtype(dtype)
@@ -1506,7 +1570,7 @@ WelfordResult WelfordRaw(
     const std::vector<int>& axes,
     TensorView* init_avg,
     TensorView* init_var,
-    Int* init_N) {
+    Val* init_N) {
   TORCH_CHECK(
       TensorDomain::sameAs(tv->getMaybeRFactorDomain(), tv->getLeafDomain()),
       "Reducing a tensor once it's gone under transformations is not permitted at this time. \n",
@@ -1542,8 +1606,8 @@ WelfordResult WelfordRaw(
     init_avg_val = init_avg;
     init_var_val = init_var;
   } else {
-    init_avg_val = IrBuilder::create<Double>(0);
-    init_var_val = IrBuilder::create<Double>(0);
+    init_avg_val = IrBuilder::create<Val>(0.0);
+    init_var_val = IrBuilder::create<Val>(0.0);
   }
 
   // Check and collect reduction axes
@@ -1572,7 +1636,7 @@ WelfordResult Welford(
     const std::vector<int>& axes,
     TensorView* init_avg,
     TensorView* init_var,
-    Int* init_N) {
+    Val* init_N) {
   TORCH_CHECK(
       TensorDomain::sameAs(tv->getMaybeRFactorDomain(), tv->getLeafDomain()),
       "Reducing a tensor once it's gone under transformations is not permitted at this time. \n",
@@ -1651,7 +1715,7 @@ WelfordResult Welford(
   } else {
     return WelfordResult(
         squeezed,
-        full_like(squeezed, IrBuilder::create<Double>(0)),
+        full_like(squeezed, IrBuilder::create<Val>(0.0)),
         out_N,
         false);
   }
@@ -1677,7 +1741,7 @@ WelfordResult::WelfordResult(
 // add_alpha
 Val* add_alpha(Val* v1, Val* v2, Val* s) {
   TORCH_CHECK(
-      s->getValType().value() == ValType::Scalar,
+      s->getValType().value() == ValType::Others,
       "Alpha value should be a Scalar Valtype and not ",
       s->getValType().value());
 
@@ -1700,7 +1764,7 @@ TensorView* add_alpha(TensorView* v1, TensorView* v2, Val* v3) {
 // sub_alpha
 Val* sub_alpha(Val* v1, Val* v2, Val* s) {
   TORCH_CHECK(
-      s->getValType().value() == ValType::Scalar,
+      s->getValType().value() == ValType::Others,
       "Alpha value should be a Scalar Valtype and not ",
       s->getValType().value());
 
@@ -1770,7 +1834,7 @@ TensorView* lerp(TensorView* v1, TensorView* v2, TensorView* v3) {
 // addcmul
 Val* addcmul(Val* v1, Val* v2, Val* v3, Val* s) {
   TORCH_CHECK(
-      s->getValType().value() == ValType::Scalar,
+      s->getValType().value() == ValType::Others,
       "Alpha value should be a Scalar Valtype and not ",
       s->getValType().value());
 
@@ -1866,9 +1930,9 @@ TensorView* where(TensorView* v1, TensorView* v2, TensorView* v3) {
 
 Val* threshold(Val* in, Val* thresh, Val* value) {
   TORCH_CHECK(
-      (thresh->getValType().value() == ValType::Scalar ||
+      (thresh->getValType().value() == ValType::Others ||
        thresh->getValType().value() == ValType::NamedScalar) &&
-          (value->getValType().value() == ValType::Scalar ||
+          (value->getValType().value() == ValType::Others ||
            value->getValType().value() == ValType::NamedScalar),
       "For Threshold operation: Thresh and Value values should be Scalars.");
 
@@ -1887,10 +1951,10 @@ TensorView* threshold(TensorView* in, Val* thresh, Val* value) {
 
 Val* clamp(Val* in, Val* min_val, Val* max_val) {
   TORCH_CHECK(
-      (min_val == nullptr || min_val->getValType().value() == ValType::Scalar ||
+      (min_val == nullptr || min_val->getValType().value() == ValType::Others ||
        min_val->getValType().value() == ValType::NamedScalar) &&
           (max_val == nullptr ||
-           max_val->getValType().value() == ValType::Scalar ||
+           max_val->getValType().value() == ValType::Others ||
            max_val->getValType().value() == ValType::NamedScalar),
       "For Clamp operation: Min and Max values should be Scalars.");
 
@@ -1915,7 +1979,7 @@ TensorView* clamp(TensorView* in, Val* min_val, Val* max_val) {
 
 // sum_to operator
 
-TensorView* sum_to(TensorView* in, const std::vector<Int*>& sum_to_size) {
+TensorView* sum_to(TensorView* in, const std::vector<Val*>& sum_to_size) {
   const auto& root = TensorDomain::noReductions(in->getMaybeRFactorDomain());
 
   TORCH_CHECK(
@@ -2066,29 +2130,30 @@ TensorView* shift(
       continue;
     }
 
-    Int* current_start_offset = dynamic_cast<Int*>(inp_axis->start());
+    Val* current_start_offset = dynamic_cast<Val*>(inp_axis->start());
     TORCH_INTERNAL_ASSERT(
         current_start_offset != nullptr && current_start_offset->isConst(),
         "Invalid IterDomain start value:",
         current_start_offset);
 
-    Int* current_stop_offset = dynamic_cast<Int*>(inp_axis->stopOffset());
+    Val* current_stop_offset = dynamic_cast<Val*>(inp_axis->stopOffset());
     TORCH_INTERNAL_ASSERT(
         current_stop_offset != nullptr && current_stop_offset->isConst(),
         "Invalid IterDomain stop offset value:",
         current_stop_offset);
 
-    const auto cur_start_offset_value = current_start_offset->value().value();
-    const auto cur_stop_offset_value = current_stop_offset->value().value();
+    const auto cur_start_offset_value = current_start_offset->value();
+    const auto cur_stop_offset_value = current_stop_offset->value();
 
-    int64_t out_start_offset = 0;
-    int64_t out_stop_offset = 0;
+    PolymorphicValue out_start_offset = 0L;
+    PolymorphicValue out_stop_offset = 0L;
 
     if (offset > 0) {
+      using namespace PolymorphicValue_functions;
       // shift to right; extent remains the same, start and stop
       // positions are moved right
       out_start_offset = cur_start_offset_value + offset - pad;
-      out_stop_offset = std::max(cur_stop_offset_value - offset, int64_t(0));
+      out_stop_offset = max(cur_stop_offset_value - offset, int64_t(0));
       // If pad > offset, the extent of the output ID could be larger than the
       // input, and the start offset of the output domain could become
       // negative, which is not supported.
@@ -2100,9 +2165,10 @@ TensorView* shift(
           offset,
           ".");
     } else {
+      using namespace PolymorphicValue_functions;
       // shift to left; extent remains the same, start and stop
       // positions are moved left
-      out_start_offset = std::max(cur_start_offset_value + offset, int64_t(0));
+      out_start_offset = max(cur_start_offset_value + offset, int64_t(0));
       out_stop_offset = cur_stop_offset_value - offset - pad;
       // Similar to the above case whwere offset is positive, if pad >
       // -offset (note offset is negative), the extent of the output
@@ -2119,8 +2185,8 @@ TensorView* shift(
 
     out_dom.push_back(
         IterDomainBuilder(
-            IrBuilder::create<Int>(out_start_offset), inp_axis->extent())
-            .stop_offset(IrBuilder::create<Int>(out_stop_offset))
+            IrBuilder::create<Val>(out_start_offset), inp_axis->extent())
+            .stop_offset(IrBuilder::create<Val>(out_stop_offset))
             .iter_type(inp_axis->getIterType())
             .build());
   }
@@ -2257,13 +2323,13 @@ TensorView* gather(
     out_root_domains.push_back(
         IterDomainBuilder(
             FusionGuard::getCurFusion()->zeroVal(), inp_axis->extent())
-            .stop_offset(IrBuilder::create<Int>(out_stop_offset))
+            .stop_offset(IrBuilder::create<Val>(out_stop_offset))
             .iter_type(inp_axis->getIterType())
             .build());
     // create a new axis for the gathered domain
     out_gather_dom.push_back(IterDomainBuilder(
                                  FusionGuard::getCurFusion()->zeroVal(),
-                                 IrBuilder::create<Int>(window_dim))
+                                 IrBuilder::create<Val>((int64_t)window_dim))
                                  .iter_type(IterType::Gather)
                                  .build());
   }
@@ -2303,7 +2369,7 @@ TensorView* viewAsScalar(TensorView* inp) {
 
   IterDomain* id = IterDomainBuilder(
                        inp_domain[0]->container()->zeroVal(),
-                       IrBuilder::create<Int>((int64_t)vec_size))
+                       IrBuilder::create<Val>((int64_t)vec_size))
                        .iter_type(IterType::VectorComponent)
                        .build();
   out_domain.push_back(id);
@@ -2393,7 +2459,7 @@ TensorView* fusedMultiplySum(
     const std::vector<int>& axes,
     Val* init) {
   if (init == nullptr) {
-    init = IrBuilder::create<Double>(0);
+    init = IrBuilder::create<Val>(0.0);
   }
 
   // TODO:
@@ -2431,6 +2497,41 @@ TensorView* fusedMultiplySum(
   TensorView* out = newForMma(tv_a, tv_b, uint_axes);
   IrBuilder::create<MmaOp>(out, tv_a, tv_b, init);
 
+  return out;
+}
+
+TensorView* tensor(Val* val) {
+  auto dtype = val->dtype();
+  if (std::holds_alternative<PrimDataType>(dtype.type)) {
+    // scalar tensor
+    return full({}, val, dtype);
+  }
+  std::vector<int64_t> sizes;
+  while (std::holds_alternative<ArrayOf>(dtype.type)) {
+    sizes.push_back((int64_t)std::get<ArrayOf>(dtype.type).size);
+    dtype = *std::get<ArrayOf>(dtype.type).type;
+  }
+  TORCH_INTERNAL_ASSERT(
+      std::holds_alternative<PrimDataType>(dtype.type),
+      "Expected an array of scalar or nested array of scalar");
+
+  std::vector<IterDomain*> out_domain;
+  out_domain.reserve(sizes.size());
+  for (auto size : sizes) {
+    IterDomain* id =
+        IterDomainBuilder(
+            val->container()->zeroVal(), IrBuilder::create<Val>(size))
+            .build();
+    out_domain.push_back(id);
+  }
+
+  auto out = IrBuilder::create<TensorView>(
+      val->container(),
+      IrBuilder::create<TensorDomain>(
+          out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
+      dtype);
+
+  IrBuilder::create<TensorConstruct>(val->container(), out, val);
   return out;
 }
 

@@ -13,10 +13,11 @@
 #include <ir/all_nodes.h>
 #include <maxinfo_propagator.h>
 // TODO: Move to cpp file.
-#include <expr_simplifier.h>
 #include <ir/builder.h>
 
 #include <sstream>
+#include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace nvfuser {
@@ -25,165 +26,6 @@ class SchedulerRuntimeInfo;
 class HeuristicSummary;
 
 namespace vectorize_helper {
-
-// Basic factorization helpers used to simplify factors with only
-// multiplications and divisions. i.e. can help simplify: 21/3 but not
-// (15-7)/(3+2). This is all that's necessary for current support to partially
-// map dimensions through our compute at DAG.
-namespace factorization_helpers {
-
-// Returns factors of i
-TORCH_CUDA_CU_API std::multiset<int64_t> computeFactors(int64_t i);
-
-TORCH_CUDA_CU_API std::multiset<int64_t> getAllFactors(
-    const std::multiset<int64_t>& in_vals);
-
-TORCH_CUDA_CU_API std::pair<std::multiset<int64_t>, std::multiset<int64_t>>
-removeCommonFactors(
-    const std::multiset<int64_t>& set1,
-    const std::multiset<int64_t>& set2);
-
-// Given factors made up of a product of integers over a product of integers,
-// simplify the factors. Factorization algorithm here could be improved for
-// performance.
-TORCH_CUDA_CU_API std::pair<std::vector<int64_t>, std::vector<int64_t>>
-removeCommonFactors(
-    const std::vector<int64_t>& vec1,
-    const std::vector<int64_t>& vec2);
-
-TORCH_CUDA_CU_API std::pair<std::multiset<Val*>, std::multiset<Val*>>
-removeSameVals(
-    const std::multiset<Val*>& set1,
-    const std::multiset<Val*>& set2);
-
-// Remove all Val*s that are in both vec1 and vec2
-TORCH_CUDA_CU_API std::pair<std::vector<Val*>, std::vector<Val*>> removeSameVals(
-    const std::vector<Val*>& vec1,
-    const std::vector<Val*>& vec2);
-} // namespace factorization_helpers
-
-// Helper class that to track partial mappings of extents. The stored extent in
-// this class is product(numerator values)/product(denominator values) and has
-// basic functionality like adding a multiplied factor to either the numerator
-// or denominator. This class starts with a value of 0/1, but once a value is
-// added it can never be zero again.
-class TORCH_CUDA_CU_API ProjectedExtent {
- public:
-  // Multiply numerator by provided value, or if currently zero set numerator to
-  // provided value.
-  void multiplyNumeratorValue(Val* new_numerator_val) {
-    TORCH_INTERNAL_ASSERT(
-        quotient_ == nullptr && is_divisible_ == nullptr,
-        "Can not modify finalized ProjectedExtent.");
-    if (numerator_ == nullptr) {
-      numerator_ = new_numerator_val;
-    } else {
-      numerator_ = SimplifyingIrBuilder::mulExpr(numerator_, new_numerator_val);
-    }
-
-    zero_ = false;
-  }
-
-  // Multiply denominator by provided value
-  void multiplyDenominatorValue(Val* new_denominator_val) {
-    TORCH_INTERNAL_ASSERT(
-        quotient_ == nullptr && is_divisible_ == nullptr,
-        "Can not modify finalized ProjectedExtent.");
-    if (numerator_ == nullptr) {
-      denominator_ = new_denominator_val;
-    } else {
-      denominator_ =
-          SimplifyingIrBuilder::mulExpr(denominator_, new_denominator_val);
-    }
-  }
-
-  // Multiply by other but wrap each value in other with the provided predicate.
-  void maybeMul(Val* pred, const ProjectedExtent& other) {
-    TORCH_INTERNAL_ASSERT(
-        quotient_ == nullptr && is_divisible_ == nullptr,
-        "Can not modify finalized ProjectedExtent.");
-
-    TORCH_INTERNAL_ASSERT(
-        !other.isZero(),
-        "Maybe multiplying by zero ProjectedExtent not supported.");
-
-    TORCH_INTERNAL_ASSERT(
-        pred != nullptr && pred->isA<Bool>(),
-        "Predicate must be a bool value for this function.");
-
-    multiplyNumeratorValue(SimplifyingIrBuilder::whereExpr(
-        pred, other.numerator(), FusionGuard::getCurFusion()->oneVal()));
-    multiplyDenominatorValue(SimplifyingIrBuilder::whereExpr(
-        pred, other.denominator(), FusionGuard::getCurFusion()->oneVal()));
-  }
-
-  Val* numerator() const {
-    return numerator_ != nullptr ? numerator_
-                                 : FusionGuard::getCurFusion()->oneVal();
-  }
-
-  Val* denominator() const {
-    return denominator_ != nullptr ? denominator_
-                                   : FusionGuard::getCurFusion()->oneVal();
-  }
-
-  Val* quotient() const {
-    if (quotient_ != nullptr) {
-      return quotient_;
-    }
-    return SimplifyingIrBuilder::divExpr(numerator(), denominator());
-  }
-
-  Val* isDivisible() const {
-    if (is_divisible_ != nullptr) {
-      return is_divisible_;
-    }
-    return SimplifyingIrBuilder::eqExpr(
-        SimplifyingIrBuilder::modExpr(numerator(), denominator()),
-        numerator()->container()->zeroVal());
-  }
-
-  bool isZero() const {
-    return zero_;
-  }
-
-  std::string toString() const {
-    std::stringstream ss;
-    ss << numerator()->toInlineString() << " , "
-       << denominator()->toInlineString();
-    return ss.str();
-  }
-
-  // Run expression simplification and store results in quotient_ and
-  // is_divisible_. This is important because we might use expr evaluator to
-  // evaluate their values multiple times, so we want to simplify them once and
-  // cache the result so that later evaluation can save time.
-  void finalize() {
-    if (quotient_ == nullptr) {
-      // TODO: print the simplified expression and see if expr simplifier needs
-      // improvement
-      quotient_ = simplifyExpr(quotient());
-    }
-    if (is_divisible_ == nullptr) {
-      // TODO: print the simplified expression and see if expr simplifier needs
-      // improvement
-      is_divisible_ = simplifyExpr(isDivisible());
-    }
-  }
-
- private:
-  // Fraction starts at zero, but if a value is ever added in the numerator it
-  // can never be zero again, it must be at least 1.
-  bool zero_ = true;
-
-  // numerator and denominator values (product of the sets below)
-  Val* numerator_ = nullptr;
-  Val* denominator_ = nullptr;
-
-  // Simplified quotient and isDivisible values
-  Val* quotient_ = nullptr;
-  Val* is_divisible_ = nullptr;
-};
 
 // Projects IterDomains through the fusion starting at provided reference. IDs
 // in the reference are expected to be "contiguous", simply means dimensions
@@ -335,13 +177,14 @@ class TORCH_CUDA_CU_API ContiguousInnerDimensionsMapper
         ->mapped_rfactor_ids_;
   }
 
-  ProjectedExtent& getMappedExtent(IterDomain* id) {
-    if (projected_extent_.find(id) != projected_extent_.end()) {
-      return projected_extent_.at(id);
+  Val* getProjectedExtent(IterDomain* id) {
+    if (projected_extent_.find(id) == projected_extent_.end()) {
+      projected_extent_[id] = id->container()->oneVal();
     }
-    projected_extent_[id] = ProjectedExtent();
     return projected_extent_.at(id);
   }
+
+  std::unordered_map<TensorView*, Val*> getTvToContigMergeOfInnerSizeMap();
 
  private:
   ContiguousInnerDimensionsMapper(
@@ -387,12 +230,26 @@ class TORCH_CUDA_CU_API ContiguousInnerDimensionsMapper
     bool is_c2p_ = true;
   };
 
-  void addProjectedExtent(IterDomain* id, ProjectedExtent pe) {
+  // TODO: make pe a lanmda function so it is not evaluated if not needed
+  void addProjectedExtent(IterDomain* id, Val* pe) {
     if (!recording_) {
       return;
     }
     projected_extent_[id] = pe;
   }
+
+  // Return a boolean predicate indicating if the given ID is fully projected.
+  Val* isFullyProjected(IterDomain* id);
+
+  // From the projected extent (PE) of I1 and I2, update the PE of I1*I2.
+  template <typename MergeOrSplit>
+  void combinePE(const MergeOrSplit* merge_or_split, bool outer_maps);
+  // From the projected extent (PE) of I1*I2, update the PE of I1 and I2.
+  template <typename MergeOrSplit>
+  void distributePE(const MergeOrSplit* merge_or_split);
+
+  // Returns the projected inner size. Contiguous inner dimensions are merged.
+  Val* getContigMergeOfInnerSize(TensorView* of_tv);
 
   // MaxInfoSpanningTree functions
   std::shared_ptr<Information> computeInfoC2P(
@@ -411,24 +268,14 @@ class TORCH_CUDA_CU_API ContiguousInnerDimensionsMapper
       std::shared_ptr<Information> from_info) final;
 
   // Projection from root<->rfactor domains
-  std::vector<IterDomain*> projectIdToRoot(
-      TensorView* ref,
-      std::vector<IterDomain*> from_info);
-
-  std::vector<IterDomain*> projectIdToRFactor(
-      TensorView* ref,
-      std::vector<IterDomain*> from_info);
+  std::vector<IterDomain*> projectId(
+      const std::vector<IterDomain*>& from,
+      const std::vector<IterDomain*>& to);
 
   // Propagator functions
   void propagateC2P(TensorView* from, TensorView* to) final;
   void propagateP2C(TensorView* from, TensorView* to) final;
   void propagateSibling(TensorView* from, TensorView* to) final;
-
-  // Extent propagation through single transformation operations
-  void propagateExtentSplitBackward(Split* split, bool outer_maps);
-  void propagateExtentMergeBackward(const Merge* merge);
-  void propagateExtentMergeForward(const Merge* merge, bool outer_maps);
-  void propagateExtentSplitForward(Split* split);
 
   // Initialized to false, series of compute... calls will be performed to find
   // the spanning tree. Then propagate... calls will call the compute... calls.
@@ -448,24 +295,8 @@ class TORCH_CUDA_CU_API ContiguousInnerDimensionsMapper
       std::shared_ptr<MaxInfoSpanningTree::Information>>
       tv_infos_;
 
-  std::unordered_map<IterDomain*, ProjectedExtent> projected_extent_;
+  std::unordered_map<IterDomain*, Val*> projected_extent_;
 };
-
-// Returns Mappings of all dims in reference starting from inner most position
-// to outer most position.
-//
-// A tensor like T0[i0, r1, b2] will return 3 Mapper instances associated
-// with:
-// {{i0, r1, b1}, {r1, b1}, {b1}}
-std::vector<ContiguousInnerDimensionsMapper> getAllVectorizedMapsOf(
-    TensorView* ref);
-
-// Returns PartialExtent entires associated with each dimension that should be
-// evaluated based on contiguity of reference and dimensions mapped to ref in
-// mapper.
-std::vector<std::pair<ProjectedExtent&, IterDomain*>> getContigVectorSizesOf(
-    TensorView* of_tv,
-    ContiguousInnerDimensionsMapper& mapper);
 
 size_t getVectorizationFactor(
     SchedulerRuntimeInfo& runtime_info,

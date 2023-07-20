@@ -5,7 +5,9 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <debug.h>
 #include <instrumentation.h>
+#include <options.h>
 #include <python_frontend/fusion_cache.h>
 #include <python_frontend/fusion_definition.h>
 #include <utils.h>
@@ -44,7 +46,7 @@ const char* dtypeToPyString(PrimDataType t) {
   return nullptr;
 }
 
-FusionDefinition::FusionDefinition(c10::optional<size_t> id, size_t max_length)
+FusionDefinition::FusionDefinition(std::optional<size_t> id, size_t max_length)
     : FusionState(),
       max_length_(max_length),
       fusion_id_(id),
@@ -73,14 +75,14 @@ void FusionDefinition::finalizeDefinition() {
   auto child_node = fusionCache()->queryChildren(trie_node_, end_record_.get());
   if (!child_node.has_value()) {
     if (isDebugDumpEnabled(DebugDumpOption::PythonFrontendDebug)) {
-      std::cout << "\nFusionDefinition: Terminal Node not found.\n";
+      debug() << "\nFusionDefinition: Terminal Node not found.\n";
     }
     trie_node_ = fusionCache()->createChild(trie_node_, end_record_.get());
-    fusion_id_ = c10::optional<size_t>(trie_node_->fusion_id);
+    fusion_id_ = std::optional<size_t>(trie_node_->fusion_id);
     TORCH_CHECK(id().has_value(), "Invalid fusion id!");
 
     if (isDebugDumpEnabled(DebugDumpOption::PythonDefinition)) {
-      print(std::cout);
+      print(debug());
     }
 
     buildFusionIr(preschedFusion());
@@ -90,10 +92,10 @@ void FusionDefinition::finalizeDefinition() {
     }
   } else {
     if (isDebugDumpEnabled(DebugDumpOption::PythonFrontendDebug)) {
-      std::cout << "\nFusionDefinition: Terminal Node found!\n";
+      debug() << "\nFusionDefinition: Terminal Node found!\n";
     }
     trie_node_ = child_node.value();
-    fusion_id_ = c10::optional<size_t>(trie_node_->fusion_id);
+    fusion_id_ = std::optional<size_t>(trie_node_->fusion_id);
   }
 }
 
@@ -119,6 +121,7 @@ void FusionDefinition::setupSchedule(const at::ArrayRef<c10::IValue>& inputs) {
   prev_fusion_ = FusionGuard::getCurFusion();
   FusionGuard::setCurFusion(user_sched_->schedule.get());
 }
+
 void FusionDefinition::finalizeSchedule(
     const at::ArrayRef<c10::IValue>& inputs) {
   FUSER_PERF_SCOPE("FusionDefinition::finalizeSchedule");
@@ -273,7 +276,7 @@ std::string FusionDefinition::scheduledFusionIrFor(
       inputs, tensor_transforms);
 }
 
-c10::optional<size_t> FusionDefinition::id() const {
+std::optional<size_t> FusionDefinition::id() const {
   return fusion_id_;
 }
 
@@ -288,6 +291,13 @@ Tensor FusionDefinition::defineTensor(size_t dims) {
   FUSER_PERF_SCOPE("FusionDefinition::defineTensor");
   Tensor out(recording_state_.size(), dims, this);
   recording_state_.emplace_back(out(), serde::StateType_Tensor);
+  return out;
+}
+
+Vector FusionDefinition::defineVector(size_t size) {
+  FUSER_PERF_SCOPE("FusionDefinition::defineVector");
+  Vector out(recording_state_.size(), size, this);
+  recording_state_.emplace_back(out(), serde::StateType_Vector);
   return out;
 }
 
@@ -307,15 +317,15 @@ void FusionDefinition::defineRecord(RecordFunctor* record) {
   // match it but it also already existed in the cache.
   if (child_node.has_value()) {
     if (isDebugDumpEnabled(DebugDumpOption::PythonFrontendDebug)) {
-      std::cout << "\nFusionDefinition: Record (hash: 0x" << std::hex
-                << record->hash() << ") hit in Fusion Cache.\n";
+      debug() << "\nFusionDefinition: Record (hash: 0x" << std::hex
+              << record->hash() << ") hit in Fusion Cache.\n";
     }
     trie_node_ = child_node.value();
     // The FusionDefinition and the Cache will share the Record
   } else {
     if (isDebugDumpEnabled(DebugDumpOption::PythonFrontendDebug)) {
-      std::cout << "\nFusionDefinition: Record (hash: 0x" << std::hex
-                << record->hash() << ") missed in Fusion Cache.\n";
+      debug() << "\nFusionDefinition: Record (hash: 0x" << std::hex
+              << record->hash() << ") missed in Fusion Cache.\n";
     }
     trie_node_ =
         fusionCache()->createChild(trie_node_, recording_.back().get());

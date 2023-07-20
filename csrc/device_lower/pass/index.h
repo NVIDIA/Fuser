@@ -48,9 +48,11 @@ class TORCH_CUDA_CU_API IndexLowering : private OptOutConstDispatch {
   void handle(const EyeOp*) final;
   void handle(const ViewAsScalar*) final;
   void handle(const UnaryOp*) final;
-
   void handle(const BinaryOp*) final;
   void handle(const TernaryOp*) final;
+  void handle(const ArrayConstruct*) final;
+  void handle(const GetItem*) final;
+  void handle(const TensorConstruct*) final;
   void handle(const SelectOp*) final;
   void handle(const IndexSelectOp*) final;
   void handle(const TorchGatherOp*) final;
