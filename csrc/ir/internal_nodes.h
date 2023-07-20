@@ -560,6 +560,9 @@ class TORCH_CUDA_CU_API TensorConstruct : public Expr {
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
 
+  std::vector<PolymorphicValue> evaluate(
+      const std::vector<PolymorphicValue>& inputs) const override;
+
   TensorView* out() const {
     return output(0)->as<TensorView>();
   }

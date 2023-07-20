@@ -506,12 +506,8 @@ TEST_F(TensorFactoryTest, TensorConstruct) {
   fe.compileFusion(fusion.get());
   auto cg_outputs = fe.runFusion({00, 01, 10, 11});
 
-  const auto options =
-      at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
-  at::Tensor expect = at::tensor({00, 01, 10, 11}, options).view({2, 2});
-
   testValidate(
-      fusion.get(), cg_outputs, {00, 01, 10, 11}, {expect}, __LINE__, __FILE__);
+      fusion.get(), cg_outputs, {00, 01, 10, 11}, __LINE__, __FILE__);
 }
 
 TEST_F(TensorFactoryTest, MetadataAsTensor) {
