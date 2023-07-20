@@ -15,11 +15,11 @@
 namespace nvfuser {
 
 // Transform dispatch
-void ReplayTransformations::handle(Expr* e) {
+void ReplayTransformations::dispatch(Expr* e) {
   auto is_supported_expr = e->isOneOf<Split, Merge, Swizzle2D, Resize>();
   TORCH_INTERNAL_ASSERT(
       is_supported_expr, "Invalid expr type found in transform traversal.");
-  IterVisitor::handle(e);
+  IterVisitor::dispatch(e);
 }
 
 // We're going to replay this split operation on the corresponding ID

@@ -236,7 +236,7 @@ class ReductionSizeMapper : private IterVisitor {
     return reduction_elements;
   }
 
-  void handle(Expr* expr) override {
+  void dispatch(Expr* expr) override {
     if (!ir_utils::isTvOp(expr)) {
       return;
     }
