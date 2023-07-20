@@ -454,8 +454,8 @@ void DynamicTransformConcretizer::concretize() {
   // Finally, propagate concretized domains
   auto all_stmts = StmtSort::getStmts(
       info_->fusion(),
-      /*traverse_members*/ false,
-      /*traverse_attributes*/ false,
+      /*traverse_members*/ true,
+      /*traverse_attributes*/ true,
       /*traverse_siblings*/ true);
   for (auto tv : ir_utils::filterByType<TensorView>(all_stmts)) {
     mutate(tv);
@@ -508,7 +508,10 @@ void DynamicTransformConcretizer::concretizeReshape() {
     for (auto idx : c10::irange(new_rfactor.size())) {
       auto old_extent = old_rfactor.at(idx)->extent();
       auto new_extent = new_rfactor.at(idx)->extent();
-      if (!new_extent->sameAs(old_extent)) {
+      // If the old extent did not have a definition, we don't need to replace
+      // it, since it will get bound whenever this tensor is a segmentation
+      // edge.
+      if (old_extent->definition() && !new_extent->sameAs(old_extent)) {
         registerConcretization(old_extent, new_extent);
       }
     }
