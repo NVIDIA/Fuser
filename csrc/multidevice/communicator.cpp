@@ -146,7 +146,14 @@ Communicator::Communicator(CommunicatorBackend backend, RankType server_rank)
 
   // creates the backend
   c10d::TCPStoreOptions store_opts;
-  store_opts.isServer = (rank_ == server_rank) ? true : false;
+  {
+    char hostname[HOST_NAME_MAX];
+    gethostname(hostname, HOST_NAME_MAX);
+    struct hostent *master_host = gethostbyname(master_addr_.c_str());
+    // we define the server as the process at the naster host with local rank 0
+    store_opts.isServer = !strcmp(master_host->h_name, hostname) 
+                              && local_rank_ == server_local_rank;
+  }
   if (master_port_) {
     store_opts.port = master_port_;
   }
