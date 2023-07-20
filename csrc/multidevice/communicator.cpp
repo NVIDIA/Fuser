@@ -75,12 +75,10 @@ bool parseEnv(
   env = std::getenv("MASTER_ADDR");
   if (env) {
     master_addr = env;
-  } else if (local_size == size) {
-    master_addr = "localhost";
   } else {
     TORCH_WARN(
         "the environment variable MASTER_ADDR "
-        "must be specified in multi-node environment");
+        "must be specified in distributed environment");
     return false;
   }
 
