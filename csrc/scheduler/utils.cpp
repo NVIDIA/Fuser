@@ -1048,7 +1048,8 @@ namespace {
 IterDomain* projectIdToRoot(
     TensorView* tv,
     IterDomain* reference_id,
-    bool inner_only) {
+    bool inner_only,
+    bool vectorize_pass) {
   if (reference_id == nullptr) {
     return nullptr;
   }
@@ -1089,7 +1090,12 @@ IterDomain* projectIdToRoot(
     } else if (expr->isA<Resize>()) {
       auto resize = expr->as<Resize>();
       if (resize->out() == projected_id) {
-        projected_id = nullptr;
+        // We do not allow vectorization with resize at this moment
+        if (vectorize_pass) {
+          projected_id = nullptr;
+        } else {
+          projected_id = resize->in();
+        }
       }
     } else {
       TORCH_INTERNAL_ASSERT(
@@ -1108,7 +1114,8 @@ IterDomain* projectIdToRoot(
 IterDomain* projectIdToRFactor(
     TensorView* tv,
     IterDomain* reference_id,
-    bool inner_only) {
+    bool inner_only,
+    bool vectorize_pass) {
   if (reference_id == nullptr) {
     return nullptr;
   }
@@ -1146,7 +1153,12 @@ IterDomain* projectIdToRFactor(
     } else if (expr->isA<Resize>()) {
       auto resize = expr->as<Resize>();
       if (resize->in() == projected_id) {
-        projected_id = nullptr;
+        // We do not allow vectorization wit resize at this moment
+        if (vectorize_pass) {
+          projected_id = nullptr;
+        } else {
+          projected_id = resize->out();
+        }
       }
     } else {
       TORCH_INTERNAL_ASSERT(
@@ -1184,14 +1196,18 @@ IterDomain* innerMostRootDim(TensorView* tv) {
 FindAllMappedDims::FindAllMappedDims(
     TensorView* from,
     IterDomain* id,
-    bool inner_only)
-    : starting_tv_(from), starting_id_(id), inner_only_(inner_only) {}
+    bool inner_only,
+    bool vectorize_pass)
+    : starting_tv_(from),
+      starting_id_(id),
+      inner_only_(inner_only),
+      vectorize_pass_(vectorize_pass) {}
 
 void FindAllMappedDims::setUp() {
   mapped_root_ids_[starting_tv_] =
-      projectIdToRoot(starting_tv_, starting_id_, inner_only_);
-  mapped_rfactor_ids_[starting_tv_] =
-      projectIdToRFactor(starting_tv_, starting_id_, inner_only_);
+      projectIdToRoot(starting_tv_, starting_id_, inner_only_, vectorize_pass_);
+  mapped_rfactor_ids_[starting_tv_] = projectIdToRFactor(
+      starting_tv_, starting_id_, inner_only_, vectorize_pass_);
 }
 
 void FindAllMappedDims::propagateC2P(TensorView* from, TensorView* to) {
@@ -1200,7 +1216,8 @@ void FindAllMappedDims::propagateC2P(TensorView* from, TensorView* to) {
   auto c2p_map = root_map.mapConsumerToProducer(from->domain(), to->domain());
   auto p_it = c2p_map.find(from_id);
   if (p_it != c2p_map.end()) {
-    mapped_root_ids_[to] = projectIdToRoot(to, p_it->second, inner_only_);
+    mapped_root_ids_[to] =
+        projectIdToRoot(to, p_it->second, inner_only_, vectorize_pass_);
     mapped_rfactor_ids_[to] = p_it->second;
   } else {
     mapped_root_ids_[to] = nullptr;
@@ -1215,7 +1232,8 @@ void FindAllMappedDims::propagateP2C(TensorView* from, TensorView* to) {
   auto c_it = p2c_map.find(from_id);
   if (c_it != p2c_map.end()) {
     mapped_root_ids_[to] = c_it->second;
-    mapped_rfactor_ids_[to] = projectIdToRFactor(to, c_it->second, inner_only_);
+    mapped_rfactor_ids_[to] =
+        projectIdToRFactor(to, c_it->second, inner_only_, vectorize_pass_);
   } else {
     mapped_root_ids_[to] = nullptr;
     mapped_rfactor_ids_[to] = nullptr;
@@ -1324,7 +1342,7 @@ std::vector<TensorView*> getInputsOutputsWithInnerDim(
   }
 
   FindAllMappedDims all_mapped_root_dims(
-      reference_tv, inner_most_id, inner_only);
+      reference_tv, inner_most_id, inner_only, vectorize_pass);
   MaxRootDomainInfoSpanningTree tree(reference_tv);
   tree.traverse(&all_mapped_root_dims);
 

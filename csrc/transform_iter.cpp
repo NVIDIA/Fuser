@@ -1115,10 +1115,12 @@ void BestEffortReplay::skipResizes(
       if (auto target_resize = getResizeUse(target_id, target_exprs);
           target_resize != nullptr) {
         new_target_id = target_resize->out();
+        skipped_resize_id_map_.emplace(target_id, new_target_id);
       }
       if (auto replay_resize = getResizeUse(replay_id, replay_exprs);
           replay_resize != nullptr) {
         new_replay_id = replay_resize->out();
+        skipped_resize_id_map_.emplace(replay_id, new_replay_id);
       }
 
       if (new_target_id == target_id && new_replay_id == replay_id) {
@@ -1146,8 +1148,11 @@ void BestEffortReplay::skipResizes(
 DisjointSets<IterDomain*> BestEffortReplay::getIterDomainEquivalence() {
   DisjointSets<IterDomain*> result;
   using IterDomainMap = std::unordered_map<IterDomain*, IterDomain*>;
-  const std::array<IterDomainMap*, 3> maps = {
-      &target2replay_id_map_, &replay_forward_id_map_, &target_forward_id_map_};
+  const std::array<IterDomainMap*, 4> maps = {
+      &target2replay_id_map_,
+      &replay_forward_id_map_,
+      &target_forward_id_map_,
+      &skipped_resize_id_map_};
   for (auto map : maps) {
     // Sort the keys so that they appear in a deterministic order
     for (auto key : getSortedKeys(*map, Statement::lessThan)) {

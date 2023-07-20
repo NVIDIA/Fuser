@@ -212,6 +212,7 @@ class TORCH_CUDA_CU_API BestEffortReplay {
   std::unordered_map<IterDomain*, IterDomain*> target_forward_id_map_;
   std::unordered_map<IterDomain*, size_t> leaf_ids_;
   std::vector<IterDomain*> forwarded_ids_;
+  std::unordered_map<IterDomain*, IterDomain*> skipped_resize_id_map_;
 
   // Need to track which id's have been forwarded. Later need to make sure leaf
   // nodes to produce compliment axes are properly tracked. i.e.
