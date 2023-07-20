@@ -20,6 +20,14 @@ struct alignas(sizeof(scalar_t) * align_size) Array {
   __device__ scalar_t& operator[](const unsigned int i) {
     return array[i];
   }
+
+  Array& operator=(scalar_t a[size]) {
+#pragma unroll
+    for (int i = 0; i < size; ++i) {
+      array[i] = a[i];
+    }
+    return *this;
+  }
 };
 
 // Used for vectorized allocations that are not in registers
