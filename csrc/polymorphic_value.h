@@ -10,9 +10,12 @@
 #include <macros.h>
 
 #include <dynamic_type.h>
+#include <any>
 #include <complex>
 #include <cstddef>
+#include <functional>
 #include <numeric>
+#include <ostream>
 #include <unordered_map>
 
 #include <ATen/ATen.h>
@@ -157,20 +160,70 @@ class Pointer {
   explicit operator bool() const {
     return ptr_;
   }
+
+  explicit operator int64_t() const {
+    return reinterpret_cast<int64_t>(ptr_);
+  }
+
+  explicit operator unsigned() const {
+    return (unsigned)(int64_t)(*this);
+  }
 };
 
 inline Pointer operator+(int64_t offset, const Pointer& ptr) {
   return ptr + offset;
 }
 
+struct Opaque {
+  std::any value;
+
+  // Because the type information is not available at compile time, we can't
+  // accurately compare the values of two opaque values. So, by default,
+  // equality check is done by pointer compare. However, we also support
+  // manually specifying the equality comparator.
+  std::function<bool(const Opaque&, const Opaque&)> equals =
+      [](const Opaque& a, const Opaque& b) { return &a == &b; };
+
+  bool operator==(const Opaque& other) const {
+    if (this == &other) {
+      return true;
+    }
+    if (value.type() != other.value.type()) {
+      return false;
+    }
+    bool result1 = equals(*this, other);
+    bool result2 = equals(other, *this);
+    TORCH_INTERNAL_ASSERT(
+        result1 == result2, "Opaque equality is not symmetric");
+    return result1;
+  }
+
+  bool operator!=(const Opaque& other) const {
+    return !(*this == other);
+  }
+};
+
+inline std::ostream& operator<<(std::ostream& os, const Opaque& opaque) {
+  os << "Opaque<" << opaque.value.type().name() << ">";
+  return os;
+}
+
+template <typename T>
+struct OpaqueEquals {
+  bool operator()(const Opaque& a, const Opaque& b) const {
+    return std::any_cast<T>(a.value) == std::any_cast<T>(b.value);
+  }
+};
+
 using PolymorphicValue = DynamicType<
     Containers<std::vector, Struct>,
+    Pointer,
+    Opaque,
     at::Tensor,
     std::complex<double>,
     double,
     int64_t,
-    bool,
-    Pointer>;
+    bool>;
 
 namespace PolymorphicValue_functions {
 

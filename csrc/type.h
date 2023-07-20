@@ -33,12 +33,11 @@ enum class ValType {
   TensorDomain,
   IterDomain,
   TensorView,
-  Scalar,
   NamedScalar,
   Predicate,
   TensorIndex,
   PipelineVal,
-  Attribute
+  Others
 };
 
 // Manual - The user provides the Bool value. Predicate generation is bypassed.
@@ -83,6 +82,8 @@ enum class PrimDataType {
   ComplexFloat,
   // Pointers
   SMemAddress,
+  // Opaque data type
+  Opaque,
   // Null
   Null
 };
@@ -161,6 +162,7 @@ struct DataType {
   static constexpr PrimDataType ComplexFloat = PrimDataType::ComplexFloat;
   static constexpr PrimDataType ComplexDouble = PrimDataType::ComplexDouble;
   static constexpr PrimDataType SMemAddress = PrimDataType::SMemAddress;
+  static constexpr PrimDataType Opaque = PrimDataType::Opaque;
   static constexpr PrimDataType Null = PrimDataType::Null;
 };
 
@@ -301,53 +303,83 @@ struct AtenTypeToNativeType;
 template <typename NativeType>
 struct IsPrimitiveNativeType : std::false_type {};
 
-#define DEFINE_DATATYPE_TO_NATIVE_TYPE(data_type, at_type, native_type) \
-  template <>                                                           \
-  struct DataTypeToNativeType<data_type> {                              \
-    using type = native_type;                                           \
-  };                                                                    \
-  template <>                                                           \
-  struct DataTypeToAtenType<data_type> {                                \
-    static constexpr at::ScalarType type = at_type;                     \
-  };                                                                    \
-  template <>                                                           \
-  struct NativeTypeToDataType<native_type> {                            \
-    static constexpr PrimDataType type = data_type;                     \
-  };                                                                    \
-  template <>                                                           \
-  struct IsPrimitiveNativeType<native_type> : std::true_type {};        \
-  template <>                                                           \
-  struct AtenTypeToDataType<at_type> {                                  \
-    static constexpr PrimDataType type = data_type;                     \
-  };                                                                    \
-  template <>                                                           \
-  struct AtenTypeToNativeType<at_type> {                                \
-    using type = native_type;                                           \
+#define DEFINE_DATATYPE_TO_NATIVE_TYPE(data_type, native_type) \
+  template <>                                                  \
+  struct DataTypeToNativeType<data_type> {                     \
+    using type = native_type;                                  \
+  };                                                           \
+  template <>                                                  \
+  struct NativeTypeToDataType<native_type> {                   \
+    static constexpr PrimDataType type = data_type;            \
+  };                                                           \
+  template <>                                                  \
+  struct IsPrimitiveNativeType<native_type> : std::true_type {}
+
+#define DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(                 \
+    data_type, at_type, native_type)                             \
+  template <>                                                    \
+  struct DataTypeToNativeType<data_type> {                       \
+    using type = native_type;                                    \
+  };                                                             \
+  template <>                                                    \
+  struct DataTypeToAtenType<data_type> {                         \
+    static constexpr at::ScalarType type = at_type;              \
+  };                                                             \
+  template <>                                                    \
+  struct NativeTypeToDataType<native_type> {                     \
+    static constexpr PrimDataType type = data_type;              \
+  };                                                             \
+  template <>                                                    \
+  struct IsPrimitiveNativeType<native_type> : std::true_type {}; \
+  template <>                                                    \
+  struct AtenTypeToDataType<at_type> {                           \
+    static constexpr PrimDataType type = data_type;              \
+  };                                                             \
+  template <>                                                    \
+  struct AtenTypeToNativeType<at_type> {                         \
+    using type = native_type;                                    \
   }
 
-DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::Float, at::ScalarType::Float, float);
-DEFINE_DATATYPE_TO_NATIVE_TYPE(
+DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
+    DataType::Float,
+    at::ScalarType::Float,
+    float);
+DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
     DataType::Double,
     at::ScalarType::Double,
     double);
-DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::Half, at::ScalarType::Half, at::Half);
-DEFINE_DATATYPE_TO_NATIVE_TYPE(
+DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
+    DataType::Half,
+    at::ScalarType::Half,
+    at::Half);
+DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
     DataType::BFloat16,
     at::ScalarType::BFloat16,
     at::BFloat16);
-DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::Int, at::ScalarType::Long, int64_t);
-DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::Int32, at::ScalarType::Int, int);
-DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::Bool, at::ScalarType::Bool, bool);
-DEFINE_DATATYPE_TO_NATIVE_TYPE(
+DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
+    DataType::Int,
+    at::ScalarType::Long,
+    int64_t);
+DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
+    DataType::Int32,
+    at::ScalarType::Int,
+    int);
+DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
+    DataType::Bool,
+    at::ScalarType::Bool,
+    bool);
+DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
     DataType::ComplexFloat,
     at::ScalarType::ComplexFloat,
     std::complex<float>);
-DEFINE_DATATYPE_TO_NATIVE_TYPE(
+DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
     DataType::ComplexDouble,
     at::ScalarType::ComplexDouble,
     std::complex<double>);
+DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::Opaque, Opaque);
 
 #undef DEFINE_DATATYPE_TO_NATIVE_TYPE
+#undef DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE
 
 inline DataType getDataType(const PolymorphicValue& value) {
   std::optional<DataType> dtype = std::nullopt;
@@ -447,6 +479,9 @@ enum class UnaryOpType {
   IsNegInf,
   IsPosInf,
   IsReal,
+
+  // Special unary ops
+  ToUnsignedSmemAddr
 };
 
 // Primarily for Not, which could be Not a boolean, or a bitwise not.
@@ -845,7 +880,7 @@ inline PolymorphicValue castToDtype(
     return value;
   }
   // Cast the given value to the given data type. This enables interface
-  // like: IrBuilder::create<Scalar>(0, DataType::Double) where value is
+  // like: IrBuilder::create<Val>(0, DataType::Double) where value is
   // an integer but the desired data type is double.
   auto value_dtype = getDataType(value);
   if (!isCompatibleDataType(value_dtype, dtype)) {

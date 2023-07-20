@@ -32,8 +32,6 @@
 
 namespace nvfuser {
 
-NVFUSER_DEFINE_CLONE(Scalar)
-
 FullOp::FullOp(IrBuilderPasskey passkey, Val* out, Val* fill_value)
     : Expr(passkey) {
   if (out->isA<TensorView>()) {
@@ -80,8 +78,7 @@ SelectOp::SelectOp(
   addInput(in);
   addInput(index);
   addOutput(out);
-  addAttribute(
-      IrBuilder::create<Attribute<int64_t>>(passkey.ir_container_, dim));
+  addDataAttribute(dim);
 }
 
 std::string SelectOp::toString(int indent_size) const {
@@ -116,8 +113,7 @@ IndexSelectOp::IndexSelectOp(
   addInput(in);
   addInput(indices);
   addOutput(out);
-  addAttribute(
-      IrBuilder::create<Attribute<int64_t>>(passkey.ir_container_, dim));
+  addDataAttribute(dim);
 }
 
 std::string IndexSelectOp::toString(int indent_size) const {
@@ -157,10 +153,8 @@ TorchGatherOp::TorchGatherOp(
   addInput(in);
   addInput(indices);
   addOutput(out);
-  addAttribute(
-      IrBuilder::create<Attribute<int64_t>>(passkey.ir_container_, dim));
-  addAttribute(
-      IrBuilder::create<Attribute<bool>>(passkey.ir_container_, exact_sizes));
+  addDataAttribute(dim);
+  addDataAttribute(exact_sizes);
 }
 
 std::string TorchGatherOp::toString(int indent_size) const {
@@ -206,10 +200,8 @@ ScatterOp::ScatterOp(
   addInput(index);
   addInput(src);
   addOutput(out);
-  addAttribute(
-      IrBuilder::create<Attribute<int64_t>>(passkey.ir_container_, dim));
-  addAttribute(
-      IrBuilder::create<Attribute<ScatterOpType>>(passkey.ir_container_, type));
+  addDataAttribute(dim);
+  addDataAttribute(type);
 }
 
 std::string ScatterOp::toString(int indent_size) const {
@@ -276,8 +268,7 @@ EyeOp::EyeOp(IrBuilderPasskey passkey, Val* out, DataType dtype)
     }
   }
   addOutput(out);
-  addAttribute(
-      IrBuilder::create<Attribute<DataType>>(passkey.ir_container_, dtype));
+  addDataAttribute(dtype);
 }
 
 std::string EyeOp::toString(int indent_size) const {
@@ -299,8 +290,7 @@ UnaryOp::UnaryOp(IrBuilderPasskey passkey, UnaryOpType type, Val* out, Val* in)
     : Expr(passkey) {
   addOutput(out);
   addInput(in);
-  addAttribute(
-      IrBuilder::create<Attribute<UnaryOpType>>(passkey.ir_container_, type));
+  addDataAttribute(type);
 }
 
 std::vector<PolymorphicValue> UnaryOp::evaluate(
@@ -329,6 +319,9 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
       break;
     case UnaryOpType::Erf:
       return {erf(in)};
+      break;
+    case UnaryOpType::ToUnsignedSmemAddr:
+      return {(int64_t)(unsigned)in};
       break;
     default:
       TORCH_CHECK(
@@ -401,8 +394,7 @@ BinaryOp::BinaryOp(
   addOutput(out);
   addInput(lhs);
   addInput(rhs);
-  addAttribute(
-      IrBuilder::create<Attribute<BinaryOpType>>(passkey.ir_container_, type));
+  addDataAttribute(type);
 }
 
 std::vector<PolymorphicValue> BinaryOp::evaluate(
@@ -554,8 +546,7 @@ TernaryOp::TernaryOp(
   addInput(in1);
   addInput(in2);
   addInput(in3);
-  addAttribute(
-      IrBuilder::create<Attribute<TernaryOpType>>(passkey.ir_container_, type));
+  addDataAttribute(type);
 }
 
 std::vector<PolymorphicValue> TernaryOp::evaluate(
@@ -724,8 +715,7 @@ GetAttr::GetAttr(
       "Data type mismatch for GetAttr");
   addOutput(output);
   addInput(struct_);
-  addAttribute(IrBuilder::create<Attribute<std::string>>(
-      passkey.ir_container_, std::move(attr)));
+  addDataAttribute(std::move(attr));
 }
 
 std::string GetAttr::toString(int indent_size) const {
@@ -778,6 +768,12 @@ std::vector<PolymorphicValue> GetMetaData::evaluate(
       in()->isA<TensorView>(),
       "Currently, GetMetaData only supports TensorView");
   TensorView* tv = in()->as<TensorView>();
+  if (tv->getMemoryType() == MemoryType::Shared) {
+    // Smem tensor is defined locally as a pointer. It is impossible to know the
+    // actual address, but using nullptr is a good approximation.
+    return {PolymorphicValue(Pointer(nullptr, tv->dtype()))};
+  }
+
   at::Tensor input = inputs.at(0).as<at::Tensor>();
 
   Struct<PolymorphicValue> concrete_value;
@@ -844,8 +840,7 @@ RNGOp::RNGOp(
   }
   addOutput(out);
   RNGOp::Attributes attr{type, dtype, rng_offset, parameters.size()};
-  addAttribute(IrBuilder::create<Attribute<RNGOp::Attributes>>(
-      passkey.ir_container_, attr));
+  addDataAttribute(attr);
   addAttribute(philox_index);
 }
 
@@ -944,8 +939,7 @@ BroadcastOp::BroadcastOp(
         "The dimensions of output tensor and does not match with is_broadcast_dims and input tensor");
   }
 
-  addAttribute(IrBuilder::create<Attribute<std::vector<bool>>>(
-      passkey.ir_container_, std::move(is_broadcast_dims)));
+  addDataAttribute(std::move(is_broadcast_dims));
 }
 
 std::string BroadcastOp::toString(int indent_size) const {
@@ -1041,8 +1035,7 @@ SqueezeOp::SqueezeOp(
       in_size == out_tv->nDims() + num_removed_broadcasts,
       "The dimensions of output tensor and does not match with is_squeeze_dims and input tensor");
 
-  addAttribute(IrBuilder::create<Attribute<std::vector<bool>>>(
-      passkey.ir_container_, std::move(is_squeeze_dims)));
+  addDataAttribute(std::move(is_squeeze_dims));
 }
 
 std::string SqueezeOp::toString(int indent_size) const {
@@ -1153,10 +1146,8 @@ ReductionOp::ReductionOp(
   addOutput(out);
   addInput(in);
   addAttribute(init);
-  addAttribute(IrBuilder::create<Attribute<BinaryOpType>>(
-      passkey.ir_container_, reduction_op_type));
-  addAttribute(
-      IrBuilder::create<Attribute<bool>>(passkey.ir_container_, is_allreduce));
+  addDataAttribute(reduction_op_type);
+  addDataAttribute(is_allreduce);
 }
 
 std::string ReductionOp::toString(int indent_size) const {
@@ -1192,10 +1183,8 @@ GroupedReductionOp::GroupedReductionOp(
     addInput(in);
   }
 
-  addAttribute(IrBuilder::create<Attribute<std::vector<BinaryOpType>>>(
-      passkey.ir_container_, std::move(reduction_op_types)));
-  addAttribute(
-      IrBuilder::create<Attribute<bool>>(passkey.ir_container_, is_fused));
+  addDataAttribute(std::move(reduction_op_types));
+  addDataAttribute(is_fused);
 
   for (auto init : init_vals) {
     addAttribute(init);
@@ -1296,7 +1285,7 @@ WelfordOp::WelfordOp(
   TORCH_INTERNAL_ASSERT(isIntegralType(output.N()->dtype()));
 
   // check initial value
-  TORCH_INTERNAL_ASSERT(init.N()->getValType().value() == ValType::Scalar);
+  TORCH_INTERNAL_ASSERT(init.N()->getValType().value() == ValType::Others);
   TORCH_INTERNAL_ASSERT(isIntegralType(init.N()->dtype()));
   if (!init.N()->isZeroInt()) {
     // when initial count is zero, no initial variance or average is needed
@@ -1318,7 +1307,7 @@ WelfordOp::WelfordOp(
           input.avg()->getValType().value() == ValType::TensorIndex,
       input.avg()->getValType().value());
   TORCH_INTERNAL_ASSERT(
-      input.N()->getValType().value() == ValType::Scalar ||
+      input.N()->getValType().value() == ValType::Others ||
       input.N()->getValType().value() == ValType::TensorView ||
       input.N()->getValType().value() == ValType::TensorIndex);
   TORCH_INTERNAL_ASSERT(isIntegralType(input.N()->dtype()));
@@ -1345,8 +1334,7 @@ WelfordOp::WelfordOp(
   addAttribute(init.avg());
   addAttribute(init.var());
   addAttribute(init.N());
-  addAttribute(
-      IrBuilder::create<Attribute<bool>>(passkey.ir_container_, is_fused));
+  addDataAttribute(is_fused);
 
   TORCH_INTERNAL_ASSERT(attributes().size() == kNumAttrs);
 }
@@ -1457,13 +1445,13 @@ GroupedWelfordOp::GroupedWelfordOp(
     TORCH_INTERNAL_ASSERT(
         init_avg != nullptr && init_var != nullptr && init_N != nullptr,
         "nullptr init vals are not allowed");
-    TORCH_INTERNAL_ASSERT(init_N->getValType().value() == ValType::Scalar);
+    TORCH_INTERNAL_ASSERT(init_N->getValType().value() == ValType::Others);
     TORCH_INTERNAL_ASSERT(isIntegralType(init_N->dtype()));
     TORCH_INTERNAL_ASSERT(
         init_avg->getValType().value() == ValType::TensorView ||
             init_avg->getValType().value() == ValType::TensorIndex ||
             (init_N->isZeroInt() &&
-             init_avg->getValType().value() == ValType::Scalar),
+             init_avg->getValType().value() == ValType::Others),
         "Initial avg must be a tensor or, can be a scalar if initial N is zero.",
         " Initial avg: ",
         init_avg->toString(),
@@ -1473,7 +1461,7 @@ GroupedWelfordOp::GroupedWelfordOp(
         init_var->getValType().value() == ValType::TensorView ||
             init_var->getValType().value() == ValType::TensorIndex ||
             (init_N->isZeroInt() &&
-             init_var->getValType().value() == ValType::Scalar),
+             init_var->getValType().value() == ValType::Others),
         "Initial var must be a tensor or, can be a scalar if initial N is zero: ",
         init_var->toString());
 
@@ -1485,7 +1473,7 @@ GroupedWelfordOp::GroupedWelfordOp(
         in_avg != nullptr && in_var != nullptr && in_N != nullptr,
         "nullptr input vals are not allowed");
     TORCH_INTERNAL_ASSERT(
-        in_N->getValType().value() == ValType::Scalar ||
+        in_N->getValType().value() == ValType::Others ||
         in_N->getValType().value() == ValType::TensorView ||
         in_N->getValType().value() == ValType::TensorIndex);
     TORCH_INTERNAL_ASSERT(isIntegralType(in_N->dtype()));
@@ -1512,8 +1500,7 @@ GroupedWelfordOp::GroupedWelfordOp(
     }
   }
 
-  addAttribute(
-      IrBuilder::create<Attribute<bool>>(passkey.ir_container_, is_allreduce));
+  addDataAttribute(is_allreduce);
   for (const auto i : c10::irange(num_grouped_ops)) {
     addOutput(output_vals[i].avg());
     addOutput(output_vals[i].var());
@@ -1858,19 +1845,17 @@ MmaOp::MmaOp(
   // ATTR_POS_INIT
   addAttribute(init);
   // ATTR_POS_OPTS
-  addAttribute(
-      IrBuilder::create<Attribute<OptionsInMma>>(passkey.ir_container_));
+  addDataAttribute(OptionsInMma{});
   // ATTR_POS_M_AXES
-  addAttribute(IrBuilder::create<Attribute<AxesData>>(passkey.ir_container_));
+  addDataAttribute(AxesData{});
   // ATTR_POS_N_AXES
-  addAttribute(IrBuilder::create<Attribute<AxesData>>(passkey.ir_container_));
+  addDataAttribute(AxesData{});
   // ATTR_POS_K_AXES
-  addAttribute(IrBuilder::create<Attribute<AxesData>>(passkey.ir_container_));
+  addDataAttribute(AxesData{});
   // ATTR_POS_BATCH_AXES
-  addAttribute(IrBuilder::create<Attribute<AxesData>>(passkey.ir_container_));
+  addDataAttribute(AxesData{});
   // ATTR_POS_INPUT_LAYOUT
-  addAttribute(
-      IrBuilder::create<Attribute<MmaLayoutOpt>>(passkey.ir_container_));
+  addDataAttribute(MmaLayoutOpt{});
 
   MmaOpUtils::MmaOpDetails mma_details;
   // Detailed consistency checks for use case with TensorViews as
@@ -1881,16 +1866,11 @@ MmaOp::MmaOp(
         out->as<TensorView>(), in_a->as<TensorView>(), in_b->as<TensorView>());
   }
 
-  attribute(ATTR_POS_M_AXES)->as<Attribute<AxesData>>()->value =
-      std::move(mma_details.m_axes);
-  attribute(ATTR_POS_N_AXES)->as<Attribute<AxesData>>()->value =
-      std::move(mma_details.n_axes);
-  attribute(ATTR_POS_K_AXES)->as<Attribute<AxesData>>()->value =
-      std::move(mma_details.k_axes);
-  attribute(ATTR_POS_BATCH_AXES)->as<Attribute<AxesData>>()->value =
-      std::move(mma_details.batch_axes);
-  attribute(ATTR_POS_INPUT_LAYOUT)->as<Attribute<MmaLayoutOpt>>()->value =
-      mma_details.input_layout;
+  attribute<AxesData>(ATTR_POS_M_AXES) = std::move(mma_details.m_axes);
+  attribute<AxesData>(ATTR_POS_N_AXES) = std::move(mma_details.n_axes);
+  attribute<AxesData>(ATTR_POS_K_AXES) = std::move(mma_details.k_axes);
+  attribute<AxesData>(ATTR_POS_BATCH_AXES) = std::move(mma_details.batch_axes);
+  attribute<MmaLayoutOpt>(ATTR_POS_INPUT_LAYOUT) = mma_details.input_layout;
 }
 
 MmaOp::MmaOp(
@@ -1902,10 +1882,9 @@ MmaOp::MmaOp(
     const OptionsInMma& options,
     const MmaLayoutOpt& input_layout)
     : MmaOp(passkey, out, in_a, in_b, init) {
-  attribute(ATTR_POS_OPTS)->as<Attribute<OptionsInMma>>()->value = options;
+  attribute<OptionsInMma>(ATTR_POS_OPTS) = options;
 
-  const auto input_layout_ =
-      attribute(ATTR_POS_INPUT_LAYOUT)->as<Attribute<MmaLayoutOpt>>()->value;
+  const auto input_layout_ = attribute<MmaLayoutOpt>(ATTR_POS_INPUT_LAYOUT);
   if (input_layout_.has_value()) {
     TORCH_INTERNAL_ASSERT(input_layout.has_value());
     TORCH_INTERNAL_ASSERT(
@@ -1916,8 +1895,7 @@ MmaOp::MmaOp(
         nvfuser::toString(input_layout.value()),
         ")");
   } else {
-    attribute(ATTR_POS_INPUT_LAYOUT)->as<Attribute<MmaLayoutOpt>>()->value =
-        input_layout;
+    attribute<MmaLayoutOpt>(ATTR_POS_INPUT_LAYOUT) = input_layout;
   }
 }
 
@@ -1934,8 +1912,7 @@ std::string MmaOp::toInlineString(int indent_size) const {
 }
 
 void MmaOp::configureOptions(MmaOptions options) {
-  OptionsInMma& opt =
-      attribute(ATTR_POS_OPTS)->as<Attribute<OptionsInMma>>()->value;
+  OptionsInMma& opt = attribute<OptionsInMma>(ATTR_POS_OPTS);
   TORCH_INTERNAL_ASSERT(
       options.macro != MmaOptions::MacroType::NoMMA,
       "Un-configured mma type from options.");
@@ -2013,10 +1990,8 @@ ShiftOp::ShiftOp(
 
   addOutput(out);
   addInput(in);
-  addAttribute(IrBuilder::create<Attribute<std::vector<int>>>(
-      passkey.ir_container_, std::move(offsets)));
-  addAttribute(IrBuilder::create<Attribute<std::vector<int>>>(
-      passkey.ir_container_, std::move(pad_width)));
+  addDataAttribute(std::move(offsets));
+  addDataAttribute(std::move(pad_width));
 }
 
 std::string ShiftOp::toString(int indent_size) const {
@@ -2068,10 +2043,8 @@ GatherOp::GatherOp(
 
   addOutput(out);
   addInput(in);
-  addAttribute(IrBuilder::create<Attribute<std::vector<int>>>(
-      passkey.ir_container_, std::move(window_shape)));
-  addAttribute(IrBuilder::create<Attribute<std::vector<std::vector<int>>>>(
-      passkey.ir_container_, std::move(pad_width)));
+  addDataAttribute(std::move(window_shape));
+  addDataAttribute(std::move(pad_width));
 }
 
 std::string GatherOp::toString(int indent_size) const {
@@ -2112,13 +2085,11 @@ ViewAsScalar::ViewAsScalar(
     IrBuilderPasskey passkey,
     Val* out,
     Val* in,
-    IterDomain* vector_id,
-    Val* index)
+    IterDomain* vector_id)
     : Expr(passkey) {
   addOutput(out);
   addInput(in);
   addAttribute(vector_id);
-  addAttribute(index);
 }
 
 std::string ViewAsScalar::toString(int indent_size) const {
@@ -2161,8 +2132,7 @@ LoadStoreOp::LoadStoreOp(
     : Expr(passkey) {
   addOutput(out);
   addInput(in);
-  addAttribute(IrBuilder::create<Attribute<LoadStoreOpType>>(
-      passkey.ir_container_, op_type));
+  addDataAttribute(op_type);
 }
 
 std::vector<PolymorphicValue> LoadStoreOp::evaluate(
@@ -2533,8 +2503,7 @@ IterDomain* IterDomain::merge(IterDomain* outer, IterDomain* inner) {
   }
 
   IterDomain* merged_id =
-      IterDomainBuilder(
-          outer->container()->zeroVal(), merged_id_size->as<Scalar>())
+      IterDomainBuilder(outer->container()->zeroVal(), merged_id_size)
           .parallel_type(outer->getParallelType())
           .expanded_extent(expanded_extent)
           .iter_type(itype)
@@ -2557,7 +2526,7 @@ std::pair<IterDomain*, IterDomain*> IterDomain::split(
   TORCH_CHECK(
       factor->isIntegralScalar(), "Cannot split by non-integer value ", factor);
 
-  if (factor->getValType() == ValType::Scalar) {
+  if (factor->getValType() == ValType::Others) {
     TORCH_CHECK(
         factor->isConstScalar() ||
             (FusionGuard::getCurFusion() == factor->fusion() &&
@@ -2590,8 +2559,7 @@ std::pair<IterDomain*, IterDomain*> IterDomain::split(
   // outer loop IterDomain
   IterDomain* ido =
       IterDomainBuilder(
-          in->container()->zeroVal(),
-          inner_split ? remainder->as<Scalar>() : factor)
+          in->container()->zeroVal(), inner_split ? remainder : factor)
           .expanded_extent(
               in->hasExpandedExtent() && inner_split ? expanded_remainder
                                                      : nullptr)
@@ -2602,8 +2570,7 @@ std::pair<IterDomain*, IterDomain*> IterDomain::split(
   // inner loop IterDomain
   IterDomain* idi =
       IterDomainBuilder(
-          in->container()->zeroVal(),
-          inner_split ? factor : remainder->as<Scalar>())
+          in->container()->zeroVal(), inner_split ? factor : remainder)
           .expanded_extent(
               in->hasExpandedExtent() && !inner_split ? expanded_remainder
                                                       : nullptr)
@@ -2633,10 +2600,10 @@ std::pair<IterDomain*, IterDomain*> IterDomain::split(
   return IterDomain::split(in, factor, inner_split, start_offset, stop_offset);
 }
 
-std::pair<IterDomain*, IterDomain*> IterDomain::stridedSplit(int factor) {
+std::pair<IterDomain*, IterDomain*> IterDomain::stridedSplit(int64_t factor) {
   // Use partial split so that only valid values are retained
   auto split_out = IterDomain::split(
-      this, IrBuilder::create<Scalar>(container(), factor), true, true);
+      this, IrBuilder::create<Val>(container(), factor), true, true);
 
   split_out.second->iter_type_ = IterType::Stride;
   split_out.first->is_rfactor_domain_ = true;
@@ -2746,8 +2713,7 @@ IterDomain* IterDomain::resize(
   }
 
   auto resized_id =
-      IterDomainBuilder(
-          in->container()->zeroVal(), resized_id_size->as<Scalar>())
+      IterDomainBuilder(in->container()->zeroVal(), resized_id_size)
           .is_rfactor_domain(mark_as_rfactor)
           .iter_type(iter_type)
           .build();
@@ -3505,8 +3471,7 @@ Split::Split(
   // TODO add factor as an input, need to check Split::Split during validation
   // and need to check BestEffortReplay::findFirstMismatchedID addInput(factor);
   addAttribute(factor);
-  addAttribute(
-      IrBuilder::create<Attribute<bool>>(passkey.ir_container_, inner_split));
+  addDataAttribute(inner_split);
   addAttribute(start_offset);
   addAttribute(stop_offset);
 }
@@ -3593,10 +3558,8 @@ Swizzle2D::Swizzle2D(
   addOutput(out_y);
   addInput(in_x);
   addInput(in_y);
-  addAttribute(IrBuilder::create<Attribute<Swizzle2DType>>(
-      passkey.ir_container_, swizzle_type));
-  addAttribute(IrBuilder::create<Attribute<SwizzleMode>>(
-      passkey.ir_container_, swizzle_mode));
+  addDataAttribute(swizzle_type);
+  addDataAttribute(swizzle_mode);
 }
 
 std::string Swizzle2D::toString(int indent_size) const {
@@ -3881,7 +3844,7 @@ CatOp::CatOp(
     IrBuilderPasskey passkey,
     Val* out,
     const std::vector<Val*>& inputs,
-    int concatenated_dim)
+    int64_t concatenated_dim)
     : Expr(passkey) {
   addOutput(out);
   for (auto inp : inputs) {
@@ -3894,17 +3857,16 @@ CatOp::CatOp(
       "Invalid dimension to concatenate: ",
       concatenated_dim);
 
-  addAttribute(IrBuilder::create<Attribute<int>>(
-      passkey.ir_container_, concatenated_dim));
+  addDataAttribute(concatenated_dim);
 }
 
 CatOp::CatOp(
     IrBuilderPasskey passkey,
     Val* out,
     const std::vector<Val*>& inputs,
-    int concatenated_dim,
+    int64_t concatenated_dim,
     Val* concatenated_domain_index,
-    const std::vector<Scalar*>& preds)
+    const std::vector<Val*>& preds)
     : Expr(passkey) {
   TORCH_INTERNAL_ASSERT(
       passkey.ir_container_ != nullptr,
@@ -3917,8 +3879,7 @@ CatOp::CatOp(
   for (auto inp : inputs) {
     addInput(inp);
   }
-  addAttribute(IrBuilder::create<Attribute<int>>(
-      passkey.ir_container_, concatenated_dim));
+  addDataAttribute(concatenated_dim);
   addAttribute(concatenated_domain_index);
   for (auto pred : preds) {
     addAttribute(pred);
@@ -3952,7 +3913,7 @@ Val* CatOp::getConcatenatedDomainIndex() const {
   return idx;
 }
 
-Scalar* CatOp::getPred(int input_idx) const {
+Val* CatOp::getPred(int input_idx) const {
   TORCH_INTERNAL_ASSERT(
       container()->isA<kir::Kernel>(),
       "Should only be used for Kernel container.");
@@ -3966,13 +3927,13 @@ Scalar* CatOp::getPred(int input_idx) const {
       attr_idx,
       ", number of attributes: ",
       attributes().size());
-  auto attr = attribute(attr_idx);
+  auto attr = attributeVal(attr_idx);
   TORCH_INTERNAL_ASSERT(attr != nullptr, "nullptr attribute is invalid");
   TORCH_INTERNAL_ASSERT(
-      attr->isA<Scalar>(),
+      attr->dtype() == DataType::Bool,
       "Attribute must be a Bool val: ",
       attr->toInlineString());
-  auto pred = attr->as<Scalar>();
+  auto pred = attr;
   return pred;
 }
 

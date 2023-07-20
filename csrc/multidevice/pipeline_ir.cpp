@@ -33,8 +33,7 @@ PipelineStage::PipelineStage(
     v->as<PipelineVal>()->setStage(this);
   }
 
-  addAttribute(IrBuilder::create<Attribute<const PipelineStageDescriptor*>>(
-      passkey.ir_container_, descriptor));
+  addDataAttribute(descriptor);
 }
 
 std::string PipelineStage::toString(int indent_size) const {

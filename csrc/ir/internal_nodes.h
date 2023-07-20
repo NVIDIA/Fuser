@@ -77,7 +77,7 @@ class TORCH_CUDA_CU_API SelectOp : public Expr {
   }
 
   int64_t dim() const {
-    return attribute(0)->as<Attribute<int64_t>>()->value;
+    return attribute<int64_t>(0);
   }
 
   IterDomain* getIndexedID() const;
@@ -115,7 +115,7 @@ class TORCH_CUDA_CU_API IndexSelectOp : public Expr {
   IterDomain* getConsumerOfIndexedID() const;
 
   int64_t dim() const {
-    return attribute(0)->as<Attribute<int64_t>>()->value;
+    return attribute<int64_t>(0);
   }
 };
 
@@ -154,7 +154,7 @@ class TORCH_CUDA_CU_API TorchGatherOp : public Expr {
   }
 
   int64_t dim() const {
-    return attribute(0)->as<Attribute<int64_t>>()->value;
+    return attribute<int64_t>(0);
   }
 
   IterDomain* getIndexedID() const;
@@ -162,7 +162,7 @@ class TORCH_CUDA_CU_API TorchGatherOp : public Expr {
   IterDomain* getConsumerOfIndexedID() const;
 
   bool exactSizes() const {
-    return attribute(1)->as<Attribute<bool>>()->value;
+    return attribute<bool>(1);
   }
 };
 
@@ -200,13 +200,13 @@ class TORCH_CUDA_CU_API ScatterOp : public Expr {
   }
 
   int64_t dim() const {
-    return attribute(0)->as<Attribute<int64_t>>()->value;
+    return attribute<int64_t>(0);
   }
 
   IterDomain* getIndexedID() const;
 
   ScatterOpType getScatterOpType() const {
-    return attribute(1)->as<Attribute<ScatterOpType>>()->value;
+    return attribute<ScatterOpType>(1);
   }
 };
 
@@ -276,7 +276,7 @@ class TORCH_CUDA_CU_API EyeOp : public Expr {
   std::string toInlineString(int indent_size = 0) const override;
 
   DataType dtype() const {
-    return attribute(0)->as<Attribute<DataType>>()->value;
+    return attribute<DataType>(0);
   }
 };
 
@@ -312,7 +312,7 @@ class TORCH_CUDA_CU_API UnaryOp : public Expr {
   }
 
   UnaryOpType getUnaryOpType() const {
-    return attribute(0)->as<Attribute<UnaryOpType>>()->value;
+    return attribute<UnaryOpType>(0);
   }
 
  private:
@@ -352,7 +352,7 @@ class TORCH_CUDA_CU_API BinaryOp : public Expr {
   }
 
   BinaryOpType getBinaryOpType() const {
-    return attribute(0)->as<Attribute<BinaryOpType>>()->value;
+    return attribute<BinaryOpType>(0);
   }
 
  private:
@@ -402,7 +402,7 @@ class TORCH_CUDA_CU_API TernaryOp : public Expr {
   }
 
   TernaryOpType getTernaryOpType() const {
-    return attribute(0)->as<Attribute<TernaryOpType>>()->value;
+    return attribute<TernaryOpType>(0);
   }
 
  private:
@@ -498,7 +498,7 @@ class TORCH_CUDA_CU_API GetAttr : public Expr {
   }
 
   std::string attr() const {
-    return attribute(0)->as<Attribute<std::string>>()->value;
+    return attribute<std::string>(0);
   }
 };
 
@@ -517,6 +517,20 @@ class TORCH_CUDA_CU_API GetMetaData : public Expr {
 
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
+
+  bool sameAs(const Statement* other) const override {
+    auto other_meta = dynamic_cast<const GetMetaData*>(other);
+    if (other_meta == nullptr) {
+      return false;
+    }
+    // Do not recursively check input, because if we have
+    // T1 = set(T0)
+    // T2 = set(T0)
+    // Then even if T1->sameAs(T2), they should not have the same metadata.
+    // For example, T1 and T2 may be different fusion outputs, so their data
+    // pointers are different.
+    return other_meta->in() == in();
+  }
 
   std::vector<PolymorphicValue> evaluate(
       const std::vector<PolymorphicValue>& inputs) const override;
@@ -603,23 +617,23 @@ class TORCH_CUDA_CU_API RNGOp : public Expr {
   std::string toInlineString(int indent_size = 0) const override;
 
   RNGOpType getRNGOpType() const {
-    return attribute(0)->as<Attribute<Attributes>>()->value.rtype;
+    return attribute<Attributes>(0).rtype;
   }
 
   DataType dtype() const {
-    return attribute(0)->as<Attribute<Attributes>>()->value.dtype;
+    return attribute<Attributes>(0).dtype;
   }
 
   int getRNGOffset() const {
-    return attribute(0)->as<Attribute<Attributes>>()->value.rng_offset_int;
+    return attribute<Attributes>(0).rng_offset_int;
   }
 
   void setRNGOffset(int val) {
-    attribute(0)->as<Attribute<Attributes>>()->value.rng_offset_int = val;
+    attribute<Attributes>(0).rng_offset_int = val;
   }
 
   size_t getNumParameters() const {
-    return attribute(0)->as<Attribute<Attributes>>()->value.num_parameters;
+    return attribute<Attributes>(0).num_parameters;
   }
 
   std::vector<Val*> getParameters() const {
@@ -705,7 +719,7 @@ class TORCH_CUDA_CU_API BroadcastOp : public Expr {
   //! flags are false because the input tensor may already have
   //! broadcast domains.
   const std::vector<bool>& getBroadcastDimFlags() const {
-    return attribute(0)->as<Attribute<std::vector<bool>>>()->value;
+    return attribute<std::vector<bool>>(0);
   }
 };
 
@@ -755,7 +769,7 @@ class TORCH_CUDA_CU_API SqueezeOp : public Expr {
   //! because the input tensor may have broadcast domains that we don't want to
   //! remove (false flag).
   const std::vector<bool>& getSqueezeDimFlags() const {
-    return attribute(0)->as<Attribute<std::vector<bool>>>()->value;
+    return attribute<std::vector<bool>>(0);
   }
 
   //! Check that squeezed IDs in old_tv concretize to Broadcast IterType
@@ -799,11 +813,11 @@ class TORCH_CUDA_CU_API ReductionOp : public Expr {
   }
 
   BinaryOpType getReductionOpType() const {
-    return attribute(1)->as<Attribute<BinaryOpType>>()->value;
+    return attribute<BinaryOpType>(1);
   }
 
   bool isAllreduce() const {
-    return attribute(2)->as<Attribute<bool>>()->value;
+    return attribute<bool>(2);
   }
 };
 
@@ -855,7 +869,7 @@ class TORCH_CUDA_CU_API GroupedReductionOp : public Expr {
   }
 
   const std::vector<BinaryOpType>& getReductionOpTypes() const {
-    return attribute(0)->as<Attribute<std::vector<BinaryOpType>>>()->value;
+    return attribute<std::vector<BinaryOpType>>(0);
   }
 
   BinaryOpType getReductionOpType(size_t index) const {
@@ -863,7 +877,7 @@ class TORCH_CUDA_CU_API GroupedReductionOp : public Expr {
   }
 
   bool isAllreduce() const {
-    return attribute(1)->as<Attribute<bool>>()->value;
+    return attribute<bool>(1);
   }
 
   //! Return the index of the corresponding reduction expression for
@@ -1092,7 +1106,7 @@ class TORCH_CUDA_CU_API WelfordOp : public Expr {
 
   //! True if using the fused reduction kernel (not implemented yet)
   bool isAllreduce() const {
-    return attribute(3)->as<Attribute<bool>>()->value;
+    return attribute<bool>(3);
   }
 
   std::vector<Val*> getInitVals() const;
@@ -1218,7 +1232,7 @@ class TORCH_CUDA_CU_API GroupedWelfordOp : public Expr {
   }
 
   bool isAllreduce() const {
-    return attribute(0)->as<Attribute<bool>>()->value;
+    return attribute<bool>(0);
   }
 };
 
@@ -1281,7 +1295,7 @@ class TORCH_CUDA_CU_API MmaOp : public Expr {
   }
 
   const auto& options() const {
-    return attribute(ATTR_POS_OPTS)->as<Attribute<OptionsInMma>>()->value;
+    return attribute<OptionsInMma>(ATTR_POS_OPTS);
   }
 
   auto accStride() const {
@@ -1291,25 +1305,23 @@ class TORCH_CUDA_CU_API MmaOp : public Expr {
   void configureOptions(MmaOptions options);
 
   auto layout() const {
-    return attribute(ATTR_POS_INPUT_LAYOUT)
-        ->as<Attribute<MmaLayoutOpt>>()
-        ->value;
+    return attribute<MmaLayoutOpt>(ATTR_POS_INPUT_LAYOUT);
   }
 
   const auto& mAxes() const {
-    return attribute(ATTR_POS_M_AXES)->as<Attribute<AxesData>>()->value;
+    return attribute<AxesData>(ATTR_POS_M_AXES);
   }
 
   const auto& nAxes() const {
-    return attribute(ATTR_POS_N_AXES)->as<Attribute<AxesData>>()->value;
+    return attribute<AxesData>(ATTR_POS_N_AXES);
   }
 
   const auto& kAxes() const {
-    return attribute(ATTR_POS_K_AXES)->as<Attribute<AxesData>>()->value;
+    return attribute<AxesData>(ATTR_POS_K_AXES);
   }
 
   const auto& batchAxes() const {
-    return attribute(ATTR_POS_BATCH_AXES)->as<Attribute<AxesData>>()->value;
+    return attribute<AxesData>(ATTR_POS_BATCH_AXES);
   }
 
  private:
@@ -1395,11 +1407,11 @@ class TORCH_CUDA_CU_API ShiftOp : public Expr {
   //! Each of the root axes is shifted by the corresponding value of
   //! offsets. The sign of each value indicates the direction of shifting.
   const std::vector<int>& offsets() const {
-    return attribute(0)->as<Attribute<std::vector<int>>>()->value;
+    return attribute<std::vector<int>>(0);
   }
 
   const std::vector<int>& padWidth() const {
-    return attribute(1)->as<Attribute<std::vector<int>>>()->value;
+    return attribute<std::vector<int>>(1);
   }
 
   bool hasPadding() const {
@@ -1439,7 +1451,7 @@ class TORCH_CUDA_CU_API GatherOp : public Expr {
 
   //! Shape of a window gathered for each element.
   const auto& windowShape() const {
-    return attribute(0)->as<Attribute<std::vector<int>>>()->value;
+    return attribute<std::vector<int>>(0);
   }
 
   //! Returns the gather axis that corresponds to an input axis
@@ -1447,7 +1459,7 @@ class TORCH_CUDA_CU_API GatherOp : public Expr {
 
   //! The size of zero-padding of each axis.
   const auto& padWidth() const {
-    return attribute(1)->as<Attribute<std::vector<std::vector<int>>>>()->value;
+    return attribute<std::vector<std::vector<int>>>(1);
   }
 
   bool hasPadding() const {
@@ -1461,12 +1473,7 @@ class TORCH_CUDA_CU_API ViewAsScalar : public Expr {
  public:
   using Expr::Expr;
 
-  ViewAsScalar(
-      IrBuilderPasskey,
-      Val* out,
-      Val* in,
-      IterDomain* vector_id,
-      Val* index = nullptr);
+  ViewAsScalar(IrBuilderPasskey, Val* out, Val* in, IterDomain* vector_id);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
@@ -1488,11 +1495,6 @@ class TORCH_CUDA_CU_API ViewAsScalar : public Expr {
   // The IterDomain of type VectorComponent newly appended to the output
   IterDomain* vector_id() const {
     return attribute(0)->as<IterDomain>();
-  }
-
-  // The index that vector_id_ is lowered into
-  Val* index() const {
-    return attributeVal(1);
   }
 };
 
@@ -1553,13 +1555,13 @@ class TORCH_CUDA_CU_API LoadStoreOp : public Expr {
   }
 
   LoadStoreOpType opType() const {
-    return attribute(0)->as<Attribute<LoadStoreOpType>>()->value;
+    return attribute<LoadStoreOpType>(0);
   }
 
   bool hasInnerTranspose() const;
 
   void setOpType(LoadStoreOpType op) {
-    attribute(0)->as<Attribute<LoadStoreOpType>>()->value = op;
+    attribute<LoadStoreOpType>(0) = op;
   }
 };
 
@@ -1608,7 +1610,7 @@ class TORCH_CUDA_CU_API Split : public Expr {
   }
 
   bool innerSplit() const {
-    return attribute(1)->as<Attribute<bool>>()->value;
+    return attribute<bool>(1);
   }
 
   //! Start position of the input domain. Non-zero means partial
@@ -1708,7 +1710,7 @@ class TORCH_CUDA_CU_API Swizzle2D : public Expr {
   // The type of predefined 1-to-1 functions
   //  used for swizzling math.
   auto swizzleType() const {
-    return attribute(0)->as<Attribute<Swizzle2DType>>()->value;
+    return attribute<Swizzle2DType>(0);
   }
 
   // Swizzle mode of this swizzle instance.
@@ -1753,7 +1755,7 @@ class TORCH_CUDA_CU_API Swizzle2D : public Expr {
   //  TODO: Loop swizzles eventually will be piped through in all mappings
   //  and replay of the fusion IR infrastructure.
   auto swizzleMode() const {
-    return attribute(1)->as<Attribute<SwizzleMode>>()->value;
+    return attribute<SwizzleMode>(1);
   }
 };
 
@@ -2011,7 +2013,7 @@ class TORCH_CUDA_CU_API CatOp : public Expr {
       IrBuilderPasskey passkey,
       Val* out,
       const std::vector<Val*>& inputs,
-      int concatenated_dim);
+      int64_t concatenated_dim);
 
   //! Create a cat op with the index and predicates for codegen. Only
   //! used for the Kernel container
@@ -2019,9 +2021,9 @@ class TORCH_CUDA_CU_API CatOp : public Expr {
       IrBuilderPasskey passkey,
       Val* out,
       const std::vector<Val*>& inputs,
-      int concatenated_dim,
+      int64_t concatenated_dim,
       Val* concatenated_domain_index,
-      const std::vector<Scalar*>& preds);
+      const std::vector<Val*>& preds);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
@@ -2032,8 +2034,8 @@ class TORCH_CUDA_CU_API CatOp : public Expr {
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
 
-  int concatenatedDim() const {
-    return attribute(0)->as<Attribute<int>>()->value;
+  int64_t concatenatedDim() const {
+    return attribute<int64_t>(0);
   }
 
   //! The index val that determines which input tensor should be used
@@ -2044,7 +2046,7 @@ class TORCH_CUDA_CU_API CatOp : public Expr {
   //! Gets a Bool indicating if the input tensor specified by
   //! tensor_idx should be used to fill the output tensor. Only valid
   //! with the Kernel container
-  Scalar* getPred(int input_idx) const;
+  Val* getPred(int input_idx) const;
 };
 
 } // namespace nvfuser

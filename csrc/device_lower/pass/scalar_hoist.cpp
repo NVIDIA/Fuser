@@ -228,7 +228,7 @@ std::list<VarInfo> getVariableInfo(
       variables.push_back({loop->index(), loop->isUnrolled()});
     }
   }
-  // Tensor base addresses
+  // Tensor metadata
   std::vector<Val*> to_visit{value};
   while (!to_visit.empty()) {
     auto back = to_visit.back();
@@ -237,7 +237,7 @@ std::list<VarInfo> getVariableInfo(
     if (def == nullptr) {
       continue;
     }
-    if (def->isA<kir::BaseAddress>()) {
+    if (def->isA<GetMetaData>()) {
       variables.push_front({back});
       continue;
     }
@@ -246,8 +246,8 @@ std::list<VarInfo> getVariableInfo(
   return variables;
 }
 
-std::vector<Scalar*> getAssumptions(const std::vector<kir::ForLoop*>& loops) {
-  std::vector<Scalar*> assumptions;
+std::vector<Val*> getAssumptions(const std::vector<kir::ForLoop*>& loops) {
+  std::vector<Val*> assumptions;
   // assumptions from parallel dimension
   for (auto [p, extent] :
        GpuLower::current()->parallelDimensionMap().getMap()) {
