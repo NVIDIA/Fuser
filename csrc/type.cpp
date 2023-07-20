@@ -202,7 +202,8 @@ static std::string data_type2string(DataType t) {
           std::stringstream ss;
           ss << "struct { ";
           for (auto& [name, type] : dtype.types) {
-            ss << data_type2string(type) << " " << name << "; ";
+            ss << data_type2string(NVFUSER_MAYBE_STAR type) << " " << name
+               << "; ";
           }
           ss << "}";
           return ss.str();

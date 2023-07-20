@@ -323,6 +323,7 @@ inline PolymorphicValue toTensor(const PolymorphicValue& x) {
   if (x.is<std::vector>()) {
     auto vec = x.as<std::vector>();
     std::vector<at::Tensor> tensors;
+    tensors.reserve(vec.size());
     for (const auto& elem : vec) {
       tensors.push_back(toTensor(elem).as<at::Tensor>());
     }
