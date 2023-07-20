@@ -57,11 +57,11 @@ class TORCH_CUDA_CU_API Predicate final : public Val {
       IrBuilderPasskey passkey,
       PredicateType ptype,
       const Expr* expr = nullptr,
-      Scalar* thread_pred = nullptr);
+      Val* thread_pred = nullptr);
 
   explicit Predicate(IrBuilderPasskey passkey, ForLoop* unrolled_loop);
 
-  explicit Predicate(IrBuilderPasskey passkey, Scalar* value);
+  explicit Predicate(IrBuilderPasskey passkey, Val* value);
 
   std::string toString(int indent_size = 0) const override;
 
@@ -78,7 +78,7 @@ class TORCH_CUDA_CU_API Predicate final : public Val {
     return expr_;
   }
 
-  Scalar* thread_pred() const {
+  Val* thread_pred() const {
     TORCH_INTERNAL_ASSERT(
         ptype_ == PredicateType::Inline ||
         ptype_ == PredicateType::Misaligned || ptype_ == PredicateType::Shift ||
@@ -96,14 +96,14 @@ class TORCH_CUDA_CU_API Predicate final : public Val {
     return value_ != nullptr;
   }
 
-  Scalar* value() const {
+  Val* value() const {
     TORCH_INTERNAL_ASSERT(
         value_ != nullptr,
         "The conditional expression for this Predicate is invalid.");
     return value_;
   }
 
-  void setValue(Scalar* value) {
+  void setValue(Val* value) {
     TORCH_INTERNAL_ASSERT(value != nullptr, "The Bool expression is invalid.");
     value_ = value;
   }
@@ -124,14 +124,14 @@ class TORCH_CUDA_CU_API Predicate final : public Val {
   const Expr* expr_ = nullptr;
 
   // For PredicateCompute::getInlinePredicate
-  Scalar* thread_pred_ = nullptr;
+  Val* thread_pred_ = nullptr;
 
   // For ParallelType::Unswitch - UnswitchPredicate::get
   ForLoop* unrolled_loop_ = nullptr;
 
   // The Bool conditional value
   // The value is nullptr until lower_predicate pass
-  Scalar* value_ = nullptr;
+  Val* value_ = nullptr;
 };
 
 class TORCH_CUDA_CU_API TensorIndex final : public Val {
@@ -990,7 +990,7 @@ class TORCH_CUDA_CU_API VectorizedWelfordOp final : public WelfordOp {
       const WelfordTriplet& init,
       Val* count,
       Val* reciprocal_of_count,
-      Scalar* hoisted_predicate);
+      Val* hoisted_predicate);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
@@ -1009,8 +1009,8 @@ class TORCH_CUDA_CU_API VectorizedWelfordOp final : public WelfordOp {
   }
 
   //! Predicate of this expression hoisted out of an innermost loop
-  Scalar* hoistedPredicate() const {
-    return attributeVal(WelfordOp::kNumAttrs + 2)->as<Scalar>();
+  Val* hoistedPredicate() const {
+    return attributeVal(WelfordOp::kNumAttrs + 2);
   }
 };
 

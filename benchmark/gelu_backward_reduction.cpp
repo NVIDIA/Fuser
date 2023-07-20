@@ -55,23 +55,23 @@ static void setupGeluBackwardReduction(
 
   // calc-1, gelu backward
   auto t7 = castOp(DataType::Float, t5);
-  auto t8 = mul(t7, IrBuilder::create<Scalar>(k_079));
-  auto t9 = mul(t7, IrBuilder::create<Scalar>(k_004));
+  auto t8 = mul(t7, IrBuilder::create<Val>(k_079));
+  auto t9 = mul(t7, IrBuilder::create<Val>(k_004));
   auto t10 = mul(t9, t7);
-  auto t11 = add(t10, IrBuilder::create<Scalar>(1L));
+  auto t11 = add(t10, IrBuilder::create<Val>(1L));
   auto t12 = mul(t8, t11);
   auto t13 = unaryOp(UnaryOpType::Tanh, t12);
-  auto t14 = mul(t7, IrBuilder::create<Scalar>(0.5));
+  auto t14 = mul(t7, IrBuilder::create<Val>(0.5));
   auto t15 = mul(t13, t13);
   auto t16 = unaryOp(UnaryOpType::Neg, t15);
-  auto t17 = add(t16, IrBuilder::create<Scalar>(1L));
-  auto t18 = mul(t7, IrBuilder::create<Scalar>(k_010));
+  auto t17 = add(t16, IrBuilder::create<Val>(1L));
+  auto t18 = mul(t7, IrBuilder::create<Val>(k_010));
   auto t19 = mul(t18, t7);
-  auto t20 = add(t19, IrBuilder::create<Scalar>(k_079));
+  auto t20 = add(t19, IrBuilder::create<Val>(k_079));
   auto t21 = mul(t17, t20);
   auto t22 = mul(t14, t21);
-  auto t23 = add(t13, IrBuilder::create<Scalar>(1L));
-  auto t24 = mul(t23, IrBuilder::create<Scalar>(0.5));
+  auto t23 = add(t13, IrBuilder::create<Val>(1L));
+  auto t24 = mul(t23, IrBuilder::create<Val>(0.5));
   auto t25 = add(t22, t24);
   auto t26 = mul(t25, t1);
 

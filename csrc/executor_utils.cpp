@@ -900,7 +900,7 @@ void bindInputForExprEvaluation(
         }
       }
     }
-  } else if (val->getValType().value() == ValType::Scalar) {
+  } else if (val->getValType().value() == ValType::Others) {
     if (val->getDataType().value() == DataType::Int) {
       TORCH_INTERNAL_ASSERT(
           arg->isType(ArgType::Long),

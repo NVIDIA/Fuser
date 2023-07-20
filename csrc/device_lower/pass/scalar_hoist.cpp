@@ -246,8 +246,8 @@ std::list<VarInfo> getVariableInfo(
   return variables;
 }
 
-std::vector<Scalar*> getAssumptions(const std::vector<kir::ForLoop*>& loops) {
-  std::vector<Scalar*> assumptions;
+std::vector<Val*> getAssumptions(const std::vector<kir::ForLoop*>& loops) {
+  std::vector<Val*> assumptions;
   // assumptions from parallel dimension
   for (auto [p, extent] :
        GpuLower::current()->parallelDimensionMap().getMap()) {

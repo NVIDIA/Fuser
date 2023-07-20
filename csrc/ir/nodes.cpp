@@ -32,8 +32,6 @@
 
 namespace nvfuser {
 
-NVFUSER_DEFINE_CLONE(Scalar)
-
 FullOp::FullOp(IrBuilderPasskey passkey, Val* out, Val* fill_value)
     : Expr(passkey) {
   if (out->isA<TensorView>()) {
@@ -1287,7 +1285,7 @@ WelfordOp::WelfordOp(
   TORCH_INTERNAL_ASSERT(isIntegralType(output.N()->dtype()));
 
   // check initial value
-  TORCH_INTERNAL_ASSERT(init.N()->getValType().value() == ValType::Scalar);
+  TORCH_INTERNAL_ASSERT(init.N()->getValType().value() == ValType::Others);
   TORCH_INTERNAL_ASSERT(isIntegralType(init.N()->dtype()));
   if (!init.N()->isZeroInt()) {
     // when initial count is zero, no initial variance or average is needed
@@ -1309,7 +1307,7 @@ WelfordOp::WelfordOp(
           input.avg()->getValType().value() == ValType::TensorIndex,
       input.avg()->getValType().value());
   TORCH_INTERNAL_ASSERT(
-      input.N()->getValType().value() == ValType::Scalar ||
+      input.N()->getValType().value() == ValType::Others ||
       input.N()->getValType().value() == ValType::TensorView ||
       input.N()->getValType().value() == ValType::TensorIndex);
   TORCH_INTERNAL_ASSERT(isIntegralType(input.N()->dtype()));
@@ -1447,13 +1445,13 @@ GroupedWelfordOp::GroupedWelfordOp(
     TORCH_INTERNAL_ASSERT(
         init_avg != nullptr && init_var != nullptr && init_N != nullptr,
         "nullptr init vals are not allowed");
-    TORCH_INTERNAL_ASSERT(init_N->getValType().value() == ValType::Scalar);
+    TORCH_INTERNAL_ASSERT(init_N->getValType().value() == ValType::Others);
     TORCH_INTERNAL_ASSERT(isIntegralType(init_N->dtype()));
     TORCH_INTERNAL_ASSERT(
         init_avg->getValType().value() == ValType::TensorView ||
             init_avg->getValType().value() == ValType::TensorIndex ||
             (init_N->isZeroInt() &&
-             init_avg->getValType().value() == ValType::Scalar),
+             init_avg->getValType().value() == ValType::Others),
         "Initial avg must be a tensor or, can be a scalar if initial N is zero.",
         " Initial avg: ",
         init_avg->toString(),
@@ -1463,7 +1461,7 @@ GroupedWelfordOp::GroupedWelfordOp(
         init_var->getValType().value() == ValType::TensorView ||
             init_var->getValType().value() == ValType::TensorIndex ||
             (init_N->isZeroInt() &&
-             init_var->getValType().value() == ValType::Scalar),
+             init_var->getValType().value() == ValType::Others),
         "Initial var must be a tensor or, can be a scalar if initial N is zero: ",
         init_var->toString());
 
@@ -1475,7 +1473,7 @@ GroupedWelfordOp::GroupedWelfordOp(
         in_avg != nullptr && in_var != nullptr && in_N != nullptr,
         "nullptr input vals are not allowed");
     TORCH_INTERNAL_ASSERT(
-        in_N->getValType().value() == ValType::Scalar ||
+        in_N->getValType().value() == ValType::Others ||
         in_N->getValType().value() == ValType::TensorView ||
         in_N->getValType().value() == ValType::TensorIndex);
     TORCH_INTERNAL_ASSERT(isIntegralType(in_N->dtype()));
@@ -2087,13 +2085,11 @@ ViewAsScalar::ViewAsScalar(
     IrBuilderPasskey passkey,
     Val* out,
     Val* in,
-    IterDomain* vector_id,
-    Val* index)
+    IterDomain* vector_id)
     : Expr(passkey) {
   addOutput(out);
   addInput(in);
   addAttribute(vector_id);
-  addAttribute(index);
 }
 
 std::string ViewAsScalar::toString(int indent_size) const {
@@ -2507,8 +2503,7 @@ IterDomain* IterDomain::merge(IterDomain* outer, IterDomain* inner) {
   }
 
   IterDomain* merged_id =
-      IterDomainBuilder(
-          outer->container()->zeroVal(), merged_id_size->as<Scalar>())
+      IterDomainBuilder(outer->container()->zeroVal(), merged_id_size)
           .parallel_type(outer->getParallelType())
           .expanded_extent(expanded_extent)
           .iter_type(itype)
@@ -2531,7 +2526,7 @@ std::pair<IterDomain*, IterDomain*> IterDomain::split(
   TORCH_CHECK(
       factor->isIntegralScalar(), "Cannot split by non-integer value ", factor);
 
-  if (factor->getValType() == ValType::Scalar) {
+  if (factor->getValType() == ValType::Others) {
     TORCH_CHECK(
         factor->isConstScalar() ||
             (FusionGuard::getCurFusion() == factor->fusion() &&
@@ -2564,8 +2559,7 @@ std::pair<IterDomain*, IterDomain*> IterDomain::split(
   // outer loop IterDomain
   IterDomain* ido =
       IterDomainBuilder(
-          in->container()->zeroVal(),
-          inner_split ? remainder->as<Scalar>() : factor)
+          in->container()->zeroVal(), inner_split ? remainder : factor)
           .expanded_extent(
               in->hasExpandedExtent() && inner_split ? expanded_remainder
                                                      : nullptr)
@@ -2576,8 +2570,7 @@ std::pair<IterDomain*, IterDomain*> IterDomain::split(
   // inner loop IterDomain
   IterDomain* idi =
       IterDomainBuilder(
-          in->container()->zeroVal(),
-          inner_split ? factor : remainder->as<Scalar>())
+          in->container()->zeroVal(), inner_split ? factor : remainder)
           .expanded_extent(
               in->hasExpandedExtent() && !inner_split ? expanded_remainder
                                                       : nullptr)
@@ -2610,7 +2603,7 @@ std::pair<IterDomain*, IterDomain*> IterDomain::split(
 std::pair<IterDomain*, IterDomain*> IterDomain::stridedSplit(int64_t factor) {
   // Use partial split so that only valid values are retained
   auto split_out = IterDomain::split(
-      this, IrBuilder::create<Scalar>(container(), factor), true, true);
+      this, IrBuilder::create<Val>(container(), factor), true, true);
 
   split_out.second->iter_type_ = IterType::Stride;
   split_out.first->is_rfactor_domain_ = true;
@@ -2720,8 +2713,7 @@ IterDomain* IterDomain::resize(
   }
 
   auto resized_id =
-      IterDomainBuilder(
-          in->container()->zeroVal(), resized_id_size->as<Scalar>())
+      IterDomainBuilder(in->container()->zeroVal(), resized_id_size)
           .is_rfactor_domain(mark_as_rfactor)
           .iter_type(iter_type)
           .build();
@@ -3874,7 +3866,7 @@ CatOp::CatOp(
     const std::vector<Val*>& inputs,
     int64_t concatenated_dim,
     Val* concatenated_domain_index,
-    const std::vector<Scalar*>& preds)
+    const std::vector<Val*>& preds)
     : Expr(passkey) {
   TORCH_INTERNAL_ASSERT(
       passkey.ir_container_ != nullptr,
@@ -3921,7 +3913,7 @@ Val* CatOp::getConcatenatedDomainIndex() const {
   return idx;
 }
 
-Scalar* CatOp::getPred(int input_idx) const {
+Val* CatOp::getPred(int input_idx) const {
   TORCH_INTERNAL_ASSERT(
       container()->isA<kir::Kernel>(),
       "Should only be used for Kernel container.");
@@ -3935,13 +3927,13 @@ Scalar* CatOp::getPred(int input_idx) const {
       attr_idx,
       ", number of attributes: ",
       attributes().size());
-  auto attr = attribute(attr_idx);
+  auto attr = attributeVal(attr_idx);
   TORCH_INTERNAL_ASSERT(attr != nullptr, "nullptr attribute is invalid");
   TORCH_INTERNAL_ASSERT(
-      attr->isA<Scalar>(),
+      attr->dtype() == DataType::Bool,
       "Attribute must be a Bool val: ",
       attr->toInlineString());
-  auto pred = attr->as<Scalar>();
+  auto pred = attr;
   return pred;
 }
 

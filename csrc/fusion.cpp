@@ -219,12 +219,13 @@ void Fusion::addInput(Val* input) {
   if (input->getValType().value() == ValType::TensorView) {
     auto tv = input->as<TensorView>();
     tv->setMemoryType(MemoryType::Global);
-  } else if (input->getValType().value() == ValType::Scalar) {
+  } else if (input->getValType().value() == ValType::Others) {
     TORCH_CHECK(
         !input->isConst(),
         "Immediate scalar value cannot be added as an input. It is not necessary to pass it as an input.");
     TORCH_CHECK(
-        !(input->isA<Scalar>() && input->getDataType() != DataType::Double &&
+        !(!input->isA<TensorView>() &&
+          input->getDataType() != DataType::Double &&
           input->getDataType() != DataType::Int &&
           input->getDataType() != DataType::ComplexDouble &&
           input->getDataType() != DataType::Bool),
