@@ -2539,7 +2539,7 @@ struct FullOpRecord : RecordFunctor {
       os << output;
     }
     os << " = "
-        << "fd." << name_ << "(";
+       << "fd." << name_ << "(";
     os << "fill_value=" << args_.at(0);
     os << ", shape=[";
     bool first_arg = true;
