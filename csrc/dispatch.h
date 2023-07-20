@@ -144,9 +144,9 @@ class TORCH_CUDA_CU_API OptOutConstDispatch : public PolymorphicBase {
 
  public:
   // Hierarchal dispatch functions for handle
-  virtual void handle(const Statement*);
-  virtual void handle(const Expr*);
-  virtual void handle(const Val*);
+  virtual void dispatch(const Statement*);
+  virtual void dispatch(const Expr*);
+  virtual void dispatch(const Val*);
 
   // Vals
   virtual void handle(const IterDomain* stmt);
@@ -226,8 +226,8 @@ class TORCH_CUDA_CU_API OptOutDispatch : public PolymorphicBase {
 
  public:
   // Hierarchal dispatch functions for handle
-  virtual void handle(Statement*);
-  virtual void handle(Expr*);
+  virtual void dispatch(Statement*);
+  virtual void dispatch(Expr*);
   virtual void dispatch(Val*);
 
   // Vals
@@ -336,9 +336,8 @@ class TORCH_CUDA_CU_API OptInDispatch : public OptOutDispatch {
 class TORCH_CUDA_CU_API OptOutMutator : public PolymorphicBase {
  public:
   // Hierarchal dispatch functions for handle
-  virtual void mutate(Statement* s);
-  virtual void mutate(Expr* e);
-  virtual void mutate(Val* v);
+  virtual void dispatchMutate(Statement* s);
+  virtual void dispatchMutate(Val* v);
 
   void registerMutation(Val* val, Val* mutation);
 
@@ -359,11 +358,12 @@ class TORCH_CUDA_CU_API OptOutMutator : public PolymorphicBase {
   virtual void mutate(IterDomain*);
   virtual void mutate(TensorDomain*);
   virtual void mutate(TensorView*);
+  virtual void mutate(PipelineVal*);
 
   virtual void mutate(kir::Predicate*);
   virtual void mutate(kir::TensorIndex*);
 
-  virtual void mutateArrayType(Val*);
+  virtual void mutate(Expr* e);
 
  protected:
   virtual void removeExpr(IrContainer*, Expr*) const;

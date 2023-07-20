@@ -438,9 +438,9 @@ class AllocationInserter : public kir::ExprMutator {
         info.buffer, info.buffer->getMemoryType(), alloc_dims);
   }
 
-  void handle(Expr* expr) override {
+  void dispatch(Expr* expr) override {
     if (!ir_utils::isTvOp(expr) || expr->isA<kir::Allocate>()) {
-      ExprMutator::handle(expr);
+      ExprMutator::dispatch(expr);
       return;
     }
 

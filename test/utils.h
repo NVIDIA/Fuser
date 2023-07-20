@@ -165,7 +165,7 @@ class PredicatedChecker : public kir::IrVisitor {
     predicated_ite_ = prev_ite;
   }
 
-  void handle(Expr* expr) final {
+  void dispatch(Expr* expr) final {
     if (expr->outputs().size() && expr->outputs()[0]->isA<kir::TensorIndex>()) {
       auto ti = expr->outputs()[0]->as<kir::TensorIndex>();
       if (ti->view()->name() == tv_name_) {
@@ -176,7 +176,7 @@ class PredicatedChecker : public kir::IrVisitor {
         }
       }
     }
-    kir::IrVisitor::handle(expr);
+    kir::IrVisitor::dispatch(expr);
   }
 };
 
@@ -225,6 +225,7 @@ class PredicateMagicZeroChecker : public kir::IrVisitor {
 
  private:
   using kir::IrVisitor::handle;
+  using kir::IrVisitor::dispatch;
 
   PredicateMagicZeroChecker(TensorView* tv, std::vector<Expr*> exprs)
       : tv_(tv) {
@@ -238,7 +239,7 @@ class PredicateMagicZeroChecker : public kir::IrVisitor {
     predicate_ = prev_predicate;
   }
 
-  void handle(Expr* expr) final {
+  void dispatch(Expr* expr) final {
     if (expr->outputs().size() && expr->outputs()[0]->isA<kir::TensorIndex>()) {
       auto ti = expr->outputs()[0]->as<kir::TensorIndex>();
       if (ti->view() == tv_) {
@@ -253,7 +254,7 @@ class PredicateMagicZeroChecker : public kir::IrVisitor {
       handle(expr->as<kir::IfThenElse>());
     } else {
       for (auto input : expr->inputs()) {
-        handle(input);
+        dispatch(input);
       }
     }
   }
@@ -265,7 +266,7 @@ class PredicateMagicZeroChecker : public kir::IrVisitor {
       // Just check if nvfuser_zero is used. Not perfect but probably
       // good enough.
       is_magic_zero_found_ = false;
-      handle(id_predicate);
+      dispatch(id_predicate);
       if (!is_magic_zero_found_) {
         return false;
       }
@@ -295,7 +296,7 @@ class PredicateMagicZeroChecker : public kir::IrVisitor {
 
     auto def = val->definition();
     if (def != nullptr) {
-      handle(def);
+      dispatch(def);
     }
   }
 
@@ -356,9 +357,9 @@ class KernelExprVisitor : private kir::IrVisitor {
 
   using kir::IrVisitor::handle;
 
-  void handle(Expr* expr) final {
+  void dispatch(Expr* expr) final {
     all_exprs_.push_back(expr);
-    kir::IrVisitor::handle(expr);
+    kir::IrVisitor::dispatch(expr);
   }
 
  private:

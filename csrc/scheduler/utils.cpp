@@ -364,7 +364,7 @@ class PersistentBufferResolution : public IterVisitor {
     }
   }
 
-  void handle(Expr* expr) final {
+  void dispatch(Expr* expr) final {
     if (!persistent_buffer_hit) {
       return;
     }

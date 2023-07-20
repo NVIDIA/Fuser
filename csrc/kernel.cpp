@@ -44,13 +44,14 @@ class KernelIrScanner : private IrVisitor {
 
  private:
   using IrVisitor::handle;
-  void handle(Expr* expr) final {
-    IrVisitor::handle(expr);
+  using IrVisitor::dispatch;
+  void dispatch(Expr* expr) final {
+    IrVisitor::dispatch(expr);
     for (auto inp : expr->inputs()) {
-      handle(inp);
+      dispatch(inp);
     }
     for (auto out : expr->outputs()) {
-      handle(out);
+      dispatch(out);
     }
   }
   void handle(BlockSync* sync) final {
@@ -228,7 +229,7 @@ class ValidateAllocation : private OptOutConstDispatch {
   explicit ValidateAllocation(const Kernel* kernel) {
     live_allocations_.emplace_back();
     for (const auto& expr : kernel->topLevelExprs()) {
-      OptOutConstDispatch::handle(expr);
+      OptOutConstDispatch::dispatch(expr);
     }
     live_allocations_.pop_back();
     TORCH_INTERNAL_ASSERT(live_allocations_.empty());
@@ -280,17 +281,17 @@ class ValidateAllocation : private OptOutConstDispatch {
 
     live_allocations_.emplace_back();
     for (const auto& expr : for_loop->body().exprs()) {
-      OptOutConstDispatch::handle(expr);
+      OptOutConstDispatch::dispatch(expr);
     }
     live_allocations_.pop_back();
   }
 
   void handle(const IfThenElse* ite) final {
     for (const auto& expr : ite->thenBody().exprs()) {
-      OptOutConstDispatch::handle(expr);
+      OptOutConstDispatch::dispatch(expr);
     }
     for (const auto& expr : ite->elseBody().exprs()) {
-      OptOutConstDispatch::handle(expr);
+      OptOutConstDispatch::dispatch(expr);
     }
   }
 

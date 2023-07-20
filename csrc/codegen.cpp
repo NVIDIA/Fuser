@@ -385,7 +385,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   // non-const Expr*.
   void handle(const std::vector<Expr*>& exprs) {
     for (Expr* expr : exprs) {
-      kir::ConstIrVisitor::handle(expr);
+      kir::ConstIrVisitor::dispatch(expr);
     }
   }
 
@@ -450,7 +450,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     std::stringstream tmp_code;
     initStringStreamFormat(tmp_code);
     std::swap(tmp_code, code_);
-    handle(stmt);
+    dispatch(stmt);
     std::swap(tmp_code, code_);
     return tmp_code.str();
   }

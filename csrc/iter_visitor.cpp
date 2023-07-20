@@ -49,10 +49,11 @@ class MemberStatements : public OptOutDispatch {
   MemberStatements() = default;
 
   MemberStatements(Statement* stmt) {
-    handle(stmt);
+    dispatch(stmt);
   }
 
   using OptOutDispatch::handle;
+  using OptOutDispatch::dispatch;
 
   void dispatch(Val* val) final {
     FusionGuard::getCurFusion()->assertInContainer(
@@ -105,19 +106,19 @@ std::vector<Statement*> IterVisitor::next(Expr* expr) {
   return next_stmts;
 }
 
-// This handle functions is called on every Statement* in topological order,
+// This dispatch functions is called on every Statement* in topological order,
 // starting from outputs to inputs.
-void IterVisitor::handle(Statement* s) {
-  OptOutDispatch::handle(s);
+void IterVisitor::dispatch(Statement* s) {
+  OptOutDispatch::dispatch(s);
 }
 
-// This handle functions is called on every Expr* in topological order,
+// This dispatch functions is called on every Expr* in topological order,
 // starting from outputs to inputs.
-void IterVisitor::handle(Expr* e) {
-  OptOutDispatch::handle(e);
+void IterVisitor::dispatch(Expr* e) {
+  OptOutDispatch::dispatch(e);
 }
 
-// This handle functions is called on every Val* in topological order,
+// This dispatch functions is called on every Val* in topological order,
 // starting from outputs to inputs.
 void IterVisitor::dispatch(Val* v) {
   OptOutDispatch::dispatch(v);
@@ -188,7 +189,7 @@ void IterVisitor::traverseBetween(
         visited.insert(stmt);
 
         // Actually visit stmt
-        handle(stmt);
+        dispatch(stmt);
       }
 
       // Remove last value just visited
@@ -280,7 +281,7 @@ void IterVisitor::traverseBetween(
   for (auto val : maybe_orphaned_sibs) {
     if (visited.find(val) == visited.end()) {
       visited.insert(val);
-      handle(val);
+      dispatch(val);
     }
   }
 }
@@ -437,12 +438,12 @@ std::vector<Statement*> BackwardVisitor::next(Val* val) {
   return next_stmts;
 }
 
-void BackwardVisitor::handle(Statement* stmt) {
-  OptOutDispatch::handle(stmt);
+void BackwardVisitor::dispatch(Statement* stmt) {
+  OptOutDispatch::dispatch(stmt);
 }
 
-void BackwardVisitor::handle(Expr* expr) {
-  OptOutDispatch::handle(expr);
+void BackwardVisitor::dispatch(Expr* expr) {
+  OptOutDispatch::dispatch(expr);
 }
 
 void BackwardVisitor::dispatch(Val* val) {
@@ -512,7 +513,7 @@ void BackwardVisitor::traverseTo(
     // Mark visited
     visited_stmts_.emplace(stmt_stack_.back().back());
     // Handle
-    handle(stmt_stack_.back().back());
+    dispatch(stmt_stack_.back().back());
     // Remove
     stmt_stack_.back().pop_back();
 
@@ -522,7 +523,7 @@ void BackwardVisitor::traverseTo(
         // Mark visited
         visited_stmts_.emplace(stmt_stack_.back().back());
         // Handle
-        handle(stmt_stack_.back().back());
+        dispatch(stmt_stack_.back().back());
         // Remove
         stmt_stack_.back().pop_back();
       }
@@ -584,7 +585,7 @@ struct Dependencies : public IterVisitor {
     }
   }
 
-  void handle(Expr* expr) override {
+  void dispatch(Expr* expr) override {
     // Track which expr is depedent on the dependencies_ exprs.
     if (std::any_of(
             expr->inputs().begin(), expr->inputs().end(), [&](Val* input_val) {
@@ -868,7 +869,7 @@ std::unordered_set<Val*> DependencyCheck::getAllDependentVals(
   return DependentVals::getAllDependentVals(of);
 }
 
-void StmtSort::handle(Statement* stmt) {
+void StmtSort::dispatch(Statement* stmt) {
   stmts.push_back(stmt);
 }
 
@@ -1007,23 +1008,23 @@ bool DeadCodeRemover::run() {
   return modifyFusion();
 }
 
-void DeadCodeRemover::handle(Statement* stmt) {
+void DeadCodeRemover::dispatch(Statement* stmt) {
   if (isDead(stmt)) {
     // We check whether stmt is dead before we dereference it, since it may
     // have been removed from the Fusion.
     return;
   }
-  BackwardVisitor::handle(stmt);
+  BackwardVisitor::dispatch(stmt);
 }
 
-void DeadCodeRemover::handle(Expr* expr) {
+void DeadCodeRemover::dispatch(Expr* expr) {
   if (maybeRemoveExpr(expr)) {
     // maybeRemoveExp will remove expr from the Fusion if all its uses are
     // marked dead. In that case, we should not continue handling it since the
     // expr pointer is invalid.
     return;
   }
-  BackwardVisitor::handle(expr);
+  BackwardVisitor::dispatch(expr);
 }
 
 void DeadCodeRemover::handle(TensorView* tv) {

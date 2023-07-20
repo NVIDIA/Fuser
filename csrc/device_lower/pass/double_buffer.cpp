@@ -257,13 +257,13 @@ class DoubleBufferLoopCloner : public kir::IrVisitor {
     TORCH_INTERNAL_ASSERT(false, "No IfThenElse should exist yet");
   }
 
-  void handle(Expr* expr) final {
+  void dispatch(Expr* expr) final {
     if (exclude_.count(expr) > 0) {
       return;
     }
 
     if (expr->isA<kir::ForLoop>() || expr->isA<kir::IfThenElse>()) {
-      kir::IrVisitor::handle(expr);
+      kir::IrVisitor::dispatch(expr);
       return;
     }
 
@@ -323,11 +323,11 @@ class IsDoubleBufferLoadLoop : public kir::IrVisitor {
   using kir::IrVisitor::handle;
 
   bool check(Expr* expr) {
-    handle(expr);
+    dispatch(expr);
     return result_;
   }
 
-  void handle(Expr* expr) final {
+  void dispatch(Expr* expr) final {
     if (result_) {
       return;
     }
@@ -338,7 +338,7 @@ class IsDoubleBufferLoadLoop : public kir::IrVisitor {
       result_ = true;
       return;
     }
-    IrVisitor::handle(expr);
+    IrVisitor::dispatch(expr);
   }
 
  private:
