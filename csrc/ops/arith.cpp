@@ -974,12 +974,17 @@ TORCH_CUDA_CU_API typename std::conditional<
     TensorView*,
     Val*>::type
 logical_right_shift_helper(LHS x, RHS shift) {
-  auto number_of_bits = (x->dtype() == PrimDataType::Int) ? 64 : 32;
-  auto one = IrBuilder::create<Int>(x->container(), 1);
-  auto two = IrBuilder::create<Int>(x->container(), 2);
-  auto thirty_two = IrBuilder::create<Int>(x->container(), number_of_bits);
-  auto mask = sub(pow(two, shift), one);
-  auto shifted_mask = bitwise_left_shift(mask, sub(thirty_two, shift));
+  auto sizeof_int_dtype = (x->dtype() == PrimDataType::Int) ? 64L : 32L;
+
+  auto neg_one = IrBuilder::create<Val>(x->container(), -1L);
+  auto one = IrBuilder::create<Val>(x->container(), 1L);
+  auto two = IrBuilder::create<Val>(x->container(), 2L);
+  auto num_bits_scalar =
+      IrBuilder::create<Val>(x->container(), sizeof_int_dtype);
+
+  auto mask =
+      where(eq(shift, num_bits_scalar), neg_one, sub(pow(two, shift), one));
+  auto shifted_mask = bitwise_left_shift(mask, sub(num_bits_scalar, shift));
   auto right_shift_value = bitwise_right_shift(x, shift);
   return where(
       signbit(x),
