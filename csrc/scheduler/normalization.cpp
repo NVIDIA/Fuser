@@ -1086,27 +1086,26 @@ std::shared_ptr<ReductionParams> outerPersistentHeuristic(
       "bdimx is no divisible by warp_size. bdimx= ",
       hp.bdimx.get());
 
-  auto maybeNextDivisibleFactor = [&after_unroll, &device_warp_size, &hp](int64_t cur) {
-    const int64_t bdimy_step = std::max(1l, device_warp_size / hp.bdimx.get());
-    auto next = cur + next;
-    while (after_unroll % next && next < after_unroll) {
-      next += bdimy_step;
-    }
-    return std::min(next, after_unroll);
-  };
+  auto maybeNextDivisibleFactor =
+      [&after_unroll, &bdimy_step, &bdimy_max](int64_t cur) {
+        auto next = cur + bdimy_step;
+        while (next <= bdimy_max && after_unroll % next) {
+          next += bdimy_step;
+        }
+        return std::min(next, bdimy_max);
+      };
   int64_t tmp_bdimy = bdimy_min;
   int64_t tmp_batch = ceilDiv(after_unroll, tmp_bdimy);
   while (tmp_bdimy < bdimy_max) {
-    int64_t next_bdimy = nextDivisibleFactor(tmp_bdimy + bdimy_step);
+    int64_t next_bdimy = maybeNextDivisibleFactor(tmp_bdimy);
     int64_t next_batch = ceilDiv(after_unroll, next_bdimy);
-    if (next_bdimy <= bdimy_max && next_batch >= batches_per_block_min) {
+    if (next_batch >= batches_per_block_min) {
       tmp_bdimy = next_bdimy;
       tmp_batch = next_batch;
     } else {
       break;
     }
   }
-
   hp.bdimy.set(tmp_bdimy);
   hp.bdimy.finalize();
   hp.batches_per_block.set(tmp_batch);
