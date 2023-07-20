@@ -874,7 +874,7 @@ class TestCudaFuser(JitTestCase):
         "Requires fusion optimization pass to be effective",
     )
     @unittest.skipIf(True, "TS issue: https://github.com/NVIDIA/Fuser/issues/624")
-    def _test_category_rule(self):
+    def test_category_rule(self):
         def run_tensor(x, z):
             def t(x: torch.Tensor, z: torch.Tensor):
                 o = x + z
@@ -3264,7 +3264,7 @@ class TestCudaFuser(JitTestCase):
         "Requires fusion optimization pass to be effective",
     )
     @unittest.skipIf(True, "TS issue: https://github.com/NVIDIA/Fuser/issues/624")
-    def _test_linear(self):
+    def test_linear(self):
         in_feature = 2
         out_feature = 8
         # Changing the input dims to be 3-D to avoid eager mode bias fusion
@@ -4115,7 +4115,7 @@ class TestCudaFuser(JitTestCase):
         "Requires fusion optimization pass to be effective",
     )
     @unittest.skipIf(True, "TS issue: https://github.com/NVIDIA/Fuser/issues/624")
-    def _test_conv2d_bias(self):
+    def test_conv2d_bias(self):
         def t(x: torch.Tensor, w: torch.Tensor, bias: torch.Tensor):
             o = torch.nn.functional.conv2d(x, w, bias)
             return o.relu()
@@ -4507,7 +4507,7 @@ class TestCudaFuser(JitTestCase):
         "Requires fusion optimization pass to be effective",
     )
     @unittest.skipIf(True, "TS issue: https://github.com/NVIDIA/Fuser/issues/624")
-    def _test_view(self):
+    def test_view(self):
         torch._C._jit_set_nvfuser_guard_mode(True)
         self._bias_view_relu_helper([2, 3, 4, 5], [-1, 4, 5], torch.float, "cuda", 1e-6)
         for ndims in range(1, 5):
@@ -4592,7 +4592,7 @@ class TestCudaFuser(JitTestCase):
         "Requires fusion optimization pass to be effective",
     )
     @unittest.skipIf(True, "TS issue: https://github.com/NVIDIA/Fuser/issues/624")
-    def _test_flatten(self):
+    def test_flatten(self):
         torch._C._jit_set_nvfuser_guard_mode(True)
         self._bias_flatten_relu_helper([2, 3, 4, 5], 0, -1, torch.float, "cuda", 1e-6)
         self._bias_flatten_relu_helper([2, 3, 4, 5], 1, -1, torch.float, "cuda", 1e-6)
@@ -4689,7 +4689,7 @@ class TestCudaFuser(JitTestCase):
         "Requires fusion optimization pass to be effective",
     )
     @unittest.skipIf(True, "TS issue: https://github.com/NVIDIA/Fuser/issues/624")
-    def _test_nested_view(self):
+    def test_nested_view(self):
         self._ltc_helper([256, 128, 1024], torch.float, "cuda", 1e-6)
 
     def _bias_squeeze_relu_helper(self, shape, dtype, device, error):
@@ -4750,7 +4750,7 @@ class TestCudaFuser(JitTestCase):
         "Requires fusion optimization pass to be effective",
     )
     @unittest.skipIf(True, "TS issue: https://github.com/NVIDIA/Fuser/issues/624")
-    def _test_squeeze(self):
+    def test_squeeze(self):
         self._bias_squeeze_relu_helper([1, 6, 1, 2, 2, 5, 1], torch.float, "cuda", 1e-6)
         self._alias_bias_squeeze_relu_helper(
             [1, 6, 1, 2, 2, 5, 1], torch.float, "cuda", 1e-6
@@ -4763,7 +4763,7 @@ class TestCudaFuser(JitTestCase):
         "Requires fusion optimization pass to be effective",
     )
     @unittest.skipIf(True, "TS issue: https://github.com/NVIDIA/Fuser/issues/624")
-    def _test_squeeze_zero(self):
+    def test_squeeze_zero(self):
         x = torch.tensor(1.0, dtype=torch.float, device="cuda")
 
         def squeeze_0(x: torch.Tensor):
@@ -4841,7 +4841,7 @@ class TestCudaFuser(JitTestCase):
         "Requires fusion optimization pass to be effective",
     )
     @unittest.skipIf(True, "TS issue: https://github.com/NVIDIA/Fuser/issues/624")
-    def _test_unsqueeze(self):
+    def test_unsqueeze(self):
         self._bias_unsqueeze_relu_helper([2, 3, 4, 5], torch.float, "cuda", 1e-6)
         self._alias_bias_unsqueeze_relu_helper([2, 3, 4, 5], torch.float, "cuda", 1e-6)
 
@@ -4851,7 +4851,7 @@ class TestCudaFuser(JitTestCase):
         "Requires fusion optimization pass to be effective",
     )
     @unittest.skipIf(True, "TS issue: https://github.com/NVIDIA/Fuser/issues/624")
-    def _test_alias_pass_fix(self):
+    def test_alias_pass_fix(self):
         x = torch.randn(4, 24, 2, 2, dtype=torch.float, device="cuda")
         w = torch.randn(24, 24, 1, 1, dtype=torch.float, device="cuda")
         b = torch.randn(24, dtype=torch.float, device="cuda")
@@ -4870,7 +4870,7 @@ class TestCudaFuser(JitTestCase):
         "Requires fusion optimization pass to be effective",
     )
     @unittest.skipIf(True, "TS issue: https://github.com/NVIDIA/Fuser/issues/624")
-    def _test_squeeze_negative_dim(self):
+    def test_squeeze_negative_dim(self):
         x = torch.randn(4, 24, 1, 2, dtype=torch.float, device="cuda")
 
         def t(x):
@@ -4948,7 +4948,7 @@ class TestCudaFuser(JitTestCase):
         "Requires fusion optimization pass to be effective",
     )
     @unittest.skipIf(True, "TS issue: https://github.com/NVIDIA/Fuser/issues/624")
-    def _test_index_select_shape_expression(self):
+    def test_index_select_shape_expression(self):
         x = torch.randn([68, 128], dtype=torch.float, device="cuda")
         y = torch.randn_like(x)
         ind = torch.randint(0, 68, (130,), device="cuda").to(dtype=torch.int)
@@ -5230,7 +5230,7 @@ class TestCudaFuser(JitTestCase):
         "Requires fusion optimization pass to be effective",
     )
     @unittest.skipIf(True, "TS issue: https://github.com/NVIDIA/Fuser/issues/624")
-    def _test_shape_expression(self):
+    def test_shape_expression(self):
         x = torch.randn(4, 2, 1, 3, device="cuda")
 
         def t_unsqueeze(x):
@@ -5403,7 +5403,7 @@ class TestCudaFuser(JitTestCase):
         "Requires fusion optimization pass to be effective",
     )
     @unittest.skipIf(True, "TS issue: https://github.com/NVIDIA/Fuser/issues/624")
-    def _test_view_copy_graph_guard(self):
+    def test_view_copy_graph_guard(self):
         x = torch.randn(4, 2, 3, device="cuda").permute([1, 2, 0])
         y = [4, 6]
 
@@ -5424,7 +5424,7 @@ class TestCudaFuser(JitTestCase):
         "Requires fusion optimization pass to be effective",
     )
     @unittest.skipIf(True, "TS issue: https://github.com/NVIDIA/Fuser/issues/624")
-    def _test_view_copy_graph_guard_double_fusion(self):
+    def test_view_copy_graph_guard_double_fusion(self):
         x = torch.randn(2, 2, 5, device="cuda")
         w = torch.randn(5, 5, device="cuda")
 
