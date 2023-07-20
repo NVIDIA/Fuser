@@ -1137,6 +1137,16 @@ TEST_F(NVFuserTest, FusionResizeSliceScheduler1_CUDA) {
         sub(tv0->axis(0)->extent(), IrBuilder::create<Val>(1L))}});
   fusion.addOutput(tv1);
 
+  // Make sure all IDs of tv0 and tv1 are mapped in the
+  // PERMISSIVE_RESIZE mode.
+  ComputeAtMap ca_map(&fusion);
+  ASSERT_TRUE(ca_map.areMapped(
+      tv1->axis(0), tv0->axis(0), IdMappingMode::PERMISSIVE_RESIZE));
+  ASSERT_TRUE(ca_map.areMapped(
+      tv1->axis(0),
+      tv1->getRootDomain().at(0),
+      IdMappingMode::PERMISSIVE_RESIZE));
+
   std::vector<int64_t> shape({9});
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
