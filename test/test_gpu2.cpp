@@ -9210,31 +9210,31 @@ TEST_F(NVFuserTest, FusionTestWarpSoftMax_CUDA) {
 //   }
 //   Fusion fusion;
 //   FusionGuard fg(&fusion);
-// 
+//
 //   auto tv0 = makeSymbolicTensor(2);
 //   fusion.addInput(tv0);
-// 
+//
 //   auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
 //   auto tv2 = sum(tv1, {1});
 //   auto tv3 = add(tv2, IrBuilder::create<Val>(1.0));
-// 
+//
 //   fusion.addOutput(tv3);
-// 
+//
 //   tv0->computeAt(tv3, 1);
-// 
+//
 //   const int split_factor = 32;
-// 
+//
 //   tv2->split(-1, split_factor);
 //   tv1->computeAt(tv2, -2);
-// 
+//
 //   tv1->axis(-1)->parallelize(ParallelType::TIDx);
 //   tv2->axis(-1)->parallelize(ParallelType::TIDx);
-// 
+//
 //   tv3->axis(0)->parallelize(ParallelType::Unswitch);
-// 
+//
 //   tv1->setMemoryType(MemoryType::Shared);
 //   tv2->setMemoryType(MemoryType::Shared);
-// 
+//
 //   // Both tv1 and tv2 should be allocated at the top-level scope
 //   GpuLower gpulw(&fusion);
 //   bool tv1_validated = false;
@@ -9263,20 +9263,20 @@ TEST_F(NVFuserTest, FusionTestWarpSoftMax_CUDA) {
 //       }
 //     }
 //   }
-// 
+//
 //   TORCH_CHECK(tv1_validated, "Failed to validate tv1 allocation");
 //   TORCH_CHECK(tv2_validated, "Failed to validate tv2 allocation");
-// 
+//
 //   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 //   at::Tensor t0 = at::randn({99, 101}, options);
 //   std::vector<c10::IValue> aten_inputs = {t0};
-// 
+//
 //   FusionExecutor fe;
 //   fe.compileFusion(&fusion, aten_inputs);
 //   auto outputs = fe.runFusion(aten_inputs);
-// 
+//
 //   auto ref = (t0 + 1).sum({1}) + 1;
-// 
+//
 //   testValidate(&fusion, outputs, aten_inputs, {ref}, __LINE__, __FILE__);
 // }
 
