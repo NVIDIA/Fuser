@@ -9246,8 +9246,8 @@ TEST_F(NVFuserTest, FusionTestWarpSoftMax_CUDA) {
 //         // There should be no allocation other than those for tv1 and tv2 and
 //         // hoisted indices
 //         TORCH_CHECK(
-//             alloc->buffer()->isIntegralScalar() || alloc->buffer()->isABool(),
-//             "Invalid allocation detected");
+//             alloc->buffer()->isIntegralScalar() ||
+//             alloc->buffer()->isABool(), "Invalid allocation detected");
 //       }
 //       TORCH_CHECK(size->isConst(), "Allocation not constant");
 //       auto size_int = size->value();
@@ -9258,8 +9258,8 @@ TEST_F(NVFuserTest, FusionTestWarpSoftMax_CUDA) {
 //             size->value());
 //         tv1_validated = true;
 //       } else {
-//         TORCH_CHECK(size_int == 1, "Invalid allocation size: ", size->value());
-//         tv2_validated = true;
+//         TORCH_CHECK(size_int == 1, "Invalid allocation size: ",
+//         size->value()); tv2_validated = true;
 //       }
 //     }
 //   }
