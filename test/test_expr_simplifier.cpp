@@ -442,10 +442,6 @@ Val* operator""_(const char* str, size_t) {
   return parse(str);
 }
 
-Val* operator""_b(const char* str, size_t) {
-  return parse(str);
-}
-
 } // namespace ops
 
 } // namespace stupid_simple_compiler
@@ -570,7 +566,7 @@ TEST_F(ExprSimplifierTest, EliminateTrivialComputation) {
   EXPECT_TRUE(simplifyExpr("where( false , i1 , i2 )"_)->sameAs("i2"_));
 
   // abs(x) -> x, if x >= 0
-  EXPECT_TRUE(simplifyExpr("abs( i )"_, {}, {"i >= 0"_b})->sameAs("i"_));
+  EXPECT_TRUE(simplifyExpr("abs( i )"_, {}, {"i >= 0"_})->sameAs("i"_));
 }
 
 TEST_F(ExprSimplifierTest, SimplifyDivisibleDivMod) {
@@ -707,10 +703,10 @@ TEST_F(ExprSimplifierTest, SignProve) {
   assertProvedNonNegative("T123.stride[3]"_);
 
   std::vector<Val*> assumptions{
-      "i1 < 2 && i1 >= 0"_b,
-      "i2 < 2 && i2 >= 0"_b,
-      "i3 < 2 && i3 >= 0"_b,
-      "i4 < 2 && i4 >= 0"_b,
+      "i1 < 2 && i1 >= 0"_,
+      "i2 < 2 && i2 >= 0"_,
+      "i3 < 2 && i3 >= 0"_,
+      "i4 < 2 && i4 >= 0"_,
   };
 
   assertProvedNonNegative("i1"_, assumptions);
@@ -732,7 +728,7 @@ TEST_F(ExprSimplifierTest, SignProve) {
 }
 
 TEST_F(ExprSimplifierTest, PredicateProve) {
-  std::vector<Val*> assumptions{"i1 < 5 && i2 <= 5 && i3 > 5 && i4 >= 5"_b};
+  std::vector<Val*> assumptions{"i1 < 5 && i2 <= 5 && i3 > 5 && i4 >= 5"_};
   EXPECT_EQ(simplifyExpr("i1 < 5"_, {}, assumptions)->getBool(), true);
   EXPECT_EQ(simplifyExpr("i1 <= 5"_, {}, assumptions)->getBool(), true);
   EXPECT_EQ(simplifyExpr("5 > i1"_, {}, assumptions)->getBool(), true);
@@ -773,26 +769,26 @@ TEST_F(ExprSimplifierTest, CancelDivMod) {
 }
 
 TEST_F(ExprSimplifierTest, DistributeDivisibleDivMod) {
-  std::vector<Val*> assumptions{"i1 >= 0 && i2 >= 0 && i3 >= 0"_b};
+  std::vector<Val*> assumptions{"i1 >= 0 && i2 >= 0 && i3 >= 0"_};
 
   expectSimplifiedDiv("i1 * i2 + i3"_, "i1"_, "i2 + i3 / i1"_, assumptions);
   expectSimplifiedMod("i1 * i2 + i3"_, "i1"_, "i3 % i1"_, assumptions);
 }
 
 TEST_F(ExprSimplifierTest, DistributeGcdRemainderDivMod) {
-  expectSimplifiedDiv("i1 * 3 + 2"_, "6"_, "i1 / 2"_, {"i1 >= 0"_b});
+  expectSimplifiedDiv("i1 * 3 + 2"_, "6"_, "i1 / 2"_, {"i1 >= 0"_});
   expectSimplifiedMod(
-      "i1 * 3 + 2"_, "6"_, "( i1 % 2 ) * 3 + 2"_, {"i1 >= 0"_b});
+      "i1 * 3 + 2"_, "6"_, "( i1 % 2 ) * 3 + 2"_, {"i1 >= 0"_});
   expectSimplifiedDiv(
       "i1 * 4 + 3"_,
       "32 * T0.size[0]"_,
       "i1 / ( 8 * T0.size[0] )"_,
-      {"i1 >= 0"_b});
+      {"i1 >= 0"_});
   expectSimplifiedMod(
       "i1 * 4 + 3"_,
       "32 * T0.size[0]"_,
       "( i1 % ( 8 * T0.size[0] ) ) * 4 + 3"_,
-      {"i1 >= 0"_b});
+      {"i1 >= 0"_});
   expectSimplifiedDiv(
       "( ( ( blockIdx.x * 128 + threadIdx.x ) % ( T0.size[3] * 24 ) ) * 4 ) + 3"_,
       "32 * T0.size[3]"_,
@@ -1036,12 +1032,12 @@ TEST_F(ExprSimplifierTest, MinMax) {
 
   auto expr =
       "max( max( ceilDiv( T0.size[0] , 128 ) * 4 , ceilDiv( T0.size[0] , 128 ) ) , 4 )"_;
-  EXPECT_TRUE(simplify(expr, "T0.size[0] > 0"_b)
+  EXPECT_TRUE(simplify(expr, "T0.size[0] > 0"_)
                   ->sameAs("ceilDiv( T0.size[0] , 128 ) * 4"_));
 }
 
 TEST_F(ExprSimplifierTest, PredicateDivToMul) {
-  auto simplified = simplifyExpr("i1 / T0.size[0] < i2"_, {}, {"i1 >= 0"_b});
+  auto simplified = simplifyExpr("i1 / T0.size[0] < i2"_, {}, {"i1 >= 0"_});
   auto expect = "i1 < ( i2 * T0.size[0] )"_;
 
   EXPECT_TRUE(simplified->sameAs(expect));
@@ -1050,11 +1046,11 @@ TEST_F(ExprSimplifierTest, PredicateDivToMul) {
 TEST_F(ExprSimplifierTest, FactorizeGcd) {
   EXPECT_TRUE(simplifyExpr("gcd( i1 * i2 , i3 * i2 )"_)
                   ->sameAs("gcd( i1 , i3 ) * abs( i2 )"_));
-  EXPECT_TRUE(simplifyExpr("gcd( i1 * i2 , i3 * i2 )"_, {}, {"i2 >= 0"_b})
+  EXPECT_TRUE(simplifyExpr("gcd( i1 * i2 , i3 * i2 )"_, {}, {"i2 >= 0"_})
                   ->sameAs("gcd( i1 , i3 ) * i2"_));
   EXPECT_TRUE(simplifyExpr("gcd( i1 * i2 , i2 )"_)->sameAs("abs( i2 )"_));
   EXPECT_TRUE(
-      simplifyExpr("gcd( i1 * i2 , i2 )"_, {}, {"i2 >= 0"_b})->sameAs("i2"_));
+      simplifyExpr("gcd( i1 * i2 , i2 )"_, {}, {"i2 >= 0"_})->sameAs("i2"_));
 }
 
 } // namespace nvfuser

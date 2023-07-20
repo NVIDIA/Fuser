@@ -1099,6 +1099,7 @@ std::vector<Statement*> checkCycle(Fusion* fusion) {
 namespace {
 
 inline bool isTensorAttr(const Val* val, const std::string& attr_name) {
+  TORCH_INTERNAL_ASSERT(val != nullptr);
   auto getitem = dynamic_cast<GetItem*>(val->definition());
   if (getitem == nullptr) {
     return false;
@@ -1121,7 +1122,7 @@ inline bool isTensorAttr(const Val* val, const std::string& attr_name) {
 
 bool isTensorSize(const Val* val) {
   if (auto ns = dynamic_cast<const NamedScalar*>(val)) {
-    // TODO: make tensor size an expr
+    // TODO: remove this
     if (ns->isTensorSize()) {
       return true;
     }
@@ -1130,8 +1131,8 @@ bool isTensorSize(const Val* val) {
 }
 
 bool isTensorStride(const Val* val) {
-  // TODO: remove this
   if (auto ns = dynamic_cast<const NamedScalar*>(val)) {
+    // TODO: remove this
     if (ns->isTensorStride()) {
       return true;
     }
