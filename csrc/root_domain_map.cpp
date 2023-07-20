@@ -279,7 +279,7 @@ class FindInputDomains : BackwardVisitor {
     return input_keys_;
   }
 
-  void handle(Expr* expr) override {
+  void dispatch(Expr* expr) override {
     for (auto output : expr->outputs()) {
       if (!output->isA<TensorView>()) {
         continue;
@@ -890,12 +890,12 @@ void ComputeAtRootDomainMapBuilder::setMaybeMapped(
   }
 }
 
-void ComputeAtRootDomainMapBuilder::handle(Expr* e) {
+void ComputeAtRootDomainMapBuilder::dispatch(Expr* e) {
   // Avoid visiting expressions multiple times
   if (visited_.find(e) != visited_.end()) {
     return;
   }
-  BackwardVisitor::handle(e);
+  BackwardVisitor::dispatch(e);
   visited_.insert(e);
 }
 
@@ -1235,7 +1235,7 @@ class ExactRootDomainMapBuilder : private IterVisitor {
  private:
   using IterVisitor::handle;
 
-  void handle(Expr* expr) final {
+  void dispatch(Expr* expr) final {
     for (auto producer : ir_utils::filterByType<TensorView>(expr->inputs())) {
       for (auto consumer :
            ir_utils::filterByType<TensorView>(expr->outputs())) {

@@ -643,12 +643,12 @@ class ExprFinder : kir::ConstIrVisitor {
 
   using kir::ConstIrVisitor::handle;
 
-  void handle(const Expr* expr) final {
+  void dispatch(const Expr* expr) final {
     if (expr_types_.find(typeid(*expr)) != expr_types_.end()) {
       is_found_ = true;
       return;
     }
-    kir::ConstIrVisitor::handle(expr);
+    kir::ConstIrVisitor::dispatch(expr);
   }
 
  private:

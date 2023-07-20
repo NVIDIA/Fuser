@@ -385,7 +385,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   // non-const Expr*.
   void handle(const std::vector<Expr*>& exprs) {
     for (Expr* expr : exprs) {
-      kir::ConstIrVisitor::handle(expr);
+      kir::ConstIrVisitor::dispatch(expr);
     }
   }
 
@@ -450,7 +450,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     std::stringstream tmp_code;
     initStringStreamFormat(tmp_code);
     std::swap(tmp_code, code_);
-    handle(stmt);
+    dispatch(stmt);
     std::swap(tmp_code, code_);
     return tmp_code.str();
   }
@@ -469,7 +469,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     code_ << gen(pred->value());
   }
 
-  void handleGeneric(const Val* s) final {
+  void handle(const Val* s) final {
     // Check the replacement map first. If there's an entry for s, use
     // the corresponding replacement.
     auto replace_it = index_replacement_map_.find(s);
