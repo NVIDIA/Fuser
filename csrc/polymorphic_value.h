@@ -293,6 +293,8 @@ inline PolymorphicValue erf(const PolymorphicValue& a) {
       false, "PolymorphicValue erf not implemented for ", a.type().name());
 }
 
+// Convert scalars, vector of scalars, vector of vector of scalars, etc., into
+// an at::Tensor
 inline PolymorphicValue toTensor(const PolymorphicValue& x) {
   if (x.is<at::Tensor>()) {
     return x;
