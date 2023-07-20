@@ -69,7 +69,7 @@ class TORCH_CUDA_CU_API IterVisitor : public OptOutDispatch {
 
   // This handle functions is called on every Val* in topological order,
   // starting from outputs to inputs.
-  void handle(Val* v) override;
+  void dispatch(Val* v) override;
 
   // The entire stack during traversal. stmt_stack.back().back() is the node
   // that is being called in handle(). stmt_stack.back() contains siblings (not
@@ -219,7 +219,7 @@ class TORCH_CUDA_CU_API BackwardVisitor : public OptOutDispatch {
   // This handle functions is called on every Val* in topological order,
   // starting from outputs to inputs.
   // NOLINTNEXTLINE(modernize-use-override,cppcoreguidelines-explicit-virtual-functions)
-  virtual void handle(Val* val) override;
+  virtual void dispatch(Val* val) override;
 
   // All exprs that need to be visited in this traversal. Labeled in topological
   // order (size_t).
@@ -375,7 +375,7 @@ class TORCH_CUDA_CU_API InputsOf : public IterVisitor {
 
   using IterVisitor::handle;
 
-  void handle(Val* v) final;
+  void dispatch(Val* v) final;
 
  public:
   static std::vector<Val*> output(Fusion* fusion, Val* output_);

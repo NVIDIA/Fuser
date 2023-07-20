@@ -304,11 +304,12 @@ void Expr::dispatch(T handler, Expr* expr) {
 template <typename T>
 void Statement::dispatch(T handler, Statement* stmt) {
   if (stmt->isVal()) {
-    ptr(handler)->handle(stmt->as<Val>());
+    ptr(handler)->dispatch(stmt->as<Val>());
   } else if (stmt->isExpr()) {
     ptr(handler)->handle(stmt->as<Expr>());
-  } else
+  } else {
     TORCH_INTERNAL_ASSERT(false, "Unknown stmttype in dispatch!");
+  }
 }
 
 template <typename T>
@@ -679,7 +680,7 @@ void OptOutDispatch::handle(Expr* e) {
   Expr::dispatch(this, e);
 }
 
-void OptOutDispatch::handle(Val* v) {
+void OptOutDispatch::dispatch(Val* v) {
   Val::dispatch(this, v);
 }
 

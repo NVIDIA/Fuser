@@ -335,7 +335,7 @@ class PersistentBufferResolution : public IterVisitor {
   }
 
  private:
-  void handle(Val* val) final {
+  void dispatch(Val* val) final {
     if (!val->isA<TensorView>()) {
       return;
     }

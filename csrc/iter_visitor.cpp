@@ -54,11 +54,11 @@ class MemberStatements : public OptOutDispatch {
 
   using OptOutDispatch::handle;
 
-  void handle(Val* val) final {
+  void dispatch(Val* val) final {
     FusionGuard::getCurFusion()->assertInContainer(
         val,
-        "IterVisitor.cpp::MemberStatements::handle(Val*) Cannot traverse val, ");
-    OptOutDispatch::handle(val);
+        "IterVisitor.cpp::MemberStatements::dispatch(Val*) Cannot traverse val, ");
+    OptOutDispatch::dispatch(val);
   }
 
   void handle(IterDomain* stmt) final {
@@ -119,8 +119,8 @@ void IterVisitor::handle(Expr* e) {
 
 // This handle functions is called on every Val* in topological order,
 // starting from outputs to inputs.
-void IterVisitor::handle(Val* v) {
-  OptOutDispatch::handle(v);
+void IterVisitor::dispatch(Val* v) {
+  OptOutDispatch::dispatch(v);
 }
 
 // Implementation details:
@@ -341,7 +341,7 @@ class Inputs : public IterVisitor {
     return IterVisitor::next(v);
   }
 
-  void handle(Val* val) override {
+  void dispatch(Val* val) override {
     // If there's no definition to val, or val is created inside the fusion, or
     // val is within the provided inputs
     if (val->definition() == nullptr || val->definition()->inputs().empty() ||
@@ -381,7 +381,7 @@ class AllVals : public IterVisitor {
  private:
   std::unordered_set<Val*> vals;
 
-  void handle(Val* val) final {
+  void dispatch(Val* val) final {
     vals.emplace(val);
   }
 
@@ -445,8 +445,8 @@ void BackwardVisitor::handle(Expr* expr) {
   OptOutDispatch::handle(expr);
 }
 
-void BackwardVisitor::handle(Val* val) {
-  OptOutDispatch::handle(val);
+void BackwardVisitor::dispatch(Val* val) {
+  OptOutDispatch::dispatch(val);
 }
 
 void BackwardVisitor::traverseTo(
@@ -559,7 +559,7 @@ struct Dependencies : public IterVisitor {
     return IterVisitor::next(v);
   }
 
-  void handle(Val* val) override {
+  void dispatch(Val* val) override {
     // val is included if:
     // 1. it is one of the dependencies, or
     // 2. its defining expression is included in the dependent expr set
@@ -633,7 +633,7 @@ struct FindOutputs : public IterVisitor {
   const std::unordered_set<Val*>& of_;
   std::unordered_set<Val*> outs_;
 
-  void handle(Val* val) override {
+  void dispatch(Val* val) override {
     if (of_.find(val) != of_.end()) {
       Statement* out_stmt = stmt_stack.front().back();
       TORCH_INTERNAL_ASSERT(out_stmt->isVal());
@@ -683,7 +683,7 @@ class DependentVals : public IterVisitor {
     return IterVisitor::next(v);
   }
 
-  void handle(Val* val) override {
+  void dispatch(Val* val) override {
     if (val->isFusionInput() || val->definition() == nullptr ||
         of_.count(val) || outs_.count(val)) {
       return;
@@ -736,7 +736,7 @@ class DependencyChains : public IterVisitor {
   bool is_dependency = false;
   std::unordered_set<Val*> dependencies_;
 
-  void handle(Val* val) override {
+  void dispatch(Val* val) override {
     if (dependencies_.find(val) != dependencies_.end()) {
       is_dependency = true;
       std::deque<Val*> deps;
@@ -968,7 +968,7 @@ std::vector<Statement*> StmtSort::getStmtsBetween(
   return es.stmts;
 }
 
-void InputsOf::handle(Val* v) {
+void InputsOf::dispatch(Val* v) {
   if (v->definition() == nullptr || v->definition()->inputs().empty()) {
     if (grabbed_inputs.emplace(v).second) {
       ordered_inputs.push_back(v);
