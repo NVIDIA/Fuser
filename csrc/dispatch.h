@@ -152,7 +152,7 @@ class TORCH_CUDA_CU_API OptOutConstDispatch : public PolymorphicBase {
   virtual void handle(const IterDomain* stmt);
   virtual void handle(const TensorDomain* stmt);
   virtual void handle(const TensorView* stmt);
-  virtual void handleGeneric(const Val* stmt);
+  virtual void handle(const Val* stmt);
   virtual void handle(const NamedScalar* stmt);
 
   virtual void handle(const kir::Predicate*);
@@ -231,7 +231,7 @@ class TORCH_CUDA_CU_API OptOutDispatch : public PolymorphicBase {
   virtual void dispatch(Val*);
 
   // Vals
-  virtual void handleGeneric(Val* stmt);
+  virtual void handle(Val* stmt);
   virtual void handle(NamedScalar* stmt);
   virtual void handle(IterDomain* stmt);
   virtual void handle(TensorDomain* stmt);
@@ -353,7 +353,7 @@ class TORCH_CUDA_CU_API OptOutMutator : public PolymorphicBase {
   //****Functions below defined in mutator.cpp*****
 
   // Vals
-  virtual void mutateGeneric(Val*);
+  virtual void mutate(Val*);
   virtual void mutate(NamedScalar*);
   virtual void mutate(IterDomain*);
   virtual void mutate(TensorDomain*);

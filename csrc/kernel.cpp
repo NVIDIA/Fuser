@@ -43,8 +43,8 @@ class KernelIrScanner : private IrVisitor {
   }
 
  private:
-  using IrVisitor::handle;
   using IrVisitor::dispatch;
+  using IrVisitor::handle;
   void dispatch(Expr* expr) final {
     IrVisitor::dispatch(expr);
     for (auto inp : expr->inputs()) {

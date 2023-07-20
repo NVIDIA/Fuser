@@ -38,7 +38,7 @@ class IrNodeLabel final : private OptInConstDispatch {
 
   ~IrNodeLabel() final = default;
 
-  void handleGeneric(const Val* s) override {
+  void handle(const Val* s) override {
     if (s->isSymbolic()) {
       label_ << ir_utils::varName(s);
     }
@@ -353,7 +353,7 @@ void IrGraphGenerator::handle(const IterDomain* id) {
   addArc(id->extent(), id, "[color=gray]");
 }
 
-void IrGraphGenerator::handleGeneric(const Val* s) {
+void IrGraphGenerator::handle(const Val* s) {
   printValue(s, IrNodeLabel::gen(s, detail_level_));
 }
 

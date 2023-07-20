@@ -160,7 +160,7 @@ class ConstCheck : private OptOutConstDispatch {
   // important to check it is one.
   bool is_int_ = true;
 
-  void handleGeneric(const Val* b) final {
+  void handle(const Val* b) final {
     is_const_ = is_const_ && b->isConst();
   }
 

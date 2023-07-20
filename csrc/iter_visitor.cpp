@@ -52,8 +52,8 @@ class MemberStatements : public OptOutDispatch {
     dispatch(stmt);
   }
 
-  using OptOutDispatch::handle;
   using OptOutDispatch::dispatch;
+  using OptOutDispatch::handle;
 
   void dispatch(Val* val) final {
     FusionGuard::getCurFusion()->assertInContainer(

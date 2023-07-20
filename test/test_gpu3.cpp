@@ -7526,8 +7526,8 @@ class ThreadPredChecker : public kir::IrVisitor {
   ThreadPredChecker(StmtNameType tv_name_to_check, ParallelTypeBitmap pt_map)
       : tv_name_to_check_(tv_name_to_check), pt_map_(pt_map) {}
 
-  using kir::IrVisitor::handle;
   using kir::IrVisitor::dispatch;
+  using kir::IrVisitor::handle;
 
   void handle(kir::IfThenElse* ite) final {
     for (auto expr : ite->thenBody().exprs()) {

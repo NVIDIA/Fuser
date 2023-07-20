@@ -69,7 +69,7 @@ void Val::dispatch(T handler, Val* val) {
       ptr(handler)->handle(val->as<PipelineVal>());
       return;
     default:
-      ptr(handler)->handleGeneric(val);
+      ptr(handler)->handle(val);
       return;
   }
   TORCH_INTERNAL_ASSERT(
@@ -337,7 +337,7 @@ void Val::constDispatch(T handler, const Val* val) {
       ptr(handler)->handle(val->as<PipelineVal>());
       return;
     default:
-      ptr(handler)->handleGeneric(val);
+      ptr(handler)->handle(val);
       return;
   }
   TORCH_INTERNAL_ASSERT(
@@ -615,7 +615,7 @@ void Val::mutatorDispatch(T mutator, Val* val) {
       ptr(mutator)->mutate(val->as<PipelineVal>());
       return;
     default:
-      ptr(mutator)->mutateGeneric(val);
+      ptr(mutator)->mutate(val);
       return;
   }
   TORCH_INTERNAL_ASSERT(false, "Unknown valtype in dispatch!");
@@ -727,7 +727,7 @@ void OptInDispatch::unhandled(Statement* stmt) {
 }
 
 // Vals
-void OptOutConstDispatch::handleGeneric(const Val* stmt) {
+void OptOutConstDispatch::handle(const Val* stmt) {
   unhandled(stmt);
 }
 void OptOutConstDispatch::handle(const NamedScalar* stmt) {
@@ -924,7 +924,7 @@ void OptOutConstDispatch::handle(const PipelineCommunication* stmt) {
 void OptOutDispatch::unhandled(Statement*) {}
 
 // Vals
-void OptOutDispatch::handleGeneric(Val* stmt) {
+void OptOutDispatch::handle(Val* stmt) {
   unhandled(stmt);
 }
 void OptOutDispatch::handle(NamedScalar* stmt) {

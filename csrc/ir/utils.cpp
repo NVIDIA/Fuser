@@ -490,8 +490,8 @@ class ValReplacementMutator : private OptOutMutator {
   }
 
  private:
-  using OptOutMutator::mutate;
   using OptOutMutator::dispatchMutate;
+  using OptOutMutator::mutate;
 
   void dispatchMutate(Val* val) final {
     if (replacement_map_.find(val) == replacement_map_.end()) {
@@ -635,8 +635,8 @@ struct ReplaceValInIndexVal : public OptInDispatch {
   ReplaceValInIndexVal(const std::unordered_map<Val*, Val*>& replacement_map)
       : replacement_map_(replacement_map) {}
 
-  using OptOutDispatch::handle;
   using OptOutDispatch::dispatch;
+  using OptOutDispatch::handle;
 
   void dispatch(Val* val) override {
     // if val appears in the replacement map, stop traversing and set

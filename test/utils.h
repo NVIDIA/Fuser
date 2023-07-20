@@ -224,8 +224,8 @@ class PredicateMagicZeroChecker : public kir::IrVisitor {
   }
 
  private:
-  using kir::IrVisitor::handle;
   using kir::IrVisitor::dispatch;
+  using kir::IrVisitor::handle;
 
   PredicateMagicZeroChecker(TensorView* tv, std::vector<Expr*> exprs)
       : tv_(tv) {

@@ -469,7 +469,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     code_ << gen(pred->value());
   }
 
-  void handleGeneric(const Val* s) final {
+  void handle(const Val* s) final {
     // Check the replacement map first. If there's an entry for s, use
     // the corresponding replacement.
     auto replace_it = index_replacement_map_.find(s);
