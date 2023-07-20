@@ -377,7 +377,7 @@ class RedundantUseAnalysis : BackwardVisitor {
     //  can aggregate the final redundant use info for this tv.
     bool not_used_by_tensor_op = true;
     for (auto expr : fusion_->unordered_uses(tv)) {
-      // There are ops, especially GetMetaData that takes TensorView as input
+      // There are ops, especially GetMetaData, that takes TensorView as input
       // and output a non-tensor object. These ops should be treated as scalars,
       // and we do not need to worry about thread predicate.
       if (ir_utils::isTvOp(expr)) {
