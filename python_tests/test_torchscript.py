@@ -873,7 +873,9 @@ class TestCudaFuser(JitTestCase):
         GRAPH_EXECUTOR != ProfilingMode.PROFILING,
         "Requires fusion optimization pass to be effective",
     )
-    def test_category_rule(self):
+    # Disabled due to change in torch.testing._internal.jit_metaprogramming_utils
+    # See https://github.com/NVIDIA/Fuser/issues/624
+    def _test_category_rule(self):
         def run_tensor(x, z):
             def t(x: torch.Tensor, z: torch.Tensor):
                 o = x + z
