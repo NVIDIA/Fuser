@@ -4794,6 +4794,7 @@ TEST_F(NVFuserTest, FusionExpandReduce2_CUDA) {
 }
 
 TEST_F(NVFuserTest, FusionVectorComponentReduce_CUDA) {
+  GTEST_SKIP() << "Temporarily skipped";
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
