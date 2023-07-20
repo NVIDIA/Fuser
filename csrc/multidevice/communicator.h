@@ -26,8 +26,9 @@ enum class CommunicatorBackend { nccl, ucc, gloo };
 
 class Communicator {
  public:
-  Communicator(CommunicatorBackend backend = COMM_BACKEND_DEFAULT,
-               RankType server_local_rank = COMM_SERVER_LOCAL_RANK_DEFAULT);
+  Communicator(
+      CommunicatorBackend backend = COMM_BACKEND_DEFAULT,
+      RankType server_local_rank = COMM_SERVER_LOCAL_RANK_DEFAULT);
 
   // returns if distributed config is available
   auto is_available() const {

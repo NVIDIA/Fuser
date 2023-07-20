@@ -24,9 +24,7 @@ namespace nvfuser {
 */
 class TORCH_CUDA_CU_API MultiDeviceRuntime {
  public:
-  explicit MultiDeviceRuntime(
-      Pipeline* pipeline,
-      Communicator comm = {})
+  explicit MultiDeviceRuntime(Pipeline* pipeline, Communicator comm = {})
       : pipeline_(pipeline), comm_(comm) {
     validate();
   }

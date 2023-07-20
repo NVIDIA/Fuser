@@ -130,7 +130,9 @@ c10::intrusive_ptr<c10d::Backend> createBackend(
   TORCH_CHECK(false, "no distributed backend available");
 }
 
-Communicator::Communicator(CommunicatorBackend backend, RankType server_local_rank)
+Communicator::Communicator(
+    CommunicatorBackend backend,
+    RankType server_local_rank)
     : is_available_(false), rank_(0), size_(0), local_rank_(0), local_size_(0) {
   // retrieves rank and communicator size
   is_available_ = parseEnv(
@@ -145,10 +147,10 @@ Communicator::Communicator(CommunicatorBackend backend, RankType server_local_ra
   {
     char hostname[HOST_NAME_MAX];
     gethostname(hostname, HOST_NAME_MAX);
-    struct hostent *master_host = gethostbyname(master_addr_.c_str());
+    struct hostent* master_host = gethostbyname(master_addr_.c_str());
     // we define the server as the process at the naster host with local rank 0
-    store_opts.isServer = !strcmp(master_host->h_name, hostname) 
-                              && local_rank_ == server_local_rank;
+    store_opts.isServer = !strcmp(master_host->h_name, hostname) &&
+        local_rank_ == server_local_rank;
   }
   if (master_port_) {
     store_opts.port = master_port_;
