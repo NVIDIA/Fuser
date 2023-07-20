@@ -543,7 +543,6 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   }
 
   void handle(const TensorView* tv) final {
-    TORCH_INTERNAL_ASSERT(print_inline_);
     code_ << genVariableName(tv);
   }
 
@@ -598,8 +597,25 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   }
 
   void handle(const GetMetaData* gop) final {
-    TORCH_INTERNAL_ASSERT(print_inline_);
-    code_ << gen(gop->in());
+    if (print_inline_) {
+      code_ << gen(gop->in());
+    } else {
+      auto out_type = gop->output(0)->dtype();
+      std::visit(
+          [&](auto&& dtype) {
+            using T = std::decay_t<decltype(dtype)>;
+            if constexpr (std::is_same_v<T, StructOf>) {
+              for (auto& [name, _] : dtype.types) {
+                indent() << gen(gop->output(0)) << "." << name << " = "
+                         << gen(gop->in()) << "." << name << ";\n";
+              }
+            } else {
+              indent() << gen(gop->output(0)) << " = " << gen(gop->in())
+                       << ";\n";
+            }
+          },
+          out_type.type);
+    }
   }
 
   void handle(const GetAttr* gop) final {

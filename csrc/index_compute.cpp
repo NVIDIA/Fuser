@@ -1400,10 +1400,10 @@ std::vector<Val*> Index::getGlobalProducerStridedIndices(
         strides[i] = GpuLower::current()->kernel()->oneVal();
         continue;
       }
-      std::stringstream ss;
-      ss << "T" << producer_tv->name() << ".stride[" << stride_i++ << "]";
-      strides[i] =
-          SimplifyingIrBuilder::create<NamedScalar>(ss.str(), DataType::Int);
+      strides[i] = IrBuilder::getItemExpr(
+          IrBuilder::getAttrExpr(
+              IrBuilder::metadataExpr(producer_tv), "stride"),
+          stride_i++);
     }
   }
 
@@ -1743,7 +1743,7 @@ std::vector<Val*> Index::getProducerPerDimLogicalIndex(
       producer_tv, consumer_tv, loops, rotated_loops, override_index);
 }
 
-std::vector<Val*> Index::getStrides(const TensorView* tv) {
+std::vector<Val*> Index::getStrides(TensorView* tv) {
   // Indices should now be mapped onto IterDomains in consumer, so just grab
   // and use them.
   const auto& alloc_dom = tv->getMaybeAllocationDomain();
@@ -1757,10 +1757,9 @@ std::vector<Val*> Index::getStrides(const TensorView* tv) {
         strides[i] = GpuLower::current()->kernel()->oneVal();
         continue;
       }
-      std::stringstream ss;
-      ss << "T" << tv->name() << ".stride[" << stride_i++ << "]";
-      strides[i] =
-          SimplifyingIrBuilder::create<NamedScalar>(ss.str(), DataType::Int);
+      strides[i] = IrBuilder::getItemExpr(
+          IrBuilder::getAttrExpr(IrBuilder::metadataExpr(tv), "stride"),
+          stride_i++);
     }
   }
 
@@ -1959,7 +1958,7 @@ std::vector<Val*> Index::getProducerAllocationIndices(
 }
 
 std::vector<Val*> Index::getGlobalConsumerStridedIndices(
-    const TensorView* consumer_tv,
+    TensorView* consumer_tv,
     const std::vector<kir::ForLoop*>& loops,
     const std::unordered_set<kir::ForLoop*>& rotated_loops,
     const std::unordered_map<int, Val*>& override_index) {
