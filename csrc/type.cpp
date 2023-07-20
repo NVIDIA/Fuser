@@ -28,10 +28,10 @@ DataType metaDataTypeOf(Val* v) {
   StructOf tv_metadata;
   tv_metadata.types["data"] = NVFUSER_MAYBE_MAKE_SHARED(
       PointerOf{std::make_shared<DataType>(tv->dtype())});
-  tv_metadata.types["sizes"] = NVFUSER_MAYBE_MAKE_SHARED2(ArrayOf{
+  tv_metadata.types["size"] = NVFUSER_MAYBE_MAKE_SHARED2(ArrayOf{
       std::make_shared<DataType>(DataType::Index),
       TensorDomain::noReductions(tv->getMaybeRFactorDomain()).size()});
-  tv_metadata.types["strides"] = NVFUSER_MAYBE_MAKE_SHARED2(ArrayOf{
+  tv_metadata.types["stride"] = NVFUSER_MAYBE_MAKE_SHARED2(ArrayOf{
       std::make_shared<DataType>(DataType::Index),
       TensorDomain::noReductions(tv->getMaybeAllocationDomain()).size()});
   return tv_metadata;
