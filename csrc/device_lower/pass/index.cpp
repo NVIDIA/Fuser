@@ -251,11 +251,26 @@ void IndexLowering::handle(const ArrayConstruct* aop) {
   GpuLower::current()->propagateExprInfo(aop, back());
 }
 
+void IndexLowering::handle(const GetAttr* gop) {
+  const auto struct_ = lowerSrcIndex(gop->struct_(), gop->out());
+  const auto attr = gop->attr();
+  const auto out = lowerDstIndex(gop->out());
+  pushBack(IrBuilder::create<GetAttr>(out, struct_, attr));
+  GpuLower::current()->propagateExprInfo(gop, back());
+}
+
 void IndexLowering::handle(const GetItem* gop) {
   const auto array = lowerSrcIndex(gop->array(), gop->out());
   const auto index = lowerSrcIndex(gop->index(), gop->out());
   const auto out = lowerDstIndex(gop->out());
   pushBack(IrBuilder::create<GetItem>(out, array, index));
+  GpuLower::current()->propagateExprInfo(gop, back());
+}
+
+void IndexLowering::handle(const GetMetaData* gop) {
+  const auto in = gop->in();
+  const auto out = lowerDstIndex(gop->out());
+  pushBack(IrBuilder::create<GetMetaData>(out, in));
   GpuLower::current()->propagateExprInfo(gop, back());
 }
 

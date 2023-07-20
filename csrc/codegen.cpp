@@ -1406,6 +1406,33 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     // Generic set op
     TORCH_INTERNAL_ASSERT(optype == LoadStoreOpType::Set);
 
+    if (!print_inline_ &&
+        std::holds_alternative<StructOf>(ldst->out()->dtype().type)) {
+      auto out_type = std::get<StructOf>(ldst->out()->dtype().type);
+      auto in_type = std::get<StructOf>(ldst->in()->dtype().type);
+      TORCH_INTERNAL_ASSERT(
+          out_type.types.size() == in_type.types.size(),
+          "Mismatched number of fields in struct assignment: ",
+          ldst->out()->dtype(),
+          " = ",
+          ldst->in()->dtype());
+      for (auto& [name, _] : out_type.types) {
+        TORCH_INTERNAL_ASSERT(
+            in_type.types.find(name) != in_type.types.end(),
+            "Mismatched field in struct assignment: ",
+            ldst->out()->dtype(),
+            ".",
+            name,
+            " = ",
+            ldst->in()->dtype(),
+            ".",
+            name);
+        indent() << gen(ldst->out()) << "." << name << " = " << gen(ldst->in())
+                 << "." << name << ";\n";
+      }
+      return;
+    }
+
     if (!print_inline_) {
       indent() << gen(ldst->out());
       if (!ldst->out()->isScalar() && !ldst->in()->isScalar()) {
