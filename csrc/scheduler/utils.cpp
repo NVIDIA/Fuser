@@ -1090,7 +1090,7 @@ IterDomain* projectIdToRoot(
     } else if (expr->isA<Resize>()) {
       auto resize = expr->as<Resize>();
       if (resize->out() == projected_id) {
-        // We do not allow vectorization wit resize at this moment
+        // We do not allow vectorization with resize at this moment
         if (vectorize_pass) {
           projected_id = nullptr;
         } else {
