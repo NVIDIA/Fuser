@@ -506,8 +506,7 @@ TEST_F(TensorFactoryTest, TensorConstruct) {
   fe.compileFusion(fusion.get());
   auto cg_outputs = fe.runFusion({00, 01, 10, 11});
 
-  testValidate(
-      fusion.get(), cg_outputs, {00, 01, 10, 11}, __LINE__, __FILE__);
+  testValidate(fusion.get(), cg_outputs, {00, 01, 10, 11}, __LINE__, __FILE__);
 }
 
 TEST_F(TensorFactoryTest, MetadataAsTensor) {
