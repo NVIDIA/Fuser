@@ -1008,6 +1008,8 @@ std::pair<Val*, std::list<Val*>> getConstAndSymbolicFactors(Val* x) {
       symbolic_factors.emplace_back(f);
     }
   }
+  // When const_factor is 1 and the const_dtype is unknown, return a nullptr
+  // instead of guessing a dtype.
   return {getConstOrNullptr(const_factor, const_dtype), symbolic_factors};
 }
 
