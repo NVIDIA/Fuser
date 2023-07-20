@@ -1400,10 +1400,17 @@ std::vector<Val*> Index::getGlobalProducerStridedIndices(
         strides[i] = GpuLower::current()->kernel()->oneVal();
         continue;
       }
+#if 0
       strides[i] = IrBuilder::getItemExpr(
           IrBuilder::getAttrExpr(
               IrBuilder::metadataExpr(producer_tv), "stride"),
           stride_i++);
+#else
+      std::stringstream ss;
+      ss << "T" << producer_tv->name() << ".stride[" << stride_i++ << "]";
+      strides[i] =
+          SimplifyingIrBuilder::create<NamedScalar>(ss.str(), DataType::Int);
+#endif
     }
   }
 
@@ -1757,9 +1764,16 @@ std::vector<Val*> Index::getStrides(TensorView* tv) {
         strides[i] = GpuLower::current()->kernel()->oneVal();
         continue;
       }
+#if 0
       strides[i] = IrBuilder::getItemExpr(
           IrBuilder::getAttrExpr(IrBuilder::metadataExpr(tv), "stride"),
           stride_i++);
+#else
+      std::stringstream ss;
+      ss << "T" << tv->name() << ".stride[" << stride_i++ << "]";
+      strides[i] =
+          SimplifyingIrBuilder::create<NamedScalar>(ss.str(), DataType::Int);
+#endif
     }
   }
 
