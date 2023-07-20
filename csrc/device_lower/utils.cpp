@@ -383,9 +383,9 @@ class ExprFlattener : private kir::IrVisitor {
  private:
   using kir::IrVisitor::handle;
 
-  void handle(Expr* expr) final {
+  void dispatch(Expr* expr) final {
     if (expr->isA<kir::ForLoop>() || expr->isA<kir::IfThenElse>()) {
-      kir::IrVisitor::handle(expr);
+      kir::IrVisitor::dispatch(expr);
     } else {
       flat_exprs_.push_back(expr);
     }
@@ -399,7 +399,7 @@ class ExprFlattener : private kir::IrVisitor {
   static std::vector<Expr*> flatten(const std::vector<Expr*>& loop_nests) {
     ExprFlattener flattener;
     for (auto expr : loop_nests) {
-      flattener.handle(expr);
+      flattener.dispatch(expr);
     }
     return flattener.flat_exprs_;
   }

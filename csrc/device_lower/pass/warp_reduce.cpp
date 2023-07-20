@@ -179,7 +179,7 @@ class FuseBroadcastWithWarpReduce : private kir::IrVisitor {
     kir::IrVisitor::handle(exprs);
   }
 
-  void handle(Expr* expr) final {
+  void dispatch(Expr* expr) final {
     if (ir_utils::isTvOp(expr)) {
       // Process expr inputs if needs replacement
       for (auto inp : expr->inputs()) {
@@ -191,7 +191,7 @@ class FuseBroadcastWithWarpReduce : private kir::IrVisitor {
         }
       }
     }
-    kir::IrVisitor::handle(expr);
+    kir::IrVisitor::dispatch(expr);
   }
 
   bool openLoopNestLevel(IterDomain* id) {
@@ -215,7 +215,7 @@ class FuseBroadcastWithWarpReduce : private kir::IrVisitor {
           std::make_unique<std::vector<kir::Allocate*>>());
     }
     for (auto expr : for_loop->body().exprs()) {
-      handle(expr);
+      dispatch(expr);
     }
     if (open_nest_level) {
       running_tv_to_allocate_map_.pop_back();
@@ -227,13 +227,13 @@ class FuseBroadcastWithWarpReduce : private kir::IrVisitor {
     running_visible_allocation_stack_.emplace_back(
         std::make_unique<std::vector<kir::Allocate*>>());
     for (auto expr : ite->thenBody().exprs()) {
-      handle(expr);
+      dispatch(expr);
     }
     running_visible_allocation_stack_.pop_back();
     running_visible_allocation_stack_.emplace_back(
         std::make_unique<std::vector<kir::Allocate*>>());
     for (auto expr : ite->elseBody().exprs()) {
-      handle(expr);
+      dispatch(expr);
     }
     running_visible_allocation_stack_.pop_back();
   }

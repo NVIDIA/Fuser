@@ -69,7 +69,7 @@ void Val::dispatch(T handler, Val* val) {
       ptr(handler)->handle(val->as<PipelineVal>());
       return;
     default:
-      ptr(handler)->handleGeneric(val);
+      ptr(handler)->handle(val);
       return;
   }
   TORCH_INTERNAL_ASSERT(
@@ -304,11 +304,12 @@ void Expr::dispatch(T handler, Expr* expr) {
 template <typename T>
 void Statement::dispatch(T handler, Statement* stmt) {
   if (stmt->isVal()) {
-    ptr(handler)->handle(stmt->as<Val>());
+    ptr(handler)->dispatch(stmt->as<Val>());
   } else if (stmt->isExpr()) {
-    ptr(handler)->handle(stmt->as<Expr>());
-  } else
+    ptr(handler)->dispatch(stmt->as<Expr>());
+  } else {
     TORCH_INTERNAL_ASSERT(false, "Unknown stmttype in dispatch!");
+  }
 }
 
 template <typename T>
@@ -336,7 +337,7 @@ void Val::constDispatch(T handler, const Val* val) {
       ptr(handler)->handle(val->as<PipelineVal>());
       return;
     default:
-      ptr(handler)->handleGeneric(val);
+      ptr(handler)->handle(val);
       return;
   }
   TORCH_INTERNAL_ASSERT(
@@ -571,9 +572,9 @@ void Expr::constDispatch(T handler, const Expr* expr) {
 template <typename T>
 void Statement::constDispatch(T handler, const Statement* stmt) {
   if (stmt->isVal()) {
-    ptr(handler)->handle(stmt->as<Val>());
+    ptr(handler)->dispatch(stmt->as<Val>());
   } else if (stmt->isExpr()) {
-    ptr(handler)->handle(stmt->as<Expr>());
+    ptr(handler)->dispatch(stmt->as<Expr>());
   } else
     TORCH_INTERNAL_ASSERT(false, "Unknown stmttype in dispatch!");
 }
@@ -614,7 +615,7 @@ void Val::mutatorDispatch(T mutator, Val* val) {
       ptr(mutator)->mutate(val->as<PipelineVal>());
       return;
     default:
-      ptr(mutator)->mutateGeneric(val);
+      ptr(mutator)->mutate(val);
       return;
   }
   TORCH_INTERNAL_ASSERT(false, "Unknown valtype in dispatch!");
@@ -623,7 +624,7 @@ void Val::mutatorDispatch(T mutator, Val* val) {
 template <typename T>
 void Statement::mutatorDispatch(T mutator, Statement* stmt) {
   if (stmt->isVal()) {
-    ptr(mutator)->mutate(stmt->as<Val>());
+    ptr(mutator)->dispatchMutate(stmt->as<Val>());
     return;
   }
   if (stmt->isExpr()) {
@@ -671,27 +672,27 @@ template void Statement::mutatorDispatch(OptOutMutator*, Statement*);
 template void Val::mutatorDispatch(OptOutMutator&, Val*);
 template void Val::mutatorDispatch(OptOutMutator*, Val*);
 
-void OptOutDispatch::handle(Statement* s) {
+void OptOutDispatch::dispatch(Statement* s) {
   Statement::dispatch(this, s);
 }
 
-void OptOutDispatch::handle(Expr* e) {
+void OptOutDispatch::dispatch(Expr* e) {
   Expr::dispatch(this, e);
 }
 
-void OptOutDispatch::handle(Val* v) {
+void OptOutDispatch::dispatch(Val* v) {
   Val::dispatch(this, v);
 }
 
-void OptOutConstDispatch::handle(const Statement* s) {
+void OptOutConstDispatch::dispatch(const Statement* s) {
   Statement::constDispatch(this, s);
 }
 
-void OptOutConstDispatch::handle(const Expr* e) {
+void OptOutConstDispatch::dispatch(const Expr* e) {
   Expr::constDispatch(this, e);
 }
 
-void OptOutConstDispatch::handle(const Val* v) {
+void OptOutConstDispatch::dispatch(const Val* v) {
   Val::constDispatch(this, v);
 }
 
@@ -726,7 +727,7 @@ void OptInDispatch::unhandled(Statement* stmt) {
 }
 
 // Vals
-void OptOutConstDispatch::handleGeneric(const Val* stmt) {
+void OptOutConstDispatch::handle(const Val* stmt) {
   unhandled(stmt);
 }
 void OptOutConstDispatch::handle(const NamedScalar* stmt) {
@@ -923,7 +924,7 @@ void OptOutConstDispatch::handle(const PipelineCommunication* stmt) {
 void OptOutDispatch::unhandled(Statement*) {}
 
 // Vals
-void OptOutDispatch::handleGeneric(Val* stmt) {
+void OptOutDispatch::handle(Val* stmt) {
   unhandled(stmt);
 }
 void OptOutDispatch::handle(NamedScalar* stmt) {
