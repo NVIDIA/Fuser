@@ -17,7 +17,7 @@ namespace nvfuser {
 
 class LoopRotationTest : public NVFuserTest {};
 
-TEST_F(LoopRotationTest, RotateInner_CUDA) {
+TEST_F(LoopRotationTest, RotateInner) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -73,7 +73,7 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> 
 
   assertCUDAKernel(&fusion, expected_kernel);
 
-  for (auto n : {0, 1, 99}) {
+  for (auto n : {1, 99}) {
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
     auto t0 = at::randn({n, 3}, options);
     FusionExecutor fe;
@@ -83,7 +83,7 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> 
   }
 }
 
-TEST_F(LoopRotationTest, RotateOuter_CUDA) {
+TEST_F(LoopRotationTest, RotateOuter) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -101,68 +101,64 @@ TEST_F(LoopRotationTest, RotateOuter_CUDA) {
   const std::string expected_kernel = R"(
 __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> T4) {
   NVFUSER_DEFINE_MAGIC_ZERO;
-  bool b0;
-  b0 = 0 < T0.size[0];
   float T1[3];
   float T2[3];
   #pragma unroll
-  for(nvfuser_index_t i1 = 0; i1 < 3; ++i1) {
-    T1[i1] = 0;
+  for(nvfuser_index_t i0 = 0; i0 < 3; ++i0) {
+    T1[i0] = 0;
+  }
+  NVFUSER_UPDATE_MAGIC_ZERO;
+  #pragma unroll
+  for(nvfuser_index_t i0 = 0; i0 < 3; ++i0) {
+    T1[i0]
+       = T0[(T0.stride[1] * (i0 + nvfuser_zero))];
   }
   NVFUSER_UPDATE_MAGIC_ZERO;
   #pragma unroll
   for(nvfuser_index_t i1 = 0; i1 < 3; ++i1) {
-    if (b0) {
-      T1[i1]
-         = T0[(T0.stride[1] * (i1 + nvfuser_zero))];
-    }
-  }
-  NVFUSER_UPDATE_MAGIC_ZERO;
-  #pragma unroll
-  for(nvfuser_index_t i2 = 0; i2 < 3; ++i2) {
-    T2[i2]
-       = T1[i2];
+    T2[i1]
+       = T1[i1];
   }
   NVFUSER_UPDATE_MAGIC_ZERO;
   #pragma unroll 1
-  for(nvfuser_index_t i3 = 0; i3 < T0.size[0]; ++i3) {
+  for(nvfuser_index_t i2 = 0; i2 < T0.size[0]; ++i2) {
+    int64_t i3;
+    i3 = 3 * i2;
     int64_t i4;
-    i4 = 3 * i3;
-    int64_t i5;
-    i5 = T0.stride[0] + (T0.stride[0] * i3);
-    bool b6;
-    b6 = (1 + i3) < T0.size[0];
+    i4 = T0.stride[0] + (T0.stride[0] * i2);
+    bool b5;
+    b5 = (1 + i2) < T0.size[0];
     // Alias Allocation - register
     auto& T3 = T1;
     #pragma unroll
+    for(nvfuser_index_t i6 = 0; i6 < 3; ++i6) {
+      T3[i6]
+         = T2[i6];
+    }
+    NVFUSER_UPDATE_MAGIC_ZERO;
+    #pragma unroll
     for(nvfuser_index_t i7 = 0; i7 < 3; ++i7) {
-      T3[i7]
-         = T2[i7];
+      T4[(i3 + (i7 + nvfuser_zero))]
+         = T3[i7];
     }
     NVFUSER_UPDATE_MAGIC_ZERO;
     #pragma unroll
-    for(nvfuser_index_t i8 = 0; i8 < 3; ++i8) {
-      T4[(i4 + (i8 + nvfuser_zero))]
-         = T3[i8];
+    for(nvfuser_index_t i0 = 0; i0 < 3; ++i0) {
+      T1[i0] = 0;
     }
     NVFUSER_UPDATE_MAGIC_ZERO;
     #pragma unroll
-    for(nvfuser_index_t i1 = 0; i1 < 3; ++i1) {
-      T1[i1] = 0;
-    }
-    NVFUSER_UPDATE_MAGIC_ZERO;
-    #pragma unroll
-    for(nvfuser_index_t i1 = 0; i1 < 3; ++i1) {
-      if (b6) {
-        T1[i1]
-           = T0[(i5 + (T0.stride[1] * (i1 + nvfuser_zero)))];
+    for(nvfuser_index_t i0 = 0; i0 < 3; ++i0) {
+      if (b5) {
+        T1[i0]
+           = T0[(i4 + (T0.stride[1] * (i0 + nvfuser_zero)))];
       }
     }
     NVFUSER_UPDATE_MAGIC_ZERO;
     #pragma unroll
-    for(nvfuser_index_t i2 = 0; i2 < 3; ++i2) {
-      T2[i2]
-         = T1[i2];
+    for(nvfuser_index_t i1 = 0; i1 < 3; ++i1) {
+      T2[i1]
+         = T1[i1];
     }
     NVFUSER_UPDATE_MAGIC_ZERO;
   }
@@ -170,7 +166,7 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> 
 )";
   assertCUDAKernel(&fusion, expected_kernel);
 
-  for (auto n : {0, 1, 99}) {
+  for (auto n : {1, 99}) {
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
     auto t0 = at::randn({n, 3}, options);
     FusionExecutor fe;
@@ -180,7 +176,7 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> 
   }
 }
 
-TEST_F(LoopRotationTest, NonDivisibleSplit_CUDA) {
+TEST_F(LoopRotationTest, NonDivisibleSplit) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -277,7 +273,7 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> 
 )";
   assertCUDAKernel(&fusion, expected_kernel);
 
-  for (auto n : {0, 1, 99}) {
+  for (auto n : {1, 99}) {
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
     auto t0 = at::randn({n, 3}, options);
     FusionExecutor fe;
@@ -287,7 +283,7 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> 
   }
 }
 
-TEST_F(LoopRotationTest, DoubleBuffered_CUDA) {
+TEST_F(LoopRotationTest, DoubleBuffered) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -388,7 +384,7 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> 
 )";
   assertCUDAKernel(&fusion, expected_kernel);
 
-  for (auto n : {0, 1, 99}) {
+  for (auto n : {1, 99}) {
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
     auto t0 = at::randn({n, 3}, options);
     FusionExecutor fe;
@@ -398,7 +394,7 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> 
   }
 }
 
-TEST_F(LoopRotationTest, SelectDoubleBufferLoad_CUDA) {
+TEST_F(LoopRotationTest, SelectDoubleBufferLoad) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -422,106 +418,102 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> 
   int64_t i1;
   i1 = T0.stride[0] * 5;
   bool b2;
-  b2 = 0 < T0.size[0];
-  bool b3;
-  b3 = 4 < T0.size[0];
+  b2 = 4 < T0.size[0];
   float T1[15];
   #pragma unroll
-  for(nvfuser_index_t i4 = 0; i4 < 3; ++i4) {
-    T1[i4] = 0;
+  for(nvfuser_index_t i3 = 0; i3 < 3; ++i3) {
+    T1[i3] = 0;
   }
   NVFUSER_UPDATE_MAGIC_ZERO;
   #pragma unroll
-  for(nvfuser_index_t i4 = 0; i4 < 3; ++i4) {
-    if (b2) {
-      T1[i4]
-         = T0[(T0.stride[1] * (i4 + nvfuser_zero))];
-    }
+  for(nvfuser_index_t i3 = 0; i3 < 3; ++i3) {
+    T1[i3]
+       = T0[(T0.stride[1] * (i3 + nvfuser_zero))];
   }
   NVFUSER_UPDATE_MAGIC_ZERO;
   #pragma unroll
-  for(nvfuser_index_t i5 = 0; i5 < 4; ++i5) {
+  for(nvfuser_index_t i4 = 0; i4 < 4; ++i4) {
+    int64_t i5;
+    i5 = 3 + (3 * i4);
     int64_t i6;
-    i6 = 3 + (3 * i5);
-    int64_t i7;
-    i7 = T0.stride[0] + (T0.stride[0] * i5);
-    bool b8;
-    b8 = ((1 + i5) + nvfuser_zero) < T0.size[0];
+    i6 = T0.stride[0] + (T0.stride[0] * i4);
+    bool b7;
+    b7 = ((1 + i4) + nvfuser_zero) < T0.size[0];
     #pragma unroll
-    for(nvfuser_index_t i4 = 0; i4 < 3; ++i4) {
-      T1[(i6 + i4)] = 0;
+    for(nvfuser_index_t i3 = 0; i3 < 3; ++i3) {
+      T1[(i5 + i3)] = 0;
     }
     #pragma unroll
-    for(nvfuser_index_t i4 = 0; i4 < 3; ++i4) {
-      if (b8) {
-        T1[(i6 + i4)]
-           = T0[(i7 + (T0.stride[1] * (i4 + nvfuser_zero)))];
+    for(nvfuser_index_t i3 = 0; i3 < 3; ++i3) {
+      if (b7) {
+        T1[(i5 + i3)]
+           = T0[(i6 + (T0.stride[1] * (i3 + nvfuser_zero)))];
       }
     }
   }
   NVFUSER_UPDATE_MAGIC_ZERO;
   float T2[3];
   #pragma unroll
-  for(nvfuser_index_t i4 = 0; i4 < 3; ++i4) {
-    T1[(12 + i4)] = 0;
+  for(nvfuser_index_t i3 = 0; i3 < 3; ++i3) {
+    T1[(12 + i3)] = 0;
   }
   NVFUSER_UPDATE_MAGIC_ZERO;
   #pragma unroll
-  for(nvfuser_index_t i4 = 0; i4 < 3; ++i4) {
-    if (b3) {
-      T1[(12 + i4)]
-         = T0[(i0 + (T0.stride[1] * (i4 + nvfuser_zero)))];
+  for(nvfuser_index_t i3 = 0; i3 < 3; ++i3) {
+    if (b2) {
+      T1[(12 + i3)]
+         = T0[(i0 + (T0.stride[1] * (i3 + nvfuser_zero)))];
     }
   }
   NVFUSER_UPDATE_MAGIC_ZERO;
   #pragma unroll
-  for(nvfuser_index_t i9 = 0; i9 < 3; ++i9) {
-    T2[i9]
-       = T1[i9];
+  for(nvfuser_index_t i8 = 0; i8 < 3; ++i8) {
+    T2[i8]
+       = T1[i8];
   }
   NVFUSER_UPDATE_MAGIC_ZERO;
   #pragma unroll 1
-  for(nvfuser_index_t i10 = 0; i10 < T0.size[0]; ++i10) {
+  for(nvfuser_index_t i9 = 0; i9 < T0.size[0]; ++i9) {
+    int64_t i10;
+    i10 = 3 * i9;
     int64_t i11;
-    i11 = 3 * i10;
+    i11 = 3 * (i9 % 5);
     int64_t i12;
-    i12 = 3 * (i10 % 5);
+    i12 = i1 + (T0.stride[0] * i9);
     int64_t i13;
-    i13 = i1 + (T0.stride[0] * i10);
-    int64_t i14;
-    i14 = 3 * ((1 + i10) % 5);
-    bool b15;
-    b15 = (5 + i10) < T0.size[0];
+    i13 = 3 * ((1 + i9) % 5);
+    bool b14;
+    b14 = (5 + i9) < T0.size[0];
     float T3[3];
     #pragma unroll
+    for(nvfuser_index_t i15 = 0; i15 < 3; ++i15) {
+      T3[i15]
+         = T2[i15];
+    }
+    NVFUSER_UPDATE_MAGIC_ZERO;
+    #pragma unroll
     for(nvfuser_index_t i16 = 0; i16 < 3; ++i16) {
-      T3[i16]
-         = T2[i16];
+      T4[(i10 + (i16 + nvfuser_zero))]
+         = T3[i16];
     }
     NVFUSER_UPDATE_MAGIC_ZERO;
     #pragma unroll
-    for(nvfuser_index_t i17 = 0; i17 < 3; ++i17) {
-      T4[(i11 + (i17 + nvfuser_zero))]
-         = T3[i17];
+    for(nvfuser_index_t i3 = 0; i3 < 3; ++i3) {
+      T1[(i11 + i3)] = 0;
     }
     NVFUSER_UPDATE_MAGIC_ZERO;
     #pragma unroll
-    for(nvfuser_index_t i4 = 0; i4 < 3; ++i4) {
-      T1[(i12 + i4)] = 0;
-    }
-    NVFUSER_UPDATE_MAGIC_ZERO;
-    #pragma unroll
-    for(nvfuser_index_t i4 = 0; i4 < 3; ++i4) {
-      if (b15) {
-        T1[(i12 + i4)]
-           = T0[(i13 + (T0.stride[1] * (i4 + nvfuser_zero)))];
+    for(nvfuser_index_t i3 = 0; i3 < 3; ++i3) {
+      if (b14) {
+        T1[(i11 + i3)]
+           = T0[(i12 + (T0.stride[1] * (i3 + nvfuser_zero)))];
       }
     }
     NVFUSER_UPDATE_MAGIC_ZERO;
     #pragma unroll
-    for(nvfuser_index_t i9 = 0; i9 < 3; ++i9) {
-      T2[i9]
-         = T1[(i14 + i9)];
+    for(nvfuser_index_t i8 = 0; i8 < 3; ++i8) {
+      T2[i8]
+         = T1[(i13 + i8)];
     }
     NVFUSER_UPDATE_MAGIC_ZERO;
   }
@@ -529,7 +521,7 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> 
 )";
   assertCUDAKernel(&fusion, expected_kernel);
 
-  for (auto n : {0, 1, 99}) {
+  for (auto n : {1, 99}) {
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
     auto t0 = at::randn({n, 3}, options);
     FusionExecutor fe;
@@ -543,7 +535,7 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> 
 // tv4 = set(tv0) // cp.async for matmul
 // tv1 = set(tv4) // ld.matrix for matmul
 // and both are double buffered
-TEST_F(LoopRotationTest, MultipleDoubleBuffer_CUDA) {
+TEST_F(LoopRotationTest, MultipleDoubleBuffer) {
   if (!deviceMajorMinorCheck(8)) {
     GTEST_SKIP() << "skipping tests on pre-Ampere GPUs";
     return;
@@ -644,7 +636,7 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> 
 )";
   assertCUDAKernel(&fusion, expected_kernel);
 
-  for (auto n : {0, 1, 99}) {
+  for (auto n : {1, 99}) {
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
     auto t0 = at::randn({n, 3}, options);
     FusionExecutor fe;
