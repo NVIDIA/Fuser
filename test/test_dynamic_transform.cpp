@@ -849,7 +849,9 @@ TEST_F(NVFuserTest, FusionDynamicReshapeReductionShmoo_CUDA) {
       {{8, 3 * 5, 7, 9}, {8, 3, 5 * 7, 9}, false}, // merge(1) osplit(1, 3)
 
       // test passing -1 dynamically for dimension size
-      // This currently fails. see https://github.com/NVIDIA/Fuser/issues/249
+      // This is unsupported. See https://github.com/NVIDIA/Fuser/issues/249
+      // Values of -1 must be passed as constants instead of input-dependent
+      // scalars.
       //{{8, 3 * 5, 7, 9}, {8, 3, -1, 9}, false} // merge(1) osplit(1, 3)
   };
   reductionDynamicViewAddFusion(
