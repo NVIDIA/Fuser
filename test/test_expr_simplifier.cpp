@@ -777,8 +777,7 @@ TEST_F(ExprSimplifierTest, DistributeDivisibleDivMod) {
 
 TEST_F(ExprSimplifierTest, DistributeGcdRemainderDivMod) {
   expectSimplifiedDiv("i1 * 3 + 2"_, "6"_, "i1 / 2"_, {"i1 >= 0"_});
-  expectSimplifiedMod(
-      "i1 * 3 + 2"_, "6"_, "( i1 % 2 ) * 3 + 2"_, {"i1 >= 0"_});
+  expectSimplifiedMod("i1 * 3 + 2"_, "6"_, "( i1 % 2 ) * 3 + 2"_, {"i1 >= 0"_});
   expectSimplifiedDiv(
       "i1 * 4 + 3"_,
       "32 * T0.size[0]"_,

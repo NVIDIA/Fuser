@@ -2460,7 +2460,7 @@ Val* fundamentalDivisionWithRemainderProperty(
       auto factorized_bc = sym_algebra::factorize(bc);
       auto quotient =
           sym_algebra::divideFactorized(factorized_bc, factorized_b1c);
-      if (quotient->isOne()) {
+      if (quotient != nullptr && quotient->isOne()) {
         // Found match!
         // Simplify [1] + [2] + ... + [i] + ... + [j] + ...
         // As: [1] + [2] + a * c ... + ...  + ...
