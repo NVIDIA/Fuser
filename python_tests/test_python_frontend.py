@@ -2422,6 +2422,29 @@ class TestNvFuserFrontend(TestCase):
                         print(e)
                         break
 
+    # Test expand to zero is replaced with expanded extent and not 1
+    # see https://github.com/NVIDIA/Fuser/issues/603
+    def test_expand_to_zero(self):
+        inputs = [
+            # This is an actually empty tensor
+            torch.zeros((1, 0), dtype=torch.float32, device="cuda:0"),
+            # This one is not actually empty, but should appear to be empty due to expand
+            torch.zeros((1, 1), dtype=torch.float32, device="cuda:0"),
+        ]
+
+        def fusion_func(fd: FusionDefinition) -> None:
+            T0 = fd.from_pytorch(inputs[0])
+            T1 = fd.from_pytorch(inputs[1])
+            T2 = fd.ops.broadcast_in_dim(T0, output_shape=[0, 0], broadcast_dims=[0, 1])
+            T3 = fd.ops.broadcast_in_dim(T1, output_shape=[0, 0], broadcast_dims=[0, 1])
+            fd.add_output(T2)
+            fd.add_output(T3)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+
+        self.assertEqual(nvf_out[0].shape, (0, 0))
+        self.assertEqual(nvf_out[1].shape, (0, 0))
+
 
 if __name__ == "__main__":
     run_tests()

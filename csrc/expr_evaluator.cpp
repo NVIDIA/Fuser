@@ -58,12 +58,6 @@ void ExpressionEvaluator::bind_(
     return;
   }
   TORCH_CHECK(!value->isConstScalar(), "Tried to bind to a constant value");
-  TORCH_CHECK(
-      value->definition() == nullptr,
-      "Tried to bind to a value that is computed in the Fusion IR: ",
-      value->toInlineString(),
-      " with ",
-      concrete_value);
   if (value->isA<NamedScalar>()) {
     known_named_scalars_[value->as<NamedScalar>()->name()] = concrete_value;
   } else {
@@ -101,9 +95,6 @@ PolymorphicValue ExpressionEvaluator::evaluate(const Val* value) {
   if (!maybe_concrete_value.hasValue()) {
     if (auto def = value->definition()) {
       FUSER_PERF_SCOPE("ExpressionEvaluator::evaluate");
-      if (def->isA<kir::BaseAddress>()) {
-        return std::monostate{};
-      }
       std::vector<PolymorphicValue> inputs;
       inputs.reserve(def->inputs().size());
       for (auto i : def->inputs()) {
@@ -133,7 +124,7 @@ PolymorphicValue ExpressionEvaluator::evaluate(ParallelType pt) {
 
 PolymorphicValue ExpressionEvaluator::getValue(const Val* value) {
   if (value->isScalar() && value->isConst()) {
-    return value->as<Scalar>()->value();
+    return value->value();
   }
 
   if (value->isA<NamedScalar>()) {

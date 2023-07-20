@@ -214,7 +214,7 @@ class RotateLoop : kir::ExprMutator {
      public:
       bool operator()(Expr* expr) {
         result_ = true;
-        handle(expr);
+        dispatch(expr);
         return result_;
       }
 
@@ -223,7 +223,7 @@ class RotateLoop : kir::ExprMutator {
      private:
       using kir::IrVisitor::handle;
 
-      void handle(Expr* expr) final {
+      void dispatch(Expr* expr) final {
         if (!result_) {
           return;
         }
@@ -239,7 +239,7 @@ class RotateLoop : kir::ExprMutator {
             return;
           }
         }
-        IrVisitor::handle(expr);
+        IrVisitor::dispatch(expr);
       }
 
      private:
@@ -380,8 +380,8 @@ class RotateLoop : kir::ExprMutator {
     }
   }
 
-  void handle(Expr* expr) final {
-    ExprMutator::handle(expr);
+  void dispatch(Expr* expr) final {
+    ExprMutator::dispatch(expr);
     expandSelection(expr);
   }
 };

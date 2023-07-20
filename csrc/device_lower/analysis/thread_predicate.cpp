@@ -22,7 +22,7 @@ namespace nvfuser {
 
 namespace {
 
-Scalar* getPredicatePerParallelType(
+Val* getPredicatePerParallelType(
     ParallelType pt,
     const ThreadPredicateMap::PredicateInfo& pred_info) {
   auto pt_dim = GpuLower::current()->parallelDimensionMap().get(pt);
@@ -36,11 +36,10 @@ Scalar* getPredicatePerParallelType(
   // value from the grid reduce.
   if (isParallelTypeBlockDim(pt) && pred_info.limited_types.get(pt)) {
     return SimplifyingIrBuilder::eqExpr(
-               NamedScalar::getParallelIndex(pt),
-               SimplifyingIrBuilder::subExpr(
-                   NamedScalar::getParallelDim(pt),
-                   GpuLower::current()->kernel()->oneVal()))
-        ->as<Scalar>();
+        NamedScalar::getParallelIndex(pt),
+        SimplifyingIrBuilder::subExpr(
+            NamedScalar::getParallelDim(pt),
+            GpuLower::current()->kernel()->oneVal()));
   }
 
   const auto& broadcast_rd_indices_map = pred_info.broadcast_rd_indices_map;
@@ -49,7 +48,7 @@ Scalar* getPredicatePerParallelType(
     // skip concretized broadcast root domains
     const auto& broadcast_rd_indices = it->second;
     Val* zero = GpuLower::current()->kernel()->zeroVal();
-    Scalar* pred = GpuLower::current()->kernel()->trueVal();
+    Val* pred = GpuLower::current()->kernel()->trueVal();
     for (auto broadcast_rd_index : broadcast_rd_indices) {
       pred = SimplifyingIrBuilder::andExpr(
           pred, SimplifyingIrBuilder::eqExpr(broadcast_rd_index, zero));
@@ -58,14 +57,13 @@ Scalar* getPredicatePerParallelType(
   }
 
   return SimplifyingIrBuilder::eqExpr(
-             NamedScalar::getParallelIndex(pt),
-             GpuLower::current()->kernel()->zeroVal())
-      ->as<Scalar>();
+      NamedScalar::getParallelIndex(pt),
+      GpuLower::current()->kernel()->zeroVal());
 }
 
 } // namespace
 
-Scalar* ThreadPredicateMap::getPredicateFromPredicateInfo(
+Val* ThreadPredicateMap::getPredicateFromPredicateInfo(
     const ThreadPredicateMap::PredicateInfo& pred_info,
     const ParallelTypeBitmap& mask) {
   const auto pred_types =
@@ -75,10 +73,10 @@ Scalar* ThreadPredicateMap::getPredicateFromPredicateInfo(
     return GpuLower::current()->kernel()->trueVal();
   }
 
-  Scalar* pred = nullptr;
+  Val* pred = nullptr;
   for (const auto pt : pred_types) {
     const auto tp = getPredicatePerParallelType(pt, pred_info);
-    pred = SimplifyingIrBuilder::andExpr(pred, tp)->as<Scalar>();
+    pred = SimplifyingIrBuilder::andExpr(pred, tp);
   }
   TORCH_INTERNAL_ASSERT(pred != nullptr);
 
@@ -456,7 +454,7 @@ class RedundantUseAnalysis : BackwardVisitor {
     }
   }
 
-  void handle(Expr* expr) final {
+  void dispatch(Expr* expr) final {
     if (ir_utils::isTvOp(expr)) {
       // Initialize redundant info for current expr
       std::optional<ParallelTypeBitmap> maybe_expr_pred_map;
@@ -794,7 +792,7 @@ bool ThreadPredicateMap::update(
   }
 }
 
-Scalar* ThreadPredicateMap::getPredicate(
+Val* ThreadPredicateMap::getPredicate(
     const TensorView* tv,
     ParallelTypeBitmap mask) const {
   TORCH_INTERNAL_ASSERT(find(tv) != end(), "Couldn't find ", tv);

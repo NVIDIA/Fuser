@@ -158,7 +158,7 @@ IndexingParameters getLinearIndexParameters(
         index_parameters.initial_concrete_id_index[concrete_loop_id] =
             SimplifyingIrBuilder::addExpr(
                 index_parameters.initial_concrete_id_index[concrete_loop_id],
-                SimplifyingIrBuilder::create<Scalar>(stage_depth - 1L));
+                SimplifyingIrBuilder::create<Val>(stage_depth - 1L));
       }
     }
   }
@@ -446,7 +446,7 @@ IndexingParameters getPredicateInitialIndexParameters(
                : cur_index == db_loop->indexOrStartIfTrivial());
       if (is_same) {
         loop_to_ind_map[db_loop] = SimplifyingIrBuilder::addExpr(
-            cur_index, SimplifyingIrBuilder::create<Scalar>(stage_depth - 1L));
+            cur_index, SimplifyingIrBuilder::create<Val>(stage_depth - 1L));
       }
     }
   }
@@ -1347,14 +1347,14 @@ class LoopIndexingPreferredPathCompute : public IterVisitor {
     }
 
     for (auto expr : loop_indexing.getForwardExprList()) {
-      compute.handle(expr);
+      compute.dispatch(expr);
     }
 
     return compute.preferred_path_;
   }
 
  private:
-  void handle(Expr* e) override {
+  void dispatch(Expr* e) override {
     // If an input ID is marked, propagate the marking to outputs of the
     // expression
     auto all_iter_inputs = ir_utils::filterByType<IterDomain>(e->inputs());

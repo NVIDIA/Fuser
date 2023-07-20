@@ -98,21 +98,19 @@ class DomainMap : public pointwise_utils::DomainMap {
         root_dim,
         " in tensor ",
         tv);
-    // Project the root id to leaf id
-    while (!mapped_id->uses().empty()) {
-      TORCH_INTERNAL_ASSERT(mapped_id->uses().size() == 1);
-      auto expr = mapped_id->uses()[0];
-      if (expr->isA<Split>()) {
+    auto replay_exprs = StmtSort::getExprsBetween(
+        tv->fusion(),
+        {mapped_id},
+        {tv->getLeafDomain().begin(), tv->getLeafDomain().end()});
+    // Project the root id to leaf id. Similar to projectIdToRFactor.
+    for (auto expr : replay_exprs) {
+      if (expr->isA<Split>() && expr->as<Split>()->in() == mapped_id) {
         mapped_id = expr->as<Split>()->inner();
-      } else {
-        auto merge = expr->as<Merge>();
-        TORCH_INTERNAL_ASSERT(
-            mapped_id == merge->inner(),
-            "Can not find ID mapped to ",
-            root_dim,
-            " in tensor ",
-            tv);
-        mapped_id = merge->out();
+      } else if (
+          expr->isA<Merge>() && expr->as<Merge>()->inner() == mapped_id) {
+        mapped_id = expr->as<Merge>()->out();
+      } else if (expr->isA<Resize>() && expr->as<Resize>()->in() == mapped_id) {
+        mapped_id = expr->as<Resize>()->out();
       }
     }
     // Find the position of the leaf id

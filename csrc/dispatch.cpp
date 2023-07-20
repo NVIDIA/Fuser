@@ -47,9 +47,6 @@ T* ptr(T* obj) {
 template <typename T>
 void Val::dispatch(T handler, Val* val) {
   switch (*(val->getValType())) {
-    case ValType::Scalar:
-      ptr(handler)->handle(val->as<Scalar>());
-      return;
     case ValType::NamedScalar:
       ptr(handler)->handle(val->as<NamedScalar>());
       return;
@@ -72,7 +69,8 @@ void Val::dispatch(T handler, Val* val) {
       ptr(handler)->handle(val->as<PipelineVal>());
       return;
     default:
-      break;
+      ptr(handler)->handle(val);
+      return;
   }
   TORCH_INTERNAL_ASSERT(
       false,
@@ -112,8 +110,16 @@ void Expr::dispatch(T handler, Expr* expr) {
     ptr(handler)->handle(expr->as<ArrayConstruct>());
     return;
   }
+  if (expr->isStrictlyA<GetAttr>()) {
+    ptr(handler)->handle(expr->as<GetAttr>());
+    return;
+  }
   if (expr->isStrictlyA<GetItem>()) {
     ptr(handler)->handle(expr->as<GetItem>());
+    return;
+  }
+  if (expr->isStrictlyA<GetMetaData>()) {
+    ptr(handler)->handle(expr->as<GetMetaData>());
     return;
   }
   if (expr->isStrictlyA<TensorConstruct>()) {
@@ -284,10 +290,6 @@ void Expr::dispatch(T handler, Expr* expr) {
     ptr(handler)->handle(expr->as<kir::AllocateFusedReduction>());
     return;
   }
-  if (expr->isStrictlyA<kir::BaseAddress>()) {
-    ptr(handler)->handle(expr->as<kir::BaseAddress>());
-    return;
-  }
   if (expr->isStrictlyA<PipelineStage>()) {
     ptr(handler)->handle(expr->as<PipelineStage>());
     return;
@@ -302,19 +304,17 @@ void Expr::dispatch(T handler, Expr* expr) {
 template <typename T>
 void Statement::dispatch(T handler, Statement* stmt) {
   if (stmt->isVal()) {
-    ptr(handler)->handle(stmt->as<Val>());
+    ptr(handler)->dispatch(stmt->as<Val>());
   } else if (stmt->isExpr()) {
-    ptr(handler)->handle(stmt->as<Expr>());
-  } else
+    ptr(handler)->dispatch(stmt->as<Expr>());
+  } else {
     TORCH_INTERNAL_ASSERT(false, "Unknown stmttype in dispatch!");
+  }
 }
 
 template <typename T>
 void Val::constDispatch(T handler, const Val* val) {
   switch (*(val->getValType())) {
-    case ValType::Scalar:
-      ptr(handler)->handle(val->as<Scalar>());
-      return;
     case ValType::NamedScalar:
       ptr(handler)->handle(val->as<NamedScalar>());
       return;
@@ -337,7 +337,8 @@ void Val::constDispatch(T handler, const Val* val) {
       ptr(handler)->handle(val->as<PipelineVal>());
       return;
     default:
-      break;
+      ptr(handler)->handle(val);
+      return;
   }
   TORCH_INTERNAL_ASSERT(
       false,
@@ -377,8 +378,16 @@ void Expr::constDispatch(T handler, const Expr* expr) {
     ptr(handler)->handle(expr->as<ArrayConstruct>());
     return;
   }
+  if (expr->isStrictlyA<GetAttr>()) {
+    ptr(handler)->handle(expr->as<GetAttr>());
+    return;
+  }
   if (expr->isStrictlyA<GetItem>()) {
     ptr(handler)->handle(expr->as<GetItem>());
+    return;
+  }
+  if (expr->isStrictlyA<GetMetaData>()) {
+    ptr(handler)->handle(expr->as<GetMetaData>());
     return;
   }
   if (expr->isStrictlyA<TensorConstruct>()) {
@@ -549,10 +558,6 @@ void Expr::constDispatch(T handler, const Expr* expr) {
     ptr(handler)->handle(expr->as<kir::AllocateFusedReduction>());
     return;
   }
-  if (expr->isStrictlyA<kir::BaseAddress>()) {
-    ptr(handler)->handle(expr->as<kir::BaseAddress>());
-    return;
-  }
   if (expr->isStrictlyA<PipelineStage>()) {
     ptr(handler)->handle(expr->as<PipelineStage>());
     return;
@@ -567,9 +572,9 @@ void Expr::constDispatch(T handler, const Expr* expr) {
 template <typename T>
 void Statement::constDispatch(T handler, const Statement* stmt) {
   if (stmt->isVal()) {
-    ptr(handler)->handle(stmt->as<Val>());
+    ptr(handler)->dispatch(stmt->as<Val>());
   } else if (stmt->isExpr()) {
-    ptr(handler)->handle(stmt->as<Expr>());
+    ptr(handler)->dispatch(stmt->as<Expr>());
   } else
     TORCH_INTERNAL_ASSERT(false, "Unknown stmttype in dispatch!");
 }
@@ -588,9 +593,6 @@ void Statement::constDispatch(T handler, const Statement* stmt) {
 template <typename T>
 void Val::mutatorDispatch(T mutator, Val* val) {
   switch (*(val->getValType())) {
-    case ValType::Scalar:
-      ptr(mutator)->mutate(val->as<Scalar>());
-      return;
     case ValType::NamedScalar:
       ptr(mutator)->mutate(val->as<NamedScalar>());
       return;
@@ -613,7 +615,8 @@ void Val::mutatorDispatch(T mutator, Val* val) {
       ptr(mutator)->mutate(val->as<PipelineVal>());
       return;
     default:
-      break;
+      ptr(mutator)->mutate(val);
+      return;
   }
   TORCH_INTERNAL_ASSERT(false, "Unknown valtype in dispatch!");
 }
@@ -621,7 +624,7 @@ void Val::mutatorDispatch(T mutator, Val* val) {
 template <typename T>
 void Statement::mutatorDispatch(T mutator, Statement* stmt) {
   if (stmt->isVal()) {
-    ptr(mutator)->mutate(stmt->as<Val>());
+    ptr(mutator)->dispatchMutate(stmt->as<Val>());
     return;
   }
   if (stmt->isExpr()) {
@@ -669,27 +672,27 @@ template void Statement::mutatorDispatch(OptOutMutator*, Statement*);
 template void Val::mutatorDispatch(OptOutMutator&, Val*);
 template void Val::mutatorDispatch(OptOutMutator*, Val*);
 
-void OptOutDispatch::handle(Statement* s) {
+void OptOutDispatch::dispatch(Statement* s) {
   Statement::dispatch(this, s);
 }
 
-void OptOutDispatch::handle(Expr* e) {
+void OptOutDispatch::dispatch(Expr* e) {
   Expr::dispatch(this, e);
 }
 
-void OptOutDispatch::handle(Val* v) {
+void OptOutDispatch::dispatch(Val* v) {
   Val::dispatch(this, v);
 }
 
-void OptOutConstDispatch::handle(const Statement* s) {
+void OptOutConstDispatch::dispatch(const Statement* s) {
   Statement::constDispatch(this, s);
 }
 
-void OptOutConstDispatch::handle(const Expr* e) {
+void OptOutConstDispatch::dispatch(const Expr* e) {
   Expr::constDispatch(this, e);
 }
 
-void OptOutConstDispatch::handle(const Val* v) {
+void OptOutConstDispatch::dispatch(const Val* v) {
   Val::constDispatch(this, v);
 }
 
@@ -724,7 +727,7 @@ void OptInDispatch::unhandled(Statement* stmt) {
 }
 
 // Vals
-void OptOutConstDispatch::handle(const Scalar* stmt) {
+void OptOutConstDispatch::handle(const Val* stmt) {
   unhandled(stmt);
 }
 void OptOutConstDispatch::handle(const NamedScalar* stmt) {
@@ -751,10 +754,6 @@ void OptOutConstDispatch::handle(const PipelineVal* stmt) {
   unhandled(stmt);
 }
 
-void OptOutConstDispatch::handleArrayType(const Val* stmt) {
-  unhandled(stmt);
-}
-
 // Exprs
 void OptOutConstDispatch::handle(const FullOp* stmt) {
   unhandled(stmt);
@@ -777,7 +776,13 @@ void OptOutConstDispatch::handle(const TernaryOp* stmt) {
 void OptOutConstDispatch::handle(const ArrayConstruct* stmt) {
   unhandled(stmt);
 }
+void OptOutConstDispatch::handle(const GetAttr* stmt) {
+  unhandled(stmt);
+}
 void OptOutConstDispatch::handle(const GetItem* stmt) {
+  unhandled(stmt);
+}
+void OptOutConstDispatch::handle(const GetMetaData* stmt) {
   unhandled(stmt);
 }
 void OptOutConstDispatch::handle(const TensorConstruct* stmt) {
@@ -908,9 +913,6 @@ void OptOutConstDispatch::handle(const kir::VectorizedWelfordOp* stmt) {
 void OptOutConstDispatch::handle(const kir::AllocateFusedReduction* stmt) {
   unhandled(stmt);
 }
-void OptOutConstDispatch::handle(const kir::BaseAddress* stmt) {
-  unhandled(stmt);
-}
 
 void OptOutConstDispatch::handle(const PipelineStage* stmt) {
   unhandled(stmt);
@@ -922,7 +924,7 @@ void OptOutConstDispatch::handle(const PipelineCommunication* stmt) {
 void OptOutDispatch::unhandled(Statement*) {}
 
 // Vals
-void OptOutDispatch::handle(Scalar* stmt) {
+void OptOutDispatch::handle(Val* stmt) {
   unhandled(stmt);
 }
 void OptOutDispatch::handle(NamedScalar* stmt) {
@@ -949,10 +951,6 @@ void OptOutDispatch::handle(PipelineVal* stmt) {
   unhandled(stmt);
 }
 
-void OptOutDispatch::handleArrayType(Val* stmt) {
-  unhandled(stmt);
-}
-
 // Exprs
 void OptOutDispatch::handle(FullOp* stmt) {
   unhandled(stmt);
@@ -975,7 +973,13 @@ void OptOutDispatch::handle(TernaryOp* stmt) {
 void OptOutDispatch::handle(ArrayConstruct* stmt) {
   unhandled(stmt);
 }
+void OptOutDispatch::handle(GetAttr* stmt) {
+  unhandled(stmt);
+}
 void OptOutDispatch::handle(GetItem* stmt) {
+  unhandled(stmt);
+}
+void OptOutDispatch::handle(GetMetaData* stmt) {
   unhandled(stmt);
 }
 void OptOutDispatch::handle(TensorConstruct* stmt) {
@@ -1104,9 +1108,6 @@ void OptOutDispatch::handle(kir::VectorizedWelfordOp* stmt) {
   unhandled(stmt);
 }
 void OptOutDispatch::handle(kir::AllocateFusedReduction* stmt) {
-  unhandled(stmt);
-}
-void OptOutDispatch::handle(kir::BaseAddress* stmt) {
   unhandled(stmt);
 }
 void OptOutDispatch::handle(PipelineStage* stmt) {

@@ -28,7 +28,7 @@ class IrNodeLabel final : private OptInConstDispatch {
       const Statement* node,
       DetailLevel detail_level = DetailLevel::Basic) {
     IrNodeLabel generator(detail_level);
-    generator.OptInConstDispatch::handle(node);
+    generator.OptInConstDispatch::dispatch(node);
     return generator.label_.str();
   }
 
@@ -38,7 +38,7 @@ class IrNodeLabel final : private OptInConstDispatch {
 
   ~IrNodeLabel() final = default;
 
-  void handle(const Scalar* s) override {
+  void handle(const Val* s) override {
     if (s->isSymbolic()) {
       label_ << ir_utils::varName(s);
     }
@@ -167,9 +167,9 @@ void IrGraphGenerator::addArc(
     const Statement* src,
     const Statement* dst,
     const std::string& style) {
-  // We automatically visit (handle) the arc's source and destination
-  handle(src);
-  handle(dst);
+  // We automatically visit (dispatch) the arc's source and destination
+  dispatch(src);
+  dispatch(dst);
 
   // generate and queue the arc definition
   std::stringstream arc_def;
@@ -234,10 +234,10 @@ std::string IrGraphGenerator::generate() {
   // (These are otherwise unreacheable (dead) nodes)
   if (detail_level_ >= DetailLevel::Verbose) {
     for (const auto* expr : fusion_->unordered_exprs()) {
-      handle(expr);
+      dispatch(expr);
     }
     for (const auto* val : fusion_->vals()) {
-      handle(val);
+      dispatch(val);
     }
   }
 
@@ -263,12 +263,12 @@ void IrGraphGenerator::generateComputeGraph() {
 
   // Inputs
   for (const auto* input : fusion_->inputs()) {
-    handle(input);
+    dispatch(input);
   }
 
   // Outputs
   for (const auto* output : fusion_->outputs()) {
-    handle(output);
+    dispatch(output);
   }
 
   graph_def_ << "  }\n";
@@ -302,21 +302,21 @@ void IrGraphGenerator::generateScheduleGraph() {
   graph_def_ << "  }\n";
 }
 
-void IrGraphGenerator::handle(const Statement* s) {
-  OptInConstDispatch::handle(s);
+void IrGraphGenerator::dispatch(const Statement* s) {
+  OptInConstDispatch::dispatch(s);
 }
 
-void IrGraphGenerator::handle(const Val* v) {
+void IrGraphGenerator::dispatch(const Val* v) {
   if (!visited(v)) {
     visited_.insert(v);
     if (const auto* def = v->definition()) {
-      handle(def);
+      dispatch(def);
     }
-    OptInConstDispatch::handle(v);
+    OptInConstDispatch::dispatch(v);
   }
 }
 
-void IrGraphGenerator::handle(const Expr* e) {
+void IrGraphGenerator::dispatch(const Expr* e) {
   if (!visited(e)) {
     visited_.insert(e);
 
@@ -353,7 +353,7 @@ void IrGraphGenerator::handle(const IterDomain* id) {
   addArc(id->extent(), id, "[color=gray]");
 }
 
-void IrGraphGenerator::handle(const Scalar* s) {
+void IrGraphGenerator::handle(const Val* s) {
   printValue(s, IrNodeLabel::gen(s, detail_level_));
 }
 

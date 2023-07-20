@@ -59,17 +59,17 @@ class TORCH_CUDA_CU_API IterVisitor : public OptOutDispatch {
 
   using OptOutDispatch::handle;
 
-  // This handle functions is called on every Statement* in topological order,
+  // This dispatch functions is called on every Statement* in topological order,
   // starting from outputs to inputs.
-  void handle(Statement* s) override;
+  void dispatch(Statement* s) override;
 
-  // This handle functions is called on every Expr* in topological order,
+  // This dispatch functions is called on every Expr* in topological order,
   // starting from outputs to inputs.
-  void handle(Expr* e) override;
+  void dispatch(Expr* e) override;
 
-  // This handle functions is called on every Val* in topological order,
+  // This dispatch functions is called on every Val* in topological order,
   // starting from outputs to inputs.
-  void handle(Val* v) override;
+  void dispatch(Val* v) override;
 
   // The entire stack during traversal. stmt_stack.back().back() is the node
   // that is being called in handle(). stmt_stack.back() contains siblings (not
@@ -94,12 +94,16 @@ class TORCH_CUDA_CU_API IterVisitor : public OptOutDispatch {
   //! \param traverse_attributes When true, traverse into expr
   //! attributes. Note that attributes of template type Attribute are
   //! not traversed as there's no dispatch support.
+  //! \param traverse_siblings When true, traverse all outputs of
+  //! active multi-output expressions, even if those Expr outputs are not used
+  //! in paths to Fusion outputs.
   void traverseTo(
       Fusion* fusion,
       const std::vector<Val*>& to,
       bool traverse_all_paths = false,
       bool traverse_into_members = false,
-      bool traverse_attributes = false);
+      bool traverse_attributes = false,
+      bool traverse_siblings = false);
 
   //! Traverses nodes in Fusion from inputs in topological order to "to". i.e.
   //! from inputs towards outputs.
@@ -117,13 +121,17 @@ class TORCH_CUDA_CU_API IterVisitor : public OptOutDispatch {
   //! \param traverse_attributes When true, traverse into expr
   //! attributes. Note that attributes of template type Attribute are
   //! not traversed as there's no dispatch support.
+  //! \param traverse_siblings When true, traverse all outputs of
+  //! active multi-output expressions, even if those Expr outputs are not used
+  //! in paths to Fusion outputs.
   void traverseBetween(
       Fusion* fusion,
       const std::unordered_set<Val*>& from,
       const std::vector<Val*>& to,
       bool traverse_all_paths = false,
       bool traverse_into_members = false,
-      bool traverse_attributes = false);
+      bool traverse_attributes = false,
+      bool traverse_siblings = false);
 
   // Iterates from terminating outputs registered with the fusion. Terminating
   // means value is not used to generate any other value used in producing
@@ -201,17 +209,17 @@ class TORCH_CUDA_CU_API BackwardVisitor : public OptOutDispatch {
   // This handle functions is called on every Statement* in topological order,
   // starting from outputs to inputs.
   // NOLINTNEXTLINE(modernize-use-override,cppcoreguidelines-explicit-virtual-functions)
-  virtual void handle(Statement* stmt) override;
+  virtual void dispatch(Statement* stmt) override;
 
   // This handle functions is called on every Expr* in topological order,
   // starting from outputs to inputs.
   // NOLINTNEXTLINE(modernize-use-override,cppcoreguidelines-explicit-virtual-functions)
-  virtual void handle(Expr* expr) override;
+  virtual void dispatch(Expr* expr) override;
 
   // This handle functions is called on every Val* in topological order,
   // starting from outputs to inputs.
   // NOLINTNEXTLINE(modernize-use-override,cppcoreguidelines-explicit-virtual-functions)
-  virtual void handle(Val* val) override;
+  virtual void dispatch(Val* val) override;
 
   // All exprs that need to be visited in this traversal. Labeled in topological
   // order (size_t).
@@ -289,7 +297,7 @@ class StmtSort : public IterVisitor {
 
   using IterVisitor::handle;
 
-  void handle(Statement* stmt) override;
+  void dispatch(Statement* stmt) override;
 
  public:
   // If traverse_members it will also extract all member nodes in the sorted
@@ -299,14 +307,16 @@ class StmtSort : public IterVisitor {
   static std::vector<Statement*> getStmts(
       Fusion* fusion,
       bool traverse_members = false,
-      bool traverse_attributes = false);
+      bool traverse_attributes = false,
+      bool traverse_siblings = false);
 
   // Returns ordered Statements required to produce 'to', including 'to'.
-  static std::vector<Statement*> getStmts(
+  static std::vector<Statement*> getStmtsTo(
       Fusion* fusion,
       const std::vector<Val*>& to,
       bool traverse_members = false,
-      bool traverse_attributes = false);
+      bool traverse_attributes = false,
+      bool traverse_siblings = false);
 
   // Returns ordered Statements required to produce from, including from.
   // Stops traversal once hiting any Statements in to. Includes Statements in
@@ -330,20 +340,23 @@ class StmtSort : public IterVisitor {
       const std::vector<Val*>& from,
       const std::vector<Val*>& to,
       bool traverse_members = false,
-      bool traverse_attributes = false);
+      bool traverse_attributes = false,
+      bool traverse_siblings = false);
 
   // Same as getStmts version but filters to only return the Expr*s
   static std::vector<Expr*> getExprs(
       Fusion* fusion,
       bool traverse_members = false,
-      bool traverse_attributes = false);
+      bool traverse_attributes = false,
+      bool traverse_siblings = false);
 
   // Same as getStmts version but filters to only return the Expr*s
-  static std::vector<Expr*> getExprs(
+  static std::vector<Expr*> getExprsTo(
       Fusion* fusion,
       const std::vector<Val*>& to,
       bool traverse_members = false,
-      bool traverse_attributes = false);
+      bool traverse_attributes = false,
+      bool traverse_siblings = false);
 
   // Same as getStmts version but filters to only return the Expr*s
   static std::vector<Expr*> getExprsBetween(
@@ -351,7 +364,8 @@ class StmtSort : public IterVisitor {
       const std::vector<Val*>& from,
       const std::vector<Val*>& to,
       bool traverse_members = false,
-      bool traverse_attributes = false);
+      bool traverse_attributes = false,
+      bool traverse_siblings = false);
 };
 
 class TORCH_CUDA_CU_API InputsOf : public IterVisitor {
@@ -361,7 +375,7 @@ class TORCH_CUDA_CU_API InputsOf : public IterVisitor {
 
   using IterVisitor::handle;
 
-  void handle(Val* v) final;
+  void dispatch(Val* v) final;
 
  public:
   static std::vector<Val*> output(Fusion* fusion, Val* output_);
@@ -405,8 +419,8 @@ class DeadCodeRemover : BackwardVisitor {
  protected:
   using BackwardVisitor::handle;
 
-  void handle(Statement* stmt) override;
-  void handle(Expr* expr) override;
+  void dispatch(Statement* stmt) override;
+  void dispatch(Expr* expr) override;
 
   //! We implement this in order to remove dangling TensorViews whose uses are
   //! all dead. Note that we do not remove other ValTypes like Scalars since
