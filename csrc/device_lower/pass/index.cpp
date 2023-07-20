@@ -103,13 +103,13 @@ void IndexLowering::handle(const kir::IfThenElse* ite) {
   active_scope_ = &new_ite->thenBody();
 
   for (auto expr : ite->thenBody().exprs()) {
-    OptOutConstDispatch::handle(expr);
+    OptOutConstDispatch::dispatch(expr);
   }
 
   active_scope_ = &new_ite->elseBody();
 
   for (auto expr : ite->elseBody().exprs()) {
-    OptOutConstDispatch::handle(expr);
+    OptOutConstDispatch::dispatch(expr);
   }
 
   active_scope_ = prev_scope;
@@ -129,7 +129,7 @@ void IndexLowering::handle(const kir::ForLoop* for_loop) {
   for_loops_.push_back(new_for_loop);
 
   for (auto expr : for_loop->body().exprs()) {
-    OptOutConstDispatch::handle(expr);
+    OptOutConstDispatch::dispatch(expr);
   }
 
   for_loops_.pop_back();
@@ -1392,7 +1392,7 @@ void IndexLowering::handle(const kir::CpAsyncCommit* commit) {
 
 void IndexLowering::generate(const std::vector<Expr*>& exprs) {
   for (auto expr : exprs) {
-    OptOutConstDispatch::handle(expr);
+    OptOutConstDispatch::dispatch(expr);
   }
 }
 

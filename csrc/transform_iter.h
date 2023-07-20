@@ -100,7 +100,7 @@ class TORCH_CUDA_CU_API ReplayTransformations : public IterVisitor {
   using IterVisitor::handle;
 
   // Transform dispatch
-  void handle(Expr* e) override;
+  void dispatch(Expr* e) override;
 
   // We're going to replay this split operation on the corresponding ID
   void handle(Split* s) override;

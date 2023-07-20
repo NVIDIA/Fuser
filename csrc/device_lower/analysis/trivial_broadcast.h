@@ -47,7 +47,7 @@ class TORCH_CUDA_CU_API ConcretizedBroadcastDomains : private IterVisitor {
 
   void handle(BroadcastOp* bop) final;
 
-  void handle(Expr* expr) final;
+  void dispatch(Expr* expr) final;
 
   void markAsConcretized(
       IterDomain* broadcast_root_domain,

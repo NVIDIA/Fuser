@@ -469,7 +469,7 @@ class RedundantUseAnalysis : BackwardVisitor {
     }
   }
 
-  void handle(Expr* expr) final {
+  void dispatch(Expr* expr) final {
     if (ir_utils::isTvOp(expr)) {
       // Initialize redundant info for current expr
       std::optional<ParallelTypeBitmap> maybe_expr_pred_map;

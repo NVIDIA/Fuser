@@ -49,16 +49,17 @@ class MemberStatements : public OptOutDispatch {
   MemberStatements() = default;
 
   MemberStatements(Statement* stmt) {
-    handle(stmt);
+    dispatch(stmt);
   }
 
+  using OptOutDispatch::dispatch;
   using OptOutDispatch::handle;
 
-  void handle(Val* val) final {
+  void dispatch(Val* val) final {
     FusionGuard::getCurFusion()->assertInContainer(
         val,
-        "IterVisitor.cpp::MemberStatements::handle(Val*) Cannot traverse val, ");
-    OptOutDispatch::handle(val);
+        "IterVisitor.cpp::MemberStatements::dispatch(Val*) Cannot traverse val, ");
+    OptOutDispatch::dispatch(val);
   }
 
   void handle(IterDomain* stmt) final {
@@ -105,22 +106,22 @@ std::vector<Statement*> IterVisitor::next(Expr* expr) {
   return next_stmts;
 }
 
-// This handle functions is called on every Statement* in topological order,
+// This dispatch functions is called on every Statement* in topological order,
 // starting from outputs to inputs.
-void IterVisitor::handle(Statement* s) {
-  OptOutDispatch::handle(s);
+void IterVisitor::dispatch(Statement* s) {
+  OptOutDispatch::dispatch(s);
 }
 
-// This handle functions is called on every Expr* in topological order,
+// This dispatch functions is called on every Expr* in topological order,
 // starting from outputs to inputs.
-void IterVisitor::handle(Expr* e) {
-  OptOutDispatch::handle(e);
+void IterVisitor::dispatch(Expr* e) {
+  OptOutDispatch::dispatch(e);
 }
 
-// This handle functions is called on every Val* in topological order,
+// This dispatch functions is called on every Val* in topological order,
 // starting from outputs to inputs.
-void IterVisitor::handle(Val* v) {
-  OptOutDispatch::handle(v);
+void IterVisitor::dispatch(Val* v) {
+  OptOutDispatch::dispatch(v);
 }
 
 // Implementation details:
@@ -188,7 +189,7 @@ void IterVisitor::traverseBetween(
         visited.insert(stmt);
 
         // Actually visit stmt
-        handle(stmt);
+        dispatch(stmt);
       }
 
       // Remove last value just visited
@@ -280,7 +281,7 @@ void IterVisitor::traverseBetween(
   for (auto val : maybe_orphaned_sibs) {
     if (visited.find(val) == visited.end()) {
       visited.insert(val);
-      handle(val);
+      dispatch(val);
     }
   }
 }
@@ -341,7 +342,7 @@ class Inputs : public IterVisitor {
     return IterVisitor::next(v);
   }
 
-  void handle(Val* val) override {
+  void dispatch(Val* val) override {
     // If there's no definition to val, or val is created inside the fusion, or
     // val is within the provided inputs
     if (val->definition() == nullptr || val->definition()->inputs().empty() ||
@@ -381,7 +382,7 @@ class AllVals : public IterVisitor {
  private:
   std::unordered_set<Val*> vals;
 
-  void handle(Val* val) final {
+  void dispatch(Val* val) final {
     vals.emplace(val);
   }
 
@@ -437,16 +438,16 @@ std::vector<Statement*> BackwardVisitor::next(Val* val) {
   return next_stmts;
 }
 
-void BackwardVisitor::handle(Statement* stmt) {
-  OptOutDispatch::handle(stmt);
+void BackwardVisitor::dispatch(Statement* stmt) {
+  OptOutDispatch::dispatch(stmt);
 }
 
-void BackwardVisitor::handle(Expr* expr) {
-  OptOutDispatch::handle(expr);
+void BackwardVisitor::dispatch(Expr* expr) {
+  OptOutDispatch::dispatch(expr);
 }
 
-void BackwardVisitor::handle(Val* val) {
-  OptOutDispatch::handle(val);
+void BackwardVisitor::dispatch(Val* val) {
+  OptOutDispatch::dispatch(val);
 }
 
 void BackwardVisitor::traverseTo(
@@ -512,7 +513,7 @@ void BackwardVisitor::traverseTo(
     // Mark visited
     visited_stmts_.emplace(stmt_stack_.back().back());
     // Handle
-    handle(stmt_stack_.back().back());
+    dispatch(stmt_stack_.back().back());
     // Remove
     stmt_stack_.back().pop_back();
 
@@ -522,7 +523,7 @@ void BackwardVisitor::traverseTo(
         // Mark visited
         visited_stmts_.emplace(stmt_stack_.back().back());
         // Handle
-        handle(stmt_stack_.back().back());
+        dispatch(stmt_stack_.back().back());
         // Remove
         stmt_stack_.back().pop_back();
       }
@@ -559,7 +560,7 @@ struct Dependencies : public IterVisitor {
     return IterVisitor::next(v);
   }
 
-  void handle(Val* val) override {
+  void dispatch(Val* val) override {
     // val is included if:
     // 1. it is one of the dependencies, or
     // 2. its defining expression is included in the dependent expr set
@@ -584,7 +585,7 @@ struct Dependencies : public IterVisitor {
     }
   }
 
-  void handle(Expr* expr) override {
+  void dispatch(Expr* expr) override {
     // Track which expr is depedent on the dependencies_ exprs.
     if (std::any_of(
             expr->inputs().begin(), expr->inputs().end(), [&](Val* input_val) {
@@ -633,7 +634,7 @@ struct FindOutputs : public IterVisitor {
   const std::unordered_set<Val*>& of_;
   std::unordered_set<Val*> outs_;
 
-  void handle(Val* val) override {
+  void dispatch(Val* val) override {
     if (of_.find(val) != of_.end()) {
       Statement* out_stmt = stmt_stack.front().back();
       TORCH_INTERNAL_ASSERT(out_stmt->isVal());
@@ -683,7 +684,7 @@ class DependentVals : public IterVisitor {
     return IterVisitor::next(v);
   }
 
-  void handle(Val* val) override {
+  void dispatch(Val* val) override {
     if (val->isFusionInput() || val->definition() == nullptr ||
         of_.count(val) || outs_.count(val)) {
       return;
@@ -736,7 +737,7 @@ class DependencyChains : public IterVisitor {
   bool is_dependency = false;
   std::unordered_set<Val*> dependencies_;
 
-  void handle(Val* val) override {
+  void dispatch(Val* val) override {
     if (dependencies_.find(val) != dependencies_.end()) {
       is_dependency = true;
       std::deque<Val*> deps;
@@ -868,7 +869,7 @@ std::unordered_set<Val*> DependencyCheck::getAllDependentVals(
   return DependentVals::getAllDependentVals(of);
 }
 
-void StmtSort::handle(Statement* stmt) {
+void StmtSort::dispatch(Statement* stmt) {
   stmts.push_back(stmt);
 }
 
@@ -968,7 +969,7 @@ std::vector<Statement*> StmtSort::getStmtsBetween(
   return es.stmts;
 }
 
-void InputsOf::handle(Val* v) {
+void InputsOf::dispatch(Val* v) {
   if (v->definition() == nullptr || v->definition()->inputs().empty()) {
     if (grabbed_inputs.emplace(v).second) {
       ordered_inputs.push_back(v);
@@ -1007,23 +1008,23 @@ bool DeadCodeRemover::run() {
   return modifyFusion();
 }
 
-void DeadCodeRemover::handle(Statement* stmt) {
+void DeadCodeRemover::dispatch(Statement* stmt) {
   if (isDead(stmt)) {
     // We check whether stmt is dead before we dereference it, since it may
     // have been removed from the Fusion.
     return;
   }
-  BackwardVisitor::handle(stmt);
+  BackwardVisitor::dispatch(stmt);
 }
 
-void DeadCodeRemover::handle(Expr* expr) {
+void DeadCodeRemover::dispatch(Expr* expr) {
   if (maybeRemoveExpr(expr)) {
     // maybeRemoveExp will remove expr from the Fusion if all its uses are
     // marked dead. In that case, we should not continue handling it since the
     // expr pointer is invalid.
     return;
   }
-  BackwardVisitor::handle(expr);
+  BackwardVisitor::dispatch(expr);
 }
 
 void DeadCodeRemover::handle(TensorView* tv) {

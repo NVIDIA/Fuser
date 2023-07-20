@@ -29,7 +29,6 @@
 #include <kernel_cache.h>
 #include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
-#include <mutator.h>
 #include <ops/all_ops.h>
 #include <root_domain_map.h>
 #include <scheduler/all_schedulers.h>
@@ -7527,6 +7526,7 @@ class ThreadPredChecker : public kir::IrVisitor {
   ThreadPredChecker(StmtNameType tv_name_to_check, ParallelTypeBitmap pt_map)
       : tv_name_to_check_(tv_name_to_check), pt_map_(pt_map) {}
 
+  using kir::IrVisitor::dispatch;
   using kir::IrVisitor::handle;
 
   void handle(kir::IfThenElse* ite) final {
@@ -7534,21 +7534,21 @@ class ThreadPredChecker : public kir::IrVisitor {
       auto tv_output = ir_utils::getTvOutput(expr);
       if (tv_output != nullptr && tv_output->name() == tv_name_to_check_ &&
           expr->isA<LoadStoreOp>() && ite->predicate()->hasValue()) {
-        handle(ite->predicate()->value());
+        dispatch(ite->predicate()->value());
       }
     }
   }
 
-  void handle(Val* val) final {
+  void dispatch(Val* val) final {
     if (val->definition()) {
-      handle(val->definition());
+      dispatch(val->definition());
     }
   }
 
   void handle(BinaryOp* bop) final {
     if (bop->getBinaryOpType() == BinaryOpType::And) {
-      handle(bop->lhs());
-      handle(bop->rhs());
+      dispatch(bop->lhs());
+      dispatch(bop->rhs());
     } else if (bop->getBinaryOpType() == BinaryOpType::Eq) {
       if (bop->lhs()->isZeroInt() || bop->rhs()->isZeroInt()) {
         auto non_zero_arg = bop->lhs()->isZeroInt() ? bop->rhs() : bop->lhs();
