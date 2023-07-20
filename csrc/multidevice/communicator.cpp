@@ -92,7 +92,6 @@ bool parseEnv(
           "the environment variable MASTER_PORT "
           "has not been specified. Set to default");
     }
-    master_port = 0;
   }
 
   return true;
@@ -131,7 +130,12 @@ c10::intrusive_ptr<c10d::Backend> createBackend(
 Communicator::Communicator(
     CommunicatorBackend backend,
     RankType server_local_rank)
-    : is_available_(false), rank_(0), size_(0), local_rank_(0), local_size_(0) {
+    : is_available_(false),
+      rank_(0),
+      size_(0),
+      local_rank_(0),
+      local_size_(0),
+      master_port_(0) {
   // retrieves rank and communicator size
   is_available_ = parseEnv(
       rank_, size_, local_rank_, local_size_, master_addr_, master_port_);
@@ -143,10 +147,10 @@ Communicator::Communicator(
   // creates the backend
   c10d::TCPStoreOptions store_opts;
   {
-    char hostname[HOST_NAME_MAX];
+    char hostname[HOST_NAME_MAX]; // NOLINT (modernize-avoid-c-arrays)
     gethostname(hostname, HOST_NAME_MAX);
     struct hostent* master_host = gethostbyname(master_addr_.c_str());
-    // we define the server as the process at the naster host with local rank 0
+    // we define the server as the process at the master host with local rank 0
     store_opts.isServer = !strcmp(master_host->h_name, hostname) &&
         local_rank_ == server_local_rank;
   }
