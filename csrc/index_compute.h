@@ -71,9 +71,10 @@ class IndexCompute : public BackwardVisitor {
  protected:
   using BackwardVisitor::handle;
 
+  void dispatch(Expr*) override;
+
   void handle(Split*) override;
   void handle(Merge*) override;
-  void handle(Expr*) override;
   void handle(Swizzle2D*) override;
   void handle(Resize*) override;
 
@@ -243,7 +244,7 @@ class IndexSwizzle : public IndexCompute {
  protected:
   using IndexCompute::handle;
 
-  void handle(Expr* e) override;
+  void dispatch(Expr* e) override;
 
   void handle(Swizzle2D* swizzle_2d) override;
 

@@ -613,11 +613,11 @@ void IndexCompute::handle(Resize* resize) {
   }
 }
 
-void IndexCompute::handle(Expr* e) {
+void IndexCompute::dispatch(Expr* e) {
   auto is_expected_type = e->isOneOf<Split, Merge, Swizzle2D, Resize>();
   TORCH_INTERNAL_ASSERT(
       is_expected_type, "Invalid expr type found in transform traversal.");
-  BackwardVisitor::handle(e);
+  BackwardVisitor::dispatch(e);
 }
 
 IndexCompute::IndexCompute(
@@ -703,7 +703,7 @@ void IndexCompute::run(const LoopIndexing& loop_indexing) {
     auto loop_id_def = loop_id->definition();
     if (loop_id_def != nullptr && loop_id_def->isA<Swizzle2D>()) {
       if (visited.insert(loop_id_def).second) {
-        handle(loop_id_def);
+        dispatch(loop_id_def);
       }
     }
   }
@@ -720,7 +720,7 @@ void IndexCompute::run(const LoopIndexing& loop_indexing) {
     // Resolve missing values from permissive map.
     updateIndexMapFromPermissiveMap(expr);
 
-    handle(expr);
+    dispatch(expr);
   }
 }
 
@@ -747,7 +747,7 @@ void IndexCompute::collectIndexIntoPermissiveMap(
       // LoopIndexingAnalysis::traverseFromDomainVals made sure that each
       //  concrete index is bound exactly once so computing these expressions
       //  early should still be consistent.
-      handle(expr);
+      dispatch(expr);
 
       auto id_inputs = ir_utils::filterByType<IterDomain>(expr->inputs());
       for (auto id : id_inputs) {
@@ -1077,7 +1077,7 @@ void IndexSwizzle::run() {
   }
 }
 
-void IndexSwizzle::handle(Expr* e) {
+void IndexSwizzle::dispatch(Expr* e) {
   auto out_ids = ir_utils::filterByType<IterDomain>(e->outputs());
   bool needs_update =
       std::any_of(
@@ -1093,7 +1093,7 @@ void IndexSwizzle::handle(Expr* e) {
     return;
   }
 
-  IndexCompute::handle(e);
+  IndexCompute::dispatch(e);
   for (auto input : ir_utils::filterByType<IterDomain>(e->inputs())) {
     swizzled_ids_.insert(input);
   }
