@@ -1519,7 +1519,6 @@ void beforeSchedule(
     std::vector<TensorView*>& cached_inputs,
     std::vector<TensorView*>& reduction_tvs,
     std::vector<std::pair<TensorView*, TensorView*>>& cached_outputs) {
-
   // Project the persistent buffers to the inputs. Inputs will be cached in a
   // later step, this will move them to be in a register buffer as expected.
   // dummy outputs are helper tensors to make sure persistent buffer projection
@@ -1543,7 +1542,7 @@ void beforeSchedule(
 
   // Make sure we don't have global memory set on intermediate tensors from
   // fusion segmentation
-  scheduler_utils::clearMemorySpace(fusion);  
+  scheduler_utils::clearMemorySpace(fusion);
   scheduler_utils::prepareForMemoryTypePromotion(fusion);
 
   // Use shared memory to store persistent buffers
