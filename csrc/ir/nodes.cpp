@@ -1564,6 +1564,182 @@ Val* GroupedWelfordOp::getInitValOfOutput(Val* output_val) const {
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(GroupedWelfordOp)
 
+GenericReductionOp::GenericReductionOp(
+    IrBuilderPasskey passkey,
+    std::vector<Val*>& outputs,
+    std::vector<Val*>& inputs,
+    std::vector<Val*>& initial_aggregates,
+    std::vector<Val*>& prev_aggregates,
+    std::vector<Val*>& input_elements,
+    std::vector<Val*>& next_aggregates,
+    bool is_allreduce)
+    : Expr(passkey) {
+  TORCH_CHECK(
+      inputs.size() > 0, "GenericReductionOp accept at least one input");
+  TORCH_CHECK(outputs.size() > 0, "GenericReductionOp must produce outputs");
+
+  ValType in_valtype = inputs[0]->getValType().value();
+  ValType out_valtype = outputs[0]->getValType().value();
+
+  for (auto in : inputs) {
+    auto vt = in->getValType().value();
+    TORCH_CHECK(
+        vt == ValType::TensorView || vt == ValType::TensorIndex,
+        "Reduction input ValType must be TensorView or TensorIndex. Found ",
+        vt);
+    TORCH_CHECK(
+        vt == in_valtype,
+        "All reduction inputs must have same ValType. Found ",
+        in_valtype,
+        " and ",
+        vt);
+  }
+
+  for (auto out : outputs) {
+    auto vt = out->getValType().value();
+    TORCH_CHECK(
+        vt == ValType::TensorView || vt == ValType::TensorIndex,
+        "Reduction output ValType must be TensorView or TensorIndex. Found ",
+        vt);
+    TORCH_CHECK(
+        vt == out_valtype,
+        "All reduction outputs must have same ValType. Found ",
+        out_valtype,
+        " and ",
+        vt);
+  }
+
+  TORCH_CHECK(
+      initial_aggregates.size() == prev_aggregates.size(),
+      "Mismatch in number of initial aggregate and previous aggregate Vals");
+  TORCH_CHECK(
+      next_aggregates.size() == prev_aggregates.size(),
+      "Mismatch in number of next aggregate and previous aggregate Vals");
+  TORCH_CHECK(
+      inputs.size() == input_elements.size(),
+      "Mismatch in number of input tensors and input element Vals");
+  TORCH_CHECK(
+      outputs.size() == next_aggregates.size(),
+      "Number of provided outputs must match number of aggregates.");
+
+  if (in_valtype == ValType::TensorView) {
+    auto input_ndims =
+        TensorDomain::noReductions(
+            inputs.at(0)->as<TensorView>()->getMaybeRFactorDomain())
+            .size();
+    for (auto in : inputs) {
+      auto this_ndim = TensorDomain::noReductions(
+                           in->as<TensorView>()->getMaybeRFactorDomain())
+                           .size();
+      TORCH_CHECK(
+          this_ndim == input_ndims,
+          "Inputs must all have same number of dimensions. Found ",
+          input_ndims,
+          " and ",
+          this_ndim);
+    }
+    auto output_ndims = outputs.at(0)->as<TensorView>()->getRootDomain().size();
+    for (auto out : outputs) {
+      auto this_ndim = out->as<TensorView>()->getRootDomain().size();
+      TORCH_CHECK(
+          this_ndim == output_ndims,
+          "Outputs must all have same number of dimensions. Found ",
+          output_ndims,
+          " and ",
+          this_ndim);
+    }
+    TORCH_INTERNAL_ASSERT(
+        input_ndims == output_ndims,
+        "Reduction operation needs matching input and output dims.");
+  }
+
+  for (auto init : initial_aggregates) {
+    TORCH_INTERNAL_ASSERT(
+        init->isConstScalar(),
+        "Tried to create a reduction operation with an initial value that ",
+        "isn't a constant: ",
+        init->toString());
+  }
+
+  for (auto out : outputs) {
+    addOutput(out);
+  }
+  for (auto in : inputs) {
+    addInput(in);
+  }
+
+  for (auto i : c10::irange(outputs.size())) {
+    addAttribute(initial_aggregates.at(i));
+    addAttribute(prev_aggregates.at(i));
+    addAttribute(next_aggregates.at(i));
+  }
+  for (auto i : c10::irange(inputs.size())) {
+    addAttribute(input_elements.at(i));
+  }
+
+  addDataAttribute(is_allreduce);
+}
+
+std::string GenericReductionOp::toString(int indent_size) const {
+  std::stringstream ss;
+  bool first = true;
+  for (auto out : outputs()) {
+    if (first) {
+      indent(ss, indent_size) << out->toString();
+      first = false;
+    } else {
+      ss << ", " << out->toString();
+    }
+  }
+  ss << "\n";
+  indent(ss, indent_size) << "   = generic_reduction(inputs = { ";
+  first = true;
+  for (auto in : inputs()) {
+    if (!first) {
+      ss << ", ";
+    }
+    first = false;
+    ss << in->toString();
+  }
+  ss << " }, input placeholders = { ";
+  first = true;
+  for (auto i : c10::irange(inputs().size())) {
+    auto val = inputPlaceHolder(i);
+    if (!first) {
+      ss << ", ";
+    }
+    first = false;
+    ss << val->toInlineString();
+  }
+  ss << " }, ops = { ";
+  first = true;
+  for (auto i : c10::irange(outputs().size())) {
+    auto op_val = opVal(i);
+    if (!first) {
+      ss << ", ";
+    }
+    first = false;
+    ss << op_val->toInlineString();
+  }
+  ss << " }, initial values = { ";
+  first = true;
+  for (auto i : c10::irange(outputs().size())) {
+    auto init_val = init(i);
+    if (!first) {
+      ss << ", ";
+    }
+    first = false;
+    ss << init_val->toInlineString();
+  }
+  ss << " }, allreduce = " << (isAllreduce() ? "true" : "false") << " )\n";
+  return ss.str();
+}
+
+std::string GenericReductionOp::toInlineString(int indent_size) const {
+  TORCH_CHECK(false, "Tensor op can not be printed inline");
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(GenericReductionOp)
 //==============================================================================================================================
 
 // MmaOp utils

@@ -580,6 +580,18 @@ TORCH_CUDA_CU_API TensorView* min(
     bool keep_dim = false,
     DataType dtype = DataType::Null);
 
+//! Note that the argmax and argmin interfaces differ from those of max/min. In
+//! particular, there is no keepdim option, and only a single reduction axis
+//! can be provided. If the reduction axis is nullopt, then the input v1 will
+//! first be flattened to a 1D vector before computing the argmax in the
+//! flattened dimension, returning a zero-dimensional tensor.
+//!
+//! The returned tensor has dtype Int
+TORCH_CUDA_CU_API std::pair<TensorView*, TensorView*> argmax(
+    TensorView* v1,
+    std::optional<int> reduction_axis = std::nullopt,
+    bool keepdim = false);
+
 // COMPOUND OPERATIONS
 // add_alpha
 TORCH_CUDA_CU_API Val* add_alpha(Val* v1, Val* v2, Val* s);

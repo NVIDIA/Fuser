@@ -1324,6 +1324,130 @@ TensorView* min(
   return reductionOp(BinaryOpType::Min, axes, init, v1, keep_dim);
 }
 
+std::pair<TensorView*, TensorView*> argmax(
+    TensorView* tv,
+    std::optional<int> axis_opt,
+    bool keepdim) {
+  auto fusion = FusionGuard::getCurFusion();
+  TORCH_CHECK(
+      TensorDomain::sameAs(tv->getMaybeRFactorDomain(), tv->getLeafDomain()),
+      "Reducing a tensor once it's gone under transformations is not permitted at this time. \n",
+      "Please set reductions before calling split/merge/computeAt.\n  RFactor: ",
+      tv->getMaybeRFactorDomain(),
+      "\n  Domain: ",
+      tv->domain()->toString());
+
+  auto rfactor = TensorDomain::noReductions(tv->getMaybeRFactorDomain());
+  auto ndims = rfactor.size();
+
+  if (ndims == 0) {
+    // PyTorch allows reduction of zero-dimensional tensors, and returns a
+    // zero-dimensional tensor with value 0 in that case.
+    auto dtype = tv->getDataType().value();
+    auto max_tensor = full({}, fusion->zeroVal(dtype), dtype);
+    auto pos_tensor = full({}, fusion->zeroVal(), DataType::Int);
+    return {max_tensor, pos_tensor};
+  }
+
+  if (!axis_opt.has_value() && ndims > 1) {
+    // If we weren't provided an axis, we will work on flattened input if it's
+    // not already flattened
+    tv = reshape(tv, {IrBuilder::create<Val>(-1)});
+    rfactor = tv->getMaybeRFactorDomain();
+    ndims = 1;
+  }
+  int axis = axis_opt.has_value() ? axis_opt.value() : 0;
+
+  TORCH_CHECK(
+      axis >= -axis && axis < (int)ndims,
+      "Reduction on invalid axis, received: ",
+      axis,
+      " however tensor view only has ",
+      ndims,
+      " non-reduction dims.");
+
+  if (axis < 0) {
+    axis += (int)ndims;
+  }
+
+  auto id = rfactor.at(axis);
+
+  // If id is Broadcast, then even if the extent is expanded, the argmax we
+  // will return is zero.
+  if (id->isBroadcast()) {
+    // TODO
+    TORCH_CHECK(false, "not implemented yet");
+  }
+
+  // Although reduction along a size-0 dimension is allowed in PyTorch, argmax
+  // throws an error in such case. Here we throw an error if the extent is
+  // constant 0. Note that if the extent is dynamic, but the input has zero size
+  // in axis, we might silently return 0.
+  // TODO: This should be checked again in RemoveEmptyPass if possible.
+  if (id->extent()->isConstInt()) {
+    auto extent_int = id->extent()->evaluateInt();
+    TORCH_CHECK(extent_int != 0, "Cannot compute argmax along empty dimension");
+  }
+
+  // Here we create a GenericReductionOp representing the argmax reduction.
+  // To do this, we need to specify a few things:
+  //  - Constant scalars representing the initial values of the aggregates
+  //  - Undefined scalars representing previous values of aggregate values
+  //  - Undefined scalars representing next tensor input elements
+  //  - Scalars describing how to update the aggregate values in each step
+
+  // Outputs
+  std::vector<unsigned int> reduction_axes{(unsigned int)axis};
+  TensorView* outmax =
+      newForReduction(tv, reduction_axes, tv->getDataType().value());
+  TensorView* outpos = newForReduction(tv, reduction_axes, DataType::Int);
+  std::vector<Val*> outputs{outmax, outpos};
+
+  // Inputs
+  // For argmax, we need to define a tensor of the same size as tv holding an
+  // index at each location.
+  auto idx = iota(id->extent());
+  // Expand idx_1d to same shape as tv
+  if (ndims > 1) {
+    std::vector<bool> bcast_axes(ndims, true);
+    bcast_axes[axis] = false;
+    idx = broadcast(idx, bcast_axes);
+    idx = expand_as(idx, tv);
+  }
+  std::vector<Val*> inputs{tv, idx};
+
+  // Initial values
+  auto tv_dtype = tv->getDataType().value();
+  std::vector<Val*> init_vals{ops::getMinimumValue(tv_dtype), fusion->oneVal()};
+
+  // Placeholders for aggregates
+  auto prev_max = IrBuilder::create<Val>(tv_dtype);
+  auto prev_pos = IrBuilder::create<Val>(DataType::Int);
+  std::vector<Val*> prev_aggs{prev_max, prev_pos};
+
+  // Tensor elements
+  auto tv_i = IrBuilder::create<Val>(tv_dtype);
+  auto idx_i = IrBuilder::create<Val>(DataType::Int);
+  std::vector<Val*> tensor_elts{tv_i, idx_i};
+
+  // Updated aggregates. This defines how the reduction will be computed
+  auto cond = gt(tv_i, prev_max);
+  auto new_max = where(cond, tv_i, prev_max);
+  auto new_pos = where(cond, idx_i, prev_pos);
+  std::vector<Val*> updated{new_max, new_pos};
+
+  IrBuilder::create<GenericReductionOp>(
+      outputs, // output tensors
+      inputs, // input tensors (reduction axes must be consistent)
+      init_vals, // initial values of aggregates
+      prev_aggs, // previous values of aggregates
+      tensor_elts, // tensor elements
+      updated // updated aggregates
+  );
+
+  return {outmax, outpos};
+}
+
 TensorView* broadcast(
     TensorView* inp,
     const std::vector<bool>& is_broadcast_dim) {
@@ -1575,7 +1699,7 @@ WelfordResult WelfordRaw(
   // Create tensor outputs
   TensorView* out_avg = newForReduction(tv, uint_axes);
   TensorView* out_var = newForReduction(tv, uint_axes);
-  TensorView* out_N = newForReduction(tv, uint_axes, DataType::Index);
+  TensorView* out_N = newForReduction(tv, uint_axes, DataType::Int);
 
   IrBuilder::create<WelfordOp>(
       out_avg,
@@ -1659,7 +1783,7 @@ WelfordResult Welford(
   TensorView* out_N = full_like(
       squeezed,
       add(init_N, FusionGuard::getCurFusion()->oneVal()),
-      DataType::Index);
+      DataType::Int);
 
   // Initial values for welford op are tensors, so their dims have to match the
   // output dim

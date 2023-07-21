@@ -1236,6 +1236,89 @@ class TORCH_CUDA_CU_API GroupedWelfordOp : public Expr {
   }
 };
 
+//! Generic reduction operation.
+//! This is a more flexible interface for defining reductions than ReductionOp.
+//! Instead of the pattern out = reductionOp(out, in), this op can take in
+//! multiple input TensorViews and produce multiple output TensorViews.
+class TORCH_CUDA_CU_API GenericReductionOp : public Expr {
+ public:
+  using Expr::Expr;
+
+  GenericReductionOp(
+      IrBuilderPasskey,
+      std::vector<Val*>& outputs,
+      std::vector<Val*>& inputs,
+      std::vector<Val*>& initial_aggregates,
+      std::vector<Val*>& prev_aggregates,
+      std::vector<Val*>& input_elements,
+      std::vector<Val*>& next_aggregates,
+      bool is_allreduce = false);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "GenericReductionOp";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  //! Get the initialization value for a particular output
+  Val* init(size_t num) const {
+    TORCH_CHECK(
+        num < outputs().size(),
+        "Attempted to get init value at position ",
+        num,
+        " but op only produces ",
+        outputs().size(),
+        " outputs");
+    return attributeVal(3 * num);
+  }
+
+  //! Get the place-holder value used to represent the intermediate value of a
+  //! particular output
+  Val* outputPlaceHolder(size_t num) const {
+    TORCH_CHECK(
+        num < outputs().size(),
+        "Attempted to get output place-holder value at position ",
+        num,
+        " but op only produces ",
+        outputs().size(),
+        " outputs");
+    return attributeVal(3 * num + 1);
+  }
+
+  //! Get the derived value representing the update equation for the reduction
+  //! to a particular output
+  Val* opVal(size_t num) const {
+    TORCH_CHECK(
+        num < outputs().size(),
+        "Attempted to get input place-holder value at position ",
+        num,
+        " but op only produces ",
+        outputs().size(),
+        " inputs");
+    return attributeVal(3 * num + 2);
+  }
+
+  //! Get the place-holder value used to represent scalar elements of a
+  //! particular input
+  Val* inputPlaceHolder(size_t num) const {
+    TORCH_CHECK(
+        num < inputs().size(),
+        "Attempted to get input place-holder value at position ",
+        num,
+        " but op only accepts ",
+        inputs().size(),
+        " inputs");
+    return attributeVal(3 * outputs().size() + num);
+  }
+
+  bool isAllreduce() const {
+    return attribute<bool>(3 * outputs().size() + inputs().size());
+  }
+};
+
 //! Fused Matmul operation
 class TORCH_CUDA_CU_API MmaOp : public Expr {
  public:
