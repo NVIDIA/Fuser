@@ -29,7 +29,6 @@
 #include <kernel_cache.h>
 #include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
-#include <mutator.h>
 #include <ops/all_ops.h>
 #include <root_domain_map.h>
 #include <scheduler/all_schedulers.h>
@@ -7527,6 +7526,7 @@ class ThreadPredChecker : public kir::IrVisitor {
   ThreadPredChecker(StmtNameType tv_name_to_check, ParallelTypeBitmap pt_map)
       : tv_name_to_check_(tv_name_to_check), pt_map_(pt_map) {}
 
+  using kir::IrVisitor::dispatch;
   using kir::IrVisitor::handle;
 
   void handle(kir::IfThenElse* ite) final {
@@ -7534,21 +7534,21 @@ class ThreadPredChecker : public kir::IrVisitor {
       auto tv_output = ir_utils::getTvOutput(expr);
       if (tv_output != nullptr && tv_output->name() == tv_name_to_check_ &&
           expr->isA<LoadStoreOp>() && ite->predicate()->hasValue()) {
-        handle(ite->predicate()->value());
+        dispatch(ite->predicate()->value());
       }
     }
   }
 
-  void handle(Val* val) final {
+  void dispatch(Val* val) final {
     if (val->definition()) {
-      handle(val->definition());
+      dispatch(val->definition());
     }
   }
 
   void handle(BinaryOp* bop) final {
     if (bop->getBinaryOpType() == BinaryOpType::And) {
-      handle(bop->lhs());
-      handle(bop->rhs());
+      dispatch(bop->lhs());
+      dispatch(bop->rhs());
     } else if (bop->getBinaryOpType() == BinaryOpType::Eq) {
       if (bop->lhs()->isZeroInt() || bop->rhs()->isZeroInt()) {
         auto non_zero_arg = bop->lhs()->isZeroInt() ? bop->rhs() : bop->lhs();
@@ -9344,6 +9344,65 @@ TEST_F(NVFuserTest, IterVisitorTraverseSiblings_CUDA) {
   TORCH_CHECK(
       std::find(stmts.begin(), stmts.end(), wf.var_sum) != stmts.end(),
       "Welford var_sum not traversed in getStmtsTo({n})");
+}
+
+
+TEST_F(NVFuserTest, FusionGeneratedTest_CUDA) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+  double k_eps = 1e-05;
+  auto shape = std::vector<int64_t>{256,28,28,128};
+  {
+    DataType dtype = DataType::Half;
+    auto tv0 = makeSymbolicTensor(4, dtype);
+    auto weight = makeSymbolicTensor(1, dtype);
+    auto bias = makeSymbolicTensor(1, dtype);
+    fusion->addInput(tv0);
+    fusion->addInput(weight);
+    fusion->addInput(bias);
+    tv0 = castOp(DataType::Float, tv0);
+    weight = castOp(DataType::Float, weight);
+    bias = castOp(DataType::Float, bias);
+
+    auto s1 = IrBuilder::create<Val>(k_eps);
+    auto var_mean = variance_mean(tv0, {1, 2}, 0, true);
+    auto tv_mean = var_mean.mean;
+    auto tv_var = var_mean.var;
+    auto tv_var_s1 = add(tv_var, s1);
+    auto tv_rsqrt = rsqrt(tv_var_s1);    
+    auto tv_diff = sub(tv0, tv_mean);
+    auto tv_div = mul(tv_diff, tv_rsqrt);
+    auto tv_mul = mul(tv_div, weight);
+    auto tv_out = add(tv_mul, bias);
+    tv_out = castOp(DataType::Half, tv_out);
+
+    fusion->addOutput(tv_out);
+  }
+
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+  std::vector<c10::IValue> inputs;
+  std::vector<at::Tensor> outputs;
+
+  {
+    auto t0 = at::randn(shape, options);
+    auto t1 = at::randn(shape[3], options);
+    auto t2 = at::randn(shape[3], options);
+    inputs.emplace_back(t0);
+    inputs.emplace_back(t1);
+    inputs.emplace_back(t2);
+
+    auto var_mean = at::var_mean(t0, {1, 2}, 0, true);
+    auto var = std::get<0>(var_mean);
+    auto mean = std::get<1>(var_mean);
+    auto t3 = (t0 - mean) / sqrt(var + k_eps);
+    auto t4 = t3 * t1 + t2;
+    outputs.push_back(t4);
+  }
+
+  FusionExecutorCache fec(std::move(fusion_ptr));
+  auto cg_outputs = fec.runFusionWithInputs(inputs);
+  testValidate(fusion, cg_outputs, inputs, outputs, __LINE__, __FILE__);
 }
 
 // Test file size should be up to 10K LoC. Create a new file for more tests.
