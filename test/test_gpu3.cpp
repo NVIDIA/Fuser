@@ -9346,18 +9346,18 @@ TEST_F(NVFuserTest, IterVisitorTraverseSiblings_CUDA) {
       "Welford var_sum not traversed in getStmtsTo({n})");
 }
 
-
-TEST_F(NVFuserTest, FusionGeneratedTest_CUDA) {
+// converted from https://github.com/NVIDIA/Fuser/issues/443
+TEST_F(NVFuserTest, FusionInstanceNormNHWC_CUDA) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   auto fusion = fusion_ptr.get();
   FusionGuard fg(fusion);
   double k_eps = 1e-05;
-  auto shape = std::vector<int64_t>{256,28,28,128};
+  auto shape = std::vector<int64_t>{256, 28, 28, 128};
   {
     DataType dtype = DataType::Half;
-    auto tv0 = makeSymbolicTensor(4, dtype);
-    auto weight = makeSymbolicTensor(1, dtype);
-    auto bias = makeSymbolicTensor(1, dtype);
+    auto tv0 = makeContigTensor(4, dtype);
+    auto weight = makeContigTensor(1, dtype);
+    auto bias = makeContigTensor(1, dtype);
     fusion->addInput(tv0);
     fusion->addInput(weight);
     fusion->addInput(bias);
@@ -9370,9 +9370,9 @@ TEST_F(NVFuserTest, FusionGeneratedTest_CUDA) {
     auto tv_mean = var_mean.mean;
     auto tv_var = var_mean.var;
     auto tv_var_s1 = add(tv_var, s1);
-    auto tv_rsqrt = rsqrt(tv_var_s1);    
+    auto tv_sqrt = sqrt(tv_var_s1);
     auto tv_diff = sub(tv0, tv_mean);
-    auto tv_div = mul(tv_diff, tv_rsqrt);
+    auto tv_div = div(tv_diff, tv_sqrt);
     auto tv_mul = mul(tv_div, weight);
     auto tv_out = add(tv_mul, bias);
     tv_out = castOp(DataType::Half, tv_out);
