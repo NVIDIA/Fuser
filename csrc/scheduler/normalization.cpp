@@ -308,6 +308,9 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristicSharedMemory(
   rparams->persistent_kernel = true;
   rparams->fastest_dim = true;
   // Inner reduction domain
+  // This heuristic is only used for cases with large total_reduction_numel.
+  // e.g. layer_norm with hidden size larger than 64K for fp16 or 32K for fp32.
+  // fully vectorized, use maxThreadsPerBlock to reduce workload per threads
   int64_t vectorize_factor = (int64_t)max_vectorize_factor;
   int64_t bdimx = dev_prop->maxThreadsPerBlock;
   int64_t persistent_batch =
@@ -328,7 +331,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristicSharedMemory(
       LaunchParams::UNINITIALIZED_VAL,
       LaunchParams::UNINITIALIZED_VAL,
       LaunchParams::UNINITIALIZED_VAL,
-      1,
+      LaunchParams::UNINITIALIZED_VAL,
       LaunchParams::UNINITIALIZED_VAL);
 
   rparams->tag = "Inner Shared Memory Persistent Heuristic.\n";
@@ -1516,9 +1519,7 @@ void beforeSchedule(
     std::vector<TensorView*>& cached_inputs,
     std::vector<TensorView*>& reduction_tvs,
     std::vector<std::pair<TensorView*, TensorView*>>& cached_outputs) {
-  // Make sure we don't have global memory set on intermediate tensors from
-  // fusion segmentation
-  scheduler_utils::clearMemorySpace(fusion);
+
   // Project the persistent buffers to the inputs. Inputs will be cached in a
   // later step, this will move them to be in a register buffer as expected.
   // dummy outputs are helper tensors to make sure persistent buffer projection
@@ -1537,6 +1538,15 @@ void beforeSchedule(
   // persistent buffer if that persistent buffer would be the input.
   cached_inputs = scheduler_utils::cacheInputs(fusion, true);
 
+  // Cache and fork outputs
+  cached_outputs = scheduler_utils::cacheAndForkOutputs(fusion, unroll);
+
+  // Make sure we don't have global memory set on intermediate tensors from
+  // fusion segmentation
+  scheduler_utils::clearMemorySpace(fusion);  
+  scheduler_utils::prepareForMemoryTypePromotion(fusion);
+
+  // Use shared memory to store persistent buffers
   if (rparams.shared_mem_persistent_buffer) {
     const auto& persistent_buffers =
         scheduler_utils::persistentBuffers(fusion).persistent_buffers;
@@ -1544,9 +1554,7 @@ void beforeSchedule(
       tv->setMemoryType(MemoryType::Shared);
     }
   }
-  // Cache and fork outputs
-  cached_outputs = scheduler_utils::cacheAndForkOutputs(fusion, unroll);
-  scheduler_utils::prepareForMemoryTypePromotion(fusion);
+
   reduction_tvs = scheduler_utils::getReductionTvs(fusion);
 }
 

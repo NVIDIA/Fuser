@@ -2183,7 +2183,7 @@ class PersistentKernelScheduler : public SchedulerEntry {
       const auto dev_prop = at::cuda::getCurrentDeviceProperties();
       const int64_t max_shared_memory_size =
           (int64_t)dev_prop->sharedMemPerBlockOptin;
-      // Some shared memories are reserved for kernel overhead and
+      // Some shared memories are reserved for kernel launch overhead and
       // reduction_broadcast_workspace. Estimation is conservative, but should
       // be good enough.
       // TODO: More accurate estimation of available shared memory size
