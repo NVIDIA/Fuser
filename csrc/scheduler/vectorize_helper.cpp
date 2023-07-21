@@ -82,6 +82,8 @@ ContiguousInnerDimensionsMapper::ContiguousInnerDimensionsMapper(
       "Reference: ",
       reference->toString());
 
+  initializeResizeFactors(reference->fusion());
+
   // Record while processing reference's information
   recording_ = true;
   std::shared_ptr<Information> reference_information;
@@ -361,6 +363,32 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
     distributePE(merge_or_split);
   };
 
+  // auto propagateResize = [&frontier, this](auto* resize, bool p2c) {
+  auto propagateResize = [&frontier, this](auto* resize, bool p2c) {
+    auto resize_in = p2c ? resize->in() : resize->out();
+    auto resize_out = p2c ? resize->out() : resize->in();
+
+    auto find_it = std::find(frontier.begin(), frontier.end(), resize_in);
+    if (find_it == frontier.end()) {
+      return;
+    }
+
+    std::cerr << "propagateResize: " << ((p2c) ? "p2c" : "c2p") << ", "
+              << resize->toString() << std::endl;
+
+    if (supported_resize_exprs_.count(resize) == 0) {
+      std::cerr << "Not allowed\n";
+      frontier.erase(frontier.begin(), find_it);
+      return;
+    }
+
+    auto pos = std::distance(frontier.begin(), find_it);
+    frontier[pos] = resize_out;
+
+    auto pe = commonOrConstExtent(ca_map_, resize_in);
+    addProjectedExtent(resize_out, pe);
+  };
+
   auto clear_left_of = [&frontier](IterDomain* id) {
     auto it = std::find(frontier.begin(), frontier.end(), id);
     if (it != frontier.end()) {
@@ -390,7 +418,12 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
       propagateDistribute(merge);
     } else if (Resize* resize = dynamic_cast<Resize*>(expr)) {
       // Cannot vectorize through resize
-      clear_left_of(resize->out());
+      // clear_left_of(resize->out());
+      if (getenv("VEC_RESIZE")) {
+        propagateResize(resize, false);
+      } else {
+        clear_left_of(resize->out());
+      }
     } else {
       // TODO: I wonder if we should just remove all inputs instead of erroring.
       // Seems that would be safe.
@@ -418,7 +451,11 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
       propagateDistribute(split);
     } else if (Resize* resize = dynamic_cast<Resize*>(expr)) {
       // Cannot vectorize through resize
-      clear_left_of(resize->in());
+      if (getenv("VEC_RESIZE")) {
+        propagateResize(resize, true);
+      } else {
+        clear_left_of(resize->in());
+      }
     } else {
       // TODO: I wonder if we should just remove all inputs instead of erroring.
       // Seems that would be safe.
@@ -437,6 +474,7 @@ ContiguousInnerDimensionsMapper::computeInfoC2P(
     TensorView* from,
     TensorView* to,
     std::shared_ptr<MaxInfoSpanningTree::Information> from_info) {
+  // TORCH_INTERNAL_ASSERT(recording_);
   auto from_ids = std::dynamic_pointer_cast<const MappedDomain>(from_info)
                       ->mapped_root_ids_;
   // If we have a case where we have a concretized broadcast that's being
@@ -512,6 +550,7 @@ ContiguousInnerDimensionsMapper::computeInfoP2C(
     TensorView* from,
     TensorView* to,
     std::shared_ptr<MaxInfoSpanningTree::Information> from_info) {
+  // TORCH_INTERNAL_ASSERT(recording_);
   auto from_ids = std::dynamic_pointer_cast<const MappedDomain>(from_info)
                       ->mapped_rfactor_ids_;
   // If we have a case where we have a reduction that's being tracked in a
@@ -576,6 +615,7 @@ ContiguousInnerDimensionsMapper::computeInfoSibling(
     TensorView* from,
     TensorView* to,
     std::shared_ptr<MaxInfoSpanningTree::Information> from_info) {
+  // TORCH_INTERNAL_ASSERT(recording_);
   TORCH_INTERNAL_ASSERT(
       from->getRootDomain().size() == to->getRootDomain().size(),
       "Siblings of different root sizes not supported, but found:\n  ",
@@ -771,6 +811,77 @@ std::unordered_map<TensorView*, Val*> ContiguousInnerDimensionsMapper::
   return result;
 }
 
+void ContiguousInnerDimensionsMapper::initializeResizeFactors(Fusion* fusion) {
+  for (auto tv : ir_utils::allTvs(fusion)) {
+    if (!ir_utils::hasResizedRfactor(tv)) {
+      continue;
+    }
+    std::cerr << "TV: " << tv->toString() << std::endl;
+
+    // Only support slice at this moment
+    auto slice = dynamic_cast<SliceOp*>(tv->definition());
+    if (!slice) {
+      continue;
+    }
+
+    auto producer_tv = slice->in()->as<TensorView>();
+
+    // Only support if the input is a fusion input. Should be relaxed
+    // later.
+    if (!producer_tv->isFusionInput()) {
+      continue;
+    }
+
+    const auto c2p =
+        PairwiseRootDomainMap(producer_tv, tv)
+            .mapConsumerToProducer(tv->domain(), producer_tv->domain());
+
+    for (auto rf_id : tv->getMaybeRFactorDomain()) {
+      auto resize = dynamic_cast<Resize*>(rf_id->definition());
+      if (!resize) {
+        continue;
+      }
+      auto resize_producer = resize->in()->as<IterDomain>();
+      auto resize_consumer = resize->out()->as<IterDomain>();
+
+      // Resize should be only done with a root domain
+      TORCH_INTERNAL_ASSERT(
+          std::find(
+              tv->getRootDomain().begin(),
+              tv->getRootDomain().end(),
+              resize_producer) != tv->getRootDomain().end(),
+          "Unexpected resize op with non-root domain: ",
+          resize->toString());
+
+      auto producer_tv_rf_id = c2p.at(resize_producer);
+
+      supported_resize_exprs_.insert(resize);
+
+      auto post_resize_extent = commonOrConstExtent(ca_map_, resize_consumer);
+      // auto pre_resize_extent = commonOrConstExtent(ca_map_,
+      // producer_tv_rf_id);
+
+      // The vectorization factor of the producer must be a common
+      // factor of both extents if the producer is not a fusion
+      // input. For now, we assume it's a fusion input
+
+      Val* producer_resize_factor = post_resize_extent;
+      if (auto resize_factors_it = resize_factors_.find(producer_tv_rf_id);
+          resize_factors_it != resize_factors_.end()) {
+        producer_resize_factor = SimplifyingIrBuilder::gcdExpr(
+            resize_factors_it->second, producer_resize_factor);
+      }
+      resize_factors_[producer_tv_rf_id] = producer_resize_factor;
+    }
+  }
+
+  // DEBUG DUMP
+  for (auto& [id, factor] : resize_factors_) {
+    std::cerr << "Resize factor: " << id->toString() << ", "
+              << factor->toInlineString() << std::endl;
+  }
+}
+
 namespace {
 
 // Returns Mappings of all dims in reference starting from inner most position
@@ -823,6 +934,7 @@ size_t getVectorizationFactor(
       SchedulerRuntimeInfo::max_alignment_size_in_byte;
 
   for (auto inp_or_out : vectorizable_inputs_outputs) {
+    std::cerr << "Vec inp or out: " << inp_or_out->toString() << std::endl;
     auto dtype_size =
         dataTypeSize(inp_or_out->dtype(), runtime_info.getIndexType());
 
@@ -835,14 +947,17 @@ size_t getVectorizationFactor(
         common_alignment_size, runtime_info.getAlignmentSize(inp_or_out));
   }
 
+  std::cerr << "max_vec_size: " << max_vec_size << std::endl;
   auto tv_to_inner_size_map = vectorize_maps_entry.get().at(break_point);
   // Initialize to max the tensors could support.
   size_t max_supported_vector_size = max_vec_size;
   for (auto inp_or_out : vectorizable_inputs_outputs) {
+    std::cerr << "Vec inp or out: " << inp_or_out->toString() << std::endl;
     auto inner_size_it = tv_to_inner_size_map.find(inp_or_out);
     auto inner_size_val = inner_size_it != tv_to_inner_size_map.end()
         ? inner_size_it->second
         : inp_or_out->container()->oneVal();
+    std::cerr << "inner_size_val: " << inner_size_val << std::endl;
     auto inner_size_opt =
         runtime_info.expressionEvaluator().evaluate(inner_size_val);
     TORCH_INTERNAL_ASSERT(
@@ -857,9 +972,13 @@ size_t getVectorizationFactor(
       local_max_vec_size *= 2;
     }
 
+    std::cerr << "locl max_vec_size: " << local_max_vec_size << std::endl;
+
     max_supported_vector_size =
         std::min(local_max_vec_size, max_supported_vector_size);
   }
+
+  std::cerr << "Vec factor: " << max_supported_vector_size << std::endl;
   return max_supported_vector_size;
 }
 

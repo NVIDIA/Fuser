@@ -83,6 +83,8 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
 
   FusionGuard fg(fusion);
 
+  fusion->printMath();
+
   // Incase any buffer is of type DataType::Index
   const auto index_type = runtime_info.getIndexType();
 
@@ -169,6 +171,10 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
                 scheduler_utils::getInputsOutputsWithInnerDim(
                     largest_out, true, true));
           });
+
+  for (auto tv : vectorizable_inputs_outputs_entry.get()) {
+    std::cerr << "Vectorizable tv: " << tv->toString() << std::endl;
+  }
 
   constexpr int64_t kSixteen = 16; // clang tidy
 
@@ -426,6 +432,8 @@ bool hasReferenceTensorView(Fusion* fusion) {
 void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
   FusionGuard fg(fusion);
 
+  std::cerr << "Pointwise params: " << params.toString() << std::endl;
+
   // Make sure we don't have global memory set on intermediate tensors from
   // fusion segmentation
   scheduler_utils::clearMemorySpace(fusion);
@@ -441,8 +449,14 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
 
   // Cache and fork outputs
   auto cached_outputs = scheduler_utils::cacheAndForkOutputs(fusion, true);
+  std::cout << "After cache\n";
+  fusion->printMath();
 
   scheduler_utils::prepareForMemoryTypePromotion(fusion);
+
+  std::cout << "After prepare\n";
+  fusion->printMath();
+  std::cout << std::endl;
 
   std::vector<TensorView*> input_tvs;
   {
@@ -744,6 +758,7 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
   spanning_tree.traverse(&propagator);
   scheduler_utils::parallelizeAllLike(reference_tv);
 
+  std::cerr << "Params.vectorize: " << params.vectorize << std::endl;
   if (params.vectorize) {
     // Grab all tensor views that should be vectorized
     auto inputs_outputs =
@@ -751,6 +766,7 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
     std::vector<TensorView*> vectorized_tvs;
     bool should_vectorize_reference_tv = false;
     for (auto tv : inputs_outputs) {
+      std::cerr << "Vec tv: " << tv->toString() << std::endl;
       if (tv == reference_tv) {
         should_vectorize_reference_tv = true;
       }
@@ -763,6 +779,8 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
       vectorized_tvs.insert(
           vectorized_tvs.end(), consumer_tvs.begin(), consumer_tvs.end());
     }
+    std::cerr << "Vectorized tvs: " << toDelimitedString(vectorized_tvs)
+              << std::endl;
     if (!vectorized_tvs.empty()) {
       // Aggressively mark with vectorized and cleanup later. That way we
       // don't have to manually specify parallelization outside the reference.

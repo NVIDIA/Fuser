@@ -1003,6 +1003,17 @@ std::vector<TensorView*> cacheInputs(Fusion* fusion, bool unroll) {
       // they must be in global memory.
       continue;
     }
+
+    // TODO
+    if (std::any_of(tv->uses().begin(), tv->uses().end(), [](Expr* use) {
+          return ir_utils::isTvOp(use) &&
+              ir_utils::hasResizedRfactor(use->output(0)->as<TensorView>());
+        })) {
+      std::cerr << "Input TV is resized: " << tv->toString() << std::endl;
+      // Only disable if sliced
+      continue;
+    }
+
     auto cached_tv = tv->cacheAfter();
     cached_inputs.emplace_back(cached_tv);
   }
@@ -1091,7 +1102,7 @@ IterDomain* projectIdToRoot(
       auto resize = expr->as<Resize>();
       if (resize->out() == projected_id) {
         // We do not allow vectorization with resize at this moment
-        if (vectorize_pass) {
+        if (vectorize_pass && !resize->leftExpand()->isZeroInt()) {
           projected_id = nullptr;
         } else {
           projected_id = resize->in();
@@ -1154,7 +1165,7 @@ IterDomain* projectIdToRFactor(
       auto resize = expr->as<Resize>();
       if (resize->in() == projected_id) {
         // We do not allow vectorization wit resize at this moment
-        if (vectorize_pass) {
+        if (vectorize_pass && !resize->leftExpand()->isZeroInt()) {
           projected_id = nullptr;
         } else {
           projected_id = resize->out();
@@ -1211,30 +1222,40 @@ void FindAllMappedDims::setUp() {
 }
 
 void FindAllMappedDims::propagateC2P(TensorView* from, TensorView* to) {
+  std::cerr << "propagateC2P: " << from->toString() << ", " << to->toString()
+            << std::endl;
   auto from_id = mapped_root_ids_.at(from);
   PairwiseRootDomainMap root_map(to, from);
+  // root_map.mapDifferentExtents(true);
   auto c2p_map = root_map.mapConsumerToProducer(from->domain(), to->domain());
   auto p_it = c2p_map.find(from_id);
   if (p_it != c2p_map.end()) {
+    std::cerr << "Mapped\n";
     mapped_root_ids_[to] =
         projectIdToRoot(to, p_it->second, inner_only_, vectorize_pass_);
     mapped_rfactor_ids_[to] = p_it->second;
   } else {
+    std::cerr << "Not mapped\n";
     mapped_root_ids_[to] = nullptr;
     mapped_rfactor_ids_[to] = nullptr;
   }
 }
 
 void FindAllMappedDims::propagateP2C(TensorView* from, TensorView* to) {
+  std::cerr << "propagateP2C: " << from->toString() << ", " << to->toString()
+            << std::endl;
   auto from_id = mapped_rfactor_ids_.at(from);
   PairwiseRootDomainMap root_map(from, to);
+  // root_map.mapDifferentExtents(true);
   auto p2c_map = root_map.mapProducerToConsumer(from->domain(), to->domain());
   auto c_it = p2c_map.find(from_id);
   if (c_it != p2c_map.end()) {
+    std::cerr << "Mapped\n";
     mapped_root_ids_[to] = c_it->second;
     mapped_rfactor_ids_[to] =
         projectIdToRFactor(to, c_it->second, inner_only_, vectorize_pass_);
   } else {
+    std::cerr << "Not mapped\n";
     mapped_root_ids_[to] = nullptr;
     mapped_rfactor_ids_[to] = nullptr;
   }
@@ -1285,13 +1306,16 @@ bool hasInnerDim(
     TensorView* tv,
     std::unordered_set<IterDomain*> inner_dims,
     bool should_vectorize) {
+  std::cerr << "has inner dim: " << tv->toString() << std::endl;
   const auto& inner_most_dim = innerMostRootDim(tv);
   if (inner_most_dim == nullptr) {
+    std::cerr << "debug1\n";
     return false;
   }
 
   // Make sure inner most dimension is in the inner_dims set
   if (inner_dims.count(inner_most_dim) == 0) {
+    std::cerr << "debug2\n";
     return false;
   }
 
@@ -1307,6 +1331,7 @@ bool hasInnerDim(
       [&inner_most_dim](IterDomain* id) { return inner_most_dim == id; });
 
   if (root_pos_it == rfactor_dom.end()) {
+    std::cerr << "debug3\n";
     return false;
   }
 
@@ -1320,9 +1345,11 @@ bool hasInnerDim(
   auto contiguity_opt = contiguity.at(inner_most_dim_pos);
   TORCH_INTERNAL_ASSERT(contiguity_opt.has_value())
   if (!*contiguity_opt) {
+    std::cerr << "Not contiguous\n";
     return false;
   }
 
+  std::cerr << "has inner dim true\n";
   return true;
 }
 
@@ -1334,6 +1361,9 @@ std::vector<TensorView*> getInputsOutputsWithInnerDim(
     TORCH_INTERNAL_ASSERT(
         inner_only, "Can only vectorize inner-most dimensions");
   }
+
+  std::cerr << "getInputsOutputsWithInnerDim: " << reference_tv->toString()
+            << std::endl;
 
   auto inner_most_id = innerMostRootDim(reference_tv);
 
@@ -1347,6 +1377,9 @@ std::vector<TensorView*> getInputsOutputsWithInnerDim(
   tree.traverse(&all_mapped_root_dims);
 
   auto vectorizable_dims = all_mapped_root_dims.get();
+
+  std::cerr << "vectorizable dims: " << toDelimitedString(vectorizable_dims)
+            << std::endl;
 
   std::vector<TensorView*> vectorizable_tensors;
 
@@ -1367,6 +1400,7 @@ std::vector<TensorView*> getInputsOutputsWithInnerDim(
         ir_utils::isIndexSelectLookupTv(input_tv)) {
       continue;
     }
+    std::cerr << "Is input vectorizable? " << input_tv->toString() << std::endl;
     if (hasInnerDim(input_tv, vectorizable_dims, vectorize_pass)) {
       vectorizable_tensors.push_back(input_tv);
     }
@@ -2127,7 +2161,7 @@ bool revertUseOfInputCache(
 void prepareForMemoryTypePromotion(Fusion* fusion) {
   auto non_pwise_pairs = getNonPointwiseProducerConsumerPairs(fusion);
 
-  // Inserting a copy of each proucer. If a tensor shows up as a
+  // Inserting a copy of each producer. If a tensor shows up as a
   // producer for multiple consumers, only insert one
   // copy and share it with all the consumers.
 

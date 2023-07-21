@@ -235,6 +235,19 @@ class TORCH_CUDA_CU_API ContiguousInnerDimensionsMapper
     if (!recording_) {
       return;
     }
+    TORCH_INTERNAL_ASSERT(projected_extent_.count(id) == 0);
+
+    // TODO: comment
+    if (auto resize_factors_it = resize_factors_.find(id);
+        resize_factors_it != resize_factors_.end()) {
+      auto adjusted_pe =
+          SimplifyingIrBuilder::gcdExpr(pe, resize_factors_it->second);
+      std::cerr << "Adjusting PE for resize. "
+                << "original: " << pe->toInlineString()
+                << ", adjusted: " << adjusted_pe->toInlineString() << std::endl;
+      pe = adjusted_pe;
+    }
+
     projected_extent_[id] = pe;
   }
 
@@ -277,6 +290,8 @@ class TORCH_CUDA_CU_API ContiguousInnerDimensionsMapper
   void propagateP2C(TensorView* from, TensorView* to) final;
   void propagateSibling(TensorView* from, TensorView* to) final;
 
+  void initializeResizeFactors(Fusion* fusion);
+
   // Initialized to false, series of compute... calls will be performed to find
   // the spanning tree. Then propagate... calls will call the compute... calls.
   // recording_ starts as false, and stays that way during the first series of
@@ -296,6 +311,9 @@ class TORCH_CUDA_CU_API ContiguousInnerDimensionsMapper
       tv_infos_;
 
   std::unordered_map<IterDomain*, Val*> projected_extent_;
+
+  std::unordered_map<IterDomain*, Val*> resize_factors_;
+  std::unordered_set<Resize*> supported_resize_exprs_;
 };
 
 size_t getVectorizationFactor(

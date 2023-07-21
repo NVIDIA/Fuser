@@ -2262,4 +2262,88 @@ TEST_F(NVFuserTest, SliceVectorization) {
   testValidate(&fusion, cg_outputs, inputs, {ref}, __LINE__, __FILE__);
 }
 
+TEST_F(NVFuserTest, FusionResizeSliceVectorize1_CUDA) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  std::vector<int64_t> shape({1024 * 1024});
+
+  // concrete shapes to avoid dynamic Fusion
+  auto tv0 = makeContigConcreteTensor(shape);
+  fusion.addInput(tv0);
+
+  int64_t right = 4;
+  if (auto env = getenv("RIGHT"); env != nullptr) {
+    right = std::atoi(env);
+  }
+
+  std::cerr << "Slice right factor: " << right << std::endl;
+
+  auto tv1 = slice(
+      tv0,
+      {{IrBuilder::create<Val>(0L),
+        sub(tv0->axis(0)->extent(), IrBuilder::create<Val>(right))}});
+  auto tv2 = set(tv1);
+  fusion.addOutput(tv2);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  schedulePointwise(&fusion, aten_inputs);
+  fusion.printMath();
+  fusion.printKernel();
+
+  // FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  // auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+
+  // auto ref = t0.index({at::indexing::Slice(0, shape[0] - 4)});
+
+  // TORCH_CHECK(ref.equal(cg_outputs[0]));
+}
+
+TEST_F(NVFuserTest, FusionResizeSliceVectorize2_CUDA) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  std::vector<int64_t> shape({1024 * 1024});
+
+  // concrete shapes to avoid dynamic Fusion
+  auto tv0 = makeContigConcreteTensor(shape);
+  fusion.addInput(tv0);
+
+  auto tv1 = slice(
+      tv0,
+      {{IrBuilder::create<Val>(0L),
+        sub(tv0->axis(0)->extent(), IrBuilder::create<Val>(4L))}});
+  auto tv2 = set(tv1);
+  fusion.addOutput(tv2);
+
+  auto tv3 = slice(
+      tv0,
+      {{IrBuilder::create<Val>(0L),
+        sub(tv0->axis(0)->extent(), IrBuilder::create<Val>(4L))}});
+  auto tv4 = set(tv3);
+  fusion.addOutput(tv4);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  schedulePointwise(&fusion, aten_inputs);
+  fusion.printMath();
+  fusion.printKernel();
+
+  // FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  // auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+
+  // auto ref = t0.index({at::indexing::Slice(0, shape[0] - 4)});
+
+  // TORCH_CHECK(ref.equal(cg_outputs[0]));
+}
+
 } // namespace nvfuser
