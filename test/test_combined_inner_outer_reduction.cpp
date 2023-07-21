@@ -161,49 +161,16 @@ TEST_F(NVFuserTest, CombinedSchedulerLayerNormBackward_CUDA) {
         __LINE__,
         __FILE__);
 
-    // In combined_inner_outer_reduction, the inner dim should be a
-    // multiplication of a quarter warp and vectorization factor. Otherwise,
-    // will use segregated version, see checkCombinedReductionShape.
-    int64_t feature_size = 1;
+    int64_t hidden_size = 1;
     for (auto s : norm_shape) {
-      feature_size *= s;
+      hidden_size *= s;
     }
-    int64_t batch_size = 1;
-    for (auto s : batch_shape) {
-      batch_size *= s;
-    }
-    int64_t vectorization_factor = 16l / dataTypeSize(dtype);
-    // try 8, 4, 2, 1
-    while (feature_size % vectorization_factor) {
-      vectorization_factor /= 2;
-    }
-    const int64_t warp_size = at::cuda::getCurrentDeviceProperties()->warpSize;
-    const int64_t n_elements_factor = warp_size / 4 * vectorization_factor;
-    // valid for this specific layer_norm backward fusion
-    // Half: 2 floats + 3 halfs
-    // Float: 2 floats + 3 floats
-    const int64_t persistent_bytes_per_element =
-        dtype == DataType::Half ? 14 : 20;
-    const int64_t persistent_bytes_per_row =
-        persistent_bytes_per_element * feature_size;
-    const auto opt_inner_batch = normalization_scheduler_utils::
-        getOptionalInnerOuterPersistentBufferBatches(
-            feature_size,
-            batch_size,
-            persistent_bytes_per_row,
-            vectorization_factor,
-            warp_size,
-            false);
-    bool expect_segmentation =
-        feature_size % n_elements_factor || !opt_inner_batch.first.has_value();
-
-    bool is_segmented = fec.getMostRecentKernelRuntime()->isSegmented();
     TORCH_CHECK(
-        expect_segmentation == is_segmented,
-        "Fusion segmentation is different from expected!, expected: ",
-        expect_segmentation,
-        ", actual: ",
-        is_segmented);
+        !fec.getMostRecentKernelRuntime()->isSegmented(),
+        "Fusion shouldn't be segmented! hidden size= ",
+        hidden_size,
+        ", dtype= ",
+        dtype == DataType::Float ? "Float." : "Half.");
 
     if (isBenchmark) {
       FusionKernelRuntime* fkr = fec.getMostRecentKernelRuntime();
@@ -275,7 +242,7 @@ TEST_F(NVFuserTest, CombinedSchedulerLayerNormBackward_CUDA) {
   std::vector<DataType> data_types = {DataType::Half, DataType::Float};
   std::vector<std::vector<int64_t>> batch_sizes = {{216}};
   std::vector<std::vector<int64_t>> hidden_sizes = {
-      {32}, {96}, {576}, {768}, {1024}, {1280}, {1600}, {1984}};
+      {3}, {32}, {96}, {576}, {768}, {1024}, {1280}, {1600}, {1984}, {1987}};
   bool isBenchmark = false;
   bool onlyTestFirstCase = false;
   int verbose = 0;
@@ -386,7 +353,7 @@ TEST_F(NVFuserTest, CombinedSchedulerSharedConsumer_CUDA) {
         : add(layer_norm_results.grad_bias, layer_norm_results.grad_weight);
 
     if (!link_inner_outer) {
-      auto out_linked_scale = mul(out_linked, IrBuilder::create<Double>(0.5));
+      auto out_linked_scale = mul(out_linked, IrBuilder::create<Val>(0.5));
       fusion.addOutput(out_linked_scale);
     } else {
       fusion.addOutput(out_linked);
@@ -564,9 +531,9 @@ TEST_F(NVFuserTest, CombinedSchedulerSharedProducer_CUDA) {
         // tensor bias is a producer of the two outer reductions' consumers,
         // expect segmented
         auto outer_1_consumer =
-            add(layer_norm_results.grad_weight, IrBuilder::create<Double>(1));
+            add(layer_norm_results.grad_weight, IrBuilder::create<Val>(1.0));
         auto outer_2_consumer =
-            add(layer_norm_results.grad_bias, IrBuilder::create<Double>(1));
+            add(layer_norm_results.grad_bias, IrBuilder::create<Val>(1.0));
         auto use_producer_1 = add(outer_1_consumer, bias);
         auto use_producer_2 = add(outer_2_consumer, bias);
         fusion.addOutput(use_producer_1);

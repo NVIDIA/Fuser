@@ -23,6 +23,9 @@
 #include <optional>
 #include <tuple>
 
+#include <pybind11/complex.h>
+#include <pybind11/stl.h>
+
 namespace nvfuser::python_frontend {
 
 // Set of local functions that are used to compose python FusionDefinition
@@ -500,86 +503,42 @@ void initNvFuserPythonBindings(PyObject* module) {
                 !self.completed(),
                 "Attempting to add to a completed definition!");
             Scalar out = self.defineScalar();
-            // ScalarRecord<double> is used for all input scalars. The template
-            // type is unused, but it is important that we ensure that all input
-            // scalars, regardless of dtype, make use of the same template type,
-            // so we standardize on double.
-            self.defineRecord(new ScalarRecord<double>(
-                {self.recordingState(out())},
-                serde::RecordType_ScalarInput,
-                std::nullopt,
-                dtype));
+            self.defineRecord(new ScalarRecord(
+                {self.recordingState(out())}, std::monostate{}, dtype));
             return out;
           },
           py::arg("dtype") = DataType::Double,
           py::return_value_policy::reference);
-
-// Below is the canonical version of define_scalar. When the `value` argument is
-// omitted, the definition above will be used. However, when an explicit value
-// of `None` is provided, one of the definitions below will be used instead. In
-// such case, we must ensure that the standard template argument `double` is
-// used for all input scalars, in contrast to `CType` corresponding to the
-// default `dtype`.
-#define NVFUSER_PYTHON_BINDING_CANONICAL_SCALAR(                                               \
-    Nvfuser_DType, Serde_RType, CType)                                                         \
-  fusion_def.def(                                                                              \
-      "define_scalar",                                                                         \
-      [](FusionDefinition& self,                                                               \
-         std::optional<CType> value,                                                           \
-         PrimDataType dtype) -> Scalar {                                                       \
-        FUSER_PERF_SCOPE("FusionDefinition.define_scalar");                                    \
-        Scalar out = self.defineScalar();                                                      \
-        if (value.has_value()) {                                                               \
-          self.defineRecord(new ScalarRecord<CType>(                                           \
-              {self.recordingState(out())}, Serde_RType, value, dtype));                       \
-        } else {                                                                               \
-          self.defineRecord(new ScalarRecord<double>(                                          \
-              {self.recordingState(out())},                                                    \
-              serde::RecordType_ScalarInput,                                                   \
-              std::nullopt,                                                                    \
-              dtype));                                                                         \
-        }                                                                                      \
-        return out;                                                                            \
-      },                                                                                       \
-      py::arg("value"),                                                                        \
-      py::arg("dtype") = Nvfuser_DType,                                                        \
-      py::return_value_policy::reference);                                                     \
-  fusion_def.def(                                                                              \
-      "define_constant",                                                                       \
-      [](FusionDefinition& self,                                                               \
-         std::optional<CType> value,                                                           \
-         PrimDataType dtype) -> Scalar {                                                       \
-        FUSER_PERF_SCOPE("FusionDefinition.define_contant");                                   \
-        TORCH_WARN_ONCE(                                                                       \
-            "Deprecating define_constant functions in favor of define_scalar for constants."); \
-        Scalar out = self.defineScalar();                                                      \
-        if (value.has_value()) {                                                               \
-          self.defineRecord(new ScalarRecord<CType>(                                           \
-              {self.recordingState(out())}, Serde_RType, value, dtype));                       \
-        } else {                                                                               \
-          self.defineRecord(new ScalarRecord<double>(                                          \
-              {self.recordingState(out())},                                                    \
-              serde::RecordType_ScalarInput,                                                   \
-              std::nullopt,                                                                    \
-              dtype));                                                                         \
-        }                                                                                      \
-        return out;                                                                            \
-      },                                                                                       \
-      py::arg("value"),                                                                        \
-      py::arg("dtype") = Nvfuser_DType,                                                        \
+  fusion_def.def(
+      "define_scalar",
+      [](FusionDefinition& self,
+         PolymorphicValue::VariantType value,
+         std::optional<PrimDataType> dtype) -> Scalar {
+        FUSER_PERF_SCOPE("FusionDefinition.define_scalar");
+        Scalar out = self.defineScalar();
+        self.defineRecord(
+            new ScalarRecord({self.recordingState(out())}, value, dtype));
+        return out;
+      },
+      py::arg("value"),
+      py::arg("dtype") = std::nullopt,
       py::return_value_policy::reference);
-
-  NVFUSER_PYTHON_BINDING_CANONICAL_SCALAR(
-      DataType::Bool, serde::RecordType_ScalarBool, bool);
-  NVFUSER_PYTHON_BINDING_CANONICAL_SCALAR(
-      DataType::ComplexDouble,
-      serde::RecordType_ScalarComplexDouble,
-      std::complex<double>);
-  NVFUSER_PYTHON_BINDING_CANONICAL_SCALAR(
-      DataType::Double, serde::RecordType_ScalarDouble, double);
-  NVFUSER_PYTHON_BINDING_CANONICAL_SCALAR(
-      DataType::Int, serde::RecordType_ScalarLong, int64_t);
-#undef NVFUSER_PYTHON_BINDING_CANONICAL_SCALAR
+  fusion_def.def(
+      "define_constant",
+      [](FusionDefinition& self,
+         PolymorphicValue::VariantType value,
+         std::optional<PrimDataType> dtype) -> Scalar {
+        FUSER_PERF_SCOPE("FusionDefinition.define_contant");
+        TORCH_WARN_ONCE(
+            "Deprecating define_constant functions in favor of define_scalar for constants.");
+        Scalar out = self.defineScalar();
+        self.defineRecord(
+            new ScalarRecord({self.recordingState(out())}, value, dtype));
+        return out;
+      },
+      py::arg("value"),
+      py::arg("dtype") = std::nullopt,
+      py::return_value_policy::reference);
 
   // This is the input version of define_vector
   fusion_def.def(
@@ -592,11 +551,8 @@ void initNvFuserPythonBindings(PyObject* module) {
         args.reserve(size);
         for (size_t i = 0; i < size; ++i) {
           Scalar out = self.defineScalar();
-          self.defineRecord(new ScalarRecord<int64_t>(
-              {self.recordingState(out())},
-              serde::RecordType_ScalarInput,
-              std::nullopt,
-              DataType::Int));
+          self.defineRecord(new ScalarRecord(
+              {self.recordingState(out())}, std::monostate{}, DataType::Int));
           args.emplace_back(out);
         }
         return define_vector_fn(self, args);
@@ -624,9 +580,8 @@ void initNvFuserPythonBindings(PyObject* module) {
                 idx,
                 " was neither symbolic(-1), zero_element(0), broadcast(1), or static(>1).");
             Scalar out = self.defineScalar();
-            self.defineRecord(new ScalarRecord<int64_t>(
+            self.defineRecord(new ScalarRecord(
                 {self.recordingState(out())},
-                serde::RecordType_ScalarLong,
                 py::cast<int64_t>(item),
                 DataType::Int));
             args.emplace_back(out);
@@ -747,6 +702,45 @@ void initNvFuserPythonBindings(PyObject* module) {
   NVFUSER_PYTHON_BINDING_UNARY_OP("real", real)
   NVFUSER_PYTHON_BINDING_UNARY_OP("imag", imag)
 #undef NVFUSER_PYTHON_BINDING_UNARY_OP
+
+// rand_like and randn_like are normally used with a single TensorView argument,
+// like a UnaryOp. However, they also take an optional pair (rng_seed,
+// rng_offset) which converts them to deterministic ops. When those args are
+// provided, and they must both be provided if either is, then the op behaves
+// like a ternary op. We handle the UnaryOp case above and the TernaryOp case
+// here.
+#define NVFUSER_PYTHON_BINDING_TERNARY_RANDOM_OP(op_str, op_name)             \
+  nvf_ops.def(                                                                \
+      op_str,                                                                 \
+      [](FusionDefinition::Operators& self,                                   \
+         Tensor input,                                                        \
+         Scalar rng_seed,                                                     \
+         Scalar rng_offset) -> Tensor {                                       \
+        FUSER_PERF_SCOPE("Operators." op_str);                                \
+        TORCH_CHECK(                                                          \
+            self.validUse(), "Attempting to add to a completed definition!"); \
+        FusionDefinition* fd = self.fusion_definition;                        \
+        Tensor output = fd->defineTensor(input.dims);                         \
+        fd->defineRecord(new OpRecord<TensorView*, TensorView*>(              \
+            {fd->recordingState(input()),                                     \
+             fd->recordingState(rng_seed()),                                  \
+             fd->recordingState(rng_offset())},                               \
+            {fd->recordingState(output())},                                   \
+            ("ops." op_str),                                                  \
+            serde::RecordType_Ternary_TV_VAL_VAL,                             \
+            static_cast<TensorView* (*)(TensorView*)>(op_name)));             \
+        return output;                                                        \
+      },                                                                      \
+      py::arg("arg"),                                                         \
+      py::kw_only(),                                                          \
+      py::arg("rng_seed"),                                                    \
+      py::arg("rng_offset"),                                                  \
+      py::return_value_policy::reference);
+
+  NVFUSER_PYTHON_BINDING_TERNARY_RANDOM_OP("rand_like", rand_like)
+  NVFUSER_PYTHON_BINDING_TERNARY_RANDOM_OP("randn_like", randn_like)
+
+#undef NVFUSER_PYTHON_BINDING_UNARY_RANDOM_OP
 
 #define NVFUSER_PYTHON_BINDING_UNARY_OP_SPECIAL(op_str, op_name)               \
   tensor_class.def(                                                            \
@@ -914,6 +908,7 @@ void initNvFuserPythonBindings(PyObject* module) {
   NVFUSER_PYTHON_BINDING_BINARY_OP("bitwise_xor", bitwise_xor)
   NVFUSER_PYTHON_BINDING_BINARY_OP("bitwise_left_shift", bitwise_left_shift)
   NVFUSER_PYTHON_BINDING_BINARY_OP("bitwise_right_shift", bitwise_right_shift)
+  NVFUSER_PYTHON_BINDING_BINARY_OP("logical_right_shift", logical_right_shift)
   NVFUSER_PYTHON_BINDING_BINARY_OP("gcd", gcd)
 #undef NVFUSER_PYTHON_BINDING_BINARY_OP
 
@@ -2401,7 +2396,9 @@ void initNvFuserPythonBindings(PyObject* module) {
          Scalar minval,
          Scalar maxval,
          std::vector<Scalar>& shape,
-         PrimDataType dtype) -> Tensor {
+         PrimDataType dtype,
+         std::optional<Scalar> rng_seed,
+         std::optional<Scalar> rng_offset) -> Tensor {
         FUSER_PERF_SCOPE("Operators.uniform");
         TORCH_CHECK(
             self.validUse(), "Attempting to add to a completed definition!");
@@ -2414,11 +2411,19 @@ void initNvFuserPythonBindings(PyObject* module) {
             shape.end(),
             output_shape_states.begin(),
             [&fd](const Scalar& s) { return fd->recordingState(s()); });
+        std::vector<State> arg_states = {
+            fd->recordingState(minval()),
+            fd->recordingState(maxval()),
+        };
+        if (rng_seed.has_value()) {
+          TORCH_CHECK(
+              rng_offset.has_value(),
+              "When providing rng_seed, rng_offset must also be provided");
+          arg_states.push_back(fd->recordingState(rng_seed.value()()));
+          arg_states.push_back(fd->recordingState(rng_offset.value()()));
+        }
         fd->defineRecord(new RandomOpRecord(
-            {
-                fd->recordingState(minval()),
-                fd->recordingState(maxval()),
-            },
+            arg_states,
             {fd->recordingState(output())},
             output_shape_states,
             "ops.uniform",
@@ -2429,6 +2434,9 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("maxval"),
       py::arg("shape"),
       py::arg("dtype") = DataType::Float,
+      py::kw_only(),
+      py::arg("rng_seed") = py::none(),
+      py::arg("rng_offset") = py::none(),
       py::return_value_policy::reference);
   nvf_ops.def(
       "normal",
@@ -2436,7 +2444,9 @@ void initNvFuserPythonBindings(PyObject* module) {
          Scalar mean,
          Scalar std,
          std::vector<Scalar>& shape,
-         PrimDataType dtype) -> Tensor {
+         PrimDataType dtype,
+         std::optional<Scalar> rng_seed,
+         std::optional<Scalar> rng_offset) -> Tensor {
         FUSER_PERF_SCOPE("Operators.normal");
         TORCH_CHECK(
             self.validUse(), "Attempting to add to a completed definition!");
@@ -2449,11 +2459,19 @@ void initNvFuserPythonBindings(PyObject* module) {
             shape.end(),
             output_shape_states.begin(),
             [&fd](const Scalar& s) { return fd->recordingState(s()); });
+        std::vector<State> arg_states = {
+            fd->recordingState(mean()),
+            fd->recordingState(std()),
+        };
+        if (rng_seed.has_value()) {
+          TORCH_CHECK(
+              rng_offset.has_value(),
+              "When providing rng_seed, rng_offset must also be provided");
+          arg_states.push_back(fd->recordingState(rng_seed.value()()));
+          arg_states.push_back(fd->recordingState(rng_offset.value()()));
+        }
         fd->defineRecord(new RandomOpRecord(
-            {
-                fd->recordingState(mean()),
-                fd->recordingState(std()),
-            },
+            arg_states,
             {fd->recordingState(output())},
             output_shape_states,
             "ops.normal",
@@ -2464,6 +2482,9 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("std"),
       py::arg("shape"),
       py::arg("dtype") = DataType::Float,
+      py::kw_only(),
+      py::arg("rng_seed") = py::none(),
+      py::arg("rng_offset") = py::none(),
       py::return_value_policy::reference);
   //! The ScedOperators class is a nested class of FusionDefinition to allow the
   //! user to query the class for the list of schedule operators.

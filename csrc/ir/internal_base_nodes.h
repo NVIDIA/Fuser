@@ -321,7 +321,7 @@ class TORCH_CUDA_CU_API IterDomain : public Val {
   //! Split for stride by a given factor. It effectively does an inner
   //! split by the factor and sets the inner domain as a Stride
   //! domain.
-  std::pair<IterDomain*, IterDomain*> stridedSplit(int factor);
+  std::pair<IterDomain*, IterDomain*> stridedSplit(int64_t factor);
 
   //! Marks that this id represents a
   //!  instruction loop, mma use only.

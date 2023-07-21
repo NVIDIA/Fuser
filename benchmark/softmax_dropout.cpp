@@ -44,7 +44,7 @@ static void setupSoftmaxDropout(
   auto attention_scores = makeContigTensor(4, dtype);
   auto attention_mask = makeContigTensor(4, dtype);
 
-  Double* divisor = IrBuilder::create<Double>();
+  Val* divisor = IrBuilder::create<Val>(DataType::Double);
 
   fusion->addInput(attention_scores);
   fusion->addInput(attention_mask);
@@ -58,8 +58,8 @@ static void setupSoftmaxDropout(
   attention_scores = div(attention_scores, divisor);
   attention_scores = add(attention_scores, attention_mask);
   auto attention_probs = softmax(attention_scores, kReductionAxis);
-  auto prob = IrBuilder::create<Double>(kDropoutProbability);
-  auto scale = IrBuilder::create<Double>(kScale);
+  auto prob = IrBuilder::create<Val>(kDropoutProbability);
+  auto scale = IrBuilder::create<Val>(kScale);
   auto dropout_results = dropout(attention_probs, prob, scale);
   auto output = dropout_results.output;
 

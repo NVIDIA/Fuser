@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <debug.h>
 #include <device_lower/lower2device.h>
 #include <expr_evaluator.h>
 #include <instrumentation.h>
@@ -42,14 +43,15 @@ class KernelIrScanner : private IrVisitor {
   }
 
  private:
+  using IrVisitor::dispatch;
   using IrVisitor::handle;
-  void handle(Expr* expr) final {
-    IrVisitor::handle(expr);
+  void dispatch(Expr* expr) final {
+    IrVisitor::dispatch(expr);
     for (auto inp : expr->inputs()) {
-      handle(inp);
+      dispatch(inp);
     }
     for (auto out : expr->outputs()) {
-      handle(out);
+      dispatch(out);
     }
   }
   void handle(BlockSync* sync) final {
@@ -84,8 +86,15 @@ class KernelIrScanner : private IrVisitor {
   }
 
   void handle(RNGOp* rng_op) final {
-    summary_.max_rng_offsets =
-        std::max<int>(summary_.max_rng_offsets, rng_op->getRNGOffset());
+    summary_.has_philox_op = true;
+    if (!rng_op->isDeterministic()) {
+      // NOTE: RNGOps that are provided a seed and offset should not contribute
+      // to max_rng_offsets, since that would cause the executor to increment
+      // the offset, and these types of deterministic RNGOp should not affect
+      // random ops at all.
+      summary_.max_rng_offsets =
+          std::max<int>(summary_.max_rng_offsets, rng_op->getRNGOffset());
+    }
   }
 
   void handle(TensorIndex* tensor_index) final {
@@ -220,7 +229,7 @@ class ValidateAllocation : private OptOutConstDispatch {
   explicit ValidateAllocation(const Kernel* kernel) {
     live_allocations_.emplace_back();
     for (const auto& expr : kernel->topLevelExprs()) {
-      OptOutConstDispatch::handle(expr);
+      OptOutConstDispatch::dispatch(expr);
     }
     live_allocations_.pop_back();
     TORCH_INTERNAL_ASSERT(live_allocations_.empty());
@@ -272,17 +281,17 @@ class ValidateAllocation : private OptOutConstDispatch {
 
     live_allocations_.emplace_back();
     for (const auto& expr : for_loop->body().exprs()) {
-      OptOutConstDispatch::handle(expr);
+      OptOutConstDispatch::dispatch(expr);
     }
     live_allocations_.pop_back();
   }
 
   void handle(const IfThenElse* ite) final {
     for (const auto& expr : ite->thenBody().exprs()) {
-      OptOutConstDispatch::handle(expr);
+      OptOutConstDispatch::dispatch(expr);
     }
     for (const auto& expr : ite->elseBody().exprs()) {
-      OptOutConstDispatch::handle(expr);
+      OptOutConstDispatch::dispatch(expr);
     }
   }
 
@@ -316,7 +325,7 @@ void Kernel::analyze() {
 }
 
 void Kernel::print() const {
-  IrPrinter ir_printer(std::cout);
+  IrPrinter ir_printer(debug());
   ir_printer.handle(this);
 }
 
