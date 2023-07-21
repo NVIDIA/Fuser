@@ -6,6 +6,7 @@
 import torch
 import jax
 from pytest_core import OpInfo, ReferenceType, Domain
+from pytest_fusion_definitions import api_test_fd_fn, tensor_input_fd_fn
 from pytest_input_generators import (
     broadcast_error_generator,
     broadcast_in_dim_generator,
@@ -14,6 +15,8 @@ from pytest_input_generators import (
     cat_error_generator,
     define_tensor_generator,
     define_tensor_error_generator,
+    define_vector_constant_error_generator,
+    define_vector_input_error_generator,
     elementwise_unary_generator,
     _elementwise_unary_torch,
     full_error_generator,
@@ -50,9 +53,31 @@ define_tensor_opinfo = OpInfo(
     "define_tensor",
     sample_input_generator=define_tensor_generator,
     error_input_generator=define_tensor_error_generator,
-    is_fusion_input_op=True,
+    fd_correctness_fn=tensor_input_fd_fn,
+    fd_error_input_fn=tensor_input_fd_fn,
 )
 fusion_input_ops.append(define_tensor_opinfo)
+
+# NOTE: "define_vector" only supports vectors of integers that represent
+# tensor shapes and is not a general interface for defining vectors of
+# data.  Vectors of data should be handled with a 1D `define_tensor`.
+define_vector_constant_opinfo = OpInfo(
+    lambda fd: fd.define_vector,
+    "define_vector_constant",
+    sample_input_generator=None,
+    error_input_generator=define_vector_constant_error_generator,
+    fd_error_input_fn=api_test_fd_fn,
+)
+fusion_input_ops.append(define_vector_constant_opinfo)
+
+define_vector_input_opinfo = OpInfo(
+    lambda fd: fd.define_vector,
+    "define_vector_input",
+    sample_input_generator=None,
+    error_input_generator=define_vector_input_error_generator,
+    fd_error_input_fn=api_test_fd_fn,
+)
+fusion_input_ops.append(define_vector_input_opinfo)
 
 """ End Fusion Input Operations """
 

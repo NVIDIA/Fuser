@@ -9,6 +9,7 @@
 #include <executor.h>
 
 #include <codegen.h>
+#include <debug.h>
 #include <device_lower/analysis/bank_conflict.h>
 #include <executor_kernel_arg.h>
 #include <executor_utils.h>
@@ -103,19 +104,19 @@ std::string FusionExecutor::getStructuredCode(
       executor_utils::kernelPreamble() + kernel_str + "}\n";
 
   if (isDebugDumpEnabled(DebugDumpOption::CudaKernel)) {
-    std::cout << "\n======= Codegen output for kernel: " << kernelName()
-              << " =======\n\n"
-              << kernel_str << "\n======================================\n\n";
+    debug() << "\n======= Codegen output for kernel: " << kernelName()
+            << " =======\n\n"
+            << kernel_str << "\n======================================\n\n";
   } else if (isDebugDumpEnabled(DebugDumpOption::CudaFull)) {
-    std::cout << "\n======= Codegen output for kernel: " << kernelName()
-              << " =======\n\n"
-              << code << "\n======================================\n\n";
+    debug() << "\n======= Codegen output for kernel: " << kernelName()
+            << " =======\n\n"
+            << code << "\n======================================\n\n";
   }
   if (isDebugDumpEnabled(DebugDumpOption::CudaToFile) ||
       isDebugDumpEnabled(DebugDumpOption::DebugInfo)) {
     std::stringstream file_name;
     file_name << "__tmp_kernel" << fusion_id_ << ".cu";
-    std::cout << "PRINTING: " << file_name.str() << std::endl;
+    debug() << "PRINTING: " << file_name.str() << std::endl;
     std::ofstream out(file_name.str());
     out << code << std::endl;
     out.close();
@@ -144,11 +145,11 @@ void FusionExecutor::debugCompileFusionFromStr(
   }
 
   if (isDebugDumpEnabled(DebugDumpOption::CudaFull)) {
-    std::cout << "\n==== codegen output for kernel: " << kernelName()
-              << " ====" << std::endl
-              << code << std::endl
-              << "======================================\n"
-              << std::endl;
+    debug() << "\n==== codegen output for kernel: " << kernelName()
+            << " ====" << std::endl
+            << code << std::endl
+            << "======================================\n"
+            << std::endl;
   }
 
   lowered_ = std::make_unique<GpuLower>(fusion);
@@ -279,29 +280,29 @@ void FusionExecutor::compileFusion(
   if (isDebugDumpEnabled(DebugDumpOption::BankConflictInfo)) {
     auto bank_conflict_info = getBankConflictInfo(kernel);
     if (bank_conflict_info.empty()) {
-      std::cout << "===== No bank confliction =====" << std::endl;
+      debug() << "===== No bank confliction =====" << std::endl;
     } else {
-      std::cout << "======= Bank confliction =======" << std::endl;
+      debug() << "======= Bank confliction =======" << std::endl;
       for (auto info : bank_conflict_info) {
-        std::cout << "Expr: " << info.first->toString() << std::endl;
+        debug() << "Expr: " << info.first->toString() << std::endl;
         auto conflict = info.second;
         if (conflict.first > 1) {
-          std::cout << "input conflict: " << conflict.first << " way, ";
+          debug() << "input conflict: " << conflict.first << " way, ";
         }
         if (conflict.second > 1) {
-          std::cout << "output conflict: " << conflict.second << " way";
+          debug() << "output conflict: " << conflict.second << " way";
         }
-        std::cout << std::endl;
+        debug() << std::endl;
       }
-      std::cout << "================================" << std::endl;
+      debug() << "================================" << std::endl;
     }
   }
 
   kernel_code_ = codegen::generateCudaKernel(kernel, kernelName());
 
   auto load_external_code = [](const char* external_code_path) {
-    std::cout << "--------> Compiling external cuda code: "
-              << external_code_path << std::endl;
+    debug() << "--------> Compiling external cuda code: " << external_code_path
+            << std::endl;
     std::ifstream cuda_src(external_code_path);
     std::stringstream buffer;
     buffer << cuda_src.rdbuf();
@@ -381,7 +382,7 @@ void FusionExecutor::compileFusion(
   }
 
   if (isDebugDumpEnabled(DebugDumpOption::Sass)) {
-    std::cout << disassembledKernelSASS() << std::endl;
+    debug() << disassembledKernelSASS() << std::endl;
   }
 }
 
@@ -1044,8 +1045,8 @@ LaunchParams FusionExecutor::computeLaunchParams(
         p_type,
         " to set launch bounds but could not.");
 
-    if (val.as<int64_t>() > 0) {
-      expr_eval.bind(p_type, val.as<int64_t>());
+    if (val > 0) {
+      expr_eval.bind(p_type, val);
       launch_params.bind(val.as<int64_t>(), p_type);
     }
   }
@@ -1140,34 +1141,6 @@ std::vector<FusionExecutor::GlobalBufferInfo> FusionExecutor::
   }
 
   return global_buffers;
-}
-
-std::vector<at::Tensor> FusionExecutor::allocOutputSpace(
-    const at::ArrayRef<c10::IValue>& inputs) {
-  auto kernel_inputs = KernelArgumentHolder::createKernelArgumentHolder(inputs);
-  auto expr_eval =
-      executor_utils::bindInputs(kernel_inputs, lowered_->kernel());
-
-  auto input_alias_indices_entry =
-      executor_utils::caching::ExecutorCompileTimeEntry<
-          executor_utils::caching::InputAliasIndices>(
-          compileTimeDataCache(), [&]() {
-            return std::make_unique<std::vector<std::pair<int, int>>>(
-                fusion_->getOutputToInputAliasIndices());
-          });
-
-  const auto& output_to_input_aliases = input_alias_indices_entry.get();
-
-  auto output_info =
-      getOutputBufferInfo(kernel_inputs, expr_eval, output_to_input_aliases);
-
-  return allocOutputs(
-      kernel(),
-      output_info,
-      output_to_input_aliases,
-      kernel_inputs,
-      options_.device,
-      expr_eval);
 }
 
 std::vector<FusionExecutor::GlobalBufferInfo> FusionExecutor::
@@ -1353,18 +1326,18 @@ void dumpFusionArgs(
     const LaunchParams& launch_constraints,
     const CompileParams& compile_params,
     const std::vector<at::Tensor>& outputs) {
-  std::cout << "Arguments for fusion" << fusion_id << ":" << std::endl
-            << "Inputs:" << std::endl;
+  debug() << "Arguments for fusion" << fusion_id << ":" << std::endl
+          << "Inputs:" << std::endl;
   for (auto i : c10::irange(args.size())) {
-    std::cout << "  " << args[i]->toString() << std::endl;
+    debug() << "  " << args[i]->toString() << std::endl;
   }
-  std::cout << "Outputs:" << std::endl;
+  debug() << "Outputs:" << std::endl;
   for (const auto& output : outputs) {
-    std::cout << "  " << output.scalar_type() << " " << output.sizes()
-              << " (strides = " << output.strides() << ")" << std::endl;
+    debug() << "  " << output.scalar_type() << " " << output.sizes()
+            << " (strides = " << output.strides() << ")" << std::endl;
   }
-  std::cout << launch_constraints.toString();
-  std::cout << "maxrregcount= " << compile_params.maxrregcount << std::endl;
+  debug() << launch_constraints.toString();
+  debug() << "maxrregcount= " << compile_params.maxrregcount << std::endl;
 }
 
 // Dump arguments that are passed to a CUDA kernel call, which include
@@ -1379,24 +1352,24 @@ void dumpKernelArgs(
     const std::vector<at::Tensor>& allocated_outputs,
     const std::vector<at::Tensor>& intermediates,
     const std::vector<FusionExecutor::GlobalBufferInfo>& intermediates_info) {
-  std::cout << "Arguments for kernel" << fusion_id << ":" << std::endl
-            << "Inputs:" << std::endl;
+  debug() << "Arguments for kernel" << fusion_id << ":" << std::endl
+          << "Inputs:" << std::endl;
   for (auto i : c10::irange(num_inputs)) {
-    std::cout << "  " << args[i]->toString() << std::endl;
+    debug() << "  " << args[i]->toString() << std::endl;
   }
-  std::cout << "Outputs:" << std::endl;
+  debug() << "Outputs:" << std::endl;
   // note: add aliased outputs here.
   for (const auto& output : allocated_outputs) {
-    std::cout << "  " << output.scalar_type() << " " << output.sizes()
-              << " (strides = " << output.strides()
-              << ", address = " << output.data_ptr() << ")" << std::endl;
+    debug() << "  " << output.scalar_type() << " " << output.sizes()
+            << " (strides = " << output.strides()
+            << ", address = " << output.data_ptr() << ")" << std::endl;
   }
-  std::cout << "Intermediate global buffers:" << std::endl;
+  debug() << "Intermediate global buffers:" << std::endl;
   for (const auto i : c10::irange(intermediates.size())) {
     const auto& buffer = intermediates.at(i);
     const auto& zero_init = intermediates_info.at(i).zero_init;
-    std::cout << "  " << buffer.scalar_type() << " " << buffer.sizes()
-              << " is_zero_initialized: " << zero_init << std::endl;
+    debug() << "  " << buffer.scalar_type() << " " << buffer.sizes()
+            << " is_zero_initialized: " << zero_init << std::endl;
   }
 }
 
@@ -1714,7 +1687,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   }
 
   if (isDebugDumpEnabled(DebugDumpOption::IndexType)) {
-    std::cout << "Index type: " << kernel()->indexType() << std::endl;
+    debug() << "Index type: " << kernel()->indexType() << std::endl;
   }
 
   const bool measure_kernel_time = measure_kernel_time_ ||
@@ -1751,9 +1724,9 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
       const float occupancy = (float)warps_per_sm / (float)hw_max_warps * 100.f;
       std::ostringstream oss;
       oss << std::fixed << std::setprecision(2) << occupancy << "%";
-      std::cout << "blocks_per_sm= " << blocks_per_sm
-                << ", warps_per_sm= " << warps_per_sm
-                << ", occupancy= " << oss.str() << std::endl;
+      debug() << "blocks_per_sm= " << blocks_per_sm
+              << ", warps_per_sm= " << warps_per_sm
+              << ", occupancy= " << oss.str() << std::endl;
     }
 
     if (measure_kernel_time) {
@@ -1810,14 +1783,14 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
         double gb_per_s =
             ((double)bytes_processed_ / ((double)kernel_time_ms_ / 1000)) /
             (double)1.0e9;
-        std::cout << "kernel" << fusion_id_ << " run in " << kernel_time_ms_
-                  << " ms, achieved: " << gb_per_s << " GB/s" << std::endl;
+        debug() << "kernel" << fusion_id_ << " run in " << kernel_time_ms_
+                << " ms, achieved: " << gb_per_s << " GB/s" << std::endl;
       }
     }
   }
 
   if (isOptionEnabled(EnableOption::KernelProfile)) {
-    std::cout << kernel()->profile().toString(profile_buffer);
+    debug() << kernel()->profile().toString(profile_buffer);
   }
 
   return outputs;

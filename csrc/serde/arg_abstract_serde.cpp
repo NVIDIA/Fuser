@@ -16,6 +16,7 @@ namespace {
 template <size_t size>
 std::unique_ptr<nvfuser::ArgAbstract> makeCpuScalarTensor(
     const serde::ScalarCpu* scalar) {
+  TORCH_INTERNAL_ASSERT(scalar != nullptr);
   auto ptr = std::make_unique<CpuScalarTensorArg<size>>();
   static_assert(sizeof(ptr->instance_) == size);
   std::memcpy(&(ptr->instance_), scalar->instance()->data(), size);
@@ -24,6 +25,7 @@ std::unique_ptr<nvfuser::ArgAbstract> makeCpuScalarTensor(
 
 std::unique_ptr<TensorArgAbstract> getAbstractTensorArg(
     const serde::TensorArg* tensor) {
+  TORCH_INTERNAL_ASSERT(tensor != nullptr);
   if (tensor->strides() != nullptr) {
     auto meta_tensor = at::detail::empty_strided_meta(
         parseVector(tensor->sizes()),
@@ -45,31 +47,32 @@ std::unique_ptr<TensorArgAbstract> getAbstractTensorArg(
   return std::make_unique<TensorArgAbstract>(meta_tensor);
 }
 
+std::unique_ptr<nvfuser::ArgAbstract> getAbstractScalar(
+    const serde::Scalar* scalar) {
+  TORCH_INTERNAL_ASSERT(scalar != nullptr);
+  if (!scalar->has_value()) {
+    return nullptr;
+  } else if (scalar->value_type() == serde::DataType_Double) {
+    return std::make_unique<DoubleArg>(scalar->double_value());
+  } else if (scalar->value_type() == serde::DataType_Int) {
+    return std::make_unique<LongArg>(scalar->long_value());
+  } else if (scalar->value_type() == serde::DataType_Bool) {
+    return std::make_unique<BoolArg>(scalar->bool_value());
+  } else if (scalar->value_type() == serde::DataType_ComplexDouble) {
+    c10::complex<double> number{scalar->real_value(), scalar->imag_value()};
+    return std::make_unique<ComplexDoubleArg>(number);
+  }
+  TORCH_INTERNAL_ASSERT(
+      false, "Unable to deserialize serde::Scalar as PolymorphicValue.");
+}
+
 } // namespace
 
 void ArgAbstractFactory::registerAllParsers() {
-  auto deserializeBool = [](const serde::ArgAbstract* buffer) {
-    return std::make_unique<BoolArg>(buffer->data_as_Bool()->value());
+  auto deserializeScalar = [](const serde::ArgAbstract* buffer) {
+    return getAbstractScalar(buffer->data_as_Scalar());
   };
-  registerParser(serde::ArgAbstractData_Bool, deserializeBool);
-
-  auto deserializeComplexDouble = [](const serde::ArgAbstract* buffer) {
-    auto data = buffer->data_as_ComplexDouble();
-    c10::complex<double> number{data->real(), data->imag()};
-    return std::make_unique<ComplexDoubleArg>(number);
-  };
-  registerParser(
-      serde::ArgAbstractData_ComplexDouble, deserializeComplexDouble);
-
-  auto deserializeDouble = [](const serde::ArgAbstract* buffer) {
-    return std::make_unique<DoubleArg>(buffer->data_as_Double()->value());
-  };
-  registerParser(serde::ArgAbstractData_Double, deserializeDouble);
-
-  auto deserializeLong = [](const serde::ArgAbstract* buffer) {
-    return std::make_unique<LongArg>(buffer->data_as_Long()->value());
-  };
-  registerParser(serde::ArgAbstractData_Long, deserializeLong);
+  registerParser(serde::ArgAbstractData_Scalar, deserializeScalar);
 
   auto deserializePhilox = [](const serde::ArgAbstract* buffer) {
     auto data = buffer->data_as_PhiloxCudaState();

@@ -348,6 +348,50 @@ TensorView* matmul(
   }
 }
 
+TensorView* splitkLikeBatchedMatmul(
+    TensorView* a,
+    TensorView* b,
+    MatmulLayout layout) {
+  TORCH_CHECK(
+      a->nDims() == 3 && b->nDims() == 3,
+      "only splitk-like batched matmuls for these tests");
+  TensorView *tv2 = nullptr, *tv0t = nullptr, *tv1t = nullptr, *tv0b = nullptr,
+             *tv1b = nullptr;
+  switch (layout) {
+      // Canonicalize all inputs to [B, M, K] and [B, N, K]
+    case MatmulLayout::TT:
+      // [M, B, K] -> [B, M, K]
+      tv0t = transpose(a, 0, 1);
+      // [B, K, N] -> [B, N, K]
+      tv1t = transpose(b, 1, 2);
+      break;
+    case MatmulLayout::TN:
+      // [M, B, K] -> [B, M, K]
+      tv0t = transpose(a, 0, 1);
+      // [N, B, K] -> [B, N, K]
+      tv1t = transpose(b, 0, 1);
+      break;
+    case MatmulLayout::NT:
+      // [B, K, M] -> [B, M, K]
+      tv0t = transpose(a, 1, 2);
+      // [B, K, N] -> [B, N, K]
+      tv1t = transpose(b, 1, 2);
+      break;
+    case MatmulLayout::NN:
+      // [B, K, M] -> [B, M, K]
+      tv0t = transpose(a, 1, 2);
+      // [N, B, K] -> [B, N, K]
+      tv1t = transpose(b, 0, 1);
+      break;
+    default:
+      TORCH_CHECK(false, "unsupported data layout.");
+  }
+  tv0b = broadcast(tv0t, {false, false, true, false});
+  tv1b = broadcast(tv1t, {false, true, false, false});
+  tv2 = fusedMultiplySum(tv0b, tv1b, {3});
+  return tv2;
+}
+
 at::Tensor atMatmul(at::Tensor a, at::Tensor b, MatmulLayout layout) {
   switch (layout) {
     case MatmulLayout::TT:
@@ -358,6 +402,26 @@ at::Tensor atMatmul(at::Tensor a, at::Tensor b, MatmulLayout layout) {
       return a.t().matmul(b);
     case MatmulLayout::NN:
       return a.t().matmul(b.t());
+    default:
+      TORCH_CHECK(false, "unsupported data layout.");
+  }
+  return at::Tensor();
+}
+
+at::Tensor splitkLikeAtMatmul(at::Tensor a, at::Tensor b, MatmulLayout layout) {
+  switch (layout) {
+    case MatmulLayout::TT:
+      // [M, B, K] @ [B, K, N] -> [B, M, N]
+      return a.transpose(0, 1).matmul(b);
+    case MatmulLayout::TN:
+      // [M, B, K] @ [N, B, K] -> [B, M, N]
+      return a.transpose(0, 1).matmul(b.permute({1, 2, 0}));
+    case MatmulLayout::NT:
+      // [B, K, M] @ [B, K, N] -> [B, M, N]
+      return a.transpose(1, 2).matmul(b);
+    case MatmulLayout::NN:
+      // [B, K, M] @ [N, B, K] -> [B, M, N]
+      return a.transpose(1, 2).matmul(b.permute({1, 2, 0}));
     default:
       TORCH_CHECK(false, "unsupported data layout.");
   }
@@ -456,6 +520,34 @@ at::Tensor matmulAtInput(
       TORCH_CHECK(false, "unsupported data layout.");
   }
   TORCH_CHECK(false, "unsupported tensor position.");
+}
+
+std::pair<at::Tensor, at::Tensor> splitkLikeBatchedMatmulAtInput(
+    int M,
+    int N,
+    int B,
+    int K,
+    MatmulLayout layout,
+    c10::ScalarType dtype) {
+  auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
+
+  switch (layout) {
+    case MatmulLayout::TT:
+      return std::make_pair(
+          at::randn({M, B, K}, options), at::randn({B, K, N}, options));
+    case MatmulLayout::TN:
+      return std::make_pair(
+          at::randn({M, B, K}, options), at::randn({N, B, K}, options));
+    case MatmulLayout::NT:
+      return std::make_pair(
+          at::randn({B, K, M}, options), at::randn({B, K, N}, options));
+    case MatmulLayout::NN:
+      return std::make_pair(
+          at::randn({B, K, M}, options), at::randn({N, B, K}, options));
+    default:
+      TORCH_CHECK(false, "unsupported data layout.");
+  }
+  return std::make_pair(at::Tensor(), at::Tensor());
 }
 
 bool isSchedulerInUse(

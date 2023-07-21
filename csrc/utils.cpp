@@ -8,6 +8,7 @@
 #include <ATen/cuda/CUDAContext.h>
 #include <c10/util/string_view.h>
 #include <cuda_occupancy.h>
+#include <debug.h>
 #include <options.h>
 #include <utils.h>
 
@@ -33,7 +34,7 @@ void debugPrint(const c10::TensorTypePtr& type) {
   } else {
     sizes_s << "no size available";
   }
-  std::cout << "sizes:" << sizes_s.str() << std::endl;
+  debug() << "sizes:" << sizes_s.str() << std::endl;
   if (const auto& stride_properties = type->stride_properties().sizes()) {
     std::stringstream stride_s;
     std::stringstream index_s;
@@ -58,11 +59,11 @@ void debugPrint(const c10::TensorTypePtr& type) {
         contig_s << "?, ";
       }
     }
-    std::cout << "stride: " << stride_s.str() << std::endl;
-    std::cout << "stride index: " << index_s.str() << std::endl;
-    std::cout << "contiguous: " << contig_s.str() << std::endl;
+    debug() << "stride: " << stride_s.str() << std::endl;
+    debug() << "stride index: " << index_s.str() << std::endl;
+    debug() << "contiguous: " << contig_s.str() << std::endl;
   } else {
-    std::cout << "no stride properties available" << std::endl;
+    debug() << "no stride properties available" << std::endl;
   }
 }
 C10_DIAGNOSTIC_POP()
