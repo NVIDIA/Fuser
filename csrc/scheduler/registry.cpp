@@ -2190,7 +2190,7 @@ class PersistentKernelScheduler : public SchedulerEntry {
       const int64_t kernel_overhead =
           (int64_t)dev_prop->reservedSharedMemPerBlock;
       const int64_t reduction_broadcast_workspace =
-          (int64_t)dev_prop->maxThreadsPerBlock * sizeof(float);
+          (int64_t)(dev_prop->maxThreadsPerBlock * sizeof(float));
       const int64_t available_shared_memory_size = max_shared_memory_size -
           kernel_overhead - reduction_broadcast_workspace;
       available_persistent_buffer_size = std::max(
