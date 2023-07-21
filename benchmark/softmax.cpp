@@ -362,6 +362,12 @@ NVFUSER_BENCHMARK_RUN(NvFuserScheduler_Softmax_Inner_LargeHiddenSize_fp16)
     ->Args({38 * 1024, 8192})
     ->Args({39 * 1024, 8192})
     ->Args({40 * 1024, 8192})
+    ->Args({44 * 1024, 8192})
+    ->Args({48 * 1024, 8192})
+    ->Args({52 * 1024, 8192})
+    ->Args({56 * 1024, 8192})
+    ->Args({60 * 1024, 8192})
+    ->Args({64 * 1024, 8192})
     ->Unit(benchmark::kMicrosecond)
     ->UseManualTime();
 //------------------------------------------------------------------------------

@@ -355,7 +355,7 @@ NVFUSER_BENCHMARK_RUN(NvFuserScheduler_LayerNorm_LargeHiddenSize_fp32)
     ->Args({8192, 52 * 1024})
     ->Args({8192, 56 * 1024})
     ->Args({8192, 60 * 1024})
-    ->Args({8192, 64 * 1024})    
+    ->Args({8192, 64 * 1024})
     ->Unit(benchmark::kMicrosecond)
     ->UseManualTime();
 //------------------------------------------------------------------------------

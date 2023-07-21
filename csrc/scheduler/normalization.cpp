@@ -308,11 +308,10 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristicSharedMemory(
   rparams->persistent_kernel = true;
   rparams->fastest_dim = true;
   // Inner reduction domain
-  int64_t vectorize_factor = max_vectorize_factor;
+  int64_t vectorize_factor = (int64_t)max_vectorize_factor;
   int64_t bdimx = dev_prop->maxThreadsPerBlock;
   int64_t persistent_batch =
       ceilDiv(total_reduction_numel, vectorize_factor * bdimx);
-
   rparams->cross_block_inner_reduction = true;
   rparams->block_dim_inner_reduction = ParallelType::TIDx;
   rparams->pad_inner_reduction_to_warp = true;

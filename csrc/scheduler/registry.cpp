@@ -2181,14 +2181,16 @@ class PersistentKernelScheduler : public SchedulerEntry {
         inner_reduction_count > 0 && outer_reduction_count == 0;
     if (allow_shared_memory) {
       const auto dev_prop = at::cuda::getCurrentDeviceProperties();
-      const int64_t max_shared_memory_size = dev_prop->sharedMemPerBlockOptin;
+      const int64_t max_shared_memory_size =
+          (int64_t)dev_prop->sharedMemPerBlockOptin;
       // Some shared memories are reserved for kernel overhead and
       // reduction_broadcast_workspace. Estimation is conservative, but should
       // be good enough.
       // TODO: More accurate estimation of available shared memory size
-      const int64_t kernel_overhead = dev_prop->reservedSharedMemPerBlock;
+      const int64_t kernel_overhead =
+          (int64_t)dev_prop->reservedSharedMemPerBlock;
       const int64_t reduction_broadcast_workspace =
-          dev_prop->maxThreadsPerBlock * sizeof(float);
+          (int64_t)dev_prop->maxThreadsPerBlock * sizeof(float);
       const int64_t available_shared_memory_size = max_shared_memory_size -
           kernel_overhead - reduction_broadcast_workspace;
       available_persistent_buffer_size = std::max(

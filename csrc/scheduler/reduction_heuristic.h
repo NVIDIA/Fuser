@@ -195,7 +195,7 @@ class ReductionParams : public HeuristicParams {
   std::string toString() const override {
     std::stringstream ss;
     ss << "\n===== Reduction Parameters ========\n"
-       << (tag == "" ? "" : "Tag: ") << tag << "\n"
+       << (tag.empty() ? "" : "Tag: ") << tag << "\n"
        << (fastest_dim ? "Red On Fastest Dim\n" : "Red On Slow Dim\n")
        << (persistent_kernel ? "Persistent Kernel\n" : "")
        << (project_persistent_buffers ? "Project Persistent Buffers\n" : "");
