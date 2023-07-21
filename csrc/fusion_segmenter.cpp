@@ -2350,8 +2350,14 @@ bool TranslateApplicableWelford::isValidPersistentFusion(
 
   auto scheduler = SchedulerEntry::makeEntry(
       ScheduleHeuristic::Persistent, translated_fusion, runtime_info);
+  // Translate welford to two-pass enhances performance for block
+  // reductions by reducing instructions and the impact of an extra block
+  // synchronization has negligible overhead.
+  // However, when it comes to cross grid reduction, the additional grid
+  // synchronization carries substantial overhead and does not yield any
+  // performance gains.
   return scheduler->reductionParams().persistent_kernel &&
-      scheduler->reductionParams().fastest_dim;
+      !scheduler->reductionParams().cross_grid_outer_reduction;
 }
 
 // Note that when segmented it is assumed that insertion of lower
