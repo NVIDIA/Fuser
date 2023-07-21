@@ -371,8 +371,8 @@ static void Nvfuser_Matmul_8warp4stage(
       EagerModeMatmul, no_quant_eagermode_##layout_label, layout) \
       ->shapes
 
-ForAllLayouts(Nvfuser_4warp3stage_test);
-ForAllLayouts(Nvfuser_4warp4stage_test);
-ForAllLayouts(Nvfuser_8warp3stage_test);
-ForAllLayouts(Nvfuser_8warp4stage_test);
-ForAllLayouts(Eagermode_test);
+// ForAllLayouts(Nvfuser_4warp3stage_test);
+// ForAllLayouts(Nvfuser_4warp4stage_test);
+// ForAllLayouts(Nvfuser_8warp3stage_test);
+// ForAllLayouts(Nvfuser_8warp4stage_test);
+// ForAllLayouts(Eagermode_test);
