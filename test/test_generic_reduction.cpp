@@ -8,11 +8,11 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
+#include <gmock/gmock-matchers.h>
+#include <gtest/gtest.h>
 #include <inlining.h>
 #include <ir/utils.h>
 #include <kernel_cache.h>
-#include <gmock/gmock-matchers.h>
-#include <gtest/gtest.h>
 
 #include <executor.h>
 #include <executor_utils.h>
@@ -23,7 +23,6 @@
 #include <scheduler/utils.h>
 #include <test/utils.h>
 #include <test/validator.h>
-
 
 namespace nvfuser {
 

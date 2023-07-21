@@ -1437,6 +1437,7 @@ std::pair<TensorView*, TensorView*> argmax(
   std::vector<Val*> updated{new_max, new_pos};
 
   IrBuilder::create<GenericReductionOp>(
+      "argmax", // name of the op (used only for printing)
       outputs, // output tensors
       inputs, // input tensors (reduction axes must be consistent)
       init_vals, // initial values of aggregates

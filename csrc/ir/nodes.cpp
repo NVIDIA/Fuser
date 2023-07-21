@@ -1566,6 +1566,7 @@ NVFUSER_DEFINE_CLONE_AND_CREATE(GroupedWelfordOp)
 
 GenericReductionOp::GenericReductionOp(
     IrBuilderPasskey passkey,
+    std::string op_name,
     std::vector<Val*>& outputs,
     std::vector<Val*>& inputs,
     std::vector<Val*>& initial_aggregates,
@@ -1678,6 +1679,7 @@ GenericReductionOp::GenericReductionOp(
   }
 
   addDataAttribute(is_allreduce);
+  addDataAttribute(op_name);
 }
 
 std::string GenericReductionOp::toString(int indent_size) const {
@@ -1692,7 +1694,7 @@ std::string GenericReductionOp::toString(int indent_size) const {
     }
   }
   ss << "\n";
-  indent(ss, indent_size) << "   = generic_reduction(inputs = { ";
+  indent(ss, indent_size) << "   = " << opName() << "(inputs = { ";
   first = true;
   for (auto in : inputs()) {
     if (!first) {
@@ -1700,36 +1702,6 @@ std::string GenericReductionOp::toString(int indent_size) const {
     }
     first = false;
     ss << in->toString();
-  }
-  ss << " }, input placeholders = { ";
-  first = true;
-  for (auto i : c10::irange(inputs().size())) {
-    auto val = inputPlaceHolder(i);
-    if (!first) {
-      ss << ", ";
-    }
-    first = false;
-    ss << val->toInlineString();
-  }
-  ss << " }, ops = { ";
-  first = true;
-  for (auto i : c10::irange(outputs().size())) {
-    auto op_val = opVal(i);
-    if (!first) {
-      ss << ", ";
-    }
-    first = false;
-    ss << op_val->toInlineString();
-  }
-  ss << " }, initial values = { ";
-  first = true;
-  for (auto i : c10::irange(outputs().size())) {
-    auto init_val = init(i);
-    if (!first) {
-      ss << ", ";
-    }
-    first = false;
-    ss << init_val->toInlineString();
   }
   ss << " }, allreduce = " << (isAllreduce() ? "true" : "false") << " )\n";
   return ss.str();

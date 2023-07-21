@@ -1246,6 +1246,7 @@ class TORCH_CUDA_CU_API GenericReductionOp : public Expr {
 
   GenericReductionOp(
       IrBuilderPasskey,
+      std::string op_name,
       std::vector<Val*>& outputs,
       std::vector<Val*>& inputs,
       std::vector<Val*>& initial_aggregates,
@@ -1316,6 +1317,10 @@ class TORCH_CUDA_CU_API GenericReductionOp : public Expr {
 
   bool isAllreduce() const {
     return attribute<bool>(3 * outputs().size() + inputs().size());
+  }
+
+  std::string opName() const {
+    return attribute<std::string>(3 * outputs().size() + inputs().size() + 1);
   }
 };
 
