@@ -605,7 +605,7 @@ void IterDomainGraph::build(Fusion* fusion) {
 
   // Grab all the rfactor ids.
   for (auto consumer_tv : all_consumer_tvs) {
-    auto exprs = StmtSort::getExprs(
+    auto exprs = StmtSort::getExprsTo(
         fusion,
         {consumer_tv->getMaybeRFactorDomain().begin(),
          consumer_tv->getMaybeRFactorDomain().end()});
@@ -841,16 +841,16 @@ void ComputeAtMap::allocateIndexVariables() {
       double_buffered_loop_index_variable_map_[loop_disjoint_set.get()] =
           std::make_unique<DoubleBufferIndices>(DoubleBufferIndices(
               {{DoubleBufferLoopStage::Prolog,
-                IrBuilder::create<Int>(std::nullopt)},
+                IrBuilder::create<Val>(DataType::Int)},
                {DoubleBufferLoopStage::Main,
-                IrBuilder::create<Int>(std::nullopt)},
+                IrBuilder::create<Val>(DataType::Int)},
                {DoubleBufferLoopStage::Epilog,
-                IrBuilder::create<Int>(std::nullopt)}}));
+                IrBuilder::create<Val>(DataType::Int)}}));
     } else {
       // Everything now should be serial concrete loops,
       //   we just allocate a loop index integer for each set of loops.
       loop_index_variable_map_[loop_disjoint_set.get()] =
-          IrBuilder::create<Int>(std::nullopt);
+          IrBuilder::create<Val>(DataType::Int);
     }
   }
 }

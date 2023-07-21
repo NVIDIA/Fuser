@@ -7,6 +7,7 @@
 // clang-format on
 #include <kernel_cache.h>
 
+#include <debug.h>
 #include <dynamic_transform.h>
 #include <executor_params.h>
 #include <executor_utils.h>
@@ -652,7 +653,7 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
 
   // Compute concretization info to use as cache key
   DynamicTransformConcretizationInfo* conc_info = nullptr;
-  if (initial_info.hasDynamicTransforms()) {
+  if (initial_info.isDynamic()) {
     // This class needs to own conc_info so it can be compared in subsequent
     // invocations.
     auto expr_eval = executor_utils::bindInputs(args, fusion_.get());
@@ -674,40 +675,49 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
   //  kernels have the same heuristic parameters
   std::unique_ptr<FusionHeuristics> new_heuristics;
 
-  auto reuse_it = std::find_if(
-      kernel_runtimes.begin(),
-      kernel_runtimes.end(),
-      [&args, &new_heuristics, &forced_index_type](auto& kernel_runtime) {
-        auto maybe_heuristics =
-            kernel_runtime->getMaybeHeuristicsFor(args, forced_index_type);
-        if (!maybe_heuristics.has_value()) {
-          return false;
-        }
-        new_heuristics = std::move(maybe_heuristics.value());
-        return true;
-      });
-
   FusionKernelRuntime* kernel_runtime = nullptr;
-  if (reuse_it != kernel_runtimes.end()) {
-    kernel_runtime = reuse_it->get();
-    kernel_runtime->updateHeuristicsLaunchParams(new_heuristics.get());
-  } else {
+
+  bool reusing = false;
+  // By default, we try to avoid recompiling whenever possible. However, this
+  // can lead to suboptimal code if we only check that a compiled kernel is able
+  // to run with some inputs, instead of whether it is optimal to do so. The
+  // NVFUSER_DISABLE=kernel_reuse option is a coarse tool that just enforces
+  // that whenever we encounter a new set of input shapes we segment and compile
+  // a new FusionKernelRuntime.
+  if (!isOptionDisabled(DisableOption::KernelReuse)) {
+    auto reuse_it = std::find_if(
+        kernel_runtimes.begin(),
+        kernel_runtimes.end(),
+        [&args, &new_heuristics, &forced_index_type](auto& kernel_runtime) {
+          auto maybe_heuristics =
+              kernel_runtime->getMaybeHeuristicsFor(args, forced_index_type);
+          if (!maybe_heuristics.has_value()) {
+            return false;
+          }
+          new_heuristics = std::move(maybe_heuristics.value());
+          return true;
+        });
+    if (reuse_it != kernel_runtimes.end()) {
+      kernel_runtime = reuse_it->get();
+      kernel_runtime->updateHeuristicsLaunchParams(new_heuristics.get());
+      reusing = true;
+    }
+  }
+
+  if (!reusing) {
     // cache miss, need to re-build an optimized graph for this case
 
     // Clone fusion_ so that we can safely use an ExpressionEvaluator on it, for
     // the purposes of computing the concretization info.
     auto conc_fusion = std::make_unique<Fusion>(*fusion_);
-
-    // concretize fusion_ for use in this runtime
-    FusionGuard fg(conc_fusion.get());
-    if (initial_info.hasDynamicTransforms()) {
+    if (initial_info.isDynamic()) {
       const auto& conc_initial_info =
           conc_fusion->getManaged<DynamicTransformInitialInfo>("initial_info");
       TORCH_INTERNAL_ASSERT(conc_info);
       conc_info->setInitialInfo(&conc_initial_info);
 
       if (isDebugDumpEnabled(DebugDumpOption::FusionIrConcretized)) {
-        std::cout << "Fusion before concretization:" << std::endl;
+        debug() << "Fusion before concretization:" << std::endl;
         conc_fusion->printMath();
       }
 
@@ -718,10 +728,11 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
       conc_fusion->stopManaging("initial_info");
 
       if (isDebugDumpEnabled(DebugDumpOption::FusionIrConcretized)) {
-        std::cout << "Concretized Fusion:" << std::endl;
+        debug() << "Concretized Fusion:" << std::endl;
         conc_fusion->printMath();
       }
     }
+    FusionGuard fg(conc_fusion.get());
     kernel_runtimes.emplace_back(std::make_unique<FusionKernelRuntime>(
         std::move(conc_fusion), args, forced_index_type));
     kernel_runtime = kernel_runtimes.back().get();
@@ -822,18 +833,13 @@ void FusionExecutorCache::deserialize(
     // Compute or get cached initial concretization info
     const auto& initial_info = initialInfo();
 
-    if (initial_info.hasDynamicTransforms() !=
-        device_runtimes->has_dynamic_transform_info()) {
-      fusion()->printMath();
-    }
-
     TORCH_INTERNAL_ASSERT(
-        initial_info.hasDynamicTransforms() ==
+        initial_info.isDynamic() ==
         device_runtimes->has_dynamic_transform_info());
     std::vector<std::unique_ptr<FusionKernelRuntime>> runtimes;
 
     DynamicTransformConcretizationInfo* conc_info = nullptr;
-    if (initial_info.hasDynamicTransforms()) {
+    if (initial_info.isDynamic()) {
       // Construct args from flatbuffer object
       KernelArgumentHolder args;
       args.deserialize(device_runtimes->runtimes()->begin()->args());
@@ -855,7 +861,7 @@ void FusionExecutorCache::deserialize(
       // concretize fusion_ for use in this runtime
       auto conc_fusion = std::make_unique<Fusion>(*fusion_);
       FusionGuard fg(conc_fusion.get());
-      if (initial_info.hasDynamicTransforms()) {
+      if (initial_info.isDynamic()) {
         const auto& conc_initial_info =
             conc_fusion->getManaged<DynamicTransformInitialInfo>(
                 "initial_info");
@@ -903,6 +909,12 @@ FusionKernelRuntime::FusionKernelRuntime(
 
   optimization::OptimizationPass<optimization::PreSegmenter>::runPass(
       fusion.get());
+
+  if (isDebugDumpEnabled(DebugDumpOption::FusionIrPreseg)) {
+    std::cout << "Fusion IR after pre-segmenter optimization passes:"
+              << std::endl;
+    fusion->printMath();
+  }
 
   all_tvs_ = ir_utils::allTvs(fusion.get());
 
@@ -1016,26 +1028,26 @@ std::vector<at::Tensor> FusionKernelRuntime::runKernelWithInput(
 
   // Print relevant information all at once for easy debuging of perf
   if (isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
-    std::cout << "\nRun kernel:\n";
+    debug() << "\nRun kernel:\n";
     if (sg) {
       segmented_fusion_->makeFusion(sg)->printMath();
     } else {
       segmented_fusion_->completeFusion()->printMath();
     }
-    std::cout << "With inputs:\n";
+    debug() << "With inputs:\n";
     for (auto i : c10::irange(args.size())) {
-      std::cout << "  " << args[i]->toString() << std::endl;
+      debug() << "  " << args[i]->toString() << std::endl;
     }
-    std::cout << "Compiler log: " << executor.compilerLog() << "\n";
-    std::cout << scheduler_entry->params()->toString() << "\n";
-    std::cout << "With arguments: " << executor.lastLaunchParams().toString();
-    std::cout << executor.kernelName() << " " << executor.bytesProcessed()
-              << " bytes/ " << std::setprecision(3) << executor.kernelTimeMs()
-              << " ms "
-              << ((double)executor.bytesProcessed() /
-                  ((double)executor.kernelTimeMs() / 1000)) /
+    debug() << "Compiler log: " << executor.compilerLog() << "\n";
+    debug() << scheduler_entry->params()->toString() << "\n";
+    debug() << "With arguments: " << executor.lastLaunchParams().toString();
+    debug() << executor.kernelName() << " " << executor.bytesProcessed()
+            << " bytes/ " << std::setprecision(3) << executor.kernelTimeMs()
+            << " ms "
+            << ((double)executor.bytesProcessed() /
+                ((double)executor.kernelTimeMs() / 1000)) /
             (double)1.0e9
-              << " GB/s" << std::endl;
+            << " GB/s" << std::endl;
     executor.setMeasureKernelTimeFlag(false);
   }
 
@@ -1132,13 +1144,20 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
       group_runtime_inputs.push(args_manager.checkTensorMap(input));
     }
 
-    // launch compileKernel thread here
-    getThreadPool()->run([=]() {
+    if (num_groups == 1 || isOptionDisabled(DisableOption::ParallelCompile)) {
       FUSER_PERF_SCOPE("FusionKernelRuntime::compileFusionParallel");
       c10::cuda::CUDAGuard dg(args.getDeviceIndex());
       c10::Device device(c10::DeviceType::CUDA, args.getDeviceIndex());
       compileKernel(group_runtime_inputs, group_to_run);
-    });
+    } else {
+      // launch compileKernel thread here
+      getThreadPool()->run([=]() {
+        FUSER_PERF_SCOPE("FusionKernelRuntime::compileFusionParallel");
+        c10::cuda::CUDAGuard dg(args.getDeviceIndex());
+        c10::Device device(c10::DeviceType::CUDA, args.getDeviceIndex());
+        compileKernel(group_runtime_inputs, group_to_run);
+      });
+    }
 
     auto fusion_to_run = segmented_fusion_->makeFusion(group_to_run);
     auto group_runtime_outputs =
@@ -1151,8 +1170,10 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
     num_live_args_after_segment_runs_.push_back((int64_t)args.size());
   }
 
-  // wait until all segments finish compiling
-  getThreadPool()->waitWorkComplete();
+  if (num_groups != 1 && !isOptionDisabled(DisableOption::ParallelCompile)) {
+    // wait until all segments finish compiling
+    getThreadPool()->waitWorkComplete();
+  }
 }
 
 void FusionKernelRuntime::compileKernel(
@@ -1201,16 +1222,16 @@ std::vector<at::Tensor> FusionKernelRuntime::runWithInputs(
   FUSER_PERF_SCOPE("FusionKernelRuntime::runWithInputs");
 
   if (isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
-    std::cout << "=================RUNNING FUSION SEGMENTS================="
-              << std::endl;
+    debug() << "=================RUNNING FUSION SEGMENTS================="
+            << std::endl;
   }
 
   c10::Device device(c10::DeviceType::CUDA, (int8_t)args.getDeviceIndex());
   const auto& tensor_map = runSegmentsWithInputs(args);
 
   if (isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
-    std::cout << "============= FINISHED RUNNING FUSION SEGMENTS ============"
-              << std::endl;
+    debug() << "============= FINISHED RUNNING FUSION SEGMENTS ============"
+            << std::endl;
   }
 
   // Produce final global output

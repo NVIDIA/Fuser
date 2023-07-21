@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <debug.h>
 #include <executor_params.h>
 
 #include <ATen/cuda/CUDAContext.h>
@@ -116,7 +117,7 @@ bool LaunchParams::operator==(const LaunchParams& other) const {
 }
 
 void LaunchParams::print() const {
-  std::cout << toString();
+  debug() << toString();
 }
 
 std::string LaunchParams::toString() const {

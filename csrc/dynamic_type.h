@@ -7,17 +7,13 @@
 // clang-format on
 #pragma once
 
-#include <c10/macros/Export.h>
 #include <c10/util/Exception.h>
 
 #include <type_traits.h>
 
 #include <C++20/type_traits>
-#include <cmath>
-#include <functional>
-#include <iostream>
-#include <numeric>
 #include <optional>
+#include <ostream>
 #include <type_traits>
 #include <typeinfo>
 #include <variant>
@@ -135,9 +131,10 @@ namespace nvfuser {
 #pragma clang diagnostic ignored "-Wliteral-conversion"
 #pragma clang diagnostic ignored "-Wunused-lambda-capture"
 #pragma clang diagnostic ignored "-Wunknown-warning-option"
+#pragma clang diagnostic ignored "-Wbool-operation"
 #endif
 
-#if defined(__GNUC__)
+#if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wbool-operation"
 // gcc, even the latest version (13.1.1), is complaining about the following
@@ -148,8 +145,6 @@ namespace nvfuser {
 //   return ret.value();
 // saying that ret.value() is used uninitialized. This complaint is totoally
 // nonsense.
-// Also, why clang-tidy is reading gcc's options?
-// NOLINTNEXTLINE(clang-diagnostic-unknown-warning-option)
 #pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
 #endif
 
@@ -163,18 +158,19 @@ struct Containers {
 
   template <typename DynamicType, typename... MemberTypes>
   using TypeIdentitiesAsTuple = std::tuple<
+      std::type_identity<std::monostate>,
       std::type_identity<MemberTypes>...,
       std::type_identity<Templates<DynamicType>>...>;
 
   template <typename DynamicType, typename... MemberTypes>
-  using ForAllTypes =
-      nvfuser::ForAllTypes<MemberTypes..., Templates<DynamicType>...>;
+  using ForAllTypes = nvfuser::
+      ForAllTypes<std::monostate, MemberTypes..., Templates<DynamicType>...>;
 
   // Check if T is one of the types in the type list MemberTypes..., or a
   // container
   template <typename T, typename DynamicType, typename... MemberTypes>
-  static constexpr auto is_candidate_type =
-      nvfuser::belongs_to<T, MemberTypes..., Templates<DynamicType>...>;
+  static constexpr auto is_candidate_type = nvfuser::
+      belongs_to<T, std::monostate, MemberTypes..., Templates<DynamicType>...>;
 };
 
 using NoContainers = Containers<>;
@@ -211,7 +207,7 @@ struct DynamicType {
   constexpr DynamicType() = default;
 
   template <typename T>
-  constexpr DynamicType(const T& value) : value_(value) {}
+  constexpr DynamicType(T value) : value_(std::move(value)) {}
 
   template <
       template <typename...>
@@ -220,16 +216,16 @@ struct DynamicType {
       typename = std::enable_if_t<
           is_candidate_type<Template<DynamicType>> &&
           !std::is_same_v<ItemT, DynamicType>>>
-  constexpr DynamicType(const Template<ItemT>& value)
-      : value_([](const auto& input) {
+  constexpr DynamicType(Template<ItemT> value)
+      : value_([](auto input) {
           Template<DynamicType> result;
           std::transform(
               input.begin(),
               input.end(),
               std::back_inserter(result),
-              [](const auto& item) { return DynamicType(item); });
+              [](auto& item) { return DynamicType(std::move(item)); });
           return result;
-        }(value)) {}
+        }(std::move(value))) {}
 
   // Returns the type_info of the actual type of the variant value_. For
   // example, if value_ holds an int, then this will return typeid(int).
@@ -356,32 +352,76 @@ struct DynamicType {
       },
       type_identities_as_tuple);
 
-  template <
-      typename IndexT,
-      typename = std::enable_if_t<has_square_bracket<IndexT>>>
-  DynamicType& operator[](const IndexT& i) {
-    std::optional<std::reference_wrapper<DynamicType>> ret = std::nullopt;
-    for_all_types([this, &ret, &i](auto t) {
-      using T = typename decltype(t)::type;
-      if constexpr (opcheck<T>[opcheck<IndexT>]) {
-        if constexpr (std::is_same_v<
-                          decltype(std::declval<T>()[std::declval<IndexT>()]),
-                          DynamicType&>) {
-          if (is<T>()) {
-            ret = std::ref(as<T>()[i]);
-          }
-        }
-      }
-    });
-    TORCH_CHECK(
-        ret.has_value(),
-        "Cannot index ",
-        type().name(),
-        " with ",
-        typeid(IndexT).name(),
-        " : incompatible type");
-    return ret.value();
+#define DEFINE_SQUARE_BRACKET_OPERATOR(__const)                                \
+  template <typename IndexT>                                                   \
+  std::enable_if_t<                                                            \
+      !std::is_same_v<IndexT, DynamicType> && has_square_bracket<IndexT>,      \
+      __const DynamicType&>                                                    \
+  operator[](const IndexT& i) __const {                                        \
+    std::optional<std::reference_wrapper<__const DynamicType>> ret =           \
+        std::nullopt;                                                          \
+    for_all_types([this, &ret, &i](auto t) {                                   \
+      using T = typename decltype(t)::type;                                    \
+      if constexpr (opcheck<T>[opcheck<IndexT>]) {                             \
+        if constexpr (std::is_same_v<                                          \
+                          decltype(std::declval<T>()[std::declval<IndexT>()]), \
+                          DynamicType&>) {                                     \
+          if (is<T>()) {                                                       \
+            ret = std::ref(as<T>()[i]);                                        \
+          }                                                                    \
+        }                                                                      \
+      }                                                                        \
+    });                                                                        \
+    TORCH_CHECK(                                                               \
+        ret.has_value(),                                                       \
+        "Cannot index ",                                                       \
+        type().name(),                                                         \
+        " with ",                                                              \
+        typeid(IndexT).name(),                                                 \
+        " : incompatible type");                                               \
+    return ret.value();                                                        \
   }
+
+  DEFINE_SQUARE_BRACKET_OPERATOR()
+  DEFINE_SQUARE_BRACKET_OPERATOR(const)
+#undef DEFINE_SQUARE_BRACKET_OPERATOR
+
+  static constexpr bool has_any_square_bracket = any_check(
+      [](auto t) {
+        using IndexT = typename decltype(t)::type;
+        return has_square_bracket<IndexT>;
+      },
+      type_identities_as_tuple);
+
+#define DEFINE_SQUARE_BRACKET_OPERATOR(__const)                      \
+  template <typename DT>                                             \
+  std::enable_if_t<                                                  \
+      std::is_same_v<DT, DynamicType> && has_any_square_bracket,     \
+      __const DynamicType&>                                          \
+  operator[](const DT& i) __const {                                  \
+    std::optional<std::reference_wrapper<__const DynamicType>> ret = \
+        std::nullopt;                                                \
+    for_all_types([this, &ret, &i](auto t) {                         \
+      using IndexT = typename decltype(t)::type;                     \
+      if constexpr (has_square_bracket<IndexT>) {                    \
+        if (i.template is<IndexT>()) {                               \
+          ret = std::ref((*this)[i.template as<IndexT>()]);          \
+        }                                                            \
+      }                                                              \
+    });                                                              \
+    TORCH_CHECK(                                                     \
+        ret.has_value(),                                             \
+        "Cannot index ",                                             \
+        type().name(),                                               \
+        " with ",                                                    \
+        i.type().name(),                                             \
+        " : incompatible type");                                     \
+    return ret.value();                                              \
+  }
+
+  DEFINE_SQUARE_BRACKET_OPERATOR()
+  DEFINE_SQUARE_BRACKET_OPERATOR(const)
+#undef DEFINE_SQUARE_BRACKET_OPERATOR
 
   // TODO: support ->* operator. This operator is rarely used, so we don't
   // implement it yet. But if in the future, it turns to be useful, we should
@@ -946,67 +986,11 @@ DEFINE_ASSIGNMENT_OP(>>, >>=);
 // overloaded, and the automatically defined version by the compiler usually
 // does what we want.
 
-using EvaluatorValue = DynamicType<NoContainers, double, int64_t, bool>;
-
-namespace EvaluatorValue_functions {
-
-inline EvaluatorValue ceildiv(
-    const EvaluatorValue& a,
-    const EvaluatorValue& b) {
-  if (a.is<int64_t>() && b.is<int64_t>()) {
-    auto aa = a.as<int64_t>();
-    auto bb = b.as<int64_t>();
-    if (bb > 0) {
-      return EvaluatorValue((aa + bb - 1) / bb);
-    } else {
-      return EvaluatorValue((aa + bb + 1) / bb);
-    }
-  }
-  return EvaluatorValue(std::ceil((a / b).as<double>()));
-}
-
-inline EvaluatorValue max(const EvaluatorValue& a, const EvaluatorValue& b) {
-  return EvaluatorValue(a > b ? a : b);
-}
-
-inline EvaluatorValue min(const EvaluatorValue& a, const EvaluatorValue& b) {
-  return EvaluatorValue(a < b ? a : b);
-}
-
-inline EvaluatorValue gcd(const EvaluatorValue& a, const EvaluatorValue& b) {
-  return EvaluatorValue(std::gcd(a.as<int64_t>(), b.as<int64_t>()));
-}
-
-inline EvaluatorValue notExpr(const EvaluatorValue& a) {
-  if (a.is<int64_t>()) {
-    return EvaluatorValue(~a.as<int64_t>());
-  }
-  if (a.is<bool>()) {
-    return EvaluatorValue(!a.as<bool>());
-  }
-  TORCH_INTERNAL_ASSERT(false);
-}
-
-inline EvaluatorValue abs(const EvaluatorValue& a) {
-  if (a.is<int64_t>()) {
-    return EvaluatorValue(std::abs(a.as<int64_t>()));
-  }
-  if (a.is<double>()) {
-    return EvaluatorValue(std::abs(a.as<double>()));
-  }
-  if (a.is<bool>()) {
-    return a;
-  }
-  TORCH_INTERNAL_ASSERT(false);
-}
-
-} // namespace EvaluatorValue_functions
-
 #if defined(__clang__)
 #pragma clang diagnostic pop
 #endif
 
-#if defined(__GNUC__)
+#if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic pop
 #endif
 

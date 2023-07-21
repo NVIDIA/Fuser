@@ -91,7 +91,6 @@ class PredicateAnalyzer : public OptOutDispatch {
 
     for (auto id : consumer->getLeafDomain()) {
       if (analyzer.needsPredicate(id)) {
-        producer->fusion()->print();
         return true;
       }
     }
@@ -150,7 +149,7 @@ class PredicateAnalyzer : public OptOutDispatch {
       return;
     }
 
-    OptOutDispatch::handle(consumer_id->definition());
+    OptOutDispatch::dispatch(consumer_id->definition());
   }
 
   // If it splits the input axis evenly, proceeds to check the input
@@ -204,7 +203,7 @@ class PredicateChcker : public IterVisitor {
     }
 
     PredicateChcker checker(pred_elimination);
-    checker.handle(expr);
+    checker.dispatch(expr);
     return checker.needs_predicate_;
   }
 
@@ -215,7 +214,7 @@ class PredicateChcker : public IterVisitor {
 
   using IterVisitor::handle;
 
-  void handle(Expr* expr) final {
+  void dispatch(Expr* expr) final {
     const bool needs_predicate_smem_access = predicateSharedMemAccess(expr);
     needs_predicate_ = predicateIntDiv(expr) ||
         predicateMisalignedVectorize(expr) || predicateShift(expr) ||
@@ -242,7 +241,7 @@ class PredicateChcker : public IterVisitor {
     }
 
     // Check expr type-specific conditions
-    IterVisitor::handle(expr);
+    IterVisitor::dispatch(expr);
   }
 
   // All "predicateXYZ" functions return true if an expr needs to be
@@ -866,7 +865,7 @@ bool PredicateElimination::needsPredicate(Expr* expr) const {
   return PredicateChcker::needsPredicate(expr, *this);
 }
 
-void PredicateElimination::handle(Expr* expr) {
+void PredicateElimination::dispatch(Expr* expr) {
   if (!ir_utils::isTvOp(expr)) {
     return;
   }

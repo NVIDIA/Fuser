@@ -82,7 +82,7 @@ Val* getProducerIndexWithHalo(
     Val* producer_index,
     const TensorView* consumer_tv,
     bool is_overriden_index) {
-  const auto offset = is_overriden_index
+  const int64_t offset = is_overriden_index
       ? 0
       : getProducerHaloOffset(producer_tv, producer_axis, consumer_tv);
 
@@ -145,11 +145,11 @@ Val* getProducerOffsetWithGather(
 
   // Positive padding at offset zero means the indexing shifted to the
   // negative direction.
-  auto pad_width = gather_expr->padWidth()[consumer_root_axis][0];
+  auto pad_width = (int64_t)gather_expr->padWidth()[consumer_root_axis][0];
 
   // producer offset: window_index - padding
   auto producer_offset = SimplifyingIrBuilder::subExpr(
-      window_idx, SimplifyingIrBuilder::create<Int>(pad_width));
+      window_idx, SimplifyingIrBuilder::create<Val>(pad_width));
   return producer_offset;
 }
 
@@ -198,11 +198,11 @@ Val* getConcreteProducerOffsetWithGather(
 
   // Positive padding at offset zero means the indexing shifted to the
   // negative direction.
-  auto pad_width = gather_expr->padWidth()[consumer_root_axis][0];
+  auto pad_width = (int64_t)gather_expr->padWidth()[consumer_root_axis][0];
 
   // producer offset: window_index - padding
   auto producer_offset = SimplifyingIrBuilder::subExpr(
-      window_idx, SimplifyingIrBuilder::create<Int>(pad_width));
+      window_idx, SimplifyingIrBuilder::create<Val>(pad_width));
   return producer_offset;
 }
 
@@ -320,24 +320,23 @@ Val* getProducerIndexWithPartialSplit(
   }
 
   return SimplifyingIrBuilder::addExpr(
-      producer_index, SimplifyingIrBuilder::create<Int>(diff->evaluateInt()));
+      producer_index, SimplifyingIrBuilder::create<Val>(diff->evaluateInt()));
 }
 
 Val* getTensorBaseAddress(TensorView* tv) {
-  Val* output = nullptr;
+  auto metadata = IrBuilder::metadataExpr(tv);
   switch (auto memtype = tv->getMemoryType()) {
     case MemoryType::Global:
-      output = IrBuilder::newScalar(
-          PointerOf{std::make_shared<DataType>(*tv->getDataType())});
-      break;
-    case MemoryType::Shared:
-      output = IrBuilder::newScalar(DataType::SMemAddress);
-      break;
+      return IrBuilder::getAttrExpr(metadata, "data");
+    case MemoryType::Shared: {
+      auto output = IrBuilder::newScalar(DataType::SMemAddress);
+      IrBuilder::create<UnaryOp>(
+          UnaryOpType::ToUnsignedSmemAddr, output, metadata);
+      return output;
+    }
     default:
       TORCH_CHECK(false, "Unsupported memory type ", memtype);
   }
-  IrBuilder::create<kir::BaseAddress>(output, tv);
-  return output;
 }
 
 } // namespace
@@ -614,11 +613,11 @@ void IndexCompute::handle(Resize* resize) {
   }
 }
 
-void IndexCompute::handle(Expr* e) {
+void IndexCompute::dispatch(Expr* e) {
   auto is_expected_type = e->isOneOf<Split, Merge, Swizzle2D, Resize>();
   TORCH_INTERNAL_ASSERT(
       is_expected_type, "Invalid expr type found in transform traversal.");
-  BackwardVisitor::handle(e);
+  BackwardVisitor::dispatch(e);
 }
 
 IndexCompute::IndexCompute(
@@ -704,7 +703,7 @@ void IndexCompute::run(const LoopIndexing& loop_indexing) {
     auto loop_id_def = loop_id->definition();
     if (loop_id_def != nullptr && loop_id_def->isA<Swizzle2D>()) {
       if (visited.insert(loop_id_def).second) {
-        handle(loop_id_def);
+        dispatch(loop_id_def);
       }
     }
   }
@@ -721,7 +720,7 @@ void IndexCompute::run(const LoopIndexing& loop_indexing) {
     // Resolve missing values from permissive map.
     updateIndexMapFromPermissiveMap(expr);
 
-    handle(expr);
+    dispatch(expr);
   }
 }
 
@@ -748,7 +747,7 @@ void IndexCompute::collectIndexIntoPermissiveMap(
       // LoopIndexingAnalysis::traverseFromDomainVals made sure that each
       //  concrete index is bound exactly once so computing these expressions
       //  early should still be consistent.
-      handle(expr);
+      dispatch(expr);
 
       auto id_inputs = ir_utils::filterByType<IterDomain>(expr->inputs());
       for (auto id : id_inputs) {
@@ -1019,7 +1018,8 @@ Val* getHaloExtentOfRootAxis(IterDomain* id, Val* normal_extent = nullptr) {
   const auto& halo = GpuLower::current()->haloInfo()->getRootAxisInfo(id);
   if (halo.hasHalo()) {
     auto halo_extent = SimplifyingIrBuilder::addExpr(
-        normal_extent, SimplifyingIrBuilder::create<Int>(halo.width()));
+        normal_extent,
+        SimplifyingIrBuilder::create<Val>((int64_t)halo.width()));
     return halo_extent;
   } else {
     return normal_extent;
@@ -1077,7 +1077,7 @@ void IndexSwizzle::run() {
   }
 }
 
-void IndexSwizzle::handle(Expr* e) {
+void IndexSwizzle::dispatch(Expr* e) {
   auto out_ids = ir_utils::filterByType<IterDomain>(e->outputs());
   bool needs_update =
       std::any_of(
@@ -1093,7 +1093,7 @@ void IndexSwizzle::handle(Expr* e) {
     return;
   }
 
-  IndexCompute::handle(e);
+  IndexCompute::dispatch(e);
   for (auto input : ir_utils::filterByType<IterDomain>(e->inputs())) {
     swizzled_ids_.insert(input);
   }
@@ -1289,11 +1289,11 @@ indexMapFromTV(
     }
 
     if (loop == double_buffer_loop) {
-      auto stage_depth =
+      const int64_t stage_depth =
           GpuLower::current()->doubleBufferInfo().getStageDepthFor(
               loop->iter_domain());
       idx = SimplifyingIrBuilder::addExpr(
-          idx, SimplifyingIrBuilder::create<Int>(stage_depth - 1));
+          idx, SimplifyingIrBuilder::create<Val>(stage_depth - 1L));
     }
 
     loop_to_ind_map[loop] = idx;
@@ -1693,14 +1693,15 @@ std::vector<Val*> Index::getNonGlobalProducerStridedIndices(
     auto db_loop = gpu_lower->doubleBufferInfo().getDoubleBufferLoop(
         producer_tv, loops, true);
     if (db_loop != nullptr) {
-      auto stage_depth = gpu_lower->doubleBufferInfo().getStageDepthFor(
-          db_loop->iter_domain());
+      const auto stage_depth =
+          (int64_t)gpu_lower->doubleBufferInfo().getStageDepthFor(
+              db_loop->iter_domain());
       auto loop_index = db_loop->indexOrStartIfTrivial();
       if (rotated_loops.count(db_loop) > 0) {
         loop_index = SimplifyingIrBuilder::addExpr(loop_index, db_loop->step());
       }
       auto db_switch_index = SimplifyingIrBuilder::modExpr(
-          loop_index, SimplifyingIrBuilder::create<Int>(stage_depth));
+          loop_index, SimplifyingIrBuilder::create<Val>(stage_depth));
       auto original_alloc_size =
           gpu_lower->doubleBufferInfo().getOriginalAllocSize(producer_tv);
       auto db_strided_index =
@@ -2122,8 +2123,8 @@ std::vector<Val*> Index::getNonGlobalConsumerStridedIndices(
   if (consumer_tv->isDoubleBuffered() || consumer_tv->isCircularBuffered()) {
     auto db_loop =
         gpu_lower->doubleBufferInfo().getDoubleBufferLoop(consumer_tv, loops);
-    auto stage_depth =
-        gpu_lower->doubleBufferInfo().getStageDepthFor(db_loop->iter_domain());
+    auto stage_depth = (int64_t)gpu_lower->doubleBufferInfo().getStageDepthFor(
+        db_loop->iter_domain());
     bool is_circular_buffer_loop = stage_depth > 2;
     bool is_prolog =
         db_loop->doubleBufferLoopStage() == DoubleBufferLoopStage::Prolog;
@@ -2152,8 +2153,8 @@ std::vector<Val*> Index::getNonGlobalConsumerStridedIndices(
         // Switching index generated for main loop or epilog component.
         db_switch_index = SimplifyingIrBuilder::modExpr(
             SimplifyingIrBuilder::addExpr(
-                loop_index, SimplifyingIrBuilder::create<Int>(stage_depth - 1)),
-            SimplifyingIrBuilder::create<Int>(stage_depth));
+                loop_index, SimplifyingIrBuilder::create<Val>(stage_depth - 1)),
+            SimplifyingIrBuilder::create<Val>(stage_depth));
       }
 
       // Use the generated switching buffer index to access the buffer space.
@@ -2432,7 +2433,7 @@ bool needsPadding(TensorView* tv) {
 // at the additional offsets.
 //
 // consumer_root_id: the domain for which a stop predicate is being built.
-int getUnswitchStopOffset(
+int64_t getUnswitchStopOffset(
     IterDomain* consumer_root_id,
     TensorView* consumer_tv) {
   const auto gpu_lower = GpuLower::current();
@@ -2495,8 +2496,8 @@ std::pair<Val*, Val*> getStartAndStopOffsetsForShift(
   const auto shift_offset = shift_expr->offset(root_axis_pos);
   const auto pad_width = shift_expr->padWidth().at(root_axis_pos);
 
-  int start_offset = 0;
-  int stop_offset = 0;
+  int64_t start_offset = 0;
+  int64_t stop_offset = 0;
 
   if (shift_offset > 0) {
     start_offset = -pad_width;
@@ -2505,8 +2506,8 @@ std::pair<Val*, Val*> getStartAndStopOffsetsForShift(
   }
 
   return {
-      SimplifyingIrBuilder::create<Int>(start_offset),
-      SimplifyingIrBuilder::create<Int>(stop_offset)};
+      SimplifyingIrBuilder::create<Val>(start_offset),
+      SimplifyingIrBuilder::create<Val>(stop_offset)};
 }
 
 std::pair<Val*, Val*> getStartAndStopOffsetsForGather(
@@ -2575,7 +2576,7 @@ std::pair<Val*, Val*> getStartAndStopOffsetsForGather(
   const auto producer_ext_adj = window_size - 1 - pad_left - pad_right;
   producer_stop_offset = SimplifyingIrBuilder::subExpr(
       producer_stop_offset,
-      SimplifyingIrBuilder::create<Int>(producer_ext_adj));
+      SimplifyingIrBuilder::create<Val>((int64_t)producer_ext_adj));
 
   // As commented above, when pad_left is zero, the consumer predicate
   // is always more restrictive than the producer predicate.
@@ -2631,14 +2632,15 @@ std::pair<Val*, Val*> getStartAndStopLimitOffsets(
     // [0, left halo)[start_limit, stop_limit)[0, right halo)
     //
     if (!padding_predicate) {
-      start_limit =
-          SimplifyingIrBuilder::addExpr(start_limit, halo_info.width(0));
-      stop_limit =
-          SimplifyingIrBuilder::addExpr(stop_limit, halo_info.width(0));
+      start_limit = SimplifyingIrBuilder::addExpr(
+          start_limit, (int64_t)halo_info.width(0));
+      stop_limit = SimplifyingIrBuilder::addExpr(
+          stop_limit, (int64_t)halo_info.width(0));
     } else {
       // In case of the padding predicate, the whole range, including both left
       // and right halo regions, is computed.
-      stop_limit = SimplifyingIrBuilder::addExpr(stop_limit, halo_info.width());
+      stop_limit =
+          SimplifyingIrBuilder::addExpr(stop_limit, (int64_t)halo_info.width());
     }
   } else {
     // For non-divisible predicates, the index must be predicated such
@@ -2647,7 +2649,7 @@ std::pair<Val*, Val*> getStartAndStopLimitOffsets(
     // isn't a root domain.
     if (gpu_lower->haloInfo()->hasHaloWidth(consumer_id)) {
       auto halo = gpu_lower->haloInfo()->getHaloWidth(consumer_id);
-      stop_limit = SimplifyingIrBuilder::addExpr(stop_limit, halo);
+      stop_limit = SimplifyingIrBuilder::addExpr(stop_limit, (int64_t)halo);
     }
   }
 
@@ -2756,24 +2758,23 @@ bool canOmitStopPredicate(
 
   const auto gpu_lower = GpuLower::current();
 
-  auto stop_offset_val = stop_offset->as<Int>()->value();
+  auto stop_offset_val = stop_offset->value();
 
   // If they are not compile-time constant, can't prove the
   // condition.
-  if (!stop_offset_val.has_value()) {
+  if (!stop_offset_val.hasValue()) {
     return false;
   }
 
-  auto stop_index_val =
-      (stop_index->isA<Int>() ? stop_index->as<Int>()->value() : std::nullopt);
+  auto stop_index_val = stop_index->value();
 
   // If stop_index is a constant, then the expr can be in a trivial loop.
   // Trivial loop is not materialized, so it is not protected under the `for`
   // statement. If this is the case, we omit stop predicate only if we can
   // prove: stop_index + stop_offset < extent
-  if (stop_index_val.has_value()) {
+  if (stop_index_val.hasValue()) {
     // Stop predicate: stop_index + stop_offset < extent
-    int64_t lhs = *stop_index_val + *stop_offset_val;
+    auto lhs = stop_index_val + stop_offset_val;
     auto in_extent = IrBuilder::ltExpr(
         IrBuilder::newConstant(lhs, *stop_index->getDataType()),
         contig_id->getMaybeExpandedExtent());
@@ -2797,7 +2798,7 @@ bool canOmitStopPredicate(
       ? gpu_lower->haloInfo()->getRootAxisInfo(contig_id).width()
       : 0;
 
-  if (halo_ext + stop_offset_val.value() >= 0) {
+  if (halo_ext + stop_offset_val >= 0) {
     return false;
   }
 
@@ -2970,10 +2971,8 @@ std::vector<RootPredicateInfo> Index::getReferenceRootPredicates(
     //   start_index + start_offset >= 0
     auto offsetted_start_index =
         SimplifyingIrBuilder::addExpr(start_index, info.start_offset_);
-    auto start_pred =
-        SimplifyingIrBuilder::geExpr(
-            offsetted_start_index, GpuLower::current()->kernel()->zeroVal())
-            ->as<Bool>();
+    auto start_pred = SimplifyingIrBuilder::geExpr(
+        offsetted_start_index, GpuLower::current()->kernel()->zeroVal());
     info.start_predicate_ = start_pred;
 
     // Build predicates for stop positions as:
@@ -2985,8 +2984,7 @@ std::vector<RootPredicateInfo> Index::getReferenceRootPredicates(
       auto offsetted_stop_index =
           SimplifyingIrBuilder::addExpr(stop_index, stop_offset);
       auto stop_pred = SimplifyingIrBuilder::ltExpr(
-                           offsetted_stop_index, contig_id->extent())
-                           ->as<Bool>();
+          offsetted_stop_index, contig_id->extent());
       info.stop_predicate_ = stop_pred;
     }
 

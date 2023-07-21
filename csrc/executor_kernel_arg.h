@@ -180,9 +180,9 @@ struct LongArg : public ArgAbstract {
 
   flatbuffers::Offset<serde::ArgAbstract> serialize(
       flatbuffers::FlatBufferBuilder& builder) const override {
-    auto data = serde::CreateLong(builder, val_);
+    auto data = serde::serializeScalar(builder, val_, DataType::Int);
     return serde::CreateArgAbstract(
-        builder, serde::ArgAbstractData_Long, data.Union());
+        builder, serde::ArgAbstractData_Scalar, data.Union());
   }
 };
 
@@ -194,9 +194,9 @@ struct DoubleArg : public ArgAbstract {
 
   flatbuffers::Offset<serde::ArgAbstract> serialize(
       flatbuffers::FlatBufferBuilder& builder) const override {
-    auto data = serde::CreateDouble(builder, val_);
+    auto data = serde::serializeScalar(builder, val_, DataType::Double);
     return serde::CreateArgAbstract(
-        builder, serde::ArgAbstractData_Double, data.Union());
+        builder, serde::ArgAbstractData_Scalar, data.Union());
   }
 };
 
@@ -208,9 +208,9 @@ struct ComplexDoubleArg : public ArgAbstract {
 
   flatbuffers::Offset<serde::ArgAbstract> serialize(
       flatbuffers::FlatBufferBuilder& builder) const override {
-    auto data = serde::CreateComplexDouble(builder, val_.real(), val_.imag());
+    auto data = serde::serializeScalar(builder, val_, DataType::ComplexDouble);
     return serde::CreateArgAbstract(
-        builder, serde::ArgAbstractData_ComplexDouble, data.Union());
+        builder, serde::ArgAbstractData_Scalar, data.Union());
   }
 };
 
@@ -222,9 +222,9 @@ struct BoolArg : public ArgAbstract {
 
   flatbuffers::Offset<serde::ArgAbstract> serialize(
       flatbuffers::FlatBufferBuilder& builder) const override {
-    auto data = serde::CreateBool(builder, val_);
+    auto data = serde::serializeScalar(builder, val_, DataType::Bool);
     return serde::CreateArgAbstract(
-        builder, serde::ArgAbstractData_Bool, data.Union());
+        builder, serde::ArgAbstractData_Scalar, data.Union());
   }
 };
 

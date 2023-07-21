@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <debug.h>
 #include <instrumentation.h>
 #include <options.h>
 #include <python_frontend/fusion_cache.h>
@@ -266,8 +267,8 @@ TrieNode* FusionCache::createChild(TrieNode* node, RecordFunctor* rec) {
     if (isDebugDumpEnabled(DebugDumpOption::PythonFrontendDebug)) {
       std::stringstream ss;
       new_rec->print(ss);
-      std::cout << "\nFusionDefinition: Create new trie node for: " << ss.str()
-                << "\n";
+      debug() << "\nFusionDefinition: Create new trie node for: " << ss.str()
+              << "\n";
     }
   }
   return child;
