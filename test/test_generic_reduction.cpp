@@ -39,22 +39,20 @@ TEST_F(NVFuserTest, ArgMax) {
   fusion->addOutput(tvmax);
   fusion->addOutput(tvpos);
 
-  fusion->printMath();
+  fusion->printMath(false);
 
-  /*
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({15}, options);
 
   std::vector<c10::IValue> inputs = {t0};
 
-  FusionExecutorCache fec(std::move(fusion_ptr));
-  auto outputs = fec.runFusionWithInputs(inputs);
+  FusionExecutor fe;
+  fe.compileFusion(fusion, inputs);
+  auto outputs = fe.runFusion(inputs);
 
   auto [refmax, refpos] = at::max(t0, 0);
 
-  testValidate(
-      fec.fusion(), outputs, inputs, {refmax, refpos}, __LINE__, __FILE__);
-  */
+  testValidate(fusion, outputs, inputs, {refmax, refpos}, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser

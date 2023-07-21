@@ -162,6 +162,10 @@ void Expr::dispatch(T handler, Expr* expr) {
     ptr(handler)->handle(expr->as<GroupedWelfordOp>());
     return;
   }
+  if (expr->isStrictlyA<GenericReductionOp>()) {
+    ptr(handler)->handle(expr->as<GenericReductionOp>());
+    return;
+  }
   if (expr->isStrictlyA<LoadStoreOp>()) {
     ptr(handler)->handle(expr->as<LoadStoreOp>());
     return;
@@ -428,6 +432,10 @@ void Expr::constDispatch(T handler, const Expr* expr) {
   }
   if (expr->isStrictlyA<GroupedWelfordOp>()) {
     ptr(handler)->handle(expr->as<GroupedWelfordOp>());
+    return;
+  }
+  if (expr->isStrictlyA<GenericReductionOp>()) {
+    ptr(handler)->handle(expr->as<GenericReductionOp>());
     return;
   }
   if (expr->isStrictlyA<LoadStoreOp>()) {
@@ -815,6 +823,9 @@ void OptOutConstDispatch::handle(const WelfordOp* stmt) {
 void OptOutConstDispatch::handle(const GroupedWelfordOp* stmt) {
   unhandled(stmt);
 }
+void OptOutConstDispatch::handle(const GenericReductionOp* stmt) {
+  unhandled(stmt);
+}
 void OptOutConstDispatch::handle(const LoadStoreOp* stmt) {
   unhandled(stmt);
 }
@@ -1010,6 +1021,9 @@ void OptOutDispatch::handle(WelfordOp* stmt) {
   unhandled(stmt);
 }
 void OptOutDispatch::handle(GroupedWelfordOp* stmt) {
+  unhandled(stmt);
+}
+void OptOutDispatch::handle(GenericReductionOp* stmt) {
   unhandled(stmt);
 }
 void OptOutDispatch::handle(LoadStoreOp* stmt) {
