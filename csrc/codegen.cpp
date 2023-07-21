@@ -658,6 +658,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
             ", output type: ",
             uop->out()->dtype());
         code_ << cast_str.value();
+      } else if (op_type == UnaryOpType::BitCast) {
+        code_ << "std::bit_cast<" << uop->out()->dtype() << ">";
       } else {
         code_ << op_type;
         if (needFloatSuffix(op_type) &&
