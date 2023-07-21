@@ -339,7 +339,7 @@ static const char* unary_op_type2string(UnaryOpType t) {
     case UnaryOpType::Log2:
       return "log2";
     case UnaryOpType::BitCast:
-      return "erase_type";
+      return "bit_cast";
     case UnaryOpType::Neg:
       return "neg";
     case UnaryOpType::Not:
