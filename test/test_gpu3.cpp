@@ -9346,6 +9346,31 @@ TEST_F(NVFuserTest, IterVisitorTraverseSiblings_CUDA) {
       "Welford var_sum not traversed in getStmtsTo({n})");
 }
 
+TEST_F(NVFuserTest, IterVisitorGetInputsTo) {
+  // Test that IterVisitor::getInputsTo() will stop further traverse when
+  // reaching the target tensors
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto a = makeSymbolicTensor(1);
+  auto b = makeSymbolicTensor(1);
+  auto c = makeSymbolicTensor(1);
+
+  fusion.addInput(a);
+  fusion.addInput(b);
+  fusion.addInput(c);
+
+  auto d = add(b, c);
+  auto e = add(a, d);
+
+  fusion.addOutput(e);
+
+  auto inputs = IterVisitor::getInputsTo({e}, {a, d});
+  std::unordered_set<Val*> inputs_set(inputs.begin(), inputs.end());
+
+  EXPECT_EQ(inputs_set, std::unordered_set<Val*>({a, d}));
+}
+
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser
