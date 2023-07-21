@@ -983,7 +983,7 @@ logical_right_shift_helper(LHS x, RHS shift) {
       IrBuilder::create<Val>(x->container(), sizeof_int_dtype);
 
   auto mask =
-      where(eq(shift, num_bits_scalar), neg_one, sub(pow(two, shift), one));
+      where(ge(shift, num_bits_scalar), neg_one, sub(pow(two, shift), one));
   auto shifted_mask = bitwise_left_shift(mask, sub(num_bits_scalar, shift));
   auto right_shift_value = bitwise_right_shift(x, shift);
   return where(
