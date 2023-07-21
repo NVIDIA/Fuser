@@ -384,26 +384,6 @@ __device__ T gcd(T a, T b) {
   return a;
 }
 
-template <int size, int align = size>
-struct alignas(align) TypelessData {
-  int8_t data[size];
-
-  template <typename T, std::enable_if_t<sizeof(T) == size, int> _ = 0>
-  TypelessData(T x) {
-    *reinterpret_cast<T*>(data) = x;
-  }
-
-  template <typename T, std::enable_if_t<sizeof(T) == size, int> _ = 0>
-  operator T() {
-    return *reinterpret_cast<T*>(data);
-  }
-};
-
-template <typename T>
-TypelessData<sizeof(T), alignof(T)> erase_type(T x) {
-  return x;
-}
-
 template <typename T>
 bool isfinite(T x) {
   return ::isfinite(x);
