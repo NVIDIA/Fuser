@@ -1456,21 +1456,18 @@ void convertInputRfactorsToRoots(Fusion* fusion) {
     auto rfactor = tv->getMaybeRFactorDomain();
     new_root_domain.reserve(rfactor.size());
 
-    // Does the domain (root / rfactor) contain all concrete sized extents?
-    bool tv_is_concrete = true;
-    for (auto id : rfactor) {
-      if (!id->extent()->isConstScalar()) {
-        tv_is_concrete = false;
-        break;
-      }
-    }
-
     for (const auto& id : rfactor) {
-      if (id->isRFactorProduct()) {
+      // We replace any IterDomain that is an rfactor product since we must cut
+      // any connections between root and rfactor. Additionally, we replace any
+      // IterDomain whose extent is symbolic and is derived from other scalars;
+      // this ensures that we can bind values to any non-constant extents in
+      // this tensor.
+      auto domain_extent = !id->definition() || id->extent()->isConstScalar()
+          ? id->extent()
+          : IrBuilder::create<Val>(DataType::Int);
+
+      if (id->isRFactorProduct() || domain_extent != id->extent()) {
         // Create new symbolic extents for rfactor iterDomains
-        auto domain_extent = (!tv_is_concrete)
-            ? IrBuilder::create<Val>(DataType::Int)
-            : id->extent();
         replacement_map.emplace(id->extent(), domain_extent);
         new_root_domain.push_back(IterDomainBuilder(id)
                                       .extent(domain_extent)
