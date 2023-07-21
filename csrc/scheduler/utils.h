@@ -280,9 +280,14 @@ class FindAllMappedDims : public MaxInfoSpanningTree::Propagator {
   TensorView* starting_tv_ = nullptr;
   IterDomain* starting_id_ = nullptr;
   bool inner_only_;
+  bool vectorize_pass_;
 
  public:
-  FindAllMappedDims(TensorView* from, IterDomain* starting_id, bool inner_only);
+  FindAllMappedDims(
+      TensorView* from,
+      IterDomain* starting_id,
+      bool inner_only,
+      bool vectorize_pass);
   void setUp() override;
   void propagateC2P(TensorView* from, TensorView* to) override;
   void propagateP2C(TensorView* from, TensorView* to) override;

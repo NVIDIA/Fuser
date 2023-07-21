@@ -1137,6 +1137,16 @@ TEST_F(NVFuserTest, FusionResizeSliceScheduler1_CUDA) {
         sub(tv0->axis(0)->extent(), IrBuilder::create<Val>(1L))}});
   fusion.addOutput(tv1);
 
+  // Make sure all IDs of tv0 and tv1 are mapped in the
+  // PERMISSIVE_RESIZE mode.
+  ComputeAtMap ca_map(&fusion);
+  ASSERT_TRUE(ca_map.areMapped(
+      tv1->axis(0), tv0->axis(0), IdMappingMode::PERMISSIVE_RESIZE));
+  ASSERT_TRUE(ca_map.areMapped(
+      tv1->axis(0),
+      tv1->getRootDomain().at(0),
+      IdMappingMode::PERMISSIVE_RESIZE));
+
   std::vector<int64_t> shape({9});
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -2289,7 +2299,7 @@ TEST_F(NVFuserTest, ResizePadToBroadcastStatic_CUDA) {
   std::vector<Val*> pad_width_vals;
   pad_width_vals.reserve(pad_widths.size());
   for (auto w : pad_widths) {
-    pad_width_vals.push_back(IrBuilder::create<Scalar>(w));
+    pad_width_vals.push_back(IrBuilder::create<Val>(w));
   }
 
   auto tv2 = pad(tv0, pad_width_vals);
@@ -2355,7 +2365,7 @@ TEST_F(NVFuserTest, ResizePadToBroadcastDynamic_CUDA) {
   std::vector<Val*> pad_width_vals;
   pad_width_vals.reserve(pad_widths.size());
   for ([[maybe_unused]] auto _ : pad_widths) {
-    auto w_val = IrBuilder::create<Scalar>(DataType::Int);
+    auto w_val = IrBuilder::create<Val>(DataType::Int);
     fusion->addInput(w_val);
     pad_width_vals.push_back(w_val);
   }
@@ -2415,7 +2425,7 @@ TEST_F(NVFuserTest, ResizeIssue596_CUDA) {
   fusion->addInput(tv0);
   fusion->addInput(tv1);
 
-  auto tv2 = pad(tv0, {fusion->zeroVal(), IrBuilder::create<Scalar>(-1)});
+  auto tv2 = pad(tv0, {fusion->zeroVal(), IrBuilder::create<Val>(-1)});
   auto tv3 = mul(tv1, tv2);
   fusion->addOutput(tv3);
 
