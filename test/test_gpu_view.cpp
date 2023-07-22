@@ -2449,4 +2449,40 @@ TEST_F(NVFuserTest, ReshapeOfReshape_CUDA) {
   TORCH_CHECK(ref.equal(cg_outputs.at(0)));
 }
 
+// Test reshape with small transpose dimension
+// This introduces an incoherent transformation that can't currently be replayed. Transpose scheduler should have rejected this
+TEST_F(NVFuserTest, FusionReshapeSmallTransposeDimensionSchedule_CUDA) {
+    int x = 2, y = 1024, z = 128, w = 2;
+
+    auto fusion_ptr = std::make_unique<Fusion>();
+    Fusion& fusion = *fusion_ptr.get();
+    FusionGuard fg(&fusion);
+
+    auto tv0 = makeContigTensor(4);
+    fusion.addInput(tv0);
+    auto tv1 = reshape(tv0, {x, y, z, w}, {x, y*z, w});
+    auto tv2 = transpose(tv1, 0, 2);
+    fusion.addOutput(tv1);
+    fusion.addOutput(tv2);
+
+    auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+    at::Tensor t0 = at::randn({x, y, z, w}, options);
+    auto t1 = at::native::view(t0, {x, y*z, w});
+
+    auto t2 = t1.transpose(0, 2);
+
+    FusionExecutorCache executor_cache(std::move(fusion_ptr));
+    // Collect the heuristic params
+    executor_cache.profile(true);
+    auto cg_outputs = executor_cache.runFusionWithInputs({t0});
+
+    TORCH_CHECK(!executor_cache.getMostRecentKernelRuntime()->isSegmented());
+    // NOTE: Aggressive check. If a transpose scheduler can handle this, we should just let it handle this
+    TORCH_CHECK(executor_cache.getMostRecentExecutorInfo()
+                    .params->isA<PointwiseParams>());
+
+    testValidate(&fusion, cg_outputs, {t0}, {t2}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser

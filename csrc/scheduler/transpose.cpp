@@ -30,6 +30,10 @@ namespace nvfuser {
 
 namespace {
 
+bool hasSmallTransposeDimensions(const std::shared_ptr<TransposeParams>& params) {
+  return !params->split_before_tiling.empty() || !params->dims_merged_with_1.empty() || !params->dims_merged_with_2.empty();
+}
+
 // DomainMap uses the ComputeAtMap to find a reference TensorView
 // that maps to all iterDomains in the fusion.
 class DomainMap : public pointwise_utils::DomainMap {
@@ -256,7 +260,7 @@ class DomainMap : public pointwise_utils::DomainMap {
 // We will split that dim and large dim and and use the splitted ones to satisfy
 // both of them:
 //   T0[I0*I1o*I5*I6{1024*1024/4*8}, I1i*I2*I3*I4{32}]
-bool maybeBuildVirtualInnerDims(
+void maybeBuildVirtualInnerDims(
     TransposeParams& params,
     int64_t device_multiprocessor_count,
     int64_t n_elems,
@@ -275,7 +279,7 @@ bool maybeBuildVirtualInnerDims(
 
   if (wave_elements >= n_elems) {
     // if one full wave can handle all elements, don't create virtual inner dims
-    return false;
+    return;
   }
 
   // merge inner_most1 and inner_most2 left until we are done or we can no
@@ -328,7 +332,7 @@ bool maybeBuildVirtualInnerDims(
   // is impossible to satisfy both of them, also done.
   if ((merged_size1 < (int64_t)params.tile_size1) ==
       (merged_size2 < (int64_t)params.tile_size2)) {
-    return false; // no need to split
+    return; // no need to split
   }
   // If one of them are not satisfied, there might be two cases:
   // 1. The satisfied one just merged in a large dim. If this is the case, We
@@ -351,7 +355,7 @@ bool maybeBuildVirtualInnerDims(
       split_factor = params.tile_size2;
 #else
       // disabled due to indexing error
-      return false;
+      return;
 #endif
     } else {
       // case 1
@@ -370,7 +374,7 @@ bool maybeBuildVirtualInnerDims(
       split_factor = params.tile_size1;
 #else
       // disabled due to indexing error
-      return false;
+      return;
 #endif
     } else {
       // case 1
@@ -406,7 +410,6 @@ bool maybeBuildVirtualInnerDims(
     }
     params.dims_merged_with_2.push_back(large_dim);
   }
-  return true;
 }
 
 HeuristicSummaryEntry<HeuristicCompileTime::TransposeDomainMap> getDomainMap(
@@ -586,6 +589,24 @@ std::string getTransposeRuntimeRejectReason(
   }
 #endif
 
+  // disallow transpose scheduler when we have a combination of:
+  // 1. view op; and
+  // 2. small transpose transformation
+  // See note [Supporting small transpose dimensions]
+  auto params =
+      std::make_shared<TransposeParams>("Transpose heuristics", index_type);
+  maybeBuildVirtualInnerDims(
+      *params,
+      device_multiprocessor_count,
+      n_elems,
+      shape_in_ref1,
+      inner_most_pos1_in_ref1,
+      inner_most_pos2_in_ref1);
+
+  if (!scheduler_utils::getViewTVs(fusion).empty() && hasSmallTransposeDimensions(params)) {
+    return "Small transpose dimensions and view op cannot be currently be handled by transpose scheduler. See: https://github.com/NVIDIA/Fuser/pull/592";
+  }
+
   return "";
 }
 
@@ -643,13 +664,15 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
   // Expand inner-most dims to virtual inner-most dims so that the inner-most
   // dims has at least tile_size elements
   // See note [Supporting small transpose dimensions]
-  auto small_transpose_flag = maybeBuildVirtualInnerDims(
+  maybeBuildVirtualInnerDims(
       *params,
       device_multiprocessor_count,
       n_elems,
       shape_in_ref1,
       inner_most_pos1_in_ref1,
       inner_most_pos2_in_ref1);
+
+  TORCH_INTERNAL_ASSERT(!hasSmallTransposeDimensions(params) || scheduler_utils::getViewTVs(fusion).empty(), "combination of view op with small transpose dimensions are not supported by transpose scheduler");
 
   // Note [vectorization and unroll of input and output]
   //
@@ -757,9 +780,7 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
             << "reference2: " << reference2 << "\n"
             << "inner_most_id2 position: " << inner_most_pos2_in_ref1
             << " (in reference 1)" << std::endl;
-    if (!params->split_before_tiling.empty() ||
-        !params->dims_merged_with_1.empty() ||
-        !params->dims_merged_with_2.empty()) {
+    if (hasSmallTransposeDimensions(params)) {
       debug() << "small transposed dim, needs virtual inner-most dim"
               << std::endl;
     }
