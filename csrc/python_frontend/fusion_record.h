@@ -482,7 +482,7 @@ struct PadOpRecord : RecordFunctor {
     std::vector<Val*> val_widths;
     val_widths.reserve(pad_widths_.size());
     for (auto p : pad_widths_) {
-      auto pval = IrBuilder::create<nvfuser::Scalar>(p);
+      auto pval = IrBuilder::create<nvfuser::Val>(p);
       val_widths.push_back(pval);
     }
 
@@ -929,10 +929,10 @@ inline std::optional<std::vector<Val*>> BroadcastInDimOpRecord<int64_t>::
   bool has_expand = false;
   for (const auto idx : c10::irange(shape.size())) {
     if (expand_dim[idx] && shape[idx] != 1 && shape[idx] != -1) {
-      expand_shape[idx] = IrBuilder::create<nvfuser::Scalar>(shape[idx]);
+      expand_shape[idx] = IrBuilder::create<nvfuser::Val>(shape[idx]);
       has_expand = true;
     } else {
-      expand_shape[idx] = IrBuilder::create<nvfuser::Scalar>(-1L);
+      expand_shape[idx] = IrBuilder::create<nvfuser::Val>(-1L);
     }
   }
 
@@ -1982,7 +1982,7 @@ struct ScalarRecord : RecordFunctor {
   }
 
   void operator()(FusionState& fd) final {
-    Val* output = IrBuilder::create<nvfuser::Scalar>(value_, dtype_);
+    Val* output = IrBuilder::create<nvfuser::Val>(value_, dtype_);
     if (!value_.hasValue()) {
       fd.addInput(output);
     }
@@ -2104,9 +2104,9 @@ struct SliceOpRecord : RecordFunctor {
     ranges.reserve(ndims);
     for (const auto i : c10::irange(ndims)) {
       Slice tmp;
-      tmp.start = IrBuilder::create<nvfuser::Scalar>(start_indices_[i]);
-      tmp.stop = IrBuilder::create<nvfuser::Scalar>(end_indices_[i]);
-      tmp.step = IrBuilder::create<nvfuser::Scalar>(strides_[i]);
+      tmp.start = IrBuilder::create<nvfuser::Val>(start_indices_[i]);
+      tmp.stop = IrBuilder::create<nvfuser::Val>(end_indices_[i]);
+      tmp.step = IrBuilder::create<nvfuser::Val>(strides_[i]);
       ranges.emplace_back(tmp);
     }
 
@@ -2522,7 +2522,7 @@ struct FullOpRecord : RecordFunctor {
 
     std::vector<Val*> nvf_shape(shape_.size(), nullptr);
     for (const auto idx : c10::irange(shape_.size())) {
-      nvf_shape[idx] = IrBuilder::create<nvfuser::Scalar>(shape_.at(idx));
+      nvf_shape[idx] = IrBuilder::create<nvfuser::Val>(shape_.at(idx));
     }
     auto output = full(nvf_shape, arg, dtype_);
     fd.setFusionState(outputs_.at(0).index, output);

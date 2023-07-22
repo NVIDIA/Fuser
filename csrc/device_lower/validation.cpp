@@ -42,9 +42,9 @@ class ValidateSiblings : public IterVisitor {
  private:
   using IterVisitor::handle;
 
-  void handle(Expr* expr) final {
+  void dispatch(Expr* expr) final {
     if (!ir_utils::isTvOp(expr) || expr->outputs().size() < 2) {
-      IterVisitor::handle(expr);
+      IterVisitor::dispatch(expr);
       return;
     }
 
@@ -328,7 +328,7 @@ class VectorizeValidator : public OptInDispatch {
     for (auto expr_it = replay_exprs.rbegin(); expr_it != replay_exprs.rend();
          ++expr_it) {
       auto expr = *expr_it;
-      validator.handle(expr);
+      validator.dispatch(expr);
     }
 
     TORCH_CHECK(
@@ -1003,6 +1003,9 @@ void validateLdMatrixOutput(TensorView* tv) {
 
 void validateSizeMemoryOp(LoadStoreOp* ldst) {
   int byte_size = 1;
+  if (!ldst->out()->isA<TensorView>()) {
+    return;
+  }
   auto output = ldst->out()->as<TensorView>();
   for (auto id : output->getLeafDomain()) {
     if (id->getParallelType() == ParallelType::Vectorize) {

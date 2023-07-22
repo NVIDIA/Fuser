@@ -28,7 +28,6 @@
 #include <kernel_cache.h>
 #include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
-#include <mutator.h>
 #include <ops/all_ops.h>
 #include <root_domain_map.h>
 #include <scheduler/all_schedulers.h>
@@ -283,7 +282,7 @@ TEST_F(NVFuserTest, FusionComputeWith4_CUDA) {
   auto tv0 = makeContigTensor(2);
   fusion.addInput(tv0);
   auto tvs = Welford(tv0, {1});
-  auto tv2 = add(tvs.avg, IrBuilder::create<Scalar>(1.0));
+  auto tv2 = add(tvs.avg, IrBuilder::create<Val>(1.0));
   fusion.addOutput(tv2);
 
   tv2->split(0, 4);
@@ -329,9 +328,9 @@ TEST_F(NVFuserTest, FusionComputeWith5_CUDA) {
 
   auto tv0 = makeContigTensor(2);
   fusion.addInput(tv0);
-  auto tv1 = add(tv0, IrBuilder::create<Scalar>(1.0));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
   auto tvs = Welford(tv1, {1});
-  auto tv2 = add(tvs.avg, IrBuilder::create<Scalar>(1.0));
+  auto tv2 = add(tvs.avg, IrBuilder::create<Val>(1.0));
   fusion.addOutput(tv2);
 
   tv1->split(-1, 4);

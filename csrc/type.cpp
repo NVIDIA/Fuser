@@ -17,8 +17,8 @@
 
 namespace nvfuser {
 
-DataType metaDataTypeOf(Val* v) {
-  auto tv = dynamic_cast<TensorView*>(v);
+DataType metaDataTypeOf(const Val* v) {
+  auto tv = dynamic_cast<const TensorView*>(v);
   TORCH_INTERNAL_ASSERT(
       tv != nullptr, "Currently, only supports getting metadata of TensorView");
   if (tv->getMemoryType() == MemoryType::Shared) {
@@ -28,10 +28,10 @@ DataType metaDataTypeOf(Val* v) {
   StructOf tv_metadata;
   tv_metadata.types["data"] = NVFUSER_MAYBE_MAKE_SHARED(
       PointerOf{std::make_shared<DataType>(tv->dtype())});
-  tv_metadata.types["sizes"] = NVFUSER_MAYBE_MAKE_SHARED2(ArrayOf{
+  tv_metadata.types["size"] = NVFUSER_MAYBE_MAKE_SHARED2(ArrayOf{
       std::make_shared<DataType>(DataType::Index),
       TensorDomain::noReductions(tv->getMaybeRFactorDomain()).size()});
-  tv_metadata.types["strides"] = NVFUSER_MAYBE_MAKE_SHARED2(ArrayOf{
+  tv_metadata.types["stride"] = NVFUSER_MAYBE_MAKE_SHARED2(ArrayOf{
       std::make_shared<DataType>(DataType::Index),
       TensorDomain::noReductions(tv->getMaybeAllocationDomain()).size()});
   return tv_metadata;
@@ -140,16 +140,16 @@ ValType promoteType(const ValType& t1, const ValType& t2) {
   if (t1 == ValType::TensorView || t2 == ValType::TensorView) {
     return ValType::TensorView;
   }
-  if (t1 == ValType::Scalar &&
-      (t2 == ValType::Scalar || t2 == ValType::NamedScalar)) {
-    return ValType::Scalar;
+  if (t1 == ValType::Others &&
+      (t2 == ValType::Others || t2 == ValType::NamedScalar)) {
+    return ValType::Others;
   }
-  if (t2 == ValType::Scalar &&
-      (t1 == ValType::Scalar || t1 == ValType::NamedScalar)) {
-    return ValType::Scalar;
+  if (t2 == ValType::Others &&
+      (t1 == ValType::Others || t1 == ValType::NamedScalar)) {
+    return ValType::Others;
   }
   if (t1 == ValType::NamedScalar && t2 == ValType::NamedScalar) {
-    return ValType::Scalar;
+    return ValType::Others;
   }
   TORCH_CHECK(false, "Expected promotable ValTypes but got: ", t1, " and ", t2);
 }
@@ -198,6 +198,17 @@ static std::string data_type2string(DataType t) {
           ss << "Array<" << data_type2string(*dtype.type) << ", " << dtype.size
              << ", 1>";
           return ss.str();
+        } else if constexpr (std::is_same_v<T, StructOf>) {
+          std::stringstream ss;
+          ss << "struct { ";
+          for (auto& [name, type] : dtype.types) {
+            ss << data_type2string(NVFUSER_MAYBE_STAR type) << " " << name
+               << "; ";
+          }
+          ss << "}";
+          return ss.str();
+        } else {
+          TORCH_INTERNAL_ASSERT(false, "No string found for data type.");
         }
         TORCH_INTERNAL_ASSERT(false, "No string found for data type.");
       },
@@ -212,7 +223,7 @@ static const char* val_type2string(ValType t) {
       return "TensorDomain";
     case ValType::IterDomain:
       return "IterDomain";
-    case ValType::Scalar:
+    case ValType::Others:
       return "Scalar";
     case ValType::NamedScalar:
       return "NamedScalar";
@@ -339,7 +350,7 @@ static const char* unary_op_type2string(UnaryOpType t) {
     case UnaryOpType::Log2:
       return "log2";
     case UnaryOpType::BitCast:
-      return "erase_type";
+      return "bit_cast";
     case UnaryOpType::Neg:
       return "neg";
     case UnaryOpType::Not:
@@ -1120,6 +1131,9 @@ std::string typePrefix(const DataType data_type) {
   }
   if (std::holds_alternative<ArrayOf>(data_type.type)) {
     return "a";
+  }
+  if (std::holds_alternative<StructOf>(data_type.type)) {
+    return "s";
   }
   switch (std::get<PrimDataType>(data_type.type)) {
     case DataType::Bool:

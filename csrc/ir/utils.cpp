@@ -485,16 +485,17 @@ class ValReplacementMutator : private OptOutMutator {
     more_stmts.insert(more_stmts.end(), stmts.begin(), stmts.end());
 
     for (auto stmt : more_stmts) {
-      mutate(stmt);
+      dispatchMutate(stmt);
     }
   }
 
  private:
+  using OptOutMutator::dispatchMutate;
   using OptOutMutator::mutate;
 
-  void mutate(Val* val) final {
+  void dispatchMutate(Val* val) final {
     if (replacement_map_.find(val) == replacement_map_.end()) {
-      return OptOutMutator::mutate(val);
+      return OptOutMutator::dispatchMutate(val);
     }
     auto replaced_val = replacement_map_.at(val);
     registerMutation(val, replaced_val);
@@ -621,7 +622,7 @@ struct ReplaceValInIndexVal : public OptInDispatch {
       Val* index,
       const std::unordered_map<Val*, Val*>& replacement_map) {
     ReplaceValInIndexVal replace_index_val(replacement_map);
-    replace_index_val.handle(index);
+    replace_index_val.dispatch(index);
     // Return the original index if not replaced
     if (replace_index_val.is_replaced_) {
       return replace_index_val.last_visited_val_;
@@ -634,14 +635,10 @@ struct ReplaceValInIndexVal : public OptInDispatch {
   ReplaceValInIndexVal(const std::unordered_map<Val*, Val*>& replacement_map)
       : replacement_map_(replacement_map) {}
 
+  using OptOutDispatch::dispatch;
   using OptOutDispatch::handle;
 
-  void handle(Val* val) override {
-    TORCH_INTERNAL_ASSERT(
-        val->isA<Scalar>() || val->isA<NamedScalar>(),
-        "Invalid Val type: ",
-        val->toString());
-
+  void dispatch(Val* val) override {
     // if val appears in the replacement map, stop traversing and set
     // the current val with the replacement
     auto it = replacement_map_.find(val);
@@ -655,7 +652,7 @@ struct ReplaceValInIndexVal : public OptInDispatch {
     auto def = val->definition();
     if (def != nullptr) {
       if (def->isOneOf<UnaryOp, BinaryOp, TernaryOp>()) {
-        handle(val->definition());
+        dispatch(val->definition());
       } else {
         TORCH_INTERNAL_ASSERT(false, "Unexpected definition: ", def->toString())
       }
@@ -667,45 +664,33 @@ struct ReplaceValInIndexVal : public OptInDispatch {
 
   // Clone expression after recurisvely replacing inputs
   void handle(UnaryOp* uop) override {
-    handle(uop->in());
+    dispatch(uop->in());
     auto inp = last_visited_val_;
-    TORCH_INTERNAL_ASSERT(
-        uop->out()->isA<Scalar>(),
-        "Unknown output type for expr ",
-        uop->toInlineString());
-    auto out = IrBuilder::create<Scalar>(DataType::Int);
+    auto out = IrBuilder::create<Val>(uop->out()->dtype());
     IrBuilder::create<UnaryOp>(uop->getUnaryOpType(), out, inp);
     last_visited_val_ = out;
   }
 
   // Clone expression after recurisvely replacing inputs
   void handle(BinaryOp* bop) override {
-    handle(bop->lhs());
+    dispatch(bop->lhs());
     auto lhs = last_visited_val_;
-    handle(bop->rhs());
+    dispatch(bop->rhs());
     auto rhs = last_visited_val_;
-    TORCH_INTERNAL_ASSERT(
-        bop->out()->isA<Scalar>(),
-        "Unknown output type for expr ",
-        bop->toInlineString());
-    auto out = IrBuilder::create<Scalar>(DataType::Int);
+    auto out = IrBuilder::create<Val>(bop->out()->dtype());
     IrBuilder::create<BinaryOp>(bop->getBinaryOpType(), out, lhs, rhs);
     last_visited_val_ = out;
   }
 
   // Clone expression after recurisvely replacing inputs
   void handle(TernaryOp* top) override {
-    handle(top->in1());
+    dispatch(top->in1());
     auto in1 = last_visited_val_;
-    handle(top->in2());
+    dispatch(top->in2());
     auto in2 = last_visited_val_;
-    handle(top->in3());
+    dispatch(top->in3());
     auto in3 = last_visited_val_;
-    TORCH_INTERNAL_ASSERT(
-        top->out()->isA<Scalar>(),
-        "Unknown output type for expr ",
-        top->toInlineString());
-    auto out = IrBuilder::create<Scalar>(DataType::Int);
+    auto out = IrBuilder::create<Val>(top->out()->dtype());
     IrBuilder::create<TernaryOp>(top->getTernaryOpType(), out, in1, in2, in3);
     last_visited_val_ = out;
   }
@@ -956,7 +941,7 @@ class ValidateDomainEquivalence : private IterVisitor {
     }
   };
 
-  void handle(Expr* expr) override {
+  void dispatch(Expr* expr) override {
     TORCH_INTERNAL_ASSERT(
         std::all_of(expr->inputs().begin(), expr->inputs().end(), [](Val* v) {
           return v->isA<IterDomain>();
@@ -1022,6 +1007,12 @@ std::vector<Statement*> next(Statement* stmt) {
 
 } // namespace
 
+void validateDomainEquivalence(
+    const std::vector<IterDomain*>& initial_domain,
+    const std::vector<IterDomain*>& derived_domain) {
+  ValidateDomainEquivalence(initial_domain, derived_domain);
+}
+
 std::vector<Statement*> checkCycle(
     Fusion* fusion,
     const std::unordered_set<Statement*>& from,
@@ -1079,10 +1070,24 @@ std::vector<Statement*> checkCycle(
   return {};
 }
 
-void validateDomainEquivalence(
-    const std::vector<IterDomain*>& initial_domain,
-    const std::vector<IterDomain*>& derived_domain) {
-  ValidateDomainEquivalence(initial_domain, derived_domain);
+bool dependenciesSatisfied(
+    std::vector<const Val*> needed_vals,
+    std::unordered_set<const Val*> known_vals) {
+  while (!needed_vals.empty()) {
+    auto needed_val = needed_vals.back();
+    needed_vals.pop_back();
+    if (known_vals.count(needed_val) > 0 || needed_val->isConst()) {
+      continue;
+    }
+    auto def = needed_val->definition();
+    if (def == nullptr) {
+      return false;
+    }
+    for (auto input : def->inputs()) {
+      needed_vals.emplace_back(input);
+    }
+  }
+  return true;
 }
 
 bool isAlignedScopeExpr(const Expr* expr) {
@@ -1111,6 +1116,50 @@ bool isAlignedScopeExpr(const Expr* expr) {
 
 std::vector<Statement*> checkCycle(Fusion* fusion) {
   return checkCycle(fusion, {}, fusion->outputs());
+}
+
+namespace {
+
+inline bool isTensorAttr(const Val* val, const std::string& attr_name) {
+  TORCH_INTERNAL_ASSERT(val != nullptr);
+  auto getitem = dynamic_cast<GetItem*>(val->definition());
+  if (getitem == nullptr) {
+    return false;
+  }
+  auto getattr = dynamic_cast<GetAttr*>(getitem->array()->definition());
+  if (getattr == nullptr) {
+    return false;
+  }
+  if (getattr->attr() != attr_name) {
+    return false;
+  }
+  auto metadata = dynamic_cast<GetMetaData*>(getattr->struct_()->definition());
+  if (metadata == nullptr) {
+    return false;
+  }
+  return metadata->in()->isA<TensorView>();
+}
+
+} // namespace
+
+bool isTensorSize(const Val* val) {
+  if (auto ns = dynamic_cast<const NamedScalar*>(val)) {
+    // TODO: remove this
+    if (ns->isTensorSize()) {
+      return true;
+    }
+  }
+  return isTensorAttr(val, "size");
+}
+
+bool isTensorStride(const Val* val) {
+  if (auto ns = dynamic_cast<const NamedScalar*>(val)) {
+    // TODO: remove this
+    if (ns->isTensorStride()) {
+      return true;
+    }
+  }
+  return isTensorAttr(val, "stride");
 }
 
 } // namespace nvfuser::ir_utils

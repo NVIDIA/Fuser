@@ -33,8 +33,8 @@ TORCH_CUDA_CU_API const char* dtypeToPyString(PrimDataType t);
 //! Example:
 //!
 //!   add(Tensor* arg1, Tensor* arg2) -> Tensor*
-//!   add(Tensor* arg1, Scalar* arg2) -> Tensor*
-//!   add(Scalar* arg1, Scalar* arg2) -> Scalar*
+//!   add(Tensor* arg1, Val* arg2) -> Tensor*
+//!   add(Val* arg1, Val* arg2) -> Val*
 struct TORCH_CUDA_CU_API Tensor {
   Tensor(size_t _index, size_t _dims, FusionDefinition* _fd)
       : index(_index), dims(_dims), fusion_definition(_fd) {}

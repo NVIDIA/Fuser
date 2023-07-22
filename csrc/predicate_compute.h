@@ -20,11 +20,11 @@ class PredicateCompute {
   // ignore_internal_syncthread_ops will prevent creation of predicates on
   // block/grid broadcast/reduce as these have syncthread calls within them
   // so all threads need to execute the function.
-  static Scalar* getInlinePredicate(
+  static Val* getInlinePredicate(
       const Expr* expr,
       const std::vector<kir::ForLoop*>& loops,
       const std::unordered_set<kir::ForLoop*>& rotated_loops,
-      Scalar* thread_pred,
+      Val* thread_pred,
       PredicateType pred_type);
 };
 
@@ -52,7 +52,7 @@ class ParallelizedDomainPredicate {
     }
 
     //! Generates a predicate Val from predicate information
-    Scalar* getPredicate() const;
+    Val* getPredicate() const;
 
    private:
     ParallelType pt_;
@@ -61,7 +61,7 @@ class ParallelizedDomainPredicate {
   };
 
   //! Returns a predicate Val for parallelied domains of an expression.
-  static Scalar* getPredicate(
+  static Val* getPredicate(
       const Expr* expr,
       const std::vector<kir::ForLoop*>& loops);
 
@@ -125,7 +125,7 @@ struct UnswitchPredicateKeyHash {
 
 class TORCH_CUDA_CU_API UnswitchPredicate {
  public:
-  static Scalar* get(
+  static Val* get(
       const std::vector<kir::ForLoop*>& outer_loops,
       kir::ForLoop* unrolled_loop);
 
@@ -136,11 +136,11 @@ class TORCH_CUDA_CU_API UnswitchPredicate {
     struct Info {
       //! Most restrictive static predicate. Nullptr if no static
       //! predicate found.
-      Scalar* static_pred = nullptr;
+      Val* static_pred = nullptr;
       //! The offset value of static_pred
       PolymorphicValue static_offset = 0L;
       //! List of dynamic predicates.
-      std::vector<Scalar*> dynamic_preds;
+      std::vector<Val*> dynamic_preds;
     };
     UnswitchPredicateKey predicate_key;
     Info start;
@@ -164,7 +164,7 @@ class TORCH_CUDA_CU_API UnswitchPredicate {
   //! static, only pick the most restrictive one, e.g., the one with the
   //! minimum offset for the start predication.
   void mergeUnswitchPredicateOffsets(
-      Scalar* predicate,
+      Val* predicate,
       Val* offset,
       MergedPredicates::Info& merged_predicate_info,
       bool is_start);
@@ -185,7 +185,7 @@ class TORCH_CUDA_CU_API UnswitchPredicate {
       parallelized_dom_predicates_;
 
   //! The predicates that have been generated.
-  std::vector<Scalar*> predicates_;
+  std::vector<Val*> predicates_;
 
   std::vector<kir::ForLoop*> for_loops_;
 

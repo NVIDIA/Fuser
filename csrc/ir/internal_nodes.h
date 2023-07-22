@@ -560,6 +560,9 @@ class TORCH_CUDA_CU_API TensorConstruct : public Expr {
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
 
+  std::vector<PolymorphicValue> evaluate(
+      const std::vector<PolymorphicValue>& inputs) const override;
+
   TensorView* out() const {
     return output(0)->as<TensorView>();
   }
@@ -1473,12 +1476,7 @@ class TORCH_CUDA_CU_API ViewAsScalar : public Expr {
  public:
   using Expr::Expr;
 
-  ViewAsScalar(
-      IrBuilderPasskey,
-      Val* out,
-      Val* in,
-      IterDomain* vector_id,
-      Val* index = nullptr);
+  ViewAsScalar(IrBuilderPasskey, Val* out, Val* in, IterDomain* vector_id);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
@@ -1500,11 +1498,6 @@ class TORCH_CUDA_CU_API ViewAsScalar : public Expr {
   // The IterDomain of type VectorComponent newly appended to the output
   IterDomain* vector_id() const {
     return attribute(0)->as<IterDomain>();
-  }
-
-  // The index that vector_id_ is lowered into
-  Val* index() const {
-    return attributeVal(1);
   }
 };
 
@@ -2033,7 +2026,7 @@ class TORCH_CUDA_CU_API CatOp : public Expr {
       const std::vector<Val*>& inputs,
       int64_t concatenated_dim,
       Val* concatenated_domain_index,
-      const std::vector<Scalar*>& preds);
+      const std::vector<Val*>& preds);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
@@ -2056,7 +2049,7 @@ class TORCH_CUDA_CU_API CatOp : public Expr {
   //! Gets a Bool indicating if the input tensor specified by
   //! tensor_idx should be used to fill the output tensor. Only valid
   //! with the Kernel container
-  Scalar* getPred(int input_idx) const;
+  Val* getPred(int input_idx) const;
 };
 
 } // namespace nvfuser
