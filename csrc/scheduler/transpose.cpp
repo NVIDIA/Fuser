@@ -30,8 +30,11 @@ namespace nvfuser {
 
 namespace {
 
-bool hasSmallTransposeDimensions(const std::shared_ptr<TransposeParams>& params) {
-  return !params->split_before_tiling.empty() || !params->dims_merged_with_1.empty() || !params->dims_merged_with_2.empty();
+bool hasSmallTransposeDimensions(
+    const std::shared_ptr<TransposeParams>& params) {
+  return !params->split_before_tiling.empty() ||
+      !params->dims_merged_with_1.empty() ||
+      !params->dims_merged_with_2.empty();
 }
 
 // DomainMap uses the ComputeAtMap to find a reference TensorView
@@ -95,14 +98,14 @@ class DomainMap : public pointwise_utils::DomainMap {
     if (innermost1 == nullptr) {
       return false;
     }
-    for (auto ref : grouped_inputs_outputs[0]) {
-      auto innermost = domain_map.getMappedRootDimIn(ref, innermost1);
+    for (auto inp_or_out : grouped_inputs_outputs[0]) {
+      auto innermost = domain_map.getMappedRootDimIn(inp_or_out, innermost1);
       if (innermost && innermost->isRFactorProduct()) {
         return false;
       }
     }
-    for (auto ref : grouped_inputs_outputs[1]) {
-      auto innermost = domain_map.getMappedRootDimIn(ref, innermost2);
+    for (auto inp_or_out : grouped_inputs_outputs[1]) {
+      auto innermost = domain_map.getMappedRootDimIn(inp_or_out, innermost2);
       if (innermost && innermost->isRFactorProduct()) {
         return false;
       }
@@ -593,6 +596,7 @@ std::string getTransposeRuntimeRejectReason(
   // 1. view op; and
   // 2. small transpose transformation
   // See note [Supporting small transpose dimensions]
+  const auto index_type = runtime_info.getIndexType();
   auto params =
       std::make_shared<TransposeParams>("Transpose heuristics", index_type);
   maybeBuildVirtualInnerDims(
@@ -603,7 +607,8 @@ std::string getTransposeRuntimeRejectReason(
       inner_most_pos1_in_ref1,
       inner_most_pos2_in_ref1);
 
-  if (!scheduler_utils::getViewTVs(fusion).empty() && hasSmallTransposeDimensions(params)) {
+  if (!scheduler_utils::getViewTVs(fusion).empty() &&
+      hasSmallTransposeDimensions(params)) {
     return "Small transpose dimensions and view op cannot be currently be handled by transpose scheduler. See: https://github.com/NVIDIA/Fuser/pull/592";
   }
 
@@ -672,7 +677,10 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
       inner_most_pos1_in_ref1,
       inner_most_pos2_in_ref1);
 
-  TORCH_INTERNAL_ASSERT(!hasSmallTransposeDimensions(params) || scheduler_utils::getViewTVs(fusion).empty(), "combination of view op with small transpose dimensions are not supported by transpose scheduler");
+  TORCH_INTERNAL_ASSERT(
+      !hasSmallTransposeDimensions(params) ||
+          scheduler_utils::getViewTVs(fusion).empty(),
+      "combination of view op with small transpose dimensions are not supported by transpose scheduler");
 
   // Note [vectorization and unroll of input and output]
   //

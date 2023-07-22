@@ -2449,40 +2449,84 @@ TEST_F(NVFuserTest, ReshapeOfReshape_CUDA) {
   TORCH_CHECK(ref.equal(cg_outputs.at(0)));
 }
 
+TEST_F(NVFuserTest, ReshapePermuteTransposeScheduler_CUDA) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  std::vector<int64_t> shape({256, 128, 64});
+
+  auto tv0 = makeSymbolicTensor(3);
+  fusion->addInput(tv0);
+
+  auto tv1 = reshape(tv0, {256, 128, 64}, {256, 128, 8, 8});
+  auto tv3 = transpose(tv1, 1, 3);
+  fusion->addOutput(tv3);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+
+  auto runtime = executor_cache.getMostRecentKernelRuntime();
+  TORCH_CHECK(!runtime->isSegmented(), "Segmentation not expected");
+
+  auto heuristic =
+      runtime->schedulerHeuristics()->heuristicsList().at(0).get()->heuristic();
+  TORCH_CHECK(
+      heuristic == ScheduleHeuristic::Transpose,
+      "Unexpected heuristic: ",
+      heuristic);
+
+  auto at_out = t0.reshape({256, 128, 8, 8}).transpose(1, 3);
+
+  testValidate(
+      executor_cache.fusion(),
+      cg_outputs,
+      aten_inputs,
+      {at_out},
+      __LINE__,
+      __FILE__);
+}
+
 // Test reshape with small transpose dimension
-// This introduces an incoherent transformation that can't currently be replayed. Transpose scheduler should have rejected this
+// This introduces an incoherent transformation that can't currently be
+// replayed. Transpose scheduler should have rejected this
 TEST_F(NVFuserTest, FusionReshapeSmallTransposeDimensionSchedule_CUDA) {
-    int x = 2, y = 1024, z = 128, w = 2;
+  int x = 2, y = 1024, z = 128, w = 2;
 
-    auto fusion_ptr = std::make_unique<Fusion>();
-    Fusion& fusion = *fusion_ptr.get();
-    FusionGuard fg(&fusion);
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
 
-    auto tv0 = makeContigTensor(4);
-    fusion.addInput(tv0);
-    auto tv1 = reshape(tv0, {x, y, z, w}, {x, y*z, w});
-    auto tv2 = transpose(tv1, 0, 2);
-    fusion.addOutput(tv1);
-    fusion.addOutput(tv2);
+  auto tv0 = makeContigTensor(4);
+  fusion.addInput(tv0);
+  auto tv1 = reshape(tv0, {x, y, z, w}, {x, y * z, w});
+  auto tv2 = transpose(tv1, 0, 2);
+  fusion.addOutput(tv1);
+  fusion.addOutput(tv2);
 
-    auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
-    at::Tensor t0 = at::randn({x, y, z, w}, options);
-    auto t1 = at::native::view(t0, {x, y*z, w});
+  at::Tensor t0 = at::randn({x, y, z, w}, options);
+  auto t1 = at::native::view(t0, {x, y * z, w});
 
-    auto t2 = t1.transpose(0, 2);
+  auto t2 = t1.transpose(0, 2);
 
-    FusionExecutorCache executor_cache(std::move(fusion_ptr));
-    // Collect the heuristic params
-    executor_cache.profile(true);
-    auto cg_outputs = executor_cache.runFusionWithInputs({t0});
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  // Collect the heuristic params
+  executor_cache.profile(true);
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
 
-    TORCH_CHECK(!executor_cache.getMostRecentKernelRuntime()->isSegmented());
-    // NOTE: Aggressive check. If a transpose scheduler can handle this, we should just let it handle this
-    TORCH_CHECK(executor_cache.getMostRecentExecutorInfo()
-                    .params->isA<PointwiseParams>());
+  TORCH_CHECK(!executor_cache.getMostRecentKernelRuntime()->isSegmented());
+  // NOTE: Aggressive check. If a transpose scheduler can handle this, we should
+  // just let it handle this
+  TORCH_CHECK(executor_cache.getMostRecentExecutorInfo()
+                  .params->isA<PointwiseParams>());
 
-    testValidate(&fusion, cg_outputs, {t0}, {t2}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, {t0}, {t1, t2}, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser

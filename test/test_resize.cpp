@@ -2266,46 +2266,4 @@ TEST_F(NVFuserTest, SliceVectorization) {
   testValidate(&fusion, cg_outputs, inputs, {ref}, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, ResizePermuteTransposeScheduler_CUDA) {
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-
-  std::vector<int64_t> shape({256, 128, 64});
-
-  auto tv0 = makeSymbolicTensor(3);
-  fusion->addInput(tv0);
-
-  auto tv1 = reshape(tv0, {256, 128, 64}, {256, 128, 8, 8});
-  auto tv3 = transpose(tv1, 1, 3);
-  fusion->addOutput(tv3);
-
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-
-  auto t0 = at::randn(shape, options);
-  std::vector<c10::IValue> aten_inputs({t0});
-
-  FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
-
-  auto runtime = executor_cache.getMostRecentKernelRuntime();
-  TORCH_CHECK(!runtime->isSegmented(), "Segmentation not expected");
-
-  auto heuristic =
-      runtime->schedulerHeuristics()->heuristicsList().at(0).get()->heuristic();
-  TORCH_CHECK(
-      heuristic == ScheduleHeuristic::Transpose,
-      "Unexpected heuristic: ",
-      heuristic);
-
-  auto at_out = t0.reshape({256, 128, 8, 8}).transpose(1, 3);
-
-  testValidate(
-      executor_cache.fusion(),
-      cg_outputs,
-      aten_inputs,
-      {at_out},
-      __LINE__,
-      __FILE__);
-}
-
 } // namespace nvfuser
