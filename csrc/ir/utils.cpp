@@ -1007,6 +1007,12 @@ std::vector<Statement*> next(Statement* stmt) {
 
 } // namespace
 
+void validateDomainEquivalence(
+    const std::vector<IterDomain*>& initial_domain,
+    const std::vector<IterDomain*>& derived_domain) {
+  ValidateDomainEquivalence(initial_domain, derived_domain);
+}
+
 std::vector<Statement*> checkCycle(
     Fusion* fusion,
     const std::unordered_set<Statement*>& from,
@@ -1064,10 +1070,24 @@ std::vector<Statement*> checkCycle(
   return {};
 }
 
-void validateDomainEquivalence(
-    const std::vector<IterDomain*>& initial_domain,
-    const std::vector<IterDomain*>& derived_domain) {
-  ValidateDomainEquivalence(initial_domain, derived_domain);
+bool dependenciesSatisfied(
+    std::vector<const Val*> needed_vals,
+    std::unordered_set<const Val*> known_vals) {
+  while (!needed_vals.empty()) {
+    auto needed_val = needed_vals.back();
+    needed_vals.pop_back();
+    if (known_vals.count(needed_val) > 0 || needed_val->isConst()) {
+      continue;
+    }
+    auto def = needed_val->definition();
+    if (def == nullptr) {
+      return false;
+    }
+    for (auto input : def->inputs()) {
+      needed_vals.emplace_back(input);
+    }
+  }
+  return true;
 }
 
 bool isAlignedScopeExpr(const Expr* expr) {
