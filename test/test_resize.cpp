@@ -2346,4 +2346,259 @@ TEST_F(NVFuserTest, FusionResizeSliceVectorize2_CUDA) {
   // TORCH_CHECK(ref.equal(cg_outputs[0]));
 }
 
+TEST_F(NVFuserTest, FusionResizeSliceVectorize3_CUDA) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  std::vector<int64_t> shape({2, 4, 2});
+
+  // concrete shapes to avoid dynamic Fusion
+  auto tv0 = makeContigConcreteTensor(shape);
+  fusion.addInput(tv0);
+
+  TensorView* tv1 = nullptr;
+
+  if (getenv("NO_SLICE")) {
+    tv1 = set(tv0);
+  } else {
+    tv1 = slice(
+        tv0,
+        {{IrBuilder::create<Val>(0L), tv0->axis(0)->extent()},
+         {IrBuilder::create<Val>(0L),
+          sub(tv0->axis(1)->extent(), IrBuilder::create<Val>(1L))},
+         {IrBuilder::create<Val>(0L), tv0->axis(2)->extent()}});
+  }
+
+  auto tv2 = set(tv1);
+  fusion.addOutput(tv2);
+
+#if 1
+  auto mapper = vectorize_helper::ContiguousInnerDimensionsMapper::map(
+      tv0, {tv0->axis(0), tv0->axis(1), tv0->axis(2)});
+#else
+  auto mapper = vectorize_helper::ContiguousInnerDimensionsMapper::map(
+      tv2, {tv2->axis(0), tv2->axis(1), tv2->axis(2)});
+#endif
+
+  for (auto tv : {tv0, tv1, tv2}) {
+    std::cerr << tv->toString() << ": "
+              << " " << mapper.getProjectedExtent(tv->axis(0))->evaluateInt()
+              << " " << mapper.getProjectedExtent(tv->axis(1))->evaluateInt()
+              << " " << mapper.getProjectedExtent(tv->axis(2))->evaluateInt()
+              << std::endl;
+  }
+
+  for (const auto& [tv, size] : mapper.getTvToContigMergeOfInnerSizeMap()) {
+    std::cerr << tv->toString() << ", " << size << std::endl;
+  }
+}
+
+TEST_F(NVFuserTest, FusionResizeSliceVectorize4_CUDA) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  std::vector<int64_t> shape({2, 4, 4});
+
+  // concrete shapes to avoid dynamic Fusion
+  auto tv0 = makeContigConcreteTensor(shape);
+  fusion.addInput(tv0);
+
+  TensorView* tv1 = nullptr;
+
+  tv1 = slice(
+      tv0,
+      {{IrBuilder::create<Val>(0L), tv0->axis(0)->extent()},
+       {IrBuilder::create<Val>(0L),
+        sub(tv0->axis(1)->extent(), IrBuilder::create<Val>(1L))},
+       {IrBuilder::create<Val>(0L), tv0->axis(2)->extent()}});
+
+  auto tv2 = set(tv1);
+  fusion.addOutput(tv2);
+
+  auto tv3 = slice(
+      tv0,
+      {{IrBuilder::create<Val>(0L), tv0->axis(0)->extent()},
+       {IrBuilder::create<Val>(0L), tv0->axis(1)->extent()},
+       {IrBuilder::create<Val>(0L),
+        sub(tv0->axis(2)->extent(), IrBuilder::create<Val>(1L))}});
+
+  auto tv4 = set(tv3);
+  fusion.addOutput(tv4);
+
+  auto mapper = vectorize_helper::ContiguousInnerDimensionsMapper::map(
+      tv2, {tv2->axis(0), tv2->axis(1), tv2->axis(2)});
+
+  for (auto tv : {tv0, tv1, tv2, tv3, tv4}) {
+    std::cerr << tv->toString() << ": "
+              << " " << mapper.getProjectedExtent(tv->axis(0))->evaluateInt()
+              << " " << mapper.getProjectedExtent(tv->axis(1))->evaluateInt()
+              << " " << mapper.getProjectedExtent(tv->axis(2))->evaluateInt()
+              << std::endl;
+  }
+
+  for (const auto& [tv, size] : mapper.getTvToContigMergeOfInnerSizeMap()) {
+    std::cerr << tv->toString() << ", " << size << std::endl;
+  }
+}
+
+TEST_F(NVFuserTest, FusionResizeSliceVectorize5_CUDA) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  std::vector<int64_t> shape({2, 4});
+
+  // concrete shapes to avoid dynamic Fusion
+  auto tv0 = makeContigConcreteTensor(shape);
+  fusion.addInput(tv0);
+
+  TensorView* tv1 = nullptr;
+
+  tv1 = slice(
+      tv0,
+      {{IrBuilder::create<Val>(0L), tv0->axis(0)->extent()},
+       {IrBuilder::create<Val>(0L),
+        sub(tv0->axis(1)->extent(), IrBuilder::create<Val>(1L))}});
+
+  auto tv2 = set(tv1);
+  fusion.addOutput(tv2);
+
+  auto tv3 = slice(
+      tv0,
+      {{IrBuilder::create<Val>(0L), tv0->axis(0)->extent()},
+       {IrBuilder::create<Val>(1L),
+        sub(tv0->axis(1)->extent(), IrBuilder::create<Val>(1L))}});
+
+  auto tv4 = set(tv3);
+  fusion.addOutput(tv4);
+
+  auto mapper = vectorize_helper::ContiguousInnerDimensionsMapper::map(
+      tv2, {tv2->axis(0), tv2->axis(1)});
+
+  for (auto tv : {tv0, tv1, tv2, tv3, tv4}) {
+    std::cerr << tv->toString() << ": "
+              << " " << mapper.getProjectedExtent(tv->axis(0))->evaluateInt()
+              << " " << mapper.getProjectedExtent(tv->axis(1))->evaluateInt()
+              << std::endl;
+  }
+
+  for (const auto& [tv, size] : mapper.getTvToContigMergeOfInnerSizeMap()) {
+    std::cerr << tv->toString() << ", " << size << std::endl;
+  }
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn(shape, options);
+
+  std::vector<c10::IValue> inputs = {t0};
+
+  auto lparams = schedulePointwise(&fusion, inputs);
+
+  fusion.printMath();
+  fusion.printKernel();
+
+#if 0
+  bool found_vectorize = false;
+  for (auto id : fusion.outputs().at(0)->as<TensorView>()->getLeafDomain()) {
+    if (id->getParallelType() == ParallelType::Vectorize) {
+      EXPECT_EQ(id->extent()->evaluateInt(), 4);
+      found_vectorize = true;
+      break;
+    }
+  }
+  EXPECT_TRUE(found_vectorize);
+
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, inputs, lparams);
+  auto cg_outputs = fe.runFusion(inputs, lparams);
+
+  auto ref = t0.narrow(0, 1, N) + t1;
+
+  // testValidate does not check that dtypes match
+  EXPECT_EQ(cg_outputs[0].dtype(), ref.dtype());
+  testValidate(&fusion, cg_outputs, inputs, {ref}, __LINE__, __FILE__);
+#endif
+}
+
+TEST_F(NVFuserTest, FusionResizeSliceVectorize6_CUDA) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  std::vector<int64_t> shape({1024, 1024});
+
+  // concrete shapes to avoid dynamic Fusion
+  auto tv0 = makeContigConcreteTensor(shape);
+  fusion.addInput(tv0);
+
+  TensorView* tv1 = nullptr;
+
+  tv1 = slice(
+      tv0,
+      {{IrBuilder::create<Val>(0L), tv0->axis(0)->extent()},
+       {IrBuilder::create<Val>(0L),
+        sub(tv0->axis(1)->extent(), IrBuilder::create<Val>(2L))}});
+
+  auto tv2 = set(tv1);
+  fusion.addOutput(tv2);
+
+  auto tv3 = slice(
+      tv0,
+      {{IrBuilder::create<Val>(0L), tv0->axis(0)->extent()},
+       {IrBuilder::create<Val>(1L),
+        sub(tv0->axis(1)->extent(), IrBuilder::create<Val>(0L))}});
+
+  auto tv4 = set(tv3);
+  fusion.addOutput(tv4);
+
+  auto mapper = vectorize_helper::ContiguousInnerDimensionsMapper::map(
+      tv2, {tv2->axis(0), tv2->axis(1)});
+
+  for (auto tv : {tv0, tv1, tv2, tv3, tv4}) {
+    std::cerr << tv->toString() << ": "
+              << " " << mapper.getProjectedExtent(tv->axis(0))->evaluateInt()
+              << " " << mapper.getProjectedExtent(tv->axis(1))->evaluateInt()
+              << std::endl;
+  }
+
+  for (const auto& [tv, size] : mapper.getTvToContigMergeOfInnerSizeMap()) {
+    std::cerr << tv->toString() << ", " << size << std::endl;
+  }
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn(shape, options);
+
+  std::vector<c10::IValue> inputs = {t0};
+
+  auto lparams = schedulePointwise(&fusion, inputs);
+
+  fusion.printMath();
+  fusion.printKernel();
+
+#if 0
+  bool found_vectorize = false;
+  for (auto id : fusion.outputs().at(0)->as<TensorView>()->getLeafDomain()) {
+    if (id->getParallelType() == ParallelType::Vectorize) {
+      EXPECT_EQ(id->extent()->evaluateInt(), 4);
+      found_vectorize = true;
+      break;
+    }
+  }
+  EXPECT_TRUE(found_vectorize);
+
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, inputs, lparams);
+  auto cg_outputs = fe.runFusion(inputs, lparams);
+
+  auto ref = t0.narrow(0, 1, N) + t1;
+
+  // testValidate does not check that dtypes match
+  EXPECT_EQ(cg_outputs[0].dtype(), ref.dtype());
+  testValidate(&fusion, cg_outputs, inputs, {ref}, __LINE__, __FILE__);
+#endif
+}
+
 } // namespace nvfuser

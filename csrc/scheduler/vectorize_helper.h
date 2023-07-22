@@ -179,7 +179,13 @@ class TORCH_CUDA_CU_API ContiguousInnerDimensionsMapper
 
   Val* getProjectedExtent(IterDomain* id) {
     if (projected_extent_.find(id) == projected_extent_.end()) {
-      projected_extent_[id] = id->container()->oneVal();
+      // std::cerr << "Settng pe of 1: " << id->toString() << std::endl;
+      if (recording_) {
+        TORCH_INTERNAL_ASSERT(false);
+      } else {
+        return id->container()->oneVal();
+      }
+      // projected_extent_[id] = id->container()->oneVal();
     }
     return projected_extent_.at(id);
   }
@@ -235,9 +241,18 @@ class TORCH_CUDA_CU_API ContiguousInnerDimensionsMapper
     if (!recording_) {
       return;
     }
-    TORCH_INTERNAL_ASSERT(projected_extent_.count(id) == 0);
+
+    TORCH_INTERNAL_ASSERT(
+        projected_extent_.count(id) == 0,
+        "Already registered: ",
+        id->toString(),
+        ", existing: ",
+        projected_extent_.at(id)->toInlineString(),
+        ", new: ",
+        pe->toInlineString());
 
     // TODO: comment
+#if 0
     if (auto resize_factors_it = resize_factors_.find(id);
         resize_factors_it != resize_factors_.end()) {
       auto adjusted_pe =
@@ -247,6 +262,7 @@ class TORCH_CUDA_CU_API ContiguousInnerDimensionsMapper
                 << ", adjusted: " << adjusted_pe->toInlineString() << std::endl;
       pe = adjusted_pe;
     }
+#endif
 
     projected_extent_[id] = pe;
   }
@@ -313,6 +329,8 @@ class TORCH_CUDA_CU_API ContiguousInnerDimensionsMapper
   std::unordered_map<IterDomain*, Val*> projected_extent_;
 
   std::unordered_map<IterDomain*, Val*> resize_factors_;
+  // IDs that are not fully read
+  std::unordered_set<IterDomain*> sliced_ids_;
   std::unordered_set<Resize*> supported_resize_exprs_;
 };
 

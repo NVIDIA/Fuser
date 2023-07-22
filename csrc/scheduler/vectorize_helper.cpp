@@ -63,6 +63,13 @@ ContiguousInnerDimensionsMapper::ContiguousInnerDimensionsMapper(
     : MaxInfoSpanningTree(reference, std::make_shared<MappedDomain>()),
       ca_map_(std::move(ca_map)),
       divisible_splits_(divisible_splits) {
+  if (getenv("VERBOSE")) {
+    std::cerr << "ContiguousInnerDimensionsMapper: " << reference->toString()
+              << std::endl;
+    reference->fusion()->printMath();
+    std::cout << std::endl;
+  }
+
   FusionGuard fg(reference->fusion());
   // Check which domain of tensor view we should be looking at. All IDs must be
   // found in the the rfactor domain.
@@ -97,7 +104,15 @@ ContiguousInnerDimensionsMapper::ContiguousInnerDimensionsMapper(
         reference_ids.end()) {
       reordered_rfactor.push_back(id);
       // Initiailze the extent for the mapped iter domain
+#if 0
       addProjectedExtent(id, commonOrConstExtent(ca_map_, id));
+#else
+      if (resize_factors_.count(id)) {
+        addProjectedExtent(id, resize_factors_.at(id));
+      } else {
+        addProjectedExtent(id, commonOrConstExtent(ca_map_, id));
+      }
+#endif
     } else if (!id->isBroadcast()) {
       // Ignore broadcasts in the reference. Otherwise, remove non-contiguous
       // IDs in the reference tensor as this is the contiguous mapper.
@@ -177,6 +192,7 @@ void ContiguousInnerDimensionsMapper::distributePE(
   auto outer_extent = commonOrConstExtent(ca_map_, merge_or_split->outer());
   Val* projected_combined_extent = nullptr;
 
+  // std::cerr << "distributePE: " << merge_or_split->toString() << std::endl;
   if constexpr (std::is_same_v<MergeOrSplit, Merge>) {
     projected_combined_extent = getProjectedExtent(merge_or_split->out());
   } else {
@@ -185,6 +201,7 @@ void ContiguousInnerDimensionsMapper::distributePE(
   }
 
   // Propagate out mapping to inner as gcd(combined, inner)
+  // TODO: if combined >= inner, can it be just inner?
   auto projected_inner_extent =
       SimplifyingIrBuilder::gcdExpr(projected_combined_extent, inner_extent);
   addProjectedExtent(merge_or_split->inner(), projected_inner_extent);
@@ -206,6 +223,9 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
   if (from.empty()) {
     return {};
   }
+
+  // std::cerr << "projectID: " << "\n\t" << toDelimitedString(from) << "\n\t"
+  // << toDelimitedString(to) << std::endl;
 
   std::vector<IterDomain*> frontier = from;
 
@@ -374,7 +394,9 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
     }
 
     std::cerr << "propagateResize: " << ((p2c) ? "p2c" : "c2p") << ", "
-              << resize->toString() << std::endl;
+              << resize->toString() << " from "
+              << commonOrConstExtent(ca_map_, resize_in)->toInlineString()
+              << std::endl;
 
     if (supported_resize_exprs_.count(resize) == 0) {
       std::cerr << "Not allowed\n";
@@ -385,7 +407,8 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
     auto pos = std::distance(frontier.begin(), find_it);
     frontier[pos] = resize_out;
 
-    auto pe = commonOrConstExtent(ca_map_, resize_in);
+    // auto pe = commonOrConstExtent(ca_map_, resize_in);
+    auto pe = getProjectedExtent(resize_in);
     addProjectedExtent(resize_out, pe);
   };
 
@@ -411,7 +434,15 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
   // Mapping from rfactor to root, reverse expressions
   std::reverse(backward_exprs.begin(), backward_exprs.end());
 
+#if 0
   for (auto* expr : backward_exprs) {
+    std::cerr << "BWD expr: " << expr->toString();
+  }
+#endif
+
+  // std::cerr << "Backward project\n";
+  for (auto* expr : backward_exprs) {
+    // std::cerr << "Expr: " << expr->toString();
     if (Split* split = dynamic_cast<Split*>(expr)) {
       propagateCombine(split);
     } else if (Merge* merge = dynamic_cast<Merge*>(expr)) {
@@ -419,7 +450,7 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
     } else if (Resize* resize = dynamic_cast<Resize*>(expr)) {
       // Cannot vectorize through resize
       // clear_left_of(resize->out());
-      if (getenv("VEC_RESIZE")) {
+      if (!getenv("NO_VEC_RESIZE")) {
         propagateResize(resize, false);
       } else {
         clear_left_of(resize->out());
@@ -443,7 +474,8 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
       {frontier.begin(), frontier.end()},
       {to.begin(), to.end()});
 
-  // Map forward through transforms since we're going from root to rfactor
+  // std::cerr << "Forward project\n";
+  //  Map forward through transforms since we're going from root to rfactor
   for (auto* expr : forward_exprs) {
     if (Merge* merge = dynamic_cast<Merge*>(expr)) {
       propagateCombine(merge);
@@ -451,7 +483,7 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
       propagateDistribute(split);
     } else if (Resize* resize = dynamic_cast<Resize*>(expr)) {
       // Cannot vectorize through resize
-      if (getenv("VEC_RESIZE")) {
+      if (!getenv("NO_VEC_RESIZE")) {
         propagateResize(resize, true);
       } else {
         clear_left_of(resize->in());
@@ -474,6 +506,9 @@ ContiguousInnerDimensionsMapper::computeInfoC2P(
     TensorView* from,
     TensorView* to,
     std::shared_ptr<MaxInfoSpanningTree::Information> from_info) {
+  std::cerr << "C2P: " << from->toString() << " -> " << to->toString()
+            << std::endl;
+
   // TORCH_INTERNAL_ASSERT(recording_);
   auto from_ids = std::dynamic_pointer_cast<const MappedDomain>(from_info)
                       ->mapped_root_ids_;
@@ -535,7 +570,17 @@ ContiguousInnerDimensionsMapper::computeInfoC2P(
             consumer_ids_to_clear.end()) {
       producer_rfactor_ids.push_back(c2p_it->second);
       if (recording_) {
-        addProjectedExtent(c2p_it->second, getProjectedExtent(c2p_it->first));
+        auto producer_rf_id = c2p_it->second;
+        auto consumer_factor = getProjectedExtent(c2p_it->first);
+        if (resize_factors_.count(producer_rf_id)) {
+          std::cerr << "consumer factor: " << consumer_factor->toInlineString()
+                    << std::endl;
+          consumer_factor = SimplifyingIrBuilder::gcdExpr(
+              consumer_factor, resize_factors_.at(producer_rf_id));
+        }
+        // addProjectedExtent(c2p_it->second,
+        // getProjectedExtent(c2p_it->first));
+        addProjectedExtent(producer_rf_id, consumer_factor);
       }
     }
   }
@@ -550,6 +595,9 @@ ContiguousInnerDimensionsMapper::computeInfoP2C(
     TensorView* from,
     TensorView* to,
     std::shared_ptr<MaxInfoSpanningTree::Information> from_info) {
+  std::cerr << "P2C: " << from->toString() << " -> " << to->toString()
+            << std::endl;
+
   // TORCH_INTERNAL_ASSERT(recording_);
   auto from_ids = std::dynamic_pointer_cast<const MappedDomain>(from_info)
                       ->mapped_rfactor_ids_;
@@ -600,6 +648,9 @@ ContiguousInnerDimensionsMapper::computeInfoP2C(
             producer_ids_to_clear.end()) {
       consumer_root_ids.push_back(p2c_it->second);
       if (recording_) {
+        std::cerr << "Propagating extent of "
+                  << getProjectedExtent(p2c_it->first)->toInlineString()
+                  << " to " << p2c_it->second->toString() << std::endl;
         addProjectedExtent(p2c_it->second, getProjectedExtent(p2c_it->first));
       }
     }
@@ -727,6 +778,8 @@ void ContiguousInnerDimensionsMapper::propagateSibling(
 
 Val* ContiguousInnerDimensionsMapper::getContigMergeOfInnerSize(
     TensorView* of_tv) {
+  std::cerr << "getContigMergeOfInnerSize: " << of_tv->toString() << std::endl;
+
   Val* product_of_inner_extents = of_tv->container()->oneVal();
   auto of_tv_root = of_tv->getMaybeRFactorDomain();
 
@@ -774,6 +827,14 @@ Val* ContiguousInnerDimensionsMapper::getContigMergeOfInnerSize(
     auto root_i = of_tv_root_no_reductions_size - i - 1;
     auto root_id = of_tv_root_no_reductions.at(root_i);
 
+    std::cerr << "root id: " << root_id->toString() << std::endl;
+
+    // If this root ID is sliced, the outer domain is not contiguous
+    // anymore
+    if (sliced_ids_.count(root_id) && root_i > 0) {
+      contiguity.at(root_i - 1) = false;
+    }
+
     if (root_id->extent()->isOneInt() || root_id->isBroadcast()) {
       if (projected_dims[projected_dims_i - 1]->sameAs(root_id)) {
         --projected_dims_i;
@@ -787,6 +848,7 @@ Val* ContiguousInnerDimensionsMapper::getContigMergeOfInnerSize(
     } else {
       // Not contiguous
       if (!contiguity_i.value()) {
+        std::cerr << "Not contiguous\n";
         break;
       }
     }
@@ -811,12 +873,15 @@ std::unordered_map<TensorView*, Val*> ContiguousInnerDimensionsMapper::
   return result;
 }
 
+#if 0
 void ContiguousInnerDimensionsMapper::initializeResizeFactors(Fusion* fusion) {
   for (auto tv : ir_utils::allTvs(fusion)) {
     if (!ir_utils::hasResizedRfactor(tv)) {
       continue;
     }
-    std::cerr << "TV: " << tv->toString() << std::endl;
+    if (getenv("VERBOSE")) {
+      std::cerr << "TV: " << tv->toString() << std::endl;
+    }
 
     // Only support slice at this moment
     auto slice = dynamic_cast<SliceOp*>(tv->definition());
@@ -872,6 +937,9 @@ void ContiguousInnerDimensionsMapper::initializeResizeFactors(Fusion* fusion) {
             resize_factors_it->second, producer_resize_factor);
       }
       resize_factors_[producer_tv_rf_id] = producer_resize_factor;
+
+      // TODO: assuming IDs are only used by slice
+      sliced_ids_.insert(producer_tv_rf_id);
     }
   }
 
@@ -881,6 +949,95 @@ void ContiguousInnerDimensionsMapper::initializeResizeFactors(Fusion* fusion) {
               << factor->toInlineString() << std::endl;
   }
 }
+#else
+void ContiguousInnerDimensionsMapper::initializeResizeFactors(Fusion* fusion) {
+  // for (auto tv : ir_utils::allTvs(fusion)) {
+  //  Only support if the input is a fusion input. Should be relaxed
+  //  later.
+  //  The vectorization factor of the producer must be a common
+  //  factor of both extents if the producer is not a fusion
+  //  input. For now, we assume it's a fusion input
+  for (auto input_tv : ir_utils::filterByType<TensorView>(fusion->inputs())) {
+    if (std::none_of(
+            input_tv->uses().begin(), input_tv->uses().end(), [](Expr* expr) {
+              return expr->isA<SliceOp>();
+            })) {
+      continue;
+    }
+
+    if (true || getenv("VERBOSE")) {
+      std::cerr << "TV: " << input_tv->toString() << std::endl;
+    }
+
+    // std::unordered_set<IterDomain*> sli
+
+    for (auto consumer_tv : ir_utils::consumerTvsOf(input_tv)) {
+      const auto p2c =
+          PairwiseRootDomainMap(input_tv, consumer_tv)
+              .mapProducerToConsumer(input_tv->domain(), consumer_tv->domain());
+
+      auto consumer_exprs = StmtSort::getExprsBetween(
+          fusion,
+          {consumer_tv->getRootDomain().begin(),
+           consumer_tv->getRootDomain().end()},
+          {consumer_tv->getMaybeRFactorDomain().begin(),
+           consumer_tv->getMaybeRFactorDomain().end()});
+
+      for (auto input_rf_id : input_tv->getMaybeRFactorDomain()) {
+        if (input_rf_id->isReduction()) {
+          continue;
+        }
+
+        auto consumer_root_id = p2c.at(input_rf_id);
+
+        Val* resize_factor = nullptr;
+
+        if (auto consumer_exprs_it = std::find_if(
+                consumer_exprs.begin(),
+                consumer_exprs.end(),
+                [&](Expr* expr) {
+                  return expr->isA<Resize>() &&
+                      expr->as<Resize>()->in() == consumer_root_id;
+                });
+            consumer_exprs_it != consumer_exprs.end()) {
+          auto resize = (*consumer_exprs_it)->as<Resize>();
+          std::cerr << "Resize detected: " << resize->toString();
+          supported_resize_exprs_.insert(resize);
+          auto resize_out = resize->out()->as<IterDomain>();
+          auto post_resize_extent = commonOrConstExtent(ca_map_, resize_out);
+          resize_factor = post_resize_extent;
+
+          sliced_ids_.insert(input_rf_id);
+        } else {
+          resize_factor = commonOrConstExtent(ca_map_, input_rf_id);
+        }
+
+        if (auto resize_factors_it = resize_factors_.find(input_rf_id);
+            resize_factors_it != resize_factors_.end()) {
+          resize_factor = SimplifyingIrBuilder::gcdExpr(
+              resize_factors_it->second, resize_factor);
+        }
+        resize_factors_[input_rf_id] = resize_factor;
+      }
+    }
+  }
+
+  // If not sliced, don't keep track of resize factor
+  for (auto it = resize_factors_.begin(); it != resize_factors_.end();) {
+    if (!sliced_ids_.count(it->first)) {
+      it = resize_factors_.erase(it);
+    } else {
+      ++it;
+    }
+  }
+
+  // DEBUG DUMP
+  for (auto& [id, factor] : resize_factors_) {
+    std::cerr << "Resize factor: " << id->toString() << ", "
+              << factor->toInlineString() << std::endl;
+  }
+}
+#endif
 
 namespace {
 
@@ -934,7 +1091,9 @@ size_t getVectorizationFactor(
       SchedulerRuntimeInfo::max_alignment_size_in_byte;
 
   for (auto inp_or_out : vectorizable_inputs_outputs) {
-    std::cerr << "Vec inp or out: " << inp_or_out->toString() << std::endl;
+    if (getenv("VERBOSE")) {
+      std::cerr << "Vec inp or out: " << inp_or_out->toString() << std::endl;
+    }
     auto dtype_size =
         dataTypeSize(inp_or_out->dtype(), runtime_info.getIndexType());
 
@@ -947,17 +1106,23 @@ size_t getVectorizationFactor(
         common_alignment_size, runtime_info.getAlignmentSize(inp_or_out));
   }
 
-  std::cerr << "max_vec_size: " << max_vec_size << std::endl;
+  if (getenv("VERBOSE")) {
+    std::cerr << "max_vec_size: " << max_vec_size << std::endl;
+  }
   auto tv_to_inner_size_map = vectorize_maps_entry.get().at(break_point);
   // Initialize to max the tensors could support.
   size_t max_supported_vector_size = max_vec_size;
   for (auto inp_or_out : vectorizable_inputs_outputs) {
-    std::cerr << "Vec inp or out: " << inp_or_out->toString() << std::endl;
+    if (getenv("VERBOSE")) {
+      std::cerr << "Vec inp or out: " << inp_or_out->toString() << std::endl;
+    }
     auto inner_size_it = tv_to_inner_size_map.find(inp_or_out);
     auto inner_size_val = inner_size_it != tv_to_inner_size_map.end()
         ? inner_size_it->second
         : inp_or_out->container()->oneVal();
-    std::cerr << "inner_size_val: " << inner_size_val << std::endl;
+    if (getenv("VERBOSE")) {
+      std::cerr << "inner_size_val: " << inner_size_val << std::endl;
+    }
     auto inner_size_opt =
         runtime_info.expressionEvaluator().evaluate(inner_size_val);
     TORCH_INTERNAL_ASSERT(
@@ -972,13 +1137,17 @@ size_t getVectorizationFactor(
       local_max_vec_size *= 2;
     }
 
-    std::cerr << "locl max_vec_size: " << local_max_vec_size << std::endl;
+    if (getenv("VERBOSE")) {
+      std::cerr << "local max_vec_size: " << local_max_vec_size << std::endl;
+    }
 
     max_supported_vector_size =
         std::min(local_max_vec_size, max_supported_vector_size);
   }
 
-  std::cerr << "Vec factor: " << max_supported_vector_size << std::endl;
+  if (getenv("VERBOSE")) {
+    std::cerr << "Vec factor: " << max_supported_vector_size << std::endl;
+  }
   return max_supported_vector_size;
 }
 
