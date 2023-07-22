@@ -87,7 +87,7 @@ std::string SelectOp::toString(int indent_size) const {
   indent_size++;
   indent(ss, indent_size) << " = select( " << input(0)->toString()
                           << ", axis = " << getIndexedID()
-                          << ", index = " << input(1)->toString() << " )\n";
+                          << ", index = " << input(1)->toString() << " );\n";
   return ss.str();
 }
 
@@ -122,7 +122,7 @@ std::string IndexSelectOp::toString(int indent_size) const {
   indent_size++;
   indent(ss, indent_size) << " = index_select( ";
   ss << input(0)->toString() << ", dim = " << dim() << ", "
-     << input(1)->toString() << " )\n";
+     << input(1)->toString() << " );\n";
   return ss.str();
 }
 
@@ -165,9 +165,9 @@ std::string TorchGatherOp::toString(int indent_size) const {
                           << (exactSizes() ? "take_along_axis" : "torch_gather")
                           << "( " << input(0)->toString();
   if (exactSizes()) {
-    ss << ", " << input(1)->toString() << ", dim = " << dim() << " )\n";
+    ss << ", " << input(1)->toString() << ", dim = " << dim() << " );\n";
   } else {
-    ss << ", dim = " << dim() << ", " << input(1)->toString() << " )\n";
+    ss << ", dim = " << dim() << ", " << input(1)->toString() << " );\n";
   }
   return ss.str();
 }
@@ -211,7 +211,7 @@ std::string ScatterOp::toString(int indent_size) const {
   indent(ss, indent_size) << " =" << getScatterOpType() << "(";
   ss << "self = " << selfTv()->toString() << ", dim = " << dim()
      << ", src = " << input(2)->toString() << ", idx = " << input(1)->toString()
-     << " )\n";
+     << " );\n";
   return ss.str();
 }
 
@@ -751,7 +751,7 @@ GetMetaData::GetMetaData(IrBuilderPasskey passkey, Val* output, Val* input)
 std::string GetMetaData::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << out()->toString() << " = getMetaData("
-                          << in()->toString() << ")\n";
+                          << in()->toString() << ");\n";
   return ss.str();
 }
 
@@ -801,7 +801,7 @@ TensorConstruct::TensorConstruct(
 std::string TensorConstruct::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << out()->toString() << " = TensorConstruct("
-                          << in()->toString() << ")\n";
+                          << in()->toString() << ");\n";
   return ss.str();
 }
 
@@ -952,7 +952,7 @@ BroadcastOp::BroadcastOp(
 std::string BroadcastOp::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << out()->toString() << "\n";
-  indent(ss, indent_size) << "   = broadcast( " << in()->toString() << " )\n";
+  indent(ss, indent_size) << "   = broadcast( " << in()->toString() << " );\n";
   return ss.str();
 }
 
@@ -1048,7 +1048,7 @@ SqueezeOp::SqueezeOp(
 std::string SqueezeOp::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << out()->toString() << "\n";
-  indent(ss, indent_size) << "   = squeeze( " << in()->toString() << " )\n";
+  indent(ss, indent_size) << "   = squeeze( " << in()->toString() << " );\n";
   return ss.str();
 }
 
@@ -1164,7 +1164,7 @@ std::string ReductionOp::toString(int indent_size) const {
                           << ", op = " << getReductionOpType()
                           << ", initial value = " << init()->toString()
                           << ", allreduce = "
-                          << (isAllreduce() ? "true" : "false") << " )\n";
+                          << (isAllreduce() ? "true" : "false") << " );\n";
   return ss.str();
 }
 
@@ -1206,10 +1206,10 @@ std::string GroupedReductionOp::toString(int indent_size) const {
     indent(ss, indent_size)
         << output(i)->toString() << " = reduction( " << input(i)->toString()
         << ", op = " << getReductionOpType(i)
-        << ", initial value = " << initVal(i)->toString() << " )\n";
+        << ", initial value = " << initVal(i)->toString() << " );\n";
   }
   indent(ss, indent_size) << "allreduce = "
-                          << (isAllreduce() ? "true" : "false") << " )\n";
+                          << (isAllreduce() ? "true" : "false") << " );\n";
   return ss.str();
 }
 
@@ -1400,7 +1400,7 @@ std::string WelfordOp::toString(int indent_size) const {
        << initVar()->toString() << "(Var)\n  " << initN()->toString() << "(N)";
   }
   ss << "\n  allreduce = " << (isAllreduce() ? "true" : "false");
-  ss << " )\n";
+  ss << " );\n";
   return ss.str();
 }
 
@@ -1542,7 +1542,7 @@ std::string GroupedWelfordOp::toString(int indent_size) const {
     indent_size -= 2;
   }
   indent(ss, indent_size) << "allreduce = "
-                          << (isAllreduce() ? "true" : "false") << " )\n";
+                          << (isAllreduce() ? "true" : "false") << " );\n";
   return ss.str();
 }
 
@@ -1910,7 +1910,7 @@ std::string MmaOp::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << out()->toString() << "\n";
   indent(ss, indent_size + 1) << " = mma(" << inA()->toString() << ",\n";
-  indent(ss, indent_size + 1) << "       " << inB()->toString() << ")\n";
+  indent(ss, indent_size + 1) << "       " << inB()->toString() << ");\n";
   return ss.str();
 }
 
@@ -1953,7 +1953,7 @@ std::string ExpandOp::toString(int indent_size) const {
   indent(ss, indent_size) << out()->toString() << " = expand( " << in()
                           << ", {";
   ss << toDelimitedString(expanded_extents());
-  ss << "} )\n";
+  ss << "} );\n";
   return ss.str();
 }
 
@@ -2005,7 +2005,7 @@ std::string ShiftOp::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << out()->toString() << " = shift( "
                           << in()->toString() << ", {" << offsets() << "}, {"
-                          << padWidth() << "} )\n";
+                          << padWidth() << "} );\n";
   return ss.str();
 }
 
@@ -2067,7 +2067,7 @@ std::string GatherOp::toString(int indent_size) const {
     ss << "{" << pad[0] << ", " << pad[1] << "}";
     no_comma = false;
   }
-  ss << "} )\n";
+  ss << "} );\n";
   return ss.str();
 }
 
@@ -2103,7 +2103,7 @@ std::string ViewAsScalar::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << out()->toString() << " = view_as_scalar( "
                           << in()->toString() << ", " << vector_id()->toString()
-                          << " )\n";
+                          << " );\n";
   return ss.str();
 }
 
@@ -2121,7 +2121,7 @@ ViewOp::ViewOp(IrBuilderPasskey passkey, Val* out, Val* in) : Expr(passkey) {
 std::string ViewOp::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << out()->toString() << " = view( "
-                          << in()->toString() << " )\n";
+                          << in()->toString() << " );\n";
   return ss.str();
 }
 
@@ -2169,7 +2169,7 @@ std::string LoadStoreOp::toString(int indent_size) const {
     indent(ss, indent_size + 1)
         << std::string(optype.size() + 5, ' ') << predicate()->toInlineString();
   }
-  ss << " )\n";
+  ss << " );\n";
   return ss.str();
 }
 
@@ -3736,7 +3736,7 @@ std::string PadOp::toString(int indent_size) const {
   indent(ss, indent_size) << out()->toString() << "\n";
   indent(ss, indent_size) << "   = pad( " << in()->toString() << ", {"
                           << toDelimitedString(getPadWidths()) << "}"
-                          << " )\n";
+                          << " );\n";
   return ss.str();
 }
 
@@ -3819,7 +3819,7 @@ std::string SliceOp::toString(int indent_size) const {
               slice.step->toString()})
        << "}";
   }
-  ss << " } )\n";
+  ss << " } );\n";
   return ss.str();
 }
 
@@ -3901,7 +3901,7 @@ std::string CatOp::toString(int indent_size) const {
   indent(ss, indent_size) << "   = cat( ";
   ss << toDelimitedString(inputs());
   ss << ", " << concatenatedDim();
-  ss << " )\n";
+  ss << " );\n";
   return ss.str();
 }
 
