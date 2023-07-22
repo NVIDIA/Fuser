@@ -256,7 +256,7 @@ class DomainMap : public pointwise_utils::DomainMap {
 // We will split that dim and large dim and and use the splitted ones to satisfy
 // both of them:
 //   T0[I0*I1o*I5*I6{1024*1024/4*8}, I1i*I2*I3*I4{32}]
-void maybeBuildVirtualInnerDims(
+bool maybeBuildVirtualInnerDims(
     TransposeParams& params,
     int64_t device_multiprocessor_count,
     int64_t n_elems,
@@ -275,7 +275,7 @@ void maybeBuildVirtualInnerDims(
 
   if (wave_elements >= n_elems) {
     // if one full wave can handle all elements, don't create virtual inner dims
-    return;
+    return false;
   }
 
   // merge inner_most1 and inner_most2 left until we are done or we can no
@@ -328,7 +328,7 @@ void maybeBuildVirtualInnerDims(
   // is impossible to satisfy both of them, also done.
   if ((merged_size1 < (int64_t)params.tile_size1) ==
       (merged_size2 < (int64_t)params.tile_size2)) {
-    return; // no need to split
+    return false; // no need to split
   }
   // If one of them are not satisfied, there might be two cases:
   // 1. The satisfied one just merged in a large dim. If this is the case, We
@@ -351,7 +351,7 @@ void maybeBuildVirtualInnerDims(
       split_factor = params.tile_size2;
 #else
       // disabled due to indexing error
-      return;
+      return false;
 #endif
     } else {
       // case 1
@@ -370,7 +370,7 @@ void maybeBuildVirtualInnerDims(
       split_factor = params.tile_size1;
 #else
       // disabled due to indexing error
-      return;
+      return false;
 #endif
     } else {
       // case 1
@@ -406,6 +406,7 @@ void maybeBuildVirtualInnerDims(
     }
     params.dims_merged_with_2.push_back(large_dim);
   }
+  return true;
 }
 
 HeuristicSummaryEntry<HeuristicCompileTime::TransposeDomainMap> getDomainMap(
@@ -642,7 +643,7 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
   // Expand inner-most dims to virtual inner-most dims so that the inner-most
   // dims has at least tile_size elements
   // See note [Supporting small transpose dimensions]
-  maybeBuildVirtualInnerDims(
+  auto small_transpose_flag = maybeBuildVirtualInnerDims(
       *params,
       device_multiprocessor_count,
       n_elems,
