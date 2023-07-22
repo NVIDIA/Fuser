@@ -809,6 +809,13 @@ std::string TensorConstruct::toInlineString(int indent_size) const {
   TORCH_CHECK(false, "Tensor op can not be printed inline");
 }
 
+std::vector<PolymorphicValue> TensorConstruct::evaluate(
+    const std::vector<PolymorphicValue>& inputs) const {
+  TORCH_INTERNAL_ASSERT(inputs.size() == 1, "TensorConstruct expects 1 input");
+  using namespace PolymorphicValue_functions;
+  return {toTensor(inputs.at(0))};
+}
+
 NVFUSER_DEFINE_CLONE_AND_CREATE(TensorConstruct)
 
 RNGOp::RNGOp(
