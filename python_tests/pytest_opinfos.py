@@ -161,6 +161,18 @@ broadcast_in_dim_opinfo = OpInfo(
 )
 shape_ops.append(broadcast_in_dim_opinfo)
 
+# TODO: Add correctness testing as noted below
+tensor_shape_opinfo = OpInfo(
+    lambda fd: fd.ops.shape,
+    "tensor_shape",
+    # TODO: Check correctness once there are operators that can consume a Vector
+    sample_input_generator=None,
+    # NOTE: ops.shape will take any legal Tensor object where the creation of 
+    # Tensor inputs will check possible errors
+    error_input_generator=None,
+)
+shape_ops.append(tensor_shape_opinfo)
+
 
 # translate between nvfuser and pytorch argument order for gather, take_along_dim, and index_select
 def gather_wrapper(fn: callable, input: torch.Tensor, index: torch.Tensor, dim: int):
