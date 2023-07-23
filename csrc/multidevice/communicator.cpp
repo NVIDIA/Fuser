@@ -6,6 +6,7 @@
  */
 // clang-format on
 #ifdef USE_DISTRIBUTED
+#include <netdb.h>
 
 #include <multidevice/communicator.h>
 #ifdef USE_C10D_GLOO
@@ -74,7 +75,8 @@ bool parseEnv(
   // retrieves master address
   env = std::getenv("MASTER_ADDR");
   if (env) {
-    master_addr = env;
+    // replace the potential aliased hostname by the "official" name
+    master_addr = gethostbyname(env)->h_name;
   } else {
     TORCH_WARN(
         "the environment variable MASTER_ADDR "
@@ -148,10 +150,12 @@ Communicator::Communicator(
   c10d::TCPStoreOptions store_opts;
   {
     char hostname[HOST_NAME_MAX]; // NOLINT (modernize-avoid-c-arrays)
-    gethostname(hostname, HOST_NAME_MAX);
-    struct hostent* master_host = gethostbyname(master_addr_.c_str());
+    TORCH_INTERNAL_ASSERT(
+        gethostname(hostname, HOST_NAME_MAX) == 0,
+        "error when retrieving hostname");
     // we define the server as the process at the master host with local rank 0
-    store_opts.isServer = !strcmp(master_host->h_name, hostname) &&
+    store_opts.isServer =
+        !strcmp(master_addr_.c_str(), gethostbyname(hostname)->h_name) &&
         local_rank_ == server_local_rank;
   }
   if (master_port_) {
