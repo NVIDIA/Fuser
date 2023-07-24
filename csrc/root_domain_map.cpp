@@ -1200,6 +1200,11 @@ void ComputeAtRootDomainMapBuilder::handle(TensorView* tv) {
         if (root_set.find(id) == root_set.end() || rf_id == id) {
           continue;
         }
+        // Usually, the itertypes between IterDomain expression inputs and
+        // outputs will match. However, it is possible for a Resize operation to
+        // take an Iteration input and reduce it to size 1, after which it
+        // becomes Broadcast. This check avoids mapping an Iteration and
+        // Broadcast domain in such a case.
         if (id->getIterType() == rf_id->getIterType()) {
           setMaybeMapped(td, id, td, rf_id);
         }
