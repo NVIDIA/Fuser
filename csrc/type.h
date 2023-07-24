@@ -208,7 +208,7 @@ bool StructOf::operator==(const StructOf& other) const {
 
 class Val;
 //! Get the type of a Val's metadata, currently only supporting tensors
-DataType metaDataTypeOf(Val* tv);
+DataType metaDataTypeOf(const Val* tv);
 
 enum class KernelIndexMode { INT32, INT64 };
 
