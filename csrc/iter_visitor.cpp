@@ -336,7 +336,8 @@ class Inputs : public IterVisitor {
   Inputs(const std::vector<Val*>& all_inputs) : all_inputs_(all_inputs) {}
 
   std::vector<Statement*> next(Val* v) override {
-    if (std::find(inputs_.begin(), inputs_.end(), v) != inputs_.end()) {
+    if (std::find(all_inputs_.begin(), all_inputs_.end(), v) !=
+        all_inputs_.end()) {
       return {};
     }
     return IterVisitor::next(v);
