@@ -1153,12 +1153,6 @@ bool isTensorSize(const Val* val) {
 }
 
 bool isTensorStride(const Val* val) {
-  if (auto ns = dynamic_cast<const NamedScalar*>(val)) {
-    // TODO: remove this
-    if (ns->isTensorStride()) {
-      return true;
-    }
-  }
   return isTensorAttr(val, "stride");
 }
 
