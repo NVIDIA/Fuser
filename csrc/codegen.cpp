@@ -385,7 +385,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   // non-const Expr*.
   void handle(const std::vector<Expr*>& exprs) {
     for (Expr* expr : exprs) {
-      kir::ConstIrVisitor::handle(expr);
+      kir::ConstIrVisitor::dispatch(expr);
     }
   }
 
@@ -450,7 +450,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     std::stringstream tmp_code;
     initStringStreamFormat(tmp_code);
     std::swap(tmp_code, code_);
-    handle(stmt);
+    dispatch(stmt);
     std::swap(tmp_code, code_);
     return tmp_code.str();
   }
@@ -469,7 +469,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     code_ << gen(pred->value());
   }
 
-  void handle(const Scalar* s) final {
+  void handle(const Val* s) final {
     // Check the replacement map first. If there's an entry for s, use
     // the corresponding replacement.
     auto replace_it = index_replacement_map_.find(s);
@@ -535,11 +535,6 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           << "]";
   }
 
-  void handle(const ViewAsScalar* sv) final {
-    indent() << gen(sv->output(0)) << " = " << gen(sv->input(0)) << "["
-             << gen(sv->index()) << "];\n";
-  }
-
   void handle(const IterDomain*) final {
     TORCH_INTERNAL_ASSERT(false, "Unreachable");
   }
@@ -548,18 +543,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     TORCH_INTERNAL_ASSERT(false, "Unreachable");
   }
 
-  void handle(const TensorView*) final {
-    TORCH_INTERNAL_ASSERT(false, "Unreachable");
-  }
-
-  void handleArrayType(const Val* v) final {
-    const auto def = v->definition();
-    const bool has_alloc = alloc_map_.find(v) != alloc_map_.end();
-    if (def != nullptr && !has_alloc) {
-      code_ << v->dtype() << "(" << genInline(def) << ")";
-    } else {
-      code_ << genVariableName(v);
-    }
+  void handle(const TensorView* tv) final {
+    code_ << genVariableName(tv);
   }
 
   //! Utility for generating vectorized pointer access in ldsm and
@@ -612,20 +597,33 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     indent() << genCall(name, func_args) << ";\n";
   }
 
-  void handle(const kir::BaseAddress* sop) final {
+  void handle(const GetMetaData* gop) final {
+    if (print_inline_) {
+      code_ << gen(gop->in());
+    } else {
+      auto out_type = gop->output(0)->dtype();
+      std::visit(
+          [&](auto&& dtype) {
+            using T = std::decay_t<decltype(dtype)>;
+            if constexpr (std::is_same_v<T, StructOf>) {
+              for (auto& [name, _] : dtype.types) {
+                indent() << gen(gop->output(0)) << "." << name << " = "
+                         << gen(gop->in()) << "." << name << ";\n";
+              }
+            } else {
+              indent() << gen(gop->output(0)) << " = " << gen(gop->in())
+                       << ";\n";
+            }
+          },
+          out_type.type);
+    }
+  }
+
+  void handle(const GetAttr* gop) final {
     if (!print_inline_) {
-      indent() << gen(sop->output(0)) << " = ";
+      indent() << gen(gop->output(0)) << " = ";
     }
-    switch (sop->tv()->getMemoryType()) {
-      case MemoryType::Shared:
-        code_ << "toSmem(" << genVariableName(sop->tv()) << ")";
-        break;
-      case MemoryType::Global:
-        code_ << genVariableName(sop->tv()) << ".data";
-        break;
-      default:
-        TORCH_INTERNAL_ASSERT(false, "Unsupported input for kir::BaseAddress");
-    }
+    code_ << gen(gop->struct_()) << "." << gop->attr();
     if (!print_inline_) {
       code_ << ";\n";
     }
@@ -661,6 +659,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
             ", output type: ",
             uop->out()->dtype());
         code_ << cast_str.value();
+      } else if (op_type == UnaryOpType::BitCast) {
+        code_ << "std::bit_cast<" << uop->out()->dtype() << ">";
       } else {
         code_ << op_type;
         if (needFloatSuffix(op_type) &&
@@ -810,11 +810,11 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
     auto rhs = bop->rhs();
     PolymorphicValue exponent;
-    if (auto val_int = dynamic_cast<Scalar*>(rhs)) {
+    if (auto val_int = dynamic_cast<Val*>(rhs)) {
       if (val_int->isConst()) {
         exponent = val_int->value();
       }
-    } else if (auto val_float = dynamic_cast<Scalar*>(rhs)) {
+    } else if (auto val_float = dynamic_cast<Val*>(rhs)) {
       if (val_float->isConst()) {
         auto fp_exp = val_float->value().as<double>();
         double int_exp = 0;
@@ -1409,6 +1409,33 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     // Generic set op
     TORCH_INTERNAL_ASSERT(optype == LoadStoreOpType::Set);
 
+    if (!print_inline_ &&
+        std::holds_alternative<StructOf>(ldst->out()->dtype().type)) {
+      auto out_type = std::get<StructOf>(ldst->out()->dtype().type);
+      auto in_type = std::get<StructOf>(ldst->in()->dtype().type);
+      TORCH_INTERNAL_ASSERT(
+          out_type.types.size() == in_type.types.size(),
+          "Mismatched number of fields in struct assignment: ",
+          ldst->out()->dtype(),
+          " = ",
+          ldst->in()->dtype());
+      for (auto& [name, _] : out_type.types) {
+        TORCH_INTERNAL_ASSERT(
+            in_type.types.find(name) != in_type.types.end(),
+            "Mismatched field in struct assignment: ",
+            ldst->out()->dtype(),
+            ".",
+            name,
+            " = ",
+            ldst->in()->dtype(),
+            ".",
+            name);
+        indent() << gen(ldst->out()) << "." << name << " = " << gen(ldst->in())
+                 << "." << name << ";\n";
+      }
+      return;
+    }
+
     if (!print_inline_) {
       indent() << gen(ldst->out());
       if (!ldst->out()->isScalar() && !ldst->in()->isScalar()) {
@@ -1907,22 +1934,22 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
   //! Returns all combinations of maps from index Vals of grouped loops to their
   //! conrete integers.
-  std::vector<std::unordered_map<const Scalar*, int64_t>>
+  std::vector<std::unordered_map<const Val*, int64_t>>
   getLoopIndexReplacementMaps() {
-    std::vector<std::unordered_map<const Scalar*, int64_t>> maps;
+    std::vector<std::unordered_map<const Val*, int64_t>> maps;
 
     if (grouped_loops_.empty()) {
-      std::unordered_map<const Scalar*, int64_t> empty_map;
+      std::unordered_map<const Val*, int64_t> empty_map;
       return {empty_map};
     }
 
     // Vector of indices of grouped loops
-    std::vector<Scalar*> loop_indices;
+    std::vector<Val*> loop_indices;
     std::transform(
         grouped_loops_.begin(),
         grouped_loops_.end(),
         std::back_inserter(loop_indices),
-        [](const kir::ForLoop* loop) { return loop->index()->as<Scalar>(); });
+        [](const kir::ForLoop* loop) { return loop->index(); });
 
     // All combinations of loop index integer values
     const auto index_val_sets = getGroupedLoopIndexConcreteIntSets();
@@ -1930,7 +1957,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     // Create maps from loop index Vals to integers
     for (const auto& index_values : index_val_sets) {
       TORCH_INTERNAL_ASSERT(loop_indices.size() == index_values.size());
-      std::unordered_map<const Scalar*, int64_t> index_val_map;
+      std::unordered_map<const Val*, int64_t> index_val_map;
       for (const auto i : c10::irange(loop_indices.size())) {
         auto loop_index = loop_indices.at(i);
         auto index_val = index_values.at(i);
@@ -2937,7 +2964,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   //! Keep track of grouped loops
   std::deque<const kir::ForLoop*> grouped_loops_;
   //! Used to replace symbolic indices with concrete values
-  std::unordered_map<const Scalar*, int64_t> index_replacement_map_;
+  std::unordered_map<const Val*, int64_t> index_replacement_map_;
   //! Keep track of thread alignment property
   std::vector<bool> aligned_scope_exprs_;
   //! Keep track of the Val* and its generated variable name

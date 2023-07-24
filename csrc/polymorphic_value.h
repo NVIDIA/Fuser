@@ -160,6 +160,14 @@ class Pointer {
   explicit operator bool() const {
     return ptr_;
   }
+
+  explicit operator int64_t() const {
+    return reinterpret_cast<int64_t>(ptr_);
+  }
+
+  explicit operator unsigned() const {
+    return (unsigned)(int64_t)(*this);
+  }
 };
 
 inline Pointer operator+(int64_t offset, const Pointer& ptr) {
@@ -283,6 +291,46 @@ inline PolymorphicValue erf(const PolymorphicValue& a) {
   }
   TORCH_INTERNAL_ASSERT(
       false, "PolymorphicValue erf not implemented for ", a.type().name());
+}
+
+// Convert scalars, vector of scalars, vector of vector of scalars, etc., into
+// an at::Tensor
+inline PolymorphicValue toTensor(const PolymorphicValue& x) {
+  if (x.is<at::Tensor>()) {
+    return x;
+  }
+  // TODO: allow specifying device
+  auto options = at::TensorOptions().device(at::kCUDA, 0);
+  if (x.is<int64_t>()) {
+    return PolymorphicValue(
+        at::tensor(x.as<int64_t>(), options.dtype(at::kLong)).squeeze());
+  }
+  if (x.is<double>()) {
+    return PolymorphicValue(
+        at::tensor(x.as<double>(), options.dtype(at::kDouble)).squeeze());
+  }
+  if (x.is<bool>()) {
+    return PolymorphicValue(
+        at::tensor(x.as<bool>(), options.dtype(at::kBool)).squeeze());
+  }
+  if (x.is<std::complex<double>>()) {
+    return PolymorphicValue(
+        at::tensor(
+            (c10::complex<double>)x.as<std::complex<double>>(),
+            options.dtype(at::kComplexDouble))
+            .squeeze());
+  }
+  if (x.is<std::vector>()) {
+    auto vec = x.as<std::vector>();
+    std::vector<at::Tensor> tensors;
+    tensors.reserve(vec.size());
+    for (const auto& elem : vec) {
+      tensors.push_back(toTensor(elem).as<at::Tensor>());
+    }
+    return PolymorphicValue(at::stack(tensors));
+  }
+  TORCH_INTERNAL_ASSERT(
+      false, "PolymorphicValue toTensor not implemented for ", x.type().name());
 }
 
 } // namespace PolymorphicValue_functions

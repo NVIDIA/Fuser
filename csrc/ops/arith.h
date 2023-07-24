@@ -9,12 +9,11 @@
 
 #include <c10/macros/Export.h>
 
+#include <ir/base_nodes.h>
 #include <ir/builder.h>
 #include <ir/interface_nodes.h>
 #include <type.h>
 #include <type_promotion.h>
-
-class Val;
 
 /*
  * The operations defined in this header is intended as user facing functions.
@@ -136,7 +135,7 @@ TORCH_CUDA_CU_API WelfordResult Welford(
     TensorView* init_var = nullptr,
     // Initializes to 0 in function definition, doing this so we don't have to
     // import IrBuilder just for this one interface.
-    Scalar* init_N = nullptr);
+    Val* init_N = nullptr);
 
 //! Create a raw WelfordOp. Don't convert size-1 or size-0 reduction into
 //! squeeze/full.
@@ -147,7 +146,7 @@ TORCH_CUDA_CU_API WelfordResult WelfordRaw(
     TensorView* init_var = nullptr,
     // Initializes to 0 in function definition, doing this so we don't have to
     // import IrBuilder just for this one interface.
-    Scalar* init_N = nullptr);
+    Val* init_N = nullptr);
 
 // RNG OPERATIONS
 TORCH_CUDA_CU_API TensorView* rand(
@@ -503,6 +502,13 @@ TORCH_CUDA_CU_API TensorView* bitwise_right_shift(Val* v1, TensorView* v2);
 TORCH_CUDA_CU_API TensorView* bitwise_right_shift(
     TensorView* v1,
     TensorView* v2);
+// logical_right_shift
+TORCH_CUDA_CU_API TensorView* logical_right_shift(
+    TensorView* x,
+    TensorView* shift);
+TORCH_CUDA_CU_API TensorView* logical_right_shift(TensorView* x, Val* shift);
+TORCH_CUDA_CU_API TensorView* logical_right_shift(Val* x, TensorView* shift);
+TORCH_CUDA_CU_API Val* logical_right_shift(Val* x, Val* shift);
 // bitwise_or
 TORCH_CUDA_CU_API Val* bitwise_or(Val* v1, Val* v2);
 TORCH_CUDA_CU_API TensorView* bitwise_or(TensorView* v1, Val* v2);
@@ -677,7 +683,7 @@ TORCH_CUDA_CU_API TensorView* clamp(TensorView* in, Val* min_val, Val* max_val);
 
 TORCH_CUDA_CU_API TensorView* sum_to(
     TensorView* v1,
-    const std::vector<Scalar*>& sum_to_size);
+    const std::vector<Val*>& sum_to_size);
 
 TORCH_CUDA_CU_API TensorView* sum_to(
     TensorView* v1,

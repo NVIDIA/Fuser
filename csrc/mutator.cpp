@@ -9,25 +9,34 @@
 #include <fusion.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
-#include <mutator.h>
 
 #include <vector>
 
+/*
+ * Mutators are the mechanism used to modify IR nodes. Since most nodes are
+ * immutable or at least partially immutable changeing them can require creating
+ * a new node. Base mutator at the moment is a dumb sample mutator that takes
+ * any float of value 1.0 and converts it to 0.0; It is currently used as a
+ * dummy example, however, we should make it a simple instantiation of all the
+ * mutate functions on all node types so that people can inherit it, and only
+ * specialize those nodes which they want to have a particular transformation.
+ */
+
 namespace nvfuser {
 
-void OptOutMutator::mutate(Statement* s) {
+void OptOutMutator::dispatchMutate(Statement* s) {
   Statement::mutatorDispatch(this, s);
 }
 
-void OptOutMutator::mutate(Val* v) {
+void OptOutMutator::dispatchMutate(Val* v) {
   Val::mutatorDispatch(this, v);
 }
 
 void OptOutMutator::registerMutation(Val* val, Val* mutation) {
   bool val_is_ns = val->vtype() == ValType::NamedScalar;
   bool mutation_is_ns = mutation->vtype() == ValType::NamedScalar;
-  bool val_is_scalar = val->vtype() == ValType::Scalar;
-  bool mutation_is_scalar = mutation->vtype() == ValType::Scalar;
+  bool val_is_scalar = val->vtype() == ValType::Others;
+  bool mutation_is_scalar = mutation->vtype() == ValType::Others;
   TORCH_INTERNAL_ASSERT(
       mutation->dtype() == val->dtype() &&
           (mutation->vtype() == val->vtype() ||
@@ -45,7 +54,7 @@ void OptOutMutator::registerMutation(Val* val, Val* mutation) {
   mutations_[val] = mutation;
 }
 
-void OptOutMutator::mutate(Scalar* s) {}
+void OptOutMutator::mutate(Val* s) {}
 
 void OptOutMutator::mutate(NamedScalar* ns) {}
 
@@ -127,7 +136,9 @@ void OptOutMutator::mutate(kir::TensorIndex*) {
   TORCH_INTERNAL_ASSERT(false, "Not implemented yet.");
 }
 
-void OptOutMutator::mutateArrayType(Val* v) {}
+void OptOutMutator::mutate(PipelineVal*) {
+  TORCH_INTERNAL_ASSERT(false, "Not implemented yet.");
+}
 
 void OptOutMutator::mutate(Expr* op) {
   std::vector<Val*> mutated_inputs;

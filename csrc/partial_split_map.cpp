@@ -15,7 +15,7 @@ void PartialSplitMap::build(Fusion* fusion) {
   auto used_vals = ir_utils::allTvs(fusion);
 
   for (auto tv : ir_utils::filterByType<TensorView>(used_vals)) {
-    auto exprs = StmtSort::getExprs(
+    auto exprs = StmtSort::getExprsTo(
         fusion, {tv->getLeafDomain().begin(), tv->getLeafDomain().end()});
     for (auto split : ir_utils::filterByType<Split>(exprs)) {
       // Only needs to check root domains as partial split is only

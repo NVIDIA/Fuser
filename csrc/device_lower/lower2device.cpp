@@ -53,7 +53,7 @@ class KIRCleaner : public OptOutDispatch {
     KIRCleaner cleaner;
     std::vector<Expr*> out_loop_nests;
     for (auto loop_nest : loop_nests) {
-      cleaner.handle(loop_nest);
+      cleaner.dispatch(loop_nest);
       // No need to keep the loop nest if it's determined to be nop
       if (!cleaner.is_nop_) {
         out_loop_nests.push_back(loop_nest);
@@ -64,9 +64,9 @@ class KIRCleaner : public OptOutDispatch {
 
  private:
   using OptOutDispatch::handle;
-  void handle(Expr* expr) final {
+  void dispatch(Expr* expr) final {
     if (expr->isA<kir::ForLoop>() || expr->isA<kir::IfThenElse>()) {
-      OptOutDispatch::handle(expr);
+      OptOutDispatch::dispatch(expr);
     } else {
       // Any non-scoping expr is not considered nop
       is_nop_ = false;
@@ -77,7 +77,7 @@ class KIRCleaner : public OptOutDispatch {
     auto exprs = fl->body().exprs();
     fl->body().clear();
     for (auto expr : exprs) {
-      handle(expr);
+      dispatch(expr);
       // Add the expr to the loop body only when the expr is not nop
       if (!is_nop_) {
         fl->body().push_back(expr);
@@ -95,7 +95,7 @@ class KIRCleaner : public OptOutDispatch {
     ite->thenBody().clear();
     if (!conditional->isConst() || conditional->value().as<bool>()) {
       for (auto expr : then_exprs) {
-        handle(expr);
+        dispatch(expr);
         if (!is_nop_) {
           ite->thenBody().push_back(expr);
         }
@@ -109,7 +109,7 @@ class KIRCleaner : public OptOutDispatch {
     ite->elseBody().clear();
     if (!conditional->isConst() || !conditional->value().as<bool>()) {
       for (auto expr : else_exprs) {
-        handle(expr);
+        dispatch(expr);
         if (!is_nop_) {
           ite->elseBody().push_back(expr);
         }
@@ -122,8 +122,8 @@ class KIRCleaner : public OptOutDispatch {
     // conditional and move the exprs in the else block to the then
     // block.
     if (then_nop && !else_nop) {
-      Scalar* pred = ite->predicate()->value();
-      Scalar* not_pred = SimplifyingIrBuilder::notExpr(pred)->as<Scalar>();
+      Val* pred = ite->predicate()->value();
+      Val* not_pred = SimplifyingIrBuilder::notExpr(pred);
       ite->predicate()->setValue(not_pred);
       for (auto expr : ite->elseBody().exprs()) {
         ite->thenBody().push_back(expr);

@@ -16,7 +16,6 @@
 #include <kernel.h>
 #include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
-#include <mutator.h>
 
 #include <torch/csrc/jit/ir/ir.h>
 
@@ -89,19 +88,6 @@ kir::Kernel* Statement::kernel() const {
   return ir_container_->as<kir::Kernel>();
 }
 
-// When we create a Val we immediately register them with the active fusion.
-Val::Val(IrBuilderPasskey passkey, ValType _vtype, DataType _dtype)
-    : Statement(passkey), vtype_(_vtype), dtype_(std::move(_dtype)) {}
-
-// NOTE: we don't clone the definition_ and uses_ here
-//  since they may introduce cloning cycles. Instead, we copy
-//  the original pointers and we'll fix them up later part of the
-//  Fusion copy. Neither definition_ nor uses_ are copied through
-//  this constructor now leaving them to be resolved by later stages
-//
-Val::Val(const Val* src, IrCloner* ir_cloner)
-    : Statement(src, ir_cloner), vtype_(src->vtype_), dtype_(src->dtype_) {}
-
 NVFUSER_DEFINE_CLONE(Val)
 
 const std::vector<Expr*>& Val::uses() const {
@@ -140,7 +126,7 @@ bool Val::removeUse(Expr* expr) {
 // for index expressions.
 void Val::resolveIndexDtype() {
   TORCH_INTERNAL_ASSERT(
-      vtype_ == ValType::TensorView || vtype_ == ValType::Scalar ||
+      vtype_ == ValType::TensorView || vtype_ == ValType::Others ||
           vtype_ == ValType::NamedScalar,
       "Resolving index type is currently only supported on tensor view or scalar values. "
       "Value type: ",
@@ -166,7 +152,10 @@ bool Val::sameAs(const Statement* other) const {
     return true;
   }
   if (auto other_val = dynamic_cast<const Val*>(other)) {
-    if (definition_ == nullptr || other_val->definition_ == nullptr) {
+    if (typeid(*this) != typeid(*other_val)) {
+      return false;
+    }
+    if ((definition_ == nullptr) != (other_val->definition_ == nullptr)) {
       return false;
     }
     if (vtype_ != other_val->vtype_) {
@@ -174,6 +163,16 @@ bool Val::sameAs(const Statement* other) const {
     }
     if (dtype_ != other_val->dtype_) {
       return false;
+    }
+    if (value_.hasValue() != other_val->value_.hasValue()) {
+      return false;
+    }
+    if (definition_ == nullptr) {
+      if (value_.hasValue()) {
+        return value_ == other_val->value_;
+      } else {
+        return false;
+      }
     }
     if (!definition_->sameAs(other_val->definition_)) {
       return false;
@@ -195,29 +194,56 @@ bool Val::sameAs(const Statement* other) const {
   return false;
 }
 
+std::string Val::toString(int indent_size) const {
+  std::stringstream ss;
+  if (isSymbolic()) {
+    ss << ir_utils::varName(this);
+    return ss.str();
+  }
+  auto dtype = getDataType().value();
+  if (dtype == DataType::Bool) {
+    ss << (value() ? "true" : "false");
+  } else if (isIntegralType(dtype)) {
+    ss << value();
+  } else if (isFloatingPointType(dtype) || isComplexType(dtype)) {
+    ss << dtype << "(" << std::setprecision(max_digits10(dtype)) << value()
+       << ")";
+  } else if (dtype == DataType::Opaque) {
+    ss << "<opaque value>";
+  } else {
+    TORCH_INTERNAL_ASSERT(false, "Unknown scalar type: ", dtype);
+  }
+  return ss.str();
+}
+
+std::string Val::toInlineString(int indent_size) const {
+  if (definition() != nullptr) {
+    std::stringstream ss;
+    ss << "( " << definition()->toInlineString(indent_size) << " )";
+    return ss.str();
+  } else {
+    return toString(indent_size);
+  }
+}
+
 bool Val::isConstScalar() const {
   if (!isScalar()) {
     return false;
   }
-  // Unfortunately const model is broken. We can not easily cast a
-  // std::vector<T*> into a std::vector<const T*> in C++.
-  return ir_utils::dependenciesSatisfied({const_cast<Val*>(this)}, {});
+  return ir_utils::dependenciesSatisfied({this});
 }
 
 bool Val::isConstInt() const {
-  // Unfortunately const model is broken. We can not easily cast a
-  // std::vector<T*> into a std::vector<const T*> in C++.
-  return ir_utils::dependenciesSatisfied({const_cast<Val*>(this)}, {}) &&
-      isIntegralScalar();
+  return ir_utils::dependenciesSatisfied({this}) && isIntegralScalar();
 }
 
 int64_t Val::evaluateInt() {
   TORCH_INTERNAL_ASSERT(
-      ir_utils::dependenciesSatisfied({this}, {}),
+      ir_utils::dependenciesSatisfied(std::vector<const Val*>{this}),
       "Cannot get Int of not const values through IR nodes, must use runtime ExpressionEvaluator.");
 
-  if (this->as<Scalar>()->value().hasValue()) {
-    return this->as<Scalar>()->value().as<int64_t>();
+  if (this->value().hasValue()) {
+    return this->value().as<int64_t>();
   }
 
   ExpressionEvaluator ee;
@@ -231,11 +257,11 @@ int64_t Val::evaluateInt() {
 
 double Val::evaluateDouble() {
   TORCH_INTERNAL_ASSERT(
-      ir_utils::dependenciesSatisfied({this}, {}),
+      ir_utils::dependenciesSatisfied(std::vector<const Val*>{this}),
       "Cannot get Double of not const doubles through IR nodes, must use runtime ExpressionEvaluator.");
 
-  if (this->as<Scalar>()->value().hasValue()) {
-    return this->as<Scalar>()->value().as<double>();
+  if (this->value().hasValue()) {
+    return this->value().as<double>();
   }
 
   ExpressionEvaluator ee;
@@ -248,11 +274,11 @@ double Val::evaluateDouble() {
 
 bool Val::evaluateBool() {
   TORCH_INTERNAL_ASSERT(
-      ir_utils::dependenciesSatisfied({this}, {}),
+      ir_utils::dependenciesSatisfied(std::vector<const Val*>{this}),
       "Cannot get Bool of not const bools through IR nodes, must use runtime ExpressionEvaluator.");
 
-  if (this->as<Scalar>()->value().hasValue()) {
-    return this->as<Scalar>()->value().as<bool>();
+  if (this->value().hasValue()) {
+    return this->value().as<bool>();
   }
 
   ExpressionEvaluator ee;
@@ -264,8 +290,8 @@ bool Val::evaluateBool() {
 }
 
 std::optional<int64_t> Val::getInt() const {
-  if (isConstScalar() && isIntegralScalar() && isA<Scalar>()) {
-    auto val = this->as<Scalar>()->value();
+  if (isConstScalar() && isIntegralScalar()) {
+    auto val = this->value();
     if (val.is<int64_t>()) {
       return val.as<int64_t>();
     }
@@ -275,8 +301,8 @@ std::optional<int64_t> Val::getInt() const {
 }
 
 std::optional<double> Val::getDouble() const {
-  if (isConstScalar() && isFloatingPointScalar() && isA<Scalar>()) {
-    auto val = this->as<Scalar>()->value();
+  if (isConstScalar() && isFloatingPointScalar()) {
+    auto val = this->value();
     if (val.is<double>()) {
       return val.as<double>();
     }
@@ -286,8 +312,8 @@ std::optional<double> Val::getDouble() const {
 }
 
 std::optional<bool> Val::getBool() const {
-  if (isConstScalar() && isABool() && isA<Scalar>()) {
-    auto val = this->as<Scalar>()->value();
+  if (isConstScalar() && isABool()) {
+    auto val = this->value();
     if (val.is<bool>()) {
       return val.as<bool>();
     }
@@ -474,7 +500,7 @@ std::vector<PolymorphicValue> Expr::evaluate(
 }
 
 void Expr::addScalarAttribute(PolymorphicValue attr) {
-  addAttribute(IrBuilder::create<Scalar>(container(), std::move(attr)));
+  addAttribute(IrBuilder::create<Val>(container(), std::move(attr)));
 }
 
 } // namespace nvfuser

@@ -271,7 +271,7 @@ else()
   # NOTE: our CI build somehow fails with find driver lib.
   target_link_libraries(${NVFUSER_CODEGEN} PUBLIC CUDA::cuda_driver)
 
-  if(UCC_FOUND)  # inherited from pytorch source build
+  if(UCC_FOUND) # inherited from pytorch source build
     add_library(__nvfuser_ucc INTERFACE)
     target_link_libraries(__nvfuser_ucc INTERFACE ucx::ucs ucx::ucp ucc::ucc)
     target_include_directories(__nvfuser_ucc INTERFACE ${UCC_INCLUDE_DIRS})
@@ -395,6 +395,7 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/test/test_dynamic_transform.cpp
     ${NVFUSER_ROOT}/test/test_dynamic_type.cpp
     ${NVFUSER_ROOT}/test/test_evaluator.cpp
+    ${NVFUSER_ROOT}/test/test_expr_sort.cpp
     ${NVFUSER_ROOT}/test/test_gather.cpp
     ${NVFUSER_ROOT}/test/test_gpu1.cpp
     ${NVFUSER_ROOT}/test/test_gpu2.cpp
@@ -527,6 +528,7 @@ list(APPEND NVFUSER_RUNTIME_FILES
   ${NVFUSER_ROOT}/runtime/array.cu
   ${NVFUSER_ROOT}/runtime/basic_type_traits.cu
   ${NVFUSER_ROOT}/runtime/bf16_support.cu
+  ${NVFUSER_ROOT}/runtime/bit.cu
   ${NVFUSER_ROOT}/runtime/block_reduction.cu
   ${NVFUSER_ROOT}/runtime/block_sync_atomic.cu
   ${NVFUSER_ROOT}/runtime/block_sync_default.cu
@@ -594,11 +596,13 @@ endif()
 message(STATUS "")
 message(STATUS "******** Nvfuser configuration summary ********")
 message(STATUS "  UCC_FOUND: ${UCC_FOUND}")
-message(STATUS "  NVFUSER_STANDALONE_BUILD_WITH_UCC  : ${NVFUSER_STANDALONE_BUILD_WITH_UCC}" )
+message(STATUS "  NVFUSER_STANDALONE_BUILD_WITH_UCC  : ${NVFUSER_STANDALONE_BUILD_WITH_UCC}")
+
 if(NVFUSER_STANDALONE_BUILD_WITH_UCC)
   message(STATUS "    UCC_HOME: $ENV{UCC_HOME}")
   message(STATUS "    UCC_DIR : $ENV{UCC_DIR}")
   message(STATUS "    UCX_HOME: $ENV{UCX_HOME}")
   message(STATUS "    UCX_DIR : $ENV{UCX_DIR}")
 endif()
+
 message(STATUS "******** End of Nvfuser configuration summary ********")
