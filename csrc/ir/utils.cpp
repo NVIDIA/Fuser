@@ -1090,26 +1090,6 @@ bool dependenciesSatisfied(
   return true;
 }
 
-bool dependenciesSatisfied(
-    std::vector<Val*> needed_vals,
-    std::unordered_set<Val*> known_vals) {
-  while (!needed_vals.empty()) {
-    auto needed_val = needed_vals.back();
-    needed_vals.pop_back();
-    if (known_vals.count(needed_val) > 0 || needed_val->isConst()) {
-      continue;
-    }
-    auto def = needed_val->definition();
-    if (def == nullptr) {
-      return false;
-    }
-    for (auto input : def->inputs()) {
-      needed_vals.emplace_back(input);
-    }
-  }
-  return true;
-}
-
 bool isAlignedScopeExpr(const Expr* expr) {
   TORCH_INTERNAL_ASSERT(expr != nullptr);
   if (auto ite = dynamic_cast<const kir::IfThenElse*>(expr)) {
