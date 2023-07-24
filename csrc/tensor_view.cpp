@@ -240,69 +240,6 @@ std::string TensorView::toInlineString(int indent_size) const {
   return toString(indent_size);
 }
 
-void TensorView::convertRfactorToRootDomain() {
-  // For a given TensorView, does its domain (root / rfactor) contain any
-  // concrete sized extents?
-  auto is_concrete_tensor = [](TensorView* tv) {
-    for (auto id : tv->getMaybeRFactorDomain()) {
-      if (!id->extent()->isConstScalar()) {
-        return false;
-      }
-    }
-    return true;
-  };
-
-  // Create a new root domain and replacement TensorDomain.
-  // Given an rfactor domain, create a new IterDomain.
-  // Otherwise, clone the previous IterDomain
-  auto createReplacementDomain =
-      [this](const std::vector<Val*>& replacement_extents) {
-        TORCH_INTERNAL_ASSERT(
-            !replacement_extents.empty() &&
-            getMaybeRFactorDomain().size() == replacement_extents.size());
-        size_t idx = 0;
-        std::vector<IterDomain*> new_root_domain(
-            getMaybeRFactorDomain().size());
-        for (const auto& id : getMaybeRFactorDomain()) {
-          if (replacement_extents[idx] != nullptr) {
-            new_root_domain[idx] = IterDomainBuilder(id)
-                                       .extent(replacement_extents[idx])
-                                       .resetSchedulingParams()
-                                       .build();
-            ++idx;
-          } else {
-            TORCH_INTERNAL_ASSERT(!id->isRFactorProduct());
-            new_root_domain[idx++] = id->cloneWithoutRFactor();
-          }
-        }
-
-        TORCH_INTERNAL_ASSERT(
-            new_root_domain.size() == domain()->contiguity().size());
-        setDomain(IrBuilder::create<TensorDomain>(
-            container(), new_root_domain, domain()->contiguity()));
-      };
-
-  std::vector<Val*> rfactor_extents;
-  std::unordered_map<Val*, Val*> replacement_map;
-  const auto kThisIsConcreteTensor = is_concrete_tensor(this);
-  for (const auto& id : getMaybeRFactorDomain()) {
-    if (id->isRFactorProduct()) {
-      // Create new symbolic extents for rfactor iterDomains
-      auto domain_extent = (!kThisIsConcreteTensor)
-          ? IrBuilder::create<Val>(container(), DataType::Int)
-          : id->extent();
-      rfactor_extents.push_back(domain_extent);
-      replacement_map.emplace(id->extent(), domain_extent);
-    } else {
-      rfactor_extents.push_back(nullptr);
-    }
-  }
-  createReplacementDomain(rfactor_extents);
-
-  // Propagate new extent throughout fusion using ValReplacementMutator
-  ir_utils::replaceValue(fusion(), replacement_map);
-}
-
 TensorView::TensorView(const TensorView* src, IrCloner* ir_cloner)
     : Val(src, ir_cloner),
       domain_(ir_cloner->clone(src->domain_)),

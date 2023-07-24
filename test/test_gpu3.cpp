@@ -9371,6 +9371,65 @@ TEST_F(NVFuserTest, IterVisitorGetInputsTo) {
   EXPECT_EQ(inputs_set, std::unordered_set<Val*>({a, d}));
 }
 
+// converted from https://github.com/NVIDIA/Fuser/issues/443
+TEST_F(NVFuserTest, FusionInstanceNormNHWC_CUDA) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+  double k_eps = 1e-05;
+  auto shape = std::vector<int64_t>{256, 28, 28, 128};
+  {
+    DataType dtype = DataType::Half;
+    auto tv0 = makeContigTensor(4, dtype);
+    auto weight = makeContigTensor(1, dtype);
+    auto bias = makeContigTensor(1, dtype);
+    fusion->addInput(tv0);
+    fusion->addInput(weight);
+    fusion->addInput(bias);
+    tv0 = castOp(DataType::Float, tv0);
+    weight = castOp(DataType::Float, weight);
+    bias = castOp(DataType::Float, bias);
+
+    auto s1 = IrBuilder::create<Val>(k_eps);
+    auto var_mean = variance_mean(tv0, {1, 2}, 0, true);
+    auto tv_mean = var_mean.mean;
+    auto tv_var = var_mean.var;
+    auto tv_var_s1 = add(tv_var, s1);
+    auto tv_sqrt = sqrt(tv_var_s1);
+    auto tv_diff = sub(tv0, tv_mean);
+    auto tv_div = div(tv_diff, tv_sqrt);
+    auto tv_mul = mul(tv_div, weight);
+    auto tv_out = add(tv_mul, bias);
+    tv_out = castOp(DataType::Half, tv_out);
+
+    fusion->addOutput(tv_out);
+  }
+
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+  std::vector<c10::IValue> inputs;
+  std::vector<at::Tensor> outputs;
+
+  {
+    auto t0 = at::randn(shape, options);
+    auto t1 = at::randn(shape[3], options);
+    auto t2 = at::randn(shape[3], options);
+    inputs.emplace_back(t0);
+    inputs.emplace_back(t1);
+    inputs.emplace_back(t2);
+
+    auto var_mean = at::var_mean(t0, {1, 2}, 0, true);
+    auto var = std::get<0>(var_mean);
+    auto mean = std::get<1>(var_mean);
+    auto t3 = (t0 - mean) / sqrt(var + k_eps);
+    auto t4 = t3 * t1 + t2;
+    outputs.push_back(t4);
+  }
+
+  FusionExecutorCache fec(std::move(fusion_ptr));
+  auto cg_outputs = fec.runFusionWithInputs(inputs);
+  testValidate(fusion, cg_outputs, inputs, outputs, __LINE__, __FILE__);
+}
+
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser
