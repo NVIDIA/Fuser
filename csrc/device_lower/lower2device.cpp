@@ -238,16 +238,6 @@ void dumpExprsIfEnabled(
   }
 }
 
-namespace {
-
-// A temporary function that copy inputs to kernel_inputs. In the future, this
-// will be replaced a real pass that computes the kernel inputs.
-void _setKernelInputs(kir::Kernel* kernel) {
-  allKnownVals() = kernel->inputs();
-}
-
-} // namespace
-
 void GpuLower::lower(Fusion* fusion) {
   FUSER_PERF_SCOPE("GpuLower::lower");
   TORCH_INTERNAL_ASSERT(fusion != nullptr);
@@ -287,7 +277,9 @@ void GpuLower::lower(Fusion* fusion) {
 
   dumpExprsIfEnabled(fusion_->exprs(), "initialize lowering");
 
-  _setKernelInputs(kernel_);
+  // Temporarily set kernel_inputs to inputs. In the future, we will have a real
+  // pass to determine how to set kernel_inputs.
+  allKnownVals() = kernel_->inputs();
   dumpExprsIfEnabled(fusion_->exprs(), "_setKernelInputs");
 
   // prepare for lowering
