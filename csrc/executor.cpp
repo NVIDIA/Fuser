@@ -1616,9 +1616,10 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   // context manager to disable auto grad for `empty_cuda` calls later
   at::AutoDispatchBelowADInplaceOrView non_variable_type_mode;
 
+  auto expr_eval = executor_utils::bindInputs(args, lowered_->kernel());
+
   // only allocate outputs when not given
   if (outputs.empty()) {
-    auto expr_eval = executor_utils::bindInputs(args, lowered_->kernel());
     outputs = allocOutputs(
         kernel(),
         executor_entry->outputs,
@@ -1700,9 +1701,8 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
 
   if (execute_kernel_) {
     ensureAvailableDynamicSmemSize(executor_entry->launch_params.smem());
-    auto ee = executor_utils::bindInputs(args, kernel());
     auto arg_buffer =
-        args.getBuffer(kernel()->indexType(), getTvsForKernelArguments(), ee);
+        args.getBuffer(kernel()->indexType(), getTvsForKernelArguments(), expr_eval);
 
     if (isDebugDumpEnabled(DebugDumpOption::Occupancy) ||
         isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
