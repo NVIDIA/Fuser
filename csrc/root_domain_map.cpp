@@ -185,7 +185,11 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
 
     // Condition 5
     // At least one ID is symbolic.
-    // Map producer to consumer if and only if their extents are identical
+    // Map producer to consumer if and only if their extents are identical.
+    // IterType::Symbolic reflects that the extent might evaluate to 1 for some
+    // inputs, in which case it may be valid to use those domains in a broadcast
+    // op. If the extents are exactly the same between two aligned IterDomains,
+    // even if one is symbolic they are mapped.
     if ((producer_id->isSymbolic() || consumer_id->isSymbolic()) &&
         (!producer_id->extent()->sameAs(consumer_id->extent()))) {
       itc++;
