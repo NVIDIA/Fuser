@@ -339,7 +339,8 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
     const int64_t n_tensor_inputs,
     const int64_t max_input_dtype_size,
     const int64_t max_persistent_buffer_size,
-    const size_t vectorize_factor) {
+    const size_t vectorize_factor,
+    const bool has_expensive_op) {
   // Set some targets for parallelization
   const int64_t n_elems = total_reduction_numel * total_iteration_numel;
 
@@ -628,7 +629,37 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
 
   // Try moving persistent buffer factors into threads until we have too many
   // threads.
-  constexpr int batches_per_block_inner_reduction_max = 10;
+  int64_t batches_per_block_inner_reduction_max = 10l;
+  // if vect is small, increase max batch to avoid using large bdimx for small
+  // number of reduction elements.
+  if (inner_reduction_unroll_factor <= 2l) {
+    // only use this optimization if the reduction elements is >= 10K.
+    // Otherwise, there is a regression in layer norm due to the use of large
+    // batch with small bdimx.
+    // e.g. at 8K with vect = 2, batch = 8, bdimx = 512, occupancy is 75%,
+    // kernel time is 44 us. if use batch = 16 with bdimx = 256, occupancy
+    // is 62.5% and kernel time is 51 us.
+    if (inner_most_dimension_numel >= 1024l) {
+      batches_per_block_inner_reduction_max *= 2l;
+    }
+  }
+  // Each thread needs to process batch*vect elements.
+  // Set a small workload per thread if there are expensive ops, e.g.
+  // exponential op in softmax.
+  if (has_expensive_op) {
+    // only use this optimization if the reduction elements is <= 16K.
+    // After 16K, we can only launch 1 blocks per sm if still use such a small
+    // max batch size of 6 due register limitations. To use registers more
+    // efficiently, a larger batch size is preferred. e.g. at 17K with vect = 8,
+    // bdimx = 448, batch = 5, register = 91, blocks per sm = 1, latency = 108
+    // us. At 17K with vect = 8, bdimx = 256, batch = 9, register = 126, blocks
+    // per sm = 2, latency = 87 us.
+    if (inner_most_dimension_numel <= 16384l) {
+      batches_per_block_inner_reduction_max = std::min(
+          48l / inner_reduction_unroll_factor,
+          batches_per_block_inner_reduction_max);
+    }
+  }
   while (
       // If block size can be doubled
       bdimx * bdimy * bdimz * 2 <= max_threads_in_block &&
@@ -1209,7 +1240,8 @@ std::shared_ptr<ReductionParams> persistentHeuristic(
     const int64_t max_persistent_buffer_size,
     size_t vectorize_factor,
     bool project_persistent_buffers,
-    const bool combined_inner_outer_reduction) {
+    const bool combined_inner_outer_reduction,
+    const bool has_expensive_op) {
   std::shared_ptr<ReductionParams> rparams;
   if (combined_inner_outer_reduction) {
     const int64_t outer_dim_numel = total_iteration_numel;
@@ -1228,7 +1260,8 @@ std::shared_ptr<ReductionParams> persistentHeuristic(
         (int64_t)n_tensor_inputs,
         (int64_t)max_input_dtype_size,
         max_persistent_buffer_size,
-        vectorize_factor);
+        vectorize_factor,
+        has_expensive_op);
   } else {
     rparams = outerPersistentHeuristic(
         total_reduction_numel,
@@ -1423,6 +1456,10 @@ std::shared_ptr<ReductionParams> getPersistentHeuristics(
   // Protect heuristics div by 0:
   n_tensor_inputs = std::max(n_tensor_inputs, (int64_t)1);
 
+  // loop over fusion and check if there are expensive ops e.g. exp,log, in
+  // fusion.
+  bool has_expensive_op = scheduler_utils::hasExpensiveUnaryOp(fusion);
+
   auto heuristic = persistentHeuristic(
       properties.total_reduction_numel,
       properties.total_iteration_numel,
@@ -1434,7 +1471,8 @@ std::shared_ptr<ReductionParams> getPersistentHeuristics(
       max_persistent_size,
       vectorize_factor,
       project_persistent_buffers,
-      combined_inner_outer_reduction);
+      combined_inner_outer_reduction,
+      has_expensive_op);
   heuristic->cparams.index_type = runtime_info.getIndexType();
   return heuristic;
 }

@@ -591,5 +591,9 @@ TORCH_CUDA_CU_API std::unordered_set<TensorView*> getAllTvsFrom(
     const std::vector<TensorView*>& from_tvs,
     const std::unordered_set<TensorView*>& cutoff_tv_set);
 
+//! Loop over all exprs in the fusion, return true if there is a expensive
+//! unary op, e.g. UnaryOpType::Exp used in softmax.
+TORCH_CUDA_CU_API bool hasExpensiveUnaryOp(Fusion* fusion);
+
 } // namespace scheduler_utils
 } // namespace nvfuser
