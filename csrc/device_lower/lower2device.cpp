@@ -16,7 +16,6 @@
 #include <device_lower/pass/double_buffer.h>
 #include <device_lower/pass/expr_sort.h>
 #include <device_lower/pass/fusion_simplifier.h>
-#include <device_lower/pass/hoist_to_host.h>
 #include <device_lower/pass/index.h>
 #include <device_lower/pass/insert_syncs.h>
 #include <device_lower/pass/instrument.h>
@@ -239,6 +238,16 @@ void dumpExprsIfEnabled(
   }
 }
 
+namespace {
+
+// A temporary function that copy inputs to kernel_inputs. In the future, this
+// will be replaced a real pass that computes the kernel inputs.
+void _setKernelInputs(kir::Kernel* kernel) {
+  allKnownVals() = kernel->inputs();
+}
+
+} // namespace
+
 void GpuLower::lower(Fusion* fusion) {
   FUSER_PERF_SCOPE("GpuLower::lower");
   TORCH_INTERNAL_ASSERT(fusion != nullptr);
@@ -278,8 +287,8 @@ void GpuLower::lower(Fusion* fusion) {
 
   dumpExprsIfEnabled(fusion_->exprs(), "initialize lowering");
 
-  hoistScalarComputationToHost(fusion_, allKnownVals());
-  dumpExprsIfEnabled(fusion_->exprs(), "hoistScalarComputationToHost");
+  _setKernelInputs(kernel_);
+  dumpExprsIfEnabled(fusion_->exprs(), "_setKernelInputs");
 
   // prepare for lowering
   validateIr(fusion_);
