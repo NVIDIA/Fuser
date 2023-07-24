@@ -363,7 +363,12 @@ struct TensorArg : public TensorArgAbstract {
 template <size_t size>
 struct CpuScalarTensorArg : public ArgAbstract {
   std::array<std::byte, size> instance_;
+  at::Tensor tensor_;
   DEF_HELPEE_FUNC(CpuScalarTensor, instance_)
+
+  at::Tensor getTensor() const {
+    return tensor_;
+  }
 };
 
 // TODO: This class needs some further clean up and refactor

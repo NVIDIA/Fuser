@@ -466,6 +466,7 @@ std::unique_ptr<ArgAbstract> makeCpuScalarTensorArg(const at::Tensor& tensor) {
   auto ptr = std::make_unique<CpuScalarTensorArg<size>>();
   static_assert(sizeof(ptr->instance_) == size);
   std::memcpy(&(ptr->instance_), tensor.data_ptr(), size);
+  ptr->tensor_ = tensor;
   return ptr;
 }
 
