@@ -728,6 +728,14 @@ bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
 
   auto def = consumer->definition();
 
+  std::vector<std::unordered_map<IterDomain*, IterDomain*>> c2p_maps;
+  for (auto producer : ir_utils::filterByType<TensorView>(def->inputs())) {
+    PairwiseRootDomainMap root_map(producer, consumer);
+    root_map.mapSymbolicNonBroadcast(true);
+    c2p_maps.push_back(
+        root_map.mapConsumerToProducer(consumer->domain(), producer->domain()));
+  }
+
   bool is_concretized = false;
 
   for (const auto i : c10::irange(root_domain.size())) {
@@ -741,16 +749,14 @@ bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
 
     std::optional<IterType> id_type;
 
-    for (auto producer : ir_utils::filterByType<TensorView>(def->inputs())) {
-      PairwiseRootDomainMap root_map(producer, consumer);
-      auto c2p = root_map.mapConsumerToProducer(
-          consumer->domain(), producer->domain());
-
+    for (const auto& c2p : c2p_maps) {
       auto p_it = c2p.find(root_id);
-      TORCH_INTERNAL_ASSERT(
-          p_it != c2p.end(),
-          "No input ID found to map with output ID: ",
-          root_id->toString());
+      if (p_it == c2p.end()) {
+        // We might not have mapped this ID to this producer, for example if the
+        // producer is a broadcast domain. In that case just skip this producer
+        // when determining the output id_type.
+        continue;
+      }
 
       auto input_id = p_it->second;
       TORCH_INTERNAL_ASSERT(

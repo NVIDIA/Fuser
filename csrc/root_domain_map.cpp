@@ -185,16 +185,33 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
 
     // Condition 5
     // At least one ID is symbolic.
-    // Map producer to consumer if and only if their extents are identical.
-    // IterType::Symbolic reflects that the extent might evaluate to 1 for some
-    // inputs, in which case it may be valid to use those domains in a broadcast
-    // op. If the extents are exactly the same between two aligned IterDomains,
-    // even if one is symbolic they are mapped.
-    if ((producer_id->isSymbolic() || consumer_id->isSymbolic()) &&
-        (!producer_id->extent()->sameAs(consumer_id->extent()))) {
-      itc++;
-      itp++;
-      continue;
+    // If map_symbolic_ is true:
+    //   Map these as long as one is not Broadcast. This is most
+    //   useful for propagating from consumer to producer during concretization.
+    //   In that case, a producer rfactor domain might be concretized to
+    //   Iteration while the corresponding consumer ID is still Symbolic. We
+    //   need this mode in order to find which consumer IDs to propagate the
+    //   producer IterType to.
+    // If map_symbolic_ is false (default):
+    //   Map these only if their extents are identical. IterType::Symbolic
+    //   reflects that the extent might evaluate to 1 for some inputs, in which
+    //   case it may be valid to use those domains in a broadcast op. If the
+    //   extents are exactly the same between two aligned IterDomains, even if
+    //   one is symbolic they are mapped.
+    auto ps = producer_id->isSymbolic();
+    auto cs = consumer_id->isSymbolic();
+    if (ps || cs) {
+      if (map_symbolic_non_bcast_) {
+        if (producer_id->isBroadcast() || consumer_id->isBroadcast()) {
+          itc++;
+          itp++;
+          continue;
+        }
+      } else if (!producer_id->extent()->sameAs(consumer_id->extent())) {
+        itc++;
+        itp++;
+        continue;
+      }
     }
 
     IterDomain* map_key_id = producer_id;
