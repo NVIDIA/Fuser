@@ -3646,11 +3646,6 @@ bool NamedScalar::isTensorSize() const {
   return std::regex_match(name(), r);
 }
 
-bool NamedScalar::isTensorStride() const {
-  static const std::regex r(R"(T\d+\.stride\[\d+\])");
-  return std::regex_match(name(), r);
-}
-
 NamedScalar* NamedScalar::getParallelDim(ParallelType p_type) {
   TORCH_INTERNAL_ASSERT(
       isParallelTypeThread(p_type),
