@@ -838,6 +838,9 @@ void bindInputForExprEvaluation(
     if (tensor_arg_abstract != nullptr) {
       expr_eval.bind(cg_tensor, tensor_arg_abstract->getTensor());
     }
+
+#if 1
+    // Legacy code. To be removed in the future
     auto root_domain =
         TensorDomain::noReductions(cg_tensor->getMaybeRFactorDomain());
 
@@ -902,6 +905,7 @@ void bindInputForExprEvaluation(
         }
       }
     }
+#endif
   } else if (val->getValType().value() == ValType::Others) {
     if (val->getDataType().value() == DataType::Int) {
       TORCH_INTERNAL_ASSERT(
