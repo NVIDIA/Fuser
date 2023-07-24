@@ -2447,17 +2447,19 @@ TEST_F(NVFuserTest, ReshapeOfReshape_CUDA) {
   TORCH_CHECK(ref.equal(cg_outputs.at(0)));
 }
 
+// This is extracted from CSA in nanogpt, where we want transpose scheduler
 TEST_F(NVFuserTest, ReshapePermuteTransposeScheduler_CUDA) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
-  std::vector<int64_t> shape({256, 128, 64});
+  std::vector<int64_t> shape({8, 1024, 1024});
 
   auto tv0 = makeSymbolicTensor(3);
   fusion->addInput(tv0);
 
-  auto tv1 = reshape(tv0, {256, 128, 64}, {256, 128, 8, 8});
-  auto tv3 = transpose(tv1, 1, 3);
+  auto tv1 = reshape(tv0, {8, 1024, 1024}, {8, 1024, 16, 64});
+  auto tv3 = transpose(tv1, 1, 2);
+  auto tv3 = transpose(tv1, 2, 3);
   fusion->addOutput(tv3);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -2478,7 +2480,7 @@ TEST_F(NVFuserTest, ReshapePermuteTransposeScheduler_CUDA) {
       "Unexpected heuristic: ",
       heuristic);
 
-  auto at_out = t0.reshape({256, 128, 8, 8}).transpose(1, 3);
+  auto at_out = t0.reshape({8, 1024, 16, 64}).transpose(1, 2), transpose(2, 3);
 
   testValidate(
       executor_cache.fusion(),
