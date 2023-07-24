@@ -2416,6 +2416,7 @@ TEST_F(NVFuserTest, ResizePadToBroadcastDynamic_CUDA) {
       __FILE__);
 }
 
+// See https://github.com/NVIDIA/Fuser/issues/596
 TEST_F(NVFuserTest, ResizeIssue596_CUDA) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
