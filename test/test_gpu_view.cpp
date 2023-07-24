@@ -2480,7 +2480,7 @@ TEST_F(NVFuserTest, ReshapePermuteTransposeScheduler_CUDA) {
       "Unexpected heuristic: ",
       heuristic);
 
-  auto at_out = t0.reshape({8, 1024, 16, 64}).transpose(1, 2), transpose(2, 3);
+  auto at_out = t0.reshape({8, 1024, 16, 64}).transpose(1, 2).transpose(2, 3);
 
   testValidate(
       executor_cache.fusion(),
