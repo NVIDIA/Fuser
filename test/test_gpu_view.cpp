@@ -2458,8 +2458,8 @@ TEST_F(NVFuserTest, ReshapePermuteTransposeScheduler_CUDA) {
   fusion->addInput(tv0);
 
   auto tv1 = reshape(tv0, {8, 1024, 1024}, {8, 1024, 16, 64});
-  auto tv3 = transpose(tv1, 1, 2);
-  auto tv3 = transpose(tv1, 2, 3);
+  auto tv2 = transpose(tv1, 1, 2);
+  auto tv3 = transpose(tv2, 2, 3);
   fusion->addOutput(tv3);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
