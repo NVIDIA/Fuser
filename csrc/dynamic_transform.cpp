@@ -731,7 +731,12 @@ bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
   std::vector<std::unordered_map<IterDomain*, IterDomain*>> c2p_maps;
   for (auto producer : ir_utils::filterByType<TensorView>(def->inputs())) {
     PairwiseRootDomainMap root_map(producer, consumer);
-    root_map.mapSymbolicNonBroadcast(true);
+    // We map symbolic domains here regardless of whether their extents match.
+    // This is safe because we are propagating from a producer which should have
+    // already been concretized. The consumer might have a different extent
+    // which will be equivalent to (but not necessarily sameAs) the producer's,
+    // and we just want to use its IterType to concretize the consumer ID.
+    root_map.mapSymbolic(true);
     c2p_maps.push_back(
         root_map.mapConsumerToProducer(consumer->domain(), producer->domain()));
   }

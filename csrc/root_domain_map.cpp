@@ -185,33 +185,20 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
 
     // Condition 5
     // At least one ID is symbolic.
-    // If map_symbolic_ is true:
-    //   Map these as long as one is not Broadcast. This is most
-    //   useful for propagating from consumer to producer during concretization.
-    //   In that case, a producer rfactor domain might be concretized to
-    //   Iteration while the corresponding consumer ID is still Symbolic. We
-    //   need this mode in order to find which consumer IDs to propagate the
-    //   producer IterType to.
-    // If map_symbolic_ is false (default):
+    // If map_symbolic_ is true: map these IDs regardless of other
+    // considerations. If map_symbolic_ is false (default):
     //   Map these only if their extents are identical. IterType::Symbolic
     //   reflects that the extent might evaluate to 1 for some inputs, in which
     //   case it may be valid to use those domains in a broadcast op. If the
-    //   extents are exactly the same between two aligned IterDomains, even if
-    //   one is symbolic they are mapped.
-    auto ps = producer_id->isSymbolic();
-    auto cs = consumer_id->isSymbolic();
-    if (ps || cs) {
-      if (map_symbolic_non_bcast_) {
-        if (producer_id->isBroadcast() || consumer_id->isBroadcast()) {
-          itc++;
-          itp++;
-          continue;
-        }
-      } else if (!producer_id->extent()->sameAs(consumer_id->extent())) {
-        itc++;
-        itp++;
-        continue;
-      }
+    //   extents are exactly the same between two aligned IterDomains, the
+    //   Symbolic one will be concretized to the same IterType as the other, so
+    //   they should be mapped with one another.
+    if (!map_symbolic_ &&
+        (producer_id->isSymbolic() || consumer_id->isSymbolic()) &&
+        (!producer_id->extent()->sameAs(consumer_id->extent()))) {
+      itc++;
+      itp++;
+      continue;
     }
 
     IterDomain* map_key_id = producer_id;
@@ -1266,8 +1253,9 @@ class ExactRootDomainMapBuilder : private IterVisitor {
  public:
   ExactRootDomainMapBuilder(
       Fusion* fusion,
-      DisjointSets<const IterDomain*>& eq_sets)
-      : eq_sets_(eq_sets) {
+      DisjointSets<const IterDomain*>& eq_sets,
+      bool map_symbolic)
+      : eq_sets_(eq_sets), map_symbolic_(map_symbolic) {
     traverseTo(fusion, fusion->outputs());
   }
 
@@ -1280,6 +1268,7 @@ class ExactRootDomainMapBuilder : private IterVisitor {
            ir_utils::filterByType<TensorView>(expr->outputs())) {
         PairwiseRootDomainMap pwise_map(producer, consumer);
         pwise_map.mapBroadcast(false);
+        pwise_map.mapSymbolic(map_symbolic_);
         const auto mappings = pwise_map.mapProducerToConsumer(
             producer->domain(), consumer->domain());
         for (const auto& mapping : mappings) {
@@ -1291,12 +1280,13 @@ class ExactRootDomainMapBuilder : private IterVisitor {
 
  private:
   DisjointSets<const IterDomain*>& eq_sets_;
+  bool map_symbolic_ = false;
 };
 
 } // namespace
 
-ExactRootDomainMap::ExactRootDomainMap(Fusion* fusion) {
-  ExactRootDomainMapBuilder builder(fusion, eq_sets_);
+ExactRootDomainMap::ExactRootDomainMap(Fusion* fusion, bool map_symbolic) {
+  ExactRootDomainMapBuilder builder(fusion, eq_sets_, map_symbolic);
 }
 
 bool ExactRootDomainMap::areMapped(
