@@ -1975,7 +1975,8 @@ class PersistentKernelScheduler : public SchedulerEntry {
 
     if (persistent_buffer_size > available_persistent_buffer_size) {
       scheduler_debug_utils::canScheduleRejectReason(
-          ScheduleHeuristic::Persistent, "not enough registers or shared memory for persistence");
+          ScheduleHeuristic::Persistent,
+          "not enough registers or shared memory for persistence");
       return false;
     }
 
@@ -2193,7 +2194,6 @@ class PersistentKernelScheduler : public SchedulerEntry {
           (int64_t)(dev_prop->maxThreadsPerBlock * sizeof(float));
       const int64_t available_shared_memory_size = max_shared_memory_size -
           kernel_overhead - reduction_broadcast_workspace;
-      std::cout << "estimated usage= " <<  persistent_buffer_size + kernel_overhead + reduction_broadcast_workspace << std::endl;
       available_persistent_buffer_size = std::max(
           available_persistent_buffer_size, available_shared_memory_size);
     }

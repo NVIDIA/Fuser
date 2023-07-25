@@ -372,25 +372,6 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
         vectorize_factor);
   }
 
-  auto rparams = std::make_shared<ReductionParams>();
-
-
-  if(getenv("USE_SMEM")){
-      const int64_t max_shared_memory_size =
-          (int64_t)dev_prop->sharedMemPerBlockOptin;    
-      const int64_t kernel_overhead =
-          (int64_t)dev_prop->reservedSharedMemPerBlock;
-      const int64_t reduction_broadcast_workspace =
-          (int64_t)(dev_prop->maxThreadsPerBlock * sizeof(float));
-      const int64_t available_shared_memory_size = max_shared_memory_size -
-          kernel_overhead - reduction_broadcast_workspace;
-    if(available_shared_memory_size >= scheduler_utils::register_file_size){
-      rparams->shared_mem_persistent_buffer = true;
-    }
-  }
-
-  std::cout << "running with shared_mem_persistent_buffer: " << rparams->shared_mem_persistent_buffer << std::endl;
-
   // Set some targets for parallelization
   const int64_t n_elems = total_reduction_numel * total_iteration_numel;
 
@@ -833,7 +814,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
   int64_t gdimy = LaunchParams::UNINITIALIZED_VAL;
   int64_t gdimz = LaunchParams::UNINITIALIZED_VAL;
 
-
+  auto rparams = std::make_shared<ReductionParams>();
   rparams->cparams.maxrregcount = (int)nvrtc_register_per_thread;
   rparams->persistent_kernel = true;
   rparams->fastest_dim = true;
