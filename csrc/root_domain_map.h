@@ -100,10 +100,9 @@ class TORCH_CUDA_CU_API PairwiseRootDomainMap : public RootDomainMap {
     return *this;
   }
 
-  //! If b is true: map symbolic domains with other IterDomains as long as the
-  //! other is not Broadcast, even if their extents don't match. If b is false
-  //! (default): map symbolic domains with other IterDomains only if their
-  //! extents match.
+  //! If b is true: map symbolic domains with other IterDomains even if their
+  //! extents don't match. If b is false (default): map symbolic domains with
+  //! other IterDomains only if their extents match.
   PairwiseRootDomainMap& mapSymbolic(bool b) {
     map_symbolic_ = b;
     return *this;
