@@ -652,6 +652,7 @@ std::vector<std::byte> getKernelArgument(
     ExpressionEvaluator& ee,
     Val* parameter,
     PrimDataType index_type) {
+  TORCH_INTERNAL_ASSERT(parameter != nullptr);
   PolymorphicValue pv = ee.evaluate(parameter);
   if (auto tv = dynamic_cast<TensorView*>(parameter)) {
     auto tensor = pv.as<at::Tensor>();
