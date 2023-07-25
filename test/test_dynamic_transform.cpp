@@ -250,6 +250,13 @@ TEST_F(NVFuserTest, DynamicTransform4_CUDA) {
 
     for (const auto i : c10::irange(after_shape.size())) {
       expr_eval.bind(tv2->axis((int)i)->extent(), after_shape.at(i));
+      // We must bind tv1's extents, since they cannot be inferred until after
+      // concretization. Because tv2 is a dynamic reshape both its IterDomains
+      // are Symbolic, which means both of tv3's IterDomains are also Symbolic.
+      // tv1 has both IterDomains of type Iteration, but it since we add tv3 to
+      // it to get tv4, we do not know whether this will resolve broadcasts from
+      // tv3 or not until concretization.
+      expr_eval.bind(tv1->axis((int)i)->extent(), after_shape.at(i));
     }
 
     auto initial_info = DynamicTransform::getInitialInfo(&fusion);
