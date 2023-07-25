@@ -62,6 +62,10 @@ TEST_F(NVFuserTest, DynamicTransform1_CUDA) {
     expr_eval.bind(tv0->axis(1)->extent(), 3L);
     expr_eval.bind(reshape_shape0, 3L);
     expr_eval.bind(reshape_shape1, 4L);
+    // We cannot infer the shape of tv1 from the above bound values, since
+    // either axis of tv2 might be broadcast against one from tv1.
+    expr_eval.bind(tv1->axis(0)->extent(), 3L);
+    expr_eval.bind(tv1->axis(1)->extent(), 4L);
 
     auto initial_info = DynamicTransform::getInitialInfo(&fusion);
     auto info = DynamicTransformConcretizationInfo(&initial_info, &expr_eval);
