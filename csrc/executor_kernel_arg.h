@@ -22,7 +22,6 @@ namespace nvfuser {
 
 // TODO: macro this and the printer below
 enum class ArgType {
-  PhiloxCudaState,
   Long,
   Double,
   ComplexDouble,
@@ -34,9 +33,6 @@ enum class ArgType {
 inline std::string argTypeToString(ArgType type) {
   std::string ret;
   switch (type) {
-    case ArgType::PhiloxCudaState:
-      ret = "PhiloxCudaState";
-      break;
     case ArgType::Long:
       ret = "Long";
       break;
@@ -153,13 +149,6 @@ struct ArgAbstract {
     ss << val_;                           \
     return ss.str();                      \
   }
-
-// TODO: remove this
-struct PhiloxCudaStateArg : public ArgAbstract {
-  at::PhiloxCudaState val_;
-  PhiloxCudaStateArg(at::PhiloxCudaState _val) : val_(_val){};
-  DEF_HELPEE_FUNC(PhiloxCudaState, val_)
-};
 
 // TODO: remove this
 struct LongArg : public ArgAbstract {
@@ -434,8 +423,6 @@ class TORCH_CUDA_CU_API KernelArgumentHolder {
   // Push a scalar or integer to the arguments
   void push(const c10::IValue& val);
 
-  void push(const at::PhiloxCudaState& val);
-
   // Create a buffer, flatten arguments into it, align by 8 Bytes, return
   // pointers in the buffer. Tensor arguments are passed with the given index
   // type.
@@ -460,8 +447,6 @@ class TORCH_CUDA_CU_API KernelArgumentHolder {
   const ArgAbstract* back() const {
     return arguments_.back().get();
   }
-
-  void appendPhiloxRNGSeed(uint64_t rand_offset);
 
   const ArgAbstract* at(size_t ind) const {
     return arguments_.at(ind).get();

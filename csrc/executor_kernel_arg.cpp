@@ -532,10 +532,6 @@ void KernelArgumentHolder::push(int64_t val) {
   arguments_.push_back(std::make_unique<LongArg>(val));
 }
 
-void KernelArgumentHolder::push(const at::PhiloxCudaState& val) {
-  arguments_.push_back(std::make_unique<PhiloxCudaStateArg>(val));
-}
-
 // Create buffer, flatten arguments into it, align by 8 Bytes, return pointers
 // in the buffer
 void** KernelArgumentHolder::getBuffer(
