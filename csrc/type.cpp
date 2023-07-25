@@ -17,8 +17,8 @@
 
 namespace nvfuser {
 
-DataType metaDataTypeOf(Val* v) {
-  auto tv = dynamic_cast<TensorView*>(v);
+DataType metaDataTypeOf(const Val* v) {
+  auto tv = dynamic_cast<const TensorView*>(v);
   TORCH_INTERNAL_ASSERT(
       tv != nullptr, "Currently, only supports getting metadata of TensorView");
   if (tv->getMemoryType() == MemoryType::Shared) {
@@ -198,6 +198,17 @@ static std::string data_type2string(DataType t) {
           ss << "Array<" << data_type2string(*dtype.type) << ", " << dtype.size
              << ", 1>";
           return ss.str();
+        } else if constexpr (std::is_same_v<T, StructOf>) {
+          std::stringstream ss;
+          ss << "struct { ";
+          for (auto& [name, type] : dtype.types) {
+            ss << data_type2string(NVFUSER_MAYBE_STAR type) << " " << name
+               << "; ";
+          }
+          ss << "}";
+          return ss.str();
+        } else {
+          TORCH_INTERNAL_ASSERT(false, "No string found for data type.");
         }
         TORCH_INTERNAL_ASSERT(false, "No string found for data type.");
       },
@@ -1120,6 +1131,9 @@ std::string typePrefix(const DataType data_type) {
   }
   if (std::holds_alternative<ArrayOf>(data_type.type)) {
     return "a";
+  }
+  if (std::holds_alternative<StructOf>(data_type.type)) {
+    return "s";
   }
   switch (std::get<PrimDataType>(data_type.type)) {
     case DataType::Bool:

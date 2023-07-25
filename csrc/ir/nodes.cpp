@@ -809,6 +809,13 @@ std::string TensorConstruct::toInlineString(int indent_size) const {
   TORCH_CHECK(false, "Tensor op can not be printed inline");
 }
 
+std::vector<PolymorphicValue> TensorConstruct::evaluate(
+    const std::vector<PolymorphicValue>& inputs) const {
+  TORCH_INTERNAL_ASSERT(inputs.size() == 1, "TensorConstruct expects 1 input");
+  using namespace PolymorphicValue_functions;
+  return {toTensor(inputs.at(0))};
+}
+
 NVFUSER_DEFINE_CLONE_AND_CREATE(TensorConstruct)
 
 RNGOp::RNGOp(
@@ -3784,11 +3791,6 @@ bool NamedScalar::sameAs(const Statement* other) const {
 
 bool NamedScalar::isTensorSize() const {
   static const std::regex r(R"(T\d+\.size\[\d+\])");
-  return std::regex_match(name(), r);
-}
-
-bool NamedScalar::isTensorStride() const {
-  static const std::regex r(R"(T\d+\.stride\[\d+\])");
   return std::regex_match(name(), r);
 }
 

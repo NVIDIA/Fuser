@@ -560,6 +560,9 @@ class TORCH_CUDA_CU_API TensorConstruct : public Expr {
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
 
+  std::vector<PolymorphicValue> evaluate(
+      const std::vector<PolymorphicValue>& inputs) const override;
+
   TensorView* out() const {
     return output(0)->as<TensorView>();
   }
@@ -1919,9 +1922,6 @@ class TORCH_CUDA_CU_API NamedScalar : public Val {
 
   //! Check if this is something like T0.size[1]
   bool isTensorSize() const;
-
-  //! Check if this is something like T0.stride[1]
-  bool isTensorStride() const;
 
   //! Check if this is threadIdx.{x,y,z}
   bool isThreadIdx() const {
