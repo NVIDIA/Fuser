@@ -198,20 +198,11 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
     //   case it may be valid to use those domains in a broadcast op. If the
     //   extents are exactly the same between two aligned IterDomains, even if
     //   one is symbolic they are mapped.
-    auto ps = producer_id->isSymbolic();
-    auto cs = consumer_id->isSymbolic();
-    if (ps || cs) {
-      if (map_symbolic_non_bcast_) {
-        if (producer_id->isBroadcast() || consumer_id->isBroadcast()) {
-          itc++;
-          itp++;
-          continue;
-        }
-      } else if (!producer_id->extent()->sameAs(consumer_id->extent())) {
-        itc++;
-        itp++;
-        continue;
-      }
+    if ((producer_id->isSymbolic() || consumer_id->isBroadcast()) &&
+        (producer_id->isBroadcast() || consumer_id->isSymbolic())) {
+      itc++;
+      itp++;
+      continue;
     }
 
     IterDomain* map_key_id = producer_id;
