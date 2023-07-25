@@ -695,11 +695,11 @@ std::vector<std::byte> getKernelArgument(
       return std::vector<std::byte>(
           (std::byte*)&v32, (std::byte*)&v32 + sizeof(float));
     } else if (parameter->dtype() == DataType::Half) {
-      at::Half v16 = (at::Half)v;
+      at::Half v16 = (at::Half)(float)v;
       return std::vector<std::byte>(
           (std::byte*)&v16, (std::byte*)&v16 + sizeof(at::Half));
     } else if (parameter->dtype() == DataType::BFloat16) {
-      at::BFloat16 v16 = (at::BFloat16)v;
+      at::BFloat16 v16 = (at::BFloat16)(float)v;
       return std::vector<std::byte>(
           (std::byte*)&v16, (std::byte*)&v16 + sizeof(at::BFloat16));
     } else {

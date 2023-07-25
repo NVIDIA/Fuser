@@ -228,8 +228,8 @@ class TORCH_CUDA_CU_API Kernel final : public Fusion {
   //! Debug dump of the Kernel IR
   void print() const;
 
-  const std::vector<Val*>& kernelInputs() const {
-    return kernel_inputs_;
+  const std::vector<Val*>& parameters() const {
+    return parameters_;
   }
 
  protected:
@@ -262,13 +262,12 @@ class TORCH_CUDA_CU_API Kernel final : public Fusion {
 
   KernelPerformanceProfile profile_;
 
-  // Inputs to the kernel, can be different from Fusion::inputs(). The
-  // relationship between kernel_inputs_ and Fusion::inputs() is similar to the
-  // relationship between root domain and rFactor domain. Fusion::inputs() are
-  // the inputs provided by the user, kernel_inputs_ are the inputs that will be
-  // sent to the kernel. Vals in kernel_inputs_ must be evaluatable from
-  // Fusion::inputs().
-  std::vector<Val*> kernel_inputs_;
+  // Parameters of the kernel. The parameters contain the inputs and outputs of
+  // the kernel, intermediate buffers, and special items such as RNG state and
+  // tensor map for TMA support, etc. The parameters are not required to have no
+  // definition. If a parameter has a definition, its definition will be
+  // evaluated before the kernel is executed.
+  std::vector<Val*> parameters_;
 };
 
 //! A special debugging proxy for Kernel.

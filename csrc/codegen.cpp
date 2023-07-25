@@ -233,9 +233,9 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     std::vector<Val*> params;
 
     // Inputs & Outputs
-    for (auto val : kernel_->kernelInputs()) {
+    for (auto val : kernel_->parameters()) {
       params.push_back(val);
-      kernel_inputs_.insert(val);
+      kernel_params_.insert(val);
     }
 
     // Generate parameter declarations
@@ -464,7 +464,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     }
     const auto def = s->definition();
     const bool has_alloc = alloc_map_.find(s) != alloc_map_.end();
-    const bool is_param = kernel_inputs_.find(s) != kernel_inputs_.end();
+    const bool is_param = kernel_params_.find(s) != kernel_params_.end();
     if (def != nullptr && !has_alloc && !is_param) {
       code_ << "(" << genInline(def) << ")";
     } else if (s->isConst()) {
@@ -2955,7 +2955,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   //! Keep track of the Val* and its generated variable name
   std::unordered_map<const Val*, std::string> val_to_name_;
   //! Keep track of variables in the kernel inputs
-  std::unordered_set<const Val*> kernel_inputs_;
+  std::unordered_set<const Val*> kernel_params_;
 };
 
 } // namespace

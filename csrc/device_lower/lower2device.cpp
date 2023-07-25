@@ -277,10 +277,10 @@ void GpuLower::lower(Fusion* fusion) {
 
   dumpExprsIfEnabled(fusion_->exprs(), "initialize lowering");
 
-  // Temporarily set kernel_inputs to inputs. In the future, we will have a real
-  // pass to determine how to set kernel_inputs.
+  // Temporarily set allKnownVals to inputs. In the future, we will have a real
+  // pass to determine how to set allKnownVals.
   allKnownVals() = kernel_->inputs();
-  dumpExprsIfEnabled(fusion_->exprs(), "_setKernelInputs");
+  dumpExprsIfEnabled(fusion_->exprs(), "set allKnownVals");
 
   // prepare for lowering
   validateIr(fusion_);
