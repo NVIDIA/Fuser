@@ -289,20 +289,26 @@ NVFUSER_BENCHMARK_RUN(NvFuserScheduler_LayerNorm_fp16)
     ->Unit(benchmark::kMicrosecond)
     ->UseManualTime();
 
-// GPT-2
-NVFUSER_BENCHMARK_RUN(NvFuserScheduler_LayerNorm_fp16)
-    ->Args({8192, 768})
-    ->Args({8192, 1024})
-    ->Args({8192, 1280})
-    ->Args({8192, 1600})
-    ->Unit(benchmark::kMicrosecond)
-    ->UseManualTime();
-
-NVFUSER_BENCHMARK_RUN(NvFuserScheduler_LayerNorm_fp16)
-    ->Args({16384, 768})
-    ->Args({16384, 1024})
-    ->Args({16384, 1280})
-    ->Args({16384, 1600})
+// embedding sizes in LLMs e.g. GPT, LLaMA, PaLM
+NVFUSER_BENCHMARK_DEFINE(
+    NvFuserScheduler_LayerNorm_LLMs_fp16,
+    setupLayerNorm,
+    NvFuserScheduler_LayerNorm,
+    DataType::Half);
+NVFUSER_BENCHMARK_RUN(NvFuserScheduler_LayerNorm_LLMs_fp16)
+    // ->Args({8192, 512})
+    // ->Args({8192, 768})
+    // ->Args({8192, 1024})
+    // ->Args({8192, 1280})
+    // ->Args({8192, 1536})
+    // ->Args({8192, 1600})
+    // ->Args({8192, 2048})
+    // ->Args({8192, 2560})
+    // ->Args({8192, 4096})
+    // ->Args({8192, 5140})
+    // ->Args({8192, 6656})
+    ->Args({8192, 8192*2})
+    // ->Args({8192, 18432})
     ->Unit(benchmark::kMicrosecond)
     ->UseManualTime();
 
