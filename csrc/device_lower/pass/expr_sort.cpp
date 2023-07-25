@@ -1504,6 +1504,8 @@ void ExprSegmentationSorter::sort() {
   // Need this for initialization of the DAG that is processed
   std::unordered_map<Expr*, ExprGroup*> expr2group;
 
+  // Not putting the exprs between allKnownVals() and fusion inputs here
+  // because they are computed using the expr evaluator.
   auto all_exprs = StmtSort::getExprsBetween(
       fusion_,
       GpuLower::current()->allKnownVals(),

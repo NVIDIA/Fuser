@@ -44,6 +44,7 @@ void validateKernelOutputs(
     const std::vector<at::Tensor>& outputs,
     const c10::Device& device);
 
+// TODO: rename this function
 void bindInputForExprEvaluation(
     Val* val,
     const ArgAbstract* arg,
