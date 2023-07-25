@@ -186,6 +186,11 @@ TEST_F(NVFuserTest, DynamicTransform3_CUDA) {
   expr_eval.bind(tv0->axis(1)->extent(), shape_before.at(1));
   expr_eval.bind(tv1->axis(0)->extent(), shape_after.at(0));
   expr_eval.bind(tv1->axis(1)->extent(), shape_after.at(1));
+  // We cannot infer reshape_shape0 and reshape_shape1 from tv0's and tv1's
+  // extents alone, since either of these reshaped extents could either match
+  // that of tv1 or be 1, resulting in a broadcast.
+  expr_eval.bind(reshape_shape0, shape_after.at(0));
+  expr_eval.bind(reshape_shape1, shape_after.at(1));
 
   auto initial_info = DynamicTransform::getInitialInfo(&fusion);
   auto info = DynamicTransformConcretizationInfo(&initial_info, &expr_eval);
