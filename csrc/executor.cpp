@@ -1701,8 +1701,8 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
 
   if (execute_kernel_) {
     ensureAvailableDynamicSmemSize(executor_entry->launch_params.smem());
-    auto arg_buffer =
-        args.getBuffer(kernel()->indexType(), getTvsForKernelArguments(), expr_eval);
+    auto arg_buffer = args.getBuffer(
+        kernel()->indexType(), getTvsForKernelArguments(), expr_eval);
 
     if (isDebugDumpEnabled(DebugDumpOption::Occupancy) ||
         isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {

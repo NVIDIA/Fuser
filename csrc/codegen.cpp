@@ -237,11 +237,6 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       params.push_back(val);
       kernel_inputs_.insert(val);
     }
-    for (auto val : kernel_->outputs()) {
-      TORCH_INTERNAL_ASSERT(
-          !val->isScalar(), "No scalar output is allowed: ", val->toString());
-      params.push_back(val);
-    }
 
     // Generate parameter declarations
     unsigned int duplicate_counter = 0;
@@ -280,16 +275,6 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       if (i + 1 != params.size()) {
         code_ << ", ";
       }
-    }
-
-    // Global buffers
-    for (auto allocate : kernel_summary.global_allocations) {
-      TORCH_INTERNAL_ASSERT(allocate->buffer()->isA<TensorView>());
-      const auto tv = allocate->buffer()->as<TensorView>();
-      const auto& alloc_domain =
-          TensorDomain::noReductions(tv->getMaybeAllocationDomain());
-      code_ << ", Tensor<" << tv->dtype() << ", " << alloc_domain.size() << ", "
-            << alloc_domain.size() << "> " << genVariableName(tv);
     }
 
     // Kernels generating random numbers take extra (seed, offset) arguments
