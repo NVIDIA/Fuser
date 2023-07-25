@@ -825,13 +825,13 @@ void validateVectorizedTensors(
   validateVectorizedSplits(kernel, expr_eval);
 }
 
-namespace {
-
 void bindInputForExprEvaluation(
     Val* val,
     const ArgAbstract* arg,
     bool check_consistency,
-    ExpressionEvaluator& expr_eval) {
+    ExpressionEvaluator& expr_eval,
+    bool legacy) {
+  TORCH_INTERNAL_ASSERT(val != nullptr);
   if (val->getValType() == ValType::TensorView) {
     TensorView* cg_tensor = val->as<TensorView>();
     auto tensor_arg_abstract = dynamic_cast<const TensorArgAbstract*>(arg);
@@ -861,6 +861,10 @@ void bindInputForExprEvaluation(
     }
 
 #if 1
+    if (!legacy) {
+      return;
+    }
+
     // Legacy code. To be removed in the future
     auto root_domain =
         TensorDomain::noReductions(cg_tensor->getMaybeRFactorDomain());
@@ -940,11 +944,16 @@ void bindInputForExprEvaluation(
           "fusion expected Scalar Double inputs, but found ",
           argTypeToString(arg->type()));
       expr_eval.bind(val, *static_cast<const double*>(arg->arg()));
+    } else if (val->getDataType().value() == DataType::ComplexDouble) {
+      TORCH_INTERNAL_ASSERT(
+          arg->isType(ArgType::ComplexDouble),
+          "fusion expected Scalar ComplexDouble inputs, but found ",
+          argTypeToString(arg->type()));
+      expr_eval.bind(
+          val, *static_cast<const std::complex<double>*>(arg->arg()));
     }
   }
 }
-
-} // namespace
 
 ExpressionEvaluator bindInputs(
     const KernelArgumentHolder& args,

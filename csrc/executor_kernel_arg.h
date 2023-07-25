@@ -146,7 +146,6 @@ struct ArgAbstract {
     return std::make_unique<TARGET_TYPE##Arg>(*this);   \
   }
 
-
 // TODO: remove this
 #define DEF_TOSTRING_FUNC                 \
   std::string toString() const override { \
@@ -505,6 +504,8 @@ class TORCH_CUDA_CU_API KernelArgumentHolder {
   int8_t device_index_ = 0;
   std::optional<size_t> cache_id_ = std::nullopt;
 };
+
+at::PhiloxCudaState getPhiloxRNGSeed(uint64_t rand_offset);
 
 std::vector<std::byte> getKernelArgument(
     ExpressionEvaluator& ee,

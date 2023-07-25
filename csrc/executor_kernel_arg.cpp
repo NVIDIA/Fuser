@@ -601,7 +601,7 @@ void KernelArgumentHolder::swap(int i, const ArgAbstract* arg) {
   arguments_[i].swap(holder);
 }
 
-void KernelArgumentHolder::appendPhiloxRNGSeed(uint64_t rand_offset) {
+at::PhiloxCudaState getPhiloxRNGSeed(uint64_t rand_offset) {
   at::PhiloxCudaState philox_engine_inputs;
   auto gen = at::cuda::detail::getDefaultCUDAGenerator();
   {
@@ -611,7 +611,7 @@ void KernelArgumentHolder::appendPhiloxRNGSeed(uint64_t rand_offset) {
         at::check_generator<at::CUDAGeneratorImpl>(gen)->philox_cuda_state(
             rand_offset);
   }
-  push(philox_engine_inputs);
+  return philox_engine_inputs;
 }
 
 std::string KernelArgumentHolder::toString() const {
@@ -660,8 +660,7 @@ std::vector<std::byte> getKernelArgument(
           (std::byte*)tensor.data_ptr(),
           (std::byte*)tensor.data_ptr() + tensor.element_size());
     } else {
-      auto resolved_arg =
-          getTensorArg(tensor, tv, ee, index_type);
+      auto resolved_arg = getTensorArg(tensor, tv, ee, index_type);
       return std::vector<std::byte>(
           (std::byte*)resolved_arg->arg(),
           (std::byte*)resolved_arg->arg() + resolved_arg->argSize());
