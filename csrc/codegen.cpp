@@ -232,35 +232,33 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
     std::vector<Val*> params;
 
-    // Inputs & Outputs
-    for (auto val : kernel_->parameters()) {
-      params.push_back(val);
-      kernel_params_.insert(val);
-    }
-
     // Generate parameter declarations
+    kernel_params_.reserve(kernel_->parameters().size());
     unsigned int duplicate_counter = 0;
-    for (auto i : c10::irange(params.size())) {
+    for (auto i : c10::irange(kernel_->parameters().size())) {
       std::stringstream var_name_ss;
-      if (params[i]->isA<TensorView>()) {
-        var_name_ss << genVariableName(params[i]->as<TensorView>());
+      auto param = kernel_->parameters().at(i);
+      kernel_params_.insert(param);
+
+      if (param->isA<TensorView>()) {
+        var_name_ss << genVariableName(param->as<TensorView>());
       } else {
-        var_name_ss << gen(params[i]);
+        var_name_ss << gen(param);
       }
 
       // If value is duplicate in arguments change the name to avoid name
       // conflicts in args.
-      if (!unique_args.emplace(params[i]).second) {
+      if (!unique_args.emplace(param).second) {
         var_name_ss << "_duplicate_" << duplicate_counter++;
       }
 
-      if (const auto tv = dynamic_cast<TensorView*>(params[i])) {
+      if (const auto tv = dynamic_cast<TensorView*>(param)) {
         if (tv->isCpuScalar()) {
-          code_ << " CpuScalarTensor<" << params[i]->dtype() << "> "
+          code_ << " CpuScalarTensor<" << param->dtype() << "> "
                 << var_name_ss.str();
         } else {
           code_
-              << "Tensor<" << params[i]->dtype() << ", "
+              << "Tensor<" << param->dtype() << ", "
               << TensorDomain::noReductions(tv->getMaybeRFactorDomain()).size()
               << ", "
               << TensorDomain::noReductions(tv->getMaybeAllocationDomain())
@@ -268,16 +266,16 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
               << "> " << var_name_ss.str();
         }
       } else {
-        TORCH_INTERNAL_ASSERT(params[i]->isScalar()); // NOLINT (LLVM bug 48525)
-        code_ << params[i]->dtype() << " " << var_name_ss.str();
+        TORCH_INTERNAL_ASSERT(param->isScalar()); // NOLINT (LLVM bug 48525)
+        code_ << param->dtype() << " " << var_name_ss.str();
       }
 
-      if (i + 1 != params.size()) {
+      if (i + 1 != kernel_->parameters().size()) {
         code_ << ", ";
       }
     }
 
-    // Kernels generating random numbers take extra (seed, offset) arguments
+    // TODO: remove this special handling of philox state
     if (kernel_summary.max_rng_offsets >= 0) {
       code_ << ", at::PhiloxCudaState philox_args";
     }
@@ -2954,7 +2952,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   std::vector<bool> aligned_scope_exprs_;
   //! Keep track of the Val* and its generated variable name
   std::unordered_map<const Val*, std::string> val_to_name_;
-  //! Keep track of variables in the kernel inputs
+  //! basically kernel_->parameters(), but as a set so it's faster to lookup
   std::unordered_set<const Val*> kernel_params_;
 };
 

@@ -316,8 +316,7 @@ void Kernel::finalize(std::vector<Expr*> top_level_exprs) {
   summary_.parallel_dimension_map_ =
       GpuLower::current()->parallelDimensionMap();
   parameters_ = GpuLower::current()->allKnownVals();
-  parameters_.insert(
-      parameters_.end(), outputs().begin(), outputs().end());
+  parameters_.insert(parameters_.end(), outputs().begin(), outputs().end());
   for (auto alloc : summary_.global_allocations) {
     parameters_.push_back(alloc->buffer());
   }
