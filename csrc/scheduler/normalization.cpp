@@ -372,6 +372,15 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
         vectorize_factor);
   }
 
+  auto rparams = std::make_shared<ReductionParams>();
+
+
+  if(getenv("USE_SMEM")){
+    rparams->shared_mem_persistent_buffer = true;
+  }
+
+  std::cout << "running with shared_mem_persistent_buffer: " << rparams->shared_mem_persistent_buffer << std::endl;
+
   // Set some targets for parallelization
   const int64_t n_elems = total_reduction_numel * total_iteration_numel;
 
@@ -814,7 +823,6 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
   int64_t gdimy = LaunchParams::UNINITIALIZED_VAL;
   int64_t gdimz = LaunchParams::UNINITIALIZED_VAL;
 
-  auto rparams = std::make_shared<ReductionParams>();
 
   rparams->cparams.maxrregcount = (int)nvrtc_register_per_thread;
   rparams->persistent_kernel = true;
