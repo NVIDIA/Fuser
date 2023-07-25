@@ -315,10 +315,24 @@ void Kernel::finalize(std::vector<Expr*> top_level_exprs) {
   summary_.sync_map = GpuLower::current()->syncMap();
   summary_.parallel_dimension_map_ =
       GpuLower::current()->parallelDimensionMap();
-  parameters_ = GpuLower::current()->allKnownVals();
-  parameters_.insert(parameters_.end(), outputs().begin(), outputs().end());
+  auto maybe_metadata = [](Val* v) {
+    if (auto tv = dynamic_cast<TensorView*>(v)) {
+      return IrBuilder::metadataExpr(tv);
+    } else {
+      return v;
+    }
+  };
+  parameters_.reserve(GpuLower::current()->allKnownVals().size());
+  for (auto v : GpuLower::current()->allKnownVals()) {
+    parameters_.push_back(maybe_metadata(v));
+  }
+  parameters_.reserve(parameters_.size() + outputs().size());
+  for (auto v : outputs()) {
+    parameters_.push_back(maybe_metadata(v));
+  }
+  parameters_.reserve(parameters_.size() + summary_.global_allocations.size());
   for (auto alloc : summary_.global_allocations) {
-    parameters_.push_back(alloc->buffer());
+    parameters_.push_back(maybe_metadata(alloc->buffer()));
   }
 }
 
