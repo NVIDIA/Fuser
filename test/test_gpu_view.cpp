@@ -2447,4 +2447,32 @@ TEST_F(NVFuserTest, ReshapeOfReshape_CUDA) {
   TORCH_CHECK(ref.equal(cg_outputs.at(0)));
 }
 
+TEST_F(NVFuserTest, TransposeVectorizationWidth_CUDA) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeSymbolicTensor(3);
+  fusion->addInput(tv0);
+
+  auto tv1 = transpose(tv0, 0, 2)
+  fusion->addOutput(tv1);
+
+  std::vector<int64_t> shape({7, 102400, 9});
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+
+  auto runtime = executor_cache.getMostRecentKernelRuntime();
+  TORCH_CHECK(!runtime->isSegmented(), "Segmentation not expected");
+
+  auto ref = t0.transpose(0, 2);
+
+  TORCH_CHECK(ref.equal(cg_outputs.at(0)));
+}
+
 } // namespace nvfuser
