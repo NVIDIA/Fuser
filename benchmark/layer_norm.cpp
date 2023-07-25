@@ -307,7 +307,7 @@ NVFUSER_BENCHMARK_RUN(NvFuserScheduler_LayerNorm_LLMs_fp16)
     ->Args({8192, 4096})
     ->Args({8192, 5140})
     ->Args({8192, 6656})
-    ->Args({8192, 8192*2})
+    ->Args({8192, 8192})
     ->Args({8192, 18432})
     ->Unit(benchmark::kMicrosecond)
     ->UseManualTime();
