@@ -731,6 +731,7 @@ bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
   std::vector<std::unordered_map<IterDomain*, IterDomain*>> c2p_maps;
   for (auto producer : ir_utils::filterByType<TensorView>(def->inputs())) {
     PairwiseRootDomainMap root_map(producer, consumer);
+    root_map.mapSymbolicNonBroadcast(true);
     c2p_maps.push_back(
         root_map.mapConsumerToProducer(consumer->domain(), producer->domain()));
   }
