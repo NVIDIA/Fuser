@@ -74,13 +74,6 @@ void ArgAbstractFactory::registerAllParsers() {
   };
   registerParser(serde::ArgAbstractData_Scalar, deserializeScalar);
 
-  auto deserializePhilox = [](const serde::ArgAbstract* buffer) {
-    auto data = buffer->data_as_PhiloxCudaState();
-    at::PhiloxCudaState state{data->seed(), data->offset()};
-    return std::make_unique<PhiloxCudaStateArg>(state);
-  };
-  registerParser(serde::ArgAbstractData_PhiloxCudaState, deserializePhilox);
-
   auto deserializeScalarCpu = [](const serde::ArgAbstract* buffer) {
     auto scalar = buffer->data_as_ScalarCpu();
     switch (scalar->size()) {

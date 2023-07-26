@@ -24,7 +24,6 @@ namespace nvfuser {
 
 // TODO: macro this and the printer below
 enum class ArgType {
-  PhiloxCudaState,
   Long,
   Double,
   ComplexDouble,
@@ -36,9 +35,6 @@ enum class ArgType {
 inline std::string argTypeToString(ArgType type) {
   std::string ret;
   switch (type) {
-    case ArgType::PhiloxCudaState:
-      ret = "PhiloxCudaState";
-      break;
     case ArgType::Long:
       ret = "Long";
       break;
@@ -120,6 +116,7 @@ struct TensorArgCodegen<0, 0, nvfuser_index_t> {
   }
 };
 
+// TODO: remove this
 struct ArgAbstract {
   virtual ~ArgAbstract() = default;
   virtual const void* arg() const = 0;
@@ -134,6 +131,7 @@ struct ArgAbstract {
       flatbuffers::FlatBufferBuilder& builder) const = 0;
 };
 
+// TODO: remove this
 #define DEF_HELPEE_FUNC(TARGET_TYPE, ARG_NAME)          \
   bool isType(ArgType type) const override {            \
     return ArgType::TARGET_TYPE == type;                \
@@ -151,6 +149,7 @@ struct ArgAbstract {
     return std::make_unique<TARGET_TYPE##Arg>(*this);   \
   }
 
+// TODO: remove this
 #define DEF_TOSTRING_FUNC                 \
   std::string toString() const override { \
     std::stringstream ss;                 \
@@ -158,20 +157,7 @@ struct ArgAbstract {
     return ss.str();                      \
   }
 
-struct PhiloxCudaStateArg : public ArgAbstract {
-  at::PhiloxCudaState val_;
-  PhiloxCudaStateArg(at::PhiloxCudaState _val) : val_(_val){};
-  DEF_HELPEE_FUNC(PhiloxCudaState, val_)
-
-  flatbuffers::Offset<serde::ArgAbstract> serialize(
-      flatbuffers::FlatBufferBuilder& builder) const override {
-    auto data =
-        serde::CreatePhiloxCudaState(builder, val_.seed_.val, val_.offset_.val);
-    return serde::CreateArgAbstract(
-        builder, serde::ArgAbstractData_PhiloxCudaState, data.Union());
-  }
-};
-
+// TODO: remove this
 struct LongArg : public ArgAbstract {
   int64_t val_;
   explicit LongArg(int64_t _val) : val_(_val) {}
@@ -186,6 +172,7 @@ struct LongArg : public ArgAbstract {
   }
 };
 
+// TODO: remove this
 struct DoubleArg : public ArgAbstract {
   double val_;
   explicit DoubleArg(double _val) : val_(_val) {}
@@ -200,6 +187,7 @@ struct DoubleArg : public ArgAbstract {
   }
 };
 
+// TODO: remove this
 struct ComplexDoubleArg : public ArgAbstract {
   c10::complex<double> val_;
   explicit ComplexDoubleArg(c10::complex<double> _val) : val_(_val) {}
@@ -214,6 +202,7 @@ struct ComplexDoubleArg : public ArgAbstract {
   }
 };
 
+// TODO: remove this
 struct BoolArg : public ArgAbstract {
   bool val_;
   explicit BoolArg(bool _val) : val_(_val) {}
@@ -228,6 +217,7 @@ struct BoolArg : public ArgAbstract {
   }
 };
 
+// TODO: remove this
 struct TensorArgAbstract : ArgAbstract {
   at::Tensor tensor_;
   size_t pointer_address_;
@@ -311,6 +301,10 @@ struct TensorArgAbstract : ArgAbstract {
     TORCH_INTERNAL_ASSERT(false, "Abstract tensor arg does not have arg");
   }
 
+  virtual size_t argSize() const {
+    TORCH_INTERNAL_ASSERT(false, "Abstract tensor arg does not have arg");
+  }
+
   std::string toString() const override {
     std::stringstream ss;
     auto rank = getRank();
@@ -347,12 +341,14 @@ struct TensorArgAbstract : ArgAbstract {
   }
 };
 
+// TODO: move this to GetMetaData::evaluate
 std::vector<std::pair<int64_t, int64_t>>
 inferAndValidateAllocationSizesAndStrides(
     const at::Tensor& tensor,
     TensorView* tv,
     ExpressionEvaluator& ee);
 
+// TODO: remove this
 template <typename TENSOR_TYPE>
 struct TensorArg : public TensorArgAbstract {
   TENSOR_TYPE instance_;
@@ -402,6 +398,10 @@ struct TensorArg : public TensorArgAbstract {
   //! Returns the address of an tensor argument struct.
   void* arg() override {
     return &instance_;
+  }
+
+  size_t argSize() const override {
+    return sizeof(TENSOR_TYPE);
   }
 
   bool isAbstract() const override {
@@ -455,11 +455,17 @@ struct TensorArg : public TensorArgAbstract {
   }
 };
 
+// TODO: remove this
 template <size_t size>
 struct CpuScalarTensorArg : public ArgAbstract {
   // flatbuffers does not support std::byte
   std::array<int8_t, size> instance_;
+  at::Tensor tensor_;
   DEF_HELPEE_FUNC(CpuScalarTensor, instance_)
+
+  at::Tensor getTensor() const {
+    return tensor_;
+  }
 
   flatbuffers::Offset<serde::ArgAbstract> serialize(
       flatbuffers::FlatBufferBuilder& builder) const override {
@@ -472,7 +478,6 @@ struct CpuScalarTensorArg : public ArgAbstract {
   }
 };
 
-// TODO: This class needs some further clean up and refactor
 //! KernelArgumentHolder copies meta information from kernel inputs, including
 //! tensor sizes/shapes/dtype/memory_ptr and copies scalar inputs. It is used
 //! for both compilation as well as kernel execution. The important thing is to
@@ -520,8 +525,6 @@ class TORCH_CUDA_CU_API KernelArgumentHolder {
   // Push a scalar or integer to the arguments
   void push(const c10::IValue& val);
 
-  void push(const at::PhiloxCudaState& val);
-
   // Create a buffer, flatten arguments into it, align by 8 Bytes, return
   // pointers in the buffer. Tensor arguments are passed with the given index
   // type.
@@ -546,8 +549,6 @@ class TORCH_CUDA_CU_API KernelArgumentHolder {
   const ArgAbstract* back() const {
     return arguments_.back().get();
   }
-
-  void appendPhiloxRNGSeed(uint64_t rand_offset);
 
   const ArgAbstract* at(size_t ind) const {
     return arguments_.at(ind).get();
@@ -595,5 +596,12 @@ class TORCH_CUDA_CU_API KernelArgumentHolder {
   int8_t device_index_ = 0;
   std::optional<size_t> cache_id_ = std::nullopt;
 };
+
+at::PhiloxCudaState getPhiloxRNGSeed(uint64_t rand_offset);
+
+std::vector<std::byte> getKernelArgument(
+    ExpressionEvaluator& ee,
+    Val* parameter,
+    PrimDataType index_type);
 
 } // namespace nvfuser

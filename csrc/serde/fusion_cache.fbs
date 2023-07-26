@@ -134,7 +134,6 @@ union RecordData {
 // The ArgAbstractData union holds the attribute information for each ArgAbstract.
 union ArgAbstractData {
   Scalar,
-  PhiloxCudaState,
   ScalarCpu,
   TensorArg,
 }
@@ -172,13 +171,7 @@ table ScalarInput {
 }
 
 // =====================================================================================
-// Tables for ArgAbstract, PhiloxCudaState, ScalarCpu, TensorArg, KernelArgumentHolder used in FusionExecutor.
-
-// Data of PhiloxCudaState
-table PhiloxCudaState {
-  seed : ulong;
-  offset : ulong;
-}
+// Tables for ArgAbstract, ScalarCpu, TensorArg, KernelArgumentHolder used in FusionExecutor.
 
 // The ScalarCpu is represented by a fixed size array of raw bytes.
 table ScalarCpu {

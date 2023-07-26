@@ -27,9 +27,6 @@ struct TensorShapeBuilder;
 struct ScalarInput;
 struct ScalarInputBuilder;
 
-struct PhiloxCudaState;
-struct PhiloxCudaStateBuilder;
-
 struct ScalarCpu;
 struct ScalarCpuBuilder;
 
@@ -613,18 +610,16 @@ bool VerifyRecordDataVector(::flatbuffers::Verifier &verifier, const ::flatbuffe
 enum ArgAbstractData : uint8_t {
   ArgAbstractData_NONE = 0,
   ArgAbstractData_Scalar = 1,
-  ArgAbstractData_PhiloxCudaState = 2,
-  ArgAbstractData_ScalarCpu = 3,
-  ArgAbstractData_TensorArg = 4,
+  ArgAbstractData_ScalarCpu = 2,
+  ArgAbstractData_TensorArg = 3,
   ArgAbstractData_MIN = ArgAbstractData_NONE,
   ArgAbstractData_MAX = ArgAbstractData_TensorArg
 };
 
-inline const ArgAbstractData (&EnumValuesArgAbstractData())[5] {
+inline const ArgAbstractData (&EnumValuesArgAbstractData())[4] {
   static const ArgAbstractData values[] = {
     ArgAbstractData_NONE,
     ArgAbstractData_Scalar,
-    ArgAbstractData_PhiloxCudaState,
     ArgAbstractData_ScalarCpu,
     ArgAbstractData_TensorArg
   };
@@ -632,10 +627,9 @@ inline const ArgAbstractData (&EnumValuesArgAbstractData())[5] {
 }
 
 inline const char * const *EnumNamesArgAbstractData() {
-  static const char * const names[6] = {
+  static const char * const names[5] = {
     "NONE",
     "Scalar",
-    "PhiloxCudaState",
     "ScalarCpu",
     "TensorArg",
     nullptr
@@ -655,10 +649,6 @@ template<typename T> struct ArgAbstractDataTraits {
 
 template<> struct ArgAbstractDataTraits<nvfuser::serde::Scalar> {
   static const ArgAbstractData enum_value = ArgAbstractData_Scalar;
-};
-
-template<> struct ArgAbstractDataTraits<nvfuser::serde::PhiloxCudaState> {
-  static const ArgAbstractData enum_value = ArgAbstractData_PhiloxCudaState;
 };
 
 template<> struct ArgAbstractDataTraits<nvfuser::serde::ScalarCpu> {
@@ -921,57 +911,6 @@ inline ::flatbuffers::Offset<ScalarInput> CreateScalarInput(
   return builder_.Finish();
 }
 
-struct PhiloxCudaState FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
-  typedef PhiloxCudaStateBuilder Builder;
-  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_SEED = 4,
-    VT_OFFSET = 6
-  };
-  uint64_t seed() const {
-    return GetField<uint64_t>(VT_SEED, 0);
-  }
-  uint64_t offset() const {
-    return GetField<uint64_t>(VT_OFFSET, 0);
-  }
-  bool Verify(::flatbuffers::Verifier &verifier) const {
-    return VerifyTableStart(verifier) &&
-           VerifyField<uint64_t>(verifier, VT_SEED, 8) &&
-           VerifyField<uint64_t>(verifier, VT_OFFSET, 8) &&
-           verifier.EndTable();
-  }
-};
-
-struct PhiloxCudaStateBuilder {
-  typedef PhiloxCudaState Table;
-  ::flatbuffers::FlatBufferBuilder &fbb_;
-  ::flatbuffers::uoffset_t start_;
-  void add_seed(uint64_t seed) {
-    fbb_.AddElement<uint64_t>(PhiloxCudaState::VT_SEED, seed, 0);
-  }
-  void add_offset(uint64_t offset) {
-    fbb_.AddElement<uint64_t>(PhiloxCudaState::VT_OFFSET, offset, 0);
-  }
-  explicit PhiloxCudaStateBuilder(::flatbuffers::FlatBufferBuilder &_fbb)
-        : fbb_(_fbb) {
-    start_ = fbb_.StartTable();
-  }
-  ::flatbuffers::Offset<PhiloxCudaState> Finish() {
-    const auto end = fbb_.EndTable(start_);
-    auto o = ::flatbuffers::Offset<PhiloxCudaState>(end);
-    return o;
-  }
-};
-
-inline ::flatbuffers::Offset<PhiloxCudaState> CreatePhiloxCudaState(
-    ::flatbuffers::FlatBufferBuilder &_fbb,
-    uint64_t seed = 0,
-    uint64_t offset = 0) {
-  PhiloxCudaStateBuilder builder_(_fbb);
-  builder_.add_offset(offset);
-  builder_.add_seed(seed);
-  return builder_.Finish();
-}
-
 struct ScalarCpu FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
   typedef ScalarCpuBuilder Builder;
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
@@ -1164,9 +1103,6 @@ struct ArgAbstract FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
   const nvfuser::serde::Scalar *data_as_Scalar() const {
     return data_type() == nvfuser::serde::ArgAbstractData_Scalar ? static_cast<const nvfuser::serde::Scalar *>(data()) : nullptr;
   }
-  const nvfuser::serde::PhiloxCudaState *data_as_PhiloxCudaState() const {
-    return data_type() == nvfuser::serde::ArgAbstractData_PhiloxCudaState ? static_cast<const nvfuser::serde::PhiloxCudaState *>(data()) : nullptr;
-  }
   const nvfuser::serde::ScalarCpu *data_as_ScalarCpu() const {
     return data_type() == nvfuser::serde::ArgAbstractData_ScalarCpu ? static_cast<const nvfuser::serde::ScalarCpu *>(data()) : nullptr;
   }
@@ -1184,10 +1120,6 @@ struct ArgAbstract FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
 
 template<> inline const nvfuser::serde::Scalar *ArgAbstract::data_as<nvfuser::serde::Scalar>() const {
   return data_as_Scalar();
-}
-
-template<> inline const nvfuser::serde::PhiloxCudaState *ArgAbstract::data_as<nvfuser::serde::PhiloxCudaState>() const {
-  return data_as_PhiloxCudaState();
 }
 
 template<> inline const nvfuser::serde::ScalarCpu *ArgAbstract::data_as<nvfuser::serde::ScalarCpu>() const {
@@ -3830,10 +3762,6 @@ inline bool VerifyArgAbstractData(::flatbuffers::Verifier &verifier, const void 
     }
     case ArgAbstractData_Scalar: {
       auto ptr = reinterpret_cast<const nvfuser::serde::Scalar *>(obj);
-      return verifier.VerifyTable(ptr);
-    }
-    case ArgAbstractData_PhiloxCudaState: {
-      auto ptr = reinterpret_cast<const nvfuser::serde::PhiloxCudaState *>(obj);
       return verifier.VerifyTable(ptr);
     }
     case ArgAbstractData_ScalarCpu: {

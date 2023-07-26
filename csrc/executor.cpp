@@ -1618,9 +1618,16 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   // context manager to disable auto grad for `empty_cuda` calls later
   at::AutoDispatchBelowADInplaceOrView non_variable_type_mode;
 
+  ExpressionEvaluator expr_eval;
+  const auto& inputs = kernel()->inputs();
+
+  for (const auto i : c10::irange(inputs.size())) {
+    executor_utils::bindInputForExprEvaluation(
+        inputs.at(i), args[i], true, expr_eval);
+  }
+
   // only allocate outputs when not given
   if (outputs.empty()) {
-    auto expr_eval = executor_utils::bindInputs(args, lowered_->kernel());
     outputs = allocOutputs(
         kernel(),
         executor_entry->outputs,
@@ -1636,6 +1643,19 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
         " provided number of outputs does not match fusion output");
   }
   args.push(outputs);
+
+  for (const auto i : c10::irange(outputs.size())) {
+    auto output = kernel()->outputs()[i];
+    if (std::any_of(
+            kernel()->inputs().begin(),
+            kernel()->inputs().end(),
+            [&](const auto& in) { return in == output; })) {
+      // Skip trivially forwarded outputs because they are just placeholders
+      continue;
+    }
+    executor_utils::bindInputForExprEvaluation(
+        output, args[inputs.size() + i], true, expr_eval, false);
+  }
 
   std::vector<at::Tensor> intermediates;
   at::Tensor profile_buffer;
@@ -1661,15 +1681,31 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
       }
       args.push(intermediate_buffer);
       intermediates.push_back(intermediate_buffer);
+      executor_utils::bindInputForExprEvaluation(
+          kernel()->summary().global_allocations.at(i)->buffer(),
+          args[inputs.size() + outputs.size() + i],
+          true,
+          expr_eval,
+          false);
       if (buf_info.is_profile_buffer) {
         profile_buffer = intermediate_buffer;
       }
     }
   }
 
+  std::vector<std::vector<std::byte>> arg_buffers;
+  arg_buffers.reserve(kernel()->parameters().size());
+  for (auto v : kernel()->parameters()) {
+    arg_buffers.emplace_back(
+        getKernelArgument(expr_eval, v, kernel()->indexType()));
+  }
+
   // push back RNG state if needed
   if (lowered_->kernel()->summary().max_rng_offsets >= 0) {
-    args.appendPhiloxRNGSeed(executor_entry->rand_offset);
+    auto philox_seed = getPhiloxRNGSeed(executor_entry->rand_offset);
+    arg_buffers.emplace_back(
+        (std::byte*)&philox_seed,
+        (std::byte*)&philox_seed + sizeof(philox_seed));
   }
 
   if (isDebugDumpEnabled(DebugDumpOption::LaunchParam)) {
@@ -1702,9 +1738,12 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
 
   if (execute_kernel_) {
     ensureAvailableDynamicSmemSize(executor_entry->launch_params.smem());
-    auto ee = executor_utils::bindInputs(args, kernel());
-    auto arg_buffer =
-        args.getBuffer(kernel()->indexType(), getTvsForKernelArguments(), ee);
+
+    std::vector<void*> arg_buffer_ptrs;
+    arg_buffer_ptrs.reserve(arg_buffers.size());
+    for (auto& arg_buffer : arg_buffers) {
+      arg_buffer_ptrs.push_back(arg_buffer.data());
+    }
 
     if (isDebugDumpEnabled(DebugDumpOption::Occupancy) ||
         isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
@@ -1745,7 +1784,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
           launch_params_.bdimz(),
           launch_params_.smem(),
           stream,
-          arg_buffer,
+          arg_buffer_ptrs.data(),
           nullptr));
     } else {
       FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchCooperativeKernel");
@@ -1759,7 +1798,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
           launch_params_.bdimz(),
           launch_params_.smem(),
           stream,
-          arg_buffer));
+          arg_buffer_ptrs.data()));
     }
 
     if (measure_kernel_time) {
