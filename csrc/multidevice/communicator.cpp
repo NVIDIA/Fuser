@@ -77,10 +77,12 @@ bool parseEnv(
   if (env) {
     // replace the potential aliased hostname by the "official" name
     master_addr = gethostbyname(env)->h_name;
+  } else if (local_size == size) {
+    master_addr = "localhost";
   } else {
     TORCH_WARN(
         "the environment variable MASTER_ADDR "
-        "must be specified in distributed environment");
+        "must be specified in multi-node environment");
     return false;
   }
 
@@ -89,11 +91,9 @@ bool parseEnv(
   if (env) {
     master_port = std::atoi(env);
   } else {
-    if (master_addr != "localhost") {
-      TORCH_WARN(
-          "the environment variable MASTER_PORT "
-          "has not been specified. Set to default");
-    }
+    TORCH_WARN(
+        "the environment variable MASTER_PORT "
+        "has not been specified. Set to default");
   }
 
   return true;
@@ -154,8 +154,8 @@ Communicator::Communicator(
         gethostname(hostname, HOST_NAME_MAX) == 0,
         "error when retrieving hostname");
     // we define the server as the process at the master host with local rank 0
-    store_opts.isServer =
-        !strcmp(master_addr_.c_str(), gethostbyname(hostname)->h_name) &&
+    store_opts.isServer = (master_addr_ == "localhost" ||
+                           master_addr_ == gethostbyname(hostname)->h_name) &&
         local_rank_ == server_local_rank;
   }
   if (master_port_) {
