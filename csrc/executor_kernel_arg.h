@@ -380,7 +380,11 @@ struct CpuScalarTensorArg : public ArgAbstract {
   }
 };
 
-// TODO: remove this
+//! KernelArgumentHolder copies meta information from kernel inputs, including
+//! tensor sizes/shapes/dtype/memory_ptr and copies scalar inputs. It is used
+//! for both compilation as well as kernel execution. The important thing is to
+//! strip ownership of tensor from KernelArgumentHolder, so that during async
+//! compilation, we are not unnecessarily holding memory that is not needed.
 class TORCH_CUDA_CU_API KernelArgumentHolder {
  public:
   //! create KernelArgumentHolder from c10 inputs. Note that we we not taking
