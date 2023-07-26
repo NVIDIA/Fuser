@@ -1263,6 +1263,58 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     }
   }
 
+  void genSerialGenericReduction(const GenericReductionOp* rop) {
+    // TODO: set
+    for (const auto expr : StmtSort::getExprsBetween(
+             rop->fusion(), rop->allPlaceholders(), rop->opVals())) {
+      // TODO: generate exprs from input placeholders and tensor elements to
+      // updated elements
+    }
+    const auto gen_out = gen(output);
+    indent() << gen_out << " = "
+             << genBinaryOp(
+                    reduction_op_type, output->dtype(), gen_out, gen(input))
+             << ";\n";
+    return;
+  }
+
+  void handle(const GenericReductionOp* rop) final {
+    for (auto outp : rop->outputs()) {
+      TORCH_INTERNAL_ASSERT(outp->isA<kir::TensorIndex>());
+    }
+    for (auto inp : rop->inputs()) {
+      TORCH_INTERNAL_ASSERT(inp->isA<kir::TensorIndex>());
+    }
+
+    const auto output0 = rop->outputs().at(0)->as<kir::TensorIndex>();
+    const auto input0 = rop->inputs().at(0)->as<kir::TensorIndex>();
+    const auto domain = output0->view()->domain();
+    const auto op_type = rop->getReductionOpType();
+
+    const bool has_block_reduce = domain->hasBlockReduction();
+    const bool has_grid_reduce = domain->hasGridReduction();
+
+    TORCH_INTERNAL_ASSERT(
+        !has_grid_reduce,
+        "GenericReductionOp does not support block parallelization. GridGenericReductionOp must be used. ",
+        rop->toString());
+
+    if (!has_block_reduce) {
+      genSerialGenericReduction(rop);
+    } else if (
+        auto reduction_id = ir_utils::getMaybeWarpReductionDim(output, input)) {
+      genWarpReduction(output, input, rop->init(), op_type, rop->predicate());
+    } else {
+      genBlockReduction(
+          output,
+          input,
+          rop->init(),
+          op_type,
+          rop->predicate(),
+          rop->writePredicate());
+    }
+  }
+
   void handle(const LoadStoreOp* ldst) final {
     auto optype = ldst->opType();
     if (ldst->out()->isA<kir::TensorIndex>()) {

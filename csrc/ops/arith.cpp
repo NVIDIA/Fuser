@@ -1477,6 +1477,7 @@ std::pair<TensorView*, TensorView*> argmax(
   std::vector<Val*> tensor_elts{tv_i, idx_i};
 
   // Updated aggregates. This defines how the reduction will be computed
+  // NOTE: this will ignore NaN
   auto cond = gt(tv_i, prev_max);
   auto new_max = where(cond, tv_i, prev_max);
   auto new_pos = where(cond, idx_i, prev_pos);

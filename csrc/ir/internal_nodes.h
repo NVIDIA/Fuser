@@ -1292,6 +1292,16 @@ class TORCH_CUDA_CU_API GenericReductionOp : public Expr {
     return attributeVal(3 * num + 1);
   }
 
+  //! Get a vector of place-holder values representing intermediate values that
+  //! will be aggregated into the outputs.
+  std::vector<Val*> outputPlaceholders() const {
+    std::vector<Val*> phs(outputs().size());
+    for (auto i : c10::irange(phs.size())) {
+      phs[i] = outputPlaceHolder(i);
+    }
+    return phs;
+  }
+
   //! Get the derived value representing the update equation for the reduction
   //! to a particular output
   Val* opVal(size_t num) const {
@@ -1305,6 +1315,16 @@ class TORCH_CUDA_CU_API GenericReductionOp : public Expr {
     return attributeVal(3 * num + 2);
   }
 
+  //! Get a vector of derived values representing update equations for
+  //! reductions
+  std::vector<Val*> opVals() const {
+    std::vector<Val*> ovs(outputs().size());
+    for (auto i : c10::irange(ovs.size())) {
+      ovs[i] = opVal(i);
+    }
+    return ovs;
+  }
+
   //! Get the place-holder value used to represent scalar elements of a
   //! particular input
   Val* inputPlaceHolder(size_t num) const {
@@ -1316,6 +1336,29 @@ class TORCH_CUDA_CU_API GenericReductionOp : public Expr {
         inputs().size(),
         " inputs");
     return attributeVal(3 * outputs().size() + num);
+  }
+
+  //! Get a vector of place-holder values representing tensor elements that
+  //! will be reduced to form the outputs
+  std::vector<Val*> inputPlaceholders() const {
+    std::vector<Val*> phs(inputs().size());
+    for (auto i : c10::irange(phs.size())) {
+      phs[i] = inputPlaceHolder(i);
+    }
+    return phs;
+  }
+
+  //! Get a vector of place-holder values representing either intermediate
+  //! values or tensor elements that will be aggregated into the inputs.
+  std::vector<Val*> allPlaceholders() const {
+    std::vector<Val*> phs(outputs().size() + inputs.size());
+    for (auto i : c10::irange(outputs().size())) {
+      phs[i] = outputPlaceHolder(i);
+    }
+    for (auto i : c10::irange(inputs().size())) {
+      phs[outputs().size() + i] = inputPlaceHolder(i);
+    }
+    return phs;
   }
 
   bool isAllreduce() const {
