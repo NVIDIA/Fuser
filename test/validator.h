@@ -326,9 +326,9 @@ ExpressionEvaluator bindInputsAndLaunchParams(
 // using expr evaluator.
 void testValidate(
     Fusion* fusion,
-    const std::vector<at::Tensor>& fusion_outputs,
+    const std::vector<PolymorphicValue>& fusion_outputs,
     const at::ArrayRef<c10::IValue>& aten_inputs,
-    std::vector<at::Tensor> aten_outputs,
+    std::vector<PolymorphicValue> expected_outputs,
     int line_number,
     const char* file_name,
     std::string err_msg = "",
@@ -343,15 +343,15 @@ void testValidate(
 
   auto output_alias_indices = fusion->getIndicesOfAliasedOutputs();
 
-  if (aten_outputs.empty()) {
+  if (expected_outputs.empty()) {
     for (auto v : fusion->outputs()) {
-      aten_outputs.emplace_back(expr_eval.evaluate(v).as<at::Tensor>());
+      expected_outputs.emplace_back(expr_eval.evaluate(v));
     }
   }
 
   TORCH_INTERNAL_ASSERT(
-      fusion_outputs.size() == aten_outputs.size() &&
-          aten_outputs.size() ==
+      fusion_outputs.size() == expected_outputs.size() &&
+          expected_outputs.size() ==
               fusion->outputs().size() - output_alias_indices.size(),
       "Number of outputs don't match.");
 
@@ -384,9 +384,25 @@ void testValidate(
       continue;
     }
 
-    auto fusion_output_tensor = fusion_outputs[j];
+    if (!fusion_outputs[j].is<at::Tensor>()) {
+      TORCH_INTERNAL_ASSERT(
+          fusion_outputs[j] == expected_outputs[j],
+          "Validation error in output ",
+          j,
+          " on line ",
+          line_number,
+          " in file ",
+          file_name,
+          ".\n  Values are not equal: ",
+          fusion_outputs[j],
+          " vs ",
+          expected_outputs[j]);
+      continue;
+    }
+
+    auto fusion_output_tensor = fusion_outputs[j].as<at::Tensor>();
     auto fusion_output_tv = fusion->outputs()[i]->as<TensorView>();
-    auto aten_output_tensor = aten_outputs[j];
+    auto aten_output_tensor = expected_outputs[j].as<at::Tensor>();
 
     TORCH_INTERNAL_ASSERT(
         reduction_sizes.count(fusion_output_tv),
@@ -397,7 +413,7 @@ void testValidate(
 
     TORCH_INTERNAL_ASSERT(
         aten_output_tensor.dim() == fusion_output_tensor.dim() &&
-            fusion_outputs[j].dim() ==
+            fusion_output_tensor.dim() ==
                 static_cast<int64_t>(
                     TensorDomain::noReductions(
                         fusion_output_tv->getMaybeRFactorDomain())
@@ -455,7 +471,7 @@ void testValidate(
 // of the exprs in the fusion must be overriden to handle at::Tensor.
 void testValidate(
     Fusion* fusion,
-    const std::vector<at::Tensor>& fusion_outputs,
+    const std::vector<PolymorphicValue>& fusion_outputs,
     const at::ArrayRef<c10::IValue>& aten_inputs,
     int line_number,
     const char* file_name,

@@ -137,7 +137,7 @@ TEST_F(RNGTest, BroadcastingRNG) {
     at::Tensor t1 = at::zeros({5, 5}, options);
 
     auto cg_outputs = fec.runFusionWithInputs({t0, t1});
-    auto out = cg_outputs[0];
+    auto out = cg_outputs[0].as<at::Tensor>();
     TORCH_CHECK((out.select(1, 0) == out.select(1, 1)).all().item<bool>())
     TORCH_CHECK((out.select(1, 0) == out.select(1, 2)).all().item<bool>())
     TORCH_CHECK((out.select(1, 0) == out.select(1, 3)).all().item<bool>())
@@ -168,12 +168,11 @@ TEST_F(RNGTest, BroadcastingRNG2) {
 
       at::manual_seed(0);
       auto cg_outputs = fec.runFusionWithInputs({t0, t1});
-      auto out = cg_outputs[0];
 
       at::manual_seed(0);
       auto ref = generate_uniform(1, dtype).expand_as(t1);
 
-      testValidate(fec.fusion(), {out}, {t0, t1}, {ref}, __LINE__, __FILE__);
+      testValidate(fec.fusion(), cg_outputs, {t0, t1}, {ref}, __LINE__, __FILE__);
     }
   }
 }
@@ -202,7 +201,7 @@ TEST_F(RNGTest, BroadcastingRNGSmem) {
     FusionExecutor fe;
     fe.compileFusion(fusion, {t0, t1}, lparams);
     auto cg_outputs = fe.runFusion({t0, t1}, lparams);
-    auto out = cg_outputs[0];
+    auto out = cg_outputs[0].as<at::Tensor>();
 
     TORCH_CHECK((out.select(1, 0) == out.select(1, 1)).all().item<bool>())
     TORCH_CHECK((out.select(1, 0) == out.select(1, 2)).all().item<bool>())
@@ -238,7 +237,7 @@ TEST_F(RNGTest, BroadcastingRNGSmemNonSquareTile) {
   FusionExecutor fe;
   fe.compileFusion(fusion, {t0, t1});
   auto cg_outputs = fe.runFusion({t0, t1});
-  auto out = cg_outputs[0];
+  auto out = cg_outputs[0].as<at::Tensor>();
 
   TORCH_CHECK((out.select(1, 0) == out.select(1, 1)).all().item<bool>());
   TORCH_CHECK((out.select(1, 0) == out.select(1, 2)).all().item<bool>());

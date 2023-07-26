@@ -37,7 +37,7 @@ TEST_F(NVFuserTest, FusionResizePad1_CUDA) {
 
   auto ref = at::pad(t0, {1, 1});
 
-  TORCH_CHECK(ref.equal(cg_outputs[0]));
+  TORCH_CHECK(ref.equal(cg_outputs[0].as<at::Tensor>()));
 }
 
 // pad + split
@@ -66,7 +66,7 @@ TEST_F(NVFuserTest, FusionResizePad2_CUDA) {
 
   auto ref = at::pad(t0, {1, 1});
 
-  TORCH_CHECK(ref.equal(cg_outputs[0]));
+  TORCH_CHECK(ref.equal(cg_outputs[0].as<at::Tensor>()));
 }
 
 // pad, merge + split, inlineMost
@@ -142,7 +142,7 @@ TEST_F(NVFuserTest, FusionResizePad4_CUDA) {
 
   auto ref = at::pad(t0, {1, 1});
 
-  TORCH_CHECK(ref.equal(cg_outputs[0]));
+  TORCH_CHECK(ref.equal(cg_outputs[0].as<at::Tensor>()));
 }
 
 // pad + parallelization + RAW sync
@@ -190,7 +190,7 @@ TEST_F(NVFuserTest, FusionResizePad5_CUDA) {
 
   auto ref = at::pad(t0, {1, 1});
 
-  TORCH_CHECK(ref.equal(cg_outputs[0]));
+  TORCH_CHECK(ref.equal(cg_outputs[0].as<at::Tensor>()));
 }
 
 // pad + merge + split parallelization
@@ -355,7 +355,7 @@ TEST_F(NVFuserTest, FusionResizePadScheduler1_CUDA) {
 
   auto ref = at::pad(t0, {1, 1});
 
-  TORCH_CHECK(ref.equal(cg_outputs[0]));
+  TORCH_CHECK(ref.equal(cg_outputs[0].as<at::Tensor>()));
 }
 
 TEST_F(NVFuserTest, FusionResizePadScheduler2_CUDA) {
@@ -510,7 +510,7 @@ TEST_F(NVFuserTest, FusionResizeCat1_CUDA) {
 
   auto ref = at::cat({t0, t1}, 0);
 
-  TORCH_CHECK(ref.equal(cg_outputs[0]));
+  TORCH_CHECK(ref.equal(cg_outputs[0].as<at::Tensor>()));
 }
 
 // Trivial 2D inner cat
@@ -542,7 +542,7 @@ TEST_F(NVFuserTest, FusionResizeCat2_CUDA) {
 
   auto ref = at::cat({t0, t1}, 0);
 
-  TORCH_CHECK(ref.equal(cg_outputs[0]));
+  TORCH_CHECK(ref.equal(cg_outputs[0].as<at::Tensor>()));
 }
 
 // Trivial 2D outer cat
@@ -583,7 +583,7 @@ TEST_F(NVFuserTest, FusionResizeCat3_CUDA) {
 
   auto ref = at::cat({t0, t1}, 1);
 
-  TORCH_CHECK(ref.equal(cg_outputs[0]));
+  TORCH_CHECK(ref.equal(cg_outputs[0].as<at::Tensor>()));
 }
 
 // Cat + merge + split + parallelization + inlineMost
@@ -627,7 +627,7 @@ TEST_F(NVFuserTest, FusionResizeCat4_CUDA) {
 
   auto ref = at::cat({t0, t1}, 1);
 
-  TORCH_CHECK(ref.equal(cg_outputs[0]));
+  TORCH_CHECK(ref.equal(cg_outputs[0].as<at::Tensor>()));
 }
 
 // Cat + arith op
@@ -722,7 +722,7 @@ TEST_F(NVFuserTest, FusionResizeCat6_CUDA) {
 
   auto ref = at::cat({t0, t1, t2}, 0);
 
-  TORCH_CHECK(ref.equal(cg_outputs[0]));
+  TORCH_CHECK(ref.equal(cg_outputs[0].as<at::Tensor>()));
 }
 
 // Cat many tensors
@@ -778,7 +778,7 @@ TEST_F(NVFuserTest, FusionResizeCat7_CUDA) {
 
     auto ref = at::cat(aten_inputs, concat_dim);
 
-    TORCH_CHECK(ref.equal(cg_outputs[0]));
+    TORCH_CHECK(ref.equal(cg_outputs[0].as<at::Tensor>()));
   }
 }
 
@@ -811,7 +811,7 @@ TEST_F(NVFuserTest, FusionResizeCatScheduler1_CUDA) {
 
   auto ref = at::cat({t0, t1}, 0);
 
-  TORCH_CHECK(ref.equal(cg_outputs[0]));
+  TORCH_CHECK(ref.equal(cg_outputs[0].as<at::Tensor>()));
 }
 
 // Auto scheduled version of Cat5
@@ -888,7 +888,7 @@ TEST_F(NVFuserTest, FusionResizeCatScheduler3_CUDA) {
 
   auto ref = at::cat({t0, t1, t2}, 0);
 
-  TORCH_CHECK(ref.equal(cg_outputs[0]));
+  TORCH_CHECK(ref.equal(cg_outputs[0].as<at::Tensor>()));
 }
 
 // Trivial slice
@@ -919,7 +919,7 @@ TEST_F(NVFuserTest, FusionResizeSlice1_CUDA) {
 
   auto ref = t0.index({at::indexing::Slice(1, shape[0] - 1)});
 
-  TORCH_CHECK(ref.equal(cg_outputs[0]));
+  TORCH_CHECK(ref.equal(cg_outputs[0].as<at::Tensor>()));
 }
 
 // Split a tensor to half and add them up
@@ -1159,7 +1159,7 @@ TEST_F(NVFuserTest, FusionResizeSliceScheduler1_CUDA) {
 
   auto ref = t0.index({at::indexing::Slice(1, shape[0] - 1)});
 
-  TORCH_CHECK(ref.equal(cg_outputs[0]));
+  TORCH_CHECK(ref.equal(cg_outputs[0].as<at::Tensor>()));
 }
 
 TEST_F(NVFuserTest, FusionResizePadReduceScheduler1_CUDA) {
@@ -1593,7 +1593,7 @@ TEST_F(NVFuserTest, FusionResizePadWithValue_CUDA) {
 
   auto ref = at::pad(t0, {1, 1}, "constant", 2);
 
-  TORCH_CHECK(ref.equal(cg_outputs[0]));
+  TORCH_CHECK(ref.equal(cg_outputs[0].as<at::Tensor>()));
 }
 
 // Test that padding Half tensor by Double does not promote output
@@ -1624,7 +1624,7 @@ TEST_F(NVFuserTest, FusionResizePadHalfWithDoubleValue_CUDA) {
   auto ref = at::pad(t0, {1, 1}, "constant", 2.5);
 
   TORCH_CHECK(ref.dtype() == cg_outputs[0].dtype());
-  TORCH_CHECK(ref.equal(cg_outputs[0]));
+  TORCH_CHECK(ref.equal(cg_outputs[0].as<at::Tensor>()));
 }
 
 TEST_F(NVFuserTest, FusionSliceForNanoGPT1_CUDA) {
@@ -1900,9 +1900,9 @@ TEST_F(NVFuserTest, FusionSliceForNanoGPT3_CUDA) {
   auto at_t5 = at_t2.reshape({16, 128, 16, 64});
   auto at_t6 = at_t3.reshape({16, 128, 16, 64});
 
-  TORCH_CHECK(cg_outputs.at(0).equal(at_t4));
-  TORCH_CHECK(cg_outputs.at(1).equal(at_t5));
-  TORCH_CHECK(cg_outputs.at(2).equal(at_t6));
+  TORCH_CHECK(cg_outputs.at(0).as<at::Tensor>().equal(at_t4));
+  TORCH_CHECK(cg_outputs.at(1).as<at::Tensor>().equal(at_t5));
+  TORCH_CHECK(cg_outputs.at(2).as<at::Tensor>().equal(at_t6));
 }
 
 TEST_F(NVFuserTest, ResizeReshapeAndSlice_CUDA) {
@@ -1938,7 +1938,7 @@ TEST_F(NVFuserTest, ResizeReshapeAndSlice_CUDA) {
   auto ref = t0.reshape({8, 4}).index(
       {at::indexing::Slice(0, 2), at::indexing::Slice(0, 2)});
 
-  TORCH_CHECK(ref.equal(cg_outputs.at(0)));
+  TORCH_CHECK(ref.equal(cg_outputs.at(0).as<at::Tensor>()));
 }
 
 // Make sure resize works with the transpose scheduler
@@ -2066,12 +2066,12 @@ TEST_F(NVFuserTest, FusionSizeZeroSliceSplitSchedule_CUDA) {
   auto ref4 = t0.index({at::indexing::Slice(6, 6)});
   auto ref5 = t0.index({at::indexing::Slice(6, 8)});
 
-  TORCH_CHECK(ref0.equal(cg_outputs[0]));
-  TORCH_CHECK(ref1.equal(cg_outputs[1]));
-  TORCH_CHECK(ref2.equal(cg_outputs[2]));
-  TORCH_CHECK(ref3.equal(cg_outputs[3]));
-  TORCH_CHECK(ref4.equal(cg_outputs[4]));
-  TORCH_CHECK(ref5.equal(cg_outputs[5]));
+  TORCH_CHECK(ref0.equal(cg_outputs[0].as<at::Tensor>()));
+  TORCH_CHECK(ref1.equal(cg_outputs[1].as<at::Tensor>()));
+  TORCH_CHECK(ref2.equal(cg_outputs[2].as<at::Tensor>()));
+  TORCH_CHECK(ref3.equal(cg_outputs[3].as<at::Tensor>()));
+  TORCH_CHECK(ref4.equal(cg_outputs[4].as<at::Tensor>()));
+  TORCH_CHECK(ref5.equal(cg_outputs[5].as<at::Tensor>()));
 }
 
 // In this test, we split and merge with size-zero dimensions directly.
@@ -2111,7 +2111,7 @@ TEST_F(NVFuserTest, FusionSizeZeroSliceSplit_CUDA) {
 
   auto ref0 = t0.index({at::indexing::Slice(2, 2), at::indexing::Slice(0, 5)});
 
-  TORCH_CHECK(ref0.equal(cg_outputs[0]));
+  TORCH_CHECK(ref0.equal(cg_outputs[0].as<at::Tensor>()));
 }
 
 // Test squeezing a symbolic dimension

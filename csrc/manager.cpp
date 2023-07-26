@@ -159,7 +159,8 @@ class CudaFusionManager {
     std::lock_guard<std::mutex> guard(mutex_);
     TORCH_INTERNAL_ASSERT(
         graph_cache_.count(kernel_id) > 0, "graph cache miss at run time");
-    return graph_cache_[kernel_id]->runGraphWithInputs(inputs);
+    auto pv = graph_cache_[kernel_id]->runGraphWithInputs(inputs);
+    return std::vector<at::Tensor>(pv.begin(), pv.end());
   }
 
   bool hasFallbackCode(int32_t kernel_id) {

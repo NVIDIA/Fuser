@@ -172,7 +172,7 @@ static void GeluBackward_RunFusion(benchmark::State& benchmark_state) {
   std::vector<c10::IValue> inputs = setupInputs();
 
   // outputs
-  std::vector<at::Tensor> outputs;
+  std::vector<PolymorphicValue> outputs;
 
   auto lparams = schedulePointwise(&fusion, c10::ArrayRef<c10::IValue>(inputs));
 

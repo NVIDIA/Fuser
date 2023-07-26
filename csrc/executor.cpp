@@ -859,7 +859,7 @@ at::Tensor transformOutputFromAllocationToRFactor(
 
 // Allocate output tensors for a given kernel. Outputs may alias inputs, in
 // that case output tensors are shallow copies of the aliased inputs
-std::vector<at::Tensor> allocOutputs(
+std::vector<at::Tensor> allocTensorOutputs(
     const kir::Kernel* kernel,
     const std::vector<FusionExecutor::GlobalBufferInfo>& output_info,
     const std::vector<std::pair<int, int>>& output_to_input_aliases,
@@ -1567,17 +1567,17 @@ std::vector<TensorView*> FusionExecutor::getTvsForKernelArguments() const {
   return tvs;
 }
 
-std::vector<at::Tensor> FusionExecutor::runFusion(
+std::vector<PolymorphicValue> FusionExecutor::runFusion(
     KernelArgumentHolder& args,
     const LaunchParams& launch_constraints,
     CompileParams compile_params,
-    std::vector<at::Tensor> outputs) {
+    std::vector<at::Tensor> tensor_outputs) {
   FUSER_PERF_SCOPE("FusionExecutor::RunFusion");
   TORCH_INTERNAL_ASSERT(compiled());
   TORCH_INTERNAL_ASSERT(
       fusion_id_ > 0, "Cannot run fusion, it was not compiled.");
   TORCH_INTERNAL_ASSERT(
-      !args.getCacheId().has_value() || outputs.empty(),
+      !args.getCacheId().has_value() || tensor_outputs.empty(),
       "short cut input cache is not compatible with pre-allocated output");
 
   validateIndexType(kernel(), compile_params);
@@ -1586,7 +1586,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
 
   if (isDebugDumpEnabled(DebugDumpOption::FusionArgs)) {
     dumpFusionArgs(
-        fusion_id_, args, launch_constraints, compile_params, outputs);
+        fusion_id_, args, launch_constraints, compile_params, tensor_outputs);
   }
 
   c10::DeviceGuard dg(options_.device);
@@ -1605,7 +1605,11 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   // Initialize the executor entry if not initlized
   if (!executor_entry->init) {
     initializeExecutorEntry(
-        *executor_entry, args, launch_constraints, compile_params, outputs);
+        *executor_entry,
+        args,
+        launch_constraints,
+        compile_params,
+        tensor_outputs);
   }
 
   recompileKernel(executor_entry->launch_params, compile_params);
@@ -1625,34 +1629,30 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   }
 
   // only allocate outputs when not given
-  if (outputs.empty()) {
-    outputs = allocOutputs(
+  if (tensor_outputs.empty()) {
+    tensor_outputs = allocTensorOutputs(
         kernel(),
         executor_entry->outputs,
         executor_entry->output_to_input_aliases,
         args,
         options_.device,
         expr_eval);
-  } else {
-    // TODO: Use validateKernelOutputs
-    TORCH_INTERNAL_ASSERT(
-        outputs.size() == fusion_->outputs().size(),
-        __func__,
-        " provided number of outputs does not match fusion output");
   }
-  args.push(outputs);
+  args.push(tensor_outputs);
 
-  for (const auto i : c10::irange(outputs.size())) {
-    auto output = kernel()->outputs()[i];
-    if (std::any_of(
-            kernel()->inputs().begin(),
-            kernel()->inputs().end(),
-            [&](const auto& in) { return in == output; })) {
+  int64_t tensor_output_i = 0;
+  for (const auto i : c10::irange(kernel()->outputs().size())) {
+    auto output = kernel()->outputs().at(i);
+    if (output->isFusionInput()) {
       // Skip trivially forwarded outputs because they are just placeholders
       continue;
     }
+    if (!output->isA<TensorView>()) {
+      continue;
+    }
     executor_utils::bindInputForExprEvaluation(
-        output, args[inputs.size() + i], true, expr_eval, false);
+        output, args[inputs.size() + tensor_output_i], true, expr_eval, false);
+    tensor_output_i++;
   }
 
   std::vector<at::Tensor> intermediates;
@@ -1681,7 +1681,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
       intermediates.push_back(intermediate_buffer);
       executor_utils::bindInputForExprEvaluation(
           kernel()->summary().global_allocations.at(i)->buffer(),
-          args[inputs.size() + outputs.size() + i],
+          args[inputs.size() + tensor_outputs.size() + i],
           true,
           expr_eval,
           false);
@@ -1715,7 +1715,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
         fusion_id_,
         args,
         num_inputs,
-        outputs,
+        tensor_outputs,
         intermediates,
         executor_entry->intermediates);
   }
@@ -1811,7 +1811,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
               (int64_t)dataTypeSize(tensor_arg_abstract->getDataType());
         }
       }
-      for (const auto& output : outputs) {
+      for (const auto& output : tensor_outputs) {
         bytes_processed_ += output.numel() *
             (int64_t)dataTypeSize(aten_to_data_type(output.scalar_type()));
       }
@@ -1830,6 +1830,11 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     debug() << kernel()->profile().toString(profile_buffer);
   }
 
+  std::vector<PolymorphicValue> outputs;
+  outputs.reserve(kernel()->outputs().size());
+  for (auto v : kernel()->outputs()) {
+    outputs.emplace_back(expr_eval.evaluate(v));
+  }
   return outputs;
 }
 

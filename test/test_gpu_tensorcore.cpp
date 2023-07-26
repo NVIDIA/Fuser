@@ -424,7 +424,7 @@ TEST_F(NVFuserTest, FusionVoltaMatmul_CUDA) {
     auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
     auto tref = atMatmul(
         inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
-    TORCH_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+    TORCH_CHECK(cg_outputs[0].as<at::Tensor>().allclose(tref, 0.0001, 0.0001));
   }
 }
 
@@ -473,7 +473,7 @@ TEST_F(NVFuserTest, FusionVoltaMatmulRegDoubleBuffer_CUDA) {
     auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
     auto tref = atMatmul(
         inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
-    TORCH_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+    TORCH_CHECK(cg_outputs[0].as<at::Tensor>().allclose(tref, 0.0001, 0.0001));
   }
 }
 
@@ -841,7 +841,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmul_CUDA) {
     auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
     auto tref = atMatmul(
         inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
-    TORCH_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+    TORCH_CHECK(cg_outputs[0].as<at::Tensor>().allclose(tref, 0.0001, 0.0001));
   }
 }
 
@@ -891,7 +891,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulBFloat16_CUDA) {
     auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
     auto tref = atMatmul(
         inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
-    TORCH_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+    TORCH_CHECK(cg_outputs[0].as<at::Tensor>().allclose(tref, 0.0001, 0.0001));
   }
 }
 
@@ -945,7 +945,8 @@ TEST_F(NVFuserTest, FusionAmpereMatmulPipelineGmem_CUDA) {
       auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
       auto tref = atMatmul(
           inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
-      TORCH_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+      TORCH_CHECK(
+          cg_outputs[0].as<at::Tensor>().allclose(tref, 0.0001, 0.0001));
     }
   }
 }
@@ -1014,7 +1015,7 @@ TEST_F(NVFuserTest, FusionAmpereSwizzle_CUDA) {
     auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
     auto tref = atMatmul(
         inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
-    TORCH_CHECK(cg_outputs[0].allclose(tref, 0.01, 0.01));
+    TORCH_CHECK(cg_outputs[0].as<at::Tensor>().allclose(tref, 0.01, 0.01));
 
     int gdimx = fe.lastLaunchParams().gdimx();
     int gdimy = fe.lastLaunchParams().gdimy();
@@ -1119,7 +1120,8 @@ TEST_F(NVFuserTest, FusionAmpereMatmulRegDoubleBuffer_CUDA) {
       auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
       auto tref = atMatmul(
           inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
-      TORCH_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+      TORCH_CHECK(
+          cg_outputs[0].as<at::Tensor>().allclose(tref, 0.0001, 0.0001));
     }
   }
 }
@@ -1397,7 +1399,7 @@ TEST_F(NVFuserTest, FusionMatmulMatmulAmpere_CUDA) {
   auto cg_outputs = fe.runFusion({t0, t1, t2});
 
   // relaxed check for now, err accumulation is significant.
-  TORCH_CHECK(cg_outputs[0].allclose(tref, 0.1, 0.1));
+  TORCH_CHECK(cg_outputs[0].as<at::Tensor>().allclose(tref, 0.1, 0.1));
 }
 
 // Simplified Matmul-Softmax-Matmul test on Ampere
@@ -1778,7 +1780,7 @@ TEST_F(NVFuserTest, FusionMatmulSoftmaxMatmulAmpere_CUDA) {
   auto sg1 = at::_softmax(g1, -1, false);
   auto gsg1 = sg1.matmul(t2.t().to(at::kFloat));
 
-  TORCH_CHECK(cg_outputs[0].allclose(gsg1, 0.001, 0.001));
+  TORCH_CHECK(cg_outputs[0].as<at::Tensor>().allclose(gsg1, 0.001, 0.001));
 }
 
 // MMA unit test on Turing
@@ -2128,7 +2130,7 @@ TEST_F(NVFuserTest, FusionTuringMatmul_CUDA) {
     auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
     auto tref = atMatmul(
         inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
-    TORCH_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+    TORCH_CHECK(cg_outputs[0].as<at::Tensor>().allclose(tref, 0.0001, 0.0001));
   }
 }
 
@@ -2272,7 +2274,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTNcpAsync_CUDA) {
 
   auto tref = t0.to(at::kFloat).matmul(t1.t().to(at::kFloat));
 
-  TORCH_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+  TORCH_CHECK(cg_outputs[0].as<at::Tensor>().allclose(tref, 0.0001, 0.0001));
 }
 
 TEST_F(NVFuserTest, FusionAmpereStridedBatchedMatmulTN_CUDA) {
@@ -2450,7 +2452,7 @@ TEST_F(NVFuserTest, FusionAmpereStridedBatchedMatmulTN_CUDA) {
   auto ref = ref_permuted.view({B0, B1, M, N})
                  .permute({0, 2, 3, 1})
                  .contiguous(); // B0,M,N,B1
-  TORCH_CHECK(cg_outputs[0].allclose(ref, 0.0001, 0.0001));
+  TORCH_CHECK(cg_outputs[0].as<at::Tensor>().allclose(ref, 0.0001, 0.0001));
 }
 
 // Matmul test on Ampere with a reshape on prolog
@@ -2613,7 +2615,7 @@ TEST_F(NVFuserTest, FusionAmpereViewMatmulTN_CUDA) {
   auto tref =
       at::native::view(t0, {M, K}).to(at::kFloat).matmul(t1.t().to(at::kFloat));
 
-  TORCH_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+  TORCH_CHECK(cg_outputs[0].as<at::Tensor>().allclose(tref, 0.0001, 0.0001));
 }
 
 // Initial test case for in-CTA split K with VoltaMMA
@@ -2774,7 +2776,7 @@ TEST_F(NVFuserTest, FusionVoltaMatmulTNCrossWarp_CUDA) {
   fe.compileFusion(&fusion, {t0, t1}, LaunchParams(), matmul_cparams);
   auto cg_outputs = fe.runFusion({t0, t1});
   auto tref = t0.to(at::kFloat).matmul(t1.to(at::kFloat).t());
-  TORCH_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+  TORCH_CHECK(cg_outputs[0].as<at::Tensor>().allclose(tref, 0.0001, 0.0001));
 }
 
 // Initial test case for cross-CTA split K with VoltaMMA
@@ -2947,7 +2949,7 @@ TEST_F(NVFuserTest, FusionVoltaMatmulTNCrossCTA_CUDA) {
   fe.compileFusion(&fusion, {t0, t1}, LaunchParams(), matmul_cparams);
   auto cg_outputs = fe.runFusion({t0, t1});
   auto tref = t0.to(at::kFloat).matmul(t1.to(at::kFloat).t());
-  TORCH_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+  TORCH_CHECK(cg_outputs[0].as<at::Tensor>().allclose(tref, 0.0001, 0.0001));
 }
 
 // Test an end-to-end matmul case with swizzled smem
@@ -3127,7 +3129,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTNSwizzled_CUDA) {
 
   auto tref = t0.to(at::kFloat).matmul(t1.t().to(at::kFloat));
 
-  TORCH_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+  TORCH_CHECK(cg_outputs[0].as<at::Tensor>().allclose(tref, 0.0001, 0.0001));
 }
 
 // Matmul test on Ampere using ldmatrix.x4 to load operands
@@ -3176,7 +3178,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulLargeLoad_CUDA) {
     auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
     auto tref = atMatmul(
         inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
-    TORCH_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+    TORCH_CHECK(cg_outputs[0].as<at::Tensor>().allclose(tref, 0.0001, 0.0001));
   }
 }
 
@@ -3223,7 +3225,7 @@ TEST_F(NVFuserTest, FusionTuringMatmulLargeLoad_CUDA) {
     auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
     auto tref = atMatmul(
         inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
-    TORCH_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+    TORCH_CHECK(cg_outputs[0].as<at::Tensor>().allclose(tref, 0.0001, 0.0001));
   }
 }
 
@@ -3283,9 +3285,9 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck4warp_CUDA) {
         auto tref = atMatmul(
             inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
         TORCH_CHECK(
-            cg_outputs[0].allclose(tref, 0.0001, 0.0001),
+            cg_outputs[0].as<at::Tensor>().allclose(tref, 0.0001, 0.0001),
             "error :",
-            (cg_outputs[0] - tref).abs().max(),
+            (cg_outputs[0].as<at::Tensor>() - tref).abs().max(),
             "tile dim:",
             mn_size,
             " ",
@@ -3353,7 +3355,8 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck8warp_CUDA) {
               inputs.first.to(at::kFloat),
               inputs.second.to(at::kFloat),
               layout);
-          TORCH_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+          TORCH_CHECK(
+              cg_outputs[0].as<at::Tensor>().allclose(tref, 0.0001, 0.0001));
         }
       }
     }
@@ -3413,7 +3416,8 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck6warp_CUDA) {
       auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
       auto tref = atMatmul(
           inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
-      TORCH_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+      TORCH_CHECK(
+          cg_outputs[0].as<at::Tensor>().allclose(tref, 0.0001, 0.0001));
     }
   }
 }
@@ -3464,7 +3468,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulLargeLoadLargeK_CUDA) {
     auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
     auto tref = atMatmul(
         inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
-    TORCH_CHECK(cg_outputs[0].allclose(tref, 0.001, 0.001));
+    TORCH_CHECK(cg_outputs[0].as<at::Tensor>().allclose(tref, 0.001, 0.001));
   }
 }
 
@@ -3590,7 +3594,7 @@ TEST_F(NVFuserTest, FusionMatmulSchedulerBasicMatmulRelaxedCheck_CUDA) {
             ScheduleHeuristic::Matmul),
         "matmul scheduler was not used to handle prepared fusion");
 
-    TORCH_CHECK(outputs[0].allclose(tref, 0.001, 0.001));
+    TORCH_CHECK(outputs[0].as<at::Tensor>().allclose(tref, 0.001, 0.001));
   }
 }
 
@@ -3654,7 +3658,7 @@ TEST_F(NVFuserTest, FusionMatmulSchedulerBasicMatmulInputShuffledTT_CUDA) {
           ScheduleHeuristic::Matmul),
       "matmul scheduler was not used to handle prepared fusion");
 
-  TORCH_CHECK(outputs[0].allclose(tref, 0.001, 0.001));
+  TORCH_CHECK(outputs[0].as<at::Tensor>().allclose(tref, 0.001, 0.001));
 }
 
 // Matmul test that relies on segmenter for 'C = float2half(A x B)' fusion, for
@@ -3715,7 +3719,7 @@ TEST_F(NVFuserTest, FusionMatmulSchedulerEpilogueOutputCast_CUDA) {
       !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
       "segmentation did happen");
 
-  TORCH_CHECK(outputs[0].allclose(tref, 0.001, 0.001));
+  TORCH_CHECK(outputs[0].as<at::Tensor>().allclose(tref, 0.001, 0.001));
 }
 
 // Matmul test that relies on segmenter for 'C = alpha * (A x B)' fusion, for
@@ -3779,7 +3783,7 @@ TEST_F(NVFuserTest, FusionMatmulSchedulerEpilogueAlpha_CUDA) {
       !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
       "segmentation did happen");
 
-  TORCH_CHECK(outputs[0].allclose(tref, 0.001, 0.001));
+  TORCH_CHECK(outputs[0].as<at::Tensor>().allclose(tref, 0.001, 0.001));
 }
 
 // Matmul test that relies on segmenter for 'C = float2half(alpha * (A x B))'
@@ -3845,7 +3849,7 @@ TEST_F(NVFuserTest, FusionMatmulSchedulerEpilogueAlphaOutputCast_CUDA) {
       !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
       "segmentation did happen");
 
-  TORCH_CHECK(outputs[0].allclose(tref, 0.001, 0.001));
+  TORCH_CHECK(outputs[0].as<at::Tensor>().allclose(tref, 0.001, 0.001));
 }
 
 // Matmul test that relies on segmenter for 'C = relu(A x B)' fusion, for
@@ -3906,7 +3910,7 @@ TEST_F(NVFuserTest, FusionMatmulSchedulerEpilogueRelu_CUDA) {
       !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
       "segmentation did happen");
 
-  TORCH_CHECK(outputs[0].allclose(tref, 0.001, 0.001));
+  TORCH_CHECK(outputs[0].as<at::Tensor>().allclose(tref, 0.001, 0.001));
 }
 
 // Matmul test that relies on segmenter for 'C = gelu(A x B)' fusion, for
@@ -3967,7 +3971,7 @@ TEST_F(NVFuserTest, FusionMatmulSchedulerEpilogueGelu_CUDA) {
       !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
       "segmentation did happen");
 
-  TORCH_CHECK(outputs[0].allclose(tref, 0.001, 0.001));
+  TORCH_CHECK(outputs[0].as<at::Tensor>().allclose(tref, 0.001, 0.001));
 }
 
 // Matmul test that relies on segmenter for fusion for Ampere:
@@ -4046,7 +4050,7 @@ TEST_F(NVFuserTest, FusionMatmulSchedulerEpilogueBeta_CUDA) {
 
   // NOTE: increasted absolute tolerance to silence false negative verification
   //       caused by different way of calculating reference
-  TORCH_CHECK(outputs[0].allclose(t5, 0.01, 0.04));
+  TORCH_CHECK(outputs[0].as<at::Tensor>().allclose(t5, 0.01, 0.04));
 }
 
 // Matmul test that relies on segmenter for fusion for Ampere:
@@ -4130,7 +4134,7 @@ TEST_F(NVFuserTest, FusionMatmulSchedulerEpilogueAlphaBeta_CUDA) {
 
   // NOTE: increasted absolute tolerance to silence false negative verification
   //       caused by different way of calculating reference
-  TORCH_CHECK(outputs[0].allclose(t6, 0.001, 0.004));
+  TORCH_CHECK(outputs[0].as<at::Tensor>().allclose(t6, 0.001, 0.004));
 }
 
 // Matmul test that relies on segmenter for fusion for Ampere:
@@ -4221,7 +4225,7 @@ TEST_F(NVFuserTest, FusionMatmulSchedulerEpilogueAlphaBetaGeluOutputCast_CUDA) {
 
   // NOTE: increasted absolute tolerance to silence false negative verification
   //       caused by different way of calculating reference
-  TORCH_CHECK(outputs[0].allclose(t8, 0.01, 0.06));
+  TORCH_CHECK(outputs[0].as<at::Tensor>().allclose(t8, 0.01, 0.06));
 }
 
 // MMA and alpha unit test, for Ampere TN
@@ -4308,7 +4312,7 @@ TEST_F(NVFuserTest, FusionAmpereMMATNAlpha_CUDA) {
   auto t2 = t0.to(at::kFloat).matmul(t1.t().to(at::kFloat));
   auto tref = t2.mul(alpha);
 
-  TORCH_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+  TORCH_CHECK(cg_outputs[0].as<at::Tensor>().allclose(tref, 0.0001, 0.0001));
 }
 
 // MMA and alpha + beta unit test, for Ampere TN
@@ -4425,7 +4429,7 @@ TEST_F(NVFuserTest, FusionAmpereMMATNAlphaBeta_CUDA) {
   auto t5 = t2.to(at::kFloat).mul(beta);
   auto t6 = t4.add(t5);
 
-  TORCH_CHECK(cg_outputs[0].allclose(t6, 0.0001, 0.0001));
+  TORCH_CHECK(cg_outputs[0].as<at::Tensor>().allclose(t6, 0.0001, 0.0001));
 }
 
 // Matmul test for Ampere MMA: across supported layouts
@@ -4475,7 +4479,7 @@ TEST_F(NVFuserTest, FusionAmpereSplitKLikeStridedBatchedMatmul_CUDA) {
     auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
     auto tref = splitkLikeAtMatmul(
         inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
-    TORCH_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+    TORCH_CHECK(cg_outputs[0].as<at::Tensor>().allclose(tref, 0.0001, 0.0001));
   }
 }
 
@@ -4559,9 +4563,9 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSmemEpilogue_CUDA) {
     ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
     // (0.001, 0.001) passed on local A100 but failed on CI A100
     TORCH_CHECK(
-        cg_outputs[0].allclose(tref, 0.01, 0.01),
+        cg_outputs[0].as<at::Tensor>().allclose(tref, 0.01, 0.01),
         "Result validation failed. Max diff: ",
-        (cg_outputs[0] - tref).abs().max());
+        (cg_outputs[0].as<at::Tensor>() - tref).abs().max());
 
     if (!params.use_smem_epilogue) {
       GTEST_SKIP()
@@ -4646,9 +4650,9 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSmemEpilogueCast_CUDA) {
     ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
     // (0.001, 0.001) passed on local A100 but failed on CI A100
     TORCH_CHECK(
-        cg_outputs[0].allclose(tref, 0.01, 0.01),
+        cg_outputs[0].as<at::Tensor>().allclose(tref, 0.01, 0.01),
         "Result validation failed. Max diff: ",
-        (cg_outputs[0] - tref).abs().max());
+        (cg_outputs[0].as<at::Tensor>() - tref).abs().max());
 
     if (!params.use_smem_epilogue) {
       GTEST_SKIP()
@@ -4734,9 +4738,9 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSmemEpilogueRelu_CUDA) {
     ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
     // (0.001, 0.001) passed on local A100 but failed on CI A100
     TORCH_CHECK(
-        cg_outputs[0].allclose(tref, 0.01, 0.01),
+        cg_outputs[0].as<at::Tensor>().allclose(tref, 0.01, 0.01),
         "Result validation failed. Max diff: ",
-        (cg_outputs[0] - tref).abs().max());
+        (cg_outputs[0].as<at::Tensor>() - tref).abs().max());
 
     if (!params.use_smem_epilogue) {
       GTEST_SKIP()

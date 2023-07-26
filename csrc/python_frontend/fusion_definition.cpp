@@ -148,6 +148,20 @@ void FusionDefinition::print(std::ostream& os) const {
   os << std::endl;
 }
 
+namespace {
+
+// TODO: remove this and support arbitrary outputs
+std::vector<at::Tensor> _toTensors(const std::vector<PolymorphicValue>& pv) {
+  std::vector<at::Tensor> out;
+  out.reserve(pv.size());
+  for (const auto& p : pv) {
+    out.push_back(p.as<at::Tensor>());
+  }
+  return out;
+}
+
+} // namespace
+
 std::vector<at::Tensor> FusionDefinition::execute(
     const at::ArrayRef<c10::IValue>& inputs,
     bool override_user_schedule,
@@ -167,12 +181,12 @@ std::vector<at::Tensor> FusionDefinition::execute(
           scheds, user_sched_id.value(), device);
       scheds->last_user_def_scheduled_ir = user_sched.schedule.get();
       scheds->last_user_def_executor = user_sched.executor.get();
-      return user_sched.executor->runFusion(inputs);
+      return _toTensors(user_sched.executor->runFusion(inputs));
     }
   }
 
-  return scheds->auto_gen_schedules->runFusionWithInputs(
-      inputs, std::nullopt, selected_device);
+  return _toTensors(scheds->auto_gen_schedules->runFusionWithInputs(
+      inputs, std::nullopt, selected_device));
 }
 
 std::string FusionDefinition::fusionIr() {

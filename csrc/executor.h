@@ -81,13 +81,13 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
     compileFusion(fusion, args, launch_constraints, compile_params);
   }
 
-  std::vector<at::Tensor> runFusion(
+  std::vector<PolymorphicValue> runFusion(
       KernelArgumentHolder& args,
       const LaunchParams& launch_constraints = LaunchParams(),
       CompileParams compile_params = CompileParams(),
-      std::vector<at::Tensor> outputs = {});
+      std::vector<at::Tensor> tensor_outputs = {});
 
-  std::vector<at::Tensor> runFusion(
+  std::vector<PolymorphicValue> runFusion(
       const at::ArrayRef<c10::IValue>& inputs,
       const std::vector<at::Tensor>& outputs,
       const LaunchParams& launch_constraints = LaunchParams(),
@@ -101,7 +101,7 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
     return runFusion(args, launch_constraints, compile_params, outputs);
   }
 
-  std::vector<at::Tensor> runFusion(
+  std::vector<PolymorphicValue> runFusion(
       const at::ArrayRef<c10::IValue>& inputs,
       const LaunchParams& launch_constraints = LaunchParams(),
       CompileParams compile_params = CompileParams(),

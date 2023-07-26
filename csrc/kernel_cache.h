@@ -126,7 +126,7 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
   }
 
   //! Unified interface to run the managed kernels with given input
-  std::vector<at::Tensor> runWithInputs(KernelArgumentHolder& args);
+  std::vector<PolymorphicValue> runWithInputs(KernelArgumentHolder& args);
 
   //! Compile a kernel executor for given inputs. Note: The compilation is
   //! multithreaded. The segments in the fusion are compiled independently.
@@ -224,7 +224,7 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
   //! Interface to run a single kernel, either one kernel for single-kernel
   //! fusions, or a kernel for a segmentedGrouup in a segmented fusion. Returns
   //! the kernel outputs.
-  std::vector<at::Tensor> runKernelWithInput(
+  std::vector<PolymorphicValue> runKernelWithInput(
       KernelArgumentHolder& args,
       SegmentedGroup* sg);
 
@@ -481,7 +481,7 @@ class TORCH_CUDA_CU_API FusionExecutorCache {
   //! cases as our analysis of index type may be overly conservative
   //! for intermediate tensors.
   //! WARING: Correctness is not guaranteed.
-  std::vector<at::Tensor> runFusionWithInputs(
+  std::vector<PolymorphicValue> runFusionWithInputs(
       const at::ArrayRef<c10::IValue>& inputs,
       std::optional<PrimDataType> forced_index_type = std::nullopt,
       std::optional<int8_t> selected_device = std::nullopt);
@@ -620,7 +620,7 @@ class TORCH_CUDA_CU_API FusionExecutorCache {
 
   //! Allocate the outputs of the Fusion given inputs
   //! TODO: re-implement
-  std::vector<at::Tensor> allocOutputSpace(
+  std::vector<PolymorphicValue> allocOutputSpace(
       const at::ArrayRef<c10::IValue>& inputs) {
     return runFusionWithInputs(inputs);
   }
@@ -728,7 +728,7 @@ class GraphCache {
   explicit GraphCache(const std::shared_ptr<torch::jit::Graph>& graph);
 
   //! execute graph with given inputs
-  std::vector<at::Tensor> runGraphWithInputs(
+  std::vector<PolymorphicValue> runGraphWithInputs(
       const at::ArrayRef<c10::IValue>& inputs);
 
  private:

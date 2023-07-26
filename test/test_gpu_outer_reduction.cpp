@@ -935,7 +935,7 @@ void grid_persistent_batchnorm_manual(
   }
 
   auto cg_outputs = fe.runFusion(aten_inputs);
-  cg_outputs.at(2) = cg_outputs.at(2).permute({0, 3, 1, 2});
+  cg_outputs.at(2) = cg_outputs.at(2).at<at::Tensor>().permute({0, 3, 1, 2});
 
   auto at_output = at::batch_norm(
       at_input,
@@ -1264,7 +1264,7 @@ void grid_persistent_batchnorm_bwd_manual(
        at_save_mean,
        at_save_var});
 
-  std::vector<at::Tensor> cg_outputs;
+  std::vector<PolymorphicValue> cg_outputs;
 
   FusionExecutor fe;
   fe.compileFusion(fusion_ptr.get(), aten_inputs);
@@ -1278,7 +1278,7 @@ void grid_persistent_batchnorm_bwd_manual(
 
   cg_outputs = fe.runFusion(aten_inputs);
   // Permute grad_input output
-  cg_outputs.at(0) = cg_outputs.at(0).permute({0, 3, 1, 2});
+  cg_outputs.at(0) = cg_outputs.at(0).as<at::Tensor>().permute({0, 3, 1, 2});
 
   auto at_output = at::native_batch_norm_backward(
       at_grad_out,
@@ -1823,7 +1823,7 @@ void grid_persistent_batchnorm_scheduler(
       kEps,
       true);
 
-  cg_outputs.at(0) = cg_outputs.at(0).permute({0, 3, 1, 2});
+  cg_outputs.at(0) = cg_outputs.at(0).as<at::Tensor>().permute({0, 3, 1, 2});
 
   testValidate(
       &fusion, cg_outputs, aten_inputs, {at_output}, __LINE__, __FILE__, "");

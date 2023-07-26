@@ -316,7 +316,13 @@ void Kernel::finalize(std::vector<Expr*> top_level_exprs) {
   summary_.parallel_dimension_map_ =
       GpuLower::current()->parallelDimensionMap();
   parameters_ = GpuLower::current()->allKnownVals();
-  parameters_.insert(parameters_.end(), outputs().begin(), outputs().end());
+  for (auto output : outputs()) {
+    // Scalar outputs are handled by expr evaluator called in the executor, the
+    // kernel do not need to worry about them.
+    if (output->isA<TensorView>()) {
+      parameters_.push_back(output);
+    }
+  }
   for (auto alloc : summary_.global_allocations) {
     parameters_.push_back(alloc->buffer());
   }

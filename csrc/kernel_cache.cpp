@@ -367,7 +367,7 @@ bool FusionExecutorCache::isCompiled(
 //
 // For details on Part_2, refer to the implementation note. [ Permutation
 // Bookkeeping and Propagation in Parser ]
-std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
+std::vector<PolymorphicValue> FusionExecutorCache::runFusionWithInputs(
     const at::ArrayRef<c10::IValue>& inputs,
     std::optional<PrimDataType> forced_index_type,
     std::optional<int8_t> selected_device) {
@@ -422,7 +422,7 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
       std::vector<c10::IValue>(inputs.begin(), inputs.end()),
       seq_id);
   auto outputs = kernel_runtime->runWithInputs(args);
-  RECORD_OUTPUTS(outputs);
+  RECORD_OUTPUTS(std::vector<c10::IValue>(outputs.begin(), outputs.end()));
 
   // Kernel time measurement is off by default
   kernel_runtime->disableKernelTimeMeasurement();
@@ -431,7 +431,8 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
   // See Part_3 in Note [ Permutation support in nvfuser ]
   for (const auto& pair : fusion->getPermutationOutputMap()) {
     if (size_t(pair.first) < outputs.size()) {
-      outputs[pair.first] = outputs[pair.first].permute(pair.second);
+      outputs[pair.first] =
+          outputs[pair.first].as<at::Tensor>().permute(pair.second);
     }
   }
 
@@ -718,7 +719,7 @@ FusionKernelRuntime::FusionKernelRuntime(
   prepareRuntimeOrder();
 }
 
-std::vector<at::Tensor> FusionKernelRuntime::runKernelWithInput(
+std::vector<PolymorphicValue> FusionKernelRuntime::runKernelWithInput(
     KernelArgumentHolder& args,
     SegmentedGroup* sg) {
   FUSER_PERF_SCOPE("FusionKernelRuntime::runKernelWithInput");
@@ -941,7 +942,7 @@ std::pair<LaunchParams, CompileParams> FusionKernelRuntime::getKernelConfig(
       scheduler_entry->params()->lparams, scheduler_entry->params()->cparams);
 }
 
-std::vector<at::Tensor> FusionKernelRuntime::runWithInputs(
+std::vector<PolymorphicValue> FusionKernelRuntime::runWithInputs(
     KernelArgumentHolder& args) {
   FUSER_PERF_SCOPE("FusionKernelRuntime::runWithInputs");
 
@@ -959,7 +960,7 @@ std::vector<at::Tensor> FusionKernelRuntime::runWithInputs(
   }
 
   // Produce final global output
-  std::vector<at::Tensor> fusion_outputs;
+  std::vector<PolymorphicValue> fusion_outputs;
   for (auto output : segmented_fusion_->outputs()) {
     const auto iter = tensor_map.find(output);
     if (iter != tensor_map.end()) {
@@ -1055,7 +1056,7 @@ std::unordered_map<Val*, const ArgAbstract*> FusionKernelRuntime::
     // something abstract. This is quite unsatisfying.
 
     // Run graph segment
-    std::vector<at::Tensor> group_runtime_outputs =
+    auto group_runtime_outputs =
         runKernelWithInput(group_runtime_inputs, group_to_run);
     args_manager.updateWithSegmentOutputs(
         group_to_run->outputs(), group_runtime_outputs, group_id);
@@ -1140,7 +1141,7 @@ GraphCache::GraphCache(const std::shared_ptr<torch::jit::Graph>& graph) {
   createFusion(graph);
 }
 
-std::vector<at::Tensor> GraphCache::runGraphWithInputs(
+std::vector<PolymorphicValue> GraphCache::runGraphWithInputs(
     const at::ArrayRef<c10::IValue>& inputs) {
   FUSER_PERF_SCOPE("GraphCache::runGraphWithInputs");
 

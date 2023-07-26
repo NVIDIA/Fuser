@@ -9430,6 +9430,47 @@ TEST_F(NVFuserTest, FusionInstanceNormNHWC_CUDA) {
   testValidate(fusion, cg_outputs, inputs, outputs, __LINE__, __FILE__);
 }
 
+TEST_F(NVFuserTest, ScalarOutput) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  auto tv0 = makeContigTensor(1, DataType::Int);
+  auto s0 = IrBuilder::newScalar(DataType::Int);
+  auto s1 = neg(s0);
+  auto s2 = abs(s1);
+  auto tv1 = neg(tv0);
+  fusion->addInput(tv0);
+  fusion->addInput(s0);
+  fusion->addOutput(s1);
+  fusion->addOutput(tv1);
+  fusion->addOutput(s2);
+
+  FusionExecutorCache fec(std::move(fusion_ptr));
+
+  auto options = at::TensorOptions().dtype(at::kInt).device(at::kCUDA, 0);
+  auto t0 = at::arange(256, options);
+
+  auto cg_outputs = fec.runFusionWithInputs({t0, 2});
+  testValidate(fusion, cg_outputs, {t0}, __LINE__, __FILE__);
+}
+
+TEST_F(NVFuserTest, ScalarOnlyFusion) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  auto s0 = IrBuilder::newScalar(DataType::Int);
+  auto s1 = neg(s0);
+  fusion->addInput(s0);
+  fusion->addOutput(s1);
+
+  FusionExecutorCache fec(std::move(fusion_ptr));
+
+  auto cg_outputs = fec.runFusionWithInputs({2});
+  testValidate(fusion, cg_outputs, {2}, __LINE__, __FILE__);
+}
+
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser

@@ -170,7 +170,7 @@ static void LstmCell_RunFusion(
   std::vector<c10::IValue> inputs = setupInputs(hidden_features, batch_size);
 
   // outputs
-  std::vector<at::Tensor> outputs;
+  std::vector<PolymorphicValue> outputs;
 
   auto lparams = schedulePointwise(&fusion, c10::ArrayRef<c10::IValue>(inputs));
 
@@ -239,7 +239,7 @@ static void LstmCell_RunFusion_CpuOnly(
   std::vector<c10::IValue> inputs = setupInputs(hidden_features, batch_size);
 
   // outputs
-  std::vector<at::Tensor> outputs;
+  std::vector<PolymorphicValue> outputs;
 
   auto lparams = schedulePointwise(&fusion, c10::ArrayRef<c10::IValue>(inputs));
 

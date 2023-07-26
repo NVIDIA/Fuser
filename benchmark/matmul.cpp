@@ -170,7 +170,7 @@ static void SingleMatmulBase(
 
   // Warm up run
   auto outputs = fe.runFusion(aten_inputs);
-  checkMatch(expected_output, outputs.at(0).to(at::kDouble), input_mnk.at(2));
+  checkMatch(expected_output, outputs.at(0).as<at::Tensor>().to(at::kDouble), input_mnk.at(2));
 
   runBenchmarkIterations(benchmark_state, &fe, aten_inputs);
 

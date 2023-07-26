@@ -41,13 +41,13 @@ void PipelineExecutor::handle(PipelineStage* stage) {
   // Run the stage to get concrete outputs or placeholders
   // TODO: reimplement allocOutputSpace
   // TODO: allocate output space only if strictly necessary
-  std::vector<at::Tensor> outputs = shouldRun(stage)
+  std::vector<PolymorphicValue> outputs = shouldRun(stage)
       ? fec_[stage]->runFusionWithInputs(stage_input_IValues)
       : fec_[stage]->allocOutputSpace(stage_input_IValues);
 
   // Store the outputs or placeholders in the context
   for (auto output_idx : c10::irange(stage->outputs().size())) {
-    val_to_IValue_[stage->outputs().at(output_idx)] = outputs.at(output_idx);
+    val_to_IValue_[stage->outputs().at(output_idx)] = (c10::IValue)outputs.at(output_idx);
   }
 }
 
