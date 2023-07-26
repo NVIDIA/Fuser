@@ -313,6 +313,15 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristicSharedMemory(
   // fully vectorized, use maxThreadsPerBlock to reduce workload per threads
   int64_t vectorize_factor = (int64_t)max_vectorize_factor;
   int64_t bdimx = dev_prop->maxThreadsPerBlock;
+  TORCH_INTERNAL_ASSERT(
+      total_reduction_numel >= vectorize_factor * bdimx,
+      "total_reduction_numel should be larger than or equal to vectorize_factor * bdimx.\n",
+      "total_reduction_numel= ",
+      total_reduction_numel,
+      ", vectorize_factor= ",
+      vectorize_factor,
+      ", bdimx= ",
+      bdimx);
   int64_t persistent_batch =
       ceilDiv(total_reduction_numel, vectorize_factor * bdimx);
   rparams->cross_block_inner_reduction = true;

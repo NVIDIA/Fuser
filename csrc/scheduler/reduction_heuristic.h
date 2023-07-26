@@ -133,7 +133,7 @@ class ReductionParams : public HeuristicParams {
   // block_dim_inner_reduction_extra (usually TIDy)
   ParallelType block_dim_inner_reduction_extra = ParallelType::Serial;
 
-  // user shared memory for persistent buffer, if false, use registers
+  // use shared memory for persistent buffer, if false, will use registers
   bool shared_mem_persistent_buffer = false;
 
  public:

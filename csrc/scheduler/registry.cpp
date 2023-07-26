@@ -2190,8 +2190,15 @@ class PersistentKernelScheduler : public SchedulerEntry {
       // TODO: More accurate estimation of available shared memory size
       const int64_t kernel_overhead =
           (int64_t)dev_prop->reservedSharedMemPerBlock;
+      int64_t max_buffer_dtype_size = 1;
+      for (auto tv : persistent_buffer_info.persistent_buffers) {
+        max_buffer_dtype_size = std::max(
+            max_buffer_dtype_size,
+            dataTypeSize(
+                tv->getDataType().value(), runtime_info.getIndexType()));
+      }
       const int64_t reduction_broadcast_workspace =
-          (int64_t)(dev_prop->maxThreadsPerBlock * sizeof(float));
+          (int64_t)(dev_prop->maxThreadsPerBlock) * max_buffer_dtype_size;
       const int64_t available_shared_memory_size = max_shared_memory_size -
           kernel_overhead - reduction_broadcast_workspace;
       available_persistent_buffer_size = std::max(

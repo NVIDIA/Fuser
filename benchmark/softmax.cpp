@@ -344,13 +344,7 @@ NVFUSER_BENCHMARK_RUN(NvFuserScheduler_Softmax_Inner_fp16)
     ->UseManualTime();
 
 //--------- large hidden size --------------------------------------------------
-NVFUSER_BENCHMARK_DEFINE(
-    NvFuserScheduler_Softmax_Inner_LargeHiddenSize_fp16,
-    setupSoftmax,
-    NvFuserScheduler_Softmax,
-    DataType::Half,
-    1);
-NVFUSER_BENCHMARK_RUN(NvFuserScheduler_Softmax_Inner_LargeHiddenSize_fp16)
+NVFUSER_BENCHMARK_RUN(NvFuserScheduler_Softmax_Inner_fp16)
     ->Args({30 * 1024, 8192})
     ->Args({31 * 1024, 8192})
     ->Args({32 * 1024, 8192})
