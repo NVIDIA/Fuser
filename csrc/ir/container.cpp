@@ -319,8 +319,7 @@ NamedScalar* IrContainer::magicZeroVal() {
 Val* IrContainer::metadataOf(Val* v) {
   if (metadata_.count(v) == 0) {
     auto metadata_val = IrBuilder::create<Val>(this, metaDataTypeOf(v));
-    auto metadata_expr =
-        IrBuilder::create<GetMetaData>(this, metadata_val, v);
+    auto metadata_expr = IrBuilder::create<GetMetaData>(this, metadata_val, v);
     metadata_[v] = std::make_pair(metadata_val, metadata_expr);
   }
   return metadata_.at(v).first;
