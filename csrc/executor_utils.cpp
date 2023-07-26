@@ -73,9 +73,9 @@ std::string kernelPreamble() {
   ss << nvfuser_resources::bf16_support_cu;
 
   // Base classes and helpers
-  ss << nvfuser_resources::tensor_cu;
   ss << nvfuser_resources::type_traits_cu;
   ss << nvfuser_resources::array_cu;
+  ss << nvfuser_resources::tensor_cu;
   ss << nvfuser_resources::random_numbers_cu;
   ss << nvfuser_resources::helpers_cu;
   ss << nvfuser_resources::index_utils_cu;
