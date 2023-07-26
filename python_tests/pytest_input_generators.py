@@ -13,6 +13,10 @@ from pytest_core import OpInfo, SampleInput, ErrorSample
 from pytest_utils import make_number, find_nonmatching_dtype, is_floating_dtype
 from nvfuser import DataType
 
+MINIMUM_SYMBOLIC_SIZE = -1
+INT64_MAX = 9223372036854775807
+MAX_TENSOR_DIMS = 8
+MAX_VECTOR_SIZE = 8
 
 def broadcast_error_generator(
     op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
@@ -230,10 +234,6 @@ def define_tensor_error_generator(
         bool is_cpu = false) -> Tensor {
     """
 
-    MINIMUM_SYMBOLIC_SIZE = -1
-    INT64_MAX = 9223372036854775807
-    MAX_TENSOR_DIMS = 8
-
     check_size_contiguity_match = ErrorSample(
         {
             "symbolic_sizes": [-1, -1],
@@ -306,10 +306,6 @@ def define_vector_constant_error_generator(
     [](FusionDefinition& self, py::list& values) -> Vector {
     """
 
-    MINIMUM_SYMBOLIC_SIZE = -1
-    INT64_MAX = 9223372036854775807
-    MAX_VECTOR_SIZE = 8
-
     check_above_size_range = ErrorSample(
         {"values": [INT64_MAX + 1]},
         "define_vector(): incompatible function arguments",
@@ -348,8 +344,6 @@ def define_vector_input_error_generator(
     [](FusionDefinition& self, size_t size) -> Vector {
     """
 
-    MAX_VECTOR_SIZE = 8
-
     check_max_vector_size = ErrorSample(
         {
             "size": (MAX_VECTOR_SIZE + 1),
@@ -363,6 +357,15 @@ def define_vector_input_error_generator(
 
     for es in error_cases:
         yield SampleInput(**es.kwargs), es.ex_type, es.ex_str
+
+
+def tensor_at_error_generator(
+    op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
+):
+    """
+    [&at_def](Vector arg, int64_t index) -> Scalar {
+      return at_def(arg, index);
+    """
 
 
 # TODO Add small value, large value, and extremal-valued samples
