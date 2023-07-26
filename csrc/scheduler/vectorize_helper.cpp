@@ -776,7 +776,7 @@ namespace {
 // Returns Mappings of all dims in reference starting from inner most position
 // to outer most position. e.g. T0[i0, r1, b2] will return 3 Mapper instances
 // associated with:
-// {{i0, r1, b1}, {r1, b1}, {b1}}
+// {{i0, r1, b2}, {r1, b2}, {b2}}
 std::vector<std::unordered_map<TensorView*, Val*>> getTvToContigInnerSizeMapsOf(
     TensorView* ref) {
   std::vector<std::unordered_map<TensorView*, Val*>> mappers;
