@@ -17,23 +17,30 @@
 
 namespace nvfuser {
 
-DataType metaDataTypeOf(Val* v) {
-  auto tv = dynamic_cast<TensorView*>(v);
+DataType metaDataTypeOf(const Val* v) {
+  auto tv = dynamic_cast<const TensorView*>(v);
   TORCH_INTERNAL_ASSERT(
       tv != nullptr, "Currently, only supports getting metadata of TensorView");
   if (tv->getMemoryType() == MemoryType::Shared) {
     // Smem tensor is defined locally as a pointer
     return PointerOf{std::make_shared<DataType>(tv->dtype())};
   }
+
+  size_t dim = TensorDomain::noReductions(tv->getMaybeRFactorDomain()).size();
+  size_t alloc_dim =
+      TensorDomain::noReductions(tv->getMaybeAllocationDomain()).size();
+
+  std::stringstream ss;
+  ss << "Tensor<" << tv->dtype() << ", " << dim << ", " << alloc_dim << ">";
+
   StructOf tv_metadata;
+  tv_metadata.name = ss.str();
   tv_metadata.types["data"] = NVFUSER_MAYBE_MAKE_SHARED(
       PointerOf{std::make_shared<DataType>(tv->dtype())});
-  tv_metadata.types["sizes"] = NVFUSER_MAYBE_MAKE_SHARED2(ArrayOf{
-      std::make_shared<DataType>(DataType::Index),
-      TensorDomain::noReductions(tv->getMaybeRFactorDomain()).size()});
-  tv_metadata.types["strides"] = NVFUSER_MAYBE_MAKE_SHARED2(ArrayOf{
-      std::make_shared<DataType>(DataType::Index),
-      TensorDomain::noReductions(tv->getMaybeAllocationDomain()).size()});
+  tv_metadata.types["size"] = NVFUSER_MAYBE_MAKE_SHARED2(
+      ArrayOf{std::make_shared<DataType>(DataType::Index), dim});
+  tv_metadata.types["stride"] = NVFUSER_MAYBE_MAKE_SHARED2(
+      ArrayOf{std::make_shared<DataType>(DataType::Index), alloc_dim});
   return tv_metadata;
 }
 
@@ -198,6 +205,20 @@ static std::string data_type2string(DataType t) {
           ss << "Array<" << data_type2string(*dtype.type) << ", " << dtype.size
              << ", 1>";
           return ss.str();
+        } else if constexpr (std::is_same_v<T, StructOf>) {
+          if (dtype.name != "") {
+            return dtype.name;
+          }
+          std::stringstream ss;
+          ss << "struct { ";
+          for (auto& [name, type] : dtype.types) {
+            ss << data_type2string(NVFUSER_MAYBE_STAR type) << " " << name
+               << "; ";
+          }
+          ss << "}";
+          return ss.str();
+        } else {
+          TORCH_INTERNAL_ASSERT(false, "No string found for data type.");
         }
         TORCH_INTERNAL_ASSERT(false, "No string found for data type.");
       },
@@ -339,7 +360,7 @@ static const char* unary_op_type2string(UnaryOpType t) {
     case UnaryOpType::Log2:
       return "log2";
     case UnaryOpType::BitCast:
-      return "erase_type";
+      return "bit_cast";
     case UnaryOpType::Neg:
       return "neg";
     case UnaryOpType::Not:
@@ -1120,6 +1141,9 @@ std::string typePrefix(const DataType data_type) {
   }
   if (std::holds_alternative<ArrayOf>(data_type.type)) {
     return "a";
+  }
+  if (std::holds_alternative<StructOf>(data_type.type)) {
+    return "s";
   }
   switch (std::get<PrimDataType>(data_type.type)) {
     case DataType::Bool:

@@ -1347,14 +1347,14 @@ class LoopIndexingPreferredPathCompute : public IterVisitor {
     }
 
     for (auto expr : loop_indexing.getForwardExprList()) {
-      compute.handle(expr);
+      compute.dispatch(expr);
     }
 
     return compute.preferred_path_;
   }
 
  private:
-  void handle(Expr* e) override {
+  void dispatch(Expr* e) override {
     // If an input ID is marked, propagate the marking to outputs of the
     // expression
     auto all_iter_inputs = ir_utils::filterByType<IterDomain>(e->inputs());

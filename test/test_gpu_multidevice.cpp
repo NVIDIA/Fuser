@@ -28,7 +28,6 @@
 #include <multidevice/pipeline.h>
 #include <multidevice/pipeline_ir.h>
 #include <multidevice/runtime.h>
-#include <mutator.h>
 #include <ops/all_ops.h>
 #include <root_domain_map.h>
 #include <scheduler/all_schedulers.h>

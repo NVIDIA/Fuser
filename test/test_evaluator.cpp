@@ -318,8 +318,8 @@ TEST_F(ExprEvalTest, TensorMetaData) {
   TensorView* tv = makeSymbolicTensor(2);
   auto metadata = IrBuilder::metadataExpr(tv);
   auto data = IrBuilder::getAttrExpr(metadata, "data");
-  auto sizes = IrBuilder::getAttrExpr(metadata, "sizes");
-  auto strides = IrBuilder::getAttrExpr(metadata, "strides");
+  auto sizes = IrBuilder::getAttrExpr(metadata, "size");
+  auto strides = IrBuilder::getAttrExpr(metadata, "stride");
   auto size0 = IrBuilder::getItemExpr(sizes, fusion.zeroVal());
   auto size1 = IrBuilder::getItemExpr(sizes, fusion.oneVal());
   auto stride0 = IrBuilder::getItemExpr(strides, fusion.zeroVal());

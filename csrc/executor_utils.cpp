@@ -28,6 +28,7 @@
 #include <nvfuser_resources/array.h>
 #include <nvfuser_resources/basic_type_traits.h>
 #include <nvfuser_resources/bf16_support.h>
+#include <nvfuser_resources/bit.h>
 #include <nvfuser_resources/block_reduction.h>
 #include <nvfuser_resources/block_sync_atomic.h>
 #include <nvfuser_resources/block_sync_default.h>
@@ -65,15 +66,16 @@ namespace executor_utils {
 std::string kernelPreamble() {
   std::stringstream ss;
   ss << nvfuser_resources::basic_type_traits_cu;
+  ss << nvfuser_resources::bit_cu;
   ss << nvfuser_resources::complex_number_cu;
 
   ss << nvfuser_resources::fp16_support_cu;
   ss << nvfuser_resources::bf16_support_cu;
 
   // Base classes and helpers
-  ss << nvfuser_resources::tensor_cu;
   ss << nvfuser_resources::type_traits_cu;
   ss << nvfuser_resources::array_cu;
+  ss << nvfuser_resources::tensor_cu;
   ss << nvfuser_resources::random_numbers_cu;
   ss << nvfuser_resources::helpers_cu;
   ss << nvfuser_resources::index_utils_cu;

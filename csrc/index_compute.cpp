@@ -613,11 +613,11 @@ void IndexCompute::handle(Resize* resize) {
   }
 }
 
-void IndexCompute::handle(Expr* e) {
+void IndexCompute::dispatch(Expr* e) {
   auto is_expected_type = e->isOneOf<Split, Merge, Swizzle2D, Resize>();
   TORCH_INTERNAL_ASSERT(
       is_expected_type, "Invalid expr type found in transform traversal.");
-  BackwardVisitor::handle(e);
+  BackwardVisitor::dispatch(e);
 }
 
 IndexCompute::IndexCompute(
@@ -703,7 +703,7 @@ void IndexCompute::run(const LoopIndexing& loop_indexing) {
     auto loop_id_def = loop_id->definition();
     if (loop_id_def != nullptr && loop_id_def->isA<Swizzle2D>()) {
       if (visited.insert(loop_id_def).second) {
-        handle(loop_id_def);
+        dispatch(loop_id_def);
       }
     }
   }
@@ -720,7 +720,7 @@ void IndexCompute::run(const LoopIndexing& loop_indexing) {
     // Resolve missing values from permissive map.
     updateIndexMapFromPermissiveMap(expr);
 
-    handle(expr);
+    dispatch(expr);
   }
 }
 
@@ -747,7 +747,7 @@ void IndexCompute::collectIndexIntoPermissiveMap(
       // LoopIndexingAnalysis::traverseFromDomainVals made sure that each
       //  concrete index is bound exactly once so computing these expressions
       //  early should still be consistent.
-      handle(expr);
+      dispatch(expr);
 
       auto id_inputs = ir_utils::filterByType<IterDomain>(expr->inputs());
       for (auto id : id_inputs) {
@@ -1077,7 +1077,7 @@ void IndexSwizzle::run() {
   }
 }
 
-void IndexSwizzle::handle(Expr* e) {
+void IndexSwizzle::dispatch(Expr* e) {
   auto out_ids = ir_utils::filterByType<IterDomain>(e->outputs());
   bool needs_update =
       std::any_of(
@@ -1093,7 +1093,7 @@ void IndexSwizzle::handle(Expr* e) {
     return;
   }
 
-  IndexCompute::handle(e);
+  IndexCompute::dispatch(e);
   for (auto input : ir_utils::filterByType<IterDomain>(e->inputs())) {
     swizzled_ids_.insert(input);
   }
@@ -1400,10 +1400,10 @@ std::vector<Val*> Index::getGlobalProducerStridedIndices(
         strides[i] = GpuLower::current()->kernel()->oneVal();
         continue;
       }
-      std::stringstream ss;
-      ss << "T" << producer_tv->name() << ".stride[" << stride_i++ << "]";
-      strides[i] =
-          SimplifyingIrBuilder::create<NamedScalar>(ss.str(), DataType::Int);
+      strides[i] = IrBuilder::getItemExpr(
+          IrBuilder::getAttrExpr(
+              IrBuilder::metadataExpr(producer_tv), "stride"),
+          stride_i++);
     }
   }
 
@@ -1743,7 +1743,7 @@ std::vector<Val*> Index::getProducerPerDimLogicalIndex(
       producer_tv, consumer_tv, loops, rotated_loops, override_index);
 }
 
-std::vector<Val*> Index::getStrides(const TensorView* tv) {
+std::vector<Val*> Index::getStrides(TensorView* tv) {
   // Indices should now be mapped onto IterDomains in consumer, so just grab
   // and use them.
   const auto& alloc_dom = tv->getMaybeAllocationDomain();
@@ -1757,10 +1757,9 @@ std::vector<Val*> Index::getStrides(const TensorView* tv) {
         strides[i] = GpuLower::current()->kernel()->oneVal();
         continue;
       }
-      std::stringstream ss;
-      ss << "T" << tv->name() << ".stride[" << stride_i++ << "]";
-      strides[i] =
-          SimplifyingIrBuilder::create<NamedScalar>(ss.str(), DataType::Int);
+      strides[i] = IrBuilder::getItemExpr(
+          IrBuilder::getAttrExpr(IrBuilder::metadataExpr(tv), "stride"),
+          stride_i++);
     }
   }
 
@@ -1959,7 +1958,7 @@ std::vector<Val*> Index::getProducerAllocationIndices(
 }
 
 std::vector<Val*> Index::getGlobalConsumerStridedIndices(
-    const TensorView* consumer_tv,
+    TensorView* consumer_tv,
     const std::vector<kir::ForLoop*>& loops,
     const std::unordered_set<kir::ForLoop*>& rotated_loops,
     const std::unordered_map<int, Val*>& override_index) {

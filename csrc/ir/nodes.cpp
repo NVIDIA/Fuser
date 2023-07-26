@@ -779,11 +779,11 @@ std::vector<PolymorphicValue> GetMetaData::evaluate(
   Struct<PolymorphicValue> concrete_value;
   concrete_value["data"] =
       PolymorphicValue(Pointer(input.data_ptr(), tv->dtype()));
-  concrete_value["sizes"] = PolymorphicValue(input.sizes().vec());
+  concrete_value["size"] = PolymorphicValue(input.sizes().vec());
   // TODO: this is not correct, strides actually needs to be based on allocation
   // domain, but input.strides() is on the rFactor domain. We need to refactor
   // our executor to move related logic here.
-  concrete_value["strides"] = PolymorphicValue(input.strides().vec());
+  concrete_value["stride"] = PolymorphicValue(input.strides().vec());
   return {PolymorphicValue(concrete_value)};
 }
 
@@ -807,6 +807,13 @@ std::string TensorConstruct::toString(int indent_size) const {
 
 std::string TensorConstruct::toInlineString(int indent_size) const {
   TORCH_CHECK(false, "Tensor op can not be printed inline");
+}
+
+std::vector<PolymorphicValue> TensorConstruct::evaluate(
+    const std::vector<PolymorphicValue>& inputs) const {
+  TORCH_INTERNAL_ASSERT(inputs.size() == 1, "TensorConstruct expects 1 input");
+  using namespace PolymorphicValue_functions;
+  return {toTensor(inputs.at(0))};
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(TensorConstruct)
@@ -3636,11 +3643,6 @@ bool NamedScalar::sameAs(const Statement* other) const {
 
 bool NamedScalar::isTensorSize() const {
   static const std::regex r(R"(T\d+\.size\[\d+\])");
-  return std::regex_match(name(), r);
-}
-
-bool NamedScalar::isTensorStride() const {
-  static const std::regex r(R"(T\d+\.stride\[\d+\])");
   return std::regex_match(name(), r);
 }
 

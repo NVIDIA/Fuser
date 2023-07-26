@@ -234,9 +234,9 @@ class BankConflictInfo : public kir::IrVisitor {
 
   using kir::IrVisitor::handle;
 
-  void handle(Expr* expr) final {
+  void dispatch(Expr* expr) final {
     if (expr->isA<kir::ForLoop>() || expr->isA<kir::IfThenElse>()) {
-      kir::IrVisitor::handle(expr);
+      kir::IrVisitor::dispatch(expr);
       return;
     }
 
