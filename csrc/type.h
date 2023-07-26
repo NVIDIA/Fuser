@@ -107,6 +107,13 @@ struct PointerOf {
 };
 
 struct StructOf {
+  // In nvfuser's type system, there are two types of structs: named structs and
+  // anonymous structs. Named structs are lowered to its name in the generated
+  // code, while anonymous structs are lowered to `struct {...}`. Generally, we
+  // should use named structs for structures that has definition in a file in
+  // runtime/, and anonymous structs for others.
+  std::string name;
+
   // Note [Incomplete type support in STL]
   // std::unordered_map<std::string, DataType> is a STL container of incomplete
   // type. Not all C++ STL containers supports incomplete type due to historical
@@ -124,7 +131,6 @@ struct StructOf {
   //   std::vector<A> a; // valid on C++17
   //   std::unordered_set<A> s; // undefined behavior, working on newer gcc.
   //   struct A {};
-
 #if defined(STD_UNORDERED_SET_SUPPORTS_INCOMPLETE_TYPE)
   std::unordered_map<std::string, DataType> types;
 #define NVFUSER_MAYBE_MAKE_SHARED(x) x
