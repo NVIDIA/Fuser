@@ -1836,7 +1836,7 @@ float FusionExecutor::runRtc(
   std::vector<std::vector<std::byte>> data;
   std::vector<void*> pointers;
 
-  for (auto input : args) {
+  for (const auto& input : args) {
     Struct<PolymorphicValue> concrete_value;
     concrete_value["data"] = PolymorphicValue(
         Pointer(input.data_ptr(), aten_to_data_type(input.scalar_type())));
