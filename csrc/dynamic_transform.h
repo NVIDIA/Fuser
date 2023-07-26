@@ -18,6 +18,7 @@
 
 #include <functional>
 #include <memory>
+#include <variant>
 #include <vector>
 
 namespace nvfuser {
@@ -44,14 +45,17 @@ class TORCH_CUDA_CU_API DynamicTransformInitialInfo {
   //! given some user input. In either of these cases, concretization may change
   //! the structure of the Fusion.
   bool isDynamic() const {
-    return hasPossibleEmptyTensor() || !dynamic_reshaped_tvs_.empty() ||
-        !dynamic_resized_ids_.empty();
+    return hasPossibleEmptyTensor() || !dynamic_exprs_.empty();
   }
 
   //! Return whether there are any tensors with unknown extent in some
   //! dimension, so that they might be empty
   bool hasPossibleEmptyTensor() const {
     return !maybe_zero_extents_.empty();
+  }
+
+  const std::vector<Expr*>& getDynamicExprs() const {
+    return dynamic_exprs_;
   }
 
   //! Return a set of scalars that are inputs or extents of input TensorViews
@@ -68,18 +72,6 @@ class TORCH_CUDA_CU_API DynamicTransformInitialInfo {
     return maybe_zero_extents_;
   }
 
-  //! Return a vector of outputs of ViewOp expressions that have dynamic output
-  //! shapes
-  const std::vector<TensorView*>& getDynamicReshapedTensorViews() const {
-    return dynamic_reshaped_tvs_;
-  }
-
-  //! Return a vector of outputs of Resize expressions that have symbolic output
-  //! IterTypes
-  const std::vector<IterDomain*>& getDynamicResizedIterDomains() const {
-    return dynamic_resized_ids_;
-  }
-
   std::string toString() const;
 
   DynamicTransformInitialInfo clone(IrCloner& ir_cloner) const;
@@ -92,7 +84,7 @@ class TORCH_CUDA_CU_API DynamicTransformInitialInfo {
   }
 
  protected:
-  //! Holds the set of scalar fusion inputs that affect concretization.
+  //! Holds the set of scalar fusion input positions that affect concretization.
   std::unordered_set<size_t> scalar_inputs_affecting_concretization_;
 
  private:
@@ -101,23 +93,17 @@ class TORCH_CUDA_CU_API DynamicTransformInitialInfo {
  private:
   Fusion* fusion_ = nullptr;
 
-  // We hold vectors of the _outputs_ of dynamic ops. The reason we don't hold
-  // the ops themselves is that during concretization, the ops will actually be
-  // removed by ir_utils::replaceValInExpr. The outputs will not: their
-  // definitions will merely be altered. When the ops are replaced, if we had
-  // referred to them directly here, we would run into segfaults. Referring only
-  // to the outputs avoids this issue.
-  std::vector<TensorView*> dynamic_reshaped_tvs_;
-
-  std::vector<IterDomain*> dynamic_resized_ids_;
+  // This is a vector of dynamic Exprs, in topological order.
+  std::vector<Expr*> dynamic_exprs_;
 
   // This is a minimal set of scalars to check for empty tensors. If any are
   // zero, we should traverse to find empty tensors.
   std::unordered_set<Val*> maybe_zero_extents_set_;
-  // The set above is populated then used to create this unique vector
+  // The set above is populated then used to create this unique vector which is
+  // ordered arbitrarily.
   std::vector<Val*> maybe_zero_extents_;
 
-  // Root Vals that determine concretization
+  // Minimal set of Vals that determine all aspects of concretization
   std::unordered_set<Val*> root_dynamic_vals_;
 
   friend class DynamicTransformInitialInfoBuilder;
@@ -135,20 +121,10 @@ class TORCH_CUDA_CU_API DynamicTransformConcretizationInfo {
     return empty_extents_;
   }
 
-  //! Return a vector of pairs holding the index of each reshaped TensorView in
-  //! the vector returned by initialInfo()->getDynamicReshapedTensorViews(),
-  //! along with an AnalyzeViewResult describing how that reshape operation
-  //! should be decomposed into split, merge, squeeze, and broadcast transforms.
-  const std::vector<std::pair<size_t, AnalyzeViewResult>>& getReshapeTransforms()
-      const {
-    return reshape_transforms_;
-  }
-
-  //! Return a vector of pairs holding the index of each resized IterDomain in
-  //! the vector returned by initialInfo()->getDynamicResizedIterDomains(),
-  //! along with the IterType it should be concretized to.
-  const std::vector<std::pair<size_t, IterType>>& getResizeIterTypes() const {
-    return resize_itertypes_;
+  //! Return a vector of descriptors describing how to concretize the dynamic
+  //! expressions in the initial info.
+  const auto& getExprConcretizationDescriptors() const {
+    return concretization_descriptors_;
   }
 
   //! Comparison operator for the purposes of determining cache hits. This does
@@ -163,13 +139,13 @@ class TORCH_CUDA_CU_API DynamicTransformConcretizationInfo {
   }
 
   //! Given an ExpressionEvaluator which already has input scalars bound to it,
-  //! determine the decomposition of each dynamic reshape operation to use
-  //! during concretization.
-  void analyzeReshapes(ExpressionEvaluator* expr_eval);
+  //! determine the decomposition of a dynamic reshape operation to use during
+  //! concretization.
+  void analyze(ViewOp* vop, ExpressionEvaluator* expr_eval);
 
   //! Given an ExpressionEvaluator which already has input scalars bound to it,
   //! determine the concrete IterType of each resized IterDomain.
-  void analyzeResizes(ExpressionEvaluator* expr_eval);
+  void analyze(Resize* rop, ExpressionEvaluator* expr_eval);
 
   const DynamicTransformInitialInfo* initialInfo() const {
     return initial_info_;
@@ -195,19 +171,22 @@ class TORCH_CUDA_CU_API DynamicTransformConcretizationInfo {
  private:
   const DynamicTransformInitialInfo* initial_info_ = nullptr;
 
-  //! Holds the index of the output TensorView in the vector returned by
-  //! initial_info_->getDynamicReshapedTensorViews(), and the corresponding
-  //! result of analyzeView
-  std::vector<std::pair<size_t, AnalyzeViewResult>> reshape_transforms_;
+  //! Holds data required to concretize an operation. Entries in this vector
+  //! correspond to the Exprs in initial_info_->getDynamicExprs().
+  //!
+  //! Each type of Expr requires a different type of information at
+  //! concretization, so this holds a variant that should enumerate all data
+  //! types encountered. Each should be copyable and should not include pointers
+  //! to any Statements.
+  std::vector<std::variant<
+      AnalyzeViewResult, // For ViewOp
+      IterType // For Resize, the IterType of the output
+      >>
+      concretization_descriptors_;
 
   //! Holds a vector of indices into initial_info_.getMaybeZeroExtents() which
   //! evaluate to 0
   std::vector<size_t> empty_extents_;
-
-  //! Holds the index of the resized IterDomain (output of the Resize op) in the
-  //! vector returned by initial_info_->getDynamicResizedIterDomains() along
-  //! with its concretized IterType
-  std::vector<std::pair<size_t, IterType>> resize_itertypes_;
 
   friend class DynamicTransformInfoBuilder;
 };

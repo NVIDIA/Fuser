@@ -25,36 +25,32 @@ DynamicTransformInitialInfo DynamicTransformInitialInfo::clone(
     IrCloner& ir_cloner) const {
   DynamicTransformInitialInfo cloned_info(
       static_cast<Fusion*>(ir_cloner.container()));
-  cloned_info.dynamic_reshaped_tvs_.reserve(dynamic_reshaped_tvs_.size());
-  for (const auto op : dynamic_reshaped_tvs_) {
-    if (op) {
-      cloned_info.dynamic_reshaped_tvs_.push_back(ir_cloner.clone(op));
-    }
-  }
-  cloned_info.dynamic_resized_ids_.reserve(dynamic_resized_ids_.size());
-  for (const auto op : dynamic_resized_ids_) {
-    if (op) {
-      cloned_info.dynamic_resized_ids_.push_back(ir_cloner.clone(op));
-    }
-  }
+
+  cloned_info.dynamic_exprs_.reserve(dynamic_exprs_.size());
+  std::transform(
+      dynamic_exprs_.begin(),
+      dynamic_exprs_.end(),
+      std::back_inserter(cloned_info.dynamic_exprs_),
+      [&ir_cloner](TensorView* tv) { return ir_cloner.clone(tv); });
+
   cloned_info.maybe_zero_extents_set_.reserve(maybe_zero_extents_set_.size());
-  for (const auto v : maybe_zero_extents_set_) {
-    if (v) {
-      cloned_info.maybe_zero_extents_set_.insert(ir_cloner.clone(v));
-    }
-  }
-  cloned_info.maybe_zero_extents_.reserve(maybe_zero_extents_.size());
-  for (const auto v : maybe_zero_extents_) {
-    if (v) {
-      cloned_info.maybe_zero_extents_.push_back(ir_cloner.clone(v));
-    }
-  }
+  std::transform(
+      maybe_zero_extents_set_.begin(),
+      maybe_zero_extents_set_.end(),
+      std::inserter(
+          cloned_info.maybe_zero_extents_set_,
+          cloned_info.maybe_zero_extents_set_.begin()),
+      [&ir_cloner](TensorView* tv) { return ir_cloner.clone(tv); });
+
   cloned_info.root_dynamic_vals_.reserve(root_dynamic_vals_.size());
-  for (const auto v : root_dynamic_vals_) {
-    if (v) {
-      cloned_info.root_dynamic_vals_.insert(ir_cloner.clone(v));
-    }
-  }
+  std::transform(
+      root_dynamic_vals_.begin(),
+      root_dynamic_vals_.end(),
+      std::inserter(
+          cloned_info.root_dynamic_vals_,
+          cloned_info.root_dynamic_vals_.begin()),
+      [&ir_cloner](TensorView* tv) { return ir_cloner.clone(tv); });
+
   return cloned_info;
 }
 
@@ -62,13 +58,9 @@ std::string DynamicTransformInitialInfo::toString() const {
   std::stringstream ss;
   ss << "DynamicTransformInitialInfo\n";
   std::string indent = "  ";
-  ss << indent << "Dynamic reshaped TensorViews:\n";
-  for (const auto& op : dynamic_reshaped_tvs_) {
-    ss << indent << indent << op->toString() << "\n";
-  }
-  ss << indent << "Dynamic resized IterDomains:\n";
-  for (const auto& op : dynamic_resized_ids_) {
-    ss << indent << indent << op->toString() << "\n";
+  ss << indent << "Dynamic expressions:\n";
+  for (const auto& expr : dynamic_exprs_) {
+    ss << indent << indent << expr->toString();
   }
   ss << indent << "Dynamic extent Vals:\n";
   for (const auto& v : maybe_zero_extents_) {
@@ -77,6 +69,10 @@ std::string DynamicTransformInitialInfo::toString() const {
   ss << indent << "Root dynamic Vals:\n";
   for (const auto& v : root_dynamic_vals_) {
     ss << indent << indent << v->toString() << "\n";
+  }
+  ss << indent << "Input positions affecting concretization:\n";
+  for (const auto& pos : scalar_inputs_affecting_concretization_) {
+    ss << indent << indent << std::to_string(pos) << "\n";
   }
   return ss.str();
 }
@@ -110,7 +106,7 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
     auto out_tv = op->out()->as<TensorView>();
     // If there's no symbolic axis, this is a static reshape op
     if (out_tv->domain()->hasSymbolicAxis()) {
-      info_.dynamic_reshaped_tvs_.push_back(out_tv);
+      info_.dynamic_exprs_.push_back(op);
 
       // Input and output extent expressions both affect concretization
       for (const auto& id :
@@ -136,7 +132,7 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
         continue;
       }
       if (id->definition()->isA<Resize>()) {
-        info_.dynamic_resized_ids_.push_back(id);
+        info_.dynamic_exprs_.push_back(id->definition());
         // extent of output determines its IterType
         leaf_dynamic_vals_.push_back(id->extent());
       }
@@ -196,9 +192,15 @@ DynamicTransformConcretizationInfo::DynamicTransformConcretizationInfo(
   // evaluator when any one of the IDs has a known value
   expr_eval->propagateBoundValuesThroughExactMaps(initial_info_->fusion());
 
-  analyzeReshapes(expr_eval);
-
-  analyzeResizes(expr_eval);
+  for (auto expr : initial_info_->getDynamicExprs()) {
+    if (auto vop = dynamic_cast<ViewOp*>(expr)) {
+      analyze(vop, expr_eval);
+    } else if (auto rop = dynamic_cast<Resize*>(expr)) {
+      analyze(rop, expr_eval);
+    } else {
+      TORCH_CHECK(false, "Unhandled dynamic Expr type: ", expr->toString());
+    }
+  }
 
   auto maybe_zero_extents = initial_info_->getMaybeZeroExtents();
   for (auto i : c10::irange(maybe_zero_extents.size())) {
@@ -214,119 +216,112 @@ DynamicTransformConcretizationInfo::DynamicTransformConcretizationInfo(
   }
 }
 
-void DynamicTransformConcretizationInfo::analyzeReshapes(
+void DynamicTransformConcretizationInfo::analyze(
+    ViewOp* op,
     ExpressionEvaluator* expr_eval) {
-  const auto& reshape_tvs = initial_info_->getDynamicReshapedTensorViews();
-  for (const auto tv_index : c10::irange(reshape_tvs.size())) {
-    auto out_tv = reshape_tvs.at(tv_index);
-    auto op = out_tv->definition()->as<ViewOp>();
-    auto inp_tv = op->in()->as<TensorView>();
+  auto out_tv = op->out()->as<TensorView>();
+  auto inp_tv = op->in()->as<TensorView>();
 
-    // If there's no symblic axis, this is a static reshape op
-    if (!out_tv->domain()->hasSymbolicAxis()) {
-      return;
-    }
-
-    TORCH_INTERNAL_ASSERT(
-        out_tv->hasRFactor(),
-        "Unexpected output tv of ViewOp: ",
-        out_tv->toString());
-
-    const auto& inp_dom =
-        TensorDomain::noReductions(inp_tv->getMaybeRFactorDomain());
-
-    // Determine input shape using expr evaluator
-    std::vector<int64_t> inp_shape(inp_dom.size(), 0);
-    for (const auto i : c10::irange(inp_dom.size())) {
-      auto inp_id = inp_dom.at(i);
-      // This should have been validated when initially creating reshape
-      // op, but just in case
-      TORCH_INTERNAL_ASSERT(
-          !inp_id->maybePartial(),
-          "Invalid domain to reshape: ",
-          inp_id->toString());
-      auto extent_val = expr_eval->evaluate(inp_id->extent());
-      TORCH_INTERNAL_ASSERT(
-          extent_val.hasValue(),
-          "Cannot evaluate the extent of an input domain to reshape: ",
-          inp_id->toString());
-      TORCH_INTERNAL_ASSERT(
-          extent_val.is<int64_t>(),
-          "Invalid evaluated value of domain extent: ",
-          inp_id->toString());
-      TORCH_INTERNAL_ASSERT(
-          extent_val.as<int64_t>() > 0,
-          "Invalid input domain extent: ",
-          extent_val.as<int64_t>());
-      inp_shape.at(i) = extent_val.as<int64_t>();
-    }
-
-    const auto& out_dom = out_tv->getMaybeRFactorDomain();
-
-    // Determine output shape using expr evaluator. Note there may be
-    // one domain of extent -1
-    std::vector<int64_t> out_shape(out_dom.size(), 0);
-    for (const auto i : c10::irange(out_dom.size())) {
-      auto out_id = out_dom.at(i);
-      auto extent_val = expr_eval->evaluate(out_id->extent());
-      TORCH_INTERNAL_ASSERT(
-          extent_val.hasValue(),
-          "Cannot evaluate the extent of an output domain to reshape: ",
-          out_id->toString());
-      TORCH_INTERNAL_ASSERT(
-          extent_val.is<int64_t>(),
-          "Invalid evaluated value of domain extent: ",
-          out_id->toString());
-      auto extent_int = extent_val.as<int64_t>();
-      if (extent_int == -1) {
-        // For non-constant Scalar sizes, check that we have not passed -1.
-        TORCH_CHECK(
-            out_id->extent()->isConst(),
-            "Values of -1 passed to reshape must be constant at definition.")
-      }
-      out_shape.at(i) = extent_int;
-    }
-
-    auto view_result = analyzeView(inp_tv, inp_shape, out_shape);
-
-    reshape_transforms_.emplace_back(tv_index, view_result);
+  // If there's no symblic axis, this is a static reshape op
+  if (!out_tv->domain()->hasSymbolicAxis()) {
+    return;
   }
-}
 
-void DynamicTransformConcretizationInfo::analyzeResizes(
-    ExpressionEvaluator* expr_eval) {
-  const auto& resize_ids = initial_info_->getDynamicResizedIterDomains();
-  for (const auto id_index : c10::irange(resize_ids.size())) {
-    auto out_id = resize_ids.at(id_index);
-    auto op = out_id->definition()->as<Resize>();
+  TORCH_INTERNAL_ASSERT(
+      out_tv->hasRFactor(),
+      "Unexpected output tv of ViewOp: ",
+      out_tv->toString());
 
-    TORCH_CHECK(
-        out_id->getIterType() == IterType::Symbolic,
-        "Found non-dynamic Resize in initial concretization info: ",
-        op->toString());
+  const auto& inp_dom =
+      TensorDomain::noReductions(inp_tv->getMaybeRFactorDomain());
 
+  // Determine input shape using expr evaluator
+  std::vector<int64_t> inp_shape(inp_dom.size(), 0);
+  for (const auto i : c10::irange(inp_dom.size())) {
+    auto inp_id = inp_dom.at(i);
+    // This should have been validated when initially creating reshape
+    // op, but just in case
+    TORCH_INTERNAL_ASSERT(
+        !inp_id->maybePartial(),
+        "Invalid domain to reshape: ",
+        inp_id->toString());
+    auto extent_val = expr_eval->evaluate(inp_id->extent());
+    TORCH_INTERNAL_ASSERT(
+        extent_val.hasValue(),
+        "Cannot evaluate the extent of an input domain to reshape: ",
+        inp_id->toString());
+    TORCH_INTERNAL_ASSERT(
+        extent_val.is<int64_t>(),
+        "Invalid evaluated value of domain extent: ",
+        inp_id->toString());
+    TORCH_INTERNAL_ASSERT(
+        extent_val.as<int64_t>() > 0,
+        "Invalid input domain extent: ",
+        extent_val.as<int64_t>());
+    inp_shape.at(i) = extent_val.as<int64_t>();
+  }
+
+  const auto& out_dom = out_tv->getMaybeRFactorDomain();
+
+  // Determine output shape using expr evaluator. Note there may be
+  // one domain of extent -1
+  std::vector<int64_t> out_shape(out_dom.size(), 0);
+  for (const auto i : c10::irange(out_dom.size())) {
+    auto out_id = out_dom.at(i);
     auto extent_val = expr_eval->evaluate(out_id->extent());
     TORCH_INTERNAL_ASSERT(
         extent_val.hasValue(),
-        "Cannot evaluate the extent of a resized domain: ",
+        "Cannot evaluate the extent of an output domain to reshape: ",
         out_id->toString());
     TORCH_INTERNAL_ASSERT(
         extent_val.is<int64_t>(),
-        "Invalid evaluated value of resized domain extent: ",
+        "Invalid evaluated value of domain extent: ",
         out_id->toString());
     auto extent_int = extent_val.as<int64_t>();
-    TORCH_INTERNAL_ASSERT(
-        extent_int > 0,
-        "Invalid resized domain extent ",
-        extent_int,
-        " for domain ",
-        out_id->toString());
-
-    auto iter_type =
-        extent_int == 1 ? IterType::Broadcast : IterType::Iteration;
-
-    resize_itertypes_.emplace_back(id_index, iter_type);
+    if (extent_int == -1) {
+      // For non-constant Scalar sizes, check that we have not passed -1.
+      TORCH_CHECK(
+          out_id->extent()->isConst(),
+          "Values of -1 passed to reshape must be constant at definition.")
+    }
+    out_shape.at(i) = extent_int;
   }
+
+  auto view_result = analyzeView(inp_tv, inp_shape, out_shape);
+
+  concretization_descriptors_.emplace_back(view_result);
+}
+
+void DynamicTransformConcretizationInfo::analyze(
+    Resize* op,
+    ExpressionEvaluator* expr_eval) {
+  auto out_id = op->out()->as<IterDomain>();
+
+  TORCH_CHECK(
+      out_id->getIterType() == IterType::Symbolic,
+      "Found non-dynamic Resize in initial concretization info: ",
+      op->toString());
+
+  auto extent_val = expr_eval->evaluate(out_id->extent());
+  TORCH_INTERNAL_ASSERT(
+      extent_val.hasValue(),
+      "Cannot evaluate the extent of a resized domain: ",
+      out_id->toString());
+  TORCH_INTERNAL_ASSERT(
+      extent_val.is<int64_t>(),
+      "Invalid evaluated value of resized domain extent: ",
+      out_id->toString());
+  auto extent_int = extent_val.as<int64_t>();
+  TORCH_INTERNAL_ASSERT(
+      extent_int > 0,
+      "Invalid resized domain extent ",
+      extent_int,
+      " for domain ",
+      out_id->toString());
+
+  auto iter_type = extent_int == 1 ? IterType::Broadcast : IterType::Iteration;
+
+  concretization_descriptors_.emplace_back(iter_type);
 }
 
 bool DynamicTransformConcretizationInfo::operator==(
@@ -335,26 +330,13 @@ bool DynamicTransformConcretizationInfo::operator==(
     return true;
   }
 
-  if (reshape_transforms_.size() != other.reshape_transforms_.size() ||
-      resize_itertypes_.size() != other.resize_itertypes_.size() ||
-      empty_extents_.size() != other.empty_extents_.size()) {
+  if (concretization_descriptors_.size() !=
+          other.concretization_descriptors_.size() ||
+      !std::equal(
+          concretization_descriptors_.begin(),
+          concretization_descriptors_.end(),
+          other.concretization_descriptors_.begin())) {
     return false;
-  }
-
-  for (const auto i : c10::irange(reshape_transforms_.size())) {
-    const auto& analysis = reshape_transforms_.at(i);
-    const auto& other_analysis = other.reshape_transforms_.at(i);
-    if (analysis != other_analysis) {
-      return false;
-    }
-  }
-
-  for (const auto i : c10::irange(resize_itertypes_.size())) {
-    const auto& itertype = resize_itertypes_.at(i);
-    const auto& other_itertype = other.resize_itertypes_.at(i);
-    if (itertype != other_itertype) {
-      return false;
-    }
   }
 
   for (const auto i : c10::irange(empty_extents_.size())) {
@@ -377,19 +359,16 @@ std::string DynamicTransformConcretizationInfo::toString() const {
     auto ext = initial_info_->getMaybeZeroExtents().at(i);
     ss << indent << indent << ext->toString() << " is zero\n";
   }
-  ss << indent << "Reshape:\n";
-  for (const auto& [tv_index, analyze_result] : reshape_transforms_) {
-    auto tv = initial_info_->getDynamicReshapedTensorViews().at(tv_index);
-    ss << indent << indent << tv->toString() << " (index=" << tv_index << "), "
-       << analyze_result.toString() << "\n";
+  ss << indent << "Dynamic expression concretization descriptors:\n";
+  for (const auto& desc_var : concretization_descriptors_) {
+    if (auto analyze_result_ptr = std::get_if<AnalyzeViewResult>(&desc_var)) {
+      ss << indent << indent
+         << "AnalyzeViewResult: " << analyze_result_ptr->toString() << "\n";
+    } else if (auto iter_type_ptr = std::get_if<IterType>(&desc_var)) {
+      ss << indent << indent << "IterType: " << (*iter_type_ptr) << "\n";
+    }
+    return ss.str();
   }
-  ss << indent << "Resize:\n";
-  for (const auto& [id_index, iter_type] : resize_itertypes_) {
-    auto id = initial_info_->getDynamicResizedIterDomains().at(id_index);
-    ss << indent << indent << id->toString() << " (index=" << id_index << "), "
-       << iter_type << "\n";
-  }
-  return ss.str();
 }
 
 //! Concretize a symbolic fusion with concrete transformation info
@@ -409,22 +388,23 @@ class DynamicTransformConcretizer : public OptOutMutator {
  private:
   void concretize();
 
-  void concretizeReshape();
+  void concretizeReshape(ViewOp* op, AnalyzeViewResult& view_analysis) const;
 
-  void concretizeResize();
+  void concretizeResize(Resize* op, IterType iter_type) const;
 
   void concretizeEmptyExtents();
 
-  //! Use this instead of calling registerMutation directly, since it will also
-  //! check that the concretized value is a valid input to all of its uses.
+  //! Use this instead of calling registerMutation directly, since it will
+  //! also check that the concretized value is a valid input to all of its
+  //! uses.
   void registerConcretization(Val* old_val, Val* new_val) {
     checkConcretizedUses(old_val, new_val);
     registerMutation(old_val, new_val);
   }
 
   //! Check uses of old_val to ensure that new_val does not violate
-  //! assumptions. This is currently only used to check that inputs to SqueezeOp
-  //! are marked broadcast during concretization.
+  //! assumptions. This is currently only used to check that inputs to
+  //! SqueezeOp are marked broadcast during concretization.
   void checkConcretizedUses(Val* old_val, Val* new_val) const;
 
   using OptOutMutator::mutate;
@@ -442,13 +422,47 @@ class DynamicTransformConcretizer : public OptOutMutator {
 };
 
 void DynamicTransformConcretizer::concretize() {
-  // Concretize all dynamic reshape ops
-  concretizeReshape();
+  // First, concretize dynamic Exprs. We do this in reverse topological order.
+  //
+  // To understand why we use reverse topo order, consider what happens when
+  // we concretize a dynamic reshape `auto tv3 = reshape(tv2, sh);`. To do
+  // this, we create a new TensorView, let's call it `conc_tv` using the
+  // particular AnalyzeViewResult in info_. Then, we replace `tv3` with
+  // `conc_tv` in all uses of `tv3` using `ir_utils::replaceValInExpr`. That
+  // function actually replaces those use Exprs with new ones and removes the
+  // old pointers from the Fusion. As long as we do not dereference any of
+  // these Exprs after this pass, and we do this pass in reverse topological
+  // order, we will not encounter Expr* pointers that have been invalidated
+  // due to `replaceValInExpr` like this.
+  for (int i = info_->getExprConcretizationDescriptors().size() - 1; i > 0;
+       --i) {
+    auto op = info_->initialInfo()->getDynamicExprs().at(i);
+    auto desc_var = info_->getExprConcretizationDescriptors().at(i);
+    if (auto vop = dynamic_cast<ViewOp*>(op)) {
+      if (auto analyze_result_ptr = std::get_if<AnalyzeViewResult>(desc_var)) {
+        concretizeReshape(op, *analyze_result_ptr);
+      } else {
+        TORCH_CHECK(
+            false,
+            "Dynamic ViewOp expects AnalyzeViewResult descriptor but found variant index ",
+            desc_var.index());
+      }
+    } else if (auto rop = dynamic_cast<Resize*>(op)) {
+      if (auto iter_type_ptr = std::get_if<IterType>(desc_var)) {
+        concretizeResize(op, *iter_type_ptr);
+      } else {
+        TORCH_CHECK(
+            false,
+            "Dynamic Resize expects IterType descriptor but found variant index ",
+            desc_var.index());
+      }
+    } else {
+      TORCH_CHECK(false, "Unhandled dynamic Expr type: ", op->toString());
+    }
+  }
 
-  // Set output IterTypes for dynamic resize ops
-  concretizeResize();
-
-  // Registers replacement of all empty extents with zeroVal()
+  // Registers replacement of all empty extents with zeroVal(). This does not
+  // modify the Fusion.
   concretizeEmptyExtents();
 
   // Finally, propagate concretized domains
@@ -471,19 +485,21 @@ void DynamicTransformConcretizer::concretizeEmptyExtents() {
     for (auto use : uses) {
       ir_utils::replaceValInExpr(use, ext, zero);
     }
-    // Register the concretization of this scalar, which allows us to replace it
-    // whenever it is used as an extent member of an IterDomain.
+    // Register the concretization of this scalar, which allows us to replace
+    // it whenever it is used as an extent member of an IterDomain.
     //
     // When we ext in all uses above, it affects downstream expressions. For
     // example we might replace i0 with 0 in (i0 + i1) + i2 to form (0 + i1) +
-    // i2. However, i0 itself might be used as the extent, start, or stop values
-    // in an IterDomain, so we register the concretization here so that we can
-    // replace these values whenever we encounter them.
+    // i2. However, i0 itself might be used as the extent, start, or stop
+    // values in an IterDomain, so we register the concretization here so that
+    // we can replace these values whenever we encounter them.
     registerConcretization(ext, zero);
   }
 }
 
-void DynamicTransformConcretizer::concretizeReshape() {
+void DynamicTransformConcretizer::concretizeReshape(
+    ViewOp* view_op,
+    AnalyzeViewResult& view_analysis) const {
   // Concretize each reshape op.
   for (const auto& [tv_index, view_analysis] : info_->getReshapeTransforms()) {
     auto incomplete_out_tv =
@@ -498,8 +514,8 @@ void DynamicTransformConcretizer::concretizeReshape() {
     checkConcretizedUses(incomplete_out_tv, concrete_reshape_out_tv);
 
     // Extent expressions often change when concretizing a reshape. Here we
-    // replace these in all downstream expressions so that the Fusion looks just
-    // like it would have if we had used a static reshape instead.
+    // replace these in all downstream expressions so that the Fusion looks
+    // just like it would have if we had used a static reshape instead.
     auto old_rfactor = incomplete_out_tv->getMaybeRFactorDomain();
     auto new_rfactor = concrete_reshape_out_tv->getMaybeRFactorDomain();
     TORCH_INTERNAL_ASSERT(
@@ -532,23 +548,19 @@ void DynamicTransformConcretizer::concretizeReshape() {
   }
 }
 
-void DynamicTransformConcretizer::concretizeResize() {
+void DynamicTransformConcretizer::concretizeResize(
+    Resize* op,
+    IterType iter_type) const {
   // Concretize each resize op.
-  for (const auto& [id_index, iter_type] : info_->getResizeIterTypes()) {
-    auto id = info_->initialInfo()->getDynamicResizedIterDomains().at(id_index);
-    TORCH_CHECK(
-        id->definition() && id->definition()->isA<Resize>(),
-        "Resized IterDomain must have a Resize definition");
-    auto def = id->definition()->as<Resize>();
-    auto new_id = IterDomain::resize(
-        def->in(),
-        def->leftExpand(),
-        def->rightExpand(),
-        id->isRFactorProduct(),
-        iter_type);
+  auto out_id = op->out()->as<IterDomain>();
+  auto new_id = IterDomain::resize(
+      op->in(),
+      op->leftExpand(),
+      op->rightExpand(),
+      out_id->isRFactorProduct(),
+      iter_type);
 
-    registerConcretization(id, new_id);
-  }
+  registerConcretization(out_id, new_id);
 }
 
 void DynamicTransformConcretizer::checkConcretizedUses(
@@ -575,9 +587,9 @@ void DynamicTransformConcretizer::mutate(TensorView* tv) {
   propagateFromProducerToConsumer(tv);
 
   // If no root domain is altered by producer, we don't need to propagate back
-  // up to rfactor. We could return early, but instead we go ahead and check the
-  // root to rfactor transforms to be sure we have concretized any intermediate
-  // IterDomains.
+  // up to rfactor. We could return early, but instead we go ahead and check
+  // the root to rfactor transforms to be sure we have concretized any
+  // intermediate IterDomains.
 
   // At this point, there should be no expr beyond rfactor root
   TORCH_INTERNAL_ASSERT(
@@ -614,16 +626,17 @@ void DynamicTransformConcretizer::mutate(TensorView* tv) {
       // padded with constant pad widths (1, 1), in which case although we do
       // not know the exact extent of the output, we know it is at least as
       // large as the sum of the pad widths, 2. In such cases, the output
-      // IterDomain is concrete at definition, since if the extent is >1 we know
-      // the IterType is Iteration. In these cases, we must continue to
+      // IterDomain is concrete at definition, since if the extent is >1 we
+      // know the IterType is Iteration. In these cases, we must continue to
       // concretize intermediate expressions between the root and R-factor
       // domain. See test DynamicTransform5_CUDA which demonstrates this
       // behavior.
       // NOTE: We also do not assume that if one output ID is symbolic, that
       // they all must be. See test FusionSliceForNanoGPT3_CUDA for an example
-      // that does a static split by a factor of 16 of a symbolic input domain.
-      // The static split in that case results in a concrete IterDomain with
-      // extent 16 along with a symbolic one (extent ceilDiv(n / 16)).
+      // that does a static split by a factor of 16 of a symbolic input
+      // domain. The static split in that case results in a concrete
+      // IterDomain with extent 16 along with a symbolic one (extent ceilDiv(n
+      // / 16)).
 
       // Determine the output IterType
       IterType iter_type = IterType::Symbolic;
