@@ -595,7 +595,7 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> 
   alignas(16) extern __shared__ char array[];
   unsigned smem_offset = 0;
   NVFUSER_DEFINE_MAGIC_ZERO;
-  struct { Array<nvfuser_index_t, 2, 1> stride; Array<nvfuser_index_t, 2, 1> size; float* data; } s0;
+  Tensor<float, 2, 2> s0;
   s0.stride = T0.stride;
   s0.size = T0.size;
   s0.data = T0.data;
