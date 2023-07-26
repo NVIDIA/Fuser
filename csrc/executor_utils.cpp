@@ -839,20 +839,20 @@ void bindInputForExprEvaluation(
       expr_eval.bind(cg_tensor, tensor_arg_abstract->getTensor());
     }
     // TODO: clean this up
-    if (auto cpu_scalar_tensor1 = dynamic_cast<const CpuScalarTensorArg<1>*>(arg)) {
-      expr_eval.bind(cg_tensor, cpu_scalar_tensor1->getTensor());
+    if (auto arg_ = dynamic_cast<const CpuScalarTensorArg<1>*>(arg)) {
+      expr_eval.bind(cg_tensor, arg_->getTensor());
     }
-    if (auto cpu_scalar_tensor2 = dynamic_cast<const CpuScalarTensorArg<2>*>(arg)) {
-      expr_eval.bind(cg_tensor, cpu_scalar_tensor2->getTensor());
+    if (auto arg_ = dynamic_cast<const CpuScalarTensorArg<2>*>(arg)) {
+      expr_eval.bind(cg_tensor, arg_->getTensor());
     }
-    if (auto cpu_scalar_tensor4 = dynamic_cast<const CpuScalarTensorArg<4>*>(arg)) {
-      expr_eval.bind(cg_tensor, cpu_scalar_tensor4->getTensor());
+    if (auto arg_ = dynamic_cast<const CpuScalarTensorArg<4>*>(arg)) {
+      expr_eval.bind(cg_tensor, arg_->getTensor());
     }
-    if (auto cpu_scalar_tensor8 = dynamic_cast<const CpuScalarTensorArg<8>*>(arg)) {
-      expr_eval.bind(cg_tensor, cpu_scalar_tensor8->getTensor());
+    if (auto arg_ = dynamic_cast<const CpuScalarTensorArg<8>*>(arg)) {
+      expr_eval.bind(cg_tensor, arg_->getTensor());
     }
-    if (auto cpu_scalar_tensor16 = dynamic_cast<const CpuScalarTensorArg<16>*>(arg)) {
-      expr_eval.bind(cg_tensor, cpu_scalar_tensor16->getTensor());
+    if (auto arg_ = dynamic_cast<const CpuScalarTensorArg<16>*>(arg)) {
+      expr_eval.bind(cg_tensor, arg_->getTensor());
     }
 
 #if 1
