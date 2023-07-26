@@ -524,8 +524,17 @@ TEST_F(TensorFactoryTest, MetadataAsTensor) {
   auto meta0_copy0 = set(meta0);
   auto meta1_copy0 = set(meta1);
 
-  auto meta0_copy1 = set(meta0_copy0);
-  auto meta1_copy1 = set(meta1_copy0);
+  // also test unamed structure
+  auto unamed_dtype0 = metaDataTypeOf(tv0);
+  std::get<StructOf>(unamed_dtype0.type).name = "";
+  auto unamed_dtype1 = metaDataTypeOf(tv1);
+  std::get<StructOf>(unamed_dtype1.type).name = "";
+  auto meta0_copy1 = IrBuilder::newScalar(unamed_dtype0);
+  auto meta1_copy1 = IrBuilder::newScalar(unamed_dtype1);
+  IrBuilder::create<LoadStoreOp>(
+      LoadStoreOpType::Set, meta0_copy1, meta0_copy0);
+  IrBuilder::create<LoadStoreOp>(
+      LoadStoreOpType::Set, meta1_copy1, meta1_copy0);
 
   auto meta0_copy2 = set(meta0_copy1);
   auto meta1_copy2 = set(meta1_copy1);
