@@ -279,6 +279,9 @@ void GpuLower::lower(Fusion* fusion) {
 
   // Temporarily set allKnownVals to inputs. In the future, we will have a real
   // pass to determine how to set allKnownVals.
+  // TODO: revisit all passes on how they handle exprs in the fusion. Should we
+  // change their use of fusion_->exprs() to only include exprs that are not
+  // between inputs and allKnownVals()?
   allKnownVals() = kernel_->inputs();
   dumpExprsIfEnabled(fusion_->exprs(), "set allKnownVals");
 
