@@ -819,20 +819,17 @@ size_t getVectorizationFactor(
   }
 
   size_t max_vec_size = SchedulerRuntimeInfo::max_alignment_size_in_byte;
-  size_t common_alignment_size =
-      SchedulerRuntimeInfo::max_alignment_size_in_byte;
 
   for (auto inp_or_out : vectorizable_inputs_outputs) {
     auto dtype_size =
         dataTypeSize(inp_or_out->dtype(), runtime_info.getIndexType());
-
     max_vec_size = std::min(
         max_vec_size,
         SchedulerRuntimeInfo::max_alignment_size_in_byte / dtype_size);
-    max_vec_size = std::min(
-        max_vec_size, runtime_info.getMaxVectorizableWidth(inp_or_out));
-    common_alignment_size = std::min(
-        common_alignment_size, runtime_info.getAlignmentSize(inp_or_out));
+    auto alignment_size = runtime_info.getAlignmentSize(inp_or_out);
+    TORCH_INTERNAL_ASSERT(alignment_size % dtype_size == 0);
+    auto new_max_vec_size = std::min(max_vec_size, alignment_size / dtype_size);
+    max_vec_size = new_max_vec_size;
   }
 
   auto tv_to_inner_size_map = vectorize_maps_entry.get().at(break_point);
