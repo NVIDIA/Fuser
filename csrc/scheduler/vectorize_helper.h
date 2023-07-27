@@ -336,7 +336,7 @@ class TORCH_CUDA_CU_API ContiguousInnerDimensionsMapper
   std::unordered_set<Resize*> supported_resize_exprs_;
 };
 
-size_t getVectorizationFactor(
+int64_t getVectorizationFactor(
     SchedulerRuntimeInfo& runtime_info,
     TensorView* reference_tv,
     HeuristicSummary* data_cache,
