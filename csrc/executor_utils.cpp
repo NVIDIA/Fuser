@@ -24,7 +24,6 @@
 #include <utils.h>
 
 #include <cuda_occupancy.h>
-#include <nvfuser_resources/PhiloxCudaStateRaw.h>
 #include <nvfuser_resources/array.h>
 #include <nvfuser_resources/basic_type_traits.h>
 #include <nvfuser_resources/bf16_support.h>
