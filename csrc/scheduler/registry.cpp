@@ -2186,8 +2186,9 @@ class PersistentKernelScheduler : public SchedulerEntry {
           (int64_t)dev_prop->sharedMemPerBlockOptin;
       // Some shared memories are reserved for kernel launch overhead and
       // reduction_broadcast_workspace. Estimation is conservative, but should
-      // be good enough.
-      // TODO: More accurate estimation of available shared memory size
+      // be good enough. The actual threads per block is set in the heuristics
+      // and it may be smaller than maxThreadsPerBlock.
+      // TODO: More accurate estimation of available shared memory size.
       const int64_t kernel_overhead =
           (int64_t)dev_prop->reservedSharedMemPerBlock;
       int64_t max_buffer_dtype_size = 1;
