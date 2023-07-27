@@ -745,6 +745,30 @@ std::vector<PolymorphicValue> GetAttr::evaluate(
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(GetAttr)
 
+GetMetaData::GetMetaData(IrBuilderPasskey passkey, Val* output, Val* input)
+    : Expr(passkey) {
+  addOutput(output);
+  addInput(input);
+  TORCH_INTERNAL_ASSERT(
+      out()->dtype() == metaDataTypeOf(in()),
+      "Data type mismatch for GetMetaData")
+}
+
+std::string GetMetaData::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << out()->toString() << " = getMetaData("
+                          << in()->toString() << ")\n";
+  return ss.str();
+}
+
+std::string GetMetaData::toInlineString(int indent_size) const {
+  std::stringstream ss;
+  ss << "getMetaData(" << in()->toInlineString() << ")";
+  return ss.str();
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(GetMetaData)
+
 TensorConstruct::TensorConstruct(
     IrBuilderPasskey passkey,
     TensorView* output,
