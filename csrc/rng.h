@@ -13,6 +13,7 @@
 
 namespace nvfuser {
 
-std::tuple<Val*, Val*, GetRNGSeedAndOffsetFromHost*> getRNGSeedAndOffsetFromHost();
+std::tuple<Val*, Val*, GetRNGSeedAndOffsetFromHost*>
+getRNGSeedAndOffsetFromHost();
 
 } // namespace nvfuser
