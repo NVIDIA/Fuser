@@ -294,6 +294,7 @@ UnaryOp::UnaryOp(IrBuilderPasskey passkey, UnaryOpType type, Val* out, Val* in)
 }
 
 std::vector<PolymorphicValue> UnaryOp::evaluate(
+    const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
   using namespace PolymorphicValue_functions;
   const auto& in = inputs.at(0);
@@ -398,6 +399,7 @@ BinaryOp::BinaryOp(
 }
 
 std::vector<PolymorphicValue> BinaryOp::evaluate(
+    const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
   using namespace PolymorphicValue_functions;
   const auto& lhs = inputs.at(0);
@@ -550,6 +552,7 @@ TernaryOp::TernaryOp(
 }
 
 std::vector<PolymorphicValue> TernaryOp::evaluate(
+    const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
   using namespace PolymorphicValue_functions;
   const auto& in1 = inputs.at(0);
@@ -665,6 +668,7 @@ std::string ArrayConstruct::toInlineString(int indent_size) const {
 }
 
 std::vector<PolymorphicValue> ArrayConstruct::evaluate(
+    const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
   return {PolymorphicValue(inputs)};
 }
@@ -696,6 +700,7 @@ std::string GetItem::toInlineString(int indent_size) const {
 }
 
 std::vector<PolymorphicValue> GetItem::evaluate(
+    const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
   TORCH_INTERNAL_ASSERT(inputs.size() == 2, "GetItem expects 2 inputs");
   return {PolymorphicValue(inputs.at(0)[inputs.at(1)])};
@@ -732,6 +737,7 @@ std::string GetAttr::toInlineString(int indent_size) const {
 }
 
 std::vector<PolymorphicValue> GetAttr::evaluate(
+    const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
   TORCH_INTERNAL_ASSERT(inputs.size() == 1, "GetAttr expects 1 input");
   return {inputs.at(0)[attr()]};
@@ -762,6 +768,7 @@ std::string GetMetaData::toInlineString(int indent_size) const {
 }
 
 std::vector<PolymorphicValue> GetMetaData::evaluate(
+    const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
   TORCH_INTERNAL_ASSERT(inputs.size() == 1, "GetMetaData expects 1 input");
   TORCH_INTERNAL_ASSERT(
@@ -810,6 +817,7 @@ std::string TensorConstruct::toInlineString(int indent_size) const {
 }
 
 std::vector<PolymorphicValue> TensorConstruct::evaluate(
+    const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
   TORCH_INTERNAL_ASSERT(inputs.size() == 1, "TensorConstruct expects 1 input");
   using namespace PolymorphicValue_functions;
@@ -987,6 +995,7 @@ std::string BroadcastOp::toInlineString(int indent_size) const {
 }
 
 std::vector<PolymorphicValue> BroadcastOp::evaluate(
+    const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
   TORCH_INTERNAL_ASSERT(
       inputs.size() == 1,
@@ -1083,6 +1092,7 @@ std::string SqueezeOp::toInlineString(int indent_size) const {
 }
 
 std::vector<PolymorphicValue> SqueezeOp::evaluate(
+    const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
   TORCH_INTERNAL_ASSERT(
       inputs.size() == 1,
@@ -2169,6 +2179,7 @@ LoadStoreOp::LoadStoreOp(
 }
 
 std::vector<PolymorphicValue> LoadStoreOp::evaluate(
+    const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
   return inputs;
 }

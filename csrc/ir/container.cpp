@@ -29,6 +29,8 @@ void swap(IrContainer& a, IrContainer& b) noexcept {
   swap(a.val_type_name_map_, b.val_type_name_map_);
   swap(a.expr_name_counter_, b.expr_name_counter_);
 
+  swap(a.metadata_, b.metadata_);
+
   // Fixup the Statement::fusion_ links for a
   for (auto val : a.vals_) {
     val->ir_container_ = &a;
@@ -67,6 +69,8 @@ IrCloner IrContainer::copy(const IrContainer* from, IrContainer* to) {
       to->axioms_->emplace_back(ir_cloner.clone(pred));
     }
   }
+
+  to->metadata_ = ir_cloner.clone(from->metadata_);
 
   return ir_cloner;
 }
@@ -198,6 +202,7 @@ void IrContainer::clear() noexcept {
   raw_ptrs_.clear();
   axioms_.reset();
   val_type_name_map_.clear();
+  metadata_.clear();
   expr_name_counter_ = 0;
 }
 
@@ -309,6 +314,15 @@ NamedScalar* IrContainer::magicZeroVal() {
     vals_up_.pop_back();
   }
   return magic_zero_val_.get();
+}
+
+Val* IrContainer::metadataOf(Val* v) {
+  if (metadata_.count(v) == 0) {
+    auto metadata_val = IrBuilder::create<Val>(this, metaDataTypeOf(v));
+    auto metadata_expr = IrBuilder::create<GetMetaData>(this, metadata_val, v);
+    metadata_[v] = std::make_pair(metadata_val, metadata_expr);
+  }
+  return metadata_.at(v).first;
 }
 
 void IrContainer::lazyInitAxioms() {

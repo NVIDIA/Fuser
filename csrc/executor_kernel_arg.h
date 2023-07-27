@@ -13,9 +13,11 @@
 #include <ir/all_nodes.h>
 #include <torch/csrc/jit/ir/ir.h>
 #include <type.h>
+
 #include <array>
 #include <cstddef>
 #include <optional>
+#include <vector>
 
 namespace nvfuser {
 
@@ -492,6 +494,10 @@ class TORCH_CUDA_CU_API KernelArgumentHolder {
   int8_t device_index_ = 0;
   std::optional<size_t> cache_id_ = std::nullopt;
 };
+
+std::vector<std::byte> getTensorArgBuffer(
+    const PolymorphicValue& metadata,
+    PrimDataType index_type);
 
 std::vector<std::byte> getKernelArgument(
     ExpressionEvaluator& ee,
