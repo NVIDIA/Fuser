@@ -31,7 +31,7 @@ DynamicTransformInitialInfo DynamicTransformInitialInfo::clone(
       dynamic_exprs_.begin(),
       dynamic_exprs_.end(),
       std::back_inserter(cloned_info.dynamic_exprs_),
-      [&ir_cloner](TensorView* tv) { return ir_cloner.clone(tv); });
+      [&ir_cloner](Expr* e) { return ir_cloner.clone(e); });
 
   cloned_info.maybe_zero_extents_set_.reserve(maybe_zero_extents_set_.size());
   std::transform(
@@ -40,7 +40,7 @@ DynamicTransformInitialInfo DynamicTransformInitialInfo::clone(
       std::inserter(
           cloned_info.maybe_zero_extents_set_,
           cloned_info.maybe_zero_extents_set_.begin()),
-      [&ir_cloner](TensorView* tv) { return ir_cloner.clone(tv); });
+      [&ir_cloner](Val* v) { return ir_cloner.clone(v); });
 
   cloned_info.root_dynamic_vals_.reserve(root_dynamic_vals_.size());
   std::transform(
@@ -49,7 +49,7 @@ DynamicTransformInitialInfo DynamicTransformInitialInfo::clone(
       std::inserter(
           cloned_info.root_dynamic_vals_,
           cloned_info.root_dynamic_vals_.begin()),
-      [&ir_cloner](TensorView* tv) { return ir_cloner.clone(tv); });
+      [&ir_cloner](Val* v) { return ir_cloner.clone(v); });
 
   return cloned_info;
 }
@@ -367,8 +367,8 @@ std::string DynamicTransformConcretizationInfo::toString() const {
     } else if (auto iter_type_ptr = std::get_if<IterType>(&desc_var)) {
       ss << indent << indent << "IterType: " << (*iter_type_ptr) << "\n";
     }
-    return ss.str();
   }
+  return ss.str();
 }
 
 //! Concretize a symbolic fusion with concrete transformation info
@@ -388,9 +388,9 @@ class DynamicTransformConcretizer : public OptOutMutator {
  private:
   void concretize();
 
-  void concretizeReshape(ViewOp* op, AnalyzeViewResult& view_analysis) const;
+  void concretizeReshape(ViewOp* op, AnalyzeViewResult& view_analysis);
 
-  void concretizeResize(Resize* op, IterType iter_type) const;
+  void concretizeResize(Resize* op, IterType iter_type);
 
   void concretizeEmptyExtents();
 
@@ -439,8 +439,8 @@ void DynamicTransformConcretizer::concretize() {
     auto op = info_->initialInfo()->getDynamicExprs().at(i);
     auto desc_var = info_->getExprConcretizationDescriptors().at(i);
     if (auto vop = dynamic_cast<ViewOp*>(op)) {
-      if (auto analyze_result_ptr = std::get_if<AnalyzeViewResult>(desc_var)) {
-        concretizeReshape(op, *analyze_result_ptr);
+      if (auto analyze_result_ptr = std::get_if<AnalyzeViewResult>(&desc_var)) {
+        concretizeReshape(vop, *analyze_result_ptr);
       } else {
         TORCH_CHECK(
             false,
@@ -448,8 +448,8 @@ void DynamicTransformConcretizer::concretize() {
             desc_var.index());
       }
     } else if (auto rop = dynamic_cast<Resize*>(op)) {
-      if (auto iter_type_ptr = std::get_if<IterType>(desc_var)) {
-        concretizeResize(op, *iter_type_ptr);
+      if (auto iter_type_ptr = std::get_if<IterType>(&desc_var)) {
+        concretizeResize(rop, *iter_type_ptr);
       } else {
         TORCH_CHECK(
             false,
@@ -499,58 +499,53 @@ void DynamicTransformConcretizer::concretizeEmptyExtents() {
 
 void DynamicTransformConcretizer::concretizeReshape(
     ViewOp* view_op,
-    AnalyzeViewResult& view_analysis) const {
-  // Concretize each reshape op.
-  for (const auto& [tv_index, view_analysis] : info_->getReshapeTransforms()) {
-    auto incomplete_out_tv =
-        info_->initialInfo()->getDynamicReshapedTensorViews().at(tv_index);
-    auto view_op = incomplete_out_tv->definition()->as<ViewOp>();
-    auto inp_tv = view_op->in()->as<TensorView>();
+    AnalyzeViewResult& view_analysis) {
+  auto incomplete_out_tv = view_op->out()->as<TensorView>();
+  auto inp_tv = view_op->in()->as<TensorView>();
 
-    auto concrete_reshape_out_tv = reshape(inp_tv, view_analysis);
+  auto concrete_reshape_out_tv = reshape(inp_tv, view_analysis);
 
-    // We do the replacement directly here, but we must still check that the
-    // replacement is valid
-    checkConcretizedUses(incomplete_out_tv, concrete_reshape_out_tv);
+  // We do the replacement directly here, but we must still check that the
+  // replacement is valid
+  checkConcretizedUses(incomplete_out_tv, concrete_reshape_out_tv);
 
-    // Extent expressions often change when concretizing a reshape. Here we
-    // replace these in all downstream expressions so that the Fusion looks
-    // just like it would have if we had used a static reshape instead.
-    auto old_rfactor = incomplete_out_tv->getMaybeRFactorDomain();
-    auto new_rfactor = concrete_reshape_out_tv->getMaybeRFactorDomain();
-    TORCH_INTERNAL_ASSERT(
-        old_rfactor.size() == new_rfactor.size(),
-        "Concretized reshape rfactor size does not match symbolic rfactor");
-    for (auto idx : c10::irange(new_rfactor.size())) {
-      auto old_extent = old_rfactor.at(idx)->extent();
-      auto new_extent = new_rfactor.at(idx)->extent();
-      // If the old extent did not have a definition, we don't need to replace
-      // it, since it will get bound whenever this tensor is a segmentation
-      // edge.
-      if (old_extent->definition() && !new_extent->sameAs(old_extent)) {
-        registerConcretization(old_extent, new_extent);
-      }
+  // Extent expressions often change when concretizing a reshape. Here we
+  // replace these in all downstream expressions so that the Fusion looks
+  // just like it would have if we had used a static reshape instead.
+  auto old_rfactor = incomplete_out_tv->getMaybeRFactorDomain();
+  auto new_rfactor = concrete_reshape_out_tv->getMaybeRFactorDomain();
+  TORCH_INTERNAL_ASSERT(
+      old_rfactor.size() == new_rfactor.size(),
+      "Concretized reshape rfactor size does not match symbolic rfactor");
+  for (auto idx : c10::irange(new_rfactor.size())) {
+    auto old_extent = old_rfactor.at(idx)->extent();
+    auto new_extent = new_rfactor.at(idx)->extent();
+    // If the old extent did not have a definition, we don't need to replace
+    // it, since it will get bound whenever this tensor is a segmentation
+    // edge.
+    if (old_extent->definition() && !new_extent->sameAs(old_extent)) {
+      registerConcretization(old_extent, new_extent);
     }
-
-    // Replace the old tensor with the new concretized tensor
-    auto uses = incomplete_out_tv->uses();
-    for (auto use_of_old_tv : uses) {
-      ir_utils::replaceValInExpr(
-          use_of_old_tv, incomplete_out_tv, concrete_reshape_out_tv);
-    }
-
-    if (incomplete_out_tv->isFusionOutput()) {
-      incomplete_out_tv->fusion()->replaceOutput(
-          incomplete_out_tv, concrete_reshape_out_tv);
-    }
-
-    info_->fusion()->removeVal(incomplete_out_tv);
   }
+
+  // Replace the old tensor with the new concretized tensor
+  auto uses = incomplete_out_tv->uses();
+  for (auto use_of_old_tv : uses) {
+    ir_utils::replaceValInExpr(
+        use_of_old_tv, incomplete_out_tv, concrete_reshape_out_tv);
+  }
+
+  if (incomplete_out_tv->isFusionOutput()) {
+    incomplete_out_tv->fusion()->replaceOutput(
+        incomplete_out_tv, concrete_reshape_out_tv);
+  }
+
+  info_->fusion()->removeVal(incomplete_out_tv);
 }
 
 void DynamicTransformConcretizer::concretizeResize(
     Resize* op,
-    IterType iter_type) const {
+    IterType iter_type) {
   // Concretize each resize op.
   auto out_id = op->out()->as<IterDomain>();
   auto new_id = IterDomain::resize(
@@ -815,11 +810,12 @@ void DynamicTransform::concretizeFusion(
 
 size_t DynamicTransformConcretizationInfo::hash() const {
   size_t hash = 0;
-  for (const auto& [tv, view_result] : getReshapeTransforms()) {
-    hashCombine(hash, view_result.hash());
-  }
-  for (const auto& [id, iter_type] : getResizeIterTypes()) {
-    hashCombine(hash, (size_t)iter_type);
+  for (const auto& desc_var : getExprConcretizationDescriptors()) {
+    if (auto view_result_ptr = std::get_if<AnalyzeViewResult>(&desc_var)) {
+      hashCombine(hash, view_result_ptr->hash());
+    } else if (auto iter_type_ptr = std::get_if<IterType>(&desc_var)) {
+      hashCombine(hash, (size_t)(*iter_type_ptr));
+    }
   }
   return hash;
 }

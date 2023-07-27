@@ -66,8 +66,15 @@ TEST_F(NVFuserTest, DynamicTransform1_CUDA) {
     auto initial_info = DynamicTransform::getInitialInfo(&fusion);
     auto info = DynamicTransformConcretizationInfo(&initial_info, &expr_eval);
     TORCH_CHECK(
-        info.getReshapeTransforms().size() == 1,
+        initial_info.getDynamicExprs().size() == 1 &&
+            initial_info.getDynamicExprs().at(0)->isA<ViewOp>(),
         "Expected to have one reshape transform: ",
+        initial_info.toString());
+    TORCH_CHECK(
+        info.getExprConcretizationDescriptors().size() == 1 &&
+            std::holds_alternative<AnalyzeViewResult>(
+                info.getExprConcretizationDescriptors().at(0)),
+        "Expected to have one AnalyzeViewResult in concretization info: ",
         info.toString());
   }
 
@@ -150,8 +157,15 @@ TEST_F(NVFuserTest, DynamicTransform2_CUDA) {
     auto info = DynamicTransformConcretizationInfo(&initial_info, &expr_eval);
 
     TORCH_CHECK(
-        info.getReshapeTransforms().size() == 1,
+        initial_info.getDynamicExprs().size() == 1 &&
+            initial_info.getDynamicExprs().at(0)->isA<ViewOp>(),
         "Expected to have one reshape transform: ",
+        initial_info.toString());
+    TORCH_CHECK(
+        info.getExprConcretizationDescriptors().size() == 1 &&
+            std::holds_alternative<AnalyzeViewResult>(
+                info.getExprConcretizationDescriptors().at(0)),
+        "Expected to have one AnalyzeViewResult in concretization info: ",
         info.toString());
   }
 }
@@ -541,10 +555,11 @@ TEST_F(NVFuserTest, DynamicTransform9_CUDA) {
   // There must be only one dynamic reshape entry, and that must be
   // for tv2.
   TORCH_CHECK(
-      info.getReshapeTransforms().size() == 1,
-      info.getReshapeTransforms().at(0).first == 0, // first and only reshape
-      "Unexpected dynamic transform info:",
-      info.toString());
+      initial_info.getDynamicExprs().size() == 1 &&
+          initial_info.getDynamicExprs().at(0)->isA<ViewOp>() &&
+          initial_info.getDynamicExprs().at(0) == tv2->definition(),
+      "Expected to have one reshape transform corresponding to tv2: ",
+      initial_info.toString());
 }
 
 // Make sure inherited symbolic IDs are concretized through rfactor exprs
