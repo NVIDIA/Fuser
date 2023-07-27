@@ -42,6 +42,15 @@ DynamicTransformInitialInfo DynamicTransformInitialInfo::clone(
           cloned_info.maybe_zero_extents_set_.begin()),
       [&ir_cloner](Val* v) { return ir_cloner.clone(v); });
 
+  cloned_info.maybe_zero_extents_.reserve(maybe_zero_extents_.size());
+  std::transform(
+      maybe_zero_extents_.begin(),
+      maybe_zero_extents_.end(),
+      std::inserter(
+          cloned_info.maybe_zero_extents_,
+          cloned_info.maybe_zero_extents_.begin()),
+      [&ir_cloner](Val* v) { return ir_cloner.clone(v); });
+
   cloned_info.root_dynamic_vals_.reserve(root_dynamic_vals_.size());
   std::transform(
       root_dynamic_vals_.begin(),
@@ -123,10 +132,10 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
   void handle(TensorView* tv) override {
     const auto& rfd = tv->getMaybeRFactorDomain();
     for (auto id : rfd) {
-      if (!id->getMaybeExpandedExtent()->isConstScalar() ||
-          id->getMaybeExpandedExtent()->evaluateInt() == 0) {
-        info_.maybe_zero_extents_set_.insert(id->getMaybeExpandedExtent());
-        leaf_dynamic_vals_.push_back(id->getMaybeExpandedExtent());
+      auto ext = id->getMaybeExpandedExtent();
+      if (!ext->isConstScalar() || ext->evaluateInt() == 0) {
+        info_.maybe_zero_extents_set_.insert(ext);
+        leaf_dynamic_vals_.push_back(ext);
       }
       if (!id->definition() || id->getIterType() != IterType::Symbolic) {
         continue;
@@ -332,19 +341,16 @@ bool DynamicTransformConcretizationInfo::operator==(
 
   if (concretization_descriptors_.size() !=
           other.concretization_descriptors_.size() ||
+      empty_extents_.size() != other.empty_extents_.size() ||
       !std::equal(
           concretization_descriptors_.begin(),
           concretization_descriptors_.end(),
-          other.concretization_descriptors_.begin())) {
+          other.concretization_descriptors_.begin()) ||
+      !std::equal(
+          empty_extents_.begin(),
+          empty_extents_.end(),
+          other.empty_extents_.begin())) {
     return false;
-  }
-
-  for (const auto i : c10::irange(empty_extents_.size())) {
-    const auto& ee = empty_extents_.at(i);
-    const auto& other_ee = other.empty_extents_.at(i);
-    if (ee != other_ee) {
-      return false;
-    }
   }
 
   return true;
@@ -434,7 +440,7 @@ void DynamicTransformConcretizer::concretize() {
   // these Exprs after this pass, and we do this pass in reverse topological
   // order, we will not encounter Expr* pointers that have been invalidated
   // due to `replaceValInExpr` like this.
-  for (int i = info_->getExprConcretizationDescriptors().size() - 1; i > 0;
+  for (int i = info_->getExprConcretizationDescriptors().size() - 1; i >= 0;
        --i) {
     auto op = info_->initialInfo()->getDynamicExprs().at(i);
     auto desc_var = info_->getExprConcretizationDescriptors().at(i);
