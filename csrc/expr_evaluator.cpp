@@ -104,7 +104,7 @@ PolymorphicValue ExpressionEvaluator::evaluate(const Val* value) {
         }
         inputs.emplace_back(eval_i);
       }
-      auto outputs = def->evaluate(inputs);
+      auto outputs = def->evaluate(*this, inputs);
       for (auto i : c10::irange(def->outputs().size())) {
         known_values_[def->output(i)] = outputs[i];
       }

@@ -14,9 +14,11 @@
 #include <ir/all_nodes.h>
 #include <torch/csrc/jit/ir/ir.h>
 #include <type.h>
+
 #include <array>
 #include <cstddef>
 #include <optional>
+#include <vector>
 
 namespace nvfuser {
 
@@ -380,7 +382,11 @@ struct CpuScalarTensorArg : public ArgAbstract {
   }
 };
 
-// TODO: remove this
+//! KernelArgumentHolder copies meta information from kernel inputs, including
+//! tensor sizes/shapes/dtype/memory_ptr and copies scalar inputs. It is used
+//! for both compilation as well as kernel execution. The important thing is to
+//! strip ownership of tensor from KernelArgumentHolder, so that during async
+//! compilation, we are not unnecessarily holding memory that is not needed.
 class TORCH_CUDA_CU_API KernelArgumentHolder {
  public:
   //! create KernelArgumentHolder from c10 inputs. Note that we we not taking
@@ -489,6 +495,10 @@ class TORCH_CUDA_CU_API KernelArgumentHolder {
   int8_t device_index_ = 0;
   std::optional<size_t> cache_id_ = std::nullopt;
 };
+
+std::vector<std::byte> getTensorArgBuffer(
+    const PolymorphicValue& metadata,
+    PrimDataType index_type);
 
 at::PhiloxCudaState getPhiloxRNGSeed(uint64_t rand_offset);
 

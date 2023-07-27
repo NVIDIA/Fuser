@@ -299,6 +299,7 @@ class TORCH_CUDA_CU_API UnaryOp : public Expr {
   }
 
   std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
       const std::vector<PolymorphicValue>& inputs) const override;
 
   std::string toString(int indent_size = 0) const override;
@@ -336,6 +337,7 @@ class TORCH_CUDA_CU_API BinaryOp : public Expr {
   }
 
   std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
       const std::vector<PolymorphicValue>& inputs) const override;
 
   std::string toString(int indent_size = 0) const override;
@@ -382,6 +384,7 @@ class TORCH_CUDA_CU_API TernaryOp : public Expr {
   }
 
   std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
       const std::vector<PolymorphicValue>& inputs) const override;
 
   std::string toString(int indent_size = 0) const override;
@@ -431,6 +434,7 @@ class TORCH_CUDA_CU_API ArrayConstruct : public Expr {
   std::string toInlineString(int indent_size = 0) const override;
 
   std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
       const std::vector<PolymorphicValue>& inputs) const override;
 
   Val* out() const {
@@ -455,6 +459,7 @@ class TORCH_CUDA_CU_API GetItem : public Expr {
   std::string toInlineString(int indent_size = 0) const override;
 
   std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
       const std::vector<PolymorphicValue>& inputs) const override;
 
   Val* out() const {
@@ -487,6 +492,7 @@ class TORCH_CUDA_CU_API GetAttr : public Expr {
   std::string toInlineString(int indent_size = 0) const override;
 
   std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
       const std::vector<PolymorphicValue>& inputs) const override;
 
   Val* out() const {
@@ -533,6 +539,7 @@ class TORCH_CUDA_CU_API GetMetaData : public Expr {
   }
 
   std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
       const std::vector<PolymorphicValue>& inputs) const override;
 
   Val* out() const {
@@ -561,6 +568,7 @@ class TORCH_CUDA_CU_API TensorConstruct : public Expr {
   std::string toInlineString(int indent_size = 0) const override;
 
   std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
       const std::vector<PolymorphicValue>& inputs) const override;
 
   TensorView* out() const {
@@ -702,6 +710,7 @@ class TORCH_CUDA_CU_API BroadcastOp : public Expr {
   std::string toInlineString(int indent_size = 0) const override;
 
   std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
       const std::vector<PolymorphicValue>& inputs) const override;
 
   Val* out() const {
@@ -752,6 +761,7 @@ class TORCH_CUDA_CU_API SqueezeOp : public Expr {
   std::string toInlineString(int indent_size = 0) const override;
 
   std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
       const std::vector<PolymorphicValue>& inputs) const override;
 
   Val* out() const {
@@ -1544,6 +1554,7 @@ class TORCH_CUDA_CU_API LoadStoreOp : public Expr {
   }
 
   std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
       const std::vector<PolymorphicValue>& inputs) const override;
 
   std::string toString(int indent_size = 0) const override;
