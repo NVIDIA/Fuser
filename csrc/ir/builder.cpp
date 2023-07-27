@@ -209,9 +209,7 @@ Val* IrBuilder::getAttrExpr(Val* struct_, std::string attr) {
 }
 
 Val* IrBuilder::metadataExpr(TensorView* tv) {
-  auto out = newScalar(metaDataTypeOf(tv));
-  create<GetMetaData>(tv->container(), out, tv);
-  return out;
+  return tv->fusion()->metadataOf(tv);
 }
 
 Val* SimplifyingIrBuilder::negExpr(Val* val) {
