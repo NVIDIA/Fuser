@@ -349,7 +349,7 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
   params->unroll_factor = 1;
 
   const auto vectorize_factor = std::min(
-      static_cast<size_t>(max_unroll_factor),
+      max_unroll_factor,
       vectorize_helper::getVectorizationFactor(
           runtime_info, largest_out, data_cache, break_point));
 
