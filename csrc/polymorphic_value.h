@@ -24,8 +24,9 @@ namespace nvfuser {
 
 template <typename T>
 struct Struct {
-  // In theory, we should just use std::unordered_map<std::string, T>, but this
-  // doesn't work on old gcc. See also SetTheoreticNaturalNumbers
+  // Using std::unordered_map<std::string, T> is more convenient and
+  // straightforward, but this is not guaranteed to work by C++ standard.
+  // See [Incomplete type support in STL]
 #if defined(STD_UNORDERED_SET_SUPPORTS_INCOMPLETE_TYPE)
   std::unordered_map<std::string, T> fields;
 #define MAYBE_STAR
@@ -68,7 +69,6 @@ class Pointer {
 
   template <typename T>
   explicit operator T*() const {
-    TORCH_INTERNAL_ASSERT(size_ == sizeof(T));
     return static_cast<T*>(ptr_);
   }
 
