@@ -698,6 +698,7 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
   size_t vectorize_factor1 = max_unroll_factor;
   size_t vectorize_factor2 = max_unroll_factor;
 
+  /*
   for (auto tv : grouped_inputs_outputs[0]) {
     const auto tv_vectorize_factor =
         runtime_info.getMaxVectorizableWidth(tv, false);
@@ -710,6 +711,20 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
   for (auto tv : grouped_inputs_outputs[1]) {
     const auto tv_vectorize_factor =
         runtime_info.getMaxVectorizableWidth(tv, false);
+    vectorize_factor2 = std::min(vectorize_factor2, tv_vectorize_factor);
+  }
+  */
+
+  // TODO: we need to consider transformation applied for [small transpose dimension]
+  for (auto tv : grouped_inputs_outputs[0]) {
+    const auto tv_vectorize_factor = static_cast<size_t>(vectorize_helper::getVectorizationFactor(
+      // do NOT use data_break at 0, since we need to consider small transpose dimension transformations
+      runtime_info, reference1, data_cache, 0));
+    vectorize_factor1 = std::min(vectorize_factor1, tv_vectorize_factor);
+  }
+  for (auto tv : grouped_inputs_outputs[1]) {
+    const auto tv_vectorize_factor = static_cast<size_t>(vectorize_helper::getVectorizationFactor(
+        runtime_info, reference2, data_cache, 0));
     vectorize_factor2 = std::min(vectorize_factor2, tv_vectorize_factor);
   }
 

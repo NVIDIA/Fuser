@@ -2452,7 +2452,7 @@ TEST_F(NVFuserTest, TransposeVectorizationWidth_CUDA) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
-  auto tv0 = makeSymbolicTensor(3);
+  auto tv0 = makeContigTensor(3);
   fusion->addInput(tv0);
 
   auto tv1 = transpose(tv0, 0, 2);
@@ -2481,7 +2481,7 @@ TEST_F(NVFuserTest, TransposeVectorizationWidth2_CUDA) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
-  auto tv0 = makeSymbolicTensor(3);
+  auto tv0 = makeContigTensor(3);
   fusion->addInput(tv0);
 
   auto tv1 = reshape(tv0, {1024, 2, 6}, {1024, 2, 2, 3});
@@ -2514,7 +2514,7 @@ TEST_F(NVFuserTest, TransposeVectorizationWidth3_CUDA) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
-  auto tv0 = makeSymbolicTensor(3);
+  auto tv0 = makeContigTensor(3);
   fusion->addInput(tv0);
 
   auto tv1 = reshape(tv0, {8, 64, 1024}, {8, 64, 64, 16});
