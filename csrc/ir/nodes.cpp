@@ -826,7 +826,6 @@ RNGOp::RNGOp(
     std::vector<Val*> parameters,
     Val* philox_seed,
     Val* philox_offset,
-    int rng_offset,
     Val* philox_index)
     : Expr(passkey) {
   if (auto tv_out = dynamic_cast<TensorView*>(out)) {
@@ -846,7 +845,7 @@ RNGOp::RNGOp(
     addInput(philox_offset);
   }
   addOutput(out);
-  RNGOp::Attributes attr{type, dtype, rng_offset, parameters.size()};
+  RNGOp::Attributes attr{type, dtype, parameters.size()};
   addDataAttribute(attr);
   addAttribute(philox_index);
 }
@@ -867,10 +866,6 @@ std::string RNGOp::toString(int indent_size) const {
   if (seed) {
     ss << ", " << seed->toInlineString();
   }
-  auto offset = getRNGOffsetVal();
-  if (offset) {
-    ss << ", " << offset->toInlineString();
-  }
   ss << ");\n";
   return ss.str();
 }
@@ -888,6 +883,37 @@ int64_t RNGOp::getOutputDims() const {
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(RNGOp)
+
+GetRNGSeedAndOffsetFromHost::GetRNGSeedAndOffsetFromHost(
+    IrBuilderPasskey passkey,
+    Val* seed_ptr,
+    Val* seed_val,
+    Val* first_offset_ptr,
+    Val* first_offset_val,
+    int64_t offsets)
+    : Expr(passkey) {
+  addOutput(seed_ptr);
+  addOutput(seed_val);
+  addOutput(first_offset_ptr);
+  addOutput(first_offset_val);
+  addDataAttribute(offsets);
+}
+
+std::string GetRNGSeedAndOffsetFromHost::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << "(" << output(0)->toString() << ", "
+                          << output(1)->toString() << ", "
+                          << output(2)->toString() << ", "
+                          << output(3)->toString() << ") = " << getOpString()
+                          << "()\n";
+  return ss.str();
+}
+
+std::string GetRNGSeedAndOffsetFromHost::toInlineString(int indent_size) const {
+  return std::string(getOpString()) + "()";
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(GetRNGSeedAndOffsetFromHost)
 
 BroadcastOp::BroadcastOp(
     IrBuilderPasskey passkey,

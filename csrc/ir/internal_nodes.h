@@ -583,7 +583,6 @@ class TORCH_CUDA_CU_API RNGOp : public Expr {
     // cppcoreguidelines-pro-type-member-init
     RNGOpType rtype = RNGOpType::Undefined;
     DataType dtype;
-    int rng_offset_int = 0;
     size_t num_parameters = 0;
 
     // TODO: Enable the following in C++20:
@@ -591,8 +590,7 @@ class TORCH_CUDA_CU_API RNGOp : public Expr {
     bool operator==(const Attributes& other) const {
       // Note: we do not need to explicitly compare num_parameters since it is
       // tied to rtype
-      return rtype == other.rtype && dtype == other.dtype &&
-          rng_offset_int == other.rng_offset_int;
+      return rtype == other.rtype && dtype == other.dtype;
     }
   };
 
@@ -607,7 +605,6 @@ class TORCH_CUDA_CU_API RNGOp : public Expr {
       std::vector<Val*> parameters = {},
       Val* philox_seed = nullptr,
       Val* philox_offset = nullptr,
-      int rng_offset_int = 0,
       Val* philox_index = nullptr);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
@@ -625,14 +622,6 @@ class TORCH_CUDA_CU_API RNGOp : public Expr {
 
   DataType dtype() const {
     return attribute<Attributes>(0).dtype;
-  }
-
-  int getRNGOffset() const {
-    return attribute<Attributes>(0).rng_offset_int;
-  }
-
-  void setRNGOffset(int val) {
-    attribute<Attributes>(0).rng_offset_int = val;
   }
 
   size_t getNumParameters() const {
@@ -668,6 +657,12 @@ class TORCH_CUDA_CU_API RNGOp : public Expr {
     return inputs().size() == getOutputDims() + getNumParameters() + 2;
   }
 
+  void setSeedAndOffset(Val* seed, Val* offset) {
+    TORCH_INTERNAL_ASSERT(!isDeterministic());
+    addInput(seed);
+    addInput(offset);
+  }
+
   Val* getPhiloxIndex() const {
     return attributeVal(1);
   }
@@ -675,6 +670,39 @@ class TORCH_CUDA_CU_API RNGOp : public Expr {
   int getPhiloxMultiple() const {
     return dtype() == DataType::Double ? 2 : 4;
   }
+};
+
+class TORCH_CUDA_CU_API GetRNGSeedAndOffsetFromHost : public Expr {
+ public:
+  using Expr::Expr;
+
+  GetRNGSeedAndOffsetFromHost(
+      IrBuilderPasskey,
+      Val* seed_ptr,
+      Val* seed_val,
+      Val* first_offset_ptr,
+      Val* first_offset_val,
+      int64_t offsets = -1);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "GetRNGSeedAndOffsetFromHost";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  const int64_t& offsets() const {
+    return attribute<int64_t>(0);
+  }
+
+  int64_t& offsets() {
+    return attribute<int64_t>(0);
+  }
+
+  std::vector<PolymorphicValue> evaluate(
+      const std::vector<PolymorphicValue>& inputs) const override;
 };
 
 //! Broadcast in to match out. is_broadcast_dims are relative to out. Where

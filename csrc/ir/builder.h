@@ -56,6 +56,7 @@ class TORCH_CUDA_CU_API IrBuilder {
   static T* clone(const T* src, IrCloner* ir_cloner);
 
   // Unary operations
+  static Val* derefExpr(Val* val);
   static Val* negExpr(Val* val);
   static Val* notExpr(Val* val);
   static Val* absExpr(Val* val);

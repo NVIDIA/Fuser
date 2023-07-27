@@ -439,6 +439,7 @@ enum class UnaryOpType {
   Ceil,
   Cos,
   Cosh,
+  Dereference,
   Exp,
   Exp2,
   Expm1,

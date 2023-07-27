@@ -35,6 +35,7 @@
 #include <instrumentation.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
+#include <rng.h>
 
 #include <list>
 #include <unordered_map>
@@ -207,12 +208,25 @@ void segmenterHintCleanup(Fusion* fusion) {
 }
 
 void assignRNGOffset(Fusion* fusion) {
-  int counter = 0;
+  Val* seed = nullptr;
+  Val* first_offset = nullptr;
+  GetRNGSeedAndOffsetFromHost* getseed_op = nullptr;
+  int64_t counter = 0;
   for (auto expr : fusion->exprs()) {
-    if (expr->isA<RNGOp>()) {
-      auto rop = expr->as<RNGOp>();
-      rop->setRNGOffset(counter++);
+    if (auto rop = dynamic_cast<RNGOp*>(expr)) {
+      if (!rop->isDeterministic()) {
+        if (seed == nullptr) {
+          std::tie(seed, first_offset, getseed_op) =
+              getRNGSeedAndOffsetFromHost();
+        }
+        Val* offset = SimplifyingIrBuilder::addExpr(first_offset, counter);
+        rop->setSeedAndOffset(seed, offset);
+        counter++;
+      }
     }
+  }
+  if (getseed_op != nullptr) {
+    getseed_op->offsets() = counter;
   }
 }
 
@@ -270,9 +284,6 @@ void GpuLower::lower(Fusion* fusion) {
     }
   }
   segmenterHintCleanup(fusion_);
-
-  assignRNGOffset(fusion_);
-
   FusionGuard fg(fusion_);
 
   dumpExprsIfEnabled(fusion_->exprs(), "initialize lowering");
@@ -408,6 +419,13 @@ void GpuLower::lower(Fusion* fusion) {
   // relationships
   const auto exprs_sorted = reorderExprsForComputeAt();
   dumpExprsIfEnabled(exprs_sorted, "reorderExprsForComputeAt");
+
+  // For RNG ops whose seed and offset are not yet set, grab the seed and offset
+  // from the host and assign them to the ops.
+  // This must be after expr sort, because we do not want the generated
+  // computation of offset and seed to be considered as part of fusion
+  // definition
+  assignRNGOffset(fusion_);
 
   // Generate loop-nests and place each expression at its
   // corresponding loop

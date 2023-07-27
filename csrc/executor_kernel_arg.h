@@ -8,7 +8,6 @@
 #pragma once
 
 #include <ATen/core/ivalue.h>
-#include <ATen/cuda/CUDAGeneratorImpl.h>
 #include <c10/util/Exception.h>
 #include <expr_evaluator.h>
 #include <ir/all_nodes.h>
@@ -493,8 +492,6 @@ class TORCH_CUDA_CU_API KernelArgumentHolder {
   int8_t device_index_ = 0;
   std::optional<size_t> cache_id_ = std::nullopt;
 };
-
-at::PhiloxCudaState getPhiloxRNGSeed(uint64_t rand_offset);
 
 std::vector<std::byte> getKernelArgument(
     ExpressionEvaluator& ee,
