@@ -35,7 +35,6 @@
 #include <instrumentation.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
-#include <rng.h>
 
 #include <list>
 #include <unordered_map>
@@ -206,6 +205,9 @@ void segmenterHintCleanup(Fusion* fusion) {
     }
   }
 }
+
+std::tuple<Val*, Val*, GetRNGSeedAndOffsetFromHost*>
+getRNGSeedAndOffsetFromHost();
 
 void assignRNGOffset(Fusion* fusion) {
   Val* seed = nullptr;

@@ -6,12 +6,9 @@
  */
 // clang-format on
 
-#include <rng.h>
-
 #include <device_lower/lower2device.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
-#include <ir/cloner.h>
 
 #include <ATen/cuda/CUDAGeneratorImpl.h>
 
