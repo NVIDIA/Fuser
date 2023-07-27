@@ -864,11 +864,15 @@ Val* ContiguousInnerDimensionsMapper::getContigMergeOfInnerSize(
   return simplifyExpr(product_of_inner_extents);
 }
 
-std::unordered_map<TensorView*, Val*> ContiguousInnerDimensionsMapper::
-    getTvToContigMergeOfInnerSizeMap() {
-  std::unordered_map<TensorView*, Val*> result;
+std::unordered_map<TensorView*, std::pair<Val*, std::unordered_set<Val*>>>
+ContiguousInnerDimensionsMapper::getTvToContigMergeOfInnerSizeMap() {
+  std::unordered_map<TensorView*, std::pair<Val*, std::unordered_set<Val*>>>
+      result;
   for (auto& [tv, _] : tv_infos_) {
-    result[tv] = getContigMergeOfInnerSize(tv);
+    result[tv].first = getContigMergeOfInnerSize(tv);
+    if (auto it = slice_offsets_.find(tv); it != slice_offsets_.end()) {
+      result[tv].second = it->second;
+    }
   }
   return result;
 }
@@ -983,8 +987,10 @@ void ContiguousInnerDimensionsMapper::initializeResizeFactors(Fusion* fusion) {
           {consumer_tv->getMaybeRFactorDomain().begin(),
            consumer_tv->getMaybeRFactorDomain().end()});
 
+      Val* slice_offset = nullptr;
       for (auto input_rf_id : input_tv->getMaybeRFactorDomain()) {
-        if (input_rf_id->isReduction()) {
+        // There's no vectorization opportunity with sliced broadcast domains
+        if (input_rf_id->isReduction() || input_rf_id->isBroadcast()) {
           continue;
         }
 
@@ -1008,6 +1014,8 @@ void ContiguousInnerDimensionsMapper::initializeResizeFactors(Fusion* fusion) {
           resize_factor = post_resize_extent;
 
           sliced_ids_.insert(input_rf_id);
+          // slice_offsets_[input_tv].emplace(IrBuilder::negExpr(resize->leftExpand()));
+          slice_offset = resize->leftExpand();
         } else {
           resize_factor = commonOrConstExtent(ca_map_, input_rf_id);
         }
@@ -1018,6 +1026,10 @@ void ContiguousInnerDimensionsMapper::initializeResizeFactors(Fusion* fusion) {
               resize_factors_it->second, resize_factor);
         }
         resize_factors_[input_rf_id] = resize_factor;
+      }
+
+      if (slice_offset != nullptr) {
+        slice_offsets_[input_tv].emplace(slice_offset);
       }
     }
   }
@@ -1045,9 +1057,13 @@ namespace {
 // to outer most position. e.g. T0[i0, r1, b2] will return 3 Mapper instances
 // associated with:
 // {{i0, r1, b1}, {r1, b1}, {b1}}
-std::vector<std::unordered_map<TensorView*, Val*>> getTvToContigInnerSizeMapsOf(
-    TensorView* ref) {
-  std::vector<std::unordered_map<TensorView*, Val*>> mappers;
+std::vector<
+    std::unordered_map<TensorView*, std::pair<Val*, std::unordered_set<Val*>>>>
+getTvToContigInnerSizeMapsOf(TensorView* ref) {
+  std::vector<std::unordered_map<
+      TensorView*,
+      std::pair<Val*, std::unordered_set<Val*>>>>
+      mappers;
   auto root_dom = ref->getMaybeRFactorDomain();
   while (!root_dom.empty()) {
     mappers.push_back(ContiguousInnerDimensionsMapper::map(ref, root_dom)
@@ -1077,8 +1093,9 @@ size_t getVectorizationFactor(
   auto vectorize_maps_entry =
       HeuristicSummaryEntry<HeuristicCompileTime::TvToContigInnerSizeMaps>(
           data_cache, [&reference_tv]() {
-            return std::make_unique<
-                std::vector<std::unordered_map<TensorView*, Val*>>>(
+            return std::make_unique<std::vector<std::unordered_map<
+                TensorView*,
+                std::pair<Val*, std::unordered_set<Val*>>>>>(
                 getTvToContigInnerSizeMapsOf(reference_tv));
           });
 
@@ -1106,6 +1123,8 @@ size_t getVectorizationFactor(
   if (getenv("VERBOSE")) {
     std::cerr << "max_vec_size: " << max_vec_size << std::endl;
   }
+  // const auto& tv_to_inner_size_map =
+  // vectorize_maps_entry.get().at(break_point);
   auto tv_to_inner_size_map = vectorize_maps_entry.get().at(break_point);
   // Initialize to max the tensors could support.
   size_t max_supported_vector_size = max_vec_size;
@@ -1115,7 +1134,7 @@ size_t getVectorizationFactor(
     }
     auto inner_size_it = tv_to_inner_size_map.find(inp_or_out);
     auto inner_size_val = inner_size_it != tv_to_inner_size_map.end()
-        ? inner_size_it->second
+        ? inner_size_it->second.first
         : inp_or_out->container()->oneVal();
     if (getenv("VERBOSE")) {
       std::cerr << "inner_size_val: " << inner_size_val << std::endl;

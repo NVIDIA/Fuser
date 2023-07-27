@@ -1051,13 +1051,14 @@ size_t SchedulerRuntimeInfo::computeAlignmentSize(size_t ptr_address) {
   return alignment_size;
 }
 
-size_t SchedulerRuntimeInfo::getAlignmentSize(TensorView* tv) {
-  auto alignment_entry = alignment_map_.find(tv);
+size_t SchedulerRuntimeInfo::getAlignmentSize(TensorView* tv, int64_t offset) {
+  auto alignment_entry = alignment_map_.find(std::make_pair(tv, offset));
   if (alignment_entry != alignment_map_.end()) {
     return alignment_entry->second;
   }
 
-  auto alignment_size = SchedulerRuntimeInfo::computeAlignmentSize(ptrOf(tv));
+  auto alignment_size =
+      SchedulerRuntimeInfo::computeAlignmentSize(ptrOf(tv) + offset);
   auto strides_it = input_discontig_strides_.find(tv);
   if (strides_it != input_discontig_strides_.end()) {
     for (auto stride : strides_it->second) {
@@ -1065,7 +1066,7 @@ size_t SchedulerRuntimeInfo::getAlignmentSize(TensorView* tv) {
           alignment_size, SchedulerRuntimeInfo::computeAlignmentSize(stride));
     }
   }
-  alignment_map_[tv] = alignment_size;
+  alignment_map_.emplace(std::make_pair(tv, offset), alignment_size);
   return alignment_size;
 }
 

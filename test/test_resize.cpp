@@ -2390,7 +2390,7 @@ TEST_F(NVFuserTest, FusionResizeSliceVectorize3_CUDA) {
   }
 
   for (const auto& [tv, size] : mapper.getTvToContigMergeOfInnerSizeMap()) {
-    std::cerr << tv->toString() << ", " << size << std::endl;
+    std::cerr << tv->toString() << ", " << size.first << std::endl;
   }
 }
 
@@ -2439,7 +2439,7 @@ TEST_F(NVFuserTest, FusionResizeSliceVectorize4_CUDA) {
   }
 
   for (const auto& [tv, size] : mapper.getTvToContigMergeOfInnerSizeMap()) {
-    std::cerr << tv->toString() << ", " << size << std::endl;
+    std::cerr << tv->toString() << ", " << size.first << std::endl;
   }
 }
 
@@ -2485,7 +2485,7 @@ TEST_F(NVFuserTest, FusionResizeSliceVectorize5_CUDA) {
   }
 
   for (const auto& [tv, size] : mapper.getTvToContigMergeOfInnerSizeMap()) {
-    std::cerr << tv->toString() << ", " << size << std::endl;
+    std::cerr << tv->toString() << ", " << size.first << std::endl;
   }
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -2564,7 +2564,7 @@ TEST_F(NVFuserTest, FusionResizeSliceVectorize6_CUDA) {
   }
 
   for (const auto& [tv, size] : mapper.getTvToContigMergeOfInnerSizeMap()) {
-    std::cerr << tv->toString() << ", " << size << std::endl;
+    std::cerr << tv->toString() << ", " << size.first << std::endl;
   }
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);

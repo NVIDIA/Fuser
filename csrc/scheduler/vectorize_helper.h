@@ -190,7 +190,8 @@ class TORCH_CUDA_CU_API ContiguousInnerDimensionsMapper
     return projected_extent_.at(id);
   }
 
-  std::unordered_map<TensorView*, Val*> getTvToContigMergeOfInnerSizeMap();
+  std::unordered_map<TensorView*, std::pair<Val*, std::unordered_set<Val*>>>
+  getTvToContigMergeOfInnerSizeMap();
 
  private:
   ContiguousInnerDimensionsMapper(
@@ -329,6 +330,7 @@ class TORCH_CUDA_CU_API ContiguousInnerDimensionsMapper
   std::unordered_map<IterDomain*, Val*> projected_extent_;
 
   std::unordered_map<IterDomain*, Val*> resize_factors_;
+  std::unordered_map<TensorView*, std::unordered_set<Val*>> slice_offsets_;
   // IDs that are not fully read
   std::unordered_set<IterDomain*> sliced_ids_;
   std::unordered_set<Resize*> supported_resize_exprs_;
