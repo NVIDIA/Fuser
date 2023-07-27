@@ -81,15 +81,15 @@ std::vector<PolymorphicValue> GetRNGSeedAndOffsetFromHost::evaluate(
   }
   std::vector<PolymorphicValue> outputs;
   if (philox_engine_inputs.captured_) {
-    outputs.push_back(philox_engine_inputs.seed_.ptr);
-    outputs.push_back(0L);
-    outputs.push_back(philox_engine_inputs.offset_.ptr);
-    outputs.push_back((int64_t)philox_engine_inputs.offset_intragraph_);
+    outputs.emplace_back(philox_engine_inputs.seed_.ptr);
+    outputs.emplace_back(0L);
+    outputs.emplace_back(philox_engine_inputs.offset_.ptr);
+    outputs.emplace_back((int64_t)philox_engine_inputs.offset_intragraph_);
   } else {
-    outputs.push_back((int64_t*)nullptr);
-    outputs.push_back((int64_t)philox_engine_inputs.seed_.val);
-    outputs.push_back((int64_t*)nullptr);
-    outputs.push_back((int64_t)philox_engine_inputs.offset_.val);
+    outputs.emplace_back((int64_t*)nullptr);
+    outputs.emplace_back((int64_t)philox_engine_inputs.seed_.val);
+    outputs.emplace_back((int64_t*)nullptr);
+    outputs.emplace_back((int64_t)philox_engine_inputs.offset_.val);
   }
   return outputs;
 }
