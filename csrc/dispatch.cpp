@@ -226,10 +226,6 @@ void Expr::dispatch(T handler, Expr* expr) {
     ptr(handler)->handle(expr->as<ViewOp>());
     return;
   }
-  if (expr->isStrictlyA<GetRNGSeedAndOffsetFromHost>()) {
-    ptr(handler)->handle(expr->as<GetRNGSeedAndOffsetFromHost>());
-    return;
-  }
   if (expr->isStrictlyA<kir::Allocate>()) {
     ptr(handler)->handle(expr->as<kir::Allocate>());
     return;
@@ -292,6 +288,10 @@ void Expr::dispatch(T handler, Expr* expr) {
   }
   if (expr->isStrictlyA<kir::AllocateFusedReduction>()) {
     ptr(handler)->handle(expr->as<kir::AllocateFusedReduction>());
+    return;
+  }
+  if (expr->isStrictlyA<kir::GetRNGSeedAndOffsetFromHost>()) {
+    ptr(handler)->handle(expr->as<kir::GetRNGSeedAndOffsetFromHost>());
     return;
   }
   if (expr->isStrictlyA<PipelineStage>()) {
@@ -462,10 +462,6 @@ void Expr::constDispatch(T handler, const Expr* expr) {
     ptr(handler)->handle(expr->as<SliceOp>());
     return;
   }
-  if (expr->isStrictlyA<GetRNGSeedAndOffsetFromHost>()) {
-    ptr(handler)->handle(expr->as<GetRNGSeedAndOffsetFromHost>());
-    return;
-  }
   if (expr->isStrictlyA<Split>()) {
     ptr(handler)->handle(expr->as<Split>());
     return;
@@ -564,6 +560,10 @@ void Expr::constDispatch(T handler, const Expr* expr) {
   }
   if (expr->isStrictlyA<kir::AllocateFusedReduction>()) {
     ptr(handler)->handle(expr->as<kir::AllocateFusedReduction>());
+    return;
+  }
+  if (expr->isStrictlyA<kir::GetRNGSeedAndOffsetFromHost>()) {
+    ptr(handler)->handle(expr->as<kir::GetRNGSeedAndOffsetFromHost>());
     return;
   }
   if (expr->isStrictlyA<PipelineStage>()) {
@@ -844,9 +844,6 @@ void OptOutConstDispatch::handle(const PadOp* stmt) {
 void OptOutConstDispatch::handle(const SliceOp* stmt) {
   unhandled(stmt);
 }
-void OptOutConstDispatch::handle(const GetRNGSeedAndOffsetFromHost* stmt) {
-  unhandled(stmt);
-}
 
 void OptOutConstDispatch::handle(const Split* stmt) {
   unhandled(stmt);
@@ -922,6 +919,9 @@ void OptOutConstDispatch::handle(const kir::VectorizedWelfordOp* stmt) {
   unhandled(stmt);
 }
 void OptOutConstDispatch::handle(const kir::AllocateFusedReduction* stmt) {
+  unhandled(stmt);
+}
+void OptOutConstDispatch::handle(const kir::GetRNGSeedAndOffsetFromHost* stmt) {
   unhandled(stmt);
 }
 
@@ -1044,9 +1044,6 @@ void OptOutDispatch::handle(PadOp* stmt) {
 void OptOutDispatch::handle(SliceOp* stmt) {
   unhandled(stmt);
 }
-void OptOutDispatch::handle(GetRNGSeedAndOffsetFromHost* stmt) {
-  unhandled(stmt);
-}
 
 void OptOutDispatch::handle(Split* stmt) {
   unhandled(stmt);
@@ -1124,6 +1121,10 @@ void OptOutDispatch::handle(kir::VectorizedWelfordOp* stmt) {
 void OptOutDispatch::handle(kir::AllocateFusedReduction* stmt) {
   unhandled(stmt);
 }
+void OptOutDispatch::handle(kir::GetRNGSeedAndOffsetFromHost* stmt) {
+  unhandled(stmt);
+}
+
 void OptOutDispatch::handle(PipelineStage* stmt) {
   unhandled(stmt);
 }

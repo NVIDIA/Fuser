@@ -206,13 +206,13 @@ void segmenterHintCleanup(Fusion* fusion) {
   }
 }
 
-std::tuple<Val*, Val*, GetRNGSeedAndOffsetFromHost*>
+std::tuple<Val*, Val*, kir::GetRNGSeedAndOffsetFromHost*>
 getRNGSeedAndOffsetFromHost();
 
 void assignRNGOffset(Fusion* fusion) {
   Val* seed = nullptr;
   Val* first_offset = nullptr;
-  GetRNGSeedAndOffsetFromHost* getseed_op = nullptr;
+  kir::GetRNGSeedAndOffsetFromHost* getseed_op = nullptr;
   int64_t counter = 0;
   for (auto expr : fusion->exprs()) {
     if (auto rop = dynamic_cast<RNGOp*>(expr)) {

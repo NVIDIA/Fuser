@@ -16,7 +16,7 @@
 
 namespace nvfuser {
 
-std::tuple<Val*, Val*, GetRNGSeedAndOffsetFromHost*>
+std::tuple<Val*, Val*, kir::GetRNGSeedAndOffsetFromHost*>
 getRNGSeedAndOffsetFromHost() {
   // Note [CUDA graph capture and RNG seed and offset]
   // This is how we handle RNG seeds and offsets in PyTorch. In PyTorch,
@@ -36,7 +36,7 @@ getRNGSeedAndOffsetFromHost() {
   Val* seed_val = IrBuilder::newScalar(DataType::Int);
   Val* offset_ptr = IrBuilder::newScalar(intptr);
   Val* offset_val = IrBuilder::newScalar(DataType::Int);
-  auto expr = IrBuilder::create<GetRNGSeedAndOffsetFromHost>(
+  auto expr = IrBuilder::create<kir::GetRNGSeedAndOffsetFromHost>(
       seed_ptr, seed_val, offset_ptr, offset_val);
   GpuLower::current()->allKnownVals().push_back(seed_ptr);
   GpuLower::current()->allKnownVals().push_back(seed_val);
@@ -67,7 +67,7 @@ getRNGSeedAndOffsetFromHost() {
   return std::make_tuple(seed, offset, expr);
 }
 
-std::vector<PolymorphicValue> GetRNGSeedAndOffsetFromHost::evaluate(
+std::vector<PolymorphicValue> kir::GetRNGSeedAndOffsetFromHost::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
   at::PhiloxCudaState philox_engine_inputs;

@@ -103,7 +103,6 @@ class ViewOp;
 class CatOp;
 class PadOp;
 class SliceOp;
-class GetRNGSeedAndOffsetFromHost;
 
 class PipelineStage;
 class PipelineCommunication;
@@ -134,6 +133,7 @@ class VectorizedWelfordOp;
 class AllocateFusedReduction;
 class InitMagicZero;
 class UpdateMagicZero;
+class GetRNGSeedAndOffsetFromHost;
 
 } // namespace kir
 
@@ -189,7 +189,6 @@ class TORCH_CUDA_CU_API OptOutConstDispatch : public PolymorphicBase {
   virtual void handle(const CatOp* stmt);
   virtual void handle(const PadOp* stmt);
   virtual void handle(const SliceOp* stmt);
-  virtual void handle(const GetRNGSeedAndOffsetFromHost* stmt);
 
   virtual void handle(const Split* stmt);
   virtual void handle(const Merge* stmt);
@@ -217,6 +216,7 @@ class TORCH_CUDA_CU_API OptOutConstDispatch : public PolymorphicBase {
   virtual void handle(const kir::GroupedGridWelford*);
   virtual void handle(const kir::VectorizedWelfordOp*);
   virtual void handle(const kir::AllocateFusedReduction*);
+  virtual void handle(const kir::GetRNGSeedAndOffsetFromHost* stmt);
 
   virtual void handle(const PipelineStage*);
   virtual void handle(const PipelineCommunication*);
@@ -272,7 +272,6 @@ class TORCH_CUDA_CU_API OptOutDispatch : public PolymorphicBase {
   virtual void handle(CatOp* stmt);
   virtual void handle(PadOp* stmt);
   virtual void handle(SliceOp* stmt);
-  virtual void handle(GetRNGSeedAndOffsetFromHost* stmt);
 
   virtual void handle(Split* stmt);
   virtual void handle(Merge* stmt);
@@ -300,6 +299,7 @@ class TORCH_CUDA_CU_API OptOutDispatch : public PolymorphicBase {
   virtual void handle(kir::GroupedGridWelford* stmt);
   virtual void handle(kir::VectorizedWelfordOp* stmt);
   virtual void handle(kir::AllocateFusedReduction* stmt);
+  virtual void handle(kir::GetRNGSeedAndOffsetFromHost* stmt);
 
   virtual void handle(PipelineStage* stmt);
   virtual void handle(PipelineCommunication* stmt);
