@@ -825,19 +825,42 @@ void validateVectorizedTensors(
   validateVectorizedSplits(kernel, expr_eval);
 }
 
-namespace {
-
 void bindInputForExprEvaluation(
     Val* val,
     const ArgAbstract* arg,
     bool check_consistency,
-    ExpressionEvaluator& expr_eval) {
+    ExpressionEvaluator& expr_eval,
+    bool legacy) {
+  TORCH_INTERNAL_ASSERT(val != nullptr);
   if (val->getValType() == ValType::TensorView) {
     TensorView* cg_tensor = val->as<TensorView>();
     auto tensor_arg_abstract = dynamic_cast<const TensorArgAbstract*>(arg);
     if (tensor_arg_abstract != nullptr) {
       expr_eval.bind(cg_tensor, tensor_arg_abstract->getTensor());
     }
+    // TODO: clean this up
+    if (auto arg_ = dynamic_cast<const CpuScalarTensorArg<1>*>(arg)) {
+      expr_eval.bind(cg_tensor, arg_->getTensor());
+    }
+    if (auto arg_ = dynamic_cast<const CpuScalarTensorArg<2>*>(arg)) {
+      expr_eval.bind(cg_tensor, arg_->getTensor());
+    }
+    if (auto arg_ = dynamic_cast<const CpuScalarTensorArg<4>*>(arg)) {
+      expr_eval.bind(cg_tensor, arg_->getTensor());
+    }
+    if (auto arg_ = dynamic_cast<const CpuScalarTensorArg<8>*>(arg)) {
+      expr_eval.bind(cg_tensor, arg_->getTensor());
+    }
+    if (auto arg_ = dynamic_cast<const CpuScalarTensorArg<16>*>(arg)) {
+      expr_eval.bind(cg_tensor, arg_->getTensor());
+    }
+
+#if 1
+    if (!legacy) {
+      return;
+    }
+
+    // Legacy code. To be removed in the future
     auto root_domain =
         TensorDomain::noReductions(cg_tensor->getMaybeRFactorDomain());
 
@@ -902,6 +925,7 @@ void bindInputForExprEvaluation(
         }
       }
     }
+#endif
   } else if (val->getValType().value() == ValType::Others) {
     if (val->getDataType().value() == DataType::Int) {
       TORCH_INTERNAL_ASSERT(
@@ -915,11 +939,16 @@ void bindInputForExprEvaluation(
           "fusion expected Scalar Double inputs, but found ",
           argTypeToString(arg->type()));
       expr_eval.bind(val, *static_cast<const double*>(arg->arg()));
+    } else if (val->getDataType().value() == DataType::ComplexDouble) {
+      TORCH_INTERNAL_ASSERT(
+          arg->isType(ArgType::ComplexDouble),
+          "fusion expected Scalar ComplexDouble inputs, but found ",
+          argTypeToString(arg->type()));
+      expr_eval.bind(
+          val, *static_cast<const std::complex<double>*>(arg->arg()));
     }
   }
 }
-
-} // namespace
 
 ExpressionEvaluator bindInputs(
     const KernelArgumentHolder& args,

@@ -195,6 +195,14 @@ class TORCH_CUDA_CU_API GpuLower : public NonCopyable {
   //    in any pass that performs replacement.
   void propagateExprInfo(const Expr* old_expr, const Expr* new_expr);
 
+  std::vector<Val*>& allKnownVals() {
+    return all_known_vals_;
+  }
+
+  const std::vector<Val*>& allKnownVals() const {
+    return all_known_vals_;
+  }
+
  private:
   void lower(Fusion* fusion);
 
@@ -239,6 +247,10 @@ class TORCH_CUDA_CU_API GpuLower : public NonCopyable {
   std::unordered_map<TensorView*, int> vectorized_accesses_;
   // Info on each vectorized set op
   std::vector<VectorizedSetInfo> vectorized_set_info_;
+
+  // All vals that are known to the kernel, including fusion inputs and
+  // precomputed values
+  std::vector<Val*> all_known_vals_;
 
   Fusion* fusion_ = nullptr;
 };
