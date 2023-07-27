@@ -1879,8 +1879,8 @@ float FusionExecutor::runRtc(
     Struct<PolymorphicValue> concrete_value;
     concrete_value["data"] = PolymorphicValue(
         Pointer(input.data_ptr(), aten_to_data_type(input.scalar_type())));
-    concrete_value["size"] = PolymorphicValue(input.sizes().vec());
-    concrete_value["stride"] = PolymorphicValue(input.strides().vec());
+    concrete_value["logical_size"] = PolymorphicValue(input.sizes().vec());
+    concrete_value["alloc_stride"] = PolymorphicValue(input.strides().vec());
     data.emplace_back(getTensorArgBuffer(concrete_value, index_type));
     pointers.emplace_back(data.back().data());
   }

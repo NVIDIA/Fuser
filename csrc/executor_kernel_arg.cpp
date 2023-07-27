@@ -650,8 +650,8 @@ std::vector<std::byte> getTensorArgBuffer(
   auto struct_ = metadata.as<Struct>();
   std::vector<std::byte> buffer;
   void* ptr = (void*)struct_["data"];
-  std::vector<int64_t> sizes = (std::vector<int64_t>)struct_["size"];
-  std::vector<int64_t> strides = (std::vector<int64_t>)struct_["stride"];
+  std::vector<int64_t> sizes = (std::vector<int64_t>)struct_["logical_size"];
+  std::vector<int64_t> strides = (std::vector<int64_t>)struct_["alloc_stride"];
   if (index_type == PrimDataType::Int) {
     buffer.reserve(
         sizeof(ptr) + sizeof(int64_t) * (sizes.size() + strides.size()));

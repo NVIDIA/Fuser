@@ -37,9 +37,13 @@ DataType metaDataTypeOf(const Val* v) {
   tv_metadata.name = ss.str();
   tv_metadata.types["data"] = NVFUSER_MAYBE_MAKE_SHARED(
       PointerOf{std::make_shared<DataType>(tv->dtype())});
-  tv_metadata.types["size"] = NVFUSER_MAYBE_MAKE_SHARED2(
+  tv_metadata.types["logical_size"] = NVFUSER_MAYBE_MAKE_SHARED2(
       ArrayOf{std::make_shared<DataType>(DataType::Index), dim});
-  tv_metadata.types["stride"] = NVFUSER_MAYBE_MAKE_SHARED2(
+  tv_metadata.types["logical_stride"] = NVFUSER_MAYBE_MAKE_SHARED2(
+      ArrayOf{std::make_shared<DataType>(DataType::Index), dim});
+  tv_metadata.types["alloc_size"] = NVFUSER_MAYBE_MAKE_SHARED2(
+      ArrayOf{std::make_shared<DataType>(DataType::Index), alloc_dim});
+  tv_metadata.types["alloc_stride"] = NVFUSER_MAYBE_MAKE_SHARED2(
       ArrayOf{std::make_shared<DataType>(DataType::Index), alloc_dim});
   return tv_metadata;
 }

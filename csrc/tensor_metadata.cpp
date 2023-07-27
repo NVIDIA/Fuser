@@ -55,11 +55,10 @@ std::vector<PolymorphicValue> GetMetaData::evaluate(
   Struct<PolymorphicValue> concrete_value;
   concrete_value["data"] =
       PolymorphicValue(Pointer(input.data_ptr(), tv->dtype()));
-  concrete_value["size"] = PolymorphicValue(input.sizes().vec());
-  // TODO: this is not correct, strides actually needs to be based on allocation
-  // domain, but input.strides() is on the rFactor domain. We need to refactor
-  // our executor to move related logic here.
-  concrete_value["stride"] = PolymorphicValue(input.strides().vec());
+  concrete_value["logical_size"] = PolymorphicValue(input.sizes().vec());
+  concrete_value["logical_stride"] = PolymorphicValue(input.strides().vec());
+  concrete_value["alloc_size"] = PolymorphicValue(input.sizes().vec());
+  concrete_value["alloc_stride"] = PolymorphicValue(input.strides().vec());
   return {PolymorphicValue(concrete_value)};
 }
 
