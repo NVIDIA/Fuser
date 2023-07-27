@@ -697,6 +697,7 @@ class FlattenedAssocCommOp : public Expr {
   }
 
   std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
       const std::vector<PolymorphicValue>& inputs) const override {
     using namespace PolymorphicValue_functions;
     std::vector<PolymorphicValue> inputs_ = inputs;

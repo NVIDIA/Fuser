@@ -683,6 +683,48 @@ void KernelArgumentHolder::deserialize(
   }
 }
 
+std::vector<std::byte> getTensorArgBuffer(
+    const PolymorphicValue& metadata,
+    PrimDataType index_type) {
+  auto struct_ = metadata.as<Struct>();
+  std::vector<std::byte> buffer;
+  void* ptr = (void*)struct_["data"];
+  std::vector<int64_t> sizes = (std::vector<int64_t>)struct_["size"];
+  std::vector<int64_t> strides = (std::vector<int64_t>)struct_["stride"];
+  if (index_type == PrimDataType::Int) {
+    buffer.reserve(
+        sizeof(ptr) + sizeof(int64_t) * (sizes.size() + strides.size()));
+    buffer.insert(
+        buffer.end(), (std::byte*)&ptr, (std::byte*)&ptr + sizeof(ptr));
+    buffer.insert(
+        buffer.end(),
+        (std::byte*)sizes.data(),
+        (std::byte*)sizes.data() + sizeof(int64_t) * sizes.size());
+    buffer.insert(
+        buffer.end(),
+        (std::byte*)strides.data(),
+        (std::byte*)strides.data() + sizeof(int64_t) * strides.size());
+  } else {
+    TORCH_INTERNAL_ASSERT(
+        index_type == PrimDataType::Int32, "unknown index type");
+    std::vector<int32_t> sizes32(sizes.begin(), sizes.end());
+    std::vector<int32_t> strides32(strides.begin(), strides.end());
+    buffer.reserve(
+        sizeof(ptr) + sizeof(int32_t) * (sizes32.size() + strides32.size()));
+    buffer.insert(
+        buffer.end(), (std::byte*)&ptr, (std::byte*)&ptr + sizeof(ptr));
+    buffer.insert(
+        buffer.end(),
+        (std::byte*)sizes32.data(),
+        (std::byte*)sizes32.data() + sizeof(int32_t) * sizes32.size());
+    buffer.insert(
+        buffer.end(),
+        (std::byte*)strides32.data(),
+        (std::byte*)strides32.data() + sizeof(int32_t) * strides32.size());
+  }
+  return buffer;
+}
+
 std::vector<std::byte> getKernelArgument(
     ExpressionEvaluator& ee,
     Val* parameter,

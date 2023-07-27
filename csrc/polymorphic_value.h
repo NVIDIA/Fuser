@@ -69,7 +69,6 @@ class Pointer {
 
   template <typename T>
   explicit operator T*() const {
-    TORCH_INTERNAL_ASSERT(size_ == sizeof(T));
     return static_cast<T*>(ptr_);
   }
 
