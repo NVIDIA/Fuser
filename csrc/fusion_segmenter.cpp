@@ -1540,7 +1540,7 @@ std::unique_ptr<SegmentedFusion> SegmentCandidateFinder::segment(
     scheduler_debug_utils::canScheduleMessage(
         "***Runtime***: Try to schedule fusion un-segmented:\n");
     const auto maybe_complete_fusion_heuristic =
-        SchedulerEntry::proposeHeuristics(fusion.get(), runtime_info);
+        SchedulerEntry::proposeHeuristics(fusion.get(), runtime_info, true);
     if (maybe_complete_fusion_heuristic.has_value()) {
       return SegmentedFusion::fromCompleteFusion(
           std::move(fusion), maybe_complete_fusion_heuristic.value(), inputs);
@@ -2105,7 +2105,7 @@ std::optional<ScheduleHeuristic> tryMerge(
     return std::nullopt;
   }
   return SchedulerEntry::proposeHeuristics(
-      segmented_fusion->completeFusion(), runtime_info);
+      segmented_fusion->completeFusion(), runtime_info, false);
 }
 
 std::optional<ScheduleHeuristic> tryMerge(
@@ -2120,7 +2120,7 @@ std::optional<ScheduleHeuristic> tryMerge(
     return std::nullopt;
   }
   return SchedulerEntry::proposeHeuristics(
-      segmented_fusion->completeFusion(), runtime_info);
+      segmented_fusion->completeFusion(), runtime_info, false);
 }
 
 // This function is for cleanup and

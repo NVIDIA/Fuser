@@ -92,8 +92,10 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
     const int64_t inner_dim_numel,
     const int64_t max_persistent_buffer_size,
     const size_t tmp_gmem_dtype_size,
+    const bool use_shared_memory_persistent,
     const size_t vectorize_factor) {
   auto rparams = std::make_shared<ReductionParams>();
+  rparams->shared_mem_persistent_buffer = use_shared_memory_persistent;
   // Parameters for inner reduction:
   // Reduction dim: inner_vect, inner_batch, bdimx and bdimy
   // Iteration dim: gdimy
@@ -1286,6 +1288,7 @@ std::shared_ptr<ReductionParams> persistentHeuristic(
     const int64_t max_persistent_buffer_size,
     size_t vectorize_factor,
     bool project_persistent_buffers,
+    bool use_shared_memory_persistent,
     const bool combined_inner_outer_reduction) {
   std::shared_ptr<ReductionParams> rparams;
   if (combined_inner_outer_reduction) {
@@ -1296,6 +1299,7 @@ std::shared_ptr<ReductionParams> persistentHeuristic(
         inner_dim_numel,
         max_persistent_buffer_size,
         tmp_gmem_dtype_size,
+        use_shared_memory_persistent,
         vectorize_factor);
   } else if (fastest_dim_reduction) {
     rparams = innerPersistentHeuristic(
@@ -1415,7 +1419,7 @@ std::shared_ptr<ReductionParams> getPersistentHeuristics(
   bool project_persistent_buffers =
       persistent_buffer_size_info.projected_persistent_buffer_size <
       persistent_buffer_size_info.persistent_buffer_size;
-
+  bool use_shared_memory_persistent = false;
   if (combined_inner_outer_reduction) {
     // In combined_inner_outer_reduction, we have additional buffers for partial
     // results of outer reductions.
@@ -1425,33 +1429,23 @@ std::shared_ptr<ReductionParams> getPersistentHeuristics(
 
     // for layer_norm backward, enable project to input can reuse weight shared
     // among different rows. Although it increased register usage and may lead
-    // to register spills, the overall performance is increased. The following
-    // code will check if we can do this projection by allowing more registers.
-    // This is a temporary solution, the issue is tracked by
+    // to register spills, the overall performance is increased. This is a
+    // temporary solution, the issue is tracked by
     // https://github.com/csarofeen/pytorch/issues/2525
-    if (!project_persistent_buffers) {
-      int64_t total_projected_buffer_size =
-          persistent_buffer_size_info.projected_persistent_buffer_size +
-          outer_reduction_buffer_size;
-      // allow 10% more to allow project to input, 14K float should do project
-      // and 16K float should't do. more_register_factor >= 14*1024*5(three
-      // inputs, two outer reduction results)*sizeof(float) /
-      // register_file_size_full
-      constexpr float more_register_factor = 1.1;
-      const int64_t avilable_register_file_size = static_cast<int64_t>(
-          scheduler_utils::register_file_size_full * more_register_factor);
-      if (avilable_register_file_size >= total_projected_buffer_size) {
-        project_persistent_buffers = true;
-      }
-    }
-    // now we have the final decision on whether we project to input or not.
-    if (project_persistent_buffers) {
+    if (scheduler_utils::register_file_size_combined >=
+        persistent_buffer_size_info.projected_persistent_buffer_size +
+            outer_reduction_buffer_size) {
+      project_persistent_buffers = true;
+      use_shared_memory_persistent = false;
       max_persistent_size =
           persistent_buffer_size_info.projected_persistent_buffer_size +
           outer_reduction_buffer_size;
     } else {
-      max_persistent_size = persistent_buffer_size_info.persistent_buffer_size +
-          outer_reduction_buffer_size;
+      // outer_reduction_buffers are stored in registers.
+      // other persistent buffers are stored in shared memory.
+      project_persistent_buffers = true;
+      use_shared_memory_persistent = true;
+      max_persistent_size = outer_reduction_buffer_size;
     }
   }
 
@@ -1512,6 +1506,7 @@ std::shared_ptr<ReductionParams> getPersistentHeuristics(
       max_persistent_size,
       vectorize_factor,
       project_persistent_buffers,
+      use_shared_memory_persistent,
       combined_inner_outer_reduction);
   heuristic->cparams.index_type = runtime_info.getIndexType();
   return heuristic;
@@ -1568,6 +1563,16 @@ void beforeSchedule(
       tv->setMemoryType(MemoryType::Shared);
     }
   }
+  // // For combined case (layer_norm backward), there are 5 persistent tensors.
+  // // set 2 of them to shared memory.
+  // if(rparams.combined_inner_outer){
+  //   const auto& persistent_buffers =
+  //       scheduler_utils::persistentBuffers(fusion).persistent_buffers;
+  //   for (auto tv : persistent_buffers) {
+  //     tv->setMemoryType(MemoryType::Shared);
+  //     std::cout << "pbtv= " << tv->toString() << std::endl;
+  //   }
+  // }
 
   reduction_tvs = scheduler_utils::getReductionTvs(fusion);
 }

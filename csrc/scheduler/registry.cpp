@@ -1296,7 +1296,9 @@ class NoOpScheduler : public SchedulerEntry {
   }
 
   //! Check if the no-op heuristics apply in given fusion
-  static bool canScheduleCompileTime(Fusion* fusion) {
+  static bool canScheduleCompileTime(
+      Fusion* fusion,
+      const bool complete_fusion) {
     if (fusion->isNoOp()) {
       return true;
     }
@@ -1377,7 +1379,9 @@ class ReductionScheduler : public SchedulerEntry {
   }
 
   //! Check if the reduction heuristics apply in given fusion
-  static bool canScheduleCompileTime(Fusion* fusion) {
+  static bool canScheduleCompileTime(
+      Fusion* fusion,
+      const bool complete_fusion) {
     // Needs at least one reduction to consider.
     if (ir_utils::getReductionOps(fusion).empty()) {
       scheduler_debug_utils::canScheduleRejectReason(
@@ -1554,7 +1558,9 @@ class TransposeScheduler : public SchedulerEntry {
     computeHeuristics(fusion, runtime_info, data_cache);
   }
 
-  static bool canScheduleCompileTime(Fusion* fusion) {
+  static bool canScheduleCompileTime(
+      Fusion* fusion,
+      const bool complete_fusion) {
     // Temporarily disallow view in transpose scheduler
     // TODO Add more testing before enabling
     auto view_tvs = scheduler_utils::getViewTVs(fusion);
@@ -1677,7 +1683,9 @@ class PointWiseScheduler : public SchedulerEntry {
     computeHeuristics(fusion, runtime_info, data_cache);
   }
 
-  static bool canScheduleCompileTime(Fusion* fusion) {
+  static bool canScheduleCompileTime(
+      Fusion* fusion,
+      const bool complete_fusion) {
     //   Currently using the same path as the scheduler
     // to eliminate mismatch between canSchedule and
     // schedule pointwise.
@@ -1736,7 +1744,7 @@ class PointWiseScheduler : public SchedulerEntry {
         HeuristicSummaryEntry<HeuristicCompileTime::CanScheduleTranspose>(
             data_cache, [fusion]() {
               return std::make_unique<bool>(
-                  TransposeScheduler::canScheduleCompileTime(fusion));
+                  TransposeScheduler::canScheduleCompileTime(fusion, true));
             });
     if (can_schedule_transpose_entry.get()) {
       auto reason =
@@ -1776,7 +1784,9 @@ class PersistentKernelScheduler : public SchedulerEntry {
     schedulePersistentKernel(fusion, reductionParams());
   }
 
-  static bool canScheduleCompileTime(Fusion* fusion) {
+  static bool canScheduleCompileTime(
+      Fusion* fusion,
+      const bool complete_fusion) {
     // Needs at least one reduction to consider.
     auto reduction_ops = ir_utils::getReductionOps(fusion);
     if (reduction_ops.empty()) {
@@ -1832,6 +1842,14 @@ class PersistentKernelScheduler : public SchedulerEntry {
     }
     bool combined_inner_outer =
         !inner_reduction_tvs.empty() && !outer_reduction_tvs.empty();
+
+    if (!complete_fusion && combined_inner_outer) {
+      scheduler_debug_utils::canScheduleRejectReason(
+          ScheduleHeuristic::Persistent,
+          "Combined inner and outer reduction is not efficient for segmented fusion! Should segment into inner reduction and outer reduction separately.");
+      return false;
+    }
+
     if (!checkReductionPattern(
             fusion, inner_reduction_tvs, outer_reduction_tvs)) {
       return false;
@@ -1962,15 +1980,17 @@ class PersistentKernelScheduler : public SchedulerEntry {
     }
 
     // pair of persistent_buffer_size and available_persistent_buffer_size
-    const std::pair<int64_t, int64_t> buffer_size = getPersistentBufferSize(
-        fusion, runtime_info, data_cache, reduction_tvs);
-    const int64_t persistent_buffer_size = buffer_size.first;
-    const int64_t available_persistent_buffer_size = buffer_size.second;
+    const auto
+        [persistent_buffer_size,
+         available_register_buffer_size,
+         has_enough_regs_and_smem] =
+            getPersistentBufferSize(
+                fusion, runtime_info, data_cache, reduction_tvs);
 
     const int64_t device_multiprocessor_count =
         (int64_t)at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
 
-    if (persistent_buffer_size > available_persistent_buffer_size) {
+    if (!has_enough_regs_and_smem) {
       scheduler_debug_utils::canScheduleRejectReason(
           ScheduleHeuristic::Persistent,
           "not enough registers or shared memory for persistence");
@@ -2010,7 +2030,7 @@ class PersistentKernelScheduler : public SchedulerEntry {
     // Maximum number of iteration dimensions we can have and still be
     // persistent.
     const int64_t max_multi_reduction_factor = scheduler_utils::safeDiv(
-        available_persistent_buffer_size, persistent_buffer_size);
+        available_register_buffer_size, persistent_buffer_size);
 
     const int64_t required_sm_per_norm =
         ceilDiv(persistent_buffer_size, scheduler_utils::register_file_size);
@@ -2119,7 +2139,7 @@ class PersistentKernelScheduler : public SchedulerEntry {
     return true;
   }
 
-  static std::pair<int64_t, int64_t> getPersistentBufferSize(
+  static std::tuple<int64_t, int64_t, bool> getPersistentBufferSize(
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
       HeuristicSummary* data_cache,
@@ -2148,10 +2168,12 @@ class PersistentKernelScheduler : public SchedulerEntry {
     // reductions must be persistent, allow register spill avoid segmentation
     int64_t inner_reduction_count = 0;
     int64_t outer_reduction_count = 0;
+    std::vector<TensorView*> inner_reduction_tvs;
     std::vector<TensorView*> outer_reduction_tvs;
     for (auto tv : reduction_tvs) {
       if (scheduler_utils::isFastestDimReduction(tv)) {
         inner_reduction_count++;
+        inner_reduction_tvs.emplace_back(tv);
       } else {
         outer_reduction_count++;
         outer_reduction_tvs.emplace_back(tv);
@@ -2159,52 +2181,90 @@ class PersistentKernelScheduler : public SchedulerEntry {
     }
     const bool combined_inner_outer_reduction =
         inner_reduction_count && outer_reduction_count;
-    if (combined_inner_outer_reduction) {
-      persistent_buffer_size +=
-          normalization_scheduler_utils::partialReductionBufferSize(
-              outer_reduction_tvs, runtime_info);
-    }
 
     // At this point, we use the full register file size only for the
     // inner-outer case. It does not mean the full size shouldn't be used
     // otherwise, but more detailed tuning of the heuristics would be required.
-    int64_t available_persistent_buffer_size = combined_inner_outer_reduction
-        ? scheduler_utils::register_file_size_full
+    int64_t available_register_buffer_size = combined_inner_outer_reduction
+        ? scheduler_utils::register_file_size_combined
         : scheduler_utils::register_file_size;
 
-    // Use shared memory for persistent buffer is only tested for inner
-    // reduction
-    // TODO: extend to outer reduction and combined reduction
-    const bool allow_shared_memory =
-        inner_reduction_count > 0 && outer_reduction_count == 0;
-    if (allow_shared_memory) {
-      const auto dev_prop = at::cuda::getCurrentDeviceProperties();
-      const int64_t max_shared_memory_size =
-          (int64_t)dev_prop->sharedMemPerBlockOptin;
-      // Some shared memories are reserved for kernel launch overhead and
-      // reduction_broadcast_workspace. Estimation is conservative, but should
-      // be good enough. The actual threads per block is set in the heuristics
-      // and it may be smaller than maxThreadsPerBlock.
-      // TODO: More accurate estimation of available shared memory size.
-      const int64_t kernel_overhead =
-          (int64_t)dev_prop->reservedSharedMemPerBlock;
-      int64_t max_buffer_dtype_size = 1;
-      for (auto tv : persistent_buffer_info.persistent_buffers) {
-        max_buffer_dtype_size = std::max(
-            max_buffer_dtype_size,
-            dataTypeSize(
-                tv->getDataType().value(), runtime_info.getIndexType()));
-      }
-      const int64_t reduction_broadcast_workspace =
-          (int64_t)(dev_prop->maxThreadsPerBlock) * max_buffer_dtype_size;
-      const int64_t available_shared_memory_size = max_shared_memory_size -
-          kernel_overhead - reduction_broadcast_workspace;
-      available_persistent_buffer_size = std::max(
-          available_persistent_buffer_size, available_shared_memory_size);
+    // Some shared memories are reserved for kernel launch overhead and
+    // reduction_broadcast_workspace. Estimation is conservative, but should
+    // be good enough. The actual threads per block is set in the heuristics
+    // and it may be smaller than maxThreadsPerBlock.
+    // TODO: More accurate estimation of available shared memory size.
+    const auto dev_prop = at::cuda::getCurrentDeviceProperties();
+    const int64_t max_shared_memory_size =
+        (int64_t)dev_prop->sharedMemPerBlockOptin;
+    const int64_t kernel_overhead =
+        (int64_t)dev_prop->reservedSharedMemPerBlock;
+    int64_t max_buffer_dtype_size = 1;
+    for (auto tv : persistent_buffer_info.persistent_buffers) {
+      max_buffer_dtype_size = std::max(
+          max_buffer_dtype_size,
+          dataTypeSize(tv->getDataType().value(), runtime_info.getIndexType()));
     }
+    const int64_t reduction_broadcast_workspace =
+        (int64_t)(dev_prop->maxThreadsPerBlock) * max_buffer_dtype_size;
+    const int64_t available_shared_memory_buffer_size = max_shared_memory_size -
+        kernel_overhead - reduction_broadcast_workspace;
 
-    return std::make_pair(
-        persistent_buffer_size, available_persistent_buffer_size);
+    bool has_enough_regs_and_smem = false;
+
+    if (combined_inner_outer_reduction) {
+      // For combined_inner_outer_reduction, additional tensors are created by
+      // the scheduler to store intermediate outer reduction results. These
+      // tensors are register persistent. Other persistent tensors in the
+      // original fusion definition are also register persistent if there are
+      // enough registers. Otherwise, they will be stored in shared memory.
+      auto properties = scheduler_utils::getReductionProperties(
+          fusion, runtime_info, inner_reduction_tvs[0]);
+      auto buffer_per_element =
+          persistent_buffer_size / properties.inner_most_dimension_numel;
+      const auto additional_persistent_buffer_size =
+          normalization_scheduler_utils::partialReductionBufferSize(
+              outer_reduction_tvs, runtime_info);
+      auto persistent_buffer_size_roundup =
+          ceilDiv((ceilDiv(properties.inner_most_dimension_numel, 8)), 256) *
+          8 * 256 * buffer_per_element;
+      // Check if registers can hold all persistent tensors.
+      persistent_buffer_size =
+             persistent_buffer_size_roundup + additional_persistent_buffer_size;      
+      if (scheduler_utils::register_file_size_combined >=
+          persistent_buffer_size) {
+        has_enough_regs_and_smem = true;
+      } else {
+        // If registers can not hold all persistent tensors, try split
+        // persistent_buffer_size_roundup to shared memory.
+        // persistent_buffer_size is set to  additional_persistent_buffer_size
+        // since it only accounts for register persistent tensors.
+        has_enough_regs_and_smem =
+            scheduler_utils::register_file_size_full / 64 * 56 >=
+                additional_persistent_buffer_size &&
+            available_shared_memory_buffer_size >=
+                persistent_buffer_size_roundup;
+        persistent_buffer_size = additional_persistent_buffer_size;
+        std::cout << "buffer_per_element= " << buffer_per_element << std::endl;
+        std::cout << "available_shared_memory_buffer_size= " << available_shared_memory_buffer_size << std::endl;
+        std::cout << "persistent_buffer_size_roundup= " << persistent_buffer_size_roundup << std::endl;
+        std::cout << "has_enough_regs_and_smem= " << has_enough_regs_and_smem << std::endl;
+      }
+    } else if (inner_reduction_count > 0) {
+      // inner reduction, allows both register and shared memory persistent
+      has_enough_regs_and_smem =
+          std::max(
+              available_shared_memory_buffer_size,
+              available_register_buffer_size) >= persistent_buffer_size;
+    } else {
+      // outer reduction, allows only register persistent
+      has_enough_regs_and_smem =
+          available_register_buffer_size >= persistent_buffer_size;
+    }
+    return std::make_tuple(
+        persistent_buffer_size,
+        available_register_buffer_size,
+        has_enough_regs_and_smem);
   }
 
   static bool canScheduleRunTimeOuter(
@@ -2424,7 +2484,9 @@ class MatmulScheduler : public SchedulerEntry {
     scheduleMatmul(fusion, matmulParams());
   }
 
-  static bool canScheduleCompileTime(Fusion* fusion) {
+  static bool canScheduleCompileTime(
+      Fusion* fusion,
+      const bool complete_fusion) {
     const auto msg = getMatmulCompileTimeRejectReason(fusion);
     if (!msg.empty()) {
       scheduler_debug_utils::canScheduleRejectReason(
@@ -2478,7 +2540,8 @@ template <typename SchedulerType>
 bool checkCanSchedule(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache = nullptr) {
+    HeuristicSummary* data_cache = nullptr,
+    const bool complete_fusion = true) {
   FusionGuard fg(fusion);
   // If a data cache is given, the compile time part doesn't need to be checked,
   // since for all current use cases
@@ -2491,7 +2554,7 @@ bool checkCanSchedule(
     if (IterDomainGraph(fusion, /*allow_self_mapping=*/true).hasSelfMapping()) {
       return false;
     }
-    if (!SchedulerType::canScheduleCompileTime(fusion)) {
+    if (!SchedulerType::canScheduleCompileTime(fusion, complete_fusion)) {
       return false;
     }
   }
@@ -2506,25 +2569,27 @@ bool SchedulerEntry::canSchedule(
     ScheduleHeuristic sh,
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
+    const bool complete_fusion,
     HeuristicSummary* data_cache) {
   switch (sh) {
     case ScheduleHeuristic::NoOp:
-      return checkCanSchedule<NoOpScheduler>(fusion, runtime_info, data_cache);
+      return checkCanSchedule<NoOpScheduler>(
+          fusion, runtime_info, data_cache, complete_fusion);
     case ScheduleHeuristic::PointWise:
       return checkCanSchedule<PointWiseScheduler>(
-          fusion, runtime_info, data_cache);
+          fusion, runtime_info, data_cache, complete_fusion);
     case ScheduleHeuristic::Reduction:
       return checkCanSchedule<ReductionScheduler>(
-          fusion, runtime_info, data_cache);
+          fusion, runtime_info, data_cache, complete_fusion);
     case ScheduleHeuristic::Persistent:
       return checkCanSchedule<PersistentKernelScheduler>(
-          fusion, runtime_info, data_cache);
+          fusion, runtime_info, data_cache, complete_fusion);
     case ScheduleHeuristic::Transpose:
       return checkCanSchedule<TransposeScheduler>(
-          fusion, runtime_info, data_cache);
+          fusion, runtime_info, data_cache, complete_fusion);
     case ScheduleHeuristic::Matmul:
       return checkCanSchedule<MatmulScheduler>(
-          fusion, runtime_info, data_cache);
+          fusion, runtime_info, data_cache, complete_fusion);
     default:
       TORCH_INTERNAL_ASSERT(false, "unreachable");
       return false;
@@ -2573,9 +2638,10 @@ std::unique_ptr<SchedulerEntry> SchedulerEntry::makeEntry(
 // Simply loop through the list as baseline strategy
 std::optional<ScheduleHeuristic> SchedulerEntry::proposeHeuristics(
     Fusion* fusion,
-    SchedulerRuntimeInfo& runtime_info) {
+    SchedulerRuntimeInfo& runtime_info,
+    const bool complete_fusion) {
   for (auto sh : all_heuristics()) {
-    if (canSchedule(sh, fusion, runtime_info)) {
+    if (canSchedule(sh, fusion, runtime_info, complete_fusion)) {
       scheduler_debug_utils::canScheduleMessage("***Accepted*** as: ", sh);
       return sh;
     }

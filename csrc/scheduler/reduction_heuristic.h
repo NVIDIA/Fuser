@@ -133,7 +133,11 @@ class ReductionParams : public HeuristicParams {
   // block_dim_inner_reduction_extra (usually TIDy)
   ParallelType block_dim_inner_reduction_extra = ParallelType::Serial;
 
-  // use shared memory for persistent buffer, if false, will use registers
+  // use shared memory for persistent buffer, if false, will use registers.
+  // For innerOuterPersistentHeuristic, shared memory buffer is only used for
+  // the persistent tensors in the original fusion definition, the intermediate
+  // persistent tensors which are creased by the scheduler to store the partial
+  // outer reduction results are always stored in registers.
   bool shared_mem_persistent_buffer = false;
 
  public:

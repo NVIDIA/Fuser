@@ -30,6 +30,11 @@ namespace scheduler_utils {
 // but it's hard to get a better one.
 constexpr int64_t register_file_size_full = (int64_t)256 * 1024;
 constexpr int64_t register_file_size = register_file_size_full / 2;
+// register file size allowed for persistent buffers in
+// innerOuterPersistentHeuristic. Will cause register spills but still improves
+// the overall performance.
+constexpr int64_t register_file_size_combined =
+    register_file_size_full / 64 * 63;
 // Empirically observed number. Not guaranteed to be a good estimate
 constexpr int64_t register_overhead = 40l;
 constexpr int64_t max_registers_per_thread = 255l;
