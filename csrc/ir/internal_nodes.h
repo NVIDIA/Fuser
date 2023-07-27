@@ -710,6 +710,7 @@ class TORCH_CUDA_CU_API GetRNGSeedAndOffsetFromHost : public Expr {
   }
 
   std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
       const std::vector<PolymorphicValue>& inputs) const override;
 };
 

@@ -71,6 +71,7 @@ getRNGSeedAndOffsetFromHost() {
 }
 
 std::vector<PolymorphicValue> GetRNGSeedAndOffsetFromHost::evaluate(
+    const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
   at::PhiloxCudaState philox_engine_inputs;
   auto gen = at::cuda::detail::getDefaultCUDAGenerator();
