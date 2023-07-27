@@ -37,6 +37,7 @@ std::string GetMetaData::toInlineString(int indent_size) const {
 }
 
 std::vector<PolymorphicValue> GetMetaData::evaluate(
+    const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
   TORCH_INTERNAL_ASSERT(inputs.size() == 1, "GetMetaData expects 1 input");
   TORCH_INTERNAL_ASSERT(
