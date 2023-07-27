@@ -496,14 +496,17 @@ class TORCH_CUDA_CU_API KernelArgumentHolder {
 
   KernelArgumentHolder() = default;
 
-  KernelArgumentHolder(const KernelArgumentHolder& self, bool metadata_only=false)
+  KernelArgumentHolder(
+      const KernelArgumentHolder& self,
+      bool metadata_only = false)
       : device_index_(self.getDeviceIndex()), cache_id_(self.getCacheId()) {
     for (const auto& arg : self.arguments_) {
       if (metadata_only && arg->type() == ArgType::Tensor) {
         auto tensor_arg = dynamic_cast<TensorArgAbstract*>(arg.get());
         TORCH_INTERNAL_ASSERT(tensor_arg);
         const auto& at_tensor = tensor_arg->getTensor();
-        pushTensorProxy(at_tensor.sizes(), at_tensor.strides(), at_tensor.scalar_type());
+        pushTensorProxy(
+            at_tensor.sizes(), at_tensor.strides(), at_tensor.scalar_type());
       } else {
         push(arg.get());
       }
