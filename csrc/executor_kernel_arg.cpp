@@ -645,6 +645,21 @@ void KernelArgumentHolder::pushTensorProxy(
   arguments_.push_back(getAbstractTensorArg(at::Tensor(meta_tensor)));
 }
 
+void KernelArgumentHolder::pushTensorProxy(
+    c10::IntArrayRef sizes,
+    c10::IntArrayRef strides,
+    at::ScalarType dtype) {
+  TORCH_INTERNAL_ASSERT(strides.size() == sizes.size());
+  auto meta_tensor = at::detail::empty_strided_meta(
+      sizes,
+      strides,
+      dtype,
+      c10::nullopt,
+      c10::Device(c10::DeviceType::Meta, 0),
+      c10::nullopt);
+  arguments_.push_back(getAbstractTensorArg(at::Tensor(meta_tensor)));
+}
+
 flatbuffers::Offset<serde::KernelArgumentHolder> KernelArgumentHolder::
     serialize(flatbuffers::FlatBufferBuilder& builder) const {
   // table KernelArgumentHolder {

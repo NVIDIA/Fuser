@@ -496,10 +496,17 @@ class TORCH_CUDA_CU_API KernelArgumentHolder {
 
   KernelArgumentHolder() = default;
 
-  KernelArgumentHolder(const KernelArgumentHolder& self)
+  KernelArgumentHolder(const KernelArgumentHolder& self, bool metadata_only=false)
       : device_index_(self.getDeviceIndex()), cache_id_(self.getCacheId()) {
     for (const auto& arg : self.arguments_) {
-      push(arg.get());
+      if (metadata_only && arg->type() == ArgType::Tensor) {
+        auto tensor_arg = dynamic_cast<TensorArgAbstract*>(arg.get());
+        TORCH_INTERNAL_ASSERT(tensor_arg);
+        const auto& at_tensor = tensor_arg->getTensor();
+        pushTensorProxy(at_tensor.sizes(), at_tensor.strides(), at_tensor.scalar_type());
+      } else {
+        push(arg.get());
+      }
     }
   }
 
@@ -519,6 +526,12 @@ class TORCH_CUDA_CU_API KernelArgumentHolder {
   void pushTensorProxy(
       const std::vector<int64_t>& sizes,
       const std::vector<int64_t>& strides,
+      at::ScalarType dtype);
+
+  // Push a tensor proxy to the arguments
+  void pushTensorProxy(
+      c10::IntArrayRef sizes,
+      c10::IntArrayRef strides,
       at::ScalarType dtype);
 
   // Push a tensor to the arguments

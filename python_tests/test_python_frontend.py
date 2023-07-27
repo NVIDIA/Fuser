@@ -92,7 +92,7 @@ class TestNvFuserFrontend(TestCase):
     # Helper function to verify the nvfuser output and make sure the string
     # definition based on the FusionDefinition is executable and matches the
     # original definition
-    # @serde_check
+    @serde_check
     def exec_nvfuser(self, fusion_func, inputs, *, new_fusion_expected=True):
         inputs_cap = deepcopy(inputs)
         fc = FusionCache.get()
@@ -2078,7 +2078,7 @@ class TestNvFuserFrontend(TestCase):
                         self.exec_nvfuser,
                         partial(check, acts=inp),
                         inp,
-                        # skip_serde_check=True,
+                        skip_serde_check=True,
                     )
             first_check = False
 

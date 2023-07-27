@@ -899,7 +899,8 @@ void FusionExecutorCache::deserialize(
 FusionKernelRuntime::FusionKernelRuntime(
     std::unique_ptr<Fusion> fusion,
     const KernelArgumentHolder& args,
-    std::optional<PrimDataType> forced_index_type) {
+    std::optional<PrimDataType> forced_index_type)
+    : args_metadata_{args, true /* metadata_only */} {
   FUSER_PERF_SCOPE("FusionKernelRuntime::FusionKernelRuntime");
 
   TORCH_INTERNAL_ASSERT(
