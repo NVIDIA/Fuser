@@ -628,7 +628,7 @@ void validateAlignedVectorizedFusionInputOutput(
     }
   }
 
-  auto sizes = std::vector<int64_t>(metadata["logical_size"]);
+  auto sizes = std::vector<int64_t>(metadata["alloc_size"]);
   auto strides = std::vector<int64_t>(metadata["alloc_stride"]);
   TORCH_INTERNAL_ASSERT(sizes.size() == no_reduction_to_full.size());
   TORCH_INTERNAL_ASSERT(strides.size() == no_reduction_to_full.size());
@@ -682,7 +682,9 @@ void validateAlignedVectorizedFusionInputOutput(
         " Domain: ",
         tv->axis(i)->toString(),
         ", stride: ",
-        stride)
+        stride,
+        ", cur_contig_stride ",
+        cur_contig_stride);
     // If the domain is size-1, the next domain is still considered
     // rightmost.
     still_rightmost =
