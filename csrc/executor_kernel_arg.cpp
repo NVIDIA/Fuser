@@ -300,19 +300,6 @@ void KernelArgumentHolder::swap(int i, const ArgAbstract* arg) {
   arguments_[i].swap(holder);
 }
 
-at::PhiloxCudaState getPhiloxRNGSeed(uint64_t rand_offset) {
-  at::PhiloxCudaState philox_engine_inputs;
-  auto gen = at::cuda::detail::getDefaultCUDAGenerator();
-  {
-    // See Note [Acquire lock when using random generators]
-    std::lock_guard<std::mutex> lock(gen.mutex());
-    philox_engine_inputs =
-        at::check_generator<at::CUDAGeneratorImpl>(gen)->philox_cuda_state(
-            rand_offset);
-  }
-  return philox_engine_inputs;
-}
-
 std::string KernelArgumentHolder::toString() const {
   std::stringstream ss;
   for (const auto& arg : arguments_) {
@@ -464,6 +451,10 @@ std::vector<std::byte> getKernelArgument(
           parameter->dtype(),
           " type, however only complex float and complex double are supported.");
     }
+  } else if (std::holds_alternative<PointerOf>(parameter->dtype().type)) {
+    void* ptr = (void*)pv;
+    return std::vector<std::byte>(
+        (std::byte*)&ptr, (std::byte*)&ptr + sizeof(ptr));
   } else {
     TORCH_INTERNAL_ASSERT(
         false,

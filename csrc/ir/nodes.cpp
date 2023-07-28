@@ -807,7 +807,6 @@ RNGOp::RNGOp(
     std::vector<Val*> parameters,
     Val* philox_seed,
     Val* philox_offset,
-    int rng_offset,
     Val* philox_index)
     : Expr(passkey) {
   if (auto tv_out = dynamic_cast<TensorView*>(out)) {
@@ -827,7 +826,7 @@ RNGOp::RNGOp(
     addInput(philox_offset);
   }
   addOutput(out);
-  RNGOp::Attributes attr{type, dtype, rng_offset, parameters.size()};
+  RNGOp::Attributes attr{type, dtype, parameters.size()};
   addDataAttribute(attr);
   addAttribute(philox_index);
 }
@@ -847,10 +846,6 @@ std::string RNGOp::toString(int indent_size) const {
   auto seed = getRNGSeedVal();
   if (seed) {
     ss << ", " << seed->toInlineString();
-  }
-  auto offset = getRNGOffsetVal();
-  if (offset) {
-    ss << ", " << offset->toInlineString();
   }
   ss << ");\n";
   return ss.str();
