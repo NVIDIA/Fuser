@@ -152,7 +152,7 @@ class TORCH_CUDA_CU_API ContiguousInnerDimensionsMapper
     auto divisible_splits =
         getAllDivisibleSplits(reference->fusion(), ca_map.get());
     return ContiguousInnerDimensionsMapper::map(
-        reference, ids, ca_map, divisible_splits);
+        reference, reference_ids, ca_map, divisible_splits);
   }
 
   bool hasMappedDims(TensorView* tv) const {
