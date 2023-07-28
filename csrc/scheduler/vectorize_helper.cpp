@@ -91,6 +91,12 @@ ContiguousInnerDimensionsMapper::ContiguousInnerDimensionsMapper(
   // cannot consider that a contiguous merge dimension for vectorization.
   std::vector<IterDomain*> reordered_rfactor;
   for (auto id : reference->getMaybeRFactorDomain()) {
+    // Exclude reduction IDs if the reference is a fusion input as they
+    // don't manifest at all in the fusion. This simplifies following
+    // analyses
+    if (reference->isFusionInput() && id->isReduction()) {
+      continue;
+    }
     if (std::find(reference_ids.begin(), reference_ids.end(), id) !=
         reference_ids.end()) {
       reordered_rfactor.push_back(id);
@@ -516,7 +522,8 @@ ContiguousInnerDimensionsMapper::computeInfoP2C(
                       ->mapped_rfactor_ids_;
   // If we have a case where we have a reduction that's being tracked in a
   // producer but not a consumer we should break off the dimensions connected to
-  // the left of that reduction. So if we have:
+  // the left of that reduction unless the producer is a fusion
+  // input. So if we have:
   // T0[i0, i1, i2]
   // T1[i0, r1, i2] = sum(T0)
   // T2[i0, i2] = T1
@@ -538,7 +545,7 @@ ContiguousInnerDimensionsMapper::computeInfoP2C(
 
   // Id's in producer to clear from the mapped set due to reductions.
   std::unordered_set<IterDomain*> producer_ids_to_clear;
-  if (from->hasReduction()) {
+  if (!from->isFusionInput() && from->hasReduction()) {
     // Find the last reduction dimension in the rfactor domain.
     int clear_pos = -1;
     for (auto i : c10::irange(from->getMaybeRFactorDomain().size())) {

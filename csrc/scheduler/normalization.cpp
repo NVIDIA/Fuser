@@ -1242,6 +1242,82 @@ std::shared_ptr<ReductionParams> persistentHeuristic(
   return rparams;
 }
 
+namespace {
+
+// Find the break point for vectorization. Here, we vectorize either
+// the innermost reduction or iteration domains. We use the producer
+// of the reduction as a reference of the vectorization
+// analsis.
+// Since this is for the normalization scheduler, the producer of
+// the normalization reduction should not have reduction domains,
+// except when it's a fusion input, in which case the reduction
+// domains should just be ignored.
+int64_t getVectorizationProducerBreakPoint(
+    TensorView* reduction_consumer,
+    int64_t inner_most_dimension_ndims,
+    TensorView* reduction_producer) {
+  const auto c2p =
+      PairwiseRootDomainMap(reduction_producer, reduction_consumer)
+          .mapConsumerToProducer(
+              reduction_consumer->domain(), reduction_producer->domain());
+  // Grab all the corresponding producer IDs that are mapped with the
+  // innermost consumer IDs
+  std::unordered_set<IterDomain*> producer_innermost_ids;
+
+  for (auto it = reduction_consumer->getRootDomain().begin() +
+           (reduction_consumer->nDims() - inner_most_dimension_ndims);
+       it != reduction_consumer->getRootDomain().end();
+       ++it) {
+    auto consumer_id = *it;
+    auto c2p_it = c2p.find(consumer_id);
+    // Since this is for a reduction op, there must be a mapped
+    // producer ID
+    TORCH_INTERNAL_ASSERT(c2p_it != c2p.end());
+    auto producer_id = c2p_it->second;
+    producer_innermost_ids.insert(producer_id);
+  }
+
+  // Find the conrresponding producer break point. To the right of the
+  // break point, there must be only the producer innermost IDs or
+  // reduction IDs
+  int64_t break_point = (int64_t)(reduction_producer->nDims());
+  int num_detected_producer_innermost_ids = 0;
+  for (auto it = reduction_producer->getMaybeRFactorDomain().rbegin();
+       it != reduction_producer->getMaybeRFactorDomain().rend();
+       ++it) {
+    auto producer_rf_id = *it;
+    if (producer_rf_id->isReduction()) {
+      TORCH_INTERNAL_ASSERT(
+          reduction_producer->isFusionInput(),
+          "Unexpected producer of reduction: ",
+          reduction_producer->toString());
+      --break_point;
+      continue;
+    }
+
+    if (producer_innermost_ids.count(producer_rf_id)) {
+      --break_point;
+      ++num_detected_producer_innermost_ids;
+      // If all innermost IDs are found, stop shifting the break point
+      // further
+      if (num_detected_producer_innermost_ids ==
+          (int64_t)producer_innermost_ids.size()) {
+        break;
+      }
+      continue;
+    }
+
+    // Neither reduction nor mapped to consumer innermost IDs.
+    // This should not happen
+    TORCH_INTERNAL_ASSERT(
+        false, "Unexpected producer RF ID: ", producer_rf_id->toString())
+  }
+
+  return break_point;
+}
+
+} // namespace
+
 std::shared_ptr<ReductionParams> getPersistentHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
@@ -1394,7 +1470,8 @@ std::shared_ptr<ReductionParams> getPersistentHeuristics(
       runtime_info,
       reduced_tv,
       data_cache,
-      (int)(reduced_tv->nDims() - properties.inner_most_dimension_ndims));
+      getVectorizationProducerBreakPoint(
+          first_red_tv, properties.inner_most_dimension_ndims, reduced_tv));
 
   // Base max dtype and n_tensor_inputs on tensors that are vectorizable (i.e.
   // share inner dimension with data pattern we're looking at).
