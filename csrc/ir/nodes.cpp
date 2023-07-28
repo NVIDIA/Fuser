@@ -3626,7 +3626,7 @@ bool NamedScalar::sameAs(const Statement* other) const {
 }
 
 bool NamedScalar::isTensorSize() const {
-  static const std::regex r(R"(T\d+\.size\[\d+\])");
+  static const std::regex r(R"(T\d+\.\w*size\[\d+\])");
   return std::regex_match(name(), r);
 }
 

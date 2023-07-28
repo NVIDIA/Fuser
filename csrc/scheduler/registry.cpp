@@ -959,8 +959,6 @@ SchedulerRuntimeInfo::SchedulerRuntimeInfo(
       complete_fusion_->inputs().size() == args.size(),
       "Invalid number of arguments passed in for provided fusion group.");
 
-  // TODO: not supporting precomputed values for now
-  precomputed_values = nullptr;
   expression_evaluator_ = getExpressionEvaluator(args, precomputed_values);
 
   if (forced_index_type.has_value()) {
@@ -1030,11 +1028,10 @@ std::unique_ptr<ExpressionEvaluator> SchedulerRuntimeInfo::
         const KernelArgumentHolder& args,
         PrecomputedValues* precomputed_values) {
   std::unique_ptr<ExpressionEvaluator> ee =
-      std::make_unique<ExpressionEvaluator>();
+      std::make_unique<ExpressionEvaluator>(
+          executor_utils::bindInputs(args, complete_fusion_));
   if (precomputed_values) {
     ee->bindPrecomputedValues(precomputed_values);
-  } else {
-    *ee = executor_utils::bindInputs(args, complete_fusion_);
   }
   return ee;
 }
