@@ -736,7 +736,8 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
       if (std::find(reference1->getMaybeRFactorDomain().begin(),
                     reference1->getMaybeRFactorDomain().end(),
                     reference1->axis(dim)) != reference1->getMaybeRFactorDomain().end()) {
-      virtual_innermost1.push_back(reference1->axis(dim));
+        virtual_innermost1.push_back(reference1->axis(dim));
+      }
     }
 
     // NOTE: do I need to consider stride here?! sounds like ContiguousInnerDimensionsMapper::map requires reference1 to be contiguous, but does it handle stride order?
@@ -763,7 +764,8 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
       if (std::find(reference1->getMaybeRFactorDomain().begin(),
                     reference1->getMaybeRFactorDomain().end(),
                     reference1->axis(dim)) != reference1->getMaybeRFactorDomain().end()) {
-      virtual_innermost2.push_back(reference1->axis(dim));
+        virtual_innermost2.push_back(reference1->axis(dim));
+      }
     }
     auto group2_contig_inner_map = vectorize_helper::ContiguousInnerDimensionsMapper::map(reference1, virtual_innermost2).getTvToContigMergeOfInnerSizeMap();
     for (auto tv : grouped_inputs_outputs[1]) {
