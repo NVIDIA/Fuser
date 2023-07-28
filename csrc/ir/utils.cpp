@@ -1149,11 +1149,12 @@ bool isTensorSize(const Val* val) {
       return true;
     }
   }
-  return isTensorAttr(val, "size");
+  return isTensorAttr(val, "logical_size") || isTensorAttr(val, "alloc_size");
 }
 
 bool isTensorStride(const Val* val) {
-  return isTensorAttr(val, "stride");
+  return isTensorAttr(val, "logical_stride") ||
+      isTensorAttr(val, "alloc_stride");
 }
 
 } // namespace nvfuser::ir_utils

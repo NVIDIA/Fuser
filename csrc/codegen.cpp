@@ -575,7 +575,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           [&](auto&& dtype) {
             using T = std::decay_t<decltype(dtype)>;
             if constexpr (std::is_same_v<T, StructOf>) {
-              for (auto& [name, _] : dtype.types) {
+              for (auto& name : dtype.field_names) {
                 indent() << gen(gop->output(0)) << "." << name << " = "
                          << gen(gop->in()) << "." << name << ";\n";
               }
@@ -1376,7 +1376,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           ldst->out()->dtype(),
           " = ",
           ldst->in()->dtype());
-      for (auto& [name, _] : out_type.types) {
+      for (auto& name : out_type.field_names) {
         TORCH_INTERNAL_ASSERT(
             in_type.types.find(name) != in_type.types.end(),
             "Mismatched field in struct assignment: ",

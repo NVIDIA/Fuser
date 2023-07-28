@@ -1402,7 +1402,7 @@ std::vector<Val*> Index::getGlobalProducerStridedIndices(
       }
       strides[i] = IrBuilder::getItemExpr(
           IrBuilder::getAttrExpr(
-              IrBuilder::metadataExpr(producer_tv), "stride"),
+              IrBuilder::metadataExpr(producer_tv), "alloc_stride"),
           stride_i++);
     }
   }
@@ -1758,7 +1758,7 @@ std::vector<Val*> Index::getStrides(TensorView* tv) {
         continue;
       }
       strides[i] = IrBuilder::getItemExpr(
-          IrBuilder::getAttrExpr(IrBuilder::metadataExpr(tv), "stride"),
+          IrBuilder::getAttrExpr(IrBuilder::metadataExpr(tv), "alloc_stride"),
           stride_i++);
     }
   }

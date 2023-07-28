@@ -2255,8 +2255,8 @@ TEST_F(NVFuserTest, FusionSimpleCompileRtc_CUDA) {
   std::string kernel = R"(
 __global__ void kernel1(Tensor<float, 1> T0, Tensor<float, 1> T1) {
   if(threadIdx.x==0){
-    for(size_t ki28 = 0; ki28 < T0.size[0]; ++ki28) {
-      T1[ki28*T1.stride[0]] = T0[ki28*T0.stride[0]]*2;
+    for(size_t ki28 = 0; ki28 < T0.logical_size[0]; ++ki28) {
+      T1[ki28*T1.alloc_stride[0]] = T0[ki28*T0.alloc_stride[0]]*2;
     }
   }
 }
@@ -2292,27 +2292,27 @@ __global__ void kernel1(
     Tensor<float,1> out_var,
     Tensor<float,1> out_avg
 ){
-    for(int i0=0;i0<inp.size[0];i0++){
+    for(int i0=0;i0<inp.logical_size[0];i0++){
         float tmp_M2=0;
         float tmp_avg=0;
         long tmp_N=0;
-        for(int i1=0;i1<inp.size[1];i1++){
-            for(int i2=0;i2<inp.size[2];i2++){
+        for(int i1=0;i1<inp.logical_size[1];i1++){
+            for(int i2=0;i2<inp.logical_size[2];i2++){
                 welfordCombine(
                     tmp_avg,
                     tmp_M2,
                     tmp_N,
-                    inp[i0*inp.stride[0]+
-                        i1*inp.stride[1]+
-                        i2*inp.stride[2]],
+                    inp[i0*inp.alloc_stride[0]+
+                        i1*inp.alloc_stride[1]+
+                        i2*inp.alloc_stride[2]],
                     0.f,
                     (long)1
                 );
             }
         }
-        out_var[i0*out_var.stride[0]]=
+        out_var[i0*out_var.alloc_stride[0]]=
             tmp_M2/(tmp_N);
-        out_avg[i0*out_avg.stride[0]]=
+        out_avg[i0*out_avg.alloc_stride[0]]=
             tmp_avg;
     }
 }
@@ -2357,8 +2357,8 @@ __global__ void kernel1(
     __shared__ float mem_avg[512];
     __shared__ float mem_M2[512];
     __shared__ long mem_N[512];
-    float in=inp[threadIdx.x*inp.stride[0]+
-                        threadIdx.y*inp.stride[1]];
+    float in=inp[threadIdx.x*inp.alloc_stride[0]+
+                        threadIdx.y*inp.alloc_stride[1]];
     float tmp_avg=0;
     float tmp_M2=0;
     long tmp_N=0;
@@ -2372,20 +2372,20 @@ __global__ void kernel1(
         (float*)mem_avg,
         (float*)mem_M2,
         (long*)mem_N,
-        (bool)(threadIdx.x<inp.size[0]),
+        (bool)(threadIdx.x<inp.logical_size[0]),
         0.f);
     __syncthreads();
-    if(threadIdx.x<out_var.size[0] && threadIdx.y==0){
+    if(threadIdx.x<out_var.logical_size[0] && threadIdx.y==0){
         welfordCombine(
                     tmp_avg,
                     tmp_M2,
                     tmp_N,
-                    init_avg[threadIdx.x*init_avg.stride[0]],
-                    init_var[threadIdx.x*init_var.stride[0]]*init_N[0],
+                    init_avg[threadIdx.x*init_avg.alloc_stride[0]],
+                    init_var[threadIdx.x*init_var.alloc_stride[0]]*init_N[0],
                     init_N[0]
                 );
-        out_avg[threadIdx.x*out_avg.stride[0]]=tmp_avg;
-        out_var[threadIdx.x*out_var.stride[0]]=tmp_M2/(tmp_N);
+        out_avg[threadIdx.x*out_avg.alloc_stride[0]]=tmp_avg;
+        out_var[threadIdx.x*out_var.alloc_stride[0]]=tmp_M2/(tmp_N);
     }
 }
     )";
@@ -2444,9 +2444,9 @@ __global__ void kernel1(
     __shared__ float mem_avg[512];
     __shared__ float mem_M2[512];
     __shared__ long mem_N[512];
-    float in=inp[threadIdx.x*inp.stride[0]+
-                        threadIdx.y*inp.stride[1]+
-                        threadIdx.z*inp.stride[2]];
+    float in=inp[threadIdx.x*inp.alloc_stride[0]+
+                        threadIdx.y*inp.alloc_stride[1]+
+                        threadIdx.z*inp.alloc_stride[2]];
     float tmp_avg=0;
     float tmp_M2=0;
     long tmp_N=0;
@@ -2461,12 +2461,12 @@ __global__ void kernel1(
         (float*)mem_avg,
         (float*)mem_M2,
         (long*)mem_N,
-        (bool)(threadIdx.x<inp.size[0]),
+        (bool)(threadIdx.x<inp.logical_size[0]),
         0.f);
     __syncthreads();
-    if(threadIdx.x<out_var.size[0] && threadIdx.y==0 && threadIdx.z==0){
-        out_avg[threadIdx.x*out_var.stride[0]]=tmp_avg;
-        out_var[threadIdx.x*out_var.stride[0]]=tmp_M2/(tmp_N);
+    if(threadIdx.x<out_var.logical_size[0] && threadIdx.y==0 && threadIdx.z==0){
+        out_avg[threadIdx.x*out_var.alloc_stride[0]]=tmp_avg;
+        out_var[threadIdx.x*out_var.alloc_stride[0]]=tmp_M2/(tmp_N);
     }
 }
     )";
@@ -2512,9 +2512,9 @@ __global__ void kernel1(
     float tmp_avg=0;
     float tmp_M2=0;
     long tmp_N=0;
-    float in = inp[ blockIdx.x  * inp.stride[0]+
-                    blockIdx.y  * inp.stride[1]+
-                    threadIdx.x * inp.stride[2]];
+    float in = inp[ blockIdx.x  * inp.alloc_stride[0]+
+                    blockIdx.y  * inp.alloc_stride[1]+
+                    threadIdx.x * inp.alloc_stride[2]];
     block_sync::init();
     welford::gridWelford<
         true,true,false,
@@ -2534,14 +2534,14 @@ __global__ void kernel1(
         (float*)shared_buf_avg,
         (float*)shared_buf_M2,
         (long*)shared_buf_N,
-        threadIdx.x<out_var.size[0],
-        threadIdx.x<out_var.size[0],
+        threadIdx.x<out_var.logical_size[0],
+        threadIdx.x<out_var.logical_size[0],
         0.f,
         0,
         1);
     if(blockIdx.x == gridDim.x - 1 && blockIdx.y == gridDim.y - 1){
-        out_avg[threadIdx.x*out_avg.stride[0]]=tmp_avg;
-        out_var[threadIdx.x*out_var.stride[0]]=tmp_M2/tmp_N;
+        out_avg[threadIdx.x*out_avg.alloc_stride[0]]=tmp_avg;
+        out_var[threadIdx.x*out_var.alloc_stride[0]]=tmp_M2/tmp_N;
     }
 }
     )";
@@ -9044,22 +9044,22 @@ TEST_F(NVFuserTest, FusionChannelsLastParser_CUDA) {
   const std::string expected_kernel = R"(
 __global__ void CUDAGeneratedKernel(Tensor<__half, 4, 4> T0, Tensor<__half, 4, 4> T2, Tensor<__half, 4, 4> T7) {
   int64_t i0;
-  i0 = T0.size[2] * T0.size[1];
+  i0 = T0.logical_size[2] * T0.logical_size[1];
   int64_t i1;
   i1 = ((nvfuser_index_t)threadIdx.x) + (128 * ((nvfuser_index_t)blockIdx.x));
   int64_t i2;
-  i2 = (T0.size[1] * T0.size[2]) * T0.size[3];
+  i2 = (T0.logical_size[1] * T0.logical_size[2]) * T0.logical_size[3];
   int64_t i3;
   i3 = i1 % i2;
   int64_t i4;
-  i4 = T0.size[2] * T0.size[3];
+  i4 = T0.logical_size[2] * T0.logical_size[3];
   int64_t i5;
   i5 = i3 % i4;
-  if ((i1 < (((T0.size[0] * T0.size[1]) * T0.size[2]) * T0.size[3]))) {
+  if ((i1 < (((T0.logical_size[0] * T0.logical_size[1]) * T0.logical_size[2]) * T0.logical_size[3]))) {
     __half T9[1];
     T9[0] = 0;
     T9[0]
-       = T2[(((((i0 * T0.size[3]) * (i1 / i2)) + (i0 * (i5 % T0.size[3]))) + (T0.size[2] * (i3 / i4))) + (i5 / T0.size[3]))];
+       = T2[(((((i0 * T0.logical_size[3]) * (i1 / i2)) + (i0 * (i5 % T0.logical_size[3]))) + (T0.logical_size[2] * (i3 / i4))) + (i5 / T0.logical_size[3]))];
     __half T8[1];
     T8[0] = 0;
     T8[0]
