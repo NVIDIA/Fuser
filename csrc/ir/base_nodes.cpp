@@ -490,6 +490,7 @@ Expr* Expr::withWritePredicate(kir::Predicate* predicate) {
 }
 
 std::vector<PolymorphicValue> Expr::evaluate(
+    const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
   TORCH_INTERNAL_ASSERT(
       false,

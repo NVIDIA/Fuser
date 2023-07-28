@@ -791,7 +791,7 @@ std::vector<std::unordered_map<TensorView*, Val*>> getTvToContigInnerSizeMapsOf(
 
 } // namespace
 
-size_t getVectorizationFactor(
+int64_t getVectorizationFactor(
     SchedulerRuntimeInfo& runtime_info,
     TensorView* reference_tv,
     HeuristicSummary* data_cache,
@@ -818,35 +818,40 @@ size_t getVectorizationFactor(
     return 1;
   }
 
-  size_t max_vec_size = SchedulerRuntimeInfo::max_alignment_size_in_byte;
+  int64_t max_vec_size = SchedulerRuntimeInfo::max_alignment_size_in_byte;
+  const auto& tv_to_inner_size_map = vectorize_maps_entry.get().at(break_point);
 
   for (auto inp_or_out : vectorizable_inputs_outputs) {
-    auto dtype_size =
+    // factor <= max_factor / dtype_size
+    const auto dtype_size =
         dataTypeSize(inp_or_out->dtype(), runtime_info.getIndexType());
     max_vec_size = std::min(
         max_vec_size,
         SchedulerRuntimeInfo::max_alignment_size_in_byte / dtype_size);
-    auto alignment_size = runtime_info.getAlignmentSize(inp_or_out);
-    TORCH_INTERNAL_ASSERT(alignment_size % dtype_size == 0);
-    auto new_max_vec_size = std::min(max_vec_size, alignment_size / dtype_size);
-    max_vec_size = new_max_vec_size;
-  }
 
-  auto tv_to_inner_size_map = vectorize_maps_entry.get().at(break_point);
-  // Initialize to max the tensors could support.
-  size_t max_supported_vector_size = max_vec_size;
-  for (auto inp_or_out : vectorizable_inputs_outputs) {
+    // factor <= alignment / dtype_size
+    int64_t alignment_size = (int64_t)runtime_info.getAlignmentSize(inp_or_out);
+    TORCH_INTERNAL_ASSERT(alignment_size % dtype_size == 0);
+    max_vec_size = std::min(max_vec_size, alignment_size / dtype_size);
+
+    // factor <= projected_extent
     auto inner_size_it = tv_to_inner_size_map.find(inp_or_out);
-    auto inner_size_val = inner_size_it != tv_to_inner_size_map.end()
-        ? inner_size_it->second
-        : inp_or_out->container()->oneVal();
+    if (inner_size_it == tv_to_inner_size_map.end()) {
+      // If we don't have info for a tensor that is supposed to be
+      // vectorized, that means the tensor has no projected
+      // vectorizable extent, i.e., not vectorizable.
+      // TODO: Instead of competely disabling vectorization for all
+      // tensors, just disable the problematic tensor and keep the
+      // other tensors vectorized
+      return 1;
+    }
     auto inner_size_opt =
-        runtime_info.expressionEvaluator().evaluate(inner_size_val);
+        runtime_info.expressionEvaluator().evaluate(inner_size_it->second);
     TORCH_INTERNAL_ASSERT(
         inner_size_opt.hasValue(),
         "Vectorization heuristic could not evaluate inner most size.");
     int64_t inner_size = inner_size_opt.as<int64_t>();
-    size_t local_max_vec_size = 1;
+    int64_t local_max_vec_size = 1;
 
     while (inner_size > 1 && inner_size % 2 == 0 &&
            local_max_vec_size < max_vec_size) {
@@ -854,10 +859,10 @@ size_t getVectorizationFactor(
       local_max_vec_size *= 2;
     }
 
-    max_supported_vector_size =
-        std::min(local_max_vec_size, max_supported_vector_size);
+    max_vec_size = std::min(local_max_vec_size, max_vec_size);
   }
-  return max_supported_vector_size;
+
+  return max_vec_size;
 }
 
 } // namespace vectorize_helper

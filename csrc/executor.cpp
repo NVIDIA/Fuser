@@ -1430,23 +1430,11 @@ void FusionExecutor::initializeExecutorEntry(
 
   auto intermediates = getIntermediateBufferInfo(expr_eval);
 
-  uint64_t rand_offset = 0;
-  if (kernel()->summary().max_rng_offsets >= 0) {
-    // NOTE: this is how we map offset to PW kernels in order to have
-    // identical random number generator to match native PyTorch results.
-    // But it doesn't really work as it takes assumption how threads are
-    // binded but is not generally how we handle that in scheduler.
-    // Refer to `Philox` in generated kernel to understand how the mapping
-    // works.
-    rand_offset = (uint64_t)(kernel()->summary().max_rng_offsets + 1) * 4;
-  }
-
   // All information is gathered. Save it to ExecutorEntry
   executor_entry.launch_params = launch_params;
   executor_entry.output_to_input_aliases = output_to_input_aliases;
   executor_entry.outputs = output_info;
   executor_entry.intermediates = intermediates;
-  executor_entry.rand_offset = rand_offset;
   executor_entry.init = true;
 }
 
@@ -1544,27 +1532,6 @@ int64_t FusionExecutor::ensureAvailableDynamicSmemSize(
 void FusionExecutor::resetCompiledKernelProperties() {
   available_dynamic_smem_size_.reset();
   static_smem_size_.reset();
-}
-
-std::vector<TensorView*> FusionExecutor::getTvsForKernelArguments() const {
-  std::vector<TensorView*> tvs;
-  for (auto val : kernel()->inputs()) {
-    tvs.emplace_back(dynamic_cast<TensorView*>(val));
-  }
-  for (auto val : kernel()->outputs()) {
-    tvs.emplace_back(dynamic_cast<TensorView*>(val));
-  }
-  for (auto alloc : kernel()->summary().global_allocations) {
-    auto tv = alloc->buffer()->as<TensorView>();
-    if (tv->isFusionOutput()) {
-      continue;
-    }
-    tvs.emplace_back(tv);
-  }
-  if (lowered_->kernel()->summary().max_rng_offsets >= 0) {
-    tvs.emplace_back(nullptr);
-  }
-  return tvs;
 }
 
 std::vector<at::Tensor> FusionExecutor::runFusion(
@@ -1696,14 +1663,6 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   for (auto v : kernel()->parameters()) {
     arg_buffers.emplace_back(
         getKernelArgument(expr_eval, v, kernel()->indexType()));
-  }
-
-  // push back RNG state if needed
-  if (lowered_->kernel()->summary().max_rng_offsets >= 0) {
-    auto philox_seed = getPhiloxRNGSeed(executor_entry->rand_offset);
-    arg_buffers.emplace_back(
-        (std::byte*)&philox_seed,
-        (std::byte*)&philox_seed + sizeof(philox_seed));
   }
 
   if (isDebugDumpEnabled(DebugDumpOption::LaunchParam)) {
@@ -1870,13 +1829,21 @@ float FusionExecutor::runRtc(
   NVFUSER_CUDA_RT_SAFE_CALL(cudaEventCreate(&start_event));
   NVFUSER_CUDA_RT_SAFE_CALL(cudaEventCreate(&finish_event));
 
-  KernelArgumentHolder kernel_arguments;
-  kernel_arguments.push(args);
-
   NVFUSER_CUDA_RT_SAFE_CALL(cudaEventRecord(start_event, stream));
 
-  ExpressionEvaluator ee;
-  std::vector<TensorView*> tvs(args.size(), nullptr);
+  std::vector<std::vector<std::byte>> data;
+  std::vector<void*> pointers;
+
+  for (const auto& input : args) {
+    Struct<PolymorphicValue> concrete_value;
+    concrete_value["data"] = PolymorphicValue(
+        Pointer(input.data_ptr(), aten_to_data_type(input.scalar_type())));
+    concrete_value["logical_size"] = PolymorphicValue(input.sizes().vec());
+    concrete_value["alloc_stride"] = PolymorphicValue(input.strides().vec());
+    data.emplace_back(getTensorArgBuffer(concrete_value, index_type));
+    pointers.emplace_back(data.back().data());
+  }
+
   NVFUSER_CUDA_SAFE_CALL(cuLaunchKernel(
       compiled_kernel_.function,
       launch_params.gdimx(),
@@ -1887,7 +1854,7 @@ float FusionExecutor::runRtc(
       launch_params.bdimz(),
       launch_params.smem(),
       stream,
-      kernel_arguments.getBuffer(index_type, tvs, ee),
+      pointers.data(),
       nullptr));
 
   NVFUSER_CUDA_RT_SAFE_CALL(cudaEventRecord(finish_event, stream));

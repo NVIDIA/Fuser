@@ -539,10 +539,10 @@ TEST_F(TensorFactoryTest, MetadataAsTensor) {
   auto meta0_copy2 = set(meta0_copy1);
   auto meta1_copy2 = set(meta1_copy1);
 
-  auto size0 = IrBuilder::getAttrExpr(meta0_copy2, "size");
-  auto stride0 = IrBuilder::getAttrExpr(meta0_copy2, "stride");
-  auto size1 = IrBuilder::getAttrExpr(meta1_copy2, "size");
-  auto stride1 = IrBuilder::getAttrExpr(meta1_copy2, "stride");
+  auto size0 = IrBuilder::getAttrExpr(meta0_copy2, "logical_size");
+  auto stride0 = IrBuilder::getAttrExpr(meta0_copy2, "alloc_stride");
+  auto size1 = IrBuilder::getAttrExpr(meta1_copy2, "logical_size");
+  auto stride1 = IrBuilder::getAttrExpr(meta1_copy2, "alloc_stride");
 
   auto output = tensor(std::vector<Val*>{size0, stride0, size1, stride1});
   fusion->addOutput(output);

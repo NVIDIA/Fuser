@@ -54,20 +54,14 @@ using StmtNameType = unsigned int;
 constexpr StmtNameType kInvalidStmName =
     std::numeric_limits<unsigned int>::max();
 
-class NonCopyable;
-class PolymorphicBase;
 class Fusion;
-class FusionGuard;
 class Expr;
 class Val;
-class UnaryOp;
-class BinaryOp;
-class RNGOp;
-class IterDomain;
 class IrCloner;
 class IrContainer;
 class IrBuilderPasskey;
 class IrContainerPasskey;
+class ExpressionEvaluator;
 
 namespace kir {
 class Kernel;
@@ -81,8 +75,6 @@ class ExprPasskey {
  private:
   explicit ExprPasskey() = default;
 };
-
-TORCH_CUDA_CU_API void swap(Fusion& a, Fusion& b) noexcept;
 
 #define NVFUSER_DECLARE_CLONE \
   virtual Statement* clone(IrCloner* ir_cloner) const override;
@@ -547,6 +539,7 @@ class TORCH_CUDA_CU_API Expr : public Statement {
   bool sameAs(const Statement* other) const override;
 
   virtual std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
       const std::vector<PolymorphicValue>& inputs) const;
 
   // Input/output accessors
