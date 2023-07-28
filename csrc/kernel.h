@@ -44,9 +44,6 @@ struct KernelSummary {
   //! Indicate the need to generate random numbers
   bool has_philox_op = false;
 
-  //! Maximum RNG offset used
-  int max_rng_offsets = -1;
-
   //! Do we have any block reductions?
   bool has_block_reductions = false;
 

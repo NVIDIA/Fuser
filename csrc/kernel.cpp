@@ -87,14 +87,6 @@ class KernelIrScanner : private IrVisitor {
 
   void handle(RNGOp* rng_op) final {
     summary_.has_philox_op = true;
-    if (!rng_op->isDeterministic()) {
-      // NOTE: RNGOps that are provided a seed and offset should not contribute
-      // to max_rng_offsets, since that would cause the executor to increment
-      // the offset, and these types of deterministic RNGOp should not affect
-      // random ops at all.
-      summary_.max_rng_offsets =
-          std::max<int>(summary_.max_rng_offsets, rng_op->getRNGOffset());
-    }
   }
 
   void handle(TensorIndex* tensor_index) final {

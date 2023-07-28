@@ -8,7 +8,6 @@
 #pragma once
 
 #include <ATen/core/ivalue.h>
-#include <ATen/cuda/CUDAGeneratorImpl.h>
 #include <c10/util/Exception.h>
 #include <expr_evaluator.h>
 #include <ir/all_nodes.h>
@@ -499,8 +498,6 @@ class TORCH_CUDA_CU_API KernelArgumentHolder {
 std::vector<std::byte> getTensorArgBuffer(
     const PolymorphicValue& metadata,
     PrimDataType index_type);
-
-at::PhiloxCudaState getPhiloxRNGSeed(uint64_t rand_offset);
 
 std::vector<std::byte> getKernelArgument(
     ExpressionEvaluator& ee,

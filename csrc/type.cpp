@@ -282,6 +282,7 @@ bool needFloatSuffix(UnaryOpType t) {
     case UnaryOpType::Imag:
     case UnaryOpType::Silu:
     case UnaryOpType::BitCast:
+    case UnaryOpType::Dereference:
     case UnaryOpType::Neg:
     case UnaryOpType::Real:
     case UnaryOpType::Relu:
@@ -329,6 +330,8 @@ static const char* unary_op_type2string(UnaryOpType t) {
       return "cos";
     case UnaryOpType::Cosh:
       return "cosh";
+    case UnaryOpType::Dereference:
+      return "dereference";
     case UnaryOpType::Exp:
       return "exp";
     case UnaryOpType::Exp2:
@@ -422,6 +425,8 @@ std::string stringifyBooleanOp(const UnaryOpType uopt) {
 
 static const char* unary_op_type_inline_op2string(UnaryOpType t) {
   switch (t) {
+    case UnaryOpType::Dereference:
+      return "*";
     case UnaryOpType::Neg:
       return "-";
     case UnaryOpType::Not:

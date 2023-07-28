@@ -24,7 +24,6 @@
 #include <utils.h>
 
 #include <cuda_occupancy.h>
-#include <nvfuser_resources/PhiloxCudaStateRaw.h>
 #include <nvfuser_resources/array.h>
 #include <nvfuser_resources/basic_type_traits.h>
 #include <nvfuser_resources/bf16_support.h>
@@ -103,9 +102,6 @@ std::string kernelPreamble() {
   ss << nvfuser_resources::fused_welford_impl_cu;
   ss << nvfuser_resources::block_welford_outer_cu;
   ss << nvfuser_resources::fused_welford_impl_outer_cu;
-
-  // Random utilities
-  ss << nvfuser_resources::PhiloxCudaStateRaw_cu;
 
   return ss.str();
 }
