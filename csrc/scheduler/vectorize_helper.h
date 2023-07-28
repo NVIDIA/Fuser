@@ -304,5 +304,23 @@ int64_t getVectorizationFactor(
     HeuristicSummary* data_cache,
     int break_point);
 
+//! Find the break point for vectorization. Here, we vectorize either
+//! the innermost reduction or iteration domains. We use the producer
+//! of the reduction as a reference of the vectorization
+//! analsis.
+//
+//! Since this is for the reduction and normalization schedulers, the
+//! producer of the reduction should not have reduction domains,
+//! except when it's a fusion input, in which case the reduction
+//! domains of the producer should just be ignored.
+//
+//! \param reduction_consumer
+//! \param reduction_producer
+//! \param consumer_innermost_ndims Innermost consumer domains to vectorize
+int64_t getVectorizationBreakPointOfReductionProducer(
+    TensorView* reduction_consumer,
+    TensorView* reduction_producer,
+    int64_t consumer_innermost_ndims);
+
 } // namespace vectorize_helper
 } // namespace nvfuser
