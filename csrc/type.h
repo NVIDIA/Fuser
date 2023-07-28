@@ -107,6 +107,18 @@ struct PointerOf {
 };
 
 struct StructOf {
+  // In nvfuser's type system, there are two types of structs: named structs and
+  // anonymous structs. Named structs are lowered to its name in the generated
+  // code, while anonymous structs are lowered to `struct {...}`. Generally, we
+  // should use named structs for structures that has definition in a file in
+  // runtime/, and anonymous structs for others.
+  std::string name;
+
+  // The ordered list of field names. This is used to generate the struct type
+  // on device. This list does not necessarily contain all the fields in the
+  // struct, but it should contain all the fields that are used on device.
+  std::vector<std::string> field_names;
+
   // Note [Incomplete type support in STL]
   // std::unordered_map<std::string, DataType> is a STL container of incomplete
   // type. Not all C++ STL containers supports incomplete type due to historical
@@ -124,7 +136,6 @@ struct StructOf {
   //   std::vector<A> a; // valid on C++17
   //   std::unordered_set<A> s; // undefined behavior, working on newer gcc.
   //   struct A {};
-
 #if defined(STD_UNORDERED_SET_SUPPORTS_INCOMPLETE_TYPE)
   std::unordered_map<std::string, DataType> types;
 #define NVFUSER_MAYBE_MAKE_SHARED(x) x
@@ -208,7 +219,7 @@ bool StructOf::operator==(const StructOf& other) const {
 
 class Val;
 //! Get the type of a Val's metadata, currently only supporting tensors
-DataType metaDataTypeOf(Val* tv);
+DataType metaDataTypeOf(const Val* tv);
 
 enum class KernelIndexMode { INT32, INT64 };
 
@@ -433,6 +444,7 @@ enum class UnaryOpType {
   Ceil,
   Cos,
   Cosh,
+  Dereference,
   Exp,
   Exp2,
   Expm1,

@@ -59,17 +59,17 @@ class TORCH_CUDA_CU_API IterVisitor : public OptOutDispatch {
 
   using OptOutDispatch::handle;
 
-  // This handle functions is called on every Statement* in topological order,
+  // This dispatch functions is called on every Statement* in topological order,
   // starting from outputs to inputs.
-  void handle(Statement* s) override;
+  void dispatch(Statement* s) override;
 
-  // This handle functions is called on every Expr* in topological order,
+  // This dispatch functions is called on every Expr* in topological order,
   // starting from outputs to inputs.
-  void handle(Expr* e) override;
+  void dispatch(Expr* e) override;
 
-  // This handle functions is called on every Val* in topological order,
+  // This dispatch functions is called on every Val* in topological order,
   // starting from outputs to inputs.
-  void handle(Val* v) override;
+  void dispatch(Val* v) override;
 
   // The entire stack during traversal. stmt_stack.back().back() is the node
   // that is being called in handle(). stmt_stack.back() contains siblings (not
@@ -209,17 +209,17 @@ class TORCH_CUDA_CU_API BackwardVisitor : public OptOutDispatch {
   // This handle functions is called on every Statement* in topological order,
   // starting from outputs to inputs.
   // NOLINTNEXTLINE(modernize-use-override,cppcoreguidelines-explicit-virtual-functions)
-  virtual void handle(Statement* stmt) override;
+  virtual void dispatch(Statement* stmt) override;
 
   // This handle functions is called on every Expr* in topological order,
   // starting from outputs to inputs.
   // NOLINTNEXTLINE(modernize-use-override,cppcoreguidelines-explicit-virtual-functions)
-  virtual void handle(Expr* expr) override;
+  virtual void dispatch(Expr* expr) override;
 
   // This handle functions is called on every Val* in topological order,
   // starting from outputs to inputs.
   // NOLINTNEXTLINE(modernize-use-override,cppcoreguidelines-explicit-virtual-functions)
-  virtual void handle(Val* val) override;
+  virtual void dispatch(Val* val) override;
 
   // All exprs that need to be visited in this traversal. Labeled in topological
   // order (size_t).
@@ -297,7 +297,7 @@ class StmtSort : public IterVisitor {
 
   using IterVisitor::handle;
 
-  void handle(Statement* stmt) override;
+  void dispatch(Statement* stmt) override;
 
  public:
   // If traverse_members it will also extract all member nodes in the sorted
@@ -375,7 +375,7 @@ class TORCH_CUDA_CU_API InputsOf : public IterVisitor {
 
   using IterVisitor::handle;
 
-  void handle(Val* v) final;
+  void dispatch(Val* v) final;
 
  public:
   static std::vector<Val*> output(Fusion* fusion, Val* output_);
@@ -419,8 +419,8 @@ class DeadCodeRemover : BackwardVisitor {
  protected:
   using BackwardVisitor::handle;
 
-  void handle(Statement* stmt) override;
-  void handle(Expr* expr) override;
+  void dispatch(Statement* stmt) override;
+  void dispatch(Expr* expr) override;
 
   //! We implement this in order to remove dangling TensorViews whose uses are
   //! all dead. Note that we do not remove other ValTypes like Scalars since

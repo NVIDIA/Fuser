@@ -29,7 +29,6 @@
 #include <kernel_cache.h>
 #include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
-#include <mutator.h>
 #include <ops/all_ops.h>
 #include <root_domain_map.h>
 #include <scheduler/all_schedulers.h>
@@ -1732,7 +1731,7 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> 
   int64_t i0;
   i0 = ((nvfuser_index_t)threadIdx.x) + (256 * ((nvfuser_index_t)blockIdx.x));
   int64_t i1;
-  i1 = T0.size[0] * T0.size[1];
+  i1 = T0.logical_size[0] * T0.logical_size[1];
   bool b2;
   b2 = i0 < i1;
   float f3;
@@ -7527,6 +7526,7 @@ class ThreadPredChecker : public kir::IrVisitor {
   ThreadPredChecker(StmtNameType tv_name_to_check, ParallelTypeBitmap pt_map)
       : tv_name_to_check_(tv_name_to_check), pt_map_(pt_map) {}
 
+  using kir::IrVisitor::dispatch;
   using kir::IrVisitor::handle;
 
   void handle(kir::IfThenElse* ite) final {
@@ -7534,21 +7534,21 @@ class ThreadPredChecker : public kir::IrVisitor {
       auto tv_output = ir_utils::getTvOutput(expr);
       if (tv_output != nullptr && tv_output->name() == tv_name_to_check_ &&
           expr->isA<LoadStoreOp>() && ite->predicate()->hasValue()) {
-        handle(ite->predicate()->value());
+        dispatch(ite->predicate()->value());
       }
     }
   }
 
-  void handle(Val* val) final {
+  void dispatch(Val* val) final {
     if (val->definition()) {
-      handle(val->definition());
+      dispatch(val->definition());
     }
   }
 
   void handle(BinaryOp* bop) final {
     if (bop->getBinaryOpType() == BinaryOpType::And) {
-      handle(bop->lhs());
-      handle(bop->rhs());
+      dispatch(bop->lhs());
+      dispatch(bop->rhs());
     } else if (bop->getBinaryOpType() == BinaryOpType::Eq) {
       if (bop->lhs()->isZeroInt() || bop->rhs()->isZeroInt()) {
         auto non_zero_arg = bop->lhs()->isZeroInt() ? bop->rhs() : bop->lhs();
@@ -9344,6 +9344,90 @@ TEST_F(NVFuserTest, IterVisitorTraverseSiblings_CUDA) {
   TORCH_CHECK(
       std::find(stmts.begin(), stmts.end(), wf.var_sum) != stmts.end(),
       "Welford var_sum not traversed in getStmtsTo({n})");
+}
+
+TEST_F(NVFuserTest, IterVisitorGetInputsTo) {
+  // Test that IterVisitor::getInputsTo() will stop further traverse when
+  // reaching the target tensors
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto a = makeSymbolicTensor(1);
+  auto b = makeSymbolicTensor(1);
+  auto c = makeSymbolicTensor(1);
+
+  fusion.addInput(a);
+  fusion.addInput(b);
+  fusion.addInput(c);
+
+  auto d = add(b, c);
+  auto e = add(a, d);
+
+  fusion.addOutput(e);
+
+  auto inputs = IterVisitor::getInputsTo({e}, {a, d});
+  std::unordered_set<Val*> inputs_set(inputs.begin(), inputs.end());
+
+  EXPECT_EQ(inputs_set, std::unordered_set<Val*>({a, d}));
+}
+
+// converted from https://github.com/NVIDIA/Fuser/issues/443
+TEST_F(NVFuserTest, FusionInstanceNormNHWC_CUDA) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+  double k_eps = 1e-05;
+  auto shape = std::vector<int64_t>{256, 28, 28, 128};
+  {
+    DataType dtype = DataType::Half;
+    auto tv0 = makeContigTensor(4, dtype);
+    auto weight = makeContigTensor(1, dtype);
+    auto bias = makeContigTensor(1, dtype);
+    fusion->addInput(tv0);
+    fusion->addInput(weight);
+    fusion->addInput(bias);
+    tv0 = castOp(DataType::Float, tv0);
+    weight = castOp(DataType::Float, weight);
+    bias = castOp(DataType::Float, bias);
+
+    auto s1 = IrBuilder::create<Val>(k_eps);
+    auto var_mean = variance_mean(tv0, {1, 2}, 0, true);
+    auto tv_mean = var_mean.mean;
+    auto tv_var = var_mean.var;
+    auto tv_var_s1 = add(tv_var, s1);
+    auto tv_sqrt = sqrt(tv_var_s1);
+    auto tv_diff = sub(tv0, tv_mean);
+    auto tv_div = div(tv_diff, tv_sqrt);
+    auto tv_mul = mul(tv_div, weight);
+    auto tv_out = add(tv_mul, bias);
+    tv_out = castOp(DataType::Half, tv_out);
+
+    fusion->addOutput(tv_out);
+  }
+
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+  std::vector<c10::IValue> inputs;
+  std::vector<at::Tensor> outputs;
+
+  {
+    auto t0 = at::randn(shape, options);
+    auto t1 = at::randn(shape[3], options);
+    auto t2 = at::randn(shape[3], options);
+    inputs.emplace_back(t0);
+    inputs.emplace_back(t1);
+    inputs.emplace_back(t2);
+
+    auto var_mean = at::var_mean(t0, {1, 2}, 0, true);
+    auto var = std::get<0>(var_mean);
+    auto mean = std::get<1>(var_mean);
+    auto t3 = (t0 - mean) / sqrt(var + k_eps);
+    auto t4 = t3 * t1 + t2;
+    outputs.push_back(t4);
+  }
+
+  FusionExecutorCache fec(std::move(fusion_ptr));
+  auto cg_outputs = fec.runFusionWithInputs(inputs);
+  testValidate(fusion, cg_outputs, inputs, outputs, __LINE__, __FILE__);
 }
 
 // Test file size should be up to 10K LoC. Create a new file for more tests.

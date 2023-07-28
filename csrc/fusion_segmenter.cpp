@@ -1437,6 +1437,62 @@ std::string toString(const SegmentedFusion* segmented_fusion) {
   return ss.str();
 }
 
+//! Sets the rfactor as root and erases rfactor of all inputs in fusion. Any
+//! non-constant expressions in those extents are replaced by new scalars with
+//! no definition. These mutations are performed throughout the Fusion so that
+//! downstream expressions dependent on the original inputs' rfactor extents can
+//! be computed properly.
+void convertInputRfactorsToRoots(Fusion* fusion) {
+  FusionGuard fg(fusion);
+
+  // Holds all Val replacements across all inputs
+  std::unordered_map<Val*, Val*> replacement_map;
+
+  for (auto tv : ir_utils::filterByType<TensorView>(fusion->inputs())) {
+    // Create a new root domain and replacement TensorDomain.
+    // Given an rfactor domain, create a new IterDomain.
+    // Otherwise, clone the previous IterDomain
+    std::vector<IterDomain*> new_root_domain;
+    auto rfactor = tv->getMaybeRFactorDomain();
+    new_root_domain.reserve(rfactor.size());
+
+    // Does the domain (root / rfactor) contain all concrete sized extents?
+    bool tv_is_concrete = true;
+    for (auto id : rfactor) {
+      if (!id->extent()->isConstScalar()) {
+        tv_is_concrete = false;
+        break;
+      }
+    }
+
+    for (const auto& id : rfactor) {
+      if (id->isRFactorProduct()) {
+        // Create new symbolic extents for rfactor iterDomains
+        auto domain_extent = (!tv_is_concrete)
+            ? IrBuilder::create<Val>(DataType::Int)
+            : id->extent();
+        replacement_map.emplace(id->extent(), domain_extent);
+        new_root_domain.push_back(IterDomainBuilder(id)
+                                      .extent(domain_extent)
+                                      .resetSchedulingParams()
+                                      .build());
+      } else {
+        new_root_domain.push_back(id->cloneWithoutRFactor());
+      }
+    }
+
+    TORCH_INTERNAL_ASSERT(
+        new_root_domain.size() == tv->domain()->contiguity().size());
+    auto new_td = IrBuilder::create<TensorDomain>(
+        new_root_domain, tv->domain()->contiguity());
+    replacement_map.emplace(tv->domain(), new_td);
+  }
+
+  // This will replace the values in the mapping replacement_map throughout the
+  // Fusion
+  ir_utils::replaceValue(fusion, replacement_map);
+}
+
 std::unique_ptr<Fusion> SegmentedFusion::makeFusion(SegmentedGroup* sg) {
   std::unique_ptr<Fusion> fusion_segment = std::make_unique<Fusion>();
 
@@ -1469,9 +1525,9 @@ std::unique_ptr<Fusion> SegmentedFusion::makeFusion(SegmentedGroup* sg) {
     fusion_segment->addOutput(complete_to_segment_map.clone(out));
   }
 
-  for (auto tv : view_tvs) {
-    tv->convertRfactorToRootDomain();
-  }
+  // Replace all vals that are rfactor extents in fusion_segment->inputs() with
+  // new Vals so that they can be bound to the segment inputs.
+  convertInputRfactorsToRoots(fusion_segment.get());
 
   return fusion_segment;
 }
@@ -2294,8 +2350,14 @@ bool TranslateApplicableWelford::isValidPersistentFusion(
 
   auto scheduler = SchedulerEntry::makeEntry(
       ScheduleHeuristic::Persistent, translated_fusion, runtime_info);
+  // Translate welford to two-pass enhances performance for block
+  // reductions by reducing instructions and the impact of an extra block
+  // synchronization has negligible overhead.
+  // However, when it comes to cross grid reduction, the additional grid
+  // synchronization carries substantial overhead and does not yield any
+  // performance gains.
   return scheduler->reductionParams().persistent_kernel &&
-      scheduler->reductionParams().fastest_dim;
+      !scheduler->reductionParams().cross_grid_outer_reduction;
 }
 
 // Note that when segmented it is assumed that insertion of lower

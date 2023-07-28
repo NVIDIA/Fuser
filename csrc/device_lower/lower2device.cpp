@@ -52,7 +52,7 @@ class KIRCleaner : public OptOutDispatch {
     KIRCleaner cleaner;
     std::vector<Expr*> out_loop_nests;
     for (auto loop_nest : loop_nests) {
-      cleaner.handle(loop_nest);
+      cleaner.dispatch(loop_nest);
       // No need to keep the loop nest if it's determined to be nop
       if (!cleaner.is_nop_) {
         out_loop_nests.push_back(loop_nest);
@@ -63,9 +63,9 @@ class KIRCleaner : public OptOutDispatch {
 
  private:
   using OptOutDispatch::handle;
-  void handle(Expr* expr) final {
+  void dispatch(Expr* expr) final {
     if (expr->isA<kir::ForLoop>() || expr->isA<kir::IfThenElse>()) {
-      OptOutDispatch::handle(expr);
+      OptOutDispatch::dispatch(expr);
     } else {
       // Any non-scoping expr is not considered nop
       is_nop_ = false;
@@ -76,7 +76,7 @@ class KIRCleaner : public OptOutDispatch {
     auto exprs = fl->body().exprs();
     fl->body().clear();
     for (auto expr : exprs) {
-      handle(expr);
+      dispatch(expr);
       // Add the expr to the loop body only when the expr is not nop
       if (!is_nop_) {
         fl->body().push_back(expr);
@@ -94,7 +94,7 @@ class KIRCleaner : public OptOutDispatch {
     ite->thenBody().clear();
     if (!conditional->isConst() || conditional->value().as<bool>()) {
       for (auto expr : then_exprs) {
-        handle(expr);
+        dispatch(expr);
         if (!is_nop_) {
           ite->thenBody().push_back(expr);
         }
@@ -108,7 +108,7 @@ class KIRCleaner : public OptOutDispatch {
     ite->elseBody().clear();
     if (!conditional->isConst() || !conditional->value().as<bool>()) {
       for (auto expr : else_exprs) {
-        handle(expr);
+        dispatch(expr);
         if (!is_nop_) {
           ite->elseBody().push_back(expr);
         }
@@ -206,13 +206,29 @@ void segmenterHintCleanup(Fusion* fusion) {
   }
 }
 
+std::tuple<Val*, Val*, kir::GetRNGSeedAndOffsetFromHost*>
+getRNGSeedAndOffsetFromHost();
+
 void assignRNGOffset(Fusion* fusion) {
-  int counter = 0;
+  Val* seed = nullptr;
+  Val* first_offset = nullptr;
+  kir::GetRNGSeedAndOffsetFromHost* getseed_op = nullptr;
+  int64_t counter = 0;
   for (auto expr : fusion->exprs()) {
-    if (expr->isA<RNGOp>()) {
-      auto rop = expr->as<RNGOp>();
-      rop->setRNGOffset(counter++);
+    if (auto rop = dynamic_cast<RNGOp*>(expr)) {
+      if (!rop->isDeterministic()) {
+        if (seed == nullptr) {
+          std::tie(seed, first_offset, getseed_op) =
+              getRNGSeedAndOffsetFromHost();
+        }
+        Val* offset = SimplifyingIrBuilder::addExpr(first_offset, counter);
+        rop->setSeedAndOffset(seed, offset);
+        counter++;
+      }
     }
+  }
+  if (getseed_op != nullptr) {
+    getseed_op->offsets() = counter;
   }
 }
 
@@ -270,11 +286,17 @@ void GpuLower::lower(Fusion* fusion) {
     }
   }
   segmenterHintCleanup(fusion_);
-
-  assignRNGOffset(fusion_);
-
   FusionGuard fg(fusion_);
+
   dumpExprsIfEnabled(fusion_->exprs(), "initialize lowering");
+
+  // Temporarily set allKnownVals to inputs. In the future, we will have a real
+  // pass to determine how to set allKnownVals.
+  // TODO: revisit all passes on how they handle exprs in the fusion. Should we
+  // change their use of fusion_->exprs() to only include exprs that are not
+  // between inputs and allKnownVals()?
+  allKnownVals() = kernel_->inputs();
+  dumpExprsIfEnabled(fusion_->exprs(), "set allKnownVals");
 
   // prepare for lowering
   validateIr(fusion_);
@@ -399,6 +421,13 @@ void GpuLower::lower(Fusion* fusion) {
   // relationships
   const auto exprs_sorted = reorderExprsForComputeAt();
   dumpExprsIfEnabled(exprs_sorted, "reorderExprsForComputeAt");
+
+  // For RNG ops whose seed and offset are not yet set, grab the seed and offset
+  // from the host and assign them to the ops.
+  // This must be after expr sort, because we do not want the generated
+  // computation of offset and seed to be considered as part of fusion
+  // definition
+  assignRNGOffset(fusion_);
 
   // Generate loop-nests and place each expression at its
   // corresponding loop
