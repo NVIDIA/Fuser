@@ -728,7 +728,7 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
     ir_utils::TVDomainGuard domain_guard(reference1, cloned_1_td);
 
     // we only apply split here, since we don't care about merging any IterDomain, but rather just needed to map those merged domains via ContiguousInnerDimensionsMapper
-    scheduler_utils::splitDims(reference1, params.split_before_tiling);
+    scheduler_utils::splitDims(reference1, params->split_before_tiling);
 
     std::vector<IterDomain*> virtual_innermost1;
     virtual_innermost1.push_back(reference1->axis(inner_most_pos1_in_ref1));
@@ -737,11 +737,16 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
     }
 
     // NOTE: do I need to consider stride here?! sounds like ContiguousInnerDimensionsMapper::map requires reference1 to be contiguous, but does it handle stride order?
-    auto group1_contig_inner_map = ContiguousInnerDimensionsMapper::map(reference1, virtual_innermost1).getTvToContigMergeOfInnerSizeMap();
+    auto group1_contig_inner_map = vectorize_helper::ContiguousInnerDimensionsMapper::map(reference1, virtual_innermost1).getTvToContigMergeOfInnerSizeMap();
     for (auto tv : grouped_inputs_outputs[0]) {
       auto inner_size_it = group1_contig_inner_map.find(tv);
-      auto tv_vectorize_factor = inner_size_it == group1_contig_inner_map.end() ? 1 :
+      auto tv_vectorize_factor_opt = inner_size_it == group1_contig_inner_map.end() ? 1 :
           runtime_info.expressionEvaluator().evaluate(inner_size_it->second);
+      // TODO: do not assert here. we can just vectorize on 1? maybe throw a warning?
+      TORCH_INTERNAL_ASSERT(
+          tv_vectorize_factor_opt.hasValue(),
+          "Vectorization heuristic could not evaluate inner most size.");
+      int64_t tv_vectorize_factor = tv_vectorize_factor_opt.as<int64_t>();
       vectorize_factor1 = std::min(vectorize_factor1, tv_vectorize_factor);
     }
 
@@ -754,11 +759,15 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
     for (const auto& dim : params->dims_merged_with_2) {
       virtual_innermost2.push_back(reference1->axis(dim));
     }
-    auto group2_contig_inner_map = ContiguousInnerDimensionsMapper::map(reference1, virtual_innermost2).getTvToContigMergeOfInnerSizeMap();
+    auto group2_contig_inner_map = vectorize_helper::ContiguousInnerDimensionsMapper::map(reference1, virtual_innermost2).getTvToContigMergeOfInnerSizeMap();
     for (auto tv : grouped_inputs_outputs[1]) {
       auto inner_size_it = group2_contig_inner_map.find(tv);
-      auto tv_vectorize_factor = inner_size_it == group2_contig_inner_map.end() ? 1 :
+      auto tv_vectorize_factor_opt = inner_size_it == group2_contig_inner_map.end() ? 1 :
           runtime_info.expressionEvaluator().evaluate(inner_size_it->second);
+      TORCH_INTERNAL_ASSERT(
+          tv_vectorize_factor_opt.hasValue(),
+          "Vectorization heuristic could not evaluate inner most size.");
+      int64_t tv_vectorize_factor = tv_vectorize_factor_opt.as<int64_t>();
       vectorize_factor2 = std::min(vectorize_factor2, tv_vectorize_factor);
     }
 
