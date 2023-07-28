@@ -683,24 +683,29 @@ getOptionalInnerOuterPersistentBufferBatches(
   const int64_t threads_per_block_max = getThreadsPerSMGivenRegPerThread(255l);
   const int64_t batch_min = getMinimumBatch();
   const int64_t batch_max = getMaximumInnerOuterPersistentBufferBatch();
-
+  // increase batch_max by 1 to allow a small amount of register spills to keep
+  // a small threads_per_block so each SM can host more blocks. This can
+  // increase performance by 10% for edge cases, e.g. hidden size in the range
+  // of (7K,8K].
+  const int64_t batch_max_plus_one =
+      vectorize_factor > 1 ? batch_max + 1 : batch_max;
   // Start from the smallest threads_per_block. If the corresponding batch size
-  // is larger than batch_max, try increase threads per block by a warp until
-  // the threads_per_block reaches threads_per_block_max or the batch size
-  // reaches batch_min.
+  // is larger than batch_max, try to double threads per block. This will
+  // directly increase threads_per_block from 128 to 256 to avoid intermediate
+  // values such as 160, 192, 224, etc. which can only use a portion of all the
+  // registers on a SM. Because for these intermediate values, one SM can only
+  // host one block if each thread uses 255 registers.
   int64_t threads_per_block = threads_per_block_min;
   int64_t inner_batch = ceilDiv(after_vectorization, threads_per_block);
-  while (inner_batch > batch_max &&
-         threads_per_block + warp_size <= threads_per_block_max &&
-         ceilDiv(after_vectorization, threads_per_block + warp_size) >=
-             batch_min) {
-    threads_per_block += warp_size;
+  while (inner_batch > batch_max_plus_one &&
+         threads_per_block * 2 <= threads_per_block_max &&
+         ceilDiv(after_vectorization, threads_per_block * 2) >= batch_min) {
+    threads_per_block *= 2;
     inner_batch = ceilDiv(after_vectorization, threads_per_block);
   }
-
   // The maximum feature size can be processed without register spills and
   // fusion segmentation for fp16 is 14K. Here, we can allow register spills to
-  // avoid fusion segmentation by incrase maximum batch size by 3. This allows
+  // avoid fusion segmentation by increase maximum batch size by 3. This allows
   // us to process up to 20K features (14K + 256*8*3).
   // Performance on A100-80G:
   // (1) shape= 16384 x 16384, 1300 GB/s, time_us mean(var)= 1245.08 (8.89703),
