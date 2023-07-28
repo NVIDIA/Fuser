@@ -8,7 +8,7 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <device_lower/pass/alias_memory.h>
+#include <device_lower/pass/interval_tree.h>
 
 #include <test/utils.h>
 #include <test/validator.h>
