@@ -715,18 +715,24 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
   }
   */
 
-  // TODO: we need to consider transformation applied for [small transpose dimension]
+  // TODO: consider transformation applied for [small transpose dimension]
+  // currently we are skipping 
+  std::vector<IterDomain*> virtual_innermost1;
+  // NOTE: do I need to consider stride here?! sounds like ContiguousInnerDimensionsMapper::map requires reference1 to be contiguous, but does it handle stride order?
+  auto group1_contig_inner_map = ContiguousInnerDimensionsMapper::map(reference1, reference1_merged_domains).getTvToContigMergeOfInnerSizeMap();
   for (auto tv : grouped_inputs_outputs[0]) {
-    const auto tv_vectorize_factor = static_cast<size_t>(vectorize_helper::getVectorizationFactor(
-      // do NOT use data_break at 0, since we need to consider small transpose dimension transformations
-      runtime_info, reference1, data_cache, 0));
+    auto inner_size_it = group1_contig_inner_map.find(tv);
+    auto tv_vectorize_factor = inner_size_it == group1_contig_inner_map.end() ? 1 :
+        runtime_info.expressionEvaluator().evaluate(inner_size_it->second);
     vectorize_factor1 = std::min(vectorize_factor1, tv_vectorize_factor);
   }
-  for (auto tv : grouped_inputs_outputs[1]) {
-    const auto tv_vectorize_factor = static_cast<size_t>(vectorize_helper::getVectorizationFactor(
-        runtime_info, reference2, data_cache, 0));
-    vectorize_factor2 = std::min(vectorize_factor2, tv_vectorize_factor);
-  }
+
+  // TODO: Since group2 only has global->shared and shared->global set op, we
+  // can have fine-grained control of unroll/vectorization at per tensor level.
+  // We should not be using a single global vectorize factor for the entire
+  // group 2
+  // TODO: clean up vectorization for group2.
+  vectorize_factor2 = 1;
 
   params->vectorize_factor1 = scheduler_utils::lastPow2(
       (int64_t)std::min((size_t)(max_unroll_factor), vectorize_factor1));
