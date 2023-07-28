@@ -77,7 +77,11 @@ class CenteredIntervalTree {
 
   void print(std::ostream& out) const {
     out << "CenteredIntervalTree {\n";
-    root_->print(out, /* indent */ 1);
+    if (root_) {
+      root_->print(out, /* indent */ 1);
+    } else {
+      out << "  null\n";
+    }
     out << "}";
   }
 
@@ -97,7 +101,7 @@ class CenteredIntervalTree {
         const std::vector<IndexType>& indices)
         : intervals_(intervals) {
       TORCH_CHECK(
-          indices.size() > 0, "Cannot initialize node with zero intervals");
+          !indices.empty(), "Cannot initialize node with zero intervals");
 
       TORCH_CHECK(
           intervals_.size() < std::numeric_limits<IndexType>::max(),
@@ -121,15 +125,11 @@ class CenteredIntervalTree {
           right_indices.push_back(ind);
         } else {
           // append to the center subset
-          local_to_global_.push_back(ind);
+          center_start_sorted_.push_back(ind);
         }
       }
 
-      // sort center endpoints
-      center_start_sorted_.insert(
-          center_start_sorted_.end(),
-          local_to_global_.begin(),
-          local_to_global_.end());
+      // sort center intervals by start point
       std::sort(
           center_start_sorted_.begin(),
           center_start_sorted_.end(),
@@ -137,10 +137,11 @@ class CenteredIntervalTree {
             return intervals_.at(a).first < intervals_.at(b).first;
           });
 
+      // copy from the start-sorted list, then reverse sort by stop
       center_stop_reverse_sorted_.insert(
           center_stop_reverse_sorted_.end(),
-          local_to_global_.begin(),
-          local_to_global_.end());
+          center_start_sorted_.begin(),
+          center_start_sorted_.end());
       std::sort(
           center_stop_reverse_sorted_.begin(),
           center_stop_reverse_sorted_.end(),
@@ -152,12 +153,13 @@ class CenteredIntervalTree {
       if (!left_indices.empty()) {
         left_ =
             std::make_unique<CenteredIntervalTreeNode>(intervals, left_indices);
-        left_indices.clear(); // early free to make more space for allocations
-                              // in right branch
+        // early free to make more space for allocationsin right branch
+        left_indices.clear();
+        left_indices.shrink_to_fit();
       }
       if (!right_indices.empty()) {
-        right_ =
-            std::make_unique<CenteredIntervalTreeNode>(intervals, left_indices);
+        right_ = std::make_unique<CenteredIntervalTreeNode>(
+            intervals, right_indices);
       }
     }
 
@@ -169,36 +171,36 @@ class CenteredIntervalTree {
         TimeType x) const {
       if (x == center_point_) {
         // if x is the center point, we just insert the entire center subset
-        output.reserve(output.size() + local_to_global_.size());
+        output.reserve(output.size() + center_start_sorted_.size());
         output.insert(
-            output.end(), local_to_global_.begin(), local_to_global_.end());
+            output.end(),
+            center_start_sorted_.begin(),
+            center_start_sorted_.end());
         return;
       }
 
       // This will hold the sorted start or stop points
-      CenteredIntervalTreeNode* child_node;
+      CenteredIntervalTreeNode* child_node = nullptr;
 
       if (x < center_point_) {
         // Since x is left of center and all center intervals overlap the
         // center, we need only look at the sorted starting points; any that
         // are less than x will overlap x.
-        for (auto local_idx : center_start_sorted_) {
-          auto global_idx = local_to_global_.at(local_idx);
-          auto start = intervals_.at(global_idx).first;
+        for (auto idx : center_start_sorted_) {
+          auto start = intervals_.at(idx).first;
           if (start > x) {
             break;
           }
-          output.push_back(global_idx);
+          output.push_back(idx);
         }
         child_node = left_.get();
       } else {
-        for (auto local_idx : center_stop_reverse_sorted_) {
-          auto global_idx = local_to_global_.at(local_idx);
-          auto stop = intervals_.at(global_idx).second;
+        for (auto idx : center_stop_reverse_sorted_) {
+          auto stop = intervals_.at(idx).second;
           if (stop < x) {
             break;
           }
-          output.push_back(global_idx);
+          output.push_back(idx);
         }
         child_node = right_.get();
       }
@@ -220,7 +222,25 @@ class CenteredIntervalTree {
         TimeType stop) const {}
 
     void print(std::ostream& out, int indent = 0) const {
-      out << "";
+      std::stringstream indent_ss;
+      for ([[maybe_unused]] auto i : c10::irange(indent)) {
+        indent_ss << "  ";
+      }
+      auto indent_str = indent_ss.str();
+      out << indent_str << "center point: " << center_point_ << "\n";
+      out << indent_str << "center intervals:\n";
+      for (auto ind : center_start_sorted_) {
+        const auto [start, stop] = intervals_.at(ind);
+        out << indent_str << "  [ " << start << " , " << stop << " ]\n";
+      }
+      if (left_) {
+        out << indent_str << "left branch:\n";
+        left_->print(out, indent + 1);
+      }
+      if (right_) {
+        out << indent_str << "right branch:\n";
+        right_->print(out, indent + 1);
+      }
     }
 
    private:
@@ -230,15 +250,16 @@ class CenteredIntervalTree {
     void selectCenterPoint(const std::vector<IndexType>& indices) {
       TimeType min_start = 0;
       TimeType max_stop = 0;
-      bool init = false;
+      bool init = true;
       for (const auto ind : indices) {
         const auto [start, stop] = intervals_.at(ind);
         if (init) {
           min_start = start;
           max_stop = stop;
+          init = false;
         } else {
           min_start = std::min(start, min_start);
-          max_stop = std::min(stop, max_stop);
+          max_stop = std::max(stop, max_stop);
         }
       }
       center_point_ = (min_start + max_stop) / 2;
@@ -248,11 +269,9 @@ class CenteredIntervalTree {
     //! Reference to the global vector of intervals
     const std::vector<std::pair<TimeType, TimeType>>& intervals_;
 
-    //! This is the local collection of global interval IDs
-    std::vector<IndexType> local_to_global_;
-
-    //! These hold locations within local_to_global. These are not the global
-    //! IDs held in intervals.
+    //! This is the collection of indices held in this node (all those in this
+    //! branch that contain center_point_). This will be sorted ascending by
+    //! start point.
     std::vector<IndexType> center_start_sorted_;
     //! Stop values are reverse sorted so that we can insert results starting
     //! with the first elements before breaking early.
