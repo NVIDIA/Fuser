@@ -402,10 +402,8 @@ std::vector<std::byte> getKernelArgument(
           (std::byte*)tensor.data_ptr(),
           (std::byte*)tensor.data_ptr() + tensor.element_size());
     } else {
-      auto resolved_arg = getTensorArg(tensor, tv, ee, index_type);
-      return std::vector<std::byte>(
-          (std::byte*)resolved_arg->arg(),
-          (std::byte*)resolved_arg->arg() + resolved_arg->argSize());
+      auto metadata = ee.evaluate(IrBuilder::metadataExpr(tv));
+      return getTensorArgBuffer(metadata, index_type);
     }
   } else if (isIntegralType(parameter->dtype())) {
     int64_t v = pv.as<int64_t>();

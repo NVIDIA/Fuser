@@ -144,7 +144,7 @@ void ExpressionEvaluator::print() const {
   debug() << "--------------------\n";
   for (const auto& kv : known_values_) {
     TORCH_INTERNAL_ASSERT(!kv.first->isConstScalar());
-    debug() << kv.first << " = " << kv.second << " ; "
+    debug() << kv.first << " = " << kv.second.type().name() << " ; "
             << *kv.first->getValType() << "\n";
   }
 

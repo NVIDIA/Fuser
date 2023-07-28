@@ -959,6 +959,8 @@ SchedulerRuntimeInfo::SchedulerRuntimeInfo(
       complete_fusion_->inputs().size() == args.size(),
       "Invalid number of arguments passed in for provided fusion group.");
 
+  // TODO: not supporting precomputed values for now
+  precomputed_values = nullptr;
   expression_evaluator_ = getExpressionEvaluator(args, precomputed_values);
 
   if (forced_index_type.has_value()) {
@@ -971,34 +973,32 @@ SchedulerRuntimeInfo::SchedulerRuntimeInfo(
         *expression_evaluator_);
   }
 
-  // Convert all abstract tensor args into tensor args and do tensor stride
-  // inference
-  std::vector<TensorView*> tvs;
-  tvs.reserve(complete_fusion_->inputs().size());
-  for (auto val : complete_fusion_->inputs()) {
-    tvs.emplace_back(dynamic_cast<TensorView*>(val));
-  }
-  args.getBuffer(index_type_, tvs, *expression_evaluator_);
-
   for (auto inp_i : c10::irange(static_cast<int64_t>(args.size()))) {
-    auto kernel_arg = args[inp_i];
+    auto fusion_inp = complete_fusion_->inputs().at(inp_i);
+    auto input_tv = dynamic_cast<TensorView*>(fusion_inp);
     // Note: we are skipping CpuScalar tensor here
-    if (auto tensor_arg_abstract =
-            dynamic_cast<const TensorArgAbstract*>(kernel_arg)) {
-      auto fusion_inp = complete_fusion_->inputs()[inp_i];
-      input_ptrs_[fusion_inp] = tensor_arg_abstract->getPointerAddress();
+    if (input_tv != nullptr && !input_tv->isCpuScalar()) {
+      auto metadata =
+          expression_evaluator_->evaluate(IrBuilder::metadataExpr(input_tv));
+      std::vector<int64_t> alloc_sizes =
+          (std::vector<int64_t>)metadata["alloc_size"];
+      std::vector<int64_t> alloc_strides =
+          (std::vector<int64_t>)metadata["alloc_stride"];
+      TORCH_INTERNAL_ASSERT(alloc_sizes.size() == alloc_strides.size());
+
+      input_ptrs_[fusion_inp] = (size_t)metadata["data"];
 
       // find and push discontiguous stride
-      auto dtype_size = dataTypeSize(tensor_arg_abstract->getDataType());
+      int64_t dtype_size = dataTypeSize(input_tv->dtype());
       input_discontig_strides_[fusion_inp] = {};
-      auto dims = tensor_arg_abstract->getAllocRank();
+      int64_t dims = alloc_strides.size();
       int64_t expected_stride = 1;
-      for (auto dim = dims - 1; dim >= 0; dim--) {
-        auto size = tensor_arg_abstract->getAllocSize((int)dim);
+      for (int64_t dim = dims - 1; dim >= 0; dim--) {
+        auto size = alloc_sizes.at(dim);
         if (size <= 1) {
           continue;
         }
-        auto stride = tensor_arg_abstract->getAllocStride((int)dim);
+        auto stride = alloc_strides.at(dim);
         if (stride != expected_stride) {
           input_discontig_strides_[fusion_inp].push_back(stride * dtype_size);
           expected_stride = stride;

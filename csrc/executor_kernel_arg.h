@@ -279,13 +279,6 @@ struct TensorArgAbstract : ArgAbstract {
   }
 };
 
-// TODO: move this to GetMetaData::evaluate
-std::vector<std::pair<int64_t, int64_t>>
-inferAndValidateAllocationSizesAndStrides(
-    const at::Tensor& tensor,
-    TensorView* tv,
-    ExpressionEvaluator& ee);
-
 // TODO: remove this
 template <typename TENSOR_TYPE>
 struct TensorArg : public TensorArgAbstract {
@@ -297,22 +290,6 @@ struct TensorArg : public TensorArgAbstract {
     instance_.data = tensor.data_ptr();
     for (const auto i : c10::irange(tensor.ndimension())) {
       instance_.setSize(i, (typename TENSOR_TYPE::index_type)tensor.size(i));
-    }
-    inferSetAndValidateStrides(tensor, tv, eval);
-  }
-
-  void inferSetAndValidateStrides(
-      const at::Tensor& tensor,
-      TensorView* tv,
-      ExpressionEvaluator& eval) {
-    auto sizes_strides =
-        inferAndValidateAllocationSizesAndStrides(tensor, tv, eval);
-    TORCH_INTERNAL_ASSERT(
-        (size_t)instance_.nAllocationDims() == sizes_strides.size());
-    for (auto i : c10::irange((int64_t)sizes_strides.size())) {
-      alloc_sizes.at(i) = sizes_strides.at(i).first;
-      using stride_t = typename TENSOR_TYPE::index_type;
-      instance_.setStride(i, (stride_t)sizes_strides.at(i).second);
     }
   }
 

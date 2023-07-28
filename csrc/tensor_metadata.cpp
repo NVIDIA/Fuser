@@ -6,10 +6,12 @@
  */
 // clang-format on
 
+#include <expr_evaluator.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
 #include <ir/cloner.h>
 #include <ir/iostream.h>
+#include <ir/utils.h>
 #include <polymorphic_value.h>
 
 namespace nvfuser {
@@ -210,8 +212,6 @@ class BackwardTraverseFromRFactorToAlloc {
   }
 };
 
-} // namespace
-
 // Given an ATen tensor, whose sizes and strides are w.r.t to the rFactor domain
 // of its corresponding TensorView, compute the sizes and strides of the tensor
 // with respect to its allocation domain.
@@ -221,19 +221,21 @@ class BackwardTraverseFromRFactorToAlloc {
 // Another example, if the rFactor domain is [I1*I2] and the allocation domain
 // is [I1, I2], and the tensor's size is [15] and stride is [7], and the extent
 // of I2 is 5, then the resulting size will be [3, 5] and stride will be [35, 7]
-std::vector<std::pair<int64_t, int64_t>>
+std::pair<std::vector<int64_t>, std::vector<int64_t>>
 inferAndValidateAllocationSizesAndStrides(
     const at::Tensor& tensor,
     TensorView* tv,
-    ExpressionEvaluator& ee) {
+    ExpressionEvaluator ee) {
   if (tv == nullptr || !tv->hasAllocation()) {
     // When tv is nullptr, or tv does not have allocation, the given sizes and
     // strides should already be in the target format. So nothing to do here.
-    std::vector<std::pair<int64_t, int64_t>> result;
+    std::vector<int64_t> sizes;
+    std::vector<int64_t> strides;
     for (auto i : c10::irange(tensor.dim())) {
-      result.emplace_back(tensor.size(i), tensor.stride(i));
+      sizes.emplace_back(tensor.size(i));
+      strides.emplace_back(tensor.stride(i));
     }
-    return result;
+    return {sizes, strides};
   }
   const auto& alloc =
       TensorDomain::noReductions(tv->getMaybeAllocationDomain());
@@ -252,23 +254,27 @@ inferAndValidateAllocationSizesAndStrides(
 
   // Now active_ids should contain the final sizes and strides, unordered. We
   // need to put them to the correct order.
-  std::vector<std::pair<int64_t, int64_t>> sizes_strides;
-  sizes_strides.reserve(alloc.size());
+  std::vector<int64_t> sizes;
+  std::vector<int64_t> strides;
+  sizes.reserve(alloc.size());
+  strides.reserve(alloc.size());
   for (auto i : c10::irange(alloc.size())) {
     auto id = alloc.at(i);
-    sizes_strides.emplace_back(active_ids.at(id));
+    sizes.emplace_back(active_ids.at(id).first);
+    strides.emplace_back(active_ids.at(id).second);
   }
   // Validate final sizes and strides with contiguity
   int64_t contiguous_stride = 1;
   std::vector<std::optional<bool>> contiguity = tv->getContiguity();
-  for (int64_t i = (int64_t)sizes_strides.size() - 1; i >= 0; i--) {
+  for (int64_t i = (int64_t)sizes.size() - 1; i >= 0; i--) {
     if (alloc.at(i)->isBroadcast()) {
       continue;
     }
     while (!contiguity.back().has_value()) {
       contiguity.pop_back();
     }
-    auto [size, stride] = sizes_strides.at(i);
+    auto size = sizes.at(i);
+    auto stride = strides.at(i);
     TORCH_INTERNAL_ASSERT(!contiguity.empty());
     auto last_contiguity = contiguity.back();
     TORCH_INTERNAL_ASSERT(
@@ -297,9 +303,9 @@ inferAndValidateAllocationSizesAndStrides(
       contiguity.empty(),
       "The size of contiguity mismatch with the dimensionality of allocation domain");
   // Validate that for expanded broadcast, the stride must be zero.
-  for (int64_t i : c10::irange((int64_t)sizes_strides.size())) {
+  for (int64_t i : c10::irange((int64_t)strides.size())) {
     if (auto alloc_id = alloc.at(i); alloc_id->hasExpandedExtent()) {
-      auto [_, stride] = sizes_strides.at(i);
+      auto stride = strides.at(i);
       TORCH_CHECK(
           stride == 0,
           "Expecting an expanded dimension on dimension ",
@@ -308,8 +314,10 @@ inferAndValidateAllocationSizesAndStrides(
           stride);
     }
   }
-  return sizes_strides;
+  return {sizes, strides};
 }
+
+} // namespace
 
 std::vector<PolymorphicValue> GetMetaData::evaluate(
     const ExpressionEvaluator& ee,
@@ -332,8 +340,8 @@ std::vector<PolymorphicValue> GetMetaData::evaluate(
       PolymorphicValue(Pointer(input.data_ptr(), tv->dtype()));
   concrete_value["logical_size"] = PolymorphicValue(input.sizes().vec());
   concrete_value["logical_stride"] = PolymorphicValue(input.strides().vec());
-  concrete_value["alloc_size"] = PolymorphicValue(input.sizes().vec());
-  concrete_value["alloc_stride"] = PolymorphicValue(input.strides().vec());
+  std::tie(concrete_value["alloc_size"], concrete_value["alloc_stride"]) =
+      inferAndValidateAllocationSizesAndStrides(input, tv, ee);
   return {PolymorphicValue(concrete_value)};
 }
 
