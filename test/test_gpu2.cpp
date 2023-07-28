@@ -3773,10 +3773,21 @@ TEST_F(NVFuserTest, FusionSegmentReduceSoftmax_CUDA) {
   auto t3 = at::_softmax(t2.to(at::kDouble), -1, false);
 
   auto optimized_fusion = executor_cache.getMostRecentKernelRuntime();
-  TORCH_CHECK(optimized_fusion->isSegmented(), "segmentation didn't happen");
-  TORCH_CHECK(
-      optimized_fusion->fusionSegments()->groups().size() == 2,
-      "segmentation didn't happen as expected");
+  ASSERT_TRUE(optimized_fusion->isSegmented()) << "segmentation didn't happen";
+  ASSERT_EQ(optimized_fusion->fusionSegments()->groups().size(), 2)
+      << "segmentation didn't happen as expected";
+
+  // Make sure the second kernel is vectorized. See issue #658
+  auto heuristic_params = executor_cache.getMostRecentKernelRuntime()
+                              ->schedulerHeuristics()
+                              ->heuristicsList()
+                              .at(1)
+                              ->params();
+  ASSERT_TRUE(heuristic_params->isA<ReductionParams>());
+  auto rparams = heuristic_params->as<ReductionParams>();
+  ASSERT_TRUE(rparams->vectorize_inner_reduction) << "Failed to vectorize";
+  ASSERT_EQ(rparams->unroll_factor_inner_reduction, 2)
+      << "Unexpected vectorization factor";
 
   testValidate(
       executor_cache.fusion(), outputs, {at_x}, {t3}, __LINE__, __FILE__);

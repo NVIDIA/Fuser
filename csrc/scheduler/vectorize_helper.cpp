@@ -92,8 +92,10 @@ ContiguousInnerDimensionsMapper::ContiguousInnerDimensionsMapper(
   std::vector<IterDomain*> reordered_rfactor;
   for (auto id : reference->getMaybeRFactorDomain()) {
     // Exclude reduction IDs if the reference is a fusion input as they
-    // don't manifest at all in the fusion. This simplifies following
-    // analyses
+    // don't manifest at all in the fusion. This simplifies the
+    // analysis in getContigMergeOfInnerSize, which only looks at
+    // non-reduction rfactor domains. Including reduction domains here
+    // can result in incorrect ordering
     if (reference->isFusionInput() && id->isReduction()) {
       continue;
     }
