@@ -2269,16 +2269,10 @@ TEST_F(NVFuserTest, FusionResizeSliceVectorize1_CUDA) {
 
   std::vector<int64_t> shape({1024 * 1024});
 
-  // concrete shapes to avoid dynamic Fusion
   auto tv0 = makeContigConcreteTensor(shape);
   fusion.addInput(tv0);
 
-  int64_t right = 4;
-  if (auto env = getenv("RIGHT"); env != nullptr) {
-    right = std::atoi(env);
-  }
-
-  std::cerr << "Slice right factor: " << right << std::endl;
+  const int64_t right = 4;
 
   auto tv1 = slice(
       tv0,
@@ -2292,16 +2286,19 @@ TEST_F(NVFuserTest, FusionResizeSliceVectorize1_CUDA) {
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
 
-  schedulePointwise(&fusion, aten_inputs);
-  fusion.printMath();
-  fusion.printKernel();
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
-  // FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  // auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+  TORCH_CHECK(!executor_cache.getMostRecentKernelRuntime()->isSegmented());
+  auto heuristic_params = executor_cache.getMostRecentKernelRuntime()->schedulerHeuristics()->heuristicsList().at(0)->params();
+  ASSERT_TRUE(heuristic_params->isA<PointwiseParams>());
+  auto pparams =
+      heuristic_params->as<PointwiseParams>();
+  ASSERT_TRUE(pparams->vectorize) << "Failed to vectorize";
+  ASSERT_EQ(pparams->unroll_factor, 4) << "Invalid vectorization factor";
 
-  // auto ref = t0.index({at::indexing::Slice(0, shape[0] - 4)});
-
-  // TORCH_CHECK(ref.equal(cg_outputs[0]));
+  auto ref = t0.index({at::indexing::Slice(0, shape[0] - 4)});
+  ASSERT_TRUE(ref.equal(cg_outputs[0]));
 }
 
 TEST_F(NVFuserTest, FusionResizeSliceVectorize2_CUDA) {
@@ -2311,10 +2308,10 @@ TEST_F(NVFuserTest, FusionResizeSliceVectorize2_CUDA) {
 
   std::vector<int64_t> shape({1024 * 1024});
 
-  // concrete shapes to avoid dynamic Fusion
   auto tv0 = makeContigConcreteTensor(shape);
   fusion.addInput(tv0);
 
+  // Two same slices.
   auto tv1 = slice(
       tv0,
       {{IrBuilder::create<Val>(0L),
@@ -2334,16 +2331,20 @@ TEST_F(NVFuserTest, FusionResizeSliceVectorize2_CUDA) {
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
 
-  schedulePointwise(&fusion, aten_inputs);
-  fusion.printMath();
-  fusion.printKernel();
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
-  // FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  // auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+  TORCH_CHECK(!executor_cache.getMostRecentKernelRuntime()->isSegmented());
+  auto heuristic_params = executor_cache.getMostRecentKernelRuntime()->schedulerHeuristics()->heuristicsList().at(0)->params();
+  ASSERT_TRUE(heuristic_params->isA<PointwiseParams>());
+  auto pparams =
+      heuristic_params->as<PointwiseParams>();
+  ASSERT_TRUE(pparams->vectorize) << "Failed to vectorize";
+  ASSERT_EQ(pparams->unroll_factor, 4) << "Invalid vectorization factor";
 
-  // auto ref = t0.index({at::indexing::Slice(0, shape[0] - 4)});
-
-  // TORCH_CHECK(ref.equal(cg_outputs[0]));
+  auto ref = t0.index({at::indexing::Slice(0, shape[0] - 4)});
+  ASSERT_TRUE(ref.equal(cg_outputs[0]));
+  ASSERT_TRUE(ref.equal(cg_outputs[1]));
 }
 
 TEST_F(NVFuserTest, FusionResizeSliceVectorize3_CUDA) {
