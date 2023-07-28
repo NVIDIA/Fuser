@@ -112,6 +112,8 @@ bool canIgnoreIndexedInputDomainID(
   return true;
 }
 
+bool debug = false;
+
 } // namespace
 
 DomainMap::DomainMap(Fusion* fusion) : fusion_(fusion), ca_map_(fusion) {
@@ -150,16 +152,30 @@ bool DomainMap::areAllInputIdsMappedTo(TensorView* input_tv, TensorView* tv)
 bool DomainMap::eraseIfMapped(
     std::unordered_set<IterDomain*>& in_concrete_ids,
     IterDomain* out_id) const {
-  auto out_concrete_id =
-      ca_map_.getConcreteMappedID(out_id, IdMappingMode::PERMISSIVE);
-  auto in_concrete_id_iter = in_concrete_ids.find(out_concrete_id);
-  bool found_match = in_concrete_id_iter != in_concrete_ids.end();
-  if (found_match) {
-    in_concrete_ids.erase(in_concrete_id_iter);
+  if (getenv("OLD")) {
+    auto out_concrete_id =
+        ca_map_.getConcreteMappedID(out_id, IdMappingMode::PERMISSIVE);
+    auto in_concrete_id_iter = in_concrete_ids.find(out_concrete_id);
+    bool found_match = in_concrete_id_iter != in_concrete_ids.end();
+    if (found_match) {
+      in_concrete_ids.erase(in_concrete_id_iter);
+    }
+    return found_match;
+  } else {
+    auto in_concrete_id_iter = std::find_if(
+        in_concrete_ids.begin(),
+        in_concrete_ids.end(),
+        [&](IterDomain* in_concrete_id) {
+          return ca_map_.areMapped(
+              in_concrete_id, out_id, IdMappingMode::EXACT);
+        });
+    bool found_match = in_concrete_id_iter != in_concrete_ids.end();
+    if (found_match) {
+      in_concrete_ids.erase(in_concrete_id_iter);
+    }
+    return found_match;
   }
-  return found_match;
 }
-
 void DomainMap::eraseifInputMappedThroughRFactorDomainAndIndexing(
     std::unordered_set<IterDomain*>& in_ids,
     const std::vector<IterDomain*>& ids) const {
