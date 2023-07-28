@@ -731,7 +731,8 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
     scheduler_utils::splitDims(reference1, params->split_before_tiling);
 
     std::vector<IterDomain*> virtual_innermost1;
-    virtual_innermost1.push_back(reference1->axis(inner_most_pos1_in_ref1));
+    // virtual_innermost1.push_back(reference1->axis(inner_most_pos1_in_ref1));
+    virtual_innermost1.push_back(reference1->getMaybeRFactorDomain()[inner_most_pos1_in_ref1]);
     for (const auto& dim : params->dims_merged_with_1) {
       if (std::find(reference1->getMaybeRFactorDomain().begin(),
                     reference1->getMaybeRFactorDomain().end(),
@@ -759,7 +760,8 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
     // We should not be using a single global vectorize factor for the entire
     // group 2
     std::vector<IterDomain*> virtual_innermost2;
-    virtual_innermost2.push_back(reference1->axis(inner_most_pos2_in_ref1));
+    // virtual_innermost2.push_back(reference1->axis(inner_most_pos2_in_ref1));
+    virtual_innermost2.push_back(reference1->getMaybeRFactorDomain()[inner_most_pos2_in_ref1]);
     for (const auto& dim : params->dims_merged_with_2) {
       if (std::find(reference1->getMaybeRFactorDomain().begin(),
                     reference1->getMaybeRFactorDomain().end(),
