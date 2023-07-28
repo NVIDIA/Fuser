@@ -694,50 +694,72 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
       ceilDiv((int64_t)params->tile_size1 * (int64_t)params->tile_size2, 32l);
   max_unroll_factor = std::min(max_unroll_factor, max_unroll_factor_block);
 
-  // Compute maximum vectorize factor that can be used
-  size_t vectorize_factor1 = max_unroll_factor;
-  size_t vectorize_factor2 = max_unroll_factor;
+  {
+    // Compute maximum vectorize factor that can be used
+    size_t vectorize_factor1 = max_unroll_factor;
+    size_t vectorize_factor2 = max_unroll_factor;
 
-  /*
-  for (auto tv : grouped_inputs_outputs[0]) {
-    const auto tv_vectorize_factor =
-        runtime_info.getMaxVectorizableWidth(tv, false);
-    vectorize_factor1 = std::min(vectorize_factor1, tv_vectorize_factor);
+    /*
+    for (auto tv : grouped_inputs_outputs[0]) {
+      const auto tv_vectorize_factor =
+          runtime_info.getMaxVectorizableWidth(tv, false);
+      vectorize_factor1 = std::min(vectorize_factor1, tv_vectorize_factor);
+    }
+    // TODO: Since group2 only has global->shared and shared->global set op, we
+    // can have fine-grained control of unroll/vectorization at per tensor level.
+    // We should not be using a single global vectorize factor for the entire
+    // group 2
+    for (auto tv : grouped_inputs_outputs[1]) {
+      const auto tv_vectorize_factor =
+          runtime_info.getMaxVectorizableWidth(tv, false);
+      vectorize_factor2 = std::min(vectorize_factor2, tv_vectorize_factor);
+    }
+    */
+
+    // TODO: consider transformation applied for [small transpose dimension]
+    // duplicating reference1's TensorDomain, since the transformations applied is not persistent and only needed for us to compute vectorization width.
+    ir_utils::TVDomainGuard domain_guard(
+        reference1, TensorDomain(reference1->domain(), reference1->fusion()));
+    // we only apply split here, since we don't care about merging any IterDomain, but rather just needed to map those merged domains via ContiguousInnerDimensionsMapper
+    scheduler_utils::splitDims(reference1, params.split_before_tiling);
+
+    std::vector<IterDomain*> virtual_innermost1;
+    virtual_innermost1.push_back(reference1->axis(inner_most_pos1_in_ref1));
+    for (const auto& dim : params->dims_merged_with_1) {
+      virtual_innermost1.push_back(reference1->axis(dim));
+    }
+
+    // NOTE: do I need to consider stride here?! sounds like ContiguousInnerDimensionsMapper::map requires reference1 to be contiguous, but does it handle stride order?
+    auto group1_contig_inner_map = ContiguousInnerDimensionsMapper::map(reference1, virtual_innermost1).getTvToContigMergeOfInnerSizeMap();
+    for (auto tv : grouped_inputs_outputs[0]) {
+      auto inner_size_it = group1_contig_inner_map.find(tv);
+      auto tv_vectorize_factor = inner_size_it == group1_contig_inner_map.end() ? 1 :
+          runtime_info.expressionEvaluator().evaluate(inner_size_it->second);
+      vectorize_factor1 = std::min(vectorize_factor1, tv_vectorize_factor);
+    }
+
+    // TODO: Since group2 only has global->shared and shared->global set op, we
+    // can have fine-grained control of unroll/vectorization at per tensor level.
+    // We should not be using a single global vectorize factor for the entire
+    // group 2
+    std::vector<IterDomain*> virtual_innermost2;
+    virtual_innermost2.push_back(reference1->axis(inner_most_pos2_in_ref1));
+    for (const auto& dim : params->dims_merged_with_2) {
+      virtual_innermost2.push_back(reference1->axis(dim));
+    }
+    auto group2_contig_inner_map = ContiguousInnerDimensionsMapper::map(reference1, virtual_innermost2).getTvToContigMergeOfInnerSizeMap();
+    for (auto tv : grouped_inputs_outputs[1]) {
+      auto inner_size_it = group2_contig_inner_map.find(tv);
+      auto tv_vectorize_factor = inner_size_it == group2_contig_inner_map.end() ? 1 :
+          runtime_info.expressionEvaluator().evaluate(inner_size_it->second);
+      vectorize_factor2 = std::min(vectorize_factor2, tv_vectorize_factor);
+    }
+
+    params->vectorize_factor1 = scheduler_utils::lastPow2(
+        (int64_t)std::min((size_t)(max_unroll_factor), vectorize_factor1));
+    params->vectorize_factor2 = scheduler_utils::lastPow2(
+        (int64_t)std::min((size_t)(max_unroll_factor), vectorize_factor2));
   }
-  // TODO: Since group2 only has global->shared and shared->global set op, we
-  // can have fine-grained control of unroll/vectorization at per tensor level.
-  // We should not be using a single global vectorize factor for the entire
-  // group 2
-  for (auto tv : grouped_inputs_outputs[1]) {
-    const auto tv_vectorize_factor =
-        runtime_info.getMaxVectorizableWidth(tv, false);
-    vectorize_factor2 = std::min(vectorize_factor2, tv_vectorize_factor);
-  }
-  */
-
-  // TODO: consider transformation applied for [small transpose dimension]
-  // currently we are skipping 
-  std::vector<IterDomain*> virtual_innermost1;
-  // NOTE: do I need to consider stride here?! sounds like ContiguousInnerDimensionsMapper::map requires reference1 to be contiguous, but does it handle stride order?
-  auto group1_contig_inner_map = ContiguousInnerDimensionsMapper::map(reference1, reference1_merged_domains).getTvToContigMergeOfInnerSizeMap();
-  for (auto tv : grouped_inputs_outputs[0]) {
-    auto inner_size_it = group1_contig_inner_map.find(tv);
-    auto tv_vectorize_factor = inner_size_it == group1_contig_inner_map.end() ? 1 :
-        runtime_info.expressionEvaluator().evaluate(inner_size_it->second);
-    vectorize_factor1 = std::min(vectorize_factor1, tv_vectorize_factor);
-  }
-
-  // TODO: Since group2 only has global->shared and shared->global set op, we
-  // can have fine-grained control of unroll/vectorization at per tensor level.
-  // We should not be using a single global vectorize factor for the entire
-  // group 2
-  // TODO: clean up vectorization for group2.
-  vectorize_factor2 = 1;
-
-  params->vectorize_factor1 = scheduler_utils::lastPow2(
-      (int64_t)std::min((size_t)(max_unroll_factor), vectorize_factor1));
-  params->vectorize_factor2 = scheduler_utils::lastPow2(
-      (int64_t)std::min((size_t)(max_unroll_factor), vectorize_factor2));
 
   params->lparams.bind(params->getThreadsPerBlock(), ParallelType::TIDx);
 
