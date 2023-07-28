@@ -219,7 +219,9 @@ class CenteredIntervalTree {
     void insertOverlappingIntervals(
         std::vector<IndexType>& output,
         TimeType start,
-        TimeType stop) const {}
+        TimeType stop) const {
+      TORCH_CHECK(false, "insertOverlappingIntervals is not yet implemented!");
+    }
 
     void print(std::ostream& out, int indent = 0) const {
       std::stringstream indent_ss;
