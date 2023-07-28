@@ -1731,7 +1731,7 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> 
   int64_t i0;
   i0 = ((nvfuser_index_t)threadIdx.x) + (256 * ((nvfuser_index_t)blockIdx.x));
   int64_t i1;
-  i1 = T0.size[0] * T0.size[1];
+  i1 = T0.logical_size[0] * T0.logical_size[1];
   bool b2;
   b2 = i0 < i1;
   float f3;

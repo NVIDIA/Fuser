@@ -699,8 +699,8 @@ TEST_F(ExprSimplifierTest, SignProve) {
   assertProvedNonZero("1"_);
   assertProvedNonZero("2"_);
 
-  assertProvedNonNegative("T123.size[3]"_);
-  assertProvedNonNegative("T123.stride[3]"_);
+  assertProvedNonNegative("T123.logical_size[3]"_);
+  assertProvedNonNegative("T123.alloc_stride[3]"_);
 
   std::vector<Val*> assumptions{
       "i1 < 2 && i1 >= 0"_,
@@ -780,18 +780,18 @@ TEST_F(ExprSimplifierTest, DistributeGcdRemainderDivMod) {
   expectSimplifiedMod("i1 * 3 + 2"_, "6"_, "( i1 % 2 ) * 3 + 2"_, {"i1 >= 0"_});
   expectSimplifiedDiv(
       "i1 * 4 + 3"_,
-      "32 * T0.size[0]"_,
-      "i1 / ( 8 * T0.size[0] )"_,
+      "32 * T0.logical_size[0]"_,
+      "i1 / ( 8 * T0.logical_size[0] )"_,
       {"i1 >= 0"_});
   expectSimplifiedMod(
       "i1 * 4 + 3"_,
-      "32 * T0.size[0]"_,
-      "( i1 % ( 8 * T0.size[0] ) ) * 4 + 3"_,
+      "32 * T0.logical_size[0]"_,
+      "( i1 % ( 8 * T0.logical_size[0] ) ) * 4 + 3"_,
       {"i1 >= 0"_});
   expectSimplifiedDiv(
-      "( ( ( blockIdx.x * 128 + threadIdx.x ) % ( T0.size[3] * 24 ) ) * 4 ) + 3"_,
-      "32 * T0.size[3]"_,
-      "( ( blockIdx.x * 128 + threadIdx.x ) % ( T0.size[3] * 24 ) ) / ( 8 * T0.size[3] )"_,
+      "( ( ( blockIdx.x * 128 + threadIdx.x ) % ( T0.logical_size[3] * 24 ) ) * 4 ) + 3"_,
+      "32 * T0.logical_size[3]"_,
+      "( ( blockIdx.x * 128 + threadIdx.x ) % ( T0.logical_size[3] * 24 ) ) / ( 8 * T0.logical_size[3] )"_,
       {});
 }
 
@@ -838,30 +838,32 @@ TEST_F(ExprSimplifierTest, Compare) {
   EXPECT_TRUE(*simplify("d1 >= d1 * d2"_, "d1 <= 0.0 && d2 >= 1.0"_));
   EXPECT_TRUE(
       *simplifyExpr(
-           "ceilDiv( T0.size[0] , 128 ) * 4 >= ceilDiv( T0.size[0] , 128 )"_)
+           "ceilDiv( T0.logical_size[0] , 128 ) * 4 >= ceilDiv( T0.logical_size[0] , 128 )"_)
            ->getBool());
 
   EXPECT_TRUE(*simplify("ceilDiv( i1 , i2 ) > 0"_, "i1 > 0 && i2 > 0"_));
   EXPECT_TRUE(*simplify("ceilDiv( i1 , i2 ) >= 1"_, "i1 > 0 && i2 > 0"_));
 
   EXPECT_TRUE(*simplify(
-      "blockIdx.x < ceilDiv( T0.size[0] , 128 ) * 4"_,
-      "blockIdx.x < ceilDiv( T0.size[0] , 128 ) * 4"_));
+      "blockIdx.x < ceilDiv( T0.logical_size[0] , 128 ) * 4"_,
+      "blockIdx.x < ceilDiv( T0.logical_size[0] , 128 ) * 4"_));
 
   EXPECT_TRUE(*simplify("i1 % i2 < i2"_, "i2 >= 0"_));
 }
 
 TEST_F(ExprSimplifierTest, FundamentalDivisionWithRemainderProperty) {
-  EXPECT_TRUE(
-      isEquivalent("i1 / T1.size[0] * T1.size[0] + i1 % T1.size[0]"_, "i1"_));
   EXPECT_TRUE(isEquivalent(
-      "( i2 + i1 / T1.size[0] * T1.size[0] ) + i1 % T1.size[0]"_, "i1 + i2"_));
+      "i1 / T1.logical_size[0] * T1.logical_size[0] + i1 % T1.logical_size[0]"_,
+      "i1"_));
   EXPECT_TRUE(isEquivalent(
-      "( i1 / T1.size[0] ) * ( T1.size[0] * T1.size[1] ) + T1.size[1] * ( i1 % T1.size[0] )"_,
-      "i1 * T1.size[1]"_));
+      "( i2 + i1 / T1.logical_size[0] * T1.logical_size[0] ) + i1 % T1.logical_size[0]"_,
+      "i1 + i2"_));
   EXPECT_TRUE(isEquivalent(
-      "i2 + ( i1 / T1.size[0] ) * ( T1.size[0] * T1.size[1] ) + T1.size[1] * ( i1 % T1.size[0] )"_,
-      "i1 * T1.size[1] + i2"_));
+      "( i1 / T1.logical_size[0] ) * ( T1.logical_size[0] * T1.logical_size[1] ) + T1.logical_size[1] * ( i1 % T1.logical_size[0] )"_,
+      "i1 * T1.logical_size[1]"_));
+  EXPECT_TRUE(isEquivalent(
+      "i2 + ( i1 / T1.logical_size[0] ) * ( T1.logical_size[0] * T1.logical_size[1] ) + T1.logical_size[1] * ( i1 % T1.logical_size[0] )"_,
+      "i1 * T1.logical_size[1] + i2"_));
 }
 
 TEST_F(ExprSimplifierTest, ReducePredicateRegisterUsage) {
@@ -1030,14 +1032,15 @@ TEST_F(ExprSimplifierTest, MinMax) {
   };
 
   auto expr =
-      "max( max( ceilDiv( T0.size[0] , 128 ) * 4 , ceilDiv( T0.size[0] , 128 ) ) , 4 )"_;
-  EXPECT_TRUE(simplify(expr, "T0.size[0] > 0"_)
-                  ->sameAs("ceilDiv( T0.size[0] , 128 ) * 4"_));
+      "max( max( ceilDiv( T0.logical_size[0] , 128 ) * 4 , ceilDiv( T0.logical_size[0] , 128 ) ) , 4 )"_;
+  EXPECT_TRUE(simplify(expr, "T0.logical_size[0] > 0"_)
+                  ->sameAs("ceilDiv( T0.logical_size[0] , 128 ) * 4"_));
 }
 
 TEST_F(ExprSimplifierTest, PredicateDivToMul) {
-  auto simplified = simplifyExpr("i1 / T0.size[0] < i2"_, {}, {"i1 >= 0"_});
-  auto expect = "i1 < ( i2 * T0.size[0] )"_;
+  auto simplified =
+      simplifyExpr("i1 / T0.logical_size[0] < i2"_, {}, {"i1 >= 0"_});
+  auto expect = "i1 < ( i2 * T0.logical_size[0] )"_;
 
   EXPECT_TRUE(simplified->sameAs(expect));
 }

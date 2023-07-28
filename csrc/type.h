@@ -114,6 +114,11 @@ struct StructOf {
   // runtime/, and anonymous structs for others.
   std::string name;
 
+  // The ordered list of field names. This is used to generate the struct type
+  // on device. This list does not necessarily contain all the fields in the
+  // struct, but it should contain all the fields that are used on device.
+  std::vector<std::string> field_names;
+
   // Note [Incomplete type support in STL]
   // std::unordered_map<std::string, DataType> is a STL container of incomplete
   // type. Not all C++ STL containers supports incomplete type due to historical
@@ -439,6 +444,7 @@ enum class UnaryOpType {
   Ceil,
   Cos,
   Cosh,
+  Dereference,
   Exp,
   Exp2,
   Expm1,
