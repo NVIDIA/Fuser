@@ -989,7 +989,7 @@ SchedulerRuntimeInfo::SchedulerRuntimeInfo(
       // find and push discontiguous stride
       int64_t dtype_size = dataTypeSize(input_tv->dtype());
       input_discontig_strides_[fusion_inp] = {};
-      int64_t dims = alloc_strides.size();
+      int64_t dims = (int64_t)alloc_strides.size();
       int64_t expected_stride = 1;
       for (int64_t dim = dims - 1; dim >= 0; dim--) {
         auto size = alloc_sizes.at(dim);
