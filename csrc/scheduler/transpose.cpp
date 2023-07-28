@@ -696,8 +696,8 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
 
   {
     // Compute maximum vectorize factor that can be used
-    size_t vectorize_factor1 = max_unroll_factor;
-    size_t vectorize_factor2 = max_unroll_factor;
+    int64_t vectorize_factor1 = max_unroll_factor;
+    int64_t vectorize_factor2 = max_unroll_factor;
 
     /*
     for (auto tv : grouped_inputs_outputs[0]) {
@@ -772,9 +772,9 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
     }
 
     params->vectorize_factor1 = scheduler_utils::lastPow2(
-        (int64_t)std::min((size_t)(max_unroll_factor), vectorize_factor1));
+        std::min(max_unroll_factor, vectorize_factor1));
     params->vectorize_factor2 = scheduler_utils::lastPow2(
-        (int64_t)std::min((size_t)(max_unroll_factor), vectorize_factor2));
+        std::min(max_unroll_factor, vectorize_factor2));
   }
 
   params->lparams.bind(params->getThreadsPerBlock(), ParallelType::TIDx);
