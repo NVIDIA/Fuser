@@ -35,11 +35,16 @@ DataType metaDataTypeOf(const Val* v) {
 
   StructOf tv_metadata;
   tv_metadata.name = ss.str();
+  tv_metadata.field_names = {"data", "logical_size", "alloc_stride"};
   tv_metadata.types["data"] = NVFUSER_MAYBE_MAKE_SHARED(
       PointerOf{std::make_shared<DataType>(tv->dtype())});
-  tv_metadata.types["size"] = NVFUSER_MAYBE_MAKE_SHARED2(
+  tv_metadata.types["logical_size"] = NVFUSER_MAYBE_MAKE_SHARED2(
       ArrayOf{std::make_shared<DataType>(DataType::Index), dim});
-  tv_metadata.types["stride"] = NVFUSER_MAYBE_MAKE_SHARED2(
+  tv_metadata.types["logical_stride"] = NVFUSER_MAYBE_MAKE_SHARED2(
+      ArrayOf{std::make_shared<DataType>(DataType::Index), dim});
+  tv_metadata.types["alloc_size"] = NVFUSER_MAYBE_MAKE_SHARED2(
+      ArrayOf{std::make_shared<DataType>(DataType::Index), alloc_dim});
+  tv_metadata.types["alloc_stride"] = NVFUSER_MAYBE_MAKE_SHARED2(
       ArrayOf{std::make_shared<DataType>(DataType::Index), alloc_dim});
   return tv_metadata;
 }
@@ -211,9 +216,9 @@ static std::string data_type2string(DataType t) {
           }
           std::stringstream ss;
           ss << "struct { ";
-          for (auto& [name, type] : dtype.types) {
-            ss << data_type2string(NVFUSER_MAYBE_STAR type) << " " << name
-               << "; ";
+          for (auto& name : dtype.field_names) {
+            ss << data_type2string(NVFUSER_MAYBE_STAR dtype.types.at(name))
+               << " " << name << "; ";
           }
           ss << "}";
           return ss.str();
@@ -282,6 +287,7 @@ bool needFloatSuffix(UnaryOpType t) {
     case UnaryOpType::Imag:
     case UnaryOpType::Silu:
     case UnaryOpType::BitCast:
+    case UnaryOpType::Dereference:
     case UnaryOpType::Neg:
     case UnaryOpType::Real:
     case UnaryOpType::Relu:
@@ -329,6 +335,8 @@ static const char* unary_op_type2string(UnaryOpType t) {
       return "cos";
     case UnaryOpType::Cosh:
       return "cosh";
+    case UnaryOpType::Dereference:
+      return "dereference";
     case UnaryOpType::Exp:
       return "exp";
     case UnaryOpType::Exp2:
@@ -422,6 +430,8 @@ std::string stringifyBooleanOp(const UnaryOpType uopt) {
 
 static const char* unary_op_type_inline_op2string(UnaryOpType t) {
   switch (t) {
+    case UnaryOpType::Dereference:
+      return "*";
     case UnaryOpType::Neg:
       return "-";
     case UnaryOpType::Not:

@@ -1064,5 +1064,39 @@ class TORCH_CUDA_CU_API AllocateFusedReduction final : public Expr {
   const ParallelTypeBitmap& threadPredicate() const;
 };
 
+class TORCH_CUDA_CU_API GetRNGSeedAndOffsetFromHost : public Expr {
+ public:
+  using Expr::Expr;
+
+  GetRNGSeedAndOffsetFromHost(
+      IrBuilderPasskey,
+      Val* seed_ptr,
+      Val* seed_val,
+      Val* first_offset_ptr,
+      Val* first_offset_val,
+      int64_t offsets = -1);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "GetRNGSeedAndOffsetFromHost";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  const int64_t& offsets() const {
+    return attribute<int64_t>(0);
+  }
+
+  int64_t& offsets() {
+    return attribute<int64_t>(0);
+  }
+
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
+};
+
 } // namespace kir
 } // namespace nvfuser
