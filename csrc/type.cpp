@@ -35,6 +35,7 @@ DataType metaDataTypeOf(const Val* v) {
 
   StructOf tv_metadata;
   tv_metadata.name = ss.str();
+  tv_metadata.field_names = {"data", "logical_size", "alloc_stride"};
   tv_metadata.types["data"] = NVFUSER_MAYBE_MAKE_SHARED(
       PointerOf{std::make_shared<DataType>(tv->dtype())});
   tv_metadata.types["logical_size"] = NVFUSER_MAYBE_MAKE_SHARED2(
@@ -215,9 +216,9 @@ static std::string data_type2string(DataType t) {
           }
           std::stringstream ss;
           ss << "struct { ";
-          for (auto& [name, type] : dtype.types) {
-            ss << data_type2string(NVFUSER_MAYBE_STAR type) << " " << name
-               << "; ";
+          for (auto& name : dtype.field_names) {
+            ss << data_type2string(NVFUSER_MAYBE_STAR dtype.types.at(name))
+               << " " << name << "; ";
           }
           ss << "}";
           return ss.str();
