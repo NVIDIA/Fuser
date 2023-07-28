@@ -25,15 +25,22 @@ DataType metaDataTypeOf(const Val* v) {
     // Smem tensor is defined locally as a pointer
     return PointerOf{std::make_shared<DataType>(tv->dtype())};
   }
+
+  size_t dim = TensorDomain::noReductions(tv->getMaybeRFactorDomain()).size();
+  size_t alloc_dim =
+      TensorDomain::noReductions(tv->getMaybeAllocationDomain()).size();
+
+  std::stringstream ss;
+  ss << "Tensor<" << tv->dtype() << ", " << dim << ", " << alloc_dim << ">";
+
   StructOf tv_metadata;
+  tv_metadata.name = ss.str();
   tv_metadata.types["data"] = NVFUSER_MAYBE_MAKE_SHARED(
       PointerOf{std::make_shared<DataType>(tv->dtype())});
-  tv_metadata.types["size"] = NVFUSER_MAYBE_MAKE_SHARED2(ArrayOf{
-      std::make_shared<DataType>(DataType::Index),
-      TensorDomain::noReductions(tv->getMaybeRFactorDomain()).size()});
-  tv_metadata.types["stride"] = NVFUSER_MAYBE_MAKE_SHARED2(ArrayOf{
-      std::make_shared<DataType>(DataType::Index),
-      TensorDomain::noReductions(tv->getMaybeAllocationDomain()).size()});
+  tv_metadata.types["size"] = NVFUSER_MAYBE_MAKE_SHARED2(
+      ArrayOf{std::make_shared<DataType>(DataType::Index), dim});
+  tv_metadata.types["stride"] = NVFUSER_MAYBE_MAKE_SHARED2(
+      ArrayOf{std::make_shared<DataType>(DataType::Index), alloc_dim});
   return tv_metadata;
 }
 
@@ -199,6 +206,9 @@ static std::string data_type2string(DataType t) {
              << ", 1>";
           return ss.str();
         } else if constexpr (std::is_same_v<T, StructOf>) {
+          if (dtype.name != "") {
+            return dtype.name;
+          }
           std::stringstream ss;
           ss << "struct { ";
           for (auto& [name, type] : dtype.types) {

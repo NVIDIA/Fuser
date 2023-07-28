@@ -44,6 +44,15 @@ void validateKernelOutputs(
     const std::vector<at::Tensor>& outputs,
     const c10::Device& device);
 
+// TODO: rename this function
+void bindInputForExprEvaluation(
+    Val* val,
+    const ArgAbstract* arg,
+    bool check_consistency,
+    ExpressionEvaluator& expr_eval,
+    bool legacy = true);
+
+// TODO: remove this function
 //! Bind input values to runtime values
 TORCH_CUDA_CU_API ExpressionEvaluator bindInputs(
     const KernelArgumentHolder& args,

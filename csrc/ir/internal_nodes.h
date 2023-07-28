@@ -1835,9 +1835,6 @@ class TORCH_CUDA_CU_API NamedScalar : public Val {
   //! Check if this is something like T0.size[1]
   bool isTensorSize() const;
 
-  //! Check if this is something like T0.stride[1]
-  bool isTensorStride() const;
-
   //! Check if this is threadIdx.{x,y,z}
   bool isThreadIdx() const {
     auto p = getParallelIndex();
