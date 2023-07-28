@@ -9430,6 +9430,53 @@ TEST_F(NVFuserTest, FusionInstanceNormNHWC_CUDA) {
   testValidate(fusion, cg_outputs, inputs, outputs, __LINE__, __FILE__);
 }
 
+// Repro of issue #658. Vectorization failed with the second segment
+TEST_F(NVFuserTest, VectorizeBackToBackReductions) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  std::vector<int64_t> input_shape{128, 256, 256};
+
+  auto tv0 = makeContigConcreteTensor(input_shape);
+  fusion->addInput(tv0);
+
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
+  auto tv2 = sum(tv1, {2});
+
+  auto output = sum(tv2, {1});
+  fusion->addOutput(output);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor at_x = at::randn(input_shape, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+
+  auto outputs = executor_cache.runFusionWithInputs({at_x});
+
+  auto t1 = at_x.add(1.0);
+  auto t2 = t1.sum({2});
+  auto t3 = t2.sum({1});
+
+  auto optimized_fusion = executor_cache.getMostRecentKernelRuntime();
+  ASSERT_TRUE(optimized_fusion->isSegmented()) << "segmentation didn't happen";
+  ASSERT_EQ(optimized_fusion->fusionSegments()->groups().size(), 2)
+      << "segmentation didn't happen as expected";
+
+  auto heuristic_params = executor_cache.getMostRecentKernelRuntime()
+                              ->schedulerHeuristics()
+                              ->heuristicsList()
+                              .at(1)
+                              ->params();
+  ASSERT_TRUE(heuristic_params->isA<ReductionParams>());
+  auto rparams = heuristic_params->as<ReductionParams>();
+  ASSERT_TRUE(rparams->vectorize_inner_reduction) << "Failed to vectorize";
+  ASSERT_EQ(rparams->unroll_factor_inner_reduction, 4)
+      << "Unexpected vectorization factor";
+
+  testValidate(
+      executor_cache.fusion(), outputs, {at_x}, {t3}, __LINE__, __FILE__);
+}
+
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser
