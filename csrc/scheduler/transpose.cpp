@@ -718,8 +718,15 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
 
     // TODO: consider transformation applied for [small transpose dimension]
     // duplicating reference1's TensorDomain, since the transformations applied is not persistent and only needed for us to compute vectorization width.
-    ir_utils::TVDomainGuard domain_guard(
-        reference1, TensorDomain(reference1->domain(), reference1->fusion()));
+    TensorDomain* cloned_1_td = IrBuilder::create<TensorDomain>(
+        reference1->container(),
+        reference1->getRootDomain(),
+        reference1->getRFactorDomain(),
+        reference1->getAllocationDomain(),
+        reference1->getLeafDomain(),
+        reference1->domain()->contiguity());
+    ir_utils::TVDomainGuard domain_guard(reference1, cloned_1_td);
+
     // we only apply split here, since we don't care about merging any IterDomain, but rather just needed to map those merged domains via ContiguousInnerDimensionsMapper
     scheduler_utils::splitDims(reference1, params.split_before_tiling);
 
