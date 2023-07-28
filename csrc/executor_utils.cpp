@@ -24,7 +24,6 @@
 #include <utils.h>
 
 #include <cuda_occupancy.h>
-#include <nvfuser_resources/PhiloxCudaStateRaw.h>
 #include <nvfuser_resources/array.h>
 #include <nvfuser_resources/basic_type_traits.h>
 #include <nvfuser_resources/bf16_support.h>
@@ -103,9 +102,6 @@ std::string kernelPreamble() {
   ss << nvfuser_resources::fused_welford_impl_cu;
   ss << nvfuser_resources::block_welford_outer_cu;
   ss << nvfuser_resources::fused_welford_impl_outer_cu;
-
-  // Random utilities
-  ss << nvfuser_resources::PhiloxCudaStateRaw_cu;
 
   return ss.str();
 }
@@ -614,10 +610,10 @@ void validateAlignedVectorizeExtents(
 void validateAlignedVectorizedFusionInputOutput(
     const at::Tensor& aten_tensor,
     int word_size,
-    TensorView* tv) {
-  ExpressionEvaluator eval;
-  auto sizes_strides =
-      inferAndValidateAllocationSizesAndStrides(aten_tensor, tv, eval);
+    TensorView* tv,
+    ExpressionEvaluator eval) {
+  eval.bind(tv, aten_tensor);
+  auto metadata = eval.evaluate(IrBuilder::metadataExpr(tv));
 
   std::vector<int64_t> no_reduction_to_full;
   for (int64_t i :
@@ -627,7 +623,11 @@ void validateAlignedVectorizedFusionInputOutput(
       no_reduction_to_full.emplace_back(i);
     }
   }
-  TORCH_INTERNAL_ASSERT(sizes_strides.size() == no_reduction_to_full.size());
+
+  auto sizes = std::vector<int64_t>(metadata["alloc_size"]);
+  auto strides = std::vector<int64_t>(metadata["alloc_stride"]);
+  TORCH_INTERNAL_ASSERT(sizes.size() == no_reduction_to_full.size());
+  TORCH_INTERNAL_ASSERT(strides.size() == no_reduction_to_full.size());
 
   TORCH_INTERNAL_ASSERT(
       reinterpret_cast<size_t>(aten_tensor.data_ptr()) %
@@ -647,8 +647,9 @@ void validateAlignedVectorizedFusionInputOutput(
   // domain must have stride 1.
   int64_t cur_contig_stride = 1;
   bool still_rightmost = true;
-  for (int64_t i = (int64_t)sizes_strides.size() - 1; i >= 0; --i) {
-    const auto [size, stride] = sizes_strides.at(i);
+  for (int64_t i = (int64_t)sizes.size() - 1; i >= 0; --i) {
+    const auto size = sizes.at(i);
+    const auto stride = strides.at(i);
     auto alloc_id =
         tv->getMaybeAllocationDomain().at(no_reduction_to_full.at(i));
     const auto is_expanded_broadcasting =
@@ -677,7 +678,9 @@ void validateAlignedVectorizedFusionInputOutput(
         " Domain: ",
         tv->axis(i)->toString(),
         ", stride: ",
-        stride)
+        stride,
+        ", cur_contig_stride ",
+        cur_contig_stride);
     // If the domain is size-1, the next domain is still considered
     // rightmost.
     still_rightmost =
@@ -721,14 +724,15 @@ void validateAlignedVectorizedTensors(
         dynamic_cast<const TensorArgAbstract*>(args[pos]);
     TORCH_INTERNAL_ASSERT(tensor_arg_abstract, "alias io only supports tensor");
     validateAlignedVectorizedFusionInputOutput(
-        tensor_arg_abstract->getTensor(), word_size, tv);
+        tensor_arg_abstract->getTensor(), word_size, tv, expr_eval);
   }
   if (!outputs.empty()) {
     for (auto pos : tensor_vectorization_validation_entry.get()
                         .aligned_vectorized_out_tensor_pos) {
       auto tv = kernel->outputs().at(pos)->as<TensorView>();
       auto word_size = kernel->summary().vectorized_accesses.at(tv);
-      validateAlignedVectorizedFusionInputOutput(outputs[pos], word_size, tv);
+      validateAlignedVectorizedFusionInputOutput(
+          outputs[pos], word_size, tv, expr_eval);
     }
   }
 }
