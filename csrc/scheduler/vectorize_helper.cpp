@@ -802,7 +802,7 @@ int64_t getVectorizationFactor(
     SchedulerRuntimeInfo& runtime_info,
     TensorView* reference_tv,
     HeuristicSummary* data_cache,
-    int break_point) {
+    int64_t break_point) {
   auto vectorizable_inputs_outputs_entry =
       HeuristicSummaryEntry<HeuristicCompileTime::VectorizableInputsAndOutputs>(
           data_cache, [&reference_tv]() {
@@ -894,7 +894,7 @@ int64_t getVectorizationBreakPointOfReductionProducer(
   // innermost consumer IDs
   std::unordered_set<IterDomain*> producer_innermost_ids;
   for (auto it = reduction_consumer->getRootDomain().begin() +
-           (reduction_consumer->nDims() - consumer_innermost_ndims);
+           ((int64_t)reduction_consumer->nDims() - consumer_innermost_ndims);
        it != reduction_consumer->getRootDomain().end();
        ++it) {
     auto consumer_id = *it;
