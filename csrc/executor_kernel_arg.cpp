@@ -14,139 +14,6 @@
 
 namespace nvfuser {
 
-PrimDataType getSmallestIndexType(const at::Tensor& tensor) {
-  KernelIndexTypeCompute index_type_helper;
-  for (const auto dim_i : c10::irange(tensor.ndimension())) {
-    auto size = tensor.size(dim_i);
-    auto stride = tensor.stride(dim_i);
-    if (index_type_helper.addDim(size, stride) == PrimDataType::Int) {
-      return PrimDataType::Int;
-    }
-  }
-  return PrimDataType::Int32;
-}
-
-PrimDataType TensorArgAbstract::getSmallestIndexType() const {
-  return nvfuser::getSmallestIndexType(tensor_);
-}
-
-namespace {
-
-template <int nalloc, typename nvfuser_index_t>
-std::unique_ptr<TensorArgAbstract> getTensorArg(
-    at::Tensor tensor,
-    TensorView* tv,
-    ExpressionEvaluator& eval) {
-  switch (tensor.ndimension()) {
-    case (0):
-      return std::make_unique<
-          TensorArg<TensorArgCodegen<0, nalloc, nvfuser_index_t>>>(
-          std::move(tensor), tv, eval);
-    case (1):
-      return std::make_unique<
-          TensorArg<TensorArgCodegen<1, nalloc, nvfuser_index_t>>>(
-          std::move(tensor), tv, eval);
-    case (2):
-      return std::make_unique<
-          TensorArg<TensorArgCodegen<2, nalloc, nvfuser_index_t>>>(
-          std::move(tensor), tv, eval);
-    case (3):
-      return std::make_unique<
-          TensorArg<TensorArgCodegen<3, nalloc, nvfuser_index_t>>>(
-          std::move(tensor), tv, eval);
-    case (4):
-      return std::make_unique<
-          TensorArg<TensorArgCodegen<4, nalloc, nvfuser_index_t>>>(
-          std::move(tensor), tv, eval);
-    case (5):
-      return std::make_unique<
-          TensorArg<TensorArgCodegen<5, nalloc, nvfuser_index_t>>>(
-          std::move(tensor), tv, eval);
-    case (6):
-      return std::make_unique<
-          TensorArg<TensorArgCodegen<6, nalloc, nvfuser_index_t>>>(
-          std::move(tensor), tv, eval);
-    case (7):
-      return std::make_unique<
-          TensorArg<TensorArgCodegen<7, nalloc, nvfuser_index_t>>>(
-          std::move(tensor), tv, eval);
-    case (8):
-      return std::make_unique<
-          TensorArg<TensorArgCodegen<8, nalloc, nvfuser_index_t>>>(
-          std::move(tensor), tv, eval);
-    default:
-      TORCH_INTERNAL_ASSERT(
-          false,
-          "Tried to generate a tensor to run a generated kernel with ",
-          tensor.ndimension(),
-          " dimensions, however only 0 to 8 dimensional tensor are supported.");
-  }
-  return nullptr;
-}
-
-template <typename nvfuser_index_t>
-std::unique_ptr<TensorArgAbstract> getTensorArg(
-    at::Tensor tensor,
-    TensorView* tv,
-    ExpressionEvaluator& eval) {
-  // When tv is nullptr, the given sizes and strides should already be in the
-  // target format.
-  int64_t alloc_size =
-      (tv != nullptr
-           ? (int64_t)TensorDomain::noReductions(tv->getMaybeAllocationDomain())
-                 .size()
-           : tensor.dim());
-  switch (alloc_size) {
-    case (0):
-      return getTensorArg<0, nvfuser_index_t>(tensor, tv, eval);
-    case (1):
-      return getTensorArg<1, nvfuser_index_t>(tensor, tv, eval);
-    case (2):
-      return getTensorArg<2, nvfuser_index_t>(tensor, tv, eval);
-    case (3):
-      return getTensorArg<3, nvfuser_index_t>(tensor, tv, eval);
-    case (4):
-      return getTensorArg<4, nvfuser_index_t>(tensor, tv, eval);
-    case (5):
-      return getTensorArg<5, nvfuser_index_t>(tensor, tv, eval);
-    case (6):
-      return getTensorArg<6, nvfuser_index_t>(tensor, tv, eval);
-    case (7):
-      return getTensorArg<7, nvfuser_index_t>(tensor, tv, eval);
-    case (8):
-      return getTensorArg<8, nvfuser_index_t>(tensor, tv, eval);
-    default:
-      TORCH_INTERNAL_ASSERT(
-          false,
-          "Tried to generate a tensor to run a generated kernel with ",
-          tensor.ndimension(),
-          " dimensions, however only 0 to 8 dimensional tensor are supported.");
-  }
-  return nullptr;
-}
-
-std::unique_ptr<TensorArgAbstract> getAbstractTensorArg(at::Tensor tensor) {
-  return std::make_unique<TensorArgAbstract>(std::move(tensor));
-}
-
-std::unique_ptr<TensorArgAbstract> getTensorArg(
-    at::Tensor tensor,
-    TensorView* tv,
-    ExpressionEvaluator& eval,
-    PrimDataType index_type) {
-  switch (index_type) {
-    case PrimDataType::Int32:
-      return getTensorArg<int>(std::move(tensor), tv, eval);
-    case PrimDataType::Int:
-      return getTensorArg<int64_t>(std::move(tensor), tv, eval);
-    default:
-      TORCH_INTERNAL_ASSERT(false, "unknown index mode");
-      break;
-  }
-}
-
-} // namespace
-
 KernelArgumentHolder KernelArgumentHolder::createKernelArgumentHolder(
     const c10::ArrayRef<c10::IValue>& inputs,
     std::optional<int8_t> selected_device) {
@@ -187,6 +54,18 @@ PolymorphicValue IValueToPolymorphicValue(const c10::IValue& val) {
       TORCH_INTERNAL_ASSERT(
           false, "Can not convert IValue to PolymorphicValue");
   }
+}
+
+PrimDataType getSmallestIndexType(const at::Tensor& tensor) {
+  KernelIndexTypeCompute index_type_helper;
+  for (const auto dim_i : c10::irange(tensor.ndimension())) {
+    auto size = tensor.size(dim_i);
+    auto stride = tensor.stride(dim_i);
+    if (index_type_helper.addDim(size, stride) == PrimDataType::Int) {
+      return PrimDataType::Int;
+    }
+  }
+  return PrimDataType::Int32;
 }
 
 } // namespace
