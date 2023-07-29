@@ -20,7 +20,9 @@
 
 namespace nvfuser {
 
-TEST_F(NVFuserTest, FusionStandaloneFull_CUDA) {
+class TensorFactoryTest : public NVFuserTest {};
+
+TEST_F(TensorFactoryTest, StandaloneFull) {
   auto sizes = {0, 1, 10, 17, 1024};
   auto dtypes = {
       at::kBool,
@@ -36,10 +38,10 @@ TEST_F(NVFuserTest, FusionStandaloneFull_CUDA) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
-  Val* size = IrBuilder::create<Int>();
-  Val* fill_val1 = IrBuilder::create<Int>();
-  Val* fill_val2 = IrBuilder::create<Int>();
-  Val* fill_val3 = IrBuilder::create<Int>();
+  Val* size = IrBuilder::create<Val>(DataType::Int);
+  Val* fill_val1 = IrBuilder::create<Val>(DataType::Int);
+  Val* fill_val2 = IrBuilder::create<Val>(DataType::Int);
+  Val* fill_val3 = IrBuilder::create<Val>(DataType::Int);
   fusion->addInput(size);
   fusion->addInput(fill_val1);
   fusion->addInput(fill_val2);
@@ -83,7 +85,7 @@ TEST_F(NVFuserTest, FusionStandaloneFull_CUDA) {
   }
 }
 
-TEST_F(NVFuserTest, FusionStandaloneZeros_CUDA) {
+TEST_F(TensorFactoryTest, StandaloneZeros) {
   auto sizes = {0, 1, 10, 17, 1024};
   auto dtypes = {
       at::kBool,
@@ -99,7 +101,7 @@ TEST_F(NVFuserTest, FusionStandaloneZeros_CUDA) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
-  Val* size = IrBuilder::create<Int>();
+  Val* size = IrBuilder::create<Val>(DataType::Int);
   fusion->addInput(size);
   for (auto dtype : dtypes) {
     if (!isSupportedTypeByDevice(aten_to_data_type(dtype))) {
@@ -140,7 +142,7 @@ TEST_F(NVFuserTest, FusionStandaloneZeros_CUDA) {
   }
 }
 
-TEST_F(NVFuserTest, FusionStandaloneOnes_CUDA) {
+TEST_F(TensorFactoryTest, StandaloneOnes) {
   auto sizes = {0, 1, 10, 17, 1024};
   auto dtypes = {
       at::kBool,
@@ -156,7 +158,7 @@ TEST_F(NVFuserTest, FusionStandaloneOnes_CUDA) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
-  Val* size = IrBuilder::create<Int>();
+  Val* size = IrBuilder::create<Val>(DataType::Int);
   fusion->addInput(size);
   for (auto dtype : dtypes) {
     if (!isSupportedTypeByDevice(aten_to_data_type(dtype))) {
@@ -197,7 +199,7 @@ TEST_F(NVFuserTest, FusionStandaloneOnes_CUDA) {
   }
 }
 
-TEST_F(NVFuserTest, FusionStandaloneIota_CUDA) {
+TEST_F(TensorFactoryTest, StandaloneIota) {
   auto starts = {-1., 0., 10.3, 1024. * 256};
   auto steps = {-1.5, 1., 2.};
   auto lengths = {0, 1, 2, 10, 1023, 1024, 1024 * 1024};
@@ -213,7 +215,7 @@ TEST_F(NVFuserTest, FusionStandaloneIota_CUDA) {
     auto fusion = std::make_unique<Fusion>();
     FusionGuard fg(fusion.get());
 
-    Val* length = IrBuilder::create<Int>();
+    Val* length = IrBuilder::create<Val>(DataType::Int);
 
     Val* start = IrBuilder::newScalar(input_type);
     Val* step = IrBuilder::newScalar(input_type);
@@ -289,7 +291,7 @@ TEST_F(NVFuserTest, FusionStandaloneIota_CUDA) {
   }
 }
 
-TEST_F(NVFuserTest, FusionStandaloneARange_CUDA) {
+TEST_F(TensorFactoryTest, StandaloneARange) {
   auto starts_ends = {-1., 0., 10.3, 1024. * 256};
   auto steps = {-1.5, 1., 2.};
   auto dtypes = {at::kFloat, at::kLong, at::kDouble};
@@ -298,12 +300,12 @@ TEST_F(NVFuserTest, FusionStandaloneARange_CUDA) {
     auto fusion = std::make_unique<Fusion>();
     FusionGuard fg(fusion.get());
 
-    Val* start_int = IrBuilder::create<Int>();
-    Val* end_int = IrBuilder::create<Int>();
-    Val* step_int = IrBuilder::create<Int>();
-    Val* start_double = IrBuilder::create<Double>();
-    Val* end_double = IrBuilder::create<Double>();
-    Val* step_double = IrBuilder::create<Double>();
+    Val* start_int = IrBuilder::create<Val>(DataType::Int);
+    Val* end_int = IrBuilder::create<Val>(DataType::Int);
+    Val* step_int = IrBuilder::create<Val>(DataType::Int);
+    Val* start_double = IrBuilder::create<Val>(DataType::Double);
+    Val* end_double = IrBuilder::create<Val>(DataType::Double);
+    Val* step_double = IrBuilder::create<Val>(DataType::Double);
     fusion->addInput(start_int);
     fusion->addInput(end_int);
     fusion->addInput(step_int);
@@ -368,7 +370,7 @@ TEST_F(NVFuserTest, FusionStandaloneARange_CUDA) {
   }
 }
 
-TEST_F(NVFuserTest, FusionStandaloneEye_CUDA) {
+TEST_F(TensorFactoryTest, StandaloneEye) {
   auto sizes = {0, 1, 10, 17, 1024};
   auto dtypes = {
       at::kBool,
@@ -384,8 +386,8 @@ TEST_F(NVFuserTest, FusionStandaloneEye_CUDA) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
-  Val* size = IrBuilder::create<Int>();
-  Val* maybe_m = IrBuilder::create<Int>();
+  Val* size = IrBuilder::create<Val>(DataType::Int);
+  Val* maybe_m = IrBuilder::create<Val>(DataType::Int);
   fusion->addInput(size);
   fusion->addInput(maybe_m);
   for (auto dtype : dtypes) {
@@ -424,16 +426,16 @@ TEST_F(NVFuserTest, FusionStandaloneEye_CUDA) {
   }
 }
 
-TEST_F(NVFuserTest, FusionARangeScalarHoisting1_CUDA) {
+TEST_F(TensorFactoryTest, ARangeScalarHoisting1) {
   if (isOptionDisabled(DisableOption::IndexHoist)) {
     GTEST_SKIP() << "Index hoisting disabled";
   }
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
-  Val* start_int = IrBuilder::create<Int>();
-  Val* end_int = IrBuilder::create<Int>();
-  Val* step_int = IrBuilder::create<Int>();
+  Val* start_int = IrBuilder::create<Val>(DataType::Int);
+  Val* end_int = IrBuilder::create<Val>(DataType::Int);
+  Val* step_int = IrBuilder::create<Val>(DataType::Int);
   fusion->addInput(start_int);
   fusion->addInput(end_int);
   fusion->addInput(step_int);
@@ -464,12 +466,12 @@ __global__ void CUDAGeneratedKernel(int64_t i0, int64_t i1, int64_t i2, Tensor<i
   int64_t i6;
   i6 = ceilDiv(i4, i5);
   #pragma unroll 1
-  for(nvfuser_index_t i8 = 0; i8 < i6; ++i8) {
-    T0[i8] = (i0 + (i2 * i8));
+  for(nvfuser_index_t i7 = 0; i7 < i6; ++i7) {
+    T0[i7] = (i0 + (i2 * i7));
   }
   #pragma unroll 1
-  for(nvfuser_index_t i9 = 0; i9 < i6; ++i9) {
-    T1[i9] = i6;
+  for(nvfuser_index_t i8 = 0; i8 < i6; ++i8) {
+    T1[i8] = i6;
   }
 }
 )";
@@ -483,6 +485,79 @@ __global__ void CUDAGeneratedKernel(int64_t i0, int64_t i1, int64_t i2, Tensor<i
       {t0, t1},
       __LINE__,
       __FILE__);
+}
+
+TEST_F(TensorFactoryTest, TensorConstruct) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  Val* i00 = IrBuilder::create<Val>(DataType::Int);
+  Val* i01 = IrBuilder::create<Val>(DataType::Int);
+  Val* i10 = IrBuilder::create<Val>(DataType::Int);
+  Val* i11 = IrBuilder::create<Val>(DataType::Int);
+  fusion->addInput(i00);
+  fusion->addInput(i01);
+  fusion->addInput(i10);
+  fusion->addInput(i11);
+  auto output = tensor(std::vector<std::vector<Val*>>{{i00, i01}, {i10, i11}});
+  fusion->addOutput(output);
+
+  FusionExecutor fe;
+  fe.compileFusion(fusion.get());
+  auto cg_outputs = fe.runFusion({00, 01, 10, 11});
+
+  testValidate(fusion.get(), cg_outputs, {00, 01, 10, 11}, __LINE__, __FILE__);
+}
+
+TEST_F(TensorFactoryTest, MetadataAsTensor) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* tv0 = makeSymbolicTensor(4);
+  TensorView* tv1 = makeSymbolicTensor(4);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+
+  auto meta0 = IrBuilder::metadataExpr(tv0);
+  auto meta1 = IrBuilder::metadataExpr(tv1);
+
+  auto meta0_copy0 = set(meta0);
+  auto meta1_copy0 = set(meta1);
+
+  // also test unamed structure
+  auto unamed_dtype0 = metaDataTypeOf(tv0);
+  std::get<StructOf>(unamed_dtype0.type).name = "";
+  auto unamed_dtype1 = metaDataTypeOf(tv1);
+  std::get<StructOf>(unamed_dtype1.type).name = "";
+  auto meta0_copy1 = IrBuilder::newScalar(unamed_dtype0);
+  auto meta1_copy1 = IrBuilder::newScalar(unamed_dtype1);
+  IrBuilder::create<LoadStoreOp>(
+      LoadStoreOpType::Set, meta0_copy1, meta0_copy0);
+  IrBuilder::create<LoadStoreOp>(
+      LoadStoreOpType::Set, meta1_copy1, meta1_copy0);
+
+  auto meta0_copy2 = set(meta0_copy1);
+  auto meta1_copy2 = set(meta1_copy1);
+
+  auto size0 = IrBuilder::getAttrExpr(meta0_copy2, "logical_size");
+  auto stride0 = IrBuilder::getAttrExpr(meta0_copy2, "alloc_stride");
+  auto size1 = IrBuilder::getAttrExpr(meta1_copy2, "logical_size");
+  auto stride1 = IrBuilder::getAttrExpr(meta1_copy2, "alloc_stride");
+
+  auto output = tensor(std::vector<Val*>{size0, stride0, size1, stride1});
+  fusion->addOutput(output);
+
+  const auto options =
+      at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  auto input0 = at::randn({2, 3, 4, 5}, options);
+  auto input1 = at::randn({6, 7, 8, 9}, options);
+
+  FusionExecutor fe;
+  fe.compileFusion(fusion.get());
+  auto cg_outputs = fe.runFusion({input0, input1});
+
+  testValidate(fusion.get(), cg_outputs, {input0, input1}, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser

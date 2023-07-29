@@ -6,16 +6,67 @@
  */
 // clang-format on
 
+#include <ATen/cuda/CUDAContext.h>
 #include <device_lower/utils.h>
 #include <expr_evaluator.h>
 #include <ir/printer.h>
 #include <root_domain_map.h>
 #include <scheduler/mma_utils.h>
 #include <scheduler/utils.h>
-
+#include <variant>
+#include "mma_type.h"
 namespace nvfuser {
 
 namespace mma_utils {
+
+bool generateSharedMemoryEpilogueHeuristics(
+    const MatMulTileOptions& gemm_tile,
+    const int smem_double_buffer_stage,
+    const MmaDataTypes& data_types,
+    const bool ignore_occupancy_drop) {
+  const auto properties = at::cuda::getCurrentDeviceProperties();
+  const size_t device_smem_limit = properties->sharedMemPerBlockOptin;
+  const size_t shared_memory_overhead = properties->reservedSharedMemPerBlock;
+  const size_t shared_memory_available =
+      device_smem_limit - shared_memory_overhead;
+
+  auto warp_dims = gemm_tile.cta_tile / gemm_tile.warp_tile;
+  const auto threads_per_block =
+      warp_dims.m * warp_dims.n * warp_dims.k * properties->warpSize;
+
+  // see scheduleContiguousVectorLoad
+  const int vector_word = 8;
+  const int round_to_factor = warp_dims.m * warp_dims.n * warp_dims.k *
+      properties->warpSize * vector_word;
+  const int mk = gemm_tile.cta_tile.m * gemm_tile.cta_tile.k;
+  const int nk = gemm_tile.cta_tile.n * gemm_tile.cta_tile.k;
+  const size_t smem_a = (size_t)(ceilDiv(mk, round_to_factor) *
+                                 round_to_factor * smem_double_buffer_stage) *
+      dataTypeSize(data_types[0]);
+  const size_t smem_b = (size_t)(ceilDiv(nk, round_to_factor) *
+                                 round_to_factor * smem_double_buffer_stage) *
+      dataTypeSize(data_types[1]);
+  const size_t smem_c = (size_t)(gemm_tile.cta_tile.m * gemm_tile.cta_tile.n) *
+      dataTypeSize(data_types[2]);
+
+  // shortcut where occupancy change is ignored.
+  if (ignore_occupancy_drop) {
+    return shared_memory_available >= smem_a + smem_b + smem_c;
+  }
+
+  // use additional shared memory for epilogue if occupancy is not changed.
+  // occupancy is estimated using register and shared memory usage.
+  const auto threads_per_sm = getThreadsPerSMGivenRegPerThread(255);
+  const auto blocks_per_sm_by_register = threads_per_sm / threads_per_block;
+  const auto blocks_per_sm_without_smem_epilogue = std::min(
+      shared_memory_available / (smem_a + smem_b),
+      (size_t)blocks_per_sm_by_register);
+  const auto blocks_per_sm_with_smem_epilogue = std::min(
+      shared_memory_available / (smem_a + smem_b + smem_c),
+      (size_t)blocks_per_sm_by_register);
+  return blocks_per_sm_with_smem_epilogue ==
+      blocks_per_sm_without_smem_epilogue;
+}
 
 void scheduleWarpTileWithReduction(TensorView* tv, MatMulTileOptions tile) {
   // Assumes
@@ -226,7 +277,7 @@ void makeTile(TensorView* tv, std::vector<int> tile_sizes) {
 
 namespace {
 
-c10::optional<IterDomain*> getMaybeRootIfInnermostTiled(
+std::optional<IterDomain*> getMaybeRootIfInnermostTiled(
     IterDomain* id,
     const std::unordered_set<IterDomain*>& maybe_rfactor_id_set) {
   // Root id defaults to an "innermost id".
@@ -238,7 +289,7 @@ c10::optional<IterDomain*> getMaybeRootIfInnermostTiled(
       }
     }
     // Didn't pass the inner most check, return empty.
-    return c10::nullopt;
+    return std::nullopt;
   }
 
   return id;
@@ -377,11 +428,6 @@ bool canValidateIsInnerDim(
       if (!split->factor()->isConstInt()) {
         return false;
       }
-      if (split->factor()->evaluateInt() < inner_dim_size) {
-        // This might be too restrictive. Would need more
-        //   bookkeeping to relax.
-        return false;
-      }
       leaf = split->in();
     } else if (auto merge = dynamic_cast<Merge*>(expr)) {
       // Might consider just rejecting merge.
@@ -392,9 +438,6 @@ bool canValidateIsInnerDim(
 
       // Only support merging with constant sized dims
       if (!leaf->extent()->isConstInt()) {
-        return false;
-      }
-      if (leaf->extent()->evaluateInt() != inner_dim_size) {
         return false;
       }
       leaf = merge->inner();
@@ -436,7 +479,9 @@ void checkDimSize(
         ":",
         id->extent()->evaluateInt(),
         "vs",
-        expect[axis_index]);
+        expect[axis_index],
+        "\n for tv: ",
+        tv->toString());
   }
 }
 
@@ -741,7 +786,10 @@ bool checkLdMatrixTv(TensorView* tv) {
     TORCH_CHECK(tv_def != nullptr, "ldmatrix : invalid tv");
     is_immediate_output = false;
   }
-  TORCH_CHECK(ir_utils::isLdMatrixOp(tv_def), "ldmatrix : invalid op type");
+  TORCH_CHECK(
+      ir_utils::isLdMatrixOp(tv_def),
+      "ldmatrix : invalid op type: ",
+      tv_def->toString());
   TORCH_CHECK(
       tv->nDims() >= 2,
       "ldmatrix: scheduled tv needs to be at least 2 dimensional");
@@ -1245,6 +1293,244 @@ void canonicalizeMmaTvOrdering(TensorView* tv) {
 
   // Apply the new ordering
   tv->reorder(order_map);
+}
+
+namespace {
+
+inline void resolveTvToMatmulDomainsMapping(
+    DependenciesMap& deps_map,
+    const std::vector<TensorView*>& tensors,
+    IterDomain* m,
+    IterDomain* n,
+    IterDomain* k,
+    const ComputeAtMap& ca_map) {
+  for (const auto tv : tensors) {
+    for (const auto domain : tv->getLeafDomain()) {
+      if (ca_map.areMapped(m, domain, IdMappingMode::EXACT)) {
+        deps_map[tv].push_back(MatmulDomain::M);
+        continue;
+      }
+      if (ca_map.areMapped(n, domain, IdMappingMode::EXACT)) {
+        deps_map[tv].push_back(MatmulDomain::N);
+        continue;
+      }
+      if (ca_map.areMapped(k, domain, IdMappingMode::EXACT)) {
+        deps_map[tv].push_back(MatmulDomain::K);
+        continue;
+      }
+    }
+  }
+}
+
+} // anonymous namespace
+
+ProblemIterDomainsOpt getProblemIterDomains(Fusion* fusion) {
+  auto mma_exprs = ir_utils::getMmaOps(fusion);
+  if (mma_exprs.size() != 1) {
+    std::stringstream ss;
+    ss << "Invalid number of MmaOp instances in fusion, expected 1, got "
+       << mma_exprs.size();
+    return ss.str();
+  }
+  const auto mma_output = mma_exprs.front()->out();
+
+  // NOTE: the iter domains of MMA output should be [...,M,K,N]
+  IterDomain* m = nullptr;
+  IterDomain* n = nullptr;
+  IterDomain* k = nullptr;
+
+  const auto leaf_domains =
+      static_cast<const TensorView*>(mma_output)->getLeafDomain();
+  const auto concrete =
+      TensorDomain::noReductions(TensorDomain::noBroadcasts(leaf_domains));
+  if (concrete.size() < MIN_MATMUL_INPUTS_NUMBER) {
+    std::stringstream ss;
+    ss << "Failed to find the minimum number of MMA input candidates, expected "
+       << MIN_MATMUL_INPUTS_NUMBER << ", got " << concrete.size();
+    return ss.str();
+  }
+
+  // M,N are inner most concrete iter domains
+  m = concrete.rbegin()[1];
+  n = concrete.rbegin()[0];
+
+  // K is a reduction domain, search for the inner most reduction domain
+  for (auto iter_domain = leaf_domains.rbegin();
+       iter_domain != leaf_domains.rend();
+       ++iter_domain) {
+    if ((*iter_domain)->isReduction()) {
+      k = *iter_domain;
+      break;
+    }
+  }
+  TORCH_INTERNAL_ASSERT(k != nullptr, "Failed to find K domain in MMA output");
+
+  return ProblemIterDomains{m, n, k};
+}
+
+MatmulProblemLayoutOpt getMatmulLayout(Fusion* fusion) {
+  ComputeAtMap ca_map(fusion);
+  const auto mma_input_candidates =
+      ir_utils::filterByType<TensorView>(fusion->inputs()).vector();
+  if (mma_input_candidates.empty()) {
+    return {"Failed to find any TV that is fusion input"};
+  }
+
+  const auto mma_output_domains = getProblemIterDomains(fusion);
+  if (!mma_output_domains.isValid()) {
+    return mma_output_domains.getErrorMsg();
+  }
+
+  const auto domains_data = mma_output_domains.getData();
+  const auto m = domains_data[(size_t)MatmulDomain::M];
+  const auto n = domains_data[(size_t)MatmulDomain::N];
+  const auto k = domains_data[(size_t)MatmulDomain::K];
+
+  DependenciesMap deps_map;
+  resolveTvToMatmulDomainsMapping(
+      deps_map, mma_input_candidates, m, n, k, ca_map);
+
+  bool mk_found = false;
+  bool km_found = false;
+  bool nk_found = false;
+  bool kn_found = false;
+  const static DomainsDesc mk_desc = {MatmulDomain::M, MatmulDomain::K};
+  const static DomainsDesc km_desc = {MatmulDomain::K, MatmulDomain::M};
+  const static DomainsDesc nk_desc = {MatmulDomain::N, MatmulDomain::K};
+  const static DomainsDesc kn_desc = {MatmulDomain::K, MatmulDomain::N};
+
+  for (const auto& item : deps_map) {
+    if (item.second == mk_desc) {
+      if (mk_found) {
+        return {
+            "Failed to find MMA input, more than one fusion input has [..., M, ..., K, ...] iter domains"};
+      }
+      mk_found = true;
+    }
+    if (item.second == km_desc) {
+      if (km_found) {
+        return {
+            "Failed to find MMA input, more than one fusion input has [..., K, ..., M, ...] iter domains"};
+      }
+      km_found = true;
+    }
+    if (item.second == nk_desc) {
+      if (nk_found) {
+        return {
+            "Failed to find MMA input, more than one fusion input has [..., N, ..., K, ...] iter domains"};
+      }
+      nk_found = true;
+    }
+    if (item.second == kn_desc) {
+      if (kn_found) {
+        return {
+            "Failed to find MMA input, more than one fusion input has [..., K, ..., N, ...] iter domains"};
+      }
+      kn_found = true;
+    }
+  }
+
+  if ((mk_found && kn_found) && !(km_found || nk_found)) {
+    return MmaOptions::MmaLayout::TT;
+  }
+  if ((km_found && kn_found) && !(mk_found || nk_found)) {
+    return MmaOptions::MmaLayout::NT;
+  }
+  if ((mk_found && nk_found) && !(km_found || kn_found)) {
+    return MmaOptions::MmaLayout::TN;
+  }
+  if ((km_found && nk_found) && !(mk_found || kn_found)) {
+    return MmaOptions::MmaLayout::NN;
+  }
+
+  return {"Failed to decide fusion inputs' data layout."};
+}
+
+RolesMapOpt getTensorsRoles(Fusion* fusion) {
+  ComputeAtMap ca_map(fusion);
+  const auto mma_input_candidates =
+      ir_utils::filterByType<TensorView>(fusion->inputs()).vector();
+  if (mma_input_candidates.empty()) {
+    return {"Failed to find any TV that is fusion input"};
+  }
+  const auto mma_output_candidates =
+      ir_utils::filterByType<TensorView>(fusion->outputs()).vector();
+  if (mma_output_candidates.empty()) {
+    return {"Failed to find any TV that is fusion output"};
+  }
+
+  const auto mma_output_domains = getProblemIterDomains(fusion);
+  if (!mma_output_domains.isValid()) {
+    return mma_output_domains.getErrorMsg();
+  }
+
+  const auto findRolesByDomains = [](const DependenciesMap& deps_map,
+                                     RolesMap& roles_map,
+                                     const bool processing_output) {
+    for (const auto& entry : deps_map) {
+      const auto& domains = entry.second;
+      const auto end = domains.end();
+
+      bool has_m =
+          (end != std::find(domains.begin(), domains.end(), MatmulDomain::M))
+          ? true
+          : false;
+      bool has_n =
+          (end != std::find(domains.begin(), domains.end(), MatmulDomain::N))
+          ? true
+          : false;
+      bool has_k =
+          (end != std::find(domains.begin(), domains.end(), MatmulDomain::K))
+          ? true
+          : false;
+
+      if (has_m && has_k && !has_n && !processing_output) {
+        roles_map[MatmulRole::INPUT_A].push_back(entry.first);
+        continue;
+      }
+      if (has_n && has_k && !has_m && !processing_output) {
+        roles_map[MatmulRole::INPUT_B].push_back(entry.first);
+        continue;
+      }
+      if (!processing_output && has_m && has_n && !has_k) {
+        roles_map[MatmulRole::INPUT_C].push_back(entry.first);
+        continue;
+      }
+
+      // NOTE: depending on fusion definition k domain may appear in the output:
+      //  - for mma_output == fusion output k domain is present
+      //  - for mma_output != fusion output (fusion with epilogue) k domain
+      //    is not present
+      if (processing_output && has_m && has_n) {
+        roles_map[MatmulRole::OUTPUT_D].push_back(entry.first);
+        continue;
+      }
+    }
+  };
+
+  const auto domains_data = mma_output_domains.getData();
+  const auto m = domains_data[(size_t)MatmulDomain::M];
+  const auto n = domains_data[(size_t)MatmulDomain::N];
+  const auto k = domains_data[(size_t)MatmulDomain::K];
+
+  DependenciesMap deps_map;
+  RolesMap roles_map;
+
+  // Handle fusion input TensorView objects
+  bool handling_output = false;
+  resolveTvToMatmulDomainsMapping(
+      deps_map, mma_input_candidates, m, n, k, ca_map);
+  findRolesByDomains(deps_map, roles_map, handling_output);
+
+  deps_map.clear();
+
+  // Handle fusion output TensorView objects
+  handling_output = true;
+  resolveTvToMatmulDomainsMapping(
+      deps_map, mma_output_candidates, m, n, k, ca_map);
+  findRolesByDomains(deps_map, roles_map, handling_output);
+
+  return roles_map;
 }
 
 } // namespace mma_utils

@@ -7,12 +7,14 @@
 // clang-format on
 #include <scheduler/pointwise.h>
 
+#include <debug.h>
 #include <device_lower/utils.h>
 #include <executor_utils.h>
 #include <inlining.h>
 #include <instrumentation.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
+#include <options.h>
 #include <scheduler/pointwise_utils.h>
 #include <scheduler/registry.h>
 #include <scheduler/utils.h>
@@ -125,10 +127,10 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
     auto inferred_val =
         runtime_info.expressionEvaluator().evaluate(ref_root[ref_i]->extent());
     TORCH_INTERNAL_ASSERT(
-        inferred_val.has_value(),
+        inferred_val.hasValue(),
         "Error inferring size for pointwise scheduler: ",
         ref_root[ref_i]->extent()->toInlineString());
-    elem_counts[ref_i] = inferred_val->as<int64_t>();
+    elem_counts[ref_i] = inferred_val.as<int64_t>();
     n_elems *= elem_counts[ref_i];
   }
 
@@ -149,13 +151,8 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
     });
     broadcast_info.get();
 
-    auto vectorize_maps_entry =
-        HeuristicSummaryEntry<HeuristicCompileTime::VectorizeMaps>(
-            data_cache, [&largest_out]() {
-              return std::make_unique<std::vector<
-                  vectorize_helper::ContiguousInnerDimensionsMapper>>(
-                  vectorize_helper::getAllVectorizedMapsOf(largest_out));
-            });
+    vectorize_helper::getVectorizationFactor(
+        runtime_info, largest_out, data_cache, 0);
 
     // All cache entries that are expected to be generated in the pointwise
     // scheduler by registry.cpp::HeuristicSummary::validate() must be created
@@ -352,7 +349,7 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
   params->unroll_factor = 1;
 
   const auto vectorize_factor = std::min(
-      static_cast<size_t>(max_unroll_factor),
+      max_unroll_factor,
       vectorize_helper::getVectorizationFactor(
           runtime_info, largest_out, data_cache, break_point));
 
@@ -381,21 +378,21 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
   }
 
   if (isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
-    std::cerr << "\n===== Pointwise Stats ========\n"
-              << "num_elems: " << n_elems << "\n"
-              << "elem_counts: " << elem_counts << "\n"
-              << "max_input_dtype_size: " << max_input_dtype_size << "\n"
-              << "vectorize_factor: " << vectorize_factor << std::endl;
-    std::cerr << "broadcast_byte_multiples: ";
+    debug() << "\n===== Pointwise Stats ========\n"
+            << "num_elems: " << n_elems << "\n"
+            << "elem_counts: " << elem_counts << "\n"
+            << "max_input_dtype_size: " << max_input_dtype_size << "\n"
+            << "vectorize_factor: " << vectorize_factor << std::endl;
+    debug() << "broadcast_byte_multiples: ";
     for (auto multiple : broadcast_byte_multiples) {
-      std::cerr << "(" << multiple.lhs_multiple << ", " << multiple.rhs_multiple
-                << "), ";
+      debug() << "(" << multiple.lhs_multiple << ", " << multiple.rhs_multiple
+              << "), ";
     }
-    std::cerr << "LHS elems: "
-              << (right_elem_count > 0 ? n_elems / right_elem_count : 0)
-              << " RHS elems: " << right_elem_count << std::endl;
-    std::cerr << std::endl;
-    std::cerr << params->toString() << std::endl;
+    debug() << "LHS elems: "
+            << (right_elem_count > 0 ? n_elems / right_elem_count : 0)
+            << " RHS elems: " << right_elem_count << std::endl;
+    debug() << std::endl;
+    debug() << params->toString() << std::endl;
   }
 
   return params;

@@ -28,7 +28,6 @@
 #include <kernel_cache.h>
 #include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
-#include <mutator.h>
 #include <ops/all_ops.h>
 #include <root_domain_map.h>
 #include <scheduler/all_schedulers.h>
@@ -283,7 +282,7 @@ TEST_F(NVFuserTest, FusionComputeWith4_CUDA) {
   auto tv0 = makeContigTensor(2);
   fusion.addInput(tv0);
   auto tvs = Welford(tv0, {1});
-  auto tv2 = add(tvs.avg, IrBuilder::create<Double>(1));
+  auto tv2 = add(tvs.avg, IrBuilder::create<Val>(1.0));
   fusion.addOutput(tv2);
 
   tv2->split(0, 4);
@@ -329,9 +328,9 @@ TEST_F(NVFuserTest, FusionComputeWith5_CUDA) {
 
   auto tv0 = makeContigTensor(2);
   fusion.addInput(tv0);
-  auto tv1 = add(tv0, IrBuilder::create<Double>(1));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
   auto tvs = Welford(tv1, {1});
-  auto tv2 = add(tvs.avg, IrBuilder::create<Double>(1));
+  auto tv2 = add(tvs.avg, IrBuilder::create<Val>(1.0));
   fusion.addOutput(tv2);
 
   tv1->split(-1, 4);
@@ -454,7 +453,6 @@ TEST_F(NVFuserTest, FusionComputeWith6_CUDA) {
   checkComputeWith(gpulw.kernel(), tv1, tv1->nDims() - 1, {tv2});
 
   auto options_half = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
-  at::manual_seed(0);
 
   const std::vector<int64_t> input_shape{N, H, W, C};
   auto t0 = at::randn(input_shape, options_half);

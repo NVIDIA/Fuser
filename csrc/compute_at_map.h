@@ -158,11 +158,11 @@ class TORCH_CUDA_CU_API IterDomainGraph {
   // include reduction rfactor IDs as well at PR #2562
   std::unordered_set<IterDomain*> rfactor_ids_;
 
-  c10::optional<std::tuple<TensorView*, IterDomain*, IterDomain*, std::string>>
-      self_mapping_info_ = c10::nullopt;
+  std::optional<std::tuple<TensorView*, IterDomain*, IterDomain*, std::string>>
+      self_mapping_info_ = std::nullopt;
 };
 
-using DoubleBufferIndices = std::unordered_map<DoubleBufferLoopStage, Int*>;
+using DoubleBufferIndices = std::unordered_map<DoubleBufferLoopStage, Val*>;
 
 class TORCH_CUDA_CU_API ComputeAtMap {
  public:

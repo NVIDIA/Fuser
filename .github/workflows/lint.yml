@@ -61,7 +61,9 @@ jobs:
           git checkout origin/main
           head_commit=$(git rev-parse HEAD)
           git checkout $this_commit
-          git --no-pager diff --name-only $head_commit | grep -e "csrc/.*\.cpp" -e "csrc/.*\.h" | xargs lintrunner --take CLANGTIDY --force-color
+          # diff-filter for lower case letter:
+          # https://github.com/git/git/commit/7f2ea5f0f2fb056314092cce23202096ca70f076
+          git --no-pager diff --diff-filter=d --name-only $head_commit | grep -e "csrc/.*\.cpp" -e "csrc/.*\.h" | xargs lintrunner --take CLANGTIDY --force-color
 
   lintrunner:
     runs-on: ubuntu-latest
@@ -86,38 +88,3 @@ jobs:
 
           # Run lintrunner except clang-tidy
           lintrunner --force-color --take FLAKE8,MYPY,CLANGFORMAT,NOQA,TYPEIGNORE,NEWLINE,MYPYSTRICT,TABS,SPACES,EXEC,BLACK --all-files
-
-  flake8:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-        with:
-          submodules: true
-      - uses: actions/setup-python@v4
-        with:
-          python-version: '3.10'
-      - name: Install flake8
-        run: pip install flake8
-      - name: Run flake8
-        working-directory: ${{ env.working_directory }}
-        run: flake8 --exclude third_party/
-
-  clang-format:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-        with:
-          submodules: true
-      - uses: actions/setup-python@v4
-        with:
-          python-version: '3.10'
-      - name: Install clang-format
-        run: pip install clang-format==12.0.1.2
-      - name: Run clang-format
-        working-directory: ${{ env.working_directory }}
-        run: |
-          find ./csrc -regex '.*\.\(cpp\|hpp\|cu\|c\|h\)' -exec clang-format -style=file -i {} \;
-          find ./test -regex '.*\.\(cpp\|hpp\|cu\|c\|h\)' -exec clang-format -style=file -i {} \;
-          find ./benchmark -regex '.*\.\(cpp\|hpp\|cu\|c\|h\)' -exec clang-format -style=file -i {} \;
-          find ./runtime -regex '.*\.\(cpp\|hpp\|cu\|c\|h\)' -exec clang-format -style=file -i {} \;
-          git --no-pager diff --exit-code

@@ -7,9 +7,11 @@
 // clang-format on
 #pragma once
 
+#include <debug.h>
 #include <fusion.h>
 #include <ir/base_nodes.h>
 #include <kernel_cache.h>
+#include <options.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/registry.h>
 #include <utils.h>
@@ -123,7 +125,7 @@ class TORCH_CUDA_CU_API SegmentedGroup {
   //!  Note that the schedule params can be different.
   //! Returns a nullopt if this group cannot be scheduled
   //!  with the same heuristics.
-  c10::optional<std::unique_ptr<SchedulerEntry>> getMaybeSchedulerEntry(
+  std::optional<std::unique_ptr<SchedulerEntry>> getMaybeSchedulerEntry(
       SchedulerRuntimeInfo& runtime_info);
 
   //! Query if this is a group for a fusion input
@@ -522,8 +524,8 @@ class TORCH_CUDA_CU_API SegmentCandidateFinder {
       SegmentCandidateFinderOptions options = SegmentCandidateFinderOptions()) {
     auto fusion_copy = std::make_unique<Fusion>(*fusion);
     if (isDebugDumpEnabled(DebugDumpOption::FusionSegments)) {
-      std::cout << "Segment the fusion (Original Fusion Un-modified): "
-                << std::endl;
+      debug() << "Segment the fusion (Original Fusion Un-modified): "
+              << std::endl;
       fusion_copy->printMath();
     }
     SegmentCandidateFinder scf(std::move(fusion_copy), inputs, options);
@@ -537,8 +539,8 @@ class TORCH_CUDA_CU_API SegmentCandidateFinder {
       SegmentCandidateFinderOptions options = SegmentCandidateFinderOptions()) {
     SegmentCandidateFinder scf(std::move(fusion), inputs, options);
     if (isDebugDumpEnabled(DebugDumpOption::FusionSegments)) {
-      std::cout << "Segment the fusion (Original Fusion Un-modified): "
-                << std::endl;
+      debug() << "Segment the fusion (Original Fusion Un-modified): "
+              << std::endl;
       scf.completeFusion()->printMath();
     }
     return std::move(scf.segmented_fusion_);

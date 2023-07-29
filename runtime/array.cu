@@ -6,7 +6,7 @@
  */
 // clang-format on
 // aligned register array for vectorized load/store
-template <typename scalar_t, int size, int align_size>
+template <typename scalar_t, int size, int align_size = 1>
 struct alignas(sizeof(scalar_t) * align_size) Array {
   scalar_t array[size];
 
@@ -19,6 +19,18 @@ struct alignas(sizeof(scalar_t) * align_size) Array {
 
   __device__ scalar_t& operator[](const unsigned int i) {
     return array[i];
+  }
+
+  __device__ const scalar_t& operator[](const unsigned int i) const {
+    return array[i];
+  }
+
+  Array& operator=(const Array& a) {
+#pragma unroll
+    for (int i = 0; i < size; ++i) {
+      array[i] = a[i];
+    }
+    return *this;
   }
 };
 

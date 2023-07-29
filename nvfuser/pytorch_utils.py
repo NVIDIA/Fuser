@@ -27,6 +27,10 @@ _torch_dtype_to_nvfuser_dtype_map = {
 }
 
 
+def python_scalar_to_nvfuser_dtype(a: Union[int, float, complex, bool]):
+    return _torch_dtype_to_nvfuser_dtype_map[type(a)]
+
+
 def torch_dtype_to_nvfuser_dtype(dtype: Union[torch.dtype, NumberTypeType]):
     """
     Translates from torch.dtype to nvFuser's DataType enum

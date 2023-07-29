@@ -32,76 +32,6 @@
 
 namespace nvfuser {
 
-namespace {
-
-class ScalarCheck : OptInConstDispatch {
- public:
-  static bool sameAs(const Val* v1, const Val* v2) {
-    if (v1 == v2)
-      return true;
-
-    if (v1->getValType() != v2->getValType())
-      return false;
-
-    if (v1->getDataType() != v2->getDataType())
-      return false;
-
-    ScalarCheck sc(v1, v2);
-    return sc.same_;
-  }
-
- private:
-  void handle(const Bool* b) final {
-    same_ = v1_->as<Bool>()->sameAs(v2_->as<Bool>());
-  }
-
-  void handle(const Double* d) final {
-    same_ = v1_->as<Double>()->sameAs(v2_->as<Double>());
-  }
-
-  void handle(const Int* i) final {
-    same_ = v1_->as<Int>()->sameAs(v2_->as<Int>());
-  }
-
-  void handle(const NamedScalar* ns) final {
-    same_ = v1_->as<NamedScalar>()->sameAs(v2_->as<NamedScalar>());
-  }
-
-  ScalarCheck(const Val* _v1, const Val* _v2) : v1_(_v1), v2_(_v2) {
-    OptInConstDispatch::handle(v1_);
-  }
-
- private:
-  const Val* v1_ = nullptr;
-  const Val* v2_ = nullptr;
-  bool same_ = false;
-};
-
-} // namespace
-
-bool areEqualScalars(Val* v1, Val* v2) {
-  return ScalarCheck::sameAs(v1, v2);
-}
-
-template class Scalar<bool>;
-template class Scalar<int64_t>;
-template class Scalar<double>;
-template class Scalar<std::complex<double>>;
-
-template Scalar<bool>* IrBuilder::clone<Scalar<bool>>(
-    const Scalar<bool>*,
-    IrCloner*);
-template Scalar<int64_t>* IrBuilder::clone<Scalar<int64_t>>(
-    const Scalar<int64_t>*,
-    IrCloner*);
-template Scalar<double>* IrBuilder::clone<Scalar<double>>(
-    const Scalar<double>*,
-    IrCloner*);
-template Scalar<std::complex<double>>* IrBuilder::clone<
-    Scalar<std::complex<double>>>(
-    const Scalar<std::complex<double>>*,
-    IrCloner*);
-
 FullOp::FullOp(IrBuilderPasskey passkey, Val* out, Val* fill_value)
     : Expr(passkey) {
   if (out->isA<TensorView>()) {
@@ -148,8 +78,7 @@ SelectOp::SelectOp(
   addInput(in);
   addInput(index);
   addOutput(out);
-  addAttribute(
-      IrBuilder::create<Attribute<int64_t>>(passkey.ir_container_, dim));
+  addDataAttribute(dim);
 }
 
 std::string SelectOp::toString(int indent_size) const {
@@ -184,8 +113,7 @@ IndexSelectOp::IndexSelectOp(
   addInput(in);
   addInput(indices);
   addOutput(out);
-  addAttribute(
-      IrBuilder::create<Attribute<int64_t>>(passkey.ir_container_, dim));
+  addDataAttribute(dim);
 }
 
 std::string IndexSelectOp::toString(int indent_size) const {
@@ -225,10 +153,8 @@ TorchGatherOp::TorchGatherOp(
   addInput(in);
   addInput(indices);
   addOutput(out);
-  addAttribute(
-      IrBuilder::create<Attribute<int64_t>>(passkey.ir_container_, dim));
-  addAttribute(
-      IrBuilder::create<Attribute<bool>>(passkey.ir_container_, exact_sizes));
+  addDataAttribute(dim);
+  addDataAttribute(exact_sizes);
 }
 
 std::string TorchGatherOp::toString(int indent_size) const {
@@ -274,10 +200,8 @@ ScatterOp::ScatterOp(
   addInput(index);
   addInput(src);
   addOutput(out);
-  addAttribute(
-      IrBuilder::create<Attribute<int64_t>>(passkey.ir_container_, dim));
-  addAttribute(
-      IrBuilder::create<Attribute<ScatterOpType>>(passkey.ir_container_, type));
+  addDataAttribute(dim);
+  addDataAttribute(type);
 }
 
 std::string ScatterOp::toString(int indent_size) const {
@@ -344,8 +268,7 @@ EyeOp::EyeOp(IrBuilderPasskey passkey, Val* out, DataType dtype)
     }
   }
   addOutput(out);
-  addAttribute(
-      IrBuilder::create<Attribute<DataType>>(passkey.ir_container_, dtype));
+  addDataAttribute(dtype);
 }
 
 std::string EyeOp::toString(int indent_size) const {
@@ -367,24 +290,24 @@ UnaryOp::UnaryOp(IrBuilderPasskey passkey, UnaryOpType type, Val* out, Val* in)
     : Expr(passkey) {
   addOutput(out);
   addInput(in);
-  addAttribute(
-      IrBuilder::create<Attribute<UnaryOpType>>(passkey.ir_container_, type));
+  addDataAttribute(type);
 }
 
-std::vector<EvaluatorValue> UnaryOp::evaluate(
-    const std::vector<EvaluatorValue>& inputs) const {
-  using namespace EvaluatorValue_functions;
+std::vector<PolymorphicValue> UnaryOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  using namespace PolymorphicValue_functions;
   const auto& in = inputs.at(0);
   switch (getUnaryOpType()) {
     case UnaryOpType::Neg:
       return {-in};
     case UnaryOpType::Cast:
       if (isIntegralType(*out()->getDataType())) {
-        return {EvaluatorValue(in.cast<int64_t>())};
+        return {PolymorphicValue((int64_t)in)};
       } else if (isFloatingPointType(*out()->getDataType())) {
-        return {EvaluatorValue(in.cast<double>())};
+        return {PolymorphicValue((double)in)};
       } else if (out()->getDataType() == DataType::Bool) {
-        return {EvaluatorValue(in.cast<bool>())};
+        return {PolymorphicValue((bool)in)};
       } else {
         TORCH_INTERNAL_ASSERT(
             false, "dtype not supported in evaluator: ", *out()->getDataType());
@@ -394,6 +317,12 @@ std::vector<EvaluatorValue> UnaryOp::evaluate(
       break;
     case UnaryOpType::Not:
       return {notExpr(in)};
+      break;
+    case UnaryOpType::Erf:
+      return {erf(in)};
+      break;
+    case UnaryOpType::ToUnsignedSmemAddr:
+      return {(int64_t)(unsigned)in};
       break;
     default:
       TORCH_CHECK(
@@ -412,9 +341,9 @@ void UnaryOp::printHelper(std::stringstream& ss, std::string input) const {
     ss << inline_uop.value() << input;
   } else {
     if (op_type == UnaryOpType::Cast) {
-      c10::optional<std::string> cast_str = cast_func_str(std::make_pair(
+      std::optional<std::string> cast_str = cast_func_str(std::make_pair(
           in()->getDataType().value(), out()->getDataType().value()));
-      TORCH_INTERNAL_ASSERT(cast_str != c10::nullopt, "Unsupported Cast");
+      TORCH_INTERNAL_ASSERT(cast_str != std::nullopt, "Unsupported Cast");
       ss << cast_str.value();
     } else {
       if (alsoBooleanOperator(op_type) &&
@@ -466,13 +395,13 @@ BinaryOp::BinaryOp(
   addOutput(out);
   addInput(lhs);
   addInput(rhs);
-  addAttribute(
-      IrBuilder::create<Attribute<BinaryOpType>>(passkey.ir_container_, type));
+  addDataAttribute(type);
 }
 
-std::vector<EvaluatorValue> BinaryOp::evaluate(
-    const std::vector<EvaluatorValue>& inputs) const {
-  using namespace EvaluatorValue_functions;
+std::vector<PolymorphicValue> BinaryOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  using namespace PolymorphicValue_functions;
   const auto& lhs = inputs.at(0);
   const auto& rhs = inputs.at(1);
 
@@ -530,6 +459,9 @@ std::vector<EvaluatorValue> BinaryOp::evaluate(
       break;
     case BinaryOpType::Min:
       return {min(lhs, rhs)};
+      break;
+    case BinaryOpType::Gcd:
+      return {gcd(lhs, rhs)};
       break;
     default:
       TORCH_CHECK(
@@ -616,13 +548,13 @@ TernaryOp::TernaryOp(
   addInput(in1);
   addInput(in2);
   addInput(in3);
-  addAttribute(
-      IrBuilder::create<Attribute<TernaryOpType>>(passkey.ir_container_, type));
+  addDataAttribute(type);
 }
 
-std::vector<EvaluatorValue> TernaryOp::evaluate(
-    const std::vector<EvaluatorValue>& inputs) const {
-  using namespace EvaluatorValue_functions;
+std::vector<PolymorphicValue> TernaryOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  using namespace PolymorphicValue_functions;
   const auto& in1 = inputs.at(0);
   const auto& in2 = inputs.at(1);
   const auto& in3 = inputs.at(2);
@@ -694,13 +626,187 @@ std::string TernaryOp::toInlineString(int indent_size) const {
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(TernaryOp)
 
+ArrayConstruct::ArrayConstruct(
+    IrBuilderPasskey passkey,
+    Val* output,
+    std::vector<Val*> inputs)
+    : Expr(passkey) {
+  TORCH_INTERNAL_ASSERT(
+      !inputs.empty(), "Cannot create an array with no members.");
+  addOutput(output);
+  DataType input_dtype = DataType::Null;
+  for (auto in : inputs) {
+    addInput(in);
+    auto in_dtype_opt = in->getDataType();
+    TORCH_INTERNAL_ASSERT(in_dtype_opt.has_value());
+    if (input_dtype == DataType::Null) {
+      input_dtype = *in_dtype_opt;
+    } else {
+      TORCH_CHECK(
+          input_dtype == *in_dtype_opt,
+          "All inputs to ArrayConstruct must have the same data type");
+    }
+  }
+  auto expected_output_dtype =
+      ArrayOf{std::make_shared<DataType>(input_dtype), inputs.size()};
+  TORCH_CHECK(
+      output->getDataType() == expected_output_dtype,
+      "Output of ArrayConstruct must be an array of the same data type as the inputs");
+}
+
+std::string ArrayConstruct::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << out()->toString() << " = {"
+                          << toDelimitedString(inputs()) << "}\n";
+  return ss.str();
+}
+
+std::string ArrayConstruct::toInlineString(int indent_size) const {
+  std::stringstream ss;
+  ss << "{ " << toDelimitedInlineString(inputs()) << " }";
+  return ss.str();
+}
+
+std::vector<PolymorphicValue> ArrayConstruct::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  return {PolymorphicValue(inputs)};
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(ArrayConstruct)
+
+GetItem::GetItem(IrBuilderPasskey passkey, Val* output, Val* array, Val* index)
+    : Expr(passkey) {
+  addOutput(output);
+  addInput(array);
+  addInput(index);
+  TORCH_INTERNAL_ASSERT(
+      *(std::get<ArrayOf>(array->dtype().type).type) == output->dtype(),
+      "GetItem array input must have a data type");
+}
+
+std::string GetItem::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << out()->toString() << " = " << array()->toString()
+                          << "[" << index()->toString() << "]\n";
+  return ss.str();
+}
+
+std::string GetItem::toInlineString(int indent_size) const {
+  std::stringstream ss;
+  ss << "(" << array()->toInlineString() << ")[" << index()->toInlineString()
+     << "]";
+  return ss.str();
+}
+
+std::vector<PolymorphicValue> GetItem::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  TORCH_INTERNAL_ASSERT(inputs.size() == 2, "GetItem expects 2 inputs");
+  return {PolymorphicValue(inputs.at(0)[inputs.at(1)])};
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(GetItem)
+
+GetAttr::GetAttr(
+    IrBuilderPasskey passkey,
+    Val* output,
+    Val* struct_,
+    std::string attr)
+    : Expr(passkey) {
+  TORCH_INTERNAL_ASSERT(
+      NVFUSER_MAYBE_STAR std::get<StructOf>(struct_->dtype().type)
+              .types.at(attr) == output->dtype(),
+      "Data type mismatch for GetAttr");
+  addOutput(output);
+  addInput(struct_);
+  addDataAttribute(std::move(attr));
+}
+
+std::string GetAttr::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << out()->toString() << " = " << struct_()->toString()
+                          << "." << attr() << "\n";
+  return ss.str();
+}
+
+std::string GetAttr::toInlineString(int indent_size) const {
+  std::stringstream ss;
+  ss << "(" << struct_()->toInlineString() << ")." << attr();
+  return ss.str();
+}
+
+std::vector<PolymorphicValue> GetAttr::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  TORCH_INTERNAL_ASSERT(inputs.size() == 1, "GetAttr expects 1 input");
+  return {inputs.at(0)[attr()]};
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(GetAttr)
+
+GetMetaData::GetMetaData(IrBuilderPasskey passkey, Val* output, Val* input)
+    : Expr(passkey) {
+  addOutput(output);
+  addInput(input);
+  TORCH_INTERNAL_ASSERT(
+      out()->dtype() == metaDataTypeOf(in()),
+      "Data type mismatch for GetMetaData")
+}
+
+std::string GetMetaData::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << out()->toString() << " = getMetaData("
+                          << in()->toString() << ")\n";
+  return ss.str();
+}
+
+std::string GetMetaData::toInlineString(int indent_size) const {
+  std::stringstream ss;
+  ss << "getMetaData(" << in()->toInlineString() << ")";
+  return ss.str();
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(GetMetaData)
+
+TensorConstruct::TensorConstruct(
+    IrBuilderPasskey passkey,
+    TensorView* output,
+    Val* input)
+    : Expr(passkey) {
+  addOutput(output);
+  addInput(input);
+}
+
+std::string TensorConstruct::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << out()->toString() << " = TensorConstruct("
+                          << in()->toString() << ")\n";
+  return ss.str();
+}
+
+std::string TensorConstruct::toInlineString(int indent_size) const {
+  TORCH_CHECK(false, "Tensor op can not be printed inline");
+}
+
+std::vector<PolymorphicValue> TensorConstruct::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  TORCH_INTERNAL_ASSERT(inputs.size() == 1, "TensorConstruct expects 1 input");
+  using namespace PolymorphicValue_functions;
+  return {toTensor(inputs.at(0))};
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(TensorConstruct)
+
 RNGOp::RNGOp(
     IrBuilderPasskey passkey,
     RNGOpType type,
     Val* out,
     DataType dtype,
     std::vector<Val*> parameters,
-    int rng_offset,
+    Val* philox_seed,
+    Val* philox_offset,
     Val* philox_index)
     : Expr(passkey) {
   if (auto tv_out = dynamic_cast<TensorView*>(out)) {
@@ -712,10 +818,16 @@ RNGOp::RNGOp(
   for (auto v : parameters) {
     addInput(v);
   }
+  if (philox_seed || philox_offset) {
+    TORCH_CHECK(
+        philox_seed && philox_offset,
+        "If either philox_seed or philox_offset is provided, the other must be also");
+    addInput(philox_seed);
+    addInput(philox_offset);
+  }
   addOutput(out);
-  RNGOp::Attributes attr{type, dtype, rng_offset};
-  addAttribute(IrBuilder::create<Attribute<RNGOp::Attributes>>(
-      passkey.ir_container_, attr));
+  RNGOp::Attributes attr{type, dtype, parameters.size()};
+  addDataAttribute(attr);
   addAttribute(philox_index);
 }
 
@@ -730,7 +842,12 @@ std::string RNGOp::toString(int indent_size) const {
   if (!getParameters().empty()) {
     ss << toDelimitedString(getParameters()) << ", ";
   }
-  ss << dtype() << ");\n";
+  ss << dtype();
+  auto seed = getRNGSeedVal();
+  if (seed) {
+    ss << ", " << seed->toInlineString();
+  }
+  ss << ");\n";
   return ss.str();
 }
 
@@ -805,8 +922,7 @@ BroadcastOp::BroadcastOp(
         "The dimensions of output tensor and does not match with is_broadcast_dims and input tensor");
   }
 
-  addAttribute(IrBuilder::create<Attribute<std::vector<bool>>>(
-      passkey.ir_container_, std::move(is_broadcast_dims)));
+  addDataAttribute(std::move(is_broadcast_dims));
 }
 
 std::string BroadcastOp::toString(int indent_size) const {
@@ -818,6 +934,26 @@ std::string BroadcastOp::toString(int indent_size) const {
 
 std::string BroadcastOp::toInlineString(int indent_size) const {
   TORCH_CHECK(false, "Tensor op can not be printed inline");
+}
+
+std::vector<PolymorphicValue> BroadcastOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  TORCH_INTERNAL_ASSERT(
+      inputs.size() == 1,
+      "BroadcastOp expects exactly 1 input, but received ",
+      inputs.size());
+  std::vector<int64_t> out_shape;
+  const auto& in = inputs.at(0).as<at::Tensor>();
+  int64_t idx = 0;
+  for (bool b : getBroadcastDimFlags()) {
+    if (b) {
+      out_shape.push_back(1);
+    } else {
+      out_shape.push_back(in.sizes()[idx++]);
+    }
+  }
+  return {in.view(out_shape)};
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(BroadcastOp)
@@ -860,12 +996,18 @@ SqueezeOp::SqueezeOp(
       num_removed_broadcasts++;
       auto id = in_dom[i];
       TORCH_INTERNAL_ASSERT(
-          id->isBroadcast(), "Can not squeeze non-broadcasting dimension(s).");
+          id->isBroadcast() || id->isSymbolic(),
+          "Squeeze dimension should be either Symbolic or Broadcast. Found ",
+          id->getIterType());
       TORCH_INTERNAL_ASSERT(
           !id->hasExpandedExtent(), "Can not squeeze expanded dimension(s).");
-      TORCH_INTERNAL_ASSERT(
-          id->extent()->isOneInt(),
-          "Can not squeeze dimension(s) with size != 1.");
+      if (id->isBroadcast()) {
+        // Check concrete broadcast extent here. For Symbolic inputs, this check
+        // will be deferred to concretization. See dynamic_transform.cpp
+        TORCH_INTERNAL_ASSERT(
+            id->extent()->isOneInt(),
+            "Can not squeeze dimension(s) with size != 1.");
+      }
     } else {
       auto in_id = in_dom[i];
       auto out_id = out_dom[i - num_removed_broadcasts];
@@ -877,8 +1019,7 @@ SqueezeOp::SqueezeOp(
       in_size == out_tv->nDims() + num_removed_broadcasts,
       "The dimensions of output tensor and does not match with is_squeeze_dims and input tensor");
 
-  addAttribute(IrBuilder::create<Attribute<std::vector<bool>>>(
-      passkey.ir_container_, std::move(is_squeeze_dims)));
+  addDataAttribute(std::move(is_squeeze_dims));
 }
 
 std::string SqueezeOp::toString(int indent_size) const {
@@ -890,6 +1031,69 @@ std::string SqueezeOp::toString(int indent_size) const {
 
 std::string SqueezeOp::toInlineString(int indent_size) const {
   TORCH_CHECK(false, "Tensor op can not be printed inline");
+}
+
+std::vector<PolymorphicValue> SqueezeOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  TORCH_INTERNAL_ASSERT(
+      inputs.size() == 1,
+      "SqueezeOp expects exactly 1 input, but received ",
+      inputs.size());
+  std::vector<int64_t> out_shape;
+  const auto& in = inputs.at(0).as<at::Tensor>();
+  const auto& is_squeeze_dims = getSqueezeDimFlags();
+  TORCH_INTERNAL_ASSERT(
+      (int64_t)is_squeeze_dims.size() == in.dim(),
+      "The dimensions of input tensor and does not match with is_squeeze_dims");
+  for (int64_t i : c10::irange((int64_t)is_squeeze_dims.size())) {
+    if (!is_squeeze_dims[i]) {
+      out_shape.push_back(in.sizes()[i]);
+    }
+  }
+  return {in.view(out_shape)};
+}
+
+void SqueezeOp::checkConcretization(Val* old_val, Val* new_val) const {
+  Expr::checkConcretization(old_val, new_val); // does nullptr, vtype checks
+  TORCH_CHECK(
+      old_val == in(),
+      "Pre-concretized Val ",
+      old_val->toString(),
+      " does not match input TV ",
+      in()->toString());
+  auto old_tv = old_val->as<TensorView>();
+  auto new_tv = new_val->as<
+      TensorView>(); // NOLINT(clang-analyzer-core.CallAndMessage,-warnings-as-errors)
+  auto old_rfactor = old_tv->getMaybeRFactorDomain();
+  auto new_rfactor = new_tv->getMaybeRFactorDomain();
+  TORCH_CHECK(
+      new_rfactor.size() == old_tv->getMaybeRFactorDomain().size(),
+      "New TV ",
+      new_tv->toString(),
+      " has rfactor of length ",
+      new_rfactor.size(),
+      " but expected ",
+      old_tv->getMaybeRFactorDomain().size());
+  auto flags = getSqueezeDimFlags();
+  for (auto i : c10::irange(flags.size())) {
+    if (!flags.at(i)) {
+      continue;
+    }
+    auto new_id = new_rfactor.at(i);
+    // Check that squeezed dimension concretizes to Broadcast
+    TORCH_CHECK(
+        new_id->getIterType() == IterType::Broadcast,
+        "Squeezed IterDomain ",
+        new_id->toString(),
+        " must concretize to IterType::Broadcast but found ",
+        new_id->toString());
+    TORCH_CHECK(
+        !new_id->hasExpandedExtent(), "Can not squeeze expanded dimension(s).");
+    TORCH_CHECK(
+        new_id->extent()->isOneInt(),
+        "Can not squeeze dimension(s) with size != 1.");
+  }
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(SqueezeOp)
@@ -927,10 +1131,8 @@ ReductionOp::ReductionOp(
   addOutput(out);
   addInput(in);
   addAttribute(init);
-  addAttribute(IrBuilder::create<Attribute<BinaryOpType>>(
-      passkey.ir_container_, reduction_op_type));
-  addAttribute(
-      IrBuilder::create<Attribute<bool>>(passkey.ir_container_, is_allreduce));
+  addDataAttribute(reduction_op_type);
+  addDataAttribute(is_allreduce);
 }
 
 std::string ReductionOp::toString(int indent_size) const {
@@ -966,10 +1168,8 @@ GroupedReductionOp::GroupedReductionOp(
     addInput(in);
   }
 
-  addAttribute(IrBuilder::create<Attribute<std::vector<BinaryOpType>>>(
-      passkey.ir_container_, std::move(reduction_op_types)));
-  addAttribute(
-      IrBuilder::create<Attribute<bool>>(passkey.ir_container_, is_fused));
+  addDataAttribute(std::move(reduction_op_types));
+  addDataAttribute(is_fused);
 
   for (auto init : init_vals) {
     addAttribute(init);
@@ -1007,14 +1207,14 @@ int GroupedReductionOp::getExprIndexOfOutput(Val* output_val) const {
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(GroupedReductionOp)
 
-c10::optional<WelfordTriplet::ValName> WelfordTriplet::getNameOf(
+std::optional<WelfordTriplet::ValName> WelfordTriplet::getNameOf(
     Val* val) const {
   auto it = std::find(begin(), end(), val);
   if (it != end()) {
     return indexToValName((int)std::distance(begin(), it));
   }
 
-  return c10::optional<WelfordTriplet::ValName>();
+  return std::optional<WelfordTriplet::ValName>();
 }
 
 bool WelfordTriplet::sameAs(const WelfordTriplet& other) const {
@@ -1070,7 +1270,7 @@ WelfordOp::WelfordOp(
   TORCH_INTERNAL_ASSERT(isIntegralType(output.N()->dtype()));
 
   // check initial value
-  TORCH_INTERNAL_ASSERT(init.N()->getValType().value() == ValType::Scalar);
+  TORCH_INTERNAL_ASSERT(init.N()->getValType().value() == ValType::Others);
   TORCH_INTERNAL_ASSERT(isIntegralType(init.N()->dtype()));
   if (!init.N()->isZeroInt()) {
     // when initial count is zero, no initial variance or average is needed
@@ -1092,7 +1292,7 @@ WelfordOp::WelfordOp(
           input.avg()->getValType().value() == ValType::TensorIndex,
       input.avg()->getValType().value());
   TORCH_INTERNAL_ASSERT(
-      input.N()->getValType().value() == ValType::Scalar ||
+      input.N()->getValType().value() == ValType::Others ||
       input.N()->getValType().value() == ValType::TensorView ||
       input.N()->getValType().value() == ValType::TensorIndex);
   TORCH_INTERNAL_ASSERT(isIntegralType(input.N()->dtype()));
@@ -1119,8 +1319,7 @@ WelfordOp::WelfordOp(
   addAttribute(init.avg());
   addAttribute(init.var());
   addAttribute(init.N());
-  addAttribute(
-      IrBuilder::create<Attribute<bool>>(passkey.ir_container_, is_fused));
+  addDataAttribute(is_fused);
 
   TORCH_INTERNAL_ASSERT(attributes().size() == kNumAttrs);
 }
@@ -1231,13 +1430,13 @@ GroupedWelfordOp::GroupedWelfordOp(
     TORCH_INTERNAL_ASSERT(
         init_avg != nullptr && init_var != nullptr && init_N != nullptr,
         "nullptr init vals are not allowed");
-    TORCH_INTERNAL_ASSERT(init_N->getValType().value() == ValType::Scalar);
+    TORCH_INTERNAL_ASSERT(init_N->getValType().value() == ValType::Others);
     TORCH_INTERNAL_ASSERT(isIntegralType(init_N->dtype()));
     TORCH_INTERNAL_ASSERT(
         init_avg->getValType().value() == ValType::TensorView ||
             init_avg->getValType().value() == ValType::TensorIndex ||
             (init_N->isZeroInt() &&
-             init_avg->getValType().value() == ValType::Scalar),
+             init_avg->getValType().value() == ValType::Others),
         "Initial avg must be a tensor or, can be a scalar if initial N is zero.",
         " Initial avg: ",
         init_avg->toString(),
@@ -1247,7 +1446,7 @@ GroupedWelfordOp::GroupedWelfordOp(
         init_var->getValType().value() == ValType::TensorView ||
             init_var->getValType().value() == ValType::TensorIndex ||
             (init_N->isZeroInt() &&
-             init_var->getValType().value() == ValType::Scalar),
+             init_var->getValType().value() == ValType::Others),
         "Initial var must be a tensor or, can be a scalar if initial N is zero: ",
         init_var->toString());
 
@@ -1259,7 +1458,7 @@ GroupedWelfordOp::GroupedWelfordOp(
         in_avg != nullptr && in_var != nullptr && in_N != nullptr,
         "nullptr input vals are not allowed");
     TORCH_INTERNAL_ASSERT(
-        in_N->getValType().value() == ValType::Scalar ||
+        in_N->getValType().value() == ValType::Others ||
         in_N->getValType().value() == ValType::TensorView ||
         in_N->getValType().value() == ValType::TensorIndex);
     TORCH_INTERNAL_ASSERT(isIntegralType(in_N->dtype()));
@@ -1286,8 +1485,7 @@ GroupedWelfordOp::GroupedWelfordOp(
     }
   }
 
-  addAttribute(
-      IrBuilder::create<Attribute<bool>>(passkey.ir_container_, is_allreduce));
+  addDataAttribute(is_allreduce);
   for (const auto i : c10::irange(num_grouped_ops)) {
     addOutput(output_vals[i].avg());
     addOutput(output_vals[i].var());
@@ -1632,19 +1830,17 @@ MmaOp::MmaOp(
   // ATTR_POS_INIT
   addAttribute(init);
   // ATTR_POS_OPTS
-  addAttribute(
-      IrBuilder::create<Attribute<OptionsInMma>>(passkey.ir_container_));
+  addDataAttribute(OptionsInMma{});
   // ATTR_POS_M_AXES
-  addAttribute(IrBuilder::create<Attribute<AxesData>>(passkey.ir_container_));
+  addDataAttribute(AxesData{});
   // ATTR_POS_N_AXES
-  addAttribute(IrBuilder::create<Attribute<AxesData>>(passkey.ir_container_));
+  addDataAttribute(AxesData{});
   // ATTR_POS_K_AXES
-  addAttribute(IrBuilder::create<Attribute<AxesData>>(passkey.ir_container_));
+  addDataAttribute(AxesData{});
   // ATTR_POS_BATCH_AXES
-  addAttribute(IrBuilder::create<Attribute<AxesData>>(passkey.ir_container_));
+  addDataAttribute(AxesData{});
   // ATTR_POS_INPUT_LAYOUT
-  addAttribute(
-      IrBuilder::create<Attribute<MmaLayoutOpt>>(passkey.ir_container_));
+  addDataAttribute(MmaLayoutOpt{});
 
   MmaOpUtils::MmaOpDetails mma_details;
   // Detailed consistency checks for use case with TensorViews as
@@ -1655,16 +1851,11 @@ MmaOp::MmaOp(
         out->as<TensorView>(), in_a->as<TensorView>(), in_b->as<TensorView>());
   }
 
-  attribute(ATTR_POS_M_AXES)->as<Attribute<AxesData>>()->value =
-      std::move(mma_details.m_axes);
-  attribute(ATTR_POS_N_AXES)->as<Attribute<AxesData>>()->value =
-      std::move(mma_details.n_axes);
-  attribute(ATTR_POS_K_AXES)->as<Attribute<AxesData>>()->value =
-      std::move(mma_details.k_axes);
-  attribute(ATTR_POS_BATCH_AXES)->as<Attribute<AxesData>>()->value =
-      std::move(mma_details.batch_axes);
-  attribute(ATTR_POS_INPUT_LAYOUT)->as<Attribute<MmaLayoutOpt>>()->value =
-      mma_details.input_layout;
+  attribute<AxesData>(ATTR_POS_M_AXES) = std::move(mma_details.m_axes);
+  attribute<AxesData>(ATTR_POS_N_AXES) = std::move(mma_details.n_axes);
+  attribute<AxesData>(ATTR_POS_K_AXES) = std::move(mma_details.k_axes);
+  attribute<AxesData>(ATTR_POS_BATCH_AXES) = std::move(mma_details.batch_axes);
+  attribute<MmaLayoutOpt>(ATTR_POS_INPUT_LAYOUT) = mma_details.input_layout;
 }
 
 MmaOp::MmaOp(
@@ -1676,10 +1867,9 @@ MmaOp::MmaOp(
     const OptionsInMma& options,
     const MmaLayoutOpt& input_layout)
     : MmaOp(passkey, out, in_a, in_b, init) {
-  attribute(ATTR_POS_OPTS)->as<Attribute<OptionsInMma>>()->value = options;
+  attribute<OptionsInMma>(ATTR_POS_OPTS) = options;
 
-  const auto input_layout_ =
-      attribute(ATTR_POS_INPUT_LAYOUT)->as<Attribute<MmaLayoutOpt>>()->value;
+  const auto input_layout_ = attribute<MmaLayoutOpt>(ATTR_POS_INPUT_LAYOUT);
   if (input_layout_.has_value()) {
     TORCH_INTERNAL_ASSERT(input_layout.has_value());
     TORCH_INTERNAL_ASSERT(
@@ -1690,8 +1880,7 @@ MmaOp::MmaOp(
         nvfuser::toString(input_layout.value()),
         ")");
   } else {
-    attribute(ATTR_POS_INPUT_LAYOUT)->as<Attribute<MmaLayoutOpt>>()->value =
-        input_layout;
+    attribute<MmaLayoutOpt>(ATTR_POS_INPUT_LAYOUT) = input_layout;
   }
 }
 
@@ -1708,8 +1897,7 @@ std::string MmaOp::toInlineString(int indent_size) const {
 }
 
 void MmaOp::configureOptions(MmaOptions options) {
-  OptionsInMma& opt =
-      attribute(ATTR_POS_OPTS)->as<Attribute<OptionsInMma>>()->value;
+  OptionsInMma& opt = attribute<OptionsInMma>(ATTR_POS_OPTS);
   TORCH_INTERNAL_ASSERT(
       options.macro != MmaOptions::MacroType::NoMMA,
       "Un-configured mma type from options.");
@@ -1787,10 +1975,8 @@ ShiftOp::ShiftOp(
 
   addOutput(out);
   addInput(in);
-  addAttribute(IrBuilder::create<Attribute<std::vector<int>>>(
-      passkey.ir_container_, std::move(offsets)));
-  addAttribute(IrBuilder::create<Attribute<std::vector<int>>>(
-      passkey.ir_container_, std::move(pad_width)));
+  addDataAttribute(std::move(offsets));
+  addDataAttribute(std::move(pad_width));
 }
 
 std::string ShiftOp::toString(int indent_size) const {
@@ -1842,10 +2028,8 @@ GatherOp::GatherOp(
 
   addOutput(out);
   addInput(in);
-  addAttribute(IrBuilder::create<Attribute<std::vector<int>>>(
-      passkey.ir_container_, std::move(window_shape)));
-  addAttribute(IrBuilder::create<Attribute<std::vector<std::vector<int>>>>(
-      passkey.ir_container_, std::move(pad_width)));
+  addDataAttribute(std::move(window_shape));
+  addDataAttribute(std::move(pad_width));
 }
 
 std::string GatherOp::toString(int indent_size) const {
@@ -1886,13 +2070,11 @@ ViewAsScalar::ViewAsScalar(
     IrBuilderPasskey passkey,
     Val* out,
     Val* in,
-    IterDomain* vector_id,
-    Val* index)
+    IterDomain* vector_id)
     : Expr(passkey) {
   addOutput(out);
   addInput(in);
   addAttribute(vector_id);
-  addAttribute(index);
 }
 
 std::string ViewAsScalar::toString(int indent_size) const {
@@ -1935,12 +2117,12 @@ LoadStoreOp::LoadStoreOp(
     : Expr(passkey) {
   addOutput(out);
   addInput(in);
-  addAttribute(IrBuilder::create<Attribute<LoadStoreOpType>>(
-      passkey.ir_container_, op_type));
+  addDataAttribute(op_type);
 }
 
-std::vector<EvaluatorValue> LoadStoreOp::evaluate(
-    const std::vector<EvaluatorValue>& inputs) const {
+std::vector<PolymorphicValue> LoadStoreOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
   return inputs;
 }
 
@@ -1974,9 +2156,10 @@ std::string LoadStoreOp::toInlineString(int indent_size) const {
   TORCH_CHECK(false, "Tensor op can not be printed inline");
 }
 
-bool LoadStoreOp::hasTranspose() const {
+bool LoadStoreOp::hasInnerTranspose() const {
   if (auto out_tv = dynamic_cast<TensorView*>(out())) {
-    return out_tv->hasRFactor();
+    return out_tv->hasRFactor() &&
+        out_tv->getRootDomain().back() != out_tv->getRFactorDomain().back();
   }
   return false;
 }
@@ -2007,7 +2190,7 @@ IterDomainBuilder& IterDomainBuilder::resetSchedulingParams() {
   parallel_type_ = ParallelType::Serial;
   is_rfactor_domain_ = false;
   is_padded_dimension_ = false;
-  padded_to_size_ = c10::nullopt;
+  padded_to_size_ = std::nullopt;
   is_mma_swizzled_ = false;
   return *this;
 }
@@ -2060,7 +2243,7 @@ IterDomainBuilder& IterDomainBuilder::is_padded_dimension(
 }
 
 IterDomainBuilder& IterDomainBuilder::padded_to_size(
-    c10::optional<int64_t> _padded_to_size) {
+    std::optional<int64_t> _padded_to_size) {
   padded_to_size_ = _padded_to_size;
   return *this;
 }
@@ -2087,7 +2270,7 @@ IterDomain::IterDomain(
     IterType iter_type,
     bool is_rfactor_domain,
     bool is_padded_dimension,
-    c10::optional<int64_t> padded_to_size,
+    std::optional<int64_t> padded_to_size,
     bool is_mma_swizzled)
     : Val(passkey, ValType::IterDomain),
       start_(start),
@@ -2182,12 +2365,12 @@ bool IterDomain::sameAs(const Statement* other) const {
 
   // TODO: Consider managing them as attributes
 
-  return ScalarCheck::sameAs(start(), other_id->start()) &&
-      ScalarCheck::sameAs(extent(), other_id->extent()) &&
+  return start()->sameAs(other_id->start()) &&
+      extent()->sameAs(other_id->extent()) &&
       hasExpandedExtent() == other_id->hasExpandedExtent() &&
       (!hasExpandedExtent() ||
-       ScalarCheck::sameAs(expandedExtent(), other_id->expandedExtent())) &&
-      ScalarCheck::sameAs(stopOffset(), other_id->stopOffset()) &&
+       expandedExtent()->sameAs(other_id->expandedExtent())) &&
+      stopOffset()->sameAs(other_id->stopOffset()) &&
       getParallelType() == other_id->getParallelType() &&
       getIterType() == other_id->getIterType() &&
       hasPaddingToMultipleOfWarp() == other_id->hasPaddingToMultipleOfWarp() &&
@@ -2306,8 +2489,7 @@ IterDomain* IterDomain::merge(IterDomain* outer, IterDomain* inner) {
   }
 
   IterDomain* merged_id =
-      IterDomainBuilder(
-          outer->container()->zeroVal(), merged_id_size->as<Int>())
+      IterDomainBuilder(outer->container()->zeroVal(), merged_id_size)
           .parallel_type(outer->getParallelType())
           .expanded_extent(expanded_extent)
           .iter_type(itype)
@@ -2330,7 +2512,7 @@ std::pair<IterDomain*, IterDomain*> IterDomain::split(
   TORCH_CHECK(
       factor->isIntegralScalar(), "Cannot split by non-integer value ", factor);
 
-  if (factor->getValType() == ValType::Scalar) {
+  if (factor->getValType() == ValType::Others) {
     TORCH_CHECK(
         factor->isConstScalar() ||
             (FusionGuard::getCurFusion() == factor->fusion() &&
@@ -2340,7 +2522,7 @@ std::pair<IterDomain*, IterDomain*> IterDomain::split(
         " If you want a symbolic split based on a thread dimension please use IterDomain::split(IterDomain*, ParallelType);");
   } else if (factor->getValType() == ValType::NamedScalar) {
     TORCH_CHECK(
-        factor->as<NamedScalar>()->getParallelDim() != c10::nullopt,
+        factor->as<NamedScalar>()->getParallelDim() != std::nullopt,
         "Splitting a dimension by a named scalar is only supported on block or grid dimensions but received ",
         factor);
   }
@@ -2363,8 +2545,7 @@ std::pair<IterDomain*, IterDomain*> IterDomain::split(
   // outer loop IterDomain
   IterDomain* ido =
       IterDomainBuilder(
-          in->container()->zeroVal(),
-          inner_split ? remainder->as<Int>() : factor)
+          in->container()->zeroVal(), inner_split ? remainder : factor)
           .expanded_extent(
               in->hasExpandedExtent() && inner_split ? expanded_remainder
                                                      : nullptr)
@@ -2375,8 +2556,7 @@ std::pair<IterDomain*, IterDomain*> IterDomain::split(
   // inner loop IterDomain
   IterDomain* idi =
       IterDomainBuilder(
-          in->container()->zeroVal(),
-          inner_split ? factor : remainder->as<Int>())
+          in->container()->zeroVal(), inner_split ? factor : remainder)
           .expanded_extent(
               in->hasExpandedExtent() && !inner_split ? expanded_remainder
                                                       : nullptr)
@@ -2406,10 +2586,10 @@ std::pair<IterDomain*, IterDomain*> IterDomain::split(
   return IterDomain::split(in, factor, inner_split, start_offset, stop_offset);
 }
 
-std::pair<IterDomain*, IterDomain*> IterDomain::stridedSplit(int factor) {
+std::pair<IterDomain*, IterDomain*> IterDomain::stridedSplit(int64_t factor) {
   // Use partial split so that only valid values are retained
   auto split_out = IterDomain::split(
-      this, IrBuilder::create<Int>(container(), factor), true, true);
+      this, IrBuilder::create<Val>(container(), factor), true, true);
 
   split_out.second->iter_type_ = IterType::Stride;
   split_out.first->is_rfactor_domain_ = true;
@@ -2519,7 +2699,7 @@ IterDomain* IterDomain::resize(
   }
 
   auto resized_id =
-      IterDomainBuilder(in->container()->zeroVal(), resized_id_size->as<Int>())
+      IterDomainBuilder(in->container()->zeroVal(), resized_id_size)
           .is_rfactor_domain(mark_as_rfactor)
           .iter_type(iter_type)
           .build();
@@ -2920,15 +3100,15 @@ bool TensorDomain::hasVectorize() const {
       });
 }
 
-c10::optional<unsigned int> TensorDomain::getReductionAxis() const {
+std::optional<unsigned int> TensorDomain::getReductionAxis() const {
   auto it = std::find_if(
       leaf_domain_.begin(), leaf_domain_.end(), [](const auto& id) {
         return id->isReduction();
       });
   if (it == leaf_domain_.end()) {
-    return c10::optional<unsigned int>();
+    return std::optional<unsigned int>();
   } else {
-    return c10::optional<unsigned int>(std::distance(leaf_domain_.begin(), it));
+    return std::optional<unsigned int>(std::distance(leaf_domain_.begin(), it));
   }
 }
 
@@ -3277,8 +3457,7 @@ Split::Split(
   // TODO add factor as an input, need to check Split::Split during validation
   // and need to check BestEffortReplay::findFirstMismatchedID addInput(factor);
   addAttribute(factor);
-  addAttribute(
-      IrBuilder::create<Attribute<bool>>(passkey.ir_container_, inner_split));
+  addDataAttribute(inner_split);
   addAttribute(start_offset);
   addAttribute(stop_offset);
 }
@@ -3365,10 +3544,8 @@ Swizzle2D::Swizzle2D(
   addOutput(out_y);
   addInput(in_x);
   addInput(in_y);
-  addAttribute(IrBuilder::create<Attribute<Swizzle2DType>>(
-      passkey.ir_container_, swizzle_type));
-  addAttribute(IrBuilder::create<Attribute<SwizzleMode>>(
-      passkey.ir_container_, swizzle_mode));
+  addDataAttribute(swizzle_type);
+  addDataAttribute(swizzle_mode);
 }
 
 std::string Swizzle2D::toString(int indent_size) const {
@@ -3444,12 +3621,7 @@ bool NamedScalar::sameAs(const Statement* other) const {
 }
 
 bool NamedScalar::isTensorSize() const {
-  static const std::regex r(R"(T\d+\.size\[\d+\])");
-  return std::regex_match(name(), r);
-}
-
-bool NamedScalar::isTensorStride() const {
-  static const std::regex r(R"(T\d+\.stride\[\d+\])");
+  static const std::regex r(R"(T\d+\.\w*size\[\d+\])");
   return std::regex_match(name(), r);
 }
 
@@ -3469,38 +3641,38 @@ NamedScalar* NamedScalar::getParallelIndex(ParallelType p_type) {
   return IrBuilder::create<NamedScalar>(parallel_ind, DataType::Int);
 }
 
-c10::optional<ParallelType> NamedScalar::getParallelDim() const {
+std::optional<ParallelType> NamedScalar::getParallelDim() const {
   if (stringifyThreadSize(ParallelType::TIDx).compare(name()) == 0) {
-    return c10::optional<ParallelType>(ParallelType::TIDx);
+    return std::optional<ParallelType>(ParallelType::TIDx);
   } else if (stringifyThreadSize(ParallelType::TIDy).compare(name()) == 0) {
-    return c10::optional<ParallelType>(ParallelType::TIDy);
+    return std::optional<ParallelType>(ParallelType::TIDy);
   } else if (stringifyThreadSize(ParallelType::TIDz).compare(name()) == 0) {
-    return c10::optional<ParallelType>(ParallelType::TIDz);
+    return std::optional<ParallelType>(ParallelType::TIDz);
   } else if (stringifyThreadSize(ParallelType::BIDx).compare(name()) == 0) {
-    return c10::optional<ParallelType>(ParallelType::BIDx);
+    return std::optional<ParallelType>(ParallelType::BIDx);
   } else if (stringifyThreadSize(ParallelType::BIDy).compare(name()) == 0) {
-    return c10::optional<ParallelType>(ParallelType::BIDy);
+    return std::optional<ParallelType>(ParallelType::BIDy);
   } else if (stringifyThreadSize(ParallelType::BIDz).compare(name()) == 0) {
-    return c10::optional<ParallelType>(ParallelType::BIDz);
+    return std::optional<ParallelType>(ParallelType::BIDz);
   }
-  return c10::nullopt;
+  return std::nullopt;
 }
 
-c10::optional<ParallelType> NamedScalar::getParallelIndex() const {
+std::optional<ParallelType> NamedScalar::getParallelIndex() const {
   if (stringifyThread(ParallelType::TIDx).compare(name()) == 0) {
-    return c10::optional<ParallelType>(ParallelType::TIDx);
+    return std::optional<ParallelType>(ParallelType::TIDx);
   } else if (stringifyThread(ParallelType::TIDy).compare(name()) == 0) {
-    return c10::optional<ParallelType>(ParallelType::TIDy);
+    return std::optional<ParallelType>(ParallelType::TIDy);
   } else if (stringifyThread(ParallelType::TIDz).compare(name()) == 0) {
-    return c10::optional<ParallelType>(ParallelType::TIDz);
+    return std::optional<ParallelType>(ParallelType::TIDz);
   } else if (stringifyThread(ParallelType::BIDx).compare(name()) == 0) {
-    return c10::optional<ParallelType>(ParallelType::BIDx);
+    return std::optional<ParallelType>(ParallelType::BIDx);
   } else if (stringifyThread(ParallelType::BIDy).compare(name()) == 0) {
-    return c10::optional<ParallelType>(ParallelType::BIDy);
+    return std::optional<ParallelType>(ParallelType::BIDy);
   } else if (stringifyThread(ParallelType::BIDz).compare(name()) == 0) {
-    return c10::optional<ParallelType>(ParallelType::BIDz);
+    return std::optional<ParallelType>(ParallelType::BIDz);
   }
-  return c10::nullopt;
+  return std::nullopt;
 }
 
 PadOp::PadOp(
@@ -3653,7 +3825,7 @@ CatOp::CatOp(
     IrBuilderPasskey passkey,
     Val* out,
     const std::vector<Val*>& inputs,
-    int concatenated_dim)
+    int64_t concatenated_dim)
     : Expr(passkey) {
   addOutput(out);
   for (auto inp : inputs) {
@@ -3666,18 +3838,20 @@ CatOp::CatOp(
       "Invalid dimension to concatenate: ",
       concatenated_dim);
 
-  addAttribute(IrBuilder::create<Attribute<int>>(
-      passkey.ir_container_, concatenated_dim));
+  addDataAttribute(concatenated_dim);
 }
 
 CatOp::CatOp(
     IrBuilderPasskey passkey,
     Val* out,
     const std::vector<Val*>& inputs,
-    int concatenated_dim,
+    int64_t concatenated_dim,
     Val* concatenated_domain_index,
-    const std::vector<Bool*>& preds)
+    const std::vector<Val*>& preds)
     : Expr(passkey) {
+  TORCH_INTERNAL_ASSERT(
+      passkey.ir_container_ != nullptr,
+      "IrContainer must be provided to create a CatOp.");
   TORCH_INTERNAL_ASSERT(
       passkey.ir_container_->isA<kir::Kernel>(),
       "Should only be used for Kernel container.");
@@ -3686,8 +3860,7 @@ CatOp::CatOp(
   for (auto inp : inputs) {
     addInput(inp);
   }
-  addAttribute(IrBuilder::create<Attribute<int>>(
-      passkey.ir_container_, concatenated_dim));
+  addDataAttribute(concatenated_dim);
   addAttribute(concatenated_domain_index);
   for (auto pred : preds) {
     addAttribute(pred);
@@ -3721,7 +3894,7 @@ Val* CatOp::getConcatenatedDomainIndex() const {
   return idx;
 }
 
-Bool* CatOp::getPred(int input_idx) const {
+Val* CatOp::getPred(int input_idx) const {
   TORCH_INTERNAL_ASSERT(
       container()->isA<kir::Kernel>(),
       "Should only be used for Kernel container.");
@@ -3735,13 +3908,13 @@ Bool* CatOp::getPred(int input_idx) const {
       attr_idx,
       ", number of attributes: ",
       attributes().size());
-  auto attr = attribute(attr_idx);
+  auto attr = attributeVal(attr_idx);
   TORCH_INTERNAL_ASSERT(attr != nullptr, "nullptr attribute is invalid");
   TORCH_INTERNAL_ASSERT(
-      attr->isA<Bool>(),
+      attr->dtype() == DataType::Bool,
       "Attribute must be a Bool val: ",
       attr->toInlineString());
-  auto pred = attr->as<Bool>();
+  auto pred = attr;
   return pred;
 }
 

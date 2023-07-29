@@ -7,6 +7,7 @@
 // clang-format on
 #include <device_lower/analysis/thread_predicate.h>
 
+#include <debug.h>
 #include <device_lower/lower2device.h>
 #include <device_lower/utils.h>
 #include <instrumentation.h>
@@ -15,12 +16,13 @@
 #include <ops/arith.h>
 
 #include <c10/util/irange.h>
-
+#include <algorithm>
+#include <numeric>
 namespace nvfuser {
 
 namespace {
 
-Bool* getPredicatePerParallelType(
+Val* getPredicatePerParallelType(
     ParallelType pt,
     const ThreadPredicateMap::PredicateInfo& pred_info) {
   auto pt_dim = GpuLower::current()->parallelDimensionMap().get(pt);
@@ -34,23 +36,34 @@ Bool* getPredicatePerParallelType(
   // value from the grid reduce.
   if (isParallelTypeBlockDim(pt) && pred_info.limited_types.get(pt)) {
     return SimplifyingIrBuilder::eqExpr(
-               NamedScalar::getParallelIndex(pt),
-               SimplifyingIrBuilder::subExpr(
-                   NamedScalar::getParallelDim(pt),
-                   GpuLower::current()->kernel()->oneVal()))
-        ->as<Bool>();
+        NamedScalar::getParallelIndex(pt),
+        SimplifyingIrBuilder::subExpr(
+            NamedScalar::getParallelDim(pt),
+            GpuLower::current()->kernel()->oneVal()));
   }
 
-  // Otherwise, only thread of index 0 executes the computation
+  const auto& broadcast_rd_indices_map = pred_info.broadcast_rd_indices_map;
+  if (auto it = broadcast_rd_indices_map.find(pt);
+      it != broadcast_rd_indices_map.end()) {
+    // skip concretized broadcast root domains
+    const auto& broadcast_rd_indices = it->second;
+    Val* zero = GpuLower::current()->kernel()->zeroVal();
+    Val* pred = GpuLower::current()->kernel()->trueVal();
+    for (auto broadcast_rd_index : broadcast_rd_indices) {
+      pred = SimplifyingIrBuilder::andExpr(
+          pred, SimplifyingIrBuilder::eqExpr(broadcast_rd_index, zero));
+    }
+    return pred;
+  }
+
   return SimplifyingIrBuilder::eqExpr(
-             NamedScalar::getParallelIndex(pt),
-             GpuLower::current()->kernel()->zeroVal())
-      ->as<Bool>();
+      NamedScalar::getParallelIndex(pt),
+      GpuLower::current()->kernel()->zeroVal());
 }
 
 } // namespace
 
-Bool* ThreadPredicateMap::getPredicateFromPredicateInfo(
+Val* ThreadPredicateMap::getPredicateFromPredicateInfo(
     const ThreadPredicateMap::PredicateInfo& pred_info,
     const ParallelTypeBitmap& mask) {
   const auto pred_types =
@@ -60,10 +73,10 @@ Bool* ThreadPredicateMap::getPredicateFromPredicateInfo(
     return GpuLower::current()->kernel()->trueVal();
   }
 
-  Bool* pred = nullptr;
+  Val* pred = nullptr;
   for (const auto pt : pred_types) {
     const auto tp = getPredicatePerParallelType(pt, pred_info);
-    pred = SimplifyingIrBuilder::andExpr(pred, tp)->as<Bool>();
+    pred = SimplifyingIrBuilder::andExpr(pred, tp);
   }
   TORCH_INTERNAL_ASSERT(pred != nullptr);
 
@@ -186,6 +199,11 @@ ParallelTypeBitmap getReductionPredicateForUnusedParallelTypes(
 // Update the reduction_deps bitset based on provided Expr
 void ThreadPredicateMap::updateBitSet(const Expr* expr) {
   FUSER_PERF_SCOPE("GpuLower::Lower::ThreadPredicateMap::updateBitSet");
+
+  auto tv_out = ir_utils::getTvOutput(expr);
+  if (tv_out == nullptr) {
+    return;
+  }
 
   // If all of the inputs are not updated and all of the outputs have
   // already mappings, don't do anything
@@ -357,7 +375,17 @@ class RedundantUseAnalysis : BackwardVisitor {
   ParallelTypeBitmap getRedundantUseBitMap(const TensorView* tv) {
     // Since all tv's consumers are visited at this point, we
     //  can aggregate the final redundant use info for this tv.
-    if (fusion_->unordered_uses(tv).empty()) {
+    bool not_used_by_tensor_op = true;
+    for (auto expr : fusion_->unordered_uses(tv)) {
+      // There are ops, especially GetMetaData, that takes TensorView as input
+      // and output a non-tensor object. These ops should be treated as scalars,
+      // and we do not need to worry about thread predicate.
+      if (ir_utils::isTvOp(expr)) {
+        not_used_by_tensor_op = false;
+        break;
+      }
+    }
+    if (not_used_by_tensor_op) {
       // Base case, un-used is also not redundantly used
       return ParallelTypeBitmap();
     } else {
@@ -441,10 +469,10 @@ class RedundantUseAnalysis : BackwardVisitor {
     }
   }
 
-  void handle(Expr* expr) final {
+  void dispatch(Expr* expr) final {
     if (ir_utils::isTvOp(expr)) {
       // Initialize redundant info for current expr
-      c10::optional<ParallelTypeBitmap> maybe_expr_pred_map;
+      std::optional<ParallelTypeBitmap> maybe_expr_pred_map;
 
       for (auto consumer_tv :
            ir_utils::filterByType<TensorView>(expr->outputs())) {
@@ -494,6 +522,197 @@ class RedundantUseAnalysis : BackwardVisitor {
 
 } // namespace
 
+namespace {
+// This class removes the redundant write to gmem when an output tensor has a
+// leaf domain merged from concretized broadcast root domain and parallelized by
+// thread/block id. issue https://github.com/csarofeen/pytorch/issues/2125
+class ConcretizedBroadcastRedundantWriteRemover {
+ public:
+  // interface to run the check
+  ConcretizedBroadcastRedundantWriteRemover(const TensorView* out_tv)
+      : tv_(out_tv), root_domain_(out_tv->getMaybeRFactorDomain()) {
+    setCandidateLeafDomains();
+    if (candidate_leaf_domains_.empty()) {
+      return;
+    }
+    setConcretizedBroadcastRootDomain();
+    if (concretized_broadcast_root_domains_.empty()) {
+      return;
+    }
+    for (auto ld : candidate_leaf_domains_) {
+      // find all root domains that are merged to this leaf domain.
+      const std::vector<IterDomain*>& merged_root_domains =
+          getRootDomainsMergedToLeaf(ld);
+      if (!merged_root_domains.empty()) {
+        const ParallelType& pt = ld->getParallelType();
+        const std::vector<Val*>& broadcast_root_indices =
+            getIndexOfBroadcastRootDomains(merged_root_domains, pt);
+        write_index_map_[pt] = broadcast_root_indices;
+      }
+    }
+  }
+  // interface to get results
+  const std::unordered_map<ParallelType, std::vector<Val*>>& getWriteIndexMap() {
+    return write_index_map_;
+  }
+
+ private:
+  const TensorView* tv_;
+  const std::vector<IterDomain*>& root_domain_;
+  // leaf domains that are merged from root domains and parallelized by thread
+  // blocks
+  std::vector<IterDomain*> candidate_leaf_domains_;
+  // map from root domain to its concretized domain
+  std::unordered_map<IterDomain*, IterDomain*>
+      concretized_broadcast_root_domains_;
+  // map from parallel type to its write index
+  std::unordered_map<ParallelType, std::vector<Val*>> write_index_map_;
+
+  void setCandidateLeafDomains() {
+    for (auto ld : tv_->domain()->leaf()) {
+      const ParallelType& pt = ld->getParallelType();
+      auto merge = dynamic_cast<Merge*>(ld->definition());
+      if (isParallelTypeThread(pt) && merge) {
+        candidate_leaf_domains_.push_back(ld);
+      }
+    }
+  }
+
+  void setConcretizedBroadcastRootDomain() {
+    std::shared_ptr<const ComputeAtMap> caMap = GpuLower::current()->caMap();
+    for (auto leaf_id : candidate_leaf_domains_) {
+      auto loop_concrete_id =
+          caMap->getConcreteMappedID(leaf_id, IdMappingMode::LOOP);
+      auto concrete_root_vals = IterVisitor::getInputsTo({loop_concrete_id});
+      auto concrete_root_ids =
+          ir_utils::filterByType<IterDomain>(concrete_root_vals);
+
+      // get concretized root domains
+      for (auto rd : root_domain_) {
+        if (!rd->isBroadcast()) {
+          continue;
+        }
+        auto it = std::find_if(
+            concrete_root_ids.begin(),
+            concrete_root_ids.end(),
+            [&caMap, &rd](auto concrete_root_id) {
+              return caMap->areMapped(
+                  rd, concrete_root_id, IdMappingMode::PERMISSIVE);
+            });
+        if (it == concrete_root_ids.end()) {
+          // Failed to find the concrete ID. This could happen in complex
+          // broadcast and computeAt patterns. Not addressed for now
+          continue;
+        }
+        auto concrete_root_id = *it;
+        TORCH_INTERNAL_ASSERT(
+            concretized_broadcast_root_domains_.emplace(rd, concrete_root_id)
+                .second);
+      }
+    }
+  }
+
+  // Find all the root domains that are merged to the leaf domain.
+  // e.g. Root: [I1,B2,B3] -> Leaf: [I1*B2*B3]
+  std::vector<IterDomain*> getRootDomainsMergedToLeaf(IterDomain* ld) {
+    std::vector<IterDomain*> merged_root_domains;
+    std::vector<int> index_root_domain;
+    std::vector<IterDomain*> intermediate_domains = root_domain_;
+    auto all_exp = DependencyCheck::getAllExprsBetween(
+        {root_domain_.begin(), root_domain_.end()}, {ld});
+    for (auto expr : all_exp) {
+      if (auto merge = dynamic_cast<Merge*>(expr)) {
+        auto outer_iter =
+            std::find(root_domain_.begin(), root_domain_.end(), merge->outer());
+        auto inner_iter =
+            std::find(root_domain_.begin(), root_domain_.end(), merge->inner());
+
+        if (outer_iter != root_domain_.end()) {
+          merged_root_domains.emplace_back(*outer_iter);
+          index_root_domain.emplace_back(
+              std::distance(root_domain_.begin(), outer_iter));
+        }
+        if (inner_iter != root_domain_.end()) {
+          merged_root_domains.emplace_back(*inner_iter);
+          index_root_domain.emplace_back(
+              std::distance(root_domain_.begin(), inner_iter));
+        }
+      } else {
+        // current analysis of predication is only valid if all the exprs
+        // between this lead domain and root domains are merge
+        return std::vector<IterDomain*>();
+      }
+    }
+    // The following sort is added because in NVFuserTest.FusionIssue2076_CUDA
+    // the order is [I3, I1, B2] while the correct order should be [I1, B2, I3]
+    size_t n_elements = merged_root_domains.size();
+    TORCH_INTERNAL_ASSERT(
+        n_elements, "The number of merged root domains should > 0");
+    std::vector<int> indices(n_elements);
+    std::iota(indices.begin(), indices.end(), 0);
+    std::sort(indices.begin(), indices.end(), [&](int a, int b) {
+      return index_root_domain.at(a) < index_root_domain.at(b);
+    });
+    std::vector<IterDomain*> merged_root_domains_sorted(n_elements);
+    for (size_t i = 0; i < n_elements; ++i) {
+      merged_root_domains_sorted.at(i) = merged_root_domains.at(indices.at(i));
+    }
+
+    return merged_root_domains_sorted;
+  }
+
+  // Get the index of the leaf domain if we skip the broadcasted root domains
+  std::vector<Val*> getIndexOfBroadcastRootDomains(
+      const std::vector<IterDomain*>& merged_root_domains,
+      ParallelType pt) {
+    const int ndim = (int)merged_root_domains.size();
+    // get the stride if we index the leaf domain using its root domains
+    std::vector<Val*> root_stride(ndim);
+    root_stride.at(ndim - 1) = GpuLower::current()->kernel()->oneVal();
+    for (int i = ndim - 2; i >= 0; i--) {
+      auto pre_crd = merged_root_domains.at(i + 1);
+      Val* pre_extent = pre_crd->isBroadcast()
+          ? concretized_broadcast_root_domains_.at(pre_crd)->extent()
+          : pre_crd->extent();
+      root_stride.at(i) = IrBuilder::mulExpr(root_stride.at(i + 1), pre_extent);
+    }
+    // convert the linear index of the leaf domain to the indices of the root
+    // domains
+    Val* remaining_index = NamedScalar::getParallelIndex(pt);
+    std::vector<Val*> index_broadcast_root_domains;
+    index_broadcast_root_domains.reserve(ndim);
+    for (int i = 0; i < ndim; i++) {
+      Val* root_index_at_i =
+          IrBuilder::divExpr(remaining_index, root_stride.at(i));
+      remaining_index = IrBuilder::modExpr(remaining_index, root_stride.at(i));
+      if (merged_root_domains.at(i)->isBroadcast()) {
+        index_broadcast_root_domains.emplace_back(root_index_at_i);
+      }
+    }
+    return index_broadcast_root_domains;
+  }
+};
+} // namespace
+
+// This function is to avoid redundant writes to global memory
+// when the tensor has a leaf domain merged from concretized
+// broadcast domains and parallelized by thread/block id.
+// Only do the write when the index of the leaf domain equals
+// write_index_map_.at(pt) where pt is the parallel type.
+void ThreadPredicateMap::avoidConcretizedBroadcastRedundantWrite(
+    const TensorView* out_tv) {
+  ConcretizedBroadcastRedundantWriteRemover redundant_write_remover(out_tv);
+  const auto& broadcast_rd_indices_map =
+      redundant_write_remover.getWriteIndexMap();
+  if (!broadcast_rd_indices_map.empty()) {
+    thread_predicates_[out_tv].broadcast_rd_indices_map =
+        broadcast_rd_indices_map;
+    for (const auto& iter : broadcast_rd_indices_map) {
+      thread_predicates_[out_tv].redundant_types.set(iter.first);
+    }
+  }
+}
+
 void ThreadPredicateMap::build(Fusion* fusion) {
   FUSER_PERF_SCOPE("GpuLower::Lower::ThreadPredicateMap");
 
@@ -506,6 +725,13 @@ void ThreadPredicateMap::build(Fusion* fusion) {
   for (auto expr : fusion->exprs()) {
     updateBitSet(expr);
   }
+
+  for (auto tv : ir_utils::allTvs(fusion)) {
+    if (tv->getMemoryType() == MemoryType::Global) {
+      avoidConcretizedBroadcastRedundantWrite(tv);
+    }
+  }
+
   updated_tvs_.clear();
   populateRedundantUseMap(fusion);
 }
@@ -581,7 +807,7 @@ bool ThreadPredicateMap::update(
   }
 }
 
-Bool* ThreadPredicateMap::getPredicate(
+Val* ThreadPredicateMap::getPredicate(
     const TensorView* tv,
     ParallelTypeBitmap mask) const {
   TORCH_INTERNAL_ASSERT(find(tv) != end(), "Couldn't find ", tv);
@@ -622,7 +848,7 @@ ParallelTypeBitmap ThreadPredicateMap::getParallelBroadcastDomains(
 
 ParallelTypeBitmap ThreadPredicateMap::getRedundantConsumerType(
     Expr* expr) const {
-  c10::optional<ParallelTypeBitmap> result;
+  std::optional<ParallelTypeBitmap> result;
   for (auto out_tv : ir_utils::filterByType<TensorView>(expr->outputs())) {
     auto out_tv_redundant_map = getPredicateInfo(out_tv).redundant_use_types;
     if (!result.has_value()) {
@@ -642,15 +868,15 @@ void ThreadPredicateMap::markAsUpdated(const TensorView* tv) {
 }
 
 void ThreadPredicateMap::print() const {
-  std::cout << "\nThreadPredicateMap\n";
-  std::cout << "--------------------------------\n";
+  debug() << "\nThreadPredicateMap\n";
+  debug() << "--------------------------------\n";
   for (const auto& kv : thread_predicates_) {
-    std::cout << "T" << kv.first->name();
-    std::cout << " {" << kv.second.limited_types.toString() << "}\n";
-    std::cout << "{" << kv.second.redundant_types.toString() << "}\n";
-    std::cout << "{" << kv.second.redundant_use_types.toString() << "}\n";
+    debug() << "T" << kv.first->name();
+    debug() << " {" << kv.second.limited_types.toString() << "}\n";
+    debug() << "{" << kv.second.redundant_types.toString() << "}\n";
+    debug() << "{" << kv.second.redundant_use_types.toString() << "}\n";
   }
-  std::cout << "--------------------------------\n\n";
+  debug() << "--------------------------------\n\n";
 }
 
 } // namespace nvfuser

@@ -7,10 +7,10 @@
 // clang-format on
 #pragma once
 #include <device_lower/lower2device.h>
-#include <dynamic_type.h>
 #include <executor_params.h>
 #include <fusion.h>
 #include <ir/all_nodes.h>
+#include <polymorphic_value.h>
 #include <utils.h>
 
 #include <c10/core/DeviceType.h>
@@ -37,6 +37,12 @@ class NaiveValueMachine {
   //! Constructor lowers all the expr IR nodes stored in precomputed_values
   //!  and stores them in the private state.
   NaiveValueMachine(PrecomputedValues& precomputed_values);
+
+  //! Copy all values other than `precomputed_values_` from other
+  //! This would be better implemented as a copy constructor, except that would
+  //! also presumably bind precomputed_values_ which we could not then rebind,
+  //! as we need to during cloning.
+  void copyFrom(const NaiveValueMachine& other);
 
   //! Runs all the instructions and write results to the associated
   //!  precomputed_values.
@@ -138,7 +144,7 @@ class PrecomputedValues {
   //! Bind the NamedScalars corresponding to the
   //!  concrete parallel dimension sizes after the
   //!  actual value has been resolved.
-  void bindConcreteParallelTypeValue(ParallelType pt, int64_t value);
+  void bindConcreteParallelTypeValue(ParallelType pt, PolymorphicValue value);
 
   //! Returns if the workspace contains evaluated results.
   bool ready() {
@@ -151,10 +157,12 @@ class PrecomputedValues {
 
   //! Returns value for the given IR node if it's stored
   //!  in the workspace and has been evaluated.
-  c10::optional<EvaluatorValue> getMaybeValueFor(const Val* val) const;
+  PolymorphicValue getMaybeValueFor(const Val* val) const;
 
   //! Debugging helper, prints all the currently known values
   void print() const;
+
+  PrecomputedValues clone(IrCloner& ir_cloner) const;
 
  protected:
   // Fusion IR associated with the precomputed values. Can be kir::Kernel or
@@ -173,7 +181,7 @@ class PrecomputedValues {
 
   //! Bind concrete value to the given index
   //!  if the index is valid.
-  void bindValue_(int index, const EvaluatorValue& value) {
+  void bindValue_(int index, const PolymorphicValue& value) {
     if (index < 0 || is_constant_[index]) {
       return;
     }
@@ -183,7 +191,7 @@ class PrecomputedValues {
   }
   template <typename T>
   void bindValue(int index, const T& value) {
-    bindValue_(index, EvaluatorValue(value));
+    bindValue_(index, PolymorphicValue(value));
   }
 
   //! Invalidate all computed values in the workspace.
@@ -248,7 +256,7 @@ class PrecomputedValues {
   std::vector<bool> is_constant_;
 
   //! Stores the concrete values at each index.
-  std::vector<EvaluatorValue> values_;
+  std::vector<PolymorphicValue> values_;
 
   //! Stores the IR nodes corresponding to each index.
   std::vector<Val*> symbols_;
@@ -256,7 +264,7 @@ class PrecomputedValues {
   //! An internal log to keep track of all the bindings
   //!  used in each evaluation cycle. To be used for
   //!  consistency check.
-  std::vector<std::pair<int, EvaluatorValue>> binding_log_;
+  std::vector<std::pair<int, PolymorphicValue>> binding_log_;
 
   //! Integer runtime for realizing the values computations.
   std::unique_ptr<NaiveValueMachine> value_machine_;

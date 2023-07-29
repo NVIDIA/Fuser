@@ -27,7 +27,6 @@
 #include <kernel_cache.h>
 #include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
-#include <mutator.h>
 #include <ops/all_ops.h>
 #include <register_interface.h>
 #include <root_domain_map.h>
@@ -124,7 +123,7 @@ TEST_F(NVFuserTest, FusionViewAsRealOutput_CUDA) {
   TensorView* y = makeSymbolicTensor(output_shape.size());
   fusion.addInput(y);
 
-  auto y_plus_1 = add(y, IrBuilder::create<Double>(1));
+  auto y_plus_1 = add(y, IrBuilder::create<Val>(1.0));
 
   auto x_add_bias = add(x, bias);
   auto x_view = view_as_real(x_add_bias);
@@ -166,12 +165,11 @@ TEST_F(NVFuserTest, FusionReshapeRfactorExtentReplacement_CUDA) {
 
   auto tv2 = reshape(tv0, {12, 8}, {4, 3, 8});
   auto tv3 = sum(tv2, {-1});
-  auto tv4 = add(tv3, IrBuilder::create<Double>(1));
+  auto tv4 = add(tv3, IrBuilder::create<Val>(1.0));
   auto tv5 = add(tv1, tv4);
   fusion->addOutput(tv5);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
   auto t0 = at::randn({12, 8}, options);
   auto t1 = at::randn({4, 3}, options);
 
@@ -375,6 +373,11 @@ std::vector<reshape_example> all_reshape_examples = {
 
 TEST_F(NVFuserTest, FusionReshapeReductionShmoo_CUDA) {
   for (auto e : all_reshape_examples) {
+    // Shmoo tests can occupy a lot of memory due to allocating many
+    // different tensor sizes. So in order to avoid an OOM during this
+    // test, we manually clear the allocator after it's reached a certain
+    // threshold.
+    maybeClearAllocator();
     reductionViewAddFusion(
         e.first, e.second, true /* reshape_before_reduction */);
   }
@@ -395,6 +398,7 @@ TEST_F(NVFuserTest, FusionReshapeReductionShmoo_CUDA) {
       {{1, 7844, 1, 7}, {1, 1961, 4}}};
 
   for (auto e : reshape_after_reduce_examples) {
+    maybeClearAllocator(); // see above
     reductionViewAddFusion(
         e.first, e.second, false /* reshape_before_reduction */);
   }
@@ -455,11 +459,17 @@ void persistentViewAddFusion(
 
 TEST_F(NVFuserTest, FusionReshapePersistentShmoo_CUDA) {
   for (auto e : all_reshape_examples) {
+    // Shmoo tests can occupy a lot of memory due to allocating many
+    // different tensor sizes. So in order to avoid an OOM during this
+    // test, we manually clear the allocator after it's reached a certain
+    // threshold.
+    maybeClearAllocator();
     persistentViewAddFusion(
         e.first, e.second, true /* reshape_before_persistent */);
   }
 
   for (auto e : all_reshape_examples) {
+    maybeClearAllocator(); // see above
     persistentViewAddFusion(
         e.first, e.second, false /* reshape_before_persistent */);
   }
@@ -525,6 +535,11 @@ TEST_F(NVFuserTest, FusionReshapeMerge_CUDA) {
 
 TEST_F(NVFuserTest, FusionReshapeAllShmoo_CUDA) {
   for (auto e : all_reshape_examples) {
+    // Shmoo tests can occupy a lot of memory due to allocating many
+    // different tensor sizes. So in order to avoid an OOM during this
+    // test, we manually clear the allocator after it's reached a certain
+    // threshold.
+    maybeClearAllocator();
     addViewGeluFusion(e.first, e.second);
   }
 }
@@ -638,7 +653,7 @@ TEST_F(NVFuserTest, FusionReshapeConcreteDomain_CUDA) {
   fusion.addInput(tv1);
 
   auto tv2 = reshape(tv0, {2, 3}, {6});
-  auto tv3 = add(tv2, IrBuilder::create<Double>(1));
+  auto tv3 = add(tv2, IrBuilder::create<Val>(1.0));
   auto tv4 = broadcast(tv3, {true, false});
   auto tv5 = add(tv4, tv1);
 
@@ -649,7 +664,6 @@ TEST_F(NVFuserTest, FusionReshapeConcreteDomain_CUDA) {
   tv1->computeAt(tv5, -1);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
   auto t0 = at::randn({2, 3}, options);
   auto t1 = at::randn({1, 6}, options);
 
@@ -898,7 +912,7 @@ TEST_F(NVFuserTest, FusionComputeAtRootDomainMapWithView_CUDA) {
   auto tv0 = makeSymbolicTensor(2);
   fusion.addInput(tv0);
 
-  auto tv1 = add(tv0, IrBuilder::create<Double>(1));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
 
   // reduction followed by broadcast
   auto tv2 = sum(tv1, {1});
@@ -971,16 +985,15 @@ TEST_F(NVFuserTest, FusionExpandView1_CUDA) {
 
   auto tv2 = expand(
       tv0,
-      {IrBuilder::create<Int>(4),
-       IrBuilder::create<Int>(3),
-       IrBuilder::create<Int>(8)});
+      {IrBuilder::create<Val>(4L),
+       IrBuilder::create<Val>(3L),
+       IrBuilder::create<Val>(8L)});
 
   auto tv3 = reshape(tv2, {4, 3, 8}, {12, 8});
   auto tv4 = add(tv3, tv1);
   fusion->addOutput(tv4);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
   auto t0 = at::randn({4, 1, 8}, options);
   auto t1 = at::randn({12, 8}, options);
 
@@ -1004,14 +1017,13 @@ TEST_F(NVFuserTest, FusionExpandView2_CUDA) {
   fusion->addInput(tv1);
 
   auto tv2 =
-      expand(tv0, {IrBuilder::create<Int>(12), IrBuilder::create<Int>(8)});
+      expand(tv0, {IrBuilder::create<Val>(12L), IrBuilder::create<Val>(8L)});
 
   auto tv3 = reshape(tv2, {12, 8}, {3, 4, 8});
   auto tv4 = add(tv3, tv1);
   fusion->addOutput(tv4);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
   auto t0 = at::randn({1, 8}, options);
   auto t1 = at::randn({3, 4, 8}, options);
 
@@ -1214,9 +1226,6 @@ TEST_F(NVFuserTest, FusionReshapeIdGraph_CUDA) {
   auto t13 = add(tv12, tv4);
   fusion.addOutput(t13);
 
-  // Grab the trivial reduced tensor from t12's reshape.
-  ir_utils::producerTvsOf(tv12)[0];
-
   // Start from the exact iter domain graph of the fusion
   IterDomainGraph id_graph(&fusion);
   auto disjoint_reshape_ids = id_graph.exactNodes();
@@ -1292,7 +1301,7 @@ TEST_F(NVFuserTest, FusionExpandFlatten_CUDA) {
       tv0,
       {tv0->axis(0)->extent(),
        tv0->axis(1)->extent(),
-       IrBuilder::create<Int>(8)});
+       IrBuilder::create<Val>(8L)});
   auto tv2 = flatten(tv1, 1, 2);
   auto tv3 = sum(tv2, {1});
   fusion->addOutput(tv3);
@@ -1343,7 +1352,6 @@ TEST_F(NVFuserTest, FusionReductionFlatten1_CUDA) {
   fusion->addOutput(tv2);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
   auto t0 = at::randn({2, 3, 5}, options);
   auto ref = t0.sum({1}).flatten(0, 1);
 
@@ -1903,7 +1911,7 @@ TEST_F(NVFuserTest, FusionReshapeMagicSchedule9_CUDA) {
   auto tv8 = broadcast(tv3, {false, false, true});
   auto tv9 = set(tv6);
 
-  auto s10 = IrBuilder::create<Double>(1e-12);
+  auto s10 = IrBuilder::create<Val>(1e-12);
   auto tv11 = add(abs(tv8), s10);
 
   auto tv12 = sub(tv4, tv9);
@@ -2167,17 +2175,16 @@ TEST_F(NVFuserTest, FusionIssue2076_CUDA) {
   auto tv3 = castOp(DataType::Float, tv0);
   auto tv4 = reshape(tv1, {48, 128, 128}, {4, 12, 128, 128});
 
-  auto tv5 = mul(tv3, IrBuilder::create<Double>(1));
-  auto tv6 = sub(IrBuilder::create<Double>(1), tv5);
+  auto tv5 = mul(tv3, IrBuilder::create<Val>(1.0));
+  auto tv6 = sub(IrBuilder::create<Val>(1.0), tv5);
   auto tv7 = castOp(DataType::Bool, tv6);
-  auto tv8 =
-      where(tv7, IrBuilder::create<Double>(-3.4028200000000001e+38), tv6);
+  auto tv8 = where(tv7, IrBuilder::create<Val>(-3.4028200000000001e+38), tv6);
   auto tv9 = add(tv8, tv2);
   auto tv10 = set(tv9);
   auto tv11 = expand(
       tv10,
       {tv10->axis(0)->extent(),
-       IrBuilder::create<Int>(12),
+       IrBuilder::create<Val>(12L),
        tv10->axis(2)->extent(),
        tv10->axis(3)->extent()});
 
@@ -2190,7 +2197,7 @@ TEST_F(NVFuserTest, FusionIssue2076_CUDA) {
       tv16,
       {tv16->axis(0)->extent(),
        tv16->axis(1)->extent(),
-       IrBuilder::create<Int>(128)});
+       IrBuilder::create<Val>(128L)});
   auto tv18 = sub(tv13, tv17);
   auto tv19 = exp(tv18);
   auto tv20 = sum(tv19, {2});
@@ -2200,7 +2207,7 @@ TEST_F(NVFuserTest, FusionIssue2076_CUDA) {
       tv22,
       {tv22->axis(0)->extent(),
        tv22->axis(1)->extent(),
-       IrBuilder::create<Int>(128)});
+       IrBuilder::create<Val>(128L)});
   auto tv24 = div(tv19, tv23);
 
   fusion.addOutput(tv9);
@@ -2425,7 +2432,6 @@ TEST_F(NVFuserTest, ReshapeOfReshape_CUDA) {
   std::vector<int64_t> shape({4, 8});
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
 
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});

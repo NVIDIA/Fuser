@@ -12,19 +12,22 @@
 #include <c10/util/irange.h>
 
 #include <contiguity.h>
+#include <debug.h>
 #include <executor_utils.h>
 #include <instrumentation.h>
 #include <ir/all_nodes.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
 #include <kernel_db/kernel_db.h>
+#include <options.h>
 #include <torch/csrc/jit/resource_guard.h>
+#include <utils.h>
 
 #include <cuda_occupancy.h>
-#include <nvfuser_resources/PhiloxCudaStateRaw.h>
 #include <nvfuser_resources/array.h>
 #include <nvfuser_resources/basic_type_traits.h>
 #include <nvfuser_resources/bf16_support.h>
+#include <nvfuser_resources/bit.h>
 #include <nvfuser_resources/block_reduction.h>
 #include <nvfuser_resources/block_sync_atomic.h>
 #include <nvfuser_resources/block_sync_default.h>
@@ -62,22 +65,23 @@ namespace executor_utils {
 std::string kernelPreamble() {
   std::stringstream ss;
   ss << nvfuser_resources::basic_type_traits_cu;
+  ss << nvfuser_resources::bit_cu;
   ss << nvfuser_resources::complex_number_cu;
 
   ss << nvfuser_resources::fp16_support_cu;
   ss << nvfuser_resources::bf16_support_cu;
 
   // Base classes and helpers
-  ss << nvfuser_resources::tensor_cu;
   ss << nvfuser_resources::type_traits_cu;
   ss << nvfuser_resources::array_cu;
+  ss << nvfuser_resources::tensor_cu;
   ss << nvfuser_resources::random_numbers_cu;
   ss << nvfuser_resources::helpers_cu;
   ss << nvfuser_resources::index_utils_cu;
   ss << nvfuser_resources::tuple_cu;
 
   // Synchronization classes
-  if (std::getenv("PYTORCH_NVFUSER_USE_BLOCK_SYNC_ATOMIC")) {
+  if (getNvFuserEnv("USE_BLOCK_SYNC_ATOMIC")) {
     ss << nvfuser_resources::block_sync_atomic_cu;
   } else {
     ss << nvfuser_resources::block_sync_default_cu;
@@ -99,9 +103,6 @@ std::string kernelPreamble() {
   ss << nvfuser_resources::block_welford_outer_cu;
   ss << nvfuser_resources::fused_welford_impl_outer_cu;
 
-  // Random utilities
-  ss << nvfuser_resources::PhiloxCudaStateRaw_cu;
-
   return ss.str();
 }
 
@@ -115,7 +116,8 @@ TORCH_CUDA_CU_API void queryTargetGPUVersion(
     bool& compile_to_sass) {
   using CudaVersion = std::pair<int, int>;
   CudaVersion nvrtc_version;
-  NVRTC_SAFE_CALL(nvrtcVersion(&nvrtc_version.first, &nvrtc_version.second));
+  NVFUSER_NVRTC_SAFE_CALL(
+      nvrtcVersion(&nvrtc_version.first, &nvrtc_version.second));
 
   TORCH_CHECK(
       nvrtc_version.first >= 6,
@@ -577,7 +579,7 @@ void validateAlignedVectorizeExtents(
   for (auto id : info.contig_alloc_ids) {
     auto extent_val = expr_eval.evaluate(id->extent());
     TORCH_INTERNAL_ASSERT(
-        extent_val.has_value(),
+        extent_val.hasValue(),
         "Error vectorizing, ",
         info.consumer_tv->toString(),
         " as the extent of a vectorized root domain, ",
@@ -608,10 +610,10 @@ void validateAlignedVectorizeExtents(
 void validateAlignedVectorizedFusionInputOutput(
     const at::Tensor& aten_tensor,
     int word_size,
-    TensorView* tv) {
-  ExpressionEvaluator eval;
-  auto sizes_strides =
-      inferAndValidateAllocationSizesAndStrides(aten_tensor, tv, eval);
+    TensorView* tv,
+    ExpressionEvaluator eval) {
+  eval.bind(tv, aten_tensor);
+  auto metadata = eval.evaluate(IrBuilder::metadataExpr(tv));
 
   std::vector<int64_t> no_reduction_to_full;
   for (int64_t i :
@@ -621,7 +623,11 @@ void validateAlignedVectorizedFusionInputOutput(
       no_reduction_to_full.emplace_back(i);
     }
   }
-  TORCH_INTERNAL_ASSERT(sizes_strides.size() == no_reduction_to_full.size());
+
+  auto sizes = std::vector<int64_t>(metadata["alloc_size"]);
+  auto strides = std::vector<int64_t>(metadata["alloc_stride"]);
+  TORCH_INTERNAL_ASSERT(sizes.size() == no_reduction_to_full.size());
+  TORCH_INTERNAL_ASSERT(strides.size() == no_reduction_to_full.size());
 
   TORCH_INTERNAL_ASSERT(
       reinterpret_cast<size_t>(aten_tensor.data_ptr()) %
@@ -641,8 +647,9 @@ void validateAlignedVectorizedFusionInputOutput(
   // domain must have stride 1.
   int64_t cur_contig_stride = 1;
   bool still_rightmost = true;
-  for (int64_t i = (int64_t)sizes_strides.size() - 1; i >= 0; --i) {
-    const auto [size, stride] = sizes_strides.at(i);
+  for (int64_t i = (int64_t)sizes.size() - 1; i >= 0; --i) {
+    const auto size = sizes.at(i);
+    const auto stride = strides.at(i);
     auto alloc_id =
         tv->getMaybeAllocationDomain().at(no_reduction_to_full.at(i));
     const auto is_expanded_broadcasting =
@@ -671,7 +678,9 @@ void validateAlignedVectorizedFusionInputOutput(
         " Domain: ",
         tv->axis(i)->toString(),
         ", stride: ",
-        stride)
+        stride,
+        ", cur_contig_stride ",
+        cur_contig_stride);
     // If the domain is size-1, the next domain is still considered
     // rightmost.
     still_rightmost =
@@ -715,14 +724,15 @@ void validateAlignedVectorizedTensors(
         dynamic_cast<const TensorArgAbstract*>(args[pos]);
     TORCH_INTERNAL_ASSERT(tensor_arg_abstract, "alias io only supports tensor");
     validateAlignedVectorizedFusionInputOutput(
-        tensor_arg_abstract->getTensor(), word_size, tv);
+        tensor_arg_abstract->getTensor(), word_size, tv, expr_eval);
   }
   if (!outputs.empty()) {
     for (auto pos : tensor_vectorization_validation_entry.get()
                         .aligned_vectorized_out_tensor_pos) {
       auto tv = kernel->outputs().at(pos)->as<TensorView>();
       auto word_size = kernel->summary().vectorized_accesses.at(tv);
-      validateAlignedVectorizedFusionInputOutput(outputs[pos], word_size, tv);
+      validateAlignedVectorizedFusionInputOutput(
+          outputs[pos], word_size, tv, expr_eval);
     }
   }
 }
@@ -789,23 +799,14 @@ void validateVectorizedSplits(
   for (const auto& extent_factor : kernel->summary().splits_to_validate) {
     auto input_extent = expr_eval.evaluate(extent_factor.first);
     auto split_factor = expr_eval.evaluate(extent_factor.second);
+    auto divisible = (input_extent % split_factor == 0);
     TORCH_INTERNAL_ASSERT(
-        input_extent.has_value(),
-        "Could not check if a split with vectorization is divisible because the extent, ",
-        extent_factor.first->toString(),
-        ", is not possible to evaluate.");
-    TORCH_INTERNAL_ASSERT(
-        input_extent.has_value(),
-        "Could not check if a split with vectorization is divisible because the split factor, ",
-        extent_factor.second->toString(),
-        ", is not possible to evaluate.");
-    TORCH_INTERNAL_ASSERT(
-        input_extent.value() % split_factor.value() == 0,
+        divisible,
         "Non-divisible split with vectorization is detected. ",
         "Extent: ",
-        input_extent.value(),
+        input_extent,
         ". Factor: ",
-        split_factor.value());
+        split_factor);
   }
 }
 
@@ -828,15 +829,42 @@ void validateVectorizedTensors(
   validateVectorizedSplits(kernel, expr_eval);
 }
 
-namespace {
-
 void bindInputForExprEvaluation(
     Val* val,
     const ArgAbstract* arg,
     bool check_consistency,
-    ExpressionEvaluator& expr_eval) {
+    ExpressionEvaluator& expr_eval,
+    bool legacy) {
+  TORCH_INTERNAL_ASSERT(val != nullptr);
   if (val->getValType() == ValType::TensorView) {
     TensorView* cg_tensor = val->as<TensorView>();
+    auto tensor_arg_abstract = dynamic_cast<const TensorArgAbstract*>(arg);
+    if (tensor_arg_abstract != nullptr) {
+      expr_eval.bind(cg_tensor, tensor_arg_abstract->getTensor());
+    }
+    // TODO: clean this up
+    if (auto arg_ = dynamic_cast<const CpuScalarTensorArg<1>*>(arg)) {
+      expr_eval.bind(cg_tensor, arg_->getTensor());
+    }
+    if (auto arg_ = dynamic_cast<const CpuScalarTensorArg<2>*>(arg)) {
+      expr_eval.bind(cg_tensor, arg_->getTensor());
+    }
+    if (auto arg_ = dynamic_cast<const CpuScalarTensorArg<4>*>(arg)) {
+      expr_eval.bind(cg_tensor, arg_->getTensor());
+    }
+    if (auto arg_ = dynamic_cast<const CpuScalarTensorArg<8>*>(arg)) {
+      expr_eval.bind(cg_tensor, arg_->getTensor());
+    }
+    if (auto arg_ = dynamic_cast<const CpuScalarTensorArg<16>*>(arg)) {
+      expr_eval.bind(cg_tensor, arg_->getTensor());
+    }
+
+#if 1
+    if (!legacy) {
+      return;
+    }
+
+    // Legacy code. To be removed in the future
     auto root_domain =
         TensorDomain::noReductions(cg_tensor->getMaybeRFactorDomain());
 
@@ -867,11 +895,11 @@ void bindInputForExprEvaluation(
           // once all values are bound.
           auto maybe_expanded_size =
               expr_eval.evaluate(root_domain[dim]->expandedExtent());
-          if (maybe_expanded_size.has_value()) {
+          if (maybe_expanded_size.hasValue()) {
             TORCH_CHECK(
-                *maybe_expanded_size == tensor_arg_size,
+                maybe_expanded_size == tensor_arg_size,
                 "Expecting expanded extent of ",
-                *maybe_expanded_size,
+                maybe_expanded_size,
                 " but received value of ",
                 tensor_arg_size);
           } else {
@@ -884,15 +912,15 @@ void bindInputForExprEvaluation(
         bool should_bind = true;
         if (check_consistency) {
           const auto prev_value = expr_eval.evaluate(extent);
-          if (prev_value.has_value()) {
+          if (prev_value.hasValue()) {
             TORCH_CHECK(
-                *prev_value == value,
+                prev_value == value,
                 "Attempting to bind ",
                 extent->toString(),
                 " to ",
                 value,
                 " but it's already set to ",
-                *prev_value);
+                prev_value);
             should_bind = false;
           }
         }
@@ -901,7 +929,8 @@ void bindInputForExprEvaluation(
         }
       }
     }
-  } else if (val->getValType().value() == ValType::Scalar) {
+#endif
+  } else if (val->getValType().value() == ValType::Others) {
     if (val->getDataType().value() == DataType::Int) {
       TORCH_INTERNAL_ASSERT(
           arg->isType(ArgType::Long),
@@ -914,11 +943,16 @@ void bindInputForExprEvaluation(
           "fusion expected Scalar Double inputs, but found ",
           argTypeToString(arg->type()));
       expr_eval.bind(val, *static_cast<const double*>(arg->arg()));
+    } else if (val->getDataType().value() == DataType::ComplexDouble) {
+      TORCH_INTERNAL_ASSERT(
+          arg->isType(ArgType::ComplexDouble),
+          "fusion expected Scalar ComplexDouble inputs, but found ",
+          argTypeToString(arg->type()));
+      expr_eval.bind(
+          val, *static_cast<const std::complex<double>*>(arg->arg()));
     }
   }
 }
-
-} // namespace
 
 ExpressionEvaluator bindInputs(
     const KernelArgumentHolder& args,
@@ -954,7 +988,7 @@ size_t nvrtcGetSize(const nvrtcProgram& program, bool compile_to_sass) {
   const auto getSize = nvrtcGetPTXSize;
 #endif
   size_t size = 0;
-  NVRTC_SAFE_CALL(getSize(program, &size));
+  NVFUSER_NVRTC_SAFE_CALL(getSize(program, &size));
   return size;
 }
 
@@ -973,7 +1007,7 @@ std::vector<char> nvrtcGetCode(
 #endif
 
   std::vector<char> code(size);
-  NVRTC_SAFE_CALL(getCode(program, code.data()));
+  NVFUSER_NVRTC_SAFE_CALL(getCode(program, code.data()));
   return code;
 }
 
@@ -984,7 +1018,7 @@ void dumpCompiledCodeToFile(
   std::stringstream file_name;
   file_name << "__tmp_kernel" << fusion_id << "."
             << (dump_cubin ? "cubin" : "ptx");
-  std::cout << "PRINTING: " << file_name.str() << std::endl;
+  debug() << "PRINTING: " << file_name.str() << std::endl;
   std::ofstream out(file_name.str());
   TORCH_INTERNAL_ASSERT(out.is_open());
   out.write(code.data(), (std::streamsize)code.size());
@@ -1022,11 +1056,11 @@ std::optional<int64_t> getMaxRegCount(
   }
 
   // Overwrite the count by the environment variable
-  if (auto env_count = getenv("PYTORCH_NVFUSER_MAX_REG_COUNT")) {
+  if (auto env_count = getNvFuserEnv("MAX_REG_COUNT")) {
     auto env_max_reg_count = std::atoi(env_count);
     TORCH_CHECK(
         env_max_reg_count > 0 && env_max_reg_count <= max_register_limit,
-        "Invalid max register count specified by PYTORCH_NVFUSER_MAX_REG_COUNT: ",
+        "Invalid max register count specified by NVFUSER_MAX_REG_COUNT: ",
         env_max_reg_count);
     max_register = env_max_reg_count;
   }
@@ -1051,28 +1085,29 @@ class NvrtcCompileDriver {
     return options_;
   }
 
-  //! Call nvrtcCompileProgram with set options
   std::string invoke(nvrtcProgram program, const std::string& src) const {
     FUSER_PERF_SCOPE("executor_utils::Nvrtc::CompileProgram");
     auto opts = getOptions();
     auto result = nvrtcCompileProgram(
         program, static_cast<int>(opts.size()), opts.data());
-
     size_t logsize = 0;
-    NVRTC_SAFE_CALL(nvrtcGetProgramLogSize(program, &logsize));
-    std::string log;
-    log.reserve(logsize);
-    NVRTC_SAFE_CALL(nvrtcGetProgramLog(program, log.data()));
+    NVFUSER_NVRTC_SAFE_CALL(nvrtcGetProgramLogSize(program, &logsize));
+    // The log size, as returned by 'nvrtcGetProgramLogSize', appears larger
+    // than its actual size by 2. This discrepancy was noticed in NVRTC
+    // version 12.1. The log returned from 'nvrtcGetProgramLog' terminates with
+    // a NULL character, ensuring it's safe to use 'std::vector<char>' for
+    // storage before converting it to 'std::string'.
+    std::vector<char> log_backing_buf(logsize);
+    char* log_buf = log_backing_buf.data();
+    NVFUSER_NVRTC_SAFE_CALL(nvrtcGetProgramLog(program, log_buf));
     if (result != NVRTC_SUCCESS) {
       TORCH_INTERNAL_ASSERT(
-          false, src, "\nCUDA NVRTC compile error: ", log.data());
+          false, src, "\nCUDA NVRTC compile error: ", log_buf);
     }
-
     if (isDebugDumpEnabled(DebugDumpOption::PrintPtxasLog)) {
-      std::cout << log.data() << std::endl;
+      debug() << log_buf << std::endl;
     }
-
-    return log;
+    return std::string(log_buf);
   }
 
  private:
@@ -1106,7 +1141,7 @@ class CuModuleLoadDataDriver {
   //! Enable logging of cuModuleLoadData
   void enableLogging() {
     logging_enabled_ = true;
-    log_.reserve(kLogSize);
+    log_.resize(kLogSize);
   }
 
   const std::string& log() const {
@@ -1121,11 +1156,11 @@ class CuModuleLoadDataDriver {
 
     auto [opts, opt_vals] = getOptions();
 
-    CUDA_SAFE_CALL(cuModuleLoadDataEx(
+    NVFUSER_CUDA_SAFE_CALL(cuModuleLoadDataEx(
         &module, image, opts.size(), opts.data(), opt_vals.data()));
 
     if (logging_enabled_) {
-      std::cout << log_ << std::endl;
+      debug() << log_ << std::endl;
     }
 
     return log_;
@@ -1187,8 +1222,8 @@ void fillCompileOptions(
     bool compile_to_sass,
     int major,
     int minor,
-    std::optional<int64_t> opt_block_size,
-    const int64_t max_register_heuristic) {
+    const CompileParams& compile_params,
+    std::optional<int64_t> opt_block_size) {
   nvrtc_compile_driver.setOption("--std=c++17");
 
   // CUDA 11.1 allows going directly to SASS (sm_) instead of PTX (compute_)
@@ -1222,12 +1257,12 @@ void fillCompileOptions(
 #endif
 
   if (isOptionEnabled(EnableOption::KernelProfile)) {
-    nvrtc_compile_driver.setOption("-DPYTORCH_NVFUSER_PROFILE_KERNEL");
+    nvrtc_compile_driver.setOption("-DNVFUSER_PROFILE_KERNEL");
   }
-
   if (isDebugDumpEnabled(DebugDumpOption::PrintPtxasLog) ||
       isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose) ||
-      isOptionEnabled(EnableOption::WarnRegisterSpill)) {
+      isOptionEnabled(EnableOption::WarnRegisterSpill) ||
+      compile_params.enable_ptxas_verbose) {
     // show register usage in compilation log
     if (compile_to_sass) {
       nvrtc_compile_driver.setOption("--ptxas-options");
@@ -1237,7 +1272,7 @@ void fillCompileOptions(
     }
   }
 
-  const char* ptxas_opt_level = getenv("PYTORCH_NVFUSER_JIT_OPT_LEVEL");
+  const char* ptxas_opt_level = getNvFuserEnv("JIT_OPT_LEVEL");
 
   if (ptxas_opt_level) {
     int val = atoi(ptxas_opt_level);
@@ -1246,7 +1281,7 @@ void fillCompileOptions(
         TORCH_WARN(
             "ptxas optimization level manually set as ",
             val,
-            ", which could negatively affect performance. Try removing env variable PYTORCH_NVFUSER_JIT_OPT_LEVEL for optimal performance.");
+            ", which could negatively affect performance. Try removing env variable NVFUSER_JIT_OPT_LEVEL for optimal performance.");
       }
       if (compile_to_sass) {
         nvrtc_compile_driver.setOption("--ptxas-options");
@@ -1256,14 +1291,14 @@ void fillCompileOptions(
       }
     } else {
       TORCH_WARN_ONCE(
-          "acceptable range for PYTORCH_NVFUSER_JIT_OPT_LEVEL is between 0 and 4, but received ",
+          "acceptable range for NVFUSER_JIT_OPT_LEVEL is between 0 and 4, but received ",
           val,
           ", ignoring the option");
     }
   }
 
   const auto max_register =
-      getMaxRegCount(opt_block_size, max_register_heuristic);
+      getMaxRegCount(opt_block_size, compile_params.maxrregcount);
 
   // If the max register count is set
   if (max_register.has_value()) {
@@ -1296,20 +1331,21 @@ void warnRegisterSpill(const std::string& compile_log) {
   int stack_count = getRegisterSpillInfo(compile_log, str_stack);
   int store_count = getRegisterSpillInfo(compile_log, str_store);
   int load_count = getRegisterSpillInfo(compile_log, str_load);
-  auto optionArgs = getEnableOptionArguments(EnableOption::WarnRegisterSpill);
   int allowed_spill = 0;
-  if (!optionArgs.empty()) {
-    try {
-      allowed_spill = std::stoi(optionArgs[0]);
-    } catch (const std::exception& e) {
-      std::cout << "skip invalid argument for WarnRegisterSpill, arg = "
+  if (isOptionEnabled(EnableOption::WarnRegisterSpill)) {
+    auto optionArgs = getEnableOptionArguments(EnableOption::WarnRegisterSpill);
+    if (!optionArgs.empty()) {
+      try {
+        allowed_spill = std::stoi(optionArgs[0]);
+      } catch (const std::exception& e) {
+        debug() << "skip invalid argument for WarnRegisterSpill, arg = "
                 << optionArgs[0] << std::endl;
+      }
     }
   }
   if (stack_count > allowed_spill || store_count > allowed_spill ||
       load_count > allowed_spill) {
-    std::cout << "WARNING: Register spill detected\n"
-              << compile_log << std::endl;
+    debug() << "WARNING: Register spill detected\n" << compile_log << std::endl;
   }
 }
 
@@ -1321,13 +1357,13 @@ void createNvrtcProgram(
   ss << "__tmp_kernel" << id << ".cu";
   std::string name = ss.str();
   FUSER_PERF_SCOPE("executor_utils::NvrtcCreateProgram");
-  NVRTC_SAFE_CALL(nvrtcCreateProgram(
+  NVFUSER_NVRTC_SAFE_CALL(nvrtcCreateProgram(
       &program, full_src_code.c_str(), name.c_str(), 0, nullptr, nullptr));
 }
 
 // Compile the given source code with the NVRTC compiler
-// driver. Return the binary of the kernel and its lowered name
-std::tuple<std::vector<char>, std::string> compileSource(
+// driver. Return the binary of the kernel, compile log, and its lowered name
+std::tuple<std::vector<char>, std::string, std::string> compileSource(
     const std::string& full_src_code,
     const std::string& func_name,
     int64_t id,
@@ -1338,16 +1374,16 @@ std::tuple<std::vector<char>, std::string> compileSource(
   nvrtcProgram program; // NOLINT(cppcoreguidelines-init-variables)
   torch::jit::ResourceGuard holdProgram([&] {
     FUSER_PERF_SCOPE("executor_utils::NvrtcDestroyProgram");
-    NVRTC_SAFE_CALL(nvrtcDestroyProgram(&program));
+    NVFUSER_NVRTC_SAFE_CALL(nvrtcDestroyProgram(&program));
   });
 
   createNvrtcProgram(program, id, full_src_code);
 
-  NVRTC_SAFE_CALL(nvrtcAddNameExpression(program, func_name.c_str()));
+  NVFUSER_NVRTC_SAFE_CALL(nvrtcAddNameExpression(program, func_name.c_str()));
   log << nvrtc_compile.invoke(program, full_src_code) << std::endl;
 
   const char* lowered_kernel_name = nullptr;
-  NVRTC_SAFE_CALL(
+  NVFUSER_NVRTC_SAFE_CALL(
       nvrtcGetLoweredName(program, func_name.c_str(), &lowered_kernel_name));
   auto lowered_kernel_name_str = std::string(lowered_kernel_name);
 
@@ -1358,23 +1394,35 @@ std::tuple<std::vector<char>, std::string> compileSource(
     dumpCompiledCodeToFile(object_code, id, compile_to_sass);
   }
 
-  return {object_code, lowered_kernel_name_str};
+  return {object_code, log.str(), lowered_kernel_name_str};
 }
 
 } // namespace
 
 // Compile the source if no existing compiled binary is found in KernelDB
 std::tuple<NvrtcFunction, std::string, std::vector<char>> getCompiledKernel(
-    c10::optional<std::reference_wrapper<const std::string>> kernel_code,
+    std::optional<std::reference_wrapper<const std::string>> kernel_code,
     const std::string& full_src_code,
     const std::string& func_name,
     int64_t id,
+    const CompileParams& compile_params,
     std::optional<int64_t> opt_block_size,
-    const int64_t max_register_heuristic,
     bool return_compiled_binary) {
   FUSER_PERF_SCOPE("executor_utils::NVRTC");
 
   at::cuda::jit::initializeCudaContext();
+
+  // The above initialization works in some cases. However, it seems to
+  // occasionally fail to initialize a primary context. Here we check for that
+  // and if we detect that no context exists, we create one manually.
+  int device = 0;
+  cudaGetDevice(&device);
+  if (!at::detail::getCUDAHooks().hasPrimaryContext(device)) {
+    // CUDA>=12 creates a context when cudaSetDevice is called. However, before
+    // cu12, that context is not necessarily created. In that case, we create
+    // one here implicitly. See https://github.com/NVIDIA/Fuser/issues/429
+    cudaFree(nullptr);
+  }
 
   const auto prop = at::cuda::getCurrentDeviceProperties();
 
@@ -1403,8 +1451,8 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> getCompiledKernel(
       compile_to_sass,
       major,
       minor,
-      opt_block_size,
-      max_register_heuristic);
+      compile_params,
+      opt_block_size);
 
   std::stringstream log;
 
@@ -1434,9 +1482,10 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> getCompiledKernel(
             compile_args,
             lowered_kernel_name_str,
             object_code))) {
-    std::tie(object_code, lowered_kernel_name_str) = compileSource(
+    std::string compile_log;
+    std::tie(object_code, compile_log, lowered_kernel_name_str) = compileSource(
         full_src_code, func_name, id, compile_to_sass, nvrtc_compile_driver);
-
+    log << compile_log << std::endl;
     if (use_kernel_db) {
       auto result = kernel_db.write(
           kernel_code.value(),
@@ -1455,11 +1504,12 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> getCompiledKernel(
   log << module_load_driver.invoke(compiled_kernel.module, object_code.data())
       << std::endl;
 
-  if (isOptionEnabled(EnableOption::WarnRegisterSpill)) {
+  if (isOptionEnabled(EnableOption::WarnRegisterSpill) ||
+      compile_params.enable_ptxas_verbose) {
     warnRegisterSpill(log.str());
   }
 
-  CUDA_SAFE_CALL(cuModuleGetFunction(
+  NVFUSER_CUDA_SAFE_CALL(cuModuleGetFunction(
       &(compiled_kernel.function),
       compiled_kernel.module,
       lowered_kernel_name_str.c_str()));

@@ -106,13 +106,14 @@ TensorView::TensorView(
       } else {
         // if size is not 1, need to expand
         sizes.push_back(
-            builder.expanded_extent(IrBuilder::create<Int>()).build());
+            builder.expanded_extent(IrBuilder::create<Val>(DataType::Int))
+                .build());
       }
     } else {
-      sizes.push_back(
-          IterDomainBuilder(
-              passkey.ir_container_->zeroVal(), IrBuilder::create<Int>())
-              .build());
+      sizes.push_back(IterDomainBuilder(
+                          passkey.ir_container_->zeroVal(),
+                          IrBuilder::create<Val>(DataType::Int))
+                          .build());
     }
   }
 
@@ -237,69 +238,6 @@ std::string TensorView::toString(int indent_size) const {
 
 std::string TensorView::toInlineString(int indent_size) const {
   return toString(indent_size);
-}
-
-void TensorView::convertRfactorToRootDomain() {
-  // For a given TensorView, does its domain (root / rfactor) contain any
-  // concrete sized extents?
-  auto is_concrete_tensor = [](TensorView* tv) {
-    for (auto id : tv->getMaybeRFactorDomain()) {
-      if (!id->extent()->isConstScalar()) {
-        return false;
-      }
-    }
-    return true;
-  };
-
-  // Create a new root domain and replacement TensorDomain.
-  // Given an rfactor domain, create a new IterDomain.
-  // Otherwise, clone the previous IterDomain
-  auto createReplacementDomain =
-      [this](const std::vector<Val*>& replacement_extents) {
-        TORCH_INTERNAL_ASSERT(
-            !replacement_extents.empty() &&
-            getMaybeRFactorDomain().size() == replacement_extents.size());
-        size_t idx = 0;
-        std::vector<IterDomain*> new_root_domain(
-            getMaybeRFactorDomain().size());
-        for (const auto& id : getMaybeRFactorDomain()) {
-          if (replacement_extents[idx] != nullptr) {
-            new_root_domain[idx] = IterDomainBuilder(id)
-                                       .extent(replacement_extents[idx])
-                                       .resetSchedulingParams()
-                                       .build();
-            ++idx;
-          } else {
-            TORCH_INTERNAL_ASSERT(!id->isRFactorProduct());
-            new_root_domain[idx++] = id->cloneWithoutRFactor();
-          }
-        }
-
-        TORCH_INTERNAL_ASSERT(
-            new_root_domain.size() == domain()->contiguity().size());
-        setDomain(IrBuilder::create<TensorDomain>(
-            container(), new_root_domain, domain()->contiguity()));
-      };
-
-  std::vector<Val*> rfactor_extents;
-  std::unordered_map<Val*, Val*> replacement_map;
-  const auto kThisIsConcreteTensor = is_concrete_tensor(this);
-  for (const auto& id : getMaybeRFactorDomain()) {
-    if (id->isRFactorProduct()) {
-      // Create new symbolic extents for rfactor iterDomains
-      auto domain_extent = (!kThisIsConcreteTensor)
-          ? IrBuilder::create<Int>(container())
-          : id->extent();
-      rfactor_extents.push_back(domain_extent);
-      replacement_map.emplace(id->extent(), domain_extent);
-    } else {
-      rfactor_extents.push_back(nullptr);
-    }
-  }
-  createReplacementDomain(rfactor_extents);
-
-  // Propagate new extent throughout fusion using ValReplacementMutator
-  ir_utils::replaceValue(fusion(), replacement_map);
 }
 
 TensorView::TensorView(const TensorView* src, IrCloner* ir_cloner)
@@ -741,7 +679,12 @@ TensorView* TensorView::split(
     unsigned int factor,
     bool inner_split,
     bool trim_out_of_bounds) {
-  split(axis, IrBuilder::create<Int>(factor), inner_split, trim_out_of_bounds);
+  // NOTE: safe cast to int64_t, factor (unsigned int) is within int64_t range
+  split(
+      axis,
+      IrBuilder::create<Val>((int64_t)factor),
+      inner_split,
+      trim_out_of_bounds);
   return this;
 }
 
@@ -1281,7 +1224,8 @@ TensorView* TensorView::cacheFork() {
   fusion()->replaceOutput(this, new_output);
 
   // Transform new output according to this TV
-  auto replayed_output_pair = TransformReplay::replayCasP(new_output, this, -1);
+  auto replayed_output_pair = TransformReplay::replayCasP(
+      new_output, this, -1, TransformReplayOptions().replayAllocation());
   new_output->setDomain(replayed_output_pair.first);
 
   return new_output;
@@ -1501,7 +1445,7 @@ TensorViewBuilder& TensorViewBuilder::shape(const std::vector<int64_t>& shape) {
   shape_.reserve(shape.size());
   for (int64_t i : shape) {
     if (i == -1) {
-      shape_.emplace_back(IrBuilder::create<Int>());
+      shape_.emplace_back(IrBuilder::create<Val>(DataType::Int));
     } else if (i == 1) {
       shape_.emplace_back(FusionGuard::getCurFusion()->oneVal());
     } else if (i == 0) {
@@ -1511,7 +1455,7 @@ TensorViewBuilder& TensorViewBuilder::shape(const std::vector<int64_t>& shape) {
           i >= 0,
           "Invalid extent value. ",
           "For a tensor representing a single scalar use ndims = 0 with no sizes set.");
-      shape_.emplace_back(IrBuilder::create<Int>(i));
+      shape_.emplace_back(IrBuilder::create<Val>(i));
     }
   }
   return *this;
@@ -1561,7 +1505,7 @@ TensorView* TensorViewBuilder::build() const {
       shape_extent = &expanded_extent;
     }
     if (shape_.empty()) {
-      *shape_extent = IrBuilder::create<Int>();
+      *shape_extent = IrBuilder::create<Val>(DataType::Int);
     } else {
       *shape_extent = shape_.at(i);
     }

@@ -13,9 +13,11 @@
 #include <c10/util/Exception.h>
 
 #include <cuda.h>
+#include <cuda_runtime.h>
 
 #include <torch/csrc/jit/ir/ir.h>
 
+#include <cuda_utils.h>
 #include <device_lower/lower2device.h>
 #include <executor_kernel_arg.h>
 #include <expr_evaluator.h>
@@ -27,44 +29,6 @@
 #include <vector>
 
 namespace nvfuser {
-
-#define NVRTC_SAFE_CALL(x)                       \
-  do {                                           \
-    nvrtcResult _result = x;                     \
-    TORCH_INTERNAL_ASSERT(                       \
-        _result == NVRTC_SUCCESS,                \
-        "NVRTC error: " #x "failed with error ", \
-        nvrtcGetErrorString(_result));           \
-  } while (0)
-
-#define CUDA_SAFE_CALL(x)              \
-  do {                                 \
-    CUresult _result = x;              \
-    if (_result != CUDA_SUCCESS) {     \
-      const char* msg;                 \
-      const char* name;                \
-      cuGetErrorName(_result, &name);  \
-      cuGetErrorString(_result, &msg); \
-      TORCH_INTERNAL_ASSERT(           \
-          _result == CUDA_SUCCESS,     \
-          "CUDA error: ",              \
-          name,                        \
-          " failed with error ",       \
-          msg);                        \
-    }                                  \
-  } while (0)
-
-#define CUDA_RT_SAFE_CALL(x)          \
-  do {                                \
-    cudaError_t _result = x;          \
-    TORCH_INTERNAL_ASSERT(            \
-        _result == cudaSuccess,       \
-        "CUDA error: ",               \
-        cudaGetErrorName(_result),    \
-        " failed with error ",        \
-        cudaGetErrorString(_result)); \
-  } while (0)
-
 namespace executor_utils {
 
 // Include all the functions we might need in generated code
@@ -80,6 +44,15 @@ void validateKernelOutputs(
     const std::vector<at::Tensor>& outputs,
     const c10::Device& device);
 
+// TODO: rename this function
+void bindInputForExprEvaluation(
+    Val* val,
+    const ArgAbstract* arg,
+    bool check_consistency,
+    ExpressionEvaluator& expr_eval,
+    bool legacy = true);
+
+// TODO: remove this function
 //! Bind input values to runtime values
 TORCH_CUDA_CU_API ExpressionEvaluator bindInputs(
     const KernelArgumentHolder& args,
@@ -97,12 +70,12 @@ struct NvrtcFunction {
 
 // Returns executable function and the ptxas log from compilation
 std::tuple<NvrtcFunction, std::string, std::vector<char>> getCompiledKernel(
-    c10::optional<std::reference_wrapper<const std::string>> kernel_code,
+    std::optional<std::reference_wrapper<const std::string>> kernel_code,
     const std::string& code,
     const std::string& func_name,
     int64_t id,
+    const CompileParams& compile_params = CompileParams(),
     std::optional<int64_t> opt_block_size = std::nullopt,
-    const int64_t max_register_heuristic = 255,
     bool return_compiled_binary = false);
 
 namespace caching {
@@ -298,6 +271,52 @@ void validateVectorizedTensors(
     const std::vector<at::Tensor>& outputs,
     caching::ExecutorCompileTimeInfoCache* data_cache,
     ExpressionEvaluator& expr_eval);
+
+//! Kernel timing utility
+//!
+//! Usage example:
+//!
+//!   CudaKernelTimer timer(stream);
+//!   timer.init();
+//!   kernel<<<..., stream>>>(...);
+//!   auto elapsed_ms = timer.elapsed();
+//!
+class CudaKernelTimer {
+ public:
+  CudaKernelTimer(cudaStream_t s) : stream_(s) {}
+
+  ~CudaKernelTimer() {
+    if (initialized_) {
+      NVFUSER_CUDA_RT_SAFE_CALL(cudaEventDestroy(start_event));
+      NVFUSER_CUDA_RT_SAFE_CALL(cudaEventDestroy(finish_event));
+    }
+  }
+
+  void init() {
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaEventCreate(&start_event));
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaEventCreate(&finish_event));
+  }
+
+  void start() {
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaEventRecord(start_event, stream_));
+  }
+
+  float elapsed() {
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaEventRecord(finish_event, stream_));
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaEventSynchronize(start_event));
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaEventSynchronize(finish_event));
+    NVFUSER_CUDA_RT_SAFE_CALL(
+        cudaEventElapsedTime(&kernel_time_ms_, start_event, finish_event));
+    return kernel_time_ms_;
+  }
+
+ private:
+  cudaStream_t stream_;
+  cudaEvent_t start_event = {};
+  cudaEvent_t finish_event = {};
+  bool initialized_ = false;
+  float kernel_time_ms_ = 0;
+};
 
 } // namespace executor_utils
 } // namespace nvfuser

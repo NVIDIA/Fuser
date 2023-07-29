@@ -7,12 +7,14 @@
 // clang-format on
 #include <scheduler/transpose.h>
 
+#include <debug.h>
 #include <device_lower/utils.h>
 #include <executor_utils.h>
 #include <inlining.h>
 #include <instrumentation.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
+#include <options.h>
 #include <scheduler/pointwise_utils.h>
 #include <scheduler/registry.h>
 #include <scheduler/utils.h>
@@ -61,7 +63,7 @@ class DomainMap : public pointwise_utils::DomainMap {
     const auto& root_dom = tv->getRootDomain();
     IterDomain* mapped_id = nullptr;
     for (auto i : c10::irange(root_dom.size())) {
-      if (ca_map_.idGraph().permissiveNodes().permissiveAreMapped(
+      if (ca_map_.idGraph().permissiveResizeNodes().permissiveAreMapped(
               root_dom[i], root_dim)) {
         mapped_id = root_dom[i];
         break;
@@ -96,21 +98,19 @@ class DomainMap : public pointwise_utils::DomainMap {
         root_dim,
         " in tensor ",
         tv);
-    // Project the root id to leaf id
-    while (!mapped_id->uses().empty()) {
-      TORCH_INTERNAL_ASSERT(mapped_id->uses().size() == 1);
-      auto expr = mapped_id->uses()[0];
-      if (expr->isA<Split>()) {
+    auto replay_exprs = StmtSort::getExprsBetween(
+        tv->fusion(),
+        {mapped_id},
+        {tv->getLeafDomain().begin(), tv->getLeafDomain().end()});
+    // Project the root id to leaf id. Similar to projectIdToRFactor.
+    for (auto expr : replay_exprs) {
+      if (expr->isA<Split>() && expr->as<Split>()->in() == mapped_id) {
         mapped_id = expr->as<Split>()->inner();
-      } else {
-        auto merge = expr->as<Merge>();
-        TORCH_INTERNAL_ASSERT(
-            mapped_id == merge->inner(),
-            "Can not find ID mapped to ",
-            root_dim,
-            " in tensor ",
-            tv);
-        mapped_id = merge->out();
+      } else if (
+          expr->isA<Merge>() && expr->as<Merge>()->inner() == mapped_id) {
+        mapped_id = expr->as<Merge>()->out();
+      } else if (expr->isA<Resize>() && expr->as<Resize>()->in() == mapped_id) {
+        mapped_id = expr->as<Resize>()->out();
       }
     }
     // Find the position of the leaf id
@@ -456,10 +456,10 @@ std::pair<std::vector<int64_t>, int64_t> getShapeInReference(
     auto inferred_val =
         runtime_info.expressionEvaluator().evaluate(concrete_id->extent());
     TORCH_INTERNAL_ASSERT(
-        inferred_val.has_value(),
+        inferred_val.hasValue(),
         "Error inferring size for pointwise scheduler: ",
         id->extent()->toInlineString());
-    int64_t size = inferred_val->as<int64_t>();
+    int64_t size = inferred_val.as<int64_t>();
     n_elems *= size;
     shape_in_ref.push_back(size);
   }
@@ -700,7 +700,7 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
 
   for (auto tv : grouped_inputs_outputs[0]) {
     const auto tv_vectorize_factor =
-        runtime_info.getInnerDimVectorizableWidth(tv);
+        runtime_info.getMaxVectorizableWidth(tv, false);
     vectorize_factor1 = std::min(vectorize_factor1, tv_vectorize_factor);
   }
   // TODO: Since group2 only has global->shared and shared->global set op, we
@@ -709,7 +709,7 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
   // group 2
   for (auto tv : grouped_inputs_outputs[1]) {
     const auto tv_vectorize_factor =
-        runtime_info.getInnerDimVectorizableWidth(tv);
+        runtime_info.getMaxVectorizableWidth(tv, false);
     vectorize_factor2 = std::min(vectorize_factor2, tv_vectorize_factor);
   }
 
@@ -721,31 +721,31 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
   params->lparams.bind(params->getThreadsPerBlock(), ParallelType::TIDx);
 
   if (isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
-    std::cerr << "\n===== Transpose Stats ========\n"
-              << "inputs: " << ir_utils::toString(fusion->inputs()) << "\n"
-              << "outputs: " << ir_utils::toString(fusion->outputs()) << "\n"
-              << "shape: " << shape_in_ref1 << "\n"
-              << "num_elems: " << n_elems << "\n"
-              << "n_input_tensors: " << n_input_tensors << "\n"
-              << "max_input_dtype_size: " << max_input_dtype_size << "\n"
-              << "group 1: " << ir_utils::toString(grouped_inputs_outputs[0])
-              << "\n"
-              << "reference1: " << reference1 << "\n"
-              << "inner_most_id1 position: " << inner_most_pos1_in_ref1
-              << " (in reference 1)\n"
-              << "group 2: " << ir_utils::toString(grouped_inputs_outputs[1])
-              << "\n"
-              << "reference2: " << reference2 << "\n"
-              << "inner_most_id2 position: " << inner_most_pos2_in_ref1
-              << " (in reference 1)" << std::endl;
+    debug() << "\n===== Transpose Stats ========\n"
+            << "inputs: " << ir_utils::toString(fusion->inputs()) << "\n"
+            << "outputs: " << ir_utils::toString(fusion->outputs()) << "\n"
+            << "shape: " << shape_in_ref1 << "\n"
+            << "num_elems: " << n_elems << "\n"
+            << "n_input_tensors: " << n_input_tensors << "\n"
+            << "max_input_dtype_size: " << max_input_dtype_size << "\n"
+            << "group 1: " << ir_utils::toString(grouped_inputs_outputs[0])
+            << "\n"
+            << "reference1: " << reference1 << "\n"
+            << "inner_most_id1 position: " << inner_most_pos1_in_ref1
+            << " (in reference 1)\n"
+            << "group 2: " << ir_utils::toString(grouped_inputs_outputs[1])
+            << "\n"
+            << "reference2: " << reference2 << "\n"
+            << "inner_most_id2 position: " << inner_most_pos2_in_ref1
+            << " (in reference 1)" << std::endl;
     if (!params->split_before_tiling.empty() ||
         !params->dims_merged_with_1.empty() ||
         !params->dims_merged_with_2.empty()) {
-      std::cerr << "small transposed dim, needs virtual inner-most dim"
-                << std::endl;
+      debug() << "small transposed dim, needs virtual inner-most dim"
+              << std::endl;
     }
-    std::cerr << std::endl;
-    std::cerr << params->toString() << std::endl;
+    debug() << std::endl;
+    debug() << params->toString() << std::endl;
   }
 
   return params;

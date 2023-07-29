@@ -11,6 +11,7 @@
 #include <ir/iostream.h>
 #include <ir/utils.h>
 #include <ops/arith.h>
+#include <options.h>
 #include <predicate_compute.h>
 
 #include <device_lower/pass/index.h>
@@ -102,13 +103,13 @@ void IndexLowering::handle(const kir::IfThenElse* ite) {
   active_scope_ = &new_ite->thenBody();
 
   for (auto expr : ite->thenBody().exprs()) {
-    OptOutConstDispatch::handle(expr);
+    OptOutConstDispatch::dispatch(expr);
   }
 
   active_scope_ = &new_ite->elseBody();
 
   for (auto expr : ite->elseBody().exprs()) {
-    OptOutConstDispatch::handle(expr);
+    OptOutConstDispatch::dispatch(expr);
   }
 
   active_scope_ = prev_scope;
@@ -128,7 +129,7 @@ void IndexLowering::handle(const kir::ForLoop* for_loop) {
   for_loops_.push_back(new_for_loop);
 
   for (auto expr : for_loop->body().exprs()) {
-    OptOutConstDispatch::handle(expr);
+    OptOutConstDispatch::dispatch(expr);
   }
 
   for_loops_.pop_back();
@@ -155,7 +156,8 @@ void IndexLowering::handle(const RNGOp* rop) {
       out,
       rop->dtype(),
       rop->getParameters(),
-      rop->getRNGOffset(),
+      rop->getRNGSeedVal(),
+      rop->getRNGOffsetVal(),
       philox_index);
 
   pushBack(lowered);
@@ -236,6 +238,52 @@ void IndexLowering::handle(const TernaryOp* top) {
   pushBack(IrBuilder::create<TernaryOp>(
       top->getTernaryOpType(), out, in1, in2, in3));
   GpuLower::current()->propagateExprInfo(top, back());
+}
+
+void IndexLowering::handle(const ArrayConstruct* aop) {
+  std::vector<Val*> lowered_inputs;
+  for (auto input : aop->inputs()) {
+    lowered_inputs.push_back(lowerSrcIndex(input, aop->out()));
+  }
+  const auto out = lowerDstIndex(aop->out());
+  pushBack(IrBuilder::create<ArrayConstruct>(out, lowered_inputs));
+  GpuLower::current()->propagateExprInfo(aop, back());
+}
+
+void IndexLowering::handle(const GetAttr* gop) {
+  const auto struct_ = lowerSrcIndex(gop->struct_(), gop->out());
+  const auto attr = gop->attr();
+  const auto out = lowerDstIndex(gop->out());
+  pushBack(IrBuilder::create<GetAttr>(out, struct_, attr));
+  GpuLower::current()->propagateExprInfo(gop, back());
+}
+
+void IndexLowering::handle(const GetItem* gop) {
+  const auto array = lowerSrcIndex(gop->array(), gop->out());
+  const auto index = lowerSrcIndex(gop->index(), gop->out());
+  const auto out = lowerDstIndex(gop->out());
+  pushBack(IrBuilder::create<GetItem>(out, array, index));
+  GpuLower::current()->propagateExprInfo(gop, back());
+}
+
+void IndexLowering::handle(const GetMetaData* gop) {
+  const auto in = gop->in();
+  const auto out = lowerDstIndex(gop->out());
+  pushBack(IrBuilder::create<GetMetaData>(out, in));
+  GpuLower::current()->propagateExprInfo(gop, back());
+}
+
+void IndexLowering::handle(const TensorConstruct* cop) {
+  const auto out = lowerDstIndex(cop->out());
+  auto indices = Index::getConsumerPerDimLogicalIndex(
+      cop->out(), for_loops_, getRotatedLoop());
+  auto in = cop->in();
+  for (auto index : indices) {
+    in = IrBuilder::getItemExpr(in, index);
+  }
+  in = GpuLower::current()->commonScalarMap().hoistScalar(in, for_loops_);
+  pushBack(IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out, in));
+  GpuLower::current()->propagateExprInfo(cop, back());
 }
 
 void IndexLowering::handle(const IndexSelectOp* sop) {
@@ -336,8 +384,8 @@ void IndexLowering::handle(const ViewAsScalar* uop) {
             IdMappingMode::LOOP)) {
       // TODO: this doesn't work with loop rotation
       Val* index = loop->indexOrStartIfTrivial();
-      pushBack(
-          IrBuilder::create<ViewAsScalar>(out, in, uop->vector_id(), index));
+      pushBack(IrBuilder::create<LoadStoreOp>(
+          LoadStoreOpType::Set, out, IrBuilder::getItemExpr(in, index)));
       GpuLower::current()->propagateExprInfo(uop, back());
       return;
     }
@@ -417,7 +465,7 @@ GridCommWorkBufferSizeInfo getGridCommWorkBufferSize(
 
   if (is_doubled) {
     size_of_privatized_buffer = SimplifyingIrBuilder::mulExpr(
-        size_of_privatized_buffer, IrBuilder::create<Int>(2));
+        size_of_privatized_buffer, IrBuilder::create<Val>(2L));
   }
 
   GridCommWorkBufferSizeInfo info;
@@ -425,7 +473,7 @@ GridCommWorkBufferSizeInfo getGridCommWorkBufferSize(
   info.buffer_stride = size_of_single_buffer;
   if (is_doubled) {
     info.buffer_stride = SimplifyingIrBuilder::mulExpr(
-        info.buffer_stride, IrBuilder::create<Int>(2));
+        info.buffer_stride, IrBuilder::create<Val>(2L));
   }
 
   return info;
@@ -1343,7 +1391,7 @@ void IndexLowering::handle(const kir::CpAsyncCommit* commit) {
 
 void IndexLowering::generate(const std::vector<Expr*>& exprs) {
   for (auto expr : exprs) {
-    OptOutConstDispatch::handle(expr);
+    OptOutConstDispatch::dispatch(expr);
   }
 }
 
@@ -1431,7 +1479,7 @@ void IndexLowering::handle(const PadOp* pad) {
       producer_tv, consumer_tv, for_loops_, getRotatedLoop());
 
   // Build a predicate for where
-  Val* pred = IrBuilder::create<Bool>(true);
+  Val* pred = IrBuilder::create<Val>(true);
   for (auto padded_axis : pad->getPaddedAxes()) {
     auto producer_idx = producer_root_indices.at(padded_axis);
     auto producer_root_id = producer_doms.at(padded_axis);
@@ -1473,7 +1521,7 @@ void IndexLowering::handle(const CatOp* cat) {
   auto concatenated_dim_idx = out_indices.at(cat->concatenatedDim());
 
   std::vector<Val*> inputs(cat->inputs().size());
-  std::vector<Bool*> preds(cat->inputs().size());
+  std::vector<Val*> preds(cat->inputs().size());
   Val* cur_extent = GpuLower::current()->kernel()->zeroVal();
 
   for (const auto i : c10::irange(cat->inputs().size())) {
@@ -1486,8 +1534,7 @@ void IndexLowering::handle(const CatOp* cat) {
                              cat->input(i)->as<TensorView>()->getRootDomain())
                              .at(cat->concatenatedDim());
     cur_extent = add(cur_extent, inp_concat_id->extent());
-    preds.at(i) =
-        IrBuilder::ltExpr(concatenated_dim_idx, cur_extent)->as<Bool>();
+    preds.at(i) = IrBuilder::ltExpr(concatenated_dim_idx, cur_extent);
   }
 
   auto lowered = IrBuilder::create<CatOp>(

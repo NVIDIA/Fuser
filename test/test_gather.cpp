@@ -84,7 +84,6 @@ TEST_F(IndexingOpTest, Scatter1DIndexZerosSelfTvSameShape_CUDA) {
 
   const std::vector<std::vector<int64_t>> idx_dims = {{2, 2}};
 
-  at::manual_seed(0);
   for (size_t test_id = 0; test_id < idx_dims.size(); ++test_id) {
     auto fusion_ptr = std::make_unique<Fusion>();
     Fusion& fusion = *fusion_ptr.get();
@@ -134,7 +133,6 @@ TEST_F(IndexingOpTest, Scatter1DIndexZerosSelfTvSameShape_CUDA) {
 TEST_F(IndexingOpTest, TorchGatherAllRankAllSelectedDim_CUDA) {
   const int max_dim_size = 64;
   std::srand(0);
-  at::manual_seed(0);
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   for (const auto is_take_along : {false, true}) {
@@ -175,7 +173,6 @@ TEST_F(IndexingOpTest, TorchGatherAllRankAllSelectedDim_CUDA) {
 TEST_F(IndexingOpTest, TorchGatherAddMul_CUDA) {
   const int max_dim_size = 64;
   std::srand(0);
-  at::manual_seed(0);
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   for (const auto is_take_along : {false, true}) {
@@ -222,7 +219,6 @@ TEST_F(IndexingOpTest, TorchGatherAddMul_CUDA) {
 TEST_F(IndexingOpTest, AddGatherSumAdd_CUDA) {
   const int max_dim_size = 8;
   std::srand(0);
-  at::manual_seed(0);
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   for (const auto is_take_along : {false, true}) {
@@ -272,7 +268,6 @@ TEST_F(IndexingOpTest, AddGatherSumAdd_CUDA) {
 TEST_F(IndexingOpTest, TorchGatherSumAdd_CUDA) {
   const int max_dim_size = 32;
   std::srand(0);
-  at::manual_seed(0);
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   for (const auto is_take_along : {false, true}) {
@@ -329,7 +324,6 @@ TEST_F(IndexingOpTest, TorchGatherSumAdd_CUDA) {
 TEST_F(IndexingOpTest, TorchGatherAddMulHugeSize_CUDA) {
   const int max_dim_size = 16384;
   std::srand(0);
-  at::manual_seed(0);
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   for (const auto is_take_along : {false, true}) {
@@ -406,8 +400,6 @@ TEST_F(IndexingOpTest, TorchGatherIndexTvExtentIsOne_CUDA) {
   std::vector<int64_t> index_dims{16384, 1};
   const int max_selected_index = 60;
 
-  at::manual_seed(0);
-
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
 
@@ -424,7 +416,7 @@ TEST_F(IndexingOpTest, TorchGatherIndexTvExtentIsOne_CUDA) {
 
   auto tv_gather = torch_gather(tv_in1, 1, tv_idx);
   auto tv_add =
-      clamp(tv_gather, IrBuilder::create<Int>(-1), IrBuilder::create<Int>(1));
+      clamp(tv_gather, IrBuilder::create<Val>(-1L), IrBuilder::create<Val>(1L));
   auto tv_out = mul(tv_add, tv_in2);
   fusion.addOutput(tv_out);
 
@@ -471,7 +463,6 @@ TEST_F(IndexingOpTest, TakeAlongBroadcastIndex_CUDA) {
     std::vector<int64_t> out_dims = input_dims;
     out_dims[1] = index_dims[0];
 
-    at::manual_seed(0);
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
     auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
     at::Tensor t0 = at::randn(input_dims, options);
@@ -532,7 +523,6 @@ TEST_F(IndexingOpTest, GatherBroadcastInput_CUDA) {
         auto tv5 = add(tv4, tv2);
         fusion.addOutput(tv5);
 
-        at::manual_seed(0);
         auto options =
             at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
         auto options_i =
@@ -568,7 +558,7 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorPointwise1_CUDA) {
   auto tv1 = makeSymbolicTensor(1, DataType::Int);
   fusion.addInput(tv1);
 
-  auto tv2 = add(tv0, IrBuilder::create<Double>(1));
+  auto tv2 = add(tv0, IrBuilder::create<Val>(1.0));
   auto tv3 = broadcast(tv1, {false, true});
   auto tv4 = take_along_axis(tv2, tv3, 1);
   fusion.addOutput(tv4);
@@ -628,7 +618,6 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorPointwise1_CUDA) {
       "Failed to promote memory type: ",
       take_along_axis_input->toString());
 
-  at::manual_seed(0);
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
@@ -651,6 +640,9 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorPointwise2_CUDA) {
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
+  EnableOptionsGuard opt_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::MemoryPromotion);
+
   std::vector<int64_t> shape({99, 101});
 
   auto tv0 = makeSymbolicTensor(2);
@@ -658,12 +650,11 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorPointwise2_CUDA) {
   auto tv1 = makeSymbolicTensor(1, DataType::Int);
   fusion.addInput(tv1);
 
-  auto tv2 = add(tv0, IrBuilder::create<Double>(1));
+  auto tv2 = add(tv0, IrBuilder::create<Val>(1.0));
   auto tv3 = broadcast(tv1, {false, true});
   auto tv4 = take_along_axis(tv2, tv3, 1);
   fusion.addOutput(tv4);
 
-  at::manual_seed(0);
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
@@ -700,7 +691,6 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorReduction1_CUDA) {
   auto tv4 = take_along_axis(tv2, tv1, 0);
   fusion.addOutput(tv4);
 
-  at::manual_seed(0);
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
@@ -726,6 +716,9 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorReduction2_CUDA) {
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
+  EnableOptionsGuard opt_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::MemoryPromotion);
+
   std::vector<int64_t> shape({100, 100});
 
   auto tv0 = makeSymbolicTensor(2);
@@ -733,14 +726,13 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorReduction2_CUDA) {
   auto tv1 = makeSymbolicTensor(1, DataType::Int);
   fusion.addInput(tv1);
 
-  auto tv2 = add(tv0, IrBuilder::create<Double>(1));
+  auto tv2 = add(tv0, IrBuilder::create<Val>(1.0));
   auto tv3 = broadcast(tv1, {false, true});
   auto tv4 = take_along_axis(tv2, tv3, 1);
   auto tv5 = squeeze(tv4, std::vector<bool>{false, true});
   auto tv6 = sum(tv5, {0});
   fusion.addOutput(tv6);
 
-  at::manual_seed(0);
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
@@ -766,6 +758,9 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorReduction3_CUDA) {
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
+  EnableOptionsGuard opt_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::MemoryPromotion);
+
   std::vector<int64_t> shape_before_gather({100, 100});
   std::vector<int64_t> shape_after_gather({shape_before_gather[0], 120});
 
@@ -774,12 +769,11 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorReduction3_CUDA) {
   auto tv1 = makeSymbolicTensor(2, DataType::Int);
   fusion.addInput(tv1);
 
-  auto tv2 = add(tv0, IrBuilder::create<Double>(1));
+  auto tv2 = add(tv0, IrBuilder::create<Val>(1.0));
   auto tv3 = take_along_axis(tv2, tv1, 1);
   auto tv4 = sum(tv3, {1});
   fusion.addOutput(tv4);
 
-  at::manual_seed(0);
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   auto t0 = at::randn(shape_before_gather, options);
@@ -814,7 +808,7 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorReduction4_CUDA) {
   auto tv1 = makeSymbolicTensor(1, DataType::Int);
   fusion.addInput(tv1);
 
-  auto tv2 = add(tv0, IrBuilder::create<Double>(1));
+  auto tv2 = add(tv0, IrBuilder::create<Val>(1.0));
   auto tv3 = broadcast(tv1, {false, true});
   auto tv4 = take_along_axis(tv2, tv3, 1);
   auto tv5 = sum(tv4, {0});
@@ -823,7 +817,6 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorReduction4_CUDA) {
   auto tv6 = set(tv5);
   fusion.addOutput(tv6);
 
-  at::manual_seed(0);
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   auto t0 = at::randn(shape_before_gather, options);
@@ -849,6 +842,9 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorNormalization1_CUDA) {
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
+  EnableOptionsGuard opt_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::MemoryPromotion);
+
   std::vector<int64_t> shape({32, 1024});
 
   auto tv0 = makeSymbolicTensor(2);
@@ -863,7 +859,6 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorNormalization1_CUDA) {
   auto tv6 = take_along_axis(tv4, tv5, 1);
   fusion.addOutput(tv6);
 
-  at::manual_seed(0);
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
@@ -898,7 +893,7 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorNormalization2_CUDA) {
   auto tv1 = makeSymbolicTensor(1, DataType::Int);
   fusion.addInput(tv1);
 
-  auto tv2 = add(tv0, IrBuilder::create<Double>(1));
+  auto tv2 = add(tv0, IrBuilder::create<Val>(1.0));
   auto tv3 = broadcast(tv1, {false, true});
   auto tv4 = take_along_axis(tv2, tv3, 1);
   auto tv5 = squeeze(tv4, std::vector<bool>{false, true});
@@ -907,7 +902,6 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorNormalization2_CUDA) {
   auto tv8 = div(tv5, tv7);
   fusion.addOutput(tv8);
 
-  at::manual_seed(0);
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
@@ -934,6 +928,9 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorNormalization3_CUDA) {
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
+  EnableOptionsGuard opt_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::MemoryPromotion);
+
   std::vector<int64_t> shape_before_gather({100, 100});
   std::vector<int64_t> shape_after_gather({shape_before_gather[0], 120});
 
@@ -942,14 +939,13 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorNormalization3_CUDA) {
   auto tv1 = makeSymbolicTensor(2, DataType::Int);
   fusion.addInput(tv1);
 
-  auto tv2 = add(tv0, IrBuilder::create<Double>(1));
+  auto tv2 = add(tv0, IrBuilder::create<Val>(1.0));
   auto tv3 = take_along_axis(tv2, tv1, 1);
   auto tv4 = sum(tv3, {1});
   auto tv5 = broadcast(tv4, {false, true});
   auto tv6 = div(tv3, tv5);
   fusion.addOutput(tv6);
 
-  at::manual_seed(0);
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   auto t0 = at::randn(shape_before_gather, options);
@@ -992,7 +988,6 @@ TEST_F(
   auto tv6 = sum(tv5, {0, 1});
   fusion.addOutput(tv6);
 
-  at::manual_seed(0);
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
@@ -1026,6 +1021,9 @@ TEST_F(
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
+  EnableOptionsGuard opt_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::MemoryPromotion);
+
   std::vector<int64_t> shape({32, 1024});
 
   auto tv0 = makeSymbolicTensor(2);
@@ -1042,7 +1040,6 @@ TEST_F(
   auto tv8 = sum(tv7, {1});
   fusion.addOutput(tv8);
 
-  at::manual_seed(0);
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
@@ -1069,6 +1066,9 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorTranspose1_CUDA) {
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
+  EnableOptionsGuard opt_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::MemoryPromotion);
+
   // Make sure the shape is large enough to trigger the Transpose
   // scheduler. See also getTransposeRuntimeRejectReason for more details.
   std::vector<int64_t> shape(
@@ -1081,13 +1081,12 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorTranspose1_CUDA) {
   auto tv1 = makeSymbolicTensor(2, DataType::Int);
   fusion.addInput(tv1);
 
-  auto tv2 = add(tv0, IrBuilder::create<Double>(1));
+  auto tv2 = add(tv0, IrBuilder::create<Val>(1.0));
   auto tv3 = broadcast(tv1, {true, false, false});
   auto tv4 = take_along_axis(tv2, tv3, 0);
   auto tv5 = transpose(tv4, 1, 2);
   fusion.addOutput(tv5);
 
-  at::manual_seed(0);
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
@@ -1114,6 +1113,9 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorTranspose2_CUDA) {
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
+  EnableOptionsGuard opt_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::MemoryPromotion);
+
   // Make sure the shape is large enough to trigger the Transpose
   // scheduler. See also getTransposeRuntimeRejectReason for more details.
   std::vector<int64_t> shape(
@@ -1130,7 +1132,6 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorTranspose2_CUDA) {
   auto tv4 = take_along_axis(tv2, tv1, 0);
   fusion.addOutput(tv4);
 
-  at::manual_seed(0);
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
@@ -1155,6 +1156,9 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorTranspose3_CUDA) {
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
+  EnableOptionsGuard opt_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::MemoryPromotion);
+
   std::vector<int64_t> shape_before(
       {deviceSMCount(),
        TransposeParams::getDefaultTileSize(),
@@ -1166,13 +1170,12 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorTranspose3_CUDA) {
   auto tv1 = makeSymbolicTensor(2, DataType::Int);
   fusion.addInput(tv1);
 
-  auto tv2 = add(tv0, IrBuilder::create<Double>(1));
+  auto tv2 = add(tv0, IrBuilder::create<Val>(1.0));
   auto tv3 = broadcast(tv1, {true, false, false});
   auto tv4 = take_along_axis(tv2, tv3, 2);
   auto tv5 = transpose(tv4, 1, 2);
   fusion.addOutput(tv5);
 
-  at::manual_seed(0);
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   auto t0 = at::randn(shape_before, options);
@@ -1197,6 +1200,9 @@ TEST_F(IndexingOpTest, TakeAlongAxisCrossEntropyLoss_CUDA) {
   auto fusion = fusion_ptr.get();
   FusionGuard fg(fusion);
 
+  EnableOptionsGuard opt_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::MemoryPromotion);
+
   auto tv0 = makeContigTensor(2);
   fusion->addInput(tv0);
   auto tv1 = makeContigTensor(1, DataType::Int);
@@ -1204,26 +1210,26 @@ TEST_F(IndexingOpTest, TakeAlongAxisCrossEntropyLoss_CUDA) {
   auto tv2 = max(tv0, {1});
   auto tv3 = broadcast(tv2, {false, true});
   auto tv4 =
-      expand(tv3, {IrBuilder::create<Int>(128), IrBuilder::create<Int>(371)});
+      expand(tv3, {IrBuilder::create<Val>(128L), IrBuilder::create<Val>(371L)});
   auto tv5 = sub(tv0, tv4);
   auto tv6 = exp(tv5);
   auto tv7 = sum(tv6, {1});
   auto tv8 = broadcast(tv7, {false, true});
   auto tv9 =
-      expand(tv8, {IrBuilder::create<Int>(128), IrBuilder::create<Int>(371)});
+      expand(tv8, {IrBuilder::create<Val>(128L), IrBuilder::create<Val>(371L)});
   auto tv10 = div(tv6, tv9);
   auto tv11 = log(tv10);
   auto tv12 = neg(tv11);
   auto tv13 = reshape(tv1, {128}, {128, 1});
   auto tv14 = take_along_axis(tv12, tv13, 1);
-  auto s15 = IrBuilder::create<Int>(5);
+  auto s15 = IrBuilder::create<Val>(5L);
   auto tv16 = eq(tv13, s15);
-  auto s17 = IrBuilder::create<Double>(0.0);
+  auto s17 = IrBuilder::create<Val>(0.0);
   auto tv18 = where(tv16, s17, tv14);
   auto tv19 = sum(tv18, {0, 1});
   auto tv20 = castOp(DataType::Float, tv16);
   auto tv21 = sum(tv20, {0, 1});
-  auto s22 = IrBuilder::create<Double>(128.0);
+  auto s22 = IrBuilder::create<Val>(128.0);
   auto tv23 = sub(s22, tv21);
   auto tv24 = div(tv19, tv23);
   fusion->addOutput(tv24);

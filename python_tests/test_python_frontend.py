@@ -5,12 +5,13 @@
 
 from copy import deepcopy
 from functools import partial
+import itertools
 import math
-import os
+import random
 import re
 from typing import List, Callable
+import tempfile
 import unittest
-import itertools
 
 import torch
 import torch.nn.functional as F
@@ -62,19 +63,16 @@ def serde_check(test_fn: Callable):
         # Run test to populate FusionCache
         test_fn(*args, **kwargs)
 
-        # Delete previous file
-        if os.path.isfile("foo.bin"):
-            os.remove("foo.bin")
+        with tempfile.NamedTemporaryFile() as tmp:
+            # Serialize FusionCache
+            fc = FusionCache.get()
+            fc.serialize(tmp.name)
 
-        # Serialize FusionCache
-        fc = FusionCache.get()
-        fc.serialize("foo.bin")
+            FusionCache.reset()
 
-        FusionCache.reset()
-
-        # Get new FusionCache because the previous one was destroyed by the reset call.
-        fc = FusionCache.get()
-        fc.deserialize("foo.bin")
+            # Get new FusionCache because the previous one was destroyed by the reset call.
+            fc = FusionCache.get()
+            fc.deserialize(tmp.name)
 
         # Run test with repopulated FusionCache
         kwargs["new_fusion_expected"] = False
@@ -126,7 +124,7 @@ class TestNvFuserFrontend(TestCase):
         def fusion_func(fd: FusionDefinition):
             t0 = fd.from_pytorch(inputs[0])
             t1 = fd.from_pytorch(inputs[1])
-            c0 = fd.define_constant(3.0)
+            c0 = fd.define_scalar(3.0)
 
             t2 = fd.ops.add(t0, t1)
             t3 = fd.ops.mul(t2, c0)
@@ -160,7 +158,7 @@ class TestNvFuserFrontend(TestCase):
         def fusion_func(fd: FusionDefinition):
             t0 = fd.from_pytorch(inputs[0])
             t1 = fd.from_pytorch(inputs[1])
-            c0 = fd.define_constant(3.0)
+            c0 = fd.define_scalar(3.0)
 
             t2 = fd.ops.add(t0, t1)
             t3 = fd.ops.mul(t2, c0)
@@ -342,13 +340,13 @@ class TestNvFuserFrontend(TestCase):
                 symbolic_sizes=[-1], contiguity=[True], dtype=DataType.Float
             )
             sum0 = fd.ops.sum(inputs, axes=[normalization_axis], keepdim=keepDim)
-            norm_const = fd.define_constant(norm_size)
+            norm_const = fd.define_scalar(norm_size)
             mean = fd.ops.div(sum0, norm_const)
             diff = fd.ops.sub(inputs, mean)
             diff_sq = fd.ops.mul(diff, diff)
             sum1 = fd.ops.sum(diff_sq, axes=[normalization_axis], keepdim=keepDim)
             var = fd.ops.div(sum1, norm_const)
-            eps_const = fd.define_constant(eps)
+            eps_const = fd.define_scalar(eps)
             var_eps = fd.ops.add(var, eps_const)
             invstd = fd.ops.rsqrt(var_eps)
             pre_scale_bias = fd.ops.mul(diff, invstd)
@@ -386,7 +384,7 @@ class TestNvFuserFrontend(TestCase):
             var, mean = fd.ops.var_mean(
                 inputs, axes=[normalization_axis], correction=0, keepdim=keepDim
             )
-            eps_const = fd.define_constant(eps)
+            eps_const = fd.define_scalar(eps)
             var_eps = fd.ops.add(var, eps_const)
             invstd = fd.ops.rsqrt(var_eps)
             diff = fd.ops.sub(inputs, mean)
@@ -466,9 +464,9 @@ class TestNvFuserFrontend(TestCase):
             )
             inputs_sq = fd.ops.mul(inputs, inputs)
             sum0 = fd.ops.sum(inputs_sq, axes=[normalization_axis], keepdim=keepDim)
-            norm_const = fd.define_constant(norm_size)
+            norm_const = fd.define_scalar(norm_size)
             var = fd.ops.div(sum0, norm_const)
-            eps_const = fd.define_constant(eps)
+            eps_const = fd.define_scalar(eps)
             var_eps = fd.ops.add(var, eps_const)
             invstd = fd.ops.rsqrt(var_eps)
             pre_scale = fd.ops.mul(inputs, invstd)
@@ -732,9 +730,9 @@ class TestNvFuserFrontend(TestCase):
 
         def fusion_func(fd: FusionDefinition):
             t0 = fd.from_pytorch(inputs[0])
-            s0 = fd.define_constant(1.0)
-            s1 = fd.define_constant(2.0)
-            s2 = fd.define_constant(3.0)
+            s0 = fd.define_scalar(1.0)
+            s1 = fd.define_scalar(2.0)
+            s2 = fd.define_scalar(3.0)
             t1 = fd.ops.add(t0, s0)
             t2 = fd.ops.add(t0, s1)
             t3 = fd.ops.add(t2, s2)
@@ -978,8 +976,8 @@ class TestNvFuserFrontend(TestCase):
 
         def fusion_func(fd: FusionDefinition):
             t0 = fd.from_pytorch(inputs[0])
-            s_mean = fd.define_constant(mean)
-            s_std = fd.define_constant(std)
+            s_mean = fd.define_scalar(mean)
+            s_std = fd.define_scalar(std)
             size = fd.ops.tensor_sizes(t0)
             t1 = fd.ops.normal(s_mean, s_std, size, DataType.Double)
             fd.add_output(t1)
@@ -1016,8 +1014,8 @@ class TestNvFuserFrontend(TestCase):
 
         def fusion_func(fd: FusionDefinition):
             t0 = fd.from_pytorch(inputs[0])
-            s_lo = fd.define_constant(lo)
-            s_hi = fd.define_constant(hi)
+            s_lo = fd.define_scalar(lo)
+            s_hi = fd.define_scalar(hi)
             size = fd.ops.tensor_sizes(t0)
             t1 = fd.ops.uniform(s_lo, s_hi, size, DataType.Double)
             fd.add_output(t1)
@@ -1058,48 +1056,48 @@ class TestNvFuserFrontend(TestCase):
         def fusion_func(fd: FusionDefinition):
             t0 = fd.from_pytorch(inputs[0])
 
-            c0 = fd.define_constant(3.0)
-            c1 = fd.define_constant(5.0)
+            c0 = fd.define_scalar(3.0)
+            c1 = fd.define_scalar(5.0)
             t1 = fd.ops.where(t0, c0, c1)  # DataType.Double
             fd.add_output(t1)
 
-            c0f = fd.define_constant(3.0, DataType.Float)
-            c1f = fd.define_constant(5.0, DataType.Float)
+            c0f = fd.define_scalar(3.0, DataType.Float)
+            c1f = fd.define_scalar(5.0, DataType.Float)
             t1f = fd.ops.where(t0, c0f, c1f)  # DataType.Float
             fd.add_output(t1f)
 
-            c0d = fd.define_constant(3.0, DataType.Double)
-            c1d = fd.define_constant(5.0, DataType.Double)
+            c0d = fd.define_scalar(3.0, DataType.Double)
+            c1d = fd.define_scalar(5.0, DataType.Double)
             t1d = fd.ops.where(t0, c0d, c1d)  # DataType.Double
             fd.add_output(t1d)
 
-            c0i = fd.define_constant(3, DataType.Int32)
-            c1i = fd.define_constant(5, DataType.Int32)
+            c0i = fd.define_scalar(3, DataType.Int32)
+            c1i = fd.define_scalar(5, DataType.Int32)
             t1i = fd.ops.where(t0, c0i, c1i)  # DataType.Int32
             fd.add_output(t1i)
 
-            c0l = fd.define_constant(3)
-            c1l = fd.define_constant(5)
+            c0l = fd.define_scalar(3)
+            c1l = fd.define_scalar(5)
             t1l = fd.ops.where(t0, c0l, c1l)  # DataType.Int
             fd.add_output(t1l)
 
-            c0c = fd.define_constant(complex(3.0))
-            c1c = fd.define_constant(complex(5.0))
+            c0c = fd.define_scalar(complex(3.0))
+            c1c = fd.define_scalar(complex(5.0))
             t1c = fd.ops.where(t0, c0c, c1c)  # DataType.ComplexDouble
             fd.add_output(t1c)
 
-            c0cf = fd.define_constant(3.0 + 0j, DataType.ComplexFloat)
-            c1cf = fd.define_constant(5.0 + 0j, DataType.ComplexFloat)
+            c0cf = fd.define_scalar(3.0 + 0j, DataType.ComplexFloat)
+            c1cf = fd.define_scalar(5.0 + 0j, DataType.ComplexFloat)
             t1cf = fd.ops.where(t0, c0cf, c1cf)  # DataType.ComplexFloat
             fd.add_output(t1cf)
 
-            c0cd = fd.define_constant(3.0 + 0j, DataType.ComplexDouble)
-            c1cd = fd.define_constant(5.0 + 0j, DataType.ComplexDouble)
+            c0cd = fd.define_scalar(3.0 + 0j, DataType.ComplexDouble)
+            c1cd = fd.define_scalar(5.0 + 0j, DataType.ComplexDouble)
             t1cd = fd.ops.where(t0, c0cd, c1cd)  # DataType.ComplexDouble
             fd.add_output(t1cd)
 
-            c0b = fd.define_constant(True, DataType.Bool)
-            c1b = fd.define_constant(False, DataType.Bool)
+            c0b = fd.define_scalar(True, DataType.Bool)
+            c1b = fd.define_scalar(False, DataType.Bool)
             t1b = fd.ops.where(t0, c0b, c1b)  # DataType.Bool
             fd.add_output(t1b)
 
@@ -1137,7 +1135,7 @@ class TestNvFuserFrontend(TestCase):
 
         def fusion_func(fd: FusionDefinition):
             t0 = fd.from_pytorch(inputs[0])
-            c0 = fd.define_constant(complex(3.0, 0.5))
+            c0 = fd.define_scalar(complex(3.0, 0.5))
             t1 = fd.ops.mul(t0, c0)
             fd.add_output(t1)
 
@@ -1189,9 +1187,9 @@ class TestNvFuserFrontend(TestCase):
 
         def fusion_func(fd: FusionDefinition):
             for input in inputs:
-                c0 = fd.define_constant(input[0])
-                c1 = None if input[1] is None else fd.define_constant(input[1])
-                c2 = None if input[2] is None else fd.define_constant(input[2])
+                c0 = fd.define_scalar(input[0])
+                c1 = None if input[1] is None else fd.define_scalar(input[1])
+                c2 = None if input[2] is None else fd.define_scalar(input[2])
                 dt = input[3]
                 t3 = fd.ops.iota(c0, c1, c2, dt)
                 fd.add_output(t3)
@@ -1286,7 +1284,7 @@ class TestNvFuserFrontend(TestCase):
         def fusion_func(fd: FusionDefinition):
             t0 = fd.from_pytorch(inputs[0])
 
-            c0 = fd.define_constant(1.0)
+            c0 = fd.define_scalar(1.0)
 
             t1 = -t0
             t2 = abs(t0)
@@ -1354,7 +1352,7 @@ class TestNvFuserFrontend(TestCase):
             s0 = fd.define_scalar()
             s1 = fd.define_scalar()
             s2 = fd.ops.add(s0, s1)
-            c0 = fd.define_constant(1.0, DataType.Float)
+            c0 = fd.define_scalar(1.0, DataType.Float)
             t3 = fd.ops.full(size=[2, 2], arg=c0, dtype=DataType.Float)
             t4 = fd.ops.mul(t3, s2)
             fd.add_output(t4)
@@ -1379,7 +1377,7 @@ class TestNvFuserFrontend(TestCase):
             t0 = fd.from_pytorch(inputs[0])
             t1 = fd.from_pytorch(inputs[1])
             t2 = fd.from_pytorch(inputs[2])
-            c0 = fd.define_constant(0.1)
+            c0 = fd.define_scalar(0.1)
 
             t3 = fd.ops.addcmul(t0, t1, t2, c0)
 
@@ -1441,7 +1439,7 @@ class TestNvFuserFrontend(TestCase):
 
             def fusion_func(fd: FusionDefinition):
                 t0 = fd.from_pytorch(inputs[0])
-                c0 = fd.define_constant(3.0)
+                c0 = fd.define_scalar(3.0)
                 t1 = fd.ops.add(t0, c0)
                 fd.add_output(t1, perm)
 
@@ -1641,7 +1639,7 @@ class TestNvFuserFrontend(TestCase):
             fd.add_output(t4)
 
             # test padding with a value other than 0
-            fill_val = fd.define_constant(2.0)
+            fill_val = fd.define_scalar(2.0)
             t5 = fd.ops.pad(t0, [2, 3], fill_val)
             fd.add_output(t5)
 
@@ -1683,7 +1681,7 @@ class TestNvFuserFrontend(TestCase):
 
         def fusion_func_pad3(fd: FusionDefinition):
             t0 = fd.from_pytorch(inputs[0])
-            fill_val = fd.define_constant(2.0)
+            fill_val = fd.define_scalar(2.0)
             t1 = fd.ops.pad(t0, [1, 1], fill_val)
             fd.add_output(t1)
 
@@ -1743,8 +1741,8 @@ class TestNvFuserFrontend(TestCase):
             t0 = fd.from_pytorch(inputs[0])
             t1 = fd.from_pytorch(inputs[1])
 
-            s0 = fd.define_constant(1.0, dtype=DataType.Float)
-            s1 = fd.define_constant(-1.0, dtype=DataType.Double)
+            s0 = fd.define_scalar(1.0, dtype=DataType.Float)
+            s1 = fd.define_scalar(-1.0, dtype=DataType.Double)
 
             for a, b in itertools.product(
                 [t0, t1, s0, s1],
@@ -1789,7 +1787,7 @@ class TestNvFuserFrontend(TestCase):
                 dtype=DataType.Float,
                 is_cpu=False,
             )
-            S2 = fd.define_constant(0.125000, dtype=DataType.Double)
+            S2 = fd.define_scalar(0.125000, dtype=DataType.Double)
             T3 = fd.ops.mul(T0, S2)
             T4 = fd.ops.slice(
                 T1,
@@ -1797,15 +1795,15 @@ class TestNvFuserFrontend(TestCase):
                 end_indices=[1, 1, 128, 128],
                 strides=[1, 1, 1, 1],
             )
-            S5 = fd.define_constant(0.00000, dtype=DataType.Double)
+            S5 = fd.define_scalar(0.00000, dtype=DataType.Double)
             T6 = fd.ops.eq(S5, T4)
             T7 = fd.ops.broadcast_in_dim(
                 T6, output_shape=[16, 16, 128, 128], broadcast_dims=[0, 1, 2, 3]
             )
-            S8 = fd.define_constant(float("-inf"), dtype=DataType.Double)
+            S8 = fd.define_scalar(float("-inf"), dtype=DataType.Double)
             T9 = fd.ops.where(T7, S8, T3)
-            S10 = fd.define_constant(-1, dtype=DataType.Int)
-            S11 = fd.define_constant(4, dtype=DataType.Int)
+            S10 = fd.define_scalar(-1, dtype=DataType.Int)
+            S11 = fd.define_scalar(4, dtype=DataType.Int)
             S12 = fd.ops.add(S10, S11)
             T13 = fd.ops.max(T9, axes=[3], keepdim=False, dtype=DataType.Null)
             T14 = fd.ops.broadcast_in_dim(
@@ -1816,8 +1814,8 @@ class TestNvFuserFrontend(TestCase):
             )
             T16 = fd.ops.sub(T9, T15)
             T17 = fd.ops.exp(T16)
-            S18 = fd.define_constant(-1, dtype=DataType.Int)
-            S19 = fd.define_constant(4, dtype=DataType.Int)
+            S18 = fd.define_scalar(-1, dtype=DataType.Int)
+            S19 = fd.define_scalar(4, dtype=DataType.Int)
             S20 = fd.ops.add(S18, S19)
             T21 = fd.ops.sum(T17, axes=[3], keepdim=False, dtype=DataType.Null)
             T22 = fd.ops.broadcast_in_dim(
@@ -1827,20 +1825,20 @@ class TestNvFuserFrontend(TestCase):
                 T22, output_shape=[16, 16, 128, 128], broadcast_dims=[0, 1, 2, 3]
             )
             T24 = fd.ops.div(T17, T23)
-            S25 = fd.define_constant(16, dtype=DataType.Int)
-            S26 = fd.define_constant(16, dtype=DataType.Int)
-            S27 = fd.define_constant(128, dtype=DataType.Int)
-            S28 = fd.define_constant(128, dtype=DataType.Int)
-            S29 = fd.define_constant(0.00000, dtype=DataType.Double)
-            S30 = fd.define_constant(1.00000, dtype=DataType.Double)
+            S25 = fd.define_scalar(16, dtype=DataType.Int)
+            S26 = fd.define_scalar(16, dtype=DataType.Int)
+            S27 = fd.define_scalar(128, dtype=DataType.Int)
+            S28 = fd.define_scalar(128, dtype=DataType.Int)
+            S29 = fd.define_scalar(0.00000, dtype=DataType.Double)
+            S30 = fd.define_scalar(1.00000, dtype=DataType.Double)
             T31 = fd.ops.uniform(
                 S29, S30, shape=[S25, S26, S27, S28], dtype=DataType.Float
             )
-            S32 = fd.define_constant(1.0 - prob, dtype=DataType.Double)
+            S32 = fd.define_scalar(1.0 - prob, dtype=DataType.Double)
             T33 = fd.ops.lt(T31, S32)
             T34 = fd.ops.cast(T33, dtype=DataType.Float)
             T35 = fd.ops.mul(T24, T34)
-            S36 = fd.define_constant(1.0 / (1.0 - prob), dtype=DataType.Double)
+            S36 = fd.define_scalar(1.0 / (1.0 - prob), dtype=DataType.Double)
             T37 = fd.ops.mul(T35, S36)
             fd.add_output(T37)
 
@@ -2078,7 +2076,7 @@ class TestNvFuserFrontend(TestCase):
 
         def fusion_func(fd: FusionDefinition) -> None:
             t0 = fd.from_pytorch(inputs[0])
-            c0 = fd.define_constant(float("nan"))
+            c0 = fd.define_scalar(float("nan"))
             t1 = fd.ops.add(t0, c0)
             fd.add_output(t1)
 
@@ -2109,6 +2107,32 @@ class TestNvFuserFrontend(TestCase):
         ):
             fd = SchedError()
             _ = fd.execute(inputs)
+
+    @unittest.skipIf(
+        torch.cuda.device_count() < 2, "test_selected_device requires multiple GPUs"
+    )
+    def test_selected_device(self):
+        """
+        Run the same Fusion as in test_scalar_only_inputs, but on device 1
+        """
+
+        def fusion_func(fd: FusionDefinition):
+            s0 = fd.define_scalar()
+            s1 = fd.define_scalar()
+            s2 = fd.ops.add(s0, s1)
+            c0 = fd.define_scalar(1.0, DataType.Float)
+            t3 = fd.ops.full(size=[2, 2], arg=c0, dtype=DataType.Float)
+            t4 = fd.ops.mul(t3, s2)
+            fd.add_output(t4)
+
+        with FusionDefinition() as fd:
+            fusion_func(fd)
+
+        nvf_out = fd.execute([2.0, 3.0], device="cuda:1")
+        eager_out = torch.full([2, 2], 1.0, device="cuda:1") * 5.0
+        self.assertEqual(eager_out, nvf_out[0])
+
+        self.assertTrue(nvf_out[0].device.index == 1)
 
     def test_matmuls(self):
         # Matmul Constraints:
@@ -2201,6 +2225,317 @@ class TestNvFuserFrontend(TestCase):
             nvf_out[0], torch.div(inputs[0], inputs[1], rounding_mode="trunc")
         )
         self.assertEqual(nvf_out[1], torch.true_divide(inputs[0], inputs[1]))
+
+    def test_right_shift_arithmetic(self):
+        inputs = [
+            torch.tensor([-2147483648, 1073741824], dtype=torch.int32, device="cuda")
+        ]
+
+        def fusion_func(fd: FusionDefinition):
+            t0 = fd.from_pytorch(inputs[0])
+            c0 = fd.define_scalar(3)
+            t1 = fd.ops.bitwise_right_shift(t0, c0)
+            fd.add_output(t1)
+
+        nvf_out1, _ = self.exec_nvfuser(fusion_func, inputs)
+        eager_out = torch.bitwise_right_shift(inputs[0], 3)
+        self.assertEqual(eager_out, nvf_out1[0])
+
+    def test_right_shift_logical(self):
+        dtypes = [torch.int32, torch.int64]
+        input = torch.tensor(
+            [
+                -1,
+                -2147483648,
+                1073741824,
+                -64463884,
+                -65968277,
+                4042311,
+                -98914167,
+                5526216,
+            ],
+            device="cuda",
+        )
+
+        # expected_outputs given by jax.lax.shift_right_logical(inputs, 3)
+        expected_outputs = [
+            torch.tensor(
+                [
+                    536870911,
+                    268435456,
+                    134217728,
+                    528812926,
+                    528624877,
+                    505288,
+                    524506641,
+                    690777,
+                ],
+                dtype=torch.int32,
+                device="cuda",
+            ),
+            torch.tensor(
+                [
+                    2305843009213693951,
+                    2305843008945258496,
+                    134217728,
+                    2305843009205635966,
+                    2305843009205447917,
+                    505288,
+                    2305843009201329681,
+                    690777,
+                ],
+                dtype=torch.int64,
+                device="cuda",
+            ),
+        ]
+
+        for idx, dtype in enumerate(dtypes):
+            current_input = input.to(dtype)
+
+            def fusion_func(fd: FusionDefinition):
+                t0 = fd.from_pytorch(current_input)
+                c0 = fd.define_constant(3)
+                t1 = fd.ops.logical_right_shift(t0, c0)
+                fd.add_output(t1)
+
+            nvf_out, _ = self.exec_nvfuser(fusion_func, [current_input])
+            self.assertEqual(nvf_out[0], expected_outputs[idx])
+
+    def test_right_shift_logical_sizeof_dtype(self):
+        dtypes = [torch.int32, torch.int64]
+        input = torch.tensor(
+            [
+                -1,
+                -2147483648,
+                1073741824,
+                -64463884,
+                -65968277,
+                4042311,
+                -98914167,
+                5526216,
+            ],
+            device="cuda",
+        )
+
+        for idx, dtype in enumerate(dtypes):
+            current_input = input.to(dtype)
+            num_bits = 32 if (dtype == torch.int32) else 64
+
+            # expected_outputs given by jax.lax.shift_right_logical(inputs, sizeof(dtype))
+            expected_output = torch.zeros_like(current_input)
+
+            def fusion_func(fd: FusionDefinition):
+                t0 = fd.from_pytorch(current_input)
+                c0 = fd.define_scalar(None, dtype=DataType.Int)
+                t1 = fd.ops.logical_right_shift(t0, c0)
+                fd.add_output(t1)
+
+            nvf_out, _ = self.exec_nvfuser(fusion_func, [current_input, num_bits])
+            self.assertEqual(nvf_out[0], expected_output)
+
+    def test_gcd(self):
+        inputs = [
+            torch.testing.make_tensor(1024, device="cuda", dtype=torch.long),
+            torch.testing.make_tensor(1024, device="cuda", dtype=torch.long),
+        ]
+
+        def fusion_func(fd: FusionDefinition):
+            t0 = fd.from_pytorch(inputs[0])
+            t1 = fd.from_pytorch(inputs[1])
+            t2 = fd.ops.gcd(t0, t1)
+            fd.add_output(t2)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        self.assertEqual(nvf_out[0], torch.gcd(inputs[0], inputs[1]))
+
+    # See https://github.com/NVIDIA/Fuser/issues/469
+    def test_repro469(self):
+        def fusion_func(fd: FusionDefinition) -> None:
+            # Note first dimension is expanded (-1, None)
+            T0 = fd.define_tensor(
+                symbolic_sizes=[-1, -1, -1, -1, -1],
+                contiguity=[None, True, True, True, True],
+                dtype=DataType.Float,
+                is_cpu=False,
+            )
+            T1 = fd.define_tensor(
+                symbolic_sizes=[-1],
+                contiguity=[True],
+                dtype=DataType.Float,
+                is_cpu=False,
+            )
+            T2 = fd.define_tensor(
+                symbolic_sizes=[-1],
+                contiguity=[True],
+                dtype=DataType.Float,
+                is_cpu=False,
+            )
+            S3 = fd.define_scalar(None, dtype=DataType.Double)
+            S4 = fd.define_scalar(None, dtype=DataType.Double)
+            (
+                S5,
+                S6,
+                S7,
+                S8,
+                S9,
+            ) = fd.ops.tensor_sizes(T0)
+            S10 = fd.define_scalar(1, dtype=DataType.Int)
+            S11 = fd.ops.mul(S10, S5)
+            S12 = fd.ops.mul(S11, S9)
+            S13 = fd.define_scalar(1, dtype=DataType.Int)
+            S14 = fd.ops.mul(S13, S6)
+            S15 = fd.ops.mul(S14, S7)
+            S16 = fd.ops.mul(S15, S8)
+            T17, T18 = fd.ops.var_mean(T0, axes=[1, 2, 3], correction=0, keepdim=False)
+            S19 = fd.define_scalar(1.00000, dtype=DataType.Double)
+            S20 = fd.ops.sub(S19, S3)
+            T21 = fd.ops.mul(T18, S3)
+            T22 = fd.ops.mul(T1, S20)
+            T23 = fd.ops.add(T22, T21)
+            T24 = fd.ops.sum(T23, axes=[0], keepdim=False, dtype=DataType.Null)
+            S25 = fd.ops.reciprocal(S5)
+            T26 = fd.ops.mul(T24, S25)
+            fd.add_output(T26, T1)
+            S27 = fd.define_scalar(1, dtype=DataType.Int)
+            S28 = fd.ops.sub(S16, S27)
+            S29 = fd.ops.div(S16, S28)
+            T30 = fd.ops.mul(T17, S29)
+            T31 = fd.ops.mul(T30, S3)
+            T32 = fd.ops.mul(T2, S20)
+            T33 = fd.ops.add(T32, T31)
+            T34 = fd.ops.sum(T33, axes=[0], keepdim=False, dtype=DataType.Null)
+            T35 = fd.ops.mul(T34, S25)
+            fd.add_output(T35, T2)
+            T36 = fd.ops.broadcast_in_dim(
+                T18, output_shape=[S5, S6, S7, S8, S9], broadcast_dims=[0, 4]
+            )
+            T37 = fd.ops.sub(T0, T36)
+            T38 = fd.ops.add(T17, S4)
+            T39 = fd.ops.rsqrt(T38)
+            T40 = fd.ops.broadcast_in_dim(
+                T39, output_shape=[S5, S6, S7, S8, S9], broadcast_dims=[0, 4]
+            )
+            T41 = fd.ops.mul(T37, T40)
+            fd.add_output(T41)
+            fd.add_output(T18)
+            fd.add_output(T39)
+
+        inputs = [
+            torch.randn(
+                (1, 3, 3, 3, 7), dtype=torch.float32, device="cuda:0"
+            ).as_strided((1, 3, 3, 3, 7), (189, 63, 21, 7, 1)),
+            torch.randn((7,), dtype=torch.float32, device="cuda:0").as_strided(
+                (7,), (1,)
+            ),
+            torch.randn((7,), dtype=torch.float32, device="cuda:0").as_strided(
+                (7,), (1,)
+            ),
+            0.1,
+            1e-05,
+        ]
+
+        # Just test that this executes, not that it's correct
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+
+    def test_input_scalar(self):
+        inputs = [
+            torch.randn((3,), dtype=torch.float32, device="cuda:0"),
+            0.1,
+        ]
+
+        def fusion_func(fd: FusionDefinition) -> None:
+            T0 = fd.from_pytorch(inputs[0])
+            S1 = fd.define_scalar()
+            T1 = fd.ops.mul(T0, S1)
+            fd.add_output(T1)
+
+        # Just test that this executes, not that it's correct
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+
+    # Test that deterministic random ops (uniform, normal) give same results as
+    # their stochastic versions
+    def test_deterministic_random(self):
+        input_size = [5, 9]
+        dtype = torch.float32
+        device = "cuda"
+        inputs = [
+            torch.randn(*input_size, device=device, dtype=dtype),
+        ]
+
+        for randopname in ["uniform", "normal"]:
+
+            def fusion_func(fd: FusionDefinition, *, deterministic) -> None:
+                t1 = fd.from_pytorch(inputs[0])
+                a = fd.define_scalar(0.3, DataType.Float)
+                b = fd.define_scalar(1.7, DataType.Float)
+                shape = [fd.define_scalar(5), fd.define_scalar(9)]
+                randop = getattr(fd.ops, randopname)
+                if deterministic:
+                    rng_seed = fd.define_scalar(DataType.Int)
+                    rng_offset = fd.define_scalar(DataType.Int)
+                    u = randop(a, b, shape, rng_seed=rng_seed, rng_offset=rng_offset)
+                else:
+                    u = randop(a, b, shape)
+                t2 = t1 * u
+                fd.add_output(t2)
+
+            # exec_nvfuser tests printing and serde, so run that for each definition first
+            self.exec_nvfuser(partial(fusion_func, deterministic=False), inputs)
+            self.exec_nvfuser(
+                partial(fusion_func, deterministic=True), [inputs[0], 0, 0]
+            )
+
+            # Now instantiate FusionDefinitions in each mode
+            with FusionDefinition() as fd_stoch:
+                fusion_func(fd_stoch, deterministic=False)
+            with FusionDefinition() as fd_det:
+                fusion_func(fd_det, deterministic=True)
+
+            # Test with three different random seeds
+            for _ in range(3):
+                max_seed = 2**63 - 1
+                seed = random.randint(0, max_seed)
+                torch.manual_seed(seed)
+
+                stateful_sequence = [fd_stoch.execute(inputs) for _ in range(10)]
+                # Each call to uniform with DataType::Float will advance the offset by 4
+                stateless_sequence = [
+                    fd_det.execute([inputs[0], seed, rng_offset])
+                    for rng_offset in range(0, 10 * 4, 4)
+                ]
+
+                for i, (sful, sless) in enumerate(
+                    zip(stateful_sequence, stateless_sequence)
+                ):
+                    try:
+                        torch.testing.assert_close(sful[0], sless[0])
+                    except AssertionError as e:
+                        print(f"Assertion failed for iteration {i} with seed {seed}")
+                        print(e)
+                        break
+
+    # Test expand to zero is replaced with expanded extent and not 1
+    # see https://github.com/NVIDIA/Fuser/issues/603
+    def test_expand_to_zero(self):
+        inputs = [
+            # This is an actually empty tensor
+            torch.zeros((1, 0), dtype=torch.float32, device="cuda:0"),
+            # This one is not actually empty, but should appear to be empty due to expand
+            torch.zeros((1, 1), dtype=torch.float32, device="cuda:0"),
+        ]
+
+        def fusion_func(fd: FusionDefinition) -> None:
+            T0 = fd.from_pytorch(inputs[0])
+            T1 = fd.from_pytorch(inputs[1])
+            T2 = fd.ops.broadcast_in_dim(T0, output_shape=[0, 0], broadcast_dims=[0, 1])
+            T3 = fd.ops.broadcast_in_dim(T1, output_shape=[0, 0], broadcast_dims=[0, 1])
+            fd.add_output(T2)
+            fd.add_output(T3)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+
+        self.assertEqual(nvf_out[0].shape, (0, 0))
+        self.assertEqual(nvf_out[1].shape, (0, 0))
 
 
 if __name__ == "__main__":

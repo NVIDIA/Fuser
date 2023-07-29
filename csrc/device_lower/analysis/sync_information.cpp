@@ -200,15 +200,15 @@ struct ProducerConsumerIndexingInfoCache {
   TensorView* consumer_tv_ = nullptr;
   // Consumer leaf IDs that are also used to index the producer, i.e.,
   // those that are loop-mapped with the producer leaf IDs
-  c10::optional<std::vector<IterDomain*>>
+  std::optional<std::vector<IterDomain*>>
       consumer_leaf_ids_shared_with_producer_;
   // Root IDs of the shared leaf IDs
-  c10::optional<std::vector<Val*>> consumer_root_ids_shared_with_producer_;
+  std::optional<std::vector<Val*>> consumer_root_ids_shared_with_producer_;
   // Consumer CA leaf IDs that are not shared with producer and
   // permissively mapped with consumers of the consumer
-  c10::optional<std::vector<IterDomain*>> consumer_only_permissive_leaf_ids_;
+  std::optional<std::vector<IterDomain*>> consumer_only_permissive_leaf_ids_;
   // IDs whose index depends on consumer_only_permissive_leaf_ids_
-  c10::optional<VectorOfUniqueEntries<IterDomain*>> consumer_loop_indexing_ids_;
+  std::optional<VectorOfUniqueEntries<IterDomain*>> consumer_loop_indexing_ids_;
 };
 
 // For a given pair of a producer and consumer leaf ID, check if the

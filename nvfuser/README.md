@@ -15,7 +15,7 @@ with FusionDefinition() as fd :
                           contiguous=[True, True, True],
                           dtype=DataType.Float)
     t1 = fd.define_tensor(3)
-    c0 = fd.define_constant(3.0)
+    c0 = fd.define_scalar(3.0)
 
     t2 = fd.ops.add(t0, t1)
     t3 = fd.ops.mul(t2, c0)
@@ -89,7 +89,7 @@ s0 = fd.define_scalar(dtype=DataType.Half)
 Constants can be of types: `Bool`, `ComplexDouble`, `Double`, or `Int`.  The definition only takes a constant and the type is inferred by the constant.
 
 ```python
-c0 = fd.define_constant(3.0)
+c0 = fd.define_scalar(3.0)
 ```
 
 #### Defining Operations
@@ -119,14 +119,14 @@ python -c "from nvfuser import FusionDefinition; help(FusionDefinition.Operators
 ```
 **View the fusion definitions that are executed by setting an environment variable:**
 ```python
-export PYTORCH_NVFUSER_DUMP=python_definition
+export NVFUSER_DUMP=python_definition
 ```
 Example Output:
 ```python
 def nvfuser_fusion_id0(fd : FusionDefinition) -> None :
     T0 = fd.define_tensor(symbolic_sizes=[-1, 1, -1], contiguous=[True, True, True], dtype=DataType.Float)
     T1 = fd.define_tensor(symbolic_sizes=[-1, -1, -1], contiguous=[False, False, False], dtype=DataType.Float)
-    S2 = fd.define_constant(3.00000)
+    S2 = fd.define_scalar(3.00000)
     T3 = fd.ops.add(T0, T1)
     T4 = fd.ops.mul(T3, S2)
     T5 = fd.ops.sum(T4, axes=[-1], keepdim=False, dtype=DataType.Float)
