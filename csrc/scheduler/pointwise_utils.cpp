@@ -112,8 +112,6 @@ bool canIgnoreIndexedInputDomainID(
   return true;
 }
 
-bool debug = false;
-
 } // namespace
 
 DomainMap::DomainMap(Fusion* fusion) : fusion_(fusion), ca_map_(fusion) {

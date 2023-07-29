@@ -9598,7 +9598,7 @@ TEST_F(NVFuserTest, VectorizeWithBroadcastAndReshape2) {
   ASSERT_TRUE(heuristic_params->isA<PointwiseParams>());
   auto pparams = heuristic_params->as<PointwiseParams>();
   ASSERT_TRUE(pparams->vectorize) << "Failed to vectorize";
-  // ASSERT_EQ(pparams->unroll_factor, 4) << "Unexpected vectorize factor";
+  ASSERT_EQ(pparams->unroll_factor, 4) << "Unexpected vectorize factor";
 }
 
 // Test file size should be up to 10K LoC. Create a new file for more tests.
