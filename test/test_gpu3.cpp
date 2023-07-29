@@ -9596,11 +9596,11 @@ TEST_F(NVFuserTest, AllInputDtypes) {
     auto output = add(tv0, tv1);
     output = add(output, d1);
     output = add(output, f);
-    output = add(output, h);
+    output = add(output, castOp(DataType::Double, h));
     output = add(output, i);
     output = add(output, i32);
     output = add(output, b);
-    output = add(output, bf16);
+    output = add(output, castOp(DataType::Double, bf16));
     output = add(output, cf);
     output = add(output, cd);
     output = add(output, IrBuilder::derefExpr(ptr));

@@ -18,43 +18,11 @@
 
 namespace nvfuser {
 
-namespace {
-
-// TODO: remove this after we make Scalar a non-template class
-bool equals(const Val* value, const PolymorphicValue& concrete_value) {
-  switch (std::get<PrimDataType>(value->getDataType()->type)) {
-    case DataType::Int: {
-      if (!concrete_value.is<int64_t>()) {
-        return false;
-      }
-      auto val = value->getInt();
-      return val.has_value() && val.value() == concrete_value.as<int64_t>();
-    }
-    case DataType::Double: {
-      if (!concrete_value.is<double>()) {
-        return false;
-      }
-      auto val = value->getDouble();
-      return val.has_value() && val.value() == concrete_value.as<double>();
-    }
-    case DataType::Bool: {
-      if (!concrete_value.is<bool>()) {
-        return false;
-      }
-      auto val = value->getBool();
-      return val.has_value() && val.value() == concrete_value.as<bool>();
-    }
-    default:
-      return false;
-  }
-}
-
-} // namespace
-
 void ExpressionEvaluator::bind_(
     const Val* value,
     PolymorphicValue concrete_value) {
-  if (equals(value, concrete_value)) {
+  // TODO: validate dtype compatibility
+  if (value->isConst() && value->value() == concrete_value) {
     return;
   }
   TORCH_CHECK(!value->isConstScalar(), "Tried to bind to a constant value");

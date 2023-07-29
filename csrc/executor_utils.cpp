@@ -633,14 +633,16 @@ void bindInputForExprEvaluation(
     ExpressionEvaluator& expr_eval,
     bool legacy) {
   TORCH_INTERNAL_ASSERT(val != nullptr);
-  at::Tensor t = arg.as<at::Tensor>();
-  expr_eval.bind(val, std::move(arg));
+  // TODO: use the move version once the legacy path is removed.
+  // expr_eval.bind(val, std::move(arg));
+  expr_eval.bind(val, arg);
   if (!legacy) {
     return;
   }
 
   if (val->getValType() == ValType::TensorView) {
 #if 1
+    at::Tensor t = arg.as<at::Tensor>();
 
     TensorView* cg_tensor = val->as<TensorView>();
 
