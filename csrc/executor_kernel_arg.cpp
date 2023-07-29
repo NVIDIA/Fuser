@@ -351,7 +351,7 @@ std::vector<std::byte> polymorphicValueToBytes(
     }
     return buffer;
   } else if (argument.is<at::Tensor>()) {
-    auto tensor = argument.as<at::Tensor>();
+    const auto& tensor = argument.as<at::Tensor>();
     TORCH_INTERNAL_ASSERT(
         tensor.is_cpu() && tensor.numel() == 1,
         "Only CPU scalar tensors are supported here. ",
