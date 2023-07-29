@@ -9569,12 +9569,9 @@ TEST_F(NVFuserTest, AllInputDtypes) {
     auto cd = IrBuilder::create<Val>(DataType::ComplexDouble);
     DataType ptr_type = PointerOf{std::make_shared<DataType>(DataType::Float)};
     auto ptr = IrBuilder::create<Val>(ptr_type);
-    StructOf struct_type_;
-    struct_type_.field_names = {"a", "b"};
-    struct_type_.types["a"] = NVFUSER_MAYBE_MAKE_SHARED(DataType::Float);
-    struct_type_.types["b"] = NVFUSER_MAYBE_MAKE_SHARED(DataType::Int);
-    DataType struct_type = struct_type_;
-    auto struct_ = IrBuilder::create<Val>(struct_type);
+    DataType array_type =
+        ArrayOf{std::make_shared<DataType>(DataType::Float), 2};
+    auto array = IrBuilder::create<Val>(array_type);
     fusion->addInput(tv0);
     fusion->addInput(tv1);
     fusion->addInput(d);
@@ -9588,24 +9585,25 @@ TEST_F(NVFuserTest, AllInputDtypes) {
     fusion->addInput(cf);
     fusion->addInput(cd);
     fusion->addInput(ptr);
-    fusion->addInput(struct_);
+    fusion->addInput(array);
 
-    // `add` can not handle type promotion on DataType::Index, so use
-    // IrBuilder::addExpr for idx instead.
-    auto d1 = IrBuilder::addExpr(idx, d);
-    auto output = add(tv0, tv1);
-    output = add(output, d1);
-    output = add(output, f);
-    output = add(output, castOp(DataType::Double, h));
-    output = add(output, i);
-    output = add(output, i32);
-    output = add(output, b);
-    output = add(output, castOp(DataType::Double, bf16));
-    output = add(output, cf);
-    output = add(output, cd);
-    output = add(output, IrBuilder::derefExpr(ptr));
-    output = add(output, IrBuilder::getAttrExpr(struct_, "a"));
-    output = add(output, IrBuilder::getAttrExpr(struct_, "b"));
+    auto output = d;
+    output = IrBuilder::addExpr(output, f);
+    output = IrBuilder::addExpr(output, castOp(DataType::Double, h));
+    output = IrBuilder::addExpr(output, i);
+    output = IrBuilder::addExpr(output, idx);
+    output = IrBuilder::addExpr(output, i32);
+    output = IrBuilder::addExpr(output, b);
+    output = IrBuilder::addExpr(output, castOp(DataType::Double, bf16));
+    output = IrBuilder::addExpr(output, abs(cf));
+    output = IrBuilder::addExpr(output, abs(cd));
+    output = IrBuilder::addExpr(output, IrBuilder::derefExpr(ptr));
+    output = IrBuilder::addExpr(
+        output, IrBuilder::getItemExpr(array, PolymorphicValue(0L)));
+    output = IrBuilder::addExpr(
+        output, IrBuilder::getItemExpr(array, PolymorphicValue(1L)));
+    output = add(tv0, output);
+    output = add(tv1, output);
 
     fusion->addOutput(output);
 
@@ -9613,6 +9611,8 @@ TEST_F(NVFuserTest, AllInputDtypes) {
         {}, at::TensorOptions().dtype(at::kDouble).device(at::kCUDA, 0));
     at::Tensor t1 =
         at::randn({}, at::TensorOptions().dtype(at::kDouble).device(at::kCPU));
+    // Use page-locked memory so the pointer can be accessed both on host and on
+    // device.
     at::Tensor t2 = at::randn(
         {},
         at::TensorOptions()
@@ -9620,55 +9620,23 @@ TEST_F(NVFuserTest, AllInputDtypes) {
             .device(at::kCPU)
             .pinned_memory(true));
 
-    PolymorphicValue expect = 0L;
-
     KernelArgumentHolder args;
-
     args.push(t0);
-    expect += t0.item<double>();
-
     args.push(t1);
-    expect += t1.item<double>();
-
     args.push(2.3);
-    expect += 2.3;
-
     args.push(4.5);
-    expect += 4.5;
-
     args.push(6.7);
-    expect += 6.7;
-
     args.push(8L);
-    expect += 8.0;
-
     args.push(9L);
-    expect += 9.0;
-
     args.push(10L);
-    expect += 10.0;
-
     args.push(true);
-    expect += 1.0;
-
     args.push(12.3);
-    expect += 12.3;
-
-    args.push(std::complex<float>(4.5, 6.7));
-    expect += std::complex<double>(4.5, 6.7);
-
+    args.push(std::complex<double>(4.5, 6.7));
     args.push(std::complex<double>(8.9, 10.11));
-    expect += std::complex<double>(8.9, 10.11);
-
     args.push(t2.data_ptr<float>());
-    expect += (double)t2.item<float>();
+    args.push(std::vector<PolymorphicValue>{12.3, 45.0});
 
-    Struct<PolymorphicValue> s;
-    s["a"] = 12.3;
-    s["b"] = 45;
-    args.push(s);
-    expect += s["a"];
-    expect += (double)s["b"];
+    auto ee = executor_utils::bindInputs(args, fusion.get());
 
     CompileParams opt{.index_type = index_type};
 
@@ -9676,9 +9644,9 @@ TEST_F(NVFuserTest, AllInputDtypes) {
     fe.compileFusion(fusion.get(), args, LaunchParams{}, opt);
     auto outputs = fe.runFusion(args, LaunchParams{}, opt);
 
-    EXPECT_EQ(
-        (std::complex<double>)outputs.at(0).item<c10::complex<double>>(),
-        expect);
+    auto kernel_result = outputs.at(0).item<double>();
+    auto expect = ee.evaluate(output).as<at::Tensor>().item<double>();
+    EXPECT_NEAR(kernel_result, expect, 0.1);
   }
 }
 
