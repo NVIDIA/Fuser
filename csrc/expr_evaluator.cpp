@@ -53,34 +53,36 @@ bool equals(const Val* value, const PolymorphicValue& concrete_value) {
 
 void ExpressionEvaluator::bind_(
     const Val* value,
-    const PolymorphicValue& concrete_value) {
+    PolymorphicValue concrete_value) {
   if (equals(value, concrete_value)) {
     return;
   }
   TORCH_CHECK(!value->isConstScalar(), "Tried to bind to a constant value");
   if (value->isA<NamedScalar>()) {
-    known_named_scalars_[value->as<NamedScalar>()->name()] = concrete_value;
+    known_named_scalars_[value->as<NamedScalar>()->name()] =
+        std::move(concrete_value);
   } else {
-    known_values_[value] = concrete_value;
+    known_values_[value] = std::move(concrete_value);
   }
 }
 
 void ExpressionEvaluator::bind_(
     const std::string& name,
-    const PolymorphicValue& concrete_value) {
-  known_named_scalars_[name] = concrete_value;
+    PolymorphicValue concrete_value) {
+  known_named_scalars_[name] = std::move(concrete_value);
 }
 
 void ExpressionEvaluator::bind(
     ParallelType pt,
-    const PolymorphicValue& concrete_value) {
+    PolymorphicValue concrete_value) {
   TORCH_INTERNAL_ASSERT(isParallelTypeThread(pt));
   if (precomputed_values_) {
     // Need to bind the thread value to integer machine
     //  in pre-computed mode.
-    precomputed_values_->bindConcreteParallelTypeValue(pt, concrete_value);
+    precomputed_values_->bindConcreteParallelTypeValue(
+        pt, std::move(concrete_value));
   } else {
-    bind(stringifyThreadSize(pt), concrete_value);
+    bind(stringifyThreadSize(pt), std::move(concrete_value));
   }
 }
 

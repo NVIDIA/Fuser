@@ -374,20 +374,7 @@ class TORCH_CUDA_CU_API KernelArgumentHolder {
 
   KernelArgumentHolder() = default;
 
-  KernelArgumentHolder(const KernelArgumentHolder& self)
-      : device_index_(self.getDeviceIndex()), cache_id_(self.getCacheId()) {
-    for (const auto& arg : self.arguments_) {
-      push(arg.get());
-    }
-  }
-
-  KernelArgumentHolder& operator=(const KernelArgumentHolder& self) {
-    device_index_ = self.getDeviceIndex();
-    for (const auto& arg : self.arguments_) {
-      push(arg.get());
-    }
-    return *this;
-  }
+  KernelArgumentHolder(const KernelArgumentHolder& self) = default;
 
   //! Computes the smallest index type for the currently held
   //! arguments. It does not consider any other tensors used in a kernel.
@@ -399,43 +386,30 @@ class TORCH_CUDA_CU_API KernelArgumentHolder {
       const std::vector<int64_t>& strides,
       at::ScalarType dtype);
 
-  // Push a tensor to the arguments
-  void push(const at::Tensor& tensor);
-
-  // Push a scalar or integer to the arguments
-  void push(const c10::IValue& val);
-
-  // Create a buffer, flatten arguments into it, align by 8 Bytes, return
-  // pointers in the buffer. Tensor arguments are passed with the given index
-  // type.
-  void** getBuffer(
-      PrimDataType index_type,
-      std::vector<TensorView*> tvs,
-      ExpressionEvaluator& eval);
-
   void push(const c10::ArrayRef<c10::IValue>& args);
 
   void push(const std::vector<at::Tensor>& tensors);
 
-  void push(const ArgAbstract* arg);
+  void erase(const PolymorphicValue* arg_to_delete);
 
-  void erase(const ArgAbstract* arg);
-
-  void swap(int i, const ArgAbstract* arg);
-
-  // push int64
-  void push(int64_t val);
-
-  const ArgAbstract* back() const {
-    return arguments_.back().get();
+  void push(PolymorphicValue val) {
+    arguments_.push_back(std::move(val));
   }
 
-  const ArgAbstract* at(size_t ind) const {
-    return arguments_.at(ind).get();
+  const PolymorphicValue& back() const {
+    return arguments_.back();
+  }
+
+  PolymorphicValue& back() {
+    return arguments_.back();
+  }
+
+  const PolymorphicValue& operator[](size_t ind) const {
+    return arguments_.at(ind);
   };
 
-  const ArgAbstract* operator[](size_t ind) const {
-    return at(ind);
+  PolymorphicValue& operator[](size_t ind) {
+    return arguments_.at(ind);
   };
 
   size_t size() const {
@@ -465,8 +439,7 @@ class TORCH_CUDA_CU_API KernelArgumentHolder {
   std::string toString() const;
 
  private:
-  std::vector<std::unique_ptr<ArgAbstract>> arguments_;
-  std::vector<void*> void_ptrs_;
+  std::vector<PolymorphicValue> arguments_;
 
   int8_t device_index_ = 0;
   std::optional<size_t> cache_id_ = std::nullopt;

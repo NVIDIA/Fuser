@@ -9549,6 +9549,139 @@ TEST_F(NVFuserTest, VectorizeBackToBackReductions) {
       executor_cache.fusion(), outputs, {at_x}, {t3}, __LINE__, __FILE__);
 }
 
+TEST_F(NVFuserTest, AllInputDtypes) {
+  for (auto index_type : {DataType::Int, DataType::Int32}) {
+    auto fusion = std::make_unique<Fusion>();
+    FusionGuard fg(fusion.get());
+
+    auto tv0 = makeContigTensor(0, DataType::Double);
+    auto tv1 = makeContigTensor(0, DataType::Double);
+    tv1->setCpuScalar(true);
+    auto d = IrBuilder::create<Val>(DataType::Double);
+    auto f = IrBuilder::create<Val>(DataType::Float);
+    auto h = IrBuilder::create<Val>(DataType::Half);
+    auto i = IrBuilder::create<Val>(DataType::Int);
+    auto idx = IrBuilder::create<Val>(DataType::Index);
+    auto i32 = IrBuilder::create<Val>(DataType::Int32);
+    auto b = IrBuilder::create<Val>(DataType::Bool);
+    auto bf16 = IrBuilder::create<Val>(DataType::BFloat16);
+    auto cf = IrBuilder::create<Val>(DataType::ComplexFloat);
+    auto cd = IrBuilder::create<Val>(DataType::ComplexDouble);
+    DataType ptr_type = PointerOf{std::make_shared<DataType>(DataType::Float)};
+    auto ptr = IrBuilder::create<Val>(ptr_type);
+    StructOf struct_type_;
+    struct_type_.field_names = {"a", "b"};
+    struct_type_.types["a"] = NVFUSER_MAYBE_MAKE_SHARED(DataType::Float);
+    struct_type_.types["b"] = NVFUSER_MAYBE_MAKE_SHARED(DataType::Int);
+    DataType struct_type = struct_type_;
+    auto struct_ = IrBuilder::create<Val>(struct_type);
+    fusion->addInput(tv0);
+    fusion->addInput(tv1);
+    fusion->addInput(d);
+    fusion->addInput(f);
+    fusion->addInput(h);
+    fusion->addInput(i);
+    fusion->addInput(idx);
+    fusion->addInput(i32);
+    fusion->addInput(b);
+    fusion->addInput(bf16);
+    fusion->addInput(cf);
+    fusion->addInput(cd);
+    fusion->addInput(ptr);
+    fusion->addInput(struct_);
+
+    // `add` can not handle type promotion on DataType::Index, so use
+    // IrBuilder::addExpr for idx instead.
+    auto d1 = IrBuilder::addExpr(idx, d);
+    auto output = add(tv0, tv1);
+    output = add(output, d1);
+    output = add(output, f);
+    output = add(output, h);
+    output = add(output, i);
+    output = add(output, i32);
+    output = add(output, b);
+    output = add(output, bf16);
+    output = add(output, cf);
+    output = add(output, cd);
+    output = add(output, IrBuilder::derefExpr(ptr));
+    output = add(output, IrBuilder::getAttrExpr(struct_, "a"));
+    output = add(output, IrBuilder::getAttrExpr(struct_, "b"));
+
+    fusion->addOutput(output);
+
+    at::Tensor t0 = at::randn(
+        {}, at::TensorOptions().dtype(at::kDouble).device(at::kCUDA, 0));
+    at::Tensor t1 =
+        at::randn({}, at::TensorOptions().dtype(at::kDouble).device(at::kCPU));
+    at::Tensor t2 = at::randn(
+        {},
+        at::TensorOptions()
+            .dtype(at::kFloat)
+            .device(at::kCPU)
+            .pinned_memory(true));
+
+    PolymorphicValue expect = 0L;
+
+    KernelArgumentHolder args;
+
+    args.push(t0);
+    expect += t0.item<double>();
+
+    args.push(t1);
+    expect += t1.item<double>();
+
+    args.push(2.3);
+    expect += 2.3;
+
+    args.push(4.5);
+    expect += 4.5;
+
+    args.push(6.7);
+    expect += 6.7;
+
+    args.push(8L);
+    expect += 8L;
+
+    args.push(9L);
+    expect += 9L;
+
+    args.push(10L);
+    expect += 10L;
+
+    args.push(true);
+    expect += true;
+
+    args.push(12.3);
+    expect += 12.3;
+
+    args.push(std::complex<float>(4.5, 6.7));
+    expect += std::complex<float>(4.5, 6.7);
+
+    args.push(std::complex<double>(8.9, 10.11));
+    expect += std::complex<double>(8.9, 10.11);
+
+    args.push(t2.data_ptr<float>());
+    expect += t2.item<float>();
+
+    Struct<PolymorphicValue> s;
+    s["a"] = 12.3;
+    s["b"] = 45;
+    args.push(s);
+    expect += s["a"];
+    expect += s["b"];
+
+    CompileParams opt{.index_type = index_type};
+
+    FusionExecutor fe;
+    fe.compileFusion(fusion.get(), args, LaunchParams{}, opt);
+    auto outputs = fe.runFusion(args, LaunchParams{}, opt);
+
+    EXPECT_EQ(
+        (std::complex<double>)ouputs.at(0).item<c10::complex<double>>(),
+        expect);
+  }
+}
+
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser
