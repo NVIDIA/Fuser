@@ -99,6 +99,13 @@ ContiguousInnerDimensionsMapper::ContiguousInnerDimensionsMapper(
     if (reference->isFusionInput() && id->isReduction()) {
       continue;
     }
+    // If not a fusion input, can this be a reduction domain?
+    TORCH_INTERNAL_ASSERT(
+        !id->isReduction(),
+        "Unexpected reduction domain: ",
+        id->toString(),
+        " of tensor ",
+        reference->toString());
     if (std::find(reference_ids.begin(), reference_ids.end(), id) !=
         reference_ids.end()) {
       reordered_rfactor.push_back(id);
