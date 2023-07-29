@@ -290,6 +290,10 @@ void Expr::dispatch(T handler, Expr* expr) {
     ptr(handler)->handle(expr->as<kir::AllocateFusedReduction>());
     return;
   }
+  if (expr->isStrictlyA<kir::GetRNGSeedAndOffsetFromHost>()) {
+    ptr(handler)->handle(expr->as<kir::GetRNGSeedAndOffsetFromHost>());
+    return;
+  }
   if (expr->isStrictlyA<PipelineStage>()) {
     ptr(handler)->handle(expr->as<PipelineStage>());
     return;
@@ -556,6 +560,10 @@ void Expr::constDispatch(T handler, const Expr* expr) {
   }
   if (expr->isStrictlyA<kir::AllocateFusedReduction>()) {
     ptr(handler)->handle(expr->as<kir::AllocateFusedReduction>());
+    return;
+  }
+  if (expr->isStrictlyA<kir::GetRNGSeedAndOffsetFromHost>()) {
+    ptr(handler)->handle(expr->as<kir::GetRNGSeedAndOffsetFromHost>());
     return;
   }
   if (expr->isStrictlyA<PipelineStage>()) {
@@ -913,6 +921,9 @@ void OptOutConstDispatch::handle(const kir::VectorizedWelfordOp* stmt) {
 void OptOutConstDispatch::handle(const kir::AllocateFusedReduction* stmt) {
   unhandled(stmt);
 }
+void OptOutConstDispatch::handle(const kir::GetRNGSeedAndOffsetFromHost* stmt) {
+  unhandled(stmt);
+}
 
 void OptOutConstDispatch::handle(const PipelineStage* stmt) {
   unhandled(stmt);
@@ -1110,6 +1121,10 @@ void OptOutDispatch::handle(kir::VectorizedWelfordOp* stmt) {
 void OptOutDispatch::handle(kir::AllocateFusedReduction* stmt) {
   unhandled(stmt);
 }
+void OptOutDispatch::handle(kir::GetRNGSeedAndOffsetFromHost* stmt) {
+  unhandled(stmt);
+}
+
 void OptOutDispatch::handle(PipelineStage* stmt) {
   unhandled(stmt);
 }
