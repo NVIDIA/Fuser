@@ -649,7 +649,10 @@ void bindInputForExprEvaluation(
         TensorDomain::noReductions(cg_tensor->getMaybeRFactorDomain());
     TORCH_INTERNAL_ASSERT(
         t.dim() == (int64_t)root_domain.size(),
-        "Something went wrong configuring launch. Inputs rank does not match.");
+        "Something went wrong configuring launch. Inputs rank does not match. Expected ",
+        root_domain.size(),
+        " but found ",
+        t.dim());
 
     for (const auto dim : c10::irange(root_domain.size())) {
       const auto tensor_arg_size = t.size(dim);
