@@ -334,46 +334,119 @@ void KernelArgumentHolder::pushTensorProxy(
   arguments_.push_back(getAbstractTensorArg(at::Tensor(meta_tensor)));
 }
 
-std::vector<std::byte> getTensorArgBuffer(
-    const PolymorphicValue& metadata,
+std::vector<std::byte> getKernelArgumentData(
+    const PolymorphicValue& argument,
+    const DataType& dtype,
     PrimDataType index_type) {
-  auto struct_ = metadata.as<Struct>();
-  std::vector<std::byte> buffer;
-  void* ptr = (void*)struct_["data"];
-  std::vector<int64_t> sizes = (std::vector<int64_t>)struct_["logical_size"];
-  std::vector<int64_t> strides = (std::vector<int64_t>)struct_["alloc_stride"];
-  if (index_type == PrimDataType::Int) {
-    buffer.reserve(
-        sizeof(ptr) + sizeof(int64_t) * (sizes.size() + strides.size()));
-    buffer.insert(
-        buffer.end(), (std::byte*)&ptr, (std::byte*)&ptr + sizeof(ptr));
+  if (argument.is<Struct>()) {
+    auto dtype_ = std::get<StructOf>(dtype.type);
+    auto struct_ = argument.as<Struct>();
+    std::vector<std::byte> buffer;
+    for (const auto& field : dtype_.field_names) {
+      auto field_data = getKernelArgumentData(
+          struct_[field], NVFUSER_MAYBE_STAR dtype_.types.at(field), index_type);
+      buffer.insert(buffer.end(), field_data.begin(), field_data.end());
+    }
+    return buffer;
+  } else if (argument.is<at::Tensor>()) {
+    auto tensor = argument.as<at::Tensor>();
+    TORCH_INTERNAL_ASSERT(
+        tensor.is_cpu() && tensor.numel() == 1,
+        "Only CPU scalar tensors are supported here. ",
+        "For GPU tensors, please use their metadata.");
+    auto scalar_type = tensor.scalar_type();
+    TORCH_INTERNAL_ASSERT(dtype == aten_to_data_type(scalar_type));
+    std::vector<std::byte> buffer;
+    buffer.reserve(tensor.element_size());
     buffer.insert(
         buffer.end(),
-        (std::byte*)sizes.data(),
-        (std::byte*)sizes.data() + sizeof(int64_t) * sizes.size());
+        (std::byte*)tensor.data_ptr(),
+        (std::byte*)tensor.data_ptr() + tensor.element_size());
+    return buffer;
+  } else if (argument.is<Pointer>()) {
+    TORCH_INTERNAL_ASSERT(std::holds_alternative<PointerOf>(dtype.type));
+    void* ptr = (void*)argument;
+    std::vector<std::byte> buffer;
+    buffer.reserve(sizeof(void*));
     buffer.insert(
-        buffer.end(),
-        (std::byte*)strides.data(),
-        (std::byte*)strides.data() + sizeof(int64_t) * strides.size());
+        buffer.end(), (std::byte*)&ptr, (std::byte*)&ptr + sizeof(void*));
+    return buffer;
+  } else if (argument.is<std::vector>()) {
+    auto dtype_ = std::get<ArrayOf>(dtype.type);
+    std::vector<std::byte> buffer;
+    for (const auto& elem : argument.as<std::vector>()) {
+      auto elem_data = getKernelArgumentData(elem, *dtype_.type, index_type);
+      buffer.insert(buffer.end(), elem_data.begin(), elem_data.end());
+    }
+    return buffer;
+  } else if (argument.is<int64_t>()) {
+    int64_t v = argument.as<int64_t>();
+    if (dtype == DataType::Int ||
+        (index_type == PrimDataType::Int && dtype == DataType::Index)) {
+      return std::vector<std::byte>((std::byte*)&v, (std::byte*)&v + 8);
+    } else if (
+        dtype == DataType::Int32 ||
+        (index_type == PrimDataType::Int32 && dtype == DataType::Index)) {
+      int32_t v32 = (int32_t)v;
+      return std::vector<std::byte>((std::byte*)&v32, (std::byte*)&v32 + 4);
+    } else {
+      TORCH_INTERNAL_ASSERT(
+          false,
+          "Cannot convert int64_t to ",
+          dtype,
+          " type: only int32 and int64 are supported.");
+    }
+  } else if (argument.is<bool>()) {
+    bool v = argument.as<bool>();
+    TORCH_INTERNAL_ASSERT(dtype == DataType::Bool);
+    return std::vector<std::byte>((std::byte*)&v, (std::byte*)&v + 1);
+  } else if (argument.is<double>()) {
+    double v = argument.as<double>();
+    if (dtype == DataType::Double) {
+      return std::vector<std::byte>(
+          (std::byte*)&v, (std::byte*)&v + sizeof(double));
+    } else if (dtype == DataType::Float) {
+      float v32 = (float)v;
+      return std::vector<std::byte>(
+          (std::byte*)&v32, (std::byte*)&v32 + sizeof(float));
+    } else if (dtype == DataType::Half) {
+      at::Half v16 = (at::Half)(float)v;
+      return std::vector<std::byte>(
+          (std::byte*)&v16, (std::byte*)&v16 + sizeof(at::Half));
+    } else if (dtype == DataType::BFloat16) {
+      at::BFloat16 v16 = (at::BFloat16)(float)v;
+      return std::vector<std::byte>(
+          (std::byte*)&v16, (std::byte*)&v16 + sizeof(at::BFloat16));
+    } else {
+      TORCH_INTERNAL_ASSERT(
+          false,
+          "Cannot convert double to ",
+          dtype,
+          " type: only half, bfloat16, float and double are supported.");
+    }
+  } else if (argument.is<std::complex<double>>()) {
+    std::complex<double> v = argument.as<std::complex<double>>();
+    if (dtype == DataType::ComplexDouble) {
+      return std::vector<std::byte>(
+          (std::byte*)&v, (std::byte*)&v + sizeof(std::complex<double>));
+    } else if (dtype == DataType::ComplexFloat) {
+      std::complex<float> v32 = (std::complex<float>)v;
+      return std::vector<std::byte>(
+          (std::byte*)&v32, (std::byte*)&v32 + sizeof(std::complex<float>));
+    } else {
+      TORCH_INTERNAL_ASSERT(
+          false,
+          "Cannot convert complex double to ",
+          dtype,
+          " type: only complex float and complex double are supported.");
+    }
   } else {
     TORCH_INTERNAL_ASSERT(
-        index_type == PrimDataType::Int32, "unknown index type");
-    std::vector<int32_t> sizes32(sizes.begin(), sizes.end());
-    std::vector<int32_t> strides32(strides.begin(), strides.end());
-    buffer.reserve(
-        sizeof(ptr) + sizeof(int32_t) * (sizes32.size() + strides32.size()));
-    buffer.insert(
-        buffer.end(), (std::byte*)&ptr, (std::byte*)&ptr + sizeof(ptr));
-    buffer.insert(
-        buffer.end(),
-        (std::byte*)sizes32.data(),
-        (std::byte*)sizes32.data() + sizeof(int32_t) * sizes32.size());
-    buffer.insert(
-        buffer.end(),
-        (std::byte*)strides32.data(),
-        (std::byte*)strides32.data() + sizeof(int32_t) * strides32.size());
+        false,
+        "Cannot convert ",
+        argument.type().name(),
+        " to kernel argument data.");
   }
-  return buffer;
 }
 
 std::vector<std::byte> getKernelArgument(
@@ -383,84 +456,15 @@ std::vector<std::byte> getKernelArgument(
   TORCH_INTERNAL_ASSERT(parameter != nullptr);
   PolymorphicValue pv = ee.evaluate(parameter);
   if (auto tv = dynamic_cast<TensorView*>(parameter)) {
-    auto tensor = pv.as<at::Tensor>();
-    if (is_cpu_scalar(tensor)) {
-      return std::vector<std::byte>(
-          (std::byte*)tensor.data_ptr(),
-          (std::byte*)tensor.data_ptr() + tensor.element_size());
+    if (tv->isCpuScalar()) {
+      return getKernelArgumentData(pv, tv->dtype(), index_type);
     } else {
-      auto metadata = ee.evaluate(IrBuilder::metadataExpr(tv));
-      return getTensorArgBuffer(metadata, index_type);
+      auto metadata_val = IrBuilder::metadataExpr(tv);
+      auto metadata = ee.evaluate(metadata_val);
+      return getKernelArgumentData(metadata, metadata_val->dtype(), index_type);
     }
-  } else if (isIntegralType(parameter->dtype())) {
-    int64_t v = pv.as<int64_t>();
-    if (parameter->dtype() == DataType::Int ||
-        (index_type == PrimDataType::Int &&
-         parameter->dtype() == DataType::Index)) {
-      return std::vector<std::byte>((std::byte*)&v, (std::byte*)&v + 8);
-    } else if (
-        parameter->dtype() == DataType::Int32 ||
-        (index_type == PrimDataType::Int32 &&
-         parameter->dtype() == DataType::Index)) {
-      int32_t v32 = (int32_t)v;
-      return std::vector<std::byte>((std::byte*)&v32, (std::byte*)&v32 + 4);
-    } else {
-      TORCH_INTERNAL_ASSERT(
-          false,
-          "Tried to run a generated kernel with ",
-          parameter->dtype(),
-          " type, however only int32 and int64 are supported.");
-    }
-  } else if (isFloatingPointType(parameter->dtype())) {
-    double v = pv.as<double>();
-    if (parameter->dtype() == DataType::Double) {
-      return std::vector<std::byte>(
-          (std::byte*)&v, (std::byte*)&v + sizeof(double));
-    } else if (parameter->dtype() == DataType::Float) {
-      float v32 = (float)v;
-      return std::vector<std::byte>(
-          (std::byte*)&v32, (std::byte*)&v32 + sizeof(float));
-    } else if (parameter->dtype() == DataType::Half) {
-      at::Half v16 = (at::Half)(float)v;
-      return std::vector<std::byte>(
-          (std::byte*)&v16, (std::byte*)&v16 + sizeof(at::Half));
-    } else if (parameter->dtype() == DataType::BFloat16) {
-      at::BFloat16 v16 = (at::BFloat16)(float)v;
-      return std::vector<std::byte>(
-          (std::byte*)&v16, (std::byte*)&v16 + sizeof(at::BFloat16));
-    } else {
-      TORCH_INTERNAL_ASSERT(
-          false,
-          "Tried to run a generated kernel with ",
-          parameter->dtype(),
-          " type, however only float, double, half and bfloat16 are supported.");
-    }
-  } else if (isComplexType(parameter->dtype())) {
-    std::complex<double> v = pv.as<std::complex<double>>();
-    if (parameter->dtype() == DataType::ComplexDouble) {
-      return std::vector<std::byte>(
-          (std::byte*)&v, (std::byte*)&v + sizeof(std::complex<double>));
-    } else if (parameter->dtype() == DataType::ComplexFloat) {
-      std::complex<float> v32 = (std::complex<float>)v;
-      return std::vector<std::byte>(
-          (std::byte*)&v32, (std::byte*)&v32 + sizeof(std::complex<float>));
-    } else {
-      TORCH_INTERNAL_ASSERT(
-          false,
-          "Tried to run a generated kernel with ",
-          parameter->dtype(),
-          " type, however only complex float and complex double are supported.");
-    }
-  } else if (std::holds_alternative<PointerOf>(parameter->dtype().type)) {
-    void* ptr = (void*)pv;
-    return std::vector<std::byte>(
-        (std::byte*)&ptr, (std::byte*)&ptr + sizeof(ptr));
-  } else {
-    TORCH_INTERNAL_ASSERT(
-        false,
-        "Tried to run a generated kernel with unsupported dtype ",
-        parameter->dtype());
   }
+  return getKernelArgumentData(pv, parameter->dtype(), index_type);
 }
 
 } // namespace nvfuser
