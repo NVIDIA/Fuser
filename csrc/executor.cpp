@@ -1836,7 +1836,8 @@ float FusionExecutor::runRtc(
     concrete_value["logical_size"] = PolymorphicValue(input.sizes().vec());
     concrete_value["alloc_stride"] = PolymorphicValue(input.strides().vec());
 
-    data.emplace_back(getKernelArgumentData(concrete_value, dtype, index_type));
+    data.emplace_back(
+        polymorphicValueToBytes(concrete_value, dtype, index_type));
     pointers.emplace_back(data.back().data());
   }
 

@@ -248,7 +248,7 @@ void KernelArgumentHolder::pushTensorProxy(
   arguments_.push_back(at::Tensor(meta_tensor));
 }
 
-std::vector<std::byte> getKernelArgumentData(
+std::vector<std::byte> polymorphicValueToBytes(
     const PolymorphicValue& argument,
     const DataType& dtype,
     PrimDataType index_type) {
@@ -257,7 +257,7 @@ std::vector<std::byte> getKernelArgumentData(
     auto struct_ = argument.as<Struct>();
     std::vector<std::byte> buffer;
     for (const auto& field : dtype_.field_names) {
-      auto field_data = getKernelArgumentData(
+      auto field_data = polymorphicValueToBytes(
           struct_[field],
           NVFUSER_MAYBE_STAR dtype_.types.at(field),
           index_type);
@@ -265,7 +265,7 @@ std::vector<std::byte> getKernelArgumentData(
     }
     return buffer;
   } else if (argument.is<at::Tensor>()) {
-    auto tensor = argument.as<at::Tensor>();
+    const auto& tensor = argument.as<at::Tensor>();
     TORCH_INTERNAL_ASSERT(
         tensor.is_cpu() && tensor.numel() == 1,
         "Only CPU scalar tensors are supported here. ",
@@ -291,7 +291,7 @@ std::vector<std::byte> getKernelArgumentData(
     auto dtype_ = std::get<ArrayOf>(dtype.type);
     std::vector<std::byte> buffer;
     for (const auto& elem : argument.as<std::vector>()) {
-      auto elem_data = getKernelArgumentData(elem, *dtype_.type, index_type);
+      auto elem_data = polymorphicValueToBytes(elem, *dtype_.type, index_type);
       buffer.insert(buffer.end(), elem_data.begin(), elem_data.end());
     }
     return buffer;
@@ -373,14 +373,15 @@ std::vector<std::byte> getKernelArgument(
   PolymorphicValue pv = ee.evaluate(parameter);
   if (auto tv = dynamic_cast<TensorView*>(parameter)) {
     if (tv->isCpuScalar()) {
-      return getKernelArgumentData(pv, tv->dtype(), index_type);
+      return polymorphicValueToBytes(pv, tv->dtype(), index_type);
     } else {
       auto metadata_val = IrBuilder::metadataExpr(tv);
       auto metadata = ee.evaluate(metadata_val);
-      return getKernelArgumentData(metadata, metadata_val->dtype(), index_type);
+      return polymorphicValueToBytes(
+          metadata, metadata_val->dtype(), index_type);
     }
   }
-  return getKernelArgumentData(pv, parameter->dtype(), index_type);
+  return polymorphicValueToBytes(pv, parameter->dtype(), index_type);
 }
 
 } // namespace nvfuser

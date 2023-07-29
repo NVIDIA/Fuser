@@ -445,7 +445,7 @@ class TORCH_CUDA_CU_API KernelArgumentHolder {
   std::optional<size_t> cache_id_ = std::nullopt;
 };
 
-std::vector<std::byte> getKernelArgumentData(
+std::vector<std::byte> polymorphicValueToBytes(
     const PolymorphicValue& argument,
     const DataType& dtype,
     PrimDataType index_type);
