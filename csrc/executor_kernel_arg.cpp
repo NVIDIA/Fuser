@@ -124,7 +124,7 @@ void KernelArgumentHolder::pushTensorProxy(
       c10::nullopt,
       c10::Device(c10::DeviceType::Meta, 0),
       c10::nullopt);
-  arguments_.push_back(at::Tensor(meta_tensor));
+  arguments_.emplace_back(meta_tensor);
 }
 
 std::vector<std::byte> polymorphicValueToBytes(

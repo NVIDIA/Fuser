@@ -633,6 +633,7 @@ void bindInputForExprEvaluation(
     ExpressionEvaluator& expr_eval,
     bool legacy) {
   TORCH_INTERNAL_ASSERT(val != nullptr);
+  at::Tensor t = arg.as<at::Tensor>();
   expr_eval.bind(val, std::move(arg));
   if (!legacy) {
     return;
@@ -642,7 +643,6 @@ void bindInputForExprEvaluation(
 #if 1
 
     TensorView* cg_tensor = val->as<TensorView>();
-    at::Tensor t = arg.as<at::Tensor>();
 
     // Legacy code. To be removed in the future
     auto root_domain =
@@ -655,7 +655,7 @@ void bindInputForExprEvaluation(
         t.dim());
 
     for (const auto dim : c10::irange(root_domain.size())) {
-      const auto tensor_arg_size = t.size(dim);
+      const auto tensor_arg_size = t.size((int64_t)dim);
       const auto extent = root_domain[dim]->extent();
       if (root_domain[dim]->hasExpandedExtent()) {
         // Could support dynamic size on expanded dimension, so may not have
