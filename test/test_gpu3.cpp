@@ -9655,7 +9655,7 @@ TEST_F(NVFuserTest, AllInputDtypes) {
     expect += 12.3;
 
     args.push(std::complex<float>(4.5, 6.7));
-    expect += std::complex<float>(4.5, 6.7);
+    expect += std::complex<double>(4.5, 6.7);
 
     args.push(std::complex<double>(8.9, 10.11));
     expect += std::complex<double>(8.9, 10.11);
@@ -9677,7 +9677,7 @@ TEST_F(NVFuserTest, AllInputDtypes) {
     auto outputs = fe.runFusion(args, LaunchParams{}, opt);
 
     EXPECT_EQ(
-        (std::complex<double>)ouputs.at(0).item<c10::complex<double>>(),
+        (std::complex<double>)outputs.at(0).item<c10::complex<double>>(),
         expect);
   }
 }
