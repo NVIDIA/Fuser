@@ -9640,16 +9640,16 @@ TEST_F(NVFuserTest, AllInputDtypes) {
     expect += 6.7;
 
     args.push(8L);
-    expect += 8L;
+    expect += 8.0;
 
     args.push(9L);
-    expect += 9L;
+    expect += 9.0;
 
     args.push(10L);
-    expect += 10L;
+    expect += 10.0;
 
     args.push(true);
-    expect += true;
+    expect += 1.0;
 
     args.push(12.3);
     expect += 12.3;
@@ -9661,14 +9661,14 @@ TEST_F(NVFuserTest, AllInputDtypes) {
     expect += std::complex<double>(8.9, 10.11);
 
     args.push(t2.data_ptr<float>());
-    expect += t2.item<float>();
+    expect += (double)t2.item<float>();
 
     Struct<PolymorphicValue> s;
     s["a"] = 12.3;
     s["b"] = 45;
     args.push(s);
     expect += s["a"];
-    expect += s["b"];
+    expect += (double)s["b"];
 
     CompileParams opt{.index_type = index_type};
 
