@@ -22,7 +22,7 @@ ReplayTransform::ReplayTransform(
     const std::vector<IterDomain*>& ordered_inputs,
     const Expr* expression_to_match)
     : input_ids_(ordered_inputs) {
-  OptOutConstDispatch::handle(expression_to_match);
+  OptOutConstDispatch::dispatch(expression_to_match);
 }
 
 // We're going to replay this split operation on the corresponding ID
@@ -91,7 +91,7 @@ ReplacementTransformCloner::ReplacementTransformCloner(
     const Expr* expression_to_match)
     : provided_expr_val_2_replacement_val_(
           provided_expr_val_2_replacement_val) {
-  OptOutConstDispatch::handle(expression_to_match);
+  OptOutConstDispatch::dispatch(expression_to_match);
 }
 
 IterDomain* ReplacementTransformCloner::replaceOrClone(IterDomain* id) {

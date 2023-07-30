@@ -292,6 +292,4 @@ class TORCH_CUDA_CU_API IterDomainGraphs : public PolymorphicBase {
   std::unordered_set<IterDomain*> view_rfactor_ids_;
 };
 
-using DoubleBufferIndices = std::unordered_map<DoubleBufferLoopStage, Int*>;
-
 } // namespace nvfuser

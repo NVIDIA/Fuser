@@ -127,6 +127,7 @@ std::unordered_map<DebugDumpOption, std::vector<std::string>> Options<
       {"kernel_ir", DebugDumpOption::KernelIr},
       {"launch_param", DebugDumpOption::LaunchParam},
       {"loop_rotation", DebugDumpOption::LoopRotation},
+      {"lower_name_only", DebugDumpOption::LowerNameOnly},
       {"lower_verbose", DebugDumpOption::LowerVerbose},
       {"matmul_checks", DebugDumpOption::MatmulChecks},
       {"occupancy", DebugDumpOption::Occupancy},

@@ -35,18 +35,18 @@ class ReplayTransform : OptInConstDispatch {
   using OptInConstDispatch::handle;
 
   // We're going to replay this split operation on the corresponding ID
-  void handle(const Split* split) override;
+  void handle(const Split* split) final;
 
   // We're going to replay this merge operation on the corresponding IDs
-  void handle(const Merge* merge) override;
+  void handle(const Merge* merge) final;
 
   // We're going to replay this swizzle operation on the corresponding IDs
   //  if replaying swizzle is enabled.
-  void handle(const Swizzle2D* swizzle_2d) override;
+  void handle(const Swizzle2D* swizzle_2d) final;
 
   // We're going to replay this resize operation on the corresponding IDs
   //  if replaying resize is enabled.
-  void handle(const Resize* resize) override;
+  void handle(const Resize* resize) final;
 
   Expr* replayed_expr_ = nullptr;
   const std::vector<IterDomain*>& input_ids_;

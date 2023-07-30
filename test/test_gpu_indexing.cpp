@@ -1091,17 +1091,11 @@ TEST_F(NVFuserTest, FusionIndexSplitMerge_CUDA) {
   tv3->merge(1);
   tv3->split(1, 5);
 
-  MaxRootDomainInfoSpanningTree tree(tv5);
-  TransformPropagator tp(tv5);
+  MaxRootDomainInfoSpanningTree tree(tv3);
+  TransformPropagator tp(tv3);
   tree.traverse(&tp);
 
-  inlineAllAt(tv4, 1, true);
-
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor t0 = at::randn({5}, options);
-  at::Tensor t1 = at::randn({5, 3}, options);
-  std::vector<c10::IValue> inputs = {t0, t1};
-
+  inlineAllAt(tv3, 1, true);
   FusionExecutor fe;
 
   int x = 4, y = 7;
