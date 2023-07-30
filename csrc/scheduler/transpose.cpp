@@ -752,11 +752,8 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
           tv_vectorize_factor_opt.hasValue(),
           "Vectorization heuristic could not evaluate inner most size.");
       int64_t tv_vectorize_factor = tv_vectorize_factor_opt.as<int64_t>();
-      vectorize_factor1 = std::min(vectorize_factor1, tv_vectorize_factor);
+      vectorize_factor1 = std::min(vectorize_factor1, scheduler_utils::maxVectorizationWidth(tv_vectorize_factor));
     }
-    params->vectorize_factor1 = std::min(
-		    scheduler_utils::maxVectorizationWidth(max_unroll_factor),
-		    scheduler_utils::maxVectorizationWidth(vectorize_factor1));
 
     // TODO: Since group2 only has global->shared and shared->global set op, we
     // can have fine-grained control of unroll/vectorization at per tensor level.
@@ -781,11 +778,13 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
           tv_vectorize_factor_opt.hasValue(),
           "Vectorization heuristic could not evaluate inner most size.");
       int64_t tv_vectorize_factor = tv_vectorize_factor_opt.as<int64_t>();
-      vectorize_factor2 = std::min(vectorize_factor2, tv_vectorize_factor);
+      vectorize_factor2 = std::min(vectorize_factor2, scheduler_utils::maxVectorizationWidth(tv_vectorize_factor));
     }
-    params->vectorize_factor2 = std::min(
-		    scheduler_utils::maxVectorizationWidth(max_unroll_factor),
-		    scheduler_utils::maxVectorizationWidth(vectorize_factor2));
+
+    params->vectorize_factor1 = scheduler_utils::lastPow2(
+        std::min(max_unroll_factor, vectorize_factor1));
+    params->vectorize_factor2 = scheduler_utils::lastPow2(
+        std::min(max_unroll_factor, vectorize_factor2));
   }
 
   params->lparams.bind(params->getThreadsPerBlock(), ParallelType::TIDx);
