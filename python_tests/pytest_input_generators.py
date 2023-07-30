@@ -1039,3 +1039,28 @@ def where_error_generator(
         make_arg(input_shape),
         make_arg(input_shape),
     ), RuntimeError, "Condition should be of DataType Bool"
+
+def vector_at_error_generator(
+    op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
+):
+    """
+    [&at_def](FusionDefinition::Operators& self, Vector arg, int64_t index)
+        -> Scalar { return at_def(arg, index); },
+    """
+    make_arg = partial(
+        make_tensor, device="cuda", dtype=dtype, requires_grad=requires_grad
+    )
+
+    check_index_too_large = [
+        {"tensor_shape" : (2, 2), "index" : 2},
+    ]
+
+    error_checks = [
+        check_index_too_large,
+    ]
+
+    for check in error_checks:
+        for error_case in check:
+            yield SampleInput(make_arg(error_case["tensor_shape"], index=error_case["index"]))
+
+

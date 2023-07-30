@@ -118,7 +118,9 @@ vector_at_opinfo = OpInfo(
     "vector_at",
     # TODO: Check correctness once there are operators that can consume a Vector
     sample_input_generator=None,
-    error_input_generator=None,
+    error_input_generator=vector_at_error_generator,
+    fd_correctness_fn=None,
+    fd_error_input_fn=None,
 )
 dynamic_shapes_ops.append(vector_at_opinfo)
 
