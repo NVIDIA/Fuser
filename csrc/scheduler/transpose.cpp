@@ -760,16 +760,21 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
     // We should not be using a single global vectorize factor for the entire
     // group 2
     std::vector<IterDomain*> virtual_innermost2;
-    // virtual_innermost2.push_back(reference1->axis(inner_most_pos2_in_ref1));
-    virtual_innermost2.push_back(reference1->getMaybeRFactorDomain()[inner_most_pos2_in_ref1]);
+    // TODO: I don't think this one is safe here.
+    // We can't bindly think that inner_most_pos2_in_ref1 is necessarily in reference2.
+    if (std::find(reference2->getMaybeRFactorDomain().begin(),
+                  reference2->getMaybeRFactorDomain().end(),
+                  reference1->getMaybeRFactorDomain()[inner_most_pos2_in_ref1]) != reference2->getMaybeRFactorDomain().end()) {
+      virtual_innermost2.push_back(reference1->getMaybeRFactorDomain()[inner_most_pos2_in_ref1]);
+    }
     for (const auto& dim : params->dims_merged_with_2) {
-      if (std::find(reference1->getMaybeRFactorDomain().begin(),
-                    reference1->getMaybeRFactorDomain().end(),
-                    reference1->axis(dim)) != reference1->getMaybeRFactorDomain().end()) {
+      if (std::find(reference2->getMaybeRFactorDomain().begin(),
+                    reference2->getMaybeRFactorDomain().end(),
+                    reference1->axis(dim)) != reference2->getMaybeRFactorDomain().end()) {
         virtual_innermost2.push_back(reference1->axis(dim));
       }
     }
-    auto group2_contig_inner_map = vectorize_helper::ContiguousInnerDimensionsMapper::map(reference1, virtual_innermost2).getTvToContigMergeOfInnerSizeMap();
+    auto group2_contig_inner_map = vectorize_helper::ContiguousInnerDimensionsMapper::map(reference2, virtual_innermost2).getTvToContigMergeOfInnerSizeMap();
     for (auto tv : grouped_inputs_outputs[1]) {
       auto inner_size_it = group2_contig_inner_map.find(tv);
       auto tv_vectorize_factor_opt = inner_size_it == group2_contig_inner_map.end() ? 1 :
