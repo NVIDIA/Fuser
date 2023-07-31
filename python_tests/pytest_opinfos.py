@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # Owner(s): ["module: nvfuser"]
 
+import math
 import torch
 import jax
 from pytest_core import OpInfo, ReferenceType, Domain
@@ -37,7 +38,7 @@ from pytest_input_generators import (
     var_mean_generator,
     where_error_generator,
 )
-from pytest_utils import float_complex_dtypes, ArgumentType
+from pytest_utils import int_float_dtypes, float_complex_dtypes, ArgumentType
 from functools import partial
 from typing import List
 
