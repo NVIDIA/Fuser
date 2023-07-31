@@ -2769,7 +2769,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       } else {
         indent() << "// Alias Allocation (changing dtype) - "
                  << alloc->memoryType() << "\n";
-        indent() << "auto& " << genVariableName(tv)
+        indent() << "auto " << genVariableName(tv)
                  << " = *reinterpret_cast<Array<" << buffer_dtype << ", "
                  << genInline(size) << ">*>(&" << genVariableName(alias_tv)
                  << ");\n";
