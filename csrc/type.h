@@ -217,6 +217,8 @@ bool StructOf::operator==(const StructOf& other) const {
 #endif
 }
 
+DataType globalTensorMetaData(DataType dtype, int64_t dim, int64_t alloc_dim = dim);
+
 class Val;
 //! Get the type of a Val's metadata, currently only supporting tensors
 DataType metaDataTypeOf(const Val* tv);

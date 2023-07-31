@@ -1835,14 +1835,8 @@ float FusionExecutor::runRtc(
   std::vector<void*> pointers;
 
   for (const auto& input : args) {
-    StructOf dtype;
-    dtype.field_names = {"data", "logical_size", "alloc_stride"};
-    dtype.types["data"] = NVFUSER_MAYBE_MAKE_SHARED(PointerOf{
-        std::make_shared<DataType>(aten_to_data_type(input.scalar_type()))});
-    dtype.types["logical_size"] = NVFUSER_MAYBE_MAKE_SHARED2(ArrayOf{
-        std::make_shared<DataType>(DataType::Index), (size_t)input.dim()});
-    dtype.types["alloc_stride"] = NVFUSER_MAYBE_MAKE_SHARED2(ArrayOf{
-        std::make_shared<DataType>(DataType::Index), (size_t)input.dim()});
+    DataType metadata_type = globalTensorMetaData(
+        aten_to_data_type(input.scalar_type()), input.dim());
 
     Struct<PolymorphicValue> concrete_value;
     concrete_value["data"] = PolymorphicValue(
@@ -1851,7 +1845,7 @@ float FusionExecutor::runRtc(
     concrete_value["alloc_stride"] = PolymorphicValue(input.strides().vec());
 
     data.emplace_back(
-        polymorphicValueToBytes(concrete_value, dtype, index_type));
+        polymorphicValueToBytes(concrete_value, metadata_type, index_type));
     pointers.emplace_back(data.back().data());
   }
 
