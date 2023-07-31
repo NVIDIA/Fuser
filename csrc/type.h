@@ -222,7 +222,7 @@ DataType globalTensorMetaData(
     int64_t dim,
     int64_t alloc_dim);
 
-DataType globalTensorMetaData(const DataType& dtype, int64_t dim) {
+inline DataType globalTensorMetaData(const DataType& dtype, int64_t dim) {
   return globalTensorMetaData(dtype, dim, dim);
 }
 
