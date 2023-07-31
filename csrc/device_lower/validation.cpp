@@ -888,7 +888,7 @@ void validateMmaTensors(MmaOp* mma) {
           const auto& paralel_dim_map =
               GpuLower::current()->parallelDimensionMap();
           TORCH_INTERNAL_ASSERT(
-              paralel_dim_map.isExact(ptype) &&
+              lower_utils::isExtentEqualToMaxParallelTypeExtent(id) &&
                   paralel_dim_map.get(ptype)->isConstInt() &&
                   paralel_dim_map.get(ptype)->evaluateInt() ==
                       at::cuda::warp_size(),
