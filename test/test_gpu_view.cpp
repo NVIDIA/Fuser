@@ -2485,8 +2485,8 @@ TEST_F(NVFuserTest, TransposeVectorizationWidth1_CUDA) {
   fusion->addInput(tv0);
 
   auto tv1 = transpose(tv0, 0, 4);
-  auto tv1 = transpose(tv0, 1, 3);
-  fusion->addOutput(tv1);
+  auto tv2 = transpose(tv1, 1, 3);
+  fusion->addOutput(tv2);
 
   std::vector<int64_t> shape({2, 7, 102400, 4, 9});
 
