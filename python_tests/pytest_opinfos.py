@@ -85,6 +85,14 @@ fusion_input_ops.append(define_vector_input_opinfo)
 """ Start Unary-Float Operations """
 elementwise_unary_ops = []
 
+abs_opinfo = OpInfo(
+    lambda fd: fd.ops.abs,
+    "abs",
+    sample_input_generator=elementwise_unary_generator,
+    reference=_elementwise_unary_torch(torch.abs),
+)
+elementwise_unary_ops.append(abs_opinfo)
+
 acos_opinfo = OpInfo(
     lambda fd: fd.ops.acos,
     "acos",
@@ -97,7 +105,7 @@ elementwise_unary_ops.append(acos_opinfo)
 acosh_opinfo = OpInfo(
     lambda fd: fd.ops.acosh,
     "acosh",
-    domain=(-1, math.inf),
+    domain=Domain(-1, math.inf),
     sample_input_generator=elementwise_unary_generator,
     reference=_elementwise_unary_torch(torch.acosh),
 )
@@ -106,7 +114,7 @@ elementwise_unary_ops.append(acosh_opinfo)
 asin_opinfo = OpInfo(
     lambda fd: fd.ops.asin,
     "asin",
-    domain=(-1, 1),
+    domain=Domain(-1, 1),
     sample_input_generator=elementwise_unary_generator,
     reference=_elementwise_unary_torch(torch.asin),
 )
@@ -131,7 +139,7 @@ elementwise_unary_ops.append(atan_opinfo)
 atanh_opinfo = OpInfo(
     lambda fd: fd.ops.atanh,
     "atanh",
-    domain=(-1 + eps, 1 + eps),
+    domain=Domain(-1 + eps, 1 + eps),
     sample_input_generator=elementwise_unary_generator,
     reference=_elementwise_unary_torch(torch.atanh),
 )
@@ -175,7 +183,7 @@ erfcinv_opinfo = OpInfo(
     lambda fd: fd.ops.erfcinv,
     "erfcinv",
     dtypes=int_float_dtypes,
-    domain=(0.3, 0.7),
+    domain=Domain(0.3, 0.7),
     sample_input_generator=elementwise_unary_generator,
     reference=_elementwise_unary_torch(lambda x: torch.erfinv(1 - x)),
 )
@@ -185,7 +193,7 @@ erfinv_opinfo = OpInfo(
     lambda fd: fd.ops.erfinv,
     "erfinv",
     dtypes=int_float_dtypes,
-    domain=(-1, 1),
+    domain=Domain(-1, 1),
     sample_input_generator=elementwise_unary_generator,
     reference=_elementwise_unary_torch(torch.erfinv),
 )
@@ -221,7 +229,7 @@ lgamma_opinfo = OpInfo(
     lambda fd: fd.ops.lgamma,
     "lgamma",
     dtypes=int_float_dtypes,
-    domain=(-1.0 + eps, math.inf),
+    domain=Domain(-1.0 + eps, math.inf),
     sample_input_generator=partial(elementwise_unary_generator, exclude_zero=True),
     reference=_elementwise_unary_torch(torch.lgamma),
 )
@@ -230,7 +238,7 @@ elementwise_unary_ops.append(lgamma_opinfo)
 log_opinfo = OpInfo(
     lambda fd: fd.ops.log,
     "log",
-    domain=(0, math.inf),
+    domain=Domain(0, math.inf),
     sample_input_generator=partial(elementwise_unary_generator, exclude_zero=True),
     reference=_elementwise_unary_torch(torch.log),
 )
@@ -240,7 +248,7 @@ log10_opinfo = OpInfo(
     lambda fd: fd.ops.log10,
     "log10",
     dtypes=int_float_dtypes,
-    domain=(0, math.inf),
+    domain=Domain(0, math.inf),
     sample_input_generator=partial(elementwise_unary_generator, exclude_zero=True),
     reference=_elementwise_unary_torch(torch.log10),
 )
@@ -250,7 +258,7 @@ log1p_opinfo = OpInfo(
     lambda fd: fd.ops.log1p,
     "log1p",
     dtypes=int_float_dtypes,
-    domain=(-1 + eps, math.inf),
+    domain=Domain(-1 + eps, math.inf),
     sample_input_generator=partial(elementwise_unary_generator, exclude_zero=True),
     reference=_elementwise_unary_torch(torch.log1p),
 )
@@ -259,7 +267,7 @@ elementwise_unary_ops.append(log1p_opinfo)
 log2_opinfo = OpInfo(
     lambda fd: fd.ops.log2,
     "log2",
-    domain=(0, math.inf),
+    domain=Domain(0, math.inf),
     sample_input_generator=partial(elementwise_unary_generator, exclude_zero=True),
     reference=_elementwise_unary_torch(torch.log2),
 )
@@ -268,7 +276,7 @@ elementwise_unary_ops.append(log2_opinfo)
 reciprocal_opinfo = OpInfo(
     lambda fd: fd.ops.reciprocal,
     "reciprocal",
-    domain=(0 + eps, math.inf),
+    domain=Domain(0 + eps, math.inf),
     sample_input_generator=partial(elementwise_unary_generator, exclude_zero=True),
     reference=_elementwise_unary_torch(torch.reciprocal),
 )
@@ -277,7 +285,7 @@ elementwise_unary_ops.append(reciprocal_opinfo)
 rsqrt_opinfo = OpInfo(
     lambda fd: fd.ops.rsqrt,
     "rqrt",
-    domain=(0 + eps, math.inf),
+    domain=Domain(0 + eps, math.inf),
     sample_input_generator=partial(elementwise_unary_generator, exclude_zero=True),
     reference=_elementwise_unary_torch(torch.rsqrt),
 )
@@ -310,7 +318,7 @@ elementwise_unary_ops.append(sinh_opinfo)
 sqrt_opinfo = OpInfo(
     lambda fd: fd.ops.sqrt,
     "sqrt",
-    domain=(0, math.inf),
+    domain=Domain(0, math.inf),
     sample_input_generator=elementwise_unary_generator,
     reference=_elementwise_unary_torch(torch.sqrt),
 )
