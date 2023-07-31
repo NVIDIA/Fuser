@@ -182,7 +182,10 @@ elementwise_unary_ops.append(erfc_opinfo)
 erfcinv_opinfo = OpInfo(
     lambda fd: fd.ops.erfcinv,
     "erfcinv",
-    dtypes=(torch.float32, torch.float64,),
+    dtypes=(
+        torch.float32,
+        torch.float64,
+    ),
     domain=Domain(0.3, 0.7),
     sample_input_generator=elementwise_unary_generator,
     reference=_elementwise_unary_torch(lambda x: torch.erfinv(1 - x)),
