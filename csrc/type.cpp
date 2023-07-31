@@ -17,9 +17,12 @@
 
 namespace nvfuser {
 
-DataType globalTensorMetaData(DataType dtype, int64_t dim, int64_t alloc_dim) {
+DataType globalTensorMetaData(
+    const DataType& dtype,
+    int64_t dim,
+    int64_t alloc_dim) {
   std::stringstream ss;
-  ss << "Tensor<" << tv->dtype() << ", " << dim << ", " << alloc_dim << ">";
+  ss << "Tensor<" << dtype << ", " << dim << ", " << alloc_dim << ">";
 
   StructOf tv_metadata;
   tv_metadata.name = ss.str();

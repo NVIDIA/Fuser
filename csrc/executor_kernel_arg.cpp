@@ -340,7 +340,8 @@ std::vector<std::byte> polymorphicValueToBytes(
     PrimDataType index_type) {
   if (argument.is<Struct>()) {
     TORCH_INTERNAL_ASSERT(
-        std::holds_alternative<StructOf>(dtype), "Expected StructOf type.");
+        std::holds_alternative<StructOf>(dtype.type),
+        "Expected StructOf type.");
     auto dtype_ = std::get<StructOf>(dtype.type);
     auto struct_ = argument.as<Struct>();
     std::vector<std::byte> buffer;
