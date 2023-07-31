@@ -2447,6 +2447,7 @@ TEST_F(NVFuserTest, ReshapeOfReshape_CUDA) {
   TORCH_CHECK(ref.equal(cg_outputs.at(0)));
 }
 
+// TODO: we don't yet support vectorization on split dimension
 // vectorization on input should be exploited.
 TEST_F(NVFuserTest, TransposeVectorizationWidth_CUDA) {
   auto fusion = std::make_unique<Fusion>();
@@ -2476,7 +2477,7 @@ TEST_F(NVFuserTest, TransposeVectorizationWidth_CUDA) {
   TORCH_CHECK(ref.equal(cg_outputs.at(0)));
 }
 
-// vectorization on input should be exploited.
+// small transpose dimension with merge but no split
 TEST_F(NVFuserTest, TransposeVectorizationWidth1_CUDA) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -2506,8 +2507,38 @@ TEST_F(NVFuserTest, TransposeVectorizationWidth1_CUDA) {
   TORCH_CHECK(ref.equal(cg_outputs.at(0)));
 }
 
-// This example would need to enable view/reshape in transpose scheduler before we can test it
+// small transpose dimension with merge and split
 TEST_F(NVFuserTest, TransposeVectorizationWidth2_CUDA) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeContigTensor(5);
+  fusion->addInput(tv0);
+
+  auto tv1 = transpose(tv0, 1, 4);
+  auto tv2 = transpose(tv1, 0, 3);
+  fusion->addOutput(tv2);
+
+  std::vector<int64_t> shape({2, 7, 102400, 4, 5});
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+
+  auto runtime = executor_cache.getMostRecentKernelRuntime();
+  TORCH_CHECK(!runtime->isSegmented(), "Segmentation not expected");
+
+  auto ref = t0.transpose(1, 4).transpose(0, 3);
+
+  TORCH_CHECK(ref.equal(cg_outputs.at(0)));
+}
+
+// This example would need to enable view/reshape in transpose scheduler before we can test it
+TEST_F(NVFuserTest, ViewTransposeVectorizationWidth0_CUDA) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -2540,7 +2571,7 @@ TEST_F(NVFuserTest, TransposeVectorizationWidth2_CUDA) {
 }
 
 // TODO: this one currently breaks the reshape+transpose scheduler. need to double check it
-TEST_F(NVFuserTest, TransposeVectorizationWidth3_CUDA) {
+TEST_F(NVFuserTest, ViewTransposeVectorizationWidth1_CUDA) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
