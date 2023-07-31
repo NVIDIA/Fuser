@@ -2476,6 +2476,36 @@ TEST_F(NVFuserTest, TransposeVectorizationWidth_CUDA) {
   TORCH_CHECK(ref.equal(cg_outputs.at(0)));
 }
 
+// vectorization on input should be exploited.
+TEST_F(NVFuserTest, TransposeVectorizationWidth1_CUDA) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeContigTensor(5);
+  fusion->addInput(tv0);
+
+  auto tv1 = transpose(tv0, 0, 4);
+  auto tv1 = transpose(tv0, 1, 3);
+  fusion->addOutput(tv1);
+
+  std::vector<int64_t> shape({2, 7, 102400, 4, 9});
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+
+  auto runtime = executor_cache.getMostRecentKernelRuntime();
+  TORCH_CHECK(!runtime->isSegmented(), "Segmentation not expected");
+
+  auto ref = t0.transpose(0, 4).transpose(1, 3);
+
+  TORCH_CHECK(ref.equal(cg_outputs.at(0)));
+}
+
 // This example would need to enable view/reshape in transpose scheduler before we can test it
 TEST_F(NVFuserTest, TransposeVectorizationWidth2_CUDA) {
   auto fusion = std::make_unique<Fusion>();
