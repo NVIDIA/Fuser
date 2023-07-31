@@ -1053,7 +1053,8 @@ class ReusableAllocationFinder : private kir::IrVisitor {
         }
 
         // Check if this alloc has the same data type
-        if (alloc_info->data_type != alloc_to_reuse->data_type) {
+        if (dataTypeSize(alloc_info->data_type) !=
+            dataTypeSize(alloc_to_reuse->data_type)) {
           continue;
         }
 
