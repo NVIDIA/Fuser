@@ -3,10 +3,12 @@
 
 ## Usage
 
-* Run tests: `pytest python_tests/pytest_test_definitions.py`
-* Filter tests with `-k` option: `pytest python_tests/pytest_test_definitions.py -k var_mean`
-* Show all possible tests: `pytest python_tests/pytest_test_definitions.py --collect-only`
-* Filter all possible tests with `-k` option: `pytest python_tests/pytest_test_definitions.py --collect-only -k var_mean`
+<!-- TO DO: Rename pytest_ops.py to pytest_test_definition.py -->
+
+* Run tests: `pytest python_tests/pytest_ops.py`
+* Filter tests with `-k` option: `pytest python_tests/pytest_ops.py -k var_mean`
+* Show all possible tests: `pytest python_tests/pytest_ops.py --collect-only`
+* Filter all possible tests with `-k` option: `pytest python_tests/pytest_ops.py --collect-only -k var_mean`
 
 ## Dependencies
 * pytest
