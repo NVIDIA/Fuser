@@ -426,7 +426,8 @@ inline DataType getDataType(const PolymorphicValue& value) {
         const auto& struct_ = value.as<T>();
         StructOf result;
         for (const auto& [name, value] : struct_.fields) {
-          result.types[name] = NVFUSER_MAYBE_MAKE_SHARED(getDataType(value));
+          result.types[name] =
+              NVFUSER_MAYBE_MAKE_SHARED(getDataType(NVFUSER_MAYBE_STAR value));
         }
         dtype = result;
       }
@@ -472,7 +473,8 @@ inline bool isCompatibleDataType(DataType dtype, DataType dtype2) {
         return false;
       }
       if (!isCompatibleDataType(
-              dtype, NVFUSER_MAYBE_STAR struct_of2.types.at(name))) {
+              NVFUSER_MAYBE_STAR dtype,
+              NVFUSER_MAYBE_STAR struct_of2.types.at(name))) {
         return false;
       }
     }
