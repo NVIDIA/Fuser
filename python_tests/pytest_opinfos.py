@@ -6,7 +6,12 @@
 import torch
 import jax
 from pytest_core import OpInfo, ReferenceType, Domain
-from pytest_fusion_definitions import api_test_fd_fn, tensor_input_fd_fn
+from pytest_fusion_definitions import (
+    api_test_fd_fn,
+    tensor_input_fd_fn,
+    tensor_api_test_fd_fn,
+    vector_api_test_fd_fn,
+)
 from pytest_input_generators import (
     broadcast_error_generator,
     broadcast_in_dim_generator,
@@ -34,7 +39,9 @@ from pytest_input_generators import (
     slice_error_generator,
     take_along_axis_generator,
     take_along_axis_error_generator,
+    tensor_size_error_generator,
     var_mean_generator,
+    vector_at_error_generator,
     where_error_generator,
 )
 from pytest_utils import float_complex_dtypes, ArgumentType
@@ -113,18 +120,6 @@ ternary_ops.append(where_opinfo)
 dynamic_shapes_ops = []
 
 # TODO: Add correctness testing as noted below
-vector_at_opinfo = OpInfo(
-    lambda fd: fd.ops.at,
-    "vector_at",
-    # TODO: Check correctness once there are operators that can consume a Vector
-    sample_input_generator=None,
-    error_input_generator=vector_at_error_generator,
-    fd_correctness_fn=None,
-    fd_error_input_fn=None,
-)
-dynamic_shapes_ops.append(vector_at_opinfo)
-
-# TODO: Add correctness testing as noted below
 tensor_shape_opinfo = OpInfo(
     lambda fd: fd.ops.shape,
     "tensor_shape",
@@ -142,9 +137,24 @@ tensor_size_opinfo = OpInfo(
     "tensor_size",
     # TODO: Check correctness once there are operators that can consume a Vector
     sample_input_generator=None,
-    error_input_generator=None,
+    error_input_generator=tensor_size_error_generator,
+    fd_correctness_fn=None,
+    fd_error_input_fn=tensor_api_test_fd_fn,
 )
 dynamic_shapes_ops.append(tensor_size_opinfo)
+
+# TODO: Add correctness testing as noted below
+vector_at_opinfo = OpInfo(
+    lambda fd: fd.ops.at,
+    "vector_at",
+    # TODO: Check correctness once there are operators that can consume a Vector
+    sample_input_generator=None,
+    error_input_generator=vector_at_error_generator,
+    fd_correctness_fn=None,
+    fd_error_input_fn=vector_api_test_fd_fn,
+)
+dynamic_shapes_ops.append(vector_at_opinfo)
+
 
 """ End Dynamic Shape Enabling Operations """
 

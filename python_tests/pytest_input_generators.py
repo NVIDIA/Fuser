@@ -1040,6 +1040,36 @@ def where_error_generator(
         make_arg(input_shape),
     ), RuntimeError, "Condition should be of DataType Bool"
 
+def tensor_size_error_generator(
+    op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
+):
+    """
+    [&size_def](FusionDefinition::Operators& self, Tensor arg, int64_t dim)
+    """
+    make_arg = partial(
+        make_tensor, device="cuda", dtype=dtype, requires_grad=requires_grad
+    )
+
+    check_index_beyond_num_dims = ( 
+        {"tensor_shape" : [2 for _ in range(0, MAX_TENSOR_DIMS)], "dim" : MAX_TENSOR_DIMS},
+        RuntimeError,
+        "The dimension requested is beyond the bounds of the shape of the indexed tensor!",
+    )
+    check_relative_index_beyond_num_dims = ( 
+        {"tensor_shape" : [2 for _ in range(0, MAX_TENSOR_DIMS)], "dim" : -MAX_TENSOR_DIMS - 1},
+        RuntimeError,
+        "The dimension requested is beyond the bounds of the shape of the indexed tensor!",
+    )
+
+    error_checks = [
+        check_index_beyond_num_dims,
+        check_relative_index_beyond_num_dims,
+    ]
+
+    for error_case, error_type, error_msg in error_checks:
+        yield SampleInput(make_arg(error_case["tensor_shape"]), dim=error_case["dim"]), error_type, error_msg
+
+
 def vector_at_error_generator(
     op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
 ):
@@ -1051,16 +1081,23 @@ def vector_at_error_generator(
         make_tensor, device="cuda", dtype=dtype, requires_grad=requires_grad
     )
 
-    check_index_too_large = [
-        {"tensor_shape" : (2, 2), "index" : 2},
-    ]
+    check_index_beyond_num_dims = ( 
+        {"tensor_shape" : [2 for _ in range(0, MAX_TENSOR_DIMS)], "index" : MAX_TENSOR_DIMS},
+        RuntimeError,
+        "The index requested is beyond the bounds of the indexed vector!",
+    )
+    check_relative_index_beyond_num_dims = ( 
+        {"tensor_shape" : [2 for _ in range(0, MAX_TENSOR_DIMS)], "index" : -MAX_TENSOR_DIMS - 1},
+        RuntimeError,
+        "The index requested is beyond the bounds of the indexed vector!",
+    )
 
     error_checks = [
-        check_index_too_large,
+        check_index_beyond_num_dims,
+        check_relative_index_beyond_num_dims,
     ]
 
-    for check in error_checks:
-        for error_case in check:
-            yield SampleInput(make_arg(error_case["tensor_shape"], index=error_case["index"]))
+    for error_case, error_type, error_msg in error_checks:
+        yield SampleInput(make_arg(error_case["tensor_shape"]), index=error_case["index"]), error_type, error_msg
 
 
