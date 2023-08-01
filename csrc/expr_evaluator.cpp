@@ -61,7 +61,7 @@ void validateValWithConcreteValue(
           " with ",
           t.numel(),
           " elements");
-    } else if (tv->getMemoryType() == MemoryType::Global) {
+    } else {
       TORCH_CHECK(
           t.is_cuda() || t.is_meta(),
           "Expected ",
