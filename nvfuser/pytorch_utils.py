@@ -17,7 +17,6 @@ _torch_dtype_to_nvfuser_dtype_map = {
     torch.bfloat16: DataType.BFloat16,
     torch.long: DataType.Int,
     torch.int: DataType.Int32,
-    torch.uint8: DataType.Int32,
     torch.bool: DataType.Bool,
     # Python scalars
     complex: DataType.ComplexDouble,

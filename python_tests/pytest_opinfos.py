@@ -40,21 +40,19 @@ from pytest_input_generators import (
     var_mean_generator,
     where_error_generator,
 )
-from pytest_utils import int_float_dtypes, float_complex_dtypes, ArgumentType
+from pytest_utils import (
+    bool_int_dtypes,
+    int_dtypes,
+    float_dtypes,
+    int_float_dtypes,
+    float_complex_dtypes,
+    all_dtypes_except_bool,
+    ArgumentType,
+)
 from functools import partial
 from typing import List
 
 eps = 1e-2
-
-# atan2 --- float (promote int to float; allows fp16, bf16)
-# nextafter, truediv  --- (promote int to float; requires full-precision fp32, fp64)
-# add, ceildiv, div, fmod, mul, pow, remainder, sub --- cast_integers
-# and, or, xor --- bitwise
-# left_shift, right_shift_arithmetic, right_shift_logical --- int_only
-# eq, ne, ge, gt, le, lt --- compare
-# add-alpha, sub-alpha --- alpha scalar argument
-
-# TODO add ceildiv to python_frontend
 
 opinfos = []
 
@@ -360,16 +358,235 @@ unary_ops.append(tanh_opinfo)
 """ End Unary-Float Operations """
 
 """ Start Binary Operations """
+
+# atan2 --- promote int to float; allows fp16 and bf16
+# nextafter, truediv  --- promote int to float; requires full-precision fp32, fp64
+# ceildiv, div, fmod, mod, remainder, truediv --- except_zero
+# add, mul, pow, sub
+# bitwise_and, bitwise_or, bitwise_xor --- bool_int_only
+# bitwise_left_shift, bitwise_right_shift, logical_right_shift --- int_only
+# eq, ne, ge, gt, le, lt --- compare
+
+# TODO Add "ceildiv" to python_frontend
+# TODO Add support for python reference for "mod".
+# TODO Testing: Add small, large, extremal test cases
+# TODO Testing: Add broadcast pattern testing
+# TODO atan2 - complex dtypes are unsupported, but we fail when compiling kernel
+# TODO logical_right_shift - domain of shift parameter is non-zero; Otherwise the result is undefined.
+# TODO pow - limit size of second argument
+
 binary_ops = []
 
 add_opinfo = OpInfo(
     lambda fd: fd.ops.add,
     "add",
-    dtypes=int_float_dtypes,
     sample_input_generator=elementwise_binary_generator,
     reference=_elementwise_binary_torch(torch.add),
 )
 binary_ops.append(add_opinfo)
+
+# TODO complex dtypes are unsupported, but we fail when compiling kernel
+atan2_opinfo = OpInfo(
+    lambda fd: fd.ops.atan2,
+    "atan2",
+    dtypes=int_float_dtypes,
+    sample_input_generator=elementwise_binary_generator,
+    reference=_elementwise_binary_torch(torch.atan2),
+)
+binary_ops.append(atan2_opinfo)
+
+bitwise_and_opinfo = OpInfo(
+    lambda fd: fd.ops.bitwise_and,
+    "bitwise_and",
+    dtypes=bool_int_dtypes,
+    sample_input_generator=elementwise_binary_generator,
+    reference=_elementwise_binary_torch(torch.bitwise_and),
+)
+binary_ops.append(bitwise_and_opinfo)
+
+bitwise_left_shift_opinfo = OpInfo(
+    lambda fd: fd.ops.bitwise_left_shift,
+    "bitwise_left_shift",
+    dtypes=int_dtypes,
+    sample_input_generator=elementwise_binary_generator,
+    reference=_elementwise_binary_torch(torch.bitwise_left_shift),
+)
+binary_ops.append(bitwise_left_shift_opinfo)
+
+bitwise_or_opinfo = OpInfo(
+    lambda fd: fd.ops.bitwise_or,
+    "bitwise_or",
+    dtypes=bool_int_dtypes,
+    sample_input_generator=elementwise_binary_generator,
+    reference=_elementwise_binary_torch(torch.bitwise_or),
+)
+binary_ops.append(bitwise_or_opinfo)
+
+bitwise_right_shift_opinfo = OpInfo(
+    lambda fd: fd.ops.bitwise_right_shift,
+    "bitwise_right_shift",
+    dtypes=int_dtypes,
+    sample_input_generator=elementwise_binary_generator,
+    reference=_elementwise_binary_torch(torch.bitwise_right_shift),
+)
+binary_ops.append(bitwise_right_shift_opinfo)
+
+bitwise_xor_opinfo = OpInfo(
+    lambda fd: fd.ops.bitwise_xor,
+    "bitwise_xor",
+    dtypes=bool_int_dtypes,
+    sample_input_generator=elementwise_binary_generator,
+    reference=_elementwise_binary_torch(torch.bitwise_xor),
+)
+binary_ops.append(bitwise_xor_opinfo)
+
+# TODO add except_zero option to prevent divide-by-zero exception
+div_opinfo = OpInfo(
+    lambda fd: fd.ops.div,
+    "div",
+    dtypes=float_complex_dtypes,
+    sample_input_generator=partial(elementwise_binary_generator, exclude_zero=True),
+    reference=_elementwise_binary_torch(torch.div),
+)
+binary_ops.append(div_opinfo)
+
+eq_opinfo = OpInfo(
+    lambda fd: fd.ops.eq,
+    "eq",
+    sample_input_generator=elementwise_binary_generator,
+    reference=_elementwise_binary_torch(torch.eq),
+)
+binary_ops.append(eq_opinfo)
+
+fmod_opinfo = OpInfo(
+    lambda fd: fd.ops.fmod,
+    "fmod",
+    dtypes=int_float_dtypes,
+    sample_input_generator=partial(elementwise_binary_generator, exclude_zero=True),
+    reference=_elementwise_binary_torch(torch.fmod),
+)
+binary_ops.append(fmod_opinfo)
+
+ge_opinfo = OpInfo(
+    lambda fd: fd.ops.ge,
+    "ge",
+    dtypes=int_float_dtypes,
+    sample_input_generator=elementwise_binary_generator,
+    reference=_elementwise_binary_torch(torch.ge),
+)
+binary_ops.append(ge_opinfo)
+
+gt_opinfo = OpInfo(
+    lambda fd: fd.ops.gt,
+    "gt",
+    dtypes=int_float_dtypes,
+    sample_input_generator=elementwise_binary_generator,
+    reference=_elementwise_binary_torch(torch.gt),
+)
+binary_ops.append(gt_opinfo)
+
+le_opinfo = OpInfo(
+    lambda fd: fd.ops.le,
+    "le",
+    dtypes=int_float_dtypes,
+    sample_input_generator=elementwise_binary_generator,
+    reference=_elementwise_binary_torch(torch.le),
+)
+binary_ops.append(le_opinfo)
+
+# TODO domain of shift parameter greater than zero; Otherwise the result is undefined.
+logical_right_shift_opinfo = OpInfo(
+    lambda fd: fd.ops.logical_right_shift,
+    "logical_right_shift",
+    domain=Domain(0, None),
+    dtypes=int_dtypes,
+    sample_input_generator=elementwise_binary_generator,
+    reference=jax.lax.shift_right_logical,
+    reference_type=ReferenceType.Jax,
+)
+binary_ops.append(logical_right_shift_opinfo)
+
+lt_opinfo = OpInfo(
+    lambda fd: fd.ops.lt,
+    "lt",
+    dtypes=int_float_dtypes,
+    sample_input_generator=elementwise_binary_generator,
+    reference=_elementwise_binary_torch(torch.lt),
+)
+binary_ops.append(lt_opinfo)
+
+mul_opinfo = OpInfo(
+    lambda fd: fd.ops.mul,
+    "mul",
+    sample_input_generator=elementwise_binary_generator,
+    reference=_elementwise_binary_torch(torch.mul),
+)
+binary_ops.append(mul_opinfo)
+
+ne_opinfo = OpInfo(
+    lambda fd: fd.ops.ne,
+    "ne",
+    sample_input_generator=elementwise_binary_generator,
+    reference=_elementwise_binary_torch(torch.ne),
+)
+binary_ops.append(ne_opinfo)
+
+nextafter_opinfo = OpInfo(
+    lambda fd: fd.ops.nextafter,
+    "nextafter",
+    dtypes=float_dtypes,
+    sample_input_generator=elementwise_binary_generator,
+    reference=_elementwise_binary_torch(torch.nextafter),
+)
+binary_ops.append(nextafter_opinfo)
+
+# complex dtypes --- AssertionError: Tensor-likes are not close!
+pow_opinfo = OpInfo(
+    lambda fd: fd.ops.pow,
+    "pow",
+    dtypes=int_float_dtypes,
+    sample_input_generator=elementwise_binary_generator,
+    reference=_elementwise_binary_torch(torch.pow),
+)
+binary_ops.append(pow_opinfo)
+
+remainder_opinfo = OpInfo(
+    lambda fd: fd.ops.remainder,
+    "remainder",
+    dtypes=int_float_dtypes,
+    sample_input_generator=partial(elementwise_binary_generator, exclude_zero=True),
+    reference=_elementwise_binary_torch(torch.remainder),
+)
+binary_ops.append(remainder_opinfo)
+
+sub_opinfo = OpInfo(
+    lambda fd: fd.ops.sub,
+    "sub",
+    dtypes=all_dtypes_except_bool,
+    sample_input_generator=elementwise_binary_generator,
+    reference=_elementwise_binary_torch(torch.sub),
+)
+binary_ops.append(sub_opinfo)
+
+truediv_opinfo = OpInfo(
+    lambda fd: fd.ops.truediv,
+    "truediv",
+    dtypes=all_dtypes_except_bool,
+    sample_input_generator=partial(elementwise_binary_generator, exclude_zero=True),
+    reference=_elementwise_binary_torch(torch.true_divide),
+)
+binary_ops.append(truediv_opinfo)
+
+# For int dtypes, nvfuser div op has the semantics of c++ / operator, so its reference is trunc_divide.
+trunc_div_opinfo = OpInfo(
+    lambda fd: fd.ops.div,
+    "trunc_div",
+    dtypes=int_dtypes,
+    sample_input_generator=partial(elementwise_binary_generator, exclude_zero=True),
+    reference=_elementwise_binary_torch(partial(torch.div, rounding_mode="trunc")),
+)
+binary_ops.append(trunc_div_opinfo)
+
 """ End Binary Operations """
 
 """ Start Ternary Operations """

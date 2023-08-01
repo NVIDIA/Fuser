@@ -403,7 +403,9 @@ def elementwise_binary_generator(
 
     # Noncontiguous inputs
     for shape in shapes:
-        yield SampleInput(make_arg(shape, noncontiguous=True), make_arg(shape, noncontiguous=True))
+        yield SampleInput(
+            make_arg(shape, noncontiguous=True), make_arg(shape, noncontiguous=True)
+        )
 
 
 def _elementwise_binary_torch(op):

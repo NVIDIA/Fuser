@@ -19,43 +19,35 @@ class ArgumentType(Enum):
     Constant = auto()
 
 
-# uint8, int8, int16, bf16, fp16 are disables because nvfuser upcasts those dtypes to fp32
+bool_dtypes = (torch.bool,)
+
+int_dtypes = (
+    torch.int32,
+    torch.int64,
+)
+
+half_precision_float_dtypes = (
+    torch.bfloat16,
+    torch.float16,
+)
+
+float_dtypes = (
+    torch.float32,
+    torch.float64,
+)
+
+complex_dtypes = (
+    torch.complex64,
+    torch.complex128,
+)
+
+# uint8, int8, int16, bf16, fp16 are skipped because nvfuser upcasts those dtypes to fp32,
 # but does not return the original type.
-all_dtypes = (
-    torch.bool,
-    # torch.uint8,
-    # torch.int8,
-    # torch.int16,
-    torch.int32,
-    torch.int64,
-    # torch.bfloat16,
-    # torch.float16,
-    torch.float32,
-    torch.float64,
-    torch.complex64,
-    torch.complex128,
-)
-
-# bf16, fp16 are disables because nvfuser upcasts those dtypes to fp32 but does not return the original type.
-int_float_dtypes = (
-    torch.int32,
-    torch.int64,
-    # torch.bfloat16,
-    # torch.float16,
-    torch.float32,
-    torch.float64,
-)
-
-float_complex_dtypes = (
-    torch.float32,
-    torch.float64,
-    torch.complex64,
-    torch.complex128,
-)
-
-int_dtypes = (torch.int32, torch.int64)
-float_dtypes = (torch.float32, torch.float64, torch.bfloat16, torch.float16)
-complex_dtypes = (torch.complex64, torch.complex128)
+bool_int_dtypes = bool_dtypes + int_dtypes
+int_float_dtypes = int_dtypes + float_dtypes
+float_complex_dtypes = float_dtypes + complex_dtypes
+all_dtypes_except_bool = int_dtypes + float_dtypes + complex_dtypes
+all_dtypes = bool_dtypes + all_dtypes_except_bool
 
 map_dtype_to_str = {
     torch.bool: "bool",
