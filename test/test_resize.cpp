@@ -2262,24 +2262,379 @@ TEST_F(NVFuserTest, SliceVectorization) {
   testValidate(&fusion, cg_outputs, inputs, {ref}, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, FusionResizeSliceVectorize1_CUDA) {
+namespace {
+
+// Make sure the slice ops with inputs are vectorized
+void assertSliceVectorize(kir::Kernel* kernel, int64_t input_idx = 0) {
+  for (auto input_slice : ir_utils::filterByType<SliceOp>(
+           kernel->inputs().at(input_idx)->uses())) {
+    ASSERT_TRUE(std::any_of(
+        input_slice->output(0)->as<TensorView>()->getLeafDomain().begin(),
+        input_slice->output(0)->as<TensorView>()->getLeafDomain().end(),
+        [](auto id) {
+          return id->getParallelType() == ParallelType::Vectorize;
+        }))
+        << "Failed to vectorize slice: " << input_slice->toString();
+  }
+}
+
+} // namespace
+
+// Vectorize trivial slice. Just slice an input
+TEST_F(NVFuserTest, FusionResizeSlice1DVectorize1_CUDA) {
   auto fusion_ptr = std::make_unique<Fusion>();
   auto& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());
 
-  std::vector<int64_t> shape({1024 * 1024});
+  const int64_t slice_offset = 4;
 
-  auto tv0 = makeContigConcreteTensor(shape);
+  auto tv0 = makeContigTensor(1);
   fusion.addInput(tv0);
 
-  const int64_t right = 4;
+  auto tv1 = slice(
+      tv0,
+      {{IrBuilder::create<Val>(slice_offset),
+        sub(tv0->axis(0)->extent(), IrBuilder::create<Val>(slice_offset))}});
+  fusion.addOutput(tv1);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  const std::vector<int64_t> shape({1024 * 1024});
+
+  auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+
+  auto ref =
+      t0.index({at::indexing::Slice(slice_offset, shape[0] - slice_offset)});
+  ASSERT_TRUE(ref.equal(cg_outputs[0]));
+
+  // Make sure the fusion is scheduled as a pointwise kernel with vectorization
+  ASSERT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
+  auto heuristic_params = executor_cache.getMostRecentKernelRuntime()
+                              ->schedulerHeuristics()
+                              ->heuristicsList()
+                              .at(0)
+                              ->params();
+  ASSERT_TRUE(heuristic_params->isA<PointwiseParams>());
+  auto pparams = heuristic_params->as<PointwiseParams>();
+  ASSERT_TRUE(pparams->vectorize) << "Failed to vectorize";
+  ASSERT_EQ(pparams->unroll_factor, 4) << "Invalid vectorization factor";
+
+  assertSliceVectorize(
+      executor_cache.getMostRecentKernelRuntime()->executors().at(0).kernel());
+}
+
+// Slice the same input twice. Both are vectorizable.
+TEST_F(NVFuserTest, FusionResizeSlice1DVectorize2_CUDA) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  const int64_t slice_offset = 4;
+
+  auto tv0 = makeContigTensor(1);
+  fusion.addInput(tv0);
+
+  // Following two slices are vectorized individually. No cache is introduced
+  auto tv1 = slice(
+      tv0,
+      {{IrBuilder::create<Val>(slice_offset),
+        sub(tv0->axis(0)->extent(), IrBuilder::create<Val>(slice_offset))}});
+  fusion.addOutput(tv1);
+
+  auto tv2 = slice(
+      tv0,
+      {{IrBuilder::create<Val>(slice_offset * 2),
+        sub(tv0->axis(0)->extent(),
+            IrBuilder::create<Val>(slice_offset * 2))}});
+  fusion.addOutput(tv2);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  const std::vector<int64_t> shape({1024 * 1024});
+
+  auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+
+  auto ref_t1 =
+      t0.index({at::indexing::Slice(slice_offset, shape[0] - slice_offset)});
+  auto ref_t2 = t0.index(
+      {at::indexing::Slice(slice_offset * 2, shape[0] - slice_offset * 2)});
+  ASSERT_TRUE(ref_t1.equal(cg_outputs.at(0)));
+  ASSERT_TRUE(ref_t2.equal(cg_outputs.at(1)));
+
+  // Make sure the fusion is scheduled as a pointwise kernel with vectorization
+  ASSERT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
+  auto heuristic_params = executor_cache.getMostRecentKernelRuntime()
+                              ->schedulerHeuristics()
+                              ->heuristicsList()
+                              .at(0)
+                              ->params();
+  ASSERT_TRUE(heuristic_params->isA<PointwiseParams>());
+  auto pparams = heuristic_params->as<PointwiseParams>();
+  ASSERT_TRUE(pparams->vectorize) << "Failed to vectorize";
+  ASSERT_EQ(pparams->unroll_factor, 4) << "Invalid vectorization factor";
+
+  assertSliceVectorize(
+      executor_cache.getMostRecentKernelRuntime()->executors().at(0).kernel());
+}
+
+// Input is sliced and also entirely read. Both are vectorizable.
+TEST_F(NVFuserTest, FusionResizeSlice1DVectorize3_CUDA) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  const int64_t slice_offset = 4;
+
+  auto tv0 = makeContigTensor(1);
+  fusion.addInput(tv0);
+
+  auto tv1 = slice(
+      tv0,
+      {{IrBuilder::create<Val>(slice_offset),
+        sub(tv0->axis(0)->extent(), IrBuilder::create<Val>(slice_offset))}});
+  fusion.addOutput(tv1);
+
+  auto tv2 = set(tv0);
+  fusion.addOutput(tv2);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  const std::vector<int64_t> shape({1024 * 1024});
+
+  auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+
+  auto ref =
+      t0.index({at::indexing::Slice(slice_offset, shape[0] - slice_offset)});
+  ASSERT_TRUE(ref.equal(cg_outputs.at(0)));
+  ASSERT_TRUE(t0.equal(cg_outputs.at(1)));
+
+  // Make sure the fusion is scheduled as a pointwise kernel with vectorization
+  ASSERT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
+  auto heuristic_params = executor_cache.getMostRecentKernelRuntime()
+                              ->schedulerHeuristics()
+                              ->heuristicsList()
+                              .at(0)
+                              ->params();
+  ASSERT_TRUE(heuristic_params->isA<PointwiseParams>());
+  auto pparams = heuristic_params->as<PointwiseParams>();
+  ASSERT_TRUE(pparams->vectorize) << "Failed to vectorize";
+  ASSERT_EQ(pparams->unroll_factor, 4) << "Invalid vectorization factor";
+
+  assertSliceVectorize(
+      executor_cache.getMostRecentKernelRuntime()->executors().at(0).kernel());
+}
+
+// Slice of [1:-3] is non-vectorizable
+TEST_F(NVFuserTest, FusionResizeSlice1DVectorize4_CUDA) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  auto tv0 = makeContigTensor(1);
+  fusion.addInput(tv0);
+
+  auto tv1 = slice(
+      tv0,
+      {{IrBuilder::create<Val>(1),
+        sub(tv0->axis(0)->extent(), IrBuilder::create<Val>(3))}});
+  fusion.addOutput(tv1);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  const std::vector<int64_t> shape({1024 * 1024});
+
+  auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+
+  // Make sure the fusion is scheduled as a pointwise kernel with vectorization
+  ASSERT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
+  auto heuristic_params = executor_cache.getMostRecentKernelRuntime()
+                              ->schedulerHeuristics()
+                              ->heuristicsList()
+                              .at(0)
+                              ->params();
+  ASSERT_TRUE(heuristic_params->isA<PointwiseParams>());
+  auto pparams = heuristic_params->as<PointwiseParams>();
+  ASSERT_FALSE(pparams->vectorize) << "Vectorization should be disabled";
+}
+
+// Slice of [1:-3]. As long as the starting offset at [1] is aligned,
+// it is vectorizable
+TEST_F(NVFuserTest, FusionResizeSlice1DVectorize5_CUDA) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  auto tv0 = makeContigTensor(1);
+  fusion.addInput(tv0);
+
+  auto tv1 = slice(tv0, {{IrBuilder::create<Val>(1), tv0->axis(0)->extent()}});
+  fusion.addOutput(tv1);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  const std::vector<int64_t> shape({1024 * 1024});
+
+  // Make an input tensor such that [1] is aligned
+  auto t0 = at::randn(shape, options);
+  t0 = t0.index({at::indexing::Slice(3, at::indexing::None)});
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+
+  auto ref = t0.index({at::indexing::Slice(1, at::indexing::None)});
+  ASSERT_TRUE(ref.equal(cg_outputs[0]));
+
+  // Make sure the fusion is scheduled as a pointwise kernel with vectorization
+  ASSERT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
+  auto heuristic_params = executor_cache.getMostRecentKernelRuntime()
+                              ->schedulerHeuristics()
+                              ->heuristicsList()
+                              .at(0)
+                              ->params();
+  ASSERT_TRUE(heuristic_params->isA<PointwiseParams>());
+  auto pparams = heuristic_params->as<PointwiseParams>();
+  ASSERT_TRUE(pparams->vectorize) << "Failed to vectorize";
+  ASSERT_EQ(pparams->unroll_factor, 4) << "Invalid vectorization factor";
+
+  assertSliceVectorize(
+      executor_cache.getMostRecentKernelRuntime()->executors().at(0).kernel());
+}
+
+// Slice of [1:]. Offset [1] is aligned with 2 even though the extent
+// is divisible by 4. Vectorization factor should be 2
+TEST_F(NVFuserTest, FusionResizeSlice1DVectorize6_CUDA) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  auto tv0 = makeContigTensor(1);
+  fusion.addInput(tv0);
+
+  auto tv1 = slice(tv0, {{IrBuilder::create<Val>(1), tv0->axis(0)->extent()}});
+  fusion.addOutput(tv1);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  const std::vector<int64_t> shape({1024 * 1024 + 2});
+
+  // Make an input tensor such that [1] is aligned with just 2 even though
+  // the extent is still divisible by 4
+  auto t0 = at::randn(shape, options);
+  t0 = t0.index({at::indexing::Slice(1, at::indexing::None)});
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+
+  auto ref = t0.index({at::indexing::Slice(1, at::indexing::None)});
+  ASSERT_TRUE(ref.equal(cg_outputs[0]));
+
+  // Make sure the fusion is scheduled as a pointwise kernel with vectorization
+  ASSERT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
+  auto heuristic_params = executor_cache.getMostRecentKernelRuntime()
+                              ->schedulerHeuristics()
+                              ->heuristicsList()
+                              .at(0)
+                              ->params();
+  ASSERT_TRUE(heuristic_params->isA<PointwiseParams>());
+  auto pparams = heuristic_params->as<PointwiseParams>();
+  ASSERT_TRUE(pparams->vectorize) << "Failed to vectorize";
+  ASSERT_EQ(pparams->unroll_factor, 2) << "Invalid vectorization factor";
+
+  assertSliceVectorize(
+      executor_cache.getMostRecentKernelRuntime()->executors().at(0).kernel());
+}
+
+TEST_F(NVFuserTest, FusionResizeSlice1DVectorize7_CUDA) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  auto tv0 = makeContigTensor(1);
+  fusion.addInput(tv0);
 
   auto tv1 = slice(
       tv0,
       {{IrBuilder::create<Val>(0L),
-        sub(tv0->axis(0)->extent(), IrBuilder::create<Val>(right))}});
-  auto tv2 = set(tv1);
+        sub(tv0->axis(0)->extent(), IrBuilder::create<Val>(2L))}});
+  fusion.addOutput(tv1);
+
+  auto tv2 = slice(
+      tv0,
+      {{IrBuilder::create<Val>(2L),
+        sub(tv0->axis(0)->extent(), IrBuilder::create<Val>(2L))}});
   fusion.addOutput(tv2);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  std::vector<int64_t> shape({1024 * 1024});
+
+  at::Tensor t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+
+  auto ref1 = t0.index({at::indexing::Slice(0, shape[0] - 2)});
+  auto ref2 = t0.index({at::indexing::Slice(2, shape[0] - 2)});
+  ASSERT_TRUE(ref1.equal(cg_outputs.at(0)));
+  ASSERT_TRUE(ref2.equal(cg_outputs.at(1)));
+
+  // Make sure the fusion is scheduled as a pointwise kernel with vectorization
+  ASSERT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
+  auto heuristic_params = executor_cache.getMostRecentKernelRuntime()
+                              ->schedulerHeuristics()
+                              ->heuristicsList()
+                              .at(0)
+                              ->params();
+  ASSERT_TRUE(heuristic_params->isA<PointwiseParams>());
+  auto pparams = heuristic_params->as<PointwiseParams>();
+  ASSERT_TRUE(pparams->vectorize) << "Failed to vectorize";
+  ASSERT_EQ(pparams->unroll_factor, 2) << "Invalid vectorization factor";
+
+  assertSliceVectorize(
+      executor_cache.getMostRecentKernelRuntime()->executors().at(0).kernel());
+}
+
+// Contig merged vectorization with slice
+TEST_F(NVFuserTest, FusionResizeSlice2DVectorize1_CUDA) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  const int64_t slice_offset = 4;
+
+  // The extent of the innermost domain is just 2, and the outer
+  // domain is sliced. This slicing should be vectorizable by merged
+  // with the innermost domain, so the vectorization factor should be 4.
+  const std::vector<int64_t> shape({1024 * 1024, 2});
+
+  auto tv0 = makeContigTensor(2);
+  fusion.addInput(tv0);
+
+  auto tv1 = slice(
+      tv0,
+      {{IrBuilder::create<Val>(slice_offset),
+        sub(tv0->axis(0)->extent(), IrBuilder::create<Val>(slice_offset))},
+       {IrBuilder::create<Val>(0), tv0->axis(1)->extent()}});
+  fusion.addOutput(tv1);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
@@ -2289,317 +2644,183 @@ TEST_F(NVFuserTest, FusionResizeSliceVectorize1_CUDA) {
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
-  TORCH_CHECK(!executor_cache.getMostRecentKernelRuntime()->isSegmented());
-  auto heuristic_params = executor_cache.getMostRecentKernelRuntime()->schedulerHeuristics()->heuristicsList().at(0)->params();
+  auto ref = t0.index(
+      {at::indexing::Slice(slice_offset, shape[0] - slice_offset),
+       at::indexing::Slice(0, at::indexing::None)});
+  ASSERT_TRUE(ref.equal(cg_outputs.at(0)));
+
+  // Make sure the fusion is scheduled as a pointwise kernel with vectorization
+  ASSERT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
+  auto heuristic_params = executor_cache.getMostRecentKernelRuntime()
+                              ->schedulerHeuristics()
+                              ->heuristicsList()
+                              .at(0)
+                              ->params();
   ASSERT_TRUE(heuristic_params->isA<PointwiseParams>());
-  auto pparams =
-      heuristic_params->as<PointwiseParams>();
+  auto pparams = heuristic_params->as<PointwiseParams>();
   ASSERT_TRUE(pparams->vectorize) << "Failed to vectorize";
   ASSERT_EQ(pparams->unroll_factor, 4) << "Invalid vectorization factor";
 
-  auto ref = t0.index({at::indexing::Slice(0, shape[0] - 4)});
-  ASSERT_TRUE(ref.equal(cg_outputs[0]));
+  assertSliceVectorize(
+      executor_cache.getMostRecentKernelRuntime()->executors().at(0).kernel());
 }
 
-TEST_F(NVFuserTest, FusionResizeSliceVectorize2_CUDA) {
+// Vectorization is not extended beyond sliced domains as the next
+// outer domain is no longer contiguous.
+TEST_F(NVFuserTest, FusionResizeSlice2DVectorize2_CUDA) {
   auto fusion_ptr = std::make_unique<Fusion>();
   auto& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());
 
-  std::vector<int64_t> shape({1024 * 1024});
+  // With this shape, the innermost domain would be 1022, which is
+  // only vectorizable with 2. If the outer domain is contig-merged,
+  // we would have 4-way vectorization, however, the outer domain is
+  // effectiely non-contiguous due to the slice of the innermost
+  // domain, so the vectorization factor should remain to be 2
+  const std::vector<int64_t> shape({1024, 1026});
 
-  auto tv0 = makeContigConcreteTensor(shape);
+  auto tv0 = makeContigTensor(2);
   fusion.addInput(tv0);
 
-  // Two same slices.
   auto tv1 = slice(
       tv0,
-      {{IrBuilder::create<Val>(0L),
-        sub(tv0->axis(0)->extent(), IrBuilder::create<Val>(4L))}});
-  auto tv2 = set(tv1);
-  fusion.addOutput(tv2);
-
-  auto tv3 = slice(
-      tv0,
-      {{IrBuilder::create<Val>(0L),
-        sub(tv0->axis(0)->extent(), IrBuilder::create<Val>(4L))}});
-  auto tv4 = set(tv3);
-  fusion.addOutput(tv4);
+      {{IrBuilder::create<Val>(0), tv0->axis(0)->extent()},
+       {IrBuilder::create<Val>(4), tv0->axis(1)->extent()}});
+  fusion.addOutput(tv1);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
-  TORCH_CHECK(!executor_cache.getMostRecentKernelRuntime()->isSegmented());
-  auto heuristic_params = executor_cache.getMostRecentKernelRuntime()->schedulerHeuristics()->heuristicsList().at(0)->params();
+  auto ref = t0.index(
+      {at::indexing::Slice(0, at::indexing::None),
+       at::indexing::Slice(4, at::indexing::None)});
+  ASSERT_TRUE(ref.equal(cg_outputs.at(0)));
+
+  // Make sure the fusion is scheduled as a pointwise kernel with vectorization
+  ASSERT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
+  auto heuristic_params = executor_cache.getMostRecentKernelRuntime()
+                              ->schedulerHeuristics()
+                              ->heuristicsList()
+                              .at(0)
+                              ->params();
   ASSERT_TRUE(heuristic_params->isA<PointwiseParams>());
-  auto pparams =
-      heuristic_params->as<PointwiseParams>();
+  auto pparams = heuristic_params->as<PointwiseParams>();
+  ASSERT_TRUE(pparams->vectorize) << "Failed to vectorize";
+  ASSERT_EQ(pparams->unroll_factor, 2) << "Invalid vectorization factor";
+
+  assertSliceVectorize(
+      executor_cache.getMostRecentKernelRuntime()->executors().at(0).kernel());
+}
+
+// Repro of issue #540 without permute
+TEST_F(NVFuserTest, FusionResizeSliceAndReshape_CUDA) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  const std::vector<int64_t> shape({16, 128, 3072});
+
+  auto tv0 = makeContigTensor(3);
+  fusion.addInput(tv0);
+
+  auto tv1 = slice(
+      tv0,
+      {{IrBuilder::create<Val>(0), tv0->axis(0)->extent()},
+       {IrBuilder::create<Val>(0), tv0->axis(1)->extent()},
+       {IrBuilder::create<Val>(0), IrBuilder::create<Val>(1024)}});
+  auto tv2 = slice(
+      tv0,
+      {{IrBuilder::create<Val>(0), tv0->axis(0)->extent()},
+       {IrBuilder::create<Val>(0), tv0->axis(1)->extent()},
+       {IrBuilder::create<Val>(1024), IrBuilder::create<Val>(2048)}});
+  auto tv3 = slice(
+      tv0,
+      {{IrBuilder::create<Val>(0), tv0->axis(0)->extent()},
+       {IrBuilder::create<Val>(0), tv0->axis(1)->extent()},
+       {IrBuilder::create<Val>(2048), IrBuilder::create<Val>(3072)}});
+
+  auto tv4 = reshape(tv1, {16, 128, 1024}, {16, 128, 16, 64});
+  auto tv5 = reshape(tv2, {16, 128, 1024}, {16, 128, 16, 64});
+  auto tv6 = reshape(tv3, {16, 128, 1024}, {16, 128, 16, 64});
+
+  fusion.addOutput(tv4);
+  fusion.addOutput(tv5);
+  fusion.addOutput(tv6);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+
+  for (const auto i : c10::irange(3)) {
+    auto slice_out_ref = t0.index(
+        {at::indexing::Slice(0, at::indexing::None),
+         at::indexing::Slice(0, at::indexing::None),
+         at::indexing::Slice(i * 1024, (i + 1) * 1024)});
+    auto ref = at::native::view(slice_out_ref, {16, 128, 16, 64});
+    ASSERT_TRUE(ref.equal(cg_outputs.at(i)));
+  }
+
+  // Make sure the fusion is scheduled as a pointwise kernel with vectorization
+  ASSERT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
+  auto heuristic_params = executor_cache.getMostRecentKernelRuntime()
+                              ->schedulerHeuristics()
+                              ->heuristicsList()
+                              .at(0)
+                              ->params();
+  ASSERT_TRUE(heuristic_params->isA<PointwiseParams>());
+  auto pparams = heuristic_params->as<PointwiseParams>();
   ASSERT_TRUE(pparams->vectorize) << "Failed to vectorize";
   ASSERT_EQ(pparams->unroll_factor, 4) << "Invalid vectorization factor";
 
-  auto ref = t0.index({at::indexing::Slice(0, shape[0] - 4)});
-  ASSERT_TRUE(ref.equal(cg_outputs[0]));
-  ASSERT_TRUE(ref.equal(cg_outputs[1]));
+  assertSliceVectorize(
+      executor_cache.getMostRecentKernelRuntime()->executors().at(0).kernel());
 }
 
-TEST_F(NVFuserTest, FusionResizeSliceVectorize3_CUDA) {
+TEST_F(NVFuserTest, FusionResizeSliceAndReshape2_CUDA) {
   auto fusion_ptr = std::make_unique<Fusion>();
   auto& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());
 
-  std::vector<int64_t> shape({2, 4, 2});
+  const std::vector<int64_t> shape({16, 128, 3072});
 
-  // concrete shapes to avoid dynamic Fusion
-  auto tv0 = makeContigConcreteTensor(shape);
+  auto tv0 = makeContigTensor(3);
   fusion.addInput(tv0);
 
-  TensorView* tv1 = nullptr;
-
-  if (getenv("NO_SLICE")) {
-    tv1 = set(tv0);
-  } else {
-    tv1 = slice(
-        tv0,
-        {{IrBuilder::create<Val>(0L), tv0->axis(0)->extent()},
-         {IrBuilder::create<Val>(0L),
-          sub(tv0->axis(1)->extent(), IrBuilder::create<Val>(1L))},
-         {IrBuilder::create<Val>(0L), tv0->axis(2)->extent()}});
-  }
-
-  auto tv2 = set(tv1);
-  fusion.addOutput(tv2);
-
-#if 1
-  auto mapper = vectorize_helper::ContiguousInnerDimensionsMapper::map(
-      tv0, {tv0->axis(0), tv0->axis(1), tv0->axis(2)});
-#else
-  auto mapper = vectorize_helper::ContiguousInnerDimensionsMapper::map(
-      tv2, {tv2->axis(0), tv2->axis(1), tv2->axis(2)});
-#endif
-
-  for (auto tv : {tv0, tv1, tv2}) {
-    std::cerr << tv->toString() << ": "
-              << " " << mapper.getProjectedExtent(tv->axis(0))->evaluateInt()
-              << " " << mapper.getProjectedExtent(tv->axis(1))->evaluateInt()
-              << " " << mapper.getProjectedExtent(tv->axis(2))->evaluateInt()
-              << std::endl;
-  }
-
-  for (const auto& [tv, size] : mapper.getTvToContigMergeOfInnerSizeMap()) {
-    std::cerr << tv->toString() << ", " << size.first << std::endl;
-  }
-}
-
-TEST_F(NVFuserTest, FusionResizeSliceVectorize4_CUDA) {
-  auto fusion_ptr = std::make_unique<Fusion>();
-  auto& fusion = *fusion_ptr;
-  FusionGuard fg(fusion_ptr.get());
-
-  std::vector<int64_t> shape({2, 4, 4});
-
-  // concrete shapes to avoid dynamic Fusion
-  auto tv0 = makeContigConcreteTensor(shape);
-  fusion.addInput(tv0);
-
-  TensorView* tv1 = nullptr;
-
-  tv1 = slice(
+  auto tv1 = slice(
       tv0,
-      {{IrBuilder::create<Val>(0L), tv0->axis(0)->extent()},
-       {IrBuilder::create<Val>(0L),
-        sub(tv0->axis(1)->extent(), IrBuilder::create<Val>(1L))},
-       {IrBuilder::create<Val>(0L), tv0->axis(2)->extent()}});
-
-  auto tv2 = set(tv1);
-  fusion.addOutput(tv2);
-
+      {{IrBuilder::create<Val>(0), tv0->axis(0)->extent()},
+       {IrBuilder::create<Val>(0), tv0->axis(1)->extent()},
+       {IrBuilder::create<Val>(0), IrBuilder::create<Val>(1024)}});
+  auto tv2 = slice(
+      tv0,
+      {{IrBuilder::create<Val>(0), tv0->axis(0)->extent()},
+       {IrBuilder::create<Val>(0), tv0->axis(1)->extent()},
+       {IrBuilder::create<Val>(1024), IrBuilder::create<Val>(2048)}});
   auto tv3 = slice(
       tv0,
-      {{IrBuilder::create<Val>(0L), tv0->axis(0)->extent()},
-       {IrBuilder::create<Val>(0L), tv0->axis(1)->extent()},
-       {IrBuilder::create<Val>(0L),
-        sub(tv0->axis(2)->extent(), IrBuilder::create<Val>(1L))}});
+      {{IrBuilder::create<Val>(0), tv0->axis(0)->extent()},
+       {IrBuilder::create<Val>(0), tv0->axis(1)->extent()},
+       {IrBuilder::create<Val>(2048), IrBuilder::create<Val>(3072)}});
 
-  auto tv4 = set(tv3);
+  auto tv4 = reshape(tv1, {16, 128, 1024}, {16, 128, 16, 64});
+
   fusion.addOutput(tv4);
-
-  auto mapper = vectorize_helper::ContiguousInnerDimensionsMapper::map(
-      tv2, {tv2->axis(0), tv2->axis(1), tv2->axis(2)});
-
-  for (auto tv : {tv0, tv1, tv2, tv3, tv4}) {
-    std::cerr << tv->toString() << ": "
-              << " " << mapper.getProjectedExtent(tv->axis(0))->evaluateInt()
-              << " " << mapper.getProjectedExtent(tv->axis(1))->evaluateInt()
-              << " " << mapper.getProjectedExtent(tv->axis(2))->evaluateInt()
-              << std::endl;
-  }
-
-  for (const auto& [tv, size] : mapper.getTvToContigMergeOfInnerSizeMap()) {
-    std::cerr << tv->toString() << ", " << size.first << std::endl;
-  }
-}
-
-TEST_F(NVFuserTest, FusionResizeSliceVectorize5_CUDA) {
-  auto fusion_ptr = std::make_unique<Fusion>();
-  auto& fusion = *fusion_ptr;
-  FusionGuard fg(fusion_ptr.get());
-
-  std::vector<int64_t> shape({2, 4});
-
-  // concrete shapes to avoid dynamic Fusion
-  auto tv0 = makeContigConcreteTensor(shape);
-  fusion.addInput(tv0);
-
-  TensorView* tv1 = nullptr;
-
-  tv1 = slice(
-      tv0,
-      {{IrBuilder::create<Val>(0L), tv0->axis(0)->extent()},
-       {IrBuilder::create<Val>(0L),
-        sub(tv0->axis(1)->extent(), IrBuilder::create<Val>(1L))}});
-
-  auto tv2 = set(tv1);
   fusion.addOutput(tv2);
-
-  auto tv3 = slice(
-      tv0,
-      {{IrBuilder::create<Val>(0L), tv0->axis(0)->extent()},
-       {IrBuilder::create<Val>(1L),
-        sub(tv0->axis(1)->extent(), IrBuilder::create<Val>(1L))}});
-
-  auto tv4 = set(tv3);
-  fusion.addOutput(tv4);
-
-  auto mapper = vectorize_helper::ContiguousInnerDimensionsMapper::map(
-      tv2, {tv2->axis(0), tv2->axis(1)});
-
-  for (auto tv : {tv0, tv1, tv2, tv3, tv4}) {
-    std::cerr << tv->toString() << ": "
-              << " " << mapper.getProjectedExtent(tv->axis(0))->evaluateInt()
-              << " " << mapper.getProjectedExtent(tv->axis(1))->evaluateInt()
-              << std::endl;
-  }
-
-  for (const auto& [tv, size] : mapper.getTvToContigMergeOfInnerSizeMap()) {
-    std::cerr << tv->toString() << ", " << size.first << std::endl;
-  }
+  fusion.addOutput(tv3);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor t0 = at::randn(shape, options);
+  auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
 
-  std::vector<c10::IValue> inputs = {t0};
-
-  auto lparams = schedulePointwise(&fusion, inputs);
-
-  fusion.printMath();
-  fusion.printKernel();
-
-#if 0
-  bool found_vectorize = false;
-  for (auto id : fusion.outputs().at(0)->as<TensorView>()->getLeafDomain()) {
-    if (id->getParallelType() == ParallelType::Vectorize) {
-      EXPECT_EQ(id->extent()->evaluateInt(), 4);
-      found_vectorize = true;
-      break;
-    }
-  }
-  EXPECT_TRUE(found_vectorize);
-
-
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, inputs, lparams);
-  auto cg_outputs = fe.runFusion(inputs, lparams);
-
-  auto ref = t0.narrow(0, 1, N) + t1;
-
-  // testValidate does not check that dtypes match
-  EXPECT_EQ(cg_outputs[0].dtype(), ref.dtype());
-  testValidate(&fusion, cg_outputs, inputs, {ref}, __LINE__, __FILE__);
-#endif
-}
-
-TEST_F(NVFuserTest, FusionResizeSliceVectorize6_CUDA) {
-  auto fusion_ptr = std::make_unique<Fusion>();
-  auto& fusion = *fusion_ptr;
-  FusionGuard fg(fusion_ptr.get());
-
-  std::vector<int64_t> shape({1024, 1024});
-
-  // concrete shapes to avoid dynamic Fusion
-  auto tv0 = makeContigConcreteTensor(shape);
-  fusion.addInput(tv0);
-
-  TensorView* tv1 = nullptr;
-
-  tv1 = slice(
-      tv0,
-      {{IrBuilder::create<Val>(0L), tv0->axis(0)->extent()},
-       {IrBuilder::create<Val>(0L),
-        sub(tv0->axis(1)->extent(), IrBuilder::create<Val>(2L))}});
-
-  auto tv2 = set(tv1);
-  fusion.addOutput(tv2);
-
-  auto tv3 = slice(
-      tv0,
-      {{IrBuilder::create<Val>(0L), tv0->axis(0)->extent()},
-       {IrBuilder::create<Val>(1L),
-        sub(tv0->axis(1)->extent(), IrBuilder::create<Val>(0L))}});
-
-  auto tv4 = set(tv3);
-  fusion.addOutput(tv4);
-
-  auto mapper = vectorize_helper::ContiguousInnerDimensionsMapper::map(
-      tv2, {tv2->axis(0), tv2->axis(1)});
-
-  for (auto tv : {tv0, tv1, tv2, tv3, tv4}) {
-    std::cerr << tv->toString() << ": "
-              << " " << mapper.getProjectedExtent(tv->axis(0))->evaluateInt()
-              << " " << mapper.getProjectedExtent(tv->axis(1))->evaluateInt()
-              << std::endl;
-  }
-
-  for (const auto& [tv, size] : mapper.getTvToContigMergeOfInnerSizeMap()) {
-    std::cerr << tv->toString() << ", " << size.first << std::endl;
-  }
-
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor t0 = at::randn(shape, options);
-
-  std::vector<c10::IValue> inputs = {t0};
-
-  auto lparams = schedulePointwise(&fusion, inputs);
-
-  fusion.printMath();
-  fusion.printKernel();
-
-#if 0
-  bool found_vectorize = false;
-  for (auto id : fusion.outputs().at(0)->as<TensorView>()->getLeafDomain()) {
-    if (id->getParallelType() == ParallelType::Vectorize) {
-      EXPECT_EQ(id->extent()->evaluateInt(), 4);
-      found_vectorize = true;
-      break;
-    }
-  }
-  EXPECT_TRUE(found_vectorize);
-
-
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, inputs, lparams);
-  auto cg_outputs = fe.runFusion(inputs, lparams);
-
-  auto ref = t0.narrow(0, 1, N) + t1;
-
-  // testValidate does not check that dtypes match
-  EXPECT_EQ(cg_outputs[0].dtype(), ref.dtype());
-  testValidate(&fusion, cg_outputs, inputs, {ref}, __LINE__, __FILE__);
-#endif
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 }
 
 } // namespace nvfuser

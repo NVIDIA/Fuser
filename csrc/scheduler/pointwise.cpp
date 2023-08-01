@@ -503,6 +503,8 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
   int rhs_i = -1;
   int lhs_i = -1;
 
+  fusion->printMath();
+
   if (!ir_utils::getViewOps(fusion).empty()) {
     ComputeAtMap ca_map(fusion);
     // Propagate view transforms through the graph, expecially the reference.

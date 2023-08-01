@@ -1103,12 +1103,7 @@ IterDomain* projectIdToRoot(
     } else if (expr->isA<Resize>()) {
       auto resize = expr->as<Resize>();
       if (resize->out() == projected_id) {
-        // We do not allow vectorization with resize at this moment
-        if (vectorize_pass && !resize->leftExpand()->isZeroInt()) {
-          projected_id = nullptr;
-        } else {
-          projected_id = resize->in();
-        }
+        projected_id = resize->in();
       }
     } else {
       TORCH_INTERNAL_ASSERT(
@@ -1314,12 +1309,15 @@ bool hasInnerDim(
   // Make sure inner most dimension is in the inner_dims set
   if (inner_dims.count(inner_most_dim) == 0) {
     if (getenv("VERBOSE")) {
-      std::cerr << "debug2\n";
+      std::cerr << "innermost dim not found: " << inner_most_dim->toString()
+                << ", inner dims: " << toDelimitedString(inner_dims)
+                << std::endl;
     }
     return false;
   }
 
   if (!should_vectorize) {
+    std::cerr << "not vectorize pass\n";
     return true;
   }
 
@@ -1412,7 +1410,7 @@ std::vector<TensorView*> getInputsOutputsWithInnerDim(
     }
     if (getenv("VERBOSE")) {
       std::cerr << "Is input vectorizable? " << input_tv->toString()
-                << std::endl;
+                << ", vectorize pass: " << vectorize_pass << std::endl;
     }
     if (hasInnerDim(input_tv, vectorizable_dims, vectorize_pass)) {
       vectorizable_tensors.push_back(input_tv);
@@ -1989,6 +1987,9 @@ void propagateViewTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
              {tv->getRootDomain().begin(), tv->getRootDomain().end()},
              {tv->getMaybeRFactorDomain().begin(),
               tv->getMaybeRFactorDomain().end()})) {
+      if (expr->isA<Resize>()) {
+        continue;
+      }
       for (auto id : ir_utils::filterByType<IterDomain>(expr->inputs())) {
         transformed_disjoint_sets.emplace(
             ca_map.disjointSetOf(id, IdMappingMode::EXACT));
@@ -2002,7 +2003,10 @@ void propagateViewTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
     if (std::none_of(
             disjoint_set_shared_ptr->vector().begin(),
             disjoint_set_shared_ptr->vector().end(),
-            [](IterDomain* id) { return id->isRFactorProduct(); })) {
+            [](IterDomain* id) {
+              return id->definition() && !id->definition()->isA<Resize>() &&
+                  id->isRFactorProduct();
+            })) {
       continue;
     }
     if (transformed_disjoint_sets.find(disjoint_set_shared_ptr) !=
@@ -2054,6 +2058,9 @@ void propagateViewTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
     tv->reorder(old2new);
     //! Propagate current transformations on from_tv to all graphs
     transformPropagateToAllFrom(tv, (int)old2new.size());
+    std::cerr << "tv: " << tv->toString() << std::endl;
+    tv->fusion()->printMath();
+    std::cout << std::endl;
   }
 }
 

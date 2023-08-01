@@ -888,6 +888,8 @@ ContiguousInnerDimensionsMapper::getTvToContigMergeOfInnerSizeMap() {
     result[tv].first = getContigMergeOfInnerSize(tv);
     if (auto it = slice_offsets_.find(tv); it != slice_offsets_.end()) {
       result[tv].second = it->second;
+    } else {
+      result[tv].second = {tv->fusion()->zeroVal()};
     }
   }
   return result;
@@ -1045,6 +1047,8 @@ void ContiguousInnerDimensionsMapper::initializeResizeFactors(Fusion* fusion) {
       }
 
       if (slice_offset != nullptr) {
+        std::cerr << "Slice offset for " << input_tv->toString() << ": "
+                  << slice_offset->toString() << std::endl;
         slice_offsets_[input_tv].emplace(slice_offset);
       }
     }
@@ -1123,7 +1127,7 @@ int64_t getVectorizationFactor(
   const auto& tv_to_inner_size_map = vectorize_maps_entry.get().at(break_point);
 
   for (auto inp_or_out : vectorizable_inputs_outputs) {
-    if (getenv("VERBOSE")) {
+    if (true || getenv("VERBOSE")) {
       std::cerr << "Vec inp or out: " << inp_or_out->toString() << std::endl;
     }
     // factor <= max_factor / dtype_size
@@ -1133,12 +1137,6 @@ int64_t getVectorizationFactor(
         max_vec_size,
         SchedulerRuntimeInfo::max_alignment_size_in_byte / dtype_size);
 
-    // factor <= alignment / dtype_size
-    int64_t alignment_size = (int64_t)runtime_info.getAlignmentSize(inp_or_out);
-    TORCH_INTERNAL_ASSERT(alignment_size % dtype_size == 0);
-    max_vec_size = std::min(max_vec_size, alignment_size / dtype_size);
-
-    // factor <= projected_extent
     auto inner_size_it = tv_to_inner_size_map.find(inp_or_out);
     if (inner_size_it == tv_to_inner_size_map.end()) {
       // If we don't have info for a tensor that is supposed to be
@@ -1149,13 +1147,39 @@ int64_t getVectorizationFactor(
       // other tensors vectorized
       return 1;
     }
-    auto inner_size_opt =
-        runtime_info.expressionEvaluator().evaluate(inner_size_it->second.first);
+
+    // factor <= alignment / dtype_size
+    const auto& slice_offsets = inner_size_it->second.second;
+    for (auto offset : slice_offsets) {
+      auto offset_eval = runtime_info.expressionEvaluator().evaluate(offset);
+      TORCH_INTERNAL_ASSERT(offset_eval.hasValue());
+      int64_t alignment_size = (int64_t)runtime_info.getAlignmentSize(
+          inp_or_out, -offset_eval.as<int64_t>() * dtype_size);
+      std::cerr << "Slice offset: " << offset->toInlineString() << ", "
+                << inp_or_out->toString()
+                << ", alignment_size: " << alignment_size << std::endl;
+
+      TORCH_INTERNAL_ASSERT(
+          alignment_size % dtype_size == 0,
+          "alignment size: ",
+          alignment_size,
+          ", dtype size: ",
+          dtype_size);
+      max_vec_size = std::min(max_vec_size, alignment_size / dtype_size);
+    }
+
+    // factor <= projected_extent
+    auto inner_size_opt = runtime_info.expressionEvaluator().evaluate(
+        inner_size_it->second.first);
     TORCH_INTERNAL_ASSERT(
         inner_size_opt.hasValue(),
         "Vectorization heuristic could not evaluate inner most size.");
     int64_t inner_size = inner_size_opt.as<int64_t>();
     int64_t local_max_vec_size = 1;
+
+    if (getenv("VERBOSE")) {
+      std::cerr << "Inner size: " << inner_size << std::endl;
+    }
 
     while (inner_size > 1 && inner_size % 2 == 0 &&
            local_max_vec_size < max_vec_size) {
@@ -1166,6 +1190,7 @@ int64_t getVectorizationFactor(
     max_vec_size = std::min(local_max_vec_size, max_vec_size);
   }
 
+  std::cerr << "vec size: " << max_vec_size << std::endl;
   return max_vec_size;
 }
 

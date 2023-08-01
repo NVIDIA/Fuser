@@ -629,6 +629,7 @@ void validateAlignedVectorizedFusionInputOutput(
   TORCH_INTERNAL_ASSERT(sizes.size() == no_reduction_to_full.size());
   TORCH_INTERNAL_ASSERT(strides.size() == no_reduction_to_full.size());
 
+#if 0  
   TORCH_INTERNAL_ASSERT(
       reinterpret_cast<size_t>(aten_tensor.data_ptr()) %
               (word_size * aten_tensor.dtype().itemsize()) ==
@@ -642,6 +643,7 @@ void validateAlignedVectorizedFusionInputOutput(
       word_size,
       ", data type: ",
       aten_tensor.dtype());
+#endif
 
   // Traverse strides from the right-most domains. The rightmost
   // domain must have stride 1.

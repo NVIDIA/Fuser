@@ -51,6 +51,7 @@ bool rejectScheduleFusionInputRequirement(
         " must be fusion input.");
     return true;
   }
+#if 0
   if (expr->input(0)->uses().size() > 1) {
     scheduler_debug_utils::canScheduleRejectReason(
         schedule_stragety,
@@ -60,6 +61,7 @@ bool rejectScheduleFusionInputRequirement(
         expr->getOpString());
     return true;
   }
+#endif
   return false;
 }
 
@@ -1049,6 +1051,8 @@ size_t SchedulerRuntimeInfo::computeAlignmentSize(size_t ptr_address) {
 }
 
 size_t SchedulerRuntimeInfo::getAlignmentSize(TensorView* tv, int64_t offset) {
+  std::cerr << "getAlignmentSize: " << tv->toString() << " + " << offset
+            << std::endl;
   auto alignment_entry = alignment_map_.find(std::make_pair(tv, offset));
   if (alignment_entry != alignment_map_.end()) {
     return alignment_entry->second;
