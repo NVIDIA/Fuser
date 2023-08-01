@@ -18,6 +18,8 @@ from pytest_input_generators import (
     define_tensor_error_generator,
     define_vector_constant_error_generator,
     define_vector_input_error_generator,
+    elementwise_binary_generator,
+    _elementwise_binary_torch,
     elementwise_unary_generator,
     _elementwise_unary_torch,
     full_error_generator,
@@ -43,6 +45,16 @@ from functools import partial
 from typing import List
 
 eps = 1e-2
+
+# atan2 --- float (promote int to float; allows fp16, bf16)
+# nextafter, truediv  --- (promote int to float; requires full-precision fp32, fp64)
+# add, ceildiv, div, fmod, mul, pow, remainder, sub --- cast_integers
+# and, or, xor --- bitwise
+# left_shift, right_shift_arithmetic, right_shift_logical --- int_only
+# eq, ne, ge, gt, le, lt --- compare
+# add-alpha, sub-alpha --- alpha scalar argument
+
+# TODO add ceildiv to python_frontend
 
 opinfos = []
 
@@ -83,7 +95,7 @@ fusion_input_ops.append(define_vector_input_opinfo)
 """ End Fusion Input Operations """
 
 """ Start Unary-Float Operations """
-elementwise_unary_ops = []
+unary_ops = []
 
 abs_opinfo = OpInfo(
     lambda fd: fd.ops.abs,
@@ -91,7 +103,7 @@ abs_opinfo = OpInfo(
     sample_input_generator=elementwise_unary_generator,
     reference=_elementwise_unary_torch(torch.abs),
 )
-elementwise_unary_ops.append(abs_opinfo)
+unary_ops.append(abs_opinfo)
 
 acos_opinfo = OpInfo(
     lambda fd: fd.ops.acos,
@@ -100,7 +112,7 @@ acos_opinfo = OpInfo(
     sample_input_generator=elementwise_unary_generator,
     reference=_elementwise_unary_torch(torch.acos),
 )
-elementwise_unary_ops.append(acos_opinfo)
+unary_ops.append(acos_opinfo)
 
 acosh_opinfo = OpInfo(
     lambda fd: fd.ops.acosh,
@@ -109,7 +121,7 @@ acosh_opinfo = OpInfo(
     sample_input_generator=elementwise_unary_generator,
     reference=_elementwise_unary_torch(torch.acosh),
 )
-elementwise_unary_ops.append(acosh_opinfo)
+unary_ops.append(acosh_opinfo)
 
 asin_opinfo = OpInfo(
     lambda fd: fd.ops.asin,
@@ -118,7 +130,7 @@ asin_opinfo = OpInfo(
     sample_input_generator=elementwise_unary_generator,
     reference=_elementwise_unary_torch(torch.asin),
 )
-elementwise_unary_ops.append(asin_opinfo)
+unary_ops.append(asin_opinfo)
 
 asinh_opinfo = OpInfo(
     lambda fd: fd.ops.asinh,
@@ -126,7 +138,7 @@ asinh_opinfo = OpInfo(
     sample_input_generator=elementwise_unary_generator,
     reference=_elementwise_unary_torch(torch.asinh),
 )
-elementwise_unary_ops.append(asinh_opinfo)
+unary_ops.append(asinh_opinfo)
 
 atan_opinfo = OpInfo(
     lambda fd: fd.ops.atan,
@@ -134,7 +146,7 @@ atan_opinfo = OpInfo(
     sample_input_generator=elementwise_unary_generator,
     reference=_elementwise_unary_torch(torch.atan),
 )
-elementwise_unary_ops.append(atan_opinfo)
+unary_ops.append(atan_opinfo)
 
 atanh_opinfo = OpInfo(
     lambda fd: fd.ops.atanh,
@@ -143,7 +155,7 @@ atanh_opinfo = OpInfo(
     sample_input_generator=elementwise_unary_generator,
     reference=_elementwise_unary_torch(torch.atanh),
 )
-elementwise_unary_ops.append(atanh_opinfo)
+unary_ops.append(atanh_opinfo)
 
 cos_opinfo = OpInfo(
     lambda fd: fd.ops.cos,
@@ -151,7 +163,7 @@ cos_opinfo = OpInfo(
     sample_input_generator=elementwise_unary_generator,
     reference=_elementwise_unary_torch(torch.cos),
 )
-elementwise_unary_ops.append(cos_opinfo)
+unary_ops.append(cos_opinfo)
 
 cosh_opinfo = OpInfo(
     lambda fd: fd.ops.cosh,
@@ -159,7 +171,7 @@ cosh_opinfo = OpInfo(
     sample_input_generator=elementwise_unary_generator,
     reference=_elementwise_unary_torch(torch.cosh),
 )
-elementwise_unary_ops.append(cosh_opinfo)
+unary_ops.append(cosh_opinfo)
 
 erf_opinfo = OpInfo(
     lambda fd: fd.ops.erf,
@@ -168,7 +180,7 @@ erf_opinfo = OpInfo(
     sample_input_generator=elementwise_unary_generator,
     reference=_elementwise_unary_torch(torch.erf),
 )
-elementwise_unary_ops.append(erf_opinfo)
+unary_ops.append(erf_opinfo)
 
 erfc_opinfo = OpInfo(
     lambda fd: fd.ops.erfc,
@@ -177,7 +189,7 @@ erfc_opinfo = OpInfo(
     sample_input_generator=elementwise_unary_generator,
     reference=_elementwise_unary_torch(torch.erfc),
 )
-elementwise_unary_ops.append(erfc_opinfo)
+unary_ops.append(erfc_opinfo)
 
 erfcinv_opinfo = OpInfo(
     lambda fd: fd.ops.erfcinv,
@@ -190,7 +202,7 @@ erfcinv_opinfo = OpInfo(
     sample_input_generator=elementwise_unary_generator,
     reference=_elementwise_unary_torch(lambda x: torch.erfinv(1 - x)),
 )
-elementwise_unary_ops.append(erfcinv_opinfo)
+unary_ops.append(erfcinv_opinfo)
 
 erfinv_opinfo = OpInfo(
     lambda fd: fd.ops.erfinv,
@@ -200,7 +212,7 @@ erfinv_opinfo = OpInfo(
     sample_input_generator=elementwise_unary_generator,
     reference=_elementwise_unary_torch(torch.erfinv),
 )
-elementwise_unary_ops.append(erfinv_opinfo)
+unary_ops.append(erfinv_opinfo)
 
 exp_opinfo = OpInfo(
     lambda fd: fd.ops.exp,
@@ -208,7 +220,7 @@ exp_opinfo = OpInfo(
     sample_input_generator=elementwise_unary_generator,
     reference=_elementwise_unary_torch(torch.exp),
 )
-elementwise_unary_ops.append(exp_opinfo)
+unary_ops.append(exp_opinfo)
 
 exp2_opinfo = OpInfo(
     lambda fd: fd.ops.exp2,
@@ -217,7 +229,7 @@ exp2_opinfo = OpInfo(
     sample_input_generator=elementwise_unary_generator,
     reference=_elementwise_unary_torch(torch.exp2),
 )
-elementwise_unary_ops.append(exp2_opinfo)
+unary_ops.append(exp2_opinfo)
 
 expm1_opinfo = OpInfo(
     lambda fd: fd.ops.expm1,
@@ -226,7 +238,7 @@ expm1_opinfo = OpInfo(
     sample_input_generator=elementwise_unary_generator,
     reference=_elementwise_unary_torch(torch.expm1),
 )
-elementwise_unary_ops.append(expm1_opinfo)
+unary_ops.append(expm1_opinfo)
 
 lgamma_opinfo = OpInfo(
     lambda fd: fd.ops.lgamma,
@@ -236,7 +248,7 @@ lgamma_opinfo = OpInfo(
     sample_input_generator=partial(elementwise_unary_generator, exclude_zero=True),
     reference=_elementwise_unary_torch(torch.lgamma),
 )
-elementwise_unary_ops.append(lgamma_opinfo)
+unary_ops.append(lgamma_opinfo)
 
 log_opinfo = OpInfo(
     lambda fd: fd.ops.log,
@@ -245,7 +257,7 @@ log_opinfo = OpInfo(
     sample_input_generator=partial(elementwise_unary_generator, exclude_zero=True),
     reference=_elementwise_unary_torch(torch.log),
 )
-elementwise_unary_ops.append(log_opinfo)
+unary_ops.append(log_opinfo)
 
 log10_opinfo = OpInfo(
     lambda fd: fd.ops.log10,
@@ -255,7 +267,7 @@ log10_opinfo = OpInfo(
     sample_input_generator=partial(elementwise_unary_generator, exclude_zero=True),
     reference=_elementwise_unary_torch(torch.log10),
 )
-elementwise_unary_ops.append(log10_opinfo)
+unary_ops.append(log10_opinfo)
 
 log1p_opinfo = OpInfo(
     lambda fd: fd.ops.log1p,
@@ -265,7 +277,7 @@ log1p_opinfo = OpInfo(
     sample_input_generator=partial(elementwise_unary_generator, exclude_zero=True),
     reference=_elementwise_unary_torch(torch.log1p),
 )
-elementwise_unary_ops.append(log1p_opinfo)
+unary_ops.append(log1p_opinfo)
 
 log2_opinfo = OpInfo(
     lambda fd: fd.ops.log2,
@@ -274,7 +286,7 @@ log2_opinfo = OpInfo(
     sample_input_generator=partial(elementwise_unary_generator, exclude_zero=True),
     reference=_elementwise_unary_torch(torch.log2),
 )
-elementwise_unary_ops.append(log2_opinfo)
+unary_ops.append(log2_opinfo)
 
 reciprocal_opinfo = OpInfo(
     lambda fd: fd.ops.reciprocal,
@@ -283,7 +295,7 @@ reciprocal_opinfo = OpInfo(
     sample_input_generator=partial(elementwise_unary_generator, exclude_zero=True),
     reference=_elementwise_unary_torch(torch.reciprocal),
 )
-elementwise_unary_ops.append(reciprocal_opinfo)
+unary_ops.append(reciprocal_opinfo)
 
 rsqrt_opinfo = OpInfo(
     lambda fd: fd.ops.rsqrt,
@@ -292,7 +304,7 @@ rsqrt_opinfo = OpInfo(
     sample_input_generator=partial(elementwise_unary_generator, exclude_zero=True),
     reference=_elementwise_unary_torch(torch.rsqrt),
 )
-elementwise_unary_ops.append(rsqrt_opinfo)
+unary_ops.append(rsqrt_opinfo)
 
 sigmoid_opinfo = OpInfo(
     lambda fd: fd.ops.sigmoid,
@@ -300,7 +312,7 @@ sigmoid_opinfo = OpInfo(
     sample_input_generator=elementwise_unary_generator,
     reference=_elementwise_unary_torch(torch.sigmoid),
 )
-elementwise_unary_ops.append(sigmoid_opinfo)
+unary_ops.append(sigmoid_opinfo)
 
 sin_opinfo = OpInfo(
     lambda fd: fd.ops.sin,
@@ -308,7 +320,7 @@ sin_opinfo = OpInfo(
     sample_input_generator=elementwise_unary_generator,
     reference=_elementwise_unary_torch(torch.sin),
 )
-elementwise_unary_ops.append(sin_opinfo)
+unary_ops.append(sin_opinfo)
 
 sinh_opinfo = OpInfo(
     lambda fd: fd.ops.sinh,
@@ -316,7 +328,7 @@ sinh_opinfo = OpInfo(
     sample_input_generator=elementwise_unary_generator,
     reference=_elementwise_unary_torch(torch.sinh),
 )
-elementwise_unary_ops.append(sinh_opinfo)
+unary_ops.append(sinh_opinfo)
 
 sqrt_opinfo = OpInfo(
     lambda fd: fd.ops.sqrt,
@@ -325,7 +337,7 @@ sqrt_opinfo = OpInfo(
     sample_input_generator=elementwise_unary_generator,
     reference=_elementwise_unary_torch(torch.sqrt),
 )
-elementwise_unary_ops.append(sqrt_opinfo)
+unary_ops.append(sqrt_opinfo)
 
 tan_opinfo = OpInfo(
     lambda fd: fd.ops.tan,
@@ -334,7 +346,7 @@ tan_opinfo = OpInfo(
     sample_input_generator=elementwise_unary_generator,
     reference=_elementwise_unary_torch(torch.tan),
 )
-elementwise_unary_ops.append(tan_opinfo)
+unary_ops.append(tan_opinfo)
 
 tanh_opinfo = OpInfo(
     lambda fd: fd.ops.tanh,
@@ -343,9 +355,22 @@ tanh_opinfo = OpInfo(
     sample_input_generator=elementwise_unary_generator,
     reference=_elementwise_unary_torch(torch.tanh),
 )
-elementwise_unary_ops.append(tanh_opinfo)
+unary_ops.append(tanh_opinfo)
 
 """ End Unary-Float Operations """
+
+""" Start Binary Operations """
+binary_ops = []
+
+add_opinfo = OpInfo(
+    lambda fd: fd.ops.add,
+    "add",
+    dtypes=int_float_dtypes,
+    sample_input_generator=elementwise_binary_generator,
+    reference=_elementwise_binary_torch(torch.add),
+)
+binary_ops.append(add_opinfo)
+""" End Binary Operations """
 
 """ Start Ternary Operations """
 
@@ -554,7 +579,8 @@ tensor_creation_ops.append(iota_opinfo)
 """ End Tensor Creation """
 
 # Puts all opinfos into the "opinfos" list
-opinfos.extend(elementwise_unary_ops)
+opinfos.extend(unary_ops)
+opinfos.extend(binary_ops)
 opinfos.extend(ternary_ops)
 opinfos.extend(fusion_input_ops)
 opinfos.extend(normalization_ops)
