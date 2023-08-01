@@ -6,12 +6,89 @@
 import itertools
 from functools import partial, wraps
 
+import math
 import torch
 from torch.testing import make_tensor
 
 from pytest_core import OpInfo, SampleInput, ErrorSample
-from pytest_utils import make_number, find_nonmatching_dtype, is_floating_dtype
+from pytest_utils import (
+    make_number,
+    find_nonmatching_dtype,
+    is_floating_dtype,
+    float_complex_dtypes,
+    complex_dtypes,
+)
 from nvfuser import DataType
+
+
+def _extremal_values(dtype: torch.dtype):
+    _float_vals = (float("inf"), float("-inf"), float("nan"))
+    _complex_vals = tuple(
+        complex(*x) for x in itertools.product(_float_vals, _float_vals)
+    )
+
+    if dtype in (torch.float16, torch.bfloat16, torch.float32, torch.float64):
+        return _float_vals
+    elif dtype in (torch.complex64, torch.complex128):
+        return _complex_vals
+    else:
+        raise ValueError(f"Unsupported dtype --- {dtype}")
+
+
+def _large_values(dtype: torch.dtype):
+    _int_vals = (-1113, 1113, -10701, 10701)
+    _float16_vals = (-501, 501, -1001.2, 1001.2, -13437.7, 13437.7)
+    _float_vals = _float16_vals + (-4988429.2, 4988429.2, -1e20, 1e20)
+    _complex_vals = tuple(
+        complex(*x) for x in itertools.product(_float_vals, _float_vals)
+    )
+
+    if dtype == torch.float16:
+        return _float16_vals
+    elif dtype in (torch.bfloat16, torch.float32, torch.float64):
+        return _float_vals
+    elif dtype in (torch.complex64, torch.complex128):
+        print(_complex_vals)
+        return _complex_vals
+    elif dtype in (torch.int16, torch.int32, torch.int64):
+        return _int_vals
+    else:
+        raise ValueError(f"Unsupported dtype --- {dtype}")
+
+
+def _small_values(dtype: torch.dtype):
+    eps = 1e-5
+    _int_vals = (0, -1, 1, -55, 55, -127, 127, -128)
+    _float_vals = (
+        0.0,
+        -0.0,
+        -1e-3,
+        1e-3,
+        -0.25,
+        0.25,
+        -1.0,
+        1.0,
+        -math.e / 2.0,
+        math.e / 2.0,
+        -math.e + eps,
+        math.e - eps,
+        -math.e,
+        math.e,
+        -math.e - eps,
+        math.e + eps,
+    )
+    _complex_vals = tuple(
+        complex(*x) for x in itertools.product(_float_vals, _float_vals)
+    )
+
+    if dtype in (torch.float16, torch.bfloat16, torch.float32, torch.float64):
+        return _float_vals
+    elif dtype in (torch.complex64, torch.complex128):
+        return _complex_vals
+    elif dtype in (torch.int16, torch.int32, torch.int64):
+        return _int_vals
+    else:
+        raise ValueError(f"Unsupported dtype --- {dtype}")
 
 
 def broadcast_error_generator(
@@ -365,6 +442,19 @@ def define_vector_input_error_generator(
         yield SampleInput(**es.kwargs), es.ex_type, es.ex_str
 
 
+def _special_value_binary_generator(generator_fn, dtype, requires_grad):
+    lhs_vals, rhs_vals = zip(
+        *itertools.product(generator_fn(dtype), generator_fn(dtype))
+    )
+    lhs = torch.tensor(
+        lhs_vals, device="cuda", dtype=dtype, requires_grad=requires_grad
+    )
+    rhs = torch.tensor(
+        rhs_vals, device="cuda", dtype=dtype, requires_grad=requires_grad
+    )
+    return SampleInput(lhs, rhs)
+
+
 # TODO Add small value, large value, and extremal-valued samples
 def elementwise_binary_generator(
     op: OpInfo,
@@ -372,6 +462,10 @@ def elementwise_binary_generator(
     requires_grad: bool = False,
     *,
     supports_numbers: bool = True,
+    enable_broadcast_testing: bool = True,
+    enable_extremal_value_testing: bool = True,
+    enable_large_value_testing: bool = True,
+    enable_small_value_testing: bool = True,
     **kwargs,
 ):
     low = None if op.domain.low is None else max(-9, op.domain.low)
@@ -400,12 +494,43 @@ def elementwise_binary_generator(
     # Typical inputs
     for shape in shapes:
         yield SampleInput(make_arg(shape), make_arg(shape))
-
-    # Noncontiguous inputs
-    for shape in shapes:
         yield SampleInput(
             make_arg(shape, noncontiguous=True), make_arg(shape, noncontiguous=True)
         )
+
+    if enable_broadcast_testing:
+        broadcast_shapes = (
+            ((1,), ()),
+            ((2,), ()),
+            ((1,), (2,)),
+            ((2, 1), (2,)),
+            ((1, 2), (2,)),
+            ((3, 2), (2,)),
+            ((1, 3, 2), (2,)),
+            ((1, 3, 2), (3, 2)),
+            ((3, 1, 2), (3, 2)),
+            ((2, 3, 2), ()),
+            ((3, 1, 2), (1, 3, 2)),
+        )
+        for lhs_shape, rhs_shape in broadcast_shapes:
+            yield SampleInput(make_arg(lhs_shape), make_arg(rhs_shape))
+            yield SampleInput(
+                make_arg(lhs_shape, noncontiguous=True),
+                make_arg(rhs_shape, noncontiguous=True),
+            )
+
+    if (
+        enable_large_value_testing
+        and dtype != torch.bool
+        and dtype not in complex_dtypes
+    ):
+        yield _special_value_binary_generator(_large_values, dtype, requires_grad)
+
+    if enable_small_value_testing and dtype != torch.bool:
+        yield _special_value_binary_generator(_small_values, dtype, requires_grad)
+
+    if enable_extremal_value_testing and dtype in float_complex_dtypes:
+        yield _special_value_binary_generator(_extremal_values, dtype, requires_grad)
 
 
 def _elementwise_binary_torch(op):
@@ -425,6 +550,9 @@ def elementwise_unary_generator(
     requires_grad: bool = False,
     *,
     supports_numbers: bool = True,
+    enable_extremal_value_testing: bool = True,
+    enable_large_value_testing: bool = True,
+    enable_small_value_testing: bool = True,
     **kwargs,
 ):
     low = None if op.domain.low is None else max(-9, op.domain.low)
@@ -453,10 +581,41 @@ def elementwise_unary_generator(
     # Typical inputs
     for shape in shapes:
         yield SampleInput(make_arg(shape))
-
-    # Noncontiguous inputs
-    for shape in shapes:
         yield SampleInput(make_arg(shape, noncontiguous=True))
+
+    if (
+        enable_large_value_testing
+        and dtype != torch.bool
+        and dtype not in complex_dtypes
+    ):
+        yield SampleInput(
+            torch.tensor(
+                _large_values(dtype),
+                device="cuda",
+                dtype=dtype,
+                requires_grad=requires_grad,
+            )
+        )
+
+    if enable_small_value_testing and dtype != torch.bool:
+        yield SampleInput(
+            torch.tensor(
+                _small_values(dtype),
+                device="cuda",
+                dtype=dtype,
+                requires_grad=requires_grad,
+            )
+        )
+
+    if enable_extremal_value_testing and dtype in float_complex_dtypes:
+        yield SampleInput(
+            torch.tensor(
+                _extremal_values(dtype),
+                device="cuda",
+                dtype=dtype,
+                requires_grad=requires_grad,
+            )
+        )
 
 
 def _elementwise_unary_torch(op):
