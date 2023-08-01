@@ -1563,16 +1563,6 @@ void beforeSchedule(
       tv->setMemoryType(MemoryType::Shared);
     }
   }
-  // // For combined case (layer_norm backward), there are 5 persistent tensors.
-  // // set 2 of them to shared memory.
-  // if(rparams.combined_inner_outer){
-  //   const auto& persistent_buffers =
-  //       scheduler_utils::persistentBuffers(fusion).persistent_buffers;
-  //   for (auto tv : persistent_buffers) {
-  //     tv->setMemoryType(MemoryType::Shared);
-  //     std::cout << "pbtv= " << tv->toString() << std::endl;
-  //   }
-  // }
 
   reduction_tvs = scheduler_utils::getReductionTvs(fusion);
 }

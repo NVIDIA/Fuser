@@ -1970,12 +1970,12 @@ class PersistentKernelScheduler : public SchedulerEntry {
         data_cache,
         (int)(reduced_tv->nDims() - properties.inner_most_dimension_ndims));
 
-    // pair of persistent_buffer_size and available_persistent_buffer_size
+    // check if there is enough register and shared memory for persistence
     const auto
         [persistent_buffer_size,
          available_register_buffer_size,
          has_enough_regs_and_smem] =
-            getPersistentBufferSize(
+            checkPersistentBufferSize(
                 fusion,
                 runtime_info,
                 data_cache,
@@ -1989,7 +1989,7 @@ class PersistentKernelScheduler : public SchedulerEntry {
     if (!has_enough_regs_and_smem) {
       scheduler_debug_utils::canScheduleRejectReason(
           ScheduleHeuristic::Persistent,
-          "not enough registers or shared memory for persistence");
+          "not enough registers and shared memory for persistence!");
       return false;
     }
 
@@ -2128,7 +2128,7 @@ class PersistentKernelScheduler : public SchedulerEntry {
     return true;
   }
 
-  static std::tuple<int64_t, int64_t, bool> getPersistentBufferSize(
+  static std::tuple<int64_t, int64_t, bool> checkPersistentBufferSize(
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
       HeuristicSummary* data_cache,
@@ -2159,12 +2159,10 @@ class PersistentKernelScheduler : public SchedulerEntry {
     // reductions must be persistent, allow register spill avoid segmentation
     int64_t inner_reduction_count = 0;
     int64_t outer_reduction_count = 0;
-    std::vector<TensorView*> inner_reduction_tvs;
     std::vector<TensorView*> outer_reduction_tvs;
     for (auto tv : reduction_tvs) {
       if (scheduler_utils::isFastestDimReduction(tv)) {
         inner_reduction_count++;
-        inner_reduction_tvs.emplace_back(tv);
       } else {
         outer_reduction_count++;
         outer_reduction_tvs.emplace_back(tv);
@@ -2173,9 +2171,8 @@ class PersistentKernelScheduler : public SchedulerEntry {
     const bool combined_inner_outer_reduction =
         inner_reduction_count && outer_reduction_count;
 
-    // At this point, we use the full register file size only for the
-    // inner-outer case. It does not mean the full size shouldn't be used
-    // otherwise, but more detailed tuning of the heuristics would be required.
+    // At this point, we use a much larger register file size for the combined
+    // case as it is rarely fused with other ops.
     int64_t available_register_buffer_size = combined_inner_outer_reduction
         ? scheduler_utils::register_file_size_combined
         : scheduler_utils::register_file_size;
@@ -2204,11 +2201,12 @@ class PersistentKernelScheduler : public SchedulerEntry {
     bool has_enough_regs_and_smem = false;
 
     if (combined_inner_outer_reduction) {
-      // For combined_inner_outer_reduction, additional tensors are created by
-      // the scheduler to store intermediate outer reduction results. These
-      // tensors are register persistent. Other persistent tensors in the
-      // original fusion definition are also register persistent if there are
-      // enough registers. Otherwise, they will be stored in shared memory.
+      // In the case of combined_inner_outer_reduction, the scheduler creates
+      // additional tensors to hold the intermediate results of the outer
+      // reduction. These tensors persist in registers. If there are enough
+      // registers available, other persistent tensors from the original fusion
+      // definition will also be stored in registers. If not, they will be
+      // stored in shared memory.
       const auto outer_persistent_buffer_size =
           normalization_scheduler_utils::partialReductionBufferSize(
               outer_reduction_tvs, runtime_info);
@@ -2221,19 +2219,20 @@ class PersistentKernelScheduler : public SchedulerEntry {
       } else {
         // If registers can not hold all persistent tensors,
         // [persistent_buffer_size] is saved in shared memory and
-        // [outer_persistent_buffer_size] is saved in registers. This is because
-        // the persistent tensors in the original fusion definition is only
-        // accessed twice while the intermediate outer reduction tensors are
-        // accessed N times, where N is ceilDiv(iter_domain, GridDim.y), which
-        // is usually larger than 2. Therefore, it is better to save the
-        // intermediate outer reduction tensors to registers which have much
-        // higher bandwidth than shared memory.
+        // [outer_persistent_buffer_size] is saved in registers. This
+        // arrangement is preferred because the persistent tensors in the
+        // original fusion definition are only accessed twice, while the
+        // intermediate outer reduction tensors are accessed N times. Here, N is
+        // the ceiling division of iter_domain by GridDim.y, usually greater
+        // than 2. Storing the intermediate outer reduction tensors in
+        // registers, which offer much higher bandwidth than shared memory, is
+        // therefore more efficient.
         auto buffer_per_element =
             persistent_buffer_size / properties.inner_most_dimension_numel;
         const int64_t threads_per_block_max =
             getThreadsPerSMGivenRegPerThread(255l);
         // needs to be rounded up shared memory buffer size to avoid requested
-        // size is larger than available size, e.g. hidden size 26752.
+        // size is larger than available size, e.g. hidden size 26752 on H100.
         auto persistent_buffer_size_roundup =
             ceilDiv(
                 (ceilDiv(
