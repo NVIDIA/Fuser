@@ -53,8 +53,8 @@ static void setupBatchNorm(Fusion* fusion, DataType dtype) {
     bias = castOp(DataType::Float, bias);
   }
 
-  auto momentum_ptr = IrBuilder::create<Double>(kMomentum);
-  auto eps_ptr = IrBuilder::create<Double>(kEps);
+  auto momentum_ptr = IrBuilder::create<Val>(kMomentum);
+  auto eps_ptr = IrBuilder::create<Val>(kEps);
 
   auto result = batch_norm(
       input,

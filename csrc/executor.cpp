@@ -9,6 +9,7 @@
 #include <executor.h>
 
 #include <codegen.h>
+#include <debug.h>
 #include <device_lower/analysis/bank_conflict.h>
 #include <executor_kernel_arg.h>
 #include <executor_utils.h>
@@ -102,19 +103,19 @@ std::string FusionExecutor::getStructuredCode(
       executor_utils::kernelPreamble() + kernel_str + "}\n";
 
   if (isDebugDumpEnabled(DebugDumpOption::CudaKernel)) {
-    std::cout << "\n======= Codegen output for kernel: " << kernelName()
-              << " =======\n\n"
-              << kernel_str << "\n======================================\n\n";
+    debug() << "\n======= Codegen output for kernel: " << kernelName()
+            << " =======\n\n"
+            << kernel_str << "\n======================================\n\n";
   } else if (isDebugDumpEnabled(DebugDumpOption::CudaFull)) {
-    std::cout << "\n======= Codegen output for kernel: " << kernelName()
-              << " =======\n\n"
-              << code << "\n======================================\n\n";
+    debug() << "\n======= Codegen output for kernel: " << kernelName()
+            << " =======\n\n"
+            << code << "\n======================================\n\n";
   }
   if (isDebugDumpEnabled(DebugDumpOption::CudaToFile) ||
       isDebugDumpEnabled(DebugDumpOption::DebugInfo)) {
     std::stringstream file_name;
     file_name << "__tmp_kernel" << fusion_id_ << ".cu";
-    std::cout << "PRINTING: " << file_name.str() << std::endl;
+    debug() << "PRINTING: " << file_name.str() << std::endl;
     std::ofstream out(file_name.str());
     out << code << std::endl;
     out.close();
@@ -143,11 +144,11 @@ void FusionExecutor::debugCompileFusionFromStr(
   }
 
   if (isDebugDumpEnabled(DebugDumpOption::CudaFull)) {
-    std::cout << "\n==== codegen output for kernel: " << kernelName()
-              << " ====" << std::endl
-              << code << std::endl
-              << "======================================\n"
-              << std::endl;
+    debug() << "\n==== codegen output for kernel: " << kernelName()
+            << " ====" << std::endl
+            << code << std::endl
+            << "======================================\n"
+            << std::endl;
   }
 
   lowered_ = std::make_unique<GpuLower>(fusion);
@@ -278,29 +279,29 @@ void FusionExecutor::compileFusion(
   if (isDebugDumpEnabled(DebugDumpOption::BankConflictInfo)) {
     auto bank_conflict_info = getBankConflictInfo(kernel);
     if (bank_conflict_info.empty()) {
-      std::cout << "===== No bank confliction =====" << std::endl;
+      debug() << "===== No bank confliction =====" << std::endl;
     } else {
-      std::cout << "======= Bank confliction =======" << std::endl;
+      debug() << "======= Bank confliction =======" << std::endl;
       for (auto info : bank_conflict_info) {
-        std::cout << "Expr: " << info.first->toString() << std::endl;
+        debug() << "Expr: " << info.first->toString() << std::endl;
         auto conflict = info.second;
         if (conflict.first > 1) {
-          std::cout << "input conflict: " << conflict.first << " way, ";
+          debug() << "input conflict: " << conflict.first << " way, ";
         }
         if (conflict.second > 1) {
-          std::cout << "output conflict: " << conflict.second << " way";
+          debug() << "output conflict: " << conflict.second << " way";
         }
-        std::cout << std::endl;
+        debug() << std::endl;
       }
-      std::cout << "================================" << std::endl;
+      debug() << "================================" << std::endl;
     }
   }
 
   kernel_code_ = codegen::generateCudaKernel(kernel, kernelName());
 
   auto load_external_code = [](const char* external_code_path) {
-    std::cout << "--------> Compiling external cuda code: "
-              << external_code_path << std::endl;
+    debug() << "--------> Compiling external cuda code: " << external_code_path
+            << std::endl;
     std::ifstream cuda_src(external_code_path);
     std::stringstream buffer;
     buffer << cuda_src.rdbuf();
@@ -380,7 +381,7 @@ void FusionExecutor::compileFusion(
   }
 
   if (isDebugDumpEnabled(DebugDumpOption::Sass)) {
-    std::cout << disassembledKernelSASS() << std::endl;
+    debug() << disassembledKernelSASS() << std::endl;
   }
 }
 
@@ -1043,8 +1044,8 @@ LaunchParams FusionExecutor::computeLaunchParams(
         p_type,
         " to set launch bounds but could not.");
 
-    if (val.as<int64_t>() > 0) {
-      expr_eval.bind(p_type, val.as<int64_t>());
+    if (val > 0) {
+      expr_eval.bind(p_type, val);
       launch_params.bind(val.as<int64_t>(), p_type);
     }
   }
@@ -1138,34 +1139,6 @@ std::vector<FusionExecutor::GlobalBufferInfo> FusionExecutor::
   }
 
   return global_buffers;
-}
-
-std::vector<at::Tensor> FusionExecutor::allocOutputSpace(
-    const at::ArrayRef<c10::IValue>& inputs) {
-  auto kernel_inputs = KernelArgumentHolder::createKernelArgumentHolder(inputs);
-  auto expr_eval =
-      executor_utils::bindInputs(kernel_inputs, lowered_->kernel());
-
-  auto input_alias_indices_entry =
-      executor_utils::caching::ExecutorCompileTimeEntry<
-          executor_utils::caching::InputAliasIndices>(
-          compileTimeDataCache(), [&]() {
-            return std::make_unique<std::vector<std::pair<int, int>>>(
-                fusion_->getOutputToInputAliasIndices());
-          });
-
-  const auto& output_to_input_aliases = input_alias_indices_entry.get();
-
-  auto output_info =
-      getOutputBufferInfo(kernel_inputs, expr_eval, output_to_input_aliases);
-
-  return allocOutputs(
-      kernel(),
-      output_info,
-      output_to_input_aliases,
-      kernel_inputs,
-      options_.device,
-      expr_eval);
 }
 
 std::vector<FusionExecutor::GlobalBufferInfo> FusionExecutor::
@@ -1351,18 +1324,18 @@ void dumpFusionArgs(
     const LaunchParams& launch_constraints,
     const CompileParams& compile_params,
     const std::vector<at::Tensor>& outputs) {
-  std::cout << "Arguments for fusion" << fusion_id << ":" << std::endl
-            << "Inputs:" << std::endl;
+  debug() << "Arguments for fusion" << fusion_id << ":" << std::endl
+          << "Inputs:" << std::endl;
   for (auto i : c10::irange(args.size())) {
-    std::cout << "  " << args[i]->toString() << std::endl;
+    debug() << "  " << args[i]->toString() << std::endl;
   }
-  std::cout << "Outputs:" << std::endl;
+  debug() << "Outputs:" << std::endl;
   for (const auto& output : outputs) {
-    std::cout << "  " << output.scalar_type() << " " << output.sizes()
-              << " (strides = " << output.strides() << ")" << std::endl;
+    debug() << "  " << output.scalar_type() << " " << output.sizes()
+            << " (strides = " << output.strides() << ")" << std::endl;
   }
-  std::cout << launch_constraints.toString();
-  std::cout << "maxrregcount= " << compile_params.maxrregcount << std::endl;
+  debug() << launch_constraints.toString();
+  debug() << "maxrregcount= " << compile_params.maxrregcount << std::endl;
 }
 
 // Dump arguments that are passed to a CUDA kernel call, which include
@@ -1377,24 +1350,24 @@ void dumpKernelArgs(
     const std::vector<at::Tensor>& allocated_outputs,
     const std::vector<at::Tensor>& intermediates,
     const std::vector<FusionExecutor::GlobalBufferInfo>& intermediates_info) {
-  std::cout << "Arguments for kernel" << fusion_id << ":" << std::endl
-            << "Inputs:" << std::endl;
+  debug() << "Arguments for kernel" << fusion_id << ":" << std::endl
+          << "Inputs:" << std::endl;
   for (auto i : c10::irange(num_inputs)) {
-    std::cout << "  " << args[i]->toString() << std::endl;
+    debug() << "  " << args[i]->toString() << std::endl;
   }
-  std::cout << "Outputs:" << std::endl;
+  debug() << "Outputs:" << std::endl;
   // note: add aliased outputs here.
   for (const auto& output : allocated_outputs) {
-    std::cout << "  " << output.scalar_type() << " " << output.sizes()
-              << " (strides = " << output.strides()
-              << ", address = " << output.data_ptr() << ")" << std::endl;
+    debug() << "  " << output.scalar_type() << " " << output.sizes()
+            << " (strides = " << output.strides()
+            << ", address = " << output.data_ptr() << ")" << std::endl;
   }
-  std::cout << "Intermediate global buffers:" << std::endl;
+  debug() << "Intermediate global buffers:" << std::endl;
   for (const auto i : c10::irange(intermediates.size())) {
     const auto& buffer = intermediates.at(i);
     const auto& zero_init = intermediates_info.at(i).zero_init;
-    std::cout << "  " << buffer.scalar_type() << " " << buffer.sizes()
-              << " is_zero_initialized: " << zero_init << std::endl;
+    debug() << "  " << buffer.scalar_type() << " " << buffer.sizes()
+            << " is_zero_initialized: " << zero_init << std::endl;
   }
 }
 
@@ -1457,23 +1430,11 @@ void FusionExecutor::initializeExecutorEntry(
 
   auto intermediates = getIntermediateBufferInfo(expr_eval);
 
-  uint64_t rand_offset = 0;
-  if (kernel()->summary().max_rng_offsets >= 0) {
-    // NOTE: this is how we map offset to PW kernels in order to have
-    // identical random number generator to match native PyTorch results.
-    // But it doesn't really work as it takes assumption how threads are
-    // binded but is not generally how we handle that in scheduler.
-    // Refer to `Philox` in generated kernel to understand how the mapping
-    // works.
-    rand_offset = (uint64_t)(kernel()->summary().max_rng_offsets + 1) * 4;
-  }
-
   // All information is gathered. Save it to ExecutorEntry
   executor_entry.launch_params = launch_params;
   executor_entry.output_to_input_aliases = output_to_input_aliases;
   executor_entry.outputs = output_info;
   executor_entry.intermediates = intermediates;
-  executor_entry.rand_offset = rand_offset;
   executor_entry.init = true;
 }
 
@@ -1573,27 +1534,6 @@ void FusionExecutor::resetCompiledKernelProperties() {
   static_smem_size_.reset();
 }
 
-std::vector<TensorView*> FusionExecutor::getTvsForKernelArguments() const {
-  std::vector<TensorView*> tvs;
-  for (auto val : kernel()->inputs()) {
-    tvs.emplace_back(dynamic_cast<TensorView*>(val));
-  }
-  for (auto val : kernel()->outputs()) {
-    tvs.emplace_back(dynamic_cast<TensorView*>(val));
-  }
-  for (auto alloc : kernel()->summary().global_allocations) {
-    auto tv = alloc->buffer()->as<TensorView>();
-    if (tv->isFusionOutput()) {
-      continue;
-    }
-    tvs.emplace_back(tv);
-  }
-  if (lowered_->kernel()->summary().max_rng_offsets >= 0) {
-    tvs.emplace_back(nullptr);
-  }
-  return tvs;
-}
-
 std::vector<at::Tensor> FusionExecutor::runFusion(
     KernelArgumentHolder& args,
     const LaunchParams& launch_constraints,
@@ -1643,9 +1583,16 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   // context manager to disable auto grad for `empty_cuda` calls later
   at::AutoDispatchBelowADInplaceOrView non_variable_type_mode;
 
+  ExpressionEvaluator expr_eval;
+  const auto& inputs = kernel()->inputs();
+
+  for (const auto i : c10::irange(inputs.size())) {
+    executor_utils::bindInputForExprEvaluation(
+        inputs.at(i), args[i], true, expr_eval);
+  }
+
   // only allocate outputs when not given
   if (outputs.empty()) {
-    auto expr_eval = executor_utils::bindInputs(args, lowered_->kernel());
     outputs = allocOutputs(
         kernel(),
         executor_entry->outputs,
@@ -1661,6 +1608,19 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
         " provided number of outputs does not match fusion output");
   }
   args.push(outputs);
+
+  for (const auto i : c10::irange(outputs.size())) {
+    auto output = kernel()->outputs()[i];
+    if (std::any_of(
+            kernel()->inputs().begin(),
+            kernel()->inputs().end(),
+            [&](const auto& in) { return in == output; })) {
+      // Skip trivially forwarded outputs because they are just placeholders
+      continue;
+    }
+    executor_utils::bindInputForExprEvaluation(
+        output, args[inputs.size() + i], true, expr_eval, false);
+  }
 
   std::vector<at::Tensor> intermediates;
   at::Tensor profile_buffer;
@@ -1686,15 +1646,23 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
       }
       args.push(intermediate_buffer);
       intermediates.push_back(intermediate_buffer);
+      executor_utils::bindInputForExprEvaluation(
+          kernel()->summary().global_allocations.at(i)->buffer(),
+          args[inputs.size() + outputs.size() + i],
+          true,
+          expr_eval,
+          false);
       if (buf_info.is_profile_buffer) {
         profile_buffer = intermediate_buffer;
       }
     }
   }
 
-  // push back RNG state if needed
-  if (lowered_->kernel()->summary().max_rng_offsets >= 0) {
-    args.appendPhiloxRNGSeed(executor_entry->rand_offset);
+  std::vector<std::vector<std::byte>> arg_buffers;
+  arg_buffers.reserve(kernel()->parameters().size());
+  for (auto v : kernel()->parameters()) {
+    arg_buffers.emplace_back(
+        getKernelArgument(expr_eval, v, kernel()->indexType()));
   }
 
   if (isDebugDumpEnabled(DebugDumpOption::LaunchParam)) {
@@ -1712,7 +1680,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   }
 
   if (isDebugDumpEnabled(DebugDumpOption::IndexType)) {
-    std::cout << "Index type: " << kernel()->indexType() << std::endl;
+    debug() << "Index type: " << kernel()->indexType() << std::endl;
   }
 
   const bool measure_kernel_time = measure_kernel_time_ ||
@@ -1727,9 +1695,12 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
 
   if (execute_kernel_) {
     ensureAvailableDynamicSmemSize(executor_entry->launch_params.smem());
-    auto ee = executor_utils::bindInputs(args, kernel());
-    auto arg_buffer =
-        args.getBuffer(kernel()->indexType(), getTvsForKernelArguments(), ee);
+
+    std::vector<void*> arg_buffer_ptrs;
+    arg_buffer_ptrs.reserve(arg_buffers.size());
+    for (auto& arg_buffer : arg_buffers) {
+      arg_buffer_ptrs.push_back(arg_buffer.data());
+    }
 
     if (isDebugDumpEnabled(DebugDumpOption::Occupancy) ||
         isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
@@ -1749,9 +1720,9 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
       const float occupancy = (float)warps_per_sm / (float)hw_max_warps * 100.f;
       std::ostringstream oss;
       oss << std::fixed << std::setprecision(2) << occupancy << "%";
-      std::cout << "blocks_per_sm= " << blocks_per_sm
-                << ", warps_per_sm= " << warps_per_sm
-                << ", occupancy= " << oss.str() << std::endl;
+      debug() << "blocks_per_sm= " << blocks_per_sm
+              << ", warps_per_sm= " << warps_per_sm
+              << ", occupancy= " << oss.str() << std::endl;
     }
 
     if (measure_kernel_time) {
@@ -1770,7 +1741,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
           launch_params_.bdimz(),
           launch_params_.smem(),
           stream,
-          arg_buffer,
+          arg_buffer_ptrs.data(),
           nullptr));
     } else {
       FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchCooperativeKernel");
@@ -1784,7 +1755,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
           launch_params_.bdimz(),
           launch_params_.smem(),
           stream,
-          arg_buffer));
+          arg_buffer_ptrs.data()));
     }
 
     if (measure_kernel_time) {
@@ -1813,14 +1784,14 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
         double gb_per_s =
             ((double)bytesProcessed() / ((double)kernel_time_ms_ / 1000)) /
             (double)1.0e9;
-        std::cout << "kernel" << fusion_id_ << " run in " << kernel_time_ms_
-                  << " ms, achieved: " << gb_per_s << " GB/s" << std::endl;
+        debug() << "kernel" << fusion_id_ << " run in " << kernel_time_ms_
+                << " ms, achieved: " << gb_per_s << " GB/s" << std::endl;
       }
     }
   }
 
   if (isOptionEnabled(EnableOption::KernelProfile)) {
-    std::cout << kernel()->profile().toString(profile_buffer);
+    debug() << kernel()->profile().toString(profile_buffer);
   }
 
   return outputs;
@@ -1863,13 +1834,26 @@ float FusionExecutor::runRtc(
   NVFUSER_CUDA_RT_SAFE_CALL(cudaEventCreate(&start_event));
   NVFUSER_CUDA_RT_SAFE_CALL(cudaEventCreate(&finish_event));
 
-  KernelArgumentHolder kernel_arguments;
-  kernel_arguments.push(args);
-
   NVFUSER_CUDA_RT_SAFE_CALL(cudaEventRecord(start_event, stream));
 
-  ExpressionEvaluator ee;
-  std::vector<TensorView*> tvs(args.size(), nullptr);
+  std::vector<std::vector<std::byte>> data;
+  std::vector<void*> pointers;
+
+  for (const auto& input : args) {
+    DataType metadata_type = globalTensorMetaData(
+        aten_to_data_type(input.scalar_type()), input.dim());
+
+    Struct<PolymorphicValue> concrete_value;
+    concrete_value["data"] = PolymorphicValue(
+        Pointer(input.data_ptr(), aten_to_data_type(input.scalar_type())));
+    concrete_value["logical_size"] = PolymorphicValue(input.sizes().vec());
+    concrete_value["alloc_stride"] = PolymorphicValue(input.strides().vec());
+
+    data.emplace_back(
+        polymorphicValueToBytes(concrete_value, metadata_type, index_type));
+    pointers.emplace_back(data.back().data());
+  }
+
   NVFUSER_CUDA_SAFE_CALL(cuLaunchKernel(
       compiled_kernel_.function,
       launch_params.gdimx(),
@@ -1880,7 +1864,7 @@ float FusionExecutor::runRtc(
       launch_params.bdimz(),
       launch_params.smem(),
       stream,
-      kernel_arguments.getBuffer(index_type, tvs, ee),
+      pointers.data(),
       nullptr));
 
   NVFUSER_CUDA_RT_SAFE_CALL(cudaEventRecord(finish_event, stream));

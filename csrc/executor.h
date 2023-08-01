@@ -133,7 +133,6 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
     std::vector<GlobalBufferInfo> outputs;
     // Temporary work buffers and intemediate global-memory tensors
     std::vector<GlobalBufferInfo> intermediates;
-    uint64_t rand_offset = 0;
   };
 
   using ExecutorCompileTimeInfoCache =
@@ -279,12 +278,6 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
     disable_parameter_cache_ = true;
   }
 
-  //! Used in distributed setting where we only want to
-  //!  allocate output space and receive output data from
-  //!  a different rank instead of computing them.
-  std::vector<at::Tensor> allocOutputSpace(
-      const at::ArrayRef<c10::IValue>& inputs);
-
   //! Compute the number of elements loaded for input at given position.
   //!
   //! Most of the time, this returns arg.numel(). However, some ops like select
@@ -368,12 +361,6 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
 
   //! Clear the cached properties of the compiled kernel
   void resetCompiledKernelProperties();
-
-  //! Get the corresponding TensorViews for each argument of the kernel.
-  //! If the corresponding argument is not a tensor, use nullptr as placeholder.
-  //! Right now, kernel arguments are in the following order:
-  //! inputs, outputs, intermediates, philox
-  std::vector<TensorView*> getTvsForKernelArguments() const;
 
  private:
   CompileOptions options_;

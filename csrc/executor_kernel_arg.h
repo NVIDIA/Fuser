@@ -8,21 +8,21 @@
 #pragma once
 
 #include <ATen/core/ivalue.h>
-#include <ATen/cuda/CUDAGeneratorImpl.h>
 #include <c10/util/Exception.h>
 #include <expr_evaluator.h>
 #include <ir/all_nodes.h>
 #include <torch/csrc/jit/ir/ir.h>
 #include <type.h>
+
 #include <array>
 #include <cstddef>
 #include <optional>
+#include <vector>
 
 namespace nvfuser {
 
 // TODO: macro this and the printer below
 enum class ArgType {
-  PhiloxCudaState,
   Long,
   Double,
   ComplexDouble,
@@ -34,9 +34,6 @@ enum class ArgType {
 inline std::string argTypeToString(ArgType type) {
   std::string ret;
   switch (type) {
-    case ArgType::PhiloxCudaState:
-      ret = "PhiloxCudaState";
-      break;
     case ArgType::Long:
       ret = "Long";
       break;
@@ -115,6 +112,7 @@ struct TensorArgCodegen<0, 0, nvfuser_index_t> {
   }
 };
 
+// TODO: remove this
 struct ArgAbstract {
   virtual ~ArgAbstract() = default;
   virtual const void* arg() const = 0;
@@ -127,6 +125,7 @@ struct ArgAbstract {
   };
 };
 
+// TODO: remove this
 #define DEF_HELPEE_FUNC(TARGET_TYPE, ARG_NAME)          \
   bool isType(ArgType type) const override {            \
     return ArgType::TARGET_TYPE == type;                \
@@ -144,6 +143,7 @@ struct ArgAbstract {
     return std::make_unique<TARGET_TYPE##Arg>(*this);   \
   }
 
+// TODO: remove this
 #define DEF_TOSTRING_FUNC                 \
   std::string toString() const override { \
     std::stringstream ss;                 \
@@ -151,12 +151,7 @@ struct ArgAbstract {
     return ss.str();                      \
   }
 
-struct PhiloxCudaStateArg : public ArgAbstract {
-  at::PhiloxCudaState val_;
-  PhiloxCudaStateArg(at::PhiloxCudaState _val) : val_(_val){};
-  DEF_HELPEE_FUNC(PhiloxCudaState, val_)
-};
-
+// TODO: remove this
 struct LongArg : public ArgAbstract {
   int64_t val_;
   explicit LongArg(int64_t _val) : val_(_val) {}
@@ -164,6 +159,7 @@ struct LongArg : public ArgAbstract {
   DEF_TOSTRING_FUNC
 };
 
+// TODO: remove this
 struct DoubleArg : public ArgAbstract {
   double val_;
   explicit DoubleArg(double _val) : val_(_val) {}
@@ -171,6 +167,7 @@ struct DoubleArg : public ArgAbstract {
   DEF_TOSTRING_FUNC
 };
 
+// TODO: remove this
 struct ComplexDoubleArg : public ArgAbstract {
   c10::complex<double> val_;
   explicit ComplexDoubleArg(c10::complex<double> _val) : val_(_val) {}
@@ -178,6 +175,7 @@ struct ComplexDoubleArg : public ArgAbstract {
   DEF_TOSTRING_FUNC
 };
 
+// TODO: remove this
 struct BoolArg : public ArgAbstract {
   bool val_;
   explicit BoolArg(bool _val) : val_(_val) {}
@@ -185,6 +183,7 @@ struct BoolArg : public ArgAbstract {
   DEF_TOSTRING_FUNC
 };
 
+// TODO: remove this
 struct TensorArgAbstract : ArgAbstract {
   at::Tensor tensor_;
 
@@ -259,6 +258,10 @@ struct TensorArgAbstract : ArgAbstract {
     TORCH_INTERNAL_ASSERT(false, "Abstract tensor arg does not have arg");
   }
 
+  virtual size_t argSize() const {
+    TORCH_INTERNAL_ASSERT(false, "Abstract tensor arg does not have arg");
+  }
+
   std::string toString() const override {
     std::stringstream ss;
     auto rank = getRank();
@@ -275,12 +278,7 @@ struct TensorArgAbstract : ArgAbstract {
   }
 };
 
-std::vector<std::pair<int64_t, int64_t>>
-inferAndValidateAllocationSizesAndStrides(
-    const at::Tensor& tensor,
-    TensorView* tv,
-    ExpressionEvaluator& ee);
-
+// TODO: remove this
 template <typename TENSOR_TYPE>
 struct TensorArg : public TensorArgAbstract {
   TENSOR_TYPE instance_;
@@ -291,22 +289,6 @@ struct TensorArg : public TensorArgAbstract {
     instance_.data = tensor.data_ptr();
     for (const auto i : c10::irange(tensor.ndimension())) {
       instance_.setSize(i, (typename TENSOR_TYPE::index_type)tensor.size(i));
-    }
-    inferSetAndValidateStrides(tensor, tv, eval);
-  }
-
-  void inferSetAndValidateStrides(
-      const at::Tensor& tensor,
-      TensorView* tv,
-      ExpressionEvaluator& eval) {
-    auto sizes_strides =
-        inferAndValidateAllocationSizesAndStrides(tensor, tv, eval);
-    TORCH_INTERNAL_ASSERT(
-        (size_t)instance_.nAllocationDims() == sizes_strides.size());
-    for (auto i : c10::irange((int64_t)sizes_strides.size())) {
-      alloc_sizes.at(i) = sizes_strides.at(i).first;
-      using stride_t = typename TENSOR_TYPE::index_type;
-      instance_.setStride(i, (stride_t)sizes_strides.at(i).second);
     }
   }
 
@@ -330,6 +312,10 @@ struct TensorArg : public TensorArgAbstract {
   //! Returns the address of an tensor argument struct.
   void* arg() override {
     return &instance_;
+  }
+
+  size_t argSize() const override {
+    return sizeof(TENSOR_TYPE);
   }
 
   bool isAbstract() const override {
@@ -360,13 +346,18 @@ struct TensorArg : public TensorArgAbstract {
   }
 };
 
+// TODO: remove this
 template <size_t size>
 struct CpuScalarTensorArg : public ArgAbstract {
   std::array<std::byte, size> instance_;
+  at::Tensor tensor_;
   DEF_HELPEE_FUNC(CpuScalarTensor, instance_)
+
+  at::Tensor getTensor() const {
+    return tensor_;
+  }
 };
 
-// TODO: This class needs some further clean up and refactor
 //! KernelArgumentHolder copies meta information from kernel inputs, including
 //! tensor sizes/shapes/dtype/memory_ptr and copies scalar inputs. It is used
 //! for both compilation as well as kernel execution. The important thing is to
@@ -414,8 +405,6 @@ class TORCH_CUDA_CU_API KernelArgumentHolder {
   // Push a scalar or integer to the arguments
   void push(const c10::IValue& val);
 
-  void push(const at::PhiloxCudaState& val);
-
   // Create a buffer, flatten arguments into it, align by 8 Bytes, return
   // pointers in the buffer. Tensor arguments are passed with the given index
   // type.
@@ -440,8 +429,6 @@ class TORCH_CUDA_CU_API KernelArgumentHolder {
   const ArgAbstract* back() const {
     return arguments_.back().get();
   }
-
-  void appendPhiloxRNGSeed(uint64_t rand_offset);
 
   const ArgAbstract* at(size_t ind) const {
     return arguments_.at(ind).get();
@@ -484,5 +471,15 @@ class TORCH_CUDA_CU_API KernelArgumentHolder {
   int8_t device_index_ = 0;
   std::optional<size_t> cache_id_ = std::nullopt;
 };
+
+std::vector<std::byte> polymorphicValueToBytes(
+    const PolymorphicValue& argument,
+    const DataType& dtype,
+    PrimDataType index_type);
+
+std::vector<std::byte> getKernelArgument(
+    ExpressionEvaluator& ee,
+    Val* parameter,
+    PrimDataType index_type);
 
 } // namespace nvfuser

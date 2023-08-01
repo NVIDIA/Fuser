@@ -1,55 +1,25 @@
-// clang-format off
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION & AFFILIATES.
- * All rights reserved.
- * SPDX-License-Identifier: BSD-3-Clause
- */
-// clang-format on
 TEST_F(NVFuserTest, FusionGeneratedTest_CUDA) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   auto fusion = fusion_ptr.get();
   FusionGuard fg(fusion);
 
   {
-    auto tv0 = TensorViewBuilder()
-                   .ndims(1)
-                   .shape({-1})
-                   .contiguity({true})
-                   .dtype(DataType::Float)
-                   .build();
+    auto tv0 = TensorViewBuilder().ndims(1).shape({-1}).contiguity({true}).dtype(DataType::Float).build();
     fusion->addInput(tv0);
-    auto tv1 = TensorViewBuilder()
-                   .ndims(1)
-                   .shape({-1})
-                   .contiguity({true})
-                   .dtype(DataType::Float)
-                   .build();
+    auto tv1 = TensorViewBuilder().ndims(1).shape({-1}).contiguity({true}).dtype(DataType::Float).build();
     fusion->addInput(tv1);
-    auto tv2 = TensorViewBuilder()
-                   .ndims(2)
-                   .shape({-1, -1})
-                   .contiguity({true, true})
-                   .dtype(DataType::Half)
-                   .build();
+    auto tv2 = TensorViewBuilder().ndims(2).shape({-1, -1}).contiguity({true, true}).dtype(DataType::Half).build();
     fusion->addInput(tv2);
-    auto tv3 = expand(
-        broadcast(tv0, {true, true, false}),
-        {IrBuilder::create<Int>(1),
-         IrBuilder::create<Int>(1024),
-         IrBuilder::create<Int>(768)});
-    auto tv4 = expand(
-        broadcast(tv1, {true, true, false}),
-        {IrBuilder::create<Int>(1),
-         IrBuilder::create<Int>(1024),
-         IrBuilder::create<Int>(768)});
+    auto tv3 = expand(broadcast(tv0, {true, true, false}), {IrBuilder::create<Val>(1), IrBuilder::create<Val>(1024), IrBuilder::create<Val>(768)});
+    auto tv4 = expand(broadcast(tv1, {true, true, false}), {IrBuilder::create<Val>(1), IrBuilder::create<Val>(1024), IrBuilder::create<Val>(768)});
     auto tv5 = view(tv2, {1024, 768}, {1, 1024, 768});
     auto tv6 = castOp(DataType::Float, tv5);
-    auto s7 = IrBuilder::create<Double>(0.5);
+    auto s7 = IrBuilder::create<Val>(0.5);
     auto tv8 = mul(tv6, s7);
-    auto s9 = IrBuilder::create<Double>(0.707107);
+    auto s9 = IrBuilder::create<Val>(0.707107);
     auto tv10 = mul(tv6, s9);
     auto tv11 = erf(tv10);
-    auto s12 = IrBuilder::create<Double>(1.0);
+    auto s12 = IrBuilder::create<Val>(1.0);
     auto tv13 = add(tv11, s12);
     auto tv14 = mul(tv8, tv13);
     auto tv15 = castOp(DataType::Half, tv14);
@@ -57,30 +27,14 @@ TEST_F(NVFuserTest, FusionGeneratedTest_CUDA) {
     auto tv17_tv18 = variance_mean(tv16, {2}, 0, false);
     auto tv17 = std::get<0>(tv17_tv18);
     auto tv18 = std::get<1>(tv17_tv18);
-    auto tv19 = expand(
-        broadcast(tv17, {false, false, true}),
-        {IrBuilder::create<Int>(1),
-         IrBuilder::create<Int>(1024),
-         IrBuilder::create<Int>(1)});
-    auto tv20 = expand(
-        broadcast(tv18, {false, false, true}),
-        {IrBuilder::create<Int>(1),
-         IrBuilder::create<Int>(1024),
-         IrBuilder::create<Int>(1)});
-    auto s21 = IrBuilder::create<Double>(1e-05);
+    auto tv19 = expand(broadcast(tv17, {false, false, true}), {IrBuilder::create<Val>(1), IrBuilder::create<Val>(1024), IrBuilder::create<Val>(1)});
+    auto tv20 = expand(broadcast(tv18, {false, false, true}), {IrBuilder::create<Val>(1), IrBuilder::create<Val>(1024), IrBuilder::create<Val>(1)});
+    auto s21 = IrBuilder::create<Val>(1e-05);
     auto tv22 = add(tv19, s21);
-    auto tv23 = expand(
-        broadcast(tv20, {false, false, false}),
-        {IrBuilder::create<Int>(1),
-         IrBuilder::create<Int>(1024),
-         IrBuilder::create<Int>(768)});
+    auto tv23 = expand(broadcast(tv20, {false, false, false}), {IrBuilder::create<Val>(1), IrBuilder::create<Val>(1024), IrBuilder::create<Val>(768)});
     auto tv24 = rsqrt(tv22);
     auto tv25 = sub(tv16, tv23);
-    auto tv26 = expand(
-        broadcast(tv24, {false, false, false}),
-        {IrBuilder::create<Int>(1),
-         IrBuilder::create<Int>(1024),
-         IrBuilder::create<Int>(768)});
+    auto tv26 = expand(broadcast(tv24, {false, false, false}), {IrBuilder::create<Val>(1), IrBuilder::create<Val>(1024), IrBuilder::create<Val>(768)});
     auto tv27 = mul(tv25, tv26);
     auto tv28 = mul(tv27, tv3);
     auto tv29 = add(tv28, tv4);
@@ -99,11 +53,11 @@ TEST_F(NVFuserTest, FusionGeneratedTest_CUDA) {
   std::vector<Tensor> outputs;
 
   {
-    auto t0 = at::randn({768}, options);
+    auto t0 = at::randn({-1}, options);
     inputs.push_back(t0);
-    auto t1 = at::randn({768}, options);
+    auto t1 = at::randn({-1}, options);
     inputs.push_back(t1);
-    auto t2 = at::randn({1024, 768}, options).to(ScalarType::Half);
+    auto t2 = at::randn({-1, -1}, options).to(ScalarType::Half);
     inputs.push_back(t2);
     auto t3 = t0.unsqueeze(0).unsqueeze(1).expand({1, 1024, 768});
     auto t4 = t1.unsqueeze(0).unsqueeze(1).expand({1, 1024, 768});

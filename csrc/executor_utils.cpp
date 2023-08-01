@@ -12,6 +12,7 @@
 #include <c10/util/irange.h>
 
 #include <contiguity.h>
+#include <debug.h>
 #include <executor_utils.h>
 #include <instrumentation.h>
 #include <ir/all_nodes.h>
@@ -23,10 +24,10 @@
 #include <utils.h>
 
 #include <cuda_occupancy.h>
-#include <nvfuser_resources/PhiloxCudaStateRaw.h>
 #include <nvfuser_resources/array.h>
 #include <nvfuser_resources/basic_type_traits.h>
 #include <nvfuser_resources/bf16_support.h>
+#include <nvfuser_resources/bit.h>
 #include <nvfuser_resources/block_reduction.h>
 #include <nvfuser_resources/block_sync_atomic.h>
 #include <nvfuser_resources/block_sync_default.h>
@@ -64,15 +65,16 @@ namespace executor_utils {
 std::string kernelPreamble() {
   std::stringstream ss;
   ss << nvfuser_resources::basic_type_traits_cu;
+  ss << nvfuser_resources::bit_cu;
   ss << nvfuser_resources::complex_number_cu;
 
   ss << nvfuser_resources::fp16_support_cu;
   ss << nvfuser_resources::bf16_support_cu;
 
   // Base classes and helpers
-  ss << nvfuser_resources::tensor_cu;
   ss << nvfuser_resources::type_traits_cu;
   ss << nvfuser_resources::array_cu;
+  ss << nvfuser_resources::tensor_cu;
   ss << nvfuser_resources::random_numbers_cu;
   ss << nvfuser_resources::helpers_cu;
   ss << nvfuser_resources::index_utils_cu;
@@ -100,9 +102,6 @@ std::string kernelPreamble() {
   ss << nvfuser_resources::fused_welford_impl_cu;
   ss << nvfuser_resources::block_welford_outer_cu;
   ss << nvfuser_resources::fused_welford_impl_outer_cu;
-
-  // Random utilities
-  ss << nvfuser_resources::PhiloxCudaStateRaw_cu;
 
   return ss.str();
 }
@@ -611,10 +610,10 @@ void validateAlignedVectorizeExtents(
 void validateAlignedVectorizedFusionInputOutput(
     const at::Tensor& aten_tensor,
     int word_size,
-    TensorView* tv) {
-  ExpressionEvaluator eval;
-  auto sizes_strides =
-      inferAndValidateAllocationSizesAndStrides(aten_tensor, tv, eval);
+    TensorView* tv,
+    ExpressionEvaluator eval) {
+  eval.bind(tv, aten_tensor);
+  auto metadata = eval.evaluate(IrBuilder::metadataExpr(tv));
 
   std::vector<int64_t> no_reduction_to_full;
   for (int64_t i :
@@ -624,7 +623,11 @@ void validateAlignedVectorizedFusionInputOutput(
       no_reduction_to_full.emplace_back(i);
     }
   }
-  TORCH_INTERNAL_ASSERT(sizes_strides.size() == no_reduction_to_full.size());
+
+  auto sizes = std::vector<int64_t>(metadata["alloc_size"]);
+  auto strides = std::vector<int64_t>(metadata["alloc_stride"]);
+  TORCH_INTERNAL_ASSERT(sizes.size() == no_reduction_to_full.size());
+  TORCH_INTERNAL_ASSERT(strides.size() == no_reduction_to_full.size());
 
   TORCH_INTERNAL_ASSERT(
       reinterpret_cast<size_t>(aten_tensor.data_ptr()) %
@@ -644,8 +647,9 @@ void validateAlignedVectorizedFusionInputOutput(
   // domain must have stride 1.
   int64_t cur_contig_stride = 1;
   bool still_rightmost = true;
-  for (int64_t i = (int64_t)sizes_strides.size() - 1; i >= 0; --i) {
-    const auto [size, stride] = sizes_strides.at(i);
+  for (int64_t i = (int64_t)sizes.size() - 1; i >= 0; --i) {
+    const auto size = sizes.at(i);
+    const auto stride = strides.at(i);
     auto alloc_id =
         tv->getMaybeAllocationDomain().at(no_reduction_to_full.at(i));
     const auto is_expanded_broadcasting =
@@ -674,7 +678,9 @@ void validateAlignedVectorizedFusionInputOutput(
         " Domain: ",
         tv->axis(i)->toString(),
         ", stride: ",
-        stride)
+        stride,
+        ", cur_contig_stride ",
+        cur_contig_stride);
     // If the domain is size-1, the next domain is still considered
     // rightmost.
     still_rightmost =
@@ -718,14 +724,15 @@ void validateAlignedVectorizedTensors(
         dynamic_cast<const TensorArgAbstract*>(args[pos]);
     TORCH_INTERNAL_ASSERT(tensor_arg_abstract, "alias io only supports tensor");
     validateAlignedVectorizedFusionInputOutput(
-        tensor_arg_abstract->getTensor(), word_size, tv);
+        tensor_arg_abstract->getTensor(), word_size, tv, expr_eval);
   }
   if (!outputs.empty()) {
     for (auto pos : tensor_vectorization_validation_entry.get()
                         .aligned_vectorized_out_tensor_pos) {
       auto tv = kernel->outputs().at(pos)->as<TensorView>();
       auto word_size = kernel->summary().vectorized_accesses.at(tv);
-      validateAlignedVectorizedFusionInputOutput(outputs[pos], word_size, tv);
+      validateAlignedVectorizedFusionInputOutput(
+          outputs[pos], word_size, tv, expr_eval);
     }
   }
 }
@@ -822,15 +829,42 @@ void validateVectorizedTensors(
   validateVectorizedSplits(kernel, expr_eval);
 }
 
-namespace {
-
 void bindInputForExprEvaluation(
     Val* val,
     const ArgAbstract* arg,
     bool check_consistency,
-    ExpressionEvaluator& expr_eval) {
+    ExpressionEvaluator& expr_eval,
+    bool legacy) {
+  TORCH_INTERNAL_ASSERT(val != nullptr);
   if (val->getValType() == ValType::TensorView) {
     TensorView* cg_tensor = val->as<TensorView>();
+    auto tensor_arg_abstract = dynamic_cast<const TensorArgAbstract*>(arg);
+    if (tensor_arg_abstract != nullptr) {
+      expr_eval.bind(cg_tensor, tensor_arg_abstract->getTensor());
+    }
+    // TODO: clean this up
+    if (auto arg_ = dynamic_cast<const CpuScalarTensorArg<1>*>(arg)) {
+      expr_eval.bind(cg_tensor, arg_->getTensor());
+    }
+    if (auto arg_ = dynamic_cast<const CpuScalarTensorArg<2>*>(arg)) {
+      expr_eval.bind(cg_tensor, arg_->getTensor());
+    }
+    if (auto arg_ = dynamic_cast<const CpuScalarTensorArg<4>*>(arg)) {
+      expr_eval.bind(cg_tensor, arg_->getTensor());
+    }
+    if (auto arg_ = dynamic_cast<const CpuScalarTensorArg<8>*>(arg)) {
+      expr_eval.bind(cg_tensor, arg_->getTensor());
+    }
+    if (auto arg_ = dynamic_cast<const CpuScalarTensorArg<16>*>(arg)) {
+      expr_eval.bind(cg_tensor, arg_->getTensor());
+    }
+
+#if 1
+    if (!legacy) {
+      return;
+    }
+
+    // Legacy code. To be removed in the future
     auto root_domain =
         TensorDomain::noReductions(cg_tensor->getMaybeRFactorDomain());
 
@@ -895,7 +929,8 @@ void bindInputForExprEvaluation(
         }
       }
     }
-  } else if (val->getValType().value() == ValType::Scalar) {
+#endif
+  } else if (val->getValType().value() == ValType::Others) {
     if (val->getDataType().value() == DataType::Int) {
       TORCH_INTERNAL_ASSERT(
           arg->isType(ArgType::Long),
@@ -908,11 +943,16 @@ void bindInputForExprEvaluation(
           "fusion expected Scalar Double inputs, but found ",
           argTypeToString(arg->type()));
       expr_eval.bind(val, *static_cast<const double*>(arg->arg()));
+    } else if (val->getDataType().value() == DataType::ComplexDouble) {
+      TORCH_INTERNAL_ASSERT(
+          arg->isType(ArgType::ComplexDouble),
+          "fusion expected Scalar ComplexDouble inputs, but found ",
+          argTypeToString(arg->type()));
+      expr_eval.bind(
+          val, *static_cast<const std::complex<double>*>(arg->arg()));
     }
   }
 }
-
-} // namespace
 
 ExpressionEvaluator bindInputs(
     const KernelArgumentHolder& args,
@@ -978,7 +1018,7 @@ void dumpCompiledCodeToFile(
   std::stringstream file_name;
   file_name << "__tmp_kernel" << fusion_id << "."
             << (dump_cubin ? "cubin" : "ptx");
-  std::cout << "PRINTING: " << file_name.str() << std::endl;
+  debug() << "PRINTING: " << file_name.str() << std::endl;
   std::ofstream out(file_name.str());
   TORCH_INTERNAL_ASSERT(out.is_open());
   out.write(code.data(), (std::streamsize)code.size());
@@ -1065,7 +1105,7 @@ class NvrtcCompileDriver {
           false, src, "\nCUDA NVRTC compile error: ", log_buf);
     }
     if (isDebugDumpEnabled(DebugDumpOption::PrintPtxasLog)) {
-      std::cout << log_buf << std::endl;
+      debug() << log_buf << std::endl;
     }
     return std::string(log_buf);
   }
@@ -1120,7 +1160,7 @@ class CuModuleLoadDataDriver {
         &module, image, opts.size(), opts.data(), opt_vals.data()));
 
     if (logging_enabled_) {
-      std::cout << log_ << std::endl;
+      debug() << log_ << std::endl;
     }
 
     return log_;
@@ -1298,15 +1338,14 @@ void warnRegisterSpill(const std::string& compile_log) {
       try {
         allowed_spill = std::stoi(optionArgs[0]);
       } catch (const std::exception& e) {
-        std::cout << "skip invalid argument for WarnRegisterSpill, arg = "
-                  << optionArgs[0] << std::endl;
+        debug() << "skip invalid argument for WarnRegisterSpill, arg = "
+                << optionArgs[0] << std::endl;
       }
     }
   }
   if (stack_count > allowed_spill || store_count > allowed_spill ||
       load_count > allowed_spill) {
-    std::cout << "WARNING: Register spill detected\n"
-              << compile_log << std::endl;
+    debug() << "WARNING: Register spill detected\n" << compile_log << std::endl;
   }
 }
 

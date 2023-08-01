@@ -7,6 +7,7 @@
 // clang-format on
 #include <scheduler/pointwise.h>
 
+#include <debug.h>
 #include <device_lower/utils.h>
 #include <executor_utils.h>
 #include <inlining.h>
@@ -348,7 +349,7 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
   params->unroll_factor = 1;
 
   const auto vectorize_factor = std::min(
-      static_cast<size_t>(max_unroll_factor),
+      max_unroll_factor,
       vectorize_helper::getVectorizationFactor(
           runtime_info, largest_out, data_cache, break_point));
 
@@ -377,21 +378,21 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
   }
 
   if (isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
-    std::cerr << "\n===== Pointwise Stats ========\n"
-              << "num_elems: " << n_elems << "\n"
-              << "elem_counts: " << elem_counts << "\n"
-              << "max_input_dtype_size: " << max_input_dtype_size << "\n"
-              << "vectorize_factor: " << vectorize_factor << std::endl;
-    std::cerr << "broadcast_byte_multiples: ";
+    debug() << "\n===== Pointwise Stats ========\n"
+            << "num_elems: " << n_elems << "\n"
+            << "elem_counts: " << elem_counts << "\n"
+            << "max_input_dtype_size: " << max_input_dtype_size << "\n"
+            << "vectorize_factor: " << vectorize_factor << std::endl;
+    debug() << "broadcast_byte_multiples: ";
     for (auto multiple : broadcast_byte_multiples) {
-      std::cerr << "(" << multiple.lhs_multiple << ", " << multiple.rhs_multiple
-                << "), ";
+      debug() << "(" << multiple.lhs_multiple << ", " << multiple.rhs_multiple
+              << "), ";
     }
-    std::cerr << "LHS elems: "
-              << (right_elem_count > 0 ? n_elems / right_elem_count : 0)
-              << " RHS elems: " << right_elem_count << std::endl;
-    std::cerr << std::endl;
-    std::cerr << params->toString() << std::endl;
+    debug() << "LHS elems: "
+            << (right_elem_count > 0 ? n_elems / right_elem_count : 0)
+            << " RHS elems: " << right_elem_count << std::endl;
+    debug() << std::endl;
+    debug() << params->toString() << std::endl;
   }
 
   return params;
