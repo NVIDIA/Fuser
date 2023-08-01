@@ -1296,9 +1296,7 @@ class NoOpScheduler : public SchedulerEntry {
   }
 
   //! Check if the no-op heuristics apply in given fusion
-  static bool canScheduleCompileTime(
-      Fusion* fusion,
-      const bool complete_fusion) {
+  static bool canScheduleCompileTime(Fusion* fusion) {
     if (fusion->isNoOp()) {
       return true;
     }
@@ -1379,9 +1377,7 @@ class ReductionScheduler : public SchedulerEntry {
   }
 
   //! Check if the reduction heuristics apply in given fusion
-  static bool canScheduleCompileTime(
-      Fusion* fusion,
-      const bool complete_fusion) {
+  static bool canScheduleCompileTime(Fusion* fusion) {
     // Needs at least one reduction to consider.
     if (ir_utils::getReductionOps(fusion).empty()) {
       scheduler_debug_utils::canScheduleRejectReason(
@@ -1558,9 +1554,7 @@ class TransposeScheduler : public SchedulerEntry {
     computeHeuristics(fusion, runtime_info, data_cache);
   }
 
-  static bool canScheduleCompileTime(
-      Fusion* fusion,
-      const bool complete_fusion) {
+  static bool canScheduleCompileTime(Fusion* fusion) {
     // Temporarily disallow view in transpose scheduler
     // TODO Add more testing before enabling
     auto view_tvs = scheduler_utils::getViewTVs(fusion);
@@ -1683,9 +1677,7 @@ class PointWiseScheduler : public SchedulerEntry {
     computeHeuristics(fusion, runtime_info, data_cache);
   }
 
-  static bool canScheduleCompileTime(
-      Fusion* fusion,
-      const bool complete_fusion) {
+  static bool canScheduleCompileTime(Fusion* fusion) {
     //   Currently using the same path as the scheduler
     // to eliminate mismatch between canSchedule and
     // schedule pointwise.
@@ -1744,7 +1736,7 @@ class PointWiseScheduler : public SchedulerEntry {
         HeuristicSummaryEntry<HeuristicCompileTime::CanScheduleTranspose>(
             data_cache, [fusion]() {
               return std::make_unique<bool>(
-                  TransposeScheduler::canScheduleCompileTime(fusion, true));
+                  TransposeScheduler::canScheduleCompileTime(fusion));
             });
     if (can_schedule_transpose_entry.get()) {
       auto reason =
@@ -1784,9 +1776,7 @@ class PersistentKernelScheduler : public SchedulerEntry {
     schedulePersistentKernel(fusion, reductionParams());
   }
 
-  static bool canScheduleCompileTime(
-      Fusion* fusion,
-      const bool complete_fusion) {
+  static bool canScheduleCompileTime(Fusion* fusion) {
     // Needs at least one reduction to consider.
     auto reduction_ops = ir_utils::getReductionOps(fusion);
     if (reduction_ops.empty()) {
@@ -1842,13 +1832,6 @@ class PersistentKernelScheduler : public SchedulerEntry {
     }
     bool combined_inner_outer =
         !inner_reduction_tvs.empty() && !outer_reduction_tvs.empty();
-
-    if (!complete_fusion && combined_inner_outer) {
-      scheduler_debug_utils::canScheduleRejectReason(
-          ScheduleHeuristic::Persistent,
-          "Combined inner and outer reduction is not efficient for segmented fusion! Should segment into inner reduction and outer reduction separately.");
-      return false;
-    }
 
     if (!checkReductionPattern(
             fusion, inner_reduction_tvs, outer_reduction_tvs)) {
@@ -2230,7 +2213,7 @@ class PersistentKernelScheduler : public SchedulerEntry {
           8 * 256 * buffer_per_element;
       // Check if registers can hold all persistent tensors.
       persistent_buffer_size =
-             persistent_buffer_size_roundup + additional_persistent_buffer_size;      
+          persistent_buffer_size_roundup + additional_persistent_buffer_size;
       if (scheduler_utils::register_file_size_combined >=
           persistent_buffer_size) {
         has_enough_regs_and_smem = true;
@@ -2246,9 +2229,12 @@ class PersistentKernelScheduler : public SchedulerEntry {
                 persistent_buffer_size_roundup;
         persistent_buffer_size = additional_persistent_buffer_size;
         std::cout << "buffer_per_element= " << buffer_per_element << std::endl;
-        std::cout << "available_shared_memory_buffer_size= " << available_shared_memory_buffer_size << std::endl;
-        std::cout << "persistent_buffer_size_roundup= " << persistent_buffer_size_roundup << std::endl;
-        std::cout << "has_enough_regs_and_smem= " << has_enough_regs_and_smem << std::endl;
+        std::cout << "available_shared_memory_buffer_size= "
+                  << available_shared_memory_buffer_size << std::endl;
+        std::cout << "persistent_buffer_size_roundup= "
+                  << persistent_buffer_size_roundup << std::endl;
+        std::cout << "has_enough_regs_and_smem= " << has_enough_regs_and_smem
+                  << std::endl;
       }
     } else if (inner_reduction_count > 0) {
       // inner reduction, allows both register and shared memory persistent
@@ -2484,9 +2470,7 @@ class MatmulScheduler : public SchedulerEntry {
     scheduleMatmul(fusion, matmulParams());
   }
 
-  static bool canScheduleCompileTime(
-      Fusion* fusion,
-      const bool complete_fusion) {
+  static bool canScheduleCompileTime(Fusion* fusion) {
     const auto msg = getMatmulCompileTimeRejectReason(fusion);
     if (!msg.empty()) {
       scheduler_debug_utils::canScheduleRejectReason(
@@ -2540,8 +2524,7 @@ template <typename SchedulerType>
 bool checkCanSchedule(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache = nullptr,
-    const bool complete_fusion = true) {
+    HeuristicSummary* data_cache = nullptr) {
   FusionGuard fg(fusion);
   // If a data cache is given, the compile time part doesn't need to be checked,
   // since for all current use cases
@@ -2554,7 +2537,7 @@ bool checkCanSchedule(
     if (IterDomainGraph(fusion, /*allow_self_mapping=*/true).hasSelfMapping()) {
       return false;
     }
-    if (!SchedulerType::canScheduleCompileTime(fusion, complete_fusion)) {
+    if (!SchedulerType::canScheduleCompileTime(fusion)) {
       return false;
     }
   }
@@ -2569,27 +2552,25 @@ bool SchedulerEntry::canSchedule(
     ScheduleHeuristic sh,
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
-    const bool complete_fusion,
     HeuristicSummary* data_cache) {
   switch (sh) {
     case ScheduleHeuristic::NoOp:
-      return checkCanSchedule<NoOpScheduler>(
-          fusion, runtime_info, data_cache, complete_fusion);
+      return checkCanSchedule<NoOpScheduler>(fusion, runtime_info, data_cache);
     case ScheduleHeuristic::PointWise:
       return checkCanSchedule<PointWiseScheduler>(
-          fusion, runtime_info, data_cache, complete_fusion);
+          fusion, runtime_info, data_cache);
     case ScheduleHeuristic::Reduction:
       return checkCanSchedule<ReductionScheduler>(
-          fusion, runtime_info, data_cache, complete_fusion);
+          fusion, runtime_info, data_cache);
     case ScheduleHeuristic::Persistent:
       return checkCanSchedule<PersistentKernelScheduler>(
-          fusion, runtime_info, data_cache, complete_fusion);
+          fusion, runtime_info, data_cache);
     case ScheduleHeuristic::Transpose:
       return checkCanSchedule<TransposeScheduler>(
-          fusion, runtime_info, data_cache, complete_fusion);
+          fusion, runtime_info, data_cache);
     case ScheduleHeuristic::Matmul:
       return checkCanSchedule<MatmulScheduler>(
-          fusion, runtime_info, data_cache, complete_fusion);
+          fusion, runtime_info, data_cache);
     default:
       TORCH_INTERNAL_ASSERT(false, "unreachable");
       return false;
@@ -2638,10 +2619,9 @@ std::unique_ptr<SchedulerEntry> SchedulerEntry::makeEntry(
 // Simply loop through the list as baseline strategy
 std::optional<ScheduleHeuristic> SchedulerEntry::proposeHeuristics(
     Fusion* fusion,
-    SchedulerRuntimeInfo& runtime_info,
-    const bool complete_fusion) {
+    SchedulerRuntimeInfo& runtime_info) {
   for (auto sh : all_heuristics()) {
-    if (canSchedule(sh, fusion, runtime_info, complete_fusion)) {
+    if (canSchedule(sh, fusion, runtime_info)) {
       scheduler_debug_utils::canScheduleMessage("***Accepted*** as: ", sh);
       return sh;
     }

@@ -159,7 +159,6 @@ class TORCH_CUDA_CU_API SchedulerEntry {
       ScheduleHeuristic sh,
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
-      const bool complete_fusion = true,
       HeuristicSummary* data_cache = nullptr);
 
   //! Fusion segmenter facing API,
@@ -167,8 +166,7 @@ class TORCH_CUDA_CU_API SchedulerEntry {
   //!   if no schedule in the registry can handle.
   static std::optional<ScheduleHeuristic> proposeHeuristics(
       Fusion* fusion,
-      SchedulerRuntimeInfo& runtime_info,
-      const bool complete_fusion);
+      SchedulerRuntimeInfo& runtime_info);
 
   //! Fusion runtime facing API,
   //!   schedule the given fusion with heuristics owned
