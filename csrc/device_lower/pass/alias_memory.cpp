@@ -1053,7 +1053,18 @@ class ReusableAllocationFinder : private kir::IrVisitor {
         }
 
         // Check if this alloc has the same data type
-        if (alloc_info->data_type != alloc_to_reuse->data_type) {
+        if (alloc_info->mem_type == MemoryType::Local &&
+            isOptionDisabled(DisableOption::ReuseMismatchedTypeRegisters)) {
+          // With this option, registers must have exactly matching dtypes in
+          // order to be re-used
+          if (alloc_info->data_type != alloc_to_reuse->data_type) {
+            continue;
+          }
+        } else if (
+            dataTypeSize(alloc_info->data_type) !=
+            dataTypeSize(alloc_to_reuse->data_type)) {
+          // Behavior for shared or global memory and default behavior for
+          // registers is to re-use if dtypes have same size.
           continue;
         }
 
