@@ -884,7 +884,7 @@ std::vector<at::Tensor> allocOutputs(
     // for kernel execution, so would need to push them to args
     if (alias_it != output_to_input_aliases.end()) {
       auto aliased_input_index = alias_it->second;
-      outputs.emplace_back(inputs[aliased_input_index]);
+      outputs.emplace_back(*inputs[aliased_input_index]);
     } else if (kernel->outputs().at(output_idx)->isFusionInput()) {
       // pushing empty tensor for trivial forwarding. Since we handle this in
       // integration, see step 1 - note [trivial forwarding]
@@ -1250,9 +1250,9 @@ KernelArgumentHolder FusionExecutor::inferOutputSizes(
   for (const auto& [aliased_output_index, aliased_input_index] :
        output_to_input_aliases) {
     TORCH_INTERNAL_ASSERT(
-        args[aliased_input_index].is<at::Tensor>(),
+        args[aliased_input_index]->is<at::Tensor>(),
         "alias io only supports tensor");
-    ret[aliased_output_index] = args[aliased_input_index];
+    *ret[aliased_output_index] = *args[aliased_input_index];
   }
   return ret;
 }
@@ -1750,10 +1750,10 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
       bytes_processed_ = 0;
       // Figure how many bytes are inputs, outputs, and temporary buffers
       for (auto i : c10::irange(num_inputs)) {
-        if (args[i].is<at::Tensor>()) {
-          bytes_processed_ += args[i].as<at::Tensor>().numel() *
+        if (args[i]->is<at::Tensor>()) {
+          bytes_processed_ += args[i]->as<at::Tensor>().numel() *
               (int64_t)dataTypeSize(aten_to_data_type(
-                  args[i].as<at::Tensor>().scalar_type()));
+                  args[i]->as<at::Tensor>().scalar_type()));
         }
       }
       for (const auto& output : outputs) {

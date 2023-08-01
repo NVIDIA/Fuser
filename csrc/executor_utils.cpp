@@ -521,9 +521,9 @@ void validateAlignedVectorizedTensors(
     auto tv = kernel->inputs().at(pos)->as<TensorView>();
     auto word_size = kernel->summary().vectorized_accesses.at(tv);
     TORCH_INTERNAL_ASSERT(
-        args[pos].is<at::Tensor>(), "alias io only supports tensor");
+        args[pos]->is<at::Tensor>(), "alias io only supports tensor");
     validateAlignedVectorizedFusionInputOutput(
-        args[pos].as<at::Tensor>(), word_size, tv, expr_eval);
+        args[pos]->as<at::Tensor>(), word_size, tv, expr_eval);
   }
   if (!outputs.empty()) {
     for (auto pos : tensor_vectorization_validation_entry.get()
@@ -564,8 +564,8 @@ void validateMisalignedVectorizedTensors(
       std::back_inserter(inp_misaligned_tensors),
       [&args](int idx) {
         TORCH_INTERNAL_ASSERT(
-            args[idx].is<at::Tensor>(), "alias io only supports tensor");
-        return args[idx].as<at::Tensor>();
+            args[idx]->is<at::Tensor>(), "alias io only supports tensor");
+        return args[idx]->as<at::Tensor>();
       });
 
   const auto& out_misaligned_tensors_pos =

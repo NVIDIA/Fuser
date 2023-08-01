@@ -88,7 +88,7 @@ void KernelArgumentHolder::push(const std::vector<at::Tensor>& tensors) {
 void KernelArgumentHolder::erase(const PolymorphicValue* arg_to_delete) {
   auto iter = std::remove_if(
       arguments_.begin(), arguments_.end(), [&](const auto& ref) {
-        return arg_to_delete == &ref;
+        return arg_to_delete == ref.get();
       });
   arguments_.erase(iter, arguments_.end());
 }
@@ -96,15 +96,15 @@ void KernelArgumentHolder::erase(const PolymorphicValue* arg_to_delete) {
 std::string KernelArgumentHolder::toString() const {
   std::stringstream ss;
   for (const auto& arg : arguments_) {
-    ss << arg << "\n";
+    ss << *arg << "\n";
   }
   return ss.str();
 }
 
 PrimDataType KernelArgumentHolder::getSmallestIndexTypeOfArguments() const {
   for (const auto& arg : arguments_) {
-    if (arg.is<at::Tensor>()) {
-      if (getSmallestIndexType(arg.as<at::Tensor>()) == PrimDataType::Int) {
+    if (arg->is<at::Tensor>()) {
+      if (getSmallestIndexType(arg->as<at::Tensor>()) == PrimDataType::Int) {
         return PrimDataType::Int;
       }
     }
@@ -124,7 +124,7 @@ void KernelArgumentHolder::pushTensorProxy(
       c10::nullopt,
       c10::Device(c10::DeviceType::Meta, 0),
       c10::nullopt);
-  arguments_.emplace_back(meta_tensor);
+  push(meta_tensor);
 }
 
 std::vector<std::byte> polymorphicValueToBytes(
