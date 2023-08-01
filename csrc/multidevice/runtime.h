@@ -13,9 +13,6 @@
 #include <multidevice/pipeline.h>
 #include <multidevice/pipeline_ir.h>
 
-#define COMM_BACKEND_DEFAULT CommunicatorBackend::nccl
-#define COMM_SERVER_RANK_DEFAULT 0
-
 namespace nvfuser {
 
 /*
@@ -27,11 +24,7 @@ namespace nvfuser {
 */
 class TORCH_CUDA_CU_API MultiDeviceRuntime {
  public:
-  explicit MultiDeviceRuntime(
-      Pipeline* pipeline,
-      Communicator comm = // NOLINT: pass by value and use std::move
-      {COMM_BACKEND_DEFAULT, // NOLINT: pass by value and use std::move
-       COMM_SERVER_RANK_DEFAULT}) // NOLINT: pass by value and use std::move
+  explicit MultiDeviceRuntime(Pipeline* pipeline, Communicator& comm)
       : pipeline_(pipeline), comm_(comm) {
     validate();
   }

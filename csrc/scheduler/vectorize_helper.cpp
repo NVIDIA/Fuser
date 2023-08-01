@@ -91,6 +91,21 @@ ContiguousInnerDimensionsMapper::ContiguousInnerDimensionsMapper(
   // cannot consider that a contiguous merge dimension for vectorization.
   std::vector<IterDomain*> reordered_rfactor;
   for (auto id : reference->getMaybeRFactorDomain()) {
+    // Exclude reduction IDs if the reference is a fusion input as they
+    // don't manifest at all in the fusion. This simplifies the
+    // analysis in getContigMergeOfInnerSize, which only looks at
+    // non-reduction rfactor domains. Including reduction domains here
+    // can result in incorrect ordering
+    if (reference->isFusionInput() && id->isReduction()) {
+      continue;
+    }
+    // If not a fusion input, can this be a reduction domain?
+    TORCH_INTERNAL_ASSERT(
+        !id->isReduction(),
+        "Unexpected reduction domain: ",
+        id->toString(),
+        " of tensor ",
+        reference->toString());
     if (std::find(reference_ids.begin(), reference_ids.end(), id) !=
         reference_ids.end()) {
       reordered_rfactor.push_back(id);
@@ -516,7 +531,8 @@ ContiguousInnerDimensionsMapper::computeInfoP2C(
                       ->mapped_rfactor_ids_;
   // If we have a case where we have a reduction that's being tracked in a
   // producer but not a consumer we should break off the dimensions connected to
-  // the left of that reduction. So if we have:
+  // the left of that reduction unless the producer is a fusion
+  // input. So if we have:
   // T0[i0, i1, i2]
   // T1[i0, r1, i2] = sum(T0)
   // T2[i0, i2] = T1
@@ -538,7 +554,7 @@ ContiguousInnerDimensionsMapper::computeInfoP2C(
 
   // Id's in producer to clear from the mapped set due to reductions.
   std::unordered_set<IterDomain*> producer_ids_to_clear;
-  if (from->hasReduction()) {
+  if (!from->isFusionInput() && from->hasReduction()) {
     // Find the last reduction dimension in the rfactor domain.
     int clear_pos = -1;
     for (auto i : c10::irange(from->getMaybeRFactorDomain().size())) {
@@ -795,7 +811,7 @@ int64_t getVectorizationFactor(
     SchedulerRuntimeInfo& runtime_info,
     TensorView* reference_tv,
     HeuristicSummary* data_cache,
-    int break_point) {
+    int64_t break_point) {
   auto vectorizable_inputs_outputs_entry =
       HeuristicSummaryEntry<HeuristicCompileTime::VectorizableInputsAndOutputs>(
           data_cache, [&reference_tv]() {
@@ -863,6 +879,84 @@ int64_t getVectorizationFactor(
   }
 
   return max_vec_size;
+}
+
+int64_t getVectorizationBreakPointOfReductionProducer(
+    TensorView* reduction_consumer,
+    TensorView* reduction_producer,
+    int64_t consumer_innermost_ndims) {
+  TORCH_INTERNAL_ASSERT(
+      reduction_consumer->definition() != nullptr &&
+          ir_utils::isReductionOp(reduction_consumer->definition()) &&
+          reduction_consumer->definition()->input(0) == reduction_producer,
+      "Invalid reduction consumer and producer. ",
+      reduction_consumer->toString(),
+      ". ",
+      reduction_producer->toString());
+
+  const auto c2p =
+      PairwiseRootDomainMap(reduction_producer, reduction_consumer)
+          .mapConsumerToProducer(
+              reduction_consumer->domain(), reduction_producer->domain());
+
+  // Grab all the corresponding producer IDs that are mapped with the
+  // innermost consumer IDs
+  std::unordered_set<IterDomain*> producer_innermost_ids;
+  for (auto it = reduction_consumer->getRootDomain().begin() +
+           ((int64_t)reduction_consumer->nDims() - consumer_innermost_ndims);
+       it != reduction_consumer->getRootDomain().end();
+       ++it) {
+    auto consumer_id = *it;
+    auto c2p_it = c2p.find(consumer_id);
+    // Since this is for a reduction op, there must be a mapped
+    // producer ID
+    TORCH_INTERNAL_ASSERT(c2p_it != c2p.end());
+    auto producer_id = c2p_it->second;
+    producer_innermost_ids.insert(producer_id);
+  }
+
+  // Find the conrresponding producer break point. To the right of the
+  // break point, there must be only the producer innermost IDs or
+  // reduction IDs
+  int64_t break_point = (int64_t)(reduction_producer->nDims());
+  int num_detected_producer_innermost_ids = 0;
+  for (auto it = reduction_producer->getMaybeRFactorDomain().rbegin();
+       it != reduction_producer->getMaybeRFactorDomain().rend();
+       ++it) {
+    auto producer_rf_id = *it;
+
+    // If the mapped producer ID is also a reduction domain, the
+    // producer should be a fusion input as our
+    // reduction/normalization scheduler do not support fusing
+    // multiple back-to-back reductions
+    if (producer_rf_id->isReduction()) {
+      TORCH_INTERNAL_ASSERT(
+          reduction_producer->isFusionInput(),
+          "Unexpected producer of reduction: ",
+          reduction_producer->toString());
+      --break_point;
+      continue;
+    }
+
+    if (producer_innermost_ids.count(producer_rf_id)) {
+      --break_point;
+      ++num_detected_producer_innermost_ids;
+      // If all innermost IDs are found, stop shifting the break point
+      // further
+      if (num_detected_producer_innermost_ids ==
+          (int64_t)producer_innermost_ids.size()) {
+        break;
+      }
+      continue;
+    }
+
+    // Neither reduction nor mapped to consumer innermost IDs.
+    // This should not happen
+    TORCH_INTERNAL_ASSERT(
+        false, "Unexpected producer RF ID: ", producer_rf_id->toString())
+  }
+
+  return break_point;
 }
 
 } // namespace vectorize_helper
