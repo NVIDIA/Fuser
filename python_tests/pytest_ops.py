@@ -38,6 +38,7 @@ def parse_args_fusion_execution(opinfo: OpInfo, *args):
 
 # ****** Check an Operation's Results are Correct ******
 
+
 def torch_correctness_test_fn(fd_fn: Callable, nvf_op: OpInfo, sample: SampleInput):
     with FusionDefinition() as fd:
         fd_fn(fd, nvf_op, *sample.args, **sample.kwargs)

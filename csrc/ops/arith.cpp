@@ -1591,8 +1591,10 @@ Val* size(TensorView* inp, int64_t dim) {
       (idx >= 0) && (static_cast<size_t>(idx) < iter_domains.size()),
       __FUNCTION__,
       ": The dimension requested is beyond the bounds of the shape of the indexed tensor!",
-      " Tensor Dims: ", iter_domains.size(),
-      " Dim: ", dim);
+      " Tensor Dims: ",
+      iter_domains.size(),
+      " Dim: ",
+      dim);
   return iter_domains.at(idx)->getMaybeExpandedExtent();
 }
 
@@ -1605,8 +1607,10 @@ Val* at(std::vector<Val*>& inp, int64_t index) {
       (idx >= 0) && (static_cast<size_t>(idx) < inp.size()),
       __FUNCTION__,
       ": The index requested is beyond the bounds of the indexed vector!",
-      " Vector Size: ", inp.size(),
-      " Index: ", index);
+      " Vector Size: ",
+      inp.size(),
+      " Index: ",
+      index);
   return inp.at(idx);
 }
 
