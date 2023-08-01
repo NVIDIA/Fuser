@@ -2134,6 +2134,12 @@ void initNvFuserPythonBindings(PyObject* module) {
         return at_def(arg, index);
       },
       py::return_value_policy::reference);
+  vector_class.def(
+      "__getitem__",
+      [&at_def](Vector arg, int64_t index) -> Scalar {
+        return at_def(arg, index);
+      },
+      py::return_value_policy::reference);
   nvf_ops.def(
       "at",
       [&at_def](FusionDefinition::Operators& self, Vector arg, int64_t index)
