@@ -1962,13 +1962,26 @@ class PersistentKernelScheduler : public SchedulerEntry {
           fusion, runtime_info, data_cache, reduction_tvs, properties);
     }
 
+    // get vectorize_factor, same process to that in getPersistentHeuristics
+    auto reduced_tv = ir_utils::getSoleProducerTv(reference_tv);
+    const auto vectorize_factor = vectorize_helper::getVectorizationFactor(
+        runtime_info,
+        reduced_tv,
+        data_cache,
+        (int)(reduced_tv->nDims() - properties.inner_most_dimension_ndims));
+
     // pair of persistent_buffer_size and available_persistent_buffer_size
     const auto
         [persistent_buffer_size,
          available_register_buffer_size,
          has_enough_regs_and_smem] =
             getPersistentBufferSize(
-                fusion, runtime_info, data_cache, reduction_tvs);
+                fusion,
+                runtime_info,
+                data_cache,
+                reduction_tvs,
+                properties,
+                vectorize_factor);
 
     const int64_t device_multiprocessor_count =
         (int64_t)at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
@@ -1981,13 +1994,6 @@ class PersistentKernelScheduler : public SchedulerEntry {
     }
 
     if (inner_reduction && outer_reduction) {
-      // get vectorize_factor, same process to that in getPersistentHeuristics
-      auto reduced_tv = ir_utils::getSoleProducerTv(reference_tv);
-      const auto vectorize_factor = vectorize_helper::getVectorizationFactor(
-          runtime_info,
-          reduced_tv,
-          data_cache,
-          (int)(reduced_tv->nDims() - properties.inner_most_dimension_ndims));
       // check if we can schedule the combined reductions with a reasonable
       // batch size without register spills.
       if (!normalization_scheduler_utils::
@@ -2126,7 +2132,9 @@ class PersistentKernelScheduler : public SchedulerEntry {
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
       HeuristicSummary* data_cache,
-      const std::vector<TensorView*>& reduction_tvs) {
+      const std::vector<TensorView*>& reduction_tvs,
+      const scheduler_utils::ReductionTvProperties& properties,
+      const int64_t vectorize_factor) {
     auto persistent_buffer_info_entry =
         HeuristicSummaryEntry<HeuristicCompileTime::PersistentBufferInfo>(
             data_cache, [&fusion]() {
@@ -2201,40 +2209,47 @@ class PersistentKernelScheduler : public SchedulerEntry {
       // tensors are register persistent. Other persistent tensors in the
       // original fusion definition are also register persistent if there are
       // enough registers. Otherwise, they will be stored in shared memory.
-      auto properties = scheduler_utils::getReductionProperties(
-          fusion, runtime_info, inner_reduction_tvs[0]);
-      auto buffer_per_element =
-          persistent_buffer_size / properties.inner_most_dimension_numel;
-      const auto additional_persistent_buffer_size =
+      const auto outer_persistent_buffer_size =
           normalization_scheduler_utils::partialReductionBufferSize(
               outer_reduction_tvs, runtime_info);
-      auto persistent_buffer_size_roundup =
-          ceilDiv((ceilDiv(properties.inner_most_dimension_numel, 8)), 256) *
-          8 * 256 * buffer_per_element;
       // Check if registers can hold all persistent tensors.
-      persistent_buffer_size =
-          persistent_buffer_size_roundup + additional_persistent_buffer_size;
       if (scheduler_utils::register_file_size_combined >=
-          persistent_buffer_size) {
+          persistent_buffer_size + outer_persistent_buffer_size) {
         has_enough_regs_and_smem = true;
+        persistent_buffer_size =
+            persistent_buffer_size + outer_persistent_buffer_size;
       } else {
-        // If registers can not hold all persistent tensors, try split
-        // persistent_buffer_size_roundup to shared memory.
-        // persistent_buffer_size is set to  additional_persistent_buffer_size
-        // since it only accounts for register persistent tensors.
+        // If registers can not hold all persistent tensors,
+        // [persistent_buffer_size] is saved in shared memory and
+        // [outer_persistent_buffer_size] is saved in registers. This is because
+        // the persistent tensors in the original fusion definition is only
+        // accessed twice while the intermediate outer reduction tensors are
+        // accessed N times, where N is ceilDiv(iter_domain, GridDim.y), which
+        // is usually larger than 2. Therefore, it is better to save the
+        // intermediate outer reduction tensors to registers which have much
+        // higher bandwidth than shared memory.
+        auto buffer_per_element =
+            persistent_buffer_size / properties.inner_most_dimension_numel;
+        const int64_t threads_per_block_max =
+            getThreadsPerSMGivenRegPerThread(255l);
+        // needs to be rounded up shared memory buffer size to avoid requested
+        // size is larger than available size, e.g. hidden size 26752.
+        auto persistent_buffer_size_roundup =
+            ceilDiv(
+                (ceilDiv(
+                    properties.inner_most_dimension_numel, vectorize_factor)),
+                threads_per_block_max) *
+            vectorize_factor * threads_per_block_max * buffer_per_element;
+        // If use shared memory, most of the L1/SMEM hardware resources are
+        // reserved for shared memory, the capability of L1 to cache register
+        // spills is reduced. Set available register to 56KB to avoid large
+        // register spills.
         has_enough_regs_and_smem =
             scheduler_utils::register_file_size_full / 64 * 56 >=
-                additional_persistent_buffer_size &&
+                outer_persistent_buffer_size &&
             available_shared_memory_buffer_size >=
                 persistent_buffer_size_roundup;
-        persistent_buffer_size = additional_persistent_buffer_size;
-        std::cout << "buffer_per_element= " << buffer_per_element << std::endl;
-        std::cout << "available_shared_memory_buffer_size= "
-                  << available_shared_memory_buffer_size << std::endl;
-        std::cout << "persistent_buffer_size_roundup= "
-                  << persistent_buffer_size_roundup << std::endl;
-        std::cout << "has_enough_regs_and_smem= " << has_enough_regs_and_smem
-                  << std::endl;
+        persistent_buffer_size = outer_persistent_buffer_size;
       }
     } else if (inner_reduction_count > 0) {
       // inner reduction, allows both register and shared memory persistent
