@@ -2716,6 +2716,50 @@ TEST_F(NVFuserTest, FusionResizeSlice2DVectorize2_CUDA) {
       executor_cache.getMostRecentKernelRuntime()->executors().at(0).kernel());
 }
 
+TEST_F(NVFuserTest, FusionResizeSlice2DVectorize3_CUDA) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  // With this shape, the innermost domain would be 1024 after
+  // slice. While it's divisible by 4, the stride of the next outer
+  // domain is not divisible by 4. Note that it's contiguous but the
+  // slice effectively makes it non-contiguous.
+  const std::vector<int64_t> shape({1024, 1025});
+
+  auto tv0 = makeContigTensor(2);
+  fusion.addInput(tv0);
+
+  auto tv1 = slice(
+      tv0,
+      {{IrBuilder::create<Val>(0), tv0->axis(0)->extent()},
+       {IrBuilder::create<Val>(0), IrBuilder::create<Val>(1024)}});
+  fusion.addOutput(tv1);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+
+  auto ref = t0.index(
+      {at::indexing::Slice(0, at::indexing::None),
+       at::indexing::Slice(0, 1024)});
+  ASSERT_TRUE(ref.equal(cg_outputs.at(0)));
+
+  // Make sure the fusion is scheduled as a pointwise kernel with vectorization
+  ASSERT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
+  auto heuristic_params = executor_cache.getMostRecentKernelRuntime()
+                              ->schedulerHeuristics()
+                              ->heuristicsList()
+                              .at(0)
+                              ->params();
+  ASSERT_TRUE(heuristic_params->isA<PointwiseParams>());
+  auto pparams = heuristic_params->as<PointwiseParams>();
+  ASSERT_FALSE(pparams->vectorize) << "Should not be vectorized";
+}
+
 // Repro of issue #540 without permute
 TEST_F(NVFuserTest, FusionResizeSliceAndReshape_CUDA) {
   auto fusion_ptr = std::make_unique<Fusion>();

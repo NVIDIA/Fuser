@@ -895,83 +895,6 @@ ContiguousInnerDimensionsMapper::getTvToContigMergeOfInnerSizeMap() {
   return result;
 }
 
-#if 0
-void ContiguousInnerDimensionsMapper::initializeResizeFactors(Fusion* fusion) {
-  for (auto tv : ir_utils::allTvs(fusion)) {
-    if (!ir_utils::hasResizedRfactor(tv)) {
-      continue;
-    }
-    if (getenv("VERBOSE")) {
-      std::cerr << "TV: " << tv->toString() << std::endl;
-    }
-
-    // Only support slice at this moment
-    auto slice = dynamic_cast<SliceOp*>(tv->definition());
-    if (!slice) {
-      continue;
-    }
-
-    auto producer_tv = slice->in()->as<TensorView>();
-
-    // Only support if the input is a fusion input. Should be relaxed
-    // later.
-    if (!producer_tv->isFusionInput()) {
-      continue;
-    }
-
-    const auto c2p =
-        PairwiseRootDomainMap(producer_tv, tv)
-            .mapConsumerToProducer(tv->domain(), producer_tv->domain());
-
-    for (auto rf_id : tv->getMaybeRFactorDomain()) {
-      auto resize = dynamic_cast<Resize*>(rf_id->definition());
-      if (!resize) {
-        continue;
-      }
-      auto resize_producer = resize->in()->as<IterDomain>();
-      auto resize_consumer = resize->out()->as<IterDomain>();
-
-      // Resize should be only done with a root domain
-      TORCH_INTERNAL_ASSERT(
-          std::find(
-              tv->getRootDomain().begin(),
-              tv->getRootDomain().end(),
-              resize_producer) != tv->getRootDomain().end(),
-          "Unexpected resize op with non-root domain: ",
-          resize->toString());
-
-      auto producer_tv_rf_id = c2p.at(resize_producer);
-
-      supported_resize_exprs_.insert(resize);
-
-      auto post_resize_extent = commonOrConstExtent(ca_map_, resize_consumer);
-      // auto pre_resize_extent = commonOrConstExtent(ca_map_,
-      // producer_tv_rf_id);
-
-      // The vectorization factor of the producer must be a common
-      // factor of both extents if the producer is not a fusion
-      // input. For now, we assume it's a fusion input
-
-      Val* producer_resize_factor = post_resize_extent;
-      if (auto resize_factors_it = resize_factors_.find(producer_tv_rf_id);
-          resize_factors_it != resize_factors_.end()) {
-        producer_resize_factor = SimplifyingIrBuilder::gcdExpr(
-            resize_factors_it->second, producer_resize_factor);
-      }
-      resize_factors_[producer_tv_rf_id] = producer_resize_factor;
-
-      // TODO: assuming IDs are only used by slice
-      sliced_ids_.insert(producer_tv_rf_id);
-    }
-  }
-
-  // DEBUG DUMP
-  for (auto& [id, factor] : resize_factors_) {
-    std::cerr << "Resize factor: " << id->toString() << ", "
-              << factor->toInlineString() << std::endl;
-  }
-}
-#else
 void ContiguousInnerDimensionsMapper::initializeResizeFactors(Fusion* fusion) {
   // for (auto tv : ir_utils::allTvs(fusion)) {
   //  Only support if the input is a fusion input. Should be relaxed
@@ -1006,7 +929,9 @@ void ContiguousInnerDimensionsMapper::initializeResizeFactors(Fusion* fusion) {
            consumer_tv->getMaybeRFactorDomain().end()});
 
       Val* slice_offset = nullptr;
-      for (auto input_rf_id : input_tv->getMaybeRFactorDomain()) {
+      for (const auto i :
+           c10::irange(input_tv->getMaybeRFactorDomain().size())) {
+        auto input_rf_id = input_tv->getMaybeRFactorDomain().at(i);
         // There's no vectorization opportunity with sliced broadcast domains
         if (input_rf_id->isReduction() || input_rf_id->isBroadcast()) {
           continue;
@@ -1032,8 +957,15 @@ void ContiguousInnerDimensionsMapper::initializeResizeFactors(Fusion* fusion) {
           resize_factor = post_resize_extent;
 
           sliced_ids_.insert(input_rf_id);
-          // slice_offsets_[input_tv].emplace(IrBuilder::negExpr(resize->leftExpand()));
-          slice_offset = resize->leftExpand();
+          Val* stride = fusion->oneVal();
+          for (size_t j = i + 1; j < input_tv->getMaybeRFactorDomain().size();
+               ++j) {
+            auto input_rf_id_j = input_tv->getMaybeRFactorDomain().at(j);
+            stride =
+                SimplifyingIrBuilder::mulExpr(stride, input_rf_id_j->extent());
+          }
+          slice_offset =
+              SimplifyingIrBuilder::mulExpr(resize->leftExpand(), stride);
         } else {
           resize_factor = commonOrConstExtent(ca_map_, input_rf_id);
         }
@@ -1069,7 +1001,6 @@ void ContiguousInnerDimensionsMapper::initializeResizeFactors(Fusion* fusion) {
               << factor->toInlineString() << std::endl;
   }
 }
-#endif
 
 namespace {
 

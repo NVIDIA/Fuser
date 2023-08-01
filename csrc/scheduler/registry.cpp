@@ -948,6 +948,28 @@ PrimDataType getIndexTypeOfKernel(
   return PrimDataType::Int32;
 }
 
+bool isInnerDomainSliced(TensorView* slice_input_tv, int64_t dim) {
+  const auto input_domains =
+      TensorDomain::noReductions(slice_input_tv->getMaybeRFactorDomain());
+  if (dim == (int64_t)input_domains.size() - 1) {
+    // dim is the innermost.
+    return false;
+  }
+
+  for (auto slice : ir_utils::filterByType<SliceOp>(slice_input_tv->uses())) {
+    const auto slice_info = slice->getRanges().at(dim + 1);
+    if (!slice_info.start->isZero() ||
+        !slice_info.stop->sameAs(input_domains.at(dim + 1)->extent())) {
+      std::cerr << "Slice input, " << slice_input_tv->toString()
+                << ", should be considered non-contiguous at " << dim
+                << std::endl;
+      return true;
+    }
+  }
+
+  return false;
+}
+
 } // namespace
 
 SchedulerRuntimeInfo::SchedulerRuntimeInfo(
@@ -999,7 +1021,7 @@ SchedulerRuntimeInfo::SchedulerRuntimeInfo(
           continue;
         }
         auto stride = alloc_strides.at(dim);
-        if (stride != expected_stride) {
+        if (stride != expected_stride || isInnerDomainSliced(input_tv, dim)) {
           input_discontig_strides_[fusion_inp].push_back(stride * dtype_size);
           expected_stride = stride;
         }

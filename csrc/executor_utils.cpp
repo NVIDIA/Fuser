@@ -727,6 +727,17 @@ void validateAlignedVectorizedTensors(
     TORCH_INTERNAL_ASSERT(tensor_arg_abstract, "alias io only supports tensor");
     validateAlignedVectorizedFusionInputOutput(
         tensor_arg_abstract->getTensor(), word_size, tv, expr_eval);
+#if 0
+    for (auto input_use: tv->uses()) {
+      std::cerr << "Use: " << input_use->toString();
+      if (input_use->isA<SliceOp>()) {
+        auto slice = input_use->as<SliceOp>();
+        std::cerr << "Left expand: " << slice->leftExpand()->toInlineString() << std::endl;
+        auto left_expand = expr_eval.evaluate(slice->leftExpand());
+        TORCH_INTERNAL_ASSERT(left_expand.has_value());
+      }
+    }
+#endif
   }
   if (!outputs.empty()) {
     for (auto pos : tensor_vectorization_validation_entry.get()
