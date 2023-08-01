@@ -219,10 +219,10 @@ bool StructOf::operator==(const StructOf& other) const {
 
 DataType globalTensorMetaData(
     const DataType& dtype,
-    int64_t dim,
-    int64_t alloc_dim);
+    size_t dim,
+    size_t alloc_dim);
 
-inline DataType globalTensorMetaData(const DataType& dtype, int64_t dim) {
+inline DataType globalTensorMetaData(const DataType& dtype, size_t dim) {
   return globalTensorMetaData(dtype, dim, dim);
 }
 

@@ -19,8 +19,8 @@ namespace nvfuser {
 
 DataType globalTensorMetaData(
     const DataType& dtype,
-    int64_t dim,
-    int64_t alloc_dim) {
+    size_t dim,
+    size_t alloc_dim) {
   std::stringstream ss;
   ss << "Tensor<" << dtype << ", " << dim << ", " << alloc_dim << ">";
 
@@ -30,13 +30,13 @@ DataType globalTensorMetaData(
   tv_metadata.types["data"] =
       NVFUSER_MAYBE_MAKE_SHARED(PointerOf{std::make_shared<DataType>(dtype)});
   tv_metadata.types["logical_size"] = NVFUSER_MAYBE_MAKE_SHARED2(
-      ArrayOf{std::make_shared<DataType>(DataType::Index), (size_t)dim});
+      ArrayOf{std::make_shared<DataType>(DataType::Index), dim});
   tv_metadata.types["logical_stride"] = NVFUSER_MAYBE_MAKE_SHARED2(
-      ArrayOf{std::make_shared<DataType>(DataType::Index), (size_t)dim});
+      ArrayOf{std::make_shared<DataType>(DataType::Index), dim});
   tv_metadata.types["alloc_size"] = NVFUSER_MAYBE_MAKE_SHARED2(
-      ArrayOf{std::make_shared<DataType>(DataType::Index), (size_t)alloc_dim});
+      ArrayOf{std::make_shared<DataType>(DataType::Index), alloc_dim});
   tv_metadata.types["alloc_stride"] = NVFUSER_MAYBE_MAKE_SHARED2(
-      ArrayOf{std::make_shared<DataType>(DataType::Index), (size_t)alloc_dim});
+      ArrayOf{std::make_shared<DataType>(DataType::Index), alloc_dim});
   return tv_metadata;
 }
 
