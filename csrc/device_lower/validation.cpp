@@ -888,7 +888,7 @@ void validateMmaTensors(MmaOp* mma) {
           const auto& paralel_dim_map =
               GpuLower::current()->parallelDimensionMap();
           TORCH_INTERNAL_ASSERT(
-              paralel_dim_map.isExact(ptype) &&
+              lower_utils::isExtentEqualToMaxParallelTypeExtent(id) &&
                   paralel_dim_map.get(ptype)->isConstInt() &&
                   paralel_dim_map.get(ptype)->evaluateInt() ==
                       at::cuda::warp_size(),
@@ -1003,6 +1003,9 @@ void validateLdMatrixOutput(TensorView* tv) {
 
 void validateSizeMemoryOp(LoadStoreOp* ldst) {
   int byte_size = 1;
+  if (!ldst->out()->isA<TensorView>()) {
+    return;
+  }
   auto output = ldst->out()->as<TensorView>();
   for (auto id : output->getLeafDomain()) {
     if (id->getParallelType() == ParallelType::Vectorize) {
