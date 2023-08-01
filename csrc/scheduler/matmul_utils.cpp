@@ -41,11 +41,6 @@ using MatmulLayout = MmaOptions::MmaLayout;
 //!  MmaOptions::MmaDomains.
 using ProblemShape = std::array<int64_t, 3>;
 
-//! A wrapper for printing debug details.
-void printMsg(const std::string& msg) {
-  debug() << msg << std::endl;
-}
-
 //! A helper for deciding the type of MMA op for given fusion and problem shape.
 inline std::optional<MmaOptions::MacroType> getMmaOp(
     const int dev_version,
@@ -217,12 +212,13 @@ std::string isMatmulFusionDefinitionSupported(
 
   // Quick checks - MmaOp
   {
-    // Check if MmaOp processes single gemm
+    // Check if MmaOp represents gemm (requires M/N/K == 1, B == 0)
+    //  or bgemm (requires M/N/K/B == 1)
     constexpr size_t expected_axes_numbers = 1;
     if (mma_expr->mAxes().size() != expected_axes_numbers ||
         mma_expr->nAxes().size() != expected_axes_numbers ||
         mma_expr->kAxes().size() != expected_axes_numbers ||
-        !mma_expr->batchAxes().empty()) {
+        mma_expr->batchAxes().size() > expected_axes_numbers) {
       return "MmaOp has unsupported number of one of M/N/K/Batch axes";
     }
 
@@ -350,6 +346,9 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
     std::stringstream ss;
     ss << "Matmul scheduler supports fusions only with a single MMA op, got: "
        << mma_exprs.size();
+    if (isDebugDumpEnabled(DebugDumpOption::MatmulChecks)) {
+      debug() << MATMUL_LOG_PREFIX << ss.str() << std::endl;
+    }
     return ss.str();
   }
 
@@ -357,6 +356,10 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
   {
     const auto input_layout_opt = mma_utils::getMatmulLayout(fusion);
     if (!input_layout_opt.isValid()) {
+      if (isDebugDumpEnabled(DebugDumpOption::MatmulChecks)) {
+        debug() << MATMUL_LOG_PREFIX << input_layout_opt.getErrorMsg()
+                << std::endl;
+      }
       return input_layout_opt.getErrorMsg();
     }
   }
@@ -366,6 +369,9 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
     for (auto mma_expr : mma_exprs) {
       auto support_status = isMatmulFusionDefinitionSupported(fusion, mma_expr);
       if (!support_status.empty()) {
+        if (isDebugDumpEnabled(DebugDumpOption::MatmulChecks)) {
+          debug() << MATMUL_LOG_PREFIX << support_status << std::endl;
+        }
         return support_status;
       }
     }
@@ -422,7 +428,7 @@ std::shared_ptr<MatmulParams> getMatmulHeuristics(
       getMmaDataTypes(roles_map_opt.getData()));
 
   if (isDebugDumpEnabled(DebugDumpOption::MatmulChecks)) {
-    printMsg(params->toString());
+    debug() << params->toString() << std::endl;
   }
 
   return params;
