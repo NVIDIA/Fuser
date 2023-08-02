@@ -57,7 +57,7 @@ __device__ void warpReduceTIDX(
     unsigned int valid_lanes =
         warp_idx == num_of_warps - 1 ? reduction_size % WARP_SIZE : WARP_SIZE;
     for (int i = 16; i >= 1; i /= 2) {
-      if (lane_idx <= valid_lanes) {
+      if (lane_idx < valid_lanes) {
         reduction_op(reduce_val, shfl_xor(reduce_val, i, WARP_SIZE));
       }
     }
