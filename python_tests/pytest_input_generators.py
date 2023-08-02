@@ -360,15 +360,6 @@ def define_vector_input_error_generator(
         yield SampleInput(**es.kwargs), es.ex_type, es.ex_str
 
 
-def tensor_at_error_generator(
-    op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
-):
-    """
-    [&at_def](Vector arg, int64_t index) -> Scalar {
-      return at_def(arg, index);
-    """
-
-
 # TODO Add small value, large value, and extremal-valued samples
 def elementwise_unary_generator(
     op: OpInfo,
