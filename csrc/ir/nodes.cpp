@@ -331,9 +331,7 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
         return {PolymorphicValue((double)*(float*)in)};
       } else {
         TORCH_INTERNAL_ASSERT(
-            false,
-            "dtype not supported in evaluator: ",
-            *out()->getDataType());
+            false, "dtype not supported in evaluator: ", *out()->getDataType());
       }
     default:
       TORCH_CHECK(
