@@ -328,10 +328,6 @@ std::vector<PolymorphicValue> GetMetaData::evaluate(
       "Currently, GetMetaData only supports TensorView");
   TensorView* tv = in()->as<TensorView>();
 
-  TORCH_INTERNAL_ASSERT(
-      tv->getMemoryType() == MemoryType::Global,
-      "GetMetaData only supports global memory tensors");
-
   at::Tensor input = inputs.at(0).as<at::Tensor>();
 
   TORCH_INTERNAL_ASSERT(

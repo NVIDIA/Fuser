@@ -18,14 +18,75 @@
 
 namespace nvfuser {
 
+namespace {
+
+void validateValWithConcreteValue(
+    const Val* value,
+    const PolymorphicValue& concrete_value) {
+  if (auto tv = dynamic_cast<const TensorView*>(value)) {
+    TORCH_CHECK(
+        concrete_value.is<at::Tensor>(),
+        "Expected ",
+        tv->toString(),
+        " to be bound to an at::Tensor, but got ",
+        concrete_value.type().name());
+    const auto& t = concrete_value.as<at::Tensor>();
+    auto expect_dim =
+        (int64_t)TensorDomain::noReductions(tv->getMaybeRFactorDomain()).size();
+    TORCH_CHECK(
+        t.dim() == expect_dim,
+        "Expected ",
+        tv->toString(),
+        " to be bound to a tensor of rank ",
+        expect_dim,
+        ", but got a tensor of rank ",
+        t.dim());
+    auto actual_dtype = aten_to_data_type(t.scalar_type());
+    TORCH_CHECK(
+        value->dtype() == actual_dtype,
+        "Expected ",
+        tv->toString(),
+        " to be bound to a tensor of dtype ",
+        value->dtype(),
+        ", but got a tensor of dtype ",
+        actual_dtype);
+    if (tv->isCpuScalar()) {
+      TORCH_CHECK(
+          is_cpu_scalar(t),
+          "Expected ",
+          tv->toString(),
+          " to be bound to a CPU scalar tensor "
+          ", but got a tensor on device ",
+          t.device(),
+          " with ",
+          t.numel(),
+          " elements");
+    } else {
+      TORCH_CHECK(
+          t.is_cuda() || t.is_meta(),
+          "Expected ",
+          tv->toString(),
+          " to be bound to a CUDA or meta tensor, but got a tensor on device ",
+          t.device());
+    }
+  } else {
+    TORCH_CHECK(
+        hasCompatibleDataType(concrete_value, value->dtype()),
+        "Scalar value is not compatible with the given data type.");
+  }
+}
+
+} // namespace
+
 void ExpressionEvaluator::bind_(
     const Val* value,
-    PolymorphicValue concrete_value) {
-  // TODO: validate dtype compatibility
-  if (value->isConst() && value->value() == concrete_value) {
+    const PolymorphicValue& concrete_value) {
+  TORCH_CHECK(concrete_value.hasValue(), "Cannot bind to undefined value");
+  if (value->value().hasValue() && value->value() == concrete_value) {
     return;
   }
   TORCH_CHECK(!value->isConstScalar(), "Tried to bind to a constant value");
+  validateValWithConcreteValue(value, concrete_value);
   if (value->isA<NamedScalar>()) {
     known_named_scalars_[value->as<NamedScalar>()->name()] =
         std::move(concrete_value);

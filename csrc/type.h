@@ -305,6 +305,11 @@ DataType getComplexTypeFromType(DataType dtype);
 // Return if the datatype is supported on the current device
 TORCH_CUDA_CU_API bool isSupportedTypeByDevice(DataType dtype);
 
+TORCH_CUDA_CU_API int64_t dataTypeSize(DataType type);
+
+// If the index type is known it will be automatically used here
+TORCH_CUDA_CU_API int64_t dataTypeSize(DataType type, DataType index_type);
+
 template <PrimDataType DT>
 struct DataTypeToNativeType;
 
@@ -409,10 +414,30 @@ inline DataType getDataType(const PolymorphicValue& value) {
       if (value.is<T>()) {
         dtype = NativeTypeToDataType<T>::type;
       }
+    } else if constexpr (std::is_same_v<T, std::vector<PolymorphicValue>>) {
+      if (value.is<T>()) {
+        const auto& vec = value.as<T>();
+        size_t size = vec.size();
+        TORCH_CHECK(size > 0, "Empty array is not supported");
+        dtype = ArrayOf{std::make_shared<DataType>(getDataType(vec[0])), size};
+      }
+    } else if constexpr (std::is_same_v<T, Struct<PolymorphicValue>>) {
+      if (value.is<T>()) {
+        const auto& struct_ = value.as<T>();
+        StructOf result;
+        for (const auto& [name, value] : struct_.fields) {
+          result.types[name] =
+              NVFUSER_MAYBE_MAKE_SHARED(getDataType(NVFUSER_MAYBE_STAR value));
+        }
+        dtype = result;
+      }
+    } else if constexpr (std::is_same_v<T, Pointer>) {
+      // For pointers in polymorphic value, we only store the data size of the
+      // pointee, so it is impossible to infer the pointer type.
+      TORCH_CHECK(!value.is<T>(), "Can not infer pointer type.");
     }
-    // TODO: support arrays and pointers
   });
-  TORCH_CHECK(dtype.has_value(), "Unknown dtype for ", value);
+  TORCH_CHECK(dtype.has_value(), "Unknown dtype for ", value.type().name());
   return dtype.value();
 }
 
@@ -429,7 +454,48 @@ inline bool isCompatibleDataType(DataType dtype, DataType dtype2) {
   if (isComplexType(dtype) && isComplexType(dtype2)) {
     return true;
   }
+  if (std::holds_alternative<ArrayOf>(dtype.type) &&
+      std::holds_alternative<ArrayOf>(dtype2.type)) {
+    const auto& array_of = std::get<ArrayOf>(dtype.type);
+    const auto& array_of2 = std::get<ArrayOf>(dtype2.type);
+    return array_of.size == array_of2.size &&
+        isCompatibleDataType(*array_of.type, *array_of2.type);
+  }
+  if (std::holds_alternative<StructOf>(dtype.type) &&
+      std::holds_alternative<StructOf>(dtype2.type)) {
+    const auto& struct_of = std::get<StructOf>(dtype.type);
+    const auto& struct_of2 = std::get<StructOf>(dtype2.type);
+    if (struct_of.types.size() != struct_of2.types.size()) {
+      return false;
+    }
+    for (const auto& [name, dtype] : struct_of.types) {
+      if (!struct_of2.types.count(name)) {
+        return false;
+      }
+      if (!isCompatibleDataType(
+              NVFUSER_MAYBE_STAR dtype,
+              NVFUSER_MAYBE_STAR struct_of2.types.at(name))) {
+        return false;
+      }
+    }
+    return true;
+  }
   return false;
+}
+
+inline bool hasCompatibleDataType(
+    const PolymorphicValue& value,
+    DataType dtype) {
+  // We can not always completely infer data type from value, so we need some
+  // special handling here.
+  if (std::holds_alternative<PointerOf>(dtype.type)) {
+    if (!value.is<Pointer>()) {
+      return false;
+    }
+    auto ptr = std::get<PointerOf>(dtype.type);
+    return dataTypeSize(*ptr.type) == value.as<Pointer>().size();
+  }
+  return isCompatibleDataType(getDataType(value), dtype);
 }
 
 #if defined(__GNUC__) && !defined(__clang__)
@@ -869,11 +935,6 @@ constexpr inline size_t primDataTypeSize(PrimDataType type) {
   }
 }
 
-TORCH_CUDA_CU_API int64_t dataTypeSize(DataType type);
-
-// If the index type is known it will be automatically used here
-TORCH_CUDA_CU_API int64_t dataTypeSize(DataType type, DataType index_type);
-
 enum class LaunchConfigType {
   Compatible,
   SharedMemory,
@@ -904,7 +965,7 @@ inline PolymorphicValue castToDtype(
   // like: IrBuilder::create<Val>(0, DataType::Double) where value is
   // an integer but the desired data type is double.
   auto value_dtype = getDataType(value);
-  if (!isCompatibleDataType(value_dtype, dtype)) {
+  if (!hasCompatibleDataType(value, dtype)) {
     PolymorphicValue::for_all_types([&](auto _) {
       using T = typename decltype(_)::type;
       if constexpr (IsPrimitiveNativeType<T>::value) {
@@ -915,9 +976,6 @@ inline PolymorphicValue castToDtype(
       // TODO: support arrays and pointers
     });
   }
-  TORCH_CHECK(
-      isCompatibleDataType(nvfuser::getDataType(value), dtype),
-      "Scalar value is not compatible with the given data type.");
   return value;
 }
 

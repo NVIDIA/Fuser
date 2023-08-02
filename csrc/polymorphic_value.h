@@ -67,6 +67,10 @@ class Pointer {
 
   inline Pointer(void* ptr, DataType dtype);
 
+  int64_t size() const {
+    return size_;
+  }
+
   template <typename T>
   explicit operator T*() const {
     return reinterpret_cast<T*>(ptr_);
