@@ -132,6 +132,9 @@ std::vector<std::byte> polymorphicValueToBytes(
     const DataType& dtype,
     PrimDataType index_type) {
   if (argument.is<Struct>()) {
+    TORCH_INTERNAL_ASSERT(
+        std::holds_alternative<StructOf>(dtype.type),
+        "Expected StructOf type.");
     auto dtype_ = std::get<StructOf>(dtype.type);
     auto struct_ = argument.as<Struct>();
     std::vector<std::byte> buffer;
@@ -150,7 +153,13 @@ std::vector<std::byte> polymorphicValueToBytes(
         "Only CPU scalar tensors are supported here. ",
         "For GPU tensors, please use their metadata.");
     auto scalar_type = tensor.scalar_type();
-    TORCH_INTERNAL_ASSERT(dtype == aten_to_data_type(scalar_type));
+    TORCH_INTERNAL_ASSERT(
+        dtype == aten_to_data_type(scalar_type),
+        "Expected ",
+        dtype,
+        " but got ",
+        aten_to_data_type(scalar_type),
+        ".");
     std::vector<std::byte> buffer;
     buffer.reserve(tensor.element_size());
     buffer.insert(
@@ -159,7 +168,9 @@ std::vector<std::byte> polymorphicValueToBytes(
         (std::byte*)tensor.data_ptr() + tensor.element_size());
     return buffer;
   } else if (argument.is<Pointer>()) {
-    TORCH_INTERNAL_ASSERT(std::holds_alternative<PointerOf>(dtype.type));
+    TORCH_INTERNAL_ASSERT(
+        std::holds_alternative<PointerOf>(dtype.type),
+        "Expected PointerOf type.");
     void* ptr = (void*)argument;
     std::vector<std::byte> buffer;
     buffer.reserve(sizeof(void*));
@@ -167,6 +178,8 @@ std::vector<std::byte> polymorphicValueToBytes(
         buffer.end(), (std::byte*)&ptr, (std::byte*)&ptr + sizeof(void*));
     return buffer;
   } else if (argument.is<std::vector>()) {
+    TORCH_INTERNAL_ASSERT(
+        std::holds_alternative<ArrayOf>(dtype.type), "Expected ArrayOf type.");
     auto dtype_ = std::get<ArrayOf>(dtype.type);
     std::vector<std::byte> buffer;
     for (const auto& elem : argument.as<std::vector>()) {
@@ -193,7 +206,7 @@ std::vector<std::byte> polymorphicValueToBytes(
     }
   } else if (argument.is<bool>()) {
     bool v = argument.as<bool>();
-    TORCH_INTERNAL_ASSERT(dtype == DataType::Bool);
+    TORCH_INTERNAL_ASSERT(dtype == DataType::Bool, "Expected Bool type.");
     return std::vector<std::byte>((std::byte*)&v, (std::byte*)&v + 1);
   } else if (argument.is<double>()) {
     double v = argument.as<double>();

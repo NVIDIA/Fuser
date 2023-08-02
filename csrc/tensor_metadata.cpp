@@ -343,8 +343,12 @@ std::vector<PolymorphicValue> GetMetaData::evaluate(
       PolymorphicValue(Pointer(input.data_ptr(), tv->dtype()));
   concrete_value["logical_size"] = PolymorphicValue(input.sizes().vec());
   concrete_value["logical_stride"] = PolymorphicValue(input.strides().vec());
-  std::tie(concrete_value["alloc_size"], concrete_value["alloc_stride"]) =
-      inferAndValidateAllocationSizesAndStrides(input, tv, ee);
+  {
+    auto allocation_data =
+        inferAndValidateAllocationSizesAndStrides(input, tv, ee);
+    concrete_value["alloc_size"] = std::move(allocation_data.first);
+    concrete_value["alloc_stride"] = std::move(allocation_data.second);
+  }
   return {PolymorphicValue(concrete_value)};
 }
 

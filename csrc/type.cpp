@@ -17,6 +17,29 @@
 
 namespace nvfuser {
 
+DataType globalTensorMetaData(
+    const DataType& dtype,
+    size_t dim,
+    size_t alloc_dim) {
+  std::stringstream ss;
+  ss << "Tensor<" << dtype << ", " << dim << ", " << alloc_dim << ">";
+
+  StructOf tv_metadata;
+  tv_metadata.name = ss.str();
+  tv_metadata.field_names = {"data", "logical_size", "alloc_stride"};
+  tv_metadata.types["data"] =
+      NVFUSER_MAYBE_MAKE_SHARED(PointerOf{std::make_shared<DataType>(dtype)});
+  tv_metadata.types["logical_size"] = NVFUSER_MAYBE_MAKE_SHARED2(
+      ArrayOf{std::make_shared<DataType>(DataType::Index), dim});
+  tv_metadata.types["logical_stride"] = NVFUSER_MAYBE_MAKE_SHARED2(
+      ArrayOf{std::make_shared<DataType>(DataType::Index), dim});
+  tv_metadata.types["alloc_size"] = NVFUSER_MAYBE_MAKE_SHARED2(
+      ArrayOf{std::make_shared<DataType>(DataType::Index), alloc_dim});
+  tv_metadata.types["alloc_stride"] = NVFUSER_MAYBE_MAKE_SHARED2(
+      ArrayOf{std::make_shared<DataType>(DataType::Index), alloc_dim});
+  return tv_metadata;
+}
+
 DataType metaDataTypeOf(const Val* v) {
   auto tv = dynamic_cast<const TensorView*>(v);
   TORCH_INTERNAL_ASSERT(
@@ -29,24 +52,7 @@ DataType metaDataTypeOf(const Val* v) {
   size_t dim = TensorDomain::noReductions(tv->getMaybeRFactorDomain()).size();
   size_t alloc_dim =
       TensorDomain::noReductions(tv->getMaybeAllocationDomain()).size();
-
-  std::stringstream ss;
-  ss << "Tensor<" << tv->dtype() << ", " << dim << ", " << alloc_dim << ">";
-
-  StructOf tv_metadata;
-  tv_metadata.name = ss.str();
-  tv_metadata.field_names = {"data", "logical_size", "alloc_stride"};
-  tv_metadata.types["data"] = NVFUSER_MAYBE_MAKE_SHARED(
-      PointerOf{std::make_shared<DataType>(tv->dtype())});
-  tv_metadata.types["logical_size"] = NVFUSER_MAYBE_MAKE_SHARED2(
-      ArrayOf{std::make_shared<DataType>(DataType::Index), dim});
-  tv_metadata.types["logical_stride"] = NVFUSER_MAYBE_MAKE_SHARED2(
-      ArrayOf{std::make_shared<DataType>(DataType::Index), dim});
-  tv_metadata.types["alloc_size"] = NVFUSER_MAYBE_MAKE_SHARED2(
-      ArrayOf{std::make_shared<DataType>(DataType::Index), alloc_dim});
-  tv_metadata.types["alloc_stride"] = NVFUSER_MAYBE_MAKE_SHARED2(
-      ArrayOf{std::make_shared<DataType>(DataType::Index), alloc_dim});
-  return tv_metadata;
+  return globalTensorMetaData(tv->dtype(), dim, alloc_dim);
 }
 
 PrimDataType indexModeToDtype(KernelIndexMode index_mode) {
