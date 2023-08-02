@@ -7,6 +7,7 @@
 #include <kernel_cache.h>
 #include <ops/all_ops.h>
 #include <scheduler/all_schedulers.h>
+#include <scheduler/normalization_utils.h>
 #include <scheduler/reduction_utils.h>
 #include <scheduler/utils.h>
 #include <test/utils.h>
@@ -160,8 +161,16 @@ TEST_F(NVFuserTest, CombinedSchedulerLayerNormBackward_CUDA) {
         __LINE__,
         __FILE__);
 
-    bool is_segmented = fec.getMostRecentKernelRuntime()->isSegmented();
-    TORCH_CHECK(!is_segmented, "Fusion is segmented");
+    int64_t hidden_size = 1;
+    for (auto s : norm_shape) {
+      hidden_size *= s;
+    }
+    TORCH_CHECK(
+        !fec.getMostRecentKernelRuntime()->isSegmented(),
+        "Fusion shouldn't be segmented! hidden size= ",
+        hidden_size,
+        ", dtype= ",
+        dtype == DataType::Float ? "Float." : "Half.");
 
     if (isBenchmark) {
       FusionKernelRuntime* fkr = fec.getMostRecentKernelRuntime();
@@ -233,8 +242,7 @@ TEST_F(NVFuserTest, CombinedSchedulerLayerNormBackward_CUDA) {
   std::vector<DataType> data_types = {DataType::Half, DataType::Float};
   std::vector<std::vector<int64_t>> batch_sizes = {{216}};
   std::vector<std::vector<int64_t>> hidden_sizes = {
-      {576}, {768}, {1024}, {1280}, {1600}};
-
+      {3}, {32}, {96}, {576}, {768}, {1024}, {1280}, {1600}, {1984}, {1987}};
   bool isBenchmark = false;
   bool onlyTestFirstCase = false;
   int verbose = 0;
@@ -344,7 +352,13 @@ TEST_F(NVFuserTest, CombinedSchedulerSharedConsumer_CUDA) {
         ? add(layer_norm_results.grad_input, layer_norm_results.grad_weight)
         : add(layer_norm_results.grad_bias, layer_norm_results.grad_weight);
 
-    fusion.addOutput(out_linked);
+    if (!link_inner_outer) {
+      auto out_linked_scale = mul(out_linked, IrBuilder::create<Val>(0.5));
+      fusion.addOutput(out_linked_scale);
+    } else {
+      fusion.addOutput(out_linked);
+    }
+
     fusion.addOutput(layer_norm_results.grad_input);
     fusion.addOutput(layer_norm_results.grad_weight);
     fusion.addOutput(layer_norm_results.grad_bias);
@@ -377,19 +391,21 @@ TEST_F(NVFuserTest, CombinedSchedulerSharedConsumer_CUDA) {
     auto cg_outputs = fec.runFusionWithInputs(aten_inputs);
 
     auto aten_gradients = at::native_layer_norm_backward(
-        aten_grad_out,
-        aten_input,
+        aten_grad_out.to(at::kDouble),
+        aten_input.to(at::kDouble),
         norm_shape,
-        aten_mean,
-        aten_rstd,
-        c10::optional<at::Tensor>(aten_weight),
-        c10::optional<at::Tensor>(aten_bias),
+        aten_mean.to(at::kDouble),
+        aten_rstd.to(at::kDouble),
+        c10::optional<at::Tensor>(aten_weight.to(at::kDouble)),
+        c10::optional<at::Tensor>(aten_bias.to(at::kDouble)),
         {true, true, true});
 
     auto aten_out_linked = link_inner_outer
         ? std::get<0>(aten_gradients) + std::get<1>(aten_gradients)
         : std::get<1>(aten_gradients) + std::get<2>(aten_gradients);
-
+    if (!link_inner_outer) {
+      aten_out_linked = aten_out_linked.mul(0.5);
+    }
     bool is_segmented = fec.getMostRecentKernelRuntime()->isSegmented();
     TORCH_CHECK(is_segmented, "Fusion is not segmented");
 
@@ -515,9 +531,9 @@ TEST_F(NVFuserTest, CombinedSchedulerSharedProducer_CUDA) {
         // tensor bias is a producer of the two outer reductions' consumers,
         // expect segmented
         auto outer_1_consumer =
-            add(layer_norm_results.grad_weight, IrBuilder::create<Double>(1));
+            add(layer_norm_results.grad_weight, IrBuilder::create<Val>(1.0));
         auto outer_2_consumer =
-            add(layer_norm_results.grad_bias, IrBuilder::create<Double>(1));
+            add(layer_norm_results.grad_bias, IrBuilder::create<Val>(1.0));
         auto use_producer_1 = add(outer_1_consumer, bias);
         auto use_producer_2 = add(outer_2_consumer, bias);
         fusion.addOutput(use_producer_1);

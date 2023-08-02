@@ -12,19 +12,22 @@
 #include <c10/util/irange.h>
 
 #include <contiguity.h>
+#include <debug.h>
 #include <executor_utils.h>
 #include <instrumentation.h>
 #include <ir/all_nodes.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
 #include <kernel_db/kernel_db.h>
+#include <options.h>
 #include <torch/csrc/jit/resource_guard.h>
+#include <utils.h>
 
 #include <cuda_occupancy.h>
-#include <nvfuser_resources/PhiloxCudaStateRaw.h>
 #include <nvfuser_resources/array.h>
 #include <nvfuser_resources/basic_type_traits.h>
 #include <nvfuser_resources/bf16_support.h>
+#include <nvfuser_resources/bit.h>
 #include <nvfuser_resources/block_reduction.h>
 #include <nvfuser_resources/block_sync_atomic.h>
 #include <nvfuser_resources/block_sync_default.h>
@@ -62,22 +65,23 @@ namespace executor_utils {
 std::string kernelPreamble() {
   std::stringstream ss;
   ss << nvfuser_resources::basic_type_traits_cu;
+  ss << nvfuser_resources::bit_cu;
   ss << nvfuser_resources::complex_number_cu;
 
   ss << nvfuser_resources::fp16_support_cu;
   ss << nvfuser_resources::bf16_support_cu;
 
   // Base classes and helpers
-  ss << nvfuser_resources::tensor_cu;
   ss << nvfuser_resources::type_traits_cu;
   ss << nvfuser_resources::array_cu;
+  ss << nvfuser_resources::tensor_cu;
   ss << nvfuser_resources::random_numbers_cu;
   ss << nvfuser_resources::helpers_cu;
   ss << nvfuser_resources::index_utils_cu;
   ss << nvfuser_resources::tuple_cu;
 
   // Synchronization classes
-  if (std::getenv("PYTORCH_NVFUSER_USE_BLOCK_SYNC_ATOMIC")) {
+  if (getNvFuserEnv("USE_BLOCK_SYNC_ATOMIC")) {
     ss << nvfuser_resources::block_sync_atomic_cu;
   } else {
     ss << nvfuser_resources::block_sync_default_cu;
@@ -99,9 +103,6 @@ std::string kernelPreamble() {
   ss << nvfuser_resources::block_welford_outer_cu;
   ss << nvfuser_resources::fused_welford_impl_outer_cu;
 
-  // Random utilities
-  ss << nvfuser_resources::PhiloxCudaStateRaw_cu;
-
   return ss.str();
 }
 
@@ -115,7 +116,8 @@ TORCH_CUDA_CU_API void queryTargetGPUVersion(
     bool& compile_to_sass) {
   using CudaVersion = std::pair<int, int>;
   CudaVersion nvrtc_version;
-  NVRTC_SAFE_CALL(nvrtcVersion(&nvrtc_version.first, &nvrtc_version.second));
+  NVFUSER_NVRTC_SAFE_CALL(
+      nvrtcVersion(&nvrtc_version.first, &nvrtc_version.second));
 
   TORCH_CHECK(
       nvrtc_version.first >= 6,
@@ -153,158 +155,6 @@ TORCH_CUDA_CU_API void queryTargetGPUVersion(
     major = dev_version.first;
     minor = dev_version.second;
     compile_to_sass = true;
-  }
-}
-
-// return false if arg's type, number of dimensions, and device, doesn't match
-// param and provided c10:device
-bool validateKernelArgTensor(
-    const at::Tensor& arg,
-    const Val* param,
-    const c10::Device& device,
-    std::stringstream& msg) {
-  // Arg is a tensor. Param must be a tensor too.
-  if (*param->getValType() != ValType::TensorView) {
-    msg << "Argument is a tensor, but the parameter is not.\n";
-    return false;
-  }
-
-  if (is_cpu_scalar(arg) && !param->as<TensorView>()->isCpuScalar()) {
-    msg << "Argument is CPU Scalar Tensor, but parameter is not.\n";
-    return false;
-  }
-
-  if (!is_cpu_scalar(arg) && !arg.is_cuda()) {
-    msg << "Argument is a CPU tensor which is not supported in fusions.\n";
-    return false;
-  }
-
-  // Check the rank of the tensors.
-  size_t arg_dim = arg.dim();
-  // Note: This requires current Fusion to be active.
-  // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
-  size_t param_dim = TensorDomain::noReductions(
-                         param->as<TensorView>()->getMaybeRFactorDomain())
-                         .size();
-  // see [Note - broadcast support in integration]
-  // Because of broadcasting support handled in integration, we relax the rank
-  // check as necessary.
-  if (arg_dim > param_dim) {
-    msg << "Argument tensor's rank is " << arg_dim << ", but the parameter is "
-        << param_dim << "\n";
-    return false;
-  }
-
-  if (!is_cpu_scalar(arg) && arg.device() != device) {
-    msg << "Argument is on device that is not compiled for."
-        << "\n";
-    return false;
-  }
-  // Check element type
-  at::ScalarType arg_data_type = arg.scalar_type();
-  DataType param_data_type = *param->getDataType();
-  bool match = false;
-  // TODO: remove this switch with `aten_to_data_type`
-  switch (arg_data_type) {
-    case at::ScalarType::Double:
-      match = param_data_type == DataType::Double;
-      break;
-    case at::ScalarType::Half:
-      match = param_data_type == DataType::Half;
-      break;
-    case at::ScalarType::BFloat16:
-      match = param_data_type == DataType::BFloat16;
-      break;
-    case at::ScalarType::Float:
-      match = param_data_type == DataType::Float;
-      break;
-    case at::ScalarType::Long:
-      match = param_data_type == DataType::Int;
-      break;
-    case at::ScalarType::Int:
-      match = param_data_type == DataType::Int32;
-      break;
-    case at::ScalarType::Bool:
-      match = param_data_type == DataType::Bool;
-      break;
-    case at::ScalarType::ComplexFloat:
-      match = param_data_type == DataType::ComplexFloat;
-      break;
-    case at::ScalarType::ComplexDouble:
-      match = param_data_type == DataType::ComplexDouble;
-      break;
-    default:
-      msg << "Argument element type, " << arg_data_type << ", is not supported."
-          << "\n";
-      return false;
-  }
-  if (!match)
-    msg << "Argument element type is " << arg_data_type
-        << ", but the parameter is " << param_data_type << "\n";
-  return match;
-}
-
-// Return false if  arg_type doesn't match the type in param
-bool validateKernelArgScalar(
-    const ArgAbstract* arg,
-    const Val* param,
-    std::stringstream& msg) {
-  TORCH_INTERNAL_ASSERT(
-      param->getDataType().has_value(), "kernel param should have data type");
-  DataType param_type = *param->getDataType();
-  bool match = false;
-  switch (arg->type()) {
-    case ArgType::Long:
-      match = param_type == DataType::Int || param_type == DataType::Int32;
-      break;
-    case ArgType::Double:
-      match = param_type == DataType::Double || param_type == DataType::Float ||
-          param_type == DataType::Half || param_type == DataType::BFloat16;
-      break;
-    case ArgType::Bool:
-      match = param_type == DataType::Bool;
-      break;
-    case ArgType::ComplexDouble:
-      match = param_type == DataType::ComplexDouble ||
-          param_type == DataType::ComplexFloat;
-      break;
-    default:
-      // TODO: We need to verify that param is actually a scalar
-      msg << "Argument is not a scalar, but the parameter is."
-          << "\n";
-      return false;
-  }
-  if (!match) {
-    msg << "Argument type is " << argTypeToString(arg->type())
-        << ", but the parameter is " << param_type << "\n";
-  }
-  return match;
-}
-
-// Return false if arg and param don't match up and if arg's device (if a
-// tensor) doesn't match provided device
-bool validateKernelArg(
-    const ArgAbstract* arg,
-    const Val* param,
-    const c10::Device& device,
-    std::stringstream& msg) {
-  // clang-tidy complains that arg may be null without this assertion
-  TORCH_INTERNAL_ASSERT(arg != nullptr);
-  if (auto tensor_arg_abstract = dynamic_cast<const TensorArgAbstract*>(arg)) {
-    // TODO: don't use get tensor here. We would want to remove tensor reference
-    // for async compilation
-    return validateKernelArgTensor(
-        tensor_arg_abstract->getTensor(), param, device, msg);
-  } else if (arg->isType(ArgType::CpuScalarTensor)) {
-    // TODO: merge this one with above
-    // TODO: we need to check cpu scalar dtyp matches param
-    bool match = param->as<TensorView>()->isCpuScalar();
-    if (!match) {
-      msg << "Argument is scalar type, but kernel parameter is not\n";
-    }
-    return match;
-  } else {
-    return validateKernelArgScalar(arg, param, msg);
   }
 }
 
@@ -387,54 +237,6 @@ bool checkValidMisalignedTensors(
 }
 
 } // namespace
-
-void validateKernelInputs(
-    Fusion* fusion,
-    const KernelArgumentHolder& args,
-    const c10::Device& device) {
-  FUSER_PERF_SCOPE("executor_utils::ValidateKernelInputs");
-
-  // This is necessary as we were traversing the fusion graph later in the check
-  FusionGuard fg(fusion);
-  // Check inputs
-  TORCH_INTERNAL_ASSERT(
-      args.size() == fusion->inputs().size(), "Wrong number of kernel inputs.");
-
-  std::stringstream msg;
-  bool mismatch = false;
-  for (const auto i : c10::irange(args.size())) {
-    const ArgAbstract* arg = args[i];
-    const Val* param = fusion->inputs()[i];
-    mismatch = !validateKernelArg(arg, param, device, msg) || mismatch;
-  }
-  TORCH_INTERNAL_ASSERT(
-      !mismatch, "Found one or more invalid arguments: ", msg.str());
-}
-
-void validateKernelOutputs(
-    Fusion* fusion,
-    const std::vector<at::Tensor>& outputs,
-    const c10::Device& device) {
-  FUSER_PERF_SCOPE("executor_utils::ValidateKernelOutputs");
-
-  TORCH_INTERNAL_ASSERT(
-      !fusion->outputs().empty(),
-      "Kernel should have at least one output tensor.");
-
-  TORCH_INTERNAL_ASSERT(
-      outputs.size() == fusion->outputs().size(),
-      "Wrong number of kernel outputs.");
-
-  std::stringstream msg;
-  bool mismatch = false;
-  for (const auto i : c10::irange(outputs.size())) {
-    const at::Tensor& arg = outputs[i];
-    const Val* param = fusion->outputs()[i];
-    mismatch = !validateKernelArgTensor(arg, param, device, msg) || mismatch;
-  }
-  TORCH_INTERNAL_ASSERT(
-      !mismatch, "Found one or more invalid arguments: ", msg.str());
-}
 
 namespace {
 
@@ -577,7 +379,7 @@ void validateAlignedVectorizeExtents(
   for (auto id : info.contig_alloc_ids) {
     auto extent_val = expr_eval.evaluate(id->extent());
     TORCH_INTERNAL_ASSERT(
-        extent_val.has_value(),
+        extent_val.hasValue(),
         "Error vectorizing, ",
         info.consumer_tv->toString(),
         " as the extent of a vectorized root domain, ",
@@ -608,10 +410,10 @@ void validateAlignedVectorizeExtents(
 void validateAlignedVectorizedFusionInputOutput(
     const at::Tensor& aten_tensor,
     int word_size,
-    TensorView* tv) {
-  ExpressionEvaluator eval;
-  auto sizes_strides =
-      inferAndValidateAllocationSizesAndStrides(aten_tensor, tv, eval);
+    TensorView* tv,
+    ExpressionEvaluator eval) {
+  eval.bind(tv, aten_tensor);
+  auto metadata = eval.evaluate(IrBuilder::metadataExpr(tv));
 
   std::vector<int64_t> no_reduction_to_full;
   for (int64_t i :
@@ -621,7 +423,11 @@ void validateAlignedVectorizedFusionInputOutput(
       no_reduction_to_full.emplace_back(i);
     }
   }
-  TORCH_INTERNAL_ASSERT(sizes_strides.size() == no_reduction_to_full.size());
+
+  auto sizes = std::vector<int64_t>(metadata["alloc_size"]);
+  auto strides = std::vector<int64_t>(metadata["alloc_stride"]);
+  TORCH_INTERNAL_ASSERT(sizes.size() == no_reduction_to_full.size());
+  TORCH_INTERNAL_ASSERT(strides.size() == no_reduction_to_full.size());
 
   TORCH_INTERNAL_ASSERT(
       reinterpret_cast<size_t>(aten_tensor.data_ptr()) %
@@ -641,8 +447,9 @@ void validateAlignedVectorizedFusionInputOutput(
   // domain must have stride 1.
   int64_t cur_contig_stride = 1;
   bool still_rightmost = true;
-  for (int64_t i = (int64_t)sizes_strides.size() - 1; i >= 0; --i) {
-    const auto [size, stride] = sizes_strides.at(i);
+  for (int64_t i = (int64_t)sizes.size() - 1; i >= 0; --i) {
+    const auto size = sizes.at(i);
+    const auto stride = strides.at(i);
     auto alloc_id =
         tv->getMaybeAllocationDomain().at(no_reduction_to_full.at(i));
     const auto is_expanded_broadcasting =
@@ -671,7 +478,9 @@ void validateAlignedVectorizedFusionInputOutput(
         " Domain: ",
         tv->axis(i)->toString(),
         ", stride: ",
-        stride)
+        stride,
+        ", cur_contig_stride ",
+        cur_contig_stride);
     // If the domain is size-1, the next domain is still considered
     // rightmost.
     still_rightmost =
@@ -715,14 +524,15 @@ void validateAlignedVectorizedTensors(
         dynamic_cast<const TensorArgAbstract*>(args[pos]);
     TORCH_INTERNAL_ASSERT(tensor_arg_abstract, "alias io only supports tensor");
     validateAlignedVectorizedFusionInputOutput(
-        tensor_arg_abstract->getTensor(), word_size, tv);
+        tensor_arg_abstract->getTensor(), word_size, tv, expr_eval);
   }
   if (!outputs.empty()) {
     for (auto pos : tensor_vectorization_validation_entry.get()
                         .aligned_vectorized_out_tensor_pos) {
       auto tv = kernel->outputs().at(pos)->as<TensorView>();
       auto word_size = kernel->summary().vectorized_accesses.at(tv);
-      validateAlignedVectorizedFusionInputOutput(outputs[pos], word_size, tv);
+      validateAlignedVectorizedFusionInputOutput(
+          outputs[pos], word_size, tv, expr_eval);
     }
   }
 }
@@ -789,23 +599,14 @@ void validateVectorizedSplits(
   for (const auto& extent_factor : kernel->summary().splits_to_validate) {
     auto input_extent = expr_eval.evaluate(extent_factor.first);
     auto split_factor = expr_eval.evaluate(extent_factor.second);
+    auto divisible = (input_extent % split_factor == 0);
     TORCH_INTERNAL_ASSERT(
-        input_extent.has_value(),
-        "Could not check if a split with vectorization is divisible because the extent, ",
-        extent_factor.first->toString(),
-        ", is not possible to evaluate.");
-    TORCH_INTERNAL_ASSERT(
-        input_extent.has_value(),
-        "Could not check if a split with vectorization is divisible because the split factor, ",
-        extent_factor.second->toString(),
-        ", is not possible to evaluate.");
-    TORCH_INTERNAL_ASSERT(
-        input_extent.value() % split_factor.value() == 0,
+        divisible,
         "Non-divisible split with vectorization is detected. ",
         "Extent: ",
-        input_extent.value(),
+        input_extent,
         ". Factor: ",
-        split_factor.value());
+        split_factor);
   }
 }
 
@@ -828,15 +629,42 @@ void validateVectorizedTensors(
   validateVectorizedSplits(kernel, expr_eval);
 }
 
-namespace {
-
 void bindInputForExprEvaluation(
     Val* val,
     const ArgAbstract* arg,
     bool check_consistency,
-    ExpressionEvaluator& expr_eval) {
+    ExpressionEvaluator& expr_eval,
+    bool legacy) {
+  TORCH_INTERNAL_ASSERT(val != nullptr);
   if (val->getValType() == ValType::TensorView) {
     TensorView* cg_tensor = val->as<TensorView>();
+    auto tensor_arg_abstract = dynamic_cast<const TensorArgAbstract*>(arg);
+    if (tensor_arg_abstract != nullptr) {
+      expr_eval.bind(cg_tensor, tensor_arg_abstract->getTensor());
+    }
+    // TODO: clean this up
+    if (auto arg_ = dynamic_cast<const CpuScalarTensorArg<1>*>(arg)) {
+      expr_eval.bind(cg_tensor, arg_->getTensor());
+    }
+    if (auto arg_ = dynamic_cast<const CpuScalarTensorArg<2>*>(arg)) {
+      expr_eval.bind(cg_tensor, arg_->getTensor());
+    }
+    if (auto arg_ = dynamic_cast<const CpuScalarTensorArg<4>*>(arg)) {
+      expr_eval.bind(cg_tensor, arg_->getTensor());
+    }
+    if (auto arg_ = dynamic_cast<const CpuScalarTensorArg<8>*>(arg)) {
+      expr_eval.bind(cg_tensor, arg_->getTensor());
+    }
+    if (auto arg_ = dynamic_cast<const CpuScalarTensorArg<16>*>(arg)) {
+      expr_eval.bind(cg_tensor, arg_->getTensor());
+    }
+
+#if 1
+    if (!legacy) {
+      return;
+    }
+
+    // Legacy code. To be removed in the future
     auto root_domain =
         TensorDomain::noReductions(cg_tensor->getMaybeRFactorDomain());
 
@@ -867,11 +695,11 @@ void bindInputForExprEvaluation(
           // once all values are bound.
           auto maybe_expanded_size =
               expr_eval.evaluate(root_domain[dim]->expandedExtent());
-          if (maybe_expanded_size.has_value()) {
+          if (maybe_expanded_size.hasValue()) {
             TORCH_CHECK(
-                *maybe_expanded_size == tensor_arg_size,
+                maybe_expanded_size == tensor_arg_size,
                 "Expecting expanded extent of ",
-                *maybe_expanded_size,
+                maybe_expanded_size,
                 " but received value of ",
                 tensor_arg_size);
           } else {
@@ -884,15 +712,15 @@ void bindInputForExprEvaluation(
         bool should_bind = true;
         if (check_consistency) {
           const auto prev_value = expr_eval.evaluate(extent);
-          if (prev_value.has_value()) {
+          if (prev_value.hasValue()) {
             TORCH_CHECK(
-                *prev_value == value,
+                prev_value == value,
                 "Attempting to bind ",
                 extent->toString(),
                 " to ",
                 value,
                 " but it's already set to ",
-                *prev_value);
+                prev_value);
             should_bind = false;
           }
         }
@@ -901,7 +729,8 @@ void bindInputForExprEvaluation(
         }
       }
     }
-  } else if (val->getValType().value() == ValType::Scalar) {
+#endif
+  } else if (val->getValType().value() == ValType::Others) {
     if (val->getDataType().value() == DataType::Int) {
       TORCH_INTERNAL_ASSERT(
           arg->isType(ArgType::Long),
@@ -914,11 +743,16 @@ void bindInputForExprEvaluation(
           "fusion expected Scalar Double inputs, but found ",
           argTypeToString(arg->type()));
       expr_eval.bind(val, *static_cast<const double*>(arg->arg()));
+    } else if (val->getDataType().value() == DataType::ComplexDouble) {
+      TORCH_INTERNAL_ASSERT(
+          arg->isType(ArgType::ComplexDouble),
+          "fusion expected Scalar ComplexDouble inputs, but found ",
+          argTypeToString(arg->type()));
+      expr_eval.bind(
+          val, *static_cast<const std::complex<double>*>(arg->arg()));
     }
   }
 }
-
-} // namespace
 
 ExpressionEvaluator bindInputs(
     const KernelArgumentHolder& args,
@@ -954,7 +788,7 @@ size_t nvrtcGetSize(const nvrtcProgram& program, bool compile_to_sass) {
   const auto getSize = nvrtcGetPTXSize;
 #endif
   size_t size = 0;
-  NVRTC_SAFE_CALL(getSize(program, &size));
+  NVFUSER_NVRTC_SAFE_CALL(getSize(program, &size));
   return size;
 }
 
@@ -973,7 +807,7 @@ std::vector<char> nvrtcGetCode(
 #endif
 
   std::vector<char> code(size);
-  NVRTC_SAFE_CALL(getCode(program, code.data()));
+  NVFUSER_NVRTC_SAFE_CALL(getCode(program, code.data()));
   return code;
 }
 
@@ -984,7 +818,7 @@ void dumpCompiledCodeToFile(
   std::stringstream file_name;
   file_name << "__tmp_kernel" << fusion_id << "."
             << (dump_cubin ? "cubin" : "ptx");
-  std::cout << "PRINTING: " << file_name.str() << std::endl;
+  debug() << "PRINTING: " << file_name.str() << std::endl;
   std::ofstream out(file_name.str());
   TORCH_INTERNAL_ASSERT(out.is_open());
   out.write(code.data(), (std::streamsize)code.size());
@@ -1022,11 +856,11 @@ std::optional<int64_t> getMaxRegCount(
   }
 
   // Overwrite the count by the environment variable
-  if (auto env_count = getenv("PYTORCH_NVFUSER_MAX_REG_COUNT")) {
+  if (auto env_count = getNvFuserEnv("MAX_REG_COUNT")) {
     auto env_max_reg_count = std::atoi(env_count);
     TORCH_CHECK(
         env_max_reg_count > 0 && env_max_reg_count <= max_register_limit,
-        "Invalid max register count specified by PYTORCH_NVFUSER_MAX_REG_COUNT: ",
+        "Invalid max register count specified by NVFUSER_MAX_REG_COUNT: ",
         env_max_reg_count);
     max_register = env_max_reg_count;
   }
@@ -1051,26 +885,29 @@ class NvrtcCompileDriver {
     return options_;
   }
 
-  //! Call nvrtcCompileProgram with set options
   std::string invoke(nvrtcProgram program, const std::string& src) const {
     FUSER_PERF_SCOPE("executor_utils::Nvrtc::CompileProgram");
     auto opts = getOptions();
     auto result = nvrtcCompileProgram(
         program, static_cast<int>(opts.size()), opts.data());
-
     size_t logsize = 0;
-    NVRTC_SAFE_CALL(nvrtcGetProgramLogSize(program, &logsize));
-    std::string log(logsize, 0);
-    NVRTC_SAFE_CALL(nvrtcGetProgramLog(program, log.data()));
+    NVFUSER_NVRTC_SAFE_CALL(nvrtcGetProgramLogSize(program, &logsize));
+    // The log size, as returned by 'nvrtcGetProgramLogSize', appears larger
+    // than its actual size by 2. This discrepancy was noticed in NVRTC
+    // version 12.1. The log returned from 'nvrtcGetProgramLog' terminates with
+    // a NULL character, ensuring it's safe to use 'std::vector<char>' for
+    // storage before converting it to 'std::string'.
+    std::vector<char> log_backing_buf(logsize);
+    char* log_buf = log_backing_buf.data();
+    NVFUSER_NVRTC_SAFE_CALL(nvrtcGetProgramLog(program, log_buf));
     if (result != NVRTC_SUCCESS) {
-      TORCH_INTERNAL_ASSERT(false, src, "\nCUDA NVRTC compile error: ", log);
+      TORCH_INTERNAL_ASSERT(
+          false, src, "\nCUDA NVRTC compile error: ", log_buf);
     }
-
     if (isDebugDumpEnabled(DebugDumpOption::PrintPtxasLog)) {
-      std::cout << log << std::endl;
+      debug() << log_buf << std::endl;
     }
-
-    return log;
+    return std::string(log_buf);
   }
 
  private:
@@ -1119,11 +956,11 @@ class CuModuleLoadDataDriver {
 
     auto [opts, opt_vals] = getOptions();
 
-    CUDA_SAFE_CALL(cuModuleLoadDataEx(
+    NVFUSER_CUDA_SAFE_CALL(cuModuleLoadDataEx(
         &module, image, opts.size(), opts.data(), opt_vals.data()));
 
     if (logging_enabled_) {
-      std::cout << log_ << std::endl;
+      debug() << log_ << std::endl;
     }
 
     return log_;
@@ -1220,7 +1057,7 @@ void fillCompileOptions(
 #endif
 
   if (isOptionEnabled(EnableOption::KernelProfile)) {
-    nvrtc_compile_driver.setOption("-DPYTORCH_NVFUSER_PROFILE_KERNEL");
+    nvrtc_compile_driver.setOption("-DNVFUSER_PROFILE_KERNEL");
   }
   if (isDebugDumpEnabled(DebugDumpOption::PrintPtxasLog) ||
       isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose) ||
@@ -1235,7 +1072,7 @@ void fillCompileOptions(
     }
   }
 
-  const char* ptxas_opt_level = getenv("PYTORCH_NVFUSER_JIT_OPT_LEVEL");
+  const char* ptxas_opt_level = getNvFuserEnv("JIT_OPT_LEVEL");
 
   if (ptxas_opt_level) {
     int val = atoi(ptxas_opt_level);
@@ -1244,7 +1081,7 @@ void fillCompileOptions(
         TORCH_WARN(
             "ptxas optimization level manually set as ",
             val,
-            ", which could negatively affect performance. Try removing env variable PYTORCH_NVFUSER_JIT_OPT_LEVEL for optimal performance.");
+            ", which could negatively affect performance. Try removing env variable NVFUSER_JIT_OPT_LEVEL for optimal performance.");
       }
       if (compile_to_sass) {
         nvrtc_compile_driver.setOption("--ptxas-options");
@@ -1254,7 +1091,7 @@ void fillCompileOptions(
       }
     } else {
       TORCH_WARN_ONCE(
-          "acceptable range for PYTORCH_NVFUSER_JIT_OPT_LEVEL is between 0 and 4, but received ",
+          "acceptable range for NVFUSER_JIT_OPT_LEVEL is between 0 and 4, but received ",
           val,
           ", ignoring the option");
     }
@@ -1301,15 +1138,14 @@ void warnRegisterSpill(const std::string& compile_log) {
       try {
         allowed_spill = std::stoi(optionArgs[0]);
       } catch (const std::exception& e) {
-        std::cout << "skip invalid argument for WarnRegisterSpill, arg = "
-                  << optionArgs[0] << std::endl;
+        debug() << "skip invalid argument for WarnRegisterSpill, arg = "
+                << optionArgs[0] << std::endl;
       }
     }
   }
   if (stack_count > allowed_spill || store_count > allowed_spill ||
       load_count > allowed_spill) {
-    std::cout << "WARNING: Register spill detected\n"
-              << compile_log << std::endl;
+    debug() << "WARNING: Register spill detected\n" << compile_log << std::endl;
   }
 }
 
@@ -1321,7 +1157,7 @@ void createNvrtcProgram(
   ss << "__tmp_kernel" << id << ".cu";
   std::string name = ss.str();
   FUSER_PERF_SCOPE("executor_utils::NvrtcCreateProgram");
-  NVRTC_SAFE_CALL(nvrtcCreateProgram(
+  NVFUSER_NVRTC_SAFE_CALL(nvrtcCreateProgram(
       &program, full_src_code.c_str(), name.c_str(), 0, nullptr, nullptr));
 }
 
@@ -1338,16 +1174,16 @@ std::tuple<std::vector<char>, std::string, std::string> compileSource(
   nvrtcProgram program; // NOLINT(cppcoreguidelines-init-variables)
   torch::jit::ResourceGuard holdProgram([&] {
     FUSER_PERF_SCOPE("executor_utils::NvrtcDestroyProgram");
-    NVRTC_SAFE_CALL(nvrtcDestroyProgram(&program));
+    NVFUSER_NVRTC_SAFE_CALL(nvrtcDestroyProgram(&program));
   });
 
   createNvrtcProgram(program, id, full_src_code);
 
-  NVRTC_SAFE_CALL(nvrtcAddNameExpression(program, func_name.c_str()));
+  NVFUSER_NVRTC_SAFE_CALL(nvrtcAddNameExpression(program, func_name.c_str()));
   log << nvrtc_compile.invoke(program, full_src_code) << std::endl;
 
   const char* lowered_kernel_name = nullptr;
-  NVRTC_SAFE_CALL(
+  NVFUSER_NVRTC_SAFE_CALL(
       nvrtcGetLoweredName(program, func_name.c_str(), &lowered_kernel_name));
   auto lowered_kernel_name_str = std::string(lowered_kernel_name);
 
@@ -1365,7 +1201,7 @@ std::tuple<std::vector<char>, std::string, std::string> compileSource(
 
 // Compile the source if no existing compiled binary is found in KernelDB
 std::tuple<NvrtcFunction, std::string, std::vector<char>> getCompiledKernel(
-    c10::optional<std::reference_wrapper<const std::string>> kernel_code,
+    std::optional<std::reference_wrapper<const std::string>> kernel_code,
     const std::string& full_src_code,
     const std::string& func_name,
     int64_t id,
@@ -1473,7 +1309,7 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> getCompiledKernel(
     warnRegisterSpill(log.str());
   }
 
-  CUDA_SAFE_CALL(cuModuleGetFunction(
+  NVFUSER_CUDA_SAFE_CALL(cuModuleGetFunction(
       &(compiled_kernel.function),
       compiled_kernel.module,
       lowered_kernel_name_str.c_str()));

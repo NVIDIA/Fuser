@@ -10,6 +10,7 @@
 #include <expr_simplifier.h>
 #include <iter_visitor.h>
 #include <kernel_ir_dispatch.h>
+#include <options.h>
 
 #include <device_lower/pass/scalar_hoist.h>
 
@@ -227,7 +228,7 @@ std::list<VarInfo> getVariableInfo(
       variables.push_back({loop->index(), loop->isUnrolled()});
     }
   }
-  // Tensor base addresses
+  // Tensor metadata
   std::vector<Val*> to_visit{value};
   while (!to_visit.empty()) {
     auto back = to_visit.back();
@@ -236,7 +237,7 @@ std::list<VarInfo> getVariableInfo(
     if (def == nullptr) {
       continue;
     }
-    if (def->isA<kir::BaseAddress>()) {
+    if (def->isA<GetMetaData>()) {
       variables.push_front({back});
       continue;
     }
@@ -245,8 +246,8 @@ std::list<VarInfo> getVariableInfo(
   return variables;
 }
 
-std::vector<Bool*> getAssumptions(const std::vector<kir::ForLoop*>& loops) {
-  std::vector<Bool*> assumptions;
+std::vector<Val*> getAssumptions(const std::vector<kir::ForLoop*>& loops) {
+  std::vector<Val*> assumptions;
   // assumptions from parallel dimension
   for (auto [p, extent] :
        GpuLower::current()->parallelDimensionMap().getMap()) {
@@ -458,7 +459,7 @@ class CommonIndexInserter : private kir::ExprMutator {
       // kernel, which can be either int64_t or int. Not very clean,
       // but this seems to be the quickest way to use the value type
       // as we don't have a scalar IR node for the value type.
-      auto dtype = *value->getDataType();
+      auto dtype = value->dtype();
       if (isIntegralType(dtype) && !isPointerType(dtype)) {
         value->resolveIndexDtype();
       }

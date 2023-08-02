@@ -98,7 +98,7 @@ RecomputeTv::RecomputeTv(Fusion* fusion) : IrCloner(fusion), fusion_(fusion) {
   }
   // Adds all scalar values to clones map to prevent cloning them
   for (const auto val : fusion->vals()) {
-    if (val->getValType().value() == ValType::Scalar ||
+    if (val->getValType().value() == ValType::Others ||
         val->getValType().value() == ValType::NamedScalar) {
       clones_map_[val] = val;
     }
@@ -116,7 +116,7 @@ Statement* RecomputeTv::handle(const TensorDomain* td) {
   // Make sure to recompute the history of the iteration domains, explicitly go
   // through the expressions and send them to IrCloner.
   auto exprs =
-      StmtSort::getExprs(fusion_, {td->leaf().begin(), td->leaf().end()});
+      StmtSort::getExprsTo(fusion_, {td->leaf().begin(), td->leaf().end()});
 
   for (auto expr : exprs) {
     IrCloner::handle(expr);

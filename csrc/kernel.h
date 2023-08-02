@@ -50,7 +50,7 @@ struct KernelSummary {
   std::unordered_map<const LoadStoreOp*, int64_t> tma_tensor_maps_map;
 
   //! Indicate the need to generate random numbers
-  int max_rng_offsets = -1;
+  bool has_philox_op = false;
 
   //! Do we have any block reductions?
   bool has_block_reductions = false;
@@ -149,7 +149,7 @@ class TORCH_CUDA_CU_API KernelPerformanceProfile {
   int getNewIndex();
 
   //! Get the profile index
-  c10::optional<int> getIndex(const Expr* expr) const;
+  std::optional<int> getIndex(const Expr* expr) const;
 
  private:
   int num_profile_entries_ = 0;
@@ -233,6 +233,10 @@ class TORCH_CUDA_CU_API Kernel final : public Fusion {
   //! Debug dump of the Kernel IR
   void print() const;
 
+  const std::vector<Val*>& parameters() const {
+    return parameters_;
+  }
+
  protected:
   using IrContainer::registerExpr;
   using IrContainer::registerVal;
@@ -262,6 +266,13 @@ class TORCH_CUDA_CU_API Kernel final : public Fusion {
   WarpPaddedParallelInfo warp_padded_parallel_info_;
 
   KernelPerformanceProfile profile_;
+
+  // Parameters of the kernel. The parameters contain the inputs and outputs of
+  // the kernel, intermediate buffers, and special items such as RNG state and
+  // tensor map for TMA support, etc. The parameters are not required to have no
+  // definition. If a parameter has a definition, its definition will be
+  // evaluated before the kernel is executed.
+  std::vector<Val*> parameters_;
 };
 
 //! A special debugging proxy for Kernel.

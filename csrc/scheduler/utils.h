@@ -30,6 +30,10 @@ namespace scheduler_utils {
 // but it's hard to get a better one.
 constexpr int64_t register_file_size_full = (int64_t)256 * 1024;
 constexpr int64_t register_file_size = register_file_size_full / 2;
+// Empirically observed number. Not guaranteed to be a good estimate
+constexpr int64_t register_overhead = 40l;
+constexpr int64_t max_registers_per_thread = 255l;
+constexpr int64_t bytes_per_register = 4l;
 
 constexpr int64_t x_grid_limit = ((int64_t)1 << (int64_t)31) - (int64_t)1;
 constexpr int64_t y_grid_limit = 65535;
@@ -96,12 +100,12 @@ TORCH_CUDA_CU_API inline void splitDims(
 // update the dimensions in `to_update` to the positions in the merged tensor.
 // Returns the merged dimension. All given dimensions are numbers before any
 // merge.
-TORCH_CUDA_CU_API c10::optional<size_t> mergeDims(
+TORCH_CUDA_CU_API std::optional<size_t> mergeDims(
     TensorView* tv,
     std::vector<size_t> to_merge,
     std::vector<size_t>& to_update);
 
-TORCH_CUDA_CU_API inline c10::optional<size_t> mergeDims(
+TORCH_CUDA_CU_API inline std::optional<size_t> mergeDims(
     TensorView* tv,
     std::vector<size_t> to_merge) {
   std::vector<size_t> unused;
@@ -276,9 +280,14 @@ class FindAllMappedDims : public MaxInfoSpanningTree::Propagator {
   TensorView* starting_tv_ = nullptr;
   IterDomain* starting_id_ = nullptr;
   bool inner_only_;
+  bool vectorize_pass_;
 
  public:
-  FindAllMappedDims(TensorView* from, IterDomain* starting_id, bool inner_only);
+  FindAllMappedDims(
+      TensorView* from,
+      IterDomain* starting_id,
+      bool inner_only,
+      bool vectorize_pass);
   void setUp() override;
   void propagateC2P(TensorView* from, TensorView* to) override;
   void propagateP2C(TensorView* from, TensorView* to) override;
@@ -446,7 +455,7 @@ struct TORCH_CUDA_CU_API BoundedDirectionalTransformPropagator {
       TensorView* from,
       int pos,
       std::vector<TensorView*> to,
-      c10::optional<Options> options = c10::nullopt);
+      std::optional<Options> options = std::nullopt);
 
   //! Replay transforms from tensorview `from`
   //! to the tensorviews that are producers
@@ -455,7 +464,7 @@ struct TORCH_CUDA_CU_API BoundedDirectionalTransformPropagator {
       TensorView* from,
       int pos,
       std::vector<TensorView*> to,
-      c10::optional<Options> options = c10::nullopt);
+      std::optional<Options> options = std::nullopt);
 
   //! Replay transforms from tensorview `from`
   //!  to all the tensorviews that are consumers
@@ -467,7 +476,7 @@ struct TORCH_CUDA_CU_API BoundedDirectionalTransformPropagator {
       int pos,
       std::vector<TensorView*> backward_to,
       std::vector<TensorView*> forward_to,
-      c10::optional<Options> options = c10::nullopt);
+      std::optional<Options> options = std::nullopt);
 
  private:
   //! Utility function:

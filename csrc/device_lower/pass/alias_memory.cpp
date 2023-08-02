@@ -7,6 +7,7 @@
 // clang-format on
 #include <device_lower/pass/alias_memory.h>
 
+#include <debug.h>
 #include <device_lower/lower2device.h>
 #include <device_lower/utils.h>
 #include <expr_evaluator.h>
@@ -15,6 +16,7 @@
 #include <ir/utils.h>
 #include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
+#include <options.h>
 
 #include <sstream>
 #include <unordered_map>
@@ -157,18 +159,18 @@ class SymbolicSizePrinter : private OptOutConstDispatch {
  public:
   static std::string printSize(const kir::Allocate* allocate) {
     SymbolicSizePrinter printer;
-    printer.handle(allocate->size());
+    printer.dispatch(allocate->size());
     return printer.os_.str();
   }
 
  private:
   using OptOutConstDispatch::handle;
 
-  void handle(const Int* node) final {
+  void dispatch(const Val* node) final {
     if (auto def = node->definition()) {
-      OptOutConstDispatch::handle(def);
+      OptOutConstDispatch::dispatch(def);
     } else if (node->isConst()) {
-      os_ << *node->value();
+      os_ << node->value();
     } else {
       os_ << "ki" << node->name();
     }
@@ -186,9 +188,9 @@ class SymbolicSizePrinter : private OptOutConstDispatch {
 
   void handle(const BinaryOp* binary_op) final {
     os_ << binary_op->getBinaryOpType() << "(";
-    OptOutConstDispatch::handle(binary_op->lhs());
+    OptOutConstDispatch::dispatch(binary_op->lhs());
     os_ << ",";
-    OptOutConstDispatch::handle(binary_op->rhs());
+    OptOutConstDispatch::dispatch(binary_op->rhs());
     os_ << ")";
   }
 
@@ -452,10 +454,10 @@ class ScopeMap : private kir::IrVisitor {
 
   using kir::IrVisitor::handle;
 
-  void handle(Expr* expr) final {
+  void dispatch(Expr* expr) final {
     expr_pos_map_.moveToNext();
     expr_pos_map_.setPosAtCurrent(expr);
-    kir::IrVisitor::handle(expr);
+    kir::IrVisitor::dispatch(expr);
   }
 
   void handle(kir::ForLoop* for_loop) final {
@@ -601,16 +603,16 @@ class AllocationInfoMap : private kir::IrVisitor {
     handle(exprs);
     if (debug_printer_) {
       debug_printer_->popScope();
-      std::cout << debug_printer_->dumpDebugInfo(this);
+      debug() << debug_printer_->dumpDebugInfo(this);
     }
     current_stack_.pop_back();
   }
 
-  c10::optional<AllocationInfo*> getMaybeAllocationInfo(
+  std::optional<AllocationInfo*> getMaybeAllocationInfo(
       const kir::Allocate* alloc) const {
     auto it = allocation_info_map_.find(alloc);
     if (it == allocation_info_map_.end()) {
-      return c10::nullopt;
+      return std::nullopt;
     }
     return it->second;
   }
@@ -675,11 +677,11 @@ class AllocationInfoMap : private kir::IrVisitor {
  private:
   using kir::IrVisitor::handle;
 
-  void handle(Expr* expr) final {
+  void dispatch(Expr* expr) final {
     if (debug_printer_) {
       debug_printer_->pushBack(scope_map_.getExprPos(expr), expr);
     }
-    kir::IrVisitor::handle(expr);
+    kir::IrVisitor::dispatch(expr);
     if (ir_utils::isTvOp(expr)) {
       collectLivenessInfoOfExpr(expr);
     }
@@ -838,10 +840,10 @@ class AllocationInfoMap : private kir::IrVisitor {
     }
   }
 
-  c10::optional<AllocationInfo*> getMaybeAllocInfoFromTV(TensorView* tv) const {
+  std::optional<AllocationInfo*> getMaybeAllocInfoFromTV(TensorView* tv) const {
     auto alloc_it = tv_to_allocation_map_.find(tv->name());
     if (alloc_it == tv_to_allocation_map_.end()) {
-      return c10::nullopt;
+      return std::nullopt;
     }
     return alloc_it->second;
   }
@@ -1051,7 +1053,18 @@ class ReusableAllocationFinder : private kir::IrVisitor {
         }
 
         // Check if this alloc has the same data type
-        if (alloc_info->data_type != alloc_to_reuse->data_type) {
+        if (alloc_info->mem_type == MemoryType::Local &&
+            isOptionDisabled(DisableOption::ReuseMismatchedTypeRegisters)) {
+          // With this option, registers must have exactly matching dtypes in
+          // order to be re-used
+          if (alloc_info->data_type != alloc_to_reuse->data_type) {
+            continue;
+          }
+        } else if (
+            dataTypeSize(alloc_info->data_type) !=
+            dataTypeSize(alloc_to_reuse->data_type)) {
+          // Behavior for shared or global memory and default behavior for
+          // registers is to re-use if dtypes have same size.
           continue;
         }
 

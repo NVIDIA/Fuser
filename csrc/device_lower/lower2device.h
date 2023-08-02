@@ -26,6 +26,7 @@
 #include <kernel.h>
 #include <kernel_ir.h>
 #include <non_divisible_split.h>
+#include <options.h>
 #include <parallel_dimension_map.h>
 #include <partial_split_map.h>
 #include <root_domain_map.h>
@@ -210,6 +211,14 @@ class TORCH_CUDA_CU_API GpuLower : public NonCopyable {
   //    in any pass that performs replacement.
   void propagateExprInfo(const Expr* old_expr, const Expr* new_expr);
 
+  std::vector<Val*>& allKnownVals() {
+    return all_known_vals_;
+  }
+
+  const std::vector<Val*>& allKnownVals() const {
+    return all_known_vals_;
+  }
+
  private:
   void lower(Fusion* fusion);
 
@@ -260,6 +269,9 @@ class TORCH_CUDA_CU_API GpuLower : public NonCopyable {
   // Map from LoadStoreOp to its corresponding index in tma_tensor_maps_.
   // Multiple LoadStoreOps can map to the same index.
   std::unordered_map<const LoadStoreOp*, int64_t> tma_tensor_maps_map_;
+  // All vals that are known to the kernel, including fusion inputs and
+  // precomputed values
+  std::vector<Val*> all_known_vals_;
 
   Fusion* fusion_ = nullptr;
 };

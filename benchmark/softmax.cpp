@@ -104,18 +104,8 @@ static void Softmax_WarpReduceReference(benchmark::State& benchmark_state) {
 
   FusionExecutor fe;
   fe.compileFusion(fusion, aten_inputs);
-  auto outputs = fe.runFusion(aten_inputs);
-  fe.setMeasureKernelTimeFlag(true);
 
-  // Sync everything up before we start
-  for (auto _ : benchmark_state) {
-    clearL2Cache();
-    auto outputs = fe.runFusion(aten_inputs);
-    benchmark_state.SetIterationTime(fe.kernelTimeMs() / 1000.0);
-  }
-  // Sync everything up before we're finished, don't want to run ahead on the
-  // cpu while benchmarking.
-  C10_CUDA_CHECK(cudaDeviceSynchronize());
+  runBenchmarkIterations(benchmark_state, &fe, aten_inputs);
 
   benchmark_state.SetBytesProcessed(
       int64_t(benchmark_state.iterations()) *
@@ -159,18 +149,8 @@ static void Softmax_WarpReduce(benchmark::State& benchmark_state) {
 
   FusionExecutor fe;
   fe.compileFusion(fusion, aten_inputs);
-  auto outputs = fe.runFusion(aten_inputs);
-  fe.setMeasureKernelTimeFlag(true);
 
-  // Sync everything up before we start
-  for (auto _ : benchmark_state) {
-    clearL2Cache();
-    auto outputs = fe.runFusion(aten_inputs);
-    benchmark_state.SetIterationTime(fe.kernelTimeMs() / 1000.0);
-  }
-  // Sync everything up before we're finished, don't want to run ahead on the
-  // cpu while benchmarking.
-  C10_CUDA_CHECK(cudaDeviceSynchronize());
+  runBenchmarkIterations(benchmark_state, &fe, aten_inputs);
 
   benchmark_state.SetBytesProcessed(
       int64_t(benchmark_state.iterations()) *
@@ -363,6 +343,27 @@ NVFUSER_BENCHMARK_RUN(NvFuserScheduler_Softmax_Inner_fp16)
     ->Unit(benchmark::kMicrosecond)
     ->UseManualTime();
 
+//--------- large hidden size --------------------------------------------------
+NVFUSER_BENCHMARK_RUN(NvFuserScheduler_Softmax_Inner_fp16)
+    ->Args({30 * 1024, 8192})
+    ->Args({31 * 1024, 8192})
+    ->Args({32 * 1024, 8192})
+    ->Args({33 * 1024, 8192})
+    ->Args({34 * 1024, 8192})
+    ->Args({35 * 1024, 8192})
+    ->Args({36 * 1024, 8192})
+    ->Args({37 * 1024, 8192})
+    ->Args({38 * 1024, 8192})
+    ->Args({39 * 1024, 8192})
+    ->Args({40 * 1024, 8192})
+    ->Args({44 * 1024, 8192})
+    ->Args({48 * 1024, 8192})
+    ->Args({52 * 1024, 8192})
+    ->Args({56 * 1024, 8192})
+    ->Args({60 * 1024, 8192})
+    ->Args({64 * 1024, 8192})
+    ->Unit(benchmark::kMicrosecond)
+    ->UseManualTime();
 //------------------------------------------------------------------------------
 
 BENCHMARK(Baseline_Softmax_Outer_fp32)

@@ -10,6 +10,7 @@
 #include <ops/arith.h>
 #include <scheduler/matmul.h>
 #include <scheduler/matmul_heuristic.h>
+#include <scheduler/mma_utils.h>
 #include <test/utils.h>
 
 #include <sstream>
@@ -43,7 +44,9 @@ sass::Container getSASSFor(
     MmaOptions::MacroType macro,
     int M,
     int N,
-    int K) {
+    int K,
+    const int smem_double_buffer_stage = 4,
+    const bool use_smem_epilogue = false) {
   Fusion fusion;
   FusionGuard fg(&fusion);
   auto tv0 = makeContigTensor(2, DataType::Half);
@@ -67,7 +70,9 @@ sass::Container getSASSFor(
   params.async_gmem_load_operands = true;
   params.double_buffer_options.double_buffer_smem_write = true;
   params.double_buffer_options.double_buffer_smem_read = true;
-  params.double_buffer_options.smem_double_buffer_stage = 4;
+  params.double_buffer_options.smem_double_buffer_stage =
+      smem_double_buffer_stage;
+  params.use_smem_epilogue = use_smem_epilogue;
   scheduleMatmul(&fusion, params);
 
   auto inputs = matmulAtInput(M, N, K, layout);
@@ -98,7 +103,7 @@ sass::Container getBinaryOpMulEpilogueSASSFor(
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  auto s0 = IrBuilder::create<Double>();
+  auto s0 = IrBuilder::create<Val>(DataType::Double);
   auto tv0 = makeContigTensor(2, DataType::Half);
   auto tv1 = makeContigTensor(2, DataType::Half);
 
@@ -307,6 +312,147 @@ TEST_F(MatmulSASSTest, AmpereModifiers_CUDA) {
     TORCH_CHECK(found_HMMA);
     TORCH_CHECK(found_LDGDEPBAR);
     TORCH_CHECK(found_BAR);
+    TORCH_CHECK(found_DEPBAR);
+  }
+}
+
+// Check the modifiers of instructions. We are particularily interested in
+// load/store, mma, and sync instructions. Currently, the ground truth in this
+// test's asserts are based on experimental result of this test itself. In the
+// future, we should use cutlass's kernel as ground truth.
+TEST_F(MatmulSASSTest, AmpereModifiersSharedMemoryEpilogue_CUDA) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 9, 0);
+  MatMulTileOptions gemm_tile;
+  gemm_tile.cta_tile = GemmTile(128, 128, 32);
+  gemm_tile.warp_tile = GemmTile(64, 64, 32);
+  gemm_tile.instruction_tile = GemmTile(16, 8, 16);
+  const int smem_double_buffer_stage = 4;
+  const bool ignore_occupancy_drop = true;
+  const bool use_smem_epilogue =
+      mma_utils::generateSharedMemoryEpilogueHeuristics(
+          gemm_tile,
+          smem_double_buffer_stage,
+          {DataType::Half, DataType::Half, DataType::Float},
+          ignore_occupancy_drop);
+  if (!use_smem_epilogue) {
+    GTEST_SKIP()
+        << "Test skipped due to the device's constrained shared memory capacity.";
+  }
+  // Keep multiples of 8 to keep vectorizable.
+  int M = 504, N = 136, K = 248;
+  for (auto layout : {MatmulLayout::TT}) {
+    bool found_LDGSTS = false;
+    bool found_LDSM = false;
+    bool found_HMMA = false;
+    bool found_LDGDEPBAR = false;
+    bool found_DEPBAR = false; // kAllSupportedMatmulLayout;
+    int BAR_COUNT = 0;
+    // we have three shared memory barriers in the kernel if
+    // use_shared_epilogue
+    const int EXPECTED_BAR_COUNT = 3;
+    sass::Container sass;
+    NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
+        8,
+        0,
+        sass = getSASSFor(
+            layout,
+            gemm_tile.cta_tile,
+            gemm_tile.warp_tile,
+            gemm_tile.instruction_tile,
+            MmaOptions::MacroType::Ampere_16_8_16,
+            M,
+            N,
+            K,
+            smem_double_buffer_stage,
+            use_smem_epilogue));
+    for (auto inst : sass.code) {
+      std::visit(
+          [&](auto&& i) {
+            using T = std::decay_t<decltype(i)>;
+            if constexpr (std::is_same_v<sass::Instruction, T>) {
+              if (i.opCode() == "LDGSTS") {
+                const std::vector<std::string> expect = {
+                    "E", "BYPASS", "LTC128B", "128"};
+                TORCH_CHECK(
+                    i.modifiers() == expect,
+                    "Modifiers for LDGSTS has changed. "
+                    "Please manually check if the new modifiers makes sense and update this test. "
+                    "Expect: ",
+                    expect,
+                    " Get: ",
+                    i.modifiers());
+                found_LDGSTS = true;
+              } else if (i.opCode() == "LDGDEPBAR") {
+                const std::vector<std::string> expect;
+                TORCH_CHECK(
+                    i.modifiers() == expect,
+                    "Modifiers for LDGDEPBAR has changed. "
+                    "Please manually check if the new modifiers makes sense and update this test. "
+                    "Expect: ",
+                    expect,
+                    " Get: ",
+                    i.modifiers());
+                found_LDGDEPBAR = true;
+              } else if (i.opCode() == "LDSM") {
+                const std::vector<std::string> expect1 = {"16", "M88", "2"};
+                const std::vector<std::string> expect2 = {"16", "M88", "4"};
+                const std::vector<std::string> expect3 = {"16", "MT88", "2"};
+                const std::vector<std::string> expect4 = {"16", "MT88", "4"};
+                TORCH_CHECK(
+                    i.modifiers() == expect1 || i.modifiers() == expect2 ||
+                        i.modifiers() == expect3 || i.modifiers() == expect4,
+                    "Modifiers for LDGDEPBAR has changed. "
+                    "Please manually check if the new modifiers makes sense and update this test.");
+                found_LDSM = true;
+              } else if (i.opCode() == "HMMA") {
+                const std::vector<std::string> expect = {"16816", "F32"};
+                TORCH_CHECK(
+                    i.modifiers() == expect,
+                    "Modifiers for HMMA has changed. "
+                    "Please manually check if the new modifiers makes sense and update this test. "
+                    "Expect: ",
+                    expect,
+                    " Get: ",
+                    i.modifiers());
+                found_HMMA = true;
+              } else if (i.opCode() == "BAR") {
+                const std::vector<std::string> expect = {
+                    "SYNC", "DEFER_BLOCKING"};
+                TORCH_CHECK(
+                    i.modifiers() == expect,
+                    "Modifiers for BAR has changed. "
+                    "Please manually check if the new modifiers makes sense and update this test. "
+                    "Expect: ",
+                    expect,
+                    " Get: ",
+                    i.modifiers());
+                BAR_COUNT++;
+              } else if (i.opCode() == "DEPBAR") {
+                const std::vector<std::string> expect = {"LE"};
+                TORCH_CHECK(
+                    i.modifiers() == expect,
+                    "Modifiers for DEPBAR has changed. "
+                    "Please manually check if the new modifiers makes sense and update this test. "
+                    "Expect: ",
+                    expect,
+                    " Get: ",
+                    i.modifiers());
+                found_DEPBAR = true;
+              }
+            }
+          },
+          inst);
+    }
+    TORCH_CHECK(found_LDGSTS);
+    TORCH_CHECK(found_LDSM);
+    TORCH_CHECK(found_HMMA);
+    TORCH_CHECK(found_LDGDEPBAR);
+    TORCH_CHECK(
+        BAR_COUNT == EXPECTED_BAR_COUNT,
+        "Expect ",
+        EXPECTED_BAR_COUNT,
+        " BARs, got ",
+        BAR_COUNT);
     TORCH_CHECK(found_DEPBAR);
   }
 }

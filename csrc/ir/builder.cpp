@@ -14,32 +14,12 @@
 #include <ir/container.h>
 
 #include <complex>
+#include <cstdint>
 
 namespace nvfuser {
 
 Val* IrBuilder::newScalar(DataType dtype) {
-  if (isPointerType(dtype)) {
-    return IrBuilder::create<Int>(dtype);
-  }
-  if (!std::holds_alternative<PrimDataType>(dtype.type)) {
-    return IrBuilder::create<Val>(ValType::Scalar, dtype);
-  }
-  switch (std::get<PrimDataType>(dtype.type)) {
-    case DataType::Bool:
-      return IrBuilder::create<Bool>();
-    case DataType::Float:
-    case DataType::Double:
-      return IrBuilder::create<Double>(dtype);
-    case DataType::Int:
-    case DataType::Int32:
-    case DataType::Index:
-      return IrBuilder::create<Int>(dtype);
-    case DataType::ComplexFloat:
-    case DataType::ComplexDouble:
-      return IrBuilder::create<ComplexDouble>(dtype);
-    default:
-      TORCH_CHECK(false, "Unexpected data type: ", dtype);
-  }
+  return IrBuilder::create<Val>(dtype);
 }
 
 Val* IrBuilder::newArithmeticExpr(BinaryOpType op_type, Val* lhs, Val* rhs) {
@@ -73,11 +53,11 @@ Val* IrBuilder::newArithmeticExpr(BinaryOpType op_type, Val* lhs, Val* rhs) {
   return result;
 }
 
-Bool* IrBuilder::newLogicExpr(BinaryOpType op_type, Val* lhs, Val* rhs) {
+Val* IrBuilder::newLogicExpr(BinaryOpType op_type, Val* lhs, Val* rhs) {
   TORCH_CHECK(
       lhs != nullptr && rhs != nullptr,
       "Either lhs or rhs is a nullptr in newLogicExpr.");
-  auto result = IrBuilder::create<Bool>(c10::nullopt);
+  auto result = newScalar(DataType::Bool);
   IrBuilder::create<BinaryOp>(op_type, result, lhs, rhs);
   // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDeleteLeaks)
   return result;
@@ -107,6 +87,13 @@ Val* IrBuilder::notExpr(Val* val) {
   return result;
 }
 
+Val* IrBuilder::derefExpr(Val* val) {
+  TORCH_CHECK(val != nullptr, "val is a nullptr in notExpr.");
+  auto result = newScalar(*(std::get<PointerOf>(val->dtype().type).type));
+  IrBuilder::create<UnaryOp>(UnaryOpType::Dereference, result, val);
+  return result;
+}
+
 Val* IrBuilder::absExpr(Val* val) {
   TORCH_CHECK(val != nullptr, "val is a nullptr in notExpr.");
   auto result = newScalar(val->dtype());
@@ -131,49 +118,51 @@ Val* IrBuilder::castExpr(DataType dtype, Val* val) {
   return result;
 }
 
-Val* IrBuilder::setExprNamedScalar(const std::string& name, Val* val) {
+NamedScalar* IrBuilder::setExprNamedScalar(const std::string& name, Val* val) {
   TORCH_CHECK(val != nullptr, "val is a nullptr in setExprNamedScalar.");
   auto result = IrBuilder::create<NamedScalar>(name, val->dtype());
   IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, result, val);
   return result;
 }
 
-Val* IrBuilder::addressExprNamedScalar(const std::string& name, Val* val) {
+NamedScalar* IrBuilder::addressExprNamedScalar(
+    const std::string& name,
+    Val* val) {
   TORCH_CHECK(val != nullptr, "val is a nullptr in addressExprNamedScalar.");
   auto result = IrBuilder::create<NamedScalar>(name, DataType::Int);
   IrBuilder::create<UnaryOp>(UnaryOpType::Address, result, val);
   return result;
 }
 
-Bool* IrBuilder::andExpr(Val* lhs, Val* rhs) {
+Val* IrBuilder::andExpr(Val* lhs, Val* rhs) {
   return newLogicExpr(BinaryOpType::And, lhs, rhs);
 }
 
-Bool* IrBuilder::orExpr(Val* lhs, Val* rhs) {
+Val* IrBuilder::orExpr(Val* lhs, Val* rhs) {
   return newLogicExpr(BinaryOpType::Or, lhs, rhs);
 }
 
-Bool* IrBuilder::eqExpr(Val* lhs, Val* rhs) {
+Val* IrBuilder::eqExpr(Val* lhs, Val* rhs) {
   return newLogicExpr(BinaryOpType::Eq, lhs, rhs);
 }
 
-Bool* IrBuilder::neExpr(Val* lhs, Val* rhs) {
+Val* IrBuilder::neExpr(Val* lhs, Val* rhs) {
   return newLogicExpr(BinaryOpType::NE, lhs, rhs);
 }
 
-Bool* IrBuilder::gtExpr(Val* lhs, Val* rhs) {
+Val* IrBuilder::gtExpr(Val* lhs, Val* rhs) {
   return newLogicExpr(BinaryOpType::GT, lhs, rhs);
 }
 
-Bool* IrBuilder::ltExpr(Val* lhs, Val* rhs) {
+Val* IrBuilder::ltExpr(Val* lhs, Val* rhs) {
   return newLogicExpr(BinaryOpType::LT, lhs, rhs);
 }
 
-Bool* IrBuilder::leExpr(Val* lhs, Val* rhs) {
+Val* IrBuilder::leExpr(Val* lhs, Val* rhs) {
   return newLogicExpr(BinaryOpType::LE, lhs, rhs);
 }
 
-Bool* IrBuilder::geExpr(Val* lhs, Val* rhs) {
+Val* IrBuilder::geExpr(Val* lhs, Val* rhs) {
   return newLogicExpr(BinaryOpType::GE, lhs, rhs);
 }
 
@@ -213,33 +202,48 @@ Val* IrBuilder::gcdExpr(Val* lhs, Val* rhs) {
   return newArithmeticExpr(BinaryOpType::Gcd, lhs, rhs);
 }
 
-Val* IrBuilder::arrayExpr(std::vector<Val*> members) {
-  TORCH_INTERNAL_ASSERT(
-      !members.empty(), "Cannot create an array with no members.");
-  auto in_dtype_opt = members.at(0)->getDataType();
-  TORCH_INTERNAL_ASSERT(in_dtype_opt.has_value());
-  auto out_dtype =
-      ArrayOf{std::make_shared<DataType>(*in_dtype_opt), members.size()};
-  auto out = newScalar(out_dtype);
-  create<ArrayOp>(out, members);
+Val* IrBuilder::getItemExpr(Val* array, Val* index) {
+  auto item_dtype = std::get<ArrayOf>(array->dtype().type).type;
+  auto out = newScalar(*item_dtype);
+  create<GetItem>(array->container(), out, array, index);
   return out;
+}
+
+Val* IrBuilder::getItemExpr(Val* array, PolymorphicValue index) {
+  auto item_dtype = std::get<ArrayOf>(array->dtype().type).type;
+  auto out = newScalar(*item_dtype);
+  create<GetItem>(
+      array->container(), out, array, newConstant(index, DataType::Int));
+  return out;
+}
+
+Val* IrBuilder::getAttrExpr(Val* struct_, std::string attr) {
+  auto item_dtype = NVFUSER_MAYBE_STAR std::get<StructOf>(struct_->dtype().type)
+                        .types.at(attr);
+  auto out = newScalar(item_dtype);
+  create<GetAttr>(struct_->container(), out, struct_, std::move(attr));
+  return out;
+}
+
+Val* IrBuilder::metadataExpr(TensorView* tv) {
+  return tv->fusion()->metadataOf(tv);
 }
 
 Val* SimplifyingIrBuilder::negExpr(Val* val) {
   if (val->isZeroInt()) {
     return val->container()->zeroVal();
-  } else if (auto int_val = dynamic_cast<Int*>(val)) {
-    if (int_val->isConst()) {
-      return IrBuilder::create<Int>(-int_val->value().value());
+  } else if (auto scalar = dynamic_cast<Val*>(val)) {
+    if (scalar->isConst()) {
+      return IrBuilder::create<Val>(-scalar->value(), scalar->dtype());
     }
   }
   return IrBuilder::negExpr(val);
 }
 
 Val* SimplifyingIrBuilder::notExpr(Val* val) {
-  if (auto bool_val = dynamic_cast<Bool*>(val)) {
-    if (bool_val->isConst()) {
-      if (bool_val->value().value()) {
+  if (auto scalar = dynamic_cast<Val*>(val)) {
+    if (scalar->isConst()) {
+      if (scalar->value()) {
         return FusionGuard::getCurFusion()->falseVal();
       } else {
         return FusionGuard::getCurFusion()->trueVal();
@@ -249,56 +253,33 @@ Val* SimplifyingIrBuilder::notExpr(Val* val) {
   return IrBuilder::notExpr(val);
 }
 
-Val* SimplifyingIrBuilder::addExpr(Int* lhs, Int::ScalarType rhs) {
+Val* SimplifyingIrBuilder::addExpr(Val* lhs, PolymorphicValue rhs) {
   if (rhs == 0) {
     return lhs;
   } else if (lhs == nullptr) {
-    return IrBuilder::IrBuilder::create<Int>(rhs);
-  } else if (lhs->isConst()) {
-    return IrBuilder::IrBuilder::create<Int>(lhs->value().value() + rhs);
+    return IrBuilder::IrBuilder::create<Val>(rhs);
+  }
+  auto target_dtype = promoteType(lhs->dtype(), getDataType(rhs));
+  if (lhs->isConst()) {
+    return IrBuilder::IrBuilder::create<Val>(lhs->value() + rhs, target_dtype);
   } else if (rhs > 0) {
-    return IrBuilder::addExpr(lhs, IrBuilder::IrBuilder::create<Int>(rhs));
+    return IrBuilder::addExpr(lhs, IrBuilder::IrBuilder::create<Val>(rhs));
   } else {
-    return IrBuilder::subExpr(lhs, IrBuilder::IrBuilder::create<Int>(-rhs));
+    return IrBuilder::subExpr(lhs, IrBuilder::IrBuilder::create<Val>(-rhs));
   }
 }
 
-Val* SimplifyingIrBuilder::addExpr(Int* lhs, Int* rhs) {
+Val* SimplifyingIrBuilder::addExpr(Val* lhs, Val* rhs) {
   if (rhs == nullptr) {
     return lhs;
   } else if (lhs == nullptr) {
     return rhs;
   } else if (lhs->isConst()) {
-    return addExpr(rhs, lhs->value().value());
+    return addExpr(rhs, lhs->value());
   } else if (rhs->isConst()) {
-    return addExpr(lhs, rhs->value().value());
+    return addExpr(lhs, rhs->value());
   } else {
     return IrBuilder::addExpr(lhs, rhs);
-  }
-}
-
-Val* SimplifyingIrBuilder::addExpr(Val* lhs, Val* rhs) {
-  TORCH_INTERNAL_ASSERT(lhs != nullptr || rhs != nullptr);
-  if (lhs == nullptr || lhs->isZeroInt()) {
-    return rhs;
-  } else if (rhs == nullptr || rhs->isZeroInt()) {
-    return lhs;
-  }
-  auto lhs_int = dynamic_cast<Int*>(lhs);
-  auto rhs_int = dynamic_cast<Int*>(rhs);
-  if (lhs_int != nullptr && rhs_int != nullptr) {
-    return addExpr(lhs_int, rhs_int);
-  } else {
-    return IrBuilder::addExpr(lhs, rhs);
-  }
-}
-
-Val* SimplifyingIrBuilder::addExpr(Val* lhs, Int::ScalarType rhs) {
-  auto lhs_int = dynamic_cast<Int*>(lhs);
-  if (lhs_int != nullptr) {
-    return addExpr(lhs_int, rhs);
-  } else {
-    return addExpr(lhs, IrBuilder::create<Int>(rhs));
   }
 }
 
@@ -306,56 +287,29 @@ Val* SimplifyingIrBuilder::subExpr(Val* lhs, Val* rhs) {
   return addExpr(lhs, negExpr(rhs));
 }
 
-Val* SimplifyingIrBuilder::mulExpr(Int* lhs, Int::ScalarType rhs) {
+Val* SimplifyingIrBuilder::mulExpr(Val* lhs, PolymorphicValue rhs) {
   if (rhs == 0) {
     return lhs->container()->zeroVal();
   } else if (rhs == 1) {
     return lhs;
   } else if (lhs == nullptr) {
-    return IrBuilder::create<Int>(rhs);
+    return IrBuilder::create<Val>(rhs);
   } else if (lhs->isConst()) {
-    return IrBuilder::create<Int>(lhs->value().value() * rhs);
+    return IrBuilder::create<Val>(lhs->value() * rhs);
   } else {
-    return IrBuilder::mulExpr(lhs, IrBuilder::create<Int>(rhs));
+    return IrBuilder::mulExpr(lhs, IrBuilder::create<Val>(rhs));
   }
 }
 
-Val* SimplifyingIrBuilder::mulExpr(Val* lhs, Int::ScalarType rhs) {
-  auto lhs_int = dynamic_cast<Int*>(lhs);
-  if (lhs_int != nullptr) {
-    return mulExpr(lhs_int, rhs);
-  } else {
-    return IrBuilder::mulExpr(lhs, IrBuilder::create<Int>(rhs));
-  }
-}
-
-Val* SimplifyingIrBuilder::mulExpr(Int* lhs, Int* rhs) {
+Val* SimplifyingIrBuilder::mulExpr(Val* lhs, Val* rhs) {
   if (rhs == nullptr) {
     return lhs;
   } else if (lhs == nullptr) {
     return rhs;
   } else if (lhs->isConst()) {
-    return mulExpr(rhs, lhs->value().value());
+    return mulExpr(rhs, lhs->value());
   } else if (rhs->isConst()) {
-    return mulExpr(lhs, rhs->value().value());
-  } else {
-    return IrBuilder::mulExpr(lhs, rhs);
-  }
-}
-
-Val* SimplifyingIrBuilder::mulExpr(Val* lhs, Val* rhs) {
-  TORCH_INTERNAL_ASSERT(lhs != nullptr || rhs != nullptr);
-  if (lhs == nullptr || lhs->isOneInt()) {
-    return rhs;
-  } else if (rhs == nullptr || rhs->isOneInt()) {
-    return lhs;
-  } else if (lhs->isZeroInt() || rhs->isZeroInt()) {
-    return lhs->container()->zeroVal();
-  }
-  auto lhs_int = dynamic_cast<Int*>(lhs);
-  auto rhs_int = dynamic_cast<Int*>(rhs);
-  if (lhs_int != nullptr && rhs_int != nullptr) {
-    return mulExpr(lhs_int, rhs_int);
+    return mulExpr(lhs, rhs->value());
   } else {
     return IrBuilder::mulExpr(lhs, rhs);
   }
@@ -368,28 +322,14 @@ Val* SimplifyingIrBuilder::divExpr(Val* lhs, Val* rhs) {
   return IrBuilder::divExpr(lhs, rhs);
 }
 
-Val* SimplifyingIrBuilder::ceilDivExpr(Int* lhs, Int* rhs) {
+Val* SimplifyingIrBuilder::ceilDivExpr(Val* lhs, Val* rhs) {
   if (rhs->isOneInt()) {
     return lhs;
   } else if (lhs->isConst() && rhs->isConst()) {
-    auto l = lhs->value().value();
-    auto r = rhs->value().value();
-    if (r > 0) {
-      return IrBuilder::IrBuilder::create<Int>((l + r - 1) / r);
-    } else {
-      return IrBuilder::IrBuilder::create<Int>((l + r + 1) / r);
-    }
-  } else {
-    return IrBuilder::ceilDivExpr(lhs, rhs);
-  }
-}
-
-Val* SimplifyingIrBuilder::ceilDivExpr(Val* lhs, Val* rhs) {
-  TORCH_INTERNAL_ASSERT(lhs != nullptr && rhs != nullptr);
-  auto lhs_int = dynamic_cast<Int*>(lhs);
-  auto rhs_int = dynamic_cast<Int*>(rhs);
-  if (lhs_int != nullptr && rhs_int != nullptr) {
-    return ceilDivExpr(lhs_int, rhs_int);
+    auto l = lhs->value();
+    auto r = rhs->value();
+    using namespace PolymorphicValue_functions;
+    return IrBuilder::IrBuilder::create<Val>(ceildiv(l, r));
   } else {
     return IrBuilder::ceilDivExpr(lhs, rhs);
   }
@@ -402,28 +342,28 @@ Val* SimplifyingIrBuilder::modExpr(Val* lhs, Val* rhs) {
   return IrBuilder::modExpr(lhs, rhs);
 }
 
-Bool* SimplifyingIrBuilder::andExpr(Val* lhs, Val* rhs) {
-  auto lhs_bool = dynamic_cast<Bool*>(lhs);
-  auto rhs_bool = dynamic_cast<Bool*>(rhs);
-  TORCH_INTERNAL_ASSERT(!(lhs_bool == nullptr && rhs_bool == nullptr));
+Val* SimplifyingIrBuilder::andExpr(Val* lhs, Val* rhs) {
+  auto lhs_scalar = dynamic_cast<Val*>(lhs);
+  auto rhs_scalar = dynamic_cast<Val*>(rhs);
+  TORCH_INTERNAL_ASSERT(!(lhs_scalar == nullptr && rhs_scalar == nullptr));
 
   if (lhs == nullptr) {
-    return rhs_bool;
+    return rhs_scalar;
   } else if (rhs == nullptr) {
-    return lhs_bool;
+    return lhs_scalar;
   }
 
   bool lhs_definitely_true = false;
   bool lhs_definitely_false = false;
-  if (lhs_bool && lhs_bool->isConst()) {
-    lhs_definitely_true = lhs_bool->value().value();
-    lhs_definitely_false = !lhs_bool->value().value();
+  if (lhs_scalar && lhs_scalar->isConst()) {
+    lhs_definitely_true = lhs_scalar->value().as<bool>();
+    lhs_definitely_false = !lhs_scalar->value().as<bool>();
   }
   bool rhs_definitely_true = false;
   bool rhs_definitely_false = false;
-  if (rhs_bool && rhs_bool->isConst()) {
-    rhs_definitely_true = rhs_bool->value().value();
-    rhs_definitely_false = !rhs_bool->value().value();
+  if (rhs_scalar && rhs_scalar->isConst()) {
+    rhs_definitely_true = rhs_scalar->value().as<bool>();
+    rhs_definitely_false = !rhs_scalar->value().as<bool>();
   }
 
   if (lhs_definitely_true && rhs_definitely_true) {
@@ -431,9 +371,9 @@ Bool* SimplifyingIrBuilder::andExpr(Val* lhs, Val* rhs) {
   } else if (lhs_definitely_false || rhs_definitely_false) {
     return FusionGuard::getCurFusion()->falseVal();
   } else if (lhs_definitely_true) {
-    return rhs_bool;
+    return rhs_scalar;
   } else if (rhs_definitely_true) {
-    return lhs_bool;
+    return lhs_scalar;
   }
 
   return IrBuilder::andExpr(lhs, rhs);
@@ -441,40 +381,18 @@ Bool* SimplifyingIrBuilder::andExpr(Val* lhs, Val* rhs) {
 
 namespace {
 
-template <typename IrBuilderFunc, typename IntFunc>
+template <typename IrBuilderFunc, typename Fimc>
 Val* minOrMaxExpr(
-    Int* lhs,
-    Int* rhs,
+    Val* lhs,
+    Val* rhs,
     IrBuilderFunc ir_builder_func,
-    IntFunc int_func) {
+    Fimc func) {
   if (rhs == nullptr) {
     return lhs;
   } else if (lhs == nullptr) {
     return rhs;
   } else if (lhs->isConst() && rhs->isConst()) {
-    return IrBuilder::create<Int>(
-        int_func(lhs->value().value(), rhs->value().value()));
-  } else {
-    return ir_builder_func(lhs, rhs);
-  }
-}
-
-template <typename IrBuilderFunc, typename IntFunc>
-Val* minOrMaxExpr(
-    Val* lhs,
-    Val* rhs,
-    IrBuilderFunc ir_builder_func,
-    IntFunc int_func) {
-  TORCH_INTERNAL_ASSERT(lhs != nullptr || rhs != nullptr);
-  if (lhs == nullptr) {
-    return rhs;
-  } else if (rhs == nullptr || lhs == rhs) {
-    return lhs;
-  }
-  auto lhs_int = dynamic_cast<Int*>(lhs);
-  auto rhs_int = dynamic_cast<Int*>(rhs);
-  if (lhs_int != nullptr && rhs_int != nullptr) {
-    return minOrMaxExpr(lhs_int, rhs_int, ir_builder_func, int_func);
+    return IrBuilder::create<Val>(func(lhs->value(), rhs->value()));
   } else {
     return ir_builder_func(lhs, rhs);
   }
@@ -483,19 +401,21 @@ Val* minOrMaxExpr(
 } // namespace
 
 Val* SimplifyingIrBuilder::maxExpr(Val* lhs, Val* rhs) {
+  using namespace PolymorphicValue_functions;
   return minOrMaxExpr(
       lhs,
       rhs,
       [](Val* lhs, Val* rhs) { return IrBuilder::maxExpr(lhs, rhs); },
-      [](int64_t lhs, int64_t rhs) { return std::max(lhs, rhs); });
+      [](auto lhs, auto rhs) { return max(lhs, rhs); });
 }
 
 Val* SimplifyingIrBuilder::minExpr(Val* lhs, Val* rhs) {
+  using namespace PolymorphicValue_functions;
   return minOrMaxExpr(
       lhs,
       rhs,
       [](Val* lhs, Val* rhs) { return IrBuilder::minExpr(lhs, rhs); },
-      [](int64_t lhs, int64_t rhs) { return std::min(lhs, rhs); });
+      [](auto lhs, auto rhs) { return min(lhs, rhs); });
 }
 
 Val* SimplifyingIrBuilder::gcdExpr(Val* lhs, Val* rhs) {
@@ -516,7 +436,7 @@ Val* SimplifyingIrBuilder::whereExpr(Val* pred, Val* lhs, Val* rhs) {
       pred->dtype() == DataType::Bool,
       "Where requires a predicate as an input, but received");
 
-  if (pred->isConstScalar() && pred->isABool() && pred->isA<Bool>()) {
+  if (pred->isConstScalar() && pred->isABool()) {
     if (pred->evaluateBool()) {
       return lhs;
     } else {

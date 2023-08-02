@@ -93,7 +93,7 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
       const std::vector<at::Tensor>& outputs,
       const LaunchParams& launch_constraints = LaunchParams(),
       CompileParams compile_params = CompileParams(),
-      const c10::optional<size_t>& opt_code = c10::nullopt) {
+      const std::optional<size_t>& opt_code = std::nullopt) {
     KernelArgumentHolder args =
         KernelArgumentHolder::createKernelArgumentHolder(inputs);
     if (opt_code.has_value()) {
@@ -106,7 +106,7 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
       const at::ArrayRef<c10::IValue>& inputs,
       const LaunchParams& launch_constraints = LaunchParams(),
       CompileParams compile_params = CompileParams(),
-      const c10::optional<size_t>& opt_code = c10::nullopt) {
+      const std::optional<size_t>& opt_code = std::nullopt) {
     return runFusion(inputs, {}, launch_constraints, compile_params, opt_code);
   }
 
@@ -134,7 +134,6 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
     std::vector<GlobalBufferInfo> outputs;
     // Temporary work buffers and intemediate global-memory tensors
     std::vector<GlobalBufferInfo> intermediates;
-    uint64_t rand_offset = 0;
   };
 
   using ExecutorCompileTimeInfoCache =
@@ -251,12 +250,6 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
     disable_parameter_cache_ = true;
   }
 
-  //! Used in distributed setting where we only want to
-  //!  allocate output space and receive output data from
-  //!  a different rank instead of computing them.
-  std::vector<at::Tensor> allocOutputSpace(
-      const at::ArrayRef<c10::IValue>& inputs);
-
  private:
   static std::string kernelNamespace() {
     return "CudaCodeGen";
@@ -330,12 +323,6 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
 
   //! Clear the cached properties of the compiled kernel
   void resetCompiledKernelProperties();
-
-  //! Get the corresponding TensorViews for each argument of the kernel.
-  //! If the corresponding argument is not a tensor, use nullptr as placeholder.
-  //! Right now, kernel arguments are in the following order:
-  //! inputs, outputs, intermediates, philox
-  std::vector<TensorView*> getTvsForKernelArguments() const;
 
  private:
   CompileOptions options_;

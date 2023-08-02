@@ -188,7 +188,7 @@ void replaceSymbolicSizes(Fusion* fusion) {
 
     size_t dim = 0;
     for (auto id : root_td) {
-      Val* orig_size = id->extent();
+      Val* orig_size = id->getMaybeExpandedExtent();
       // Output sizes could have reduction axes, which isn't what gets output.
       // NOLINTNEXTLINE(bugprone-branch-clone)
       if (id->isReduction()) {
@@ -203,7 +203,7 @@ void replaceSymbolicSizes(Fusion* fusion) {
       if (tensor_dim_map.find(orig_size) == tensor_dim_map.end() &&
           !orig_size->isFusionInput() && !orig_size->isConstScalar()) {
         std::stringstream ss;
-        ss << "T" << tv->name() << ".size[" << dim++ << "]";
+        ss << "T" << tv->name() << ".logical_size[" << dim++ << "]";
         tensor_dim_map[orig_size] = IrBuilder::create<NamedScalar>(
             ss.str(), orig_size->getDataType().value());
       } else {

@@ -33,8 +33,8 @@ TORCH_CUDA_CU_API const char* dtypeToPyString(PrimDataType t);
 //! Example:
 //!
 //!   add(Tensor* arg1, Tensor* arg2) -> Tensor*
-//!   add(Tensor* arg1, Scalar* arg2) -> Tensor*
-//!   add(Scalar* arg1, Scalar* arg2) -> Scalar*
+//!   add(Tensor* arg1, Val* arg2) -> Tensor*
+//!   add(Val* arg1, Val* arg2) -> Val*
 struct TORCH_CUDA_CU_API Tensor {
   Tensor(size_t _index, size_t _dims, FusionDefinition* _fd)
       : index(_index), dims(_dims), fusion_definition(_fd) {}
@@ -102,7 +102,7 @@ struct TORCH_CUDA_CU_API Vector {
 //!   help(FusionDefinition.Operators)
 class TORCH_CUDA_CU_API FusionDefinition : public FusionState {
  public:
-  FusionDefinition(c10::optional<size_t> id, size_t max_length = 256);
+  FusionDefinition(std::optional<size_t> id, size_t max_length = 256);
 
   // The copy/move/assign constructors/operators are removed
   FusionDefinition(const FusionDefinition& fd) = delete;
@@ -148,7 +148,7 @@ class TORCH_CUDA_CU_API FusionDefinition : public FusionState {
       bool tensor_transforms,
       bool override_user_schedule) const;
   //! Return fusion id of defined FusionDefinition
-  c10::optional<size_t> id() const;
+  std::optional<size_t> id() const;
   //! Prints the Prescheduled Fusion IR representation
   void printMathIr();
 
@@ -181,7 +181,7 @@ class TORCH_CUDA_CU_API FusionDefinition : public FusionState {
   //! number as appropriate.
   size_t max_length_;
   //! Fusion Cache Id for Scheduled Fusion.
-  c10::optional<size_t> fusion_id_;
+  std::optional<size_t> fusion_id_;
   //! A pointer to the FusionCache.
   FusionCache* fusion_cache_;
   //! Current pointer to node in FusionCache.

@@ -14,303 +14,6 @@
 
 namespace nvfuser {
 
-namespace {
-
-// Forward traverse from rFactor domain to allocation domain, compute frontier
-// sizes and strides, validate that splits are divisible and merges are
-// contiguous, and update active_ids_ correspondingly.
-class ForwardTraverseFromRFactorToAlloc {
-  ExpressionEvaluator& ee_;
-  std::unordered_map<IterDomain*, std::pair<int64_t, int64_t>>& active_ids_;
-
-  void handle(Split* split) {
-    auto in = split->in();
-    auto inner = split->inner();
-    auto outer = split->outer();
-    auto in_it = active_ids_.find(in);
-    // TORCH_INTERNAL_ASSERT(in_it != active_ids_.end())
-    if (in_it == active_ids_.end()) {
-      // TODO: see [Allocation domain on both side of rFactor]
-      return;
-    }
-    auto [in_size, in_stride] = in_it->second;
-    auto factor = ee_.evaluate(split->factor())->as<int64_t>();
-    TORCH_INTERNAL_ASSERT(
-        in_size % factor == 0,
-        "The rFactor domain and allocation domain of fusion input/output ",
-        "tensors must be a one-to-one map, therefore, ",
-        "non-divisible split is not allowed in allocation domain");
-    TORCH_INTERNAL_ASSERT(active_ids_.erase(in) == 1);
-    TORCH_INTERNAL_ASSERT(
-        active_ids_
-            .emplace(inner, std::pair<int64_t, int64_t>{factor, in_stride})
-            .second);
-    TORCH_INTERNAL_ASSERT(active_ids_
-                              .emplace(
-                                  outer,
-                                  std::pair<int64_t, int64_t>{
-                                      in_size / factor, in_stride * factor})
-                              .second);
-  }
-
-  void handle(Merge* merge) {
-    auto inner = merge->inner();
-    auto outer = merge->outer();
-    auto out = merge->out();
-    auto inner_it = active_ids_.find(inner);
-    auto outer_it = active_ids_.find(outer);
-    // TORCH_INTERNAL_ASSERT(inner_it != active_ids_.end())
-    // TORCH_INTERNAL_ASSERT(outer_it != active_ids_.end())
-    if (inner_it == active_ids_.end() || outer_it == active_ids_.end()) {
-      // TODO: see [Allocation domain on both side of rFactor]
-      return;
-    }
-    auto [inner_size, inner_stride] = inner_it->second;
-    auto [outer_size, outer_stride] = outer_it->second;
-    TORCH_INTERNAL_ASSERT(
-        inner_stride * inner_size == outer_stride,
-        "The rFactor domain and allocation domain of fusion input/output ",
-        "tensors must be a one-to-one map, therefore, ",
-        "merging of discontiguous dimensions is not allowed in allocation domain");
-    TORCH_INTERNAL_ASSERT(active_ids_.erase(inner) == 1);
-    TORCH_INTERNAL_ASSERT(active_ids_.erase(outer) == 1);
-    TORCH_INTERNAL_ASSERT(active_ids_
-                              .emplace(
-                                  out,
-                                  std::pair<int64_t, int64_t>{
-                                      inner_size * outer_size, inner_stride})
-                              .second);
-  }
-
-  void handle(Expr* expr) {
-    if (auto split = dynamic_cast<Split*>(expr)) {
-      handle(split);
-    } else if (auto merge = dynamic_cast<Merge*>(expr)) {
-      handle(merge);
-    } else {
-      TORCH_INTERNAL_ASSERT(
-          false, "Unsupported transormation in allocation domain");
-    }
-  }
-
- public:
-  ForwardTraverseFromRFactorToAlloc(
-      ExpressionEvaluator& ee,
-      std::unordered_map<IterDomain*, std::pair<int64_t, int64_t>>& active_ids)
-      : ee_(ee), active_ids_(active_ids) {}
-
-  void run(
-      TensorView* tv,
-      const std::vector<IterDomain*>& rfactor,
-      const std::vector<IterDomain*>& alloc) {
-    auto forward_exprs = StmtSort::getExprsBetween(
-        tv->fusion(),
-        {rfactor.begin(), rfactor.end()},
-        {alloc.begin(), alloc.end()});
-    for (auto expr : forward_exprs) {
-      handle(expr);
-    }
-  }
-};
-
-// Similar to ForwardTraverseFromRFactorToAlloc, but in the opposite direction.
-class BackwardTraverseFromRFactorToAlloc {
-  at::Tensor tensor_;
-  ExpressionEvaluator& ee_;
-  std::unordered_map<IterDomain*, std::pair<int64_t, int64_t>>& active_ids_;
-
-  void handle(Split* split) {
-    auto in = split->in();
-    auto inner = split->inner();
-    auto outer = split->outer();
-    auto inner_it = active_ids_.find(inner);
-    auto outer_it = active_ids_.find(outer);
-    // TORCH_INTERNAL_ASSERT(inner_it != active_ids_.end())
-    // TORCH_INTERNAL_ASSERT(outer_it != active_ids_.end())
-    if (inner_it == active_ids_.end() || outer_it == active_ids_.end()) {
-      // TODO: see [Allocation domain on both side of rFactor]
-      return;
-    }
-    auto [inner_size, inner_stride] = inner_it->second;
-    auto [outer_size, outer_stride] = outer_it->second;
-    TORCH_INTERNAL_ASSERT(
-        inner_stride * inner_size == outer_stride,
-        "The rFactor domain and allocation domain of fusion input/output ",
-        "tensors must be a one-to-one map, therefore, ",
-        "splitting one dimension into discontiguous dimensions is not allowed in allocation domain");
-    TORCH_INTERNAL_ASSERT(active_ids_.erase(inner) == 1);
-    TORCH_INTERNAL_ASSERT(active_ids_.erase(outer) == 1);
-    TORCH_INTERNAL_ASSERT(active_ids_
-                              .emplace(
-                                  in,
-                                  std::pair<int64_t, int64_t>{
-                                      inner_size * outer_size, inner_stride})
-                              .second);
-  }
-
-  void handle(Merge* merge) {
-    auto inner = merge->inner();
-    auto outer = merge->outer();
-    auto out = merge->out();
-    auto factor = ee_.evaluate(inner->extent())->as<int64_t>();
-    auto out_it = active_ids_.find(out);
-    // TORCH_INTERNAL_ASSERT(out_it != active_ids_.end())
-    if (out_it == active_ids_.end()) {
-      // TODO: see [Allocation domain on both side of rFactor]
-      return;
-    }
-    auto [out_size, out_stride] = out_it->second;
-    TORCH_INTERNAL_ASSERT(
-        out_size % factor == 0,
-        "The rFactor domain and allocation domain of fusion input/output ",
-        "tensors must be a one-to-one map, therefore, ",
-        "the size of the output must divisible by the size of inner dimension");
-    TORCH_INTERNAL_ASSERT(active_ids_.erase(out) == 1);
-    TORCH_INTERNAL_ASSERT(
-        active_ids_
-            .emplace(inner, std::pair<int64_t, int64_t>{factor, out_stride})
-            .second);
-    TORCH_INTERNAL_ASSERT(active_ids_
-                              .emplace(
-                                  outer,
-                                  std::pair<int64_t, int64_t>{
-                                      out_size / factor, out_stride * factor})
-                              .second);
-  }
-
-  void handle(Expr* expr) {
-    if (auto split = dynamic_cast<Split*>(expr)) {
-      handle(split);
-    } else if (auto merge = dynamic_cast<Merge*>(expr)) {
-      handle(merge);
-    } else {
-      TORCH_INTERNAL_ASSERT(
-          false, "Unsupported transormation in allocation domain");
-    }
-  }
-
- public:
-  BackwardTraverseFromRFactorToAlloc(
-      ExpressionEvaluator& ee,
-      std::unordered_map<IterDomain*, std::pair<int64_t, int64_t>>& active_ids)
-      : ee_(ee), active_ids_(active_ids) {}
-
-  void run(
-      TensorView* tv,
-      const std::vector<IterDomain*>& rfactor,
-      const std::vector<IterDomain*>& alloc) {
-    auto backward_exprs = StmtSort::getExprsBetween(
-        tv->fusion(),
-        {alloc.begin(), alloc.end()},
-        {rfactor.begin(), rfactor.end()});
-    std::reverse(backward_exprs.begin(), backward_exprs.end());
-    for (auto expr : backward_exprs) {
-      handle(expr);
-    }
-  }
-};
-
-} // namespace
-
-// Given an ATen tensor, whose sizes and strides are w.r.t to the rFactor domain
-// of its corresponding TensorView, compute the sizes and strides of the tensor
-// with respect to its allocation domain.
-// For example, if the rFactor domain is [I1, I2], and the allocation domain is
-// [I2*I1], and the tensor's size is [5, 3] and stride is [2, 10], then the
-// resulting size will be [15] and stride will be [2]
-// Another example, if the rFactor domain is [I1*I2] and the allocation domain
-// is [I1, I2], and the tensor's size is [15] and stride is [7], and the extent
-// of I2 is 5, then the resulting size will be [3, 5] and stride will be [35, 7]
-std::vector<std::pair<int64_t, int64_t>>
-inferAndValidateAllocationSizesAndStrides(
-    const at::Tensor& tensor,
-    TensorView* tv,
-    ExpressionEvaluator& ee) {
-  if (tv == nullptr || !tv->hasAllocation()) {
-    // When tv is nullptr, or tv does not have allocation, the given sizes and
-    // strides should already be in the target format. So nothing to do here.
-    std::vector<std::pair<int64_t, int64_t>> result;
-    for (auto i : c10::irange(tensor.dim())) {
-      result.emplace_back(tensor.size(i), tensor.stride(i));
-    }
-    return result;
-  }
-  const auto& alloc =
-      TensorDomain::noReductions(tv->getMaybeAllocationDomain());
-  const auto& rfactor = TensorDomain::noReductions(tv->getMaybeRFactorDomain());
-
-  // active IDs and their shape and stride
-  std::unordered_map<IterDomain*, std::pair<int64_t, int64_t>> active_ids;
-  TORCH_INTERNAL_ASSERT((int64_t)rfactor.size() == tensor.dim());
-  for (int64_t i : c10::irange((int64_t)rfactor.size())) {
-    auto rf_id = rfactor.at(i);
-    active_ids[rf_id] = {tensor.size(i), tensor.stride(i)};
-  }
-
-  ForwardTraverseFromRFactorToAlloc(ee, active_ids).run(tv, rfactor, alloc);
-  BackwardTraverseFromRFactorToAlloc(ee, active_ids).run(tv, rfactor, alloc);
-
-  // Now active_ids should contain the final sizes and strides, unordered. We
-  // need to put them to the correct order.
-  std::vector<std::pair<int64_t, int64_t>> sizes_strides;
-  sizes_strides.reserve(alloc.size());
-  for (auto i : c10::irange(alloc.size())) {
-    auto id = alloc.at(i);
-    sizes_strides.emplace_back(active_ids.at(id));
-  }
-  // Validate final sizes and strides with contiguity
-  int64_t contiguous_stride = 1;
-  std::vector<std::optional<bool>> contiguity = tv->getContiguity();
-  for (int64_t i = (int64_t)sizes_strides.size() - 1; i >= 0; i--) {
-    if (alloc.at(i)->isBroadcast()) {
-      continue;
-    }
-    while (!contiguity.back().has_value()) {
-      contiguity.pop_back();
-    }
-    auto [size, stride] = sizes_strides.at(i);
-    TORCH_INTERNAL_ASSERT(!contiguity.empty());
-    auto last_contiguity = contiguity.back();
-    TORCH_INTERNAL_ASSERT(
-        last_contiguity.has_value(),
-        "I don't think this check makes sense, but unfortunately ",
-        "clang-tidy is not smart enough to infer from the context that this is always true.");
-    if (*last_contiguity) {
-      TORCH_CHECK(
-          stride == contiguous_stride,
-          "Stride mismatch with contiguity info. ",
-          "tv: ",
-          tv->toString(),
-          " allocation domain: ",
-          ir_utils::toString(tv->getMaybeAllocationDomain()),
-          " dim: ",
-          i,
-          " expected stride: ",
-          contiguous_stride,
-          " actual stride: ",
-          stride);
-    }
-    contiguous_stride = stride * size;
-    contiguity.pop_back();
-  }
-  TORCH_INTERNAL_ASSERT(
-      contiguity.empty(),
-      "The size of contiguity mismatch with the dimensionality of allocation domain");
-  // Validate that for expanded broadcast, the stride must be zero.
-  for (int64_t i : c10::irange((int64_t)sizes_strides.size())) {
-    if (auto alloc_id = alloc.at(i); alloc_id->hasExpandedExtent()) {
-      auto [_, stride] = sizes_strides.at(i);
-      TORCH_CHECK(
-          stride == 0,
-          "Expecting an expanded dimension on dimension ",
-          i,
-          " but found stride ",
-          stride);
-    }
-  }
-  return sizes_strides;
-}
-
 PrimDataType TensorArgAbstract::getSmallestIndexType() const {
   KernelIndexTypeCompute index_type_helper;
   for (const auto dim_i : c10::irange(tensor_.ndimension())) {
@@ -466,6 +169,7 @@ std::unique_ptr<ArgAbstract> makeCpuScalarTensorArg(const at::Tensor& tensor) {
   auto ptr = std::make_unique<CpuScalarTensorArg<size>>();
   static_assert(sizeof(ptr->instance_) == size);
   std::memcpy(&(ptr->instance_), tensor.data_ptr(), size);
+  ptr->tensor_ = tensor;
   return ptr;
 }
 
@@ -529,14 +233,6 @@ void KernelArgumentHolder::push(const c10::IValue& val) {
 
 void KernelArgumentHolder::push(int64_t val) {
   arguments_.push_back(std::make_unique<LongArg>(val));
-}
-
-void KernelArgumentHolder::push(const at::PhiloxCudaState& val) {
-  arguments_.push_back(std::make_unique<PhiloxCudaStateArg>(val));
-}
-
-void KernelArgumentHolder::push(tma::TensorMap tensor_map) {
-  arguments_.push_back(std::make_unique<TMATensorMapArg>(tensor_map));
 }
 
 // Create buffer, flatten arguments into it, align by 8 Bytes, return pointers
@@ -604,19 +300,6 @@ void KernelArgumentHolder::swap(int i, const ArgAbstract* arg) {
   arguments_[i].swap(holder);
 }
 
-void KernelArgumentHolder::appendPhiloxRNGSeed(uint64_t rand_offset) {
-  at::PhiloxCudaState philox_engine_inputs;
-  auto gen = at::cuda::detail::getDefaultCUDAGenerator();
-  {
-    // See Note [Acquire lock when using random generators]
-    std::lock_guard<std::mutex> lock(gen.mutex());
-    philox_engine_inputs =
-        at::check_generator<at::CUDAGeneratorImpl>(gen)->philox_cuda_state(
-            rand_offset);
-  }
-  push(philox_engine_inputs);
-}
-
 std::string KernelArgumentHolder::toString() const {
   std::stringstream ss;
   for (const auto& arg : arguments_) {
@@ -649,6 +332,155 @@ void KernelArgumentHolder::pushTensorProxy(
       c10::Device(c10::DeviceType::Meta, 0),
       c10::nullopt);
   arguments_.push_back(getAbstractTensorArg(at::Tensor(meta_tensor)));
+}
+
+std::vector<std::byte> polymorphicValueToBytes(
+    const PolymorphicValue& argument,
+    const DataType& dtype,
+    PrimDataType index_type) {
+  if (argument.is<Struct>()) {
+    TORCH_INTERNAL_ASSERT(
+        std::holds_alternative<StructOf>(dtype.type),
+        "Expected StructOf type.");
+    auto dtype_ = std::get<StructOf>(dtype.type);
+    auto struct_ = argument.as<Struct>();
+    std::vector<std::byte> buffer;
+    for (const auto& field : dtype_.field_names) {
+      auto field_data = polymorphicValueToBytes(
+          struct_[field],
+          NVFUSER_MAYBE_STAR dtype_.types.at(field),
+          index_type);
+      buffer.insert(buffer.end(), field_data.begin(), field_data.end());
+    }
+    return buffer;
+  } else if (argument.is<at::Tensor>()) {
+    const auto& tensor = argument.as<at::Tensor>();
+    TORCH_INTERNAL_ASSERT(
+        tensor.is_cpu() && tensor.numel() == 1,
+        "Only CPU scalar tensors are supported here. ",
+        "For GPU tensors, please use their metadata.");
+    auto scalar_type = tensor.scalar_type();
+    TORCH_INTERNAL_ASSERT(
+        dtype == aten_to_data_type(scalar_type),
+        "Expected ",
+        dtype,
+        " but got ",
+        aten_to_data_type(scalar_type),
+        ".");
+    std::vector<std::byte> buffer;
+    buffer.reserve(tensor.element_size());
+    buffer.insert(
+        buffer.end(),
+        (std::byte*)tensor.data_ptr(),
+        (std::byte*)tensor.data_ptr() + tensor.element_size());
+    return buffer;
+  } else if (argument.is<Pointer>()) {
+    TORCH_INTERNAL_ASSERT(
+        std::holds_alternative<PointerOf>(dtype.type),
+        "Expected PointerOf type.");
+    void* ptr = (void*)argument;
+    std::vector<std::byte> buffer;
+    buffer.reserve(sizeof(void*));
+    buffer.insert(
+        buffer.end(), (std::byte*)&ptr, (std::byte*)&ptr + sizeof(void*));
+    return buffer;
+  } else if (argument.is<std::vector>()) {
+    TORCH_INTERNAL_ASSERT(
+        std::holds_alternative<ArrayOf>(dtype.type), "Expected ArrayOf type.");
+    auto dtype_ = std::get<ArrayOf>(dtype.type);
+    std::vector<std::byte> buffer;
+    for (const auto& elem : argument.as<std::vector>()) {
+      auto elem_data = polymorphicValueToBytes(elem, *dtype_.type, index_type);
+      buffer.insert(buffer.end(), elem_data.begin(), elem_data.end());
+    }
+    return buffer;
+  } else if (argument.is<int64_t>()) {
+    int64_t v = argument.as<int64_t>();
+    if (dtype == DataType::Int ||
+        (index_type == PrimDataType::Int && dtype == DataType::Index)) {
+      return std::vector<std::byte>((std::byte*)&v, (std::byte*)&v + 8);
+    } else if (
+        dtype == DataType::Int32 ||
+        (index_type == PrimDataType::Int32 && dtype == DataType::Index)) {
+      int32_t v32 = (int32_t)v;
+      return std::vector<std::byte>((std::byte*)&v32, (std::byte*)&v32 + 4);
+    } else {
+      TORCH_INTERNAL_ASSERT(
+          false,
+          "Cannot convert int64_t to ",
+          dtype,
+          " type: only int32 and int64 are supported.");
+    }
+  } else if (argument.is<bool>()) {
+    bool v = argument.as<bool>();
+    TORCH_INTERNAL_ASSERT(dtype == DataType::Bool, "Expected Bool type.");
+    return std::vector<std::byte>((std::byte*)&v, (std::byte*)&v + 1);
+  } else if (argument.is<double>()) {
+    double v = argument.as<double>();
+    if (dtype == DataType::Double) {
+      return std::vector<std::byte>(
+          (std::byte*)&v, (std::byte*)&v + sizeof(double));
+    } else if (dtype == DataType::Float) {
+      float v32 = (float)v;
+      return std::vector<std::byte>(
+          (std::byte*)&v32, (std::byte*)&v32 + sizeof(float));
+    } else if (dtype == DataType::Half) {
+      at::Half v16 = (at::Half)(float)v;
+      return std::vector<std::byte>(
+          (std::byte*)&v16, (std::byte*)&v16 + sizeof(at::Half));
+    } else if (dtype == DataType::BFloat16) {
+      at::BFloat16 v16 = (at::BFloat16)(float)v;
+      return std::vector<std::byte>(
+          (std::byte*)&v16, (std::byte*)&v16 + sizeof(at::BFloat16));
+    } else {
+      TORCH_INTERNAL_ASSERT(
+          false,
+          "Cannot convert double to ",
+          dtype,
+          " type: only half, bfloat16, float and double are supported.");
+    }
+  } else if (argument.is<std::complex<double>>()) {
+    std::complex<double> v = argument.as<std::complex<double>>();
+    if (dtype == DataType::ComplexDouble) {
+      return std::vector<std::byte>(
+          (std::byte*)&v, (std::byte*)&v + sizeof(std::complex<double>));
+    } else if (dtype == DataType::ComplexFloat) {
+      std::complex<float> v32 = (std::complex<float>)v;
+      return std::vector<std::byte>(
+          (std::byte*)&v32, (std::byte*)&v32 + sizeof(std::complex<float>));
+    } else {
+      TORCH_INTERNAL_ASSERT(
+          false,
+          "Cannot convert complex double to ",
+          dtype,
+          " type: only complex float and complex double are supported.");
+    }
+  } else {
+    TORCH_INTERNAL_ASSERT(
+        false,
+        "Cannot convert ",
+        argument.type().name(),
+        " to kernel argument data.");
+  }
+}
+
+std::vector<std::byte> getKernelArgument(
+    ExpressionEvaluator& ee,
+    Val* parameter,
+    PrimDataType index_type) {
+  TORCH_INTERNAL_ASSERT(parameter != nullptr);
+  PolymorphicValue pv = ee.evaluate(parameter);
+  if (auto tv = dynamic_cast<TensorView*>(parameter)) {
+    if (tv->isCpuScalar()) {
+      return polymorphicValueToBytes(pv, tv->dtype(), index_type);
+    } else {
+      auto metadata_val = IrBuilder::metadataExpr(tv);
+      auto metadata = ee.evaluate(metadata_val);
+      return polymorphicValueToBytes(
+          metadata, metadata_val->dtype(), index_type);
+    }
+  }
+  return polymorphicValueToBytes(pv, parameter->dtype(), index_type);
 }
 
 } // namespace nvfuser
