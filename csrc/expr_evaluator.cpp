@@ -80,7 +80,7 @@ void validateValWithConcreteValue(
 
 void ExpressionEvaluator::bind_(
     const Val* value,
-    const PolymorphicValue& concrete_value) {
+    PolymorphicValue concrete_value) {
   TORCH_CHECK(concrete_value.hasValue(), "Cannot bind to undefined value");
   if (value->value().hasValue() && value->value() == concrete_value) {
     return;
