@@ -719,7 +719,7 @@ ExpressionEvaluator bindInputs(
 
   for (const auto i : c10::irange(inputs.size())) {
     bindInputForExprEvaluation(
-        inputs[i], args[i], check_consistency, expr_eval);
+        inputs[i], *args[i], check_consistency, expr_eval);
   }
   return expr_eval;
 }

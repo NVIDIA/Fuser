@@ -1574,7 +1574,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
 
   for (const auto i : c10::irange(inputs.size())) {
     executor_utils::bindInputForExprEvaluation(
-        inputs.at(i), args[i], true, expr_eval);
+        inputs.at(i), *args[i], true, expr_eval);
   }
 
   // only allocate outputs when not given
@@ -1605,7 +1605,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
       continue;
     }
     executor_utils::bindInputForExprEvaluation(
-        output, args[inputs.size() + i], true, expr_eval, false);
+        output, *args[inputs.size() + i], true, expr_eval, false);
   }
 
   std::vector<at::Tensor> intermediates;
@@ -1634,7 +1634,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
       intermediates.push_back(intermediate_buffer);
       executor_utils::bindInputForExprEvaluation(
           kernel()->summary().global_allocations.at(i)->buffer(),
-          args[inputs.size() + outputs.size() + i],
+          *args[inputs.size() + outputs.size() + i],
           true,
           expr_eval,
           false);
