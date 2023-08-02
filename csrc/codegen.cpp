@@ -2762,10 +2762,18 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     if (alloc->alias() != nullptr) {
       // Allocate alias another Allocate stmt
       const auto alias_tv = alloc->alias()->buffer()->as<TensorView>();
-      indent() << "// Alias Allocation - " << alloc->memoryType() << "\n";
-      indent() << "auto& " << genVariableName(tv) << " = "
-               << genVariableName(alias_tv) << ";\n";
-
+      if (alias_tv->getDataType() == tv->getDataType()) {
+        indent() << "// Alias Allocation - " << alloc->memoryType() << "\n";
+        indent() << "auto& " << genVariableName(tv) << " = "
+                 << genVariableName(alias_tv) << ";\n";
+      } else {
+        indent() << "// Alias Allocation (changing dtype) - "
+                 << alloc->memoryType() << "\n";
+        indent() << "auto " << genVariableName(tv)
+                 << " = *reinterpret_cast<Array<" << buffer_dtype << ", "
+                 << genInline(size) << ">*>(&" << genVariableName(alias_tv)
+                 << ");\n";
+      }
     } else {
       // Standard Memory Allocation
       switch (tv->getMemoryType()) {

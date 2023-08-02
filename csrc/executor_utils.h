@@ -34,16 +34,6 @@ namespace executor_utils {
 // Include all the functions we might need in generated code
 std::string kernelPreamble();
 
-void validateKernelInputs(
-    Fusion* fusion,
-    const KernelArgumentHolder& args,
-    const c10::Device& device);
-
-void validateKernelOutputs(
-    Fusion* fusion,
-    const std::vector<at::Tensor>& outputs,
-    const c10::Device& device);
-
 // TODO: rename this function
 void bindInputForExprEvaluation(
     Val* val,

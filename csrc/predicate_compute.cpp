@@ -17,6 +17,7 @@
 #include <transform_iter.h>
 
 #include <c10/util/irange.h>
+#include <device_lower/utils.h>
 
 namespace nvfuser {
 
@@ -159,7 +160,7 @@ ParallelizedDomainPredicate::getPredicateMap(
 
     // Not necessary to add a predicate if the paralle type is exact
     if (!isParallelTypeThread(loop_ptype) ||
-        gpu_lower->parallelDimensionMap().isExact(loop_ptype)) {
+        lower_utils::isExtentEqualToMaxParallelTypeExtent(loop_id)) {
       continue;
     }
     auto parallel_dim = gpu_lower->parallelDimensionMap().getRaw(loop_ptype);
