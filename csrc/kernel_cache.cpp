@@ -195,7 +195,12 @@ class ArgumentManager {
     // the original tensor input. See note [Trivial Forwarding]
     for (const size_t group_out_i : c10::irange(group_outputs.size())) {
       if (!group_outputs[group_out_i]->isFusionInput()) {
-        fusion_args_.push(group_runtime_outputs[group_out_i]);
+        if constexpr (std::is_pointer_v<
+                          decltype(group_runtime_outputs[group_out_i])>) {
+          fusion_args_.push(*group_runtime_outputs[group_out_i]);
+        } else {
+          fusion_args_.push(group_runtime_outputs[group_out_i]);
+        }
         tensor_map_.emplace(group_outputs[group_out_i], fusion_args_.back());
       }
     }
