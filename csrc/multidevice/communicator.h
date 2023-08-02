@@ -6,6 +6,9 @@
 #include <torch/csrc/distributed/c10d/Store.hpp>
 #include <torch/csrc/distributed/c10d/TCPStore.hpp>
 
+#define COMM_BACKEND_DEFAULT CommunicatorBackend::nccl
+#define COMM_SERVER_LOCAL_RANK_DEFAULT 0
+
 namespace nvfuser {
 
 /*
@@ -23,7 +26,14 @@ enum class CommunicatorBackend { nccl, ucc, gloo };
 
 class Communicator {
  public:
-  Communicator(CommunicatorBackend backend, RankType server_rank);
+  Communicator(
+      CommunicatorBackend backend = COMM_BACKEND_DEFAULT,
+      RankType server_local_rank = COMM_SERVER_LOCAL_RANK_DEFAULT);
+
+  // returns if distributed config is available
+  auto is_available() const {
+    return is_available_;
+  }
 
   // returns the rank of the current process
   auto rank() const {
@@ -59,17 +69,20 @@ class Communicator {
       std::vector<at::Tensor>& tensor,
       int tag = 0);
 
-  // performs a barrier in the communicator
+  // performs a blocking barrier in the communicator
   void barrier() const {
-    pg_->barrier();
+    pg_->barrier()->wait();
   }
 
   // stores the process group backend
  private:
+  bool is_available_;
   RankType rank_;
   int64_t size_;
   RankType local_rank_;
   int64_t local_size_;
+  std::string master_addr_;
+  int master_port_;
   c10::intrusive_ptr<c10d::Backend> pg_;
 };
 
