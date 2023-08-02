@@ -167,7 +167,7 @@ void PrecomputedValues::bindInputs(const KernelArgumentHolder& args) {
     TORCH_INTERNAL_ASSERT(input != nullptr);
     bindValue(input->evaluatorIndex(), args[i]);
     if (auto tensor_input = dynamic_cast<TensorView*>(input)) {
-      const auto& tensor = args[i].as<at::Tensor>();
+      const auto& tensor = args[i]->as<at::Tensor>();
       if (!tensor.is_cpu()) {
         bindTensorMetaData(tensor_input, tensor);
       }

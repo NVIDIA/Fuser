@@ -109,21 +109,21 @@ class ArgumentManager {
     auto original_args_size = fusion_args_.size();
     // Bind args in the tensor_map
     for (const auto i : c10::irange(original_args_size)) {
-      tensor_map_.emplace(fusion_inputs[i], &fusion_args_[i]);
+      tensor_map_.emplace(fusion_inputs[i], fusion_args_[i]);
       // Bind tensorview inputs values in case some segmented group
       //  needs it down the road.
       // TODO: we probably have done this already up to this point
       //      should consider caching the expression evaluators, both
       //      more convenient and safer than replication
-      if (fusion_args_[i].is<at::Tensor>()) {
+      if (fusion_args_[i]->is<at::Tensor>()) {
         // Note this is very ugly way. We are pushing every single extent to
         // args, because we don't have a better place to hold them.
-        auto rank = fusion_args_[i].as<at::Tensor>().dim();
+        auto rank = fusion_args_[i]->as<at::Tensor>().dim();
         for (const auto dim : c10::irange(rank)) {
           fusion_args_.push(
-              PolymorphicValue(fusion_args_[i].as<at::Tensor>().size(dim)));
+              PolymorphicValue(fusion_args_[i]->as<at::Tensor>().size(dim)));
           tensor_map_.emplace(
-              group_extent_binding_order[extent_index++], &fusion_args_.back());
+              group_extent_binding_order[extent_index++], fusion_args_.back());
         }
       }
     }
@@ -196,7 +196,7 @@ class ArgumentManager {
     for (const size_t group_out_i : c10::irange(group_outputs.size())) {
       if (!group_outputs[group_out_i]->isFusionInput()) {
         fusion_args_.push(group_runtime_outputs[group_out_i]);
-        tensor_map_.emplace(group_outputs[group_out_i], &fusion_args_.back());
+        tensor_map_.emplace(group_outputs[group_out_i], fusion_args_.back());
       }
     }
   }

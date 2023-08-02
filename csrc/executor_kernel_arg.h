@@ -55,23 +55,15 @@ class TORCH_CUDA_CU_API KernelArgumentHolder {
   void erase(const PolymorphicValue* arg_to_delete);
 
   void push(PolymorphicValue val) {
-    arguments_.push_back(std::move(val));
+    arguments_.push_back(std::make_shared<PolymorphicValue>(std::move(val)));
   }
 
-  const PolymorphicValue& back() const {
-    return arguments_.back();
+  PolymorphicValue* back() {
+    return arguments_.back().get();
   }
 
-  PolymorphicValue& back() {
-    return arguments_.back();
-  }
-
-  const PolymorphicValue& operator[](size_t ind) const {
-    return arguments_.at(ind);
-  };
-
-  PolymorphicValue& operator[](size_t ind) {
-    return arguments_.at(ind);
+  PolymorphicValue* operator[](size_t ind) const {
+    return arguments_.at(ind).get();
   };
 
   size_t size() const {
@@ -101,7 +93,7 @@ class TORCH_CUDA_CU_API KernelArgumentHolder {
   std::string toString() const;
 
  private:
-  std::vector<PolymorphicValue> arguments_;
+  std::vector<std::shared_ptr<PolymorphicValue>> arguments_;
 
   int8_t device_index_ = 0;
   std::optional<size_t> cache_id_ = std::nullopt;
