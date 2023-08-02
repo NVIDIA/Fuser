@@ -611,7 +611,8 @@ void validateAlignedVectorizedFusionInputOutput(
     const at::Tensor& aten_tensor,
     int word_size,
     TensorView* tv,
-    ExpressionEvaluator eval) {
+    ExpressionEvaluator& eval,
+    const kir::KernelSummary& kernel_summary) {
   eval.bind(tv, aten_tensor);
   auto metadata = eval.evaluate(IrBuilder::metadataExpr(tv));
 
@@ -629,21 +630,35 @@ void validateAlignedVectorizedFusionInputOutput(
   TORCH_INTERNAL_ASSERT(sizes.size() == no_reduction_to_full.size());
   TORCH_INTERNAL_ASSERT(strides.size() == no_reduction_to_full.size());
 
-#if 0  
-  TORCH_INTERNAL_ASSERT(
-      reinterpret_cast<size_t>(aten_tensor.data_ptr()) %
-              (word_size * aten_tensor.dtype().itemsize()) ==
-          0,
-      "Vectorization of ",
-      tv->toString(),
-      " not possible as the memory address is not aligned. ",
-      "Address: ",
-      aten_tensor.data_ptr(),
-      ", vector word size: ",
-      word_size,
-      ", data type: ",
-      aten_tensor.dtype());
-#endif
+  auto validateAlignment = [&](size_t offset) {
+    TORCH_INTERNAL_ASSERT(
+        (reinterpret_cast<size_t>(aten_tensor.data_ptr()) +
+         offset * aten_tensor.dtype().itemsize()) %
+                (word_size * aten_tensor.dtype().itemsize()) ==
+            0,
+        "Vectorization of ",
+        tv->toString(),
+        " not possible as the memory address is not aligned. ",
+        "Address: ",
+        aten_tensor.data_ptr(),
+        ", offset: ",
+        offset,
+        ", vector word size: ",
+        word_size,
+        ", data type: ",
+        aten_tensor.dtype());
+  };
+
+  if (auto slice_offsets_it = kernel_summary.slice_offsets.find(tv);
+      slice_offsets_it != kernel_summary.slice_offsets.end()) {
+    for (const Val* offset : slice_offsets_it->second) {
+      auto offset_eval = eval.evaluate(offset);
+      TORCH_INTERNAL_ASSERT(offset_eval.hasValue());
+      validateAlignment(offset_eval.as<int64_t>());
+    }
+  } else {
+    validateAlignment(0);
+  }
 
   // Traverse strides from the right-most domains. The rightmost
   // domain must have stride 1.
@@ -726,18 +741,11 @@ void validateAlignedVectorizedTensors(
         dynamic_cast<const TensorArgAbstract*>(args[pos]);
     TORCH_INTERNAL_ASSERT(tensor_arg_abstract, "alias io only supports tensor");
     validateAlignedVectorizedFusionInputOutput(
-        tensor_arg_abstract->getTensor(), word_size, tv, expr_eval);
-#if 0
-    for (auto input_use: tv->uses()) {
-      std::cerr << "Use: " << input_use->toString();
-      if (input_use->isA<SliceOp>()) {
-        auto slice = input_use->as<SliceOp>();
-        std::cerr << "Left expand: " << slice->leftExpand()->toInlineString() << std::endl;
-        auto left_expand = expr_eval.evaluate(slice->leftExpand());
-        TORCH_INTERNAL_ASSERT(left_expand.has_value());
-      }
-    }
-#endif
+        tensor_arg_abstract->getTensor(),
+        word_size,
+        tv,
+        expr_eval,
+        kernel->summary());
   }
   if (!outputs.empty()) {
     for (auto pos : tensor_vectorization_validation_entry.get()
@@ -745,7 +753,7 @@ void validateAlignedVectorizedTensors(
       auto tv = kernel->outputs().at(pos)->as<TensorView>();
       auto word_size = kernel->summary().vectorized_accesses.at(tv);
       validateAlignedVectorizedFusionInputOutput(
-          outputs[pos], word_size, tv, expr_eval);
+          outputs[pos], word_size, tv, expr_eval, kernel->summary());
     }
   }
 }

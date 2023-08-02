@@ -521,6 +521,29 @@ class VectorizeValidator : public OptInDispatch {
   }
 };
 
+std::unordered_set<Val*> getSliceOffsets(TensorView* input_tv) {
+  const auto input_domains =
+      TensorDomain::noReductions(input_tv->getMaybeRFactorDomain());
+  std::unordered_set<Val*> offsets;
+  for (auto slice_use : ir_utils::filterByType<SliceOp>(input_tv->uses())) {
+    const auto slice_info = slice_use->getRanges();
+    Val* stride = input_tv->fusion()->oneVal();
+    for (int64_t i = (int64_t)slice_info.size() - 1; i >= 0; --i) {
+      if (slice_info.at(i).start->isZero() &&
+          slice_info.at(i).stop->sameAs(input_domains.at(i)->extent())) {
+        // Not sliced
+        stride = SimplifyingIrBuilder::mulExpr(
+            stride, input_domains.at(i)->extent());
+      } else {
+        offsets.insert(
+            SimplifyingIrBuilder::mulExpr(slice_info.at(i).start, stride));
+        break;
+      }
+    }
+  }
+  return offsets;
+}
+
 } // namespace
 
 // Uses ContigIDs to find allocation contig domains that a vectorized domain
@@ -594,6 +617,8 @@ void validateAndCollectVectorizeInfo(Fusion* fusion) {
     if (has_vectorize_dim || has_misaligned_vectorize_dim) {
       VectorizeValidator::validate(tv);
     }
+
+    GpuLower::current()->sliceOffsets()[tv] = getSliceOffsets(tv);
   }
 }
 

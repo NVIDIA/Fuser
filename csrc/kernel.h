@@ -106,6 +106,8 @@ struct KernelSummary {
 
   //! Track information on vectorized set operations for runtime validation
   std::vector<VectorizedSetInfo> vectorized_set_info;
+
+  std::unordered_map<TensorView*, std::unordered_set<Val*>> slice_offsets;
 };
 
 class TORCH_CUDA_CU_API KernelPerformanceProfile {
