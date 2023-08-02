@@ -1572,10 +1572,11 @@ std::vector<Val*> tensor_sizes(TensorView* inp) {
 
 std::vector<Val*> shape(TensorView* inp) {
   auto iter_domains = TensorDomain::noReductions(inp->getMaybeRFactorDomain());
-  std::vector<Val*> shape(iter_domains.size(), nullptr);
+  std::vector<Val*> shape;
 
-  for (auto idx : c10::irange(iter_domains.size())) {
-    shape[idx] = iter_domains[idx]->getMaybeExpandedExtent();
+  shape.reserve(iter_domains.size());
+  for (auto id : iter_domains) {
+    shape.push_back(id->getMaybeExpandedExtent());
   }
 
   return shape;

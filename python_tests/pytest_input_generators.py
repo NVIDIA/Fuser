@@ -14,7 +14,7 @@ from pytest_utils import make_number, find_nonmatching_dtype, is_floating_dtype
 from nvfuser import DataType
 
 MINIMUM_SYMBOLIC_SIZE = -1
-INT64_MAX = 9223372036854775807
+INT64_MAX = 2**63 - 1
 MAX_TENSOR_DIMS = 8
 MAX_VECTOR_SIZE = 8
 
@@ -1044,9 +1044,6 @@ def where_error_generator(
 def tensor_size_error_generator(
     op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
 ):
-    """
-    [&size_def](FusionDefinition::Operators& self, Tensor arg, int64_t dim)
-    """
     make_arg = partial(
         make_tensor, device="cuda", dtype=dtype, requires_grad=requires_grad
     )
@@ -1082,10 +1079,6 @@ def tensor_size_error_generator(
 def vector_at_error_generator(
     op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
 ):
-    """
-    [&at_def](FusionDefinition::Operators& self, Vector arg, int64_t index)
-        -> Scalar { return at_def(arg, index); },
-    """
     make_arg = partial(
         make_tensor, device="cuda", dtype=dtype, requires_grad=requires_grad
     )
