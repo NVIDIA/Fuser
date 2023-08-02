@@ -260,6 +260,20 @@ bool isIterDomainOp(const Expr* expr) {
   return expr->isOneOf<Split, Merge, Swizzle2D, Resize>();
 }
 
+bool isParallelizedByTidyOrTidz(const TensorView* tv) {
+  for (auto id : tv->getLeafDomain()) {
+    if (id->isParallelized()) {
+      if (id->getParallelType() == ParallelType::TIDy && !id->isOneInt()) {
+        return true;
+      }
+      if (id->getParallelType() == ParallelType::TIDz && !id->isOneInt()) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 std::optional<IterDomain*> getMaybeWarpReductionDim(
     const Val* output,
     const Val* input) {
@@ -296,7 +310,8 @@ std::optional<IterDomain*> getMaybeWarpReductionDim(
     return std::nullopt;
   }
 
-  if (reduction_on_xdim->hasPaddingToMultipleOfWarp()) {
+  if (reduction_on_xdim->hasPaddingToMultipleOfWarp() ||
+      !isParallelizedByTidyOrTidz(tv_out)) {
     return std::optional<IterDomain*>(reduction_on_xdim);
   }
 
