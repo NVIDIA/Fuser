@@ -1390,11 +1390,6 @@ void FusionExecutor::initializeExecutorEntry(
     const std::vector<at::Tensor>& outputs) {
   FUSER_PERF_SCOPE("ExecutorRunFusion::InitializeExecutorEntry");
 
-  // code path to take when either:
-  //   1. no opt_code is provided or
-  //   2. `executor_entry` is not initialized
-  executor_utils::validateKernelInputs(fusion_, args, options_.device);
-
   ExpressionEvaluator expr_eval;
   evaluatorPrecomputedValues()->bindInputs(args);
   expr_eval.precomputedValues() = evaluatorPrecomputedValues().get();
