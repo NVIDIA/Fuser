@@ -3773,10 +3773,21 @@ TEST_F(NVFuserTest, FusionSegmentReduceSoftmax_CUDA) {
   auto t3 = at::_softmax(t2.to(at::kDouble), -1, false);
 
   auto optimized_fusion = executor_cache.getMostRecentKernelRuntime();
-  TORCH_CHECK(optimized_fusion->isSegmented(), "segmentation didn't happen");
-  TORCH_CHECK(
-      optimized_fusion->fusionSegments()->groups().size() == 2,
-      "segmentation didn't happen as expected");
+  ASSERT_TRUE(optimized_fusion->isSegmented()) << "segmentation didn't happen";
+  ASSERT_EQ(optimized_fusion->fusionSegments()->groups().size(), 2)
+      << "segmentation didn't happen as expected";
+
+  // Make sure the second kernel is vectorized. See issue #658
+  auto heuristic_params = executor_cache.getMostRecentKernelRuntime()
+                              ->schedulerHeuristics()
+                              ->heuristicsList()
+                              .at(1)
+                              ->params();
+  ASSERT_TRUE(heuristic_params->isA<ReductionParams>());
+  auto rparams = heuristic_params->as<ReductionParams>();
+  ASSERT_TRUE(rparams->vectorize_inner_reduction) << "Failed to vectorize";
+  ASSERT_EQ(rparams->unroll_factor_inner_reduction, 2)
+      << "Unexpected vectorization factor";
 
   testValidate(
       executor_cache.fusion(), outputs, {at_x}, {t3}, __LINE__, __FILE__);
@@ -7294,6 +7305,48 @@ TEST_F(NVFuserTest, FusionPredicateElimination8_CUDA) {
   TORCH_CHECK(
       !PredicatedChecker::isPredicated(tv6, compiled_executors.at(0).kernel()),
       "T6 should not be predicated");
+}
+
+TEST_F(NVFuserTest, FusionPredicateElimination9_CUDA) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const int M = 1024, split = 512;
+
+  // Algorithm
+  auto tv0 = makeContigConcreteTensor({M}, DataType::Float);
+  auto tv1 = set(tv0);
+
+  fusion->addInput(tv0);
+  fusion->addOutput(tv1);
+
+  // Schedule
+  auto tv0c = tv0->cacheAfter();
+  tv0c->setMemoryType(MemoryType::Shared);
+  tv0c->axis(-1)->parallelize(ParallelType::TIDx);
+
+  tv1->split(-1, split);
+  tv1->axis(-1)->parallelize(ParallelType::TIDx);
+
+  // Validation
+  at::manual_seed(0);
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({M}, options);
+
+  GpuLower gpulw(fusion.get());
+  // tv0c expectation: no predicate present as domain with TIDX parallel type
+  //  has the same extend as max extend stored for TIDx type in parallel domain
+  //  map
+  EXPECT_FALSE(PredicatedChecker::isPredicated(tv0c, gpulw));
+  // tv1 expectation: with a predicate, max extend for TIDx parallel type in
+  //  parallel domain map is not the same as the extend of domain parallized
+  //  with TIDx in this tensor
+  EXPECT_TRUE(PredicatedChecker::isPredicated(tv1, gpulw));
+
+  FusionExecutor fe;
+  fe.compileFusion(fusion.get(), {t0});
+  auto cg_outputs = fe.runFusion({t0});
+  testValidate(fusion.get(), cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionForceFp16Simple_CUDA) {

@@ -1049,7 +1049,7 @@ Val* productOfFactors(
     DataType default_dtype) {
   if (const_factor == nullptr) {
     if (symbolic_factors.empty()) {
-      return IrBuilder::newConstant(1, default_dtype);
+      return IrBuilder::newConstant(1L, default_dtype);
     }
     return maybeFlattenedOpOf(BinaryOpType::Mul, std::move(symbolic_factors));
   }

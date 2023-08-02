@@ -2476,6 +2476,150 @@ struct TensorSizesRecord : RecordFunctor {
   }
 };
 
+//! Specialized Record Functor for the shape op.
+//! Uses the default hash() and print() methods of Record Functor
+
+struct ShapeOpRecord : RecordFunctor {
+  ShapeOpRecord(std::vector<State> args, std::vector<State> outputs)
+      : RecordFunctor(
+            std::move(args),
+            std::move(outputs),
+            "ops.shape",
+            serde::RecordType_ShapeOp) {}
+  ~ShapeOpRecord() override = default;
+  RecordFunctor* clone() final {
+    return new ShapeOpRecord(*this);
+  }
+
+  bool operator==(const RecordFunctor& other) const final {
+    auto result = false;
+    if (dynamic_cast<const ShapeOpRecord*>(&other)) {
+      result = RecordFunctor::operator==(other);
+    }
+    return result;
+  }
+
+  void operator()(FusionState& fd) final {
+    auto arg = fd.getFusionState(args_.at(0).index)->as<TensorView>();
+    auto result = shape(arg);
+    fd.setFusionStateVector(outputs_.at(0).index, result);
+  }
+};
+
+//! Specialized Record Functor for the size op.
+//! Uses the default hash() and print() methods of Record Functor
+
+struct SizeOpRecord : RecordFunctor {
+  SizeOpRecord(std::vector<State> args, std::vector<State> outputs, int64_t dim)
+      : RecordFunctor(
+            std::move(args),
+            std::move(outputs),
+            "ops.size",
+            serde::RecordType_SizeOp),
+        dim_(dim) {}
+  ~SizeOpRecord() override = default;
+  RecordFunctor* clone() final {
+    return new SizeOpRecord(*this);
+  }
+
+  //! Child specific hash function in lower 32 bits.
+  //! | 31 --------------------------------------  0 |
+  //! | dim                                          |
+  size_t hash() const final {
+    auto result = RecordFunctor::hash();
+    return result | (static_cast<size_t>(dim_) & 0xffffffff);
+  }
+
+  bool operator==(const RecordFunctor& other) const final {
+    auto result = false;
+    if (auto child_ptr = dynamic_cast<const SizeOpRecord*>(&other)) {
+      result = RecordFunctor::operator==(other);
+      result = result && (dim_ == child_ptr->dim_);
+    }
+    return result;
+  }
+
+  void operator()(FusionState& fd) final {
+    auto arg = fd.getFusionState(args_.at(0).index)->as<TensorView>();
+    auto result = size(arg, dim_);
+    fd.setFusionState(outputs_.at(0).index, result);
+  }
+
+  std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
+      flatbuffers::FlatBufferBuilder& builder) const final {
+    return {serde::RecordData_Size, serde::CreateSize(builder, dim_).Union()};
+  }
+
+  void print(std::ostream& os, bool close_function = true) const final {
+    RecordFunctor::print(os, false);
+    os << ", dim=" << dim_;
+    if (close_function) {
+      os << ")";
+    }
+  }
+
+ private:
+  int64_t dim_;
+};
+
+//! Specialized Record Functor for the at() op.
+//! Uses the default hash() and print() methods of Record Functor
+
+struct AtOpRecord : RecordFunctor {
+  AtOpRecord(std::vector<State> args, std::vector<State> outputs, int64_t index)
+      : RecordFunctor(
+            std::move(args),
+            std::move(outputs),
+            "ops.at",
+            serde::RecordType_AtOp),
+        index_(index) {}
+  ~AtOpRecord() override = default;
+  RecordFunctor* clone() final {
+    return new AtOpRecord(*this);
+  }
+
+  //! Child specific hash function in lower 32 bits.
+  //! | 31 --------------------------------------  0 |
+  //! | index                                        |
+  size_t hash() const final {
+    auto result = RecordFunctor::hash();
+    return result | (static_cast<size_t>(index_) & 0xffffffff);
+  }
+
+  bool operator==(const RecordFunctor& other) const final {
+    auto result = false;
+    if (auto child_ptr = dynamic_cast<const AtOpRecord*>(&other)) {
+      result = RecordFunctor::operator==(other);
+      result = result && (index_ == child_ptr->index_);
+    }
+    return result;
+  }
+
+  void operator()(FusionState& fd) final {
+    TORCH_CHECK(
+        args_.at(0).stype == serde::StateType_Vector, "Expected Vector State!");
+    auto arg = fd.getFusionStateVector(args_.at(0).index);
+    auto result = at(arg, index_);
+    fd.setFusionState(outputs_.at(0).index, result);
+  }
+
+  std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
+      flatbuffers::FlatBufferBuilder& builder) const final {
+    return {serde::RecordData_At, serde::CreateAt(builder, index_).Union()};
+  }
+
+  void print(std::ostream& os, bool close_function = true) const final {
+    RecordFunctor::print(os, false);
+    os << ", index=" << index_;
+    if (close_function) {
+      os << ")";
+    }
+  }
+
+ private:
+  int64_t index_;
+};
+
 struct FullOpRecord : RecordFunctor {
   FullOpRecord(
       std::vector<State> _args,

@@ -9346,6 +9346,78 @@ TEST_F(NVFuserTest, IterVisitorTraverseSiblings_CUDA) {
       "Welford var_sum not traversed in getStmtsTo({n})");
 }
 
+TEST_F(NVFuserTest, FusionLayerNormSharedMemoryBuffer_CUDA) {
+  auto test = [](const int64_t hidden_size, DataType dtype) {
+    std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+    Fusion& fusion = *fusion_ptr.get();
+    FusionGuard fg(&fusion);
+    const float kEps = 1e-5;
+    Val* eps_ptr = IrBuilder::create<Val>(kEps);
+    constexpr int64_t dim0 = 2048;
+    std::vector<int64_t> input_shape{dim0, hidden_size};
+    std::vector<int64_t> norm_shape{hidden_size};
+    auto input_half = makeContigTensor(2, dtype);
+    auto weight_half = makeContigTensor(1, dtype);
+    auto bias_half = makeContigTensor(1, dtype);
+    fusion.addInput(input_half);
+    fusion.addInput(weight_half);
+    fusion.addInput(bias_half);
+    auto input = castOp(DataType::Float, input_half);
+    auto weight = castOp(DataType::Float, weight_half);
+    auto bias = castOp(DataType::Float, bias_half);
+    auto result = layer_norm(input, norm_shape, weight, bias, eps_ptr);
+    auto result_output = castOp(dtype, result.output);
+    fusion.addOutput(result_output);
+    fusion.addOutput(result.mean);
+    fusion.addOutput(result.invstd);
+
+    auto options = at::TensorOptions()
+                       .dtype(data_type_to_aten(dtype))
+                       .device(at::kCUDA, 0);
+    at::Tensor aten_input = at::randn(input_shape, options);
+    c10::optional<at::Tensor> aten_weight =
+        at::randn({input_shape[1]}, options);
+    c10::optional<at::Tensor> aten_bias = at::randn({input_shape[1]}, options);
+
+    auto persistent_params =
+        getPersistentHeuristics(&fusion, {aten_input, aten_weight, aten_bias});
+    TORCH_CHECK(persistent_params, "Persistent schedule was not generated!");
+    if (hidden_size * dataTypeSize(dtype) >
+        scheduler_utils::register_file_size) {
+      TORCH_CHECK(
+          persistent_params->shared_mem_persistent_buffer,
+          "Should use shared memory buffer!");
+    } else {
+      TORCH_CHECK(
+          !persistent_params->shared_mem_persistent_buffer,
+          "Shouldn't use shared memory buffer!");
+    }
+
+    auto aten_outputs = at::native_layer_norm(
+        aten_input, norm_shape, aten_weight, aten_bias, kEps);
+    FusionExecutorCache fec(std::move(fusion_ptr));
+    auto cg_outputs =
+        fec.runFusionWithInputs({aten_input, aten_weight, aten_bias});
+
+    testValidate(
+        &fusion,
+        cg_outputs,
+        {aten_input, aten_weight, aten_bias},
+        {std::get<0>(aten_outputs),
+         std::get<1>(aten_outputs),
+         std::get<2>(aten_outputs)},
+        __LINE__,
+        __FILE__,
+        "");
+  };
+  // loop from 16K to 128K hidden size
+  for (auto dtype : {DataType::Float, DataType::Half}) {
+    for (int i = 8; i <= 128; i += 8) {
+      test(i * 1024, dtype);
+    }
+  }
+}
+
 TEST_F(NVFuserTest, IterVisitorGetInputsTo) {
   // Test that IterVisitor::getInputsTo() will stop further traverse when
   // reaching the target tensors
@@ -9428,6 +9500,53 @@ TEST_F(NVFuserTest, FusionInstanceNormNHWC_CUDA) {
   FusionExecutorCache fec(std::move(fusion_ptr));
   auto cg_outputs = fec.runFusionWithInputs(inputs);
   testValidate(fusion, cg_outputs, inputs, outputs, __LINE__, __FILE__);
+}
+
+// Repro of issue #658. Vectorization failed with the second segment
+TEST_F(NVFuserTest, VectorizeBackToBackReductions) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  std::vector<int64_t> input_shape{128, 256, 256};
+
+  auto tv0 = makeContigConcreteTensor(input_shape);
+  fusion->addInput(tv0);
+
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
+  auto tv2 = sum(tv1, {2});
+
+  auto output = sum(tv2, {1});
+  fusion->addOutput(output);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor at_x = at::randn(input_shape, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+
+  auto outputs = executor_cache.runFusionWithInputs({at_x});
+
+  auto t1 = at_x.add(1.0);
+  auto t2 = t1.sum({2});
+  auto t3 = t2.sum({1});
+
+  auto optimized_fusion = executor_cache.getMostRecentKernelRuntime();
+  ASSERT_TRUE(optimized_fusion->isSegmented()) << "segmentation didn't happen";
+  ASSERT_EQ(optimized_fusion->fusionSegments()->groups().size(), 2)
+      << "segmentation didn't happen as expected";
+
+  auto heuristic_params = executor_cache.getMostRecentKernelRuntime()
+                              ->schedulerHeuristics()
+                              ->heuristicsList()
+                              .at(1)
+                              ->params();
+  ASSERT_TRUE(heuristic_params->isA<ReductionParams>());
+  auto rparams = heuristic_params->as<ReductionParams>();
+  ASSERT_TRUE(rparams->vectorize_inner_reduction) << "Failed to vectorize";
+  ASSERT_EQ(rparams->unroll_factor_inner_reduction, 4)
+      << "Unexpected vectorization factor";
+
+  testValidate(
+      executor_cache.fusion(), outputs, {at_x}, {t3}, __LINE__, __FILE__);
 }
 
 // Test file size should be up to 10K LoC. Create a new file for more tests.
