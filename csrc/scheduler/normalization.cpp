@@ -714,8 +714,14 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
   // Try moving persistent buffer factors into threads until we have too
   // many threads.
   int64_t batches_per_block_inner_reduction_max = 10l;
-  // if vect is small, increase max batch to avoid using large bdimx for
-  // small number of reduction elements.
+
+  //  Each thread's serial workload is equivalent to the product of the
+  //  vectorization factor and the persistent batch. To maintain a similar
+  //  size of persistent buffer and workload for each thread, the persistent
+  //  batch should be increased when the vectorization factor is small. However,
+  //  it shouldn't be simply defined as N/vectorization factor, as this would
+  //  result in a large persistent batch, leading to a substantial number of
+  //  global memory read and write operations.
   if (inner_reduction_unroll_factor <= 2l) {
     // only use this optimization if the reduction elements is >= 10K.
     // Otherwise, there is a regression in layer norm due to the use of
@@ -726,9 +732,20 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
       batches_per_block_inner_reduction_max *= 2l;
     }
   }
-  // Each thread needs to process batch*vect elements.
-  // Set a small workload per thread if there are expensive ops, e.g.
-  // exponential op in softmax.
+  // If there are expensive ops, e.g. exponential op in softmax, use a smaller
+  // persistent batch. This is because these costly operations can substantially
+  // boost the total number of instructions each thread must carry out.
+  // Employing a smaller persistent batch can elevate the number of active warps
+  // per SM, aiding in masking memory access latency. However, this also raises
+  // the overhead of inter-thread reduction. Therefore, the ideal size for the
+  // persistent batch is a balance between these two factors.
+  // If no costly exponential operation is involved, employing this optimization
+  // might not be necessary. This is because the computational burden on each
+  // thread wouldn't be substantial enough to mask memory access latency, and
+  // the advantages of higher occupancy could be outweighed by the augmented
+  // overhead associated with inter-thread communication.
+  // Ideally, the decision should hinge on the compute to global memory access
+  // ratio.
   if (has_expensive_op) {
     // only use this optimization if the reduction elements is <= 16K.
     // After 16K, we can only launch 1 blocks per sm if still use such a
