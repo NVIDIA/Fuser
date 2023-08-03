@@ -168,26 +168,16 @@ IterDomain* DomainMap::getMappedInputConcreteID(
 bool DomainMap::eraseIfMapped(
     std::unordered_set<IterDomain*>& in_concrete_ids,
     IterDomain* out_id) const {
-  if (getenv("OLD")) {
-    auto out_concrete_id =
-        ca_map_.getConcreteMappedID(out_id, IdMappingMode::PERMISSIVE);
-    auto in_concrete_id_iter = in_concrete_ids.find(out_concrete_id);
-    bool found_match = in_concrete_id_iter != in_concrete_ids.end();
-    if (found_match) {
-      in_concrete_ids.erase(in_concrete_id_iter);
-    }
-    return found_match;
+  auto mapped_input_conrete_id =
+      getMappedInputConcreteID(in_concrete_ids, out_id);
+  if (mapped_input_conrete_id != nullptr) {
+    in_concrete_ids.erase(mapped_input_conrete_id);
+    return true;
   } else {
-    auto mapped_input_conrete_id =
-        getMappedInputConcreteID(in_concrete_ids, out_id);
-    if (mapped_input_conrete_id != nullptr) {
-      in_concrete_ids.erase(mapped_input_conrete_id);
-      return true;
-    } else {
-      return false;
-    }
+    return false;
   }
 }
+
 void DomainMap::eraseifInputMappedThroughRFactorDomainAndIndexing(
     std::unordered_set<IterDomain*>& in_ids,
     const std::vector<IterDomain*>& ids) const {
