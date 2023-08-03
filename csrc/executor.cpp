@@ -884,6 +884,9 @@ std::vector<at::Tensor> allocOutputs(
     // for kernel execution, so would need to push them to args
     if (alias_it != output_to_input_aliases.end()) {
       auto aliased_input_index = alias_it->second;
+      TORCH_INTERNAL_ASSERT(
+          inputs[aliased_input_index]->is<at::Tensor>(),
+          "alias io only supports tensor");
       outputs.emplace_back(*inputs[aliased_input_index]);
     } else if (kernel->outputs().at(output_idx)->isFusionInput()) {
       // pushing empty tensor for trivial forwarding. Since we handle this in
