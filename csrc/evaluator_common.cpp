@@ -350,6 +350,9 @@ NaiveValueMachine::NaiveValueMachine(PrecomputedValues& precomputed_values)
         makeUnaryOp(uop);
       } else if (auto bop = dynamic_cast<BinaryOp*>(def)) {
         makeBinaryOp(bop);
+      } else if (def->isA<GetMetaData>()) {
+        // GetMetaData's output will be bound in bindTensorMetaData, so just
+        // ignoring it here.
       } else {
         TORCH_INTERNAL_ASSERT(false, "Unsupported expr");
       }

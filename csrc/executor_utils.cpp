@@ -626,16 +626,6 @@ void validateVectorizedTensors(
   validateVectorizedSplits(kernel, expr_eval);
 }
 
-void bindInputForExprEvaluation(
-    Val* val,
-    PolymorphicValue arg,
-    bool check_consistency,
-    ExpressionEvaluator& expr_eval,
-    bool legacy) {
-  TORCH_INTERNAL_ASSERT(val != nullptr);
-  expr_eval.bind(val, arg);
-}
-
 ExpressionEvaluator bindInputs(
     const KernelArgumentHolder& args,
     Fusion* kernel,
@@ -652,8 +642,7 @@ ExpressionEvaluator bindInputs(
   const auto& inputs = kernel->inputs();
 
   for (const auto i : c10::irange(inputs.size())) {
-    bindInputForExprEvaluation(
-        inputs[i], *args[i], check_consistency, expr_eval);
+    expr_eval.bind(inputs[i], *args[i]);
   }
   return expr_eval;
 }

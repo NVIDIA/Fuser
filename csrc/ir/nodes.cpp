@@ -2304,13 +2304,13 @@ IterDomain::IterDomain(
   TORCH_INTERNAL_ASSERT(
       extent->dtype() == DataType::Index,
       "Cannot create an iter domain over an extent that is not an nvfuser_index_t but received ",
-      extent,
+      extent->dtype(),
       " .");
 
   TORCH_INTERNAL_ASSERT(
       start->dtype() == DataType::Index,
       "Cannot create an iter domain with a start that is not an nvfuser_index_t but received ",
-      start,
+      start->dtype(),
       " .");
 }
 
