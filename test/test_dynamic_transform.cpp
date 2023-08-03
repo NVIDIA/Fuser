@@ -30,9 +30,9 @@ TEST_F(NVFuserTest, DynamicTransform1_CUDA) {
   auto tv1 = makeSymbolicTensor(2);
   fusion.addInput(tv1);
 
-  auto reshape_shape0 = IrBuilder::create<Val>(DataType::Index);
+  auto reshape_shape0 = IrBuilder::create<Val>(DataType::Int);
   fusion.addInput(reshape_shape0);
-  auto reshape_shape1 = IrBuilder::create<Val>(DataType::Index);
+  auto reshape_shape1 = IrBuilder::create<Val>(DataType::Int);
   fusion.addInput(reshape_shape1);
 
   auto tv2 = reshape(tv0, {reshape_shape0, reshape_shape1});
@@ -167,8 +167,8 @@ TEST_F(NVFuserTest, DynamicTransform3_CUDA) {
   auto tv1 = makeSymbolicTensor(2);
   fusion.addInput(tv1);
 
-  auto reshape_shape0 = IrBuilder::create<Val>(DataType::Index);
-  auto reshape_shape1 = IrBuilder::create<Val>(DataType::Index);
+  auto reshape_shape0 = IrBuilder::create<Val>(DataType::Int);
+  auto reshape_shape1 = IrBuilder::create<Val>(DataType::Int);
 
   auto tv2 = reshape(tv0, {reshape_shape0, reshape_shape1});
   auto tv3 = add(tv1, tv2);
@@ -231,7 +231,7 @@ TEST_F(NVFuserTest, DynamicTransform4_CUDA) {
     std::vector<Val*> shape_arg;
     for (const auto i : c10::irange(after_shape.size())) {
       (void)i;
-      shape_arg.push_back(IrBuilder::create<Val>(DataType::Index));
+      shape_arg.push_back(IrBuilder::create<Val>(DataType::Int));
     }
 
     auto tv2 = reshape(tv0, shape_arg);
@@ -277,9 +277,9 @@ TEST_F(NVFuserTest, DynamicTransform5_CUDA) {
     auto tv0 = makeSymbolicTensor(2);
     fusion.addInput(tv0);
 
-    auto reshape_shape0 = IrBuilder::create<Val>(DataType::Index);
+    auto reshape_shape0 = IrBuilder::create<Val>(DataType::Int);
     fusion.addInput(reshape_shape0);
-    auto reshape_shape1 = IrBuilder::create<Val>(DataType::Index);
+    auto reshape_shape1 = IrBuilder::create<Val>(DataType::Int);
     fusion.addInput(reshape_shape1);
 
     auto tv1 = reshape(tv0, {reshape_shape0, reshape_shape1});
@@ -336,7 +336,7 @@ TEST_F(NVFuserTest, DynamicTransform6_CUDA) {
       std::vector<Val*> shape_arg;
       for (const auto i : c10::irange(shape.size())) {
         (void)i;
-        shape_arg.push_back(IrBuilder::create<Val>(DataType::Index));
+        shape_arg.push_back(IrBuilder::create<Val>(DataType::Int));
       }
 
       auto tv = reshape(reshape_tvs.back(), shape_arg);
@@ -415,7 +415,7 @@ TEST_F(NVFuserTest, DynamicTransform7_CUDA) {
       std::vector<Val*> shape_arg;
       for (const auto i : c10::irange(shape.size())) {
         (void)i;
-        shape_arg.push_back(IrBuilder::create<Val>(DataType::Index));
+        shape_arg.push_back(IrBuilder::create<Val>(DataType::Int));
       }
 
       auto tv = reshape(reshape_tvs.back(), shape_arg);
@@ -513,7 +513,7 @@ TEST_F(NVFuserTest, DynamicTransform9_CUDA) {
 
   auto tv1 = reshape(tv0, {3, 4}, {4, 3});
 
-  auto reshape_shape0 = IrBuilder::create<Val>(DataType::Index);
+  auto reshape_shape0 = IrBuilder::create<Val>(DataType::Int);
 
   auto tv2 = reshape(tv1, {reshape_shape0});
   fusion.addOutput(tv2);
@@ -557,8 +557,8 @@ TEST_F(NVFuserTest, DynamicTransform10_CUDA) {
 
   auto tv1 = reshape(
       tv0,
-      {IrBuilder::create<Val>(DataType::Index),
-       IrBuilder::create<Val>(DataType::Index)});
+      {IrBuilder::create<Val>(DataType::Int),
+       IrBuilder::create<Val>(DataType::Int)});
   auto tv2 = slice(
       tv1,
       {Slice(),
@@ -598,9 +598,9 @@ TEST_F(NVFuserTest, DynamicTransform11_CUDA) {
 
   auto tv1 = reshape(
       tv0,
-      {IrBuilder::create<Val>(DataType::Index),
-       IrBuilder::create<Val>(DataType::Index),
-       IrBuilder::create<Val>(DataType::Index)});
+      {IrBuilder::create<Val>(DataType::Int),
+       IrBuilder::create<Val>(DataType::Int),
+       IrBuilder::create<Val>(DataType::Int)});
   fusion.addOutput(tv1);
 
   ExpressionEvaluator expr_eval1;
@@ -760,7 +760,7 @@ void reductionDynamicViewAddFusion(
   // create vectors of input scalars describing this reshape
   std::vector<Val*> output_shape(output_dims);
   for (size_t i : c10::irange(output_dims)) {
-    output_shape[i] = IrBuilder::create<Val>(DataType::Index);
+    output_shape[i] = IrBuilder::create<Val>(DataType::Int);
     fusion.addInput(output_shape[i]);
   }
   auto x_reshape = reshape(tv1, output_shape);
@@ -880,7 +880,7 @@ void reductionDynamicPadAddFusion(
 
   std::vector<Val*> pad_width_vals(num_pad_widths);
   for (auto i : c10::irange(num_pad_widths)) {
-    pad_width_vals[i] = IrBuilder::create<Val>(DataType::Index);
+    pad_width_vals[i] = IrBuilder::create<Val>(DataType::Int);
     fusion.addInput(pad_width_vals[i]);
   }
   auto x_pad = pad(x, pad_width_vals);
@@ -1076,7 +1076,7 @@ TEST_F(NVFuserTest, DynamicTransformIssue418_CUDA) {
 
   auto tv0 = makeSymbolicTensor(4);
   fusion->addInput(tv0);
-  auto s0 = IrBuilder::create<Val>(DataType::Index);
+  auto s0 = IrBuilder::create<Val>(DataType::Int);
   fusion->addInput(s0);
 
   auto sh = tensor_sizes(tv0);
@@ -1150,9 +1150,9 @@ TEST_F(NVFuserTest, Issue249InputNegative1_CUDA) {
   TensorView* tv0 = makeSymbolicTensor(4);
   fusion.addInput(tv0);
 
-  auto s0 = IrBuilder::create<Val>(DataType::Index);
-  auto s1 = IrBuilder::create<Val>(DataType::Index);
-  auto s2 = IrBuilder::create<Val>(DataType::Index);
+  auto s0 = IrBuilder::create<Val>(DataType::Int);
+  auto s1 = IrBuilder::create<Val>(DataType::Int);
+  auto s2 = IrBuilder::create<Val>(DataType::Int);
   fusion.addInput(s0);
   fusion.addInput(s1);
   fusion.addInput(s2);
