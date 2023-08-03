@@ -2191,7 +2191,7 @@ TensorView* shift(
     out_dom.push_back(
         IterDomainBuilder(
             IrBuilder::create<Val>(out_start_offset), inp_axis->extent())
-            .stop_offset(IrBuilder::create<Val>(out_stop_offset))
+            .stop_offset(IrBuilder::create<Val>(out_stop_offset, DataType::Index))
             .iter_type(inp_axis->getIterType())
             .build());
   }
@@ -2328,13 +2328,13 @@ TensorView* gather(
     out_root_domains.push_back(
         IterDomainBuilder(
             FusionGuard::getCurFusion()->zeroVal(), inp_axis->extent())
-            .stop_offset(IrBuilder::create<Val>(out_stop_offset))
+            .stop_offset(IrBuilder::create<Val>(out_stop_offset, DataType::Index))
             .iter_type(inp_axis->getIterType())
             .build());
     // create a new axis for the gathered domain
     out_gather_dom.push_back(IterDomainBuilder(
                                  FusionGuard::getCurFusion()->zeroVal(),
-                                 IrBuilder::create<Val>((int64_t)window_dim))
+                                 IrBuilder::create<Val>((int64_t)window_dim, DataType::Index))
                                  .iter_type(IterType::Gather)
                                  .build());
   }
@@ -2374,7 +2374,7 @@ TensorView* viewAsScalar(TensorView* inp) {
 
   IterDomain* id = IterDomainBuilder(
                        inp_domain[0]->container()->zeroVal(),
-                       IrBuilder::create<Val>((int64_t)vec_size))
+                       IrBuilder::create<Val>((int64_t)vec_size, DataType::Index))
                        .iter_type(IterType::VectorComponent)
                        .build();
   out_domain.push_back(id);
@@ -2525,7 +2525,7 @@ TensorView* tensor(Val* val) {
   for (auto size : sizes) {
     IterDomain* id =
         IterDomainBuilder(
-            val->container()->zeroVal(), IrBuilder::create<Val>(size))
+            val->container()->zeroVal(), IrBuilder::create<Val>(size, DataType::Index))
             .build();
     out_domain.push_back(id);
   }

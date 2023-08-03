@@ -109,7 +109,7 @@ class ReplayRFactor : public ReplayTransformations {
         "Transform traversal failed, modified a node but it was not a leaf node.");
 
     // outer loop size
-    Val* remainder = ceilDiv(mapped->extent(), s->factor());
+    Val* remainder = IrBuilder::ceilDivExpr(mapped->extent(), s->factor());
 
     // Check if we need to mark the outputs as an rfactor domain meaning this
     // transformation must be present in replays otherwise it breaks the compute
@@ -183,7 +183,7 @@ class ReplayRFactor : public ReplayTransformations {
         " however one or both are not leaf nodes.");
 
     Val* merged_id_size =
-        mul(id_outer_mapped->extent(), id_inner_mapped->extent());
+        IrBuilder::mulExpr(id_outer_mapped->extent(), id_inner_mapped->extent());
 
     IterDomain* merged_id =
         IterDomainBuilder(m->container()->zeroVal(), merged_id_size)

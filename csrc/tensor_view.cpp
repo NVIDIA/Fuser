@@ -106,13 +106,13 @@ TensorView::TensorView(
       } else {
         // if size is not 1, need to expand
         sizes.push_back(
-            builder.expanded_extent(IrBuilder::create<Val>(DataType::Int))
+            builder.expanded_extent(IrBuilder::create<Val>(DataType::Index))
                 .build());
       }
     } else {
       sizes.push_back(IterDomainBuilder(
                           passkey.ir_container_->zeroVal(),
-                          IrBuilder::create<Val>(DataType::Int))
+                          IrBuilder::create<Val>(DataType::Index))
                           .build());
     }
   }
@@ -1505,7 +1505,7 @@ TensorView* TensorViewBuilder::build() const {
       shape_extent = &expanded_extent;
     }
     if (shape_.empty()) {
-      *shape_extent = IrBuilder::create<Val>(DataType::Int);
+      *shape_extent = IrBuilder::create<Val>(DataType::Index);
     } else {
       *shape_extent = shape_.at(i);
     }

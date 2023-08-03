@@ -254,7 +254,7 @@ std::vector<IterDomain*> newOutputDomain(
       out_domain[dim_i] =
           IterDomainBuilder(
               IrBuilder::create<Val>(start_offsets[dim_i]), extent_vals[dim_i])
-              .stop_offset(IrBuilder::create<Val>(stop_offsets[dim_i]))
+              .stop_offset(IrBuilder::create<Val>(stop_offsets[dim_i], DataType::Index))
               .iter_type(iter_types[dim_i].value())
               .build();
     } else {
