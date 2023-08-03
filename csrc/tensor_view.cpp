@@ -1445,7 +1445,7 @@ TensorViewBuilder& TensorViewBuilder::shape(const std::vector<int64_t>& shape) {
   shape_.reserve(shape.size());
   for (int64_t i : shape) {
     if (i == -1) {
-      shape_.emplace_back(IrBuilder::create<Val>(DataType::Int));
+      shape_.emplace_back(IrBuilder::create<Val>(DataType::Index));
     } else if (i == 1) {
       shape_.emplace_back(FusionGuard::getCurFusion()->oneVal());
     } else if (i == 0) {
@@ -1455,7 +1455,7 @@ TensorViewBuilder& TensorViewBuilder::shape(const std::vector<int64_t>& shape) {
           i >= 0,
           "Invalid extent value. ",
           "For a tensor representing a single scalar use ndims = 0 with no sizes set.");
-      shape_.emplace_back(IrBuilder::create<Val>(i));
+      shape_.emplace_back(IrBuilder::create<Val>(i, DataType::Index));
     }
   }
   return *this;

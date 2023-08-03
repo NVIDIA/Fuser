@@ -149,6 +149,9 @@ TensorView* reshape(TensorView* inp_tv, const std::vector<Val*>& new_sizes) {
       new_size = IrBuilder::divExpr(numel, other_new_numel);
       new_size = simplifyExpr(new_size);
     }
+    if (new_size->dtype() != DataType::Index) {
+      new_size = castOp(DataType::Index, new_size);
+    }
     auto rf_id =
         IterDomainBuilder(FusionGuard::getCurFusion()->zeroVal(), new_size)
             .iter_type(IterType::Symbolic)
@@ -711,6 +714,15 @@ TensorView* slice(TensorView* inp, const std::vector<Slice>& ranges) {
     if (range.step == nullptr) {
       range.step = FusionGuard::getCurFusion()->oneVal();
     }
+    if (range.start->dtype() != DataType::Index) {
+      range.start = castOp(DataType::Index, range.start);
+    }
+    if (range.stop->dtype() != DataType::Index) {
+      range.stop = castOp(DataType::Index, range.stop);
+    }
+    if (range.step->dtype() != DataType::Index) {
+      range.step = castOp(DataType::Index, range.step);
+    }
     return range;
   };
 
@@ -744,7 +756,7 @@ TensorView* slice(TensorView* inp, const std::vector<Slice>& ranges) {
       out_rf_id = IterDomain::resize(
           out_root_id,
           SimplifyingIrBuilder::negExpr(range.start),
-          sub(range.stop, inp_root_id->extent()),
+          IrBuilder::subExpr(range.stop, inp_root_id->extent()),
           true);
       needs_real_slicing = true;
     }

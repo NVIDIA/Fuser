@@ -563,7 +563,8 @@ TEST_F(NVFuserTest, DynamicTransform10_CUDA) {
       tv1,
       {Slice(),
        {IrBuilder::create<Val>(1L),
-        sub(tv1->axis(0)->extent(), IrBuilder::create<Val>(1L))}});
+        IrBuilder::subExpr(
+            tv1->axis(0)->extent(), IrBuilder::create<Val>(1L))}});
   fusion.addOutput(tv2);
 
   // tv2 has an rfactor expr (i.e., resize). The input to the expr is

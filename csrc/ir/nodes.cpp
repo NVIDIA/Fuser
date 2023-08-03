@@ -3645,13 +3645,13 @@ NamedScalar* NamedScalar::getParallelDim(ParallelType p_type) {
       p_type);
   TORCH_INTERNAL_ASSERT(FusionGuard::getCurFusion() != nullptr);
   std::string parallel_dim = stringifyThreadSize(p_type);
-  return IrBuilder::create<NamedScalar>(parallel_dim, DataType::Int);
+  return IrBuilder::create<NamedScalar>(parallel_dim, DataType::Index);
 }
 
 NamedScalar* NamedScalar::getParallelIndex(ParallelType p_type) {
   TORCH_INTERNAL_ASSERT(FusionGuard::getCurFusion() != nullptr);
   std::string parallel_ind = stringifyThread(p_type);
-  return IrBuilder::create<NamedScalar>(parallel_ind, DataType::Int);
+  return IrBuilder::create<NamedScalar>(parallel_ind, DataType::Index);
 }
 
 std::optional<ParallelType> NamedScalar::getParallelDim() const {

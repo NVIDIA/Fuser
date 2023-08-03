@@ -905,7 +905,8 @@ TEST_F(NVFuserTest, FusionResizeSlice1_CUDA) {
   auto tv1 = slice(
       tv0,
       {{IrBuilder::create<Val>(1L),
-        sub(tv0->axis(0)->extent(), IrBuilder::create<Val>(1L))}});
+        IrBuilder::subExpr(
+            tv0->axis(0)->extent(), IrBuilder::create<Val>(1L))}});
   fusion.addOutput(tv1);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
