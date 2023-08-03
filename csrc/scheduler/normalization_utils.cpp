@@ -677,16 +677,16 @@ getOptionalInnerOuterPersistentBufferBatches(
             scheduler_utils::register_overhead,
         register_per_batch);
   };
-
   const int64_t after_vectorization = inner_dim_numel / vectorize_factor;
   const int64_t threads_per_block_min = std::min(after_vectorization, 128l);
-  const int64_t threads_per_block_max = getThreadsPerSMGivenRegPerThread(255l);
+  const int64_t threads_per_block_max = getThreadsPerSMGivenRegPerThread(scheduler_utils::max_registers_per_thread);
   const int64_t batch_min = getMinimumBatch();
   const int64_t batch_max = getMaximumInnerOuterPersistentBufferBatch();
   // increase batch_max by 1 to allow a small amount of register spills to keep
   // a small threads_per_block so each SM can host more blocks. This can
   // increase performance by 10% for edge cases, e.g. hidden size in the range
-  // of (7K,8K].
+  // of (7K,8K]. Disable this optimization if vectorize_factor is 1 due to high
+  // register usage in cases can't be vectorized.
   const int64_t batch_max_plus_one =
       vectorize_factor > 1 ? batch_max + 1 : batch_max;
   // Start from the smallest threads_per_block. If the corresponding batch size
