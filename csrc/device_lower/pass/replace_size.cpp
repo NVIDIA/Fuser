@@ -203,7 +203,7 @@ void replaceSymbolicSizes(Fusion* fusion) {
       if (tensor_dim_map.find(orig_size) == tensor_dim_map.end() &&
           !orig_size->isFusionInput() && !orig_size->isConstScalar()) {
         tensor_dim_map[orig_size] = IrBuilder::getItemExpr(
-            IrBuilder::getAttrExpr(IrBuilder::metadataExpr(tv), "size"),
+            IrBuilder::getAttrExpr(IrBuilder::metadataExpr(tv), "logical_size"),
             dim++);
       } else {
         dim++;

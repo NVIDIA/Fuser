@@ -294,6 +294,7 @@ UnaryOp::UnaryOp(IrBuilderPasskey passkey, UnaryOpType type, Val* out, Val* in)
 }
 
 std::vector<PolymorphicValue> UnaryOp::evaluate(
+    const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
   using namespace PolymorphicValue_functions;
   const auto& in = inputs.at(0);
@@ -307,6 +308,8 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
         return {PolymorphicValue((double)in)};
       } else if (out()->getDataType() == DataType::Bool) {
         return {PolymorphicValue((bool)in)};
+      } else if (isComplexType(*out()->getDataType())) {
+        return {PolymorphicValue((std::complex<double>)in)};
       } else {
         TORCH_INTERNAL_ASSERT(
             false, "dtype not supported in evaluator: ", *out()->getDataType());
@@ -323,6 +326,13 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
     case UnaryOpType::ToUnsignedSmemAddr:
       return {(int64_t)(unsigned)in};
       break;
+    case UnaryOpType::Dereference:
+      if (*out()->getDataType() == DataType::Float) {
+        return {PolymorphicValue((double)*(float*)in)};
+      } else {
+        TORCH_INTERNAL_ASSERT(
+            false, "dtype not supported in evaluator: ", *out()->getDataType());
+      }
     default:
       TORCH_CHECK(
           false,
@@ -398,6 +408,7 @@ BinaryOp::BinaryOp(
 }
 
 std::vector<PolymorphicValue> BinaryOp::evaluate(
+    const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
   using namespace PolymorphicValue_functions;
   const auto& lhs = inputs.at(0);
@@ -550,6 +561,7 @@ TernaryOp::TernaryOp(
 }
 
 std::vector<PolymorphicValue> TernaryOp::evaluate(
+    const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
   using namespace PolymorphicValue_functions;
   const auto& in1 = inputs.at(0);
@@ -665,6 +677,7 @@ std::string ArrayConstruct::toInlineString(int indent_size) const {
 }
 
 std::vector<PolymorphicValue> ArrayConstruct::evaluate(
+    const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
   return {PolymorphicValue(inputs)};
 }
@@ -696,6 +709,7 @@ std::string GetItem::toInlineString(int indent_size) const {
 }
 
 std::vector<PolymorphicValue> GetItem::evaluate(
+    const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
   TORCH_INTERNAL_ASSERT(inputs.size() == 2, "GetItem expects 2 inputs");
   return {PolymorphicValue(inputs.at(0)[inputs.at(1)])};
@@ -732,6 +746,7 @@ std::string GetAttr::toInlineString(int indent_size) const {
 }
 
 std::vector<PolymorphicValue> GetAttr::evaluate(
+    const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
   TORCH_INTERNAL_ASSERT(inputs.size() == 1, "GetAttr expects 1 input");
   return {inputs.at(0)[attr()]};
@@ -761,32 +776,6 @@ std::string GetMetaData::toInlineString(int indent_size) const {
   return ss.str();
 }
 
-std::vector<PolymorphicValue> GetMetaData::evaluate(
-    const std::vector<PolymorphicValue>& inputs) const {
-  TORCH_INTERNAL_ASSERT(inputs.size() == 1, "GetMetaData expects 1 input");
-  TORCH_INTERNAL_ASSERT(
-      in()->isA<TensorView>(),
-      "Currently, GetMetaData only supports TensorView");
-  TensorView* tv = in()->as<TensorView>();
-  if (tv->getMemoryType() == MemoryType::Shared) {
-    // Smem tensor is defined locally as a pointer. It is impossible to know the
-    // actual address, but using nullptr is a good approximation.
-    return {PolymorphicValue(Pointer(nullptr, tv->dtype()))};
-  }
-
-  at::Tensor input = inputs.at(0).as<at::Tensor>();
-
-  Struct<PolymorphicValue> concrete_value;
-  concrete_value["data"] =
-      PolymorphicValue(Pointer(input.data_ptr(), tv->dtype()));
-  concrete_value["size"] = PolymorphicValue(input.sizes().vec());
-  // TODO: this is not correct, strides actually needs to be based on allocation
-  // domain, but input.strides() is on the rFactor domain. We need to refactor
-  // our executor to move related logic here.
-  concrete_value["stride"] = PolymorphicValue(input.strides().vec());
-  return {PolymorphicValue(concrete_value)};
-}
-
 NVFUSER_DEFINE_CLONE_AND_CREATE(GetMetaData)
 
 TensorConstruct::TensorConstruct(
@@ -810,6 +799,7 @@ std::string TensorConstruct::toInlineString(int indent_size) const {
 }
 
 std::vector<PolymorphicValue> TensorConstruct::evaluate(
+    const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
   TORCH_INTERNAL_ASSERT(inputs.size() == 1, "TensorConstruct expects 1 input");
   using namespace PolymorphicValue_functions;
@@ -826,7 +816,6 @@ RNGOp::RNGOp(
     std::vector<Val*> parameters,
     Val* philox_seed,
     Val* philox_offset,
-    int rng_offset,
     Val* philox_index)
     : Expr(passkey) {
   if (auto tv_out = dynamic_cast<TensorView*>(out)) {
@@ -846,7 +835,7 @@ RNGOp::RNGOp(
     addInput(philox_offset);
   }
   addOutput(out);
-  RNGOp::Attributes attr{type, dtype, rng_offset, parameters.size()};
+  RNGOp::Attributes attr{type, dtype, parameters.size()};
   addDataAttribute(attr);
   addAttribute(philox_index);
 }
@@ -866,10 +855,6 @@ std::string RNGOp::toString(int indent_size) const {
   auto seed = getRNGSeedVal();
   if (seed) {
     ss << ", " << seed->toInlineString();
-  }
-  auto offset = getRNGOffsetVal();
-  if (offset) {
-    ss << ", " << offset->toInlineString();
   }
   ss << ");\n";
   return ss.str();
@@ -961,6 +946,7 @@ std::string BroadcastOp::toInlineString(int indent_size) const {
 }
 
 std::vector<PolymorphicValue> BroadcastOp::evaluate(
+    const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
   TORCH_INTERNAL_ASSERT(
       inputs.size() == 1,
@@ -1057,6 +1043,7 @@ std::string SqueezeOp::toInlineString(int indent_size) const {
 }
 
 std::vector<PolymorphicValue> SqueezeOp::evaluate(
+    const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
   TORCH_INTERNAL_ASSERT(
       inputs.size() == 1,
@@ -2143,6 +2130,7 @@ LoadStoreOp::LoadStoreOp(
 }
 
 std::vector<PolymorphicValue> LoadStoreOp::evaluate(
+    const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
   return inputs;
 }

@@ -87,6 +87,13 @@ Val* IrBuilder::notExpr(Val* val) {
   return result;
 }
 
+Val* IrBuilder::derefExpr(Val* val) {
+  TORCH_CHECK(val != nullptr, "val is a nullptr in notExpr.");
+  auto result = newScalar(*(std::get<PointerOf>(val->dtype().type).type));
+  IrBuilder::create<UnaryOp>(UnaryOpType::Dereference, result, val);
+  return result;
+}
+
 Val* IrBuilder::absExpr(Val* val) {
   TORCH_CHECK(val != nullptr, "val is a nullptr in notExpr.");
   auto result = newScalar(val->dtype());
@@ -209,9 +216,7 @@ Val* IrBuilder::getAttrExpr(Val* struct_, std::string attr) {
 }
 
 Val* IrBuilder::metadataExpr(TensorView* tv) {
-  auto out = newScalar(metaDataTypeOf(tv));
-  create<GetMetaData>(tv->container(), out, tv);
-  return out;
+  return tv->fusion()->metadataOf(tv);
 }
 
 Val* SimplifyingIrBuilder::negExpr(Val* val) {

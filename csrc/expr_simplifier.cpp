@@ -697,6 +697,7 @@ class FlattenedAssocCommOp : public Expr {
   }
 
   std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
       const std::vector<PolymorphicValue>& inputs) const override {
     using namespace PolymorphicValue_functions;
     std::vector<PolymorphicValue> inputs_ = inputs;
@@ -1048,7 +1049,7 @@ Val* productOfFactors(
     DataType default_dtype) {
   if (const_factor == nullptr) {
     if (symbolic_factors.empty()) {
-      return IrBuilder::newConstant(1, default_dtype);
+      return IrBuilder::newConstant(1L, default_dtype);
     }
     return maybeFlattenedOpOf(BinaryOpType::Mul, std::move(symbolic_factors));
   }

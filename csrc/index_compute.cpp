@@ -1402,8 +1402,8 @@ std::vector<Val*> Index::getGlobalProducerStridedIndices(
       }
       strides[i] = IrBuilder::getItemExpr(
           IrBuilder::getAttrExpr(
-              IrBuilder::metadataExpr(producer_tv), "stride"),
-          stride_i++);
+              IrBuilder::metadataExpr(producer_tv), "alloc_stride"),
+          (int64_t)stride_i++);
     }
   }
 
@@ -1758,8 +1758,8 @@ std::vector<Val*> Index::getStrides(TensorView* tv) {
         continue;
       }
       strides[i] = IrBuilder::getItemExpr(
-          IrBuilder::getAttrExpr(IrBuilder::metadataExpr(tv), "stride"),
-          stride_i++);
+          IrBuilder::getAttrExpr(IrBuilder::metadataExpr(tv), "alloc_stride"),
+          (int64_t)stride_i++);
     }
   }
 
@@ -2805,8 +2805,7 @@ bool canOmitStopPredicate(
   // exact. Otherwise, there would be extra threads/blocks that need
   // to be predicated out.
   if (isParallelTypeThread(contig_id->getParallelType())) {
-    if (!gpu_lower->parallelDimensionMap().isExact(
-            contig_id->getParallelType())) {
+    if (!lower_utils::isExtentEqualToMaxParallelTypeExtent(contig_id)) {
       return false;
     }
     // If the domain has halo, the loop is expanded by the halo

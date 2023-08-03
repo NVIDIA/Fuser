@@ -12,6 +12,6 @@
 #include <bits/c++config.h>
 #endif
 
-#if defined(__GLIBCXX__) && __GLIBCXX__ >= 20230000
+#if defined(__GLIBCXX__) && __GLIBCXX__ >= 20230714
 #define STD_UNORDERED_SET_SUPPORTS_INCOMPLETE_TYPE 1
 #endif

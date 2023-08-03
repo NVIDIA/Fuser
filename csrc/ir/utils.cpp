@@ -1143,11 +1143,12 @@ inline bool isTensorAttr(const Val* val, const std::string& attr_name) {
 } // namespace
 
 bool isTensorSize(const Val* val) {
-  return isTensorAttr(val, "size");
+  return isTensorAttr(val, "logical_size") || isTensorAttr(val, "alloc_size");
 }
 
 bool isTensorStride(const Val* val) {
-  return isTensorAttr(val, "stride");
+  return isTensorAttr(val, "logical_stride") ||
+      isTensorAttr(val, "alloc_stride");
 }
 
 } // namespace nvfuser::ir_utils

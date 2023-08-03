@@ -24,8 +24,9 @@ namespace nvfuser {
 
 template <typename T>
 struct Struct {
-  // In theory, we should just use std::unordered_map<std::string, T>, but this
-  // doesn't work on old gcc. See also SetTheoreticNaturalNumbers
+  // Using std::unordered_map<std::string, T> is more convenient and
+  // straightforward, but this is not guaranteed to work by C++ standard.
+  // See [Incomplete type support in STL]
 #if defined(STD_UNORDERED_SET_SUPPORTS_INCOMPLETE_TYPE)
   std::unordered_map<std::string, T> fields;
 #define MAYBE_STAR
@@ -66,10 +67,13 @@ class Pointer {
 
   inline Pointer(void* ptr, DataType dtype);
 
+  int64_t size() const {
+    return size_;
+  }
+
   template <typename T>
   explicit operator T*() const {
-    TORCH_INTERNAL_ASSERT(size_ == sizeof(T));
-    return static_cast<T*>(ptr_);
+    return reinterpret_cast<T*>(ptr_);
   }
 
   Pointer& operator+=(int64_t offset) {
@@ -167,6 +171,10 @@ class Pointer {
 
   explicit operator unsigned() const {
     return (unsigned)(int64_t)(*this);
+  }
+
+  explicit operator size_t() const {
+    return reinterpret_cast<size_t>(ptr_);
   }
 };
 
@@ -280,6 +288,9 @@ inline PolymorphicValue abs(const PolymorphicValue& a) {
   }
   if (a.is<bool>()) {
     return a;
+  }
+  if (a.is<std::complex<double>>()) {
+    return std::abs(a.as<std::complex<double>>());
   }
   TORCH_INTERNAL_ASSERT(
       false, "PolymorphicValue abs not implemented for ", a.type().name());
