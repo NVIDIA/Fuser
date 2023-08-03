@@ -213,6 +213,9 @@ class DomainMap : public pointwise_utils::DomainMap {
     return groups;
   }
 
+  // In the transpose scheculing, unlike the pointwise scheduling, the
+  // permissive map is required to find reference tensors. See also PR
+  // #661
   IterDomain* getMappedInputConcreteID(
       const std::unordered_set<IterDomain*>& in_concrete_ids,
       IterDomain* out_id) const override {

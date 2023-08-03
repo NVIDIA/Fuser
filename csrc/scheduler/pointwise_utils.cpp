@@ -146,6 +146,8 @@ bool DomainMap::areAllInputIdsMappedTo(TensorView* input_tv, TensorView* tv)
   return in_concrete_ids.empty();
 }
 
+// Reference domains must exactly match with the input domains. See
+// also PR #661
 IterDomain* DomainMap::getMappedInputConcreteID(
     const std::unordered_set<IterDomain*>& in_concrete_ids,
     IterDomain* out_id) const {
