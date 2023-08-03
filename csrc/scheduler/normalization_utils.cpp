@@ -679,7 +679,8 @@ getOptionalInnerOuterPersistentBufferBatches(
   };
   const int64_t after_vectorization = inner_dim_numel / vectorize_factor;
   const int64_t threads_per_block_min = std::min(after_vectorization, 128l);
-  const int64_t threads_per_block_max = getThreadsPerSMGivenRegPerThread(scheduler_utils::max_registers_per_thread);
+  const int64_t threads_per_block_max = getThreadsPerSMGivenRegPerThread(
+      scheduler_utils::max_registers_per_thread);
   const int64_t batch_min = getMinimumBatch();
   const int64_t batch_max = getMaximumInnerOuterPersistentBufferBatch();
   // increase batch_max by 1 to allow a small amount of register spills to keep
