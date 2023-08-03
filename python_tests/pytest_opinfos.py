@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # Owner(s): ["module: nvfuser"]
 
+import operator
 import math
 import torch
 import jax
@@ -541,6 +542,24 @@ lt_opinfo = OpInfo(
     reference=_elementwise_binary_torch(torch.lt),
 )
 binary_ops.append(lt_opinfo)
+
+mod_opinfo = OpInfo(
+    lambda fd: fd.ops.mod,
+    "mod",
+    domain=Domain(0, None),
+    dtypes=int_dtypes,
+    sample_input_generator=partial(
+        elementwise_binary_generator,
+        exclude_zero=True,
+        enable_broadcast_testing=False,
+        enable_extremal_value_testing=False,
+        enable_large_value_testing=False,
+        enable_small_value_testing=False,
+    ),
+    reference=operator.mod,
+    reference_type=ReferenceType.Python,
+)
+binary_ops.append(mod_opinfo)
 
 mul_opinfo = OpInfo(
     lambda fd: fd.ops.mul,

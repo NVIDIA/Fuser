@@ -46,6 +46,21 @@ _torch_to_jax_dtype_map = {
     torch.complex128: jnp.complex128,
 }
 
+_torch_to_python_dtype_map = {
+    torch.bool: bool,
+    torch.uint8: int,
+    torch.int8: int,
+    torch.int16: int,
+    torch.int32: int,
+    torch.int64: int,
+    torch.bfloat16: float,
+    torch.float16: float,
+    torch.float32: float,
+    torch.float64: float,
+    torch.complex64: complex,
+    torch.complex128: complex,
+}
+
 
 class SampleInput:
     """Represents sample inputs to a function."""
@@ -73,6 +88,19 @@ class SampleInput:
         # Note: We assume arguments have flat hierarchy.
         # TODO Add support for kwargs
         args = map(to_jax, self.args)
+        return SampleInput(*args, *self.kwargs.values())
+
+    def python(self):
+        def to_python(t):
+            if isinstance(t, torch.Tensor):
+                return list(t.flatten().cpu().numpy())
+            if isinstance(t, torch.dtype):
+                return _torch_to_python_dtype_map[t]
+            return t
+
+        # Note: We assume arguments have flat hierarchy.
+        # TODO Add support for kwargs
+        args = map(to_python, self.args)
         return SampleInput(*args, *self.kwargs.values())
 
 
