@@ -165,12 +165,13 @@ void PrecomputedValues::bindInputs(const KernelArgumentHolder& args) {
   for (const auto i : c10::irange((int64_t)inputs.size())) {
     const auto input = inputs[i];
     TORCH_INTERNAL_ASSERT(input != nullptr);
-    bindValue(input->evaluatorIndex(), *args[i]);
     if (auto tensor_input = dynamic_cast<TensorView*>(input)) {
       const auto& tensor = args[i]->as<at::Tensor>();
       if (!tensor.is_cpu()) {
         bindTensorMetaData(tensor_input, tensor);
       }
+    } else {
+      bindValue(input->evaluatorIndex(), *args[i]);
     }
   }
 }
@@ -350,11 +351,9 @@ NaiveValueMachine::NaiveValueMachine(PrecomputedValues& precomputed_values)
         makeUnaryOp(uop);
       } else if (auto bop = dynamic_cast<BinaryOp*>(def)) {
         makeBinaryOp(bop);
-      } else if (def->isA<GetMetaData>()) {
-        // GetMetaData's output will be bound in bindTensorMetaData, so just
-        // ignoring it here.
       } else {
-        TORCH_INTERNAL_ASSERT(false, "Unsupported expr");
+        // There could be some ops not supported yet. For these ops, we will
+        // bind their outputs. So ignoring them here.
       }
     }
   }

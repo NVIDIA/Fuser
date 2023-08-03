@@ -2308,6 +2308,12 @@ IterDomain::IterDomain(
       " .");
 
   TORCH_INTERNAL_ASSERT(
+      expanded_extent == nullptr || expanded_extent->dtype() == DataType::Index,
+      "Cannot create an iter domain over an expanded_extent that is not an nvfuser_index_t but received ",
+      expanded_extent->dtype(),
+      " .");
+
+  TORCH_INTERNAL_ASSERT(
       start->dtype() == DataType::Index,
       "Cannot create an iter domain with a start that is not an nvfuser_index_t but received ",
       start->dtype(),

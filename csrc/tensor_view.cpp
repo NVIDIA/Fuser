@@ -682,7 +682,7 @@ TensorView* TensorView::split(
   // NOTE: safe cast to int64_t, factor (unsigned int) is within int64_t range
   split(
       axis,
-      IrBuilder::create<Val>((int64_t)factor),
+      IrBuilder::create<Val>((int64_t)factor, DataType::Index),
       inner_split,
       trim_out_of_bounds);
   return this;
