@@ -16,6 +16,9 @@ static_assert(FLATBUFFERS_VERSION_MAJOR == 23 &&
 namespace nvfuser {
 namespace serde {
 
+struct At;
+struct AtBuilder;
+
 struct State;
 
 struct Scalar;
@@ -24,8 +27,8 @@ struct ScalarBuilder;
 struct TensorShape;
 struct TensorShapeBuilder;
 
-struct ScalarInput;
-struct ScalarInputBuilder;
+struct Size;
+struct SizeBuilder;
 
 struct PhiloxCudaState;
 struct PhiloxCudaStateBuilder;
@@ -256,67 +259,71 @@ inline const char *EnumNameContiguity(Contiguity e) {
 
 enum RecordType : int32_t {
   RecordType_Base = 0,
-  RecordType_BatchNormOp = 1,
-  RecordType_BroadcastOp = 2,
-  RecordType_BroadcastInDim = 3,
-  RecordType_BroadcastInDimSymbolic = 4,
-  RecordType_CastTv = 5,
-  RecordType_CastVal = 6,
-  RecordType_CatOp = 7,
-  RecordType_End = 8,
-  RecordType_FullOp = 9,
-  RecordType_IotaOp = 10,
-  RecordType_IndexSelectOp = 11,
-  RecordType_TorchGatherOp = 12,
-  RecordType_TakeAlongAxisOp = 13,
-  RecordType_Unary_TV = 14,
-  RecordType_Unary_VAL = 15,
-  RecordType_Binary_TV = 16,
-  RecordType_Binary_VAL = 17,
-  RecordType_Binary_TV_VAL = 18,
-  RecordType_Binary_VAL_TV = 19,
-  RecordType_Ternary_TV = 20,
-  RecordType_Ternary_VAL = 21,
-  RecordType_Ternary_TV_TV_VAL = 22,
-  RecordType_Ternary_TV_VAL_TV = 23,
-  RecordType_Ternary_VAL_TV_TV = 24,
-  RecordType_Ternary_VAL_VAL_TV = 25,
-  RecordType_Ternary_TV_VAL_VAL = 26,
-  RecordType_Ternary_VAL_TV_VAL = 27,
-  RecordType_Ternary_Alpha_TV = 28,
-  RecordType_Ternary_Alpha_VAL = 29,
-  RecordType_Ternary_Alpha_TV_TV_VAL = 30,
-  RecordType_Ternary_Alpha_TV_VAL_TV = 31,
-  RecordType_Ternary_Alpha_VAL_TV_TV = 32,
-  RecordType_Ternary_Alpha_VAL_VAL_TV = 33,
-  RecordType_Ternary_Alpha_TV_VAL_VAL = 34,
-  RecordType_Ternary_Alpha_VAL_TV_VAL = 35,
-  RecordType_OutputTv = 36,
-  RecordType_OutputVal = 37,
-  RecordType_PadOp = 38,
-  RecordType_PermuteOp = 39,
-  RecordType_RandomOp = 40,
-  RecordType_ReductionMax = 41,
-  RecordType_ReductionMin = 42,
-  RecordType_ReductionProd = 43,
-  RecordType_ReductionSum = 44,
-  RecordType_ReshapeOp = 45,
-  RecordType_Scalar = 46,
-  RecordType_SliceOp = 47,
-  RecordType_SqueezeOp = 48,
-  RecordType_Start = 49,
-  RecordType_Tensor = 50,
-  RecordType_TensorSizes = 51,
-  RecordType_VarianceOp = 52,
-  RecordType_VarianceMeanOp = 53,
-  RecordType_Vector = 54,
+  RecordType_AtOp = 1,
+  RecordType_BatchNormOp = 2,
+  RecordType_BroadcastOp = 3,
+  RecordType_BroadcastInDim = 4,
+  RecordType_BroadcastInDimSymbolic = 5,
+  RecordType_CastTv = 6,
+  RecordType_CastVal = 7,
+  RecordType_CatOp = 8,
+  RecordType_End = 9,
+  RecordType_FullOp = 10,
+  RecordType_IotaOp = 11,
+  RecordType_IndexSelectOp = 12,
+  RecordType_TorchGatherOp = 13,
+  RecordType_TakeAlongAxisOp = 14,
+  RecordType_Unary_TV = 15,
+  RecordType_Unary_VAL = 16,
+  RecordType_Binary_TV = 17,
+  RecordType_Binary_VAL = 18,
+  RecordType_Binary_TV_VAL = 19,
+  RecordType_Binary_VAL_TV = 20,
+  RecordType_Ternary_TV = 21,
+  RecordType_Ternary_VAL = 22,
+  RecordType_Ternary_TV_TV_VAL = 23,
+  RecordType_Ternary_TV_VAL_TV = 24,
+  RecordType_Ternary_VAL_TV_TV = 25,
+  RecordType_Ternary_VAL_VAL_TV = 26,
+  RecordType_Ternary_TV_VAL_VAL = 27,
+  RecordType_Ternary_VAL_TV_VAL = 28,
+  RecordType_Ternary_Alpha_TV = 29,
+  RecordType_Ternary_Alpha_VAL = 30,
+  RecordType_Ternary_Alpha_TV_TV_VAL = 31,
+  RecordType_Ternary_Alpha_TV_VAL_TV = 32,
+  RecordType_Ternary_Alpha_VAL_TV_TV = 33,
+  RecordType_Ternary_Alpha_VAL_VAL_TV = 34,
+  RecordType_Ternary_Alpha_TV_VAL_VAL = 35,
+  RecordType_Ternary_Alpha_VAL_TV_VAL = 36,
+  RecordType_OutputTv = 37,
+  RecordType_OutputVal = 38,
+  RecordType_PadOp = 39,
+  RecordType_PermuteOp = 40,
+  RecordType_RandomOp = 41,
+  RecordType_ReductionMax = 42,
+  RecordType_ReductionMin = 43,
+  RecordType_ReductionProd = 44,
+  RecordType_ReductionSum = 45,
+  RecordType_ReshapeOp = 46,
+  RecordType_Scalar = 47,
+  RecordType_ShapeOp = 48,
+  RecordType_SizeOp = 49,
+  RecordType_SliceOp = 50,
+  RecordType_SqueezeOp = 51,
+  RecordType_Start = 52,
+  RecordType_Tensor = 53,
+  RecordType_TensorSizes = 54,
+  RecordType_VarianceOp = 55,
+  RecordType_VarianceMeanOp = 56,
+  RecordType_Vector = 57,
   RecordType_MIN = RecordType_Base,
   RecordType_MAX = RecordType_Vector
 };
 
-inline const RecordType (&EnumValuesRecordType())[55] {
+inline const RecordType (&EnumValuesRecordType())[58] {
   static const RecordType values[] = {
     RecordType_Base,
+    RecordType_AtOp,
     RecordType_BatchNormOp,
     RecordType_BroadcastOp,
     RecordType_BroadcastInDim,
@@ -363,6 +370,8 @@ inline const RecordType (&EnumValuesRecordType())[55] {
     RecordType_ReductionSum,
     RecordType_ReshapeOp,
     RecordType_Scalar,
+    RecordType_ShapeOp,
+    RecordType_SizeOp,
     RecordType_SliceOp,
     RecordType_SqueezeOp,
     RecordType_Start,
@@ -376,8 +385,9 @@ inline const RecordType (&EnumValuesRecordType())[55] {
 }
 
 inline const char * const *EnumNamesRecordType() {
-  static const char * const names[56] = {
+  static const char * const names[59] = {
     "Base",
+    "AtOp",
     "BatchNormOp",
     "BroadcastOp",
     "BroadcastInDim",
@@ -424,6 +434,8 @@ inline const char * const *EnumNamesRecordType() {
     "ReductionSum",
     "ReshapeOp",
     "Scalar",
+    "ShapeOp",
+    "SizeOp",
     "SliceOp",
     "SqueezeOp",
     "Start",
@@ -445,32 +457,35 @@ inline const char *EnumNameRecordType(RecordType e) {
 
 enum RecordData : uint8_t {
   RecordData_NONE = 0,
-  RecordData_BatchNorm = 1,
-  RecordData_Broadcast = 2,
-  RecordData_BroadcastInDim = 3,
-  RecordData_BroadcastInDimSymbolic = 4,
-  RecordData_Dimension = 5,
-  RecordData_Dtype = 6,
-  RecordData_Norm = 7,
-  RecordData_Output = 8,
-  RecordData_Pad = 9,
-  RecordData_Permute = 10,
-  RecordData_Slice = 11,
-  RecordData_Squeeze = 12,
-  RecordData_Reduction = 13,
-  RecordData_Reshape = 14,
-  RecordData_Scalar = 15,
-  RecordData_Tensor = 16,
-  RecordData_TensorCreation = 17,
-  RecordData_TensorCreationSymbolic = 18,
-  RecordData_Vector = 19,
+  RecordData_At = 1,
+  RecordData_BatchNorm = 2,
+  RecordData_Broadcast = 3,
+  RecordData_BroadcastInDim = 4,
+  RecordData_BroadcastInDimSymbolic = 5,
+  RecordData_Dimension = 6,
+  RecordData_Dtype = 7,
+  RecordData_Norm = 8,
+  RecordData_Output = 9,
+  RecordData_Pad = 10,
+  RecordData_Permute = 11,
+  RecordData_Slice = 12,
+  RecordData_Squeeze = 13,
+  RecordData_Reduction = 14,
+  RecordData_Reshape = 15,
+  RecordData_Scalar = 16,
+  RecordData_Size = 17,
+  RecordData_Tensor = 18,
+  RecordData_TensorCreation = 19,
+  RecordData_TensorCreationSymbolic = 20,
+  RecordData_Vector = 21,
   RecordData_MIN = RecordData_NONE,
   RecordData_MAX = RecordData_Vector
 };
 
-inline const RecordData (&EnumValuesRecordData())[20] {
+inline const RecordData (&EnumValuesRecordData())[22] {
   static const RecordData values[] = {
     RecordData_NONE,
+    RecordData_At,
     RecordData_BatchNorm,
     RecordData_Broadcast,
     RecordData_BroadcastInDim,
@@ -486,6 +501,7 @@ inline const RecordData (&EnumValuesRecordData())[20] {
     RecordData_Reduction,
     RecordData_Reshape,
     RecordData_Scalar,
+    RecordData_Size,
     RecordData_Tensor,
     RecordData_TensorCreation,
     RecordData_TensorCreationSymbolic,
@@ -495,8 +511,9 @@ inline const RecordData (&EnumValuesRecordData())[20] {
 }
 
 inline const char * const *EnumNamesRecordData() {
-  static const char * const names[21] = {
+  static const char * const names[23] = {
     "NONE",
+    "At",
     "BatchNorm",
     "Broadcast",
     "BroadcastInDim",
@@ -512,6 +529,7 @@ inline const char * const *EnumNamesRecordData() {
     "Reduction",
     "Reshape",
     "Scalar",
+    "Size",
     "Tensor",
     "TensorCreation",
     "TensorCreationSymbolic",
@@ -529,6 +547,10 @@ inline const char *EnumNameRecordData(RecordData e) {
 
 template<typename T> struct RecordDataTraits {
   static const RecordData enum_value = RecordData_NONE;
+};
+
+template<> struct RecordDataTraits<nvfuser::serde::At> {
+  static const RecordData enum_value = RecordData_At;
 };
 
 template<> struct RecordDataTraits<nvfuser::serde::BatchNorm> {
@@ -589,6 +611,10 @@ template<> struct RecordDataTraits<nvfuser::serde::Reshape> {
 
 template<> struct RecordDataTraits<nvfuser::serde::Scalar> {
   static const RecordData enum_value = RecordData_Scalar;
+};
+
+template<> struct RecordDataTraits<nvfuser::serde::Size> {
+  static const RecordData enum_value = RecordData_Size;
 };
 
 template<> struct RecordDataTraits<nvfuser::serde::Tensor> {
@@ -717,6 +743,47 @@ FLATBUFFERS_MANUALLY_ALIGNED_STRUCT(8) EncodingEntry FLATBUFFERS_FINAL_CLASS {
   }
 };
 FLATBUFFERS_STRUCT_END(EncodingEntry, 16);
+
+struct At FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
+  typedef AtBuilder Builder;
+  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
+    VT_INDEX = 4
+  };
+  int64_t index() const {
+    return GetField<int64_t>(VT_INDEX, 0);
+  }
+  bool Verify(::flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyField<int64_t>(verifier, VT_INDEX, 8) &&
+           verifier.EndTable();
+  }
+};
+
+struct AtBuilder {
+  typedef At Table;
+  ::flatbuffers::FlatBufferBuilder &fbb_;
+  ::flatbuffers::uoffset_t start_;
+  void add_index(int64_t index) {
+    fbb_.AddElement<int64_t>(At::VT_INDEX, index, 0);
+  }
+  explicit AtBuilder(::flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  ::flatbuffers::Offset<At> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = ::flatbuffers::Offset<At>(end);
+    return o;
+  }
+};
+
+inline ::flatbuffers::Offset<At> CreateAt(
+    ::flatbuffers::FlatBufferBuilder &_fbb,
+    int64_t index = 0) {
+  AtBuilder builder_(_fbb);
+  builder_.add_index(index);
+  return builder_.Finish();
+}
 
 struct Scalar FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
   typedef ScalarBuilder Builder;
@@ -880,44 +947,44 @@ inline ::flatbuffers::Offset<TensorShape> CreateTensorShapeDirect(
       shape__);
 }
 
-struct ScalarInput FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
-  typedef ScalarInputBuilder Builder;
+struct Size FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
+  typedef SizeBuilder Builder;
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_DTYPE = 4
+    VT_DIM = 4
   };
-  nvfuser::serde::DataType dtype() const {
-    return static_cast<nvfuser::serde::DataType>(GetField<int32_t>(VT_DTYPE, 0));
+  int64_t dim() const {
+    return GetField<int64_t>(VT_DIM, 0);
   }
   bool Verify(::flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
-           VerifyField<int32_t>(verifier, VT_DTYPE, 4) &&
+           VerifyField<int64_t>(verifier, VT_DIM, 8) &&
            verifier.EndTable();
   }
 };
 
-struct ScalarInputBuilder {
-  typedef ScalarInput Table;
+struct SizeBuilder {
+  typedef Size Table;
   ::flatbuffers::FlatBufferBuilder &fbb_;
   ::flatbuffers::uoffset_t start_;
-  void add_dtype(nvfuser::serde::DataType dtype) {
-    fbb_.AddElement<int32_t>(ScalarInput::VT_DTYPE, static_cast<int32_t>(dtype), 0);
+  void add_dim(int64_t dim) {
+    fbb_.AddElement<int64_t>(Size::VT_DIM, dim, 0);
   }
-  explicit ScalarInputBuilder(::flatbuffers::FlatBufferBuilder &_fbb)
+  explicit SizeBuilder(::flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
     start_ = fbb_.StartTable();
   }
-  ::flatbuffers::Offset<ScalarInput> Finish() {
+  ::flatbuffers::Offset<Size> Finish() {
     const auto end = fbb_.EndTable(start_);
-    auto o = ::flatbuffers::Offset<ScalarInput>(end);
+    auto o = ::flatbuffers::Offset<Size>(end);
     return o;
   }
 };
 
-inline ::flatbuffers::Offset<ScalarInput> CreateScalarInput(
+inline ::flatbuffers::Offset<Size> CreateSize(
     ::flatbuffers::FlatBufferBuilder &_fbb,
-    nvfuser::serde::DataType dtype = nvfuser::serde::DataType_Double) {
-  ScalarInputBuilder builder_(_fbb);
-  builder_.add_dtype(dtype);
+    int64_t dim = 0) {
+  SizeBuilder builder_(_fbb);
+  builder_.add_dim(dim);
   return builder_.Finish();
 }
 
@@ -3312,6 +3379,9 @@ struct RecordFunctor FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
     return GetPointer<const void *>(VT_DATA);
   }
   template<typename T> const T *data_as() const;
+  const nvfuser::serde::At *data_as_At() const {
+    return data_type() == nvfuser::serde::RecordData_At ? static_cast<const nvfuser::serde::At *>(data()) : nullptr;
+  }
   const nvfuser::serde::BatchNorm *data_as_BatchNorm() const {
     return data_type() == nvfuser::serde::RecordData_BatchNorm ? static_cast<const nvfuser::serde::BatchNorm *>(data()) : nullptr;
   }
@@ -3357,6 +3427,9 @@ struct RecordFunctor FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
   const nvfuser::serde::Scalar *data_as_Scalar() const {
     return data_type() == nvfuser::serde::RecordData_Scalar ? static_cast<const nvfuser::serde::Scalar *>(data()) : nullptr;
   }
+  const nvfuser::serde::Size *data_as_Size() const {
+    return data_type() == nvfuser::serde::RecordData_Size ? static_cast<const nvfuser::serde::Size *>(data()) : nullptr;
+  }
   const nvfuser::serde::Tensor *data_as_Tensor() const {
     return data_type() == nvfuser::serde::RecordData_Tensor ? static_cast<const nvfuser::serde::Tensor *>(data()) : nullptr;
   }
@@ -3384,6 +3457,10 @@ struct RecordFunctor FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
            verifier.EndTable();
   }
 };
+
+template<> inline const nvfuser::serde::At *RecordFunctor::data_as<nvfuser::serde::At>() const {
+  return data_as_At();
+}
 
 template<> inline const nvfuser::serde::BatchNorm *RecordFunctor::data_as<nvfuser::serde::BatchNorm>() const {
   return data_as_BatchNorm();
@@ -3443,6 +3520,10 @@ template<> inline const nvfuser::serde::Reshape *RecordFunctor::data_as<nvfuser:
 
 template<> inline const nvfuser::serde::Scalar *RecordFunctor::data_as<nvfuser::serde::Scalar>() const {
   return data_as_Scalar();
+}
+
+template<> inline const nvfuser::serde::Size *RecordFunctor::data_as<nvfuser::serde::Size>() const {
+  return data_as_Size();
 }
 
 template<> inline const nvfuser::serde::Tensor *RecordFunctor::data_as<nvfuser::serde::Tensor>() const {
@@ -3731,6 +3812,10 @@ inline bool VerifyRecordData(::flatbuffers::Verifier &verifier, const void *obj,
     case RecordData_NONE: {
       return true;
     }
+    case RecordData_At: {
+      auto ptr = reinterpret_cast<const nvfuser::serde::At *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
     case RecordData_BatchNorm: {
       auto ptr = reinterpret_cast<const nvfuser::serde::BatchNorm *>(obj);
       return verifier.VerifyTable(ptr);
@@ -3789,6 +3874,10 @@ inline bool VerifyRecordData(::flatbuffers::Verifier &verifier, const void *obj,
     }
     case RecordData_Scalar: {
       auto ptr = reinterpret_cast<const nvfuser::serde::Scalar *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
+    case RecordData_Size: {
+      auto ptr = reinterpret_cast<const nvfuser::serde::Size *>(obj);
       return verifier.VerifyTable(ptr);
     }
     case RecordData_Tensor: {

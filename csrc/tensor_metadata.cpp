@@ -327,13 +327,12 @@ std::vector<PolymorphicValue> GetMetaData::evaluate(
       in()->isA<TensorView>(),
       "Currently, GetMetaData only supports TensorView");
   TensorView* tv = in()->as<TensorView>();
-  if (tv->getMemoryType() == MemoryType::Shared) {
-    // Smem tensor is defined locally as a pointer. It is impossible to know the
-    // actual address, but using nullptr is a good approximation.
-    return {PolymorphicValue(Pointer(nullptr, tv->dtype()))};
-  }
 
   at::Tensor input = inputs.at(0).as<at::Tensor>();
+
+  TORCH_INTERNAL_ASSERT(
+      input.is_cuda(),
+      "GetMetaData expects a CUDA tensor as input, but got undefined tensor");
 
   Struct<PolymorphicValue> concrete_value;
   concrete_value["data"] =

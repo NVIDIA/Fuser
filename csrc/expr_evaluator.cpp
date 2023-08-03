@@ -20,32 +20,59 @@ namespace nvfuser {
 
 namespace {
 
-// TODO: remove this after we make Scalar a non-template class
-bool equals(const Val* value, const PolymorphicValue& concrete_value) {
-  switch (std::get<PrimDataType>(value->getDataType()->type)) {
-    case DataType::Int: {
-      if (!concrete_value.is<int64_t>()) {
-        return false;
-      }
-      auto val = value->getInt();
-      return val.has_value() && val.value() == concrete_value.as<int64_t>();
+void validateValWithConcreteValue(
+    const Val* value,
+    const PolymorphicValue& concrete_value) {
+  if (auto tv = dynamic_cast<const TensorView*>(value)) {
+    TORCH_CHECK(
+        concrete_value.is<at::Tensor>(),
+        "Expected ",
+        tv->toString(),
+        " to be bound to an at::Tensor, but got ",
+        concrete_value.type().name());
+    const auto& t = concrete_value.as<at::Tensor>();
+    auto expect_dim =
+        (int64_t)TensorDomain::noReductions(tv->getMaybeRFactorDomain()).size();
+    TORCH_CHECK(
+        t.dim() == expect_dim,
+        "Expected ",
+        tv->toString(),
+        " to be bound to a tensor of rank ",
+        expect_dim,
+        ", but got a tensor of rank ",
+        t.dim());
+    auto actual_dtype = aten_to_data_type(t.scalar_type());
+    TORCH_CHECK(
+        value->dtype() == actual_dtype,
+        "Expected ",
+        tv->toString(),
+        " to be bound to a tensor of dtype ",
+        value->dtype(),
+        ", but got a tensor of dtype ",
+        actual_dtype);
+    if (tv->isCpuScalar()) {
+      TORCH_CHECK(
+          is_cpu_scalar(t),
+          "Expected ",
+          tv->toString(),
+          " to be bound to a CPU scalar tensor "
+          ", but got a tensor on device ",
+          t.device(),
+          " with ",
+          t.numel(),
+          " elements");
+    } else {
+      TORCH_CHECK(
+          t.is_cuda() || t.is_meta(),
+          "Expected ",
+          tv->toString(),
+          " to be bound to a CUDA or meta tensor, but got a tensor on device ",
+          t.device());
     }
-    case DataType::Double: {
-      if (!concrete_value.is<double>()) {
-        return false;
-      }
-      auto val = value->getDouble();
-      return val.has_value() && val.value() == concrete_value.as<double>();
-    }
-    case DataType::Bool: {
-      if (!concrete_value.is<bool>()) {
-        return false;
-      }
-      auto val = value->getBool();
-      return val.has_value() && val.value() == concrete_value.as<bool>();
-    }
-    default:
-      return false;
+  } else {
+    TORCH_CHECK(
+        hasCompatibleDataType(concrete_value, value->dtype()),
+        "Scalar value is not compatible with the given data type.");
   }
 }
 
@@ -53,34 +80,38 @@ bool equals(const Val* value, const PolymorphicValue& concrete_value) {
 
 void ExpressionEvaluator::bind_(
     const Val* value,
-    const PolymorphicValue& concrete_value) {
-  if (equals(value, concrete_value)) {
+    PolymorphicValue concrete_value) {
+  TORCH_CHECK(concrete_value.hasValue(), "Cannot bind to undefined value");
+  if (value->value().hasValue() && value->value() == concrete_value) {
     return;
   }
   TORCH_CHECK(!value->isConstScalar(), "Tried to bind to a constant value");
+  validateValWithConcreteValue(value, concrete_value);
   if (value->isA<NamedScalar>()) {
-    known_named_scalars_[value->as<NamedScalar>()->name()] = concrete_value;
+    known_named_scalars_[value->as<NamedScalar>()->name()] =
+        std::move(concrete_value);
   } else {
-    known_values_[value] = concrete_value;
+    known_values_[value] = std::move(concrete_value);
   }
 }
 
 void ExpressionEvaluator::bind_(
     const std::string& name,
-    const PolymorphicValue& concrete_value) {
-  known_named_scalars_[name] = concrete_value;
+    PolymorphicValue concrete_value) {
+  known_named_scalars_[name] = std::move(concrete_value);
 }
 
 void ExpressionEvaluator::bind(
     ParallelType pt,
-    const PolymorphicValue& concrete_value) {
+    PolymorphicValue concrete_value) {
   TORCH_INTERNAL_ASSERT(isParallelTypeThread(pt));
   if (precomputed_values_) {
     // Need to bind the thread value to integer machine
     //  in pre-computed mode.
-    precomputed_values_->bindConcreteParallelTypeValue(pt, concrete_value);
+    precomputed_values_->bindConcreteParallelTypeValue(
+        pt, std::move(concrete_value));
   } else {
-    bind(stringifyThreadSize(pt), concrete_value);
+    bind(stringifyThreadSize(pt), std::move(concrete_value));
   }
 }
 
