@@ -9647,6 +9647,107 @@ TEST_F(NVFuserTest, VectorizeBackToBackReductions) {
       executor_cache.fusion(), outputs, {at_x}, {t3}, __LINE__, __FILE__);
 }
 
+TEST_F(NVFuserTest, AllInputDtypes) {
+  for (auto index_type : {DataType::Int, DataType::Int32}) {
+    auto fusion = std::make_unique<Fusion>();
+    FusionGuard fg(fusion.get());
+
+    auto tv0 = makeContigTensor(0, DataType::Double);
+    auto tv1 = makeContigTensor(0, DataType::Double);
+    tv1->setCpuScalar(true);
+    auto d = IrBuilder::create<Val>(DataType::Double);
+    auto f = IrBuilder::create<Val>(DataType::Float);
+    auto h = IrBuilder::create<Val>(DataType::Half);
+    auto i = IrBuilder::create<Val>(DataType::Int);
+    auto idx = IrBuilder::create<Val>(DataType::Index);
+    auto i32 = IrBuilder::create<Val>(DataType::Int32);
+    auto b = IrBuilder::create<Val>(DataType::Bool);
+    auto bf16 = IrBuilder::create<Val>(DataType::BFloat16);
+    auto cf = IrBuilder::create<Val>(DataType::ComplexFloat);
+    auto cd = IrBuilder::create<Val>(DataType::ComplexDouble);
+    DataType ptr_type = PointerOf{std::make_shared<DataType>(DataType::Float)};
+    auto ptr = IrBuilder::create<Val>(ptr_type);
+    DataType array_type =
+        ArrayOf{std::make_shared<DataType>(DataType::Float), 2};
+    auto array = IrBuilder::create<Val>(array_type);
+    fusion->addInput(tv0);
+    fusion->addInput(tv1);
+    fusion->addInput(d);
+    fusion->addInput(f);
+    fusion->addInput(h);
+    fusion->addInput(i);
+    fusion->addInput(idx);
+    fusion->addInput(i32);
+    fusion->addInput(b);
+    fusion->addInput(bf16);
+    fusion->addInput(cf);
+    fusion->addInput(cd);
+    fusion->addInput(ptr);
+    fusion->addInput(array);
+
+    auto output = d;
+    output = IrBuilder::addExpr(output, f);
+    output = IrBuilder::addExpr(output, castOp(DataType::Double, h));
+    output = IrBuilder::addExpr(output, i);
+    output = IrBuilder::addExpr(output, idx);
+    output = IrBuilder::addExpr(output, i32);
+    output = IrBuilder::addExpr(output, b);
+    output = IrBuilder::addExpr(output, castOp(DataType::Double, bf16));
+    output = IrBuilder::addExpr(output, abs(cf));
+    output = IrBuilder::addExpr(output, abs(cd));
+    output = IrBuilder::addExpr(output, IrBuilder::derefExpr(ptr));
+    output = IrBuilder::addExpr(
+        output, IrBuilder::getItemExpr(array, PolymorphicValue(0L)));
+    output = IrBuilder::addExpr(
+        output, IrBuilder::getItemExpr(array, PolymorphicValue(1L)));
+    output = add(tv0, output);
+    output = add(tv1, output);
+
+    fusion->addOutput(output);
+
+    at::Tensor t0 = at::randn(
+        {}, at::TensorOptions().dtype(at::kDouble).device(at::kCUDA, 0));
+    at::Tensor t1 =
+        at::randn({}, at::TensorOptions().dtype(at::kDouble).device(at::kCPU));
+    // Use page-locked memory so the pointer can be accessed both on host and on
+    // device.
+    at::Tensor t2 = at::randn(
+        {},
+        at::TensorOptions()
+            .dtype(at::kFloat)
+            .device(at::kCPU)
+            .pinned_memory(true));
+
+    KernelArgumentHolder args;
+    args.push(t0);
+    args.push(t1);
+    args.push(2.3);
+    args.push(4.5);
+    args.push(6.7);
+    args.push(8L);
+    args.push(9L);
+    args.push(10L);
+    args.push(true);
+    args.push(12.3);
+    args.push(std::complex<double>(4.5, 6.7));
+    args.push(std::complex<double>(8.9, 10.11));
+    args.push(t2.data_ptr<float>());
+    args.push(std::vector<PolymorphicValue>{12.3, 45.0});
+
+    auto ee = executor_utils::bindInputs(args, fusion.get());
+
+    CompileParams opt{.index_type = index_type};
+
+    FusionExecutor fe;
+    fe.compileFusion(fusion.get(), args, LaunchParams{}, opt);
+    auto outputs = fe.runFusion(args, LaunchParams{}, opt);
+
+    auto kernel_result = outputs.at(0).item<double>();
+    auto expect = ee.evaluate(output).as<at::Tensor>().item<double>();
+    EXPECT_NEAR(kernel_result, expect, 0.1);
+  }
+}
+
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser

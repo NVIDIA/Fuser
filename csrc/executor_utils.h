@@ -37,7 +37,7 @@ std::string kernelPreamble();
 // TODO: rename this function
 void bindInputForExprEvaluation(
     Val* val,
-    const ArgAbstract* arg,
+    PolymorphicValue arg,
     bool check_consistency,
     ExpressionEvaluator& expr_eval,
     bool legacy = true);
