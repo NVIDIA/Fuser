@@ -370,10 +370,6 @@ IndexingParameters getPredicateInitialIndexParameters(
       continue;
     }
 
-    index_parameters.unswitched_domains.insert(
-        GpuLower::current()->caMap()->getConcreteMappedID(
-            loop_id, IdMappingMode::EXACT));
-
     // Rely on the reference to check broadcasting. The for loop could be
     // broadcasted on a constant value from an unroll split. Since reference
     // may convert this to an iter domain, that for loop could be valid to
@@ -429,6 +425,13 @@ IndexingParameters getPredicateInitialIndexParameters(
       // used here instead of loop->stop(). See the above comment.
       loop_to_ind_map[loop] = SimplifyingIrBuilder::subExpr(
           loop_id->extent(), GpuLower::current()->kernel()->oneVal());
+
+      if (!loop_id->extent()->isOne()) {
+        // TODO
+        index_parameters.unswitched_domains.insert(
+            GpuLower::current()->caMap()->getConcreteMappedID(
+                loop_id, IdMappingMode::EXACT));
+      }
     }
   }
 
