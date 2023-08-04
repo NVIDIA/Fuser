@@ -1405,14 +1405,14 @@ class NoReuseSharedMemAllocator : kir::IrVisitor {
   }
 
   void handle(kir::Allocate* alloc) {
-    if (alloc->memoryType() != MemoryType::Shared) {
+    if (alloc->memoryType() != MemoryType::Shared || alloc->alias()) {
       return;
     }
 
     const auto buffer_dtype = alloc->buffer()->dtype();
     const auto dtype_size = dataTypeSize(buffer_dtype);
 
-    auto address = current_offset ? alignExpr(current_offset, dtype_size)
+    auto address = current_offset ? alignExpr(current_offset, 16 /*dtype_size*/)
                                   : FusionGuard::getCurFusion()->zeroVal();
 
     alloc->setAddress(address);
@@ -1421,8 +1421,7 @@ class NoReuseSharedMemAllocator : kir::IrVisitor {
         ? alloc->size()
         : mul(alloc->size(), IrBuilder::create<Val>(dtype_size));
 
-    current_offset =
-        current_offset ? add(current_offset, size_bytes) : alloc->size();
+    current_offset = add(address, size_bytes);
   }
 
  private:
