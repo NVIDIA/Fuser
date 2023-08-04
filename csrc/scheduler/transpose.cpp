@@ -769,9 +769,9 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
       if (std::find(
               reference1->getMaybeRFactorDomain().begin(),
               reference1->getMaybeRFactorDomain().end(),
-              reference1->axis(dim)) !=
+              reference1->axis(static_cast<int>(dim))) !=
           reference1->getMaybeRFactorDomain().end()) {
-        virtual_innermost1.push_back(reference1->axis(dim));
+        virtual_innermost1.push_back(reference1->axis(static_cast<int>(dim)));
       }
     }
 
@@ -813,7 +813,7 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
     }
     for (const auto& dim : params->dims_merged_with_2) {
       if (auto mapped_id = domain_map.getMappedRootDimIn(
-              reference2, reference1->axis(dim))) {
+              reference2, reference1->axis(static_cast<int>(dim)))) {
         virtual_innermost2.push_back(mapped_id);
       }
     }
