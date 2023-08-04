@@ -40,6 +40,23 @@ class TORCH_CUDA_CU_API KernelArgumentHolder {
 
   KernelArgumentHolder(const KernelArgumentHolder& self) = default;
 
+  KernelArgumentHolder(const KernelArgumentHolder& self, bool metadata_only)
+      : device_index_(self.getDeviceIndex()), cache_id_(self.getCacheId()) {
+    for (const auto& arg : self.arguments_) {
+      if (metadata_only && arg->is<at::Tensor>()) {
+        const auto& tensor = arg->as<at::Tensor>();
+        if (tensor.is_cuda()) {
+          pushTensorProxy(
+              tensor.sizes(), tensor.strides(), tensor.scalar_type());
+          continue;
+        }
+      }
+      // Push argument value to this kernel argument holder
+      // The push function moves the value to a new shared pointer.
+      push(*arg);
+    }
+  }
+
   //! Computes the smallest index type for the currently held
   //! arguments. It does not consider any other tensors used in a kernel.
   PrimDataType getSmallestIndexTypeOfArguments() const;
@@ -48,6 +65,12 @@ class TORCH_CUDA_CU_API KernelArgumentHolder {
   void pushTensorProxy(
       const std::vector<int64_t>& sizes,
       const std::vector<int64_t>& strides,
+      at::ScalarType dtype);
+
+  // Push a tensor proxy to the arguments
+  void pushTensorProxy(
+      c10::IntArrayRef sizes,
+      c10::IntArrayRef strides,
       at::ScalarType dtype);
 
   void push(const c10::ArrayRef<c10::IValue>& args);
