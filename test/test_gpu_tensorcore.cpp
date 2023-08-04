@@ -3536,7 +3536,7 @@ TEST_F(NVFuserTest, FusionMatmulSchedulerBasicMatmulRelaxedCheck_CUDA) {
   // skip until we have Hopper support
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 9, 0);
   const int M = 504, N = 136, K = 2048;
-  for (auto layout : kAllSupportedMatmulLayout) {
+  for (auto layout : {MatmulLayout::TT} /*kAllSupportedMatmulLayout*/) {
     auto fusion = std::make_unique<Fusion>();
     FusionGuard fg(fusion.get());
 

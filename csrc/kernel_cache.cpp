@@ -1057,6 +1057,10 @@ std::unordered_map<Val*, const PolymorphicValue*> FusionKernelRuntime::
     // TODO: currently we are still outputing PyTorch tensors, instead of
     // something abstract. This is quite unsatisfying.
 
+    {
+      std::cout << this->executors().front().getStructuredCode() << "\n\n";
+    }
+
     // Run graph segment
     std::vector<at::Tensor> group_runtime_outputs =
         runKernelWithInput(group_runtime_inputs, group_to_run);
