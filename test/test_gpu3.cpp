@@ -9753,6 +9753,7 @@ TEST_F(NVFuserTest, ExpressionEvaluatorBitwise) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
+  // Check that using int64 inputs results in int64 outputs
   auto s0 = IrBuilder::create<Val>(17);
   auto s1 = IrBuilder::create<Val>(31);
 
@@ -9776,7 +9777,59 @@ TEST_F(NVFuserTest, ExpressionEvaluatorBitwise) {
         pv.is<int64_t>(),
         "Scalar ",
         s->toInlineString(),
-        " should be int64_t but found ",
+        " should be int but found ",
+        pv);
+  }
+
+  // Check that using bool inputs results in bool outputs
+  auto b0 = IrBuilder::create<Val>(true);
+  auto b1 = IrBuilder::create<Val>(false);
+
+  auto b2 = bitwise_and(b0, b1);
+  auto b3 = bitwise_or(b0, b1);
+  auto b4 = bitwise_xor(b0, b1);
+
+  for (auto b : {b2, b3, b4}) {
+    auto pv = ee.evaluate(b);
+    TORCH_CHECK(
+        pv.hasValue(), "Could not evaluate scalar ", b->toInlineString());
+    TORCH_CHECK(
+        !pv.is<int64_t>(),
+        "Scalar ",
+        b->toInlineString(),
+        " evaluates to int value ",
+        pv);
+    TORCH_CHECK(
+        pv.is<bool>(),
+        "Scalar ",
+        b->toInlineString(),
+        " should be bool but found ",
+        pv);
+  }
+
+  // Check that using a mix of bool and int inputs promotes to int
+  auto m0 = IrBuilder::create<Val>(true);
+  auto m1 = IrBuilder::create<Val>(31);
+
+  auto m2 = bitwise_and(m0, m1);
+  auto m3 = bitwise_or(m0, m1);
+  auto m4 = bitwise_xor(m0, m1);
+
+  for (auto m : {m2, m3, m4}) {
+    auto pv = ee.evaluate(m);
+    TORCH_CHECK(
+        pv.hasValue(), "Could not evaluate scalar ", m->toInlineString());
+    TORCH_CHECK(
+        !pv.is<bool>(),
+        "Scalar ",
+        m->toInlineString(),
+        " evaluates to bool value ",
+        pv);
+    TORCH_CHECK(
+        pv.is<int64_t>(),
+        "Scalar ",
+        m->toInlineString(),
+        " should be int but found ",
         pv);
   }
 }
