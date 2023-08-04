@@ -121,13 +121,13 @@ bool KernelDb::open(
         // kernel_signature
         //  --- Group 1: any word character and dash
         // compile_args
-        //  --- Group 2: any word character and [space to equals]
+        //  --- Group 2: any word character, space, plus, dash and equals
         // kernel_code_file
-        //  --- Group 3: [any word character and [space to slash]].cu
+        //  --- Group 3: [any word character, dash and slash].cu
         // cubin_file
-        //  --- Group 4: [any word character and [space to slash]].cubin
+        //  --- Group 4: [any word character, dash and slash].cubin
         std::regex db_line_regex(
-            R"(^([\w-]+),([\w -\=]+),([\w -\/]+\.cu),([\w -\/]+\.cubin)$)");
+            R"(^([\w-]+),([\w \+\-\=]+),([\w\-\/]+\.cu),([\w\-\/]+\.cubin)$)");
         for (std::string line; std::getline(in_file, line);) {
           if (!matched_header) {
             if (line.compare(header) == 0) {
