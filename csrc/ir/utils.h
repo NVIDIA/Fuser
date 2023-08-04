@@ -182,7 +182,7 @@ TORCH_CUDA_CU_API Expr* replaceValInExpr(
 //! modified. TODO: Consider cleaning up the multiple replacement
 //! routines.
 Val* replaceValInIndexVal(
-    Val* index,
+    Val* val,
     const std::unordered_map<Val*, Val*>& replacement_map);
 
 // Makes rfactor generic with reduction ops and Welford
