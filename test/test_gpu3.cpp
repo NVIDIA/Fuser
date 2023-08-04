@@ -9748,6 +9748,39 @@ TEST_F(NVFuserTest, AllInputDtypes) {
   }
 }
 
+// Test bitwise operations on ints in ExpressionEvaluator
+TEST_F(NVFuserTest, ExpressionEvaluatorBitwise) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto s0 = IrBuilder::create<Val>(17);
+  auto s1 = IrBuilder::create<Val>(31);
+
+  auto s2 = bitwise_and(s0, s1);
+  auto s3 = bitwise_or(s0, s1);
+  auto s4 = bitwise_xor(s0, s1);
+
+  ExpressionEvaluator ee;
+
+  for (auto s : {s2, s3, s4}) {
+    auto pv = ee.evaluate(s);
+    TORCH_CHECK(
+        pv.hasValue(), "Could not evaluate scalar ", s->toInlineString());
+    TORCH_CHECK(
+        !pv.is<bool>(),
+        "Scalar ",
+        s->toInlineString(),
+        " evaluates to bool value ",
+        pv);
+    TORCH_CHECK(
+        pv.is<int64_t>(),
+        "Scalar ",
+        s->toInlineString(),
+        " should be int64_t but found ",
+        pv);
+  }
+}
+
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser
