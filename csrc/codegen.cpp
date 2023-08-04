@@ -302,10 +302,6 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
                << 16 // always align to 16B for any shared mem allocation
                << ") extern __shared__ char array[];\n";
 
-      if (has_dynamic_smem) {
-        indent() << "unsigned smem_offset = 0;\n";
-      }
-
       if (has_reductions || has_parallel_welford) {
         indent() << "void* shared_mem = array;\n";
         if (has_dynamic_smem) {
@@ -324,9 +320,9 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
                 << ")";
             smem_buf_size = smem_buf_size_with_outer_opt.str();
           }
-          indent() << "smem_offset += " << smem_buf_size << ";\n";
           // Ensure that smem_offset remains 16-byte aligned, like shared_mem
-          indent() << "smem_offset = alignBufferSize(smem_offset, 16);\n";
+          indent() << "const unsigned smem_offset = alignBufferSize("
+                   << smem_buf_size << ", 16);\n";
         }
 
         if (has_parallel_welford) {
@@ -342,6 +338,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           indent() << space_type
                    << " *shared_mem_n = shared_mem_avg + block_size;\n";
         }
+      } else if (has_dynamic_smem) {
+        indent() << "const unsigned smem_offset = 0;\n";
       }
     }
 
