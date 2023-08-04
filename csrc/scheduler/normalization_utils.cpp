@@ -688,7 +688,7 @@ getOptionalInnerOuterPersistentBufferBatches(
   // increase performance by 10% for edge cases, e.g. hidden size in the range
   // of (7K,8K]. Disable this optimization if vectorize_factor is 1 due to high
   // register usage in cases can't be vectorized.
-  const int64_t batch_max_plus_one =
+  const int64_t batch_max_spill_for_occupancy =
       vectorize_factor > 1 ? batch_max + 1 : batch_max;
   // Start from the smallest threads_per_block. If the corresponding batch size
   // is larger than batch_max, try to double threads per block. This will
@@ -698,7 +698,7 @@ getOptionalInnerOuterPersistentBufferBatches(
   // host one block if each thread uses 255 registers.
   int64_t threads_per_block = threads_per_block_min;
   int64_t inner_batch = ceilDiv(after_vectorization, threads_per_block);
-  while (inner_batch > batch_max_plus_one &&
+  while (inner_batch > batch_max_spill_for_occupancy &&
          threads_per_block * 2 <= threads_per_block_max &&
          ceilDiv(after_vectorization, threads_per_block * 2) >= batch_min) {
     threads_per_block *= 2;
@@ -719,9 +719,10 @@ getOptionalInnerOuterPersistentBufferBatches(
   // without considering the overhead of fusion segmentation.
   // (4) Disable this optimization if vectorize_factor is 1 due to high register
   // usage in cases can't be vectorized.
-  const int64_t batch_max_reg_spill =
+  const int64_t batch_max_spill_avoid_segmentation =
       vectorize_factor > 1 ? batch_max + 3 : batch_max;
-  if (ignore_register_size_limit || inner_batch <= batch_max_reg_spill) {
+  if (ignore_register_size_limit ||
+      inner_batch <= batch_max_spill_avoid_segmentation) {
     return std::make_pair(inner_batch, threads_per_block);
   } else {
     return std::make_pair(std::nullopt, -1);
