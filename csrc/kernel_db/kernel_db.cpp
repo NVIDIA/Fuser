@@ -67,7 +67,7 @@ KernelDb& KernelDb::get(
       success = singleton.open(kernel_db_dir, kernel_db_file, use_temp_dir);
     } catch (const std::exception& e) {
       TORCH_WARN(
-          "nvFuser's kernel_db had an unexpected exception while opening",
+          "nvFuser's kernel_db had an unexpected exception while opening. Exception: ",
           e.what());
     }
     if (!success) {
@@ -118,8 +118,16 @@ bool KernelDb::open(
       if (in_file) {
         bool matched_header = false;
         bool read_db_file = true;
+        // kernel_signature
+        //  --- Group 1: any word character and dash
+        // compile_args
+        //  --- Group 2: any word character, space, plus, dash and equals
+        // kernel_code_file
+        //  --- Group 3: [any word character, dash and slash].cu
+        // cubin_file
+        //  --- Group 4: [any word character, dash and slash].cubin
         std::regex db_line_regex(
-            R"(^([\w-]+),([\w -\=]+),([\w-\/]+\.cu),([\w-\/]+\.cubin)$)");
+            R"(^([\w-]+),([\w \+\-\=]+),([\w\-\/]+\.cu),([\w\-\/]+\.cubin)$)");
         for (std::string line; std::getline(in_file, line);) {
           if (!matched_header) {
             if (line.compare(header) == 0) {

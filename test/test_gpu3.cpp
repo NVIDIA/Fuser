@@ -9502,7 +9502,105 @@ TEST_F(NVFuserTest, FusionInstanceNormNHWC_CUDA) {
   testValidate(fusion, cg_outputs, inputs, outputs, __LINE__, __FILE__);
 }
 
-// Repro of issue #658. Vectorization failed with the second segment
+// Repro of issue #657
+TEST_F(NVFuserTest, VectorizeWithBroadcastAndReshape1) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  // Sizes don't matter as long as they are large enough to trigger
+  // vectorization
+  std::vector<int64_t> shape1{1024, 1024};
+  std::vector<int64_t> shape2{1024, 1024, 4};
+  std::vector<int64_t> shape3{1024 * 1024 * 4};
+
+  auto tv0 = makeContigConcreteTensor(shape1);
+  fusion->addInput(tv0);
+
+  auto tv1 = makeContigConcreteTensor(shape2);
+  fusion->addInput(tv1);
+
+  auto tv2 = broadcast(tv0, {false, false, true});
+  fusion->addOutput(tv2);
+
+  auto tv3 = add(tv1, tv2);
+  auto tv4 = reshape(tv3, shape2, shape3);
+  fusion->addOutput(tv4);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::manual_seed(0);
+  auto t0 = at::randn(shape1, options);
+  auto t1 = at::randn(shape2, options);
+  std::vector<c10::IValue> aten_inputs({t0, t1});
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+
+  TORCH_CHECK(!executor_cache.getMostRecentKernelRuntime()->isSegmented());
+  auto heuristic_params = executor_cache.getMostRecentKernelRuntime()
+                              ->schedulerHeuristics()
+                              ->heuristicsList()
+                              .at(0)
+                              ->params();
+  ASSERT_TRUE(heuristic_params->isA<PointwiseParams>());
+  auto pparams = heuristic_params->as<PointwiseParams>();
+  ASSERT_TRUE(pparams->vectorize) << "Failed to vectorize";
+  ASSERT_EQ(pparams->unroll_factor, 4) << "Unexpected vectorize factor";
+}
+
+// Repro of issue #657
+TEST_F(NVFuserTest, VectorizeWithBroadcastAndReshape2) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  // Sizes don't matter as long as they are large enough to trigger
+  // vectorization
+  std::vector<int64_t> shape1{1024, 1024};
+  std::vector<int64_t> shape2{1024, 1024, 4};
+  std::vector<int64_t> shape3{1024 * 1024 * 4};
+
+  auto tv0 = makeContigConcreteTensor(shape1);
+  fusion->addInput(tv0);
+
+  auto tv1 = makeContigConcreteTensor(shape1);
+  fusion->addInput(tv1);
+
+  auto tv2 = makeContigConcreteTensor(shape2);
+  fusion->addInput(tv2);
+
+  auto tv3 = broadcast(tv0, {false, false, true});
+  fusion->addOutput(tv3);
+
+  auto tv4 = add(tv3, tv2);
+
+  auto tv5 = broadcast(tv1, {false, false, true});
+
+  auto tv6 = add(tv4, tv5);
+
+  auto tv7 = reshape(tv6, shape2, shape3);
+  fusion->addOutput(tv7);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::manual_seed(0);
+  auto t0 = at::randn(shape1, options);
+  auto t1 = at::randn(shape1, options);
+  auto t2 = at::randn(shape2, options);
+  std::vector<c10::IValue> aten_inputs({t0, t1, t2});
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+
+  TORCH_CHECK(!executor_cache.getMostRecentKernelRuntime()->isSegmented());
+  auto heuristic_params = executor_cache.getMostRecentKernelRuntime()
+                              ->schedulerHeuristics()
+                              ->heuristicsList()
+                              .at(0)
+                              ->params();
+  ASSERT_TRUE(heuristic_params->isA<PointwiseParams>());
+  auto pparams = heuristic_params->as<PointwiseParams>();
+  ASSERT_TRUE(pparams->vectorize) << "Failed to vectorize";
+  ASSERT_EQ(pparams->unroll_factor, 4) << "Unexpected vectorize factor";
+}
+
 TEST_F(NVFuserTest, VectorizeBackToBackReductions) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
