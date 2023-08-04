@@ -85,9 +85,14 @@ void UnrollPass::dispatch(Expr* expr) {
         // Local is always private, so we can always ignore thread predicates
         thread_pred = GpuLower::current()->kernel()->trueVal();
       } else if (out_tv->getMemoryType() == MemoryType::Shared) {
+        GpuLower::current()->threadPredMap().print();
         // In the case of Shared, we can only ignore BIDx predicates
-        thread_pred = GpuLower::current()->threadPredMap().getPredicate(
-            out_tv, ParallelTypeBitmap().setAllTID());
+        if (getenv("DISABLE")) {
+          thread_pred = GpuLower::current()->threadPredMap().getPredicate(
+              out_tv, ParallelTypeBitmap().setAllTID());
+        }
+        std::cerr << "thread pred for " << out_tv->toString() << ", "
+                  << thread_pred->toInlineString() << std::endl;
       } else {
         // In the case of Global, we cannot ignore any predicates at
         // all, so don't modify thread_pred. Just make sure no other

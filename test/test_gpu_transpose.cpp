@@ -1097,4 +1097,74 @@ TEST_F(NVFuserTest, FusionTransposeBankConflict9_CUDA) {
   testValidate(&fusion, outputs, {input}, {tv_ref}, __LINE__, __FILE__);
 }
 
+// small transpose dimension with merge and split
+TEST_F(NVFuserTest, TransposeIndexingIssue_CUDA) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeContigTensor(5);
+  fusion->addInput(tv0);
+
+  auto tv1 = transpose(tv0, 1, 4);
+  auto tv2 = transpose(tv1, 0, 3);
+  fusion->addOutput(tv2);
+
+  std::vector<int64_t> shape({2, 7, 102400, 4, 5});
+  // std::vector<int64_t> shape({4, 8, 102400, 4, 8});
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+
+  auto runtime = executor_cache.getMostRecentKernelRuntime();
+  TORCH_CHECK(!runtime->isSegmented(), "Segmentation not expected");
+
+  auto ref = t0.transpose(1, 4).transpose(0, 3);
+
+  TORCH_CHECK(ref.equal(cg_outputs.at(0)));
+}
+
+TEST_F(NVFuserTest, Issue667Repro_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+
+  auto tv1 = sum(tv0, {0, 1});
+  fusion.addOutput(tv1);
+
+  fusion.printMath();
+
+  // [i0, i1]
+  tv1->split(1, 4);
+  // [i0, i1/4, 4]
+  tv1->merge(0);
+  // [i0*i1/4, 4]
+  tv1->split(0, 4);
+  // [i0*i1/4/4, 4, 4]
+  tv1->split(0, 1);
+  // [i0*i1/4/4, 1, 4, 4]
+
+  tv1->axis(1)->parallelize(ParallelType::Unswitch);
+
+  fusion.printKernel();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({4, 10}, options);
+  std::vector<c10::IValue> aten_inputs = {t0};
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs);
+  auto outputs = fe.runFusion(aten_inputs);
+
+  auto ref = t0.to(at::kDouble).sum();
+
+  testValidate(&fusion, outputs, aten_inputs, {ref}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser

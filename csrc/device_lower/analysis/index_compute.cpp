@@ -101,6 +101,8 @@ struct IndexingParameters {
 
   //! The inferred halo padded extents of the concrete iterdomains.
   std::unordered_map<IterDomain*, Val*> concrete_id_to_halo_extent;
+
+  std::unordered_set<IterDomain*> unswitched_domains;
 };
 
 // Initial loop index map for global producer or consumer case.
@@ -364,63 +366,69 @@ IndexingParameters getPredicateInitialIndexParameters(
     bool predicate_at_end =
         within_unswitch || loop == unswitch_or_vec_loop || predicateAtEnd(loop);
 
-    if (predicate_at_end) {
-      // Rely on the reference to check broadcasting. The for loop could be
-      // broadcasted on a constant value from an unroll split. Since reference
-      // may convert this to an iter domain, that for loop could be valid to
-      // generate predication from.
+    if (!predicate_at_end) {
+      continue;
+    }
 
-      // Note that loop->stop() is not used below. Instead,
-      // loop->iter_domain()->extent() is used, which is uniform
-      // across the mapped domains irrespective of halo. Predicates are
-      // compared with each to pick the most restrictive ones. The
-      // comparison is done by only using the offset, which is the
-      // term added to the index. So, the index term must be the
-      // same among all predicates, otherwise the comparison would
-      // be invalid. The effect by halo is added to the offset
-      // term. See getUnswitchStopOffset.
+    index_parameters.unswitched_domains.insert(
+        GpuLower::current()->caMap()->getConcreteMappedID(
+            loop_id, IdMappingMode::EXACT));
 
-      if (ref_id->isBroadcast()) {
-        // Ignore indexing into broadcasted dimensions.
-        continue;
-      } else if (loop_id->isThread()) {
-        // When parallelized, if the loop stop is the same as the
-        // extent of the associated IterDomain, i.e., no extra
-        // iterations for halo, predicating with the threading index
-        // is sufficient for both the start and stop
-        // predicates. That isn't the case if the loop has halo, and
-        // in the case either the minimum and maximum values of the
-        // iteration domain needs to be used.
-        //
-        // Note: Better performance was obtained if using
-        // threadIdx in unswitch predicates was avoided. More
-        // specifically, in the Hdiff stencil example, instead of
-        // predicating with threadIdx.x for both the start and stop
-        // predicates, using zero and (blockDim.x - 1) for the start
-        // and stop predicates, respectively, resulted in less
-        // register pressure. The alternative codegen can be done by
-        // adding this to the first if condition:
-        // loop_id->isBlockDim(). This would not be a concern if the
-        // else part could be omitted, so canOmitElseClause should
-        // be used as well.
-        if (loop->stop() == loop_id->extent()) {
-          loop_to_ind_map[loop] = loop->start();
-        } else if (is_start_predicate) {
-          loop_to_ind_map[loop] = GpuLower::current()->kernel()->zeroVal();
-        } else {
-          // Note that the parallel dimension is used rather than
-          // loop-stop(). See the above comment.
-          loop_to_ind_map[loop] =
-              GpuLower::current()->parallelDimensionMap().get(loop_pt);
-        }
+    // Rely on the reference to check broadcasting. The for loop could be
+    // broadcasted on a constant value from an unroll split. Since reference
+    // may convert this to an iter domain, that for loop could be valid to
+    // generate predication from.
+
+    // Note that loop->stop() is not used below. Instead,
+    // loop->iter_domain()->extent() is used, which is uniform
+    // across the mapped domains irrespective of halo. Predicates are
+    // compared with each to pick the most restrictive ones. The
+    // comparison is done by only using the offset, which is the
+    // term added to the index. So, the index term must be the
+    // same among all predicates, otherwise the comparison would
+    // be invalid. The effect by halo is added to the offset
+    // term. See getUnswitchStopOffset.
+
+    if (ref_id->isBroadcast()) {
+      // Ignore indexing into broadcasted dimensions.
+      continue;
+    } else if (loop_id->isThread()) {
+      // When parallelized, if the loop stop is the same as the
+      // extent of the associated IterDomain, i.e., no extra
+      // iterations for halo, predicating with the threading index
+      // is sufficient for both the start and stop
+      // predicates. That isn't the case if the loop has halo, and
+      // in the case either the minimum and maximum values of the
+      // iteration domain needs to be used.
+      //
+      // Note: Better performance was obtained if using
+      // threadIdx in unswitch predicates was avoided. More
+      // specifically, in the Hdiff stencil example, instead of
+      // predicating with threadIdx.x for both the start and stop
+      // predicates, using zero and (blockDim.x - 1) for the start
+      // and stop predicates, respectively, resulted in less
+      // register pressure. The alternative codegen can be done by
+      // adding this to the first if condition:
+      // loop_id->isBlockDim(). This would not be a concern if the
+      // else part could be omitted, so canOmitElseClause should
+      // be used as well.
+      if (loop->stop() == loop_id->extent()) {
+        loop_to_ind_map[loop] = loop->start();
       } else if (is_start_predicate) {
         loop_to_ind_map[loop] = GpuLower::current()->kernel()->zeroVal();
       } else {
-        // Similar to the above, loop_id()->extent() is
-        // used here instead of loop->stop(). See the above comment.
-        loop_to_ind_map[loop] = SimplifyingIrBuilder::subExpr(
-            loop_id->extent(), GpuLower::current()->kernel()->oneVal());
+        // Note that the parallel dimension is used rather than
+        // loop-stop(). See the above comment.
+        loop_to_ind_map[loop] =
+            GpuLower::current()->parallelDimensionMap().get(loop_pt);
       }
+    } else if (is_start_predicate) {
+      loop_to_ind_map[loop] = GpuLower::current()->kernel()->zeroVal();
+    } else {
+      // Similar to the above, loop_id()->extent() is
+      // used here instead of loop->stop(). See the above comment.
+      loop_to_ind_map[loop] = SimplifyingIrBuilder::subExpr(
+          loop_id->extent(), GpuLower::current()->kernel()->oneVal());
     }
   }
 
@@ -962,13 +970,21 @@ IndexFromIdGraph getPredicateIndexingFromIdGraph(
       double_buffer_axis,
       is_start_predicate);
 
+  if (!index_parameters.unswitched_domains.empty()) {
+#if 0
+    std::cerr << "IndexCompute with unswitch: " << consumer_tv->toString()
+              << std::endl;
+#endif
+  }
+
   // Run first backward traversal to generate
   //  loop nest based indexing math.
   IndexCompute indexing(
       index_parameters.initial_concrete_id_index,
       index_parameters.zero_domains,
       index_parameters.preferred_concrete_ids,
-      index_parameters.concrete_id_to_halo_extent);
+      index_parameters.concrete_id_to_halo_extent,
+      index_parameters.unswitched_domains);
 
   indexing.run(loop_indexing);
 
@@ -1039,6 +1055,12 @@ IndexFromIdGraph getPredicateIndexingFromIdGraph(
   // as contiguous.
   auto contig_finder = ContigIDs::getNonContigIDs();
 
+  if (!index_parameters.unswitched_domains.empty()) {
+#if 0
+    std::cerr << "Updating for consumer : " << consumer_tv->toString()
+              << std::endl;
+#endif
+  }
   // Run second backward traversal to map back to the consumer_tv
   auto target_indexing = indexing.updateIndexCompute(
       consumer_tv->domain(), index_update_map, contig_finder);

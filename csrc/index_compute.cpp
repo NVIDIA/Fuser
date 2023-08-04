@@ -342,6 +342,8 @@ Val* getTensorBaseAddress(TensorView* tv) {
 } // namespace
 
 void IndexCompute::handle(Split* split) {
+  updateUnswitchedDomains(split);
+
   auto in_id = maybeGetExactMapConcreteID(split->in()->as<IterDomain>());
   auto outer_id = maybeGetExactMapConcreteID(split->outer()->as<IterDomain>());
   auto inner_id = maybeGetExactMapConcreteID(split->inner()->as<IterDomain>());
@@ -398,7 +400,31 @@ void IndexCompute::handle(Split* split) {
   }
 }
 
+void IndexCompute::updateUnswitchedDomains(Expr* expr) {
+  if (std::any_of(
+          expr->outputs().begin(),
+          expr->outputs().end(),
+          [&](Val* out) -> bool {
+            if (!out->isA<IterDomain>()) {
+              return false;
+            }
+            auto out_id = maybeGetExactMapConcreteID(out->as<IterDomain>());
+            auto out_it = index_map_.find(out_id);
+            if (out_it == index_map_.end()) {
+              return false;
+            }
+            return unswitched_domains_.count(out_id);
+          })) {
+    for (auto inp : ir_utils::filterByType<IterDomain>(expr->inputs())) {
+      auto inp_concrete = maybeGetExactMapConcreteID(inp);
+      unswitched_domains_.insert(inp_concrete);
+    }
+  }
+}
+
 void IndexCompute::handle(Merge* merge) {
+  updateUnswitchedDomains(merge);
+
   auto out_id = maybeGetExactMapConcreteID(merge->out());
   auto outer_id = maybeGetExactMapConcreteID(merge->outer());
   auto inner_id = maybeGetExactMapConcreteID(merge->inner());
@@ -535,7 +561,22 @@ void IndexCompute::handle(Merge* merge) {
     zero_merged_in_.emplace(outer_id);
   } else {
     index_map_[outer_id] = SimplifyingIrBuilder::divExpr(out_ind, inner_extent);
-    index_map_[inner_id] = SimplifyingIrBuilder::modExpr(out_ind, inner_extent);
+    Val* inner_ind = nullptr;
+    bool enable_war = getenv("WAR");
+    if (unswitched_domains_.count(out_id) && enable_war) {
+      inner_ind = SimplifyingIrBuilder::subExpr(
+          inner_extent, inner_extent->fusion()->oneVal());
+      std::cerr << "Propagating maximum for merge: "
+                << inner_ind->toInlineString() << ", " << inner_id->toString()
+                << std::endl;
+      std::cerr << "Prev: "
+                << SimplifyingIrBuilder::modExpr(out_ind, inner_extent)
+                       ->toInlineString()
+                << std::endl;
+    } else {
+      inner_ind = SimplifyingIrBuilder::modExpr(out_ind, inner_extent);
+    }
+    index_map_[inner_id] = inner_ind;
   }
 }
 
@@ -646,7 +687,8 @@ IndexCompute::IndexCompute(
     std::unordered_set<IterDomain*> zero_merged_in,
     const ContigIDs& contig_finder,
     std::unordered_set<IterDomain*> preferred_paths,
-    std::unordered_map<IterDomain*, Val*> halo_extent_map)
+    std::unordered_map<IterDomain*, Val*> halo_extent_map,
+    std::unordered_set<IterDomain*> unswitched_domains)
     : td_(_td),
       index_map_(std::move(initial_index_map)),
       extent_map_(std::move(extent_map)),
@@ -654,7 +696,8 @@ IndexCompute::IndexCompute(
       zero_merged_in_(std::move(zero_merged_in)),
       contig_ids_{contig_finder.contigIDs()},
       preferred_paths_(std::move(preferred_paths)),
-      halo_extent_map_(std::move(halo_extent_map)) {
+      halo_extent_map_(std::move(halo_extent_map)),
+      unswitched_domains_(std::move(unswitched_domains)) {
   FUSER_PERF_SCOPE("GpuLower::Lower::IndexCompute::IndexCompute");
 
   // Make sure we recompute any indices we can that map to a contiguous access
@@ -675,14 +718,16 @@ IndexCompute::IndexCompute(
     std::unordered_map<IterDomain*, Val*> initial_index_map,
     std::unordered_set<IterDomain*> zero_domains,
     std::unordered_set<IterDomain*> preferred_paths,
-    std::unordered_map<IterDomain*, Val*> halo_extent_map)
+    std::unordered_map<IterDomain*, Val*> halo_extent_map,
+    std::unordered_set<IterDomain*> unswitched_domains)
     : td_{nullptr},
       index_map_(std::move(initial_index_map)),
       zero_domains_(std::move(zero_domains)),
       preferred_paths_(std::move(preferred_paths)),
       halo_extent_map_(std::move(halo_extent_map)),
       concrete_id_pass_{true},
-      swizzle_mode_{SwizzleMode::Loop} {
+      swizzle_mode_{SwizzleMode::Loop},
+      unswitched_domains_(std::move(unswitched_domains)) {
   FUSER_PERF_SCOPE("GpuLower::Lower::IndexCompute::IndexCompute");
 }
 
@@ -833,6 +878,7 @@ IndexCompute IndexCompute::updateIndexCompute(
   std::unordered_set<IterDomain*> updated_zero_domains;
   std::unordered_set<IterDomain*> updated_zero_merged_in;
   std::unordered_map<IterDomain*, Val*> updated_halo_extent_map;
+  std::unordered_set<IterDomain*> updated_unswitched_domains;
 
   // Multile IDs can map to the same ID, so loop over the mappings in
   // a deterministic order to have deterministic indexing results
@@ -859,6 +905,10 @@ IndexCompute IndexCompute::updateIndexCompute(
       if (halo_extent_it != halo_extent_map_.end()) {
         updated_halo_extent_map[new_id] = halo_extent_it->second;
       }
+
+      if (unswitched_domains_.find(prev_id) != unswitched_domains_.end()) {
+        updated_unswitched_domains.emplace(new_id);
+      }
     }
   }
 
@@ -870,7 +920,8 @@ IndexCompute IndexCompute::updateIndexCompute(
       updated_zero_merged_in,
       contig_finder,
       {},
-      updated_halo_extent_map);
+      updated_halo_extent_map,
+      updated_unswitched_domains);
 
   updated_index_compute.run();
 

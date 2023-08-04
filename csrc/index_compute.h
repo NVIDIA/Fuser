@@ -104,6 +104,8 @@ class IndexCompute : public BackwardVisitor {
   //!    2. the output id is found in permissive map.
   void updateIndexMapFromPermissiveMap(const Expr* id_expr);
 
+  void updateUnswitchedDomains(Expr* expr);
+
   // Tensor domain we're mapping back to allocation
   const TensorDomain* td_; // NOLINT
 
@@ -161,6 +163,9 @@ class IndexCompute : public BackwardVisitor {
   //  order defined in LoopIndexingAnalysis::traverseFromDomainVals.
   std::unordered_map<IterDomain*, Val*> permissive_index_map_;
 
+  // TODO
+  std::unordered_set<IterDomain*> unswitched_domains_;
+
  public:
   const std::unordered_map<IterDomain*, Val*>& indexMap() const {
     return index_map_;
@@ -196,7 +201,8 @@ class IndexCompute : public BackwardVisitor {
       std::unordered_set<IterDomain*> _zero_merged_in,
       const ContigIDs& contig_finder,
       std::unordered_set<IterDomain*> preferred_paths = {},
-      std::unordered_map<IterDomain*, Val*> halo_extent_map = {});
+      std::unordered_map<IterDomain*, Val*> halo_extent_map = {},
+      std::unordered_set<IterDomain*> unswitched_domains = {});
 
   // Entry point used for using concrete id based traversal. This traversal is
   // assumed to start at leaf IDs provided by initial_index_map.
@@ -204,7 +210,8 @@ class IndexCompute : public BackwardVisitor {
       std::unordered_map<IterDomain*, Val*> initial_index_map,
       std::unordered_set<IterDomain*> zero_domains,
       std::unordered_set<IterDomain*> preferred_paths,
-      std::unordered_map<IterDomain*, Val*> concrete_halo_extent_map);
+      std::unordered_map<IterDomain*, Val*> concrete_halo_extent_map,
+      std::unordered_set<IterDomain*> unswitched_domains = {});
 
   // Updates index_map, extent_map, and zero_merged_in based on id_map and
   // returns a new IndexCompute ready to be used.
