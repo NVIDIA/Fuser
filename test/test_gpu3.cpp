@@ -4685,12 +4685,13 @@ TEST_F(NVFuserTest, FusionExpandRepro1860_CUDA) {
                        .iter_type(IterType::Broadcast)
                        .build();
     } else {
-      domain1[i] = IterDomainBuilder(
-                       FusionGuard::getCurFusion()->zeroVal(),
-                       IrBuilder::create<Val>(1L, DataType::Index))
-                       .expanded_extent(IrBuilder::create<Val>(1L + i, DataType::Index))
-                       .iter_type(IterType::Broadcast)
-                       .build();
+      domain1[i] =
+          IterDomainBuilder(
+              FusionGuard::getCurFusion()->zeroVal(),
+              IrBuilder::create<Val>(1L, DataType::Index))
+              .expanded_extent(IrBuilder::create<Val>(1L + i, DataType::Index))
+              .iter_type(IterType::Broadcast)
+              .build();
     }
   }
 
@@ -4833,7 +4834,8 @@ TEST_F(NVFuserTest, FusionExpandBadShapeTest_CUDA) {
           IrBuilder::create<Val>(DataType::Index))
           .build(),
       IterDomainBuilder(
-          FusionGuard::getCurFusion()->zeroVal(), FusionGuard::getCurFusion()->oneVal())
+          FusionGuard::getCurFusion()->zeroVal(),
+          FusionGuard::getCurFusion()->oneVal())
           .expanded_extent(IrBuilder::create<Val>(10L, DataType::Index))
           .iter_type(IterType::Broadcast)
           .build()};

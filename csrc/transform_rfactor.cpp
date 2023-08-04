@@ -182,8 +182,8 @@ class ReplayRFactor : public ReplayTransformations {
         id_inner_mapped,
         " however one or both are not leaf nodes.");
 
-    Val* merged_id_size =
-        IrBuilder::mulExpr(id_outer_mapped->extent(), id_inner_mapped->extent());
+    Val* merged_id_size = IrBuilder::mulExpr(
+        id_outer_mapped->extent(), id_inner_mapped->extent());
 
     IterDomain* merged_id =
         IterDomainBuilder(m->container()->zeroVal(), merged_id_size)

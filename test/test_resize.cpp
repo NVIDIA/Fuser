@@ -1077,14 +1077,16 @@ TEST_F(NVFuserTest, FusionResizeSlice5_CUDA) {
       tv0,
       {Slice(),
        {IrBuilder::create<Val>(1L),
-        sub(tv0->axis(1)->extent(), IrBuilder::create<Val>(1L))}});
+        IrBuilder::subExpr(
+            tv0->axis(1)->extent(), IrBuilder::create<Val>(1L))}});
   auto tv2 = sum(tv1, {1});
   fusion.addOutput(tv2);
   auto tv3 = slice(
       tv0,
       {Slice(),
        {IrBuilder::create<Val>(1L),
-        sub(tv0->axis(1)->extent(), IrBuilder::create<Val>(1L))}});
+        IrBuilder::subExpr(
+            tv0->axis(1)->extent(), IrBuilder::create<Val>(1L))}});
   auto tv4 = sum(tv3, {1});
   fusion.addOutput(tv4);
 
@@ -1135,7 +1137,8 @@ TEST_F(NVFuserTest, FusionResizeSliceScheduler1_CUDA) {
   auto tv1 = slice(
       tv0,
       {{IrBuilder::create<Val>(1L),
-        sub(tv0->axis(0)->extent(), IrBuilder::create<Val>(1L))}});
+        IrBuilder::subExpr(
+            tv0->axis(0)->extent(), IrBuilder::create<Val>(1L))}});
   fusion.addOutput(tv1);
 
   // Make sure all IDs of tv0 and tv1 are mapped in the

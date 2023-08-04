@@ -666,11 +666,12 @@ TensorView* cat(
             inp_root_id->toString());
         // The right pad of the last tensor is just zero
         right_pad = input_idx < inputs.size() - 1
-            ? sub(right_pad, inp_root_id->getMaybeExpandedExtent())
+            ? IrBuilder::subExpr(
+                  right_pad, inp_root_id->getMaybeExpandedExtent())
             : FusionGuard::getCurFusion()->zeroVal();
         left_pad_i = left_pad;
         right_pad_i = right_pad;
-        left_pad = add(left_pad, inp_root_id->extent());
+        left_pad = IrBuilder::addExpr(left_pad, inp_root_id->extent());
       }
       // The pad width argument to pad should be ordered such that the
       // widths of inner dimensions come first.

@@ -65,7 +65,7 @@ Val* simplifiedInt(Val* val) {
   if (val->value().hasValue()) {
     return val;
   }
-  return IrBuilder::create<Val>(val->evaluateInt());
+  return IrBuilder::create<Val>(val->evaluateInt(), val->dtype());
 }
 
 // If one size is nullptr, return the other. If both symbolic just return v1. If
