@@ -566,9 +566,10 @@ void IndexCompute::handle(Merge* merge) {
     if (unswitched_domains_.count(out_id) && enable_war) {
       inner_ind = SimplifyingIrBuilder::subExpr(
           inner_extent, inner_extent->fusion()->oneVal());
-      std::cerr << "Propagating maximum for merge: "
-                << inner_ind->toInlineString() << ", " << inner_id->toString()
-                << std::endl;
+      std::cerr << "Propagating maximum for merge: " << merge->toString()
+                << ", out: " << out_ind->toInlineString()
+                << ", updated inner idx: " << inner_ind->toInlineString()
+                << ", " << inner_id->toString() << std::endl;
       std::cerr << "Prev: "
                 << SimplifyingIrBuilder::modExpr(out_ind, inner_extent)
                        ->toInlineString()

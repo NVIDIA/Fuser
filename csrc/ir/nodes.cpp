@@ -2776,15 +2776,6 @@ void IterDomain::parallelize(ParallelType t) {
         "Parallel type other than serial, tidx, vectorize not allowed for mma swizzled ids");
   }
 
-  if (getenv("DISABLE_UNSWITCH")) {
-    if (t == ParallelType::Unroll || t == ParallelType::Unswitch) {
-      return;
-    }
-  } else {
-    if (t == ParallelType::Unroll) {
-      return;
-    }
-  }
   parallel_type_ = t;
 }
 
