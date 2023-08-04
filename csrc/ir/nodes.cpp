@@ -437,12 +437,21 @@ std::vector<PolymorphicValue> BinaryOp::evaluate(
       return {ceildiv(lhs, rhs)};
       break;
     case BinaryOpType::And:
-      return {lhs && rhs};
+      if (lhs.is<bool>() && rhs.is<bool>()) {
+        return {lhs && rhs};
+      }
+      return {lhs & rhs};
       break;
     case BinaryOpType::Or:
-      return {lhs || rhs};
+      if (lhs.is<bool>() && rhs.is<bool>()) {
+        return {lhs || rhs};
+      }
+      return {lhs | rhs};
       break;
     case BinaryOpType::Xor:
+      if (lhs.is<bool>() && rhs.is<bool>()) {
+        return {lhs != rhs};
+      }
       return {lhs ^ rhs};
       break;
     case BinaryOpType::Eq:
