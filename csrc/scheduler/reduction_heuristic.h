@@ -133,6 +133,9 @@ class ReductionParams : public HeuristicParams {
   // block_dim_inner_reduction_extra (usually TIDy)
   ParallelType block_dim_inner_reduction_extra = ParallelType::Serial;
 
+  // use shared memory for persistent buffer, if false, will use registers
+  bool shared_mem_persistent_buffer = false;
+
  public:
   using HeuristicParams::HeuristicParams;
 
@@ -177,7 +180,8 @@ class ReductionParams : public HeuristicParams {
         other.pad_outer_reduction_to_warp == pad_outer_reduction_to_warp &&
         other.vectorization_factor_outer == vectorization_factor_outer &&
         other.vectorization_factor_tmp_gmem_write ==
-            vectorization_factor_tmp_gmem_write;
+            vectorization_factor_tmp_gmem_write &&
+        other.shared_mem_persistent_buffer == shared_mem_persistent_buffer;
 
     if (other.static_bdimy || static_bdimy) {
       attr_equal = attr_equal && other.lparams.bdimy() == lparams.bdimy();
@@ -191,7 +195,7 @@ class ReductionParams : public HeuristicParams {
   std::string toString() const override {
     std::stringstream ss;
     ss << "\n===== Reduction Parameters ========\n"
-       << (tag == "" ? "" : "Tag: ") << tag << "\n"
+       << (tag.empty() ? "" : "Tag: ") << tag << "\n"
        << (fastest_dim ? "Red On Fastest Dim\n" : "Red On Slow Dim\n")
        << (persistent_kernel ? "Persistent Kernel\n" : "")
        << (project_persistent_buffers ? "Project Persistent Buffers\n" : "");

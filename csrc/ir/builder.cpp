@@ -87,6 +87,13 @@ Val* IrBuilder::notExpr(Val* val) {
   return result;
 }
 
+Val* IrBuilder::derefExpr(Val* val) {
+  TORCH_CHECK(val != nullptr, "val is a nullptr in notExpr.");
+  auto result = newScalar(*(std::get<PointerOf>(val->dtype().type).type));
+  IrBuilder::create<UnaryOp>(UnaryOpType::Dereference, result, val);
+  return result;
+}
+
 Val* IrBuilder::absExpr(Val* val) {
   TORCH_CHECK(val != nullptr, "val is a nullptr in notExpr.");
   auto result = newScalar(val->dtype());

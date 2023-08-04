@@ -15,9 +15,8 @@
 
 namespace nvfuser::serde {
 
-class ArgAbstractFactory : public Factory<
-                               serde::ArgAbstract,
-                               std::unique_ptr<nvfuser::ArgAbstract>> {
+class ArgAbstractFactory
+    : public Factory<serde::ArgAbstract, nvfuser::PolymorphicValue> {
  public:
   ArgAbstractFactory() : Factory((serde::ArgAbstractData_MAX + 1)) {
     registerAllParsers();

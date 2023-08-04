@@ -67,9 +67,13 @@ class Pointer {
 
   inline Pointer(void* ptr, DataType dtype);
 
+  int64_t size() const {
+    return size_;
+  }
+
   template <typename T>
   explicit operator T*() const {
-    return static_cast<T*>(ptr_);
+    return reinterpret_cast<T*>(ptr_);
   }
 
   Pointer& operator+=(int64_t offset) {
@@ -167,6 +171,10 @@ class Pointer {
 
   explicit operator unsigned() const {
     return (unsigned)(int64_t)(*this);
+  }
+
+  explicit operator size_t() const {
+    return reinterpret_cast<size_t>(ptr_);
   }
 };
 
@@ -281,6 +289,9 @@ inline PolymorphicValue abs(const PolymorphicValue& a) {
   if (a.is<bool>()) {
     return a;
   }
+  if (a.is<std::complex<double>>()) {
+    return std::abs(a.as<std::complex<double>>());
+  }
   TORCH_INTERNAL_ASSERT(
       false, "PolymorphicValue abs not implemented for ", a.type().name());
 }
@@ -295,12 +306,13 @@ inline PolymorphicValue erf(const PolymorphicValue& a) {
 
 // Convert scalars, vector of scalars, vector of vector of scalars, etc., into
 // an at::Tensor
-inline PolymorphicValue toTensor(const PolymorphicValue& x) {
+inline PolymorphicValue toTensor(
+    const PolymorphicValue& x,
+    c10::DeviceType device = at::kCUDA) {
   if (x.is<at::Tensor>()) {
     return x;
   }
-  // TODO: allow specifying device
-  auto options = at::TensorOptions().device(at::kCUDA, 0);
+  auto options = at::TensorOptions().device(device, 0);
   if (x.is<int64_t>()) {
     return PolymorphicValue(
         at::tensor(x.as<int64_t>(), options.dtype(at::kLong)).squeeze());

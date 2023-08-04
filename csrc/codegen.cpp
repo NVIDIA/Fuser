@@ -224,8 +224,6 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
   // Generates the kernel function declaration
   void genDeclaration(const std::string& kernel_name) {
-    const auto& kernel_summary = kernel_->summary();
-
     code_ << "__global__ void " << kernel_name << "(";
 
     std::unordered_set<Val*> unique_args;
@@ -275,11 +273,6 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       }
     }
 
-    // TODO: remove this special handling of philox state
-    if (kernel_summary.max_rng_offsets >= 0) {
-      code_ << ", at::PhiloxCudaState philox_args";
-    }
-
     code_ << ") ";
   }
 
@@ -287,13 +280,6 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   void genPrologue() {
     const auto& kernel_summary = kernel_->summary();
 
-    // Random number generator (optional)
-    if (kernel_summary.max_rng_offsets >= 0) {
-      indent() << "auto philox_offset = philox_args.captured_ ?\n";
-      indent()
-          << "  static_cast<uint64_t>(*(philox_args.offset_.ptr) + philox_args.offset_intragraph_) :\n";
-      indent() << "  philox_args.offset_.val;\n";
-    }
     if (kernel_summary.has_philox_op) {
       indent() << "uint4 rng_result;\n";
       indent() << "nvfuser_index_t rng_subseq = -1;\n";
@@ -589,7 +575,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           [&](auto&& dtype) {
             using T = std::decay_t<decltype(dtype)>;
             if constexpr (std::is_same_v<T, StructOf>) {
-              for (auto& [name, _] : dtype.types) {
+              for (auto& name : dtype.field_names) {
                 indent() << gen(gop->output(0)) << "." << name << " = "
                          << gen(gop->in()) << "." << name << ";\n";
               }
@@ -672,24 +658,12 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     indent() << "nvfuser_index_t rng_component" << rop->name()
              << " = linear_index" << rop->name() << " % " << multiple << ";\n";
     indent() << "nvfuser_index_t rng_offset" << rop->name() << " = "
-             << rop->getRNGOffset() << ";\n";
+             << genInline(rop->getRNGOffsetVal()) << ";\n";
     indent() << "if (rng_subseq != rng_subseq" << rop->name()
              << " || rng_offset != rng_offset" << rop->name() << ") {\n";
-    if (rop->getRNGSeedVal()) {
-      indent() << "  auto seed = " << genInline(rop->getRNGSeedVal()) << ";\n";
-    } else {
-      indent() << "  auto seed = philox_args.captured_ ?\n";
-      indent() << "      static_cast<uint64_t>(*(philox_args.seed_.ptr)) : \n";
-      indent() << "      philox_args.seed_.val;\n";
-    }
-    if (rop->getRNGOffsetVal()) {
-      indent() << "  rng_result = philox(seed, rng_subseq" << rop->name()
-               << ", " << genInline(rop->getRNGOffsetVal())
-               << " / 4 + rng_offset" << rop->name() << ");\n";
-    } else {
-      indent() << "  rng_result = philox(seed, rng_subseq" << rop->name()
-               << ", philox_offset / 4 + rng_offset" << rop->name() << ");\n";
-    }
+    indent() << "  rng_result = philox(" << genInline(rop->getRNGSeedVal())
+             << ", rng_subseq" << rop->name() << ", "
+             << "rng_offset" << rop->name() << ");\n";
     indent() << "  rng_subseq = rng_subseq" << rop->name() << ";\n";
     indent() << "  rng_offset = rng_offset" << rop->name() << ";\n";
     indent() << "}\n";
@@ -1402,7 +1376,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           ldst->out()->dtype(),
           " = ",
           ldst->in()->dtype());
-      for (auto& [name, _] : out_type.types) {
+      for (auto& name : out_type.field_names) {
         TORCH_INTERNAL_ASSERT(
             in_type.types.find(name) != in_type.types.end(),
             "Mismatched field in struct assignment: ",
@@ -2788,10 +2762,18 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     if (alloc->alias() != nullptr) {
       // Allocate alias another Allocate stmt
       const auto alias_tv = alloc->alias()->buffer()->as<TensorView>();
-      indent() << "// Alias Allocation - " << alloc->memoryType() << "\n";
-      indent() << "auto& " << genVariableName(tv) << " = "
-               << genVariableName(alias_tv) << ";\n";
-
+      if (alias_tv->getDataType() == tv->getDataType()) {
+        indent() << "// Alias Allocation - " << alloc->memoryType() << "\n";
+        indent() << "auto& " << genVariableName(tv) << " = "
+                 << genVariableName(alias_tv) << ";\n";
+      } else {
+        indent() << "// Alias Allocation (changing dtype) - "
+                 << alloc->memoryType() << "\n";
+        indent() << "auto " << genVariableName(tv)
+                 << " = *reinterpret_cast<Array<" << buffer_dtype << ", "
+                 << genInline(size) << ">*>(&" << genVariableName(alias_tv)
+                 << ");\n";
+      }
     } else {
       // Standard Memory Allocation
       switch (tv->getMemoryType()) {

@@ -1,3 +1,4 @@
+#include <polymorphic_value.h>
 #include <serde/utils.h>
 
 namespace nvfuser::serde {
@@ -120,6 +121,77 @@ PrimDataType mapToNvfuserDtype(serde::DataType t) {
   }
   TORCH_INTERNAL_ASSERT(false, "No nvfuser dtype found for serde data type.");
   return PrimDataType::Null;
+}
+
+flatbuffers::Offset<serde::Scalar> serializeScalarCpu(
+    flatbuffers::FlatBufferBuilder& builder,
+    const at::Tensor& tensor) {
+  TORCH_INTERNAL_ASSERT(
+      tensor.is_cpu() && tensor.numel() == 1,
+      "Only CPU scalar tensors are supported here.");
+
+  switch (tensor.scalar_type()) {
+    case at::ScalarType::Bool:
+      return serializeScalar(
+          builder, *tensor.data_ptr<bool>(), nvfuser::DataType::Bool);
+    case at::ScalarType::Double:
+      return serializeScalar(
+          builder, *tensor.data_ptr<double>(), nvfuser::DataType::Double);
+    case at::ScalarType::Long:
+      return serializeScalar(
+          builder, *tensor.data_ptr<int64_t>(), nvfuser::DataType::Int);
+    case at::ScalarType::ComplexDouble:
+      return serializeScalar(
+          builder,
+          *tensor.data_ptr<c10::complex<double>>(),
+          nvfuser::DataType::ComplexDouble);
+    default:
+      TORCH_INTERNAL_ASSERT(false, "unsupported scalar type.");
+  }
+}
+
+flatbuffers::Offset<serde::ArgAbstract> serializePolymorphicValue(
+    flatbuffers::FlatBufferBuilder& builder,
+    std::shared_ptr<nvfuser::PolymorphicValue> v) {
+  TORCH_INTERNAL_ASSERT(
+      !v->is<std::monostate>(), "PolymorphicValue is a std::monostate.");
+  TORCH_INTERNAL_ASSERT(
+      !v->is<nvfuser::Struct>(),
+      "Serialization of arbitrary struct is not implemented.");
+  TORCH_INTERNAL_ASSERT(
+      !v->is<nvfuser::Pointer>(), "Serialization of pointer is not allowed.");
+  TORCH_INTERNAL_ASSERT(
+      !v->is<std::vector>(), "Serialization of vector is not implemented.");
+
+  if (v->is<at::Tensor>()) {
+    const auto& tensor = v->as<at::Tensor>();
+
+    if (tensor.is_cpu() && tensor.numel() == 1) {
+      // CPU Scalar
+      auto fb_scalar_data = serializeScalarCpu(builder, tensor);
+      auto data = serde::CreateScalarCpu(builder, fb_scalar_data);
+      return CreateArgAbstract(
+          builder, ArgAbstractData_ScalarCpu, data.Union());
+    } else {
+      // GPU Tensor
+      std::vector<int64_t> sizes_fb;
+      sizes_fb.reserve(tensor.ndimension());
+      for (auto dim : c10::irange(tensor.ndimension())) {
+        sizes_fb.push_back(tensor.size(dim));
+      }
+      auto data = serde::CreateTensorArg(
+          builder,
+          (size_t)tensor.data_ptr(),
+          builder.CreateVector(sizes_fb),
+          0,
+          mapToSerdeDtype(tensor.scalar_type()));
+      return CreateArgAbstract(
+          builder, ArgAbstractData_TensorArg, data.Union());
+    }
+  } else {
+    auto data = serializeScalar(builder, *v, getDataType(*v));
+    return CreateArgAbstract(builder, ArgAbstractData_Scalar, data.Union());
+  }
 }
 
 flatbuffers::Offset<serde::Scalar> serializeScalar(
