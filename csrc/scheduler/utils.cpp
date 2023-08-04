@@ -2295,20 +2295,6 @@ std::unordered_set<TensorView*> getAllTvsFrom(
   return tv_group;
 }
 
-bool hasExpensiveUnaryOp(Fusion* fusion) {
-  // TODO: test and extend to other ops
-  std::unordered_set<UnaryOpType> set_of_expensive_ops{UnaryOpType::Exp};
-  const std::vector<Expr*>& all_exprs = fusion->exprs();
-  for (const auto expr : all_exprs) {
-    if (auto op = dynamic_cast<UnaryOp*>(expr)) {
-      if (set_of_expensive_ops.count(op->getUnaryOpType())) {
-        return true;
-      }
-    }
-  }
-  return false;
-}
-
 } // namespace scheduler_utils
 
 } // namespace nvfuser
