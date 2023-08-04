@@ -1384,9 +1384,8 @@ class AllocationReuseModifier : private kir::ExprMutator {
 };
 
 //! Set addresses without any re-use of shared memory. This simply scans
-//! through exprs and each time we find an allocate we increment the current
-//! address by the given amount. We add expressions that align allocations
-//! appropriately depending on datatype.
+//! through exprs and each time we find an unaliased Allocate align the current
+//! address and increment it by the given amount.
 class NoReuseSharedMemAllocator : kir::IrVisitor {
  public:
   void allocate(std::vector<Expr*>& exprs) {
