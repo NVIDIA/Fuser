@@ -599,6 +599,30 @@ void RecordFunctorFactory::registerAllParsers() {
   };
   registerParser(serde::RecordType_TensorSizes, deserializeTensorSizesRecord);
 
+  auto deserializeShapeOpRecord = [](const serde::RecordFunctor* buffer) {
+    return new python_frontend::ShapeOpRecord(
+        parseStateArgs(buffer->args()), parseStateArgs(buffer->outputs()));
+  };
+  registerParser(serde::RecordType_ShapeOp, deserializeShapeOpRecord);
+
+  auto deserializeSizeOpRecord = [](const serde::RecordFunctor* buffer) {
+    auto data = buffer->data_as_Size();
+    return new python_frontend::SizeOpRecord(
+        parseStateArgs(buffer->args()),
+        parseStateArgs(buffer->outputs()),
+        data->dim());
+  };
+  registerParser(serde::RecordType_SizeOp, deserializeSizeOpRecord);
+
+  auto deserializeAtOpRecord = [](const serde::RecordFunctor* buffer) {
+    auto data = buffer->data_as_At();
+    return new python_frontend::AtOpRecord(
+        parseStateArgs(buffer->args()),
+        parseStateArgs(buffer->outputs()),
+        data->index());
+  };
+  registerParser(serde::RecordType_SizeOp, deserializeAtOpRecord);
+
   auto deserializeVarianceRecord = [](const serde::RecordFunctor* buffer) {
     auto data = buffer->data_as_Norm();
     return new python_frontend::VarianceOpRecord(
@@ -813,6 +837,7 @@ void RecordFunctorFactory::setupFunctionMaps() {
   NVFUSER_BINARY_TV_OP("bitwise_xor", bitwise_xor)
   NVFUSER_BINARY_TV_OP("bitwise_left_shift", bitwise_left_shift)
   NVFUSER_BINARY_TV_OP("bitwise_right_shift", bitwise_right_shift)
+  NVFUSER_BINARY_TV_OP("logical_right_shift", logical_right_shift)
   NVFUSER_BINARY_TV_OP("gcd", gcd)
 
   NVFUSER_BINARY_TV_ALPHA_OP("add_alpha", add_alpha)

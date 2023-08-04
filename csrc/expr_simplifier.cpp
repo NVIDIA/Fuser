@@ -697,6 +697,7 @@ class FlattenedAssocCommOp : public Expr {
   }
 
   std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
       const std::vector<PolymorphicValue>& inputs) const override {
     using namespace PolymorphicValue_functions;
     std::vector<PolymorphicValue> inputs_ = inputs;
@@ -890,6 +891,38 @@ Val* unflatten(Val* value, const Context& context) {
 
 namespace {
 
+// If x and y are both Null, then return Null. If one of them is Null, then
+// return the other one. Otherwise, return the promoted type of x and y.
+inline DataType promoteTypeWithNull(DataType x, DataType y) {
+  if (x == DataType::Null) {
+    return y;
+  }
+  if (y == DataType::Null) {
+    return x;
+  }
+  return promoteType(x, y);
+}
+
+// If x is nullptr, return DataType::Null. Otherwise, return x->dtype().
+inline DataType dataTypeOrNull(Val* x) {
+  return x == nullptr ? DataType::Null : x->dtype();
+}
+
+// If x is nullptr, return 1. Otherwise, return x->getInt().
+inline int64_t getIntOrOne(Val* x) {
+  return x == nullptr ? 1 : *x->getInt();
+}
+
+// If the data type is unknown, return nullptr. Otherwise, return a constant
+// with the given value and data type.
+template <typename T>
+inline Val* getConstOrNullptr(T value, DataType dtype) {
+  if (dtype == DataType::Null) {
+    return nullptr;
+  }
+  return IrBuilder::newConstant(value, dtype);
+}
+
 using FOp = assoc_comm::FlattenedAssocCommOp;
 
 FOp* toFlattenedAdd(Expr* expr) {
@@ -950,11 +983,13 @@ BinaryOp* toDivModOp(Expr* expr) {
   return nullptr;
 }
 
-// Classify terms of a FlattenedMul as (constant, symbolic), for example:
+// Classify terms of a FlattenedMul as (constant, symbolic), the constant may be
+// nullptr if it is one. For example:
 // a * 3 * b * 5 --> (15, {a, b})
-// a * b --> (1, {a, b})
+// a * b --> (nullptr, {a, b})
+// 1 * a * b --> (1, {a, b})
 // 3 * 5 --> (15, {})
-// If the given Val `x` is not a flattened mul, then return (1, {x})
+// If the given Val `x` is not a flattened mul, then return (nullptr, {x})
 std::pair<Val*, std::list<Val*>> getConstAndSymbolicFactors(Val* x) {
   std::vector<Val*> factors;
   if (auto fop = toFlattenedMul(x->definition())) {
@@ -968,41 +1003,58 @@ std::pair<Val*, std::list<Val*>> getConstAndSymbolicFactors(Val* x) {
   for (auto f : factors) {
     f = foldConstants(f);
     if (f->getInt().has_value()) {
-      if (const_dtype == DataType::Null) {
-        const_dtype = *f->getDataType();
-      } else {
-        const_dtype = promoteType(const_dtype, *f->getDataType());
-      }
+      const_dtype = promoteTypeWithNull(const_dtype, f->dtype());
       const_factor *= *f->getInt();
     } else {
       symbolic_factors.emplace_back(f);
     }
   }
-  if (const_dtype == DataType::Null) {
-    // If there is no constant factors, use the dtype of x
-    const_dtype = *x->getDataType();
-  }
-  return {IrBuilder::newConstant(const_factor, const_dtype), symbolic_factors};
+  // When const_factor is 1 and the const_dtype is unknown, return a nullptr
+  // instead of guessing a dtype.
+  return {getConstOrNullptr(const_factor, const_dtype), symbolic_factors};
 }
 
 inline Val* maybeFlattenedOpOf(BinaryOpType bop, std::vector<Val*> inputs) {
-  if (inputs.size() == 1) {
-    if (bop == BinaryOpType::Gcd) {
-      return IrBuilder::absExpr(inputs.at(0));
+  std::vector<Val*> nontrivial_inputs;
+  std::vector<Val*> trivial_inputs;
+  for (auto inp : inputs) {
+    if (!assoc_comm::isNoOpTerm(inp, bop)) {
+      nontrivial_inputs.emplace_back(inp);
+    } else {
+      trivial_inputs.emplace_back(inp);
     }
-    return inputs.at(0);
   }
-  auto result = IrBuilder::newScalar(inferDtypes(inputs));
-  IrBuilder::create<FOp>(bop, result, std::move(inputs));
+  if (nontrivial_inputs.empty()) {
+    return trivial_inputs.at(0);
+  }
+  if (nontrivial_inputs.size() == 1) {
+    if (bop == BinaryOpType::Gcd) {
+      return IrBuilder::absExpr(nontrivial_inputs.at(0));
+    }
+    return nontrivial_inputs.at(0);
+  }
+  auto result = IrBuilder::newScalar(inferDtypes(nontrivial_inputs));
+  IrBuilder::create<FOp>(bop, result, std::move(nontrivial_inputs));
   return result;
 }
 
-Val* productOfFactors(Val* const_factor, std::vector<Val*> symbolic_factors) {
-  if (*const_factor->getInt() != 1) {
-    symbolic_factors.emplace_back(const_factor);
+// Given a constant factor and a list of symbolic factors, return a flattened
+// mul expression. There are cases where the result dtype can not be inferred
+// from the inputs, for example when const_factor is nullptr and
+// symbolic_factors is empty, then the result dtype is unknown. In this case,
+// return a constant one with the default dtype.
+Val* productOfFactors(
+    Val* const_factor,
+    std::vector<Val*> symbolic_factors,
+    DataType default_dtype) {
+  if (const_factor == nullptr) {
+    if (symbolic_factors.empty()) {
+      return IrBuilder::newConstant(1L, default_dtype);
+    }
+    return maybeFlattenedOpOf(BinaryOpType::Mul, std::move(symbolic_factors));
   }
-  if (symbolic_factors.empty()) {
-    return IrBuilder::newConstant(1L, *const_factor->getDataType());
+  if (*const_factor->getInt() != 1 || symbolic_factors.empty()) {
+    symbolic_factors.emplace_back(const_factor);
   }
   return maybeFlattenedOpOf(BinaryOpType::Mul, std::move(symbolic_factors));
 }
@@ -1026,17 +1078,17 @@ Val* divideFactorized(Val* x, Val* y) {
   auto x_factors = getConstAndSymbolicFactors(x);
   auto y_factors = getConstAndSymbolicFactors(y);
 
-  auto xx = x_factors.first->getInt();
-  auto yy = y_factors.first->getInt();
+  int64_t xx = getIntOrOne(x_factors.first);
+  int64_t yy = getIntOrOne(y_factors.first);
+  auto xdtype = dataTypeOrNull(x_factors.first);
+  auto ydtype = dataTypeOrNull(y_factors.first);
+  auto const_type = promoteTypeWithNull(xdtype, ydtype);
 
-  TORCH_INTERNAL_ASSERT(xx.has_value());
-  TORCH_INTERNAL_ASSERT(yy.has_value());
-
-  if (*xx % *yy != 0) {
+  if (xx % yy != 0) {
     // not divisible
     return nullptr;
   }
-  int64_t quoient_const_factor = *xx / *yy;
+  int64_t quoient_const_factor = xx / yy;
 
   std::vector<Val*> quotient_symbolic_factors;
 
@@ -1056,12 +1108,9 @@ Val* divideFactorized(Val* x, Val* y) {
       x_factors.second.begin(),
       x_factors.second.end());
   return productOfFactors(
-      IrBuilder::newConstant(
-          quoient_const_factor,
-          promoteType(
-              *x_factors.first->getDataType(),
-              *y_factors.first->getDataType())),
-      std::move(quotient_symbolic_factors));
+      getConstOrNullptr(quoient_const_factor, const_type),
+      std::move(quotient_symbolic_factors),
+      promoteType(x->dtype(), y->dtype()));
 }
 
 // Symbolic gcd, for example: greatestCommonDivisor({6*a*b, 9*b*c}) -> 3*b
@@ -1073,17 +1122,15 @@ Val* greatestCommonDivisor(const std::vector<Val*>& inputs) {
   std::unique_ptr<std::vector<Val*>> common_symbolic_factors = nullptr;
 
   DataType const_factor_dtype = DataType::Null;
+  DataType common_dtype = DataType::Null;
 
   for (auto inp : inputs) {
+    common_dtype = promoteTypeWithNull(common_dtype, inp->dtype());
     auto factors = getConstAndSymbolicFactors(inp);
-    if (const_factor_dtype == DataType::Null) {
-      const_factor_dtype = *factors.first->getDataType();
-    } else {
-      const_factor_dtype =
-          promoteType(const_factor_dtype, *factors.first->getDataType());
-    }
+    const_factor_dtype =
+        promoteTypeWithNull(const_factor_dtype, dataTypeOrNull(factors.first));
     common_const_factor =
-        std::gcd(common_const_factor, *factors.first->getInt());
+        std::gcd(common_const_factor, getIntOrOne(factors.first));
     std::vector<Val*> new_common_symbolic_factors;
     if (common_symbolic_factors == nullptr) {
       // gcd(0, x) -> x
@@ -1110,8 +1157,9 @@ Val* greatestCommonDivisor(const std::vector<Val*>& inputs) {
   TORCH_INTERNAL_ASSERT(common_const_factor != 0);
   TORCH_INTERNAL_ASSERT(common_symbolic_factors != nullptr);
   return productOfFactors(
-      IrBuilder::newConstant(common_const_factor, const_factor_dtype),
-      std::move(*common_symbolic_factors));
+      getConstOrNullptr(common_const_factor, const_factor_dtype),
+      std::move(*common_symbolic_factors),
+      common_dtype);
 }
 
 namespace {
@@ -1127,13 +1175,9 @@ Val* factorizeFlattenedMul(Val* x) {
   for (auto inp : fop->inputs()) {
     auto factorized_inp = factorize(inp);
     auto factors = getConstAndSymbolicFactors(factorized_inp);
-    if (const_factor_dtype == DataType::Null) {
-      const_factor_dtype = *factors.first->getDataType();
-    } else {
-      const_factor_dtype =
-          promoteType(const_factor_dtype, *factors.first->getDataType());
-    }
-    const_factor *= *factors.first->getInt();
+    const_factor_dtype =
+        promoteTypeWithNull(const_factor_dtype, dataTypeOrNull(factors.first));
+    const_factor *= getIntOrOne(factors.first);
     symbolic_factors.insert(
         symbolic_factors.end(), factors.second.begin(), factors.second.end());
     if (factors.second != std::list<Val*>{inp}) {
@@ -1145,8 +1189,9 @@ Val* factorizeFlattenedMul(Val* x) {
     return x;
   }
   return productOfFactors(
-      IrBuilder::newConstant(const_factor, const_factor_dtype),
-      std::move(symbolic_factors));
+      getConstOrNullptr(const_factor, const_factor_dtype),
+      std::move(symbolic_factors),
+      x->dtype());
 }
 
 // Does the following factorization:
@@ -1290,11 +1335,8 @@ bool isNonNegative(Val* value, const Context& context) {
 }
 
 bool isNonNegativeHelper(Val* value, const Context& context) {
-  if (auto ns = dynamic_cast<NamedScalar*>(value)) {
-    // TODO: make tensor size and tensor stride an expr
-    if (ns->isTensorSize() || ns->isTensorStride()) {
-      return true;
-    }
+  if (ir_utils::isTensorSize(value) || ir_utils::isTensorStride(value)) {
+    return true;
   }
   if (auto fop = dynamic_cast<FOp*>(value->definition())) {
     auto op = fop->getOpType();
@@ -1329,6 +1371,9 @@ bool isNonNegativeHelper(Val* value, const Context& context) {
 }
 
 bool isPositiveHelper(Val* value, const Context& context) {
+  if (ir_utils::isTensorSize(value)) {
+    return true;
+  }
   if (auto fop = dynamic_cast<FOp*>(value->definition())) {
     auto op = fop->getOpType();
     if (op == BinaryOpType::Add) {
@@ -2413,17 +2458,16 @@ Val* fundamentalDivisionWithRemainderProperty(
       if (!isValidDenominator(b1, context)) {
         continue;
       }
-      auto factorized_b = sym_algebra::factorize(b1);
+      auto factorized_b1c = sym_algebra::factorize(
+          maybeFlattenedOpOf(BinaryOpType::Mul, {b1, c}));
       auto factorized_bc = sym_algebra::factorize(bc);
       auto quotient =
-          sym_algebra::divideFactorized(factorized_bc, factorized_b);
-      if (quotient != nullptr && quotient->sameAs(c)) {
+          sym_algebra::divideFactorized(factorized_bc, factorized_b1c);
+      if (quotient != nullptr && quotient->isOne()) {
         // Found match!
         // Simplify [1] + [2] + ... + [i] + ... + [j] + ...
         // As: [1] + [2] + a * c ... + ...  + ...
-        Val* ac = IrBuilder::newScalar(
-            promoteType(*a1->getDataType(), *c->getDataType()));
-        IrBuilder::create<FOp>(BinaryOpType::Mul, ac, std::vector<Val*>{a1, c});
+        Val* ac = maybeFlattenedOpOf(BinaryOpType::Mul, {a1, c});
         std::vector<Val*> terms{ac};
         for (auto k : c10::irange(fadd->inputs().size())) {
           if (k == i || k == j) {

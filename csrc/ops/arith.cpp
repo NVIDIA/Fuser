@@ -959,6 +959,52 @@ NVFUSER_DEFINE_INT_ONLY_OP(bitwise_right_shift, Rshift)
 NVFUSER_DEFINE_INT_ONLY_OP(gcd, Gcd)
 #undef NVFUSER_DEFINE_INT_ONLY_OP
 
+// The logical_right_shift operation shifts the value's bits to the right.
+// If the value is negative, it appends zeros to the front of the value.
+// The sign is preserved with arithmetic_right_shift, so ones are pushed to the
+// most significant bit.
+//
+// An alternate approach is to cast the value to an unsigned integer, perform
+// the right shift, and then cast back to the original value. In C++, unsigned
+// integers are shifted with logical right shift.
+template <typename LHS, typename RHS>
+TORCH_CUDA_CU_API typename std::conditional<
+    std::is_same<LHS, TensorView*>::value ||
+        std::is_same<RHS, TensorView*>::value,
+    TensorView*,
+    Val*>::type
+logical_right_shift_helper(LHS x, RHS shift) {
+  auto sizeof_int_dtype = (x->dtype() == PrimDataType::Int) ? 64L : 32L;
+
+  auto neg_one = IrBuilder::create<Val>(x->container(), -1L);
+  auto one = IrBuilder::create<Val>(x->container(), 1L);
+  auto two = IrBuilder::create<Val>(x->container(), 2L);
+  auto num_bits_scalar =
+      IrBuilder::create<Val>(x->container(), sizeof_int_dtype);
+
+  auto mask =
+      where(ge(shift, num_bits_scalar), neg_one, sub(pow(two, shift), one));
+  auto shifted_mask = bitwise_left_shift(mask, sub(num_bits_scalar, shift));
+  auto right_shift_value = bitwise_right_shift(x, shift);
+  return where(
+      signbit(x),
+      bitwise_xor(shifted_mask, right_shift_value),
+      right_shift_value);
+}
+
+TensorView* logical_right_shift(TensorView* x, TensorView* shift) {
+  return logical_right_shift_helper(x, shift);
+}
+TensorView* logical_right_shift(TensorView* x, Val* shift) {
+  return logical_right_shift_helper(x, shift);
+}
+TensorView* logical_right_shift(Val* x, TensorView* shift) {
+  return logical_right_shift_helper(x, shift);
+}
+Val* logical_right_shift(Val* x, Val* shift) {
+  return logical_right_shift_helper(x, shift);
+}
+
 #define NVFUSER_DEFINE_BINARY_COMPARE_OP(op_name, op_type)                   \
   Val* op_name(Val* v1, Val* v2) {                                           \
     return binaryOp(                                                         \
@@ -1522,6 +1568,51 @@ std::vector<Val*> tensor_sizes(TensorView* inp) {
   }
 
   return sizes;
+}
+
+std::vector<Val*> shape(TensorView* inp) {
+  auto iter_domains = TensorDomain::noReductions(inp->getMaybeRFactorDomain());
+  std::vector<Val*> shape;
+
+  shape.reserve(iter_domains.size());
+  for (auto id : iter_domains) {
+    shape.push_back(id->getMaybeExpandedExtent());
+  }
+
+  return shape;
+}
+
+Val* size(TensorView* inp, int64_t dim) {
+  auto iter_domains = TensorDomain::noReductions(inp->getMaybeRFactorDomain());
+  auto idx = dim;
+  if (idx < 0) {
+    idx = static_cast<int64_t>(iter_domains.size()) + idx;
+  }
+  TORCH_CHECK(
+      (idx >= 0) && (static_cast<size_t>(idx) < iter_domains.size()),
+      __FUNCTION__,
+      ": The dimension requested is beyond the bounds of the shape of the indexed tensor!",
+      " Tensor Dims: ",
+      iter_domains.size(),
+      " Dim: ",
+      dim);
+  return iter_domains.at(idx)->getMaybeExpandedExtent();
+}
+
+Val* at(std::vector<Val*>& inp, int64_t index) {
+  auto idx = index;
+  if (idx < 0) {
+    idx = static_cast<int64_t>(inp.size()) + idx;
+  }
+  TORCH_CHECK(
+      (idx >= 0) && (static_cast<size_t>(idx) < inp.size()),
+      __FUNCTION__,
+      ": The index requested is beyond the bounds of the indexed vector!",
+      " Vector Size: ",
+      inp.size(),
+      " Index: ",
+      index);
+  return inp.at(idx);
 }
 
 WelfordResult WelfordRaw(

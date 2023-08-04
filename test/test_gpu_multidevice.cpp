@@ -28,7 +28,6 @@
 #include <multidevice/pipeline.h>
 #include <multidevice/pipeline_ir.h>
 #include <multidevice/runtime.h>
-#include <mutator.h>
 #include <ops/all_ops.h>
 #include <root_domain_map.h>
 #include <scheduler/all_schedulers.h>
@@ -52,22 +51,6 @@ namespace nvfuser {
 
 using namespace torch::jit::fuser::cuda;
 using namespace at::indexing;
-
-bool shouldSkip(int requested_world_size) {
-  char* env = nullptr;
-  int64_t world_size;
-
-  // retrieves the size of the communicator
-  env = std::getenv("OMPI_COMM_WORLD_SIZE");
-  if (!env) {
-    env = std::getenv("WORLD_SIZE");
-    if (!env) {
-      return true;
-    }
-  }
-  world_size = std::atoi(env);
-  return world_size < requested_world_size;
-}
 
 // utility function for validation
 void testValidateMultidevice(
@@ -215,16 +198,22 @@ TEST_F(NVFuserTest, FusionMultiGPU_CUDA) {
   Pipeline pipeline(&fusion, std::move(descriptor));
 
   // ===========================================================
-  //        RUNTIME
+  //        COMMUNICATOR
   // ===========================================================
 
+  Communicator comm;
+
   int requested_world_size = 6;
-  if (shouldSkip(requested_world_size)) {
+  if (!comm.is_available() || comm.size() < requested_world_size) {
     GTEST_SKIP() << "This test needs distributed setting with at least "
                  << requested_world_size << " ranks";
   }
 
-  MultiDeviceRuntime runtime(&pipeline);
+  // ===========================================================
+  //        RUNTIME
+  // ===========================================================
+
+  MultiDeviceRuntime runtime(&pipeline, comm);
 
   // Create input tensors.
   // Note: each rank is binded to a different GPU

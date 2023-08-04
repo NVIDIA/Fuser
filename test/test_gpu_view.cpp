@@ -27,7 +27,6 @@
 #include <kernel_cache.h>
 #include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
-#include <mutator.h>
 #include <ops/all_ops.h>
 #include <register_interface.h>
 #include <root_domain_map.h>
@@ -317,8 +316,8 @@ void reductionViewAddFusion(
   }
 }
 
-typedef std::vector<int64_t> shape;
-typedef std::pair<shape, shape> reshape_example;
+typedef std::vector<int64_t> shape_t;
+typedef std::pair<shape_t, shape_t> reshape_example;
 
 // TODO: View examples with just 333 elements are failing validation in
 // normalization. This might just be because our tolerances aren't tuned well

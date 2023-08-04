@@ -42,7 +42,7 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
 
   using kir::ExprMutator::handle;
 
-  void handle(Expr* expr) final {
+  void dispatch(Expr* expr) final {
     if (expr != nullptr && expr->predicate() != nullptr) {
       // Replace expr predicate with bool conditional
       auto conditional = generateConditional(expr->predicate());
@@ -115,7 +115,7 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
       invertPredicateForGmemToSharedMemInitialize(expr);
     }
 
-    kir::ExprMutator::handle(expr);
+    kir::ExprMutator::dispatch(expr);
   }
 
   // Invert the predicate of given expr.

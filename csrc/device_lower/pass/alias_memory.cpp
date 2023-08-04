@@ -159,16 +159,16 @@ class SymbolicSizePrinter : private OptOutConstDispatch {
  public:
   static std::string printSize(const kir::Allocate* allocate) {
     SymbolicSizePrinter printer;
-    printer.handle(allocate->size());
+    printer.dispatch(allocate->size());
     return printer.os_.str();
   }
 
  private:
   using OptOutConstDispatch::handle;
 
-  void handle(const Val* node) final {
+  void dispatch(const Val* node) final {
     if (auto def = node->definition()) {
-      OptOutConstDispatch::handle(def);
+      OptOutConstDispatch::dispatch(def);
     } else if (node->isConst()) {
       os_ << node->value();
     } else {
@@ -188,9 +188,9 @@ class SymbolicSizePrinter : private OptOutConstDispatch {
 
   void handle(const BinaryOp* binary_op) final {
     os_ << binary_op->getBinaryOpType() << "(";
-    OptOutConstDispatch::handle(binary_op->lhs());
+    OptOutConstDispatch::dispatch(binary_op->lhs());
     os_ << ",";
-    OptOutConstDispatch::handle(binary_op->rhs());
+    OptOutConstDispatch::dispatch(binary_op->rhs());
     os_ << ")";
   }
 
@@ -454,10 +454,10 @@ class ScopeMap : private kir::IrVisitor {
 
   using kir::IrVisitor::handle;
 
-  void handle(Expr* expr) final {
+  void dispatch(Expr* expr) final {
     expr_pos_map_.moveToNext();
     expr_pos_map_.setPosAtCurrent(expr);
-    kir::IrVisitor::handle(expr);
+    kir::IrVisitor::dispatch(expr);
   }
 
   void handle(kir::ForLoop* for_loop) final {
@@ -677,11 +677,11 @@ class AllocationInfoMap : private kir::IrVisitor {
  private:
   using kir::IrVisitor::handle;
 
-  void handle(Expr* expr) final {
+  void dispatch(Expr* expr) final {
     if (debug_printer_) {
       debug_printer_->pushBack(scope_map_.getExprPos(expr), expr);
     }
-    kir::IrVisitor::handle(expr);
+    kir::IrVisitor::dispatch(expr);
     if (ir_utils::isTvOp(expr)) {
       collectLivenessInfoOfExpr(expr);
     }
@@ -1053,7 +1053,18 @@ class ReusableAllocationFinder : private kir::IrVisitor {
         }
 
         // Check if this alloc has the same data type
-        if (alloc_info->data_type != alloc_to_reuse->data_type) {
+        if (alloc_info->mem_type == MemoryType::Local &&
+            isOptionDisabled(DisableOption::ReuseMismatchedTypeRegisters)) {
+          // With this option, registers must have exactly matching dtypes in
+          // order to be re-used
+          if (alloc_info->data_type != alloc_to_reuse->data_type) {
+            continue;
+          }
+        } else if (
+            dataTypeSize(alloc_info->data_type) !=
+            dataTypeSize(alloc_to_reuse->data_type)) {
+          // Behavior for shared or global memory and default behavior for
+          // registers is to re-use if dtypes have same size.
           continue;
         }
 

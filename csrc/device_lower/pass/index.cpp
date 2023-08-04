@@ -103,13 +103,13 @@ void IndexLowering::handle(const kir::IfThenElse* ite) {
   active_scope_ = &new_ite->thenBody();
 
   for (auto expr : ite->thenBody().exprs()) {
-    OptOutConstDispatch::handle(expr);
+    OptOutConstDispatch::dispatch(expr);
   }
 
   active_scope_ = &new_ite->elseBody();
 
   for (auto expr : ite->elseBody().exprs()) {
-    OptOutConstDispatch::handle(expr);
+    OptOutConstDispatch::dispatch(expr);
   }
 
   active_scope_ = prev_scope;
@@ -129,7 +129,7 @@ void IndexLowering::handle(const kir::ForLoop* for_loop) {
   for_loops_.push_back(new_for_loop);
 
   for (auto expr : for_loop->body().exprs()) {
-    OptOutConstDispatch::handle(expr);
+    OptOutConstDispatch::dispatch(expr);
   }
 
   for_loops_.pop_back();
@@ -158,7 +158,6 @@ void IndexLowering::handle(const RNGOp* rop) {
       rop->getParameters(),
       rop->getRNGSeedVal(),
       rop->getRNGOffsetVal(),
-      rop->getRNGOffset(),
       philox_index);
 
   pushBack(lowered);
@@ -251,11 +250,26 @@ void IndexLowering::handle(const ArrayConstruct* aop) {
   GpuLower::current()->propagateExprInfo(aop, back());
 }
 
+void IndexLowering::handle(const GetAttr* gop) {
+  const auto struct_ = lowerSrcIndex(gop->struct_(), gop->out());
+  const auto attr = gop->attr();
+  const auto out = lowerDstIndex(gop->out());
+  pushBack(IrBuilder::create<GetAttr>(out, struct_, attr));
+  GpuLower::current()->propagateExprInfo(gop, back());
+}
+
 void IndexLowering::handle(const GetItem* gop) {
   const auto array = lowerSrcIndex(gop->array(), gop->out());
   const auto index = lowerSrcIndex(gop->index(), gop->out());
   const auto out = lowerDstIndex(gop->out());
   pushBack(IrBuilder::create<GetItem>(out, array, index));
+  GpuLower::current()->propagateExprInfo(gop, back());
+}
+
+void IndexLowering::handle(const GetMetaData* gop) {
+  const auto in = gop->in();
+  const auto out = lowerDstIndex(gop->out());
+  pushBack(IrBuilder::create<GetMetaData>(out, in));
   GpuLower::current()->propagateExprInfo(gop, back());
 }
 
@@ -1377,7 +1391,7 @@ void IndexLowering::handle(const kir::CpAsyncCommit* commit) {
 
 void IndexLowering::generate(const std::vector<Expr*>& exprs) {
   for (auto expr : exprs) {
-    OptOutConstDispatch::handle(expr);
+    OptOutConstDispatch::dispatch(expr);
   }
 }
 

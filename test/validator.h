@@ -170,9 +170,8 @@ std::pair<double, double> getTolerance(
       }
     }
     case DataType::Int:
-      return {0.0, 0.0};
     case DataType::Int32:
-      return {0.0, 0.0};
+    case DataType::Index:
     case DataType::Bool:
       return {0.0, 0.0};
     default:
@@ -237,7 +236,7 @@ class ReductionSizeMapper : private IterVisitor {
     return reduction_elements;
   }
 
-  void handle(Expr* expr) override {
+  void dispatch(Expr* expr) override {
     if (!ir_utils::isTvOp(expr)) {
       return;
     }

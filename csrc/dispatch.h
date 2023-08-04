@@ -133,6 +133,7 @@ class VectorizedWelfordOp;
 class AllocateFusedReduction;
 class InitMagicZero;
 class UpdateMagicZero;
+class GetRNGSeedAndOffsetFromHost;
 
 } // namespace kir
 
@@ -144,15 +145,15 @@ class TORCH_CUDA_CU_API OptOutConstDispatch : public PolymorphicBase {
 
  public:
   // Hierarchal dispatch functions for handle
-  virtual void handle(const Statement*);
-  virtual void handle(const Expr*);
-  virtual void handle(const Val*);
+  virtual void dispatch(const Statement*);
+  virtual void dispatch(const Expr*);
+  virtual void dispatch(const Val*);
 
   // Vals
   virtual void handle(const IterDomain* stmt);
   virtual void handle(const TensorDomain* stmt);
   virtual void handle(const TensorView* stmt);
-  virtual void handleGeneric(const Val* stmt);
+  virtual void handle(const Val* stmt);
   virtual void handle(const NamedScalar* stmt);
 
   virtual void handle(const kir::Predicate*);
@@ -215,6 +216,7 @@ class TORCH_CUDA_CU_API OptOutConstDispatch : public PolymorphicBase {
   virtual void handle(const kir::GroupedGridWelford*);
   virtual void handle(const kir::VectorizedWelfordOp*);
   virtual void handle(const kir::AllocateFusedReduction*);
+  virtual void handle(const kir::GetRNGSeedAndOffsetFromHost* stmt);
 
   virtual void handle(const PipelineStage*);
   virtual void handle(const PipelineCommunication*);
@@ -226,12 +228,12 @@ class TORCH_CUDA_CU_API OptOutDispatch : public PolymorphicBase {
 
  public:
   // Hierarchal dispatch functions for handle
-  virtual void handle(Statement*);
-  virtual void handle(Expr*);
-  virtual void handle(Val*);
+  virtual void dispatch(Statement*);
+  virtual void dispatch(Expr*);
+  virtual void dispatch(Val*);
 
   // Vals
-  virtual void handleGeneric(Val* stmt);
+  virtual void handle(Val* stmt);
   virtual void handle(NamedScalar* stmt);
   virtual void handle(IterDomain* stmt);
   virtual void handle(TensorDomain* stmt);
@@ -297,6 +299,7 @@ class TORCH_CUDA_CU_API OptOutDispatch : public PolymorphicBase {
   virtual void handle(kir::GroupedGridWelford* stmt);
   virtual void handle(kir::VectorizedWelfordOp* stmt);
   virtual void handle(kir::AllocateFusedReduction* stmt);
+  virtual void handle(kir::GetRNGSeedAndOffsetFromHost* stmt);
 
   virtual void handle(PipelineStage* stmt);
   virtual void handle(PipelineCommunication* stmt);
@@ -336,9 +339,8 @@ class TORCH_CUDA_CU_API OptInDispatch : public OptOutDispatch {
 class TORCH_CUDA_CU_API OptOutMutator : public PolymorphicBase {
  public:
   // Hierarchal dispatch functions for handle
-  virtual void mutate(Statement* s);
-  virtual void mutate(Expr* e);
-  virtual void mutate(Val* v);
+  virtual void dispatchMutate(Statement* s);
+  virtual void dispatchMutate(Val* v);
 
   void registerMutation(Val* val, Val* mutation);
 
@@ -354,16 +356,17 @@ class TORCH_CUDA_CU_API OptOutMutator : public PolymorphicBase {
   //****Functions below defined in mutator.cpp*****
 
   // Vals
-  virtual void mutateGeneric(Val*);
+  virtual void mutate(Val*);
   virtual void mutate(NamedScalar*);
   virtual void mutate(IterDomain*);
   virtual void mutate(TensorDomain*);
   virtual void mutate(TensorView*);
+  virtual void mutate(PipelineVal*);
 
   virtual void mutate(kir::Predicate*);
   virtual void mutate(kir::TensorIndex*);
 
-  virtual void mutateArrayType(Val*);
+  virtual void mutate(Expr* e);
 
  protected:
   virtual void removeExpr(IrContainer*, Expr*) const;

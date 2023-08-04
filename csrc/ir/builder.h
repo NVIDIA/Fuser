@@ -56,6 +56,7 @@ class TORCH_CUDA_CU_API IrBuilder {
   static T* clone(const T* src, IrCloner* ir_cloner);
 
   // Unary operations
+  static Val* derefExpr(Val* val);
   static Val* negExpr(Val* val);
   static Val* notExpr(Val* val);
   static Val* absExpr(Val* val);
@@ -87,6 +88,7 @@ class TORCH_CUDA_CU_API IrBuilder {
 
   // Array and struct access
   static Val* getItemExpr(Val* array, Val* index);
+  static Val* getItemExpr(Val* array, PolymorphicValue index);
   static Val* getAttrExpr(Val* struct_, std::string attr);
 
   // Get tensor metadata

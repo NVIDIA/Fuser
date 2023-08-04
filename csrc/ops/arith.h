@@ -416,6 +416,13 @@ TORCH_CUDA_CU_API TensorView* expand_as(TensorView* inp, TensorView* other);
 // with functions like broadcast_in_size that take in a vector of sizes
 // to use to expand an input tensor
 TORCH_CUDA_CU_API std::vector<Val*> tensor_sizes(TensorView* inp);
+// This is a function used to give the symbolic shape of a tensor for use
+// with functions like broadcast_in_dim that take a shape vector
+// to use to expand an input tensor
+TORCH_CUDA_CU_API std::vector<Val*> shape(TensorView* inp);
+// Get the symbolic size of a specific dimension of a tensor
+TORCH_CUDA_CU_API Val* size(TensorView* inp, int64_t dim);
+TORCH_CUDA_CU_API Val* at(std::vector<Val*>& inp, int64_t index);
 
 // BINARY OPERATIONS
 // add
@@ -502,6 +509,13 @@ TORCH_CUDA_CU_API TensorView* bitwise_right_shift(Val* v1, TensorView* v2);
 TORCH_CUDA_CU_API TensorView* bitwise_right_shift(
     TensorView* v1,
     TensorView* v2);
+// logical_right_shift
+TORCH_CUDA_CU_API TensorView* logical_right_shift(
+    TensorView* x,
+    TensorView* shift);
+TORCH_CUDA_CU_API TensorView* logical_right_shift(TensorView* x, Val* shift);
+TORCH_CUDA_CU_API TensorView* logical_right_shift(Val* x, TensorView* shift);
+TORCH_CUDA_CU_API Val* logical_right_shift(Val* x, Val* shift);
 // bitwise_or
 TORCH_CUDA_CU_API Val* bitwise_or(Val* v1, Val* v2);
 TORCH_CUDA_CU_API TensorView* bitwise_or(TensorView* v1, Val* v2);
