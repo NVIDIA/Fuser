@@ -16,6 +16,7 @@
 #include <ir/utils.h>
 #include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
+#include <ops/arith.h>
 #include <options.h>
 
 #include <sstream>
@@ -1382,6 +1383,52 @@ class AllocationReuseModifier : private kir::ExprMutator {
   std::unordered_map<kir::Allocate*, kir::Allocate*> old2new_;
 };
 
+//! Set addresses without any re-use of shared memory. This simply scans
+//! through exprs and each time we find an allocate we increment the current
+//! address by the given amount. We add expressions that align allocations
+//! appropriately depending on datatype.
+class NoReuseSharedMemAllocator : kir::IrVisitor {
+ public:
+  void allocate(std::vector<Expr*>& exprs) {
+    handle(exprs);
+  }
+
+ private:
+  using kir::IrVisitor::handle;
+
+  static Val* alignExpr(Val* addr, int64_t alignment = 16) {
+    if (alignment == 1) {
+      return addr;
+    }
+    auto n_minus_one = IrBuilder::create<Val>(alignment - 1);
+    return bitwise_and(add(addr, n_minus_one), bitwise_not(n_minus_one));
+  }
+
+  void handle(kir::Allocate* alloc) {
+    if (alloc->memoryType() != MemoryType::Shared) {
+      return;
+    }
+
+    const auto buffer_dtype = alloc->buffer()->dtype();
+    const auto dtype_size = dataTypeSize(buffer_dtype);
+
+    auto address = current_offset ? alignExpr(current_offset, dtype_size)
+                                  : FusionGuard::getCurFusion()->zeroVal();
+
+    alloc->setAddress(address);
+
+    auto size_bytes = dtype_size == 1
+        ? alloc->size()
+        : mul(alloc->size(), IrBuilder::create<Val>(dtype_size));
+
+    current_offset =
+        current_offset ? add(current_offset, size_bytes) : alloc->size();
+  }
+
+ private:
+  Val* current_offset = nullptr;
+};
+
 } // namespace
 
 std::vector<Expr*> reuseMemoryAllocations(const std::vector<Expr*>& exprs) {
@@ -1393,7 +1440,12 @@ std::vector<Expr*> reuseMemoryAllocations(const std::vector<Expr*>& exprs) {
 
   ReusableAllocationFinder::find(exprs, allocation_info_map);
 
-  return AllocationReuseModifier::modify(exprs, allocation_info_map);
+  auto aliased_exprs =
+      AllocationReuseModifier::modify(exprs, allocation_info_map);
+
+  NoReuseSharedMemAllocator().allocate(aliased_exprs);
+
+  return aliased_exprs;
 }
 
 } // namespace nvfuser

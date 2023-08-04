@@ -2782,17 +2782,16 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
                    << "\n";
           break;
         case MemoryType::Shared:
-          // Align Offset Position
-          indent() << "smem_offset = alignBufferSize(smem_offset, "
-                   // Always align to 128b / 16B
-                   << 16 << ");\n";
+          // Assume we have already aligned offsets to 16B
+          TORCH_CHECK(
+              alloc->address() != nullptr,
+              "Allocation did not receive an address: ",
+              alloc->toString());
           // Shared Memory Pointer
           indent() << buffer_dtype << "* " << genVariableName(tv)
                    << " = reinterpret_cast<" << buffer_dtype << "*>"
-                   << "(array + smem_offset);\n";
-          // Increment Offset Position
-          indent() << "smem_offset += (" << genInline(size) << " * sizeof("
-                   << buffer_dtype << "));\n";
+                   << "(array + smem_offset + " << genInline(alloc->address())
+                   << ");\n";
           break;
         case MemoryType::Local: {
           auto va = kernel_->summary().vectorized_accesses;
