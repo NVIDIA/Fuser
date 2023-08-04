@@ -325,6 +325,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
             smem_buf_size = smem_buf_size_with_outer_opt.str();
           }
           indent() << "smem_offset += " << smem_buf_size << ";\n";
+          // Ensure that smem_offset remains 16-byte aligned, like shared_mem
+          indent() << "smem_offset = alignBufferSize(smem_offset, 16);\n";
         }
 
         if (has_parallel_welford) {
