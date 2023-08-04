@@ -611,7 +611,7 @@ std::vector<ViewOp*> getViewOps(Fusion* fusion) {
   return view_ops;
 }
 
-Val* replaceValInIndexVal(
+Val* replaceValInDef(
     Val* val,
     const std::unordered_map<Val*, Val*>& replacement_map) {
   if (replacement_map.find(val) != replacement_map.end()) {
@@ -630,7 +630,7 @@ Val* replaceValInIndexVal(
   std::vector<Val*> mutated_inputs;
   mutated_inputs.reserve(def->inputs().size());
   for (auto input : def->inputs()) {
-    auto new_input = replaceValInIndexVal(input, replacement_map);
+    auto new_input = replaceValInDef(input, replacement_map);
     if (new_input != input) {
       mutated = true;
     }
@@ -641,7 +641,7 @@ Val* replaceValInIndexVal(
   mutated_attrs.reserve(def->attributes().size());
   for (auto attr : def->attributes()) {
     if (auto attr_val = dynamic_cast<Val*>(attr)) {
-      auto new_attr_val = replaceValInIndexVal(attr_val, replacement_map);
+      auto new_attr_val = replaceValInDef(attr_val, replacement_map);
       if (new_attr_val != attr_val) {
         mutated = true;
       }

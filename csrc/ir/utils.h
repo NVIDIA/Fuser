@@ -181,7 +181,7 @@ TORCH_CUDA_CU_API Expr* replaceValInExpr(
 //! cloned such that no other exprs using the same leaf Vals are not
 //! modified. TODO: Consider cleaning up the multiple replacement
 //! routines.
-Val* replaceValInIndexVal(
+Val* replaceValInDef(
     Val* val,
     const std::unordered_map<Val*, Val*>& replacement_map);
 
