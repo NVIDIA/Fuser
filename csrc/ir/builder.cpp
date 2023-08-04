@@ -482,7 +482,7 @@ Val* SimplifyingIrBuilder::bitwiseAndExpr(Val* lhs, Val* rhs) {
   if (lhs_zero || rhs_zero) {
     return FusionGuard::getCurFusion()->zeroVal();
   } else if (lhs_all_ones && rhs_all_ones) {
-    return IrBuilder::IrBuilder::create<Val>(-1, lhs->dtype());
+    return IrBuilder::IrBuilder::create<Val>((int64_t)-1, lhs->dtype());
   } else if (lhs_all_ones) {
     return rhs_scalar;
   } else if (rhs_all_ones) {
@@ -520,7 +520,7 @@ Val* SimplifyingIrBuilder::bitwiseOrExpr(Val* lhs, Val* rhs) {
   }
 
   if (lhs_all_ones || rhs_all_ones) {
-    return IrBuilder::IrBuilder::create<Val>(-1, lhs->dtype());
+    return IrBuilder::IrBuilder::create<Val>((int64_t)-1, lhs->dtype());
   } else if (lhs_zero && rhs_zero) {
     return FusionGuard::getCurFusion()->zeroVal();
   } else if (lhs_zero) {

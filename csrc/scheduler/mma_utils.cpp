@@ -64,6 +64,7 @@ bool generateSharedMemoryEpilogueHeuristics(
   const auto blocks_per_sm_with_smem_epilogue = std::min(
       shared_memory_available / (smem_a + smem_b + smem_c),
       (size_t)blocks_per_sm_by_register);
+
   return blocks_per_sm_with_smem_epilogue ==
       blocks_per_sm_without_smem_epilogue;
 }

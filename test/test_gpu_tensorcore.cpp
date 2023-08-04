@@ -4227,7 +4227,6 @@ TEST_F(NVFuserTest, FusionMatmulSchedulerEpilogueAlphaBetaGeluOutputCast_CUDA) {
 // Matmul test that relies on segmenter for fusion for Ampere:
 //  D = (A x B) + bias
 TEST_F(NVFuserTest, FusionMatmulSchedulerEpilogueBias_CUDA) {
-  GTEST_SKIP() << "https://github.com/NVIDIA/Fuser/issues/682";
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 9, 0);
   const auto layout = MatmulLayout::TT;
   auto fusion = std::make_unique<Fusion>();
@@ -4299,7 +4298,6 @@ TEST_F(NVFuserTest, FusionMatmulSchedulerEpilogueBias_CUDA) {
 // Matmul test that relies on segmenter for fusion for Ampere:
 //  D = alpha * ((A x B) + bias) + beta * C
 TEST_F(NVFuserTest, FusionMatmulSchedulerEpilogueAlphaBetaBias_CUDA) {
-  GTEST_SKIP() << "https://github.com/NVIDIA/Fuser/issues/682";
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 9, 0);
   const auto layout = MatmulLayout::TT;
   auto fusion = std::make_unique<Fusion>();

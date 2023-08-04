@@ -608,7 +608,9 @@ void scheduleOutputTensor(
 //! Propagates transformations from fusion output to fusion tv inputs that are
 //!  producers in the epilogue. Transformations' propagation aims at input tvs
 //!  which are not assigned to core roles, that is, are not MMA inputs.
-void scheduleFusionInputsForEpilogue(const mma_utils::RolesMap& roles_map) {
+void scheduleFusionInputsForEpilogue(
+    const mma_utils::RolesMap& roles_map,
+    const bool with_smem_epilogue) {
   std::vector<TensorView*> cached_tvs;
 
   // Handling transformations in fusion input tvs with assigned INPUT_C role by
@@ -628,7 +630,19 @@ void scheduleFusionInputsForEpilogue(const mma_utils::RolesMap& roles_map) {
 
     scheduler_utils::BoundedDirectionalTransformPropagator::backward(
         output_d, -1, c_tvs);
-    scheduler_utils::parallelizeAllLike(output_d, -1, cached_tvs);
+
+    std::unordered_set<ParallelType> parallel_types = {};
+    if (with_smem_epilogue) {
+      //! In cases where smem epilogue feature is enabled, the vectorization of
+      //!  domains will be propagated to fusion inputs that are epilogue inputs,
+      //!  this may result in unaligned memory reads. Vectorization is
+      //!  explicitly excluded form parallelization types to avoid this issue.
+      //! This should be changed when vectorization analysis is available and
+      //!  enabled for matmul scheduler.
+      parallel_types = allParallelTypesExcept({ParallelType::Vectorize});
+    }
+    scheduler_utils::parallelizeAllLike(
+        output_d, -1, cached_tvs, parallel_types);
 
     // The cached INPUT_C tvs are not needed anymore
     cached_tvs.clear();
@@ -986,7 +1000,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   //  operations, input tvs with non-core roles
   //  core roles: essential for matmul, for example mma inputs' producers
   if (has_non_mma_input_tvs) {
-    scheduleFusionInputsForEpilogue(roles_map);
+    scheduleFusionInputsForEpilogue(roles_map, params.use_smem_epilogue);
   }
 
   // auto inline for all tensors except register tensors and output tensor
