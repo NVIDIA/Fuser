@@ -307,7 +307,7 @@ Val* IrContainer::trueVal() {
 NamedScalar* IrContainer::magicZeroVal() {
   if (!magic_zero_val_) {
     auto magic_zero =
-        IrBuilder::create<NamedScalar>(kMagicZeroName, DataType::Int);
+        IrBuilder::create<NamedScalar>(kMagicZeroName, DataType::Index);
     TORCH_INTERNAL_ASSERT(vals_up_.back().get() == magic_zero);
     magic_zero_val_ = std::unique_ptr<NamedScalar>(
         vals_up_.back().release()->as<NamedScalar>());
