@@ -2508,19 +2508,18 @@ TEST_F(NVFuserTest, TransposeVectorizationWidth1_CUDA) {
 
   auto runtime = executor_cache.getMostRecentKernelRuntime();
   TORCH_CHECK(!runtime->isSegmented(), "Segmentation not expected");
-  auto scheduler = 
-      runtime->schedulerHeuristics()->heuristicsList().at(0).get();
+  auto scheduler = runtime->schedulerHeuristics()->heuristicsList().at(0).get();
   auto heuristic = scheduler->heuristic();
   TORCH_CHECK(
       heuristic == ScheduleHeuristic::Transpose,
       "Unexpected heuristic: ",
       heuristic);
   TORCH_CHECK(
-       scheduler->transposeParams().vectorize_factor1 == 4,
-       "expecting vectorization for group 1 to be 4");
+      scheduler->transposeParams().vectorize_factor1 == 4,
+      "expecting vectorization for group 1 to be 4");
   TORCH_CHECK(
-       scheduler->transposeParams().vectorize_factor2 == 4,
-       "expecting vectorization for group 1 to be 4");
+      scheduler->transposeParams().vectorize_factor2 == 4,
+      "expecting vectorization for group 1 to be 4");
 
   auto ref = t0.transpose(0, 4).transpose(1, 3);
 
@@ -2554,20 +2553,19 @@ TEST_F(NVFuserTest, TransposeVectorizationWidth2_CUDA) {
 
   auto runtime = executor_cache.getMostRecentKernelRuntime();
   TORCH_CHECK(!runtime->isSegmented(), "Segmentation not expected");
-  auto scheduler = 
-      runtime->schedulerHeuristics()->heuristicsList().at(0).get();
+  auto scheduler = runtime->schedulerHeuristics()->heuristicsList().at(0).get();
   auto heuristic = scheduler->heuristic();
   TORCH_CHECK(
       heuristic == ScheduleHeuristic::Transpose,
       "Unexpected heuristic: ",
       heuristic);
   TORCH_CHECK(
-       // TODO: vectorization considering split should bump this to 4
-       scheduler->transposeParams().vectorize_factor1 == 2,
-       "expecting vectorization for group 1 to be 4");
+      // TODO: vectorization considering split should bump this to 4
+      scheduler->transposeParams().vectorize_factor1 == 2,
+      "expecting vectorization for group 1 to be 4");
   TORCH_CHECK(
-       scheduler->transposeParams().vectorize_factor2 == 4,
-       "expecting vectorization for group 1 to be 4");
+      scheduler->transposeParams().vectorize_factor2 == 4,
+      "expecting vectorization for group 1 to be 4");
 
   auto ref = t0.transpose(1, 4).transpose(0, 3);
 
