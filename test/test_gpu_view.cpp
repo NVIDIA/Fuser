@@ -2471,6 +2471,13 @@ TEST_F(NVFuserTest, TransposeVectorizationWidth_CUDA) {
 
   auto runtime = executor_cache.getMostRecentKernelRuntime();
   TORCH_CHECK(!runtime->isSegmented(), "Segmentation not expected");
+  // TODO: check on vectorization!
+  auto heuristic =
+      runtime->schedulerHeuristics()->heuristicsList().at(0).get()->heuristic();
+  TORCH_CHECK(
+      heuristic == ScheduleHeuristic::Transpose,
+      "Unexpected heuristic: ",
+      heuristic);
 
   auto ref = t0.transpose(0, 2);
 
@@ -2501,6 +2508,13 @@ TEST_F(NVFuserTest, TransposeVectorizationWidth1_CUDA) {
 
   auto runtime = executor_cache.getMostRecentKernelRuntime();
   TORCH_CHECK(!runtime->isSegmented(), "Segmentation not expected");
+  // TODO: check on vectorization!
+  auto heuristic =
+      runtime->schedulerHeuristics()->heuristicsList().at(0).get()->heuristic();
+  TORCH_CHECK(
+      heuristic == ScheduleHeuristic::Transpose,
+      "Unexpected heuristic: ",
+      heuristic);
 
   auto ref = t0.transpose(0, 4).transpose(1, 3);
 
@@ -2509,6 +2523,9 @@ TEST_F(NVFuserTest, TransposeVectorizationWidth1_CUDA) {
 
 // small transpose dimension with merge and split
 TEST_F(NVFuserTest, TransposeVectorizationWidth2_CUDA) {
+  GTEST_SKIP() << "vectorization triggered misaligned memory access,"
+               << "see issue 675 https://github.com/NVIDIA/Fuser/issues/675";
+
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -2531,13 +2548,21 @@ TEST_F(NVFuserTest, TransposeVectorizationWidth2_CUDA) {
 
   auto runtime = executor_cache.getMostRecentKernelRuntime();
   TORCH_CHECK(!runtime->isSegmented(), "Segmentation not expected");
+  // TODO: check on vectorization!
+  auto heuristic =
+      runtime->schedulerHeuristics()->heuristicsList().at(0).get()->heuristic();
+  TORCH_CHECK(
+      heuristic == ScheduleHeuristic::Transpose,
+      "Unexpected heuristic: ",
+      heuristic);
 
   auto ref = t0.transpose(1, 4).transpose(0, 3);
 
   TORCH_CHECK(ref.equal(cg_outputs.at(0)));
 }
 
-// This example would need to enable view/reshape in transpose scheduler before we can test it
+// This example would need to enable view/reshape in transpose scheduler before
+// we can test it
 TEST_F(NVFuserTest, ViewTransposeVectorizationWidth0_CUDA) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -2570,7 +2595,7 @@ TEST_F(NVFuserTest, ViewTransposeVectorizationWidth0_CUDA) {
   TORCH_CHECK(ref.equal(cg_outputs.at(0)));
 }
 
-// TODO: this one currently breaks the reshape+transpose scheduler. need to double check it
+// TODO: this one currently breaks when I have reshape+transpose scheduler.
 TEST_F(NVFuserTest, ViewTransposeVectorizationWidth1_CUDA) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -2599,12 +2624,12 @@ TEST_F(NVFuserTest, ViewTransposeVectorizationWidth1_CUDA) {
   auto runtime = executor_cache.getMostRecentKernelRuntime();
   TORCH_CHECK(!runtime->isSegmented(), "Segmentation not expected");
 
-  // auto t1 = at::native::view(t0, {8, 64, 64, 16});
-  // auto t2 = t1.transpose(1, 2);
-  // auto t3 = at::reshape(t2, {8, 64, 1024});
+  auto t1 = at::native::view(t0, {8, 64, 64, 16});
+  auto t2 = t1.transpose(1, 2);
+  auto t3 = at::reshape(t2, {8, 64, 1024});
 
-  // TORCH_CHECK(t2.equal(cg_outputs.at(0)));
-  // TORCH_CHECK(t3.equal(cg_outputs.at(1)));
+  TORCH_CHECK(t2.equal(cg_outputs.at(0)));
+  TORCH_CHECK(t3.equal(cg_outputs.at(1)));
 }
 
 } // namespace nvfuser

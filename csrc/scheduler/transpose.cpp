@@ -716,27 +716,38 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
 
   // Note: [Computing Vectorization Width for Transpose]
   //
-  // With support of small transpose dimension (see Note [Supporting small transpose dimensions]), we need to consider the transformation applied on our tile to compute the safe vectorization width.
-  // e.g.
-  // For a simple transpose:
+  // With support of small transpose dimension (see Note [Supporting small
+  // transpose dimensions]), we need to consider the transformation applied on
+  // our tile to compute the safe vectorization width. e.g. For a simple
+  // transpose:
   //    (i0, i1, i2, i3, i4) size (2, 3, 65536, 4, 7)
   // -> (i3, i4, i2, i0, i1)
   //
-  // transpose scheduler would apply transformation and tile on virtual innermost dimensions.
-  // ( (i0*i1*i2/2), (2*i3*i4)/32)
-  // So we need to use the size of the virtual innermost dimensions to compute our vectorization width. In the example above, we are looking at 2*3*65536/2, 2*4*7.
+  // transpose scheduler would apply transformation and tile on virtual
+  // innermost dimensions. ( (i0*i1*i2/2), (2*i3*i4)/32) So we need to use the
+  // size of the virtual innermost dimensions to compute our vectorization
+  // width. In the example above, we are looking at 2*3*65536/2, 2*4*7.
   //
-  // Currently there's limitation on our iter domain mapping. Since we can only do it on rfactor/root domain, we cannot map across `split` domains.
-  // So the example above will only have vectorization size of 2 and 4 repsectively for the merge virtual innermost dimensions, rather than considering the split and merged i2/2 & 2.
+  // Currently there's limitation on our iter domain mapping. Since we can only
+  // do it on rfactor/root domain, we cannot map across `split` domains. So the
+  // example above will only have vectorization size of 2 and 4 repsectively for
+  // the merge virtual innermost dimensions, rather than considering the split
+  // and merged i2/2 & 2.
   //
-  // TODO: We use ContiguousInnerDimensionsMapper to compute the size of virtual innermost dimension. The analysis right now is limited on rfactor domain only, so we can't actually map the `split` iter domains, which limits the vectorization width we can apply. We need to fix that.
-  // TODO 2: Small transpose dimensions transformation should also consider the vectorization impact. i.e. when split_before_tiling, we should try to split on a factor that allows vectorization.
+  // TODO: We use ContiguousInnerDimensionsMapper to compute the size of virtual
+  // innermost dimension. The analysis right now is limited on rfactor domain
+  // only, so we can't actually map the `split` iter domains, which limits the
+  // vectorization width we can apply. We need to fix that.
+  // TODO 2: Small transpose dimensions transformation should also consider the
+  // vectorization impact. i.e. when split_before_tiling, we should try to split
+  // on a factor that allows vectorization.
   {
     // Compute maximum vectorize factor that can be used
     int64_t vectorize_factor1 = max_unroll_factor;
     int64_t vectorize_factor2 = max_unroll_factor;
 
-    // duplicating reference1's TensorDomain, since the transformations applied is not persistent and only needed for us to compute vectorization width.
+    // duplicating reference1's TensorDomain, since the transformations applied
+    // is not persistent and only needed for us to compute vectorization width.
     TensorDomain* cloned_1_td = IrBuilder::create<TensorDomain>(
         reference1->container(),
         reference1->getRootDomain(),
@@ -744,62 +755,90 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
         reference1->getAllocationDomain(),
         reference1->getLeafDomain(),
         reference1->domain()->contiguity());
-    // Adding a domain_guard so we can transform reference1 
+    // Adding a domain_guard so we can transform reference1
     ir_utils::TVDomainGuard domain_guard(reference1, cloned_1_td);
 
-    // we only apply split here, since we want to merge split dimensions, we can simply map those merged domains via ContiguousInnerDimensionsMapper
+    // we only apply split here, since we want to merge split dimensions, we can
+    // simply map those merged domains via ContiguousInnerDimensionsMapper
     scheduler_utils::splitDims(reference1, params->split_before_tiling);
 
     std::vector<IterDomain*> virtual_innermost1;
-    virtual_innermost1.push_back(reference1->getMaybeRFactorDomain()[inner_most_pos1_in_ref1]);
+    virtual_innermost1.push_back(
+        reference1->getMaybeRFactorDomain()[inner_most_pos1_in_ref1]);
     for (const auto& dim : params->dims_merged_with_1) {
-      if (std::find(reference1->getMaybeRFactorDomain().begin(),
-                    reference1->getMaybeRFactorDomain().end(),
-                    reference1->axis(dim)) != reference1->getMaybeRFactorDomain().end()) {
+      if (std::find(
+              reference1->getMaybeRFactorDomain().begin(),
+              reference1->getMaybeRFactorDomain().end(),
+              reference1->axis(dim)) !=
+          reference1->getMaybeRFactorDomain().end()) {
         virtual_innermost1.push_back(reference1->axis(dim));
       }
     }
 
-    // NOTE: do I need to consider stride here?! sounds like ContiguousInnerDimensionsMapper::map requires reference1 to be contiguous, but does it handle stride order?
-    auto group1_contig_inner_map = vectorize_helper::ContiguousInnerDimensionsMapper::map(reference1, virtual_innermost1).getTvToContigMergeOfInnerSizeMap();
+    // NOTE: do I need to consider stride here?! sounds like
+    // ContiguousInnerDimensionsMapper::map requires reference1 to be
+    // contiguous, but does it handle stride order?
+    auto group1_contig_inner_map =
+        vectorize_helper::ContiguousInnerDimensionsMapper::map(
+            reference1, virtual_innermost1)
+            .getTvToContigMergeOfInnerSizeMap();
     for (auto tv : grouped_inputs_outputs[0]) {
       auto inner_size_it = group1_contig_inner_map.find(tv);
-      auto tv_vectorize_factor_opt = inner_size_it == group1_contig_inner_map.end() ? 1 :
-          runtime_info.expressionEvaluator().evaluate(inner_size_it->second);
-      // TODO: Do not assert here. we can just reduce vectorization size to 1 if we can't infer an inner size.
+      auto tv_vectorize_factor_opt =
+          inner_size_it == group1_contig_inner_map.end()
+          ? 1
+          : runtime_info.expressionEvaluator().evaluate(inner_size_it->second);
+      // TODO: Do not assert here. we can just reduce vectorization size to 1 if
+      // we can't infer an inner size.
       TORCH_INTERNAL_ASSERT(
           tv_vectorize_factor_opt.hasValue(),
           "Vectorization heuristic could not evaluate inner most size.");
       int64_t tv_vectorize_factor = tv_vectorize_factor_opt.as<int64_t>();
-      vectorize_factor1 = std::min(vectorize_factor1, scheduler_utils::maxVectorizationWidth(tv_vectorize_factor));
+      vectorize_factor1 = std::min(
+          vectorize_factor1,
+          scheduler_utils::maxVectorizationWidth(tv_vectorize_factor));
     }
 
-    // find the virtual_innermost dimension in reference2 so we can later map that to individuals in group2.
+    // find the virtual_innermost dimension in reference2 so we can later map
+    // that to individuals in group2.
     std::vector<IterDomain*> virtual_innermost2;
-    // NOTE: mapping from reference1's iter domain to reference2 needs to be done smarter. I suspect getMappedRootDimIn doesn't handle merge/split properly. See the TODO in Note: [Computing Vectorization Width for Transpose]
-    if (auto mapped_id = domain_map.getMappedRootDimIn(reference2, reference1->getMaybeRFactorDomain()[inner_most_pos2_in_ref1])) {
+    // NOTE: mapping from reference1's iter domain to reference2 needs to be
+    // done smarter. I suspect getMappedRootDimIn doesn't handle merge/split
+    // properly. See the TODO in Note: [Computing Vectorization Width for
+    // Transpose]
+    if (auto mapped_id = domain_map.getMappedRootDimIn(
+            reference2,
+            reference1->getMaybeRFactorDomain()[inner_most_pos2_in_ref1])) {
       virtual_innermost2.push_back(mapped_id);
     }
     for (const auto& dim : params->dims_merged_with_2) {
-      if (auto mapped_id = domain_map.getMappedRootDimIn(reference2, reference1->axis(dim))) {
+      if (auto mapped_id = domain_map.getMappedRootDimIn(
+              reference2, reference1->axis(dim))) {
         virtual_innermost2.push_back(mapped_id);
       }
     }
 
-    auto group2_contig_inner_map = vectorize_helper::ContiguousInnerDimensionsMapper::map(reference2, virtual_innermost2).getTvToContigMergeOfInnerSizeMap();
+    auto group2_contig_inner_map =
+        vectorize_helper::ContiguousInnerDimensionsMapper::map(
+            reference2, virtual_innermost2)
+            .getTvToContigMergeOfInnerSizeMap();
     // TODO: Since group2 only has global->shared and shared->global set op, we
-    // can have fine-grained control of unroll/vectorization at per tensor level.
-    // We should not be using a single global vectorize factor for the entire
-    // group 2
+    // can have fine-grained control of unroll/vectorization at per tensor
+    // level. We should not be using a single global vectorize factor for the
+    // entire group 2
     for (auto tv : grouped_inputs_outputs[1]) {
       auto inner_size_it = group2_contig_inner_map.find(tv);
-      auto tv_vectorize_factor_opt = inner_size_it == group2_contig_inner_map.end() ? 1 :
-          runtime_info.expressionEvaluator().evaluate(inner_size_it->second);
+      auto tv_vectorize_factor_opt =
+          inner_size_it == group2_contig_inner_map.end()
+          ? 1
+          : runtime_info.expressionEvaluator().evaluate(inner_size_it->second);
       TORCH_INTERNAL_ASSERT(
           tv_vectorize_factor_opt.hasValue(),
           "Vectorization heuristic could not evaluate inner most size.");
       int64_t tv_vectorize_factor = tv_vectorize_factor_opt.as<int64_t>();
-      vectorize_factor2 = std::min(vectorize_factor2, scheduler_utils::maxVectorizationWidth(tv_vectorize_factor));
+      vectorize_factor2 = std::min(
+          vectorize_factor2,
+          scheduler_utils::maxVectorizationWidth(tv_vectorize_factor));
     }
 
     params->vectorize_factor1 = scheduler_utils::lastPow2(
