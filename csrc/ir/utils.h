@@ -173,14 +173,14 @@ TORCH_CUDA_CU_API Expr* replaceValInExpr(
     Val* reference,
     Val* substitute);
 
-//! Replace Vals in the definition of the given Val as specified by
-//! replacement_map while cloning the given Val.
+//! Recursively goes to the definition of the given Val and replace the Vals as
+//! specified by replacement_map while cloning the given Val.
 //!
 //! This is similar to replaceValInExpr but is different as Vals are
 //! cloned such that no other exprs using the same leaf Vals are not
 //! modified. TODO: Consider cleaning up the multiple replacement
 //! routines.
-Val* replaceValInDef(
+Val* replaceValRecursively(
     Val* val,
     const std::unordered_map<Val*, Val*>& replacement_map);
 
