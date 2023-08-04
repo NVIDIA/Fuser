@@ -2627,9 +2627,10 @@ TEST_F(NVFuserTest, ViewTransposeVectorizationWidth1_CUDA) {
   auto t1 = at::native::view(t0, {8, 64, 64, 16});
   auto t2 = t1.transpose(1, 2);
   auto t3 = at::reshape(t2, {8, 64, 1024});
+  auto t4 = t1.transpose(0, 3);
 
-  TORCH_CHECK(t2.equal(cg_outputs.at(0)));
-  TORCH_CHECK(t3.equal(cg_outputs.at(1)));
+  TORCH_CHECK(t3.equal(cg_outputs.at(0)));
+  TORCH_CHECK(t4.equal(cg_outputs.at(1)));
 }
 
 } // namespace nvfuser
