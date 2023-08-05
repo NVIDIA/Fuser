@@ -556,8 +556,9 @@ enum class UnaryOpType {
   // Tools to help debugging
   Print,
 
-  // Might be a bitwise operator or boolean operator.
-  Not,
+  // Logical and bitwise negation
+  LogicalNot,
+  BitwiseNot,
 
   // Operators returning boolean values
   IsFinite,
@@ -591,12 +592,19 @@ enum class BinaryOpType {
   Sub,
   // TypeAs,
 
-  // Integer output ops. If changing modify isIntegerOp
+  // Integer output ops.
   Mod,
   CeilDiv,
   Lshift,
   Rshift,
   Gcd,
+
+  // Bitwise Ops
+  // These always return integers, as if each arg is first cast to int
+  //  If changing modify isIntegerOp.
+  BitwiseAnd,
+  BitwiseOr,
+  BitwiseXor,
 
   // Logical Ops
   // Int operations, leave position of Mod as first logical op see
@@ -608,12 +616,9 @@ enum class BinaryOpType {
   LT,
   NE,
 
-  // Maybe bitwise or boolean op, leave position of and as first bool/int
-  // op. These are ops that have different operators based on output type. See
-  // is boolean op. These ops also don't work on floating point inputs.
-  And,
-  Or,
-  Xor,
+  // These ops compare as if each arg is first cast to bool
+  LogicalAnd,
+  LogicalOr,
 
   // generate complex from real and imaginary parts
   Complex

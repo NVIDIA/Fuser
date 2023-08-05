@@ -498,12 +498,7 @@ void BinaryOp::printHelper(
     ss << " " << inline_bop.value() << " ";
     ss << rhs;
   } else {
-    if (alsoBooleanOperator(op_type) &&
-        out()->getDataType().value() == DataType::Bool) {
-      ss << stringifyBooleanOp(op_type);
-    } else {
-      ss << op_type;
-    }
+    ss << op_type;
     if (out()->getDataType().value() == DataType::Float &&
         needFloatSuffix(op_type)) {
       ss << "f";

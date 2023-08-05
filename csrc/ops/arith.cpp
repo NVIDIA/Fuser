@@ -907,10 +907,43 @@ NVFUSER_DEFINE_BINARY_CAST_OP(sub, Sub)
         BinaryOpType::op_type, v1, v2, TypePromotion::default_op_config);   \
   }
 
-NVFUSER_DEFINE_BITWISE_OP(bitwise_and, And)
-NVFUSER_DEFINE_BITWISE_OP(bitwise_or, Or)
-NVFUSER_DEFINE_BITWISE_OP(bitwise_xor, Xor)
+NVFUSER_DEFINE_BITWISE_OP(bitwise_and, BitwiseAnd)
+NVFUSER_DEFINE_BITWISE_OP(bitwise_or, BitwiseOr)
+namespace {
+NVFUSER_DEFINE_BITWISE_OP(bitwise_xor_helper, Xor)
+}
 #undef NVFUSER_DEFINE_BITWISE_OP
+
+// The following functions dispatch to ne if bitwise_xor is called with all bool
+// args
+Val* bitwise_xor(Val* v1, Val* v2) {
+  if (v1->getDataType() == DataType::Bool &&
+      v2->getDataType() == DataType::Bool) {
+    return ne(v1, v2);
+  }
+  return bitwise_xor_helper(v1, v2);
+}
+TensorView* bitwise_xor(TensorView* v1, Val* v2) {
+  if (v1->getDataType() == DataType::Bool &&
+      v2->getDataType() == DataType::Bool) {
+    return ne(v1, v2);
+  }
+  return bitwise_xor_helper(v1, v2);
+}
+TensorView* bitwise_xor(Val* v1, TensorView* v2) {
+  if (v1->getDataType() == DataType::Bool &&
+      v2->getDataType() == DataType::Bool) {
+    return ne(v1, v2);
+  }
+  return bitwise_xor_helper(v1, v2);
+}
+TensorView* bitwise_xor(TensorView* v1, TensorView* v2) {
+  if (v1->getDataType() == DataType::Bool &&
+      v2->getDataType() == DataType::Bool) {
+    return ne(v1, v2);
+  }
+  return bitwise_xor_helper(v1, v2);
+}
 
 #define NVFUSER_DEFINE_INT_ONLY_OP(op_name, op_type)                      \
   Val* op_name(Val* v1, Val* v2) {                                        \
