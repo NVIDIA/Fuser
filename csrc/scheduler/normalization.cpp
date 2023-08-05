@@ -534,11 +534,11 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
 
   if (target_blocks * target_unroll * target_iterations < n_elems) {
     if (outer_reduction_numel == 1) {
-      // set to hardware limit to use small persistent buffer for large
-      // reductions
+      // set to half of hardware limit to avoid very small persistent buffers
+      // with large threads per block.
       max_threads_in_block = std::min(
           ceilDiv(n_elems, target_blocks * target_unroll),
-          (int64_t)dev_prop->maxThreadsPerBlock);
+          (int64_t)dev_prop->maxThreadsPerBlock / 2);
     } else {
       // targetting 4 waves, so try to use a quarter of available threads
       max_threads_in_block = std::min(
@@ -550,8 +550,8 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
   // Round up to nearest warp.
   if (max_threads_in_block % warp_size != 0) {
     max_threads_in_block += warp_size - max_threads_in_block % warp_size;
-    max_threads_in_block =
-        std::min(max_threads_in_block, (int64_t)dev_prop->maxThreadsPerBlock);
+    max_threads_in_block = std::min(
+        max_threads_in_block, (int64_t)dev_prop->maxThreadsPerBlock / 2);
   }
   // Compute maximum number of reductions we could do in the same kernel based
   // on persistent buffer size. Bounded by the wave count for utilization of
@@ -704,30 +704,70 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
       outer_reduction_numel,
       outer_reduction_unroll_factor * batches_per_block_outer_reduction);
 
-  // Try moving persistent buffer factors into threads until we have too many
-  // threads.
-  constexpr int batches_per_block_inner_reduction_max = 10;
+  // Start from small bdimx and large batch. If occupancy is lower than 24 warps
+  // per sm, reduce batch size and increase bdimx, until we have enough
+  // occupancy. The occupancy estimation is based on register usage and the
+  // maximum allowed adjustment is 90%.
+  constexpr double max_adjust_fraction = 0.9;
+  constexpr int64_t warps_per_sm_min = 24;
+
+  const int64_t register_per_batch = ceilDiv(
+      max_persistent_buffer_size / inner_most_dimension_numel *
+          inner_reduction_unroll_factor,
+      scheduler_utils::bytes_per_register);
+  const int64_t after_vect =
+      inner_most_dimension_numel / inner_reduction_unroll_factor;
+  const int64_t batch_min = ceilDiv(after_vect, max_threads_in_block);
+
+  // batch --> register and threads  --> threads_per_sm --> blocks_per_sm
+  auto getWarpsPerSMGivenBatchSize = [&bdimy,
+                                      &bdimz,
+                                      &register_per_batch,
+                                      &after_vect,
+                                      &dev_prop,
+                                      &max_adjust_fraction](int64_t batch) {
+    const int64_t estimated_register_count =
+        scheduler_utils::register_overhead + register_per_batch * batch;
+    const int64_t register_count_minimum = static_cast<int64_t>(
+        max_adjust_fraction * static_cast<double>(estimated_register_count));
+    const int64_t bdimx_tmp = ceilDiv(after_vect, batch);
+    const int64_t threads_per_block =
+        ceilDiv(bdimx_tmp * bdimy * bdimz, dev_prop->warpSize) *
+        dev_prop->warpSize;
+    const int64_t warps_per_block =
+        ceilDiv(threads_per_block, dev_prop->warpSize);
+    return getThreadsPerSMGivenRegPerThread(register_count_minimum) /
+        threads_per_block * warps_per_block;
+  };
+
+  // If occupancy is less than 24 warps per sm, check if we can increase
+  // occupancy by decreasing batches_per_block_inner_reduction.
+  int64_t warps_per_sm =
+      getWarpsPerSMGivenBatchSize(batches_per_block_inner_reduction);
+  if (warps_per_sm < warps_per_sm_min) {
+    int64_t batch_tmp = batches_per_block_inner_reduction - 1;
+    while (batch_tmp >= batch_min) {
+      int64_t warps_per_sm_tmp = getWarpsPerSMGivenBatchSize(batch_tmp);
+      if (warps_per_sm_tmp > warps_per_sm) {
+        batches_per_block_inner_reduction = batch_tmp;
+        warps_per_sm = warps_per_sm_tmp;
+        if (warps_per_sm_tmp >= warps_per_sm_min) {
+          break;
+        }
+      }
+      batch_tmp--;
+    }
+  }
+
+  // Try moving outer_reduction persistent buffer factors into threads until we
+  // have too many threads.
   while (
       // If block size can be doubled
       bdimx * bdimy * bdimz * 2 <= max_threads_in_block &&
-      // And batches_per_block_inner_reduction can be divided by two
-      (batches_per_block_inner_reduction >
-           batches_per_block_inner_reduction_max ||
-       batches_per_block_outer_reduction >= 2)) {
-    // Try to decrease per thread register allocation persistence size on inner
-    // reduction by double bdimx.
-    if (batches_per_block_inner_reduction >
-        batches_per_block_inner_reduction_max) {
-      bdimx *= 2;
-      batches_per_block_inner_reduction = ceilDiv(
-          inner_most_dimension_numel, inner_reduction_unroll_factor * bdimx);
-      continue;
-    }
-
+      (batches_per_block_outer_reduction >= 2)) {
     // Try to decrease per thread register allocation persistence size on outer
     // reduction
-    if (batches_per_block_outer_reduction >= 2 &&
-        batches_per_block_outer_reduction !=
+    if (batches_per_block_outer_reduction !=
             scheduler_utils::roundUpPow2Or8(
                 batches_per_block_outer_reduction / 2) &&
         bdimz * 2 <= scheduler_utils::z_block_limit) {
@@ -744,17 +784,6 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
   // Register pressure is really high per thread, which could lead to local
   // memory leaks, if using less than maximum threads, decrease batches per
   // block by a factor of 2
-  if (batches_per_block_outer_reduction * batches_per_block_inner_reduction *
-              inner_reduction_unroll_factor * outer_reduction_unroll_factor *
-              4l >
-          scheduler_utils::max_registers_per_thread * 3l &&
-      bdimx * bdimy * bdimz * 2l <= max_threads_in_block &&
-      batches_per_block_inner_reduction >
-          batches_per_block_inner_reduction_max) {
-    batches_per_block_inner_reduction = batches_per_block_inner_reduction / 2;
-  }
-
-  // Do the same on the outer reduction dimension
   if (batches_per_block_outer_reduction * batches_per_block_inner_reduction *
               inner_reduction_unroll_factor * outer_reduction_unroll_factor *
               4l >
