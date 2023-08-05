@@ -695,7 +695,11 @@ getOptionalInnerOuterPersistentBufferBatches(
   // directly increase threads_per_block from 128 to 256 to avoid intermediate
   // values such as 160, 192, 224, etc. which can only use a portion of all the
   // registers on a SM. Because for these intermediate values, one SM can only
-  // host one block if each thread uses 255 registers.
+  // host one block if each thread uses 255 registers. Due to the change of
+  // persistent batch size, each threads will not always use 255 registers. But
+  // for the layer norm backward case, we only need to increase threads per
+  // block when persistent batch size is larger than 8. So the smallest batch is
+  // ceilDiv(9,2) = 5, which already uses 216 registers on A100.
   int64_t threads_per_block = threads_per_block_min;
   int64_t inner_batch = ceilDiv(after_vectorization, threads_per_block);
   while (inner_batch > batch_max_spill_for_occupancy &&
