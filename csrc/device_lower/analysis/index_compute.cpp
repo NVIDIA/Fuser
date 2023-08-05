@@ -320,6 +320,9 @@ IndexingParameters getPredicateInitialIndexParameters(
   const auto& loops = loop_indexing.loops();
   const auto& loop_domains = loop_indexing.loopDomains();
 
+  // std::cerr << "getPredicateInitial: " << consumer_tv->toString() <<
+  // std::endl;
+
   // This shouldn't be needed.
   TORCH_INTERNAL_ASSERT(
       loops.size() <= loop_domains.size(),
@@ -423,11 +426,16 @@ IndexingParameters getPredicateInitialIndexParameters(
         loop_to_ind_map[loop] = SimplifyingIrBuilder::subExpr(
             loop_id->extent(), GpuLower::current()->kernel()->oneVal());
 
-        if (!loop_id->extent()->isOne() && within_unswitch) {
-          // TODO
-          index_parameters.unswitched_domains.insert(
-              GpuLower::current()->caMap()->getConcreteMappedID(
-                  loop_id, IdMappingMode::EXACT));
+        // TODO: cleanup
+        if (within_unswitch) {
+          if (!(loop_id->start()->isZero() && loop_id->stop()->isOne()) &&
+              (loop_id->getParallelType() == ParallelType::Serial ||
+               loop_id->getParallelType() == ParallelType::Unroll ||
+               loop_id->getParallelType() == ParallelType::Unswitch)) {
+            index_parameters.unswitched_domains.insert(
+                GpuLower::current()->caMap()->getConcreteMappedID(
+                    loop_id, IdMappingMode::EXACT));
+          }
         }
       }
     }
@@ -963,6 +971,8 @@ IndexFromIdGraph getPredicateIndexingFromIdGraph(
   //  traversal info from loop structure.
   auto loop_indexing =
       LoopIndexingAnalysis::fromLoopAndConsumer(loops, consumer_tv);
+
+  // std::cerr << "GetPredicate: " << consumer_tv->toString() << std::endl;
 
   // Bind initial index variables to the loop nodes and adjust
   //  according to loop and unswitch info.

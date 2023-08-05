@@ -341,6 +341,60 @@ Val* getTensorBaseAddress(TensorView* tv) {
 
 } // namespace
 
+Val* IndexCompute::getStrideOfUnswitchedDomain(IterDomain* id) const {
+  auto concrete_id = maybeGetExactMapConcreteID(id);
+  if (auto it = unswitched_domains_.find(concrete_id);
+      it != unswitched_domains_.end()) {
+    return id->fusion()->oneVal();
+  } else if (auto it = unswitched_domain_to_stride_map_.find(concrete_id);
+             it != unswitched_domain_to_stride_map_.end()) {
+    return it->second;
+  } else {
+    return nullptr;
+  }
+}
+
+void IndexCompute::updateUnswitchedDomains(Expr* expr) {
+  // std::cerr << "updateUnswitchedDomains: " << expr->toString();
+  if (auto split = dynamic_cast<Split*>(expr)) {
+    auto split_in = maybeGetExactMapConcreteID(split->in());
+    for (auto split_out : {split->inner(), split->outer()}) {
+      auto out_stride = getStrideOfUnswitchedDomain(split_out);
+      if (out_stride == nullptr) {
+        // std::cerr << "Split out not found: " <<
+        // maybeGetExactMapConcreteID(split_out)->toString() << std::endl;
+        continue;
+      }
+      auto in_stride = split_out == split->inner()
+          ? out_stride
+          : SimplifyingIrBuilder::mulExpr(
+                out_stride, getExtent(split->inner()));
+      unswitched_domain_to_stride_map_[split_in] = in_stride;
+      std::cerr << "Updated stride for split in: " << split_in->toString()
+                << " -> "
+                << "{ "
+                << unswitched_domain_to_stride_map_[split_in]->toInlineString()
+                << " }" << std::endl;
+      return;
+    }
+  } else if (std::any_of(
+                 expr->outputs().begin(),
+                 expr->outputs().end(),
+                 [this](Val* out) {
+                   return out->isA<IterDomain>() &&
+                       getStrideOfUnswitchedDomain(out->as<IterDomain>()) !=
+                       nullptr;
+                 })) {
+    for (auto inp : ir_utils::filterByType<IterDomain>(expr->inputs())) {
+      auto inp_concrete = maybeGetExactMapConcreteID(inp);
+      unswitched_domain_to_stride_map_.emplace(
+          inp_concrete, inp_concrete->fusion()->oneVal());
+      std::cerr << "Updated stride: " << inp_concrete->toString() << " -> 1"
+                << std::endl;
+    }
+  }
+}
+
 void IndexCompute::handle(Split* split) {
   updateUnswitchedDomains(split);
 
@@ -396,28 +450,6 @@ void IndexCompute::handle(Split* split) {
     if (zero_merged_in) {
       extent_map_[in_id] = SimplifyingIrBuilder::mulExpr(
           getExtent(outer_id), getExtent(inner_id));
-    }
-  }
-}
-
-void IndexCompute::updateUnswitchedDomains(Expr* expr) {
-  if (std::any_of(
-          expr->outputs().begin(),
-          expr->outputs().end(),
-          [&](Val* out) -> bool {
-            if (!out->isA<IterDomain>()) {
-              return false;
-            }
-            auto out_id = maybeGetExactMapConcreteID(out->as<IterDomain>());
-            auto out_it = index_map_.find(out_id);
-            if (out_it == index_map_.end()) {
-              return false;
-            }
-            return unswitched_domains_.count(out_id);
-          })) {
-    for (auto inp : ir_utils::filterByType<IterDomain>(expr->inputs())) {
-      auto inp_concrete = maybeGetExactMapConcreteID(inp);
-      unswitched_domains_.insert(inp_concrete);
     }
   }
 }
@@ -563,17 +595,20 @@ void IndexCompute::handle(Merge* merge) {
     index_map_[outer_id] = SimplifyingIrBuilder::divExpr(out_ind, inner_extent);
     Val* inner_ind = nullptr;
     bool enable_war = getenv("WAR");
-    if (unswitched_domains_.count(out_id) && enable_war) {
-      inner_ind = SimplifyingIrBuilder::subExpr(
-          inner_extent, inner_extent->fusion()->oneVal());
-      std::cerr << "Propagating maximum for merge: " << merge->toString()
-                << ", out: " << out_ind->toInlineString()
-                << ", updated inner idx: " << inner_ind->toInlineString()
-                << ", " << inner_id->toString() << std::endl;
-      std::cerr << "Prev: "
-                << SimplifyingIrBuilder::modExpr(out_ind, inner_extent)
-                       ->toInlineString()
-                << std::endl;
+    if (auto it = unswitched_domain_to_stride_map_.find(out_id);
+        it != unswitched_domain_to_stride_map_.end() && enable_war) {
+      auto out_stride = it->second;
+      auto stride_mod =
+          simplifyExpr(SimplifyingIrBuilder::modExpr(out_stride, inner_extent));
+      if (stride_mod->isZero()) {
+        std::cerr << "Not propagating maximum: " << merge->toString();
+        inner_ind = SimplifyingIrBuilder::modExpr(out_ind, inner_extent);
+      } else {
+        inner_ind = SimplifyingIrBuilder::subExpr(
+            inner_extent, inner_extent->fusion()->oneVal());
+        std::cerr << "Propagating maximum for merge: " << merge->toString()
+                  << "\n\t-> " << inner_ind->toInlineString() << std::endl;
+      }
     } else {
       inner_ind = SimplifyingIrBuilder::modExpr(out_ind, inner_extent);
     }
@@ -733,6 +768,8 @@ IndexCompute::IndexCompute(
 }
 
 void IndexCompute::run(const LoopIndexing& loop_indexing) {
+  // std::cout << std::endl;
+  // std::cerr << "IndexCompute::run with loop indexing" << std::endl;
   TORCH_INTERNAL_ASSERT(
       concrete_id_pass_, "concrete pass only for this option");
   // Apply loop swizzles if there are any that outputs to
@@ -759,6 +796,13 @@ void IndexCompute::run(const LoopIndexing& loop_indexing) {
   //  consumers, i.e. the not-inlined loops that define consumer_tv
   //  values.
   collectIndexIntoPermissiveMap(loop_indexing);
+#if 0
+  for (auto unswitched_domain: unswitched_domains_) {
+    std::cerr << "Setting up initial map: " <<unswitched_domain->toString() << std::endl;
+    unswitched_domain_to_stride_map_.emplace(unswitched_domain,
+                                             unswitched_domain->fusion()->oneVal());
+  }
+#endif
 
   // Run through the loop indexing expressions and generate
   //  the indexing integer math for the concrete ids.
@@ -835,11 +879,16 @@ void IndexCompute::updateIndexMapFromPermissiveMap(const Expr* id_expr) {
 
 void IndexCompute::run() {
   const std::vector<Val*> domain_vals(td_->leaf().begin(), td_->leaf().end());
-
+#if 0
+  for (auto unswitched_domain: unswitched_domains_) {
+    unswitched_domain_to_stride_map_.emplace(unswitched_domain,
+                                             unswitched_domain->fusion()->oneVal());
+  }
+#endif
   traverseTo(td_->fusion(), domain_vals, false);
 }
 
-IterDomain* IndexCompute::maybeGetExactMapConcreteID(IterDomain* id) {
+IterDomain* IndexCompute::maybeGetExactMapConcreteID(IterDomain* id) const {
   if (concrete_id_pass_) {
     return GpuLower::current()->caMap()->getConcreteMappedID(
         id, IdMappingMode::EXACT);
@@ -907,7 +956,8 @@ IndexCompute IndexCompute::updateIndexCompute(
         updated_halo_extent_map[new_id] = halo_extent_it->second;
       }
 
-      if (unswitched_domains_.find(prev_id) != unswitched_domains_.end()) {
+      if (auto it = unswitched_domains_.find(prev_id);
+          it != unswitched_domains_.end()) {
         updated_unswitched_domains.emplace(new_id);
       }
     }
