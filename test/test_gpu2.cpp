@@ -5543,7 +5543,7 @@ TEST_F(NVFuserTest, FusionSegmentHorizontalMerge_CUDA) {
   KernelArgumentHolder args;
   args.setDeviceIndex(0);
   args.push(t0);
-  c10::IValue scalar = 1.0;
+  double scalar = 1.0;
   args.push(scalar);
 
   auto segmented_fusion =
@@ -7307,6 +7307,48 @@ TEST_F(NVFuserTest, FusionPredicateElimination8_CUDA) {
       "T6 should not be predicated");
 }
 
+TEST_F(NVFuserTest, FusionPredicateElimination9_CUDA) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const int M = 1024, split = 512;
+
+  // Algorithm
+  auto tv0 = makeContigConcreteTensor({M}, DataType::Float);
+  auto tv1 = set(tv0);
+
+  fusion->addInput(tv0);
+  fusion->addOutput(tv1);
+
+  // Schedule
+  auto tv0c = tv0->cacheAfter();
+  tv0c->setMemoryType(MemoryType::Shared);
+  tv0c->axis(-1)->parallelize(ParallelType::TIDx);
+
+  tv1->split(-1, split);
+  tv1->axis(-1)->parallelize(ParallelType::TIDx);
+
+  // Validation
+  at::manual_seed(0);
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({M}, options);
+
+  GpuLower gpulw(fusion.get());
+  // tv0c expectation: no predicate present as domain with TIDX parallel type
+  //  has the same extend as max extend stored for TIDx type in parallel domain
+  //  map
+  EXPECT_FALSE(PredicatedChecker::isPredicated(tv0c, gpulw));
+  // tv1 expectation: with a predicate, max extend for TIDx parallel type in
+  //  parallel domain map is not the same as the extend of domain parallized
+  //  with TIDx in this tensor
+  EXPECT_TRUE(PredicatedChecker::isPredicated(tv1, gpulw));
+
+  FusionExecutor fe;
+  fe.compileFusion(fusion.get(), {t0});
+  auto cg_outputs = fe.runFusion({t0});
+  testValidate(fusion.get(), cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
+}
+
 TEST_F(NVFuserTest, FusionForceFp16Simple_CUDA) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   auto fusion = fusion_ptr.get();
@@ -8211,12 +8253,10 @@ TEST_F(NVFuserTest, FusionSegmenterCombineReductionsCycleRepro_CUDA) {
   std::vector<at::Tensor> aten_inputs = {
       at_t0, at_t1, at_t3, at_t5, at_t7, at_t11, at_t13, at_t15, at_t17};
 
-  c10::IValue val = at_d56;
-
   KernelArgumentHolder args;
   args.setDeviceIndex(0);
   args.push(aten_inputs);
-  args.push(val);
+  args.push(at_d56);
 
   for (auto i : c10::irange(5)) {
     (void)i; // Suppress unused variable warning

@@ -1570,6 +1570,51 @@ std::vector<Val*> tensor_sizes(TensorView* inp) {
   return sizes;
 }
 
+std::vector<Val*> shape(TensorView* inp) {
+  auto iter_domains = TensorDomain::noReductions(inp->getMaybeRFactorDomain());
+  std::vector<Val*> shape;
+
+  shape.reserve(iter_domains.size());
+  for (auto id : iter_domains) {
+    shape.push_back(id->getMaybeExpandedExtent());
+  }
+
+  return shape;
+}
+
+Val* size(TensorView* inp, int64_t dim) {
+  auto iter_domains = TensorDomain::noReductions(inp->getMaybeRFactorDomain());
+  auto idx = dim;
+  if (idx < 0) {
+    idx = static_cast<int64_t>(iter_domains.size()) + idx;
+  }
+  TORCH_CHECK(
+      (idx >= 0) && (static_cast<size_t>(idx) < iter_domains.size()),
+      __FUNCTION__,
+      ": The dimension requested is beyond the bounds of the shape of the indexed tensor!",
+      " Tensor Dims: ",
+      iter_domains.size(),
+      " Dim: ",
+      dim);
+  return iter_domains.at(idx)->getMaybeExpandedExtent();
+}
+
+Val* at(std::vector<Val*>& inp, int64_t index) {
+  auto idx = index;
+  if (idx < 0) {
+    idx = static_cast<int64_t>(inp.size()) + idx;
+  }
+  TORCH_CHECK(
+      (idx >= 0) && (static_cast<size_t>(idx) < inp.size()),
+      __FUNCTION__,
+      ": The index requested is beyond the bounds of the indexed vector!",
+      " Vector Size: ",
+      inp.size(),
+      " Index: ",
+      index);
+  return inp.at(idx);
+}
+
 WelfordResult WelfordRaw(
     TensorView* tv,
     const std::vector<int>& axes,
