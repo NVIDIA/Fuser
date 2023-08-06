@@ -35,6 +35,8 @@ namespace nvfuser {
 
 namespace {
 
+bool _debug = false;
+
 //! Offset of an index of a producer axis with respect to its
 //! corresponding consumer index
 int getProducerHaloOffset(
@@ -343,12 +345,38 @@ Val* getTensorBaseAddress(TensorView* tv) {
 
 Val* IndexCompute::getStrideOfUnswitchedDomain(IterDomain* id) const {
   auto concrete_id = maybeGetExactMapConcreteID(id);
-  if (auto it = unswitched_domains_.find(concrete_id);
+  if (auto it = unswitched_domain_to_stride_map_.find(concrete_id);
+      it != unswitched_domain_to_stride_map_.end()) {
+    return it->second;
+  } else if (auto it = unswitched_domains_.find(concrete_id);
       it != unswitched_domains_.end()) {
     return id->fusion()->oneVal();
-  } else if (auto it = unswitched_domain_to_stride_map_.find(concrete_id);
-             it != unswitched_domain_to_stride_map_.end()) {
-    return it->second;
+  } else {
+    return nullptr;
+  }
+}
+
+Val* IndexCompute::getStrideOfUnswitchedDomain2(IterDomain* id) const {
+  auto concrete_id = maybeGetExactMapConcreteID(id);
+  if (auto it = unswitched_domain_to_stride_map2_.find(concrete_id);
+      it != unswitched_domain_to_stride_map2_.end()) {
+    return it->second.first;
+  } else if (auto it = unswitched_domains_.find(concrete_id);
+      it != unswitched_domains_.end()) {
+    return id->fusion()->oneVal();
+  } else {
+    return nullptr;
+  }
+}
+
+Val* IndexCompute::getSpanOfUnswitchedDomain(IterDomain* id) const {
+  auto concrete_id = maybeGetExactMapConcreteID(id);
+  if (auto it = unswitched_domain_to_stride_map2_.find(concrete_id);
+      it != unswitched_domain_to_stride_map2_.end()) {
+    return it->second.second;
+  } else if (auto it = unswitched_domains_.find(concrete_id);
+      it != unswitched_domains_.end()) {
+    return getExtent(concrete_id);
   } else {
     return nullptr;
   }
@@ -375,6 +403,49 @@ void IndexCompute::updateUnswitchedDomains(Expr* expr) {
                 << "{ "
                 << unswitched_domain_to_stride_map_[split_in]->toInlineString()
                 << " }" << std::endl;
+      // TORCH_CHECK(false);
+      return;
+    }
+  } else if (std::any_of(
+                 expr->outputs().begin(),
+                 expr->outputs().end(),
+                 [this](Val* out) {
+                   return out->isA<IterDomain>() &&
+                       getStrideOfUnswitchedDomain(out->as<IterDomain>()) !=
+                       nullptr;
+                 })) {
+    for (auto inp : ir_utils::filterByType<IterDomain>(expr->inputs())) {
+      auto inp_concrete = maybeGetExactMapConcreteID(inp);
+      unswitched_domain_to_stride_map_.emplace(
+          inp_concrete, inp_concrete->fusion()->oneVal());
+      std::cerr << "Updated stride: " << inp_concrete->toString() << " -> 1"
+                << std::endl;
+    }
+  }
+}
+
+void IndexCompute::updateUnswitchedDomains2(Expr* expr) {
+  // std::cerr << "updateUnswitchedDomains: " << expr->toString();
+  if (auto split = dynamic_cast<Split*>(expr)) {
+    auto split_in = maybeGetExactMapConcreteID(split->in());
+    for (auto split_out : {split->inner(), split->outer()}) {
+      auto out_stride = getStrideOfUnswitchedDomain(split_out);
+      if (out_stride == nullptr) {
+        // std::cerr << "Split out not found: " <<
+        // maybeGetExactMapConcreteID(split_out)->toString() << std::endl;
+        continue;
+      }
+      auto in_stride = split_out == split->inner()
+          ? out_stride
+          : SimplifyingIrBuilder::mulExpr(
+                out_stride, getExtent(split->inner()));
+      unswitched_domain_to_stride_map_[split_in] = in_stride;
+      std::cerr << "Updated stride for split in: " << split_in->toString()
+                << " -> "
+                << "{ "
+                << unswitched_domain_to_stride_map_[split_in]->toInlineString()
+                << " }" << std::endl;
+      // TORCH_CHECK(false);
       return;
     }
   } else if (std::any_of(
@@ -593,7 +664,7 @@ void IndexCompute::handle(Merge* merge) {
     zero_merged_in_.emplace(outer_id);
   } else {
     index_map_[outer_id] = SimplifyingIrBuilder::divExpr(out_ind, inner_extent);
-    Val* inner_ind = nullptr;
+    Val* inner_ind = SimplifyingIrBuilder::modExpr(out_ind, inner_extent);
     bool enable_war = getenv("WAR");
     if (auto it = unswitched_domain_to_stride_map_.find(out_id);
         it != unswitched_domain_to_stride_map_.end() && enable_war) {
@@ -602,12 +673,14 @@ void IndexCompute::handle(Merge* merge) {
           simplifyExpr(SimplifyingIrBuilder::modExpr(out_stride, inner_extent));
       if (stride_mod->isZero()) {
         std::cerr << "Not propagating maximum: " << merge->toString();
-        inner_ind = SimplifyingIrBuilder::modExpr(out_ind, inner_extent);
       } else {
+        auto simplified = simplifyExpr(inner_ind);
         inner_ind = SimplifyingIrBuilder::subExpr(
             inner_extent, inner_extent->fusion()->oneVal());
         std::cerr << "Propagating maximum for merge: " << merge->toString()
-                  << "\n\t-> " << inner_ind->toInlineString() << std::endl;
+                  << "\n\t-> " << inner_ind->toInlineString()
+                  << ", simplified: " << simplified->toInlineString()
+                  << std::endl;
       }
     } else {
       inner_ind = SimplifyingIrBuilder::modExpr(out_ind, inner_extent);
@@ -2410,6 +2483,8 @@ std::vector<PredicateDomainInfo> getPredicateContigIds(
     const std::unordered_map<IterDomain*, Val*>& consumer_index_map) {
   const auto gpu_lower = GpuLower::current();
 
+  // std::cerr << "getPredicate: " << consumer_tv->toString() << std::endl;
+
   // When there's a resize expr between the root and the rfactor
   // domains, predicate the rfactor domain. Otherwise, predicate the
   // root domain. The actual size of an IterDomain after resize
@@ -2492,6 +2567,12 @@ std::vector<PredicateDomainInfo> getPredicateContigIds(
     contig_id_info.covered_ids = std::unordered_set<IterDomain*>(
         contig_alloc_ids.begin(), contig_alloc_ids.end());
     contig_id_infos.push_back(contig_id_info);
+  }
+  if (_debug) {
+    std::cerr << "Predicated id for " << consumer_tv->toString() << "\n";
+    for (const auto& info : contig_id_infos) {
+      std::cerr << "\t" << info.id->toString() << std::endl;
+    }
   }
   return contig_id_infos;
 }
@@ -2986,9 +3067,15 @@ std::vector<RootPredicateInfo> Index::getReferenceRootPredicates(
   const auto consumer_start_indexing = start_indexing_from_idgraph.index;
   const auto& consumer_start_index_map = consumer_start_indexing.indexMap();
 
+  if (unswitch_or_vec_loop) {
+    _debug = true;
+  }
+
   // Get the contiguous ids we need to generate predicates for
   auto contig_id_infos =
       getPredicateContigIds(consumer_tv, consumer_stop_index_map);
+
+  _debug = false;
 
   auto non_divisible_splits =
       getNonDivisibleConsumerDomainsToPredicate(consumer_tv);

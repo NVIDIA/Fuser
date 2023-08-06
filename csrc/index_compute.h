@@ -105,8 +105,11 @@ class IndexCompute : public BackwardVisitor {
   void updateIndexMapFromPermissiveMap(const Expr* id_expr);
 
   void updateUnswitchedDomains(Expr* expr);
+  void updateUnswitchedDomains2(Expr* expr);  
 
   Val* getStrideOfUnswitchedDomain(IterDomain* id) const;
+  Val* getStrideOfUnswitchedDomain2(IterDomain* id) const;  
+  Val* getSpanOfUnswitchedDomain(IterDomain* id) const;  
 
   // Tensor domain we're mapping back to allocation
   const TensorDomain* td_; // NOLINT
@@ -172,6 +175,8 @@ class IndexCompute : public BackwardVisitor {
   std::unordered_map<IterDomain*, Val*> unswitched_domain_to_stride_map_;
   // std::unordered_map<IterDomain*, std::unordered_set<IterDomain*>>
   // unswitched_domain_map_;
+
+  std::unordered_map<IterDomain*, std::pair<Val*, Val*>> unswitched_domain_to_stride_map2_;
 
  public:
   const std::unordered_map<IterDomain*, Val*>& indexMap() const {
