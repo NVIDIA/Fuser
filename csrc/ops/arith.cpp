@@ -925,8 +925,8 @@ NVFUSER_DEFINE_LOGICAL_OP(logical_or, LogicalOr)
 #define NVFUSER_DEFINE_BITWISE_OP(op_name, op_type)                       \
   Val* op_name(Val* v1, Val* v2) {                                        \
     TORCH_CHECK(                                                          \
-        isBooleanType(v1->dtype()) && isBooleanType(v2->dtype()),         \
-        "input must have boolean type, but got ",                         \
+        isIntegralType(v1->dtype()) && isIntegralType(v2->dtype()),       \
+        "input must have integral type , but got ",                       \
         v1->dtype(),                                                      \
         " and ",                                                          \
         v2->dtype());                                                     \
