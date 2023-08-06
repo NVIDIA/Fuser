@@ -427,11 +427,11 @@ IndexingParameters getPredicateInitialIndexParameters(
             loop_id->extent(), GpuLower::current()->kernel()->oneVal());
 
         const auto& id_exact_set = GpuLower::current()
-            ->caMap()
-            ->getIdSets(IdMappingMode::EXACT)
-            .getDisjointSetOf(loop_id);
-        auto vectorized = std::any_of(
-            id_exact_set.begin(), id_exact_set.end(), [](auto id) {
+                                       ->caMap()
+                                       ->getIdSets(IdMappingMode::EXACT)
+                                       .getDisjointSetOf(loop_id);
+        auto vectorized =
+            std::any_of(id_exact_set.begin(), id_exact_set.end(), [](auto id) {
               return id->getParallelType() == ParallelType::Vectorize;
             });
 
@@ -983,7 +983,9 @@ IndexFromIdGraph getPredicateIndexingFromIdGraph(
   auto loop_indexing =
       LoopIndexingAnalysis::fromLoopAndConsumer(loops, consumer_tv);
 
-  // std::cerr << "GetPredicate: " << consumer_tv->toString() << std::endl;
+  if (unswitch_or_vec_loop) {
+    std::cerr << "GetPredicate: " << consumer_tv->toString() << std::endl;
+  }
 
   // Bind initial index variables to the loop nodes and adjust
   //  according to loop and unswitch info.
