@@ -572,9 +572,6 @@ enum class UnaryOpType {
   ToUnsignedSmemAddr
 };
 
-// Primarily for Not, which could be Not a boolean, or a bitwise not.
-bool alsoBooleanOperator(const UnaryOpType uopt);
-
 // TODO: Order of this list is important as it affects type promotion. it's not
 // in the right order now.
 enum class BinaryOpType {
@@ -639,10 +636,6 @@ bool isIntegerOp(const BinaryOpType bopt);
 
 // Return if output of operator should be a boolean
 bool isLogicalOp(const BinaryOpType bopt);
-
-// Operations that could be a bitwise operation or a boolean operation depending
-// on input, for example bitwise_and is also used for boolean and in the jit
-bool alsoBooleanOperator(const BinaryOpType bopt);
 
 enum class TernaryOpType { Clamp, Lerp, Threshold, Where };
 
@@ -881,9 +874,6 @@ TORCH_CUDA_CU_API std::ostream& operator<<(std::ostream&, const SwizzleMode&);
 TORCH_CUDA_CU_API std::ostream& operator<<(
     std::ostream&,
     const KernelIndexMode&);
-
-std::string stringifyBooleanOp(const UnaryOpType);
-std::string stringifyBooleanOp(const BinaryOpType);
 
 std::string stringifyThreadSize(const ParallelType);
 std::string stringifyThread(const ParallelType);

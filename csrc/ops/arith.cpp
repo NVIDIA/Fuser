@@ -455,7 +455,6 @@ NVFUSER_DEFINE_UNARY_OP(ceil, Ceil)
 NVFUSER_DEFINE_UNARY_OP(floor, Floor)
 NVFUSER_DEFINE_UNARY_OP(frac, Frac)
 NVFUSER_DEFINE_UNARY_OP(neg, Neg)
-NVFUSER_DEFINE_UNARY_OP(notOp, Not)
 NVFUSER_DEFINE_UNARY_OP(relu, Relu)
 NVFUSER_DEFINE_UNARY_OP(round, Round)
 NVFUSER_DEFINE_UNARY_OP(silu, Silu)
@@ -463,20 +462,36 @@ NVFUSER_DEFINE_UNARY_OP(trunc, Trunc)
 NVFUSER_DEFINE_UNARY_OP(print, Print)
 #undef NVFUSER_DEFINE_UNARY_OP
 
+Val* logical_not(Val* v) {
+  TORCH_CHECK(
+      isBooleanType(v->dtype()),
+      "input must have boolean type, but got ",
+      v->dtype());
+  return unaryOp(UnaryOpType::LogicalNot, v);
+}
+
+TensorView* logical_not(TensorView* tv) {
+  TORCH_CHECK(
+      isBooleanType(tv->dtype()),
+      "input must have boolean type, but got ",
+      tv->dtype());
+  return unaryOp(UnaryOpType::LogicalNot, tv);
+}
+
 Val* bitwise_not(Val* v) {
   TORCH_CHECK(
-      isIntegralType(v->dtype()) || v->dtype() == DataType::Bool,
-      "input must have integral or boolean type, but got ",
+      isIntegralType(v->dtype()),
+      "input must have integral type, but got ",
       v->dtype());
-  return unaryOp(UnaryOpType::Not, v);
+  return unaryOp(UnaryOpType::BitwiseNot, v);
 }
 
 TensorView* bitwise_not(TensorView* tv) {
   TORCH_CHECK(
-      isIntegralType(tv->dtype()) || tv->dtype() == DataType::Bool,
-      "input must have integral or boolean type, but got ",
+      isIntegralType(tv->dtype()),
+      "input must have integral type, but got ",
       tv->dtype());
-  return unaryOp(UnaryOpType::Not, tv);
+  return unaryOp(UnaryOpType::BitwiseNot, tv);
 }
 
 // The output of abs(complex_tensor) are real numbers
@@ -910,7 +925,7 @@ NVFUSER_DEFINE_BINARY_CAST_OP(sub, Sub)
 NVFUSER_DEFINE_BITWISE_OP(bitwise_and, BitwiseAnd)
 NVFUSER_DEFINE_BITWISE_OP(bitwise_or, BitwiseOr)
 namespace {
-NVFUSER_DEFINE_BITWISE_OP(bitwise_xor_helper, Xor)
+NVFUSER_DEFINE_BITWISE_OP(bitwise_xor_helper, BitwiseXor)
 }
 #undef NVFUSER_DEFINE_BITWISE_OP
 

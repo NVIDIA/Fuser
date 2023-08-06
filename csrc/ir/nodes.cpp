@@ -317,8 +317,11 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
     case UnaryOpType::Abs:
       return {abs(in)};
       break;
-    case UnaryOpType::Not:
-      return {notExpr(in)};
+    case UnaryOpType::LogicalNot:
+      return {!in};
+      break;
+    case UnaryOpType::BitwiseNot:
+      return {~in};
       break;
     case UnaryOpType::Erf:
       return {erf(in)};
@@ -355,12 +358,7 @@ void UnaryOp::printHelper(std::stringstream& ss, std::string input) const {
       TORCH_INTERNAL_ASSERT(cast_str != std::nullopt, "Unsupported Cast");
       ss << cast_str.value();
     } else {
-      if (alsoBooleanOperator(op_type) &&
-          out()->getDataType().value() == DataType::Bool) {
-        ss << stringifyBooleanOp(op_type);
-      } else {
-        ss << op_type;
-      }
+      ss << op_type;
       if (out()->getDataType().value() == DataType::Float &&
           needFloatSuffix(op_type)) {
         ss << "f";
@@ -436,13 +434,19 @@ std::vector<PolymorphicValue> BinaryOp::evaluate(
       TORCH_CHECK(rhs != 0);
       return {ceildiv(lhs, rhs)};
       break;
-    case BinaryOpType::And:
+    case BinaryOpType::LogicalAnd:
       return {lhs && rhs};
       break;
-    case BinaryOpType::Or:
+    case BinaryOpType::LogicalOr:
       return {lhs || rhs};
       break;
-    case BinaryOpType::Xor:
+    case BinaryOpType::BitwiseAnd:
+      return {lhs & rhs};
+      break;
+    case BinaryOpType::BitwiseOr:
+      return {lhs | rhs};
+      break;
+    case BinaryOpType::BitwiseXor:
       return {lhs ^ rhs};
       break;
     case BinaryOpType::Eq:

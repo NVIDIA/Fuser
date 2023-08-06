@@ -1803,8 +1803,8 @@ Val* eliminateTrivialComputation(Val* value, const Context& context) {
     }
   } else if (auto uop = dynamic_cast<UnaryOp*>(value->definition())) {
     auto optype = uop->getUnaryOpType();
-    if (optype == UnaryOpType::Neg || optype == UnaryOpType::LogicalNot,
-        || optype == UnaryOpType::BitwiseNot) {
+    if (optype == UnaryOpType::Neg || optype == UnaryOpType::LogicalNot ||
+        optype == UnaryOpType::BitwiseNot) {
       // -(-x) -> x, !(!x) -> x, ~(~x) -> x
       auto uop_in = dynamic_cast<UnaryOp*>(uop->in()->definition());
       if (uop_in != nullptr) {

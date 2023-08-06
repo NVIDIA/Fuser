@@ -83,19 +83,19 @@ Val* IrBuilder::negExpr(Val* val) {
 Val* IrBuilder::notExpr(Val* val) {
   TORCH_CHECK(val != nullptr, "val is a nullptr in notExpr.");
   auto result = newScalar(val->dtype());
-  IrBuilder::create<UnaryOp>(UnaryOpType::Not, result, val);
+  IrBuilder::create<UnaryOp>(UnaryOpType::LogicalNot, result, val);
   return result;
 }
 
 Val* IrBuilder::derefExpr(Val* val) {
-  TORCH_CHECK(val != nullptr, "val is a nullptr in notExpr.");
+  TORCH_CHECK(val != nullptr, "val is a nullptr in derefExpr.");
   auto result = newScalar(*(std::get<PointerOf>(val->dtype().type).type));
   IrBuilder::create<UnaryOp>(UnaryOpType::Dereference, result, val);
   return result;
 }
 
 Val* IrBuilder::absExpr(Val* val) {
-  TORCH_CHECK(val != nullptr, "val is a nullptr in notExpr.");
+  TORCH_CHECK(val != nullptr, "val is a nullptr in absExpr.");
   auto result = newScalar(val->dtype());
   IrBuilder::create<UnaryOp>(UnaryOpType::Abs, result, val);
   return result;
@@ -125,11 +125,11 @@ NamedScalar* IrBuilder::addressExprNamedScalar(
 }
 
 Val* IrBuilder::andExpr(Val* lhs, Val* rhs) {
-  return newLogicExpr(BinaryOpType::And, lhs, rhs);
+  return newLogicExpr(BinaryOpType::LogicalAnd, lhs, rhs);
 }
 
 Val* IrBuilder::orExpr(Val* lhs, Val* rhs) {
-  return newLogicExpr(BinaryOpType::Or, lhs, rhs);
+  return newLogicExpr(BinaryOpType::LogicalOr, lhs, rhs);
 }
 
 Val* IrBuilder::eqExpr(Val* lhs, Val* rhs) {
