@@ -534,11 +534,11 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
 
   if (target_blocks * target_unroll * target_iterations < n_elems) {
     if (outer_reduction_numel == 1) {
-      // set to half of hardware limit to avoid very small persistent buffers
+      // set to hardware limit to avoid very small persistent buffers
       // with large threads per block.
       max_threads_in_block = std::min(
           ceilDiv(n_elems, target_blocks * target_unroll),
-          (int64_t)dev_prop->maxThreadsPerBlock / 2);
+          (int64_t)dev_prop->maxThreadsPerBlock);
     } else {
       // targetting 4 waves, so try to use a quarter of available threads
       max_threads_in_block = std::min(
@@ -551,7 +551,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
   if (max_threads_in_block % warp_size != 0) {
     max_threads_in_block += warp_size - max_threads_in_block % warp_size;
     max_threads_in_block = std::min(
-        max_threads_in_block, (int64_t)dev_prop->maxThreadsPerBlock / 2);
+        max_threads_in_block, (int64_t)dev_prop->maxThreadsPerBlock);
   }
   // Compute maximum number of reductions we could do in the same kernel based
   // on persistent buffer size. Bounded by the wave count for utilization of
@@ -748,6 +748,12 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
     int64_t batch_tmp = batches_per_block_inner_reduction - 1;
     while (batch_tmp >= batch_min) {
       int64_t warps_per_sm_tmp = getWarpsPerSMGivenBatchSize(batch_tmp);
+      bdimx = ceilDiv(
+          inner_most_dimension_numel,
+          inner_reduction_unroll_factor * batches_per_block_inner_reduction);      
+      std::cout << "batch_tmp: " << batch_tmp
+                << ", warps_per_sm_tmp: " << warps_per_sm_tmp
+                << ", bdimx: " << bdimx << std::endl;
       if (warps_per_sm_tmp > warps_per_sm) {
         batches_per_block_inner_reduction = batch_tmp;
         warps_per_sm = warps_per_sm_tmp;
@@ -758,7 +764,9 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
       batch_tmp--;
     }
   }
-
+  bdimx = ceilDiv(
+      inner_most_dimension_numel,
+      inner_reduction_unroll_factor * batches_per_block_inner_reduction);
   // Try moving outer_reduction persistent buffer factors into threads until we
   // have too many threads.
   while (
