@@ -1473,6 +1473,17 @@ bool lessThan(Val* x, Val* y, const Context& context) {
       return true;
     }
   }
+
+  // TODO: x - 1 < x
+  {
+    if (auto lhs_def = dynamic_cast<BinaryOp*>(x->definition());
+        lhs_def != nullptr && lhs_def->getBinaryOpType() == BinaryOpType::Sub) {
+      if (lhs_def->lhs()->sameAs(y) && lhs_def->rhs()->isOne()) {
+        return true;
+      }
+    }
+  }
+
   return false;
 }
 
