@@ -426,12 +426,23 @@ IndexingParameters getPredicateInitialIndexParameters(
         loop_to_ind_map[loop] = SimplifyingIrBuilder::subExpr(
             loop_id->extent(), GpuLower::current()->kernel()->oneVal());
 
+        const auto& id_exact_set = GpuLower::current()
+            ->caMap()
+            ->getIdSets(IdMappingMode::EXACT)
+            .getDisjointSetOf(loop_id);
+        auto vectorized = std::any_of(
+            id_exact_set.begin(), id_exact_set.end(), [](auto id) {
+              return id->getParallelType() == ParallelType::Vectorize;
+            });
+
         // TODO: cleanup
         if (within_unswitch) {
           if (!(loop_id->start()->isZero() && loop_id->stop()->isOne()) &&
               (loop_id->getParallelType() == ParallelType::Serial ||
                loop_id->getParallelType() == ParallelType::Unroll ||
-               loop_id->getParallelType() == ParallelType::Unswitch)) {
+               loop_id->getParallelType() == ParallelType::Unswitch) &&
+              !vectorized) {
+            std::cerr << "Unswitched: " << loop_id->toString() << std::endl;
             index_parameters.unswitched_domains.insert(
                 GpuLower::current()->caMap()->getConcreteMappedID(
                     loop_id, IdMappingMode::EXACT));
