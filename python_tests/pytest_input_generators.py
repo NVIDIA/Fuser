@@ -1045,7 +1045,7 @@ def tensor_size_error_generator(
             "dim": MAX_TENSOR_DIMS,
         },
         RuntimeError,
-        "The dimension requested is beyond the bounds of the shape of the indexed tensor!",
+        "size: The dimension requested is beyond the bounds of the shape of the indexed tensor!",
     )
     check_relative_index_beyond_num_dims = (
         {
@@ -1053,7 +1053,7 @@ def tensor_size_error_generator(
             "dim": -MAX_TENSOR_DIMS - 1,
         },
         RuntimeError,
-        "The dimension requested is beyond the bounds of the shape of the indexed tensor!",
+        "size: The dimension requested is beyond the bounds of the shape of the indexed tensor!",
     )
 
     error_checks = [
@@ -1080,7 +1080,7 @@ def vector_at_error_generator(
             "index": MAX_TENSOR_DIMS,
         },
         RuntimeError,
-        "The index requested is beyond the bounds of the indexed vector!",
+        "at: The index requested is beyond the bounds of the indexed vector!",
     )
     check_relative_index_beyond_num_dims = (
         {
@@ -1088,7 +1088,7 @@ def vector_at_error_generator(
             "index": -MAX_TENSOR_DIMS - 1,
         },
         RuntimeError,
-        "The index requested is beyond the bounds of the indexed vector!",
+        "at: The index requested is beyond the bounds of the indexed vector!",
     )
 
     error_checks = [

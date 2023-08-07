@@ -4,6 +4,7 @@
 # Owner(s): ["module: nvfuser"]
 
 import torch
+import pytest
 import numpy as np
 
 from torch.testing import assert_close
@@ -12,7 +13,7 @@ from pytest_framework import create_op_test
 from pytest_core import ReferenceType, OpInfo, SampleInput
 from pytest_opinfos import opinfos
 from pytest_utils import ArgumentType, is_tensor
-from typing import Callable, Optional
+from typing import Callable
 
 from nvfuser import FusionDefinition
 
@@ -131,23 +132,20 @@ def definition_op_in_schedule_error_test_fn(opinfo: OpInfo, sample: SampleInput)
     except Exception as e:
         exception = e
 
-    assert exception is not None, "Expected an exception"
-    exception_str = "Attempting to add to a completed definition!"
-    assert exception_str in str(
-        exception
-    ), "Failed to find correct expection error message"
+    pytest.raises(TypeError, "Attempting to add to a completed definition")
 
 
 # TODO Maybe only test a single dtype
 @create_op_test(tuple(op for op in opinfos if op.sample_input_generator is not None))
 def test_definition_op_in_schedule_error(op: OpInfo, dtype: torch.dtype):
     for sample in op.sample_input_generator(op, torch.float32):
-        result = definition_op_in_schedule_error_test_fn(
+        pytest.raises(
+            TypeError,
+            definition_op_in_schedule_error_test_fn,
             op,
             sample,
+            match=r"Attempting to add to a completed definition",
         )
-        if result is not None:
-            return result
 
 
 # ****** Check that an Operation's API Gives Appropriate Input Errors ******
@@ -156,39 +154,35 @@ def test_definition_op_in_schedule_error(op: OpInfo, dtype: torch.dtype):
 def errors_test_fn(
     nvf_op: OpInfo,
     sample: SampleInput,
-    exception_type: Exception,
-    exception_str: Optional[str],
 ):
     _fd_fn = (
         nvf_op.fd_error_input_fn
         if nvf_op.fd_error_input_fn is not None
         else default_fd_fn
     )
-    exception = None
-    try:
-        with FusionDefinition() as fd:
-            _fd_fn(fd, nvf_op, *sample.args, **sample.kwargs)
-        fd.execute(parse_args_fusion_execution(nvf_op, *sample.args))
-    except Exception as e:
-        exception = e
+    with FusionDefinition() as fd:
+        _fd_fn(fd, nvf_op, *sample.args, **sample.kwargs)
+    fd.execute(parse_args_fusion_execution(nvf_op, *sample.args))
 
-    assert exception is not None, "Expected an exception"
-    assert exception_type is type(
-        exception
-    ), f"Expected an exception with type {exception_type} and message {exception_str}, but found exception={exception}"
-    assert exception_str is None or exception_str in str(
-        exception
-    ), f"Failed to match exception -- Expected exception: {exception_str}, Found exception: {exception}"
+
+# We assume that the pattern string appears in the middle of the string.
+# Modify regex string so we match any characters at the start or end of the string.
+def _regex_match_any_outer(a: str) -> str:
+    return r".*" + a + r".*"
+
+
+# A pair of parentheses () represents a capture group in regex.
+# Escape parenthesis in regex string to match raw characters.
+def _regex_escape_parenthesis(a: str) -> str:
+    b = a.replace(r"(", r"\(")
+    return b.replace(r")", r"\)")
 
 
 @create_op_test(tuple(op for op in opinfos if op.error_input_generator is not None))
 def test_errors(op: OpInfo, dtype: torch.dtype):
-    for sample, ex_type, ex_regex in op.error_input_generator(op, dtype):
-        result = errors_test_fn(
-            op,
-            sample,
-            ex_type,
-            ex_regex,
+    for sample, exception_type, exception_regex in op.error_input_generator(op, dtype):
+        modified_exception_regex = _regex_match_any_outer(
+            _regex_escape_parenthesis(exception_regex)
         )
-        if result is not None:
-            return result
+        with pytest.raises(exception_type, match=modified_exception_regex):
+            errors_test_fn(op, sample)
