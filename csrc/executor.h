@@ -184,25 +184,13 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
   }
 
   //! Get a vector of bytes processed across all kernel inputs
-  std::vector<int64_t>& bytesInputsProcessed() const {
+  const std::vector<int64_t>& bytesInputsProcessed() const {
     return bytes_processed_per_input_;
   }
 
   //! Get a vector of bytes processed across all kernel outputs
-  std::vector<int64_t>& bytesOutputsProcessed() const {
+  const std::vector<int64_t>& bytesOutputsProcessed() const {
     return bytes_processed_per_output_;
-  }
-
-  //! Returns the number of bytes of Fusion inputs processed last kernel
-  //! execution
-  int64_t bytesInputsProcessed() const {
-    return bytes_inputs_processed_;
-  }
-
-  //! Returns the number of bytes of Fusion outputs processed last kernel
-  //! execution
-  int64_t bytesOutputsProcessed() const {
-    return bytes_outputs_processed_;
   }
 
   //! Returns the launch parameters from the last kernel execution

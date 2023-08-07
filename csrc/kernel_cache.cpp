@@ -1077,10 +1077,8 @@ std::unordered_map<Val*, const ArgAbstract*> FusionKernelRuntime::
 
     if (compute_overall_bw) {
       const auto& executor = executors_.at(group_id);
-      total_bytes_processed += executor.bytesProcessed();
-      for (auto seg_input :
-           ir_utils::filterByType<TensorView>(group_to_run.input_vals)) {
-        total_io_bytes_processed += ;
+      for (auto bytes : executor.bytesInputsProcessed()) {
+        total_io_bytes_processed += bytes;
       }
     }
   }
