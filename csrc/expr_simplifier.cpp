@@ -743,10 +743,12 @@ class FlattenedAssocCommOp : public Expr {
         for (const auto& i : inputs_) {
           result = result & i;
         }
+        break;
       case BinaryOpType::BitwiseOr:
         for (const auto& i : inputs_) {
           result = result | i;
         }
+        break;
       case BinaryOpType::BitwiseXor:
         for (const auto& i : inputs_) {
           result = result ^ i;
