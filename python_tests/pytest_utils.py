@@ -41,13 +41,14 @@ complex_dtypes = (
     torch.complex128,
 )
 
-# uint8, int8, int16, bf16, fp16 are skipped because nvfuser upcasts those dtypes to fp32,
+# Half-precision float dtypes bf16, fp16 are skipped because nvfuser upcasts those dtypes to fp32
 # but does not return the original type.
 bool_int_dtypes = bool_dtypes + int_dtypes
 int_float_dtypes = int_dtypes + float_dtypes
 float_complex_dtypes = float_dtypes + complex_dtypes
 all_dtypes_except_bool = int_dtypes + float_dtypes + complex_dtypes
-all_dtypes = bool_dtypes + all_dtypes_except_bool
+all_dtypes_except_reduced = bool_dtypes + all_dtypes_except_bool
+all_dtypes = all_dtypes_except_reduced + half_precision_float_dtypes
 
 map_dtype_to_str = {
     torch.bool: "bool",
