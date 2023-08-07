@@ -429,7 +429,7 @@ void IndexCompute::updateUnswitchedDomains2(Expr* expr) {
   if (auto split = dynamic_cast<Split*>(expr)) {
     auto split_in = maybeGetExactMapConcreteID(split->in());
     for (auto split_out : {split->inner(), split->outer()}) {
-      auto out_stride = getStrideOfUnswitchedDomain(split_out);
+      auto out_stride = getStrideOfUnswitchedDomain2(split_out);
       if (out_stride == nullptr) {
         // std::cerr << "Split out not found: " <<
         // maybeGetExactMapConcreteID(split_out)->toString() << std::endl;
@@ -439,13 +439,19 @@ void IndexCompute::updateUnswitchedDomains2(Expr* expr) {
           ? out_stride
           : SimplifyingIrBuilder::mulExpr(
                 out_stride, getExtent(split->inner()));
-      unswitched_domain_to_stride_map_[split_in] = in_stride;
-      std::cerr << "Updated stride for split in: " << split_in->toString()
+      auto out_span = getSpanOfUnswitchedDomain(split_out);
+      TORCH_INTERNAL_ASSERT(out_span != nullptr);
+      auto in_span = split_out == split->inner() ?
+          out_span :
+          SimplifyingIrBuilder::mulExpr(
+              out_span, getExtent(split->inner()));
+      unswitched_domain_to_stride_map2_[split_in] = std::make_pair(in_stride, in_span);
+      std::cerr << "Updated stride2 for split in: " << split_in->toString()
                 << " -> "
                 << "{ "
-                << unswitched_domain_to_stride_map_[split_in]->toInlineString()
+                << unswitched_domain_to_stride_map2_[split_in].first->toInlineString()
+                << ", " << unswitched_domain_to_stride_map2_[split_in].second->toInlineString()
                 << " }" << std::endl;
-      // TORCH_CHECK(false);
       return;
     }
   } else if (std::any_of(
@@ -458,8 +464,9 @@ void IndexCompute::updateUnswitchedDomains2(Expr* expr) {
                  })) {
     for (auto inp : ir_utils::filterByType<IterDomain>(expr->inputs())) {
       auto inp_concrete = maybeGetExactMapConcreteID(inp);
-      unswitched_domain_to_stride_map_.emplace(
-          inp_concrete, inp_concrete->fusion()->oneVal());
+      unswitched_domain_to_stride_map2_.emplace(
+          inp_concrete, std::make_pair(inp_concrete->fusion()->oneVal(),
+                                       getExtent(inp_concrete)));
       std::cerr << "Updated stride: " << inp_concrete->toString() << " -> 1"
                 << std::endl;
     }
@@ -468,6 +475,7 @@ void IndexCompute::updateUnswitchedDomains2(Expr* expr) {
 
 void IndexCompute::handle(Split* split) {
   updateUnswitchedDomains(split);
+  updateUnswitchedDomains2(split);
 
   auto in_id = maybeGetExactMapConcreteID(split->in()->as<IterDomain>());
   auto outer_id = maybeGetExactMapConcreteID(split->outer()->as<IterDomain>());
@@ -527,6 +535,7 @@ void IndexCompute::handle(Split* split) {
 
 void IndexCompute::handle(Merge* merge) {
   updateUnswitchedDomains(merge);
+  updateUnswitchedDomains2(merge);
 
   auto out_id = maybeGetExactMapConcreteID(merge->out());
   auto outer_id = maybeGetExactMapConcreteID(merge->outer());
@@ -666,21 +675,27 @@ void IndexCompute::handle(Merge* merge) {
     index_map_[outer_id] = SimplifyingIrBuilder::divExpr(out_ind, inner_extent);
     Val* inner_ind = SimplifyingIrBuilder::modExpr(out_ind, inner_extent);
     bool enable_war = getenv("WAR");
-    if (auto it = unswitched_domain_to_stride_map_.find(out_id);
-        it != unswitched_domain_to_stride_map_.end() && enable_war) {
-      auto out_stride = it->second;
+    auto out_stride = getStrideOfUnswitchedDomain2(out_id);
+    if (out_stride != nullptr && enable_war) {
       auto stride_mod =
           simplifyExpr(SimplifyingIrBuilder::modExpr(out_stride, inner_extent));
       if (stride_mod->isZero()) {
-        std::cerr << "Not propagating maximum: " << merge->toString();
+        std::cerr << "Not propagating maximum as stride is divisible: " << merge->toString();
       } else {
-        auto simplified = simplifyExpr(inner_ind);
-        inner_ind = SimplifyingIrBuilder::subExpr(
-            inner_extent, inner_extent->fusion()->oneVal());
-        std::cerr << "Propagating maximum for merge: " << merge->toString()
-                  << "\n\t-> " << inner_ind->toInlineString()
-                  << ", simplified: " << simplified->toInlineString()
-                  << std::endl;
+        auto out_span = getSpanOfUnswitchedDomain(out_id);
+        auto span_mod = simplifyExpr(SimplifyingIrBuilder::modExpr(inner_extent, out_span));
+        if (span_mod->isZero()) {
+          std::cerr << "Not propagating maximum as span is divisible: "
+                    << out_span->toInlineString() << ", " << inner_extent->toInlineString() << std::endl;
+        } else {
+          auto simplified = simplifyExpr(inner_ind);
+          inner_ind = SimplifyingIrBuilder::subExpr(
+              inner_extent, inner_extent->fusion()->oneVal());
+          std::cerr << "Propagating maximum for merge: " << merge->toString()
+                    << "\n\t-> " << inner_ind->toInlineString()
+                    << ", simplified: " << simplified->toInlineString()
+                    << std::endl;
+        }
       }
     } else {
       inner_ind = SimplifyingIrBuilder::modExpr(out_ind, inner_extent);
@@ -690,6 +705,9 @@ void IndexCompute::handle(Merge* merge) {
 }
 
 void IndexCompute::handle(Swizzle2D* swizzle_2d) {
+  updateUnswitchedDomains(swizzle_2d);
+  updateUnswitchedDomains2(swizzle_2d);
+
   auto out_x_id = maybeGetExactMapConcreteID(swizzle_2d->outX());
   auto out_y_id = maybeGetExactMapConcreteID(swizzle_2d->outY());
   auto in_x_id = maybeGetExactMapConcreteID(swizzle_2d->inX());
@@ -734,6 +752,9 @@ void IndexCompute::handle(Swizzle2D* swizzle_2d) {
 }
 
 void IndexCompute::handle(Resize* resize) {
+  updateUnswitchedDomains(resize);
+  updateUnswitchedDomains2(resize);
+
   auto out_id = maybeGetExactMapConcreteID(resize->out());
   auto in_id = maybeGetExactMapConcreteID(resize->in());
 
