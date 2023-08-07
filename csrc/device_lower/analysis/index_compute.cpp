@@ -320,9 +320,6 @@ IndexingParameters getPredicateInitialIndexParameters(
   const auto& loops = loop_indexing.loops();
   const auto& loop_domains = loop_indexing.loopDomains();
 
-  // std::cerr << "getPredicateInitial: " << consumer_tv->toString() <<
-  // std::endl;
-
   // This shouldn't be needed.
   TORCH_INTERNAL_ASSERT(
       loops.size() <= loop_domains.size(),
@@ -849,9 +846,6 @@ IndexFromIdGraph getTensorIndexFromIdGraph(
         p2c_map);
   }
 
-  // std::cerr << "Unswitch domans: " <<
-  // toDelimitedString(index_parameters.unswitched_domains) << std::endl;
-
   IndexCompute indexing(
       index_parameters.initial_concrete_id_index,
       index_parameters.zero_domains,
@@ -982,10 +976,6 @@ IndexFromIdGraph getPredicateIndexingFromIdGraph(
   //  traversal info from loop structure.
   auto loop_indexing =
       LoopIndexingAnalysis::fromLoopAndConsumer(loops, consumer_tv);
-
-  if (unswitch_or_vec_loop) {
-    std::cerr << "GetPredicate: " << consumer_tv->toString() << std::endl;
-  }
 
   // Bind initial index variables to the loop nodes and adjust
   //  according to loop and unswitch info.

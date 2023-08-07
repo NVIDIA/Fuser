@@ -35,8 +35,6 @@ namespace nvfuser {
 
 namespace {
 
-bool _debug = false;
-
 //! Offset of an index of a producer axis with respect to its
 //! corresponding consumer index
 int getProducerHaloOffset(
@@ -377,45 +375,38 @@ void IndexCompute::updateUnswitchedDomains(Expr* expr) {
       if (out_stride == nullptr) {
         continue;
       }
-      auto in_stride = split_out == split->inner()
-          ? out_stride
-          : SimplifyingIrBuilder::mulExpr(
-                out_stride, getExtent(split->inner()));
       auto out_span = getSpanOfUnswitchedDomain(split_out);
       TORCH_INTERNAL_ASSERT(out_span != nullptr);
-      auto in_span = split_out == split->inner()
-          ? out_span
-          : SimplifyingIrBuilder::mulExpr(out_span, getExtent(split->inner()));
+      Val* in_stride = nullptr;
+      Val* in_span = nullptr;
+      if (split_out == split->inner()) {
+        in_stride = out_stride;
+        in_span = out_span;
+      } else {
+        in_stride = SimplifyingIrBuilder::mulExpr(
+            out_stride, getExtent(split->inner()));
+        in_span =
+            SimplifyingIrBuilder::mulExpr(out_span, getExtent(split->inner()));
+      }
       unswitched_domain_to_stride_map2_[split_in] =
           std::make_pair(in_stride, in_span);
-#if 0
-      std::cerr << "Updated stride2 for split in: " << split_in->toString()
-                << " -> "
-                << "{ "
-                << unswitched_domain_to_stride_map2_[split_in].first->toInlineString()
-                << ", " << unswitched_domain_to_stride_map2_[split_in].second->toInlineString()
-                << " }" << std::endl;
-#endif
-      return;
     }
-  } else if (std::any_of(
-                 expr->outputs().begin(),
-                 expr->outputs().end(),
-                 [this](Val* out) {
-                   return out->isA<IterDomain>() &&
-                       getStrideOfUnswitchedDomain(out->as<IterDomain>()) !=
-                       nullptr;
-                 })) {
-    for (auto inp : ir_utils::filterByType<IterDomain>(expr->inputs())) {
-      auto inp_concrete = maybeGetExactMapConcreteID(inp);
-      unswitched_domain_to_stride_map2_.emplace(
-          inp_concrete,
-          std::make_pair(
-              inp_concrete->fusion()->oneVal(), getExtent(inp_concrete)));
-#if 0
-      std::cerr << "Updated stride: " << inp_concrete->toString() << " -> 1"
-                << std::endl;
-#endif
+  } else {
+    // Suppress a clang-tidy warning
+    TORCH_INTERNAL_ASSERT(expr != nullptr);
+    // Propagate the unswitch info if any of outputs is unswitched
+    if (std::any_of(
+            expr->outputs().begin(), expr->outputs().end(), [this](Val* out) {
+              return out->isA<IterDomain>() &&
+                  getStrideOfUnswitchedDomain(out->as<IterDomain>()) != nullptr;
+            })) {
+      for (auto inp : ir_utils::filterByType<IterDomain>(expr->inputs())) {
+        auto inp_concrete = maybeGetExactMapConcreteID(inp);
+        unswitched_domain_to_stride_map2_.emplace(
+            inp_concrete,
+            std::make_pair(
+                inp_concrete->fusion()->oneVal(), getExtent(inp_concrete)));
+      }
     }
   }
 }
@@ -836,13 +827,6 @@ void IndexCompute::run(const LoopIndexing& loop_indexing) {
   //  consumers, i.e. the not-inlined loops that define consumer_tv
   //  values.
   collectIndexIntoPermissiveMap(loop_indexing);
-#if 0
-  for (auto unswitched_domain: unswitched_domains_) {
-    std::cerr << "Setting up initial map: " <<unswitched_domain->toString() << std::endl;
-    unswitched_domain_to_stride_map_.emplace(unswitched_domain,
-                                             unswitched_domain->fusion()->oneVal());
-  }
-#endif
 
   // Run through the loop indexing expressions and generate
   //  the indexing integer math for the concrete ids.
@@ -919,12 +903,6 @@ void IndexCompute::updateIndexMapFromPermissiveMap(const Expr* id_expr) {
 
 void IndexCompute::run() {
   const std::vector<Val*> domain_vals(td_->leaf().begin(), td_->leaf().end());
-#if 0
-  for (auto unswitched_domain: unswitched_domains_) {
-    unswitched_domain_to_stride_map_.emplace(unswitched_domain,
-                                             unswitched_domain->fusion()->oneVal());
-  }
-#endif
   traverseTo(td_->fusion(), domain_vals, false);
 }
 
@@ -2535,12 +2513,6 @@ std::vector<PredicateDomainInfo> getPredicateContigIds(
         contig_alloc_ids.begin(), contig_alloc_ids.end());
     contig_id_infos.push_back(contig_id_info);
   }
-  if (_debug) {
-    std::cerr << "Predicated id for " << consumer_tv->toString() << "\n";
-    for (const auto& info : contig_id_infos) {
-      std::cerr << "\t" << info.id->toString() << std::endl;
-    }
-  }
   return contig_id_infos;
 }
 
@@ -3034,15 +3006,9 @@ std::vector<RootPredicateInfo> Index::getReferenceRootPredicates(
   const auto consumer_start_indexing = start_indexing_from_idgraph.index;
   const auto& consumer_start_index_map = consumer_start_indexing.indexMap();
 
-  if (unswitch_or_vec_loop) {
-    _debug = true;
-  }
-
   // Get the contiguous ids we need to generate predicates for
   auto contig_id_infos =
       getPredicateContigIds(consumer_tv, consumer_stop_index_map);
-
-  _debug = false;
 
   auto non_divisible_splits =
       getNonDivisibleConsumerDomainsToPredicate(consumer_tv);
