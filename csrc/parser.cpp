@@ -1066,9 +1066,9 @@ class IrParser {
                  {at::aten::remainder, BinaryOpType::Remainder},
                  {at::aten::fmod, BinaryOpType::Fmod},
                  {at::aten::bitwise_and, BinaryOpType::BitwiseAnd},
-                 {at::aten::__and__, BinaryOpType::LogicalAnd},
+                 {at::aten::__and__, BinaryOpType::BitwiseAnd},
                  {at::aten::bitwise_or, BinaryOpType::BitwiseOr},
-                 {at::aten::__or__, BinaryOpType::LogicalOr},
+                 {at::aten::__or__, BinaryOpType::BitwiseOr},
                  {at::aten::bitwise_xor, BinaryOpType::BitwiseXor},
                  {at::aten::__xor__, BinaryOpType::BitwiseXor},
                  {at::aten::bitwise_left_shift, BinaryOpType::Lshift},
@@ -1167,7 +1167,7 @@ class IrParser {
           {
             static std::unordered_map<c10::Symbol, UnaryOpType> op_mapping({
                 {at::aten::abs, UnaryOpType::Abs},
-                {at::aten::__not__, UnaryOpType::LogicalNot},
+                {at::aten::__not__, UnaryOpType::BitwiseNot},
                 {at::aten::bitwise_not, UnaryOpType::BitwiseNot},
                 {at::aten::ceil, UnaryOpType::Ceil},
                 {at::aten::floor, UnaryOpType::Floor},
