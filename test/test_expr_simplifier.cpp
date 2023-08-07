@@ -849,6 +849,9 @@ TEST_F(ExprSimplifierTest, Compare) {
       "blockIdx.x < ceilDiv( T0.logical_size[0] , 128 ) * 4"_));
 
   EXPECT_TRUE(*simplify("i1 % i2 < i2"_, "i2 >= 0"_));
+
+  EXPECT_TRUE(
+      *simplifyExpr("T0.logical_size[0] - 1 < T0.logical_size[0]"_)->getBool());
 }
 
 TEST_F(ExprSimplifierTest, FundamentalDivisionWithRemainderProperty) {
