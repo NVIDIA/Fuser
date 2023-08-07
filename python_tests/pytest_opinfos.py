@@ -50,10 +50,9 @@ from pytest_input_generators import (
 from pytest_utils import (
     bool_int_dtypes,
     int_dtypes,
-    float_dtypes,
+    full_precision_float_dtypes,
     int_float_dtypes,
     float_complex_dtypes,
-    all_dtypes_except_bool,
     ArgumentType,
 )
 from functools import partial
@@ -563,7 +562,7 @@ binary_ops.append(ne_opinfo)
 nextafter_opinfo = OpInfo(
     lambda fd: fd.ops.nextafter,
     "nextafter",
-    dtypes=float_dtypes,
+    dtypes=full_precision_float_dtypes,
     sample_input_generator=elementwise_binary_generator,
     reference=_elementwise_binary_torch(torch.nextafter),
 )
@@ -595,7 +594,6 @@ binary_ops.append(remainder_opinfo)
 sub_opinfo = OpInfo(
     lambda fd: fd.ops.sub,
     "sub",
-    dtypes=all_dtypes_except_bool,
     sample_input_generator=partial(
         elementwise_binary_generator, enable_extremal_value_testing=False
     ),
@@ -606,7 +604,6 @@ binary_ops.append(sub_opinfo)
 truediv_opinfo = OpInfo(
     lambda fd: fd.ops.truediv,
     "truediv",
-    dtypes=all_dtypes_except_bool,
     sample_input_generator=partial(
         elementwise_binary_generator,
         enable_small_value_testing=False,

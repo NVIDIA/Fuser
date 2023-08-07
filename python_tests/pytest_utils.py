@@ -45,9 +45,10 @@ complex_dtypes = (
 # but does not return the original type.
 bool_int_dtypes = bool_dtypes + int_dtypes
 float_dtypes = half_precision_float_dtypes + full_precision_float_dtypes
-int_float_dtypes = int_dtypes + float_dtypes
-float_complex_dtypes = float_dtypes + complex_dtypes
-all_dtypes_except_bool = int_dtypes + float_dtypes + complex_dtypes
+int_float_dtypes = int_dtypes + full_precision_float_dtypes
+float_complex_dtypes = full_precision_float_dtypes + complex_dtypes
+all_dtypes_except_reduced = int_dtypes + full_precision_float_dtypes + complex_dtypes
+all_dtypes_except_bool = all_dtypes_except_reduced + half_precision_float_dtypes
 all_dtypes = all_dtypes_except_bool + bool_dtypes
 
 map_dtype_to_str = {

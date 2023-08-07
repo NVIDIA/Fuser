@@ -173,16 +173,15 @@ TORCH_CUDA_CU_API Expr* replaceValInExpr(
     Val* reference,
     Val* substitute);
 
-//! Replace Vals in an index Val as specified by replacement_map while
-//! cloning the given index Val. The index val is assumed to represent
-//! a tensor index consisting of Ints and arithmetic expressions.
+//! Recursively goes to the definition of the given Val and replace the Vals as
+//! specified by replacement_map while cloning the given Val.
 //!
 //! This is similar to replaceValInExpr but is different as Vals are
 //! cloned such that no other exprs using the same leaf Vals are not
 //! modified. TODO: Consider cleaning up the multiple replacement
 //! routines.
-Val* replaceValInIndexVal(
-    Val* index,
+Val* replaceValRecursively(
+    Val* val,
     const std::unordered_map<Val*, Val*>& replacement_map);
 
 // Makes rfactor generic with reduction ops and Welford
