@@ -139,13 +139,10 @@ def definition_op_in_schedule_error_test_fn(opinfo: OpInfo, sample: SampleInput)
 @create_op_test(tuple(op for op in opinfos if op.sample_input_generator is not None))
 def test_definition_op_in_schedule_error(op: OpInfo, dtype: torch.dtype):
     for sample in op.sample_input_generator(op, torch.float32):
-        pytest.raises(
-            TypeError,
-            definition_op_in_schedule_error_test_fn,
-            op,
-            sample,
-            match=r"Attempting to add to a completed definition",
-        )
+        with pytest.raises(
+            TypeError, match=r"Attempting to add to a completed definition"
+        ):
+            definition_op_in_schedule_error_test_fn(op, sample)
 
 
 # ****** Check that an Operation's API Gives Appropriate Input Errors ******
