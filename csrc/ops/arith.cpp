@@ -464,10 +464,6 @@ NVFUSER_DEFINE_UNARY_OP(print, Print)
 
 Val* logical_not(Val* v) {
   if (!isBooleanType(v->dtype())) {
-    TORCH_CHECK(
-        isIntegralType(v->dtype()),
-        "input must have integral or boolean type, but got ",
-        v->dtype());
     v = castOp(DataType::Bool, v);
   }
   return unaryOp(UnaryOpType::LogicalNot, v);
@@ -475,10 +471,6 @@ Val* logical_not(Val* v) {
 
 TensorView* logical_not(TensorView* tv) {
   if (!isBooleanType(tv->dtype())) {
-    TORCH_CHECK(
-        isIntegralType(tv->dtype()),
-        "input must have integral or boolean type, but got ",
-        tv->dtype());
     tv = castOp(DataType::Bool, tv);
   }
   return unaryOp(UnaryOpType::LogicalNot, tv);
