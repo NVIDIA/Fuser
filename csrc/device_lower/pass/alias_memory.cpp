@@ -1403,7 +1403,7 @@ class NoReuseSharedMemAllocator : kir::IrVisitor {
     return bitwise_and(add(addr, n_minus_one), bitwise_not(n_minus_one));
   }
 
-  void handle(kir::Allocate* alloc) {
+  void handle(kir::Allocate* alloc) final {
     if (alloc->memoryType() != MemoryType::Shared || alloc->alias()) {
       return;
     }
