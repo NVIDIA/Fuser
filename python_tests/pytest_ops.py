@@ -165,12 +165,6 @@ def errors_test_fn(
     fd.execute(parse_args_fusion_execution(nvf_op, *sample.args))
 
 
-# We assume that the pattern string appears in the middle of the string.
-# Modify regex string so we match any characters at the start or end of the string.
-def _regex_match_any_outer(a: str) -> str:
-    return r".*" + a + r".*"
-
-
 # A pair of parentheses () represents a capture group in regex.
 # Escape parenthesis in regex string to match raw characters.
 def _regex_escape_parenthesis(a: str) -> str:
@@ -181,8 +175,7 @@ def _regex_escape_parenthesis(a: str) -> str:
 @create_op_test(tuple(op for op in opinfos if op.error_input_generator is not None))
 def test_errors(op: OpInfo, dtype: torch.dtype):
     for sample, exception_type, exception_regex in op.error_input_generator(op, dtype):
-        modified_exception_regex = _regex_match_any_outer(
-            _regex_escape_parenthesis(exception_regex)
-        )
-        with pytest.raises(exception_type, match=modified_exception_regex):
+        with pytest.raises(
+            exception_type, match=_regex_escape_parenthesis(exception_regex)
+        ):
             errors_test_fn(op, sample)
