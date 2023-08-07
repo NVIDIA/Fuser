@@ -74,7 +74,8 @@ static void NvFuserScheduler_RMSNorm_BWD(
       dtype == DataType::Float || dtype == DataType::Half ||
       dtype == DataType::BFloat16);
 
-  std::vector<int64_t> input_shape{8, benchmark_state.range(0), 1024};
+  std::vector<int64_t> input_shape{
+      8, benchmark_state.range(0), benchmark_state.range(1)};
 
   // inputs
   at::manual_seed(0);
@@ -129,19 +130,29 @@ NVFUSER_BENCHMARK_DEFINE(
 
 NVFUSER_BENCHMARK_RUN(NvFuserScheduler_RMSNorm_BWD_fp16)
     ->RangeMultiplier(2)
-    ->Ranges({{16, 64}})
+    ->Ranges({{16, 64}, {1024, 1024}})
     ->Unit(benchmark::kMicrosecond)
     ->UseManualTime();
 
 NVFUSER_BENCHMARK_RUN(NvFuserScheduler_RMSNorm_BWD_fp16)
     ->RangeMultiplier(2)
-    ->Ranges({{28, 56}})
+    ->Ranges({{28, 56}, {1024, 1024}})
     ->Unit(benchmark::kMicrosecond)
     ->UseManualTime();
 
 NVFUSER_BENCHMARK_RUN(NvFuserScheduler_RMSNorm_BWD_fp16)
     ->RangeMultiplier(2)
-    ->Ranges({{24, 48}})
+    ->Ranges({{24, 48}, {1024, 1024}})
+    ->Unit(benchmark::kMicrosecond)
+    ->UseManualTime();
+
+void addCases128To32K(benchmark::internal::Benchmark* b) {
+  for (auto hidden_size = 128; hidden_size <= 32768; hidden_size += 128) {
+    b->Args({1024, hidden_size});
+  }
+}
+NVFUSER_BENCHMARK_RUN(NvFuserScheduler_RMSNorm_BWD_fp16)
+    ->Apply(addCases128To32K)
     ->Unit(benchmark::kMicrosecond)
     ->UseManualTime();
 
