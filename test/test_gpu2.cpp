@@ -2597,7 +2597,7 @@ TEST_F(NVFuserTest, FusionWelfordOp_CUDA) {
   auto tvs = Welford(tv1, {1});
   auto tv_avg = tvs.avg;
   auto tv_M2 = tvs.var_sum;
-  auto tv_N = castOp(DataType::Int, tvs.n);
+  auto tv_N = tvs.n;
   fusion.addOutput(tv_avg);
   fusion.addOutput(tv_M2);
   fusion.addOutput(tv_N);
@@ -2606,11 +2606,7 @@ TEST_F(NVFuserTest, FusionWelfordOp_CUDA) {
   tv_avg->split(0, 32);
   tv_avg->split(0, 4);
   tv_avg->reorder({{-1, -3}, {-3, -1}});
-
-  MaxRootDomainInfoSpanningTree tree(tv_avg);
-  TransformPropagatorWithCheck tp(tv_avg);
-  tree.traverse(&tp);
-  inlineMost();
+  tv1->computeAt(tv_avg, -1);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_int = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
@@ -2644,18 +2640,16 @@ TEST_F(NVFuserTest, FusionBlockWelfordOp_CUDA) {
   auto tvs = Welford(tv1, {1});
   auto tv_avg = tvs.avg;
   auto tv_M2 = tvs.var_sum;
-  auto tv_N = castOp(DataType::Int, tvs.n);
+  auto tv_N = tvs.n;
   fusion.addOutput(tv_avg);
   fusion.addOutput(tv_M2);
   fusion.addOutput(tv_N);
 
   tv_avg->axis(-1)->parallelize(ParallelType::TIDx);
 
-  MaxRootDomainInfoSpanningTree tree(tv_avg);
-  TransformPropagatorWithCheck tp(tv_avg);
-  tree.traverse(&tp);
-  inlineMost();
+  tv1->computeAt(tv_avg, -1);
 
+  //
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_int = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({M, N}, options);
@@ -2691,7 +2685,7 @@ TEST_F(NVFuserTest, FusionGridWelfordOp_CUDA) {
   auto tvs = Welford(tv1, {1});
   auto tv_avg = tvs.avg;
   auto tv_M2 = tvs.var_sum;
-  auto tv_N = castOp(DataType::Int, tvs.n);
+  auto tv_N = tvs.n;
   fusion.addOutput(tv_avg);
   fusion.addOutput(tv_M2);
   fusion.addOutput(tv_N);
@@ -2699,10 +2693,7 @@ TEST_F(NVFuserTest, FusionGridWelfordOp_CUDA) {
   tv_avg->axis(0)->parallelize(ParallelType::TIDx);
   tv_avg->axis(-1)->parallelize(ParallelType::BIDx);
 
-  MaxRootDomainInfoSpanningTree tree(tv_avg);
-  TransformPropagatorWithCheck tp(tv_avg);
-  tree.traverse(&tp);
-  inlineMost();
+  tv1->computeAt(tv_avg, -1);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_int = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
@@ -2739,18 +2730,14 @@ TEST_F(NVFuserTest, FusionRfactorWelfordOp_CUDA) {
   auto tvs = Welford(tv1, {1});
   auto tv_avg = tvs.avg;
   auto tv_M2 = tvs.var_sum;
-  auto tv_N = castOp(DataType::Int, tvs.n);
+  auto tv_N = tvs.n;
   fusion.addOutput(tv_avg);
   fusion.addOutput(tv_M2);
   fusion.addOutput(tv_N);
 
   tv_avg->split(1, 4);
   ir_utils::rfactorHelper(tvs.avg, {2});
-
-  MaxRootDomainInfoSpanningTree tree(tv_avg);
-  TransformPropagatorWithCheck tp(tv_avg);
-  tree.traverse(&tp);
-  inlineMost();
+  tv1->computeAt(tv_avg, -1);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_int = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
@@ -2787,7 +2774,7 @@ TEST_F(NVFuserTest, FusionWelfordSchedule_CUDA) {
   auto tvs = Welford(tv1, {1});
   auto tv_avg = tvs.avg;
   auto tv_M2 = tvs.var_sum;
-  auto tv_N = castOp(DataType::Int, tvs.n);
+  auto tv_N = tvs.n;
   fusion.addOutput(tv_avg);
   fusion.addOutput(tv_M2);
   fusion.addOutput(tv_N);
@@ -2841,7 +2828,7 @@ void testWelford(DataType dtype, int red_axis, int odim, int rdim) {
   auto tvs = Welford(tv1, {axis});
   auto tv_avg = tvs.avg;
   auto tv_M2 = tvs.var_sum;
-  auto tv_N = castOp(DataType::Int, tvs.n);
+  auto tv_N = tvs.n;
 
   TensorView* avg_cast = tv_avg;
   TensorView* M2_cast = tv_M2;

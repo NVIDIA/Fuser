@@ -15,7 +15,6 @@
 #include <expr_evaluator.h>
 #include <fusion.h>
 #include <fusion_segmenter.h>
-#include <inlining.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
 #include <ir/graphviz.h>
@@ -3867,7 +3866,7 @@ TEST_F(NVFuserTest, FusionShiftNoPadding3_CUDA) {
   auto tvs = Welford(tv4, {0, 1});
   auto tv_avg = tvs.avg;
   auto tv_M2 = tvs.var_sum;
-  auto tv_N = castOp(DataType::Int, tvs.n);
+  auto tv_N = tvs.n;
 
   fusion.addOutput(tv_avg);
   fusion.addOutput(tv_M2);
@@ -3880,11 +3879,14 @@ TEST_F(NVFuserTest, FusionShiftNoPadding3_CUDA) {
   tv_avg->reorder({{1, 2}});
   tv_avg->merge(-2, -1);
 
-  TransformPropagatorWithCheck propagator(tv_avg);
+  TransformPropagator propagator(tv_avg);
   MaxRootDomainInfoSpanningTree(tv_avg).traverse(&propagator);
+
+  tv2->computeAt(tv_avg, -1);
+  tv3->computeAt(tv_avg, -1);
+
   tv_avg->axis(-1)->parallelize(ParallelType::TIDx);
   scheduler_utils::parallelizeAllLike(tv_avg);
-  inlineMost();
 
   int numel_x = 99;
   int numel_y = 101;

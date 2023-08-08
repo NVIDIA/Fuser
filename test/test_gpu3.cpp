@@ -7079,17 +7079,17 @@ TEST_F(NVFuserTest, FusionVectorizeWelford1_CUDA) {
   auto tvs = Welford(tv1, {0});
   fusion.addOutput(tvs.avg);
   fusion.addOutput(tvs.var_sum);
-  fusion.addOutput(castOp(DataType::Int, tvs.n));
+  fusion.addOutput(tvs.n);
 
   tv1->split(1, 4);
 
   MaxRootDomainInfoSpanningTree tree(tv1);
-  TransformPropagatorWithCheck tp(tv1);
+  TransformPropagator tp(tv1);
   tree.traverse(&tp);
 
   tv1->axis(-1)->parallelize(ParallelType::Vectorize);
 
-  inlineMost();
+  tv1->computeWith(-1, true);
 
   GpuLower gpulw(&fusion);
   auto all_exprs = KernelExprVisitor::getAllExprs(gpulw.kernel());
@@ -7145,7 +7145,7 @@ TEST_F(NVFuserTest, FusionVectorizeWelford2_CUDA) {
   auto tvs = Welford(tv1, {0});
   fusion.addOutput(tvs.avg);
   fusion.addOutput(tvs.var_sum);
-  fusion.addOutput(castOp(DataType::Int, tvs.n));
+  fusion.addOutput(tvs.n);
 
   tv1->split(1, 4);
   tv1->split(0, 5);
@@ -7154,7 +7154,7 @@ TEST_F(NVFuserTest, FusionVectorizeWelford2_CUDA) {
   tv1->reorder({{-2, 1}});
 
   MaxRootDomainInfoSpanningTree tree(tv1);
-  TransformPropagatorWithCheck tp(tv1);
+  TransformPropagator tp(tv1);
   tree.traverse(&tp);
 
   tv1->axis(-1)->parallelize(ParallelType::Vectorize);

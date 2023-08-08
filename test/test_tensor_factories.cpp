@@ -548,8 +548,7 @@ TEST_F(TensorFactoryTest, MetadataAsTensor) {
   auto size1 = IrBuilder::getAttrExpr(meta1_copy2, "logical_size");
   auto stride1 = IrBuilder::getAttrExpr(meta1_copy2, "alloc_stride");
 
-  auto result = tensor(std::vector<Val*>{size0, stride0, size1, stride1});
-  auto output = castOp(DataType::Int, result);
+  auto output = tensor(std::vector<Val*>{size0, stride0, size1, stride1});
   fusion->addOutput(output);
 
   const auto options =
