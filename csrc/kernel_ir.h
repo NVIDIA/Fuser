@@ -210,8 +210,8 @@ class TORCH_CUDA_CU_API Allocate final : public Expr {
   //! Size of each dimension
   std::vector<Val*> shape() const {
     std::vector<Val*> result;
-    result.reserve(attributes().size() - 4);
-    for (auto i = attributes().begin() + 4; i != attributes().end(); ++i) {
+    result.reserve(attributes().size() - 5);
+    for (auto i = attributes().begin() + 5; i != attributes().end(); ++i) {
       result.emplace_back((*i)->as<Val>());
     }
     return result;
@@ -225,6 +225,28 @@ class TORCH_CUDA_CU_API Allocate final : public Expr {
   // If the alias is nullptr, then the Allocate node uses memory in the kernel
   const Allocate* alias() const {
     return dynamic_cast<const Allocate*>(attribute(3));
+  }
+
+  // Set the address of a shared memory allocation within the dynamic shared
+  // memory array. The addr argument should be a scalar expression describing an
+  // aligned address in bytes.
+  void setAddress(Val* addr) {
+    TORCH_CHECK(
+        memoryType() == MemoryType::Shared,
+        "Allocation address may only be set for shared memory allocations. Memory type is ",
+        memoryType());
+    TORCH_CHECK(
+        address() == nullptr,
+        "Attempted to set address twice for allocation ",
+        toString());
+    attributes_[4] = addr;
+  }
+
+  // This is an integer scalar describing the byte address within the dynamic
+  // shared memory array for a shared memory allocation. For memory types other
+  // than Shared, or before allocation, this function might return nullptr.
+  const Val* address() const {
+    return attributeVal(4);
   }
 };
 
