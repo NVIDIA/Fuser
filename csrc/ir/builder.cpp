@@ -140,11 +140,11 @@ Val* IrBuilder::logicalOrExpr(Val* lhs, Val* rhs) {
 }
 
 Val* IrBuilder::bitwiseAndExpr(Val* lhs, Val* rhs) {
-  return newLogicExpr(BinaryOpType::BitwiseAnd, lhs, rhs);
+  return newArithmeticExpr(BinaryOpType::BitwiseAnd, lhs, rhs);
 }
 
 Val* IrBuilder::bitwiseOrExpr(Val* lhs, Val* rhs) {
-  return newLogicExpr(BinaryOpType::BitwiseOr, lhs, rhs);
+  return newArithmeticExpr(BinaryOpType::BitwiseOr, lhs, rhs);
 }
 
 Val* IrBuilder::eqExpr(Val* lhs, Val* rhs) {
@@ -442,6 +442,9 @@ Val* SimplifyingIrBuilder::bitwiseAndExpr(Val* lhs, Val* rhs) {
   bool lhs_zero = false;
   bool lhs_all_ones = false;
   if (lhs_scalar && lhs_scalar->isConst()) {
+    if (rhs_scalar && rhs_scalar->isConst()) {
+      return IrBuilder::create<Val>(lhs_scalar->value() & rhs_scalar->value());
+    }
     lhs_zero = lhs_scalar->value().as<int64_t>() == 0;
     lhs_all_ones = lhs_scalar->value().as<int64_t>() == -1;
   }
@@ -479,6 +482,9 @@ Val* SimplifyingIrBuilder::bitwiseOrExpr(Val* lhs, Val* rhs) {
   bool lhs_zero = false;
   bool lhs_all_ones = false;
   if (lhs_scalar && lhs_scalar->isConst()) {
+    if (rhs_scalar && rhs_scalar->isConst()) {
+      return IrBuilder::create<Val>(lhs_scalar->value() | rhs_scalar->value());
+    }
     lhs_zero = lhs_scalar->value().as<int64_t>() == 0;
     lhs_all_ones = lhs_scalar->value().as<int64_t>() == -1;
   }
