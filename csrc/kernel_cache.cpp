@@ -211,18 +211,9 @@ class ArgumentManager {
 
 flatbuffers::Offset<serde::InputsIdLookup> InputsIdLookup::serialize(
     flatbuffers::FlatBufferBuilder& builder) const {
-  // struct EncodingEntry {
-  //   id: ulong;
-  //   lru_iter: ulong;
-  // }
-  //
-  // table InputsIdLookup {
-  //   max_cache_size : ulong;
-  //   currrent_id : ulong;
-  //   lru_cache : [string];
-  //   encoding_lookup_keys : [string];
-  //   encoding_lookup_values : [EncodingEntry];
-  // }
+  // See definitions in serde/fusion_cache.fbs for tables
+  // InputsIdLookup and EncodingEntry
+
   using fb_string = flatbuffers::Offset<flatbuffers::String>;
 
   // Used to get the ordering for the lru_cache
@@ -251,18 +242,8 @@ flatbuffers::Offset<serde::InputsIdLookup> InputsIdLookup::serialize(
 }
 
 void InputsIdLookup::deserialize(const serde::InputsIdLookup* buffer) {
-  // struct EncodingEntry {
-  //   id: ulong;
-  //   lru_iter: ulong;
-  // }
-  //
-  // table InputsIdLookup {
-  //   max_cache_size : ulong;
-  //   currrent_id : ulong;
-  //   lru_cache : [string];
-  //   encoding_lookup_keys : [string];
-  //   encoding_lookup_values : [EncodingEntry];
-  // }
+  // See definitions in serde/fusion_cache.fbs for tables
+  // InputsIdLookup and EncodingEntry
   TORCH_INTERNAL_ASSERT(buffer != nullptr, "serde::InputsIdLookup is nullptr.");
   using list_iter = std::list<std::string>::iterator;
   std::vector<list_iter> used_entry_iterators;
@@ -753,18 +734,8 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
 
 flatbuffers::Offset<serde::FusionExecutorCache> FusionExecutorCache::serialize(
     flatbuffers::FlatBufferBuilder& builder) const {
-  // table FusionExecutorCache {
-  //    inputs_cache : InputsIdLookup;
-  //    kernel_runtimes : [KernelRuntimes];
-  //    kernel_cache_keys : [ulong];
-  //    kernel_cache_values : [ulong];
-  // }
-  //
-  // table KernelRuntimes {
-  //    device_id : ulong;
-  //    has_dynamic_transform_info : bool;
-  //    values : [FusionKernelRuntime];
-  // }
+  // See definitions in serde/fusion_cache.fbs for tables
+  // FusionExecutorCache and KernelRuntimes
 
   using fb_fusion_kernel_runtime =
       flatbuffers::Offset<serde::FusionKernelRuntime>;
@@ -814,20 +785,12 @@ flatbuffers::Offset<serde::FusionExecutorCache> FusionExecutorCache::serialize(
 
 void FusionExecutorCache::deserialize(
     const serde::FusionExecutorCache* buffer) {
-  // table FusionExecutorCache {
-  //    inputs_cache : InputsIdLookup;
-  //    kernel_runtimes : [KernelRuntimes];
-  //    kernel_cache_keys : [ulong];
-  //    kernel_cache_values : [ulong];
-  // }
-  //
-  // table KernelRuntimes {
-  //    device_id : ulong;
-  //    has_dynamic_transform_info : bool;
-  //    values : [FusionKernelRuntime];
-  // }
+  // See definitions in serde/fusion_cache.fbs for tables
+  // FusionExecutorCache and KernelRuntimes
+
   TORCH_INTERNAL_ASSERT(
       buffer != nullptr, "serde::FusionExecutorCache is nullptr.");
+
   inputs_id_lookup_.deserialize(buffer->inputs_cache());
 
   // For the id_to_kernel_runtime_ cache, we need a flat collection of all
@@ -952,13 +915,11 @@ FusionKernelRuntime::FusionKernelRuntime(
 
 flatbuffers::Offset<serde::FusionKernelRuntime> FusionKernelRuntime::serialize(
     flatbuffers::FlatBufferBuilder& builder) const {
-  // table FusionKernelRuntime {
-  //  args : KernelArgumentHolder;
-  //  executors : [FusionExecutor];
-  //  device : ulong;
-  // }
+  // See table definition for FusionKernelRuntime in serde/fusion_cache.fbs
+
   using fb_fusion_executor =
       flatbuffers::Offset<nvfuser::serde::FusionExecutor>;
+
   std::vector<fb_fusion_executor> executors_fb;
   executors_fb.reserve(executors_.size());
   for (auto& executor : executors_) {
@@ -971,10 +932,8 @@ flatbuffers::Offset<serde::FusionKernelRuntime> FusionKernelRuntime::serialize(
 
 void FusionKernelRuntime::deserialize(
     const serde::FusionKernelRuntime* buffer) {
-  // table FusionKernelRuntime {
-  //  args : KernelArgumentHolder;
-  //  executors : [FusionExecutor];
-  // }
+  // See table definition in FusionKernelRuntime in serde/fusion_cache.fbs
+
   TORCH_INTERNAL_ASSERT(
       buffer != nullptr, "serde::FusionKernelRuntime is nullptr.");
   TORCH_INTERNAL_ASSERT(

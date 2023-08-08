@@ -112,13 +112,7 @@ struct RecordFunctor {
   //! if has supplementary attributes.
   virtual flatbuffers::Offset<serde::RecordFunctor> serialize(
       flatbuffers::FlatBufferBuilder& builder) const {
-    // table RecordFunctor {
-    //     args: [State];
-    //     outputs: [State];
-    //     name: string;
-    //     type: RecordType;
-    //     data: RecordData;
-    // }
+    // See table definition for RecordFunctor in serde/fusion_cache.fbs
 
     std::vector<serde::State> fb_args;
     fb_args.reserve(args_.size());

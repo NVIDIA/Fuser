@@ -310,12 +310,18 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
       const LaunchParams& new_launch_params,
       const CompileParams& new_compile_params);
 
+  // ExecutorEntry is an internal POD struct for the FusionExecutor class.
+  // We define ExecutorEntry's serialize and deserialize as private methods in
+  // FusionExecutor.
   flatbuffers::Offset<serde::ExecutorEntry> serialize(
       flatbuffers::FlatBufferBuilder& builder,
       const ExecutorEntry& data) const;
 
   ExecutorEntry deserialize(const serde::ExecutorEntry* buffer);
 
+  // GlobalBufferInfo is an internal POD struct for the FusionExecutor class.
+  // We define GlobalBufferInfo's serialize and deserialize as private methods
+  // in FusionExecutor.
   flatbuffers::Offset<serde::GlobalBufferInfo> serialize(
       flatbuffers::FlatBufferBuilder& builder,
       const GlobalBufferInfo& data,

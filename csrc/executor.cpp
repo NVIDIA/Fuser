@@ -1884,19 +1884,10 @@ float FusionExecutor::runRtc(
 
 flatbuffers::Offset<serde::FusionExecutor> FusionExecutor::serialize(
     flatbuffers::FlatBufferBuilder& builder) const {
-  // table FusionExecutor {
-  //  device_smem_limit: ulong;
-  //  block_size_high_water_mark: long;
-  //  maxrregcount_high_water_mark: int;
-  //  warp_size: int;
-  //  fusion_id: int;
-  //  fusion_id_counter : int;
-  //  kernel_code : string;
-  //  executor_entry_lookup_keys : [ulong];
-  //  executor_entry_lookup_values : [ExecutorEntry];
-  //  index_type : DataType;
-  // }
+  // See table definition for FusionExecutor in serde/fusion_cache.fbs
+
   using fb_executor_entry = flatbuffers::Offset<nvfuser::serde::ExecutorEntry>;
+
   std::vector<size_t> executor_entry_lookup_keys_fb;
   std::vector<fb_executor_entry> executor_entry_lookup_values_fb;
   for (const auto& [key, value] : executor_entry_lookup_) {
@@ -1921,14 +1912,8 @@ flatbuffers::Offset<serde::FusionExecutor> FusionExecutor::serialize(
 flatbuffers::Offset<serde::ExecutorEntry> FusionExecutor::serialize(
     flatbuffers::FlatBufferBuilder& builder,
     const ExecutorEntry& data) const {
-  // table ExecutorEntry {
-  //   init : bool;
-  //   launch_params : LaunchParams;
-  //   output_aliases : [int];
-  //   input_aliases : [int];
-  //   outputs : [GlobalBufferInfo];
-  //   intermediates : [GlobalBufferInfo];
-  // }
+  // See table definition for ExecutorEntry in serde/fusion_cache.fbs
+
   std::vector<int> output_aliases_fb;
   std::vector<int> input_aliases_fb;
   output_aliases_fb.reserve(data.output_to_input_aliases.size());
@@ -1986,15 +1971,7 @@ flatbuffers::Offset<serde::GlobalBufferInfo> FusionExecutor::serialize(
     const GlobalBufferInfo& data,
     int64_t tv_position,
     bool is_fusion_output) const {
-  // table GlobalBufferInfo {
-  //  tv : long;
-  //  sizes : [long];
-  //  strides : [long];
-  //  type : DataType;
-  //  zero_init : bool;
-  //  is_profile_buffer : bool;
-  //  is_fusion_output : bool;
-  // }
+  // See table definition for GlobalBufferInfo in serde/fusion_cache.fbs
   return serde::CreateGlobalBufferInfoDirect(
       builder,
       tv_position,
@@ -2009,20 +1986,8 @@ flatbuffers::Offset<serde::GlobalBufferInfo> FusionExecutor::serialize(
 void FusionExecutor::deserialize(
     const serde::FusionExecutor* buffer,
     Fusion* fusion) {
-  // table FusionExecutor {
-  //  configured_device_smem : ulong;
-  //  maybe_available_dynamic_smem : ulong;
-  //  device_smem_limit: ulong;
-  //  block_size_high_water_mark: long;
-  //  maxrregcount_high_water_mark: int;
-  //  warp_size: int;
-  //  fusion_id: int;
-  //  fusion_id_counter : int;
-  //  kernel_code : string;
-  //  executor_entry_lookup_keys : [ulong];
-  //  executor_entry_lookup_values : [ExecutorEntry];
-  //  index_type : DataType;
-  // }
+  // See table definition for FusionExecutor in serde/fusion_cache.fbs
+
   TORCH_INTERNAL_ASSERT(buffer != nullptr, "serde::FusionExecutor is nullptr.");
 
   device_smem_limit_ = buffer->device_smem_limit();
@@ -2066,15 +2031,10 @@ void FusionExecutor::deserialize(
 
 FusionExecutor::ExecutorEntry FusionExecutor::deserialize(
     const serde::ExecutorEntry* buffer) {
-  // table ExecutorEntry {
-  //    init : bool;
-  //    launch_params : LaunchParams;
-  //    output_aliases : [int];
-  //    input_aliases : [int];
-  //    outputs : [GlobalBufferInfo];
-  //    intermediates : [GlobalBufferInfo];
-  // }
+  // See table definition for ExecutorEntry in serde/fusion_cache.fbs
+
   TORCH_INTERNAL_ASSERT(buffer != nullptr, "serde::ExecutorEntry is nullptr.");
+
   ExecutorEntry entry;
 
   entry.init = buffer->init();
@@ -2099,14 +2059,8 @@ FusionExecutor::ExecutorEntry FusionExecutor::deserialize(
 
 FusionExecutor::GlobalBufferInfo FusionExecutor::deserialize(
     const serde::GlobalBufferInfo* buffer) {
-  // table GlobalBufferInfo {
-  //  sizes : [long];
-  //  strides : [long];
-  //  dtype : DataType;
-  //  zero_init : bool;
-  //  is_profile_buffer : bool;
-  //  is_fusion_output : bool;
-  // }
+  // See table definition for GlobalBufferInfo in serde/fusion_cache.fbs
+
   TORCH_INTERNAL_ASSERT(
       buffer != nullptr, "serde::GlobalBufferInfo is nullptr.");
 

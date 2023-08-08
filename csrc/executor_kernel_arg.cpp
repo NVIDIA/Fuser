@@ -145,14 +145,11 @@ void KernelArgumentHolder::pushTensorProxy(
 
 flatbuffers::Offset<serde::KernelArgumentHolder> KernelArgumentHolder::
     serialize(flatbuffers::FlatBufferBuilder& builder) const {
-  // table KernelArgumentHolder {
-  //   arguments : [ArgAbstract];
-  //   device_index : byte;
-  //   cache_id : ulong;
-  //   is_int_index_mode : bool;
-  // }
+  // See table definitions for KernelArgumentHolder and PolymorphicValue
+  // in serde/fusion_cache.fbs
 
   using fb_arg_abstract = flatbuffers::Offset<nvfuser::serde::ArgAbstract>;
+
   std::vector<fb_arg_abstract> arguments_fb;
   arguments_fb.reserve(arguments_.size());
   for (auto& arg : arguments_) {
@@ -165,8 +162,12 @@ flatbuffers::Offset<serde::KernelArgumentHolder> KernelArgumentHolder::
 
 void KernelArgumentHolder::deserialize(
     const serde::KernelArgumentHolder* buffer) {
+  // See table definitions for KernelArgumentHolder and PolymorphicValue
+  // in serde/fusion_cache.fbs
+
   TORCH_INTERNAL_ASSERT(
       buffer != nullptr, "serde::KernelArgumentHolder is nullptr.");
+
   device_index_ = buffer->device_index();
   cache_id_ = (buffer->cache_id() != SIZE_MAX)
       ? std::optional<size_t>(buffer->cache_id())
