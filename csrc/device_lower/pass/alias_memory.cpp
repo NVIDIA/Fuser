@@ -1061,8 +1061,10 @@ class ReusableAllocationFinder : private kir::IrVisitor {
             continue;
           }
         } else if (
-            dataTypeSize(alloc_info->data_type) !=
-            dataTypeSize(alloc_to_reuse->data_type)) {
+            dataTypeSize(
+                alloc_info->data_type, GpuLower::current()->indexType()) !=
+            dataTypeSize(
+                alloc_to_reuse->data_type, GpuLower::current()->indexType())) {
           // Behavior for shared or global memory and default behavior for
           // registers is to re-use if dtypes have same size.
           continue;
