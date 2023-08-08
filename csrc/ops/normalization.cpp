@@ -19,7 +19,7 @@ Val* numFeatures(TensorView* x, const std::vector<int>& dims, size_t ndims) {
   Val* num_features = IrBuilder::create<Val>(x->container(), 1.0);
   for (const auto dim : dims) {
     const int axis = nonNegativeAxis(dim, ndims);
-    num_features = IrBuilder::mulExpr(num_features, x->getLeafDomain()[axis]->extent());
+    num_features = mul(num_features, x->getLeafDomain()[axis]->extent());
   }
   return num_features;
 }
