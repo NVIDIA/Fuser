@@ -675,6 +675,22 @@ class AllocationInfoMap : private kir::IrVisitor {
     return alias_map_;
   }
 
+  //! Get an ordered vector of loops containing an allocation
+  std::vector<kir::ForLoop*> getLoopNest(kir::Allocate* alloc) const {
+    std::vector<kir::ForLoop*> rev;
+    auto alloc_it = allocation_info_map_.find(alloc);
+    if (alloc_it == allocation_info_map_.end()) {
+      return rev;
+    }
+    auto current = alloc_it->second->loop_info->loop;
+    auto it = loop_parent_map_.find(current);
+    while (it != loop_parent_map_.end()) {
+      rev.push_back(current);
+      it = loop_parent_map_.find(current);
+    }
+    return std::vector<kir::ForLoop*>(rev.rbegin(), rev.rend());
+  }
+
  private:
   using kir::IrVisitor::handle;
 
@@ -690,6 +706,10 @@ class AllocationInfoMap : private kir::IrVisitor {
 
   void handle(kir::ForLoop* for_loop) final {
     auto loop_info = scope_map_.getLoopScopeInfo(for_loop);
+    if (!current_stack_.empty()) {
+      // Record parent loop
+      loop_parent_map_.emplace(loop_info->loop, current_stack_.back()->loop);
+    }
     current_stack_.push_back(loop_info);
     if (debug_printer_) {
       debug_printer_->pushScope();
@@ -915,6 +935,10 @@ class AllocationInfoMap : private kir::IrVisitor {
 
   //! Debug info:
   std::unique_ptr<BufferReuseDebugPrinter> debug_printer_ = nullptr;
+
+  //! Track parent of each for loop. If a loop is at top level it will not
+  //! appear as a key here.
+  std::unordered_map<kir::ForLoop*, kir::ForLoop*> loop_parent_map_;
 };
 
 void BufferReuseDebugPrinter::printAllocInfo(const kir::Allocate* alloc) {
@@ -1388,6 +1412,9 @@ class AllocationReuseModifier : private kir::ExprMutator {
 //! address and increment it by the given amount.
 class NoReuseSharedMemAllocator : kir::IrVisitor {
  public:
+  NoReuseSharedMemAllocator(const AllocationInfoMap& allocation_info_map)
+      : allocation_info_map_(allocation_info_map) {}
+
   void allocate(std::vector<Expr*>& exprs) {
     handle(exprs);
   }
@@ -1400,7 +1427,9 @@ class NoReuseSharedMemAllocator : kir::IrVisitor {
       return addr;
     }
     auto n_minus_one = IrBuilder::create<Val>(alignment - 1);
-    return bitwise_and(add(addr, n_minus_one), bitwise_not(n_minus_one));
+    return SimplifyingIrBuilder::bitwiseAndExpr(
+        SimplifyingIrBuilder::addExpr(addr, n_minus_one),
+        SimplifyingIrBuilder::bitwiseNotExpr(n_minus_one));
   }
 
   void handle(kir::Allocate* alloc) final {
@@ -1411,20 +1440,33 @@ class NoReuseSharedMemAllocator : kir::IrVisitor {
     const auto buffer_dtype = alloc->buffer()->dtype();
     const auto dtype_size = dataTypeSize(buffer_dtype);
 
-    auto address = current_offset ? alignExpr(current_offset, 16 /*dtype_size*/)
-                                  : FusionGuard::getCurFusion()->zeroVal();
+    auto address = current_address_ ? alignExpr(current_address_, 16)
+                                    : FusionGuard::getCurFusion()->zeroVal();
+
+    address = GpuLower::current()->commonScalarMap().hoistScalar(
+        address, allocation_info_map_.getLoopNest(alloc));
 
     alloc->setAddress(address);
 
     auto size_bytes = dtype_size == 1
         ? alloc->size()
-        : mul(alloc->size(), IrBuilder::create<Val>(dtype_size));
+        : SimplifyingIrBuilder::mulExpr(
+              alloc->size(), IrBuilder::create<Val>(dtype_size));
 
-    current_offset = add(address, size_bytes);
+    if (isDebugDumpEnabled(DebugDumpOption::BufferReuseInfo)) {
+      debug() << "Allocated address " << address->toInlineString()
+              << " of size " << size_bytes->toInlineString() << " for T"
+              << alloc->buffer()->name() << " which has dtype "
+              << alloc->buffer()->dtype() << std::endl;
+    }
+
+    current_address_ = SimplifyingIrBuilder::addExpr(address, size_bytes);
   }
 
  private:
-  Val* current_offset = nullptr;
+  const AllocationInfoMap& allocation_info_map_;
+
+  Val* current_address_ = nullptr;
 };
 
 } // namespace
@@ -1441,7 +1483,7 @@ std::vector<Expr*> reuseMemoryAllocations(const std::vector<Expr*>& exprs) {
   auto aliased_exprs =
       AllocationReuseModifier::modify(exprs, allocation_info_map);
 
-  NoReuseSharedMemAllocator().allocate(aliased_exprs);
+  NoReuseSharedMemAllocator(allocation_info_map).allocate(aliased_exprs);
 
   return aliased_exprs;
 }
