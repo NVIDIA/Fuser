@@ -9764,19 +9764,17 @@ TEST_F(NVFuserTest, IndexDataTypePromotion) {
 }
 
 TEST_F(NVFuserTest, FusionCrossGridInnerReductionSplitGridIteration_CUDA) {
-  // hidden_size is set to 64K to triger cross grid reduction.
-  // iter_size is set to a value larger than y_grid_limit to test if iter domain
-  // is split grid.
+  // reduction size is set to 64K to triger cross grid reduction.
+  // iteration size is set to a value larger than y_grid_limit to test if iter
+  // domain is split grid.
   DataType dtype = DataType::Float;
-  int64_t hidden_size = 65536;
-  int64_t iter_size = scheduler_utils::y_grid_limit + 8;
+  int64_t reduction_size = 65536;
+  int64_t iteration_size = scheduler_utils::y_grid_limit + 8;
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
-  const int64_t dim0 = iter_size;
-  const int64_t dim1 = hidden_size;
-  std::vector<int64_t> input_shape{dim0, dim1};
+  std::vector<int64_t> input_shape{iteration_size, reduction_size};
   auto t0 = makeContigTensor(2, dtype);
   auto t1 = sum(t0, {1});
   fusion.addInput(t0);
