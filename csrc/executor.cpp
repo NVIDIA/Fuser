@@ -929,31 +929,49 @@ int64_t FusionExecutor::computeSharedMemory(
     ExpressionEvaluator& expr_eval,
     const std::vector<const kir::Allocate*>& buffers,
     DataType index_type,
-    bool align_padding,
-    int64_t total) {
+    int64_t smem_offset) {
   FUSER_PERF_SCOPE("computeSharedMemory");
+  int64_t total = smem_offset;
+  // align smem_offset at 16 bytes
+  smem_offset = (smem_offset + 15) & (~15);
   for (auto smem_alloc : buffers) {
     // If this buffer aliases another buffer,
     // then do not allocate memory for this buffer.
     if (smem_alloc->alias() == nullptr) {
-      const auto inferred_val = expr_eval.evaluate(smem_alloc->size());
-      if (inferred_val.hasValue()) {
-        const auto data_size = static_cast<int64_t>(
-            dataTypeSize(smem_alloc->buffer()->dtype(), index_type));
-        // Add padding to align dynamic shared memory
-        if (align_padding) {
-          const int align_size = 16; // always align to 16B/128b.
-          total = ceilDiv(total, align_size) * align_size;
-        }
-        total += inferred_val.as<int64_t>() * data_size;
-      } else {
-        TORCH_INTERNAL_ASSERT(
-            false,
-            "Failed to evaluate the size ",
-            smem_alloc->size(),
-            " of shared memory buffer - T",
-            smem_alloc->buffer()->name());
-      }
+      TORCH_INTERNAL_ASSERT(
+          smem_alloc->address(),
+          "Smem address is not set for buffer T",
+          smem_alloc->buffer()->name());
+      const auto address_val = expr_eval.evaluate(smem_alloc->address());
+      TORCH_INTERNAL_ASSERT(
+          address_val.hasValue(),
+          "Failed to evaluate the address ",
+          smem_alloc->address()->toInlineString(),
+          " of shared memory buffer T",
+          smem_alloc->buffer()->name());
+      TORCH_INTERNAL_ASSERT(
+          address_val.is<int64_t>(),
+          "Address val ",
+          smem_alloc->address()->toInlineString(),
+          " of shared memory buffer T",
+          smem_alloc->buffer()->name(),
+          " should be int64 but found ",
+          address_val);
+      const auto size_val = expr_eval.evaluate(smem_alloc->size());
+      TORCH_INTERNAL_ASSERT(
+          size_val.hasValue(),
+          "Failed to evaluate the size ",
+          smem_alloc->size(),
+          " of shared memory buffer - T",
+          smem_alloc->buffer()->name());
+
+      const auto first_byte = smem_offset + address_val.as<int64_t>();
+      const auto data_size =
+          dataTypeSize(smem_alloc->buffer()->dtype(), index_type);
+      const int64_t size_bytes = size_val.as<int64_t>() * data_size;
+      const auto last_byte = first_byte + size_bytes;
+
+      total = std::max(total, last_byte);
     }
   }
   return total;
@@ -1097,7 +1115,6 @@ LaunchParams FusionExecutor::computeLaunchParams(
       expr_eval,
       kernel_summary.dynamic_smem_allocations,
       index_type,
-      true,
       reduction_broadcast_workspace);
 
   // Check that requested smem size can be dynamically allocated.
