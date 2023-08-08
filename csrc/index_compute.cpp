@@ -371,7 +371,7 @@ void IndexCompute::updateUnswitchedDomains(Expr* expr) {
           unswitched_domain_map_[split_in] = it->second;
         } else {
           // In the case of upward traversal from the outer output,
-          // append the inner domain to the lists
+          // prepend the inner domain to the lists
           for (auto unswitched_dep_ids : it->second) {
             unswitched_dep_ids.push_front(
                 maybeGetExactMapConcreteID(split->inner()));
@@ -384,8 +384,9 @@ void IndexCompute::updateUnswitchedDomains(Expr* expr) {
     // Suppress a clang-tidy warning
     TORCH_INTERNAL_ASSERT(expr != nullptr);
     // Propagate the unswitch info if any of outputs is
-    // unswitched. However, unlike the split case, the propagated info
-    // is reset
+    // unswitched. Unlike the split case, the propagated info
+    // is just reset as there's no obvious way to back-propagate the
+    // info through, e.g., merge
     if (std::any_of(
             expr->outputs().begin(), expr->outputs().end(), [this](Val* out) {
               return out->isA<IterDomain>() &&
@@ -470,6 +471,8 @@ bool IndexCompute::isModuloInvalidUnswitchedIndex(
     return false;
   }
 
+  // If not in the unswitched domain map, this domain has no dependent
+  // unswitched domain
   auto unswitched_domain_map_it = unswitched_domain_map_.find(out_concrete_id);
   if (unswitched_domain_map_it == unswitched_domain_map_.end()) {
     return false;
@@ -479,8 +482,13 @@ bool IndexCompute::isModuloInvalidUnswitchedIndex(
     TORCH_INTERNAL_ASSERT(!unswitched_domain_list.empty());
 
     // If the stride is a multiple of the inner extent, the leaf
-    // unswitched index remains tobe be a valid maximum index as the
-    // module by the inner extent will be just zero
+    // unswitched index remains to be a valid maximum index as the
+    // module by the inner extent will be just zero. More
+    // specifically, the index for this unswitched domain would be (x
+    // - 1) * extent_of_inner_domain_0 * extent_of_inner_domain_1
+    // ...., so if the stride component, i.e., the multiplication of all
+    // the inner extents is divisible by the merge inner extent, its
+    // contribution propagated to the inner path will be zero
     Val* stride = out_concrete_id->fusion()->oneVal();
     for (auto it = unswitched_domain_list.begin();
          it != unswitched_domain_list.end() - 1;
@@ -492,6 +500,10 @@ bool IndexCompute::isModuloInvalidUnswitchedIndex(
       continue;
     }
 
+    // Also, if the total extent including the inner domains is a
+    // divisible factor of the inner extent, the contribution by the
+    // unswitched domain is guaranteed to be still the maximum when
+    // propagated to the inner path
     Val* total_extent =
         IrBuilder::mulExpr(stride, getExtent(unswitched_domain_list.back()));
     if (simplifyExpr(IrBuilder::modExpr(inner_extent, total_extent))
@@ -499,8 +511,7 @@ bool IndexCompute::isModuloInvalidUnswitchedIndex(
       continue;
     }
 
-    std::cerr << "Propagating maximum for merge due to : "
-              << toDelimitedString(unswitched_domain_list) << std::endl;
+    // Not proven to be safe
     return true;
   }
 
@@ -777,7 +788,7 @@ IndexCompute::IndexCompute(
       contig_ids_{contig_finder.contigIDs()},
       preferred_paths_(std::move(preferred_paths)),
       halo_extent_map_(std::move(halo_extent_map)),
-      unswitched_leaf_domains_(unswitched_leaf_domains) {
+      unswitched_leaf_domains_(std::move(unswitched_leaf_domains)) {
   FUSER_PERF_SCOPE("GpuLower::Lower::IndexCompute::IndexCompute");
   // Make sure we recompute any indices we can that map to a contiguous access
   // in physical memory.
@@ -808,14 +819,12 @@ IndexCompute::IndexCompute(
       halo_extent_map_(std::move(halo_extent_map)),
       concrete_id_pass_{true},
       swizzle_mode_{SwizzleMode::Loop},
-      unswitched_leaf_domains_(unswitched_leaf_domains) {
+      unswitched_leaf_domains_(std::move(unswitched_leaf_domains)) {
   FUSER_PERF_SCOPE("GpuLower::Lower::IndexCompute::IndexCompute");
   initializeUnswitchDomainMap();
 }
 
 void IndexCompute::run(const LoopIndexing& loop_indexing) {
-  // std::cout << std::endl;
-  // std::cerr << "IndexCompute::run with loop indexing" << std::endl;
   TORCH_INTERNAL_ASSERT(
       concrete_id_pass_, "concrete pass only for this option");
   // Apply loop swizzles if there are any that outputs to
@@ -2442,8 +2451,6 @@ std::vector<PredicateDomainInfo> getPredicateContigIds(
     TensorView* consumer_tv,
     const std::unordered_map<IterDomain*, Val*>& consumer_index_map) {
   const auto gpu_lower = GpuLower::current();
-
-  // std::cerr << "getPredicate: " << consumer_tv->toString() << std::endl;
 
   // When there's a resize expr between the root and the rfactor
   // domains, predicate the rfactor domain. Otherwise, predicate the

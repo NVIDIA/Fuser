@@ -1097,8 +1097,8 @@ TEST_F(NVFuserTest, FusionTransposeBankConflict9_CUDA) {
   testValidate(&fusion, outputs, {input}, {tv_ref}, __LINE__, __FILE__);
 }
 
-// small transpose dimension with merge and split
-TEST_F(NVFuserTest, TransposeIndexingIssue_CUDA) {
+// small transpose dimension with merge and split. See issue #667
+TEST_F(NVFuserTest, UnswitchPredicateIssueRepro667_CUDA) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -1110,7 +1110,6 @@ TEST_F(NVFuserTest, TransposeIndexingIssue_CUDA) {
   fusion->addOutput(tv2);
 
   std::vector<int64_t> shape({2, 7, 102400, 4, 5});
-  // std::vector<int64_t> shape({4, 8, 102400, 4, 8});
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
@@ -1128,7 +1127,8 @@ TEST_F(NVFuserTest, TransposeIndexingIssue_CUDA) {
   TORCH_CHECK(ref.equal(cg_outputs.at(0)));
 }
 
-TEST_F(NVFuserTest, Issue667Repro_CUDA) {
+// Another repro of the unswitch predicate issue. See issue #681
+TEST_F(NVFuserTest, UnswitchPredicateIssueRepro681_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -1137,8 +1137,6 @@ TEST_F(NVFuserTest, Issue667Repro_CUDA) {
 
   auto tv1 = sum(tv0, {0, 1});
   fusion.addOutput(tv1);
-
-  fusion.printMath();
 
   // [i0, i1]
   tv1->split(1, 4);
@@ -1151,8 +1149,6 @@ TEST_F(NVFuserTest, Issue667Repro_CUDA) {
   // [i0*i1/4/4, 1, 4, 4]
 
   tv1->axis(1)->parallelize(ParallelType::Unswitch);
-
-  fusion.printKernel();
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({4, 10}, options);

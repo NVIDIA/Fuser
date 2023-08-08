@@ -303,6 +303,8 @@ bool predicateAtEnd(kir::ForLoop* loop) {
   return true;
 }
 
+// Check if this loop is actually unswitched, meaning an initial index
+// of the maximum value from a non-size-one range is used.
 bool trackUnswitchedDomain(kir::ForLoop* loop) {
   auto loop_id = loop->iter_domain();
 
@@ -471,7 +473,8 @@ IndexingParameters getPredicateInitialIndexParameters(
       // guaranteed to result in the maximum index when traversing
       // through merge inner domains as modulo is used. Keep track of
       // those domains, which will be used by IndexCompute to make
-      // necessary adjustments.
+      // necessary adjustments. See also csrc/index_compute.h for more
+      // context.
       if (!is_start_predicate && trackUnswitchedDomain(loop)) {
         index_parameters.unswitched_domains.insert(
             GpuLower::current()->caMap()->getConcreteMappedID(
