@@ -29,6 +29,7 @@ namespace {
 class KernelIrScanner : private IrVisitor {
  public:
   explicit KernelIrScanner(const Kernel* kernel) {
+    index_type_ = kernel->indexType();
     IrVisitor::handle(kernel->topLevelExprs());
     const auto gpu_lower = GpuLower::current();
     for (auto split : gpu_lower->nonDivisibleSplitInfo().splitsToValidate()) {
@@ -100,7 +101,7 @@ class KernelIrScanner : private IrVisitor {
     if (domain->hasBlockReduction() || domain->hasGridReduction() ||
         tv->getMemoryType() == MemoryType::Shared) {
       const auto data_type = tv->dtype();
-      const size_t type_size = dataTypeSize(data_type);
+      const size_t type_size = dataTypeSize(data_type, index_type_);
       if (type_size > max_smem_type_size_) {
         max_smem_type_size_ = type_size;
         summary_.largest_smem_data_type = data_type;
@@ -188,6 +189,7 @@ class KernelIrScanner : private IrVisitor {
  private:
   size_t max_smem_type_size_ = 0;
   KernelSummary summary_;
+  DataType index_type_;
 };
 
 //! Make sure tensors have valid allocations even when parallelized

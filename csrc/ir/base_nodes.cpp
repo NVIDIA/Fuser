@@ -144,7 +144,7 @@ void Val::resolveIndexDtype() {
       index_dtype == DataType::Int || index_dtype == DataType::Int32,
       "Invalid index data type: ",
       index_dtype);
-  dtype_ = index_dtype;
+  dtype_ = DataType::Index;
 }
 
 bool Val::sameAs(const Statement* other) const {

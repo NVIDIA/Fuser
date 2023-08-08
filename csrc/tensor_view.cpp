@@ -670,6 +670,10 @@ TensorView* TensorView::split(
       ". Tensor: ",
       toString());
 
+  if (factor->dtype() != DataType::Index) {
+    factor = castOp(DataType::Index, factor);
+  }
+
   domain()->split(axis_, factor, inner_split, trim_out_of_bounds);
   return this;
 }

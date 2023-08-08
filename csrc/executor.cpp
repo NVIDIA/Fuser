@@ -167,7 +167,9 @@ void FusionExecutor::debugCompileFusionFromStr(
   if (!kernel_summary.static_smem_allocations.empty()) {
     ExpressionEvaluator static_evaluator;
     const auto static_smem_size = computeSharedMemory(
-        static_evaluator, kernel_summary.static_smem_allocations);
+        static_evaluator,
+        kernel_summary.static_smem_allocations,
+        kernel->indexType());
     TORCH_INTERNAL_ASSERT(
         static_smem_size < max_static_smem_,
         "The static shared memory allocation is larger than available memory.");
@@ -320,7 +322,9 @@ void FusionExecutor::compileFusion(
   if (!kernel_summary.static_smem_allocations.empty()) {
     ExpressionEvaluator static_evaluator;
     const auto static_smem_size = computeSharedMemory(
-        static_evaluator, kernel_summary.static_smem_allocations);
+        static_evaluator,
+        kernel_summary.static_smem_allocations,
+        kernel->indexType());
     TORCH_INTERNAL_ASSERT(
         static_smem_size < max_static_smem_,
         "The static shared memory allocation is larger than available memory.");
@@ -341,8 +345,8 @@ void FusionExecutor::compileFusion(
   std::optional<int64_t> block_size = std::nullopt;
   if (!args.empty()) {
     auto expr_eval = executor_utils::bindInputs(args, kernel);
-    auto launch_params =
-        computeLaunchParams(launch_constraints, expr_eval, warp_size_);
+    auto launch_params = computeLaunchParams(
+        launch_constraints, expr_eval, warp_size_, kernel->indexType());
     block_size = launch_params.nThreads();
     dynamic_smem = launch_params.smem();
     TORCH_INTERNAL_ASSERT(
@@ -924,6 +928,7 @@ std::vector<at::Tensor> allocOutputs(
 int64_t FusionExecutor::computeSharedMemory(
     ExpressionEvaluator& expr_eval,
     const std::vector<const kir::Allocate*>& buffers,
+    DataType index_type,
     bool align_padding,
     int64_t total) {
   FUSER_PERF_SCOPE("computeSharedMemory");
@@ -933,8 +938,8 @@ int64_t FusionExecutor::computeSharedMemory(
     if (smem_alloc->alias() == nullptr) {
       const auto inferred_val = expr_eval.evaluate(smem_alloc->size());
       if (inferred_val.hasValue()) {
-        const auto data_size =
-            static_cast<int64_t>(dataTypeSize(smem_alloc->buffer()->dtype()));
+        const auto data_size = static_cast<int64_t>(
+            dataTypeSize(smem_alloc->buffer()->dtype(), index_type));
         // Add padding to align dynamic shared memory
         if (align_padding) {
           const int align_size = 16; // always align to 16B/128b.
@@ -957,7 +962,8 @@ int64_t FusionExecutor::computeSharedMemory(
 LaunchParams FusionExecutor::computeLaunchParams(
     const LaunchParams& launch_constraints,
     ExpressionEvaluator& expr_eval,
-    const int64_t warp_size) {
+    const int64_t warp_size,
+    DataType index_type) {
   FUSER_PERF_SCOPE("FusionExecutor::ComputeLaunchParams");
   TORCH_INTERNAL_ASSERT(warp_size > 0, "WARP_SIZE should be larger than 0");
 
@@ -1075,7 +1081,8 @@ LaunchParams FusionExecutor::computeLaunchParams(
         kernel_summary.has_block_welford || kernel_summary.has_grid_welford ? 3
                                                                             : 1;
     reduction_broadcast_workspace =
-        (int64_t)dataTypeSize(kernel_summary.largest_smem_data_type) *
+        (int64_t)dataTypeSize(
+            kernel_summary.largest_smem_data_type, index_type) *
         welford_factor * launch_params.bdimx() * launch_params.bdimy() *
         launch_params.bdimz();
 
@@ -1089,6 +1096,7 @@ LaunchParams FusionExecutor::computeLaunchParams(
   const auto dynamic_smem_size = computeSharedMemory(
       expr_eval,
       kernel_summary.dynamic_smem_allocations,
+      index_type,
       true,
       reduction_broadcast_workspace);
 
@@ -1381,15 +1389,16 @@ void FusionExecutor::initializeExecutorEntry(
     const KernelArgumentHolder& args,
     const LaunchParams& launch_constraints,
     const CompileParams& compile_params,
-    const std::vector<at::Tensor>& outputs) {
+    const std::vector<at::Tensor>& outputs,
+    DataType index_type) {
   FUSER_PERF_SCOPE("ExecutorRunFusion::InitializeExecutorEntry");
 
   ExpressionEvaluator expr_eval;
   evaluatorPrecomputedValues()->bindInputs(args);
   expr_eval.precomputedValues() = evaluatorPrecomputedValues().get();
 
-  auto launch_params =
-      computeLaunchParams(launch_constraints, expr_eval, warp_size_);
+  auto launch_params = computeLaunchParams(
+      launch_constraints, expr_eval, warp_size_, index_type);
 
   executor_utils::validateVectorizedTensors(
       kernel(), args, outputs, compileTimeDataCache(), expr_eval);
@@ -1561,7 +1570,12 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   // Initialize the executor entry if not initlized
   if (!executor_entry->init) {
     initializeExecutorEntry(
-        *executor_entry, args, launch_constraints, compile_params, outputs);
+        *executor_entry,
+        args,
+        launch_constraints,
+        compile_params,
+        outputs,
+        kernel()->indexType());
   }
 
   recompileKernel(executor_entry->launch_params, compile_params);
