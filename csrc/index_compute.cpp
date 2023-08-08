@@ -373,7 +373,7 @@ void IndexCompute::updateUnswitchedDomains(Expr* expr) {
           // In the case of upward traversal from the outer output,
           // append the inner domain to the lists
           for (auto unswitched_dep_ids : it->second) {
-            unswitched_dep_ids.push_back(
+            unswitched_dep_ids.push_front(
                 maybeGetExactMapConcreteID(split->inner()));
             unswitched_domain_map_[split_in].push_back(unswitched_dep_ids);
           }
