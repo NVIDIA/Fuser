@@ -211,7 +211,8 @@ class MergeTransform final : public ViewTransform {
         "Didn't expect to apply view transformations on an iter domain",
         " starting at a non-zero position.");
 
-    auto merged_extent = mul(outer_id->extent(), inner_id->extent());
+    auto merged_extent =
+        IrBuilder::mulExpr(outer_id->extent(), inner_id->extent());
 
     auto new_merged_id =
         IterDomainBuilder(FusionGuard::getCurFusion()->zeroVal(), merged_extent)
@@ -265,7 +266,7 @@ class SplitTransform final : public ViewTransform {
         "\t Domain Size:\t",
         current_transformed_domain.size());
 
-    auto factor = IrBuilder::create<Val>(split_factor_);
+    auto factor = IrBuilder::create<Val>(split_factor_, DataType::Index);
 
     IterDomain* id = current_transformed_domain.at(index_);
     if (!id->isRFactorProduct()) {
@@ -277,7 +278,7 @@ class SplitTransform final : public ViewTransform {
         "Didn't expect to apply view transformations on an iter domain",
         " starting at a non-zero position.");
 
-    Val* remainder = ceilDiv(id->extent(), factor);
+    Val* remainder = IrBuilder::ceilDivExpr(id->extent(), factor);
 
     // outer loop IterDomain
     IterDomain* factor_id =

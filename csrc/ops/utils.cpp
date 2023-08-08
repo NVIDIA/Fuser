@@ -65,7 +65,7 @@ Val* simplifiedInt(Val* val) {
   if (val->value().hasValue()) {
     return val;
   }
-  return IrBuilder::create<Val>(val->evaluateInt());
+  return IrBuilder::create<Val>(val->evaluateInt(), val->dtype());
 }
 
 // If one size is nullptr, return the other. If both symbolic just return v1. If
@@ -253,8 +253,10 @@ std::vector<IterDomain*> newOutputDomain(
           "Could not deduce iter type for new tensor view.");
       out_domain[dim_i] =
           IterDomainBuilder(
-              IrBuilder::create<Val>(start_offsets[dim_i]), extent_vals[dim_i])
-              .stop_offset(IrBuilder::create<Val>(stop_offsets[dim_i]))
+              IrBuilder::create<Val>(start_offsets[dim_i], DataType::Index),
+              extent_vals[dim_i])
+              .stop_offset(
+                  IrBuilder::create<Val>(stop_offsets[dim_i], DataType::Index))
               .iter_type(iter_types[dim_i].value())
               .build();
     } else {

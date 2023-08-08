@@ -636,23 +636,19 @@ TEST_F(NVFuserTest, FusionTVSplit_CUDA) {
   TensorView* tv = makeSymbolicTensor(3);
 
   tv = tv->split(2, 2);
-  TORCH_CHECK(tv->nDims() == 4);
+  EXPECT_EQ(tv->nDims(), 4);
   Expr* outer = tv->axis(2)->extent()->definition();
 
-  TORCH_CHECK(
-      outer->isA<BinaryOp>() &&
-      static_cast<BinaryOp*>(outer)->getBinaryOpType() ==
-          BinaryOpType::CeilDiv &&
-      static_cast<BinaryOp*>(outer)->lhs()->sameAs(
-          tv->getRootDomain()[2]->extent()) &&
-      static_cast<Val*>(static_cast<BinaryOp*>(outer)->rhs())
-          ->sameAs(IrBuilder::create<Val>(2L)));
+  ASSERT_TRUE(outer->isA<BinaryOp>());
+  auto bop = outer->as<BinaryOp>();
+  EXPECT_EQ(bop->getBinaryOpType(), BinaryOpType::CeilDiv);
+  ASSERT_TRUE(bop->lhs()->sameAs(tv->getRootDomain()[2]->extent()));
+  ASSERT_TRUE(bop->rhs()->sameAs(IrBuilder::create<Val>(2L, DataType::Index)));
 
   IterDomain* inner = static_cast<IterDomain*>(tv->axis(3));
-  TORCH_CHECK(
-      inner->extent()->isScalar() &&
-      static_cast<Val*>(inner->extent())->isConst() &&
-      static_cast<Val*>(inner->extent())->value() == 2);
+  EXPECT_TRUE(inner->extent()->isScalar());
+  EXPECT_TRUE(inner->extent()->isConst());
+  EXPECT_EQ(inner->extent()->value(), 2);
 }
 
 TEST_F(NVFuserTest, FusionTVMerge_CUDA) {

@@ -76,11 +76,11 @@ class Instrumentor : private kir::IrVisitor {
     const std::vector<IterDomain*> new_buffer_ids = {
         IterDomainBuilder(
             GpuLower::current()->kernel()->zeroVal(),
-            IrBuilder::create<Val>(num_profile_entries))
+            IrBuilder::create<Val>(num_profile_entries, DataType::Index))
             .build(),
         IterDomainBuilder(
             GpuLower::current()->kernel()->zeroVal(),
-            IrBuilder::create<Val>(2L))
+            IrBuilder::create<Val>(2L, DataType::Index))
             .build()};
 
     const auto buffer_domain = IrBuilder::create<TensorDomain>(new_buffer_ids);

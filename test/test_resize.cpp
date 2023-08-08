@@ -905,7 +905,8 @@ TEST_F(NVFuserTest, FusionResizeSlice1_CUDA) {
   auto tv1 = slice(
       tv0,
       {{IrBuilder::create<Val>(1L),
-        sub(tv0->axis(0)->extent(), IrBuilder::create<Val>(1L))}});
+        IrBuilder::subExpr(
+            tv0->axis(0)->extent(), IrBuilder::create<Val>(1L))}});
   fusion.addOutput(tv1);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -1076,14 +1077,16 @@ TEST_F(NVFuserTest, FusionResizeSlice5_CUDA) {
       tv0,
       {Slice(),
        {IrBuilder::create<Val>(1L),
-        sub(tv0->axis(1)->extent(), IrBuilder::create<Val>(1L))}});
+        IrBuilder::subExpr(
+            tv0->axis(1)->extent(), IrBuilder::create<Val>(1L))}});
   auto tv2 = sum(tv1, {1});
   fusion.addOutput(tv2);
   auto tv3 = slice(
       tv0,
       {Slice(),
        {IrBuilder::create<Val>(1L),
-        sub(tv0->axis(1)->extent(), IrBuilder::create<Val>(1L))}});
+        IrBuilder::subExpr(
+            tv0->axis(1)->extent(), IrBuilder::create<Val>(1L))}});
   auto tv4 = sum(tv3, {1});
   fusion.addOutput(tv4);
 
@@ -1134,7 +1137,8 @@ TEST_F(NVFuserTest, FusionResizeSliceScheduler1_CUDA) {
   auto tv1 = slice(
       tv0,
       {{IrBuilder::create<Val>(1L),
-        sub(tv0->axis(0)->extent(), IrBuilder::create<Val>(1L))}});
+        IrBuilder::subExpr(
+            tv0->axis(0)->extent(), IrBuilder::create<Val>(1L))}});
   fusion.addOutput(tv1);
 
   // Make sure all IDs of tv0 and tv1 are mapped in the
@@ -1459,7 +1463,8 @@ TEST_F(NVFuserTest, FusionResizeReductionSliceScheduler1_CUDA) {
   auto tv2 = slice(
       tv1,
       {{IrBuilder::create<Val>(1L),
-        sub(tv1->axis(0)->extent(), IrBuilder::create<Val>(2L))}});
+        IrBuilder::subExpr(
+            tv1->axis(0)->extent(), IrBuilder::create<Val>(2L))}});
   fusion.addOutput(tv2);
 
   std::vector<int64_t> shape0({10, 1234});
@@ -1497,7 +1502,7 @@ TEST_F(NVFuserTest, FusionResizeSoftmaxSliceScheduler1_CUDA) {
   auto tv2 = slice(
       tv1,
       {{IrBuilder::create<Val>(1L),
-        sub(tv1->axis(0)->extent(), IrBuilder::create<Val>(2L))},
+        IrBuilder::subExpr(tv1->axis(0)->extent(), IrBuilder::create<Val>(2L))},
        Slice()});
   fusion.addOutput(tv2);
 
@@ -1539,7 +1544,8 @@ TEST_F(NVFuserTest, FusionResizeSoftmaxSliceScheduler2_CUDA) {
       tv1,
       {Slice(),
        {IrBuilder::create<Val>(1L),
-        sub(tv1->axis(1)->extent(), IrBuilder::create<Val>(2L))}});
+        IrBuilder::subExpr(
+            tv1->axis(1)->extent(), IrBuilder::create<Val>(2L))}});
   fusion.addOutput(tv2);
 
   std::vector<int64_t> shape0({110, 12345});

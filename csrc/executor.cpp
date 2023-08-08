@@ -1576,8 +1576,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   const auto& inputs = kernel()->inputs();
 
   for (const auto i : c10::irange(inputs.size())) {
-    executor_utils::bindInputForExprEvaluation(
-        inputs.at(i), *args[i], true, expr_eval);
+    expr_eval.bind(inputs.at(i), *args[i]);
   }
 
   // only allocate outputs when not given
@@ -1607,8 +1606,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
       // Skip trivially forwarded outputs because they are just placeholders
       continue;
     }
-    executor_utils::bindInputForExprEvaluation(
-        output, *args[inputs.size() + i], true, expr_eval, false);
+    expr_eval.bind(output, *args[inputs.size() + i]);
   }
 
   std::vector<at::Tensor> intermediates;
@@ -1635,12 +1633,9 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
       }
       args.push(intermediate_buffer);
       intermediates.push_back(intermediate_buffer);
-      executor_utils::bindInputForExprEvaluation(
+      expr_eval.bind(
           kernel()->summary().global_allocations.at(i)->buffer(),
-          *args[inputs.size() + outputs.size() + i],
-          true,
-          expr_eval,
-          false);
+          *args[inputs.size() + outputs.size() + i]);
       if (buf_info.is_profile_buffer) {
         profile_buffer = intermediate_buffer;
       }
