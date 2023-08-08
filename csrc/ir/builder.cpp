@@ -80,22 +80,29 @@ Val* IrBuilder::negExpr(Val* val) {
   return result;
 }
 
-Val* IrBuilder::notExpr(Val* val) {
-  TORCH_CHECK(val != nullptr, "val is a nullptr in notExpr.");
+Val* IrBuilder::logicalNotExpr(Val* val) {
+  TORCH_CHECK(val != nullptr, "val is a nullptr in logicalNotExpr.");
   auto result = newScalar(val->dtype());
-  IrBuilder::create<UnaryOp>(UnaryOpType::Not, result, val);
+  IrBuilder::create<UnaryOp>(UnaryOpType::LogicalNot, result, val);
+  return result;
+}
+
+Val* IrBuilder::bitwiseNotExpr(Val* val) {
+  TORCH_CHECK(val != nullptr, "val is a nullptr in bitwiseNotExpr.");
+  auto result = newScalar(val->dtype());
+  IrBuilder::create<UnaryOp>(UnaryOpType::BitwiseNot, result, val);
   return result;
 }
 
 Val* IrBuilder::derefExpr(Val* val) {
-  TORCH_CHECK(val != nullptr, "val is a nullptr in notExpr.");
+  TORCH_CHECK(val != nullptr, "val is a nullptr in derefExpr.");
   auto result = newScalar(*(std::get<PointerOf>(val->dtype().type).type));
   IrBuilder::create<UnaryOp>(UnaryOpType::Dereference, result, val);
   return result;
 }
 
 Val* IrBuilder::absExpr(Val* val) {
-  TORCH_CHECK(val != nullptr, "val is a nullptr in notExpr.");
+  TORCH_CHECK(val != nullptr, "val is a nullptr in absExpr.");
   auto result = newScalar(val->dtype());
   IrBuilder::create<UnaryOp>(UnaryOpType::Abs, result, val);
   return result;
@@ -124,12 +131,20 @@ NamedScalar* IrBuilder::addressExprNamedScalar(
   return result;
 }
 
-Val* IrBuilder::andExpr(Val* lhs, Val* rhs) {
-  return newLogicExpr(BinaryOpType::And, lhs, rhs);
+Val* IrBuilder::logicalAndExpr(Val* lhs, Val* rhs) {
+  return newLogicExpr(BinaryOpType::LogicalAnd, lhs, rhs);
 }
 
-Val* IrBuilder::orExpr(Val* lhs, Val* rhs) {
-  return newLogicExpr(BinaryOpType::Or, lhs, rhs);
+Val* IrBuilder::logicalOrExpr(Val* lhs, Val* rhs) {
+  return newLogicExpr(BinaryOpType::LogicalOr, lhs, rhs);
+}
+
+Val* IrBuilder::bitwiseAndExpr(Val* lhs, Val* rhs) {
+  return newLogicExpr(BinaryOpType::BitwiseAnd, lhs, rhs);
+}
+
+Val* IrBuilder::bitwiseOrExpr(Val* lhs, Val* rhs) {
+  return newLogicExpr(BinaryOpType::BitwiseOr, lhs, rhs);
 }
 
 Val* IrBuilder::eqExpr(Val* lhs, Val* rhs) {
@@ -230,7 +245,7 @@ Val* SimplifyingIrBuilder::negExpr(Val* val) {
   return IrBuilder::negExpr(val);
 }
 
-Val* SimplifyingIrBuilder::notExpr(Val* val) {
+Val* SimplifyingIrBuilder::logicalNotExpr(Val* val) {
   if (auto scalar = dynamic_cast<Val*>(val)) {
     if (scalar->isConst()) {
       if (scalar->value()) {
@@ -240,7 +255,14 @@ Val* SimplifyingIrBuilder::notExpr(Val* val) {
       }
     }
   }
-  return IrBuilder::notExpr(val);
+  return IrBuilder::logicalNotExpr(val);
+}
+
+Val* SimplifyingIrBuilder::bitwiseNotExpr(Val* val) {
+  if (auto scalar = dynamic_cast<Val*>(val); scalar->isConst()) {
+    return IrBuilder::create<Val>(~(scalar->value()), scalar->dtype());
+  }
+  return IrBuilder::bitwiseNotExpr(val);
 }
 
 Val* SimplifyingIrBuilder::addExpr(Val* lhs, PolymorphicValue rhs) {
@@ -332,7 +354,7 @@ Val* SimplifyingIrBuilder::modExpr(Val* lhs, Val* rhs) {
   return IrBuilder::modExpr(lhs, rhs);
 }
 
-Val* SimplifyingIrBuilder::andExpr(Val* lhs, Val* rhs) {
+Val* SimplifyingIrBuilder::logicalAndExpr(Val* lhs, Val* rhs) {
   auto lhs_scalar = dynamic_cast<Val*>(lhs);
   auto rhs_scalar = dynamic_cast<Val*>(rhs);
   TORCH_INTERNAL_ASSERT(!(lhs_scalar == nullptr && rhs_scalar == nullptr));
@@ -366,7 +388,118 @@ Val* SimplifyingIrBuilder::andExpr(Val* lhs, Val* rhs) {
     return lhs_scalar;
   }
 
-  return IrBuilder::andExpr(lhs, rhs);
+  return IrBuilder::logicalAndExpr(lhs, rhs);
+}
+
+Val* SimplifyingIrBuilder::logicalOrExpr(Val* lhs, Val* rhs) {
+  auto lhs_scalar = dynamic_cast<Val*>(lhs);
+  auto rhs_scalar = dynamic_cast<Val*>(rhs);
+  TORCH_INTERNAL_ASSERT(!(lhs_scalar == nullptr && rhs_scalar == nullptr));
+
+  if (lhs == nullptr) {
+    return rhs_scalar;
+  } else if (rhs == nullptr) {
+    return lhs_scalar;
+  }
+
+  bool lhs_definitely_true = false;
+  bool lhs_definitely_false = false;
+  if (lhs_scalar && lhs_scalar->isConst()) {
+    lhs_definitely_true = lhs_scalar->value().as<bool>();
+    lhs_definitely_false = !lhs_scalar->value().as<bool>();
+  }
+  bool rhs_definitely_true = false;
+  bool rhs_definitely_false = false;
+  if (rhs_scalar && rhs_scalar->isConst()) {
+    rhs_definitely_true = rhs_scalar->value().as<bool>();
+    rhs_definitely_false = !rhs_scalar->value().as<bool>();
+  }
+
+  if (lhs_definitely_true || rhs_definitely_true) {
+    return FusionGuard::getCurFusion()->trueVal();
+  } else if (lhs_definitely_false && rhs_definitely_false) {
+    return FusionGuard::getCurFusion()->falseVal();
+  } else if (lhs_definitely_false) {
+    return rhs_scalar;
+  } else if (rhs_definitely_false) {
+    return lhs_scalar;
+  }
+
+  return IrBuilder::logicalOrExpr(lhs, rhs);
+}
+
+Val* SimplifyingIrBuilder::bitwiseAndExpr(Val* lhs, Val* rhs) {
+  auto lhs_scalar = dynamic_cast<Val*>(lhs);
+  auto rhs_scalar = dynamic_cast<Val*>(rhs);
+  TORCH_INTERNAL_ASSERT(!(lhs_scalar == nullptr && rhs_scalar == nullptr));
+
+  if (lhs == nullptr) {
+    return rhs_scalar;
+  } else if (rhs == nullptr) {
+    return lhs_scalar;
+  }
+
+  bool lhs_zero = false;
+  bool lhs_all_ones = false;
+  if (lhs_scalar && lhs_scalar->isConst()) {
+    lhs_zero = lhs_scalar->value().as<int64_t>() == 0;
+    lhs_all_ones = lhs_scalar->value().as<int64_t>() == -1;
+  }
+  bool rhs_zero = false;
+  bool rhs_all_ones = false;
+  if (rhs_scalar && rhs_scalar->isConst()) {
+    rhs_zero = rhs_scalar->value().as<int64_t>() == 0;
+    rhs_all_ones = rhs_scalar->value().as<int64_t>() == -1;
+  }
+
+  if (lhs_zero || rhs_zero) {
+    return FusionGuard::getCurFusion()->zeroVal();
+  } else if (lhs_all_ones && rhs_all_ones) {
+    return IrBuilder::IrBuilder::create<Val>(-1, lhs->dtype());
+  } else if (lhs_all_ones) {
+    return rhs_scalar;
+  } else if (rhs_all_ones) {
+    return lhs_scalar;
+  }
+
+  return IrBuilder::bitwiseAndExpr(lhs, rhs);
+}
+
+Val* SimplifyingIrBuilder::bitwiseOrExpr(Val* lhs, Val* rhs) {
+  auto lhs_scalar = dynamic_cast<Val*>(lhs);
+  auto rhs_scalar = dynamic_cast<Val*>(rhs);
+  TORCH_INTERNAL_ASSERT(!(lhs_scalar == nullptr && rhs_scalar == nullptr));
+
+  if (lhs == nullptr) {
+    return rhs_scalar;
+  } else if (rhs == nullptr) {
+    return lhs_scalar;
+  }
+
+  bool lhs_zero = false;
+  bool lhs_all_ones = false;
+  if (lhs_scalar && lhs_scalar->isConst()) {
+    lhs_zero = lhs_scalar->value().as<int64_t>() == 0;
+    lhs_all_ones = lhs_scalar->value().as<int64_t>() == -1;
+  }
+  bool rhs_zero = false;
+  bool rhs_all_ones = false;
+  if (rhs_scalar && rhs_scalar->isConst()) {
+    rhs_zero = rhs_scalar->value().as<int64_t>() == 0;
+    rhs_all_ones = rhs_scalar->value().as<int64_t>() == -1;
+  }
+
+  if (lhs_all_ones || rhs_all_ones) {
+    return IrBuilder::IrBuilder::create<Val>(-1, lhs->dtype());
+  } else if (lhs_zero && rhs_zero) {
+    return FusionGuard::getCurFusion()->zeroVal();
+  } else if (lhs_zero) {
+    return rhs_scalar;
+  } else if (rhs_zero) {
+    return lhs_scalar;
+  }
+
+  return IrBuilder::bitwiseOrExpr(lhs, rhs);
 }
 
 namespace {
