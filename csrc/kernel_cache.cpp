@@ -951,10 +951,9 @@ void FusionKernelRuntime::deserialize(
     std::unique_ptr<Fusion> fusion_to_run = segmented_fusion_->makeFusion(sg);
     FusionGuard fg(fusion_to_run.get());
     scheduler_entry->schedule(fusion_to_run.get());
-    fusions_.emplace_back(std::move(fusion_to_run));
 
     executors_.at(group_id).deserialize(
-        buffer->executors()->Get(group_id), fusions_.back().get());
+        buffer->executors()->Get(group_id), fusion_to_run.get());
   }
 }
 

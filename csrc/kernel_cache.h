@@ -253,8 +253,6 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
   //! Executors holding compiled kernels
   std::vector<FusionExecutor> executors_;
 
-  std::vector<std::unique_ptr<Fusion>> fusions_;
-
   // KernelArgumentHolder containing the metadata associated with arguments used
   // to construct this FusionKernelRuntime
   KernelArgumentHolder args_metadata_;
