@@ -370,7 +370,7 @@ std::ostream& Fusion::print(std::ostream& os, bool include_tensor_transforms) {
     IrTransformPrinter t_exprs(os);
     t_exprs.handle(this);
   }
-  os << "}" << std::endl;
+  os << "}\n";
 
   return os;
 }

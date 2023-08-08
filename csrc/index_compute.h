@@ -167,15 +167,10 @@ class IndexCompute : public BackwardVisitor {
   std::unordered_map<IterDomain*, Val*> permissive_index_map_;
 
   // TODO: comment
-  // TODO: make this const
-  std::unordered_set<IterDomain*> unswitched_domains_;
-
-  std::unordered_map<IterDomain*, Val*> unswitched_domain_to_stride_map_;
-  // std::unordered_map<IterDomain*, std::unordered_set<IterDomain*>>
-  // unswitched_domain_map_;
+  std::unordered_set<IterDomain*> unswitched_leaf_domains_;
 
   std::unordered_map<IterDomain*, std::pair<Val*, Val*>>
-      unswitched_domain_to_stride_map2_;
+      unswitched_domain_map_;
 
  public:
   const std::unordered_map<IterDomain*, Val*>& indexMap() const {

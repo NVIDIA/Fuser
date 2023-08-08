@@ -343,11 +343,11 @@ Val* getTensorBaseAddress(TensorView* tv) {
 
 Val* IndexCompute::getStrideOfUnswitchedDomain(IterDomain* id) const {
   auto concrete_id = maybeGetExactMapConcreteID(id);
-  if (auto it = unswitched_domain_to_stride_map2_.find(concrete_id);
-      it != unswitched_domain_to_stride_map2_.end()) {
+  if (auto it = unswitched_domain_map_.find(concrete_id);
+      it != unswitched_domain_map_.end()) {
     return it->second.first;
-  } else if (auto it = unswitched_domains_.find(concrete_id);
-             it != unswitched_domains_.end()) {
+  } else if (auto it = unswitched_leaf_domains_.find(concrete_id);
+             it != unswitched_leaf_domains_.end()) {
     return id->fusion()->oneVal();
   } else {
     return nullptr;
@@ -356,11 +356,11 @@ Val* IndexCompute::getStrideOfUnswitchedDomain(IterDomain* id) const {
 
 Val* IndexCompute::getSpanOfUnswitchedDomain(IterDomain* id) const {
   auto concrete_id = maybeGetExactMapConcreteID(id);
-  if (auto it = unswitched_domain_to_stride_map2_.find(concrete_id);
-      it != unswitched_domain_to_stride_map2_.end()) {
+  if (auto it = unswitched_domain_map_.find(concrete_id);
+      it != unswitched_domain_map_.end()) {
     return it->second.second;
-  } else if (auto it = unswitched_domains_.find(concrete_id);
-             it != unswitched_domains_.end()) {
+  } else if (auto it = unswitched_leaf_domains_.find(concrete_id);
+             it != unswitched_leaf_domains_.end()) {
     return getExtent(concrete_id);
   } else {
     return nullptr;
@@ -388,7 +388,7 @@ void IndexCompute::updateUnswitchedDomains(Expr* expr) {
         in_span =
             SimplifyingIrBuilder::mulExpr(out_span, getExtent(split->inner()));
       }
-      unswitched_domain_to_stride_map2_[split_in] =
+      unswitched_domain_map_[split_in] =
           std::make_pair(in_stride, in_span);
     }
   } else {
@@ -402,7 +402,7 @@ void IndexCompute::updateUnswitchedDomains(Expr* expr) {
             })) {
       for (auto inp : ir_utils::filterByType<IterDomain>(expr->inputs())) {
         auto inp_concrete = maybeGetExactMapConcreteID(inp);
-        unswitched_domain_to_stride_map2_.emplace(
+        unswitched_domain_map_.emplace(
             inp_concrete,
             std::make_pair(
                 inp_concrete->fusion()->oneVal(), getExtent(inp_concrete)));
@@ -764,9 +764,8 @@ IndexCompute::IndexCompute(
       contig_ids_{contig_finder.contigIDs()},
       preferred_paths_(std::move(preferred_paths)),
       halo_extent_map_(std::move(halo_extent_map)),
-      unswitched_domains_(std::move(unswitched_domains)) {
+      unswitched_leaf_domains_(std::move(unswitched_domains)) {
   FUSER_PERF_SCOPE("GpuLower::Lower::IndexCompute::IndexCompute");
-
   // Make sure we recompute any indices we can that map to a contiguous access
   // in physical memory.
   const auto& within_contig = contig_finder.withinContigIDs();
@@ -794,7 +793,7 @@ IndexCompute::IndexCompute(
       halo_extent_map_(std::move(halo_extent_map)),
       concrete_id_pass_{true},
       swizzle_mode_{SwizzleMode::Loop},
-      unswitched_domains_(std::move(unswitched_domains)) {
+      unswitched_leaf_domains_(std::move(unswitched_domains)) {
   FUSER_PERF_SCOPE("GpuLower::Lower::IndexCompute::IndexCompute");
 }
 
@@ -974,8 +973,8 @@ IndexCompute IndexCompute::updateIndexCompute(
         updated_halo_extent_map[new_id] = halo_extent_it->second;
       }
 
-      if (auto it = unswitched_domains_.find(prev_id);
-          it != unswitched_domains_.end()) {
+      if (auto it = unswitched_leaf_domains_.find(prev_id);
+          it != unswitched_leaf_domains_.end()) {
         updated_unswitched_domains.emplace(new_id);
       }
     }
