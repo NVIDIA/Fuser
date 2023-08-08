@@ -237,30 +237,28 @@ Val* IrBuilder::metadataExpr(TensorView* tv) {
 Val* SimplifyingIrBuilder::negExpr(Val* val) {
   if (val->isZeroInt()) {
     return val->container()->zeroVal();
-  } else if (auto scalar = dynamic_cast<Val*>(val)) {
-    if (scalar->isConst()) {
-      return IrBuilder::create<Val>(-scalar->value(), scalar->dtype());
+  } else {
+    if (val->isConst()) {
+      return IrBuilder::create<Val>(-val->value(), val->dtype());
     }
   }
   return IrBuilder::negExpr(val);
 }
 
 Val* SimplifyingIrBuilder::logicalNotExpr(Val* val) {
-  if (auto scalar = dynamic_cast<Val*>(val)) {
-    if (scalar->isConst()) {
-      if (scalar->value()) {
-        return FusionGuard::getCurFusion()->falseVal();
-      } else {
-        return FusionGuard::getCurFusion()->trueVal();
-      }
+  if (val->isConst()) {
+    if (val->value()) {
+      return FusionGuard::getCurFusion()->falseVal();
+    } else {
+      return FusionGuard::getCurFusion()->trueVal();
     }
   }
   return IrBuilder::logicalNotExpr(val);
 }
 
 Val* SimplifyingIrBuilder::bitwiseNotExpr(Val* val) {
-  if (auto scalar = dynamic_cast<Val*>(val); scalar->isConst()) {
-    return IrBuilder::create<Val>(~(scalar->value()), scalar->dtype());
+  if (val->isConst()) {
+    return IrBuilder::create<Val>(~(val->value()), val->dtype());
   }
   return IrBuilder::bitwiseNotExpr(val);
 }
@@ -271,13 +269,14 @@ Val* SimplifyingIrBuilder::addExpr(Val* lhs, PolymorphicValue rhs) {
   } else if (lhs == nullptr) {
     return IrBuilder::IrBuilder::create<Val>(rhs);
   }
-  auto target_dtype = promoteType(lhs->dtype(), getDataType(rhs));
   if (lhs->isConst()) {
-    return IrBuilder::IrBuilder::create<Val>(lhs->value() + rhs, target_dtype);
+    return IrBuilder::IrBuilder::create<Val>(lhs->value() + rhs, lhs->dtype());
   } else if (rhs > 0) {
-    return IrBuilder::addExpr(lhs, IrBuilder::IrBuilder::create<Val>(rhs));
+    return IrBuilder::addExpr(
+        lhs, IrBuilder::IrBuilder::create<Val>(rhs, lhs->dtype()));
   } else {
-    return IrBuilder::subExpr(lhs, IrBuilder::IrBuilder::create<Val>(-rhs));
+    return IrBuilder::subExpr(
+        lhs, IrBuilder::IrBuilder::create<Val>(-rhs, lhs->dtype()));
   }
 }
 
@@ -301,15 +300,15 @@ Val* SimplifyingIrBuilder::subExpr(Val* lhs, Val* rhs) {
 
 Val* SimplifyingIrBuilder::mulExpr(Val* lhs, PolymorphicValue rhs) {
   if (rhs == 0) {
-    return lhs->container()->zeroVal();
+    return lhs->container()->zeroVal(lhs->dtype());
   } else if (rhs == 1) {
     return lhs;
   } else if (lhs == nullptr) {
     return IrBuilder::create<Val>(rhs);
   } else if (lhs->isConst()) {
-    return IrBuilder::create<Val>(lhs->value() * rhs);
+    return IrBuilder::create<Val>(lhs->value() * rhs, lhs->dtype());
   } else {
-    return IrBuilder::mulExpr(lhs, IrBuilder::create<Val>(rhs));
+    return IrBuilder::mulExpr(lhs, IrBuilder::create<Val>(rhs, lhs->dtype()));
   }
 }
 
@@ -341,7 +340,8 @@ Val* SimplifyingIrBuilder::ceilDivExpr(Val* lhs, Val* rhs) {
     auto l = lhs->value();
     auto r = rhs->value();
     using namespace PolymorphicValue_functions;
-    return IrBuilder::IrBuilder::create<Val>(ceildiv(l, r));
+    return IrBuilder::IrBuilder::create<Val>(
+        ceildiv(l, r), promoteType(lhs->dtype(), rhs->dtype()));
   } else {
     return IrBuilder::ceilDivExpr(lhs, rhs);
   }
@@ -349,7 +349,8 @@ Val* SimplifyingIrBuilder::ceilDivExpr(Val* lhs, Val* rhs) {
 
 Val* SimplifyingIrBuilder::modExpr(Val* lhs, Val* rhs) {
   if (rhs->isOneInt()) {
-    return FusionGuard::getCurFusion()->zeroVal();
+    return FusionGuard::getCurFusion()->zeroVal(
+        promoteType(lhs->dtype(), rhs->dtype()));
   }
   return IrBuilder::modExpr(lhs, rhs);
 }
