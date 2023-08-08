@@ -593,7 +593,7 @@ TEST_F(LoopRotationTest, MultipleDoubleBuffer) {
   const std::string expected_kernel = R"(
 __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> T3) {
   alignas(16) extern __shared__ char array[];
-  unsigned smem_offset = 0;
+  const unsigned smem_offset = 0;
   NVFUSER_DEFINE_MAGIC_ZERO;
   Tensor<float, 2, 2> s0;
   s0.data = T0.data;
@@ -609,9 +609,7 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> 
   i4 = a2[1];
   float* ptr5;
   ptr5 = ptr1 + (4 * i3);
-  smem_offset = alignBufferSize(smem_offset, 16);
-  float* T4 = reinterpret_cast<float*>(array + smem_offset);
-  smem_offset += (15 * sizeof(float));
+  float* T4 = reinterpret_cast<float*>(array + smem_offset + 0);
   #pragma unroll
   for(nvfuser_index_t i6 = 0; i6 < 4; ++i6) {
     float* ptr7;

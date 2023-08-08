@@ -262,8 +262,7 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
   int64_t computeSharedMemory(
       ExpressionEvaluator& expr_eval,
       const std::vector<const kir::Allocate*>& buffers,
-      bool align_padding = false,
-      int64_t total = 0);
+      int64_t smem_offset = 0);
 
   //! Return information necessay for allocating intermediate tensors,
   //! including temporary work buffers as well as intermediate
