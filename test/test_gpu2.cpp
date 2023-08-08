@@ -2828,7 +2828,7 @@ void testWelford(DataType dtype, int red_axis, int odim, int rdim) {
   auto tvs = Welford(tv1, {axis});
   auto tv_avg = tvs.avg;
   auto tv_M2 = tvs.var_sum;
-  auto tv_N = tvs.n;
+  auto tv_N = castOp(DataType::Int, tvs.n);
 
   TensorView* avg_cast = tv_avg;
   TensorView* M2_cast = tv_M2;

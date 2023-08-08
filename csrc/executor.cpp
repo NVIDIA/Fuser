@@ -1114,7 +1114,9 @@ LaunchParams FusionExecutor::computeLaunchParams(
 }
 
 std::vector<FusionExecutor::GlobalBufferInfo> FusionExecutor::
-    getIntermediateBufferInfo(ExpressionEvaluator& expr_eval) {
+    getIntermediateBufferInfo(
+        ExpressionEvaluator& expr_eval,
+        DataType index_type) {
   FUSER_PERF_SCOPE("FusionExecutor::GetIntermediateBufferInfo");
 
   std::vector<GlobalBufferInfo> global_buffers;
@@ -1134,7 +1136,8 @@ std::vector<FusionExecutor::GlobalBufferInfo> FusionExecutor::
     info.zero_init = alloc->zeroInit();
     std::tie(info.sizes, info.strides) =
         inferShapeOfIntermediate(tv, alloc, expr_eval);
-    info.type = data_type_to_aten(tv->dtype());
+    auto dtype = (tv->dtype() == DataType::Index ? index_type : tv->dtype());
+    info.type = data_type_to_aten(dtype);
 
     // Remember the tensor buffer used for storing kernel profile
     if (isOptionEnabled(EnableOption::KernelProfile) &&
@@ -1426,7 +1429,7 @@ void FusionExecutor::initializeExecutorEntry(
     }
   }
 
-  auto intermediates = getIntermediateBufferInfo(expr_eval);
+  auto intermediates = getIntermediateBufferInfo(expr_eval, index_type);
 
   // All information is gathered. Save it to ExecutorEntry
   executor_entry.launch_params = launch_params;
