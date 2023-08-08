@@ -611,12 +611,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     }
 
     if (auto op = inline_op_str(op_type)) {
-      if (alsoBooleanOperator(op_type) &&
-          uop->out()->dtype() == DataType::Bool) {
-        code_ << stringifyBooleanOp(op_type) << gen(uop->in());
-      } else {
-        code_ << *op << gen(uop->in());
-      }
+      code_ << *op << gen(uop->in());
     } else {
       if (op_type == UnaryOpType::Cast) {
         const auto cast_str =
@@ -698,13 +693,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       const std::string& rhs) {
     std::stringstream expr;
     if (auto op = inline_op_str(op_type)) {
-      expr << lhs << " ";
-      if (alsoBooleanOperator(op_type) && data_type == DataType::Bool) {
-        expr << stringifyBooleanOp(op_type);
-      } else {
-        expr << *op;
-      }
-      expr << " " << rhs;
+      expr << lhs << " " << *op << " " << rhs;
     } else {
       if (integer_op_str(op_type) && isIntegralType(data_type)) {
         auto int_op = integer_op_str(op_type);
@@ -854,13 +843,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           indent() << kTab << "= " << (bop->lhs()->isScalar() ? cast : "")
                    << gen(bop->lhs()) << "\n";
           indent() << kTab;
-          if (alsoBooleanOperator(op_type) &&
-              bop->out()->dtype() == DataType::Bool) {
-            code_ << stringifyBooleanOp(op_type);
-          } else {
-            code_ << *op;
-          }
-          code_ << " " << (bop->rhs()->isScalar() ? cast : "")
+          code_ << *op << " " << (bop->rhs()->isScalar() ? cast : "")
                 << gen(bop->rhs());
         } else {
           if (integer_op_str(op_type) && isIntegralType(bop->out()->dtype())) {

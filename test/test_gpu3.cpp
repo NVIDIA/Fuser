@@ -7546,7 +7546,7 @@ class ThreadPredChecker : public kir::IrVisitor {
   }
 
   void handle(BinaryOp* bop) final {
-    if (bop->getBinaryOpType() == BinaryOpType::And) {
+    if (bop->getBinaryOpType() == BinaryOpType::LogicalAnd) {
       dispatch(bop->lhs());
       dispatch(bop->rhs());
     } else if (bop->getBinaryOpType() == BinaryOpType::Eq) {
