@@ -473,4 +473,6 @@ bool isTensorSize(const Val* val);
 //! Check if a Val is a tensor stride;
 bool isTensorStride(const Val* val);
 
+Val* maybeCastTo(Val* val, DataType dtype);
+
 } // namespace nvfuser::ir_utils

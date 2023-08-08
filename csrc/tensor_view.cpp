@@ -1511,7 +1511,7 @@ TensorView* TensorViewBuilder::build() const {
     if (shape_.empty()) {
       *shape_extent = IrBuilder::create<Val>(DataType::Index);
     } else {
-      *shape_extent = shape_.at(i);
+      *shape_extent = maybeCastOp(DataType::Index, shape_.at(i));
     }
     IterDomainBuilder builder(FusionGuard::getCurFusion()->zeroVal(), extent);
     if (extent->isOneInt()) {

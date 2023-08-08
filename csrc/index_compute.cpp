@@ -3034,7 +3034,7 @@ Val* Index::eye(
   auto indices =
       Index::getConsumerPerDimLogicalIndex(consumer_tv, loops, rotated_loops);
   TORCH_INTERNAL_ASSERT(indices.size() == 2);
-  auto result = castOp(dtype, eq(indices[0], indices[1]));
+  auto result = maybeCastOp(dtype, eq(indices[0], indices[1]));
   GpuLower::current()->commonScalarMap().hoistScalar(result, loops);
   return result;
 }
