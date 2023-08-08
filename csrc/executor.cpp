@@ -307,9 +307,41 @@ void FusionExecutor::compileFusion(
     buffer << cuda_src.rdbuf();
     return buffer.str();
   };
-  auto external_code_path = getNvFuserEnv("EXTERNAL_SRC");
-  const auto structured_code = external_code_path
-      ? load_external_code(external_code_path)
+
+  // When executing nvFuser with: NVFUSER_EXTERNAL_SRC=file1.cu,file2.cu
+  // The function getExternalCodeFile returns the appropriate file name
+  // according to the fusion_id by assuming the filenames are delineated with
+  // commas and the order of the filenames is the same as the order of the
+  // fusion_ids. If provided number of files is less than the number of fusion
+  // segments, the code will still use the provided files in order and will
+  // print a warning message.
+  std::string all_external_code_paths =
+      std::string(getNvFuserEnv("EXTERNAL_SRC"));
+
+  auto getExternalCodeFile = [](const std::string& input,
+                                int64_t index) -> std::string {
+    std::stringstream ss(input);
+    std::string token;
+    int64_t count = 1;
+    while (std::getline(ss, token, ',')) {
+      if (count == index) {
+        return token;
+      }
+      count++;
+    }
+    debug()
+        << "Didn't find requested external source code.\n"
+        << "Number of source code files should equal to number of fusion segments.\n"
+        << "External source code filenames should be delineated with commas, for example: file1.cu,file2.cu.\n";
+    return ""; // Return an empty string if no match was found
+  };
+
+  std::string single_code_path = "";
+  if (!all_external_code_paths.empty() && fusion_id_ >= 1l) {
+    single_code_path = getExternalCodeFile(all_external_code_paths, fusion_id_);
+  }
+  const auto structured_code = !single_code_path.empty()
+      ? load_external_code(single_code_path.c_str())
       : getStructuredCode();
 
   const auto& kernel_summary = kernel->summary();
