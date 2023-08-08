@@ -315,8 +315,9 @@ void FusionExecutor::compileFusion(
   // fusion_ids. If provided number of files is less than the number of fusion
   // segments, the code will still use the provided files in order and will
   // print a warning message.
+  auto external_code_path = getNvFuserEnv("EXTERNAL_SRC");
   std::string all_external_code_paths =
-      std::string(getNvFuserEnv("EXTERNAL_SRC"));
+      external_code_path ? std::string(external_code_path) : "";
 
   auto getExternalCodeFile = [](const std::string& input,
                                 int64_t index) -> std::string {
