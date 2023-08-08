@@ -841,16 +841,16 @@ void ComputeAtMap::allocateIndexVariables() {
       double_buffered_loop_index_variable_map_[loop_disjoint_set.get()] =
           std::make_unique<DoubleBufferIndices>(DoubleBufferIndices(
               {{DoubleBufferLoopStage::Prolog,
-                IrBuilder::create<Val>(DataType::Int)},
+                IrBuilder::create<Val>(DataType::Index)},
                {DoubleBufferLoopStage::Main,
-                IrBuilder::create<Val>(DataType::Int)},
+                IrBuilder::create<Val>(DataType::Index)},
                {DoubleBufferLoopStage::Epilog,
-                IrBuilder::create<Val>(DataType::Int)}}));
+                IrBuilder::create<Val>(DataType::Index)}}));
     } else {
       // Everything now should be serial concrete loops,
       //   we just allocate a loop index integer for each set of loops.
       loop_index_variable_map_[loop_disjoint_set.get()] =
-          IrBuilder::create<Val>(DataType::Int);
+          IrBuilder::create<Val>(DataType::Index);
     }
   }
 }
