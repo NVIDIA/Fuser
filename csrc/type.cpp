@@ -830,6 +830,7 @@ static const char* supported_casts2string(
     case supported_switch_pair(DataType::Int32, DataType::Index):
     case supported_switch_pair(DataType::Float, DataType::Index):
     case supported_switch_pair(DataType::Double, DataType::Index):
+    case supported_switch_pair(DataType::Bool, DataType::Index):
       return "(nvfuser_index_t)";
     case supported_switch_pair(DataType::ComplexFloat, DataType::Index):
     case supported_switch_pair(DataType::ComplexDouble, DataType::Index):
@@ -847,6 +848,7 @@ static const char* supported_casts2string(
     case supported_switch_pair(DataType::Double, DataType::Bool):
     case supported_switch_pair(DataType::Int32, DataType::Bool):
     case supported_switch_pair(DataType::Int, DataType::Bool):
+    case supported_switch_pair(DataType::Index, DataType::Bool):
       return "(bool)";
     case supported_switch_pair(DataType::ComplexFloat, DataType::Bool):
     case supported_switch_pair(DataType::ComplexDouble, DataType::Bool):
@@ -873,8 +875,8 @@ static const char* supported_casts2string(
     case supported_switch_pair(DataType::Double, DataType::Half):
       return "__double2half";
     case supported_switch_pair(DataType::Int32, DataType::Half):
-      return "__int322half";
     case supported_switch_pair(DataType::Int, DataType::Half):
+    case supported_switch_pair(DataType::Index, DataType::Half):
       return "__int2half";
     case supported_switch_pair(DataType::Bool, DataType::Half):
       return "__bool2half";
@@ -890,6 +892,8 @@ static const char* supported_casts2string(
       return "__half2int32";
     case supported_switch_pair(DataType::Half, DataType::Int):
       return "__half2int";
+    case supported_switch_pair(DataType::Half, DataType::Index):
+      return "__half2index";
     case supported_switch_pair(DataType::Half, DataType::Bool):
       return "__half2bool";
     case supported_switch_pair(DataType::Half, DataType::ComplexFloat):
@@ -904,8 +908,8 @@ static const char* supported_casts2string(
     case supported_switch_pair(DataType::Half, DataType::BFloat16):
       return "__half2bfloat";
     case supported_switch_pair(DataType::Int32, DataType::BFloat16):
-      return "__int322bfloat";
     case supported_switch_pair(DataType::Int, DataType::BFloat16):
+    case supported_switch_pair(DataType::Index, DataType::BFloat16):
       return "__int2bfloat";
     case supported_switch_pair(DataType::Bool, DataType::BFloat16):
       return "__bool2bfloat";
@@ -923,6 +927,8 @@ static const char* supported_casts2string(
       return "__bfloat2int32";
     case supported_switch_pair(DataType::BFloat16, DataType::Int):
       return "__bfloat2int";
+    case supported_switch_pair(DataType::BFloat16, DataType::Index):
+      return "__bfloat2index";
     case supported_switch_pair(DataType::BFloat16, DataType::Bool):
       return "__bfloat2bool";
     case supported_switch_pair(DataType::BFloat16, DataType::ComplexFloat):
