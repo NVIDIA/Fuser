@@ -410,7 +410,9 @@ TensorView* arange(Val* start, Val* end, Val* step, DataType dtype) {
       abs(sub(end_for_size_computation, start_for_size_computation));
   auto abs_step = abs(step_for_size_computation);
   auto length = ceilDiv(distance, abs_step);
-  length = maybeCastOp(DataType::Int, length);
+  if (!isIntegralType(length->dtype())) {
+    length = castOp(DataType::Index, length);
+  }
   return iota(length, start, step, dtype);
 }
 

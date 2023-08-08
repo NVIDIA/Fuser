@@ -465,13 +465,17 @@ __global__ void CUDAGeneratedKernel(int64_t i0, int64_t i1, int64_t i2, Tensor<i
   i5 = abs(i2);
   int64_t i6;
   i6 = ceilDiv(i4, i5);
+  nvfuser_index_t i7;
+  i7 = (nvfuser_index_t)(i6);
+  int64_t i8;
+  i8 = (int64_t)(i7);
   #pragma unroll 1
-  for(nvfuser_index_t i7 = 0; i7 < i6; ++i7) {
-    T0[i7] = (i0 + (i2 * i7));
+  for(nvfuser_index_t i9 = 0; i9 < i7; ++i9) {
+    T0[i9] = (i0 + (i2 * i9));
   }
   #pragma unroll 1
-  for(nvfuser_index_t i8 = 0; i8 < i6; ++i8) {
-    T1[i8] = i6;
+  for(nvfuser_index_t i10 = 0; i10 < i7; ++i10) {
+    T1[i10] = i8;
   }
 }
 )";
@@ -544,7 +548,8 @@ TEST_F(TensorFactoryTest, MetadataAsTensor) {
   auto size1 = IrBuilder::getAttrExpr(meta1_copy2, "logical_size");
   auto stride1 = IrBuilder::getAttrExpr(meta1_copy2, "alloc_stride");
 
-  auto output = tensor(std::vector<Val*>{size0, stride0, size1, stride1});
+  auto result = tensor(std::vector<Val*>{size0, stride0, size1, stride1});
+  auto output = castOp(DataType::Int, result);
   fusion->addOutput(output);
 
   const auto options =
