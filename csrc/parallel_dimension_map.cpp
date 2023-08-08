@@ -98,7 +98,7 @@ void ParallelDimensionMap::adjustMappingsForWarpPadding() {
   }
 
   const auto tidx_pt = ParallelType::TIDx;
-  auto warp_size_val = IrBuilder::create<Val>(32L);
+  auto warp_size_val = IrBuilder::create<Val>(32L, DataType::Index);
   auto tidx_dim = getRaw(tidx_pt);
 
   TORCH_INTERNAL_ASSERT(tidx_dim != nullptr);

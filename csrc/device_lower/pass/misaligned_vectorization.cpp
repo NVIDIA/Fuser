@@ -161,8 +161,8 @@ class MisalignedVectorizationModifier : public kir::ExprMutator {
     auto vector_size = tensors.vec_tv->getLeafDomain().back()->extent();
 
     // Size of memory type for the elements
-    Val* data_size_in_bytes =
-        IrBuilder::create<Val>(dataTypeSize(tensors.vec_tv->dtype()));
+    Val* data_size_in_bytes = IrBuilder::create<Val>(
+        dataTypeSize(tensors.vec_tv->dtype()), DataType::Index);
 
     // The number of bytes in the vectorize access
     auto vector_size_in_bytes =
