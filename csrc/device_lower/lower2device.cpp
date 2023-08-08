@@ -447,6 +447,8 @@ void GpuLower::lower(Fusion* fusion) {
   const auto exprs_raw_sync = insertRawThreadSynchronization(exprs_alloced);
   dumpExprsIfEnabled(exprs_raw_sync, "insertRawThreadSynchronization");
 
+  commonScalarMap().initialize(exprs_raw_sync);
+
   // Reuse memory locations
   const auto exprs_reuse_mem = reuseMemoryAllocations(exprs_raw_sync);
   dumpExprsIfEnabled(exprs_reuse_mem, "reuseMemoryAllocations");
@@ -472,8 +474,6 @@ void GpuLower::lower(Fusion* fusion) {
   const auto exprs_unrolled_loops =
       UnrollPass::runPass(fusion_, exprs_loop_rotated);
   dumpExprsIfEnabled(exprs_unrolled_loops, "UnrollPass");
-
-  commonScalarMap().initialize(exprs_unrolled_loops);
 
   const auto exprs_unrolled_mv_loops =
       processMisalignedVectorization(exprs_unrolled_loops);
