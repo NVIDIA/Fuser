@@ -509,7 +509,9 @@ bool IndexCompute::isModuloInvalidUnswitchedIndex(
       continue;
     }
 
-    // Not proven to be safe
+    // Not proven to be safe. This does not mean it's proven to be
+    // invalid, but it's enough to make the generated code from the
+    // existing C++ tests and benchmarks remain unchanged
     return true;
   }
 
