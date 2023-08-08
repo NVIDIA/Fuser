@@ -1081,7 +1081,8 @@ TEST_F(NVFuserTest, DynamicTransformIssue418_CUDA) {
   fusion->addInput(s0);
 
   auto sh = tensor_sizes(tv0);
-  auto tv1 = reshape(tv0, {sh[0], div(sh[1], s0), s0, sh[2], sh[3]});
+  auto tv1 =
+      reshape(tv0, {sh[0], IrBuilder::divExpr(sh[1], s0), s0, sh[2], sh[3]});
   // Reducing along axis 2 in tv1 is equivalent to a partial reduction across
   // axis 1 of tv0.
   auto vm = variance_mean(tv1, {2, 3, 4}, 0, true);
