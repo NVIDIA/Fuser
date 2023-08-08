@@ -34,7 +34,7 @@ def parse_args_fusion_execution(opinfo: OpInfo, *args):
     result = []
     for arg_type, a in zip(opinfo.symbolic_parameter_list, args):
         if arg_type == ArgumentType.Symbolic:
-            if type(a) is list and all(map(is_tensor, a)):
+            if isinstance(a, list) and all(map(is_tensor, a)):
                 result.extend(a)
             else:
                 result.append(a)
@@ -120,7 +120,7 @@ def definition_op_in_schedule_error_test_fn(opinfo: OpInfo, sample: SampleInput)
             # Create default fusion definition
             nvf_inputs = parse_inputs_fusion_definition(self, opinfo, *sample.args)
             result = opinfo.op(fd)(*nvf_inputs, **sample.kwargs)
-            if type(result) is tuple:
+            if isinstance(result, tuple):
                 for a in result:
                     self.add_output(a)
             else:
