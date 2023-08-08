@@ -54,7 +54,7 @@ Val* ContiguousInnerDimensionsMapper::isFullyProjected(IterDomain* id) {
 
 ContiguousInnerDimensionsMapper::ContiguousInnerDimensionsMapper(
     TensorView* reference,
-    const std::vector<IterDomain*>& reference_ids,
+    const std::vector<IterDomain*>& ids,
     std::shared_ptr<const ComputeAtMap> ca_map,
     const std::unordered_set<Split*>& divisible_splits)
     // Send null info to MaxInfoSpanning tree because we need state to compute
@@ -64,6 +64,9 @@ ContiguousInnerDimensionsMapper::ContiguousInnerDimensionsMapper(
       ca_map_(std::move(ca_map)),
       divisible_splits_(divisible_splits) {
   FusionGuard fg(reference->fusion());
+  // map ids to reference_ids
+  std::vector<IterDomain*> reference_ids = projectId(reference->getMaybeRFactorDomain(), ids);
+
   // Check which domain of tensor view we should be looking at. All IDs must be
   // found in the the rfactor domain.
   TORCH_INTERNAL_ASSERT(
@@ -136,11 +139,11 @@ ContiguousInnerDimensionsMapper::ContiguousInnerDimensionsMapper(
 
 ContiguousInnerDimensionsMapper ContiguousInnerDimensionsMapper::map(
     TensorView* reference,
-    const std::vector<IterDomain*>& reference_ids,
+    const std::vector<IterDomain*>& ids,
     std::shared_ptr<const ComputeAtMap> ca_map,
     const std::unordered_set<Split*>& divisible_splits) {
   return ContiguousInnerDimensionsMapper(
-      reference, reference_ids, ca_map, divisible_splits);
+      reference, ids, ca_map, divisible_splits);
 }
 
 template <typename MergeOrSplit>

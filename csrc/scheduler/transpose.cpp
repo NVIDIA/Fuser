@@ -766,13 +766,7 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
     virtual_innermost1.push_back(
         reference1->getMaybeRFactorDomain()[inner_most_pos1_in_ref1]);
     for (const auto& dim : params->dims_merged_with_1) {
-      if (std::find(
-              reference1->getMaybeRFactorDomain().begin(),
-              reference1->getMaybeRFactorDomain().end(),
-              reference1->axis(static_cast<int>(dim))) !=
-          reference1->getMaybeRFactorDomain().end()) {
-        virtual_innermost1.push_back(reference1->axis(static_cast<int>(dim)));
-      }
+      virtual_innermost1.push_back(reference1->axis(static_cast<int>(dim)));
     }
 
     // NOTE: do I need to consider stride here?! sounds like
@@ -806,16 +800,9 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
     // done smarter. I suspect getMappedRootDimIn doesn't handle merge/split
     // properly. See the TODO in Note: [Computing Vectorization Width for
     // Transpose]
-    if (auto mapped_id = domain_map.getMappedRootDimIn(
-            reference2,
-            reference1->getMaybeRFactorDomain()[inner_most_pos2_in_ref1])) {
-      virtual_innermost2.push_back(mapped_id);
-    }
+    virtual_innermost2.push_back(reference1->getMaybeRFactorDomain()[inner_most_pos2_in_ref1]);
     for (const auto& dim : params->dims_merged_with_2) {
-      if (auto mapped_id = domain_map.getMappedRootDimIn(
-              reference2, reference1->axis(static_cast<int>(dim)))) {
-        virtual_innermost2.push_back(mapped_id);
-      }
+      virtual_innermost2.push_back(reference1->axis(static_cast<int>(dim)));
     }
 
     auto group2_contig_inner_map =

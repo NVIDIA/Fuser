@@ -141,18 +141,18 @@ class TORCH_CUDA_CU_API ContiguousInnerDimensionsMapper
 
   static ContiguousInnerDimensionsMapper map(
       TensorView* reference,
-      const std::vector<IterDomain*>& reference_ids,
+      const std::vector<IterDomain*>& ids,
       std::shared_ptr<const ComputeAtMap> ca_map,
       const std::unordered_set<Split*>& divisible_splits);
 
   static ContiguousInnerDimensionsMapper map(
       TensorView* reference,
-      const std::vector<IterDomain*>& reference_ids) {
+      const std::vector<IterDomain*>& ids) {
     auto ca_map = std::make_shared<ComputeAtMap>(reference->fusion());
     auto divisible_splits =
         getAllDivisibleSplits(reference->fusion(), ca_map.get());
     return ContiguousInnerDimensionsMapper::map(
-        reference, reference_ids, ca_map, divisible_splits);
+        reference, ids, ca_map, divisible_splits);
   }
 
   bool hasMappedDims(TensorView* tv) const {
@@ -189,7 +189,7 @@ class TORCH_CUDA_CU_API ContiguousInnerDimensionsMapper
  private:
   ContiguousInnerDimensionsMapper(
       TensorView* reference,
-      const std::vector<IterDomain*>& reference_ids,
+      const std::vector<IterDomain*>& ids,
       std::shared_ptr<const ComputeAtMap> ca_map,
       const std::unordered_set<Split*>& divisible_splits);
 
