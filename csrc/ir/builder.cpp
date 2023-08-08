@@ -237,11 +237,9 @@ Val* IrBuilder::metadataExpr(TensorView* tv) {
 Val* SimplifyingIrBuilder::negExpr(Val* val) {
   if (val->isZeroInt()) {
     return val->container()->zeroVal();
-  } else {
-    if (val->isConst()) {
+  } else if (val->isConst()) {
       return IrBuilder::create<Val>(-val->value(), val->dtype());
     }
-  }
   return IrBuilder::negExpr(val);
 }
 
