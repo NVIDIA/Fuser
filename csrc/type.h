@@ -241,9 +241,6 @@ bool isInclusiveType(const DataType& base_type, const DataType& type);
 
 // Returns if the datatype is a floating point type
 TORCH_CUDA_CU_API inline bool isFloatingPointType(DataType dtype) {
-  TORCH_CHECK(
-      dtype != DataType::Null,
-      "Null type is not a valid argument to isFloatingPointType");
   return dtype == DataType::Double || dtype == DataType::Float ||
       dtype == DataType::Half || dtype == DataType::BFloat16;
 }
@@ -259,9 +256,6 @@ TORCH_CUDA_CU_API inline bool isIntegralType(DataType dtype) {
             case DataType::Int:
             case DataType::Int32:
               return true;
-            case DataType::Null:
-              TORCH_CHECK(
-                  false, "Null type is not a valid argument to isIntegralType");
             default:
               return false;
           }
@@ -284,17 +278,11 @@ TORCH_CUDA_CU_API inline bool isIntegralOrPointerType(DataType dtype) {
 
 // Returns if the datatype is a boolean type
 TORCH_CUDA_CU_API inline bool isBooleanType(DataType dtype) {
-  TORCH_CHECK(
-      dtype != DataType::Null,
-      "Null type is not a valid argument to isBooleanType");
   return dtype == DataType::Bool;
 }
 
 // Returns if the datatype is a complex type
 TORCH_CUDA_CU_API inline bool isComplexType(DataType dtype) {
-  TORCH_CHECK(
-      dtype != DataType::Null,
-      "Null type is not a valid argument to isComplexType");
   return dtype == DataType::ComplexFloat || dtype == DataType::ComplexDouble;
 }
 
