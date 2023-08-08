@@ -1483,14 +1483,15 @@ TensorView* expand(TensorView* inp, const std::vector<Val*>& expanded_sizes) {
       // When input id is a broadcast, expand the extent to the given
       // size, which can be concrete or symbolic.
       expanded = true;
-      out_id_builder.expanded_extent(expanded_sizes[i]);
-      maybe_expanded_sizes[i] = expanded_sizes[i];
+      auto expanded_extent = maybeCastOp(DataType::Index, expanded_sizes[i]);
+      out_id_builder.expanded_extent(expanded_extent);
+      maybe_expanded_sizes[i] = expanded_extent;
     } else if (!inp_id->extent()->isConstInt()) {
       // Input id is non-broadcast and its extent is symbolic. Promote
       // the extent to the given expanded size.
       // Note that expansion to 1 just means its extent becomes 1 and
       // does not mean the ID becomes a broadcast.
-      out_id_builder.extent(expanded_sizes[i]);
+      out_id_builder.extent(maybeCastOp(DataType::Index, expanded_sizes[i]));
     } else {
       // Input id is non-expand and its extent is concrete. Nothing
       // to expand, but the input and expanded sizes should match if
