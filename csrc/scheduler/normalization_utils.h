@@ -9,6 +9,7 @@
 
 #include <executor_params.h>
 #include <ir/all_nodes.h>
+#include <scheduler/utils.h>
 #include <cmath>
 #include <optional>
 #include <ostream>
@@ -204,6 +205,17 @@ getOptionalInnerOuterPersistentBufferBatches(
     const int64_t vectorize_factor,
     const int64_t warp_size,
     const bool ignore_register_size_limit);
+
+//! Check if there are enough registers and shared memories to keep the
+//! persistent buffers on chip. Return persistent_buffer_size,
+//! available_register_buffer_size, has_enough_regs_and_smem
+std::tuple<int64_t, int64_t, bool> checkPersistentBufferSize(
+    Fusion* fusion,
+    SchedulerRuntimeInfo& runtime_info,
+    HeuristicSummary* data_cache,
+    const std::vector<TensorView*>& reduction_tvs,
+    const scheduler_utils::ReductionTvProperties& properties,
+    const int64_t vectorize_factor);
 
 } // namespace normalization_scheduler_utils
 } // namespace nvfuser
