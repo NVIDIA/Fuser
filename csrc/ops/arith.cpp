@@ -2257,7 +2257,8 @@ TensorView* shift(
 
     out_dom.push_back(
         IterDomainBuilder(
-            IrBuilder::create<Val>(out_start_offset), inp_axis->extent())
+            IrBuilder::create<Val>(out_start_offset, DataType::Index),
+            inp_axis->extent())
             .stop_offset(
                 IrBuilder::create<Val>(out_stop_offset, DataType::Index))
             .iter_type(inp_axis->getIterType())
