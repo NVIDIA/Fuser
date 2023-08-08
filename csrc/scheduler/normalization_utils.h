@@ -217,5 +217,14 @@ std::tuple<int64_t, int64_t, bool> checkPersistentBufferSize(
     const scheduler_utils::ReductionTvProperties& properties,
     const int64_t vectorize_factor);
 
+//! Return the shared memory overhead per block includes reserved by the CUDA
+//! driver and the space for the reduction broadcast
+// workspace. The shared memory allocated for the reduction broadcast
+// workspace is proportional to the number of threads per block. Yet, since
+// the exact number of threads per block is unknown at this point,
+// maxThreadsPerBlock is used for a cautious estimate.
+int64_t getSharedMemoryOverheadPerBlock(
+    Fusion* fusion,
+    const scheduler_utils::PersistentBufferInfo& persistent_buffer_info);
 } // namespace normalization_scheduler_utils
 } // namespace nvfuser

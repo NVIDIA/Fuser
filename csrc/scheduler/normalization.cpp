@@ -92,6 +92,7 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
     const int64_t inner_dim_numel,
     const int64_t register_persistent_buffer_size,
     const int64_t shared_memory_persistent_buffer_size,
+    const int64_t shared_memory_overhead_per_block,
     const size_t tmp_gmem_dtype_size,
     const size_t vectorize_factor) {
   auto rparams = std::make_shared<ReductionParams>();
@@ -203,8 +204,12 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
   int64_t reg_per_thread =
       getEstimatedRegisterUsage(iop.inner_vect * iop.inner_batch);
   int64_t threads_per_sm = getThreadsPerSMGivenRegPerThread(reg_per_thread);
-  int64_t blocks_per_sm =
+  int64_t blocks_per_sm_regs =
       getBlocksPerSM(threads_per_sm, threads_per_block, dev_prop->warpSize);
+  // check shared memory limitation on blocks per sm
+  int64_t blocks_per_sm_smem = dev_prop->sharedMemPerMultiprocessor / (shared_memory_overhead_per_block + shared_memory_persistent_buffer_size);
+  std::cout << "sharedMemPerMultiprocessor= " << dev_prop->sharedMemPerMultiprocessor / 1024 << ", shared_memory_persistent_buffer_size= " << shared_memory_persistent_buffer_size/1024 << ", blocks_per_sm_smem= " << blocks_per_sm_smem << std::endl;
+  int64_t blocks_per_sm = std::min(blocks_per_sm_regs, blocks_per_sm_smem);
   iop.gdimy = blocks_per_sm * device_multiprocessor_count;
   const int64_t outer_iter_min = 8;
   const int64_t gdimy_max = scheduler_utils::roundUpToN(
@@ -321,6 +326,8 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
             << register_persistent_buffer_size << "\n"
             << "shared_memory_persistent_buffer_size: "
             << shared_memory_persistent_buffer_size << "\n"
+            << "shared_memory_overhead_per_block: "
+            << shared_memory_overhead_per_block << "\n"            
             << "vectorize_factor_input: " << iop.inner_vect << "\n"
             << "vectorization_factor_tmp_gmem_write: "
             << iop.tmp_gmem_write_vect << "\n"
@@ -1314,6 +1321,7 @@ std::shared_ptr<ReductionParams> persistentHeuristic(
     const size_t tmp_gmem_dtype_size,
     const int64_t register_persistent_buffer_size,
     const int64_t shared_memory_persistent_buffer_size,
+    const int64_t shared_memory_overhead_per_block,
     size_t vectorize_factor,
     bool project_persistent_buffers,
     const bool combined_inner_outer_reduction) {
@@ -1326,6 +1334,7 @@ std::shared_ptr<ReductionParams> persistentHeuristic(
         inner_dim_numel,
         register_persistent_buffer_size,
         shared_memory_persistent_buffer_size,
+        shared_memory_overhead_per_block,
         tmp_gmem_dtype_size,
         vectorize_factor);
   } else if (fastest_dim_reduction) {
@@ -1527,6 +1536,10 @@ std::shared_ptr<ReductionParams> getPersistentHeuristics(
   // Protect heuristics div by 0:
   n_tensor_inputs = std::max(n_tensor_inputs, (int64_t)1);
 
+  auto shared_memory_overhead_per_block =
+      normalization_scheduler_utils::getSharedMemoryOverheadPerBlock(
+          fusion, persistent_buffer_info);
+
   auto heuristic = persistentHeuristic(
       properties.total_reduction_numel,
       properties.total_iteration_numel,
@@ -1537,6 +1550,7 @@ std::shared_ptr<ReductionParams> getPersistentHeuristics(
       tmp_gmem_dtype_size,
       register_persistent_buffer_size,
       shared_memory_persistent_buffer_size,
+      shared_memory_overhead_per_block,
       vectorize_factor,
       project_persistent_buffers,
       combined_inner_outer_reduction);

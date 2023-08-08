@@ -729,6 +729,34 @@ getOptionalInnerOuterPersistentBufferBatches(
   }
 }
 
+int64_t getSharedMemoryOverheadPerBlock(
+    Fusion* fusion,
+    const scheduler_utils::PersistentBufferInfo& persistent_buffer_info) {
+  const auto& dev_prop = at::cuda::getCurrentDeviceProperties();
+  int64_t buffer_dtype_size = 1;
+  for (auto tv : persistent_buffer_info.persistent_buffers) {
+    buffer_dtype_size = std::max(
+        buffer_dtype_size,
+        dataTypeSize(tv->getDataType().value()));
+  }
+  auto hasWelford = [&fusion]() -> bool {
+    for (auto expr : fusion->exprs()) {
+      if (expr->isA<WelfordOp>()) {
+        return true;
+      }
+    }
+    return false;
+  };
+  int64_t welford_factor = hasWelford() ? 3l : 1l;
+  int64_t reduction_broadcast_workspace =
+      (int64_t)(dev_prop->maxThreadsPerBlock) * buffer_dtype_size *
+      welford_factor;
+  int64_t available_shared_memory_buffer_size =
+      (int64_t)dev_prop->reservedSharedMemPerBlock +
+      reduction_broadcast_workspace;
+  return available_shared_memory_buffer_size;
+}
+
 std::tuple<int64_t, int64_t, bool> checkPersistentBufferSize(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
@@ -778,37 +806,10 @@ std::tuple<int64_t, int64_t, bool> checkPersistentBufferSize(
       ? scheduler_utils::register_file_size_combined
       : scheduler_utils::register_file_size;
 
-  // The available size of shared memory for storing persistent buffers is
-  // derived from the total shared memory size after subtracting the portion
-  // reserved by the CUDA driver and the space for the reduction broadcast
-  // workspace. The shared memory allocated for the reduction broadcast
-  // workspace is proportional to the number of threads per block. Yet, since
-  // the exact number of threads per block is unknown at this point,
-  // maxThreadsPerBlock is used for a cautious estimate.
   const auto dev_prop = at::cuda::getCurrentDeviceProperties();
-  int64_t max_buffer_dtype_size = 1;
-  for (auto tv : persistent_buffer_info.persistent_buffers) {
-    max_buffer_dtype_size = std::max(
-        max_buffer_dtype_size,
-        dataTypeSize(tv->getDataType().value(), runtime_info.getIndexType()));
-  }
-  auto hasWelford = [&fusion]() -> bool {
-    for (auto expr : fusion->exprs()) {
-      if (expr->isA<WelfordOp>()) {
-        return true;
-      }
-    }
-    return false;
-  };
-  const int welford_factor = hasWelford() ? 3 : 1;
-  const int64_t reduction_broadcast_workspace =
-      (int64_t)(dev_prop->maxThreadsPerBlock) * max_buffer_dtype_size *
-      welford_factor;
-  const int64_t available_shared_memory_buffer_size =
-      (int64_t)(dev_prop->sharedMemPerBlockOptin -
-                dev_prop->reservedSharedMemPerBlock) -
-      reduction_broadcast_workspace;
-
+  int64_t available_shared_memory_buffer_size = (int64_t)dev_prop->sharedMemPerBlockOptin -
+      getSharedMemoryOverheadPerBlock(
+          fusion, persistent_buffer_info);
   bool has_enough_regs_and_smem = false;
   if (combined_inner_outer_reduction) {
     // In the case of combined_inner_outer_reduction, the scheduler creates
@@ -845,8 +846,7 @@ std::tuple<int64_t, int64_t, bool> checkPersistentBufferSize(
       // size is larger than available size, e.g. hidden size 26752 on H100.
       auto persistent_buffer_size_roundup =
           ceilDiv(
-              (ceilDiv(
-                  properties.inner_most_dimension_numel, vectorize_factor)),
+              properties.inner_most_dimension_numel / vectorize_factor,
               threads_per_block_max) *
           vectorize_factor * threads_per_block_max * buffer_per_element;
       // If use shared memory, most of the L1/SMEM hardware resources are
