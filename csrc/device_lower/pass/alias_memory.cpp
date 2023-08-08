@@ -341,11 +341,19 @@ class BufferReuseDebugPrinter {
 class BufferLiveInterval {
  public:
   // Simple detection of intersection of two intervals
-  bool intersect(BufferLiveInterval* other) {
-    if (first_write_pos_ <= other->first_write_pos_) {
-      return other->first_write_pos_ <= last_read_pos_;
+  bool intersect(BufferLiveInterval* other, bool open_intervals = false) {
+    if (open_intervals) {
+      if (first_write_pos_ < other->first_write_pos_) {
+        return other->first_write_pos_ < last_read_pos_;
+      } else {
+        return first_write_pos_ < other->last_read_pos_;
+      }
     } else {
-      return first_write_pos_ <= other->last_read_pos_;
+      if (first_write_pos_ <= other->first_write_pos_) {
+        return other->first_write_pos_ <= last_read_pos_;
+      } else {
+        return first_write_pos_ <= other->last_read_pos_;
+      }
     }
   }
 
@@ -1080,8 +1088,10 @@ class ReusableAllocationFinder : private kir::IrVisitor {
         if (std::any_of(
                 subscribed_intervals->begin(),
                 subscribed_intervals->end(),
-                [alloc_live_interval](auto subscribed_interval) {
-                  return alloc_live_interval->intersect(subscribed_interval);
+                [alloc_live_interval, this](auto subscribed_interval) {
+                  return alloc_live_interval->intersect(
+                      subscribed_interval,
+                      /*open_intervals*/ inner_aliasing_pass_);
                 })) {
           continue;
         }
