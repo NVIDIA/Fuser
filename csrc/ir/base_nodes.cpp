@@ -124,6 +124,8 @@ bool Val::removeUse(Expr* expr) {
 // values. The data type of the original input should be
 // DataType::Index, but DataType::Int is also allowed as it is used
 // for index expressions.
+// TODO: remove this function. I think we are fine removing this now, but I need
+// to double check the benchmarks.
 void Val::resolveIndexDtype() {
   TORCH_INTERNAL_ASSERT(
       vtype_ == ValType::TensorView || vtype_ == ValType::Others ||

@@ -279,12 +279,6 @@ void GpuLower::lower(Fusion* fusion) {
   // Alias the fusion kernel caries around as a view of itself.
   fusion_ = kernel_.get();
 
-  // Convert tensor views of DataType::Index type to either Int or Int32
-  for (auto tv : ir_utils::allTvs(fusion_)) {
-    if (tv->dtype() == DataType::Index) {
-      tv->resolveIndexDtype();
-    }
-  }
   segmenterHintCleanup(fusion_);
   FusionGuard fg(fusion_);
 
