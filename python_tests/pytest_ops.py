@@ -27,6 +27,10 @@ def parse_args_fusion_execution(opinfo: OpInfo, *args):
     if len(args) == 0:
         return []
 
+    if opinfo.symbolic_parameter_list is None:
+        opinfo.symbolic_parameter_list = [ArgumentType.Symbolic] * len(args)
+    assert len(opinfo.symbolic_parameter_list) == len(args)
+
     result = []
     for arg_type, a in zip(opinfo.symbolic_parameter_list, args):
         if arg_type == ArgumentType.Symbolic:
@@ -111,28 +115,24 @@ def test_correctness(op: OpInfo, dtype: torch.dtype):
 
 
 def definition_op_in_schedule_error_test_fn(opinfo: OpInfo, sample: SampleInput):
-    inputs = [
-        torch.randn(8, 8, 8, device="cuda"),
-    ]
-
     class SchedError(FusionDefinition):
         def definition(self):
-            self.t0 = fd.from_pytorch(inputs[0], static_sizes=True)
-            self.t1 = fd.ops.tanh(fd.t0)
-            self.add_output(fd.t1)
+            # Create default fusion definition
+            nvf_inputs = parse_inputs_fusion_definition(self, opinfo, *sample.args)
+            result = opinfo.op(fd)(*nvf_inputs, **sample.kwargs)
+            if type(result) is tuple:
+                for a in result:
+                    self.add_output(a)
+            else:
+                self.add_output(result)
 
         def schedule(self):
-            nvf_inputs = parse_inputs_fusion_definition(fd, opinfo, *sample.args)
+            # Attempt to add fusion operation during scheduling
+            nvf_inputs = parse_inputs_fusion_definition(self, opinfo, *sample.args)
             opinfo.op(self)(*nvf_inputs, **sample.kwargs)
 
-    exception = None
-    try:
-        fd = SchedError()
-        fd.execute(parse_args_fusion_execution(opinfo, *sample.args))
-    except Exception as e:
-        exception = e
-
-    pytest.raises(TypeError, "Attempting to add to a completed definition")
+    fd = SchedError()
+    nvfuser_result = fd.execute(parse_args_fusion_execution(opinfo, *sample.args))
 
 
 # TODO Maybe only test a single dtype
@@ -140,7 +140,7 @@ def definition_op_in_schedule_error_test_fn(opinfo: OpInfo, sample: SampleInput)
 def test_definition_op_in_schedule_error(op: OpInfo, dtype: torch.dtype):
     for sample in op.sample_input_generator(op, torch.float32):
         with pytest.raises(
-            TypeError, match=r"Attempting to add to a completed definition"
+            RuntimeError, match=r"Attempting to add to a completed definition"
         ):
             definition_op_in_schedule_error_test_fn(op, sample)
 
