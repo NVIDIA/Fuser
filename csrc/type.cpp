@@ -119,8 +119,10 @@ DataType getTypeFromComplexType(DataType dtype) {
 DataType getComplexTypeFromType(DataType dtype) {
   switch (std::get<PrimDataType>(dtype.type)) {
     case DataType::Float:
+    case DataType::ComplexFloat:
       return DataType::ComplexFloat;
     case DataType::Double:
+    case DataType::ComplexDouble:
       return DataType::ComplexDouble;
     default:
       TORCH_INTERNAL_ASSERT(
