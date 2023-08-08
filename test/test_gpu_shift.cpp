@@ -3882,10 +3882,9 @@ TEST_F(NVFuserTest, FusionShiftNoPadding3_CUDA) {
 
   TransformPropagatorWithCheck propagator(tv_avg);
   MaxRootDomainInfoSpanningTree(tv_avg).traverse(&propagator);
-  inlineMost();
-
   tv_avg->axis(-1)->parallelize(ParallelType::TIDx);
   scheduler_utils::parallelizeAllLike(tv_avg);
+  inlineMost();
 
   int numel_x = 99;
   int numel_y = 101;
