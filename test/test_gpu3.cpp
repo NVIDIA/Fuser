@@ -9763,6 +9763,55 @@ TEST_F(NVFuserTest, IndexDataTypePromotion) {
   EXPECT_EQ(c->dtype(), DataType::Index);
 }
 
+TEST_F(NVFuserTest, FusionCrossGridInnerReductionSplitGridIteration_CUDA) {
+  // hidden_size is set to 64K to triger cross grid reduction.
+  // iter_size is set to a value larger than y_grid_limit to test if iter domain
+  // is split grid.
+  DataType dtype = DataType::Float;
+  int64_t hidden_size = 65536;
+  int64_t iter_size = scheduler_utils::y_grid_limit + 8;
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  const int64_t dim0 = iter_size;
+  const int64_t dim1 = hidden_size;
+  std::vector<int64_t> input_shape{dim0, dim1};
+  auto t0 = makeContigTensor(2, dtype);
+  auto t1 = sum(t0, {1});
+  fusion.addInput(t0);
+  fusion.addOutput(t1);
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  at::Tensor aten_input = at::randn(input_shape, options);
+
+  auto reduction_params = getReductionHeuristics(&fusion, {aten_input});
+  TORCH_CHECK(reduction_params, "Reduction schedule was not generated!");
+  TORCH_CHECK(
+      reduction_params->split_grid_dim_inner_reduction,
+      "Expect split_grid_dim_inner_reduction to be true!");
+  TORCH_CHECK(
+      reduction_params->split_grid_dim_iter_dom_outer,
+      "Expect split_grid_dim_iter_dom_outer to be true!");
+  scheduleReduction(&fusion, *reduction_params);
+
+  auto lparams = reduction_params->lparams;
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, {aten_input}, lparams);
+  auto cg_outputs = fe.runFusion({aten_input}, lparams);
+
+  auto aten_outputs = aten_input.sum({1});
+  testValidate(
+      &fusion,
+      cg_outputs,
+      {aten_input},
+      {aten_outputs},
+      __LINE__,
+      __FILE__,
+      "",
+      lparams);
+}
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser
