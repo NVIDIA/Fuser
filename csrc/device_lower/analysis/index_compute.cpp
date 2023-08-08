@@ -338,13 +338,6 @@ bool trackUnswitchedDomain(kir::ForLoop* loop) {
     return false;
   }
 
-  // Needs this?
-#if 0
-  (loop_id->getParallelType() == ParallelType::Serial ||
-   loop_id->getParallelType() == ParallelType::Unroll ||
-   loop_id->getParallelType() == ParallelType::Unswitch)
-#endif
-
   return true;
 }
 
@@ -470,16 +463,19 @@ IndexingParameters getPredicateInitialIndexParameters(
         // used here instead of loop->stop(). See the above comment.
         loop_to_ind_map[loop] = SimplifyingIrBuilder::subExpr(
             loop_id->extent(), GpuLower::current()->kernel()->oneVal());
+      }
 
-        // (extent-1) is not guaranteed to result in the maximum
-        // index when traversing through merge inner domains as modulo
-        // is used. Keep track of those domains, which will be used by
-        // IndexCompute to make necessary adjustments.
-        if (trackUnswitchedDomain(loop)) {
-           index_parameters.unswitched_domains.insert(
-              GpuLower::current()->caMap()->getConcreteMappedID(
-                  loop_id, IdMappingMode::EXACT));
-        }
+      // When predicating a loop at the maximum end, predicate
+      // expressions such as (extent-1) are used, which represent the
+      // maximum possible value of the loop range but are not
+      // guaranteed to result in the maximum index when traversing
+      // through merge inner domains as modulo is used. Keep track of
+      // those domains, which will be used by IndexCompute to make
+      // necessary adjustments.
+      if (!is_start_predicate && trackUnswitchedDomain(loop)) {
+        index_parameters.unswitched_domains.insert(
+            GpuLower::current()->caMap()->getConcreteMappedID(
+                loop_id, IdMappingMode::EXACT));
       }
     }
   }
