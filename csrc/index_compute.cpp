@@ -404,8 +404,6 @@ void IndexCompute::updateUnswitchedDomains(Expr* expr) {
 }
 
 void IndexCompute::handle(Split* split) {
-  updateUnswitchedDomains(split);
-
   auto in_id = maybeGetExactMapConcreteID(split->in()->as<IterDomain>());
   auto outer_id = maybeGetExactMapConcreteID(split->outer()->as<IterDomain>());
   auto inner_id = maybeGetExactMapConcreteID(split->inner()->as<IterDomain>());
@@ -519,8 +517,6 @@ bool IndexCompute::isModuloInvalidUnswitchedIndex(
 }
 
 void IndexCompute::handle(Merge* merge) {
-  updateUnswitchedDomains(merge);
-
   auto out_id = maybeGetExactMapConcreteID(merge->out());
   auto outer_id = maybeGetExactMapConcreteID(merge->outer());
   auto inner_id = maybeGetExactMapConcreteID(merge->inner());
@@ -668,8 +664,6 @@ void IndexCompute::handle(Merge* merge) {
 }
 
 void IndexCompute::handle(Swizzle2D* swizzle_2d) {
-  updateUnswitchedDomains(swizzle_2d);
-
   auto out_x_id = maybeGetExactMapConcreteID(swizzle_2d->outX());
   auto out_y_id = maybeGetExactMapConcreteID(swizzle_2d->outY());
   auto in_x_id = maybeGetExactMapConcreteID(swizzle_2d->inX());
@@ -714,8 +708,6 @@ void IndexCompute::handle(Swizzle2D* swizzle_2d) {
 }
 
 void IndexCompute::handle(Resize* resize) {
-  updateUnswitchedDomains(resize);
-
   auto out_id = maybeGetExactMapConcreteID(resize->out());
   auto in_id = maybeGetExactMapConcreteID(resize->in());
 
@@ -749,6 +741,7 @@ void IndexCompute::dispatch(Expr* e) {
   auto is_expected_type = e->isOneOf<Split, Merge, Swizzle2D, Resize>();
   TORCH_INTERNAL_ASSERT(
       is_expected_type, "Invalid expr type found in transform traversal.");
+  updateUnswitchedDomains(e);
   BackwardVisitor::dispatch(e);
 }
 
