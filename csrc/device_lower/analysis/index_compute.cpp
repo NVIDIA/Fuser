@@ -102,6 +102,9 @@ struct IndexingParameters {
   //! The inferred halo padded extents of the concrete iterdomains.
   std::unordered_map<IterDomain*, Val*> concrete_id_to_halo_extent;
 
+  //! Unswitched concrete domains. Back-traversing through the inner
+  //! domain of a merge may need to be replaced with the maximum of
+  //! the inner domain.
   std::unordered_set<IterDomain*> unswitched_domains;
 };
 
@@ -300,6 +303,51 @@ bool predicateAtEnd(kir::ForLoop* loop) {
   return true;
 }
 
+bool trackUnswitchedDomain(kir::ForLoop* loop) {
+  auto loop_id = loop->iter_domain();
+
+  // Trip count == 1. Could be extended to any start as long
+  // as the trip count is 1
+  if (loop_id->start()->isZero() && loop_id->stop()->isOne()) {
+    return false;
+  }
+
+  // Thread parallelized. The stop needs to be the same as the loop
+  // extent as the parallel dimension is based on the loop ID
+  // extent. Loop stop may be larger than the extent when the loop is
+  // extended for halo.
+  if (loop_id->isThread() && (loop->stop()->sameAs(loop_id->extent()))) {
+    return false;
+  }
+
+  // Vectorized loops are guaranteed to be visited once per thread
+  if (loop_id->getParallelType() == ParallelType::Vectorize) {
+    return false;
+  }
+
+  // The same can be said as long as it's exactly mapped with a
+  // vectorized domain
+  const auto& id_exact_set = GpuLower::current()
+      ->caMap()
+      ->getIdSets(IdMappingMode::EXACT)
+      .getDisjointSetOf(loop->iter_domain());
+
+  if (std::any_of(id_exact_set.begin(), id_exact_set.end(), [](auto id) {
+    return id->getParallelType() == ParallelType::Vectorize;
+  })) {
+    return false;
+  }
+
+  // Needs this?
+#if 0
+  (loop_id->getParallelType() == ParallelType::Serial ||
+   loop_id->getParallelType() == ParallelType::Unroll ||
+   loop_id->getParallelType() == ParallelType::Unswitch)
+#endif
+
+  return true;
+}
+
 //! Initial index parameters for predicate, adjusts loop to indexing
 //!  may according to the information annotated on the loop nest.
 //!
@@ -423,27 +471,14 @@ IndexingParameters getPredicateInitialIndexParameters(
         loop_to_ind_map[loop] = SimplifyingIrBuilder::subExpr(
             loop_id->extent(), GpuLower::current()->kernel()->oneVal());
 
-        const auto& id_exact_set = GpuLower::current()
-                                       ->caMap()
-                                       ->getIdSets(IdMappingMode::EXACT)
-                                       .getDisjointSetOf(loop_id);
-        auto vectorized =
-            std::any_of(id_exact_set.begin(), id_exact_set.end(), [](auto id) {
-              return id->getParallelType() == ParallelType::Vectorize;
-            });
-
-        // TODO: cleanup
-        if (within_unswitch) {
-          if (!(loop_id->start()->isZero() && loop_id->stop()->isOne()) &&
-              (loop_id->getParallelType() == ParallelType::Serial ||
-               loop_id->getParallelType() == ParallelType::Unroll ||
-               loop_id->getParallelType() == ParallelType::Unswitch) &&
-              !vectorized) {
-            std::cerr << "Unswitched: " << loop_id->toString() << std::endl;
-            index_parameters.unswitched_domains.insert(
-                GpuLower::current()->caMap()->getConcreteMappedID(
-                    loop_id, IdMappingMode::EXACT));
-          }
+        // (extent-1) is not guaranteed to result in the maximum
+        // index when traversing through merge inner domains as modulo
+        // is used. Keep track of those domains, which will be used by
+        // IndexCompute to make necessary adjustments.
+        if (trackUnswitchedDomain(loop)) {
+           index_parameters.unswitched_domains.insert(
+              GpuLower::current()->caMap()->getConcreteMappedID(
+                  loop_id, IdMappingMode::EXACT));
         }
       }
     }
