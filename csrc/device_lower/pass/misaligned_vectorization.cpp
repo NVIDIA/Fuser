@@ -295,7 +295,7 @@ class MisalignedVectorizationModifier : public kir::ExprMutator {
         params.last_root_domain_index_shift, params.extent_minus_remainder);
     Val* upper_bound =
         IrBuilder::ltExpr(params.last_root_domain_index_shift, params.extent);
-    Val* remainder_cond = IrBuilder::andExpr(lower_bound, upper_bound);
+    Val* remainder_cond = IrBuilder::logicalAndExpr(lower_bound, upper_bound);
 
     kir::Predicate* remainder_pred =
         IrBuilder::create<kir::Predicate>(remainder_cond);
