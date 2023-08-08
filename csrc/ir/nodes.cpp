@@ -2543,8 +2543,8 @@ std::pair<IterDomain*, IterDomain*> IterDomain::split(
   }
 
   // outer loop size
-  Val* remainder = ceilDiv(
-      Split::extent(in->extent(), start_offset, stop_offset), factor);
+  Val* remainder =
+      ceilDiv(Split::extent(in->extent(), start_offset, stop_offset), factor);
   Val* expanded_remainder = nullptr;
   if (in->hasExpandedExtent()) {
     expanded_remainder = ceilDiv(
