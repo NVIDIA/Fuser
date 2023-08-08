@@ -631,7 +631,7 @@ void bindInputForExprEvaluation(
     PolymorphicValue arg,
     bool check_consistency,
     ExpressionEvaluator& expr_eval,
-    bool legacy = true) {
+    bool legacy) {
   TORCH_INTERNAL_ASSERT(val != nullptr);
   // TODO: use the move version once the legacy path is removed.
   // expr_eval.bind(val, std::move(arg));
