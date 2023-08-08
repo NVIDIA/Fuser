@@ -328,13 +328,13 @@ bool trackUnswitchedDomain(kir::ForLoop* loop) {
   // The same can be said as long as it's exactly mapped with a
   // vectorized domain
   const auto& id_exact_set = GpuLower::current()
-      ->caMap()
-      ->getIdSets(IdMappingMode::EXACT)
-      .getDisjointSetOf(loop->iter_domain());
+                                 ->caMap()
+                                 ->getIdSets(IdMappingMode::EXACT)
+                                 .getDisjointSetOf(loop->iter_domain());
 
   if (std::any_of(id_exact_set.begin(), id_exact_set.end(), [](auto id) {
-    return id->getParallelType() == ParallelType::Vectorize;
-  })) {
+        return id->getParallelType() == ParallelType::Vectorize;
+      })) {
     return false;
   }
 

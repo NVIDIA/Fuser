@@ -104,10 +104,14 @@ class IndexCompute : public BackwardVisitor {
   //!    2. the output id is found in permissive map.
   void updateIndexMapFromPermissiveMap(const Expr* id_expr);
 
+  void initializeUnswitchDomainMap();
   void updateUnswitchedDomains(Expr* expr);
+  bool hasUnswitchedDependentDomains(IterDomain* id) const;
 
-  Val* getStrideOfUnswitchedDomain(IterDomain* id) const;
-  Val* getSpanOfUnswitchedDomain(IterDomain* id) const;
+  bool isModuloInvalidUnswitchedIndex(
+      IterDomain* out_concrete_id,
+      Val* out_ind,
+      Val* inner_extent) const;
 
   // Tensor domain we're mapping back to allocation
   const TensorDomain* td_; // NOLINT
@@ -169,7 +173,9 @@ class IndexCompute : public BackwardVisitor {
   // TODO: comment
   std::unordered_set<IterDomain*> unswitched_leaf_domains_;
 
-  std::unordered_map<IterDomain*, std::pair<Val*, Val*>>
+  //! Mapppings from an IterDomain to its dependent unswitched
+  //! domains and their strides.
+  std::unordered_map<IterDomain*, std::vector<std::deque<IterDomain*>>>
       unswitched_domain_map_;
 
  public:

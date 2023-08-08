@@ -341,29 +341,20 @@ Val* getTensorBaseAddress(TensorView* tv) {
 
 } // namespace
 
-Val* IndexCompute::getStrideOfUnswitchedDomain(IterDomain* id) const {
+bool IndexCompute::hasUnswitchedDependentDomains(IterDomain* id) const {
   auto concrete_id = maybeGetExactMapConcreteID(id);
-  if (auto it = unswitched_domain_map_.find(concrete_id);
-      it != unswitched_domain_map_.end()) {
-    return it->second.first;
-  } else if (auto it = unswitched_leaf_domains_.find(concrete_id);
-             it != unswitched_leaf_domains_.end()) {
-    return id->fusion()->oneVal();
-  } else {
-    return nullptr;
-  }
+  auto it = unswitched_domain_map_.find(concrete_id);
+  return it != unswitched_domain_map_.end() && !it->second.empty();
 }
 
-Val* IndexCompute::getSpanOfUnswitchedDomain(IterDomain* id) const {
-  auto concrete_id = maybeGetExactMapConcreteID(id);
-  if (auto it = unswitched_domain_map_.find(concrete_id);
-      it != unswitched_domain_map_.end()) {
-    return it->second.second;
-  } else if (auto it = unswitched_leaf_domains_.find(concrete_id);
-             it != unswitched_leaf_domains_.end()) {
-    return getExtent(concrete_id);
-  } else {
-    return nullptr;
+void IndexCompute::initializeUnswitchDomainMap() {
+  TORCH_INTERNAL_ASSERT(unswitched_domain_map_.empty());
+  for (auto id : unswitched_leaf_domains_) {
+    auto concrete_id = maybeGetExactMapConcreteID(id);
+    unswitched_domain_map_.emplace(
+        concrete_id,
+        std::vector<std::deque<IterDomain*>>{
+            std::deque<IterDomain*>{concrete_id}});
   }
 }
 
@@ -371,41 +362,41 @@ void IndexCompute::updateUnswitchedDomains(Expr* expr) {
   if (auto split = dynamic_cast<Split*>(expr)) {
     auto split_in = maybeGetExactMapConcreteID(split->in());
     for (auto split_out : {split->inner(), split->outer()}) {
-      auto out_stride = getStrideOfUnswitchedDomain(split_out);
-      if (out_stride == nullptr) {
-        continue;
+      auto concrete_id = maybeGetExactMapConcreteID(split_out);
+      if (auto it = unswitched_domain_map_.find(concrete_id);
+          it != unswitched_domain_map_.end()) {
+        if (split_out == split->inner()) {
+          // In the case of upward traversal from the inner output,
+          // just copy the unswitched info
+          unswitched_domain_map_[split_in] = it->second;
+        } else {
+          // In the case of upward traversal from the outer output,
+          // append the inner domain to the lists
+          for (auto unswitched_dep_ids : it->second) {
+            unswitched_dep_ids.push_back(
+                maybeGetExactMapConcreteID(split->inner()));
+            unswitched_domain_map_[split_in].push_back(unswitched_dep_ids);
+          }
+        }
       }
-      auto out_span = getSpanOfUnswitchedDomain(split_out);
-      TORCH_INTERNAL_ASSERT(out_span != nullptr);
-      Val* in_stride = nullptr;
-      Val* in_span = nullptr;
-      if (split_out == split->inner()) {
-        in_stride = out_stride;
-        in_span = out_span;
-      } else {
-        in_stride = SimplifyingIrBuilder::mulExpr(
-            out_stride, getExtent(split->inner()));
-        in_span =
-            SimplifyingIrBuilder::mulExpr(out_span, getExtent(split->inner()));
-      }
-      unswitched_domain_map_[split_in] =
-          std::make_pair(in_stride, in_span);
     }
   } else {
     // Suppress a clang-tidy warning
     TORCH_INTERNAL_ASSERT(expr != nullptr);
-    // Propagate the unswitch info if any of outputs is unswitched
+    // Propagate the unswitch info if any of outputs is
+    // unswitched. However, unlike the split case, the propagated info
+    // is reset
     if (std::any_of(
             expr->outputs().begin(), expr->outputs().end(), [this](Val* out) {
               return out->isA<IterDomain>() &&
-                  getStrideOfUnswitchedDomain(out->as<IterDomain>()) != nullptr;
+                  hasUnswitchedDependentDomains(out->as<IterDomain>());
             })) {
       for (auto inp : ir_utils::filterByType<IterDomain>(expr->inputs())) {
         auto inp_concrete = maybeGetExactMapConcreteID(inp);
         unswitched_domain_map_.emplace(
             inp_concrete,
-            std::make_pair(
-                inp_concrete->fusion()->oneVal(), getExtent(inp_concrete)));
+            std::vector<std::deque<IterDomain*>>{
+                std::deque<IterDomain*>{inp_concrete}});
       }
     }
   }
@@ -468,6 +459,52 @@ void IndexCompute::handle(Split* split) {
           getExtent(outer_id), getExtent(inner_id));
     }
   }
+}
+
+bool IndexCompute::isModuloInvalidUnswitchedIndex(
+    IterDomain* out_concrete_id,
+    Val* out_ind,
+    Val* inner_extent) const {
+  bool enable_war = getenv("WAR");
+  if (!enable_war) {
+    return false;
+  }
+
+  auto unswitched_domain_map_it = unswitched_domain_map_.find(out_concrete_id);
+  if (unswitched_domain_map_it == unswitched_domain_map_.end()) {
+    return false;
+  }
+
+  for (const auto& unswitched_domain_list : unswitched_domain_map_it->second) {
+    TORCH_INTERNAL_ASSERT(!unswitched_domain_list.empty());
+
+    // If the stride is a multiple of the inner extent, the leaf
+    // unswitched index remains tobe be a valid maximum index as the
+    // module by the inner extent will be just zero
+    Val* stride = out_concrete_id->fusion()->oneVal();
+    for (auto it = unswitched_domain_list.begin();
+         it != unswitched_domain_list.end() - 1;
+         ++it) {
+      IterDomain* inner_id = *it;
+      stride = IrBuilder::mulExpr(stride, getExtent(inner_id));
+    }
+    if (simplifyExpr(IrBuilder::modExpr(stride, inner_extent))->isZero()) {
+      continue;
+    }
+
+    Val* total_extent =
+        IrBuilder::mulExpr(stride, getExtent(unswitched_domain_list.back()));
+    if (simplifyExpr(IrBuilder::modExpr(inner_extent, total_extent))
+            ->isZero()) {
+      continue;
+    }
+
+    std::cerr << "Propagating maximum for merge due to : "
+              << toDelimitedString(unswitched_domain_list) << std::endl;
+    return true;
+  }
+
+  return false;
 }
 
 void IndexCompute::handle(Merge* merge) {
@@ -609,37 +646,13 @@ void IndexCompute::handle(Merge* merge) {
     zero_merged_in_.emplace(outer_id);
   } else {
     index_map_[outer_id] = SimplifyingIrBuilder::divExpr(out_ind, inner_extent);
-    Val* inner_ind = SimplifyingIrBuilder::modExpr(out_ind, inner_extent);
-    bool enable_war = getenv("WAR");
-    auto out_stride = getStrideOfUnswitchedDomain(out_id);
-    if (out_stride != nullptr && enable_war) {
-      auto stride_mod =
-          simplifyExpr(SimplifyingIrBuilder::modExpr(out_stride, inner_extent));
-      if (stride_mod->isZero()) {
-        std::cerr << "Not propagating maximum as stride is divisible: "
-                  << merge->toString();
-      } else {
-        auto out_span = getSpanOfUnswitchedDomain(out_id);
-        auto span_mod =
-            simplifyExpr(SimplifyingIrBuilder::modExpr(inner_extent, out_span));
-        if (span_mod->isZero()) {
-          std::cerr << "Not propagating maximum as span is divisible: "
-                    << out_span->toInlineString() << ", "
-                    << inner_extent->toInlineString() << std::endl;
-        } else {
-          auto simplified = simplifyExpr(inner_ind);
-          inner_ind = SimplifyingIrBuilder::subExpr(
-              inner_extent, inner_extent->fusion()->oneVal());
-          std::cerr << "Propagating maximum for merge: " << merge->toString()
-                    << "\n\t-> " << inner_ind->toInlineString()
-                    << ", simplified: " << simplified->toInlineString()
-                    << std::endl;
-        }
-      }
-    } else {
-      inner_ind = SimplifyingIrBuilder::modExpr(out_ind, inner_extent);
-    }
-    index_map_[inner_id] = inner_ind;
+    // Take the absolute maximum if module could result in an invalid
+    // index for an unswitched domain
+    index_map_[inner_id] =
+        isModuloInvalidUnswitchedIndex(out_id, out_ind, inner_extent)
+        ? SimplifyingIrBuilder::subExpr(
+              inner_extent, inner_extent->fusion()->oneVal())
+        : SimplifyingIrBuilder::modExpr(out_ind, inner_extent);
   }
 }
 
@@ -755,7 +768,7 @@ IndexCompute::IndexCompute(
     const ContigIDs& contig_finder,
     std::unordered_set<IterDomain*> preferred_paths,
     std::unordered_map<IterDomain*, Val*> halo_extent_map,
-    std::unordered_set<IterDomain*> unswitched_domains)
+    std::unordered_set<IterDomain*> unswitched_leaf_domains)
     : td_(_td),
       index_map_(std::move(initial_index_map)),
       extent_map_(std::move(extent_map)),
@@ -764,7 +777,7 @@ IndexCompute::IndexCompute(
       contig_ids_{contig_finder.contigIDs()},
       preferred_paths_(std::move(preferred_paths)),
       halo_extent_map_(std::move(halo_extent_map)),
-      unswitched_leaf_domains_(std::move(unswitched_domains)) {
+      unswitched_leaf_domains_(unswitched_leaf_domains) {
   FUSER_PERF_SCOPE("GpuLower::Lower::IndexCompute::IndexCompute");
   // Make sure we recompute any indices we can that map to a contiguous access
   // in physical memory.
@@ -778,6 +791,8 @@ IndexCompute::IndexCompute(
       }
     }
   }
+
+  initializeUnswitchDomainMap();
 }
 
 IndexCompute::IndexCompute(
@@ -785,7 +800,7 @@ IndexCompute::IndexCompute(
     std::unordered_set<IterDomain*> zero_domains,
     std::unordered_set<IterDomain*> preferred_paths,
     std::unordered_map<IterDomain*, Val*> halo_extent_map,
-    std::unordered_set<IterDomain*> unswitched_domains)
+    std::unordered_set<IterDomain*> unswitched_leaf_domains)
     : td_{nullptr},
       index_map_(std::move(initial_index_map)),
       zero_domains_(std::move(zero_domains)),
@@ -793,8 +808,9 @@ IndexCompute::IndexCompute(
       halo_extent_map_(std::move(halo_extent_map)),
       concrete_id_pass_{true},
       swizzle_mode_{SwizzleMode::Loop},
-      unswitched_leaf_domains_(std::move(unswitched_domains)) {
+      unswitched_leaf_domains_(unswitched_leaf_domains) {
   FUSER_PERF_SCOPE("GpuLower::Lower::IndexCompute::IndexCompute");
+  initializeUnswitchDomainMap();
 }
 
 void IndexCompute::run(const LoopIndexing& loop_indexing) {
