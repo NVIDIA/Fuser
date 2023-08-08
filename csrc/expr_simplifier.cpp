@@ -1473,15 +1473,6 @@ bool lessThan(Val* x, Val* y, const Context& context) {
       return true;
     }
   }
-
-  // x - a < x & a > 0 --> true
-  if (auto lhs_def = dynamic_cast<BinaryOp*>(x->definition());
-      lhs_def != nullptr && lhs_def->getBinaryOpType() == BinaryOpType::Sub) {
-    if (lhs_def->lhs()->sameAs(y) && isPositive(lhs_def->rhs(), context)) {
-      return true;
-    }
-  }
-
   return false;
 }
 
@@ -2499,6 +2490,104 @@ Val* factorizeGcd(Val* value, const Context& context) {
   return value;
 }
 
+Val* cancelTermsInPredicate(Val* value, const Context& context) {
+  auto bop = dynamic_cast<BinaryOp*>(value->definition());
+  if (!bop) {
+    return value;
+  }
+  auto op = bop->getBinaryOpType();
+  if (op != BinaryOpType::Eq && op != BinaryOpType::GE &&
+      op != BinaryOpType::GT && op != BinaryOpType::LE &&
+      op != BinaryOpType::LT && op != BinaryOpType::NE) {
+    return value;
+  }
+
+  auto get_terms = [](Val* operand) -> std::vector<Val*> {
+    if (auto add_op = dynamic_cast<BinaryOp*>(operand->definition());
+        add_op != nullptr && add_op->getBinaryOpType() == BinaryOpType::Add) {
+      return add_op->inputs();
+    } else if (auto sub_op = dynamic_cast<BinaryOp*>(operand->definition());
+               sub_op != nullptr &&
+               sub_op->getBinaryOpType() == BinaryOpType::Sub) {
+      auto inputs = sub_op->inputs();
+      inputs.at(1) = IrBuilder::negExpr(inputs.at(1));
+      return inputs;
+    } else if (auto flattened = toFlattenedAdd(operand->definition())) {
+      return flattened->inputs();
+    } else if (auto flattened = assoc_comm::flatten(operand);
+               flattened->isA<FOp>() &&
+               flattened->as<FOp>()->getOpType() == BinaryOpType::Add) {
+      return flattened->as<FOp>()->inputs();
+    } else {
+      return {operand};
+    }
+  };
+
+  const auto& lhs_terms = get_terms(bop->lhs());
+  const auto& rhs_terms = get_terms(bop->rhs());
+
+  std::unordered_set<Val*> common_lhs_terms;
+  std::unordered_set<Val*> common_rhs_terms;
+  for (auto lhs_term : lhs_terms) {
+    for (auto rhs_term : rhs_terms) {
+      // Make sure no multiple LHS terms are removed for the same RHS term
+      if (common_rhs_terms.count(rhs_term)) {
+        continue;
+      }
+      if (lhs_term->sameAs(rhs_term)) {
+        common_lhs_terms.insert(lhs_term);
+        common_rhs_terms.insert(rhs_term);
+        break;
+      }
+    }
+  }
+
+  if (common_lhs_terms.empty()) {
+    return value;
+  }
+
+  std::vector<Val*> new_lhs_terms;
+  std::copy_if(
+      lhs_terms.begin(),
+      lhs_terms.end(),
+      std::back_inserter(new_lhs_terms),
+      [&common_lhs_terms](Val* val) {
+        return common_lhs_terms.count(val) == 0;
+      });
+
+  std::vector<Val*> new_rhs_terms;
+  std::copy_if(
+      rhs_terms.begin(),
+      rhs_terms.end(),
+      std::back_inserter(new_rhs_terms),
+      [&common_rhs_terms](Val* val) {
+        return common_rhs_terms.count(val) == 0;
+      });
+
+  auto new_lhs = IrBuilder::newScalar(*bop->lhs()->getDataType());
+  if (new_lhs_terms.empty()) {
+    IrBuilder::create<LoadStoreOp>(
+        LoadStoreOpType::Set, new_lhs, new_lhs->fusion()->zeroVal());
+  } else {
+    IrBuilder::create<FOp>(
+        BinaryOpType::Add, new_lhs, std::move(new_lhs_terms));
+  }
+
+  auto new_rhs = IrBuilder::newScalar(*bop->rhs()->getDataType());
+  if (new_rhs_terms.empty()) {
+    IrBuilder::create<LoadStoreOp>(
+        LoadStoreOpType::Set, new_rhs, new_lhs->fusion()->zeroVal());
+  } else {
+    IrBuilder::create<FOp>(
+        BinaryOpType::Add, new_rhs, std::move(new_rhs_terms));
+  }
+
+  auto new_val = IrBuilder::newScalar(*value->getDataType());
+  IrBuilder::create<BinaryOp>(op, new_val, new_lhs, new_rhs);
+
+  return new_val;
+}
+
 } // namespace rules
 
 #define RUN_PASS(pass_name)                                     \
@@ -2554,6 +2643,7 @@ Val* simplifyExpr(
     logger->record(debug_print::kFlattenName, simplified);
 
     RUN_PASS(canonicalizeVariables);
+    RUN_PASS(cancelTermsInPredicate);
     RUN_PASS(eliminateTrivialComputation);
     RUN_PASS(eliminateTrivialPredicate);
     RUN_PASS(simplifyDivisibleDivMod);
