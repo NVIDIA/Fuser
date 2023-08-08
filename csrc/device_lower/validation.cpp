@@ -1013,7 +1013,8 @@ void validateSizeMemoryOp(LoadStoreOp* ldst) {
       break;
     }
   }
-  byte_size *= (int)dataTypeSize(*output->getDataType());
+  byte_size *= (int)dataTypeSize(
+      *output->getDataType(), GpuLower::current()->indexType());
   switch (ldst->opType()) {
     case LoadStoreOpType::CpAsyncCg:
       TORCH_CHECK(byte_size == 16, "Not supported byte size for cp.async.cg");
