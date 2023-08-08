@@ -570,8 +570,9 @@ std::pair<at::Tensor, at::Tensor> splitkLikeBatchedMatmulAtInput(
 // Labels to describe tensor position in matmul:
 // A, B - input
 // C - input if beta is provided, shape must be the same as output (D)
+// Bias - input vector, shape is equal to D rows
 // D - output
-enum class TensorMatmulPos { A, B, C, D };
+enum class TensorMatmulPos { A, B, C, D, Bias };
 
 // Utility to generate buffers based on given problem, layout and tensor
 // position in matmul
@@ -605,4 +606,10 @@ void validateSegmentation(
     FusionKernelRuntime* runtime,
     const std::vector<ScheduleHeuristic>& expected_heuristics);
 
+// Utility to generate tensor with bias applied on the input tensor
+TensorView* biasEpilogue(TensorView* tensor, TensorView* bias);
+
+// Utility to generate tensor with bias applied on the input tensor,
+// to be used to caldulate reference data
+at::Tensor atBiasEpilogue(const at::Tensor& tensor, const at::Tensor& bias);
 } // namespace nvfuser
