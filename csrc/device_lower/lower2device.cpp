@@ -270,21 +270,15 @@ void GpuLower::lower(Fusion* fusion) {
   } lower_guard(this);
 
   // Use int64 by default as the kernel index type
-  auto kernel_index_type = cparams_.index_type.has_value()
-      ? cparams_.index_type.value()
-      : PrimDataType::Int;
+  if (!cparams_.index_type.has_value()) {
+    cparams_.index_type = PrimDataType::Int;
+  }
 
   // Copy fusion into a new kernel for processing
-  kernel_ = std::make_unique<kir::Kernel>(fusion, kernel_index_type);
+  kernel_ = std::make_unique<kir::Kernel>(fusion, indexType());
   // Alias the fusion kernel caries around as a view of itself.
   fusion_ = kernel_.get();
 
-  // Convert tensor views of DataType::Index type to either Int or Int32
-  for (auto tv : ir_utils::allTvs(fusion_)) {
-    if (tv->dtype() == DataType::Index) {
-      tv->resolveIndexDtype();
-    }
-  }
   segmenterHintCleanup(fusion_);
   FusionGuard fg(fusion_);
 

@@ -1321,7 +1321,7 @@ class TestNvFuserFrontend(TestCase):
             s1 = fd.define_scalar()
             s2 = fd.ops.add(s0, s1)
             c0 = fd.define_scalar(1.0, DataType.Float)
-            t3 = fd.ops.full(size=[2, 2], arg=c0, dtype=DataType.Float)
+            t3 = fd.ops.full(shape=[2, 2], fill_value=c0, dtype=DataType.Float)
             t4 = fd.ops.mul(t3, s2)
             fd.add_output(t4)
 
@@ -2089,7 +2089,7 @@ class TestNvFuserFrontend(TestCase):
             s1 = fd.define_scalar()
             s2 = fd.ops.add(s0, s1)
             c0 = fd.define_scalar(1.0, DataType.Float)
-            t3 = fd.ops.full(size=[2, 2], arg=c0, dtype=DataType.Float)
+            t3 = fd.ops.full(shape=[2, 2], fill_value=c0, dtype=DataType.Float)
             t4 = fd.ops.mul(t3, s2)
             fd.add_output(t4)
 

@@ -27,6 +27,9 @@ namespace nvfuser {
 // Insertion of casting op to dtype, returns new resulting val
 TORCH_CUDA_CU_API Val* castOp(DataType dtype, Val* v1);
 TORCH_CUDA_CU_API TensorView* castOp(DataType dtype, TensorView* v1);
+// If v1 is not dtype, insert a cast op, otherwise return v1
+TORCH_CUDA_CU_API Val* maybeCastOp(DataType dtype, Val* v1);
+TORCH_CUDA_CU_API TensorView* maybeCastOp(DataType dtype, TensorView* v1);
 
 TORCH_CUDA_CU_API Val* bitCastOp(DataType dtype, Val* v1);
 TORCH_CUDA_CU_API TensorView* bitCastOp(DataType dtype, TensorView* v1);

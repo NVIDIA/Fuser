@@ -477,14 +477,15 @@ void NaiveValueMachine::runUnaryOp(int index) {
       dest = -src;
       break;
     case UnaryOpType::Cast:
-      if (data_type_[index] == DataType::Double) {
+      if (isFloatingPointType(data_type_[index])) {
         dest = PolymorphicValue((double)src);
-      } else if (data_type_[index] == DataType::Int) {
+      } else if (isIntegralType(data_type_[index])) {
         dest = PolymorphicValue((int64_t)src);
       } else if (data_type_[index] == DataType::Bool) {
         dest = PolymorphicValue((bool)src);
       } else {
-        TORCH_INTERNAL_ASSERT(false, "dtype not supported in evaluator");
+        TORCH_INTERNAL_ASSERT(
+            false, "dtype not supported in evaluator: ", data_type_[index]);
       }
       break;
     case UnaryOpType::Abs:
