@@ -14,7 +14,8 @@ namespace nvfuser::serde {
 
 namespace {
 
-nvfuser::PolymorphicValue makeCpuScalarTensor(const serde::ScalarCpu* scalar_cpu) {
+nvfuser::PolymorphicValue makeCpuScalarTensor(
+    const serde::ScalarCpu* scalar_cpu) {
   TORCH_INTERNAL_ASSERT(scalar_cpu != nullptr);
   auto scalar = parsePolymorphicValue(scalar_cpu->scalar_value());
   return nvfuser::PolymorphicValue_functions::toTensor(scalar, at::kCPU);
@@ -156,7 +157,8 @@ flatbuffers::Offset<serde::PolymorphicValue> serializePolymorphicValue(
     }
   } else {
     auto data = serializeScalar(builder, *v, getDataType(*v));
-    return CreatePolymorphicValue(builder, PolymorphicValueData_Scalar, data.Union());
+    return CreatePolymorphicValue(
+        builder, PolymorphicValueData_Scalar, data.Union());
   }
 }
 
