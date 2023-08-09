@@ -124,7 +124,10 @@ std::string FusionExecutor::getStructuredCodeFromExternalFiles(
       debug() << "--------> Compiling external CUDA code: " << single_code_path
               << std::endl;
       std::ifstream cuda_src(single_code_path);
-      if (cuda_src.is_open()) {
+      if (!cuda_src.is_open()) {
+        debug() << "Failed to open external source file: " << single_code_path << std::endl;
+        return "";
+      }
         std::stringstream buffer;
         buffer << cuda_src.rdbuf();
         return buffer.str();
