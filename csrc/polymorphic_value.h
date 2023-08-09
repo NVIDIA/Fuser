@@ -294,7 +294,7 @@ inline PolymorphicValue erf(const PolymorphicValue& a) {
 }
 
 // Convert scalars, vector of scalars, vector of vector of scalars, etc., into
-// an at::Tensor
+// an at::Tensor. device argument allows for the creation of CPU Scalars.
 inline PolymorphicValue toTensor(
     const PolymorphicValue& x,
     c10::DeviceType device = at::kCUDA) {

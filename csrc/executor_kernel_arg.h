@@ -49,12 +49,6 @@ class TORCH_CUDA_CU_API KernelArgumentHolder {
       const std::vector<int64_t>& strides,
       at::ScalarType dtype);
 
-  // Push a tensor proxy to the arguments
-  void pushTensorProxy(
-      c10::IntArrayRef sizes,
-      c10::IntArrayRef strides,
-      at::ScalarType dtype);
-
   void push(const c10::ArrayRef<c10::IValue>& args);
 
   void push(const std::vector<at::Tensor>& tensors);

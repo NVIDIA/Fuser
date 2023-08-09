@@ -17,7 +17,7 @@ namespace {
 nvfuser::PolymorphicValue makeCpuScalarTensor(
     const serde::ScalarCpu* scalar_cpu) {
   TORCH_INTERNAL_ASSERT(scalar_cpu != nullptr);
-  auto scalar = parsePolymorphicValue(scalar_cpu->scalar_value());
+  auto scalar = deserializePolymorphicValue(scalar_cpu->scalar_value());
   return nvfuser::PolymorphicValue_functions::toTensor(scalar, at::kCPU);
 }
 
@@ -44,7 +44,7 @@ nvfuser::PolymorphicValue getMetaTensorArg(const serde::TensorArg* tensor) {
 
 } // namespace
 
-nvfuser::PolymorphicValue parsePolymorphicValue(const serde::Scalar* c) {
+nvfuser::PolymorphicValue deserializePolymorphicValue(const serde::Scalar* c) {
   if (!c->has_value()) {
     return {};
   } else if (c->value_type() == serde::DataType_Double) {
@@ -63,7 +63,7 @@ nvfuser::PolymorphicValue parsePolymorphicValue(const serde::Scalar* c) {
 
 void PolymorphicValueFactory::registerAllParsers() {
   auto deserializeScalar = [](const serde::PolymorphicValue* buffer) {
-    return parsePolymorphicValue(buffer->data_as_Scalar());
+    return deserializePolymorphicValue(buffer->data_as_Scalar());
   };
   registerParser(serde::PolymorphicValueData_Scalar, deserializeScalar);
 

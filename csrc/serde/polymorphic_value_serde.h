@@ -26,7 +26,7 @@ class PolymorphicValueFactory
   void registerAllParsers();
 };
 
-nvfuser::PolymorphicValue parsePolymorphicValue(const serde::Scalar* c);
+nvfuser::PolymorphicValue deserializePolymorphicValue(const serde::Scalar* c);
 
 flatbuffers::Offset<serde::PolymorphicValue> serializePolymorphicValue(
     flatbuffers::FlatBufferBuilder& builder,
