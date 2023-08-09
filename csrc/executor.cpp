@@ -82,11 +82,11 @@ static const std::string& includeStdComplex() {
 }
 
 // When executing nvFuser with: NVFUSER_EXTERNAL_SRC=file1.cu,file2.cu
-// The function will get the structured code from the provided files. These
-// files should be delineated with commas and the order of the files is the
-// same as the order of the fusion_ids. If provided number of files is less
-// than the number of fusion segments, the code will still use the provided
-// files in order and will print a warning message.
+// This function retrieves structured code from the specified files.
+// The files should be comma-separated, and their order corresponds to the
+// fusion_id order. If the provided number of files is fewer than the fusion
+// segments, the function will resort to the available files in sequence
+// and issue a warning.
 std::string getStructuredCodeFromExternalFiles(const int64_t fusion_id) {
   auto external_code_path = getNvFuserEnv("EXTERNAL_SRC");
   if (!external_code_path) {
@@ -96,13 +96,13 @@ std::string getStructuredCodeFromExternalFiles(const int64_t fusion_id) {
   if (all_external_code_paths.empty() || fusion_id < 1) {
     return "";
   }
-  auto getExternalCodeFile = [](const std::string& input,
-                                int64_t index) -> std::string {
+  auto getExternalCodeFile =
+      [fusion_id](const std::string& input) -> std::string {
     std::stringstream ss(input);
     std::string token;
     int64_t count = 0;
     while (std::getline(ss, token, ',')) {
-      if (++count == index) {
+      if (++count == fusion_id) {
         return token;
       }
     }
@@ -113,8 +113,7 @@ std::string getStructuredCodeFromExternalFiles(const int64_t fusion_id) {
     return "";
   };
 
-  std::string single_code_path =
-      getExternalCodeFile(all_external_code_paths, fusion_id);
+  std::string single_code_path = getExternalCodeFile(all_external_code_paths);
   if (single_code_path.empty()) {
     return "";
   }
