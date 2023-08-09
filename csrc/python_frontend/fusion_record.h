@@ -2673,7 +2673,18 @@ struct FullOpRecord : RecordFunctor {
   }
 
   void print(std::ostream& os, bool close_function = true) const override {
-    RecordFunctor::print(os, false);
+    bool first_output = true;
+    for (auto& output : outputs_) {
+      if (first_output) {
+        first_output = false;
+      } else {
+        os << ", ";
+      }
+      os << output;
+    }
+    os << " = "
+       << "fd." << name_ << "(";
+    os << "fill_value=" << args_.at(0);
     os << ", shape=[";
     bool first_arg = true;
     for (auto p : shape_) {

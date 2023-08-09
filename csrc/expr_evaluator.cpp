@@ -43,7 +43,8 @@ void validateValWithConcreteValue(
         t.dim());
     auto actual_dtype = aten_to_data_type(t.scalar_type());
     TORCH_CHECK(
-        value->dtype() == actual_dtype,
+        (value->dtype() == DataType::Index && isIntegralType(actual_dtype)) ||
+            (value->dtype() == actual_dtype),
         "Expected ",
         tv->toString(),
         " to be bound to a tensor of dtype ",
