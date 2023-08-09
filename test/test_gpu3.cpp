@@ -9764,11 +9764,11 @@ TEST_F(NVFuserTest, IndexDataTypePromotion) {
 }
 
 TEST_F(NVFuserTest, FusionCrossGridInnerReductionSplitGridIteration_CUDA) {
-  // reduction size is set to 64K to triger cross grid reduction.
-  // iteration size is set to a value larger than y_grid_limit to test if iter
-  // domain is split grid.
+  // reduction size is set to 65538 to triger cross grid reduction and iter
+  // unroll. iteration size is set to a value larger than y_grid_limit to test
+  // if iter domain is split grid.
   DataType dtype = DataType::Float;
-  int64_t reduction_size = 65536;
+  int64_t reduction_size = 65538;
   int64_t iteration_size = scheduler_utils::y_grid_limit + 8;
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
@@ -9786,12 +9786,8 @@ TEST_F(NVFuserTest, FusionCrossGridInnerReductionSplitGridIteration_CUDA) {
 
   auto reduction_params = getReductionHeuristics(&fusion, {aten_input});
   TORCH_CHECK(reduction_params, "Reduction schedule was not generated!");
-  TORCH_CHECK(
-      reduction_params->split_grid_dim_inner_reduction,
-      "Expect split_grid_dim_inner_reduction to be true!");
-  TORCH_CHECK(
-      reduction_params->split_grid_dim_iter_dom_outer,
-      "Expect split_grid_dim_iter_dom_outer to be true!");
+  ASSERT_TRUE(reduction_params->split_grid_dim_inner_reduction);
+  ASSERT_TRUE(reduction_params->split_grid_dim_iter_dom_outer);
   scheduleReduction(&fusion, *reduction_params);
 
   auto lparams = reduction_params->lparams;
@@ -9799,7 +9795,7 @@ TEST_F(NVFuserTest, FusionCrossGridInnerReductionSplitGridIteration_CUDA) {
   fe.compileFusion(&fusion, {aten_input}, lparams);
   auto cg_outputs = fe.runFusion({aten_input}, lparams);
 
-  auto aten_outputs = aten_input.sum({1});
+  auto aten_outputs = aten_input.to(at::kDouble).sum({1});
   testValidate(
       &fusion,
       cg_outputs,
