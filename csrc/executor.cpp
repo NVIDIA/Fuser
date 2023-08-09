@@ -354,8 +354,7 @@ void FusionExecutor::compileFusion(
   // If the loaded external source code is empty, revert to the default codegen.
   // The external_structured_code is moved to structured_code and explicitly
   // cleared to avoid use-after-move scenarios.
-  auto structured_code =
-      getStructuredCodeFromExternalFiles(fusion_id_);
+  auto structured_code = getStructuredCodeFromExternalFiles(fusion_id_);
   if (structured_code.empty()) {
     structured_code = getStructuredCode();
   }
