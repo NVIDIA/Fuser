@@ -455,7 +455,6 @@ NVFUSER_DEFINE_UNARY_OP(ceil, Ceil)
 NVFUSER_DEFINE_UNARY_OP(floor, Floor)
 NVFUSER_DEFINE_UNARY_OP(frac, Frac)
 NVFUSER_DEFINE_UNARY_OP(neg, Neg)
-NVFUSER_DEFINE_UNARY_OP(notOp, Not)
 NVFUSER_DEFINE_UNARY_OP(relu, Relu)
 NVFUSER_DEFINE_UNARY_OP(round, Round)
 NVFUSER_DEFINE_UNARY_OP(silu, Silu)
@@ -463,20 +462,42 @@ NVFUSER_DEFINE_UNARY_OP(trunc, Trunc)
 NVFUSER_DEFINE_UNARY_OP(print, Print)
 #undef NVFUSER_DEFINE_UNARY_OP
 
+Val* logical_not(Val* v) {
+  if (!isBooleanType(v->dtype())) {
+    v = castOp(DataType::Bool, v);
+  }
+  return unaryOp(UnaryOpType::LogicalNot, v);
+}
+
+TensorView* logical_not(TensorView* tv) {
+  if (!isBooleanType(tv->dtype())) {
+    tv = castOp(DataType::Bool, tv);
+  }
+  return unaryOp(UnaryOpType::LogicalNot, tv);
+}
+
 Val* bitwise_not(Val* v) {
-  TORCH_CHECK(
-      isIntegralType(v->dtype()) || v->dtype() == DataType::Bool,
-      "input must have integral or boolean type, but got ",
-      v->dtype());
-  return unaryOp(UnaryOpType::Not, v);
+  if (!isIntegralType(v->dtype())) {
+    TORCH_CHECK(
+        isBooleanType(v->dtype()),
+        "input must have integral or boolean type, but got ",
+        v->dtype());
+    v = castOp(DataType::Int, v);
+    return logical_not(v);
+  }
+  return unaryOp(UnaryOpType::BitwiseNot, v);
 }
 
 TensorView* bitwise_not(TensorView* tv) {
-  TORCH_CHECK(
-      isIntegralType(tv->dtype()) || tv->dtype() == DataType::Bool,
-      "input must have integral or boolean type, but got ",
-      tv->dtype());
-  return unaryOp(UnaryOpType::Not, tv);
+  if (!isIntegralType(tv->dtype())) {
+    TORCH_CHECK(
+        isBooleanType(tv->dtype()),
+        "input must have integral or boolean type, but got ",
+        tv->dtype());
+    tv = castOp(DataType::Int, tv);
+    return logical_not(tv);
+  }
+  return unaryOp(UnaryOpType::BitwiseNot, tv);
 }
 
 // The output of abs(complex_tensor) are real numbers
@@ -861,55 +882,85 @@ NVFUSER_DEFINE_BINARY_CAST_OP(remainder, Remainder)
 NVFUSER_DEFINE_BINARY_CAST_OP(sub, Sub)
 #undef NVFUSER_DEFINE_BINARY_CAST_OP
 
-#define NVFUSER_DEFINE_BITWISE_OP(op_name, op_type)                         \
-  Val* op_name(Val* v1, Val* v2) {                                          \
-    TORCH_CHECK(                                                            \
-        (isIntegralType(v1->dtype()) || v1->dtype() == DataType::Bool) &&   \
-            (isIntegralType(v2->dtype()) || v2->dtype() == DataType::Bool), \
-        "input must have integral or boolean type, but got ",               \
-        v1->dtype(),                                                        \
-        " and ",                                                            \
-        v2->dtype());                                                       \
-    return binaryOp(                                                        \
-        BinaryOpType::op_type, v1, v2, TypePromotion::default_op_config);   \
-  }                                                                         \
-  TensorView* op_name(TensorView* v1, Val* v2) {                            \
-    TORCH_CHECK(                                                            \
-        (isIntegralType(v1->dtype()) || v1->dtype() == DataType::Bool) &&   \
-            (isIntegralType(v2->dtype()) || v2->dtype() == DataType::Bool), \
-        "input must have integral or boolean type, but got ",               \
-        v1->dtype(),                                                        \
-        " and ",                                                            \
-        v2->dtype());                                                       \
-    return binaryOp(                                                        \
-        BinaryOpType::op_type, v1, v2, TypePromotion::default_op_config);   \
-  }                                                                         \
-  TensorView* op_name(Val* v1, TensorView* v2) {                            \
-    TORCH_CHECK(                                                            \
-        (isIntegralType(v1->dtype()) || v1->dtype() == DataType::Bool) &&   \
-            (isIntegralType(v2->dtype()) || v2->dtype() == DataType::Bool), \
-        "input must have integral or boolean type, but got ",               \
-        v1->dtype(),                                                        \
-        " and ",                                                            \
-        v2->dtype());                                                       \
-    return binaryOp(                                                        \
-        BinaryOpType::op_type, v1, v2, TypePromotion::default_op_config);   \
-  }                                                                         \
-  TensorView* op_name(TensorView* v1, TensorView* v2) {                     \
-    TORCH_CHECK(                                                            \
-        (isIntegralType(v1->dtype()) || v1->dtype() == DataType::Bool) &&   \
-            (isIntegralType(v2->dtype()) || v2->dtype() == DataType::Bool), \
-        "input must have integral or boolean type, but got ",               \
-        v1->dtype(),                                                        \
-        " and ",                                                            \
-        v2->dtype());                                                       \
-    return binaryOp(                                                        \
-        BinaryOpType::op_type, v1, v2, TypePromotion::default_op_config);   \
+#define NVFUSER_DEFINE_LOGICAL_OP(op_name, op_type)                       \
+  Val* op_name(Val* v1, Val* v2) {                                        \
+    if (!isBooleanType(v1->dtype())) {                                    \
+      v1 = castOp(DataType::Bool, v1);                                    \
+    }                                                                     \
+    if (!isBooleanType(v2->dtype())) {                                    \
+      v2 = castOp(DataType::Bool, v2);                                    \
+    }                                                                     \
+    return binaryOp(                                                      \
+        BinaryOpType::op_type, v1, v2, TypePromotion::default_op_config); \
+  }                                                                       \
+  TensorView* op_name(TensorView* v1, Val* v2) {                          \
+    if (!isBooleanType(v1->dtype())) {                                    \
+      v1 = castOp(DataType::Bool, v1);                                    \
+    }                                                                     \
+    if (!isBooleanType(v2->dtype())) {                                    \
+      v2 = castOp(DataType::Bool, v2);                                    \
+    }                                                                     \
+    return binaryOp(                                                      \
+        BinaryOpType::op_type, v1, v2, TypePromotion::default_op_config); \
+  }                                                                       \
+  TensorView* op_name(Val* v1, TensorView* v2) {                          \
+    if (!isBooleanType(v1->dtype())) {                                    \
+      v1 = castOp(DataType::Bool, v1);                                    \
+    }                                                                     \
+    if (!isBooleanType(v2->dtype())) {                                    \
+      v2 = castOp(DataType::Bool, v2);                                    \
+    }                                                                     \
+    return binaryOp(                                                      \
+        BinaryOpType::op_type, v1, v2, TypePromotion::default_op_config); \
+  }                                                                       \
+  TensorView* op_name(TensorView* v1, TensorView* v2) {                   \
+    if (!isBooleanType(v1->dtype())) {                                    \
+      v1 = castOp(DataType::Bool, v1);                                    \
+    }                                                                     \
+    if (!isBooleanType(v2->dtype())) {                                    \
+      v2 = castOp(DataType::Bool, v2);                                    \
+    }                                                                     \
+    return binaryOp(                                                      \
+        BinaryOpType::op_type, v1, v2, TypePromotion::default_op_config); \
   }
 
-NVFUSER_DEFINE_BITWISE_OP(bitwise_and, And)
-NVFUSER_DEFINE_BITWISE_OP(bitwise_or, Or)
-NVFUSER_DEFINE_BITWISE_OP(bitwise_xor, Xor)
+NVFUSER_DEFINE_LOGICAL_OP(logical_and, LogicalAnd)
+NVFUSER_DEFINE_LOGICAL_OP(logical_or, LogicalOr)
+#undef NVFUSER_DEFINE_LOGICAL_OP
+
+#define NVFUSER_DEFINE_BITWISE_OP(op_name, op_type, bool_alternative)     \
+  Val* op_name(Val* v1, Val* v2) {                                        \
+    if (isBooleanType(v1->dtype()) && isBooleanType(v2->dtype())) {       \
+      return bool_alternative(v1, v2);                                    \
+    }                                                                     \
+    return binaryOp(                                                      \
+        BinaryOpType::op_type, v1, v2, TypePromotion::default_op_config); \
+  }                                                                       \
+  TensorView* op_name(TensorView* v1, Val* v2) {                          \
+    if (isBooleanType(v1->dtype()) && isBooleanType(v2->dtype())) {       \
+      return bool_alternative(v1, v2);                                    \
+    }                                                                     \
+    return binaryOp(                                                      \
+        BinaryOpType::op_type, v1, v2, TypePromotion::default_op_config); \
+  }                                                                       \
+  TensorView* op_name(Val* v1, TensorView* v2) {                          \
+    if (isBooleanType(v1->dtype()) && isBooleanType(v2->dtype())) {       \
+      return bool_alternative(v1, v2);                                    \
+    }                                                                     \
+    return binaryOp(                                                      \
+        BinaryOpType::op_type, v1, v2, TypePromotion::default_op_config); \
+  }                                                                       \
+  TensorView* op_name(TensorView* v1, TensorView* v2) {                   \
+    if (isBooleanType(v1->dtype()) && isBooleanType(v2->dtype())) {       \
+      return bool_alternative(v1, v2);                                    \
+    }                                                                     \
+    return binaryOp(                                                      \
+        BinaryOpType::op_type, v1, v2, TypePromotion::default_op_config); \
+  }
+
+NVFUSER_DEFINE_BITWISE_OP(bitwise_and, BitwiseAnd, logical_and)
+NVFUSER_DEFINE_BITWISE_OP(bitwise_or, BitwiseOr, logical_or)
+NVFUSER_DEFINE_BITWISE_OP(bitwise_xor, BitwiseXor, ne)
 #undef NVFUSER_DEFINE_BITWISE_OP
 
 #define NVFUSER_DEFINE_INT_ONLY_OP(op_name, op_type)                      \
