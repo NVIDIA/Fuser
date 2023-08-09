@@ -9411,8 +9411,8 @@ TEST_F(NVFuserTest, FusionLayerNormSharedMemoryBuffer_CUDA) {
         "");
   };
   // loop from 16K to 128K hidden size
-  for (auto dtype : {DataType::Float}) {
-    for (int i = 128; i <= 128; i += 8) {
+  for (auto dtype : {DataType::Float, DataType::Half}) {
+    for (int i = 8; i <= 128; i += 8) {
       test(i * 1024, dtype);
     }
   }

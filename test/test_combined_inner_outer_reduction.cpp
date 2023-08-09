@@ -117,10 +117,10 @@ TEST_F(NVFuserTest, CombinedSchedulerLayerNormBackward_CUDA) {
     auto maybe_fp16_options = at::TensorOptions()
                                   .dtype(data_type_to_aten(dtype))
                                   .device(at::kCUDA, 0);
-    at::Tensor aten_grad_out = at::ones(input_shape, maybe_fp16_options);
-    at::Tensor aten_input = at::ones(input_shape, maybe_fp16_options);
+    at::Tensor aten_grad_out = at::randn(input_shape, maybe_fp16_options);
+    at::Tensor aten_input = at::randn(input_shape, maybe_fp16_options);
     at::Tensor aten_weight = at::randn(norm_shape, maybe_fp16_options);
-    at::Tensor aten_bias = at::ones(norm_shape, maybe_fp16_options);
+    at::Tensor aten_bias = at::randn(norm_shape, maybe_fp16_options);
     auto at_weight = c10::optional<at::Tensor>(aten_weight);
     auto at_bias = c10::optional<at::Tensor>(aten_bias);
 
@@ -151,19 +151,13 @@ TEST_F(NVFuserTest, CombinedSchedulerLayerNormBackward_CUDA) {
         c10::optional<at::Tensor>(aten_bias),
         {true, true, true});
 
-    TORCH_CHECK(cg_outputs[1].allclose(std::get<1>(aten_gradients), 0.1, 0.1));
-    TORCH_CHECK(cg_outputs[2].allclose(std::get<2>(aten_gradients), 0.1, 0.1));
-    TORCH_CHECK(cg_outputs[0].allclose(std::get<0>(aten_gradients), 0.1, 0.1));
-
-
     testValidate(
         &fusion,
         cg_outputs,
         aten_inputs,
         {std::get<0>(aten_gradients),
          std::get<1>(aten_gradients),
-         std::get<2>(aten_gradients)
-         },
+         std::get<2>(aten_gradients)},
         __LINE__,
         __FILE__);
 
@@ -171,12 +165,12 @@ TEST_F(NVFuserTest, CombinedSchedulerLayerNormBackward_CUDA) {
     for (auto s : norm_shape) {
       hidden_size *= s;
     }
-    // TORCH_CHECK(
-    //     !fec.getMostRecentKernelRuntime()->isSegmented(),
-    //     "Fusion shouldn't be segmented! hidden size= ",
-    //     hidden_size,
-    //     ", dtype= ",
-    //     dtype == DataType::Float ? "Float." : "Half.");
+    TORCH_CHECK(
+        !fec.getMostRecentKernelRuntime()->isSegmented(),
+        "Fusion shouldn't be segmented! hidden size= ",
+        hidden_size,
+        ", dtype= ",
+        dtype == DataType::Float ? "Float." : "Half.");
 
     if (isBenchmark) {
       FusionKernelRuntime* fkr = fec.getMostRecentKernelRuntime();
@@ -245,10 +239,10 @@ TEST_F(NVFuserTest, CombinedSchedulerLayerNormBackward_CUDA) {
     }
   };
 
-  std::vector<DataType> data_types = {DataType::Half};
+  std::vector<DataType> data_types = {DataType::Half, DataType::Float};
   std::vector<std::vector<int64_t>> batch_sizes = {{216}};
   std::vector<std::vector<int64_t>> hidden_sizes = {
-      {27*1024}};
+      {3}, {32}, {96}, {576}, {768}, {1024}, {1280}, {1600}, {1984}, {1987}};
   bool isBenchmark = false;
   bool onlyTestFirstCase = false;
   int verbose = 0;
