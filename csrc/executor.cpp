@@ -354,13 +354,11 @@ void FusionExecutor::compileFusion(
   // If the loaded external source code is empty, revert to the default codegen.
   // The external_structured_code is moved to structured_code and explicitly
   // cleared to avoid use-after-move scenarios.
-  std::string external_structured_code =
+  auto structured_code =
       getStructuredCodeFromExternalFiles(fusion_id_);
-  const auto structured_code = external_structured_code.empty()
-      ? getStructuredCode()
-      : std::move(external_structured_code);
-
-  external_structured_code.clear();
+  if (structured_code.empty()) {
+    structured_code = getStructuredCode();
+  }
 
   const auto& kernel_summary = kernel->summary();
 
