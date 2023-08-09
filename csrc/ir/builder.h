@@ -62,6 +62,7 @@ class TORCH_CUDA_CU_API IrBuilder {
   static Val* bitwiseNotExpr(Val* val);
   static Val* absExpr(Val* val);
   static Val* setExpr(Val* val);
+  static Val* maybeCastExpr(DataType dtype, Val* val);
   static NamedScalar* setExprNamedScalar(const std::string& name, Val* val);
   static NamedScalar* addressExprNamedScalar(const std::string& name, Val* val);
 
@@ -151,12 +152,18 @@ class TORCH_CUDA_CU_API SimplifyingIrBuilder : public IrBuilder {
   static Val* logicalNotExpr(Val* val);
   static Val* bitwiseNotExpr(Val* val);
 
-  static Val* addExpr(Val* lhs, PolymorphicValue rhs);
+  static Val* addExpr(
+      Val* lhs,
+      PolymorphicValue rhs,
+      DataType rhs_dtype = DataType::Null);
   static Val* addExpr(Val* lhs, Val* rhs);
 
   static Val* subExpr(Val* lhs, Val* rhs);
 
-  static Val* mulExpr(Val* lhs, PolymorphicValue rhs);
+  static Val* mulExpr(
+      Val* lhs,
+      PolymorphicValue rhs,
+      DataType rhs_dtype = DataType::Null);
   static Val* mulExpr(Val* lhs, Val* rhs);
   static Val* divExpr(Val* lhs, Val* rhs);
 
