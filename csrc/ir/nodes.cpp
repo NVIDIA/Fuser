@@ -2320,6 +2320,12 @@ IterDomain::IterDomain(
       "Cannot create an iter domain with a start that is not an nvfuser_index_t but received ",
       start->dtype(),
       " .");
+
+  TORCH_INTERNAL_ASSERT(
+      stop_offset_->dtype() == DataType::Index,
+      "Cannot create an iter domain with a stop_offset_ that is not an nvfuser_index_t but received ",
+      stop_offset_->dtype(),
+      " .");
 }
 
 IterDomain::IterDomain(IrBuilderPasskey passkey, const IterDomainBuilder& args)
