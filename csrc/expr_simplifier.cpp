@@ -2590,22 +2590,18 @@ Val* cancelTermsInPredicate(Val* value, const Context& context) {
         return common_rhs_terms.count(val) == 0;
       });
 
-  auto new_lhs = IrBuilder::newScalar(*bop->lhs()->getDataType());
+  Val* new_lhs = nullptr;
   if (new_lhs_terms.empty()) {
-    IrBuilder::create<LoadStoreOp>(
-        LoadStoreOpType::Set, new_lhs, new_lhs->fusion()->zeroVal());
+    new_lhs = value->fusion()->zeroVal(*bop->lhs()->getDataType());
   } else {
-    IrBuilder::create<FOp>(
-        BinaryOpType::Add, new_lhs, std::move(new_lhs_terms));
+    new_lhs = maybeFlattenedOpOf(BinaryOpType::Add, std::move(new_lhs_terms));
   }
 
-  auto new_rhs = IrBuilder::newScalar(*bop->rhs()->getDataType());
+  Val* new_rhs = nullptr;
   if (new_rhs_terms.empty()) {
-    IrBuilder::create<LoadStoreOp>(
-        LoadStoreOpType::Set, new_rhs, new_lhs->fusion()->zeroVal());
+    new_rhs = value->fusion()->zeroVal(*bop->lhs()->getDataType());
   } else {
-    IrBuilder::create<FOp>(
-        BinaryOpType::Add, new_rhs, std::move(new_rhs_terms));
+    new_rhs = maybeFlattenedOpOf(BinaryOpType::Add, std::move(new_rhs_terms));
   }
 
   auto new_val = IrBuilder::newScalar(*value->getDataType());
