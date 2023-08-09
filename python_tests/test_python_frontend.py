@@ -2429,7 +2429,7 @@ class TestNvFuserFrontend(TestCase):
         with FusionDefinition() as fd:
             T0 = fd.from_pytorch(inputs[0])
             S1 = fd.define_scalar()
-            T1 = fd.ops.mul(T0, S1)
+            T1 = fd.ops.div(T0, S1)
             fd.add_output(T1)
 
         out1 = fd.execute(inputs)
