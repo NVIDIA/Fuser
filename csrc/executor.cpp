@@ -94,7 +94,9 @@ std::unique_ptr<PrecomputedValues>& FusionExecutor::
 
 std::string FusionExecutor::getStructuredCodeFromExternalFiles(
     const std::string& all_external_code_paths) const {
-  // Lambda to get the external code file for a specific fusion segment
+  if (all_external_code_paths.empty() || fusion_id == 0) {
+     return "";
+  }
   auto getExternalCodeFile = [](const std::string& input,
                                 int64_t index) -> std::string {
     std::stringstream ss(input);
