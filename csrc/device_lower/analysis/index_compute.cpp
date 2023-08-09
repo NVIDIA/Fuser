@@ -306,24 +306,9 @@ bool predicateAtEnd(kir::ForLoop* loop) {
 // Check if this loop is actually unswitched, meaning an initial index
 // of the maximum value from a non-size-one range is used.
 bool trackUnswitchedDomain(kir::ForLoop* loop) {
-  auto loop_id = loop->iter_domain();
-
-  // Trip count == 1. Could be extended to any start as long
-  // as the trip count is 1
-  if (loop_id->start()->isZero() && loop_id->stop()->isOne()) {
-    return false;
-  }
-
-  // Thread parallelized. The stop needs to be the same as the loop
-  // extent as the parallel dimension is based on the loop ID
-  // extent. Loop stop may be larger than the extent when the loop is
-  // extended for halo.
-  if (loop_id->isThread() && (loop->stop()->sameAs(loop_id->extent()))) {
-    return false;
-  }
-
-  // Vectorized loops are guaranteed to be visited once per thread
-  if (loop_id->getParallelType() == ParallelType::Vectorize) {
+  // Loop index has only one valid value per thread, which means the
+  // loop is not actually unswitched
+  if (loop->isTrivial()) {
     return false;
   }
 
