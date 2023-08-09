@@ -115,6 +115,16 @@ Val* IrBuilder::setExpr(Val* val) {
   return result;
 }
 
+Val* IrBuilder::maybeCastExpr(DataType dtype, Val* val) {
+  TORCH_CHECK(val != nullptr, "val is a nullptr in castExpr.");
+  if (val->dtype() == dtype) {
+    return val;
+  }
+  auto result = newScalar(dtype);
+  IrBuilder::create<UnaryOp>(UnaryOpType::Cast, result, val);
+  return result;
+}
+
 NamedScalar* IrBuilder::setExprNamedScalar(const std::string& name, Val* val) {
   TORCH_CHECK(val != nullptr, "val is a nullptr in setExprNamedScalar.");
   auto result = IrBuilder::create<NamedScalar>(name, val->dtype());
@@ -261,20 +271,27 @@ Val* SimplifyingIrBuilder::bitwiseNotExpr(Val* val) {
   return IrBuilder::bitwiseNotExpr(val);
 }
 
-Val* SimplifyingIrBuilder::addExpr(Val* lhs, PolymorphicValue rhs) {
-  if (rhs == 0) {
-    return lhs;
-  } else if (lhs == nullptr) {
-    return IrBuilder::IrBuilder::create<Val>(rhs);
+Val* SimplifyingIrBuilder::addExpr(
+    Val* lhs,
+    PolymorphicValue rhs,
+    DataType rhs_dtype) {
+  if (rhs_dtype == DataType::Null) {
+    rhs_dtype = getDataType(rhs);
   }
-  if (lhs->isConst()) {
-    return IrBuilder::IrBuilder::create<Val>(lhs->value() + rhs, lhs->dtype());
+  if (lhs == nullptr) {
+    return IrBuilder::IrBuilder::create<Val>(rhs, rhs_dtype);
+  }
+  auto target_dtype = promoteType(lhs->dtype(), rhs_dtype);
+  if (rhs == 0) {
+    return maybeCastExpr(target_dtype, lhs);
+  } else if (lhs->isConst()) {
+    return IrBuilder::IrBuilder::create<Val>(lhs->value() + rhs, target_dtype);
   } else if (rhs > 0) {
     return IrBuilder::addExpr(
-        lhs, IrBuilder::IrBuilder::create<Val>(rhs, lhs->dtype()));
+        lhs, IrBuilder::IrBuilder::create<Val>(rhs, rhs_dtype));
   } else {
     return IrBuilder::subExpr(
-        lhs, IrBuilder::IrBuilder::create<Val>(-rhs, lhs->dtype()));
+        lhs, IrBuilder::IrBuilder::create<Val>(-rhs, rhs_dtype));
   }
 }
 
@@ -286,7 +303,7 @@ Val* SimplifyingIrBuilder::addExpr(Val* lhs, Val* rhs) {
   } else if (lhs->isConst()) {
     return addExpr(rhs, lhs->value());
   } else if (rhs->isConst()) {
-    return addExpr(lhs, rhs->value());
+    return addExpr(lhs, rhs->value(), rhs->dtype());
   } else {
     return IrBuilder::addExpr(lhs, rhs);
   }
@@ -296,17 +313,25 @@ Val* SimplifyingIrBuilder::subExpr(Val* lhs, Val* rhs) {
   return addExpr(lhs, negExpr(rhs));
 }
 
-Val* SimplifyingIrBuilder::mulExpr(Val* lhs, PolymorphicValue rhs) {
+Val* SimplifyingIrBuilder::mulExpr(
+    Val* lhs,
+    PolymorphicValue rhs,
+    DataType rhs_dtype) {
+  if (rhs_dtype == DataType::Null) {
+    rhs_dtype = getDataType(rhs);
+  }
+  if (lhs == nullptr) {
+    return IrBuilder::create<Val>(rhs, rhs_dtype);
+  }
+  auto target_dtype = promoteType(lhs->dtype(), rhs_dtype);
   if (rhs == 0) {
-    return lhs->container()->zeroVal(lhs->dtype());
+    return lhs->container()->zeroVal(target_dtype);
   } else if (rhs == 1) {
-    return lhs;
-  } else if (lhs == nullptr) {
-    return IrBuilder::create<Val>(rhs);
+    return maybeCastExpr(target_dtype, lhs);
   } else if (lhs->isConst()) {
-    return IrBuilder::create<Val>(lhs->value() * rhs, lhs->dtype());
+    return IrBuilder::create<Val>(lhs->value() * rhs, target_dtype);
   } else {
-    return IrBuilder::mulExpr(lhs, IrBuilder::create<Val>(rhs, lhs->dtype()));
+    return IrBuilder::mulExpr(lhs, IrBuilder::create<Val>(rhs, rhs_dtype));
   }
 }
 
