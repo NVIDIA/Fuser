@@ -153,12 +153,12 @@ IndexingParameters getLinearIndexParameters(
                 loop_id, IdMappingMode::EXACT);
 
         auto stage_depth =
-            GpuLower::current()->doubleBufferInfo().getStageDepthFor(
+            (int64_t)GpuLower::current()->doubleBufferInfo().getStageDepthFor(
                 loop->iter_domain());
         index_parameters.initial_concrete_id_index[concrete_loop_id] =
             SimplifyingIrBuilder::addExpr(
                 index_parameters.initial_concrete_id_index[concrete_loop_id],
-                SimplifyingIrBuilder::create<Int>(stage_depth - 1));
+                SimplifyingIrBuilder::create<Val>(stage_depth - 1L));
       }
     }
   }
@@ -437,7 +437,7 @@ IndexingParameters getPredicateInitialIndexParameters(
       // unswitch. In that case, it is not necessary to move ahead the
       // index for double buffering.
       auto stage_depth =
-          GpuLower::current()->doubleBufferInfo().getStageDepthFor(
+          (int64_t)GpuLower::current()->doubleBufferInfo().getStageDepthFor(
               db_loop->iter_domain());
       bool is_same =
           (rotated_loops.count(db_loop)
@@ -446,7 +446,7 @@ IndexingParameters getPredicateInitialIndexParameters(
                : cur_index == db_loop->indexOrStartIfTrivial());
       if (is_same) {
         loop_to_ind_map[db_loop] = SimplifyingIrBuilder::addExpr(
-            cur_index, SimplifyingIrBuilder::create<Int>(stage_depth - 1));
+            cur_index, SimplifyingIrBuilder::create<Val>(stage_depth - 1L));
       }
     }
   }
@@ -1347,14 +1347,14 @@ class LoopIndexingPreferredPathCompute : public IterVisitor {
     }
 
     for (auto expr : loop_indexing.getForwardExprList()) {
-      compute.handle(expr);
+      compute.dispatch(expr);
     }
 
     return compute.preferred_path_;
   }
 
  private:
-  void handle(Expr* e) override {
+  void dispatch(Expr* e) override {
     // If an input ID is marked, propagate the marking to outputs of the
     // expression
     auto all_iter_inputs = ir_utils::filterByType<IterDomain>(e->inputs());

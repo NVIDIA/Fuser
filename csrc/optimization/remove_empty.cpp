@@ -28,7 +28,8 @@ std::vector<int64_t> emptyAxes(const std::vector<IterDomain*>& domain) {
   std::vector<int64_t> empty_axes;
   for (auto ax : c10::irange(domain.size())) {
     auto id = domain.at(ax);
-    if (id->extent()->isConst() && id->extent()->evaluateInt() == 0) {
+    if (id->getMaybeExpandedExtent()->isConst() &&
+        id->getMaybeExpandedExtent()->evaluateInt() == 0) {
       empty_axes.push_back((int64_t)ax);
     }
   }
@@ -112,7 +113,7 @@ class EmptyTensorRemover : public DeadCodeRemover {
   static std::vector<Val*> noReductionShape(TensorView* tv) {
     std::vector<Val*> shape;
     for (auto id : TensorDomain::noReductions(tv->getMaybeRFactorDomain())) {
-      shape.push_back(id->extent());
+      shape.push_back(id->getMaybeExpandedExtent());
     }
     return shape;
   }
@@ -186,7 +187,7 @@ class EmptyTensorRemover : public DeadCodeRemover {
     // one.
     auto shape = noReductionShape(avg);
     if (isLive(avg)) {
-      auto nan = IrBuilder::create<Double>(
+      auto nan = IrBuilder::create<Val>(
           std::numeric_limits<double>::quiet_NaN(), avg->getDataType().value());
       auto nan_tensor = full(shape, nan, avg->getDataType().value());
       registerReplacement(avg, nan_tensor);
@@ -252,7 +253,8 @@ class EmptyTensorRemover : public DeadCodeRemover {
       auto tv = inp->definition()->as<PadOp>()->in()->as<TensorView>();
       auto cat_id =
           TensorDomain::noReductions(tv->getMaybeRFactorDomain()).at(dim);
-      if (cat_id->extent()->isConst() && cat_id->extent()->evaluateInt() == 0) {
+      if (cat_id->getMaybeExpandedExtent()->isConst() &&
+          cat_id->getMaybeExpandedExtent()->evaluateInt() == 0) {
         continue;
       }
       non_empty_inputs.push_back(tv);
@@ -260,8 +262,18 @@ class EmptyTensorRemover : public DeadCodeRemover {
     if (non_empty_inputs.size() != cop->inputs().size()) {
       // Replace this op with a new cat op
       auto old_tv = cop->outputs()[0]->as<TensorView>();
-      // NOTE: cat() will translate to set() if non_empty_inputs.size() == 1
-      auto new_tv = cat(non_empty_inputs, dim);
+      // NOTE: cat() will translate to set() if non_empty_inputs.size() == 1.
+      // Also note that unless we're careful this call to cat() might result in
+      // symbolic axis, since the inputs may have unknown extents in the cat
+      // dimension. By default, cat() will make the conservative choice in such
+      // a situation and set the output IterType to Symbolic. However, since we
+      // have already undergone concretization at this point, we can trust that
+      // the original IterType is correct, so we pass it here to avoid creating
+      // new Symbolic axes.
+      auto iter_type = old_tv->getMaybeRFactorDomain()
+                           .at(cop->concatenatedDim())
+                           ->getIterType();
+      auto new_tv = cat(non_empty_inputs, dim, iter_type);
       registerReplacement(old_tv, new_tv);
     }
   }

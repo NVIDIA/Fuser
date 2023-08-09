@@ -42,9 +42,9 @@ class ValidateSiblings : public IterVisitor {
  private:
   using IterVisitor::handle;
 
-  void handle(Expr* expr) final {
+  void dispatch(Expr* expr) final {
     if (!ir_utils::isTvOp(expr) || expr->outputs().size() < 2) {
-      IterVisitor::handle(expr);
+      IterVisitor::dispatch(expr);
       return;
     }
 
@@ -328,7 +328,7 @@ class VectorizeValidator : public OptInDispatch {
     for (auto expr_it = replay_exprs.rbegin(); expr_it != replay_exprs.rend();
          ++expr_it) {
       auto expr = *expr_it;
-      validator.handle(expr);
+      validator.dispatch(expr);
     }
 
     TORCH_CHECK(
@@ -429,7 +429,9 @@ class VectorizeValidator : public OptInDispatch {
 
     auto vector_word_size = v_id->extent()->evaluateInt();
     auto vector_size =
-        ((int64_t)dataTypeSize(tv->getDataType().value())) * vector_word_size;
+        ((int64_t)dataTypeSize(
+            tv->getDataType().value(), GpuLower::current()->indexType())) *
+        vector_word_size;
 
     // Allow half2, float2, float4 and same sized vtypes.
     std::array<int64_t, 4> allowed_vector_sizes = {2, 4, 8, 16}; // NOLINT
@@ -828,7 +830,7 @@ void validatePartialSplit(Fusion* fusion) {
   auto range_info = getLiveRangeOffsets(fusion);
 
   for (auto tv : ir_utils::allTvs(fusion)) {
-    auto exprs = StmtSort::getExprs(
+    auto exprs = StmtSort::getExprsTo(
         tv->fusion(), {tv->getLeafDomain().begin(), tv->getLeafDomain().end()});
     for (auto split : ir_utils::filterByType<Split>(exprs)) {
       // When the start and stop offsets are not zero, make sure the
@@ -888,7 +890,7 @@ void validateMmaTensors(MmaOp* mma) {
           const auto& paralel_dim_map =
               GpuLower::current()->parallelDimensionMap();
           TORCH_INTERNAL_ASSERT(
-              paralel_dim_map.isExact(ptype) &&
+              lower_utils::isExtentEqualToMaxParallelTypeExtent(id) &&
                   paralel_dim_map.get(ptype)->isConstInt() &&
                   paralel_dim_map.get(ptype)->evaluateInt() ==
                       at::cuda::warp_size(),
@@ -1003,6 +1005,9 @@ void validateLdMatrixOutput(TensorView* tv) {
 
 void validateSizeMemoryOp(LoadStoreOp* ldst) {
   int byte_size = 1;
+  if (!ldst->out()->isA<TensorView>()) {
+    return;
+  }
   auto output = ldst->out()->as<TensorView>();
   for (auto id : output->getLeafDomain()) {
     if (id->getParallelType() == ParallelType::Vectorize) {
@@ -1010,7 +1015,8 @@ void validateSizeMemoryOp(LoadStoreOp* ldst) {
       break;
     }
   }
-  byte_size *= (int)dataTypeSize(*output->getDataType());
+  byte_size *= (int)dataTypeSize(
+      *output->getDataType(), GpuLower::current()->indexType());
   switch (ldst->opType()) {
     case LoadStoreOpType::CpAsyncCg:
       TORCH_CHECK(byte_size == 16, "Not supported byte size for cp.async.cg");

@@ -63,6 +63,7 @@ enum class DebugDumpOption {
   LowerVerbose, //! Print all passes' transform in GpuLower::lower
   ExprSimplification, //! Print all passes' transform in simplifyExpr
   ExprSort, //! Print merging decisions on expression sorting
+  ExprSortVerbose, //! Print verbose debug info on expression sorting
   LoopRotation, //! Print loop rotation log
   MatmulChecks, //! Print logs from tools around matmul scheduler used in
                 //! segmenter
@@ -82,6 +83,7 @@ enum class EnableOption {
   KernelDb, //! Enable Kernel Database
   KernelProfile, //! Enable intra-kernel performance profiling
   LinearDecomposition, //! Enable linear-bias decomposition
+  MemoryPromotion, //! Enable promotion of memory types for non-pointwise ops
   WarnRegisterSpill, //! Enable warnings of register spill
   EndOfOption //! Placeholder for counting the number of elements
 };
@@ -103,8 +105,12 @@ enum class DisableOption {
   Nvtx, //! Disable NVTX instrumentation
   ParallelCompile, //! Disable compiling Fusion segments in parallel
   PredicateElimination, //! Disable predicate elimination
+  KernelReuse, //! Disable re-using cached FusionKernelRuntimes with different
+               //! input shapes
   VarNameRemapping, //! Disable variable name remapping
   WelfordVectorization, //! Disable vectorizaton of Welford ops
+  ReuseMismatchedTypeRegisters, //! Disable explicitly re-using registers unless
+                                //! types match
   EndOfOption //! Placeholder for counting the number of elements
 };
 

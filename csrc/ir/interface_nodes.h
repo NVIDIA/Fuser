@@ -14,6 +14,7 @@
 #include <ir/internal_base_nodes.h>
 #include <ir/internal_nodes.h>
 #include <mma_type.h>
+#include <type.h>
 
 #include <torch/csrc/jit/ir/ir.h>
 
@@ -43,122 +44,13 @@ TORCH_CUDA_CU_API std::string varName(const Val* val);
 }
 
 template <typename T>
-inline bool __toBool(T x) {
-  return static_cast<bool>(x);
+T& Expr::attribute(size_t index) const {
+  if constexpr (PolymorphicValue::is_candidate_type<T>) {
+    return attributeVal(index)->value().as<T>();
+  } else {
+    return std::any_cast<T&>(attributeVal(index)->value().as<Opaque>().value);
+  }
 }
-
-template <>
-inline bool __toBool<std::complex<double>>(std::complex<double> x) {
-  return x != std::complex<double>(0, 0);
-}
-
-//! A scalr value. This value can be a symbolic value (defined after
-//! the kernel is compiled) or a constant value (inlined into the kernel
-//! definition).
-template <typename UnderlyingType>
-class TORCH_CUDA_CU_API Scalar : public Val {
- public:
-  using ScalarType = UnderlyingType;
-  static constexpr PrimDataType kDefaultDataType =
-      NativeTypeToDataType<UnderlyingType>::type;
-
-  explicit Scalar(IrBuilderPasskey passkey, DataType dtype = kDefaultDataType)
-      : Val(passkey, ValType::Scalar, dtype), maybe_value_{std::nullopt} {
-    TORCH_INTERNAL_ASSERT(
-        (std::is_integral<UnderlyingType>::value &&
-         isIntegralOrPointerType(dtype)) ||
-            (std::is_same<UnderlyingType, bool>::value &&
-             isBooleanType(dtype)) ||
-            (std::is_floating_point<UnderlyingType>::value &&
-             isFloatingPointType(dtype)) ||
-            (c10::is_complex<UnderlyingType>::value && isComplexType(dtype)),
-        "Invalid data type: ",
-        dtype);
-  }
-
-  explicit Scalar(
-      IrBuilderPasskey passkey,
-      std::optional<UnderlyingType> value,
-      DataType dtype = kDefaultDataType)
-      : Val(passkey, ValType::Scalar, dtype), maybe_value_{value} {
-    TORCH_INTERNAL_ASSERT(
-        (std::is_integral<UnderlyingType>::value && isIntegralType(dtype)) ||
-            (std::is_same<UnderlyingType, bool>::value &&
-             isBooleanType(dtype)) ||
-            (std::is_floating_point<UnderlyingType>::value &&
-             isFloatingPointType(dtype)) ||
-            (c10::is_complex<UnderlyingType>::value && isComplexType(dtype)),
-        "Invalid data type: ",
-        dtype);
-  }
-
-  Scalar(const Scalar* src, IrCloner* ir_cloner)
-      : Val(src, ir_cloner), maybe_value_(src->maybe_value_) {}
-
-  NVFUSER_DECLARE_CLONE
-
-  std::string toString(int indent_size = 0) const override {
-    std::stringstream ss;
-    if (isSymbolic()) {
-      ss << ir_utils::varName(this);
-      return ss.str();
-    }
-    auto dtype = getDataType().value();
-    if (dtype == DataType::Bool) {
-      ss << "(" << (__toBool(value().value()) ? "true" : "false") << ")";
-    } else if (isIntegralType(dtype)) {
-      ss << *(value());
-    } else if (isFloatingPointType(dtype) || isComplexType(dtype)) {
-      ss << dtype << "(" << std::setprecision(max_digits10(dtype)) << *(value())
-         << ")";
-    } else {
-      TORCH_INTERNAL_ASSERT(false, "Unknown scalar type: ", dtype);
-    }
-    return ss.str();
-  }
-
-  std::string toInlineString(int indent_size = 0) const override {
-    if (definition() != nullptr) {
-      std::stringstream ss;
-      ss << "( " << definition()->toInlineString(indent_size) << " )";
-      return ss.str();
-    } else {
-      return toString(indent_size);
-    }
-  }
-
-  bool isSymbolic() const {
-    return !(maybe_value_.has_value());
-  }
-  bool isConst() const final {
-    return maybe_value_.has_value();
-  }
-  std::optional<UnderlyingType> value() const {
-    return maybe_value_;
-  }
-
-  bool sameAs(const Statement* other) const override {
-    if (this == other) {
-      return true;
-    }
-    if (!other->isA<Scalar>()) {
-      return false;
-    }
-    const auto other_val = other->as<Scalar>();
-    if (isConst() && other_val->isConst()) {
-      return *value() == *(other_val->value());
-    }
-    return Val::sameAs(other);
-  }
-
- private:
-  const std::optional<UnderlyingType> maybe_value_;
-};
-
-using Bool = Scalar<bool>;
-using Int = Scalar<int64_t>;
-using Double = Scalar<double>;
-using ComplexDouble = Scalar<std::complex<double>>;
 
 //! Mode during propagation of computeAt, standard will throw an error if
 //! computeAt position provided can't be satisfied, best effort will lower the
@@ -230,13 +122,6 @@ class TORCH_CUDA_CU_API TensorView : public Val {
   TensorDomain* domain() const {
     return domain_;
   }
-
-  //! This is for a TensorView with an rFactor domain that is an input to a
-  //! fusion segment. We convert the rfactor domain into a new root domain.
-  //! Any dynamic-sized rfactor iterDomains are given a new symbolic extent.
-  //! Concrete integer extents are kept. Output TensorViews of any subsequent
-  //! expressions that use this TensorView are also updated.
-  void convertRfactorToRootDomain();
 
   void setContiguity(const std::vector<std::optional<bool>>& contig) {
     domain()->setContiguity(contig);

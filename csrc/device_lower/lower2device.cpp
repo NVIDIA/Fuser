@@ -52,7 +52,7 @@ class KIRCleaner : public OptOutDispatch {
     KIRCleaner cleaner;
     std::vector<Expr*> out_loop_nests;
     for (auto loop_nest : loop_nests) {
-      cleaner.handle(loop_nest);
+      cleaner.dispatch(loop_nest);
       // No need to keep the loop nest if it's determined to be nop
       if (!cleaner.is_nop_) {
         out_loop_nests.push_back(loop_nest);
@@ -63,9 +63,9 @@ class KIRCleaner : public OptOutDispatch {
 
  private:
   using OptOutDispatch::handle;
-  void handle(Expr* expr) final {
+  void dispatch(Expr* expr) final {
     if (expr->isA<kir::ForLoop>() || expr->isA<kir::IfThenElse>()) {
-      OptOutDispatch::handle(expr);
+      OptOutDispatch::dispatch(expr);
     } else {
       // Any non-scoping expr is not considered nop
       is_nop_ = false;
@@ -76,7 +76,7 @@ class KIRCleaner : public OptOutDispatch {
     auto exprs = fl->body().exprs();
     fl->body().clear();
     for (auto expr : exprs) {
-      handle(expr);
+      dispatch(expr);
       // Add the expr to the loop body only when the expr is not nop
       if (!is_nop_) {
         fl->body().push_back(expr);
@@ -92,9 +92,9 @@ class KIRCleaner : public OptOutDispatch {
     // Visit the then block
     auto then_exprs = ite->thenBody().exprs();
     ite->thenBody().clear();
-    if (!conditional->isConst() || conditional->value().value()) {
+    if (!conditional->isConst() || conditional->value().as<bool>()) {
       for (auto expr : then_exprs) {
-        handle(expr);
+        dispatch(expr);
         if (!is_nop_) {
           ite->thenBody().push_back(expr);
         }
@@ -106,9 +106,9 @@ class KIRCleaner : public OptOutDispatch {
     // Visit the else block
     auto else_exprs = ite->elseBody().exprs();
     ite->elseBody().clear();
-    if (!conditional->isConst() || !conditional->value().value()) {
+    if (!conditional->isConst() || !conditional->value().as<bool>()) {
       for (auto expr : else_exprs) {
-        handle(expr);
+        dispatch(expr);
         if (!is_nop_) {
           ite->elseBody().push_back(expr);
         }
@@ -121,8 +121,8 @@ class KIRCleaner : public OptOutDispatch {
     // conditional and move the exprs in the else block to the then
     // block.
     if (then_nop && !else_nop) {
-      Bool* pred = ite->predicate()->value();
-      Bool* not_pred = SimplifyingIrBuilder::notExpr(pred)->as<Bool>();
+      Val* pred = ite->predicate()->value();
+      Val* not_pred = SimplifyingIrBuilder::logicalNotExpr(pred);
       ite->predicate()->setValue(not_pred);
       for (auto expr : ite->elseBody().exprs()) {
         ite->thenBody().push_back(expr);
@@ -206,13 +206,29 @@ void segmenterHintCleanup(Fusion* fusion) {
   }
 }
 
+std::tuple<Val*, Val*, kir::GetRNGSeedAndOffsetFromHost*>
+getRNGSeedAndOffsetFromHost();
+
 void assignRNGOffset(Fusion* fusion) {
-  int counter = 0;
+  Val* seed = nullptr;
+  Val* first_offset = nullptr;
+  kir::GetRNGSeedAndOffsetFromHost* getseed_op = nullptr;
+  int64_t counter = 0;
   for (auto expr : fusion->exprs()) {
-    if (expr->isA<RNGOp>()) {
-      auto rop = expr->as<RNGOp>();
-      rop->setRNGOffset(counter++);
+    if (auto rop = dynamic_cast<RNGOp*>(expr)) {
+      if (!rop->isDeterministic()) {
+        if (seed == nullptr) {
+          std::tie(seed, first_offset, getseed_op) =
+              getRNGSeedAndOffsetFromHost();
+        }
+        Val* offset = SimplifyingIrBuilder::addExpr(first_offset, counter);
+        rop->setSeedAndOffset(seed, offset);
+        counter++;
+      }
     }
+  }
+  if (getseed_op != nullptr) {
+    getseed_op->offsets() = counter;
   }
 }
 
@@ -254,27 +270,27 @@ void GpuLower::lower(Fusion* fusion) {
   } lower_guard(this);
 
   // Use int64 by default as the kernel index type
-  auto kernel_index_type = cparams_.index_type.has_value()
-      ? cparams_.index_type.value()
-      : PrimDataType::Int;
+  if (!cparams_.index_type.has_value()) {
+    cparams_.index_type = PrimDataType::Int;
+  }
 
   // Copy fusion into a new kernel for processing
-  kernel_ = std::make_unique<kir::Kernel>(fusion, kernel_index_type);
+  kernel_ = std::make_unique<kir::Kernel>(fusion, indexType());
   // Alias the fusion kernel caries around as a view of itself.
   fusion_ = kernel_.get();
 
-  // Convert tensor views of DataType::Index type to either Int or Int32
-  for (auto tv : ir_utils::allTvs(fusion_)) {
-    if (tv->dtype() == DataType::Index) {
-      tv->resolveIndexDtype();
-    }
-  }
   segmenterHintCleanup(fusion_);
-
-  assignRNGOffset(fusion_);
-
   FusionGuard fg(fusion_);
+
   dumpExprsIfEnabled(fusion_->exprs(), "initialize lowering");
+
+  // Temporarily set allKnownVals to inputs. In the future, we will have a real
+  // pass to determine how to set allKnownVals.
+  // TODO: revisit all passes on how they handle exprs in the fusion. Should we
+  // change their use of fusion_->exprs() to only include exprs that are not
+  // between inputs and allKnownVals()?
+  allKnownVals() = kernel_->inputs();
+  dumpExprsIfEnabled(fusion_->exprs(), "set allKnownVals");
 
   // prepare for lowering
   validateIr(fusion_);
@@ -400,6 +416,13 @@ void GpuLower::lower(Fusion* fusion) {
   const auto exprs_sorted = reorderExprsForComputeAt();
   dumpExprsIfEnabled(exprs_sorted, "reorderExprsForComputeAt");
 
+  // For RNG ops whose seed and offset are not yet set, grab the seed and offset
+  // from the host and assign them to the ops.
+  // This must be after expr sort, because we do not want the generated
+  // computation of offset and seed to be considered as part of fusion
+  // definition
+  assignRNGOffset(fusion_);
+
   // Generate loop-nests and place each expression at its
   // corresponding loop
   const auto exprs_lowered = LoopNestGenerator::loweredExprs(exprs_sorted);
@@ -417,6 +440,8 @@ void GpuLower::lower(Fusion* fusion) {
   // Insert read after write smem syncs
   const auto exprs_raw_sync = insertRawThreadSynchronization(exprs_alloced);
   dumpExprsIfEnabled(exprs_raw_sync, "insertRawThreadSynchronization");
+
+  commonScalarMap().initialize(exprs_raw_sync);
 
   // Reuse memory locations
   const auto exprs_reuse_mem = reuseMemoryAllocations(exprs_raw_sync);
@@ -443,8 +468,6 @@ void GpuLower::lower(Fusion* fusion) {
   const auto exprs_unrolled_loops =
       UnrollPass::runPass(fusion_, exprs_loop_rotated);
   dumpExprsIfEnabled(exprs_unrolled_loops, "UnrollPass");
-
-  commonScalarMap().initialize(exprs_unrolled_loops);
 
   const auto exprs_unrolled_mv_loops =
       processMisalignedVectorization(exprs_unrolled_loops);

@@ -7,17 +7,13 @@
 // clang-format on
 #pragma once
 
-#include <c10/macros/Export.h>
 #include <c10/util/Exception.h>
 
 #include <type_traits.h>
 
 #include <C++20/type_traits>
-#include <cmath>
-#include <functional>
-#include <iostream>
-#include <numeric>
 #include <optional>
+#include <ostream>
 #include <type_traits>
 #include <typeinfo>
 #include <variant>
@@ -162,18 +158,19 @@ struct Containers {
 
   template <typename DynamicType, typename... MemberTypes>
   using TypeIdentitiesAsTuple = std::tuple<
+      std::type_identity<std::monostate>,
       std::type_identity<MemberTypes>...,
       std::type_identity<Templates<DynamicType>>...>;
 
   template <typename DynamicType, typename... MemberTypes>
-  using ForAllTypes =
-      nvfuser::ForAllTypes<MemberTypes..., Templates<DynamicType>...>;
+  using ForAllTypes = nvfuser::
+      ForAllTypes<std::monostate, MemberTypes..., Templates<DynamicType>...>;
 
   // Check if T is one of the types in the type list MemberTypes..., or a
   // container
   template <typename T, typename DynamicType, typename... MemberTypes>
-  static constexpr auto is_candidate_type =
-      nvfuser::belongs_to<T, MemberTypes..., Templates<DynamicType>...>;
+  static constexpr auto is_candidate_type = nvfuser::
+      belongs_to<T, std::monostate, MemberTypes..., Templates<DynamicType>...>;
 };
 
 using NoContainers = Containers<>;
@@ -210,7 +207,7 @@ struct DynamicType {
   constexpr DynamicType() = default;
 
   template <typename T>
-  constexpr DynamicType(const T& value) : value_(value) {}
+  constexpr DynamicType(T value) : value_(std::move(value)) {}
 
   template <
       template <typename...>
@@ -219,16 +216,16 @@ struct DynamicType {
       typename = std::enable_if_t<
           is_candidate_type<Template<DynamicType>> &&
           !std::is_same_v<ItemT, DynamicType>>>
-  constexpr DynamicType(const Template<ItemT>& value)
-      : value_([](const auto& input) {
+  constexpr DynamicType(Template<ItemT> value)
+      : value_([](auto input) {
           Template<DynamicType> result;
           std::transform(
               input.begin(),
               input.end(),
               std::back_inserter(result),
-              [](const auto& item) { return DynamicType(item); });
+              [](auto& item) { return DynamicType(std::move(item)); });
           return result;
-        }(value)) {}
+        }(std::move(value))) {}
 
   // Returns the type_info of the actual type of the variant value_. For
   // example, if value_ holds an int, then this will return typeid(int).

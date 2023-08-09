@@ -77,10 +77,10 @@ class ArgumentManager {
         fusion_inputs, runtime_workspace.group_extent_binding_order);
     setLastUsedSegmentID(runtime_workspace.group_run_order);
   }
-  const std::unordered_map<Val*, const ArgAbstract*>& getTensorMap() {
+  const std::unordered_map<Val*, const PolymorphicValue*>& getTensorMap() {
     return tensor_map_;
   }
-  const ArgAbstract* checkTensorMap(Val* v) {
+  const PolymorphicValue* checkTensorMap(Val* v) {
     return tensor_map_.at(v);
   }
   // T is assumed to be either std::vector<at::Tensro> or KernelArgumentHolder
@@ -98,7 +98,7 @@ class ArgumentManager {
  private:
   KernelArgumentHolder& fusion_args_;
   // map from val to args
-  std::unordered_map<Val*, const ArgAbstract*> tensor_map_;
+  std::unordered_map<Val*, const PolymorphicValue*> tensor_map_;
   // map segment_id to vector of fusion vals lastly used at this segment
   std::unordered_map<int64_t, std::vector<Val*>> vals_last_used_at_segment_;
 
@@ -115,13 +115,13 @@ class ArgumentManager {
       // TODO: we probably have done this already up to this point
       //      should consider caching the expression evaluators, both
       //      more convenient and safer than replication
-      if (auto tensor_arg_abstract =
-              dynamic_cast<const TensorArgAbstract*>(fusion_args_[i])) {
+      if (fusion_args_[i]->is<at::Tensor>()) {
         // Note this is very ugly way. We are pushing every single extent to
         // args, because we don't have a better place to hold them.
-        auto rank = tensor_arg_abstract->getRank();
+        auto rank = fusion_args_[i]->as<at::Tensor>().dim();
         for (const auto dim : c10::irange(rank)) {
-          fusion_args_.push(tensor_arg_abstract->getSize((int)dim));
+          fusion_args_.push(
+              PolymorphicValue(fusion_args_[i]->as<at::Tensor>().size(dim)));
           tensor_map_.emplace(
               group_extent_binding_order[extent_index++], fusion_args_.back());
         }
@@ -195,7 +195,12 @@ class ArgumentManager {
     // the original tensor input. See note [Trivial Forwarding]
     for (const size_t group_out_i : c10::irange(group_outputs.size())) {
       if (!group_outputs[group_out_i]->isFusionInput()) {
-        fusion_args_.push(group_runtime_outputs[group_out_i]);
+        if constexpr (std::is_pointer_v<
+                          decltype(group_runtime_outputs[group_out_i])>) {
+          fusion_args_.push(*group_runtime_outputs[group_out_i]);
+        } else {
+          fusion_args_.push(group_runtime_outputs[group_out_i]);
+        }
         tensor_map_.emplace(group_outputs[group_out_i], fusion_args_.back());
       }
     }
@@ -577,7 +582,7 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
 
   // Compute concretization info to use as cache key
   DynamicTransformConcretizationInfo* conc_info = nullptr;
-  if (initial_info.hasDynamicTransforms()) {
+  if (initial_info.isDynamic()) {
     // This class needs to own conc_info so it can be compared in subsequent
     // invocations.
     auto expr_eval = executor_utils::bindInputs(args, fusion_.get());
@@ -599,33 +604,42 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
   //  kernels have the same heuristic parameters
   std::unique_ptr<FusionHeuristics> new_heuristics;
 
-  auto reuse_it = std::find_if(
-      kernel_runtimes.begin(),
-      kernel_runtimes.end(),
-      [&args, &new_heuristics, &forced_index_type](auto& kernel_runtime) {
-        auto maybe_heuristics =
-            kernel_runtime->getMaybeHeuristicsFor(args, forced_index_type);
-        if (!maybe_heuristics.has_value()) {
-          return false;
-        }
-        new_heuristics = std::move(maybe_heuristics.value());
-        return true;
-      });
-
   FusionKernelRuntime* kernel_runtime = nullptr;
-  if (reuse_it != kernel_runtimes.end()) {
-    kernel_runtime = reuse_it->get();
-    kernel_runtime->updateHeuristicsLaunchParams(new_heuristics.get());
-  } else {
+
+  bool reusing = false;
+  // By default, we try to avoid recompiling whenever possible. However, this
+  // can lead to suboptimal code if we only check that a compiled kernel is able
+  // to run with some inputs, instead of whether it is optimal to do so. The
+  // NVFUSER_DISABLE=kernel_reuse option is a coarse tool that just enforces
+  // that whenever we encounter a new set of input shapes we segment and compile
+  // a new FusionKernelRuntime.
+  if (!isOptionDisabled(DisableOption::KernelReuse)) {
+    auto reuse_it = std::find_if(
+        kernel_runtimes.begin(),
+        kernel_runtimes.end(),
+        [&args, &new_heuristics, &forced_index_type](auto& kernel_runtime) {
+          auto maybe_heuristics =
+              kernel_runtime->getMaybeHeuristicsFor(args, forced_index_type);
+          if (!maybe_heuristics.has_value()) {
+            return false;
+          }
+          new_heuristics = std::move(maybe_heuristics.value());
+          return true;
+        });
+    if (reuse_it != kernel_runtimes.end()) {
+      kernel_runtime = reuse_it->get();
+      kernel_runtime->updateHeuristicsLaunchParams(new_heuristics.get());
+      reusing = true;
+    }
+  }
+
+  if (!reusing) {
     // cache miss, need to re-build an optimized graph for this case
 
     // Clone fusion_ so that we can safely use an ExpressionEvaluator on it, for
     // the purposes of computing the concretization info.
     auto conc_fusion = std::make_unique<Fusion>(*fusion_);
-
-    // concretize fusion_ for use in this runtime
-    FusionGuard fg(conc_fusion.get());
-    if (initial_info.hasDynamicTransforms()) {
+    if (initial_info.isDynamic()) {
       const auto& conc_initial_info =
           conc_fusion->getManaged<DynamicTransformInitialInfo>("initial_info");
       TORCH_INTERNAL_ASSERT(conc_info);
@@ -647,6 +661,7 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
         conc_fusion->printMath();
       }
     }
+    FusionGuard fg(conc_fusion.get());
     kernel_runtimes.emplace_back(std::make_unique<FusionKernelRuntime>(
         std::move(conc_fusion), args, forced_index_type));
     kernel_runtime = kernel_runtimes.back().get();
@@ -750,7 +765,7 @@ std::vector<at::Tensor> FusionKernelRuntime::runKernelWithInput(
     }
     debug() << "With inputs:\n";
     for (auto i : c10::irange(args.size())) {
-      debug() << "  " << args[i]->toString() << std::endl;
+      debug() << "  " << args[i] << std::endl;
     }
     debug() << "Compiler log: " << executor.compilerLog() << "\n";
     debug() << scheduler_entry->params()->toString() << "\n";
@@ -855,7 +870,7 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
       group_runtime_inputs.setCacheId(group_cache_id.value());
     }
     for (auto input : group_to_run->inputs()) {
-      group_runtime_inputs.push(args_manager.checkTensorMap(input));
+      group_runtime_inputs.push(*args_manager.checkTensorMap(input));
     }
 
     if (num_groups == 1 || isOptionDisabled(DisableOption::ParallelCompile)) {
@@ -973,10 +988,8 @@ std::vector<at::Tensor> FusionKernelRuntime::runWithInputs(
       // 2) Integration handles the trivial forwarding of inputs. When we put
       // together `fusion_outputs` for a given fusion and the outputs are
       // fusion inputs, we directly return the input tensor.
-      auto tensor_arg_abstract =
-          dynamic_cast<const TensorArgAbstract*>(iter->second);
-      TORCH_INTERNAL_ASSERT(tensor_arg_abstract != nullptr);
-      fusion_outputs.push_back(tensor_arg_abstract->getTensor());
+      TORCH_INTERNAL_ASSERT(iter->second->is<at::Tensor>());
+      fusion_outputs.push_back(iter->second->as<at::Tensor>());
     } else {
       bool empty_type_check = output->getDataType().has_value() &&
           output->getDataType().value() == DataType::Float;
@@ -1011,7 +1024,7 @@ std::vector<at::Tensor> FusionKernelRuntime::runWithInputs(
   return fusion_outputs;
 }
 
-std::unordered_map<Val*, const ArgAbstract*> FusionKernelRuntime::
+std::unordered_map<Val*, const PolymorphicValue*> FusionKernelRuntime::
     runSegmentsWithInputs(KernelArgumentHolder& args) {
   TORCH_INTERNAL_ASSERT(
       args.size() == segmented_fusion_->inputs().size(),
@@ -1038,7 +1051,7 @@ std::unordered_map<Val*, const ArgAbstract*> FusionKernelRuntime::
       group_runtime_inputs.setCacheId(group_cache_id.value());
     }
     for (auto input : group_to_run->inputs()) {
-      group_runtime_inputs.push(args_manager.checkTensorMap(input));
+      group_runtime_inputs.push(*args_manager.checkTensorMap(input));
     }
 
     // TODO: currently we are still outputing PyTorch tensors, instead of

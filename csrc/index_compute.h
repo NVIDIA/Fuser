@@ -71,9 +71,10 @@ class IndexCompute : public BackwardVisitor {
  protected:
   using BackwardVisitor::handle;
 
+  void dispatch(Expr*) override;
+
   void handle(Split*) override;
   void handle(Merge*) override;
-  void handle(Expr*) override;
   void handle(Swizzle2D*) override;
   void handle(Resize*) override;
 
@@ -243,7 +244,7 @@ class IndexSwizzle : public IndexCompute {
  protected:
   using IndexCompute::handle;
 
-  void handle(Expr* e) override;
+  void dispatch(Expr* e) override;
 
   void handle(Swizzle2D* swizzle_2d) override;
 
@@ -287,9 +288,9 @@ class RootPredicateInfo {
 
  private:
   // prdicate for lower end
-  Bool* start_predicate_ = nullptr;
+  Val* start_predicate_ = nullptr;
   // prdicate for upper end
-  Bool* stop_predicate_ = nullptr;
+  Val* stop_predicate_ = nullptr;
   // Offset of the start predicate
   Val* start_offset_ = nullptr;
   // Offset of the stop predicate
@@ -319,7 +320,7 @@ class Index {
       const std::unordered_map<IterDomain*, Val*>& override_index = {});
 
   // get the strides of a tensor used for the index lowering
-  static std::vector<Val*> getStrides(const TensorView* tv);
+  static std::vector<Val*> getStrides(TensorView* tv);
 
   // get the allocation indices of a consumer tensor
   static std::vector<Val*> getConsumerAllocationIndices(
@@ -346,7 +347,7 @@ class Index {
 
   // Consumer indexing if it's in global memory
   static std::vector<Val*> getGlobalConsumerStridedIndices(
-      const TensorView* consumer,
+      TensorView* consumer,
       const std::vector<kir::ForLoop*>& loops,
       const std::unordered_set<kir::ForLoop*>& rotated_loops,
       const std::unordered_map<int, Val*>& override_index = {});

@@ -42,7 +42,7 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
 
   using kir::ExprMutator::handle;
 
-  void handle(Expr* expr) final {
+  void dispatch(Expr* expr) final {
     if (expr != nullptr && expr->predicate() != nullptr) {
       // Replace expr predicate with bool conditional
       auto conditional = generateConditional(expr->predicate());
@@ -65,7 +65,7 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
               ir_utils::isTvOp(vec_expr),
               "Vectorize predicate exprs only supported on tensor view operations.");
           if (!vec_expr->inputs()[0]->isConstScalar()) {
-            conditional = SimplifyingIrBuilder::andExpr(
+            conditional = SimplifyingIrBuilder::logicalAndExpr(
                 conditional,
                 GpuLower::current()->threadPredMap().getPredicate(
                     ir_utils::getTvOutput(vec_expr)));
@@ -74,19 +74,16 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
           TORCH_INTERNAL_ASSERT(lower_utils::supportInlinePredicate(expr));
           auto thread_pred = GpuLower::current()->threadPredMap().getPredicate(
               ir_utils::getTvOutput(expr));
-          TORCH_INTERNAL_ASSERT(
-              thread_pred->isConst() && thread_pred->value().value());
-          conditional = SimplifyingIrBuilder::andExpr(
+          TORCH_INTERNAL_ASSERT(thread_pred->isConst() && thread_pred->value());
+          conditional = SimplifyingIrBuilder::logicalAndExpr(
               conditional,
               GpuLower::current()->threadPredMap().getPredicate(
                   ir_utils::getTvOutput(expr)));
         }
       }
       TORCH_INTERNAL_ASSERT(conditional != nullptr);
-      conditional = GpuLower::current()
-                        ->commonScalarMap()
-                        .hoistScalar(conditional, for_loops_)
-                        ->as<Bool>();
+      conditional = GpuLower::current()->commonScalarMap().hoistScalar(
+          conditional, for_loops_);
       expr->predicate()->setValue(conditional);
       TORCH_INTERNAL_ASSERT(expr->predicate()->value() != nullptr);
       setWritePredicate(expr);
@@ -118,16 +115,16 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
       invertPredicateForGmemToSharedMemInitialize(expr);
     }
 
-    kir::ExprMutator::handle(expr);
+    kir::ExprMutator::dispatch(expr);
   }
 
   // Invert the predicate of given expr.
   void invertPredicateForGmemToSharedMemInitialize(Expr* expr) {
     auto pred = expr->predicate()->value();
-    auto invert = SimplifyingIrBuilder::notExpr(pred);
+    Val* invert = SimplifyingIrBuilder::logicalNotExpr(pred);
     invert =
         GpuLower::current()->commonScalarMap().hoistScalar(invert, for_loops_);
-    expr->predicate()->setValue(invert->as<Bool>());
+    expr->predicate()->setValue(invert);
   }
 
   // Detect if this expr is an initialization for vectorized
@@ -146,10 +143,8 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
     if (expr->writePredicate() != nullptr) {
       auto write_cond = generateConditional(expr->writePredicate());
       if (write_cond) {
-        write_cond = GpuLower::current()
-                         ->commonScalarMap()
-                         .hoistScalar(write_cond, for_loops_)
-                         ->as<Bool>();
+        write_cond = GpuLower::current()->commonScalarMap().hoistScalar(
+            write_cond, for_loops_);
         expr->writePredicate()->setValue(write_cond);
       } else {
         // If generateConditional returns null, it means no specific
@@ -188,10 +183,8 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
     if (!ite->predicate()->hasValue()) {
       auto conditional = generateConditional(ite->predicate());
       TORCH_INTERNAL_ASSERT(conditional != nullptr);
-      conditional = GpuLower::current()
-                        ->commonScalarMap()
-                        .hoistScalar(conditional, for_loops_)
-                        ->as<Bool>();
+      conditional = GpuLower::current()->commonScalarMap().hoistScalar(
+          conditional, for_loops_);
 
       // Update bool conditional in-place
       ite->predicate()->setValue(conditional);
@@ -205,7 +198,7 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
   }
 
   // Generate conditional according to PredicateType
-  Bool* generateConditional(kir::Predicate* pred) {
+  Val* generateConditional(kir::Predicate* pred) {
     switch (pred->predicate_type()) {
       case PredicateType::Inline:
       case PredicateType::ReductionWrite:
@@ -246,7 +239,7 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
         // condition of loop_index + step < end, so nothing to do here. In the
         // future, if we decide that we need to predicate this then we can do it
         // here.
-        return IrBuilder::newConstant(true, DataType::Bool)->as<Bool>();
+        return IrBuilder::newConstant(true, DataType::Bool);
       }
       default:
         break;

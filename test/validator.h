@@ -170,9 +170,8 @@ std::pair<double, double> getTolerance(
       }
     }
     case DataType::Int:
-      return {0.0, 0.0};
     case DataType::Int32:
-      return {0.0, 0.0};
+    case DataType::Index:
     case DataType::Bool:
       return {0.0, 0.0};
     default:
@@ -237,7 +236,7 @@ class ReductionSizeMapper : private IterVisitor {
     return reduction_elements;
   }
 
-  void handle(Expr* expr) override {
+  void dispatch(Expr* expr) override {
     if (!ir_utils::isTvOp(expr)) {
       return;
     }
@@ -323,11 +322,13 @@ ExpressionEvaluator bindInputsAndLaunchParams(
 // on adding two tensors then summing them. This of course has an assumption
 // that we're always summing values between -2 and 2. If we start summing values
 // larger than that this approach might not hold.
+// If aten_outputs is empty, then infer the expected outputs from the fusion
+// using expr evaluator.
 void testValidate(
     Fusion* fusion,
     const std::vector<at::Tensor>& fusion_outputs,
     const at::ArrayRef<c10::IValue>& aten_inputs,
-    const std::vector<at::Tensor>& aten_outputs,
+    std::vector<at::Tensor> aten_outputs,
     int line_number,
     const char* file_name,
     std::string err_msg = "",
@@ -341,6 +342,12 @@ void testValidate(
       ReductionSizeMapper::computeReductionSizes(fusion, expr_eval);
 
   auto output_alias_indices = fusion->getIndicesOfAliasedOutputs();
+
+  if (aten_outputs.empty()) {
+    for (auto v : fusion->outputs()) {
+      aten_outputs.emplace_back(expr_eval.evaluate(v).as<at::Tensor>());
+    }
+  }
 
   TORCH_INTERNAL_ASSERT(
       fusion_outputs.size() == aten_outputs.size() &&
@@ -442,6 +449,29 @@ void testValidate(
     }
     j++;
   }
+}
+
+// The variant with automatically inferred aten outputs. The `evaluate` method
+// of the exprs in the fusion must be overriden to handle at::Tensor.
+void testValidate(
+    Fusion* fusion,
+    const std::vector<at::Tensor>& fusion_outputs,
+    const at::ArrayRef<c10::IValue>& aten_inputs,
+    int line_number,
+    const char* file_name,
+    std::string err_msg = "",
+    const LaunchParams& lparams = LaunchParams(),
+    const ValidationConstants& tolerances = ValidationConstants()) {
+  testValidate(
+      fusion,
+      fusion_outputs,
+      aten_inputs,
+      {},
+      line_number,
+      file_name,
+      err_msg,
+      lparams,
+      tolerances);
 }
 
 } // namespace
