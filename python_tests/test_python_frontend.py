@@ -336,9 +336,7 @@ class TestNvFuserFrontend(TestCase):
             weights = fd.define_tensor(
                 shape=[-1], contiguity=[True], dtype=DataType.Float
             )
-            bias = fd.define_tensor(
-                shape=[-1], contiguity=[True], dtype=DataType.Float
-            )
+            bias = fd.define_tensor(shape=[-1], contiguity=[True], dtype=DataType.Float)
             sum0 = fd.ops.sum(inputs, axes=[normalization_axis], keepdim=keepDim)
             norm_const = fd.define_scalar(norm_size)
             mean = fd.ops.div(sum0, norm_const)
@@ -378,9 +376,7 @@ class TestNvFuserFrontend(TestCase):
             weights = fd.define_tensor(
                 shape=[-1], contiguity=[True], dtype=DataType.Float
             )
-            bias = fd.define_tensor(
-                shape=[-1], contiguity=[True], dtype=DataType.Float
-            )
+            bias = fd.define_tensor(shape=[-1], contiguity=[True], dtype=DataType.Float)
             var, mean = fd.ops.var_mean(
                 inputs, axes=[normalization_axis], correction=0, keepdim=keepDim
             )
@@ -581,9 +577,7 @@ class TestNvFuserFrontend(TestCase):
         ]
 
         def fusion_func_1(fd: FusionDefinition):
-            t0 = fd.define_tensor(
-                shape=[-1, -1, -1], contiguity=[True, True, True]
-            )
+            t0 = fd.define_tensor(shape=[-1, -1, -1], contiguity=[True, True, True])
             t1 = fd.define_tensor(shape=[-1], contiguity=[True])
 
             t0_sizes = fd.ops.tensor_sizes(t0)
@@ -594,9 +588,7 @@ class TestNvFuserFrontend(TestCase):
             fd.add_output(t2)
 
         def fusion_func_2(fd: FusionDefinition):
-            t0 = fd.define_tensor(
-                shape=[-1, -1, -1], contiguity=[True, True, True]
-            )
+            t0 = fd.define_tensor(shape=[-1, -1, -1], contiguity=[True, True, True])
             t1 = fd.define_tensor(shape=[-1], contiguity=[True])
 
             t1_b = fd.ops.broadcast_in_dim(t1, inputs_1[0].size(), [2])
@@ -605,9 +597,7 @@ class TestNvFuserFrontend(TestCase):
             fd.add_output(t2)
 
         def fusion_func_3(fd: FusionDefinition):
-            t0 = fd.define_tensor(
-                shape=[-1, -1, -1], contiguity=[True, True, True]
-            )
+            t0 = fd.define_tensor(shape=[-1, -1, -1], contiguity=[True, True, True])
             t1 = fd.define_tensor(shape=[-1], contiguity=[True])
 
             t1_b = fd.ops.broadcast_in_dim(t1, inputs_2[0].size(), [2])
@@ -659,9 +649,7 @@ class TestNvFuserFrontend(TestCase):
     # Testing a scenario where the broadcast is necessary to realize the output
     def test_tensor_sizes_with_output_bcast(self):
         def fusion_func(fd: FusionDefinition):
-            t0 = fd.define_tensor(
-                shape=[-1, -1, -1], contiguity=[True, True, True]
-            )
+            t0 = fd.define_tensor(shape=[-1, -1, -1], contiguity=[True, True, True])
             t0_sizes = fd.ops.tensor_sizes(t0)
 
             t1 = fd.ops.sum(t0, axes=[2])
@@ -695,15 +683,9 @@ class TestNvFuserFrontend(TestCase):
     # Testing an expand followed by a  broadcast
     def test_tensor_sizes_expand_bcast(self):
         def fusion_func(fd: FusionDefinition):
-            t0 = fd.define_tensor(
-                shape=[-1, -1, -1], contiguity=[True, True, True]
-            )
-            t1 = fd.define_tensor(
-                shape=[-1, 1, -1], contiguity=[True, None, True]
-            )
-            t2 = fd.define_tensor(
-                shape=[-1, 1, -1], contiguity=[True, None, True]
-            )
+            t0 = fd.define_tensor(shape=[-1, -1, -1], contiguity=[True, True, True])
+            t1 = fd.define_tensor(shape=[-1, 1, -1], contiguity=[True, None, True])
+            t2 = fd.define_tensor(shape=[-1, 1, -1], contiguity=[True, None, True])
             t0_sizes = fd.ops.tensor_sizes(t0)
 
             t1_b = fd.ops.broadcast_in_dim(t1, t0_sizes, [0, 1, 2])
