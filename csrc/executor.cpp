@@ -1888,6 +1888,8 @@ flatbuffers::Offset<serde::FusionExecutor> FusionExecutor::serialize(
 
   using fb_executor_entry = flatbuffers::Offset<nvfuser::serde::ExecutorEntry>;
 
+  // Separate unordered_map for executor_entry_lookup into key and value
+  // vectors. The key value is the cache_id value in the KernelArgumentHolder.
   std::vector<size_t> executor_entry_lookup_keys_fb;
   std::vector<fb_executor_entry> executor_entry_lookup_values_fb;
   for (const auto& [key, value] : executor_entry_lookup_) {
@@ -1914,6 +1916,8 @@ flatbuffers::Offset<serde::ExecutorEntry> FusionExecutor::serialize(
     const ExecutorEntry& data) const {
   // See table definition for ExecutorEntry in serde/fusion_cache.fbs
 
+  // In the flatbuffer schema, we store the vector of pairs as a pair of
+  // vectors.
   std::vector<int> output_aliases_fb;
   std::vector<int> input_aliases_fb;
   output_aliases_fb.reserve(data.output_to_input_aliases.size());
@@ -1923,6 +1927,9 @@ flatbuffers::Offset<serde::ExecutorEntry> FusionExecutor::serialize(
     input_aliases_fb.push_back(in);
   }
 
+  // Serialize GlobalBufferInfo for outputs.
+  // We map the output TensorView pointer to its corresponding position in
+  // fusion outputs assuming that the output ordering is consistent.
   using fb_global_buffer_info =
       flatbuffers::Offset<nvfuser::serde::GlobalBufferInfo>;
   std::vector<fb_global_buffer_info> outputs_fb;
@@ -1937,6 +1944,10 @@ flatbuffers::Offset<serde::ExecutorEntry> FusionExecutor::serialize(
         serialize(builder, buffer, tv_position, true /* is_fusion_output */));
   }
 
+  // Serialize GlobalBufferInfo for intermediates.
+  // We map the intermediate TensorView pointer to its corresponding position in
+  // KernelSummary global allocations. We assume that the ordering is consistent
+  // between GpuLower objects with the same scheduled fusion.
   std::vector<fb_global_buffer_info> intermediates_fb;
   intermediates_fb.reserve(data.intermediates.size());
   for (const auto& buffer : data.intermediates) {
@@ -1990,6 +2001,7 @@ void FusionExecutor::deserialize(
 
   TORCH_INTERNAL_ASSERT(buffer != nullptr, "serde::FusionExecutor is nullptr.");
 
+  // Initialize internal fields
   device_smem_limit_ = buffer->device_smem_limit();
   block_size_high_water_mark_ = buffer->block_size_high_water_mark();
   maxrregcount_high_water_mark_ = buffer->maxrregcount_high_water_mark();
@@ -2004,7 +2016,9 @@ void FusionExecutor::deserialize(
   default_params.index_type = serde::mapToNvfuserDtype(buffer->index_type());
   default_params.maxrregcount = maxrregcount_high_water_mark_;
 
+  // Get lowered fusion
   lowered_ = std::make_unique<GpuLower>(fusion, default_params);
+
   // Replace integers that are tensor sizes by named scalars like "T0.size[0]"
   fusion_ = lowered_->kernel()->as<Fusion>();
   setUsedTVs();

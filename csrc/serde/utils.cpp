@@ -146,7 +146,7 @@ flatbuffers::Offset<serde::Scalar> serializeScalarCpu(
           *tensor.data_ptr<c10::complex<double>>(),
           nvfuser::DataType::ComplexDouble);
     default:
-      TORCH_INTERNAL_ASSERT(false, "unsupported scalar type.");
+      TORCH_INTERNAL_ASSERT(false, "Unsupported scalar type.");
   }
 }
 
@@ -174,16 +174,25 @@ flatbuffers::Offset<serde::ArgAbstract> serializePolymorphicValue(
           builder, ArgAbstractData_ScalarCpu, data.Union());
     } else {
       // GPU Tensor
+      // Convert IntArrayRef to std::vector for flatbuffer compatibility
       std::vector<int64_t> sizes_fb;
       sizes_fb.reserve(tensor.ndimension());
       for (auto dim : c10::irange(tensor.ndimension())) {
         sizes_fb.push_back(tensor.size(dim));
       }
+
+      // Convert IntArrayRef to std::vector for flatbuffer compatibility
+      std::vector<int64_t> strides_fb;
+      strides_fb.reserve(tensor.ndimension());
+      for (auto dim : c10::irange(tensor.ndimension())) {
+        strides_fb.push_back(tensor.stride(dim));
+      }
+
       auto data = serde::CreateTensorArg(
           builder,
           (size_t)tensor.data_ptr(),
           builder.CreateVector(sizes_fb),
-          0,
+          builder.CreateVector(strides_fb),
           mapToSerdeDtype(tensor.scalar_type()));
       return CreateArgAbstract(
           builder, ArgAbstractData_TensorArg, data.Union());

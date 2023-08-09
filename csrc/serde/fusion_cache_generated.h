@@ -16,19 +16,10 @@ static_assert(FLATBUFFERS_VERSION_MAJOR == 23 &&
 namespace nvfuser {
 namespace serde {
 
-struct At;
-struct AtBuilder;
-
 struct State;
 
 struct Scalar;
 struct ScalarBuilder;
-
-struct TensorShape;
-struct TensorShapeBuilder;
-
-struct Size;
-struct SizeBuilder;
 
 struct ScalarCpu;
 struct ScalarCpuBuilder;
@@ -42,6 +33,9 @@ struct ArgAbstractBuilder;
 struct KernelArgumentHolder;
 struct KernelArgumentHolderBuilder;
 
+struct TensorShape;
+struct TensorShapeBuilder;
+
 struct LaunchParams;
 struct LaunchParamsBuilder;
 
@@ -50,6 +44,9 @@ struct GlobalBufferInfoBuilder;
 
 struct ExecutorEntry;
 struct ExecutorEntryBuilder;
+
+struct At;
+struct AtBuilder;
 
 struct BatchNorm;
 struct BatchNormBuilder;
@@ -86,6 +83,9 @@ struct ReductionBuilder;
 
 struct Reshape;
 struct ReshapeBuilder;
+
+struct Size;
+struct SizeBuilder;
 
 struct Slice;
 struct SliceBuilder;
@@ -734,47 +734,6 @@ FLATBUFFERS_MANUALLY_ALIGNED_STRUCT(8) EncodingEntry FLATBUFFERS_FINAL_CLASS {
 };
 FLATBUFFERS_STRUCT_END(EncodingEntry, 16);
 
-struct At FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
-  typedef AtBuilder Builder;
-  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_INDEX = 4
-  };
-  int64_t index() const {
-    return GetField<int64_t>(VT_INDEX, 0);
-  }
-  bool Verify(::flatbuffers::Verifier &verifier) const {
-    return VerifyTableStart(verifier) &&
-           VerifyField<int64_t>(verifier, VT_INDEX, 8) &&
-           verifier.EndTable();
-  }
-};
-
-struct AtBuilder {
-  typedef At Table;
-  ::flatbuffers::FlatBufferBuilder &fbb_;
-  ::flatbuffers::uoffset_t start_;
-  void add_index(int64_t index) {
-    fbb_.AddElement<int64_t>(At::VT_INDEX, index, 0);
-  }
-  explicit AtBuilder(::flatbuffers::FlatBufferBuilder &_fbb)
-        : fbb_(_fbb) {
-    start_ = fbb_.StartTable();
-  }
-  ::flatbuffers::Offset<At> Finish() {
-    const auto end = fbb_.EndTable(start_);
-    auto o = ::flatbuffers::Offset<At>(end);
-    return o;
-  }
-};
-
-inline ::flatbuffers::Offset<At> CreateAt(
-    ::flatbuffers::FlatBufferBuilder &_fbb,
-    int64_t index = 0) {
-  AtBuilder builder_(_fbb);
-  builder_.add_index(index);
-  return builder_.Finish();
-}
-
 struct Scalar FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
   typedef ScalarBuilder Builder;
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
@@ -883,98 +842,6 @@ inline ::flatbuffers::Offset<Scalar> CreateScalar(
   builder_.add_dtype(dtype);
   builder_.add_bool_value(bool_value);
   builder_.add_has_value(has_value);
-  return builder_.Finish();
-}
-
-struct TensorShape FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
-  typedef TensorShapeBuilder Builder;
-  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_SHAPE = 4
-  };
-  const ::flatbuffers::Vector<int64_t> *shape() const {
-    return GetPointer<const ::flatbuffers::Vector<int64_t> *>(VT_SHAPE);
-  }
-  bool Verify(::flatbuffers::Verifier &verifier) const {
-    return VerifyTableStart(verifier) &&
-           VerifyOffset(verifier, VT_SHAPE) &&
-           verifier.VerifyVector(shape()) &&
-           verifier.EndTable();
-  }
-};
-
-struct TensorShapeBuilder {
-  typedef TensorShape Table;
-  ::flatbuffers::FlatBufferBuilder &fbb_;
-  ::flatbuffers::uoffset_t start_;
-  void add_shape(::flatbuffers::Offset<::flatbuffers::Vector<int64_t>> shape) {
-    fbb_.AddOffset(TensorShape::VT_SHAPE, shape);
-  }
-  explicit TensorShapeBuilder(::flatbuffers::FlatBufferBuilder &_fbb)
-        : fbb_(_fbb) {
-    start_ = fbb_.StartTable();
-  }
-  ::flatbuffers::Offset<TensorShape> Finish() {
-    const auto end = fbb_.EndTable(start_);
-    auto o = ::flatbuffers::Offset<TensorShape>(end);
-    return o;
-  }
-};
-
-inline ::flatbuffers::Offset<TensorShape> CreateTensorShape(
-    ::flatbuffers::FlatBufferBuilder &_fbb,
-    ::flatbuffers::Offset<::flatbuffers::Vector<int64_t>> shape = 0) {
-  TensorShapeBuilder builder_(_fbb);
-  builder_.add_shape(shape);
-  return builder_.Finish();
-}
-
-inline ::flatbuffers::Offset<TensorShape> CreateTensorShapeDirect(
-    ::flatbuffers::FlatBufferBuilder &_fbb,
-    const std::vector<int64_t> *shape = nullptr) {
-  auto shape__ = shape ? _fbb.CreateVector<int64_t>(*shape) : 0;
-  return nvfuser::serde::CreateTensorShape(
-      _fbb,
-      shape__);
-}
-
-struct Size FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
-  typedef SizeBuilder Builder;
-  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_DIM = 4
-  };
-  int64_t dim() const {
-    return GetField<int64_t>(VT_DIM, 0);
-  }
-  bool Verify(::flatbuffers::Verifier &verifier) const {
-    return VerifyTableStart(verifier) &&
-           VerifyField<int64_t>(verifier, VT_DIM, 8) &&
-           verifier.EndTable();
-  }
-};
-
-struct SizeBuilder {
-  typedef Size Table;
-  ::flatbuffers::FlatBufferBuilder &fbb_;
-  ::flatbuffers::uoffset_t start_;
-  void add_dim(int64_t dim) {
-    fbb_.AddElement<int64_t>(Size::VT_DIM, dim, 0);
-  }
-  explicit SizeBuilder(::flatbuffers::FlatBufferBuilder &_fbb)
-        : fbb_(_fbb) {
-    start_ = fbb_.StartTable();
-  }
-  ::flatbuffers::Offset<Size> Finish() {
-    const auto end = fbb_.EndTable(start_);
-    auto o = ::flatbuffers::Offset<Size>(end);
-    return o;
-  }
-};
-
-inline ::flatbuffers::Offset<Size> CreateSize(
-    ::flatbuffers::FlatBufferBuilder &_fbb,
-    int64_t dim = 0) {
-  SizeBuilder builder_(_fbb);
-  builder_.add_dim(dim);
   return builder_.Finish();
 }
 
@@ -1257,6 +1124,57 @@ inline ::flatbuffers::Offset<KernelArgumentHolder> CreateKernelArgumentHolderDir
       arguments__,
       device_index,
       cache_id);
+}
+
+struct TensorShape FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
+  typedef TensorShapeBuilder Builder;
+  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
+    VT_SHAPE = 4
+  };
+  const ::flatbuffers::Vector<int64_t> *shape() const {
+    return GetPointer<const ::flatbuffers::Vector<int64_t> *>(VT_SHAPE);
+  }
+  bool Verify(::flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyOffset(verifier, VT_SHAPE) &&
+           verifier.VerifyVector(shape()) &&
+           verifier.EndTable();
+  }
+};
+
+struct TensorShapeBuilder {
+  typedef TensorShape Table;
+  ::flatbuffers::FlatBufferBuilder &fbb_;
+  ::flatbuffers::uoffset_t start_;
+  void add_shape(::flatbuffers::Offset<::flatbuffers::Vector<int64_t>> shape) {
+    fbb_.AddOffset(TensorShape::VT_SHAPE, shape);
+  }
+  explicit TensorShapeBuilder(::flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  ::flatbuffers::Offset<TensorShape> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = ::flatbuffers::Offset<TensorShape>(end);
+    return o;
+  }
+};
+
+inline ::flatbuffers::Offset<TensorShape> CreateTensorShape(
+    ::flatbuffers::FlatBufferBuilder &_fbb,
+    ::flatbuffers::Offset<::flatbuffers::Vector<int64_t>> shape = 0) {
+  TensorShapeBuilder builder_(_fbb);
+  builder_.add_shape(shape);
+  return builder_.Finish();
+}
+
+inline ::flatbuffers::Offset<TensorShape> CreateTensorShapeDirect(
+    ::flatbuffers::FlatBufferBuilder &_fbb,
+    const std::vector<int64_t> *shape = nullptr) {
+  auto shape__ = shape ? _fbb.CreateVector<int64_t>(*shape) : 0;
+  return nvfuser::serde::CreateTensorShape(
+      _fbb,
+      shape__);
 }
 
 struct LaunchParams FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
@@ -1638,6 +1556,47 @@ inline ::flatbuffers::Offset<ExecutorEntry> CreateExecutorEntryDirect(
       input_aliases__,
       outputs__,
       intermediates__);
+}
+
+struct At FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
+  typedef AtBuilder Builder;
+  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
+    VT_INDEX = 4
+  };
+  int64_t index() const {
+    return GetField<int64_t>(VT_INDEX, 0);
+  }
+  bool Verify(::flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyField<int64_t>(verifier, VT_INDEX, 8) &&
+           verifier.EndTable();
+  }
+};
+
+struct AtBuilder {
+  typedef At Table;
+  ::flatbuffers::FlatBufferBuilder &fbb_;
+  ::flatbuffers::uoffset_t start_;
+  void add_index(int64_t index) {
+    fbb_.AddElement<int64_t>(At::VT_INDEX, index, 0);
+  }
+  explicit AtBuilder(::flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  ::flatbuffers::Offset<At> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = ::flatbuffers::Offset<At>(end);
+    return o;
+  }
+};
+
+inline ::flatbuffers::Offset<At> CreateAt(
+    ::flatbuffers::FlatBufferBuilder &_fbb,
+    int64_t index = 0) {
+  AtBuilder builder_(_fbb);
+  builder_.add_index(index);
+  return builder_.Finish();
 }
 
 struct BatchNorm FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
@@ -2320,6 +2279,47 @@ inline ::flatbuffers::Offset<Reshape> CreateReshapeDirect(
       _fbb,
       original_shape__,
       new_shape__);
+}
+
+struct Size FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
+  typedef SizeBuilder Builder;
+  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
+    VT_DIM = 4
+  };
+  int64_t dim() const {
+    return GetField<int64_t>(VT_DIM, 0);
+  }
+  bool Verify(::flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyField<int64_t>(verifier, VT_DIM, 8) &&
+           verifier.EndTable();
+  }
+};
+
+struct SizeBuilder {
+  typedef Size Table;
+  ::flatbuffers::FlatBufferBuilder &fbb_;
+  ::flatbuffers::uoffset_t start_;
+  void add_dim(int64_t dim) {
+    fbb_.AddElement<int64_t>(Size::VT_DIM, dim, 0);
+  }
+  explicit SizeBuilder(::flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  ::flatbuffers::Offset<Size> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = ::flatbuffers::Offset<Size>(end);
+    return o;
+  }
+};
+
+inline ::flatbuffers::Offset<Size> CreateSize(
+    ::flatbuffers::FlatBufferBuilder &_fbb,
+    int64_t dim = 0) {
+  SizeBuilder builder_(_fbb);
+  builder_.add_dim(dim);
+  return builder_.Finish();
 }
 
 struct Slice FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {

@@ -230,25 +230,28 @@ class ArgumentManager {
 
 flatbuffers::Offset<serde::InputsIdLookup> InputsIdLookup::serialize(
     flatbuffers::FlatBufferBuilder& builder) const {
-  // See definitions in serde/fusion_cache.fbs for tables
-  // InputsIdLookup and EncodingEntry
+  // See definitions in serde/fusion_cache.fbs for table
+  // InputsIdLookup and struct EncodingEntry
 
   using fb_string = flatbuffers::Offset<flatbuffers::String>;
 
-  // Used to get the ordering for the lru_cache
-  std::unordered_map<std::string, size_t> lru_ordering;
+  // For serialization, we require a consistent ordering for the
+  // encoding_lookup_ map.
+  std::unordered_map<std::string, size_t> str_key_ordering;
 
+  // 1. Serialize used_entry_ list
   std::vector<fb_string> lru_cache_fb;
   for (const auto& str : used_entry_) {
     lru_cache_fb.push_back(builder.CreateString(str));
-    lru_ordering.emplace(str, lru_ordering.size());
+    str_key_ordering.emplace(str, str_key_ordering.size());
   }
 
+  // 2. Serialize encoding_lookup_ map
   std::vector<fb_string> encoding_lookup_keys_fb;
   std::vector<serde::EncodingEntry> encoding_lookup_values_fb;
   for (auto&& [key, value] : encoding_lookup_) {
     encoding_lookup_keys_fb.push_back(builder.CreateString(key));
-    encoding_lookup_values_fb.emplace_back(value.id, lru_ordering.at(key));
+    encoding_lookup_values_fb.emplace_back(value.id, str_key_ordering.at(key));
   }
 
   return serde::CreateInputsIdLookupDirect(
@@ -756,48 +759,51 @@ flatbuffers::Offset<serde::FusionExecutorCache> FusionExecutorCache::serialize(
   // See definitions in serde/fusion_cache.fbs for tables
   // FusionExecutorCache and KernelRuntimes
 
-  using fb_fusion_kernel_runtime =
-      flatbuffers::Offset<serde::FusionKernelRuntime>;
-  using fb_kernel_runtimes = flatbuffers::Offset<serde::KernelRuntimes>;
-
-  // Used to get the ordering for the lru_cache
+  // For serialization, we require a consistent ordering for the
+  // kernel_runtimes_ map.
   std::unordered_map<FusionKernelRuntime*, size_t> kernel_cache_ordering;
 
-  std::vector<fb_kernel_runtimes> kernel_runtimes;
-  kernel_runtimes.reserve(kernel_runtimes_.size());
+  // 1. For each [device, concretization_info] key, serialize its vector of
+  // FusionKernelRuntime objects
+  std::vector<flatbuffers::Offset<serde::KernelRuntimes>> fb_kernel_runtimes;
+  fb_kernel_runtimes.reserve(kernel_runtimes_.size());
 
   for (auto&& [config, device_runtimes] : kernel_runtimes_) {
-    std::vector<fb_fusion_kernel_runtime> runtimes;
-    runtimes.reserve(device_runtimes.size());
+    std::vector<flatbuffers::Offset<serde::FusionKernelRuntime>>
+        fb_device_runtimes;
+    fb_device_runtimes.reserve(device_runtimes.size());
 
-    for (auto kernel_id : c10::irange(device_runtimes.size())) {
-      auto kernel_runtime_ptr = device_runtimes.at(kernel_id).get();
-      runtimes.push_back(kernel_runtime_ptr->serialize(builder));
+    for (auto kernel_idx : c10::irange(device_runtimes.size())) {
+      auto kernel_runtime_ptr = device_runtimes.at(kernel_idx).get();
+      fb_device_runtimes.push_back(kernel_runtime_ptr->serialize(builder));
 
+      // Assign each runtime pointer an integer index.
       kernel_cache_ordering.emplace(
           kernel_runtime_ptr, kernel_cache_ordering.size());
     }
 
+    // We recompute the DynamicTransformConcretizationInfo during
+    // deserialization using a metadata copy of kernel inputs.
     auto&& [device_id, dynamic_info] = config;
-    kernel_runtimes.push_back(CreateKernelRuntimesDirect(
-        builder, device_id, (dynamic_info != nullptr), &runtimes));
+    fb_kernel_runtimes.push_back(CreateKernelRuntimesDirect(
+        builder, device_id, (dynamic_info != nullptr), &fb_device_runtimes));
   }
 
+  // 2. Serialize input id to kernel cache
   std::vector<size_t> kernel_cache_keys;
   std::vector<size_t> kernel_cache_values;
-
   kernel_cache_keys.reserve(id_to_kernel_runtime_.size());
   kernel_cache_values.reserve(id_to_kernel_runtime_.size());
 
-  for (auto&& [id, kernel_runtime_ptr] : id_to_kernel_runtime_) {
-    kernel_cache_keys.push_back(id);
+  for (auto&& [cache_id, kernel_runtime_ptr] : id_to_kernel_runtime_) {
+    kernel_cache_keys.push_back(cache_id);
     kernel_cache_values.push_back(kernel_cache_ordering.at(kernel_runtime_ptr));
   }
 
   return serde::CreateFusionExecutorCacheDirect(
       builder,
       inputs_id_lookup_.serialize(builder),
-      &kernel_runtimes,
+      &fb_kernel_runtimes,
       &kernel_cache_keys,
       &kernel_cache_values);
 }
@@ -813,26 +819,26 @@ void FusionExecutorCache::deserialize(
   inputs_id_lookup_.deserialize(buffer->inputs_cache());
 
   // For the id_to_kernel_runtime_ cache, we need a flat collection of all
-  // fusion kernel runtimes.
+  // FusionKernelRuntime objects.
   std::vector<FusionKernelRuntime*> all_runtimes;
 
-  for (auto device_runtimes : *buffer->kernel_runtimes()) {
-    // Compute or get cached initial concretization info
+  // 1. Deserialize kernel_runtimes_ unordered_map
+  for (auto fb_device_runtimes : *buffer->kernel_runtimes()) {
     const auto& initial_info = initialInfo();
-
     TORCH_INTERNAL_ASSERT(
         initial_info.isDynamic() ==
-        device_runtimes->has_dynamic_transform_info());
-    std::vector<std::unique_ptr<FusionKernelRuntime>> runtimes;
+        fb_device_runtimes->has_dynamic_transform_info());
+    TORCH_INTERNAL_ASSERT(fb_device_runtimes->runtimes()->size() > 0);
+
+    std::vector<std::unique_ptr<FusionKernelRuntime>> device_runtimes;
 
     DynamicTransformConcretizationInfo* conc_info = nullptr;
     if (initial_info.isDynamic()) {
-      // Construct args from flatbuffer object
+      // Each FusionKernelRuntime stores a metadata copy of its initial inputs.
+      // We deserialize the arguments of the first FusionKernelRuntime to
+      // recompute the concretization info.
       KernelArgumentHolder args;
-      args.deserialize(device_runtimes->runtimes()->begin()->args());
-
-      // This class needs to own conc_info so it can be compared in subsequent
-      // invocations.
+      args.deserialize(fb_device_runtimes->runtimes()->begin()->args());
       auto expr_eval = executor_utils::bindInputs(args, fusion_.get());
       cached_conc_info_.emplace_back(
           std::make_unique<DynamicTransformConcretizationInfo>(
@@ -840,19 +846,16 @@ void FusionExecutorCache::deserialize(
       conc_info = cached_conc_info_.back().get();
     }
 
-    for (auto runtime : *device_runtimes->runtimes()) {
-      // Construct args from flatbuffer object
-      KernelArgumentHolder args;
-      args.deserialize(runtime->args());
-
-      // concretize fusion_ for use in this runtime
+    for (auto runtime : *fb_device_runtimes->runtimes()) {
       auto conc_fusion = std::make_unique<Fusion>(*fusion_);
       FusionGuard fg(conc_fusion.get());
+
+      // Concretize original unscheduled fusion_ for this kernel runtime
       if (initial_info.isDynamic()) {
         const auto& conc_initial_info =
             conc_fusion->getManaged<DynamicTransformInitialInfo>(
                 "initial_info");
-        TORCH_INTERNAL_ASSERT(conc_info);
+        TORCH_INTERNAL_ASSERT(conc_info != nullptr);
         conc_info->setInitialInfo(&conc_initial_info);
 
         DynamicTransform::concretizeFusion(conc_fusion.get(), conc_info);
@@ -862,20 +865,27 @@ void FusionExecutorCache::deserialize(
         conc_fusion->stopManaging("initial_info");
       }
 
-      // Create new FusionKernelRuntime
-      runtimes.emplace_back(
+      // 1. Deserialize arguments for this FusionKernelRuntime
+      KernelArgumentHolder args;
+      args.deserialize(runtime->args());
+
+      // 2. Construct new FusionKernelRuntime
+      device_runtimes.emplace_back(
           std::make_unique<FusionKernelRuntime>(std::move(conc_fusion), args));
 
-      // Deserialize FusionExecutors in FusionKernelRuntime
-      runtimes.back()->deserialize(runtime);
+      // 3. For FusionKernelRuntime, we have a separate deserialize function
+      // to create the FusionExecutor objects.
+      device_runtimes.back()->deserialize(runtime);
 
-      all_runtimes.emplace_back(runtimes.back().get());
+      all_runtimes.emplace_back(device_runtimes.back().get());
     }
+
     kernel_runtimes_.emplace(
-        std::make_pair(device_runtimes->device_id(), conc_info),
-        std::move(runtimes));
+        std::make_pair(fb_device_runtimes->device_id(), conc_info),
+        std::move(device_runtimes));
   }
 
+  // 2. Rebuild input id to kernel cache
   for (auto idx : c10::irange(buffer->kernel_cache_keys()->size())) {
     size_t key = buffer->kernel_cache_keys()->Get(idx);
     size_t value_id = buffer->kernel_cache_values()->Get(idx);
@@ -942,10 +952,8 @@ flatbuffers::Offset<serde::FusionKernelRuntime> FusionKernelRuntime::serialize(
     flatbuffers::FlatBufferBuilder& builder) const {
   // See table definition for FusionKernelRuntime in serde/fusion_cache.fbs
 
-  using fb_fusion_executor =
-      flatbuffers::Offset<nvfuser::serde::FusionExecutor>;
-
-  std::vector<fb_fusion_executor> executors_fb;
+  // 1. Serialize FusionExecutor objects
+  std::vector<flatbuffers::Offset<serde::FusionExecutor>> executors_fb;
   executors_fb.reserve(executors_.size());
   for (auto& executor : executors_) {
     executors_fb.push_back(executor.serialize(builder));
@@ -964,10 +972,11 @@ void FusionKernelRuntime::deserialize(
   TORCH_INTERNAL_ASSERT(
       runtime_workspace_.group_run_order.size() == executors_.size());
 
+  // 1. Deserialize FusionExecutor objects
   for (auto idx : c10::irange(buffer->executors()->size())) {
     auto sg = runtime_workspace_.group_run_order.at(idx);
 
-    // Schedule Fusion
+    // Create and schedule Fusion for this SegmentedGroup
     auto group_id = sg->groupId();
     auto scheduler_entry = schedulers().at(group_id).get();
     TORCH_INTERNAL_ASSERT(

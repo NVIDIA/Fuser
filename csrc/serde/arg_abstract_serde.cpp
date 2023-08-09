@@ -20,7 +20,7 @@ PolymorphicValue makeCpuScalarTensor(const serde::ScalarCpu* scalar_cpu) {
   return nvfuser::PolymorphicValue_functions::toTensor(scalar, at::kCPU);
 }
 
-PolymorphicValue getAbstractTensorArg(const serde::TensorArg* tensor) {
+PolymorphicValue getMetaTensorArg(const serde::TensorArg* tensor) {
   TORCH_INTERNAL_ASSERT(tensor != nullptr);
   if (tensor->strides() != nullptr) {
     auto meta_tensor = at::detail::empty_strided_meta(
@@ -54,8 +54,11 @@ void ArgAbstractFactory::registerAllParsers() {
   };
   registerParser(serde::ArgAbstractData_ScalarCpu, deserializeScalarCpu);
 
+  // TODO Encode ptr field which corresponds to the aten tensor's data pointer.
+  // It is used during scheduling for vectorization. A meta aten tensor assumes
+  // that the pointer address is zero.
   auto deserializeTensorArg = [](const serde::ArgAbstract* buffer) {
-    return getAbstractTensorArg(buffer->data_as_TensorArg());
+    return getMetaTensorArg(buffer->data_as_TensorArg());
   };
   registerParser(serde::ArgAbstractData_TensorArg, deserializeTensorArg);
 }
