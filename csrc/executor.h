@@ -194,6 +194,15 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
 
   std::string getStructuredCode() const;
 
+  // When executing nvFuser with: NVFUSER_EXTERNAL_SRC=file1.cu,file2.cu
+  // The function will get the structured code from the provided files. These
+  // files should be delineated with commas and the order of the files is the
+  // same as the order of the fusion_ids. If provided number of files is less
+  // than the number of fusion segments, the code will still use the provided
+  // files in order and will print a warning message.
+  std::string getStructuredCodeFromExternalFiles(
+      const std::string& file_path) const;
+
   //! Returns the latest compile log
   std::string compilerLog() const {
     return last_compiler_log_;
