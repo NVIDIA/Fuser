@@ -5141,7 +5141,7 @@ TEST_F(NVFuserTest, FusionCheckedSymbolicShape_CUDA) {
     EXPECT_THAT(
         [&]() { matched_add(a, c); },
         ::testing::ThrowsMessage<c10::Error>(
-            ::testing::HasSubstr("Attempting to bind")));
+            ::testing::HasSubstr("Conflicting sizes")));
   }
 }
 

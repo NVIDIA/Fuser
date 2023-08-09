@@ -128,7 +128,9 @@ __device__ __inline__ void __bfloat2int(const __bfloat h, int64_t& output) {
   output = __bfloat2int(h);
 }
 
-__device__ __inline__ nvfuser_index_t __bfloat2index(const __bfloat h, bool& output) {
+__device__ __inline__ nvfuser_index_t __bfloat2index(
+    const __bfloat h,
+    bool& output) {
   nvfuser_index_t result;
   __bfloat2int(h, result);
   return result;
