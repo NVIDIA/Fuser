@@ -118,7 +118,9 @@ std::string FusionExecutor::getStructuredCodeFromExternalFiles(
   if (!all_external_code_paths.empty() && fusion_id_ >= 1) {
     std::string single_code_path =
         getExternalCodeFile(all_external_code_paths, fusion_id_);
-    if (!single_code_path.empty()) {
+    if (single_code_path.empty()) {
+      return "";
+    }
       debug() << "--------> Compiling external CUDA code: " << single_code_path
               << std::endl;
       std::ifstream cuda_src(single_code_path);
