@@ -81,21 +81,20 @@ static const std::string& includeStdComplex() {
   return result;
 }
 
-} // namespace
-
-std::unique_ptr<PrecomputedValues>& FusionExecutor::
-    evaluatorPrecomputedValues() {
-  if (!evaluator_precomputed_values_) {
-    evaluator_precomputed_values_ =
-        std::make_unique<PrecomputedValues>(lowered_->kernel());
+// When executing nvFuser with: NVFUSER_EXTERNAL_SRC=file1.cu,file2.cu
+// The function will get the structured code from the provided files. These
+// files should be delineated with commas and the order of the files is the
+// same as the order of the fusion_ids. If provided number of files is less
+// than the number of fusion segments, the code will still use the provided
+// files in order and will print a warning message.
+std::string getStructuredCodeFromExternalFiles(const int64_t fusion_id) {
+  auto external_code_path = getNvFuserEnv("EXTERNAL_SRC");
+  if (!external_code_path) {
+    return "";
   }
-  return evaluator_precomputed_values_;
-}
-
-std::string FusionExecutor::getStructuredCodeFromExternalFiles(
-    const std::string& all_external_code_paths) const {
-  if (all_external_code_paths.empty() || fusion_id == 0) {
-     return "";
+  std::string all_external_code_paths(external_code_path);
+  if (all_external_code_paths.empty() || fusion_id < 1) {
+    return "";
   }
   auto getExternalCodeFile = [](const std::string& input,
                                 int64_t index) -> std::string {
@@ -111,33 +110,36 @@ std::string FusionExecutor::getStructuredCodeFromExternalFiles(
         << "Didn't find requested external source code. Will use generated code!\n"
         << "Number of source code files should equal the number of fusion segments.\n"
         << "External source code filenames should be delineated with commas, e.g.: file1.cu,file2.cu.\n";
-    return ""; // Return an empty string if no match was found
+    return "";
   };
 
-  // If there are provided paths and the fusion_id is valid
-  if (!all_external_code_paths.empty() && fusion_id_ >= 1) {
-    std::string single_code_path =
-        getExternalCodeFile(all_external_code_paths, fusion_id_);
-    if (single_code_path.empty()) {
-      return "";
-    }
-      debug() << "--------> Compiling external CUDA code: " << single_code_path
-              << std::endl;
-      std::ifstream cuda_src(single_code_path);
-      if (!cuda_src.is_open()) {
-        debug() << "Failed to open external source file: " << single_code_path << std::endl;
-        return "";
-      }
-        std::stringstream buffer;
-        buffer << cuda_src.rdbuf();
-        return buffer.str();
-      }
-    }
+  std::string single_code_path =
+      getExternalCodeFile(all_external_code_paths, fusion_id);
+  if (single_code_path.empty()) {
+    return "";
   }
+  std::ifstream cuda_src(single_code_path);
+  if (!cuda_src.is_open()) {
+    debug() << "Failed to open external source file: " << single_code_path
+            << std::endl;
+    return "";
+  }
+  debug() << "--------> Compiling external CUDA code: " << single_code_path
+          << std::endl;
 
-  // May return an empty string if the provided number of files is less than the
-  // number of fusion segments
-  return "";
+  std::stringstream buffer;
+  buffer << cuda_src.rdbuf();
+  return buffer.str();
+}
+} // namespace
+
+std::unique_ptr<PrecomputedValues>& FusionExecutor::
+    evaluatorPrecomputedValues() {
+  if (!evaluator_precomputed_values_) {
+    evaluator_precomputed_values_ =
+        std::make_unique<PrecomputedValues>(lowered_->kernel());
+  }
+  return evaluator_precomputed_values_;
 }
 
 std::string FusionExecutor::getStructuredCode(
@@ -353,11 +355,8 @@ void FusionExecutor::compileFusion(
   // If the loaded external source code is empty, revert to the default codegen.
   // The external_structured_code is moved to structured_code and explicitly
   // cleared to avoid use-after-move scenarios.
-  auto external_code_path = getNvFuserEnv("EXTERNAL_SRC");
-  std::string external_structured_code = external_code_path
-      ? getStructuredCodeFromExternalFiles(std::string(external_code_path))
-      : "";
-
+  std::string external_structured_code =
+      getStructuredCodeFromExternalFiles(fusion_id_);
   const auto structured_code = external_structured_code.empty()
       ? getStructuredCode()
       : std::move(external_structured_code);
