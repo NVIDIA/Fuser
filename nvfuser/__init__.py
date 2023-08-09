@@ -75,20 +75,21 @@ class FusionDefinition(_C._FusionDefinition):
             inputs (List[Union[Tensor, Scalar]]): A list of inputs to fusion.
 
         Kwargs:
-            override_user_schedule (bool): For a user defined schedule, override with auto-generated schedule (default: False)
+            override_user_schedule (bool): For a user defined schedule,
+                override with auto-generated schedule (default: False)
             device (Optional[Union[int, str, torch.device]]): This is a hint to run
-            the Fusion on the given CUDA device. This is not typically
-            necessary, as the device is usually inferred from the locations of
-            input tensors. However, for some fusion definitions, no tensors
-            will be input (for example when all tensors are generated with
-            `full` or `uniform` ops). In these cases, we must either tell
-            NVFuser where to run the resulting kernel, or let it default to 0.
-            Note that passing this option providing and input tensors that lie
-            on another device is an error.
+                the Fusion on the given CUDA device. This is not typically
+                necessary, as the device is usually inferred from the locations
+                of input tensors. However, for some fusion definitions, no
+                tensors will be input (for example when all tensors are
+                generated with `full` or `uniform` ops). In these cases, we
+                must either tell NVFuser where to run the resulting kernel, or
+                let it default to 0. Note that passing this option providing
+                and input tensors that lie on another device is an error.
             capture_debug_output (bool): Whether to capture any printed
-            debugging information as a string. If True, the string can be
-            retrieved after execution using :meth:`get_debug_output`. If False,
-            then that method will return None when called.
+                debugging information as a string. If True, the string can be
+                retrieved after execution using :meth:`get_debug_output`. If False,
+                then that method will return None when called.
 
         Returns:
             List[Tensor]
