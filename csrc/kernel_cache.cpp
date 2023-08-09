@@ -48,6 +48,25 @@ c10::ThreadPool* getThreadPool() {
   return &pool;
 }
 
+KernelArgumentHolder getMetadataArgs(const KernelArgumentHolder& args) {
+  KernelArgumentHolder result;
+  for (auto idx : c10::irange(args.size())) {
+    const auto& arg = args[idx];
+    if (arg->is<at::Tensor>()) {
+      const auto& tensor = arg->as<at::Tensor>();
+      if (tensor.is_cuda()) {
+        result.pushTensorProxy(
+            tensor.sizes(), tensor.strides(), tensor.scalar_type());
+        continue;
+      }
+    }
+    // Push argument value to this kernel argument holder
+    // The push function moves the value to a new shared pointer.
+    result.push(*arg);
+  }
+  return result;
+}
+
 // Copy bytes of value to back of buffer. This is templated in order to avoid
 // implicit cast such as int64_t -> size_t that might lose information.
 template <typename T>
@@ -867,13 +886,14 @@ void FusionExecutorCache::deserialize(
 FusionKernelRuntime::FusionKernelRuntime(
     std::unique_ptr<Fusion> fusion,
     const KernelArgumentHolder& args,
-    std::optional<PrimDataType> forced_index_type)
-    : args_metadata_{args, true /* metadata_only */} {
+    std::optional<PrimDataType> forced_index_type) {
   FUSER_PERF_SCOPE("FusionKernelRuntime::FusionKernelRuntime");
 
   TORCH_INTERNAL_ASSERT(
       !fusion->hasDynamicTransform(),
       "Fusion must be concretized before constructing FusionKernelRuntime");
+
+  args_metadata_ = getMetadataArgs(args);
 
   optimization::OptimizationPass<optimization::PreSegmenter>::runPass(
       fusion.get());
