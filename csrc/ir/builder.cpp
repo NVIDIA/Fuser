@@ -271,6 +271,13 @@ Val* SimplifyingIrBuilder::bitwiseNotExpr(Val* val) {
   return IrBuilder::bitwiseNotExpr(val);
 }
 
+Val* SimplifyingIrBuilder::maybeCastExpr(DataType dtype, Val* val) {
+  if (val->isConst()) {
+    return IrBuilder::create<Val>(val->value(), dtype);
+  }
+  return IrBuilder::maybeCastExpr(dtype, val);
+}
+
 Val* SimplifyingIrBuilder::addExpr(
     Val* lhs,
     PolymorphicValue rhs,

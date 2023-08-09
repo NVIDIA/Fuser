@@ -715,13 +715,16 @@ TensorView* slice(TensorView* inp, const std::vector<Slice>& ranges) {
       range.step = FusionGuard::getCurFusion()->oneVal();
     }
     if (range.start->dtype() != DataType::Index) {
-      range.start = castOp(DataType::Index, range.start);
+      range.start =
+          SimplifyingIrBuilder::maybeCastExpr(DataType::Index, range.start);
     }
     if (range.stop->dtype() != DataType::Index) {
-      range.stop = castOp(DataType::Index, range.stop);
+      range.stop =
+          SimplifyingIrBuilder::maybeCastExpr(DataType::Index, range.stop);
     }
     if (range.step->dtype() != DataType::Index) {
-      range.step = castOp(DataType::Index, range.step);
+      range.step =
+          SimplifyingIrBuilder::maybeCastExpr(DataType::Index, range.step);
     }
     return range;
   };
