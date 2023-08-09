@@ -2552,43 +2552,42 @@ Val* cancelTermsInPredicate(Val* value, const Context& context) {
   const auto& lhs_terms = get_terms(bop->lhs());
   const auto& rhs_terms = get_terms(bop->rhs());
 
-  std::unordered_set<Val*> common_lhs_terms;
-  std::unordered_set<Val*> common_rhs_terms;
-  for (auto lhs_term : lhs_terms) {
-    for (auto rhs_term : rhs_terms) {
+  std::vector<bool> common_lhs_terms(lhs_terms.size(), false);
+  std::vector<bool> common_rhs_terms(rhs_terms.size(), false);
+  for (const auto lhs_i : c10::irange(lhs_terms.size())) {
+    for (const auto rhs_i : c10::irange(rhs_terms.size())) {
       // Make sure no multiple LHS terms are removed for the same RHS term
-      if (common_rhs_terms.count(rhs_term)) {
+      if (common_rhs_terms.at(rhs_i)) {
         continue;
       }
-      if (lhs_term->sameAs(rhs_term)) {
-        common_lhs_terms.insert(lhs_term);
-        common_rhs_terms.insert(rhs_term);
+      if (lhs_terms[lhs_i]->sameAs(rhs_terms[rhs_i])) {
+        common_lhs_terms.at(lhs_i) = true;
+        common_rhs_terms.at(rhs_i) = true;
         break;
       }
     }
   }
 
-  if (common_lhs_terms.empty()) {
+  if (std::none_of(
+          common_lhs_terms.begin(), common_lhs_terms.end(), [](auto flag) {
+            return flag;
+          })) {
     return value;
   }
 
   std::vector<Val*> new_lhs_terms;
-  std::copy_if(
-      lhs_terms.begin(),
-      lhs_terms.end(),
-      std::back_inserter(new_lhs_terms),
-      [&common_lhs_terms](Val* val) {
-        return common_lhs_terms.count(val) == 0;
-      });
+  for (const auto i : c10::irange(lhs_terms.size())) {
+    if (!common_lhs_terms.at(i)) {
+      new_lhs_terms.push_back(lhs_terms[i]);
+    }
+  }
 
   std::vector<Val*> new_rhs_terms;
-  std::copy_if(
-      rhs_terms.begin(),
-      rhs_terms.end(),
-      std::back_inserter(new_rhs_terms),
-      [&common_rhs_terms](Val* val) {
-        return common_rhs_terms.count(val) == 0;
-      });
+  for (const auto i : c10::irange(rhs_terms.size())) {
+    if (!common_rhs_terms.at(i)) {
+      new_rhs_terms.push_back(rhs_terms[i]);
+    }
+  }
 
   Val* new_lhs = nullptr;
   if (new_lhs_terms.empty()) {
