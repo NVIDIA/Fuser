@@ -74,6 +74,18 @@ class TORCH_CUDA_CU_API KernelArgumentHolder {
     return arguments_.at(ind).get();
   };
 
+  const auto cbegin() const {
+    return arguments_.cbegin();
+  }
+
+  const auto cend() const {
+    return arguments_.cend();
+  }
+
+  auto getBackInserter() {
+    return std::back_inserter(arguments_);
+  }
+
   size_t size() const {
     return arguments_.size();
   }

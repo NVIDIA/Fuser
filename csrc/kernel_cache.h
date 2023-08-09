@@ -253,8 +253,9 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
   //! Executors holding compiled kernels
   std::vector<FusionExecutor> executors_;
 
-  // KernelArgumentHolder containing the metadata associated with arguments used
-  // to construct this FusionKernelRuntime
+  // A metadata copy of initial arguments used to contruct this
+  // FusionKernelRuntime. Used during deserialization to schedule the fusion
+  // rather than storing the scheduled fusion directly.
   KernelArgumentHolder args_metadata_;
 
   //! Heuristics object holding scheduler entries for all segments

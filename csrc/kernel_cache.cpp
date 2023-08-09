@@ -48,23 +48,23 @@ c10::ThreadPool* getThreadPool() {
   return &pool;
 }
 
-KernelArgumentHolder getMetadataArgs(const KernelArgumentHolder& args) {
-  KernelArgumentHolder result;
-  for (auto idx : c10::irange(args.size())) {
-    const auto& arg = args[idx];
-    if (arg->is<at::Tensor>()) {
-      const auto& tensor = arg->as<at::Tensor>();
-      if (tensor.is_cuda()) {
-        result.pushTensorProxy(
-            tensor.sizes(), tensor.strides(), tensor.scalar_type());
-        continue;
-      }
+// Replace CUDA tensor with Meta tensor because storing tensors can cause
+// out-of-memory issues. Other arguments are returned as-is.
+std::shared_ptr<PolymorphicValue> convertMetadataArg(
+    std::shared_ptr<PolymorphicValue> arg) {
+  if (arg->is<at::Tensor>()) {
+    if (const auto& tensor = arg->as<at::Tensor>(); tensor.is_cuda()) {
+      auto meta_tensor = at::Tensor(at::detail::empty_strided_meta(
+          tensor.sizes(),
+          tensor.strides(),
+          tensor.scalar_type(),
+          c10::nullopt,
+          c10::Device(c10::DeviceType::Meta, 0),
+          c10::nullopt));
+      return std::make_shared<PolymorphicValue>(std::move(meta_tensor));
     }
-    // Push argument value to this kernel argument holder
-    // The push function moves the value to a new shared pointer.
-    result.push(*arg);
   }
-  return result;
+  return arg;
 }
 
 // Copy bytes of value to back of buffer. This is templated in order to avoid
@@ -893,7 +893,12 @@ FusionKernelRuntime::FusionKernelRuntime(
       !fusion->hasDynamicTransform(),
       "Fusion must be concretized before constructing FusionKernelRuntime");
 
-  args_metadata_ = getMetadataArgs(args);
+  // Store metadata copy of arguments for serialization
+  std::transform(
+      args.cbegin(),
+      args.cend(),
+      args_metadata_.getBackInserter(),
+      convertMetadataArg);
 
   optimization::OptimizationPass<optimization::PreSegmenter>::runPass(
       fusion.get());
