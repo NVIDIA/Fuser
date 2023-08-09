@@ -1496,7 +1496,7 @@ TensorView* expand(TensorView* inp, const std::vector<Val*>& expanded_sizes) {
       // Input id is non-expand and its extent is concrete. Nothing
       // to expand, but the input and expanded sizes should match if
       // the expanded size is also concrete.
-      auto inp_id_size_int = inp_id->extent()->getInt();
+      auto inp_id_size_int = inp_id->extent()->evaluateInt();
       if (expanded_size_int.has_value()) {
         TORCH_CHECK(
             inp_id_size_int == expanded_size_int,

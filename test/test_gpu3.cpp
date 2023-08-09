@@ -1510,8 +1510,8 @@ TEST_F(NVFuserTest, FusionIndexHoist1_CUDA) {
         exprs.at(0)->toString());
     auto hoisted_index = exprs.at(0)->as<kir::Allocate>()->buffer();
     TORCH_CHECK(
-        hoisted_index->dtype() == DataType::Int32,
-        "Invalid data type of hoisted indices. Should be Int32 but: ",
+        hoisted_index->dtype() == DataType::Index,
+        "Invalid data type of hoisted indices. Should be nvfuser_index_t but: ",
         hoisted_index->dtype());
     kir::Predicate* pred = nullptr;
     for (auto expr : exprs) {
