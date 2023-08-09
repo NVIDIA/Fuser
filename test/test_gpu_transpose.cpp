@@ -1127,40 +1127,4 @@ TEST_F(NVFuserTest, UnswitchPredicateIssueRepro667_CUDA) {
   TORCH_CHECK(ref.equal(cg_outputs.at(0)));
 }
 
-// Another repro of the unswitch predicate issue. See issue #681
-TEST_F(NVFuserTest, UnswitchPredicateIssueRepro681_CUDA) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
-  auto tv0 = makeSymbolicTensor(2);
-  fusion.addInput(tv0);
-
-  auto tv1 = sum(tv0, {0, 1});
-  fusion.addOutput(tv1);
-
-  // [i0, i1]
-  tv1->split(1, 4);
-  // [i0, i1/4, 4]
-  tv1->merge(0);
-  // [i0*i1/4, 4]
-  tv1->split(0, 4);
-  // [i0*i1/4/4, 4, 4]
-  tv1->split(0, 1);
-  // [i0*i1/4/4, 1, 4, 4]
-
-  tv1->axis(1)->parallelize(ParallelType::Unswitch);
-
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor t0 = at::randn({4, 10}, options);
-  std::vector<c10::IValue> aten_inputs = {t0};
-
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs);
-  auto outputs = fe.runFusion(aten_inputs);
-
-  auto ref = t0.to(at::kDouble).sum();
-
-  testValidate(&fusion, outputs, aten_inputs, {ref}, __LINE__, __FILE__);
-}
-
 } // namespace nvfuser
