@@ -521,8 +521,8 @@ TensorView* pad(
   for (const auto i : c10::irange(num_padded_dims)) {
     auto left_pad = pad_widths.at(num_padded_dims * 2 - (i + 1) * 2);
     auto right_pad = pad_widths.at(num_padded_dims * 2 - (i + 1) * 2 + 1);
-    normalized_pad_widths.push_back(left_pad);
-    normalized_pad_widths.push_back(right_pad);
+    normalized_pad_widths.push_back(maybeCastOp(DataType::Index, left_pad));
+    normalized_pad_widths.push_back(maybeCastOp(DataType::Index, right_pad));
   }
 
   // Indicates if any dimension is actually padded. Can be false even
