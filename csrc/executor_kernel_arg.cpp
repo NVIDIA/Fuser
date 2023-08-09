@@ -11,7 +11,7 @@
 #include <kernel_cache.h>
 
 #include <executor_kernel_arg.h>
-#include <serde/arg_abstract_serde.h>
+#include <serde/polymorphic_value_serde.h>
 
 namespace nvfuser {
 
@@ -148,9 +148,9 @@ flatbuffers::Offset<serde::KernelArgumentHolder> KernelArgumentHolder::
   // See table definitions for KernelArgumentHolder and PolymorphicValue
   // in serde/fusion_cache.fbs
 
-  using fb_arg_abstract = flatbuffers::Offset<nvfuser::serde::ArgAbstract>;
+  using fb_poly_value = flatbuffers::Offset<nvfuser::serde::PolymorphicValue>;
 
-  std::vector<fb_arg_abstract> arguments_fb;
+  std::vector<fb_poly_value> arguments_fb;
   arguments_fb.reserve(arguments_.size());
   for (auto& arg : arguments_) {
     arguments_fb.push_back(serde::serializePolymorphicValue(builder, arg));
@@ -173,12 +173,11 @@ void KernelArgumentHolder::deserialize(
       ? std::optional<size_t>(buffer->cache_id())
       : std::nullopt;
 
-  serde::ArgAbstractFactory arg_abstract_factory;
-  for (auto fb_arg_abstract : *buffer->arguments()) {
+  serde::PolymorphicValueFactory poly_value_factory;
+  for (auto fb_poly_value : *buffer->arguments()) {
     TORCH_INTERNAL_ASSERT(
-        fb_arg_abstract != nullptr, "serde::ArgAbstract is nullptr.");
-    push(arg_abstract_factory.parse(
-        fb_arg_abstract->data_type(), fb_arg_abstract));
+        fb_poly_value != nullptr, "serde::PolymorphicValue is nullptr.");
+    push(poly_value_factory.parse(fb_poly_value->data_type(), fb_poly_value));
   }
 }
 

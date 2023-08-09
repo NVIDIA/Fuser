@@ -12,7 +12,6 @@
 #include <expr_evaluator.h>
 #include <ir/all_nodes.h>
 #include <serde/fusion_cache_generated.h>
-#include <serde/utils.h>
 #include <torch/csrc/jit/ir/ir.h>
 #include <type.h>
 

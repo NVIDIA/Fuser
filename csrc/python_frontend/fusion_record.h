@@ -14,6 +14,7 @@
 #include <python_frontend/fusion_definition.h>
 #include <python_frontend/fusion_state.h>
 #include <serde/fusion_cache_generated.h>
+#include <serde/polymorphic_value_serde.h>
 #include <serde/utils.h>
 #include <utils.h>
 

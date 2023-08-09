@@ -136,8 +136,8 @@ union RecordData {
   Vector,
 }
 
-// The ArgAbstractData union holds the attribute information for each ArgAbstract.
-union ArgAbstractData {
+// The PolymorphicValueData union holds the attribute information for each PolymorphicValue.
+union PolymorphicValueData {
   Scalar,
   ScalarCpu,
   TensorArg,
@@ -166,7 +166,7 @@ table Scalar {
 }
 
 // =====================================================================================
-// Tables for ArgAbstract, ScalarCpu, TensorArg, KernelArgumentHolder used in FusionExecutor.
+// Tables for PolymorphicValue, ScalarCpu, TensorArg, KernelArgumentHolder used in FusionExecutor.
 
 // The ScalarCpu is represented by a fixed size array of raw bytes.
 table ScalarCpu {
@@ -184,14 +184,14 @@ table TensorArg {
   dtype: DataType;
 }
 
-// This table corresponds with a given ArgAbstract object.
-table ArgAbstract {
-  data : ArgAbstractData;
+// This table corresponds with a given PolymorphicValue object.
+table PolymorphicValue {
+  data : PolymorphicValueData;
 }
 
-// This table holds multiple ArgAbstract objects.
+// This table holds multiple PolymorphicValue objects.
 table KernelArgumentHolder {
-  arguments : [ArgAbstract];
+  arguments : [PolymorphicValue];
   device_index : byte;
   cache_id : ulong;
 }

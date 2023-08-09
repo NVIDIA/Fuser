@@ -27,8 +27,8 @@ struct ScalarCpuBuilder;
 struct TensorArg;
 struct TensorArgBuilder;
 
-struct ArgAbstract;
-struct ArgAbstractBuilder;
+struct PolymorphicValue;
+struct PolymorphicValueBuilder;
 
 struct KernelArgumentHolder;
 struct KernelArgumentHolderBuilder;
@@ -633,26 +633,26 @@ template<> struct RecordDataTraits<nvfuser::serde::Vector> {
 bool VerifyRecordData(::flatbuffers::Verifier &verifier, const void *obj, RecordData type);
 bool VerifyRecordDataVector(::flatbuffers::Verifier &verifier, const ::flatbuffers::Vector<::flatbuffers::Offset<void>> *values, const ::flatbuffers::Vector<uint8_t> *types);
 
-enum ArgAbstractData : uint8_t {
-  ArgAbstractData_NONE = 0,
-  ArgAbstractData_Scalar = 1,
-  ArgAbstractData_ScalarCpu = 2,
-  ArgAbstractData_TensorArg = 3,
-  ArgAbstractData_MIN = ArgAbstractData_NONE,
-  ArgAbstractData_MAX = ArgAbstractData_TensorArg
+enum PolymorphicValueData : uint8_t {
+  PolymorphicValueData_NONE = 0,
+  PolymorphicValueData_Scalar = 1,
+  PolymorphicValueData_ScalarCpu = 2,
+  PolymorphicValueData_TensorArg = 3,
+  PolymorphicValueData_MIN = PolymorphicValueData_NONE,
+  PolymorphicValueData_MAX = PolymorphicValueData_TensorArg
 };
 
-inline const ArgAbstractData (&EnumValuesArgAbstractData())[4] {
-  static const ArgAbstractData values[] = {
-    ArgAbstractData_NONE,
-    ArgAbstractData_Scalar,
-    ArgAbstractData_ScalarCpu,
-    ArgAbstractData_TensorArg
+inline const PolymorphicValueData (&EnumValuesPolymorphicValueData())[4] {
+  static const PolymorphicValueData values[] = {
+    PolymorphicValueData_NONE,
+    PolymorphicValueData_Scalar,
+    PolymorphicValueData_ScalarCpu,
+    PolymorphicValueData_TensorArg
   };
   return values;
 }
 
-inline const char * const *EnumNamesArgAbstractData() {
+inline const char * const *EnumNamesPolymorphicValueData() {
   static const char * const names[5] = {
     "NONE",
     "Scalar",
@@ -663,30 +663,30 @@ inline const char * const *EnumNamesArgAbstractData() {
   return names;
 }
 
-inline const char *EnumNameArgAbstractData(ArgAbstractData e) {
-  if (::flatbuffers::IsOutRange(e, ArgAbstractData_NONE, ArgAbstractData_TensorArg)) return "";
+inline const char *EnumNamePolymorphicValueData(PolymorphicValueData e) {
+  if (::flatbuffers::IsOutRange(e, PolymorphicValueData_NONE, PolymorphicValueData_TensorArg)) return "";
   const size_t index = static_cast<size_t>(e);
-  return EnumNamesArgAbstractData()[index];
+  return EnumNamesPolymorphicValueData()[index];
 }
 
-template<typename T> struct ArgAbstractDataTraits {
-  static const ArgAbstractData enum_value = ArgAbstractData_NONE;
+template<typename T> struct PolymorphicValueDataTraits {
+  static const PolymorphicValueData enum_value = PolymorphicValueData_NONE;
 };
 
-template<> struct ArgAbstractDataTraits<nvfuser::serde::Scalar> {
-  static const ArgAbstractData enum_value = ArgAbstractData_Scalar;
+template<> struct PolymorphicValueDataTraits<nvfuser::serde::Scalar> {
+  static const PolymorphicValueData enum_value = PolymorphicValueData_Scalar;
 };
 
-template<> struct ArgAbstractDataTraits<nvfuser::serde::ScalarCpu> {
-  static const ArgAbstractData enum_value = ArgAbstractData_ScalarCpu;
+template<> struct PolymorphicValueDataTraits<nvfuser::serde::ScalarCpu> {
+  static const PolymorphicValueData enum_value = PolymorphicValueData_ScalarCpu;
 };
 
-template<> struct ArgAbstractDataTraits<nvfuser::serde::TensorArg> {
-  static const ArgAbstractData enum_value = ArgAbstractData_TensorArg;
+template<> struct PolymorphicValueDataTraits<nvfuser::serde::TensorArg> {
+  static const PolymorphicValueData enum_value = PolymorphicValueData_TensorArg;
 };
 
-bool VerifyArgAbstractData(::flatbuffers::Verifier &verifier, const void *obj, ArgAbstractData type);
-bool VerifyArgAbstractDataVector(::flatbuffers::Verifier &verifier, const ::flatbuffers::Vector<::flatbuffers::Offset<void>> *values, const ::flatbuffers::Vector<uint8_t> *types);
+bool VerifyPolymorphicValueData(::flatbuffers::Verifier &verifier, const void *obj, PolymorphicValueData type);
+bool VerifyPolymorphicValueDataVector(::flatbuffers::Verifier &verifier, const ::flatbuffers::Vector<::flatbuffers::Offset<void>> *values, const ::flatbuffers::Vector<uint8_t> *types);
 
 FLATBUFFERS_MANUALLY_ALIGNED_STRUCT(4) State FLATBUFFERS_FINAL_CLASS {
  private:
@@ -976,75 +976,75 @@ inline ::flatbuffers::Offset<TensorArg> CreateTensorArgDirect(
       dtype);
 }
 
-struct ArgAbstract FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
-  typedef ArgAbstractBuilder Builder;
+struct PolymorphicValue FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
+  typedef PolymorphicValueBuilder Builder;
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
     VT_DATA_TYPE = 4,
     VT_DATA = 6
   };
-  nvfuser::serde::ArgAbstractData data_type() const {
-    return static_cast<nvfuser::serde::ArgAbstractData>(GetField<uint8_t>(VT_DATA_TYPE, 0));
+  nvfuser::serde::PolymorphicValueData data_type() const {
+    return static_cast<nvfuser::serde::PolymorphicValueData>(GetField<uint8_t>(VT_DATA_TYPE, 0));
   }
   const void *data() const {
     return GetPointer<const void *>(VT_DATA);
   }
   template<typename T> const T *data_as() const;
   const nvfuser::serde::Scalar *data_as_Scalar() const {
-    return data_type() == nvfuser::serde::ArgAbstractData_Scalar ? static_cast<const nvfuser::serde::Scalar *>(data()) : nullptr;
+    return data_type() == nvfuser::serde::PolymorphicValueData_Scalar ? static_cast<const nvfuser::serde::Scalar *>(data()) : nullptr;
   }
   const nvfuser::serde::ScalarCpu *data_as_ScalarCpu() const {
-    return data_type() == nvfuser::serde::ArgAbstractData_ScalarCpu ? static_cast<const nvfuser::serde::ScalarCpu *>(data()) : nullptr;
+    return data_type() == nvfuser::serde::PolymorphicValueData_ScalarCpu ? static_cast<const nvfuser::serde::ScalarCpu *>(data()) : nullptr;
   }
   const nvfuser::serde::TensorArg *data_as_TensorArg() const {
-    return data_type() == nvfuser::serde::ArgAbstractData_TensorArg ? static_cast<const nvfuser::serde::TensorArg *>(data()) : nullptr;
+    return data_type() == nvfuser::serde::PolymorphicValueData_TensorArg ? static_cast<const nvfuser::serde::TensorArg *>(data()) : nullptr;
   }
   bool Verify(::flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyField<uint8_t>(verifier, VT_DATA_TYPE, 1) &&
            VerifyOffset(verifier, VT_DATA) &&
-           VerifyArgAbstractData(verifier, data(), data_type()) &&
+           VerifyPolymorphicValueData(verifier, data(), data_type()) &&
            verifier.EndTable();
   }
 };
 
-template<> inline const nvfuser::serde::Scalar *ArgAbstract::data_as<nvfuser::serde::Scalar>() const {
+template<> inline const nvfuser::serde::Scalar *PolymorphicValue::data_as<nvfuser::serde::Scalar>() const {
   return data_as_Scalar();
 }
 
-template<> inline const nvfuser::serde::ScalarCpu *ArgAbstract::data_as<nvfuser::serde::ScalarCpu>() const {
+template<> inline const nvfuser::serde::ScalarCpu *PolymorphicValue::data_as<nvfuser::serde::ScalarCpu>() const {
   return data_as_ScalarCpu();
 }
 
-template<> inline const nvfuser::serde::TensorArg *ArgAbstract::data_as<nvfuser::serde::TensorArg>() const {
+template<> inline const nvfuser::serde::TensorArg *PolymorphicValue::data_as<nvfuser::serde::TensorArg>() const {
   return data_as_TensorArg();
 }
 
-struct ArgAbstractBuilder {
-  typedef ArgAbstract Table;
+struct PolymorphicValueBuilder {
+  typedef PolymorphicValue Table;
   ::flatbuffers::FlatBufferBuilder &fbb_;
   ::flatbuffers::uoffset_t start_;
-  void add_data_type(nvfuser::serde::ArgAbstractData data_type) {
-    fbb_.AddElement<uint8_t>(ArgAbstract::VT_DATA_TYPE, static_cast<uint8_t>(data_type), 0);
+  void add_data_type(nvfuser::serde::PolymorphicValueData data_type) {
+    fbb_.AddElement<uint8_t>(PolymorphicValue::VT_DATA_TYPE, static_cast<uint8_t>(data_type), 0);
   }
   void add_data(::flatbuffers::Offset<void> data) {
-    fbb_.AddOffset(ArgAbstract::VT_DATA, data);
+    fbb_.AddOffset(PolymorphicValue::VT_DATA, data);
   }
-  explicit ArgAbstractBuilder(::flatbuffers::FlatBufferBuilder &_fbb)
+  explicit PolymorphicValueBuilder(::flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
     start_ = fbb_.StartTable();
   }
-  ::flatbuffers::Offset<ArgAbstract> Finish() {
+  ::flatbuffers::Offset<PolymorphicValue> Finish() {
     const auto end = fbb_.EndTable(start_);
-    auto o = ::flatbuffers::Offset<ArgAbstract>(end);
+    auto o = ::flatbuffers::Offset<PolymorphicValue>(end);
     return o;
   }
 };
 
-inline ::flatbuffers::Offset<ArgAbstract> CreateArgAbstract(
+inline ::flatbuffers::Offset<PolymorphicValue> CreatePolymorphicValue(
     ::flatbuffers::FlatBufferBuilder &_fbb,
-    nvfuser::serde::ArgAbstractData data_type = nvfuser::serde::ArgAbstractData_NONE,
+    nvfuser::serde::PolymorphicValueData data_type = nvfuser::serde::PolymorphicValueData_NONE,
     ::flatbuffers::Offset<void> data = 0) {
-  ArgAbstractBuilder builder_(_fbb);
+  PolymorphicValueBuilder builder_(_fbb);
   builder_.add_data(data);
   builder_.add_data_type(data_type);
   return builder_.Finish();
@@ -1057,8 +1057,8 @@ struct KernelArgumentHolder FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Tab
     VT_DEVICE_INDEX = 6,
     VT_CACHE_ID = 8
   };
-  const ::flatbuffers::Vector<::flatbuffers::Offset<nvfuser::serde::ArgAbstract>> *arguments() const {
-    return GetPointer<const ::flatbuffers::Vector<::flatbuffers::Offset<nvfuser::serde::ArgAbstract>> *>(VT_ARGUMENTS);
+  const ::flatbuffers::Vector<::flatbuffers::Offset<nvfuser::serde::PolymorphicValue>> *arguments() const {
+    return GetPointer<const ::flatbuffers::Vector<::flatbuffers::Offset<nvfuser::serde::PolymorphicValue>> *>(VT_ARGUMENTS);
   }
   int8_t device_index() const {
     return GetField<int8_t>(VT_DEVICE_INDEX, 0);
@@ -1081,7 +1081,7 @@ struct KernelArgumentHolderBuilder {
   typedef KernelArgumentHolder Table;
   ::flatbuffers::FlatBufferBuilder &fbb_;
   ::flatbuffers::uoffset_t start_;
-  void add_arguments(::flatbuffers::Offset<::flatbuffers::Vector<::flatbuffers::Offset<nvfuser::serde::ArgAbstract>>> arguments) {
+  void add_arguments(::flatbuffers::Offset<::flatbuffers::Vector<::flatbuffers::Offset<nvfuser::serde::PolymorphicValue>>> arguments) {
     fbb_.AddOffset(KernelArgumentHolder::VT_ARGUMENTS, arguments);
   }
   void add_device_index(int8_t device_index) {
@@ -1103,7 +1103,7 @@ struct KernelArgumentHolderBuilder {
 
 inline ::flatbuffers::Offset<KernelArgumentHolder> CreateKernelArgumentHolder(
     ::flatbuffers::FlatBufferBuilder &_fbb,
-    ::flatbuffers::Offset<::flatbuffers::Vector<::flatbuffers::Offset<nvfuser::serde::ArgAbstract>>> arguments = 0,
+    ::flatbuffers::Offset<::flatbuffers::Vector<::flatbuffers::Offset<nvfuser::serde::PolymorphicValue>>> arguments = 0,
     int8_t device_index = 0,
     uint64_t cache_id = 0) {
   KernelArgumentHolderBuilder builder_(_fbb);
@@ -1115,10 +1115,10 @@ inline ::flatbuffers::Offset<KernelArgumentHolder> CreateKernelArgumentHolder(
 
 inline ::flatbuffers::Offset<KernelArgumentHolder> CreateKernelArgumentHolderDirect(
     ::flatbuffers::FlatBufferBuilder &_fbb,
-    const std::vector<::flatbuffers::Offset<nvfuser::serde::ArgAbstract>> *arguments = nullptr,
+    const std::vector<::flatbuffers::Offset<nvfuser::serde::PolymorphicValue>> *arguments = nullptr,
     int8_t device_index = 0,
     uint64_t cache_id = 0) {
-  auto arguments__ = arguments ? _fbb.CreateVector<::flatbuffers::Offset<nvfuser::serde::ArgAbstract>>(*arguments) : 0;
+  auto arguments__ = arguments ? _fbb.CreateVector<::flatbuffers::Offset<nvfuser::serde::PolymorphicValue>>(*arguments) : 0;
   return nvfuser::serde::CreateKernelArgumentHolder(
       _fbb,
       arguments__,
@@ -3787,20 +3787,20 @@ inline bool VerifyRecordDataVector(::flatbuffers::Verifier &verifier, const ::fl
   return true;
 }
 
-inline bool VerifyArgAbstractData(::flatbuffers::Verifier &verifier, const void *obj, ArgAbstractData type) {
+inline bool VerifyPolymorphicValueData(::flatbuffers::Verifier &verifier, const void *obj, PolymorphicValueData type) {
   switch (type) {
-    case ArgAbstractData_NONE: {
+    case PolymorphicValueData_NONE: {
       return true;
     }
-    case ArgAbstractData_Scalar: {
+    case PolymorphicValueData_Scalar: {
       auto ptr = reinterpret_cast<const nvfuser::serde::Scalar *>(obj);
       return verifier.VerifyTable(ptr);
     }
-    case ArgAbstractData_ScalarCpu: {
+    case PolymorphicValueData_ScalarCpu: {
       auto ptr = reinterpret_cast<const nvfuser::serde::ScalarCpu *>(obj);
       return verifier.VerifyTable(ptr);
     }
-    case ArgAbstractData_TensorArg: {
+    case PolymorphicValueData_TensorArg: {
       auto ptr = reinterpret_cast<const nvfuser::serde::TensorArg *>(obj);
       return verifier.VerifyTable(ptr);
     }
@@ -3808,12 +3808,12 @@ inline bool VerifyArgAbstractData(::flatbuffers::Verifier &verifier, const void 
   }
 }
 
-inline bool VerifyArgAbstractDataVector(::flatbuffers::Verifier &verifier, const ::flatbuffers::Vector<::flatbuffers::Offset<void>> *values, const ::flatbuffers::Vector<uint8_t> *types) {
+inline bool VerifyPolymorphicValueDataVector(::flatbuffers::Verifier &verifier, const ::flatbuffers::Vector<::flatbuffers::Offset<void>> *values, const ::flatbuffers::Vector<uint8_t> *types) {
   if (!values || !types) return !values && !types;
   if (values->size() != types->size()) return false;
   for (::flatbuffers::uoffset_t i = 0; i < values->size(); ++i) {
-    if (!VerifyArgAbstractData(
-        verifier,  values->Get(i), types->GetEnum<ArgAbstractData>(i))) {
+    if (!VerifyPolymorphicValueData(
+        verifier,  values->Get(i), types->GetEnum<PolymorphicValueData>(i))) {
       return false;
     }
   }
