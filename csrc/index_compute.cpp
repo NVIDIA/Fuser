@@ -464,11 +464,6 @@ bool IndexCompute::isModuloInvalidUnswitchedIndex(
     IterDomain* out_concrete_id,
     Val* out_ind,
     Val* inner_extent) const {
-  bool enable_war = getenv("WAR");
-  if (!enable_war) {
-    return false;
-  }
-
   // If not in the unswitched domain map, this domain has no dependent
   // unswitched domain
   auto unswitched_domain_map_it = unswitched_domain_map_.find(out_concrete_id);
