@@ -1400,17 +1400,10 @@ std::vector<Val*> Index::getGlobalProducerStridedIndices(
         strides[i] = GpuLower::current()->kernel()->oneVal();
         continue;
       }
-#if 0
       strides[i] = IrBuilder::getItemExpr(
           IrBuilder::getAttrExpr(
-              IrBuilder::metadataExpr(producer_tv), "stride"),
-          stride_i++);
-#else
-      std::stringstream ss;
-      ss << "T" << producer_tv->name() << ".stride[" << stride_i++ << "]";
-      strides[i] =
-          SimplifyingIrBuilder::create<NamedScalar>(ss.str(), DataType::Int);
-#endif
+              IrBuilder::metadataExpr(producer_tv), "alloc_stride"),
+          (int64_t)stride_i++);
     }
   }
 
@@ -1764,16 +1757,9 @@ std::vector<Val*> Index::getStrides(TensorView* tv) {
         strides[i] = GpuLower::current()->kernel()->oneVal();
         continue;
       }
-#if 0
       strides[i] = IrBuilder::getItemExpr(
-          IrBuilder::getAttrExpr(IrBuilder::metadataExpr(tv), "stride"),
-          stride_i++);
-#else
-      std::stringstream ss;
-      ss << "T" << tv->name() << ".stride[" << stride_i++ << "]";
-      strides[i] =
-          SimplifyingIrBuilder::create<NamedScalar>(ss.str(), DataType::Int);
-#endif
+          IrBuilder::getAttrExpr(IrBuilder::metadataExpr(tv), "alloc_stride"),
+          (int64_t)stride_i++);
     }
   }
 
@@ -2819,8 +2805,7 @@ bool canOmitStopPredicate(
   // exact. Otherwise, there would be extra threads/blocks that need
   // to be predicated out.
   if (isParallelTypeThread(contig_id->getParallelType())) {
-    if (!gpu_lower->parallelDimensionMap().isExact(
-            contig_id->getParallelType())) {
+    if (!lower_utils::isExtentEqualToMaxParallelTypeExtent(contig_id)) {
       return false;
     }
     // If the domain has halo, the loop is expanded by the halo
@@ -3040,7 +3025,7 @@ Val* Index::eye(
   auto indices =
       Index::getConsumerPerDimLogicalIndex(consumer_tv, loops, rotated_loops);
   TORCH_INTERNAL_ASSERT(indices.size() == 2);
-  auto result = castOp(dtype, eq(indices[0], indices[1]));
+  auto result = maybeCastOp(dtype, eq(indices[0], indices[1]));
   GpuLower::current()->commonScalarMap().hoistScalar(result, loops);
   return result;
 }

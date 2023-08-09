@@ -892,7 +892,7 @@ TEST_F(NVFuserTest, FusionParser_CUDA) {
 __global__ void CUDAGeneratedKernel(Tensor<float, 1, 1> T0, Tensor<float, 1, 1> T1, Tensor<float, 1, 1> T3) {
   int64_t i0;
   i0 = ((nvfuser_index_t)threadIdx.x) + (128 * ((nvfuser_index_t)blockIdx.x));
-  if ((i0 < T0.size[0])) {
+  if ((i0 < T0.logical_size[0])) {
     float T5[1];
     T5[0] = 0;
     T5[0]
@@ -3256,7 +3256,7 @@ TEST_F(NVFuserTest, FusionUnaryOps_CUDA) {
     });
   }
 
-  dtypes = {DataType::Int, DataType::Int32, DataType::Bool};
+  dtypes = {DataType::Int, DataType::Int32};
   for (auto dtype : dtypes) {
     test_op(
         /*blocks*/ 128,
@@ -3267,7 +3267,23 @@ TEST_F(NVFuserTest, FusionUnaryOps_CUDA) {
           return at::bitwise_not(vals[0].toTensor());
         },
         /*JIT  Func   */
-        [](Val* in1) -> Val* { return unaryOp(UnaryOpType::Not, in1); },
+        [](Val* in1) -> Val* { return unaryOp(UnaryOpType::BitwiseNot, in1); },
+        /*Output      */ std::make_pair(ValType::TensorView, dtype),
+        /*Inputs Tuple*/
+        std::make_tuple(std::make_pair(ValType::TensorView, dtype)));
+  }
+  dtypes = {DataType::Bool};
+  for (auto dtype : dtypes) {
+    test_op(
+        /*blocks*/ 128,
+        /*threads*/ 64,
+        /*name*/ "logical_not",
+        /*Aten Func   */
+        [](std::array<c10::IValue, 1>& vals) {
+          return at::bitwise_not(vals[0].toTensor());
+        },
+        /*JIT  Func   */
+        [](Val* in1) -> Val* { return unaryOp(UnaryOpType::LogicalNot, in1); },
         /*Output      */ std::make_pair(ValType::TensorView, dtype),
         /*Inputs Tuple*/
         std::make_tuple(std::make_pair(ValType::TensorView, dtype)));
@@ -3312,14 +3328,14 @@ TEST_F(NVFuserTest, FusionBinaryOps_CUDA) {
       OpTuple{
           at::bitwise_left_shift, BinaryOpType::Lshift, "bitwise_left_shift"},
       OpTuple{
-          at::bitwise_right_shift,
-          BinaryOpType::Rshift,
-          "bitwise_right_shift"}};
+          at::bitwise_right_shift, BinaryOpType::Rshift, "bitwise_right_shift"},
+      OpTuple{at::bitwise_and, BinaryOpType::BitwiseAnd, "bitwise_and"},
+      OpTuple{at::bitwise_or, BinaryOpType::BitwiseOr, "bitwise_or"},
+      OpTuple{at::bitwise_xor, BinaryOpType::BitwiseXor, "bitwise_xor"}};
 
-  std::vector<OpTuple> int_and_bool_ops{
-      OpTuple{at::bitwise_and, BinaryOpType::And, "bitwise_and"},
-      OpTuple{at::bitwise_or, BinaryOpType::Or, "bitwise_or"},
-      OpTuple{at::bitwise_xor, BinaryOpType::Xor, "bitwise_xor"}};
+  std::vector<OpTuple> bool_ops{
+      OpTuple{at::logical_and, BinaryOpType::LogicalAnd, "logical_and"},
+      OpTuple{at::logical_or, BinaryOpType::LogicalOr, "logical_or"}};
 
   // The following ops has no complex support in eager mode
   std::vector<OpTuple> math_ops_without_complex{
@@ -3366,10 +3382,6 @@ TEST_F(NVFuserTest, FusionBinaryOps_CUDA) {
     if (isIntegralType(dtype)) {
       enabled_math_ops.insert(
           enabled_math_ops.end(), int_only_ops.begin(), int_only_ops.end());
-      enabled_math_ops.insert(
-          enabled_math_ops.end(),
-          int_and_bool_ops.begin(),
-          int_and_bool_ops.end());
     } else {
       enabled_math_ops.insert(
           enabled_math_ops.end(),
@@ -3378,9 +3390,7 @@ TEST_F(NVFuserTest, FusionBinaryOps_CUDA) {
     }
     if (dtype == DataType::Bool) {
       enabled_math_ops.insert(
-          enabled_math_ops.end(),
-          int_and_bool_ops.begin(),
-          int_and_bool_ops.end());
+          enabled_math_ops.end(), bool_ops.begin(), bool_ops.end());
     }
     std::for_each(
         enabled_math_ops.begin(), enabled_math_ops.end(), [&](OpTuple& op) {

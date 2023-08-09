@@ -91,6 +91,8 @@ class TORCH_CUDA_CU_API IrContainer : public PolymorphicBase {
   NamedScalar* magicZeroVal();
   Val* zeroVal(DataType dtype);
   Val* oneVal(DataType dtype);
+  Val* metadataOf(Val*);
+
   // Axioms about CUDA programming, for example: threadIdx.x < blockDim.x
   const std::vector<Val*>& axioms() {
     lazyInitAxioms();
@@ -176,6 +178,7 @@ class TORCH_CUDA_CU_API IrContainer : public PolymorphicBase {
   std::unique_ptr<Val> zero_val_;
   std::unique_ptr<NamedScalar> magic_zero_val_;
   std::unique_ptr<std::vector<Val*>> axioms_;
+  std::unordered_map<Val*, std::pair<Val*, Expr*>> metadata_;
 };
 
 } // namespace nvfuser

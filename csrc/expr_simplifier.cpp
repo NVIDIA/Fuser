@@ -180,7 +180,8 @@ class Context {
       auto back = assumptions.back();
       assumptions.pop_back();
       auto bop = dynamic_cast<BinaryOp*>(back->definition());
-      if (bop == nullptr || bop->getBinaryOpType() != BinaryOpType::And) {
+      if (bop == nullptr ||
+          bop->getBinaryOpType() != BinaryOpType::LogicalAnd) {
         assume(back);
       } else {
         assumptions.push_back(bop->lhs());
@@ -460,8 +461,9 @@ bool isAssociativeAndCommutative(BinaryOpType type) {
   // gcd is associative and commutative, see:
   // https://en.wikipedia.org/wiki/Greatest_common_divisor#Properties
   return type == BinaryOpType::Add || type == BinaryOpType::Mul ||
-      type == BinaryOpType::And || type == BinaryOpType::Or ||
-      type == BinaryOpType::Xor || type == BinaryOpType::Max ||
+      type == BinaryOpType::LogicalAnd || type == BinaryOpType::LogicalOr ||
+      type == BinaryOpType::BitwiseAnd || type == BinaryOpType::BitwiseOr ||
+      type == BinaryOpType::BitwiseXor || type == BinaryOpType::Max ||
       type == BinaryOpType::Min || type == BinaryOpType::Gcd;
 }
 
@@ -486,11 +488,15 @@ bool isNoOpTerm(Val* v, BinaryOpType type) {
       return v->isZero();
     case BinaryOpType::Mul:
       return v->isOne();
-    case BinaryOpType::And:
+    case BinaryOpType::LogicalAnd:
       return v->getBool() == true;
-    case BinaryOpType::Or:
-    case BinaryOpType::Xor:
+    case BinaryOpType::LogicalOr:
       return v->getBool() == false;
+    case BinaryOpType::BitwiseAnd:
+      return v->getInt() == -1;
+    case BinaryOpType::BitwiseOr:
+    case BinaryOpType::BitwiseXor:
+      return v->getInt() == 0;
     case BinaryOpType::Gcd:
       return v->isZeroInt();
     default:
@@ -510,10 +516,14 @@ bool isBlackhole(Val* v, BinaryOpType type) {
   switch (type) {
     case BinaryOpType::Mul:
       return v->getInt() == 0;
-    case BinaryOpType::And:
-      return v->getBool() == false || v->getInt() == 0;
-    case BinaryOpType::Or:
+    case BinaryOpType::LogicalAnd:
+      return v->getBool() == false;
+    case BinaryOpType::LogicalOr:
       return v->getBool() == true;
+    case BinaryOpType::BitwiseAnd:
+      return v->getInt() == 0;
+    case BinaryOpType::BitwiseOr:
+      return v->getInt() == -1;
     case BinaryOpType::Gcd:
       return v->isOneInt();
     default:
@@ -561,12 +571,16 @@ class FlattenedAssocCommOp : public Expr {
         return "FlattenedAdd";
       case BinaryOpType::Mul:
         return "FlattenedMul";
-      case BinaryOpType::And:
-        return "FlattenedAnd";
-      case BinaryOpType::Or:
-        return "FlattenedOr";
-      case BinaryOpType::Xor:
-        return "FlattenedXor";
+      case BinaryOpType::LogicalAnd:
+        return "FlattenedLogicalAnd";
+      case BinaryOpType::LogicalOr:
+        return "FlattenedLogicalOr";
+      case BinaryOpType::BitwiseAnd:
+        return "FlattenedBitwiseAnd";
+      case BinaryOpType::BitwiseOr:
+        return "FlattenedBitwiseOr";
+      case BinaryOpType::BitwiseXor:
+        return "FlattenedBitwiseXor";
       case BinaryOpType::Max:
         return "FlattenedMax";
       case BinaryOpType::Min:
@@ -697,6 +711,7 @@ class FlattenedAssocCommOp : public Expr {
   }
 
   std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
       const std::vector<PolymorphicValue>& inputs) const override {
     using namespace PolymorphicValue_functions;
     std::vector<PolymorphicValue> inputs_ = inputs;
@@ -714,17 +729,27 @@ class FlattenedAssocCommOp : public Expr {
           result *= i;
         }
         break;
-      case BinaryOpType::And:
+      case BinaryOpType::LogicalAnd:
         for (const auto& i : inputs_) {
           result = result && i;
         }
         break;
-      case BinaryOpType::Or:
+      case BinaryOpType::LogicalOr:
         for (const auto& i : inputs_) {
           result = result || i;
         }
         break;
-      case BinaryOpType::Xor:
+      case BinaryOpType::BitwiseAnd:
+        for (const auto& i : inputs_) {
+          result = result & i;
+        }
+        break;
+      case BinaryOpType::BitwiseOr:
+        for (const auto& i : inputs_) {
+          result = result | i;
+        }
+        break;
+      case BinaryOpType::BitwiseXor:
         for (const auto& i : inputs_) {
           result = result ^ i;
         }
@@ -1048,7 +1073,7 @@ Val* productOfFactors(
     DataType default_dtype) {
   if (const_factor == nullptr) {
     if (symbolic_factors.empty()) {
-      return IrBuilder::newConstant(1, default_dtype);
+      return IrBuilder::newConstant(1L, default_dtype);
     }
     return maybeFlattenedOpOf(BinaryOpType::Mul, std::move(symbolic_factors));
   }
@@ -1708,7 +1733,8 @@ Val* eliminateTrivialComputation(Val* value, const Context& context) {
       }
     }
     { // b && b -> b, b || b -> b, max(i, i) -> i, min(i, i) -> i
-      if (op == BinaryOpType::And || op == BinaryOpType::Or ||
+      if (op == BinaryOpType::LogicalAnd || op == BinaryOpType::LogicalOr ||
+          op == BinaryOpType::BitwiseAnd || op == BinaryOpType::BitwiseOr ||
           op == BinaryOpType::Max || op == BinaryOpType::Min) {
         std::vector<Val*> dedup_input;
         for (auto v : fop->inputs()) {
@@ -1779,8 +1805,9 @@ Val* eliminateTrivialComputation(Val* value, const Context& context) {
     }
   } else if (auto uop = dynamic_cast<UnaryOp*>(value->definition())) {
     auto optype = uop->getUnaryOpType();
-    if (optype == UnaryOpType::Neg || optype == UnaryOpType::Not) {
-      // -(-x) -> x, !(!x) -> x
+    if (optype == UnaryOpType::Neg || optype == UnaryOpType::LogicalNot ||
+        optype == UnaryOpType::BitwiseNot) {
+      // -(-x) -> x, !(!x) -> x, ~(~x) -> x
       auto uop_in = dynamic_cast<UnaryOp*>(uop->in()->definition());
       if (uop_in != nullptr) {
         auto optype_in = uop_in->getUnaryOpType();

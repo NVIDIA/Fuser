@@ -24,7 +24,6 @@
 #include <utils.h>
 
 #include <cuda_occupancy.h>
-#include <nvfuser_resources/PhiloxCudaStateRaw.h>
 #include <nvfuser_resources/array.h>
 #include <nvfuser_resources/basic_type_traits.h>
 #include <nvfuser_resources/bf16_support.h>
@@ -104,9 +103,6 @@ std::string kernelPreamble() {
   ss << nvfuser_resources::block_welford_outer_cu;
   ss << nvfuser_resources::fused_welford_impl_outer_cu;
 
-  // Random utilities
-  ss << nvfuser_resources::PhiloxCudaStateRaw_cu;
-
   return ss.str();
 }
 
@@ -159,158 +155,6 @@ TORCH_CUDA_CU_API void queryTargetGPUVersion(
     major = dev_version.first;
     minor = dev_version.second;
     compile_to_sass = true;
-  }
-}
-
-// return false if arg's type, number of dimensions, and device, doesn't match
-// param and provided c10:device
-bool validateKernelArgTensor(
-    const at::Tensor& arg,
-    const Val* param,
-    const c10::Device& device,
-    std::stringstream& msg) {
-  // Arg is a tensor. Param must be a tensor too.
-  if (*param->getValType() != ValType::TensorView) {
-    msg << "Argument is a tensor, but the parameter is not.\n";
-    return false;
-  }
-
-  if (is_cpu_scalar(arg) && !param->as<TensorView>()->isCpuScalar()) {
-    msg << "Argument is CPU Scalar Tensor, but parameter is not.\n";
-    return false;
-  }
-
-  if (!is_cpu_scalar(arg) && !arg.is_cuda()) {
-    msg << "Argument is a CPU tensor which is not supported in fusions.\n";
-    return false;
-  }
-
-  // Check the rank of the tensors.
-  size_t arg_dim = arg.dim();
-  // Note: This requires current Fusion to be active.
-  // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
-  size_t param_dim = TensorDomain::noReductions(
-                         param->as<TensorView>()->getMaybeRFactorDomain())
-                         .size();
-  // see [Note - broadcast support in integration]
-  // Because of broadcasting support handled in integration, we relax the rank
-  // check as necessary.
-  if (arg_dim > param_dim) {
-    msg << "Argument tensor's rank is " << arg_dim << ", but the parameter is "
-        << param_dim << "\n";
-    return false;
-  }
-
-  if (!is_cpu_scalar(arg) && arg.device() != device) {
-    msg << "Argument is on device that is not compiled for."
-        << "\n";
-    return false;
-  }
-  // Check element type
-  at::ScalarType arg_data_type = arg.scalar_type();
-  DataType param_data_type = *param->getDataType();
-  bool match = false;
-  // TODO: remove this switch with `aten_to_data_type`
-  switch (arg_data_type) {
-    case at::ScalarType::Double:
-      match = param_data_type == DataType::Double;
-      break;
-    case at::ScalarType::Half:
-      match = param_data_type == DataType::Half;
-      break;
-    case at::ScalarType::BFloat16:
-      match = param_data_type == DataType::BFloat16;
-      break;
-    case at::ScalarType::Float:
-      match = param_data_type == DataType::Float;
-      break;
-    case at::ScalarType::Long:
-      match = param_data_type == DataType::Int;
-      break;
-    case at::ScalarType::Int:
-      match = param_data_type == DataType::Int32;
-      break;
-    case at::ScalarType::Bool:
-      match = param_data_type == DataType::Bool;
-      break;
-    case at::ScalarType::ComplexFloat:
-      match = param_data_type == DataType::ComplexFloat;
-      break;
-    case at::ScalarType::ComplexDouble:
-      match = param_data_type == DataType::ComplexDouble;
-      break;
-    default:
-      msg << "Argument element type, " << arg_data_type << ", is not supported."
-          << "\n";
-      return false;
-  }
-  if (!match)
-    msg << "Argument element type is " << arg_data_type
-        << ", but the parameter is " << param_data_type << "\n";
-  return match;
-}
-
-// Return false if  arg_type doesn't match the type in param
-bool validateKernelArgScalar(
-    const ArgAbstract* arg,
-    const Val* param,
-    std::stringstream& msg) {
-  TORCH_INTERNAL_ASSERT(
-      param->getDataType().has_value(), "kernel param should have data type");
-  DataType param_type = *param->getDataType();
-  bool match = false;
-  switch (arg->type()) {
-    case ArgType::Long:
-      match = param_type == DataType::Int || param_type == DataType::Int32;
-      break;
-    case ArgType::Double:
-      match = param_type == DataType::Double || param_type == DataType::Float ||
-          param_type == DataType::Half || param_type == DataType::BFloat16;
-      break;
-    case ArgType::Bool:
-      match = param_type == DataType::Bool;
-      break;
-    case ArgType::ComplexDouble:
-      match = param_type == DataType::ComplexDouble ||
-          param_type == DataType::ComplexFloat;
-      break;
-    default:
-      // TODO: We need to verify that param is actually a scalar
-      msg << "Argument is not a scalar, but the parameter is."
-          << "\n";
-      return false;
-  }
-  if (!match) {
-    msg << "Argument type is " << argTypeToString(arg->type())
-        << ", but the parameter is " << param_type << "\n";
-  }
-  return match;
-}
-
-// Return false if arg and param don't match up and if arg's device (if a
-// tensor) doesn't match provided device
-bool validateKernelArg(
-    const ArgAbstract* arg,
-    const Val* param,
-    const c10::Device& device,
-    std::stringstream& msg) {
-  // clang-tidy complains that arg may be null without this assertion
-  TORCH_INTERNAL_ASSERT(arg != nullptr);
-  if (auto tensor_arg_abstract = dynamic_cast<const TensorArgAbstract*>(arg)) {
-    // TODO: don't use get tensor here. We would want to remove tensor reference
-    // for async compilation
-    return validateKernelArgTensor(
-        tensor_arg_abstract->getTensor(), param, device, msg);
-  } else if (arg->isType(ArgType::CpuScalarTensor)) {
-    // TODO: merge this one with above
-    // TODO: we need to check cpu scalar dtyp matches param
-    bool match = param->as<TensorView>()->isCpuScalar();
-    if (!match) {
-      msg << "Argument is scalar type, but kernel parameter is not\n";
-    }
-    return match;
-  } else {
-    return validateKernelArgScalar(arg, param, msg);
   }
 }
 
@@ -393,54 +237,6 @@ bool checkValidMisalignedTensors(
 }
 
 } // namespace
-
-void validateKernelInputs(
-    Fusion* fusion,
-    const KernelArgumentHolder& args,
-    const c10::Device& device) {
-  FUSER_PERF_SCOPE("executor_utils::ValidateKernelInputs");
-
-  // This is necessary as we were traversing the fusion graph later in the check
-  FusionGuard fg(fusion);
-  // Check inputs
-  TORCH_INTERNAL_ASSERT(
-      args.size() == fusion->inputs().size(), "Wrong number of kernel inputs.");
-
-  std::stringstream msg;
-  bool mismatch = false;
-  for (const auto i : c10::irange(args.size())) {
-    const ArgAbstract* arg = args[i];
-    const Val* param = fusion->inputs()[i];
-    mismatch = !validateKernelArg(arg, param, device, msg) || mismatch;
-  }
-  TORCH_INTERNAL_ASSERT(
-      !mismatch, "Found one or more invalid arguments: ", msg.str());
-}
-
-void validateKernelOutputs(
-    Fusion* fusion,
-    const std::vector<at::Tensor>& outputs,
-    const c10::Device& device) {
-  FUSER_PERF_SCOPE("executor_utils::ValidateKernelOutputs");
-
-  TORCH_INTERNAL_ASSERT(
-      !fusion->outputs().empty(),
-      "Kernel should have at least one output tensor.");
-
-  TORCH_INTERNAL_ASSERT(
-      outputs.size() == fusion->outputs().size(),
-      "Wrong number of kernel outputs.");
-
-  std::stringstream msg;
-  bool mismatch = false;
-  for (const auto i : c10::irange(outputs.size())) {
-    const at::Tensor& arg = outputs[i];
-    const Val* param = fusion->outputs()[i];
-    mismatch = !validateKernelArgTensor(arg, param, device, msg) || mismatch;
-  }
-  TORCH_INTERNAL_ASSERT(
-      !mismatch, "Found one or more invalid arguments: ", msg.str());
-}
 
 namespace {
 
@@ -614,10 +410,10 @@ void validateAlignedVectorizeExtents(
 void validateAlignedVectorizedFusionInputOutput(
     const at::Tensor& aten_tensor,
     int word_size,
-    TensorView* tv) {
-  ExpressionEvaluator eval;
-  auto sizes_strides =
-      inferAndValidateAllocationSizesAndStrides(aten_tensor, tv, eval);
+    TensorView* tv,
+    ExpressionEvaluator eval) {
+  eval.bind(tv, aten_tensor);
+  auto metadata = eval.evaluate(IrBuilder::metadataExpr(tv));
 
   std::vector<int64_t> no_reduction_to_full;
   for (int64_t i :
@@ -627,7 +423,11 @@ void validateAlignedVectorizedFusionInputOutput(
       no_reduction_to_full.emplace_back(i);
     }
   }
-  TORCH_INTERNAL_ASSERT(sizes_strides.size() == no_reduction_to_full.size());
+
+  auto sizes = std::vector<int64_t>(metadata["alloc_size"]);
+  auto strides = std::vector<int64_t>(metadata["alloc_stride"]);
+  TORCH_INTERNAL_ASSERT(sizes.size() == no_reduction_to_full.size());
+  TORCH_INTERNAL_ASSERT(strides.size() == no_reduction_to_full.size());
 
   TORCH_INTERNAL_ASSERT(
       reinterpret_cast<size_t>(aten_tensor.data_ptr()) %
@@ -647,8 +447,9 @@ void validateAlignedVectorizedFusionInputOutput(
   // domain must have stride 1.
   int64_t cur_contig_stride = 1;
   bool still_rightmost = true;
-  for (int64_t i = (int64_t)sizes_strides.size() - 1; i >= 0; --i) {
-    const auto [size, stride] = sizes_strides.at(i);
+  for (int64_t i = (int64_t)sizes.size() - 1; i >= 0; --i) {
+    const auto size = sizes.at(i);
+    const auto stride = strides.at(i);
     auto alloc_id =
         tv->getMaybeAllocationDomain().at(no_reduction_to_full.at(i));
     const auto is_expanded_broadcasting =
@@ -677,7 +478,9 @@ void validateAlignedVectorizedFusionInputOutput(
         " Domain: ",
         tv->axis(i)->toString(),
         ", stride: ",
-        stride)
+        stride,
+        ", cur_contig_stride ",
+        cur_contig_stride);
     // If the domain is size-1, the next domain is still considered
     // rightmost.
     still_rightmost =
@@ -717,18 +520,18 @@ void validateAlignedVectorizedTensors(
                       .aligned_vectorized_inp_tensor_pos) {
     auto tv = kernel->inputs().at(pos)->as<TensorView>();
     auto word_size = kernel->summary().vectorized_accesses.at(tv);
-    auto tensor_arg_abstract =
-        dynamic_cast<const TensorArgAbstract*>(args[pos]);
-    TORCH_INTERNAL_ASSERT(tensor_arg_abstract, "alias io only supports tensor");
+    TORCH_INTERNAL_ASSERT(
+        args[pos]->is<at::Tensor>(), "alias io only supports tensor");
     validateAlignedVectorizedFusionInputOutput(
-        tensor_arg_abstract->getTensor(), word_size, tv);
+        args[pos]->as<at::Tensor>(), word_size, tv, expr_eval);
   }
   if (!outputs.empty()) {
     for (auto pos : tensor_vectorization_validation_entry.get()
                         .aligned_vectorized_out_tensor_pos) {
       auto tv = kernel->outputs().at(pos)->as<TensorView>();
       auto word_size = kernel->summary().vectorized_accesses.at(tv);
-      validateAlignedVectorizedFusionInputOutput(outputs[pos], word_size, tv);
+      validateAlignedVectorizedFusionInputOutput(
+          outputs[pos], word_size, tv, expr_eval);
     }
   }
 }
@@ -760,11 +563,9 @@ void validateMisalignedVectorizedTensors(
       inp_misaligned_tensors_pos.end(),
       std::back_inserter(inp_misaligned_tensors),
       [&args](int idx) {
-        auto tensor_arg_abstract =
-            dynamic_cast<const TensorArgAbstract*>(args[idx]);
         TORCH_INTERNAL_ASSERT(
-            tensor_arg_abstract, "alias io only supports tensor");
-        return tensor_arg_abstract->getTensor();
+            args[idx]->is<at::Tensor>(), "alias io only supports tensor");
+        return args[idx]->as<at::Tensor>();
       });
 
   const auto& out_misaligned_tensors_pos =
@@ -825,101 +626,81 @@ void validateVectorizedTensors(
   validateVectorizedSplits(kernel, expr_eval);
 }
 
-namespace {
-
 void bindInputForExprEvaluation(
     Val* val,
-    const ArgAbstract* arg,
+    PolymorphicValue arg,
     bool check_consistency,
-    ExpressionEvaluator& expr_eval) {
+    ExpressionEvaluator& expr_eval,
+    bool legacy) {
+  TORCH_INTERNAL_ASSERT(val != nullptr);
+  // TODO: use the move version once the legacy path is removed.
+  // expr_eval.bind(val, std::move(arg));
+  expr_eval.bind(val, arg);
+  if (!legacy) {
+    return;
+  }
+
   if (val->getValType() == ValType::TensorView) {
+#if 1
+    at::Tensor t = arg.as<at::Tensor>();
+
     TensorView* cg_tensor = val->as<TensorView>();
-    auto tensor_arg_abstract = dynamic_cast<const TensorArgAbstract*>(arg);
-    if (tensor_arg_abstract != nullptr) {
-      expr_eval.bind(cg_tensor, tensor_arg_abstract->getTensor());
-    }
+
+    // Legacy code. To be removed in the future
     auto root_domain =
         TensorDomain::noReductions(cg_tensor->getMaybeRFactorDomain());
+    TORCH_INTERNAL_ASSERT(
+        t.dim() == (int64_t)root_domain.size(),
+        "Something went wrong configuring launch. Inputs rank does not match. Expected ",
+        root_domain.size(),
+        " but found ",
+        t.dim());
 
-    if (root_domain.empty()) {
-      TORCH_INTERNAL_ASSERT(
-          arg->isType(ArgType::CpuScalarTensor) ||
-              (arg->isType(ArgType::Tensor) &&
-               dynamic_cast<const TensorArgAbstract*>(arg)->getRank() == 0),
-          "Something went wrong configuring launch. Inputs is not rank 0 tensor");
-    } else {
-      TORCH_INTERNAL_ASSERT(
-          arg->isType(ArgType::Tensor),
-          "Something went wrong configuring launch. Inputs do not match.");
-
-      auto tensor_arg_abstract = dynamic_cast<const TensorArgAbstract*>(arg);
-
-      TORCH_INTERNAL_ASSERT(
-          tensor_arg_abstract &&
-              tensor_arg_abstract->getRank() == (int64_t)root_domain.size(),
-          "Something went wrong configuring launch. Inputs rank does not match.");
-
-      for (const auto dim : c10::irange(root_domain.size())) {
-        const auto tensor_arg_size = tensor_arg_abstract->getSize((int)dim);
-        const auto extent = root_domain[dim]->extent();
-        if (root_domain[dim]->hasExpandedExtent()) {
-          // Could support dynamic size on expanded dimension, so may not have
-          // an inferable expanded extent here. This check might be better to do
-          // once all values are bound.
-          auto maybe_expanded_size =
-              expr_eval.evaluate(root_domain[dim]->expandedExtent());
-          if (maybe_expanded_size.hasValue()) {
-            TORCH_CHECK(
-                maybe_expanded_size == tensor_arg_size,
-                "Expecting expanded extent of ",
-                maybe_expanded_size,
-                " but received value of ",
-                tensor_arg_size);
-          } else {
-            expr_eval.bind(root_domain[dim]->expandedExtent(), tensor_arg_size);
-          }
-        }
-
-        const auto value =
-            root_domain[dim]->hasExpandedExtent() ? 1 : tensor_arg_size;
-        bool should_bind = true;
-        if (check_consistency) {
-          const auto prev_value = expr_eval.evaluate(extent);
-          if (prev_value.hasValue()) {
-            TORCH_CHECK(
-                prev_value == value,
-                "Attempting to bind ",
-                extent->toString(),
-                " to ",
-                value,
-                " but it's already set to ",
-                prev_value);
-            should_bind = false;
-          }
-        }
-        if (should_bind && !extent->isConstScalar()) {
-          expr_eval.bind(extent, value);
+    for (const auto dim : c10::irange(root_domain.size())) {
+      const auto tensor_arg_size = t.size((int64_t)dim);
+      const auto extent = root_domain[dim]->extent();
+      if (root_domain[dim]->hasExpandedExtent()) {
+        // Could support dynamic size on expanded dimension, so may not have
+        // an inferable expanded extent here. This check might be better to do
+        // once all values are bound.
+        auto maybe_expanded_size =
+            expr_eval.evaluate(root_domain[dim]->expandedExtent());
+        if (maybe_expanded_size.hasValue()) {
+          TORCH_CHECK(
+              maybe_expanded_size == tensor_arg_size,
+              "Expecting expanded extent of ",
+              maybe_expanded_size,
+              " but received value of ",
+              tensor_arg_size);
+        } else {
+          expr_eval.bind(root_domain[dim]->expandedExtent(), tensor_arg_size);
         }
       }
+
+      const auto value =
+          root_domain[dim]->hasExpandedExtent() ? 1 : tensor_arg_size;
+      bool should_bind = true;
+      if (check_consistency) {
+        const auto prev_value = expr_eval.evaluate(extent);
+        if (prev_value.hasValue()) {
+          TORCH_CHECK(
+              prev_value == value,
+              "Attempting to bind ",
+              extent->toString(),
+              " to ",
+              value,
+              " but it's already set to ",
+              prev_value);
+          should_bind = false;
+        }
+      }
+      if (should_bind && !extent->isConstScalar()) {
+        expr_eval.bind(extent, value);
+      }
     }
-  } else if (val->getValType().value() == ValType::Others) {
-    if (val->getDataType().value() == DataType::Int) {
-      TORCH_INTERNAL_ASSERT(
-          arg->isType(ArgType::Long),
-          "fusion expected Scalar Int inputs, but found ",
-          argTypeToString(arg->type()));
-      expr_eval.bind(val, *static_cast<const int64_t*>(arg->arg()));
-    } else if (val->getDataType().value() == DataType::Double) {
-      TORCH_INTERNAL_ASSERT(
-          arg->isType(ArgType::Double),
-          "fusion expected Scalar Double inputs, but found ",
-          argTypeToString(arg->type()));
-      expr_eval.bind(val, *static_cast<const double*>(arg->arg()));
-    }
+#endif
   }
 }
-
-} // namespace
 
 ExpressionEvaluator bindInputs(
     const KernelArgumentHolder& args,
@@ -938,7 +719,7 @@ ExpressionEvaluator bindInputs(
 
   for (const auto i : c10::irange(inputs.size())) {
     bindInputForExprEvaluation(
-        inputs[i], args[i], check_consistency, expr_eval);
+        inputs[i], *args[i], check_consistency, expr_eval);
   }
   return expr_eval;
 }
