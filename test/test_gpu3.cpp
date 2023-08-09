@@ -7546,7 +7546,7 @@ class ThreadPredChecker : public kir::IrVisitor {
   }
 
   void handle(BinaryOp* bop) final {
-    if (bop->getBinaryOpType() == BinaryOpType::And) {
+    if (bop->getBinaryOpType() == BinaryOpType::LogicalAnd) {
       dispatch(bop->lhs());
       dispatch(bop->rhs());
     } else if (bop->getBinaryOpType() == BinaryOpType::Eq) {
@@ -9746,6 +9746,21 @@ TEST_F(NVFuserTest, AllInputDtypes) {
     auto expect = ee.evaluate(output).as<at::Tensor>().item<double>();
     EXPECT_NEAR(kernel_result, expect, 0.1);
   }
+}
+
+TEST_F(NVFuserTest, IndexDataTypePromotion) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto a = IrBuilder::create<Val>(DataType::Int);
+  auto b = IrBuilder::create<Val>(DataType::Index);
+  auto c = add(a, b);
+
+  ExpressionEvaluator ee;
+  ee.bind(a, 1L);
+  ee.bind(b, 299792458L);
+  EXPECT_EQ(ee.evaluate(c), 299792459L);
+  EXPECT_EQ(c->dtype(), DataType::Index);
 }
 
 // Test file size should be up to 10K LoC. Create a new file for more tests.

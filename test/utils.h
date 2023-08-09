@@ -277,7 +277,7 @@ class PredicateMagicZeroChecker : public kir::IrVisitor {
   // Decompose "X && Y" to a vector of {X, Y}.
   std::vector<Val*> decomposeCompoundPredicate(Val* predicate) {
     if (auto binary_op = dynamic_cast<BinaryOp*>(predicate->definition())) {
-      if (binary_op->getBinaryOpType() == BinaryOpType::And) {
+      if (binary_op->getBinaryOpType() == BinaryOpType::LogicalAnd) {
         auto pred = decomposeCompoundPredicate(binary_op->lhs());
         auto rhs_pred = decomposeCompoundPredicate(binary_op->rhs());
         pred.insert(pred.end(), rhs_pred.begin(), rhs_pred.end());
