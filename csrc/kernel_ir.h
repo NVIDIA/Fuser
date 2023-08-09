@@ -245,7 +245,7 @@ class TORCH_CUDA_CU_API Allocate final : public Expr {
   // This is an integer scalar describing the byte address within the dynamic
   // shared memory array for a shared memory allocation. For memory types other
   // than Shared, or before allocation, this function might return nullptr.
-  const Val* address() const {
+  Val* address() const {
     return attributeVal(4);
   }
 };
