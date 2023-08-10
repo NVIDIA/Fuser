@@ -208,8 +208,8 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
       getBlocksPerSM(threads_per_sm, threads_per_block, dev_prop->warpSize);
   // check shared memory limitation on blocks per sm
   int64_t blocks_per_sm_smem = dev_prop->sharedMemPerMultiprocessor / (shared_memory_overhead_per_block + shared_memory_persistent_buffer_size);
-  std::cout << "sharedMemPerMultiprocessor= " << dev_prop->sharedMemPerMultiprocessor / 1024 << ", shared_memory_persistent_buffer_size= " << shared_memory_persistent_buffer_size/1024 << ", blocks_per_sm_smem= " << blocks_per_sm_smem << std::endl;
   int64_t blocks_per_sm = std::min(blocks_per_sm_regs, blocks_per_sm_smem);
+  std::cout << "sharedMemPerMultiprocessor= " << dev_prop->sharedMemPerMultiprocessor / 1024 << ", shared_memory_persistent_buffer_size= " << shared_memory_persistent_buffer_size/1024 << ", blocks_per_sm_smem= " << blocks_per_sm_smem << ", blocks_per_sm_regs= " << blocks_per_sm_regs << std::endl;
   iop.gdimy = blocks_per_sm * device_multiprocessor_count;
   const int64_t outer_iter_min = 8;
   const int64_t gdimy_max = scheduler_utils::roundUpToN(
@@ -1470,16 +1470,16 @@ std::shared_ptr<ReductionParams> getPersistentHeuristics(
     // temporary solution, the issue is tracked by
     // https://github.com/csarofeen/pytorch/issues/2525
     project_persistent_buffers = true;
-    if (scheduler_utils::register_file_size_combined >=
-        persistent_buffer_size_info.projected_persistent_buffer_size +
-            outer_reduction_buffer_size) {
-      register_persistent_buffer_size =
-          persistent_buffer_size_info.projected_persistent_buffer_size +
-          outer_reduction_buffer_size;
-    } else {
+    // if (scheduler_utils::register_file_size_combined >=
+    //     persistent_buffer_size_info.projected_persistent_buffer_size +
+    //         outer_reduction_buffer_size) {
+    //   register_persistent_buffer_size =
+    //       persistent_buffer_size_info.projected_persistent_buffer_size +
+    //       outer_reduction_buffer_size;
+    // } else {
       register_persistent_buffer_size = outer_reduction_buffer_size;
       shared_memory_persistent_buffer_size = persistent_buffer_size_info.projected_persistent_buffer_size;
-    }
+    // }
   } else if (n_tensor_inner_reduction > 0) {
     if (register_persistent_buffer_size > scheduler_utils::register_file_size) {
       shared_memory_persistent_buffer_size = register_persistent_buffer_size;
