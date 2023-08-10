@@ -124,14 +124,18 @@ TEST_F(NVFuserTest, CombinedSchedulerLayerNormBackward_CUDA) {
     // https://github.com/NVIDIA/Fuser/issues/704
     constexpr float scale_down_factor = 0.01;
     constexpr float scale_back_factor = 1.0 / scale_down_factor;
-    at::Tensor aten_grad_out =
-        at::randn(input_shape, maybe_fp16_options).mul(scale_down_factor);
-    at::Tensor aten_input =
-        at::randn(input_shape, maybe_fp16_options).mul(scale_down_factor);
-    at::Tensor aten_weight =
-        at::randn(norm_shape, maybe_fp16_options).mul(scale_down_factor);
-    at::Tensor aten_bias =
-        at::randn(norm_shape, maybe_fp16_options).mul(scale_down_factor);
+    at::Tensor aten_grad_out = at::randn(input_shape, maybe_fp16_options)
+                                   .mul(scale_down_factor)
+                                   .to(data_type_to_aten(dtype));
+    at::Tensor aten_input = at::randn(input_shape, maybe_fp16_options)
+                                .mul(scale_down_factor)
+                                .to(data_type_to_aten(dtype));
+    at::Tensor aten_weight = at::randn(norm_shape, maybe_fp16_options)
+                                 .mul(scale_down_factor)
+                                 .to(data_type_to_aten(dtype));
+    at::Tensor aten_bias = at::randn(norm_shape, maybe_fp16_options)
+                               .mul(scale_down_factor)
+                               .to(data_type_to_aten(dtype));
 
     auto at_weight = c10::optional<at::Tensor>(aten_weight);
     auto at_bias = c10::optional<at::Tensor>(aten_bias);
