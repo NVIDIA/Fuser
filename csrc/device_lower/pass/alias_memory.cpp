@@ -1533,7 +1533,7 @@ class NoReuseSharedMemAllocator : kir::IrVisitor {
 //! example:
 //!
 //!   a: Append A to holding area
-//!   b: Append A to holding area
+//!   b: Append B to holding area
 //!   c: Order holding area by last read (desc): {B, A}. Push B then A. Pop A.
 //!   d: Allocate C on top of B. RE-USES A
 //!   e: Cannot pop B since it is covered by C
