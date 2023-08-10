@@ -92,7 +92,9 @@ using token_t = std::variant<
     Comma,
     LowestPrecedence>;
 
-Val* randomlyReuseOrCreateNamedScalar(std::string_view name_view, DataType dtype) {
+Val* randomlyReuseOrCreateNamedScalar(
+    std::string_view name_view,
+    DataType dtype) {
   Fusion* fusion = FusionGuard::getCurFusion();
   auto name = std::string(name_view);
   if (!fusion->hasManaged(name)) {
