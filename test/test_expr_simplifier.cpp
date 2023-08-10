@@ -488,6 +488,24 @@ TEST_F(ExprSimplifierTest, AssociativeAndCommutativeReordering) {
   }
 
   {
+    auto val = "i3 + i2 - i1 + i0"_;
+    auto simplified = simplifyExpr(val, {variables.begin(), variables.end()});
+    auto expect = "i0 - i1 + i2 + i3"_;
+    EXPECT_TRUE(expect->sameAs(simplified) && simplified->sameAs(expect))
+        << "Expect the simplified expression " << simplified->toInlineString()
+        << " to be the same as " << expect->toInlineString();
+  }
+
+  {
+    auto val = "i3 + i2 + i1 - i0"_;
+    auto simplified = simplifyExpr(val, {variables.begin(), variables.end()});
+    auto expect = "- i0 + i1 + i2 + i3"_;
+    EXPECT_TRUE(expect->sameAs(simplified) && simplified->sameAs(expect))
+        << "Expect the simplified expression " << simplified->toInlineString()
+        << " to be the same as " << expect->toInlineString();
+  }
+
+  {
     auto val =
         "( ( ( ( i2 * i3 ) + ( ( i4 + i5 ) + 3 ) ) + 3 ) * ( ( ( ( i0 + i1 ) + 3 ) + 5 ) + i2 ) ) * i0"_;
     auto simplified = simplifyExpr(val, {variables.begin(), variables.end()});
