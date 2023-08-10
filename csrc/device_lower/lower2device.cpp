@@ -122,7 +122,7 @@ class KIRCleaner : public OptOutDispatch {
     // block.
     if (then_nop && !else_nop) {
       Val* pred = ite->predicate()->value();
-      Val* not_pred = SimplifyingIrBuilder::notExpr(pred);
+      Val* not_pred = SimplifyingIrBuilder::logicalNotExpr(pred);
       ite->predicate()->setValue(not_pred);
       for (auto expr : ite->elseBody().exprs()) {
         ite->thenBody().push_back(expr);
@@ -270,21 +270,15 @@ void GpuLower::lower(Fusion* fusion) {
   } lower_guard(this);
 
   // Use int64 by default as the kernel index type
-  auto kernel_index_type = cparams_.index_type.has_value()
-      ? cparams_.index_type.value()
-      : PrimDataType::Int;
+  if (!cparams_.index_type.has_value()) {
+    cparams_.index_type = PrimDataType::Int;
+  }
 
   // Copy fusion into a new kernel for processing
-  kernel_ = std::make_unique<kir::Kernel>(fusion, kernel_index_type);
+  kernel_ = std::make_unique<kir::Kernel>(fusion, indexType());
   // Alias the fusion kernel caries around as a view of itself.
   fusion_ = kernel_.get();
 
-  // Convert tensor views of DataType::Index type to either Int or Int32
-  for (auto tv : ir_utils::allTvs(fusion_)) {
-    if (tv->dtype() == DataType::Index) {
-      tv->resolveIndexDtype();
-    }
-  }
   segmenterHintCleanup(fusion_);
   FusionGuard fg(fusion_);
 
@@ -447,6 +441,8 @@ void GpuLower::lower(Fusion* fusion) {
   const auto exprs_raw_sync = insertRawThreadSynchronization(exprs_alloced);
   dumpExprsIfEnabled(exprs_raw_sync, "insertRawThreadSynchronization");
 
+  commonScalarMap().initialize(exprs_raw_sync);
+
   // Reuse memory locations
   const auto exprs_reuse_mem = reuseMemoryAllocations(exprs_raw_sync);
   dumpExprsIfEnabled(exprs_reuse_mem, "reuseMemoryAllocations");
@@ -472,8 +468,6 @@ void GpuLower::lower(Fusion* fusion) {
   const auto exprs_unrolled_loops =
       UnrollPass::runPass(fusion_, exprs_loop_rotated);
   dumpExprsIfEnabled(exprs_unrolled_loops, "UnrollPass");
-
-  commonScalarMap().initialize(exprs_unrolled_loops);
 
   const auto exprs_unrolled_mv_loops =
       processMisalignedVectorization(exprs_unrolled_loops);

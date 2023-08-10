@@ -70,6 +70,10 @@ class TORCH_CUDA_CU_API GpuLower : public NonCopyable {
   //! Query if lowering is in progress
   static bool hasCurrent();
 
+  const PrimDataType& indexType() const {
+    return cparams_.index_type.value();
+  }
+
   std::shared_ptr<const ConcretizedBroadcastDomains>
   concretizedBroadcastDomains() {
     return concretized_broadcast_domains_;

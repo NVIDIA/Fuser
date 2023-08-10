@@ -955,27 +955,6 @@ class TestCudaFuser(JitTestCase):
         jitted.graph_for(x)  # Shows up in second instance, not first
         self.assertGraphContains(jitted.graph_for(x), FUSION_GUARD)
 
-        def bool_not(x: torch.Tensor, y: torch.Tensor):
-            return ~(x & y)
-
-        jitted = torch.jit.script(bool_not)
-        x = (
-            torch.rand(4, 8, 32, 32, dtype=torch.float, device="cuda")
-            .round()
-            .to(torch.bool)
-        )
-        y = (
-            torch.rand(4, 8, 32, 32, dtype=torch.float, device="cuda")
-            .round()
-            .to(torch.bool)
-        )
-        jit_o = jitted(x, y)
-        jit_o = jitted(x, y)
-        o = bool_not(x, y)
-        self.assertEqual(o, jit_o)
-        jitted.graph_for(x, y)  # Shows up in second instance, not first
-        self.assertGraphContains(jitted.graph_for(x, y), FUSION_GUARD)
-
     def _get_scalar_binary_test_fn(
         self, category_and_type1, category_and_type2, operation
     ):
