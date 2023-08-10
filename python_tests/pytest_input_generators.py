@@ -13,6 +13,11 @@ from pytest_core import OpInfo, SampleInput, ErrorSample
 from pytest_utils import make_number, find_nonmatching_dtype, is_floating_dtype
 from nvfuser import DataType
 
+MINIMUM_SYMBOLIC_SIZE = -1
+INT64_MAX = 2**63 - 1
+MAX_TENSOR_DIMS = 8
+MAX_VECTOR_SIZE = 8
+
 
 def broadcast_error_generator(
     op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
@@ -207,7 +212,7 @@ def cat_error_generator(op, dtype=torch.float32, requires_grad: bool = False, **
 def define_tensor_generator(
     op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
 ):
-    yield SampleInput(symbolic_sizes=[-1], contiguity=[True])
+    yield SampleInput(shape=[-1], contiguity=[True])
 
 
 def define_tensor_error_generator(
@@ -224,19 +229,15 @@ def define_tensor_error_generator(
     ---
     "define_tensor",
     [](FusionDefinition& self,
-        std::vector<int64_t>& symbolic_sizes,
+        std::vector<int64_t>& shape,
         std::vector<std::optional<bool>>& contiguity,
         PrimDataType dtype = DataType::Float,
         bool is_cpu = false) -> Tensor {
     """
 
-    MINIMUM_SYMBOLIC_SIZE = -1
-    INT64_MAX = 9223372036854775807
-    MAX_TENSOR_DIMS = 8
-
     check_size_contiguity_match = ErrorSample(
         {
-            "symbolic_sizes": [-1, -1],
+            "shape": [-1, -1],
             "contiguity": [True, True, True],
             "dtype": DataType.Float,
         },
@@ -244,37 +245,37 @@ def define_tensor_error_generator(
     )
 
     check_empty_tensor_size = ErrorSample(
-        {"symbolic_sizes": [], "contiguity": []},
+        {"shape": [], "contiguity": []},
         "Empty tensor is unsupported.",
     )
 
     check_max_tensor_size = ErrorSample(
         {
-            "symbolic_sizes": [-1 for _ in range(MAX_TENSOR_DIMS + 1)],
+            "shape": [-1 for _ in range(MAX_TENSOR_DIMS + 1)],
             "contiguity": [True for _ in range(MAX_TENSOR_DIMS + 1)],
         },
         "The specified tensor dimensionality exceeds the max tensor size for nvfuser.",
     )
 
     check_above_size_range = ErrorSample(
-        {"symbolic_sizes": [INT64_MAX + 1], "contiguity": [True]},
+        {"shape": [INT64_MAX + 1], "contiguity": [True]},
         "define_tensor(): incompatible function arguments",
         TypeError,
     )
 
     check_below_size_range = ErrorSample(
-        {"symbolic_sizes": [MINIMUM_SYMBOLIC_SIZE - 1], "contiguity": [True]},
+        {"shape": [MINIMUM_SYMBOLIC_SIZE - 1], "contiguity": [True]},
         "The value -2 at index 0 was neither symbolic(-1), zero_element(0), broadcast(1), or static(>1)",
     )
 
     check_contiguity_unknown_values = ErrorSample(
-        {"symbolic_sizes": [10], "contiguity": [-1]},
+        {"shape": [10], "contiguity": [-1]},
         "define_tensor(): incompatible function arguments.",
         TypeError,
     )
 
-    check_symbolic_sizes_unknown_dtypes = ErrorSample(
-        {"symbolic_sizes": [10.0], "contiguity": [True]},
+    check_shape_unknown_dtypes = ErrorSample(
+        {"shape": [10.0], "contiguity": [True]},
         "define_tensor(): incompatible function arguments.",
         TypeError,
     )
@@ -288,7 +289,7 @@ def define_tensor_error_generator(
         check_above_size_range,
         check_below_size_range,
         # check_contiguity_unknown_values,
-        check_symbolic_sizes_unknown_dtypes,
+        check_shape_unknown_dtypes,
     ]
 
     input_tensor = make_tensor(
@@ -305,10 +306,6 @@ def define_vector_constant_error_generator(
     "define_vector",
     [](FusionDefinition& self, py::list& values) -> Vector {
     """
-
-    MINIMUM_SYMBOLIC_SIZE = -1
-    INT64_MAX = 9223372036854775807
-    MAX_VECTOR_SIZE = 8
 
     check_above_size_range = ErrorSample(
         {"values": [INT64_MAX + 1]},
@@ -347,8 +344,6 @@ def define_vector_input_error_generator(
     "define_vector",
     [](FusionDefinition& self, size_t size) -> Vector {
     """
-
-    MAX_VECTOR_SIZE = 8
 
     check_max_vector_size = ErrorSample(
         {
@@ -1035,3 +1030,73 @@ def where_error_generator(
         make_arg(input_shape),
         make_arg(input_shape),
     ), RuntimeError, "Condition should be of DataType Bool"
+
+
+def tensor_size_error_generator(
+    op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
+):
+    make_arg = partial(
+        make_tensor, device="cuda", dtype=dtype, requires_grad=requires_grad
+    )
+
+    check_index_beyond_num_dims = (
+        {
+            "tensor_shape": [2 for _ in range(0, MAX_TENSOR_DIMS)],
+            "dim": MAX_TENSOR_DIMS,
+        },
+        RuntimeError,
+        "The dimension requested is beyond the bounds of the shape of the indexed tensor!",
+    )
+    check_relative_index_beyond_num_dims = (
+        {
+            "tensor_shape": [2 for _ in range(0, MAX_TENSOR_DIMS)],
+            "dim": -MAX_TENSOR_DIMS - 1,
+        },
+        RuntimeError,
+        "The dimension requested is beyond the bounds of the shape of the indexed tensor!",
+    )
+
+    error_checks = [
+        check_index_beyond_num_dims,
+        check_relative_index_beyond_num_dims,
+    ]
+
+    for error_case, error_type, error_msg in error_checks:
+        yield SampleInput(
+            make_arg(error_case["tensor_shape"]), dim=error_case["dim"]
+        ), error_type, error_msg
+
+
+def vector_at_error_generator(
+    op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
+):
+    make_arg = partial(
+        make_tensor, device="cuda", dtype=dtype, requires_grad=requires_grad
+    )
+
+    check_index_beyond_num_dims = (
+        {
+            "tensor_shape": [2 for _ in range(0, MAX_TENSOR_DIMS)],
+            "index": MAX_TENSOR_DIMS,
+        },
+        RuntimeError,
+        "The index requested is beyond the bounds of the indexed vector!",
+    )
+    check_relative_index_beyond_num_dims = (
+        {
+            "tensor_shape": [2 for _ in range(0, MAX_TENSOR_DIMS)],
+            "index": -MAX_TENSOR_DIMS - 1,
+        },
+        RuntimeError,
+        "The index requested is beyond the bounds of the indexed vector!",
+    )
+
+    error_checks = [
+        check_index_beyond_num_dims,
+        check_relative_index_beyond_num_dims,
+    ]
+
+    for error_case, error_type, error_msg in error_checks:
+        yield SampleInput(
+            make_arg(error_case["tensor_shape"]), index=error_case["index"]
+        ), error_type, error_msg

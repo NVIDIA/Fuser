@@ -175,6 +175,8 @@ Allocate::Allocate(
   addDataAttribute(memory_type);
   addDataAttribute(zero_init);
   addAttribute(alias);
+  // Always initialize shared memory address to nullptr
+  addAttribute(nullptr);
 
   for (auto s : shape) {
     addAttribute(s);

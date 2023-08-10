@@ -412,7 +412,7 @@ class WelfordVectorizer : public kir::ExprMutator {
         GpuLower::current()->kernel()->zeroVal());
 
     Val* indices_zero =
-        ir_utils::replaceValInIndexVal(original_index, index_replacement_map);
+        ir_utils::replaceValRecursively(original_index, index_replacement_map);
 
     auto hoisted_count =
         IrBuilder::create<kir::TensorIndex>(out_N->view(), indices_zero);

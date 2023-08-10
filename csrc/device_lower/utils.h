@@ -287,6 +287,11 @@ bool supportInlinePredicate(Expr* expr);
 //! Test if an expression is a scalar expression.
 bool isScalarExpr(Expr* expr);
 
+//! Test if provided IterDomain instance has an extent that matches maximum
+//!  extent stored in parallel dimension map for parallel type of provided
+//!  IterDomain object.
+bool isExtentEqualToMaxParallelTypeExtent(const IterDomain* id);
+
 } // namespace lower_utils
 
 } // namespace nvfuser

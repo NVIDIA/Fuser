@@ -1469,30 +1469,27 @@ RolesMapOpt getTensorsRoles(Fusion* fusion) {
                                      const bool processing_output) {
     for (const auto& entry : deps_map) {
       const auto& domains = entry.second;
+      const auto begin = domains.begin();
       const auto end = domains.end();
 
-      bool has_m =
-          (end != std::find(domains.begin(), domains.end(), MatmulDomain::M))
-          ? true
-          : false;
-      bool has_n =
-          (end != std::find(domains.begin(), domains.end(), MatmulDomain::N))
-          ? true
-          : false;
-      bool has_k =
-          (end != std::find(domains.begin(), domains.end(), MatmulDomain::K))
-          ? true
-          : false;
+      bool has_m = (end != std::find(begin, end, MatmulDomain::M));
+      bool has_n = (end != std::find(begin, end, MatmulDomain::N));
+      bool has_k = (end != std::find(begin, end, MatmulDomain::K));
 
-      if (has_m && has_k && !has_n && !processing_output) {
+      if (!processing_output && has_m && has_k && !has_n) {
         roles_map[MatmulRole::INPUT_A].push_back(entry.first);
         continue;
       }
-      if (has_n && has_k && !has_m && !processing_output) {
+      if (!processing_output && has_n && has_k && !has_m) {
         roles_map[MatmulRole::INPUT_B].push_back(entry.first);
         continue;
       }
       if (!processing_output && has_m && has_n && !has_k) {
+        roles_map[MatmulRole::INPUT_C].push_back(entry.first);
+        continue;
+      }
+      // Bias vectors are assigned to INPUT_C role
+      if (!processing_output && has_m && !has_n && !has_k) {
         roles_map[MatmulRole::INPUT_C].push_back(entry.first);
         continue;
       }

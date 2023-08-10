@@ -224,7 +224,7 @@ token_t parseToken(std::string_view token_str, bool& expect_val) {
   if (token_str.at(0) == '!' || token_str.at(0) == '~') {
     TORCH_CHECK(
         expect_val, "Syntax error: not expecting unary op but get ", token_str);
-    return fun1_t(&IrBuilder::notExpr);
+    return fun1_t(&IrBuilder::logicalNotExpr);
   } else if (token_str.at(0) == '-' || std::isdigit(token_str.at(0))) {
     TORCH_CHECK(
         expect_val, "Syntax error: not expecting number but get ", token_str);
@@ -260,9 +260,9 @@ token_t parseToken(std::string_view token_str, bool& expect_val) {
     } else if (token_str == "<=") {
       return fun2_t(&IrBuilder::leExpr);
     } else if (token_str == "&&") {
-      return fun2_t(&IrBuilder::andExpr);
+      return fun2_t(&IrBuilder::logicalAndExpr);
     } else if (token_str == "||") {
-      return fun2_t(&IrBuilder::orExpr);
+      return fun2_t(&IrBuilder::logicalOrExpr);
     }
     TORCH_CHECK(false, "Unrecognized token: ", token_str);
   }
@@ -279,7 +279,7 @@ int getOpPrecedence(token_t op) {
   if (std::holds_alternative<fun1_t>(op)) {
     auto uop = std::get<fun1_t>(op);
     if (uop == fun1_t(IrBuilder::negExpr) ||
-        uop == fun1_t(IrBuilder::notExpr)) {
+        uop == fun1_t(IrBuilder::logicalNotExpr)) {
       return 3;
     }
     TORCH_CHECK(false, "Unexpected unary op");
@@ -306,10 +306,10 @@ int getOpPrecedence(token_t op) {
         bop == fun2_t(&IrBuilder::neExpr)) {
       return 10;
     }
-    if (bop == fun2_t(&IrBuilder::andExpr)) {
+    if (bop == fun2_t(&IrBuilder::logicalAndExpr)) {
       return 14;
     }
-    if (bop == fun2_t(&IrBuilder::orExpr)) {
+    if (bop == fun2_t(&IrBuilder::logicalOrExpr)) {
       return 15;
     }
     TORCH_CHECK(false, "Unexpected binary op");

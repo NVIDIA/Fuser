@@ -133,7 +133,11 @@ std::vector<int64_t> evaluateAddressesOnFirstPhase(
     expr_eval.bind("threadIdx.x", tidx);
     expr_eval.bind("threadIdx.y", tidy);
     expr_eval.bind("threadIdx.z", tidz);
-    expr_eval.bind(ti->view(), at::Tensor());
+    // Smem tensor is defined locally as a pointer. It is impossible to know the
+    // actual address, but using nullptr is a good approximation.
+    expr_eval.bind(
+        IrBuilder::metadataExpr(ti->view()),
+        Pointer((void*)nullptr, ti->dtype()));
     for (auto fl : for_loops) {
       if (fl->index()->isA<NamedScalar>()) {
         auto ns = fl->index()->as<NamedScalar>();

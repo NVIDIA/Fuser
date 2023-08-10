@@ -141,10 +141,6 @@ void MaxInfoSpanningTree::traverse(Propagator* propagator) {
   }
   propagator->setUp();
   for (const auto& next_hop : path_) {
-    if (getenv("VERBOSE")) {
-      std::cerr << "traverse from " << next_hop.from->toString() << " to "
-                << next_hop.to->toString() << std::endl;
-    }
     switch (next_hop.type) {
       case NextHopType::SIBLING:
         propagator->propagateSibling(next_hop.from, next_hop.to);

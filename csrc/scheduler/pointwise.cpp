@@ -83,8 +83,6 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
 
   FusionGuard fg(fusion);
 
-  // fusion->printMath();
-
   // Incase any buffer is of type DataType::Index
   const auto index_type = runtime_info.getIndexType();
 
@@ -453,18 +451,8 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
 
   // Cache and fork outputs
   auto cached_outputs = scheduler_utils::cacheAndForkOutputs(fusion, true);
-  if (getenv("VERBOSE")) {
-    std::cout << "After cache\n";
-    fusion->printMath();
-  }
 
   scheduler_utils::prepareForMemoryTypePromotion(fusion);
-
-  if (getenv("VERBOSE")) {
-    std::cout << "After prepare\n";
-    fusion->printMath();
-    std::cout << std::endl;
-  }
 
   std::vector<TensorView*> input_tvs;
   {
@@ -502,8 +490,6 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
   // Positions of rhs and lhs after merging all dimensions.
   int rhs_i = -1;
   int lhs_i = -1;
-
-  fusion->printMath();
 
   if (!ir_utils::getViewOps(fusion).empty()) {
     ComputeAtMap ca_map(fusion);
