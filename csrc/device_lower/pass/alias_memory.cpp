@@ -1579,17 +1579,26 @@ class StackBasedSharedMemAllocator {
       : allocation_info_map_(allocation_info_map), warn_only_(warn_only) {}
 
   void allocate() {
+    debug() << "StackBasedSharedMemAllocator::allocate()" << std::endl;
+    debug() << "warn_only_=" << warn_only_ << std::endl;
+
     recordEvents();
 
     for (auto [pos, first_writes] : pos_to_first_writes_) {
+      debug() << "Position " << pos << ":" << std::endl;
       // Assign allocations for write events and push onto stack
       for (auto alloc_info : first_writes) {
+        debug() << "  First write for " << alloc_info->alloc_expr->toString()
+                << std::endl;
         // Assign new address
         assignNextAddress(alloc_info, pos);
         // Ensure we will sync between last_read_pos_ and pos
         ensureSync(pos);
         // Push alloc_info onto the stack
+        // TODO: REORDER PUSHES
         alloc_stack_.push_back(alloc_info);
+        debug() << "PUSHING " << alloc_info->alloc_expr->buffer()->toString()
+                << std::endl;
       }
       // After allocating writes at this position, pop dead allocations. Note
       // that if we did this earlier we might pop then immediately re-use
@@ -1602,16 +1611,20 @@ class StackBasedSharedMemAllocator {
     if (warn_only_) {
       return;
     }
+    auto alloc = alloc_info->alloc_expr;
     if (alloc_stack_.empty()) {
-      alloc_info->alloc_expr->setAddress(
-          FusionGuard::getCurFusion()->zeroVal());
+      alloc->setAddress(FusionGuard::getCurFusion()->zeroVal());
     } else {
       auto top_alloc = alloc_stack_.back()->alloc_expr;
       auto top_size = allocSizeBytes(top_alloc);
       auto unaligned_address =
           SimplifyingIrBuilder::addExpr(top_alloc->address(), top_size);
       auto aligned_address = alignExpr(unaligned_address);
-      alloc_info->alloc_expr->setAddress(aligned_address);
+      alloc->setAddress(aligned_address);
+    }
+    if (isDebugDumpEnabled(DebugDumpOption::BufferReuseInfo)) {
+      debug() << "Allocated address " << alloc->address()->toInlineString()
+              << " for T" << alloc->buffer()->name() << std::endl;
     }
   }
 
@@ -1621,7 +1634,15 @@ class StackBasedSharedMemAllocator {
       if (alloc_info->mem_type != MemoryType::Shared) {
         continue;
       }
+      debug() << "\nAllocation for "
+              << alloc_info->alloc_expr->buffer()->toString() << std::endl;
+      debug() << "  First write outer: "
+              << alloc_info->outer_live_interval->firstWrite() << std::endl;
+      debug() << "  Last read outer: "
+              << alloc_info->outer_live_interval->lastRead() << std::endl;
       if (alloc_info->alias_to) {
+        debug() << "  Aliased to " << alloc_info->alias_to->toString()
+                << std::endl;
         auto alias_info =
             allocation_info_map_.getMaybeAllocationInfo(alloc_info->alias_to);
         TORCH_CHECK(alias_info.has_value());
@@ -1685,6 +1706,9 @@ class StackBasedSharedMemAllocator {
       auto last_read = it->second;
       if (last_read <= pos) {
         latest_pop_ = std::min(last_read, latest_pop_);
+        debug() << "POPPING "
+                << alloc_stack_.back()->alloc_expr->buffer()->toString()
+                << std::endl;
         alloc_stack_.pop_back();
         popped = true;
       }
