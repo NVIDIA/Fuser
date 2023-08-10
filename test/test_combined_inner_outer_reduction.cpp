@@ -48,7 +48,6 @@ TEST_F(NVFuserTest, CombinedSchedulerLayerNormBackward_CUDA) {
                     const std::vector<int64_t>& norm_shape,
                     DataType dtype,
                     bool isBenchmark,
-                    bool scale_down_to_avoid_overflow,
                     int verbose) {
     std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
     Fusion& fusion = *fusion_ptr.get();
@@ -118,16 +117,20 @@ TEST_F(NVFuserTest, CombinedSchedulerLayerNormBackward_CUDA) {
     auto maybe_fp16_options = at::TensorOptions()
                                   .dtype(data_type_to_aten(dtype))
                                   .device(at::kCUDA, 0);
-    at::Tensor aten_grad_out = at::randn(input_shape, maybe_fp16_options);
-    at::Tensor aten_input = at::randn(input_shape, maybe_fp16_options);
-    at::Tensor aten_weight = at::randn(norm_shape, maybe_fp16_options);
-    at::Tensor aten_bias = at::randn(norm_shape, maybe_fp16_options);
-    if (scale_down_to_avoid_overflow) {
-      aten_grad_out = aten_grad_out.mul(0.01);
-      aten_input = aten_input.mul(0.01);
-      aten_weight = aten_weight.mul(0.01);
-      aten_bias = aten_bias.mul(0.01);
-    }
+
+    // scale down to avoid fp16 overflow in segmented cases.
+    // results are scaled back to original scale for correctness check.
+    constexpr float scale_down_factor = 1;
+    constexpr float scale_back_factor = 1.0 / scale_down_factor;
+    at::Tensor aten_grad_out =
+        at::randn(input_shape, maybe_fp16_options).mul(scale_down_factor);
+    at::Tensor aten_input =
+        at::randn(input_shape, maybe_fp16_options).mul(scale_down_factor);
+    at::Tensor aten_weight =
+        at::randn(norm_shape, maybe_fp16_options).mul(scale_down_factor);
+    at::Tensor aten_bias =
+        at::randn(norm_shape, maybe_fp16_options).mul(scale_down_factor);
+
     auto at_weight = c10::optional<at::Tensor>(aten_weight);
     auto at_bias = c10::optional<at::Tensor>(aten_bias);
 
@@ -160,27 +163,19 @@ TEST_F(NVFuserTest, CombinedSchedulerLayerNormBackward_CUDA) {
 
     testValidate(
         &fusion,
-        cg_outputs,
+        {cg_outputs[0].mul(scale_back_factor),
+         cg_outputs[1].mul(scale_back_factor),
+         cg_outputs[2].mul(scale_back_factor)},
         aten_inputs,
-        {std::get<0>(aten_gradients),
-         std::get<1>(aten_gradients),
-         std::get<2>(aten_gradients)},
+        {std::get<0>(aten_gradients).mul(scale_back_factor),
+         std::get<1>(aten_gradients).mul(scale_back_factor),
+         std::get<2>(aten_gradients).mul(scale_back_factor)},
         __LINE__,
         __FILE__);
 
     int64_t hidden_size = 1;
     for (auto s : norm_shape) {
       hidden_size *= s;
-    }
-
-    if (dtype == DataType::Half) {
-      TORCH_CHECK(
-          fec.getMostRecentKernelRuntime()->isSegmented() ==
-              scale_down_to_avoid_overflow,
-          "Fusion fp16 inputs should be scaled down to avoid fp16 overflow if fusion is segmented! hidden size= ",
-          hidden_size,
-          ", dtype= ",
-          dtype == DataType::Float ? "Float." : "Half.");
     }
 
     if (isBenchmark) {
@@ -270,21 +265,8 @@ TEST_F(NVFuserTest, CombinedSchedulerLayerNormBackward_CUDA) {
   for (auto dtype : data_types) {
     for (auto batch_shape : batch_sizes) {
       for (auto norm_shape : hidden_sizes) {
-        bool scale_down_to_avoid_overflow = false;
-        if (dtype == DataType::Half && norm_shape[0] == 27648) {
-          // In this scenario, the fusion undergoes segmentation and
-          // intermediate results are stored in fp16. Scaling down the inputs is
-          // necessary to prevent fp16 overflow. See
-          // https://github.com/NVIDIA/Fuser/issues/704
-          scale_down_to_avoid_overflow = true;
-        }
-        std::tuple<float, float> avg_var = runTest(
-            batch_shape,
-            norm_shape,
-            dtype,
-            isBenchmark,
-            scale_down_to_avoid_overflow,
-            verbose);
+        std::tuple<float, float> avg_var =
+            runTest(batch_shape, norm_shape, dtype, isBenchmark, verbose);
         if (isBenchmark) {
           std::stringstream sdim0, sdim1;
           std::for_each(
