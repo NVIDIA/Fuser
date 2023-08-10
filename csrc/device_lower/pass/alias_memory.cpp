@@ -1584,13 +1584,9 @@ class StackBasedSharedMemAllocator {
     for (auto [pos, first_writes] : pos_to_first_writes_) {
       // Assign allocations for write events and push onto stack
       for (auto alloc_info : first_writes) {
-        // Assign new address
-        assignNextAddress(alloc_info, pos);
-        // Ensure we will sync between last_read_pos_ and pos
-        ensureSync(pos);
-        // Push alloc_info onto the stack
-        // TODO: REORDER PUSHES
-        alloc_stack_.push_back(alloc_info);
+        // Push alloc_info onto the stack (eventually. See note above on
+        // reordering)
+        waiting_to_push_.push_back(alloc_info);
       }
       // After allocating writes at this position, pop dead allocations. Note
       // that if we did this earlier we might pop then immediately re-use
@@ -1599,7 +1595,40 @@ class StackBasedSharedMemAllocator {
     }
   }
 
-  void assignNextAddress(AllocationInfo* alloc_info, int pos) {
+  int lastAliasedRead(AllocationInfo* alloc_info) {
+    auto it = last_aliased_read_.find(alloc_info);
+    TORCH_CHECK(
+        it != last_aliased_read_.end(),
+        "Could not find last aliased read info for ",
+        alloc_info->alloc_expr->toString());
+    return it->second;
+  }
+
+  void sortPushAndAssignWaiting() {
+    // Sort descending by last read
+    std::sort(
+        waiting_to_push_.begin(),
+        waiting_to_push_.end(),
+        [this](AllocationInfo* a, AllocationInfo* b) {
+          return lastAliasedRead(a) > lastAliasedRead(b);
+        });
+    for (auto alloc_info : waiting_to_push_) {
+      pushAndAssign(alloc_info);
+    }
+    waiting_to_push_.clear();
+  }
+
+  void pushAndAssign(AllocationInfo* alloc_info) {
+    // Assign new address
+    assignNextAddress(alloc_info);
+
+    // Ensure we will sync between last_read_pos_ and pos
+    ensureSync(alloc_info->outer_live_interval->firstWrite());
+
+    alloc_stack_.push_back(alloc_info);
+  }
+
+  void assignNextAddress(AllocationInfo* alloc_info) {
     if (warn_only_) {
       return;
     }
@@ -1630,11 +1659,7 @@ class StackBasedSharedMemAllocator {
         auto alias_info =
             allocation_info_map_.getMaybeAllocationInfo(alloc_info->alias_to);
         TORCH_CHECK(alias_info.has_value());
-        TORCH_CHECK(
-            last_aliased_read_.find(alias_info.value()) !=
-            last_aliased_read_.end());
-
-        auto prev_last_read = last_aliased_read_[alias_info.value()];
+        auto prev_last_read = lastAliasedRead(alias_info.value());
         last_aliased_read_[alias_info.value()] = std::max(
             prev_last_read, alloc_info->outer_live_interval->lastRead());
       } else {
@@ -1662,10 +1687,10 @@ class StackBasedSharedMemAllocator {
     if (warn_only_) {
       TORCH_WARN_ONCE(
           "Detected missed opportunity for shared memory re-use. This Fusion ",
-          "could make use shared memory re-use, which will might improve ",
+          "could make use of shared memory re-use, which might improve ",
           "occupancy at the expense of potential additional block ",
-          "synchronization. To enable re-use use the environment variable ",
-          "NVFUSER_ENABLE=reuse_smem.\nTo disable this warning use ",
+          "synchronizations. To enable shared memory re-use use the environment ",
+          "variable NVFUSER_ENABLE=reuse_smem.\n\nTo disable this warning use ",
           "NVFUSER_DISABLE=smem_reuse_warning.");
       return;
     }
@@ -1678,20 +1703,31 @@ class StackBasedSharedMemAllocator {
 
   //! Pop all allocations on the top of the stack that are no longer active.
   void popAllDead(int pos) {
-    bool popped = true;
-    while (popped && !alloc_stack_.empty()) {
-      popped = false;
-      auto back = alloc_stack_.back();
-      auto it = last_aliased_read_.find(back);
-      TORCH_CHECK(
-          it != last_aliased_read_.end(),
-          "Could not find last aliased read info for ",
-          back->alloc_expr->toString());
-      auto last_read = it->second;
+    if (!waiting_to_push_.empty()) {
+      // Check whether we have any allocations waiting to be pushed that are now
+      // inactive. If so, then they need to be ordered and allocated at the top
+      // of the stack before continuing.
+      if (std::any_of(
+              waiting_to_push_.begin(),
+              waiting_to_push_.end(),
+              [this, pos](AllocationInfo* alloc_info) {
+                return lastAliasedRead(alloc_info) <= pos;
+              })) {
+        sortPushAndAssignWaiting();
+      } else {
+        // We cannot pop off the stack because there are allocations still
+        // waiting to be pushed onto the stack.
+        return;
+      }
+    }
+
+    while (!alloc_stack_.empty()) {
+      auto last_read = lastAliasedRead(alloc_stack_.back());
       if (last_read <= pos) {
         latest_pop_ = std::max(last_read, latest_pop_);
         alloc_stack_.pop_back();
-        popped = true;
+      } else {
+        break;
       }
     }
   }
@@ -1724,6 +1760,11 @@ class StackBasedSharedMemAllocator {
   // time, all memory above the last allocation in this vector is guaranteed to
   // be free.
   std::vector<AllocationInfo*> alloc_stack_;
+
+  // This represents allocations that are waiting to be pushed onto the stack.
+  // At the last moment, i.e. when one of them needs to be popped, we sort these
+  // in descending order of their last read, and push them onto the stack.
+  std::vector<AllocationInfo*> waiting_to_push_;
 };
 
 } // namespace
