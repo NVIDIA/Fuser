@@ -765,7 +765,8 @@ flatbuffers::Offset<serde::FusionExecutorCache> FusionExecutorCache::serialize(
 
   // 1. For each [device, concretization_info] key, serialize its vector of
   // FusionKernelRuntime objects
-  std::vector<flatbuffers::Offset<serde::KernelRuntimeState>> fb_kernel_runtimes;
+  std::vector<flatbuffers::Offset<serde::KernelRuntimeState>>
+      fb_kernel_runtimes;
   fb_kernel_runtimes.reserve(kernel_runtimes_.size());
 
   for (auto&& [config, device_runtimes] : kernel_runtimes_) {
