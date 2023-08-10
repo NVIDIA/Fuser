@@ -765,7 +765,7 @@ flatbuffers::Offset<serde::FusionExecutorCache> FusionExecutorCache::serialize(
 
   // 1. For each [device, concretization_info] key, serialize its vector of
   // FusionKernelRuntime objects
-  std::vector<flatbuffers::Offset<serde::KernelRuntimes>> fb_kernel_runtimes;
+  std::vector<flatbuffers::Offset<serde::KernelRuntimeState>> fb_kernel_runtimes;
   fb_kernel_runtimes.reserve(kernel_runtimes_.size());
 
   for (auto&& [config, device_runtimes] : kernel_runtimes_) {
@@ -785,7 +785,7 @@ flatbuffers::Offset<serde::FusionExecutorCache> FusionExecutorCache::serialize(
     // We recompute the DynamicTransformConcretizationInfo during
     // deserialization using a metadata copy of kernel inputs.
     auto&& [device_id, dynamic_info] = config;
-    fb_kernel_runtimes.push_back(CreateKernelRuntimesDirect(
+    fb_kernel_runtimes.push_back(CreateKernelRuntimeStateDirect(
         builder, device_id, (dynamic_info != nullptr), &fb_device_runtimes));
   }
 
@@ -823,7 +823,7 @@ void FusionExecutorCache::deserialize(
   std::vector<FusionKernelRuntime*> all_runtimes;
 
   // 1. Deserialize kernel_runtimes_ unordered_map
-  for (auto fb_device_runtimes : *buffer->kernel_runtimes()) {
+  for (auto fb_device_runtimes : *buffer->kernel_runtimes_map()) {
     const auto& initial_info = initialInfo();
     TORCH_INTERNAL_ASSERT(
         initial_info.isDynamic() ==
@@ -987,7 +987,9 @@ void FusionKernelRuntime::deserialize(
     scheduler_entry->schedule(fusion_to_run.get());
 
     executors_.at(group_id).deserialize(
-        buffer->executors()->Get(group_id), fusion_to_run.get());
+        buffer->executors()->Get(group_id),
+        fusion_to_run.get(),
+        scheduler_entry->params()->cparams);
   }
 }
 

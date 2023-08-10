@@ -410,7 +410,7 @@ table InputsIdLookup {
 }
 
 // This table represents a key-value pair in the kernel_runtimes map in FusionExecutorCache.
-table KernelRuntimes {
+table KernelRuntimeState {
   device_id : ulong;
   has_dynamic_transform_info : bool;
   runtimes : [FusionKernelRuntime];
@@ -421,8 +421,9 @@ table KernelRuntimes {
 table FusionExecutorCache {
   inputs_cache : InputsIdLookup;
 
-  // This field represents a map<size_t, vector<FusionKernelRuntime>>.
-  kernel_runtimes : [KernelRuntimes];
+  // This field represents a map<<size_t, DynamicTransformConcretizationInfo>, vector<FusionKernelRuntime>>.
+  // DynamicTransformConcretizationInfo is regenerated during deserialization.
+  kernel_runtimes_map : [KernelRuntimeState];
 
   // This field defines a map<size_t, FusionKernelRuntime> id_to_kernel_runtime.
   kernel_cache_keys : [ulong];

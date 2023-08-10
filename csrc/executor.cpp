@@ -1996,7 +1996,8 @@ flatbuffers::Offset<serde::GlobalBufferInfo> FusionExecutor::serialize(
 
 void FusionExecutor::deserialize(
     const serde::FusionExecutor* buffer,
-    Fusion* fusion) {
+    Fusion* fusion,
+    CompileParams compile_params) {
   // See table definition for FusionExecutor in serde/fusion_cache.fbs
 
   TORCH_INTERNAL_ASSERT(buffer != nullptr, "serde::FusionExecutor is nullptr.");
@@ -2012,12 +2013,11 @@ void FusionExecutor::deserialize(
 
   // KernelDB query checks kernel_code string and compile_params before
   // copying cubin.
-  auto default_params = CompileParams();
-  default_params.index_type = serde::mapToNvfuserDtype(buffer->index_type());
-  default_params.maxrregcount = maxrregcount_high_water_mark_;
+  compile_params.index_type = serde::mapToNvfuserDtype(buffer->index_type());
+  compile_params.maxrregcount = maxrregcount_high_water_mark_;
 
   // Get lowered fusion
-  lowered_ = std::make_unique<GpuLower>(fusion, default_params);
+  lowered_ = std::make_unique<GpuLower>(fusion, compile_params);
 
   // Replace integers that are tensor sizes by named scalars like "T0.size[0]"
   fusion_ = lowered_->kernel()->as<Fusion>();
@@ -2036,7 +2036,7 @@ void FusionExecutor::deserialize(
           getStructuredCode(),
           getCanonicalKernelName(),
           fusion_id_,
-          default_params,
+          compile_params,
           block_size_high_water_mark_,
           save_compiled_binary_);
 
