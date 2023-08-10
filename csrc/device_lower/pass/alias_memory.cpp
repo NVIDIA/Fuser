@@ -1573,8 +1573,10 @@ class NoReuseSharedMemAllocator : kir::IrVisitor {
 //! re-use its memory in the middle, which might be wasteful.
 class StackBasedSharedMemAllocator {
  public:
-  StackBasedSharedMemAllocator(const AllocationInfoMap& allocation_info_map)
-      : allocation_info_map_(allocation_info_map) {}
+  StackBasedSharedMemAllocator(
+      const AllocationInfoMap& allocation_info_map,
+      bool warn_only = false)
+      : allocation_info_map_(allocation_info_map), warn_only_(warn_only) {}
 
   void allocate() {
     recordEvents();
@@ -1583,19 +1585,9 @@ class StackBasedSharedMemAllocator {
       // Assign allocations for write events and push onto stack
       for (auto alloc_info : first_writes) {
         // Assign new address
-        if (alloc_stack_.empty()) {
-          alloc_info->alloc_expr->setAddress(
-              FusionGuard::getCurFusion()->zeroVal());
-        } else {
-          auto top_alloc = alloc_stack_.back()->alloc_expr;
-          auto top_size = allocSizeBytes(top_alloc);
-          auto unaligned_address =
-              SimplifyingIrBuilder::addExpr(top_alloc->address(), top_size);
-          auto aligned_address = alignExpr(unaligned_address);
-          alloc_info->alloc_expr->setAddress(aligned_address);
-          // Ensure we will sync between last_read_pos_ and pos
-          ensureSync(pos);
-        }
+        assignNextAddress(alloc_info, pos);
+        // Ensure we will sync between last_read_pos_ and pos
+        ensureSync(pos);
         // Push alloc_info onto the stack
         alloc_stack_.push_back(alloc_info);
       }
@@ -1603,6 +1595,23 @@ class StackBasedSharedMemAllocator {
       // that if we did this earlier we might pop then immediately re-use
       // memory, which is invalid since we cannot then insert a sync.
       popAllDead(pos);
+    }
+  }
+
+  void assignNextAddress(AllocationInfo* alloc_info, int pos) {
+    if (warn_only_) {
+      return;
+    }
+    if (alloc_stack_.empty()) {
+      alloc_info->alloc_expr->setAddress(
+          FusionGuard::getCurFusion()->zeroVal());
+    } else {
+      auto top_alloc = alloc_stack_.back()->alloc_expr;
+      auto top_size = allocSizeBytes(top_alloc);
+      auto unaligned_address =
+          SimplifyingIrBuilder::addExpr(top_alloc->address(), top_size);
+      auto aligned_address = alignExpr(unaligned_address);
+      alloc_info->alloc_expr->setAddress(aligned_address);
     }
   }
 
@@ -1641,6 +1650,20 @@ class StackBasedSharedMemAllocator {
 
   //! Ensure there is a sync between latest_pop_ and pos
   void ensureSync(int pos) {
+    if (latest_pop_ == -1) {
+      // We are not re-using memory
+      return;
+    }
+    if (warn_only_) {
+      TORCH_WARN_ONCE(
+          "Detected missed opportunity for shared memory re-use. This Fusion ",
+          "could make use shared memory re-use, which will might improve ",
+          "occupancy at the expense of potential additional block ",
+          "synchronization. To enable re-use use the environment variable ",
+          "NVFUSER_ENABLE=reuse_smem.\nTo disable this warning use ",
+          "NVFUSER_DISABLE=smem_reuse_warning.");
+      return;
+    }
     // TODO: more sophisticated analysis to find nested intervals and use
     // arrive/wait barriers.
 
@@ -1670,6 +1693,10 @@ class StackBasedSharedMemAllocator {
 
  private:
   const AllocationInfoMap& allocation_info_map_;
+
+  // If true, do not set any allocations. Only warn that user may want to enable
+  // smem reuse
+  bool warn_only_ = false;
 
   // Latest position that was popped. In general, any new allocation could alias
   // all previously popped allocations, so we use this as the most distant safe
@@ -1708,9 +1735,13 @@ std::vector<Expr*> reuseMemoryAllocations(const std::vector<Expr*>& exprs) {
   auto aliased_exprs =
       AllocationReuseModifier::modify(exprs, allocation_info_map);
 
-  if (true) {
+  if (isOptionEnabled(EnableOption::ReuseSharedMemory)) {
     StackBasedSharedMemAllocator(allocation_info_map).allocate();
   } else {
+    if (!isOptionDisabled(DisableOption::SharedMemoryReuseWarning)) {
+      StackBasedSharedMemAllocator(allocation_info_map, /*warn_only*/ true)
+          .allocate();
+    }
     NoReuseSharedMemAllocator().allocate(aliased_exprs);
   }
 
