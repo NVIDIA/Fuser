@@ -621,9 +621,6 @@ TEST_F(ExprSimplifierTest, EliminateTrivialComputation) {
   // Using the same Val* multiple times in FlattenedAdd so that we can test if
   // our passes are working correctly with the same Val* appearing multiple
   // times
-  // TODO: we shouldn't just test this single case, we need to make a more
-  // complete test plan for all our passes. I don't think this case is well
-  // tested currently.
   auto i = "i"_;
   EXPECT_TRUE(
       simplifyExpr(IrBuilder::subExpr(IrBuilder::addExpr(i, i), i))->sameAs(i));
