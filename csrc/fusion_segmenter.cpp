@@ -831,7 +831,7 @@ TensorView* castIntermediateValueInCompleteFusion(
 
 void SegmentedFusion::finalize() {
   impl_.cleanUnused();
-  castInputOutputToLowerPrecision(edges());
+  // castInputOutputToLowerPrecision(edges());
 }
 
 //! Lower FP precision of inputs and outputs specified by the given

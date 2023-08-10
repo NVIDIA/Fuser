@@ -1477,9 +1477,8 @@ std::shared_ptr<ReductionParams> getPersistentHeuristics(
           persistent_buffer_size_info.projected_persistent_buffer_size +
           outer_reduction_buffer_size;
     } else {
-      register_persistent_buffer_size =
-          persistent_buffer_size_info.projected_persistent_buffer_size;
-      shared_memory_persistent_buffer_size = outer_reduction_buffer_size;
+      register_persistent_buffer_size = outer_reduction_buffer_size;
+      shared_memory_persistent_buffer_size = persistent_buffer_size_info.projected_persistent_buffer_size;
     }
   } else if (n_tensor_inner_reduction > 0) {
     if (register_persistent_buffer_size > scheduler_utils::register_file_size) {
