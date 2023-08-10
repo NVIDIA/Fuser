@@ -402,7 +402,7 @@ void initNvFuserPythonBindings(PyObject* module) {
       .def(
           "define_tensor",
           [](FusionDefinition& self,
-             std::vector<int64_t>& symbolic_sizes,
+             std::vector<int64_t>& shape,
              std::vector<std::optional<bool>>& contiguity,
              PrimDataType dtype = DataType::Float,
              bool is_cpu = false) -> Tensor {
@@ -411,27 +411,27 @@ void initNvFuserPythonBindings(PyObject* module) {
                 !self.completed(),
                 "Attempting to add to a completed definition!");
 
-            for (size_t i = 0; i < symbolic_sizes.size(); ++i) {
+            for (size_t i = 0; i < shape.size(); ++i) {
               TORCH_CHECK(
-                  symbolic_sizes[i] >= -1,
+                  shape[i] >= -1,
                   "The value ",
-                  symbolic_sizes[i],
+                  shape[i],
                   " at index ",
                   i,
                   " was neither symbolic(-1), zero_element(0), broadcast(1), or static(>1).");
             }
 
-            Tensor out = self.defineTensor(symbolic_sizes.size());
+            Tensor out = self.defineTensor(shape.size());
             self.defineRecord(new TensorRecord(
                 {self.recordingState(out())},
-                symbolic_sizes,
+                shape,
                 contiguity,
                 dtype,
                 is_cpu));
 
             return out;
           },
-          py::arg("symbolic_sizes"),
+          py::arg("shape"),
           py::arg("contiguity"),
           py::arg("dtype") = DataType::Float,
           py::arg("is_cpu") = false,
@@ -674,6 +674,7 @@ void initNvFuserPythonBindings(PyObject* module) {
   NVFUSER_PYTHON_BINDING_UNARY_OP("log1p", log1p)
   NVFUSER_PYTHON_BINDING_UNARY_OP("log2", log2)
   NVFUSER_PYTHON_BINDING_UNARY_OP("neg", neg)
+  NVFUSER_PYTHON_BINDING_UNARY_OP("logical_not", logical_not)
   NVFUSER_PYTHON_BINDING_UNARY_OP("bitwise_not", bitwise_not)
   NVFUSER_PYTHON_BINDING_UNARY_OP("relu", relu)
   NVFUSER_PYTHON_BINDING_UNARY_OP("rand_like", rand_like)
@@ -903,6 +904,8 @@ void initNvFuserPythonBindings(PyObject* module) {
   NVFUSER_PYTHON_BINDING_BINARY_OP("le", le)
   NVFUSER_PYTHON_BINDING_BINARY_OP("lt", lt)
   NVFUSER_PYTHON_BINDING_BINARY_OP("ne", ne)
+  NVFUSER_PYTHON_BINDING_BINARY_OP("logical_and", logical_and)
+  NVFUSER_PYTHON_BINDING_BINARY_OP("logical_or", logical_or)
   NVFUSER_PYTHON_BINDING_BINARY_OP("bitwise_and", bitwise_and)
   NVFUSER_PYTHON_BINDING_BINARY_OP("bitwise_or", bitwise_or)
   NVFUSER_PYTHON_BINDING_BINARY_OP("bitwise_xor", bitwise_xor)
@@ -2298,22 +2301,22 @@ void initNvFuserPythonBindings(PyObject* module) {
   nvf_ops.def(
       "full",
       [](FusionDefinition::Operators& self,
-         std::vector<int64_t>& size,
-         Scalar arg,
+         std::vector<int64_t>& shape,
+         Scalar fill_value,
          PrimDataType dtype) -> Tensor {
         TORCH_CHECK(
             self.validUse(), "Attempting to add to a completed definition!");
         FusionDefinition* fd = self.fusion_definition;
-        Tensor output = fd->defineTensor(size.size());
+        Tensor output = fd->defineTensor(shape.size());
         fd->defineRecord(new FullOpRecord(
-            {fd->recordingState(arg())},
+            {fd->recordingState(fill_value())},
             {fd->recordingState(output())},
-            std::move(size),
+            std::move(shape),
             dtype));
         return output;
       },
-      py::arg("size"),
-      py::arg("arg"),
+      py::arg("shape"),
+      py::arg("fill_value"),
       py::arg("dtype"),
       py::return_value_policy::reference);
   nvf_ops.def(

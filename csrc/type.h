@@ -241,9 +241,6 @@ bool isInclusiveType(const DataType& base_type, const DataType& type);
 
 // Returns if the datatype is a floating point type
 TORCH_CUDA_CU_API inline bool isFloatingPointType(DataType dtype) {
-  TORCH_CHECK(
-      dtype != DataType::Null,
-      "Null type is not a valid argument to isFloatingPointType");
   return dtype == DataType::Double || dtype == DataType::Float ||
       dtype == DataType::Half || dtype == DataType::BFloat16;
 }
@@ -259,9 +256,6 @@ TORCH_CUDA_CU_API inline bool isIntegralType(DataType dtype) {
             case DataType::Int:
             case DataType::Int32:
               return true;
-            case DataType::Null:
-              TORCH_CHECK(
-                  false, "Null type is not a valid argument to isIntegralType");
             default:
               return false;
           }
@@ -284,17 +278,11 @@ TORCH_CUDA_CU_API inline bool isIntegralOrPointerType(DataType dtype) {
 
 // Returns if the datatype is a boolean type
 TORCH_CUDA_CU_API inline bool isBooleanType(DataType dtype) {
-  TORCH_CHECK(
-      dtype != DataType::Null,
-      "Null type is not a valid argument to isBooleanType");
   return dtype == DataType::Bool;
 }
 
 // Returns if the datatype is a complex type
 TORCH_CUDA_CU_API inline bool isComplexType(DataType dtype) {
-  TORCH_CHECK(
-      dtype != DataType::Null,
-      "Null type is not a valid argument to isComplexType");
   return dtype == DataType::ComplexFloat || dtype == DataType::ComplexDouble;
 }
 
@@ -556,8 +544,9 @@ enum class UnaryOpType {
   // Tools to help debugging
   Print,
 
-  // Might be a bitwise operator or boolean operator.
-  Not,
+  // Logical and bitwise negation
+  LogicalNot,
+  BitwiseNot,
 
   // Operators returning boolean values
   IsFinite,
@@ -570,9 +559,6 @@ enum class UnaryOpType {
   // Special unary ops
   ToUnsignedSmemAddr
 };
-
-// Primarily for Not, which could be Not a boolean, or a bitwise not.
-bool alsoBooleanOperator(const UnaryOpType uopt);
 
 // TODO: Order of this list is important as it affects type promotion. it's not
 // in the right order now.
@@ -591,12 +577,19 @@ enum class BinaryOpType {
   Sub,
   // TypeAs,
 
-  // Integer output ops. If changing modify isIntegerOp
+  // Integer output ops.
   Mod,
   CeilDiv,
   Lshift,
   Rshift,
   Gcd,
+
+  // Bitwise Ops
+  // These always return integers, as if each arg is first cast to int
+  //  If changing modify isIntegerOp.
+  BitwiseAnd,
+  BitwiseOr,
+  BitwiseXor,
 
   // Logical Ops
   // Int operations, leave position of Mod as first logical op see
@@ -608,12 +601,9 @@ enum class BinaryOpType {
   LT,
   NE,
 
-  // Maybe bitwise or boolean op, leave position of and as first bool/int
-  // op. These are ops that have different operators based on output type. See
-  // is boolean op. These ops also don't work on floating point inputs.
-  And,
-  Or,
-  Xor,
+  // These ops compare as if each arg is first cast to bool
+  LogicalAnd,
+  LogicalOr,
 
   // generate complex from real and imaginary parts
   Complex
@@ -634,10 +624,6 @@ bool isIntegerOp(const BinaryOpType bopt);
 
 // Return if output of operator should be a boolean
 bool isLogicalOp(const BinaryOpType bopt);
-
-// Operations that could be a bitwise operation or a boolean operation depending
-// on input, for example bitwise_and is also used for boolean and in the jit
-bool alsoBooleanOperator(const BinaryOpType bopt);
 
 enum class TernaryOpType { Clamp, Lerp, Threshold, Where };
 
@@ -876,9 +862,6 @@ TORCH_CUDA_CU_API std::ostream& operator<<(std::ostream&, const SwizzleMode&);
 TORCH_CUDA_CU_API std::ostream& operator<<(
     std::ostream&,
     const KernelIndexMode&);
-
-std::string stringifyBooleanOp(const UnaryOpType);
-std::string stringifyBooleanOp(const BinaryOpType);
 
 std::string stringifyThreadSize(const ParallelType);
 std::string stringifyThread(const ParallelType);
