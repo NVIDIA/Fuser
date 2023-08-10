@@ -1466,11 +1466,11 @@ class NoReuseSharedMemAllocator : kir::IrVisitor {
 //!   |      A        |
 //!   +---------------+
 //!
-//! In this case, the A allocation overlaps both B and C so it cannot be
-//! re-used. However, we can re-use B's memory. If B and C are compatible, they
-//! can be aliased. However, in this class we assume that all eligible aliases
-//! are already set. This means that we can reuse memory like below (time points
-//! are labelled along the horizontal axis):
+//! In this case the A allocation overlaps both B and C so it cannot be re-used
+//! but we can re-use B's memory. If B and C are compatible, they can be
+//! aliased; however, in this class we assume that all eligible aliases are
+//! already set. We can still reuse memory like below (time points are labelled
+//! along the horizontal axis):
 //!
 //!       +-----+   +-----+
 //!       |  B  |   |  C  |
@@ -1480,9 +1480,9 @@ class NoReuseSharedMemAllocator : kir::IrVisitor {
 //!   a   b     c   d e   f
 //!
 //! Note that we might have incomplete information about allocation sizes prior
-//! to runtime, so this class only places new allocations on top of the highest
-//! active previous allocation. We implement this with a stack of allocaitons to
-//! which we push and pop at each time point:
+//! to runtime, so our approach only places new allocations on top of the
+//! highest active previous allocation. We implement this with a stack of
+//! allocations to which we push and pop at each time point of interest:
 //!
 //!   a: Allocate A at address 0. Push A
 //!   b: Set T=stack.back()=A. Allocate B at address(T)+size(T). Push B
@@ -1490,6 +1490,54 @@ class NoReuseSharedMemAllocator : kir::IrVisitor {
 //!   d: Set T=stack.back()=A. Allocate C at address(T)+size(T). Push C
 //!   e: Don't pop A since it is not at back of stack.
 //!   f: Pop C and A (all inactive allocations at top of stack)
+//!
+//! [Reordering Pushes]
+//! Consider the following case:
+//!
+//!           +-----+
+//!           |  C  |
+//!       +---+-+---+
+//!       |  B  |
+//!   +---+-+---+
+//!   |  A  |
+//!   +-----+
+//!   a   b c d e   f
+//!
+//! A simple linear stack approach would fail to re-use any memory in the case
+//! illustrated above, even though A can be overwritten for C:
+//!
+//!   a: Push A
+//!   b: Push B
+//!   c: Cannot pop A since it is covered by B
+//!   d: Must allocate C on top of B, which is on top of A. i.e. NO RE-USE
+//!   e: Cannot pop B since it is covered by C
+//!   f: Finally pop C, B, and A
+//!
+//! This kind of case is actually quite common. For example, in a tiled matmul
+//! (ignoring double buffering) we have input tiles A and B, and an intermediate
+//! output tile C, which all overlap one another, then we might unswizzle the
+//! epilogue to a fourth buffer D before writing to gmem. In that case, D
+//! overlaps C but does not overlap A or B. If we could force C to lie
+//! underneath A and B then they could be popped prior to allocating D, and we
+//! would achieve optimal memory use.
+//!
+//! A slight tweak can help in these tougher cases. Instead of immediately
+//! pushing/allocating whenever we encounter a first write, we can instead
+//! append the allocation into a holding area vector. When we next encounter a
+//! last read for some allocation, we can check whether it is in the holding
+//! area. If so, then we form a mini-stack made of only the holding area
+//! allocations, with the recently popped allocation on top. In fact, we can
+//! just order the holding area by last use (descending) and push/allocate them
+//! all at once, which ensures that at least within that set, we will be able to
+//! pop as soon as possible. The algorithm would do the following in the above
+//! example:
+//!
+//!   a: Append A to holding area
+//!   b: Append A to holding area
+//!   c: Order holding area by last read (desc): {B, A}. Push B then A. Pop A.
+//!   d: Allocate C on top of B. RE-USES A
+//!   e: Cannot pop B since it is covered by C
+//!   f: Pop C and B
 //!
 //! [Syncs for Reused (Not Aliased) Shared Memory]
 //! We will need to ensure the block is synced to prevent a race hazard where
@@ -1499,15 +1547,15 @@ class NoReuseSharedMemAllocator : kir::IrVisitor {
 //! allocation. In this case that could be accomplished with an arrive/wait
 //! barrier between time points c and d, but any synchronizations contained
 //! within that interval in the original kernel, including a __syncthreads(),
-//! should be preferred to inserting new syncs.
+//! should be preferred over inserting new syncs.
 //!
 //! [Aliased Allocations]
 //! We handle aliased allocations by using a single liveness interval spanning
 //! from the first write of the base Allocation to the last read of either that
 //! allocation or the last alias. In some cases, this could be suboptimal; for
 //! example if a large tensor is used briefly at the beginning and is aliased
-//! near the end of the Fusion, this class will not be able to re-use its memory
-//! in the middle, which might be wasteful.
+//! near the end of the Fusion, then with this approach we will not be able to
+//! re-use its memory in the middle, which might be wasteful.
 class StackBasedSharedMemAllocator {
  public:
   StackBasedSharedMemAllocator(const AllocationInfoMap& allocation_info_map)
