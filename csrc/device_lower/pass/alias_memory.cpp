@@ -1400,6 +1400,16 @@ Val* alignExpr(Val* addr, int64_t alignment = 16) {
       SimplifyingIrBuilder::bitwiseNotExpr(n_minus_one));
 }
 
+Val* allocSizeBytes(kir::Allocate* alloc) {
+  const auto buffer_dtype = alloc->buffer()->dtype();
+  const auto dtype_size = dataTypeSize(buffer_dtype);
+  auto size = dtype_size == 1
+      ? alloc->size()
+      : SimplifyingIrBuilder::mulExpr(
+            alloc->size(), IrBuilder::create<Val>(dtype_size));
+  return size;
+}
+
 //! Set addresses without any re-use of shared memory. This simply scans
 //! through exprs and each time we find an unaliased Allocate align the current
 //! address and increment it by the given amount.
@@ -1417,10 +1427,7 @@ class NoReuseSharedMemAllocator : kir::IrVisitor {
       return;
     }
 
-    const auto buffer_dtype = alloc->buffer()->dtype();
-    const auto dtype_size = dataTypeSize(buffer_dtype);
-
-    auto address = current_address_ ? alignExpr(current_address_, 16)
+    auto address = current_address_ ? alignExpr(current_address_)
                                     : FusionGuard::getCurFusion()->zeroVal();
 
     address =
@@ -1428,19 +1435,16 @@ class NoReuseSharedMemAllocator : kir::IrVisitor {
 
     alloc->setAddress(address);
 
-    auto size_bytes = dtype_size == 1
-        ? alloc->size()
-        : SimplifyingIrBuilder::mulExpr(
-              alloc->size(), IrBuilder::create<Val>(dtype_size));
+    auto size = allocSizeBytes(alloc);
 
     if (isDebugDumpEnabled(DebugDumpOption::BufferReuseInfo)) {
       debug() << "Allocated address " << address->toInlineString()
-              << " of size " << size_bytes->toInlineString() << " for T"
+              << " of size " << size->toInlineString() << " for T"
               << alloc->buffer()->name() << " which has dtype "
               << alloc->buffer()->dtype() << std::endl;
     }
 
-    current_address_ = SimplifyingIrBuilder::addExpr(address, size_bytes);
+    current_address_ = SimplifyingIrBuilder::addExpr(address, size);
   }
 
  private:
@@ -1504,9 +1508,9 @@ class NoReuseSharedMemAllocator : kir::IrVisitor {
 //! example if a large tensor is used briefly at the beginning and is aliased
 //! near the end of the Fusion, this class will not be able to re-use its memory
 //! in the middle, which might be wasteful.
-class StackBasedSharedMemoryAllocator {
+class StackBasedSharedMemAllocator {
  public:
-  StackBasedSharedMemoryAllocator(const AllocationInfoMap& allocation_info_map)
+  StackBasedSharedMemAllocator(const AllocationInfoMap& allocation_info_map)
       : allocation_info_map_(allocation_info_map) {}
 
   void allocate() {
@@ -1521,10 +1525,11 @@ class StackBasedSharedMemoryAllocator {
               FusionGuard::getCurFusion()->zeroVal());
         } else {
           auto top_alloc = alloc_stack_.back()->alloc_expr;
-          alloc_info->alloc_expr->setAddress(alignExpr(
-              SimplifyingIrBuilder::addExpr(
-                  top_alloc->address(), top_alloc->size()),
-              16));
+          auto top_size = allocSizeBytes(top_alloc);
+          auto unaligned_address =
+              SimplifyingIrBuilder::addExpr(top_alloc->address(), top_size);
+          auto aligned_address = alignExpr(unaligned_address);
+          alloc_info->alloc_expr->setAddress(aligned_address);
           // Ensure we will sync between last_read_pos_ and pos
           ensureSync(pos);
         }
@@ -1641,7 +1646,7 @@ std::vector<Expr*> reuseMemoryAllocations(const std::vector<Expr*>& exprs) {
       AllocationReuseModifier::modify(exprs, allocation_info_map);
 
   if (true) {
-    StackBasedSharedMemoryAllocator(allocation_info_map).allocate();
+    StackBasedSharedMemAllocator(allocation_info_map).allocate();
   } else {
     NoReuseSharedMemAllocator().allocate(aliased_exprs);
   }
