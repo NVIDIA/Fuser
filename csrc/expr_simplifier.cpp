@@ -863,9 +863,24 @@ Val* flattenRule(Val* value) {
       // a / b -> FlattenMul(a, b^(-1))
       auto assoc_comm_op = inv->first;
       auto inv_op = inv->second;
-      auto inv_rhs = IrBuilder::newScalar(bop->rhs()->dtype());
-      IrBuilder::create<UnaryOp>(inv_op, inv_rhs, bop->rhs());
-      return maybeFlattenedOpOf(assoc_comm_op, {bop->lhs(), inv_rhs});
+      std::vector<Val*> lhs_terms;
+      std::vector<Val*> rhs_terms;
+      auto collect_terms = [&](Val* operand, std::vector<Val*>& terms) {
+        if (auto fop = dynamic_cast<FOp*>(operand->definition());
+            fop != nullptr && fop->getOpType() == assoc_comm_op) {
+          terms = fop->inputs();
+        } else {
+          terms.emplace_back(operand);
+        }
+      };
+      collect_terms(flatten(bop->lhs()), lhs_terms);
+      collect_terms(flatten(bop->rhs()), rhs_terms);
+      for (auto term : rhs_terms) {
+        auto inv_term = IrBuilder::newScalar(bop->rhs()->dtype());
+        IrBuilder::create<UnaryOp>(inv_op, inv_term, term);
+        lhs_terms.emplace_back(inv_term);
+      }
+      return maybeFlattenedOpOf(assoc_comm_op, std::move(lhs_terms));
     }
   } else if (auto fop = dynamic_cast<FlattenedAssocCommOp*>(def)) {
     op = fop->getOpType();
@@ -1731,31 +1746,36 @@ Val* eliminateTrivialComputation(Val* value, const Context& context) {
       return fop->input(0);
     }
     if (op == BinaryOpType::Add) { // a + (-a) -> 0
-      std::vector<std::pair<Val*, Val*>> inv_inputs;
-      for (auto inp : fop->inputs()) {
+      std::vector<std::tuple<Val*, Val*, size_t>> inv_inputs;
+      for (size_t idx : c10::irange(fop->inputs().size())) {
+        auto inp = fop->input(idx);
         auto def = inp->definition();
         if (auto inv = dynamic_cast<UnaryOp*>(def)) {
           if (inv->getUnaryOpType() == UnaryOpType::Neg) {
-            inv_inputs.emplace_back(inp, inv->in());
+            inv_inputs.emplace_back(inp, inv->in(), idx);
           }
         }
       }
-      std::unordered_set<Val*> remove;
-      for (auto [orig, inv] : inv_inputs) {
-        for (auto v : fop->inputs()) {
-          if (v->sameAs(inv)) {
-            remove.emplace(v);
-            remove.emplace(orig);
+      std::unordered_set<size_t> remove;
+      for (auto [orig, inv, idx] : inv_inputs) {
+        for (size_t idx2 : c10::irange(fop->inputs().size())) {
+          auto inp = fop->input(idx2);
+          if (remove.count(idx) || remove.count(idx2)) {
+            continue;
+          }
+          if (inp->sameAs(inv)) {
+            remove.emplace(idx);
+            remove.emplace(idx2);
           }
         }
       }
       if (!remove.empty()) {
         std::vector<Val*> new_inputs;
-        std::copy_if(
-            fop->inputs().begin(),
-            fop->inputs().end(),
-            std::back_inserter(new_inputs),
-            [&](Val* v) { return !remove.count(v); });
+        for (size_t idx : c10::irange(fop->inputs().size())) {
+          if (!remove.count(idx)) {
+            new_inputs.emplace_back(fop->input(idx));
+          }
+        }
         if (new_inputs.empty()) {
           return value->fusion()->zeroVal(value->dtype());
         } else {
