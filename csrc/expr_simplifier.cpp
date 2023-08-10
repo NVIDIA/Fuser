@@ -2618,21 +2618,8 @@ Val* cancelTermsInPredicate(Val* value, const Context& context) {
   }
 
   auto get_terms = [](Val* operand) -> std::vector<Val*> {
-    if (auto add_op = dynamic_cast<BinaryOp*>(operand->definition());
-        add_op != nullptr && add_op->getBinaryOpType() == BinaryOpType::Add) {
-      return add_op->inputs();
-    } else if (auto sub_op = dynamic_cast<BinaryOp*>(operand->definition());
-               sub_op != nullptr &&
-               sub_op->getBinaryOpType() == BinaryOpType::Sub) {
-      auto inputs = sub_op->inputs();
-      inputs.at(1) = IrBuilder::negExpr(inputs.at(1));
-      return inputs;
-    } else if (auto flattened = toFlattenedAdd(operand->definition())) {
+    if (auto flattened = toFlattenedAdd(operand->definition())) {
       return flattened->inputs();
-    } else if (auto flattened = assoc_comm::flatten(operand);
-               flattened->isA<FOp>() &&
-               flattened->as<FOp>()->getOpType() == BinaryOpType::Add) {
-      return flattened->as<FOp>()->inputs();
     } else {
       return {operand};
     }
