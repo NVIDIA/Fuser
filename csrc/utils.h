@@ -256,8 +256,8 @@ struct Printer<T> {
 SPECIALIZE_PRINTER(bool);
 SPECIALIZE_PRINTER(int);
 SPECIALIZE_PRINTER(std::string);
-using ConsCharStar = const char*;
-SPECIALIZE_PRINTER(ConsCharStar);
+using ConstCharStar = const char*;
+SPECIALIZE_PRINTER(ConstCharStar);
 SPECIALIZE_PRINTER(int64_t);
 SPECIALIZE_PRINTER(DataType);
 SPECIALIZE_PRINTER(MemoryType);
