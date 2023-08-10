@@ -1516,11 +1516,11 @@ class StackBasedSharedMemoryAllocator {
       // Assign allocations for write events and push onto stack
       for (auto alloc_info : first_writes) {
         // Assign new address
-        if (alloc_stack.empty()) {
+        if (alloc_stack_.empty()) {
           alloc_info->alloc_expr->setAddress(
               FusionGuard::getCurFusion()->zeroVal());
         } else {
-          auto top_alloc = alloc_stack.back()->alloc_expr;
+          auto top_alloc = alloc_stack_.back()->alloc_expr;
           alloc_info->alloc_expr->setAddress(alignExpr(
               SimplifyingIrBuilder::addExpr(
                   top_alloc->address(), top_alloc->size()),
@@ -1529,7 +1529,7 @@ class StackBasedSharedMemoryAllocator {
           ensureSync(pos);
         }
         // Push alloc_info onto the stack
-        alloc_stack.push_back(alloc_info);
+        alloc_stack_.push_back(alloc_info);
       }
       // After allocating writes at this position, pop dead allocations. Note
       // that if we did this earlier we might pop then immediately re-use
@@ -1582,18 +1582,32 @@ class StackBasedSharedMemoryAllocator {
 
   //! Pop all allocations on the top of the stack that are no longer active.
   void popAllDead(int pos) {
-    while (auto b = alloc_stack_.back(); auto last_read_b = lastAliasedRead(b);
-           b <= pos) {
-      latest_pop_ = std::min(last_read_b, latest_pop_);
-      alloc_stack_.pop_back();
+    bool popped = true;
+    while (popped && !alloc_stack_.empty()) {
+      popped = false;
+      auto back = alloc_stack_.back();
+      auto it = last_aliased_read_.find(back);
+      TORCH_CHECK(
+          it != last_aliased_read_.end(),
+          "Could not find last aliased read info for ",
+          back->alloc_expr->toString());
+      auto last_read = it->second;
+      if (last_read <= pos) {
+        latest_pop_ = std::min(last_read, latest_pop_);
+        alloc_stack_.pop_back();
+        popped = true;
+      }
     }
   }
 
  private:
   const AllocationInfoMap& allocation_info_map_;
 
+  // Latest position that was popped. In general, any new allocation could alias
+  // all previously popped allocations, so we use this as the most distant safe
+  // point to synchronize with the new allocation's first write (for
+  // arrive/wait).
   int latest_pop_ = -1;
-  std::vector<AllocationInfo*> alloc_stack_;
 
   // This is an ordered map to help iterate over events in order. The keys are
   // time positions and the values are vectors of AllocationInfo's that have
@@ -1609,7 +1623,7 @@ class StackBasedSharedMemoryAllocator {
   // Stack of allocations "below" the current eligible address. At any given
   // time, all memory above the last allocation in this vector is guaranteed to
   // be free.
-  std::vector<AllocationInfo*> alloc_stack;
+  std::vector<AllocationInfo*> alloc_stack_;
 };
 
 } // namespace
