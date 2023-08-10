@@ -48,6 +48,7 @@ TEST_F(NVFuserTest, CombinedSchedulerLayerNormBackward_CUDA) {
                     const std::vector<int64_t>& norm_shape,
                     DataType dtype,
                     bool isBenchmark,
+                    bool scale_down_to_avoid_overflow,
                     int verbose) {
     std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
     Fusion& fusion = *fusion_ptr.get();
@@ -121,6 +122,12 @@ TEST_F(NVFuserTest, CombinedSchedulerLayerNormBackward_CUDA) {
     at::Tensor aten_input = at::randn(input_shape, maybe_fp16_options);
     at::Tensor aten_weight = at::randn(norm_shape, maybe_fp16_options);
     at::Tensor aten_bias = at::randn(norm_shape, maybe_fp16_options);
+    if (scale_down_to_avoid_overflow) {
+      aten_grad_out = aten_grad_out.mul(0.01);
+      aten_input = aten_input.mul(0.01);
+      aten_weight = aten_weight.mul(0.01);
+      aten_bias = aten_bias.mul(0.01);
+    }
     auto at_weight = c10::optional<at::Tensor>(aten_weight);
     auto at_bias = c10::optional<at::Tensor>(aten_bias);
 
@@ -165,12 +172,16 @@ TEST_F(NVFuserTest, CombinedSchedulerLayerNormBackward_CUDA) {
     for (auto s : norm_shape) {
       hidden_size *= s;
     }
-    TORCH_CHECK(
-        !fec.getMostRecentKernelRuntime()->isSegmented(),
-        "Fusion shouldn't be segmented! hidden size= ",
-        hidden_size,
-        ", dtype= ",
-        dtype == DataType::Float ? "Float." : "Half.");
+
+    if (dtype == DataType::Half) {
+      TORCH_CHECK(
+          fec.getMostRecentKernelRuntime()->isSegmented() ==
+              scale_down_to_avoid_overflow,
+          "Fusion fp16 inputs should be scaled down to avoid fp16 overflow if fusion is segmented! hidden size= ",
+          hidden_size,
+          ", dtype= ",
+          dtype == DataType::Float ? "Float." : "Half.");
+    }
 
     if (isBenchmark) {
       FusionKernelRuntime* fkr = fec.getMostRecentKernelRuntime();
@@ -242,15 +253,38 @@ TEST_F(NVFuserTest, CombinedSchedulerLayerNormBackward_CUDA) {
   std::vector<DataType> data_types = {DataType::Half, DataType::Float};
   std::vector<std::vector<int64_t>> batch_sizes = {{216}};
   std::vector<std::vector<int64_t>> hidden_sizes = {
-      {3}, {32}, {96}, {576}, {768}, {1024}, {1280}, {1600}, {1984}, {1987}};
+      {3},
+      {32},
+      {96},
+      {576},
+      {768},
+      {1024},
+      {1280},
+      {1600},
+      {1984},
+      {1987},
+      {27648}};
   bool isBenchmark = false;
   bool onlyTestFirstCase = false;
   int verbose = 0;
   for (auto dtype : data_types) {
     for (auto batch_shape : batch_sizes) {
       for (auto norm_shape : hidden_sizes) {
-        std::tuple<float, float> avg_var =
-            runTest(batch_shape, norm_shape, dtype, isBenchmark, verbose);
+        bool scale_down_to_avoid_overflow = false;
+        if (dtype == DataType::Half && norm_shape[0] == 27648) {
+          // In this scenario, the fusion undergoes segmentation and
+          // intermediate results are stored in fp16. Scaling down the inputs is
+          // necessary to prevent fp16 overflow. See
+          // https://github.com/NVIDIA/Fuser/issues/704
+          scale_down_to_avoid_overflow = true;
+        }
+        std::tuple<float, float> avg_var = runTest(
+            batch_shape,
+            norm_shape,
+            dtype,
+            isBenchmark,
+            scale_down_to_avoid_overflow,
+            verbose);
         if (isBenchmark) {
           std::stringstream sdim0, sdim1;
           std::for_each(
