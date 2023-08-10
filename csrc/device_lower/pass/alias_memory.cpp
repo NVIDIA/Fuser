@@ -1451,96 +1451,166 @@ class NoReuseSharedMemAllocator : kir::IrVisitor {
 //! allocations on a stack then pop them after their last read. This only does
 //! outer sharing: inner sharing is only valid for aliasing.
 //!
-//! TODO: Graphic
-void allocateSharedMemoryWithStack(
-    const AllocationInfoMap& allocation_info_map_) {
-  // record events:
-  // At each time point (expr position), we record two sets of events: last
-  // reads and first writes.
+//! Consider the following case, where time proceeds from left to right and
+//! memory is laid out in the upward direction by NoReuseSharedMemAllocator:
+//!
+//!                 +-----+
+//!                 |  C  |
+//!       +-----+   +-----+
+//!       |  B  |
+//!   +---+-----+-----+
+//!   |      A        |
+//!   +---------------+
+//!
+//! In this case, the A allocation overlaps both B and C so it cannot be
+//! re-used. However, we can re-use B's memory. If B and C are compatible, they
+//! can be aliased. However, in this class we assume that all eligible aliases
+//! are already set. This means that we can reuse memory like below (time points
+//! are labelled along the horizontal axis):
+//!
+//!       +-----+   +-----+
+//!       |  B  |   |  C  |
+//!   +---+-----+-----+---+
+//!   |      A        |
+//!   +---------------+
+//!   a   b     c   d e   f
+//!
+//! Note that we might have incomplete information about allocation sizes prior
+//! to runtime, so this class only places new allocations on top of the highest
+//! active previous allocation. We implement this with a stack of allocaitons to
+//! which we push and pop at each time point:
+//!
+//!   a: Allocate A at address 0. Push A
+//!   b: Set T=stack.back()=A. Allocate B at address(T)+size(T). Push B
+//!   c: Pop B
+//!   d: Set T=stack.back()=A. Allocate C at address(T)+size(T). Push C
+//!   e: Don't pop A since it is not at back of stack.
+//!   f: Pop C and A (all inactive allocations at top of stack)
+//!
+//! [Syncs for Reused (Not Aliased) Shared Memory]
+//! We will need to ensure the block is synced to prevent a race hazard where
+//! C is written to before some threads have read B, leading to corruption of
+//! those threads. These syncs need to ensure that the last read that might
+//! overlap the new allocation has finished before the first write of the new
+//! allocation. In this case that could be accomplished with an arrive/wait
+//! barrier between time points c and d, but any synchronizations contained
+//! within that interval in the original kernel, including a __syncthreads(),
+//! should be preferred to inserting new syncs.
+//!
+//! [Aliased Allocations]
+//! We handle aliased allocations by using a single liveness interval spanning
+//! from the first write of the base Allocation to the last read of either that
+//! allocation or the last alias. In some cases, this could be suboptimal; for
+//! example if a large tensor is used briefly at the beginning and is aliased
+//! near the end of the Fusion, this class will not be able to re-use its memory
+//! in the middle, which might be wasteful.
+class StackBasedSharedMemoryAllocator {
+ public:
+  StackBasedSharedMemoryAllocator(const AllocationInfoMap& allocation_info_map)
+      : allocation_info_map_(allocation_info_map) {}
 
-  std::unordered_map<AllocationInfo*, int> last_read;
+  void allocate() {
+    recordEvents();
 
-  for (auto& alloc_info : allocation_info_map_.allAllocationInfos()) {
-    if (alloc_info->alias_to) {
-      auto alias_info =
-          allocation_info_map_.getMaybeAllocationInfo(alloc_info->alias_to);
-      TORCH_CHECK(alias_info.has_value());
-      TORCH_CHECK(last_read.find(alias_info.value()) != last_read.end());
-
-      auto prev_last_read = last_read[alias_info.value()];
-      last_read[alias_info.value()] =
-          std::max(prev_last_read, alloc_info->outer_live_interval->lastRead());
-    } else {
-      last_read[alloc_info.get()] = alloc_info->outer_live_interval->lastRead();
-    }
-  }
-
-  enum class EventType { Write, Read };
-
-  using Event = std::pair<AllocationInfo*, EventType>;
-  std::map<int, std::vector<Event>> pos_to_events;
-
-  auto insertEvent = [&pos_to_events](int pos, Event event) {
-    auto it = pos_to_events.emplace(pos, 0).first;
-    it->second.push_back(event);
-  };
-
-  for (auto [alloc_info, last_read_pos] : last_read) {
-    insertEvent(
-        alloc_info->outer_live_interval->firstWrite(),
-        {alloc_info, EventType::Write});
-    insertEvent(last_read_pos, {alloc_info, EventType::Read});
-  }
-
-  // This is a stack of live allocations
-  std::vector<AllocationInfo*> alloc_stack;
-  int prev_pop = -1; // position of most recent pop
-  // Holds last_read and first_write pairs which might overlap in memory and
-  // therefore require a sync between. Note that these might be redundant, and
-  // there might already be syncs in these intervals.
-  std::vector<std::pair<int, int>> sync_intervals;
-
-  for (auto [pos, events] : pos_to_events) {
-    // First find any last read events and pop them.
-    bool popped = true;
-    while (popped && !alloc_stack.empty()) {
-      popped = false;
-      auto top_alloc_info = alloc_stack.back();
-      for (auto [alloc_info, event_type] : events) {
-        if (event_type == EventType::Read && alloc_info == top_alloc_info) {
-          popped = true;
-          // Ensure we will sync between prev_pop and pos
-          sync_intervals.emplace_back(prev_pop, pos);
-          prev_pop = pos;
-          alloc_stack.pop_back();
-          break;
+    for (auto [pos, first_writes] : pos_to_first_writes_) {
+      // Assign allocations for write events and push onto stack
+      for (auto alloc_info : first_writes) {
+        // Assign new address
+        if (alloc_stack.empty()) {
+          alloc_info->alloc_expr->setAddress(
+              FusionGuard::getCurFusion()->zeroVal());
+        } else {
+          auto top_alloc = alloc_stack.back()->alloc_expr;
+          alloc_info->alloc_expr->setAddress(alignExpr(
+              SimplifyingIrBuilder::addExpr(
+                  top_alloc->address(), top_alloc->size()),
+              16));
+          // Ensure we will sync between last_read_pos_ and pos
+          ensureSync(pos);
         }
+        // Push alloc_info onto the stack
+        alloc_stack.push_back(alloc_info);
       }
+      // After allocating writes at this position, pop dead allocations. Note
+      // that if we did this earlier we might pop then immediately re-use
+      // memory, which is invalid since we cannot then insert a sync.
+      popAllDead(pos);
     }
-    // Now assign allocations for write events and push onto stack
-    for (auto [alloc_info, event_type] : events) {
-      if (event_type != EventType::Write) {
+  }
+
+  //! Record first reads and last writes, respecting aliased buffers
+  void recordEvents() {
+    for (auto& alloc_info : allocation_info_map_.allAllocationInfos()) {
+      if (alloc_info->mem_type != MemoryType::Shared) {
         continue;
       }
-      // Assign new address
-      if (alloc_stack.empty()) {
-        alloc_info->alloc_expr->setAddress(
-            FusionGuard::getCurFusion()->zeroVal());
+      if (alloc_info->alias_to) {
+        auto alias_info =
+            allocation_info_map_.getMaybeAllocationInfo(alloc_info->alias_to);
+        TORCH_CHECK(alias_info.has_value());
+        TORCH_CHECK(
+            last_aliased_read_.find(alias_info.value()) !=
+            last_aliased_read_.end());
+
+        auto prev_last_read = last_aliased_read_[alias_info.value()];
+        last_aliased_read_[alias_info.value()] = std::max(
+            prev_last_read, alloc_info->outer_live_interval->lastRead());
       } else {
-        auto top_alloc = alloc_stack.back()->alloc_expr;
-        alloc_info->alloc_expr->setAddress(alignExpr(
-            SimplifyingIrBuilder::addExpr(
-                top_alloc->address(), top_alloc->size()),
-            16));
+        last_aliased_read_[alloc_info.get()] =
+            alloc_info->outer_live_interval->lastRead();
       }
-      // Push alloc_info onto the stack
-      alloc_stack.push_back(alloc_info);
     }
-    // TODO: handle cases when first write and last read coincide
+
+    for (auto [alloc_info, last_read_pos] : last_aliased_read_) {
+      auto first_write_pos = alloc_info->outer_live_interval->firstWrite();
+      auto write_it = pos_to_first_writes_.emplace(first_write_pos, 0).first;
+      // Record the first write at first_write_pos
+      write_it->second.push_back(alloc_info);
+      // At last read position, just ensure there is an entry, but don't record
+      pos_to_first_writes_.emplace(last_read_pos, 0);
+    }
   }
 
-  // TODO: insert syncs that will ensure the found intervals
-}
+  //! Ensure there is a sync between latest_pop_ and pos
+  void ensureSync(int pos) {
+    // TODO: more sophisticated analysis to find nested intervals and use
+    // arrive/wait barriers.
+
+    // Insert BlockSync before the Expr at original position pos
+    debug() << "TODO: INSERT SYNC AT " << pos << std::endl;
+  }
+
+  //! Pop all allocations on the top of the stack that are no longer active.
+  void popAllDead(int pos) {
+    while (auto b = alloc_stack_.back(); auto last_read_b = lastAliasedRead(b);
+           b <= pos) {
+      latest_pop_ = std::min(last_read_b, latest_pop_);
+      alloc_stack_.pop_back();
+    }
+  }
+
+ private:
+  const AllocationInfoMap& allocation_info_map_;
+
+  int latest_pop_ = -1;
+  std::vector<AllocationInfo*> alloc_stack_;
+
+  // This is an ordered map to help iterate over events in order. The keys are
+  // time positions and the values are vectors of AllocationInfo's that have
+  // their first write at that time. Note that that vector might be empty: these
+  // time points are still important since we will check for dead allocations to
+  // pop at these time points.
+  std::map<int, std::vector<AllocationInfo*>> pos_to_first_writes_;
+
+  // This records the actual last read position of an AllocationInfo, computed
+  // as the maximum last outer read position of all Allocations that alias it.
+  std::unordered_map<AllocationInfo*, int> last_aliased_read_;
+
+  // Stack of allocations "below" the current eligible address. At any given
+  // time, all memory above the last allocation in this vector is guaranteed to
+  // be free.
+  std::vector<AllocationInfo*> alloc_stack;
+};
 
 } // namespace
 
@@ -1557,7 +1627,7 @@ std::vector<Expr*> reuseMemoryAllocations(const std::vector<Expr*>& exprs) {
       AllocationReuseModifier::modify(exprs, allocation_info_map);
 
   if (true) {
-    allocateSharedMemoryWithStack(allocation_info_map);
+    StackBasedSharedMemoryAllocator(allocation_info_map).allocate();
   } else {
     NoReuseSharedMemAllocator().allocate(aliased_exprs);
   }
