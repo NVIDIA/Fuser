@@ -30,9 +30,13 @@ using namespace at::indexing;
 
 class SmemReuseTest : public NVFuserTest {};
 
+int64_t alignInt(int64_t unaligned, int64_t alignment = 16L) {
+  return (unaligned + (alignment - 1)) & (-alignment);
+}
+
 // Test that we re-use different-size smem allocations
 //
-//          
+//
 //            +-----+
 //            |  B  |
 //   +-----+  +-----+
@@ -42,8 +46,6 @@ class SmemReuseTest : public NVFuserTest {};
 //
 // Should become:
 //
-//            +-----+
-//            |  B  |
 //   +-----+  +-----+
 //   |  A  |  |  B  |
 //   +-----+  +-----+
@@ -85,7 +87,7 @@ TEST_F(SmemReuseTest, SimpleCase) {
     const auto& lparams = fe.lastLaunchParams();
 
     // (Aligned size of W) plus H
-    EXPECT_EQ(lparams.smem(), ((W_int * 4 + 15) & -16) + H_int * 4);
+    EXPECT_EQ(lparams.smem(), alignInt(W_int * 4) + H_int * 4);
   }
 
   { // Now reuse
@@ -127,8 +129,9 @@ TEST_F(SmemReuseTest, NeedsReorderedPush) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
-  auto H = IrBuilder::create<Val>(5);
-  auto W = IrBuilder::create<Val>(6);
+  int64_t H_int = 5, W_int = 6;
+  auto H = IrBuilder::create<Val>(H_int);
+  auto W = IrBuilder::create<Val>(W_int);
 
   auto tv0 = full({H}, fusion->oneVal(), DataType::Float);
   auto tv1 = set(tv0); // pos = a. A = tv1
@@ -161,7 +164,37 @@ TEST_F(SmemReuseTest, NeedsReorderedPush) {
   auto outputs = fe.runFusion(args);
 
   EXPECT_EQ(outputs.size(), 3);
+
+  { // Run without reusing
+    EnableOptionsGuard eog;
+    eog.getCurOptions().unset(EnableOption::ReuseSharedMemory);
+
+    FusionExecutor fe;
+    fe.compileFusion(fusion.get(), {});
+
+    fe.runFusion({});
+
+    const auto& lparams = fe.lastLaunchParams();
+
+    // (Aligned size of W) plus H
+    EXPECT_EQ(
+        lparams.smem(),
+        alignInt(alignInt(H_int * 4) + W_int * 4) + H_int * W_int * 4);
+  }
+
+  { // Now reuse
+    EnableOptionsGuard eog;
+    eog.getCurOptions().set(EnableOption::ReuseSharedMemory);
+
+    FusionExecutor fe;
+    fe.compileFusion(fusion.get(), {});
+
+    fe.runFusion({});
+
+    const auto& lparams = fe.lastLaunchParams();
+
+    EXPECT_EQ(lparams.smem(), alignInt(H_int * 4) + W_int * H_int * 4);
+  }
 }
 
 } // namespace nvfuser
-
