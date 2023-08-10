@@ -863,9 +863,24 @@ Val* flattenRule(Val* value) {
       // a / b -> FlattenMul(a, b^(-1))
       auto assoc_comm_op = inv->first;
       auto inv_op = inv->second;
-      auto inv_rhs = IrBuilder::newScalar(bop->rhs()->dtype());
-      IrBuilder::create<UnaryOp>(inv_op, inv_rhs, bop->rhs());
-      return maybeFlattenedOpOf(assoc_comm_op, {bop->lhs(), inv_rhs});
+      std::vector<Val*> lhs_terms;
+      std::vector<Val*> rhs_terms;
+      auto collect_terms = [&](Val* operand, std::vector<Val*>& terms) {
+        if (auto fop = dynamic_cast<FOp*>(operand->definition());
+            fop != nullptr && fop->getOpType() == assoc_comm_op) {
+          terms = fop->inputs();
+        } else {
+          terms.emplace_back(operand);
+        }
+      };
+      collect_terms(flatten(bop->lhs()), lhs_terms);
+      collect_terms(flatten(bop->rhs()), rhs_terms);
+      for (auto term : rhs_terms) {
+        auto inv_term = IrBuilder::newScalar(bop->rhs()->dtype());
+        IrBuilder::create<UnaryOp>(inv_op, inv_term, term);
+        lhs_terms.emplace_back(inv_term);
+      }
+      return maybeFlattenedOpOf(assoc_comm_op, std::move(lhs_terms));
     }
   } else if (auto fop = dynamic_cast<FlattenedAssocCommOp*>(def)) {
     op = fop->getOpType();
@@ -1743,6 +1758,9 @@ Val* eliminateTrivialComputation(Val* value, const Context& context) {
       std::unordered_set<Val*> remove;
       for (auto [orig, inv] : inv_inputs) {
         for (auto v : fop->inputs()) {
+          if (remove.count(v) || remove.count(orig)) {
+            continue;
+          }
           if (v->sameAs(inv)) {
             remove.emplace(v);
             remove.emplace(orig);

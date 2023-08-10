@@ -577,7 +577,7 @@ TEST_F(ExprSimplifierTest, EliminateTrivialComputation) {
   EXPECT_TRUE(simplifyExpr("1.0 + d + 1.0"_)->sameAs("d + 2.0"_));
 
   // Test that FlattenedAssocCommOp::sameAs ignores order
-  EXPECT_TRUE(simplifyExpr("( i1 * i2 ) - ( i2 * i1 )"_)->isZeroInt());
+  EXPECT_TRUE(simplifyExpr("( i1 * i2 ) == ( i2 * i1 )"_)->isTrue());
 
   // where(true, x, y) -> x, where(false, x, y) -> y
   EXPECT_TRUE(simplifyExpr("where( true , i1 , i2 )"_)->sameAs("i1"_));
@@ -585,6 +585,15 @@ TEST_F(ExprSimplifierTest, EliminateTrivialComputation) {
 
   // abs(x) -> x, if x >= 0
   EXPECT_TRUE(simplifyExpr("abs( i )"_, {}, {"i >= 0"_})->sameAs("i"_));
+
+  // x - x -> 0
+  EXPECT_TRUE(simplifyExpr("i - i"_)->isZeroInt());
+  EXPECT_TRUE(simplifyExpr("i - i - i"_)->sameAs("- i"_));
+  EXPECT_TRUE(simplifyExpr("i - i + i"_)->sameAs("i"_));
+  EXPECT_TRUE(simplifyExpr("i - i + i - i"_)->isZeroInt());
+  EXPECT_TRUE(simplifyExpr("i1 - ( i2 + i3 ) + i2"_)->sameAs("i1 - i3"_));
+  EXPECT_TRUE(simplifyExpr("i2 - ( i2 - i3 ) - i3"_)->isZeroInt());
+  EXPECT_TRUE(simplifyExpr("i1 - ( i2 - i3 ) - i3"_)->sameAs("i1 - i2"_));
 }
 
 TEST_F(ExprSimplifierTest, SimplifyDivisibleDivMod) {
