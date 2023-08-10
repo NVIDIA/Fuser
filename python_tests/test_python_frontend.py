@@ -50,7 +50,7 @@ def serde_check(test_fn: Callable):
     Currently, it uses serialization to rebuild the FusionCache structure.
     """
 
-    def inner(*args, **kwargs):
+    def inner_fn(*args, **kwargs):
         self, fusion_func, inputs = args
         # Deep copy inputs because when a fusion output aliases an input, it will change the input value for the
         # subsequent function calls.
@@ -60,12 +60,13 @@ def serde_check(test_fn: Callable):
         # if ("new_fusion_expected" not in kwargs) or kwargs["new_fusion_expected"]:
         #    FusionCache.reset()
 
-        skip_serde = kwargs.pop("skip_serde_check", False)
+        # skip_serde_check is only used by the decorator so remove it before running test_fn
+        skip_serde_check = kwargs.pop("skip_serde_check", False)
 
         # Run test to populate FusionCache
         result = test_fn(*args, **kwargs)
 
-        if skip_serde:
+        if skip_serde_check:
             return result
 
         with tempfile.NamedTemporaryFile() as tmp:
@@ -83,7 +84,7 @@ def serde_check(test_fn: Callable):
         kwargs["new_fusion_expected"] = False
         return test_fn(self, fusion_func, inputs_copy, **kwargs)
 
-    return inner
+    return inner_fn
 
 
 @unittest.skipIf(not RUN_NVFUSER, "requires CUDA")
