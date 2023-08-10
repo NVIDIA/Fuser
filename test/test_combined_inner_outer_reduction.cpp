@@ -118,12 +118,10 @@ TEST_F(NVFuserTest, CombinedSchedulerLayerNormBackward_CUDA) {
                                   .dtype(data_type_to_aten(dtype))
                                   .device(at::kCUDA, 0);
 
-    // scale down to avoid fp16 overflow in segmented cases.
-    // In this scenario, the fusion undergoes segmentation and
-    // intermediate results are stored in fp16. Scaling down the inputs is
-    // necessary to prevent fp16 overflow. See
+    // Reduce the scale to avoid fp16 overflow. In segmented scenarios,
+    // intermediates across different segments are saved in fp16. Input down
+    // scaling is essential to avert fp16 overflow. Refer to:
     // https://github.com/NVIDIA/Fuser/issues/704
-    // results are scaled back to original scale for correctness check.
     constexpr float scale_down_factor = 0.01;
     constexpr float scale_back_factor = 1.0 / scale_down_factor;
     at::Tensor aten_grad_out =
