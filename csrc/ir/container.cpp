@@ -235,7 +235,10 @@ bool IrContainer::inContainer(const Statement* stmt) const {
 // Shortcuts for frequently used vals
 Val* IrContainer::zeroVal() {
   if (!zero_val_) {
-    auto zero_val = IrBuilder::create<Val>(this, 0L, DataType::Index);
+    // Using the "weakest" integer type here. (a type is "weak" here means that
+    // during type promotion, this type is not perferred. For example,
+    // int32 + int64 -> int64, so int32 is weaker than int64)
+    auto zero_val = IrBuilder::create<Val>(this, 0L, DataType::Int32);
     TORCH_INTERNAL_ASSERT(vals_up_.back().get() == zero_val);
     zero_val_ = std::unique_ptr<Val>(vals_up_.back().release());
     vals_up_.pop_back();
