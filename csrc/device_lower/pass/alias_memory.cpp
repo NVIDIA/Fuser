@@ -1534,10 +1534,25 @@ class NoReuseSharedMemAllocator : kir::IrVisitor {
 //!
 //!   a: Append A to holding area
 //!   b: Append B to holding area
-//!   c: Order holding area by last read (desc): {B, A}. Push B then A. Pop A.
+//!   c: Sort holding area by last read (desc): {B, A}.
+//!      Push B.
+//!      Push A.
+//!      Pop A.
+//!      Clear holding area.
 //!   d: Allocate C on top of B. RE-USES A
 //!   e: Cannot pop B since it is covered by C
 //!   f: Pop C and B
+//!
+//!   +-----+ +-----+
+//!   |  A  | |  C  |
+//!   +---+---+-+---+
+//!       |  B  |
+//!       +-+---+
+//!   a   b c d e   f
+//!
+//! Note that this only gives one layer of protection. More complex patterns can
+//! still result in suboptimal memory use even with reordering using the holding
+//! area.
 //!
 //! [Syncs for Reused (Not Aliased) Shared Memory]
 //! We will need to ensure the block is synced to prevent a race hazard where
