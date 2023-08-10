@@ -594,6 +594,15 @@ TEST_F(ExprSimplifierTest, EliminateTrivialComputation) {
   EXPECT_TRUE(simplifyExpr("i1 - ( i2 + i3 ) + i2"_)->sameAs("i1 - i3"_));
   EXPECT_TRUE(simplifyExpr("i2 - ( i2 - i3 ) - i3"_)->isZeroInt());
   EXPECT_TRUE(simplifyExpr("i1 - ( i2 - i3 ) - i3"_)->sameAs("i1 - i2"_));
+  // Using the same Val* multiple times in FlattenedAdd so that we can test if
+  // our passes are working correctly with the same Val* appearing multiple
+  // times
+  // TODO: we shouldn't just test this single case, we need to make a more
+  // complete test plan for all our passes. I don't think this case is well
+  // tested currently.
+  auto i = "i"_;
+  EXPECT_TRUE(
+      simplifyExpr(IrBuilder::subExpr(IrBuilder::addExpr(i, i), i))->sameAs(i));
 }
 
 TEST_F(ExprSimplifierTest, SimplifyDivisibleDivMod) {

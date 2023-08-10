@@ -1746,34 +1746,36 @@ Val* eliminateTrivialComputation(Val* value, const Context& context) {
       return fop->input(0);
     }
     if (op == BinaryOpType::Add) { // a + (-a) -> 0
-      std::vector<std::pair<Val*, Val*>> inv_inputs;
-      for (auto inp : fop->inputs()) {
+      std::vector<std::tuple<Val*, Val*, size_t>> inv_inputs;
+      for (size_t idx : c10::irange(fop->inputs().size())) {
+        auto inp = fop->input(idx);
         auto def = inp->definition();
         if (auto inv = dynamic_cast<UnaryOp*>(def)) {
           if (inv->getUnaryOpType() == UnaryOpType::Neg) {
-            inv_inputs.emplace_back(inp, inv->in());
+            inv_inputs.emplace_back(inp, inv->in(), idx);
           }
         }
       }
-      std::unordered_set<Val*> remove;
-      for (auto [orig, inv] : inv_inputs) {
-        for (auto v : fop->inputs()) {
-          if (remove.count(v) || remove.count(orig)) {
+      std::unordered_set<size_t> remove;
+      for (auto [orig, inv, idx] : inv_inputs) {
+        for (size_t idx2 : c10::irange(fop->inputs().size())) {
+          auto inp = fop->input(idx2);
+          if (remove.count(idx) || remove.count(idx2)) {
             continue;
           }
-          if (v->sameAs(inv)) {
-            remove.emplace(v);
-            remove.emplace(orig);
+          if (inp->sameAs(inv)) {
+            remove.emplace(idx);
+            remove.emplace(idx2);
           }
         }
       }
       if (!remove.empty()) {
         std::vector<Val*> new_inputs;
-        std::copy_if(
-            fop->inputs().begin(),
-            fop->inputs().end(),
-            std::back_inserter(new_inputs),
-            [&](Val* v) { return !remove.count(v); });
+        for (size_t idx : c10::irange(fop->inputs().size())) {
+          if (!remove.count(idx)) {
+            new_inputs.emplace_back(fop->input(idx));
+          }
+        }
         if (new_inputs.empty()) {
           return value->fusion()->zeroVal(value->dtype());
         } else {
