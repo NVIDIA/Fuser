@@ -15,6 +15,7 @@
 #include <cctype>
 #include <deque>
 #include <memory>
+#include <random>
 #include <regex>
 #include <string>
 #include <string_view>
@@ -91,6 +92,32 @@ using token_t = std::variant<
     Comma,
     LowestPrecedence>;
 
+Val* randomlyReuseOrCreateNamedScalar(
+    std::string_view name_view,
+    DataType dtype) {
+  Fusion* fusion = FusionGuard::getCurFusion();
+  auto name = std::string(name_view);
+  if (!fusion->hasManaged(name)) {
+    auto ns = IrBuilder::create<NamedScalar>(name, dtype);
+    fusion->manage(name, std::vector<Val*>{ns});
+    return ns;
+  }
+  auto& existing_vals = fusion->getManaged<std::vector<Val*>>(name);
+  std::random_device rd;
+  std::mt19937 gen(rd());
+  std::uniform_int_distribution<size_t> dis(0, existing_vals.size());
+  auto index = dis(gen);
+  if (index == existing_vals.size()) {
+    // create a new one
+    auto ns = IrBuilder::create<NamedScalar>(name, dtype);
+    existing_vals.push_back(ns);
+    return ns;
+  } else {
+    // reuse an existing one
+    return existing_vals[index];
+  }
+}
+
 Val* parseIdentifier(std::string_view token_str) {
   if (token_str == "true") {
     return IrBuilder::newConstant(true, DataType::Bool);
@@ -123,14 +150,11 @@ Val* parseIdentifier(std::string_view token_str) {
       token_str == "blockDim.y" || token_str == "blockDim.z" ||
       token_str == "gridDim.x" || token_str == "gridDim.y" ||
       token_str == "gridDim.z") {
-    return IrBuilder::create<NamedScalar>(
-        std::string(token_str), DataType::Int);
+    return randomlyReuseOrCreateNamedScalar(token_str, DataType::Int);
   } else if (token_str.at(0) == 'b') {
-    return IrBuilder::create<NamedScalar>(
-        std::string(token_str), DataType::Bool);
+    return randomlyReuseOrCreateNamedScalar(token_str, DataType::Bool);
   } else if (token_str.at(0) == 'd') {
-    return IrBuilder::create<NamedScalar>(
-        std::string(token_str), DataType::Double);
+    return randomlyReuseOrCreateNamedScalar(token_str, DataType::Double);
   } else {
     TORCH_INTERNAL_ASSERT(false, "Identifier with unknown type: ", token_str);
   }
@@ -597,9 +621,6 @@ TEST_F(ExprSimplifierTest, EliminateTrivialComputation) {
   // Using the same Val* multiple times in FlattenedAdd so that we can test if
   // our passes are working correctly with the same Val* appearing multiple
   // times
-  // TODO: we shouldn't just test this single case, we need to make a more
-  // complete test plan for all our passes. I don't think this case is well
-  // tested currently.
   auto i = "i"_;
   EXPECT_TRUE(
       simplifyExpr(IrBuilder::subExpr(IrBuilder::addExpr(i, i), i))->sameAs(i));
@@ -885,6 +906,19 @@ TEST_F(ExprSimplifierTest, Compare) {
       "blockIdx.x < ceilDiv( T0.logical_size[0] , 128 ) * 4"_));
 
   EXPECT_TRUE(*simplify("i1 % i2 < i2"_, "i2 >= 0"_));
+
+  EXPECT_TRUE(
+      *simplifyExpr("T0.logical_size[0] - 1 < T0.logical_size[0]"_)->getBool());
+  EXPECT_TRUE(
+      *simplifyExpr(
+           "T0.logical_size[0] + 1 + 2 + 3 < T0.logical_size[0] + 1 + 2 + 3 + 4"_)
+           ->getBool());
+  // Two terms of the LHS are both the same as the single RHS term,
+  // but the removal should be done only for one of them. If doubly
+  // removed, the predicate would be false
+  EXPECT_TRUE(*simplify("i1 + i1 > i1"_, "i1 > 0"_));
+  EXPECT_TRUE(*simplify("i1 < i1 + i1"_, "i1 > 0"_));
+  EXPECT_TRUE(*simplify("i1 + i1 < i1 + i1 + i1"_, "i1 > 0"_));
 }
 
 TEST_F(ExprSimplifierTest, FundamentalDivisionWithRemainderProperty) {

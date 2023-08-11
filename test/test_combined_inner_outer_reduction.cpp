@@ -178,7 +178,6 @@ TEST_F(NVFuserTest, CombinedSchedulerLayerNormBackward_CUDA) {
          std::get<2>(aten_gradients).mul(scale_back_factor)},
         __LINE__,
         __FILE__);
-
     if (isBenchmark) {
       FusionKernelRuntime* fkr = fec.getMostRecentKernelRuntime();
       fkr->enableKernelTimeMeasurement();
