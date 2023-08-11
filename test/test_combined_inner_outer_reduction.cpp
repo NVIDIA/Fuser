@@ -179,11 +179,6 @@ TEST_F(NVFuserTest, CombinedSchedulerLayerNormBackward_CUDA) {
         __LINE__,
         __FILE__);
 
-    int64_t hidden_size = 1;
-    for (auto s : norm_shape) {
-      hidden_size *= s;
-    }
-
     if (isBenchmark) {
       FusionKernelRuntime* fkr = fec.getMostRecentKernelRuntime();
       fkr->enableKernelTimeMeasurement();
