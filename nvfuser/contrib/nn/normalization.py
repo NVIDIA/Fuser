@@ -23,7 +23,7 @@ def partially_contig_tensor(
     x: torch.Tensor,
 ) -> "nvfuser.Tensor":
     return fd.define_tensor(
-        symbolic_sizes=[-1] * x.ndim,
+        shape=[-1] * x.ndim,
         contiguity=nvfuser.compute_contiguity(x.size(), x.stride()),
         dtype=torch_dtype_to_nvfuser_dtype(x.dtype),
     )
