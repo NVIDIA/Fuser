@@ -540,7 +540,10 @@ void validateAlignedVectorizedTensors(
     TORCH_INTERNAL_ASSERT(
         args[pos]->is<at::Tensor>(), "alias io only supports tensor");
     validateAlignedVectorizedFusionInputOutput(
-        args[pos]->as<at::Tensor>(), word_size, tv, expr_eval,
+        args[pos]->as<at::Tensor>(),
+        word_size,
+        tv,
+        expr_eval,
         kernel->summary());
   }
   if (!outputs.empty()) {
