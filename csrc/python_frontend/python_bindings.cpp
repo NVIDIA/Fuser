@@ -50,7 +50,7 @@ template<class ShapeType>
 Tensor broadcast_in_dim_fn(FusionDefinition::Operators& op, Tensor arg, ShapeType shape, std::vector<int64_t>& broadcast_dims) {
   FUSER_PERF_SCOPE("Operators.broadcast_in_dim");
   FusionDefinition* fd = op.fusion_definition;
-  TORCH_CHECK(!fd.completed(), "Attempting to add to a completed definition!");
+  TORCH_CHECK(!fd->completed(), "Attempting to add to a completed definition!");
   size_t output_size = 0;
   if constexpr(std::is_same_v<ShapeType, Vector>) {
     output_size = shape.size;
