@@ -9785,7 +9785,7 @@ TEST_F(NVFuserTest, FusionCrossGridInnerReductionSplitGridIteration_CUDA) {
   at::Tensor aten_input = at::randn(input_shape, options);
 
   auto reduction_params = getReductionHeuristics(&fusion, {aten_input});
-  TORCH_CHECK(reduction_params, "Reduction schedule was not generated!");
+  ASSERT_TRUE(reduction_params) << "Reduction schedule was not generated!";
   ASSERT_TRUE(reduction_params->split_grid_dim_inner_reduction)
       << "Generated reduction is not cross grid!";
   ASSERT_TRUE(reduction_params->split_grid_dim_iter_dom_outer)
