@@ -571,7 +571,11 @@ Val* ForLoop::step() const {
 }
 
 Val* ForLoop::simplifiedStop() const {
-  return simplifyExpr(stop());
+  if (simplified_stop_ == nullptr) {
+    simplified_stop_ =
+        GpuLower::current()->commonScalarMap().hoistScalar(stop(), {});
+  }
+  return simplified_stop_;
 }
 
 bool ForLoop::isTrivial() const {
