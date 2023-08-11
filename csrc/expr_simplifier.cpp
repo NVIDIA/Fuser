@@ -457,7 +457,7 @@ namespace assoc_comm {
 //         index = i5 + i3
 // This minimizes the total number of computations.
 
-bool isAssociativeAndCommutative(BinaryOpType type) {
+inline bool isAssociativeAndCommutative(BinaryOpType type) {
   // gcd is associative and commutative, see:
   // https://en.wikipedia.org/wiki/Greatest_common_divisor#Properties
   return type == BinaryOpType::Add || type == BinaryOpType::Mul ||
@@ -476,7 +476,7 @@ bool isAssociativeAndCommutative(BinaryOpType type) {
 // Note that the concept of "no-op term" here is very similar to the concept of
 // identity in mathematics, whose definition is
 //   x (op) e = e (op) x = x
-bool isNoOpTerm(Val* v, BinaryOpType type) {
+inline bool isNoOpTerm(Val* v, BinaryOpType type) {
   if (v->isConstScalar()) {
     v = foldConstants(v);
   }
@@ -506,7 +506,7 @@ bool isNoOpTerm(Val* v, BinaryOpType type) {
 
 // Identity `b` is a special number that, for all x:
 // x (op) b = b (op) x = b
-bool isBlackhole(Val* v, BinaryOpType type) {
+inline bool isBlackhole(Val* v, BinaryOpType type) {
   if (v->isConstScalar()) {
     v = foldConstants(v);
   }
@@ -529,6 +529,25 @@ bool isBlackhole(Val* v, BinaryOpType type) {
     default:
       return false;
   }
+}
+
+// If `op` is the inverse of an associative and commutative operator, for
+// example:
+// - a - b -> a + (-b)
+// - a / b -> a * (1 / b) if b is real or complex number
+// then return the corresponding associative and commutative operator and the
+// inverse operator. Otherwise, return nullopt.
+inline std::optional<std::pair<BinaryOpType, UnaryOpType>>
+asInverseOfAssocCommOp(BinaryOpType op, DataType rhs_dtype) {
+  if (op == BinaryOpType::Sub) {
+    return std::make_pair(BinaryOpType::Add, UnaryOpType::Neg);
+  }
+  if (op == BinaryOpType::Div) {
+    if (isFloatingPointType(rhs_dtype) || isComplexType(rhs_dtype)) {
+      return std::make_pair(BinaryOpType::Mul, UnaryOpType::Reciprocal);
+    }
+  }
+  return std::nullopt;
 }
 
 // The expression type that represents the flattened ops. For example, if I have
@@ -776,6 +795,32 @@ class FlattenedAssocCommOp : public Expr {
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(FlattenedAssocCommOp)
 
+using FOp = assoc_comm::FlattenedAssocCommOp;
+
+inline Val* maybeFlattenedOpOf(BinaryOpType bop, std::vector<Val*> inputs) {
+  std::vector<Val*> nontrivial_inputs;
+  std::vector<Val*> trivial_inputs;
+  for (auto inp : inputs) {
+    if (!assoc_comm::isNoOpTerm(inp, bop)) {
+      nontrivial_inputs.emplace_back(inp);
+    } else {
+      trivial_inputs.emplace_back(inp);
+    }
+  }
+  if (nontrivial_inputs.empty()) {
+    return trivial_inputs.at(0);
+  }
+  if (nontrivial_inputs.size() == 1) {
+    if (bop == BinaryOpType::Gcd) {
+      return IrBuilder::absExpr(nontrivial_inputs.at(0));
+    }
+    return nontrivial_inputs.at(0);
+  }
+  auto result = IrBuilder::newScalar(inferDtypes(nontrivial_inputs));
+  IrBuilder::create<FOp>(bop, result, std::move(nontrivial_inputs));
+  return result;
+}
+
 // Recursively convert expressions like AddOp(AddOp(a, b), AddOp(c, d)) into
 // FlattenedAdd(a, b, c, d). This function recursively transforms the entire
 // expression, so divOp(AddOp(AddOp(a, b), AddOp(c, d)), addOp(e, f)) will
@@ -804,7 +849,39 @@ Val* flattenRule(Val* value) {
   bool changed = false;
   if (auto bop = dynamic_cast<BinaryOp*>(def)) {
     op = bop->getBinaryOpType();
-    changed = true;
+    if (!hasSimilarType(bop->lhs()->dtype(), bop->rhs()->dtype())) {
+      // Avoid flattening ops with different types because different dtypes
+      // follow different simplification rules, so we don't want to mix them
+      // together. For example, 2.0 + 3 + 4 will be easier to analyze if we
+      // flatten it as 2.0 + FlattenAdd(3, 4) instead of FlattenAdd(2.0, 3, 4)
+      return value;
+    }
+    if (isAssociativeAndCommutative(op)) {
+      changed = true;
+    } else if (auto inv = asInverseOfAssocCommOp(op, bop->rhs()->dtype())) {
+      // a - b -> FlattenAdd(a, -b)
+      // a / b -> FlattenMul(a, b^(-1))
+      auto assoc_comm_op = inv->first;
+      auto inv_op = inv->second;
+      std::vector<Val*> lhs_terms;
+      std::vector<Val*> rhs_terms;
+      auto collect_terms = [&](Val* operand, std::vector<Val*>& terms) {
+        if (auto fop = dynamic_cast<FOp*>(operand->definition());
+            fop != nullptr && fop->getOpType() == assoc_comm_op) {
+          terms = fop->inputs();
+        } else {
+          terms.emplace_back(operand);
+        }
+      };
+      collect_terms(flatten(bop->lhs()), lhs_terms);
+      collect_terms(flatten(bop->rhs()), rhs_terms);
+      for (auto term : rhs_terms) {
+        auto inv_term = IrBuilder::newScalar(bop->rhs()->dtype());
+        IrBuilder::create<UnaryOp>(inv_op, inv_term, term);
+        lhs_terms.emplace_back(inv_term);
+      }
+      return maybeFlattenedOpOf(assoc_comm_op, std::move(lhs_terms));
+    }
   } else if (auto fop = dynamic_cast<FlattenedAssocCommOp*>(def)) {
     op = fop->getOpType();
   }
@@ -913,6 +990,9 @@ Val* unflatten(Val* value, const Context& context) {
 
 } // namespace assoc_comm
 
+using FOp = assoc_comm::FlattenedAssocCommOp;
+using assoc_comm::maybeFlattenedOpOf;
+
 namespace {
 
 // If x and y are both Null, then return Null. If one of them is Null, then
@@ -946,8 +1026,6 @@ inline Val* getConstOrNullptr(T value, DataType dtype) {
   }
   return IrBuilder::newConstant(value, dtype);
 }
-
-using FOp = assoc_comm::FlattenedAssocCommOp;
 
 FOp* toFlattenedAdd(Expr* expr) {
   auto fop = dynamic_cast<FOp*>(expr);
@@ -1038,30 +1116,6 @@ std::pair<Val*, std::list<Val*>> getConstAndSymbolicFactors(Val* x) {
   return {getConstOrNullptr(const_factor, const_dtype), symbolic_factors};
 }
 
-inline Val* maybeFlattenedOpOf(BinaryOpType bop, std::vector<Val*> inputs) {
-  std::vector<Val*> nontrivial_inputs;
-  std::vector<Val*> trivial_inputs;
-  for (auto inp : inputs) {
-    if (!assoc_comm::isNoOpTerm(inp, bop)) {
-      nontrivial_inputs.emplace_back(inp);
-    } else {
-      trivial_inputs.emplace_back(inp);
-    }
-  }
-  if (nontrivial_inputs.empty()) {
-    return trivial_inputs.at(0);
-  }
-  if (nontrivial_inputs.size() == 1) {
-    if (bop == BinaryOpType::Gcd) {
-      return IrBuilder::absExpr(nontrivial_inputs.at(0));
-    }
-    return nontrivial_inputs.at(0);
-  }
-  auto result = IrBuilder::newScalar(inferDtypes(nontrivial_inputs));
-  IrBuilder::create<FOp>(bop, result, std::move(nontrivial_inputs));
-  return result;
-}
-
 // Given a constant factor and a list of symbolic factors, return a flattened
 // mul expression. There are cases where the result dtype can not be inferred
 // from the inputs, for example when const_factor is nullptr and
@@ -1075,7 +1129,8 @@ Val* productOfFactors(
     if (symbolic_factors.empty()) {
       return IrBuilder::newConstant(1L, default_dtype);
     }
-    return maybeFlattenedOpOf(BinaryOpType::Mul, std::move(symbolic_factors));
+    return assoc_comm::maybeFlattenedOpOf(
+        BinaryOpType::Mul, std::move(symbolic_factors));
   }
   if (*const_factor->getInt() != 1 || symbolic_factors.empty()) {
     symbolic_factors.emplace_back(const_factor);
@@ -1690,6 +1745,44 @@ Val* eliminateTrivialComputation(Val* value, const Context& context) {
       }
       return fop->input(0);
     }
+    if (op == BinaryOpType::Add) { // a + (-a) -> 0
+      std::vector<std::tuple<Val*, Val*, size_t>> inv_inputs;
+      for (size_t idx : c10::irange(fop->inputs().size())) {
+        auto inp = fop->input(idx);
+        auto def = inp->definition();
+        if (auto inv = dynamic_cast<UnaryOp*>(def)) {
+          if (inv->getUnaryOpType() == UnaryOpType::Neg) {
+            inv_inputs.emplace_back(inp, inv->in(), idx);
+          }
+        }
+      }
+      std::unordered_set<size_t> remove;
+      for (auto [orig, inv, idx] : inv_inputs) {
+        for (size_t idx2 : c10::irange(fop->inputs().size())) {
+          auto inp = fop->input(idx2);
+          if (remove.count(idx) || remove.count(idx2)) {
+            continue;
+          }
+          if (inp->sameAs(inv)) {
+            remove.emplace(idx);
+            remove.emplace(idx2);
+          }
+        }
+      }
+      if (!remove.empty()) {
+        std::vector<Val*> new_inputs;
+        for (size_t idx : c10::irange(fop->inputs().size())) {
+          if (!remove.count(idx)) {
+            new_inputs.emplace_back(fop->input(idx));
+          }
+        }
+        if (new_inputs.empty()) {
+          return value->fusion()->zeroVal(value->dtype());
+        } else {
+          return maybeFlattenedOpOf(op, std::move(new_inputs));
+        }
+      }
+    }
     { // 0 * a -> 0, 1 * a -> a
       std::vector<Val*> new_inputs;
       Val* const_term = nullptr;
@@ -1797,10 +1890,6 @@ Val* eliminateTrivialComputation(Val* value, const Context& context) {
       if (rhs->isOne() ||
           (isValidDenominator(rhs, context) && lhs->getInt() == 0)) {
         return lhs;
-      }
-    } else if (bop->getBinaryOpType() == BinaryOpType::Sub) {
-      if (lhs->sameAs(rhs)) {
-        return IrBuilder::newConstant(0L, *value->getDataType());
       }
     }
   } else if (auto uop = dynamic_cast<UnaryOp*>(value->definition())) {
@@ -2516,6 +2605,86 @@ Val* factorizeGcd(Val* value, const Context& context) {
   return value;
 }
 
+Val* cancelTermsInPredicate(Val* value, const Context& context) {
+  auto bop = dynamic_cast<BinaryOp*>(value->definition());
+  if (!bop) {
+    return value;
+  }
+  auto op = bop->getBinaryOpType();
+  if (op != BinaryOpType::Eq && op != BinaryOpType::GE &&
+      op != BinaryOpType::GT && op != BinaryOpType::LE &&
+      op != BinaryOpType::LT && op != BinaryOpType::NE) {
+    return value;
+  }
+
+  auto get_terms = [](Val* operand) -> std::vector<Val*> {
+    if (auto flattened = toFlattenedAdd(operand->definition())) {
+      return flattened->inputs();
+    } else {
+      return {operand};
+    }
+  };
+
+  const auto& lhs_terms = get_terms(bop->lhs());
+  const auto& rhs_terms = get_terms(bop->rhs());
+
+  std::vector<bool> common_lhs_terms(lhs_terms.size(), false);
+  std::vector<bool> common_rhs_terms(rhs_terms.size(), false);
+  for (const auto lhs_i : c10::irange(lhs_terms.size())) {
+    for (const auto rhs_i : c10::irange(rhs_terms.size())) {
+      // Make sure no multiple LHS terms are removed for the same RHS term
+      if (common_rhs_terms.at(rhs_i)) {
+        continue;
+      }
+      if (lhs_terms[lhs_i]->sameAs(rhs_terms[rhs_i])) {
+        common_lhs_terms.at(lhs_i) = true;
+        common_rhs_terms.at(rhs_i) = true;
+        break;
+      }
+    }
+  }
+
+  if (std::none_of(
+          common_lhs_terms.begin(), common_lhs_terms.end(), [](auto flag) {
+            return flag;
+          })) {
+    return value;
+  }
+
+  std::vector<Val*> new_lhs_terms;
+  for (const auto i : c10::irange(lhs_terms.size())) {
+    if (!common_lhs_terms.at(i)) {
+      new_lhs_terms.push_back(lhs_terms[i]);
+    }
+  }
+
+  std::vector<Val*> new_rhs_terms;
+  for (const auto i : c10::irange(rhs_terms.size())) {
+    if (!common_rhs_terms.at(i)) {
+      new_rhs_terms.push_back(rhs_terms[i]);
+    }
+  }
+
+  Val* new_lhs = nullptr;
+  if (new_lhs_terms.empty()) {
+    new_lhs = value->fusion()->zeroVal(*bop->lhs()->getDataType());
+  } else {
+    new_lhs = maybeFlattenedOpOf(BinaryOpType::Add, std::move(new_lhs_terms));
+  }
+
+  Val* new_rhs = nullptr;
+  if (new_rhs_terms.empty()) {
+    new_rhs = value->fusion()->zeroVal(*bop->lhs()->getDataType());
+  } else {
+    new_rhs = maybeFlattenedOpOf(BinaryOpType::Add, std::move(new_rhs_terms));
+  }
+
+  auto new_val = IrBuilder::newScalar(*value->getDataType());
+  IrBuilder::create<BinaryOp>(op, new_val, new_lhs, new_rhs);
+
+  return new_val;
+}
+
 } // namespace rules
 
 #define RUN_PASS(pass_name)                                     \
@@ -2571,6 +2740,7 @@ Val* simplifyExpr(
     logger->record(debug_print::kFlattenName, simplified);
 
     RUN_PASS(canonicalizeVariables);
+    RUN_PASS(cancelTermsInPredicate);
     RUN_PASS(eliminateTrivialComputation);
     RUN_PASS(eliminateTrivialPredicate);
     RUN_PASS(simplifyDivisibleDivMod);
