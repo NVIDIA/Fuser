@@ -177,9 +177,13 @@ class TORCH_CUDA_CU_API ContiguousInnerDimensionsMapper
         ->mapped_rfactor_ids_;
   }
 
-  Val* getProjectedExtent(IterDomain* id) {
+  Val* getProjectedExtent(IterDomain* id) const {
     if (projected_extent_.find(id) == projected_extent_.end()) {
-      projected_extent_[id] = id->container()->oneVal();
+      if (recording_ || true) {
+        TORCH_INTERNAL_ASSERT(false, "Not projected: ", id->toString());
+      } else {
+        return id->container()->oneVal();
+      }
     }
     return projected_extent_.at(id);
   }
