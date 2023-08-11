@@ -299,11 +299,11 @@ Val* full_like(Val* v, Val* fill_value) {
 }
 
 TensorView* zeros(const std::vector<Val*>& shape, DataType dtype) {
-  return full(shape, FusionGuard::getCurFusion()->zeroVal(), dtype);
+  return full(shape, FusionGuard::getCurFusion()->zeroVal(dtype), dtype);
 }
 
 TensorView* zeros_like(TensorView* tv) {
-  return full_like(tv, FusionGuard::getCurFusion()->zeroVal());
+  return full_like(tv, FusionGuard::getCurFusion()->zeroVal(tv->dtype()));
 }
 
 Val* zeros_like(Val* v) {
@@ -311,11 +311,11 @@ Val* zeros_like(Val* v) {
 }
 
 TensorView* ones(const std::vector<Val*>& shape, DataType dtype) {
-  return full(shape, FusionGuard::getCurFusion()->oneVal(), dtype);
+  return full(shape, FusionGuard::getCurFusion()->oneVal(dtype), dtype);
 }
 
 TensorView* ones_like(TensorView* tv) {
-  return full_like(tv, FusionGuard::getCurFusion()->oneVal());
+  return full_like(tv, FusionGuard::getCurFusion()->oneVal(tv->dtype()));
 }
 
 Val* ones_like(Val* v) {
@@ -382,11 +382,11 @@ TensorView* iota(Val* length, Val* start, Val* step, DataType dtype) {
 }
 
 TensorView* arange(Val* end, DataType dtype) {
-  return arange(FusionGuard::getCurFusion()->zeroVal(), end, dtype);
+  return arange(FusionGuard::getCurFusion()->zeroVal(dtype), end, dtype);
 }
 
 TensorView* arange(Val* start, Val* end, DataType dtype) {
-  return arange(start, end, FusionGuard::getCurFusion()->oneVal(), dtype);
+  return arange(start, end, FusionGuard::getCurFusion()->oneVal(dtype), dtype);
 }
 
 TensorView* arange(Val* start, Val* end, Val* step, DataType dtype) {
@@ -1771,7 +1771,7 @@ WelfordResult Welford(
   }
   TensorView* out_N = full_like(
       squeezed,
-      add(init_N, FusionGuard::getCurFusion()->oneVal()),
+      add(init_N, FusionGuard::getCurFusion()->oneVal(init_N->dtype())),
       DataType::Index);
 
   // Initial values for welford op are tensors, so their dims have to match the

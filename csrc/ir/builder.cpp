@@ -246,7 +246,7 @@ Val* IrBuilder::metadataExpr(TensorView* tv) {
 
 Val* SimplifyingIrBuilder::negExpr(Val* val) {
   if (val->isZeroInt()) {
-    return val->container()->zeroVal();
+    return val->container()->zeroVal(val->dtype());
   } else if (val->isConst()) {
     return IrBuilder::create<Val>(-val->value(), val->dtype());
   }
@@ -487,7 +487,8 @@ Val* SimplifyingIrBuilder::bitwiseAndExpr(Val* lhs, Val* rhs) {
   }
 
   if (lhs_zero || rhs_zero) {
-    return FusionGuard::getCurFusion()->zeroVal();
+    return FusionGuard::getCurFusion()->zeroVal(
+        promoteType(lhs->dtype(), rhs->dtype()));
   } else if (lhs_all_ones && rhs_all_ones) {
     return IrBuilder::IrBuilder::create<Val>(-1, lhs->dtype());
   } else if (lhs_all_ones) {
@@ -529,7 +530,8 @@ Val* SimplifyingIrBuilder::bitwiseOrExpr(Val* lhs, Val* rhs) {
   if (lhs_all_ones || rhs_all_ones) {
     return IrBuilder::IrBuilder::create<Val>(-1, lhs->dtype());
   } else if (lhs_zero && rhs_zero) {
-    return FusionGuard::getCurFusion()->zeroVal();
+    return FusionGuard::getCurFusion()->zeroVal(
+        promoteType(lhs->dtype(), rhs->dtype()));
   } else if (lhs_zero) {
     return rhs_scalar;
   } else if (rhs_zero) {
@@ -586,7 +588,7 @@ Val* SimplifyingIrBuilder::gcdExpr(Val* lhs, Val* rhs) {
     return lhs;
   }
   if (lhs->isOneInt() || rhs->isOneInt()) {
-    return lhs->container()->oneVal();
+    return lhs->container()->oneVal(promoteType(lhs->dtype(), rhs->dtype()));
   }
   return IrBuilder::gcdExpr(lhs, rhs);
 }
