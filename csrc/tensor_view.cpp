@@ -670,6 +670,10 @@ TensorView* TensorView::split(
       ". Tensor: ",
       toString());
 
+  if (factor->dtype() != DataType::Index) {
+    factor = castOp(DataType::Index, factor);
+  }
+
   domain()->split(axis_, factor, inner_split, trim_out_of_bounds);
   return this;
 }
@@ -1507,7 +1511,7 @@ TensorView* TensorViewBuilder::build() const {
     if (shape_.empty()) {
       *shape_extent = IrBuilder::create<Val>(DataType::Index);
     } else {
-      *shape_extent = shape_.at(i);
+      *shape_extent = maybeCastOp(DataType::Index, shape_.at(i));
     }
     IterDomainBuilder builder(FusionGuard::getCurFusion()->zeroVal(), extent);
     if (extent->isOneInt()) {

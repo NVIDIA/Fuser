@@ -119,8 +119,10 @@ DataType getTypeFromComplexType(DataType dtype) {
 DataType getComplexTypeFromType(DataType dtype) {
   switch (std::get<PrimDataType>(dtype.type)) {
     case DataType::Float:
+    case DataType::ComplexFloat:
       return DataType::ComplexFloat;
     case DataType::Double:
+    case DataType::ComplexDouble:
       return DataType::ComplexDouble;
     default:
       TORCH_INTERNAL_ASSERT(
@@ -138,19 +140,11 @@ bool isSupportedTypeByDevice(DataType dtype) {
 }
 
 bool isIntegerOp(const BinaryOpType bopt) {
-  return bopt >= BinaryOpType::Mod && bopt <= BinaryOpType::Rshift;
+  return bopt >= BinaryOpType::Mod && bopt <= BinaryOpType::BitwiseXor;
 }
 
 bool isLogicalOp(const BinaryOpType bopt) {
-  return bopt >= BinaryOpType::Eq && bopt <= BinaryOpType::NE;
-}
-
-bool alsoBooleanOperator(const BinaryOpType bopt) {
-  return bopt >= BinaryOpType::And && bopt <= BinaryOpType::Xor;
-}
-
-bool alsoBooleanOperator(const UnaryOpType uopt) {
-  return uopt >= UnaryOpType::Not && uopt <= UnaryOpType::Not;
+  return bopt >= BinaryOpType::Eq && bopt <= BinaryOpType::LogicalOr;
 }
 
 // Return highest on list (smallest enum val)
@@ -295,6 +289,8 @@ bool needFloatSuffix(UnaryOpType t) {
     case UnaryOpType::BitCast:
     case UnaryOpType::Dereference:
     case UnaryOpType::Neg:
+    case UnaryOpType::BitwiseNot:
+    case UnaryOpType::LogicalNot:
     case UnaryOpType::Real:
     case UnaryOpType::Relu:
     case UnaryOpType::Reciprocal:
@@ -377,8 +373,10 @@ static const char* unary_op_type2string(UnaryOpType t) {
       return "bit_cast";
     case UnaryOpType::Neg:
       return "neg";
-    case UnaryOpType::Not:
-      return "not";
+    case UnaryOpType::LogicalNot:
+      return "logical_not";
+    case UnaryOpType::BitwiseNot:
+      return "bitwise_not";
     case UnaryOpType::Print:
       return "print";
     case UnaryOpType::Reciprocal:
@@ -428,19 +426,15 @@ static const char* unary_op_type2string(UnaryOpType t) {
   }
 }
 
-std::string stringifyBooleanOp(const UnaryOpType uopt) {
-  TORCH_INTERNAL_ASSERT(
-      uopt == UnaryOpType::Not, uopt, " is not a boolean operator.");
-  return "!";
-}
-
 static const char* unary_op_type_inline_op2string(UnaryOpType t) {
   switch (t) {
     case UnaryOpType::Dereference:
       return "*";
     case UnaryOpType::Neg:
       return "-";
-    case UnaryOpType::Not:
+    case UnaryOpType::LogicalNot:
+      return "!";
+    case UnaryOpType::BitwiseNot:
       return "~";
     case UnaryOpType::Address:
       return "(int64_t) &";
@@ -500,13 +494,19 @@ static const char* binary_op_type2string(BinaryOpType t) {
     case BinaryOpType::Gcd:
       return "gcd";
 
+    // Bitwise Ops
+    case BinaryOpType::BitwiseAnd:
+      return "bitwise_and";
+    case BinaryOpType::BitwiseOr:
+      return "bitwise_or";
+    case BinaryOpType::BitwiseXor:
+      return "bitwise_xor";
+
     // Logical Ops
-    case BinaryOpType::And:
-      return "and";
-    case BinaryOpType::Or:
-      return "or";
-    case BinaryOpType::Xor:
-      return "xor";
+    case BinaryOpType::LogicalAnd:
+      return "logical_and";
+    case BinaryOpType::LogicalOr:
+      return "logical_or";
     case BinaryOpType::Eq:
       return "equal";
     case BinaryOpType::GE:
@@ -581,12 +581,15 @@ static const char* binary_op_type_inline_op2string(BinaryOpType t) {
       return "<";
     case BinaryOpType::NE:
       return "!=";
-    // Assume bitwise, otherwise use stringifyBooleanOp
-    case BinaryOpType::And:
+    case BinaryOpType::LogicalAnd:
+      return "&&";
+    case BinaryOpType::LogicalOr:
+      return "||";
+    case BinaryOpType::BitwiseAnd:
       return "&";
-    case BinaryOpType::Or:
+    case BinaryOpType::BitwiseOr:
       return "|";
-    case BinaryOpType::Xor:
+    case BinaryOpType::BitwiseXor:
       return "^";
     default:
       break;
@@ -608,19 +611,6 @@ static const char* rng_op_type_inline_op2string(RNGOpType t) {
       break;
   }
   return nullptr;
-}
-
-std::string stringifyBooleanOp(const BinaryOpType bopt) {
-  switch (bopt) {
-    case BinaryOpType::And:
-      return "&&";
-    case BinaryOpType::Or:
-      return "||";
-    case BinaryOpType::Xor:
-      return "!=";
-    default:
-      TORCH_INTERNAL_ASSERT(false, bopt, " is not a boolean operator.")
-  }
 }
 
 static const char* ternary_op_type2string(TernaryOpType t) {
@@ -840,6 +830,7 @@ static const char* supported_casts2string(
     case supported_switch_pair(DataType::Int32, DataType::Index):
     case supported_switch_pair(DataType::Float, DataType::Index):
     case supported_switch_pair(DataType::Double, DataType::Index):
+    case supported_switch_pair(DataType::Bool, DataType::Index):
       return "(nvfuser_index_t)";
     case supported_switch_pair(DataType::ComplexFloat, DataType::Index):
     case supported_switch_pair(DataType::ComplexDouble, DataType::Index):
@@ -857,6 +848,7 @@ static const char* supported_casts2string(
     case supported_switch_pair(DataType::Double, DataType::Bool):
     case supported_switch_pair(DataType::Int32, DataType::Bool):
     case supported_switch_pair(DataType::Int, DataType::Bool):
+    case supported_switch_pair(DataType::Index, DataType::Bool):
       return "(bool)";
     case supported_switch_pair(DataType::ComplexFloat, DataType::Bool):
     case supported_switch_pair(DataType::ComplexDouble, DataType::Bool):
@@ -883,8 +875,8 @@ static const char* supported_casts2string(
     case supported_switch_pair(DataType::Double, DataType::Half):
       return "__double2half";
     case supported_switch_pair(DataType::Int32, DataType::Half):
-      return "__int322half";
     case supported_switch_pair(DataType::Int, DataType::Half):
+    case supported_switch_pair(DataType::Index, DataType::Half):
       return "__int2half";
     case supported_switch_pair(DataType::Bool, DataType::Half):
       return "__bool2half";
@@ -900,6 +892,8 @@ static const char* supported_casts2string(
       return "__half2int32";
     case supported_switch_pair(DataType::Half, DataType::Int):
       return "__half2int";
+    case supported_switch_pair(DataType::Half, DataType::Index):
+      return "__half2index";
     case supported_switch_pair(DataType::Half, DataType::Bool):
       return "__half2bool";
     case supported_switch_pair(DataType::Half, DataType::ComplexFloat):
@@ -914,8 +908,8 @@ static const char* supported_casts2string(
     case supported_switch_pair(DataType::Half, DataType::BFloat16):
       return "__half2bfloat";
     case supported_switch_pair(DataType::Int32, DataType::BFloat16):
-      return "__int322bfloat";
     case supported_switch_pair(DataType::Int, DataType::BFloat16):
+    case supported_switch_pair(DataType::Index, DataType::BFloat16):
       return "__int2bfloat";
     case supported_switch_pair(DataType::Bool, DataType::BFloat16):
       return "__bool2bfloat";
@@ -933,6 +927,8 @@ static const char* supported_casts2string(
       return "__bfloat2int32";
     case supported_switch_pair(DataType::BFloat16, DataType::Int):
       return "__bfloat2int";
+    case supported_switch_pair(DataType::BFloat16, DataType::Index):
+      return "__bfloat2index";
     case supported_switch_pair(DataType::BFloat16, DataType::Bool):
       return "__bfloat2bool";
     case supported_switch_pair(DataType::BFloat16, DataType::ComplexFloat):

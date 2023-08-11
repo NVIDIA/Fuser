@@ -465,7 +465,7 @@ GridCommWorkBufferSizeInfo getGridCommWorkBufferSize(
 
   if (is_doubled) {
     size_of_privatized_buffer = SimplifyingIrBuilder::mulExpr(
-        size_of_privatized_buffer, IrBuilder::create<Val>(2L));
+        size_of_privatized_buffer, IrBuilder::create<Val>(2L, DataType::Index));
   }
 
   GridCommWorkBufferSizeInfo info;
@@ -473,7 +473,7 @@ GridCommWorkBufferSizeInfo getGridCommWorkBufferSize(
   info.buffer_stride = size_of_single_buffer;
   if (is_doubled) {
     info.buffer_stride = SimplifyingIrBuilder::mulExpr(
-        info.buffer_stride, IrBuilder::create<Val>(2L));
+        info.buffer_stride, IrBuilder::create<Val>(2L, DataType::Index));
   }
 
   return info;
@@ -1484,10 +1484,10 @@ void IndexLowering::handle(const PadOp* pad) {
     auto producer_idx = producer_root_indices.at(padded_axis);
     auto producer_root_id = producer_doms.at(padded_axis);
     TORCH_INTERNAL_ASSERT(!producer_root_id->maybePartial());
-    pred = SimplifyingIrBuilder::andExpr(
+    pred = SimplifyingIrBuilder::logicalAndExpr(
         pred,
         // idx >= 0 && idx < extent
-        SimplifyingIrBuilder::andExpr(
+        SimplifyingIrBuilder::logicalAndExpr(
             SimplifyingIrBuilder::geExpr(
                 producer_idx, GpuLower::current()->kernel()->zeroVal()),
             SimplifyingIrBuilder::ltExpr(

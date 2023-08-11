@@ -302,7 +302,10 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
     case UnaryOpType::Neg:
       return {-in};
     case UnaryOpType::Cast:
-      if (isIntegralType(*out()->getDataType())) {
+      if (in.is<at::Tensor>()) {
+        return {PolymorphicValue(
+            in.as<at::Tensor>().to(data_type_to_aten(out()->dtype())))};
+      } else if (isIntegralType(*out()->getDataType())) {
         return {PolymorphicValue((int64_t)in)};
       } else if (isFloatingPointType(*out()->getDataType())) {
         return {PolymorphicValue((double)in)};
@@ -314,11 +317,17 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
         TORCH_INTERNAL_ASSERT(
             false, "dtype not supported in evaluator: ", *out()->getDataType());
       }
+    case UnaryOpType::Reciprocal:
+      return {1.0 / in};
+      break;
     case UnaryOpType::Abs:
       return {abs(in)};
       break;
-    case UnaryOpType::Not:
-      return {notExpr(in)};
+    case UnaryOpType::LogicalNot:
+      return {!in};
+      break;
+    case UnaryOpType::BitwiseNot:
+      return {~in};
       break;
     case UnaryOpType::Erf:
       return {erf(in)};
@@ -355,12 +364,7 @@ void UnaryOp::printHelper(std::stringstream& ss, std::string input) const {
       TORCH_INTERNAL_ASSERT(cast_str != std::nullopt, "Unsupported Cast");
       ss << cast_str.value();
     } else {
-      if (alsoBooleanOperator(op_type) &&
-          out()->getDataType().value() == DataType::Bool) {
-        ss << stringifyBooleanOp(op_type);
-      } else {
-        ss << op_type;
-      }
+      ss << op_type;
       if (out()->getDataType().value() == DataType::Float &&
           needFloatSuffix(op_type)) {
         ss << "f";
@@ -436,13 +440,19 @@ std::vector<PolymorphicValue> BinaryOp::evaluate(
       TORCH_CHECK(rhs != 0);
       return {ceildiv(lhs, rhs)};
       break;
-    case BinaryOpType::And:
+    case BinaryOpType::LogicalAnd:
       return {lhs && rhs};
       break;
-    case BinaryOpType::Or:
+    case BinaryOpType::LogicalOr:
       return {lhs || rhs};
       break;
-    case BinaryOpType::Xor:
+    case BinaryOpType::BitwiseAnd:
+      return {lhs & rhs};
+      break;
+    case BinaryOpType::BitwiseOr:
+      return {lhs | rhs};
+      break;
+    case BinaryOpType::BitwiseXor:
       return {lhs ^ rhs};
       break;
     case BinaryOpType::Eq:
@@ -498,12 +508,7 @@ void BinaryOp::printHelper(
     ss << " " << inline_bop.value() << " ";
     ss << rhs;
   } else {
-    if (alsoBooleanOperator(op_type) &&
-        out()->getDataType().value() == DataType::Bool) {
-      ss << stringifyBooleanOp(op_type);
-    } else {
-      ss << op_type;
-    }
+    ss << op_type;
     if (out()->getDataType().value() == DataType::Float &&
         needFloatSuffix(op_type)) {
       ss << "f";
@@ -1929,8 +1934,8 @@ ExpandOp::ExpandOp(
   for (auto expanded_extent : _expanded_extents) {
     TORCH_INTERNAL_ASSERT(expanded_extent != nullptr);
     TORCH_INTERNAL_ASSERT(
-        expanded_extent->dtype() == DataType::Int,
-        "Expanded extents must be of Int type.");
+        expanded_extent->dtype() == DataType::Index,
+        "Expanded extents must be of index type.");
     addInput(expanded_extent);
   }
 }
@@ -2318,6 +2323,12 @@ IterDomain::IterDomain(
       "Cannot create an iter domain with a start that is not an nvfuser_index_t but received ",
       start->dtype(),
       " .");
+
+  TORCH_INTERNAL_ASSERT(
+      stop_offset_->dtype() == DataType::Index,
+      "Cannot create an iter domain with a stop_offset_ that is not an nvfuser_index_t but received ",
+      stop_offset_->dtype(),
+      " .");
 }
 
 IterDomain::IterDomain(IrBuilderPasskey passkey, const IterDomainBuilder& args)
@@ -2530,21 +2541,6 @@ std::pair<IterDomain*, IterDomain*> IterDomain::split(
   TORCH_CHECK(
       factor->isIntegralScalar(), "Cannot split by non-integer value ", factor);
 
-  if (factor->getValType() == ValType::Others) {
-    TORCH_CHECK(
-        factor->isConstScalar() ||
-            (FusionGuard::getCurFusion() == factor->fusion() &&
-             factor->isFusionInput()),
-        factor,
-        " is not a constant nor an input. It must be one or the other to be used in a split.",
-        " If you want a symbolic split based on a thread dimension please use IterDomain::split(IterDomain*, ParallelType);");
-  } else if (factor->getValType() == ValType::NamedScalar) {
-    TORCH_CHECK(
-        factor->as<NamedScalar>()->getParallelDim() != std::nullopt,
-        "Splitting a dimension by a named scalar is only supported on block or grid dimensions but received ",
-        factor);
-  }
-
   // outer loop size
   Val* remainder = IrBuilder::ceilDivExpr(
       Split::extent(in->extent(), start_offset, stop_offset), factor);
@@ -2607,7 +2603,10 @@ std::pair<IterDomain*, IterDomain*> IterDomain::split(
 std::pair<IterDomain*, IterDomain*> IterDomain::stridedSplit(int64_t factor) {
   // Use partial split so that only valid values are retained
   auto split_out = IterDomain::split(
-      this, IrBuilder::create<Val>(container(), factor), true, true);
+      this,
+      IrBuilder::create<Val>(container(), factor, DataType::Index),
+      true,
+      true);
 
   split_out.second->iter_type_ = IterType::Stride;
   split_out.first->is_rfactor_domain_ = true;

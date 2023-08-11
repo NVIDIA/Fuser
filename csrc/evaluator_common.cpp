@@ -493,6 +493,12 @@ void NaiveValueMachine::runUnaryOp(int index) {
     case UnaryOpType::Abs:
       dest = abs(src);
       break;
+    case UnaryOpType::LogicalNot:
+      dest = !src;
+      break;
+    case UnaryOpType::BitwiseNot:
+      dest = ~src;
+      break;
     default:
       TORCH_CHECK(!"Unexpected operator type ", uop_type_[index]);
   }
@@ -542,8 +548,20 @@ void NaiveValueMachine::runBinaryOp(int index) {
       TORCH_CHECK(rhs != 0);
       dest = ceildiv(lhs, rhs);
       break;
-    case BinaryOpType::And:
+    case BinaryOpType::LogicalAnd:
       dest = lhs && rhs;
+      break;
+    case BinaryOpType::BitwiseAnd:
+      dest = lhs & rhs;
+      break;
+    case BinaryOpType::LogicalOr:
+      dest = lhs || rhs;
+      break;
+    case BinaryOpType::BitwiseOr:
+      dest = lhs | rhs;
+      break;
+    case BinaryOpType::BitwiseXor:
+      dest = lhs ^ rhs;
       break;
     case BinaryOpType::Max:
       dest = lhs > rhs ? lhs : rhs;
