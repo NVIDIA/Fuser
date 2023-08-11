@@ -235,6 +235,16 @@ class TORCH_CUDA_CU_API ContiguousInnerDimensionsMapper
     if (!recording_) {
       return;
     }
+
+    TORCH_INTERNAL_ASSERT(
+        projected_extent_.count(id) == 0,
+        "Already registered: ",
+        id->toString(),
+        ", existing: ",
+        projected_extent_.at(id)->toInlineString(),
+        ", new: ",
+        pe->toInlineString());
+
     projected_extent_[id] = pe;
   }
 
