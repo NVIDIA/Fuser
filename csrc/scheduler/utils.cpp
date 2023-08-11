@@ -1004,19 +1004,25 @@ std::vector<TensorView*> cacheInputs(Fusion* fusion, bool unroll) {
       continue;
     }
 
-    // TODO
-    if (std::any_of(tv->uses().begin(), tv->uses().end(), [](Expr* use) {
-          return ir_utils::isTvOp(use) &&
-              ir_utils::hasResizedRfactor(use->output(0)->as<TensorView>());
-        })) {
-      if (getenv("VERBOSE")) {
-        std::cerr << "Input TV is resized: " << tv->toString() << std::endl;
+    // Do not insert a cache for slice as vectorization needs to be
+    // done directly.
+    //
+    // Note that this means that if an input is sliced and also is
+    // used without slicing, it will be read twice, once for slice and
+    // once more for caching load. It would mamke sense to use caching
+    // load instructions.
+    std::unordered_set<Expr*> cached_uses;
+    for (auto use : tv->uses()) {
+      if (!use->isA<SliceOp>()) {
+        cached_uses.insert(use);
       }
-      // Only disable if sliced
+    }
+
+    if (cached_uses.empty()) {
       continue;
     }
 
-    auto cached_tv = tv->cacheAfter();
+    auto cached_tv = tv->cacheAfter(LoadStoreOpType::Set, cached_uses);
     cached_inputs.emplace_back(cached_tv);
   }
   return cached_inputs;
@@ -1161,12 +1167,7 @@ IterDomain* projectIdToRFactor(
     } else if (expr->isA<Resize>()) {
       auto resize = expr->as<Resize>();
       if (resize->in() == projected_id) {
-        // We do not allow vectorization wit resize at this moment
-        if (vectorize_pass && !resize->leftExpand()->isZeroInt()) {
-          projected_id = nullptr;
-        } else {
-          projected_id = resize->out();
-        }
+        projected_id = resize->out();
       }
     } else {
       TORCH_INTERNAL_ASSERT(
@@ -1293,24 +1294,13 @@ bool hasInnerDim(
     TensorView* tv,
     std::unordered_set<IterDomain*> inner_dims,
     bool should_vectorize) {
-  if (getenv("VERBOSE")) {
-    std::cerr << "has inner dim: " << tv->toString() << std::endl;
-  }
   const auto& inner_most_dim = innerMostRootDim(tv);
   if (inner_most_dim == nullptr) {
-    if (getenv("VERBOSE")) {
-      std::cerr << "debug1\n";
-    }
     return false;
   }
 
   // Make sure inner most dimension is in the inner_dims set
   if (inner_dims.count(inner_most_dim) == 0) {
-    if (getenv("VERBOSE")) {
-      std::cerr << "innermost dim not found: " << inner_most_dim->toString()
-                << ", inner dims: " << toDelimitedString(inner_dims)
-                << std::endl;
-    }
     return false;
   }
 
@@ -1326,9 +1316,6 @@ bool hasInnerDim(
       [&inner_most_dim](IterDomain* id) { return inner_most_dim == id; });
 
   if (root_pos_it == rfactor_dom.end()) {
-    if (getenv("VERBOSE")) {
-      std::cerr << "debug3\n";
-    }
     return false;
   }
 
@@ -1342,15 +1329,9 @@ bool hasInnerDim(
   auto contiguity_opt = contiguity.at(inner_most_dim_pos);
   TORCH_INTERNAL_ASSERT(contiguity_opt.has_value())
   if (!*contiguity_opt) {
-    if (getenv("VERBOSE")) {
-      std::cerr << "Not contiguous\n";
-    }
     return false;
   }
 
-  if (getenv("VERBOSE")) {
-    std::cerr << "has inner dim true\n";
-  }
   return true;
 }
 
@@ -1361,11 +1342,6 @@ std::vector<TensorView*> getInputsOutputsWithInnerDim(
   if (vectorize_pass) {
     TORCH_INTERNAL_ASSERT(
         inner_only, "Can only vectorize inner-most dimensions");
-  }
-
-  if (getenv("VERBOSE")) {
-    std::cerr << "getInputsOutputsWithInnerDim: " << reference_tv->toString()
-              << std::endl;
   }
 
   auto inner_most_id = innerMostRootDim(reference_tv);
@@ -1380,11 +1356,6 @@ std::vector<TensorView*> getInputsOutputsWithInnerDim(
   tree.traverse(&all_mapped_root_dims);
 
   auto vectorizable_dims = all_mapped_root_dims.get();
-
-  if (getenv("VERBOSE")) {
-    std::cerr << "vectorizable dims: " << toDelimitedString(vectorizable_dims)
-              << std::endl;
-  }
 
   std::vector<TensorView*> vectorizable_tensors;
 
@@ -1404,10 +1375,6 @@ std::vector<TensorView*> getInputsOutputsWithInnerDim(
     if (ir_utils::isTorchGatherLookupTv(input_tv) ||
         ir_utils::isIndexSelectLookupTv(input_tv)) {
       continue;
-    }
-    if (getenv("VERBOSE")) {
-      std::cerr << "Is input vectorizable? " << input_tv->toString()
-                << ", vectorize pass: " << vectorize_pass << std::endl;
     }
     if (hasInnerDim(input_tv, vectorizable_dims, vectorize_pass)) {
       vectorizable_tensors.push_back(input_tv);
@@ -1984,9 +1951,6 @@ void propagateReshapeTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
              {tv->getRootDomain().begin(), tv->getRootDomain().end()},
              {tv->getMaybeRFactorDomain().begin(),
               tv->getMaybeRFactorDomain().end()})) {
-      if (expr->isA<Resize>()) {
-        continue;
-      }
       for (auto id : ir_utils::filterByType<IterDomain>(expr->inputs())) {
         transformed_disjoint_sets.emplace(
             ca_map.disjointSetOf(id, IdMappingMode::EXACT));

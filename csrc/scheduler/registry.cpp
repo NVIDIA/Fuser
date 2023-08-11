@@ -1009,7 +1009,8 @@ SchedulerRuntimeInfo::SchedulerRuntimeInfo(
         }
         auto stride = alloc_strides.at(dim);
         // If the next inner domain is sliced, this domain is not contiguous
-        if (stride != expected_stride || (dim < dims - 1 && isInnerDomainSliced(input_tv, dim))) {
+        if (stride != expected_stride ||
+            (dim < dims - 1 && isInnerDomainSliced(input_tv, dim))) {
           input_discontig_strides_[fusion_inp].push_back(stride * dtype_size);
           expected_stride = stride;
         }

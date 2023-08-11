@@ -1235,15 +1235,25 @@ TensorView* TensorView::cacheFork() {
   return new_output;
 }
 
-TensorView* TensorView::cacheAfter(LoadStoreOpType cache_op) {
+TensorView* TensorView::cacheAfter(
+    LoadStoreOpType cache_op,
+    const std::unordered_set<Expr*>& cached_uses) {
   TORCH_INTERNAL_ASSERT(
       !container()->isA<kir::Kernel>(),
       "Function invalid for kernel container.");
   FusionGuard fg(fusion());
 
+  auto uses = fusion()->unordered_uses(this);
+  if (!cached_uses.empty()) {
+    for (auto use : cached_uses) {
+      TORCH_INTERNAL_ASSERT(uses.count(use));
+    }
+  }
+  uses = cached_uses;
+
   // Get all the uses for this Tensorview
   TORCH_CHECK(
-      !uses().empty(),
+      !uses.empty(),
       "Error adding cacheAfter ",
       this,
       " we restrict using cacheAfter on tensors that have no further uses.");
@@ -1262,7 +1272,7 @@ TensorView* TensorView::cacheAfter(LoadStoreOpType cache_op) {
   // input and the outputs of its consumers have computeAt. Make sure
   // we no longer rely on that behavior.
   if (isFusionInput()) {
-    for (const auto& expr : uses()) {
+    for (const auto& expr : uses) {
       for (TensorView* output :
            ir_utils::filterByType<TensorView>(expr->outputs())) {
         TORCH_CHECK(
@@ -1300,7 +1310,7 @@ TensorView* TensorView::cacheAfter(LoadStoreOpType cache_op) {
   // After:  This TV -> [Set Op] -> New CA TV -> [Use Op] -> Next TV
 
   // Expr* consumer_uses =
-  for (auto expr : fusion()->unordered_uses(this)) {
+  for (auto expr : uses) {
     ir_utils::replaceValInExpr(expr, this, consumer);
   }
 
