@@ -317,6 +317,9 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
         TORCH_INTERNAL_ASSERT(
             false, "dtype not supported in evaluator: ", *out()->getDataType());
       }
+    case UnaryOpType::Reciprocal:
+      return {1.0 / in};
+      break;
     case UnaryOpType::Abs:
       return {abs(in)};
       break;
