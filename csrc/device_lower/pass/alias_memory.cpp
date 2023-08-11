@@ -1551,10 +1551,8 @@ Val* allocSizeBytes(kir::Allocate* alloc) {
 //! re-use its memory in the middle, which might be wasteful.
 class StackBasedSharedMemAllocator : kir::IrVisitor {
  public:
-  StackBasedSharedMemAllocator(
-      const AllocationInfoMap& allocation_info_map,
-      bool warn_only = false)
-      : allocation_info_map_(allocation_info_map), warn_only_(warn_only) {}
+  StackBasedSharedMemAllocator(const AllocationInfoMap& allocation_info_map)
+      : allocation_info_map_(allocation_info_map) {}
 
   void allocate(std::vector<Expr*>& exprs) {
     recordEvents();
@@ -1661,9 +1659,6 @@ class StackBasedSharedMemAllocator : kir::IrVisitor {
   }
 
   void assignNextAddress(AllocationInfo* alloc_info) {
-    if (warn_only_) {
-      return;
-    }
     auto alloc = alloc_info->alloc_expr;
     if (alloc_stack_.empty()) {
       alloc->setAddress(FusionGuard::getCurFusion()->zeroVal());
@@ -1747,10 +1742,6 @@ class StackBasedSharedMemAllocator : kir::IrVisitor {
 
  private:
   const AllocationInfoMap& allocation_info_map_;
-
-  // If true, do not set any allocations. Only warn that user may want to enable
-  // smem reuse
-  bool warn_only_ = false;
 
   int position_ = -1;
 

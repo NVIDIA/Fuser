@@ -36,7 +36,6 @@ int64_t alignInt(int64_t unaligned, int64_t alignment = 16L) {
 
 // Test that we re-use different-size smem allocations
 //
-//
 //             +-----+
 //             |  B  |
 //   +-----+   +-----+
@@ -120,23 +119,25 @@ TEST_F(SmemReuseTest, SimpleCase) {
 
 // Test that we re-use different-size smem allocations
 //
-//           +-----+
-//           |  C  |
-//       +---+-+---+
-//       |  B  |
-//   +---+-+---+
+//             +-----+
+//             |  C  |
+//       +-----+-+---+
+//       |   B   |
+//   +---+-+-----+
 //   |  A  |
 //   +-----+
-//   a   b c d e   f
+//   a   b c * d e   f
+//
+// where * indicates an expression that synchronizes each thread block
 //
 // Should become:
 //
-//   +-----+ +-----+
-//   |  A  | |  C  |
-//   +---+---+-+---+
-//       |  B  |
-//       +-+---+
-//   a   b c d e   f
+//   +-----+   +-----+
+//   |  A  |   |  C  |
+//   +---+-----+-+---+
+//       |   B   |
+//       +-+-----+
+//   a   b c * d e   f
 //
 TEST_F(SmemReuseTest, NeedsReorderedPush) {
   auto fusion = std::make_unique<Fusion>();
