@@ -26,8 +26,6 @@
 #include <c10/util/irange.h>
 #include <torch/csrc/jit/jit_log.h>
 
-#include <chrono>
-
 namespace nvfuser {
 
 namespace {
@@ -1122,14 +1120,42 @@ std::unordered_map<Val*, const PolymorphicValue*> FusionKernelRuntime::
 
     double percent_peak = eff_bw / peak_bw * 100;
 
-    std::cout << "CUDA kernel time: " << kernel_time_ms_ << " ms" << std::endl;
-    std::cout << "Peak BW (" << gpuname << "): " << peak_bw << " GB/s"
-              << std::endl;
-    std::cout << "Complete Fusion eff. bandwidth (CUDA kernel time only): "
-              << eff_bw << " GB/s (";
-    std::cout << std::setprecision(2) << percent_peak << "\% of peak)"
-              << std::endl;
-    ;
+    auto formatBytes = [](int bytes) {
+      std::stringstream ss;
+      if (bytes < 1e3) {
+        ss << bytes << " B";
+        return ss.str();
+      }
+      ss << std::setprecision(2);
+      if (bytes >= 1e12) {
+        ss << ((double)bytes / 1e12) << " TB";
+      } else if (bytes >= 1e9) {
+        ss << ((double)bytes / 1e9) << " GB";
+      } else if (bytes >= 1e6) {
+        ss << ((double)bytes / 1e6) << " MB";
+      } else if (bytes >= 1e3) {
+        ss << ((double)bytes / 1e3) << " kB";
+      }
+      return ss.str();
+    };
+
+    debug() << "Total bytes processed: " << formatBytes(total_bytes_processed)
+            << std::endl;
+    debug() << "Bytes that were complete fusion inputs or outputs: "
+            << formatBytes(total_io_bytes_processed) << " ("
+            << ((double)total_io_bytes_processed /
+                (double)total_bytes_processed * 100.0)
+            << "% of total)" << std::endl;
+
+    debug() << "Total CUDA kernel time (" << num_groups
+            << " kernels): " << kernel_time_ms_ << " ms" << std::endl;
+    debug() << "Peak BW (" << gpuname << "): " << peak_bw << " GB/s"
+            << std::endl;
+    debug()
+        << "Complete fusion effective bandwidth (counts CUDA kernel time only): "
+        << eff_bw << " GB/s (";
+    debug() << std::setprecision(2) << percent_peak << "\% of peak)"
+            << std::endl;
   }
 
   return args_manager.getTensorMap();
