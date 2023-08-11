@@ -770,7 +770,7 @@ std::tuple<int64_t, int64_t, bool> checkPersistentBufferSize(
       fusion, runtime_info, persistent_buffer_info, data_cache);
 
   // Note that projected buffer size can be zero
-  auto persistent_buffer_size =
+  auto register_persistent_buffer_size =
       persistent_buffer_size_info.projected_persistent_buffer_size == 0
       ? persistent_buffer_size_info.persistent_buffer_size
       : std::min(
@@ -811,15 +811,13 @@ std::tuple<int64_t, int64_t, bool> checkPersistentBufferSize(
     // registers available, other persistent tensors from the original fusion
     // definition will also be stored in registers. If not, they will be
     // stored in shared memory.
-    const auto outer_persistent_buffer_size =
-        normalization_scheduler_utils::partialReductionBufferSize(
-            outer_reduction_tvs, runtime_info);
+    const auto cached_input_buffer_size = persistent_buffer_size_info.projected_persistent_buffer_size;
+    const auto intermediate_buffer_size = normalization_scheduler_utils::partialReductionBufferSize(outer_reduction_tvs, runtime_info);
+    const auto total_buffer_size = cached_input_buffer_size + intermediate_buffer_size;
     // Check if registers can hold all persistent tensors.
-    if (scheduler_utils::register_file_size_combined >=
-        persistent_buffer_size + outer_persistent_buffer_size) {
+    if (scheduler_utils::register_file_size_combined >= total_buffer_size) {
       has_enough_regs_and_smem = true;
-      persistent_buffer_size =
-          persistent_buffer_size + outer_persistent_buffer_size;
+      register_persistent_buffer_size = total_buffer_size;
     } else {
       // If registers can not hold all persistent tensors,
       // [persistent_buffer_size] is saved in shared memory and
@@ -832,12 +830,12 @@ std::tuple<int64_t, int64_t, bool> checkPersistentBufferSize(
       // registers, which offer much higher bandwidth than shared memory, is
       // therefore more efficient.
       auto buffer_per_element =
-          persistent_buffer_size / properties.inner_most_dimension_numel;
+          cached_input_buffer_size / properties.inner_most_dimension_numel;
       const int64_t threads_per_block_max =
           getThreadsPerSMGivenRegPerThread(255l);
       // needs to be rounded up shared memory buffer size to avoid requested
       // size is larger than available size, e.g. hidden size 26752 on H100.
-      auto persistent_buffer_size_roundup =
+      auto cached_input_buffer_size_roundup =
           ceilDiv(
               properties.inner_most_dimension_numel / vectorize_factor,
               threads_per_block_max) *
@@ -848,23 +846,24 @@ std::tuple<int64_t, int64_t, bool> checkPersistentBufferSize(
       // register spills.
       has_enough_regs_and_smem =
           scheduler_utils::register_file_size_full / 64 * 56 >=
-              outer_persistent_buffer_size &&
-          available_shared_memory_buffer_size >= persistent_buffer_size_roundup;
-      persistent_buffer_size = outer_persistent_buffer_size;
+              intermediate_buffer_size &&
+          available_shared_memory_buffer_size >= cached_input_buffer_size_roundup;
+      register_persistent_buffer_size = intermediate_buffer_size;
+      std::cout << "cached_input_buffer_size: " << cached_input_buffer_size << " intermediate_buffer_size: " << intermediate_buffer_size << ", has_enough_regs_and_smem: " << has_enough_regs_and_smem << std::endl;
     }
   } else if (inner_reduction_count > 0) {
     // inner reduction, allows both register and shared memory persistent
     has_enough_regs_and_smem =
         std::max(
             available_shared_memory_buffer_size,
-            available_register_buffer_size) >= persistent_buffer_size;
+            available_register_buffer_size) >= register_persistent_buffer_size;
   } else {
     // outer reduction, allows only register persistent
     has_enough_regs_and_smem =
-        available_register_buffer_size >= persistent_buffer_size;
+        available_register_buffer_size >= register_persistent_buffer_size;
   }
   return std::make_tuple(
-      persistent_buffer_size,
+      register_persistent_buffer_size,
       available_register_buffer_size,
       has_enough_regs_and_smem);
 }
