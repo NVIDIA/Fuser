@@ -170,12 +170,6 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
                     largest_out, true, true));
           });
 
-  if (getenv("VERBOSE")) {
-    for (auto tv : vectorizable_inputs_outputs_entry.get()) {
-      std::cerr << "Vectorizable tv: " << tv->toString() << std::endl;
-    }
-  }
-
   constexpr int64_t kSixteen = 16; // clang tidy
 
   auto max_unroll_factor = ceilDiv(
@@ -431,10 +425,6 @@ bool hasReferenceTensorView(Fusion* fusion) {
 // input/output caches)
 void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
   FusionGuard fg(fusion);
-
-  if (getenv("VERBOSE")) {
-    std::cerr << "Pointwise params: " << params.toString() << std::endl;
-  }
 
   // Make sure we don't have global memory set on intermediate tensors from
   // fusion segmentation
@@ -754,9 +744,6 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
   spanning_tree.traverse(&propagator);
   scheduler_utils::parallelizeAllLike(reference_tv);
 
-  if (getenv("VERBOSE")) {
-    std::cerr << "Params.vectorize: " << params.vectorize << std::endl;
-  }
   if (params.vectorize) {
     // Grab all tensor views that should be vectorized
     auto inputs_outputs =
@@ -764,9 +751,6 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
     std::vector<TensorView*> vectorized_tvs;
     bool should_vectorize_reference_tv = false;
     for (auto tv : inputs_outputs) {
-      if (getenv("VERBOSE")) {
-        std::cerr << "Vec tv: " << tv->toString() << std::endl;
-      }
       if (tv == reference_tv) {
         should_vectorize_reference_tv = true;
       }
@@ -778,10 +762,6 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
       auto consumer_tvs = ir_utils::consumerTvsOf(tv);
       vectorized_tvs.insert(
           vectorized_tvs.end(), consumer_tvs.begin(), consumer_tvs.end());
-    }
-    if (getenv("VERBOSE")) {
-      std::cerr << "Vectorized tvs: " << toDelimitedString(vectorized_tvs)
-                << std::endl;
     }
     if (!vectorized_tvs.empty()) {
       // Aggressively mark with vectorized and cleanup later. That way we
