@@ -3,17 +3,14 @@
 
 ## Usage
 
-<!-- TO DO: Rename pytest_ops.py to pytest_test_definition.py -->
-
 * Run tests: `pytest python_tests/pytest_ops.py`
 * Filter tests with `-k` option: `pytest python_tests/pytest_ops.py -k var_mean`
 * Show all possible tests: `pytest python_tests/pytest_ops.py --collect-only`
 * Filter all possible tests with `-k` option: `pytest python_tests/pytest_ops.py --collect-only -k var_mean`
 
 ## Dependencies
-* pytest
-* jax[cuda12_local] OR jax[cuda11_local]
-See https://github.com/google/jax#pip-installation-gpu-cuda-installed-locally-harder.
+* `pytest`
+* `jax[cuda12_local]` OR `jax[cuda11_local]` See [JAX Installation Guide](https://github.com/google/jax#pip-installation-gpu-cuda-installed-locally-harder).
 
 ## Code Organization
 ### Files modified When Adding a New Op
@@ -24,7 +21,7 @@ See https://github.com/google/jax#pip-installation-gpu-cuda-installed-locally-ha
 ### Structural Code Used By All Tests
 * `pytest_core.py`: Contains the defintion of the `Opinfo` object.
 * `pytest_framework.py`: Contains the decorator template to iterate over all ops for a given test case.
-* `pytest_test_definitions.py`: Defines correctness and error tests for `FusionDefinition` `definition` operations.
+* `pytest_ops.py`: Defines correctness and error tests for `FusionDefinition` `definition` operations.
 
 ### Misc
 * `pytest_utils.py`: Common helper functions

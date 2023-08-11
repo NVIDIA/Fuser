@@ -316,8 +316,8 @@ void reductionViewAddFusion(
   }
 }
 
-typedef std::vector<int64_t> shape;
-typedef std::pair<shape, shape> reshape_example;
+typedef std::vector<int64_t> shape_t;
+typedef std::pair<shape_t, shape_t> reshape_example;
 
 // TODO: View examples with just 333 elements are failing validation in
 // normalization. This might just be because our tolerances aren't tuned well

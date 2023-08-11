@@ -163,21 +163,6 @@ void initNvFuserPythonBindings(PyObject* module) {
     return self.fusion_definition;
   });
 
-  auto tensor_sizes = [](Tensor arg) -> std::vector<Scalar> {
-    FUSER_PERF_SCOPE("Operators.tensor_sizes");
-    auto fd = arg.fusion_definition;
-    std::vector<Scalar> outputs;
-    std::vector<State> output_state;
-    for (const auto idx : c10::irange(arg.dims)) {
-      outputs.push_back(fd->defineScalar());
-      output_state.push_back(fd->recordingState(outputs[idx]()));
-    }
-    fd->defineRecord(
-        new TensorSizesRecord({fd->recordingState(arg())}, output_state));
-    return outputs;
-  };
-  tensor_class.def_property_readonly("shape", tensor_sizes);
-
   py::class_<Scalar> scalar_class(nvfuser, "Scalar");
   scalar_class.def("__repr__", [](Scalar& self) {
     std::stringstream ss;
@@ -2083,6 +2068,86 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("arg"),
       py::arg("dims"),
       py::return_value_policy::reference);
+
+  auto shape_def = [](Tensor arg) -> Vector {
+    FUSER_PERF_SCOPE("Operators.shape");
+    auto fd = arg.fusion_definition;
+    TORCH_CHECK(
+        fd->ops.validUse(), "Attempting to add to a completed definition!");
+    Vector output = fd->defineVector(arg.dims);
+    fd->defineRecord(new ShapeOpRecord(
+        {fd->recordingState(arg())}, {fd->recordingState(output())}));
+    return output;
+  };
+
+  tensor_class.def(
+      "shape",
+      [&shape_def](Tensor arg) -> Vector { return shape_def(arg); },
+      py::return_value_policy::reference);
+  nvf_ops.def(
+      "shape",
+      [&shape_def](FusionDefinition::Operators& self, Tensor arg) -> Vector {
+        return shape_def(arg);
+      },
+      py::arg("arg"),
+      py::return_value_policy::reference);
+
+  auto size_def = [](Tensor arg, int64_t dim) -> Scalar {
+    FUSER_PERF_SCOPE("Operators.size");
+    auto fd = arg.fusion_definition;
+    TORCH_CHECK(
+        fd->ops.validUse(), "Attempting to add to a completed definition!");
+    Scalar output = fd->defineScalar();
+    fd->defineRecord(new SizeOpRecord(
+        {fd->recordingState(arg())}, {fd->recordingState(output())}, dim));
+    return output;
+  };
+
+  tensor_class.def(
+      "size",
+      [&size_def](Tensor arg, int64_t dim) -> Scalar {
+        return size_def(arg, dim);
+      },
+      py::return_value_policy::reference);
+  nvf_ops.def(
+      "size",
+      [&size_def](FusionDefinition::Operators& self, Tensor arg, int64_t dim)
+          -> Scalar { return size_def(arg, dim); },
+      py::arg("arg"),
+      py::arg("dim"),
+      py::return_value_policy::reference);
+
+  auto at_def = [](Vector arg, int64_t index) -> Scalar {
+    FUSER_PERF_SCOPE("Operators.at");
+    auto fd = arg.fusion_definition;
+    TORCH_CHECK(
+        fd->ops.validUse(), "Attempting to add to a completed definition!");
+    Scalar output = fd->defineScalar();
+    fd->defineRecord(new AtOpRecord(
+        {fd->recordingState(arg())}, {fd->recordingState(output())}, index));
+    return output;
+  };
+
+  vector_class.def(
+      "at",
+      [&at_def](Vector arg, int64_t index) -> Scalar {
+        return at_def(arg, index);
+      },
+      py::return_value_policy::reference);
+  vector_class.def(
+      "__getitem__",
+      [&at_def](Vector arg, int64_t index) -> Scalar {
+        return at_def(arg, index);
+      },
+      py::return_value_policy::reference);
+  nvf_ops.def(
+      "at",
+      [&at_def](FusionDefinition::Operators& self, Vector arg, int64_t index)
+          -> Scalar { return at_def(arg, index); },
+      py::arg("arg"),
+      py::arg("index"),
+      py::return_value_policy::reference);
+
   nvf_ops.def(
       "slice",
       [](FusionDefinition::Operators& self,

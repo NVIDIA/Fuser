@@ -146,18 +146,36 @@ bool DomainMap::areAllInputIdsMappedTo(TensorView* input_tv, TensorView* tv)
   return in_concrete_ids.empty();
 }
 
+// Reference domains must exactly match with the input domains. See
+// also PR #661
+IterDomain* DomainMap::getMappedInputConcreteID(
+    const std::unordered_set<IterDomain*>& in_concrete_ids,
+    IterDomain* out_id) const {
+  auto in_concrete_id_iter = std::find_if(
+      in_concrete_ids.begin(),
+      in_concrete_ids.end(),
+      [&](IterDomain* in_concrete_id) {
+        return ca_map_.areMapped(in_concrete_id, out_id, IdMappingMode::EXACT);
+      });
+  if (in_concrete_id_iter != in_concrete_ids.end()) {
+    return *in_concrete_id_iter;
+  } else {
+    return nullptr;
+  }
+}
+
 // Erase input concrete ID if it is mapped to output ID
 bool DomainMap::eraseIfMapped(
     std::unordered_set<IterDomain*>& in_concrete_ids,
     IterDomain* out_id) const {
-  auto out_concrete_id =
-      ca_map_.getConcreteMappedID(out_id, IdMappingMode::PERMISSIVE);
-  auto in_concrete_id_iter = in_concrete_ids.find(out_concrete_id);
-  bool found_match = in_concrete_id_iter != in_concrete_ids.end();
-  if (found_match) {
-    in_concrete_ids.erase(in_concrete_id_iter);
+  auto mapped_input_conrete_id =
+      getMappedInputConcreteID(in_concrete_ids, out_id);
+  if (mapped_input_conrete_id != nullptr) {
+    in_concrete_ids.erase(mapped_input_conrete_id);
+    return true;
+  } else {
+    return false;
   }
-  return found_match;
 }
 
 void DomainMap::eraseifInputMappedThroughRFactorDomainAndIndexing(

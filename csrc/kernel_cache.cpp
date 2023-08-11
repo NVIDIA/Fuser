@@ -80,10 +80,10 @@ class ArgumentManager {
         fusion_inputs, runtime_workspace.group_extent_binding_order);
     setLastUsedSegmentID(runtime_workspace.group_run_order);
   }
-  const std::unordered_map<Val*, const ArgAbstract*>& getTensorMap() {
+  const std::unordered_map<Val*, const PolymorphicValue*>& getTensorMap() {
     return tensor_map_;
   }
-  const ArgAbstract* checkTensorMap(Val* v) {
+  const PolymorphicValue* checkTensorMap(Val* v) {
     return tensor_map_.at(v);
   }
   // T is assumed to be either std::vector<at::Tensro> or KernelArgumentHolder
@@ -101,7 +101,7 @@ class ArgumentManager {
  private:
   KernelArgumentHolder& fusion_args_;
   // map from val to args
-  std::unordered_map<Val*, const ArgAbstract*> tensor_map_;
+  std::unordered_map<Val*, const PolymorphicValue*> tensor_map_;
   // map segment_id to vector of fusion vals lastly used at this segment
   std::unordered_map<int64_t, std::vector<Val*>> vals_last_used_at_segment_;
 
@@ -118,13 +118,13 @@ class ArgumentManager {
       // TODO: we probably have done this already up to this point
       //      should consider caching the expression evaluators, both
       //      more convenient and safer than replication
-      if (auto tensor_arg_abstract =
-              dynamic_cast<const TensorArgAbstract*>(fusion_args_[i])) {
+      if (fusion_args_[i]->is<at::Tensor>()) {
         // Note this is very ugly way. We are pushing every single extent to
         // args, because we don't have a better place to hold them.
-        auto rank = tensor_arg_abstract->getRank();
+        auto rank = fusion_args_[i]->as<at::Tensor>().dim();
         for (const auto dim : c10::irange(rank)) {
-          fusion_args_.push(tensor_arg_abstract->getSize((int)dim));
+          fusion_args_.push(
+              PolymorphicValue(fusion_args_[i]->as<at::Tensor>().size(dim)));
           tensor_map_.emplace(
               group_extent_binding_order[extent_index++], fusion_args_.back());
         }
@@ -198,7 +198,12 @@ class ArgumentManager {
     // the original tensor input. See note [Trivial Forwarding]
     for (const size_t group_out_i : c10::irange(group_outputs.size())) {
       if (!group_outputs[group_out_i]->isFusionInput()) {
-        fusion_args_.push(group_runtime_outputs[group_out_i]);
+        if constexpr (std::is_pointer_v<
+                          decltype(group_runtime_outputs[group_out_i])>) {
+          fusion_args_.push(*group_runtime_outputs[group_out_i]);
+        } else {
+          fusion_args_.push(group_runtime_outputs[group_out_i]);
+        }
         tensor_map_.emplace(group_outputs[group_out_i], fusion_args_.back());
       }
     }
@@ -763,7 +768,7 @@ std::vector<at::Tensor> FusionKernelRuntime::runKernelWithInput(
     }
     debug() << "With inputs:\n";
     for (auto i : c10::irange(args.size())) {
-      debug() << "  " << args[i]->toString() << std::endl;
+      debug() << "  " << args[i] << std::endl;
     }
     debug() << "Compiler log: " << executor.compilerLog() << "\n";
     debug() << scheduler_entry->params()->toString() << "\n";
@@ -868,7 +873,7 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
       group_runtime_inputs.setCacheId(group_cache_id.value());
     }
     for (auto input : group_to_run->inputs()) {
-      group_runtime_inputs.push(args_manager.checkTensorMap(input));
+      group_runtime_inputs.push(*args_manager.checkTensorMap(input));
     }
 
     if (num_groups == 1 || isOptionDisabled(DisableOption::ParallelCompile)) {
@@ -986,10 +991,8 @@ std::vector<at::Tensor> FusionKernelRuntime::runWithInputs(
       // 2) Integration handles the trivial forwarding of inputs. When we put
       // together `fusion_outputs` for a given fusion and the outputs are
       // fusion inputs, we directly return the input tensor.
-      auto tensor_arg_abstract =
-          dynamic_cast<const TensorArgAbstract*>(iter->second);
-      TORCH_INTERNAL_ASSERT(tensor_arg_abstract != nullptr);
-      fusion_outputs.push_back(tensor_arg_abstract->getTensor());
+      TORCH_INTERNAL_ASSERT(iter->second->is<at::Tensor>());
+      fusion_outputs.push_back(iter->second->as<at::Tensor>());
     } else {
       bool empty_type_check = output->getDataType().has_value() &&
           output->getDataType().value() == DataType::Float;
@@ -1024,7 +1027,7 @@ std::vector<at::Tensor> FusionKernelRuntime::runWithInputs(
   return fusion_outputs;
 }
 
-std::unordered_map<Val*, const ArgAbstract*> FusionKernelRuntime::
+std::unordered_map<Val*, const PolymorphicValue*> FusionKernelRuntime::
     runSegmentsWithInputs(KernelArgumentHolder& args) {
   TORCH_INTERNAL_ASSERT(
       args.size() == segmented_fusion_->inputs().size(),
@@ -1035,14 +1038,8 @@ std::unordered_map<Val*, const ArgAbstract*> FusionKernelRuntime::
 
   bool compute_overall_bw =
       isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose);
-  // TODO: Start a CPU timer here if compute_overall_bw
-  std::chrono::steady_clock::time_point start_cpu_time;
-  if (compute_overall_bw) {
-    start_cpu_time = std::chrono::steady_clock::now();
-  }
 
   int64_t total_bytes_processed = 0;
-  int64_t total_io_bytes_processed = 0;
 
   ArgumentManager args_manager(
       args, runtime_workspace_, segmented_fusion_->inputs());
@@ -1062,7 +1059,7 @@ std::unordered_map<Val*, const ArgAbstract*> FusionKernelRuntime::
       group_runtime_inputs.setCacheId(group_cache_id.value());
     }
     for (auto input : group_to_run->inputs()) {
-      group_runtime_inputs.push(args_manager.checkTensorMap(input));
+      group_runtime_inputs.push(*args_manager.checkTensorMap(input));
     }
 
     // TODO: currently we are still outputing PyTorch tensors, instead of
@@ -1078,21 +1075,15 @@ std::unordered_map<Val*, const ArgAbstract*> FusionKernelRuntime::
     if (compute_overall_bw) {
       const auto& executor = executors_.at(group_id);
       for (auto bytes : executor.bytesInputsProcessed()) {
-        total_io_bytes_processed += bytes;
+        total_bytes_processed += bytes;
+      }
+      for (auto bytes : executor.bytesOutputsProcessed()) {
+        total_bytes_processed += bytes;
       }
     }
   }
 
   if (compute_overall_bw) {
-    auto total_wall_time_ms =
-        std::chrono::duration<double, std::milli>(
-            std::chrono::steady_clock::now() - start_cpu_time)
-            .count();
-
-    // Get number of bytes read from each argument. This is done using the
-    // complete fusion, since segmentation could result in reading an input
-    // multiple times, which may not be theoretically required.
-
     // Get peak bandwidth for device
     int clock, width;
     char gpuname[100];
@@ -1112,66 +1103,32 @@ std::unordered_map<Val*, const ArgAbstract*> FusionKernelRuntime::
     // factor = 2.5e-7
     double peak_bw = 2.5e-7 * (double)clock * (double)width;
 
-    double eff_bw = 100;
-    double eff_bw_with_overhead = 10;
+    int total_io_bytes_processed = 0;
+    for (auto inp : fusionSegments()->inputs()) {
+      if (inp->isA<TensorView>()) {
+        auto aten_ten = args_manager.checkTensorMap(inp);
+        total_io_bytes_processed += aten_ten->as<at::Tensor>().numel();
+      }
+    }
+    for (auto outp : fusionSegments()->outputs()) {
+      if (outp->isA<TensorView>()) {
+        auto aten_ten = args_manager.checkTensorMap(outp);
+        total_io_bytes_processed += aten_ten->as<at::Tensor>().numel();
+      }
+    }
+
+    // Effective bw in GB/s
+    double eff_bw = 1e-6 * total_io_bytes_processed / kernel_time_ms_;
 
     double percent_peak = eff_bw / peak_bw * 100;
-    double percent_peak_with_overhead = eff_bw_with_overhead / peak_bw * 100;
 
-    auto print_row = [&](std::string segname,
-                         float ktime,
-                         int64_t bproc,
-                         int64_t ioproc) {
-      std::cout << " " << std::setw(7) << segname << " | ";
-      std::cout << std::setw(10) << std::setprecision(3) << ktime << " (";
-      std::cout << (ktime / kernel_time_ms_ * 100.0) << "%) | ";
-      std::cout << std::setw(10) << std::setprecision(3) << bproc << " B (";
-      std::cout << (bproc / total_bytes_processed * 100.0) << "%) | ";
-      std::cout << std::setw(10) << std::setprecision(3) << ioproc << " B (";
-      std::cout << (ioproc / total_io_bytes_processed * 100.0) << "%)";
-      auto interm = bproc - ioproc;
-      std::cout << std::setw(10) << std::setprecision(3) << interm << " B (";
-      std::cout << (interm / total_bytes_processed * 100.0) << "%)";
-      std::cout << std::endl;
-    };
-
-    std::cout
-        << " Segment | Kernel Time (ms) | Processed | Inputs/Outputs Proc. | Interm. Proc."
-        << std::endl;
-    std::cout
-        << "---------+------------------+-----------+----------------------+--------------"
-        << std::endl;
-    for (auto group_id : c10::irange(num_groups)) {
-      const auto& executor = executors_.at(group_id);
-      print_row(
-          std::to_string(group_id),
-          executor.kernelTimeMs(),
-          executor.bytesProcessed(),
-          0);
-    }
-    std::cout
-        << "---------+------------------+-----------+----------------------+--------------"
-        << std::endl;
-    print_row(
-        "Total",
-        kernel_time_ms_,
-        total_bytes_processed,
-        total_io_bytes_processed);
-
-    std::cout << "Fusion wall time: " << total_wall_time_ms << " ms"
-              << std::endl;
-    std::cout << "CUDA kernel time: " << kernel_time_ms_ << " ms ("
-              << (kernel_time_ms_ / total_wall_time_ms * 100.0) << "%)"
-              << std::endl;
+    std::cout << "CUDA kernel time: " << kernel_time_ms_ << " ms" << std::endl;
     std::cout << "Peak BW (" << gpuname << "): " << peak_bw << " GB/s"
-              << std::endl;
-    std::cout << "Complete Fusion eff. bandwidth (with CPU overhead): "
-              << eff_bw_with_overhead << " GB/s (";
-    std::cout << std::setprecision(2) << percent_peak_with_overhead << "\% SOL)"
               << std::endl;
     std::cout << "Complete Fusion eff. bandwidth (CUDA kernel time only): "
               << eff_bw << " GB/s (";
-    std::cout << std::setprecision(2) << percent_peak << "\% SOL)" << std::endl;
+    std::cout << std::setprecision(2) << percent_peak << "\% of peak)"
+              << std::endl;
     ;
   }
 

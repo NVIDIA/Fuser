@@ -416,6 +416,13 @@ TORCH_CUDA_CU_API TensorView* expand_as(TensorView* inp, TensorView* other);
 // with functions like broadcast_in_size that take in a vector of sizes
 // to use to expand an input tensor
 TORCH_CUDA_CU_API std::vector<Val*> tensor_sizes(TensorView* inp);
+// This is a function used to give the symbolic shape of a tensor for use
+// with functions like broadcast_in_dim that take a shape vector
+// to use to expand an input tensor
+TORCH_CUDA_CU_API std::vector<Val*> shape(TensorView* inp);
+// Get the symbolic size of a specific dimension of a tensor
+TORCH_CUDA_CU_API Val* size(TensorView* inp, int64_t dim);
+TORCH_CUDA_CU_API Val* at(std::vector<Val*>& inp, int64_t index);
 
 // BINARY OPERATIONS
 // add

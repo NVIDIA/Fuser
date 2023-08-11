@@ -72,3 +72,14 @@ def tensor_input_fd_fn(fd: FusionDefinition, opinfo: OpInfo, *args, **kwargs):
     this_inputs = opinfo.op(fd)(**kwargs)
     t1 = fd.ops.add(nvf_inputs[0], this_inputs)
     fd.add_output(t1)
+
+
+def tensor_api_test_fd_fn(fd: FusionDefinition, opinfo: OpInfo, *args, **kwargs):
+    nvf_inputs = parse_inputs_fusion_definition(fd, opinfo, *args)
+    out = opinfo.op(fd)(nvf_inputs[0], **kwargs)
+
+
+def vector_api_test_fd_fn(fd: FusionDefinition, opinfo: OpInfo, *args, **kwargs):
+    nvf_inputs = parse_inputs_fusion_definition(fd, opinfo, *args)
+    v0 = nvf_inputs[0].shape()
+    out = opinfo.op(fd)(v0, **kwargs)

@@ -49,6 +49,7 @@ enum Contiguity : int {
 // them during deserialization.
 enum RecordType : int {
     Base = 0,
+    AtOp,
     BatchNormOp,
     BroadcastOp,
     BroadcastInDim,
@@ -95,6 +96,8 @@ enum RecordType : int {
     ReductionSum,
     ReshapeOp,
     Scalar,
+    ShapeOp,
+    SizeOp,
     SliceOp,
     SqueezeOp,
     Start,
@@ -110,6 +113,7 @@ enum RecordType : int {
 
 // The RecordData hold the attribute information for each Record Functor.
 union RecordData {
+  At,
   BatchNorm,
   Broadcast,
   BroadcastInDim,
@@ -125,6 +129,7 @@ union RecordData {
   Reduction,
   Reshape,
   Scalar,
+  Size,
   Tensor,
   TensorCreation,
   TensorCreationSymbolic,
@@ -141,6 +146,11 @@ union ArgAbstractData {
 
 // =====================================================================================
 // Basic data tables
+
+// Data for At
+table At {
+  index: long;
+}
 
 // The State struct represents each scalar and tensor value.
 // e.g., all input, output and intermediate values in the fusion.
@@ -166,9 +176,9 @@ table TensorShape {
   shape : [long];
 }
 
-// Data for Scalar Input
-table ScalarInput {
-  dtype: DataType;
+// Data for Size
+table Size {
+  dim: long;
 }
 
 // =====================================================================================

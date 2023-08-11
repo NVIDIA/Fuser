@@ -301,8 +301,8 @@ TEST_F(ExprEvalTest, TensorEagerExecution) {
   TensorView* tv1 = makeSymbolicTensor(2);
   auto tv2 = add(tv0, tv1);
 
-  at::Tensor a = at::rand({6, 128});
-  at::Tensor b = at::rand({6, 128});
+  at::Tensor a = at::rand({6, 128}).cuda();
+  at::Tensor b = at::rand({6, 128}).cuda();
 
   ExpressionEvaluator evaluator;
   evaluator.bind(tv0, a);
@@ -325,7 +325,7 @@ TEST_F(ExprEvalTest, TensorMetaData) {
   auto stride0 = IrBuilder::getItemExpr(strides, fusion.zeroVal());
   auto stride1 = IrBuilder::getItemExpr(strides, fusion.oneVal());
 
-  at::Tensor a = at::rand({6, 128});
+  at::Tensor a = at::rand({6, 128}).cuda();
 
   ExpressionEvaluator evaluator;
   evaluator.bind(tv, a);

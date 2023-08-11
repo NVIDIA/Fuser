@@ -36,61 +36,7 @@ def parse_args_fusion_execution(opinfo: OpInfo, *args):
     return result
 
 
-def definition_op_in_schedule_error_test_fn(opinfo: OpInfo, sample: SampleInput):
-    inputs = [
-        torch.randn(8, 8, 8, device="cuda"),
-    ]
-
-    class SchedError(FusionDefinition):
-        def definition(self):
-            self.t0 = fd.from_pytorch(inputs[0], static_sizes=True)
-            self.t1 = fd.ops.tanh(fd.t0)
-            self.add_output(fd.t1)
-
-        def schedule(self):
-            nvf_inputs = parse_inputs_fusion_definition(fd, opinfo, *sample.args)
-            opinfo.op(self)(*nvf_inputs, **sample.kwargs)
-
-    exception = None
-    try:
-        fd = SchedError()
-        fd.execute(parse_args_fusion_execution(opinfo, *sample.args))
-    except Exception as e:
-        exception = e
-
-    assert exception is not None, "Expected an exception"
-    exception_str = "Attempting to add to a completed definition!"
-    assert exception_str in str(
-        exception
-    ), "Failed to find correct expection error message"
-
-
-def errors_test_fn(
-    nvf_op: OpInfo,
-    sample: SampleInput,
-    exception_type: Exception,
-    exception_str: Optional[str],
-):
-    _fd_fn = (
-        nvf_op.fd_error_input_fn
-        if nvf_op.fd_error_input_fn is not None
-        else default_fd_fn
-    )
-    exception = None
-    try:
-        with FusionDefinition() as fd:
-            _fd_fn(fd, nvf_op, *sample.args, **sample.kwargs)
-        fd.execute(parse_args_fusion_execution(nvf_op, *sample.args))
-    except Exception as e:
-        exception = e
-
-    assert exception is not None, "Expected an exception"
-    assert exception_type is type(
-        exception
-    ), f"Expected an exception with type {exception_type} and message {exception_str}, but found exception={exception}"
-    assert exception_str is None or exception_str in str(
-        exception
-    ), f"Failed to match exception -- Expected exception: {exception_str}, Found exception: {exception}"
+# ****** Check an Operation's Results are Correct ******
 
 
 def torch_correctness_test_fn(fd_fn: Callable, nvf_op: OpInfo, sample: SampleInput):
@@ -152,15 +98,44 @@ def correctness_test_fn(
         return None
 
 
-# Decorated (templated) tests that create a test per Opinfo
-
-
 @create_op_test(tuple(op for op in opinfos if op.reference is not None))
 def test_correctness(op: OpInfo, dtype: torch.dtype):
     for sample in op.sample_input_generator(op, dtype):
         result = correctness_test_fn(op.reference_type, op, sample)
         if result is not None:
             return result
+
+
+# ****** Check a Definition Operation is not added to a Schedule ******
+
+
+def definition_op_in_schedule_error_test_fn(opinfo: OpInfo, sample: SampleInput):
+    inputs = [
+        torch.randn(8, 8, 8, device="cuda"),
+    ]
+
+    class SchedError(FusionDefinition):
+        def definition(self):
+            self.t0 = fd.from_pytorch(inputs[0], static_sizes=True)
+            self.t1 = fd.ops.tanh(fd.t0)
+            self.add_output(fd.t1)
+
+        def schedule(self):
+            nvf_inputs = parse_inputs_fusion_definition(fd, opinfo, *sample.args)
+            opinfo.op(self)(*nvf_inputs, **sample.kwargs)
+
+    exception = None
+    try:
+        fd = SchedError()
+        fd.execute(parse_args_fusion_execution(opinfo, *sample.args))
+    except Exception as e:
+        exception = e
+
+    assert exception is not None, "Expected an exception"
+    exception_str = "Attempting to add to a completed definition!"
+    assert exception_str in str(
+        exception
+    ), "Failed to find correct expection error message"
 
 
 # TODO Maybe only test a single dtype
@@ -173,6 +148,37 @@ def test_definition_op_in_schedule_error(op: OpInfo, dtype: torch.dtype):
         )
         if result is not None:
             return result
+
+
+# ****** Check that an Operation's API Gives Appropriate Input Errors ******
+
+
+def errors_test_fn(
+    nvf_op: OpInfo,
+    sample: SampleInput,
+    exception_type: Exception,
+    exception_str: Optional[str],
+):
+    _fd_fn = (
+        nvf_op.fd_error_input_fn
+        if nvf_op.fd_error_input_fn is not None
+        else default_fd_fn
+    )
+    exception = None
+    try:
+        with FusionDefinition() as fd:
+            _fd_fn(fd, nvf_op, *sample.args, **sample.kwargs)
+        fd.execute(parse_args_fusion_execution(nvf_op, *sample.args))
+    except Exception as e:
+        exception = e
+
+    assert exception is not None, "Expected an exception"
+    assert exception_type is type(
+        exception
+    ), f"Expected an exception with type {exception_type} and message {exception_str}, but found exception={exception}"
+    assert exception_str is None or exception_str in str(
+        exception
+    ), f"Failed to match exception -- Expected exception: {exception_str}, Found exception: {exception}"
 
 
 @create_op_test(tuple(op for op in opinfos if op.error_input_generator is not None))

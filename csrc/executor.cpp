@@ -884,11 +884,10 @@ std::vector<at::Tensor> allocOutputs(
     // for kernel execution, so would need to push them to args
     if (alias_it != output_to_input_aliases.end()) {
       auto aliased_input_index = alias_it->second;
-      auto tensor_arg_abstract = dynamic_cast<const TensorArgAbstract*>(
-          inputs.at(aliased_input_index));
       TORCH_INTERNAL_ASSERT(
-          tensor_arg_abstract, "alias io only supports tensor");
-      outputs.emplace_back(tensor_arg_abstract->getTensor());
+          inputs[aliased_input_index]->is<at::Tensor>(),
+          "alias io only supports tensor");
+      outputs.emplace_back(*inputs[aliased_input_index]);
     } else if (kernel->outputs().at(output_idx)->isFusionInput()) {
       // pushing empty tensor for trivial forwarding. Since we handle this in
       // integration, see step 1 - note [trivial forwarding]
@@ -1223,12 +1222,7 @@ KernelArgumentHolder FusionExecutor::inferOutputSizes(
           input_it != fusion->inputs().end(),
           "Issue with an input showing up as output but could not find input.");
       auto inp_i = std::distance(fusion->inputs().begin(), input_it);
-      auto tensor_arg_abstract =
-          dynamic_cast<const TensorArgAbstract*>(args[inp_i]);
-      TORCH_INTERNAL_ASSERT(
-          tensor_arg_abstract,
-          "Cannot register a scalar as an output in a fusion.");
-      ret.push(tensor_arg_abstract);
+      ret.push(*args[inp_i]);
     } else {
       TORCH_INTERNAL_ASSERT(
           fusion->outputs()[out_i]->isA<TensorView>(),
@@ -1245,7 +1239,7 @@ KernelArgumentHolder FusionExecutor::inferOutputSizes(
       if (alias_it != output_to_input_aliases.end()) {
         // When aliasing output to an input, we do not need to allocate a new
         // output but still need to push an entry.
-        ret.push(int64_t(0));
+        ret.push(PolymorphicValue(0L));
       } else {
         const auto& [sizes, strides] = inferShapeOfOutput(output_tv, expr_eval);
         const auto dtype = (output_tv->dtype() == DataType::Index)
@@ -1259,9 +1253,9 @@ KernelArgumentHolder FusionExecutor::inferOutputSizes(
   for (const auto& [aliased_output_index, aliased_input_index] :
        output_to_input_aliases) {
     TORCH_INTERNAL_ASSERT(
-        args[aliased_input_index]->isType(ArgType::Tensor),
+        args[aliased_input_index]->is<at::Tensor>(),
         "alias io only supports tensor");
-    ret.swap(aliased_output_index, args[aliased_input_index]);
+    *ret[aliased_output_index] = *args[aliased_input_index];
   }
   return ret;
 }
@@ -1327,7 +1321,7 @@ void dumpFusionArgs(
   debug() << "Arguments for fusion" << fusion_id << ":" << std::endl
           << "Inputs:" << std::endl;
   for (auto i : c10::irange(args.size())) {
-    debug() << "  " << args[i]->toString() << std::endl;
+    debug() << "  " << args[i] << std::endl;
   }
   debug() << "Outputs:" << std::endl;
   for (const auto& output : outputs) {
@@ -1353,7 +1347,7 @@ void dumpKernelArgs(
   debug() << "Arguments for kernel" << fusion_id << ":" << std::endl
           << "Inputs:" << std::endl;
   for (auto i : c10::irange(num_inputs)) {
-    debug() << "  " << args[i]->toString() << std::endl;
+    debug() << "  " << args[i] << std::endl;
   }
   debug() << "Outputs:" << std::endl;
   // note: add aliased outputs here.
@@ -1389,11 +1383,6 @@ void FusionExecutor::initializeExecutorEntry(
     const CompileParams& compile_params,
     const std::vector<at::Tensor>& outputs) {
   FUSER_PERF_SCOPE("ExecutorRunFusion::InitializeExecutorEntry");
-
-  // code path to take when either:
-  //   1. no opt_code is provided or
-  //   2. `executor_entry` is not initialized
-  executor_utils::validateKernelInputs(fusion_, args, options_.device);
 
   ExpressionEvaluator expr_eval;
   evaluatorPrecomputedValues()->bindInputs(args);
@@ -1588,7 +1577,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
 
   for (const auto i : c10::irange(inputs.size())) {
     executor_utils::bindInputForExprEvaluation(
-        inputs.at(i), args[i], true, expr_eval);
+        inputs.at(i), *args[i], true, expr_eval);
   }
 
   // only allocate outputs when not given
@@ -1619,7 +1608,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
       continue;
     }
     executor_utils::bindInputForExprEvaluation(
-        output, args[inputs.size() + i], true, expr_eval, false);
+        output, *args[inputs.size() + i], true, expr_eval, false);
   }
 
   std::vector<at::Tensor> intermediates;
@@ -1648,7 +1637,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
       intermediates.push_back(intermediate_buffer);
       executor_utils::bindInputForExprEvaluation(
           kernel()->summary().global_allocations.at(i)->buffer(),
-          args[inputs.size() + outputs.size() + i],
+          *args[inputs.size() + outputs.size() + i],
           true,
           expr_eval,
           false);
@@ -1761,17 +1750,17 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     if (measure_kernel_time) {
       kernel_time_ms_ = timer.elapsed();
 
-      bytes_processed_per_input_.reserve(num_inputs);
+      bytes_processed_per_input_.resize(num_inputs, 0);
       // Figure how many bytes are inputs, outputs, and temporary buffers
       for (auto i : c10::irange(num_inputs)) {
-        if (auto tensor_arg_abstract =
-                dynamic_cast<const TensorArgAbstract*>(args[i])) {
-          auto num_bytes = getNumLoadedElements(i, tensor_arg_abstract) *
-              (int64_t)dataTypeSize(tensor_arg_abstract->getDataType());
+        if (args[i]->is<at::Tensor>()) {
+          auto t = args[i]->as<at::Tensor>();
+          auto num_bytes = getNumLoadedElements(i, t) *
+              (int64_t)dataTypeSize(aten_to_data_type(t.scalar_type()));
           bytes_processed_per_input_.at(i) = num_bytes;
         }
       }
-      bytes_processed_per_output_.reserve(outputs.size());
+      bytes_processed_per_output_.resize(outputs.size(), 0);
       for (auto i : c10::irange(outputs.size())) {
         const auto& output = outputs.at(i);
         // NOTE: this assumes that all output elements correspond to a single
@@ -1882,7 +1871,7 @@ float FusionExecutor::runRtc(
 
 int64_t FusionExecutor::getNumLoadedElements(
     int64_t input_position,
-    const TensorArgAbstract* arg) const {
+    const at::Tensor& arg) const {
   auto input = kernel()->inputs().at(input_position);
 
   int64_t numel = 0;
@@ -1891,13 +1880,13 @@ int64_t FusionExecutor::getNumLoadedElements(
   // will have a single use and it will be a LoadStoreOp.
   for (auto use : input->uses()) {
     if (use->isA<LoadStoreOp>()) {
-      numel += arg->numel();
+      numel += arg.numel();
     } else {
       std::cout
           << "WARNING: getNumLoadedElements(): unhandled use of segment input: "
           << use->toString() << ". Using numel(), which may be inaccurate."
           << std::endl;
-      numel += arg->numel();
+      numel += arg.numel();
     }
   }
 

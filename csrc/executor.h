@@ -272,9 +272,8 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
   //! and slice do not load all elements of the input. This method handles these
   //! cases more carefully in order to reflect the actual number of load
   //! operations required.
-  int64_t getNumLoadedElements(
-      int64_t input_position,
-      const TensorArgAbstract* arg) const;
+  int64_t getNumLoadedElements(int64_t input_position, const at::Tensor& arg)
+      const;
 
  private:
   static std::string kernelNamespace() {

@@ -1244,38 +1244,6 @@ class TestNvFuserFrontend(TestCase):
         for torch_dtype in list_of_dtype:
             test_dtype(torch_dtype)
 
-    def test_shape(self):
-        inputs = [
-            # test with both one and multiple dimensions
-            torch.randn(3, device="cuda", dtype=torch.float32),
-            torch.randn(3, 4, 5, device="cuda", dtype=torch.float32),
-        ]
-
-        def fusion_func(fd: FusionDefinition):
-            t0 = fd.from_pytorch(inputs[0])
-            t1 = fd.from_pytorch(inputs[1])
-
-            assert isinstance(t0._get_fusion_definition(), FusionDefinition)
-
-            (B,) = t0.shape
-            t2 = fd.ops.mul(t0, B)
-
-            assert len(t1.shape) == t1.ndim
-
-            B, C, W = t1.shape
-            t3 = fd.ops.div(t1, C)
-
-            fd.add_output(t2)
-            fd.add_output(t3)
-
-        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
-
-        at_out1 = inputs[0] * inputs[0].shape[0]
-        at_out2 = inputs[1] / inputs[1].shape[1]
-
-        self.assertEqual(at_out1, nvf_out[0])
-        self.assertEqual(at_out2, nvf_out[1])
-
     def test_arithmetic_ops(self):
         inputs = [
             torch.randn(3, 4, 5, device="cuda", dtype=torch.float32),

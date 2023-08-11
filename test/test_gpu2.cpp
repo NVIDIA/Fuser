@@ -5543,7 +5543,7 @@ TEST_F(NVFuserTest, FusionSegmentHorizontalMerge_CUDA) {
   KernelArgumentHolder args;
   args.setDeviceIndex(0);
   args.push(t0);
-  c10::IValue scalar = 1.0;
+  double scalar = 1.0;
   args.push(scalar);
 
   auto segmented_fusion =
@@ -8253,12 +8253,10 @@ TEST_F(NVFuserTest, FusionSegmenterCombineReductionsCycleRepro_CUDA) {
   std::vector<at::Tensor> aten_inputs = {
       at_t0, at_t1, at_t3, at_t5, at_t7, at_t11, at_t13, at_t15, at_t17};
 
-  c10::IValue val = at_d56;
-
   KernelArgumentHolder args;
   args.setDeviceIndex(0);
   args.push(aten_inputs);
-  args.push(val);
+  args.push(at_d56);
 
   for (auto i : c10::irange(5)) {
     (void)i; // Suppress unused variable warning
