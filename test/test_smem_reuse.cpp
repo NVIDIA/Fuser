@@ -100,7 +100,7 @@ TEST_F(SmemReuseTest, SimpleCase) {
     EXPECT_EQ(smem_usage, alignInt(W_int * 4) + H_int * 4);
   }
 
-  { // Now introduce a block sync and check that we re-use memory
+  { // Now introduce a block reduction and check that we re-use memory
 
     tv3->axis(0)->parallelize(ParallelType::TIDx);
 
@@ -150,63 +150,62 @@ TEST_F(SmemReuseTest, NeedsReorderedPush) {
   auto tv1 = set(tv0); // pos = a. A = tv1
   tv1->setMemoryType(MemoryType::Shared);
 
-  auto tv2 = add(tv1, tv1); // pos = b. B = tv2
+  auto tv2 = full({W}, fusion->oneVal(), DataType::Float); // pos = b. B = tv2
   tv2->setMemoryType(MemoryType::Shared);
 
   auto tv3 = add(tv1, tv1); // pos = c
-  fusion->addOutput(tv3);
 
-  auto tv4 = full({W}, fusion->oneVal(), DataType::Float);
+  auto tv4 = sum(tv3, {0}); // gap between b and c
+  fusion->addOutput(tv4);
 
-  auto tv5 = broadcast(tv2, {false, true});
-  auto tv6 = broadcast(tv4, {true, false});
-  auto tv7 = mul(tv5, tv6); // pos = d. C = tv7
-  tv7->setMemoryType(MemoryType::Shared);
+  auto tv5 = broadcast(tv4, {true});
+  auto tv6 = mul(tv5, tv3);
 
-  auto tv8 = add(tv2, tv2); // pos = e
-  fusion->addOutput(tv8);
+  auto tv7 = broadcast(tv6, {true, false});
+  auto tv8 = broadcast(tv2, {false, true});
+  auto tv9 = mul(tv7, tv8); // pos = d. C = tv9
+  tv9->setMemoryType(MemoryType::Shared);
 
-  auto tv9 = neg(tv7); // pos = f
-  fusion->addOutput(tv9);
+  auto tv10 = add(tv2, tv2); // pos = e
+  fusion->addOutput(tv10);
 
-  FusionExecutor fe;
-  fe.compileFusion(fusion.get(), {});
+  auto tv11 = neg(tv9); // pos = f
+  fusion->addOutput(tv11);
 
-  auto args = KernelArgumentHolder::createKernelArgumentHolder({});
+  { // This should not re-use memory
+    GpuLower gpulw(fusion.get());
 
-  auto outputs = fe.runFusion(args);
-
-  EXPECT_EQ(outputs.size(), 3);
-
-  { // Run without reusing
-    EnableOptionsGuard eog;
-    eog.getCurOptions().unset(EnableOption::ReuseSharedMemory);
-
-    FusionExecutor fe;
-    fe.compileFusion(fusion.get(), {});
-
-    fe.runFusion({});
-
-    const auto& lparams = fe.lastLaunchParams();
-
-    // (Aligned size of W) plus H
+    ExpressionEvaluator ee;
+    std::unordered_set<int64_t> addresses;
+    int64_t smem_usage = 0;
+    for (auto alloc : gpulw.kernel()->summary().dynamic_smem_allocations) {
+      auto addr = ee.evaluate(alloc->address()).as<int64_t>();
+      TORCH_CHECK(
+          addresses.insert(addr).second,
+          "Smem addresses should not be re-used");
+      auto size = ee.evaluate(alloc->size()).as<int64_t>() *
+          dataTypeSize(alloc->buffer()->dtype());
+      smem_usage = std::max(smem_usage, addr + size);
+    }
     EXPECT_EQ(
-        lparams.smem(),
-        alignInt(alignInt(H_int * 4) + W_int * 4) + H_int * W_int * 4);
+        smem_usage,
+        alignInt(alignInt(H_int * W_int * 4) + W_int * 4) + H_int * 4);
   }
 
-  { // Now reuse
-    EnableOptionsGuard eog;
-    eog.getCurOptions().set(EnableOption::ReuseSharedMemory);
+  { // Now introduce a block reduction and check that we re-use memory
 
-    FusionExecutor fe;
-    fe.compileFusion(fusion.get(), {});
+    tv4->axis(0)->parallelize(ParallelType::TIDx);
 
-    fe.runFusion({});
-
-    const auto& lparams = fe.lastLaunchParams();
-
-    EXPECT_EQ(lparams.smem(), alignInt(H_int * 4) + W_int * H_int * 4);
+    GpuLower gpulw(fusion.get());
+    ExpressionEvaluator ee;
+    int64_t smem_usage = 0;
+    for (auto alloc : gpulw.kernel()->summary().dynamic_smem_allocations) {
+      auto addr = ee.evaluate(alloc->address()).as<int64_t>();
+      auto size = ee.evaluate(alloc->size()).as<int64_t>() *
+          dataTypeSize(alloc->buffer()->dtype());
+      smem_usage = std::max(smem_usage, addr + size);
+    }
+    EXPECT_EQ(smem_usage, alignInt(H_int * 4) + W_int * H_int * 4);
   }
 }
 

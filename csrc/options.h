@@ -85,7 +85,6 @@ enum class EnableOption {
   LinearDecomposition, //! Enable linear-bias decomposition
   MemoryPromotion, //! Enable promotion of memory types for non-pointwise ops
   WarnRegisterSpill, //! Enable warnings of register spill
-  ReuseSharedMemory, //! Use stack-based memory allocator
   EndOfOption //! Placeholder for counting the number of elements
 };
 
@@ -112,7 +111,6 @@ enum class DisableOption {
   WelfordVectorization, //! Disable vectorizaton of Welford ops
   ReuseMismatchedTypeRegisters, //! Disable explicitly re-using registers unless
                                 //! types match
-  SharedMemoryReuseWarning, //! Don't suggest using ReuseSharedMemory option
   EndOfOption //! Placeholder for counting the number of elements
 };
 

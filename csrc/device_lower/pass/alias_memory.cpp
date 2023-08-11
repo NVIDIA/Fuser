@@ -416,6 +416,15 @@ class ExprPosMap {
     return expr_pos_map_.at(expr);
   }
 
+  //! Get the position of an expr
+  std::optional<int> getMaybe(const Expr* expr) const {
+    auto it = expr_pos_map_.find(expr);
+    if (it == expr_pos_map_.end()) {
+      return std::nullopt;
+    }
+    return it->second;
+  }
+
   //! Get the current position
   int getCurrentPos() const {
     return current_pos_;
@@ -512,6 +521,12 @@ class ScopeMap : private kir::IrVisitor {
 
   int getExprPos(const Expr* expr) const {
     return expr_pos_map_.get(expr);
+  }
+
+  //! Get the position of an expression that might not have been present when
+  //! the map was formed, such as a replaced Allocate
+  std::optional<int> getMaybeExprPos(const Expr* expr) const {
+    return expr_pos_map_.getMaybe(expr);
   }
 
  private:
@@ -1597,8 +1612,15 @@ class StackBasedSharedMemAllocator : kir::IrVisitor {
  private:
   using kir::IrVisitor::handle;
 
-  void dispatch(Expr* expr) {
-    position_ = allocation_info_map_.getScopeMap().getExprPos(expr);
+  void dispatch(Expr* expr) final {
+    auto pos_opt = allocation_info_map_.getScopeMap().getMaybeExprPos(expr);
+    if (!pos_opt.has_value()) {
+      // Aliased kir::Allocate exprs are replaced, so the replacements will not
+      // exist in the original ScopeMap. We handle those manually here.
+      position_++;
+    } else {
+      position_ = pos_opt.value();
+    }
 
     // Check whether this is a first write position for any allocations
     auto it = first_write_positions_.find(position_);
@@ -1616,30 +1638,32 @@ class StackBasedSharedMemAllocator : kir::IrVisitor {
 
   // Reclaim memory whenever we pass an Expr that is known to synchronize the
   // block
-  void handle(kir::BlockSync* expr) override {
+  void handle(kir::BlockSync* expr) final {
     reclaimMemory();
   }
-  void handle(kir::GridSync* expr) override {
+  void handle(kir::GridSync* expr) final {
     reclaimMemory();
   }
-  void handle(ReductionOp* rop) override {
+  void handle(ReductionOp* rop) final {
     const auto output = rop->out()->as<TensorView>();
     const auto domain = output->domain();
     if (domain->hasBlockReduction() || domain->hasGridReduction()) {
       reclaimMemory();
     }
   }
-  void handle(WelfordOp* expr) override {
-    reclaimMemory();
+  void handle(WelfordOp* wop) final {
+    const auto output = wop->outAvg()->as<TensorView>();
+    const auto domain = output->domain();
+    if (domain->hasBlockReduction() || domain->hasGridReduction()) {
+      reclaimMemory();
+    }
   }
-  void handle(kir::CpAsyncWait* expr) override {
+  void handle(kir::CpAsyncWait* expr) final {
     if (expr->keepStages() == 0) {
       // Only reclaim memory if we are syncing all threads in the block
       reclaimMemory();
     }
   }
-
-  void handle(kir::Allocate* alloc) override {}
 
   int lastAliasedRead(AllocationInfo* alloc_info) {
     auto it = last_aliased_read_.find(alloc_info);
@@ -1815,15 +1839,7 @@ std::vector<Expr*> reuseMemoryAllocations(const std::vector<Expr*>& exprs) {
   auto aliased_exprs =
       AllocationReuseModifier::modify(exprs, allocation_info_map);
 
-  if (isOptionEnabled(EnableOption::ReuseSharedMemory)) {
-    StackBasedSharedMemAllocator(allocation_info_map).allocate(aliased_exprs);
-  } else {
-    if (!isOptionDisabled(DisableOption::SharedMemoryReuseWarning)) {
-      StackBasedSharedMemAllocator(allocation_info_map, /*warn_only*/ true)
-          .allocate(aliased_exprs);
-    }
-    NoReuseSharedMemAllocator().allocate(aliased_exprs);
-  }
+  StackBasedSharedMemAllocator(allocation_info_map).allocate(aliased_exprs);
 
   return aliased_exprs;
 }

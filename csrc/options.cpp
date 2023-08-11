@@ -158,7 +158,6 @@ std::unordered_map<EnableOption, std::vector<std::string>> Options<
       {"kernel_profile", EnableOption::KernelProfile},
       {"linear_decomposition", EnableOption::LinearDecomposition},
       {"memory_promotion", EnableOption::MemoryPromotion},
-      {"reuse_smem", EnableOption::ReuseSharedMemory},
       {"warn_register_spill", EnableOption::WarnRegisterSpill}};
 
   return parseEnvOptions("ENABLE", available_options);
@@ -183,8 +182,7 @@ std::unordered_map<DisableOption, std::vector<std::string>> Options<
       {"var_name_remapping", DisableOption::VarNameRemapping},
       {"welford_vectorization", DisableOption::WelfordVectorization},
       {"reuse_mismatched_type_registers",
-       DisableOption::ReuseMismatchedTypeRegisters},
-      {"smem_reuse_warning", DisableOption::SharedMemoryReuseWarning}};
+       DisableOption::ReuseMismatchedTypeRegisters}};
 
   auto options = parseEnvOptions("DISABLE", available_options);
 
