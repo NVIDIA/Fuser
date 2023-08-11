@@ -4,6 +4,7 @@
 # Owner(s): ["module: nvfuser"]
 
 import torch
+import pytest
 import numpy as np
 
 from pytest_fusion_definitions import default_fd_fn, parse_inputs_fusion_definition
@@ -11,7 +12,7 @@ from pytest_framework import create_op_test
 from pytest_core import ReferenceType, OpInfo, SampleInput
 from pytest_opinfos import opinfos
 from pytest_utils import ArgumentType, is_tensor
-from typing import Callable, Optional
+from typing import Callable
 
 from nvfuser import FusionDefinition
 
@@ -25,10 +26,14 @@ def parse_args_fusion_execution(opinfo: OpInfo, *args):
     if len(args) == 0:
         return []
 
+    if opinfo.symbolic_parameter_list is None:
+        opinfo.symbolic_parameter_list = [ArgumentType.Symbolic] * len(args)
+    assert len(opinfo.symbolic_parameter_list) == len(args)
+
     result = []
     for arg_type, a in zip(opinfo.symbolic_parameter_list, args):
         if arg_type == ArgumentType.Symbolic:
-            if type(a) is list and all(map(is_tensor, a)):
+            if isinstance(a, list) and all(map(is_tensor, a)):
                 result.extend(a)
             else:
                 result.append(a)
@@ -111,44 +116,34 @@ def test_correctness(op: OpInfo, dtype: torch.dtype):
 
 
 def definition_op_in_schedule_error_test_fn(opinfo: OpInfo, sample: SampleInput):
-    inputs = [
-        torch.randn(8, 8, 8, device="cuda"),
-    ]
-
     class SchedError(FusionDefinition):
         def definition(self):
-            self.t0 = fd.from_pytorch(inputs[0], static_sizes=True)
-            self.t1 = fd.ops.tanh(fd.t0)
-            self.add_output(fd.t1)
+            # Create default fusion definition
+            nvf_inputs = parse_inputs_fusion_definition(self, opinfo, *sample.args)
+            result = opinfo.op(fd)(*nvf_inputs, **sample.kwargs)
+            if isinstance(result, tuple):
+                for a in result:
+                    self.add_output(a)
+            else:
+                self.add_output(result)
 
         def schedule(self):
-            nvf_inputs = parse_inputs_fusion_definition(fd, opinfo, *sample.args)
+            # Attempt to add fusion operation during scheduling
+            nvf_inputs = parse_inputs_fusion_definition(self, opinfo, *sample.args)
             opinfo.op(self)(*nvf_inputs, **sample.kwargs)
 
-    exception = None
-    try:
-        fd = SchedError()
-        fd.execute(parse_args_fusion_execution(opinfo, *sample.args))
-    except Exception as e:
-        exception = e
-
-    assert exception is not None, "Expected an exception"
-    exception_str = "Attempting to add to a completed definition!"
-    assert exception_str in str(
-        exception
-    ), "Failed to find correct expection error message"
+    fd = SchedError()
+    nvfuser_result = fd.execute(parse_args_fusion_execution(opinfo, *sample.args))
 
 
 # TODO Maybe only test a single dtype
 @create_op_test(tuple(op for op in opinfos if op.sample_input_generator is not None))
 def test_definition_op_in_schedule_error(op: OpInfo, dtype: torch.dtype):
     for sample in op.sample_input_generator(op, torch.float32):
-        result = definition_op_in_schedule_error_test_fn(
-            op,
-            sample,
-        )
-        if result is not None:
-            return result
+        with pytest.raises(
+            RuntimeError, match=r"Attempting to add to a completed definition"
+        ):
+            definition_op_in_schedule_error_test_fn(op, sample)
 
 
 # ****** Check that an Operation's API Gives Appropriate Input Errors ******
@@ -157,39 +152,28 @@ def test_definition_op_in_schedule_error(op: OpInfo, dtype: torch.dtype):
 def errors_test_fn(
     nvf_op: OpInfo,
     sample: SampleInput,
-    exception_type: Exception,
-    exception_str: Optional[str],
 ):
     _fd_fn = (
         nvf_op.fd_error_input_fn
         if nvf_op.fd_error_input_fn is not None
         else default_fd_fn
     )
-    exception = None
-    try:
-        with FusionDefinition() as fd:
-            _fd_fn(fd, nvf_op, *sample.args, **sample.kwargs)
-        fd.execute(parse_args_fusion_execution(nvf_op, *sample.args))
-    except Exception as e:
-        exception = e
+    with FusionDefinition() as fd:
+        _fd_fn(fd, nvf_op, *sample.args, **sample.kwargs)
+    fd.execute(parse_args_fusion_execution(nvf_op, *sample.args))
 
-    assert exception is not None, "Expected an exception"
-    assert exception_type is type(
-        exception
-    ), f"Expected an exception with type {exception_type} and message {exception_str}, but found exception={exception}"
-    assert exception_str is None or exception_str in str(
-        exception
-    ), f"Failed to match exception -- Expected exception: {exception_str}, Found exception: {exception}"
+
+# A pair of parentheses () represents a capture group in regex.
+# Escape parenthesis in regex string to match raw characters.
+def _regex_escape_parenthesis(a: str) -> str:
+    b = a.replace(r"(", r"\(")
+    return b.replace(r")", r"\)")
 
 
 @create_op_test(tuple(op for op in opinfos if op.error_input_generator is not None))
 def test_errors(op: OpInfo, dtype: torch.dtype):
-    for sample, ex_type, ex_regex in op.error_input_generator(op, dtype):
-        result = errors_test_fn(
-            op,
-            sample,
-            ex_type,
-            ex_regex,
-        )
-        if result is not None:
-            return result
+    for sample, exception_type, exception_regex in op.error_input_generator(op, dtype):
+        with pytest.raises(
+            exception_type, match=_regex_escape_parenthesis(exception_regex)
+        ):
+            errors_test_fn(op, sample)

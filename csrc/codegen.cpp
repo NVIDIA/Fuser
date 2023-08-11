@@ -302,10 +302,6 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
                << 16 // always align to 16B for any shared mem allocation
                << ") extern __shared__ char array[];\n";
 
-      if (has_dynamic_smem) {
-        indent() << "unsigned smem_offset = 0;\n";
-      }
-
       if (has_reductions || has_parallel_welford) {
         indent() << "void* shared_mem = array;\n";
         if (has_dynamic_smem) {
@@ -324,7 +320,9 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
                 << ")";
             smem_buf_size = smem_buf_size_with_outer_opt.str();
           }
-          indent() << "smem_offset += " << smem_buf_size << ";\n";
+          // Ensure that smem_offset remains 16-byte aligned, like shared_mem
+          indent() << "const unsigned smem_offset = alignBufferSize("
+                   << smem_buf_size << ", 16);\n";
         }
 
         if (has_parallel_welford) {
@@ -340,6 +338,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           indent() << space_type
                    << " *shared_mem_n = shared_mem_avg + block_size;\n";
         }
+      } else if (has_dynamic_smem) {
+        indent() << "const unsigned smem_offset = 0;\n";
       }
     }
 
@@ -611,12 +611,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     }
 
     if (auto op = inline_op_str(op_type)) {
-      if (alsoBooleanOperator(op_type) &&
-          uop->out()->dtype() == DataType::Bool) {
-        code_ << stringifyBooleanOp(op_type) << gen(uop->in());
-      } else {
-        code_ << *op << gen(uop->in());
-      }
+      code_ << *op << gen(uop->in());
     } else {
       if (op_type == UnaryOpType::Cast) {
         const auto cast_str =
@@ -698,13 +693,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       const std::string& rhs) {
     std::stringstream expr;
     if (auto op = inline_op_str(op_type)) {
-      expr << lhs << " ";
-      if (alsoBooleanOperator(op_type) && data_type == DataType::Bool) {
-        expr << stringifyBooleanOp(op_type);
-      } else {
-        expr << *op;
-      }
-      expr << " " << rhs;
+      expr << lhs << " " << *op << " " << rhs;
     } else {
       if (integer_op_str(op_type) && isIntegralType(data_type)) {
         auto int_op = integer_op_str(op_type);
@@ -854,13 +843,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           indent() << kTab << "= " << (bop->lhs()->isScalar() ? cast : "")
                    << gen(bop->lhs()) << "\n";
           indent() << kTab;
-          if (alsoBooleanOperator(op_type) &&
-              bop->out()->dtype() == DataType::Bool) {
-            code_ << stringifyBooleanOp(op_type);
-          } else {
-            code_ << *op;
-          }
-          code_ << " " << (bop->rhs()->isScalar() ? cast : "")
+          code_ << *op << " " << (bop->rhs()->isScalar() ? cast : "")
                 << gen(bop->rhs());
         } else {
           if (integer_op_str(op_type) && isIntegralType(bop->out()->dtype())) {
@@ -2782,17 +2765,16 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
                    << "\n";
           break;
         case MemoryType::Shared:
-          // Align Offset Position
-          indent() << "smem_offset = alignBufferSize(smem_offset, "
-                   // Always align to 128b / 16B
-                   << 16 << ");\n";
+          // Assume we have already aligned offsets to 16B
+          TORCH_CHECK(
+              alloc->address() != nullptr,
+              "Allocation did not receive an address: ",
+              alloc->toString());
           // Shared Memory Pointer
           indent() << buffer_dtype << "* " << genVariableName(tv)
                    << " = reinterpret_cast<" << buffer_dtype << "*>"
-                   << "(array + smem_offset);\n";
-          // Increment Offset Position
-          indent() << "smem_offset += (" << genInline(size) << " * sizeof("
-                   << buffer_dtype << "));\n";
+                   << "(array + smem_offset + " << genInline(alloc->address())
+                   << ");\n";
           break;
         case MemoryType::Local: {
           auto va = kernel_->summary().vectorized_accesses;

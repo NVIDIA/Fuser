@@ -477,18 +477,25 @@ void NaiveValueMachine::runUnaryOp(int index) {
       dest = -src;
       break;
     case UnaryOpType::Cast:
-      if (data_type_[index] == DataType::Double) {
+      if (isFloatingPointType(data_type_[index])) {
         dest = PolymorphicValue((double)src);
-      } else if (data_type_[index] == DataType::Int) {
+      } else if (isIntegralType(data_type_[index])) {
         dest = PolymorphicValue((int64_t)src);
       } else if (data_type_[index] == DataType::Bool) {
         dest = PolymorphicValue((bool)src);
       } else {
-        TORCH_INTERNAL_ASSERT(false, "dtype not supported in evaluator");
+        TORCH_INTERNAL_ASSERT(
+            false, "dtype not supported in evaluator: ", data_type_[index]);
       }
       break;
     case UnaryOpType::Abs:
       dest = abs(src);
+      break;
+    case UnaryOpType::LogicalNot:
+      dest = !src;
+      break;
+    case UnaryOpType::BitwiseNot:
+      dest = ~src;
       break;
     default:
       TORCH_CHECK(!"Unexpected operator type ", uop_type_[index]);
@@ -539,8 +546,20 @@ void NaiveValueMachine::runBinaryOp(int index) {
       TORCH_CHECK(rhs != 0);
       dest = ceildiv(lhs, rhs);
       break;
-    case BinaryOpType::And:
+    case BinaryOpType::LogicalAnd:
       dest = lhs && rhs;
+      break;
+    case BinaryOpType::BitwiseAnd:
+      dest = lhs & rhs;
+      break;
+    case BinaryOpType::LogicalOr:
+      dest = lhs || rhs;
+      break;
+    case BinaryOpType::BitwiseOr:
+      dest = lhs | rhs;
+      break;
+    case BinaryOpType::BitwiseXor:
+      dest = lhs ^ rhs;
       break;
     case BinaryOpType::Max:
       dest = lhs > rhs ? lhs : rhs;
