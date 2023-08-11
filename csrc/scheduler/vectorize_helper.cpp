@@ -122,8 +122,8 @@ ContiguousInnerDimensionsMapper::ContiguousInnerDimensionsMapper(
 #if 0
       addProjectedExtent(id, commonOrConstExtent(ca_map_, id));
 #else
-      if (resize_factors_.count(id)) {
-        addProjectedExtent(id, resize_factors_.at(id));
+      if (sliced_domain_factors_.count(id)) {
+        addProjectedExtent(id, sliced_domain_factors_.at(id));
       } else {
         addProjectedExtent(id, commonOrConstExtent(ca_map_, id));
       }
@@ -238,9 +238,6 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
   if (from.empty()) {
     return {};
   }
-
-  // std::cerr << "projectID: " << "\n\t" << toDelimitedString(from) << "\n\t"
-  // << toDelimitedString(to) << std::endl;
 
   std::vector<IterDomain*> frontier = from;
 
@@ -583,9 +580,9 @@ ContiguousInnerDimensionsMapper::computeInfoC2P(
       if (recording_) {
         auto producer_rf_id = c2p_it->second;
         auto consumer_factor = getProjectedExtent(c2p_it->first);
-        if (resize_factors_.count(producer_rf_id)) {
+        if (sliced_domain_factors_.count(producer_rf_id)) {
           consumer_factor = SimplifyingIrBuilder::gcdExpr(
-              consumer_factor, resize_factors_.at(producer_rf_id));
+              consumer_factor, sliced_domain_factors_.at(producer_rf_id));
         }
         // addProjectedExtent(c2p_it->second,
         // getProjectedExtent(c2p_it->first));
@@ -877,13 +874,32 @@ std::unordered_map<TensorView*, VectorizeInfo> ContiguousInnerDimensionsMapper::
   return result;
 }
 
+namespace {
+
+// Get a sliced offset of a tensor. Only the innermost sliced domain
+// is considered.
+Val* getSliceOffset(
+    TensorView* input_tv,
+    int64_t innermost_sliced_domain,
+    Resize* resize) {
+  Val* stride = input_tv->fusion()->oneVal();
+  for (size_t i = innermost_sliced_domain + 1;
+       i < input_tv->getMaybeRFactorDomain().size();
+       ++i) {
+    auto input_rf_id = input_tv->getMaybeRFactorDomain().at(i);
+    if (input_rf_id->isReduction()) {
+      continue;
+    }
+    stride = SimplifyingIrBuilder::mulExpr(stride, input_rf_id->extent());
+  }
+  return SimplifyingIrBuilder::mulExpr(resize->leftExpand(), stride);
+}
+
+} // namespace
+
 void ContiguousInnerDimensionsMapper::initializeResizeFactors(Fusion* fusion) {
-  // for (auto tv : ir_utils::allTvs(fusion)) {
   //  Only support if the input is a fusion input. Should be relaxed
   //  later.
-  //  The vectorization factor of the producer must be a common
-  //  factor of both extents if the producer is not a fusion
-  //  input. For now, we assume it's a fusion input
   for (auto input_tv : ir_utils::filterByType<TensorView>(fusion->inputs())) {
     if (std::none_of(
             input_tv->uses().begin(), input_tv->uses().end(), [](Expr* expr) {
@@ -891,12 +907,6 @@ void ContiguousInnerDimensionsMapper::initializeResizeFactors(Fusion* fusion) {
             })) {
       continue;
     }
-
-    if (true || getenv("VERBOSE")) {
-      std::cerr << "TV: " << input_tv->toString() << std::endl;
-    }
-
-    // std::unordered_set<IterDomain*> sli
 
     for (auto consumer_tv : ir_utils::consumerTvsOf(input_tv)) {
       const auto p2c =
@@ -910,7 +920,8 @@ void ContiguousInnerDimensionsMapper::initializeResizeFactors(Fusion* fusion) {
           {consumer_tv->getMaybeRFactorDomain().begin(),
            consumer_tv->getMaybeRFactorDomain().end()});
 
-      Val* slice_offset = nullptr;
+      int innermost_sliced_domain_idx = -1;
+      Resize* innermost_resize = nullptr;
       for (const auto i :
            c10::irange(input_tv->getMaybeRFactorDomain().size())) {
         auto input_rf_id = input_tv->getMaybeRFactorDomain().at(i);
@@ -921,8 +932,11 @@ void ContiguousInnerDimensionsMapper::initializeResizeFactors(Fusion* fusion) {
 
         auto consumer_root_id = p2c.at(input_rf_id);
 
-        Val* resize_factor = nullptr;
+        Val* consumer_domain_extent = nullptr;
 
+        // Check if this root domain is sliced. Since the expr between
+        // the producer and consumer tensors is SliceOp, any rfactor
+        // Resize expr should represent slicing
         if (auto consumer_exprs_it = std::find_if(
                 consumer_exprs.begin(),
                 consumer_exprs.end(),
@@ -932,53 +946,67 @@ void ContiguousInnerDimensionsMapper::initializeResizeFactors(Fusion* fusion) {
                 });
             consumer_exprs_it != consumer_exprs.end()) {
           auto resize = (*consumer_exprs_it)->as<Resize>();
-          std::cerr << "Resize detected: " << resize->toString();
+
           supported_resize_exprs_.insert(resize);
-          auto resize_out = resize->out()->as<IterDomain>();
-          auto post_resize_extent = commonOrConstExtent(ca_map_, resize_out);
-          resize_factor = post_resize_extent;
-
           sliced_ids_.insert(input_rf_id);
-          Val* stride = fusion->oneVal();
-          for (size_t j = i + 1; j < input_tv->getMaybeRFactorDomain().size();
-               ++j) {
-            auto input_rf_id_j = input_tv->getMaybeRFactorDomain().at(j);
-            stride =
-                SimplifyingIrBuilder::mulExpr(stride, input_rf_id_j->extent());
-          }
-          slice_offset =
-              SimplifyingIrBuilder::mulExpr(resize->leftExpand(), stride);
+
+          auto resize_out = resize->out()->as<IterDomain>();
+          consumer_domain_extent = commonOrConstExtent(ca_map_, resize_out);
+
+          innermost_sliced_domain_idx = (int)i;
+          innermost_resize = resize;
         } else {
-          resize_factor = commonOrConstExtent(ca_map_, input_rf_id);
+          // This root domain is not sliced.
+          // Sanity check: Since not sliced, it must be included in
+          // the rfactor domain
+          TORCH_INTERNAL_ASSERT(
+              std::find(
+                  consumer_tv->getMaybeRFactorDomain().begin(),
+                  consumer_tv->getMaybeRFactorDomain().end(),
+                  consumer_root_id) !=
+                  consumer_tv->getMaybeRFactorDomain().end(),
+              "Expected to be found in rfactor domain: ",
+              consumer_root_id->toString());
+          consumer_domain_extent =
+              commonOrConstExtent(ca_map_, consumer_root_id);
         }
 
-        if (auto resize_factors_it = resize_factors_.find(input_rf_id);
-            resize_factors_it != resize_factors_.end()) {
-          resize_factor = SimplifyingIrBuilder::gcdExpr(
-              resize_factors_it->second, resize_factor);
+        if (auto sliced_domain_factors_it =
+                sliced_domain_factors_.find(input_rf_id);
+            sliced_domain_factors_it != sliced_domain_factors_.end()) {
+          sliced_domain_factors_it->second = SimplifyingIrBuilder::gcdExpr(
+              sliced_domain_factors_it->second, consumer_domain_extent);
+        } else {
+          sliced_domain_factors_.emplace(input_rf_id, consumer_domain_extent);
         }
-        resize_factors_[input_rf_id] = resize_factor;
       }
 
-      if (slice_offset != nullptr) {
-        std::cerr << "Slice offset for " << input_tv->toString() << ": "
+      // Note that this consumer may not be a slice op
+      if (innermost_sliced_domain_idx >= 0) {
+        auto slice_offset = getSliceOffset(
+            input_tv, innermost_sliced_domain_idx, innermost_resize);
+        std::cerr << "Innermost sliced idx: " << innermost_sliced_domain_idx
+                  << ", Slice offset for " << input_tv->toString() << ": "
                   << slice_offset->toString() << std::endl;
         slice_offsets_[input_tv].emplace(slice_offset);
       }
     }
+
+    TORCH_INTERNAL_ASSERT(slice_offsets_.count(input_tv));
   }
 
   // If not sliced, don't keep track of resize factor
-  for (auto it = resize_factors_.begin(); it != resize_factors_.end();) {
+  for (auto it = sliced_domain_factors_.begin();
+       it != sliced_domain_factors_.end();) {
     if (!sliced_ids_.count(it->first)) {
-      it = resize_factors_.erase(it);
+      it = sliced_domain_factors_.erase(it);
     } else {
       ++it;
     }
   }
 
   // DEBUG DUMP
-  for (auto& [id, factor] : resize_factors_) {
+  for (auto& [id, factor] : sliced_domain_factors_) {
     std::cerr << "Resize factor: " << id->toString() << ", "
               << factor->toInlineString() << std::endl;
   }

@@ -245,16 +245,6 @@ class TORCH_CUDA_CU_API ContiguousInnerDimensionsMapper
     if (!recording_) {
       return;
     }
-
-    TORCH_INTERNAL_ASSERT(
-        projected_extent_.count(id) == 0,
-        "Already registered: ",
-        id->toString(),
-        ", existing: ",
-        projected_extent_.at(id)->toInlineString(),
-        ", new: ",
-        pe->toInlineString());
-
     projected_extent_[id] = pe;
   }
 
@@ -319,11 +309,20 @@ class TORCH_CUDA_CU_API ContiguousInnerDimensionsMapper
 
   std::unordered_map<IterDomain*, Val*> projected_extent_;
 
-  std::unordered_map<IterDomain*, Val*> resize_factors_;
-  std::unordered_map<TensorView*, std::unordered_set<Val*>> slice_offsets_;
-  // IDs that are not fully read
-  std::unordered_set<IterDomain*> sliced_ids_;
+  //! Keep track of supported Resize ops as not all of them are supported
   std::unordered_set<Resize*> supported_resize_exprs_;
+
+  // IDs that are not fully read
+  //! Keep track of supported sliced domains
+  // TODO: rename to resized_ids_?
+  std::unordered_set<IterDomain*> sliced_ids_;
+
+  //! Common factor of actual extents of a sliced domain. A factor of
+  //! a sliced domain, potentially sliced multiple times, is the GCD
+  //! of of the extent of the slice output domains.
+  std::unordered_map<IterDomain*, Val*> sliced_domain_factors_;
+
+  std::unordered_map<TensorView*, std::unordered_set<Val*>> slice_offsets_;
 };
 
 int64_t getVectorizationFactor(
