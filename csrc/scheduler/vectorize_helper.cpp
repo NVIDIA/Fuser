@@ -521,10 +521,6 @@ ContiguousInnerDimensionsMapper::computeInfoC2P(
     TensorView* from,
     TensorView* to,
     std::shared_ptr<MaxInfoSpanningTree::Information> from_info) {
-  std::cerr << "C2P: " << from->toString() << " -> " << to->toString()
-            << std::endl;
-
-  // TORCH_INTERNAL_ASSERT(recording_);
   auto from_ids = std::dynamic_pointer_cast<const MappedDomain>(from_info)
                       ->mapped_root_ids_;
   // If we have a case where we have a concretized broadcast that's being
@@ -588,8 +584,6 @@ ContiguousInnerDimensionsMapper::computeInfoC2P(
         auto producer_rf_id = c2p_it->second;
         auto consumer_factor = getProjectedExtent(c2p_it->first);
         if (resize_factors_.count(producer_rf_id)) {
-          std::cerr << "consumer factor: " << consumer_factor->toInlineString()
-                    << std::endl;
           consumer_factor = SimplifyingIrBuilder::gcdExpr(
               consumer_factor, resize_factors_.at(producer_rf_id));
         }
@@ -610,10 +604,6 @@ ContiguousInnerDimensionsMapper::computeInfoP2C(
     TensorView* from,
     TensorView* to,
     std::shared_ptr<MaxInfoSpanningTree::Information> from_info) {
-  std::cerr << "P2C: " << from->toString() << " -> " << to->toString()
-            << std::endl;
-
-  // TORCH_INTERNAL_ASSERT(recording_);
   auto from_ids = std::dynamic_pointer_cast<const MappedDomain>(from_info)
                       ->mapped_rfactor_ids_;
   // If we have a case where we have a reduction that's being tracked in a
@@ -664,9 +654,6 @@ ContiguousInnerDimensionsMapper::computeInfoP2C(
             producer_ids_to_clear.end()) {
       consumer_root_ids.push_back(p2c_it->second);
       if (recording_) {
-        std::cerr << "Propagating extent of "
-                  << getProjectedExtent(p2c_it->first)->toInlineString()
-                  << " to " << p2c_it->second->toString() << std::endl;
         addProjectedExtent(p2c_it->second, getProjectedExtent(p2c_it->first));
       }
     }
@@ -794,8 +781,6 @@ void ContiguousInnerDimensionsMapper::propagateSibling(
 
 Val* ContiguousInnerDimensionsMapper::getContigMergeOfInnerSize(
     TensorView* of_tv) {
-  std::cerr << "getContigMergeOfInnerSize: " << of_tv->toString() << std::endl;
-
   Val* product_of_inner_extents = of_tv->container()->oneVal();
   auto of_tv_root = of_tv->getMaybeRFactorDomain();
 
@@ -843,8 +828,6 @@ Val* ContiguousInnerDimensionsMapper::getContigMergeOfInnerSize(
     auto root_i = of_tv_root_no_reductions_size - i - 1;
     auto root_id = of_tv_root_no_reductions.at(root_i);
 
-    std::cerr << "root id: " << root_id->toString() << std::endl;
-
     // If this root ID is sliced, the outer domain is not contiguous
     // anymore
     if (sliced_ids_.count(root_id) && root_i > 0) {
@@ -864,7 +847,6 @@ Val* ContiguousInnerDimensionsMapper::getContigMergeOfInnerSize(
     } else {
       // Not contiguous
       if (!contiguity_i.value()) {
-        std::cerr << "Not contiguous\n";
         break;
       }
     }
@@ -1121,7 +1103,9 @@ int64_t getVectorizationFactor(
     max_vec_size = std::min(local_max_vec_size, max_vec_size);
   }
 
-  std::cerr << "vec size: " << max_vec_size << std::endl;
+  if (getenv("VERBOSE")) {
+    std::cerr << "vec size: " << max_vec_size << std::endl;
+  }
   return max_vec_size;
 }
 
