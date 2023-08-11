@@ -123,13 +123,6 @@ class TORCH_CUDA_CU_API TensorView : public Val {
     return domain_;
   }
 
-  //! This is for a TensorView with an rFactor domain that is an input to a
-  //! fusion segment. We convert the rfactor domain into a new root domain.
-  //! Any dynamic-sized rfactor iterDomains are given a new symbolic extent.
-  //! Concrete integer extents are kept. Output TensorViews of any subsequent
-  //! expressions that use this TensorView are also updated.
-  void convertRfactorToRootDomain();
-
   void setContiguity(const std::vector<std::optional<bool>>& contig) {
     domain()->setContiguity(contig);
   }

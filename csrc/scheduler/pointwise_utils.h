@@ -35,6 +35,10 @@ class DomainMap {
   bool areAllInputIdsMappedTo(TensorView* input_tv, TensorView* output_tv)
       const;
 
+  virtual IterDomain* getMappedInputConcreteID(
+      const std::unordered_set<IterDomain*>& in_concrete_ids,
+      IterDomain* out_id) const;
+
   // Erase input concrete ID if it is mapped to output ID
   bool eraseIfMapped(
       std::unordered_set<IterDomain*>& in_concrete_ids,

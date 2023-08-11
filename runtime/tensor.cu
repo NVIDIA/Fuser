@@ -12,8 +12,8 @@ struct Tensor {
   };
 
   T* data;
-  nvfuser_index_t size[Dims];
-  nvfuser_index_t stride[AllocDims];
+  Array<nvfuser_index_t, Dims, 1> logical_size;
+  Array<nvfuser_index_t, AllocDims, 1> alloc_stride;
 };
 
 // Specialization for 0-dim case as it does not need size and stride arrays.

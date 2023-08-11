@@ -7,6 +7,7 @@
 // clang-format on
 #include <ops/arith.h>
 #include <serde/expr_evaluator_serde.h>
+#include <serde/polymorphic_value_serde.h>
 #include <serde/utils.h>
 
 namespace nvfuser::serde {
@@ -301,10 +302,10 @@ flatbuffers::Offset<serde::NaiveValueGenerator> ExpressionSerializer::serialize(
   }
 
   for (const auto& int_val : const_int_values) {
-    auto val_fb =
-        serde::CreateLong(builder, int_val->evaluateInt(), serde::DataType_Int);
+    auto val_fb = serializeScalar(
+        builder, int_val->evaluateInt(), nvfuser::DataType::Int);
     auto inst = serde::CreateInstruction(
-        builder, serde::InstructionData_Long, val_fb.Union());
+        builder, serde::InstructionData_Scalar, val_fb.Union());
     instructions_fb.push_back(inst);
     operation_stack_.emplace(int_val, operation_stack_.size());
   }
@@ -467,9 +468,9 @@ void ExpressionBuilder::deserialize(const Instruction* buffer) {
       operation_stack_.push_back(ns);
       break;
     }
-    case serde::InstructionData_Long: {
-      auto data = buffer->data_as_Long();
-      auto int_val = IrBuilder::create<nvfuser::Val>(data->value());
+    case serde::InstructionData_Scalar: {
+      auto data = buffer->data_as_Scalar();
+      auto int_val = IrBuilder::create<nvfuser::Val>(data->long_value());
       operation_stack_.push_back(int_val);
       break;
     }

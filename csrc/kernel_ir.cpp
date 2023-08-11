@@ -175,6 +175,8 @@ Allocate::Allocate(
   addDataAttribute(memory_type);
   addDataAttribute(zero_init);
   addAttribute(alias);
+  // Always initialize shared memory address to nullptr
+  addAttribute(nullptr);
 
   for (auto s : shape) {
     addAttribute(s);
@@ -1193,6 +1195,37 @@ const ParallelTypeBitmap& AllocateFusedReduction::threadPredicate() const {
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(AllocateFusedReduction)
+
+GetRNGSeedAndOffsetFromHost::GetRNGSeedAndOffsetFromHost(
+    IrBuilderPasskey passkey,
+    Val* seed_ptr,
+    Val* seed_val,
+    Val* first_offset_ptr,
+    Val* first_offset_val,
+    int64_t offsets)
+    : Expr(passkey) {
+  addOutput(seed_ptr);
+  addOutput(seed_val);
+  addOutput(first_offset_ptr);
+  addOutput(first_offset_val);
+  addDataAttribute(offsets);
+}
+
+std::string GetRNGSeedAndOffsetFromHost::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << "(" << output(0)->toString() << ", "
+                          << output(1)->toString() << ", "
+                          << output(2)->toString() << ", "
+                          << output(3)->toString() << ") = " << getOpString()
+                          << "()\n";
+  return ss.str();
+}
+
+std::string GetRNGSeedAndOffsetFromHost::toInlineString(int indent_size) const {
+  return std::string(getOpString()) + "()";
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(GetRNGSeedAndOffsetFromHost)
 
 } // namespace kir
 } // namespace nvfuser

@@ -50,7 +50,7 @@ Val* getPredicatePerParallelType(
     Val* zero = GpuLower::current()->kernel()->zeroVal();
     Val* pred = GpuLower::current()->kernel()->trueVal();
     for (auto broadcast_rd_index : broadcast_rd_indices) {
-      pred = SimplifyingIrBuilder::andExpr(
+      pred = SimplifyingIrBuilder::logicalAndExpr(
           pred, SimplifyingIrBuilder::eqExpr(broadcast_rd_index, zero));
     }
     return pred;
@@ -76,7 +76,7 @@ Val* ThreadPredicateMap::getPredicateFromPredicateInfo(
   Val* pred = nullptr;
   for (const auto pt : pred_types) {
     const auto tp = getPredicatePerParallelType(pt, pred_info);
-    pred = SimplifyingIrBuilder::andExpr(pred, tp);
+    pred = SimplifyingIrBuilder::logicalAndExpr(pred, tp);
   }
   TORCH_INTERNAL_ASSERT(pred != nullptr);
 
@@ -199,6 +199,11 @@ ParallelTypeBitmap getReductionPredicateForUnusedParallelTypes(
 // Update the reduction_deps bitset based on provided Expr
 void ThreadPredicateMap::updateBitSet(const Expr* expr) {
   FUSER_PERF_SCOPE("GpuLower::Lower::ThreadPredicateMap::updateBitSet");
+
+  auto tv_out = ir_utils::getTvOutput(expr);
+  if (tv_out == nullptr) {
+    return;
+  }
 
   // If all of the inputs are not updated and all of the outputs have
   // already mappings, don't do anything
@@ -370,7 +375,17 @@ class RedundantUseAnalysis : BackwardVisitor {
   ParallelTypeBitmap getRedundantUseBitMap(const TensorView* tv) {
     // Since all tv's consumers are visited at this point, we
     //  can aggregate the final redundant use info for this tv.
-    if (fusion_->unordered_uses(tv).empty()) {
+    bool not_used_by_tensor_op = true;
+    for (auto expr : fusion_->unordered_uses(tv)) {
+      // There are ops, especially GetMetaData, that takes TensorView as input
+      // and output a non-tensor object. These ops should be treated as scalars,
+      // and we do not need to worry about thread predicate.
+      if (ir_utils::isTvOp(expr)) {
+        not_used_by_tensor_op = false;
+        break;
+      }
+    }
+    if (not_used_by_tensor_op) {
       // Base case, un-used is also not redundantly used
       return ParallelTypeBitmap();
     } else {

@@ -16,6 +16,8 @@
 #include <test/utils.h>
 #include <test/validator.h>
 
+#include <ATen/cuda/CUDAGeneratorImpl.h>
+
 namespace nvfuser {
 
 at::Tensor generate_uniform(int64_t size, at::ScalarType dtype);
@@ -385,7 +387,7 @@ TEST_F(RNGTest, FunctionalUniform) {
       fusion->addOutput(tv1);
     }
 
-    auto second_offset = add(first_offset, IrBuilder::create<Val>(4L));
+    auto second_offset = add(first_offset, IrBuilder::create<Val>(1L));
 
     TensorView* tv2 =
         uniform({size_val}, low, high, DataType::Float, seed, first_offset);

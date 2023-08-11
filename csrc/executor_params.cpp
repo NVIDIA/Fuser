@@ -135,16 +135,7 @@ std::string LaunchParams::toString() const {
 
 flatbuffers::Offset<serde::LaunchParams> LaunchParams::serialize(
     flatbuffers::FlatBufferBuilder& builder) const {
-  // table LaunchParams {
-  //  gdimx : long;
-  //  gdimy : long;
-  //  gdimz : long;
-  //  bdimx : long;
-  //  bdimy : long;
-  //  bdimz : long;
-  //  smem : long;
-  //  output_sizes : [TensorShape];
-  // }
+  // See table definition for LaunchParams in serde/fusion_cache.fbs
   using fb_tensor_shape = flatbuffers::Offset<nvfuser::serde::TensorShape>;
   std::vector<fb_tensor_shape> shapes_fb;
   shapes_fb.reserve(output_sizes.size());
@@ -164,20 +155,8 @@ flatbuffers::Offset<serde::LaunchParams> LaunchParams::serialize(
 }
 
 void LaunchParams::deserialize(const serde::LaunchParams* buffer) {
-  // table TensorShape {
-  //  shape : [long];
-  // }
-  //
-  // table LaunchParams {
-  //  gdimx : long;
-  //  gdimy : long;
-  //  gdimz : long;
-  //  bdimx : long;
-  //  bdimy : long;
-  //  bdimz : long;
-  //  smem : long;
-  //  output_sizes : [TensorShape];
-  // }
+  // See table definitions for LaunchParams and TensorShape in
+  // serde/fusion_cache.fbs
   TORCH_INTERNAL_ASSERT(buffer != nullptr, "serde::LaunchParams is nullptr.");
 
   gdimx_ = buffer->gdimx();

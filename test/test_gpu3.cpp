@@ -1731,7 +1731,7 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> 
   int64_t i0;
   i0 = ((nvfuser_index_t)threadIdx.x) + (256 * ((nvfuser_index_t)blockIdx.x));
   int64_t i1;
-  i1 = T0.size[0] * T0.size[1];
+  i1 = T0.logical_size[0] * T0.logical_size[1];
   bool b2;
   b2 = i0 < i1;
   float f3;
@@ -7546,7 +7546,7 @@ class ThreadPredChecker : public kir::IrVisitor {
   }
 
   void handle(BinaryOp* bop) final {
-    if (bop->getBinaryOpType() == BinaryOpType::And) {
+    if (bop->getBinaryOpType() == BinaryOpType::LogicalAnd) {
       dispatch(bop->lhs());
       dispatch(bop->rhs());
     } else if (bop->getBinaryOpType() == BinaryOpType::Eq) {
@@ -9344,6 +9344,423 @@ TEST_F(NVFuserTest, IterVisitorTraverseSiblings_CUDA) {
   TORCH_CHECK(
       std::find(stmts.begin(), stmts.end(), wf.var_sum) != stmts.end(),
       "Welford var_sum not traversed in getStmtsTo({n})");
+}
+
+TEST_F(NVFuserTest, FusionLayerNormSharedMemoryBuffer_CUDA) {
+  auto test = [](const int64_t hidden_size, DataType dtype) {
+    std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+    Fusion& fusion = *fusion_ptr.get();
+    FusionGuard fg(&fusion);
+    const float kEps = 1e-5;
+    Val* eps_ptr = IrBuilder::create<Val>(kEps);
+    constexpr int64_t dim0 = 2048;
+    std::vector<int64_t> input_shape{dim0, hidden_size};
+    std::vector<int64_t> norm_shape{hidden_size};
+    auto input_half = makeContigTensor(2, dtype);
+    auto weight_half = makeContigTensor(1, dtype);
+    auto bias_half = makeContigTensor(1, dtype);
+    fusion.addInput(input_half);
+    fusion.addInput(weight_half);
+    fusion.addInput(bias_half);
+    auto input = castOp(DataType::Float, input_half);
+    auto weight = castOp(DataType::Float, weight_half);
+    auto bias = castOp(DataType::Float, bias_half);
+    auto result = layer_norm(input, norm_shape, weight, bias, eps_ptr);
+    auto result_output = castOp(dtype, result.output);
+    fusion.addOutput(result_output);
+    fusion.addOutput(result.mean);
+    fusion.addOutput(result.invstd);
+
+    auto options = at::TensorOptions()
+                       .dtype(data_type_to_aten(dtype))
+                       .device(at::kCUDA, 0);
+    at::Tensor aten_input = at::randn(input_shape, options);
+    c10::optional<at::Tensor> aten_weight =
+        at::randn({input_shape[1]}, options);
+    c10::optional<at::Tensor> aten_bias = at::randn({input_shape[1]}, options);
+
+    auto persistent_params =
+        getPersistentHeuristics(&fusion, {aten_input, aten_weight, aten_bias});
+    TORCH_CHECK(persistent_params, "Persistent schedule was not generated!");
+    if (hidden_size * dataTypeSize(dtype) >
+        scheduler_utils::register_file_size) {
+      TORCH_CHECK(
+          persistent_params->shared_mem_persistent_buffer,
+          "Should use shared memory buffer!");
+    } else {
+      TORCH_CHECK(
+          !persistent_params->shared_mem_persistent_buffer,
+          "Shouldn't use shared memory buffer!");
+    }
+
+    auto aten_outputs = at::native_layer_norm(
+        aten_input, norm_shape, aten_weight, aten_bias, kEps);
+    FusionExecutorCache fec(std::move(fusion_ptr));
+    auto cg_outputs =
+        fec.runFusionWithInputs({aten_input, aten_weight, aten_bias});
+
+    testValidate(
+        &fusion,
+        cg_outputs,
+        {aten_input, aten_weight, aten_bias},
+        {std::get<0>(aten_outputs),
+         std::get<1>(aten_outputs),
+         std::get<2>(aten_outputs)},
+        __LINE__,
+        __FILE__,
+        "");
+  };
+  // loop from 16K to 128K hidden size
+  for (auto dtype : {DataType::Float, DataType::Half}) {
+    for (int i = 8; i <= 128; i += 8) {
+      test(i * 1024, dtype);
+    }
+  }
+}
+
+TEST_F(NVFuserTest, IterVisitorGetInputsTo) {
+  // Test that IterVisitor::getInputsTo() will stop further traverse when
+  // reaching the target tensors
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto a = makeSymbolicTensor(1);
+  auto b = makeSymbolicTensor(1);
+  auto c = makeSymbolicTensor(1);
+
+  fusion.addInput(a);
+  fusion.addInput(b);
+  fusion.addInput(c);
+
+  auto d = add(b, c);
+  auto e = add(a, d);
+
+  fusion.addOutput(e);
+
+  auto inputs = IterVisitor::getInputsTo({e}, {a, d});
+  std::unordered_set<Val*> inputs_set(inputs.begin(), inputs.end());
+
+  EXPECT_EQ(inputs_set, std::unordered_set<Val*>({a, d}));
+}
+
+// converted from https://github.com/NVIDIA/Fuser/issues/443
+TEST_F(NVFuserTest, FusionInstanceNormNHWC_CUDA) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+  double k_eps = 1e-05;
+  auto shape = std::vector<int64_t>{256, 28, 28, 128};
+  {
+    DataType dtype = DataType::Half;
+    auto tv0 = makeContigTensor(4, dtype);
+    auto weight = makeContigTensor(1, dtype);
+    auto bias = makeContigTensor(1, dtype);
+    fusion->addInput(tv0);
+    fusion->addInput(weight);
+    fusion->addInput(bias);
+    tv0 = castOp(DataType::Float, tv0);
+    weight = castOp(DataType::Float, weight);
+    bias = castOp(DataType::Float, bias);
+
+    auto s1 = IrBuilder::create<Val>(k_eps);
+    auto var_mean = variance_mean(tv0, {1, 2}, 0, true);
+    auto tv_mean = var_mean.mean;
+    auto tv_var = var_mean.var;
+    auto tv_var_s1 = add(tv_var, s1);
+    auto tv_sqrt = sqrt(tv_var_s1);
+    auto tv_diff = sub(tv0, tv_mean);
+    auto tv_div = div(tv_diff, tv_sqrt);
+    auto tv_mul = mul(tv_div, weight);
+    auto tv_out = add(tv_mul, bias);
+    tv_out = castOp(DataType::Half, tv_out);
+
+    fusion->addOutput(tv_out);
+  }
+
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+  std::vector<c10::IValue> inputs;
+  std::vector<at::Tensor> outputs;
+
+  {
+    auto t0 = at::randn(shape, options);
+    auto t1 = at::randn(shape[3], options);
+    auto t2 = at::randn(shape[3], options);
+    inputs.emplace_back(t0);
+    inputs.emplace_back(t1);
+    inputs.emplace_back(t2);
+
+    auto var_mean = at::var_mean(t0, {1, 2}, 0, true);
+    auto var = std::get<0>(var_mean);
+    auto mean = std::get<1>(var_mean);
+    auto t3 = (t0 - mean) / sqrt(var + k_eps);
+    auto t4 = t3 * t1 + t2;
+    outputs.push_back(t4);
+  }
+
+  FusionExecutorCache fec(std::move(fusion_ptr));
+  auto cg_outputs = fec.runFusionWithInputs(inputs);
+  testValidate(fusion, cg_outputs, inputs, outputs, __LINE__, __FILE__);
+}
+
+// Repro of issue #657
+TEST_F(NVFuserTest, VectorizeWithBroadcastAndReshape1) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  // Sizes don't matter as long as they are large enough to trigger
+  // vectorization
+  std::vector<int64_t> shape1{1024, 1024};
+  std::vector<int64_t> shape2{1024, 1024, 4};
+  std::vector<int64_t> shape3{1024 * 1024 * 4};
+
+  auto tv0 = makeContigConcreteTensor(shape1);
+  fusion->addInput(tv0);
+
+  auto tv1 = makeContigConcreteTensor(shape2);
+  fusion->addInput(tv1);
+
+  auto tv2 = broadcast(tv0, {false, false, true});
+  fusion->addOutput(tv2);
+
+  auto tv3 = add(tv1, tv2);
+  auto tv4 = reshape(tv3, shape2, shape3);
+  fusion->addOutput(tv4);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::manual_seed(0);
+  auto t0 = at::randn(shape1, options);
+  auto t1 = at::randn(shape2, options);
+  std::vector<c10::IValue> aten_inputs({t0, t1});
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+
+  TORCH_CHECK(!executor_cache.getMostRecentKernelRuntime()->isSegmented());
+  auto heuristic_params = executor_cache.getMostRecentKernelRuntime()
+                              ->schedulerHeuristics()
+                              ->heuristicsList()
+                              .at(0)
+                              ->params();
+  ASSERT_TRUE(heuristic_params->isA<PointwiseParams>());
+  auto pparams = heuristic_params->as<PointwiseParams>();
+  ASSERT_TRUE(pparams->vectorize) << "Failed to vectorize";
+  ASSERT_EQ(pparams->unroll_factor, 4) << "Unexpected vectorize factor";
+}
+
+// Repro of issue #657
+TEST_F(NVFuserTest, VectorizeWithBroadcastAndReshape2) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  // Sizes don't matter as long as they are large enough to trigger
+  // vectorization
+  std::vector<int64_t> shape1{1024, 1024};
+  std::vector<int64_t> shape2{1024, 1024, 4};
+  std::vector<int64_t> shape3{1024 * 1024 * 4};
+
+  auto tv0 = makeContigConcreteTensor(shape1);
+  fusion->addInput(tv0);
+
+  auto tv1 = makeContigConcreteTensor(shape1);
+  fusion->addInput(tv1);
+
+  auto tv2 = makeContigConcreteTensor(shape2);
+  fusion->addInput(tv2);
+
+  auto tv3 = broadcast(tv0, {false, false, true});
+  fusion->addOutput(tv3);
+
+  auto tv4 = add(tv3, tv2);
+
+  auto tv5 = broadcast(tv1, {false, false, true});
+
+  auto tv6 = add(tv4, tv5);
+
+  auto tv7 = reshape(tv6, shape2, shape3);
+  fusion->addOutput(tv7);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::manual_seed(0);
+  auto t0 = at::randn(shape1, options);
+  auto t1 = at::randn(shape1, options);
+  auto t2 = at::randn(shape2, options);
+  std::vector<c10::IValue> aten_inputs({t0, t1, t2});
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+
+  TORCH_CHECK(!executor_cache.getMostRecentKernelRuntime()->isSegmented());
+  auto heuristic_params = executor_cache.getMostRecentKernelRuntime()
+                              ->schedulerHeuristics()
+                              ->heuristicsList()
+                              .at(0)
+                              ->params();
+  ASSERT_TRUE(heuristic_params->isA<PointwiseParams>());
+  auto pparams = heuristic_params->as<PointwiseParams>();
+  ASSERT_TRUE(pparams->vectorize) << "Failed to vectorize";
+  ASSERT_EQ(pparams->unroll_factor, 4) << "Unexpected vectorize factor";
+}
+
+TEST_F(NVFuserTest, VectorizeBackToBackReductions) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  std::vector<int64_t> input_shape{128, 256, 256};
+
+  auto tv0 = makeContigConcreteTensor(input_shape);
+  fusion->addInput(tv0);
+
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
+  auto tv2 = sum(tv1, {2});
+
+  auto output = sum(tv2, {1});
+  fusion->addOutput(output);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor at_x = at::randn(input_shape, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+
+  auto outputs = executor_cache.runFusionWithInputs({at_x});
+
+  auto t1 = at_x.add(1.0);
+  auto t2 = t1.sum({2});
+  auto t3 = t2.sum({1});
+
+  auto optimized_fusion = executor_cache.getMostRecentKernelRuntime();
+  ASSERT_TRUE(optimized_fusion->isSegmented()) << "segmentation didn't happen";
+  ASSERT_EQ(optimized_fusion->fusionSegments()->groups().size(), 2)
+      << "segmentation didn't happen as expected";
+
+  auto heuristic_params = executor_cache.getMostRecentKernelRuntime()
+                              ->schedulerHeuristics()
+                              ->heuristicsList()
+                              .at(1)
+                              ->params();
+  ASSERT_TRUE(heuristic_params->isA<ReductionParams>());
+  auto rparams = heuristic_params->as<ReductionParams>();
+  ASSERT_TRUE(rparams->vectorize_inner_reduction) << "Failed to vectorize";
+  ASSERT_EQ(rparams->unroll_factor_inner_reduction, 4)
+      << "Unexpected vectorization factor";
+
+  testValidate(
+      executor_cache.fusion(), outputs, {at_x}, {t3}, __LINE__, __FILE__);
+}
+
+TEST_F(NVFuserTest, AllInputDtypes) {
+  for (auto index_type : {DataType::Int, DataType::Int32}) {
+    auto fusion = std::make_unique<Fusion>();
+    FusionGuard fg(fusion.get());
+
+    auto tv0 = makeContigTensor(0, DataType::Double);
+    auto tv1 = makeContigTensor(0, DataType::Double);
+    tv1->setCpuScalar(true);
+    auto d = IrBuilder::create<Val>(DataType::Double);
+    auto f = IrBuilder::create<Val>(DataType::Float);
+    auto h = IrBuilder::create<Val>(DataType::Half);
+    auto i = IrBuilder::create<Val>(DataType::Int);
+    auto idx = IrBuilder::create<Val>(DataType::Index);
+    auto i32 = IrBuilder::create<Val>(DataType::Int32);
+    auto b = IrBuilder::create<Val>(DataType::Bool);
+    auto bf16 = IrBuilder::create<Val>(DataType::BFloat16);
+    auto cf = IrBuilder::create<Val>(DataType::ComplexFloat);
+    auto cd = IrBuilder::create<Val>(DataType::ComplexDouble);
+    DataType ptr_type = PointerOf{std::make_shared<DataType>(DataType::Float)};
+    auto ptr = IrBuilder::create<Val>(ptr_type);
+    DataType array_type =
+        ArrayOf{std::make_shared<DataType>(DataType::Float), 2};
+    auto array = IrBuilder::create<Val>(array_type);
+    fusion->addInput(tv0);
+    fusion->addInput(tv1);
+    fusion->addInput(d);
+    fusion->addInput(f);
+    fusion->addInput(h);
+    fusion->addInput(i);
+    fusion->addInput(idx);
+    fusion->addInput(i32);
+    fusion->addInput(b);
+    fusion->addInput(bf16);
+    fusion->addInput(cf);
+    fusion->addInput(cd);
+    fusion->addInput(ptr);
+    fusion->addInput(array);
+
+    auto output = d;
+    output = IrBuilder::addExpr(output, f);
+    output = IrBuilder::addExpr(output, castOp(DataType::Double, h));
+    output = IrBuilder::addExpr(output, i);
+    output = IrBuilder::addExpr(output, idx);
+    output = IrBuilder::addExpr(output, i32);
+    output = IrBuilder::addExpr(output, b);
+    output = IrBuilder::addExpr(output, castOp(DataType::Double, bf16));
+    output = IrBuilder::addExpr(output, abs(cf));
+    output = IrBuilder::addExpr(output, abs(cd));
+    output = IrBuilder::addExpr(output, IrBuilder::derefExpr(ptr));
+    output = IrBuilder::addExpr(
+        output, IrBuilder::getItemExpr(array, PolymorphicValue(0L)));
+    output = IrBuilder::addExpr(
+        output, IrBuilder::getItemExpr(array, PolymorphicValue(1L)));
+    output = add(tv0, output);
+    output = add(tv1, output);
+
+    fusion->addOutput(output);
+
+    at::Tensor t0 = at::randn(
+        {}, at::TensorOptions().dtype(at::kDouble).device(at::kCUDA, 0));
+    at::Tensor t1 =
+        at::randn({}, at::TensorOptions().dtype(at::kDouble).device(at::kCPU));
+    // Use page-locked memory so the pointer can be accessed both on host and on
+    // device.
+    at::Tensor t2 = at::randn(
+        {},
+        at::TensorOptions()
+            .dtype(at::kFloat)
+            .device(at::kCPU)
+            .pinned_memory(true));
+
+    KernelArgumentHolder args;
+    args.push(t0);
+    args.push(t1);
+    args.push(2.3);
+    args.push(4.5);
+    args.push(6.7);
+    args.push(8L);
+    args.push(9L);
+    args.push(10L);
+    args.push(true);
+    args.push(12.3);
+    args.push(std::complex<double>(4.5, 6.7));
+    args.push(std::complex<double>(8.9, 10.11));
+    args.push(t2.data_ptr<float>());
+    args.push(std::vector<PolymorphicValue>{12.3, 45.0});
+
+    auto ee = executor_utils::bindInputs(args, fusion.get());
+
+    CompileParams opt{.index_type = index_type};
+
+    FusionExecutor fe;
+    fe.compileFusion(fusion.get(), args, LaunchParams{}, opt);
+    auto outputs = fe.runFusion(args, LaunchParams{}, opt);
+
+    auto kernel_result = outputs.at(0).item<double>();
+    auto expect = ee.evaluate(output).as<at::Tensor>().item<double>();
+    EXPECT_NEAR(kernel_result, expect, 0.1);
+  }
+}
+
+TEST_F(NVFuserTest, IndexDataTypePromotion) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto a = IrBuilder::create<Val>(DataType::Int);
+  auto b = IrBuilder::create<Val>(DataType::Index);
+  auto c = add(a, b);
+
+  ExpressionEvaluator ee;
+  ee.bind(a, 1L);
+  ee.bind(b, 299792458L);
+  EXPECT_EQ(ee.evaluate(c), 299792459L);
+  EXPECT_EQ(c->dtype(), DataType::Index);
 }
 
 // Test file size should be up to 10K LoC. Create a new file for more tests.

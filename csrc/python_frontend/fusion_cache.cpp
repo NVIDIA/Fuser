@@ -363,12 +363,7 @@ void FusionCache::serialize(std::string filename) const {
   }
 
   // 6. Build FusionCache flatbuffer object
-  // table FusionCache {
-  //  max_fusions: ulong;
-  //  structure: [TrieNode];
-  //  terminal_nodes: [ulong];
-  // auto_gen_schedules : [FusionExecutorCache];
-  // }
+  // See table definition for FusionCache in serde/fusion_cache.fbs
   auto fusion_cache = serde::CreateFusionCacheDirect(
       builder,
       max_fusions_,
@@ -422,13 +417,8 @@ const serde::FusionCache* verifyFusionCache(const BinaryBuffer& buffer) {
 } // namespace
 
 void FusionCache::deserialize(std::string filename) {
+  // See table definition for FusionCache in serde/fusion_cache.fbs
   // 0. Load flatbuffer binary from file
-  // table FusionCache {
-  //  max_fusions: ulong;
-  //  structure: [TrieNode];
-  //  terminal_nodes: [ulong];
-  // auto_gen_schedules : [FusionExecutorCache];
-  // }
   FUSER_PERF_SCOPE("FusionCache::deserialize");
   TORCH_CHECK(
       fusions_.empty(),

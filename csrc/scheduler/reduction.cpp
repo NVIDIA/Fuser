@@ -945,7 +945,8 @@ std::shared_ptr<ReductionParams> getReductionHeuristics(
       runtime_info,
       reduced_tv,
       data_cache,
-      (int)(reduced_tv->nDims() - properties.inner_most_dimension_ndims));
+      vectorize_helper::getVectorizationBreakPointOfReductionProducer(
+          reduction_tv, reduced_tv, properties.inner_most_dimension_ndims));
 
   // Base max dtype and n_tensor_inputs on tensors that are vectorizable (i.e.
   // share inner dimension with data pattern we're looking at).

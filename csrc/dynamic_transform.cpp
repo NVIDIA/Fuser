@@ -454,8 +454,8 @@ void DynamicTransformConcretizer::concretize() {
   // Finally, propagate concretized domains
   auto all_stmts = StmtSort::getStmts(
       info_->fusion(),
-      /*traverse_members*/ false,
-      /*traverse_attributes*/ false,
+      /*traverse_members*/ true,
+      /*traverse_attributes*/ true,
       /*traverse_siblings*/ true);
   for (auto tv : ir_utils::filterByType<TensorView>(all_stmts)) {
     mutate(tv);
@@ -496,6 +496,25 @@ void DynamicTransformConcretizer::concretizeReshape() {
     // We do the replacement directly here, but we must still check that the
     // replacement is valid
     checkConcretizedUses(incomplete_out_tv, concrete_reshape_out_tv);
+
+    // Extent expressions often change when concretizing a reshape. Here we
+    // replace these in all downstream expressions so that the Fusion looks just
+    // like it would have if we had used a static reshape instead.
+    auto old_rfactor = incomplete_out_tv->getMaybeRFactorDomain();
+    auto new_rfactor = concrete_reshape_out_tv->getMaybeRFactorDomain();
+    TORCH_INTERNAL_ASSERT(
+        old_rfactor.size() == new_rfactor.size(),
+        "Concretized reshape rfactor size does not match symbolic rfactor");
+    for (auto idx : c10::irange(new_rfactor.size())) {
+      auto old_extent = old_rfactor.at(idx)->extent();
+      auto new_extent = new_rfactor.at(idx)->extent();
+      // If the old extent did not have a definition, we don't need to replace
+      // it, since it will get bound whenever this tensor is a segmentation
+      // edge.
+      if (old_extent->definition() && !new_extent->sameAs(old_extent)) {
+        registerConcretization(old_extent, new_extent);
+      }
+    }
 
     // Replace the old tensor with the new concretized tensor
     auto uses = incomplete_out_tv->uses();

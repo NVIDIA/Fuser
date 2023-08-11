@@ -722,10 +722,10 @@ TEST_F(NVFuserTest, DynamicTransformFusionExecutorCache_CUDA) {
   }
 }
 
-using shape = std::vector<int64_t>;
+using shape_t = std::vector<int64_t>;
 using dynamic_view_invocation = std::tuple<
-    shape, // input_shape
-    shape, // output_shape
+    shape_t, // input_shape
+    shape_t, // output_shape
     bool // expect miss
     >;
 
@@ -849,7 +849,9 @@ TEST_F(NVFuserTest, FusionDynamicReshapeReductionShmoo_CUDA) {
       {{8, 3 * 5, 7, 9}, {8, 3, 5 * 7, 9}, false}, // merge(1) osplit(1, 3)
 
       // test passing -1 dynamically for dimension size
-      // This currently fails. see https://github.com/NVIDIA/Fuser/issues/249
+      // This is unsupported. See https://github.com/NVIDIA/Fuser/issues/249
+      // Values of -1 must be passed as constants instead of input-dependent
+      // scalars.
       //{{8, 3 * 5, 7, 9}, {8, 3, -1, 9}, false} // merge(1) osplit(1, 3)
   };
   reductionDynamicViewAddFusion(
@@ -1068,7 +1070,7 @@ TEST_F(NVFuserTest, FusionDynamicEmptyCat2_CUDA) {
 }
 
 // Repro of https://github.com/NVIDIA/Fuser/issues/418
-TEST_F(NVFuserTest, DynamicTransformIssue418Concretization_CUDA) {
+TEST_F(NVFuserTest, DynamicTransformIssue418_CUDA) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -1077,39 +1079,31 @@ TEST_F(NVFuserTest, DynamicTransformIssue418Concretization_CUDA) {
   auto s0 = IrBuilder::create<Val>(DataType::Int);
   fusion->addInput(s0);
 
-  auto v00 = tv0->axis(0)->extent();
-  auto v01 = tv0->axis(1)->extent();
-  auto v02 = tv0->axis(2)->extent();
-  auto v03 = tv0->axis(3)->extent();
-
-  auto tv1 = reshape(tv0, {v00, div(v01, s0), s0, v02, v03});
+  auto sh = tensor_sizes(tv0);
+  auto tv1 = reshape(tv0, {sh[0], div(sh[1], s0), s0, sh[2], sh[3]});
+  // Reducing along axis 2 in tv1 is equivalent to a partial reduction across
+  // axis 1 of tv0.
   auto vm = variance_mean(tv1, {2, 3, 4}, 0, true);
   fusion->addOutput(vm.mean);
   fusion->addOutput(vm.var);
 
-  {
-    ExpressionEvaluator expr_eval;
+  FusionExecutorCache fusion_executor_cache(std::move(fusion));
 
-    expr_eval.bind(tv0->axis(0)->extent(), 256L);
-    expr_eval.bind(tv0->axis(1)->extent(), 128L);
-    expr_eval.bind(tv0->axis(2)->extent(), 28L);
-    expr_eval.bind(tv0->axis(3)->extent(), 28L);
-    expr_eval.bind(s0, 4L);
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor at0 = at::randn({256, 128, 28, 28}, options);
+  std::vector<c10::IValue> aten_inputs = {at0, 32};
+  auto outputs = fusion_executor_cache.runFusionWithInputs(aten_inputs);
+  auto at1 = at0.reshape({256, 4, 32, 28, 28});
+  auto atmean = at1.mean({2, 3, 4}, /*keepdim*/ true);
+  auto atvar = at1.var({2, 3, 4}, /*unbiased*/ true, /*keepdim*/ true);
 
-    auto initial_info = DynamicTransform::getInitialInfo(fusion.get());
-    auto info = DynamicTransformConcretizationInfo(&initial_info, &expr_eval);
-
-    TORCH_CHECK(
-        info.getReshapeTransforms().size() == 1,
-        "Expected to have one reshape transform: ",
-        info.toString());
-
-    DynamicTransform::concretizeFusion(fusion.get(), &info);
-
-    TORCH_CHECK(
-        !fusion->hasDynamicTransform(),
-        "Expected to have no dynamic transform");
-  }
+  testValidate(
+      fusion_executor_cache.fusion(),
+      outputs,
+      aten_inputs,
+      {atmean, atvar},
+      __LINE__,
+      __FILE__);
 }
 
 TEST_F(NVFuserTest, Issue249_CUDA) {

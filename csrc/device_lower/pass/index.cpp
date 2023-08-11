@@ -158,7 +158,6 @@ void IndexLowering::handle(const RNGOp* rop) {
       rop->getParameters(),
       rop->getRNGSeedVal(),
       rop->getRNGOffsetVal(),
-      rop->getRNGOffset(),
       philox_index);
 
   pushBack(lowered);
@@ -251,11 +250,26 @@ void IndexLowering::handle(const ArrayConstruct* aop) {
   GpuLower::current()->propagateExprInfo(aop, back());
 }
 
+void IndexLowering::handle(const GetAttr* gop) {
+  const auto struct_ = lowerSrcIndex(gop->struct_(), gop->out());
+  const auto attr = gop->attr();
+  const auto out = lowerDstIndex(gop->out());
+  pushBack(IrBuilder::create<GetAttr>(out, struct_, attr));
+  GpuLower::current()->propagateExprInfo(gop, back());
+}
+
 void IndexLowering::handle(const GetItem* gop) {
   const auto array = lowerSrcIndex(gop->array(), gop->out());
   const auto index = lowerSrcIndex(gop->index(), gop->out());
   const auto out = lowerDstIndex(gop->out());
   pushBack(IrBuilder::create<GetItem>(out, array, index));
+  GpuLower::current()->propagateExprInfo(gop, back());
+}
+
+void IndexLowering::handle(const GetMetaData* gop) {
+  const auto in = gop->in();
+  const auto out = lowerDstIndex(gop->out());
+  pushBack(IrBuilder::create<GetMetaData>(out, in));
   GpuLower::current()->propagateExprInfo(gop, back());
 }
 
@@ -1470,10 +1484,10 @@ void IndexLowering::handle(const PadOp* pad) {
     auto producer_idx = producer_root_indices.at(padded_axis);
     auto producer_root_id = producer_doms.at(padded_axis);
     TORCH_INTERNAL_ASSERT(!producer_root_id->maybePartial());
-    pred = SimplifyingIrBuilder::andExpr(
+    pred = SimplifyingIrBuilder::logicalAndExpr(
         pred,
         // idx >= 0 && idx < extent
-        SimplifyingIrBuilder::andExpr(
+        SimplifyingIrBuilder::logicalAndExpr(
             SimplifyingIrBuilder::geExpr(
                 producer_idx, GpuLower::current()->kernel()->zeroVal()),
             SimplifyingIrBuilder::ltExpr(

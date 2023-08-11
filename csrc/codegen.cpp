@@ -224,47 +224,39 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
   // Generates the kernel function declaration
   void genDeclaration(const std::string& kernel_name) {
-    const auto& kernel_summary = kernel_->summary();
-
     code_ << "__global__ void " << kernel_name << "(";
 
     std::unordered_set<Val*> unique_args;
 
     std::vector<Val*> params;
 
-    // Inputs & Outputs
-    for (auto val : kernel_->inputs()) {
-      params.push_back(val);
-    }
-    for (auto val : kernel_->outputs()) {
-      TORCH_INTERNAL_ASSERT(
-          !val->isScalar(), "No scalar output is allowed: ", val->toString());
-      params.push_back(val);
-    }
-
     // Generate parameter declarations
+    kernel_params_.reserve(kernel_->parameters().size());
     unsigned int duplicate_counter = 0;
-    for (auto i : c10::irange(params.size())) {
+    for (auto i : c10::irange(kernel_->parameters().size())) {
       std::stringstream var_name_ss;
-      if (params[i]->isA<TensorView>()) {
-        var_name_ss << genVariableName(params[i]->as<TensorView>());
+      auto param = kernel_->parameters().at(i);
+      kernel_params_.insert(param);
+
+      if (param->isA<TensorView>()) {
+        var_name_ss << genVariableName(param->as<TensorView>());
       } else {
-        var_name_ss << gen(params[i]);
+        var_name_ss << gen(param);
       }
 
       // If value is duplicate in arguments change the name to avoid name
       // conflicts in args.
-      if (!unique_args.emplace(params[i]).second) {
+      if (!unique_args.emplace(param).second) {
         var_name_ss << "_duplicate_" << duplicate_counter++;
       }
 
-      if (const auto tv = dynamic_cast<TensorView*>(params[i])) {
+      if (const auto tv = dynamic_cast<TensorView*>(param)) {
         if (tv->isCpuScalar()) {
-          code_ << " CpuScalarTensor<" << params[i]->dtype() << "> "
+          code_ << " CpuScalarTensor<" << param->dtype() << "> "
                 << var_name_ss.str();
         } else {
           code_
-              << "Tensor<" << params[i]->dtype() << ", "
+              << "Tensor<" << param->dtype() << ", "
               << TensorDomain::noReductions(tv->getMaybeRFactorDomain()).size()
               << ", "
               << TensorDomain::noReductions(tv->getMaybeAllocationDomain())
@@ -272,29 +264,13 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
               << "> " << var_name_ss.str();
         }
       } else {
-        TORCH_INTERNAL_ASSERT(params[i]->isScalar()); // NOLINT (LLVM bug 48525)
-        TORCH_INTERNAL_ASSERT(params[i]->definition() == nullptr);
-        code_ << params[i]->dtype() << " " << var_name_ss.str();
+        TORCH_INTERNAL_ASSERT(param->isScalar()); // NOLINT (LLVM bug 48525)
+        code_ << param->dtype() << " " << var_name_ss.str();
       }
 
-      if (i + 1 != params.size()) {
+      if (i + 1 != kernel_->parameters().size()) {
         code_ << ", ";
       }
-    }
-
-    // Global buffers
-    for (auto allocate : kernel_summary.global_allocations) {
-      TORCH_INTERNAL_ASSERT(allocate->buffer()->isA<TensorView>());
-      const auto tv = allocate->buffer()->as<TensorView>();
-      const auto& alloc_domain =
-          TensorDomain::noReductions(tv->getMaybeAllocationDomain());
-      code_ << ", Tensor<" << tv->dtype() << ", " << alloc_domain.size() << ", "
-            << alloc_domain.size() << "> " << genVariableName(tv);
-    }
-
-    // Kernels generating random numbers take extra (seed, offset) arguments
-    if (kernel_summary.max_rng_offsets >= 0) {
-      code_ << ", at::PhiloxCudaState philox_args";
     }
 
     code_ << ") ";
@@ -304,13 +280,6 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   void genPrologue() {
     const auto& kernel_summary = kernel_->summary();
 
-    // Random number generator (optional)
-    if (kernel_summary.max_rng_offsets >= 0) {
-      indent() << "auto philox_offset = philox_args.captured_ ?\n";
-      indent()
-          << "  static_cast<uint64_t>(*(philox_args.offset_.ptr) + philox_args.offset_intragraph_) :\n";
-      indent() << "  philox_args.offset_.val;\n";
-    }
     if (kernel_summary.has_philox_op) {
       indent() << "uint4 rng_result;\n";
       indent() << "nvfuser_index_t rng_subseq = -1;\n";
@@ -333,10 +302,6 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
                << 16 // always align to 16B for any shared mem allocation
                << ") extern __shared__ char array[];\n";
 
-      if (has_dynamic_smem) {
-        indent() << "unsigned smem_offset = 0;\n";
-      }
-
       if (has_reductions || has_parallel_welford) {
         indent() << "void* shared_mem = array;\n";
         if (has_dynamic_smem) {
@@ -355,7 +320,9 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
                 << ")";
             smem_buf_size = smem_buf_size_with_outer_opt.str();
           }
-          indent() << "smem_offset += " << smem_buf_size << ";\n";
+          // Ensure that smem_offset remains 16-byte aligned, like shared_mem
+          indent() << "const unsigned smem_offset = alignBufferSize("
+                   << smem_buf_size << ", 16);\n";
         }
 
         if (has_parallel_welford) {
@@ -371,6 +338,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           indent() << space_type
                    << " *shared_mem_n = shared_mem_avg + block_size;\n";
         }
+      } else if (has_dynamic_smem) {
+        indent() << "const unsigned smem_offset = 0;\n";
       }
     }
 
@@ -479,7 +448,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     }
     const auto def = s->definition();
     const bool has_alloc = alloc_map_.find(s) != alloc_map_.end();
-    if (def != nullptr && !has_alloc) {
+    const bool is_param = kernel_params_.find(s) != kernel_params_.end();
+    if (def != nullptr && !has_alloc && !is_param) {
       code_ << "(" << genInline(def) << ")";
     } else if (s->isConst()) {
       auto value = s->value();
@@ -543,7 +513,6 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   }
 
   void handle(const TensorView* tv) final {
-    TORCH_INTERNAL_ASSERT(print_inline_);
     code_ << genVariableName(tv);
   }
 
@@ -598,8 +567,25 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   }
 
   void handle(const GetMetaData* gop) final {
-    TORCH_INTERNAL_ASSERT(print_inline_);
-    code_ << gen(gop->in());
+    if (print_inline_) {
+      code_ << gen(gop->in());
+    } else {
+      auto out_type = gop->output(0)->dtype();
+      std::visit(
+          [&](auto&& dtype) {
+            using T = std::decay_t<decltype(dtype)>;
+            if constexpr (std::is_same_v<T, StructOf>) {
+              for (auto& name : dtype.field_names) {
+                indent() << gen(gop->output(0)) << "." << name << " = "
+                         << gen(gop->in()) << "." << name << ";\n";
+              }
+            } else {
+              indent() << gen(gop->output(0)) << " = " << gen(gop->in())
+                       << ";\n";
+            }
+          },
+          out_type.type);
+    }
   }
 
   void handle(const GetAttr* gop) final {
@@ -625,12 +611,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     }
 
     if (auto op = inline_op_str(op_type)) {
-      if (alsoBooleanOperator(op_type) &&
-          uop->out()->dtype() == DataType::Bool) {
-        code_ << stringifyBooleanOp(op_type) << gen(uop->in());
-      } else {
-        code_ << *op << gen(uop->in());
-      }
+      code_ << *op << gen(uop->in());
     } else {
       if (op_type == UnaryOpType::Cast) {
         const auto cast_str =
@@ -672,24 +653,12 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     indent() << "nvfuser_index_t rng_component" << rop->name()
              << " = linear_index" << rop->name() << " % " << multiple << ";\n";
     indent() << "nvfuser_index_t rng_offset" << rop->name() << " = "
-             << rop->getRNGOffset() << ";\n";
+             << genInline(rop->getRNGOffsetVal()) << ";\n";
     indent() << "if (rng_subseq != rng_subseq" << rop->name()
              << " || rng_offset != rng_offset" << rop->name() << ") {\n";
-    if (rop->getRNGSeedVal()) {
-      indent() << "  auto seed = " << genInline(rop->getRNGSeedVal()) << ";\n";
-    } else {
-      indent() << "  auto seed = philox_args.captured_ ?\n";
-      indent() << "      static_cast<uint64_t>(*(philox_args.seed_.ptr)) : \n";
-      indent() << "      philox_args.seed_.val;\n";
-    }
-    if (rop->getRNGOffsetVal()) {
-      indent() << "  rng_result = philox(seed, rng_subseq" << rop->name()
-               << ", " << genInline(rop->getRNGOffsetVal())
-               << " / 4 + rng_offset" << rop->name() << ");\n";
-    } else {
-      indent() << "  rng_result = philox(seed, rng_subseq" << rop->name()
-               << ", philox_offset / 4 + rng_offset" << rop->name() << ");\n";
-    }
+    indent() << "  rng_result = philox(" << genInline(rop->getRNGSeedVal())
+             << ", rng_subseq" << rop->name() << ", "
+             << "rng_offset" << rop->name() << ");\n";
     indent() << "  rng_subseq = rng_subseq" << rop->name() << ";\n";
     indent() << "  rng_offset = rng_offset" << rop->name() << ";\n";
     indent() << "}\n";
@@ -724,13 +693,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       const std::string& rhs) {
     std::stringstream expr;
     if (auto op = inline_op_str(op_type)) {
-      expr << lhs << " ";
-      if (alsoBooleanOperator(op_type) && data_type == DataType::Bool) {
-        expr << stringifyBooleanOp(op_type);
-      } else {
-        expr << *op;
-      }
-      expr << " " << rhs;
+      expr << lhs << " " << *op << " " << rhs;
     } else {
       if (integer_op_str(op_type) && isIntegralType(data_type)) {
         auto int_op = integer_op_str(op_type);
@@ -880,13 +843,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           indent() << kTab << "= " << (bop->lhs()->isScalar() ? cast : "")
                    << gen(bop->lhs()) << "\n";
           indent() << kTab;
-          if (alsoBooleanOperator(op_type) &&
-              bop->out()->dtype() == DataType::Bool) {
-            code_ << stringifyBooleanOp(op_type);
-          } else {
-            code_ << *op;
-          }
-          code_ << " " << (bop->rhs()->isScalar() ? cast : "")
+          code_ << *op << " " << (bop->rhs()->isScalar() ? cast : "")
                 << gen(bop->rhs());
         } else {
           if (integer_op_str(op_type) && isIntegralType(bop->out()->dtype())) {
@@ -1391,6 +1348,33 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
     // Generic set op
     TORCH_INTERNAL_ASSERT(optype == LoadStoreOpType::Set);
+
+    if (!print_inline_ &&
+        std::holds_alternative<StructOf>(ldst->out()->dtype().type)) {
+      auto out_type = std::get<StructOf>(ldst->out()->dtype().type);
+      auto in_type = std::get<StructOf>(ldst->in()->dtype().type);
+      TORCH_INTERNAL_ASSERT(
+          out_type.types.size() == in_type.types.size(),
+          "Mismatched number of fields in struct assignment: ",
+          ldst->out()->dtype(),
+          " = ",
+          ldst->in()->dtype());
+      for (auto& name : out_type.field_names) {
+        TORCH_INTERNAL_ASSERT(
+            in_type.types.find(name) != in_type.types.end(),
+            "Mismatched field in struct assignment: ",
+            ldst->out()->dtype(),
+            ".",
+            name,
+            " = ",
+            ldst->in()->dtype(),
+            ".",
+            name);
+        indent() << gen(ldst->out()) << "." << name << " = " << gen(ldst->in())
+                 << "." << name << ";\n";
+      }
+      return;
+    }
 
     if (!print_inline_) {
       indent() << gen(ldst->out());
@@ -2761,10 +2745,18 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     if (alloc->alias() != nullptr) {
       // Allocate alias another Allocate stmt
       const auto alias_tv = alloc->alias()->buffer()->as<TensorView>();
-      indent() << "// Alias Allocation - " << alloc->memoryType() << "\n";
-      indent() << "auto& " << genVariableName(tv) << " = "
-               << genVariableName(alias_tv) << ";\n";
-
+      if (alias_tv->getDataType() == tv->getDataType()) {
+        indent() << "// Alias Allocation - " << alloc->memoryType() << "\n";
+        indent() << "auto& " << genVariableName(tv) << " = "
+                 << genVariableName(alias_tv) << ";\n";
+      } else {
+        indent() << "// Alias Allocation (changing dtype) - "
+                 << alloc->memoryType() << "\n";
+        indent() << "auto " << genVariableName(tv)
+                 << " = *reinterpret_cast<Array<" << buffer_dtype << ", "
+                 << genInline(size) << ">*>(&" << genVariableName(alias_tv)
+                 << ");\n";
+      }
     } else {
       // Standard Memory Allocation
       switch (tv->getMemoryType()) {
@@ -2773,17 +2765,16 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
                    << "\n";
           break;
         case MemoryType::Shared:
-          // Align Offset Position
-          indent() << "smem_offset = alignBufferSize(smem_offset, "
-                   // Always align to 128b / 16B
-                   << 16 << ");\n";
+          // Assume we have already aligned offsets to 16B
+          TORCH_CHECK(
+              alloc->address() != nullptr,
+              "Allocation did not receive an address: ",
+              alloc->toString());
           // Shared Memory Pointer
           indent() << buffer_dtype << "* " << genVariableName(tv)
                    << " = reinterpret_cast<" << buffer_dtype << "*>"
-                   << "(array + smem_offset);\n";
-          // Increment Offset Position
-          indent() << "smem_offset += (" << genInline(size) << " * sizeof("
-                   << buffer_dtype << "));\n";
+                   << "(array + smem_offset + " << genInline(alloc->address())
+                   << ");\n";
           break;
         case MemoryType::Local: {
           auto va = kernel_->summary().vectorized_accesses;
@@ -2925,6 +2916,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   std::vector<bool> aligned_scope_exprs_;
   //! Keep track of the Val* and its generated variable name
   std::unordered_map<const Val*, std::string> val_to_name_;
+  //! basically kernel_->parameters(), but as a set so it's faster to lookup
+  std::unordered_set<const Val*> kernel_params_;
 };
 
 } // namespace

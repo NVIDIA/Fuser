@@ -224,7 +224,7 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
   //! added back to the arguments, so they can be used as inputs to successive
   //! segments. Returns a map that links each NvFuser Val to its corresponding
   //! tensor.
-  std::unordered_map<Val*, const ArgAbstract*> runSegmentsWithInputs(
+  std::unordered_map<Val*, const PolymorphicValue*> runSegmentsWithInputs(
       KernelArgumentHolder& args);
 
   //! Interface to run a single kernel, either one kernel for single-kernel
@@ -253,10 +253,9 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
   //! Executors holding compiled kernels
   std::vector<FusionExecutor> executors_;
 
-  std::vector<std::unique_ptr<Fusion>> fusions_;
-
-  // KernelArgumentHolder containing the metadata associated with arguments used
-  // to construct this FusionKernelRuntime
+  // A metadata copy of initial arguments used to contruct this
+  // FusionKernelRuntime. Used during deserialization to schedule the fusion
+  // rather than storing the scheduled fusion directly.
   KernelArgumentHolder args_metadata_;
 
   //! Heuristics object holding scheduler entries for all segments

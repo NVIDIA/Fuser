@@ -212,10 +212,6 @@ void Fusion::removeVal(Val* val) {
 void Fusion::addInput(Val* input) {
   assertInContainer(input, "Cannot register input ");
 
-  TORCH_INTERNAL_ASSERT(
-      input->getDataType() != DataType::Index,
-      "Data type Index is a local compile time data type only, it cannot be used as an input in case it was generated from another kernel.");
-
   if (input->getValType().value() == ValType::TensorView) {
     auto tv = input->as<TensorView>();
     tv->setMemoryType(MemoryType::Global);
@@ -223,16 +219,6 @@ void Fusion::addInput(Val* input) {
     TORCH_CHECK(
         !input->isConst(),
         "Immediate scalar value cannot be added as an input. It is not necessary to pass it as an input.");
-    TORCH_CHECK(
-        !(!input->isA<TensorView>() &&
-          input->getDataType() != DataType::Double &&
-          input->getDataType() != DataType::Int &&
-          input->getDataType() != DataType::ComplexDouble &&
-          input->getDataType() != DataType::Bool),
-        "Found ",
-        input->getDataType().value(),
-        ". Using a  scalar as an input with dtype other than DataType::{Double,Int,ComplexDouble,Bool} is not supported ",
-        "as they are the only supported types in Python.");
   }
 
   inputs_.push_back(input);

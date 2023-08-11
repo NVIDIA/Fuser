@@ -35,33 +35,6 @@ nvfuser::DataType mapToDtypeStruct(serde::DataType t);
 //! A function to map the serde dtype to its corresponding aten dtype
 at::ScalarType mapToAtenDtype(serde::DataType t);
 
-::flatbuffers::Offset<serde::Scalar> serializeScalar(
-    flatbuffers::FlatBufferBuilder& builder,
-    const nvfuser::PolymorphicValue& v,
-    nvfuser::DataType t);
-
-::flatbuffers::Offset<serde::Scalar> serializeScalar(
-    flatbuffers::FlatBufferBuilder& builder,
-    bool v,
-    nvfuser::DataType t);
-
-::flatbuffers::Offset<serde::Scalar> serializeScalar(
-    flatbuffers::FlatBufferBuilder& builder,
-    int64_t v,
-    nvfuser::DataType t);
-
-::flatbuffers::Offset<serde::Scalar> serializeScalar(
-    flatbuffers::FlatBufferBuilder& builder,
-    double v,
-    nvfuser::DataType t);
-
-::flatbuffers::Offset<serde::Scalar> serializeScalar(
-    flatbuffers::FlatBufferBuilder& builder,
-    c10::complex<double> v,
-    nvfuser::DataType t);
-
-PolymorphicValue parsePolymorphicValue(const serde::Scalar* c);
-
 template <typename T>
 std::vector<T> parseVector(const flatbuffers::Vector<T>* fb_vector) {
   std::vector<T> result(fb_vector->begin(), fb_vector->end());

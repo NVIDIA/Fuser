@@ -44,9 +44,6 @@ struct KernelSummary {
   //! Indicate the need to generate random numbers
   bool has_philox_op = false;
 
-  //! Maximum RNG offset used
-  int max_rng_offsets = -1;
-
   //! Do we have any block reductions?
   bool has_block_reductions = false;
 
@@ -230,6 +227,10 @@ class TORCH_CUDA_CU_API Kernel final : public Fusion {
   //! Debug dump of the Kernel IR
   void print() const;
 
+  const std::vector<Val*>& parameters() const {
+    return parameters_;
+  }
+
  protected:
   using IrContainer::registerExpr;
   using IrContainer::registerVal;
@@ -259,6 +260,13 @@ class TORCH_CUDA_CU_API Kernel final : public Fusion {
   WarpPaddedParallelInfo warp_padded_parallel_info_;
 
   KernelPerformanceProfile profile_;
+
+  // Parameters of the kernel. The parameters contain the inputs and outputs of
+  // the kernel, intermediate buffers, and special items such as RNG state and
+  // tensor map for TMA support, etc. The parameters are not required to have no
+  // definition. If a parameter has a definition, its definition will be
+  // evaluated before the kernel is executed.
+  std::vector<Val*> parameters_;
 };
 
 //! A special debugging proxy for Kernel.
