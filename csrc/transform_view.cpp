@@ -265,7 +265,7 @@ class SplitTransform final : public ViewTransform {
         "\t Domain Size:\t",
         current_transformed_domain.size());
 
-    auto factor = IrBuilder::create<Val>(split_factor_);
+    auto factor = IrBuilder::create<Val>(split_factor_, DataType::Index);
 
     IterDomain* id = current_transformed_domain.at(index_);
     if (!id->isRFactorProduct()) {

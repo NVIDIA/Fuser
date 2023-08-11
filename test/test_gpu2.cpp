@@ -2898,11 +2898,9 @@ TEST_F(NVFuserTest, FusionWelfordShmoo_CUDA) {
       DataType::Float,
       DataType::Half};
 
-#if defined(CUDA_VERSION) && CUDA_VERSION >= 11000
   if (at::cuda::getDeviceProperties(0)->major >= 8) {
     dtypes.insert(dtypes.end(), DataType::BFloat16);
   }
-#endif
 
   std::vector<int> red_axis = {1, 0};
   std::vector<int> output_dims = {160, 320};
@@ -9094,17 +9092,17 @@ TEST_F(NVFuserTest, FusionChannelsLastParser_CUDA) {
   // 2. use a fuzzy compare (ignore non-significant whitespaces for example)
   const std::string expected_kernel = R"(
 __global__ void CUDAGeneratedKernel(Tensor<__half, 4, 4> T0, Tensor<__half, 4, 4> T2, Tensor<__half, 4, 4> T7) {
-  int64_t i0;
+  nvfuser_index_t i0;
   i0 = T0.logical_size[2] * T0.logical_size[1];
-  int64_t i1;
+  nvfuser_index_t i1;
   i1 = ((nvfuser_index_t)threadIdx.x) + (128 * ((nvfuser_index_t)blockIdx.x));
-  int64_t i2;
+  nvfuser_index_t i2;
   i2 = (T0.logical_size[1] * T0.logical_size[2]) * T0.logical_size[3];
-  int64_t i3;
+  nvfuser_index_t i3;
   i3 = i1 % i2;
-  int64_t i4;
+  nvfuser_index_t i4;
   i4 = T0.logical_size[2] * T0.logical_size[3];
-  int64_t i5;
+  nvfuser_index_t i5;
   i5 = i3 % i4;
   if ((i1 < (((T0.logical_size[0] * T0.logical_size[1]) * T0.logical_size[2]) * T0.logical_size[3]))) {
     __half T9[1];

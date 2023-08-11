@@ -804,7 +804,7 @@ ForwardNormResult instance_norm(
       // fusion->addOutput(new_mean_channels_only);
       fusion->aliasOutputToInput(new_mean_channels_only, running_mean);
 
-      auto num_feature_decrement = sub(N, x->container()->oneVal());
+      auto num_feature_decrement = sub(N, x->container()->oneVal(N->dtype()));
       auto unbiased_var =
           mul(welford_out.var_sum, reciprocal(num_feature_decrement));
       auto current_var_hat = mul(unbiased_var, momentum);

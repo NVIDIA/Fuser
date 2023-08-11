@@ -151,6 +151,7 @@ class TORCH_CUDA_CU_API SimplifyingIrBuilder : public IrBuilder {
   static Val* negExpr(Val* val);
   static Val* logicalNotExpr(Val* val);
   static Val* bitwiseNotExpr(Val* val);
+  static Val* maybeCastExpr(DataType dtype, Val* val);
 
   static Val* addExpr(
       Val* lhs,

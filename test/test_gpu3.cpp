@@ -1510,8 +1510,8 @@ TEST_F(NVFuserTest, FusionIndexHoist1_CUDA) {
         exprs.at(0)->toString());
     auto hoisted_index = exprs.at(0)->as<kir::Allocate>()->buffer();
     TORCH_CHECK(
-        hoisted_index->dtype() == DataType::Int32,
-        "Invalid data type of hoisted indices. Should be Int32 but: ",
+        hoisted_index->dtype() == DataType::Index,
+        "Invalid data type of hoisted indices. Should be nvfuser_index_t but: ",
         hoisted_index->dtype());
     kir::Predicate* pred = nullptr;
     for (auto expr : exprs) {
@@ -1728,9 +1728,9 @@ TEST_F(NVFuserTest, FusionIndexHoist3_CUDA) {
 
   const std::string expected_kernel = R"(
 __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> T2) {
-  int64_t i0;
+  nvfuser_index_t i0;
   i0 = ((nvfuser_index_t)threadIdx.x) + (256 * ((nvfuser_index_t)blockIdx.x));
-  int64_t i1;
+  nvfuser_index_t i1;
   i1 = T0.logical_size[0] * T0.logical_size[1];
   bool b2;
   b2 = i0 < i1;
@@ -4681,16 +4681,17 @@ TEST_F(NVFuserTest, FusionExpandRepro1860_CUDA) {
     if (i == 0) {
       domain1[i] = IterDomainBuilder(
                        FusionGuard::getCurFusion()->zeroVal(),
-                       IrBuilder::create<Val>(1L))
+                       IrBuilder::create<Val>(1L, DataType::Index))
                        .iter_type(IterType::Broadcast)
                        .build();
     } else {
-      domain1[i] = IterDomainBuilder(
-                       FusionGuard::getCurFusion()->zeroVal(),
-                       IrBuilder::create<Val>(1L))
-                       .expanded_extent(IrBuilder::create<Val>(1L + i))
-                       .iter_type(IterType::Broadcast)
-                       .build();
+      domain1[i] =
+          IterDomainBuilder(
+              FusionGuard::getCurFusion()->zeroVal(),
+              IrBuilder::create<Val>(1L, DataType::Index))
+              .expanded_extent(IrBuilder::create<Val>(1L + i, DataType::Index))
+              .iter_type(IterType::Broadcast)
+              .build();
     }
   }
 
@@ -4830,11 +4831,12 @@ TEST_F(NVFuserTest, FusionExpandBadShapeTest_CUDA) {
   std::vector<IterDomain*> domains = {
       IterDomainBuilder(
           FusionGuard::getCurFusion()->zeroVal(),
-          IrBuilder::create<Val>(DataType::Int))
+          IrBuilder::create<Val>(DataType::Index))
           .build(),
       IterDomainBuilder(
-          FusionGuard::getCurFusion()->zeroVal(), IrBuilder::create<Val>(1L))
-          .expanded_extent(IrBuilder::create<Val>(10L))
+          FusionGuard::getCurFusion()->zeroVal(),
+          FusionGuard::getCurFusion()->oneVal())
+          .expanded_extent(IrBuilder::create<Val>(10L, DataType::Index))
           .iter_type(IterType::Broadcast)
           .build()};
 
@@ -5139,7 +5141,7 @@ TEST_F(NVFuserTest, FusionCheckedSymbolicShape_CUDA) {
     EXPECT_THAT(
         [&]() { matched_add(a, c); },
         ::testing::ThrowsMessage<c10::Error>(
-            ::testing::HasSubstr("Attempting to bind")));
+            ::testing::HasSubstr("Conflicting sizes")));
   }
 }
 
@@ -5147,7 +5149,7 @@ TEST_F(NVFuserTest, FusionSizeDependentData_CUDA) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
-  Val* s1 = IrBuilder::create<Val>(DataType::Int);
+  Val* s1 = IrBuilder::create<Val>(DataType::Index);
   auto builder = TensorViewBuilder().shape(std::vector<Val*>{s1});
   TensorView* tv0 = builder.build();
 
