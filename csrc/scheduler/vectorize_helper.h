@@ -179,11 +179,7 @@ class TORCH_CUDA_CU_API ContiguousInnerDimensionsMapper
 
   Val* getProjectedExtent(IterDomain* id) const {
     if (projected_extent_.find(id) == projected_extent_.end()) {
-      if (recording_ || true) {
-        TORCH_INTERNAL_ASSERT(false, "Not projected: ", id->toString());
-      } else {
-        return id->container()->oneVal();
-      }
+      TORCH_INTERNAL_ASSERT(false, "Not projected: ", id->toString());
     }
     return projected_extent_.at(id);
   }

@@ -147,6 +147,7 @@ template <typename MergeOrSplit>
 void ContiguousInnerDimensionsMapper::combinePE(
     const MergeOrSplit* merge_or_split,
     bool outer_maps) {
+  // Nothing to do unless recording
   if (!recording_) {
     return;
   }
@@ -190,6 +191,7 @@ void ContiguousInnerDimensionsMapper::combinePE(
 template <typename MergeOrSplit>
 void ContiguousInnerDimensionsMapper::distributePE(
     const MergeOrSplit* merge_or_split) {
+  // Nothing to do unless recording
   if (!recording_) {
     return;
   }
