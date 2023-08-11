@@ -307,7 +307,10 @@ TEST_F(VectorizeHelperTest, BackwardMapper2_CUDA) {
   auto mapper = vectorize_helper::ContiguousInnerDimensionsMapper::map(
       tv2, {tv2->axis(1), tv2->axis(2)});
 
-  EXPECT_EQ(mapper.getProjectedExtent(tv2->axis(0))->evaluateInt(), 1);
+  EXPECT_THAT(
+      [&]() { mapper.getProjectedExtent(tv2->axis(0)); },
+      ::testing::ThrowsMessage<c10::Error>(
+          ::testing::HasSubstr("Not projected")));
   EXPECT_EQ(mapper.getProjectedExtent(tv2->axis(1))->evaluateInt(), 3);
   EXPECT_EQ(mapper.getProjectedExtent(tv2->axis(2))->evaluateInt(), 4);
   // Inner dim fully maps, outer dim of split partially maps
@@ -627,7 +630,10 @@ TEST_F(VectorizeHelperTest, ForwardMapper2_CUDA) {
   auto mapper = vectorize_helper::ContiguousInnerDimensionsMapper::map(
       tv0, {tv0->axis(1), tv0->axis(2)});
 
-  EXPECT_EQ(mapper.getProjectedExtent(tv0->axis(0))->evaluateInt(), 1);
+  EXPECT_THAT(
+      [&]() { mapper.getProjectedExtent(tv0->axis(0)); },
+      ::testing::ThrowsMessage<c10::Error>(
+          ::testing::HasSubstr("Not projected")));
   EXPECT_EQ(mapper.getProjectedExtent(tv0->axis(1))->evaluateInt(), 3);
   EXPECT_EQ(mapper.getProjectedExtent(tv0->axis(2))->evaluateInt(), 4);
   // Inner dim fully maps, outer dim of split partially maps
