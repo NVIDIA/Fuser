@@ -1963,7 +1963,8 @@ class PersistentKernelScheduler : public SchedulerEntry {
 
     // check if there is enough register and shared memory for persistence
     const auto
-        [persistent_buffer_size,
+        [register_persistent_buffer_size,
+         shared_memory_persistent_buffer_size,
          available_register_buffer_size,
          has_enough_regs_and_smem] =
             normalization_scheduler_utils::checkPersistentBufferSize(
@@ -1986,12 +1987,13 @@ class PersistentKernelScheduler : public SchedulerEntry {
 
     if (inner_reduction && outer_reduction) {
       // check if we can schedule the combined reductions with a reasonable
-      // batch size without register spills.
+      // batch size without large register spills.
       if (!normalization_scheduler_utils::
                getOptionalInnerOuterPersistentBufferBatches(
                    properties.total_reduction_numel,
                    properties.total_iteration_numel,
-                   persistent_buffer_size,
+                   register_persistent_buffer_size,
+                   shared_memory_persistent_buffer_size,
                    (int64_t)vectorize_factor,
                    warp_size,
                    false)
@@ -2010,10 +2012,10 @@ class PersistentKernelScheduler : public SchedulerEntry {
     // Maximum number of iteration dimensions we can have and still be
     // persistent.
     const int64_t max_multi_reduction_factor = scheduler_utils::safeDiv(
-        available_register_buffer_size, persistent_buffer_size);
+        available_register_buffer_size, register_persistent_buffer_size);
 
     const int64_t required_sm_per_norm =
-        ceilDiv(persistent_buffer_size, scheduler_utils::register_file_size);
+        ceilDiv(register_persistent_buffer_size, scheduler_utils::register_file_size);
 
     // If the persistence requires over half the device don't do grid
     // persistence as we can't overlap the grid comms.
@@ -2025,7 +2027,7 @@ class PersistentKernelScheduler : public SchedulerEntry {
     }
 
     const int64_t norm_per_sm =
-        ceilDiv(scheduler_utils::register_file_size, persistent_buffer_size);
+        ceilDiv(scheduler_utils::register_file_size, register_persistent_buffer_size);
 
     // If outer reduction, don't go persistent if we can't fit half a warp in
     // the iter domain of the persistent reduction.

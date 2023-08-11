@@ -185,6 +185,7 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
           inner_dim_numel,
           outer_dim_numel,
           register_persistent_buffer_size,
+          shared_memory_persistent_buffer_size,
           iop.inner_vect,
           dev_prop->warpSize,
           ignore_register_size_limit);
@@ -316,7 +317,11 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
       iop.bdimy,
       LaunchParams::UNINITIALIZED_VAL);
 
-  rparams->tag = "InnerOuter Persistent Heuristic.\n";
+  if(rparams->shared_mem_persistent_buffer){
+    rparams->tag = "InnerOuter Register and Shared Memory Persistent Heuristic.\n";
+  }else{
+    rparams->tag = "InnerOuter Register Persistent Heuristic.\n";
+  }
 
   if (isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
     debug() << "\n===== Combined InnerOuter Reduction Stats ========\n"

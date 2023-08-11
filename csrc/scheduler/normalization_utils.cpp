@@ -629,7 +629,8 @@ std::pair<std::optional<int64_t>, int64_t>
 getOptionalInnerOuterPersistentBufferBatches(
     const int64_t inner_dim_numel,
     const int64_t outer_dim_numel,
-    const int64_t persistent_buffer_size,
+    const int64_t register_persistent_buffer_size,
+    const int64_t shared_memory_persistent_buffer_size,
     const int64_t vectorize_factor,
     const int64_t warp_size,
     const bool ignore_register_size_limit) {
@@ -670,7 +671,7 @@ getOptionalInnerOuterPersistentBufferBatches(
   //! of inputs and outputs.
   auto getMaximumInnerOuterPersistentBufferBatch = [&]() -> int64_t {
     int64_t register_per_batch = ceilDiv(
-        persistent_buffer_size / inner_dim_numel * vectorize_factor,
+        register_persistent_buffer_size / inner_dim_numel * vectorize_factor,
         scheduler_utils::bytes_per_register);
     return scheduler_utils::safeDiv(
         scheduler_utils::max_registers_per_thread -
@@ -683,19 +684,26 @@ getOptionalInnerOuterPersistentBufferBatches(
   const int64_t threads_per_block_max = getThreadsPerSMGivenRegPerThread(255l);
   const int64_t batch_min = getMinimumBatch();
   const int64_t batch_max = getMaximumInnerOuterPersistentBufferBatch();
-
-  // Start from the smallest threads_per_block. If the corresponding batch size
-  // is larger than batch_max, try increase threads per block by a warp until
-  // the threads_per_block reaches threads_per_block_max or the batch size
-  // reaches batch_min.
   int64_t threads_per_block = threads_per_block_min;
   int64_t inner_batch = ceilDiv(after_vectorization, threads_per_block);
-  while (inner_batch > batch_max &&
-         threads_per_block + warp_size <= threads_per_block_max &&
-         ceilDiv(after_vectorization, threads_per_block + warp_size) >=
-             batch_min) {
-    threads_per_block += warp_size;
+
+  // When shared memory is used to store persistent buffers, hidden size is large.
+  // Set threads_per_block to maximum to avoid large bath sizes.
+  if(shared_memory_persistent_buffer_size > 0) {
+    threads_per_block = threads_per_block_max;
     inner_batch = ceilDiv(after_vectorization, threads_per_block);
+  }else{
+    // Start from the smallest threads_per_block. If the corresponding batch size
+    // is larger than batch_max, try increase threads per block by a warp until
+    // the threads_per_block reaches threads_per_block_max or the batch size
+    // reaches batch_min.
+    while (inner_batch > batch_max &&
+          threads_per_block + warp_size <= threads_per_block_max &&
+          ceilDiv(after_vectorization, threads_per_block + warp_size) >=
+              batch_min) {
+      threads_per_block += warp_size;
+      inner_batch = ceilDiv(after_vectorization, threads_per_block);
+    }
   }
 
   // The maximum feature size can be processed without register spills and
@@ -750,7 +758,7 @@ int64_t getSharedMemoryOverheadPerBlock(
   return available_shared_memory_buffer_size;
 }
 
-std::tuple<int64_t, int64_t, bool> checkPersistentBufferSize(
+std::tuple<int64_t, int64_t, int64_t, bool> checkPersistentBufferSize(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache,
@@ -776,7 +784,7 @@ std::tuple<int64_t, int64_t, bool> checkPersistentBufferSize(
       : std::min(
             persistent_buffer_size_info.persistent_buffer_size,
             persistent_buffer_size_info.projected_persistent_buffer_size);
-
+  int64_t shared_memory_persistent_buffer_size = 0;
   // in combined_inner_outer_reduction, the partial results of outer
   // reductions must be persistent, allow register spill avoid segmentation
   int64_t inner_reduction_count = 0;
@@ -849,6 +857,7 @@ std::tuple<int64_t, int64_t, bool> checkPersistentBufferSize(
               intermediate_buffer_size &&
           available_shared_memory_buffer_size >= cached_input_buffer_size_roundup;
       register_persistent_buffer_size = intermediate_buffer_size;
+      shared_memory_persistent_buffer_size = cached_input_buffer_size_roundup;
       std::cout << "cached_input_buffer_size: " << cached_input_buffer_size << " intermediate_buffer_size: " << intermediate_buffer_size << ", has_enough_regs_and_smem: " << has_enough_regs_and_smem << std::endl;
     }
   } else if (inner_reduction_count > 0) {
@@ -857,6 +866,10 @@ std::tuple<int64_t, int64_t, bool> checkPersistentBufferSize(
         std::max(
             available_shared_memory_buffer_size,
             available_register_buffer_size) >= register_persistent_buffer_size;
+    if(register_persistent_buffer_size > scheduler_utils::register_file_size && has_enough_regs_and_smem) {
+      shared_memory_persistent_buffer_size = register_persistent_buffer_size;
+      register_persistent_buffer_size = 0;
+    }
   } else {
     // outer reduction, allows only register persistent
     has_enough_regs_and_smem =
@@ -864,6 +877,7 @@ std::tuple<int64_t, int64_t, bool> checkPersistentBufferSize(
   }
   return std::make_tuple(
       register_persistent_buffer_size,
+      shared_memory_persistent_buffer_size,
       available_register_buffer_size,
       has_enough_regs_and_smem);
 }

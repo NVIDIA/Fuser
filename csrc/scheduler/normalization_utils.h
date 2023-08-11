@@ -201,15 +201,16 @@ std::pair<std::optional<int64_t>, int64_t>
 getOptionalInnerOuterPersistentBufferBatches(
     const int64_t inner_dim_numel,
     const int64_t outer_dim_numel,
-    const int64_t persistent_buffer_size,
+    const int64_t register_persistent_buffer_size,
+    const int64_t shared_memory_persistent_buffer_size,
     const int64_t vectorize_factor,
     const int64_t warp_size,
     const bool ignore_register_size_limit);
 
 //! Check if there are enough registers and shared memories to keep the
-//! persistent buffers on chip. Return persistent_buffer_size,
+//! persistent buffers on chip. Return register_persistent_buffer_size, shared_memory_persistent_buffer_size,
 //! available_register_buffer_size, has_enough_regs_and_smem
-std::tuple<int64_t, int64_t, bool> checkPersistentBufferSize(
+std::tuple<int64_t, int64_t, int64_t, bool> checkPersistentBufferSize(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache,
