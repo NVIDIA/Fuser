@@ -1103,15 +1103,17 @@ std::unordered_map<Val*, const PolymorphicValue*> FusionKernelRuntime::
 
     int total_io_bytes_processed = 0;
     for (auto inp : fusionSegments()->inputs()) {
-      if (inp->isA<TensorView>()) {
+      if (auto tv = dynamic_cast<TensorView*>(inp)) {
         auto aten_ten = args_manager.checkTensorMap(inp);
-        total_io_bytes_processed += aten_ten->as<at::Tensor>().numel();
+        total_io_bytes_processed +=
+            aten_ten->as<at::Tensor>().numel() * dataTypeSize(tv->dtype());
       }
     }
     for (auto outp : fusionSegments()->outputs()) {
-      if (outp->isA<TensorView>()) {
+      if (auto tv = dynamic_cast<TensorView*>(outp)) {
         auto aten_ten = args_manager.checkTensorMap(outp);
-        total_io_bytes_processed += aten_ten->as<at::Tensor>().numel();
+        total_io_bytes_processed +=
+            aten_ten->as<at::Tensor>().numel() * dataTypeSize(tv->dtype());
       }
     }
 
