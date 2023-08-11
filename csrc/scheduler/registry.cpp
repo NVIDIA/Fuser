@@ -51,15 +51,6 @@ bool rejectScheduleFusionInputRequirement(
         " must be fusion input.");
     return true;
   }
-  if (expr->input(0)->uses().size() > 1) {
-    scheduler_debug_utils::canScheduleRejectReason(
-        schedule_stragety,
-        "First input of ",
-        expr->getOpString(),
-        " can only be used by ",
-        expr->getOpString());
-    return true;
-  }
   return false;
 }
 
