@@ -313,13 +313,7 @@ void IndexLowering::handle(const IndexSelectOp* sop) {
 
 void IndexLowering::handle(const TorchGatherOp* top) {
   auto lowered_index = lowerSrcIndex(top->input(1), top->output(0));
-  if (GpuLower::current()->kernel()->indexType() !=
-      top->indexTv()->getDataType().value()) {
-    auto lowered_index_cast =
-        IrBuilder::newScalar(GpuLower::current()->kernel()->indexType());
-    IrBuilder::create<UnaryOp>(
-        UnaryOpType::Cast, lowered_index_cast, lowered_index);
-  }
+  lowered_index = IrBuilder::maybeCastExpr(DataType::Index, lowered_index);
 
   const std::unordered_map<IterDomain*, Val*> override_index = {
       {top->getIndexedID(), lowered_index}};
@@ -334,6 +328,8 @@ void IndexLowering::handle(const TorchGatherOp* top) {
 void IndexLowering::handle(const ScatterOp* sop) {
   auto lowered_index = lowerSrcIndex(sop->indexTv(), sop->output(0));
   auto lowered_src = lowerSrcIndex(sop->srcTv(), sop->output(0));
+
+  lowered_index = IrBuilder::maybeCastExpr(DataType::Index, lowered_index);
 
   const std::unordered_map<int, Val*> override_index_out = {
       {sop->dim(), lowered_index}};
