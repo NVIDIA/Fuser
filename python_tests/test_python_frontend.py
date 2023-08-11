@@ -329,16 +329,14 @@ class TestNvFuserFrontend(TestCase):
             keepDim: bool,
         ) -> None:
             inputs = fd.define_tensor(
-                symbolic_sizes=[-1, -1, -1],
+                shape=[-1, -1, -1],
                 contiguity=[True, True, True],
                 dtype=DataType.Float,
             )
             weights = fd.define_tensor(
-                symbolic_sizes=[-1], contiguity=[True], dtype=DataType.Float
+                shape=[-1], contiguity=[True], dtype=DataType.Float
             )
-            bias = fd.define_tensor(
-                symbolic_sizes=[-1], contiguity=[True], dtype=DataType.Float
-            )
+            bias = fd.define_tensor(shape=[-1], contiguity=[True], dtype=DataType.Float)
             sum0 = fd.ops.sum(inputs, axes=[normalization_axis], keepdim=keepDim)
             norm_const = fd.define_scalar(norm_size)
             mean = fd.ops.div(sum0, norm_const)
@@ -371,16 +369,14 @@ class TestNvFuserFrontend(TestCase):
             keepDim: bool,
         ) -> None:
             inputs = fd.define_tensor(
-                symbolic_sizes=[-1, -1, -1],
+                shape=[-1, -1, -1],
                 contiguity=[True, True, True],
                 dtype=DataType.Float,
             )
             weights = fd.define_tensor(
-                symbolic_sizes=[-1], contiguity=[True], dtype=DataType.Float
+                shape=[-1], contiguity=[True], dtype=DataType.Float
             )
-            bias = fd.define_tensor(
-                symbolic_sizes=[-1], contiguity=[True], dtype=DataType.Float
-            )
+            bias = fd.define_tensor(shape=[-1], contiguity=[True], dtype=DataType.Float)
             var, mean = fd.ops.var_mean(
                 inputs, axes=[normalization_axis], correction=0, keepdim=keepDim
             )
@@ -455,12 +451,12 @@ class TestNvFuserFrontend(TestCase):
             keepDim: bool,
         ) -> None:
             inputs = fd.define_tensor(
-                symbolic_sizes=[-1, -1, -1],
+                shape=[-1, -1, -1],
                 contiguity=[True, True, True],
                 dtype=DataType.Float,
             )
             weights = fd.define_tensor(
-                symbolic_sizes=[-1], contiguity=[True], dtype=DataType.Float
+                shape=[-1], contiguity=[True], dtype=DataType.Float
             )
             inputs_sq = fd.ops.mul(inputs, inputs)
             sum0 = fd.ops.sum(inputs_sq, axes=[normalization_axis], keepdim=keepDim)
@@ -581,10 +577,8 @@ class TestNvFuserFrontend(TestCase):
         ]
 
         def fusion_func_1(fd: FusionDefinition):
-            t0 = fd.define_tensor(
-                symbolic_sizes=[-1, -1, -1], contiguity=[True, True, True]
-            )
-            t1 = fd.define_tensor(symbolic_sizes=[-1], contiguity=[True])
+            t0 = fd.define_tensor(shape=[-1, -1, -1], contiguity=[True, True, True])
+            t1 = fd.define_tensor(shape=[-1], contiguity=[True])
 
             t0_sizes = fd.ops.tensor_sizes(t0)
 
@@ -594,10 +588,8 @@ class TestNvFuserFrontend(TestCase):
             fd.add_output(t2)
 
         def fusion_func_2(fd: FusionDefinition):
-            t0 = fd.define_tensor(
-                symbolic_sizes=[-1, -1, -1], contiguity=[True, True, True]
-            )
-            t1 = fd.define_tensor(symbolic_sizes=[-1], contiguity=[True])
+            t0 = fd.define_tensor(shape=[-1, -1, -1], contiguity=[True, True, True])
+            t1 = fd.define_tensor(shape=[-1], contiguity=[True])
 
             t1_b = fd.ops.broadcast_in_dim(t1, inputs_1[0].size(), [2])
             t2 = fd.ops.add(t0, t1_b)
@@ -605,10 +597,8 @@ class TestNvFuserFrontend(TestCase):
             fd.add_output(t2)
 
         def fusion_func_3(fd: FusionDefinition):
-            t0 = fd.define_tensor(
-                symbolic_sizes=[-1, -1, -1], contiguity=[True, True, True]
-            )
-            t1 = fd.define_tensor(symbolic_sizes=[-1], contiguity=[True])
+            t0 = fd.define_tensor(shape=[-1, -1, -1], contiguity=[True, True, True])
+            t1 = fd.define_tensor(shape=[-1], contiguity=[True])
 
             t1_b = fd.ops.broadcast_in_dim(t1, inputs_2[0].size(), [2])
             t2 = fd.ops.add(t0, t1_b)
@@ -659,9 +649,7 @@ class TestNvFuserFrontend(TestCase):
     # Testing a scenario where the broadcast is necessary to realize the output
     def test_tensor_sizes_with_output_bcast(self):
         def fusion_func(fd: FusionDefinition):
-            t0 = fd.define_tensor(
-                symbolic_sizes=[-1, -1, -1], contiguity=[True, True, True]
-            )
+            t0 = fd.define_tensor(shape=[-1, -1, -1], contiguity=[True, True, True])
             t0_sizes = fd.ops.tensor_sizes(t0)
 
             t1 = fd.ops.sum(t0, axes=[2])
@@ -695,15 +683,9 @@ class TestNvFuserFrontend(TestCase):
     # Testing an expand followed by a  broadcast
     def test_tensor_sizes_expand_bcast(self):
         def fusion_func(fd: FusionDefinition):
-            t0 = fd.define_tensor(
-                symbolic_sizes=[-1, -1, -1], contiguity=[True, True, True]
-            )
-            t1 = fd.define_tensor(
-                symbolic_sizes=[-1, 1, -1], contiguity=[True, None, True]
-            )
-            t2 = fd.define_tensor(
-                symbolic_sizes=[-1, 1, -1], contiguity=[True, None, True]
-            )
+            t0 = fd.define_tensor(shape=[-1, -1, -1], contiguity=[True, True, True])
+            t1 = fd.define_tensor(shape=[-1, 1, -1], contiguity=[True, None, True])
+            t2 = fd.define_tensor(shape=[-1, 1, -1], contiguity=[True, None, True])
             t0_sizes = fd.ops.tensor_sizes(t0)
 
             t1_b = fd.ops.broadcast_in_dim(t1, t0_sizes, [0, 1, 2])
@@ -853,7 +835,7 @@ class TestNvFuserFrontend(TestCase):
         ]
 
         def fusion_func(fd: FusionDefinition):
-            t0 = fd.define_tensor(symbolic_sizes=[-1], contiguity=[True])
+            t0 = fd.define_tensor(shape=[-1], contiguity=[True])
             t1 = fd.define_tensor(sizes=t1_sizes, strides=[4, 1, 1])
             t2 = fd.define_tensor(sizes=t2_sizes, strides=[4, 4, 1])
             t3 = fd.ops.squeeze(t1, t1_sizes, [0, -1])
@@ -939,7 +921,7 @@ class TestNvFuserFrontend(TestCase):
 
         def fusion_func(fd: FusionDefinition):
             t0 = fd.define_tensor(
-                symbolic_sizes=[0, 0], contiguity=[True, True], dtype=DataType.Float
+                shape=[0, 0], contiguity=[True, True], dtype=DataType.Float
             )
             t1 = fd.ops.relu(t0)
             fd.add_output(t1)
@@ -1321,7 +1303,7 @@ class TestNvFuserFrontend(TestCase):
             s1 = fd.define_scalar()
             s2 = fd.ops.add(s0, s1)
             c0 = fd.define_scalar(1.0, DataType.Float)
-            t3 = fd.ops.full(size=[2, 2], arg=c0, dtype=DataType.Float)
+            t3 = fd.ops.full(shape=[2, 2], fill_value=c0, dtype=DataType.Float)
             t4 = fd.ops.mul(t3, s2)
             fd.add_output(t4)
 
@@ -1744,13 +1726,13 @@ class TestNvFuserFrontend(TestCase):
 
         def nvfuser_fusion(fd: FusionDefinition, prob) -> None:
             T0 = fd.define_tensor(
-                symbolic_sizes=[-1, -1, -1, -1],
+                shape=[-1, -1, -1, -1],
                 contiguity=[True, True, True, True],
                 dtype=DataType.Float,
                 is_cpu=False,
             )
             T1 = fd.define_tensor(
-                symbolic_sizes=[1, 1, -1, -1],
+                shape=[1, 1, -1, -1],
                 contiguity=[None, None, True, True],
                 dtype=DataType.Float,
                 is_cpu=False,
@@ -1868,7 +1850,7 @@ class TestNvFuserFrontend(TestCase):
 
         def nvfuser_fusion_1(fd: FusionDefinition) -> None:
             T0 = fd.define_tensor(
-                symbolic_sizes=[-1, -1, -1],
+                shape=[-1, -1, -1],
                 contiguity=[True, True, True],
                 dtype=DataType.Float,
                 is_cpu=False,
@@ -2089,7 +2071,7 @@ class TestNvFuserFrontend(TestCase):
             s1 = fd.define_scalar()
             s2 = fd.ops.add(s0, s1)
             c0 = fd.define_scalar(1.0, DataType.Float)
-            t3 = fd.ops.full(size=[2, 2], arg=c0, dtype=DataType.Float)
+            t3 = fd.ops.full(shape=[2, 2], fill_value=c0, dtype=DataType.Float)
             t4 = fd.ops.mul(t3, s2)
             fd.add_output(t4)
 
@@ -2321,19 +2303,19 @@ class TestNvFuserFrontend(TestCase):
         def fusion_func(fd: FusionDefinition) -> None:
             # Note first dimension is expanded (-1, None)
             T0 = fd.define_tensor(
-                symbolic_sizes=[-1, -1, -1, -1, -1],
+                shape=[-1, -1, -1, -1, -1],
                 contiguity=[None, True, True, True, True],
                 dtype=DataType.Float,
                 is_cpu=False,
             )
             T1 = fd.define_tensor(
-                symbolic_sizes=[-1],
+                shape=[-1],
                 contiguity=[True],
                 dtype=DataType.Float,
                 is_cpu=False,
             )
             T2 = fd.define_tensor(
-                symbolic_sizes=[-1],
+                shape=[-1],
                 contiguity=[True],
                 dtype=DataType.Float,
                 is_cpu=False,
