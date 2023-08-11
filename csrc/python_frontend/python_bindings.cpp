@@ -45,6 +45,39 @@ Vector define_vector_fn(FusionDefinition& fd, std::vector<Scalar>& args) {
       new VectorRecord(inputs, {fd.recordingState(out())}, DataType::Int));
   return out;
 }
+
+template<class ShapeType>
+Tensor broadcast_in_dim_fn(FusionDefinition::Operators& op, Tensor arg, ShapeType shape, std::vector<int64_t>& broadcast_dims) {
+  FUSER_PERF_SCOPE("Operators.broadcast_in_dim");
+  FusionDefinition* fd = op.fusion_definition;
+  TORCH_CHECK(!fd.completed(), "Attempting to add to a completed definition!");
+  size_t output_size = 0;
+  if constexpr(std::is_same_v<ShapeType, Vector>) {
+    output_size = shape.size;
+  } else {
+    output_size = shape.size(); 
+  }
+  TORCH_CHECK(
+      op.validUse(), "Attempting to add to a completed definition!");
+  TORCH_CHECK(
+      output_size >= broadcast_dims.size(),
+      "broadcast_dims vector size is too big for output shape!");
+  Vector output_shape;
+  if constexpr (std::is_same_v<ShapeType, std::vector<Scalar>>) {
+    output_shape = define_vector_from_scalars_fn(*fd, shape); 
+  } else if constexpr (std::is_same_v<ShapeType, std::vector<int64_t>>) {
+    output_shape = define_vector_fn(*fd, shape, output_size); 
+  } else {
+    output_shape = std::move(shape);
+  }
+  Tensor output = fd->defineTensor(output_size);
+  fd->defineRecord(new BroadcastInDimOpRecord(
+      {fd->recordingState(arg()), fd->recordingState(output_shape())},
+      {fd->recordingState(output())},
+      output_size,
+      broadcast_dims));
+  return output;
+}
 } // namespace
 
 std::vector<std::optional<bool>> computeContiguity(
@@ -1775,67 +1808,25 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("training"),
       py::arg("channels_last") = false,
       py::return_value_policy::reference);
-  // Concreate Output Shape Overload
   nvf_ops.def(
       "broadcast_in_dim",
-      [](FusionDefinition::Operators& self,
-         Tensor arg,
-         std::vector<int64_t>& output_shape,
-         std::vector<int64_t>& broadcast_dims) -> Tensor {
-        FUSER_PERF_SCOPE("Operators.broadcast_in_dim");
-        FusionDefinition* fd = self.fusion_definition;
-        TORCH_CHECK(
-            self.validUse(), "Attempting to add to a completed definition!");
-        TORCH_CHECK(
-            output_shape.size() >= broadcast_dims.size(),
-            "broadcast_dims vector size is too big for output shape!");
-        Tensor output = fd->defineTensor(output_shape.size());
-        fd->defineRecord(new BroadcastInDimOpRecord<int64_t>(
-            {fd->recordingState(arg())},
-            {fd->recordingState(output())},
-            "ops.broadcast_in_dim",
-            serde::RecordType_BroadcastInDim,
-            std::move(output_shape),
-            std::move(broadcast_dims)));
-        return output;
-      },
+      broadcast_in_dim_fn<python_frontend::Vector>,
       py::arg("arg"),
-      py::arg("output_shape"),
+      py::arg("shape"),
       py::arg("broadcast_dims"),
       py::return_value_policy::reference);
-  // Symbolic Output Shape Overload
   nvf_ops.def(
       "broadcast_in_dim",
-      [](FusionDefinition::Operators& self,
-         Tensor arg,
-         std::vector<Scalar>& output_shape,
-         std::vector<int64_t>& broadcast_dims) -> Tensor {
-        FUSER_PERF_SCOPE("Operators.broadcast_in_dim");
-        FusionDefinition* fd = self.fusion_definition;
-        TORCH_CHECK(
-            self.validUse(), "Attempting to add to a completed definition!");
-        TORCH_CHECK(
-            output_shape.size() >= broadcast_dims.size(),
-            "broadcast_dims vector size is too big for output shape!");
-        Tensor output = fd->defineTensor(output_shape.size());
-        std::vector<State> output_shape_states(
-            output_shape.size(), State(0, serde::StateType_Scalar));
-        std::transform(
-            output_shape.begin(),
-            output_shape.end(),
-            output_shape_states.begin(),
-            [&fd](const Scalar& s) { return fd->recordingState(s()); });
-        fd->defineRecord(new BroadcastInDimOpRecord<State>(
-            {fd->recordingState(arg())},
-            {fd->recordingState(output())},
-            "ops.broadcast_in_dim",
-            serde::RecordType_BroadcastInDimSymbolic,
-            std::move(output_shape_states),
-            std::move(broadcast_dims)));
-        return output;
-      },
+      broadcast_in_dim_fn<std::vector<Scalar>>,
       py::arg("arg"),
-      py::arg("output_shape"),
+      py::arg("shape"),
+      py::arg("broadcast_dims"),
+      py::return_value_policy::reference);
+  nvf_ops.def(
+      "broadcast_in_dim",
+      broadcast_in_dim_fn<std::vector<int64_t>>,
+      py::arg("arg"),
+      py::arg("shape"),
       py::arg("broadcast_dims"),
       py::return_value_policy::reference);
   nvf_ops.def(
