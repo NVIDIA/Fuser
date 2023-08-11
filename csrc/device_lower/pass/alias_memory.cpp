@@ -1429,47 +1429,6 @@ Val* allocSizeBytes(kir::Allocate* alloc) {
   return size;
 }
 
-//! Set addresses without any re-use of shared memory. This simply scans
-//! through exprs and each time we find an unaliased Allocate align the current
-//! address and increment it by the given amount.
-class NoReuseSharedMemAllocator : kir::IrVisitor {
- public:
-  void allocate(std::vector<Expr*>& exprs) {
-    handle(exprs);
-  }
-
- private:
-  using kir::IrVisitor::handle;
-
-  void handle(kir::Allocate* alloc) final {
-    if (alloc->memoryType() != MemoryType::Shared || alloc->alias()) {
-      return;
-    }
-
-    auto address = current_address_ ? alignExpr(current_address_)
-                                    : FusionGuard::getCurFusion()->zeroVal();
-
-    address =
-        GpuLower::current()->commonScalarMap().hoistScalar(address, for_loops_);
-
-    alloc->setAddress(address);
-
-    auto size = allocSizeBytes(alloc);
-
-    if (isDebugDumpEnabled(DebugDumpOption::BufferReuseInfo)) {
-      debug() << "Allocated address " << address->toInlineString()
-              << " of size " << size->toInlineString() << " for T"
-              << alloc->buffer()->name() << " which has dtype "
-              << alloc->buffer()->dtype() << std::endl;
-    }
-
-    current_address_ = SimplifyingIrBuilder::addExpr(address, size);
-  }
-
- private:
-  Val* current_address_ = nullptr;
-};
-
 //! Allocate differently-sized buffers using a single pass where we push
 //! allocations on a stack then pop them after their last read. This only does
 //! outer sharing: inner sharing is only valid for aliasing.
