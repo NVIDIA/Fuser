@@ -217,7 +217,6 @@ void ContiguousInnerDimensionsMapper::distributePE(
   auto outer_extent = commonOrConstExtent(ca_map_, merge_or_split->outer());
   Val* projected_combined_extent = nullptr;
 
-  // std::cerr << "distributePE: " << merge_or_split->toString() << std::endl;
   if constexpr (std::is_same_v<MergeOrSplit, Merge>) {
     projected_combined_extent = getProjectedExtent(merge_or_split->out());
   } else {
@@ -226,7 +225,6 @@ void ContiguousInnerDimensionsMapper::distributePE(
   }
 
   // Propagate out mapping to inner as gcd(combined, inner)
-  // TODO: if combined >= inner, can it be just inner?
   auto projected_inner_extent =
       SimplifyingIrBuilder::gcdExpr(projected_combined_extent, inner_extent);
   addProjectedExtent(merge_or_split->inner(), projected_inner_extent);
@@ -405,7 +403,6 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
     distributePE(merge_or_split);
   };
 
-  // auto propagateResize = [&frontier, this](auto* resize, bool p2c) {
   auto propagateResize = [&frontier, this](auto* resize, bool p2c) {
     auto resize_in = p2c ? resize->in() : resize->out();
     auto resize_out = p2c ? resize->out() : resize->in();
@@ -456,15 +453,7 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
   // Mapping from rfactor to root, reverse expressions
   std::reverse(backward_exprs.begin(), backward_exprs.end());
 
-#if 0
   for (auto* expr : backward_exprs) {
-    std::cerr << "BWD expr: " << expr->toString();
-  }
-#endif
-
-  // std::cerr << "Backward project\n";
-  for (auto* expr : backward_exprs) {
-    // std::cerr << "Expr: " << expr->toString();
     if (Split* split = dynamic_cast<Split*>(expr)) {
       propagateCombine(split);
     } else if (Merge* merge = dynamic_cast<Merge*>(expr)) {
@@ -496,7 +485,6 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
       {frontier.begin(), frontier.end()},
       {to.begin(), to.end()});
 
-  // std::cerr << "Forward project\n";
   //  Map forward through transforms since we're going from root to rfactor
   for (auto* expr : forward_exprs) {
     if (Merge* merge = dynamic_cast<Merge*>(expr)) {
@@ -594,8 +582,6 @@ ContiguousInnerDimensionsMapper::computeInfoC2P(
           consumer_factor = SimplifyingIrBuilder::gcdExpr(
               consumer_factor, sliced_domain_factors_.at(producer_rf_id));
         }
-        // addProjectedExtent(c2p_it->second,
-        // getProjectedExtent(c2p_it->first));
         addProjectedExtent(producer_rf_id, consumer_factor);
       }
     }
@@ -676,7 +662,6 @@ ContiguousInnerDimensionsMapper::computeInfoSibling(
     TensorView* from,
     TensorView* to,
     std::shared_ptr<MaxInfoSpanningTree::Information> from_info) {
-  // TORCH_INTERNAL_ASSERT(recording_);
   TORCH_INTERNAL_ASSERT(
       from->getRootDomain().size() == to->getRootDomain().size(),
       "Siblings of different root sizes not supported, but found:\n  ",
