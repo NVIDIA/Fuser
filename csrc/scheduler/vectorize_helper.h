@@ -27,6 +27,15 @@ class HeuristicSummary;
 
 namespace vectorize_helper {
 
+struct VectorizeInfo {
+  // Maximum possible vectorization factor
+  Val* factor = nullptr;
+  // Offset relative to allocation address. Normally just zero but can
+  // be positive ints when sliced. There can be multiple offsets when
+  // sliced multiple times
+  std::unordered_set<Val*> offsets;
+};
+
 // Projects IterDomains through the fusion starting at provided reference. IDs
 // in the reference are expected to be "contiguous", simply means dimensions
 // that the iter domains are consecutive and next to eachother in the
@@ -184,7 +193,7 @@ class TORCH_CUDA_CU_API ContiguousInnerDimensionsMapper
     return projected_extent_.at(id);
   }
 
-  std::unordered_map<TensorView*, std::pair<Val*, std::unordered_set<Val*>>>
+  std::unordered_map<TensorView*, VectorizeInfo>
   getTvToContigMergeOfInnerSizeMap();
 
  private:
@@ -245,19 +254,6 @@ class TORCH_CUDA_CU_API ContiguousInnerDimensionsMapper
         projected_extent_.at(id)->toInlineString(),
         ", new: ",
         pe->toInlineString());
-
-    // TODO: comment
-#if 0
-    if (auto resize_factors_it = resize_factors_.find(id);
-        resize_factors_it != resize_factors_.end()) {
-      auto adjusted_pe =
-          SimplifyingIrBuilder::gcdExpr(pe, resize_factors_it->second);
-      std::cerr << "Adjusting PE for resize. "
-                << "original: " << pe->toInlineString()
-                << ", adjusted: " << adjusted_pe->toInlineString() << std::endl;
-      pe = adjusted_pe;
-    }
-#endif
 
     projected_extent_[id] = pe;
   }

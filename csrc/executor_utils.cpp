@@ -450,7 +450,8 @@ void validateAlignedVectorizedFusionInputOutput(
   };
 
   if (auto slice_offsets_it = kernel_summary.slice_offsets.find(tv);
-      slice_offsets_it != kernel_summary.slice_offsets.end() && !slice_offsets_it->second.empty()) {
+      slice_offsets_it != kernel_summary.slice_offsets.end() &&
+      !slice_offsets_it->second.empty()) {
     for (const Val* offset : slice_offsets_it->second) {
       auto offset_eval = eval.evaluate(offset);
       TORCH_INTERNAL_ASSERT(offset_eval.hasValue());

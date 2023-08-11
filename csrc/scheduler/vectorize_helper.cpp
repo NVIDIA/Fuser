@@ -862,16 +862,16 @@ Val* ContiguousInnerDimensionsMapper::getContigMergeOfInnerSize(
   return simplifyExpr(product_of_inner_extents);
 }
 
-std::unordered_map<TensorView*, std::pair<Val*, std::unordered_set<Val*>>>
-ContiguousInnerDimensionsMapper::getTvToContigMergeOfInnerSizeMap() {
-  std::unordered_map<TensorView*, std::pair<Val*, std::unordered_set<Val*>>>
-      result;
+std::unordered_map<TensorView*, VectorizeInfo> ContiguousInnerDimensionsMapper::
+    getTvToContigMergeOfInnerSizeMap() {
+  std::unordered_map<TensorView*, VectorizeInfo> result;
   for (auto& [tv, _] : tv_infos_) {
-    result[tv].first = getContigMergeOfInnerSize(tv);
+    result[tv].factor = getContigMergeOfInnerSize(tv);
     if (auto it = slice_offsets_.find(tv); it != slice_offsets_.end()) {
-      result[tv].second = it->second;
+      result[tv].offsets = it->second;
     } else {
-      result[tv].second = {tv->fusion()->zeroVal()};
+      // TODO: remove
+      result[tv].offsets = {tv->fusion()->zeroVal()};
     }
   }
   return result;
@@ -990,13 +990,9 @@ namespace {
 // to outer most position. e.g. T0[i0, r1, b2] will return 3 Mapper instances
 // associated with:
 // {{i0, r1, b1}, {r1, b1}, {b1}}
-std::vector<
-    std::unordered_map<TensorView*, std::pair<Val*, std::unordered_set<Val*>>>>
+std::vector<std::unordered_map<TensorView*, VectorizeInfo>>
 getTvToContigInnerSizeMapsOf(TensorView* ref) {
-  std::vector<std::unordered_map<
-      TensorView*,
-      std::pair<Val*, std::unordered_set<Val*>>>>
-      mappers;
+  std::vector<std::unordered_map<TensorView*, VectorizeInfo>> mappers;
   auto root_dom = ref->getMaybeRFactorDomain();
   while (!root_dom.empty()) {
     mappers.push_back(ContiguousInnerDimensionsMapper::map(ref, root_dom)
@@ -1026,9 +1022,8 @@ int64_t getVectorizationFactor(
   auto vectorize_maps_entry =
       HeuristicSummaryEntry<HeuristicCompileTime::TvToContigInnerSizeMaps>(
           data_cache, [&reference_tv]() {
-            return std::make_unique<std::vector<std::unordered_map<
-                TensorView*,
-                std::pair<Val*, std::unordered_set<Val*>>>>>(
+            return std::make_unique<
+                std::vector<std::unordered_map<TensorView*, VectorizeInfo>>>(
                 getTvToContigInnerSizeMapsOf(reference_tv));
           });
 
@@ -1062,7 +1057,7 @@ int64_t getVectorizationFactor(
     }
 
     // factor <= alignment / dtype_size
-    const auto& slice_offsets = inner_size_it->second.second;
+    const auto& slice_offsets = inner_size_it->second.offsets;
     for (auto offset : slice_offsets) {
       auto offset_eval = runtime_info.expressionEvaluator().evaluate(offset);
       TORCH_INTERNAL_ASSERT(offset_eval.hasValue());
@@ -1083,16 +1078,12 @@ int64_t getVectorizationFactor(
 
     // factor <= projected_extent
     auto inner_size_opt = runtime_info.expressionEvaluator().evaluate(
-        inner_size_it->second.first);
+        inner_size_it->second.factor);
     TORCH_INTERNAL_ASSERT(
         inner_size_opt.hasValue(),
         "Vectorization heuristic could not evaluate inner most size.");
     int64_t inner_size = inner_size_opt.as<int64_t>();
     int64_t local_max_vec_size = 1;
-
-    if (getenv("VERBOSE")) {
-      std::cerr << "Inner size: " << inner_size << std::endl;
-    }
 
     while (inner_size > 1 && inner_size % 2 == 0 &&
            local_max_vec_size < max_vec_size) {
@@ -1103,9 +1094,6 @@ int64_t getVectorizationFactor(
     max_vec_size = std::min(local_max_vec_size, max_vec_size);
   }
 
-  if (getenv("VERBOSE")) {
-    std::cerr << "vec size: " << max_vec_size << std::endl;
-  }
   return max_vec_size;
 }
 
