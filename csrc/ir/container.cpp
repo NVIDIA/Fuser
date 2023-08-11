@@ -244,7 +244,6 @@ Val* IrContainer::zeroVal() {
 }
 
 Val* IrContainer::zeroVal(DataType dtype) {
-
   if (dtype == DataType::Index) {
     return zeroVal();
   } else if (isBooleanType(dtype)) {
