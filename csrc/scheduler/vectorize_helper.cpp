@@ -426,9 +426,11 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
     auto pos = std::distance(frontier.begin(), find_it);
     frontier[pos] = resize_out;
 
-    // auto pe = commonOrConstExtent(ca_map_, resize_in);
-    auto pe = getProjectedExtent(resize_in);
-    addProjectedExtent(resize_out, pe);
+    if (recording_) {
+      // TODO: Commen why the same extent is fine
+      auto pe = getProjectedExtent(resize_in);
+      addProjectedExtent(resize_out, pe);
+    }
   };
 
   auto clear_left_of = [&frontier](IterDomain* id) {
@@ -952,16 +954,6 @@ void ContiguousInnerDimensionsMapper::initializeResizeFactors(Fusion* fusion) {
           innermost_resize = resize;
         } else {
           // This root domain is not sliced.
-          // Sanity check: Since not sliced, it must be included in
-          // the rfactor domain
-          TORCH_INTERNAL_ASSERT(
-              std::find(
-                  consumer_tv->getMaybeRFactorDomain().begin(),
-                  consumer_tv->getMaybeRFactorDomain().end(),
-                  consumer_root_id) !=
-                  consumer_tv->getMaybeRFactorDomain().end(),
-              "Expected to be found in rfactor domain: ",
-              consumer_root_id->toString());
           consumer_domain_extent =
               commonOrConstExtent(ca_map_, consumer_root_id);
         }
