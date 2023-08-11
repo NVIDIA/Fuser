@@ -1289,7 +1289,7 @@ struct EndRecord : RecordFunctor {
 struct TensorRecord : RecordFunctor {
   TensorRecord(
       std::vector<State> _outputs,
-      std::vector<int64_t> _symbolic_sizes,
+      std::vector<int64_t> _shape,
       std::vector<std::optional<bool>> _contiguity,
       PrimDataType _dtype,
       bool _is_cpu = false)
@@ -1298,7 +1298,7 @@ struct TensorRecord : RecordFunctor {
             std::move(_outputs),
             "define_tensor",
             serde::RecordType_Tensor),
-        symbolic_sizes_(std::move(_symbolic_sizes)),
+        shape_(std::move(_shape)),
         contiguity_(std::move(_contiguity)),
         dtype_(_dtype),
         is_cpu_(_is_cpu) {}
@@ -1313,12 +1313,12 @@ struct TensorRecord : RecordFunctor {
   size_t hash() const final {
     auto result = RecordFunctor::hash();
     size_t ssize_hash = 0;
-    for (size_t i = 0; i < symbolic_sizes_.size(); ++i) {
+    for (size_t i = 0; i < shape_.size(); ++i) {
       size_t ssize = 0;
-      if (symbolic_sizes_[i] == -1) {
+      if (shape_[i] == -1) {
         ssize = 1;
       }
-      ssize_hash |= (ssize << (symbolic_sizes_.size() - 1 - i));
+      ssize_hash |= (ssize << (shape_.size() - 1 - i));
     }
     size_t contig_hash = 0;
     for (size_t i = 0; i < contiguity_.size(); ++i) {
@@ -1341,11 +1341,11 @@ struct TensorRecord : RecordFunctor {
       result = result && (is_cpu_ == child_ptr->is_cpu_);
       if (result) {
         result =
-            ((symbolic_sizes_.size() == child_ptr->symbolic_sizes_.size()) &&
+            ((shape_.size() == child_ptr->shape_.size()) &&
              (contiguity_.size() == child_ptr->contiguity_.size()));
         if (result) {
-          for (size_t i = 0; i < symbolic_sizes_.size(); ++i) {
-            if (symbolic_sizes_[i] != child_ptr->symbolic_sizes_[i]) {
+          for (size_t i = 0; i < shape_.size(); ++i) {
+            if (shape_[i] != child_ptr->shape_[i]) {
               result = false;
               break;
             }
@@ -1365,24 +1365,24 @@ struct TensorRecord : RecordFunctor {
   }
 
   void operator()(FusionState& fd) final {
-    auto rank = symbolic_sizes_.size();
+    auto rank = shape_.size();
     std::vector<bool> is_expand(rank);
 
     for (const auto index : c10::irange(rank)) {
       bool is_broadcast = !contiguity_[index].has_value();
-      bool has_symbolic_size = (symbolic_sizes_[index] == -1);
+      bool has_symbolic_size = (shape_[index] == -1);
       is_expand[index] = is_broadcast && has_symbolic_size;
     }
 
     auto tv = TensorViewBuilder()
-                  .ndims(symbolic_sizes_.size())
+                  .ndims(shape_.size())
                   .contiguity(contiguity_)
-                  .shape(symbolic_sizes_)
+                  .shape(shape_)
                   .dtype(dtype_)
                   .expanded(std::move(is_expand))
                   .build();
 
-    if (symbolic_sizes_.empty() && is_cpu_) {
+    if (shape_.empty() && is_cpu_) {
       tv->setCpuScalar(true);
     } else {
       TORCH_CHECK(!is_cpu_, "CPU non-scalar tensor is not supported!");
@@ -1394,9 +1394,9 @@ struct TensorRecord : RecordFunctor {
 
   void print(std::ostream& os, bool close_function = true) const final {
     RecordFunctor::print(os, false);
-    os << "symbolic_sizes=[";
+    os << "shape=[";
     bool first_arg = true;
-    for (auto ss : symbolic_sizes_) {
+    for (auto ss : shape_) {
       if (first_arg) {
         first_arg = false;
       } else {
@@ -1431,7 +1431,7 @@ struct TensorRecord : RecordFunctor {
 
   std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
       flatbuffers::FlatBufferBuilder& builder) const final {
-    auto fb_sizes = builder.CreateVector(symbolic_sizes_);
+    auto fb_sizes = builder.CreateVector(shape_);
 
     auto mapOptionalToEnum = [](std::optional<bool> v) -> int {
       if (!v.has_value()) {
@@ -1463,7 +1463,7 @@ struct TensorRecord : RecordFunctor {
   //! A vector of tensor dimension sizes.
   //! This vector only captures sizes of -1 or 1 to indicate a symbolic
   //! dimension (-1) or a broadcast dimension (1).
-  std::vector<int64_t> symbolic_sizes_;
+  std::vector<int64_t> shape_;
   //! A vector to indicate whether the a tensor dimension is contiguous
   //! with the dimension just to its right.
   std::vector<std::optional<bool>> contiguity_;

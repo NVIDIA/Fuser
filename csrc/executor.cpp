@@ -81,6 +81,55 @@ static const std::string& includeStdComplex() {
   return result;
 }
 
+// When executing nvFuser with: NVFUSER_EXTERNAL_SRC=file1.cu,file2.cu
+// This function retrieves structured code from the specified files.
+// The files should be comma-separated, and their order corresponds to the
+// fusion_id order. If the provided number of files is fewer than the fusion
+// segments, the function will resort to the available files in sequence
+// and issue a warning.
+std::string getStructuredCodeFromExternalFiles(const int64_t fusion_id) {
+  auto external_code_path = getNvFuserEnv("EXTERNAL_SRC");
+  if (!external_code_path) {
+    return "";
+  }
+  std::string all_external_code_paths(external_code_path);
+  if (all_external_code_paths.empty() || fusion_id < 1) {
+    return "";
+  }
+  auto getExternalCodeFile =
+      [fusion_id](const std::string& input) -> std::string {
+    std::stringstream ss(input);
+    std::string token;
+    int64_t count = 0;
+    while (std::getline(ss, token, ',')) {
+      if (++count == fusion_id) {
+        return token;
+      }
+    }
+    debug()
+        << "Didn't find requested external source code. Will use generated code!\n"
+        << "Number of source code files should equal the number of fusion segments.\n"
+        << "External source code filenames should be delineated with commas, e.g.: file1.cu,file2.cu.\n";
+    return "";
+  };
+
+  std::string single_code_path = getExternalCodeFile(all_external_code_paths);
+  if (single_code_path.empty()) {
+    return "";
+  }
+  std::ifstream cuda_src(single_code_path);
+  if (!cuda_src.is_open()) {
+    debug() << "Failed to open external source file: " << single_code_path
+            << std::endl;
+    return "";
+  }
+  debug() << "--------> Compiling external CUDA code: " << single_code_path
+          << std::endl;
+
+  std::stringstream buffer;
+  buffer << cuda_src.rdbuf();
+  return buffer.str();
+}
 } // namespace
 
 std::unique_ptr<PrecomputedValues>& FusionExecutor::
@@ -301,18 +350,14 @@ void FusionExecutor::compileFusion(
 
   kernel_code_ = codegen::generateCudaKernel(kernel, kernelName());
 
-  auto load_external_code = [](const char* external_code_path) {
-    debug() << "--------> Compiling external cuda code: " << external_code_path
-            << std::endl;
-    std::ifstream cuda_src(external_code_path);
-    std::stringstream buffer;
-    buffer << cuda_src.rdbuf();
-    return buffer.str();
-  };
-  auto external_code_path = getNvFuserEnv("EXTERNAL_SRC");
-  const auto structured_code = external_code_path
-      ? load_external_code(external_code_path)
-      : getStructuredCode();
+  // If NVFUSER_EXTERNAL_SRC is set, utilize the external source code.
+  // If the loaded external source code is empty, revert to the default codegen.
+  // The external_structured_code is moved to structured_code and explicitly
+  // cleared to avoid use-after-move scenarios.
+  auto structured_code = getStructuredCodeFromExternalFiles(fusion_id_);
+  if (structured_code.empty()) {
+    structured_code = getStructuredCode();
+  }
 
   const auto& kernel_summary = kernel->summary();
 

@@ -586,6 +586,11 @@ class TORCH_CUDA_CU_API ForLoop final : public Expr {
  private:
   //! Returns if a loop could be unrolled.
   bool isUnrollable() const;
+
+  //! Not storing this as an attribute because this is only a cache for
+  //! simplifiedStop. We are not interested in keeping this across clone/serde,
+  //! etc.
+  mutable Val* simplified_stop_ = nullptr;
 };
 
 //! IfThenElse provides scoping for an boolean operator. Exprs placed in its

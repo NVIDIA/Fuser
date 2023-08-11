@@ -1394,7 +1394,7 @@ Val* alignExpr(Val* addr, int64_t alignment = 16) {
   if (alignment == 1) {
     return addr;
   }
-  auto n_minus_one = IrBuilder::create<Val>(alignment - 1);
+  auto n_minus_one = IrBuilder::create<Val>(alignment - 1, DataType::Index);
   return SimplifyingIrBuilder::bitwiseAndExpr(
       SimplifyingIrBuilder::addExpr(addr, n_minus_one),
       SimplifyingIrBuilder::bitwiseNotExpr(n_minus_one));
@@ -1406,7 +1406,7 @@ Val* allocSizeBytes(kir::Allocate* alloc) {
   auto size = dtype_size == 1
       ? alloc->size()
       : SimplifyingIrBuilder::mulExpr(
-            alloc->size(), IrBuilder::create<Val>(dtype_size));
+            alloc->size(), IrBuilder::create<Val>(dtype_size, DataType::Index));
   return size;
 }
 

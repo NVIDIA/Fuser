@@ -235,7 +235,7 @@ bool IrContainer::inContainer(const Statement* stmt) const {
 // Shortcuts for frequently used vals
 Val* IrContainer::zeroVal() {
   if (!zero_val_) {
-    auto zero_val = IrBuilder::create<Val>(this, 0L);
+    auto zero_val = IrBuilder::create<Val>(this, 0L, DataType::Index);
     TORCH_INTERNAL_ASSERT(vals_up_.back().get() == zero_val);
     zero_val_ = std::unique_ptr<Val>(vals_up_.back().release());
     vals_up_.pop_back();
@@ -260,7 +260,7 @@ Val* IrContainer::zeroVal(DataType dtype) {
 
 Val* IrContainer::oneVal() {
   if (!one_val_) {
-    auto one_val = IrBuilder::create<Val>(this, 1L, DataType::Int);
+    auto one_val = IrBuilder::create<Val>(this, 1L, DataType::Index);
     TORCH_INTERNAL_ASSERT(vals_up_.back().get() == one_val);
     one_val_ = std::unique_ptr<Val>(vals_up_.back().release());
     vals_up_.pop_back();
@@ -307,7 +307,7 @@ Val* IrContainer::trueVal() {
 NamedScalar* IrContainer::magicZeroVal() {
   if (!magic_zero_val_) {
     auto magic_zero =
-        IrBuilder::create<NamedScalar>(kMagicZeroName, DataType::Int);
+        IrBuilder::create<NamedScalar>(kMagicZeroName, DataType::Index);
     TORCH_INTERNAL_ASSERT(vals_up_.back().get() == magic_zero);
     magic_zero_val_ = std::unique_ptr<NamedScalar>(
         vals_up_.back().release()->as<NamedScalar>());

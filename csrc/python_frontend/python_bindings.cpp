@@ -402,7 +402,7 @@ void initNvFuserPythonBindings(PyObject* module) {
       .def(
           "define_tensor",
           [](FusionDefinition& self,
-             std::vector<int64_t>& symbolic_sizes,
+             std::vector<int64_t>& shape,
              std::vector<std::optional<bool>>& contiguity,
              PrimDataType dtype = DataType::Float,
              bool is_cpu = false) -> Tensor {
@@ -411,27 +411,27 @@ void initNvFuserPythonBindings(PyObject* module) {
                 !self.completed(),
                 "Attempting to add to a completed definition!");
 
-            for (size_t i = 0; i < symbolic_sizes.size(); ++i) {
+            for (size_t i = 0; i < shape.size(); ++i) {
               TORCH_CHECK(
-                  symbolic_sizes[i] >= -1,
+                  shape[i] >= -1,
                   "The value ",
-                  symbolic_sizes[i],
+                  shape[i],
                   " at index ",
                   i,
                   " was neither symbolic(-1), zero_element(0), broadcast(1), or static(>1).");
             }
 
-            Tensor out = self.defineTensor(symbolic_sizes.size());
+            Tensor out = self.defineTensor(shape.size());
             self.defineRecord(new TensorRecord(
                 {self.recordingState(out())},
-                symbolic_sizes,
+                shape,
                 contiguity,
                 dtype,
                 is_cpu));
 
             return out;
           },
-          py::arg("symbolic_sizes"),
+          py::arg("shape"),
           py::arg("contiguity"),
           py::arg("dtype") = DataType::Float,
           py::arg("is_cpu") = false,

@@ -212,7 +212,7 @@ def cat_error_generator(op, dtype=torch.float32, requires_grad: bool = False, **
 def define_tensor_generator(
     op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
 ):
-    yield SampleInput(symbolic_sizes=[-1], contiguity=[True])
+    yield SampleInput(shape=[-1], contiguity=[True])
 
 
 def define_tensor_error_generator(
@@ -229,7 +229,7 @@ def define_tensor_error_generator(
     ---
     "define_tensor",
     [](FusionDefinition& self,
-        std::vector<int64_t>& symbolic_sizes,
+        std::vector<int64_t>& shape,
         std::vector<std::optional<bool>>& contiguity,
         PrimDataType dtype = DataType::Float,
         bool is_cpu = false) -> Tensor {
@@ -237,7 +237,7 @@ def define_tensor_error_generator(
 
     check_size_contiguity_match = ErrorSample(
         {
-            "symbolic_sizes": [-1, -1],
+            "shape": [-1, -1],
             "contiguity": [True, True, True],
             "dtype": DataType.Float,
         },
@@ -245,37 +245,37 @@ def define_tensor_error_generator(
     )
 
     check_empty_tensor_size = ErrorSample(
-        {"symbolic_sizes": [], "contiguity": []},
+        {"shape": [], "contiguity": []},
         "Empty tensor is unsupported.",
     )
 
     check_max_tensor_size = ErrorSample(
         {
-            "symbolic_sizes": [-1 for _ in range(MAX_TENSOR_DIMS + 1)],
+            "shape": [-1 for _ in range(MAX_TENSOR_DIMS + 1)],
             "contiguity": [True for _ in range(MAX_TENSOR_DIMS + 1)],
         },
         "The specified tensor dimensionality exceeds the max tensor size for nvfuser.",
     )
 
     check_above_size_range = ErrorSample(
-        {"symbolic_sizes": [INT64_MAX + 1], "contiguity": [True]},
+        {"shape": [INT64_MAX + 1], "contiguity": [True]},
         "define_tensor(): incompatible function arguments",
         TypeError,
     )
 
     check_below_size_range = ErrorSample(
-        {"symbolic_sizes": [MINIMUM_SYMBOLIC_SIZE - 1], "contiguity": [True]},
+        {"shape": [MINIMUM_SYMBOLIC_SIZE - 1], "contiguity": [True]},
         "The value -2 at index 0 was neither symbolic(-1), zero_element(0), broadcast(1), or static(>1)",
     )
 
     check_contiguity_unknown_values = ErrorSample(
-        {"symbolic_sizes": [10], "contiguity": [-1]},
+        {"shape": [10], "contiguity": [-1]},
         "define_tensor(): incompatible function arguments.",
         TypeError,
     )
 
-    check_symbolic_sizes_unknown_dtypes = ErrorSample(
-        {"symbolic_sizes": [10.0], "contiguity": [True]},
+    check_shape_unknown_dtypes = ErrorSample(
+        {"shape": [10.0], "contiguity": [True]},
         "define_tensor(): incompatible function arguments.",
         TypeError,
     )
@@ -289,7 +289,7 @@ def define_tensor_error_generator(
         check_above_size_range,
         check_below_size_range,
         # check_contiguity_unknown_values,
-        check_symbolic_sizes_unknown_dtypes,
+        check_shape_unknown_dtypes,
     ]
 
     input_tensor = make_tensor(
