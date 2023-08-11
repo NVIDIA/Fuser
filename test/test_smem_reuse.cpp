@@ -37,19 +37,21 @@ int64_t alignInt(int64_t unaligned, int64_t alignment = 16L) {
 // Test that we re-use different-size smem allocations
 //
 //
-//            +-----+
-//            |  B  |
-//   +-----+  +-----+
+//             +-----+
+//             |  B  |
+//   +-----+   +-----+
 //   |  A  |
 //   +-----+
-//   a     b  c     d
+//   a     b * c     d
+//
+// where * indicates an expression that synchronizes each thread block
 //
 // Should become:
 //
-//   +-----+  +-----+
-//   |  A  |  |  B  |
-//   +-----+  +-----+
-//   a     b  c     d
+//   +-----+   +-----+
+//   |  A  |   |  B  |
+//   +-----+   +-----+
+//   a     b * c     d
 //
 TEST_F(SmemReuseTest, SimpleCase) {
   auto fusion = std::make_unique<Fusion>();
@@ -63,45 +65,56 @@ TEST_F(SmemReuseTest, SimpleCase) {
   auto tv1 = set(tv0); // pos = a. A = tv1
   tv1->setMemoryType(MemoryType::Shared);
 
-  auto tv2 = add(tv1, tv1); // pos = b
+  auto tv2 = set(tv1); // pos = b
   fusion->addOutput(tv2);
 
-  auto tv3 = neg(tv2); // gap between b and c
+  auto tv3 = sum(tv2, {0}); // gap between b and c
   fusion->addOutput(tv3);
 
-  auto tv4 = full({W}, fusion->oneVal(), DataType::Float); // pos = c. B = tv4
-  tv4->setMemoryType(MemoryType::Shared);
+  auto tv4 = full({W}, fusion->oneVal(), DataType::Float);
 
-  auto tv5 = mul(tv4, tv4); // pos = d
-  fusion->addOutput(tv5);
+  auto tv5 = mul(tv3, tv4); // pos = c. B = tv5
+  tv5->setMemoryType(MemoryType::Shared);
 
-  { // Run without reusing
-    EnableOptionsGuard eog;
-    eog.getCurOptions().unset(EnableOption::ReuseSharedMemory);
+  auto tv6 = set(tv5); // pos = d
+  fusion->addOutput(tv6);
 
-    FusionExecutor fe;
-    fe.compileFusion(fusion.get(), {});
+  { // This should not re-use memory
+    GpuLower gpulw(fusion.get());
 
-    fe.runFusion({});
-
-    const auto& lparams = fe.lastLaunchParams();
-
-    // (Aligned size of W) plus H
-    EXPECT_EQ(lparams.smem(), alignInt(W_int * 4) + H_int * 4);
+    ExpressionEvaluator ee;
+    std::unordered_set<int64_t> addresses;
+    int64_t smem_usage = 0;
+    for (auto alloc : gpulw.kernel()->summary().dynamic_smem_allocations) {
+      auto addr = ee.evaluate(alloc->address()).as<int64_t>();
+      TORCH_CHECK(
+          addresses.insert(addr).second,
+          "Smem addresses should not be re-used");
+      auto size = ee.evaluate(alloc->size()).as<int64_t>() *
+          dataTypeSize(alloc->buffer()->dtype());
+      smem_usage = std::max(smem_usage, addr + size);
+    }
+    // tv1{H} comes before tv5{W}, and the last uses follow the same order. When
+    // we reorder pushed allocations, we sort them by last read in descending
+    // order, so tv5 goes on the bottom.
+    EXPECT_EQ(smem_usage, alignInt(W_int * 4) + H_int * 4);
   }
 
-  { // Now reuse
-    EnableOptionsGuard eog;
-    eog.getCurOptions().set(EnableOption::ReuseSharedMemory);
+  { // Now introduce a block sync and check that we re-use memory
 
-    FusionExecutor fe;
-    fe.compileFusion(fusion.get(), {});
+    tv3->axis(0)->parallelize(ParallelType::TIDx);
 
-    fe.runFusion({});
-
-    const auto& lparams = fe.lastLaunchParams();
-
-    EXPECT_EQ(lparams.smem(), W_int * 4);
+    GpuLower gpulw(fusion.get());
+    ExpressionEvaluator ee;
+    int64_t smem_usage = 0;
+    for (auto alloc : gpulw.kernel()->summary().dynamic_smem_allocations) {
+      auto addr = ee.evaluate(alloc->address()).as<int64_t>();
+      auto size = ee.evaluate(alloc->size()).as<int64_t>() *
+          dataTypeSize(alloc->buffer()->dtype());
+      smem_usage = std::max(smem_usage, addr + size);
+    }
+    // (Aligned size of H) plus W
+    EXPECT_EQ(smem_usage, W_int * 4);
   }
 }
 

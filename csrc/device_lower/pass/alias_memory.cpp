@@ -1598,8 +1598,6 @@ class StackBasedSharedMemAllocator : kir::IrVisitor {
   using kir::IrVisitor::handle;
 
   void dispatch(Expr* expr) {
-    std::cout << "  dispatch " << expr->toString();
-
     position_ = allocation_info_map_.getScopeMap().getExprPos(expr);
 
     // Check whether this is a first write position for any allocations
@@ -1609,8 +1607,6 @@ class StackBasedSharedMemAllocator : kir::IrVisitor {
         if (alloc_info->mem_type != MemoryType::Shared) {
           return;
         }
-        std::cout << "PUSH TO WAITING: "
-                  << alloc_info->alloc_expr->buffer()->toString() << std::endl;
         waiting_to_push_.push_back(alloc_info);
       }
     }
@@ -1737,15 +1733,6 @@ class StackBasedSharedMemAllocator : kir::IrVisitor {
 
   //! Pop all allocations on the top of the stack that are no longer active.
   void reclaimMemory() {
-    std::cout << "Reclaiming memory at position " << position_ << std::endl;
-    std::cout << "  waiting_to_push_ contains:" << std::endl;
-    for (auto w : waiting_to_push_) {
-      std::cout << "    " << w->alloc_expr->buffer()->toString() << std::endl;
-    }
-    std::cout << "  alloc_stack_ contains:" << std::endl;
-    for (auto w : alloc_stack_) {
-      std::cout << "    " << w->alloc_expr->buffer()->toString() << std::endl;
-    }
     if (!waiting_to_push_.empty()) {
       // Check whether we have any allocations waiting to be pushed that are now
       // inactive. If so, then they need to be ordered and allocated at the top
@@ -1767,9 +1754,6 @@ class StackBasedSharedMemAllocator : kir::IrVisitor {
     while (!alloc_stack_.empty()) {
       auto last_read = lastAliasedRead(alloc_stack_.back());
       if (last_read <= position_) {
-        std::cout << "  Popping "
-                  << alloc_stack_.back()->alloc_expr->buffer()->toString()
-                  << std::endl;
         latest_pop_ = std::max(last_read, latest_pop_);
         alloc_stack_.pop_back();
       } else {
