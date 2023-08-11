@@ -885,6 +885,19 @@ TEST_F(ExprSimplifierTest, Compare) {
       "blockIdx.x < ceilDiv( T0.logical_size[0] , 128 ) * 4"_));
 
   EXPECT_TRUE(*simplify("i1 % i2 < i2"_, "i2 >= 0"_));
+
+  EXPECT_TRUE(
+      *simplifyExpr("T0.logical_size[0] - 1 < T0.logical_size[0]"_)->getBool());
+  EXPECT_TRUE(
+      *simplifyExpr(
+           "T0.logical_size[0] + 1 + 2 + 3 < T0.logical_size[0] + 1 + 2 + 3 + 4"_)
+           ->getBool());
+  // Two terms of the LHS are both the same as the single RHS term,
+  // but the removal should be done only for one of them. If doubly
+  // removed, the predicate would be false
+  EXPECT_TRUE(*simplify("i1 + i1 > i1"_, "i1 > 0"_));
+  EXPECT_TRUE(*simplify("i1 < i1 + i1"_, "i1 > 0"_));
+  EXPECT_TRUE(*simplify("i1 + i1 < i1 + i1 + i1"_, "i1 > 0"_));
 }
 
 TEST_F(ExprSimplifierTest, FundamentalDivisionWithRemainderProperty) {

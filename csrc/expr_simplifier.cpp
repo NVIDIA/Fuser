@@ -2605,6 +2605,86 @@ Val* factorizeGcd(Val* value, const Context& context) {
   return value;
 }
 
+Val* cancelTermsInPredicate(Val* value, const Context& context) {
+  auto bop = dynamic_cast<BinaryOp*>(value->definition());
+  if (!bop) {
+    return value;
+  }
+  auto op = bop->getBinaryOpType();
+  if (op != BinaryOpType::Eq && op != BinaryOpType::GE &&
+      op != BinaryOpType::GT && op != BinaryOpType::LE &&
+      op != BinaryOpType::LT && op != BinaryOpType::NE) {
+    return value;
+  }
+
+  auto get_terms = [](Val* operand) -> std::vector<Val*> {
+    if (auto flattened = toFlattenedAdd(operand->definition())) {
+      return flattened->inputs();
+    } else {
+      return {operand};
+    }
+  };
+
+  const auto& lhs_terms = get_terms(bop->lhs());
+  const auto& rhs_terms = get_terms(bop->rhs());
+
+  std::vector<bool> common_lhs_terms(lhs_terms.size(), false);
+  std::vector<bool> common_rhs_terms(rhs_terms.size(), false);
+  for (const auto lhs_i : c10::irange(lhs_terms.size())) {
+    for (const auto rhs_i : c10::irange(rhs_terms.size())) {
+      // Make sure no multiple LHS terms are removed for the same RHS term
+      if (common_rhs_terms.at(rhs_i)) {
+        continue;
+      }
+      if (lhs_terms[lhs_i]->sameAs(rhs_terms[rhs_i])) {
+        common_lhs_terms.at(lhs_i) = true;
+        common_rhs_terms.at(rhs_i) = true;
+        break;
+      }
+    }
+  }
+
+  if (std::none_of(
+          common_lhs_terms.begin(), common_lhs_terms.end(), [](auto flag) {
+            return flag;
+          })) {
+    return value;
+  }
+
+  std::vector<Val*> new_lhs_terms;
+  for (const auto i : c10::irange(lhs_terms.size())) {
+    if (!common_lhs_terms.at(i)) {
+      new_lhs_terms.push_back(lhs_terms[i]);
+    }
+  }
+
+  std::vector<Val*> new_rhs_terms;
+  for (const auto i : c10::irange(rhs_terms.size())) {
+    if (!common_rhs_terms.at(i)) {
+      new_rhs_terms.push_back(rhs_terms[i]);
+    }
+  }
+
+  Val* new_lhs = nullptr;
+  if (new_lhs_terms.empty()) {
+    new_lhs = value->fusion()->zeroVal(*bop->lhs()->getDataType());
+  } else {
+    new_lhs = maybeFlattenedOpOf(BinaryOpType::Add, std::move(new_lhs_terms));
+  }
+
+  Val* new_rhs = nullptr;
+  if (new_rhs_terms.empty()) {
+    new_rhs = value->fusion()->zeroVal(*bop->lhs()->getDataType());
+  } else {
+    new_rhs = maybeFlattenedOpOf(BinaryOpType::Add, std::move(new_rhs_terms));
+  }
+
+  auto new_val = IrBuilder::newScalar(*value->getDataType());
+  IrBuilder::create<BinaryOp>(op, new_val, new_lhs, new_rhs);
+
+  return new_val;
+}
+
 } // namespace rules
 
 #define RUN_PASS(pass_name)                                     \
@@ -2660,6 +2740,7 @@ Val* simplifyExpr(
     logger->record(debug_print::kFlattenName, simplified);
 
     RUN_PASS(canonicalizeVariables);
+    RUN_PASS(cancelTermsInPredicate);
     RUN_PASS(eliminateTrivialComputation);
     RUN_PASS(eliminateTrivialPredicate);
     RUN_PASS(simplifyDivisibleDivMod);
