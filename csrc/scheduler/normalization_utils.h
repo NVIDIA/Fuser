@@ -154,6 +154,25 @@ std::optional<GridOuterNormalizationParams> getGridOuterNormalizationParams(
     int64_t vectorize_factor,
     int64_t persistent_buffer_size);
 
+//! Enumerate all possible reduction types: inner, outer, combined_inner_outer
+enum class ReductionType { Inner, Outer, CombinedInnerOuter, None };
+
+//! Parameters store memory space of persistent buffers.
+//! By default, the persistent buffers are stored in registers, however, if it
+//! exists in the set of shared_memory_persistent_tensors, it will be allocated in
+//! shared memory. This happens when the persistent buffer size is larger than
+//! the available registers.
+struct PersistentBufferStorageParams {
+  ReductionType reduction_type = ReductionType::None;
+  std::unordered_set<TensorView*> shared_memory_persistent_tensors;
+  int64_t shared_memory_persistent_buffer_size = -1;
+  int64_t register_persistent_buffer_size = -1;
+  int64_t shared_memory_overhead_per_block = -1;
+  bool has_enough_regs_and_smem = false;
+  bool project_to_input = false;
+};
+
+
 //! check iter type of each domain in inner and outer reduction tvs
 //! inner reduction must be [I,I,...R,R]
 //! outer reduction must be [R,R,...I,I]
@@ -175,9 +194,14 @@ bool isConnectedOnlyThroughReductionProducer(
     const std::vector<TensorView*>& inner_reduction_tvs,
     const std::vector<TensorView*>& outer_reduction_tvs);
 
-//! in combined_inner_outer_reduction, the partial results of outer reductions
-//! must be persistent, calculate the size of these buffers when estimate
-//! register usage
+//! Get the number of bytes of a tensor view
+int64_t getTensorViewRuntimeBytes(
+    TensorView* tv,
+    SchedulerRuntimeInfo& runtime_info);
+
+//! in combined_inner_outer_reduction, the partial results of outer
+//! reductions must be persistent, calculate the size of these buffers when
+//! estimate register usage
 int64_t partialReductionBufferSize(
     const std::vector<TensorView*>& outer_reduction_tvs,
     SchedulerRuntimeInfo& runtime_info);
@@ -208,9 +232,10 @@ getOptionalInnerOuterPersistentBufferBatches(
     const bool ignore_register_size_limit);
 
 //! Check if there are enough registers and shared memories to keep the
-//! persistent buffers on chip. Return register_persistent_buffer_size, shared_memory_persistent_buffer_size,
-//! available_register_buffer_size, has_enough_regs_and_smem
-std::tuple<int64_t, int64_t, int64_t, bool> checkPersistentBufferSize(
+//! persistent buffers on chip. Return register_persistent_buffer_size,
+//! shared_memory_persistent_buffer_size, available_register_buffer_size,
+//! has_enough_regs_and_smem
+PersistentBufferStorageParams getPersistentBufferStorageParams(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache,
@@ -226,6 +251,6 @@ std::tuple<int64_t, int64_t, int64_t, bool> checkPersistentBufferSize(
 // maxThreadsPerBlock is used for a cautious estimate.
 int64_t getSharedMemoryOverheadPerBlock(
     Fusion* fusion,
-    const scheduler_utils::PersistentBufferInfo& persistent_buffer_info);
+    const std::vector<TensorView*>& persistent_buffer_tvs);
 } // namespace normalization_scheduler_utils
 } // namespace nvfuser
