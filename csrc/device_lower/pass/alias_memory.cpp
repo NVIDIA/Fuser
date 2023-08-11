@@ -618,6 +618,10 @@ class AllocationInfoMap : private kir::IrVisitor {
     return it->second;
   }
 
+  const ScopeMap& getScopeMap() const {
+    return scope_map_;
+  }
+
   const std::unordered_map<const kir::Allocate*, AllocationInfo*>&
   getAllocationInfoMap() const {
     return allocation_info_map_;
@@ -1571,29 +1575,75 @@ class NoReuseSharedMemAllocator : kir::IrVisitor {
 //! example if a large tensor is used briefly at the beginning and is aliased
 //! near the end of the Fusion, then with this approach we will not be able to
 //! re-use its memory in the middle, which might be wasteful.
-class StackBasedSharedMemAllocator {
+class StackBasedSharedMemAllocator : kir::IrVisitor {
  public:
   StackBasedSharedMemAllocator(
       const AllocationInfoMap& allocation_info_map,
       bool warn_only = false)
       : allocation_info_map_(allocation_info_map), warn_only_(warn_only) {}
 
-  void allocate() {
+  void allocate(std::vector<Expr*>& exprs) {
     recordEvents();
 
-    for (auto [pos, first_writes] : pos_to_first_writes_) {
-      // Assign allocations for write events and push onto stack
-      for (auto alloc_info : first_writes) {
-        // Push alloc_info onto the stack (eventually. See note above on
-        // reordering)
+    // Traverse expressions: reclaim memory when we pass a blockSync, append to
+    // waiting_to_push_ when we pass an Allocate
+    handle(exprs);
+
+    // This is done whenever we pass a syncing op, but we need to do it again in
+    // case there are some allocations waiting around to be allocated.
+    sortPushAndAssignWaiting();
+  }
+
+ private:
+  using kir::IrVisitor::handle;
+
+  void dispatch(Expr* expr) {
+    std::cout << "  dispatch " << expr->toString();
+
+    position_ = allocation_info_map_.getScopeMap().getExprPos(expr);
+
+    // Check whether this is a first write position for any allocations
+    auto it = first_write_positions_.find(position_);
+    if (it != first_write_positions_.end()) {
+      for (auto alloc_info : it->second) {
+        if (alloc_info->mem_type != MemoryType::Shared) {
+          return;
+        }
+        std::cout << "PUSH TO WAITING: "
+                  << alloc_info->alloc_expr->buffer()->toString() << std::endl;
         waiting_to_push_.push_back(alloc_info);
       }
-      // After allocating writes at this position, pop dead allocations. Note
-      // that if we did this earlier we might pop then immediately re-use
-      // memory, which is invalid since we cannot then insert a sync.
-      popAllDead(pos);
+    }
+
+    kir::IrVisitor::dispatch(expr);
+  }
+
+  // Reclaim memory whenever we pass an Expr that is known to synchronize the
+  // block
+  void handle(kir::BlockSync* expr) override {
+    reclaimMemory();
+  }
+  void handle(kir::GridSync* expr) override {
+    reclaimMemory();
+  }
+  void handle(ReductionOp* rop) override {
+    const auto output = rop->out()->as<TensorView>();
+    const auto domain = output->domain();
+    if (domain->hasBlockReduction() || domain->hasGridReduction()) {
+      reclaimMemory();
     }
   }
+  void handle(WelfordOp* expr) override {
+    reclaimMemory();
+  }
+  void handle(kir::CpAsyncWait* expr) override {
+    if (expr->keepStages() == 0) {
+      // Only reclaim memory if we are syncing all threads in the block
+      reclaimMemory();
+    }
+  }
+
+  void handle(kir::Allocate* alloc) override {}
 
   int lastAliasedRead(AllocationInfo* alloc_info) {
     auto it = last_aliased_read_.find(alloc_info);
@@ -1610,7 +1660,13 @@ class StackBasedSharedMemAllocator {
         waiting_to_push_.begin(),
         waiting_to_push_.end(),
         [this](AllocationInfo* a, AllocationInfo* b) {
-          return lastAliasedRead(a) > lastAliasedRead(b);
+          auto pa = lastAliasedRead(a);
+          auto pb = lastAliasedRead(b);
+          if (pa == pb) {
+            // break ties so that allocations will be deterministic
+            return a->alloc_expr->name() > b->alloc_expr->name();
+          }
+          return pa > pb;
         });
     for (auto alloc_info : waiting_to_push_) {
       pushAndAssign(alloc_info);
@@ -1621,9 +1677,6 @@ class StackBasedSharedMemAllocator {
   void pushAndAssign(AllocationInfo* alloc_info) {
     // Assign new address
     assignNextAddress(alloc_info);
-
-    // Ensure we will sync between last_read_pos_ and pos
-    ensureSync(alloc_info->outer_live_interval->firstWrite());
 
     alloc_stack_.push_back(alloc_info);
   }
@@ -1641,6 +1694,7 @@ class StackBasedSharedMemAllocator {
       auto unaligned_address =
           SimplifyingIrBuilder::addExpr(top_alloc->address(), top_size);
       auto aligned_address = alignExpr(unaligned_address);
+      // TODO: hoisting of addresses using for_loops_ recorded at first write
       alloc->setAddress(aligned_address);
     }
     if (isDebugDumpEnabled(DebugDumpOption::BufferReuseInfo)) {
@@ -1669,40 +1723,29 @@ class StackBasedSharedMemAllocator {
     }
 
     for (auto [alloc_info, last_read_pos] : last_aliased_read_) {
-      auto first_write_pos = alloc_info->outer_live_interval->firstWrite();
-      auto write_it = pos_to_first_writes_.emplace(first_write_pos, 0).first;
+      last_read_positions_.insert(last_read_pos);
+      auto write_it =
+          first_write_positions_
+              .emplace(alloc_info->outer_live_interval->firstWrite(), 0)
+              .first;
       // Record the first write at first_write_pos
       write_it->second.push_back(alloc_info);
-      // At last read position, just ensure there is an entry, but don't record
-      pos_to_first_writes_.emplace(last_read_pos, 0);
+      // Ensure there is an entry for the last read position
+      last_read_positions_.insert(last_read_pos);
     }
-  }
-
-  //! Ensure there is a sync between latest_pop_ and pos
-  void ensureSync(int pos) {
-    if (latest_pop_ == -1) {
-      // We are not re-using memory
-      return;
-    }
-    if (warn_only_) {
-      TORCH_WARN_ONCE(
-          "Detected missed opportunity for shared memory re-use. This Fusion ",
-          "could make use of shared memory re-use, which might improve ",
-          "occupancy at the expense of potential additional block ",
-          "synchronizations. To enable shared memory re-use use the environment ",
-          "variable NVFUSER_ENABLE=reuse_smem.\n\nTo disable this warning use ",
-          "NVFUSER_DISABLE=smem_reuse_warning.");
-      return;
-    }
-    // TODO: more sophisticated analysis to find nested intervals and use
-    // arrive/wait barriers.
-
-    // Insert BlockSync before the Expr at original position pos
-    debug() << "TODO: INSERT SYNC AT " << pos << std::endl;
   }
 
   //! Pop all allocations on the top of the stack that are no longer active.
-  void popAllDead(int pos) {
+  void reclaimMemory() {
+    std::cout << "Reclaiming memory at position " << position_ << std::endl;
+    std::cout << "  waiting_to_push_ contains:" << std::endl;
+    for (auto w : waiting_to_push_) {
+      std::cout << "    " << w->alloc_expr->buffer()->toString() << std::endl;
+    }
+    std::cout << "  alloc_stack_ contains:" << std::endl;
+    for (auto w : alloc_stack_) {
+      std::cout << "    " << w->alloc_expr->buffer()->toString() << std::endl;
+    }
     if (!waiting_to_push_.empty()) {
       // Check whether we have any allocations waiting to be pushed that are now
       // inactive. If so, then they need to be ordered and allocated at the top
@@ -1710,8 +1753,8 @@ class StackBasedSharedMemAllocator {
       if (std::any_of(
               waiting_to_push_.begin(),
               waiting_to_push_.end(),
-              [this, pos](AllocationInfo* alloc_info) {
-                return lastAliasedRead(alloc_info) <= pos;
+              [this](AllocationInfo* alloc_info) {
+                return lastAliasedRead(alloc_info) <= position_;
               })) {
         sortPushAndAssignWaiting();
       } else {
@@ -1723,7 +1766,10 @@ class StackBasedSharedMemAllocator {
 
     while (!alloc_stack_.empty()) {
       auto last_read = lastAliasedRead(alloc_stack_.back());
-      if (last_read <= pos) {
+      if (last_read <= position_) {
+        std::cout << "  Popping "
+                  << alloc_stack_.back()->alloc_expr->buffer()->toString()
+                  << std::endl;
         latest_pop_ = std::max(last_read, latest_pop_);
         alloc_stack_.pop_back();
       } else {
@@ -1739,22 +1785,26 @@ class StackBasedSharedMemAllocator {
   // smem reuse
   bool warn_only_ = false;
 
+  int position_ = -1;
+
   // Latest position that was popped. In general, any new allocation could alias
   // all previously popped allocations, so we use this as the most distant safe
   // point to synchronize with the new allocation's first write (for
   // arrive/wait).
   int latest_pop_ = -1;
 
-  // This is an ordered map to help iterate over events in order. The keys are
-  // time positions and the values are vectors of AllocationInfo's that have
-  // their first write at that time. Note that that vector might be empty: these
-  // time points are still important since we will check for dead allocations to
-  // pop at these time points.
-  std::map<int, std::vector<AllocationInfo*>> pos_to_first_writes_;
-
   // This records the actual last read position of an AllocationInfo, computed
   // as the maximum last outer read position of all Allocations that alias it.
   std::unordered_map<AllocationInfo*, int> last_aliased_read_;
+
+  // This holds all positions which are the first write positions for some
+  // allocation. At these positions we should queue up allocations for assigning
+  // addresses.
+  std::unordered_map<int, std::vector<AllocationInfo*>> first_write_positions_;
+
+  // This holds all positions which are the last read positions for some
+  // allocation. These are points at which we can try to reclaim memory.
+  std::unordered_set<int> last_read_positions_;
 
   // Stack of allocations "below" the current eligible address. At any given
   // time, all memory above the last allocation in this vector is guaranteed to
@@ -1782,11 +1832,11 @@ std::vector<Expr*> reuseMemoryAllocations(const std::vector<Expr*>& exprs) {
       AllocationReuseModifier::modify(exprs, allocation_info_map);
 
   if (isOptionEnabled(EnableOption::ReuseSharedMemory)) {
-    StackBasedSharedMemAllocator(allocation_info_map).allocate();
+    StackBasedSharedMemAllocator(allocation_info_map).allocate(aliased_exprs);
   } else {
     if (!isOptionDisabled(DisableOption::SharedMemoryReuseWarning)) {
       StackBasedSharedMemAllocator(allocation_info_map, /*warn_only*/ true)
-          .allocate();
+          .allocate(aliased_exprs);
     }
     NoReuseSharedMemAllocator().allocate(aliased_exprs);
   }
