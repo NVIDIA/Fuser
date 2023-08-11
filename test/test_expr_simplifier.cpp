@@ -488,6 +488,24 @@ TEST_F(ExprSimplifierTest, AssociativeAndCommutativeReordering) {
   }
 
   {
+    auto val = "i3 + i2 - i1 + i0"_;
+    auto simplified = simplifyExpr(val, {variables.begin(), variables.end()});
+    auto expect = "i0 - i1 + i2 + i3"_;
+    EXPECT_TRUE(expect->sameAs(simplified) && simplified->sameAs(expect))
+        << "Expect the simplified expression " << simplified->toInlineString()
+        << " to be the same as " << expect->toInlineString();
+  }
+
+  {
+    auto val = "i3 + i2 + i1 - i0"_;
+    auto simplified = simplifyExpr(val, {variables.begin(), variables.end()});
+    auto expect = "- i0 + i1 + i2 + i3"_;
+    EXPECT_TRUE(expect->sameAs(simplified) && simplified->sameAs(expect))
+        << "Expect the simplified expression " << simplified->toInlineString()
+        << " to be the same as " << expect->toInlineString();
+  }
+
+  {
     auto val =
         "( ( ( ( i2 * i3 ) + ( ( i4 + i5 ) + 3 ) ) + 3 ) * ( ( ( ( i0 + i1 ) + 3 ) + 5 ) + i2 ) ) * i0"_;
     auto simplified = simplifyExpr(val, {variables.begin(), variables.end()});
@@ -559,7 +577,7 @@ TEST_F(ExprSimplifierTest, EliminateTrivialComputation) {
   EXPECT_TRUE(simplifyExpr("1.0 + d + 1.0"_)->sameAs("d + 2.0"_));
 
   // Test that FlattenedAssocCommOp::sameAs ignores order
-  EXPECT_TRUE(simplifyExpr("( i1 * i2 ) - ( i2 * i1 )"_)->isZeroInt());
+  EXPECT_TRUE(simplifyExpr("( i1 * i2 ) == ( i2 * i1 )"_)->isTrue());
 
   // where(true, x, y) -> x, where(false, x, y) -> y
   EXPECT_TRUE(simplifyExpr("where( true , i1 , i2 )"_)->sameAs("i1"_));
@@ -567,6 +585,24 @@ TEST_F(ExprSimplifierTest, EliminateTrivialComputation) {
 
   // abs(x) -> x, if x >= 0
   EXPECT_TRUE(simplifyExpr("abs( i )"_, {}, {"i >= 0"_})->sameAs("i"_));
+
+  // x - x -> 0
+  EXPECT_TRUE(simplifyExpr("i - i"_)->isZeroInt());
+  EXPECT_TRUE(simplifyExpr("i - i - i"_)->sameAs("- i"_));
+  EXPECT_TRUE(simplifyExpr("i - i + i"_)->sameAs("i"_));
+  EXPECT_TRUE(simplifyExpr("i - i + i - i"_)->isZeroInt());
+  EXPECT_TRUE(simplifyExpr("i1 - ( i2 + i3 ) + i2"_)->sameAs("i1 - i3"_));
+  EXPECT_TRUE(simplifyExpr("i2 - ( i2 - i3 ) - i3"_)->isZeroInt());
+  EXPECT_TRUE(simplifyExpr("i1 - ( i2 - i3 ) - i3"_)->sameAs("i1 - i2"_));
+  // Using the same Val* multiple times in FlattenedAdd so that we can test if
+  // our passes are working correctly with the same Val* appearing multiple
+  // times
+  // TODO: we shouldn't just test this single case, we need to make a more
+  // complete test plan for all our passes. I don't think this case is well
+  // tested currently.
+  auto i = "i"_;
+  EXPECT_TRUE(
+      simplifyExpr(IrBuilder::subExpr(IrBuilder::addExpr(i, i), i))->sameAs(i));
 }
 
 TEST_F(ExprSimplifierTest, SimplifyDivisibleDivMod) {

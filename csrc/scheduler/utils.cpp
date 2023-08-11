@@ -1972,7 +1972,7 @@ std::unordered_map<int, int> domainReorderAsRfactorMap(TensorView* tv) {
   return old2new;
 }
 
-void propagateViewTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
+void propagateReshapeTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
   std::unordered_set<std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>
       transformed_disjoint_sets;
 
@@ -1994,15 +1994,17 @@ void propagateViewTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
     }
   }
 
-  std::unordered_set<IterDomain*> terminating_rfactor_dims;
+  std::unordered_set<IterDomain*> terminating_reshape_dims;
   for (const auto& disjoint_set_shared_ptr :
        ca_map.idGraph().exactNodes().disjointSets()) {
+    // Find a disjoint set that is produced by a reshape
+    // operation. Ignore resize as it isn't reshape
     if (std::none_of(
             disjoint_set_shared_ptr->vector().begin(),
             disjoint_set_shared_ptr->vector().end(),
             [](IterDomain* id) {
-              return id->definition() && !id->definition()->isA<Resize>() &&
-                  id->isRFactorProduct();
+              return id->isRFactorProduct() && id->definition() &&
+                  !id->definition()->isA<Resize>();
             })) {
       continue;
     }
@@ -2012,7 +2014,7 @@ void propagateViewTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
       continue;
     }
     for (auto id : disjoint_set_shared_ptr->vector()) {
-      terminating_rfactor_dims.emplace(id);
+      terminating_reshape_dims.emplace(id);
     }
   }
 
@@ -2030,8 +2032,8 @@ void propagateViewTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
     // rfactor dims we could try and pull those through the fusion instead of
     // enforcing rfactor dims are in domain.
     for (auto rfactor_id : tv->getMaybeRFactorDomain()) {
-      if (terminating_rfactor_dims.find(rfactor_id) !=
-          terminating_rfactor_dims.end()) {
+      if (terminating_reshape_dims.find(rfactor_id) !=
+          terminating_reshape_dims.end()) {
         auto find_it = std::find(
             tv->getLeafDomain().begin(), tv->getLeafDomain().end(), rfactor_id);
         TORCH_INTERNAL_ASSERT(
