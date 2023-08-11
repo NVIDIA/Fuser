@@ -2475,7 +2475,7 @@ IterDomain* IterDomain::merge(IterDomain* outer, IterDomain* inner) {
       !outer->isStride() && !inner->isStride(),
       "No support for merging stride domains");
 
-  Val* merged_id_size = IrBuilder::mulExpr(outer->extent(), inner->extent());
+  Val* merged_id_size = mul(outer->extent(), inner->extent());
 
   IterType itype = outer->getIterType();
 
@@ -2498,21 +2498,18 @@ IterDomain* IterDomain::merge(IterDomain* outer, IterDomain* inner) {
   Val* expanded_extent = nullptr;
   if (outer->hasExpandedExtent() || inner->hasExpandedExtent()) {
     if (outer->hasExpandedExtent() && inner->hasExpandedExtent()) {
-      expanded_extent =
-          IrBuilder::mulExpr(outer->expandedExtent(), inner->expandedExtent());
+      expanded_extent = mul(outer->expandedExtent(), inner->expandedExtent());
     } else if (outer->hasExpandedExtent() && !inner->hasExpandedExtent()) {
       if (inner->isBroadcast()) {
         expanded_extent = outer->expandedExtent();
       } else {
-        expanded_extent =
-            IrBuilder::mulExpr(outer->expandedExtent(), inner->extent());
+        expanded_extent = mul(outer->expandedExtent(), inner->extent());
       }
     } else if (outer->hasExpandedExtent() && inner->hasExpandedExtent()) {
       if (outer->isBroadcast()) {
         expanded_extent = inner->expandedExtent();
       } else {
-        expanded_extent =
-            IrBuilder::mulExpr(outer->extent(), inner->expandedExtent());
+        expanded_extent = mul(outer->extent(), inner->expandedExtent());
       }
     }
   }
@@ -2542,11 +2539,11 @@ std::pair<IterDomain*, IterDomain*> IterDomain::split(
       factor->isIntegralScalar(), "Cannot split by non-integer value ", factor);
 
   // outer loop size
-  Val* remainder = IrBuilder::ceilDivExpr(
-      Split::extent(in->extent(), start_offset, stop_offset), factor);
+  Val* remainder =
+      ceilDiv(Split::extent(in->extent(), start_offset, stop_offset), factor);
   Val* expanded_remainder = nullptr;
   if (in->hasExpandedExtent()) {
-    expanded_remainder = IrBuilder::ceilDivExpr(
+    expanded_remainder = ceilDiv(
         Split::extent(in->expandedExtent(), start_offset, stop_offset), factor);
   }
 

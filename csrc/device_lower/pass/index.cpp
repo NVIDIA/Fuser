@@ -1533,7 +1533,7 @@ void IndexLowering::handle(const CatOp* cat) {
     auto inp_concat_id = TensorDomain::noReductions(
                              cat->input(i)->as<TensorView>()->getRootDomain())
                              .at(cat->concatenatedDim());
-    cur_extent = IrBuilder::addExpr(cur_extent, inp_concat_id->extent());
+    cur_extent = add(cur_extent, inp_concat_id->extent());
     preds.at(i) = IrBuilder::ltExpr(concatenated_dim_idx, cur_extent);
   }
 

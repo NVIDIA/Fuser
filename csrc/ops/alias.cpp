@@ -138,15 +138,15 @@ TensorView* reshape(TensorView* inp_tv, const std::vector<Val*>& new_sizes) {
       Val* numel = FusionGuard::getCurFusion()->oneVal();
       Val* other_new_numel = FusionGuard::getCurFusion()->oneVal();
       for (const auto j : c10::irange(inp_dom.size())) {
-        numel = IrBuilder::mulExpr(numel, inp_dom.at(j)->extent());
+        numel = mul(numel, inp_dom.at(j)->extent());
       }
       for (const auto j : c10::irange(new_sizes.size())) {
         if (i == j) {
           continue;
         }
-        other_new_numel = IrBuilder::mulExpr(other_new_numel, new_sizes.at(j));
+        other_new_numel = mul(other_new_numel, new_sizes.at(j));
       }
-      new_size = IrBuilder::divExpr(numel, other_new_numel);
+      new_size = div(numel, other_new_numel);
       new_size = simplifyExpr(new_size);
     }
     if (new_size->dtype() != DataType::Index) {
@@ -666,12 +666,11 @@ TensorView* cat(
             inp_root_id->toString());
         // The right pad of the last tensor is just zero
         right_pad = input_idx < inputs.size() - 1
-            ? IrBuilder::subExpr(
-                  right_pad, inp_root_id->getMaybeExpandedExtent())
+            ? sub(right_pad, inp_root_id->getMaybeExpandedExtent())
             : FusionGuard::getCurFusion()->zeroVal();
         left_pad_i = left_pad;
         right_pad_i = right_pad;
-        left_pad = IrBuilder::addExpr(left_pad, inp_root_id->extent());
+        left_pad = add(left_pad, inp_root_id->extent());
       }
       // The pad width argument to pad should be ordered such that the
       // widths of inner dimensions come first.
@@ -760,7 +759,7 @@ TensorView* slice(TensorView* inp, const std::vector<Slice>& ranges) {
       out_rf_id = IterDomain::resize(
           out_root_id,
           SimplifyingIrBuilder::negExpr(range.start),
-          IrBuilder::subExpr(range.stop, inp_root_id->extent()),
+          sub(range.stop, inp_root_id->extent()),
           true);
       needs_real_slicing = true;
     }

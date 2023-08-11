@@ -610,10 +610,9 @@ void IndexCompute::handle(Resize* resize) {
     // case.
     return;
   } else {
-    index_map_[in_id] = IrBuilder::subExpr(out_ind, resize->leftExpand());
-    extent_map_[in_id] = IrBuilder::subExpr(
-        IrBuilder::subExpr(getExtent(out_id), resize->leftExpand()),
-        resize->rightExpand());
+    index_map_[in_id] = sub(out_ind, resize->leftExpand());
+    extent_map_[in_id] = sub(
+        sub(getExtent(out_id), resize->leftExpand()), resize->rightExpand());
   }
 }
 
