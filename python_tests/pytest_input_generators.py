@@ -450,7 +450,6 @@ def _special_value_binary_generator(generator_fn, dtype, requires_grad):
     return SampleInput(lhs, rhs)
 
 
-# TODO Add small value, large value, and extremal-valued samples
 def elementwise_binary_generator(
     op: OpInfo,
     dtype: torch.dtype,
@@ -537,59 +536,6 @@ def _elementwise_binary_torch(op):
     return _fn
 
 
-# TODO Add small value, large value, and extremal-valued samples
-def elementwise_binary_generator(
-    op: OpInfo,
-    dtype: torch.dtype,
-    requires_grad: bool = False,
-    *,
-    supports_numbers: bool = True,
-    **kwargs,
-):
-    low = None if op.domain.low is None else max(-9, op.domain.low)
-    high = None if op.domain.high is None else min(9, op.domain.high)
-    make_arg = partial(
-        make_tensor,
-        device="cuda",
-        dtype=dtype,
-        low=low,
-        high=high,
-        requires_grad=requires_grad,
-        **kwargs,
-    )
-
-    shapes = (
-        (0, 2, 1),
-        (5, 0, 3),
-        (),
-        (11,),
-        (4, 4),
-        (1024, 1024),
-        (64, 64, 64),
-    )
-
-    # Typical inputs
-    for shape in shapes:
-        yield SampleInput(make_arg(shape), make_arg(shape))
-
-    # Noncontiguous inputs
-    for shape in shapes:
-        yield SampleInput(
-            make_arg(shape, noncontiguous=True), make_arg(shape, noncontiguous=True)
-        )
-
-
-def _elementwise_binary_torch(op):
-    @wraps(op)
-    def _fn(x, y):
-        if isinstance(x, torch.Tensor) or isinstance(y, torch.Tensor):
-            return op(x, y)
-        return op(torch.tensor(x), torch.tensor(y)).item()
-
-    return _fn
-
-
-# TODO Add small value, large value, and extremal-valued samples
 def elementwise_unary_generator(
     op: OpInfo,
     dtype: torch.dtype,
@@ -614,9 +560,8 @@ def elementwise_unary_generator(
     )
 
     shapes = (
-        # TODO: restore size zero cases
-        # (0, 2, 1),
-        # (5, 0, 3),
+        (0, 2, 1),
+        (5, 0, 3),
         (),
         (11,),
         (4, 4),
