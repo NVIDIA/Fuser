@@ -1248,8 +1248,8 @@ TensorView* TensorView::cacheAfter(
     for (auto use : cached_uses) {
       TORCH_INTERNAL_ASSERT(uses.count(use));
     }
+    uses = cached_uses;
   }
-  uses = cached_uses;
 
   // Get all the uses for this Tensorview
   TORCH_CHECK(

@@ -89,7 +89,7 @@ ContiguousInnerDimensionsMapper::ContiguousInnerDimensionsMapper(
       "Reference: ",
       reference->toString());
 
-  initializeResizeFactors(reference->fusion());
+  initializeResizeInfo(reference->fusion());
 
   // Record while processing reference's information
   recording_ = true;
@@ -894,9 +894,9 @@ Val* getSliceOffset(
 
 } // namespace
 
-void ContiguousInnerDimensionsMapper::initializeResizeFactors(Fusion* fusion) {
-  //  Only support if the input is a fusion input. Should be relaxed
-  //  later.
+void ContiguousInnerDimensionsMapper::initializeResizeInfo(Fusion* fusion) {
+  //  Currently, only support if the input of a split is a fusion
+  //  input. Should be relaxed later.
   for (auto input_tv : ir_utils::filterByType<TensorView>(fusion->inputs())) {
     if (std::none_of(
             input_tv->uses().begin(), input_tv->uses().end(), [](Expr* expr) {

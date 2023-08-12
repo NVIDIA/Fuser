@@ -287,7 +287,7 @@ class TORCH_CUDA_CU_API ContiguousInnerDimensionsMapper
       TensorView* to,
       std::shared_ptr<Information> from_info) final;
 
-  // Projection from root<->rfactor domains
+  // PrinitializeResizeInfoactor domains
   std::vector<IterDomain*> projectId(
       const std::vector<IterDomain*>& from,
       const std::vector<IterDomain*>& to);
@@ -297,7 +297,7 @@ class TORCH_CUDA_CU_API ContiguousInnerDimensionsMapper
   void propagateP2C(TensorView* from, TensorView* to) final;
   void propagateSibling(TensorView* from, TensorView* to) final;
 
-  void initializeResizeFactors(Fusion* fusion);
+  void initializeResizeInfo(Fusion* fusion);
 
   // Initialized to false, series of compute... calls will be performed to find
   // the spanning tree. Then propagate... calls will call the compute... calls.
