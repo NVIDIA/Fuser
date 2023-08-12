@@ -440,6 +440,16 @@ ForLoop::ForLoop(
       step = FusionGuard::getCurFusion()->oneVal();
     }
   }
+  TORCH_INTERNAL_ASSERT(
+      index->dtype() == DataType::Index, "Loop index must be an index type.");
+  TORCH_INTERNAL_ASSERT(
+      start == nullptr || start->dtype() == DataType::Index,
+      "Loop start must be an index type.");
+  TORCH_INTERNAL_ASSERT(
+      step->dtype() == DataType::Index, "Loop step must be an index type.");
+  TORCH_INTERNAL_ASSERT(
+      stop == nullptr || stop->dtype() == DataType::Index,
+      "Loop stop must be an index type.");
   addAttribute(start);
   addAttribute(stop);
   addAttribute(step);
