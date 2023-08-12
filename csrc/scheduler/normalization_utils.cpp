@@ -869,11 +869,11 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
   if (buffer_params.register_persistent_buffer_size >
       available_register_buffer_size) {
     for (const auto tv : persistent_buffers) {
-      int64_t tensor_bytes = getTensorViewRuntimeBytes(tv, runtime_info);
+      int64_t tv_buffer_size = scheduler_utils::getOnePersistentBufferSize(tv, runtime_info, persistent_buffer_info);
       std::cout << "tv: " << tv->toString() << std::endl;
-      std::cout << "tensor_bytes: " << tensor_bytes << std::endl;
-      buffer_params.register_persistent_buffer_size -= tensor_bytes;
-      buffer_params.shared_memory_persistent_buffer_size += tensor_bytes;
+      std::cout << "tv_buffer_size: " << tv_buffer_size << std::endl;
+      buffer_params.register_persistent_buffer_size -= tv_buffer_size;
+      buffer_params.shared_memory_persistent_buffer_size += tv_buffer_size;
       buffer_params.shared_memory_persistent_tensors.insert(tv);
       if (buffer_params.register_persistent_buffer_size <=
           available_register_buffer_size) {

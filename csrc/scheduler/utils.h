@@ -596,5 +596,10 @@ TORCH_CUDA_CU_API std::unordered_set<TensorView*> getAllTvsFrom(
     const std::vector<TensorView*>& from_tvs,
     const std::unordered_set<TensorView*>& cutoff_tv_set);
 
+//! Get the persistent buffer size of the given buffer
+TORCH_CUDA_CU_API int64_t getOnePersistentBufferSize(
+    const TensorView* buffer,
+    SchedulerRuntimeInfo& runtime_info,
+    const PersistentBufferInfo& persistent_buffer_info);
 } // namespace scheduler_utils
 } // namespace nvfuser

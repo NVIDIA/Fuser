@@ -1768,6 +1768,9 @@ class PersistentKernelScheduler : public SchedulerEntry {
   }
 
   static bool canScheduleCompileTime(Fusion* fusion) {
+
+    std::cout << "trace: PersistentKernelScheduler::canScheduleCompileTime\n";
+
     // Needs at least one reduction to consider.
     auto reduction_ops = ir_utils::getReductionOps(fusion);
     if (reduction_ops.empty()) {
@@ -1915,6 +1918,9 @@ class PersistentKernelScheduler : public SchedulerEntry {
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
       HeuristicSummary* data_cache = nullptr) {
+
+    std::cout << "trace: PersistentKernelScheduler::canScheduleRunTime\n";
+
     FUSER_PERF_SCOPE("PersistentKernelScheduler::canSchedule");
     auto reduction_tv_entry =
         HeuristicSummaryEntry<HeuristicCompileTime::ReductionTVs>(
@@ -1962,43 +1968,23 @@ class PersistentKernelScheduler : public SchedulerEntry {
         (int)(reduced_tv->nDims() - properties.inner_most_dimension_ndims));
 
     // check if there is enough register and shared memory for persistence
-    const auto& buffer_storage_para =
-            normalization_scheduler_utils::getPersistentBufferStorageParams(
-                fusion,
-                runtime_info,
-                data_cache,
-                reduction_tvs,
-                properties,
-                vectorize_factor);
+    const auto buffer_storage_params =
+        normalization_scheduler_utils::getPersistentBufferStorageParams(
+            fusion,
+            runtime_info,
+            data_cache,
+            reduction_tvs,
+            properties,
+            vectorize_factor);
 
     const int64_t device_multiprocessor_count =
         (int64_t)at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
 
-    if (!buffer_storage_para.has_enough_regs_and_smem) {
+    if (!buffer_storage_params.has_enough_regs_and_smem) {
       scheduler_debug_utils::canScheduleRejectReason(
           ScheduleHeuristic::Persistent,
           "not enough registers and shared memory for persistence!");
       return false;
-    }
-
-    if (inner_reduction && outer_reduction) {
-      // check if we can schedule the combined reductions with a reasonable
-      // batch size without large register spills.
-      if (!normalization_scheduler_utils::
-               getOptionalInnerOuterPersistentBufferBatches(
-                   properties.total_reduction_numel,
-                   properties.total_iteration_numel,
-                   buffer_storage_para.register_persistent_buffer_size,
-                   buffer_storage_para.shared_memory_persistent_buffer_size,
-                   (int64_t)vectorize_factor,
-                   warp_size,
-                   false)
-                   .first.has_value()) {
-        scheduler_debug_utils::canScheduleRejectReason(
-            ScheduleHeuristic::Persistent,
-            "Required batch number is larger than available batch number! Will cause register spills!");
-        return false;
-      }
     }
 
     const int64_t device_max_threads_per_multiprocessor =
@@ -2008,10 +1994,12 @@ class PersistentKernelScheduler : public SchedulerEntry {
     // Maximum number of iteration dimensions we can have and still be
     // persistent.
     const int64_t max_multi_reduction_factor = scheduler_utils::safeDiv(
-        scheduler_utils::register_file_size, buffer_storage_para.register_persistent_buffer_size);
+        scheduler_utils::register_file_size,
+        buffer_storage_params.register_persistent_buffer_size);
 
-    const int64_t required_sm_per_norm =
-        ceilDiv(buffer_storage_para.register_persistent_buffer_size, scheduler_utils::register_file_size);
+    const int64_t required_sm_per_norm = ceilDiv(
+        buffer_storage_params.register_persistent_buffer_size,
+        scheduler_utils::register_file_size);
 
     // If the persistence requires over half the device don't do grid
     // persistence as we can't overlap the grid comms.
@@ -2022,8 +2010,9 @@ class PersistentKernelScheduler : public SchedulerEntry {
       return false;
     }
 
-    const int64_t norm_per_sm =
-        ceilDiv(scheduler_utils::register_file_size, buffer_storage_para.register_persistent_buffer_size);
+    const int64_t norm_per_sm = ceilDiv(
+        scheduler_utils::register_file_size,
+        buffer_storage_params.register_persistent_buffer_size);
 
     // If outer reduction, don't go persistent if we can't fit half a warp in
     // the iter domain of the persistent reduction.
@@ -2055,10 +2044,14 @@ class PersistentKernelScheduler : public SchedulerEntry {
   }
 
  private:
+  // // generated in canScheduleRunTime, used in computeHeuristics
+  // // (getPersistentHeuristics) and schedulePersistentKernel
+  // PersistentBufferStorageParams buffer_storage_params_;
   void computeHeuristics(
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
       HeuristicSummary* data_cache = nullptr) {
+    std::cout << "trace: getPersistentHeuristics\n";
     params_ = getPersistentHeuristics(fusion, runtime_info, data_cache);
     TORCH_INTERNAL_ASSERT(params_ != nullptr);
   }
