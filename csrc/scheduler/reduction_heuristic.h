@@ -139,7 +139,7 @@ class ReductionParams : public HeuristicParams {
   // persistent tensors which are creased by the scheduler to store the partial
   // outer reduction results are always stored in registers.
   bool shared_mem_persistent_buffer = false;
-
+  std::vector<TensorView*> shared_memory_persistent_tensors;
  public:
   using HeuristicParams::HeuristicParams;
 

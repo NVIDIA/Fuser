@@ -164,7 +164,7 @@ enum class ReductionType { Inner, Outer, CombinedInnerOuter, None };
 //! the available registers.
 struct PersistentBufferStorageParams {
   ReductionType reduction_type = ReductionType::None;
-  std::unordered_set<TensorView*> shared_memory_persistent_tensors;
+  std::vector<TensorView*> shared_memory_persistent_tensors;
   int64_t shared_memory_persistent_buffer_size = -1;
   int64_t register_persistent_buffer_size = -1;
   int64_t shared_memory_overhead_per_block = -1;
@@ -246,11 +246,10 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
 //! Return the shared memory overhead per block includes reserved by the CUDA
 //! driver and the space for the reduction broadcast
 // workspace. The shared memory allocated for the reduction broadcast
-// workspace is proportional to the number of threads per block. Yet, since
-// the exact number of threads per block is unknown at this point,
-// maxThreadsPerBlock is used for a cautious estimate.
+// workspace is proportional to the number of threads per block.
 int64_t getSharedMemoryOverheadPerBlock(
     Fusion* fusion,
-    const std::vector<TensorView*>& persistent_buffer_tvs);
+    const std::vector<TensorView*>& persistent_buffer_tvs,
+    const int64_t max_threads_per_block);
 } // namespace normalization_scheduler_utils
 } // namespace nvfuser
