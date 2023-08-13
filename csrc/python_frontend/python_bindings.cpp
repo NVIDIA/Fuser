@@ -32,8 +32,8 @@ namespace nvfuser::python_frontend {
 // bindings. Ideally, these would be templated lambda functions but those
 // are not available without C++20.
 namespace {
-Vector define_vector_fn(FusionDefinition& fd, std::vector<Scalar>& args) {
-  FUSER_PERF_SCOPE("FusionDefinition.define_vector (from Scalars)");
+Vector define_vector_base_fn(FusionDefinition& fd, std::vector<Scalar>& args) {
+  FUSER_PERF_SCOPE("python_frontend::define_vector_base_fn");
   TORCH_CHECK(!fd.completed(), "Attempting to add to a completed definition!");
   std::vector<State> inputs;
   inputs.reserve(args.size());
@@ -44,6 +44,43 @@ Vector define_vector_fn(FusionDefinition& fd, std::vector<Scalar>& args) {
   fd.defineRecord(
       new VectorRecord(inputs, {fd.recordingState(out())}, DataType::Int));
   return out;
+}
+
+template<class ITERABLE>
+Vector define_vector_fn(FusionDefinition& self, ITERABLE& values, PrimDataType dtype = DataType::Int) {
+  FUSER_PERF_SCOPE("python_frontend::define_vector_fn");
+  std::vector<Scalar> args;
+  size_t idx = 0;
+  for (const auto& item : values) {
+    TORCH_CHECK(
+        idx < 8,
+        "The specified vector size exceeds the max tensor size for nvfuser.");
+    if (py::isinstance<py::int_>(item)) {
+      auto int_value = py::cast<int64_t>(item);
+      TORCH_CHECK(
+          int_value >= -1,
+          "The value ",
+          int_value,
+          " at index ",
+          idx,
+          " was neither symbolic(-1), zero_element(0), broadcast(1), or static(>1).");
+      Scalar out = self.defineScalar();
+      self.defineRecord(new ScalarRecord(
+          {self.recordingState(out())},
+          py::cast<int64_t>(item),
+          dtype));
+      args.emplace_back(out);
+    } else if (py::isinstance<Scalar>(item)) {
+      args.emplace_back(py::cast<Scalar>(item));
+    } else {
+      TORCH_CHECK(
+          false,
+          "Unsupported iterable object type for define_vector! Index:",
+          idx);
+    }
+    ++idx;
+  }
+  return define_vector_base_fn(self, args);
 }
 
 template<class ShapeType>
@@ -63,12 +100,14 @@ Tensor broadcast_in_dim_fn(FusionDefinition::Operators& op, Tensor arg, ShapeTyp
       output_size >= broadcast_dims.size(),
       "broadcast_dims vector size is too big for output shape!");
   Vector output_shape;
-  if constexpr (std::is_same_v<ShapeType, std::vector<Scalar>>) {
-    output_shape = define_vector_from_scalars_fn(*fd, shape); 
-  } else if constexpr (std::is_same_v<ShapeType, std::vector<int64_t>>) {
-    output_shape = define_vector_fn(*fd, shape, output_size); 
-  } else {
+  if constexpr (std::is_same_v<ShapeType, py::list>) {
+    output_shape = define_vector_fn<py::list>(*fd, shape); 
+  } else if constexpr (std::is_same_v<ShapeType, py::tuple>) {
+    output_shape = define_vector_fn<py::tuple>(*fd, shape); 
+  } else if constexpr (std::is_same_v<ShapeType, Vector>) {
     output_shape = std::move(shape);
+  } else {
+    TORCH_CHECK(false, "broadcast_in_dim's shape argument type is not supported!");
   }
   Tensor output = fd->defineTensor(output_size);
   fd->defineRecord(new BroadcastInDimOpRecord(
@@ -588,7 +627,7 @@ void initNvFuserPythonBindings(PyObject* module) {
               {self.recordingState(out())}, std::monostate{}, DataType::Int));
           args.emplace_back(out);
         }
-        return define_vector_fn(self, args);
+        return define_vector_base_fn(self, args);
       },
       py::arg("size"),
       py::return_value_policy::reference);
@@ -596,41 +635,15 @@ void initNvFuserPythonBindings(PyObject* module) {
   // of constant values.
   fusion_def.def(
       "define_vector",
-      [](FusionDefinition& self, py::list& values) -> Vector {
-        std::vector<Scalar> args;
-        size_t idx = 0;
-        for (const auto& item : values) {
-          TORCH_CHECK(
-              idx < 8,
-              "The specified vector size exceeds the max tensor size for nvfuser.");
-          if (py::isinstance<py::int_>(item)) {
-            auto int_value = py::cast<int64_t>(item);
-            TORCH_CHECK(
-                int_value >= -1,
-                "The value ",
-                int_value,
-                " at index ",
-                idx,
-                " was neither symbolic(-1), zero_element(0), broadcast(1), or static(>1).");
-            Scalar out = self.defineScalar();
-            self.defineRecord(new ScalarRecord(
-                {self.recordingState(out())},
-                py::cast<int64_t>(item),
-                DataType::Int));
-            args.emplace_back(out);
-          } else if (py::isinstance<Scalar>(item)) {
-            args.emplace_back(py::cast<Scalar>(item));
-          } else {
-            TORCH_CHECK(
-                false,
-                "Unsupported iterable object type for define_vector! Index:",
-                idx);
-          }
-          ++idx;
-        }
-        return define_vector_fn(self, args);
-      },
+      define_vector_fn<py::list>,
       py::arg("values"),
+      py::arg("dtype") = DataType::Int,
+      py::return_value_policy::reference);
+  fusion_def.def(
+      "define_vector",
+      define_vector_fn<py::tuple>,
+      py::arg("values"),
+      py::arg("dtype") = DataType::Int,
       py::return_value_policy::reference);
 
   //! The Operators class is a nested class of FusionDefinition to allow the
@@ -1817,14 +1830,14 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::return_value_policy::reference);
   nvf_ops.def(
       "broadcast_in_dim",
-      broadcast_in_dim_fn<std::vector<Scalar>>,
+      broadcast_in_dim_fn<py::list>,
       py::arg("arg"),
       py::arg("shape"),
       py::arg("broadcast_dims"),
       py::return_value_policy::reference);
   nvf_ops.def(
       "broadcast_in_dim",
-      broadcast_in_dim_fn<std::vector<int64_t>>,
+      broadcast_in_dim_fn<py::tuple>,
       py::arg("arg"),
       py::arg("shape"),
       py::arg("broadcast_dims"),
