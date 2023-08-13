@@ -3,12 +3,12 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # Owner(s): ["module: nvfuser"]
 
-from pytest_utils import all_dtypes, ArgumentType
+from pytest_utils import all_dtypes_except_reduced, ArgumentType
 from typing import Callable, Optional
 import torch
 import jax.numpy as jnp
 from enum import Enum
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 class ReferenceType(Enum):
@@ -85,10 +85,10 @@ class OpInfo:
     name: str
 
     # Set of valid inputs for this operation
-    domain: Domain = Domain(None, None)
+    domain: Domain = field(default_factory=lambda: Domain(None, None))
 
     # Set of valid dtypes for this operation
-    dtypes: tuple = all_dtypes
+    dtypes: tuple = all_dtypes_except_reduced
 
     # Generates valid inputs
     sample_input_generator: Callable = None

@@ -104,7 +104,7 @@ class EmptyTensorRemover : public DeadCodeRemover {
           tv->toString());
       auto shape = noReductionShape(tv);
       auto dtype = tv->getDataType().value();
-      auto new_tv = full(shape, fusion()->zeroVal(dtype), dtype);
+      auto new_tv = zeros(shape, dtype);
       registerReplacement(tv, new_tv);
     }
   }
@@ -200,7 +200,7 @@ class EmptyTensorRemover : public DeadCodeRemover {
       registerReplacement(var_sum, new_var_sum);
     }
     if (isLive(N)) {
-      auto new_N = full(shape, fusion()->zeroVal(), N->getDataType().value());
+      auto new_N = zeros(shape, N->getDataType().value());
       registerReplacement(N, new_N);
     }
   }
@@ -305,7 +305,7 @@ class EmptyTensorRemover : public DeadCodeRemover {
       auto out = mop->out()->as<TensorView>();
       auto shape = noReductionShape(out);
       auto dtype = out->getDataType().value();
-      auto new_tv = full(shape, fusion()->zeroVal(dtype), dtype);
+      auto new_tv = zeros(shape, dtype);
       registerReplacement(out, new_tv);
     }
   }

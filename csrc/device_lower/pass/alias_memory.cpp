@@ -16,6 +16,7 @@
 #include <ir/utils.h>
 #include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
+#include <ops/arith.h>
 #include <options.h>
 
 #include <sstream>
@@ -1053,7 +1054,20 @@ class ReusableAllocationFinder : private kir::IrVisitor {
         }
 
         // Check if this alloc has the same data type
-        if (alloc_info->data_type != alloc_to_reuse->data_type) {
+        if (alloc_info->mem_type == MemoryType::Local &&
+            isOptionDisabled(DisableOption::ReuseMismatchedTypeRegisters)) {
+          // With this option, registers must have exactly matching dtypes in
+          // order to be re-used
+          if (alloc_info->data_type != alloc_to_reuse->data_type) {
+            continue;
+          }
+        } else if (
+            dataTypeSize(
+                alloc_info->data_type, GpuLower::current()->indexType()) !=
+            dataTypeSize(
+                alloc_to_reuse->data_type, GpuLower::current()->indexType())) {
+          // Behavior for shared or global memory and default behavior for
+          // registers is to re-use if dtypes have same size.
           continue;
         }
 
@@ -1371,6 +1385,64 @@ class AllocationReuseModifier : private kir::ExprMutator {
   std::unordered_map<kir::Allocate*, kir::Allocate*> old2new_;
 };
 
+//! Set addresses without any re-use of shared memory. This simply scans
+//! through exprs and each time we find an unaliased Allocate align the current
+//! address and increment it by the given amount.
+class NoReuseSharedMemAllocator : kir::IrVisitor {
+ public:
+  void allocate(std::vector<Expr*>& exprs) {
+    handle(exprs);
+  }
+
+ private:
+  using kir::IrVisitor::handle;
+
+  static Val* alignExpr(Val* addr, int64_t alignment = 16) {
+    if (alignment == 1) {
+      return addr;
+    }
+    auto n_minus_one = IrBuilder::create<Val>(alignment - 1, DataType::Index);
+    return SimplifyingIrBuilder::bitwiseAndExpr(
+        SimplifyingIrBuilder::addExpr(addr, n_minus_one),
+        SimplifyingIrBuilder::bitwiseNotExpr(n_minus_one));
+  }
+
+  void handle(kir::Allocate* alloc) final {
+    if (alloc->memoryType() != MemoryType::Shared || alloc->alias()) {
+      return;
+    }
+
+    const auto buffer_dtype = alloc->buffer()->dtype();
+    const auto dtype_size = dataTypeSize(buffer_dtype);
+
+    auto address = current_address_ ? alignExpr(current_address_, 16)
+                                    : FusionGuard::getCurFusion()->zeroVal();
+
+    address =
+        GpuLower::current()->commonScalarMap().hoistScalar(address, for_loops_);
+
+    alloc->setAddress(address);
+
+    auto size_bytes = dtype_size == 1
+        ? alloc->size()
+        : SimplifyingIrBuilder::mulExpr(
+              alloc->size(),
+              IrBuilder::create<Val>(dtype_size, DataType::Index));
+
+    if (isDebugDumpEnabled(DebugDumpOption::BufferReuseInfo)) {
+      debug() << "Allocated address " << address->toInlineString()
+              << " of size " << size_bytes->toInlineString() << " for T"
+              << alloc->buffer()->name() << " which has dtype "
+              << alloc->buffer()->dtype() << std::endl;
+    }
+
+    current_address_ = SimplifyingIrBuilder::addExpr(address, size_bytes);
+  }
+
+ private:
+  Val* current_address_ = nullptr;
+};
+
 } // namespace
 
 std::vector<Expr*> reuseMemoryAllocations(const std::vector<Expr*>& exprs) {
@@ -1382,7 +1454,12 @@ std::vector<Expr*> reuseMemoryAllocations(const std::vector<Expr*>& exprs) {
 
   ReusableAllocationFinder::find(exprs, allocation_info_map);
 
-  return AllocationReuseModifier::modify(exprs, allocation_info_map);
+  auto aliased_exprs =
+      AllocationReuseModifier::modify(exprs, allocation_info_map);
+
+  NoReuseSharedMemAllocator().allocate(aliased_exprs);
+
+  return aliased_exprs;
 }
 
 } // namespace nvfuser

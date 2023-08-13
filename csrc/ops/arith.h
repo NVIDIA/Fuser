@@ -27,6 +27,9 @@ namespace nvfuser {
 // Insertion of casting op to dtype, returns new resulting val
 TORCH_CUDA_CU_API Val* castOp(DataType dtype, Val* v1);
 TORCH_CUDA_CU_API TensorView* castOp(DataType dtype, TensorView* v1);
+// If v1 is not dtype, insert a cast op, otherwise return v1
+TORCH_CUDA_CU_API Val* maybeCastOp(DataType dtype, Val* v1);
+TORCH_CUDA_CU_API TensorView* maybeCastOp(DataType dtype, TensorView* v1);
 
 TORCH_CUDA_CU_API Val* bitCastOp(DataType dtype, Val* v1);
 TORCH_CUDA_CU_API TensorView* bitCastOp(DataType dtype, TensorView* v1);
@@ -317,9 +320,12 @@ TORCH_CUDA_CU_API TensorView* log2(TensorView*);
 // neg
 TORCH_CUDA_CU_API Val* neg(Val*);
 TORCH_CUDA_CU_API TensorView* neg(TensorView*);
-// notOp
-TORCH_CUDA_CU_API Val* notOp(Val*);
-TORCH_CUDA_CU_API TensorView* notOp(TensorView*);
+// logical_not
+TORCH_CUDA_CU_API Val* logical_not(Val*);
+TORCH_CUDA_CU_API TensorView* logical_not(TensorView*);
+// bitwise_not
+TORCH_CUDA_CU_API Val* bitwise_not(Val*);
+TORCH_CUDA_CU_API TensorView* bitwise_not(TensorView*);
 // real
 TORCH_CUDA_CU_API Val* real(Val*);
 TORCH_CUDA_CU_API TensorView* real(TensorView*);
@@ -416,6 +422,13 @@ TORCH_CUDA_CU_API TensorView* expand_as(TensorView* inp, TensorView* other);
 // with functions like broadcast_in_size that take in a vector of sizes
 // to use to expand an input tensor
 TORCH_CUDA_CU_API std::vector<Val*> tensor_sizes(TensorView* inp);
+// This is a function used to give the symbolic shape of a tensor for use
+// with functions like broadcast_in_dim that take a shape vector
+// to use to expand an input tensor
+TORCH_CUDA_CU_API std::vector<Val*> shape(TensorView* inp);
+// Get the symbolic size of a specific dimension of a tensor
+TORCH_CUDA_CU_API Val* size(TensorView* inp, int64_t dim);
+TORCH_CUDA_CU_API Val* at(std::vector<Val*>& inp, int64_t index);
 
 // BINARY OPERATIONS
 // add
@@ -482,12 +495,17 @@ TORCH_CUDA_CU_API Val* ceilDiv(Val* v1, Val* v2);
 TORCH_CUDA_CU_API TensorView* ceilDiv(TensorView* v1, Val* v2);
 TORCH_CUDA_CU_API TensorView* ceilDiv(Val* v1, TensorView* v2);
 TORCH_CUDA_CU_API TensorView* ceilDiv(TensorView* v1, TensorView* v2);
-// Bitwise binary ops
+// Bitwise and logical binary ops
 // bitwise_and
 TORCH_CUDA_CU_API Val* bitwise_and(Val* v1, Val* v2);
 TORCH_CUDA_CU_API TensorView* bitwise_and(TensorView* v1, Val* v2);
 TORCH_CUDA_CU_API TensorView* bitwise_and(Val* v1, TensorView* v2);
 TORCH_CUDA_CU_API TensorView* bitwise_and(TensorView* v1, TensorView* v2);
+// logical_and
+TORCH_CUDA_CU_API Val* logical_and(Val* v1, Val* v2);
+TORCH_CUDA_CU_API TensorView* logical_and(TensorView* v1, Val* v2);
+TORCH_CUDA_CU_API TensorView* logical_and(Val* v1, TensorView* v2);
+TORCH_CUDA_CU_API TensorView* logical_and(TensorView* v1, TensorView* v2);
 // bitwise_left_shift
 TORCH_CUDA_CU_API Val* bitwise_left_shift(Val* v1, Val* v2);
 TORCH_CUDA_CU_API TensorView* bitwise_left_shift(TensorView* v1, Val* v2);
@@ -514,6 +532,11 @@ TORCH_CUDA_CU_API Val* bitwise_or(Val* v1, Val* v2);
 TORCH_CUDA_CU_API TensorView* bitwise_or(TensorView* v1, Val* v2);
 TORCH_CUDA_CU_API TensorView* bitwise_or(Val* v1, TensorView* v2);
 TORCH_CUDA_CU_API TensorView* bitwise_or(TensorView* v1, TensorView* v2);
+// logical_or
+TORCH_CUDA_CU_API Val* logical_or(Val* v1, Val* v2);
+TORCH_CUDA_CU_API TensorView* logical_or(TensorView* v1, Val* v2);
+TORCH_CUDA_CU_API TensorView* logical_or(Val* v1, TensorView* v2);
+TORCH_CUDA_CU_API TensorView* logical_or(TensorView* v1, TensorView* v2);
 // bitwise_xor
 TORCH_CUDA_CU_API Val* bitwise_xor(Val* v1, Val* v2);
 TORCH_CUDA_CU_API TensorView* bitwise_xor(TensorView* v1, Val* v2);

@@ -268,3 +268,21 @@ ExecutorMap& getGlobalMap() {
   return executor_map_;
 }
 } // namespace executorCache
+
+// Utility functions for adding cases to benchmarks.
+// Range increment is not available from the public API.
+void addCases16Wave128To32K(benchmark::internal::Benchmark* b) {
+  const auto properties = at::cuda::getCurrentDeviceProperties();
+  int batch_size = 16 * properties->multiProcessorCount;
+  for (auto hidden_size = 128; hidden_size <= 32768; hidden_size += 128) {
+    b->Args({batch_size, hidden_size});
+  }
+}
+
+void addCasesOneWave128To32K(benchmark::internal::Benchmark* b) {
+  const auto properties = at::cuda::getCurrentDeviceProperties();
+  int batch_size = properties->multiProcessorCount;
+  for (auto hidden_size = 128; hidden_size <= 32768; hidden_size += 128) {
+    b->Args({batch_size, hidden_size});
+  }
+}

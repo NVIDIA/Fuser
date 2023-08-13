@@ -471,6 +471,8 @@ at::Tensor matmulAtInput(
     case TensorMatmulPos::C:
     case TensorMatmulPos::D:
       return at::randn({M, N}, options);
+    case TensorMatmulPos::Bias:
+      return at::randn({M}, options);
     default:
       break;
   }
@@ -597,6 +599,48 @@ void validateSegmentation(
         group->heuristic(),
         " was used");
   }
+}
+
+TensorView* biasEpilogue(TensorView* tensor, TensorView* bias) {
+  TORCH_CHECK(
+      tensor->dtype() == bias->dtype(),
+      "bias vector must have the same type as tensor with two domains, bias: ",
+      bias->dtype(),
+      ", tensor: ",
+      tensor->dtype());
+  const auto concrete = TensorDomain::noReductions(
+      TensorDomain::noBroadcasts(tensor->getLeafDomain()));
+  TORCH_CHECK(
+      concrete.size() == 2,
+      "Only tensors with two concrete domains have support for bias epilogue enabled, got ",
+      concrete.size());
+  TORCH_CHECK(
+      tensor->nDims() >= 2,
+      "Tensors to have bias applied needs to have 2 or more domains, got ",
+      tensor->nDims());
+  TORCH_CHECK(
+      bias->nDims() == 1,
+      "bias vector must have one dimension, got",
+      bias->nDims());
+
+  TensorView *biasb = nullptr, *biased = nullptr;
+  biasb = broadcast(bias, {false, true});
+  biased = add(tensor, biasb);
+  return biased;
+}
+
+at::Tensor atBiasEpilogue(const at::Tensor& tensor, const at::Tensor& bias) {
+  TORCH_CHECK(bias.dim() == 1, "Bias must be a vector");
+  TORCH_CHECK(
+      tensor.dim() == 2, "Only 2d tensors have support for bias epilogue");
+  const int64_t rows = bias.size(0);
+
+  // We skip number of columns and access directly dim for rows, hence '-2'
+  TORCH_CHECK(
+      tensor.size(tensor.dim() - 2) == rows,
+      "Tensor must have the same number of rows as bias vector");
+
+  return tensor.add(bias.unsqueeze(-1));
 }
 
 } // namespace nvfuser

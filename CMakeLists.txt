@@ -158,6 +158,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/partition.cpp
   ${NVFUSER_SRCS_DIR}/predicate_compute.cpp
   ${NVFUSER_SRCS_DIR}/register_interface.cpp
+  ${NVFUSER_SRCS_DIR}/rng.cpp
   ${NVFUSER_SRCS_DIR}/root_domain_map.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/pointwise.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/pointwise_utils.cpp
@@ -176,6 +177,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/type_inference.cpp
   ${NVFUSER_SRCS_DIR}/type_promotion.cpp
   ${NVFUSER_SRCS_DIR}/fusion_segmenter.cpp
+  ${NVFUSER_SRCS_DIR}/tensor_metadata.cpp
   ${NVFUSER_SRCS_DIR}/tensor_view.cpp
   ${NVFUSER_SRCS_DIR}/transform_iter.cpp
   ${NVFUSER_SRCS_DIR}/transform_replay.cpp
@@ -551,8 +553,6 @@ list(APPEND NVFUSER_RUNTIME_FILES
   ${NVFUSER_ROOT}/runtime/type_traits.cu
   ${NVFUSER_ROOT}/runtime/warp.cu
   ${NVFUSER_ROOT}/runtime/welford.cu
-  ${ATEN_CUDA_ROOT}/cuda/detail/PhiloxCudaStateRaw.cuh
-  ${ATEN_CUDA_ROOT}/cuda/detail/UnpackRaw.cuh
 )
 
 file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/include/nvfuser_resources")
