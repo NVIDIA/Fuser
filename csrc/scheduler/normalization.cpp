@@ -775,9 +775,8 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
     constexpr double max_adjust_fraction = 0.9;
     int64_t register_count_minimum = static_cast<int64_t>(
         max_adjust_fraction * static_cast<double>(estimated_register_count));
-    const int64_t blocks_per_sm_maximum =
-        getThreadsPerSMGivenRegPerThread(register_count_minimum) /
-        threads_per_block;
+    const int64_t blocks_per_sm_maximum = scheduler_utils::safeDiv(getThreadsPerSMGivenRegPerThread(register_count_minimum),
+                                                                   threads_per_block);
     register_count_minimum = getRegPerThreadGivenThreadsPerSM(
         blocks_per_sm_maximum * threads_per_block);
 

@@ -848,7 +848,12 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
     total_buffer_size += intermediate_buffer_size;
   }
   const int64_t max_threads_per_block = 256l;
-
+  int64_t max_buffer_data_type_size = 1;
+  for (const auto tv : persistent_buffers){
+    max_buffer_data_type_size = std::max(
+        max_buffer_data_type_size,
+        dataTypeSize(tv->getDataType().value()));
+  }
   // At this point, we use a much larger register file size for the combined
   // case as it is rarely fused with other ops. Shared memory persistent is only
   // implemented for the inner and combined case.
@@ -856,6 +861,9 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
   int64_t available_register_buffer_size = combined_inner_outer_reduction
       ? scheduler_utils::register_file_size_combined
       : scheduler_utils::register_file_size;
+  if(max_buffer_data_type_size == 4){
+    available_register_buffer_size = scheduler_utils::register_file_size_full / 64 * 65;
+  }
   buffer_params.shared_memory_overhead_per_block =
       getSharedMemoryOverheadPerBlock(
           fusion, persistent_buffers, max_threads_per_block);
@@ -896,6 +904,10 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
       buffer_params.shared_memory_persistent_buffer_size += roundUpSmem(
           tv, tv_buffer_size, vectorize_factor, max_threads_per_block);
       buffer_params.shared_memory_persistent_tensors.emplace_back(tv);
+      // after moving a tensor from register to shared memory, reduce available register to avoid register spills
+      if(max_buffer_data_type_size == 4){
+        available_register_buffer_size = scheduler_utils::register_file_size_full / 64 * 60;
+      }      
       std::cout << "tv: " << tv->toString()
                 << ", tv_buffer_size: " << tv_buffer_size
                 << ", reg: " << buffer_params.register_persistent_buffer_size
