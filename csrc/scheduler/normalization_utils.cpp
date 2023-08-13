@@ -695,10 +695,10 @@ getOptionalInnerOuterPersistentBufferBatches(
 
   // When shared memory is used to store persistent buffers, hidden size is
   // large. Set threads_per_block to maximum to avoid large bath sizes.
-  if (shared_memory_persistent_buffer_size > 0) {
-    threads_per_block = threads_per_block_max;
-    inner_batch = ceilDiv(after_vectorization, threads_per_block);
-  } else {
+  // if (shared_memory_persistent_buffer_size > 0) {
+  //   threads_per_block = threads_per_block_max;
+  //   inner_batch = ceilDiv(after_vectorization, threads_per_block);
+  // } else {
     // Start from the smallest threads_per_block. If the corresponding batch
     // size is larger than batch_max, try increase threads per block by a warp
     // until the threads_per_block reaches threads_per_block_max or the batch
@@ -710,7 +710,7 @@ getOptionalInnerOuterPersistentBufferBatches(
       threads_per_block += warp_size;
       inner_batch = ceilDiv(after_vectorization, threads_per_block);
     }
-  }
+  // }
 
   // The maximum feature size can be processed without register spills and
   // fusion segmentation for fp16 is 14K. Here, we can allow register spills to
@@ -729,6 +729,9 @@ getOptionalInnerOuterPersistentBufferBatches(
   // usage in cases can't be vectorized.
   const int64_t batch_max_reg_spill =
       vectorize_factor > 1 ? batch_max + 3 : batch_max;
+  std::cout << "inner_batch: " << inner_batch << ", threads_per_block: "
+            << threads_per_block << ", batch_max_reg_spill: "
+            << batch_max_reg_spill << std::endl;
   if (ignore_register_size_limit || inner_batch <= batch_max_reg_spill) {
     return std::make_pair(inner_batch, threads_per_block);
   } else {
@@ -884,7 +887,7 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
         ceilDiv(ceilDiv(n_elements, vectorize_factor), threads_per_block);
     return n_batch * vectorize_factor * threads_per_block * data_type_size;
   };
-  if (buffer_params.register_persistent_buffer_size >
+  if (vectorize_factor > 1 && buffer_params.register_persistent_buffer_size >
       available_register_buffer_size) {
     for (const auto tv : persistent_buffers) {
       int64_t tv_buffer_size = scheduler_utils::getOnePersistentBufferSize(
@@ -906,12 +909,10 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
     }
   }
 
-  // Up to here, register_persistent_buffer_size is guaranteed to be less than
-  // or equal to available_register_buffer_size. Whether we can persistent
-  // depends on the available shared memory buffer size.
   buffer_params.has_enough_regs_and_smem =
       buffer_params.shared_memory_persistent_buffer_size <=
-      available_shared_memory_buffer_size;
+      available_shared_memory_buffer_size && buffer_params
+          .register_persistent_buffer_size <= available_register_buffer_size;
 
   std::cout << "register_persistent_buffer_size: "
             << buffer_params.register_persistent_buffer_size
