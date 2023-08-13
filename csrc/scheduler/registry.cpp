@@ -1987,25 +1987,25 @@ class PersistentKernelScheduler : public SchedulerEntry {
       return false;
     }
 
-    // if (inner_reduction && outer_reduction) {
-    //   // check if we can schedule the combined reductions with a reasonable
-    //   // batch size without register spills.
-    //   if (!normalization_scheduler_utils::
-    //            getOptionalInnerOuterPersistentBufferBatches(
-    //                properties.total_reduction_numel,
-    //                properties.total_iteration_numel,
-    //                buffer_storage_params.register_persistent_buffer_size,
-    //                buffer_storage_params.shared_memory_persistent_buffer_size,
-    //                (int64_t)vectorize_factor,
-    //                warp_size,
-    //                false)
-    //                .first.has_value()) {
-    //     scheduler_debug_utils::canScheduleRejectReason(
-    //         ScheduleHeuristic::Persistent,
-    //         "Required batch number is larger than available batch number! Will cause register spills!");
-    //     return false;
-    //   }
-    // }
+    if (inner_reduction && outer_reduction) {
+      // check if we can schedule the combined reductions with a reasonable
+      // batch size without register spills.
+      if (!normalization_scheduler_utils::
+               getOptionalInnerOuterPersistentBufferBatches(
+                   properties.total_reduction_numel,
+                   properties.total_iteration_numel,
+                   buffer_storage_params.register_persistent_buffer_size,
+                   buffer_storage_params.shared_memory_persistent_buffer_size,
+                   (int64_t)vectorize_factor,
+                   warp_size,
+                   false)
+                   .first.has_value()) {
+        scheduler_debug_utils::canScheduleRejectReason(
+            ScheduleHeuristic::Persistent,
+            "Required batch number is larger than available batch number! Will cause register spills!");
+        return false;
+      }
+    }
 
     const int64_t device_max_threads_per_multiprocessor =
         (int64_t)at::cuda::getCurrentDeviceProperties()

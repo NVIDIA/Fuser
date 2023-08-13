@@ -7368,11 +7368,12 @@ TEST_F(NVFuserTest, FusionMagicSchedulerLayerNormBackward_CUDA) {
 }
 
 TEST_F(NVFuserTest, FusionMagicSchedulerRMSNormBackward_CUDA) {
+  DataType dtype = DataType::Half;
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
-  const int64_t NORM_SIZE = 10240;
-  std::vector<int64_t> shape{80, 56, NORM_SIZE};
+  const int64_t NORM_SIZE = 22528;
+  std::vector<int64_t> shape{2, 59, NORM_SIZE};
   std::vector<int64_t> norm_shape{NORM_SIZE};
 
   const size_t kM = shape.size();
@@ -7388,22 +7389,35 @@ TEST_F(NVFuserTest, FusionMagicSchedulerRMSNormBackward_CUDA) {
     outer_shape.push_back(1);
   }
 
-  auto grad_out = makeContigTensor(shape.size());
-  auto input = makeContigTensor(shape.size());
-  auto rstd = makeConcreteTensor(outer_shape);
-  auto weight = makeContigTensor(norm_shape.size());
+  auto grad_out = makeContigTensor(shape.size(), dtype);
+  auto input = makeContigTensor(shape.size(), dtype);
+  auto rstd = makeConcreteTensor(outer_shape, dtype);
+  auto weight = makeContigTensor(norm_shape.size(), dtype);
   fusion.addInput(grad_out);
   fusion.addInput(input);
   fusion.addInput(rstd);
   fusion.addInput(weight);
 
+  if (dtype == DataType::Half) {
+    grad_out = castOp(DataType::Float, grad_out);
+    input = castOp(DataType::Float, input);
+    rstd = castOp(DataType::Float, rstd);
+    weight = castOp(DataType::Float, weight);
+  }
+
   auto grads = rms_norm_backward(
       grad_out, input, norm_shape, rstd, weight, {true, true});
+
+  if (dtype == DataType::Half) {
+    grads.grad_input = castOp(DataType::Half, grads.grad_input);
+    grads.grad_weight = castOp(DataType::Half, grads.grad_weight);
+  }  
 
   fusion.addOutput(grads.grad_input);
   fusion.addOutput(grads.grad_weight);
 
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  auto options = at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
   at::Tensor aten_grad_out = at::randn(shape, options);
   at::Tensor aten_input = at::randn(shape, options);
   at::Tensor aten_weight = at::randn(norm_shape, options);

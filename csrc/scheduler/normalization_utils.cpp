@@ -695,10 +695,10 @@ getOptionalInnerOuterPersistentBufferBatches(
 
   // When shared memory is used to store persistent buffers, hidden size is
   // large. Set threads_per_block to maximum to avoid large bath sizes.
-  // if (shared_memory_persistent_buffer_size > 0) {
-  //   threads_per_block = threads_per_block_max;
-  //   inner_batch = ceilDiv(after_vectorization, threads_per_block);
-  // } else {
+  if (shared_memory_persistent_buffer_size > 0) {
+    threads_per_block = threads_per_block_max;
+    inner_batch = ceilDiv(after_vectorization, threads_per_block);
+  } else {
     // Start from the smallest threads_per_block. If the corresponding batch
     // size is larger than batch_max, try increase threads per block by a warp
     // until the threads_per_block reaches threads_per_block_max or the batch
@@ -710,7 +710,7 @@ getOptionalInnerOuterPersistentBufferBatches(
       threads_per_block += warp_size;
       inner_batch = ceilDiv(after_vectorization, threads_per_block);
     }
-  // }
+  }
 
   // The maximum feature size can be processed without register spills and
   // fusion segmentation for fp16 is 14K. Here, we can allow register spills to
@@ -727,14 +727,18 @@ getOptionalInnerOuterPersistentBufferBatches(
   // without considering the overhead of fusion segmentation.
   // (4) Disable this optimization if vectorize_factor is 1 due to high register
   // usage in cases can't be vectorized.
+  // (5) The magic number 52 is for case 16K x 13293, which use a batch of 32 and register
+  // spills. 128 bytes stack frame, 228 bytes spill stores, 228 bytes spill loads.
   const int64_t batch_max_reg_spill =
-      vectorize_factor > 1 ? batch_max + 3 : batch_max;
+      vectorize_factor > 1 ? batch_max + 3 : std::max(52l, batch_max);
   std::cout << "inner_batch: " << inner_batch << ", threads_per_block: "
             << threads_per_block << ", batch_max_reg_spill: "
             << batch_max_reg_spill << std::endl;
   if (ignore_register_size_limit || inner_batch <= batch_max_reg_spill) {
     return std::make_pair(inner_batch, threads_per_block);
   } else {
+    std::cout << "batch_reject, inner_batch: " << inner_batch << ", batch_max_reg_spill: "
+              << batch_max_reg_spill << ", inner_dim_numel= " << inner_dim_numel << std::endl;
     return std::make_pair(std::nullopt, -1);
   }
 }
@@ -861,7 +865,7 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
   int64_t available_register_buffer_size = combined_inner_outer_reduction
       ? scheduler_utils::register_file_size_combined
       : scheduler_utils::register_file_size;
-  if(max_buffer_data_type_size == 4){
+  if(max_buffer_data_type_size == 4 || outer_reduction_count == 1){
     available_register_buffer_size = scheduler_utils::register_file_size_full / 64 * 65;
   }
   buffer_params.shared_memory_overhead_per_block =
