@@ -604,7 +604,7 @@ void RecordFunctorFactory::registerAllParsers() {
         parseStateArgs(buffer->outputs()),
         data->index());
   };
-  registerParser(serde::RecordType_SizeOp, deserializeAtOpRecord);
+  registerParser(serde::RecordType_AtOp, deserializeAtOpRecord);
 
   auto deserializeVarianceRecord = [](const serde::RecordFunctor* buffer) {
     auto data = buffer->data_as_Norm();
