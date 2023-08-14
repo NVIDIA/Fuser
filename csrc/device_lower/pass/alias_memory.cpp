@@ -1537,7 +1537,9 @@ Val* allocSizeBytes(kir::Allocate* alloc) {
 //!
 //! Note that this only gives one layer of protection. More complex patterns can
 //! still result in suboptimal memory use even with reordering using the holding
-//! area.
+//! area. If cases like that are observed in practice, we should consider using
+//! a more sophisticated algorithm that does backtracking to improve memory use,
+//! as an alternative to this purely prospective algorithm.
 //!
 //! [Syncs for Reused (Not Aliased) Shared Memory]
 //! We will need to ensure the block is synced to prevent a race hazard where
