@@ -358,8 +358,7 @@ void FusionCache::serialize(std::string filename) const {
         map_record_functor_to_trie_node_id.at(node->record.get()));
 
     auto schedule = queryFusionSchedules(node->fusion_id);
-    auto serialized_schedule = schedule->auto_gen_schedules->serialize(builder);
-    fb_auto_gen_schedules.push_back(serialized_schedule);
+    fb_auto_gen_schedules.emplace_back(schedule->auto_gen_schedules->serialize(builder));
   }
 
   // 6. Build FusionCache flatbuffer object
