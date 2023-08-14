@@ -1434,7 +1434,7 @@ Val* allocSizeBytes(kir::Allocate* alloc) {
 //! outer sharing: inner sharing is only valid for aliasing.
 //!
 //! Consider the following case, where time proceeds from left to right and
-//! memory is laid out in the upward direction by NoReuseSharedMemAllocator:
+//! memory is laid out in the upward direction by a naive algorithm:
 //!
 //!                 +-----+
 //!                 |  C  |
@@ -1469,6 +1469,14 @@ Val* allocSizeBytes(kir::Allocate* alloc) {
 //!   e: Don't pop A since it is not at back of stack.
 //!   f: Pop C and A (all inactive allocations at top of stack)
 //!
+//! This stack-based method is safe regardless of the size of the allocations;
+//! we never assign an address to an allocation X that could overlap another
+//! allocation Y whose last read occurs before the first write of X. This is
+//! ensured since we only assign allocations at the top of the stack and we
+//! guarantee that only inactive allocations are popped; since any previous
+//! allocations overlapping that new space must have been previously popped they
+//! must be inactive, avoiding a race hazard.
+//!
 //! [Reordering Pushes]
 //! Consider the following case:
 //!
@@ -1490,14 +1498,6 @@ Val* allocSizeBytes(kir::Allocate* alloc) {
 //!   d: Must allocate C on top of B, which is on top of A. i.e. NO RE-USE
 //!   e: Cannot pop B since it is covered by C
 //!   f: Finally pop C, B, and A
-//!
-//! This kind of case is actually quite common. For example, in a tiled matmul
-//! (ignoring double buffering) we have input tiles A and B, and an intermediate
-//! output tile C, which all overlap one another, then we might unswizzle the
-//! epilogue to a fourth buffer D before writing to gmem. In that case, D
-//! overlaps C but does not overlap A or B. If we could force C to lie
-//! underneath A and B then they could be popped prior to allocating D, and we
-//! would achieve optimal memory use.
 //!
 //! A slight tweak can help in these tougher cases. Instead of immediately
 //! pushing/allocating whenever we encounter a first write, we can instead
@@ -1527,6 +1527,13 @@ Val* allocSizeBytes(kir::Allocate* alloc) {
 //!       |  B  |
 //!       +-+---+
 //!   a   b c d e   f
+//!
+//! Recall that the simple stack-based approach (i.e. without reordering pushes)
+//! guarantees safety since new allocations are placed at the top of the stack
+//! and all popped allocations are inactive. These properties still hold for the
+//! push reordering approach; reordering just gives more opportunities to pop
+//! allocations as soon as they become inactive by placing short-lived
+//! allocations closer to the top of the stack than longer-lived ones.
 //!
 //! Note that this only gives one layer of protection. More complex patterns can
 //! still result in suboptimal memory use even with reordering using the holding
