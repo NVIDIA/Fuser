@@ -9769,6 +9769,10 @@ TEST_F(NVFuserTest, FusionCrossGridInnerReductionSplitGridIteration_CUDA) {
   // reduction size is set to 65538 to triger cross grid reduction and iter
   // unroll. iteration size is set to a value larger than y_grid_limit to test
   // if iter domain is split grid.
+  // This test requires significant memory. Release any cached memory
+  // from previous tests to ensure availability.
+  maybeClearAllocator(0);
+
   DataType dtype = DataType::Float;
   int64_t reduction_size = 65538;
   int64_t iteration_size = scheduler_utils::y_grid_limit + 8;
@@ -9782,33 +9786,52 @@ TEST_F(NVFuserTest, FusionCrossGridInnerReductionSplitGridIteration_CUDA) {
   fusion.addInput(t0);
   fusion.addOutput(t1);
 
-  auto options =
-      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
-  at::Tensor aten_input = at::randn(input_shape, options);
+  // Reference result is calculated by aten in double precision.
+  // Estimated_gmem is 51.5 GBytes, skip if not enough memory.
+  size_t n_elements = reduction_size * iteration_size + iteration_size;
+  size_t estimated_gmem =
+      n_elements * (dataTypeSize(dtype) + dataTypeSize(DataType::Double));
+  size_t device_free, device_total;
+  cudaMemGetInfo(&device_free, &device_total);
+  if (estimated_gmem > device_free) {
+    GTEST_SKIP() << "Skipping test due to limited GPU memory. Requested: "
+                 << estimated_gmem / 1e9 << " GBytes"
+                 << ", device_free: " << device_free / 1e9 << " GBytes"
+                 << ", device_total: " << device_total / 1e9 << " GBytes";
+  } else {
+    auto options = at::TensorOptions()
+                       .dtype(data_type_to_aten(dtype))
+                       .device(at::kCUDA, 0);
+    at::Tensor aten_input = at::randn(input_shape, options);
 
-  auto reduction_params = getReductionHeuristics(&fusion, {aten_input});
-  ASSERT_TRUE(reduction_params) << "Reduction schedule was not generated!";
-  ASSERT_TRUE(reduction_params->split_grid_dim_inner_reduction)
-      << "Generated reduction is not cross grid!";
-  ASSERT_TRUE(reduction_params->split_grid_dim_iter_dom_outer)
-      << "Generated reduction is not split iteration domain!";
-  scheduleReduction(&fusion, *reduction_params);
+    auto reduction_params = getReductionHeuristics(&fusion, {aten_input});
+    ASSERT_TRUE(reduction_params) << "Reduction schedule was not generated!";
+    ASSERT_TRUE(reduction_params->split_grid_dim_inner_reduction)
+        << "Generated reduction is not cross grid!";
+    ASSERT_TRUE(reduction_params->split_grid_dim_iter_dom_outer)
+        << "Generated reduction is not split iteration domain!";
+    scheduleReduction(&fusion, *reduction_params);
 
-  auto lparams = reduction_params->lparams;
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {aten_input}, lparams);
-  auto cg_outputs = fe.runFusion({aten_input}, lparams);
+    auto lparams = reduction_params->lparams;
+    FusionExecutor fe;
+    fe.compileFusion(&fusion, {aten_input}, lparams);
+    auto cg_outputs = fe.runFusion({aten_input}, lparams);
 
-  auto aten_outputs = aten_input.to(at::kDouble).sum({1});
-  testValidate(
-      &fusion,
-      cg_outputs,
-      {aten_input},
-      {aten_outputs},
-      __LINE__,
-      __FILE__,
-      "",
-      lparams);
+    auto aten_outputs = aten_input.to(at::kDouble).sum({1});
+
+    testValidate(
+        &fusion,
+        cg_outputs,
+        {aten_input},
+        {aten_outputs},
+        __LINE__,
+        __FILE__,
+        "",
+        lparams);
+  }
+
+  // clear to avoid influnce on subsequent tests.
+  maybeClearAllocator(0);
 }
 
 TEST_F(NVFuserTest, SymbolicOneBroadcasting) {
