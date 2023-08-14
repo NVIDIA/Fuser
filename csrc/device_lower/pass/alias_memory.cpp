@@ -1479,7 +1479,8 @@ Val* allocSizeBytes(kir::Allocate* alloc) {
 //! but we can re-use B's memory. If B and C are compatible, they can be
 //! aliased; however, in this class we assume that all eligible aliases are
 //! already set. We can still reuse memory like below (time points are labelled
-//! along the horizontal axis):
+//! along the horizontal axis), as long as threads within a block are
+//! synchronized between time points c and d to prevent race hazards:
 //!
 //!       +-----+   +-----+
 //!       |  B  |   |  C  |
@@ -1500,13 +1501,14 @@ Val* allocSizeBytes(kir::Allocate* alloc) {
 //!   e: Don't pop A since it is not at back of stack.
 //!   f: Pop C and A (all inactive allocations at top of stack)
 //!
-//! This stack-based method is safe regardless of the size of the allocations;
-//! we never assign an address to an allocation X that could overlap another
-//! allocation Y whose last read occurs before the first write of X. This is
+//! This stack-based method is safe regardless of the size of the allocations.
+//! We never assign an address to an allocation X that could overlap another
+//! allocation Y whose last read occurs after the first write of X. This is
 //! ensured since we only assign allocations at the top of the stack and we
-//! guarantee that only inactive allocations are popped; since any previous
-//! allocations overlapping that new space must have been previously popped they
-//! must be inactive, avoiding a race hazard.
+//! guarantee that only allocations that became inactive prior to the most
+//! recent block synchronization are popped; since any previous allocations
+//! overlapping that new space must have been previously popped they must be
+//! inactive and sync'ed, avoiding a race hazard.
 //!
 //! [Reordering Pushes]
 //! Consider the following case:
@@ -1543,12 +1545,13 @@ Val* allocSizeBytes(kir::Allocate* alloc) {
 //!
 //!   a: Append A to holding area
 //!   b: Append B to holding area
-//!   c: Sort holding area by last read (desc): {B, A}.
-//!      Push B.
-//!      Push A.
-//!      Pop A.
-//!      Clear holding area.
-//!   d: Allocate C on top of B. RE-USES A
+//!   c: Sort, reorder, and push:
+//!      c.1: Sort holding area by last read (desc): {B, A}.
+//!      c.2: Push B.
+//!      c.3: Push A.
+//!      c.4: Pop A.
+//!      c.5: Clear holding area.
+//!   d: Allocate C on top of B. Since A was popped, THIS RE-USES A
 //!   e: Cannot pop B since it is covered by C
 //!   f: Pop C and B
 //!
@@ -1561,16 +1564,23 @@ Val* allocSizeBytes(kir::Allocate* alloc) {
 //!
 //! Recall that the simple stack-based approach (i.e. without reordering pushes)
 //! guarantees safety since new allocations are placed at the top of the stack
-//! and all popped allocations are inactive. These properties still hold for the
-//! push reordering approach; reordering just gives more opportunities to pop
-//! allocations as soon as they become inactive by placing short-lived
-//! allocations closer to the top of the stack than longer-lived ones.
+//! and all popped allocations are inactive and synced. By its construction, the
+//! holding area only contains allocations with first writes occuring after the
+//! time of the last sync. Since we reclaim memory only at block syncs, we know
+//! that all pops from the stack have last reads prior to the last sync as well.
+//! So all allocations in the holding area contains are safe to re-use any
+//! reclaimed memory, regardless of their position. This means reordering the
+//! holding area cannot violate the safety constraint that the allocation must
+//! not overlap an allocation whose synced last read is later than its first
+//! write. Reordering can, however, give more opportunities to pop allocations
+//! as soon as they become inactive by placing short-lived allocations closer to
+//! the top of the stack than longer-lived ones.
 //!
-//! Note that this only gives one layer of protection. More complex patterns can
-//! still result in suboptimal memory use even with reordering using the holding
-//! area. If cases like that are observed in practice, we should consider using
-//! a more sophisticated algorithm that does backtracking to improve memory use,
-//! as an alternative to this purely prospective algorithm.
+//! Note that more complex patterns can still result in suboptimal memory use
+//! even with reordering using the holding area. If cases like that are observed
+//! in practice, we should consider using a more sophisticated algorithm that
+//! does backtracking to improve memory use, as an alternative to this purely
+//! prospective algorithm.
 //!
 //! [Syncs for Reused (Not Aliased) Shared Memory]
 //! We will need to ensure the block is synced to prevent a race hazard where
