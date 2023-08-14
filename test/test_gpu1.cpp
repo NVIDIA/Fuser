@@ -7368,12 +7368,13 @@ TEST_F(NVFuserTest, FusionMagicSchedulerLayerNormBackward_CUDA) {
 }
 
 TEST_F(NVFuserTest, FusionMagicSchedulerRMSNormBackward_CUDA) {
-  DataType dtype = DataType::Half;
+  // DataType dtype = DataType::Half;
+  DataType dtype = DataType::Float;
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
-  const int64_t NORM_SIZE = 22528;
-  std::vector<int64_t> shape{2, 59, NORM_SIZE};
+  const int64_t NORM_SIZE = 22272;
+  std::vector<int64_t> shape{2, 1728/2, NORM_SIZE};
   std::vector<int64_t> norm_shape{NORM_SIZE};
 
   const size_t kM = shape.size();

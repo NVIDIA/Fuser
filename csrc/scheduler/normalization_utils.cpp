@@ -730,7 +730,7 @@ getOptionalInnerOuterPersistentBufferBatches(
   // (5) The magic number 52 is for case 16K x 13293, which use a batch of 32 and register
   // spills. 128 bytes stack frame, 228 bytes spill stores, 228 bytes spill loads.
   const int64_t batch_max_reg_spill =
-      vectorize_factor > 1 ? batch_max + 3 : std::max(52l, batch_max);
+      vectorize_factor > 1 ? batch_max + 24l / vectorize_factor : std::max(52l, batch_max);
   std::cout << "inner_batch: " << inner_batch << ", threads_per_block: "
             << threads_per_block << ", batch_max_reg_spill: "
             << batch_max_reg_spill << std::endl;
@@ -904,20 +904,17 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
     for (const auto tv : persistent_buffers) {
       int64_t tv_buffer_size = scheduler_utils::getOnePersistentBufferSize(
           tv, runtime_info, persistent_buffer_info);
-      buffer_params.register_persistent_buffer_size -= tv_buffer_size;
-      buffer_params.shared_memory_persistent_buffer_size += roundUpSmem(
-          tv, tv_buffer_size, vectorize_factor, max_threads_per_block);
-      buffer_params.shared_memory_persistent_tensors.emplace_back(tv);
-      // after moving a tensor from register to shared memory, reduce available register to avoid register spills
-      if(max_buffer_data_type_size == 4){
-        available_register_buffer_size = scheduler_utils::register_file_size_full / 64 * 60;
-      }      
       std::cout << "tv: " << tv->toString()
                 << ", tv_buffer_size: " << tv_buffer_size
                 << ", reg: " << buffer_params.register_persistent_buffer_size
                 << ", smem: "
                 << buffer_params.shared_memory_persistent_buffer_size
-                << std::endl;
+                << std::endl;          
+      buffer_params.register_persistent_buffer_size -= tv_buffer_size;
+      buffer_params.shared_memory_persistent_buffer_size += roundUpSmem(
+          tv, tv_buffer_size, vectorize_factor, max_threads_per_block);
+      buffer_params.shared_memory_persistent_tensors.emplace_back(tv);
+
       if (buffer_params.register_persistent_buffer_size <=
           available_register_buffer_size) {
         break;
