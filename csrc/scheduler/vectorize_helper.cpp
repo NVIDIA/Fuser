@@ -63,13 +63,6 @@ ContiguousInnerDimensionsMapper::ContiguousInnerDimensionsMapper(
     : MaxInfoSpanningTree(reference, std::make_shared<MappedDomain>()),
       ca_map_(std::move(ca_map)),
       divisible_splits_(divisible_splits) {
-  if (getenv("VERBOSE")) {
-    std::cerr << "ContiguousInnerDimensionsMapper: " << reference->toString()
-              << std::endl;
-    reference->fusion()->printMath();
-    std::cout << std::endl;
-  }
-
   FusionGuard fg(reference->fusion());
   // Check which domain of tensor view we should be looking at. All IDs must be
   // found in the the rfactor domain.
@@ -118,16 +111,16 @@ ContiguousInnerDimensionsMapper::ContiguousInnerDimensionsMapper(
     if (std::find(reference_ids.begin(), reference_ids.end(), id) !=
         reference_ids.end()) {
       reordered_rfactor.push_back(id);
-      // Initiailze the extent for the mapped iter domain
-#if 0
-      addProjectedExtent(id, commonOrConstExtent(ca_map_, id));
-#else
-      if (sliced_domain_factors_.count(id)) {
-        addProjectedExtent(id, sliced_domain_factors_.at(id));
+      // Initiailze the extent for the mapped iter domain. Resized
+      // domains are initialized to the factors analyzed in
+      // initializeResizeInfo. For example, if this reference is a
+      // fusion input and is sliced, its sliced ID is initialized to
+      // the factor that is compatible with the slice offset.
+      if (resized_domain_factors.count(id)) {
+        addProjectedExtent(id, resized_domain_factors.at(id));
       } else {
         addProjectedExtent(id, commonOrConstExtent(ca_map_, id));
       }
-#endif
     } else if (!id->isBroadcast()) {
       // Ignore broadcasts in the reference. Otherwise, remove non-contiguous
       // IDs in the reference tensor as this is the contiguous mapper.
@@ -412,13 +405,7 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
       return;
     }
 
-    std::cerr << "propagateResize: " << ((p2c) ? "p2c" : "c2p") << ", "
-              << resize->toString() << " from "
-              << commonOrConstExtent(ca_map_, resize_in)->toInlineString()
-              << std::endl;
-
     if (supported_resize_exprs_.count(resize) == 0) {
-      std::cerr << "Not allowed\n";
       frontier.erase(frontier.begin(), find_it);
       return;
     }
@@ -427,16 +414,11 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
     frontier[pos] = resize_out;
 
     if (recording_) {
-      // TODO: Commen why the same extent is fine
+      // As long as this resize is included in
+      // supported_resize_exprs_, the maximum allowed factor is
+      // considered when propagating info from consumer to producer
       auto pe = getProjectedExtent(resize_in);
       addProjectedExtent(resize_out, pe);
-    }
-  };
-
-  auto clear_left_of = [&frontier](IterDomain* id) {
-    auto it = std::find(frontier.begin(), frontier.end(), id);
-    if (it != frontier.end()) {
-      frontier.erase(frontier.begin(), it + 1);
     }
   };
 
@@ -461,13 +443,7 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
     } else if (Merge* merge = dynamic_cast<Merge*>(expr)) {
       propagateDistribute(merge);
     } else if (Resize* resize = dynamic_cast<Resize*>(expr)) {
-      // Cannot vectorize through resize
-      // clear_left_of(resize->out());
-      if (!getenv("NO_VEC_RESIZE")) {
-        propagateResize(resize, false);
-      } else {
-        clear_left_of(resize->out());
-      }
+      propagateResize(resize, false);
     } else {
       // TODO: I wonder if we should just remove all inputs instead of erroring.
       // Seems that would be safe.
@@ -487,19 +463,14 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
       {frontier.begin(), frontier.end()},
       {to.begin(), to.end()});
 
-  //  Map forward through transforms since we're going from root to rfactor
+  // Map forward through transforms since we're going from root to rfactor
   for (auto* expr : forward_exprs) {
     if (Merge* merge = dynamic_cast<Merge*>(expr)) {
       propagateCombine(merge);
     } else if (Split* split = dynamic_cast<Split*>(expr)) {
       propagateDistribute(split);
     } else if (Resize* resize = dynamic_cast<Resize*>(expr)) {
-      // Cannot vectorize through resize
-      if (!getenv("NO_VEC_RESIZE")) {
-        propagateResize(resize, true);
-      } else {
-        clear_left_of(resize->in());
-      }
+      propagateResize(resize, true);
     } else {
       // TODO: I wonder if we should just remove all inputs instead of erroring.
       // Seems that would be safe.
@@ -580,9 +551,12 @@ ContiguousInnerDimensionsMapper::computeInfoC2P(
       if (recording_) {
         auto producer_rf_id = c2p_it->second;
         auto consumer_factor = getProjectedExtent(c2p_it->first);
-        if (sliced_domain_factors_.count(producer_rf_id)) {
+        // If the corresponding producer rf ID is an output of a
+        // resize op, honor the maximum factor imposed by the resize
+        // op
+        if (resized_domain_factors.count(producer_rf_id)) {
           consumer_factor = SimplifyingIrBuilder::gcdExpr(
-              consumer_factor, sliced_domain_factors_.at(producer_rf_id));
+              consumer_factor, resized_domain_factors.at(producer_rf_id));
         }
         addProjectedExtent(producer_rf_id, consumer_factor);
       }
@@ -824,7 +798,7 @@ Val* ContiguousInnerDimensionsMapper::getContigMergeOfInnerSize(
 
     // If this root ID is sliced, the outer domain is not contiguous
     // anymore
-    if (sliced_ids_.count(root_id) && root_i > 0) {
+    if (resized_ids_.count(root_id) && root_i > 0) {
       contiguity.at(root_i - 1) = false;
     }
 
@@ -861,10 +835,10 @@ std::unordered_map<TensorView*, VectorizeInfo> ContiguousInnerDimensionsMapper::
   std::unordered_map<TensorView*, VectorizeInfo> result;
   for (auto& [tv, _] : tv_infos_) {
     result[tv].factor = getContigMergeOfInnerSize(tv);
-    if (auto it = slice_offsets_.find(tv); it != slice_offsets_.end()) {
+    if (auto it = resize_offsets_.find(tv); it != resize_offsets_.end()) {
       result[tv].offsets = it->second;
     } else {
-      // TODO: remove
+      // Offset is zero if not resized
       result[tv].offsets = {tv->fusion()->zeroVal()};
     }
   }
@@ -945,11 +919,13 @@ void ContiguousInnerDimensionsMapper::initializeResizeInfo(Fusion* fusion) {
           auto resize = (*consumer_exprs_it)->as<Resize>();
 
           supported_resize_exprs_.insert(resize);
-          sliced_ids_.insert(input_rf_id);
+          resized_ids_.insert(input_rf_id);
 
           auto resize_out = resize->out()->as<IterDomain>();
           consumer_domain_extent = commonOrConstExtent(ca_map_, resize_out);
 
+          // Keep track of innermost sliced domain. Note that we are
+          // traversing from outermost to innermost
           innermost_sliced_domain_idx = (int)i;
           innermost_resize = resize;
         } else {
@@ -959,43 +935,37 @@ void ContiguousInnerDimensionsMapper::initializeResizeInfo(Fusion* fusion) {
         }
 
         if (auto sliced_domain_factors_it =
-                sliced_domain_factors_.find(input_rf_id);
-            sliced_domain_factors_it != sliced_domain_factors_.end()) {
+                resized_domain_factors.find(input_rf_id);
+            sliced_domain_factors_it != resized_domain_factors.end()) {
           sliced_domain_factors_it->second = SimplifyingIrBuilder::gcdExpr(
               sliced_domain_factors_it->second, consumer_domain_extent);
         } else {
-          sliced_domain_factors_.emplace(input_rf_id, consumer_domain_extent);
+          resized_domain_factors.emplace(input_rf_id, consumer_domain_extent);
         }
       }
 
-      // Note that this consumer may not be a slice op
+      // Note that this consumer may not be a slice output
       if (innermost_sliced_domain_idx >= 0) {
         auto slice_offset = getSliceOffset(
             input_tv, innermost_sliced_domain_idx, innermost_resize);
-        std::cerr << "Innermost sliced idx: " << innermost_sliced_domain_idx
-                  << ", Slice offset for " << input_tv->toString() << ": "
-                  << slice_offset->toString() << std::endl;
-        slice_offsets_[input_tv].emplace(slice_offset);
+        resize_offsets_[input_tv].emplace(slice_offset);
       }
     }
 
-    TORCH_INTERNAL_ASSERT(slice_offsets_.count(input_tv));
+    TORCH_INTERNAL_ASSERT(resize_offsets_.count(input_tv));
   }
 
-  // If not sliced, don't keep track of resize factor
-  for (auto it = sliced_domain_factors_.begin();
-       it != sliced_domain_factors_.end();) {
-    if (!sliced_ids_.count(it->first)) {
-      it = sliced_domain_factors_.erase(it);
+  // Clean up sliced_domain_factors, which may have zero factors for
+  // non sliced domain.
+  for (auto it = resized_domain_factors.begin();
+       it != resized_domain_factors.end();) {
+    if (!resized_ids_.count(it->first)) {
+      TORCH_INTERNAL_ASSERT(
+          it->second == commonOrConstExtent(ca_map_, it->first));
+      it = resized_domain_factors.erase(it);
     } else {
       ++it;
     }
-  }
-
-  // DEBUG DUMP
-  for (auto& [id, factor] : sliced_domain_factors_) {
-    std::cerr << "Resize factor: " << id->toString() << ", "
-              << factor->toInlineString() << std::endl;
   }
 }
 
@@ -1050,9 +1020,6 @@ int64_t getVectorizationFactor(
   const auto& tv_to_inner_size_map = vectorize_maps_entry.get().at(break_point);
 
   for (auto inp_or_out : vectorizable_inputs_outputs) {
-    if (true || getenv("VERBOSE")) {
-      std::cerr << "Vec inp or out: " << inp_or_out->toString() << std::endl;
-    }
     // factor <= max_factor / dtype_size
     const auto dtype_size =
         dataTypeSize(inp_or_out->dtype(), runtime_info.getIndexType());
@@ -1071,17 +1038,13 @@ int64_t getVectorizationFactor(
       return 1;
     }
 
-    // factor <= alignment / dtype_size
-    const auto& slice_offsets = inner_size_it->second.offsets;
-    for (auto offset : slice_offsets) {
+    // factor <= alignment / dtype_size.
+    const auto& offsets = inner_size_it->second.offsets;
+    for (auto offset : offsets) {
       auto offset_eval = runtime_info.expressionEvaluator().evaluate(offset);
       TORCH_INTERNAL_ASSERT(offset_eval.hasValue());
       int64_t alignment_size = (int64_t)runtime_info.getAlignmentSize(
           inp_or_out, -offset_eval.as<int64_t>() * dtype_size);
-      std::cerr << "Slice offset: " << offset->toInlineString() << ", "
-                << inp_or_out->toString()
-                << ", alignment_size: " << alignment_size << std::endl;
-
       TORCH_INTERNAL_ASSERT(
           alignment_size % dtype_size == 0,
           "alignment size: ",
