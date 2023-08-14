@@ -89,20 +89,23 @@ flatbuffers::Offset<serde::Scalar> serializeScalarCpu(
       "Only CPU scalar tensors are supported here.");
 
   switch (tensor.scalar_type()) {
-    case at::ScalarType::Bool:
-      return serializeScalar(
-          builder, *tensor.data_ptr<bool>(), nvfuser::DataType::Bool);
-    case at::ScalarType::Double:
-      return serializeScalar(
-          builder, *tensor.data_ptr<double>(), nvfuser::DataType::Double);
-    case at::ScalarType::Long:
-      return serializeScalar(
-          builder, *tensor.data_ptr<int64_t>(), nvfuser::DataType::Int);
-    case at::ScalarType::ComplexDouble:
-      return serializeScalar(
-          builder,
-          *tensor.data_ptr<c10::complex<double>>(),
-          nvfuser::DataType::ComplexDouble);
+    case at::ScalarType::Bool: {
+      nvfuser::PolymorphicValue pv(*tensor.data_ptr<bool>());
+      return serializeScalar(builder, pv, nvfuser::DataType::Bool);
+    }
+    case at::ScalarType::Double: {
+      nvfuser::PolymorphicValue pv(*tensor.data_ptr<double>());
+      return serializeScalar(builder, pv, nvfuser::DataType::Double);
+    }
+    case at::ScalarType::Long: {
+      nvfuser::PolymorphicValue pv(*tensor.data_ptr<int64_t>());
+      return serializeScalar(builder, pv, nvfuser::DataType::Int);
+    }
+    case at::ScalarType::ComplexDouble: {
+      auto at_complex = *tensor.data_ptr<c10::complex<double>>();
+      nvfuser::PolymorphicValue pv((std::complex<double>)at_complex);
+      return serializeScalar(builder, pv, nvfuser::DataType::ComplexDouble);
+    }
     default:
       TORCH_INTERNAL_ASSERT(false, "Unsupported scalar type.");
   }
@@ -196,55 +199,6 @@ flatbuffers::Offset<serde::Scalar> serializeScalar(
   }
   TORCH_INTERNAL_ASSERT(
       false, "Unable to convert ", v.type().name(), " to serde::Scalar.");
-}
-
-flatbuffers::Offset<serde::Scalar> serializeScalar(
-    flatbuffers::FlatBufferBuilder& builder,
-    bool v,
-    nvfuser::DataType t) {
-  ScalarBuilder builder_(builder);
-  builder_.add_dtype(mapToSerdeDtype(t));
-  builder_.add_has_value(true);
-  builder_.add_value_type(serde::DataType_Bool);
-  builder_.add_bool_value(v);
-  return builder_.Finish();
-}
-
-flatbuffers::Offset<serde::Scalar> serializeScalar(
-    flatbuffers::FlatBufferBuilder& builder,
-    int64_t v,
-    nvfuser::DataType t) {
-  ScalarBuilder builder_(builder);
-  builder_.add_dtype(mapToSerdeDtype(t));
-  builder_.add_has_value(true);
-  builder_.add_value_type(serde::DataType_Int);
-  builder_.add_long_value(v);
-  return builder_.Finish();
-}
-
-flatbuffers::Offset<serde::Scalar> serializeScalar(
-    flatbuffers::FlatBufferBuilder& builder,
-    double v,
-    nvfuser::DataType t) {
-  ScalarBuilder builder_(builder);
-  builder_.add_dtype(mapToSerdeDtype(t));
-  builder_.add_has_value(true);
-  builder_.add_value_type(serde::DataType_Double);
-  builder_.add_double_value(v);
-  return builder_.Finish();
-}
-
-flatbuffers::Offset<serde::Scalar> serializeScalar(
-    flatbuffers::FlatBufferBuilder& builder,
-    c10::complex<double> v,
-    nvfuser::DataType t) {
-  ScalarBuilder builder_(builder);
-  builder_.add_dtype(mapToSerdeDtype(t));
-  builder_.add_has_value(true);
-  builder_.add_value_type(serde::DataType_ComplexDouble);
-  builder_.add_real_value(v.real());
-  builder_.add_imag_value(v.imag());
-  return builder_.Finish();
 }
 
 } // namespace nvfuser::serde

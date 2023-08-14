@@ -41,24 +41,4 @@ flatbuffers::Offset<serde::Scalar> serializeScalar(
     const nvfuser::PolymorphicValue& v,
     nvfuser::DataType t);
 
-flatbuffers::Offset<serde::Scalar> serializeScalar(
-    flatbuffers::FlatBufferBuilder& builder,
-    bool v,
-    nvfuser::DataType t);
-
-flatbuffers::Offset<serde::Scalar> serializeScalar(
-    flatbuffers::FlatBufferBuilder& builder,
-    int64_t v,
-    nvfuser::DataType t);
-
-flatbuffers::Offset<serde::Scalar> serializeScalar(
-    flatbuffers::FlatBufferBuilder& builder,
-    double v,
-    nvfuser::DataType t);
-
-flatbuffers::Offset<serde::Scalar> serializeScalar(
-    flatbuffers::FlatBufferBuilder& builder,
-    c10::complex<double> v,
-    nvfuser::DataType t);
-
 } // namespace nvfuser::serde
