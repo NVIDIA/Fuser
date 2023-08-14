@@ -9787,10 +9787,9 @@ TEST_F(NVFuserTest, FusionCrossGridInnerReductionSplitGridIteration_CUDA) {
   fusion.addOutput(t1);
 
   // Reference result is calculated by aten in double precision.
-  // Estimated_gmem is 51.5 GBytes, skip if not enough memory.
-  size_t n_elements = reduction_size * iteration_size + iteration_size;
-  size_t estimated_gmem =
-      n_elements * (dataTypeSize(dtype) + dataTypeSize(DataType::Double));
+  // Estimated_gmem is 17.18 GBytes, skip if not enough memory.
+  size_t n_elements = reduction_size * iteration_size + iteration_size * 2;
+  size_t estimated_gmem = n_elements * dataTypeSize(dtype);
   size_t device_free, device_total;
   cudaMemGetInfo(&device_free, &device_total);
   if (estimated_gmem > device_free) {
@@ -9816,9 +9815,7 @@ TEST_F(NVFuserTest, FusionCrossGridInnerReductionSplitGridIteration_CUDA) {
     FusionExecutor fe;
     fe.compileFusion(&fusion, {aten_input}, lparams);
     auto cg_outputs = fe.runFusion({aten_input}, lparams);
-
-    auto aten_outputs = aten_input.to(at::kDouble).sum({1});
-
+    auto aten_outputs = aten_input.sum({1});
     testValidate(
         &fusion,
         cg_outputs,
