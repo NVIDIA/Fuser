@@ -2021,8 +2021,9 @@ class TestNvFuserFrontend(TestCase):
                         partial(check, acts=inp), inp, new_fusion_expected=first_check
                     )
                 else:
-                    # It is necessary to skip these failing tests
-                    # so serialization/deserialization does not exhibit the same error across tests.
+                    # When a fusion definition with errors is deserialized, it is recreated, triggering an error.
+                    # skip_serde_check=True is necessary to skip these failing fusion definitions
+                    # so serialization/deserialization does not exhibit the same errors in subsequent tests.
                     self.assertRaisesRegex(
                         RuntimeError,
                         error,
