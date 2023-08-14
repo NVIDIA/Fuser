@@ -2449,46 +2449,94 @@ TEST_F(NVFuserTest, ReshapeOfReshape_CUDA) {
 
 // This is extracted from CSA in nanogpt, where we want transpose scheduler
 TEST_F(NVFuserTest, ReshapePermuteTransposeScheduler_CUDA) {
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
+  {
+    auto fusion = std::make_unique<Fusion>();
+    FusionGuard fg(fusion.get());
 
-  std::vector<int64_t> shape({8, 1024, 1024});
+    std::vector<int64_t> shape({8, 1024, 1024});
 
-  auto tv0 = makeSymbolicTensor(3);
-  fusion->addInput(tv0);
+    auto tv0 = makeSymbolicTensor(3);
+    fusion->addInput(tv0);
 
-  auto tv1 = reshape(tv0, {8, 1024, 1024}, {8, 1024, 16, 64});
-  auto tv2 = transpose(tv1, 1, 2);
-  auto tv3 = transpose(tv2, 2, 3);
-  fusion->addOutput(tv3);
+    auto tv1 = reshape(tv0, {8, 1024, 1024}, {8, 1024, 16, 64});
+    auto tv2 = transpose(tv1, 1, 2);
+    auto tv3 = transpose(tv2, 2, 3);
+    fusion->addOutput(tv3);
 
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+    auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
-  auto t0 = at::randn(shape, options);
-  std::vector<c10::IValue> aten_inputs({t0});
+    auto t0 = at::randn(shape, options);
+    std::vector<c10::IValue> aten_inputs({t0});
 
-  FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+    FusionExecutorCache executor_cache(std::move(fusion));
+    auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
-  auto runtime = executor_cache.getMostRecentKernelRuntime();
-  TORCH_CHECK(!runtime->isSegmented(), "Segmentation not expected");
+    auto runtime = executor_cache.getMostRecentKernelRuntime();
+    TORCH_CHECK(!runtime->isSegmented(), "Segmentation not expected");
 
-  auto heuristic =
-      runtime->schedulerHeuristics()->heuristicsList().at(0).get()->heuristic();
-  TORCH_CHECK(
-      heuristic == ScheduleHeuristic::Transpose,
-      "Unexpected heuristic: ",
-      heuristic);
+    auto heuristic =
+        runtime->schedulerHeuristics()->heuristicsList().at(0).get()->heuristic();
+    TORCH_CHECK(
+        heuristic == ScheduleHeuristic::Transpose,
+        "Unexpected heuristic: ",
+        heuristic);
 
-  auto at_out = t0.reshape({8, 1024, 16, 64}).transpose(1, 2).transpose(2, 3);
+    auto at_out = t0.reshape({8, 1024, 16, 64}).transpose(1, 2).transpose(2, 3);
 
-  testValidate(
-      executor_cache.fusion(),
-      cg_outputs,
-      aten_inputs,
-      {at_out},
-      __LINE__,
-      __FILE__);
+    testValidate(
+        executor_cache.fusion(),
+        cg_outputs,
+        aten_inputs,
+        {at_out},
+        __LINE__,
+        __FILE__);
+  }
+
+  {
+    auto fusion = std::make_unique<Fusion>();
+    FusionGuard fg(fusion.get());
+
+    std::vector<int64_t> shape({8, 1024, 1024});
+
+    auto tv0 = makeSymbolicTensor(3);
+    fusion->addInput(tv0);
+
+    auto tv1 = reshape(tv0, {8, 1024, 1024}, {8, 1024, 16, 64});
+    auto tv2 = transpose(tv1, 1, 2);
+    auto tv3 = transpose(tv2, 2, 3);
+    fusion->addOutput(tv3);
+    auto tv4 = add(tv0, IrBuilder::create<Val>(1.0));
+    fusion->addOutput(tv4);
+
+    auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+    auto t0 = at::randn(shape, options);
+    std::vector<c10::IValue> aten_inputs({t0});
+
+    FusionExecutorCache executor_cache(std::move(fusion));
+    auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+
+    auto runtime = executor_cache.getMostRecentKernelRuntime();
+    TORCH_CHECK(!runtime->isSegmented(), "Segmentation not expected");
+
+    auto heuristic =
+        runtime->schedulerHeuristics()->heuristicsList().at(0).get()->heuristic();
+    TORCH_CHECK(
+        heuristic == ScheduleHeuristic::Transpose,
+        "Unexpected heuristic: ",
+        heuristic);
+
+    auto at_out = t0.reshape({8, 1024, 16, 64}).transpose(1, 2).transpose(2, 3);
+    auto at_out_add = t0.add(1.0);
+
+    testValidate(
+        executor_cache.fusion(),
+        cg_outputs,
+        aten_inputs,
+        {at_out, at_out_add},
+        __LINE__,
+        __FILE__);
+  }
 }
 
 // Test reshape with small transpose dimension
