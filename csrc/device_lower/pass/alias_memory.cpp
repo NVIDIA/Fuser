@@ -1689,9 +1689,6 @@ class StackBasedSharedMemAllocator : kir::IrVisitor {
   //! Record first reads and last writes, respecting aliased buffers
   void recordEvents() {
     for (auto& alloc_info : allocation_info_map_.allAllocationInfos()) {
-      if (alloc_info->mem_type != MemoryType::Shared) {
-        continue;
-      }
       if (alloc_info->alias_to) {
         auto alias_info =
             allocation_info_map_.getMaybeAllocationInfo(alloc_info->alias_to);
