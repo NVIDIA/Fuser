@@ -1703,12 +1703,11 @@ class StackBasedSharedMemAllocator : kir::IrVisitor {
     }
 
     for (auto [alloc_info, last_read_pos] : last_aliased_read_) {
-      last_read_positions_.insert(last_read_pos);
+      // Record the first write
       auto write_it =
           first_write_positions_
               .emplace(alloc_info->outer_live_interval->firstWrite(), 0)
               .first;
-      // Record the first write at first_write_pos
       write_it->second.push_back(alloc_info);
       // Ensure there is an entry for the last read position
       last_read_positions_.insert(last_read_pos);
