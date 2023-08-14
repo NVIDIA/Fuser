@@ -1009,8 +1009,8 @@ std::vector<TensorView*> cacheInputs(Fusion* fusion, bool unroll) {
     //
     // Note that this means that if an input is sliced and also is
     // used without slicing, it will be read twice, once for slice and
-    // once more for caching load. It would mamke sense to use caching
-    // load instructions.
+    // once more for caching load. It would make sense to use the PTX
+    // caching load instructions.
     std::unordered_set<Expr*> cached_uses;
     for (auto use : tv->uses()) {
       if (!use->isA<SliceOp>()) {
