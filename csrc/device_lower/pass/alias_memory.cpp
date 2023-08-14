@@ -407,6 +407,8 @@ struct ScopeInfo {
   kir::ForLoop* loop = nullptr;
 };
 
+class ScopeMap;
+
 //! Assign an integer position to each expression to help representing
 //! scope ranges. The position starts from 1.
 class ExprPosMap {
@@ -414,15 +416,6 @@ class ExprPosMap {
   //! Get the position of an expr
   int get(const Expr* expr) const {
     return expr_pos_map_.at(expr);
-  }
-
-  //! Get the position of an expr
-  std::optional<int> getMaybe(const Expr* expr) const {
-    auto it = expr_pos_map_.find(expr);
-    if (it == expr_pos_map_.end()) {
-      return std::nullopt;
-    }
-    return it->second;
   }
 
   //! Get the current position
@@ -438,6 +431,14 @@ class ExprPosMap {
   //! Record the current position as the position of an expr
   void setPosAtCurrent(const Expr* expr) {
     expr_pos_map_[expr] = current_pos_;
+  }
+
+ protected:
+  friend ScopeMap;
+
+  //! Assign same position for replaced expression
+  void replaceExpr(const Expr* old_expr, const Expr* new_expr) {
+    expr_pos_map_[new_expr] = get(old_expr);
   }
 
  private:
@@ -523,10 +524,10 @@ class ScopeMap : private kir::IrVisitor {
     return expr_pos_map_.get(expr);
   }
 
-  //! Get the position of an expression that might not have been present when
-  //! the map was formed, such as a replaced Allocate
-  std::optional<int> getMaybeExprPos(const Expr* expr) const {
-    return expr_pos_map_.getMaybe(expr);
+ protected:
+  friend AllocationInfoMap;
+  void replaceExpr(const Expr* old_expr, const Expr* new_expr) {
+    expr_pos_map_.replaceExpr(old_expr, new_expr);
   }
 
  private:
@@ -571,6 +572,8 @@ struct AllocationInfo {
   std::unique_ptr<BufferLiveIntervalPtrList> outer_subscribed_intevals =
       nullptr;
 };
+
+class AllocationReuseModifier;
 
 //! Analysis pass to collect the liveness info of local and shared buffers:
 //! The liveness info is illustrated as follows:
@@ -697,6 +700,32 @@ class AllocationInfoMap : private kir::IrVisitor {
   const std::vector<std::unique_ptr<AllocationInfo>>& allAllocationInfos()
       const {
     return all_allocations_;
+  }
+
+ protected:
+  friend AllocationReuseModifier;
+
+  //! When an allocation is registered for replacement, this method should be
+  //! called to update the allocation info so that subsequent lookups behave
+  //! predictably. This method is designed for the cased when allocations X and
+  //! Y exist independently originally, but Y is replaced with a new allocation
+  //! Z that aliases X. If instead there was already an alias to old_alloc, then
+  //! there may be dangling references to it even after running this method.
+  void replaceAllocation(kir::Allocate* old_alloc, kir::Allocate* new_alloc) {
+    auto it = allocation_info_map_.find(old_alloc);
+    TORCH_CHECK(
+        it != allocation_info_map_.end(),
+        "Cannot replace allocation info for ",
+        old_alloc->toString(),
+        " because it was not found");
+    auto alloc_info = it->second;
+
+    alloc_info->alloc_expr = new_alloc;
+    allocation_info_map_[new_alloc] = alloc_info;
+    // Note: we do not update the alias_to field of other allocations here. See
+    // comment above.
+
+    scope_map_.replaceExpr(old_alloc, new_alloc);
   }
 
  private:
@@ -918,7 +947,7 @@ class AllocationInfoMap : private kir::IrVisitor {
  private:
   friend BufferReuseDebugPrinter;
 
-  const ScopeMap scope_map_;
+  ScopeMap scope_map_;
 
   //! Map TensorView name to Allocate node.
   //!  Note: this assumes that each tensor view is only allocated once.
@@ -1334,7 +1363,7 @@ class AllocationReuseModifier : private kir::ExprMutator {
  public:
   static std::vector<Expr*> modify(
       const std::vector<Expr*>& exprs,
-      const AllocationInfoMap& allocation_info_map) {
+      AllocationInfoMap& allocation_info_map) {
     AllocationReuseModifier modifier(exprs, allocation_info_map);
     return modifier.exprs_;
   }
@@ -1342,7 +1371,7 @@ class AllocationReuseModifier : private kir::ExprMutator {
  private:
   AllocationReuseModifier(
       const std::vector<Expr*>& exprs,
-      const AllocationInfoMap& allocation_info_map)
+      AllocationInfoMap& allocation_info_map)
       : allocation_info_map_(allocation_info_map) {
     traverseAndInsert(exprs);
   }
@@ -1389,6 +1418,8 @@ class AllocationReuseModifier : private kir::ExprMutator {
 
     TORCH_INTERNAL_ASSERT(old2new_.emplace(old_alloc, new_alloc).second);
 
+    allocation_info_map_.replaceAllocation(old_alloc, new_alloc);
+
     // TODO: Consider more robust way to keep the information map up-to-date
     GpuLower::current()->propagateExprInfo(old_alloc, new_alloc);
   }
@@ -1403,7 +1434,7 @@ class AllocationReuseModifier : private kir::ExprMutator {
   }
 
  private:
-  const AllocationInfoMap& allocation_info_map_;
+  AllocationInfoMap& allocation_info_map_;
 
   //! Keep track of new Allocate exprs
   std::unordered_map<kir::Allocate*, kir::Allocate*> old2new_;
@@ -1577,14 +1608,7 @@ class StackBasedSharedMemAllocator : kir::IrVisitor {
 
  private:
   void dispatch(Expr* expr) final {
-    auto pos_opt = allocation_info_map_.getScopeMap().getMaybeExprPos(expr);
-    if (!pos_opt.has_value()) {
-      // Aliased kir::Allocate exprs are replaced, so the replacements will not
-      // exist in the original ScopeMap. We handle those manually here.
-      position_++;
-    } else {
-      position_ = pos_opt.value();
-    }
+    position_ = allocation_info_map_.getScopeMap().getExprPos(expr);
 
     // Check whether this is a first write position for any allocations
     auto it = first_write_positions_.find(position_);
