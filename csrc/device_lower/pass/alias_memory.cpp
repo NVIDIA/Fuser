@@ -1501,6 +1501,10 @@ Val* allocSizeBytes(kir::Allocate* alloc) {
 //!   e: Don't pop A since it is not at back of stack.
 //!   f: Pop C and A (all inactive allocations at top of stack)
 //!
+//! Note that in order to ensure safety, we only perform pops (step C) when we
+//! encounter an expression that synchronizes the thread block. We do not insert
+//! new synchronizations in this method.
+//!
 //! This stack-based method is safe regardless of the size of the allocations.
 //! We never assign an address to an allocation X that could overlap another
 //! allocation Y whose last read occurs after the first write of X. This is
@@ -1534,14 +1538,14 @@ Val* allocSizeBytes(kir::Allocate* alloc) {
 //!
 //! A slight tweak can help in these tougher cases. Instead of immediately
 //! pushing/allocating whenever we encounter a first write, we can instead
-//! append the allocation into a holding area vector. When we next encounter a
-//! last read for some allocation, we can check whether it is in the holding
-//! area. If so, then we form a mini-stack made of only the holding area
-//! allocations, with the recently popped allocation on top. In fact, we can
-//! just order the holding area by last use (descending) and push/allocate them
-//! all at once, which ensures that at least within that set, we will be able to
-//! pop as soon as possible. The algorithm would do the following in the above
-//! example:
+//! append the allocation into a holding area vector. When we encounter a
+//! syncing operation, we then check whether any waiting allocations in the
+//! holding area are already inactive. If so, then we form a mini-stack made of
+//! only the holding area allocations, with the recently inactive allocation on
+//! top. In fact, we can just order the holding area by last use (descending)
+//! and push/allocate them all at once, which ensures that at least within that
+//! set, we will be able to pop as soon as possible. The algorithm would do the
+//! following in the above example, assuming a pre-existing sync at C:
 //!
 //!   a: Append A to holding area
 //!   b: Append B to holding area
