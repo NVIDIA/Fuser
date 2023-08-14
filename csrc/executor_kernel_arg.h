@@ -105,9 +105,11 @@ class TORCH_CUDA_CU_API KernelArgumentHolder {
 
   std::string toString() const;
 
+  //! Serialize Kernel Argument Holder using flatbuffers
   flatbuffers::Offset<serde::KernelArgumentHolder> serialize(
       flatbuffers::FlatBufferBuilder& builder) const;
 
+  //! Deserialize Kernel Argument Holder using flatbuffers
   void deserialize(const serde::KernelArgumentHolder* buffer);
 
  private:

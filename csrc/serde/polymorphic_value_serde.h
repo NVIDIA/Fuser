@@ -15,6 +15,11 @@
 
 namespace nvfuser::serde {
 
+//! The PolymorphicValueFactory class is used to deserialize the flatbuffer
+//! PolymorphicValue table. This factory creates Bool, ComplexDouble, Double,
+//! Long, CPU Scalar, and CUDA Tensor objects. These arguments are stored in
+//! KernelArgumentHolder, which is used to schedule the fusion in
+//! FusionKernelRuntime and to run a kernel in FusionExecutor.
 class PolymorphicValueFactory
     : public Factory<serde::PolymorphicValue, nvfuser::PolymorphicValue> {
  public:

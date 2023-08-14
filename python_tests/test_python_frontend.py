@@ -56,7 +56,7 @@ def serde_check(test_fn: Callable):
         # subsequent function calls.
         inputs_copy = deepcopy(inputs)
 
-        # For debug purposes, clear FusionCache before running first test
+        # NOTE: For debug purposes, clear FusionCache before running first test
         # if ("new_fusion_expected" not in kwargs) or kwargs["new_fusion_expected"]:
         #    FusionCache.reset()
 

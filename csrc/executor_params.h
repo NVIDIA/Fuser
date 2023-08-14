@@ -145,9 +145,11 @@ class TORCH_CUDA_CU_API LaunchParams {
 
   std::string toString() const;
 
+  //! Serialize LaunchParams using flatbuffers
   flatbuffers::Offset<serde::LaunchParams> serialize(
       flatbuffers::FlatBufferBuilder& builder) const;
 
+  //! Deserialize LaunchParams using flatbuffers
   void deserialize(const serde::LaunchParams* buffer);
 
  private:
