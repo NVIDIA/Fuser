@@ -1521,10 +1521,11 @@ TensorView* TensorViewBuilder::build() const {
     if (shape_.empty()) {
       *shape_extent = IrBuilder::create<Val>(DataType::Index);
     } else {
-      *shape_extent = maybeCastOp(DataType::Index, shape_.at(i));
+      *shape_extent =
+          SimplifyingIrBuilder::maybeCastExpr(DataType::Index, shape_.at(i));
     }
     IterDomainBuilder builder(FusionGuard::getCurFusion()->zeroVal(), extent);
-    if (extent->isOneInt()) {
+    if (extent->isConstScalar() && extent->evaluateInt() == 1) {
       builder.iter_type(IterType::Broadcast);
     }
     if (expanded_extent != nullptr) {
