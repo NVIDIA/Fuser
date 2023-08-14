@@ -1954,7 +1954,7 @@ flatbuffers::Offset<serde::FusionExecutor> FusionExecutor::serialize(
     flatbuffers::FlatBufferBuilder& builder) const {
   // See table definition for FusionExecutor in serde/fusion_cache.fbs
 
-  using fb_executor_entry = flatbuffers::Offset<nvfuser::serde::ExecutorEntry>;
+  using fb_executor_entry = flatbuffers::Offset<serde::ExecutorEntry>;
 
   // Separate unordered_map for executor_entry_lookup into key and value
   // vectors. The key value is the cache_id value in the KernelArgumentHolder.
@@ -1998,8 +1998,7 @@ flatbuffers::Offset<serde::ExecutorEntry> FusionExecutor::serialize(
   // Serialize GlobalBufferInfo for outputs.
   // We map the output TensorView pointer to its corresponding position in
   // fusion outputs assuming that the output ordering is consistent.
-  using fb_global_buffer_info =
-      flatbuffers::Offset<nvfuser::serde::GlobalBufferInfo>;
+  using fb_global_buffer_info = flatbuffers::Offset<serde::GlobalBufferInfo>;
   std::vector<fb_global_buffer_info> outputs_fb;
   outputs_fb.reserve(data.outputs.size());
   for (const auto& buffer : data.outputs) {
@@ -2035,7 +2034,7 @@ flatbuffers::Offset<serde::ExecutorEntry> FusionExecutor::serialize(
         serialize(builder, buffer, tv_position, false /* is_fusion_output */));
   }
 
-  return CreateExecutorEntryDirect(
+  return serde::CreateExecutorEntryDirect(
       builder,
       data.init,
       data.launch_params.serialize(builder),

@@ -133,7 +133,7 @@ flatbuffers::Offset<serde::KernelArgumentHolder> KernelArgumentHolder::
   // See table definitions for KernelArgumentHolder and PolymorphicValue
   // in serde/fusion_cache.fbs
 
-  using fb_poly_value = flatbuffers::Offset<nvfuser::serde::PolymorphicValue>;
+  using fb_poly_value = flatbuffers::Offset<serde::PolymorphicValue>;
 
   std::vector<fb_poly_value> arguments_fb;
   arguments_fb.reserve(arguments_.size());
