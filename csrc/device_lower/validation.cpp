@@ -304,7 +304,6 @@ class VectorizeValidator : public OptInDispatch {
     domains_.insert(m->inner());
   }
 
-  // TODO
   void handle(Resize* r) final {
     if (r->out() == vectorized_id_) {
       vectorized_id_ = r->in();
@@ -523,13 +522,15 @@ class VectorizeValidator : public OptInDispatch {
   }
 };
 
-std::unordered_set<Val*> getSliceOffsets(TensorView* input_tv) {
-  const auto input_domains =
-      TensorDomain::noReductions(input_tv->getMaybeRFactorDomain());
+// Gather info about starting offsets of accesses to a
+// tensor. Currently only slice is considered.
+std::unordered_set<Val*> getTensorOffsets(TensorView* tv) {
   std::unordered_set<Val*> offsets;
-  for (auto slice_use : ir_utils::filterByType<SliceOp>(input_tv->uses())) {
+  for (auto slice_use : ir_utils::filterByType<SliceOp>(tv->uses())) {
+    const auto input_domains =
+        TensorDomain::noReductions(tv->getMaybeRFactorDomain());
     const auto slice_info = slice_use->getRanges();
-    Val* stride = input_tv->fusion()->oneVal();
+    Val* stride = tv->fusion()->oneVal();
     for (int64_t i = (int64_t)slice_info.size() - 1; i >= 0; --i) {
       if (slice_info.at(i).start->isZero() &&
           slice_info.at(i).stop->sameAs(input_domains.at(i)->extent())) {
@@ -542,6 +543,10 @@ std::unordered_set<Val*> getSliceOffsets(TensorView* input_tv) {
         break;
       }
     }
+  }
+  // Not sliced at all. Make sure it at least has the default offset
+  if (offsets.empty()) {
+    offsets.insert(tv->fusion()->zeroVal());
   }
   return offsets;
 }
@@ -620,7 +625,7 @@ void validateAndCollectVectorizeInfo(Fusion* fusion) {
       VectorizeValidator::validate(tv);
     }
 
-    GpuLower::current()->sliceOffsets()[tv] = getSliceOffsets(tv);
+    GpuLower::current()->tensorOffsets()[tv] = getTensorOffsets(tv);
   }
 }
 

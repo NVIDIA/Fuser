@@ -955,13 +955,11 @@ void ContiguousInnerDimensionsMapper::initializeResizeInfo(Fusion* fusion) {
     TORCH_INTERNAL_ASSERT(resize_offsets_.count(input_tv));
   }
 
-  // Clean up sliced_domain_factors, which may have zero factors for
-  // non sliced domain.
+  // resized_domain_factors may map non-resized domains as we analyze
+  // all domains of slice outputs. Remove the mappings if not resized
   for (auto it = resized_domain_factors.begin();
        it != resized_domain_factors.end();) {
     if (!resized_ids_.count(it->first)) {
-      TORCH_INTERNAL_ASSERT(
-          it->second == commonOrConstExtent(ca_map_, it->first));
       it = resized_domain_factors.erase(it);
     } else {
       ++it;

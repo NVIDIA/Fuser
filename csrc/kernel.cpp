@@ -306,7 +306,7 @@ void Kernel::finalize(std::vector<Expr*> top_level_exprs) {
   // Make sure this is after analyze as it sets summary_
   summary_.vectorized_accesses = GpuLower::current()->vectorizedAccesses();
   summary_.vectorized_set_info = GpuLower::current()->vectorizedSetInfo();
-  summary_.slice_offsets = GpuLower::current()->sliceOffsets();
+  summary_.tensor_offsets = GpuLower::current()->tensorOffsets();
   summary_.sync_map = GpuLower::current()->syncMap();
   summary_.parallel_dimension_map_ =
       GpuLower::current()->parallelDimensionMap();

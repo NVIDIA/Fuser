@@ -449,15 +449,16 @@ void validateAlignedVectorizedFusionInputOutput(
         aten_tensor.dtype());
   };
 
-  if (auto slice_offsets_it = kernel_summary.slice_offsets.find(tv);
-      slice_offsets_it != kernel_summary.slice_offsets.end() &&
-      !slice_offsets_it->second.empty()) {
-    for (const Val* offset : slice_offsets_it->second) {
+  if (auto offsets_it = kernel_summary.tensor_offsets.find(tv);
+      offsets_it != kernel_summary.tensor_offsets.end() &&
+      !offsets_it->second.empty()) {
+    for (const Val* offset : offsets_it->second) {
       auto offset_eval = eval.evaluate(offset);
       TORCH_INTERNAL_ASSERT(offset_eval.hasValue());
       validateAlignment(offset_eval.as<int64_t>());
     }
   } else {
+    // No offset info recorded.
     validateAlignment(0);
   }
 
