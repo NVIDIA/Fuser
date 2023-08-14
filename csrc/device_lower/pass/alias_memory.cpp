@@ -1452,7 +1452,7 @@ Val* allocSizeBytes(kir::Allocate* alloc) {
 //!
 //!       +-----+   +-----+
 //!       |  B  |   |  C  |
-//!   +---+-----+-----+---+
+//!   +---+-----+---+-+---+
 //!   |      A        |
 //!   +---------------+
 //!   a   b     c   d e   f
@@ -1523,9 +1523,9 @@ Val* allocSizeBytes(kir::Allocate* alloc) {
 //!
 //!   +-----+ +-----+
 //!   |  A  | |  C  |
-//!   +---+---+-+---+
+//!   +---+-+-+-+---+
 //!       |  B  |
-//!       +-+---+
+//!       +-----+
 //!   a   b c d e   f
 //!
 //! Recall that the simple stack-based approach (i.e. without reordering pushes)
