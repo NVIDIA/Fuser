@@ -1768,7 +1768,6 @@ class PersistentKernelScheduler : public SchedulerEntry {
   }
 
   static bool canScheduleCompileTime(Fusion* fusion) {
-
     std::cout << "trace: PersistentKernelScheduler::canScheduleCompileTime\n";
 
     // Needs at least one reduction to consider.
@@ -1918,7 +1917,6 @@ class PersistentKernelScheduler : public SchedulerEntry {
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
       HeuristicSummary* data_cache = nullptr) {
-
     std::cout << "trace: PersistentKernelScheduler::canScheduleRunTime\n";
 
     FUSER_PERF_SCOPE("PersistentKernelScheduler::canSchedule");
@@ -1939,6 +1937,15 @@ class PersistentKernelScheduler : public SchedulerEntry {
         inner_reduction = true;
       } else {
         outer_reduction = true;
+      }
+    }
+
+    if (inner_reduction && outer_reduction) {
+      if (!runtime_info.isSchedulingTheCompleteFusion()) {
+        scheduler_debug_utils::canScheduleRejectReason(
+            ScheduleHeuristic::Persistent,
+            "CombinedInnerOuter reduction is not applicable to segmented fusion!");
+        return false;
       }
     }
 

@@ -3228,6 +3228,7 @@ SegmentCandidateFinder::SegmentCandidateFinder(
     : options_(options),
       runtime_info_(fusion.get(), inputs),
       runtime_inputs_(inputs) {
+  runtime_info_.setSchedulingTheCompleteFusionTo(false);      
   segmented_fusion_ = std::make_unique<SegmentedFusion>(std::move(fusion));
   findSegments();
 }
