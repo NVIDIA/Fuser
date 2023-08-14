@@ -91,6 +91,14 @@ class TORCH_CUDA_CU_API SchedulerRuntimeInfo : public NonCopyable {
     return *expression_evaluator_;
   }
 
+  void setCompleteFusion(bool is_complete_fusion) {
+    is_complete_fusion_ = is_complete_fusion;
+  }
+
+  bool isCompleteFusion() const {
+    return is_complete_fusion_;
+  }
+
  private:
   // Build and bind full fusion inputs to an expression evaluator
   std::unique_ptr<ExpressionEvaluator> getExpressionEvaluator(
@@ -132,6 +140,12 @@ class TORCH_CUDA_CU_API SchedulerRuntimeInfo : public NonCopyable {
 
   // TODO: Remove
   std::unordered_map<TensorView*, size_t> vectorword_map_;
+
+  // Checks if the fusion being scheduled is unsegmented.
+  // The combined inner-outer scheduler is exclusive to unsegmented fusion.
+  // For optimal performance, segmented fusions should be divided into
+  // inner and outer reductions rather than using the combined scheduler.
+  bool is_complete_fusion_ = true;
 };
 
 class HeuristicSummary;

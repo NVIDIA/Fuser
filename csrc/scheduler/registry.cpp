@@ -1935,6 +1935,14 @@ class PersistentKernelScheduler : public SchedulerEntry {
       }
     }
 
+    if (inner_reduction && outer_reduction) {
+      if (!runtime_info.isCompleteFusion()) {
+        scheduler_debug_utils::canScheduleRejectReason(
+            ScheduleHeuristic::Persistent,
+            "CombinedInnerOuter reduction is not applicable to segmented fusion!");
+        return false;
+      }
+    }
     // If there is both inner and outer reduction, we use the first inner
     // reduction tv to get properties, otherwise we use the first reduction tv,
     // whether it is inner or outer.
