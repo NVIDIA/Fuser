@@ -2240,7 +2240,11 @@ TEST_F(NVFuserTest, SliceVectorization) {
 
   auto lparams = schedulePointwise(&fusion, inputs);
 
-  // check that we vectorize 4
+  // The output can be vectorized, but the input is not as the start
+  // offset is not aligned. Ideally, we should ignore the input as it
+  // isn't vectorizable, but the current logic considers all
+  // potentially vectorizable tensors and if only one of them is not
+  // due to misalignment, all tensors are not vectorized
   bool found_vectorize = false;
   for (auto id : fusion.outputs().at(0)->as<TensorView>()->getLeafDomain()) {
     if (id->getParallelType() == ParallelType::Vectorize) {
@@ -2249,7 +2253,7 @@ TEST_F(NVFuserTest, SliceVectorization) {
       break;
     }
   }
-  EXPECT_TRUE(found_vectorize);
+  EXPECT_FALSE(found_vectorize);
 
   FusionExecutor fe;
   fe.compileFusion(&fusion, inputs, lparams);
