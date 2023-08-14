@@ -1576,8 +1576,6 @@ class StackBasedSharedMemAllocator : kir::IrVisitor {
   }
 
  private:
-  using kir::IrVisitor::handle;
-
   void dispatch(Expr* expr) final {
     auto pos_opt = allocation_info_map_.getScopeMap().getMaybeExprPos(expr);
     if (!pos_opt.has_value()) {
@@ -1599,36 +1597,13 @@ class StackBasedSharedMemAllocator : kir::IrVisitor {
       }
     }
 
-    kir::IrVisitor::dispatch(expr);
-  }
+    // Reclaim memory whenever we pass an Expr that is known to synchronize the
+    // block
+    if (lower_utils::hasBlockSync(expr, GpuLower::current()->threadPredMap())) {
+      reclaimMemory();
+    }
 
-  // Reclaim memory whenever we pass an Expr that is known to synchronize the
-  // block
-  void handle(kir::BlockSync* expr) final {
-    reclaimMemory();
-  }
-  void handle(kir::GridSync* expr) final {
-    reclaimMemory();
-  }
-  void handle(ReductionOp* rop) final {
-    const auto output = rop->out()->as<TensorView>();
-    const auto domain = output->domain();
-    if (domain->hasBlockReduction() || domain->hasGridReduction()) {
-      reclaimMemory();
-    }
-  }
-  void handle(WelfordOp* wop) final {
-    const auto output = wop->outAvg()->as<TensorView>();
-    const auto domain = output->domain();
-    if (domain->hasBlockReduction() || domain->hasGridReduction()) {
-      reclaimMemory();
-    }
-  }
-  void handle(kir::CpAsyncWait* expr) final {
-    if (expr->keepStages() == 0) {
-      // Only reclaim memory if we are syncing all threads in the block
-      reclaimMemory();
-    }
+    kir::IrVisitor::dispatch(expr);
   }
 
   int lastAliasedRead(AllocationInfo* alloc_info) {
