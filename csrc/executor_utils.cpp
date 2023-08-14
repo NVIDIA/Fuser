@@ -449,17 +449,16 @@ void validateAlignedVectorizedFusionInputOutput(
         aten_tensor.dtype());
   };
 
-  if (auto offsets_it = kernel_summary.tensor_offsets.find(tv);
+  auto offsets_it = kernel_summary.tensor_offsets.find(tv);
+  TORCH_INTERNAL_ASSERT(
       offsets_it != kernel_summary.tensor_offsets.end() &&
-      !offsets_it->second.empty()) {
-    for (const Val* offset : offsets_it->second) {
-      auto offset_eval = eval.evaluate(offset);
-      TORCH_INTERNAL_ASSERT(offset_eval.hasValue());
-      validateAlignment(offset_eval.as<int64_t>());
-    }
-  } else {
-    // No offset info recorded.
-    validateAlignment(0);
+          !offsets_it->second.empty(),
+      "No offset info found for ",
+      tv->toString());
+  for (const Val* offset : offsets_it->second) {
+    auto offset_eval = eval.evaluate(offset);
+    TORCH_INTERNAL_ASSERT(offset_eval.hasValue());
+    validateAlignment(offset_eval.as<int64_t>());
   }
 
   // Traverse strides from the right-most domains. The rightmost
