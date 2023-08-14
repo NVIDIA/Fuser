@@ -1614,9 +1614,6 @@ class StackBasedSharedMemAllocator : kir::IrVisitor {
     auto it = first_write_positions_.find(position_);
     if (it != first_write_positions_.end()) {
       for (auto alloc_info : it->second) {
-        if (alloc_info->mem_type != MemoryType::Shared) {
-          return;
-        }
         waiting_to_push_.push_back(alloc_info);
       }
     }
@@ -1688,6 +1685,9 @@ class StackBasedSharedMemAllocator : kir::IrVisitor {
   //! Record first reads and last writes, respecting aliased buffers
   void recordEvents() {
     for (auto& alloc_info : allocation_info_map_.allAllocationInfos()) {
+      if (alloc_info->mem_type != MemoryType::Shared) {
+        continue;
+      }
       if (alloc_info->alias_to) {
         auto alias_info =
             allocation_info_map_.getMaybeAllocationInfo(alloc_info->alias_to);
