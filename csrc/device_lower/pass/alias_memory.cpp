@@ -1736,7 +1736,6 @@ class StackBasedSharedMemAllocator : kir::IrVisitor {
     while (!alloc_stack_.empty()) {
       auto last_read = lastAliasedRead(alloc_stack_.back());
       if (last_read <= position_) {
-        latest_pop_ = std::max(last_read, latest_pop_);
         alloc_stack_.pop_back();
       } else {
         break;
@@ -1748,12 +1747,6 @@ class StackBasedSharedMemAllocator : kir::IrVisitor {
   const AllocationInfoMap& allocation_info_map_;
 
   int position_ = -1;
-
-  // Latest position that was popped. In general, any new allocation could alias
-  // all previously popped allocations, so we use this as the most distant safe
-  // point to synchronize with the new allocation's first write (for
-  // arrive/wait).
-  int latest_pop_ = -1;
 
   // This records the actual last read position of an AllocationInfo, computed
   // as the maximum last outer read position of all Allocations that alias it.
