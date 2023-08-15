@@ -362,6 +362,8 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
   //! Clear the cached properties of the compiled kernel
   void resetCompiledKernelProperties();
 
+  std::vector<Val*> getKernelArguments() const;
+
  private:
   CompileOptions options_;
 

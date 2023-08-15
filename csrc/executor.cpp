@@ -1602,6 +1602,31 @@ void FusionExecutor::resetCompiledKernelProperties() {
   static_smem_size_.reset();
 }
 
+std::vector<Val*> FusionExecutor::getKernelArguments() const {
+  std::vector<Val*> result;
+
+  // Inputs, RNG seed and RNG offset are stored in allKnownVals
+  for (auto val : lowered_->allKnownVals()) {
+    result.emplace_back(val);
+  }
+
+  for (auto val : kernel()->outputs()) {
+    result.emplace_back(val);
+  }
+
+  for (auto alloc : kernel_summary_.global_allocations) {
+    if (alloc->buffer()->isA<TensorView>()) {
+      auto tv = alloc->buffer()->as<TensorView>();
+      if (tv->isFusionOutput()) {
+        continue;
+      }
+      result.emplace_back(tv);
+    }
+  }
+
+  return result;
+}
+
 std::vector<at::Tensor> FusionExecutor::runFusion(
     KernelArgumentHolder& args,
     const LaunchParams& launch_constraints,
@@ -1720,7 +1745,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
       args.push(intermediate_buffer);
       intermediates.push_back(intermediate_buffer);
       executor_utils::bindInputForExprEvaluation(
-          kernel()->summary().global_allocations.at(i)->buffer(),
+          kernel_summary_.global_allocations.at(i)->buffer(),
           *args[inputs.size() + outputs.size() + i],
           true,
           expr_eval,
@@ -1731,9 +1756,10 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     }
   }
 
+  auto kernel_parameters = getKernelArguments();
   std::vector<std::vector<std::byte>> arg_buffers;
-  arg_buffers.reserve(kernel()->parameters().size());
-  for (auto v : kernel()->parameters()) {
+  arg_buffers.reserve(kernel_parameters.size());
+  for (auto v : getKernelArguments()) {
     arg_buffers.emplace_back(
         getKernelArgument(expr_eval, v, kernel()->indexType()));
   }

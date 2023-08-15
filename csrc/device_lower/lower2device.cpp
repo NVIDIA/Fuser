@@ -296,6 +296,9 @@ void GpuLower::fastLower(Fusion* fusion) {
 
   FusionGuard fg(fusion_);
 
+  // Add fusion inputs to all known values
+  allKnownVals() = kernel_->inputs();
+
   // prepare for lowering
   validateIr(fusion_);
 
@@ -331,6 +334,17 @@ void GpuLower::fastLower(Fusion* fusion) {
   // Want to run this after parallel map and halo info map are
   // created. vectorized_accesses_ and vectorized_set_info_ are filled.
   validateAndCollectVectorizeInfo(fusion_);
+
+  // Reorder expressions for loop-nest generation respecting computeAt
+  // relationships
+  const auto exprs_sorted = reorderExprsForComputeAt();
+
+  // For RNG ops whose seed and offset are not yet set, grab the seed and offset
+  // from the host and assign them to the ops.
+  // This must be after expr sort, because we do not want the generated
+  // computation of offset and seed to be considered as part of fusion
+  // definition
+  assignRNGOffset(fusion_);
 
   // Generate kernel summary
   kernel_->generateSummary();
