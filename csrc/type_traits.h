@@ -291,7 +291,7 @@ DEFINE_BINARY_OP(>>=);
 // it manually.
 template <typename T1, typename T2>
 constexpr auto operator,(OperatorChecker<T1>, OperatorChecker<T2>)
-                            -> decltype((std::declval<T1>(), std::declval<T2>()), true) {
+    -> decltype((std::declval<T1>(), std::declval<T2>()), true) {
   return true;
 }
 
@@ -588,9 +588,8 @@ constexpr bool any_check(Fun f, Tuples... tuples) {
 }
 
 // For example:
-static_assert(any_check(
-    [](auto x) constexpr { return x > 0; },
-    std::make_tuple(1, -1)));
+static_assert(
+    any_check([](auto x) constexpr { return x > 0; }, std::make_tuple(1, -1)));
 static_assert(!any_check(
     [](auto x) constexpr { return x > 0; },
     std::make_tuple(-2, -1)));
