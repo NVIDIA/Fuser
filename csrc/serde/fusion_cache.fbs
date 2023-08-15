@@ -19,6 +19,7 @@ enum DataType : int {
     Double,
     Float,
     Half,
+    Index,
     Int,
     Int32,
     Bool,

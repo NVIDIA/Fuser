@@ -181,22 +181,24 @@ enum DataType : int32_t {
   DataType_Double = 1,
   DataType_Float = 2,
   DataType_Half = 3,
-  DataType_Int = 4,
-  DataType_Int32 = 5,
-  DataType_Bool = 6,
-  DataType_BFloat16 = 7,
-  DataType_ComplexFloat = 8,
-  DataType_ComplexDouble = 9,
+  DataType_Index = 4,
+  DataType_Int = 5,
+  DataType_Int32 = 6,
+  DataType_Bool = 7,
+  DataType_BFloat16 = 8,
+  DataType_ComplexFloat = 9,
+  DataType_ComplexDouble = 10,
   DataType_MIN = DataType_None,
   DataType_MAX = DataType_ComplexDouble
 };
 
-inline const DataType (&EnumValuesDataType())[10] {
+inline const DataType (&EnumValuesDataType())[11] {
   static const DataType values[] = {
     DataType_None,
     DataType_Double,
     DataType_Float,
     DataType_Half,
+    DataType_Index,
     DataType_Int,
     DataType_Int32,
     DataType_Bool,
@@ -208,11 +210,12 @@ inline const DataType (&EnumValuesDataType())[10] {
 }
 
 inline const char * const *EnumNamesDataType() {
-  static const char * const names[11] = {
+  static const char * const names[12] = {
     "None",
     "Double",
     "Float",
     "Half",
+    "Index",
     "Int",
     "Int32",
     "Bool",

@@ -97,6 +97,8 @@ nvfuser::DataType mapToDtypeStruct(serde::DataType t) {
 
 serde::DataType mapToSerdeDtype(PrimDataType t) {
   switch (t) {
+    case PrimDataType::Index:
+      return serde::DataType_Index;
     case PrimDataType::Bool:
       return serde::DataType_Bool;
     case PrimDataType::Double:
@@ -126,6 +128,8 @@ serde::DataType mapToSerdeDtype(PrimDataType t) {
 
 PrimDataType mapToNvfuserDtype(serde::DataType t) {
   switch (t) {
+    case serde::DataType_Index:
+      return PrimDataType::Index;
     case serde::DataType_Bool:
       return PrimDataType::Bool;
     case serde::DataType_Double:
