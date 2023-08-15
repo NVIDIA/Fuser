@@ -9797,7 +9797,7 @@ TEST_F(NVFuserTest, FusionCrossGridInnerReductionSplitGridIteration_CUDA) {
                  << estimated_gmem / 1e9 << " GBytes"
                  << ", device_free: " << device_free / 1e9 << " GBytes"
                  << ", device_total: " << device_total / 1e9 << " GBytes";
-  } else {
+  }
     auto options = at::TensorOptions()
                        .dtype(data_type_to_aten(dtype))
                        .device(at::kCUDA, 0);
