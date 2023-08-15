@@ -1994,7 +1994,7 @@ class PersistentKernelScheduler : public SchedulerEntry {
       return false;
     }
 
-    if (inner_reduction && outer_reduction) {
+    if (inner_reduction && outer_reduction && vectorize_factor == 1) {
       // check if we can schedule the combined reductions with a reasonable
       // batch size without register spills.
       if (!normalization_scheduler_utils::

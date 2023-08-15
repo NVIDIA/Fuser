@@ -868,7 +868,7 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
   int64_t available_register_buffer_size = combined_inner_outer_reduction
       ? scheduler_utils::register_file_size_combined
       : scheduler_utils::register_file_size;
-  if (max_buffer_data_type_size == 4 || outer_reduction_count == 1) {
+  if (max_buffer_data_type_size == 4) {
     // allow 10% register spill for fp32
     available_register_buffer_size =
         scheduler_utils::register_file_size_full / 64 * 70;
