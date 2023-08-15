@@ -868,7 +868,7 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
   int64_t available_register_buffer_size = combined_inner_outer_reduction
       ? scheduler_utils::register_file_size_combined
       : scheduler_utils::register_file_size;
-  if (max_buffer_data_type_size == 4 || outer_reduction_count == 1) {
+  if (max_buffer_data_type_size == 4) {
     // allow 10% register spill for fp32
     available_register_buffer_size =
         scheduler_utils::register_file_size_full / 64 * 70;
@@ -925,7 +925,7 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
     // register, 256 bytes stack frame, 1200 GB/s (2) use 56K register, no
     // spill, 1600 GB/s
     available_register_buffer_size =
-        scheduler_utils::register_file_size_full / 64 * 56;
+        scheduler_utils::register_file_size_full / 64 * 52;
 
     // calculate the accumulated buffer size
     const int64_t n_buffers = persistent_buffers.size();
@@ -973,6 +973,7 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
           n_smem_buffer++;
         }
       }
+      std::cout << "n_smem_buffer= " << n_smem_buffer << ", smem_config_size= " << smem_config_size  << ", buffer_config_ratio_old= " << buffer_config_ratio << std::endl;
     }
     // move n_smem_buffer buffers to shared memory
     for(int i = 0; i< n_smem_buffer; i++){
