@@ -727,18 +727,21 @@ getOptionalInnerOuterPersistentBufferBatches(
   // without considering the overhead of fusion segmentation.
   // (4) Disable this optimization if vectorize_factor is 1 due to high register
   // usage in cases can't be vectorized.
-  // (5) The magic number 52 is for case 16K x 13293, which use a batch of 32 and register
-  // spills. 128 bytes stack frame, 228 bytes spill stores, 228 bytes spill loads.
-  const int64_t batch_max_reg_spill =
-      vectorize_factor > 1 ? batch_max + 24l / vectorize_factor : std::max(52l, batch_max);
-  std::cout << "inner_batch: " << inner_batch << ", threads_per_block: "
-            << threads_per_block << ", batch_max_reg_spill: "
-            << batch_max_reg_spill << std::endl;
+  // (5) The magic number 52 is for case 16K x 13293, which use a batch of 32
+  // and register spills. 128 bytes stack frame, 228 bytes spill stores, 228
+  // bytes spill loads.
+  const int64_t batch_max_reg_spill = vectorize_factor > 1
+      ? batch_max + 24l / vectorize_factor
+      : std::max(52l, batch_max);
+  std::cout << "inner_batch: " << inner_batch
+            << ", threads_per_block: " << threads_per_block
+            << ", batch_max_reg_spill: " << batch_max_reg_spill << std::endl;
   if (ignore_register_size_limit || inner_batch <= batch_max_reg_spill) {
     return std::make_pair(inner_batch, threads_per_block);
   } else {
-    std::cout << "batch_reject, inner_batch: " << inner_batch << ", batch_max_reg_spill: "
-              << batch_max_reg_spill << ", inner_dim_numel= " << inner_dim_numel << std::endl;
+    std::cout << "batch_reject, inner_batch: " << inner_batch
+              << ", batch_max_reg_spill: " << batch_max_reg_spill
+              << ", inner_dim_numel= " << inner_dim_numel << std::endl;
     return std::make_pair(std::nullopt, -1);
   }
 }
@@ -853,10 +856,9 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
   }
   const int64_t max_threads_per_block = 256l;
   int64_t max_buffer_data_type_size = 1;
-  for (const auto tv : persistent_buffers){
+  for (const auto tv : persistent_buffers) {
     max_buffer_data_type_size = std::max(
-        max_buffer_data_type_size,
-        dataTypeSize(tv->getDataType().value()));
+        max_buffer_data_type_size, dataTypeSize(tv->getDataType().value()));
   }
   // At this point, we use a much larger register file size for the combined
   // case as it is rarely fused with other ops. Shared memory persistent is only
@@ -865,8 +867,9 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
   int64_t available_register_buffer_size = combined_inner_outer_reduction
       ? scheduler_utils::register_file_size_combined
       : scheduler_utils::register_file_size;
-  if(max_buffer_data_type_size == 4 || outer_reduction_count == 1){
-    available_register_buffer_size = scheduler_utils::register_file_size_full / 64 * 65;
+  if (max_buffer_data_type_size == 4 || outer_reduction_count == 1) {
+    available_register_buffer_size =
+        scheduler_utils::register_file_size_full / 64 * 65;
   }
   buffer_params.shared_memory_overhead_per_block =
       getSharedMemoryOverheadPerBlock(
@@ -890,17 +893,18 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
   // vect), threadsPerBlock), here maxThreadsPerBlock is used since the actual
   // threadsPerBlock is not known yet.
   auto roundUpSmem = [](TensorView* tv,
-                                            int64_t tv_buffer_size,
-                                            int64_t vectorize_factor,
-                                            int64_t threads_per_block) {
+                        int64_t tv_buffer_size,
+                        int64_t vectorize_factor,
+                        int64_t threads_per_block) {
     const int64_t data_type_size = dataTypeSize(tv->getDataType().value());
     const int64_t n_elements = tv_buffer_size / data_type_size;
     const int64_t n_batch =
         ceilDiv(ceilDiv(n_elements, vectorize_factor), threads_per_block);
     return n_batch * vectorize_factor * threads_per_block * data_type_size;
   };
-  if (vectorize_factor > 1 && buffer_params.register_persistent_buffer_size >
-      available_register_buffer_size) {
+  if (vectorize_factor > 1 &&
+      buffer_params.register_persistent_buffer_size >
+          available_register_buffer_size) {
     for (const auto tv : persistent_buffers) {
       int64_t tv_buffer_size = scheduler_utils::getOnePersistentBufferSize(
           tv, runtime_info, persistent_buffer_info);
@@ -909,11 +913,18 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
                 << ", reg: " << buffer_params.register_persistent_buffer_size
                 << ", smem: "
                 << buffer_params.shared_memory_persistent_buffer_size
-                << std::endl;          
+                << std::endl;
       buffer_params.register_persistent_buffer_size -= tv_buffer_size;
       buffer_params.shared_memory_persistent_buffer_size += roundUpSmem(
           tv, tv_buffer_size, vectorize_factor, max_threads_per_block);
       buffer_params.shared_memory_persistent_tensors.emplace_back(tv);
+
+      // if shared memory is used, reduce available register as they share the
+      // same hardware resource e.g. 28800 fp16 on H100, (1) still use 65K
+      // register, 256 bytes stack frame, 1200 GB/s (2) use 56K register, no
+      // spill, 1600 GB/s
+      available_register_buffer_size =
+          scheduler_utils::register_file_size_full / 64 * 56;
 
       if (buffer_params.register_persistent_buffer_size <=
           available_register_buffer_size) {
@@ -924,8 +935,9 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
 
   buffer_params.has_enough_regs_and_smem =
       buffer_params.shared_memory_persistent_buffer_size <=
-      available_shared_memory_buffer_size && buffer_params
-          .register_persistent_buffer_size <= available_register_buffer_size;
+          available_shared_memory_buffer_size &&
+      buffer_params.register_persistent_buffer_size <=
+          available_register_buffer_size;
 
   std::cout << "register_persistent_buffer_size: "
             << buffer_params.register_persistent_buffer_size
