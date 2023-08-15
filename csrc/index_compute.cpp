@@ -484,7 +484,9 @@ bool IndexCompute::isModuloInvalidUnswitchedIndex(
     // - 1) * extent_of_inner_domain_0 * extent_of_inner_domain_1
     // ...., so if the stride component, i.e., the multiplication of all
     // the inner extents is divisible by the merge inner extent, its
-    // contribution propagated to the inner path will be zero
+    // contribution propagated to the inner path will be zero. This
+    // pattern is effectively the same as distributeDivisibleDivMod in
+    // the expr simplifier.
     Val* stride = out_concrete_id->fusion()->oneVal();
     for (auto it = unswitched_domain_list.begin();
          it != unswitched_domain_list.end() - 1;
@@ -499,7 +501,8 @@ bool IndexCompute::isModuloInvalidUnswitchedIndex(
     // Also, if the total extent including the inner domains is a
     // divisible factor of the inner extent, the contribution by the
     // unswitched domain is guaranteed to be still the maximum when
-    // propagated to the inner path
+    // propagated to the inner path. This pattern is effectively the
+    // same as distributeGcdRemainderDivMod in the expr simplifier.
     Val* total_extent =
         IrBuilder::mulExpr(stride, getExtent(unswitched_domain_list.back()));
     if (simplifyExpr(IrBuilder::modExpr(inner_extent, total_extent))
