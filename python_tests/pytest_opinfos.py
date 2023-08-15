@@ -449,6 +449,10 @@ broadcast_opinfo = OpInfo(
 )
 shape_ops.append(broadcast_opinfo)
 
+# NOTE: The constant version of broadcast_in_dim opinfo tests the "shape"
+# argument when a List of Constant Ints is used as an input.
+# The symbolic parameter list lists the argument as "Constant" because
+# otherwise an input is generated to attempt to supply the "shape" arg.
 broadcast_in_dim_constant_opinfo = OpInfo(
     lambda fd: fd.ops.broadcast_in_dim,
     "broadcast_in_dim_constant",
@@ -458,6 +462,8 @@ broadcast_in_dim_constant_opinfo = OpInfo(
     reference_type=ReferenceType.Jax,
     symbolic_parameter_list=(
         ArgumentType.Symbolic,
+        # This argument is purposely Constant even though the positional
+        # argument can also be symbolic.
         ArgumentType.Constant,
         ArgumentType.Constant,
     ),
@@ -465,6 +471,8 @@ broadcast_in_dim_constant_opinfo = OpInfo(
 shape_ops.append(broadcast_in_dim_constant_opinfo)
 
 
+# NOTE: The symbolic version of broadcast_in_dim opinfo tests the "shape"
+# argument with a Vector generated from another operation like ops.shape.
 def broadcast_in_dim_sym_fn(fd, arg1, arg2, broadcast_dims):
     return fd.ops.broadcast_in_dim(arg1, arg2.shape(), broadcast_dims)
 

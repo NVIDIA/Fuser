@@ -1840,6 +1840,8 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("shape"),
       py::arg("broadcast_dims"),
       py::return_value_policy::reference);
+  // NOTE: Tuple support was added to facilitate the direct usage of Pytorch's
+  // Tensor.size() function that returns a child class of a Tuple.
   nvf_ops.def(
       "broadcast_in_dim",
       broadcast_in_dim_fn<py::tuple>,
