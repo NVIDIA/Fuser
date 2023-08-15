@@ -288,20 +288,10 @@ void IndexLowering::handle(const TensorConstruct* cop) {
 
 void IndexLowering::handle(const IndexSelectOp* sop) {
   auto lowered_index = lowerSrcIndex(sop->input(1), sop->output(0));
-  auto lowered_index_cast = lowered_index;
-
-  // If the type of the index tensor is different from the kernel
-  // index type, promote it to the kernel index type
-  if (GpuLower::current()->kernel()->indexType() !=
-      sop->input(1)->getDataType().value()) {
-    lowered_index_cast =
-        IrBuilder::newScalar(GpuLower::current()->kernel()->indexType());
-    IrBuilder::create<UnaryOp>(
-        UnaryOpType::Cast, lowered_index_cast, lowered_index);
-  }
+  lowered_index = maybeCastOp(DataType::Index, lowered_index);
 
   const std::unordered_map<IterDomain*, Val*> override_index = {
-      {sop->getIndexedID(), lowered_index_cast}};
+      {sop->getIndexedID(), lowered_index}};
   const auto lookup =
       lowerSrcIndex(sop->input(0), sop->output(0), override_index);
 
@@ -313,13 +303,7 @@ void IndexLowering::handle(const IndexSelectOp* sop) {
 
 void IndexLowering::handle(const TorchGatherOp* top) {
   auto lowered_index = lowerSrcIndex(top->input(1), top->output(0));
-  if (GpuLower::current()->kernel()->indexType() !=
-      top->indexTv()->getDataType().value()) {
-    auto lowered_index_cast =
-        IrBuilder::newScalar(GpuLower::current()->kernel()->indexType());
-    IrBuilder::create<UnaryOp>(
-        UnaryOpType::Cast, lowered_index_cast, lowered_index);
-  }
+  lowered_index = IrBuilder::maybeCastExpr(DataType::Index, lowered_index);
 
   const std::unordered_map<IterDomain*, Val*> override_index = {
       {top->getIndexedID(), lowered_index}};
@@ -334,6 +318,8 @@ void IndexLowering::handle(const TorchGatherOp* top) {
 void IndexLowering::handle(const ScatterOp* sop) {
   auto lowered_index = lowerSrcIndex(sop->indexTv(), sop->output(0));
   auto lowered_src = lowerSrcIndex(sop->srcTv(), sop->output(0));
+
+  lowered_index = IrBuilder::maybeCastExpr(DataType::Index, lowered_index);
 
   const std::unordered_map<int, Val*> override_index_out = {
       {sop->dim(), lowered_index}};
@@ -465,7 +451,7 @@ GridCommWorkBufferSizeInfo getGridCommWorkBufferSize(
 
   if (is_doubled) {
     size_of_privatized_buffer = SimplifyingIrBuilder::mulExpr(
-        size_of_privatized_buffer, IrBuilder::create<Val>(2L));
+        size_of_privatized_buffer, IrBuilder::create<Val>(2L, DataType::Index));
   }
 
   GridCommWorkBufferSizeInfo info;
@@ -473,7 +459,7 @@ GridCommWorkBufferSizeInfo getGridCommWorkBufferSize(
   info.buffer_stride = size_of_single_buffer;
   if (is_doubled) {
     info.buffer_stride = SimplifyingIrBuilder::mulExpr(
-        info.buffer_stride, IrBuilder::create<Val>(2L));
+        info.buffer_stride, IrBuilder::create<Val>(2L, DataType::Index));
   }
 
   return info;

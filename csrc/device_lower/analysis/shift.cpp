@@ -90,7 +90,9 @@ Expr* ShiftPredicateInserter::insert(
   auto bounds_ite = IrBuilder::create<kir::IfThenElse>(padding_pred);
   const int64_t pad_value = 0L;
   auto pad_expr = IrBuilder::create<LoadStoreOp>(
-      LoadStoreOpType::Set, out_tv, IrBuilder::create<Val>(pad_value));
+      LoadStoreOpType::Set,
+      out_tv,
+      IrBuilder::create<Val>(pad_value, DataType::Index));
   bounds_ite->thenBody().push_back(pad_expr);
   // Insert the else block
   shift_ite->elseBody().push_back(bounds_ite);
@@ -343,7 +345,8 @@ void HaloInfo::initializeFromRootAxisInfo(IterDomain* id) {
   }
 
   auto expanded_extent = IrBuilder::addExpr(
-      id->extent(), IrBuilder::create<Val>((int64_t)halo_width));
+      id->extent(),
+      IrBuilder::create<Val>((int64_t)halo_width, DataType::Index));
   extent_map_[id] = expanded_extent;
   halo_width_map_[id] = halo_width;
 

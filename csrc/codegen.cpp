@@ -475,7 +475,12 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           code_ << val << getLiteralSuffix(dtype);
         }
       } else if (value.is<std::complex<double>>()) {
-        code_ << "std::complex<double>" << value;
+        if (dtype == DataType::ComplexFloat) {
+          code_ << "std::complex<float>" << value;
+        } else {
+          TORCH_INTERNAL_ASSERT(dtype == DataType::ComplexDouble);
+          code_ << "std::complex<double>" << value;
+        }
       } else {
         TORCH_INTERNAL_ASSERT(
             false, "Unhandled constant type: ", s->dtype(), " ", value);

@@ -245,7 +245,7 @@ class TORCH_CUDA_CU_API Allocate final : public Expr {
   // This is an integer scalar describing the byte address within the dynamic
   // shared memory array for a shared memory allocation. For memory types other
   // than Shared, or before allocation, this function might return nullptr.
-  const Val* address() const {
+  Val* address() const {
     return attributeVal(4);
   }
 };
@@ -586,6 +586,11 @@ class TORCH_CUDA_CU_API ForLoop final : public Expr {
  private:
   //! Returns if a loop could be unrolled.
   bool isUnrollable() const;
+
+  //! Not storing this as an attribute because this is only a cache for
+  //! simplifiedStop. We are not interested in keeping this across clone/serde,
+  //! etc.
+  mutable Val* simplified_stop_ = nullptr;
 };
 
 //! IfThenElse provides scoping for an boolean operator. Exprs placed in its
