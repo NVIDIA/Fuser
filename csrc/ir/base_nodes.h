@@ -54,20 +54,14 @@ using StmtNameType = unsigned int;
 constexpr StmtNameType kInvalidStmName =
     std::numeric_limits<unsigned int>::max();
 
-class NonCopyable;
-class PolymorphicBase;
 class Fusion;
-class FusionGuard;
 class Expr;
 class Val;
-class UnaryOp;
-class BinaryOp;
-class RNGOp;
-class IterDomain;
 class IrCloner;
 class IrContainer;
 class IrBuilderPasskey;
 class IrContainerPasskey;
+class ExpressionEvaluator;
 
 namespace kir {
 class Kernel;
@@ -81,8 +75,6 @@ class ExprPasskey {
  private:
   explicit ExprPasskey() = default;
 };
-
-TORCH_CUDA_CU_API void swap(Fusion& a, Fusion& b) noexcept;
 
 #define NVFUSER_DECLARE_CLONE \
   virtual Statement* clone(IrCloner* ir_cloner) const override;
@@ -234,7 +226,13 @@ class TORCH_CUDA_CU_API Val : public Statement {
       : Statement(passkey),
         vtype_(_vtype),
         dtype_(std::move(_dtype)),
-        value_(std::move(_value)) {}
+        value_(std::move(_value)) {
+    if (value_.hasValue()) {
+      TORCH_CHECK(
+          hasCompatibleDataType(value_, dtype_),
+          "Scalar value is not compatible with the given data type.");
+    }
+  }
   explicit Val(IrBuilderPasskey passkey, DataType dtype)
       : Val(passkey, ValType::Others, std::move(dtype)) {}
   explicit Val(IrBuilderPasskey passkey, PrimDataType dtype)
@@ -425,6 +423,8 @@ class TORCH_CUDA_CU_API Val : public Statement {
     definition_ = expr;
   }
 
+  // TODO: remove this function. I think we are fine removing this now, but I
+  // need to double check the benchmarks.
   void resolveIndexDtype();
 
   NVFUSER_DECLARE_CLONE
@@ -547,6 +547,7 @@ class TORCH_CUDA_CU_API Expr : public Statement {
   bool sameAs(const Statement* other) const override;
 
   virtual std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
       const std::vector<PolymorphicValue>& inputs) const;
 
   // Input/output accessors

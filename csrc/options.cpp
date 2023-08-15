@@ -180,7 +180,9 @@ std::unordered_map<DisableOption, std::vector<std::string>> Options<
       {"predicate_elimination", DisableOption::PredicateElimination},
       {"kernel_reuse", DisableOption::KernelReuse},
       {"var_name_remapping", DisableOption::VarNameRemapping},
-      {"welford_vectorization", DisableOption::WelfordVectorization}};
+      {"welford_vectorization", DisableOption::WelfordVectorization},
+      {"reuse_mismatched_type_registers",
+       DisableOption::ReuseMismatchedTypeRegisters}};
 
   auto options = parseEnvOptions("DISABLE", available_options);
 

@@ -738,10 +738,10 @@ TEST_F(NVFuserTest, DynamicTransformFusionExecutorCache_CUDA) {
   }
 }
 
-using shape = std::vector<int64_t>;
+using shape_t = std::vector<int64_t>;
 using dynamic_view_invocation = std::tuple<
-    shape, // input_shape
-    shape, // output_shape
+    shape_t, // input_shape
+    shape_t, // output_shape
     bool // expect miss
     >;
 

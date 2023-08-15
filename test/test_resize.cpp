@@ -2456,4 +2456,76 @@ TEST_F(NVFuserTest, ResizePadToBroadcastIssue596_CUDA) {
       __FILE__);
 }
 
+// An input is sliced and then reshaped
+TEST_F(NVFuserTest, SliceAndReshape1) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  std::vector<int64_t> shape({1024, 1024});
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+
+  auto tv1 = slice(
+      tv0,
+      {{IrBuilder::create<Val>(0L), tv0->axis(0)->extent()},
+       {IrBuilder::create<Val>(1L),
+        sub(tv0->axis(1)->extent(), IrBuilder::create<Val>(1L))}});
+  auto tv2 = reshape(tv1, {IrBuilder::create<Val>(-1L)});
+  fusion.addOutput(tv2);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+
+  auto t1 = t0.index(
+      {at::indexing::Slice(0, at::indexing::None),
+       at::indexing::Slice(1, shape[0] - 1)});
+  auto ref = t1.reshape({-1});
+
+  TORCH_CHECK(ref.equal(cg_outputs[0]));
+}
+
+// An input is sliced and also separately reshaped
+TEST_F(NVFuserTest, SliceAndReshape2) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  std::vector<int64_t> shape({1024, 1024});
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+
+  auto tv1 = slice(
+      tv0,
+      {{IrBuilder::create<Val>(0L), tv0->axis(0)->extent()},
+       {IrBuilder::create<Val>(1L),
+        sub(tv0->axis(1)->extent(), IrBuilder::create<Val>(1L))}});
+  auto tv2 = reshape(tv0, {IrBuilder::create<Val>(-1L)});
+  fusion.addOutput(tv1);
+  fusion.addOutput(tv2);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+
+  auto t1 = t0.index(
+      {at::indexing::Slice(0, at::indexing::None),
+       at::indexing::Slice(1, shape[0] - 1)});
+  auto t2 = t0.reshape({-1});
+
+  TORCH_CHECK(t1.equal(cg_outputs[0]));
+  TORCH_CHECK(t2.equal(cg_outputs[1]));
+}
+
 } // namespace nvfuser

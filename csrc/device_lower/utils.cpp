@@ -18,6 +18,7 @@
 #include <ops/arith.h>
 #include <root_domain_map.h>
 
+#include <expr_simplifier.h>
 #include <algorithm>
 
 // TODO: refactor this file (one per namespace)
@@ -614,7 +615,7 @@ std::vector<Expr*> getAllSwizzlesBetween(
 namespace lower_utils {
 
 bool hasBlockSync(const Expr* expr, const ThreadPredicateMap& pred_map) {
-  if (expr->isA<kir::BlockSync>()) {
+  if (expr->isA<kir::BlockSync>() || expr->isA<kir::GridSync>()) {
     return true;
   }
 
@@ -760,6 +761,16 @@ bool isScalarExpr(Expr* expr) {
     }
   }
   return true;
+}
+
+bool isExtentEqualToMaxParallelTypeExtent(const IterDomain* id) {
+  const auto& parallel_dim_map = GpuLower::current()->parallelDimensionMap();
+  auto* pdm_max_extent = parallel_dim_map.get(id->getParallelType());
+  if (nullptr == pdm_max_extent) {
+    return false;
+  }
+  auto* is_exact_val = IrBuilder::eqExpr(id->extent(), pdm_max_extent);
+  return simplifyExpr(is_exact_val)->isTrue();
 }
 
 } // namespace lower_utils
