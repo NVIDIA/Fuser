@@ -906,46 +906,80 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
   };
   //  0, 8, 16, 32, 64, 100, 132, 164, 196 and 228 KB per SM.
   //  0, 8, 16, 32, 64, 100, 132, 164 KB per SM
-
-  auto getSmemConfigSize = [](int64_t request_size_kb) {
-    std::array<int64_t, 11> thresholds = {8, 16, 32, 64, 100, 132, 164, 196, 228};
-    for (size_t i = 0; i < thresholds.size(); i++) {
-      if (request_size_kb <= thresholds[i]) {
-        return thresholds[i];
+  const std::array<int64_t, 9> smem_config_options = {8*1024, 16*1024, 32*1024, 64*1024, 100*1024, 132*1024, 164*1024, 196*1024, 228*1024};
+  auto getSmemConfigSize = [&smem_config_options](int64_t request_size) {
+    for (int64_t i = 0; i < (int64_t)smem_config_options.size(); i++) {
+      if (request_size <= smem_config_options[i]) {
+        return smem_config_options[i];
       }
     }
-    return thresholds.back();
+    return smem_config_options.back();
   };
+
 
   if (vectorize_factor > 1 &&
       buffer_params.register_persistent_buffer_size >
           available_register_buffer_size) {
-    for (const auto tv : persistent_buffers) {
-      int64_t tv_buffer_size = scheduler_utils::getOnePersistentBufferSize(
-          tv, runtime_info, persistent_buffer_info);
-      std::cout << "tv: " << tv->toString()
-                << ", tv_buffer_size: " << tv_buffer_size
-                << ", reg: " << buffer_params.register_persistent_buffer_size
-                << ", smem: "
-                << buffer_params.shared_memory_persistent_buffer_size
-                << std::endl;
-      buffer_params.register_persistent_buffer_size -= tv_buffer_size;
-      buffer_params.shared_memory_persistent_buffer_size += roundUpSmem(
-          tv, tv_buffer_size, vectorize_factor, max_threads_per_block);
-      buffer_params.shared_memory_persistent_tensors.emplace_back(tv);
+    // if shared memory is used, reduce available register as they share the
+    // same hardware resource. e.g. 28800 fp16 on H100, (1) still use 65K
+    // register, 256 bytes stack frame, 1200 GB/s (2) use 56K register, no
+    // spill, 1600 GB/s
+    available_register_buffer_size =
+        scheduler_utils::register_file_size_full / 64 * 56;
 
-      // if shared memory is used, reduce available register as they share the
-      // same hardware resource e.g. 28800 fp16 on H100, (1) still use 65K
-      // register, 256 bytes stack frame, 1200 GB/s (2) use 56K register, no
-      // spill, 1600 GB/s
-      available_register_buffer_size =
-          scheduler_utils::register_file_size_full / 64 * 56;
-
-      if (buffer_params.register_persistent_buffer_size <=
-          available_register_buffer_size) {
+    // calculate the accumulated buffer size
+    const int64_t n_buffers = persistent_buffers.size();
+    std::vector<int64_t> acc_regs_buffer_sizes(n_buffers);
+    std::vector<int64_t> acc_smem_buffer_sizes(n_buffers);
+    for(int i = 0; i < n_buffers; i++) {
+      acc_regs_buffer_sizes[i] = scheduler_utils::getOnePersistentBufferSize(
+          persistent_buffers[i], runtime_info, persistent_buffer_info);
+      acc_smem_buffer_sizes[i] = roundUpSmem(persistent_buffers[i], acc_regs_buffer_sizes[i], vectorize_factor, max_threads_per_block);
+      if(i > 0){
+        acc_regs_buffer_sizes[i] += acc_regs_buffer_sizes[i-1];
+        acc_smem_buffer_sizes[i] += acc_smem_buffer_sizes[i-1];
+      }
+    }
+    // calculate the minimum number of buffers need to be moved to shared memory to make sure the register buffer size is not larger than available_register_buffer_size
+    int64_t n_smem_buffer = -1;
+    for(int i=0; i<n_buffers; i++){
+      if(buffer_params.register_persistent_buffer_size - acc_regs_buffer_sizes[i] <= available_register_buffer_size){
+        n_smem_buffer = i + 1;
         break;
       }
     }
+    // Still needs more registers than aviailable after move all to shared memory, can't be scheduled
+    if(n_smem_buffer == -1 || acc_smem_buffer_sizes[n_smem_buffer-1] > available_shared_memory_buffer_size){
+      buffer_params.has_enough_regs_and_smem = false;
+      return buffer_params;
+    }
+
+    // shared memory is configured to specific sizes, e.g. 8, 16, 32, 64, 100, 132, 164, 196, 228 KB per SM on H100.
+    // we can move more buffers to shared memory if it leads to more efficient utilization of the configured shared memory size.
+    // Just check the change of the ratio of smem_buffer_size to smem_config_size if move one more buffer from register to shared memory.
+    // e.g. f32, 19072 on H100, new n_smem_buffer= 2, smem_config_size_tmp= 167936, buffer_config_ratio_tmp= 0.926829, buffer_config_ratio_old= 0.76
+    // bandwidth increased from 1700 GB/s to 1900 GB/s.
+    if(n_smem_buffer < n_buffers){
+      int64_t smem_buffer_size = acc_smem_buffer_sizes[n_smem_buffer-1];
+      int64_t smem_config_size = getSmemConfigSize(smem_buffer_size+buffer_params.shared_memory_overhead_per_block);
+      float buffer_config_ratio = (float)smem_buffer_size / smem_config_size;      
+      if(buffer_config_ratio < 0.8 && smem_config_size < smem_config_options.back()){
+        int64_t smem_buffer_size_tmp = acc_smem_buffer_sizes[n_smem_buffer];;
+        int64_t smem_config_size_tmp = getSmemConfigSize(smem_buffer_size_tmp+buffer_params.shared_memory_overhead_per_block);
+        float buffer_config_ratio_tmp = (float)smem_buffer_size_tmp / smem_config_size_tmp; 
+        if(buffer_config_ratio_tmp > buffer_config_ratio){
+          std::cout << "New n_smem_buffer detected! new n_smem_buffer= " << n_smem_buffer + 1 << ", smem_config_size_tmp= " << smem_config_size_tmp 
+          << ", buffer_config_ratio_tmp= " << buffer_config_ratio_tmp << ", buffer_config_ratio_old= " << buffer_config_ratio << std::endl;
+          n_smem_buffer++;
+        }
+      }
+    }
+    // move n_smem_buffer buffers to shared memory
+    for(int i = 0; i< n_smem_buffer; i++){
+      buffer_params.shared_memory_persistent_tensors.emplace_back(persistent_buffers[i]);
+    }
+    buffer_params.register_persistent_buffer_size -= acc_regs_buffer_sizes[n_smem_buffer-1];
+    buffer_params.shared_memory_persistent_buffer_size = acc_smem_buffer_sizes[n_smem_buffer-1];
   }
 
   buffer_params.has_enough_regs_and_smem =
