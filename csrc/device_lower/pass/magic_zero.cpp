@@ -82,7 +82,7 @@ bool isMagicZero(const Val* val) {
     return false;
   }
   auto ns = val->as<NamedScalar>();
-  return ns->dtype() == DataType::Int &&
+  return ns->dtype() == DataType::Index &&
       ns->name() == std::string(kMagicZeroName);
 }
 

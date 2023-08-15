@@ -7,7 +7,6 @@ import torch
 import pytest
 import numpy as np
 
-from torch.testing import assert_close
 from pytest_fusion_definitions import default_fd_fn, parse_inputs_fusion_definition
 from pytest_framework import create_op_test
 from pytest_core import ReferenceType, OpInfo, SampleInput
@@ -56,7 +55,9 @@ def torch_correctness_test_fn(fd_fn: Callable, nvf_op: OpInfo, sample: SampleInp
     if len(nvfuser_result) == 1:
         nvfuser_result = nvfuser_result[0]
 
-    assert_close(nvfuser_result, torch_result, equal_nan=True, atol=1e-3, rtol=0)
+    torch.testing.assert_close(
+        nvfuser_result, torch_result, equal_nan=True, atol=1e-3, rtol=0
+    )
 
 
 def jax_correctness_test_fn(fd_fn: Callable, nvf_op: OpInfo, sample: SampleInput):
@@ -80,7 +81,7 @@ def jax_correctness_test_fn(fd_fn: Callable, nvf_op: OpInfo, sample: SampleInput
         nvfuser_result = nvfuser_result[0]
 
     # NOTE: dtype is not checked because jax will translate int64, float64, and complex128 to int32, float32 and complex64
-    assert_close(
+    torch.testing.assert_close(
         nvfuser_result, jax_result, equal_nan=True, atol=1e-3, rtol=0, check_dtype=False
     )
 
@@ -138,7 +139,7 @@ def definition_op_in_schedule_error_test_fn(opinfo: OpInfo, sample: SampleInput)
 # TODO Maybe only test a single dtype
 @create_op_test(tuple(op for op in opinfos if op.sample_input_generator is not None))
 def test_definition_op_in_schedule_error(op: OpInfo, dtype: torch.dtype):
-    for sample in op.sample_input_generator(op, torch.float32):
+    for sample in op.sample_input_generator(op, dtype):
         with pytest.raises(
             RuntimeError, match=r"Attempting to add to a completed definition"
         ):
