@@ -9769,6 +9769,10 @@ TEST_F(NVFuserTest, FusionCrossGridInnerReductionSplitGridIteration_CUDA) {
   // reduction size is set to 65538 to triger cross grid reduction and iter
   // unroll. iteration size is set to a value larger than y_grid_limit to test
   // if iter domain is split grid.
+  // This test requires significant memory. Release any cached memory
+  // from previous tests to ensure availability.
+  maybeClearAllocator(0);
+
   DataType dtype = DataType::Float;
   int64_t reduction_size = 65538;
   int64_t iteration_size = scheduler_utils::y_grid_limit + 8;
@@ -9782,6 +9786,17 @@ TEST_F(NVFuserTest, FusionCrossGridInnerReductionSplitGridIteration_CUDA) {
   fusion.addInput(t0);
   fusion.addOutput(t1);
 
+  // Estimated_gmem is 17.18 GBytes, skip if not enough memory.
+  size_t n_elements = reduction_size * iteration_size + iteration_size * 2;
+  size_t estimated_gmem = n_elements * dataTypeSize(dtype);
+  size_t device_free, device_total;
+  cudaMemGetInfo(&device_free, &device_total);
+  if (estimated_gmem > device_free) {
+    GTEST_SKIP() << "Skipping test due to limited GPU memory. Requested: "
+                 << estimated_gmem / 1e9 << " GBytes"
+                 << ", device_free: " << device_free / 1e9 << " GBytes"
+                 << ", device_total: " << device_total / 1e9 << " GBytes";
+  }
   auto options =
       at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
   at::Tensor aten_input = at::randn(input_shape, options);
@@ -9798,8 +9813,7 @@ TEST_F(NVFuserTest, FusionCrossGridInnerReductionSplitGridIteration_CUDA) {
   FusionExecutor fe;
   fe.compileFusion(&fusion, {aten_input}, lparams);
   auto cg_outputs = fe.runFusion({aten_input}, lparams);
-
-  auto aten_outputs = aten_input.to(at::kDouble).sum({1});
+  auto aten_outputs = aten_input.sum({1});
   testValidate(
       &fusion,
       cg_outputs,
@@ -9828,6 +9842,42 @@ TEST_F(NVFuserTest, SymbolicOneBroadcasting) {
                 .build();
   ASSERT_EQ(tv->nDims(), 1);
   EXPECT_TRUE(tv->axis(0)->isBroadcast());
+}
+
+// Repro of unswitch predicate issue #681
+TEST_F(NVFuserTest, UnswitchPredicateIssueRepro681_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+
+  auto tv1 = sum(tv0, {0, 1});
+  fusion.addOutput(tv1);
+
+  // [i0, i1]
+  tv1->split(1, 4);
+  // [i0, i1/4, 4]
+  tv1->merge(0);
+  // [i0*i1/4, 4]
+  tv1->split(0, 4);
+  // [i0*i1/4/4, 4, 4]
+  tv1->split(0, 1);
+  // [i0*i1/4/4, 1, 4, 4]
+
+  tv1->axis(1)->parallelize(ParallelType::Unswitch);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({4, 10}, options);
+  std::vector<c10::IValue> aten_inputs = {t0};
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs);
+  auto outputs = fe.runFusion(aten_inputs);
+
+  auto ref = t0.to(at::kDouble).sum();
+
+  testValidate(&fusion, outputs, aten_inputs, {ref}, __LINE__, __FILE__);
 }
 
 // Test file size should be up to 10K LoC. Create a new file for more tests.
