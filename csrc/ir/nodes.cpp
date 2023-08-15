@@ -777,7 +777,7 @@ std::string GetMetaData::toString(int indent_size) const {
 
 std::string GetMetaData::toInlineString(int indent_size) const {
   std::stringstream ss;
-  ss << "getMetaData(" << in()->toInlineString() << ")";
+  ss << "getMetaData(" << ir_utils::varName(in()) << ")";
   return ss.str();
 }
 
