@@ -9765,6 +9765,107 @@ TEST_F(NVFuserTest, IndexDataTypePromotion) {
   EXPECT_EQ(c->dtype(), DataType::Index);
 }
 
+TEST_F(NVFuserTest, FusionCrossGridInnerReductionSplitGridIteration_CUDA) {
+  // reduction size is set to 65538 to triger cross grid reduction and iter
+  // unroll. iteration size is set to a value larger than y_grid_limit to test
+  // if iter domain is split grid.
+  DataType dtype = DataType::Float;
+  int64_t reduction_size = 65538;
+  int64_t iteration_size = scheduler_utils::y_grid_limit + 8;
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> input_shape{iteration_size, reduction_size};
+  auto t0 = makeContigTensor(2, dtype);
+  auto t1 = sum(t0, {1});
+  fusion.addInput(t0);
+  fusion.addOutput(t1);
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  at::Tensor aten_input = at::randn(input_shape, options);
+
+  auto reduction_params = getReductionHeuristics(&fusion, {aten_input});
+  ASSERT_TRUE(reduction_params) << "Reduction schedule was not generated!";
+  ASSERT_TRUE(reduction_params->split_grid_dim_inner_reduction)
+      << "Generated reduction is not cross grid!";
+  ASSERT_TRUE(reduction_params->split_grid_dim_iter_dom_outer)
+      << "Generated reduction is not split iteration domain!";
+  scheduleReduction(&fusion, *reduction_params);
+
+  auto lparams = reduction_params->lparams;
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, {aten_input}, lparams);
+  auto cg_outputs = fe.runFusion({aten_input}, lparams);
+
+  auto aten_outputs = aten_input.to(at::kDouble).sum({1});
+  testValidate(
+      &fusion,
+      cg_outputs,
+      {aten_input},
+      {aten_outputs},
+      __LINE__,
+      __FILE__,
+      "",
+      lparams);
+}
+
+TEST_F(NVFuserTest, SymbolicOneBroadcasting) {
+  // Test that if a tensor dimension's extent is one, no matter whether this
+  // extent is constant 1 or symbolic 1, we always mark this ID as broadcasting.
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  auto one = IrBuilder::create<Val>(1L);
+  auto zero = sub(one, one);
+  auto symbolic_one = add(zero, one);
+  std::vector<Val*> shape{symbolic_one};
+  auto tv = TensorViewBuilder()
+                .ndims(1)
+                .dtype(DataType::Float)
+                .contiguity(true)
+                .shape(shape)
+                .build();
+  ASSERT_EQ(tv->nDims(), 1);
+  EXPECT_TRUE(tv->axis(0)->isBroadcast());
+}
+
+// Repro of unswitch predicate issue #681
+TEST_F(NVFuserTest, UnswitchPredicateIssueRepro681_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+
+  auto tv1 = sum(tv0, {0, 1});
+  fusion.addOutput(tv1);
+
+  // [i0, i1]
+  tv1->split(1, 4);
+  // [i0, i1/4, 4]
+  tv1->merge(0);
+  // [i0*i1/4, 4]
+  tv1->split(0, 4);
+  // [i0*i1/4/4, 4, 4]
+  tv1->split(0, 1);
+  // [i0*i1/4/4, 1, 4, 4]
+
+  tv1->axis(1)->parallelize(ParallelType::Unswitch);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({4, 10}, options);
+  std::vector<c10::IValue> aten_inputs = {t0};
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs);
+  auto outputs = fe.runFusion(aten_inputs);
+
+  auto ref = t0.to(at::kDouble).sum();
+
+  testValidate(&fusion, outputs, aten_inputs, {ref}, __LINE__, __FILE__);
+}
+
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser
