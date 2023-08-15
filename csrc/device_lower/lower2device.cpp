@@ -416,6 +416,8 @@ void GpuLower::lower(Fusion* fusion) {
   const auto exprs_sorted = reorderExprsForComputeAt();
   dumpExprsIfEnabled(exprs_sorted, "reorderExprsForComputeAt");
 
+  commonScalarMap().initialize(exprs_sorted);
+
   // For RNG ops whose seed and offset are not yet set, grab the seed and offset
   // from the host and assign them to the ops.
   // This must be after expr sort, because we do not want the generated
@@ -440,8 +442,6 @@ void GpuLower::lower(Fusion* fusion) {
   // Insert read after write smem syncs
   const auto exprs_raw_sync = insertRawThreadSynchronization(exprs_alloced);
   dumpExprsIfEnabled(exprs_raw_sync, "insertRawThreadSynchronization");
-
-  commonScalarMap().initialize(exprs_raw_sync);
 
   // Reuse memory locations
   const auto exprs_reuse_mem = reuseMemoryAllocations(exprs_raw_sync);
@@ -488,26 +488,26 @@ void GpuLower::lower(Fusion* fusion) {
   dumpExprsIfEnabled(
       exprs_conditional_loops, "generateConditionalFromPredicate");
 
-  const auto exprs_common_index_allocated =
-      allocateCommonScalars(exprs_conditional_loops);
-  dumpExprsIfEnabled(exprs_common_index_allocated, "allocateCommonScalars");
-
   std::vector<Expr*> exprs_welford_vectorized;
   if (!isOptionDisabled(DisableOption::WelfordVectorization)) {
-    exprs_welford_vectorized = vectorizeWelford(exprs_common_index_allocated);
+    exprs_welford_vectorized = vectorizeWelford(exprs_conditional_loops);
     dumpExprsIfEnabled(exprs_welford_vectorized, "vectorizeWelford");
   } else {
-    exprs_welford_vectorized = exprs_common_index_allocated;
+    exprs_welford_vectorized = exprs_conditional_loops;
   }
+
+  const auto exprs_common_index_allocated =
+      allocateCommonScalars(exprs_welford_vectorized);
+  dumpExprsIfEnabled(exprs_common_index_allocated, "allocateCommonScalars");
 
   std::vector<Expr*> exprs_register_adjusted;
   if (isNvFuserZeroEnabled()) {
     // Insert fake zero updates to make sure nvrtc doesn't blow out register use
     // on index and predicate reuse
-    exprs_register_adjusted = insertMagicZero(exprs_welford_vectorized);
+    exprs_register_adjusted = insertMagicZero(exprs_common_index_allocated);
     dumpExprsIfEnabled(exprs_register_adjusted, "insertMagicZero");
   } else {
-    exprs_register_adjusted = exprs_welford_vectorized;
+    exprs_register_adjusted = exprs_common_index_allocated;
   }
 
   const auto exprs_cleaned_up_loops =
