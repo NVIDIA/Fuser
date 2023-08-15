@@ -46,8 +46,11 @@ Vector define_vector_base_fn(FusionDefinition& fd, std::vector<Scalar>& args) {
   return out;
 }
 
-template<class ITERABLE>
-Vector define_vector_fn(FusionDefinition& self, ITERABLE& values, PrimDataType dtype = DataType::Int) {
+template <class ITERABLE>
+Vector define_vector_fn(
+    FusionDefinition& self,
+    ITERABLE& values,
+    PrimDataType dtype = DataType::Int) {
   FUSER_PERF_SCOPE("python_frontend::define_vector_fn");
   std::vector<Scalar> args;
   size_t idx = 0;
@@ -66,9 +69,7 @@ Vector define_vector_fn(FusionDefinition& self, ITERABLE& values, PrimDataType d
           " was neither symbolic(-1), zero_element(0), broadcast(1), or static(>1).");
       Scalar out = self.defineScalar();
       self.defineRecord(new ScalarRecord(
-          {self.recordingState(out())},
-          py::cast<int64_t>(item),
-          dtype));
+          {self.recordingState(out())}, py::cast<int64_t>(item), dtype));
       args.emplace_back(out);
     } else if (py::isinstance<Scalar>(item)) {
       args.emplace_back(py::cast<Scalar>(item));
@@ -83,31 +84,35 @@ Vector define_vector_fn(FusionDefinition& self, ITERABLE& values, PrimDataType d
   return define_vector_base_fn(self, args);
 }
 
-template<class ShapeType>
-Tensor broadcast_in_dim_fn(FusionDefinition::Operators& op, Tensor arg, ShapeType shape, std::vector<int64_t>& broadcast_dims) {
+template <class ShapeType>
+Tensor broadcast_in_dim_fn(
+    FusionDefinition::Operators& op,
+    Tensor arg,
+    ShapeType shape,
+    std::vector<int64_t>& broadcast_dims) {
   FUSER_PERF_SCOPE("Operators.broadcast_in_dim");
   FusionDefinition* fd = op.fusion_definition;
   TORCH_CHECK(!fd->completed(), "Attempting to add to a completed definition!");
   size_t output_size = 0;
-  if constexpr(std::is_same_v<ShapeType, Vector>) {
+  if constexpr (std::is_same_v<ShapeType, Vector>) {
     output_size = shape.size;
   } else {
-    output_size = shape.size(); 
+    output_size = shape.size();
   }
-  TORCH_CHECK(
-      op.validUse(), "Attempting to add to a completed definition!");
+  TORCH_CHECK(op.validUse(), "Attempting to add to a completed definition!");
   TORCH_CHECK(
       output_size >= broadcast_dims.size(),
       "broadcast_dims vector size is too big for output shape!");
   Vector output_shape;
   if constexpr (std::is_same_v<ShapeType, py::list>) {
-    output_shape = define_vector_fn<py::list>(*fd, shape); 
+    output_shape = define_vector_fn<py::list>(*fd, shape);
   } else if constexpr (std::is_same_v<ShapeType, py::tuple>) {
-    output_shape = define_vector_fn<py::tuple>(*fd, shape); 
+    output_shape = define_vector_fn<py::tuple>(*fd, shape);
   } else if constexpr (std::is_same_v<ShapeType, Vector>) {
     output_shape = std::move(shape);
   } else {
-    TORCH_CHECK(false, "broadcast_in_dim's shape argument type is not supported!");
+    TORCH_CHECK(
+        false, "broadcast_in_dim's shape argument type is not supported!");
   }
   Tensor output = fd->defineTensor(output_size);
   fd->defineRecord(new BroadcastInDimOpRecord(

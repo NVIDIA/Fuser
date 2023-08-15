@@ -110,7 +110,9 @@ class TestNvFuserFrontend(TestCase):
             out_cap = fd_cap.execute(inputs_cap)
         except Exception as err:
             print("\nException For Printed FusionDefinition:")
-            print("(A failure here suggests a mismatch in functionality between the original definition and the printed definition.)")
+            print(
+                "(A failure here suggests a mismatch in functionality between the original definition and the printed definition.)"
+            )
             print(fd_str)
             raise err
 

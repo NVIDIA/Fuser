@@ -838,7 +838,8 @@ struct BroadcastInDimOpRecord : RecordFunctor {
       flatbuffers::FlatBufferBuilder& builder) const final {
     return {
         serde::RecordData_BroadcastInDim,
-        serde::CreateBroadcastInDimDirect(builder, output_size_, &broadcast_dims_)
+        serde::CreateBroadcastInDimDirect(
+            builder, output_size_, &broadcast_dims_)
             .Union()};
   };
 

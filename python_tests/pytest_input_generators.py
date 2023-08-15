@@ -74,8 +74,12 @@ def broadcast_in_dim_generator(
     )
 
     for input_shape, output_shape, bcast_dims in cases:
-        a = make_arg(input_shape)
-        yield SampleInput(a, output_shape, bcast_dims)
+        input_tensor = make_arg(input_shape)
+        if op.name == "broadcast_in_dim_symbolic":
+            bcast_shaped_tensor = make_arg(output_shape)
+            yield SampleInput(input_tensor, bcast_shaped_tensor, bcast_dims)
+        else:
+            yield SampleInput(input_tensor, output_shape, bcast_dims)
 
 
 def broadcast_in_dim_error_generator(
@@ -147,7 +151,13 @@ def broadcast_in_dim_error_generator(
         ex_case, ex_type, ex_str = es
         input_shape, output_shape, bcast_dims = ex_case
         input_tensor = make_arg(input_shape)
-        yield SampleInput(input_tensor, output_shape, bcast_dims), ex_type, ex_str
+        if op.name == "broadcast_in_dim_symbolic":
+            bcast_shaped_tensor = make_arg(output_shape)
+            yield SampleInput(
+                input_tensor, bcast_shaped_tensor, bcast_dims
+            ), ex_type, ex_str
+        else:
+            yield SampleInput(input_tensor, output_shape, bcast_dims), ex_type, ex_str
 
 
 def cat_generator(
