@@ -8,6 +8,7 @@ from functools import partial, wraps
 
 import math
 import torch
+import random
 from torch.testing import make_tensor
 
 from pytest_core import OpInfo, SampleInput, ErrorSample
@@ -31,11 +32,20 @@ def _extremal_values(dtype: torch.dtype):
     _complex_vals = tuple(
         complex(*x) for x in itertools.product(_float_vals, _float_vals)
     )
+    _int16_vals = (-32768, 32767)
+    _int32_vals = (-2147483648, 2147483647)
+    _int64_vals = (-9223372036854775808, 9223372036854775807)
 
     if dtype in (torch.float16, torch.bfloat16, torch.float32, torch.float64):
         return _float_vals
     elif dtype in (torch.complex64, torch.complex128):
         return _complex_vals
+    elif dtype is torch.int16:
+        return _int16_vals
+    elif dtype is torch.int32:
+        return _int32_vals
+    elif dtype is torch.int64:
+        return _int64_vals
     else:
         raise ValueError(f"Unsupported dtype --- {dtype}")
 
@@ -524,6 +534,18 @@ def elementwise_binary_generator(
 
     if enable_extremal_value_testing and dtype in float_complex_dtypes:
         yield _special_value_binary_generator(_extremal_values, dtype, requires_grad)
+
+        # Test interactions between extreme and normal values
+        extreme_values = _extremal_values(dtype)
+        normal_values = [random.uniform(-10, 10) for _ in range(len(extreme_values))]
+        extreme = torch.tensor(
+            extreme_values, device="cuda", dtype=dtype, requires_grad=requires_grad
+        )
+        normal = torch.tensor(
+            normal_values, device="cuda", dtype=dtype, requires_grad=requires_grad
+        )
+        yield SampleInput(extreme, normal)
+        yield SampleInput(normal, extreme)
 
 
 def _elementwise_binary_torch(op):
