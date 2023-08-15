@@ -937,26 +937,6 @@ PrimDataType getIndexTypeOfKernel(
   return PrimDataType::Int32;
 }
 
-// Check if the domain that is one level inner is sliced
-bool isInnerDomainSliced(TensorView* slice_input_tv, int64_t dim) {
-  const auto input_domains =
-      TensorDomain::noReductions(slice_input_tv->getMaybeRFactorDomain());
-  if (dim == (int64_t)input_domains.size() - 1) {
-    // dim is the innermost.
-    return false;
-  }
-
-  for (auto slice : ir_utils::filterByType<SliceOp>(slice_input_tv->uses())) {
-    const auto slice_info = slice->getRanges().at(dim + 1);
-    if (!slice_info.start->isZero() ||
-        !slice_info.stop->sameAs(input_domains.at(dim + 1)->extent())) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
 } // namespace
 
 SchedulerRuntimeInfo::SchedulerRuntimeInfo(
@@ -1008,9 +988,7 @@ SchedulerRuntimeInfo::SchedulerRuntimeInfo(
           continue;
         }
         auto stride = alloc_strides.at(dim);
-        // If the next inner domain is sliced, this domain is not contiguous
-        if (stride != expected_stride ||
-            (dim < dims - 1 && isInnerDomainSliced(input_tv, dim))) {
+        if (stride != expected_stride) {
           input_discontig_strides_[fusion_inp].push_back(stride * dtype_size);
           expected_stride = stride;
         }
@@ -1061,14 +1039,13 @@ size_t SchedulerRuntimeInfo::computeAlignmentSize(size_t ptr_address) {
   return alignment_size;
 }
 
-size_t SchedulerRuntimeInfo::getAlignmentSize(TensorView* tv, int64_t offset) {
-  auto alignment_entry = alignment_map_.find(std::make_pair(tv, offset));
+size_t SchedulerRuntimeInfo::getAlignmentSize(TensorView* tv) {
+  auto alignment_entry = alignment_map_.find(tv);
   if (alignment_entry != alignment_map_.end()) {
     return alignment_entry->second;
   }
 
-  auto alignment_size =
-      SchedulerRuntimeInfo::computeAlignmentSize(ptrOf(tv) + offset);
+  auto alignment_size = SchedulerRuntimeInfo::computeAlignmentSize(ptrOf(tv));
   auto strides_it = input_discontig_strides_.find(tv);
   if (strides_it != input_discontig_strides_.end()) {
     for (auto stride : strides_it->second) {
@@ -1076,7 +1053,7 @@ size_t SchedulerRuntimeInfo::getAlignmentSize(TensorView* tv, int64_t offset) {
           alignment_size, SchedulerRuntimeInfo::computeAlignmentSize(stride));
     }
   }
-  alignment_map_.emplace(std::make_pair(tv, offset), alignment_size);
+  alignment_map_[tv] = alignment_size;
   return alignment_size;
 }
 

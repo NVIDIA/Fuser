@@ -18,8 +18,6 @@
 #include <scheduler/utils.h>
 #include <utils.h>
 
-#include <functional>
-
 namespace nvfuser {
 
 class SegmentedGroup;
@@ -66,7 +64,7 @@ class TORCH_CUDA_CU_API SchedulerRuntimeInfo : public NonCopyable {
   //!  actual alignment info for input tensors to the complete fusion,
   //!  and for other intermediate/fuser-allocated tensors will
   //!  return max_alignment_size_in_byte.
-  size_t getAlignmentSize(TensorView* tv, int64_t offset = 0);
+  size_t getAlignmentSize(TensorView* tv);
 
   // Gets maximum vectorizable width of tv, assumes we can merge across all
   // iteration domains if contiguous, unless contig_merge=false. Cannot permute
@@ -124,16 +122,8 @@ class TORCH_CUDA_CU_API SchedulerRuntimeInfo : public NonCopyable {
   // Copy of aten input tensor strides (in bytes)
   std::unordered_map<Val*, std::vector<size_t>> input_discontig_strides_;
 
-  struct AlignmentMapHash {
-    std::size_t operator()(const std::pair<TensorView*, int64_t>& key) const {
-      return std::hash<TensorView*>{}(key.first) +
-          static_cast<std::size_t>(key.second);
-    }
-  };
-
   // Cache for getAlignmentSize
-  std::unordered_map<std::pair<TensorView*, int64_t>, size_t, AlignmentMapHash>
-      alignment_map_;
+  std::unordered_map<TensorView*, size_t> alignment_map_;
   // Cache for getMaxVectorizableWidth
   std::unordered_map<TensorView*, size_t> max_vectorword_map_;
 

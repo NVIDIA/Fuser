@@ -27,15 +27,6 @@ class HeuristicSummary;
 
 namespace vectorize_helper {
 
-struct VectorizeInfo {
-  // Maximum possible vectorization factor
-  Val* factor = nullptr;
-  // Offset relative to allocation address. Normally just zero but can
-  // be positive ints when sliced. There can be multiple offsets when
-  // sliced multiple times
-  std::unordered_set<Val*> offsets;
-};
-
 // Projects IterDomains through the fusion starting at provided reference. IDs
 // in the reference are expected to be "contiguous", simply means dimensions
 // that the iter domains are consecutive and next to eachother in the
@@ -193,8 +184,7 @@ class TORCH_CUDA_CU_API ContiguousInnerDimensionsMapper
     return projected_extent_.at(id);
   }
 
-  std::unordered_map<TensorView*, VectorizeInfo>
-  getTvToContigMergeOfInnerSizeMap();
+  std::unordered_map<TensorView*, Val*> getTvToContigMergeOfInnerSizeMap();
 
  private:
   ContiguousInnerDimensionsMapper(
@@ -297,8 +287,6 @@ class TORCH_CUDA_CU_API ContiguousInnerDimensionsMapper
   void propagateP2C(TensorView* from, TensorView* to) final;
   void propagateSibling(TensorView* from, TensorView* to) final;
 
-  void initializeResizeInfo(Fusion* fusion);
-
   // Initialized to false, series of compute... calls will be performed to find
   // the spanning tree. Then propagate... calls will call the compute... calls.
   // recording_ starts as false, and stays that way during the first series of
@@ -318,22 +306,6 @@ class TORCH_CUDA_CU_API ContiguousInnerDimensionsMapper
       tv_infos_;
 
   std::unordered_map<IterDomain*, Val*> projected_extent_;
-
-  //! Keep track of supported Resize ops. Currently those that
-  //! represent slices with fusion inputs
-  std::unordered_set<Resize*> supported_resize_exprs_;
-
-  //! Keep track of supported resized domains. Currently those that
-  //! represent slices with fusion inputs
-  std::unordered_set<IterDomain*> resized_ids_;
-
-  //! Common factor of actual extents of a sliced domain. A factor of
-  //! a sliced domain, potentially sliced multiple times, is the GCD
-  //! of of the extent of the slice output domains.
-  std::unordered_map<IterDomain*, Val*> resized_domain_factors;
-
-  //! Offsets due to resize that need to align with vectorization factors
-  std::unordered_map<TensorView*, std::unordered_set<Val*>> resize_offsets_;
 };
 
 int64_t getVectorizationFactor(

@@ -96,8 +96,7 @@ class VectorizableInputsAndOutputs {
 //!  stores the vectorizable TensorViews on a fusion's inputs and outputs.
 class TvToContigInnerSizeMaps {
  public:
-  using DataType = std::vector<
-      std::unordered_map<TensorView*, vectorize_helper::VectorizeInfo>>;
+  using DataType = std::vector<std::unordered_map<TensorView*, Val*>>;
   static const CompileTimeEntryType EntryType =
       CompileTimeEntryType::TV_TO_CONTIG_INNER_SIZE_MAPS;
 };
