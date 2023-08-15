@@ -10,6 +10,7 @@
 #include <scheduler/normalization_utils.h>
 #include <scheduler/registry.h>
 #include <utils.h>
+#include <array>
 
 #include <ATen/cuda/CUDAContext.h>
 namespace nvfuser {
@@ -868,8 +869,9 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
       ? scheduler_utils::register_file_size_combined
       : scheduler_utils::register_file_size;
   if (max_buffer_data_type_size == 4 || outer_reduction_count == 1) {
+    // allow 10% register spill for fp32
     available_register_buffer_size =
-        scheduler_utils::register_file_size_full / 64 * 65;
+        scheduler_utils::register_file_size_full / 64 * 70;
   }
   buffer_params.shared_memory_overhead_per_block =
       getSharedMemoryOverheadPerBlock(
@@ -902,6 +904,19 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
         ceilDiv(ceilDiv(n_elements, vectorize_factor), threads_per_block);
     return n_batch * vectorize_factor * threads_per_block * data_type_size;
   };
+  //  0, 8, 16, 32, 64, 100, 132, 164, 196 and 228 KB per SM.
+  //  0, 8, 16, 32, 64, 100, 132, 164 KB per SM
+
+  auto getSmemConfigSize = [](int64_t request_size_kb) {
+    std::array<int64_t, 11> thresholds = {8, 16, 32, 64, 100, 132, 164, 196, 228};
+    for (size_t i = 0; i < thresholds.size(); i++) {
+      if (request_size_kb <= thresholds[i]) {
+        return thresholds[i];
+      }
+    }
+    return thresholds.back();
+  };
+
   if (vectorize_factor > 1 &&
       buffer_params.register_persistent_buffer_size >
           available_register_buffer_size) {
