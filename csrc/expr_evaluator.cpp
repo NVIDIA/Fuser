@@ -174,14 +174,27 @@ PolymorphicValue ExpressionEvaluator::getValue(const Val* value) {
 void ExpressionEvaluator::print() const {
   debug() << "\nEvaluation context\n";
   debug() << "--------------------\n";
+
+  auto print_val = [](const PolymorphicValue& v) {
+    std::stringstream ss;
+    if (v.is<at::Tensor>()) {
+      const auto& t = v.as<at::Tensor>();
+      ss << "Tensor({" << t.sizes() << "}, " << t.dtype() << ", " << t.device()
+         << ")";
+    } else {
+      ss << v;
+    }
+    return ss.str();
+  };
+
   for (const auto& kv : known_values_) {
     TORCH_INTERNAL_ASSERT(!kv.first->isConstScalar());
-    debug() << kv.first << " = " << kv.second << " ; "
+    debug() << kv.first << " = " << print_val(kv.second) << " ; "
             << *kv.first->getValType() << "\n";
   }
 
   for (const auto& kv : known_named_scalars_) {
-    debug() << kv.first << " = " << kv.second << " ;\n";
+    debug() << kv.first << " = " << print_val(kv.second) << " ;\n";
   }
 
   debug() << "\nPre-computed Values\n";
