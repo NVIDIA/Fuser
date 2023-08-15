@@ -375,9 +375,10 @@ std::shared_ptr<ReductionParams> innerReductionHeuristic(
 
   if (grodim > 1 || gridim > 1) {
     // Grid reductions do not support unrolling iteration dimension, revert if
-    // set.
+    // set. Recalculate godim.
     if (iter_unroll_factor) {
       iter_unroll_factor = 1;
+      godim = ceilDiv(total_iteration_numel, bdimy * iter_unroll_factor);
     }
     // This could mess up parallelization which could be redone, but that would
     // require iterating over this entire function.
