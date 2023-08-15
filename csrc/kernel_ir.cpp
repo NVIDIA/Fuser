@@ -93,7 +93,7 @@ TensorIndex::TensorIndex(
       passkey.ir_container_->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
   TORCH_INTERNAL_ASSERT(
-      isIntegralOrPointerType(index->dtype()),
+      isPointerType(index->dtype()) || index->dtype() == DataType::Index,
       "Cannot index with a value other than an int.");
 }
 
@@ -175,6 +175,8 @@ Allocate::Allocate(
   addDataAttribute(memory_type);
   addDataAttribute(zero_init);
   addAttribute(alias);
+  // Always initialize shared memory address to nullptr
+  addAttribute(nullptr);
 
   for (auto s : shape) {
     addAttribute(s);
@@ -438,6 +440,16 @@ ForLoop::ForLoop(
       step = FusionGuard::getCurFusion()->oneVal();
     }
   }
+  TORCH_INTERNAL_ASSERT(
+      index->dtype() == DataType::Index, "Loop index must be an index type.");
+  TORCH_INTERNAL_ASSERT(
+      start == nullptr || start->dtype() == DataType::Index,
+      "Loop start must be an index type.");
+  TORCH_INTERNAL_ASSERT(
+      step->dtype() == DataType::Index, "Loop step must be an index type.");
+  TORCH_INTERNAL_ASSERT(
+      stop == nullptr || stop->dtype() == DataType::Index,
+      "Loop stop must be an index type.");
   addAttribute(start);
   addAttribute(stop);
   addAttribute(step);
@@ -569,7 +581,11 @@ Val* ForLoop::step() const {
 }
 
 Val* ForLoop::simplifiedStop() const {
-  return simplifyExpr(stop());
+  if (simplified_stop_ == nullptr) {
+    simplified_stop_ =
+        GpuLower::current()->commonScalarMap().hoistScalar(stop(), {});
+  }
+  return simplified_stop_;
 }
 
 bool ForLoop::isTrivial() const {

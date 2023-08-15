@@ -226,7 +226,13 @@ class TORCH_CUDA_CU_API Val : public Statement {
       : Statement(passkey),
         vtype_(_vtype),
         dtype_(std::move(_dtype)),
-        value_(std::move(_value)) {}
+        value_(std::move(_value)) {
+    if (value_.hasValue()) {
+      TORCH_CHECK(
+          hasCompatibleDataType(value_, dtype_),
+          "Scalar value is not compatible with the given data type.");
+    }
+  }
   explicit Val(IrBuilderPasskey passkey, DataType dtype)
       : Val(passkey, ValType::Others, std::move(dtype)) {}
   explicit Val(IrBuilderPasskey passkey, PrimDataType dtype)
@@ -417,6 +423,8 @@ class TORCH_CUDA_CU_API Val : public Statement {
     definition_ = expr;
   }
 
+  // TODO: remove this function. I think we are fine removing this now, but I
+  // need to double check the benchmarks.
   void resolveIndexDtype();
 
   NVFUSER_DECLARE_CLONE

@@ -2898,11 +2898,9 @@ TEST_F(NVFuserTest, FusionWelfordShmoo_CUDA) {
       DataType::Float,
       DataType::Half};
 
-#if defined(CUDA_VERSION) && CUDA_VERSION >= 11000
   if (at::cuda::getDeviceProperties(0)->major >= 8) {
     dtypes.insert(dtypes.end(), DataType::BFloat16);
   }
-#endif
 
   std::vector<int> red_axis = {1, 0};
   std::vector<int> output_dims = {160, 320};
@@ -5543,7 +5541,7 @@ TEST_F(NVFuserTest, FusionSegmentHorizontalMerge_CUDA) {
   KernelArgumentHolder args;
   args.setDeviceIndex(0);
   args.push(t0);
-  c10::IValue scalar = 1.0;
+  double scalar = 1.0;
   args.push(scalar);
 
   auto segmented_fusion =
@@ -7307,6 +7305,48 @@ TEST_F(NVFuserTest, FusionPredicateElimination8_CUDA) {
       "T6 should not be predicated");
 }
 
+TEST_F(NVFuserTest, FusionPredicateElimination9_CUDA) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const int M = 1024, split = 512;
+
+  // Algorithm
+  auto tv0 = makeContigConcreteTensor({M}, DataType::Float);
+  auto tv1 = set(tv0);
+
+  fusion->addInput(tv0);
+  fusion->addOutput(tv1);
+
+  // Schedule
+  auto tv0c = tv0->cacheAfter();
+  tv0c->setMemoryType(MemoryType::Shared);
+  tv0c->axis(-1)->parallelize(ParallelType::TIDx);
+
+  tv1->split(-1, split);
+  tv1->axis(-1)->parallelize(ParallelType::TIDx);
+
+  // Validation
+  at::manual_seed(0);
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({M}, options);
+
+  GpuLower gpulw(fusion.get());
+  // tv0c expectation: no predicate present as domain with TIDX parallel type
+  //  has the same extend as max extend stored for TIDx type in parallel domain
+  //  map
+  EXPECT_FALSE(PredicatedChecker::isPredicated(tv0c, gpulw));
+  // tv1 expectation: with a predicate, max extend for TIDx parallel type in
+  //  parallel domain map is not the same as the extend of domain parallized
+  //  with TIDx in this tensor
+  EXPECT_TRUE(PredicatedChecker::isPredicated(tv1, gpulw));
+
+  FusionExecutor fe;
+  fe.compileFusion(fusion.get(), {t0});
+  auto cg_outputs = fe.runFusion({t0});
+  testValidate(fusion.get(), cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
+}
+
 TEST_F(NVFuserTest, FusionForceFp16Simple_CUDA) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   auto fusion = fusion_ptr.get();
@@ -8211,12 +8251,10 @@ TEST_F(NVFuserTest, FusionSegmenterCombineReductionsCycleRepro_CUDA) {
   std::vector<at::Tensor> aten_inputs = {
       at_t0, at_t1, at_t3, at_t5, at_t7, at_t11, at_t13, at_t15, at_t17};
 
-  c10::IValue val = at_d56;
-
   KernelArgumentHolder args;
   args.setDeviceIndex(0);
   args.push(aten_inputs);
-  args.push(val);
+  args.push(at_d56);
 
   for (auto i : c10::irange(5)) {
     (void)i; // Suppress unused variable warning
@@ -9054,17 +9092,17 @@ TEST_F(NVFuserTest, FusionChannelsLastParser_CUDA) {
   // 2. use a fuzzy compare (ignore non-significant whitespaces for example)
   const std::string expected_kernel = R"(
 __global__ void CUDAGeneratedKernel(Tensor<__half, 4, 4> T0, Tensor<__half, 4, 4> T2, Tensor<__half, 4, 4> T7) {
-  int64_t i0;
+  nvfuser_index_t i0;
   i0 = T0.logical_size[2] * T0.logical_size[1];
-  int64_t i1;
+  nvfuser_index_t i1;
   i1 = ((nvfuser_index_t)threadIdx.x) + (128 * ((nvfuser_index_t)blockIdx.x));
-  int64_t i2;
+  nvfuser_index_t i2;
   i2 = (T0.logical_size[1] * T0.logical_size[2]) * T0.logical_size[3];
-  int64_t i3;
+  nvfuser_index_t i3;
   i3 = i1 % i2;
-  int64_t i4;
+  nvfuser_index_t i4;
   i4 = T0.logical_size[2] * T0.logical_size[3];
-  int64_t i5;
+  nvfuser_index_t i5;
   i5 = i3 % i4;
   if ((i1 < (((T0.logical_size[0] * T0.logical_size[1]) * T0.logical_size[2]) * T0.logical_size[3]))) {
     __half T9[1];

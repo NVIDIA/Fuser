@@ -67,9 +67,13 @@ class Pointer {
 
   inline Pointer(void* ptr, DataType dtype);
 
+  int64_t size() const {
+    return size_;
+  }
+
   template <typename T>
   explicit operator T*() const {
-    return static_cast<T*>(ptr_);
+    return reinterpret_cast<T*>(ptr_);
   }
 
   Pointer& operator+=(int64_t offset) {
@@ -264,17 +268,6 @@ inline PolymorphicValue gcd(
   return PolymorphicValue(std::gcd(a.as<int64_t>(), b.as<int64_t>()));
 }
 
-inline PolymorphicValue notExpr(const PolymorphicValue& a) {
-  if (a.is<int64_t>()) {
-    return PolymorphicValue(~a.as<int64_t>());
-  }
-  if (a.is<bool>()) {
-    return PolymorphicValue(!a.as<bool>());
-  }
-  TORCH_INTERNAL_ASSERT(
-      false, "PolymorphicValue notExpr not implemented for ", a.type().name());
-}
-
 inline PolymorphicValue abs(const PolymorphicValue& a) {
   if (a.is<int64_t>()) {
     return PolymorphicValue(std::abs(a.as<int64_t>()));
@@ -284,6 +277,9 @@ inline PolymorphicValue abs(const PolymorphicValue& a) {
   }
   if (a.is<bool>()) {
     return a;
+  }
+  if (a.is<std::complex<double>>()) {
+    return std::abs(a.as<std::complex<double>>());
   }
   TORCH_INTERNAL_ASSERT(
       false, "PolymorphicValue abs not implemented for ", a.type().name());

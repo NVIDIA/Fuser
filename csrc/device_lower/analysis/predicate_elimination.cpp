@@ -47,13 +47,11 @@ namespace {
 //   are exact so that the shared mem read/write would not
 //   run out of bound because of thread over-subscription.
 bool isExactParallelSharedMemAccess(TensorView* tv) {
-  auto& parallel_dimension_map = GpuLower::current()->parallelDimensionMap();
   for (auto id : tv->getLeafDomain()) {
     if (id->isThreadDim()) {
-      auto ptype = id->getParallelType();
       // Need to predicate to avoid out of bound access
       //  because of over-subscribed block size.
-      if (!parallel_dimension_map.isExact(ptype)) {
+      if (!lower_utils::isExtentEqualToMaxParallelTypeExtent(id)) {
         return false;
       }
     }
@@ -123,9 +121,8 @@ class PredicateAnalyzer : public OptOutDispatch {
     // If the ID is parallelized with a non-unique parallel type, the
     // consumer ID may be oversubscribed, which may cause
     // out-of-bounds accesses in the producer
-    auto maybe_oversubscribed = consumer_id->isThread() &&
-        !GpuLower::current()->parallelDimensionMap().isExact(
-            consumer_id->getParallelType());
+    const auto maybe_oversubscribed = consumer_id->isThread() &&
+        (!lower_utils::isExtentEqualToMaxParallelTypeExtent(consumer_id));
     if (maybe_oversubscribed) {
       // If oversubscribed, there must be a mapped producer ID that is
       // parallelized in the same way. Otherwise, needs to be

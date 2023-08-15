@@ -217,6 +217,15 @@ bool StructOf::operator==(const StructOf& other) const {
 #endif
 }
 
+DataType globalTensorMetaData(
+    const DataType& dtype,
+    size_t dim,
+    size_t alloc_dim);
+
+inline DataType globalTensorMetaData(const DataType& dtype, size_t dim) {
+  return globalTensorMetaData(dtype, dim, dim);
+}
+
 class Val;
 //! Get the type of a Val's metadata, currently only supporting tensors
 DataType metaDataTypeOf(const Val* tv);
@@ -232,9 +241,6 @@ bool isInclusiveType(const DataType& base_type, const DataType& type);
 
 // Returns if the datatype is a floating point type
 TORCH_CUDA_CU_API inline bool isFloatingPointType(DataType dtype) {
-  TORCH_CHECK(
-      dtype != DataType::Null,
-      "Null type is not a valid argument to isFloatingPointType");
   return dtype == DataType::Double || dtype == DataType::Float ||
       dtype == DataType::Half || dtype == DataType::BFloat16;
 }
@@ -250,9 +256,6 @@ TORCH_CUDA_CU_API inline bool isIntegralType(DataType dtype) {
             case DataType::Int:
             case DataType::Int32:
               return true;
-            case DataType::Null:
-              TORCH_CHECK(
-                  false, "Null type is not a valid argument to isIntegralType");
             default:
               return false;
           }
@@ -275,17 +278,11 @@ TORCH_CUDA_CU_API inline bool isIntegralOrPointerType(DataType dtype) {
 
 // Returns if the datatype is a boolean type
 TORCH_CUDA_CU_API inline bool isBooleanType(DataType dtype) {
-  TORCH_CHECK(
-      dtype != DataType::Null,
-      "Null type is not a valid argument to isBooleanType");
   return dtype == DataType::Bool;
 }
 
 // Returns if the datatype is a complex type
 TORCH_CUDA_CU_API inline bool isComplexType(DataType dtype) {
-  TORCH_CHECK(
-      dtype != DataType::Null,
-      "Null type is not a valid argument to isComplexType");
   return dtype == DataType::ComplexFloat || dtype == DataType::ComplexDouble;
 }
 
@@ -295,6 +292,11 @@ DataType getTypeFromComplexType(DataType dtype);
 DataType getComplexTypeFromType(DataType dtype);
 // Return if the datatype is supported on the current device
 TORCH_CUDA_CU_API bool isSupportedTypeByDevice(DataType dtype);
+
+TORCH_CUDA_CU_API int64_t dataTypeSize(DataType type);
+
+// If the index type is known it will be automatically used here
+TORCH_CUDA_CU_API int64_t dataTypeSize(DataType type, DataType index_type);
 
 template <PrimDataType DT>
 struct DataTypeToNativeType;
@@ -400,10 +402,30 @@ inline DataType getDataType(const PolymorphicValue& value) {
       if (value.is<T>()) {
         dtype = NativeTypeToDataType<T>::type;
       }
+    } else if constexpr (std::is_same_v<T, std::vector<PolymorphicValue>>) {
+      if (value.is<T>()) {
+        const auto& vec = value.as<T>();
+        size_t size = vec.size();
+        TORCH_CHECK(size > 0, "Empty array is not supported");
+        dtype = ArrayOf{std::make_shared<DataType>(getDataType(vec[0])), size};
+      }
+    } else if constexpr (std::is_same_v<T, Struct<PolymorphicValue>>) {
+      if (value.is<T>()) {
+        const auto& struct_ = value.as<T>();
+        StructOf result;
+        for (const auto& [name, value] : struct_.fields) {
+          result.types[name] =
+              NVFUSER_MAYBE_MAKE_SHARED(getDataType(NVFUSER_MAYBE_STAR value));
+        }
+        dtype = result;
+      }
+    } else if constexpr (std::is_same_v<T, Pointer>) {
+      // For pointers in polymorphic value, we only store the data size of the
+      // pointee, so it is impossible to infer the pointer type.
+      TORCH_CHECK(!value.is<T>(), "Can not infer pointer type.");
     }
-    // TODO: support arrays and pointers
   });
-  TORCH_CHECK(dtype.has_value(), "Unknown dtype for ", value);
+  TORCH_CHECK(dtype.has_value(), "Unknown dtype for ", value.type().name());
   return dtype.value();
 }
 
@@ -420,7 +442,48 @@ inline bool isCompatibleDataType(DataType dtype, DataType dtype2) {
   if (isComplexType(dtype) && isComplexType(dtype2)) {
     return true;
   }
+  if (std::holds_alternative<ArrayOf>(dtype.type) &&
+      std::holds_alternative<ArrayOf>(dtype2.type)) {
+    const auto& array_of = std::get<ArrayOf>(dtype.type);
+    const auto& array_of2 = std::get<ArrayOf>(dtype2.type);
+    return array_of.size == array_of2.size &&
+        isCompatibleDataType(*array_of.type, *array_of2.type);
+  }
+  if (std::holds_alternative<StructOf>(dtype.type) &&
+      std::holds_alternative<StructOf>(dtype2.type)) {
+    const auto& struct_of = std::get<StructOf>(dtype.type);
+    const auto& struct_of2 = std::get<StructOf>(dtype2.type);
+    if (struct_of.types.size() != struct_of2.types.size()) {
+      return false;
+    }
+    for (const auto& [name, dtype] : struct_of.types) {
+      if (!struct_of2.types.count(name)) {
+        return false;
+      }
+      if (!isCompatibleDataType(
+              NVFUSER_MAYBE_STAR dtype,
+              NVFUSER_MAYBE_STAR struct_of2.types.at(name))) {
+        return false;
+      }
+    }
+    return true;
+  }
   return false;
+}
+
+inline bool hasCompatibleDataType(
+    const PolymorphicValue& value,
+    DataType dtype) {
+  // We can not always completely infer data type from value, so we need some
+  // special handling here.
+  if (std::holds_alternative<PointerOf>(dtype.type)) {
+    if (!value.is<Pointer>()) {
+      return false;
+    }
+    auto ptr = std::get<PointerOf>(dtype.type);
+    return dataTypeSize(*ptr.type) == value.as<Pointer>().size();
+  }
+  return isCompatibleDataType(getDataType(value), dtype);
 }
 
 #if defined(__GNUC__) && !defined(__clang__)
@@ -481,8 +544,9 @@ enum class UnaryOpType {
   // Tools to help debugging
   Print,
 
-  // Might be a bitwise operator or boolean operator.
-  Not,
+  // Logical and bitwise negation
+  LogicalNot,
+  BitwiseNot,
 
   // Operators returning boolean values
   IsFinite,
@@ -495,9 +559,6 @@ enum class UnaryOpType {
   // Special unary ops
   ToUnsignedSmemAddr
 };
-
-// Primarily for Not, which could be Not a boolean, or a bitwise not.
-bool alsoBooleanOperator(const UnaryOpType uopt);
 
 // TODO: Order of this list is important as it affects type promotion. it's not
 // in the right order now.
@@ -516,12 +577,19 @@ enum class BinaryOpType {
   Sub,
   // TypeAs,
 
-  // Integer output ops. If changing modify isIntegerOp
+  // Integer output ops.
   Mod,
   CeilDiv,
   Lshift,
   Rshift,
   Gcd,
+
+  // Bitwise Ops
+  // These always return integers, as if each arg is first cast to int
+  //  If changing modify isIntegerOp.
+  BitwiseAnd,
+  BitwiseOr,
+  BitwiseXor,
 
   // Logical Ops
   // Int operations, leave position of Mod as first logical op see
@@ -533,12 +601,9 @@ enum class BinaryOpType {
   LT,
   NE,
 
-  // Maybe bitwise or boolean op, leave position of and as first bool/int
-  // op. These are ops that have different operators based on output type. See
-  // is boolean op. These ops also don't work on floating point inputs.
-  And,
-  Or,
-  Xor,
+  // These ops compare as if each arg is first cast to bool
+  LogicalAnd,
+  LogicalOr,
 
   // generate complex from real and imaginary parts
   Complex
@@ -559,10 +624,6 @@ bool isIntegerOp(const BinaryOpType bopt);
 
 // Return if output of operator should be a boolean
 bool isLogicalOp(const BinaryOpType bopt);
-
-// Operations that could be a bitwise operation or a boolean operation depending
-// on input, for example bitwise_and is also used for boolean and in the jit
-bool alsoBooleanOperator(const BinaryOpType bopt);
 
 enum class TernaryOpType { Clamp, Lerp, Threshold, Where };
 
@@ -804,9 +865,6 @@ TORCH_CUDA_CU_API std::ostream& operator<<(
     std::ostream&,
     const KernelIndexMode&);
 
-std::string stringifyBooleanOp(const UnaryOpType);
-std::string stringifyBooleanOp(const BinaryOpType);
-
 std::string stringifyThreadSize(const ParallelType);
 std::string stringifyThread(const ParallelType);
 TORCH_CUDA_CU_API std::string typePrefix(const DataType);
@@ -862,11 +920,6 @@ constexpr inline size_t primDataTypeSize(PrimDataType type) {
   }
 }
 
-TORCH_CUDA_CU_API int64_t dataTypeSize(DataType type);
-
-// If the index type is known it will be automatically used here
-TORCH_CUDA_CU_API int64_t dataTypeSize(DataType type, DataType index_type);
-
 enum class LaunchConfigType {
   Compatible,
   SharedMemory,
@@ -897,7 +950,7 @@ inline PolymorphicValue castToDtype(
   // like: IrBuilder::create<Val>(0, DataType::Double) where value is
   // an integer but the desired data type is double.
   auto value_dtype = getDataType(value);
-  if (!isCompatibleDataType(value_dtype, dtype)) {
+  if (!hasCompatibleDataType(value, dtype)) {
     PolymorphicValue::for_all_types([&](auto _) {
       using T = typename decltype(_)::type;
       if constexpr (IsPrimitiveNativeType<T>::value) {
@@ -908,9 +961,6 @@ inline PolymorphicValue castToDtype(
       // TODO: support arrays and pointers
     });
   }
-  TORCH_CHECK(
-      isCompatibleDataType(nvfuser::getDataType(value), dtype),
-      "Scalar value is not compatible with the given data type.");
   return value;
 }
 

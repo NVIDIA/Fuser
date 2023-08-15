@@ -327,21 +327,24 @@ std::vector<PolymorphicValue> GetMetaData::evaluate(
       in()->isA<TensorView>(),
       "Currently, GetMetaData only supports TensorView");
   TensorView* tv = in()->as<TensorView>();
-  if (tv->getMemoryType() == MemoryType::Shared) {
-    // Smem tensor is defined locally as a pointer. It is impossible to know the
-    // actual address, but using nullptr is a good approximation.
-    return {PolymorphicValue(Pointer(nullptr, tv->dtype()))};
-  }
 
   at::Tensor input = inputs.at(0).as<at::Tensor>();
 
+  TORCH_INTERNAL_ASSERT(
+      input.is_cuda(),
+      "GetMetaData expects a CUDA tensor as input, but got undefined tensor");
+
   Struct<PolymorphicValue> concrete_value;
-  concrete_value["data"] =
-      PolymorphicValue(Pointer(input.data_ptr(), tv->dtype()));
+  concrete_value["data"] = PolymorphicValue(
+      Pointer(input.data_ptr(), aten_to_data_type(input.scalar_type())));
   concrete_value["logical_size"] = PolymorphicValue(input.sizes().vec());
   concrete_value["logical_stride"] = PolymorphicValue(input.strides().vec());
-  std::tie(concrete_value["alloc_size"], concrete_value["alloc_stride"]) =
-      inferAndValidateAllocationSizesAndStrides(input, tv, ee);
+  {
+    auto allocation_data =
+        inferAndValidateAllocationSizesAndStrides(input, tv, ee);
+    concrete_value["alloc_size"] = std::move(allocation_data.first);
+    concrete_value["alloc_stride"] = std::move(allocation_data.second);
+  }
   return {PolymorphicValue(concrete_value)};
 }
 

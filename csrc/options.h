@@ -110,6 +110,8 @@ enum class DisableOption {
                //! input shapes
   VarNameRemapping, //! Disable variable name remapping
   WelfordVectorization, //! Disable vectorizaton of Welford ops
+  ReuseMismatchedTypeRegisters, //! Disable explicitly re-using registers unless
+                                //! types match
   EndOfOption //! Placeholder for counting the number of elements
 };
 
