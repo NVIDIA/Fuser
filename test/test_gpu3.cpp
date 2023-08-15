@@ -9786,7 +9786,6 @@ TEST_F(NVFuserTest, FusionCrossGridInnerReductionSplitGridIteration_CUDA) {
   fusion.addInput(t0);
   fusion.addOutput(t1);
 
-  // Reference result is calculated by aten in double precision.
   // Estimated_gmem is 17.18 GBytes, skip if not enough memory.
   size_t n_elements = reduction_size * iteration_size + iteration_size * 2;
   size_t estimated_gmem = n_elements * dataTypeSize(dtype);
@@ -9798,37 +9797,32 @@ TEST_F(NVFuserTest, FusionCrossGridInnerReductionSplitGridIteration_CUDA) {
                  << ", device_free: " << device_free / 1e9 << " GBytes"
                  << ", device_total: " << device_total / 1e9 << " GBytes";
   }
-    auto options = at::TensorOptions()
-                       .dtype(data_type_to_aten(dtype))
-                       .device(at::kCUDA, 0);
-    at::Tensor aten_input = at::randn(input_shape, options);
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  at::Tensor aten_input = at::randn(input_shape, options);
 
-    auto reduction_params = getReductionHeuristics(&fusion, {aten_input});
-    ASSERT_TRUE(reduction_params) << "Reduction schedule was not generated!";
-    ASSERT_TRUE(reduction_params->split_grid_dim_inner_reduction)
-        << "Generated reduction is not cross grid!";
-    ASSERT_TRUE(reduction_params->split_grid_dim_iter_dom_outer)
-        << "Generated reduction is not split iteration domain!";
-    scheduleReduction(&fusion, *reduction_params);
+  auto reduction_params = getReductionHeuristics(&fusion, {aten_input});
+  ASSERT_TRUE(reduction_params) << "Reduction schedule was not generated!";
+  ASSERT_TRUE(reduction_params->split_grid_dim_inner_reduction)
+      << "Generated reduction is not cross grid!";
+  ASSERT_TRUE(reduction_params->split_grid_dim_iter_dom_outer)
+      << "Generated reduction is not split iteration domain!";
+  scheduleReduction(&fusion, *reduction_params);
 
-    auto lparams = reduction_params->lparams;
-    FusionExecutor fe;
-    fe.compileFusion(&fusion, {aten_input}, lparams);
-    auto cg_outputs = fe.runFusion({aten_input}, lparams);
-    auto aten_outputs = aten_input.sum({1});
-    testValidate(
-        &fusion,
-        cg_outputs,
-        {aten_input},
-        {aten_outputs},
-        __LINE__,
-        __FILE__,
-        "",
-        lparams);
-  }
-
-  // clear to avoid influnce on subsequent tests.
-  maybeClearAllocator(0);
+  auto lparams = reduction_params->lparams;
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, {aten_input}, lparams);
+  auto cg_outputs = fe.runFusion({aten_input}, lparams);
+  auto aten_outputs = aten_input.sum({1});
+  testValidate(
+      &fusion,
+      cg_outputs,
+      {aten_input},
+      {aten_outputs},
+      __LINE__,
+      __FILE__,
+      "",
+      lparams);
 }
 
 TEST_F(NVFuserTest, SymbolicOneBroadcasting) {
