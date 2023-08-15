@@ -259,6 +259,7 @@ ExprGroups IdGraph::getExprsBetween(const IdGroups& from, const IdGroups& to)
     return true;
   };
 
+#if 0
   auto allIdUsesVisisted = [&](IdGroup id) {
     auto uses_pair = iterDomainGroupUses(id);
     if (!uses_pair.second) {
@@ -274,6 +275,7 @@ ExprGroups IdGraph::getExprsBetween(const IdGroups& from, const IdGroups& to)
     }
     return true;
   };
+#endif
 
   // Returns all expression groups in required_ind_exprs_ids of outputs
   auto requiredExprsOutputs = [&](ExprGroup expr) {
