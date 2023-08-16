@@ -91,6 +91,7 @@ class SampleInput:
         return SampleInput(*args, *self.kwargs.values())
 
     def python(self):
+        # Flatten Pytorch Tensors into Python Lists
         def to_python(t):
             if isinstance(t, torch.Tensor):
                 return list(t.flatten().cpu().numpy())

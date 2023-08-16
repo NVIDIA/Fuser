@@ -56,6 +56,7 @@ def torch_correctness_test_fn(fd_fn: Callable, nvf_op: OpInfo, sample: SampleInp
         nvfuser_result = nvfuser_result[0]
 
     # TODO If dtype is fp16 or bf16, skip dtype check because nvfuser promotes to fp32 but does not return original dtype.
+    # TODO Add specific dtype tolerances
     torch.testing.assert_close(
         nvfuser_result, torch_result, equal_nan=True, atol=1e-3, rtol=0
     )
