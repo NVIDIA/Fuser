@@ -456,7 +456,6 @@ bitwise_xor_opinfo = OpInfo(
 )
 binary_ops.append(bitwise_xor_opinfo)
 
-# TODO add except_zero option to prevent divide-by-zero exception
 div_opinfo = OpInfo(
     lambda fd: fd.ops.div,
     "div",
