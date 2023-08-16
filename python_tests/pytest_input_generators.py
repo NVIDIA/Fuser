@@ -28,8 +28,9 @@ MAX_TENSOR_DIMS = 8
 MAX_VECTOR_SIZE = 8
 
 
-# Determine if a number is with desired Domain
-def domain_filter(domain: Domain, a: Number, *, exclude_zero: bool = False):
+# Determine if a number is with desired Domain [low, high)
+# The domain is half-open. The lower limit is inclusive while the upper limit is exclusive.
+def is_within_domain(domain: Domain, a: Number, exclude_zero: bool = False):
     # comparison operators are not defined for complex numbers
     if isinstance(a, complex):
         return True
@@ -37,7 +38,7 @@ def domain_filter(domain: Domain, a: Number, *, exclude_zero: bool = False):
     if domain.low is not None and domain.low > a:
         return False
 
-    if domain.high is not None and a > domain.high:
+    if domain.high is not None and a >= domain.high:
         return False
 
     if exclude_zero and a == 0:
@@ -542,35 +543,35 @@ def elementwise_binary_generator(
             )
 
     # Create filtered special inputs for this operation's domain
-    lhs_domain_filter = partial(filter, partial(domain_filter, op.domain))
+    def _filter_lhs_domain(values):
+        return [v for v in values if is_within_domain(op.domain, v)]
 
-    # NOTE: Check exclude_zero flag to avoid undefined behavior such as ZeroDivisionError: division by zero
-    exclude_zero = kwargs["exclude_zero"] if "exclude_zero" in kwargs else False
-    rhs_domain_filter = partial(
-        filter, partial(domain_filter, op.domain, exclude_zero=exclude_zero)
-    )
+    def _filter_rhs_domain(values):
+        # NOTE: Check exclude_zero flag to avoid undefined behavior such as ZeroDivisionError: division by zero
+        exclude_zero = kwargs.get("exclude_zero", False)
+        return [v for v in values if is_within_domain(op.domain, v, exclude_zero)]
 
     if (
         enable_large_value_testing
         and dtype != torch.bool
         and dtype not in complex_dtypes
     ):
-        lhs_large_values = list(lhs_domain_filter(_large_values(dtype)))
-        rhs_large_values = list(rhs_domain_filter(_large_values(dtype)))
+        lhs_large_values = _filter_lhs_domain(_large_values(dtype))
+        rhs_large_values = _filter_rhs_domain(_large_values(dtype))
         yield _special_value_binary_generator(
             lhs_large_values, rhs_large_values, dtype, requires_grad
         )
 
     if enable_small_value_testing and dtype != torch.bool:
-        lhs_small_values = list(lhs_domain_filter(_small_values(dtype)))
-        rhs_small_values = list(rhs_domain_filter(_small_values(dtype)))
+        lhs_small_values = _filter_lhs_domain(_small_values(dtype))
+        rhs_small_values = _filter_rhs_domain(_small_values(dtype))
         yield _special_value_binary_generator(
             lhs_small_values, rhs_small_values, dtype, requires_grad
         )
 
     if enable_extremal_value_testing and dtype in float_complex_dtypes:
-        lhs_extremal_values = list(lhs_domain_filter(_extremal_values(dtype)))
-        rhs_extremal_values = list(rhs_domain_filter(_extremal_values(dtype)))
+        lhs_extremal_values = _filter_lhs_domain(_extremal_values(dtype))
+        rhs_extremal_values = _filter_rhs_domain(_extremal_values(dtype))
         yield _special_value_binary_generator(
             lhs_extremal_values, rhs_extremal_values, dtype, requires_grad
         )
@@ -638,14 +639,15 @@ def elementwise_unary_generator(
         yield SampleInput(make_arg(shape, noncontiguous=True))
 
     # Create filtered special inputs for this operation's domain
-    this_domain_filter = partial(filter, partial(domain_filter, op.domain))
+    def _filter_domain(values):
+        return [v for v in values if is_within_domain(op.domain, v)]
 
     if (
         enable_large_value_testing
         and dtype != torch.bool
         and dtype not in complex_dtypes
     ):
-        filtered_large_values = list(this_domain_filter(_large_values(dtype)))
+        filtered_large_values = _filter_domain(_large_values(dtype))
         yield SampleInput(
             torch.tensor(
                 filtered_large_values,
@@ -656,7 +658,7 @@ def elementwise_unary_generator(
         )
 
     if enable_small_value_testing and dtype != torch.bool:
-        filtered_small_values = list(this_domain_filter(_small_values(dtype)))
+        filtered_small_values = _filter_domain(_small_values(dtype))
         yield SampleInput(
             torch.tensor(
                 filtered_small_values,
@@ -667,7 +669,7 @@ def elementwise_unary_generator(
         )
 
     if enable_extremal_value_testing and dtype in float_complex_dtypes:
-        filtered_extremal_values = list(this_domain_filter(_extremal_values(dtype)))
+        filtered_extremal_values = _filter_domain(_extremal_values(dtype))
         yield SampleInput(
             torch.tensor(
                 filtered_extremal_values,
