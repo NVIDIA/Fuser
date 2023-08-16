@@ -202,17 +202,9 @@ void replaceSymbolicSizes(Fusion* fusion) {
       //  since FusionKernelRuntime will provide these as integer inputs
       if (tensor_dim_map.find(orig_size) == tensor_dim_map.end() &&
           !orig_size->isFusionInput() && !orig_size->isConstScalar()) {
-        if (true) {
-          tensor_dim_map[orig_size] = IrBuilder::getItemExpr(
-              IrBuilder::getAttrExpr(
-                  IrBuilder::metadataExpr(tv), "logical_size"),
-              dim++);
-        } else {
-          std::stringstream ss;
-          ss << "T" << tv->name() << ".logical_size[" << dim++ << "]";
-          tensor_dim_map[orig_size] = IrBuilder::create<NamedScalar>(
-              ss.str(), orig_size->getDataType().value());
-        }
+        tensor_dim_map[orig_size] = IrBuilder::getItemExpr(
+            IrBuilder::getAttrExpr(IrBuilder::metadataExpr(tv), "logical_size"),
+            dim++);
       } else {
         dim++;
       }
