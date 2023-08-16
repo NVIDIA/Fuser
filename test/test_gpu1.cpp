@@ -955,8 +955,8 @@ TEST_F(NVFuserTest, FusionOuterSplit_CUDA) {
   auto outputs = fe.runFusion({});
   const auto& output = outputs.at(0);
 
-  at::Tensor output_ref = at::zeros_like(output, options);
-  output_ref = output_ref + 1.0 + 2.0 + 3.0;
+  at::Tensor output_ref = at::ones_like(output, options);
+  output_ref = output_ref + 2.0 + 3.0;
 
   TORCH_CHECK(output_ref.equal(output));
 }
@@ -995,8 +995,8 @@ TEST_F(NVFuserTest, FusionCodeGen_CUDA) {
   auto outputs = fe.runFusion({});
   const auto& output = outputs.at(0);
 
-  at::Tensor output_ref = at::zeros_like(output, options);
-  output_ref = output_ref + 1.0 + 2.0 + 3.0;
+  at::Tensor output_ref = at::ones_like(output, options);
+  output_ref = output_ref + 2.0 + 3.0;
 
   TORCH_CHECK(output_ref.equal(output));
 }
