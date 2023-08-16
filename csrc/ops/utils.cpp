@@ -314,7 +314,7 @@ Val* newValLike(Val* val, DataType dtype) {
     return newOutputTV({val}, dtype);
   }
 
-  return newScalar(vtype, dtype);
+  return newScalar(ValType::Others, dtype);
 }
 
 // returns the minimum init value for reduction:
