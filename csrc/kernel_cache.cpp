@@ -1154,12 +1154,12 @@ std::unordered_map<Val*, const PolymorphicValue*> FusionKernelRuntime::
 
     debug() << "Total CUDA kernel time (" << num_groups
             << " kernels): " << kernel_time_ms_ << " ms" << std::endl;
-    debug() << "Peak BW (" << gpuname << "): " << peak_bw << " GB/s"
-            << std::endl;
+    debug() << "Theoretical peak bandwidth (" << gpuname << "): " << peak_bw
+            << " GB/s" << std::endl;
     debug()
         << "Complete fusion effective bandwidth (counts CUDA kernel time only): "
         << eff_bw << " GB/s (";
-    debug() << std::setprecision(2) << percent_peak << "\% of peak)"
+    debug() << std::setprecision(2) << percent_peak << "\% of theoretical peak)"
             << std::endl;
   }
 
