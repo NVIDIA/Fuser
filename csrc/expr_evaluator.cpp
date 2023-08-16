@@ -12,6 +12,7 @@
 #include <instrumentation.h>
 #include <ir/all_nodes.h>
 #include <ir/iostream.h>
+#include <ir/utils.h>
 #include <root_domain_map.h>
 
 #include <iostream>
@@ -79,15 +80,62 @@ void validateValWithConcreteValue(
 
 } // namespace
 
+bool ExpressionEvaluator::readyToEvaluate(const Val* value) const {
+  std::unordered_set<const Val*> known;
+  for (auto& [k, _] : known_values_) {
+    known.insert(k);
+  }
+  return ir_utils::dependenciesSatisfied({value}, known);
+}
+
 void ExpressionEvaluator::bind_(
     const Val* value,
-    PolymorphicValue concrete_value) {
+    PolymorphicValue concrete_value,
+    bool evaluate_validate) {
   TORCH_CHECK(concrete_value.hasValue(), "Cannot bind to undefined value");
-  if (value->value().hasValue() && value->value() == concrete_value) {
+  if (value->isConst()) {
+    TORCH_CHECK(
+        value->value() == concrete_value,
+        "Tried to bind to a constant value: ",
+        value->value(),
+        " as ",
+        concrete_value);
     return;
   }
-  TORCH_CHECK(!value->isConstScalar(), "Tried to bind to a constant value");
+  if (evaluate_validate && readyToEvaluate(value)) {
+    auto evaluated_value = evaluate(value);
+    using namespace PolymorphicValue_functions;
+    auto same = is_same(evaluated_value, concrete_value);
+    TORCH_CHECK(
+        same,
+        "Tried to bind to a value: ",
+        value->toInlineString(),
+        "(which evaluated to ",
+        evaluated_value,
+        ") as ",
+        concrete_value);
+  }
   validateValWithConcreteValue(value, concrete_value);
+  if (auto tv = dynamic_cast<const TensorView*>(value)) {
+    TORCH_INTERNAL_ASSERT(concrete_value.is<at::Tensor>());
+    const auto& t = concrete_value.as<at::Tensor>();
+    auto rfactor_domain =
+        TensorDomain::noReductions(tv->getMaybeRFactorDomain());
+    TORCH_INTERNAL_ASSERT(
+        t.dim() == (int64_t)rfactor_domain.size(),
+        "Expected ",
+        tv->toString(),
+        " to be bound to a tensor of rank ",
+        rfactor_domain.size(),
+        ", but got a tensor of rank ",
+        t.dim());
+    for (auto i : c10::irange(t.dim())) {
+      bind_(
+          rfactor_domain[i]->getMaybeExpandedExtent(),
+          t.size(i),
+          evaluate_validate);
+    }
+  }
   if (value->isA<NamedScalar>()) {
     known_named_scalars_[value->as<NamedScalar>()->name()] =
         std::move(concrete_value);

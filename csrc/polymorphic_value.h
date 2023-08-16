@@ -255,6 +255,14 @@ using PolymorphicValue = DynamicType<
 
 namespace PolymorphicValue_functions {
 
+inline bool is_same(const PolymorphicValue& a, const PolymorphicValue& b) {
+  if (a.is<at::Tensor>() && b.is<at::Tensor>()) {
+    return (a.as<at::Tensor>().is_same(b.as<at::Tensor>()));
+  } else {
+    return (a == b);
+  }
+}
+
 inline PolymorphicValue ceildiv(
     const PolymorphicValue& a,
     const PolymorphicValue& b) {
