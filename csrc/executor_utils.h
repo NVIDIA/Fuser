@@ -36,9 +36,8 @@ std::string kernelPreamble();
 
 // TODO: remove this function
 //! Bind input values to runtime values
-TORCH_CUDA_CU_API ExpressionEvaluator bindInputs(
-    const KernelArgumentHolder& args,
-    Fusion* fusion);
+TORCH_CUDA_CU_API ExpressionEvaluator
+bindInputs(const KernelArgumentHolder& args, Fusion* fusion);
 
 std::string disassembleBinary(
     const std::vector<char>& cubin,
