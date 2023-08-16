@@ -726,7 +726,7 @@ struct SqueezeOpRecord : RecordFunctor {
 };
 
 //! Specialized Record Functor for the FusionState's broadcast_in_dim op.
-// NOTE: output_size gives the rank of the output tensor.  This size can be
+// NOTE: output_ndims gives the rank of the output tensor.  This size can be
 // found from the State after the definition is read and the Fusion IR is in the
 // process of being created.  However, pior to that point, the size is needed
 // for matching a Fusion Record node in the Trie used to cache definitions.
@@ -734,14 +734,14 @@ struct BroadcastInDimOpRecord : RecordFunctor {
   BroadcastInDimOpRecord(
       std::vector<State> _args,
       std::vector<State> _outputs,
-      size_t output_size,
+      size_t output_ndims,
       std::vector<int64_t> broadcast_dims)
       : RecordFunctor(
             std::move(_args),
             std::move(_outputs),
             "ops.broadcast_in_dim",
             serde::RecordType_BroadcastInDim),
-        output_size_(output_size),
+        output_ndims_(output_ndims),
         broadcast_dims_(std::move(broadcast_dims)) {
     arg_names_[1] = "shape";
   }
@@ -757,7 +757,7 @@ struct BroadcastInDimOpRecord : RecordFunctor {
     auto result = RecordFunctor::hash();
     size_t broadcast_dims_hash = 0;
     for (auto dim : broadcast_dims_) {
-      broadcast_dims_hash |= 1 << ((output_size_ - 1) - dim);
+      broadcast_dims_hash |= 1 << ((output_ndims_ - 1) - dim);
     }
     return result | (broadcast_dims_hash & 0xffffffff);
   }
@@ -768,7 +768,7 @@ struct BroadcastInDimOpRecord : RecordFunctor {
       result = RecordFunctor::operator==(other);
       if (result) {
         result =
-            ((output_size_ == child_ptr->output_size_) &&
+            ((output_ndims_ == child_ptr->output_ndims_) &&
              (broadcast_dims_.size() == child_ptr->broadcast_dims_.size()));
         if (result) {
           for (size_t i = 0; i < broadcast_dims_.size(); ++i) {
@@ -790,9 +790,9 @@ struct BroadcastInDimOpRecord : RecordFunctor {
     const auto& arg_domains_nr = arg->domain()->noReductions();
     const auto arg_ndims = arg_domains_nr.size();
     TORCH_CHECK(
-        output_size_ >= arg_ndims,
+        output_ndims_ >= arg_ndims,
         "The new shape is expected to be greater-then-or-equal to the input",
-        output_size_,
+        output_ndims_,
         arg_ndims);
     TORCH_CHECK(
         arg_ndims == broadcast_dims_.size(),
@@ -800,7 +800,7 @@ struct BroadcastInDimOpRecord : RecordFunctor {
         arg_ndims,
         broadcast_dims_.size());
 
-    std::vector<bool> is_broadcast_dim(output_size_, true);
+    std::vector<bool> is_broadcast_dim(output_ndims_, true);
     for (const auto idx : c10::irange(broadcast_dims_.size())) {
       if (idx > 0) {
         TORCH_CHECK(
@@ -808,7 +808,7 @@ struct BroadcastInDimOpRecord : RecordFunctor {
             "Broadcast dimension is not greater than the previous value.");
       }
       TORCH_CHECK(
-          broadcast_dims_[idx] < static_cast<int>(output_size_),
+          broadcast_dims_[idx] < static_cast<int>(output_ndims_),
           "Invalid broadcast_dims value.");
       is_broadcast_dim.at(broadcast_dims_[idx]) = false;
     }
@@ -842,13 +842,13 @@ struct BroadcastInDimOpRecord : RecordFunctor {
     return {
         serde::RecordData_BroadcastInDim,
         serde::CreateBroadcastInDimDirect(
-            builder, output_size_, &broadcast_dims_)
+            builder, output_ndims_, &broadcast_dims_)
             .Union()};
   };
 
  private:
-  //! Size of shape Vector used to communicate the output tensor shape
-  size_t output_size_;
+  //! Number of dims of shape Vector used to communicate the output tensor shape
+  size_t output_ndims_;
   //! Communicates which dimensions of the output the input tensor maps.
   //! For instance, for output [2, 3, 4] and input [3]. This vector would
   //! contain [1].
