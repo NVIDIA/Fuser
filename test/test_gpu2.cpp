@@ -9092,27 +9092,35 @@ TEST_F(NVFuserTest, FusionChannelsLastParser_CUDA) {
   // 2. use a fuzzy compare (ignore non-significant whitespaces for example)
   const std::string expected_kernel = R"(
 __global__ void CUDAGeneratedKernel(Tensor<__half, 4, 4> T0, Tensor<__half, 4, 4> T2, Tensor<__half, 4, 4> T7) {
-  nvfuser_index_t i0;
-  i0 = T0.logical_size[2] * T0.logical_size[1];
+  Array<nvfuser_index_t, 4, 1> a0;
+  a0 = T0.logical_size;
   nvfuser_index_t i1;
-  i1 = ((nvfuser_index_t)threadIdx.x) + (128 * ((nvfuser_index_t)blockIdx.x));
+  i1 = a0[1];
   nvfuser_index_t i2;
-  i2 = (T0.logical_size[1] * T0.logical_size[2]) * T0.logical_size[3];
+  i2 = a0[2];
   nvfuser_index_t i3;
-  i3 = i1 % i2;
+  i3 = a0[3];
   nvfuser_index_t i4;
-  i4 = T0.logical_size[2] * T0.logical_size[3];
+  i4 = i2 * i1;
   nvfuser_index_t i5;
-  i5 = i3 % i4;
-  if ((i1 < (((T0.logical_size[0] * T0.logical_size[1]) * T0.logical_size[2]) * T0.logical_size[3]))) {
+  i5 = ((nvfuser_index_t)threadIdx.x) + (128 * ((nvfuser_index_t)blockIdx.x));
+  nvfuser_index_t i6;
+  i6 = (i1 * i2) * i3;
+  nvfuser_index_t i7;
+  i7 = i5 % i6;
+  nvfuser_index_t i8;
+  i8 = i2 * i3;
+  nvfuser_index_t i9;
+  i9 = i7 % i8;
+  if ((i5 < (((a0[0] * i1) * i2) * i3))) {
     __half T9[1];
     T9[0] = 0;
     T9[0]
-       = T2[(((((i0 * T0.logical_size[3]) * (i1 / i2)) + (i0 * (i5 % T0.logical_size[3]))) + (T0.logical_size[2] * (i3 / i4))) + (i5 / T0.logical_size[3]))];
+       = T2[(((((i4 * i3) * (i5 / i6)) + (i4 * (i9 % i3))) + (i2 * (i7 / i8))) + (i9 / i3))];
     __half T8[1];
     T8[0] = 0;
     T8[0]
-       = T0[i1];
+       = T0[i5];
     float T3[1];
     T3[0]
        = __half2float(T9[0]);
@@ -9132,7 +9140,7 @@ __global__ void CUDAGeneratedKernel(Tensor<__half, 4, 4> T0, Tensor<__half, 4, 4
     __half T10[1];
     T10[0]
        = __float2half(T6[0]);
-    T7[i1]
+    T7[i5]
        = T10[0];
   }
 }
