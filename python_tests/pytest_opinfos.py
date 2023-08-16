@@ -161,6 +161,25 @@ atanh_opinfo = OpInfo(
 )
 unary_ops.append(atanh_opinfo)
 
+bitwise_not_opinfo = OpInfo(
+    lambda fd: fd.ops.bitwise_not,
+    "bitwise_not",
+    dtypes=bool_int_dtypes,
+    sample_input_generator=elementwise_unary_generator,
+    reference=_elementwise_unary_torch(torch.bitwise_not),
+)
+unary_ops.append(bitwise_not_opinfo)
+
+# TODO add nvfuser exception for int dtypes
+ceil_opinfo = OpInfo(
+    lambda fd: fd.ops.ceil,
+    "ceil",
+    dtypes=full_precision_float_dtypes,
+    sample_input_generator=elementwise_unary_generator,
+    reference=_elementwise_unary_torch(torch.ceil),
+)
+unary_ops.append(ceil_opinfo)
+
 cos_opinfo = OpInfo(
     lambda fd: fd.ops.cos,
     "cos",
@@ -244,6 +263,25 @@ expm1_opinfo = OpInfo(
 )
 unary_ops.append(expm1_opinfo)
 
+# TODO add nvfuser exception for int dtypes
+floor_opinfo = OpInfo(
+    lambda fd: fd.ops.floor,
+    "floor",
+    dtypes=full_precision_float_dtypes,
+    sample_input_generator=elementwise_unary_generator,
+    reference=_elementwise_unary_torch(torch.floor),
+)
+unary_ops.append(floor_opinfo)
+
+frac_opinfo = OpInfo(
+    lambda fd: fd.ops.frac,
+    "frac",
+    dtypes=full_precision_float_dtypes,
+    sample_input_generator=elementwise_unary_generator,
+    reference=_elementwise_unary_torch(torch.frac),
+)
+unary_ops.append(frac_opinfo)
+
 lgamma_opinfo = OpInfo(
     lambda fd: fd.ops.lgamma,
     "lgamma",
@@ -292,6 +330,14 @@ log2_opinfo = OpInfo(
 )
 unary_ops.append(log2_opinfo)
 
+neg_opinfo = OpInfo(
+    lambda fd: fd.ops.neg,
+    "neg",
+    sample_input_generator=elementwise_unary_generator,
+    reference=_elementwise_unary_torch(torch.neg),
+)
+unary_ops.append(neg_opinfo)
+
 reciprocal_opinfo = OpInfo(
     lambda fd: fd.ops.reciprocal,
     "reciprocal",
@@ -305,6 +351,16 @@ reciprocal_opinfo = OpInfo(
     reference=_elementwise_unary_torch(torch.reciprocal),
 )
 unary_ops.append(reciprocal_opinfo)
+
+# TODO add nvfuser exception for int dtypes
+round_opinfo = OpInfo(
+    lambda fd: fd.ops.round,
+    "round",
+    dtypes=full_precision_float_dtypes,
+    sample_input_generator=elementwise_unary_generator,
+    reference=_elementwise_unary_torch(torch.round),
+)
+unary_ops.append(round_opinfo)
 
 rsqrt_opinfo = OpInfo(
     lambda fd: fd.ops.rsqrt,
@@ -370,6 +426,16 @@ tanh_opinfo = OpInfo(
     reference=_elementwise_unary_torch(torch.tanh),
 )
 unary_ops.append(tanh_opinfo)
+
+# TODO add nvfuser exception for int dtypes
+trunc_opinfo = OpInfo(
+    lambda fd: fd.ops.trunc,
+    "trunc",
+    dtypes=full_precision_float_dtypes,
+    sample_input_generator=elementwise_unary_generator,
+    reference=_elementwise_unary_torch(torch.trunc),
+)
+unary_ops.append(trunc_opinfo)
 
 """ End Unary-Float Operations """
 
