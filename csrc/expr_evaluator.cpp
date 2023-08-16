@@ -83,10 +83,15 @@ void ExpressionEvaluator::bind_(
     const Val* value,
     PolymorphicValue concrete_value) {
   TORCH_CHECK(concrete_value.hasValue(), "Cannot bind to undefined value");
-  if (value->value().hasValue() && value->value() == concrete_value) {
+  if (value->isConst()) {
+    TORCH_CHECK(
+        value->value() == concrete_value,
+        "Tried to bind to a constant value: ",
+        value->value(),
+        " as ",
+        concrete_value);
     return;
   }
-  TORCH_CHECK(!value->isConstScalar(), "Tried to bind to a constant value");
   validateValWithConcreteValue(value, concrete_value);
   if (value->isA<NamedScalar>()) {
     known_named_scalars_[value->as<NamedScalar>()->name()] =
