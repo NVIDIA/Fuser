@@ -1510,8 +1510,8 @@ TEST_F(NVFuserTest, FusionIndexHoist1_CUDA) {
         exprs.at(0)->toString());
     auto hoisted_index = exprs.at(0)->as<kir::Allocate>()->buffer();
     TORCH_CHECK(
-        hoisted_index->dtype() == DataType::Int32,
-        "Invalid data type of hoisted indices. Should be Int32 but: ",
+        hoisted_index->dtype() == DataType::Index,
+        "Invalid data type of hoisted indices. Should be nvfuser_index_t but: ",
         hoisted_index->dtype());
     kir::Predicate* pred = nullptr;
     for (auto expr : exprs) {
@@ -1728,9 +1728,9 @@ TEST_F(NVFuserTest, FusionIndexHoist3_CUDA) {
 
   const std::string expected_kernel = R"(
 __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> T2) {
-  int64_t i0;
+  nvfuser_index_t i0;
   i0 = ((nvfuser_index_t)threadIdx.x) + (256 * ((nvfuser_index_t)blockIdx.x));
-  int64_t i1;
+  nvfuser_index_t i1;
   i1 = T0.logical_size[0] * T0.logical_size[1];
   bool b2;
   b2 = i0 < i1;
@@ -4681,16 +4681,17 @@ TEST_F(NVFuserTest, FusionExpandRepro1860_CUDA) {
     if (i == 0) {
       domain1[i] = IterDomainBuilder(
                        FusionGuard::getCurFusion()->zeroVal(),
-                       IrBuilder::create<Val>(1L))
+                       IrBuilder::create<Val>(1L, DataType::Index))
                        .iter_type(IterType::Broadcast)
                        .build();
     } else {
-      domain1[i] = IterDomainBuilder(
-                       FusionGuard::getCurFusion()->zeroVal(),
-                       IrBuilder::create<Val>(1L))
-                       .expanded_extent(IrBuilder::create<Val>(1L + i))
-                       .iter_type(IterType::Broadcast)
-                       .build();
+      domain1[i] =
+          IterDomainBuilder(
+              FusionGuard::getCurFusion()->zeroVal(),
+              IrBuilder::create<Val>(1L, DataType::Index))
+              .expanded_extent(IrBuilder::create<Val>(1L + i, DataType::Index))
+              .iter_type(IterType::Broadcast)
+              .build();
     }
   }
 
@@ -4830,11 +4831,12 @@ TEST_F(NVFuserTest, FusionExpandBadShapeTest_CUDA) {
   std::vector<IterDomain*> domains = {
       IterDomainBuilder(
           FusionGuard::getCurFusion()->zeroVal(),
-          IrBuilder::create<Val>(DataType::Int))
+          IrBuilder::create<Val>(DataType::Index))
           .build(),
       IterDomainBuilder(
-          FusionGuard::getCurFusion()->zeroVal(), IrBuilder::create<Val>(1L))
-          .expanded_extent(IrBuilder::create<Val>(10L))
+          FusionGuard::getCurFusion()->zeroVal(),
+          FusionGuard::getCurFusion()->oneVal())
+          .expanded_extent(IrBuilder::create<Val>(10L, DataType::Index))
           .iter_type(IterType::Broadcast)
           .build()};
 
@@ -5139,7 +5141,7 @@ TEST_F(NVFuserTest, FusionCheckedSymbolicShape_CUDA) {
     EXPECT_THAT(
         [&]() { matched_add(a, c); },
         ::testing::ThrowsMessage<c10::Error>(
-            ::testing::HasSubstr("Attempting to bind")));
+            ::testing::HasSubstr("Conflicting sizes")));
   }
 }
 
@@ -5147,7 +5149,7 @@ TEST_F(NVFuserTest, FusionSizeDependentData_CUDA) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
-  Val* s1 = IrBuilder::create<Val>(DataType::Int);
+  Val* s1 = IrBuilder::create<Val>(DataType::Index);
   auto builder = TensorViewBuilder().shape(std::vector<Val*>{s1});
   TensorView* tv0 = builder.build();
 
@@ -7546,7 +7548,7 @@ class ThreadPredChecker : public kir::IrVisitor {
   }
 
   void handle(BinaryOp* bop) final {
-    if (bop->getBinaryOpType() == BinaryOpType::And) {
+    if (bop->getBinaryOpType() == BinaryOpType::LogicalAnd) {
       dispatch(bop->lhs());
       dispatch(bop->rhs());
     } else if (bop->getBinaryOpType() == BinaryOpType::Eq) {
@@ -9746,6 +9748,136 @@ TEST_F(NVFuserTest, AllInputDtypes) {
     auto expect = ee.evaluate(output).as<at::Tensor>().item<double>();
     EXPECT_NEAR(kernel_result, expect, 0.1);
   }
+}
+
+TEST_F(NVFuserTest, IndexDataTypePromotion) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto a = IrBuilder::create<Val>(DataType::Int);
+  auto b = IrBuilder::create<Val>(DataType::Index);
+  auto c = add(a, b);
+
+  ExpressionEvaluator ee;
+  ee.bind(a, 1L);
+  ee.bind(b, 299792458L);
+  EXPECT_EQ(ee.evaluate(c), 299792459L);
+  EXPECT_EQ(c->dtype(), DataType::Index);
+}
+
+TEST_F(NVFuserTest, FusionCrossGridInnerReductionSplitGridIteration_CUDA) {
+  // reduction size is set to 65538 to triger cross grid reduction and iter
+  // unroll. iteration size is set to a value larger than y_grid_limit to test
+  // if iter domain is split grid.
+  // This test requires significant memory. Release any cached memory
+  // from previous tests to ensure availability.
+  maybeClearAllocator(0);
+
+  DataType dtype = DataType::Float;
+  int64_t reduction_size = 65538;
+  int64_t iteration_size = scheduler_utils::y_grid_limit + 8;
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> input_shape{iteration_size, reduction_size};
+  auto t0 = makeContigTensor(2, dtype);
+  auto t1 = sum(t0, {1});
+  fusion.addInput(t0);
+  fusion.addOutput(t1);
+
+  // Estimated_gmem is 17.18 GBytes, skip if not enough memory.
+  size_t n_elements = reduction_size * iteration_size + iteration_size * 2;
+  size_t estimated_gmem = n_elements * dataTypeSize(dtype);
+  size_t device_free, device_total;
+  cudaMemGetInfo(&device_free, &device_total);
+  if (estimated_gmem > device_free) {
+    GTEST_SKIP() << "Skipping test due to limited GPU memory. Requested: "
+                 << estimated_gmem / 1e9 << " GBytes"
+                 << ", device_free: " << device_free / 1e9 << " GBytes"
+                 << ", device_total: " << device_total / 1e9 << " GBytes";
+  }
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  at::Tensor aten_input = at::randn(input_shape, options);
+
+  auto reduction_params = getReductionHeuristics(&fusion, {aten_input});
+  ASSERT_TRUE(reduction_params) << "Reduction schedule was not generated!";
+  ASSERT_TRUE(reduction_params->split_grid_dim_inner_reduction)
+      << "Generated reduction is not cross grid!";
+  ASSERT_TRUE(reduction_params->split_grid_dim_iter_dom_outer)
+      << "Generated reduction is not split iteration domain!";
+  scheduleReduction(&fusion, *reduction_params);
+
+  auto lparams = reduction_params->lparams;
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, {aten_input}, lparams);
+  auto cg_outputs = fe.runFusion({aten_input}, lparams);
+  auto aten_outputs = aten_input.sum({1});
+  testValidate(
+      &fusion,
+      cg_outputs,
+      {aten_input},
+      {aten_outputs},
+      __LINE__,
+      __FILE__,
+      "",
+      lparams);
+}
+
+TEST_F(NVFuserTest, SymbolicOneBroadcasting) {
+  // Test that if a tensor dimension's extent is one, no matter whether this
+  // extent is constant 1 or symbolic 1, we always mark this ID as broadcasting.
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  auto one = IrBuilder::create<Val>(1L);
+  auto zero = sub(one, one);
+  auto symbolic_one = add(zero, one);
+  std::vector<Val*> shape{symbolic_one};
+  auto tv = TensorViewBuilder()
+                .ndims(1)
+                .dtype(DataType::Float)
+                .contiguity(true)
+                .shape(shape)
+                .build();
+  ASSERT_EQ(tv->nDims(), 1);
+  EXPECT_TRUE(tv->axis(0)->isBroadcast());
+}
+
+// Repro of unswitch predicate issue #681
+TEST_F(NVFuserTest, UnswitchPredicateIssueRepro681_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+
+  auto tv1 = sum(tv0, {0, 1});
+  fusion.addOutput(tv1);
+
+  // [i0, i1]
+  tv1->split(1, 4);
+  // [i0, i1/4, 4]
+  tv1->merge(0);
+  // [i0*i1/4, 4]
+  tv1->split(0, 4);
+  // [i0*i1/4/4, 4, 4]
+  tv1->split(0, 1);
+  // [i0*i1/4/4, 1, 4, 4]
+
+  tv1->axis(1)->parallelize(ParallelType::Unswitch);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({4, 10}, options);
+  std::vector<c10::IValue> aten_inputs = {t0};
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs);
+  auto outputs = fe.runFusion(aten_inputs);
+
+  auto ref = t0.to(at::kDouble).sum();
+
+  testValidate(&fusion, outputs, aten_inputs, {ref}, __LINE__, __FILE__);
 }
 
 // Test file size should be up to 10K LoC. Create a new file for more tests.

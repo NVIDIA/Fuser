@@ -177,9 +177,9 @@ class TORCH_CUDA_CU_API ContiguousInnerDimensionsMapper
         ->mapped_rfactor_ids_;
   }
 
-  Val* getProjectedExtent(IterDomain* id) {
+  Val* getProjectedExtent(IterDomain* id) const {
     if (projected_extent_.find(id) == projected_extent_.end()) {
-      projected_extent_[id] = id->container()->oneVal();
+      TORCH_INTERNAL_ASSERT(false, "Not projected: ", id->toString());
     }
     return projected_extent_.at(id);
   }
@@ -235,6 +235,16 @@ class TORCH_CUDA_CU_API ContiguousInnerDimensionsMapper
     if (!recording_) {
       return;
     }
+
+    TORCH_INTERNAL_ASSERT(
+        projected_extent_.count(id) == 0,
+        "Already registered: ",
+        id->toString(),
+        ", existing: ",
+        projected_extent_.at(id)->toInlineString(),
+        ", new: ",
+        pe->toInlineString());
+
     projected_extent_[id] = pe;
   }
 

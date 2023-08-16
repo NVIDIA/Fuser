@@ -150,6 +150,11 @@ template <typename MergeOrSplit>
 void ContiguousInnerDimensionsMapper::combinePE(
     const MergeOrSplit* merge_or_split,
     bool outer_maps) {
+  // Nothing to do unless recording
+  if (!recording_) {
+    return;
+  }
+
   auto projected_inner_extent = getProjectedExtent(merge_or_split->inner());
   Val* projected_combined_extent = projected_inner_extent;
 
@@ -189,6 +194,11 @@ void ContiguousInnerDimensionsMapper::combinePE(
 template <typename MergeOrSplit>
 void ContiguousInnerDimensionsMapper::distributePE(
     const MergeOrSplit* merge_or_split) {
+  // Nothing to do unless recording
+  if (!recording_) {
+    return;
+  }
+
   auto inner_extent = commonOrConstExtent(ca_map_, merge_or_split->inner());
   auto outer_extent = commonOrConstExtent(ca_map_, merge_or_split->outer());
   Val* projected_combined_extent = nullptr;
