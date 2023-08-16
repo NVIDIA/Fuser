@@ -1083,8 +1083,9 @@ std::unordered_map<Val*, const PolymorphicValue*> FusionKernelRuntime::
 
   if (compute_overall_bw) {
     // Get peak bandwidth for device
-    int clock, width;
-    char gpuname[100];
+    int clock = 0, width = 0;
+    std::string gpuname;
+    gpuname.reserve(100);
     NVFUSER_CUDA_SAFE_CALL(cuDeviceGetAttribute(
         &clock, CU_DEVICE_ATTRIBUTE_MEMORY_CLOCK_RATE, args.getDeviceIndex()));
     NVFUSER_CUDA_SAFE_CALL(cuDeviceGetAttribute(
@@ -1092,7 +1093,7 @@ std::unordered_map<Val*, const PolymorphicValue*> FusionKernelRuntime::
         CU_DEVICE_ATTRIBUTE_GLOBAL_MEMORY_BUS_WIDTH,
         args.getDeviceIndex()));
     NVFUSER_CUDA_SAFE_CALL(
-        cuDeviceGetName(gpuname, 100, args.getDeviceIndex()));
+        cuDeviceGetName(gpuname.data(), 100, args.getDeviceIndex()));
     // Peak bandwidth calculation:
     // Bus width is given in bits, so dividing by 8 converts to bytes.
     // Clock is given in kHz. 1 GB = 1e9 bytes (don't report GiB = 1024^3 bytes)
@@ -1101,28 +1102,30 @@ std::unordered_map<Val*, const PolymorphicValue*> FusionKernelRuntime::
     // factor = 2.5e-7
     double peak_bw = 2.5e-7 * (double)clock * (double)width;
 
-    int total_io_bytes_processed = 0;
+    int64_t total_io_bytes_processed = 0;
     for (auto inp : fusionSegments()->inputs()) {
       if (auto tv = dynamic_cast<TensorView*>(inp)) {
         auto aten_ten = args_manager.checkTensorMap(inp);
         total_io_bytes_processed +=
-            aten_ten->as<at::Tensor>().numel() * dataTypeSize(tv->dtype());
+            (int64_t)aten_ten->as<at::Tensor>().numel() *
+            dataTypeSize(tv->dtype());
       }
     }
     for (auto outp : fusionSegments()->outputs()) {
       if (auto tv = dynamic_cast<TensorView*>(outp)) {
         auto aten_ten = args_manager.checkTensorMap(outp);
         total_io_bytes_processed +=
-            aten_ten->as<at::Tensor>().numel() * dataTypeSize(tv->dtype());
+            (int64_t)aten_ten->as<at::Tensor>().numel() *
+            dataTypeSize(tv->dtype());
       }
     }
 
     // Effective bw in GB/s
-    double eff_bw = 1e-6 * total_io_bytes_processed / kernel_time_ms_;
+    double eff_bw = 1e-6 * (double)total_io_bytes_processed / kernel_time_ms_;
 
     double percent_peak = eff_bw / peak_bw * 100;
 
-    auto formatBytes = [](int bytes) {
+    auto formatBytes = [](double bytes) {
       std::stringstream ss;
       if (bytes < 1e3) {
         ss << bytes << " B";
@@ -1130,21 +1133,21 @@ std::unordered_map<Val*, const PolymorphicValue*> FusionKernelRuntime::
       }
       ss << std::setprecision(2);
       if (bytes >= 1e12) {
-        ss << ((double)bytes / 1e12) << " TB";
+        ss << (bytes / 1e12) << " TB";
       } else if (bytes >= 1e9) {
-        ss << ((double)bytes / 1e9) << " GB";
+        ss << (bytes / 1e9) << " GB";
       } else if (bytes >= 1e6) {
-        ss << ((double)bytes / 1e6) << " MB";
+        ss << (bytes / 1e6) << " MB";
       } else if (bytes >= 1e3) {
-        ss << ((double)bytes / 1e3) << " kB";
+        ss << (bytes / 1e3) << " kB";
       }
       return ss.str();
     };
 
-    debug() << "Total bytes processed: " << formatBytes(total_bytes_processed)
-            << std::endl;
+    debug() << "Total bytes processed: "
+            << formatBytes((double)total_bytes_processed) << std::endl;
     debug() << "Bytes that were complete fusion inputs or outputs: "
-            << formatBytes(total_io_bytes_processed) << " ("
+            << formatBytes((double)total_io_bytes_processed) << " ("
             << ((double)total_io_bytes_processed /
                 (double)total_bytes_processed * 100.0)
             << "% of total)" << std::endl;
