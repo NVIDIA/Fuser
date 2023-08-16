@@ -3,7 +3,6 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # Owner(s): ["module: nvfuser"]
 
-import operator
 import math
 import torch
 import jax
@@ -546,14 +545,15 @@ binary_ops.append(lt_opinfo)
 mod_opinfo = OpInfo(
     lambda fd: fd.ops.mod,
     "mod",
-    domain=Domain(0, None),
     dtypes=int_dtypes,
     sample_input_generator=partial(
         elementwise_binary_generator,
         exclude_zero=True,
         enable_broadcast_testing=False,
     ),
-    reference=operator.mod,
+    # Matlab rem (Remainder after Division) function
+    # For more details, see https://www.mathworks.com/help/matlab/ref/rem.html
+    reference=lambda a, b: a - b * math.trunc(a / b),
     reference_type=ReferenceType.Python,
 )
 binary_ops.append(mod_opinfo)
