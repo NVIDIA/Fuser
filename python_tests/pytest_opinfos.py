@@ -282,6 +282,58 @@ frac_opinfo = OpInfo(
 )
 unary_ops.append(frac_opinfo)
 
+isfinite_opinfo = OpInfo(
+    lambda fd: fd.ops.isfinite,
+    "isfinite",
+    sample_input_generator=elementwise_unary_generator,
+    reference=_elementwise_unary_torch(torch.isfinite),
+)
+unary_ops.append(isfinite_opinfo)
+
+isinf_opinfo = OpInfo(
+    lambda fd: fd.ops.isinf,
+    "isinf",
+    sample_input_generator=elementwise_unary_generator,
+    reference=_elementwise_unary_torch(torch.isinf),
+)
+unary_ops.append(isinf_opinfo)
+
+isnan_opinfo = OpInfo(
+    lambda fd: fd.ops.isnan,
+    "isnan",
+    sample_input_generator=elementwise_unary_generator,
+    reference=_elementwise_unary_torch(torch.isnan),
+)
+unary_ops.append(isnan_opinfo)
+
+# NOTE half-precision floating types are not automatically promoted to fp32
+isneginf_opinfo = OpInfo(
+    lambda fd: fd.ops.isneginf,
+    "isneginf",
+    dtypes=full_precision_float_dtypes,
+    sample_input_generator=elementwise_unary_generator,
+    reference=_elementwise_unary_torch(torch.isneginf),
+)
+unary_ops.append(isneginf_opinfo)
+
+# NOTE half-precision floating types are not automatically promoted to fp32
+isposinf_opinfo = OpInfo(
+    lambda fd: fd.ops.isposinf,
+    "isposinf",
+    dtypes=full_precision_float_dtypes,
+    sample_input_generator=elementwise_unary_generator,
+    reference=_elementwise_unary_torch(torch.isposinf),
+)
+unary_ops.append(isposinf_opinfo)
+
+isreal_opinfo = OpInfo(
+    lambda fd: fd.ops.isreal,
+    "isreal",
+    sample_input_generator=elementwise_unary_generator,
+    reference=_elementwise_unary_torch(torch.isreal),
+)
+unary_ops.append(isreal_opinfo)
+
 lgamma_opinfo = OpInfo(
     lambda fd: fd.ops.lgamma,
     "lgamma",
@@ -383,6 +435,15 @@ sigmoid_opinfo = OpInfo(
     reference=_elementwise_unary_torch(torch.sigmoid),
 )
 unary_ops.append(sigmoid_opinfo)
+
+signbit_opinfo = OpInfo(
+    lambda fd: fd.ops.signbit,
+    "signbit",
+    dtypes=int_float_dtypes,
+    sample_input_generator=elementwise_unary_generator,
+    reference=_elementwise_unary_torch(torch.signbit),
+)
+unary_ops.append(signbit_opinfo)
 
 sin_opinfo = OpInfo(
     lambda fd: fd.ops.sin,
