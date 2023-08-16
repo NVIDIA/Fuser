@@ -370,11 +370,7 @@ class TORCH_CUDA_CU_API TensorView : public Val {
   //!
   //! @param cache_op: memory operator to use for the inserted op between
   //!   the the data tensor and the cache tensor
-  //! @param cached_uses: uses before which a cache is inserted. By
-  //! default a cache is inserted for all uses
-  TensorView* cacheAfter(
-      LoadStoreOpType cache_op = LoadStoreOpType::Set,
-      const std::unordered_set<Expr*>& cached_uses = {});
+  TensorView* cacheAfter(LoadStoreOpType cache_op = LoadStoreOpType::Set);
 
   // For a fusion output with other uses, we want to avoid writing to global
   // memory and then reading the output again. We write to global memory
