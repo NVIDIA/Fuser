@@ -8,10 +8,11 @@ from functools import partial, wraps
 
 import math
 import torch
-import random
 from torch.testing import make_tensor
+import random
+from numbers import Number
 
-from pytest_core import OpInfo, SampleInput, ErrorSample
+from pytest_core import OpInfo, SampleInput, ErrorSample, Domain
 from pytest_utils import (
     make_number,
     find_nonmatching_dtype,
@@ -25,6 +26,24 @@ MINIMUM_SYMBOLIC_SIZE = -1
 INT64_MAX = 2**63 - 1
 MAX_TENSOR_DIMS = 8
 MAX_VECTOR_SIZE = 8
+
+
+# Determine if a number is with desired Domain
+def domain_filter(domain: Domain, a: Number, *, exclude_zero: bool = False):
+    # comparison operators are not defined for complex numbers
+    if isinstance(a, complex):
+        return True
+
+    if domain.low is not None and domain.low > a:
+        return False
+
+    if domain.high is not None and a > domain.high:
+        return False
+
+    if exclude_zero and a == 0:
+        return False
+
+    return True
 
 
 def _extremal_values(dtype: torch.dtype):
@@ -447,10 +466,10 @@ def define_vector_input_error_generator(
         yield SampleInput(**es.kwargs), es.ex_type, es.ex_str
 
 
-def _special_value_binary_generator(generator_fn, dtype, requires_grad):
-    lhs_vals, rhs_vals = zip(
-        *itertools.product(generator_fn(dtype), generator_fn(dtype))
-    )
+def _special_value_binary_generator(
+    lhs_generator_fn, rhs_generator_fn, dtype, requires_grad
+):
+    lhs_vals, rhs_vals = zip(*itertools.product(lhs_generator_fn, rhs_generator_fn))
     lhs = torch.tensor(
         lhs_vals, device="cuda", dtype=dtype, requires_grad=requires_grad
     )
@@ -522,30 +541,52 @@ def elementwise_binary_generator(
                 make_arg(rhs_shape, noncontiguous=True),
             )
 
+    # Create filtered special inputs for this operation's domain
+    lhs_domain_filter = partial(filter, partial(domain_filter, op.domain))
+
+    # NOTE: Check exclude_zero flag to avoid undefined behavior such as ZeroDivisionError: division by zero
+    exclude_zero = kwargs["exclude_zero"] if "exclude_zero" in kwargs else False
+    rhs_domain_filter = partial(
+        filter, partial(domain_filter, op.domain, exclude_zero=exclude_zero)
+    )
+
     if (
         enable_large_value_testing
         and dtype != torch.bool
         and dtype not in complex_dtypes
     ):
-        yield _special_value_binary_generator(_large_values, dtype, requires_grad)
+        lhs_large_values = list(lhs_domain_filter(_large_values(dtype)))
+        rhs_large_values = list(rhs_domain_filter(_large_values(dtype)))
+        yield _special_value_binary_generator(
+            lhs_large_values, rhs_large_values, dtype, requires_grad
+        )
 
     if enable_small_value_testing and dtype != torch.bool:
-        yield _special_value_binary_generator(_small_values, dtype, requires_grad)
+        lhs_small_values = list(lhs_domain_filter(_small_values(dtype)))
+        rhs_small_values = list(rhs_domain_filter(_small_values(dtype)))
+        yield _special_value_binary_generator(
+            lhs_small_values, rhs_small_values, dtype, requires_grad
+        )
 
     if enable_extremal_value_testing and dtype in float_complex_dtypes:
-        yield _special_value_binary_generator(_extremal_values, dtype, requires_grad)
+        lhs_extremal_values = list(lhs_domain_filter(_extremal_values(dtype)))
+        rhs_extremal_values = list(rhs_domain_filter(_extremal_values(dtype)))
+        yield _special_value_binary_generator(
+            lhs_extremal_values, rhs_extremal_values, dtype, requires_grad
+        )
 
         # Test interactions between extreme and normal values
-        extreme_values = _extremal_values(dtype)
-        normal_values = [random.uniform(-10, 10) for _ in range(len(extreme_values))]
-        extreme = torch.tensor(
-            extreme_values, device="cuda", dtype=dtype, requires_grad=requires_grad
+        make_cuda_tensor = partial(
+            torch.tensor, device="cuda", dtype=dtype, requires_grad=requires_grad
         )
-        normal = torch.tensor(
-            normal_values, device="cuda", dtype=dtype, requires_grad=requires_grad
+        rhs_normal = [random.uniform(-10, 10) for _ in range(len(lhs_extremal_values))]
+        lhs_normal = [random.uniform(-10, 10) for _ in range(len(rhs_extremal_values))]
+        yield SampleInput(
+            make_cuda_tensor(lhs_extremal_values), make_cuda_tensor(rhs_normal)
         )
-        yield SampleInput(extreme, normal)
-        yield SampleInput(normal, extreme)
+        yield SampleInput(
+            make_cuda_tensor(lhs_normal), make_cuda_tensor(rhs_extremal_values)
+        )
 
 
 def _elementwise_binary_torch(op):
@@ -596,14 +637,18 @@ def elementwise_unary_generator(
         yield SampleInput(make_arg(shape))
         yield SampleInput(make_arg(shape, noncontiguous=True))
 
+    # Create filtered special inputs for this operation's domain
+    this_domain_filter = partial(filter, partial(domain_filter, op.domain))
+
     if (
         enable_large_value_testing
         and dtype != torch.bool
         and dtype not in complex_dtypes
     ):
+        filtered_large_values = list(this_domain_filter(_large_values(dtype)))
         yield SampleInput(
             torch.tensor(
-                _large_values(dtype),
+                filtered_large_values,
                 device="cuda",
                 dtype=dtype,
                 requires_grad=requires_grad,
@@ -611,9 +656,10 @@ def elementwise_unary_generator(
         )
 
     if enable_small_value_testing and dtype != torch.bool:
+        filtered_small_values = list(this_domain_filter(_small_values(dtype)))
         yield SampleInput(
             torch.tensor(
-                _small_values(dtype),
+                filtered_small_values,
                 device="cuda",
                 dtype=dtype,
                 requires_grad=requires_grad,
@@ -621,9 +667,10 @@ def elementwise_unary_generator(
         )
 
     if enable_extremal_value_testing and dtype in float_complex_dtypes:
+        filtered_extremal_values = list(this_domain_filter(_extremal_values(dtype)))
         yield SampleInput(
             torch.tensor(
-                _extremal_values(dtype),
+                filtered_extremal_values,
                 device="cuda",
                 dtype=dtype,
                 requires_grad=requires_grad,
