@@ -25,6 +25,8 @@ from pytest_input_generators import (
     define_vector_input_error_generator,
     elementwise_binary_generator,
     _elementwise_binary_torch,
+    elementwise_binary_with_alpha_generator,
+    _elementwise_binary_with_alpha_torch,
     elementwise_unary_generator,
     _elementwise_unary_torch,
     full_error_generator,
@@ -775,6 +777,26 @@ binary_ops.append(trunc_div_opinfo)
 """ Start Ternary Operations """
 
 ternary_ops = []
+
+add_alpha_opinfo = OpInfo(
+    lambda fd: fd.ops.add_alpha,
+    "add_alpha",
+    sample_input_generator=partial(
+        elementwise_binary_with_alpha_generator, enable_extremal_value_testing=False
+    ),
+    reference=_elementwise_binary_with_alpha_torch(torch.add),
+)
+ternary_ops.append(add_alpha_opinfo)
+
+sub_alpha_opinfo = OpInfo(
+    lambda fd: fd.ops.sub_alpha,
+    "sub_alpha",
+    sample_input_generator=partial(
+        elementwise_binary_with_alpha_generator, enable_extremal_value_testing=False
+    ),
+    reference=_elementwise_binary_with_alpha_torch(torch.sub),
+)
+ternary_ops.append(sub_alpha_opinfo)
 
 where_opinfo = OpInfo(
     lambda fd: fd.ops.where,

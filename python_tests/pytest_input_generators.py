@@ -19,6 +19,7 @@ from pytest_utils import (
     is_floating_dtype,
     float_complex_dtypes,
     complex_dtypes,
+    torch_to_python_dtype_map,
 )
 from nvfuser import DataType
 
@@ -606,6 +607,56 @@ def _elementwise_binary_torch(op):
         if isinstance(x, torch.Tensor) or isinstance(y, torch.Tensor):
             return op(x, y)
         return op(torch.tensor(x), torch.tensor(y)).item()
+
+    return _fn
+
+
+def elementwise_binary_with_alpha_generator(
+    op: OpInfo,
+    dtype: torch.dtype,
+    requires_grad: bool = False,
+    *,
+    supports_numbers: bool = True,
+    enable_broadcast_testing: bool = True,
+    enable_extremal_value_testing: bool = True,
+    enable_large_value_testing: bool = True,
+    enable_small_value_testing: bool = True,
+    **kwargs,
+):
+    low = -100 if op.domain.low is None else max(-9, op.domain.low)
+    high = 100 if op.domain.high is None else min(9, op.domain.high)
+
+    for sample in elementwise_binary_generator(
+        op,
+        dtype,
+        requires_grad,
+        supports_numbers=supports_numbers,
+        enable_broadcast_testing=enable_broadcast_testing,
+        enable_extremal_value_testing=enable_extremal_value_testing,
+        enable_large_value_testing=enable_large_value_testing,
+        enable_small_value_testing=enable_small_value_testing,
+        **kwargs,
+    ):
+        if torch_to_python_dtype_map[dtype] == float:
+            alpha = random.uniform(low, high)
+        elif torch_to_python_dtype_map[dtype] == int:
+            alpha = random.randint(low, high)
+        elif torch_to_python_dtype_map[dtype] == bool:
+            alpha = random.uniform() < 0.5
+        else:
+            real = random.uniform(low, high)
+            imag = random.uniform(low, high)
+            alpha = complex(real, imag)
+
+        yield SampleInput(*sample.args, alpha, **sample.kwargs)
+
+
+def _elementwise_binary_with_alpha_torch(op):
+    @wraps(op)
+    def _fn(x, y, alpha):
+        if isinstance(x, torch.Tensor) or isinstance(y, torch.Tensor):
+            return op(x, y, alpha=alpha)
+        return op(torch.tensor(x), torch.tensor(y), alpha=alpha).item()
 
     return _fn
 
