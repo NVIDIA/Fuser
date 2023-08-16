@@ -145,32 +145,57 @@ std::string FusionExecutor::getStructuredCode(
     const std::string& kernel_str,
     PrimDataType index_type) const {
   // generating cuda code;
-  std::string code = "";
-  code += includeStdComplex();
-  code += std::string("namespace ") + FusionExecutor::kernelNamespace() +
-      " {\n" + defineIntegerTypes() + defineIndexType(index_type) +
-      executor_utils::kernelPreamble() + kernel_str + "}\n";
-
-  if (isDebugDumpEnabled(DebugDumpOption::CudaKernel)) {
-    debug() << "\n======= Codegen output for kernel: " << kernelName()
-            << " =======\n\n"
-            << kernel_str << "\n======================================\n\n";
-  } else if (isDebugDumpEnabled(DebugDumpOption::CudaFull)) {
-    debug() << "\n======= Codegen output for kernel: " << kernelName()
-            << " =======\n\n"
-            << code << "\n======================================\n\n";
-  }
-  if (isDebugDumpEnabled(DebugDumpOption::CudaToFile) ||
-      isDebugDumpEnabled(DebugDumpOption::DebugInfo)) {
+  std::stringstream code;
+  bool use_external_code = false;
+  if (isOptionEnabled(EnableOption::CudaFromFile)) {
+    // Using DebugDumpOption::CudaToFile, we can print a .cu file for each
+    // fusion_id_. The EnableOption::CudaFromFile option lets us edit that code
+    // then re-load it, overriding the generated code. This is useful for trying
+    // out some new approaches before implementing them in codegen.
     std::stringstream file_name;
     file_name << "__tmp_kernel" << fusion_id_ << ".cu";
-    debug() << "PRINTING: " << file_name.str() << std::endl;
-    std::ofstream out(file_name.str());
-    out << code << std::endl;
-    out.close();
+    std::ifstream infile(file_name.str());
+    if (infile.is_open()) {
+      debug() << "Loading CUDA code from: " << file_name.str() << std::endl;
+      std::string line;
+      while (getline(infile, line)) {
+        code << line << std::endl;
+      }
+      infile.close();
+      use_external_code = true;
+    } else {
+      debug() << "Could not load " << file_name.str()
+              << ". Using generated code." << std::endl;
+    }
   }
 
-  return code;
+  if (!use_external_code) {
+    code << includeStdComplex();
+    code << std::string("namespace ") + FusionExecutor::kernelNamespace() +
+            " {\n" + defineIntegerTypes() + defineIndexType(index_type) +
+            executor_utils::kernelPreamble() + kernel_str + "}\n";
+
+    if (isDebugDumpEnabled(DebugDumpOption::CudaKernel)) {
+      debug() << "\n======= Codegen output for kernel: " << kernelName()
+              << " =======\n\n"
+              << kernel_str << "\n======================================\n\n";
+    } else if (isDebugDumpEnabled(DebugDumpOption::CudaFull)) {
+      debug() << "\n======= Codegen output for kernel: " << kernelName()
+              << " =======\n\n"
+              << code.str() << "\n======================================\n\n";
+    }
+    if (isDebugDumpEnabled(DebugDumpOption::CudaToFile) ||
+        isDebugDumpEnabled(DebugDumpOption::DebugInfo)) {
+      std::stringstream file_name;
+      file_name << "__tmp_kernel" << fusion_id_ << ".cu";
+      debug() << "PRINTING: " << file_name.str() << std::endl;
+      std::ofstream out(file_name.str());
+      out << code.str() << std::endl;
+      out.close();
+    }
+  }
+
+  return code.str();
 }
 
 std::string FusionExecutor::getStructuredCode() const {

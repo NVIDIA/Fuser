@@ -79,6 +79,7 @@ enum class DebugDumpOption {
 enum class EnableOption {
   Complex, //! Enable complex support on python
   ConvDecomposition, //! Enable conv-bias decomposition
+  CudaFromFile, //! Load cuda code from file, overriding generated code
   GraphOp, //! Enable graphOps(index_select/gather/scatter)
   KernelDb, //! Enable Kernel Database
   KernelProfile, //! Enable intra-kernel performance profiling
