@@ -1073,11 +1073,9 @@ std::vector<Statement*> checkCycle(Fusion* fusion) {
 
 namespace {
 
-inline bool isTensorAttr(const Expr* expr, const std::string& attr_name) {
-  if (expr == nullptr) {
-    return false;
-  }
-  auto getitem = dynamic_cast<const GetItem*>(expr);
+inline bool isTensorAttr(const Val* val, const std::string& attr_name) {
+  TORCH_INTERNAL_ASSERT(val != nullptr);
+  auto getitem = dynamic_cast<GetItem*>(val->definition());
   if (getitem == nullptr) {
     return false;
   }
@@ -1095,28 +1093,15 @@ inline bool isTensorAttr(const Expr* expr, const std::string& attr_name) {
   return metadata->in()->isA<TensorView>();
 }
 
-inline bool isTensorAttr(const Val* val, const std::string& attr_name) {
-  return isTensorAttr(val->definition(), attr_name);
-}
-
 } // namespace
 
 bool isTensorSize(const Val* val) {
   return isTensorAttr(val, "logical_size") || isTensorAttr(val, "alloc_size");
 }
 
-bool isTensorSize(const Expr* expr) {
-  return isTensorAttr(expr, "logical_size") || isTensorAttr(expr, "alloc_size");
-}
-
 bool isTensorStride(const Val* val) {
   return isTensorAttr(val, "logical_stride") ||
       isTensorAttr(val, "alloc_stride");
-}
-
-bool isTensorStride(const Expr* expr) {
-  return isTensorAttr(expr, "logical_stride") ||
-      isTensorAttr(expr, "alloc_stride");
 }
 
 } // namespace nvfuser::ir_utils

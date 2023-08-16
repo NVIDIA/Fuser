@@ -470,13 +470,7 @@ std::vector<Statement*> checkCycle(Fusion* fusion);
 //! Check if a Val is a tensor size;
 bool isTensorSize(const Val* val);
 
-//! Check if an Expr is a tensor size;
-bool isTensorSize(const Expr* expr);
-
 //! Check if a Val is a tensor stride;
 bool isTensorStride(const Val* val);
-
-//! Check if an Expr is a tensor stride;
-bool isTensorStride(const Expr* expr);
 
 } // namespace nvfuser::ir_utils
