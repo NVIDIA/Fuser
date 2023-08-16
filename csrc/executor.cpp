@@ -1839,7 +1839,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
       for (auto i : c10::irange(num_inputs)) {
         if (args[i]->is<at::Tensor>()) {
           auto t = args[i]->as<at::Tensor>();
-          auto num_bytes = getNumLoadedElements(i, t) *
+          auto num_bytes = getNumLoadedElements((int64_t)i, t) *
               (int64_t)dataTypeSize(aten_to_data_type(t.scalar_type()));
           bytes_processed_per_input_.at(i) = num_bytes;
         }
