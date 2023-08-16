@@ -141,7 +141,6 @@ class TORCH_CUDA_CU_API SchedulerRuntimeInfo : public NonCopyable {
   // TODO: Remove
   std::unordered_map<TensorView*, size_t> vectorword_map_;
 
-  // Checks if the fusion being scheduled is unsegmented.
   // The combined inner-outer scheduler is exclusive to unsegmented fusion.
   // For optimal performance, segmented fusions should be divided into
   // inner and outer reductions rather than using the combined scheduler.
