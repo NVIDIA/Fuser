@@ -726,7 +726,10 @@ struct SqueezeOpRecord : RecordFunctor {
 };
 
 //! Specialized Record Functor for the FusionState's broadcast_in_dim op.
-
+// NOTE: output_size gives the rank of the output tensor.  This size can be
+// found from the State after the definition is read and the Fusion IR is in the
+// process of being created.  However, pior to that point, the size is needed
+// for matching a Fusion Record node in the Trie used to cache definitions.
 struct BroadcastInDimOpRecord : RecordFunctor {
   BroadcastInDimOpRecord(
       std::vector<State> _args,
