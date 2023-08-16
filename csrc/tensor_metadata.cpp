@@ -329,9 +329,6 @@ std::vector<PolymorphicValue> GetMetaData::evaluate(
       "Currently, GetMetaData only supports TensorView");
   TensorView* tv = in()->as<TensorView>();
 
-  // std::cout << inputs.at(0).type().name() << std::endl;
-  // ee.print();
-
   at::Tensor input = inputs.at(0).as<at::Tensor>();
 
   TORCH_INTERNAL_ASSERT(
