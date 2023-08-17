@@ -120,35 +120,6 @@ bool Val::removeUse(Expr* expr) {
   return false;
 }
 
-// Converts the data type of TensorView or Scalar representing index
-// values. The data type of the original input should be
-// DataType::Index, but DataType::Int is also allowed as it is used
-// for index expressions.
-// TODO: remove this function. I think we are fine removing this now, but I need
-// to double check the benchmarks.
-void Val::resolveIndexDtype() {
-  TORCH_INTERNAL_ASSERT(
-      vtype_ == ValType::TensorView || vtype_ == ValType::Others ||
-          vtype_ == ValType::NamedScalar,
-      "Resolving index type is currently only supported on tensor view or scalar values. "
-      "Value type: ",
-      vtype_);
-  TORCH_INTERNAL_ASSERT(
-      isIntegralType(dtype_),
-      "Can only resolve index type if a Val has an Index or Int DataType. ",
-      "Data type: ",
-      dtype_);
-  TORCH_INTERNAL_ASSERT(
-      container()->isA<kir::Kernel>(),
-      "Index type can only be resolved at compile time.");
-  auto index_dtype = container()->as<kir::Kernel>()->indexType();
-  TORCH_INTERNAL_ASSERT(
-      index_dtype == DataType::Int || index_dtype == DataType::Int32,
-      "Invalid index data type: ",
-      index_dtype);
-  dtype_ = DataType::Index;
-}
-
 bool Val::sameAs(const Statement* other) const {
   if (this == other) {
     return true;
