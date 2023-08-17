@@ -466,8 +466,7 @@ void validateAlignedVectorizedFusionInputOutput(
     const at::Tensor& aten_tensor,
     int word_size,
     TensorView* tv,
-    ExpressionEvaluator& eval,
-    const kir::KernelSummary& kernel_summary) {
+    ExpressionEvaluator& eval) {
   eval.bind(tv, aten_tensor);
   auto metadata = eval.evaluate(IrBuilder::metadataExpr(tv));
 
@@ -584,11 +583,7 @@ void validateAlignedVectorizedTensors(
     TORCH_INTERNAL_ASSERT(
         args[pos]->is<at::Tensor>(), "alias io only supports tensor");
     validateAlignedVectorizedFusionInputOutput(
-        args[pos]->as<at::Tensor>(),
-        word_size,
-        tv,
-        expr_eval,
-        kernel->summary());
+        args[pos]->as<at::Tensor>(), word_size, tv, expr_eval);
   }
   if (!outputs.empty()) {
     for (auto pos : tensor_vectorization_validation_entry.get()
@@ -596,7 +591,7 @@ void validateAlignedVectorizedTensors(
       auto tv = kernel->outputs().at(pos)->as<TensorView>();
       auto word_size = kernel->summary().vectorized_accesses.at(tv);
       validateAlignedVectorizedFusionInputOutput(
-          outputs[pos], word_size, tv, expr_eval, kernel->summary());
+          outputs[pos], word_size, tv, expr_eval);
     }
   }
 }
