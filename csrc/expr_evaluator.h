@@ -28,7 +28,6 @@ class TORCH_CUDA_CU_API ExpressionEvaluator {
       PolymorphicValue concrete_value,
       bool evaluate_validate);
   void bind_(const std::string& name, PolymorphicValue concrete_value);
-  bool readyToEvaluate(const Val* value) const;
 
  public:
   //! Bind a concrete value to an IR variable

@@ -80,10 +80,6 @@ void validateValWithConcreteValue(
 
 } // namespace
 
-bool ExpressionEvaluator::readyToEvaluate(const Val* value) const {
-  return ir_utils::dependenciesSatisfied(value, known_values_);
-}
-
 void ExpressionEvaluator::bind_(
     const Val* value,
     PolymorphicValue concrete_value,
@@ -100,7 +96,8 @@ void ExpressionEvaluator::bind_(
     return;
   }
   validateValWithConcreteValue(value, concrete_value);
-  if (evaluate_validate && readyToEvaluate(value)) {
+  if (evaluate_validate &&
+      ir_utils::dependenciesSatisfied(value, known_values_)) {
     auto evaluated_value = evaluate(value);
     using namespace PolymorphicValue_functions;
     auto same = isSame(evaluated_value, concrete_value);
