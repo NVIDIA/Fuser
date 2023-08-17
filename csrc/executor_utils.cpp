@@ -444,6 +444,7 @@ std::vector<size_t> getTensorOffsets(
 
     const auto root_ids =
         TensorDomain::noReductions(tv->getMaybeRFactorDomain());
+    TORCH_INTERNAL_ASSERT(strides.size() == root_ids.size());
     const auto slice_info = slice->getRanges();
 
     size_t offset = 0;
