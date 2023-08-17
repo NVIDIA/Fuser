@@ -167,10 +167,6 @@ class TORCH_CUDA_CU_API GpuLower : public NonCopyable {
     return vectorized_set_info_;
   }
 
-  auto& tensorOffsets() {
-    return tensor_offsets_;
-  }
-
   FusedReductionInfo& fusedReductionInfo() {
     return fused_reduction_info_;
   }
@@ -255,10 +251,6 @@ class TORCH_CUDA_CU_API GpuLower : public NonCopyable {
   std::unordered_map<TensorView*, int> vectorized_accesses_;
   // Info on each vectorized set op
   std::vector<VectorizedSetInfo> vectorized_set_info_;
-
-  // Start access offsets of tensors. Currently only relevant for
-  // sliced fusion inputs
-  std::unordered_map<TensorView*, std::unordered_set<Val*>> tensor_offsets_;
 
   // All vals that are known to the kernel, including fusion inputs and
   // precomputed values
