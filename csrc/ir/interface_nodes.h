@@ -505,6 +505,24 @@ class TORCH_CUDA_CU_API TensorView : public Val {
   // ensure consistency.
   void commitLeafToRFactor();
 
+  //! Get vector of tensors that must have a block sync after their last use and
+  //! before the definition of this tensor.
+  const std::vector<TensorView*>& getRequestedReusedTensors() const {
+    return requested_reuse_tvs_;
+  }
+
+  //! Append to vector of tensors that must have a block sync after their last
+  //! use and before the definition of this tensor.
+  void requestReuse(TensorView* tv) {
+    TORCH_CHECK(
+        getMemoryType() == MemoryType::Shared,
+        "Only shared memory tensors re-use memory using requestReuse.");
+    TORCH_CHECK(
+        tv->getMemoryType() == MemoryType::Shared,
+        "Only shared memory tensors can be requested to be re-used.");
+    requested_reuse_tvs_.push_back(tv);
+  }
+
  protected:
   void setDomain(TensorDomain* td) {
     domain_ = td;
@@ -567,6 +585,15 @@ class TORCH_CUDA_CU_API TensorView : public Val {
   //! transformed when there may actually be a producer tensor that
   //! may be computed at.
   unsigned int maybe_max_producer_pos_ = 0;
+
+  //! This holds a collection of shared memory tensors which should have their
+  //! last use ordered before this tensor in the generated CUDA kernel. When
+  //! this list is non-empty, it indicates that we should ensure that thread
+  //! blocks are synchronized such that all threads have performed their last
+  //! read of any entries in this vector (or any possible aliased tensors of
+  //! them) before writing to the current tensor. This will then allow us to
+  //! safely reuse the memory allocated to these tensors.
+  std::vector<TensorView*> requested_reuse_tvs_;
 };
 
 //! A simple TensorView builder
