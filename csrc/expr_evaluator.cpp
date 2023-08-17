@@ -81,11 +81,7 @@ void validateValWithConcreteValue(
 } // namespace
 
 bool ExpressionEvaluator::readyToEvaluate(const Val* value) const {
-  std::unordered_set<const Val*> known;
-  for (auto& [k, _] : known_values_) {
-    known.insert(k);
-  }
-  return ir_utils::dependenciesSatisfied({value}, known);
+  return ir_utils::dependenciesSatisfied(value, known_values_);
 }
 
 void ExpressionEvaluator::bind_(
