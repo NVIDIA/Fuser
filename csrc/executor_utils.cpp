@@ -407,6 +407,61 @@ void validateAlignedVectorizeExtents(
   //     info.word_size);
 }
 
+namespace {
+
+// Return offsets of the first points accessed. Currently only
+// non-zero when tensor is sliced.
+std::vector<size_t> getTensorOffsets(
+    TensorView* tv,
+    const std::vector<int64_t>& strides,
+    ExpressionEvaluator& eval) {
+  if (!tv->isFusionInput()) {
+    return {0};
+  }
+
+  std::vector<size_t> offsets;
+  offsets.reserve(tv->uses().size());
+
+  for (auto use : tv->uses()) {
+    auto slice = dynamic_cast<SliceOp*>(use);
+
+    if (slice == nullptr) {
+      offsets.push_back(0);
+      continue;
+    }
+
+    // Since slice is done with the rfactor domain and we need to know
+    // their strides, the rfactor domain must be the same as the allocation
+    // domain
+    TORCH_INTERNAL_ASSERT(
+        tv->getMaybeAllocationDomain() == tv->getMaybeRFactorDomain(),
+        "Allocation domain must be the same as the rfactor domain for input that is sliced and vectorized: ",
+        tv->toString(),
+        ". Rfactor domain: ",
+        toDelimitedString(tv->getMaybeRFactorDomain()),
+        ". Allocation domain: ",
+        toDelimitedString(tv->getMaybeAllocationDomain()));
+
+    const auto root_ids =
+        TensorDomain::noReductions(tv->getMaybeRFactorDomain());
+    const auto slice_info = slice->getRanges();
+
+    size_t offset = 0;
+    for (const auto i : c10::irange(root_ids.size())) {
+      auto slice_start_eval = eval.evaluate(slice_info.at(i).start);
+      TORCH_INTERNAL_ASSERT(slice_start_eval.hasValue());
+      offset +=
+          static_cast<size_t>(slice_start_eval.as<int64_t>() * strides.at(i));
+    }
+
+    offsets.push_back(offset);
+  }
+
+  return offsets;
+}
+
+} // namespace
+
 void validateAlignedVectorizedFusionInputOutput(
     const at::Tensor& aten_tensor,
     int word_size,
@@ -430,7 +485,7 @@ void validateAlignedVectorizedFusionInputOutput(
   TORCH_INTERNAL_ASSERT(sizes.size() == no_reduction_to_full.size());
   TORCH_INTERNAL_ASSERT(strides.size() == no_reduction_to_full.size());
 
-  auto validateAlignment = [&](size_t offset) {
+  for (auto offset : getTensorOffsets(tv, strides, eval)) {
     TORCH_INTERNAL_ASSERT(
         (reinterpret_cast<size_t>(aten_tensor.data_ptr()) +
          offset * aten_tensor.dtype().itemsize()) %
@@ -447,18 +502,6 @@ void validateAlignedVectorizedFusionInputOutput(
         word_size,
         ", data type: ",
         aten_tensor.dtype());
-  };
-
-  auto offsets_it = kernel_summary.tensor_offsets.find(tv);
-  TORCH_INTERNAL_ASSERT(
-      offsets_it != kernel_summary.tensor_offsets.end() &&
-          !offsets_it->second.empty(),
-      "No offset info found for ",
-      tv->toString());
-  for (const Val* offset : offsets_it->second) {
-    auto offset_eval = eval.evaluate(offset);
-    TORCH_INTERNAL_ASSERT(offset_eval.hasValue());
-    validateAlignment(offset_eval.as<int64_t>());
   }
 
   // Traverse strides from the right-most domains. The rightmost
