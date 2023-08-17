@@ -92,32 +92,32 @@ void ExpressionEvaluator::bind_(
     const Val* value,
     PolymorphicValue concrete_value,
     bool evaluate_validate) {
+  using namespace PolymorphicValue_functions;
   TORCH_CHECK(concrete_value.hasValue(), "Cannot bind to undefined value");
   if (value->isConst()) {
     TORCH_CHECK(
         value->value() == concrete_value,
         "Tried to bind to a constant value: ",
-        value->value(),
+        toString(value->value()),
         " as ",
-        concrete_value);
+        toString(concrete_value));
     return;
   }
+  validateValWithConcreteValue(value, concrete_value);
   if (evaluate_validate && readyToEvaluate(value)) {
     auto evaluated_value = evaluate(value);
     using namespace PolymorphicValue_functions;
-    auto same = is_same(evaluated_value, concrete_value);
+    auto same = isSame(evaluated_value, concrete_value);
     TORCH_CHECK(
         same,
         "Tried to bind to a value: ",
         value->toInlineString(),
         "(which evaluated to ",
-        evaluated_value,
+        toString(evaluated_value),
         ") as ",
-        concrete_value);
+        toString(concrete_value));
   }
-  validateValWithConcreteValue(value, concrete_value);
   if (auto tv = dynamic_cast<const TensorView*>(value)) {
-    TORCH_INTERNAL_ASSERT(concrete_value.is<at::Tensor>());
     const auto& t = concrete_value.as<at::Tensor>();
     auto rfactor_domain =
         TensorDomain::noReductions(tv->getMaybeRFactorDomain());
@@ -220,29 +220,19 @@ PolymorphicValue ExpressionEvaluator::getValue(const Val* value) {
 }
 
 void ExpressionEvaluator::print() const {
+  using namespace PolymorphicValue_functions;
+
   debug() << "\nEvaluation context\n";
   debug() << "--------------------\n";
 
-  auto print_val = [](const PolymorphicValue& v) {
-    std::stringstream ss;
-    if (v.is<at::Tensor>()) {
-      const auto& t = v.as<at::Tensor>();
-      ss << "Tensor({" << t.sizes() << "}, " << t.dtype() << ", " << t.device()
-         << ")";
-    } else {
-      ss << v;
-    }
-    return ss.str();
-  };
-
   for (const auto& kv : known_values_) {
     TORCH_INTERNAL_ASSERT(!kv.first->isConstScalar());
-    debug() << kv.first << " = " << print_val(kv.second) << " ; "
+    debug() << kv.first << " = " << toString(kv.second) << " ; "
             << *kv.first->getValType() << "\n";
   }
 
   for (const auto& kv : known_named_scalars_) {
-    debug() << kv.first << " = " << print_val(kv.second) << " ;\n";
+    debug() << kv.first << " = " << toString(kv.second) << " ;\n";
   }
 
   debug() << "\nPre-computed Values\n";
