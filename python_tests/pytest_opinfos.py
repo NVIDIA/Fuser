@@ -296,16 +296,26 @@ reciprocal_opinfo = OpInfo(
     lambda fd: fd.ops.reciprocal,
     "reciprocal",
     domain=Domain(0 + eps, math.inf),
-    sample_input_generator=partial(elementwise_unary_generator, exclude_zero=True),
+    sample_input_generator=partial(
+        elementwise_unary_generator,
+        enable_small_value_testing=False,
+        enable_extremal_value_testing=False,
+        exclude_zero=True,
+    ),
     reference=_elementwise_unary_torch(torch.reciprocal),
 )
 unary_ops.append(reciprocal_opinfo)
 
 rsqrt_opinfo = OpInfo(
     lambda fd: fd.ops.rsqrt,
-    "rqrt",
+    "rsqrt",
     domain=Domain(0 + eps, math.inf),
-    sample_input_generator=partial(elementwise_unary_generator, exclude_zero=True),
+    sample_input_generator=partial(
+        elementwise_unary_generator,
+        enable_small_value_testing=False,
+        enable_extremal_value_testing=False,
+        exclude_zero=True,
+    ),
     reference=_elementwise_unary_torch(torch.rsqrt),
 )
 unary_ops.append(rsqrt_opinfo)
@@ -375,18 +385,18 @@ unary_ops.append(tanh_opinfo)
 
 # TODO Add "ceildiv" to python_frontend
 # TODO Add support for python reference for "mod".
-# TODO Testing: Add small, large, extremal test cases
-# TODO Testing: Add broadcast pattern testing
 # TODO atan2 - complex dtypes are unsupported, but we fail when compiling kernel
 # TODO logical_right_shift - domain of shift parameter is non-zero; Otherwise the result is undefined.
-# TODO pow - limit size of second argument
+
 
 binary_ops = []
 
 add_opinfo = OpInfo(
     lambda fd: fd.ops.add,
     "add",
-    sample_input_generator=elementwise_binary_generator,
+    sample_input_generator=partial(
+        elementwise_binary_generator, enable_extremal_value_testing=False
+    ),
     reference=_elementwise_binary_torch(torch.add),
 )
 binary_ops.append(add_opinfo)
@@ -451,7 +461,12 @@ div_opinfo = OpInfo(
     lambda fd: fd.ops.div,
     "div",
     dtypes=float_complex_dtypes,
-    sample_input_generator=partial(elementwise_binary_generator, exclude_zero=True),
+    sample_input_generator=partial(
+        elementwise_binary_generator,
+        enable_small_value_testing=False,
+        enable_extremal_value_testing=False,
+        exclude_zero=True,
+    ),
     reference=_elementwise_binary_torch(torch.div),
 )
 binary_ops.append(div_opinfo)
@@ -506,7 +521,13 @@ logical_right_shift_opinfo = OpInfo(
     "logical_right_shift",
     domain=Domain(0, None),
     dtypes=int_dtypes,
-    sample_input_generator=elementwise_binary_generator,
+    sample_input_generator=partial(
+        elementwise_binary_generator,
+        enable_broadcast_testing=False,
+        enable_extremal_value_testing=False,
+        enable_large_value_testing=False,
+        enable_small_value_testing=False,
+    ),
     reference=jax.lax.shift_right_logical,
     reference_type=ReferenceType.Jax,
 )
@@ -524,7 +545,9 @@ binary_ops.append(lt_opinfo)
 mul_opinfo = OpInfo(
     lambda fd: fd.ops.mul,
     "mul",
-    sample_input_generator=elementwise_binary_generator,
+    sample_input_generator=partial(
+        elementwise_binary_generator, enable_extremal_value_testing=False
+    ),
     reference=_elementwise_binary_torch(torch.mul),
 )
 binary_ops.append(mul_opinfo)
@@ -560,7 +583,11 @@ remainder_opinfo = OpInfo(
     lambda fd: fd.ops.remainder,
     "remainder",
     dtypes=int_float_dtypes,
-    sample_input_generator=partial(elementwise_binary_generator, exclude_zero=True),
+    sample_input_generator=partial(
+        elementwise_binary_generator,
+        exclude_zero=True,
+        enable_extremal_value_testing=False,
+    ),
     reference=_elementwise_binary_torch(torch.remainder),
 )
 binary_ops.append(remainder_opinfo)
@@ -568,7 +595,9 @@ binary_ops.append(remainder_opinfo)
 sub_opinfo = OpInfo(
     lambda fd: fd.ops.sub,
     "sub",
-    sample_input_generator=elementwise_binary_generator,
+    sample_input_generator=partial(
+        elementwise_binary_generator, enable_extremal_value_testing=False
+    ),
     reference=_elementwise_binary_torch(torch.sub),
 )
 binary_ops.append(sub_opinfo)
@@ -576,7 +605,12 @@ binary_ops.append(sub_opinfo)
 truediv_opinfo = OpInfo(
     lambda fd: fd.ops.truediv,
     "truediv",
-    sample_input_generator=partial(elementwise_binary_generator, exclude_zero=True),
+    sample_input_generator=partial(
+        elementwise_binary_generator,
+        enable_small_value_testing=False,
+        enable_extremal_value_testing=False,
+        exclude_zero=True,
+    ),
     reference=_elementwise_binary_torch(torch.true_divide),
 )
 binary_ops.append(truediv_opinfo)
@@ -586,7 +620,12 @@ trunc_div_opinfo = OpInfo(
     lambda fd: fd.ops.div,
     "trunc_div",
     dtypes=int_dtypes,
-    sample_input_generator=partial(elementwise_binary_generator, exclude_zero=True),
+    sample_input_generator=partial(
+        elementwise_binary_generator,
+        enable_small_value_testing=False,
+        enable_extremal_value_testing=False,
+        exclude_zero=True,
+    ),
     reference=_elementwise_binary_torch(partial(torch.div, rounding_mode="trunc")),
 )
 binary_ops.append(trunc_div_opinfo)
@@ -687,20 +726,52 @@ broadcast_opinfo = OpInfo(
 )
 shape_ops.append(broadcast_opinfo)
 
-broadcast_in_dim_opinfo = OpInfo(
+# NOTE: The constant version of broadcast_in_dim opinfo tests the "shape"
+# argument when a List of Constant Ints is used as an input.
+# The symbolic parameter list lists the argument as "Constant" because
+# otherwise an input is generated to attempt to supply the "shape" arg.
+broadcast_in_dim_constant_opinfo = OpInfo(
     lambda fd: fd.ops.broadcast_in_dim,
-    "broadcast_in_dim",
+    "broadcast_in_dim_constant",
     sample_input_generator=broadcast_in_dim_generator,
     error_input_generator=broadcast_in_dim_error_generator,
     reference=jax.lax.broadcast_in_dim,
     reference_type=ReferenceType.Jax,
     symbolic_parameter_list=(
         ArgumentType.Symbolic,
+        # This argument is purposely Constant even though the positional
+        # argument can also be symbolic.
         ArgumentType.Constant,
         ArgumentType.Constant,
     ),
 )
-shape_ops.append(broadcast_in_dim_opinfo)
+shape_ops.append(broadcast_in_dim_constant_opinfo)
+
+
+# NOTE: The symbolic version of broadcast_in_dim opinfo tests the "shape"
+# argument with a Vector generated from another operation like ops.shape.
+def broadcast_in_dim_sym_fn(fd, arg1, arg2, broadcast_dims):
+    return fd.ops.broadcast_in_dim(arg1, arg2.shape(), broadcast_dims)
+
+
+def jax_broadcast_in_dim_fn(arg1, arg2, broadcast_dims):
+    return jax.lax.broadcast_in_dim(arg1, jax.numpy.shape(arg2), broadcast_dims)
+
+
+broadcast_in_dim_symbolic_opinfo = OpInfo(
+    lambda fd: partial(broadcast_in_dim_sym_fn, fd),
+    "broadcast_in_dim_symbolic",
+    sample_input_generator=broadcast_in_dim_generator,
+    error_input_generator=broadcast_in_dim_error_generator,
+    reference=jax_broadcast_in_dim_fn,
+    reference_type=ReferenceType.Jax,
+    symbolic_parameter_list=(
+        ArgumentType.Symbolic,
+        ArgumentType.Symbolic,
+        ArgumentType.Constant,
+    ),
+)
+shape_ops.append(broadcast_in_dim_symbolic_opinfo)
 
 
 # translate between nvfuser and pytorch argument order for gather, take_along_dim, and index_select
