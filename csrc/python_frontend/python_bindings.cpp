@@ -103,17 +103,20 @@ Tensor broadcast_in_dim_fn(
   TORCH_CHECK(
       output_size >= broadcast_dims.size(),
       "broadcast_dims vector size is too big for output shape!");
-  Vector output_shape;
-  if constexpr (std::is_same_v<ShapeType, py::list>) {
-    output_shape = define_vector_fn<py::list>(*fd, shape);
-  } else if constexpr (std::is_same_v<ShapeType, py::tuple>) {
-    output_shape = define_vector_fn<py::tuple>(*fd, shape);
-  } else if constexpr (std::is_same_v<ShapeType, Vector>) {
-    output_shape = std::move(shape);
-  } else {
-    TORCH_CHECK(
-        false, "broadcast_in_dim's shape argument type is not supported!");
-  }
+
+  Vector output_shape = [](FusionDefinition& fd, ShapeType shape) -> Vector {
+    if constexpr (std::is_same_v<ShapeType, Vector>) {
+      return shape;
+    } else {
+      if constexpr (!(std::is_same_v<ShapeType, py::list> ||
+                      std::is_same_v<ShapeType, py::tuple>)) {
+        TORCH_CHECK(
+            false, "broadcast_in_dim's shape argument type is not supported!");
+      }
+      return define_vector_fn<ShapeType>(fd, shape);
+    }
+  }(*fd, shape);
+
   Tensor output = fd->defineTensor(output_size);
   fd->defineRecord(new BroadcastInDimOpRecord(
       {fd->recordingState(arg()), fd->recordingState(output_shape())},

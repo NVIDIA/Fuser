@@ -71,7 +71,6 @@ struct TORCH_CUDA_CU_API Scalar {
 };
 
 struct TORCH_CUDA_CU_API Vector {
-  Vector() : index(0), size(0), fusion_definition(nullptr) {}
   Vector(size_t _index, size_t _size, FusionDefinition* _fd)
       : index(_index), size(_size), fusion_definition(_fd) {}
 
