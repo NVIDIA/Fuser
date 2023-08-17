@@ -4703,6 +4703,79 @@ TEST_F(NVFuserTest, FusionMatmulSchedulerStridedBatchEpilogueBias_CUDA) {
   }
 }
 
+// Strided batch gemm test with single bias vector that uses matmul
+// scheduler, for Ampere:
+//   D = (A x B) + bias
+TEST_F(NVFuserTest, FusionMatmulSchedulerStridedBatchEpilogueSingleBias_CUDA) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 9, 0);
+  const int M = 504, N = 136, K = 248, B = 2;
+
+  for (auto layout : kAllSupportedMatmulLayout) {
+    auto fusion = std::make_unique<Fusion>();
+    FusionGuard fg(fusion.get());
+
+    // A - tv0, B - tv1, bias - tv2
+    auto tv0 = makeContigTensor(3, DataType::Half);
+    auto tv1 = makeContigTensor(3, DataType::Half);
+    auto tv2 = makeContigTensor(1, DataType::Float);
+
+    // tv3 := A x B
+    auto tv3 = splitkLikeBatchedMatmul(tv0, tv1, layout);
+    // tv4 := (A x B) + bias
+    auto tv4 = biasEpilogue(tv3, tv2);
+
+    fusion->addInput(tv0);
+    fusion->addInput(tv1);
+    fusion->addInput(tv2);
+    fusion->addOutput(tv4);
+
+    TORCH_CHECK(
+        1 == ir_utils::getMmaOps(fusion.get()).size(),
+        "matmul fusion must have at least one MmaOp");
+    TORCH_CHECK(
+        ir_utils::getMmaOps(fusion.get()).front()->layout().has_value(),
+        "input layout has not be set for MmaOp");
+    TORCH_CHECK(
+        MatmulLayout::TN ==
+            ir_utils::getMmaOps(fusion.get()).front()->layout().value(),
+        "the MmaOp layout of Ampere MMA must always be TN");
+
+    const auto fusion_layout = mma_utils::getMatmulLayout(fusion.get());
+    TORCH_CHECK(
+        fusion_layout.isValid(),
+        "failed to get decide matmul layout through fusion definition");
+    TORCH_CHECK(
+        fusion_layout.getData() == layout,
+        "mismatch between test layout (",
+        toString(layout),
+        ") and layout inferred from fusion definition (",
+        toString(fusion_layout.getData()),
+        ")");
+
+    FusionExecutorCache executor_cache(std::move(fusion));
+
+    at::manual_seed(0);
+    auto t0 = matmulAtInput(layout, TensorMatmulPos::A, at::kHalf, M, N, K, B);
+    auto t1 = matmulAtInput(layout, TensorMatmulPos::B, at::kHalf, M, N, K, B);
+    // Explicitly make bias tensor a single dim by passing 0 for batch
+    auto t2 =
+        matmulAtInput(layout, TensorMatmulPos::Bias, at::kFloat, M, N, K, 0);
+
+    auto t3 = splitkLikeAtMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout);
+    auto t4 = atBiasEpilogue(t3, t2).to(at::kFloat);
+
+    auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
+
+    TORCH_CHECK(
+        !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
+        "segmentation did happen");
+
+    // NOTE: increasted absolute tolerance to silence false negative
+    //  verification caused by different way of calculating reference
+    TORCH_CHECK(outputs[0].allclose(t4, 0.0001, 0.0001));
+  }
+}
+
 // MMA and alpha unit test, for Ampere TN
 TEST_F(NVFuserTest, FusionAmpereMMATNAlpha_CUDA) {
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 9, 0);

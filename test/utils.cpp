@@ -612,12 +612,19 @@ TensorView* biasEpilogue(TensorView* tensor, TensorView* bias) {
       break;
     case 3:
       // strided batch gemm case
-      TORCH_CHECK(
-          (bias->nDims() == 2 || bias->nDims() == 1),
-          "bias vector must have one (single bias for batch) "
-          "or two (bias for each batch entries)), got",
-          bias->nDims());
-      biasb = broadcast(bias, {false, false, true});
+      if (bias->nDims() == 1) {
+        // case with a single bias used through whole batch
+        biasb = broadcast(bias, {true, false, true});
+      } else if (bias->nDims() == 2) {
+        // case with dedicated bias for each problem in the batch
+        biasb = broadcast(bias, {false, false, true});
+      } else {
+        TORCH_CHECK(
+            false,
+            "bias vector must have one (single bias for batch) "
+            "or two (bias for each batch entries)), got",
+            bias->nDims());
+      }
       break;
     default:
       TORCH_CHECK(
@@ -638,22 +645,12 @@ at::Tensor atBiasEpilogue(const at::Tensor& tensor, const at::Tensor& bias) {
           bias.dim() == 1,
           "For single matmul problem bias must be a vector, got ",
           bias.dim());
-      TORCH_CHECK(
-          tensor.dim() == 2,
-          "For single matmul problem only 2d tensors have"
-          " bias epilogue support, got ",
-          tensor.dim());
       break;
     case 3:
       TORCH_CHECK(
-          bias.dim() == 2,
-          "For strided batch matmul problem bias must be a 2d tensor, got ",
+          (bias.dim() == 1 || bias.dim() == 2),
+          "For strided batch matmul problem bias must be 1d or 2d tensor, got ",
           bias.dim());
-      TORCH_CHECK(
-          tensor.dim() == 3,
-          "For strided batch matmul matmul problem only 3d tensors have"
-          " bias epilogue support, got ",
-          tensor.dim());
       break;
     default:
       TORCH_CHECK(
