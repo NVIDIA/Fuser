@@ -411,51 +411,38 @@ namespace {
 
 // Return offsets of the first points accessed. Currently only
 // non-zero when tensor is sliced.
-std::vector<size_t> getTensorOffsets(
+std::unordered_set<size_t> getTensorOffsets(
     TensorView* tv,
-    const std::vector<int64_t>& strides,
+    const std::vector<int64_t>& logical_strides,
     ExpressionEvaluator& eval) {
   if (!tv->isFusionInput()) {
     return {0};
   }
 
-  std::vector<size_t> offsets;
-  offsets.reserve(tv->uses().size());
+  std::unordered_set<size_t> offsets;
 
   for (auto use : tv->uses()) {
     auto slice = dynamic_cast<SliceOp*>(use);
 
     if (slice == nullptr) {
-      offsets.push_back(0);
+      offsets.insert(0);
       continue;
     }
 
-    // Since slice is done with the rfactor domain and we need to know
-    // their strides, the rfactor domain must be the same as the allocation
-    // domain
-    TORCH_INTERNAL_ASSERT(
-        tv->getMaybeAllocationDomain() == tv->getMaybeRFactorDomain(),
-        "Allocation domain must be the same as the rfactor domain for input that is sliced and vectorized: ",
-        tv->toString(),
-        ". Rfactor domain: ",
-        toDelimitedString(tv->getMaybeRFactorDomain()),
-        ". Allocation domain: ",
-        toDelimitedString(tv->getMaybeAllocationDomain()));
-
     const auto root_ids =
         TensorDomain::noReductions(tv->getMaybeRFactorDomain());
-    TORCH_INTERNAL_ASSERT(strides.size() == root_ids.size());
+    TORCH_INTERNAL_ASSERT(logical_strides.size() == root_ids.size());
     const auto slice_info = slice->getRanges();
 
     size_t offset = 0;
     for (const auto i : c10::irange(root_ids.size())) {
       auto slice_start_eval = eval.evaluate(slice_info.at(i).start);
       TORCH_INTERNAL_ASSERT(slice_start_eval.hasValue());
-      offset +=
-          static_cast<size_t>(slice_start_eval.as<int64_t>() * strides.at(i));
+      offset += static_cast<size_t>(
+          slice_start_eval.as<int64_t>() * logical_strides.at(i));
     }
 
-    offsets.push_back(offset);
+    offsets.insert(offset);
   }
 
   return offsets;
@@ -485,7 +472,8 @@ void validateAlignedVectorizedFusionInputOutput(
   TORCH_INTERNAL_ASSERT(sizes.size() == no_reduction_to_full.size());
   TORCH_INTERNAL_ASSERT(strides.size() == no_reduction_to_full.size());
 
-  for (auto offset : getTensorOffsets(tv, strides, eval)) {
+  for (auto offset : getTensorOffsets(
+           tv, std::vector<int64_t>(metadata["logical_stride"]), eval)) {
     TORCH_INTERNAL_ASSERT(
         (reinterpret_cast<size_t>(aten_tensor.data_ptr()) +
          offset * aten_tensor.dtype().itemsize()) %
