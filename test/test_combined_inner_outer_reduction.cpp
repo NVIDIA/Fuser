@@ -1005,4 +1005,131 @@ TEST_F(NVFuserTest, CombinedReductionMultiPerBlock_CUDA) {
       __FILE__);
 }
 
+// The fusion is layer norm backward and reshape. It's can't be scheduled as
+// unsegmented since normalization scheduler is not allowed if there is a view
+// op. It should be segmented into two kernels, one is using the combined
+// scheduler and the other is using the pointwise scheduler.
+TEST_F(NVFuserTest, CombinedSchedulerReshapeSegmentedFusion_CUDA) {
+  auto runTest = [](const int64_t batch_size,
+                    const int64_t hidden_size,
+                    DataType dtype) {
+    std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+    Fusion& fusion = *fusion_ptr.get();
+    FusionGuard fg(&fusion);
+
+    std::vector<int64_t> input_shape{batch_size, hidden_size};
+    std::vector<int64_t> outer_shape{batch_size, 1};
+    std::vector<int64_t> norm_shape{hidden_size};
+
+    auto grad_out = makeContigTensor(input_shape.size(), dtype);
+    auto input = makeContigTensor(input_shape.size(), dtype);
+    auto mean = makeConcreteTensor(
+        outer_shape, dtype == DataType::Half ? DataType::Float : dtype);
+    auto rstd = makeConcreteTensor(
+        outer_shape, dtype == DataType::Half ? DataType::Float : dtype);
+    auto weight = makeContigTensor(norm_shape.size(), dtype);
+    auto bias = makeContigTensor(norm_shape.size(), dtype);
+    fusion.addInput(grad_out);
+    fusion.addInput(input);
+    fusion.addInput(mean);
+    fusion.addInput(rstd);
+    fusion.addInput(weight);
+    fusion.addInput(bias);
+
+    if (dtype == DataType::Half) {
+      grad_out = castOp(DataType::Float, grad_out);
+      input = castOp(DataType::Float, input);
+      weight = castOp(DataType::Float, weight);
+      bias = castOp(DataType::Float, bias);
+    }
+
+    auto layer_norm_results = layer_norm_backward(
+        grad_out,
+        input,
+        norm_shape,
+        mean,
+        rstd,
+        weight,
+        bias,
+        {true, true, true});
+
+    // reshape
+    const std::vector<int64_t> new_shape{hidden_size, batch_size};
+    auto reshaped_output =
+        reshape(layer_norm_results.grad_input, input_shape, new_shape);
+
+    if (dtype == DataType::Half) {
+      layer_norm_results.grad_input =
+          castOp(dtype, layer_norm_results.grad_input);
+      layer_norm_results.grad_bias =
+          castOp(dtype, layer_norm_results.grad_bias);
+      layer_norm_results.grad_weight =
+          castOp(dtype, layer_norm_results.grad_weight);
+      reshaped_output = castOp(dtype, reshaped_output);
+    }
+    fusion.addOutput(layer_norm_results.grad_input);
+    fusion.addOutput(layer_norm_results.grad_weight);
+    fusion.addOutput(layer_norm_results.grad_bias);
+    fusion.addOutput(reshaped_output);
+
+    auto maybe_fp16_options = at::TensorOptions()
+                                  .dtype(data_type_to_aten(dtype))
+                                  .device(at::kCUDA, 0);
+    at::Tensor aten_grad_out = at::randn(input_shape, maybe_fp16_options);
+    at::Tensor aten_input = at::randn(input_shape, maybe_fp16_options);
+    at::Tensor aten_weight = at::randn(norm_shape, maybe_fp16_options);
+    at::Tensor aten_bias = at::randn(norm_shape, maybe_fp16_options);
+    auto at_weight = c10::optional<at::Tensor>(aten_weight);
+    auto at_bias = c10::optional<at::Tensor>(aten_bias);
+
+    const float kEps = 1e-5;
+    auto aten_results =
+        at::native_layer_norm(aten_input, norm_shape, at_weight, at_bias, kEps);
+    auto aten_output = std::get<0>(aten_results);
+    auto aten_mean = std::get<1>(aten_results);
+    auto aten_rstd = std::get<2>(aten_results);
+
+    FusionExecutorCache fec(std::move(fusion_ptr));
+    std::vector<c10::IValue> aten_inputs = {
+        aten_grad_out,
+        aten_input,
+        aten_mean,
+        aten_rstd,
+        aten_weight,
+        aten_bias};
+    auto cg_outputs = fec.runFusionWithInputs(aten_inputs);
+
+    auto aten_gradients = at::native_layer_norm_backward(
+        aten_grad_out.to(at::kDouble),
+        aten_input.to(at::kDouble),
+        norm_shape,
+        aten_mean.to(at::kDouble),
+        aten_rstd.to(at::kDouble),
+        c10::optional<at::Tensor>(aten_weight.to(at::kDouble)),
+        c10::optional<at::Tensor>(aten_bias.to(at::kDouble)),
+        {true, true, true});
+
+    auto aten_reshaped = std::get<0>(aten_gradients).reshape(new_shape);
+
+    const int64_t n_segments =
+        fec.getMostRecentKernelRuntime()->fusionSegments()->groups().size();
+    ASSERT_TRUE(n_segments == 2) << "Expected 2 segments, got " << n_segments;
+
+    testValidate(
+        &fusion,
+        cg_outputs,
+        aten_inputs,
+        {std::get<0>(aten_gradients),
+         std::get<1>(aten_gradients),
+         std::get<2>(aten_gradients),
+         aten_reshaped},
+        __LINE__,
+        __FILE__);
+  };
+
+  DataType dtype = DataType::Float;
+  int64_t batch_shape = 8192;
+  int64_t norm_shape = 2048;
+  runTest(batch_shape, norm_shape, dtype);
+}
 } // namespace nvfuser
