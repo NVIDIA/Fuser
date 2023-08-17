@@ -13,8 +13,6 @@
 #include <test/utils.h>
 #include <test/validator.h>
 
-#if 0
-
 namespace nvfuser {
 
 class LoopRotationTest : public NVFuserTest {};
@@ -646,5 +644,3 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> 
   }
 }
 } // namespace nvfuser
-
-#endif

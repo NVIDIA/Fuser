@@ -247,7 +247,6 @@ inferAndValidateAllocationSizesAndStrides(
   for (int64_t i : c10::irange((int64_t)rfactor.size())) {
     auto rf_id = rfactor.at(i);
     active_ids[rf_id] = {tensor.size(i), tensor.stride(i)};
-    ee.bind(rf_id->extent(), tensor.size(i));
   }
 
   ForwardTraverseFromRFactorToAlloc(ee, active_ids).run(tv, rfactor, alloc);
