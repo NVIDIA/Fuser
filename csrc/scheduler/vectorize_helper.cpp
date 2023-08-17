@@ -121,7 +121,7 @@ ContiguousInnerDimensionsMapper::ContiguousInnerDimensionsMapper(
   //   }
   // }
 
-  reference_information = MappedDomain::build(
+  std::shared_ptr<Information> reference_information = MappedDomain::build(
       projectId(reference->getMaybeRFactorDomain(), ids),
       reference->getMaybeRFactorDomain(),
       // projectId(reordered_rfactor, reference->getRootDomain()),
