@@ -456,7 +456,6 @@ bitwise_xor_opinfo = OpInfo(
 )
 binary_ops.append(bitwise_xor_opinfo)
 
-# TODO add except_zero option to prevent divide-by-zero exception
 div_opinfo = OpInfo(
     lambda fd: fd.ops.div,
     "div",
@@ -541,6 +540,20 @@ lt_opinfo = OpInfo(
     reference=_elementwise_binary_torch(torch.lt),
 )
 binary_ops.append(lt_opinfo)
+
+mod_opinfo = OpInfo(
+    lambda fd: fd.ops.mod,
+    "mod",
+    dtypes=int_dtypes,
+    sample_input_generator=partial(
+        elementwise_binary_generator,
+        exclude_zero=True,
+    ),
+    # Matlab rem (Remainder after Division) function
+    # For more details, see https://www.mathworks.com/help/matlab/ref/rem.html
+    reference=lambda a, b: a - b * torch.trunc(a / b).to(a.dtype),
+)
+binary_ops.append(mod_opinfo)
 
 mul_opinfo = OpInfo(
     lambda fd: fd.ops.mul,
