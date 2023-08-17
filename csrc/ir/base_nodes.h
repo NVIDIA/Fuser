@@ -423,10 +423,6 @@ class TORCH_CUDA_CU_API Val : public Statement {
     definition_ = expr;
   }
 
-  // TODO: remove this function. I think we are fine removing this now, but I
-  // need to double check the benchmarks.
-  void resolveIndexDtype();
-
   NVFUSER_DECLARE_CLONE
 
  protected:
