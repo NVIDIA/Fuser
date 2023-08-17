@@ -124,6 +124,24 @@ Val* findRefAsSubexprOf(Val* from, Val* reference, bool exact) {
   return nullptr;
 }
 
+// Check if the given value is helpful to reuse it. For example
+// in x = (a + b) * (a + b), it is helpful to reuse (a + b) as
+// c = a + b; x = c * c, because it can reduce the number of arithmetic
+// operations. However, it makes no sense to reuse T0.size[0] + T0.size[0] as
+// a = T0.size[0]; x = a + a, because although T0.size[0] is a composition of
+// GetItem with GetAttr, in C++, these operations are free because it just get
+// erased when lowering C++ into assembly languages.
+bool isHelpfulToReuse(Val* value) {
+  auto def = value->definition();
+  if (def == nullptr) {
+    return false;
+  }
+  if (def->isOneOf<GetMetaData, GetAttr, GetItem>()) {
+    return false;
+  }
+  return true;
+}
+
 } // namespace
 
 std::pair<Val*, bool> CommonScalarMap::hoistScalarImpl(
@@ -454,6 +472,10 @@ class CommonIndexInserter : private kir::ExprMutator {
       if (existing_alloc_info.first > alloc_point) {
         alloc_point = existing_alloc_info.first;
         insert_ref = exprs[alloc_point];
+      }
+
+      if (!isHelpfulToReuse(value)) {
+        continue;
       }
 
       auto alloc = IrBuilder::create<kir::Allocate>(

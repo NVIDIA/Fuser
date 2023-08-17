@@ -450,7 +450,13 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     const bool has_alloc = alloc_map_.find(s) != alloc_map_.end();
     const bool is_param = kernel_params_.find(s) != kernel_params_.end();
     if (def != nullptr && !has_alloc && !is_param) {
-      code_ << "(" << genInline(def) << ")";
+      if (def->isOneOf<GetAttr, GetItem, GetMetaData>() ||
+          (def->isA<UnaryOp>() &&
+           !inline_op_str(def->as<UnaryOp>()->getUnaryOpType()).has_value())) {
+        code_ << genInline(def);
+      } else {
+        code_ << "(" << genInline(def) << ")";
+      }
     } else if (s->isConst()) {
       auto value = s->value();
       auto dtype = s->dtype();
