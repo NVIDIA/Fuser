@@ -6,7 +6,6 @@
 import math
 import torch
 import jax
-import numpy as np
 from pytest_core import OpInfo, ReferenceType, Domain
 from pytest_fusion_definitions import (
     api_test_fd_fn,
@@ -756,7 +755,7 @@ def broadcast_in_dim_sym_fn(fd, arg1, arg2, broadcast_dims):
 
 
 def jax_broadcast_in_dim_fn(arg1, arg2, broadcast_dims):
-    return jax.lax.broadcast_in_dim(arg1, np.shape(arg2), broadcast_dims)
+    return jax.lax.broadcast_in_dim(arg1, jax.numpy.shape(arg2), broadcast_dims)
 
 
 broadcast_in_dim_symbolic_opinfo = OpInfo(
