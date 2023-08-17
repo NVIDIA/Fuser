@@ -65,65 +65,67 @@ ContiguousInnerDimensionsMapper::ContiguousInnerDimensionsMapper(
       divisible_splits_(divisible_splits) {
   FusionGuard fg(reference->fusion());
   // map ids to reference_ids
-  std::vector<IterDomain*> reference_ids = projectId(reference->getMaybeRFactorDomain(), ids);
+  // std::vector<IterDomain*> reference_ids = projectId(reference->getMaybeRFactorDomain(), ids);
+  //
+  // // Check which domain of tensor view we should be looking at. All IDs must be
+  // // found in the the rfactor domain.
+  // TORCH_INTERNAL_ASSERT(
+  //     std::all_of(
+  //         reference_ids.begin(),
+  //         reference_ids.end(),
+  //         [reference](IterDomain* id) {
+  //           return (
+  //               std::find(
+  //                   reference->getMaybeRFactorDomain().begin(),
+  //                   reference->getMaybeRFactorDomain().end(),
+  //                   id) != reference->getMaybeRFactorDomain().end());
+  //         }),
+  //     "\nIterDomains passed in to ContiguousInnerDimensionsMapper passed in to ",
+  //     "ContiguousInnerDimensionsMapper must all exist in the rfactor domain.\n",
+  //     "Reference: ",
+  //     reference->toString());
 
-  // Check which domain of tensor view we should be looking at. All IDs must be
-  // found in the the rfactor domain.
-  TORCH_INTERNAL_ASSERT(
-      std::all_of(
-          reference_ids.begin(),
-          reference_ids.end(),
-          [reference](IterDomain* id) {
-            return (
-                std::find(
-                    reference->getMaybeRFactorDomain().begin(),
-                    reference->getMaybeRFactorDomain().end(),
-                    id) != reference->getMaybeRFactorDomain().end());
-          }),
-      "\nIterDomains passed in to ContiguousInnerDimensionsMapper passed in to ",
-      "ContiguousInnerDimensionsMapper must all exist in the rfactor domain.\n",
-      "Reference: ",
-      reference->toString());
+  // // Record while processing reference's information
+  // recording_ = true;
+  // std::shared_ptr<Information> reference_information;
 
-  // Record while processing reference's information
-  recording_ = true;
-  std::shared_ptr<Information> reference_information;
-
-  // Ordering of dimensions is important in this analysis, if an ordering is
-  // contiguous in the reference, but not the target tensor views, then we
-  // cannot consider that a contiguous merge dimension for vectorization.
-  std::vector<IterDomain*> reordered_rfactor;
-  for (auto id : reference->getMaybeRFactorDomain()) {
-    // Exclude reduction IDs if the reference is a fusion input as they
-    // don't manifest at all in the fusion. This simplifies the
-    // analysis in getContigMergeOfInnerSize, which only looks at
-    // non-reduction rfactor domains. Including reduction domains here
-    // can result in incorrect ordering
-    if (reference->isFusionInput() && id->isReduction()) {
-      continue;
-    }
-    // If not a fusion input, can this be a reduction domain?
-    TORCH_INTERNAL_ASSERT(
-        !id->isReduction(),
-        "Unexpected reduction domain: ",
-        id->toString(),
-        " of tensor ",
-        reference->toString());
-    if (std::find(reference_ids.begin(), reference_ids.end(), id) !=
-        reference_ids.end()) {
-      reordered_rfactor.push_back(id);
-      // Initiailze the extent for the mapped iter domain
-      addProjectedExtent(id, commonOrConstExtent(ca_map_, id));
-    } else if (!id->isBroadcast()) {
-      // Ignore broadcasts in the reference. Otherwise, remove non-contiguous
-      // IDs in the reference tensor as this is the contiguous mapper.
-      reordered_rfactor.clear();
-    }
-  }
+  // // Ordering of dimensions is important in this analysis, if an ordering is
+  // // contiguous in the reference, but not the target tensor views, then we
+  // // cannot consider that a contiguous merge dimension for vectorization.
+  // std::vector<IterDomain*> reordered_rfactor;
+  // for (auto id : reference->getMaybeRFactorDomain()) {
+  //   // Exclude reduction IDs if the reference is a fusion input as they
+  //   // don't manifest at all in the fusion. This simplifies the
+  //   // analysis in getContigMergeOfInnerSize, which only looks at
+  //   // non-reduction rfactor domains. Including reduction domains here
+  //   // can result in incorrect ordering
+  //   if (reference->isFusionInput() && id->isReduction()) {
+  //     continue;
+  //   }
+  //   // If not a fusion input, can this be a reduction domain?
+  //   TORCH_INTERNAL_ASSERT(
+  //       !id->isReduction(),
+  //       "Unexpected reduction domain: ",
+  //       id->toString(),
+  //       " of tensor ",
+  //       reference->toString());
+  //   if (std::find(reference_ids.begin(), reference_ids.end(), id) !=
+  //       reference_ids.end()) {
+  //     reordered_rfactor.push_back(id);
+  //     // Initiailze the extent for the mapped iter domain
+  //     addProjectedExtent(id, commonOrConstExtent(ca_map_, id));
+  //   } else if (!id->isBroadcast()) {
+  //     // Ignore broadcasts in the reference. Otherwise, remove non-contiguous
+  //     // IDs in the reference tensor as this is the contiguous mapper.
+  //     reordered_rfactor.clear();
+  //   }
+  // }
 
   reference_information = MappedDomain::build(
-      projectId(reordered_rfactor, reference->getRootDomain()),
-      reordered_rfactor,
+      projectId(reference->getMaybeRFactorDomain(), ids),
+      reference->getMaybeRFactorDomain(),
+      // projectId(reordered_rfactor, reference->getRootDomain()),
+      // reordered_rfactor,
       reference->hasRFactor() /*shouldn't matter how we initialize this*/);
 
   // Stop recording before traversal
