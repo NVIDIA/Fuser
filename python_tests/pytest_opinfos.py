@@ -726,20 +726,52 @@ broadcast_opinfo = OpInfo(
 )
 shape_ops.append(broadcast_opinfo)
 
-broadcast_in_dim_opinfo = OpInfo(
+# NOTE: The constant version of broadcast_in_dim opinfo tests the "shape"
+# argument when a List of Constant Ints is used as an input.
+# The symbolic parameter list lists the argument as "Constant" because
+# otherwise an input is generated to attempt to supply the "shape" arg.
+broadcast_in_dim_constant_opinfo = OpInfo(
     lambda fd: fd.ops.broadcast_in_dim,
-    "broadcast_in_dim",
+    "broadcast_in_dim_constant",
     sample_input_generator=broadcast_in_dim_generator,
     error_input_generator=broadcast_in_dim_error_generator,
     reference=jax.lax.broadcast_in_dim,
     reference_type=ReferenceType.Jax,
     symbolic_parameter_list=(
         ArgumentType.Symbolic,
+        # This argument is purposely Constant even though the positional
+        # argument can also be symbolic.
         ArgumentType.Constant,
         ArgumentType.Constant,
     ),
 )
-shape_ops.append(broadcast_in_dim_opinfo)
+shape_ops.append(broadcast_in_dim_constant_opinfo)
+
+
+# NOTE: The symbolic version of broadcast_in_dim opinfo tests the "shape"
+# argument with a Vector generated from another operation like ops.shape.
+def broadcast_in_dim_sym_fn(fd, arg1, arg2, broadcast_dims):
+    return fd.ops.broadcast_in_dim(arg1, arg2.shape(), broadcast_dims)
+
+
+def jax_broadcast_in_dim_fn(arg1, arg2, broadcast_dims):
+    return jax.lax.broadcast_in_dim(arg1, jax.numpy.shape(arg2), broadcast_dims)
+
+
+broadcast_in_dim_symbolic_opinfo = OpInfo(
+    lambda fd: partial(broadcast_in_dim_sym_fn, fd),
+    "broadcast_in_dim_symbolic",
+    sample_input_generator=broadcast_in_dim_generator,
+    error_input_generator=broadcast_in_dim_error_generator,
+    reference=jax_broadcast_in_dim_fn,
+    reference_type=ReferenceType.Jax,
+    symbolic_parameter_list=(
+        ArgumentType.Symbolic,
+        ArgumentType.Symbolic,
+        ArgumentType.Constant,
+    ),
+)
+shape_ops.append(broadcast_in_dim_symbolic_opinfo)
 
 
 # translate between nvfuser and pytorch argument order for gather, take_along_dim, and index_select
