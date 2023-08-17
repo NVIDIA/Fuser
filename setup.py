@@ -257,7 +257,7 @@ def get_available_memory_gb():
         import psutil
 
         return psutil.virtual_memory().available / 1024 / 1024 / 1024
-    except:
+    except:  # noqa: E722
         pass
 
     try:
@@ -270,7 +270,7 @@ def get_available_memory_gb():
                     return int(mem) / 1024 / 1024
                 if not line:
                     break
-    except:
+    except:  # noqa: E722
         pass
 
     return 0
