@@ -24,4 +24,17 @@ enum class TORCH_CUDA_CU_API ScheduleHeuristic {
   Matmul
 };
 
+enum class PersistentSchedulerRejectReason {
+  NotRejected,
+  NoPersistentBuffer,
+  NotEnoughSharedMemoryAndRegister,
+  WasRejectedByNotEnoughSharedMemoryAndRegister,
+};
+
+enum class ReductionSchedulerRejectReason {
+  NotRejected,
+  NoReductionOp,
+  NoReductionInput
+};
+
 } // namespace nvfuser

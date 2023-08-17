@@ -23,6 +23,9 @@ namespace nvfuser {
 class SegmentedGroup;
 class ExpressionEvaluator;
 
+using SchedulerRejectReason = std::
+    variant<PersistentSchedulerRejectReason, ReductionSchedulerRejectReason>;
+
 //!  SchedulerRuntimeInfo is the abstraction introduced in
 //! this PR for passing runtime input dependent information
 //! to the schedulers and kernel caches.
@@ -99,6 +102,29 @@ class TORCH_CUDA_CU_API SchedulerRuntimeInfo : public NonCopyable {
     return is_complete_fusion_;
   }
 
+  void setRejectReason(ScheduleHeuristic sh, SchedulerRejectReason reason) {
+    scheduler_reject_reasons_[sh] = reason;
+  }
+
+  std::optional<SchedulerRejectReason> getOptionalRejectReason(
+      ScheduleHeuristic sh) {
+    auto it = scheduler_reject_reasons_.find(sh);
+    if (it != scheduler_reject_reasons_.end()) {
+      return it->second;
+    }
+    return std::nullopt;
+  }
+
+  const auto& getRejectReasonMap() const {
+    return scheduler_reject_reasons_;
+  }
+
+  void setRejectReasonMap(
+      const std::unordered_map<ScheduleHeuristic, SchedulerRejectReason>&
+          reject_reasons) {
+    scheduler_reject_reasons_ = reject_reasons;
+  }
+
  private:
   // Build and bind full fusion inputs to an expression evaluator
   std::unique_ptr<ExpressionEvaluator> getExpressionEvaluator(
@@ -145,6 +171,10 @@ class TORCH_CUDA_CU_API SchedulerRuntimeInfo : public NonCopyable {
   // For optimal performance, segmented fusions should be divided into
   // inner and outer reductions rather than using the combined scheduler.
   bool is_complete_fusion_ = true;
+
+  // Record segmented reasons we care about
+  std::unordered_map<ScheduleHeuristic, SchedulerRejectReason>
+      scheduler_reject_reasons_;
 };
 
 class HeuristicSummary;

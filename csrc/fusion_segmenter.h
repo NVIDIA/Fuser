@@ -522,6 +522,9 @@ class TORCH_CUDA_CU_API SegmentCandidateFinder {
       const Fusion* fusion,
       const KernelArgumentHolder& inputs,
       SegmentCandidateFinderOptions options = SegmentCandidateFinderOptions()) {
+    debug() << "Perform segmentation on a copy of the given fusion "
+            << std::endl;
+
     auto fusion_copy = std::make_unique<Fusion>(*fusion);
     if (isDebugDumpEnabled(DebugDumpOption::FusionSegments)) {
       debug() << "Segment the fusion (Original Fusion Un-modified): "
@@ -536,8 +539,14 @@ class TORCH_CUDA_CU_API SegmentCandidateFinder {
   static std::unique_ptr<SegmentedFusion> segment(
       std::unique_ptr<Fusion> fusion,
       const KernelArgumentHolder& inputs,
-      SegmentCandidateFinderOptions options = SegmentCandidateFinderOptions()) {
-    SegmentCandidateFinder scf(std::move(fusion), inputs, options);
+      SegmentCandidateFinderOptions options = SegmentCandidateFinderOptions(),
+      const std::unordered_map<ScheduleHeuristic, SchedulerRejectReason>&
+          reject_reasons_map = {}) {
+    debug() << "Perform segmentation on and take ownership of the given fusion "
+            << std::endl;
+
+    SegmentCandidateFinder scf(
+        std::move(fusion), inputs, options, reject_reasons_map);
     if (isDebugDumpEnabled(DebugDumpOption::FusionSegments)) {
       debug() << "Segment the fusion (Original Fusion Un-modified): "
               << std::endl;
@@ -562,7 +571,9 @@ class TORCH_CUDA_CU_API SegmentCandidateFinder {
   SegmentCandidateFinder(
       std::unique_ptr<Fusion> fusion,
       const KernelArgumentHolder& inputs,
-      SegmentCandidateFinderOptions options);
+      SegmentCandidateFinderOptions options,
+      const std::unordered_map<ScheduleHeuristic, SchedulerRejectReason>&
+          reject_reasons_map = {});
 
   void resetTraversal();
 
