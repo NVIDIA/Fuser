@@ -165,13 +165,12 @@ void PrecomputedValues::bindInputs(const KernelArgumentHolder& args) {
   for (const auto i : c10::irange((int64_t)inputs.size())) {
     const auto input = inputs[i];
     TORCH_INTERNAL_ASSERT(input != nullptr);
+    bindValue(input->evaluatorIndex(), *args[i]);
     if (auto tensor_input = dynamic_cast<TensorView*>(input)) {
       const auto& tensor = args[i]->as<at::Tensor>();
       if (!tensor.is_cpu()) {
         bindTensorMetaData(tensor_input, tensor);
       }
-    } else {
-      bindValue(input->evaluatorIndex(), *args[i]);
     }
   }
 }
@@ -307,9 +306,10 @@ void PrecomputedValues::initializeNamedScalars() {
 
 void PrecomputedValues::validate() {
   FUSER_PERF_SCOPE("PrecomputedValuess::Validate");
+  using namespace PolymorphicValue_functions;
   for (const auto& it : binding_log_) {
     TORCH_INTERNAL_ASSERT(
-        values_[it.first] == it.second,
+        isSame(values_[it.first], it.second),
         "Precomputed values failed to validate.",
         "\nSomething unexpected changed between the compilation and execution.\n",
         values_[it.first],

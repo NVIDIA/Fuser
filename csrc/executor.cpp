@@ -1462,14 +1462,10 @@ void FusionExecutor::initializeExecutorEntry(
     DataType index_type) {
   FUSER_PERF_SCOPE("ExecutorRunFusion::InitializeExecutorEntry");
 
-  TORCH_INTERNAL_ASSERT(kernel()->inputs().size() == args.size());
-
   ExpressionEvaluator expr_eval;
-  for (auto i : c10::irange(args.size())) {
-    expr_eval.bind(kernel()->inputs().at(i), *args[i]);
-  }
   evaluatorPrecomputedValues()->bindInputs(args);
   expr_eval.precomputedValues() = evaluatorPrecomputedValues().get();
+
   auto launch_params = computeLaunchParams(
       launch_constraints, expr_eval, warp_size_, index_type);
 
@@ -1664,7 +1660,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   const auto& inputs = kernel()->inputs();
 
   for (const auto i : c10::irange(inputs.size())) {
-    expr_eval.bind(inputs.at(i), *args[i]);
+    expr_eval.bind(inputs[i], *args[i]);
   }
 
   // only allocate outputs when not given
