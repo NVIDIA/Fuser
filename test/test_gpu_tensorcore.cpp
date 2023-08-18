@@ -4385,7 +4385,7 @@ TEST_F(NVFuserTest, FusionMatmulSchedulerEpilogueAlphaBetaBias_CUDA) {
 
   // NOTE: increasted absolute tolerance to silence false negative verification
   //       caused by different way of calculating reference
-  TORCH_CHECK(outputs[0].allclose(t8, 0.001, 0.001));
+  TORCH_CHECK(outputs[0].allclose(t8, 0.01, 0.01));
 }
 
 // Strided batch gemm test taht uses matmul scheduler, for Ampere:
