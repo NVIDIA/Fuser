@@ -591,7 +591,8 @@ Val* ForLoop::simplifiedStop() const {
 bool ForLoop::isTrivial() const {
   // These loops are not materialized
   if (vectorize() || iter_domain()->isBroadcast() ||
-      iter_domain()->isStride() || iter_domain()->isMma()) {
+      iter_domain()->isStride() || iter_domain()->isMma() ||
+      iter_domain()->isBulk()) {
     return true;
   }
 
@@ -1240,6 +1241,84 @@ std::string GetRNGSeedAndOffsetFromHost::toInlineString(int indent_size) const {
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(GetRNGSeedAndOffsetFromHost)
+
+EncodeTensorMapTiled::EncodeTensorMapTiled(
+    IrBuilderPasskey passkey,
+    Val* output,
+    DataType data_type,
+    Val* global_address,
+    std::vector<Val*> global_dim,
+    std::vector<Val*> global_strides,
+    std::vector<Val*> box_dim,
+    std::vector<Val*> element_strides,
+    TensorMapInterleave interleave,
+    TensorMapSwizzle swizzle,
+    TensorMapL2Promotion l2_promotion,
+    TensorMapFloatOOBFill oob_fill)
+    : Expr(passkey) {
+  addOutput(output);
+  addInput(global_address);
+  TORCH_CHECK(
+      global_dim.size() == global_strides.size() + 1,
+      "global_dim and global_strides's size must match");
+  TORCH_CHECK(
+      global_dim.size() == box_dim.size(),
+      "global_dim and box_dim's size must match");
+  TORCH_CHECK(
+      global_dim.size() == element_strides.size(),
+      "global_dim and element_strides's size must match");
+  for (auto dim : global_dim) {
+    addInput(dim);
+  }
+  for (auto stride : global_strides) {
+    addInput(stride);
+  }
+  for (auto dim : box_dim) {
+    addInput(dim);
+  }
+  for (auto stride : element_strides) {
+    addInput(stride);
+  }
+  addDataAttribute(data_type);
+  addDataAttribute(interleave);
+  addDataAttribute(swizzle);
+  addDataAttribute(l2_promotion);
+  addDataAttribute(oob_fill);
+  addDataAttribute(global_dim.size());
+}
+
+std::string EncodeTensorMapTiled::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << getOpString() << "(dtype=" << dataType()
+                          << ", global_address=" << globalAddress()->toString()
+                          << ", global_dim=[" << ir_utils::toString(globalDim())
+                          << "],  global_strides=["
+                          << ir_utils::toString(globalStrides())
+                          << "], box_dim=[" << ir_utils::toString(boxDim())
+                          << "], element_strides=["
+                          << ir_utils::toString(elementStrides())
+                          << "], interleave=" << interleave()
+                          << ", swizzle=" << swizzle()
+                          << ", l2_promotion=" << l2Promotion()
+                          << ", oob_fill=" << oobFill() << ")\n";
+  return ss.str();
+}
+
+std::string EncodeTensorMapTiled::toInlineString(int indent_size) const {
+  std::stringstream ss;
+  ss << getOpString() << "(dtype=" << dataType()
+     << ", global_address=" << globalAddress()->toInlineString()
+     << ", global_dim=[" << ir_utils::toInlineString(globalDim())
+     << "],  global_strides=[" << ir_utils::toInlineString(globalStrides())
+     << "], box_dim=[" << ir_utils::toInlineString(boxDim())
+     << "], element_strides=[" << ir_utils::toInlineString(elementStrides())
+     << "], interleave=" << interleave() << ", swizzle=" << swizzle()
+     << ", l2_promotion=" << l2Promotion() << ", oob_fill=" << oobFill()
+     << ")";
+  return ss.str();
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(EncodeTensorMapTiled)
 
 } // namespace kir
 } // namespace nvfuser

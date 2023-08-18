@@ -1125,5 +1125,98 @@ class TORCH_CUDA_CU_API GetRNGSeedAndOffsetFromHost : public Expr {
       const std::vector<PolymorphicValue>& inputs) const override;
 };
 
+// Expr for driver API cuTensorMapEncodeTiled
+class TORCH_CUDA_CU_API EncodeTensorMapTiled : public Expr {
+ public:
+  using Expr::Expr;
+
+  EncodeTensorMapTiled(
+      IrBuilderPasskey,
+      Val* output,
+      DataType data_type,
+      Val* global_address,
+      std::vector<Val*> global_dim,
+      std::vector<Val*> global_strides,
+      std::vector<Val*> box_dim,
+      std::vector<Val*> element_strides,
+      TensorMapInterleave interleave,
+      TensorMapSwizzle swizzle,
+      TensorMapL2Promotion l2_promotion,
+      TensorMapFloatOOBFill oob_fill);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "EncodeTensorMapTiled";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  Val* globalAddress() const {
+    return input(0);
+  }
+
+  std::vector<Val*> globalDim() const {
+    std::vector<Val*> result;
+    for (auto i : c10::irange(tensorRank())) {
+      result.emplace_back(input(i + 1));
+    }
+    return result;
+  }
+
+  std::vector<Val*> globalStrides() const {
+    std::vector<Val*> result;
+    for (auto i : c10::irange(tensorRank() - 1)) {
+      result.emplace_back(input(i + 1 + tensorRank()));
+    }
+    return result;
+  }
+
+  std::vector<Val*> boxDim() const {
+    std::vector<Val*> result;
+    for (auto i : c10::irange(tensorRank())) {
+      result.emplace_back(input(i + 2 * tensorRank()));
+    }
+    return result;
+  }
+
+  std::vector<Val*> elementStrides() const {
+    std::vector<Val*> result;
+    for (auto i : c10::irange(tensorRank() - 1)) {
+      result.emplace_back(input(i + 3 * tensorRank()));
+    }
+    return result;
+  }
+
+  const DataType& dataType() const {
+    return attribute<DataType>(0);
+  }
+
+  const TensorMapInterleave& interleave() const {
+    return attribute<TensorMapInterleave>(1);
+  }
+
+  const TensorMapSwizzle& swizzle() const {
+    return attribute<TensorMapSwizzle>(2);
+  }
+
+  const TensorMapL2Promotion& l2Promotion() const {
+    return attribute<TensorMapL2Promotion>(3);
+  }
+
+  const TensorMapFloatOOBFill& oobFill() const {
+    return attribute<TensorMapFloatOOBFill>(4);
+  }
+
+  const int64_t& tensorRank() const {
+    return attribute<int64_t>(5);
+  }
+
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
+};
+
 } // namespace kir
 } // namespace nvfuser

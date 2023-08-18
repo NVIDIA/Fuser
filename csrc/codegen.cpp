@@ -563,6 +563,24 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     indent() << genCall(name, template_args, func_args) << ";\n";
   }
 
+  void genCpAsyncBulkTensorTile(const LoadStoreOp* ldst) {
+    auto in = ldst->in()->as<kir::TensorIndex>();
+    auto out = ldst->out()->as<kir::TensorIndex>();
+    TORCH_INTERNAL_ASSERT(
+        in->view()->getMemoryType() == MemoryType::Shared &&
+            out->view()->getMemoryType() == MemoryType::Global,
+        "Expected shared to global copy");
+
+    ArgumentBuilder func_args;
+    func_args.arg(
+        std::string("tensormap") +
+        std::to_string(kernel_->summary().tma_tensor_maps_map.at(ldst)));
+    func_args.arg(genInline(out->as<kir::TensorIndex>()->index()));
+    func_args.arg(genInline(in->as<kir::TensorIndex>()->index()));
+
+    indent() << genCall("Hopper::cpAsyncBulkTensorTileS2G", func_args) << ";\n";
+  }
+
   void genLdMatrix(const LoadStoreOp* ldst, size_t vector_word_size) {
     auto dtype = ldst->in()->getDataType().value();
 
@@ -1279,6 +1297,12 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
               "cp.async.cg only support vectorize 8");
         }
         genCpAsync(ldst, vector_word_size);
+        return;
+      }
+
+      // dispatch cp.async.bulk.tensor.tile
+      if (optype == LoadStoreOpType::CpAsyncBulkTensorTile) {
+        genCpAsyncBulkTensorTile(ldst);
         return;
       }
 

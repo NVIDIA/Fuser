@@ -187,6 +187,29 @@ bool isCpAsyncOp(const Expr* expr) {
   return false;
 }
 
+bool isCpAsyncBulk(const Expr* expr) {
+  if (auto ldst = dynamic_cast<const LoadStoreOp*>(expr)) {
+    return ldst->opType() == LoadStoreOpType::CpAsyncBulkTensorTile;
+  }
+  return false;
+}
+
+bool isCpAsyncBulkLoad(const Expr* expr) {
+  if (auto ldst = dynamic_cast<const LoadStoreOp*>(expr)) {
+    return ldst->opType() == LoadStoreOpType::CpAsyncBulkTensorTile &&
+        ldst->in()->as<TensorView>()->getMemoryType() == MemoryType::Global;
+  }
+  return false;
+}
+
+bool isCpAsyncBulkStore(const Expr* expr) {
+  if (auto ldst = dynamic_cast<const LoadStoreOp*>(expr)) {
+    return ldst->opType() == LoadStoreOpType::CpAsyncBulkTensorTile &&
+        ldst->out()->as<TensorView>()->getMemoryType() == MemoryType::Global;
+  }
+  return false;
+}
+
 bool isTensorScalarFillOp(const Expr* expr) {
   // Check that the input is a single scalar.
   if (expr->inputs().size() == 1 && expr->input(0)->isScalar()) {

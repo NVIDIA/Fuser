@@ -131,6 +131,12 @@ bool isLdMatrixOp(const Expr* expr);
 //!  a cp.async intrinsic.
 bool isCpAsyncOp(const Expr* expr);
 
+//! Returns true if the expression will be lowered to
+//!  a cp.async.bulk (a.k.a. TMA) intrinsic.
+bool isCpAsyncBulkLoad(const Expr* expr);
+bool isCpAsyncBulkStore(const Expr* expr);
+bool isCpAsyncBulk(const Expr* expr);
+
 //! Short-cut for detecting initialization for cpAsync op.
 bool isCpAsyncInit(const Expr* expr);
 

@@ -1274,12 +1274,19 @@ void IndexLowering::handleGroupedGridWelford(
 }
 
 void IndexLowering::handle(const LoadStoreOp* ldst) {
-  const auto in = lowerSrcIndex(
-      ldst->in(),
-      ldst->out(),
-      {},
-      ir_utils::isLdMatrixOp(ldst) || ir_utils::isCpAsyncOp(ldst));
-  const auto out = lowerDstIndex(ldst->out(), {}, ir_utils::isCpAsyncOp(ldst));
+  Val *in, *out;
+  if (lower_utils::isCpAsyncBulk(ldst)) {
+    TORCH_INTERNAL_ASSERT(lower_utils::isCpAsyncBulkStore(ldst));
+    in = lowerSrcIndex(ldst->in(), ldst->out(), {}, true);
+    out = Index::cpAsyncBulkIndex(ldst->out());
+  } else {
+    in = lowerSrcIndex(
+        ldst->in(),
+        ldst->out(),
+        {},
+        ir_utils::isLdMatrixOp(ldst) || ir_utils::isCpAsyncOp(ldst));
+    out = lowerDstIndex(ldst->out(), {}, ir_utils::isCpAsyncOp(ldst));
+  }
   auto new_ldst = IrBuilder::create<LoadStoreOp>(ldst->opType(), out, in)
                       ->withPredicate(ldst->predicate());
   pushBack(new_ldst);

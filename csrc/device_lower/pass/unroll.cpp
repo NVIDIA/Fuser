@@ -67,9 +67,9 @@ void UnrollPass::dispatch(Expr* expr) {
   if (ir_utils::isTvOp(expr)) {
     // If tv op, predicate it
     const auto out_tv = ir_utils::getTvOutput(expr);
-    const bool should_predicate = !for_loops_.empty() ||
-        out_tv->getMemoryType() == MemoryType::Global ||
-        out_tv->getMemoryType() == MemoryType::Shared;
+    const bool should_predicate = !ir_utils::isCpAsyncBulk(expr) &&
+        (!for_loops_.empty() || out_tv->getMemoryType() == MemoryType::Global ||
+         out_tv->getMemoryType() == MemoryType::Shared);
     if (!should_predicate) {
       return;
     }

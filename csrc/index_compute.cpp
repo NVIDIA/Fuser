@@ -3176,4 +3176,23 @@ Val* Index::eye(
   return result;
 }
 
+Val* Index::cpAsyncBulkIndex(TensorView* tv) {
+  TORCH_INTERNAL_ASSERT(
+      tv->getMemoryType() == MemoryType::Global,
+      "cpAsyncBulkIndex is only for global memory tensors");
+  TORCH_INTERNAL_ASSERT(
+      tv->getMaybeRFactorDomain() == tv->getLeafDomain(), "not supported yet");
+  TORCH_INTERNAL_ASSERT(
+      tv->getMaybeAllocationDomain() == tv->getLeafDomain(),
+      "not supported yet");
+  for (auto id : tv->getMaybeRFactorDomain()) {
+    TORCH_INTERNAL_ASSERT(
+        id->isBulk(),
+        "cpAsyncBulkIndex only support whole tensor copy for now.");
+  }
+  int64_t dim = tv->nDims();
+  std::vector<Val*> coordinate(dim, tv->fusion()->zeroVal());
+  
+}
+
 } // namespace nvfuser

@@ -640,6 +640,7 @@ enum class ParallelType {
   Unswitch,
   Mma,
   Group,
+  Bulk,
   Serial
 };
 
@@ -705,7 +706,8 @@ enum class LoadStoreOpType {
   LdMatrix,
   LdMatrixTranspose,
   CpAsyncCa,
-  CpAsyncCg
+  CpAsyncCg,
+  CpAsyncBulkTensorTile
 };
 
 // Used to label what part of the double buffered iterdomain
