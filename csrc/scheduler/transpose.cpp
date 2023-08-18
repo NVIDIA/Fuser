@@ -793,13 +793,9 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
           scheduler_utils::maxVectorizationWidth(tv_vectorize_factor));
     }
 
-    // find the virtual_innermost dimension in reference2 so we can later map
+    // find the virtual_innermost dimension in reference1 so we can later map
     // that to individuals in group2.
     std::vector<IterDomain*> virtual_innermost2;
-    // NOTE: mapping from reference1's iter domain to reference2 needs to be
-    // done smarter. I suspect getMappedRootDimIn doesn't handle merge/split
-    // properly. See the TODO in Note: [Computing Vectorization Width for
-    // Transpose]
     for (const auto& dim : params->dims_merged_with_2) {
       virtual_innermost2.insert(virtual_innermost2.begin(), reference1->axis(static_cast<int>(dim)));
     }
@@ -807,7 +803,7 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
 
     auto group2_contig_inner_map =
         vectorize_helper::ContiguousInnerDimensionsMapper::map(
-            reference2, virtual_innermost2)
+            reference1, virtual_innermost2)
             .getTvToContigMergeOfInnerSizeMap();
     // TODO: Since group2 only has global->shared and shared->global set op, we
     // can have fine-grained control of unroll/vectorization at per tensor
@@ -993,6 +989,33 @@ void scheduleTranspose(Fusion* fusion, TransposeParams params) {
   // split big dims so that we have enough dimensions available to merge with
   // inner-most dims to create the virtual inner-most dim
   scheduler_utils::splitDims(reference1, params.split_before_tiling);
+
+  std::vector<size_t> dims_group1 = params.dims_merged_with_1;
+  size_t inner_most_pos1_in_ref1 =
+      domain_map.getInnerLeafDim(reference1, inner_most_id1);
+  dims_group1.insert(dims_group1.begin(), inner_most_pos1_in_ref1);
+
+  std::vector<size_t> dims_group2 = params.dims_merged_with_2;
+  size_t inner_most_pos2_in_ref1 =
+      domain_map.getInnerLeafDim(reference1, inner_most_id2);
+  dims_group2.insert(dims_group2.begin(), inner_most_pos2_in_ref1);
+
+  auto merged1 = scheduler_utils::mergeDims(
+      reference1, dims_group1, dims_group2);
+  std::vector<size_t> merged1_vec;
+  if (merged1.has_value()) {
+    merged1_vec.push_back(*merged1);
+  }
+  auto merged2 = scheduler_utils::mergeDims(
+      reference1, dims_group2, merged1_vec);
+  if (merged1.has_value()) {
+    inner_most_pos1_in_ref1 = merged1_vec[0];
+  }
+  if (merged2.has_value()) {
+    inner_most_pos2_in_ref1 = *merged2;
+  }
+  
+/*
   // Merging reference 1's dims_merged_with_1 but updating dims_merged_with_2
   // based on the changes in the dimensions that were merged. So we can then run
   // merge with dims_merged_with_2.
@@ -1043,6 +1066,7 @@ void scheduleTranspose(Fusion* fusion, TransposeParams params) {
     reference1->merge((int)*merged2, (int)inner_most_pos2_in_ref1);
     inner_most_pos2_in_ref1 = *merged2;
   }
+ */
 
   /////////////////////////////
   // Step 2: global schedule //

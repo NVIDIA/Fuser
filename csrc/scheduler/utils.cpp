@@ -170,21 +170,30 @@ std::optional<size_t> mergeDims(
   if (to_merge.size() == 1) {
     return to_merge[0];
   }
-  std::sort(to_merge.begin(), to_merge.end());
-  size_t left = to_merge[0];
-  int64_t offset = 0;
-  for (auto right = to_merge.begin() + 1; right != to_merge.end(); right++) {
-    auto actual_right = offset-- + *right;
-    tv->merge((int)left, (int)actual_right);
+  auto inner = to_merge[0];
+
+  for (auto i = i; i < to_merge.size(); i++) {
+    auto outer = to_merge[i];
+    if (outer < inner) {
+      tv->reorder({{inner, outer}, {outer, inner}});
+      std::swap(inner, outer);
+    }
+    tv->merge(outer, inner);
+    for (auto j = i+1; j < to_merge.size(); j++) {
+      if (to_merge[j] > inner) {
+        to_merge[j]--;
+      }
+    }
     for (auto& i : to_update) {
-      if (i == actual_right) {
-        i = left;
-      } else if (i > actual_right) {
+      if (i == inner) {
+        i = outer;
+      } else if (i > inner) {
         i--;
       }
     }
+    inner = outer;
   }
-  return left;
+  return inner;
 }
 
 size_t mergeReduction(TensorView* tv) {
