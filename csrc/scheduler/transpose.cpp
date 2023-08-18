@@ -764,7 +764,7 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
 
     std::vector<IterDomain*> virtual_innermost1;
     for (const auto& dim : params->dims_merged_with_1) {
-      virtual_innermost1.push_back(reference1->axis(static_cast<int>(dim)));
+      virtual_innermost1.insert(virtual_innermost1.begin(), reference1->axis(static_cast<int>(dim)));
     }
     virtual_innermost1.push_back(
         reference1->getMaybeRFactorDomain()[inner_most_pos1_in_ref1]);
@@ -801,7 +801,7 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
     // properly. See the TODO in Note: [Computing Vectorization Width for
     // Transpose]
     for (const auto& dim : params->dims_merged_with_2) {
-      virtual_innermost2.push_back(reference1->axis(static_cast<int>(dim)));
+      virtual_innermost2.insert(virtual_innermost2.begin(), reference1->axis(static_cast<int>(dim)));
     }
     virtual_innermost2.push_back(reference1->getMaybeRFactorDomain()[inner_most_pos2_in_ref1]);
 
