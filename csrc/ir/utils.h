@@ -433,7 +433,7 @@ template <
 inline bool dependenciesSatisfied(
     // const Val*, Val*, std::vector<const Val*>, std::vector<Val*> or any other
     // container that has back(), pop_back(), empty() and emplace_back()
-    ValOrVectofrOfVal needed_vals,
+    ValOrVectorOfVal needed_vals,
     // std::unordered_set<const Val*>, std::unordered_map<const Val*, T> or any
     // other container that has count()
     const SetOfVal& known_vals = {}) {
