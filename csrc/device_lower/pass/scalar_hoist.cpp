@@ -124,6 +124,24 @@ Val* findRefAsSubexprOf(Val* from, Val* reference, bool exact) {
   return nullptr;
 }
 
+// Check if the given value is helpful to reuse it. For example
+// in x = (a + b) * (a + b), it is helpful to reuse (a + b) as
+// c = a + b; x = c * c, because it can reduce the number of arithmetic
+// operations. However, it makes no sense to reuse T0.size[0] + T0.size[0] as
+// a = T0.size[0]; x = a + a, because although T0.size[0] is a composition of
+// GetItem with GetAttr, in C++, these operations are free because it just get
+// erased when lowering C++ into assembly languages.
+bool isHelpfulToReuse(Val* value) {
+  auto def = value->definition();
+  if (def == nullptr) {
+    return false;
+  }
+  if (def->isOneOf<GetMetaData, GetAttr, GetItem>()) {
+    return false;
+  }
+  return true;
+}
+
 } // namespace
 
 std::pair<Val*, bool> CommonScalarMap::hoistScalarImpl(
@@ -228,7 +246,7 @@ std::list<VarInfo> getVariableInfo(
       variables.push_back({loop->index(), loop->isUnrolled()});
     }
   }
-  // Tensor base addresses
+  // Tensor metadata
   std::vector<Val*> to_visit{value};
   while (!to_visit.empty()) {
     auto back = to_visit.back();
@@ -237,7 +255,7 @@ std::list<VarInfo> getVariableInfo(
     if (def == nullptr) {
       continue;
     }
-    if (def->isA<kir::BaseAddress>()) {
+    if (def->isA<GetMetaData>()) {
       variables.push_front({back});
       continue;
     }
@@ -246,8 +264,8 @@ std::list<VarInfo> getVariableInfo(
   return variables;
 }
 
-std::vector<Scalar*> getAssumptions(const std::vector<kir::ForLoop*>& loops) {
-  std::vector<Scalar*> assumptions;
+std::vector<Val*> getAssumptions(const std::vector<kir::ForLoop*>& loops) {
+  std::vector<Val*> assumptions;
   // assumptions from parallel dimension
   for (auto [p, extent] :
        GpuLower::current()->parallelDimensionMap().getMap()) {
@@ -455,13 +473,9 @@ class CommonIndexInserter : private kir::ExprMutator {
         alloc_point = existing_alloc_info.first;
         insert_ref = exprs[alloc_point];
       }
-      // Make the type of the hoisted value be the value type of the
-      // kernel, which can be either int64_t or int. Not very clean,
-      // but this seems to be the quickest way to use the value type
-      // as we don't have a scalar IR node for the value type.
-      auto dtype = value->dtype();
-      if (isIntegralType(dtype) && !isPointerType(dtype)) {
-        value->resolveIndexDtype();
+
+      if (!isHelpfulToReuse(value)) {
+        continue;
       }
 
       auto alloc = IrBuilder::create<kir::Allocate>(

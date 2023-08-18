@@ -33,7 +33,7 @@ Predicate::Predicate(
     IrBuilderPasskey passkey,
     PredicateType ptype,
     const Expr* expr,
-    Scalar* thread_pred)
+    Val* thread_pred)
     : Val(passkey, ValType::Predicate, DataType::Bool),
       ptype_(ptype),
       expr_(expr),
@@ -57,7 +57,7 @@ Predicate::Predicate(IrBuilderPasskey passkey, ForLoop* unrolled_loop)
   TORCH_INTERNAL_ASSERT(unrolled_loop != nullptr);
 }
 
-Predicate::Predicate(IrBuilderPasskey passkey, Scalar* value)
+Predicate::Predicate(IrBuilderPasskey passkey, Val* value)
     : Val(passkey, ValType::Predicate, DataType::Bool),
       ptype_(PredicateType::Manual),
       value_(value) {
@@ -93,7 +93,7 @@ TensorIndex::TensorIndex(
       passkey.ir_container_->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
   TORCH_INTERNAL_ASSERT(
-      isIntegralOrPointerType(index->dtype()),
+      isPointerType(index->dtype()) || index->dtype() == DataType::Index,
       "Cannot index with a value other than an int.");
 }
 
@@ -175,6 +175,8 @@ Allocate::Allocate(
   addDataAttribute(memory_type);
   addDataAttribute(zero_init);
   addAttribute(alias);
+  // Always initialize shared memory address to nullptr
+  addAttribute(nullptr);
 
   for (auto s : shape) {
     addAttribute(s);
@@ -338,30 +340,6 @@ std::string UpdateMagicZero::toInlineString(int indent_size) const {
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(UpdateMagicZero)
 
-BaseAddress::BaseAddress(IrBuilderPasskey passkey, Val* out, TensorView* tv)
-    : Expr(passkey) {
-  TORCH_INTERNAL_ASSERT(passkey.ir_container_ != nullptr);
-  TORCH_INTERNAL_ASSERT(
-      passkey.ir_container_->isA<kir::Kernel>(),
-      "IR type only valid for Kernel container.");
-  addOutput(out);
-  addInput(tv);
-}
-
-std::string BaseAddress::toString(int indent_size) const {
-  std::stringstream ss;
-  indent(ss, indent_size) << "BaseAddress(" << ir_utils::varName(tv()) << ")\n";
-  return ss.str();
-}
-
-std::string BaseAddress::toInlineString(int indent_size) const {
-  std::stringstream ss;
-  ss << "BaseAddress(" << ir_utils::varName(tv()) << ")";
-  return ss.str();
-}
-
-NVFUSER_DEFINE_CLONE_AND_CREATE(BaseAddress)
-
 std::string Scope::toString(int indent_size) const {
   std::stringstream ss;
   for (auto expr : exprs()) {
@@ -462,6 +440,16 @@ ForLoop::ForLoop(
       step = FusionGuard::getCurFusion()->oneVal();
     }
   }
+  TORCH_INTERNAL_ASSERT(
+      index->dtype() == DataType::Index, "Loop index must be an index type.");
+  TORCH_INTERNAL_ASSERT(
+      start == nullptr || start->dtype() == DataType::Index,
+      "Loop start must be an index type.");
+  TORCH_INTERNAL_ASSERT(
+      step->dtype() == DataType::Index, "Loop step must be an index type.");
+  TORCH_INTERNAL_ASSERT(
+      stop == nullptr || stop->dtype() == DataType::Index,
+      "Loop stop must be an index type.");
   addAttribute(start);
   addAttribute(stop);
   addAttribute(step);
@@ -593,7 +581,11 @@ Val* ForLoop::step() const {
 }
 
 Val* ForLoop::simplifiedStop() const {
-  return simplifyExpr(stop());
+  if (simplified_stop_ == nullptr) {
+    simplified_stop_ =
+        GpuLower::current()->commonScalarMap().hoistScalar(stop(), {});
+  }
+  return simplified_stop_;
 }
 
 bool ForLoop::isTrivial() const {
@@ -667,12 +659,12 @@ class ExprFinder : kir::ConstIrVisitor {
 
   using kir::ConstIrVisitor::handle;
 
-  void handle(const Expr* expr) final {
+  void dispatch(const Expr* expr) final {
     if (expr_types_.find(typeid(*expr)) != expr_types_.end()) {
       is_found_ = true;
       return;
     }
-    kir::ConstIrVisitor::handle(expr);
+    kir::ConstIrVisitor::dispatch(expr);
   }
 
  private:
@@ -1144,7 +1136,7 @@ VectorizedWelfordOp::VectorizedWelfordOp(
     const WelfordTriplet& init,
     Val* count,
     Val* reciprocal_of_count,
-    Scalar* hoisted_predicate)
+    Val* hoisted_predicate)
     : WelfordOp(passkey, output, input, init, false) {
   TORCH_INTERNAL_ASSERT(passkey.ir_container_ != nullptr);
   TORCH_INTERNAL_ASSERT(
@@ -1217,6 +1209,37 @@ const ParallelTypeBitmap& AllocateFusedReduction::threadPredicate() const {
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(AllocateFusedReduction)
+
+GetRNGSeedAndOffsetFromHost::GetRNGSeedAndOffsetFromHost(
+    IrBuilderPasskey passkey,
+    Val* seed_ptr,
+    Val* seed_val,
+    Val* first_offset_ptr,
+    Val* first_offset_val,
+    int64_t offsets)
+    : Expr(passkey) {
+  addOutput(seed_ptr);
+  addOutput(seed_val);
+  addOutput(first_offset_ptr);
+  addOutput(first_offset_val);
+  addDataAttribute(offsets);
+}
+
+std::string GetRNGSeedAndOffsetFromHost::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << "(" << output(0)->toString() << ", "
+                          << output(1)->toString() << ", "
+                          << output(2)->toString() << ", "
+                          << output(3)->toString() << ") = " << getOpString()
+                          << "()\n";
+  return ss.str();
+}
+
+std::string GetRNGSeedAndOffsetFromHost::toInlineString(int indent_size) const {
+  return std::string(getOpString()) + "()";
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(GetRNGSeedAndOffsetFromHost)
 
 } // namespace kir
 } // namespace nvfuser

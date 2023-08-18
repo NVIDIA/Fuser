@@ -98,21 +98,19 @@ class DomainMap : public pointwise_utils::DomainMap {
         root_dim,
         " in tensor ",
         tv);
-    // Project the root id to leaf id
-    while (!mapped_id->uses().empty()) {
-      TORCH_INTERNAL_ASSERT(mapped_id->uses().size() == 1);
-      auto expr = mapped_id->uses()[0];
-      if (expr->isA<Split>()) {
+    auto replay_exprs = StmtSort::getExprsBetween(
+        tv->fusion(),
+        {mapped_id},
+        {tv->getLeafDomain().begin(), tv->getLeafDomain().end()});
+    // Project the root id to leaf id. Similar to projectIdToRFactor.
+    for (auto expr : replay_exprs) {
+      if (expr->isA<Split>() && expr->as<Split>()->in() == mapped_id) {
         mapped_id = expr->as<Split>()->inner();
-      } else {
-        auto merge = expr->as<Merge>();
-        TORCH_INTERNAL_ASSERT(
-            mapped_id == merge->inner(),
-            "Can not find ID mapped to ",
-            root_dim,
-            " in tensor ",
-            tv);
-        mapped_id = merge->out();
+      } else if (
+          expr->isA<Merge>() && expr->as<Merge>()->inner() == mapped_id) {
+        mapped_id = expr->as<Merge>()->out();
+      } else if (expr->isA<Resize>() && expr->as<Resize>()->in() == mapped_id) {
+        mapped_id = expr->as<Resize>()->out();
       }
     }
     // Find the position of the leaf id
@@ -213,6 +211,26 @@ class DomainMap : public pointwise_utils::DomainMap {
           return v1.size() > v2.size();
         });
     return groups;
+  }
+
+  // In the transpose scheculing, unlike the pointwise scheduling, the
+  // permissive map is required to find reference tensors. See also PR
+  // #661
+  IterDomain* getMappedInputConcreteID(
+      const std::unordered_set<IterDomain*>& in_concrete_ids,
+      IterDomain* out_id) const override {
+    auto in_concrete_id_iter = std::find_if(
+        in_concrete_ids.begin(),
+        in_concrete_ids.end(),
+        [&](IterDomain* in_concrete_id) {
+          return ca_map_.areMapped(
+              in_concrete_id, out_id, IdMappingMode::PERMISSIVE);
+        });
+    if (in_concrete_id_iter != in_concrete_ids.end()) {
+      return *in_concrete_id_iter;
+    } else {
+      return nullptr;
+    }
   }
 };
 

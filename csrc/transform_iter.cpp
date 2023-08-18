@@ -15,11 +15,11 @@
 namespace nvfuser {
 
 // Transform dispatch
-void ReplayTransformations::handle(Expr* e) {
+void ReplayTransformations::dispatch(Expr* e) {
   auto is_supported_expr = e->isOneOf<Split, Merge, Swizzle2D, Resize>();
   TORCH_INTERNAL_ASSERT(
       is_supported_expr, "Invalid expr type found in transform traversal.");
-  IterVisitor::handle(e);
+  IterVisitor::dispatch(e);
 }
 
 // We're going to replay this split operation on the corresponding ID
@@ -322,7 +322,7 @@ BestEffortReplay::BestEffortReplay(
   }
 
   // Grab expr history of iter domains in target_domain
-  std::vector<Expr*> target_exprs = StmtSort::getExprs(
+  std::vector<Expr*> target_exprs = StmtSort::getExprsTo(
       FusionGuard::getCurFusion(),
       std::vector<Val*>(target_domain.begin(), target_domain.end()));
 
@@ -333,7 +333,7 @@ BestEffortReplay::BestEffortReplay(
   // replay_domain map.
 
   // Map replay domain's IterDomains to the Exprs they're used in
-  std::vector<Expr*> replay_exprs = StmtSort::getExprs(
+  std::vector<Expr*> replay_exprs = StmtSort::getExprsTo(
       FusionGuard::getCurFusion(),
       std::vector<Val*>(replay_domain.begin(), replay_domain.end()));
 
@@ -752,7 +752,7 @@ struct ForwardingInfo {
     // We have root axes in active_tv that don't exist in the inactive tensor,
     // now forward those to include all id's in active_tv comprised of only axes
     // not in the inactive tensor.
-    std::vector<Expr*> active_tv_history = StmtSort::getExprs(
+    std::vector<Expr*> active_tv_history = StmtSort::getExprsTo(
         FusionGuard::getCurFusion(),
         std::vector<Val*>(
             active_tv->getLeafDomain().begin(),
@@ -903,7 +903,7 @@ void BestEffortReplay::addComplimentLeafIDs(
   }
 
   // Grab all exprs used to make the forwarded compliments
-  auto compliment_exprs = StmtSort::getExprs(
+  auto compliment_exprs = StmtSort::getExprsTo(
       FusionGuard::getCurFusion(), {compliments.begin(), compliments.end()});
 
   // Figure out if there are any leaves in compliment_exprs that aren't
@@ -1115,10 +1115,12 @@ void BestEffortReplay::skipResizes(
       if (auto target_resize = getResizeUse(target_id, target_exprs);
           target_resize != nullptr) {
         new_target_id = target_resize->out();
+        skipped_resize_id_map_.emplace(target_id, new_target_id);
       }
       if (auto replay_resize = getResizeUse(replay_id, replay_exprs);
           replay_resize != nullptr) {
         new_replay_id = replay_resize->out();
+        skipped_resize_id_map_.emplace(replay_id, new_replay_id);
       }
 
       if (new_target_id == target_id && new_replay_id == replay_id) {
@@ -1146,8 +1148,11 @@ void BestEffortReplay::skipResizes(
 DisjointSets<IterDomain*> BestEffortReplay::getIterDomainEquivalence() {
   DisjointSets<IterDomain*> result;
   using IterDomainMap = std::unordered_map<IterDomain*, IterDomain*>;
-  const std::array<IterDomainMap*, 3> maps = {
-      &target2replay_id_map_, &replay_forward_id_map_, &target_forward_id_map_};
+  const std::array<IterDomainMap*, 4> maps = {
+      &target2replay_id_map_,
+      &replay_forward_id_map_,
+      &target_forward_id_map_,
+      &skipped_resize_id_map_};
   for (auto map : maps) {
     // Sort the keys so that they appear in a deterministic order
     for (auto key : getSortedKeys(*map, Statement::lessThan)) {

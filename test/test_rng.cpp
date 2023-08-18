@@ -16,6 +16,8 @@
 #include <test/utils.h>
 #include <test/validator.h>
 
+#include <ATen/cuda/CUDAGeneratorImpl.h>
+
 namespace nvfuser {
 
 at::Tensor generate_uniform(int64_t size, at::ScalarType dtype);
@@ -29,7 +31,7 @@ TEST_F(RNGTest, ValidateWithCURand) {
   auto fusion = fusion_ptr.get();
   FusionGuard fg(fusion);
 
-  Scalar* size_val = IrBuilder::create<Scalar>(DataType::Int);
+  Val* size_val = IrBuilder::create<Val>(DataType::Int);
   fusion->addInput(size_val);
   TensorView* tv0 = rand({size_val}, DataType::Float);
   TensorView* tv1 = rand({size_val}, DataType::Double);
@@ -91,10 +93,10 @@ TEST_F(RNGTest, ManualScheduleValidateWithCURand2) {
   auto fusion = fusion_ptr.get();
   FusionGuard fg(fusion);
 
-  Scalar* size1 = IrBuilder::create<Scalar>(DataType::Int);
-  Scalar* size2 = IrBuilder::create<Scalar>(DataType::Int);
-  Scalar* size3 = IrBuilder::create<Scalar>(DataType::Int);
-  Scalar* size4 = IrBuilder::create<Scalar>(DataType::Int);
+  Val* size1 = IrBuilder::create<Val>(DataType::Int);
+  Val* size2 = IrBuilder::create<Val>(DataType::Int);
+  Val* size3 = IrBuilder::create<Val>(DataType::Int);
+  Val* size4 = IrBuilder::create<Val>(DataType::Int);
   fusion->addInput(size1);
   fusion->addInput(size2);
   fusion->addInput(size3);
@@ -251,9 +253,9 @@ TEST_F(RNGTest, Uniform) {
   auto fusion = fusion_ptr.get();
   FusionGuard fg(fusion);
 
-  Scalar* size_val = IrBuilder::create<Scalar>(DataType::Int);
-  Scalar* low = IrBuilder::create<Scalar>(DataType::Double);
-  Scalar* high = IrBuilder::create<Scalar>(DataType::Double);
+  Val* size_val = IrBuilder::create<Val>(DataType::Int);
+  Val* low = IrBuilder::create<Val>(DataType::Double);
+  Val* high = IrBuilder::create<Val>(DataType::Double);
   fusion->addInput(size_val);
   fusion->addInput(low);
   fusion->addInput(high);
@@ -287,9 +289,9 @@ TEST_F(RNGTest, Normal) {
   auto fusion = fusion_ptr.get();
   FusionGuard fg(fusion);
 
-  Scalar* size_val = IrBuilder::create<Scalar>(DataType::Int);
-  Scalar* mean = IrBuilder::create<Scalar>(DataType::Double);
-  Scalar* std = IrBuilder::create<Scalar>(DataType::Double);
+  Val* size_val = IrBuilder::create<Val>(DataType::Int);
+  Val* mean = IrBuilder::create<Val>(DataType::Double);
+  Val* std = IrBuilder::create<Val>(DataType::Double);
   fusion->addInput(size_val);
   fusion->addInput(mean);
   fusion->addInput(std);
@@ -362,11 +364,11 @@ TEST_F(RNGTest, FunctionalUniform) {
     auto fusion = fusion_ptr.get();
     FusionGuard fg(fusion);
 
-    Scalar* size_val = IrBuilder::create<Scalar>(DataType::Int);
-    Scalar* low = IrBuilder::create<Scalar>(DataType::Double);
-    Scalar* high = IrBuilder::create<Scalar>(DataType::Double);
-    Scalar* seed = IrBuilder::create<Scalar>(DataType::Int);
-    Scalar* first_offset = IrBuilder::create<Scalar>(DataType::Int);
+    Val* size_val = IrBuilder::create<Val>(DataType::Int);
+    Val* low = IrBuilder::create<Val>(DataType::Double);
+    Val* high = IrBuilder::create<Val>(DataType::Double);
+    Val* seed = IrBuilder::create<Val>(DataType::Int);
+    Val* first_offset = IrBuilder::create<Val>(DataType::Int);
     fusion->addInput(size_val);
     fusion->addInput(low);
     fusion->addInput(high);
@@ -385,7 +387,7 @@ TEST_F(RNGTest, FunctionalUniform) {
       fusion->addOutput(tv1);
     }
 
-    auto second_offset = add(first_offset, IrBuilder::create<Scalar>(4L));
+    auto second_offset = add(first_offset, IrBuilder::create<Val>(1L));
 
     TensorView* tv2 =
         uniform({size_val}, low, high, DataType::Float, seed, first_offset);

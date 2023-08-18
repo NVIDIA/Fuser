@@ -64,8 +64,8 @@ void ConcretizedBroadcastDomains::handle(BroadcastOp* bop) {
   }
 }
 
-void ConcretizedBroadcastDomains::handle(Expr* expr) {
-  IterVisitor::handle(expr);
+void ConcretizedBroadcastDomains::dispatch(Expr* expr) {
+  IterVisitor::dispatch(expr);
 
   // Propagate broadcast origin info from producers to consumers
   for (auto producer : ir_utils::filterByType<TensorView>(expr->inputs())) {

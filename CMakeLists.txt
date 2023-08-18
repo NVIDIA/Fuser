@@ -158,6 +158,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/partition.cpp
   ${NVFUSER_SRCS_DIR}/predicate_compute.cpp
   ${NVFUSER_SRCS_DIR}/register_interface.cpp
+  ${NVFUSER_SRCS_DIR}/rng.cpp
   ${NVFUSER_SRCS_DIR}/root_domain_map.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/pointwise.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/pointwise_utils.cpp
@@ -176,6 +177,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/type_inference.cpp
   ${NVFUSER_SRCS_DIR}/type_promotion.cpp
   ${NVFUSER_SRCS_DIR}/fusion_segmenter.cpp
+  ${NVFUSER_SRCS_DIR}/tensor_metadata.cpp
   ${NVFUSER_SRCS_DIR}/tensor_view.cpp
   ${NVFUSER_SRCS_DIR}/transform_iter.cpp
   ${NVFUSER_SRCS_DIR}/transform_replay.cpp
@@ -232,8 +234,9 @@ set_property(TARGET ${NVFUSER_CODEGEN} PROPERTY CXX_STANDARD 17)
 if(PROJECT_IS_TOP_LEVEL)
   target_link_libraries(${NVFUSER_CODEGEN} PRIVATE torch ${TORCH_LIBRARIES})
 
-  # this is to find pip installed nvrtc .so
-  set_target_properties(${NVFUSER_CODEGEN} PROPERTIES INSTALL_RPATH "$ORIGIN/../../nvidia/cuda_nvrtc/lib")
+  # this is to find pip installed nvrtc/nvtx .so
+  set_target_properties(${NVFUSER_CODEGEN} PROPERTIES INSTALL_RPATH
+	  "$ORIGIN/../../nvidia/cuda_nvrtc/lib:$ORIGIN/../../nvidia/nvtx/lib")
   install(TARGETS ${NVFUSER_CODEGEN} EXPORT NvfuserTargets DESTINATION lib)
 
   # We are keeping fusion_cache_generated.h for the submodule build because flatc is unavailable.
@@ -270,7 +273,7 @@ else()
   # NOTE: our CI build somehow fails with find driver lib.
   target_link_libraries(${NVFUSER_CODEGEN} PUBLIC CUDA::cuda_driver)
 
-  if(UCC_FOUND)  # inherited from pytorch source build
+  if(UCC_FOUND) # inherited from pytorch source build
     add_library(__nvfuser_ucc INTERFACE)
     target_link_libraries(__nvfuser_ucc INTERFACE ucx::ucs ucx::ucp ucc::ucc)
     target_include_directories(__nvfuser_ucc INTERFACE ${UCC_INCLUDE_DIRS})
@@ -394,6 +397,7 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/test/test_dynamic_transform.cpp
     ${NVFUSER_ROOT}/test/test_dynamic_type.cpp
     ${NVFUSER_ROOT}/test/test_evaluator.cpp
+    ${NVFUSER_ROOT}/test/test_expr_sort.cpp
     ${NVFUSER_ROOT}/test/test_gather.cpp
     ${NVFUSER_ROOT}/test/test_gpu1.cpp
     ${NVFUSER_ROOT}/test/test_gpu2.cpp
@@ -420,6 +424,7 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/test/test_optimization_pass.cpp
     ${NVFUSER_ROOT}/test/test_pipeline.cpp
     ${NVFUSER_ROOT}/test/test_rng.cpp
+    ${NVFUSER_ROOT}/test/test_smem_reuse.cpp
   )
 
   if(BUILD_PYTHON)
@@ -525,6 +530,7 @@ list(APPEND NVFUSER_RUNTIME_FILES
   ${NVFUSER_ROOT}/runtime/array.cu
   ${NVFUSER_ROOT}/runtime/basic_type_traits.cu
   ${NVFUSER_ROOT}/runtime/bf16_support.cu
+  ${NVFUSER_ROOT}/runtime/bit.cu
   ${NVFUSER_ROOT}/runtime/block_reduction.cu
   ${NVFUSER_ROOT}/runtime/block_sync_atomic.cu
   ${NVFUSER_ROOT}/runtime/block_sync_default.cu
@@ -549,8 +555,6 @@ list(APPEND NVFUSER_RUNTIME_FILES
   ${NVFUSER_ROOT}/runtime/type_traits.cu
   ${NVFUSER_ROOT}/runtime/warp.cu
   ${NVFUSER_ROOT}/runtime/welford.cu
-  ${ATEN_CUDA_ROOT}/cuda/detail/PhiloxCudaStateRaw.cuh
-  ${ATEN_CUDA_ROOT}/cuda/detail/UnpackRaw.cuh
 )
 
 file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/include/nvfuser_resources")
@@ -592,11 +596,13 @@ endif()
 message(STATUS "")
 message(STATUS "******** Nvfuser configuration summary ********")
 message(STATUS "  UCC_FOUND: ${UCC_FOUND}")
-message(STATUS "  NVFUSER_STANDALONE_BUILD_WITH_UCC  : ${NVFUSER_STANDALONE_BUILD_WITH_UCC}" )
+message(STATUS "  NVFUSER_STANDALONE_BUILD_WITH_UCC  : ${NVFUSER_STANDALONE_BUILD_WITH_UCC}")
+
 if(NVFUSER_STANDALONE_BUILD_WITH_UCC)
   message(STATUS "    UCC_HOME: $ENV{UCC_HOME}")
   message(STATUS "    UCC_DIR : $ENV{UCC_DIR}")
   message(STATUS "    UCX_HOME: $ENV{UCX_HOME}")
   message(STATUS "    UCX_DIR : $ENV{UCX_DIR}")
 endif()
+
 message(STATUS "******** End of Nvfuser configuration summary ********")

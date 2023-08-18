@@ -82,7 +82,7 @@ bool isMagicZero(const Val* val) {
     return false;
   }
   auto ns = val->as<NamedScalar>();
-  return ns->dtype() == DataType::Int &&
+  return ns->dtype() == DataType::Index &&
       ns->name() == std::string(kMagicZeroName);
 }
 
@@ -166,7 +166,7 @@ IndexMagicZeroInfo protectIndexByReplacingLoopIndex(
   replacement_map[loop_index_to_protect] = protected_loop_index;
 
   auto protected_index =
-      ir_utils::replaceValInIndexVal(overall_index_val, replacement_map);
+      ir_utils::replaceValRecursively(overall_index_val, replacement_map);
 
   IndexMagicZeroInfo info;
   info.index = protected_index;

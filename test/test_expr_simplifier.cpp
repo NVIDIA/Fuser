@@ -15,6 +15,8 @@
 #include <cctype>
 #include <deque>
 #include <memory>
+#include <random>
+#include <regex>
 #include <string>
 #include <string_view>
 #include <variant>
@@ -27,7 +29,7 @@ namespace {
 // simplifies to true. We don't use x->sameAs(y), because we want to consider
 // a(b+c), ab+ac, (b+c)a, ba+ca as equivalent, but `sameAs` can not do this job.
 bool isEquivalent(Val* x, Val* y) {
-  return simplifyExpr(eq(x, y))->getBool() == true;
+  return simplifyExpr(IrBuilder::eqExpr(x, y))->getBool() == true;
 }
 
 // assert that x/y -> z
@@ -35,8 +37,8 @@ void expectSimplifiedDiv(
     Val* x,
     Val* y,
     Val* z,
-    std::vector<Scalar*> assumptions = {}) {
-  auto simplified = simplifyExpr(div(x, y), {}, assumptions);
+    std::vector<Val*> assumptions = {}) {
+  auto simplified = simplifyExpr(IrBuilder::divExpr(x, y), {}, assumptions);
   EXPECT_TRUE(isEquivalent(simplified, z))
       << "Expect " << x->toInlineString() << " / " << y->toInlineString()
       << " to be simplified to " << z->toInlineString() << ", but get "
@@ -48,8 +50,8 @@ void expectSimplifiedMod(
     Val* x,
     Val* y,
     Val* z,
-    std::vector<Scalar*> assumptions = {}) {
-  auto simplified = simplifyExpr(mod(x, y), {}, assumptions);
+    std::vector<Val*> assumptions = {}) {
+  auto simplified = simplifyExpr(IrBuilder::modExpr(x, y), {}, assumptions);
   EXPECT_TRUE(isEquivalent(simplified, z))
       << "Expect " << x->toInlineString() << " % " << y->toInlineString()
       << " to be simplified to " << z->toInlineString() << ", but get "
@@ -90,27 +92,69 @@ using token_t = std::variant<
     Comma,
     LowestPrecedence>;
 
+Val* randomlyReuseOrCreateNamedScalar(
+    std::string_view name_view,
+    DataType dtype) {
+  Fusion* fusion = FusionGuard::getCurFusion();
+  auto name = std::string(name_view);
+  if (!fusion->hasManaged(name)) {
+    auto ns = IrBuilder::create<NamedScalar>(name, dtype);
+    fusion->manage(name, std::vector<Val*>{ns});
+    return ns;
+  }
+  auto& existing_vals = fusion->getManaged<std::vector<Val*>>(name);
+  std::random_device rd;
+  std::mt19937 gen(rd());
+  std::uniform_int_distribution<size_t> dis(0, existing_vals.size());
+  auto index = dis(gen);
+  if (index == existing_vals.size()) {
+    // create a new one
+    auto ns = IrBuilder::create<NamedScalar>(name, dtype);
+    existing_vals.push_back(ns);
+    return ns;
+  } else {
+    // reuse an existing one
+    return existing_vals[index];
+  }
+}
+
 Val* parseIdentifier(std::string_view token_str) {
   if (token_str == "true") {
     return IrBuilder::newConstant(true, DataType::Bool);
   } else if (token_str == "false") {
     return IrBuilder::newConstant(false, DataType::Bool);
+  } else if (token_str.at(0) == 'T') {
+    std::string s(token_str);
+    std::regex regex(R"((T\d+)\.(\w+)\[(\d+)\])");
+    std::smatch match;
+    std::regex_search(s, match, regex);
+    TORCH_CHECK(match.size() == 4, "Invalid tensor access: ", token_str);
+    auto tensor_name = match[1];
+    auto attr = match[2];
+    auto index = std::stol(match[3]);
+    Fusion* fusion = FusionGuard::getCurFusion();
+    TensorView* tv = nullptr;
+    if (fusion->hasManaged(tensor_name)) {
+      tv = fusion->getManaged<TensorView*>(tensor_name);
+    } else {
+      tv = makeSymbolicTensor(10);
+      fusion->manage(tensor_name, tv);
+    }
+    return IrBuilder::getItemExpr(
+        IrBuilder::getAttrExpr(IrBuilder::metadataExpr(tv), attr), index);
   } else if (
-      token_str.at(0) == 'i' || token_str.at(0) == 'T' ||
-      token_str == "threadIdx.x" || token_str == "threadIdx.y" ||
-      token_str == "threadIdx.z" || token_str == "blockIdx.x" ||
-      token_str == "blockIdx.y" || token_str == "blockIdx.z" ||
-      token_str == "blockDim.x" || token_str == "blockDim.y" ||
-      token_str == "blockDim.z" || token_str == "gridDim.x" ||
-      token_str == "gridDim.y" || token_str == "gridDim.z") {
-    return IrBuilder::create<NamedScalar>(
-        std::string(token_str), DataType::Int);
+      token_str.at(0) == 'i' || token_str == "threadIdx.x" ||
+      token_str == "threadIdx.y" || token_str == "threadIdx.z" ||
+      token_str == "blockIdx.x" || token_str == "blockIdx.y" ||
+      token_str == "blockIdx.z" || token_str == "blockDim.x" ||
+      token_str == "blockDim.y" || token_str == "blockDim.z" ||
+      token_str == "gridDim.x" || token_str == "gridDim.y" ||
+      token_str == "gridDim.z") {
+    return randomlyReuseOrCreateNamedScalar(token_str, DataType::Int);
   } else if (token_str.at(0) == 'b') {
-    return IrBuilder::create<NamedScalar>(
-        std::string(token_str), DataType::Bool);
+    return randomlyReuseOrCreateNamedScalar(token_str, DataType::Bool);
   } else if (token_str.at(0) == 'd') {
-    return IrBuilder::create<NamedScalar>(
-        std::string(token_str), DataType::Double);
+    return randomlyReuseOrCreateNamedScalar(token_str, DataType::Double);
   } else {
     TORCH_INTERNAL_ASSERT(false, "Identifier with unknown type: ", token_str);
   }
@@ -195,16 +239,16 @@ token_t parseToken(std::string_view token_str, bool& expect_val) {
     return parseIdentifier(token_str);
   } else if (token_str == "-") {
     if (expect_val) {
-      return fun1_t(&neg);
+      return fun1_t(&IrBuilder::negExpr);
     } else {
       expect_val = true;
-      return fun2_t(&sub);
+      return fun2_t(&IrBuilder::subExpr);
     }
   }
   if (token_str.at(0) == '!' || token_str.at(0) == '~') {
     TORCH_CHECK(
         expect_val, "Syntax error: not expecting unary op but get ", token_str);
-    return fun1_t(&notOp);
+    return fun1_t(&IrBuilder::logicalNotExpr);
   } else if (token_str.at(0) == '-' || std::isdigit(token_str.at(0))) {
     TORCH_CHECK(
         expect_val, "Syntax error: not expecting number but get ", token_str);
@@ -219,30 +263,30 @@ token_t parseToken(std::string_view token_str, bool& expect_val) {
     if (token_str.size() == 1) {
       switch (token_str.at(0)) {
         case '+':
-          return fun2_t(&add);
+          return fun2_t(&IrBuilder::addExpr);
         case '*':
-          return fun2_t(&mul);
+          return fun2_t(&IrBuilder::mulExpr);
         case '/':
-          return fun2_t(&div);
+          return fun2_t(&IrBuilder::divExpr);
         case '%':
-          return fun2_t(&mod);
+          return fun2_t(&IrBuilder::modExpr);
         case '>':
-          return fun2_t(&gt);
+          return fun2_t(&IrBuilder::gtExpr);
         case '<':
-          return fun2_t(&lt);
+          return fun2_t(&IrBuilder::ltExpr);
       }
     } else if (token_str == "==") {
-      return fun2_t(&eq);
+      return fun2_t(&IrBuilder::eqExpr);
     } else if (token_str == "!=") {
-      return fun2_t(&eq);
+      return fun2_t(&IrBuilder::neExpr);
     } else if (token_str == ">=") {
-      return fun2_t(&ge);
+      return fun2_t(&IrBuilder::geExpr);
     } else if (token_str == "<=") {
-      return fun2_t(&le);
+      return fun2_t(&IrBuilder::leExpr);
     } else if (token_str == "&&") {
-      return fun2_t(&bitwise_and);
+      return fun2_t(&IrBuilder::logicalAndExpr);
     } else if (token_str == "||") {
-      return fun2_t(&bitwise_or);
+      return fun2_t(&IrBuilder::logicalOrExpr);
     }
     TORCH_CHECK(false, "Unrecognized token: ", token_str);
   }
@@ -258,7 +302,8 @@ int getOpPrecedence(token_t op) {
   }
   if (std::holds_alternative<fun1_t>(op)) {
     auto uop = std::get<fun1_t>(op);
-    if (uop == fun1_t(neg) || uop == fun1_t(notOp)) {
+    if (uop == fun1_t(IrBuilder::negExpr) ||
+        uop == fun1_t(IrBuilder::logicalNotExpr)) {
       return 3;
     }
     TORCH_CHECK(false, "Unexpected unary op");
@@ -266,23 +311,29 @@ int getOpPrecedence(token_t op) {
 
   if (std::holds_alternative<fun2_t>(op)) {
     auto bop = std::get<fun2_t>(op);
-    if (bop == fun2_t(&mul) || bop == fun2_t(&div) || bop == fun2_t(&mod)) {
+    if (bop == fun2_t(&IrBuilder::mulExpr) ||
+        bop == fun2_t(&IrBuilder::divExpr) ||
+        bop == fun2_t(&IrBuilder::modExpr)) {
       return 5;
     }
-    if (bop == fun2_t(&add) || bop == fun2_t(&sub)) {
+    if (bop == fun2_t(&IrBuilder::addExpr) ||
+        bop == fun2_t(&IrBuilder::subExpr)) {
       return 6;
     }
-    if (bop == fun2_t(&lt) || bop == fun2_t(&le) || bop == fun2_t(&gt) ||
-        bop == fun2_t(&ge)) {
+    if (bop == fun2_t(&IrBuilder::ltExpr) ||
+        bop == fun2_t(&IrBuilder::leExpr) ||
+        bop == fun2_t(&IrBuilder::gtExpr) ||
+        bop == fun2_t(&IrBuilder::geExpr)) {
       return 9;
     }
-    if (bop == fun2_t(&eq) || bop == fun2_t(&ne)) {
+    if (bop == fun2_t(&IrBuilder::eqExpr) ||
+        bop == fun2_t(&IrBuilder::neExpr)) {
       return 10;
     }
-    if (bop == fun2_t(&bitwise_and)) {
+    if (bop == fun2_t(&IrBuilder::logicalAndExpr)) {
       return 14;
     }
-    if (bop == fun2_t(&bitwise_or)) {
+    if (bop == fun2_t(&IrBuilder::logicalOrExpr)) {
       return 15;
     }
     TORCH_CHECK(false, "Unexpected binary op");
@@ -415,10 +466,6 @@ Val* operator""_(const char* str, size_t) {
   return parse(str);
 }
 
-Scalar* operator""_b(const char* str, size_t) {
-  return parse(str)->as<Scalar>();
-}
-
 } // namespace ops
 
 } // namespace stupid_simple_compiler
@@ -436,7 +483,7 @@ class ExprSimplifierTest : public NVFuserTest {
   }
 };
 
-TEST_F(ExprSimplifierTest, StupidSimpleCompiler_CUDA) {
+TEST_F(ExprSimplifierTest, StupidSimpleCompiler) {
   EXPECT_EQ(
       "( ( ( ( ( i2 * i3 ) + ( ( i4 + i5 ) + 3 ) ) + 3 ) * ( ( ( ( i0 + i1 ) + 3 ) + 5 ) + i2 ) ) * i0 )"_
           ->toInlineString(),
@@ -446,7 +493,7 @@ TEST_F(ExprSimplifierTest, StupidSimpleCompiler_CUDA) {
       "( ( i1 * i2 ) - ( i2 * i1 ) )");
 }
 
-TEST_F(ExprSimplifierTest, AssociativeAndCommutativeReordering_CUDA) {
+TEST_F(ExprSimplifierTest, AssociativeAndCommutativeReordering) {
   std::vector<VarInfo> variables(6);
   variables[0].variable = "i0"_;
   variables[1].variable = "i1"_;
@@ -459,6 +506,24 @@ TEST_F(ExprSimplifierTest, AssociativeAndCommutativeReordering_CUDA) {
     auto val = "( ( i3 * i2 ) + i4 ) + ( i1 + 3 )"_;
     auto simplified = simplifyExpr(val, {variables.begin(), variables.end()});
     auto expect = "( ( ( 3 + i1 ) + ( i2 * i3 ) ) + i4 )"_;
+    EXPECT_TRUE(expect->sameAs(simplified) && simplified->sameAs(expect))
+        << "Expect the simplified expression " << simplified->toInlineString()
+        << " to be the same as " << expect->toInlineString();
+  }
+
+  {
+    auto val = "i3 + i2 - i1 + i0"_;
+    auto simplified = simplifyExpr(val, {variables.begin(), variables.end()});
+    auto expect = "i0 - i1 + i2 + i3"_;
+    EXPECT_TRUE(expect->sameAs(simplified) && simplified->sameAs(expect))
+        << "Expect the simplified expression " << simplified->toInlineString()
+        << " to be the same as " << expect->toInlineString();
+  }
+
+  {
+    auto val = "i3 + i2 + i1 - i0"_;
+    auto simplified = simplifyExpr(val, {variables.begin(), variables.end()});
+    auto expect = "- i0 + i1 + i2 + i3"_;
     EXPECT_TRUE(expect->sameAs(simplified) && simplified->sameAs(expect))
         << "Expect the simplified expression " << simplified->toInlineString()
         << " to be the same as " << expect->toInlineString();
@@ -479,9 +544,9 @@ TEST_F(ExprSimplifierTest, AssociativeAndCommutativeReordering_CUDA) {
   }
 }
 
-TEST_F(ExprSimplifierTest, EliminateTrivialComputation_CUDA) {
+TEST_F(ExprSimplifierTest, EliminateTrivialComputation) {
   auto simplify = [](Val* x, Val* assumption) {
-    return simplifyExpr(x, {}, {assumption->as<Scalar>()});
+    return simplifyExpr(x, {}, {assumption});
   };
 
   // constant folding
@@ -536,17 +601,32 @@ TEST_F(ExprSimplifierTest, EliminateTrivialComputation_CUDA) {
   EXPECT_TRUE(simplifyExpr("1.0 + d + 1.0"_)->sameAs("d + 2.0"_));
 
   // Test that FlattenedAssocCommOp::sameAs ignores order
-  EXPECT_TRUE(simplifyExpr("( i1 * i2 ) - ( i2 * i1 )"_)->isZeroInt());
+  EXPECT_TRUE(simplifyExpr("( i1 * i2 ) == ( i2 * i1 )"_)->isTrue());
 
   // where(true, x, y) -> x, where(false, x, y) -> y
   EXPECT_TRUE(simplifyExpr("where( true , i1 , i2 )"_)->sameAs("i1"_));
   EXPECT_TRUE(simplifyExpr("where( false , i1 , i2 )"_)->sameAs("i2"_));
 
   // abs(x) -> x, if x >= 0
-  EXPECT_TRUE(simplifyExpr("abs( i )"_, {}, {"i >= 0"_b})->sameAs("i"_));
+  EXPECT_TRUE(simplifyExpr("abs( i )"_, {}, {"i >= 0"_})->sameAs("i"_));
+
+  // x - x -> 0
+  EXPECT_TRUE(simplifyExpr("i - i"_)->isZeroInt());
+  EXPECT_TRUE(simplifyExpr("i - i - i"_)->sameAs("- i"_));
+  EXPECT_TRUE(simplifyExpr("i - i + i"_)->sameAs("i"_));
+  EXPECT_TRUE(simplifyExpr("i - i + i - i"_)->isZeroInt());
+  EXPECT_TRUE(simplifyExpr("i1 - ( i2 + i3 ) + i2"_)->sameAs("i1 - i3"_));
+  EXPECT_TRUE(simplifyExpr("i2 - ( i2 - i3 ) - i3"_)->isZeroInt());
+  EXPECT_TRUE(simplifyExpr("i1 - ( i2 - i3 ) - i3"_)->sameAs("i1 - i2"_));
+  // Using the same Val* multiple times in FlattenedAdd so that we can test if
+  // our passes are working correctly with the same Val* appearing multiple
+  // times
+  auto i = "i"_;
+  EXPECT_TRUE(
+      simplifyExpr(IrBuilder::subExpr(IrBuilder::addExpr(i, i), i))->sameAs(i));
 }
 
-TEST_F(ExprSimplifierTest, SimplifyDivisibleDivMod_CUDA) {
+TEST_F(ExprSimplifierTest, SimplifyDivisibleDivMod) {
   // assert that our system can correctly find that x is a multiple of y and z,
   // and simplify:
   // x % y -> 0
@@ -606,9 +686,9 @@ TEST_F(ExprSimplifierTest, SimplifyDivisibleDivMod_CUDA) {
   expectSimplifiedDivMod("i1 * i2 * 3 + i2 * i1 * 6"_, "3 * i2 * i1"_, "3"_);
 }
 
-TEST_F(ExprSimplifierTest, SignProve_CUDA) {
+TEST_F(ExprSimplifierTest, SignProve) {
   auto assertProvedPositive = [](Val* x,
-                                 const std::vector<Scalar*>& assumptions = {}) {
+                                 const std::vector<Val*>& assumptions = {}) {
     auto proved =
         (simplifyExpr(IrBuilder::gtExpr(x, "0"_), {}, assumptions)->getBool() ==
          true) &&
@@ -629,8 +709,7 @@ TEST_F(ExprSimplifierTest, SignProve_CUDA) {
     EXPECT_TRUE(proved) << "Unable to prove " << x->toInlineString() << " > 0";
   };
   auto assertProvedNonNegative = [](Val* x,
-                                    const std::vector<Scalar*>& assumptions =
-                                        {}) {
+                                    const std::vector<Val*>& assumptions = {}) {
     auto proved =
         (simplifyExpr(IrBuilder::geExpr(x, "0"_), {}, assumptions)->getBool() ==
          true) &&
@@ -643,7 +722,7 @@ TEST_F(ExprSimplifierTest, SignProve_CUDA) {
     EXPECT_TRUE(proved) << "Unable to prove " << x->toInlineString() << " >= 0";
   };
   auto assertProvedNonZero = [](Val* x,
-                                const std::vector<Scalar*>& assumptions = {}) {
+                                const std::vector<Val*>& assumptions = {}) {
     auto proved =
         (simplifyExpr(IrBuilder::neExpr(x, "0"_), {}, assumptions)->getBool() ==
          true) &&
@@ -677,14 +756,14 @@ TEST_F(ExprSimplifierTest, SignProve_CUDA) {
   assertProvedNonZero("1"_);
   assertProvedNonZero("2"_);
 
-  assertProvedNonNegative("T123.size[3]"_);
-  assertProvedNonNegative("T123.stride[3]"_);
+  assertProvedNonNegative("T123.logical_size[3]"_);
+  assertProvedNonNegative("T123.alloc_stride[3]"_);
 
-  std::vector<Scalar*> assumptions{
-      "i1 < 2 && i1 >= 0"_b,
-      "i2 < 2 && i2 >= 0"_b,
-      "i3 < 2 && i3 >= 0"_b,
-      "i4 < 2 && i4 >= 0"_b,
+  std::vector<Val*> assumptions{
+      "i1 < 2 && i1 >= 0"_,
+      "i2 < 2 && i2 >= 0"_,
+      "i3 < 2 && i3 >= 0"_,
+      "i4 < 2 && i4 >= 0"_,
   };
 
   assertProvedNonNegative("i1"_, assumptions);
@@ -705,8 +784,8 @@ TEST_F(ExprSimplifierTest, SignProve_CUDA) {
       "( i4 + 1 ) % ( ( i1 + 2 ) + ( i2 + i3 ) )"_, assumptions);
 }
 
-TEST_F(ExprSimplifierTest, PredicateProve_CUDA) {
-  std::vector<Scalar*> assumptions{"i1 < 5 && i2 <= 5 && i3 > 5 && i4 >= 5"_b};
+TEST_F(ExprSimplifierTest, PredicateProve) {
+  std::vector<Val*> assumptions{"i1 < 5 && i2 <= 5 && i3 > 5 && i4 >= 5"_};
   EXPECT_EQ(simplifyExpr("i1 < 5"_, {}, assumptions)->getBool(), true);
   EXPECT_EQ(simplifyExpr("i1 <= 5"_, {}, assumptions)->getBool(), true);
   EXPECT_EQ(simplifyExpr("5 > i1"_, {}, assumptions)->getBool(), true);
@@ -721,7 +800,7 @@ TEST_F(ExprSimplifierTest, PredicateProve_CUDA) {
   EXPECT_EQ(simplifyExpr("5 <= i4"_, {}, assumptions)->getBool(), true);
 }
 
-TEST_F(ExprSimplifierTest, EquivalenceSimplification_CUDA) {
+TEST_F(ExprSimplifierTest, EquivalenceSimplification) {
   auto assertProvedEquiv = [](Val* x, Val* y) {
     auto proved = (simplifyExpr(IrBuilder::eqExpr(x, y))->getBool() == true) &&
         (simplifyExpr(IrBuilder::neExpr(x, y))->getBool() == false);
@@ -734,7 +813,7 @@ TEST_F(ExprSimplifierTest, EquivalenceSimplification_CUDA) {
   assertProvedEquiv("( i1 * i3 ) % i2"_, "( i3 * i1 ) % i2"_);
 }
 
-TEST_F(ExprSimplifierTest, CancelDivMod_CUDA) {
+TEST_F(ExprSimplifierTest, CancelDivMod) {
   expectSimplifiedDiv(
       "6 * ( i1 * i3 )"_, "15 * ( i1 * i2 )"_, "( 2 * i3 ) / ( 5 * i2 )"_);
   expectSimplifiedMod(
@@ -746,43 +825,42 @@ TEST_F(ExprSimplifierTest, CancelDivMod_CUDA) {
       "( 3 * i1 )"_, "15 * ( i1 * i2 )"_, "( 1 % ( 5 * i2 ) ) * ( 3 * i1 )"_);
 }
 
-TEST_F(ExprSimplifierTest, DistributeDivisibleDivMod_CUDA) {
-  std::vector<Scalar*> assumptions{"i1 >= 0 && i2 >= 0 && i3 >= 0"_b};
+TEST_F(ExprSimplifierTest, DistributeDivisibleDivMod) {
+  std::vector<Val*> assumptions{"i1 >= 0 && i2 >= 0 && i3 >= 0"_};
 
   expectSimplifiedDiv("i1 * i2 + i3"_, "i1"_, "i2 + i3 / i1"_, assumptions);
   expectSimplifiedMod("i1 * i2 + i3"_, "i1"_, "i3 % i1"_, assumptions);
 }
 
-TEST_F(ExprSimplifierTest, DistributeGcdRemainderDivMod_CUDA) {
-  expectSimplifiedDiv("i1 * 3 + 2"_, "6"_, "i1 / 2"_, {"i1 >= 0"_b});
-  expectSimplifiedMod(
-      "i1 * 3 + 2"_, "6"_, "( i1 % 2 ) * 3 + 2"_, {"i1 >= 0"_b});
+TEST_F(ExprSimplifierTest, DistributeGcdRemainderDivMod) {
+  expectSimplifiedDiv("i1 * 3 + 2"_, "6"_, "i1 / 2"_, {"i1 >= 0"_});
+  expectSimplifiedMod("i1 * 3 + 2"_, "6"_, "( i1 % 2 ) * 3 + 2"_, {"i1 >= 0"_});
   expectSimplifiedDiv(
       "i1 * 4 + 3"_,
-      "32 * T0.size[0]"_,
-      "i1 / ( 8 * T0.size[0] )"_,
-      {"i1 >= 0"_b});
+      "32 * T0.logical_size[0]"_,
+      "i1 / ( 8 * T0.logical_size[0] )"_,
+      {"i1 >= 0"_});
   expectSimplifiedMod(
       "i1 * 4 + 3"_,
-      "32 * T0.size[0]"_,
-      "( i1 % ( 8 * T0.size[0] ) ) * 4 + 3"_,
-      {"i1 >= 0"_b});
+      "32 * T0.logical_size[0]"_,
+      "( i1 % ( 8 * T0.logical_size[0] ) ) * 4 + 3"_,
+      {"i1 >= 0"_});
   expectSimplifiedDiv(
-      "( ( ( blockIdx.x * 128 + threadIdx.x ) % ( T0.size[3] * 24 ) ) * 4 ) + 3"_,
-      "32 * T0.size[3]"_,
-      "( ( blockIdx.x * 128 + threadIdx.x ) % ( T0.size[3] * 24 ) ) / ( 8 * T0.size[3] )"_,
+      "( ( ( blockIdx.x * 128 + threadIdx.x ) % ( T0.logical_size[3] * 24 ) ) * 4 ) + 3"_,
+      "32 * T0.logical_size[3]"_,
+      "( ( blockIdx.x * 128 + threadIdx.x ) % ( T0.logical_size[3] * 24 ) ) / ( 8 * T0.logical_size[3] )"_,
       {});
 }
 
-TEST_F(ExprSimplifierTest, DistributeMul_CUDA) {
+TEST_F(ExprSimplifierTest, DistributeMul) {
   EXPECT_TRUE(isEquivalent("i1 * ( i2 + i3 )"_, "( i1 * i2 ) + ( i1 * i3 )"_));
   EXPECT_TRUE(isEquivalent(
       "i1 * ( i2 + i3 + i4 )"_, "( i1 * i2 ) + ( i1 * i3 ) + ( i1 * i4 )"_));
 }
 
-TEST_F(ExprSimplifierTest, Compare_CUDA) {
+TEST_F(ExprSimplifierTest, Compare) {
   auto simplify = [](Val* x, Val* assumption) {
-    return simplifyExpr(x, {}, {assumption->as<Scalar>()})->getBool();
+    return simplifyExpr(x, {}, {assumption})->getBool();
   };
 
   EXPECT_TRUE(*simplify("i1 <= i1"_, "i1 < i2"_));
@@ -817,41 +895,56 @@ TEST_F(ExprSimplifierTest, Compare_CUDA) {
   EXPECT_TRUE(*simplify("d1 >= d1 * d2"_, "d1 <= 0.0 && d2 >= 1.0"_));
   EXPECT_TRUE(
       *simplifyExpr(
-           "ceilDiv( T0.size[0] , 128 ) * 4 >= ceilDiv( T0.size[0] , 128 )"_)
+           "ceilDiv( T0.logical_size[0] , 128 ) * 4 >= ceilDiv( T0.logical_size[0] , 128 )"_)
            ->getBool());
 
   EXPECT_TRUE(*simplify("ceilDiv( i1 , i2 ) > 0"_, "i1 > 0 && i2 > 0"_));
   EXPECT_TRUE(*simplify("ceilDiv( i1 , i2 ) >= 1"_, "i1 > 0 && i2 > 0"_));
 
   EXPECT_TRUE(*simplify(
-      "blockIdx.x < ceilDiv( T0.size[0] , 128 ) * 4"_,
-      "blockIdx.x < ceilDiv( T0.size[0] , 128 ) * 4"_));
+      "blockIdx.x < ceilDiv( T0.logical_size[0] , 128 ) * 4"_,
+      "blockIdx.x < ceilDiv( T0.logical_size[0] , 128 ) * 4"_));
 
   EXPECT_TRUE(*simplify("i1 % i2 < i2"_, "i2 >= 0"_));
-}
 
-TEST_F(ExprSimplifierTest, FundamentalDivisionWithRemainderProperty_CUDA) {
   EXPECT_TRUE(
-      isEquivalent("i1 / T1.size[0] * T1.size[0] + i1 % T1.size[0]"_, "i1"_));
-  EXPECT_TRUE(isEquivalent(
-      "( i2 + i1 / T1.size[0] * T1.size[0] ) + i1 % T1.size[0]"_, "i1 + i2"_));
-  EXPECT_TRUE(isEquivalent(
-      "( i1 / T1.size[0] ) * ( T1.size[0] * T1.size[1] ) + T1.size[1] * ( i1 % T1.size[0] )"_,
-      "i1 * T1.size[1]"_));
-  EXPECT_TRUE(isEquivalent(
-      "i2 + ( i1 / T1.size[0] ) * ( T1.size[0] * T1.size[1] ) + T1.size[1] * ( i1 % T1.size[0] )"_,
-      "i1 * T1.size[1] + i2"_));
+      *simplifyExpr("T0.logical_size[0] - 1 < T0.logical_size[0]"_)->getBool());
+  EXPECT_TRUE(
+      *simplifyExpr(
+           "T0.logical_size[0] + 1 + 2 + 3 < T0.logical_size[0] + 1 + 2 + 3 + 4"_)
+           ->getBool());
+  // Two terms of the LHS are both the same as the single RHS term,
+  // but the removal should be done only for one of them. If doubly
+  // removed, the predicate would be false
+  EXPECT_TRUE(*simplify("i1 + i1 > i1"_, "i1 > 0"_));
+  EXPECT_TRUE(*simplify("i1 < i1 + i1"_, "i1 > 0"_));
+  EXPECT_TRUE(*simplify("i1 + i1 < i1 + i1 + i1"_, "i1 > 0"_));
 }
 
-TEST_F(ExprSimplifierTest, ReducePredicateRegisterUsage_CUDA) {
+TEST_F(ExprSimplifierTest, FundamentalDivisionWithRemainderProperty) {
+  EXPECT_TRUE(isEquivalent(
+      "i1 / T1.logical_size[0] * T1.logical_size[0] + i1 % T1.logical_size[0]"_,
+      "i1"_));
+  EXPECT_TRUE(isEquivalent(
+      "( i2 + i1 / T1.logical_size[0] * T1.logical_size[0] ) + i1 % T1.logical_size[0]"_,
+      "i1 + i2"_));
+  EXPECT_TRUE(isEquivalent(
+      "( i1 / T1.logical_size[0] ) * ( T1.logical_size[0] * T1.logical_size[1] ) + T1.logical_size[1] * ( i1 % T1.logical_size[0] )"_,
+      "i1 * T1.logical_size[1]"_));
+  EXPECT_TRUE(isEquivalent(
+      "i2 + ( i1 / T1.logical_size[0] ) * ( T1.logical_size[0] * T1.logical_size[1] ) + T1.logical_size[1] * ( i1 % T1.logical_size[0] )"_,
+      "i1 * T1.logical_size[1] + i2"_));
+}
+
+TEST_F(ExprSimplifierTest, ReducePredicateRegisterUsage) {
   auto a = IrBuilder::create<NamedScalar>("a", DataType::Int);
   auto b = IrBuilder::create<NamedScalar>("b", DataType::Int);
   auto u1 = IrBuilder::create<NamedScalar>("u1", DataType::Int);
   auto u2 = IrBuilder::create<NamedScalar>("u2", DataType::Int);
   auto tidx = NamedScalar::getParallelIndex(ParallelType::TIDx);
   auto zero = "0"_;
-  auto five = IrBuilder::create<Scalar>(5L);
-  auto neg_five = IrBuilder::create<Scalar>(-5L);
+  auto five = IrBuilder::create<Val>(5L);
+  auto neg_five = IrBuilder::create<Val>(-5L);
 
   auto unroll_gp1 = mul(tidx, u1);
   auto unroll_uniform1 = mul(a, u1);
@@ -1003,32 +1096,33 @@ TEST_F(ExprSimplifierTest, ReducePredicateRegisterUsage_CUDA) {
   }
 }
 
-TEST_F(ExprSimplifierTest, MinMax_CUDA) {
+TEST_F(ExprSimplifierTest, MinMax) {
   auto simplify = [](Val* x, Val* assumption) {
-    return simplifyExpr(x, {}, {assumption->as<Scalar>()});
+    return simplifyExpr(x, {}, {assumption});
   };
 
   auto expr =
-      "max( max( ceilDiv( T0.size[0] , 128 ) * 4 , ceilDiv( T0.size[0] , 128 ) ) , 4 )"_;
-  EXPECT_TRUE(simplify(expr, "T0.size[0] > 0"_b)
-                  ->sameAs("ceilDiv( T0.size[0] , 128 ) * 4"_));
+      "max( max( ceilDiv( T0.logical_size[0] , 128 ) * 4 , ceilDiv( T0.logical_size[0] , 128 ) ) , 4 )"_;
+  EXPECT_TRUE(simplify(expr, "T0.logical_size[0] > 0"_)
+                  ->sameAs("ceilDiv( T0.logical_size[0] , 128 ) * 4"_));
 }
 
-TEST_F(ExprSimplifierTest, PredicateDivToMul_CUDA) {
-  auto simplified = simplifyExpr("i1 / T0.size[0] < i2"_, {}, {"i1 >= 0"_b});
-  auto expect = "i1 < ( i2 * T0.size[0] )"_;
+TEST_F(ExprSimplifierTest, PredicateDivToMul) {
+  auto simplified =
+      simplifyExpr("i1 / T0.logical_size[0] < i2"_, {}, {"i1 >= 0"_});
+  auto expect = "i1 < ( i2 * T0.logical_size[0] )"_;
 
   EXPECT_TRUE(simplified->sameAs(expect));
 }
 
-TEST_F(ExprSimplifierTest, FactorizeGcd_CUDA) {
+TEST_F(ExprSimplifierTest, FactorizeGcd) {
   EXPECT_TRUE(simplifyExpr("gcd( i1 * i2 , i3 * i2 )"_)
                   ->sameAs("gcd( i1 , i3 ) * abs( i2 )"_));
-  EXPECT_TRUE(simplifyExpr("gcd( i1 * i2 , i3 * i2 )"_, {}, {"i2 >= 0"_b})
+  EXPECT_TRUE(simplifyExpr("gcd( i1 * i2 , i3 * i2 )"_, {}, {"i2 >= 0"_})
                   ->sameAs("gcd( i1 , i3 ) * i2"_));
   EXPECT_TRUE(simplifyExpr("gcd( i1 * i2 , i2 )"_)->sameAs("abs( i2 )"_));
   EXPECT_TRUE(
-      simplifyExpr("gcd( i1 * i2 , i2 )"_, {}, {"i2 >= 0"_b})->sameAs("i2"_));
+      simplifyExpr("gcd( i1 * i2 , i2 )"_, {}, {"i2 >= 0"_})->sameAs("i2"_));
 }
 
 } // namespace nvfuser

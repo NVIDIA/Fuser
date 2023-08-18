@@ -57,11 +57,11 @@ class TORCH_CUDA_CU_API Predicate final : public Val {
       IrBuilderPasskey passkey,
       PredicateType ptype,
       const Expr* expr = nullptr,
-      Scalar* thread_pred = nullptr);
+      Val* thread_pred = nullptr);
 
   explicit Predicate(IrBuilderPasskey passkey, ForLoop* unrolled_loop);
 
-  explicit Predicate(IrBuilderPasskey passkey, Scalar* value);
+  explicit Predicate(IrBuilderPasskey passkey, Val* value);
 
   std::string toString(int indent_size = 0) const override;
 
@@ -78,7 +78,7 @@ class TORCH_CUDA_CU_API Predicate final : public Val {
     return expr_;
   }
 
-  Scalar* thread_pred() const {
+  Val* thread_pred() const {
     TORCH_INTERNAL_ASSERT(
         ptype_ == PredicateType::Inline ||
         ptype_ == PredicateType::Misaligned || ptype_ == PredicateType::Shift ||
@@ -96,14 +96,14 @@ class TORCH_CUDA_CU_API Predicate final : public Val {
     return value_ != nullptr;
   }
 
-  Scalar* value() const {
+  Val* value() const {
     TORCH_INTERNAL_ASSERT(
         value_ != nullptr,
         "The conditional expression for this Predicate is invalid.");
     return value_;
   }
 
-  void setValue(Scalar* value) {
+  void setValue(Val* value) {
     TORCH_INTERNAL_ASSERT(value != nullptr, "The Bool expression is invalid.");
     value_ = value;
   }
@@ -124,14 +124,14 @@ class TORCH_CUDA_CU_API Predicate final : public Val {
   const Expr* expr_ = nullptr;
 
   // For PredicateCompute::getInlinePredicate
-  Scalar* thread_pred_ = nullptr;
+  Val* thread_pred_ = nullptr;
 
   // For ParallelType::Unswitch - UnswitchPredicate::get
   ForLoop* unrolled_loop_ = nullptr;
 
   // The Bool conditional value
   // The value is nullptr until lower_predicate pass
-  Scalar* value_ = nullptr;
+  Val* value_ = nullptr;
 };
 
 class TORCH_CUDA_CU_API TensorIndex final : public Val {
@@ -210,8 +210,8 @@ class TORCH_CUDA_CU_API Allocate final : public Expr {
   //! Size of each dimension
   std::vector<Val*> shape() const {
     std::vector<Val*> result;
-    result.reserve(attributes().size() - 4);
-    for (auto i = attributes().begin() + 4; i != attributes().end(); ++i) {
+    result.reserve(attributes().size() - 5);
+    for (auto i = attributes().begin() + 5; i != attributes().end(); ++i) {
       result.emplace_back((*i)->as<Val>());
     }
     return result;
@@ -225,6 +225,28 @@ class TORCH_CUDA_CU_API Allocate final : public Expr {
   // If the alias is nullptr, then the Allocate node uses memory in the kernel
   const Allocate* alias() const {
     return dynamic_cast<const Allocate*>(attribute(3));
+  }
+
+  // Set the address of a shared memory allocation within the dynamic shared
+  // memory array. The addr argument should be a scalar expression describing an
+  // aligned address in bytes.
+  void setAddress(Val* addr) {
+    TORCH_CHECK(
+        memoryType() == MemoryType::Shared,
+        "Allocation address may only be set for shared memory allocations. Memory type is ",
+        memoryType());
+    TORCH_CHECK(
+        address() == nullptr,
+        "Attempted to set address twice for allocation ",
+        toString());
+    attributes_[4] = addr;
+  }
+
+  // This is an integer scalar describing the byte address within the dynamic
+  // shared memory array for a shared memory allocation. For memory types other
+  // than Shared, or before allocation, this function might return nullptr.
+  Val* address() const {
+    return attributeVal(4);
   }
 };
 
@@ -354,39 +376,6 @@ class TORCH_CUDA_CU_API UpdateMagicZero final : public Expr {
 
   const char* getOpString() const override {
     return "UpdateMagicZero";
-  }
-
-  std::string toString(int indent_size = 0) const override;
-  std::string toInlineString(int indent_size = 0) const override;
-};
-
-class TORCH_CUDA_CU_API BaseAddress final : public Expr {
- public:
-  using Expr::Expr;
-
-  explicit BaseAddress(IrBuilderPasskey passkey, Val* out, TensorView* tv);
-
-  NVFUSER_DECLARE_CLONE_AND_CREATE
-
-  const char* getOpString() const override {
-    return "BaseAddress";
-  }
-
-  TensorView* tv() const {
-    return input(0)->as<TensorView>();
-  }
-
-  bool sameAs(const Statement* other) const override {
-    auto other_saddr = dynamic_cast<const BaseAddress*>(other);
-    if (other_saddr == nullptr) {
-      return false;
-    }
-    // For shared memory address, we compare pointer of the TVs, instead of
-    // using sameAs to compare TVs. Because, for example, if I have:
-    // T1_s = set(T0)
-    // T2_s = set(T0)
-    // Then T1_s and T2_s has different address although T1_s->sameAs(T2_s)
-    return other_saddr->tv() == tv();
   }
 
   std::string toString(int indent_size = 0) const override;
@@ -597,6 +586,11 @@ class TORCH_CUDA_CU_API ForLoop final : public Expr {
  private:
   //! Returns if a loop could be unrolled.
   bool isUnrollable() const;
+
+  //! Not storing this as an attribute because this is only a cache for
+  //! simplifiedStop. We are not interested in keeping this across clone/serde,
+  //! etc.
+  mutable Val* simplified_stop_ = nullptr;
 };
 
 //! IfThenElse provides scoping for an boolean operator. Exprs placed in its
@@ -1023,7 +1017,7 @@ class TORCH_CUDA_CU_API VectorizedWelfordOp final : public WelfordOp {
       const WelfordTriplet& init,
       Val* count,
       Val* reciprocal_of_count,
-      Scalar* hoisted_predicate);
+      Val* hoisted_predicate);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
@@ -1042,8 +1036,8 @@ class TORCH_CUDA_CU_API VectorizedWelfordOp final : public WelfordOp {
   }
 
   //! Predicate of this expression hoisted out of an innermost loop
-  Scalar* hoistedPredicate() const {
-    return attributeVal(WelfordOp::kNumAttrs + 2)->as<Scalar>();
+  Val* hoistedPredicate() const {
+    return attributeVal(WelfordOp::kNumAttrs + 2);
   }
 };
 
@@ -1095,6 +1089,40 @@ class TORCH_CUDA_CU_API AllocateFusedReduction final : public Expr {
   TensorIndex* out() const;
 
   const ParallelTypeBitmap& threadPredicate() const;
+};
+
+class TORCH_CUDA_CU_API GetRNGSeedAndOffsetFromHost : public Expr {
+ public:
+  using Expr::Expr;
+
+  GetRNGSeedAndOffsetFromHost(
+      IrBuilderPasskey,
+      Val* seed_ptr,
+      Val* seed_val,
+      Val* first_offset_ptr,
+      Val* first_offset_val,
+      int64_t offsets = -1);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "GetRNGSeedAndOffsetFromHost";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  const int64_t& offsets() const {
+    return attribute<int64_t>(0);
+  }
+
+  int64_t& offsets() {
+    return attribute<int64_t>(0);
+  }
+
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
 };
 
 } // namespace kir

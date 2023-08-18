@@ -212,26 +212,13 @@ void Fusion::removeVal(Val* val) {
 void Fusion::addInput(Val* input) {
   assertInContainer(input, "Cannot register input ");
 
-  TORCH_INTERNAL_ASSERT(
-      input->getDataType() != DataType::Index,
-      "Data type Index is a local compile time data type only, it cannot be used as an input in case it was generated from another kernel.");
-
   if (input->getValType().value() == ValType::TensorView) {
     auto tv = input->as<TensorView>();
     tv->setMemoryType(MemoryType::Global);
-  } else if (input->getValType().value() == ValType::Scalar) {
+  } else if (input->getValType().value() == ValType::Others) {
     TORCH_CHECK(
         !input->isConst(),
         "Immediate scalar value cannot be added as an input. It is not necessary to pass it as an input.");
-    TORCH_CHECK(
-        !(input->isA<Scalar>() && input->getDataType() != DataType::Double &&
-          input->getDataType() != DataType::Int &&
-          input->getDataType() != DataType::ComplexDouble &&
-          input->getDataType() != DataType::Bool),
-        "Found ",
-        input->getDataType().value(),
-        ". Using a  scalar as an input with dtype other than DataType::{Double,Int,ComplexDouble,Bool} is not supported ",
-        "as they are the only supported types in Python.");
   }
 
   inputs_.push_back(input);
@@ -326,7 +313,7 @@ bool Fusion::isNoOp() {
     auto root_dom = TensorDomain::noReductions(out_tv->getMaybeRFactorDomain());
     bool size_zero = false;
     for (auto id : root_dom) {
-      if (id->extent()->isZeroInt()) {
+      if (id->extent()->isConstScalar() && id->extent()->evaluateInt() == 0) {
         size_zero = true;
         break;
       }
@@ -490,7 +477,7 @@ void Fusion::printMath(bool from_outputs_only) {
         leaf_vals.push_back(val);
       }
     }
-    exprs_for_print = StmtSort::getExprs(this, leaf_vals);
+    exprs_for_print = StmtSort::getExprsTo(this, leaf_vals);
   }
 
   debug() << "\n%kernel_math {\n";

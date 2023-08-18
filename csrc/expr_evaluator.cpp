@@ -20,32 +20,60 @@ namespace nvfuser {
 
 namespace {
 
-// TODO: remove this after we make Scalar a non-template class
-bool equals(const Val* value, const PolymorphicValue& concrete_value) {
-  switch (std::get<PrimDataType>(value->getDataType()->type)) {
-    case DataType::Int: {
-      if (!concrete_value.is<int64_t>()) {
-        return false;
-      }
-      auto val = value->getInt();
-      return val.has_value() && val.value() == concrete_value.as<int64_t>();
+void validateValWithConcreteValue(
+    const Val* value,
+    const PolymorphicValue& concrete_value) {
+  if (auto tv = dynamic_cast<const TensorView*>(value)) {
+    TORCH_CHECK(
+        concrete_value.is<at::Tensor>(),
+        "Expected ",
+        tv->toString(),
+        " to be bound to an at::Tensor, but got ",
+        concrete_value.type().name());
+    const auto& t = concrete_value.as<at::Tensor>();
+    auto expect_dim =
+        (int64_t)TensorDomain::noReductions(tv->getMaybeRFactorDomain()).size();
+    TORCH_CHECK(
+        t.dim() == expect_dim,
+        "Expected ",
+        tv->toString(),
+        " to be bound to a tensor of rank ",
+        expect_dim,
+        ", but got a tensor of rank ",
+        t.dim());
+    auto actual_dtype = aten_to_data_type(t.scalar_type());
+    TORCH_CHECK(
+        (value->dtype() == DataType::Index && isIntegralType(actual_dtype)) ||
+            (value->dtype() == actual_dtype),
+        "Expected ",
+        tv->toString(),
+        " to be bound to a tensor of dtype ",
+        value->dtype(),
+        ", but got a tensor of dtype ",
+        actual_dtype);
+    if (tv->isCpuScalar()) {
+      TORCH_CHECK(
+          is_cpu_scalar(t),
+          "Expected ",
+          tv->toString(),
+          " to be bound to a CPU scalar tensor "
+          ", but got a tensor on device ",
+          t.device(),
+          " with ",
+          t.numel(),
+          " elements");
+    } else {
+      TORCH_CHECK(
+          t.is_cuda() || t.is_meta(),
+          "Expected ",
+          tv->toString(),
+          " to be bound to a CUDA or meta tensor, but got a tensor on device ",
+          t.device());
     }
-    case DataType::Double: {
-      if (!concrete_value.is<double>()) {
-        return false;
-      }
-      auto val = value->getDouble();
-      return val.has_value() && val.value() == concrete_value.as<double>();
-    }
-    case DataType::Bool: {
-      if (!concrete_value.is<bool>()) {
-        return false;
-      }
-      auto val = value->getBool();
-      return val.has_value() && val.value() == concrete_value.as<bool>();
-    }
-    default:
-      return false;
+  } else {
+    TORCH_CHECK(
+        hasCompatibleDataType(concrete_value, value->dtype()),
+        "Scalar value is not compatible with the given data type.");
   }
 }
 
@@ -53,41 +81,38 @@ bool equals(const Val* value, const PolymorphicValue& concrete_value) {
 
 void ExpressionEvaluator::bind_(
     const Val* value,
-    const PolymorphicValue& concrete_value) {
-  if (equals(value, concrete_value)) {
+    PolymorphicValue concrete_value) {
+  TORCH_CHECK(concrete_value.hasValue(), "Cannot bind to undefined value");
+  if (value->value().hasValue() && value->value() == concrete_value) {
     return;
   }
   TORCH_CHECK(!value->isConstScalar(), "Tried to bind to a constant value");
-  TORCH_CHECK(
-      value->definition() == nullptr,
-      "Tried to bind to a value that is computed in the Fusion IR: ",
-      value->toInlineString(),
-      " with ",
-      concrete_value);
+  validateValWithConcreteValue(value, concrete_value);
   if (value->isA<NamedScalar>()) {
     known_named_scalars_[value->as<NamedScalar>()->name().as<std::string>()] =
-        concrete_value;
+        std::move(concrete_value);
   } else {
-    known_values_[value] = concrete_value;
+    known_values_[value] = std::move(concrete_value);
   }
 }
 
 void ExpressionEvaluator::bind_(
     const std::string& name,
-    const PolymorphicValue& concrete_value) {
-  known_named_scalars_[name] = concrete_value;
+    PolymorphicValue concrete_value) {
+  known_named_scalars_[name] = std::move(concrete_value);
 }
 
 void ExpressionEvaluator::bind(
     ParallelType pt,
-    const PolymorphicValue& concrete_value) {
+    PolymorphicValue concrete_value) {
   TORCH_INTERNAL_ASSERT(isParallelTypeThread(pt));
   if (precomputed_values_) {
     // Need to bind the thread value to integer machine
     //  in pre-computed mode.
-    precomputed_values_->bindConcreteParallelTypeValue(pt, concrete_value);
+    precomputed_values_->bindConcreteParallelTypeValue(
+        pt, std::move(concrete_value));
   } else {
-    bind(stringifyThreadSize(pt), concrete_value);
+    bind(stringifyThreadSize(pt), std::move(concrete_value));
   }
 }
 
@@ -102,9 +127,6 @@ PolymorphicValue ExpressionEvaluator::evaluate(const Val* value) {
   if (!maybe_concrete_value.hasValue()) {
     if (auto def = value->definition()) {
       FUSER_PERF_SCOPE("ExpressionEvaluator::evaluate");
-      if (def->isA<kir::BaseAddress>()) {
-        return std::monostate{};
-      }
       std::vector<PolymorphicValue> inputs;
       inputs.reserve(def->inputs().size());
       for (auto i : def->inputs()) {
@@ -114,7 +136,7 @@ PolymorphicValue ExpressionEvaluator::evaluate(const Val* value) {
         }
         inputs.emplace_back(eval_i);
       }
-      auto outputs = def->evaluate(inputs);
+      auto outputs = def->evaluate(*this, inputs);
       for (auto i : c10::irange(def->outputs().size())) {
         known_values_[def->output(i)] = outputs[i];
       }
@@ -134,7 +156,7 @@ PolymorphicValue ExpressionEvaluator::evaluate(ParallelType pt) {
 
 PolymorphicValue ExpressionEvaluator::getValue(const Val* value) {
   if (value->isScalar() && value->isConst()) {
-    return value->as<Scalar>()->value();
+    return value->value();
   }
 
   if (value->isA<NamedScalar>()) {
@@ -153,14 +175,27 @@ PolymorphicValue ExpressionEvaluator::getValue(const Val* value) {
 void ExpressionEvaluator::print() const {
   debug() << "\nEvaluation context\n";
   debug() << "--------------------\n";
+
+  auto print_val = [](const PolymorphicValue& v) {
+    std::stringstream ss;
+    if (v.is<at::Tensor>()) {
+      const auto& t = v.as<at::Tensor>();
+      ss << "Tensor({" << t.sizes() << "}, " << t.dtype() << ", " << t.device()
+         << ")";
+    } else {
+      ss << v;
+    }
+    return ss.str();
+  };
+
   for (const auto& kv : known_values_) {
     TORCH_INTERNAL_ASSERT(!kv.first->isConstScalar());
-    debug() << kv.first << " = " << kv.second << " ; "
+    debug() << kv.first << " = " << print_val(kv.second) << " ; "
             << *kv.first->getValType() << "\n";
   }
 
   for (const auto& kv : known_named_scalars_) {
-    debug() << kv.first << " = " << kv.second << " ;\n";
+    debug() << kv.first << " = " << print_val(kv.second) << " ;\n";
   }
 
   debug() << "\nPre-computed Values\n";

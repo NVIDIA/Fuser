@@ -28,7 +28,8 @@ std::vector<int64_t> emptyAxes(const std::vector<IterDomain*>& domain) {
   std::vector<int64_t> empty_axes;
   for (auto ax : c10::irange(domain.size())) {
     auto id = domain.at(ax);
-    if (id->extent()->isConst() && id->extent()->evaluateInt() == 0) {
+    if (id->getMaybeExpandedExtent()->isConst() &&
+        id->getMaybeExpandedExtent()->evaluateInt() == 0) {
       empty_axes.push_back((int64_t)ax);
     }
   }
@@ -103,7 +104,7 @@ class EmptyTensorRemover : public DeadCodeRemover {
           tv->toString());
       auto shape = noReductionShape(tv);
       auto dtype = tv->getDataType().value();
-      auto new_tv = full(shape, fusion()->zeroVal(dtype), dtype);
+      auto new_tv = zeros(shape, dtype);
       registerReplacement(tv, new_tv);
     }
   }
@@ -112,7 +113,7 @@ class EmptyTensorRemover : public DeadCodeRemover {
   static std::vector<Val*> noReductionShape(TensorView* tv) {
     std::vector<Val*> shape;
     for (auto id : TensorDomain::noReductions(tv->getMaybeRFactorDomain())) {
-      shape.push_back(id->extent());
+      shape.push_back(id->getMaybeExpandedExtent());
     }
     return shape;
   }
@@ -186,7 +187,7 @@ class EmptyTensorRemover : public DeadCodeRemover {
     // one.
     auto shape = noReductionShape(avg);
     if (isLive(avg)) {
-      auto nan = IrBuilder::create<Scalar>(
+      auto nan = IrBuilder::create<Val>(
           std::numeric_limits<double>::quiet_NaN(), avg->getDataType().value());
       auto nan_tensor = full(shape, nan, avg->getDataType().value());
       registerReplacement(avg, nan_tensor);
@@ -199,7 +200,7 @@ class EmptyTensorRemover : public DeadCodeRemover {
       registerReplacement(var_sum, new_var_sum);
     }
     if (isLive(N)) {
-      auto new_N = full(shape, fusion()->zeroVal(), N->getDataType().value());
+      auto new_N = zeros(shape, N->getDataType().value());
       registerReplacement(N, new_N);
     }
   }
@@ -252,7 +253,8 @@ class EmptyTensorRemover : public DeadCodeRemover {
       auto tv = inp->definition()->as<PadOp>()->in()->as<TensorView>();
       auto cat_id =
           TensorDomain::noReductions(tv->getMaybeRFactorDomain()).at(dim);
-      if (cat_id->extent()->isConst() && cat_id->extent()->evaluateInt() == 0) {
+      if (cat_id->getMaybeExpandedExtent()->isConst() &&
+          cat_id->getMaybeExpandedExtent()->evaluateInt() == 0) {
         continue;
       }
       non_empty_inputs.push_back(tv);
@@ -303,7 +305,7 @@ class EmptyTensorRemover : public DeadCodeRemover {
       auto out = mop->out()->as<TensorView>();
       auto shape = noReductionShape(out);
       auto dtype = out->getDataType().value();
-      auto new_tv = full(shape, fusion()->zeroVal(dtype), dtype);
+      auto new_tv = zeros(shape, dtype);
       registerReplacement(out, new_tv);
     }
   }

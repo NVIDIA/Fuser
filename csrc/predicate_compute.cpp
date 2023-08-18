@@ -17,6 +17,7 @@
 #include <transform_iter.h>
 
 #include <c10/util/irange.h>
+#include <device_lower/utils.h>
 
 namespace nvfuser {
 
@@ -48,8 +49,8 @@ bool ParallelizedDomainPredicate::PredicateInfo::addDomain(IterDomain* id) {
   }
 }
 
-Scalar* ParallelizedDomainPredicate::PredicateInfo::getPredicate() const {
-  Scalar* pred = nullptr;
+Val* ParallelizedDomainPredicate::PredicateInfo::getPredicate() const {
+  Val* pred = nullptr;
 
   auto index = SimplifyingIrBuilder::create<NamedScalar>(
       stringifyThread(pt_), DataType::Int);
@@ -61,7 +62,7 @@ Scalar* ParallelizedDomainPredicate::PredicateInfo::getPredicate() const {
         GpuLower::current()->caMap()->getConcreteMappedID(
             pred_id, IdMappingMode::EXACT));
     auto new_pred = SimplifyingIrBuilder::ltExpr(index, pred_id->extent());
-    pred = SimplifyingIrBuilder::andExpr(pred, new_pred)->as<Scalar>();
+    pred = SimplifyingIrBuilder::logicalAndExpr(pred, new_pred);
   }
 
   return pred;
@@ -159,7 +160,7 @@ ParallelizedDomainPredicate::getPredicateMap(
 
     // Not necessary to add a predicate if the paralle type is exact
     if (!isParallelTypeThread(loop_ptype) ||
-        gpu_lower->parallelDimensionMap().isExact(loop_ptype)) {
+        lower_utils::isExtentEqualToMaxParallelTypeExtent(loop_id)) {
       continue;
     }
     auto parallel_dim = gpu_lower->parallelDimensionMap().getRaw(loop_ptype);
@@ -215,7 +216,7 @@ ParallelizedDomainPredicate::getPredicateMap(
   return map;
 }
 
-Scalar* ParallelizedDomainPredicate::getPredicate(
+Val* ParallelizedDomainPredicate::getPredicate(
     const Expr* expr,
     const std::vector<kir::ForLoop*>& loops) {
   auto pred_map = getPredicateMap(expr, loops);
@@ -227,12 +228,12 @@ Scalar* ParallelizedDomainPredicate::getPredicate(
     if (pred_info_it != pred_map.end()) {
       const auto& pred_info = pred_info_it->second;
       auto tid_pred = pred_info.getPredicate();
-      pred = SimplifyingIrBuilder::andExpr(pred, tid_pred);
+      pred = SimplifyingIrBuilder::logicalAndExpr(pred, tid_pred);
     }
   }
 
   TORCH_INTERNAL_ASSERT(pred != nullptr);
-  return pred->as<Scalar>();
+  return pred;
 }
 
 UnswitchPredicateKey::UnswitchPredicateKey()
@@ -330,11 +331,11 @@ std::size_t UnswitchPredicateKeyHash::operator()(
   return h;
 };
 
-Scalar* PredicateCompute::getInlinePredicate(
+Val* PredicateCompute::getInlinePredicate(
     const Expr* expr,
     const std::vector<kir::ForLoop*>& loops,
     const std::unordered_set<kir::ForLoop*>& rotated_loops,
-    Scalar* thread_pred,
+    Val* thread_pred,
     PredicateType pred_type) {
   FUSER_PERF_SCOPE("GpuLower::Lower::getInlinePredicate");
 
@@ -368,7 +369,7 @@ Scalar* PredicateCompute::getInlinePredicate(
       nullptr,
       pred_type == PredicateType::Padding);
 
-  std::vector<Scalar*> preds;
+  std::vector<Val*> preds;
 
   // When pred_type is ReductionWrite, filter out predicates for
   // reduction axes. For blockReduce, this is necessary when reduction
@@ -424,13 +425,13 @@ Scalar* PredicateCompute::getInlinePredicate(
 
   Val* cond = preds[0];
   for (const auto i : c10::irange(1, preds.size())) {
-    cond = SimplifyingIrBuilder::andExpr(cond, preds[i]);
+    cond = SimplifyingIrBuilder::logicalAndExpr(cond, preds[i]);
   }
 
-  return cond->as<Scalar>();
+  return cond;
 }
 
-Scalar* UnswitchPredicate::get(
+Val* UnswitchPredicate::get(
     const std::vector<kir::ForLoop*>& outer_loops,
     kir::ForLoop* unrolled_loop) {
   FUSER_PERF_SCOPE("GpuLower::Lower::UnswitchPredicate::get");
@@ -439,10 +440,10 @@ Scalar* UnswitchPredicate::get(
 
   Val* unswitch_pred = GpuLower::current()->kernel()->trueVal();
   for (auto pred : up.predicates_) {
-    unswitch_pred = SimplifyingIrBuilder::andExpr(unswitch_pred, pred);
+    unswitch_pred = SimplifyingIrBuilder::logicalAndExpr(unswitch_pred, pred);
   }
 
-  return unswitch_pred->as<Scalar>();
+  return unswitch_pred;
 }
 
 void UnswitchPredicate::predicateOn(Expr* tv_expr) {
@@ -675,7 +676,7 @@ void UnswitchPredicate::finalize() {
 }
 
 void UnswitchPredicate::mergeUnswitchPredicateOffsets(
-    Scalar* predicate,
+    Val* predicate,
     Val* offset,
     MergedPredicates::Info& merged_predicate_info,
     bool is_start) {
@@ -687,7 +688,7 @@ void UnswitchPredicate::mergeUnswitchPredicateOffsets(
     }
   };
 
-  auto offset_int = dynamic_cast<Scalar*>(offset);
+  auto offset_int = dynamic_cast<Val*>(offset);
   // If it's a static predicate, replace the current one if it's
   // more restrictive. If it's dynamic, just adds it to the dynamic
   // predicate list.

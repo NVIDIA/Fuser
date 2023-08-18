@@ -291,7 +291,7 @@ class PipelinePrinter : public IterVisitor {
 
  private:
   // Overriding IterVisitor
-  void handle(Statement* stmt) override {
+  void dispatch(Statement* stmt) override {
     if (std::count(
             pipeline_->inputs().begin(), pipeline_->inputs().end(), stmt) +
             std::count(

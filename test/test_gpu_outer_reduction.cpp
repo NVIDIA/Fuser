@@ -875,8 +875,8 @@ void grid_persistent_batchnorm_manual(
     bias = castOp(DataType::Float, bias);
   }
 
-  auto momentum_ptr = IrBuilder::create<Scalar>(kMomentum);
-  auto eps_ptr = IrBuilder::create<Scalar>(kEps);
+  auto momentum_ptr = IrBuilder::create<Val>(kMomentum);
+  auto eps_ptr = IrBuilder::create<Val>(kEps);
 
   auto result = batch_norm(
       input,
@@ -1041,7 +1041,7 @@ void grid_persistent_reduction_outer_norm_bwd_like(
   fusion.addInput(tv1);
 
   auto norm =
-      IrBuilder::create<Scalar>(1.0 / ((double)N * (double)HW * (double)HW));
+      IrBuilder::create<Val>(1.0 / ((double)N * (double)HW * (double)HW));
 
   auto tv2 = dtype == DataType::Half ? castOp(DataType::Float, tv0) : tv0;
   auto tv3 = dtype == DataType::Half ? castOp(DataType::Float, tv1) : tv1;
@@ -1195,7 +1195,7 @@ void grid_persistent_batchnorm_bwd_manual(
     grad_output = castOp(DataType::Float, grad_output);
   }
 
-  auto eps_ptr = IrBuilder::create<Scalar>(kEps);
+  auto eps_ptr = IrBuilder::create<Val>(kEps);
 
   auto result = batch_norm_backward(
       input,
@@ -1745,8 +1745,8 @@ void grid_persistent_batchnorm_scheduler(
     bias = castOp(DataType::Float, bias);
   }
 
-  auto momentum_ptr = IrBuilder::create<Scalar>(kMomentum);
-  auto eps_ptr = IrBuilder::create<Scalar>(kEps);
+  auto momentum_ptr = IrBuilder::create<Val>(kMomentum);
+  auto eps_ptr = IrBuilder::create<Val>(kEps);
 
   auto result = batch_norm(
       input,
@@ -1893,7 +1893,7 @@ void grid_persistent_reduction_outer_norm_bwd_like_scheduler(
   fusion.addInput(tv1);
 
   auto norm =
-      IrBuilder::create<Scalar>(1.0 / ((double)N * (double)HW * (double)HW));
+      IrBuilder::create<Val>(1.0 / ((double)N * (double)HW * (double)HW));
 
   auto tv2 = dtype == DataType::Half ? castOp(DataType::Float, tv0) : tv0;
   auto tv3 = dtype == DataType::Half ? castOp(DataType::Float, tv1) : tv1;
@@ -2052,7 +2052,7 @@ void grid_persistent_batchnorm_bwd_scheduler(
     grad_output = castOp(DataType::Float, grad_output);
   }
 
-  auto eps_ptr = IrBuilder::create<Scalar>(kEps);
+  auto eps_ptr = IrBuilder::create<Val>(kEps);
 
   auto result = batch_norm_backward(
       input,

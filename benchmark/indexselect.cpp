@@ -38,7 +38,7 @@ static void setupFusion(Fusion* fusion) {
 
   auto t2 = index_select(t0, 0, t_idx); // select at dim=0
   auto t3 = mul(t1, t2);
-  auto t4 = add(t3, IrBuilder::create<Scalar>(17.0));
+  auto t4 = add(t3, IrBuilder::create<Val>(17.0));
 
   // Save float output for validation
   fusion->addOutput(t4);
@@ -207,7 +207,7 @@ static void setupIndexSelect(Fusion* fusion, DataType dtype, int select_dim) {
 
   auto t2 = index_select(t0, select_dim, t_idx); // select at dim=0
   auto t3 = mul(t1, t2);
-  auto t4 = add(t3, IrBuilder::create<Scalar>(17.0));
+  auto t4 = add(t3, IrBuilder::create<Val>(17.0));
 
   if (is_fp16) {
     t4 = castOp(DataType::Half, t4);

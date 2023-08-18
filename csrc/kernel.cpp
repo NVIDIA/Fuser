@@ -29,6 +29,7 @@ namespace {
 class KernelIrScanner : private IrVisitor {
  public:
   explicit KernelIrScanner(const Kernel* kernel) {
+    index_type_ = kernel->indexType();
     IrVisitor::handle(kernel->topLevelExprs());
     const auto gpu_lower = GpuLower::current();
     for (auto split : gpu_lower->nonDivisibleSplitInfo().splitsToValidate()) {
@@ -43,14 +44,15 @@ class KernelIrScanner : private IrVisitor {
   }
 
  private:
+  using IrVisitor::dispatch;
   using IrVisitor::handle;
-  void handle(Expr* expr) final {
-    IrVisitor::handle(expr);
+  void dispatch(Expr* expr) final {
+    IrVisitor::dispatch(expr);
     for (auto inp : expr->inputs()) {
-      handle(inp);
+      dispatch(inp);
     }
     for (auto out : expr->outputs()) {
-      handle(out);
+      dispatch(out);
     }
   }
   void handle(BlockSync* sync) final {
@@ -86,14 +88,6 @@ class KernelIrScanner : private IrVisitor {
 
   void handle(RNGOp* rng_op) final {
     summary_.has_philox_op = true;
-    if (!rng_op->isDeterministic()) {
-      // NOTE: RNGOps that are provided a seed and offset should not contribute
-      // to max_rng_offsets, since that would cause the executor to increment
-      // the offset, and these types of deterministic RNGOp should not affect
-      // random ops at all.
-      summary_.max_rng_offsets =
-          std::max<int>(summary_.max_rng_offsets, rng_op->getRNGOffset());
-    }
   }
 
   void handle(TensorIndex* tensor_index) final {
@@ -107,7 +101,7 @@ class KernelIrScanner : private IrVisitor {
     if (domain->hasBlockReduction() || domain->hasGridReduction() ||
         tv->getMemoryType() == MemoryType::Shared) {
       const auto data_type = tv->dtype();
-      const size_t type_size = dataTypeSize(data_type);
+      const size_t type_size = dataTypeSize(data_type, index_type_);
       if (type_size > max_smem_type_size_) {
         max_smem_type_size_ = type_size;
         summary_.largest_smem_data_type = data_type;
@@ -195,6 +189,7 @@ class KernelIrScanner : private IrVisitor {
  private:
   size_t max_smem_type_size_ = 0;
   KernelSummary summary_;
+  DataType index_type_;
 };
 
 //! Make sure tensors have valid allocations even when parallelized
@@ -228,7 +223,7 @@ class ValidateAllocation : private OptOutConstDispatch {
   explicit ValidateAllocation(const Kernel* kernel) {
     live_allocations_.emplace_back();
     for (const auto& expr : kernel->topLevelExprs()) {
-      OptOutConstDispatch::handle(expr);
+      OptOutConstDispatch::dispatch(expr);
     }
     live_allocations_.pop_back();
     TORCH_INTERNAL_ASSERT(live_allocations_.empty());
@@ -280,17 +275,17 @@ class ValidateAllocation : private OptOutConstDispatch {
 
     live_allocations_.emplace_back();
     for (const auto& expr : for_loop->body().exprs()) {
-      OptOutConstDispatch::handle(expr);
+      OptOutConstDispatch::dispatch(expr);
     }
     live_allocations_.pop_back();
   }
 
   void handle(const IfThenElse* ite) final {
     for (const auto& expr : ite->thenBody().exprs()) {
-      OptOutConstDispatch::handle(expr);
+      OptOutConstDispatch::dispatch(expr);
     }
     for (const auto& expr : ite->elseBody().exprs()) {
-      OptOutConstDispatch::handle(expr);
+      OptOutConstDispatch::dispatch(expr);
     }
   }
 
@@ -314,6 +309,11 @@ void Kernel::finalize(std::vector<Expr*> top_level_exprs) {
   summary_.sync_map = GpuLower::current()->syncMap();
   summary_.parallel_dimension_map_ =
       GpuLower::current()->parallelDimensionMap();
+  parameters_ = GpuLower::current()->allKnownVals();
+  parameters_.insert(parameters_.end(), outputs().begin(), outputs().end());
+  for (auto alloc : summary_.global_allocations) {
+    parameters_.push_back(alloc->buffer());
+  }
 }
 
 void Kernel::analyze() {

@@ -9,12 +9,11 @@
 
 #include <c10/macros/Export.h>
 
+#include <ir/base_nodes.h>
 #include <ir/builder.h>
 #include <ir/interface_nodes.h>
 #include <type.h>
 #include <type_promotion.h>
-
-class Val;
 
 /*
  * The operations defined in this header is intended as user facing functions.
@@ -28,6 +27,9 @@ namespace nvfuser {
 // Insertion of casting op to dtype, returns new resulting val
 TORCH_CUDA_CU_API Val* castOp(DataType dtype, Val* v1);
 TORCH_CUDA_CU_API TensorView* castOp(DataType dtype, TensorView* v1);
+// If v1 is not dtype, insert a cast op, otherwise return v1
+TORCH_CUDA_CU_API Val* maybeCastOp(DataType dtype, Val* v1);
+TORCH_CUDA_CU_API TensorView* maybeCastOp(DataType dtype, TensorView* v1);
 
 TORCH_CUDA_CU_API Val* bitCastOp(DataType dtype, Val* v1);
 TORCH_CUDA_CU_API TensorView* bitCastOp(DataType dtype, TensorView* v1);
@@ -136,7 +138,7 @@ TORCH_CUDA_CU_API WelfordResult Welford(
     TensorView* init_var = nullptr,
     // Initializes to 0 in function definition, doing this so we don't have to
     // import IrBuilder just for this one interface.
-    Scalar* init_N = nullptr);
+    Val* init_N = nullptr);
 
 //! Create a raw WelfordOp. Don't convert size-1 or size-0 reduction into
 //! squeeze/full.
@@ -147,7 +149,7 @@ TORCH_CUDA_CU_API WelfordResult WelfordRaw(
     TensorView* init_var = nullptr,
     // Initializes to 0 in function definition, doing this so we don't have to
     // import IrBuilder just for this one interface.
-    Scalar* init_N = nullptr);
+    Val* init_N = nullptr);
 
 // RNG OPERATIONS
 TORCH_CUDA_CU_API TensorView* rand(
@@ -318,9 +320,12 @@ TORCH_CUDA_CU_API TensorView* log2(TensorView*);
 // neg
 TORCH_CUDA_CU_API Val* neg(Val*);
 TORCH_CUDA_CU_API TensorView* neg(TensorView*);
-// notOp
-TORCH_CUDA_CU_API Val* notOp(Val*);
-TORCH_CUDA_CU_API TensorView* notOp(TensorView*);
+// logical_not
+TORCH_CUDA_CU_API Val* logical_not(Val*);
+TORCH_CUDA_CU_API TensorView* logical_not(TensorView*);
+// bitwise_not
+TORCH_CUDA_CU_API Val* bitwise_not(Val*);
+TORCH_CUDA_CU_API TensorView* bitwise_not(TensorView*);
 // real
 TORCH_CUDA_CU_API Val* real(Val*);
 TORCH_CUDA_CU_API TensorView* real(TensorView*);
@@ -417,6 +422,13 @@ TORCH_CUDA_CU_API TensorView* expand_as(TensorView* inp, TensorView* other);
 // with functions like broadcast_in_size that take in a vector of sizes
 // to use to expand an input tensor
 TORCH_CUDA_CU_API std::vector<Val*> tensor_sizes(TensorView* inp);
+// This is a function used to give the symbolic shape of a tensor for use
+// with functions like broadcast_in_dim that take a shape vector
+// to use to expand an input tensor
+TORCH_CUDA_CU_API std::vector<Val*> shape(TensorView* inp);
+// Get the symbolic size of a specific dimension of a tensor
+TORCH_CUDA_CU_API Val* size(TensorView* inp, int64_t dim);
+TORCH_CUDA_CU_API Val* at(std::vector<Val*>& inp, int64_t index);
 
 // BINARY OPERATIONS
 // add
@@ -483,12 +495,17 @@ TORCH_CUDA_CU_API Val* ceilDiv(Val* v1, Val* v2);
 TORCH_CUDA_CU_API TensorView* ceilDiv(TensorView* v1, Val* v2);
 TORCH_CUDA_CU_API TensorView* ceilDiv(Val* v1, TensorView* v2);
 TORCH_CUDA_CU_API TensorView* ceilDiv(TensorView* v1, TensorView* v2);
-// Bitwise binary ops
+// Bitwise and logical binary ops
 // bitwise_and
 TORCH_CUDA_CU_API Val* bitwise_and(Val* v1, Val* v2);
 TORCH_CUDA_CU_API TensorView* bitwise_and(TensorView* v1, Val* v2);
 TORCH_CUDA_CU_API TensorView* bitwise_and(Val* v1, TensorView* v2);
 TORCH_CUDA_CU_API TensorView* bitwise_and(TensorView* v1, TensorView* v2);
+// logical_and
+TORCH_CUDA_CU_API Val* logical_and(Val* v1, Val* v2);
+TORCH_CUDA_CU_API TensorView* logical_and(TensorView* v1, Val* v2);
+TORCH_CUDA_CU_API TensorView* logical_and(Val* v1, TensorView* v2);
+TORCH_CUDA_CU_API TensorView* logical_and(TensorView* v1, TensorView* v2);
 // bitwise_left_shift
 TORCH_CUDA_CU_API Val* bitwise_left_shift(Val* v1, Val* v2);
 TORCH_CUDA_CU_API TensorView* bitwise_left_shift(TensorView* v1, Val* v2);
@@ -503,11 +520,23 @@ TORCH_CUDA_CU_API TensorView* bitwise_right_shift(Val* v1, TensorView* v2);
 TORCH_CUDA_CU_API TensorView* bitwise_right_shift(
     TensorView* v1,
     TensorView* v2);
+// logical_right_shift
+TORCH_CUDA_CU_API TensorView* logical_right_shift(
+    TensorView* x,
+    TensorView* shift);
+TORCH_CUDA_CU_API TensorView* logical_right_shift(TensorView* x, Val* shift);
+TORCH_CUDA_CU_API TensorView* logical_right_shift(Val* x, TensorView* shift);
+TORCH_CUDA_CU_API Val* logical_right_shift(Val* x, Val* shift);
 // bitwise_or
 TORCH_CUDA_CU_API Val* bitwise_or(Val* v1, Val* v2);
 TORCH_CUDA_CU_API TensorView* bitwise_or(TensorView* v1, Val* v2);
 TORCH_CUDA_CU_API TensorView* bitwise_or(Val* v1, TensorView* v2);
 TORCH_CUDA_CU_API TensorView* bitwise_or(TensorView* v1, TensorView* v2);
+// logical_or
+TORCH_CUDA_CU_API Val* logical_or(Val* v1, Val* v2);
+TORCH_CUDA_CU_API TensorView* logical_or(TensorView* v1, Val* v2);
+TORCH_CUDA_CU_API TensorView* logical_or(Val* v1, TensorView* v2);
+TORCH_CUDA_CU_API TensorView* logical_or(TensorView* v1, TensorView* v2);
 // bitwise_xor
 TORCH_CUDA_CU_API Val* bitwise_xor(Val* v1, Val* v2);
 TORCH_CUDA_CU_API TensorView* bitwise_xor(TensorView* v1, Val* v2);
@@ -677,7 +706,7 @@ TORCH_CUDA_CU_API TensorView* clamp(TensorView* in, Val* min_val, Val* max_val);
 
 TORCH_CUDA_CU_API TensorView* sum_to(
     TensorView* v1,
-    const std::vector<Scalar*>& sum_to_size);
+    const std::vector<Val*>& sum_to_size);
 
 TORCH_CUDA_CU_API TensorView* sum_to(
     TensorView* v1,

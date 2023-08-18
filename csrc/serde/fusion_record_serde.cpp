@@ -395,31 +395,14 @@ void RecordFunctorFactory::registerAllParsers() {
   auto deserializeBroadcastInDimRecord =
       [](const serde::RecordFunctor* buffer) {
         auto data = buffer->data_as_BroadcastInDim();
-        return new python_frontend::BroadcastInDimOpRecord<int64_t>(
+        return new python_frontend::BroadcastInDimOpRecord(
             parseStateArgs(buffer->args()),
             parseStateArgs(buffer->outputs()),
-            buffer->name()->str(),
-            serde::RecordType_BroadcastInDim,
-            parseVector(data->output_shape()),
+            data->output_size(),
             parseVector(data->broadcast_dims()));
       };
   registerParser(
       serde::RecordType_BroadcastInDim, deserializeBroadcastInDimRecord);
-
-  auto deserializeBroadcastInDimSymbolicRecord = [](const serde::RecordFunctor*
-                                                        buffer) {
-    auto data = buffer->data_as_BroadcastInDimSymbolic();
-    return new python_frontend::BroadcastInDimOpRecord<python_frontend::State>(
-        parseStateArgs(buffer->args()),
-        parseStateArgs(buffer->outputs()),
-        buffer->name()->str(),
-        serde::RecordType_BroadcastInDimSymbolic,
-        parseStateArgs(data->output_shape()),
-        parseVector(data->broadcast_dims()));
-  };
-  registerParser(
-      serde::RecordType_BroadcastInDimSymbolic,
-      deserializeBroadcastInDimSymbolicRecord);
 
   auto deserializeCastTvRecord = [](const serde::RecordFunctor* buffer) {
     std::function<TensorView*(nvfuser::DataType, TensorView*)> fusion_op =
@@ -598,6 +581,30 @@ void RecordFunctorFactory::registerAllParsers() {
         parseStateArgs(buffer->args()), parseStateArgs(buffer->outputs()));
   };
   registerParser(serde::RecordType_TensorSizes, deserializeTensorSizesRecord);
+
+  auto deserializeShapeOpRecord = [](const serde::RecordFunctor* buffer) {
+    return new python_frontend::ShapeOpRecord(
+        parseStateArgs(buffer->args()), parseStateArgs(buffer->outputs()));
+  };
+  registerParser(serde::RecordType_ShapeOp, deserializeShapeOpRecord);
+
+  auto deserializeSizeOpRecord = [](const serde::RecordFunctor* buffer) {
+    auto data = buffer->data_as_Size();
+    return new python_frontend::SizeOpRecord(
+        parseStateArgs(buffer->args()),
+        parseStateArgs(buffer->outputs()),
+        data->dim());
+  };
+  registerParser(serde::RecordType_SizeOp, deserializeSizeOpRecord);
+
+  auto deserializeAtOpRecord = [](const serde::RecordFunctor* buffer) {
+    auto data = buffer->data_as_At();
+    return new python_frontend::AtOpRecord(
+        parseStateArgs(buffer->args()),
+        parseStateArgs(buffer->outputs()),
+        data->index());
+  };
+  registerParser(serde::RecordType_AtOp, deserializeAtOpRecord);
 
   auto deserializeVarianceRecord = [](const serde::RecordFunctor* buffer) {
     auto data = buffer->data_as_Norm();
@@ -813,6 +820,7 @@ void RecordFunctorFactory::setupFunctionMaps() {
   NVFUSER_BINARY_TV_OP("bitwise_xor", bitwise_xor)
   NVFUSER_BINARY_TV_OP("bitwise_left_shift", bitwise_left_shift)
   NVFUSER_BINARY_TV_OP("bitwise_right_shift", bitwise_right_shift)
+  NVFUSER_BINARY_TV_OP("logical_right_shift", logical_right_shift)
   NVFUSER_BINARY_TV_OP("gcd", gcd)
 
   NVFUSER_BINARY_TV_ALPHA_OP("add_alpha", add_alpha)

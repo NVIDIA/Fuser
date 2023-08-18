@@ -335,7 +335,7 @@ class PersistentBufferResolution : public IterVisitor {
   }
 
  private:
-  void handle(Val* val) final {
+  void dispatch(Val* val) final {
     if (!val->isA<TensorView>()) {
       return;
     }
@@ -364,7 +364,7 @@ class PersistentBufferResolution : public IterVisitor {
     }
   }
 
-  void handle(Expr* expr) final {
+  void dispatch(Expr* expr) final {
     if (!persistent_buffer_hit) {
       return;
     }
@@ -1048,7 +1048,8 @@ namespace {
 IterDomain* projectIdToRoot(
     TensorView* tv,
     IterDomain* reference_id,
-    bool inner_only) {
+    bool inner_only,
+    bool vectorize_pass) {
   if (reference_id == nullptr) {
     return nullptr;
   }
@@ -1057,8 +1058,7 @@ IterDomain* projectIdToRoot(
     return reference_id;
   }
 
-  auto replay_exprs =
-      StmtSort::getExprs(tv->fusion(), {reference_id}, false, false);
+  auto replay_exprs = StmtSort::getExprsTo(tv->fusion(), {reference_id});
   if (replay_exprs.empty()) {
     return reference_id;
   }
@@ -1090,7 +1090,12 @@ IterDomain* projectIdToRoot(
     } else if (expr->isA<Resize>()) {
       auto resize = expr->as<Resize>();
       if (resize->out() == projected_id) {
-        projected_id = nullptr;
+        // We do not allow vectorization with resize at this moment
+        if (vectorize_pass) {
+          projected_id = nullptr;
+        } else {
+          projected_id = resize->in();
+        }
       }
     } else {
       TORCH_INTERNAL_ASSERT(
@@ -1109,7 +1114,8 @@ IterDomain* projectIdToRoot(
 IterDomain* projectIdToRFactor(
     TensorView* tv,
     IterDomain* reference_id,
-    bool inner_only) {
+    bool inner_only,
+    bool vectorize_pass) {
   if (reference_id == nullptr) {
     return nullptr;
   }
@@ -1118,7 +1124,7 @@ IterDomain* projectIdToRFactor(
     return reference_id;
   }
 
-  auto replay_exprs = StmtSort::getExprs(
+  auto replay_exprs = StmtSort::getExprsTo(
       tv->fusion(),
       {tv->getRFactorDomain().begin(), tv->getRFactorDomain().end()},
       false);
@@ -1147,7 +1153,12 @@ IterDomain* projectIdToRFactor(
     } else if (expr->isA<Resize>()) {
       auto resize = expr->as<Resize>();
       if (resize->in() == projected_id) {
-        projected_id = nullptr;
+        // We do not allow vectorization wit resize at this moment
+        if (vectorize_pass) {
+          projected_id = nullptr;
+        } else {
+          projected_id = resize->out();
+        }
       }
     } else {
       TORCH_INTERNAL_ASSERT(
@@ -1185,14 +1196,18 @@ IterDomain* innerMostRootDim(TensorView* tv) {
 FindAllMappedDims::FindAllMappedDims(
     TensorView* from,
     IterDomain* id,
-    bool inner_only)
-    : starting_tv_(from), starting_id_(id), inner_only_(inner_only) {}
+    bool inner_only,
+    bool vectorize_pass)
+    : starting_tv_(from),
+      starting_id_(id),
+      inner_only_(inner_only),
+      vectorize_pass_(vectorize_pass) {}
 
 void FindAllMappedDims::setUp() {
   mapped_root_ids_[starting_tv_] =
-      projectIdToRoot(starting_tv_, starting_id_, inner_only_);
-  mapped_rfactor_ids_[starting_tv_] =
-      projectIdToRFactor(starting_tv_, starting_id_, inner_only_);
+      projectIdToRoot(starting_tv_, starting_id_, inner_only_, vectorize_pass_);
+  mapped_rfactor_ids_[starting_tv_] = projectIdToRFactor(
+      starting_tv_, starting_id_, inner_only_, vectorize_pass_);
 }
 
 void FindAllMappedDims::propagateC2P(TensorView* from, TensorView* to) {
@@ -1201,7 +1216,8 @@ void FindAllMappedDims::propagateC2P(TensorView* from, TensorView* to) {
   auto c2p_map = root_map.mapConsumerToProducer(from->domain(), to->domain());
   auto p_it = c2p_map.find(from_id);
   if (p_it != c2p_map.end()) {
-    mapped_root_ids_[to] = projectIdToRoot(to, p_it->second, inner_only_);
+    mapped_root_ids_[to] =
+        projectIdToRoot(to, p_it->second, inner_only_, vectorize_pass_);
     mapped_rfactor_ids_[to] = p_it->second;
   } else {
     mapped_root_ids_[to] = nullptr;
@@ -1216,7 +1232,8 @@ void FindAllMappedDims::propagateP2C(TensorView* from, TensorView* to) {
   auto c_it = p2c_map.find(from_id);
   if (c_it != p2c_map.end()) {
     mapped_root_ids_[to] = c_it->second;
-    mapped_rfactor_ids_[to] = projectIdToRFactor(to, c_it->second, inner_only_);
+    mapped_rfactor_ids_[to] =
+        projectIdToRFactor(to, c_it->second, inner_only_, vectorize_pass_);
   } else {
     mapped_root_ids_[to] = nullptr;
     mapped_rfactor_ids_[to] = nullptr;
@@ -1325,7 +1342,7 @@ std::vector<TensorView*> getInputsOutputsWithInnerDim(
   }
 
   FindAllMappedDims all_mapped_root_dims(
-      reference_tv, inner_most_id, inner_only);
+      reference_tv, inner_most_id, inner_only, vectorize_pass);
   MaxRootDomainInfoSpanningTree tree(reference_tv);
   tree.traverse(&all_mapped_root_dims);
 
@@ -1786,7 +1803,7 @@ DisjointSets<IterDomain*> disjointRFactorSets(Fusion* fusion) {
   // If iter domains are involved in any transformation from root domains to
   // rfactor domains they should be considered "contaminated".
   for (auto tv : ir_utils::allTvs(fusion)) {
-    for (auto expr : StmtSort::getExprs(
+    for (auto expr : StmtSort::getExprsTo(
              fusion,
              {tv->getMaybeRFactorDomain().begin(),
               tv->getMaybeRFactorDomain().end()})) {
@@ -1837,7 +1854,7 @@ bool breakIsDisjoint(std::vector<int> group_ids, int pos) {
 
 std::unordered_map<int, int> domainReorderAsRfactorMap(TensorView* tv) {
   FusionGuard fg(tv->fusion());
-  auto transform_exprs = StmtSort::getExprs(
+  auto transform_exprs = StmtSort::getExprsTo(
       tv->fusion(), {tv->getLeafDomain().begin(), tv->getLeafDomain().end()});
   // simply update this vector of id's as progressing through the transformation
   // expressions. We'll always insert the result of split in the location of the
@@ -1913,7 +1930,7 @@ std::unordered_map<int, int> domainReorderAsRfactorMap(TensorView* tv) {
   return old2new;
 }
 
-void propagateViewTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
+void propagateReshapeTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
   std::unordered_set<std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>
       transformed_disjoint_sets;
 
@@ -1932,13 +1949,18 @@ void propagateViewTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
     }
   }
 
-  std::unordered_set<IterDomain*> terminating_rfactor_dims;
+  std::unordered_set<IterDomain*> terminating_reshape_dims;
   for (const auto& disjoint_set_shared_ptr :
        ca_map.idGraph().exactNodes().disjointSets()) {
+    // Find a disjoint set that is produced by a reshape
+    // operation. Ignore resize as it isn't reshape
     if (std::none_of(
             disjoint_set_shared_ptr->vector().begin(),
             disjoint_set_shared_ptr->vector().end(),
-            [](IterDomain* id) { return id->isRFactorProduct(); })) {
+            [](IterDomain* id) {
+              return id->isRFactorProduct() && id->definition() &&
+                  !id->definition()->isA<Resize>();
+            })) {
       continue;
     }
     if (transformed_disjoint_sets.find(disjoint_set_shared_ptr) !=
@@ -1947,7 +1969,7 @@ void propagateViewTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
       continue;
     }
     for (auto id : disjoint_set_shared_ptr->vector()) {
-      terminating_rfactor_dims.emplace(id);
+      terminating_reshape_dims.emplace(id);
     }
   }
 
@@ -1965,8 +1987,8 @@ void propagateViewTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
     // rfactor dims we could try and pull those through the fusion instead of
     // enforcing rfactor dims are in domain.
     for (auto rfactor_id : tv->getMaybeRFactorDomain()) {
-      if (terminating_rfactor_dims.find(rfactor_id) !=
-          terminating_rfactor_dims.end()) {
+      if (terminating_reshape_dims.find(rfactor_id) !=
+          terminating_reshape_dims.end()) {
         auto find_it = std::find(
             tv->getLeafDomain().begin(), tv->getLeafDomain().end(), rfactor_id);
         TORCH_INTERNAL_ASSERT(

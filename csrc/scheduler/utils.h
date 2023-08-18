@@ -280,9 +280,14 @@ class FindAllMappedDims : public MaxInfoSpanningTree::Propagator {
   TensorView* starting_tv_ = nullptr;
   IterDomain* starting_id_ = nullptr;
   bool inner_only_;
+  bool vectorize_pass_;
 
  public:
-  FindAllMappedDims(TensorView* from, IterDomain* starting_id, bool inner_only);
+  FindAllMappedDims(
+      TensorView* from,
+      IterDomain* starting_id,
+      bool inner_only,
+      bool vectorize_pass);
   void setUp() override;
   void propagateC2P(TensorView* from, TensorView* to) override;
   void propagateP2C(TensorView* from, TensorView* to) override;
@@ -524,7 +529,7 @@ TORCH_CUDA_CU_API std::unordered_map<int, int> domainReorderAsRfactorMap(
 
 // Assumes view's are consistent as detected by
 // registery.cpp::requiresForwardViewReplay returning false
-void propagateViewTransforms(Fusion* fusion, const ComputeAtMap& ca_map);
+void propagateReshapeTransforms(Fusion* fusion, const ComputeAtMap& ca_map);
 
 //! Check if tv is an output of a fastest-dim reduction
 bool isFastestDimReduction(TensorView* tv);

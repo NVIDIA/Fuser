@@ -26,8 +26,8 @@ TEST_F(SwizzleTest, SimpleSwizzle0) {
   auto tv0 = makeConcreteTensor({2, 32});
   fusion.addInput(tv0);
 
-  auto tv1 = add(tv0, IrBuilder::create<Scalar>(1.0));
-  auto tv2 = add(tv1, IrBuilder::create<Scalar>(1.0));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
+  auto tv2 = add(tv1, IrBuilder::create<Val>(1.0));
 
   fusion.addOutput(tv2);
 
@@ -67,9 +67,9 @@ TEST_F(SwizzleTest, SimpleSwizzle1) {
   auto tv0 = makeConcreteTensor({2, 32});
   fusion.addInput(tv0);
 
-  auto tv1 = add(tv0, IrBuilder::create<Scalar>(1.0));
-  auto tv2 = add(tv1, IrBuilder::create<Scalar>(1.0));
-  auto tv3 = add(tv2, IrBuilder::create<Scalar>(1.0));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
+  auto tv2 = add(tv1, IrBuilder::create<Val>(1.0));
+  auto tv3 = add(tv2, IrBuilder::create<Val>(1.0));
 
   fusion.addOutput(tv3);
 
@@ -109,8 +109,8 @@ TEST_F(SwizzleTest, SimpleSwizzle2) {
   auto tv0 = makeConcreteTensor({32, 32});
   fusion.addInput(tv0);
 
-  auto tv1 = add(tv0, IrBuilder::create<Scalar>(1.0));
-  auto tv2 = add(tv1, IrBuilder::create<Scalar>(1.0));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
+  auto tv2 = add(tv1, IrBuilder::create<Val>(1.0));
 
   fusion.addOutput(tv2);
 
@@ -166,9 +166,9 @@ TEST_F(SwizzleTest, SwizzleMapping) {
   auto tv0 = makeConcreteTensor({2, 32});
   fusion.addInput(tv0);
 
-  auto tv1 = add(tv0, IrBuilder::create<Scalar>(1.0));
-  auto tv2 = add(tv1, IrBuilder::create<Scalar>(1.0));
-  auto tv3 = add(tv2, IrBuilder::create<Scalar>(1.0));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
+  auto tv2 = add(tv1, IrBuilder::create<Val>(1.0));
+  auto tv3 = add(tv2, IrBuilder::create<Val>(1.0));
 
   fusion.addOutput(tv3);
 
@@ -264,8 +264,8 @@ TEST_F(SwizzleTest, LoopSwizzle0) {
   auto tv0 = makeConcreteTensor({2, 32});
   fusion.addInput(tv0);
 
-  auto tv1 = add(tv0, IrBuilder::create<Scalar>(1.0));
-  auto tv2 = add(tv1, IrBuilder::create<Scalar>(1.0));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
+  auto tv2 = add(tv1, IrBuilder::create<Val>(1.0));
 
   fusion.addOutput(tv2);
 
@@ -296,8 +296,8 @@ TEST_F(SwizzleTest, LoopSwizzle1) {
   auto tv0 = makeContigTensor(2);
   fusion.addInput(tv0);
 
-  auto tv1 = add(tv0, IrBuilder::create<Scalar>(1.0));
-  auto tv2 = add(tv1, IrBuilder::create<Scalar>(1.0));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
+  auto tv2 = add(tv1, IrBuilder::create<Val>(1.0));
 
   fusion.addOutput(tv2);
 
@@ -332,8 +332,8 @@ TEST_F(SwizzleTest, LoopSwizzleCheck0) {
   auto tv0 = makeConcreteTensor({2, 32});
   fusion.addInput(tv0);
 
-  auto tv1 = add(tv0, IrBuilder::create<Scalar>(1.0));
-  auto tv2 = add(tv1, IrBuilder::create<Scalar>(1.0));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
+  auto tv2 = add(tv1, IrBuilder::create<Val>(1.0));
 
   fusion.addOutput(tv2);
 
@@ -361,9 +361,9 @@ TEST_F(SwizzleTest, LoopSwizzleCheck1) {
   auto tv0 = makeConcreteTensor({2, 32});
   fusion.addInput(tv0);
 
-  auto tv1 = add(tv0, IrBuilder::create<Scalar>(1.0));
-  auto tv2 = add(tv1, IrBuilder::create<Scalar>(1.0));
-  auto tv3 = add(tv2, IrBuilder::create<Scalar>(1.0));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
+  auto tv2 = add(tv1, IrBuilder::create<Val>(1.0));
+  auto tv3 = add(tv2, IrBuilder::create<Val>(1.0));
 
   fusion.addOutput(tv3);
 
@@ -511,8 +511,8 @@ at::Tensor getSwizzledTensor(
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
-  Scalar* size_x_input = IrBuilder::create<Scalar>(DataType::Int);
-  Scalar* size_y_input = IrBuilder::create<Scalar>(DataType::Int);
+  Val* size_x_input = IrBuilder::create<Val>(DataType::Int);
+  Val* size_y_input = IrBuilder::create<Val>(DataType::Int);
   fusion.addInput(size_x_input);
   fusion.addInput(size_y_input);
   auto x = arange(size_x_input);

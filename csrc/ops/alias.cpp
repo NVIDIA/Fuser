@@ -149,6 +149,9 @@ TensorView* reshape(TensorView* inp_tv, const std::vector<Val*>& new_sizes) {
       new_size = div(numel, other_new_numel);
       new_size = simplifyExpr(new_size);
     }
+    if (new_size->dtype() != DataType::Index) {
+      new_size = castOp(DataType::Index, new_size);
+    }
     auto rf_id =
         IterDomainBuilder(FusionGuard::getCurFusion()->zeroVal(), new_size)
             .iter_type(IterType::Symbolic)
@@ -475,13 +478,13 @@ TensorView* pad(
     // Create a zero of the appropriate type
     if (isComplexType(dt)) {
       value = static_cast<Val*>(
-          IrBuilder::create<Scalar>(std::complex<double>(0), dt));
+          IrBuilder::create<Val>(std::complex<double>(0), dt));
     } else if (isFloatingPointType(dt)) {
-      value = static_cast<Val*>(IrBuilder::create<Scalar>(0.0, dt));
+      value = static_cast<Val*>(IrBuilder::create<Val>(0.0, dt));
     } else if (isBooleanType(dt)) {
-      value = static_cast<Val*>(IrBuilder::create<Scalar>(false, dt));
+      value = static_cast<Val*>(IrBuilder::create<Val>(false, dt));
     } else {
-      value = static_cast<Val*>(IrBuilder::create<Scalar>(0L, dt));
+      value = static_cast<Val*>(IrBuilder::create<Val>(0L, dt));
     }
   }
   TORCH_CHECK(
@@ -518,8 +521,8 @@ TensorView* pad(
   for (const auto i : c10::irange(num_padded_dims)) {
     auto left_pad = pad_widths.at(num_padded_dims * 2 - (i + 1) * 2);
     auto right_pad = pad_widths.at(num_padded_dims * 2 - (i + 1) * 2 + 1);
-    normalized_pad_widths.push_back(left_pad);
-    normalized_pad_widths.push_back(right_pad);
+    normalized_pad_widths.push_back(maybeCastOp(DataType::Index, left_pad));
+    normalized_pad_widths.push_back(maybeCastOp(DataType::Index, right_pad));
   }
 
   // Indicates if any dimension is actually padded. Can be false even
@@ -710,6 +713,18 @@ TensorView* slice(TensorView* inp, const std::vector<Slice>& ranges) {
     }
     if (range.step == nullptr) {
       range.step = FusionGuard::getCurFusion()->oneVal();
+    }
+    if (range.start->dtype() != DataType::Index) {
+      range.start =
+          SimplifyingIrBuilder::maybeCastExpr(DataType::Index, range.start);
+    }
+    if (range.stop->dtype() != DataType::Index) {
+      range.stop =
+          SimplifyingIrBuilder::maybeCastExpr(DataType::Index, range.stop);
+    }
+    if (range.step->dtype() != DataType::Index) {
+      range.step =
+          SimplifyingIrBuilder::maybeCastExpr(DataType::Index, range.step);
     }
     return range;
   };

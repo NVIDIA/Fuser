@@ -24,8 +24,9 @@ namespace nvfuser {
 
 template <typename T>
 struct Struct {
-  // In theory, we should just use std::unordered_map<std::string, T>, but this
-  // doesn't work on old gcc. See also SetTheoreticNaturalNumbers
+  // Using std::unordered_map<std::string, T> is more convenient and
+  // straightforward, but this is not guaranteed to work by C++ standard.
+  // See [Incomplete type support in STL]
 #if defined(STD_UNORDERED_SET_SUPPORTS_INCOMPLETE_TYPE)
   std::unordered_map<std::string, T> fields;
 #define MAYBE_STAR
@@ -48,9 +49,24 @@ struct Struct {
     return *fields.at(key);
 #endif
   }
+};
+
+template <typename T>
+inline std::ostream& operator<<(std::ostream& os, const Struct<T>& s) {
+  os << "struct { ";
+  bool first = true;
+  for (const auto& [key, value] : s.fields) {
+    if (!first) {
+      os << ", ";
+    }
+    os << key << " = " << MAYBE_STAR value;
+    first = false;
+  }
+  os << "}";
+  return os;
+}
 
 #undef MAYBE_STAR
-};
 
 struct DataType;
 
@@ -66,10 +82,13 @@ class Pointer {
 
   inline Pointer(void* ptr, DataType dtype);
 
+  int64_t size() const {
+    return size_;
+  }
+
   template <typename T>
   explicit operator T*() const {
-    TORCH_INTERNAL_ASSERT(size_ == sizeof(T));
-    return static_cast<T*>(ptr_);
+    return reinterpret_cast<T*>(ptr_);
   }
 
   Pointer& operator+=(int64_t offset) {
@@ -160,10 +179,27 @@ class Pointer {
   explicit operator bool() const {
     return ptr_;
   }
+
+  explicit operator int64_t() const {
+    return reinterpret_cast<int64_t>(ptr_);
+  }
+
+  explicit operator unsigned() const {
+    return (unsigned)(int64_t)(*this);
+  }
+
+  explicit operator size_t() const {
+    return reinterpret_cast<size_t>(ptr_);
+  }
 };
 
 inline Pointer operator+(int64_t offset, const Pointer& ptr) {
   return ptr + offset;
+}
+
+inline std::ostream& operator<<(std::ostream& os, const Pointer& ptr) {
+  os << (void*)ptr;
+  return os;
 }
 
 struct Opaque {
@@ -252,17 +288,6 @@ inline PolymorphicValue gcd(
   return PolymorphicValue(std::gcd(a.as<int64_t>(), b.as<int64_t>()));
 }
 
-inline PolymorphicValue notExpr(const PolymorphicValue& a) {
-  if (a.is<int64_t>()) {
-    return PolymorphicValue(~a.as<int64_t>());
-  }
-  if (a.is<bool>()) {
-    return PolymorphicValue(!a.as<bool>());
-  }
-  TORCH_INTERNAL_ASSERT(
-      false, "PolymorphicValue notExpr not implemented for ", a.type().name());
-}
-
 inline PolymorphicValue abs(const PolymorphicValue& a) {
   if (a.is<int64_t>()) {
     return PolymorphicValue(std::abs(a.as<int64_t>()));
@@ -272,6 +297,9 @@ inline PolymorphicValue abs(const PolymorphicValue& a) {
   }
   if (a.is<bool>()) {
     return a;
+  }
+  if (a.is<std::complex<double>>()) {
+    return std::abs(a.as<std::complex<double>>());
   }
   TORCH_INTERNAL_ASSERT(
       false, "PolymorphicValue abs not implemented for ", a.type().name());
@@ -283,6 +311,46 @@ inline PolymorphicValue erf(const PolymorphicValue& a) {
   }
   TORCH_INTERNAL_ASSERT(
       false, "PolymorphicValue erf not implemented for ", a.type().name());
+}
+
+// Convert scalars, vector of scalars, vector of vector of scalars, etc., into
+// an at::Tensor
+inline PolymorphicValue toTensor(const PolymorphicValue& x) {
+  if (x.is<at::Tensor>()) {
+    return x;
+  }
+  // TODO: allow specifying device
+  auto options = at::TensorOptions().device(at::kCUDA, 0);
+  if (x.is<int64_t>()) {
+    return PolymorphicValue(
+        at::tensor(x.as<int64_t>(), options.dtype(at::kLong)).squeeze());
+  }
+  if (x.is<double>()) {
+    return PolymorphicValue(
+        at::tensor(x.as<double>(), options.dtype(at::kDouble)).squeeze());
+  }
+  if (x.is<bool>()) {
+    return PolymorphicValue(
+        at::tensor(x.as<bool>(), options.dtype(at::kBool)).squeeze());
+  }
+  if (x.is<std::complex<double>>()) {
+    return PolymorphicValue(
+        at::tensor(
+            (c10::complex<double>)x.as<std::complex<double>>(),
+            options.dtype(at::kComplexDouble))
+            .squeeze());
+  }
+  if (x.is<std::vector>()) {
+    auto vec = x.as<std::vector>();
+    std::vector<at::Tensor> tensors;
+    tensors.reserve(vec.size());
+    for (const auto& elem : vec) {
+      tensors.push_back(toTensor(elem).as<at::Tensor>());
+    }
+    return PolymorphicValue(at::stack(tensors));
+  }
+  TORCH_INTERNAL_ASSERT(
+      false, "PolymorphicValue toTensor not implemented for ", x.type().name());
 }
 
 } // namespace PolymorphicValue_functions

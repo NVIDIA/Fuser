@@ -347,6 +347,38 @@ NVFUSER_BENCHMARK_RUN(NvFuserScheduler_LayerNorm_BWD_non64_fp32)
     ->Unit(benchmark::kMicrosecond)
     ->UseManualTime();
 
+// Multi-reductions per block
+NVFUSER_BENCHMARK_DEFINE(
+    NvFuserScheduler_LayerNorm_BWD_MultiReductionsPerBlock_fp16,
+    setupLayerNorm_BWD,
+    NvFuserScheduler_LayerNorm_BWD,
+    DataType::Half);
+NVFUSER_BENCHMARK_RUN(
+    NvFuserScheduler_LayerNorm_BWD_MultiReductionsPerBlock_fp16)
+    ->Args({8 * 1024, 128})
+    ->Args({8 * 1024, 256})
+    ->Args({8 * 1024, 384})
+    ->Args({8 * 1024, 512})
+    ->Args({8 * 1024, 640})
+    ->Args({8 * 1024, 768})
+    ->Args({8 * 1024, 896})
+    ->Args({8 * 1024, 1023})
+    ->Args({8 * 1024, 1024})
+    ->Unit(benchmark::kMicrosecond)
+    ->UseManualTime();
+NVFUSER_BENCHMARK_RUN(
+    NvFuserScheduler_LayerNorm_BWD_MultiReductionsPerBlock_fp16)
+    ->Args({128, 128})
+    ->Args({128, 256})
+    ->Args({128, 384})
+    ->Args({128, 512})
+    ->Args({128, 640})
+    ->Args({128, 768})
+    ->Args({128, 896})
+    ->Args({128, 1023})
+    ->Args({128, 1024})
+    ->Unit(benchmark::kMicrosecond)
+    ->UseManualTime();
 //------------------------------------------------------------------------------
 
 BENCHMARK(Baseline_LayerNorm_BWD_fp32)

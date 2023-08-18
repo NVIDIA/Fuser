@@ -57,7 +57,7 @@ static void setupBatchNorm_nhwc_BWD(Fusion* fusion, DataType dtype) {
     grad_output = castOp(DataType::Float, grad_output);
   }
 
-  auto eps_ptr = IrBuilder::create<Scalar>(kEps);
+  auto eps_ptr = IrBuilder::create<Val>(kEps);
 
   auto result = batch_norm_backward(
       input,

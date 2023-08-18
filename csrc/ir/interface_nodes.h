@@ -43,102 +43,12 @@ namespace ir_utils {
 TORCH_CUDA_CU_API std::string varName(const Val* val);
 }
 
-//! A scalr value. This value can be a symbolic value (defined after
-//! the kernel is compiled) or a constant value (inlined into the kernel
-//! definition).
-class TORCH_CUDA_CU_API Scalar : public Val {
- public:
-  explicit Scalar(IrBuilderPasskey passkey, DataType dtype)
-      : Val(passkey, ValType::Scalar, std::move(dtype)) {}
-  explicit Scalar(IrBuilderPasskey passkey, PrimDataType dtype)
-      : Val(passkey, ValType::Scalar, DataType(dtype)) {}
-  explicit Scalar(IrBuilderPasskey passkey, PolymorphicValue value)
-      : Val(passkey, ValType::Scalar, nvfuser::getDataType(value)),
-        value_(std::move(value)) {}
-  explicit Scalar(
-      IrBuilderPasskey passkey,
-      PolymorphicValue value,
-      DataType dtype)
-      : Val(passkey, ValType::Scalar, dtype),
-        value_(castToDtype(std::move(value), dtype)) {}
-
-  Scalar(const Scalar* src, IrCloner* ir_cloner)
-      : Val(src, ir_cloner), value_(src->value_) {}
-
-  NVFUSER_DECLARE_CLONE
-
-  std::string toString(int indent_size = 0) const override {
-    std::stringstream ss;
-    if (isSymbolic()) {
-      ss << ir_utils::varName(this);
-      return ss.str();
-    }
-    auto dtype = getDataType().value();
-    if (dtype == DataType::Bool) {
-      ss << (value() ? "true" : "false");
-    } else if (isIntegralType(dtype)) {
-      ss << value();
-    } else if (isFloatingPointType(dtype) || isComplexType(dtype)) {
-      ss << dtype << "(" << std::setprecision(max_digits10(dtype)) << value()
-         << ")";
-    } else if (dtype == DataType::Opaque) {
-      ss << "<opaque value>";
-    } else {
-      TORCH_INTERNAL_ASSERT(false, "Unknown scalar type: ", dtype);
-    }
-    return ss.str();
-  }
-
-  std::string toInlineString(int indent_size = 0) const override {
-    if (definition() != nullptr) {
-      std::stringstream ss;
-      ss << "( " << definition()->toInlineString(indent_size) << " )";
-      return ss.str();
-    } else {
-      return toString(indent_size);
-    }
-  }
-
-  bool isSymbolic() const {
-    return !(value_.hasValue());
-  }
-  bool isConst() const final {
-    return value_.hasValue();
-  }
-
-  const PolymorphicValue& value() const {
-    return value_;
-  }
-
-  PolymorphicValue& value() {
-    return value_;
-  }
-
-  bool sameAs(const Statement* other) const override {
-    if (this == other) {
-      return true;
-    }
-    if (!other->isA<Scalar>()) {
-      return false;
-    }
-    const auto other_val = other->as<Scalar>();
-    if (isConst() && other_val->isConst()) {
-      return dtype() == other_val->dtype() && value() == other_val->value();
-    }
-    return Val::sameAs(other);
-  }
-
- private:
-  PolymorphicValue value_;
-};
-
 template <typename T>
 T& Expr::attribute(size_t index) const {
   if constexpr (PolymorphicValue::is_candidate_type<T>) {
-    return attributes_.at(index)->as<Scalar>()->value().as<T>();
+    return attributeVal(index)->value().as<T>();
   } else {
-    return std::any_cast<T&>(
-        attributes_.at(index)->as<Scalar>()->value().as<Opaque>().value);
+    return std::any_cast<T&>(attributeVal(index)->value().as<Opaque>().value);
   }
 }
 
@@ -212,13 +122,6 @@ class TORCH_CUDA_CU_API TensorView : public Val {
   TensorDomain* domain() const {
     return domain_;
   }
-
-  //! This is for a TensorView with an rFactor domain that is an input to a
-  //! fusion segment. We convert the rfactor domain into a new root domain.
-  //! Any dynamic-sized rfactor iterDomains are given a new symbolic extent.
-  //! Concrete integer extents are kept. Output TensorViews of any subsequent
-  //! expressions that use this TensorView are also updated.
-  void convertRfactorToRootDomain();
 
   void setContiguity(const std::vector<std::optional<bool>>& contig) {
     domain()->setContiguity(contig);

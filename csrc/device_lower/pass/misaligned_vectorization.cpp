@@ -158,12 +158,11 @@ class MisalignedVectorizationModifier : public kir::ExprMutator {
 
     // >>>>>>>>>>>>>
     // Number of elements in vectorize access
-    auto vector_size =
-        tensors.vec_tv->getLeafDomain().back()->extent()->as<Scalar>();
+    auto vector_size = tensors.vec_tv->getLeafDomain().back()->extent();
 
     // Size of memory type for the elements
-    Scalar* data_size_in_bytes =
-        IrBuilder::create<Scalar>(dataTypeSize(tensors.vec_tv->dtype()));
+    Val* data_size_in_bytes = IrBuilder::create<Val>(
+        dataTypeSize(tensors.vec_tv->dtype()), DataType::Index);
 
     // The number of bytes in the vectorize access
     auto vector_size_in_bytes =
@@ -245,7 +244,7 @@ class MisalignedVectorizationModifier : public kir::ExprMutator {
         params.last_root_domain_index_shift, params.extent_minus_remainder);
 
     kir::Predicate* vectorize_pred =
-        IrBuilder::create<kir::Predicate>(vectorize_cond->as<Scalar>());
+        IrBuilder::create<kir::Predicate>(vectorize_cond);
     kir::IfThenElse* vectorize_ite =
         IrBuilder::create<kir::IfThenElse>(vectorize_pred);
 
@@ -271,7 +270,7 @@ class MisalignedVectorizationModifier : public kir::ExprMutator {
         GpuLower::current()->kernel()->zeroVal());
 
     kir::Predicate* initial_pred =
-        IrBuilder::create<kir::Predicate>(initial_cond->as<Scalar>());
+        IrBuilder::create<kir::Predicate>(initial_cond);
     kir::IfThenElse* initial_ite =
         IrBuilder::create<kir::IfThenElse>(initial_pred);
 
@@ -296,10 +295,10 @@ class MisalignedVectorizationModifier : public kir::ExprMutator {
         params.last_root_domain_index_shift, params.extent_minus_remainder);
     Val* upper_bound =
         IrBuilder::ltExpr(params.last_root_domain_index_shift, params.extent);
-    Val* remainder_cond = IrBuilder::andExpr(lower_bound, upper_bound);
+    Val* remainder_cond = IrBuilder::logicalAndExpr(lower_bound, upper_bound);
 
     kir::Predicate* remainder_pred =
-        IrBuilder::create<kir::Predicate>(remainder_cond->as<Scalar>());
+        IrBuilder::create<kir::Predicate>(remainder_cond);
     kir::IfThenElse* remainder_ite =
         IrBuilder::create<kir::IfThenElse>(remainder_pred);
 
@@ -418,8 +417,7 @@ class MisalignedVectorizationModifier : public kir::ExprMutator {
       if (pred_stop != nullptr) {
         // TODO: this doesn't work with loop rotation
         auto body_pred = IrBuilder::create<kir::Predicate>(
-            IrBuilder::ltExpr(new_loop->indexOrStartIfTrivial(), pred_stop)
-                ->as<Scalar>());
+            IrBuilder::ltExpr(new_loop->indexOrStartIfTrivial(), pred_stop));
         auto body_ite = IrBuilder::create<kir::IfThenElse>(body_pred);
         body->push_back(body_ite);
         body = &body_ite->thenBody();

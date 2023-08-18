@@ -29,6 +29,8 @@ void swap(IrContainer& a, IrContainer& b) noexcept {
   swap(a.val_type_name_map_, b.val_type_name_map_);
   swap(a.expr_name_counter_, b.expr_name_counter_);
 
+  swap(a.metadata_, b.metadata_);
+
   // Fixup the Statement::fusion_ links for a
   for (auto val : a.vals_) {
     val->ir_container_ = &a;
@@ -62,11 +64,13 @@ IrCloner IrContainer::copy(const IrContainer* from, IrContainer* to) {
   to->expr_name_counter_ = from->expr_name_counter_;
 
   if (from->axioms_ != nullptr) {
-    to->axioms_ = std::make_unique<std::vector<Scalar*>>();
+    to->axioms_ = std::make_unique<std::vector<Val*>>();
     for (auto pred : *from->axioms_) {
       to->axioms_->emplace_back(ir_cloner.clone(pred));
     }
   }
+
+  to->metadata_ = ir_cloner.clone(from->metadata_);
 
   return ir_cloner;
 }
@@ -198,6 +202,7 @@ void IrContainer::clear() noexcept {
   raw_ptrs_.clear();
   axioms_.reset();
   val_type_name_map_.clear();
+  metadata_.clear();
   expr_name_counter_ = 0;
 }
 
@@ -228,75 +233,63 @@ bool IrContainer::inContainer(const Statement* stmt) const {
 }
 
 // Shortcuts for frequently used vals
-Scalar* IrContainer::zeroVal() {
+Val* IrContainer::zeroVal() {
   if (!zero_val_) {
-    auto zero_val = IrBuilder::create<Scalar>(this, 0L);
+    auto zero_val = IrBuilder::create<Val>(this, 0L, DataType::Index);
     TORCH_INTERNAL_ASSERT(vals_up_.back().get() == zero_val);
-    zero_val_ =
-        std::unique_ptr<Scalar>(vals_up_.back().release()->as<Scalar>());
+    zero_val_ = std::unique_ptr<Val>(vals_up_.back().release());
     vals_up_.pop_back();
   }
   return zero_val_.get();
 }
 
-Scalar* IrContainer::zeroVal(DataType dtype) {
-  // NOTE: this does not cache values for floating or complex dtypes
-  if (isFloatingPointType(dtype)) {
-    return IrBuilder::create<Scalar>(0.0);
-  } else if (isComplexType(dtype)) {
-    return IrBuilder::create<Scalar>(std::complex<double>(0.0, 0.0));
-  } else if (isIntegralType(dtype)) {
+Val* IrContainer::zeroVal(DataType dtype) {
+  if (dtype == DataType::Index) {
     return zeroVal();
   } else if (isBooleanType(dtype)) {
     return falseVal();
   } else {
-    TORCH_CHECK(false, "Could not create zero Val for dtype: ", dtype);
+    // NOTE: this does not cache values
+    return IrBuilder::create<Val>(this, 0L, dtype);
   }
 }
 
-Scalar* IrContainer::oneVal() {
+Val* IrContainer::oneVal() {
   if (!one_val_) {
-    auto one_val = IrBuilder::create<Scalar>(this, 1L, DataType::Int);
+    auto one_val = IrBuilder::create<Val>(this, 1L, DataType::Index);
     TORCH_INTERNAL_ASSERT(vals_up_.back().get() == one_val);
-    one_val_ = std::unique_ptr<Scalar>(vals_up_.back().release()->as<Scalar>());
+    one_val_ = std::unique_ptr<Val>(vals_up_.back().release());
     vals_up_.pop_back();
   }
   return one_val_.get();
 }
 
-Scalar* IrContainer::oneVal(DataType dtype) {
-  // NOTE: this does not cache values for floating or complex dtypes
-  if (isFloatingPointType(dtype)) {
-    return IrBuilder::create<Scalar>(this, 1.0, DataType::Double);
-  } else if (isComplexType(dtype)) {
-    return IrBuilder::create<Scalar>(
-        this, std::complex<double>(1.0, 0.0), DataType::ComplexDouble);
-  } else if (isIntegralType(dtype)) {
+Val* IrContainer::oneVal(DataType dtype) {
+  if (dtype == DataType::Index) {
     return oneVal();
   } else if (isBooleanType(dtype)) {
     return trueVal();
   } else {
-    TORCH_CHECK(false, "Could not create one Val for dtype: ", dtype);
+    // NOTE: this does not cache values
+    return IrBuilder::create<Val>(this, 1L, dtype);
   }
 }
 
-Scalar* IrContainer::falseVal() {
+Val* IrContainer::falseVal() {
   if (!false_val_) {
-    auto false_val = IrBuilder::create<Scalar>(this, false, DataType::Bool);
+    auto false_val = IrBuilder::create<Val>(this, false, DataType::Bool);
     TORCH_INTERNAL_ASSERT(vals_up_.back().get() == false_val);
-    false_val_ =
-        std::unique_ptr<Scalar>(vals_up_.back().release()->as<Scalar>());
+    false_val_ = std::unique_ptr<Val>(vals_up_.back().release());
     vals_up_.pop_back();
   }
   return false_val_.get();
 }
 
-Scalar* IrContainer::trueVal() {
+Val* IrContainer::trueVal() {
   if (!true_val_) {
-    auto true_val = IrBuilder::create<Scalar>(this, true, DataType::Bool);
+    auto true_val = IrBuilder::create<Val>(this, true, DataType::Bool);
     TORCH_INTERNAL_ASSERT(vals_up_.back().get() == true_val);
-    true_val_ =
-        std::unique_ptr<Scalar>(vals_up_.back().release()->as<Scalar>());
+    true_val_ = std::unique_ptr<Val>(vals_up_.back().release());
     vals_up_.pop_back();
   }
   return true_val_.get();
@@ -305,7 +298,7 @@ Scalar* IrContainer::trueVal() {
 NamedScalar* IrContainer::magicZeroVal() {
   if (!magic_zero_val_) {
     auto magic_zero =
-        IrBuilder::create<NamedScalar>(kMagicZeroName, DataType::Int);
+        IrBuilder::create<NamedScalar>(kMagicZeroName, DataType::Index);
     TORCH_INTERNAL_ASSERT(vals_up_.back().get() == magic_zero);
     magic_zero_val_ = std::unique_ptr<NamedScalar>(
         vals_up_.back().release()->as<NamedScalar>());
@@ -314,9 +307,18 @@ NamedScalar* IrContainer::magicZeroVal() {
   return magic_zero_val_.get();
 }
 
+Val* IrContainer::metadataOf(Val* v) {
+  if (metadata_.count(v) == 0) {
+    auto metadata_val = IrBuilder::create<Val>(this, metaDataTypeOf(v));
+    auto metadata_expr = IrBuilder::create<GetMetaData>(this, metadata_val, v);
+    metadata_[v] = std::make_pair(metadata_val, metadata_expr);
+  }
+  return metadata_.at(v).first;
+}
+
 void IrContainer::lazyInitAxioms() {
   if (!axioms_) {
-    axioms_ = std::make_unique<std::vector<Scalar*>>();
+    axioms_ = std::make_unique<std::vector<Val*>>();
     axioms_->reserve(kParallelTypeThreads.size() * 3);
     auto zero = zeroVal();
     for (auto p : kParallelTypeThreads) {

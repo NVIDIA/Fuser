@@ -32,8 +32,6 @@
 
 namespace nvfuser {
 
-NVFUSER_DEFINE_CLONE(Scalar)
-
 FullOp::FullOp(IrBuilderPasskey passkey, Val* out, Val* fill_value)
     : Expr(passkey) {
   if (out->isA<TensorView>()) {
@@ -296,6 +294,7 @@ UnaryOp::UnaryOp(IrBuilderPasskey passkey, UnaryOpType type, Val* out, Val* in)
 }
 
 std::vector<PolymorphicValue> UnaryOp::evaluate(
+    const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
   using namespace PolymorphicValue_functions;
   const auto& in = inputs.at(0);
@@ -303,25 +302,46 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
     case UnaryOpType::Neg:
       return {-in};
     case UnaryOpType::Cast:
-      if (isIntegralType(*out()->getDataType())) {
+      if (in.is<at::Tensor>()) {
+        return {PolymorphicValue(
+            in.as<at::Tensor>().to(data_type_to_aten(out()->dtype())))};
+      } else if (isIntegralType(*out()->getDataType())) {
         return {PolymorphicValue((int64_t)in)};
       } else if (isFloatingPointType(*out()->getDataType())) {
         return {PolymorphicValue((double)in)};
       } else if (out()->getDataType() == DataType::Bool) {
         return {PolymorphicValue((bool)in)};
+      } else if (isComplexType(*out()->getDataType())) {
+        return {PolymorphicValue((std::complex<double>)in)};
       } else {
         TORCH_INTERNAL_ASSERT(
             false, "dtype not supported in evaluator: ", *out()->getDataType());
       }
+    case UnaryOpType::Reciprocal:
+      return {1.0 / in};
+      break;
     case UnaryOpType::Abs:
       return {abs(in)};
       break;
-    case UnaryOpType::Not:
-      return {notExpr(in)};
+    case UnaryOpType::LogicalNot:
+      return {!in};
+      break;
+    case UnaryOpType::BitwiseNot:
+      return {~in};
       break;
     case UnaryOpType::Erf:
       return {erf(in)};
       break;
+    case UnaryOpType::ToUnsignedSmemAddr:
+      return {(int64_t)(unsigned)in};
+      break;
+    case UnaryOpType::Dereference:
+      if (*out()->getDataType() == DataType::Float) {
+        return {PolymorphicValue((double)*(float*)in)};
+      } else {
+        TORCH_INTERNAL_ASSERT(
+            false, "dtype not supported in evaluator: ", *out()->getDataType());
+      }
     default:
       TORCH_CHECK(
           false,
@@ -344,12 +364,7 @@ void UnaryOp::printHelper(std::stringstream& ss, std::string input) const {
       TORCH_INTERNAL_ASSERT(cast_str != std::nullopt, "Unsupported Cast");
       ss << cast_str.value();
     } else {
-      if (alsoBooleanOperator(op_type) &&
-          out()->getDataType().value() == DataType::Bool) {
-        ss << stringifyBooleanOp(op_type);
-      } else {
-        ss << op_type;
-      }
+      ss << op_type;
       if (out()->getDataType().value() == DataType::Float &&
           needFloatSuffix(op_type)) {
         ss << "f";
@@ -397,6 +412,7 @@ BinaryOp::BinaryOp(
 }
 
 std::vector<PolymorphicValue> BinaryOp::evaluate(
+    const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
   using namespace PolymorphicValue_functions;
   const auto& lhs = inputs.at(0);
@@ -424,13 +440,19 @@ std::vector<PolymorphicValue> BinaryOp::evaluate(
       TORCH_CHECK(rhs != 0);
       return {ceildiv(lhs, rhs)};
       break;
-    case BinaryOpType::And:
+    case BinaryOpType::LogicalAnd:
       return {lhs && rhs};
       break;
-    case BinaryOpType::Or:
+    case BinaryOpType::LogicalOr:
       return {lhs || rhs};
       break;
-    case BinaryOpType::Xor:
+    case BinaryOpType::BitwiseAnd:
+      return {lhs & rhs};
+      break;
+    case BinaryOpType::BitwiseOr:
+      return {lhs | rhs};
+      break;
+    case BinaryOpType::BitwiseXor:
       return {lhs ^ rhs};
       break;
     case BinaryOpType::Eq:
@@ -486,12 +508,7 @@ void BinaryOp::printHelper(
     ss << " " << inline_bop.value() << " ";
     ss << rhs;
   } else {
-    if (alsoBooleanOperator(op_type) &&
-        out()->getDataType().value() == DataType::Bool) {
-      ss << stringifyBooleanOp(op_type);
-    } else {
-      ss << op_type;
-    }
+    ss << op_type;
     if (out()->getDataType().value() == DataType::Float &&
         needFloatSuffix(op_type)) {
       ss << "f";
@@ -549,6 +566,7 @@ TernaryOp::TernaryOp(
 }
 
 std::vector<PolymorphicValue> TernaryOp::evaluate(
+    const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
   using namespace PolymorphicValue_functions;
   const auto& in1 = inputs.at(0);
@@ -664,6 +682,7 @@ std::string ArrayConstruct::toInlineString(int indent_size) const {
 }
 
 std::vector<PolymorphicValue> ArrayConstruct::evaluate(
+    const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
   return {PolymorphicValue(inputs)};
 }
@@ -695,6 +714,7 @@ std::string GetItem::toInlineString(int indent_size) const {
 }
 
 std::vector<PolymorphicValue> GetItem::evaluate(
+    const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
   TORCH_INTERNAL_ASSERT(inputs.size() == 2, "GetItem expects 2 inputs");
   return {PolymorphicValue(inputs.at(0)[inputs.at(1)])};
@@ -731,6 +751,7 @@ std::string GetAttr::toInlineString(int indent_size) const {
 }
 
 std::vector<PolymorphicValue> GetAttr::evaluate(
+    const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
   TORCH_INTERNAL_ASSERT(inputs.size() == 1, "GetAttr expects 1 input");
   return {inputs.at(0)[attr()]};
@@ -760,26 +781,6 @@ std::string GetMetaData::toInlineString(int indent_size) const {
   return ss.str();
 }
 
-std::vector<PolymorphicValue> GetMetaData::evaluate(
-    const std::vector<PolymorphicValue>& inputs) const {
-  TORCH_INTERNAL_ASSERT(inputs.size() == 1, "GetMetaData expects 1 input");
-  TORCH_INTERNAL_ASSERT(
-      in()->isA<TensorView>(),
-      "Currently, GetMetaData only supports TensorView");
-  TensorView* tv = in()->as<TensorView>();
-  at::Tensor input = inputs.at(0).as<at::Tensor>();
-
-  Struct<PolymorphicValue> concrete_value;
-  concrete_value["data"] =
-      PolymorphicValue(Pointer(input.data_ptr(), tv->dtype()));
-  concrete_value["sizes"] = PolymorphicValue(input.sizes().vec());
-  // TODO: this is not correct, strides actually needs to be based on allocation
-  // domain, but input.strides() is on the rFactor domain. We need to refactor
-  // our executor to move related logic here.
-  concrete_value["strides"] = PolymorphicValue(input.strides().vec());
-  return {PolymorphicValue(concrete_value)};
-}
-
 NVFUSER_DEFINE_CLONE_AND_CREATE(GetMetaData)
 
 TensorConstruct::TensorConstruct(
@@ -802,6 +803,14 @@ std::string TensorConstruct::toInlineString(int indent_size) const {
   TORCH_CHECK(false, "Tensor op can not be printed inline");
 }
 
+std::vector<PolymorphicValue> TensorConstruct::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  TORCH_INTERNAL_ASSERT(inputs.size() == 1, "TensorConstruct expects 1 input");
+  using namespace PolymorphicValue_functions;
+  return {toTensor(inputs.at(0))};
+}
+
 NVFUSER_DEFINE_CLONE_AND_CREATE(TensorConstruct)
 
 RNGOp::RNGOp(
@@ -812,7 +821,6 @@ RNGOp::RNGOp(
     std::vector<Val*> parameters,
     Val* philox_seed,
     Val* philox_offset,
-    int rng_offset,
     Val* philox_index)
     : Expr(passkey) {
   if (auto tv_out = dynamic_cast<TensorView*>(out)) {
@@ -832,7 +840,7 @@ RNGOp::RNGOp(
     addInput(philox_offset);
   }
   addOutput(out);
-  RNGOp::Attributes attr{type, dtype, rng_offset, parameters.size()};
+  RNGOp::Attributes attr{type, dtype, parameters.size()};
   addDataAttribute(attr);
   addAttribute(philox_index);
 }
@@ -852,10 +860,6 @@ std::string RNGOp::toString(int indent_size) const {
   auto seed = getRNGSeedVal();
   if (seed) {
     ss << ", " << seed->toInlineString();
-  }
-  auto offset = getRNGOffsetVal();
-  if (offset) {
-    ss << ", " << offset->toInlineString();
   }
   ss << ");\n";
   return ss.str();
@@ -947,6 +951,7 @@ std::string BroadcastOp::toInlineString(int indent_size) const {
 }
 
 std::vector<PolymorphicValue> BroadcastOp::evaluate(
+    const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
   TORCH_INTERNAL_ASSERT(
       inputs.size() == 1,
@@ -1043,6 +1048,7 @@ std::string SqueezeOp::toInlineString(int indent_size) const {
 }
 
 std::vector<PolymorphicValue> SqueezeOp::evaluate(
+    const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
   TORCH_INTERNAL_ASSERT(
       inputs.size() == 1,
@@ -1278,7 +1284,7 @@ WelfordOp::WelfordOp(
   TORCH_INTERNAL_ASSERT(isIntegralType(output.N()->dtype()));
 
   // check initial value
-  TORCH_INTERNAL_ASSERT(init.N()->getValType().value() == ValType::Scalar);
+  TORCH_INTERNAL_ASSERT(init.N()->getValType().value() == ValType::Others);
   TORCH_INTERNAL_ASSERT(isIntegralType(init.N()->dtype()));
   if (!init.N()->isZeroInt()) {
     // when initial count is zero, no initial variance or average is needed
@@ -1300,7 +1306,7 @@ WelfordOp::WelfordOp(
           input.avg()->getValType().value() == ValType::TensorIndex,
       input.avg()->getValType().value());
   TORCH_INTERNAL_ASSERT(
-      input.N()->getValType().value() == ValType::Scalar ||
+      input.N()->getValType().value() == ValType::Others ||
       input.N()->getValType().value() == ValType::TensorView ||
       input.N()->getValType().value() == ValType::TensorIndex);
   TORCH_INTERNAL_ASSERT(isIntegralType(input.N()->dtype()));
@@ -1438,13 +1444,13 @@ GroupedWelfordOp::GroupedWelfordOp(
     TORCH_INTERNAL_ASSERT(
         init_avg != nullptr && init_var != nullptr && init_N != nullptr,
         "nullptr init vals are not allowed");
-    TORCH_INTERNAL_ASSERT(init_N->getValType().value() == ValType::Scalar);
+    TORCH_INTERNAL_ASSERT(init_N->getValType().value() == ValType::Others);
     TORCH_INTERNAL_ASSERT(isIntegralType(init_N->dtype()));
     TORCH_INTERNAL_ASSERT(
         init_avg->getValType().value() == ValType::TensorView ||
             init_avg->getValType().value() == ValType::TensorIndex ||
             (init_N->isZeroInt() &&
-             init_avg->getValType().value() == ValType::Scalar),
+             init_avg->getValType().value() == ValType::Others),
         "Initial avg must be a tensor or, can be a scalar if initial N is zero.",
         " Initial avg: ",
         init_avg->toString(),
@@ -1454,7 +1460,7 @@ GroupedWelfordOp::GroupedWelfordOp(
         init_var->getValType().value() == ValType::TensorView ||
             init_var->getValType().value() == ValType::TensorIndex ||
             (init_N->isZeroInt() &&
-             init_var->getValType().value() == ValType::Scalar),
+             init_var->getValType().value() == ValType::Others),
         "Initial var must be a tensor or, can be a scalar if initial N is zero: ",
         init_var->toString());
 
@@ -1466,7 +1472,7 @@ GroupedWelfordOp::GroupedWelfordOp(
         in_avg != nullptr && in_var != nullptr && in_N != nullptr,
         "nullptr input vals are not allowed");
     TORCH_INTERNAL_ASSERT(
-        in_N->getValType().value() == ValType::Scalar ||
+        in_N->getValType().value() == ValType::Others ||
         in_N->getValType().value() == ValType::TensorView ||
         in_N->getValType().value() == ValType::TensorIndex);
     TORCH_INTERNAL_ASSERT(isIntegralType(in_N->dtype()));
@@ -1928,8 +1934,8 @@ ExpandOp::ExpandOp(
   for (auto expanded_extent : _expanded_extents) {
     TORCH_INTERNAL_ASSERT(expanded_extent != nullptr);
     TORCH_INTERNAL_ASSERT(
-        expanded_extent->dtype() == DataType::Int,
-        "Expanded extents must be of Int type.");
+        expanded_extent->dtype() == DataType::Index,
+        "Expanded extents must be of index type.");
     addInput(expanded_extent);
   }
 }
@@ -2078,13 +2084,11 @@ ViewAsScalar::ViewAsScalar(
     IrBuilderPasskey passkey,
     Val* out,
     Val* in,
-    IterDomain* vector_id,
-    Val* index)
+    IterDomain* vector_id)
     : Expr(passkey) {
   addOutput(out);
   addInput(in);
   addAttribute(vector_id);
-  addAttribute(index);
 }
 
 std::string ViewAsScalar::toString(int indent_size) const {
@@ -2131,6 +2135,7 @@ LoadStoreOp::LoadStoreOp(
 }
 
 std::vector<PolymorphicValue> LoadStoreOp::evaluate(
+    const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
   return inputs;
 }
@@ -2302,15 +2307,27 @@ IterDomain::IterDomain(
   // and rfactor.
 
   TORCH_INTERNAL_ASSERT(
-      extent->isIntegralScalar(),
-      "Cannot create an iter domain over an extent that is not an int but received ",
-      extent,
+      extent->dtype() == DataType::Index,
+      "Cannot create an iter domain over an extent that is not an nvfuser_index_t but received ",
+      extent->dtype(),
       " .");
 
   TORCH_INTERNAL_ASSERT(
-      start->isIntegralScalar(),
-      "Cannot create an iter domain with a start that is not an int but received ",
-      start,
+      expanded_extent == nullptr || expanded_extent->dtype() == DataType::Index,
+      "Cannot create an iter domain over an expanded_extent that is not an nvfuser_index_t but received ",
+      expanded_extent->dtype(),
+      " .");
+
+  TORCH_INTERNAL_ASSERT(
+      start->dtype() == DataType::Index,
+      "Cannot create an iter domain with a start that is not an nvfuser_index_t but received ",
+      start->dtype(),
+      " .");
+
+  TORCH_INTERNAL_ASSERT(
+      stop_offset_->dtype() == DataType::Index,
+      "Cannot create an iter domain with a stop_offset_ that is not an nvfuser_index_t but received ",
+      stop_offset_->dtype(),
       " .");
 }
 
@@ -2498,8 +2515,7 @@ IterDomain* IterDomain::merge(IterDomain* outer, IterDomain* inner) {
   }
 
   IterDomain* merged_id =
-      IterDomainBuilder(
-          outer->container()->zeroVal(), merged_id_size->as<Scalar>())
+      IterDomainBuilder(outer->container()->zeroVal(), merged_id_size)
           .parallel_type(outer->getParallelType())
           .expanded_extent(expanded_extent)
           .iter_type(itype)
@@ -2522,21 +2538,6 @@ std::pair<IterDomain*, IterDomain*> IterDomain::split(
   TORCH_CHECK(
       factor->isIntegralScalar(), "Cannot split by non-integer value ", factor);
 
-  if (factor->getValType() == ValType::Scalar) {
-    TORCH_CHECK(
-        factor->isConstScalar() ||
-            (FusionGuard::getCurFusion() == factor->fusion() &&
-             factor->isFusionInput()),
-        factor,
-        " is not a constant nor an input. It must be one or the other to be used in a split.",
-        " If you want a symbolic split based on a thread dimension please use IterDomain::split(IterDomain*, ParallelType);");
-  } else if (factor->getValType() == ValType::NamedScalar) {
-    TORCH_CHECK(
-        factor->as<NamedScalar>()->getParallelDim() != std::nullopt,
-        "Splitting a dimension by a named scalar is only supported on block or grid dimensions but received ",
-        factor);
-  }
-
   // outer loop size
   Val* remainder =
       ceilDiv(Split::extent(in->extent(), start_offset, stop_offset), factor);
@@ -2555,8 +2556,7 @@ std::pair<IterDomain*, IterDomain*> IterDomain::split(
   // outer loop IterDomain
   IterDomain* ido =
       IterDomainBuilder(
-          in->container()->zeroVal(),
-          inner_split ? remainder->as<Scalar>() : factor)
+          in->container()->zeroVal(), inner_split ? remainder : factor)
           .expanded_extent(
               in->hasExpandedExtent() && inner_split ? expanded_remainder
                                                      : nullptr)
@@ -2567,8 +2567,7 @@ std::pair<IterDomain*, IterDomain*> IterDomain::split(
   // inner loop IterDomain
   IterDomain* idi =
       IterDomainBuilder(
-          in->container()->zeroVal(),
-          inner_split ? factor : remainder->as<Scalar>())
+          in->container()->zeroVal(), inner_split ? factor : remainder)
           .expanded_extent(
               in->hasExpandedExtent() && !inner_split ? expanded_remainder
                                                       : nullptr)
@@ -2601,7 +2600,10 @@ std::pair<IterDomain*, IterDomain*> IterDomain::split(
 std::pair<IterDomain*, IterDomain*> IterDomain::stridedSplit(int64_t factor) {
   // Use partial split so that only valid values are retained
   auto split_out = IterDomain::split(
-      this, IrBuilder::create<Scalar>(container(), factor), true, true);
+      this,
+      IrBuilder::create<Val>(container(), factor, DataType::Index),
+      true,
+      true);
 
   split_out.second->iter_type_ = IterType::Stride;
   split_out.first->is_rfactor_domain_ = true;
@@ -2711,8 +2713,7 @@ IterDomain* IterDomain::resize(
   }
 
   auto resized_id =
-      IterDomainBuilder(
-          in->container()->zeroVal(), resized_id_size->as<Scalar>())
+      IterDomainBuilder(in->container()->zeroVal(), resized_id_size)
           .is_rfactor_domain(mark_as_rfactor)
           .iter_type(iter_type)
           .build();
@@ -3636,13 +3637,8 @@ bool NamedScalar::sameAs(const Statement* other) const {
 }
 
 bool NamedScalar::isTensorSize() const {
-  static const std::regex r(R"(T\d+\.size\[\d+\])");
-  return std::regex_match(name().as<std::string>(), r);
-}
-
-bool NamedScalar::isTensorStride() const {
-  static const std::regex r(R"(T\d+\.stride\[\d+\])");
-  return std::regex_match(name().as<std::string>(), r);
+  static const std::regex r(R"(T\d+\.\w*size\[\d+\])");
+  return std::regex_match(name(), r);
 }
 
 NamedScalar* NamedScalar::getParallelDim(ParallelType p_type) {
@@ -3652,13 +3648,13 @@ NamedScalar* NamedScalar::getParallelDim(ParallelType p_type) {
       p_type);
   TORCH_INTERNAL_ASSERT(FusionGuard::getCurFusion() != nullptr);
   std::string parallel_dim = stringifyThreadSize(p_type);
-  return IrBuilder::create<NamedScalar>(parallel_dim, DataType::Int);
+  return IrBuilder::create<NamedScalar>(parallel_dim, DataType::Index);
 }
 
 NamedScalar* NamedScalar::getParallelIndex(ParallelType p_type) {
   TORCH_INTERNAL_ASSERT(FusionGuard::getCurFusion() != nullptr);
   std::string parallel_ind = stringifyThread(p_type);
-  return IrBuilder::create<NamedScalar>(parallel_ind, DataType::Int);
+  return IrBuilder::create<NamedScalar>(parallel_ind, DataType::Index);
 }
 
 std::optional<ParallelType> NamedScalar::getParallelDim() const {
@@ -3867,7 +3863,7 @@ CatOp::CatOp(
     const std::vector<Val*>& inputs,
     int64_t concatenated_dim,
     Val* concatenated_domain_index,
-    const std::vector<Scalar*>& preds)
+    const std::vector<Val*>& preds)
     : Expr(passkey) {
   TORCH_INTERNAL_ASSERT(
       passkey.ir_container_ != nullptr,
@@ -3914,7 +3910,7 @@ Val* CatOp::getConcatenatedDomainIndex() const {
   return idx;
 }
 
-Scalar* CatOp::getPred(int input_idx) const {
+Val* CatOp::getPred(int input_idx) const {
   TORCH_INTERNAL_ASSERT(
       container()->isA<kir::Kernel>(),
       "Should only be used for Kernel container.");
@@ -3928,13 +3924,13 @@ Scalar* CatOp::getPred(int input_idx) const {
       attr_idx,
       ", number of attributes: ",
       attributes().size());
-  auto attr = attribute(attr_idx);
+  auto attr = attributeVal(attr_idx);
   TORCH_INTERNAL_ASSERT(attr != nullptr, "nullptr attribute is invalid");
   TORCH_INTERNAL_ASSERT(
-      attr->isA<Scalar>(),
+      attr->dtype() == DataType::Bool,
       "Attribute must be a Bool val: ",
       attr->toInlineString());
-  auto pred = attr->as<Scalar>();
+  auto pred = attr;
   return pred;
 }
 

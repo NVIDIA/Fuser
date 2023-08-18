@@ -114,6 +114,7 @@ std::unordered_map<DebugDumpOption, std::vector<std::string>> Options<
       {"dump_eff_bandwidth", DebugDumpOption::EffectiveBandwidth},
       {"expr_simplify", DebugDumpOption::ExprSimplification},
       {"expr_sort", DebugDumpOption::ExprSort},
+      {"expr_sort_verbose", DebugDumpOption::ExprSortVerbose},
       {"fusion_args", DebugDumpOption::FusionArgs},
       {"fusion_ir", DebugDumpOption::FusionIr},
       {"fusion_ir_concretized", DebugDumpOption::FusionIrConcretized},
@@ -179,7 +180,9 @@ std::unordered_map<DisableOption, std::vector<std::string>> Options<
       {"predicate_elimination", DisableOption::PredicateElimination},
       {"kernel_reuse", DisableOption::KernelReuse},
       {"var_name_remapping", DisableOption::VarNameRemapping},
-      {"welford_vectorization", DisableOption::WelfordVectorization}};
+      {"welford_vectorization", DisableOption::WelfordVectorization},
+      {"reuse_mismatched_type_registers",
+       DisableOption::ReuseMismatchedTypeRegisters}};
 
   auto options = parseEnvOptions("DISABLE", available_options);
 

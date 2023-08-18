@@ -173,16 +173,15 @@ TORCH_CUDA_CU_API Expr* replaceValInExpr(
     Val* reference,
     Val* substitute);
 
-//! Replace Vals in an index Val as specified by replacement_map while
-//! cloning the given index Val. The index val is assumed to represent
-//! a tensor index consisting of Ints and arithmetic expressions.
+//! Recursively goes to the definition of the given Val and replace the Vals as
+//! specified by replacement_map while cloning the given Val.
 //!
 //! This is similar to replaceValInExpr but is different as Vals are
 //! cloned such that no other exprs using the same leaf Vals are not
 //! modified. TODO: Consider cleaning up the multiple replacement
 //! routines.
-Val* replaceValInIndexVal(
-    Val* index,
+Val* replaceValRecursively(
+    Val* val,
     const std::unordered_map<Val*, Val*>& replacement_map);
 
 // Makes rfactor generic with reduction ops and Welford
@@ -427,6 +426,19 @@ void validateDomainEquivalence(
     const std::vector<IterDomain*>& initial_domain,
     const std::vector<IterDomain*>& derived_domain);
 
+//! Check if all the inputs required to compute needed_val are known
+bool dependenciesSatisfied(
+    std::vector<const Val*> needed_vals,
+    std::unordered_set<const Val*> known_vals = {});
+
+inline bool dependenciesSatisfied(
+    std::vector<Val*> needed_vals,
+    std::unordered_set<Val*> known_vals = {}) {
+  return dependenciesSatisfied(
+      std::vector<const Val*>(needed_vals.begin(), needed_vals.end()),
+      std::unordered_set<const Val*>(known_vals.begin(), known_vals.end()));
+}
+
 //! Check if a conditional scope, i.e., ForLoop or IfThenElse, is
 //! guaranteed not to cause thread divergence
 bool isAlignedScopeExpr(const Expr* expr);
@@ -454,5 +466,11 @@ std::vector<Statement*> checkCycle(
 
 //! Check and return a cycle found in fusion
 std::vector<Statement*> checkCycle(Fusion* fusion);
+
+//! Check if a Val is a tensor size;
+bool isTensorSize(const Val* val);
+
+//! Check if a Val is a tensor stride;
+bool isTensorStride(const Val* val);
 
 } // namespace nvfuser::ir_utils

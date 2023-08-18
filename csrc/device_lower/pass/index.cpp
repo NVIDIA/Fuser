@@ -103,13 +103,13 @@ void IndexLowering::handle(const kir::IfThenElse* ite) {
   active_scope_ = &new_ite->thenBody();
 
   for (auto expr : ite->thenBody().exprs()) {
-    OptOutConstDispatch::handle(expr);
+    OptOutConstDispatch::dispatch(expr);
   }
 
   active_scope_ = &new_ite->elseBody();
 
   for (auto expr : ite->elseBody().exprs()) {
-    OptOutConstDispatch::handle(expr);
+    OptOutConstDispatch::dispatch(expr);
   }
 
   active_scope_ = prev_scope;
@@ -129,7 +129,7 @@ void IndexLowering::handle(const kir::ForLoop* for_loop) {
   for_loops_.push_back(new_for_loop);
 
   for (auto expr : for_loop->body().exprs()) {
-    OptOutConstDispatch::handle(expr);
+    OptOutConstDispatch::dispatch(expr);
   }
 
   for_loops_.pop_back();
@@ -158,7 +158,6 @@ void IndexLowering::handle(const RNGOp* rop) {
       rop->getParameters(),
       rop->getRNGSeedVal(),
       rop->getRNGOffsetVal(),
-      rop->getRNGOffset(),
       philox_index);
 
   pushBack(lowered);
@@ -251,11 +250,26 @@ void IndexLowering::handle(const ArrayConstruct* aop) {
   GpuLower::current()->propagateExprInfo(aop, back());
 }
 
+void IndexLowering::handle(const GetAttr* gop) {
+  const auto struct_ = lowerSrcIndex(gop->struct_(), gop->out());
+  const auto attr = gop->attr();
+  const auto out = lowerDstIndex(gop->out());
+  pushBack(IrBuilder::create<GetAttr>(out, struct_, attr));
+  GpuLower::current()->propagateExprInfo(gop, back());
+}
+
 void IndexLowering::handle(const GetItem* gop) {
   const auto array = lowerSrcIndex(gop->array(), gop->out());
   const auto index = lowerSrcIndex(gop->index(), gop->out());
   const auto out = lowerDstIndex(gop->out());
   pushBack(IrBuilder::create<GetItem>(out, array, index));
+  GpuLower::current()->propagateExprInfo(gop, back());
+}
+
+void IndexLowering::handle(const GetMetaData* gop) {
+  const auto in = gop->in();
+  const auto out = lowerDstIndex(gop->out());
+  pushBack(IrBuilder::create<GetMetaData>(out, in));
   GpuLower::current()->propagateExprInfo(gop, back());
 }
 
@@ -274,20 +288,10 @@ void IndexLowering::handle(const TensorConstruct* cop) {
 
 void IndexLowering::handle(const IndexSelectOp* sop) {
   auto lowered_index = lowerSrcIndex(sop->input(1), sop->output(0));
-  auto lowered_index_cast = lowered_index;
-
-  // If the type of the index tensor is different from the kernel
-  // index type, promote it to the kernel index type
-  if (GpuLower::current()->kernel()->indexType() !=
-      sop->input(1)->getDataType().value()) {
-    lowered_index_cast =
-        IrBuilder::newScalar(GpuLower::current()->kernel()->indexType());
-    IrBuilder::create<UnaryOp>(
-        UnaryOpType::Cast, lowered_index_cast, lowered_index);
-  }
+  lowered_index = maybeCastOp(DataType::Index, lowered_index);
 
   const std::unordered_map<IterDomain*, Val*> override_index = {
-      {sop->getIndexedID(), lowered_index_cast}};
+      {sop->getIndexedID(), lowered_index}};
   const auto lookup =
       lowerSrcIndex(sop->input(0), sop->output(0), override_index);
 
@@ -299,13 +303,7 @@ void IndexLowering::handle(const IndexSelectOp* sop) {
 
 void IndexLowering::handle(const TorchGatherOp* top) {
   auto lowered_index = lowerSrcIndex(top->input(1), top->output(0));
-  if (GpuLower::current()->kernel()->indexType() !=
-      top->indexTv()->getDataType().value()) {
-    auto lowered_index_cast =
-        IrBuilder::newScalar(GpuLower::current()->kernel()->indexType());
-    IrBuilder::create<UnaryOp>(
-        UnaryOpType::Cast, lowered_index_cast, lowered_index);
-  }
+  lowered_index = IrBuilder::maybeCastExpr(DataType::Index, lowered_index);
 
   const std::unordered_map<IterDomain*, Val*> override_index = {
       {top->getIndexedID(), lowered_index}};
@@ -320,6 +318,8 @@ void IndexLowering::handle(const TorchGatherOp* top) {
 void IndexLowering::handle(const ScatterOp* sop) {
   auto lowered_index = lowerSrcIndex(sop->indexTv(), sop->output(0));
   auto lowered_src = lowerSrcIndex(sop->srcTv(), sop->output(0));
+
+  lowered_index = IrBuilder::maybeCastExpr(DataType::Index, lowered_index);
 
   const std::unordered_map<int, Val*> override_index_out = {
       {sop->dim(), lowered_index}};
@@ -370,8 +370,8 @@ void IndexLowering::handle(const ViewAsScalar* uop) {
             IdMappingMode::LOOP)) {
       // TODO: this doesn't work with loop rotation
       Val* index = loop->indexOrStartIfTrivial();
-      pushBack(
-          IrBuilder::create<ViewAsScalar>(out, in, uop->vector_id(), index));
+      pushBack(IrBuilder::create<LoadStoreOp>(
+          LoadStoreOpType::Set, out, IrBuilder::getItemExpr(in, index)));
       GpuLower::current()->propagateExprInfo(uop, back());
       return;
     }
@@ -451,7 +451,7 @@ GridCommWorkBufferSizeInfo getGridCommWorkBufferSize(
 
   if (is_doubled) {
     size_of_privatized_buffer = SimplifyingIrBuilder::mulExpr(
-        size_of_privatized_buffer, IrBuilder::create<Scalar>(2L));
+        size_of_privatized_buffer, IrBuilder::create<Val>(2L, DataType::Index));
   }
 
   GridCommWorkBufferSizeInfo info;
@@ -459,7 +459,7 @@ GridCommWorkBufferSizeInfo getGridCommWorkBufferSize(
   info.buffer_stride = size_of_single_buffer;
   if (is_doubled) {
     info.buffer_stride = SimplifyingIrBuilder::mulExpr(
-        info.buffer_stride, IrBuilder::create<Scalar>(2L));
+        info.buffer_stride, IrBuilder::create<Val>(2L, DataType::Index));
   }
 
   return info;
@@ -1377,7 +1377,7 @@ void IndexLowering::handle(const kir::CpAsyncCommit* commit) {
 
 void IndexLowering::generate(const std::vector<Expr*>& exprs) {
   for (auto expr : exprs) {
-    OptOutConstDispatch::handle(expr);
+    OptOutConstDispatch::dispatch(expr);
   }
 }
 
@@ -1465,15 +1465,15 @@ void IndexLowering::handle(const PadOp* pad) {
       producer_tv, consumer_tv, for_loops_, getRotatedLoop());
 
   // Build a predicate for where
-  Val* pred = IrBuilder::create<Scalar>(true);
+  Val* pred = IrBuilder::create<Val>(true);
   for (auto padded_axis : pad->getPaddedAxes()) {
     auto producer_idx = producer_root_indices.at(padded_axis);
     auto producer_root_id = producer_doms.at(padded_axis);
     TORCH_INTERNAL_ASSERT(!producer_root_id->maybePartial());
-    pred = SimplifyingIrBuilder::andExpr(
+    pred = SimplifyingIrBuilder::logicalAndExpr(
         pred,
         // idx >= 0 && idx < extent
-        SimplifyingIrBuilder::andExpr(
+        SimplifyingIrBuilder::logicalAndExpr(
             SimplifyingIrBuilder::geExpr(
                 producer_idx, GpuLower::current()->kernel()->zeroVal()),
             SimplifyingIrBuilder::ltExpr(
@@ -1507,7 +1507,7 @@ void IndexLowering::handle(const CatOp* cat) {
   auto concatenated_dim_idx = out_indices.at(cat->concatenatedDim());
 
   std::vector<Val*> inputs(cat->inputs().size());
-  std::vector<Scalar*> preds(cat->inputs().size());
+  std::vector<Val*> preds(cat->inputs().size());
   Val* cur_extent = GpuLower::current()->kernel()->zeroVal();
 
   for (const auto i : c10::irange(cat->inputs().size())) {
@@ -1520,8 +1520,7 @@ void IndexLowering::handle(const CatOp* cat) {
                              cat->input(i)->as<TensorView>()->getRootDomain())
                              .at(cat->concatenatedDim());
     cur_extent = add(cur_extent, inp_concat_id->extent());
-    preds.at(i) =
-        IrBuilder::ltExpr(concatenated_dim_idx, cur_extent)->as<Scalar>();
+    preds.at(i) = IrBuilder::ltExpr(concatenated_dim_idx, cur_extent);
   }
 
   auto lowered = IrBuilder::create<CatOp>(

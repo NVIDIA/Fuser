@@ -117,10 +117,26 @@ TEST_F(NVFuserTest, CombinedSchedulerLayerNormBackward_CUDA) {
     auto maybe_fp16_options = at::TensorOptions()
                                   .dtype(data_type_to_aten(dtype))
                                   .device(at::kCUDA, 0);
-    at::Tensor aten_grad_out = at::randn(input_shape, maybe_fp16_options);
-    at::Tensor aten_input = at::randn(input_shape, maybe_fp16_options);
-    at::Tensor aten_weight = at::randn(norm_shape, maybe_fp16_options);
-    at::Tensor aten_bias = at::randn(norm_shape, maybe_fp16_options);
+
+    // Reduce the scale to avoid fp16 overflow. In segmented scenarios,
+    // intermediates across different segments are saved in fp16. Input down
+    // scaling is essential to avert fp16 overflow. Refer to:
+    // https://github.com/NVIDIA/Fuser/issues/704
+    constexpr float scale_down_factor = 0.01;
+    constexpr float scale_back_factor = 1.0 / scale_down_factor;
+    at::Tensor aten_grad_out = at::randn(input_shape, maybe_fp16_options)
+                                   .mul(scale_down_factor)
+                                   .to(data_type_to_aten(dtype));
+    at::Tensor aten_input = at::randn(input_shape, maybe_fp16_options)
+                                .mul(scale_down_factor)
+                                .to(data_type_to_aten(dtype));
+    at::Tensor aten_weight = at::randn(norm_shape, maybe_fp16_options)
+                                 .mul(scale_down_factor)
+                                 .to(data_type_to_aten(dtype));
+    at::Tensor aten_bias = at::randn(norm_shape, maybe_fp16_options)
+                               .mul(scale_down_factor)
+                               .to(data_type_to_aten(dtype));
+
     auto at_weight = c10::optional<at::Tensor>(aten_weight);
     auto at_bias = c10::optional<at::Tensor>(aten_bias);
 
@@ -153,25 +169,15 @@ TEST_F(NVFuserTest, CombinedSchedulerLayerNormBackward_CUDA) {
 
     testValidate(
         &fusion,
-        cg_outputs,
+        {cg_outputs[0].mul(scale_back_factor),
+         cg_outputs[1].mul(scale_back_factor),
+         cg_outputs[2].mul(scale_back_factor)},
         aten_inputs,
-        {std::get<0>(aten_gradients),
-         std::get<1>(aten_gradients),
-         std::get<2>(aten_gradients)},
+        {std::get<0>(aten_gradients).mul(scale_back_factor),
+         std::get<1>(aten_gradients).mul(scale_back_factor),
+         std::get<2>(aten_gradients).mul(scale_back_factor)},
         __LINE__,
         __FILE__);
-
-    int64_t hidden_size = 1;
-    for (auto s : norm_shape) {
-      hidden_size *= s;
-    }
-    TORCH_CHECK(
-        !fec.getMostRecentKernelRuntime()->isSegmented(),
-        "Fusion shouldn't be segmented! hidden size= ",
-        hidden_size,
-        ", dtype= ",
-        dtype == DataType::Float ? "Float." : "Half.");
-
     if (isBenchmark) {
       FusionKernelRuntime* fkr = fec.getMostRecentKernelRuntime();
       fkr->enableKernelTimeMeasurement();
@@ -242,7 +248,17 @@ TEST_F(NVFuserTest, CombinedSchedulerLayerNormBackward_CUDA) {
   std::vector<DataType> data_types = {DataType::Half, DataType::Float};
   std::vector<std::vector<int64_t>> batch_sizes = {{216}};
   std::vector<std::vector<int64_t>> hidden_sizes = {
-      {3}, {32}, {96}, {576}, {768}, {1024}, {1280}, {1600}, {1984}, {1987}};
+      {3},
+      {32},
+      {96},
+      {576},
+      {768},
+      {1024},
+      {1280},
+      {1600},
+      {1984},
+      {1987},
+      {65536}};
   bool isBenchmark = false;
   bool onlyTestFirstCase = false;
   int verbose = 0;
@@ -353,7 +369,7 @@ TEST_F(NVFuserTest, CombinedSchedulerSharedConsumer_CUDA) {
         : add(layer_norm_results.grad_bias, layer_norm_results.grad_weight);
 
     if (!link_inner_outer) {
-      auto out_linked_scale = mul(out_linked, IrBuilder::create<Scalar>(0.5));
+      auto out_linked_scale = mul(out_linked, IrBuilder::create<Val>(0.5));
       fusion.addOutput(out_linked_scale);
     } else {
       fusion.addOutput(out_linked);
@@ -531,9 +547,9 @@ TEST_F(NVFuserTest, CombinedSchedulerSharedProducer_CUDA) {
         // tensor bias is a producer of the two outer reductions' consumers,
         // expect segmented
         auto outer_1_consumer =
-            add(layer_norm_results.grad_weight, IrBuilder::create<Scalar>(1.0));
+            add(layer_norm_results.grad_weight, IrBuilder::create<Val>(1.0));
         auto outer_2_consumer =
-            add(layer_norm_results.grad_bias, IrBuilder::create<Scalar>(1.0));
+            add(layer_norm_results.grad_bias, IrBuilder::create<Val>(1.0));
         auto use_producer_1 = add(outer_1_consumer, bias);
         auto use_producer_2 = add(outer_2_consumer, bias);
         fusion.addOutput(use_producer_1);

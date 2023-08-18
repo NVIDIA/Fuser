@@ -39,8 +39,8 @@ TEST_F(ExprEvalTest, Constants) {
 
   ExpressionEvaluator evaluator;
 
-  auto* a = IrBuilder::create<Scalar>(7L);
-  auto* b = IrBuilder::create<Scalar>(3L);
+  auto* a = IrBuilder::create<Val>(7L);
+  auto* b = IrBuilder::create<Val>(3L);
 
   // Avoid div operation because it casts int operands to float
   checkIntValue(evaluator, neg(a), -7);
@@ -53,9 +53,9 @@ TEST_F(ExprEvalTest, Constants) {
 TEST_F(ExprEvalTest, Double) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  auto ten = IrBuilder::create<Scalar>(10.0);
-  auto two = IrBuilder::create<Scalar>(2.0);
-  auto three = IrBuilder::create<Scalar>(3.0);
+  auto ten = IrBuilder::create<Val>(10.0);
+  auto two = IrBuilder::create<Val>(2.0);
+  auto three = IrBuilder::create<Val>(3.0);
   auto val = castOp(DataType::Int, ceilDiv(sub(ten, two), three));
   auto reference = static_cast<int64_t>(std::ceil((10.0 - 2.0) / 3.0));
   EXPECT_EQ(reference, val->evaluateInt());
@@ -68,11 +68,11 @@ TEST_F(ExprEvalTest, Bindings) {
 
   ExpressionEvaluator evaluator;
 
-  auto* a = IrBuilder::create<Scalar>(DataType::Int);
-  auto* b = IrBuilder::create<Scalar>(DataType::Int);
+  auto* a = IrBuilder::create<Val>(DataType::Int);
+  auto* b = IrBuilder::create<Val>(DataType::Int);
   auto* c = add(a, b);
   auto* d = neg(ceilDiv(c, b));
-  auto* e = IrBuilder::create<Scalar>(0L);
+  auto* e = IrBuilder::create<Val>(0L);
 
   // trying to evaluate before binding should give empty results
   EXPECT_FALSE(evaluator.evaluate(a).hasValue());
@@ -81,12 +81,7 @@ TEST_F(ExprEvalTest, Bindings) {
   evaluator.bind(a, 7L);
   evaluator.bind(b, 3L);
 
-  // can't bind to the results of expressions
-  // NOLINTNEXTLINE(cppcoreguidelines-avoid-goto,hicpp-avoid-goto)
-  ASSERT_ANY_THROW(evaluator.bind(c, 100L));
-
   // can't bind to concrete values
-  // NOLINTNEXTLINE(cppcoreguidelines-avoid-goto,hicpp-avoid-goto)
   ASSERT_ANY_THROW(evaluator.bind(e, 100L));
 
   checkIntValue(evaluator, c, 10);
@@ -120,7 +115,7 @@ TEST_F(ExprEvalTest, Basic) {
   fusion.addInput(tv0);
   fusion.addInput(tv1);
 
-  TensorView* tv2 = add(tv1, IrBuilder::create<Scalar>(2.0));
+  TensorView* tv2 = add(tv1, IrBuilder::create<Val>(2.0));
   TensorView* tv3 = add(tv0, tv2);
 
   fusion.addOutput(tv3);
@@ -172,9 +167,9 @@ TEST_F(ExprEvalTest, Complex) {
   TensorView* tv0 = makeSymbolicTensor(2);
   fusion.addInput(tv0);
 
-  TensorView* tv1 = mul(tv0, IrBuilder::create<Scalar>(-1.0));
-  TensorView* tv2 = add(tv0, IrBuilder::create<Scalar>(3.0));
-  TensorView* tv3 = mul(tv0, IrBuilder::create<Scalar>(2.0));
+  TensorView* tv1 = mul(tv0, IrBuilder::create<Val>(-1.0));
+  TensorView* tv2 = add(tv0, IrBuilder::create<Val>(3.0));
+  TensorView* tv3 = mul(tv0, IrBuilder::create<Val>(2.0));
   TensorView* tv4 = add(tv2, tv1);
   TensorView* tv5 = add(tv4, tv3);
   TensorView* tv6 = add(tv0, tv3);
@@ -228,7 +223,7 @@ TEST_F(ExprEvalTest, PostLower) {
   fusion.addInput(tv0);
   fusion.addInput(tv1);
 
-  TensorView* tv2 = add(tv1, IrBuilder::create<Scalar>(2.0));
+  TensorView* tv2 = add(tv1, IrBuilder::create<Val>(2.0));
   TensorView* tv3 = add(tv0, tv2);
 
   fusion.addOutput(tv3);
@@ -244,8 +239,8 @@ TEST_F(ExprEvalTest, PostLower) {
   tv2->axis(-1)->parallelize(ParallelType::TIDx);
   tv3->axis(-1)->parallelize(ParallelType::TIDx);
 
-  auto* bid_x = add(tv3->axis(0)->extent(), IrBuilder::create<Scalar>(0L));
-  auto* tid_x = add(tv3->axis(-1)->extent(), IrBuilder::create<Scalar>(0L));
+  auto* bid_x = add(tv3->axis(0)->extent(), IrBuilder::create<Val>(0L));
+  auto* tid_x = add(tv3->axis(-1)->extent(), IrBuilder::create<Val>(0L));
 
   // Lower
   GpuLower gpulw(&fusion);
@@ -274,81 +269,12 @@ TEST_F(ExprEvalTest, PostLower) {
   checkIntValue(evaluator, tid_x, 128);
 }
 
-// Kernel IR: Evaluate basic scalar operations with constant values
-TEST_F(ExprEvalTest, KernelConstants) {
-  Fusion fusion;
-  kir::Kernel kernel(&fusion);
-  FusionGuard fg((&kernel)->as<Fusion>());
-
-  auto a = IrBuilder::create<Scalar>(7L);
-  auto b = IrBuilder::create<Scalar>(3L);
-  auto c = IrBuilder::subExpr(a, b);
-  auto d = IrBuilder::divExpr(a, b);
-  auto e = IrBuilder::mulExpr(c, d);
-
-  ExpressionEvaluator evaluator;
-
-  checkIntValue(evaluator, IrBuilder::negExpr(a), -7);
-  checkIntValue(evaluator, IrBuilder::addExpr(a, b), 10);
-  checkIntValue(evaluator, IrBuilder::negExpr(e), -8);
-  checkIntValue(evaluator, IrBuilder::modExpr(a, b), 1);
-  checkIntValue(evaluator, IrBuilder::ceilDivExpr(a, b), 3);
-}
-
-// Kernel IR: Evaluate basic scalar operations with bound values
-TEST_F(ExprEvalTest, KernelBindings) {
-  Fusion fusion;
-  kir::Kernel kernel(&fusion);
-  FusionGuard fg((&kernel)->as<Fusion>());
-
-  ExpressionEvaluator evaluator;
-
-  auto a = IrBuilder::create<Scalar>(DataType::Int);
-  auto b = IrBuilder::create<Scalar>(DataType::Int);
-  auto c = IrBuilder::addExpr(a, b);
-  auto d = IrBuilder::negExpr(IrBuilder::ceilDivExpr(c, b));
-  auto e = IrBuilder::create<Scalar>(0L);
-
-  // trying to evaluate before binding should give empty results
-  EXPECT_FALSE(evaluator.evaluate(a).hasValue());
-  EXPECT_FALSE(evaluator.evaluate(d).hasValue());
-
-  evaluator.bind(a, 7L);
-  evaluator.bind(b, 3L);
-
-  // can't bind to the results of expressions
-  // NOLINTNEXTLINE(cppcoreguidelines-avoid-goto,hicpp-avoid-goto)
-  ASSERT_ANY_THROW(evaluator.bind(c, 100L));
-
-  // can't bind to concrete values
-  // NOLINTNEXTLINE(cppcoreguidelines-avoid-goto,hicpp-avoid-goto)
-  ASSERT_ANY_THROW(evaluator.bind(e, 100L));
-
-  checkIntValue(evaluator, c, 10);
-  checkIntValue(evaluator, IrBuilder::subExpr(a, b), 4);
-  checkIntValue(evaluator, IrBuilder::modExpr(a, b), 1);
-  checkIntValue(evaluator, IrBuilder::ceilDivExpr(a, b), 3);
-  checkIntValue(evaluator, d, -4);
-
-  // Reset the evaluation context
-  evaluator = ExpressionEvaluator();
-
-  evaluator.bind(a, 2L);
-  evaluator.bind(b, 5L);
-
-  checkIntValue(evaluator, c, 7);
-  checkIntValue(evaluator, IrBuilder::subExpr(a, b), -3);
-  checkIntValue(evaluator, IrBuilder::modExpr(a, b), 2);
-  checkIntValue(evaluator, IrBuilder::ceilDivExpr(a, b), 1);
-  checkIntValue(evaluator, d, -2);
-}
-
 TEST_F(ExprEvalTest, Array) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  auto* a = IrBuilder::create<Scalar>(DataType::Int);
-  auto* b = IrBuilder::create<Scalar>(DataType::Int);
+  auto* a = IrBuilder::create<Val>(DataType::Int);
+  auto* b = IrBuilder::create<Val>(DataType::Int);
 
   auto arr = IrBuilder::arrayExpr(std::vector<Val*>{a, b});
 
@@ -375,8 +301,8 @@ TEST_F(ExprEvalTest, TensorEagerExecution) {
   TensorView* tv1 = makeSymbolicTensor(2);
   auto tv2 = add(tv0, tv1);
 
-  at::Tensor a = at::rand({6, 128});
-  at::Tensor b = at::rand({6, 128});
+  at::Tensor a = at::rand({6, 128}).cuda();
+  at::Tensor b = at::rand({6, 128}).cuda();
 
   ExpressionEvaluator evaluator;
   evaluator.bind(tv0, a);
@@ -392,14 +318,14 @@ TEST_F(ExprEvalTest, TensorMetaData) {
   TensorView* tv = makeSymbolicTensor(2);
   auto metadata = IrBuilder::metadataExpr(tv);
   auto data = IrBuilder::getAttrExpr(metadata, "data");
-  auto sizes = IrBuilder::getAttrExpr(metadata, "sizes");
-  auto strides = IrBuilder::getAttrExpr(metadata, "strides");
+  auto sizes = IrBuilder::getAttrExpr(metadata, "logical_size");
+  auto strides = IrBuilder::getAttrExpr(metadata, "alloc_stride");
   auto size0 = IrBuilder::getItemExpr(sizes, fusion.zeroVal());
   auto size1 = IrBuilder::getItemExpr(sizes, fusion.oneVal());
   auto stride0 = IrBuilder::getItemExpr(strides, fusion.zeroVal());
   auto stride1 = IrBuilder::getItemExpr(strides, fusion.oneVal());
 
-  at::Tensor a = at::rand({6, 128});
+  at::Tensor a = at::rand({6, 128}).cuda();
 
   ExpressionEvaluator evaluator;
   evaluator.bind(tv, a);

@@ -71,9 +71,10 @@ class IndexCompute : public BackwardVisitor {
  protected:
   using BackwardVisitor::handle;
 
+  void dispatch(Expr*) override;
+
   void handle(Split*) override;
   void handle(Merge*) override;
-  void handle(Expr*) override;
   void handle(Swizzle2D*) override;
   void handle(Resize*) override;
 
@@ -89,7 +90,7 @@ class IndexCompute : public BackwardVisitor {
   //! concrete_id_pass == true, otherwise returns id passed in.
   //! Helps unify the expr handling logic in reference domain and concrete id
   //! based traversal.
-  IterDomain* maybeGetExactMapConcreteID(IterDomain* id);
+  IterDomain* maybeGetExactMapConcreteID(IterDomain* id) const;
 
   //! (Concrete indexing pass only)
   //!  Collect permissive index binding from the given expression.
@@ -102,6 +103,23 @@ class IndexCompute : public BackwardVisitor {
   //!    1. the output id is missing in index_map_.
   //!    2. the output id is found in permissive map.
   void updateIndexMapFromPermissiveMap(const Expr* id_expr);
+
+  //! Initialize unswitched_domain_map_ from the leaf unswitched
+  //! domains
+  void initializeUnswitchDomainMap();
+
+  //! Propagate unswitched map info from expr outputs to inputs
+  void updateUnswitchedDomains(Expr* expr);
+
+  //! Query if an IterDomain has a dependent unswitched domain
+  bool hasUnswitchedDependentDomains(IterDomain* id) const;
+
+  //! Query if the usual modulo propagation may be invalid for a merge
+  //! inner path
+  bool isModuloInvalidUnswitchedIndex(
+      IterDomain* out_concrete_id,
+      Val* out_ind,
+      Val* inner_extent) const;
 
   // Tensor domain we're mapping back to allocation
   const TensorDomain* td_; // NOLINT
@@ -160,6 +178,95 @@ class IndexCompute : public BackwardVisitor {
   //  order defined in LoopIndexingAnalysis::traverseFromDomainVals.
   std::unordered_map<IterDomain*, Val*> permissive_index_map_;
 
+  //! Leaf domains that have maximum index values for unswitch
+  //! predicates. These domains need extra adjustments when going
+  //! through module operations for merge inner domains as module does
+  //! not always guarantee to preserve the maximum-ness property
+  std::unordered_set<IterDomain*> unswitched_leaf_domains_;
+
+  //! Mapppings from unswitched IterDomains to their unswitched
+  //! domains and their inner domains. Used to figure out if a module
+  //! could invalidate the maximum-ness property of an unswitched index.
+  //!
+  //! Mappings are created in a bottom-up fashion from leaf to root
+  //! such that fine-grained domain mappings are kept as much as
+  //! possible for making the modulo analysis most precise.
+  //!
+  //! Specifically, for the leaf domains, this just maps unswitched
+  //! domains, i.e., those included in unswitched_leaf_domains_, to
+  //! themselves. There'll be no mapping for those leaf domains that
+  //! are not included in unswitched_leaf_domains_. The mappings of
+  //! all other domains are defined based on their consumer
+  //! domains. By default, they are also just mapped
+  //! to themselves if any of the consumers are also mapped. However,
+  //! when a domain is the input to a split, the mappings of the split output
+  //! domains are tracked separately and the split input will be
+  //! mapped to two sets of unswitched domains, one from the inner
+  //! output and another from the outer output. The mapping info from
+  //! the inner output is propagated as is, whereas the mapping info
+  //! from the outer output is prepended with the inner output
+  //! domain so that the unswitched domain list includes its inner
+  //! domain. Note that the semantic of inner domains is defined based
+  //! on split operations since they define propagated index math.
+  //!
+  //! The reason of tracking the information from split outer domains
+  //! separately is to avoid adjusting the unswitched predicate index
+  //! as much as possible. For example, here's a common transpose
+  //! scheduling pattern:
+  //!
+  //! // Initial 2D tensor
+  //! [i0, i1]
+  //! // Create a square tile of 32x32
+  //! -> [i0 / 32, 32, i1 / 32, 32]
+  //! -> [i0 / 32 * i1 / 32, 32 * 32]
+  //! // Factor out a small domain (commonly vectorized)
+  //! -> [i0 / 32 * i1 / 32, 32 * 32 / 4, 4]
+  //! // Factor out another domain (commonly parallelized by TIDx)
+  //! -> [i0 / 32 * i1 / 32, 32 * 32 / 4 / 128, 128, 4]
+  //!
+  //! Notice that the merge of "32 * 32" is not contiguous, so we need
+  //! to predicate its input domains by propagating index exprs
+  //! through the merge inner path with "% 32". If any of the final
+  //! leaf domains are unswitched, we need to make sure the index expr
+  //! sent through "% 32" is the maximum for the domain of extent
+  //! "32". Conservatively, this can just be 31, however, that isn't
+  //! always strictly required. For example, suppose the innermost
+  //! domain of extent 4 is unswitched. Its initial index is
+  //! 3. Propagating it through the merge inner path as usual is
+  //! guaranteed to be correct. More generally, it's always the case
+  //! when the inner extent of a merge is divisible by the extent of
+  //! an unswitched output and its domains. Suppose also the third
+  //! innermost domain is also unswitched, its initial index is 1. Its
+  //! contribution through the merge inner path is zero as the initial
+  //! index is multiplied by the extents of its inner domains, i.e.,
+  //! 128 and 4, and they are divisible by the extent of the merge
+  //! inner domain. Again, more generally, if the stride of an
+  //! unswitched domain is a multiple of the inner extent of the merge
+  //! operation producing the unswitched domain, there's no
+  //! contribution from the unswitched domain, so it doesn't matter if
+  //! it's maximum or not.
+  //!
+  //! In the above pattern, the second innermost domain is commonly
+  //! parallelized with TIDx. Suppose it's also unswitched. Notice
+  //! that there's no concern for that domain of invalding the
+  //! maximum-ness property as threadIdx.x is the only valid initial
+  //! index value for each thread. However, this is the reason we keep track
+  //! of the split output contributions separately. More specifically,
+  //! the intermediate domain of (32 * 32 / 4) will have an index of
+  //! (1 * 128 + threadIdx.x), and the domain of (32 * 32) will have
+  //! (1 * 128 * 4 + threadIdx.x * 4 + 3). As discussed above, we can
+  //! reason about that the first and third components of this
+  //! unswitched expression is safe with respect to the propagation
+  //! with modulo by 32. The second component is also safe as that's
+  //! the only valid index for the domain. If not separately tracked,
+  //! all we could know would be that the extent of (32 * 32) is
+  //! 1024. Since part of the dependent domains are parallelized the
+  //! propagated index is not guaranteed to be 1023, so we would need
+  //! to make a conservative decision to send 1023 to the merge inner
+  //! path.
+  std::unordered_map<IterDomain*, std::vector<std::deque<IterDomain*>>>
+      unswitched_domain_map_;
+
  public:
   const std::unordered_map<IterDomain*, Val*>& indexMap() const {
     return index_map_;
@@ -195,7 +302,8 @@ class IndexCompute : public BackwardVisitor {
       std::unordered_set<IterDomain*> _zero_merged_in,
       const ContigIDs& contig_finder,
       std::unordered_set<IterDomain*> preferred_paths = {},
-      std::unordered_map<IterDomain*, Val*> halo_extent_map = {});
+      std::unordered_map<IterDomain*, Val*> halo_extent_map = {},
+      std::unordered_set<IterDomain*> unswitched_domains = {});
 
   // Entry point used for using concrete id based traversal. This traversal is
   // assumed to start at leaf IDs provided by initial_index_map.
@@ -203,7 +311,8 @@ class IndexCompute : public BackwardVisitor {
       std::unordered_map<IterDomain*, Val*> initial_index_map,
       std::unordered_set<IterDomain*> zero_domains,
       std::unordered_set<IterDomain*> preferred_paths,
-      std::unordered_map<IterDomain*, Val*> concrete_halo_extent_map);
+      std::unordered_map<IterDomain*, Val*> concrete_halo_extent_map,
+      std::unordered_set<IterDomain*> unswitched_domains = {});
 
   // Updates index_map, extent_map, and zero_merged_in based on id_map and
   // returns a new IndexCompute ready to be used.
@@ -243,7 +352,7 @@ class IndexSwizzle : public IndexCompute {
  protected:
   using IndexCompute::handle;
 
-  void handle(Expr* e) override;
+  void dispatch(Expr* e) override;
 
   void handle(Swizzle2D* swizzle_2d) override;
 
@@ -287,9 +396,9 @@ class RootPredicateInfo {
 
  private:
   // prdicate for lower end
-  Scalar* start_predicate_ = nullptr;
+  Val* start_predicate_ = nullptr;
   // prdicate for upper end
-  Scalar* stop_predicate_ = nullptr;
+  Val* stop_predicate_ = nullptr;
   // Offset of the start predicate
   Val* start_offset_ = nullptr;
   // Offset of the stop predicate
@@ -319,7 +428,7 @@ class Index {
       const std::unordered_map<IterDomain*, Val*>& override_index = {});
 
   // get the strides of a tensor used for the index lowering
-  static std::vector<Val*> getStrides(const TensorView* tv);
+  static std::vector<Val*> getStrides(TensorView* tv);
 
   // get the allocation indices of a consumer tensor
   static std::vector<Val*> getConsumerAllocationIndices(
@@ -346,7 +455,7 @@ class Index {
 
   // Consumer indexing if it's in global memory
   static std::vector<Val*> getGlobalConsumerStridedIndices(
-      const TensorView* consumer,
+      TensorView* consumer,
       const std::vector<kir::ForLoop*>& loops,
       const std::unordered_set<kir::ForLoop*>& rotated_loops,
       const std::unordered_map<int, Val*>& override_index = {});

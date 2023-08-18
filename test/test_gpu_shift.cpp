@@ -23,7 +23,6 @@
 #include <iter_visitor.h>
 #include <kernel_cache.h>
 #include <kernel_ir.h>
-#include <mutator.h>
 #include <ops/all_ops.h>
 #include <root_domain_map.h>
 #include <scheduler/all_schedulers.h>
@@ -236,13 +235,13 @@ TEST_F(NVFuserTest, FusionShift2_CUDA) {
 
   auto tv0 = makeSymbolicTensor(2);
   fusion.addInput(tv0);
-  auto tv1 = add(tv0, IrBuilder::create<Scalar>(1.0));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
   auto tv2 = shift(tv1, {-1, 0});
   fusion.addOutput(tv2);
 
   // make it a little more complex
-  auto tv3 = add(tv0, IrBuilder::create<Scalar>(3.0));
-  auto tv4 = add(tv3, IrBuilder::create<Scalar>(4.0));
+  auto tv3 = add(tv0, IrBuilder::create<Val>(3.0));
+  auto tv4 = add(tv3, IrBuilder::create<Val>(4.0));
   auto tv5 = shift(tv4, {-1, 0});
   auto tv6 = shift(tv4, {0, -1});
   auto tv7 = shift(tv4, {1, 0});
@@ -276,7 +275,7 @@ TEST_F(NVFuserTest, FusionShift2_CUDA) {
           TORCH_CHECK(
               def != nullptr && def->getBinaryOpType() == BinaryOpType::Add);
           TORCH_CHECK(def->as<BinaryOp>()->lhs()->isA<NamedScalar>());
-          auto rhs = dynamic_cast<Scalar*>(def->as<BinaryOp>()->rhs());
+          auto rhs = dynamic_cast<Val*>(def->as<BinaryOp>()->rhs());
           TORCH_CHECK(rhs != nullptr && rhs->isConst());
           auto rhs_value = rhs->value();
           if (tensor_name == 1) {
@@ -328,7 +327,7 @@ TEST_F(NVFuserTest, FusionShiftRightOfCA_CUDA) {
   auto tv0 = makeSymbolicTensor(2);
   fusion.addInput(tv0);
 
-  auto tv1 = add(tv0, IrBuilder::create<Scalar>(1.0));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
   auto tv2 = shift(tv1, {0, 1});
   fusion.addOutput(tv2);
 
@@ -359,10 +358,10 @@ TEST_F(NVFuserTest, FusionShiftLeftOfCA_CUDA) {
 
   auto tv0 = makeSymbolicTensor(2);
   fusion.addInput(tv0);
-  auto tv1 = add(tv0, IrBuilder::create<Scalar>(1.0));
-  auto tv2 = add(tv1, IrBuilder::create<Scalar>(1.0));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
+  auto tv2 = add(tv1, IrBuilder::create<Val>(1.0));
   auto tv3 = shift(tv2, {-1, 0});
-  auto tv4 = add(tv3, IrBuilder::create<Scalar>(1.0));
+  auto tv4 = add(tv3, IrBuilder::create<Val>(1.0));
   fusion.addOutput(tv4);
 
   tv0->computeAt(tv4, -1);
@@ -379,7 +378,7 @@ TEST_F(NVFuserTest, FusionShiftSplit1_CUDA) {
 
   auto tv0 = makeSymbolicTensor(2);
   fusion.addInput(tv0);
-  auto tv1 = add(tv0, IrBuilder::create<Scalar>(1.0));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
   auto tv2 = shift(tv1, {0, 1});
   auto tv3 = shift(tv1, {0, -2});
   fusion.addOutput(tv2);
@@ -399,7 +398,7 @@ TEST_F(NVFuserTest, FusionShiftSplit1_CUDA) {
       auto tensor_name = alloc->buffer()->name();
       if (tensor_name == 1) {
         TORCH_CHECK(alloc->shape().size() == 1);
-        auto size = dynamic_cast<Scalar*>(alloc->shape().at(0));
+        auto size = dynamic_cast<Val*>(alloc->shape().at(0));
         TORCH_CHECK(size != nullptr && size->isConst() && size->value() == 7);
       }
     }
@@ -430,16 +429,16 @@ TEST_F(NVFuserTest, FusionShiftSplit2_CUDA) {
   auto tv0 = makeSymbolicTensor(2);
   fusion.addInput(tv0);
 
-  auto tv1 = add(tv0, IrBuilder::create<Scalar>(1.0));
-  auto tv2 = add(tv1, IrBuilder::create<Scalar>(1.0));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
+  auto tv2 = add(tv1, IrBuilder::create<Val>(1.0));
   auto tv3 = shift(tv2, {0, -1});
   auto tv4 = shift(tv2, {0, 1});
   auto tv5 = add(tv3, tv4);
   fusion.addOutput(tv5);
 
-  auto tv6 = add(tv0, IrBuilder::create<Scalar>(1.0));
+  auto tv6 = add(tv0, IrBuilder::create<Val>(1.0));
   auto tv7 = shift(tv6, {0, 0});
-  auto tv8 = add(tv7, IrBuilder::create<Scalar>(1.0));
+  auto tv8 = add(tv7, IrBuilder::create<Val>(1.0));
   fusion.addOutput(tv8);
 
   int split_factor = 4;
@@ -458,11 +457,11 @@ TEST_F(NVFuserTest, FusionShiftSplit2_CUDA) {
       auto tensor_name = alloc->buffer()->name();
       if (tensor_name == 1 || tensor_name == 2) {
         TORCH_CHECK(alloc->shape().size() == 1);
-        auto size = dynamic_cast<Scalar*>(alloc->shape().at(0));
+        auto size = dynamic_cast<Val*>(alloc->shape().at(0));
         TORCH_CHECK(size != nullptr && size->isConst() && size->value() == 6);
       } else if (tensor_name == 4) {
         TORCH_CHECK(alloc->shape().size() == 1);
-        auto size = dynamic_cast<Scalar*>(alloc->shape().at(0));
+        auto size = dynamic_cast<Val*>(alloc->shape().at(0));
         TORCH_CHECK(size != nullptr && size->isConst());
         auto size_value = size->value();
         TORCH_CHECK(size_value == split_factor);
@@ -499,8 +498,8 @@ TEST_F(NVFuserTest, FusionShiftDoubleSplit_CUDA) {
 
   auto tv0 = makeSymbolicTensor(2);
   fusion.addInput(tv0);
-  auto tv1 = add(tv0, IrBuilder::create<Scalar>(1.0));
-  auto tv2 = add(tv1, IrBuilder::create<Scalar>(2.0));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
+  auto tv2 = add(tv1, IrBuilder::create<Val>(2.0));
   auto tv3 = shift(tv2, {0, 1});
   fusion.addOutput(tv3);
 
@@ -524,7 +523,7 @@ TEST_F(NVFuserTest, FusionShiftDoubleSplit_CUDA) {
       auto tensor_name = alloc->buffer()->name();
       if (tensor_name == 1 || tensor_name == 2) {
         TORCH_CHECK(alloc->shape().size() == 1);
-        auto size = dynamic_cast<Scalar*>(alloc->shape().at(0));
+        auto size = dynamic_cast<Val*>(alloc->shape().at(0));
         TORCH_CHECK(size != nullptr && size->isConst() && size->value() == 9);
       }
     }
@@ -568,7 +567,7 @@ TEST_F(NVFuserTest, FusionShift3ptStencil_CUDA) {
     tv_out = add(tv_out, tv);
   }
 
-  tv_out = div(tv_out, IrBuilder::create<Scalar>(tvs.size() + 1.0));
+  tv_out = div(tv_out, IrBuilder::create<Val>(tvs.size() + 1.0));
 
   fusion.addOutput(tv_out);
 
@@ -595,7 +594,7 @@ TEST_F(NVFuserTest, FusionShift3ptStencil_CUDA) {
       auto tensor_name = alloc->buffer()->name();
       if (tensor_name == cache->name()) {
         TORCH_CHECK(alloc->shape().size() == 1);
-        auto size = dynamic_cast<Scalar*>(alloc->shape().at(0));
+        auto size = dynamic_cast<Val*>(alloc->shape().at(0));
         TORCH_CHECK(
             size != nullptr && size->isConst() &&
             size->value() == split_factor + 2);
@@ -640,7 +639,7 @@ TEST_F(NVFuserTest, FusionShift5ptStencil_CUDA) {
     tv_out = add(tv_out, tv);
   }
 
-  tv_out = div(tv_out, IrBuilder::create<Scalar>(tvs.size() + 1.0));
+  tv_out = div(tv_out, IrBuilder::create<Val>(tvs.size() + 1.0));
 
   fusion.addOutput(tv_out);
 
@@ -667,7 +666,7 @@ TEST_F(NVFuserTest, FusionShift5ptStencil_CUDA) {
       if (tensor_name == cache->name()) {
         TORCH_CHECK(alloc->shape().size() == 2);
         for (int i = 0; i < 2; ++i) {
-          auto size = dynamic_cast<Scalar*>(alloc->shape().at(i));
+          auto size = dynamic_cast<Val*>(alloc->shape().at(i));
           TORCH_CHECK(
               size != nullptr && size->isConst() &&
               size->value() == split_factor[i] + 2);
@@ -726,7 +725,7 @@ TEST_F(NVFuserTest, FusionShift9ptStencil_CUDA) {
     tv_out = add(tv_out, tv);
   }
 
-  tv_out = div(tv_out, IrBuilder::create<Scalar>(tvs.size() + 1.0));
+  tv_out = div(tv_out, IrBuilder::create<Val>(tvs.size() + 1.0));
 
   fusion.addOutput(tv_out);
 
@@ -755,7 +754,7 @@ TEST_F(NVFuserTest, FusionShift9ptStencil_CUDA) {
       if (tensor_name == cache->name()) {
         TORCH_CHECK(alloc->shape().size() == 2);
         for (int i = 0; i < 2; ++i) {
-          auto size = dynamic_cast<Scalar*>(alloc->shape().at(i));
+          auto size = dynamic_cast<Val*>(alloc->shape().at(i));
           TORCH_CHECK(
               size != nullptr && size->isConst() &&
               size->value() == split_factor[i] + 2);
@@ -792,7 +791,7 @@ TEST_F(NVFuserTest, FusionShiftSmemBlocking_CUDA) {
 
   auto tv0 = makeSymbolicTensor(2);
   fusion.addInput(tv0);
-  auto tv1 = add(tv0, IrBuilder::create<Scalar>(1.0));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
   auto tv2 = shift(tv1, {0, 1});
   fusion.addOutput(tv2);
 
@@ -815,7 +814,7 @@ TEST_F(NVFuserTest, FusionShiftSmemBlocking_CUDA) {
       if (tensor_name == tv1->name()) {
         TORCH_CHECK(alloc->shape().size() == 1);
         for (int i = 0; i < 1; ++i) {
-          auto size = dynamic_cast<Scalar*>(alloc->shape().at(i));
+          auto size = dynamic_cast<Val*>(alloc->shape().at(i));
           TORCH_CHECK(
               size != nullptr && size->isConst() &&
               size->value() == smem_block_factor + 1);
@@ -859,7 +858,7 @@ TEST_F(NVFuserTest, FusionShift3ptStencilParallel_CUDA) {
     tv_out = add(tv_out, tv);
   }
 
-  tv_out = div(tv_out, IrBuilder::create<Scalar>(tvs.size() + 1.0));
+  tv_out = div(tv_out, IrBuilder::create<Val>(tvs.size() + 1.0));
 
   fusion.addOutput(tv_out);
 
@@ -917,7 +916,7 @@ TEST_F(NVFuserTest, FusionShift5ptStencilParallel_CUDA) {
     tv_out = add(tv_out, tv);
   }
 
-  tv_out = div(tv_out, IrBuilder::create<Scalar>(tvs.size() + 1.0));
+  tv_out = div(tv_out, IrBuilder::create<Val>(tvs.size() + 1.0));
 
   fusion.addOutput(tv_out);
 
@@ -971,7 +970,7 @@ TEST_F(NVFuserTest, FusionShiftMerge1_CUDA) {
 
   auto tv0 = makeSymbolicTensor(2);
   fusion.addInput(tv0);
-  auto tv1 = add(tv0, IrBuilder::create<Scalar>(1.0));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
   auto tv2 = shift(tv1, {-1, 1});
   fusion.addOutput(tv2);
 
@@ -995,7 +994,7 @@ TEST_F(NVFuserTest, FusionShiftMerge1_CUDA) {
       if (tensor_name == 1) {
         TORCH_CHECK(alloc->shape().size() == 2);
         for (int i = 0; i < 2; ++i) {
-          auto size = dynamic_cast<Scalar*>(alloc->shape().at(i));
+          auto size = dynamic_cast<Val*>(alloc->shape().at(i));
           TORCH_CHECK(
               size != nullptr && size->isConst() &&
               size->value() == split_factor + 1);
@@ -1028,7 +1027,7 @@ TEST_F(NVFuserTest, FusionShiftMerge2_CUDA) {
 
   auto tv0 = makeSymbolicTensor(2);
   fusion.addInput(tv0);
-  auto tv1 = add(tv0, IrBuilder::create<Scalar>(1.0));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
   auto tv2 = shift(tv1, {1, -1});
   auto tv3 = shift(tv1, {-1, 1});
   auto tv4 = add(tv2, tv3);
@@ -1054,7 +1053,7 @@ TEST_F(NVFuserTest, FusionShiftMerge2_CUDA) {
       if (tensor_name == 1) {
         TORCH_CHECK(alloc->shape().size() == 2);
         for (int i = 0; i < 2; ++i) {
-          auto size = dynamic_cast<Scalar*>(alloc->shape().at(i));
+          auto size = dynamic_cast<Val*>(alloc->shape().at(i));
           TORCH_CHECK(
               size != nullptr && size->isConst() &&
               size->value() == split_factor + 2);
@@ -1089,7 +1088,7 @@ TEST_F(NVFuserTest, FusionShiftGlobal_CUDA) {
   auto tv0 = makeSymbolicTensor(2);
   fusion.addInput(tv0);
 
-  auto tv1 = add(tv0, IrBuilder::create<Scalar>(1.0));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
   auto tv2 = shift(tv1, {0, 1});
   auto tv3 = shift(tv1, {-1, 0});
   auto tv4 = add(tv2, tv3);
@@ -1119,7 +1118,7 @@ TEST_F(NVFuserTest, FusionShiftGlobal_CUDA) {
           TORCH_CHECK(
               def != nullptr && def->getBinaryOpType() == BinaryOpType::Add);
           TORCH_CHECK(def->as<BinaryOp>()->lhs()->isA<NamedScalar>());
-          auto rhs = dynamic_cast<Scalar*>(def->as<BinaryOp>()->rhs());
+          auto rhs = dynamic_cast<Val*>(def->as<BinaryOp>()->rhs());
           TORCH_CHECK(rhs != nullptr && rhs->isConst());
           auto rhs_value = rhs->value();
           TORCH_CHECK(rhs_value == 1);
@@ -1154,8 +1153,8 @@ TEST_F(NVFuserTest, FusionShiftDoubleSplitMerge1_CUDA) {
 
   auto tv0 = makeSymbolicTensor(2);
   fusion.addInput(tv0);
-  auto tv1 = add(tv0, IrBuilder::create<Scalar>(1.0));
-  auto tv2 = add(tv1, IrBuilder::create<Scalar>(2.0));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
+  auto tv2 = add(tv1, IrBuilder::create<Val>(2.0));
   auto tv3 = shift(tv2, {0, 1});
   fusion.addOutput(tv3);
 
@@ -1175,7 +1174,7 @@ TEST_F(NVFuserTest, FusionShiftDoubleSplitMerge1_CUDA) {
     if (auto alloc = dynamic_cast<kir::Allocate*>(expr)) {
       auto tensor_name = alloc->buffer()->name();
       if (tensor_name == 1 || tensor_name == 2) {
-        auto size = dynamic_cast<Scalar*>(alloc->shape().at(0));
+        auto size = dynamic_cast<Val*>(alloc->shape().at(0));
         TORCH_CHECK(
             size != nullptr && size->isConst() &&
             size->value() == split_factor1 + 1);
@@ -1207,8 +1206,8 @@ TEST_F(NVFuserTest, FusionShiftDoubleSplitMerge2_CUDA) {
   auto tv0 = makeSymbolicTensor(2);
   fusion.addInput(tv0);
 
-  auto tv1 = add(tv0, IrBuilder::create<Scalar>(1.0));
-  auto tv2 = add(tv1, IrBuilder::create<Scalar>(2.0));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
+  auto tv2 = add(tv1, IrBuilder::create<Val>(2.0));
   auto tv3 = shift(tv2, {1, 1});
   fusion.addOutput(tv3);
 
@@ -1249,7 +1248,7 @@ TEST_F(NVFuserTest, FusionShiftDoubleSplitMerge2_CUDA) {
       if (tensor_name == 1 || tensor_name == 2) {
         TORCH_CHECK(alloc->shape().size() == 2);
         for (int i = 0; i < 2; ++i) {
-          auto size = dynamic_cast<Scalar*>(alloc->shape().at(i));
+          auto size = dynamic_cast<Val*>(alloc->shape().at(i));
           TORCH_CHECK(
               size != nullptr && size->isConst() &&
               size->value() == split_factor1 + 1);
@@ -1294,7 +1293,7 @@ TEST_F(NVFuserTest, FusionShift5ptStencilParallel1DThreadBlock_CUDA) {
     tv_out = add(tv_out, tv);
   }
 
-  tv_out = div(tv_out, IrBuilder::create<Scalar>(tvs.size() + 1.0));
+  tv_out = div(tv_out, IrBuilder::create<Val>(tvs.size() + 1.0));
 
   fusion.addOutput(tv_out);
 
@@ -1334,7 +1333,7 @@ TEST_F(NVFuserTest, FusionShift5ptStencilParallel1DThreadBlock_CUDA) {
       if (tensor_name == tv0_cache->name()) {
         TORCH_CHECK(alloc->shape().size() == 2);
         for (int i = 0; i < 2; ++i) {
-          auto size = dynamic_cast<Scalar*>(alloc->shape().at(i));
+          auto size = dynamic_cast<Val*>(alloc->shape().at(i));
           TORCH_CHECK(
               size != nullptr && size->isConst() &&
               size->value() == split_factor[i] + 2);
@@ -1430,7 +1429,7 @@ TEST_F(NVFuserTest, FusionShiftChain3_CUDA) {
 
   auto tv0 = makeSymbolicTensor(2);
   fusion.addInput(tv0);
-  auto tv1 = add(tv0, IrBuilder::create<Scalar>(1.0));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
   auto tv2 = shift(tv1, {0, 1});
   auto tv3 = shift(tv2, {0, 1});
   fusion.addOutput(tv3);
@@ -1452,7 +1451,7 @@ TEST_F(NVFuserTest, FusionShiftChain3_CUDA) {
       if (tensor_name == 1 || tensor_name == 2) {
         TORCH_CHECK(alloc->shape().size() == 1);
         for (int i = 0; i < 1; ++i) {
-          auto size = dynamic_cast<Scalar*>(alloc->shape().at(i));
+          auto size = dynamic_cast<Val*>(alloc->shape().at(i));
           TORCH_CHECK(size != nullptr && size->isConst());
           if (tensor_name == 1) {
             TORCH_CHECK(size->value() == split_factor + 2);
@@ -1519,7 +1518,7 @@ TEST_F(NVFuserTest, FusionShiftChain4_CUDA) {
       if (tensor_name == 1 || tensor_name == 2) {
         TORCH_CHECK(alloc->shape().size() == 2);
         for (int i = 0; i < 2; ++i) {
-          auto size = dynamic_cast<Scalar*>(alloc->shape().at(i));
+          auto size = dynamic_cast<Val*>(alloc->shape().at(i));
           TORCH_CHECK(size != nullptr && size->isConst());
           auto size_val = size->value();
           if (tensor_name == 1) {
@@ -1574,8 +1573,8 @@ TEST_F(NVFuserTest, FusionShift5ptStencilChain_CUDA) {
     tv_stencil1 = add(tv_stencil1, tv);
   }
 
-  tv_stencil1 = div(
-      tv_stencil1, IrBuilder::create<Scalar>(tv_stencil1_shifts.size() + 1.0));
+  tv_stencil1 =
+      div(tv_stencil1, IrBuilder::create<Val>(tv_stencil1_shifts.size() + 1.0));
 
   // Second stencil: Same 5pt stencil
   std::vector<TensorView*> tv_stencil2_shifts;
@@ -1588,8 +1587,8 @@ TEST_F(NVFuserTest, FusionShift5ptStencilChain_CUDA) {
     tv_stencil2 = add(tv_stencil2, tv);
   }
 
-  tv_stencil2 = div(
-      tv_stencil2, IrBuilder::create<Scalar>(tv_stencil2_shifts.size() + 1.0));
+  tv_stencil2 =
+      div(tv_stencil2, IrBuilder::create<Val>(tv_stencil2_shifts.size() + 1.0));
 
   auto tv_out = tv_stencil2;
 
@@ -1640,7 +1639,7 @@ TEST_F(NVFuserTest, FusionShift5ptStencilChain_CUDA) {
           tensor_name == tv_stencil1->name()) {
         TORCH_CHECK(alloc->shape().size() == 2);
         for (int i = 0; i < 2; ++i) {
-          auto size = dynamic_cast<Scalar*>(alloc->shape().at(i));
+          auto size = dynamic_cast<Val*>(alloc->shape().at(i));
           TORCH_CHECK(size != nullptr && size->isConst());
           if (tensor_name == tv0_cache->name()) {
             TORCH_CHECK(size->value() == split_factor[i] + 4);
@@ -1685,7 +1684,7 @@ TEST_F(NVFuserTest, FusionShiftReduction1_CUDA) {
 
   auto tv0 = makeSymbolicTensor(2);
   fusion.addInput(tv0);
-  auto tv1 = add(tv0, IrBuilder::create<Scalar>(1.0));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
   auto tv2 = sum(tv1, {1});
   auto tv3 = shift(tv2, {1});
   fusion.addOutput(tv3);
@@ -1720,7 +1719,7 @@ TEST_F(NVFuserTest, FusionShiftReduction2_CUDA) {
 
   auto tv0 = makeSymbolicTensor(2);
   fusion.addInput(tv0);
-  auto tv1 = add(tv0, IrBuilder::create<Scalar>(1.0));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
   auto tv2 = sum(tv1, {1});
   auto tv3 = shift(tv2, {1});
   fusion.addOutput(tv3);
@@ -1760,7 +1759,7 @@ TEST_F(NVFuserTest, FusionShiftRfactor1_CUDA) {
 
   auto tv0 = makeSymbolicTensor(2);
   fusion.addInput(tv0);
-  auto tv1 = add(tv0, IrBuilder::create<Scalar>(1.0));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
   auto tv2 = sum(tv1, {1});
   auto tv3 = shift(tv2, {1});
   fusion.addOutput(tv3);
@@ -1922,8 +1921,8 @@ TEST_F(NVFuserTest, FusionShiftSyncPlacement1_CUDA) {
 
   auto tv0 = makeSymbolicTensor(2);
   fusion.addInput(tv0);
-  auto tv1 = add(tv0, IrBuilder::create<Scalar>(1.0));
-  auto tv2 = add(tv0, IrBuilder::create<Scalar>(2.0));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
+  auto tv2 = add(tv0, IrBuilder::create<Val>(2.0));
   auto tv3 = add(tv1, tv2);
   auto tv4 = shift(tv3, {0, 1});
   fusion.addOutput(tv4);
@@ -1966,8 +1965,8 @@ TEST_F(NVFuserTest, FusionShiftSyncPlacement2_CUDA) {
 
   auto tv0 = makeSymbolicTensor(1);
   fusion.addInput(tv0);
-  auto tv1 = add(tv0, IrBuilder::create<Scalar>(1.0));
-  auto tv2 = add(tv0, IrBuilder::create<Scalar>(2.0));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
+  auto tv2 = add(tv0, IrBuilder::create<Val>(2.0));
   auto tv3 = add(tv1, tv2);
   auto tv4 = shift(tv3, {1});
   fusion.addOutput(tv4);
@@ -2035,7 +2034,7 @@ TEST_F(NVFuserTest, FusionHdiff_CUDA) {
 
   // T9 = T0 * 4
   // T10 = T9 - T8
-  auto lap = sub(mul(inp, IrBuilder::create<Scalar>(4.0)), sum_of_neighbors);
+  auto lap = sub(mul(inp, IrBuilder::create<Val>(4.0)), sum_of_neighbors);
 
   // T11 = shift(T10)
   // T12 = T11 - T10
@@ -2046,8 +2045,8 @@ TEST_F(NVFuserTest, FusionHdiff_CUDA) {
   // T17 = T16 ? 0 : T12
   auto flx_cond =
       gt(mul(flx, sub(shift(inp, {0, 0, -1}, false), inp)),
-         IrBuilder::create<Scalar>(0.0));
-  auto flx0 = where(flx_cond, IrBuilder::create<Scalar>(0.0), flx);
+         IrBuilder::create<Val>(0.0));
+  auto flx0 = where(flx_cond, IrBuilder::create<Val>(0.0), flx);
 
   // T18 = shift(T10)
   // T19 = T18 - T10
@@ -2058,9 +2057,9 @@ TEST_F(NVFuserTest, FusionHdiff_CUDA) {
   // T23 = T22 > 0
   auto fly_cond =
       gt(mul(fly, sub(shift(inp, {0, -1, 0}, false), inp)),
-         IrBuilder::create<Scalar>(0.0));
+         IrBuilder::create<Val>(0.0));
   // T24 = T23 ? 0 : T19
-  auto fly0 = where(fly_cond, IrBuilder::create<Scalar>(0.0), fly);
+  auto fly0 = where(fly_cond, IrBuilder::create<Val>(0.0), fly);
 
   // T25 = shift(flx0)
   // T26 = T17 - T25
@@ -2218,7 +2217,7 @@ TEST_F(NVFuserTest, FusionHdiffPartialSplitUnswitch_CUDA) {
 
   // T9 = T0 * 4
   // T10 = T9 - T8
-  auto lap = sub(mul(inp, IrBuilder::create<Scalar>(4.0)), sum_of_neighbors);
+  auto lap = sub(mul(inp, IrBuilder::create<Val>(4.0)), sum_of_neighbors);
 
   // T11 = shift(T10)
   // T12 = T11 - T10
@@ -2229,8 +2228,8 @@ TEST_F(NVFuserTest, FusionHdiffPartialSplitUnswitch_CUDA) {
   // T17 = T16 ? 0 : T12
   auto flx_cond =
       gt(mul(flx, sub(shift(inp, {0, 0, -1}, false), inp)),
-         IrBuilder::create<Scalar>(0.0));
-  auto flx0 = where(flx_cond, IrBuilder::create<Scalar>(0.0), flx);
+         IrBuilder::create<Val>(0.0));
+  auto flx0 = where(flx_cond, IrBuilder::create<Val>(0.0), flx);
 
   // T18 = shift(T10)
   // T19 = T18 - T10
@@ -2241,9 +2240,9 @@ TEST_F(NVFuserTest, FusionHdiffPartialSplitUnswitch_CUDA) {
   // T23 = T22 > 0
   auto fly_cond =
       gt(mul(fly, sub(shift(inp, {0, -1, 0}, false), inp)),
-         IrBuilder::create<Scalar>(0.0));
+         IrBuilder::create<Val>(0.0));
   // T24 = T23 ? 0 : T19
-  auto fly0 = where(fly_cond, IrBuilder::create<Scalar>(0.0), fly);
+  auto fly0 = where(fly_cond, IrBuilder::create<Val>(0.0), fly);
 
   // T25 = shift(flx0)
   // T26 = T17 - T25
@@ -2520,7 +2519,7 @@ TEST_F(NVFuserTest, FusionGather2_CUDA) {
   auto tv0 = makeSymbolicTensor(2);
   fusion.addInput(tv0);
 
-  auto tv1 = add(tv0, IrBuilder::create<Scalar>(1.0));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
 
   auto tv2 = gather(tv1, window_shape, padding_width);
 
@@ -3750,7 +3749,7 @@ TEST_F(NVFuserTest, FusionShiftNoPadding1_CUDA) {
   auto tv0 = makeSymbolicTensor(2);
   fusion.addInput(tv0);
 
-  auto tv1 = add(tv0, IrBuilder::create<Scalar>(1.0));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
   auto tv2 = shift(tv1, {1, -1}, false);
   auto tv3 = shift(tv1, {-1, 1}, false);
   auto tv4 = add(tv2, tv3);
@@ -3805,7 +3804,7 @@ TEST_F(NVFuserTest, FusionShiftNoPadding2_CUDA) {
   auto tv0 = makeSymbolicTensor(2);
   fusion.addInput(tv0);
 
-  auto tv1 = add(tv0, IrBuilder::create<Scalar>(1.0));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
   auto tv2 = shift(tv1, {1, -1}, false);
   auto tv3 = shift(tv1, {-1, 1}, false);
   auto tv4 = add(tv2, tv3);
@@ -3860,7 +3859,7 @@ TEST_F(NVFuserTest, FusionShiftNoPadding3_CUDA) {
   auto tv0 = makeSymbolicTensor(2);
   fusion.addInput(tv0);
 
-  auto tv1 = add(tv0, IrBuilder::create<Scalar>(1.0));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
   auto tv2 = shift(tv1, {1, -1}, false);
   auto tv3 = shift(tv1, {-1, 1}, false);
   auto tv4 = add(tv2, tv3);
@@ -3930,7 +3929,7 @@ TEST_F(NVFuserTest, FusionShiftNoPaddingContigMerge_CUDA) {
 
   auto tv0 = makeSymbolicTensor(2);
   fusion.addInput(tv0);
-  auto tv1 = add(tv0, IrBuilder::create<Scalar>(1.0));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
   auto tv2 = shift(tv1, {1, -1}, true);
   auto tv3 = shift(tv1, {-1, 1}, false);
   auto tv4 = add(tv2, tv3);
@@ -3977,7 +3976,7 @@ TEST_F(NVFuserTest, FusionShiftNoPaddingChain_CUDA) {
   auto tv0 = makeSymbolicTensor(2);
   fusion.addInput(tv0);
 
-  auto tv1 = add(tv0, IrBuilder::create<Scalar>(1.0));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
   auto tv2 = shift(tv1, {1, -1}, false);
   auto tv3 = shift(tv2, {1, -1}, false);
   auto tv4 = sum(tv3, {0, 1});
@@ -4030,7 +4029,7 @@ TEST_F(NVFuserTest, FusionShiftNoPaddingRfactor_CUDA) {
   auto tv0 = makeSymbolicTensor(2);
   fusion.addInput(tv0);
 
-  auto tv1 = add(tv0, IrBuilder::create<Scalar>(1.0));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
   auto tv2 = shift(tv1, {1, -1}, false);
   auto tv3 = sum(tv2, {0, 1});
   fusion.addOutput(tv3);
@@ -4050,7 +4049,7 @@ TEST_F(NVFuserTest, FusionShiftPadding1_CUDA) {
   auto tv0 = makeSymbolicTensor(2);
   fusion.addInput(tv0);
 
-  auto tv1 = add(tv0, IrBuilder::create<Scalar>(1.0));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
   auto tv2 = shift(tv1, {2, -2}, {1, 1});
   auto tv3 = shift(tv1, {-3, 2}, {2, 2});
   auto tv4 = add(tv2, tv3);
@@ -4105,7 +4104,7 @@ TEST_F(NVFuserTest, FusionPartialSplit1_CUDA) {
   // [I]
   fusion.addInput(tv0);
 
-  auto tv1 = add(tv0, IrBuilder::create<Scalar>(0.0));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(0.0));
   // [I]
   auto tv2 = shift(tv1, {1}, false);
   // [1:I]
@@ -4174,14 +4173,14 @@ TEST_F(NVFuserTest, FusionPartialSplit2_CUDA) {
   auto tv0 = makeSymbolicTensor(1);
   fusion.addInput(tv0);
 
-  auto tv1 = add(tv0, IrBuilder::create<Scalar>(0.0));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(0.0));
   auto tv2 = shift(tv1, {1}, false);
   auto tv3 = shift(tv1, {-1}, false);
   auto tv4 = add(tv2, tv3);
   fusion.addOutput(tv4);
 
-  auto tv5 = add(tv1, IrBuilder::create<Scalar>(1.0));
-  auto tv6 = add(tv5, IrBuilder::create<Scalar>(1.0));
+  auto tv5 = add(tv1, IrBuilder::create<Val>(1.0));
+  auto tv6 = add(tv5, IrBuilder::create<Val>(1.0));
   fusion.addOutput(tv6);
 
   tv4->split(0, 4, true, true);
@@ -4205,7 +4204,7 @@ TEST_F(NVFuserTest, FusionPartialSplit3_CUDA) {
   auto tv0 = makeSymbolicTensor(2);
   fusion.addInput(tv0);
 
-  auto tv1 = add(tv0, IrBuilder::create<Scalar>(0.0));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(0.0));
   auto tv2 = shift(tv1, {1, 2}, false);
   auto tv3 = shift(tv1, {-2, -1}, false);
   auto tv4 = add(tv2, tv3);
@@ -4269,8 +4268,8 @@ TEST_F(NVFuserTest, FusionPartialSplit4_CUDA) {
     tv_stencil1 = add(tv_stencil1, tv);
   }
 
-  tv_stencil1 = div(
-      tv_stencil1, IrBuilder::create<Scalar>(tv_stencil1_shifts.size() + 1.0));
+  tv_stencil1 =
+      div(tv_stencil1, IrBuilder::create<Val>(tv_stencil1_shifts.size() + 1.0));
 
   // Second stencil: Same 5pt stencil
   std::vector<TensorView*> tv_stencil2_shifts;
@@ -4283,8 +4282,8 @@ TEST_F(NVFuserTest, FusionPartialSplit4_CUDA) {
     tv_stencil2 = add(tv_stencil2, tv);
   }
 
-  tv_stencil2 = div(
-      tv_stencil2, IrBuilder::create<Scalar>(tv_stencil2_shifts.size() + 1.0));
+  tv_stencil2 =
+      div(tv_stencil2, IrBuilder::create<Val>(tv_stencil2_shifts.size() + 1.0));
 
   auto tv_out = tv_stencil2;
 
@@ -4372,7 +4371,7 @@ TEST_F(NVFuserTest, FusionPartialSplit5_CUDA) {
   fusion.addInput(tv0);
 
   auto tv1 = shift(tv0, {0, 1}, false);
-  auto tv2 = add(tv1, IrBuilder::create<Scalar>(1.0));
+  auto tv2 = add(tv1, IrBuilder::create<Val>(1.0));
 
   fusion.addOutput(tv2);
 
@@ -4417,9 +4416,9 @@ TEST_F(NVFuserTest, FusionPartialSplit6_CUDA) {
   auto tv0 = makeConcreteTensor({numel_x});
   fusion.addInput(tv0);
 
-  auto tv1 = add(tv0, IrBuilder::create<Scalar>(1.0));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
   auto tv2 = shift(tv1, {1}, false);
-  auto tv3 = add(tv2, IrBuilder::create<Scalar>(1.0));
+  auto tv3 = add(tv2, IrBuilder::create<Val>(1.0));
 
   fusion.addOutput(tv3);
 
@@ -4469,7 +4468,7 @@ TEST_F(NVFuserTest, FusionShiftUnswitch1_CUDA) {
   auto tv4 = shift(tv0, {-2, -2});
   fusion.addOutput(tv4);
 
-  auto tv5 = add(tv0, IrBuilder::create<Scalar>(1.0));
+  auto tv5 = add(tv0, IrBuilder::create<Val>(1.0));
   auto tv6 = shift(tv5, {0, -1});
   fusion.addOutput(tv6);
 
@@ -4643,7 +4642,7 @@ TEST_F(NVFuserTest, FusionGatherStrided2_CUDA) {
   auto tv0 = makeSymbolicTensor(1);
   fusion.addInput(tv0);
 
-  auto tv1 = add(tv0, IrBuilder::create<Scalar>(1.0));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
 
   auto tv2 = gather(tv1, window_shape, padding_width, strides);
 
@@ -4695,7 +4694,7 @@ TEST_F(NVFuserTest, FusionGatherStrided3_CUDA) {
   auto tv0 = makeSymbolicTensor(1);
   fusion.addInput(tv0);
 
-  auto tv1 = add(tv0, IrBuilder::create<Scalar>(1.0));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
 
   auto tv2 = gather(tv1, window_shape, padding_width, strides);
 
@@ -4742,7 +4741,7 @@ TEST_F(NVFuserTest, FusionGatherStrided4_CUDA) {
   auto tv0 = makeSymbolicTensor(1);
   fusion.addInput(tv0);
 
-  auto tv1 = add(tv0, IrBuilder::create<Scalar>(1.0));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
 
   // Test propagation of split from one gather output to another
   auto tv2 = gather(tv1, window_shape, padding_width, strides);
@@ -4820,7 +4819,7 @@ TEST_F(NVFuserTest, FusionGatherStrided6_CUDA) {
   auto tv0 = makeSymbolicTensor(1);
   fusion.addInput(tv0);
 
-  auto tv1 = add(tv0, IrBuilder::create<Scalar>(1.0));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
 
   auto tv2 = gather(tv1, window_shape, padding_width, strides);
 
@@ -4871,7 +4870,7 @@ TEST_F(NVFuserTest, FusionGatherStrided7_CUDA) {
   auto tv0 = makeSymbolicTensor(1);
   fusion.addInput(tv0);
 
-  auto tv1 = add(tv0, IrBuilder::create<Scalar>(1.0));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
 
   // Use different strides
   auto tv2 = gather(tv1, window_shape, padding_width, {3});
@@ -4902,7 +4901,7 @@ TEST_F(NVFuserTest, FusionGatherStrided8_CUDA) {
   auto tv0 = makeSymbolicTensor(1);
   fusion.addInput(tv0);
 
-  auto tv1 = add(tv0, IrBuilder::create<Scalar>(1.0));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
 
   auto tv2 = gather(tv1, window_shape, padding_width, strides);
 
@@ -4959,7 +4958,7 @@ TEST_F(NVFuserTest, FusionGatherStridedChain_CUDA) {
   auto tv0 = makeSymbolicTensor(1);
   fusion.addInput(tv0);
 
-  auto tv1 = add(tv0, IrBuilder::create<Scalar>(1.0));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
 
   auto tv2 = gather(tv1, window_shape, padding_width, strides);
   // Reduce gathered window
@@ -4997,7 +4996,7 @@ TEST_F(NVFuserTest, FusionMaxPoolingStrided_CUDA) {
   auto max_tensor = reductionOp(
       BinaryOpType::Max,
       {-3, -2, -1},
-      IrBuilder::create<Scalar>(std::numeric_limits<float>::lowest()),
+      IrBuilder::create<Val>(std::numeric_limits<float>::lowest()),
       inp_tile);
   fusion.addOutput(max_tensor);
 
@@ -5160,7 +5159,7 @@ TEST_F(NVFuserTest, FusionNonDivisibleHalo1_CUDA) {
   auto tv0 = makeSymbolicTensor(1);
   fusion.addInput(tv0);
 
-  auto tv1 = add(tv0, IrBuilder::create<Scalar>(1.0));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
   auto tv2 = shift(tv1, {-1});
   fusion.addOutput(tv2);
 
@@ -5253,7 +5252,7 @@ TEST_F(NVFuserTest, FusionGather9ptStencilDoubleBuffering_CUDA) {
 
   auto tv1 = gather(tv0, {3, 3}, {{1, 1}, {1, 1}});
   auto tv2 = sum(tv1, {-2, -1});
-  auto tv3 = div(tv2, IrBuilder::create<Scalar>(9.0));
+  auto tv3 = div(tv2, IrBuilder::create<Val>(9.0));
 
   auto out = tv3;
 
@@ -5399,7 +5398,7 @@ TEST_F(NVFuserTest, FusionContigPredicateShift_CUDA) {
 
   // tv3 is not an output of shift, but it gets a partial root
   // domain from tv2, so it must be predicated at the root domain
-  auto tv3 = add(tv2, IrBuilder::create<Scalar>(1.0));
+  auto tv3 = add(tv2, IrBuilder::create<Val>(1.0));
 
   fusion.addOutput(tv1);
   fusion.addOutput(tv3);

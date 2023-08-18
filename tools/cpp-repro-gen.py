@@ -50,7 +50,7 @@ def replace_name(name: str):
             return "fusion->addOutput"
     elif name == "fd.define_scalar":
         if not is_aten:
-            return "IrBuilder::create<Scalar>"
+            return "IrBuilder::create<Val>"
     return name
 
 
@@ -72,7 +72,7 @@ def handle_call(l: ast.Call):
     func = ast.Name(replace_name(ast.unparse(l.func)))
     args = handle(l.args)
     keywords = l.keywords
-    if func.id == "IrBuilder::create<Scalar>":
+    if func.id == "IrBuilder::create<Val>":
         assert len(args) == 1
         arg = args[0]
         assert isinstance(arg, ast.Constant)
@@ -225,9 +225,7 @@ def handle_call(l: ast.Call):
                 ast.Name("expand"),
                 [
                     result,
-                    list2vector(
-                        [f"IrBuilder::create<Scalar>({x})" for x in output_shape]
-                    ),
+                    list2vector([f"IrBuilder::create<Val>({x})" for x in output_shape]),
                 ],
                 [],
             )

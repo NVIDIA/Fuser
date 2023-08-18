@@ -96,7 +96,7 @@ TEST_F(NVFuserTest, FusionCyclicGraph_CUDA) {
     auto tv_var = tvs.var;
     fusion->addOutput(tv_var);
     auto tv_mean = tvs.mean;
-    nvfuser::Val* s0 = IrBuilder::create<Scalar>(1.0, DataType::Double);
+    nvfuser::Val* s0 = IrBuilder::create<Val>(1.0, DataType::Double);
     auto tv1 = add(tv_mean, s0);
     auto tv2 = set(tv1);
 
@@ -584,7 +584,7 @@ TEST_F(NVFuserTest, FusionRemoveEmptyPad_CUDA) {
   fusion.addInput(tv0);
 
   // Use a non-zero pad value to verify that it is used in the rewritten fill
-  auto pad_val = IrBuilder::create<Scalar>(3.14, DataType::Float);
+  auto pad_val = IrBuilder::create<Val>(3.14, DataType::Float);
 
   // equivalent to full({3, 2}, pad_val, DataType::Float)
   auto tv1 = pad(tv0, {fusion.oneVal(), fusion.oneVal()}, pad_val);
