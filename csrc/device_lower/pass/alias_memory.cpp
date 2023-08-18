@@ -1657,6 +1657,10 @@ class StackBasedSharedMemAllocator : kir::IrVisitor {
     // Reclaim memory whenever we pass an Expr that is known to synchronize the
     // block
     if (lower_utils::hasBlockSync(expr, GpuLower::current()->threadPredMap())) {
+      if (isDebugDumpEnabled(DebugDumpOption::BufferReuseInfo)) {
+        debug() << "Block syncing expr found at position " << position_
+                << ". Reclaiming memory." << std::endl;
+      }
       reclaimMemory();
     }
 
@@ -1693,6 +1697,12 @@ class StackBasedSharedMemAllocator : kir::IrVisitor {
   }
 
   void pushAndAssign(AllocationInfo* alloc_info) {
+    if (isDebugDumpEnabled(DebugDumpOption::BufferReuseInfo)) {
+      auto alloc = alloc_info->alloc_expr;
+      debug() << "Pushing allocation for T" << alloc->buffer()->name()
+              << std::endl;
+    }
+
     // Assign new address
     assignNextAddress(alloc_info);
 
@@ -1713,8 +1723,11 @@ class StackBasedSharedMemAllocator : kir::IrVisitor {
       alloc->setAddress(aligned_address);
     }
     if (isDebugDumpEnabled(DebugDumpOption::BufferReuseInfo)) {
-      debug() << "Allocated address " << alloc->address()->toInlineString()
-              << " for T" << alloc->buffer()->name() << std::endl;
+      debug() << "Assigned address " << alloc->address()->toInlineString()
+              << " for T" << alloc->buffer()->name() << " with size "
+              << alloc->size()->toInlineString() << " * "
+              << dataTypeSize(alloc->buffer()->dtype()) << " bytes"
+              << std::endl;
     }
   }
 
@@ -1772,6 +1785,12 @@ class StackBasedSharedMemAllocator : kir::IrVisitor {
     while (!alloc_stack_.empty()) {
       auto last_read = lastAliasedRead(alloc_stack_.back());
       if (last_read <= position_) {
+        if (isDebugDumpEnabled(DebugDumpOption::BufferReuseInfo)) {
+          auto alloc = alloc_stack_.back()->alloc_expr;
+          debug() << "Popping allocation for T" << alloc->buffer()->name()
+                  << " which has assigned address "
+                  << alloc->address()->toInlineString() << std::endl;
+        }
         alloc_stack_.pop_back();
       } else {
         break;
@@ -1855,16 +1874,15 @@ class RequestedReuseSyncModifier : private kir::ExprMutator {
       }
     }
 
-    if (isDebugDumpEnabled(DebugDumpOption::BufferReuseInfo)) {
-      debug() << "Verifying syncs within these intervals:" << std::endl;
-      for (auto [last_read, first_write] : sync_intervals_) {
-        debug() << "  " << last_read << " - " << first_write << std::endl;
-      }
-    }
-
     if (sync_intervals_.empty()) {
       exprs_ = exprs;
     } else {
+      if (isDebugDumpEnabled(DebugDumpOption::BufferReuseInfo)) {
+        debug() << "Verifying syncs within these intervals:" << std::endl;
+        for (auto [last_read, first_write] : sync_intervals_) {
+          debug() << "  " << last_read << " - " << first_write << std::endl;
+        }
+      }
       traverseAndInsert(exprs);
     }
   }
