@@ -1424,7 +1424,14 @@ void dumpKernelArgs(
   debug() << "Arguments for kernel" << fusion_id << ":" << std::endl
           << "Inputs:" << std::endl;
   for (auto i : c10::irange(num_inputs)) {
-    debug() << "  " << args[i] << std::endl;
+    if (args[i]->is<at::Tensor>()) {
+      const auto& tensor = args[i]->as<at::Tensor>();
+      debug() << "  " << tensor.scalar_type() << " " << tensor.sizes()
+              << " (strides = " << tensor.strides()
+              << ", address = " << tensor.data_ptr() << ")" << std::endl;
+    } else {
+      debug() << "  " << *args[i] << std::endl;
+    }
   }
   debug() << "Outputs:" << std::endl;
   // note: add aliased outputs here.
