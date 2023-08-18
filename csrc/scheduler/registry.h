@@ -23,6 +23,20 @@ namespace nvfuser {
 class SegmentedGroup;
 class ExpressionEvaluator;
 
+//! Reasons for other schedulers can be added, for example:
+//! enum class ReductionSchedulerRejectReason {
+//!   NoReductionOp,
+//!   NoReductionInput
+//! };
+//! using SchedulerRejectReason = std::
+//!    variant<PersistentSchedulerRejectReason, ReductionSchedulerRejectReason>;
+enum class PersistentSchedulerRejectReason {
+  NoPersistentBuffer,
+  NotEnoughSharedMemoryAndRegister,
+  WasRejectedByNotEnoughSharedMemoryAndRegister,
+};
+using SchedulerRejectReason = std::variant<PersistentSchedulerRejectReason>;
+
 //!  SchedulerRuntimeInfo is the abstraction introduced in
 //! this PR for passing runtime input dependent information
 //! to the schedulers and kernel caches.
@@ -91,6 +105,33 @@ class TORCH_CUDA_CU_API SchedulerRuntimeInfo : public NonCopyable {
     return *expression_evaluator_;
   }
 
+  void setRejectReason(ScheduleHeuristic sh, SchedulerRejectReason reason) {
+    scheduler_reject_reasons_[sh] = reason;
+  }
+
+  std::optional<SchedulerRejectReason> getOptionalRejectReason(
+      ScheduleHeuristic sh) {
+    auto it = scheduler_reject_reasons_.find(sh);
+    if (it != scheduler_reject_reasons_.end()) {
+      return it->second;
+    }
+    return std::nullopt;
+  }
+
+  const auto& getRejectReasonMap() const {
+    return scheduler_reject_reasons_;
+  }
+
+  // This is used to copy the reject reason map from the complete fusion
+  // SchedulerRuntimeInfo to the segmented fusion SchedulerRuntimeInfo.
+  // The map is small, so we just copy the whole map. If it is grows large, we
+  // can only copy items that are relevant to the segmented fusion scheduler.
+  void copyRejectReasonMapFromOtherObject(
+      const std::unordered_map<ScheduleHeuristic, SchedulerRejectReason>&
+          reject_reasons) {
+    scheduler_reject_reasons_ = reject_reasons;
+  }
+
  private:
   // Build and bind full fusion inputs to an expression evaluator
   std::unique_ptr<ExpressionEvaluator> getExpressionEvaluator(
@@ -132,6 +173,12 @@ class TORCH_CUDA_CU_API SchedulerRuntimeInfo : public NonCopyable {
 
   // TODO: Remove
   std::unordered_map<TensorView*, size_t> vectorword_map_;
+
+  // Record segmented reasons we care about, e.g. if the persistent scheduler
+  // using combined reduction was rejected due to large buffer size, we don't
+  // want to use it again in the segmented fusions.
+  std::unordered_map<ScheduleHeuristic, SchedulerRejectReason>
+      scheduler_reject_reasons_;
 };
 
 class HeuristicSummary;

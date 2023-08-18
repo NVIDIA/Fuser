@@ -1935,6 +1935,27 @@ class PersistentKernelScheduler : public SchedulerEntry {
       }
     }
 
+    if (inner_reduction && outer_reduction) {
+      auto opt_reason =
+          runtime_info.getOptionalRejectReason(ScheduleHeuristic::Persistent);
+      if (opt_reason.has_value()) {
+        TORCH_INTERNAL_ASSERT(
+            std::holds_alternative<PersistentSchedulerRejectReason>(
+                opt_reason.value()),
+            "Reject reason is not PersistentSchedulerRejectReason!");
+        if (std::get<PersistentSchedulerRejectReason>(opt_reason.value()) ==
+            PersistentSchedulerRejectReason::NotEnoughSharedMemoryAndRegister) {
+          runtime_info.setRejectReason(
+              ScheduleHeuristic::Persistent,
+              PersistentSchedulerRejectReason::
+                  WasRejectedByNotEnoughSharedMemoryAndRegister);
+          scheduler_debug_utils::canScheduleRejectReason(
+              ScheduleHeuristic::Persistent,
+              "CombinedInnerOuter reduction is not applicable to fusion previously segmented due to large persistent buffer size!");
+          return false;
+        }
+      }
+    }
     // If there is both inner and outer reduction, we use the first inner
     // reduction tv to get properties, otherwise we use the first reduction tv,
     // whether it is inner or outer.
@@ -1965,6 +1986,9 @@ class PersistentKernelScheduler : public SchedulerEntry {
       scheduler_debug_utils::canScheduleRejectReason(
           ScheduleHeuristic::Persistent,
           "not enough registers or shared memory for persistence");
+      runtime_info.setRejectReason(
+          ScheduleHeuristic::Persistent,
+          PersistentSchedulerRejectReason::NotEnoughSharedMemoryAndRegister);
       return false;
     }
 

@@ -1547,7 +1547,11 @@ std::unique_ptr<SegmentedFusion> SegmentCandidateFinder::segment(
     }
   }
   if (fusion) {
-    return SegmentCandidateFinder::segment(std::move(fusion), inputs);
+    return SegmentCandidateFinder::segment(
+        std::move(fusion),
+        inputs,
+        SegmentCandidateFinderOptions(),
+        runtime_info.getRejectReasonMap());
   } else {
     TORCH_INTERNAL_ASSERT(false, "unreachable!");
   }
@@ -3224,10 +3228,13 @@ ScheduleHeuristic SegmentCandidateFinder::deriveHeuristic(
 SegmentCandidateFinder::SegmentCandidateFinder(
     std::unique_ptr<Fusion> fusion,
     const KernelArgumentHolder& inputs,
-    SegmentCandidateFinderOptions options)
+    SegmentCandidateFinderOptions options,
+    const std::unordered_map<ScheduleHeuristic, SchedulerRejectReason>&
+        reject_reasons_map)
     : options_(options),
       runtime_info_(fusion.get(), inputs),
       runtime_inputs_(inputs) {
+  runtime_info_.copyRejectReasonMapFromOtherObject(reject_reasons_map);
   segmented_fusion_ = std::make_unique<SegmentedFusion>(std::move(fusion));
   findSegments();
 }
