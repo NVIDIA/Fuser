@@ -478,17 +478,14 @@ def define_vector_input_error_generator(
         yield SampleInput(**es.kwargs), es.ex_type, es.ex_str
 
 
-def _special_value_binary_generator(
-    lhs_generator_fn, rhs_generator_fn, dtype, requires_grad
-):
-    lhs_vals, rhs_vals = zip(*itertools.product(lhs_generator_fn, rhs_generator_fn))
-    lhs = torch.tensor(
-        lhs_vals, device="cuda", dtype=dtype, requires_grad=requires_grad
+# Take the cartesian product of multiple generator functions
+def _special_value_product_generator(dtype, requires_grad, *generator_fn):
+    make_cuda_tensor = partial(
+        torch.tensor, device="cuda", dtype=dtype, requires_grad=requires_grad
     )
-    rhs = torch.tensor(
-        rhs_vals, device="cuda", dtype=dtype, requires_grad=requires_grad
-    )
-    return SampleInput(lhs, rhs)
+    argument_shapes = zip(*itertools.product(*generator_fn))
+    args = [make_cuda_tensor(a) for a in argument_shapes]
+    return SampleInput(*args)
 
 
 def elementwise_binary_generator(
@@ -569,22 +566,22 @@ def elementwise_binary_generator(
     ):
         lhs_large_values = _filter_lhs_domain(_large_values(dtype))
         rhs_large_values = _filter_rhs_domain(_large_values(dtype))
-        yield _special_value_binary_generator(
-            lhs_large_values, rhs_large_values, dtype, requires_grad
+        yield _special_value_product_generator(
+            dtype, requires_grad, lhs_large_values, rhs_large_values
         )
 
     if enable_small_value_testing and dtype != torch.bool:
         lhs_small_values = _filter_lhs_domain(_small_values(dtype))
         rhs_small_values = _filter_rhs_domain(_small_values(dtype))
-        yield _special_value_binary_generator(
-            lhs_small_values, rhs_small_values, dtype, requires_grad
+        yield _special_value_product_generator(
+            dtype, requires_grad, lhs_small_values, rhs_small_values
         )
 
     if enable_extremal_value_testing and dtype in float_complex_dtypes:
         lhs_extremal_values = _filter_lhs_domain(_extremal_values(dtype))
         rhs_extremal_values = _filter_rhs_domain(_extremal_values(dtype))
-        yield _special_value_binary_generator(
-            lhs_extremal_values, rhs_extremal_values, dtype, requires_grad
+        yield _special_value_product_generator(
+            dtype, requires_grad, lhs_extremal_values, rhs_extremal_values
         )
 
         # Test interactions between extreme and normal values
@@ -660,6 +657,7 @@ def _elementwise_binary_with_alpha_torch(op):
 
     return _fn
 
+
 def elementwise_ternary_generator(
     op: OpInfo,
     dtype: torch.dtype,
@@ -702,6 +700,45 @@ def elementwise_ternary_generator(
             make_arg(shape, noncontiguous=True),
             make_arg(shape, noncontiguous=True),
         )
+
+    # Create filtered special inputs for this operation's domain
+    def _filter_domain(values):
+        return [v for v in values if is_within_domain(op.domain, v)]
+
+    if (
+        enable_large_value_testing
+        and dtype != torch.bool
+        and dtype not in complex_dtypes
+    ):
+        filtered_large_values = _filter_domain(_large_values(dtype))
+        yield _special_value_product_generator(
+            dtype,
+            requires_grad,
+            filtered_large_values,
+            filtered_large_values,
+            filtered_large_values,
+        )
+
+    if enable_small_value_testing and dtype != torch.bool:
+        filtered_small_values = _filter_domain(_small_values(dtype))
+        yield _special_value_product_generator(
+            dtype,
+            requires_grad,
+            filtered_small_values,
+            filtered_small_values,
+            filtered_small_values,
+        )
+
+    if enable_extremal_value_testing and dtype in float_complex_dtypes:
+        filtered_extremal_values = _filter_domain(_extremal_values(dtype))
+        yield _special_value_product_generator(
+            dtype,
+            requires_grad,
+            filtered_extremal_values,
+            filtered_extremal_values,
+            filtered_extremal_values,
+        )
+
 
 def _elementwise_ternary_torch(op):
     @wraps(op)
