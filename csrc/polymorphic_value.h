@@ -49,9 +49,24 @@ struct Struct {
     return *fields.at(key);
 #endif
   }
+};
+
+template <typename T>
+inline std::ostream& operator<<(std::ostream& os, const Struct<T>& s) {
+  os << "struct { ";
+  bool first = true;
+  for (const auto& [key, value] : s.fields) {
+    if (!first) {
+      os << ", ";
+    }
+    os << key << " = " << MAYBE_STAR value;
+    first = false;
+  }
+  os << "}";
+  return os;
+}
 
 #undef MAYBE_STAR
-};
 
 struct DataType;
 
@@ -180,6 +195,11 @@ class Pointer {
 
 inline Pointer operator+(int64_t offset, const Pointer& ptr) {
   return ptr + offset;
+}
+
+inline std::ostream& operator<<(std::ostream& os, const Pointer& ptr) {
+  os << (void*)ptr;
+  return os;
 }
 
 struct Opaque {

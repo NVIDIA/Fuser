@@ -558,15 +558,6 @@ std::pair<at::Tensor, at::Tensor> matmulAtInput(
     MatmulLayout layout,
     c10::ScalarType dtype = at::kHalf);
 
-// Utility to generate inputs based on given layout
-std::pair<at::Tensor, at::Tensor> splitkLikeBatchedMatmulAtInput(
-    int M,
-    int N,
-    int B,
-    int K,
-    MatmulLayout layout,
-    c10::ScalarType dtype = at::kHalf);
-
 // Labels to describe tensor position in matmul:
 // A, B - input
 // C - input if beta is provided, shape must be the same as output (D)
@@ -575,14 +566,15 @@ std::pair<at::Tensor, at::Tensor> splitkLikeBatchedMatmulAtInput(
 enum class TensorMatmulPos { A, B, C, D, Bias };
 
 // Utility to generate buffers based on given problem, layout and tensor
-// position in matmul
+//  position in matmul with support for matmul and strided batch matmul
 at::Tensor matmulAtInput(
+    const MatmulLayout layout,
+    const TensorMatmulPos tensor,
+    const c10::ScalarType dtype,
     const int M,
     const int N,
     const int K,
-    const MatmulLayout layout,
-    const TensorMatmulPos tensor,
-    const c10::ScalarType dtype = at::kHalf,
+    const int B = 0,
     const int device = 0);
 
 #define REQUIRE_DEVICE_SMEM_SIZE(required_size, device_idx)                 \

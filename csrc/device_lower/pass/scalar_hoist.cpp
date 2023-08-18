@@ -124,6 +124,24 @@ Val* findRefAsSubexprOf(Val* from, Val* reference, bool exact) {
   return nullptr;
 }
 
+// Check if the given value is helpful to reuse it. For example
+// in x = (a + b) * (a + b), it is helpful to reuse (a + b) as
+// c = a + b; x = c * c, because it can reduce the number of arithmetic
+// operations. However, it makes no sense to reuse T0.size[0] + T0.size[0] as
+// a = T0.size[0]; x = a + a, because although T0.size[0] is a composition of
+// GetItem with GetAttr, in C++, these operations are free because it just get
+// erased when lowering C++ into assembly languages.
+bool isHelpfulToReuse(Val* value) {
+  auto def = value->definition();
+  if (def == nullptr) {
+    return false;
+  }
+  if (def->isOneOf<GetMetaData, GetAttr, GetItem>()) {
+    return false;
+  }
+  return true;
+}
+
 } // namespace
 
 std::pair<Val*, bool> CommonScalarMap::hoistScalarImpl(
@@ -455,15 +473,9 @@ class CommonIndexInserter : private kir::ExprMutator {
         alloc_point = existing_alloc_info.first;
         insert_ref = exprs[alloc_point];
       }
-      // Make the type of the hoisted value be the value type of the
-      // kernel, which can be either int64_t or int. Not very clean,
-      // but this seems to be the quickest way to use the value type
-      // as we don't have a scalar IR node for the value type.
-      // TODO: remove this. I think we are fine removing this now, but I need
-      // to double check the benchmarks.
-      auto dtype = value->dtype();
-      if (isIntegralType(dtype) && !isPointerType(dtype)) {
-        value->resolveIndexDtype();
+
+      if (!isHelpfulToReuse(value)) {
+        continue;
       }
 
       auto alloc = IrBuilder::create<kir::Allocate>(
