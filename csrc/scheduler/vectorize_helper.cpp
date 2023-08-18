@@ -125,12 +125,30 @@ ContiguousInnerDimensionsMapper::ContiguousInnerDimensionsMapper(
   recording_ = true;
 
   auto rfactor_domain = reference->getMaybeRFactorDomain();
-  if (reference->isFusionInput()) {
-    std::remove_if(rfactor_domain.begin(), rfactor_domain.end(), [](IterDomain* id) {
-		      return id->isReduction();
-		    });
+
+  for (auto id : ids) {
+    addProjectedExtent(id, commonOrConstExtent(ca_map_, id));
   }
 
+  // Exclude reduction IDs if the reference is a fusion input as they
+  // don't manifest at all in the fusion. This simplifies the
+  // analysis in getContigMergeOfInnerSize, which only looks at
+  // non-reduction rfactor domains. Including reduction domains here
+  // can result in incorrect ordering
+  // NOTE: this is necessary to enable vectorization in
+  // NVFuserTest.FusionSegmentReduceSoftmax_CUDA
+  if (reference->isFusionInput()) {
+    auto remove_reduction = [](auto& container) {
+      container.erase(
+          std::remove_if(
+              container.begin(),
+              container.end(),
+              [](IterDomain* id) { return id->isReduction(); }),
+          container.end());
+    };
+    remove_reduction(rfactor_domain);
+    remove_reduction(ids);
+  }
   auto projected_rfactor = projectId(ids, rfactor_domain);
 
   // I need to somehow make sure projected_rfactor is indeed on the reference
@@ -147,13 +165,17 @@ ContiguousInnerDimensionsMapper::ContiguousInnerDimensionsMapper(
     }
     return mapped_id;
   };
-  for (auto id : projected_rfactor) {
-    auto mapped_id = map_rfactor(id);
-    // TODO: should I just skip when id isn't mapped?!?! maybe clear left
-    TORCH_INTERNAL_ASSERT(
-        mapped_id != nullptr, "projected iter domain cannot be found")
-    addProjectedExtent(mapped_id, commonOrConstExtent(ca_map_, id));
-  }
+  // mapping thing back to rfactor for reference tensor
+  std::for_each(
+      projected_rfactor.begin(), projected_rfactor.end(), map_rfactor);
+
+  // for (auto id : projected_rfactor) {
+  //   auto mapped_id = map_rfactor(id);
+  //   // TODO: should I just skip when id isn't mapped?!?! maybe clear left
+  //   TORCH_INTERNAL_ASSERT(
+  //       mapped_id != nullptr, "projected iter domain cannot be found")
+  //   addProjectedExtent(mapped_id, commonOrConstExtent(ca_map_, id));
+  // }
 
   std::shared_ptr<Information> reference_information = MappedDomain::build(
       projectId(projected_rfactor, reference->getRootDomain()),
