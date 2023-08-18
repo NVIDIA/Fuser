@@ -49,9 +49,24 @@ struct Struct {
     return *fields.at(key);
 #endif
   }
+};
+
+template <typename T>
+inline std::ostream& operator<<(std::ostream& os, const Struct<T>& s) {
+  os << "struct { ";
+  bool first = true;
+  for (const auto& [key, value] : s.fields) {
+    if (!first) {
+      os << ", ";
+    }
+    os << key << " = " << MAYBE_STAR value;
+    first = false;
+  }
+  os << "}";
+  return os;
+}
 
 #undef MAYBE_STAR
-};
 
 struct DataType;
 
@@ -73,7 +88,7 @@ class Pointer {
 
   template <typename T>
   explicit operator T*() const {
-    return static_cast<T*>(ptr_);
+    return reinterpret_cast<T*>(ptr_);
   }
 
   Pointer& operator+=(int64_t offset) {
@@ -182,6 +197,11 @@ inline Pointer operator+(int64_t offset, const Pointer& ptr) {
   return ptr + offset;
 }
 
+inline std::ostream& operator<<(std::ostream& os, const Pointer& ptr) {
+  os << (void*)ptr;
+  return os;
+}
+
 struct Opaque {
   std::any value;
 
@@ -235,6 +255,30 @@ using PolymorphicValue = DynamicType<
 
 namespace PolymorphicValue_functions {
 
+inline std::string toString(const PolymorphicValue& v) {
+  std::stringstream ss;
+  if (v.is<at::Tensor>()) {
+    const auto& t = v.as<at::Tensor>();
+    ss << "Tensor(sizes=" << t.sizes() << ", "
+       << "stride=" << t.strides() << ", " << t.dtype() << ", " << t.device()
+       << ")";
+  } else {
+    ss << v;
+  }
+  return ss.str();
+}
+
+inline bool isSame(const PolymorphicValue& a, const PolymorphicValue& b) {
+  if (a.type() != b.type()) {
+    return false;
+  }
+  if (a.is<at::Tensor>() && b.is<at::Tensor>()) {
+    return (a.as<at::Tensor>().is_same(b.as<at::Tensor>()));
+  } else {
+    return (a == b);
+  }
+}
+
 inline PolymorphicValue ceildiv(
     const PolymorphicValue& a,
     const PolymorphicValue& b) {
@@ -268,17 +312,6 @@ inline PolymorphicValue gcd(
   return PolymorphicValue(std::gcd(a.as<int64_t>(), b.as<int64_t>()));
 }
 
-inline PolymorphicValue notExpr(const PolymorphicValue& a) {
-  if (a.is<int64_t>()) {
-    return PolymorphicValue(~a.as<int64_t>());
-  }
-  if (a.is<bool>()) {
-    return PolymorphicValue(!a.as<bool>());
-  }
-  TORCH_INTERNAL_ASSERT(
-      false, "PolymorphicValue notExpr not implemented for ", a.type().name());
-}
-
 inline PolymorphicValue abs(const PolymorphicValue& a) {
   if (a.is<int64_t>()) {
     return PolymorphicValue(std::abs(a.as<int64_t>()));
@@ -288,6 +321,9 @@ inline PolymorphicValue abs(const PolymorphicValue& a) {
   }
   if (a.is<bool>()) {
     return a;
+  }
+  if (a.is<std::complex<double>>()) {
+    return std::abs(a.as<std::complex<double>>());
   }
   TORCH_INTERNAL_ASSERT(
       false, "PolymorphicValue abs not implemented for ", a.type().name());

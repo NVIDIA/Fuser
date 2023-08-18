@@ -235,7 +235,7 @@ bool IrContainer::inContainer(const Statement* stmt) const {
 // Shortcuts for frequently used vals
 Val* IrContainer::zeroVal() {
   if (!zero_val_) {
-    auto zero_val = IrBuilder::create<Val>(this, 0L);
+    auto zero_val = IrBuilder::create<Val>(this, 0L, DataType::Index);
     TORCH_INTERNAL_ASSERT(vals_up_.back().get() == zero_val);
     zero_val_ = std::unique_ptr<Val>(vals_up_.back().release());
     vals_up_.pop_back();
@@ -244,23 +244,19 @@ Val* IrContainer::zeroVal() {
 }
 
 Val* IrContainer::zeroVal(DataType dtype) {
-  // NOTE: this does not cache values for floating or complex dtypes
-  if (isFloatingPointType(dtype)) {
-    return IrBuilder::create<Val>(0.0);
-  } else if (isComplexType(dtype)) {
-    return IrBuilder::create<Val>(std::complex<double>(0.0, 0.0));
-  } else if (isIntegralType(dtype)) {
+  if (dtype == DataType::Index) {
     return zeroVal();
   } else if (isBooleanType(dtype)) {
     return falseVal();
   } else {
-    TORCH_CHECK(false, "Could not create zero Val for dtype: ", dtype);
+    // NOTE: this does not cache values
+    return IrBuilder::create<Val>(this, 0L, dtype);
   }
 }
 
 Val* IrContainer::oneVal() {
   if (!one_val_) {
-    auto one_val = IrBuilder::create<Val>(this, 1L, DataType::Int);
+    auto one_val = IrBuilder::create<Val>(this, 1L, DataType::Index);
     TORCH_INTERNAL_ASSERT(vals_up_.back().get() == one_val);
     one_val_ = std::unique_ptr<Val>(vals_up_.back().release());
     vals_up_.pop_back();
@@ -269,18 +265,13 @@ Val* IrContainer::oneVal() {
 }
 
 Val* IrContainer::oneVal(DataType dtype) {
-  // NOTE: this does not cache values for floating or complex dtypes
-  if (isFloatingPointType(dtype)) {
-    return IrBuilder::create<Val>(this, 1.0, DataType::Double);
-  } else if (isComplexType(dtype)) {
-    return IrBuilder::create<Val>(
-        this, std::complex<double>(1.0, 0.0), DataType::ComplexDouble);
-  } else if (isIntegralType(dtype)) {
+  if (dtype == DataType::Index) {
     return oneVal();
   } else if (isBooleanType(dtype)) {
     return trueVal();
   } else {
-    TORCH_CHECK(false, "Could not create one Val for dtype: ", dtype);
+    // NOTE: this does not cache values
+    return IrBuilder::create<Val>(this, 1L, dtype);
   }
 }
 
@@ -307,7 +298,7 @@ Val* IrContainer::trueVal() {
 NamedScalar* IrContainer::magicZeroVal() {
   if (!magic_zero_val_) {
     auto magic_zero =
-        IrBuilder::create<NamedScalar>(kMagicZeroName, DataType::Int);
+        IrBuilder::create<NamedScalar>(kMagicZeroName, DataType::Index);
     TORCH_INTERNAL_ASSERT(vals_up_.back().get() == magic_zero);
     magic_zero_val_ = std::unique_ptr<NamedScalar>(
         vals_up_.back().release()->as<NamedScalar>());

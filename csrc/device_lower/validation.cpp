@@ -429,7 +429,9 @@ class VectorizeValidator : public OptInDispatch {
 
     auto vector_word_size = v_id->extent()->evaluateInt();
     auto vector_size =
-        ((int64_t)dataTypeSize(tv->getDataType().value())) * vector_word_size;
+        ((int64_t)dataTypeSize(
+            tv->getDataType().value(), GpuLower::current()->indexType())) *
+        vector_word_size;
 
     // Allow half2, float2, float4 and same sized vtypes.
     std::array<int64_t, 4> allowed_vector_sizes = {2, 4, 8, 16}; // NOLINT
@@ -1013,7 +1015,8 @@ void validateSizeMemoryOp(LoadStoreOp* ldst) {
       break;
     }
   }
-  byte_size *= (int)dataTypeSize(*output->getDataType());
+  byte_size *= (int)dataTypeSize(
+      *output->getDataType(), GpuLower::current()->indexType());
   switch (ldst->opType()) {
     case LoadStoreOpType::CpAsyncCg:
       TORCH_CHECK(byte_size == 16, "Not supported byte size for cp.async.cg");

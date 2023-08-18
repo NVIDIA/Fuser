@@ -520,11 +520,10 @@ void validateAlignedVectorizedTensors(
                       .aligned_vectorized_inp_tensor_pos) {
     auto tv = kernel->inputs().at(pos)->as<TensorView>();
     auto word_size = kernel->summary().vectorized_accesses.at(tv);
-    auto tensor_arg_abstract =
-        dynamic_cast<const TensorArgAbstract*>(args[pos]);
-    TORCH_INTERNAL_ASSERT(tensor_arg_abstract, "alias io only supports tensor");
+    TORCH_INTERNAL_ASSERT(
+        args[pos]->is<at::Tensor>(), "alias io only supports tensor");
     validateAlignedVectorizedFusionInputOutput(
-        tensor_arg_abstract->getTensor(), word_size, tv, expr_eval);
+        args[pos]->as<at::Tensor>(), word_size, tv, expr_eval);
   }
   if (!outputs.empty()) {
     for (auto pos : tensor_vectorization_validation_entry.get()
@@ -564,11 +563,9 @@ void validateMisalignedVectorizedTensors(
       inp_misaligned_tensors_pos.end(),
       std::back_inserter(inp_misaligned_tensors),
       [&args](int idx) {
-        auto tensor_arg_abstract =
-            dynamic_cast<const TensorArgAbstract*>(args[idx]);
         TORCH_INTERNAL_ASSERT(
-            tensor_arg_abstract, "alias io only supports tensor");
-        return tensor_arg_abstract->getTensor();
+            args[idx]->is<at::Tensor>(), "alias io only supports tensor");
+        return args[idx]->as<at::Tensor>();
       });
 
   const auto& out_misaligned_tensors_pos =
@@ -629,135 +626,9 @@ void validateVectorizedTensors(
   validateVectorizedSplits(kernel, expr_eval);
 }
 
-void bindInputForExprEvaluation(
-    Val* val,
-    const ArgAbstract* arg,
-    bool check_consistency,
-    ExpressionEvaluator& expr_eval,
-    bool legacy) {
-  TORCH_INTERNAL_ASSERT(val != nullptr);
-  if (val->getValType() == ValType::TensorView) {
-    TensorView* cg_tensor = val->as<TensorView>();
-    auto tensor_arg_abstract = dynamic_cast<const TensorArgAbstract*>(arg);
-    if (tensor_arg_abstract != nullptr) {
-      expr_eval.bind(cg_tensor, tensor_arg_abstract->getTensor());
-    }
-    // TODO: clean this up
-    if (auto arg_ = dynamic_cast<const CpuScalarTensorArg<1>*>(arg)) {
-      expr_eval.bind(cg_tensor, arg_->getTensor());
-    }
-    if (auto arg_ = dynamic_cast<const CpuScalarTensorArg<2>*>(arg)) {
-      expr_eval.bind(cg_tensor, arg_->getTensor());
-    }
-    if (auto arg_ = dynamic_cast<const CpuScalarTensorArg<4>*>(arg)) {
-      expr_eval.bind(cg_tensor, arg_->getTensor());
-    }
-    if (auto arg_ = dynamic_cast<const CpuScalarTensorArg<8>*>(arg)) {
-      expr_eval.bind(cg_tensor, arg_->getTensor());
-    }
-    if (auto arg_ = dynamic_cast<const CpuScalarTensorArg<16>*>(arg)) {
-      expr_eval.bind(cg_tensor, arg_->getTensor());
-    }
-
-#if 1
-    if (!legacy) {
-      return;
-    }
-
-    // Legacy code. To be removed in the future
-    auto root_domain =
-        TensorDomain::noReductions(cg_tensor->getMaybeRFactorDomain());
-
-    if (root_domain.empty()) {
-      TORCH_INTERNAL_ASSERT(
-          arg->isType(ArgType::CpuScalarTensor) ||
-              (arg->isType(ArgType::Tensor) &&
-               dynamic_cast<const TensorArgAbstract*>(arg)->getRank() == 0),
-          "Something went wrong configuring launch. Inputs is not rank 0 tensor");
-    } else {
-      TORCH_INTERNAL_ASSERT(
-          arg->isType(ArgType::Tensor),
-          "Something went wrong configuring launch. Inputs do not match.");
-
-      auto tensor_arg_abstract = dynamic_cast<const TensorArgAbstract*>(arg);
-
-      TORCH_INTERNAL_ASSERT(
-          tensor_arg_abstract &&
-              tensor_arg_abstract->getRank() == (int64_t)root_domain.size(),
-          "Something went wrong configuring launch. Inputs rank does not match.");
-
-      for (const auto dim : c10::irange(root_domain.size())) {
-        const auto tensor_arg_size = tensor_arg_abstract->getSize((int)dim);
-        const auto extent = root_domain[dim]->extent();
-        if (root_domain[dim]->hasExpandedExtent()) {
-          // Could support dynamic size on expanded dimension, so may not have
-          // an inferable expanded extent here. This check might be better to do
-          // once all values are bound.
-          auto maybe_expanded_size =
-              expr_eval.evaluate(root_domain[dim]->expandedExtent());
-          if (maybe_expanded_size.hasValue()) {
-            TORCH_CHECK(
-                maybe_expanded_size == tensor_arg_size,
-                "Expecting expanded extent of ",
-                maybe_expanded_size,
-                " but received value of ",
-                tensor_arg_size);
-          } else {
-            expr_eval.bind(root_domain[dim]->expandedExtent(), tensor_arg_size);
-          }
-        }
-
-        const auto value =
-            root_domain[dim]->hasExpandedExtent() ? 1 : tensor_arg_size;
-        bool should_bind = true;
-        if (check_consistency) {
-          const auto prev_value = expr_eval.evaluate(extent);
-          if (prev_value.hasValue()) {
-            TORCH_CHECK(
-                prev_value == value,
-                "Attempting to bind ",
-                extent->toString(),
-                " to ",
-                value,
-                " but it's already set to ",
-                prev_value);
-            should_bind = false;
-          }
-        }
-        if (should_bind && !extent->isConstScalar()) {
-          expr_eval.bind(extent, value);
-        }
-      }
-    }
-#endif
-  } else if (val->getValType().value() == ValType::Others) {
-    if (val->getDataType().value() == DataType::Int) {
-      TORCH_INTERNAL_ASSERT(
-          arg->isType(ArgType::Long),
-          "fusion expected Scalar Int inputs, but found ",
-          argTypeToString(arg->type()));
-      expr_eval.bind(val, *static_cast<const int64_t*>(arg->arg()));
-    } else if (val->getDataType().value() == DataType::Double) {
-      TORCH_INTERNAL_ASSERT(
-          arg->isType(ArgType::Double),
-          "fusion expected Scalar Double inputs, but found ",
-          argTypeToString(arg->type()));
-      expr_eval.bind(val, *static_cast<const double*>(arg->arg()));
-    } else if (val->getDataType().value() == DataType::ComplexDouble) {
-      TORCH_INTERNAL_ASSERT(
-          arg->isType(ArgType::ComplexDouble),
-          "fusion expected Scalar ComplexDouble inputs, but found ",
-          argTypeToString(arg->type()));
-      expr_eval.bind(
-          val, *static_cast<const std::complex<double>*>(arg->arg()));
-    }
-  }
-}
-
 ExpressionEvaluator bindInputs(
     const KernelArgumentHolder& args,
-    Fusion* kernel,
-    bool check_consistency) {
+    Fusion* kernel) {
   FUSER_PERF_SCOPE("executor_utils::bindInputs");
 
   // args may contains more than just inputs, but inputs are always at the
@@ -768,11 +639,10 @@ ExpressionEvaluator bindInputs(
 
   ExpressionEvaluator expr_eval;
   const auto& inputs = kernel->inputs();
-
   for (const auto i : c10::irange(inputs.size())) {
-    bindInputForExprEvaluation(
-        inputs[i], args[i], check_consistency, expr_eval);
+    expr_eval.bind(inputs[i], *args[i], true);
   }
+
   return expr_eval;
 }
 

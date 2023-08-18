@@ -62,7 +62,7 @@ Val* ParallelizedDomainPredicate::PredicateInfo::getPredicate() const {
         GpuLower::current()->caMap()->getConcreteMappedID(
             pred_id, IdMappingMode::EXACT));
     auto new_pred = SimplifyingIrBuilder::ltExpr(index, pred_id->extent());
-    pred = SimplifyingIrBuilder::andExpr(pred, new_pred);
+    pred = SimplifyingIrBuilder::logicalAndExpr(pred, new_pred);
   }
 
   return pred;
@@ -228,7 +228,7 @@ Val* ParallelizedDomainPredicate::getPredicate(
     if (pred_info_it != pred_map.end()) {
       const auto& pred_info = pred_info_it->second;
       auto tid_pred = pred_info.getPredicate();
-      pred = SimplifyingIrBuilder::andExpr(pred, tid_pred);
+      pred = SimplifyingIrBuilder::logicalAndExpr(pred, tid_pred);
     }
   }
 
@@ -425,7 +425,7 @@ Val* PredicateCompute::getInlinePredicate(
 
   Val* cond = preds[0];
   for (const auto i : c10::irange(1, preds.size())) {
-    cond = SimplifyingIrBuilder::andExpr(cond, preds[i]);
+    cond = SimplifyingIrBuilder::logicalAndExpr(cond, preds[i]);
   }
 
   return cond;
@@ -440,7 +440,7 @@ Val* UnswitchPredicate::get(
 
   Val* unswitch_pred = GpuLower::current()->kernel()->trueVal();
   for (auto pred : up.predicates_) {
-    unswitch_pred = SimplifyingIrBuilder::andExpr(unswitch_pred, pred);
+    unswitch_pred = SimplifyingIrBuilder::logicalAndExpr(unswitch_pred, pred);
   }
 
   return unswitch_pred;

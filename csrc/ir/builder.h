@@ -58,16 +58,19 @@ class TORCH_CUDA_CU_API IrBuilder {
   // Unary operations
   static Val* derefExpr(Val* val);
   static Val* negExpr(Val* val);
-  static Val* notExpr(Val* val);
+  static Val* logicalNotExpr(Val* val);
+  static Val* bitwiseNotExpr(Val* val);
   static Val* absExpr(Val* val);
   static Val* setExpr(Val* val);
-  static Val* castExpr(DataType dtype, Val* val);
+  static Val* maybeCastExpr(DataType dtype, Val* val);
   static NamedScalar* setExprNamedScalar(const std::string& name, Val* val);
   static NamedScalar* addressExprNamedScalar(const std::string& name, Val* val);
 
   // Binary operations
-  static Val* andExpr(Val* lhs, Val* rhs);
-  static Val* orExpr(Val* lhs, Val* rhs);
+  static Val* logicalAndExpr(Val* lhs, Val* rhs);
+  static Val* logicalOrExpr(Val* lhs, Val* rhs);
+  static Val* bitwiseAndExpr(Val* lhs, Val* rhs);
+  static Val* bitwiseOrExpr(Val* lhs, Val* rhs);
   static Val* eqExpr(Val* lhs, Val* rhs);
   static Val* neExpr(Val* lhs, Val* rhs);
   static Val* gtExpr(Val* lhs, Val* rhs);
@@ -146,21 +149,32 @@ class TORCH_CUDA_CU_API IrBuilder {
 class TORCH_CUDA_CU_API SimplifyingIrBuilder : public IrBuilder {
  public:
   static Val* negExpr(Val* val);
-  static Val* notExpr(Val* val);
+  static Val* logicalNotExpr(Val* val);
+  static Val* bitwiseNotExpr(Val* val);
+  static Val* maybeCastExpr(DataType dtype, Val* val);
 
-  static Val* addExpr(Val* lhs, PolymorphicValue rhs);
+  static Val* addExpr(
+      Val* lhs,
+      PolymorphicValue rhs,
+      DataType rhs_dtype = DataType::Null);
   static Val* addExpr(Val* lhs, Val* rhs);
 
   static Val* subExpr(Val* lhs, Val* rhs);
 
-  static Val* mulExpr(Val* lhs, PolymorphicValue rhs);
+  static Val* mulExpr(
+      Val* lhs,
+      PolymorphicValue rhs,
+      DataType rhs_dtype = DataType::Null);
   static Val* mulExpr(Val* lhs, Val* rhs);
   static Val* divExpr(Val* lhs, Val* rhs);
 
   static Val* ceilDivExpr(Val* lhs, Val* rhs);
 
   static Val* modExpr(Val* lhs, Val* rhs);
-  static Val* andExpr(Val* lhs, Val* rhs);
+  static Val* logicalAndExpr(Val* lhs, Val* rhs);
+  static Val* logicalOrExpr(Val* lhs, Val* rhs);
+  static Val* bitwiseAndExpr(Val* lhs, Val* rhs);
+  static Val* bitwiseOrExpr(Val* lhs, Val* rhs);
   static Val* maxExpr(Val* lhs, Val* rhs);
   static Val* minExpr(Val* lhs, Val* rhs);
   static Val* gcdExpr(Val* lhs, Val* rhs);

@@ -28,7 +28,7 @@ const char* dtypeToPyString(PrimDataType t) {
     case DataType::Half:
       return "DataType.Half";
     case DataType::BFloat16:
-      return "DataType.Bfloat16";
+      return "DataType.BFloat16";
     case DataType::Int:
       return "DataType.Int";
     case DataType::Int32:

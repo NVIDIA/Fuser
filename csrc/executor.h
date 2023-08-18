@@ -258,19 +258,21 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
   LaunchParams computeLaunchParams(
       const LaunchParams& launch_constraints,
       ExpressionEvaluator& expr_eval,
-      const int64_t warp_size);
+      const int64_t warp_size,
+      DataType index_dtype);
 
   int64_t computeSharedMemory(
       ExpressionEvaluator& expr_eval,
       const std::vector<const kir::Allocate*>& buffers,
-      bool align_padding = false,
-      int64_t total = 0);
+      DataType index_dtype,
+      int64_t smem_offset = 0);
 
   //! Return information necessay for allocating intermediate tensors,
   //! including temporary work buffers as well as intermediate
   //! global-memory tensors
   std::vector<GlobalBufferInfo> getIntermediateBufferInfo(
-      ExpressionEvaluator& expr_eval);
+      ExpressionEvaluator& expr_eval,
+      DataType index_dtype);
 
   //! Return information necessay for allocating output tensors. Input
   //! and output tensors are allowed to alias each other, which is
@@ -278,7 +280,8 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
   std::vector<GlobalBufferInfo> getOutputBufferInfo(
       const KernelArgumentHolder& args,
       ExpressionEvaluator& expr_eval,
-      const std::vector<std::pair<int, int>>& input_to_output_aliases);
+      const std::vector<std::pair<int, int>>& input_to_output_aliases,
+      DataType index_dtype);
 
   void setUsedTVs();
 
@@ -296,7 +299,8 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
       const KernelArgumentHolder& args,
       const LaunchParams& launch_constraints,
       const CompileParams& compile_params,
-      const std::vector<at::Tensor>& outputs);
+      const std::vector<at::Tensor>& outputs,
+      DataType index_type);
 
   std::unique_ptr<PrecomputedValues>& evaluatorPrecomputedValues();
 

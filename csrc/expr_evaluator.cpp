@@ -12,6 +12,7 @@
 #include <instrumentation.h>
 #include <ir/all_nodes.h>
 #include <ir/iostream.h>
+#include <ir/utils.h>
 #include <root_domain_map.h>
 
 #include <iostream>
@@ -43,7 +44,8 @@ void validateValWithConcreteValue(
         t.dim());
     auto actual_dtype = aten_to_data_type(t.scalar_type());
     TORCH_CHECK(
-        value->dtype() == actual_dtype,
+        (value->dtype() == DataType::Index && isIntegralType(actual_dtype)) ||
+            (value->dtype() == actual_dtype),
         "Expected ",
         tv->toString(),
         " to be bound to a tensor of dtype ",
@@ -80,36 +82,78 @@ void validateValWithConcreteValue(
 
 void ExpressionEvaluator::bind_(
     const Val* value,
-    const PolymorphicValue& concrete_value) {
+    PolymorphicValue concrete_value,
+    bool evaluate_validate) {
+  using namespace PolymorphicValue_functions;
   TORCH_CHECK(concrete_value.hasValue(), "Cannot bind to undefined value");
-  if (value->value().hasValue() && value->value() == concrete_value) {
+  if (value->isConst()) {
+    TORCH_CHECK(
+        value->value() == concrete_value,
+        "Tried to bind to a constant value: ",
+        toString(value->value()),
+        " as ",
+        toString(concrete_value));
     return;
   }
-  TORCH_CHECK(!value->isConstScalar(), "Tried to bind to a constant value");
   validateValWithConcreteValue(value, concrete_value);
+  if (evaluate_validate &&
+      ir_utils::dependenciesSatisfied(value, known_values_)) {
+    auto evaluated_value = evaluate(value);
+    using namespace PolymorphicValue_functions;
+    auto same = isSame(evaluated_value, concrete_value);
+    TORCH_CHECK(
+        same,
+        "Tried to bind to a value: ",
+        value->toInlineString(),
+        "(which evaluated to ",
+        toString(evaluated_value),
+        ") as ",
+        toString(concrete_value));
+  }
+  if (auto tv = dynamic_cast<const TensorView*>(value)) {
+    const auto& t = concrete_value.as<at::Tensor>();
+    auto rfactor_domain =
+        TensorDomain::noReductions(tv->getMaybeRFactorDomain());
+    TORCH_INTERNAL_ASSERT(
+        t.dim() == (int64_t)rfactor_domain.size(),
+        "Expected ",
+        tv->toString(),
+        " to be bound to a tensor of rank ",
+        rfactor_domain.size(),
+        ", but got a tensor of rank ",
+        t.dim());
+    for (auto i : c10::irange(t.dim())) {
+      bind_(
+          rfactor_domain[i]->getMaybeExpandedExtent(),
+          t.size(i),
+          evaluate_validate);
+    }
+  }
   if (value->isA<NamedScalar>()) {
-    known_named_scalars_[value->as<NamedScalar>()->name()] = concrete_value;
+    known_named_scalars_[value->as<NamedScalar>()->name()] =
+        std::move(concrete_value);
   } else {
-    known_values_[value] = concrete_value;
+    known_values_[value] = std::move(concrete_value);
   }
 }
 
 void ExpressionEvaluator::bind_(
     const std::string& name,
-    const PolymorphicValue& concrete_value) {
-  known_named_scalars_[name] = concrete_value;
+    PolymorphicValue concrete_value) {
+  known_named_scalars_[name] = std::move(concrete_value);
 }
 
 void ExpressionEvaluator::bind(
     ParallelType pt,
-    const PolymorphicValue& concrete_value) {
+    PolymorphicValue concrete_value) {
   TORCH_INTERNAL_ASSERT(isParallelTypeThread(pt));
   if (precomputed_values_) {
     // Need to bind the thread value to integer machine
     //  in pre-computed mode.
-    precomputed_values_->bindConcreteParallelTypeValue(pt, concrete_value);
+    precomputed_values_->bindConcreteParallelTypeValue(
+        pt, std::move(concrete_value));
   } else {
-    bind(stringifyThreadSize(pt), concrete_value);
+    bind(stringifyThreadSize(pt), std::move(concrete_value));
   }
 }
 
@@ -169,16 +213,19 @@ PolymorphicValue ExpressionEvaluator::getValue(const Val* value) {
 }
 
 void ExpressionEvaluator::print() const {
+  using namespace PolymorphicValue_functions;
+
   debug() << "\nEvaluation context\n";
   debug() << "--------------------\n";
+
   for (const auto& kv : known_values_) {
     TORCH_INTERNAL_ASSERT(!kv.first->isConstScalar());
-    debug() << kv.first << " = " << kv.second << " ; "
+    debug() << kv.first << " = " << toString(kv.second) << " ; "
             << *kv.first->getValType() << "\n";
   }
 
   for (const auto& kv : known_named_scalars_) {
-    debug() << kv.first << " = " << kv.second << " ;\n";
+    debug() << kv.first << " = " << toString(kv.second) << " ;\n";
   }
 
   debug() << "\nPre-computed Values\n";

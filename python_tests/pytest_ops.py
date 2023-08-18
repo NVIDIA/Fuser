@@ -4,15 +4,15 @@
 # Owner(s): ["module: nvfuser"]
 
 import torch
+import pytest
 import numpy as np
 
-from torch.testing import assert_close
 from pytest_fusion_definitions import default_fd_fn, parse_inputs_fusion_definition
 from pytest_framework import create_op_test
 from pytest_core import ReferenceType, OpInfo, SampleInput
 from pytest_opinfos import opinfos
 from pytest_utils import ArgumentType, is_tensor
-from typing import Callable, Optional
+from typing import Callable
 
 from nvfuser import FusionDefinition
 
@@ -26,10 +26,14 @@ def parse_args_fusion_execution(opinfo: OpInfo, *args):
     if len(args) == 0:
         return []
 
+    if opinfo.symbolic_parameter_list is None:
+        opinfo.symbolic_parameter_list = [ArgumentType.Symbolic] * len(args)
+    assert len(opinfo.symbolic_parameter_list) == len(args)
+
     result = []
     for arg_type, a in zip(opinfo.symbolic_parameter_list, args):
         if arg_type == ArgumentType.Symbolic:
-            if type(a) is list and all(map(is_tensor, a)):
+            if isinstance(a, list) and all(map(is_tensor, a)):
                 result.extend(a)
             else:
                 result.append(a)
@@ -51,7 +55,11 @@ def torch_correctness_test_fn(fd_fn: Callable, nvf_op: OpInfo, sample: SampleInp
     if len(nvfuser_result) == 1:
         nvfuser_result = nvfuser_result[0]
 
-    assert_close(nvfuser_result, torch_result, equal_nan=True, atol=1e-3, rtol=0)
+    # TODO If dtype is fp16 or bf16, skip dtype check because nvfuser promotes to fp32 but does not return original dtype.
+    # TODO Add specific dtype tolerances
+    torch.testing.assert_close(
+        nvfuser_result, torch_result, equal_nan=True, atol=1e-3, rtol=0
+    )
 
 
 def jax_correctness_test_fn(fd_fn: Callable, nvf_op: OpInfo, sample: SampleInput):
@@ -75,8 +83,46 @@ def jax_correctness_test_fn(fd_fn: Callable, nvf_op: OpInfo, sample: SampleInput
         nvfuser_result = nvfuser_result[0]
 
     # NOTE: dtype is not checked because jax will translate int64, float64, and complex128 to int32, float32 and complex64
-    assert_close(
+    torch.testing.assert_close(
         nvfuser_result, jax_result, equal_nan=True, atol=1e-3, rtol=0, check_dtype=False
+    )
+
+
+def python_correctness_test_fn(fd_fn: Callable, nvf_op: OpInfo, sample: SampleInput):
+    # python reference function does not accept keyword arguments
+    assert len(sample.kwargs) == 0
+
+    with FusionDefinition() as fd:
+        fd_fn(fd, nvf_op, *sample.args)
+    nvfuser_result = fd.execute(parse_args_fusion_execution(nvf_op, *sample.args))
+
+    # expect only single result from function
+    assert len(nvfuser_result) == 1
+
+    # convert tensor arguments into flat, python lists
+    python_sample = sample.python()
+
+    # apply reference to python lists
+    python_result = map(nvf_op.reference, *python_sample.args)
+
+    # create pytorch tensor
+    np_array = np.array(list(python_result))
+    if np_array.shape == ():
+        python_result = torch.tensor(
+            np_array.item(), dtype=nvfuser_result[0].dtype, device="cuda"
+        )
+    else:
+        python_result = torch.asarray(
+            np_array, dtype=nvfuser_result[0].dtype, device="cuda"
+        )
+
+    # reshape flat output tensor into expected shape
+    torch.testing.assert_close(
+        nvfuser_result[0],
+        python_result.reshape(nvfuser_result[0].shape),
+        equal_nan=True,
+        atol=1e-3,
+        rtol=0,
     )
 
 
@@ -94,6 +140,8 @@ def correctness_test_fn(
         return torch_correctness_test_fn(_fd_fn, nvf_op, sample)
     elif reference_type == ReferenceType.Jax:
         return jax_correctness_test_fn(_fd_fn, nvf_op, sample)
+    elif reference_type == ReferenceType.Python:
+        return python_correctness_test_fn(_fd_fn, nvf_op, sample)
     else:
         return None
 
@@ -110,44 +158,34 @@ def test_correctness(op: OpInfo, dtype: torch.dtype):
 
 
 def definition_op_in_schedule_error_test_fn(opinfo: OpInfo, sample: SampleInput):
-    inputs = [
-        torch.randn(8, 8, 8, device="cuda"),
-    ]
-
     class SchedError(FusionDefinition):
         def definition(self):
-            self.t0 = fd.from_pytorch(inputs[0], static_sizes=True)
-            self.t1 = fd.ops.tanh(fd.t0)
-            self.add_output(fd.t1)
+            # Create default fusion definition
+            nvf_inputs = parse_inputs_fusion_definition(self, opinfo, *sample.args)
+            result = opinfo.op(fd)(*nvf_inputs, **sample.kwargs)
+            if isinstance(result, tuple):
+                for a in result:
+                    self.add_output(a)
+            else:
+                self.add_output(result)
 
         def schedule(self):
-            nvf_inputs = parse_inputs_fusion_definition(fd, opinfo, *sample.args)
+            # Attempt to add fusion operation during scheduling
+            nvf_inputs = parse_inputs_fusion_definition(self, opinfo, *sample.args)
             opinfo.op(self)(*nvf_inputs, **sample.kwargs)
 
-    exception = None
-    try:
-        fd = SchedError()
-        fd.execute(parse_args_fusion_execution(opinfo, *sample.args))
-    except Exception as e:
-        exception = e
-
-    assert exception is not None, "Expected an exception"
-    exception_str = "Attempting to add to a completed definition!"
-    assert exception_str in str(
-        exception
-    ), "Failed to find correct expection error message"
+    fd = SchedError()
+    nvfuser_result = fd.execute(parse_args_fusion_execution(opinfo, *sample.args))
 
 
 # TODO Maybe only test a single dtype
 @create_op_test(tuple(op for op in opinfos if op.sample_input_generator is not None))
 def test_definition_op_in_schedule_error(op: OpInfo, dtype: torch.dtype):
-    for sample in op.sample_input_generator(op, torch.float32):
-        result = definition_op_in_schedule_error_test_fn(
-            op,
-            sample,
-        )
-        if result is not None:
-            return result
+    for sample in op.sample_input_generator(op, dtype):
+        with pytest.raises(
+            RuntimeError, match=r"Attempting to add to a completed definition"
+        ):
+            definition_op_in_schedule_error_test_fn(op, sample)
 
 
 # ****** Check that an Operation's API Gives Appropriate Input Errors ******
@@ -156,39 +194,28 @@ def test_definition_op_in_schedule_error(op: OpInfo, dtype: torch.dtype):
 def errors_test_fn(
     nvf_op: OpInfo,
     sample: SampleInput,
-    exception_type: Exception,
-    exception_str: Optional[str],
 ):
     _fd_fn = (
         nvf_op.fd_error_input_fn
         if nvf_op.fd_error_input_fn is not None
         else default_fd_fn
     )
-    exception = None
-    try:
-        with FusionDefinition() as fd:
-            _fd_fn(fd, nvf_op, *sample.args, **sample.kwargs)
-        fd.execute(parse_args_fusion_execution(nvf_op, *sample.args))
-    except Exception as e:
-        exception = e
+    with FusionDefinition() as fd:
+        _fd_fn(fd, nvf_op, *sample.args, **sample.kwargs)
+    fd.execute(parse_args_fusion_execution(nvf_op, *sample.args))
 
-    assert exception is not None, "Expected an exception"
-    assert exception_type is type(
-        exception
-    ), f"Expected an exception with type {exception_type} and message {exception_str}, but found exception={exception}"
-    assert exception_str is None or exception_str in str(
-        exception
-    ), f"Failed to match exception -- Expected exception: {exception_str}, Found exception: {exception}"
+
+# A pair of parentheses () represents a capture group in regex.
+# Escape parenthesis in regex string to match raw characters.
+def _regex_escape_parenthesis(a: str) -> str:
+    b = a.replace(r"(", r"\(")
+    return b.replace(r")", r"\)")
 
 
 @create_op_test(tuple(op for op in opinfos if op.error_input_generator is not None))
 def test_errors(op: OpInfo, dtype: torch.dtype):
-    for sample, ex_type, ex_regex in op.error_input_generator(op, dtype):
-        result = errors_test_fn(
-            op,
-            sample,
-            ex_type,
-            ex_regex,
-        )
-        if result is not None:
-            return result
+    for sample, exception_type, exception_regex in op.error_input_generator(op, dtype):
+        with pytest.raises(
+            exception_type, match=_regex_escape_parenthesis(exception_regex)
+        ):
+            errors_test_fn(op, sample)
