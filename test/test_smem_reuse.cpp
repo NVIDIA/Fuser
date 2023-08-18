@@ -107,6 +107,7 @@ TEST_F(SmemReuseTest, SimpleCase) {
     ExpressionEvaluator ee;
     int64_t smem_usage = 0;
     for (auto alloc : gpulw.kernel()->summary().dynamic_smem_allocations) {
+      EXPECT_NE(alloc->address(), nullptr);
       auto addr = ee.evaluate(alloc->address()).as<int64_t>();
       auto size = ee.evaluate(alloc->size()).as<int64_t>() *
           dataTypeSize(alloc->buffer()->dtype());
@@ -143,35 +144,31 @@ TEST_F(SmemReuseTest, NeedsReorderedPush) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
-  int64_t H_int = 5, W_int = 6;
-  auto H = IrBuilder::create<Val>(H_int);
-  auto W = IrBuilder::create<Val>(W_int);
+  int64_t H = 5;
 
-  auto tv0 = full({H}, fusion->oneVal(), DataType::Float);
-  auto tv1 = set(tv0); // pos = a. A = tv1
+  auto tv0 = full(
+      {IrBuilder::create<Val>(H)},
+      fusion->oneVal(),
+      DataType::Float); // pos = a. A = tv0
+  tv0->setMemoryType(MemoryType::Shared);
+
+  auto tv1 =
+      pad(tv0, {fusion->zeroVal(), fusion->oneVal()}); // pos = b. B = tv1
   tv1->setMemoryType(MemoryType::Shared);
 
-  auto tv2 = full({W}, fusion->oneVal(), DataType::Float); // pos = b. B = tv2
-  tv2->setMemoryType(MemoryType::Shared);
+  auto tv2 = mul(tv1, tv1); // pos = c
 
-  auto tv3 = add(tv1, tv1); // pos = c
+  auto tv3 = sum(tv2, {0}); // gap between b and c. Can parallelize to sync
 
-  auto tv4 = sum(tv3, {0}); // gap between b and c
-  fusion->addOutput(tv4);
+  auto tv4 = broadcast(tv3, {true});
+  auto tv5 = mul(tv4, tv1); // pos = d. C = tv5
+  tv5->setMemoryType(MemoryType::Shared);
 
-  auto tv5 = broadcast(tv4, {true});
-  auto tv6 = mul(tv5, tv3);
+  auto tv6 = add(tv1, tv1); // pos = e
+  fusion->addOutput(tv6);
 
-  auto tv7 = broadcast(tv6, {true, false});
-  auto tv8 = broadcast(tv2, {false, true});
-  auto tv9 = mul(tv7, tv8); // pos = d. C = tv9
-  tv9->setMemoryType(MemoryType::Shared);
-
-  auto tv10 = add(tv2, tv2); // pos = e
-  fusion->addOutput(tv10);
-
-  auto tv11 = neg(tv9); // pos = f
-  fusion->addOutput(tv11);
+  auto tv7 = neg(tv5); // pos = f
+  fusion->addOutput(tv7);
 
   { // This should not re-use memory
     GpuLower gpulw(fusion.get());
@@ -180,6 +177,7 @@ TEST_F(SmemReuseTest, NeedsReorderedPush) {
     std::unordered_set<int64_t> addresses;
     int64_t smem_usage = 0;
     for (auto alloc : gpulw.kernel()->summary().dynamic_smem_allocations) {
+      EXPECT_NE(alloc->address(), nullptr);
       auto addr = ee.evaluate(alloc->address()).as<int64_t>();
       TORCH_CHECK(
           addresses.insert(addr).second,
@@ -189,24 +187,23 @@ TEST_F(SmemReuseTest, NeedsReorderedPush) {
       smem_usage = std::max(smem_usage, addr + size);
     }
     EXPECT_EQ(
-        smem_usage,
-        alignInt(alignInt(H_int * W_int * 4) + W_int * 4) + H_int * 4);
+        smem_usage, alignInt(alignInt((H + 1) * 4) + (H + 1) * 4) + H * 4);
   }
 
   { // Now introduce a block reduction and check that we re-use memory
-
-    tv4->axis(0)->parallelize(ParallelType::TIDx);
+    tv3->axis(0)->parallelize(ParallelType::TIDx);
 
     GpuLower gpulw(fusion.get());
     ExpressionEvaluator ee;
     int64_t smem_usage = 0;
     for (auto alloc : gpulw.kernel()->summary().dynamic_smem_allocations) {
+      EXPECT_NE(alloc->address(), nullptr);
       auto addr = ee.evaluate(alloc->address()).as<int64_t>();
       auto size = ee.evaluate(alloc->size()).as<int64_t>() *
           dataTypeSize(alloc->buffer()->dtype());
       smem_usage = std::max(smem_usage, addr + size);
     }
-    EXPECT_EQ(smem_usage, alignInt(H_int * 4) + W_int * H_int * 4);
+    EXPECT_EQ(smem_usage, alignInt((H + 1) * 4) + (H + 1) * 4);
   }
 }
 
