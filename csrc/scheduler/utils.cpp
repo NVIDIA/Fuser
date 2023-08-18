@@ -178,8 +178,7 @@ std::optional<size_t> mergeDims(
       tv->reorder({{inner, outer}, {outer, inner}});
       std::swap(inner, outer);
     }
-    // since inner is merged, we need to adjust outer index, so `outer--`
-    tv->merge(outer--, inner);
+    tv->merge(outer, inner);
 
     // compensate future indices for the diminishing inner.
     for (size_t j = i+1; j < to_merge.size(); j++) {
