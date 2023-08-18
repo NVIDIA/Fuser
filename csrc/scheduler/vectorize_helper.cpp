@@ -120,10 +120,14 @@ ContiguousInnerDimensionsMapper::ContiguousInnerDimensionsMapper(
   //     reordered_rfactor.clear();
   //   }
   // }
+  auto projected_rfactor = projectId(ids, reference->getMaybeRFactorDomain()),
+  for (auto id : projected_rfactor) {
+      addProjectedExtent(id, commonOrConstExtent(ca_map_, id));
+  }
 
   std::shared_ptr<Information> reference_information = MappedDomain::build(
-      projectId(reference->getMaybeRFactorDomain(), ids),
-      reference->getMaybeRFactorDomain(),
+      projectId(projected_rfactor, reference->getRootDomain()),
+      projected_rfactor,
       // projectId(reordered_rfactor, reference->getRootDomain()),
       // reordered_rfactor,
       reference->hasRFactor() /*shouldn't matter how we initialize this*/);

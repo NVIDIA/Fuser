@@ -763,11 +763,11 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
     scheduler_utils::splitDims(reference1, params->split_before_tiling);
 
     std::vector<IterDomain*> virtual_innermost1;
-    virtual_innermost1.push_back(
-        reference1->getMaybeRFactorDomain()[inner_most_pos1_in_ref1]);
     for (const auto& dim : params->dims_merged_with_1) {
       virtual_innermost1.push_back(reference1->axis(static_cast<int>(dim)));
     }
+    virtual_innermost1.push_back(
+        reference1->getMaybeRFactorDomain()[inner_most_pos1_in_ref1]);
 
     // NOTE: do I need to consider stride here?! sounds like
     // ContiguousInnerDimensionsMapper::map requires reference1 to be
@@ -800,10 +800,10 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
     // done smarter. I suspect getMappedRootDimIn doesn't handle merge/split
     // properly. See the TODO in Note: [Computing Vectorization Width for
     // Transpose]
-    virtual_innermost2.push_back(reference1->getMaybeRFactorDomain()[inner_most_pos2_in_ref1]);
     for (const auto& dim : params->dims_merged_with_2) {
       virtual_innermost2.push_back(reference1->axis(static_cast<int>(dim)));
     }
+    virtual_innermost2.push_back(reference1->getMaybeRFactorDomain()[inner_most_pos2_in_ref1]);
 
     auto group2_contig_inner_map =
         vectorize_helper::ContiguousInnerDimensionsMapper::map(
