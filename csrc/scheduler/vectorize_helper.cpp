@@ -129,7 +129,7 @@ ContiguousInnerDimensionsMapper::ContiguousInnerDimensionsMapper(
   // I'm wondering if we should instead canonicalize the key for projected extent
   auto map_rfactor = [this, &reference](IterDomain* id) {
     const auto& rfactor_dom = reference->getMaybeRFactorDomain();
-    IterDomain* mapped_id;
+    IterDomain* mapped_id = nullptr;
     for (auto i : c10::irange(rfactor_dom.size())) {
       if (this->ca_map_->idGraph().exactNodes().permissiveAreMapped(
               rfactor_dom[i], id)) {
@@ -140,7 +140,10 @@ ContiguousInnerDimensionsMapper::ContiguousInnerDimensionsMapper(
     return mapped_id;
   };
   for (auto id : projected_rfactor) {
-      addProjectedExtent(map_rfactor(id), commonOrConstExtent(ca_map_, id));
+      auto mapped_id = map_rfactor(id);
+      // TODO: should I just skip when id isn't mapped?!?! maybe clear left
+      TORCH_INTERNAL_ASSERT(mapped_id != nullptr, "projected iter domain cannot be found")
+      addProjectedExtent(mapped_id, commonOrConstExtent(ca_map_, id));
   }
 
   std::shared_ptr<Information> reference_information = MappedDomain::build(
