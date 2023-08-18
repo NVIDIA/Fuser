@@ -172,23 +172,26 @@ std::optional<size_t> mergeDims(
   }
   auto inner = to_merge[0];
 
-  for (auto i = i; i < to_merge.size(); i++) {
+  for (size_t i = 1; i < to_merge.size(); i++) {
     auto outer = to_merge[i];
-    if (outer < inner) {
+    if (outer > inner) {
       tv->reorder({{inner, outer}, {outer, inner}});
       std::swap(inner, outer);
     }
-    tv->merge(outer, inner);
-    for (auto j = i+1; j < to_merge.size(); j++) {
+    // since inner is merged, we need to adjust outer index, so `outer--`
+    tv->merge(outer--, inner);
+
+    // compensate future indices for the diminishing inner.
+    for (size_t j = i+1; j < to_merge.size(); j++) {
       if (to_merge[j] > inner) {
         to_merge[j]--;
       }
     }
-    for (auto& i : to_update) {
-      if (i == inner) {
-        i = outer;
-      } else if (i > inner) {
-        i--;
+    for (auto& val : to_update) {
+      if (val == inner) {
+        val = outer;
+      } else if (val > inner) {
+        val--;
       }
     }
     inner = outer;
