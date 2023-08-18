@@ -120,7 +120,7 @@ ContiguousInnerDimensionsMapper::ContiguousInnerDimensionsMapper(
   //     reordered_rfactor.clear();
   //   }
   // }
-  auto projected_rfactor = projectId(ids, reference->getMaybeRFactorDomain()),
+  auto projected_rfactor = projectId(ids, reference->getMaybeRFactorDomain());
   for (auto id : projected_rfactor) {
       addProjectedExtent(id, commonOrConstExtent(ca_map_, id));
   }
