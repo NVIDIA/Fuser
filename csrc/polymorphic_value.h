@@ -255,6 +255,30 @@ using PolymorphicValue = DynamicType<
 
 namespace PolymorphicValue_functions {
 
+inline std::string toString(const PolymorphicValue& v) {
+  std::stringstream ss;
+  if (v.is<at::Tensor>()) {
+    const auto& t = v.as<at::Tensor>();
+    ss << "Tensor(sizes=" << t.sizes() << ", "
+       << "stride=" << t.strides() << ", " << t.dtype() << ", " << t.device()
+       << ")";
+  } else {
+    ss << v;
+  }
+  return ss.str();
+}
+
+inline bool isSame(const PolymorphicValue& a, const PolymorphicValue& b) {
+  if (a.type() != b.type()) {
+    return false;
+  }
+  if (a.is<at::Tensor>() && b.is<at::Tensor>()) {
+    return (a.as<at::Tensor>().is_same(b.as<at::Tensor>()));
+  } else {
+    return (a == b);
+  }
+}
+
 inline PolymorphicValue ceildiv(
     const PolymorphicValue& a,
     const PolymorphicValue& b) {
