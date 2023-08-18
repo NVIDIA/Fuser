@@ -1100,4 +1100,20 @@ TEST_F(DynamicTypeTest, FromContainerToContainer) {
 
 } // namespace container_test
 
+
+TEST_F(DynamicTypeTest, Hash) {
+  static_assert(has_cross_type_equality<DoubleInt64Bool>);
+  using IntOrStr = DynamicType<NoContainers, int64_t, std::string>;
+  static_assert(!has_cross_type_equality<IntOrStr>);
+  std::unordered_map<IntOrStr, double> m;
+  m[IntOrStr(0L)] = 0;
+  m[IntOrStr(299792458L)] = 299792458;
+  m[IntOrStr("speed of light")] = 299792458;
+  m[IntOrStr("pi")] = 3.14159;
+  EXPECT_EQ(m.at(IntOrStr(0L)), 0);
+  EXPECT_EQ(m.at(IntOrStr(299792458L)), 299792458);
+  EXPECT_EQ(m.at(IntOrStr("speed of light")), 299792458);
+  EXPECT_EQ(m.at(IntOrStr("pi")), 3.14159);
+}
+
 } // namespace nvfuser
