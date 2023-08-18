@@ -1008,7 +1008,11 @@ TEST_F(NVFuserTest, CombinedReductionMultiPerBlock_CUDA) {
 // The fusion is layer norm backward and reshape. It's can't be scheduled as
 // unsegmented since normalization scheduler is not allowed if there is a view
 // op. It should be segmented into two kernels, one is using the combined
-// scheduler and the other is using the pointwise scheduler.
+// scheduler and the other is using the pointwise scheduler. When fixing issue
+// 744, combined scheduler is disabled if it was previously rejected due to not
+// enough shared memory and register for persistence. This test is to make sure
+// the combined scheduler can still be used if the fusion is segmented due to
+// other reasons.
 TEST_F(NVFuserTest, CombinedSchedulerReshapeSegmentedFusion_CUDA) {
   auto runTest = [](const int64_t batch_size,
                     const int64_t hidden_size,
@@ -1131,5 +1135,181 @@ TEST_F(NVFuserTest, CombinedSchedulerReshapeSegmentedFusion_CUDA) {
   int64_t batch_shape = 8192;
   int64_t norm_shape = 2048;
   runTest(batch_shape, norm_shape, dtype);
+}
+
+// When broadcast_in_dim is used in Python fusion definition, it is converted to
+// broadcast and expand. When there is not enough shared memory and register for
+// persistence, the fusion is segmented into two kernels: one is using the
+// combined scheduler and the other is using the transpose scheduler. This
+// segmentation is not optimal due to extra inter-segment tensors and extra
+// transpose. See issue 744. PR-722 fixed this issue by disabling the use of
+// combined scheduler if it was previously rejected due to not enough shared
+// memory and register for persistence. Consequently, the fusion now splits into
+// two kernels: one using the inner scheduler and the other using the outer
+// scheduler
+TEST_F(NVFuserTest, CombinedSchedulerSegmentInnerOuter_CUDA) {
+  auto runTest = [](const int64_t batch_size,
+                    const int64_t hidden_size,
+                    DataType dtype,
+                    bool explicit_expand) {
+    std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+    Fusion& fusion = *fusion_ptr.get();
+    FusionGuard fg(&fusion);
+
+    std::vector<int64_t> input_shape{batch_size, hidden_size};
+    std::vector<int64_t> outer_shape{batch_size};
+    std::vector<int64_t> norm_shape{hidden_size};
+
+    auto grad_out = makeContigTensor(input_shape.size(), dtype);
+    auto input = makeContigTensor(input_shape.size(), dtype);
+    auto mean = makeContigTensor(
+        outer_shape.size(), dtype == DataType::Half ? DataType::Float : dtype);
+    auto rstd = makeContigTensor(
+        outer_shape.size(), dtype == DataType::Half ? DataType::Float : dtype);
+    auto weight = makeContigTensor(norm_shape.size(), dtype);
+    auto bias = makeContigTensor(norm_shape.size(), dtype);
+    fusion.addInput(grad_out);
+    fusion.addInput(input);
+    fusion.addInput(mean);
+    fusion.addInput(rstd);
+    fusion.addInput(weight);
+    fusion.addInput(bias);
+
+    if (dtype == DataType::Half) {
+      grad_out = castOp(DataType::Float, grad_out);
+      input = castOp(DataType::Float, input);
+      weight = castOp(DataType::Float, weight);
+      bias = castOp(DataType::Float, bias);
+    }
+
+    std::vector<Val*> expanded_sizes;
+    for (auto i : input_shape) {
+      expanded_sizes.push_back(IrBuilder::create<Val>(i));
+    }
+    std::vector<bool> inner_broadcast_mask{false, true};
+    std::vector<bool> outer_broadcast_mask{true, false};
+    std::vector<int> inner_reduction_axes{1};
+    std::vector<int> outer_reduction_axes{0};
+
+    Val* num_features = IrBuilder::create<Val>(hidden_size);
+    mean = broadcast(mean, inner_broadcast_mask);
+    rstd = broadcast(rstd, inner_broadcast_mask);
+    if (explicit_expand) {
+      mean = expand(mean, expanded_sizes);
+      rstd = expand(rstd, expanded_sizes);
+    }
+    auto x_hat = mul(sub(input, mean), rstd);
+
+    auto bcast_weight = broadcast(weight, outer_broadcast_mask);
+    if (explicit_expand) {
+      bcast_weight = expand(bcast_weight, expanded_sizes);
+    }
+    auto grad_x_hat = mul(grad_out, bcast_weight);
+    auto a = mul(num_features, grad_x_hat);
+    auto b = sum(grad_x_hat, inner_reduction_axes);
+    auto bcast_b = broadcast(b, inner_broadcast_mask);
+    if (explicit_expand) {
+      bcast_b = expand(bcast_b, expanded_sizes);
+    }
+
+    auto c1 = mul(grad_x_hat, x_hat);
+    auto c2 = sum(c1, inner_reduction_axes);
+    auto bcast_c2 = broadcast(c2, inner_broadcast_mask);
+    if (explicit_expand) {
+      bcast_c2 = expand(bcast_c2, expanded_sizes);
+    }
+    auto c3 = mul(x_hat, bcast_c2);
+
+    auto inner = sub(sub(a, bcast_b), c3);
+    auto reciprocal_size = reciprocal(num_features);
+    auto dx = mul(mul(reciprocal_size, rstd), inner);
+    auto dw = sum(mul(grad_out, x_hat), outer_reduction_axes);
+    auto db = sum(grad_out, outer_reduction_axes);
+
+    if (dtype == DataType::Half) {
+      dx = castOp(dtype, dx);
+      dw = castOp(dtype, dw);
+      db = castOp(dtype, db);
+    }
+    fusion.addOutput(dx);
+    fusion.addOutput(dw);
+    fusion.addOutput(db);
+
+    auto maybe_fp16_options = at::TensorOptions()
+                                  .dtype(data_type_to_aten(dtype))
+                                  .device(at::kCUDA, 0);
+    at::Tensor aten_grad_out = at::randn(input_shape, maybe_fp16_options);
+    at::Tensor aten_input = at::randn(input_shape, maybe_fp16_options);
+    at::Tensor aten_weight = at::randn(norm_shape, maybe_fp16_options);
+    at::Tensor aten_bias = at::randn(norm_shape, maybe_fp16_options);
+    auto at_weight = c10::optional<at::Tensor>(aten_weight);
+    auto at_bias = c10::optional<at::Tensor>(aten_bias);
+
+    const float kEps = 1e-5;
+    auto aten_results =
+        at::native_layer_norm(aten_input, norm_shape, at_weight, at_bias, kEps);
+    auto aten_output = std::get<0>(aten_results);
+    auto aten_mean = std::get<1>(aten_results).squeeze();
+    auto aten_rstd = std::get<2>(aten_results).squeeze();
+
+    FusionExecutorCache fec(std::move(fusion_ptr));
+    std::vector<c10::IValue> aten_inputs = {
+        aten_grad_out,
+        aten_input,
+        aten_mean,
+        aten_rstd,
+        aten_weight,
+        aten_bias};
+    auto cg_outputs = fec.runFusionWithInputs(aten_inputs);
+
+    auto aten_gradients = at::native_layer_norm_backward(
+        aten_grad_out.to(at::kDouble),
+        aten_input.to(at::kDouble),
+        norm_shape,
+        aten_mean.to(at::kDouble),
+        aten_rstd.to(at::kDouble),
+        c10::optional<at::Tensor>(aten_weight.to(at::kDouble)),
+        c10::optional<at::Tensor>(aten_bias.to(at::kDouble)),
+        {true, true, true});
+
+    const int64_t n_segments =
+        fec.getMostRecentKernelRuntime()->fusionSegments()->groups().size();
+    ASSERT_TRUE(n_segments == 2) << "Expected 2 segments, got " << n_segments;
+    bool inner_segment_found = false;
+    bool outer_segment_found = false;
+    for (int i = 0; i < n_segments; i++) {
+      auto heuristic_params = fec.getMostRecentKernelRuntime()
+                                  ->schedulerHeuristics()
+                                  ->heuristicsList()
+                                  .at(i)
+                                  ->params();
+      if (heuristic_params->isA<ReductionParams>()) {
+        auto rparams = heuristic_params->as<ReductionParams>();
+        if (rparams->fastest_dim) {
+          inner_segment_found = true;
+        } else if (!rparams->combined_inner_outer) {
+          outer_segment_found = true;
+        }
+      }
+    }
+    ASSERT_TRUE(inner_segment_found) << "Inner scheduler is not used!";
+    ASSERT_TRUE(outer_segment_found) << "Outer scheduler is not used!";
+
+    testValidate(
+        &fusion,
+        cg_outputs,
+        aten_inputs,
+        {std::get<0>(aten_gradients),
+         std::get<1>(aten_gradients),
+         std::get<2>(aten_gradients)},
+        __LINE__,
+        __FILE__);
+  };
+
+  DataType dtype = DataType::Half;
+  int64_t batch_shape = 216;
+  int64_t norm_shape = 20480;
+  runTest(batch_shape, norm_shape, dtype, false);
+  runTest(batch_shape, norm_shape, dtype, true);
 }
 } // namespace nvfuser
