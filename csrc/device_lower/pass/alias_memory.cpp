@@ -1978,10 +1978,23 @@ std::pair<std::vector<Expr*>, bool> insertRequestedReuseSyncs(
 // Assign addresses for dynamic shared memory allocations. This re-uses memory
 // by reclaiming memory that is unused when encountering a block
 // synchronization.
-void allocateSharedMemoryAllocations(
+void assignSharedMemoryAllocations(
     const std::vector<Expr*>& exprs,
     AllocationInfoMap& allocation_info_map) {
   StackBasedSharedMemAllocator(allocation_info_map).allocate(exprs);
+
+  // Verify that all smem allocations have a non-null address now
+  for (auto& alloc_info : allocation_info_map.allAllocationInfos()) {
+    if (alloc_info->mem_type != MemoryType::Shared || alloc_info->alias_to) {
+      continue;
+    }
+    auto alloc = alloc_info->alloc_expr;
+    TORCH_INTERNAL_ASSERT(
+        alloc->address(),
+        "Unaliased allocation for shared memory tensor ",
+        alloc->buffer()->toString(),
+        " was not assigned an address");
+  }
 }
 
 // Entry point for all memory re-use including unsynced aliasing as well as
@@ -2005,7 +2018,7 @@ std::vector<Expr*> reuseMemoryAllocations(const std::vector<Expr*>& exprs) {
     allocation_info_map = AllocationInfoMap(synced_exprs, false);
   }
 
-  allocateSharedMemoryAllocations(synced_exprs, allocation_info_map);
+  assignSharedMemoryAllocations(synced_exprs, allocation_info_map);
 
   return synced_exprs;
 }
