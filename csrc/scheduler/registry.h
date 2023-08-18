@@ -122,7 +122,11 @@ class TORCH_CUDA_CU_API SchedulerRuntimeInfo : public NonCopyable {
     return scheduler_reject_reasons_;
   }
 
-  void setRejectReasonMap(
+  // This is used to copy the reject reason map from the complete fusion
+  // SchedulerRuntimeInfo to the segmented fusion SchedulerRuntimeInfo.
+  // The map is small, so we just copy the whole map. If it is grows large, we
+  // can only copy items that are relevant to the segmented fusion scheduler.
+  void copyRejectReasonMapFromOtherObject(
       const std::unordered_map<ScheduleHeuristic, SchedulerRejectReason>&
           reject_reasons) {
     scheduler_reject_reasons_ = reject_reasons;
