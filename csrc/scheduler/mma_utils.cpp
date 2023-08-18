@@ -49,9 +49,13 @@ bool generateSharedMemoryEpilogueHeuristics(
   const size_t smem_c = (size_t)(gemm_tile.cta_tile.m * gemm_tile.cta_tile.n) *
       dataTypeSize(data_types[2]);
 
+  const size_t total_without_smem_epilogue = smem_a + smem_b;
+  // Note that we reclaim smem_a and smem_b before allocating smem_c
+  const size_t total_with_smem_epilogue = std::max(smem_a + smem_b, smem_c);
+
   // shortcut where occupancy change is ignored.
   if (ignore_occupancy_drop) {
-    return shared_memory_available >= smem_a + smem_b + smem_c;
+    return shared_memory_available >= total_with_smem_epilogue;
   }
 
   // use additional shared memory for epilogue if occupancy is not changed.
@@ -59,10 +63,10 @@ bool generateSharedMemoryEpilogueHeuristics(
   const auto threads_per_sm = getThreadsPerSMGivenRegPerThread(255);
   const auto blocks_per_sm_by_register = threads_per_sm / threads_per_block;
   const auto blocks_per_sm_without_smem_epilogue = std::min(
-      shared_memory_available / (smem_a + smem_b),
+      shared_memory_available / total_without_smem_epilogue,
       (size_t)blocks_per_sm_by_register);
   const auto blocks_per_sm_with_smem_epilogue = std::min(
-      shared_memory_available / (smem_a + smem_b + smem_c),
+      shared_memory_available / total_with_smem_epilogue,
       (size_t)blocks_per_sm_by_register);
 
   return blocks_per_sm_with_smem_epilogue ==
