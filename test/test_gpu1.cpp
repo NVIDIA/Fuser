@@ -925,9 +925,9 @@ TEST_F(NVFuserTest, FusionOuterSplit_CUDA) {
   FusionGuard fg(&fusion);
 
   TensorView* tv0 = full(
-      {IrBuilder::create<Val>(2),
-       IrBuilder::create<Val>(6),
-       IrBuilder::create<Val>(32)},
+      {IrBuilder::create<Val>(2L),
+       IrBuilder::create<Val>(6L),
+       IrBuilder::create<Val>(32L)},
       IrBuilder::create<Val>(1.0, DataType::Float),
       DataType::Float);
 
@@ -966,9 +966,9 @@ TEST_F(NVFuserTest, FusionCodeGen_CUDA) {
   FusionGuard fg(&fusion);
 
   TensorView* tv0 = full(
-      {IrBuilder::create<Val>(16),
-       IrBuilder::create<Val>(8),
-       IrBuilder::create<Val>(8)},
+      {IrBuilder::create<Val>(16L),
+       IrBuilder::create<Val>(8L),
+       IrBuilder::create<Val>(8L)},
       IrBuilder::create<Val>(1.0, DataType::Float),
       DataType::Float);
 
