@@ -1117,3 +1117,27 @@ TEST_F(DynamicTypeTest, Hash) {
 }
 
 } // namespace nvfuser
+
+template <>
+struct std::hash<nvfuser::DoubleInt64Bool> {
+  size_t operator()(const nvfuser::DoubleInt64Bool& x) const {
+    return 0;
+  }
+};
+
+namespace nvfuser {
+
+TEST_F(DynamicTypeTest, Hash2) {
+  std::unordered_map<DoubleInt64Bool, double> m;
+  m[DoubleInt64Bool(false)] = 0;
+  m[DoubleInt64Bool(299792458L)] = 299792458;
+  m[DoubleInt64Bool(3.14159)] = 3.14159;
+  EXPECT_EQ(m.at(DoubleInt64Bool(false)), 0);
+  EXPECT_EQ(m.at(DoubleInt64Bool(0L)), 0);
+  EXPECT_EQ(m.at(DoubleInt64Bool(0.0)), 0);
+  EXPECT_EQ(m.at(DoubleInt64Bool(299792458L)), 299792458);
+  EXPECT_EQ(m.at(DoubleInt64Bool(299792458.0)), 299792458);
+  EXPECT_EQ(m.at(DoubleInt64Bool(3.14159)), 3.14159);
+}
+
+} // namespace nvfuser

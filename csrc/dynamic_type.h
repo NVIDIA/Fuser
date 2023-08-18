@@ -1015,18 +1015,18 @@ constexpr bool has_cross_type_equality =
 // Hashing:
 
 template <typename Containers, typename... Ts>
-struct std::hash<nvfuser::DynamicType<Containers, Ts...>>
-    // The hashing should be consistent with the equality operator. That is, if
-    // a == b, then a and b should always has the same hash. However, because we
-    // are using the hashing function for std::variant as our hasing function,
-    // there is no way for us to guarantee this if there are cross-type
-    // equality. For example, 0 == 0.0, but they don't have the same hash value.
-    // So the hashing function for DynamicType<NoContainers, int, double> as
-    // defined here is illegal.
-    : public std::enable_if_t<
-          !nvfuser::has_cross_type_equality<
-              nvfuser::DynamicType<Containers, Ts...>>,
-          nvfuser::Void> {
+struct std::hash<nvfuser::DynamicType<Containers, Ts...>> {
+  // The hashing should be consistent with the equality operator. That is, if
+  // a == b, then a and b should always has the same hash. However, because we
+  // are using the hashing function for std::variant as our hasing function,
+  // there is no way for us to guarantee this if there are cross-type
+  // equality. For example, 0 == 0.0, but they don't have the same hash value.
+  // So the hashing function for DynamicType<NoContainers, int, double> as
+  // defined here is illegal.
+  static_assert(
+      !nvfuser::has_cross_type_equality<
+          nvfuser::DynamicType<Containers, Ts...>>,
+      "Hash function of DynamicType can not be automatically defined while there are cross-type equality.");
   using DT = nvfuser::DynamicType<Containers, Ts...>;
   std::size_t operator()(DT const& dt) const noexcept {
     return std::hash<typename DT::VariantType>{}(dt.value);
