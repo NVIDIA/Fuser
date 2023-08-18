@@ -7,7 +7,6 @@ import torch
 import pytest
 import numpy as np
 
-from torch.testing import assert_close
 from pytest_fusion_definitions import default_fd_fn, parse_inputs_fusion_definition
 from pytest_framework import create_op_test
 from pytest_core import ReferenceType, OpInfo, SampleInput
@@ -56,7 +55,11 @@ def torch_correctness_test_fn(fd_fn: Callable, nvf_op: OpInfo, sample: SampleInp
     if len(nvfuser_result) == 1:
         nvfuser_result = nvfuser_result[0]
 
-    assert_close(nvfuser_result, torch_result, equal_nan=True, atol=1e-3, rtol=0)
+    # TODO If dtype is fp16 or bf16, skip dtype check because nvfuser promotes to fp32 but does not return original dtype.
+    # TODO Add specific dtype tolerances
+    torch.testing.assert_close(
+        nvfuser_result, torch_result, equal_nan=True, atol=1e-3, rtol=0
+    )
 
 
 def jax_correctness_test_fn(fd_fn: Callable, nvf_op: OpInfo, sample: SampleInput):
@@ -80,8 +83,46 @@ def jax_correctness_test_fn(fd_fn: Callable, nvf_op: OpInfo, sample: SampleInput
         nvfuser_result = nvfuser_result[0]
 
     # NOTE: dtype is not checked because jax will translate int64, float64, and complex128 to int32, float32 and complex64
-    assert_close(
+    torch.testing.assert_close(
         nvfuser_result, jax_result, equal_nan=True, atol=1e-3, rtol=0, check_dtype=False
+    )
+
+
+def python_correctness_test_fn(fd_fn: Callable, nvf_op: OpInfo, sample: SampleInput):
+    # python reference function does not accept keyword arguments
+    assert len(sample.kwargs) == 0
+
+    with FusionDefinition() as fd:
+        fd_fn(fd, nvf_op, *sample.args)
+    nvfuser_result = fd.execute(parse_args_fusion_execution(nvf_op, *sample.args))
+
+    # expect only single result from function
+    assert len(nvfuser_result) == 1
+
+    # convert tensor arguments into flat, python lists
+    python_sample = sample.python()
+
+    # apply reference to python lists
+    python_result = map(nvf_op.reference, *python_sample.args)
+
+    # create pytorch tensor
+    np_array = np.array(list(python_result))
+    if np_array.shape == ():
+        python_result = torch.tensor(
+            np_array.item(), dtype=nvfuser_result[0].dtype, device="cuda"
+        )
+    else:
+        python_result = torch.asarray(
+            np_array, dtype=nvfuser_result[0].dtype, device="cuda"
+        )
+
+    # reshape flat output tensor into expected shape
+    torch.testing.assert_close(
+        nvfuser_result[0],
+        python_result.reshape(nvfuser_result[0].shape),
+        equal_nan=True,
+        atol=1e-3,
+        rtol=0,
     )
 
 
@@ -99,6 +140,8 @@ def correctness_test_fn(
         return torch_correctness_test_fn(_fd_fn, nvf_op, sample)
     elif reference_type == ReferenceType.Jax:
         return jax_correctness_test_fn(_fd_fn, nvf_op, sample)
+    elif reference_type == ReferenceType.Python:
+        return python_correctness_test_fn(_fd_fn, nvf_op, sample)
     else:
         return None
 
@@ -138,7 +181,7 @@ def definition_op_in_schedule_error_test_fn(opinfo: OpInfo, sample: SampleInput)
 # TODO Maybe only test a single dtype
 @create_op_test(tuple(op for op in opinfos if op.sample_input_generator is not None))
 def test_definition_op_in_schedule_error(op: OpInfo, dtype: torch.dtype):
-    for sample in op.sample_input_generator(op, torch.float32):
+    for sample in op.sample_input_generator(op, dtype):
         with pytest.raises(
             RuntimeError, match=r"Attempting to add to a completed definition"
         ):

@@ -450,7 +450,13 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     const bool has_alloc = alloc_map_.find(s) != alloc_map_.end();
     const bool is_param = kernel_params_.find(s) != kernel_params_.end();
     if (def != nullptr && !has_alloc && !is_param) {
-      code_ << "(" << genInline(def) << ")";
+      if (def->isOneOf<GetAttr, GetItem, GetMetaData>() ||
+          (def->isA<UnaryOp>() &&
+           !inline_op_str(def->as<UnaryOp>()->getUnaryOpType()).has_value())) {
+        code_ << genInline(def);
+      } else {
+        code_ << "(" << genInline(def) << ")";
+      }
     } else if (s->isConst()) {
       auto value = s->value();
       auto dtype = s->dtype();
@@ -475,7 +481,12 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           code_ << val << getLiteralSuffix(dtype);
         }
       } else if (value.is<std::complex<double>>()) {
-        code_ << "std::complex<double>" << value;
+        if (dtype == DataType::ComplexFloat) {
+          code_ << "std::complex<float>" << value;
+        } else {
+          TORCH_INTERNAL_ASSERT(dtype == DataType::ComplexDouble);
+          code_ << "std::complex<double>" << value;
+        }
       } else {
         TORCH_INTERNAL_ASSERT(
             false, "Unhandled constant type: ", s->dtype(), " ", value);
