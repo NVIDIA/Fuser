@@ -181,7 +181,7 @@ std::optional<size_t> mergeDims(
     tv->merge(outer, inner);
 
     // compensate future indices for the diminishing inner.
-    for (size_t j = i+1; j < to_merge.size(); j++) {
+    for (size_t j = i + 1; j < to_merge.size(); j++) {
       if (to_merge[j] > inner) {
         to_merge[j]--;
       }

@@ -764,7 +764,8 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
 
     std::vector<IterDomain*> virtual_innermost1;
     for (const auto& dim : params->dims_merged_with_1) {
-      virtual_innermost1.insert(virtual_innermost1.begin(), reference1->axis(static_cast<int>(dim)));
+      virtual_innermost1.insert(
+          virtual_innermost1.begin(), reference1->axis(static_cast<int>(dim)));
     }
     virtual_innermost1.push_back(
         reference1->getMaybeRFactorDomain()[inner_most_pos1_in_ref1]);
@@ -797,9 +798,11 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
     // that to individuals in group2.
     std::vector<IterDomain*> virtual_innermost2;
     for (const auto& dim : params->dims_merged_with_2) {
-      virtual_innermost2.insert(virtual_innermost2.begin(), reference1->axis(static_cast<int>(dim)));
+      virtual_innermost2.insert(
+          virtual_innermost2.begin(), reference1->axis(static_cast<int>(dim)));
     }
-    virtual_innermost2.push_back(reference1->getMaybeRFactorDomain()[inner_most_pos2_in_ref1]);
+    virtual_innermost2.push_back(
+        reference1->getMaybeRFactorDomain()[inner_most_pos2_in_ref1]);
 
     auto group2_contig_inner_map =
         vectorize_helper::ContiguousInnerDimensionsMapper::map(
@@ -1000,73 +1003,74 @@ void scheduleTranspose(Fusion* fusion, TransposeParams params) {
       domain_map.getInnerLeafDim(reference1, inner_most_id2);
   dims_group2.insert(dims_group2.begin(), inner_most_pos2_in_ref1);
 
-  auto merged1 = scheduler_utils::mergeDims(
-      reference1, dims_group1, dims_group2);
+  auto merged1 =
+      scheduler_utils::mergeDims(reference1, dims_group1, dims_group2);
   std::vector<size_t> merged1_vec;
   if (merged1.has_value()) {
     merged1_vec.push_back(*merged1);
   }
-  auto merged2 = scheduler_utils::mergeDims(
-      reference1, dims_group2, merged1_vec);
+  auto merged2 =
+      scheduler_utils::mergeDims(reference1, dims_group2, merged1_vec);
   if (merged1.has_value()) {
     inner_most_pos1_in_ref1 = merged1_vec[0];
   }
   if (merged2.has_value()) {
     inner_most_pos2_in_ref1 = *merged2;
   }
-  
-/*
-  // Merging reference 1's dims_merged_with_1 but updating dims_merged_with_2
-  // based on the changes in the dimensions that were merged. So we can then run
-  // merge with dims_merged_with_2.
-  auto merged1 = scheduler_utils::mergeDims(
-      reference1, params.dims_merged_with_1, params.dims_merged_with_2);
-  // Merging reference 1's dims_merged_with_2 and updating `merged1`.
-  std::vector<size_t> merged1_vec;
-  if (merged1.has_value()) {
-    merged1_vec.push_back(*merged1);
-  }
-  auto merged2 = scheduler_utils::mergeDims(
-      reference1, params.dims_merged_with_2, merged1_vec);
-  if (merged1.has_value()) {
-    merged1 = merged1_vec[0];
-  }
 
-  // merge with inner most dims to get virtual inner most dims
-  size_t inner_most_pos1_in_ref1 =
-      domain_map.getInnerLeafDim(reference1, inner_most_id1);
-  size_t inner_most_pos2_in_ref1 =
-      domain_map.getInnerLeafDim(reference1, inner_most_id2);
-  if (merged1.has_value()) {
-    if (inner_most_pos1_in_ref1 < *merged1) {
-      reference1->reorder(
-          {{*merged1, inner_most_pos1_in_ref1},
-           {inner_most_pos1_in_ref1, *merged1}});
-      std::swap(*merged1, inner_most_pos1_in_ref1);
+  /*
+    // Merging reference 1's dims_merged_with_1 but updating dims_merged_with_2
+    // based on the changes in the dimensions that were merged. So we can then
+    run
+    // merge with dims_merged_with_2.
+    auto merged1 = scheduler_utils::mergeDims(
+        reference1, params.dims_merged_with_1, params.dims_merged_with_2);
+    // Merging reference 1's dims_merged_with_2 and updating `merged1`.
+    std::vector<size_t> merged1_vec;
+    if (merged1.has_value()) {
+      merged1_vec.push_back(*merged1);
     }
-    if (inner_most_pos2_in_ref1 > inner_most_pos1_in_ref1) {
-      inner_most_pos2_in_ref1--;
+    auto merged2 = scheduler_utils::mergeDims(
+        reference1, params.dims_merged_with_2, merged1_vec);
+    if (merged1.has_value()) {
+      merged1 = merged1_vec[0];
     }
-    if (merged2.has_value() && *merged2 > inner_most_pos1_in_ref1) {
-      (*merged2)--;
+
+    // merge with inner most dims to get virtual inner most dims
+    size_t inner_most_pos1_in_ref1 =
+        domain_map.getInnerLeafDim(reference1, inner_most_id1);
+    size_t inner_most_pos2_in_ref1 =
+        domain_map.getInnerLeafDim(reference1, inner_most_id2);
+    if (merged1.has_value()) {
+      if (inner_most_pos1_in_ref1 < *merged1) {
+        reference1->reorder(
+            {{*merged1, inner_most_pos1_in_ref1},
+             {inner_most_pos1_in_ref1, *merged1}});
+        std::swap(*merged1, inner_most_pos1_in_ref1);
+      }
+      if (inner_most_pos2_in_ref1 > inner_most_pos1_in_ref1) {
+        inner_most_pos2_in_ref1--;
+      }
+      if (merged2.has_value() && *merged2 > inner_most_pos1_in_ref1) {
+        (*merged2)--;
+      }
+      reference1->merge((int)*merged1, (int)inner_most_pos1_in_ref1);
+      inner_most_pos1_in_ref1 = *merged1;
     }
-    reference1->merge((int)*merged1, (int)inner_most_pos1_in_ref1);
-    inner_most_pos1_in_ref1 = *merged1;
-  }
-  if (merged2.has_value()) {
-    if (inner_most_pos2_in_ref1 < *merged2) {
-      reference1->reorder(
-          {{*merged2, inner_most_pos2_in_ref1},
-           {inner_most_pos2_in_ref1, *merged2}});
-      std::swap(*merged2, inner_most_pos2_in_ref1);
+    if (merged2.has_value()) {
+      if (inner_most_pos2_in_ref1 < *merged2) {
+        reference1->reorder(
+            {{*merged2, inner_most_pos2_in_ref1},
+             {inner_most_pos2_in_ref1, *merged2}});
+        std::swap(*merged2, inner_most_pos2_in_ref1);
+      }
+      if (inner_most_pos1_in_ref1 > inner_most_pos2_in_ref1) {
+        inner_most_pos1_in_ref1--;
+      }
+      reference1->merge((int)*merged2, (int)inner_most_pos2_in_ref1);
+      inner_most_pos2_in_ref1 = *merged2;
     }
-    if (inner_most_pos1_in_ref1 > inner_most_pos2_in_ref1) {
-      inner_most_pos1_in_ref1--;
-    }
-    reference1->merge((int)*merged2, (int)inner_most_pos2_in_ref1);
-    inner_most_pos2_in_ref1 = *merged2;
-  }
- */
+   */
 
   /////////////////////////////
   // Step 2: global schedule //

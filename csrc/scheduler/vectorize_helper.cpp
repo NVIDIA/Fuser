@@ -65,9 +65,11 @@ ContiguousInnerDimensionsMapper::ContiguousInnerDimensionsMapper(
       divisible_splits_(divisible_splits) {
   FusionGuard fg(reference->fusion());
   // map ids to reference_ids
-  // std::vector<IterDomain*> reference_ids = projectId(reference->getMaybeRFactorDomain(), ids);
+  // std::vector<IterDomain*> reference_ids =
+  // projectId(reference->getMaybeRFactorDomain(), ids);
   //
-  // // Check which domain of tensor view we should be looking at. All IDs must be
+  // // Check which domain of tensor view we should be looking at. All IDs must
+  // be
   // // found in the the rfactor domain.
   // TORCH_INTERNAL_ASSERT(
   //     std::all_of(
@@ -80,10 +82,9 @@ ContiguousInnerDimensionsMapper::ContiguousInnerDimensionsMapper(
   //                   reference->getMaybeRFactorDomain().end(),
   //                   id) != reference->getMaybeRFactorDomain().end());
   //         }),
-  //     "\nIterDomains passed in to ContiguousInnerDimensionsMapper passed in to ",
-  //     "ContiguousInnerDimensionsMapper must all exist in the rfactor domain.\n",
-  //     "Reference: ",
-  //     reference->toString());
+  //     "\nIterDomains passed in to ContiguousInnerDimensionsMapper passed in
+  //     to ", "ContiguousInnerDimensionsMapper must all exist in the rfactor
+  //     domain.\n", "Reference: ", reference->toString());
 
   // // Record while processing reference's information
   // recording_ = true;
@@ -125,8 +126,9 @@ ContiguousInnerDimensionsMapper::ContiguousInnerDimensionsMapper(
 
   auto projected_rfactor = projectId(ids, reference->getMaybeRFactorDomain());
 
-  // I need to somehow make sure projected_rfactor is indeed on the reference tensor, otherwise, getProjectedExtent seems to be complaining.
-  // I'm wondering if we should instead canonicalize the key for projected extent
+  // I need to somehow make sure projected_rfactor is indeed on the reference
+  // tensor, otherwise, getProjectedExtent seems to be complaining. I'm
+  // wondering if we should instead canonicalize the key for projected extent
   auto map_rfactor = [this, &reference](IterDomain* id) {
     const auto& rfactor_dom = reference->getMaybeRFactorDomain();
     IterDomain* mapped_id = nullptr;
@@ -140,10 +142,11 @@ ContiguousInnerDimensionsMapper::ContiguousInnerDimensionsMapper(
     return mapped_id;
   };
   for (auto id : projected_rfactor) {
-      auto mapped_id = map_rfactor(id);
-      // TODO: should I just skip when id isn't mapped?!?! maybe clear left
-      TORCH_INTERNAL_ASSERT(mapped_id != nullptr, "projected iter domain cannot be found")
-      addProjectedExtent(mapped_id, commonOrConstExtent(ca_map_, id));
+    auto mapped_id = map_rfactor(id);
+    // TODO: should I just skip when id isn't mapped?!?! maybe clear left
+    TORCH_INTERNAL_ASSERT(
+        mapped_id != nullptr, "projected iter domain cannot be found")
+    addProjectedExtent(mapped_id, commonOrConstExtent(ca_map_, id));
   }
 
   std::shared_ptr<Information> reference_information = MappedDomain::build(
