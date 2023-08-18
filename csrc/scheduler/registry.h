@@ -23,8 +23,19 @@ namespace nvfuser {
 class SegmentedGroup;
 class ExpressionEvaluator;
 
-using SchedulerRejectReason = std::
-    variant<PersistentSchedulerRejectReason, ReductionSchedulerRejectReason>;
+//! Reasons for other schedulers can be added, for example:
+//! enum class ReductionSchedulerRejectReason {
+//!   NoReductionOp,
+//!   NoReductionInput
+//! };
+//! using SchedulerRejectReason = std::
+//!    variant<PersistentSchedulerRejectReason, ReductionSchedulerRejectReason>;
+enum class PersistentSchedulerRejectReason {
+  NoPersistentBuffer,
+  NotEnoughSharedMemoryAndRegister,
+  WasRejectedByNotEnoughSharedMemoryAndRegister,
+};
+using SchedulerRejectReason = std::variant<PersistentSchedulerRejectReason>;
 
 //!  SchedulerRuntimeInfo is the abstraction introduced in
 //! this PR for passing runtime input dependent information
@@ -94,14 +105,6 @@ class TORCH_CUDA_CU_API SchedulerRuntimeInfo : public NonCopyable {
     return *expression_evaluator_;
   }
 
-  void setCompleteFusion(bool is_complete_fusion) {
-    is_complete_fusion_ = is_complete_fusion;
-  }
-
-  bool isCompleteFusion() const {
-    return is_complete_fusion_;
-  }
-
   void setRejectReason(ScheduleHeuristic sh, SchedulerRejectReason reason) {
     scheduler_reject_reasons_[sh] = reason;
   }
@@ -167,12 +170,9 @@ class TORCH_CUDA_CU_API SchedulerRuntimeInfo : public NonCopyable {
   // TODO: Remove
   std::unordered_map<TensorView*, size_t> vectorword_map_;
 
-  // The combined inner-outer scheduler is exclusive to unsegmented fusion.
-  // For optimal performance, segmented fusions should be divided into
-  // inner and outer reductions rather than using the combined scheduler.
-  bool is_complete_fusion_ = true;
-
-  // Record segmented reasons we care about
+  // Record segmented reasons we care about, e.g. if the persistent scheduler
+  // using combined reduction was rejected due to large buffer size, we don't
+  // want to use it again in the segmented fusions.
   std::unordered_map<ScheduleHeuristic, SchedulerRejectReason>
       scheduler_reject_reasons_;
 };
