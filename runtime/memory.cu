@@ -23,8 +23,6 @@ DEVICE_INLINE unsigned toSmem(const void* raw_ptr) {
   return smem_ptr_uint;
 }
 
-#if (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 750))
-
 namespace Turing {
 
 namespace util {
@@ -81,9 +79,13 @@ DEVICE_INLINE void ldMatrix(Array<T, 4, 4>* out, unsigned addr) {
   static_assert(sizeof(T) == 2);
   uint2* val = reinterpret_cast<uint2*>(out);
   util::adjustPartialLdMatrixAddrInTuring(addr);
+#if (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 750))
   asm volatile("ldmatrix.sync.aligned.x2.m8n8.shared.b16 {%0,%1}, [%2];"
                : "=r"(val->x), "=r"(val->y)
                : "r"(addr));
+#else
+  assert(false);
+#endif
 }
 
 // Same as previous, 8x8 matrix is vectorized loaded, then scattered (to perform
@@ -92,37 +94,45 @@ DEVICE_INLINE void ldMatrix(Array<T, 4, 4>* out, unsigned addr) {
 template <typename T>
 DEVICE_INLINE void ldMatrixT(Array<T, 4, 4>* out, unsigned addr) {
   static_assert(sizeof(T) == 2);
+#if (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 750))
   uint2* val = reinterpret_cast<uint2*>(out);
   util::adjustPartialLdMatrixAddrInTuring(addr);
   asm volatile("ldmatrix.sync.aligned.x2.trans.m8n8.shared.b16 {%0,%1}, [%2];"
                : "=r"(val->x), "=r"(val->y)
                : "r"(addr));
+#else
+  assert(false);
+#endif
 }
 
 template <typename T>
 DEVICE_INLINE void ldMatrix(Array<T, 8, 8>* out, unsigned addr) {
   static_assert(sizeof(T) == 2);
+#if (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 750))
   uint4* val = reinterpret_cast<uint4*>(out);
   asm volatile("ldmatrix.sync.aligned.x4.m8n8.shared.b16 {%0,%1,%2,%3}, [%4];"
                : "=r"(val->x), "=r"(val->y), "=r"(val->z), "=r"(val->w)
                : "r"(addr));
+#else
+  assert(false);
+#endif
 }
 
 template <typename T>
 DEVICE_INLINE void ldMatrixT(Array<T, 8, 8>* out, unsigned addr) {
   static_assert(sizeof(T) == 2);
+#if (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 750))
   uint4* val = reinterpret_cast<uint4*>(out);
   asm volatile(
       "ldmatrix.sync.aligned.x4.trans.m8n8.shared.b16 {%0,%1,%2,%3}, [%4];"
       : "=r"(val->x), "=r"(val->y), "=r"(val->z), "=r"(val->w)
       : "r"(addr));
+#else
+  assert(false);
+#endif
 }
 
 } // namespace Turing
-
-#endif // Arch 75
-
-#if (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 800))
 
 namespace Ampere {
 
@@ -143,6 +153,7 @@ DEVICE_INLINE void cpAsyncCa(
       byte_size == 4 || byte_size == 8 || byte_size == 16,
       "cp_async : unsupported byte size");
 
+#if (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 800))
   asm volatile(
       "{\n"
       "  .reg .pred p;\n"
@@ -152,6 +163,9 @@ DEVICE_INLINE void cpAsyncCa(
       "l"(gmem_ptr),
       "n"(byte_size),
       "r"((int)predicate));
+#else
+  assert(false);
+#endif
 }
 
 // Global to SMEM load that is asynchronous,
@@ -170,6 +184,7 @@ DEVICE_INLINE void cpAsyncCg(
 
   static_assert(byte_size == 16, "cp_async : unsupported byte size");
 
+#if (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 800))
   asm volatile(
       "{\n"
       "  .reg .pred p;\n"
@@ -178,24 +193,37 @@ DEVICE_INLINE void cpAsyncCg(
       "}\n" ::"r"(smem_addr),
       "l"(gmem_ptr),
       "r"((int)predicate));
+#else
+  assert(false);
+#endif
 }
 
 // TODO: Might have a different category of sync if we want to build out this:
 DEVICE_INLINE void cpAsyncBarrier() {
+#if (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 800))
   asm volatile("cp.async.wait_all;");
+#else
+  assert(false);
+#endif
 }
 
 DEVICE_INLINE void cpAsyncCommit() {
+#if (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 800))
   asm volatile("cp.async.commit_group;");
+#else
+  assert(false);
+#endif
 }
 
 template <int keep_stages>
 DEVICE_INLINE void cpAsyncPartialBarrier() {
+#if (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 800))
   asm volatile("cp.async.wait_group %0;\n" ::"n"(keep_stages));
+#else
+  assert(false);
+#endif
 }
 
 } // namespace Ampere
-
-#endif // Arch 80
 
 #undef DEVICE_INLINE
