@@ -1100,7 +1100,6 @@ TEST_F(DynamicTypeTest, FromContainerToContainer) {
 
 } // namespace container_test
 
-
 TEST_F(DynamicTypeTest, Hash) {
   static_assert(has_cross_type_equality<DoubleInt64Bool>);
   using IntOrStr = DynamicType<NoContainers, int64_t, std::string>;
