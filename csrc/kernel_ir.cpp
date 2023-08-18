@@ -1247,15 +1247,16 @@ EncodeTensorMapTiled::EncodeTensorMapTiled(
     Val* output,
     DataType data_type,
     Val* global_address,
-    std::vector<Val*> global_dim,
-    std::vector<Val*> global_strides,
-    std::vector<Val*> box_dim,
-    std::vector<Val*> element_strides,
+    std::vector<Val*> global_dim, // TODO: make this a single Val*
+    std::vector<Val*> global_strides, // TODO: make this a single Val*
+    std::vector<Val*> box_dim, // TODO: make this a single Val*
+    std::vector<Val*> element_strides, // TODO: make this a single Val*
     TensorMapInterleave interleave,
     TensorMapSwizzle swizzle,
     TensorMapL2Promotion l2_promotion,
     TensorMapFloatOOBFill oob_fill)
     : Expr(passkey) {
+  // TODO: check dtypes
   addOutput(output);
   addInput(global_address);
   TORCH_CHECK(

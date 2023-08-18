@@ -178,10 +178,10 @@ std::ostream& operator<<(std::ostream& os, TensorMapFloatOOBFill oob_fill) {
 Val* encodeTensorMapTiled(
     DataType data_type,
     Val* global_address,
-    std::vector<Val*> global_dim,
-    std::vector<Val*> global_strides,
-    std::vector<Val*> box_dim,
-    std::vector<Val*> element_strides,
+    std::vector<Val*> global_dim, // TODO: make this a single Val*
+    std::vector<Val*> global_strides, // TODO: make this a single Val*
+    std::vector<Val*> box_dim, // TODO: make this a single Val*
+    std::vector<Val*> element_strides, // TODO: make this a single Val*
     TensorMapInterleave interleave,
     TensorMapSwizzle swizzle,
     TensorMapL2Promotion l2_promotion,
@@ -203,20 +203,6 @@ Val* encodeTensorMapTiled(
       oob_fill);
   return output;
 }
-
-// CUresult cuTensorMapEncodeTiled(
-//     CUtensorMap* tensorMap,
-//     CUtensorMapDataType tensorDataType,
-//     cuuint32_t tensorRank,
-//     void* globalAddress,
-//     const cuuint64_t* globalDim,
-//     const cuuint64_t* globalStrides,
-//     const cuuint32_t* boxDim,
-//     const cuuint32_t* elementStrides,
-//     CUtensorMapInterleave interleave,
-//     CUtensorMapSwizzle swizzle,
-//     CUtensorMapL2promotion l2Promotion,
-//     CUtensorMapFloatOOBfill oobFill);
 
 std::vector<PolymorphicValue> kir::EncodeTensorMapTiled::evaluate(
     const ExpressionEvaluator& ee,

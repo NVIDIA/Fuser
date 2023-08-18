@@ -3190,9 +3190,22 @@ Val* Index::cpAsyncBulkIndex(TensorView* tv) {
         id->isBulk(),
         "cpAsyncBulkIndex only support whole tensor copy for now.");
   }
+  auto metadata = IrBuilder::metadataExpr(tv);
+  auto 
+  auto global_address = IrBuilder::
   int64_t dim = tv->nDims();
   std::vector<Val*> coordinate(dim, tv->fusion()->zeroVal());
-  
+  auto descriptor = encodeTensorMapTiled(
+    DataType data_type,
+    Val* global_address,
+    std::vector<Val*> global_dim,
+    std::vector<Val*> global_strides,
+    std::vector<Val*> box_dim,
+    std::vector<Val*> element_strides,
+    TensorMapInterleave interleave,
+    TensorMapSwizzle swizzle,
+    TensorMapL2Promotion l2_promotion,
+    TensorMapFloatOOBFill oob_fill)
 }
 
 } // namespace nvfuser
