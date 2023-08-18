@@ -27,6 +27,8 @@ from pytest_input_generators import (
     _elementwise_binary_torch,
     elementwise_binary_with_alpha_generator,
     _elementwise_binary_with_alpha_torch,
+    elementwise_ternary_generator,
+    _elementwise_ternary_torch,
     elementwise_unary_generator,
     _elementwise_unary_torch,
     full_error_generator,
@@ -797,6 +799,15 @@ sub_alpha_opinfo = OpInfo(
     reference=_elementwise_binary_with_alpha_torch(torch.sub),
 )
 ternary_ops.append(sub_alpha_opinfo)
+
+lerp_opinfo = OpInfo(
+    lambda fd: fd.ops.lerp,
+    "lerp",
+    dtypes=float_complex_dtypes,
+    sample_input_generator=elementwise_ternary_generator,
+    reference=_elementwise_ternary_torch(torch.lerp),
+)
+ternary_ops.append(lerp_opinfo)
 
 where_opinfo = OpInfo(
     lambda fd: fd.ops.where,

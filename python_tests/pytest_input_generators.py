@@ -660,6 +660,58 @@ def _elementwise_binary_with_alpha_torch(op):
 
     return _fn
 
+def elementwise_ternary_generator(
+    op: OpInfo,
+    dtype: torch.dtype,
+    requires_grad: bool = False,
+    *,
+    supports_numbers: bool = True,
+    enable_broadcast_testing: bool = True,
+    enable_extremal_value_testing: bool = True,
+    enable_large_value_testing: bool = True,
+    enable_small_value_testing: bool = True,
+    **kwargs,
+):
+    low = None if op.domain.low is None else max(-9, op.domain.low)
+    high = None if op.domain.high is None else min(9, op.domain.high)
+    make_arg = partial(
+        make_tensor,
+        device="cuda",
+        dtype=dtype,
+        low=low,
+        high=high,
+        requires_grad=requires_grad,
+        **kwargs,
+    )
+
+    shapes = (
+        (0, 2, 1),
+        (5, 0, 3),
+        (),
+        (11,),
+        (4, 4),
+        (1024, 1024),
+        (64, 64, 64),
+    )
+
+    # Typical inputs
+    for shape in shapes:
+        yield SampleInput(make_arg(shape), make_arg(shape), make_arg(shape))
+        yield SampleInput(
+            make_arg(shape, noncontiguous=True),
+            make_arg(shape, noncontiguous=True),
+            make_arg(shape, noncontiguous=True),
+        )
+
+def _elementwise_ternary_torch(op):
+    @wraps(op)
+    def _fn(x, y, z):
+        if any(map(lambda a: isinstance(a, torch.Tensor), (x, y, z))):
+            return op(x, y, z)
+        return op(torch.tensor(x), torch.tensor(y), torch.tensor(z)).item()
+
+    return _fn
+
 
 def elementwise_unary_generator(
     op: OpInfo,
