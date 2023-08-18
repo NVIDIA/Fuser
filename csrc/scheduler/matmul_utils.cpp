@@ -427,7 +427,8 @@ std::shared_ptr<MatmulParams> getMatmulHeuristics(
       params->double_buffer_options.smem_double_buffer_stage,
       getMmaDataTypes(roles_map_opt.getData()));
 
-  if (isDebugDumpEnabled(DebugDumpOption::MatmulChecks)) {
+  if (isDebugDumpEnabled(DebugDumpOption::MatmulChecks) ||
+      isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
     debug() << params->toString() << std::endl;
   }
 
