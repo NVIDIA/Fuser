@@ -124,18 +124,24 @@ ContiguousInnerDimensionsMapper::ContiguousInnerDimensionsMapper(
   // Record while processing reference's information
   recording_ = true;
 
-  auto projected_rfactor = projectId(ids, reference->getMaybeRFactorDomain());
+  auto rfactor_domain = reference->getMaybeRFactorDomain();
+  if (reference->isFusionInput()) {
+    std::remove_if(rfactor_domain.begin(), rfactor_domain.end(), [](IterDomain* id) {
+		      return id->isReduction();
+		    });
+  }
+
+  auto projected_rfactor = projectId(ids, rfactor_domain);
 
   // I need to somehow make sure projected_rfactor is indeed on the reference
   // tensor, otherwise, getProjectedExtent seems to be complaining. I'm
   // wondering if we should instead canonicalize the key for projected extent
-  auto map_rfactor = [this, &reference](IterDomain* id) {
-    const auto& rfactor_dom = reference->getMaybeRFactorDomain();
+  auto map_rfactor = [this, &reference, &rfactor_domain](IterDomain* id) {
     IterDomain* mapped_id = nullptr;
-    for (auto i : c10::irange(rfactor_dom.size())) {
+    for (auto i : c10::irange(rfactor_domain.size())) {
       if (this->ca_map_->idGraph().exactNodes().permissiveAreMapped(
-              rfactor_dom[i], id)) {
-        mapped_id = rfactor_dom[i];
+              rfactor_domain[i], id)) {
+        mapped_id = rfactor_domain[i];
         break;
       }
     }
