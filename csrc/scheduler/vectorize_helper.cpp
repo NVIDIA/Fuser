@@ -125,10 +125,7 @@ ContiguousInnerDimensionsMapper::ContiguousInnerDimensionsMapper(
   recording_ = true;
 
   auto rfactor_domain = reference->getMaybeRFactorDomain();
-
-  for (auto id : ids) {
-    addProjectedExtent(id, commonOrConstExtent(ca_map_, id));
-  }
+  auto filtered_ids = ids;
 
   // Exclude reduction IDs if the reference is a fusion input as they
   // don't manifest at all in the fusion. This simplifies the
@@ -147,9 +144,12 @@ ContiguousInnerDimensionsMapper::ContiguousInnerDimensionsMapper(
           container.end());
     };
     remove_reduction(rfactor_domain);
-    remove_reduction(ids);
+    remove_reduction(filtered_ids);
   }
-  auto projected_rfactor = projectId(ids, rfactor_domain);
+  for (auto id : filtered_ids) {
+    addProjectedExtent(id, commonOrConstExtent(ca_map_, id));
+  }
+  auto projected_rfactor = projectId(filtered_ids, rfactor_domain);
 
   // I need to somehow make sure projected_rfactor is indeed on the reference
   // tensor, otherwise, getProjectedExtent seems to be complaining. I'm
