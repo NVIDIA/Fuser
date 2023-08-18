@@ -431,11 +431,16 @@ template <
     typename ValOrVectorOfVal,
     typename SetOfVal = std::unordered_set<const Val*>>
 inline bool dependenciesSatisfied(
-    ValOrVectorOfVal needed_vals,
+    // const Val*, Val*, std::vector<const Val*>, std::vector<Val*> or any other
+    // container that has back(), pop_back(), empty() and emplace_back()
+    ValOrVectofrOfVal needed_vals,
+    // std::unordered_set<const Val*>, std::unordered_map<const Val*, T> or any
+    // other container that has count()
     const SetOfVal& known_vals = {}) {
   if constexpr (
       std::is_same_v<ValOrVectorOfVal, const Val*> ||
       std::is_same_v<ValOrVectorOfVal, Val*>) {
+    // convert a single const Val* or Val* to a vector
     return dependenciesSatisfied(
         std::vector<const Val*>{needed_vals}, known_vals);
   } else {
