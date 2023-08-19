@@ -1456,9 +1456,10 @@ void beforeSchedule(
   scheduler_utils::prepareForMemoryTypePromotion(fusion);
 
   // Change storage type to shared memory.
-  // Check persistent tensors first, if they are not in the container, check their
-  // input if it is a cached input. When the shared_memory_persistent_tensors
-  // container was created, cached inputs were not created yet.
+  // Check persistent tensors first, if they are not in the container, check
+  // their input if it is a cached input. When the
+  // shared_memory_persistent_tensors container was created, cached inputs were
+  // not created yet.
   if (rparams.shared_mem_persistent_buffer) {
     const auto& persistent_buffers =
         scheduler_utils::persistentBuffers(fusion).persistent_buffers;

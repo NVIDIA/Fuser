@@ -140,6 +140,7 @@ class ReductionParams : public HeuristicParams {
   // outer reduction results are always stored in registers.
   bool shared_mem_persistent_buffer = false;
   std::vector<TensorView*> shared_memory_persistent_tensors;
+
  public:
   using HeuristicParams::HeuristicParams;
 

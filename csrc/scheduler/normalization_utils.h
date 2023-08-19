@@ -159,9 +159,9 @@ enum class ReductionType { Inner, Outer, CombinedInnerOuter, None };
 
 //! Parameters store memory space of persistent buffers.
 //! By default, the persistent buffers are stored in registers, however, if it
-//! exists in the set of shared_memory_persistent_tensors, it will be allocated in
-//! shared memory. This happens when the persistent buffer size is larger than
-//! the available registers.
+//! exists in the set of shared_memory_persistent_tensors, it will be allocated
+//! in shared memory. This happens when the persistent buffer size is larger
+//! than the available registers.
 struct PersistentBufferStorageParams {
   ReductionType reduction_type = ReductionType::None;
   std::vector<TensorView*> shared_memory_persistent_tensors;
@@ -171,7 +171,6 @@ struct PersistentBufferStorageParams {
   bool has_enough_regs_and_smem = false;
   bool project_to_input = false;
 };
-
 
 //! check iter type of each domain in inner and outer reduction tvs
 //! inner reduction must be [I,I,...R,R]

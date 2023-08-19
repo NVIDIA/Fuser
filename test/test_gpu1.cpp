@@ -7373,7 +7373,7 @@ TEST_F(NVFuserTest, FusionMagicSchedulerRMSNormBackward_CUDA) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
-  const int64_t NORM_SIZE = 24704; //26624
+  const int64_t NORM_SIZE = 24704; // 26624
   std::vector<int64_t> shape{16, 132, NORM_SIZE};
   std::vector<int64_t> norm_shape{NORM_SIZE};
 
@@ -7412,13 +7412,15 @@ TEST_F(NVFuserTest, FusionMagicSchedulerRMSNormBackward_CUDA) {
   if (dtype == DataType::Half) {
     grads.grad_input = castOp(DataType::Half, grads.grad_input);
     grads.grad_weight = castOp(DataType::Half, grads.grad_weight);
-  }  
+  }
 
-  fusion.addOutput(grads.grad_input);
+  sion.addOutput(grads.grad_input);
   fusion.addOutput(grads.grad_weight);
 
 
-  auto options = at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+
+  to options = a
+      ::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
   at::Tensor aten_grad_out = at::randn(shape, options);
   at::Tensor aten_input = at::randn(shape, options);
   at::Tensor aten_weight = at::randn(norm_shape, options);
@@ -8602,3 +8604,4 @@ TEST_F(NVFuserTest, FusionSmemDynamicTiledGemm_CUDA) {
 }
 
 } // namespace nvfuser
+  

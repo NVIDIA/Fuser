@@ -777,25 +777,21 @@ namespace {
 // if there is enough shared memory to launch more than one block per SM. It's
 // the caller's responsibility to check if the returned value is smaller than
 // the device's shared memory size.
-int64_t getSharedMemoryConfigSize(int64_t request_size) {
-  static const std::array<int64_t, 9> smem_config_options = {
-      8 * 1024,
-      16 * 1024,
-      32 * 1024,
-      64 * 1024,
-      100 * 1024,
-      132 * 1024,
-      164 * 1024,
-      196 * 1024,
-      228 * 1024};
+static const std::array<int64_t, 9> smem_config_options = {
+    8 * 1024,
+    16 * 1024,
+    32 * 1024,
+    64 * 1024,
+    100 * 1024,
+    132 * 1024,
+    164 * 1024,
+    196 * 1024,
+    228 * 1024};
 
+int64_t getSharedMemoryConfigSize(int64_t request_size) {
   auto it = std::upper_bound(
       smem_config_options.begin(), smem_config_options.end(), request_size);
-  if (it != smem_config_options.end()) {
-    return *it;
-  } else {
-    return smem_config_options.back();
-  }
+  return (it != smem_config_options.end()) ? *it : smem_config_options.back();
 }
 
 // The roundup is due to the fact that the shared memory buffer is allocated
@@ -972,13 +968,13 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
     // usage.
     if (n_buffers - n_smem_buffer >= 2) {
       int64_t smem_buffer_size = acc_smem_buffer_sizes[n_smem_buffer];
-      int64_t smem_config_size = getSmemConfigSize(
+      int64_t smem_config_size = getSharedMemoryConfigSize(
           smem_buffer_size + buffer_params.shared_memory_overhead_per_block);
       float buffer_config_ratio = (float)smem_buffer_size / smem_config_size;
       if (buffer_config_ratio < 0.8 &&
           smem_config_size < smem_config_options.back()) {
         int64_t smem_buffer_size_tmp = acc_smem_buffer_sizes[n_smem_buffer + 1];
-        int64_t smem_config_size_tmp = getSmemConfigSize(
+        int64_t smem_config_size_tmp = getSharedMemoryConfigSize(
             smem_buffer_size_tmp +
             buffer_params.shared_memory_overhead_per_block);
         float buffer_config_ratio_tmp =

@@ -95,7 +95,8 @@ class TORCH_CUDA_CU_API SchedulerRuntimeInfo : public NonCopyable {
     return is_scheduling_the_complete_fusion_;
   }
 
-  void setSchedulingTheCompleteFusionTo(bool is_scheduling_the_complete_fusion) {
+  void setSchedulingTheCompleteFusionTo(
+      bool is_scheduling_the_complete_fusion) {
     is_scheduling_the_complete_fusion_ = is_scheduling_the_complete_fusion;
   }
 
