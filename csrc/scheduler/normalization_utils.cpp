@@ -1014,17 +1014,20 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
   }
 
   buffer_params.has_enough_regs_and_smem =
-      buffer_params.smem_buffer_size <= available_smem &&
-      buffer_params.regs_buffer_size <= available_regs;
-
-  TORCH_INTERNAL_ASSERT(
-      !buffer_params.has_enough_regs_and_smem,
-      "Not enough registers and shared memory for persistence! Should return early.");
+      (buffer_params.smem_buffer_size <= available_smem) &&
+      (buffer_params.regs_buffer_size <= available_regs);
 
   std::cout << "regs_buffer_size: " << buffer_params.regs_buffer_size
             << ", smem_buffer_size: " << buffer_params.smem_buffer_size
             << ", available_regs: " << available_regs
-            << ", available_smem: " << available_smem << std::endl;
+            << ", available_smem: " << available_smem
+            << ", has_enough_regs_and_smem: "
+            << buffer_params.has_enough_regs_and_smem << std::endl;
+  if (vectorize_factor > 1) {
+    TORCH_INTERNAL_ASSERT(
+        buffer_params.has_enough_regs_and_smem,
+        "Not enough registers and shared memory for persistence! Should return early.");
+  }
   return buffer_params;
 }
 
