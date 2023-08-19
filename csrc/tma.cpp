@@ -178,10 +178,10 @@ std::ostream& operator<<(std::ostream& os, TensorMapFloatOOBFill oob_fill) {
 Val* encodeTensorMapTiled(
     DataType data_type,
     Val* global_address,
-    std::vector<Val*> global_dim, // TODO: make this a single Val*
-    std::vector<Val*> global_strides, // TODO: make this a single Val*
-    std::vector<Val*> box_dim, // TODO: make this a single Val*
-    std::vector<Val*> element_strides, // TODO: make this a single Val*
+    Val* global_dim,
+    Val* global_strides,
+    Val* box_dim,
+    Val* element_strides,
     TensorMapInterleave interleave,
     TensorMapSwizzle swizzle,
     TensorMapL2Promotion l2_promotion,
@@ -210,39 +210,23 @@ std::vector<PolymorphicValue> kir::EncodeTensorMapTiled::evaluate(
 #if (CUDA_VERSION >= 12000)
   cuuint32_t tensor_rank = tensorRank();
   TORCH_INTERNAL_ASSERT(
-      inputs.size() == 4 * tensor_rank,
+      inputs.size() == 5,
       "Incorrect number of inputs to EncodeTensorMapTiled!");
 
   TORCH_INTERNAL_ASSERT(inputs.at(0).is<Pointer>());
   void* global_address = (void*)inputs.at(0);
 
-  std::vector<cuuint64_t> global_dim;
-  for (auto dim : c10::irange(tensor_rank)) {
-    const auto& dim_val = inputs.at(1 + dim);
-    TORCH_INTERNAL_ASSERT(dim_val.is<int64_t>());
-    global_dim.push_back((cuuint64_t)dim_val);
-  }
+  TORCH_INTERNAL_ASSERT(inputs.at(1).is<std::vector<int64_t>>());
+  auto global_dim = (std::vector<cuuint64_t>)inputs.at(1);
 
-  std::vector<cuuint64_t> global_strides;
-  for (auto dim : c10::irange(tensor_rank - 1)) {
-    const auto& stride_val = inputs.at(1 + tensor_rank + dim);
-    TORCH_INTERNAL_ASSERT(stride_val.is<int64_t>());
-    global_strides.push_back((cuuint64_t)stride_val);
-  }
+  TORCH_INTERNAL_ASSERT(inputs.at(2).is<std::vector<int64_t>>());
+  auto global_strides = (std::vector<cuuint64_t>)inputs.at(2);
 
-  std::vector<cuuint32_t> box_dim;
-  for (auto dim : c10::irange(tensor_rank)) {
-    const auto& dim_val = inputs.at(2 * tensor_rank + dim);
-    TORCH_INTERNAL_ASSERT(dim_val.is<int64_t>());
-    box_dim.push_back((cuuint32_t)dim_val);
-  }
+  TORCH_INTERNAL_ASSERT(inputs.at(3).is<std::vector<int64_t>>());
+  auto box_dim = (std::vector<cuuint32_t>)inputs.at(3);
 
-  std::vector<cuuint32_t> element_strides;
-  for (auto dim : c10::irange(tensor_rank - 1)) {
-    const auto& stride_val = inputs.at(3 * tensor_rank + dim);
-    TORCH_INTERNAL_ASSERT(stride_val.is<int64_t>());
-    element_strides.push_back((cuuint32_t)stride_val);
-  }
+  TORCH_INTERNAL_ASSERT(inputs.at(4).is<std::vector<int64_t>>());
+  auto element_strides = (std::vector<cuuint32_t>)inputs.at(4);
 
   CUtensorMapDataType data_type = getCUtensorMapDataType(dataType());
   CUtensorMapInterleave interleave =

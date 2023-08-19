@@ -48,10 +48,10 @@ std::ostream& operator<<(std::ostream& os, TensorMapFloatOOBFill oob_fill);
 Val* encodeTensorMapTiled(
     DataType data_type,
     Val* global_address,
-    std::vector<Val*> global_dim, // TODO: make this a single Val*
-    std::vector<Val*> global_strides, // TODO: make this a single Val*
-    std::vector<Val*> box_dim, // TODO: make this a single Val*
-    std::vector<Val*> element_strides, // TODO: make this a single Val*
+    Val* global_dim,
+    Val* global_strides,
+    Val* box_dim,
+    Val* element_strides,
     TensorMapInterleave interleave,
     TensorMapSwizzle swizzle,
     TensorMapL2Promotion l2_promotion,

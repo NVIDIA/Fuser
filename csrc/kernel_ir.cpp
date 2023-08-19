@@ -1247,45 +1247,46 @@ EncodeTensorMapTiled::EncodeTensorMapTiled(
     Val* output,
     DataType data_type,
     Val* global_address,
-    std::vector<Val*> global_dim, // TODO: make this a single Val*
-    std::vector<Val*> global_strides, // TODO: make this a single Val*
-    std::vector<Val*> box_dim, // TODO: make this a single Val*
-    std::vector<Val*> element_strides, // TODO: make this a single Val*
+    Val* global_dim,
+    Val* global_strides,
+    Val* box_dim,
+    Val* element_strides,
     TensorMapInterleave interleave,
     TensorMapSwizzle swizzle,
     TensorMapL2Promotion l2_promotion,
     TensorMapFloatOOBFill oob_fill)
     : Expr(passkey) {
-  // TODO: check dtypes
+  TORCH_CHECK(output->dtype() == DataType::Opaque);
   addOutput(output);
+
+  TORCH_CHECK(
+      global_address->dtype() ==
+      PointerOf{std::make_shared<DataType>(data_type)});
   addInput(global_address);
+
+  TORCH_CHECK(std::holds_alternative<ArrayOf>(global_dim->dtype().type));
+  int64_t tensor_rank =
+      (int64_t)std::get<ArrayOf>(global_dim->dtype().type).size;
+  TORCH_CHECK(global_dim->dtype() == ArrayOf{DataType::Index, tensor_rank});
+  addInput(global_dim);
+
   TORCH_CHECK(
-      global_dim.size() == global_strides.size() + 1,
-      "global_dim and global_strides's size must match");
+      global_strides->dtype() == ArrayOf{DataType::Index, tensor_rank - 1});
+  addInput(global_strides);
+
+  TORCH_CHECK(box_dim->dtype() == ArrayOf{DataType::Index, tensor_rank});
+  addInput(box_dim);
+
   TORCH_CHECK(
-      global_dim.size() == box_dim.size(),
-      "global_dim and box_dim's size must match");
-  TORCH_CHECK(
-      global_dim.size() == element_strides.size(),
-      "global_dim and element_strides's size must match");
-  for (auto dim : global_dim) {
-    addInput(dim);
-  }
-  for (auto stride : global_strides) {
-    addInput(stride);
-  }
-  for (auto dim : box_dim) {
-    addInput(dim);
-  }
-  for (auto stride : element_strides) {
-    addInput(stride);
-  }
+      element_strides->dtype() == ArrayOf{DataType::Index, tensor_rank});
+  addInput(element_strides);
+
   addDataAttribute(data_type);
+  addDataAttribute(int64_t);
   addDataAttribute(interleave);
   addDataAttribute(swizzle);
   addDataAttribute(l2_promotion);
   addDataAttribute(oob_fill);
-  addDataAttribute(global_dim.size());
 }
 
 std::string EncodeTensorMapTiled::toString(int indent_size) const {
@@ -1314,8 +1315,7 @@ std::string EncodeTensorMapTiled::toInlineString(int indent_size) const {
      << "], box_dim=[" << ir_utils::toInlineString(boxDim())
      << "], element_strides=[" << ir_utils::toInlineString(elementStrides())
      << "], interleave=" << interleave() << ", swizzle=" << swizzle()
-     << ", l2_promotion=" << l2Promotion() << ", oob_fill=" << oobFill()
-     << ")";
+     << ", l2_promotion=" << l2Promotion() << ", oob_fill=" << oobFill() << ")";
   return ss.str();
 }
 

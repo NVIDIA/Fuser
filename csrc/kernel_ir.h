@@ -1135,10 +1135,10 @@ class TORCH_CUDA_CU_API EncodeTensorMapTiled : public Expr {
       Val* output,
       DataType data_type,
       Val* global_address,
-      std::vector<Val*> global_dim, // TODO: make this a single Val*
-      std::vector<Val*> global_strides, // TODO: make this a single Val*
-      std::vector<Val*> box_dim, // TODO: make this a single Val*
-      std::vector<Val*> element_strides, // TODO: make this a single Val*
+      Val* global_dim,
+      Val* global_strides,
+      Val* box_dim,
+      Val* element_strides,
       TensorMapInterleave interleave,
       TensorMapSwizzle swizzle,
       TensorMapL2Promotion l2_promotion,
@@ -1193,24 +1193,24 @@ class TORCH_CUDA_CU_API EncodeTensorMapTiled : public Expr {
     return attribute<DataType>(0);
   }
 
+  const int64_t& tensorRank() const {
+    return attribute<int64_t>(1);
+  }
+
   const TensorMapInterleave& interleave() const {
-    return attribute<TensorMapInterleave>(1);
+    return attribute<TensorMapInterleave>(2);
   }
 
   const TensorMapSwizzle& swizzle() const {
-    return attribute<TensorMapSwizzle>(2);
+    return attribute<TensorMapSwizzle>(3);
   }
 
   const TensorMapL2Promotion& l2Promotion() const {
-    return attribute<TensorMapL2Promotion>(3);
+    return attribute<TensorMapL2Promotion>(4);
   }
 
   const TensorMapFloatOOBFill& oobFill() const {
-    return attribute<TensorMapFloatOOBFill>(4);
-  }
-
-  const int64_t& tensorRank() const {
-    return attribute<int64_t>(5);
+    return attribute<TensorMapFloatOOBFill>(5);
   }
 
   std::vector<PolymorphicValue> evaluate(
