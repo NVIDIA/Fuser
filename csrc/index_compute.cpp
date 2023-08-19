@@ -3190,22 +3190,37 @@ Val* Index::cpAsyncBulkIndex(TensorView* tv) {
         id->isBulk(),
         "cpAsyncBulkIndex only support whole tensor copy for now.");
   }
-  auto metadata = IrBuilder::metadataExpr(tv);
-  auto 
-  auto global_address = IrBuilder::
+
   int64_t dim = tv->nDims();
-  std::vector<Val*> coordinate(dim, tv->fusion()->zeroVal());
+
+  auto metadata = IrBuilder::metadataExpr(tv);
+  auto global_address = IrBuilder::getAttrExpr(metadata, "data");
+  // TODO: reverse order, needs to be column major
+  auto global_dim = IrBuilder::getAttrExpr(metadata, "alloc_size");
+  // TODO: trim first for global_strides
+  auto global_strides = IrBuilder::getAttrExpr(metadata, "alloc_stride");
+  auto box_dim = IrBuilder::getAttrExpr(metadata, "alloc_size");
+  auto element_strides =
+      IrBuilder::arrayExpr(std::vector<Val*>(dim, tv->fusion()->oneVal()));
   auto descriptor = encodeTensorMapTiled(
-    DataType data_type,
-    Val* global_address,
-    std::vector<Val*> global_dim,
-    std::vector<Val*> global_strides,
-    std::vector<Val*> box_dim,
-    std::vector<Val*> element_strides,
-    TensorMapInterleave interleave,
-    TensorMapSwizzle swizzle,
-    TensorMapL2Promotion l2_promotion,
-    TensorMapFloatOOBFill oob_fill)
+      tv->dtype(),
+      global_address,
+      global_dim,
+      global_strides,
+      box_dim,
+      element_strides,
+      TensorMapInterleave::NoInterleave,
+      TensorMapSwizzle::NoSwizzle,
+      TensorMapL2Promotion::NoL2Promotion,
+      TensorMapFloatOOBFill::NoFloatOOBFill);
+
+  auto coordinate =
+      IrBuilder::arrayExpr(std::vector<Val*>(dim, tv->fusion()->zeroVal()));
+
+  auto index = IrBuilder::structExpr(
+      {{"descriptor", descriptor}, {"coordinate", coordinate}});
+
+  return IrBuilder::create<kir::TensorIndex>(tv, index);
 }
 
 } // namespace nvfuser
