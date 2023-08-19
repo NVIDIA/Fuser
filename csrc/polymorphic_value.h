@@ -49,6 +49,24 @@ struct Struct {
     return *fields.at(key);
 #endif
   }
+
+  bool operator==(const Struct& other) const {
+    if (this == &other) {
+      return true;
+    }
+    if (fields.size() != other.fields.size()) {
+      return false;
+    }
+    for (const auto& [key, value] : fields) {
+      if (other.fields.find(key) == other.fields.end()) {
+        return false;
+      }
+      if (value != other.fields.at(key)) {
+        return false;
+      }
+    }
+    return true;
+  }
 };
 
 template <typename T>
