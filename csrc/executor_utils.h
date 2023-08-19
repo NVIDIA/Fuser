@@ -34,7 +34,6 @@ namespace executor_utils {
 // Include all the functions we might need in generated code
 std::string kernelPreamble();
 
-// TODO: remove this function
 //! Bind input values to runtime values
 TORCH_CUDA_CU_API ExpressionEvaluator
 bindInputs(const KernelArgumentHolder& args, Fusion* fusion);

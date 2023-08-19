@@ -331,7 +331,7 @@ std::vector<PolymorphicValue> GetMetaData::evaluate(
   at::Tensor input = inputs.at(0).as<at::Tensor>();
 
   TORCH_INTERNAL_ASSERT(
-      input.is_cuda(),
+      input.is_cuda() || input.is_meta(),
       "GetMetaData expects a CUDA tensor as input, but got undefined tensor");
 
   Struct<PolymorphicValue> concrete_value;

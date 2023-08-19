@@ -1076,12 +1076,6 @@ inline bool isTensorAttr(const Val* val, const std::string& attr_name) {
 } // namespace
 
 bool isTensorSize(const Val* val) {
-  if (auto ns = dynamic_cast<const NamedScalar*>(val)) {
-    // TODO: remove this
-    if (ns->isTensorSize()) {
-      return true;
-    }
-  }
   return isTensorAttr(val, "logical_size") || isTensorAttr(val, "alloc_size");
 }
 
