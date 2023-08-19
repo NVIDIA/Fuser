@@ -173,7 +173,7 @@ const PolymorphicValue& ExpressionEvaluator::evaluate(const Val* value) {
       std::vector<PolymorphicValue> inputs;
       inputs.reserve(def->inputs().size());
       for (auto i : def->inputs()) {
-        auto eval_i = evaluate(i);
+        const auto& eval_i = evaluate(i);
         if (!eval_i.hasValue()) {
           return null_;
         }
