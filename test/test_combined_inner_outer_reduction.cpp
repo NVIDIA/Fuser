@@ -1143,15 +1143,14 @@ TEST_F(NVFuserTest, CombinedSchedulerReshapeSegmentedFusion_CUDA) {
 // combined scheduler and the other is using the transpose scheduler. This
 // segmentation is not optimal due to extra inter-segment tensors and extra
 // transpose. See issue 744. PR-722 fixed this issue by disabling the use of
-// combined scheduler if it was previously rejected due to not enough shared
-// memory and register for persistence. Consequently, the fusion now splits into
-// two kernels: one using the inner scheduler and the other using the outer
-// scheduler
-TEST_F(NVFuserTest, CombinedSchedulerSegmentInnerOuter_CUDA) {
+// combined scheduler if there is not enough shared memory and register for
+// persistence. Consequently, the fusion now splits into three kernels: reshape,
+// inner, and outer. combined_pointwise: 764 + 150 inner_outer_pointwise: 328 +
+// 208 + 149 CombinedSchedulerSegmentInnerOuter_CUDA
+TEST_F(NVFuserTest, TMP) {
   auto runTest = [](const int64_t batch_size,
                     const int64_t hidden_size,
-                    DataType dtype,
-                    bool explicit_expand) {
+                    DataType dtype) {
     std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
     Fusion& fusion = *fusion_ptr.get();
     FusionGuard fg(&fusion);
@@ -1194,10 +1193,8 @@ TEST_F(NVFuserTest, CombinedSchedulerSegmentInnerOuter_CUDA) {
     Val* num_features = IrBuilder::create<Val>(hidden_size);
     mean = broadcast(mean, inner_broadcast_mask);
     rstd = broadcast(rstd, inner_broadcast_mask);
-    if (explicit_expand) {
-      mean = expand(mean, expanded_sizes);
-      rstd = expand(rstd, expanded_sizes);
-    }
+    mean = expand(mean, expanded_sizes);
+    rstd = expand(rstd, expanded_sizes);
     auto x_hat = mul(sub(input, mean), rstd);
 
     auto bcast_weight = broadcast(weight, outer_broadcast_mask);
@@ -1208,16 +1205,12 @@ TEST_F(NVFuserTest, CombinedSchedulerSegmentInnerOuter_CUDA) {
     auto a = mul(num_features, grad_x_hat);
     auto b = sum(grad_x_hat, inner_reduction_axes);
     auto bcast_b = broadcast(b, inner_broadcast_mask);
-    if (explicit_expand) {
-      bcast_b = expand(bcast_b, expanded_sizes);
-    }
+    bcast_b = expand(bcast_b, expanded_sizes);
 
     auto c1 = mul(grad_x_hat, x_hat);
     auto c2 = sum(c1, inner_reduction_axes);
     auto bcast_c2 = broadcast(c2, inner_broadcast_mask);
-    if (explicit_expand) {
-      bcast_c2 = expand(bcast_c2, expanded_sizes);
-    }
+    bcast_c2 = expand(bcast_c2, expanded_sizes);
     auto c3 = mul(x_hat, bcast_c2);
 
     auto inner = sub(sub(a, bcast_b), c3);
@@ -1226,22 +1219,39 @@ TEST_F(NVFuserTest, CombinedSchedulerSegmentInnerOuter_CUDA) {
     auto dw = sum(mul(grad_out, x_hat), outer_reduction_axes);
     auto db = sum(grad_out, outer_reduction_axes);
 
+    // reshape
+    const std::vector<int64_t> new_shape{hidden_size, batch_size};
+    auto reshaped_output = reshape(dx, input_shape, new_shape);
+
     if (dtype == DataType::Half) {
       dx = castOp(dtype, dx);
       dw = castOp(dtype, dw);
       db = castOp(dtype, db);
+      reshaped_output = castOp(dtype, reshaped_output);
     }
     fusion.addOutput(dx);
     fusion.addOutput(dw);
     fusion.addOutput(db);
+    fusion.addOutput(reshaped_output);
 
+    // https://github.com/NVIDIA/Fuser/issues/704
+    constexpr float scale_down_factor = 0.01;
+    constexpr float scale_back_factor = 1.0 / scale_down_factor;
     auto maybe_fp16_options = at::TensorOptions()
                                   .dtype(data_type_to_aten(dtype))
                                   .device(at::kCUDA, 0);
-    at::Tensor aten_grad_out = at::randn(input_shape, maybe_fp16_options);
-    at::Tensor aten_input = at::randn(input_shape, maybe_fp16_options);
-    at::Tensor aten_weight = at::randn(norm_shape, maybe_fp16_options);
-    at::Tensor aten_bias = at::randn(norm_shape, maybe_fp16_options);
+    at::Tensor aten_grad_out = at::randn(input_shape, maybe_fp16_options)
+                                   .mul(scale_down_factor)
+                                   .to(data_type_to_aten(dtype));
+    at::Tensor aten_input = at::randn(input_shape, maybe_fp16_options)
+                                .mul(scale_down_factor)
+                                .to(data_type_to_aten(dtype));
+    at::Tensor aten_weight = at::randn(norm_shape, maybe_fp16_options)
+                                 .mul(scale_down_factor)
+                                 .to(data_type_to_aten(dtype));
+    at::Tensor aten_bias = at::randn(norm_shape, maybe_fp16_options)
+                               .mul(scale_down_factor)
+                               .to(data_type_to_aten(dtype));
     auto at_weight = c10::optional<at::Tensor>(aten_weight);
     auto at_bias = c10::optional<at::Tensor>(aten_bias);
 
@@ -1271,10 +1281,11 @@ TEST_F(NVFuserTest, CombinedSchedulerSegmentInnerOuter_CUDA) {
         c10::optional<at::Tensor>(aten_weight.to(at::kDouble)),
         c10::optional<at::Tensor>(aten_bias.to(at::kDouble)),
         {true, true, true});
+    auto aten_reshaped = std::get<0>(aten_gradients).reshape(new_shape);
 
     const int64_t n_segments =
         fec.getMostRecentKernelRuntime()->fusionSegments()->groups().size();
-    ASSERT_TRUE(n_segments == 2) << "Expected 2 segments, got " << n_segments;
+    ASSERT_TRUE(n_segments == 3) << "Expected 3 segments, got " << n_segments;
     bool inner_segment_found = false;
     bool outer_segment_found = false;
     for (int i = 0; i < n_segments; i++) {
@@ -1297,11 +1308,15 @@ TEST_F(NVFuserTest, CombinedSchedulerSegmentInnerOuter_CUDA) {
 
     testValidate(
         &fusion,
-        cg_outputs,
+        {cg_outputs[0].mul(scale_back_factor),
+         cg_outputs[1].mul(scale_back_factor),
+         cg_outputs[2].mul(scale_back_factor),
+         cg_outputs[3].mul(scale_back_factor)},
         aten_inputs,
-        {std::get<0>(aten_gradients),
-         std::get<1>(aten_gradients),
-         std::get<2>(aten_gradients)},
+        {std::get<0>(aten_gradients).mul(scale_back_factor),
+         std::get<1>(aten_gradients).mul(scale_back_factor),
+         std::get<2>(aten_gradients).mul(scale_back_factor),
+         aten_reshaped.mul(scale_back_factor)},
         __LINE__,
         __FILE__);
   };
@@ -1309,7 +1324,6 @@ TEST_F(NVFuserTest, CombinedSchedulerSegmentInnerOuter_CUDA) {
   DataType dtype = DataType::Half;
   int64_t batch_shape = 216;
   int64_t norm_shape = 20480;
-  runTest(batch_shape, norm_shape, dtype, false);
-  runTest(batch_shape, norm_shape, dtype, true);
+  runTest(batch_shape, norm_shape, dtype);
 }
 } // namespace nvfuser

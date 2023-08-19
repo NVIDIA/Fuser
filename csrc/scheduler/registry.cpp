@@ -1936,6 +1936,17 @@ class PersistentKernelScheduler : public SchedulerEntry {
     }
 
     if (inner_reduction && outer_reduction) {
+      // TMP solution, when ScheduleHeuristic::Persistent is refactored into
+      // ScheduleHeuristic::PersistentInner, ScheduleHeuristic::PersistentOuter,
+      // and ScheduleHeuristic::PersistentCombined, this check should be done in
+      // SchedulerEntry::proposeHeuristics
+      if (runtime_info.isHeuristicDisabled(
+              ScheduleHeuristic::PersistentCombined)) {
+        scheduler_debug_utils::canScheduleRejectReason(
+            ScheduleHeuristic::Persistent,
+            "PersistentCombined is disabled by runtime info!");
+        return false;
+      }
       auto opt_reason =
           runtime_info.getOptionalRejectReason(ScheduleHeuristic::Persistent);
       if (opt_reason.has_value()) {
@@ -1974,8 +1985,9 @@ class PersistentKernelScheduler : public SchedulerEntry {
     }
 
     // pair of persistent_buffer_size and available_persistent_buffer_size
-    const std::pair<int64_t, int64_t> buffer_size = getPersistentBufferSize(
-        fusion, runtime_info, data_cache, reduction_tvs);
+    const std::pair<int64_t, int64_t> buffer_size =
+        normalization_scheduler_utils::getPersistentBufferSize(
+            fusion, runtime_info, data_cache, reduction_tvs);
     const int64_t persistent_buffer_size = buffer_size.first;
     const int64_t available_persistent_buffer_size = buffer_size.second;
 
@@ -2132,94 +2144,6 @@ class PersistentKernelScheduler : public SchedulerEntry {
       }
     }
     return true;
-  }
-
-  static std::pair<int64_t, int64_t> getPersistentBufferSize(
-      Fusion* fusion,
-      SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache,
-      const std::vector<TensorView*>& reduction_tvs) {
-    auto persistent_buffer_info_entry =
-        HeuristicSummaryEntry<HeuristicCompileTime::PersistentBufferInfo>(
-            data_cache, [&fusion]() {
-              return std::make_unique<scheduler_utils::PersistentBufferInfo>(
-                  scheduler_utils::persistentBuffers(fusion));
-            });
-
-    auto& persistent_buffer_info = persistent_buffer_info_entry.get();
-
-    auto persistent_buffer_size_info = scheduler_utils::persistentBufferSize(
-        fusion, runtime_info, persistent_buffer_info, data_cache);
-
-    // Note that projected buffer size can be zero
-    auto persistent_buffer_size =
-        persistent_buffer_size_info.projected_persistent_buffer_size == 0
-        ? persistent_buffer_size_info.persistent_buffer_size
-        : std::min(
-              persistent_buffer_size_info.persistent_buffer_size,
-              persistent_buffer_size_info.projected_persistent_buffer_size);
-
-    // in combined_inner_outer_reduction, the partial results of outer
-    // reductions must be persistent, allow register spill avoid segmentation
-    int64_t inner_reduction_count = 0;
-    int64_t outer_reduction_count = 0;
-    std::vector<TensorView*> outer_reduction_tvs;
-    for (auto tv : reduction_tvs) {
-      if (scheduler_utils::isFastestDimReduction(tv)) {
-        inner_reduction_count++;
-      } else {
-        outer_reduction_count++;
-        outer_reduction_tvs.emplace_back(tv);
-      }
-    }
-    const bool combined_inner_outer_reduction =
-        inner_reduction_count && outer_reduction_count;
-    if (combined_inner_outer_reduction) {
-      persistent_buffer_size +=
-          normalization_scheduler_utils::partialReductionBufferSize(
-              outer_reduction_tvs, runtime_info);
-    }
-
-    // At this point, we use the full register file size only for the
-    // inner-outer case. It does not mean the full size shouldn't be used
-    // otherwise, but more detailed tuning of the heuristics would be required.
-    int64_t available_persistent_buffer_size = combined_inner_outer_reduction
-        ? scheduler_utils::register_file_size_full
-        : scheduler_utils::register_file_size;
-
-    // Use shared memory for persistent buffer is only tested for inner
-    // reduction
-    // TODO: extend to outer reduction and combined reduction
-    const bool allow_shared_memory =
-        inner_reduction_count > 0 && outer_reduction_count == 0;
-    if (allow_shared_memory) {
-      const auto dev_prop = at::cuda::getCurrentDeviceProperties();
-      const int64_t max_shared_memory_size =
-          (int64_t)dev_prop->sharedMemPerBlockOptin;
-      // Some shared memories are reserved for kernel launch overhead and
-      // reduction_broadcast_workspace. Estimation is conservative, but should
-      // be good enough. The actual threads per block is set in the heuristics
-      // and it may be smaller than maxThreadsPerBlock.
-      // TODO: More accurate estimation of available shared memory size.
-      const int64_t kernel_overhead =
-          (int64_t)dev_prop->reservedSharedMemPerBlock;
-      int64_t max_buffer_dtype_size = 1;
-      for (auto tv : persistent_buffer_info.persistent_buffers) {
-        max_buffer_dtype_size = std::max(
-            max_buffer_dtype_size,
-            dataTypeSize(
-                tv->getDataType().value(), runtime_info.getIndexType()));
-      }
-      const int64_t reduction_broadcast_workspace =
-          (int64_t)(dev_prop->maxThreadsPerBlock) * max_buffer_dtype_size;
-      const int64_t available_shared_memory_size = max_shared_memory_size -
-          kernel_overhead - reduction_broadcast_workspace;
-      available_persistent_buffer_size = std::max(
-          available_persistent_buffer_size, available_shared_memory_size);
-    }
-
-    return std::make_pair(
-        persistent_buffer_size, available_persistent_buffer_size);
   }
 
   static bool canScheduleRunTimeOuter(
@@ -2590,6 +2514,9 @@ std::optional<ScheduleHeuristic> SchedulerEntry::proposeHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info) {
   for (auto sh : all_heuristics()) {
+    if (runtime_info.isHeuristicDisabled(sh)) {
+      continue;
+    }
     if (canSchedule(sh, fusion, runtime_info)) {
       scheduler_debug_utils::canScheduleMessage("***Accepted*** as: ", sh);
       return sh;
@@ -2795,6 +2722,41 @@ HeuristicSummaryEntry<EntryClass>::HeuristicSummaryEntry(
   } else {
     data_ptr_ =
         data_cache->at(EntryClass::EntryType)->template as<InfoType>()->get();
+  }
+}
+
+namespace {
+// Disable the use of persistent combined heuristics if it is already rejected
+// by runtime check due to NotEnoughSharedMemoryAndRegister.
+// Otherwise, do a runtime check of the persistent buffer size.
+bool disablePersistentCombined(
+    Fusion* fusion,
+    SchedulerRuntimeInfo& runtime_info,
+    HeuristicSummary* data_cache) {
+  // already rejected when schedule the complete fusion
+  if (auto opt_reason =
+          runtime_info.getOptionalRejectReason(ScheduleHeuristic::Persistent)) {
+    return std::get<PersistentSchedulerRejectReason>(opt_reason.value()) ==
+        PersistentSchedulerRejectReason::NotEnoughSharedMemoryAndRegister;
+  }
+
+  // further runtime check of the persistent buffer size
+  const auto reduction_tvs = scheduler_utils::getReductionTvs(fusion);
+  if (reduction_tvs.size() >= 2) {
+    const std::pair<int64_t, int64_t> buffer_size =
+        normalization_scheduler_utils::getPersistentBufferSize(
+            fusion, runtime_info, data_cache, reduction_tvs);
+    return buffer_size.first > buffer_size.second;
+  }
+
+  // no reason to disable
+  return false;
+}
+} // namespace
+
+void SchedulerRuntimeInfo::disableSomeHeuristics() {
+  if (disablePersistentCombined(complete_fusion_, *this, nullptr)) {
+    disabled_heuristics_.insert(ScheduleHeuristic::PersistentCombined);
   }
 }
 

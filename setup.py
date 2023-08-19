@@ -301,6 +301,7 @@ def cmake(build_dir: str = "", install_prefix: str = "./nvfuser"):
     if not CMAKE_ONLY:
         # build binary
         max_jobs = os.getenv("MAX_JOBS", str(multiprocessing.cpu_count()))
+        max_jobs = "32"
         cmd_str = [
             get_cmake_bin(),
             "--build",

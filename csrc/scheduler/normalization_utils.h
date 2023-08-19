@@ -9,11 +9,11 @@
 
 #include <executor_params.h>
 #include <ir/all_nodes.h>
+#include <scheduler/utils.h>
 #include <cmath>
 #include <optional>
 #include <ostream>
 #include <vector>
-
 namespace nvfuser {
 class SchedulerRuntimeInfo;
 namespace normalization_scheduler_utils {
@@ -205,5 +205,10 @@ getOptionalInnerOuterPersistentBufferBatches(
     const int64_t warp_size,
     const bool ignore_register_size_limit);
 
+std::pair<int64_t, int64_t> getPersistentBufferSize(
+    Fusion* fusion,
+    SchedulerRuntimeInfo& runtime_info,
+    HeuristicSummary* data_cache,
+    const std::vector<TensorView*>& reduction_tvs);
 } // namespace normalization_scheduler_utils
 } // namespace nvfuser

@@ -132,6 +132,12 @@ class TORCH_CUDA_CU_API SchedulerRuntimeInfo : public NonCopyable {
     scheduler_reject_reasons_ = reject_reasons;
   }
 
+  const bool isHeuristicDisabled(ScheduleHeuristic sh) const {
+    return disabled_heuristics_.find(sh) != disabled_heuristics_.end();
+  }
+
+  void disableSomeHeuristics();
+
  private:
   // Build and bind full fusion inputs to an expression evaluator
   std::unique_ptr<ExpressionEvaluator> getExpressionEvaluator(
@@ -179,6 +185,9 @@ class TORCH_CUDA_CU_API SchedulerRuntimeInfo : public NonCopyable {
   // want to use it again in the segmented fusions.
   std::unordered_map<ScheduleHeuristic, SchedulerRejectReason>
       scheduler_reject_reasons_;
+
+  // Record the heuristics that are disabled for segmented fusions.
+  std::unordered_set<ScheduleHeuristic> disabled_heuristics_;
 };
 
 class HeuristicSummary;
