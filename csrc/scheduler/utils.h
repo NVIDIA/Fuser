@@ -30,11 +30,21 @@ namespace scheduler_utils {
 // but it's hard to get a better one.
 constexpr int64_t register_file_size_full = (int64_t)256 * 1024;
 constexpr int64_t register_file_size = register_file_size_full / 2;
+
 // register file size allowed for persistent buffers in
 // innerOuterPersistentHeuristic. Will cause register spills but still improves
-// the overall performance.
+// the overall performance. Here 54 = (1-overhead/255) * 64
 constexpr int64_t register_file_size_combined =
     register_file_size_full / 64 * 54;
+
+// max threads per block for combined scheduler uses
+// innerOuterPersistentHeuristic. Combined scheduler creates additional
+// persistent tensors to store intermediate outer reduction results. It also
+// have both inner and outer reductions, the register pressure is very high.
+// Limit the max threads per block to 256, allows each thread to use 255
+// registers.
+constexpr int64_t max_threads_per_block_combined = 256l;
+
 // Empirically observed number. Not guaranteed to be a good estimate
 constexpr int64_t register_overhead = 40l;
 constexpr int64_t max_registers_per_thread = 255l;

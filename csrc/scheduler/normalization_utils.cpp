@@ -598,36 +598,30 @@ bool isConnectedOnlyThroughReductionProducer(
   return true;
 }
 
-int64_t getTensorViewRuntimeBytes(
-    TensorView* tv,
-    SchedulerRuntimeInfo& runtime_info) {
-  int64_t tensor_size = -1;
-  for (auto id : tv->getMaybeRFactorDomain()) {
-    if (id->isReduction() || id->isBroadcast()) {
-      continue;
-    }
-    auto id_size = runtime_info.expressionEvaluator().evaluate(id->extent());
-    TORCH_INTERNAL_ASSERT(id_size.hasValue(), "Could not infer tv size.");
-    if (tensor_size == -1) {
-      tensor_size = id_size.as<int64_t>();
-    } else {
-      tensor_size *= id_size.as<int64_t>();
-    }
-  }
-  int64_t tensor_bytes = (tensor_size == -1) ? 0
-                                             : tensor_size *
-          (int64_t)dataTypeSize(tv->getDataType().value(),
-                                runtime_info.getIndexType());
-  return tensor_bytes;
-}
-
 int64_t partialReductionBufferSize(
     const std::vector<TensorView*>& outer_reduction_tvs,
     SchedulerRuntimeInfo& runtime_info) {
   int64_t partial_reduction_buffer_size = 0;
   for (auto buffer : outer_reduction_tvs) {
-    partial_reduction_buffer_size +=
-        getTensorViewRuntimeBytes(buffer, runtime_info);
+    int64_t buffer_size = -1;
+    for (auto id : buffer->getMaybeRFactorDomain()) {
+      if (id->isReduction() || id->isBroadcast()) {
+        continue;
+      }
+      auto id_size = runtime_info.expressionEvaluator().evaluate(id->extent());
+      TORCH_INTERNAL_ASSERT(
+          id_size.hasValue(), "Could not infer persistent buffer size.");
+      if (buffer_size == -1) {
+        buffer_size = id_size.as<int64_t>();
+      } else {
+        buffer_size *= id_size.as<int64_t>();
+      }
+    }
+    buffer_size = (buffer_size == -1) ? 0
+                                      : buffer_size *
+            (int64_t)dataTypeSize(buffer->getDataType().value(),
+                                  runtime_info.getIndexType());
+    partial_reduction_buffer_size += buffer_size;
   }
   return partial_reduction_buffer_size;
 }
@@ -774,6 +768,52 @@ int64_t getSharedMemoryOverheadPerBlock(
   return smem_overhead_per_block;
 }
 
+namespace {
+
+// shared memory is configured to specific sizes, e.g. 8, 16, 32, 64, 100,
+// 132, 164, 196, 228 KB per SM on H100. Here, smem_config_options is set to
+// H100's shared memory configuration. The returned value is the smallest shared
+// memory size required to launch the kernel. The driver may use a larger value
+// if there is enough shared memory to launch more than one block per SM. It's
+// the caller's responsibility to check if the returned value is smaller than
+// the device's shared memory size.
+int64_t getSharedMemoryConfigSize(int64_t request_size) {
+  static const std::array<int64_t, 9> smem_config_options = {
+      8 * 1024,
+      16 * 1024,
+      32 * 1024,
+      64 * 1024,
+      100 * 1024,
+      132 * 1024,
+      164 * 1024,
+      196 * 1024,
+      228 * 1024};
+
+  auto it = std::upper_bound(
+      smem_config_options.begin(), smem_config_options.end(), request_size);
+  if (it != smem_config_options.end()) {
+    return *it;
+  } else {
+    return smem_config_options.back();
+  }
+}
+
+// The roundup is due to the fact that the shared memory buffer is allocated
+// as: ceilDiv(ceilDiv(dim_size, vect), threadsPerBlock)
+int64_t roundUpSharedMemory(
+    TensorView* tv,
+    int64_t tv_buffer_size,
+    int64_t vectorize_factor,
+    int64_t threads_per_block) {
+  const int64_t data_type_size = dataTypeSize(tv->getDataType().value());
+  const int64_t n_elements = tv_buffer_size / data_type_size;
+  const int64_t n_batch =
+      ceilDiv(ceilDiv(n_elements, vectorize_factor), threads_per_block);
+  return n_batch * vectorize_factor * threads_per_block * data_type_size;
+}
+
+} // namespace
+
 PersistentBufferStorageParams getPersistentBufferStorageParams(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
@@ -855,27 +895,21 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
             outer_reduction_tvs, runtime_info);
     total_buffer_size += intermediate_buffer_size;
   }
-  const int64_t max_threads_per_block = 256l;
-  int64_t max_buffer_data_type_size = 1;
-  for (const auto tv : persistent_buffers) {
-    max_buffer_data_type_size = std::max(
-        max_buffer_data_type_size, dataTypeSize(tv->getDataType().value()));
-  }
+
   // At this point, we use a much larger register file size for the combined
-  // case as it is rarely fused with other ops. Shared memory persistent is only
-  // implemented for the inner and combined case.
+  // case as it is rarely fused with other ops.
   const auto dev_prop = at::cuda::getCurrentDeviceProperties();
   int64_t available_register_buffer_size = combined_inner_outer_reduction
       ? scheduler_utils::register_file_size_combined
       : scheduler_utils::register_file_size;
-  if (max_buffer_data_type_size == 4) {
-    // allow 10% register spill for fp32
-    available_register_buffer_size =
-        scheduler_utils::register_file_size_full / 64 * 70;
-  }
+
+  // Shared memory persistent is only implemented for the inner and combined
+  // case.
   buffer_params.shared_memory_overhead_per_block =
       getSharedMemoryOverheadPerBlock(
-          fusion, persistent_buffers, max_threads_per_block);
+          fusion,
+          persistent_buffers,
+          scheduler_utils::max_threads_per_block_combined);
   int64_t available_shared_memory_buffer_size = inner_reduction_count > 0l
       ? (int64_t)dev_prop->sharedMemPerBlockOptin -
           buffer_params.shared_memory_overhead_per_block
@@ -885,77 +919,33 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
   buffer_params.register_persistent_buffer_size = total_buffer_size;
   buffer_params.shared_memory_persistent_buffer_size = 0;
 
-  // Move persistent tensors from registers to shared memory until
-  // regs_buffer_size is not larger than available_register_buffer_size.
-  // The buffer size of each tensor is calculated by getOnePersistentBufferSize,
-  // after move, the corresponding register buffer size is reduced by
-  // tv_buffer_size. The shared memory buffer size is increased by
-  // tv_buffer_size + smem_ceil_div_overhead. The overhead is due to the fact
-  // that the shared memory buffer is allocated as: ceilDiv(ceilDiv(dim_size,
-  // vect), threadsPerBlock), here maxThreadsPerBlock is used since the actual
-  // threadsPerBlock is not known yet.
-  auto roundUpSmem = [](TensorView* tv,
-                        int64_t tv_buffer_size,
-                        int64_t vectorize_factor,
-                        int64_t threads_per_block) {
-    const int64_t data_type_size = dataTypeSize(tv->getDataType().value());
-    const int64_t n_elements = tv_buffer_size / data_type_size;
-    const int64_t n_batch =
-        ceilDiv(ceilDiv(n_elements, vectorize_factor), threads_per_block);
-    return n_batch * vectorize_factor * threads_per_block * data_type_size;
-  };
-  //  0, 8, 16, 32, 64, 100, 132, 164, 196 and 228 KB per SM.
-  //  0, 8, 16, 32, 64, 100, 132, 164 KB per SM
-  const std::array<int64_t, 9> smem_config_options = {
-      8 * 1024,
-      16 * 1024,
-      32 * 1024,
-      64 * 1024,
-      100 * 1024,
-      132 * 1024,
-      164 * 1024,
-      196 * 1024,
-      228 * 1024};
-  auto getSmemConfigSize = [&smem_config_options](int64_t request_size) {
-    for (int64_t i = 0; i < (int64_t)smem_config_options.size(); i++) {
-      if (request_size <= smem_config_options[i]) {
-        return smem_config_options[i];
-      }
-    }
-    return smem_config_options.back();
-  };
-
+  // Try to move some buffers to shared memory to reduce register usage
   if (vectorize_factor > 1 &&
       buffer_params.register_persistent_buffer_size >
           available_register_buffer_size) {
-    // if shared memory is used, reduce available register as they share the
-    // same hardware resource. e.g. 28800 fp16 on H100, (1) still use 65K
-    // register, 256 bytes stack frame, 1200 GB/s (2) use 56K register, no
-    // spill, 1600 GB/s
-    available_register_buffer_size =
-        scheduler_utils::register_file_size_full / 64 * 56;
-
-    // calculate the accumulated buffer size
+    // calculate the accumulated buffer size of the first N buffers
     const int64_t n_buffers = persistent_buffers.size();
     std::vector<int64_t> acc_regs_buffer_sizes(n_buffers + 1, 0);
     std::vector<int64_t> acc_smem_buffer_sizes(n_buffers + 1, 0);
     for (int i = 1; i <= n_buffers; i++) {
       int64_t tv_buffer_size_regs = scheduler_utils::getOnePersistentBufferSize(
-          persistent_buffers[i-1], runtime_info, persistent_buffer_info);
-      int64_t tv_buffer_size_smem = roundUpSmem(
-          persistent_buffers[i-1],
+          persistent_buffers[i - 1], runtime_info, persistent_buffer_info);
+      int64_t tv_buffer_size_smem = roundUpSharedMemory(
+          persistent_buffers[i - 1],
           tv_buffer_size_regs,
           vectorize_factor,
-          max_threads_per_block);
+          scheduler_utils::max_threads_per_block_combined);
 
-      acc_regs_buffer_sizes[i] = acc_regs_buffer_sizes[i - 1] + tv_buffer_size_regs;
-      acc_smem_buffer_sizes[i] = acc_smem_buffer_sizes[i - 1] + tv_buffer_size_smem;
+      acc_regs_buffer_sizes[i] =
+          acc_regs_buffer_sizes[i - 1] + tv_buffer_size_regs;
+      acc_smem_buffer_sizes[i] =
+          acc_smem_buffer_sizes[i - 1] + tv_buffer_size_smem;
     }
-    // calculate the minimum number of buffers need to be moved to shared memory
-    // to make sure the register buffer size is not larger than
-    // available_register_buffer_size
+
+    // Determine the least number of buffers to transfer to shared memory
+    // to ensure the register buffer size doesn't exceed the available limit.
     int64_t n_smem_buffer = -1;
-    for (int i = 1; i < n_buffers; i++) {
+    for (int i = 1; i <= n_buffers; i++) {
       if (buffer_params.register_persistent_buffer_size -
               acc_regs_buffer_sizes[i] <=
           available_register_buffer_size) {
@@ -963,8 +953,9 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
         break;
       }
     }
-    // Still needs more registers than aviailable after move all to shared
-    // memory, can't be scheduled
+
+    // Can't be scheduled if n_smem_buffer is not set or requested shared memory
+    // is larger than available.
     if (n_smem_buffer == -1 ||
         acc_smem_buffer_sizes[n_smem_buffer] >
             available_shared_memory_buffer_size) {
@@ -972,25 +963,21 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
       return buffer_params;
     }
 
-
-
-    // shared memory is configured to specific sizes, e.g. 8, 16, 32, 64, 100,
-    // 132, 164, 196, 228 KB per SM on H100. we can move more buffers to shared
-    // memory if it leads to more efficient utilization of the configured shared
-    // memory size. Just check the change of the ratio of smem_buffer_size to
-    // smem_config_size if move one more buffer from register to shared memory.
-    // e.g. f32, 19072 on H100, new n_smem_buffer= 2, smem_config_size_tmp=
-    // 167936, buffer_config_ratio_tmp= 0.926829, buffer_config_ratio_old= 0.76
-    // bandwidth increased from 1700 GB/s to 1900 GB/s.
-    if (n_smem_buffer <= n_buffers) {
+    // When more than 2 register buffers exist, evaluate the possibility of
+    // shifting an additional one. Doing so might enhance the efficiency of
+    // shared memory utilization due to preset shared configuration sizes. For
+    // instance, a 65K shared memory requirement might default to a 100K
+    // configuration. But transferring an extra buffer, raising the need to
+    // 130K, could lead to a selection of the 132K configuration, optimizing
+    // usage.
+    if (n_buffers - n_smem_buffer >= 2) {
       int64_t smem_buffer_size = acc_smem_buffer_sizes[n_smem_buffer];
       int64_t smem_config_size = getSmemConfigSize(
           smem_buffer_size + buffer_params.shared_memory_overhead_per_block);
       float buffer_config_ratio = (float)smem_buffer_size / smem_config_size;
       if (buffer_config_ratio < 0.8 &&
           smem_config_size < smem_config_options.back()) {
-        int64_t smem_buffer_size_tmp = acc_smem_buffer_sizes[n_smem_buffer+1];
-        ;
+        int64_t smem_buffer_size_tmp = acc_smem_buffer_sizes[n_smem_buffer + 1];
         int64_t smem_config_size_tmp = getSmemConfigSize(
             smem_buffer_size_tmp +
             buffer_params.shared_memory_overhead_per_block);
@@ -1027,6 +1014,10 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
           available_shared_memory_buffer_size &&
       buffer_params.register_persistent_buffer_size <=
           available_register_buffer_size;
+
+  TORCH_INTERNAL_ASSERT(
+      !buffer_params.has_enough_regs_and_smem,
+      "Not enough registers and shared memory for persistence! Should return early.");
 
   std::cout << "register_persistent_buffer_size: "
             << buffer_params.register_persistent_buffer_size

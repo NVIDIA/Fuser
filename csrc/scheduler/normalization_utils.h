@@ -194,11 +194,6 @@ bool isConnectedOnlyThroughReductionProducer(
     const std::vector<TensorView*>& inner_reduction_tvs,
     const std::vector<TensorView*>& outer_reduction_tvs);
 
-//! Get the number of bytes of a tensor view
-int64_t getTensorViewRuntimeBytes(
-    TensorView* tv,
-    SchedulerRuntimeInfo& runtime_info);
-
 //! in combined_inner_outer_reduction, the partial results of outer
 //! reductions must be persistent, calculate the size of these buffers when
 //! estimate register usage

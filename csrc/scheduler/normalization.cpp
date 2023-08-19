@@ -355,7 +355,6 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
   return rparams;
 }
 
-
 std::shared_ptr<ReductionParams> innerPersistentHeuristic(
     const int64_t total_reduction_numel,
     const int64_t total_iteration_numel,
@@ -365,7 +364,6 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
     const int64_t register_persistent_buffer_size,
     const int64_t shared_memory_persistent_buffer_size,
     const size_t vectorize_factor) {
-
   auto rparams = std::make_shared<ReductionParams>();
   rparams->shared_mem_persistent_buffer =
       shared_memory_persistent_buffer_size > 0;
@@ -775,8 +773,9 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
     constexpr double max_adjust_fraction = 0.9;
     int64_t register_count_minimum = static_cast<int64_t>(
         max_adjust_fraction * static_cast<double>(estimated_register_count));
-    const int64_t blocks_per_sm_maximum = scheduler_utils::safeDiv(getThreadsPerSMGivenRegPerThread(register_count_minimum),
-                                                                   threads_per_block);
+    const int64_t blocks_per_sm_maximum = scheduler_utils::safeDiv(
+        getThreadsPerSMGivenRegPerThread(register_count_minimum),
+        threads_per_block);
     register_count_minimum = getRegPerThreadGivenThreadsPerSM(
         blocks_per_sm_maximum * threads_per_block);
 
@@ -1317,9 +1316,8 @@ std::shared_ptr<ReductionParams> getPersistentHeuristics(
   }
   const bool combined_inner_outer_reduction =
       n_tensor_inner_reduction && n_tensor_outer_reduction;
-  auto first_red_tv = combined_inner_outer_reduction
-      ? inner_reduction_tvs[0]
-      : reduction_tvs[0];
+  auto first_red_tv = combined_inner_outer_reduction ? inner_reduction_tvs[0]
+                                                     : reduction_tvs[0];
 
   TORCH_INTERNAL_ASSERT(
       first_red_tv != nullptr, "Reduction TensorView wasn't found.");
@@ -1336,7 +1334,6 @@ std::shared_ptr<ReductionParams> getPersistentHeuristics(
   TORCH_INTERNAL_ASSERT(
       std::distance(tv_inps.begin(), tv_inps.end()) > 0,
       "Tried to schedule a fusion with no tensor inputs, currently not supported.");
-
 
   auto properties = scheduler_utils::getReductionProperties(
       fusion, runtime_info, first_red_tv);
@@ -1365,8 +1362,14 @@ std::shared_ptr<ReductionParams> getPersistentHeuristics(
       ? dataTypeSize(outer_reduction_tvs[0]->getDataType().value())
       : dataTypeSize(first_red_tv->getDataType().value());
 
-  const auto buffer_params = normalization_scheduler_utils::getPersistentBufferStorageParams(
-      fusion, runtime_info, data_cache, reduction_tvs, properties, vectorize_factor);
+  const auto buffer_params =
+      normalization_scheduler_utils::getPersistentBufferStorageParams(
+          fusion,
+          runtime_info,
+          data_cache,
+          reduction_tvs,
+          properties,
+          vectorize_factor);
 
   // Base max dtype and n_tensor_inputs on tensors that are vectorizable (i.e.
   // share inner dimension with data pattern we're looking at).
@@ -1452,26 +1455,30 @@ void beforeSchedule(
   scheduler_utils::clearMemorySpace(fusion);
   scheduler_utils::prepareForMemoryTypePromotion(fusion);
 
-  // Use shared memory to store persistent buffers
+  // Change storage type to shared memory.
+  // Check persistent tensors first, if they are not in the container, check their
+  // input if it is a cached input. When the shared_memory_persistent_tensors
+  // container was created, cached inputs were not created yet.
   if (rparams.shared_mem_persistent_buffer) {
     const auto& persistent_buffers =
         scheduler_utils::persistentBuffers(fusion).persistent_buffers;
-
-    auto is_smem_persistent_buffer = [&rparams](const TensorView* lookup_tv) {
-      auto it = std::find_if(rparams.shared_memory_persistent_tensors.begin(),
-           rparams.shared_memory_persistent_tensors.end(), [lookup_tv](const auto* tv) {
+    auto isSharedMemoryPersistent = [&rparams](const TensorView* lookup_tv) {
+      return std::any_of(
+          rparams.shared_memory_persistent_tensors.begin(),
+          rparams.shared_memory_persistent_tensors.end(),
+          [lookup_tv](const auto* tv) {
             return tv->name() == lookup_tv->name();
-      });
-      return it != rparams.shared_memory_persistent_tensors.end();
+          });
     };
-
     for (auto tv : persistent_buffers) {
-      bool use_smem = is_smem_persistent_buffer(tv);
-      if(!use_smem && std::find(cached_inputs.begin(), cached_inputs.end(), tv) != cached_inputs.end()){
+      bool use_smem = isSharedMemoryPersistent(tv);
+      if (!use_smem &&
+          std::find(cached_inputs.begin(), cached_inputs.end(), tv) !=
+              cached_inputs.end()) {
         auto input_tv = ir_utils::producerTvsOf(tv)[0];
-        use_smem = is_smem_persistent_buffer(input_tv);
+        use_smem = isSharedMemoryPersistent(input_tv);
       }
-      if(use_smem){
+      if (use_smem) {
         tv->setMemoryType(MemoryType::Shared);
       }
       std::cout << "may_be_smem_tv: " << tv->toString() << std::endl;
@@ -1532,7 +1539,7 @@ TensorView* scheduleReductionGeneral(
 
 // fusion is the input IR that will be modified by this function
 void schedulePersistentKernel(Fusion* fusion, const ReductionParams& rparams) {
-    std::cout << "trace: schedulePersistentKernel\n";
+  std::cout << "trace: schedulePersistentKernel\n";
 
   FUSER_PERF_SCOPE("schedulePersistentKernel");
   if (rparams.combined_inner_outer) {
