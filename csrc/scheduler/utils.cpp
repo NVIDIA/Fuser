@@ -760,7 +760,7 @@ int64_t getOnePersistentBufferSize(
           persistent_buffer_info.projectable_buffer_inputs.end(),
           buffer) != persistent_buffer_info.projectable_buffer_inputs.end();
 
-  r (auto id : buffer->getMaybeRFactorDomain()) {
+  for (auto id : buffer->getMaybeRFactorDomain()) {
     if (id->isReduction() || id->isBroadcast()) {
       continue;
     }
@@ -770,8 +770,8 @@ int64_t getOnePersistentBufferSize(
       continue;
     }
 
-    if (is_input && !
-        ersistent_buffer_info.unamppable_dims_projected_to_inputs.count(id)) {
+    if (is_input &&
+        !persistent_buffer_info.unamppable_dims_projected_to_inputs.count(id)) {
       continue;
     }
 
@@ -821,8 +821,8 @@ PersistentBufferSizeReturn persistentBufferSize(
 
   for (auto buffer_i : c10::irange(all_buffers.size())) {
     auto buffer = all_buffers[buffer_i];
-    persistent_buffer_sizes[buffer_i] = getOnePersistentBufferSize(bu
-        ffer, runtime_info, persistent_buffer_info);
+    persistent_buffer_sizes[buffer_i] = getOnePersistentBufferSize(
+        buffer, runtime_info, persistent_buffer_info);
   }
 
   // Buffers involved in normal persistence
@@ -2314,4 +2314,3 @@ std::unordered_set<TensorView*> getAllTvsFrom(
 } // namespace scheduler_utils
 
 } // namespace nvfuser
-  

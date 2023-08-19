@@ -3229,7 +3229,7 @@ SegmentCandidateFinder::SegmentCandidateFinder(
       runtime_info_(fusion.get(), inputs),
       runtime_inputs_(inputs) {
   runtime_info_.setSchedulingTheCompleteFusionTo(false);
-  ted_fusion_ = std::make_unique<SegmentedFusion>(std::move(fusion));
+  segmented_fusion_ = std::make_unique<SegmentedFusion>(std::move(fusion));
   findSegments();
 }
 
@@ -3972,4 +3972,3 @@ std::string toString(const SegmentCandidateFinderOptions& segment_options) {
 }
 
 } // namespace nvfuser
-      
