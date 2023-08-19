@@ -80,6 +80,7 @@ class TernaryOp;
 class ArrayConstruct;
 class GetAttr;
 class GetItem;
+class ReverseArray;
 class GetMetaData;
 class TensorConstruct;
 class SelectOp;
@@ -171,6 +172,7 @@ class TORCH_CUDA_CU_API OptOutConstDispatch : public PolymorphicBase {
   virtual void handle(const ArrayConstruct* stmt);
   virtual void handle(const GetAttr* stmt);
   virtual void handle(const GetItem* stmt);
+  virtual void handle(const ReverseArray* stmt);
   virtual void handle(const GetMetaData* stmt);
   virtual void handle(const TensorConstruct* stmt);
   virtual void handle(const SelectOp* stmt);
@@ -254,6 +256,7 @@ class TORCH_CUDA_CU_API OptOutDispatch : public PolymorphicBase {
   virtual void handle(ArrayConstruct* stmt);
   virtual void handle(GetAttr* stmt);
   virtual void handle(GetItem* stmt);
+  virtual void handle(ReverseArray* stmt);
   virtual void handle(GetMetaData* stmt);
   virtual void handle(TensorConstruct* stmt);
   virtual void handle(SelectOp* stmt);
