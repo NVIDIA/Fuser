@@ -78,6 +78,7 @@ class UnaryOp;
 class BinaryOp;
 class TernaryOp;
 class ArrayConstruct;
+class StructConstruct;
 class GetAttr;
 class GetItem;
 class GetMetaData;
@@ -169,6 +170,7 @@ class TORCH_CUDA_CU_API OptOutConstDispatch : public PolymorphicBase {
   virtual void handle(const BinaryOp* stmt);
   virtual void handle(const TernaryOp* stmt);
   virtual void handle(const ArrayConstruct* stmt);
+  virtual void handle(const StructConstruct* stmt);
   virtual void handle(const GetAttr* stmt);
   virtual void handle(const GetItem* stmt);
   virtual void handle(const GetMetaData* stmt);
@@ -252,6 +254,7 @@ class TORCH_CUDA_CU_API OptOutDispatch : public PolymorphicBase {
   virtual void handle(BinaryOp* stmt);
   virtual void handle(TernaryOp* stmt);
   virtual void handle(ArrayConstruct* stmt);
+  virtual void handle(StructConstruct* stmt);
   virtual void handle(GetAttr* stmt);
   virtual void handle(GetItem* stmt);
   virtual void handle(GetMetaData* stmt);

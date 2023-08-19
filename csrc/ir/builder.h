@@ -124,6 +124,10 @@ class TORCH_CUDA_CU_API IrBuilder {
     }
   }
 
+  static Val* structExpr(
+      const std::vector<std::pair<std::string, Val*>>& fields,
+      std::string name = "");
+
   static Val* newScalar(DataType dtype);
 
   static Val* newConstant(PolymorphicValue value, DataType dtype) {
