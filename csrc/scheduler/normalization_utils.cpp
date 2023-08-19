@@ -768,6 +768,27 @@ int64_t getSharedMemoryOverheadPerBlock(
   return smem_overhead_per_block;
 }
 
+TensorView* getReferenceReductionTv(
+    const std::vector<TensorView*>& reduction_tvs) {
+  TensorView* first_inner_tv = nullptr;
+  TensorView* first_outer_tv = nullptr;
+  for (auto tv : reduction_tvs) {
+    bool is_inner = scheduler_utils::isFastestDimReduction(tv);
+
+    if (is_inner && !first_inner_tv) {
+      first_inner_tv = tv;
+    } else if (!is_inner && !first_outer_tv) {
+      first_outer_tv = tv;
+    }
+
+    if (first_inner_tv && first_outer_tv) {
+      return first_inner_tv;
+    }
+  }
+
+  return reduction_tvs[0];
+}
+
 namespace {
 
 // shared memory is configured to specific sizes, e.g. 8, 16, 32, 64, 100,
@@ -819,19 +840,16 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
   PersistentBufferStorageParams buffer_params;
 
   // Check if the reduction is inner, outer, or combined inner-outer
-  int64_t inner_reduction_count = 0;
-  int64_t outer_reduction_count = 0;
-  std::vector<TensorView*> outer_reduction_tvs;
+  bool inner_reduction = false std::vector<TensorView*> outer_reduction_tvs;
   for (auto tv : reduction_tvs) {
     if (scheduler_utils::isFastestDimReduction(tv)) {
-      inner_reduction_count++;
+      inner_reduction = true;
     } else {
-      outer_reduction_count++;
       outer_reduction_tvs.emplace_back(tv);
     }
   }
-  const bool combined_inner_outer_reduction =
-      inner_reduction_count && outer_reduction_count;
+  buffer_params.combined_reduction =
+      inner_reduction && !outer_reduction_tvs.empty();
 
   auto persistent_buffer_info_entry =
       HeuristicSummaryEntry<HeuristicCompileTime::PersistentBufferInfo>(
@@ -872,15 +890,15 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
       persistent_buffer_size_info.projected_persistent_buffer_size > 0 &&
       (persistent_buffer_size_info.projected_persistent_buffer_size <
            persistent_buffer_size_info.persistent_buffer_size ||
-       combined_inner_outer_reduction);
+       buffer_params.combined_reduction);
   auto total_buffer_size = buffer_params.project_to_input
       ? persistent_buffer_size_info.projected_persistent_buffer_size
       : persistent_buffer_size_info.persistent_buffer_size;
   const auto& persistent_buffers = buffer_params.project_to_input
       ? persistent_buffer_info.projectable_buffer_inputs
       : persistent_buffer_info.persistent_buffers;
-  if (combined_inner_outer_reduction) {
-    // In the case of combined_inner_outer_reduction, the scheduler will create
+  if (buffer_params.combined_reduction) {
+    // In the case of combined_reduction, the scheduler will create
     // additional tensors in the schedule process to hold the intermediate
     // results of the outer reduction. These tensors are persistent but are not
     // captured in the persistent_buffer_info, since they are not exist at this
@@ -894,7 +912,7 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
   // At this point, we use a much larger register file size for the combined
   // case as it is rarely fused with other ops.
   const auto dev_prop = at::cuda::getCurrentDeviceProperties();
-  int64_t available_register_buffer_size = combined_inner_outer_reduction
+  int64_t available_register_buffer_size = buffer_params.combined_reduction
       ? scheduler_utils::register_file_size_combined
       : scheduler_utils::register_file_size;
 

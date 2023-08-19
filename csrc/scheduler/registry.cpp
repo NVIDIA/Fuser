@@ -1924,27 +1924,15 @@ class PersistentKernelScheduler : public SchedulerEntry {
             });
 
     auto& reduction_tvs = reduction_tv_entry.get();
-    bool inner_reduction = false;
-    bool outer_reduction = false;
-    TensorView* first_inner_reduction_tv = nullptr;
-    for (auto tv : reduction_tvs) {
-      if (scheduler_utils::isFastestDimReduction(tv)) {
-        first_inner_reduction_tv = tv;
-        inner_reduction = true;
-      } else {
-        outer_reduction = true;
-      }
-    }
 
     // If there is both inner and outer reduction, we use the first inner
     // reduction tv to get properties, otherwise we use the first reduction tv,
     // whether it is inner or outer.
-    auto reference_tv = inner_reduction && outer_reduction
-        ? first_inner_reduction_tv
-        : reduction_tvs[0];
+    auto ref_red_tv =
+        normalization_scheduler_utils::getReferenceReductionTv(reduction_tvs);
 
     auto properties = scheduler_utils::getReductionProperties(
-        fusion, runtime_info, reference_tv);
+        fusion, runtime_info, ref_red_tv);
 
     const int64_t warp_size = at::cuda::getCurrentDeviceProperties()->warpSize;
 
@@ -1954,7 +1942,7 @@ class PersistentKernelScheduler : public SchedulerEntry {
     }
 
     // get vectorize_factor, same process as the one in getPersistentHeuristics
-    auto reduced_tv = ir_utils::getSoleProducerTv(reference_tv);
+    auto reduced_tv = ir_utils::getSoleProducerTv(ref_red_tv);
     const auto vectorize_factor = vectorize_helper::getVectorizationFactor(
         runtime_info,
         reduced_tv,
@@ -1962,14 +1950,14 @@ class PersistentKernelScheduler : public SchedulerEntry {
         (int)(reduced_tv->nDims() - properties.inner_most_dimension_ndims));
 
     // check if there is enough register and shared memory for persistence
-    const auto buffer_storage_params =
+    const auto buffer_params =
         normalization_scheduler_utils::getPersistentBufferStorageParams(
             fusion, runtime_info, data_cache, reduction_tvs, vectorize_factor);
 
     const int64_t device_multiprocessor_count =
         (int64_t)at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
 
-    if (!buffer_storage_params.has_enough_regs_and_smem) {
+    if (!buffer_params.has_enough_regs_and_smem) {
       scheduler_debug_utils::canScheduleRejectReason(
           ScheduleHeuristic::Persistent,
           "not enough registers and shared memory for persistence!");
@@ -1978,15 +1966,15 @@ class PersistentKernelScheduler : public SchedulerEntry {
 
     // when vectorize_factor == 1, shared memory persistence is not used, will
     // explore later
-    if (inner_reduction && outer_reduction && vectorize_factor == 1) {
+    if (buffer_params.combined_reduction && vectorize_factor == 1) {
       // check if we can schedule the combined reductions with a reasonable
       // batch size without register spills.
       if (!normalization_scheduler_utils::
                getOptionalInnerOuterPersistentBufferBatches(
                    properties.total_reduction_numel,
                    properties.total_iteration_numel,
-                   buffer_storage_params.register_persistent_buffer_size,
-                   buffer_storage_params.shared_memory_persistent_buffer_size,
+                   buffer_params.register_persistent_buffer_size,
+                   buffer_params.shared_memory_persistent_buffer_size,
                    (int64_t)vectorize_factor,
                    warp_size,
                    false)
@@ -2006,10 +1994,10 @@ class PersistentKernelScheduler : public SchedulerEntry {
     // persistent.
     const int64_t max_multi_reduction_factor = scheduler_utils::safeDiv(
         scheduler_utils::register_file_size,
-        buffer_storage_params.register_persistent_buffer_size);
+        buffer_params.register_persistent_buffer_size);
 
     const int64_t required_sm_per_norm = ceilDiv(
-        buffer_storage_params.register_persistent_buffer_size,
+        buffer_params.register_persistent_buffer_size,
         scheduler_utils::register_file_size);
 
     // If the persistence requires over half the device don't do grid
@@ -2023,7 +2011,7 @@ class PersistentKernelScheduler : public SchedulerEntry {
 
     const int64_t norm_per_sm = ceilDiv(
         scheduler_utils::register_file_size,
-        buffer_storage_params.register_persistent_buffer_size);
+        buffer_params.register_persistent_buffer_size);
 
     // If outer reduction, don't go persistent if we can't fit half a warp in
     // the iter domain of the persistent reduction.

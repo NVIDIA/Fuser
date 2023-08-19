@@ -233,12 +233,15 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
     const int64_t vectorize_factor);
 
 //! Return the shared memory overhead per block includes reserved by the CUDA
-//! driver and the space for the reduction broadcast
-// workspace. The shared memory allocated for the reduction broadcast
-// workspace is proportional to the number of threads per block.
+//! driver and the space for the reduction broadcast workspace.
 int64_t getSharedMemoryOverheadPerBlock(
     Fusion* fusion,
     const std::vector<TensorView*>& persistent_buffer_tvs,
     const int64_t max_threads_per_block);
+
+//! Use the first inner reduction tv as the reference tv if the fusion has both
+//! inner and outer reductions, otherwise use the first reduction tv.
+TensorView* getReferenceReductionTv(
+    const std::vector<TensorView*>& reduction_tvs);
 } // namespace normalization_scheduler_utils
 } // namespace nvfuser

@@ -1243,9 +1243,9 @@ std::shared_ptr<ReductionParams> persistentHeuristic(
     std::vector<TensorView*> shared_memory_persistent_tensors,
     size_t vectorize_factor,
     bool project_persistent_buffers,
-    const bool combined_inner_outer_reduction) {
+    const bool combined_reduction) {
   std::shared_ptr<ReductionParams> rparams;
-  if (combined_inner_outer_reduction) {
+  if (combined_reduction) {
     const int64_t outer_dim_numel = total_iteration_numel;
     const int64_t inner_dim_numel = inner_most_dimension_numel;
     rparams = innerOuterPersistentHeuristic(
@@ -1300,31 +1300,15 @@ std::shared_ptr<ReductionParams> getPersistentHeuristics(
 
   TORCH_INTERNAL_ASSERT(
       !reduction_tvs.empty(), "Need reduction tensor views to schedule.");
-
-  int64_t n_tensor_inner_reduction = 0;
-  int64_t n_tensor_outer_reduction = 0;
-  std::vector<TensorView*> inner_reduction_tvs;
-  std::vector<TensorView*> outer_reduction_tvs;
-  for (auto tv : reduction_tvs) {
-    if (scheduler_utils::isFastestDimReduction(tv)) {
-      n_tensor_inner_reduction++;
-      inner_reduction_tvs.emplace_back(tv);
-    } else {
-      n_tensor_outer_reduction++;
-      outer_reduction_tvs.emplace_back(tv);
-    }
-  }
-  const bool combined_inner_outer_reduction =
-      n_tensor_inner_reduction && n_tensor_outer_reduction;
-  auto first_red_tv = combined_inner_outer_reduction ? inner_reduction_tvs[0]
-                                                     : reduction_tvs[0];
+  auto ref_red_tv =
+      normalization_scheduler_utils::getReferenceReductionTv(reduction_tvs);
 
   TORCH_INTERNAL_ASSERT(
-      first_red_tv != nullptr, "Reduction TensorView wasn't found.");
+      ref_red_tv != nullptr, "Reduction TensorView wasn't found.");
 
   TORCH_INTERNAL_ASSERT(
-      first_red_tv->hasReduction(), "TensorView doesn't have a reduction.");
-  const auto red_expr = first_red_tv->definition();
+      ref_red_tv->hasReduction(), "TensorView doesn't have a reduction.");
+  const auto red_expr = ref_red_tv->definition();
 
   TORCH_INTERNAL_ASSERT(
       ir_utils::isReductionOp(red_expr),
@@ -1335,10 +1319,10 @@ std::shared_ptr<ReductionParams> getPersistentHeuristics(
       std::distance(tv_inps.begin(), tv_inps.end()) > 0,
       "Tried to schedule a fusion with no tensor inputs, currently not supported.");
 
-  auto properties = scheduler_utils::getReductionProperties(
-      fusion, runtime_info, first_red_tv);
+  auto properties =
+      scheduler_utils::getReductionProperties(fusion, runtime_info, ref_red_tv);
 
-  auto reduced_tv = ir_utils::getSoleProducerTv(first_red_tv);
+  auto reduced_tv = ir_utils::getSoleProducerTv(ref_red_tv);
 
   auto unrollable_inputs_outputs_entry =
       HeuristicSummaryEntry<HeuristicCompileTime::UnrollableInputsAndOutputs>(
@@ -1355,21 +1339,16 @@ std::shared_ptr<ReductionParams> getPersistentHeuristics(
       reduced_tv,
       data_cache,
       vectorize_helper::getVectorizationBreakPointOfReductionProducer(
-          first_red_tv, reduced_tv, properties.inner_most_dimension_ndims));
+          ref_red_tv, reduced_tv, properties.inner_most_dimension_ndims));
 
   // dtype used to store partial outer reduction in combined reduction
-  const int64_t tmp_gmem_dtype_size = combined_inner_outer_reduction
+  const int64_t tmp_gmem_dtype_size = combined_reduction
       ? dataTypeSize(outer_reduction_tvs[0]->getDataType().value())
-      : dataTypeSize(first_red_tv->getDataType().value());
+      : dataTypeSize(ref_red_tv->getDataType().value());
 
   const auto buffer_params =
       normalization_scheduler_utils::getPersistentBufferStorageParams(
-          fusion,
-          runtime_info,
-          data_cache,
-          reduction_tvs,
-          properties,
-          vectorize_factor);
+          fusion, runtime_info, data_cache, reduction_tvs, vectorize_factor);
 
   // Base max dtype and n_tensor_inputs on tensors that are vectorizable (i.e.
   // share inner dimension with data pattern we're looking at).
@@ -1407,7 +1386,7 @@ std::shared_ptr<ReductionParams> getPersistentHeuristics(
       buffer_params.shared_memory_persistent_tensors,
       vectorize_factor,
       buffer_params.project_to_input,
-      combined_inner_outer_reduction);
+      buffer_params.combined_reduction);
   heuristic->cparams.index_type = runtime_info.getIndexType();
   return heuristic;
 }
