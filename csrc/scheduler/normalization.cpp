@@ -1540,8 +1540,6 @@ TensorView* scheduleReductionGeneral(
 
 // fusion is the input IR that will be modified by this function
 void schedulePersistentKernel(Fusion* fusion, const ReductionParams& rparams) {
-  std::cout << "trace: schedulePersistentKernel\n";
-
   FUSER_PERF_SCOPE("schedulePersistentKernel");
   if (rparams.combined_inner_outer) {
     return schedulePersistentKernelInnerOuter(fusion, rparams);

@@ -1768,8 +1768,6 @@ class PersistentKernelScheduler : public SchedulerEntry {
   }
 
   static bool canScheduleCompileTime(Fusion* fusion) {
-    std::cout << "trace: PersistentKernelScheduler::canScheduleCompileTime\n";
-
     // Needs at least one reduction to consider.
     auto reduction_ops = ir_utils::getReductionOps(fusion);
     if (reduction_ops.empty()) {
@@ -1917,8 +1915,6 @@ class PersistentKernelScheduler : public SchedulerEntry {
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
       HeuristicSummary* data_cache = nullptr) {
-    std::cout << "trace: PersistentKernelScheduler::canScheduleRunTime\n";
-
     FUSER_PERF_SCOPE("PersistentKernelScheduler::canSchedule");
     auto reduction_tv_entry =
         HeuristicSummaryEntry<HeuristicCompileTime::ReductionTVs>(
@@ -2071,14 +2067,10 @@ class PersistentKernelScheduler : public SchedulerEntry {
   }
 
  private:
-  // // generated in canScheduleRunTime, used in computeHeuristics
-  // // (getPersistentHeuristics) and schedulePersistentKernel
-  // PersistentBufferStorageParams buffer_storage_params_;
   void computeHeuristics(
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
       HeuristicSummary* data_cache = nullptr) {
-    std::cout << "trace: getPersistentHeuristics\n";
     params_ = getPersistentHeuristics(fusion, runtime_info, data_cache);
     TORCH_INTERNAL_ASSERT(params_ != nullptr);
   }

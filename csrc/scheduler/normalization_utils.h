@@ -154,16 +154,12 @@ std::optional<GridOuterNormalizationParams> getGridOuterNormalizationParams(
     int64_t vectorize_factor,
     int64_t persistent_buffer_size);
 
-//! Enumerate all possible reduction types: inner, outer, combined_inner_outer
-enum class ReductionType { Inner, Outer, CombinedInnerOuter, None };
-
 //! Parameters store memory space of persistent buffers.
 //! By default, the persistent buffers are stored in registers, however, if it
 //! exists in the set of shared_memory_persistent_tensors, it will be allocated
 //! in shared memory. This happens when the persistent buffer size is larger
 //! than the available registers.
 struct PersistentBufferStorageParams {
-  ReductionType reduction_type = ReductionType::None;
   std::vector<TensorView*> shared_memory_persistent_tensors;
   int64_t shared_memory_persistent_buffer_size = -1;
   int64_t register_persistent_buffer_size = -1;
