@@ -1157,36 +1157,20 @@ class TORCH_CUDA_CU_API EncodeTensorMapTiled : public Expr {
     return input(0);
   }
 
-  std::vector<Val*> globalDim() const {
-    std::vector<Val*> result;
-    for (auto i : c10::irange(tensorRank())) {
-      result.emplace_back(input(i + 1));
-    }
-    return result;
+  Val* globalDim() const {
+    return input(1);
   }
 
-  std::vector<Val*> globalStrides() const {
-    std::vector<Val*> result;
-    for (auto i : c10::irange(tensorRank() - 1)) {
-      result.emplace_back(input(i + 1 + tensorRank()));
-    }
-    return result;
+  Val* globalStrides() const {
+    return input(2);
   }
 
-  std::vector<Val*> boxDim() const {
-    std::vector<Val*> result;
-    for (auto i : c10::irange(tensorRank())) {
-      result.emplace_back(input(i + 2 * tensorRank()));
-    }
-    return result;
+  Val* boxDim() const {
+    return input(3);
   }
 
-  std::vector<Val*> elementStrides() const {
-    std::vector<Val*> result;
-    for (auto i : c10::irange(tensorRank() - 1)) {
-      result.emplace_back(input(i + 3 * tensorRank()));
-    }
-    return result;
+  Val* elementStrides() const {
+    return input(4);
   }
 
   const DataType& dataType() const {
