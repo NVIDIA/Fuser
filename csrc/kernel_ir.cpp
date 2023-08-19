@@ -1291,14 +1291,15 @@ EncodeTensorMapTiled::EncodeTensorMapTiled(
 
 std::string EncodeTensorMapTiled::toString(int indent_size) const {
   std::stringstream ss;
-  indent(ss, indent_size) << getOpString() << "(dtype=" << dataType()
+  indent(ss, indent_size) << output(0)->toString() << " = " << getOpString()
+                          << "(dtype=" << dataType()
                           << ", global_address=" << globalAddress()->toString()
-                          << ", global_dim=[" << globalDim()->toString()
-                          << "],  global_strides=[" << globalStrides()
-                          << "], box_dim=[" << boxDim()->toString()
-                          << "], element_strides=["
+                          << ", global_dim=" << globalDim()->toString()
+                          << ",  global_strides=" << globalStrides()
+                          << ", box_dim=" << boxDim()->toString()
+                          << ", element_strides="
                           << elementStrides()->toString()
-                          << "], interleave=" << interleave()
+                          << ", interleave=" << interleave()
                           << ", swizzle=" << swizzle()
                           << ", l2_promotion=" << l2Promotion()
                           << ", oob_fill=" << oobFill() << ")\n";
@@ -1309,12 +1310,12 @@ std::string EncodeTensorMapTiled::toInlineString(int indent_size) const {
   std::stringstream ss;
   ss << getOpString() << "(dtype=" << dataType()
      << ", global_address=" << globalAddress()->toInlineString()
-     << ", global_dim=[" << globalDim()->toInlineString()
-     << "],  global_strides=[" << globalStrides()->toInlineString()
-     << "], box_dim=[" << boxDim()->toInlineString() << "], element_strides=["
-     << elementStrides()->toInlineString() << "], interleave=" << interleave()
-     << ", swizzle=" << swizzle() << ", l2_promotion=" << l2Promotion()
-     << ", oob_fill=" << oobFill() << ")";
+     << ", global_dim=" << globalDim()->toInlineString()
+     << ",  global_strides=" << globalStrides()->toInlineString()
+     << ", box_dim=" << boxDim()->toInlineString()
+     << ", element_strides=" << elementStrides()->toInlineString()
+     << ", interleave=" << interleave() << ", swizzle=" << swizzle()
+     << ", l2_promotion=" << l2Promotion() << ", oob_fill=" << oobFill() << ")";
   return ss.str();
 }
 
