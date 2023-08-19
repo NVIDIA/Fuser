@@ -630,8 +630,8 @@ std::pair<std::optional<int64_t>, int64_t>
 getOptionalInnerOuterPersistentBufferBatches(
     const int64_t inner_dim_numel,
     const int64_t outer_dim_numel,
-    const int64_t register_persistent_buffer_size,
-    const int64_t shared_memory_persistent_buffer_size,
+    const int64_t regs_buffer_size,
+    const int64_t smem_buffer_size,
     const int64_t vectorize_factor,
     const int64_t warp_size,
     const bool ignore_register_size_limit) {
@@ -672,7 +672,7 @@ getOptionalInnerOuterPersistentBufferBatches(
   //! of inputs and outputs.
   auto getMaximumInnerOuterPersistentBufferBatch = [&]() -> int64_t {
     int64_t register_per_batch = ceilDiv(
-        register_persistent_buffer_size / inner_dim_numel * vectorize_factor,
+        regs_buffer_size / inner_dim_numel * vectorize_factor,
         scheduler_utils::bytes_per_register);
     return scheduler_utils::safeDiv(
         scheduler_utils::max_registers_per_thread -
@@ -690,7 +690,7 @@ getOptionalInnerOuterPersistentBufferBatches(
 
   // When shared memory is used to store persistent buffers, hidden size is
   // large. Set threads_per_block to maximum to avoid large bath sizes.
-  if (shared_memory_persistent_buffer_size > 0) {
+  if (smem_buffer_size > 0) {
     threads_per_block = threads_per_block_max;
     inner_batch = ceilDiv(after_vectorization, threads_per_block);
   } else {
@@ -840,7 +840,8 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
   PersistentBufferStorageParams buffer_params;
 
   // Check if the reduction is inner, outer, or combined inner-outer
-  bool inner_reduction = false std::vector<TensorView*> outer_reduction_tvs;
+  bool inner_reduction = false;
+  std::vector<TensorView*> outer_reduction_tvs;
   for (auto tv : reduction_tvs) {
     if (scheduler_utils::isFastestDimReduction(tv)) {
       inner_reduction = true;
@@ -912,30 +913,26 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
   // At this point, we use a much larger register file size for the combined
   // case as it is rarely fused with other ops.
   const auto dev_prop = at::cuda::getCurrentDeviceProperties();
-  int64_t available_register_buffer_size = buffer_params.combined_reduction
+  int64_t available_regs = buffer_params.combined_reduction
       ? scheduler_utils::register_file_size_combined
       : scheduler_utils::register_file_size;
 
   // Shared memory persistent is only implemented for the inner and combined
   // case.
-  buffer_params.shared_memory_overhead_per_block =
-      getSharedMemoryOverheadPerBlock(
-          fusion,
-          persistent_buffers,
-          scheduler_utils::max_threads_per_block_combined);
-  int64_t available_shared_memory_buffer_size = inner_reduction_count > 0l
-      ? (int64_t)dev_prop->sharedMemPerBlockOptin -
-          buffer_params.shared_memory_overhead_per_block
+  buffer_params.smem_overhead = getSharedMemoryOverheadPerBlock(
+      fusion,
+      persistent_buffers,
+      scheduler_utils::max_threads_per_block_combined);
+  int64_t available_smem = inner_reduction
+      ? (int64_t)dev_prop->sharedMemPerBlockOptin - buffer_params.smem_overhead
       : 0l;
 
   // Put all the persistent tensors in registers
-  buffer_params.register_persistent_buffer_size = total_buffer_size;
-  buffer_params.shared_memory_persistent_buffer_size = 0;
+  buffer_params.regs_buffer_size = total_buffer_size;
+  buffer_params.smem_buffer_size = 0;
 
   // Try to move some buffers to shared memory to reduce register usage
-  if (vectorize_factor > 1 &&
-      buffer_params.register_persistent_buffer_size >
-          available_register_buffer_size) {
+  if (vectorize_factor > 1 && buffer_params.regs_buffer_size > available_regs) {
     // calculate the accumulated buffer size of the first N buffers
     const int64_t n_buffers = persistent_buffers.size();
     std::vector<int64_t> acc_regs_buffer_sizes(n_buffers + 1, 0);
@@ -959,9 +956,8 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
     // to ensure the register buffer size doesn't exceed the available limit.
     int64_t n_smem_buffer = -1;
     for (int i = 1; i <= n_buffers; i++) {
-      if (buffer_params.register_persistent_buffer_size -
-              acc_regs_buffer_sizes[i] <=
-          available_register_buffer_size) {
+      if (buffer_params.regs_buffer_size - acc_regs_buffer_sizes[i] <=
+          available_regs) {
         n_smem_buffer = i;
         break;
       }
@@ -970,8 +966,7 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
     // Can't be scheduled if n_smem_buffer is not set or requested shared memory
     // is larger than available.
     if (n_smem_buffer == -1 ||
-        acc_smem_buffer_sizes[n_smem_buffer] >
-            available_shared_memory_buffer_size) {
+        acc_smem_buffer_sizes[n_smem_buffer] > available_smem) {
       buffer_params.has_enough_regs_and_smem = false;
       return buffer_params;
     }
@@ -986,14 +981,13 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
     if (n_buffers - n_smem_buffer >= 2) {
       int64_t smem_buffer_size = acc_smem_buffer_sizes[n_smem_buffer];
       int64_t smem_config_size = getSharedMemoryConfigSize(
-          smem_buffer_size + buffer_params.shared_memory_overhead_per_block);
+          smem_buffer_size + buffer_params.smem_overhead);
       float buffer_config_ratio = (float)smem_buffer_size / smem_config_size;
       if (buffer_config_ratio < 0.8 &&
           smem_config_size < smem_config_options.back()) {
         int64_t smem_buffer_size_tmp = acc_smem_buffer_sizes[n_smem_buffer + 1];
         int64_t smem_config_size_tmp = getSharedMemoryConfigSize(
-            smem_buffer_size_tmp +
-            buffer_params.shared_memory_overhead_per_block);
+            smem_buffer_size_tmp + buffer_params.smem_overhead);
         float buffer_config_ratio_tmp =
             (float)smem_buffer_size_tmp / smem_config_size_tmp;
         if (buffer_config_ratio_tmp > buffer_config_ratio) {
@@ -1013,33 +1007,24 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
     }
     // move n_smem_buffer buffers to shared memory
     for (int i = 0; i < n_smem_buffer; i++) {
-      buffer_params.shared_memory_persistent_tensors.emplace_back(
-          persistent_buffers[i]);
+      buffer_params.smem_tvs.emplace_back(persistent_buffers[i]);
     }
-    buffer_params.register_persistent_buffer_size -=
-        acc_regs_buffer_sizes[n_smem_buffer];
-    buffer_params.shared_memory_persistent_buffer_size =
-        acc_smem_buffer_sizes[n_smem_buffer];
+    buffer_params.regs_buffer_size -= acc_regs_buffer_sizes[n_smem_buffer];
+    buffer_params.smem_buffer_size = acc_smem_buffer_sizes[n_smem_buffer];
   }
 
   buffer_params.has_enough_regs_and_smem =
-      buffer_params.shared_memory_persistent_buffer_size <=
-          available_shared_memory_buffer_size &&
-      buffer_params.register_persistent_buffer_size <=
-          available_register_buffer_size;
+      buffer_params.smem_buffer_size <= available_smem &&
+      buffer_params.regs_buffer_size <= available_regs;
 
   TORCH_INTERNAL_ASSERT(
       !buffer_params.has_enough_regs_and_smem,
       "Not enough registers and shared memory for persistence! Should return early.");
 
-  std::cout << "register_persistent_buffer_size: "
-            << buffer_params.register_persistent_buffer_size
-            << ", shared_memory_persistent_buffer_size: "
-            << buffer_params.shared_memory_persistent_buffer_size
-            << ", available_register_buffer_size: "
-            << available_register_buffer_size
-            << ", available_shared_memory_buffer_size: "
-            << available_shared_memory_buffer_size << std::endl;
+  std::cout << "regs_buffer_size: " << buffer_params.regs_buffer_size
+            << ", smem_buffer_size: " << buffer_params.smem_buffer_size
+            << ", available_regs: " << available_regs
+            << ", available_smem: " << available_smem << std::endl;
   return buffer_params;
 }
 

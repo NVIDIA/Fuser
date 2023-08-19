@@ -156,16 +156,17 @@ std::optional<GridOuterNormalizationParams> getGridOuterNormalizationParams(
 
 //! Parameters store memory space of persistent buffers.
 //! By default, the persistent buffers are stored in registers, however, if it
-//! exists in the set of shared_memory_persistent_tensors, it will be allocated
-//! in shared memory. This happens when the persistent buffer size is larger
+//! exists in smem_tvs, it will be allocated in shared memory.
+//! This happens when the persistent buffer size is larger
 //! than the available registers.
 struct PersistentBufferStorageParams {
-  std::vector<TensorView*> shared_memory_persistent_tensors;
-  int64_t shared_memory_persistent_buffer_size = -1;
-  int64_t register_persistent_buffer_size = -1;
-  int64_t shared_memory_overhead_per_block = -1;
+  std::vector<TensorView*> smem_tvs;
+  int64_t smem_buffer_size = -1;
+  int64_t regs_buffer_size = -1;
+  int64_t smem_overhead = -1;
   bool has_enough_regs_and_smem = false;
   bool project_to_input = false;
+  bool combined_reduction = false;
 };
 
 //! check iter type of each domain in inner and outer reduction tvs
@@ -215,15 +216,15 @@ std::pair<std::optional<int64_t>, int64_t>
 getOptionalInnerOuterPersistentBufferBatches(
     const int64_t inner_dim_numel,
     const int64_t outer_dim_numel,
-    const int64_t register_persistent_buffer_size,
-    const int64_t shared_memory_persistent_buffer_size,
+    const int64_t regs_buffer_size,
+    const int64_t smem_buffer_size,
     const int64_t vectorize_factor,
     const int64_t warp_size,
     const bool ignore_register_size_limit);
 
 //! Check if there are enough registers and shared memories to keep the
-//! persistent buffers on chip. Return register_persistent_buffer_size,
-//! shared_memory_persistent_buffer_size, available_register_buffer_size,
+//! persistent buffers on chip. Return regs_buffer_size,
+//! smem_buffer_size, available_register_buffer_size,
 //! has_enough_regs_and_smem
 PersistentBufferStorageParams getPersistentBufferStorageParams(
     Fusion* fusion,

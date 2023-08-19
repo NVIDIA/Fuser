@@ -1973,8 +1973,8 @@ class PersistentKernelScheduler : public SchedulerEntry {
                getOptionalInnerOuterPersistentBufferBatches(
                    properties.total_reduction_numel,
                    properties.total_iteration_numel,
-                   buffer_params.register_persistent_buffer_size,
-                   buffer_params.shared_memory_persistent_buffer_size,
+                   buffer_params.regs_buffer_size,
+                   buffer_params.smem_buffer_size,
                    (int64_t)vectorize_factor,
                    warp_size,
                    false)
@@ -1993,12 +1993,10 @@ class PersistentKernelScheduler : public SchedulerEntry {
     // Maximum number of iteration dimensions we can have and still be
     // persistent.
     const int64_t max_multi_reduction_factor = scheduler_utils::safeDiv(
-        scheduler_utils::register_file_size,
-        buffer_params.register_persistent_buffer_size);
+        scheduler_utils::register_file_size, buffer_params.regs_buffer_size);
 
     const int64_t required_sm_per_norm = ceilDiv(
-        buffer_params.register_persistent_buffer_size,
-        scheduler_utils::register_file_size);
+        buffer_params.regs_buffer_size, scheduler_utils::register_file_size);
 
     // If the persistence requires over half the device don't do grid
     // persistence as we can't overlap the grid comms.
@@ -2010,8 +2008,7 @@ class PersistentKernelScheduler : public SchedulerEntry {
     }
 
     const int64_t norm_per_sm = ceilDiv(
-        scheduler_utils::register_file_size,
-        buffer_params.register_persistent_buffer_size);
+        scheduler_utils::register_file_size, buffer_params.regs_buffer_size);
 
     // If outer reduction, don't go persistent if we can't fit half a warp in
     // the iter domain of the persistent reduction.
