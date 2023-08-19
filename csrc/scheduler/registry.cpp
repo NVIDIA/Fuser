@@ -1947,25 +1947,6 @@ class PersistentKernelScheduler : public SchedulerEntry {
             "PersistentCombined is disabled by runtime info!");
         return false;
       }
-      auto opt_reason =
-          runtime_info.getOptionalRejectReason(ScheduleHeuristic::Persistent);
-      if (opt_reason.has_value()) {
-        TORCH_INTERNAL_ASSERT(
-            std::holds_alternative<PersistentSchedulerRejectReason>(
-                opt_reason.value()),
-            "Reject reason is not PersistentSchedulerRejectReason!");
-        if (std::get<PersistentSchedulerRejectReason>(opt_reason.value()) ==
-            PersistentSchedulerRejectReason::NotEnoughSharedMemoryAndRegister) {
-          runtime_info.setRejectReason(
-              ScheduleHeuristic::Persistent,
-              PersistentSchedulerRejectReason::
-                  WasRejectedByNotEnoughSharedMemoryAndRegister);
-          scheduler_debug_utils::canScheduleRejectReason(
-              ScheduleHeuristic::Persistent,
-              "CombinedInnerOuter reduction is not applicable to fusion previously segmented due to large persistent buffer size!");
-          return false;
-        }
-      }
     }
     // If there is both inner and outer reduction, we use the first inner
     // reduction tv to get properties, otherwise we use the first reduction tv,

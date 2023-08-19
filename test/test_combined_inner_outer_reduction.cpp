@@ -1198,9 +1198,7 @@ TEST_F(NVFuserTest, CombinedSchedulerSegmentInnerOuter_CUDA) {
     auto x_hat = mul(sub(input, mean), rstd);
 
     auto bcast_weight = broadcast(weight, outer_broadcast_mask);
-    if (explicit_expand) {
-      bcast_weight = expand(bcast_weight, expanded_sizes);
-    }
+    bcast_weight = expand(bcast_weight, expanded_sizes);
     auto grad_x_hat = mul(grad_out, bcast_weight);
     auto a = mul(num_features, grad_x_hat);
     auto b = sum(grad_x_hat, inner_reduction_axes);
