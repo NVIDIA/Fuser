@@ -757,7 +757,7 @@ StructConstruct::StructConstruct(
 std::string StructConstruct::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << out()->toString() << " = { ";
-  for (int64_t i : c10::irange(inputs().size())) {
+  for (int64_t i : c10::irange((int64_t)inputs().size())) {
     if (i > 0) {
       ss << ", ";
     }
@@ -770,7 +770,7 @@ std::string StructConstruct::toString(int indent_size) const {
 std::string StructConstruct::toInlineString(int indent_size) const {
   std::stringstream ss;
   ss << "{ ";
-  for (int64_t i : c10::irange(inputs().size())) {
+  for (int64_t i : c10::irange((int64_t)inputs().size())) {
     if (i > 0) {
       ss << ", ";
     }
@@ -789,7 +789,7 @@ std::vector<PolymorphicValue> StructConstruct::evaluate(
       this->inputs().size(),
       " inputs");
   Struct<PolymorphicValue> result;
-  for (int64_t i : c10::irange(inputs.size())) {
+  for (int64_t i : c10::irange((int64_t)inputs.size())) {
     result[attribute<std::string>(i)] = inputs.at(i);
   }
   return {std::move(result)};
