@@ -166,33 +166,15 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
   // inner_dim_numel is dividable by the multiplication of a quarter warp and
   // vectorize_factor.
   iop.inner_vect = (int64_t)vectorize_factor;
-
-  // ignore_register_size_limit will return a valid batch size.
-  // This is needed because we enforced projection for fp32 if the feature size
-  // is less or equal 14K. It leads to register spills but still faster than the
-  // unprojected version due to the reuse of a input para in this grid
-  // persistent kernel. However, when we do register usage check in
-  // canScheduleRuntime, the enforced projection is not considered. Thus,
-  // regs_buffer_size used here is larger than the value used in
-  // canScheduleRuntime.
-  // This is a tmp solution before we have a new persistent heuristics, where
-  // the projection is not solely based on size of buffers. The enforced buffer
-  // projection is not considered in canScheduleRuntime Thus,
-  constexpr bool ignore_register_size_limit = true;
-  const auto& batch_and_block_size = normalization_scheduler_utils::
-      getOptionalInnerOuterPersistentBufferBatches(
+  const auto [inner_batch, threads_per_block] =
+      normalization_scheduler_utils::getInnerOuterPersistentBufferBatches(
           inner_dim_numel,
           outer_dim_numel,
           regs_buffer_size,
           smem_buffer_size,
           iop.inner_vect,
-          dev_prop->warpSize,
-          ignore_register_size_limit);
-  auto opt_inner_batch = batch_and_block_size.first;
-  TORCH_INTERNAL_ASSERT(opt_inner_batch.has_value());
-  iop.inner_batch = opt_inner_batch.value();
-  int64_t threads_per_block = batch_and_block_size.second;
-
+          dev_prop->warpSize);
+  iop.inner_batch = inner_batch;
   TORCH_INTERNAL_ASSERT(
       iop.inner_vect * iop.inner_batch * threads_per_block >= inner_dim_numel,
       " iop.inner_vect * iop.inner_batch * threads_per_block should >= inner_dim_numel.");
