@@ -2563,6 +2563,55 @@ TEST_F(ResizeTest, Slice2DVectorizeManual1) {
   ASSERT_TRUE(ref.equal(cg_outputs.at(0)));
 }
 
+// Fully contiguous tensor, but a sliced domain makes the domain to
+// the left non-contiguous
+TEST_F(ResizeTest, Slice3DVectorizeManual1) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  const std::vector<int64_t> shape({4, 1025, 3});
+
+  auto tv0 = makeContigConcreteTensor(shape);
+  fusion.addInput(tv0);
+
+  auto tv1 = slice(
+      tv0,
+      {{IrBuilder::create<Val>(0), tv0->axis(0)->extent()},
+       {IrBuilder::create<Val>(4), IrBuilder::create<Val>(6)},
+       {IrBuilder::create<Val>(0), tv0->axis(2)->extent()}});
+  fusion.addOutput(tv1);
+
+  // Vectorize tv1 by a factor of 2. The sliced domain and the
+  // innermost domain can be contiguous merged, thus producing a
+  // domain of extent 6, so vectorization by a factor of 2 appears to
+  // be valid, but due to the middle domain being sliced, the
+  // outermost domain is no longer contiguous, which means its stride
+  // must be divisible by 2, which is not the case here.
+
+  // [4, 2, 3]
+  tv1->merge(1);
+  // [4, 6]
+  tv1->split(1, 2);
+  // [4, 3, 2]
+
+  tv1->axis(0)->parallelize(ParallelType::BIDx);
+  tv1->axis(1)->parallelize(ParallelType::TIDx);
+  tv1->axis(2)->parallelize(ParallelType::Vectorize);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs);
+
+  EXPECT_THAT(
+      [&]() { fe.runFusion(aten_inputs); },
+      ::testing::ThrowsMessage<c10::Error>(::testing::HasSubstr(
+          "with word size 2 not possible due to invalid stride")));
+}
+
 // Repro of issue 540 without transpose
 TEST_F(ResizeTest, SliceAndReshapeRepro540Manual) {
   auto fusion_ptr = std::make_unique<Fusion>();
