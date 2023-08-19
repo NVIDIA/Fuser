@@ -136,6 +136,8 @@ class TORCH_CUDA_CU_API SchedulerRuntimeInfo : public NonCopyable {
     return disabled_heuristics_.find(sh) != disabled_heuristics_.end();
   }
 
+  // Disable some heuristics for segmented fusion using information collected
+  // from scheduling the complete fusion.
   void disableSomeHeuristics();
 
  private:

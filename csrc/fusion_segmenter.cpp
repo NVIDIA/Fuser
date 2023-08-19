@@ -16,7 +16,6 @@
 #include <ir/utils.h>
 #include <ops/arith.h>
 #include <scheduler/debug_utils.h>
-#include <scheduler/normalization_utils.h>
 
 #include <sstream>
 
@@ -3237,13 +3236,6 @@ SegmentCandidateFinder::SegmentCandidateFinder(
       runtime_inputs_(inputs) {
   runtime_info_.copyRejectReasonMapFromOtherObject(reject_reasons_map);
   runtime_info_.disableSomeHeuristics();
-  // const auto reduction_tvs = scheduler_utils::getReductionTvs(fusion.get());
-  // runtime_info_.disable_combined_scheduler =
-  // disableCombinedScheduler(fusion.get(), runtime_info_, nullptr,
-  // reduction_tvs); if(runtime_info_.disable_combined_scheduler ){
-  //   std::cout << "llu Disable combined scheduler due to large persistent
-  //   buffer size" << std::endl;
-  // }
   segmented_fusion_ = std::make_unique<SegmentedFusion>(std::move(fusion));
   findSegments();
 }

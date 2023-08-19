@@ -1147,7 +1147,7 @@ TEST_F(NVFuserTest, CombinedSchedulerReshapeSegmentedFusion_CUDA) {
 // persistence. Consequently, the fusion now splits into three kernels: reshape,
 // inner, and outer. combined_pointwise: 764 + 150 inner_outer_pointwise: 328 +
 // 208 + 149 CombinedSchedulerSegmentInnerOuter_CUDA
-TEST_F(NVFuserTest, TMP) {
+TEST_F(NVFuserTest, CombinedSchedulerSegmentInnerOuter_CUDA) {
   auto runTest = [](const int64_t batch_size,
                     const int64_t hidden_size,
                     DataType dtype) {
