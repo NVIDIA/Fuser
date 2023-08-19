@@ -318,7 +318,8 @@ void initNvFuserPythonBindings(PyObject* module) {
           [](FusionDefinition& self,
              const py::iterable& iter,
              bool override_user_schedule,
-             std::optional<int64_t> device) {
+             std::optional<int64_t> device,
+             bool capture_debug_output) {
             std::vector<c10::IValue> inputs;
             for (py::handle obj : iter) {
               // Allows for a Vector of Sizes to be inputed as a list
@@ -337,12 +338,21 @@ void initNvFuserPythonBindings(PyObject* module) {
               TORCH_CHECK(device.value() < 256, "Maximum device index is 255");
               int8_device = (int8_t)device.value();
             }
-            return self.execute(inputs, override_user_schedule, int8_device);
+            return self.execute(
+                inputs,
+                override_user_schedule,
+                capture_debug_output,
+                int8_device);
           },
           py::arg("inputs"),
           py::arg("override_user_schedule") = false,
           py::kw_only(),
           py::arg("device") = py::none(),
+          py::arg("capture_debug_output") = false,
+          py::return_value_policy::reference)
+      .def(
+          "_debug_output",
+          [](FusionDefinition& self) { return self.getDebugOutput(); },
           py::return_value_policy::reference)
       .def(
           "_fusion_ir",
