@@ -202,13 +202,14 @@ void PrecomputedValues::initializeValueList(
   }
 }
 
-PolymorphicValue PrecomputedValues::getMaybeValueFor(const Val* val) const {
+const PolymorphicValue& PrecomputedValues::getMaybeValueFor(
+    const Val* val) const {
   auto index = val->evaluatorIndex();
   if (index < 0) {
-    return std::monostate{};
+    return null_;
   }
   if (!defined_[index] && !is_constant_[index]) {
-    return std::monostate{};
+    return null_;
   }
   return values_[index];
 }

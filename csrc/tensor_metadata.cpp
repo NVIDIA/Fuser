@@ -314,7 +314,7 @@ inferAndValidateAllocationSizesAndStrides(
           stride);
     }
   }
-  return {sizes, strides};
+  return {std::move(sizes), std::move(strides)};
 }
 
 } // namespace
@@ -328,7 +328,7 @@ std::vector<PolymorphicValue> GetMetaData::evaluate(
       "Currently, GetMetaData only supports TensorView");
   TensorView* tv = in()->as<TensorView>();
 
-  at::Tensor input = inputs.at(0).as<at::Tensor>();
+  const at::Tensor& input = inputs.at(0).as<at::Tensor>();
 
   TORCH_INTERNAL_ASSERT(
       input.is_cuda(),
@@ -337,15 +337,15 @@ std::vector<PolymorphicValue> GetMetaData::evaluate(
   Struct<PolymorphicValue> concrete_value;
   concrete_value["data"] = PolymorphicValue(
       Pointer(input.data_ptr(), aten_to_data_type(input.scalar_type())));
-  concrete_value["logical_size"] = PolymorphicValue(input.sizes().vec());
-  concrete_value["logical_stride"] = PolymorphicValue(input.strides().vec());
+  concrete_value["logical_size"] = PolymorphicValue(std::move(input.sizes().vec()));
+  concrete_value["logical_stride"] = PolymorphicValue(std::move(input.strides().vec()));
   {
     auto allocation_data =
         inferAndValidateAllocationSizesAndStrides(input, tv, ee);
-    concrete_value["alloc_size"] = std::move(allocation_data.first);
-    concrete_value["alloc_stride"] = std::move(allocation_data.second);
+    concrete_value["alloc_size"] = std::move(std::move(allocation_data.first));
+    concrete_value["alloc_stride"] = std::move(std::move(allocation_data.second));
   }
-  return {PolymorphicValue(concrete_value)};
+  return {PolymorphicValue(std::move(concrete_value))};
 }
 
 } // namespace nvfuser

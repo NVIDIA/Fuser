@@ -15,6 +15,7 @@
 #include <ir/utils.h>
 #include <root_domain_map.h>
 
+#include <functional>
 #include <iostream>
 
 namespace nvfuser {
@@ -157,15 +158,16 @@ void ExpressionEvaluator::bind(
   }
 }
 
-PolymorphicValue ExpressionEvaluator::evaluate(const Val* value) {
+const PolymorphicValue& ExpressionEvaluator::evaluate(const Val* value) {
   if (precomputed_values_ && precomputed_values_->ready()) {
     if (precomputed_values_->getMaybeValueFor(value).hasValue()) {
       return precomputed_values_->getMaybeValueFor(value);
     }
   }
 
-  auto maybe_concrete_value = getValue(value);
-  if (!maybe_concrete_value.hasValue()) {
+  std::reference_wrapper<const PolymorphicValue> maybe_concrete_value =
+      getValue(value);
+  if (!maybe_concrete_value.get().hasValue()) {
     if (auto def = value->definition()) {
       FUSER_PERF_SCOPE("ExpressionEvaluator::evaluate");
       std::vector<PolymorphicValue> inputs;
@@ -173,13 +175,13 @@ PolymorphicValue ExpressionEvaluator::evaluate(const Val* value) {
       for (auto i : def->inputs()) {
         auto eval_i = evaluate(i);
         if (!eval_i.hasValue()) {
-          return std::monostate{};
+          return null_;
         }
         inputs.emplace_back(eval_i);
       }
       auto outputs = def->evaluate(*this, inputs);
       for (auto i : c10::irange(def->outputs().size())) {
-        known_values_[def->output(i)] = outputs[i];
+        known_values_[def->output(i)] = std::move(outputs[i]);
       }
       maybe_concrete_value = getValue(value);
     }
@@ -187,15 +189,15 @@ PolymorphicValue ExpressionEvaluator::evaluate(const Val* value) {
   return maybe_concrete_value;
 }
 
-PolymorphicValue ExpressionEvaluator::evaluate(ParallelType pt) {
+const PolymorphicValue& ExpressionEvaluator::evaluate(ParallelType pt) {
   auto it = known_named_scalars_.find(stringifyThreadSize(pt));
   if (it != known_named_scalars_.end()) {
     return it->second;
   }
-  return std::monostate{};
+  return null_;
 }
 
-PolymorphicValue ExpressionEvaluator::getValue(const Val* value) {
+const PolymorphicValue& ExpressionEvaluator::getValue(const Val* value) {
   if (value->isScalar() && value->isConst()) {
     return value->value();
   }
@@ -208,8 +210,7 @@ PolymorphicValue ExpressionEvaluator::getValue(const Val* value) {
   }
 
   const auto it = known_values_.find(value);
-  return it != known_values_.end() ? it->second
-                                   : PolymorphicValue(std::monostate{});
+  return it != known_values_.end() ? it->second : null_;
 }
 
 void ExpressionEvaluator::print() const {

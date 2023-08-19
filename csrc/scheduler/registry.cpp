@@ -967,11 +967,11 @@ SchedulerRuntimeInfo::SchedulerRuntimeInfo(
     auto input_tv = dynamic_cast<TensorView*>(fusion_inp);
     // Note: we are skipping CpuScalar tensor here
     if (input_tv != nullptr && !input_tv->isCpuScalar()) {
-      auto metadata =
+      const auto& metadata =
           expression_evaluator_->evaluate(IrBuilder::metadataExpr(input_tv));
-      std::vector<int64_t> alloc_sizes =
+      const std::vector<int64_t>& alloc_sizes =
           (std::vector<int64_t>)metadata["alloc_size"];
-      std::vector<int64_t> alloc_strides =
+      const std::vector<int64_t>& alloc_strides =
           (std::vector<int64_t>)metadata["alloc_stride"];
       TORCH_INTERNAL_ASSERT(alloc_sizes.size() == alloc_strides.size());
 
