@@ -1469,7 +1469,7 @@ void convertInputRfactorsToRoots(Fusion* fusion) {
       if (id->isRFactorProduct()) {
         // Create new symbolic extents for rfactor iterDomains
         auto domain_extent = (!tv_is_concrete)
-            ? IrBuilder::create<Val>(DataType::Int)
+            ? IrBuilder::create<Val>(DataType::Index)
             : id->extent();
         replacement_map.emplace(id->extent(), domain_extent);
         new_root_domain.push_back(IterDomainBuilder(id)

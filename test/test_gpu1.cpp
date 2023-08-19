@@ -636,23 +636,19 @@ TEST_F(NVFuserTest, FusionTVSplit_CUDA) {
   TensorView* tv = makeSymbolicTensor(3);
 
   tv = tv->split(2, 2);
-  TORCH_CHECK(tv->nDims() == 4);
+  EXPECT_EQ(tv->nDims(), 4);
   Expr* outer = tv->axis(2)->extent()->definition();
 
-  TORCH_CHECK(
-      outer->isA<BinaryOp>() &&
-      static_cast<BinaryOp*>(outer)->getBinaryOpType() ==
-          BinaryOpType::CeilDiv &&
-      static_cast<BinaryOp*>(outer)->lhs()->sameAs(
-          tv->getRootDomain()[2]->extent()) &&
-      static_cast<Val*>(static_cast<BinaryOp*>(outer)->rhs())
-          ->sameAs(IrBuilder::create<Val>(2L)));
+  ASSERT_TRUE(outer->isA<BinaryOp>());
+  auto bop = outer->as<BinaryOp>();
+  EXPECT_EQ(bop->getBinaryOpType(), BinaryOpType::CeilDiv);
+  ASSERT_TRUE(bop->lhs()->sameAs(tv->getRootDomain()[2]->extent()));
+  ASSERT_TRUE(bop->rhs()->sameAs(IrBuilder::create<Val>(2L, DataType::Index)));
 
   IterDomain* inner = static_cast<IterDomain*>(tv->axis(3));
-  TORCH_CHECK(
-      inner->extent()->isScalar() &&
-      static_cast<Val*>(inner->extent())->isConst() &&
-      static_cast<Val*>(inner->extent())->value() == 2);
+  EXPECT_TRUE(inner->extent()->isScalar());
+  EXPECT_TRUE(inner->extent()->isConst());
+  EXPECT_EQ(inner->extent()->value(), 2);
 }
 
 TEST_F(NVFuserTest, FusionTVMerge_CUDA) {
@@ -890,7 +886,7 @@ TEST_F(NVFuserTest, FusionParser_CUDA) {
   // 2. use a fuzzy compare (ignore non-significant whitespaces for example)
   const std::string expected_kernel = R"(
 __global__ void CUDAGeneratedKernel(Tensor<float, 1, 1> T0, Tensor<float, 1, 1> T1, Tensor<float, 1, 1> T3) {
-  int64_t i0;
+  nvfuser_index_t i0;
   i0 = ((nvfuser_index_t)threadIdx.x) + (128 * ((nvfuser_index_t)blockIdx.x));
   if ((i0 < T0.logical_size[0])) {
     float T5[1];
@@ -928,13 +924,13 @@ TEST_F(NVFuserTest, FusionOuterSplit_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  TensorView* tv0 = makeSymbolicTensor(3);
+  TensorView* tv0 = full(
+      {IrBuilder::create<Val>(2L),
+       IrBuilder::create<Val>(6L),
+       IrBuilder::create<Val>(32L)},
+      IrBuilder::create<Val>(1.0, DataType::Float),
+      DataType::Float);
 
-  IrBuilder::create<BinaryOp>(
-      BinaryOpType::Add,
-      tv0,
-      IrBuilder::create<Val>(0.0),
-      IrBuilder::create<Val>(1.0));
   TensorView* tv1 = add(tv0, IrBuilder::create<Val>(2.0));
   TensorView* tv2 = add(tv1, IrBuilder::create<Val>(3.0));
   fusion.addOutput(tv2);
@@ -954,14 +950,13 @@ TEST_F(NVFuserTest, FusionOuterSplit_CUDA) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
-  at::Tensor output = at::empty({2, 6, 32}, options);
-
   FusionExecutor fe;
   fe.compileFusion(&fusion);
-  fe.runFusion({}, {output});
+  auto outputs = fe.runFusion({});
+  const auto& output = outputs.at(0);
 
-  at::Tensor output_ref = at::zeros_like(output, options);
-  output_ref = output_ref + 0.0 + 1.0 + 2.0 + 3.0;
+  at::Tensor output_ref = at::ones_like(output, options);
+  output_ref = output_ref + 2.0 + 3.0;
 
   TORCH_CHECK(output_ref.equal(output));
 }
@@ -970,13 +965,13 @@ TEST_F(NVFuserTest, FusionCodeGen_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  TensorView* tv0 = makeSymbolicTensor(3);
+  TensorView* tv0 = full(
+      {IrBuilder::create<Val>(16L),
+       IrBuilder::create<Val>(8L),
+       IrBuilder::create<Val>(8L)},
+      IrBuilder::create<Val>(1.0, DataType::Float),
+      DataType::Float);
 
-  IrBuilder::create<BinaryOp>(
-      BinaryOpType::Add,
-      tv0,
-      IrBuilder::create<Val>(0.0),
-      IrBuilder::create<Val>(1.0));
   TensorView* tv1 = add(tv0, IrBuilder::create<Val>(2.0));
   TensorView* tv2 = add(tv1, IrBuilder::create<Val>(3.0));
   fusion.addOutput(tv2);
@@ -995,14 +990,13 @@ TEST_F(NVFuserTest, FusionCodeGen_CUDA) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
-  at::Tensor output = at::empty({16, 8, 8}, options);
-
   FusionExecutor fe;
   fe.compileFusion(&fusion);
-  fe.runFusion({}, {output});
+  auto outputs = fe.runFusion({});
+  const auto& output = outputs.at(0);
 
-  at::Tensor output_ref = at::zeros_like(output, options);
-  output_ref = output_ref + 0.0 + 1.0 + 2.0 + 3.0;
+  at::Tensor output_ref = at::ones_like(output, options);
+  output_ref = output_ref + 2.0 + 3.0;
 
   TORCH_CHECK(output_ref.equal(output));
 }
@@ -7795,12 +7789,13 @@ TEST_F(NVFuserTest, FusionMagicSchedulerInstanceNormalizationBackward_CUDA) {
   auto save_mean = makeContigTensor(2);
   auto save_invstd = makeContigTensor(2);
   auto dummy = makeContigTensor(0);
+  auto dummy2 = makeContigTensor(0);
 
   fusion_backward->addInput(input);
   fusion_backward->addInput(grad_output);
   fusion_backward->addInput(weight);
   fusion_backward->addInput(dummy); // dummy for run_mean
-  fusion_backward->addInput(dummy); // dummy for run_var
+  fusion_backward->addInput(dummy2); // dummy for run_var
   fusion_backward->addInput(save_mean);
   fusion_backward->addInput(save_invstd);
 

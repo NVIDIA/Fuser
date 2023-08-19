@@ -302,7 +302,10 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
     case UnaryOpType::Neg:
       return {-in};
     case UnaryOpType::Cast:
-      if (isIntegralType(*out()->getDataType())) {
+      if (in.is<at::Tensor>()) {
+        return {PolymorphicValue(
+            in.as<at::Tensor>().to(data_type_to_aten(out()->dtype())))};
+      } else if (isIntegralType(*out()->getDataType())) {
         return {PolymorphicValue((int64_t)in)};
       } else if (isFloatingPointType(*out()->getDataType())) {
         return {PolymorphicValue((double)in)};
@@ -774,7 +777,7 @@ std::string GetMetaData::toString(int indent_size) const {
 
 std::string GetMetaData::toInlineString(int indent_size) const {
   std::stringstream ss;
-  ss << "getMetaData(" << in()->toInlineString() << ")";
+  ss << "getMetaData(" << ir_utils::varName(in()) << ")";
   return ss.str();
 }
 
@@ -1931,8 +1934,8 @@ ExpandOp::ExpandOp(
   for (auto expanded_extent : _expanded_extents) {
     TORCH_INTERNAL_ASSERT(expanded_extent != nullptr);
     TORCH_INTERNAL_ASSERT(
-        expanded_extent->dtype() == DataType::Int,
-        "Expanded extents must be of Int type.");
+        expanded_extent->dtype() == DataType::Index,
+        "Expanded extents must be of index type.");
     addInput(expanded_extent);
   }
 }
@@ -2304,15 +2307,27 @@ IterDomain::IterDomain(
   // and rfactor.
 
   TORCH_INTERNAL_ASSERT(
-      extent->isIntegralScalar(),
-      "Cannot create an iter domain over an extent that is not an int but received ",
-      extent,
+      extent->dtype() == DataType::Index,
+      "Cannot create an iter domain over an extent that is not an nvfuser_index_t but received ",
+      extent->dtype(),
       " .");
 
   TORCH_INTERNAL_ASSERT(
-      start->isIntegralScalar(),
-      "Cannot create an iter domain with a start that is not an int but received ",
-      start,
+      expanded_extent == nullptr || expanded_extent->dtype() == DataType::Index,
+      "Cannot create an iter domain over an expanded_extent that is not an nvfuser_index_t but received ",
+      expanded_extent->dtype(),
+      " .");
+
+  TORCH_INTERNAL_ASSERT(
+      start->dtype() == DataType::Index,
+      "Cannot create an iter domain with a start that is not an nvfuser_index_t but received ",
+      start->dtype(),
+      " .");
+
+  TORCH_INTERNAL_ASSERT(
+      stop_offset_->dtype() == DataType::Index,
+      "Cannot create an iter domain with a stop_offset_ that is not an nvfuser_index_t but received ",
+      stop_offset_->dtype(),
       " .");
 }
 
@@ -2523,21 +2538,6 @@ std::pair<IterDomain*, IterDomain*> IterDomain::split(
   TORCH_CHECK(
       factor->isIntegralScalar(), "Cannot split by non-integer value ", factor);
 
-  if (factor->getValType() == ValType::Others) {
-    TORCH_CHECK(
-        factor->isConstScalar() ||
-            (FusionGuard::getCurFusion() == factor->fusion() &&
-             factor->isFusionInput()),
-        factor,
-        " is not a constant nor an input. It must be one or the other to be used in a split.",
-        " If you want a symbolic split based on a thread dimension please use IterDomain::split(IterDomain*, ParallelType);");
-  } else if (factor->getValType() == ValType::NamedScalar) {
-    TORCH_CHECK(
-        factor->as<NamedScalar>()->getParallelDim() != std::nullopt,
-        "Splitting a dimension by a named scalar is only supported on block or grid dimensions but received ",
-        factor);
-  }
-
   // outer loop size
   Val* remainder =
       ceilDiv(Split::extent(in->extent(), start_offset, stop_offset), factor);
@@ -2600,7 +2600,10 @@ std::pair<IterDomain*, IterDomain*> IterDomain::split(
 std::pair<IterDomain*, IterDomain*> IterDomain::stridedSplit(int64_t factor) {
   // Use partial split so that only valid values are retained
   auto split_out = IterDomain::split(
-      this, IrBuilder::create<Val>(container(), factor), true, true);
+      this,
+      IrBuilder::create<Val>(container(), factor, DataType::Index),
+      true,
+      true);
 
   split_out.second->iter_type_ = IterType::Stride;
   split_out.first->is_rfactor_domain_ = true;
@@ -3631,11 +3634,6 @@ bool NamedScalar::sameAs(const Statement* other) const {
   return other->as<NamedScalar>()->name().compare(name()) == 0;
 }
 
-bool NamedScalar::isTensorSize() const {
-  static const std::regex r(R"(T\d+\.\w*size\[\d+\])");
-  return std::regex_match(name(), r);
-}
-
 NamedScalar* NamedScalar::getParallelDim(ParallelType p_type) {
   TORCH_INTERNAL_ASSERT(
       isParallelTypeThread(p_type),
@@ -3643,13 +3641,13 @@ NamedScalar* NamedScalar::getParallelDim(ParallelType p_type) {
       p_type);
   TORCH_INTERNAL_ASSERT(FusionGuard::getCurFusion() != nullptr);
   std::string parallel_dim = stringifyThreadSize(p_type);
-  return IrBuilder::create<NamedScalar>(parallel_dim, DataType::Int);
+  return IrBuilder::create<NamedScalar>(parallel_dim, DataType::Index);
 }
 
 NamedScalar* NamedScalar::getParallelIndex(ParallelType p_type) {
   TORCH_INTERNAL_ASSERT(FusionGuard::getCurFusion() != nullptr);
   std::string parallel_ind = stringifyThread(p_type);
-  return IrBuilder::create<NamedScalar>(parallel_ind, DataType::Int);
+  return IrBuilder::create<NamedScalar>(parallel_ind, DataType::Index);
 }
 
 std::optional<ParallelType> NamedScalar::getParallelDim() const {

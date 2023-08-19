@@ -361,4 +361,26 @@ TEST_F(ExprEvalTest, OpaqueEquality) {
   EXPECT_EQ(d, c);
 }
 
+TEST_F(ExprEvalTest, Validation) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto a = IrBuilder::create<Val>(DataType::Int);
+  auto b = IrBuilder::create<Val>(DataType::Int);
+  auto one = fusion.oneVal(DataType::Int);
+  auto c = add(a, one);
+  auto d = add(c, b);
+
+  ExpressionEvaluator evaluator;
+  evaluator.bind(a, 299792458L);
+  evaluator.bind(b, 1L);
+
+  EXPECT_THAT(
+      [&]() { evaluator.bind(c, 4L, true); },
+      ::testing::ThrowsMessage<c10::Error>(
+          ::testing::HasSubstr("Tried to bind to a value: ")));
+  EXPECT_EQ(evaluator.evaluate(c), 299792459L);
+  evaluator.bind(d, 299792460L, true);
+}
+
 } // namespace nvfuser

@@ -251,6 +251,9 @@ def version_tag():
     return version
 
 
+from tools.memory import get_available_memory_gb
+
+
 def cmake(build_dir: str = "", install_prefix: str = "./nvfuser"):
     # make build directories
     cwd = os.path.dirname(os.path.abspath(__file__))
@@ -298,9 +301,17 @@ def cmake(build_dir: str = "", install_prefix: str = "./nvfuser"):
     print(f"Configuring CMake with {' '.join(cmd_str)}")
     subprocess.check_call(cmd_str)
 
+    max_jobs = multiprocessing.cpu_count()
+    mem_gb_per_task = 3  # Currently compilation of nvFuser souce code takes ~3GB of memory per task, we should adjust this value if it changes in the future.
+    available_mem = get_available_memory_gb()
+    if available_mem > 0:
+        max_jobs_mem = int(available_mem / mem_gb_per_task)
+        max_jobs = min(max_jobs, max_jobs_mem)
+
     if not CMAKE_ONLY:
         # build binary
-        max_jobs = "32" #os.getenv("MAX_JOBS", str(multiprocessing.cpu_count()))
+        max_jobs = os.getenv("MAX_JOBS", str(max_jobs))
+        print(f"Using {max_jobs} jobs for compilation")
         cmd_str = [
             get_cmake_bin(),
             "--build",
