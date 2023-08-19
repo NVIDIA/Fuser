@@ -777,7 +777,7 @@ std::string GetMetaData::toString(int indent_size) const {
 
 std::string GetMetaData::toInlineString(int indent_size) const {
   std::stringstream ss;
-  ss << "getMetaData(" << in()->toInlineString() << ")";
+  ss << "getMetaData(" << ir_utils::varName(in()) << ")";
   return ss.str();
 }
 
@@ -3632,11 +3632,6 @@ bool NamedScalar::sameAs(const Statement* other) const {
     return false;
   }
   return other->as<NamedScalar>()->name().compare(name()) == 0;
-}
-
-bool NamedScalar::isTensorSize() const {
-  static const std::regex r(R"(T\d+\.\w*size\[\d+\])");
-  return std::regex_match(name(), r);
 }
 
 NamedScalar* NamedScalar::getParallelDim(ParallelType p_type) {
