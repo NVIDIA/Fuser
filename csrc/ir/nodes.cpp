@@ -689,6 +689,57 @@ std::vector<PolymorphicValue> ArrayConstruct::evaluate(
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(ArrayConstruct)
 
+ReverseArray::ReverseArray(IrBuilderPasskey passkey, Val* output, Val* input)
+    : Expr(passkey) {
+  TORCH_INTERNAL_ASSERT(
+      std::holds_alternative<ArrayOf>(input->dtype().type),
+      "Cannot reverse a non-array type.");
+  TORCH_INTERNAL_ASSERT(
+      std::holds_alternative<ArrayOf>(output->dtype().type),
+      "Cannot reverse a non-array type.");
+  auto input_array_type = std::get<ArrayOf>(input->dtype().type);
+  auto output_array_type = std::get<ArrayOf>(output->dtype().type);
+  TORCH_INTERNAL_ASSERT(
+      input_array_type.type == output_array_type.type,
+      "Cannot reverse an array of type ",
+      input_array_type.type,
+      " into an array of type ",
+      output_array_type.type);
+  TORCH_INTERNAL_ASSERT(
+      input_array_type.size == output_array_type.size,
+      "Cannot reverse an array of size ",
+      input_array_type.size,
+      " into an array of size ",
+      output_array_type.size);
+  addOutput(output);
+  addInput(input);
+}
+
+std::string ReverseArray::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << out()->toString() << " = ReverseArray("
+                          << in()->toString() << ")\n";
+  return ss.str();
+}
+
+std::string ReverseArray::toInlineString(int indent_size) const {
+  std::stringstream ss;
+  ss << "ReverseArray(" << in()->toInlineString() << ")";
+  return ss.str();
+}
+
+std::vector<PolymorphicValue> ReverseArray::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  TORCH_INTERNAL_ASSERT(inputs.size() == 1, "ReverseArray expects 1 input");
+  PolymorphicValue array = inputs.at(0);
+  auto& vec = array.as<std::vector>();
+  std::reverse(vec.begin(), vec.end());
+  return {std::move(array)};
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(ReverseArray)
+
 GetItem::GetItem(IrBuilderPasskey passkey, Val* output, Val* array, Val* index)
     : Expr(passkey) {
   addOutput(output);

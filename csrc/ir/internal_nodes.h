@@ -442,6 +442,34 @@ class TORCH_CUDA_CU_API ArrayConstruct : public Expr {
   }
 };
 
+class TORCH_CUDA_CU_API ReverseArray : public Expr {
+ public:
+  using Expr::Expr;
+
+  ReverseArray(IrBuilderPasskey, Val* output, Val* input);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "ReverseArray";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
+
+  Val* out() const {
+    return output(0);
+  }
+
+  Val* in() const {
+    return input(0);
+  }
+};
+
 // Get an item from an array, array[index]
 class TORCH_CUDA_CU_API GetItem : public Expr {
  public:
