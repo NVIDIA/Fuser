@@ -11,6 +11,8 @@
 
 namespace nvfuser {
 
+constexpr std::string_view MATMUL_LOG_PREFIX = "[MATMUL DEBUG] ";
+
 //! Named descriptors of domains in matmul
 enum class MatmulDomain { M = 0, N, K };
 

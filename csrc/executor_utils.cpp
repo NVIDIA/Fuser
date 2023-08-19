@@ -707,86 +707,9 @@ void validateVectorizedTensors(
   validateVectorizedSplits(kernel, expr_eval);
 }
 
-void bindInputForExprEvaluation(
-    Val* val,
-    PolymorphicValue arg,
-    bool check_consistency,
-    ExpressionEvaluator& expr_eval,
-    bool legacy) {
-  TORCH_INTERNAL_ASSERT(val != nullptr);
-  // TODO: use the move version once the legacy path is removed.
-  // expr_eval.bind(val, std::move(arg));
-  expr_eval.bind(val, arg);
-  if (!legacy) {
-    return;
-  }
-
-  if (val->getValType() == ValType::TensorView) {
-#if 1
-    at::Tensor t = arg.as<at::Tensor>();
-
-    TensorView* cg_tensor = val->as<TensorView>();
-
-    // Legacy code. To be removed in the future
-    auto root_domain =
-        TensorDomain::noReductions(cg_tensor->getMaybeRFactorDomain());
-    TORCH_INTERNAL_ASSERT(
-        t.dim() == (int64_t)root_domain.size(),
-        "Something went wrong configuring launch. Inputs rank does not match. Expected ",
-        root_domain.size(),
-        " but found ",
-        t.dim());
-
-    for (const auto dim : c10::irange(root_domain.size())) {
-      const auto tensor_arg_size = t.size((int64_t)dim);
-      const auto extent = root_domain[dim]->extent();
-      if (root_domain[dim]->hasExpandedExtent()) {
-        // Could support dynamic size on expanded dimension, so may not have
-        // an inferable expanded extent here. This check might be better to do
-        // once all values are bound.
-        auto maybe_expanded_size =
-            expr_eval.evaluate(root_domain[dim]->expandedExtent());
-        if (maybe_expanded_size.hasValue()) {
-          TORCH_CHECK(
-              maybe_expanded_size == tensor_arg_size,
-              "Expecting expanded extent of ",
-              maybe_expanded_size,
-              " but received value of ",
-              tensor_arg_size);
-        } else {
-          expr_eval.bind(root_domain[dim]->expandedExtent(), tensor_arg_size);
-        }
-      }
-
-      const auto value =
-          root_domain[dim]->hasExpandedExtent() ? 1 : tensor_arg_size;
-      bool should_bind = true;
-      if (check_consistency) {
-        const auto prev_value = expr_eval.evaluate(extent);
-        if (prev_value.hasValue()) {
-          TORCH_CHECK(
-              prev_value == value,
-              "Attempting to bind ",
-              extent->toString(),
-              " to ",
-              value,
-              " but it's already set to ",
-              prev_value);
-          should_bind = false;
-        }
-      }
-      if (should_bind && !extent->isConstScalar()) {
-        expr_eval.bind(extent, value);
-      }
-    }
-#endif
-  }
-}
-
 ExpressionEvaluator bindInputs(
     const KernelArgumentHolder& args,
-    Fusion* kernel,
-    bool check_consistency) {
+    Fusion* kernel) {
   FUSER_PERF_SCOPE("executor_utils::bindInputs");
 
   // args may contains more than just inputs, but inputs are always at the
@@ -797,11 +720,10 @@ ExpressionEvaluator bindInputs(
 
   ExpressionEvaluator expr_eval;
   const auto& inputs = kernel->inputs();
-
   for (const auto i : c10::irange(inputs.size())) {
-    bindInputForExprEvaluation(
-        inputs[i], *args[i], check_consistency, expr_eval);
+    expr_eval.bind(inputs[i], *args[i], true);
   }
+
   return expr_eval;
 }
 

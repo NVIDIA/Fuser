@@ -161,6 +161,25 @@ atanh_opinfo = OpInfo(
 )
 unary_ops.append(atanh_opinfo)
 
+bitwise_not_opinfo = OpInfo(
+    lambda fd: fd.ops.bitwise_not,
+    "bitwise_not",
+    dtypes=bool_int_dtypes,
+    sample_input_generator=elementwise_unary_generator,
+    reference=_elementwise_unary_torch(torch.bitwise_not),
+)
+unary_ops.append(bitwise_not_opinfo)
+
+# TODO add nvfuser exception for int dtypes
+ceil_opinfo = OpInfo(
+    lambda fd: fd.ops.ceil,
+    "ceil",
+    dtypes=full_precision_float_dtypes,
+    sample_input_generator=elementwise_unary_generator,
+    reference=_elementwise_unary_torch(torch.ceil),
+)
+unary_ops.append(ceil_opinfo)
+
 cos_opinfo = OpInfo(
     lambda fd: fd.ops.cos,
     "cos",
@@ -244,6 +263,77 @@ expm1_opinfo = OpInfo(
 )
 unary_ops.append(expm1_opinfo)
 
+# TODO add nvfuser exception for int dtypes
+floor_opinfo = OpInfo(
+    lambda fd: fd.ops.floor,
+    "floor",
+    dtypes=full_precision_float_dtypes,
+    sample_input_generator=elementwise_unary_generator,
+    reference=_elementwise_unary_torch(torch.floor),
+)
+unary_ops.append(floor_opinfo)
+
+frac_opinfo = OpInfo(
+    lambda fd: fd.ops.frac,
+    "frac",
+    dtypes=full_precision_float_dtypes,
+    sample_input_generator=elementwise_unary_generator,
+    reference=_elementwise_unary_torch(torch.frac),
+)
+unary_ops.append(frac_opinfo)
+
+isfinite_opinfo = OpInfo(
+    lambda fd: fd.ops.isfinite,
+    "isfinite",
+    sample_input_generator=elementwise_unary_generator,
+    reference=_elementwise_unary_torch(torch.isfinite),
+)
+unary_ops.append(isfinite_opinfo)
+
+isinf_opinfo = OpInfo(
+    lambda fd: fd.ops.isinf,
+    "isinf",
+    sample_input_generator=elementwise_unary_generator,
+    reference=_elementwise_unary_torch(torch.isinf),
+)
+unary_ops.append(isinf_opinfo)
+
+isnan_opinfo = OpInfo(
+    lambda fd: fd.ops.isnan,
+    "isnan",
+    sample_input_generator=elementwise_unary_generator,
+    reference=_elementwise_unary_torch(torch.isnan),
+)
+unary_ops.append(isnan_opinfo)
+
+# NOTE half-precision floating types are not automatically promoted to fp32
+isneginf_opinfo = OpInfo(
+    lambda fd: fd.ops.isneginf,
+    "isneginf",
+    dtypes=full_precision_float_dtypes,
+    sample_input_generator=elementwise_unary_generator,
+    reference=_elementwise_unary_torch(torch.isneginf),
+)
+unary_ops.append(isneginf_opinfo)
+
+# NOTE half-precision floating types are not automatically promoted to fp32
+isposinf_opinfo = OpInfo(
+    lambda fd: fd.ops.isposinf,
+    "isposinf",
+    dtypes=full_precision_float_dtypes,
+    sample_input_generator=elementwise_unary_generator,
+    reference=_elementwise_unary_torch(torch.isposinf),
+)
+unary_ops.append(isposinf_opinfo)
+
+isreal_opinfo = OpInfo(
+    lambda fd: fd.ops.isreal,
+    "isreal",
+    sample_input_generator=elementwise_unary_generator,
+    reference=_elementwise_unary_torch(torch.isreal),
+)
+unary_ops.append(isreal_opinfo)
+
 lgamma_opinfo = OpInfo(
     lambda fd: fd.ops.lgamma,
     "lgamma",
@@ -292,6 +382,14 @@ log2_opinfo = OpInfo(
 )
 unary_ops.append(log2_opinfo)
 
+neg_opinfo = OpInfo(
+    lambda fd: fd.ops.neg,
+    "neg",
+    sample_input_generator=elementwise_unary_generator,
+    reference=_elementwise_unary_torch(torch.neg),
+)
+unary_ops.append(neg_opinfo)
+
 reciprocal_opinfo = OpInfo(
     lambda fd: fd.ops.reciprocal,
     "reciprocal",
@@ -305,6 +403,16 @@ reciprocal_opinfo = OpInfo(
     reference=_elementwise_unary_torch(torch.reciprocal),
 )
 unary_ops.append(reciprocal_opinfo)
+
+# TODO add nvfuser exception for int dtypes
+round_opinfo = OpInfo(
+    lambda fd: fd.ops.round,
+    "round",
+    dtypes=full_precision_float_dtypes,
+    sample_input_generator=elementwise_unary_generator,
+    reference=_elementwise_unary_torch(torch.round),
+)
+unary_ops.append(round_opinfo)
 
 rsqrt_opinfo = OpInfo(
     lambda fd: fd.ops.rsqrt,
@@ -327,6 +435,15 @@ sigmoid_opinfo = OpInfo(
     reference=_elementwise_unary_torch(torch.sigmoid),
 )
 unary_ops.append(sigmoid_opinfo)
+
+signbit_opinfo = OpInfo(
+    lambda fd: fd.ops.signbit,
+    "signbit",
+    dtypes=int_float_dtypes,
+    sample_input_generator=elementwise_unary_generator,
+    reference=_elementwise_unary_torch(torch.signbit),
+)
+unary_ops.append(signbit_opinfo)
 
 sin_opinfo = OpInfo(
     lambda fd: fd.ops.sin,
@@ -370,6 +487,16 @@ tanh_opinfo = OpInfo(
     reference=_elementwise_unary_torch(torch.tanh),
 )
 unary_ops.append(tanh_opinfo)
+
+# TODO add nvfuser exception for int dtypes
+trunc_opinfo = OpInfo(
+    lambda fd: fd.ops.trunc,
+    "trunc",
+    dtypes=full_precision_float_dtypes,
+    sample_input_generator=elementwise_unary_generator,
+    reference=_elementwise_unary_torch(torch.trunc),
+)
+unary_ops.append(trunc_opinfo)
 
 """ End Unary-Float Operations """
 
@@ -456,7 +583,6 @@ bitwise_xor_opinfo = OpInfo(
 )
 binary_ops.append(bitwise_xor_opinfo)
 
-# TODO add except_zero option to prevent divide-by-zero exception
 div_opinfo = OpInfo(
     lambda fd: fd.ops.div,
     "div",
@@ -541,6 +667,20 @@ lt_opinfo = OpInfo(
     reference=_elementwise_binary_torch(torch.lt),
 )
 binary_ops.append(lt_opinfo)
+
+mod_opinfo = OpInfo(
+    lambda fd: fd.ops.mod,
+    "mod",
+    dtypes=int_dtypes,
+    sample_input_generator=partial(
+        elementwise_binary_generator,
+        exclude_zero=True,
+    ),
+    # Matlab rem (Remainder after Division) function
+    # For more details, see https://www.mathworks.com/help/matlab/ref/rem.html
+    reference=lambda a, b: a - b * torch.trunc(a / b).to(a.dtype),
+)
+binary_ops.append(mod_opinfo)
 
 mul_opinfo = OpInfo(
     lambda fd: fd.ops.mul,
