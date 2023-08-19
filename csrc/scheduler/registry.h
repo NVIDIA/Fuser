@@ -91,15 +91,6 @@ class TORCH_CUDA_CU_API SchedulerRuntimeInfo : public NonCopyable {
     return *expression_evaluator_;
   }
 
-  bool isSchedulingTheCompleteFusion() const {
-    return is_scheduling_the_complete_fusion_;
-  }
-
-  void setSchedulingTheCompleteFusionTo(
-      bool is_scheduling_the_complete_fusion) {
-    is_scheduling_the_complete_fusion_ = is_scheduling_the_complete_fusion;
-  }
-
  private:
   // Build and bind full fusion inputs to an expression evaluator
   std::unique_ptr<ExpressionEvaluator> getExpressionEvaluator(
@@ -114,10 +105,6 @@ class TORCH_CUDA_CU_API SchedulerRuntimeInfo : public NonCopyable {
   }
 
  private:
-  // Whether we are scheduling the complete fusion or not.
-  // The combined inner outer scheduler only schedules complete fusion.
-  bool is_scheduling_the_complete_fusion_ = true;
-
   // Returns the offset of tv in the inputs ignoring non tensor views. Used to
   // access input_sizes, input_strides, input_ptr
   int offsetTensorPos(TensorView* tv);

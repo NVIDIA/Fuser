@@ -230,7 +230,6 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache,
     const std::vector<TensorView*>& reduction_tvs,
-    const scheduler_utils::ReductionTvProperties& properties,
     const int64_t vectorize_factor);
 
 //! Return the shared memory overhead per block includes reserved by the CUDA

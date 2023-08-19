@@ -1936,15 +1936,6 @@ class PersistentKernelScheduler : public SchedulerEntry {
       }
     }
 
-    if (inner_reduction && outer_reduction) {
-      if (!runtime_info.isSchedulingTheCompleteFusion()) {
-        scheduler_debug_utils::canScheduleRejectReason(
-            ScheduleHeuristic::Persistent,
-            "CombinedInnerOuter reduction is not applicable to segmented fusion!");
-        return false;
-      }
-    }
-
     // If there is both inner and outer reduction, we use the first inner
     // reduction tv to get properties, otherwise we use the first reduction tv,
     // whether it is inner or outer.
@@ -1973,12 +1964,7 @@ class PersistentKernelScheduler : public SchedulerEntry {
     // check if there is enough register and shared memory for persistence
     const auto buffer_storage_params =
         normalization_scheduler_utils::getPersistentBufferStorageParams(
-            fusion,
-            runtime_info,
-            data_cache,
-            reduction_tvs,
-            properties,
-            vectorize_factor);
+            fusion, runtime_info, data_cache, reduction_tvs, vectorize_factor);
 
     const int64_t device_multiprocessor_count =
         (int64_t)at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
@@ -1990,6 +1976,8 @@ class PersistentKernelScheduler : public SchedulerEntry {
       return false;
     }
 
+    // when vectorize_factor == 1, shared memory persistence is not used, will
+    // explore later
     if (inner_reduction && outer_reduction && vectorize_factor == 1) {
       // check if we can schedule the combined reductions with a reasonable
       // batch size without register spills.
