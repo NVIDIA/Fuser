@@ -804,9 +804,7 @@ lerp_opinfo = OpInfo(
     lambda fd: fd.ops.lerp,
     "lerp",
     dtypes=float_complex_dtypes,
-    sample_input_generator=partial(
-        elementwise_ternary_generator, enable_extremal_value_testing=False
-    ),
+    sample_input_generator=elementwise_ternary_generator,
     reference=_elementwise_ternary_torch(torch.lerp),
 )
 ternary_ops.append(lerp_opinfo)

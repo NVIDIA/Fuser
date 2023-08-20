@@ -665,9 +665,6 @@ def elementwise_ternary_generator(
     *,
     supports_numbers: bool = True,
     enable_broadcast_testing: bool = True,
-    enable_extremal_value_testing: bool = True,
-    enable_large_value_testing: bool = True,
-    enable_small_value_testing: bool = True,
     **kwargs,
 ):
     low = None if op.domain.low is None else max(-9, op.domain.low)
@@ -692,6 +689,9 @@ def elementwise_ternary_generator(
         (64, 64, 64),
     )
 
+    # NOTE Skip small, large, extremal input testing because it significantly increases test time
+    # TODO Add broadcast testing
+
     # Typical inputs
     for shape in shapes:
         yield SampleInput(make_arg(shape), make_arg(shape), make_arg(shape))
@@ -699,44 +699,6 @@ def elementwise_ternary_generator(
             make_arg(shape, noncontiguous=True),
             make_arg(shape, noncontiguous=True),
             make_arg(shape, noncontiguous=True),
-        )
-
-    # Create filtered special inputs for this operation's domain
-    def _filter_domain(values):
-        return [v for v in values if is_within_domain(op.domain, v)]
-
-    if (
-        enable_large_value_testing
-        and dtype != torch.bool
-        and dtype not in complex_dtypes
-    ):
-        filtered_large_values = _filter_domain(_large_values(dtype))
-        yield _special_value_product_generator(
-            dtype,
-            requires_grad,
-            filtered_large_values,
-            filtered_large_values,
-            filtered_large_values,
-        )
-
-    if enable_small_value_testing and dtype != torch.bool:
-        filtered_small_values = _filter_domain(_small_values(dtype))
-        yield _special_value_product_generator(
-            dtype,
-            requires_grad,
-            filtered_small_values,
-            filtered_small_values,
-            filtered_small_values,
-        )
-
-    if enable_extremal_value_testing and dtype in float_complex_dtypes:
-        filtered_extremal_values = _filter_domain(_extremal_values(dtype))
-        yield _special_value_product_generator(
-            dtype,
-            requires_grad,
-            filtered_extremal_values,
-            filtered_extremal_values,
-            filtered_extremal_values,
         )
 
 
