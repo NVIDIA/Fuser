@@ -498,6 +498,10 @@ class TORCH_CUDA_CU_API StructConstruct : public Expr {
       const ExpressionEvaluator& ee,
       const std::vector<PolymorphicValue>& inputs) const override;
 
+  std::string fieldName(size_t i) const {
+    return attribute<std::string>(i);
+  }
+
   Val* out() const {
     return output(0);
   }
