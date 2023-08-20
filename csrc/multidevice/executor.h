@@ -41,7 +41,8 @@ class PipelineExecutor : public IterVisitor {
   // Stores concrete computed values,
   std::unordered_map<Val*, c10::IValue> val_to_IValue_;
 
-  // Stores FusionExecutorCache for each PipelineStage
+  // Stores FusionExecutor(Cache) for each PipelineStage
+  std::unordered_map<PipelineStage*, std::unique_ptr<FusionExecutor>> fe_;
   std::unordered_map<PipelineStage*, std::unique_ptr<FusionExecutorCache>> fec_;
 
   // Cache results of shouldRun method

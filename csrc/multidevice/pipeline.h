@@ -62,8 +62,11 @@ class TORCH_CUDA_CU_API PipelineStageDescriptor final {
   using ValSet = VectorOfUniqueEntries<Val*>;
 
  public:
-  PipelineStageDescriptor() : unique_id(running_unique_id_++) {}
+  PipelineStageDescriptor()
+      : auto_schedule(true), unique_id(running_unique_id_++) {}
 
+  // whether the stage should be auto-scheduled
+  bool auto_schedule;
   // The mesh on which the stage will be executed at runtime.
   DeviceMesh mesh;
   /* Unique identifier for the stage.
