@@ -2323,6 +2323,27 @@ class TestNvFuserFrontend(TestCase):
         # Just test that this executes, not that it's correct
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
 
+    def test_debug_output(self):
+        inputs = [
+            torch.randn((3,), dtype=torch.float32, device="cuda:0"),
+            0.1,
+        ]
+
+        with FusionDefinition() as fd:
+            T0 = fd.from_pytorch(inputs[0])
+            S1 = fd.define_scalar()
+            T1 = fd.ops.div(T0, S1)
+            fd.add_output(T1)
+
+        out1 = fd.execute(inputs)
+        self.assertIsNone(fd.debug_output())
+
+        # If debug output is captured, getDebugOutput() will not return None.
+        # The output will depend on the NVFUSER_DUMP environment variable in
+        # such case
+        out2 = fd.execute(inputs, capture_debug_output=True)
+        self.assertIsNotNone(fd.debug_output())
+
     # Test that deterministic random ops (uniform, normal) give same results as
     # their stochastic versions
     def test_deterministic_random(self):

@@ -7772,12 +7772,13 @@ TEST_F(NVFuserTest, FusionMagicSchedulerInstanceNormalizationBackward_CUDA) {
   auto save_mean = makeContigTensor(2);
   auto save_invstd = makeContigTensor(2);
   auto dummy = makeContigTensor(0);
+  auto dummy2 = makeContigTensor(0);
 
   fusion_backward->addInput(input);
   fusion_backward->addInput(grad_output);
   fusion_backward->addInput(weight);
   fusion_backward->addInput(dummy); // dummy for run_mean
-  fusion_backward->addInput(dummy); // dummy for run_var
+  fusion_backward->addInput(dummy2); // dummy for run_var
   fusion_backward->addInput(save_mean);
   fusion_backward->addInput(save_invstd);
 

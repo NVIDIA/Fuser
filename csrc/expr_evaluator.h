@@ -23,13 +23,22 @@ class PrecomputedValues;
 
 //! Calculate Fusion IR expressions
 class TORCH_CUDA_CU_API ExpressionEvaluator {
-  void bind_(const Val* value, PolymorphicValue concrete_value);
+  void bind_(
+      const Val* value,
+      PolymorphicValue concrete_value,
+      bool evaluate_validate);
   void bind_(const std::string& name, PolymorphicValue concrete_value);
 
  public:
   //! Bind a concrete value to an IR variable
-  void bind(const Val* value, PolymorphicValue concrete_value) {
-    bind_(value, std::move(concrete_value));
+  //! If evaluate_validate is true, and value is evaluatable with the
+  //! information already known, then evaluate and validate the value with the
+  //! concrete value.
+  void bind(
+      const Val* value,
+      PolymorphicValue concrete_value,
+      bool evaluate_validate = false) {
+    bind_(value, std::move(concrete_value), evaluate_validate);
   }
 
   //! Bind a concrete value to a named scalar

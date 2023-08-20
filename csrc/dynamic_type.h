@@ -179,7 +179,7 @@ template <typename Containers, typename... Ts>
 struct DynamicType {
   using VariantType =
       typename Containers::template VariantType<DynamicType, Ts...>;
-  VariantType value_;
+  VariantType value;
 
   // TODO: Not supporting operators for containers for now, because containers
   // has nested DynamicType, trying to support operators for containers will
@@ -207,7 +207,7 @@ struct DynamicType {
   constexpr DynamicType() = default;
 
   template <typename T>
-  constexpr DynamicType(T value) : value_(std::move(value)) {}
+  constexpr DynamicType(T value) : value(std::move(value)) {}
 
   template <
       template <typename...>
@@ -217,7 +217,7 @@ struct DynamicType {
           is_candidate_type<Template<DynamicType>> &&
           !std::is_same_v<ItemT, DynamicType>>>
   constexpr DynamicType(Template<ItemT> value)
-      : value_([](auto input) {
+      : value([](auto input) {
           Template<DynamicType> result;
           std::transform(
               input.begin(),
@@ -227,17 +227,17 @@ struct DynamicType {
           return result;
         }(std::move(value))) {}
 
-  // Returns the type_info of the actual type of the variant value_. For
-  // example, if value_ holds an int, then this will return typeid(int).
+  // Returns the type_info of the actual type of the variant value. For
+  // example, if value holds an int, then this will return typeid(int).
   const std::type_info& type() const {
     return std::visit(
         [](auto value) -> const std::type_info& { return typeid(value); },
-        value_);
+        value);
   }
 
   template <typename T>
   constexpr bool is() const {
-    return std::holds_alternative<T>(value_);
+    return std::holds_alternative<T>(value);
   }
 
   template <template <typename...> typename Template>
@@ -246,7 +246,7 @@ struct DynamicType {
   }
 
   constexpr bool isNull() const {
-    return std::holds_alternative<std::monostate>(value_);
+    return std::holds_alternative<std::monostate>(value);
   }
 
   constexpr bool hasValue() const {
@@ -255,12 +255,12 @@ struct DynamicType {
 
   template <typename T, typename = std::enable_if_t<is_candidate_type<T>>>
   constexpr const T& as() const {
-    return std::get<T>(value_);
+    return std::get<T>(value);
   }
 
   template <typename T, typename = std::enable_if_t<is_candidate_type<T>>>
   constexpr T& as() {
-    return std::get<T>(value_);
+    return std::get<T>(value);
   }
 
   template <
@@ -986,6 +986,22 @@ DEFINE_ASSIGNMENT_OP(>>, >>=);
 // overloaded, and the automatically defined version by the compiler usually
 // does what we want.
 
+// Check that, whether there exist two different types T and U, where both T and
+// U are contained in the type list of dynamic type DT, and T == U is defined.
+template <typename DT>
+constexpr bool has_cross_type_equality =
+    any(remove_void_from_tuple(DT::for_all_types([](auto t) {
+      using T = typename decltype(t)::type;
+      return any(remove_void_from_tuple(DT::for_all_types([](auto u) {
+        using U = typename decltype(u)::type;
+        if constexpr (std::is_same_v<T, U>) {
+          return;
+        } else {
+          return opcheck<T> == opcheck<U>;
+        }
+      })));
+    })));
+
 #if defined(__clang__)
 #pragma clang diagnostic pop
 #endif
@@ -995,3 +1011,24 @@ DEFINE_ASSIGNMENT_OP(>>, >>=);
 #endif
 
 } // namespace nvfuser
+
+// Hashing:
+
+template <typename Containers, typename... Ts>
+struct std::hash<nvfuser::DynamicType<Containers, Ts...>> {
+  // The hashing should be consistent with the equality operator. That is, if
+  // a == b, then a and b should always has the same hash. However, because we
+  // are using the hashing function for std::variant as our hasing function,
+  // there is no way for us to guarantee this if there are cross-type
+  // equality. For example, 0 == 0.0, but they don't have the same hash value.
+  // So the hashing function for DynamicType<NoContainers, int, double> as
+  // defined here is illegal.
+  static_assert(
+      !nvfuser::has_cross_type_equality<
+          nvfuser::DynamicType<Containers, Ts...>>,
+      "Hash function of DynamicType can not be automatically defined while there are cross-type equality.");
+  using DT = nvfuser::DynamicType<Containers, Ts...>;
+  std::size_t operator()(DT const& dt) const noexcept {
+    return std::hash<typename DT::VariantType>{}(dt.value);
+  }
+};
