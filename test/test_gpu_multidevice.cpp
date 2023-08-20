@@ -58,42 +58,43 @@ void testValidateMultidevice(
     MultiDeviceRuntime& runtime,
     const at::ArrayRef<c10::IValue>& inputs,
     const std::vector<at::Tensor>& outputs,
-    RankType tester_rank = 0) {
+    DeviceIdxType tester = 0) {
+  Communicator& comm = runtime.comm();
   std::vector<at::Tensor> buffer;
 
-  // gathering all the inputs at tester_rank
+  // gathering all the inputs at tester
   std::vector<c10::IValue> input_tensors;
   for (auto i : c10::irange(inputs.size())) {
-    auto sender_rank = runtime.dIdToRank(runtime.pipeline()
-                                             ->inputs()
-                                             .at(i)
-                                             ->as<PipelineVal>()
-                                             ->getStage()
-                                             ->descriptor()
-                                             ->mesh.deviceIndices()
-                                             .at(0));
+    auto sender = runtime.pipeline()
+                           ->inputs()
+                           .at(i)
+                           ->as<PipelineVal>()
+                           ->getStage()
+                           ->descriptor()
+                           ->mesh.deviceIndices()
+                           .at(0);
     buffer = {inputs.at(i).toTensor()};
-    runtime.comm().sendRecv(tester_rank, sender_rank, buffer);
+    comm.sendRecv(tester, sender, buffer);
     input_tensors.push_back(buffer.at(0));
   }
 
-  // gathering all the outputs at tester_rank
+  // gathering all the outputs at tester
   std::vector<at::Tensor> output_tensors;
   for (auto i : c10::irange(outputs.size())) {
-    auto sender_rank = runtime.dIdToRank(runtime.pipeline()
-                                             ->outputs()
-                                             .at(i)
-                                             ->as<PipelineVal>()
-                                             ->getStage()
-                                             ->descriptor()
-                                             ->mesh.deviceIndices()
-                                             .at(0));
+    auto sender = runtime.pipeline()
+                      ->outputs()
+                      .at(i)
+                      ->as<PipelineVal>()
+                      ->getStage()
+                      ->descriptor()
+                      ->mesh.deviceIndices()
+                      .at(0);
     buffer = {outputs.at(i)};
-    runtime.comm().sendRecv(tester_rank, sender_rank, buffer);
+    comm.sendRecv(tester, sender, buffer);
     output_tensors.push_back(buffer.at(0));
   }
 
-  if (runtime.rank() == tester_rank) {
+  if (comm.deviceId() == tester) {
     // execute the fusion on one device without pipeline scheduling
     Fusion& fusion = *fusion_ptr.get();
     FusionExecutorCache fec(std::move(fusion_ptr));
@@ -109,7 +110,7 @@ void testValidateMultidevice(
         __FILE__);
   }
 
-  runtime.comm().barrier();
+  comm.barrier();
 }
 
 /* To run the following tests on several devices, pytorch must be installed
@@ -218,7 +219,7 @@ TEST_F(NVFuserTest, FusionMultiGPU_CUDA) {
   // Create input tensors.
   // Note: each rank is binded to a different GPU
   c10::TensorOptions options =
-      at::TensorOptions().dtype(at::kFloat).device(runtime.device());
+      at::TensorOptions().dtype(at::kFloat).device(comm.device());
   // Note: the concrete values are only used at the relevant ranks
   std::vector<c10::IValue> inputs{
       at::randn({3, 11}, options), at::randn({2, 7, 8}, options)};
