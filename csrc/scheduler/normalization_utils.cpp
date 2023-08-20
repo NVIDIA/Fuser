@@ -680,28 +680,30 @@ std::pair<int64_t, int64_t> getInnerOuterPersistentBufferBatches(
 
   const int64_t after_vectorization = inner_dim_numel / vectorize_factor;
   const int64_t threads_per_block_min = std::min(after_vectorization, 128l);
-  const int64_t threads_per_block_max =
-      scheduler_utils::max_threads_per_block_combined;
+  const int64_t threads_per_block_max = std::min(
+      after_vectorization,
+      vectorize_factor > 1
+          ? scheduler_utils::max_threads_per_block_combined
+          : scheduler_utils::max_threads_per_block_combined_unvectorized);
   const int64_t batch_min = getMinimumBatch();
   const int64_t batch_max = getMaximumInnerOuterPersistentBufferBatch();
   int64_t threads_per_block = threads_per_block_min;
   int64_t inner_batch = ceilDiv(after_vectorization, threads_per_block);
 
   // When shared memory is used to store persistent buffers, hidden size is
-  // large. Set threads_per_block to maximum to avoid large bath sizes.
+  // large. Set threads_per_block to maximum to avoid large batch sizes.
   if (smem_buffer_size > 0) {
     threads_per_block = threads_per_block_max;
     inner_batch = ceilDiv(after_vectorization, threads_per_block);
   } else {
     // Start from the smallest threads_per_block. If the corresponding batch
-    // size is larger than batch_max, try increase threads per block by a warp
+    // size is larger than batch_max, try double threads per block
     // until the threads_per_block reaches threads_per_block_max or the batch
     // size reaches batch_min.
     while (inner_batch > batch_max &&
-           threads_per_block + warp_size <= threads_per_block_max &&
-           ceilDiv(after_vectorization, threads_per_block + warp_size) >=
-               batch_min) {
-      threads_per_block += warp_size;
+           threads_per_block * 2l <= threads_per_block_max &&
+           ceilDiv(after_vectorization, threads_per_block * 2l) >= batch_min) {
+      threads_per_block *= 2;
       inner_batch = ceilDiv(after_vectorization, threads_per_block);
     }
   }
@@ -880,16 +882,19 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
   // At this point, we use a much larger register file size for the combined
   // case as it is rarely fused with other ops.
   const auto dev_prop = at::cuda::getCurrentDeviceProperties();
-  int64_t available_regs = buffer_params.combined_reduction
-      ? scheduler_utils::register_file_size_combined
-      : scheduler_utils::register_file_size;
-
+  int64_t available_regs = scheduler_utils::register_file_size;
+  if (buffer_params.combined_reduction) {
+    available_regs = vectorize_factor > 1
+        ? scheduler_utils::register_file_size_combined
+        : scheduler_utils::register_file_size_combined_unvectorized;
+  }
+  const int64_t max_threads_per_block = vectorize_factor > 1
+      ? scheduler_utils::max_threads_per_block_combined
+      : scheduler_utils::max_threads_per_block_combined_unvectorized;
   // Shared memory persistent is only implemented for the inner and combined
   // case.
   buffer_params.smem_overhead = getSharedMemoryOverheadPerBlock(
-      fusion,
-      persistent_buffers,
-      scheduler_utils::max_threads_per_block_combined);
+      fusion, persistent_buffers, max_threads_per_block);
   int64_t available_smem = inner_reduction
       ? (int64_t)dev_prop->sharedMemPerBlockOptin - buffer_params.smem_overhead
       : 0l;
@@ -911,7 +916,7 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
           persistent_buffers[i - 1],
           tv_buffer_size_regs,
           vectorize_factor,
-          scheduler_utils::max_threads_per_block_combined);
+          max_threads_per_block);
 
       acc_regs_buffer_sizes[i] =
           acc_regs_buffer_sizes[i - 1] + tv_buffer_size_regs;
