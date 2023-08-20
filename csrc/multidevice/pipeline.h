@@ -133,6 +133,10 @@ class TORCH_CUDA_CU_API Pipeline : public Fusion {
      the inputs and outputs. Should be optimized */
   std::unique_ptr<Fusion> stageToFusion(PipelineStage*& stage) const;
 
+  // returns the number of device indices present accross all
+  // stage's device mesh in the pipeline
+  uint64_t requestedNumberOfDevices() const;
+
  private:
   // utility class called at instantiation
   friend class PipelineBuilder;
