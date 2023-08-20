@@ -178,7 +178,7 @@ std::optional<size_t> mergeDims(
       tv->reorder({{inner, outer}, {outer, inner}});
       std::swap(inner, outer);
     }
-    tv->merge(outer, inner);
+    tv->merge(static_cast<int>(outer), static_cast<int>(inner));
 
     // compensate future indices for the diminishing inner.
     for (size_t j = i + 1; j < to_merge.size(); j++) {
