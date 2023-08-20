@@ -13,13 +13,9 @@
 namespace nvfuser {
 
 bool PipelineExecutor::shouldRun(PipelineStage* stage) {
-  if (!should_run_.count(stage)) {
+  if (should_run_.find(stage) == should_run_.end()) {
     should_run_.emplace(
-        stage,
-        std::count(
-            stage->descriptor()->mesh.vector().begin(),
-            stage->descriptor()->mesh.vector().end(),
-            runtime_.comm_.deviceId()));
+        stage, stage->descriptor()->mesh.has(runtime_.comm_.deviceId()));
   }
   return should_run_[stage];
 }
@@ -31,19 +27,40 @@ void PipelineExecutor::handle(PipelineStage* stage) {
     stage_input_IValues.push_back(val_to_IValue_[input_val]);
   }
 
-  // Create the stage executor
-  if (!fec_.count(stage)) {
-    fec_.emplace(
-        stage,
-        std::make_unique<FusionExecutorCache>(
-            runtime_.pipeline_->stageToFusion(stage)));
+  std::vector<at::Tensor> outputs;
+
+  // Compile the stage and either execute it or allocate output buffers
+  // if the stage is configured to be autoscheduled, use FusionExecutorCache,
+  // otherwise use FusionExecutor
+  if (stage->descriptor()->auto_schedule) {
+    // Check if the executor has been cached. If not, create and cache it
+    if (fec_.find(stage) == fec_.end()) {
+      fec_.emplace(
+          stage,
+          std::make_unique<FusionExecutorCache>(
+              runtime_.pipeline_->stageToFusion(stage)));
+    }
+    // Run the stage to get concrete outputs or placeholders
+    // TODO: reimplement allocOutputSpace
+    // TODO: allocate output space only if strictly necessary,
+    //       and move the allocation to
+    //       PipelineExecutor::handle(PipelineCommunication*)
+    outputs = shouldRun(stage)
+        ? fec_[stage]->runFusionWithInputs(stage_input_IValues)
+        : fec_[stage]->allocOutputSpace(stage_input_IValues);
+
+  } else {
+    // Check if the executor has been cached. If not, create and cache it
+    if (fe_.find(stage) == fe_.end()) {
+      fe_.emplace(stage, std::make_unique<FusionExecutor>());
+      fe_[stage]->compileFusion(
+          runtime_.pipeline_->stageToFusion(stage).get(), stage_input_IValues);
+    }
+    // Run the stage to get concrete outputs or placeholders
+    outputs = shouldRun(stage)
+        ? fe_[stage]->runFusion(stage_input_IValues)
+        : fe_[stage]->allocOutputSpace(stage_input_IValues);
   }
-  // Run the stage to get concrete outputs or placeholders
-  // TODO: reimplement allocOutputSpace
-  // TODO: allocate output space only if strictly necessary
-  std::vector<at::Tensor> outputs = shouldRun(stage)
-      ? fec_[stage]->runFusionWithInputs(stage_input_IValues)
-      : fec_[stage]->allocOutputSpace(stage_input_IValues);
 
   // Store the outputs or placeholders in the context
   for (auto output_idx : c10::irange(stage->outputs().size())) {
