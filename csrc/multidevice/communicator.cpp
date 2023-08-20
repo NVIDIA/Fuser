@@ -9,6 +9,7 @@
 #include <netdb.h>
 
 #include <multidevice/communicator.h>
+#include <torch/csrc/distributed/c10d/PrefixStore.hpp>
 #ifdef USE_C10D_GLOO
 #include <torch/csrc/distributed/c10d/ProcessGroupGloo.hpp>
 #endif
@@ -102,9 +103,9 @@ bool parseEnv(
 // creates and return a process group backend
 c10::intrusive_ptr<c10d::Backend> createBackend(
     CommunicatorBackend backend,
-    ::c10::intrusive_ptr<c10d::TCPStore> store,
+    ::c10::intrusive_ptr<c10d::Store> store,
     RankType rank,
-    int64_t size) {
+    uint64_t size) {
 #ifdef USE_C10D_NCCL
   if (backend == CommunicatorBackend::nccl) {
     auto pg_opts = c10::make_intrusive<::c10d::ProcessGroupNCCL::Options>();
@@ -133,6 +134,7 @@ Communicator::Communicator(
     CommunicatorBackend backend,
     RankType server_local_rank)
     : is_available_(false),
+      backend_(backend),
       rank_(0),
       size_(0),
       local_rank_(0),
@@ -146,7 +148,6 @@ Communicator::Communicator(
     return;
   }
 
-  // creates the backend
   c10d::TCPStoreOptions store_opts;
   {
     char hostname[HOST_NAME_MAX]; // NOLINT (modernize-avoid-c-arrays)
@@ -158,11 +159,42 @@ Communicator::Communicator(
                            master_addr_ == gethostbyname(hostname)->h_name) &&
         local_rank_ == server_local_rank;
   }
-  if (master_port_) {
-    store_opts.port = master_port_;
+  store_opts.port = master_port_ ? master_port_ : comm_master_port_default;
+  store_ = c10::make_intrusive<c10d::TCPStore>(master_addr_, store_opts);
+
+  // creates the world's backend
+  std::vector<RankType> all_ranks(size_);
+  std::iota(all_ranks.begin(), all_ranks.end(), 0);
+  world_ = getTeam(all_ranks);
+}
+
+c10::intrusive_ptr<c10d::Backend> Communicator::getTeam(
+    const std::vector<DeviceIdxType>& ranks) {
+  // check if backend associated with the ranks is present in the cache
+  if (teams_.find(ranks) == teams_.end()) { // create the backend and cache it
+    // check that the caller's rank belongs to the requested team
+    auto rank_it = std::find(ranks.begin(), ranks.end(), rank_);
+    TORCH_INTERNAL_ASSERT(
+        rank_it != ranks.end(),
+        "only ranks in the team should participate to its initialization");
+    // retrieve the caller's rank index/position in the team
+    RankType team_rank = std::distance(ranks.begin(), rank_it);
+    // generate a string key which is unique to the team
+    std::string team_key = std::accumulate(
+        std::begin(ranks),
+        std::end(ranks),
+        std::string{},
+        [](const std::string& a, const RankType& b) {
+          return a.empty() ? std::to_string(b) : a + ',' + std::to_string(b);
+        });
+    // create the team and cache it
+    teams_[ranks] = createBackend(
+        backend_,
+        c10::make_intrusive<c10d::PrefixStore>(team_key, store_),
+        team_rank,
+        ranks.size());
   }
-  auto store = c10::make_intrusive<c10d::TCPStore>(master_addr_, store_opts);
-  pg_ = createBackend(backend, store, rank_, size_);
+  return teams_.at(ranks);
 }
 
 void Communicator::sendRecv(

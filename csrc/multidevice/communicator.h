@@ -24,11 +24,19 @@ namespace nvfuser {
 // Supported backends. TODO: only tested with nccl for now
 enum class CommunicatorBackend { nccl, ucc, gloo };
 
-class Communicator {
+constexpr CommunicatorBackend comm_backend_default = CommunicatorBackend::nccl;
+constexpr int comm_server_local_rank_default = 0;
+constexpr int comm_master_port_default =
+    c10d::TCPStoreOptions::kDefaultPort; // 29500
+
+class TORCH_CUDA_CU_API Communicator {
  public:
   Communicator(
-      CommunicatorBackend backend = COMM_BACKEND_DEFAULT,
-      RankType server_local_rank = COMM_SERVER_LOCAL_RANK_DEFAULT);
+      CommunicatorBackend backend = comm_backend_default,
+      RankType server_local_rank = comm_server_local_rank_default);
+
+  Communicator(const Communicator&) = delete;
+  Communicator& operator=(const Communicator&) = delete;
 
   // returns if distributed config is available
   auto is_available() const {
@@ -77,13 +85,19 @@ class Communicator {
   // stores the process group backend
  private:
   bool is_available_;
+  CommunicatorBackend backend_;
   RankType rank_;
   int64_t size_;
   RankType local_rank_;
   int64_t local_size_;
   std::string master_addr_;
   int master_port_;
-  c10::intrusive_ptr<c10d::Backend> pg_;
+  // stores the world's store used for the backend init
+  c10::intrusive_ptr<c10d::TCPStore> store_;
+  // stores the world's backend
+  c10::intrusive_ptr<c10d::Backend> world_;
+  // cache for the created teams
+  std::map<std::vector<RankType>, c10::intrusive_ptr<c10d::Backend>> teams_;
 };
 
 } // namespace nvfuser
