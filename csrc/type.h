@@ -628,6 +628,7 @@ bool isLogicalOp(const BinaryOpType bopt);
 enum class TernaryOpType { Clamp, Lerp, Threshold, Where };
 
 enum class ParallelType {
+  DIDx,
   BIDz,
   BIDy,
   BIDx,
@@ -653,6 +654,9 @@ static constexpr std::array<ParallelType, 6> kParallelTypeThreads = {
     ParallelType::TIDx,
     ParallelType::TIDy,
     ParallelType::TIDz};
+
+static constexpr std::array<ParallelType, 1> kParallelTypeDIDs = {
+    ParallelType::DIDx};
 
 static constexpr std::array<ParallelType, 3> kParallelTypeBIDs = {
     ParallelType::BIDx,
@@ -874,6 +878,9 @@ TORCH_CUDA_CU_API bool isParallelTypeThreadDim(ParallelType);
 TORCH_CUDA_CU_API bool isParallelTypeBlockDim(ParallelType);
 // Returns if parallel type is a grid or block parallelization dimension
 TORCH_CUDA_CU_API bool isParallelTypeThread(ParallelType);
+
+// Returns if parallel type is DIDx
+TORCH_CUDA_CU_API bool isParallelTypeDeviceDim(ParallelType);
 
 TORCH_CUDA_CU_API bool isParallelTypeVectorize(ParallelType);
 
