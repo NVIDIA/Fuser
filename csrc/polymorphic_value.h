@@ -338,13 +338,15 @@ inline PolymorphicValue erf(const PolymorphicValue& a) {
 }
 
 // Convert scalars, vector of scalars, vector of vector of scalars, etc., into
-// an at::Tensor
-inline PolymorphicValue toTensor(const PolymorphicValue& x) {
+// an at::Tensor. device argument allows for the creation of CPU Scalars.
+inline PolymorphicValue toTensor(
+    const PolymorphicValue& x,
+    at::DeviceType device_type = at::kCUDA,
+    int8_t device_index = 0) {
   if (x.is<at::Tensor>()) {
     return x;
   }
-  // TODO: allow specifying device
-  auto options = at::TensorOptions().device(at::kCUDA, 0);
+  auto options = at::TensorOptions().device(device_type, device_index);
   if (x.is<int64_t>()) {
     return PolymorphicValue(
         at::tensor(x.as<int64_t>(), options.dtype(at::kLong)).squeeze());

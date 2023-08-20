@@ -1145,7 +1145,7 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> getCompiledKernel(
   auto& kernel_db = KernelDb::get();
   const auto use_kernel_db = kernel_db.enabled() && kernel_code.has_value();
 
-  // If the Kernel Query failes, the Kernel is recompiled
+  // If the Kernel Query fails, the Kernel is recompiled
   if (!(use_kernel_db &&
         kernel_db.query(
             kernel_code.value(),
