@@ -100,7 +100,7 @@ ContiguousInnerDimensionsMapper::ContiguousInnerDimensionsMapper(
   // Need to somehow make sure projected_rfactor is indeed on the reference
   // tensor, otherwise, getProjectedExtent seems to be complaining. I'm
   // wondering if we should instead canonicalize the key for projected extent
-  auto map_rfactor = [this, &reference, &rfactor_domain](IterDomain* id) {
+  auto map_rfactor = [this, &rfactor_domain](IterDomain* id) {
     IterDomain* mapped_id = nullptr;
     for (auto i : c10::irange(rfactor_domain.size())) {
       if (this->ca_map_->idGraph().exactNodes().permissiveAreMapped(
