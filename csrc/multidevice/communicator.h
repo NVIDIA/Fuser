@@ -1,3 +1,10 @@
+// clang-format off
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION & AFFILIATES.
+ * All rights reserved.
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
+// clang-format on
 #pragma once
 #ifdef USE_DISTRIBUTED
 
@@ -6,19 +13,19 @@
 #include <torch/csrc/distributed/c10d/Store.hpp>
 #include <torch/csrc/distributed/c10d/TCPStore.hpp>
 
-#define COMM_BACKEND_DEFAULT CommunicatorBackend::nccl
-#define COMM_SERVER_LOCAL_RANK_DEFAULT 0
-
 namespace nvfuser {
 
 /*
    This file implements the class Communicator which sets up the inter-process
    Backend. This class contains inter-process information, such as the rank, the
    world size, as well as the Process Group that can be called to perform
-   inter-process communications
+   inter-process communications.
 
-   Only one node configuration is supported for now.
-   TODO: extend to multinode.
+   Each process is associated with a unique deviceId and device. The actual MPI
+   rank remains private to the class and should not be used by the user. The
+   communicator class holds privately the mappings ranks <-> device IDs <->
+   device.
+
 */
 
 // Supported backends. TODO: only tested with nccl for now
@@ -43,31 +50,14 @@ class TORCH_CUDA_CU_API Communicator {
     return is_available_;
   }
 
-  // returns the rank of the current process
-  auto rank() const {
-    return rank_;
-  }
-
   // returns the number of processes in the communicator
   auto size() const {
     return size_;
   }
 
-  // returns the local rank of the current process (within the node)
-  auto local_rank() const {
-    return local_rank_;
-  }
-
   // returns the local number of processes in the communicator (within the node)
   auto local_size() const {
     return local_size_;
-  }
-
-  // returns the flattenend list of ranks of the communicator
-  auto ranks() const {
-    std::vector<RankType> ret(size());
-    std::iota(ret.begin(), ret.end(), 0);
-    return ret;
   }
 
   // performs a (blocking) send/receive p2p data transfer
@@ -79,11 +69,35 @@ class TORCH_CUDA_CU_API Communicator {
 
   // performs a blocking barrier in the communicator
   void barrier() const {
-    pg_->barrier()->wait();
+    world_->barrier()->wait();
   }
 
-  // stores the process group backend
+  // returns the backend associated with a subset of devices/ranks given as
+  // arguments
+  c10::intrusive_ptr<c10d::Backend> getTeam(
+      const std::vector<DeviceIdxType>& devices);
+
+  // returns the device associated with the current process
+  auto device() const {
+    return at::Device("cuda:" + std::to_string(local_rank_));
+  }
+
+  // returns the device Id associated with the current process
+  DeviceIdxType deviceId() const {
+    return rankToDiD(rank_);
+  }
+
  private:
+  // returns the rank corresponding to a device index
+  RankType dIdToRank(DeviceIdxType d_id) const {
+    return static_cast<RankType>(d_id);
+  }
+
+  // returns the device index corresponding to a rank
+  DeviceIdxType rankToDiD(RankType rank) const {
+    return static_cast<DeviceIdxType>(rank);
+  }
+
   bool is_available_;
   CommunicatorBackend backend_;
   RankType rank_;

@@ -22,8 +22,9 @@
 
 namespace nvfuser {
 
-// Parse the environment to retrieve MPI rank and MPI world size and sets rank
-// and size accordingly Returns true in case of success, false otherwise
+// Parse the environment to retrieve MPI rank, world size, local rank,
+// local world size, and also master address and master port.
+// Returns true if the distributed configuration is valid, false otherwise
 bool parseEnv(
     RankType& rank,
     int64_t& size,
@@ -198,22 +199,22 @@ c10::intrusive_ptr<c10d::Backend> Communicator::getTeam(
 }
 
 void Communicator::sendRecv(
-    RankType receiver_rank,
-    RankType sender_rank,
+    DeviceIdxType receiver,
+    DeviceIdxType sender,
     std::vector<at::Tensor>& tensor,
     int tag) {
-  if (sender_rank == receiver_rank) { // send-to-self
+  if (sender == receiver) { // send-to-self
     return;
   }
-  if (rank() == sender_rank) {
+  if (deviceId() == sender) {
     // post send and wait for completion
     TORCH_INTERNAL_ASSERT(
-        pg_->send(tensor, receiver_rank, tag)->wait(),
+        world_->send(tensor, dIdToRank(receiver), tag)->wait(),
         "error during communication");
-  } else if (rank() == receiver_rank) {
+  } else if (deviceId() == receiver) {
     // post receive and wait for completion
     TORCH_INTERNAL_ASSERT(
-        pg_->recv(tensor, sender_rank, tag)->wait(),
+        world_->recv(tensor, dIdToRank(sender), tag)->wait(),
         "error during communication");
   }
 }
