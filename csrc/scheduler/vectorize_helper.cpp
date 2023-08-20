@@ -822,7 +822,7 @@ Val* ContiguousInnerDimensionsMapper::getContigMergeOfInnerSize(
     auto root_id = of_tv_root_no_reductions.at(root_i);
 
     if (root_id->extent()->isOneInt() || root_id->isBroadcast()) {
-      if (projected_dims[projected_dims_i - 1]->sameAs(root_id)) {
+      if (projected_dims[projected_dims_i - 1] == root_id) {
         --projected_dims_i;
       }
       continue;
@@ -839,7 +839,7 @@ Val* ContiguousInnerDimensionsMapper::getContigMergeOfInnerSize(
     }
 
     // Mapping order isn't correct, cannot expand vectorization dimension.
-    if (!projected_dims[--projected_dims_i]->sameAs(root_id)) {
+    if (projected_dims[--projected_dims_i] != root_id) {
       break;
     }
 
