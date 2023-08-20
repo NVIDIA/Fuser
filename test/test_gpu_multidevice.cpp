@@ -284,7 +284,7 @@ TEST_F(NVFuserTest, FusionMultiGPU_CUDA) {
       at::TensorOptions().dtype(at::kFloat).device(comm.device());
   // Note: the concrete values are only used at the relevant ranks
   std::vector<c10::IValue> inputs{
-      at::randn({3, 11}, options), at::randn({2, 7, 8}, options)};
+      at::randn({3096, 1123}, options), at::randn({2048, 73, 81}, options)};
 
   executeAndTestPipeline(std::move(fusion_ptr), pipeline, comm, inputs);
 }

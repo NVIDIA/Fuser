@@ -101,9 +101,9 @@ class TORCH_CUDA_CU_API Communicator {
   bool is_available_;
   CommunicatorBackend backend_;
   RankType rank_;
-  int64_t size_;
+  uint64_t size_;
   RankType local_rank_;
-  int64_t local_size_;
+  uint64_t local_size_;
   std::string master_addr_;
   int master_port_;
   // stores the world's store used for the backend init

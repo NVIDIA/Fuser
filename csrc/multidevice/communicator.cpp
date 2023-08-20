@@ -27,9 +27,9 @@ namespace nvfuser {
 // Returns true if the distributed configuration is valid, false otherwise
 bool parseEnv(
     RankType& rank,
-    int64_t& size,
+    uint64_t& size,
     RankType& local_rank,
-    int64_t& local_size,
+    uint64_t& local_size,
     std::string& master_addr,
     int& master_port) {
   char* env = nullptr;
@@ -52,7 +52,7 @@ bool parseEnv(
       return false;
     }
   }
-  size = std::atoi(env);
+  size = static_cast<uint64_t>(std::atoi(env));
 
   // retrieves the size of the communicator
   env = std::getenv("OMPI_COMM_WORLD_LOCAL_RANK");
@@ -72,7 +72,7 @@ bool parseEnv(
       return false;
     }
   }
-  local_size = std::atoi(env);
+  local_size = static_cast<uint64_t>(std::atoi(env));
 
   // retrieves master address
   env = std::getenv("MASTER_ADDR");
