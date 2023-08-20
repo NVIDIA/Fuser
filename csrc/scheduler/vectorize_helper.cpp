@@ -875,7 +875,9 @@ int64_t getVectorizationFactor(
         "Vectorization heuristic could not evaluate inner most size.");
 
     max_vec_size = std::min(
-        maxVectorizationWidth(inner_size_opt.as<int64_t>()), max_vec_size);
+        nvfuser::scheduler_utils::maxVectorizationWidth(
+            inner_size_opt.as<int64_t>()),
+        max_vec_size);
   }
 
   return max_vec_size;
