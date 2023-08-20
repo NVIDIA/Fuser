@@ -64,69 +64,6 @@ ContiguousInnerDimensionsMapper::ContiguousInnerDimensionsMapper(
       ca_map_(std::move(ca_map)),
       divisible_splits_(divisible_splits) {
   FusionGuard fg(reference->fusion());
-  // map ids to reference_ids
-  // std::vector<IterDomain*> reference_ids =
-  // projectId(reference->getMaybeRFactorDomain(), ids);
-  //
-  // // Check which domain of tensor view we should be looking at. All IDs must
-  // be
-  // // found in the the rfactor domain.
-  // TORCH_INTERNAL_ASSERT(
-  //     std::all_of(
-  //         reference_ids.begin(),
-  //         reference_ids.end(),
-  //         [reference](IterDomain* id) {
-  //           return (
-  //               std::find(
-  //                   reference->getMaybeRFactorDomain().begin(),
-  //                   reference->getMaybeRFactorDomain().end(),
-  //                   id) != reference->getMaybeRFactorDomain().end());
-  //         }),
-  //     "\nIterDomains passed in to ContiguousInnerDimensionsMapper passed in
-  //     to ", "ContiguousInnerDimensionsMapper must all exist in the rfactor
-  //     domain.\n", "Reference: ", reference->toString());
-
-  // // Record while processing reference's information
-  // recording_ = true;
-  // std::shared_ptr<Information> reference_information;
-
-  // // Ordering of dimensions is important in this analysis, if an ordering is
-  // // contiguous in the reference, but not the target tensor views, then we
-  // // cannot consider that a contiguous merge dimension for vectorization.
-  // std::vector<IterDomain*> reordered_rfactor;
-  // for (auto id : reference->getMaybeRFactorDomain()) {
-  //   // Exclude reduction IDs if the reference is a fusion input as they
-  //   // don't manifest at all in the fusion. This simplifies the
-  //   // analysis in getContigMergeOfInnerSize, which only looks at
-  //   // non-reduction rfactor domains. Including reduction domains here
-  //   // can result in incorrect ordering
-  //   if (reference->isFusionInput() && id->isReduction()) {
-  //     continue;
-  //   }
-  //   // If not a fusion input, can this be a reduction domain?
-  //   TORCH_INTERNAL_ASSERT(
-  //       !id->isReduction(),
-  //       "Unexpected reduction domain: ",
-  //       id->toString(),
-  //       " of tensor ",
-  //       reference->toString());
-  //   if (std::find(reference_ids.begin(), reference_ids.end(), id) !=
-  //       reference_ids.end()) {
-  //     reordered_rfactor.push_back(id);
-  //     // Initiailze the extent for the mapped iter domain
-  //     addProjectedExtent(id, commonOrConstExtent(ca_map_, id));
-  //   } else if (!id->isBroadcast()) {
-  //     // Ignore broadcasts in the reference. Otherwise, remove non-contiguous
-  //     // IDs in the reference tensor as this is the contiguous mapper.
-  //     reordered_rfactor.clear();
-  //   }
-  // }
-  // Record while processing reference's information
-  recording_ = true;
-
-  auto rfactor_domain = reference->getMaybeRFactorDomain();
-  auto filtered_ids = ids;
-
   // Exclude reduction IDs if the reference is a fusion input as they
   // don't manifest at all in the fusion. This simplifies the
   // analysis in getContigMergeOfInnerSize, which only looks at
@@ -134,6 +71,8 @@ ContiguousInnerDimensionsMapper::ContiguousInnerDimensionsMapper(
   // can result in incorrect ordering
   // NOTE: this is necessary to enable vectorization in
   // NVFuserTest.FusionSegmentReduceSoftmax_CUDA
+  auto rfactor_domain = reference->getMaybeRFactorDomain();
+  auto filtered_ids = ids;
   if (reference->isFusionInput()) {
     auto remove_reduction = [](auto& container) {
       container.erase(
@@ -146,12 +85,19 @@ ContiguousInnerDimensionsMapper::ContiguousInnerDimensionsMapper(
     remove_reduction(rfactor_domain);
     remove_reduction(filtered_ids);
   }
+
+  // Record while processing reference's information
+  recording_ = true;
   for (auto id : filtered_ids) {
     addProjectedExtent(id, commonOrConstExtent(ca_map_, id));
   }
+
+  // Ordering of dimensions is important in this analysis, if an ordering is
+  // contiguous in the reference, but not the target tensor views, then we
+  // cannot consider that a contiguous merge dimension for vectorization.
   auto projected_rfactor = projectId(filtered_ids, rfactor_domain);
 
-  // I need to somehow make sure projected_rfactor is indeed on the reference
+  // Need to somehow make sure projected_rfactor is indeed on the reference
   // tensor, otherwise, getProjectedExtent seems to be complaining. I'm
   // wondering if we should instead canonicalize the key for projected extent
   auto map_rfactor = [this, &reference, &rfactor_domain](IterDomain* id) {
@@ -169,19 +115,9 @@ ContiguousInnerDimensionsMapper::ContiguousInnerDimensionsMapper(
   std::for_each(
       projected_rfactor.begin(), projected_rfactor.end(), map_rfactor);
 
-  // for (auto id : projected_rfactor) {
-  //   auto mapped_id = map_rfactor(id);
-  //   // TODO: should I just skip when id isn't mapped?!?! maybe clear left
-  //   TORCH_INTERNAL_ASSERT(
-  //       mapped_id != nullptr, "projected iter domain cannot be found")
-  //   addProjectedExtent(mapped_id, commonOrConstExtent(ca_map_, id));
-  // }
-
   std::shared_ptr<Information> reference_information = MappedDomain::build(
       projectId(projected_rfactor, reference->getRootDomain()),
       projected_rfactor,
-      // projectId(reordered_rfactor, reference->getRootDomain()),
-      // reordered_rfactor,
       reference->hasRFactor() /*shouldn't matter how we initialize this*/);
 
   // Stop recording before traversal
