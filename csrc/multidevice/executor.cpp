@@ -8,6 +8,7 @@
 #ifdef USE_DISTRIBUTED
 #include <ir/utils.h>
 #include <multidevice/executor.h>
+#include <multidevice/lower_communication.h>
 #include <multidevice/pipeline.h>
 
 namespace nvfuser {
@@ -68,69 +69,31 @@ void PipelineExecutor::handle(PipelineStage* stage) {
   }
 }
 
-struct SendRecvDescriptor {
-  Team team;
-  DeviceIdxType root = 0;
-};
-
 void PipelineExecutor::handle(PipelineCommunication* c) {
-  /* Lower the communication into several SendRecvDescriptor
-     The idea is to evenly split the destinations accross the sources
-     TODO: ensure that the srcs send to the receivers that are the closest in
-     the topology. */
-  std::vector<SendRecvDescriptor> communications;
-  {
-    Team senders;
-    for (auto& d_id :
-         c->in()->as<PipelineVal>()->getStage()->descriptor()->mesh.vector()) {
-      senders.push_back(d_id);
-    }
+  at::Tensor input_tensor =
+      val_to_IValue_.at(c->in())
+          .toTensor(); // when stage has same input and ouput
 
-    Team receivers;
-    for (auto& d_id :
-         c->out()->as<PipelineVal>()->getStage()->descriptor()->mesh.vector()) {
-      receivers.push_back(d_id);
-    }
+  // Allocation of output buffer. TODO: revise
+  val_to_IValue_[c->out()] = val_to_IValue_.at(c->in());
+  at::Tensor output_tensor =
+      val_to_IValue_.at(c->out()).toTensor(); // shallow copy
 
-    auto nbr_srcs = senders.size();
-    auto nbr_dests_per_comm = receivers.size() / nbr_srcs;
-    auto remainder = receivers.size() % nbr_srcs;
-    auto j = 0;
-    for (size_t i : c10::irange(nbr_srcs)) {
-      SendRecvDescriptor communication;
-      auto src = senders.at(i);
-      communication.team = {src};
-      communication.root = src;
-      for (size_t counter = 0; counter < nbr_dests_per_comm + (i < remainder);
-           counter++, j++) {
-        auto dst = receivers.at(j);
-        communication.team.push_back(dst);
-      }
-      communications.push_back(communication);
-    }
+  // Lower the Communication into a vector of Collectives
+  if (colls_.find(c) == colls_.end()) { // check if cached
+    colls_.emplace(
+        c,
+        lowerCommunication(
+            runtime_.comm_.deviceId(), c, input_tensor, output_tensor));
   }
+  auto& colls = colls_[c];
 
-  auto input_val = c->in();
-  auto output_val = c->out();
-  std::vector<at::Tensor> tensor = {val_to_IValue_.at(input_val).toTensor()};
-
-  /* perform the needed communications. For now everything is translated as
-     send/recv.
-     TODO: sending from one src to multiple dsts could be lowered as a
-     broadcast, in which case we should create a new communictor backend (and
-     cache it)*/
-  for (auto& communication : communications) {
-    auto sender_rank = communication.root;
-    for (auto receiver_rank : communication.team) {
-      if ((sender_rank == receiver_rank) ||
-          !(runtime_.comm_.deviceId() == sender_rank ||
-            runtime_.comm_.deviceId() == receiver_rank)) {
-        continue;
-      }
-      runtime_.comm_.sendRecv(receiver_rank, sender_rank, tensor);
-    }
+  // post and wait collectives
+  for (auto& coll : colls) {
+    coll->setCommunicator(&runtime_.comm_);
+    coll->post();
+    coll->wait();
   }
-  val_to_IValue_[output_val] = (c10::IValue)(tensor[0]);
 }
 
 std::vector<at::Tensor> PipelineExecutor::runWithInput(
