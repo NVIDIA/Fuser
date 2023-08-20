@@ -937,16 +937,9 @@ int64_t getVectorizationFactor(
     TORCH_INTERNAL_ASSERT(
         inner_size_opt.hasValue(),
         "Vectorization heuristic could not evaluate inner most size.");
-    int64_t inner_size = inner_size_opt.as<int64_t>();
-    int64_t local_max_vec_size = 1;
 
-    while (inner_size > 1 && inner_size % 2 == 0 &&
-           local_max_vec_size < max_vec_size) {
-      inner_size /= 2;
-      local_max_vec_size *= 2;
-    }
-
-    max_vec_size = std::min(local_max_vec_size, max_vec_size);
+    max_vec_size = std::min(
+        maxVectorizationWidth(inner_size_opt.as<int64_t>()), max_vec_size);
   }
 
   return max_vec_size;
