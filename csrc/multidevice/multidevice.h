@@ -11,8 +11,7 @@
 #include <c10/core/Device.h>
 
 namespace nvfuser {
-using RankType = int;
+using RankType = int64_t;
 using DeviceIdxType = RankType;
-using DimensionType = int;
 using DeviceType = c10::Device;
 } // namespace nvfuser
