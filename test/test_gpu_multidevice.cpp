@@ -39,11 +39,6 @@
 #include <transform_replay.h>
 #include <transform_rfactor.h>
 
-// fuser and IR parser
-#include <ATen/cuda/CUDAContext.h>
-#include <ATen/cuda/Exceptions.h>
-#include <c10/cuda/CUDAStream.h>
-
 #include <algorithm>
 #include <iostream>
 
@@ -52,72 +47,158 @@ namespace nvfuser {
 using namespace torch::jit::fuser::cuda;
 using namespace at::indexing;
 
-// utility function for validation
+// We create the communicator globally for all the tests
+Communicator comm;
+
+// Send a possibly sharded tensor represented by a PipelineVal
+// to one "tester" device
+void SendToTester(
+    PipelineVal* pVal,
+    at::Tensor tensor,
+    DeviceIdxType tester,
+    Communicator& comm) {
+  std::vector<at::Tensor> buffer;
+  auto& mesh = pVal->getStage()->descriptor()->mesh;
+  if (isParallelTypeDeviceDim(pVal->getOriginalVal()
+                                  ->as<TensorView>()
+                                  ->getRootDomain()
+                                  .at(0)
+                                  ->getParallelType())) {
+    for (DeviceIdxType j : c10::irange(mesh.vector().size())) {
+      buffer = {tensor.index({j, "..."})};
+      auto sender = mesh.vector().at(j);
+      comm.sendRecv(tester, sender, buffer);
+    }
+  } else {
+    buffer = {tensor};
+    auto sender = mesh.vector().at(0);
+    comm.sendRecv(tester, sender, buffer);
+  }
+}
+
+// Utility function used for validation in the tests
+// It compares the given (possibly sharded) output with the result of the Fusion
+// run on a single device with the given (possibly sharded) inputs
 void testValidateMultidevice(
     std::unique_ptr<Fusion> fusion_ptr,
     MultiDeviceRuntime& runtime,
     const at::ArrayRef<c10::IValue>& inputs,
     const std::vector<at::Tensor>& outputs,
-    RankType tester_rank = 0) {
-  std::vector<at::Tensor> buffer;
-
-  // gathering all the inputs at tester_rank
-  std::vector<c10::IValue> input_tensors;
+    bool print = true,
+    DeviceIdxType tester = 1,
+    bool validate = true,
+    bool set_mem_type_to_global = true,
+    bool auto_schedule = false) {
+  // gathering all the inputs at tester
   for (auto i : c10::irange(inputs.size())) {
-    auto sender_rank = runtime.dIdToRank(runtime.pipeline()
-                                             ->inputs()
-                                             .at(i)
-                                             ->as<PipelineVal>()
-                                             ->getStage()
-                                             ->descriptor()
-                                             ->mesh.deviceIndices()
-                                             .at(0));
-    buffer = {inputs.at(i).toTensor()};
-    runtime.comm().sendRecv(tester_rank, sender_rank, buffer);
-    input_tensors.push_back(buffer.at(0));
+    SendToTester(
+        runtime.pipeline()->inputs().at(i)->as<PipelineVal>(),
+        inputs.at(i).toTensor(),
+        tester,
+        runtime.comm());
   }
 
-  // gathering all the outputs at tester_rank
-  std::vector<at::Tensor> output_tensors;
+  // gathering all the outputs at tester
   for (auto i : c10::irange(outputs.size())) {
-    auto sender_rank = runtime.dIdToRank(runtime.pipeline()
-                                             ->outputs()
-                                             .at(i)
-                                             ->as<PipelineVal>()
-                                             ->getStage()
-                                             ->descriptor()
-                                             ->mesh.deviceIndices()
-                                             .at(0));
-    buffer = {outputs.at(i)};
-    runtime.comm().sendRecv(tester_rank, sender_rank, buffer);
-    output_tensors.push_back(buffer.at(0));
+    SendToTester(
+        runtime.pipeline()->outputs().at(i)->as<PipelineVal>(),
+        outputs.at(i),
+        tester,
+        runtime.comm());
   }
 
-  if (runtime.rank() == tester_rank) {
+  if (runtime.comm().deviceId() == tester) {
+    if (print) {
+      std::stringstream ss;
+      std::string indent = "  ";
+      ss << "Obtained final outputs:{\n";
+      for (auto& t : outputs) {
+        ss << indent << t;
+      }
+      ss << "\n}";
+      std::cout << ss.str() << std::endl;
+    }
+
+    // sets all the memory type to global to avoid an execution error
+    if (set_mem_type_to_global) {
+      for (auto tv : ir_utils::filterByType<TensorView>(fusion_ptr->vals())) {
+        tv->setMemoryType(MemoryType::Global);
+      }
+    }
+
     // execute the fusion on one device without pipeline scheduling
+    std::vector<at::Tensor> ref_outputs;
     Fusion& fusion = *fusion_ptr.get();
-    FusionExecutorCache fec(std::move(fusion_ptr));
-    auto ref_outputs = fec.runFusionWithInputs(inputs);
+    if (auto_schedule) {
+      FusionExecutorCache fec(std::move(fusion_ptr));
+      ref_outputs = fec.runFusionWithInputs(inputs);
+    } else {
+      FusionExecutor fe;
+      fe.compileFusion(&fusion, inputs);
+      ref_outputs = fe.runFusion(inputs);
+    }
 
-    // validation
-    testValidate(
-        &fusion,
-        output_tensors,
-        input_tensors,
-        ref_outputs,
-        __LINE__,
-        __FILE__);
+    if (print) {
+      std::stringstream ss;
+      std::string indent = "  ";
+      ss << "Expected outputs:{\n";
+      for (auto& t : ref_outputs) {
+        ss << indent << t;
+      }
+      ss << "\n}";
+      std::cout << ss.str() << std::endl;
+    }
+
+    if (validate) {
+      testValidate(&fusion, outputs, inputs, ref_outputs, __LINE__, __FILE__);
+    }
+  }
+}
+
+// Utility function used in the test to run and validate a given pipeline
+// with given (possibly sharded) inputs
+void executeAndTestPipeline(
+    std::unique_ptr<Fusion> fusion_ptr,
+    Pipeline& pipeline,
+    Communicator& comm,
+    std::vector<c10::IValue>& inputs,
+    bool print = false) {
+  if (print && !comm.deviceId()) {
+    fusion_ptr->printKernel();
+    std::cout << pipeline.toString() << std::endl;
   }
 
-  runtime.comm().barrier();
+  MultiDeviceRuntime runtime(&pipeline, comm);
+  auto error_msg = runtime.validate();
+  if (error_msg != "") {
+    GTEST_SKIP() << error_msg;
+  }
+
+  auto outputs = runtime.runWithInput(inputs);
+
+  if (print) {
+    std::stringstream ss;
+    std::string indent = "  ";
+    ss << "Device " << comm.deviceId() << "'s outputs:{\n";
+    for (auto& t : outputs) {
+      ss << indent << t;
+    }
+    ss << "\n}";
+    std::cout << ss.str() << std::endl;
+  }
+
+  testValidateMultidevice(
+      std::move(fusion_ptr), runtime, inputs, outputs, print);
+
+  comm.barrier();
 }
 
 /* To run the following tests on several devices, pytorch must be installed
    with the flag USE_DISTRIBUTED=1 and nccl support.
    Then simply run the tests on several processes, for example using mpirun,
-   e.g.: mpirun -np 6 ./build/bin/nvfuser_tests
-   --gtest_filter=NVFuserTest.FusionMultiGPU_CUDA
-   For now, we only support setups with one node.
+   e.g., on one node with 6 devices:
+   mpirun -np 6 ./build/bin/nvfuser_tests
+   --gtest_filter=NVFuserTest.FusionMultiGPU*
 */
 
 TEST_F(NVFuserTest, FusionMultiGPU_CUDA) {
@@ -178,13 +259,13 @@ TEST_F(NVFuserTest, FusionMultiGPU_CUDA) {
   stage4.addVal({tv8, tv9, tv10, tv11, tv12, tv13});
 
   // binding each stage to a device mesh
-  stage0_.mesh.set({5});
-  stage1_.mesh.set({2, 4});
-  stage0.mesh.set({0});
-  stage1.mesh.set({0, 1, 4});
-  stage2.mesh.set({1, 3});
-  stage3.mesh.set({2});
-  stage4.mesh.set({4, 5});
+  stage0_.mesh = {5};
+  stage1_.mesh = {2, 4};
+  stage0.mesh = {0};
+  stage1.mesh = {0, 1, 4};
+  stage2.mesh = {1, 3};
+  stage3.mesh = {2};
+  stage4.mesh = {4, 5};
 
   PipelineDescriptor descriptor{.stage_descriptors{
       std::move(stage0_),
@@ -197,40 +278,364 @@ TEST_F(NVFuserTest, FusionMultiGPU_CUDA) {
 
   Pipeline pipeline(&fusion, std::move(descriptor));
 
-  // ===========================================================
-  //        COMMUNICATOR
-  // ===========================================================
-
-  Communicator comm;
-
-  int requested_world_size = 6;
-  if (!comm.is_available() || comm.size() < requested_world_size) {
-    GTEST_SKIP() << "This test needs distributed setting with at least "
-                 << requested_world_size << " ranks";
-  }
-
-  // ===========================================================
-  //        RUNTIME
-  // ===========================================================
-
-  MultiDeviceRuntime runtime(&pipeline, comm);
-
   // Create input tensors.
-  // Note: each rank is binded to a different GPU
+  // Note: each process is binded to a different GPU
   c10::TensorOptions options =
-      at::TensorOptions().dtype(at::kFloat).device(runtime.device());
+      at::TensorOptions().dtype(at::kFloat).device(comm.device());
   // Note: the concrete values are only used at the relevant ranks
   std::vector<c10::IValue> inputs{
       at::randn({3, 11}, options), at::randn({2, 7, 8}, options)};
 
-  // Run the pipeline
-  auto outputs = runtime.runWithInput(inputs);
+  executeAndTestPipeline(std::move(fusion_ptr), pipeline, comm, inputs);
+}
 
-  // ===========================================================
-  //        VALIDATION
-  // ===========================================================
+TEST_F(NVFuserTest, FusionDidx_CUDA) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
 
-  testValidateMultidevice(std::move(fusion_ptr), runtime, inputs, outputs);
+  TensorView* tv0 = makeContigTensor(1);
+  fusion.addInput(tv0);
+  TensorView* tv1 = add(tv0, tv0);
+  tv0->axis(0)->parallelize(ParallelType::DIDx);
+  tv1->axis(0)->parallelize(ParallelType::DIDx);
+  fusion.addOutput(tv1);
+
+  // fusion.printKernel();
+
+  if (!comm.is_available())
+    GTEST_SKIP() << "distributed setting not available";
+
+  c10::TensorOptions options =
+      at::TensorOptions().dtype(at::kFloat).device(comm.device());
+  std::vector<c10::IValue> inputs{at::ones({4}, options) + comm.deviceId()};
+
+  FusionExecutor fe;
+  fe.compileFusion(fusion_ptr.get(), inputs);
+  auto ref_outputs = fe.runFusion(inputs);
+
+  if (comm.is_available()) {
+    comm.barrier();
+  }
+}
+
+TEST_F(NVFuserTest, FusionMultiGPU_Gather_CUDA) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  TensorView* tv0 = makeContigTensor(2);
+  fusion.addInput(tv0);
+  TensorView* tv1 = set(tv0);
+  fusion.addOutput(tv1);
+
+  tv0->axis(0)->parallelize(ParallelType::DIDx);
+
+  PipelineStageDescriptor stage0, stage1;
+  stage0.addVal({tv0});
+  stage1.addVal({tv1});
+
+  stage0.mesh = {0, 1};
+  stage0.auto_schedule = true;
+  stage1.mesh = {0};
+  stage1.auto_schedule = true;
+
+  PipelineDescriptor descriptor{
+      .stage_descriptors{std::move(stage0), std::move(stage1)}};
+
+  Pipeline pipeline(&fusion, std::move(descriptor));
+
+  c10::TensorOptions options =
+      at::TensorOptions().dtype(at::kFloat).device(comm.device());
+  std::vector<c10::IValue> inputs{at::ones({2, 11}, options) * comm.deviceId()};
+
+  executeAndTestPipeline(std::move(fusion_ptr), pipeline, comm, inputs);
+}
+
+TEST_F(NVFuserTest, FusionMultiGPU_Gather2_CUDA) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  TensorView* tv0 = makeContigTensor(4);
+  fusion.addInput(tv0);
+  TensorView* tv1 = sum(tv0, {1});
+  TensorView* tv2 = set(tv1);
+  TensorView* tv3 = sum(tv2, {1});
+  fusion.addOutput(tv3);
+
+  tv0->axis(0)->parallelize(ParallelType::DIDx);
+  tv1->axis(0)->parallelize(ParallelType::DIDx);
+
+  PipelineStageDescriptor stage0, stage1;
+  stage0.addVal({tv0, tv1});
+  stage1.addVal({tv2, tv3});
+
+  stage0.mesh = {0, 1, 2, 3};
+  stage0.auto_schedule = false;
+  stage1.mesh = {0};
+  stage1.auto_schedule = false;
+
+  PipelineDescriptor descriptor{
+      .stage_descriptors{std::move(stage0), std::move(stage1)}};
+
+  Pipeline pipeline(&fusion, std::move(descriptor));
+
+  c10::TensorOptions options =
+      at::TensorOptions().dtype(at::kFloat).device(comm.device());
+  std::vector<c10::IValue> inputs{
+      at::ones({4, 3, 2, 5}, options) * comm.deviceId()};
+
+  executeAndTestPipeline(std::move(fusion_ptr), pipeline, comm, inputs);
+}
+
+TEST_F(NVFuserTest, FusionMultiGPU_GatherMultipleDestinations_CUDA) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  TensorView* tv0 = makeContigTensor(4);
+  fusion.addInput(tv0);
+  TensorView* tv1 = sum(tv0, {1});
+  TensorView* tv2 = set(tv1);
+  TensorView* tv3 = sum(tv2, {1});
+  fusion.addOutput(tv3);
+
+  tv0->axis(0)->parallelize(ParallelType::DIDx);
+  tv1->axis(0)->parallelize(ParallelType::DIDx);
+
+  PipelineStageDescriptor stage0, stage1;
+  stage0.addVal({tv0, tv1});
+  stage1.addVal({tv2, tv3});
+  stage0.mesh = {0, 1, 2, 3};
+  stage0.auto_schedule = false;
+  stage1.mesh = {0, 4};
+  stage1.auto_schedule = false;
+
+  PipelineDescriptor descriptor{
+      .stage_descriptors{std::move(stage0), std::move(stage1)}};
+
+  Pipeline pipeline(&fusion, std::move(descriptor));
+
+  c10::TensorOptions options =
+      at::TensorOptions().dtype(at::kFloat).device(comm.device());
+  std::vector<c10::IValue> inputs{
+      at::ones({4, 3, 2, 5}, options) * comm.deviceId()};
+
+  executeAndTestPipeline(std::move(fusion_ptr), pipeline, comm, inputs);
+}
+
+TEST_F(NVFuserTest, FusionMultiGPU_GatherToExternalRoot_CUDA) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  TensorView* tv0 = makeContigTensor(4);
+  fusion.addInput(tv0);
+  TensorView* tv1 = sum(tv0, {1});
+  TensorView* tv2 = set(tv1);
+  TensorView* tv3 = sum(tv2, {1});
+  fusion.addOutput(tv3);
+
+  tv0->axis(0)->parallelize(ParallelType::DIDx);
+  tv1->axis(0)->parallelize(ParallelType::DIDx);
+
+  PipelineStageDescriptor stage0, stage1;
+  stage0.addVal({tv0, tv1});
+  stage1.addVal({tv2, tv3});
+
+  stage0.mesh = {1, 2, 3};
+  stage0.auto_schedule = false;
+  stage1.mesh = {0};
+  stage1.auto_schedule = false;
+
+  PipelineDescriptor descriptor{
+      .stage_descriptors{std::move(stage0), std::move(stage1)}};
+
+  Pipeline pipeline(&fusion, std::move(descriptor));
+
+  c10::TensorOptions options =
+      at::TensorOptions().dtype(at::kFloat).device(comm.device());
+  std::vector<c10::IValue> inputs{
+      at::ones({3, 3, 2, 5}, options) * comm.deviceId()};
+
+  executeAndTestPipeline(std::move(fusion_ptr), pipeline, comm, inputs);
+}
+
+TEST_F(NVFuserTest, FusionMultiGPU_AllGather_CUDA) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  TensorView* tv0 = makeContigTensor(4);
+  fusion.addInput(tv0);
+  TensorView* tv1 = sum(tv0, {1});
+  TensorView* tv2 = set(tv1);
+  TensorView* tv3 = sum(tv2, {1});
+  fusion.addOutput(tv3);
+
+  tv0->axis(0)->parallelize(ParallelType::DIDx);
+  tv1->axis(0)->parallelize(ParallelType::DIDx);
+
+  PipelineStageDescriptor stage0, stage1;
+  stage0.addVal({tv0, tv1});
+  stage1.addVal({tv2, tv3});
+
+  stage0.mesh = {0, 1, 2, 3};
+  stage0.auto_schedule = false;
+  stage1.mesh = {0, 1, 2, 3};
+  stage1.auto_schedule = false;
+
+  PipelineDescriptor descriptor{
+      .stage_descriptors{std::move(stage0), std::move(stage1)}};
+
+  Pipeline pipeline(&fusion, std::move(descriptor));
+
+  c10::TensorOptions options =
+      at::TensorOptions().dtype(at::kFloat).device(comm.device());
+  std::vector<c10::IValue> inputs{
+      at::ones({4, 3, 2, 5}, options) * comm.deviceId()};
+
+  executeAndTestPipeline(std::move(fusion_ptr), pipeline, comm, inputs);
+}
+
+TEST_F(NVFuserTest, FusionMultiGPU_Scatter_CUDA) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  TensorView* tv0 = makeContigTensor(2);
+  fusion.addInput(tv0);
+  TensorView* tv1 = set(tv0);
+  fusion.addOutput(tv1);
+
+  tv1->axis(0)->parallelize(ParallelType::DIDx);
+
+  PipelineStageDescriptor stage0, stage1;
+  stage0.addVal({tv0});
+  stage1.addVal({tv1});
+  stage0.mesh = {0};
+  stage0.auto_schedule = true;
+  stage1.mesh = {0, 1, 2, 3};
+  stage1.auto_schedule = true;
+
+  PipelineDescriptor descriptor{
+      .stage_descriptors{std::move(stage0), std::move(stage1)}};
+
+  Pipeline pipeline(&fusion, std::move(descriptor));
+
+  c10::TensorOptions options =
+      at::TensorOptions().dtype(at::kFloat).device(comm.device());
+  std::vector<c10::IValue> inputs{at::ones({4, 5}, options) * comm.deviceId()};
+
+  executeAndTestPipeline(std::move(fusion_ptr), pipeline, comm, inputs);
+}
+
+TEST_F(NVFuserTest, FusionMultiGPU_ScatterToExternalRoot_CUDA) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  TensorView* tv0 = makeContigTensor(2);
+  fusion.addInput(tv0);
+  TensorView* tv1 = set(tv0);
+  fusion.addOutput(tv1);
+
+  tv1->axis(0)->parallelize(ParallelType::DIDx);
+
+  PipelineStageDescriptor stage0, stage1;
+  stage0.addVal({tv0});
+  stage1.addVal({tv1});
+  stage0.mesh = {0};
+  stage0.auto_schedule = true;
+  stage1.mesh = {1, 2, 3};
+  stage1.auto_schedule = true;
+
+  PipelineDescriptor descriptor{
+      .stage_descriptors{std::move(stage0), std::move(stage1)}};
+
+  Pipeline pipeline(&fusion, std::move(descriptor));
+
+  c10::TensorOptions options =
+      at::TensorOptions().dtype(at::kFloat).device(comm.device());
+  std::vector<c10::IValue> inputs{at::ones({3, 5}, options) * comm.deviceId()};
+
+  executeAndTestPipeline(std::move(fusion_ptr), pipeline, comm, inputs);
+}
+
+TEST_F(NVFuserTest, FusionMultiGPU_BcastBothSidesParallelized_CUDA) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  TensorView* tv0 = makeContigTensor(2);
+  fusion.addInput(tv0);
+  TensorView* tv1 = set(tv0);
+  fusion.addOutput(tv1);
+
+  tv0->axis(0)->parallelize(ParallelType::DIDx);
+  tv1->axis(0)->parallelize(ParallelType::DIDx);
+
+  PipelineStageDescriptor stage0, stage1;
+  stage0.addVal({tv0});
+  stage1.addVal({tv1});
+  stage0.mesh = {0, 1, 3, 4};
+  stage0.auto_schedule = true;
+  stage1.mesh = {1, 2, 3, 4};
+  stage1.auto_schedule = true;
+
+  PipelineDescriptor descriptor{
+      .stage_descriptors{std::move(stage0), std::move(stage1)}};
+
+  Pipeline pipeline(&fusion, std::move(descriptor));
+
+  c10::TensorOptions options =
+      at::TensorOptions().dtype(at::kFloat).device(comm.device());
+  std::vector<c10::IValue> inputs{at::ones({4, 5}, options) * comm.deviceId()};
+
+  executeAndTestPipeline(std::move(fusion_ptr), pipeline, comm, inputs);
+}
+
+TEST_F(NVFuserTest, FusionMultiGPU_BcastLocalCopies_CUDA) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  TensorView* tv0 = makeContigTensor(5);
+  fusion.addInput(tv0);
+  TensorView* tv1 = sum(tv0, {1});
+  TensorView* tv2 = set(tv1);
+  TensorView* tv3 = sum(tv2, {1});
+  TensorView* tv4 = set(tv3);
+  TensorView* tv5 = sum(tv4, {1});
+  TensorView* tv6 = set(tv5);
+  TensorView* tv7 = sum(tv6, {1});
+  fusion.addOutput(tv7);
+
+  PipelineStageDescriptor stage0, stage1, stage2, stage3;
+  stage0.addVal({tv0, tv1});
+  stage1.addVal({tv2, tv3});
+  stage2.addVal({tv4, tv5});
+  stage3.addVal({tv6, tv7});
+  stage0.mesh = {0, 1};
+  stage1.mesh = {0};
+  stage2.mesh = {0, 1, 2, 3};
+  stage3.mesh = {0, 1, 2, 3};
+
+  PipelineDescriptor descriptor{.stage_descriptors{
+      std::move(stage0),
+      std::move(stage1),
+      std::move(stage2),
+      std::move(stage3)}};
+
+  Pipeline pipeline(&fusion, std::move(descriptor));
+
+  c10::TensorOptions options =
+      at::TensorOptions().dtype(at::kFloat).device(comm.device());
+  std::vector<c10::IValue> inputs{
+      at::ones({4, 5, 7, 3, 2}, options) * comm.deviceId()};
+
+  executeAndTestPipeline(std::move(fusion_ptr), pipeline, comm, inputs);
 }
 
 } // namespace nvfuser
