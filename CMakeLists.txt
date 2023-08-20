@@ -140,9 +140,10 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/multidevice/collective.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/communicator.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/executor.cpp
-  ${NVFUSER_SRCS_DIR}/multidevice/runtime.cpp
+  ${NVFUSER_SRCS_DIR}/multidevice/lower_communication.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/pipeline.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/pipeline_ir.cpp
+  ${NVFUSER_SRCS_DIR}/multidevice/runtime.cpp
   ${NVFUSER_SRCS_DIR}/mutator.cpp
   ${NVFUSER_SRCS_DIR}/non_divisible_split.cpp
   ${NVFUSER_SRCS_DIR}/ops/alias.cpp
