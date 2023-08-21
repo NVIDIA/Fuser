@@ -203,16 +203,16 @@ bool Val::isConstScalar() const {
   if (!isScalar()) {
     return false;
   }
-  return ir_utils::dependenciesSatisfied({this});
+  return ir_utils::dependenciesSatisfied(this);
 }
 
 bool Val::isConstInt() const {
-  return ir_utils::dependenciesSatisfied({this}) && isIntegralScalar();
+  return ir_utils::dependenciesSatisfied(this) && isIntegralScalar();
 }
 
 int64_t Val::evaluateInt() {
   TORCH_INTERNAL_ASSERT(
-      ir_utils::dependenciesSatisfied(std::vector<const Val*>{this}),
+      ir_utils::dependenciesSatisfied(this),
       "Cannot get Int of not const values through IR nodes, must use runtime ExpressionEvaluator.");
 
   if (this->value().hasValue()) {
@@ -230,7 +230,7 @@ int64_t Val::evaluateInt() {
 
 double Val::evaluateDouble() {
   TORCH_INTERNAL_ASSERT(
-      ir_utils::dependenciesSatisfied(std::vector<const Val*>{this}),
+      ir_utils::dependenciesSatisfied(this),
       "Cannot get Double of not const doubles through IR nodes, must use runtime ExpressionEvaluator.");
 
   if (this->value().hasValue()) {
@@ -247,7 +247,7 @@ double Val::evaluateDouble() {
 
 bool Val::evaluateBool() {
   TORCH_INTERNAL_ASSERT(
-      ir_utils::dependenciesSatisfied(std::vector<const Val*>{this}),
+      ir_utils::dependenciesSatisfied(this),
       "Cannot get Bool of not const bools through IR nodes, must use runtime ExpressionEvaluator.");
 
   if (this->value().hasValue()) {

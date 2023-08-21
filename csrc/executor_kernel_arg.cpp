@@ -11,6 +11,7 @@
 #include <kernel_cache.h>
 
 #include <executor_kernel_arg.h>
+#include <serde/polymorphic_value_serde.h>
 
 namespace nvfuser {
 
@@ -125,6 +126,44 @@ void KernelArgumentHolder::pushTensorProxy(
       c10::Device(c10::DeviceType::Meta, 0),
       c10::nullopt);
   push(meta_tensor);
+}
+
+flatbuffers::Offset<serde::KernelArgumentHolder> KernelArgumentHolder::
+    serialize(flatbuffers::FlatBufferBuilder& builder) const {
+  // See table definitions for KernelArgumentHolder and PolymorphicValue
+  // in serde/fusion_cache.fbs
+
+  using fb_poly_value = flatbuffers::Offset<serde::PolymorphicValue>;
+
+  std::vector<fb_poly_value> arguments_fb;
+  arguments_fb.reserve(arguments_.size());
+  for (auto& arg : arguments_) {
+    arguments_fb.push_back(serde::serializePolymorphicValue(builder, arg));
+  }
+
+  return serde::CreateKernelArgumentHolderDirect(
+      builder, &arguments_fb, device_index_, cache_id_.value_or(SIZE_MAX));
+}
+
+void KernelArgumentHolder::deserialize(
+    const serde::KernelArgumentHolder* buffer) {
+  // See table definitions for KernelArgumentHolder and PolymorphicValue
+  // in serde/fusion_cache.fbs
+
+  TORCH_INTERNAL_ASSERT(
+      buffer != nullptr, "serde::KernelArgumentHolder is nullptr.");
+
+  device_index_ = buffer->device_index();
+  cache_id_ = (buffer->cache_id() != SIZE_MAX)
+      ? std::optional<size_t>(buffer->cache_id())
+      : std::nullopt;
+
+  serde::PolymorphicValueFactory poly_value_factory;
+  for (auto fb_poly_value : *buffer->arguments()) {
+    TORCH_INTERNAL_ASSERT(
+        fb_poly_value != nullptr, "serde::PolymorphicValue is nullptr.");
+    push(poly_value_factory.parse(fb_poly_value->data_type(), fb_poly_value));
+  }
 }
 
 std::vector<std::byte> polymorphicValueToBytes(
