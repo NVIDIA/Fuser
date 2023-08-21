@@ -409,7 +409,7 @@ void validateAlignedVectorizeExtents(
 
 namespace {
 
-// Return offsets of the first points accessed as well as slcied root
+// Return offsets of the first points accessed as well as sliced root
 // domains. Currently only non-zero when tensor is sliced.
 std::pair<std::unordered_set<size_t>, std::unordered_set<IterDomain*>>
 getTensorOffsets(
@@ -423,6 +423,8 @@ getTensorOffsets(
   std::unordered_set<size_t> offsets;
   std::unordered_set<IterDomain*> sliced_domains;
 
+  const auto root_ids = TensorDomain::noReductions(tv->getMaybeRFactorDomain());
+
   for (auto use : tv->uses()) {
     auto slice = dynamic_cast<SliceOp*>(use);
 
@@ -431,8 +433,6 @@ getTensorOffsets(
       continue;
     }
 
-    const auto root_ids =
-        TensorDomain::noReductions(tv->getMaybeRFactorDomain());
     TORCH_INTERNAL_ASSERT(logical_strides.size() == root_ids.size());
     const auto slice_info = slice->getRanges();
 
@@ -543,10 +543,11 @@ void validateAlignedVectorizedFusionInputOutput(
     bool non_contig_due_to_slice = i < (int64_t)sizes.size() - 1 &&
         sliced_domains.count(
             domain_to_validate.at(no_reduction_to_full.at(i + 1)));
+    bool is_contiguous =
+        stride == cur_contig_stride && !non_contig_due_to_slice;
 
     TORCH_INTERNAL_ASSERT(
-        (stride == cur_contig_stride && !non_contig_due_to_slice) ||
-            size == 1 || is_expanded_broadcasting ||
+        is_contiguous || size == 1 || is_expanded_broadcasting ||
             (still_rightmost && stride == 1) ||
             (!still_rightmost && stride % word_size == 0),
         "Vectorization of ",
