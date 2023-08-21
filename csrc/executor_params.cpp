@@ -136,7 +136,7 @@ std::string LaunchParams::toString() const {
 flatbuffers::Offset<serde::LaunchParams> LaunchParams::serialize(
     flatbuffers::FlatBufferBuilder& builder) const {
   // See table definition for LaunchParams in serde/fusion_cache.fbs
-  using fb_tensor_shape = flatbuffers::Offset<nvfuser::serde::TensorShape>;
+  using fb_tensor_shape = flatbuffers::Offset<serde::TensorShape>;
   std::vector<fb_tensor_shape> shapes_fb;
   shapes_fb.reserve(output_sizes.size());
   for (const auto& shape : output_sizes) {

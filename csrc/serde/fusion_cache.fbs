@@ -54,7 +54,6 @@ enum RecordType : int {
     BatchNormOp,
     BroadcastOp,
     BroadcastInDim,
-    BroadcastInDimSymbolic,
     CastTv,
     CastVal,
     CatOp,
@@ -158,7 +157,6 @@ union RecordData {
   BatchNorm,
   Broadcast,
   BroadcastInDim,
-  BroadcastInDimSymbolic,
   Dimension,
   Dtype,
   Norm,
@@ -411,15 +409,9 @@ table Broadcast {
   broadcast_dims: [bool];
 }
 
-// Data for BroadcastInDimOpRecord<int64_t>
+// Data for BroadcastInDimOpRecord
 table BroadcastInDim {
-  output_shape: [long];
-  broadcast_dims: [long];
-}
-
-// Data for BroadcastInDimOpRecord<nvfuser::State>
-table BroadcastInDimSymbolic {
-  output_shape: [State];
+  output_size: ulong;
   broadcast_dims: [long];
 }
 

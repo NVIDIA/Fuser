@@ -34,20 +34,9 @@ namespace executor_utils {
 // Include all the functions we might need in generated code
 std::string kernelPreamble();
 
-// TODO: rename this function
-void bindInputForExprEvaluation(
-    Val* val,
-    PolymorphicValue arg,
-    bool check_consistency,
-    ExpressionEvaluator& expr_eval,
-    bool legacy = true);
-
-// TODO: remove this function
 //! Bind input values to runtime values
-TORCH_CUDA_CU_API ExpressionEvaluator bindInputs(
-    const KernelArgumentHolder& args,
-    Fusion* fusion,
-    bool check_consistency = true);
+TORCH_CUDA_CU_API ExpressionEvaluator
+bindInputs(const KernelArgumentHolder& args, Fusion* fusion);
 
 std::string disassembleBinary(
     const std::vector<char>& cubin,

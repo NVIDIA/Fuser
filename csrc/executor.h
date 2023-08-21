@@ -250,9 +250,11 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
     disable_parameter_cache_ = true;
   }
 
+  //! Serialize Fusion Executor using flatbuffers
   flatbuffers::Offset<serde::FusionExecutor> serialize(
       flatbuffers::FlatBufferBuilder& builder) const;
 
+  //! Deserialize Fusion Executor using flatbuffers
   void deserialize(
       const serde::FusionExecutor* buffer,
       Fusion* fusion,
@@ -325,6 +327,7 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
       flatbuffers::FlatBufferBuilder& builder,
       const ExecutorEntry& data) const;
 
+  //! Deserialize ExecutorEntry using flatbuffers
   ExecutorEntry deserialize(const serde::ExecutorEntry* buffer);
 
   // GlobalBufferInfo is an internal POD struct for the FusionExecutor class.
@@ -336,12 +339,15 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
       int64_t tv_position,
       bool is_fusion_output) const;
 
+  //! Deserialize GlobalBufferInfo using flatbuffers
   GlobalBufferInfo deserialize(const serde::GlobalBufferInfo* buffer);
 
+  //! Serialize KernelSummary using flatbuffers
   flatbuffers::Offset<serde::KernelSummary> serialize(
       flatbuffers::FlatBufferBuilder& builder,
       const kir::KernelSummary& summary) const;
 
+  //! Deserialize KernelSummary using flatbuffers
   void deserialize(const serde::KernelSummary* buffer);
 
   //! Get the current dynamic shared memory size

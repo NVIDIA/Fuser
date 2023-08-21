@@ -267,14 +267,14 @@ TEST_F(NVFuserTest, FusionShift2_CUDA) {
         TORCH_CHECK(alloc->shape().size() == 2);
         for (int i = 0; i < 2; ++i) {
           if (tensor_name == 1 && i == 1) {
-            TORCH_CHECK(alloc->shape().at(i)->isA<NamedScalar>());
+            TORCH_CHECK(ir_utils::isTensorSize(alloc->shape().at(i)));
             continue;
           }
           auto def =
               dynamic_cast<BinaryOp*>(alloc->shape().at(i)->definition());
           TORCH_CHECK(
               def != nullptr && def->getBinaryOpType() == BinaryOpType::Add);
-          TORCH_CHECK(def->as<BinaryOp>()->lhs()->isA<NamedScalar>());
+          TORCH_CHECK(ir_utils::isTensorSize(def->as<BinaryOp>()->lhs()));
           auto rhs = dynamic_cast<Val*>(def->as<BinaryOp>()->rhs());
           TORCH_CHECK(rhs != nullptr && rhs->isConst());
           auto rhs_value = rhs->value();
@@ -1117,7 +1117,7 @@ TEST_F(NVFuserTest, FusionShiftGlobal_CUDA) {
               dynamic_cast<BinaryOp*>(alloc->shape().at(i)->definition());
           TORCH_CHECK(
               def != nullptr && def->getBinaryOpType() == BinaryOpType::Add);
-          TORCH_CHECK(def->as<BinaryOp>()->lhs()->isA<NamedScalar>());
+          TORCH_CHECK(ir_utils::isTensorSize(def->as<BinaryOp>()->lhs()));
           auto rhs = dynamic_cast<Val*>(def->as<BinaryOp>()->rhs());
           TORCH_CHECK(rhs != nullptr && rhs->isConst());
           auto rhs_value = rhs->value();

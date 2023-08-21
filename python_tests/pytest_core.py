@@ -3,7 +3,12 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # Owner(s): ["module: nvfuser"]
 
-from pytest_utils import all_dtypes, ArgumentType
+from pytest_utils import (
+    all_dtypes_except_reduced,
+    ArgumentType,
+    torch_to_jax_dtype_map,
+    torch_to_python_dtype_map,
+)
 from typing import Callable, Optional
 import torch
 import jax.numpy as jnp
@@ -31,22 +36,6 @@ class Domain:
     high: int
 
 
-_torch_to_jax_dtype_map = {
-    torch.bool: jnp.bool_,
-    torch.uint8: jnp.uint8,
-    torch.int8: jnp.int8,
-    torch.int16: jnp.int16,
-    torch.int32: jnp.int32,
-    torch.int64: jnp.int64,
-    torch.bfloat16: jnp.bfloat16,
-    torch.float16: jnp.float16,
-    torch.float32: jnp.float32,
-    torch.float64: jnp.float64,
-    torch.complex64: jnp.complex64,
-    torch.complex128: jnp.complex128,
-}
-
-
 class SampleInput:
     """Represents sample inputs to a function."""
 
@@ -67,12 +56,26 @@ class SampleInput:
             if isinstance(t, torch.Tensor):
                 return jnp.array(t.cpu().numpy())
             if isinstance(t, torch.dtype):
-                return _torch_to_jax_dtype_map[t]
+                return torch_to_jax_dtype_map[t]
             return t
 
         # Note: We assume arguments have flat hierarchy.
         # TODO Add support for kwargs
         args = map(to_jax, self.args)
+        return SampleInput(*args, *self.kwargs.values())
+
+    def python(self):
+        # Flatten Pytorch Tensors into Python Lists
+        def to_python(t):
+            if isinstance(t, torch.Tensor):
+                return list(t.flatten().cpu().numpy())
+            if isinstance(t, torch.dtype):
+                return torch_to_python_dtype_map[t]
+            return t
+
+        # Note: We assume arguments have flat hierarchy.
+        # TODO Add support for kwargs
+        args = map(to_python, self.args)
         return SampleInput(*args, *self.kwargs.values())
 
 
@@ -88,7 +91,7 @@ class OpInfo:
     domain: Domain = field(default_factory=lambda: Domain(None, None))
 
     # Set of valid dtypes for this operation
-    dtypes: tuple = all_dtypes
+    dtypes: tuple = all_dtypes_except_reduced
 
     # Generates valid inputs
     sample_input_generator: Callable = None

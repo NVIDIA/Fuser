@@ -423,8 +423,6 @@ class TORCH_CUDA_CU_API Val : public Statement {
     definition_ = expr;
   }
 
-  void resolveIndexDtype();
-
   NVFUSER_DECLARE_CLONE
 
  protected:

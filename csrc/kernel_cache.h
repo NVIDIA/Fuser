@@ -114,9 +114,11 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
         });
   }
 
+  //! Serialize Fusion Kernel Runtime using flatbuffers
   flatbuffers::Offset<serde::FusionKernelRuntime> serialize(
       flatbuffers::FlatBufferBuilder& builder) const;
 
+  //! Deserialize Fusion Kernel Runtime using flatbuffers
   void deserialize(const serde::FusionKernelRuntime* buffer);
 
   //! Note that all heuristics use the same index type.
@@ -636,11 +638,11 @@ class TORCH_CUDA_CU_API FusionExecutorCache {
     return rt->kernelTimeMs();
   }
 
-  //! Serialize FusionExecutorCache using flatbuffers
+  //! Serialize Fusion Executor Cache using flatbuffers
   flatbuffers::Offset<serde::FusionExecutorCache> serialize(
       flatbuffers::FlatBufferBuilder& builder) const;
 
-  //! Deserialize FusionExecutorCache using flatbuffers
+  //! Deserialize Fusion Executor Cache using flatbuffers
   void deserialize(const serde::FusionExecutorCache* buffer);
 
   //! Allocate the outputs of the Fusion given inputs
