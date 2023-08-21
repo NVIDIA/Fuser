@@ -505,41 +505,21 @@ class TORCH_CUDA_CU_API TensorView : public Val {
   // ensure consistency.
   void commitLeafToRFactor();
 
-  void promoteReuse(bool b = true) {
-    promote_reuse_ = b;
-  }
-
-  bool getPromoteReuse() const {
-    return promote_reuse_;
-  }
-
-  //! Get vector of tensors that must have a block sync after their last use and
-  //! before the definition of this tensor.
-  const std::vector<TensorView*>& getRequestedReusedTensors() const {
-    return requested_reuse_tvs_;
-  }
-
-  //! Request that we reclaim the memory of tv before this tensor is defined.
+  //! Request that we reclaim the memory of this tv before any subsequent
+  //! tensors are allocated.
   //!
   //! This method influences the shared memory allocator that assigns shared
   //! memory addresses at lowering. It ensures that the proper synchronization
   //! is present in the kernel to reuse memory and inserts new block
   //! synchronizations if necessary.
-  //!
-  //! This is only possible if the lifetimes of this tensor and tv do not
-  //! overlap, i.e. tv is last written or read before this tensor is written. If
-  //! this is violated and the lifetimes overlap, an exception will be raised at
-  //! lowering.
-  //!
-  //! This method may only be used on shared-memory tensors.
-  void requestReuse(TensorView* tv) {
-    TORCH_CHECK(
-        getMemoryType() == MemoryType::Shared,
-        "Only shared memory tensors re-use memory using requestReuse.");
-    TORCH_CHECK(
-        tv->getMemoryType() == MemoryType::Shared,
-        "Only shared memory tensors can be requested to be re-used.");
-    requested_reuse_tvs_.push_back(tv);
+  void promoteReuse(bool b = true) {
+    promote_reuse_ = b;
+  }
+
+  //! Returns whether we should insert syncs if needed in order to reuse the
+  //! memory of this tensor.
+  bool getPromoteReuse() const {
+    return promote_reuse_;
   }
 
  protected:
@@ -605,15 +585,13 @@ class TORCH_CUDA_CU_API TensorView : public Val {
   //! may be computed at.
   unsigned int maybe_max_producer_pos_ = 0;
 
-  //! This holds a collection of shared memory tensors which should have their
-  //! last use ordered before this tensor in the generated CUDA kernel. When
-  //! this list is non-empty, it indicates that we should ensure that thread
+  //! When this is true, it indicates, if this is a shared memory tensor and
+  //! there other shared memory tensors whose lifetimes do not overlap and come
+  //! later than this tensor's lifetime, that we should ensure that thread
   //! blocks are synchronized such that all threads have performed their last
-  //! read of any entries in this vector (or any possible aliased tensors of
-  //! them) before writing to the current tensor. This will then allow us to
-  //! safely reuse the memory allocated to these tensors.
-  std::vector<TensorView*> requested_reuse_tvs_;
-
+  //! read of this tensor (or any tensors aliasing in) before writing to the
+  //! current tensor. This will then allow us to safely reuse the memory
+  //! allocated to this tensor.
   bool promote_reuse_ = false;
 };
 
