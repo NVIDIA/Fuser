@@ -50,8 +50,42 @@ bool generateSharedMemoryEpilogueHeuristics(
       dataTypeSize(data_types[2]);
 
   const size_t total_without_smem_epilogue = smem_a + smem_b;
-  // Note that we reclaim smem_a and smem_b before allocating smem_c
-  const size_t total_with_smem_epilogue = std::max(smem_a + smem_b, smem_c);
+
+  // smem_a and smem_b are guaranteed to be re-used for smem_c as long as:
+  //   - they are marked for re-use using promoteReuse
+  //   - they are not aliased by another tensor whose lifetime extends past the
+  //   start of smem_epilogue's.
+  //   - their lifetimes do not overlap smem_epilogue
+  //
+  // We guarantee the first condition by calling tv->promoteReuse() in
+  // scheduleProlog.
+  //
+  // The second condition would only be the case if another smem tensor had the
+  // same indexing and its lifetime did not overlap. This scheduler only uses
+  // smem for these three arrays, so the only candidate for aliasing is C. If C
+  // aliases either A or B, the following expression is still valid.
+  //
+  // The third condition is satisfied in the simple cases where the inputs to
+  // the matmul have only this use. However, it could be violated if a or b has
+  // other uses that get ordered after the matmul; for example when computing
+  // matmul(A, B) + A for square matrices A and B. In that case, the smem tensor
+  // resulting from A->cacheAfter() will be used in both the matmul as well as
+  // the addition that occurs in the epilogue, extending the lifetime such that
+  // it violates the third condition above. In order to avoid errors in these
+  // cases, we check that there is no re-use when there is more than one use of
+  // either a or b. If there are multiple uses we might wind up re-using memory,
+  // but in that case the calculation below will be overly conservative.
+
+  // TODO: place this logic somewhere up the call stack
+  /*const auto roles_map = roles_map_opt.getData();
+  TensorView* a = roles_map.at(MatmulRole::INPUT_A).front();
+  TensorView* b = roles_map.at(MatmulRole::INPUT_B).front();
+  bool smem_reuse_guaranteed = a->uses().size() == 1 && b->uses().size() == 1;
+  */
+  bool smem_reuse_guaranteed = true;
+  const size_t total_with_smem_epilogue = smem_reuse_guaranteed
+      ? std::max(smem_a + smem_b, smem_c)
+      : smem_a + smem_b + smem_c;
 
   // shortcut where occupancy change is ignored.
   if (ignore_occupancy_drop) {
