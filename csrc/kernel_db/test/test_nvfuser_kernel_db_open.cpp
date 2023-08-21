@@ -15,6 +15,8 @@
 #include <test/utils.h>
 #include <test/validator.h>
 
+#include <fstream>
+
 // RUN CMD: bin/test_jit --gtest_filter="NVFuserTest*KernelDb_Open*"
 
 namespace nvfuser {
