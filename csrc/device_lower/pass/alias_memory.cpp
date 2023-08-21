@@ -1629,6 +1629,20 @@ class StackBasedSharedMemAllocator : kir::IrVisitor {
   void allocate(const std::vector<Expr*>& exprs) {
     recordEvents();
 
+    for (auto& [pos, fws] : first_write_positions_) {
+      std::cout << "Position " << pos
+                << " is first write pos for:" << std::endl;
+      for (auto& alloc_info : fws) {
+        std::cout << "  " << alloc_info->alloc_expr->buffer()->toString()
+                  << std::endl;
+      }
+    }
+
+    for (auto& pos : last_read_positions_) {
+      std::cout << "Position " << pos
+                << " is last aliased read pos for some allocs" << std::endl;
+    }
+
     // Traverse expressions: reclaim memory when we pass a blockSync, append to
     // waiting_to_push_ when we pass an Allocate
     handle(exprs);
@@ -1642,12 +1656,21 @@ class StackBasedSharedMemAllocator : kir::IrVisitor {
   void dispatch(Expr* expr) final {
     position_ = allocation_info_map_.getScopeMap().getExprPos(expr);
 
+    if (isDebugDumpEnabled(DebugDumpOption::BufferReuseInfo)) {
+      debug() << "Position " << position_ << std::endl;
+    }
+
     // Check whether this is a first write position for any allocations
     auto it = first_write_positions_.find(position_);
     if (it != first_write_positions_.end()) {
+      if (isDebugDumpEnabled(DebugDumpOption::BufferReuseInfo)) {
+        debug() << "Position " << position_ << " is first write for";
+      }
       for (auto alloc_info : it->second) {
+        debug() << " T" << alloc_info->alloc_expr->buffer()->name();
         waiting_to_push_.push_back(alloc_info);
       }
+      debug() << std::endl;
     }
 
     // Reclaim memory whenever we pass an Expr that is known to synchronize the
@@ -1730,10 +1753,14 @@ class StackBasedSharedMemAllocator : kir::IrVisitor {
   //! Record first reads and last writes, respecting aliased buffers
   void recordEvents() {
     for (auto& alloc_info : allocation_info_map_.allAllocationInfos()) {
+      std::cout << "alloc info found for " << alloc_info->alloc_expr->toString()
+                << std::endl;
       if (alloc_info->mem_type != MemoryType::Shared) {
         continue;
       }
       if (alloc_info->alias_to) {
+        std::cout << "  Allocation aliases" << alloc_info->alias_to->toString()
+                  << std::endl;
         auto alias_info =
             allocation_info_map_.getAllocationInfo(alloc_info->alias_to);
         TORCH_CHECK(alias_info);

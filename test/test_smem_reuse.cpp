@@ -463,9 +463,9 @@ TEST_F(SmemReuseTest, RequestReuse) {
         smem_usage, alignInt(alignInt((H + 1) * 4) + (H + 1) * 4) + H * 4);
   }
 
-  { // Request a sync between tv0 and tv5. This will place a __syncthreads just
-    // before tv5 is written.
-    tv5->requestReuse(tv0);
+  { // Request that we re-use the allocation for tv0. This should place a
+    // __syncthreads() just before tv5 is written.
+    tv0->promoteReuse();
 
     GpuLower gpulw(fusion.get());
     ExpressionEvaluator ee;
@@ -480,5 +480,7 @@ TEST_F(SmemReuseTest, RequestReuse) {
     EXPECT_EQ(smem_usage, alignInt((H + 1) * 4) + (H + 1) * 4);
   }
 }
+
+// TODO: Test involving requested reuse along with automatic aliasing
 
 } // namespace nvfuser
