@@ -519,6 +519,7 @@ void validateAlignedVectorizedFusionInputOutput(
   // domain must have stride 1.
   int64_t cur_contig_stride = 1;
   bool still_rightmost = true;
+  bool non_contig_due_to_slice = false;
   for (int64_t i = (int64_t)sizes.size() - 1; i >= 0; --i) {
     const auto size = sizes.at(i);
     const auto stride = strides.at(i);
@@ -536,13 +537,8 @@ void validateAlignedVectorizedFusionInputOutput(
 
     // If this domain is contiguous or size == 1, then not necessary to check
     // the stride. Otherwise, stride must be 1 if it's rightmost or
-    // divisible by word_size.
+    // divisible by word_size
 
-    // Note that when a domain to the right of
-    // this domain is sliced, this domain is no longer contiguous.
-    bool non_contig_due_to_slice = i < (int64_t)sizes.size() - 1 &&
-        sliced_domains.count(
-            domain_to_validate.at(no_reduction_to_full.at(i + 1)));
     bool is_contiguous =
         stride == cur_contig_stride && !non_contig_due_to_slice;
 
@@ -568,9 +564,14 @@ void validateAlignedVectorizedFusionInputOutput(
     still_rightmost =
         still_rightmost && (size == 1 || is_expanded_broadcasting);
     // We do not update cur_contig_stride for size==1 dimensions,
-    // since we have specialized vectorization stride check for them
+    // since we have specialized vectorization stride check for
+    // them. Same for non_contig_due_to_slice.
     if (size != 1) {
       cur_contig_stride = stride * size;
+      // Note that when a domain is sliced, the next outer domain is
+      // no longer contiguous.
+      non_contig_due_to_slice = sliced_domains.count(
+          domain_to_validate.at(no_reduction_to_full.at(i)));
     }
   }
 }

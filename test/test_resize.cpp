@@ -2612,6 +2612,49 @@ TEST_F(ResizeTest, Slice3DVectorizeManual1) {
           "with word size 2 not possible due to invalid stride")));
 }
 
+// Similar to Slice3DVectorizeManual2 but with a middle broadcast
+// domain
+TEST_F(ResizeTest, Slice3DVectorizeManual2) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  const std::vector<int64_t> shape({4, 1, 1025, 3});
+
+  auto tv0 = makeContigConcreteTensor(shape);
+  fusion.addInput(tv0);
+
+  auto tv1 = slice(
+      tv0,
+      {{IrBuilder::create<Val>(0), tv0->axis(0)->extent()},
+       {IrBuilder::create<Val>(0), tv0->axis(1)->extent()},
+       {IrBuilder::create<Val>(0), IrBuilder::create<Val>(1024)},
+       {IrBuilder::create<Val>(0), tv0->axis(3)->extent()}});
+  fusion.addOutput(tv1);
+
+  // [4, 1, 1024, 3]
+  tv1->merge(2);
+  // [4, 1, 3072]
+  tv1->split(2, 4);
+  // [4, 1, 768, 4]
+
+  tv1->axis(0)->parallelize(ParallelType::BIDx);
+  tv1->axis(2)->parallelize(ParallelType::TIDx);
+  tv1->axis(3)->parallelize(ParallelType::Vectorize);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs);
+
+  EXPECT_THAT(
+      [&]() { fe.runFusion(aten_inputs); },
+      ::testing::ThrowsMessage<c10::Error>(::testing::HasSubstr(
+          "with word size 4 not possible due to invalid stride")));
+}
+
 // Repro of issue 540 without transpose
 TEST_F(ResizeTest, SliceAndReshapeRepro540Manual) {
   auto fusion_ptr = std::make_unique<Fusion>();
