@@ -599,6 +599,24 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     }
   }
 
+  void handle(const StructConstruct* sop) final {
+    if (!print_inline_) {
+      indent() << gen(sop->output(0)) << " = ";
+    }
+    code_ << "{ ";
+    for (auto i : c10::irange(sop->inputs().size())) {
+      if (i > 0) {
+        code_ << ", ";
+      }
+      // TODO: upgrade to C++20 and use dot initialization
+      code_ << /*"." << sop->fieldName(i) << " = " <<*/ gen(sop->input(i));
+    }
+    code_ << " }";
+    if (!print_inline_) {
+      code_ << ";\n";
+    }
+  }
+
   void handle(const GetAttr* gop) final {
     if (!print_inline_) {
       indent() << gen(gop->output(0)) << " = ";
