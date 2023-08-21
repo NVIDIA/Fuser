@@ -1633,6 +1633,20 @@ class StackBasedSharedMemAllocator : kir::IrVisitor {
   void allocate(const std::vector<Expr*>& exprs) {
     recordEvents();
 
+    for (auto& [pos, fws] : first_write_positions_) {
+      std::cout << "Position " << pos
+                << " is first write pos for:" << std::endl;
+      for (auto& alloc_info : fws) {
+        std::cout << "  " << alloc_info->alloc_expr->buffer()->toString()
+                  << std::endl;
+      }
+    }
+
+    for (auto& pos : last_read_positions_) {
+      std::cout << "Position " << pos
+                << " is last aliased read pos for some allocs" << std::endl;
+    }
+
     // Traverse expressions: reclaim memory when we pass a blockSync, append to
     // waiting_to_push_ when we pass an Allocate
     handle(exprs);
@@ -1646,12 +1660,21 @@ class StackBasedSharedMemAllocator : kir::IrVisitor {
   void dispatch(Expr* expr) final {
     position_ = allocation_info_map_.getScopeMap().getExprPos(expr);
 
+    if (isDebugDumpEnabled(DebugDumpOption::BufferReuseInfo)) {
+      debug() << "Position " << position_ << std::endl;
+    }
+
     // Check whether this is a first write position for any allocations
     auto it = first_write_positions_.find(position_);
     if (it != first_write_positions_.end()) {
+      if (isDebugDumpEnabled(DebugDumpOption::BufferReuseInfo)) {
+        debug() << "Position " << position_ << " is first write for";
+      }
       for (auto alloc_info : it->second) {
+        debug() << " T" << alloc_info->alloc_expr->buffer()->name();
         waiting_to_push_.push_back(alloc_info);
       }
+      debug() << std::endl;
     }
 
     // Reclaim memory whenever we pass an Expr that is known to synchronize the
@@ -1734,10 +1757,14 @@ class StackBasedSharedMemAllocator : kir::IrVisitor {
   //! Record first reads and last writes, respecting aliased buffers
   void recordEvents() {
     for (auto& alloc_info : allocation_info_map_.allAllocationInfos()) {
+      std::cout << "alloc info found for " << alloc_info->alloc_expr->toString()
+                << std::endl;
       if (alloc_info->mem_type != MemoryType::Shared) {
         continue;
       }
       if (alloc_info->alias_to) {
+        std::cout << "  Allocation aliases" << alloc_info->alias_to->toString()
+                  << std::endl;
         auto alias_info =
             allocation_info_map_.getMaybeAllocationInfo(alloc_info->alias_to);
         TORCH_CHECK(alias_info.has_value());
@@ -1839,38 +1866,38 @@ std::vector<Expr*> aliasMemoryAllocations(
   return AllocationAliasModifier::modify(exprs, allocation_info_map);
 }
 
-class RequestedReuseSyncModifier : private kir::ExprMutator {
+class PromoteReuseSyncModifier : private kir::ExprMutator {
  public:
-  RequestedReuseSyncModifier(
+  PromoteReuseSyncModifier(
       const std::vector<Expr*>& exprs,
       const AllocationInfoMap& allocation_info_map)
       : allocation_info_map_(allocation_info_map) {
+    // Find next allocation after last aliased read of all allocations whose
+    // reuse we need to promote, and record shortest sync intervals with
+    // subsequent allocations.
     for (const auto& alloc_info : allocation_info_map.allAllocationInfos()) {
-      auto tv = alloc_info->alloc_expr->buffer()->as<TensorView>();
-      auto tv_first_write = alloc_info->outer_live_interval->firstWrite();
-      for (auto dep : tv->getRequestedReusedTensors()) {
-        auto dep_alloc_info_opt =
-            allocation_info_map.getMaybeAllocInfoFromTV(dep);
-        TORCH_CHECK(
-            dep_alloc_info_opt.has_value(),
-            "Could not find allocation info for ",
-            dep->toString(),
-            " whose memory was requested to be re-used by ",
-            tv->toString());
-        auto dep_alloc_info = dep_alloc_info_opt.value();
+      if (!alloc_info->alloc_expr->buffer()
+               ->as<TensorView>()
+               ->getPromoteReuse()) {
+        continue;
+      }
+      auto last_read = alloc_info->getAliasedOuterLastRead();
 
-        int dep_last_read = dep_alloc_info->getAliasedOuterLastRead();
+      std::optional<int> nearest_first_write = std::nullopt;
 
-        // TODO: These aliases should not be created in the first place. We
-        // should modify the alias map instead to make it reuse-request aware.
-        TORCH_CHECK(
-            dep_last_read < tv_first_write,
-            "Requested re-use dependency ",
-            dep->toString(),
-            " has last read position on or after first write of ",
-            tv->toString());
+      for (const auto& other : allocation_info_map.allAllocationInfos()) {
+        auto first_write = other->outer_live_interval->firstWrite();
+        if (first_write <= last_read) {
+          continue;
+        }
+        if (!nearest_first_write.has_value() ||
+            first_write < nearest_first_write.value()) {
+          nearest_first_write = first_write;
+        }
+      }
 
-        sync_intervals_.emplace(dep_last_read, tv_first_write);
+      if (nearest_first_write.has_value()) {
+        sync_intervals_.emplace(last_read, nearest_first_write.value());
       }
     }
 
@@ -1966,12 +1993,13 @@ class RequestedReuseSyncModifier : private kir::ExprMutator {
 };
 
 // Insert missing synchronizations in cases where a TensorView is marked as
-// needing them. This should be done before allocateSharedMemoryAllocations,
-// which uses synchronization points to reclaim unused shared memory.
-std::pair<std::vector<Expr*>, bool> insertRequestedReuseSyncs(
+// needing reuse promotion. This should be done before
+// allocateSharedMemoryAllocations, which uses synchronization points to reclaim
+// unused shared memory.
+std::pair<std::vector<Expr*>, bool> promoteReuseSyncs(
     const std::vector<Expr*>& exprs,
     AllocationInfoMap& allocation_info_map) {
-  auto modifier = RequestedReuseSyncModifier(exprs, allocation_info_map);
+  auto modifier = PromoteReuseSyncModifier(exprs, allocation_info_map);
   return {modifier.modifiedExprs(), !modifier.insertedSyncs().empty()};
 }
 
@@ -2009,7 +2037,7 @@ std::vector<Expr*> reuseMemoryAllocations(const std::vector<Expr*>& exprs) {
   const auto aliased_exprs = aliasMemoryAllocations(exprs, allocation_info_map);
 
   const auto [synced_exprs, inserted_syncs] =
-      insertRequestedReuseSyncs(aliased_exprs, allocation_info_map);
+      promoteReuseSyncs(aliased_exprs, allocation_info_map);
 
   // If we inserted sync expressions, we need to recompute positions of any
   // downstream expressions. Rather than try to keep those in sync, we just

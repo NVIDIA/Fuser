@@ -505,14 +505,33 @@ class TORCH_CUDA_CU_API TensorView : public Val {
   // ensure consistency.
   void commitLeafToRFactor();
 
+  void promoteReuse(bool b = true) {
+    promote_reuse_ = b;
+  }
+
+  bool getPromoteReuse() const {
+    return promote_reuse_;
+  }
+
   //! Get vector of tensors that must have a block sync after their last use and
   //! before the definition of this tensor.
   const std::vector<TensorView*>& getRequestedReusedTensors() const {
     return requested_reuse_tvs_;
   }
 
-  //! Append to vector of tensors that must have a block sync after their last
-  //! use and before the definition of this tensor.
+  //! Request that we reclaim the memory of tv before this tensor is defined.
+  //!
+  //! This method influences the shared memory allocator that assigns shared
+  //! memory addresses at lowering. It ensures that the proper synchronization
+  //! is present in the kernel to reuse memory and inserts new block
+  //! synchronizations if necessary.
+  //!
+  //! This is only possible if the lifetimes of this tensor and tv do not
+  //! overlap, i.e. tv is last written or read before this tensor is written. If
+  //! this is violated and the lifetimes overlap, an exception will be raised at
+  //! lowering.
+  //!
+  //! This method may only be used on shared-memory tensors.
   void requestReuse(TensorView* tv) {
     TORCH_CHECK(
         getMemoryType() == MemoryType::Shared,
@@ -594,6 +613,8 @@ class TORCH_CUDA_CU_API TensorView : public Val {
   //! them) before writing to the current tensor. This will then allow us to
   //! safely reuse the memory allocated to these tensors.
   std::vector<TensorView*> requested_reuse_tvs_;
+
+  bool promote_reuse_ = false;
 };
 
 //! A simple TensorView builder
