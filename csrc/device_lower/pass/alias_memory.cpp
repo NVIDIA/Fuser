@@ -1846,12 +1846,11 @@ class PromoteReuseSyncModifier : private kir::ExprMutator {
       const AllocationInfoMap& allocation_info_map)
       : allocation_info_map_(allocation_info_map) {
     // Find next allocation after last aliased read of all allocations whose
-    // reuse we need to promote, and record shortest sync intervals with
+    // reuse we need to promote, and record shortest sync intervals relative to
     // subsequent allocations.
     for (const auto& alloc_info : allocation_info_map.allAllocationInfos()) {
-      if (!alloc_info->alloc_expr->buffer()
-               ->as<TensorView>()
-               ->getPromoteReuse()) {
+      auto tv = alloc_info->alloc_expr->buffer()->as<TensorView>();
+      if (tv->getMemoryType() != MemoryType::Shared || !tv->getPromoteReuse()) {
         continue;
       }
       auto last_read = alloc_info->getAliasedOuterLastRead();
@@ -1878,7 +1877,7 @@ class PromoteReuseSyncModifier : private kir::ExprMutator {
       exprs_ = exprs;
     } else {
       if (isDebugDumpEnabled(DebugDumpOption::BufferReuseInfo)) {
-        debug() << "Verifying syncs within these intervals:" << std::endl;
+        debug() << "Ensuring syncs within these intervals:" << std::endl;
         for (auto [last_read, first_write] : sync_intervals_) {
           debug() << "  " << last_read << " - " << first_write << std::endl;
         }
