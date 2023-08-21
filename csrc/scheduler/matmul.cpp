@@ -509,6 +509,12 @@ void swizzleSharedMemory(
 void scheduleProlog(TensorView* shared_mem_tv, const MatmulParams& params) {
   shared_mem_tv->setMemoryType(MemoryType::Shared);
 
+  // The following line allows us to reclaim the memory allocated to
+  // shared_mem_tv and reuse it for the epilogue, introducing one block sync.
+  // This is not done by default as we do not insert new syncs unless requested
+  // to do so.
+  shared_mem_tv->promoteReuse();
+
   mma_utils::orderTiledConcreteIdAsRoot(shared_mem_tv);
 
   // Swizzle the shared memory data layout
@@ -968,13 +974,6 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
 
   if (params.use_smem_epilogue) {
     smem_epilogue->setMemoryType(MemoryType::Shared);
-
-    // The following line allows us to reclaim the memory allocated to acw_smem
-    // and bcw_smem and reuse it for smem_epilogue, introducing one block sync.
-    // This is not done by default as we do not insert new syncs unless
-    // requested to do so. Note that bcw_smem's lifetime overlaps acw_smem's, so
-    // it will also be reclaimed, even though we do not explicitly request that
-    smem_epilogue->requestReuse(acw_smem);
 
     swizzleSharedMemory(smem_epilogue, params);
     scheduler_utils::BoundedDirectionalTransformPropagator::forward(
