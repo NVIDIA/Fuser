@@ -405,4 +405,19 @@ TEST_F(ExprEvalTest, Validation) {
   evaluator.bind(d, 299792460L, true);
 }
 
+TEST_F(ExprEvalTest, ReverseArray) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto input = IrBuilder::create<Val>(
+      DataType(ArrayOf{std::make_shared<DataType>(DataType::Int), 5}));
+  auto output = IrBuilder::reverseArrayExpr(input);
+
+  ExpressionEvaluator evaluator;
+  evaluator.bind(input, std::vector<int64_t>{1, 2, 3, 4, 5});
+
+  auto expect = std::vector<int64_t>{5, 4, 3, 2, 1};
+  EXPECT_EQ((std::vector<int64_t>)evaluator.evaluate(output), expect);
+}
+
 } // namespace nvfuser

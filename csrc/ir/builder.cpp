@@ -240,6 +240,12 @@ Val* IrBuilder::getAttrExpr(Val* struct_, std::string attr) {
   return out;
 }
 
+Val* IrBuilder::reverseArrayExpr(Val* array) {
+  auto out = newScalar(array->dtype());
+  create<ReverseArray>(out, array);
+  return out;
+}
+
 Val* IrBuilder::metadataExpr(TensorView* tv) {
   return tv->fusion()->metadataOf(tv);
 }

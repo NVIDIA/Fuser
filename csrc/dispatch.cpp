@@ -122,6 +122,10 @@ void Expr::dispatch(T handler, Expr* expr) {
     ptr(handler)->handle(expr->as<GetItem>());
     return;
   }
+  if (expr->isStrictlyA<ReverseArray>()) {
+    ptr(handler)->handle(expr->as<ReverseArray>());
+    return;
+  }
   if (expr->isStrictlyA<GetMetaData>()) {
     ptr(handler)->handle(expr->as<GetMetaData>());
     return;
@@ -396,6 +400,10 @@ void Expr::constDispatch(T handler, const Expr* expr) {
   }
   if (expr->isStrictlyA<GetItem>()) {
     ptr(handler)->handle(expr->as<GetItem>());
+    return;
+  }
+  if (expr->isStrictlyA<ReverseArray>()) {
+    ptr(handler)->handle(expr->as<ReverseArray>());
     return;
   }
   if (expr->isStrictlyA<GetMetaData>()) {
@@ -801,6 +809,9 @@ void OptOutConstDispatch::handle(const GetAttr* stmt) {
 void OptOutConstDispatch::handle(const GetItem* stmt) {
   unhandled(stmt);
 }
+void OptOutConstDispatch::handle(const ReverseArray* stmt) {
+  unhandled(stmt);
+}
 void OptOutConstDispatch::handle(const GetMetaData* stmt) {
   unhandled(stmt);
 }
@@ -1002,6 +1013,9 @@ void OptOutDispatch::handle(GetAttr* stmt) {
   unhandled(stmt);
 }
 void OptOutDispatch::handle(GetItem* stmt) {
+  unhandled(stmt);
+}
+void OptOutDispatch::handle(ReverseArray* stmt) {
   unhandled(stmt);
 }
 void OptOutDispatch::handle(GetMetaData* stmt) {
