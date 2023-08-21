@@ -277,6 +277,4 @@ TEST_F(SmemReuseTest, PromoteReuse) {
   }
 }
 
-// TODO: Test involving requested reuse along with automatic aliasing
-
 } // namespace nvfuser
