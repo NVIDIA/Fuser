@@ -722,6 +722,81 @@ std::vector<PolymorphicValue> GetItem::evaluate(
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(GetItem)
 
+StructConstruct::StructConstruct(
+    IrBuilderPasskey passkey,
+    Val* output,
+    const std::vector<std::pair<std::string, Val*>>& fields)
+    : Expr(passkey) {
+  TORCH_INTERNAL_ASSERT(
+      !fields.empty(), "Cannot create a struct with no members.");
+  auto output_dtype = std::get<StructOf>(output->dtype().type);
+  TORCH_INTERNAL_ASSERT(
+      output_dtype.types.size() == fields.size(),
+      "StructConstruct output must have the same number of fields as the inputs");
+  TORCH_INTERNAL_ASSERT(
+      output_dtype.field_names.size() == fields.size(),
+      "StructConstruct output must have the same number of fields as the inputs");
+  auto it = output_dtype.field_names.begin();
+  for (const auto& field : fields) {
+    TORCH_INTERNAL_ASSERT(
+        *it == field.first,
+        "StructConstruct field names must match the output");
+    TORCH_INTERNAL_ASSERT(
+        (NVFUSER_MAYBE_STAR output_dtype.types.at(field.first)) ==
+            field.second->dtype(),
+        "StructConstruct field ",
+        field.first,
+        " must have the same data type as the output");
+    addDataAttribute(field.first);
+    addInput(field.second);
+    it++;
+  }
+  addOutput(output);
+}
+
+std::string StructConstruct::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << out()->toString() << " = { ";
+  for (int64_t i : c10::irange((int64_t)inputs().size())) {
+    if (i > 0) {
+      ss << ", ";
+    }
+    ss << attribute<std::string>(i) << " = " << input(i)->toString();
+  }
+  ss << " }\n";
+  return ss.str();
+}
+
+std::string StructConstruct::toInlineString(int indent_size) const {
+  std::stringstream ss;
+  ss << "{ ";
+  for (int64_t i : c10::irange((int64_t)inputs().size())) {
+    if (i > 0) {
+      ss << ", ";
+    }
+    ss << attribute<std::string>(i) << " = " << input(i)->toInlineString();
+  }
+  ss << " }";
+  return ss.str();
+}
+
+std::vector<PolymorphicValue> StructConstruct::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  TORCH_INTERNAL_ASSERT(
+      this->inputs().size() == inputs.size(),
+      "StructConstruct expects ",
+      this->inputs().size(),
+      " inputs");
+  Struct<PolymorphicValue> result;
+  for (int64_t i : c10::irange((int64_t)inputs.size())) {
+    result[attribute<std::string>(i)] = inputs.at(i);
+  }
+  return {std::move(result)};
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(StructConstruct)
+
 GetAttr::GetAttr(
     IrBuilderPasskey passkey,
     Val* output,

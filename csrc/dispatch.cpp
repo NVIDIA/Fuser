@@ -110,6 +110,10 @@ void Expr::dispatch(T handler, Expr* expr) {
     ptr(handler)->handle(expr->as<ArrayConstruct>());
     return;
   }
+  if (expr->isStrictlyA<StructConstruct>()) {
+    ptr(handler)->handle(expr->as<StructConstruct>());
+    return;
+  }
   if (expr->isStrictlyA<GetAttr>()) {
     ptr(handler)->handle(expr->as<GetAttr>());
     return;
@@ -380,6 +384,10 @@ void Expr::constDispatch(T handler, const Expr* expr) {
   }
   if (expr->isStrictlyA<ArrayConstruct>()) {
     ptr(handler)->handle(expr->as<ArrayConstruct>());
+    return;
+  }
+  if (expr->isStrictlyA<StructConstruct>()) {
+    ptr(handler)->handle(expr->as<StructConstruct>());
     return;
   }
   if (expr->isStrictlyA<GetAttr>()) {
@@ -784,6 +792,9 @@ void OptOutConstDispatch::handle(const TernaryOp* stmt) {
 void OptOutConstDispatch::handle(const ArrayConstruct* stmt) {
   unhandled(stmt);
 }
+void OptOutConstDispatch::handle(const StructConstruct* stmt) {
+  unhandled(stmt);
+}
 void OptOutConstDispatch::handle(const GetAttr* stmt) {
   unhandled(stmt);
 }
@@ -982,6 +993,9 @@ void OptOutDispatch::handle(TernaryOp* stmt) {
   unhandled(stmt);
 }
 void OptOutDispatch::handle(ArrayConstruct* stmt) {
+  unhandled(stmt);
+}
+void OptOutDispatch::handle(StructConstruct* stmt) {
   unhandled(stmt);
 }
 void OptOutDispatch::handle(GetAttr* stmt) {

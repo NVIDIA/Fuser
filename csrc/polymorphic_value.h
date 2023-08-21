@@ -28,12 +28,29 @@ struct Struct {
   // straightforward, but this is not guaranteed to work by C++ standard.
   // See [Incomplete type support in STL]
 #if defined(STD_UNORDERED_SET_SUPPORTS_INCOMPLETE_TYPE)
+
   std::unordered_map<std::string, T> fields;
+  Struct(std::initializer_list<std::pair<const std::string, T>> init)
+      : fields(init) {}
 #define MAYBE_STAR
+
 #else
+
   std::unordered_map<std::string, std::shared_ptr<T>> fields;
+  Struct(std::initializer_list<std::pair<const std::string, T>> init) {
+    for (const auto& [key, value] : init) {
+      fields[key] = std::make_shared<T>(value);
+    }
+  }
 #define MAYBE_STAR *
+
 #endif
+
+  Struct() = default;
+  Struct(const Struct& other) = default;
+  Struct(Struct&& other) = default;
+  Struct& operator=(const Struct& other) = default;
+  Struct& operator=(Struct&& other) = default;
 
   const T& operator[](const std::string& key) const {
     return MAYBE_STAR fields.at(key);
@@ -48,6 +65,24 @@ struct Struct {
     }
     return *fields.at(key);
 #endif
+  }
+
+  bool operator==(const Struct& other) const {
+    if (this == &other) {
+      return true;
+    }
+    if (fields.size() != other.fields.size()) {
+      return false;
+    }
+    for (const auto& [key, _] : fields) {
+      if (other.fields.find(key) == other.fields.end()) {
+        return false;
+      }
+      if ((*this)[key] != other[key]) {
+        return false;
+      }
+    }
+    return true;
   }
 };
 
