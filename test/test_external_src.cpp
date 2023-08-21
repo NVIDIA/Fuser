@@ -14,8 +14,6 @@
 #include <test/validator.h>
 #include <utils.h>
 
-#include <fstream>
-
 namespace nvfuser {
 
 class ExternalSrcExample : public NVFuserTest {};
