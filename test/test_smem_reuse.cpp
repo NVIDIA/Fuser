@@ -277,4 +277,160 @@ TEST_F(SmemReuseTest, PromoteReuse) {
   }
 }
 
+// TODO: Add tests with
+// - one promoted tensor with multiple other tensors that could reuse the
+// promoted tensor
+// - multiple promoted tensors
+// - aliased promoted tensor showing when we can re-use
+
+// In this example, we promote a single tensor for re-use in a Fusion with two
+// downstream tensors that could use its memory. The first downstream tensor is
+// not re-used since it is not promoted.
+TEST_F(SmemReuseTest, PromoteReuseMultipleDownstream) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  int64_t H = 7;
+
+  auto tv0 =
+      full({IrBuilder::create<Val>(H)}, fusion->oneVal(), DataType::Float);
+  tv0->setMemoryType(MemoryType::Shared);
+
+  auto tv1 = neg(tv0);
+
+  auto tv2 = pad(tv1, {fusion->zeroVal(), fusion->oneVal()});
+  tv2->setMemoryType(MemoryType::Shared);
+
+  auto tv3 = neg(tv2);
+
+  auto tv4 = pad(tv3, {fusion->zeroVal(), fusion->oneVal()});
+  tv4->setMemoryType(MemoryType::Shared);
+
+  auto tv5 = neg(tv4);
+
+  fusion->addOutput(tv5);
+
+  { // This should not re-use memory
+    GpuLower gpulw(fusion.get());
+
+    ExpressionEvaluator ee;
+    std::unordered_set<int64_t> addresses;
+    int64_t smem_usage = 0;
+    for (auto alloc : gpulw.kernel()->summary().dynamic_smem_allocations) {
+      EXPECT_NE(alloc->address(), nullptr);
+      auto addr = ee.evaluate(alloc->address()).as<int64_t>();
+      TORCH_CHECK(
+          addresses.insert(addr).second,
+          "Smem addresses should not be re-used");
+      auto size = ee.evaluate(alloc->size()).as<int64_t>() *
+          dataTypeSize(alloc->buffer()->dtype());
+      smem_usage = std::max(smem_usage, addr + size);
+    }
+    EXPECT_EQ(
+        smem_usage, alignInt(alignInt((H + 2) * 4) + (H + 1) * 4) + H * 4);
+  }
+
+  { // Request that we re-use the allocation for tv0. This should place a
+    // __syncthreads() just before tv2 is written.
+    tv0->promoteReuse();
+
+    GpuLower gpulw(fusion.get());
+    ExpressionEvaluator ee;
+    int64_t smem_usage = 0;
+    for (auto alloc : gpulw.kernel()->summary().dynamic_smem_allocations) {
+      EXPECT_NE(alloc->address(), nullptr);
+      auto addr = ee.evaluate(alloc->address()).as<int64_t>();
+      auto size = ee.evaluate(alloc->size()).as<int64_t>() *
+          dataTypeSize(alloc->buffer()->dtype());
+      smem_usage = std::max(smem_usage, addr + size);
+    }
+    EXPECT_EQ(smem_usage, alignInt((H + 1) * 4) + (H + 2) * 4);
+  }
+}
+
+// In this example, multiple smem tensors are promoted for re-use. We have
+// non-overlapping smem allocations A B C D, and A and C are promoted for reuse.
+// Because of that, B re-uses A, then C does not reuse B but stacks on top of
+// it. Then D reuses C, and B is reclaimed in the process. Ultimately this means
+// the assigned addresses are:
+//
+//   A: 0. Assigned then reclaimed before assignment of B.
+//   B: alignInt((H + 2) * 4). Stacked on top of C
+//   C: 0. Assigned along with B in reverse order of last use
+//   D: 0. B and C are reclaimed before this assignment.
+//
+// Note that although B was not explicitly requested for re-use, since its
+// lifetime ends before D is defined, we try and reclaim it at the same time C
+// is reclaimed. They are also ordered on the stack at that point, in descending
+// order of last use, meaning B is placed higher on the stack than C.
+TEST_F(SmemReuseTest, MultiplePromoteReuse) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  int64_t H = 7;
+
+  auto tv0 =
+      full({IrBuilder::create<Val>(H)}, fusion->oneVal(), DataType::Float);
+  tv0->setMemoryType(MemoryType::Shared);
+
+  auto tv1 = neg(neg(tv0));
+
+  auto tv2 = pad(tv1, {fusion->zeroVal(), fusion->oneVal()});
+  tv2->setMemoryType(MemoryType::Shared);
+
+  auto tv3 = neg(neg(tv2));
+
+  auto tv4 = pad(tv3, {fusion->zeroVal(), fusion->oneVal()});
+  tv4->setMemoryType(MemoryType::Shared);
+
+  auto tv5 = neg(neg(tv4));
+
+  auto tv6 = pad(tv5, {fusion->zeroVal(), fusion->oneVal()});
+  tv6->setMemoryType(MemoryType::Shared);
+
+  auto tv7 = neg(tv6);
+
+  fusion->addOutput(tv7);
+
+  { // This should not re-use memory
+    GpuLower gpulw(fusion.get());
+
+    ExpressionEvaluator ee;
+    std::unordered_set<int64_t> addresses;
+    int64_t smem_usage = 0;
+    for (auto alloc : gpulw.kernel()->summary().dynamic_smem_allocations) {
+      EXPECT_NE(alloc->address(), nullptr);
+      auto addr = ee.evaluate(alloc->address()).as<int64_t>();
+      TORCH_CHECK(
+          addresses.insert(addr).second,
+          "Smem addresses should not be re-used");
+      auto size = ee.evaluate(alloc->size()).as<int64_t>() *
+          dataTypeSize(alloc->buffer()->dtype());
+      smem_usage = std::max(smem_usage, addr + size);
+    }
+    EXPECT_EQ(
+        smem_usage,
+        alignInt(alignInt(alignInt((H + 3) * 4) + (H + 2) * 4) + (H + 1) * 4) +
+            H * 4);
+  }
+
+  { // Request that we re-use A and C
+    tv0->promoteReuse();
+    tv4->promoteReuse();
+
+    GpuLower gpulw(fusion.get());
+    ExpressionEvaluator ee;
+    int64_t smem_usage = 0;
+    for (auto alloc : gpulw.kernel()->summary().dynamic_smem_allocations) {
+      EXPECT_NE(alloc->address(), nullptr);
+      auto addr = ee.evaluate(alloc->address()).as<int64_t>();
+      auto size = ee.evaluate(alloc->size()).as<int64_t>() *
+          dataTypeSize(alloc->buffer()->dtype());
+      smem_usage = std::max(smem_usage, addr + size);
+    }
+    // High water mark has C stacked on top of B
+    EXPECT_EQ(smem_usage, alignInt((H + 2) * 4) + (H + 1) * 4);
+  }
+}
+
 } // namespace nvfuser
