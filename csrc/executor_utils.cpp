@@ -411,9 +411,9 @@ void validateAlignedVectorizedFusionInputOutput(
     const at::Tensor& aten_tensor,
     int word_size,
     TensorView* tv,
-    ExpressionEvaluator eval) {
+    ExpressionEvaluator& eval) {
   eval.bind(tv, aten_tensor);
-  auto metadata = eval.evaluate(IrBuilder::metadataExpr(tv));
+  const auto& metadata = eval.evaluate(IrBuilder::metadataExpr(tv));
 
   std::vector<int64_t> no_reduction_to_full;
   for (int64_t i :
@@ -424,8 +424,8 @@ void validateAlignedVectorizedFusionInputOutput(
     }
   }
 
-  auto sizes = std::vector<int64_t>(metadata["alloc_size"]);
-  auto strides = std::vector<int64_t>(metadata["alloc_stride"]);
+  const auto& sizes = metadata["alloc_size"].as<std::vector>();
+  const auto& strides = metadata["alloc_stride"].as<std::vector>();
   TORCH_INTERNAL_ASSERT(sizes.size() == no_reduction_to_full.size());
   TORCH_INTERNAL_ASSERT(strides.size() == no_reduction_to_full.size());
 
@@ -448,8 +448,8 @@ void validateAlignedVectorizedFusionInputOutput(
   int64_t cur_contig_stride = 1;
   bool still_rightmost = true;
   for (int64_t i = (int64_t)sizes.size() - 1; i >= 0; --i) {
-    const auto size = sizes.at(i);
-    const auto stride = strides.at(i);
+    const auto size = sizes.at(i).as<int64_t>();
+    const auto stride = strides.at(i).as<int64_t>();
     auto alloc_id =
         tv->getMaybeAllocationDomain().at(no_reduction_to_full.at(i));
     const auto is_expanded_broadcasting =
