@@ -513,6 +513,9 @@ class TORCH_CUDA_CU_API TensorView : public Val {
   //! is present in the kernel to reuse memory and inserts new block
   //! synchronizations if necessary.
   void promoteReuse(bool b = true) {
+    TORCH_CHECK(
+        memory_type_ == MemoryType::Shared,
+        "promoteReuse should only be called on shared memory tensors");
     promote_reuse_ = b;
   }
 
