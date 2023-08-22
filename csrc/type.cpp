@@ -24,19 +24,19 @@ DataType globalTensorMetaData(
   std::stringstream ss;
   ss << "Tensor<" << dtype << ", " << dim << ", " << alloc_dim << ">";
 
-  StructOf tv_metadata;
+  StructType tv_metadata;
   tv_metadata.name = ss.str();
   tv_metadata.field_names = {"data", "logical_size", "alloc_stride"};
   tv_metadata.types["data"] =
-      NVFUSER_MAYBE_MAKE_SHARED(PointerOf{std::make_shared<DataType>(dtype)});
+      NVFUSER_MAYBE_MAKE_SHARED(PointerType{std::make_shared<DataType>(dtype)});
   tv_metadata.types["logical_size"] = NVFUSER_MAYBE_MAKE_SHARED2(
-      ArrayOf{std::make_shared<DataType>(DataType::Index), dim});
+      ArrayType{std::make_shared<DataType>(DataType::Index), dim});
   tv_metadata.types["logical_stride"] = NVFUSER_MAYBE_MAKE_SHARED2(
-      ArrayOf{std::make_shared<DataType>(DataType::Index), dim});
+      ArrayType{std::make_shared<DataType>(DataType::Index), dim});
   tv_metadata.types["alloc_size"] = NVFUSER_MAYBE_MAKE_SHARED2(
-      ArrayOf{std::make_shared<DataType>(DataType::Index), alloc_dim});
+      ArrayType{std::make_shared<DataType>(DataType::Index), alloc_dim});
   tv_metadata.types["alloc_stride"] = NVFUSER_MAYBE_MAKE_SHARED2(
-      ArrayOf{std::make_shared<DataType>(DataType::Index), alloc_dim});
+      ArrayType{std::make_shared<DataType>(DataType::Index), alloc_dim});
   return tv_metadata;
 }
 
@@ -46,7 +46,7 @@ DataType metaDataTypeOf(const Val* v) {
       tv != nullptr, "Currently, only supports getting metadata of TensorView");
   if (tv->getMemoryType() == MemoryType::Shared) {
     // Smem tensor is defined locally as a pointer
-    return PointerOf{std::make_shared<DataType>(tv->dtype())};
+    return PointerType{std::make_shared<DataType>(tv->dtype())};
   }
 
   size_t dim = TensorDomain::noReductions(tv->getMaybeRFactorDomain()).size();
@@ -203,14 +203,14 @@ static std::string data_type2string(DataType t) {
             default:
               TORCH_INTERNAL_ASSERT(false, "No string found for data type.");
           }
-        } else if constexpr (std::is_same_v<T, PointerOf>) {
+        } else if constexpr (std::is_same_v<T, PointerType>) {
           return data_type2string(*dtype.type) + "*";
-        } else if constexpr (std::is_same_v<T, ArrayOf>) {
+        } else if constexpr (std::is_same_v<T, ArrayType>) {
           std::stringstream ss;
           ss << "Array<" << data_type2string(*dtype.type) << ", " << dtype.size
              << ", 1>";
           return ss.str();
-        } else if constexpr (std::is_same_v<T, StructOf>) {
+        } else if constexpr (std::is_same_v<T, StructType>) {
           if (dtype.name != "") {
             return dtype.name;
           }
@@ -1148,13 +1148,13 @@ std::string stringifyThread(const ParallelType ptype) {
 }
 
 std::string typePrefix(const DataType data_type) {
-  if (std::holds_alternative<PointerOf>(data_type.type)) {
+  if (std::holds_alternative<PointerType>(data_type.type)) {
     return "ptr";
   }
-  if (std::holds_alternative<ArrayOf>(data_type.type)) {
+  if (std::holds_alternative<ArrayType>(data_type.type)) {
     return "a";
   }
-  if (std::holds_alternative<StructOf>(data_type.type)) {
+  if (std::holds_alternative<StructType>(data_type.type)) {
     return "s";
   }
   switch (std::get<PrimDataType>(data_type.type)) {
@@ -1213,11 +1213,11 @@ int64_t dataTypeSize(DataType type) {
         using T = std::decay_t<decltype(dtype)>;
         if constexpr (std::is_same_v<T, PrimDataType>) {
           return primDataTypeSize(dtype);
-        } else if constexpr (std::is_same_v<T, PointerOf>) {
+        } else if constexpr (std::is_same_v<T, PointerType>) {
           return sizeof(void*);
-        } else if constexpr (std::is_same_v<T, ArrayOf>) {
+        } else if constexpr (std::is_same_v<T, ArrayType>) {
           return dataTypeSize(*dtype.type) * dtype.size;
-        } else if constexpr (std::is_same_v<T, StructOf>) {
+        } else if constexpr (std::is_same_v<T, StructType>) {
           int64_t size = 0;
           for (const auto& field : dtype.field_names) {
             size += dataTypeSize(NVFUSER_MAYBE_STAR dtype.types.at(field));
