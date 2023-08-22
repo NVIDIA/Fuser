@@ -9919,7 +9919,8 @@ TEST_F(NVFuserTest, StructConstruct) {
       outputs.at(0).item<c10::complex<float>>(), c10::complex<float>(1.2, 3.4));
 }
 
-// Repro of an issue found in PR #733
+// Repro of an issue found in PR #733. Previously the runtime
+// validation of strides of vectorized tensors issued a false positive
 TEST_F(NVFuserTest, VectorizationStrideValidation) {
   auto fusion_ptr = std::make_unique<Fusion>();
   auto& fusion = *fusion_ptr;
@@ -9950,6 +9951,9 @@ TEST_F(NVFuserTest, VectorizationStrideValidation) {
 
   FusionExecutor fe;
   fe.compileFusion(&fusion, aten_inputs);
+
+  // This previously triggered a false positive error with the stride
+  // validation
   auto cg_outputs = fe.runFusion(aten_inputs);
 
   ASSERT_TRUE(cg_outputs[0].equal(t0));
