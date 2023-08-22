@@ -240,8 +240,29 @@ Val* IrBuilder::getAttrExpr(Val* struct_, std::string attr) {
   return out;
 }
 
+Val* IrBuilder::reverseArrayExpr(Val* array) {
+  auto out = newScalar(array->dtype());
+  create<ReverseArray>(out, array);
+  return out;
+}
+
 Val* IrBuilder::metadataExpr(TensorView* tv) {
   return tv->fusion()->metadataOf(tv);
+}
+
+Val* IrBuilder::structExpr(
+    const std::vector<std::pair<std::string, Val*>>& fields,
+    std::string name) {
+  StructOf output_type;
+  output_type.name = std::move(name);
+  for (auto& field : fields) {
+    output_type.types.emplace(
+        field.first, NVFUSER_MAYBE_MAKE_SHARED(field.second->dtype()));
+    output_type.field_names.emplace_back(field.first);
+  }
+  auto out = newScalar(DataType(output_type));
+  create<StructConstruct>(out, fields);
+  return out;
 }
 
 Val* SimplifyingIrBuilder::negExpr(Val* val) {

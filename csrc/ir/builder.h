@@ -94,6 +94,7 @@ class TORCH_CUDA_CU_API IrBuilder {
   static Val* getItemExpr(Val* array, Val* index);
   static Val* getItemExpr(Val* array, PolymorphicValue index);
   static Val* getAttrExpr(Val* struct_, std::string attr);
+  static Val* reverseArrayExpr(Val* array);
 
   // Get tensor metadata
   static Val* metadataExpr(TensorView* tv);
@@ -123,6 +124,10 @@ class TORCH_CUDA_CU_API IrBuilder {
       return arrayExpr(array_members);
     }
   }
+
+  static Val* structExpr(
+      const std::vector<std::pair<std::string, Val*>>& fields,
+      std::string name = "");
 
   static Val* newScalar(DataType dtype);
 

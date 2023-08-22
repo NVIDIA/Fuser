@@ -9892,6 +9892,33 @@ TEST_F(NVFuserTest, UnswitchPredicateIssueRepro681_CUDA) {
   testValidate(&fusion, outputs, aten_inputs, {ref}, __LINE__, __FILE__);
 }
 
+TEST_F(NVFuserTest, StructConstruct) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto real = IrBuilder::create<Val>(DataType::Float);
+  auto imag = IrBuilder::create<Val>(DataType::Float);
+  fusion.addInput(real);
+  fusion.addInput(imag);
+
+  auto struct_ = IrBuilder::structExpr({{"real", real}, {"imag", imag}});
+  auto complex = bitCastOp(DataType::ComplexFloat, struct_);
+
+  auto tv = full(
+      {IrBuilder::newConstant(1L, DataType::Index)},
+      complex,
+      DataType::ComplexFloat);
+
+  fusion.addOutput(tv);
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion);
+  auto outputs = fe.runFusion({1.2, 3.4});
+
+  EXPECT_EQ(
+      outputs.at(0).item<c10::complex<float>>(), c10::complex<float>(1.2, 3.4));
+}
+
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser
