@@ -151,6 +151,15 @@ struct StructOf {
 struct OpaqueType {
   std::string display_name;
   std::reference_wrapper<const std::type_info> type_info;
+  size_t size;
+
+  template <typename T>
+  static OpaqueType make(std::string display_name = "") {
+    return OpaqueType{
+        .display_name = std::move(display_name),
+        .type_info = typeid(T),
+        .size = sizeof(T)};
+  }
 
   inline bool operator==(const OpaqueType& other) const {
     return type_info.get() == other.type_info.get();
@@ -431,8 +440,9 @@ inline DataType getDataType(const PolymorphicValue& value) {
       TORCH_CHECK(!value.is<T>(), "Can not infer pointer type.");
     } else if constexpr (std::is_same_v<T, Opaque>) {
       if (value.is<T>()) {
-        dtype =
-            DataType(OpaqueType{.type_info = value.as<Opaque>().any().type()});
+        const auto& opaque = value.as<T>();
+        dtype = DataType(OpaqueType{
+            .type_info = opaque.any().type(), .size = opaque.size()});
       }
     }
   });
