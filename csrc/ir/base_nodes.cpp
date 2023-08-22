@@ -176,15 +176,11 @@ std::string Val::toString(int indent_size) const {
   auto dtype = getDataType().value();
   if (dtype == DataType::Bool) {
     ss << (value() ? "true" : "false");
-  } else if (isIntegralType(dtype)) {
-    ss << value();
   } else if (isFloatingPointType(dtype) || isComplexType(dtype)) {
     ss << dtype << "(" << std::setprecision(max_digits10(dtype)) << value()
        << ")";
-  } else if (dtype == DataType::Opaque) {
-    ss << "<opaque value>";
   } else {
-    TORCH_INTERNAL_ASSERT(false, "Unknown scalar type: ", dtype);
+    ss << value();
   }
   return ss.str();
 }
@@ -473,7 +469,7 @@ std::vector<PolymorphicValue> Expr::evaluate(
       "Please override the evaluate method");
 }
 
-void Expr::addScalarAttribute(PolymorphicValue attr) {
+void Expr::addDataAttribute(PolymorphicValue attr) {
   addAttribute(IrBuilder::create<Val>(container(), std::move(attr)));
 }
 
