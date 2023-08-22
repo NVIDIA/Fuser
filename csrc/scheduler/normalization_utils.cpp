@@ -768,15 +768,15 @@ namespace {
 // the caller's responsibility to check if the returned value is smaller than
 // the device's shared memory size.
 static const std::array<int64_t, 9> smem_config_options = {
-    8 * 1024,
-    16 * 1024,
-    32 * 1024,
-    64 * 1024,
-    100 * 1024,
-    132 * 1024,
-    164 * 1024,
-    196 * 1024,
-    228 * 1024};
+    8l * 1024l,
+    16l * 1024l,
+    32l * 1024l,
+    64l * 1024l,
+    100l * 1024l,
+    132l * 1024l,
+    164l * 1024l,
+    196l * 1024l,
+    228l * 1024l};
 
 int64_t getSharedMemoryConfigSize(int64_t request_size) {
   auto it = std::upper_bound(
@@ -906,7 +906,7 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
   // Try to move some buffers to shared memory to reduce register usage
   if (buffer_params.regs_buffer_size > available_regs) {
     // calculate the accumulated buffer size of the first N buffers
-    const int64_t n_buffers = persistent_buffers.size();
+    const int64_t n_buffers = (int64_t)persistent_buffers.size();
     std::vector<int64_t> acc_regs_buffer_sizes(n_buffers + 1, 0);
     std::vector<int64_t> acc_smem_buffer_sizes(n_buffers + 1, 0);
     for (int i = 1; i <= n_buffers; i++) {
@@ -954,14 +954,14 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
       int64_t smem_buffer_size = acc_smem_buffer_sizes[n_smem_buffer];
       int64_t smem_config_size = getSharedMemoryConfigSize(
           smem_buffer_size + buffer_params.smem_overhead);
-      float buffer_config_ratio = (float)smem_buffer_size / smem_config_size;
+      double buffer_config_ratio = (double)smem_buffer_size / smem_config_size;
       if (buffer_config_ratio < 0.8 &&
           smem_config_size < smem_config_options.back()) {
         int64_t smem_buffer_size_tmp = acc_smem_buffer_sizes[n_smem_buffer + 1];
         int64_t smem_config_size_tmp = getSharedMemoryConfigSize(
             smem_buffer_size_tmp + buffer_params.smem_overhead);
-        float buffer_config_ratio_tmp =
-            (float)smem_buffer_size_tmp / smem_config_size_tmp;
+        double buffer_config_ratio_tmp =
+            (double)smem_buffer_size_tmp / smem_config_size_tmp;
         if (buffer_config_ratio_tmp > buffer_config_ratio) {
           std::cout << "New n_smem_buffer detected! new n_smem_buffer= "
                     << n_smem_buffer + 1

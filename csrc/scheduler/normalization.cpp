@@ -189,8 +189,8 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
   int64_t blocks_per_sm_regs =
       getBlocksPerSM(threads_per_sm, threads_per_block, dev_prop->warpSize);
   // check shared memory limitation on blocks per sm
-  int64_t blocks_per_sm_smem =
-      dev_prop->sharedMemPerMultiprocessor / (smem_overhead + smem_buffer_size);
+  int64_t blocks_per_sm_smem = (int64_t)dev_prop->sharedMemPerMultiprocessor /
+      (smem_overhead + smem_buffer_size);
   int64_t blocks_per_sm = std::min(blocks_per_sm_regs, blocks_per_sm_smem);
   std::cout << "sharedMemPerMultiprocessor= "
             << dev_prop->sharedMemPerMultiprocessor / 1024
