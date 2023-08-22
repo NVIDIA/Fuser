@@ -67,11 +67,11 @@ class TORCH_CUDA_CU_API KernelArgumentHolder {
     return arguments_.at(ind).get();
   };
 
-  const auto cbegin() const {
+  auto cbegin() const {
     return arguments_.cbegin();
   }
 
-  const auto cend() const {
+  auto cend() const {
     return arguments_.cend();
   }
 

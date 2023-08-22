@@ -566,7 +566,7 @@ void validateAlignedVectorizedFusionInputOutput(
     // We do not update cur_contig_stride for size==1 dimensions,
     // since we have specialized vectorization stride check for
     // them. Same for non_contig_due_to_slice.
-    if (size != 1) {
+    if (size != 1 && !is_expanded_broadcasting) {
       cur_contig_stride = stride * size;
       // Note that when a domain is sliced, the next outer domain is
       // no longer contiguous.
