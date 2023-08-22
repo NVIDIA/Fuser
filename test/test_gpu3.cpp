@@ -9679,10 +9679,10 @@ TEST_F(NVFuserTest, AllInputDtypes) {
     auto bf16 = IrBuilder::create<Val>(DataType::BFloat16);
     auto cf = IrBuilder::create<Val>(DataType::ComplexFloat);
     auto cd = IrBuilder::create<Val>(DataType::ComplexDouble);
-    DataType ptr_type = PointerOf{std::make_shared<DataType>(DataType::Float)};
+    DataType ptr_type = PointerType{std::make_shared<DataType>(DataType::Float)};
     auto ptr = IrBuilder::create<Val>(ptr_type);
     DataType array_type =
-        ArrayOf{std::make_shared<DataType>(DataType::Float), 2};
+        ArrayType{std::make_shared<DataType>(DataType::Float), 2};
     auto array = IrBuilder::create<Val>(array_type);
     fusion->addInput(tv0);
     fusion->addInput(tv1);

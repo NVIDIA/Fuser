@@ -172,9 +172,9 @@ std::vector<std::byte> polymorphicValueToBytes(
     PrimDataType index_type) {
   if (argument.is<Struct>()) {
     TORCH_INTERNAL_ASSERT(
-        std::holds_alternative<StructOf>(dtype.type),
-        "Expected StructOf type.");
-    auto dtype_ = std::get<StructOf>(dtype.type);
+        std::holds_alternative<StructType>(dtype.type),
+        "Expected StructType type.");
+    auto dtype_ = std::get<StructType>(dtype.type);
     auto struct_ = argument.as<Struct>();
     std::vector<std::byte> buffer;
     for (const auto& field : dtype_.field_names) {
@@ -208,8 +208,8 @@ std::vector<std::byte> polymorphicValueToBytes(
     return buffer;
   } else if (argument.is<Pointer>()) {
     TORCH_INTERNAL_ASSERT(
-        std::holds_alternative<PointerOf>(dtype.type),
-        "Expected PointerOf type.");
+        std::holds_alternative<PointerType>(dtype.type),
+        "Expected PointerType type.");
     void* ptr = (void*)argument;
     std::vector<std::byte> buffer;
     buffer.reserve(sizeof(void*));
@@ -218,8 +218,8 @@ std::vector<std::byte> polymorphicValueToBytes(
     return buffer;
   } else if (argument.is<std::vector>()) {
     TORCH_INTERNAL_ASSERT(
-        std::holds_alternative<ArrayOf>(dtype.type), "Expected ArrayOf type.");
-    auto dtype_ = std::get<ArrayOf>(dtype.type);
+        std::holds_alternative<ArrayType>(dtype.type), "Expected ArrayType type.");
+    auto dtype_ = std::get<ArrayType>(dtype.type);
     std::vector<std::byte> buffer;
     for (const auto& elem : argument.as<std::vector>()) {
       auto elem_data = polymorphicValueToBytes(elem, *dtype_.type, index_type);

@@ -662,7 +662,7 @@ ArrayConstruct::ArrayConstruct(
     }
   }
   auto expected_output_dtype =
-      ArrayOf{std::make_shared<DataType>(input_dtype), inputs.size()};
+      ArrayType{std::make_shared<DataType>(input_dtype), inputs.size()};
   TORCH_CHECK(
       output->getDataType() == expected_output_dtype,
       "Output of ArrayConstruct must be an array of the same data type as the inputs");
@@ -692,13 +692,13 @@ NVFUSER_DEFINE_CLONE_AND_CREATE(ArrayConstruct)
 ReverseArray::ReverseArray(IrBuilderPasskey passkey, Val* output, Val* input)
     : Expr(passkey) {
   TORCH_INTERNAL_ASSERT(
-      std::holds_alternative<ArrayOf>(input->dtype().type),
+      std::holds_alternative<ArrayType>(input->dtype().type),
       "Cannot reverse a non-array type.");
   TORCH_INTERNAL_ASSERT(
-      std::holds_alternative<ArrayOf>(output->dtype().type),
+      std::holds_alternative<ArrayType>(output->dtype().type),
       "Cannot reverse a non-array type.");
-  auto input_array_type = std::get<ArrayOf>(input->dtype().type);
-  auto output_array_type = std::get<ArrayOf>(output->dtype().type);
+  auto input_array_type = std::get<ArrayType>(input->dtype().type);
+  auto output_array_type = std::get<ArrayType>(output->dtype().type);
   TORCH_INTERNAL_ASSERT(
       input_array_type.type == output_array_type.type,
       "Cannot reverse an array of type ",
@@ -746,7 +746,7 @@ GetItem::GetItem(IrBuilderPasskey passkey, Val* output, Val* array, Val* index)
   addInput(array);
   addInput(index);
   TORCH_INTERNAL_ASSERT(
-      *(std::get<ArrayOf>(array->dtype().type).type) == output->dtype(),
+      *(std::get<ArrayType>(array->dtype().type).type) == output->dtype(),
       "GetItem array input must have a data type");
 }
 
@@ -780,7 +780,7 @@ StructConstruct::StructConstruct(
     : Expr(passkey) {
   TORCH_INTERNAL_ASSERT(
       !fields.empty(), "Cannot create a struct with no members.");
-  auto output_dtype = std::get<StructOf>(output->dtype().type);
+  auto output_dtype = std::get<StructType>(output->dtype().type);
   TORCH_INTERNAL_ASSERT(
       output_dtype.types.size() == fields.size(),
       "StructConstruct output must have the same number of fields as the inputs");
@@ -855,7 +855,7 @@ GetAttr::GetAttr(
     std::string attr)
     : Expr(passkey) {
   TORCH_INTERNAL_ASSERT(
-      NVFUSER_MAYBE_STAR std::get<StructOf>(struct_->dtype().type)
+      NVFUSER_MAYBE_STAR std::get<StructType>(struct_->dtype().type)
               .types.at(attr) == output->dtype(),
       "Data type mismatch for GetAttr");
   addOutput(output);
