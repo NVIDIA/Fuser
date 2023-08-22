@@ -437,7 +437,7 @@ static const char* unary_op_type_inline_op2string(UnaryOpType t) {
     case UnaryOpType::BitwiseNot:
       return "~";
     case UnaryOpType::Address:
-      return "(int64_t) &";
+      return "&";
     default:
       break;
   }
