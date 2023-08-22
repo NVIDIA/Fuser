@@ -943,21 +943,22 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
       return buffer_params;
     }
 
-    // When more than 2 register buffers exist, evaluate the possibility of
-    // shifting an additional one. Doing so might enhance the efficiency of
-    // shared memory utilization due to preset shared configuration sizes. For
-    // instance, a 65K shared memory requirement might default to a 100K
-    // configuration. But transferring an extra buffer, raising the need to
-    // 130K, could lead to a selection of the 132K configuration, optimizing
-    // usage.
-    if (n_buffers - n_smem_buffer >= 2) {
+    // Evaluate the possibility of shifting an additional one, but don't move
+    // all of them except for combined case where additional register buffer
+    // will be created to store intermediate outer reduction results.. Doing so
+    // might enhance the efficiency of shared memory utilization due to preset
+    // shared configuration sizes. For instance, a 65K shared memory requirement
+    // might default to a 100K configuration. But transferring an extra buffer,
+    // raising the need to 130K, could lead to a selection of the 132K
+    // configuration, optimizing usage.
+    const int64_t min_resg_buffer = buffer_params.combined_reduction ? 0l : 1l;
+    if (n_buffers - n_smem_buffer > min_resg_buffer) {
       int64_t smem_buffer_size = acc_smem_buffer_sizes[n_smem_buffer];
       int64_t smem_config_size = getSharedMemoryConfigSize(
           smem_buffer_size + buffer_params.smem_overhead);
-      double buffer_config_ratio = static_cast<double>(smem_buffer_size) /
-          static_cast<double>(smem_config_size);
-      if (buffer_config_ratio < 0.8 &&
-          smem_config_size < smem_config_options.back()) {
+      if (smem_config_size < smem_config_options.back()) {
+        double buffer_config_ratio = static_cast<double>(smem_buffer_size) /
+            static_cast<double>(smem_config_size);
         int64_t smem_buffer_size_tmp = acc_smem_buffer_sizes[n_smem_buffer + 1];
         int64_t smem_config_size_tmp = getSharedMemoryConfigSize(
             smem_buffer_size_tmp + buffer_params.smem_overhead);
