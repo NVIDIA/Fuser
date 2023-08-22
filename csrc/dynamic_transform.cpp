@@ -440,9 +440,11 @@ void DynamicTransformConcretizer::concretize() {
   // these Exprs after this pass, and we do this pass in reverse topological
   // order, we will not encounter Expr* pointers that have been invalidated
   // due to `replaceValInExpr` like this.
-  for (int i = info_->getExprConcretizationDescriptors().size() - 1; i >= 0;
+  for (int i = (int)info_->getExprConcretizationDescriptors().size() - 1;
+       i >= 0;
        --i) {
     auto op = info_->initialInfo()->getDynamicExprs().at(i);
+    TORCH_CHECK(op != nullptr, "Dynamic expression must not be nullptr");
     auto desc_var = info_->getExprConcretizationDescriptors().at(i);
     if (auto vop = dynamic_cast<ViewOp*>(op)) {
       if (auto analyze_result_ptr = std::get_if<AnalyzeViewResult>(&desc_var)) {
