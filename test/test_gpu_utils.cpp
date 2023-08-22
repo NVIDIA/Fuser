@@ -1069,7 +1069,6 @@ TEST_F(NVFuserTest, FusionSASSDumpError_CUDA) {
   at::Tensor t0 = at::randn({8}, options);
 
   FusionExecutor fe;
-  fe.setSaveCompiledBinaryFlag(true);
   fe.compileFusion(&fusion, {t0});
 
   EXPECT_THAT(

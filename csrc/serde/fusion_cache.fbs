@@ -359,6 +359,15 @@ table Vector {
 // =====================================================================================
 //
 
+// TODO add cuda major and minor version
+// TODO add compile parameters
+// Each CudaKernel represents a single, compiled kernel.
+table CudaKernel {
+  kernel_name: string;
+  object_code: [byte];
+  object_code_size: ulong;
+}
+
 // Each Fusion Executor maps to a lowered and compiled kernel.
 table FusionExecutor {
   device_smem_limit: long;
@@ -373,6 +382,7 @@ table FusionExecutor {
   // Is this kernel being compiled with int32 or int64 indexing. This
   // information is required to resolve DataType::Index
   index_type : DataType;
+  compiled_kernel: CudaKernel;
 }
 
 // Each FusionKernelRuntime represents a concretized, segmented Fusion.
