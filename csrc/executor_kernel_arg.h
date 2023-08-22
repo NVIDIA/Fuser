@@ -11,6 +11,7 @@
 #include <c10/util/Exception.h>
 #include <expr_evaluator.h>
 #include <ir/all_nodes.h>
+#include <serde/fusion_cache_generated.h>
 #include <torch/csrc/jit/ir/ir.h>
 #include <type.h>
 
@@ -66,6 +67,18 @@ class TORCH_CUDA_CU_API KernelArgumentHolder {
     return arguments_.at(ind).get();
   };
 
+  auto cbegin() const {
+    return arguments_.cbegin();
+  }
+
+  auto cend() const {
+    return arguments_.cend();
+  }
+
+  auto getBackInserter() {
+    return std::back_inserter(arguments_);
+  }
+
   size_t size() const {
     return arguments_.size();
   }
@@ -91,6 +104,13 @@ class TORCH_CUDA_CU_API KernelArgumentHolder {
   }
 
   std::string toString() const;
+
+  //! Serialize Kernel Argument Holder using flatbuffers
+  flatbuffers::Offset<serde::KernelArgumentHolder> serialize(
+      flatbuffers::FlatBufferBuilder& builder) const;
+
+  //! Deserialize Kernel Argument Holder using flatbuffers
+  void deserialize(const serde::KernelArgumentHolder* buffer);
 
  private:
   std::vector<std::shared_ptr<PolymorphicValue>> arguments_;

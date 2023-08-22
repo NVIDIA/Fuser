@@ -644,7 +644,7 @@ class TORCH_CUDA_CU_API Expr : public Statement {
     if constexpr (PolymorphicValue::is_candidate_type<T>) {
       addScalarAttribute(std::move(attr));
     } else {
-      addScalarAttribute(Opaque{std::any(std::move(attr)), OpaqueEquals<T>{}});
+      addScalarAttribute(Opaque(std::move(attr)));
     }
   }
 

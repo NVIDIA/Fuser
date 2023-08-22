@@ -15,6 +15,7 @@
 #include <type.h>
 
 #include <deque>
+#include <fstream>
 #include <optional>
 #include <sstream>
 #include <string>
