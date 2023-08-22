@@ -42,7 +42,7 @@ struct TransposeViewPropagator : public MaxInfoSpanningTree::Propagator {
     };
   };
   void propagateSibling(TensorView* from, TensorView* to) override{};
-  ~TransposeViewPropagator() = default;
+  ~TransposeViewPropagator() override = default;
 
   bool p2c_via_view = false;
 };
@@ -655,7 +655,7 @@ std::string getTransposeRuntimeRejectReason(
     // cacheAfter, which I think would mean different propagation is happening
     // than what's done here. So this might not be bullet proof.
     TransposeViewPropagator propagator;
-    constexpr std::string reject_p2c_via_view =
+    constexpr std::string_view reject_p2c_via_view =
         "producer to consumer transform propagation passing view op is not yet supported";
 
     // global schedule traverse dry-run
@@ -669,8 +669,8 @@ std::string getTransposeRuntimeRejectReason(
     auto all_tvs_except1 = ir_utils::allTvsExcept(
         fusion,
         {grouped_inputs_outputs[0].begin(), grouped_inputs_outputs[0].end()});
-    SetSelector selector({all_tvs_except1.begin(), all_tvs_except1.end()});
-    MaxRootDomainInfoSpanningTree entire_dag_except1(reference2, &selector);
+    SetSelector selector2({all_tvs_except1.begin(), all_tvs_except1.end()});
+    MaxRootDomainInfoSpanningTree entire_dag_except1(reference2, &selector2);
     entire_dag_except1.traverse(&propagator);
     if (propagator.p2c_via_view) {
       return reject_p2c_via_view;
@@ -680,9 +680,9 @@ std::string getTransposeRuntimeRejectReason(
     auto all_tvs_except2 = ir_utils::allTvsExcept(
         fusion,
         {grouped_inputs_outputs[1].begin(), grouped_inputs_outputs[1].end()});
-    SetSelector selector({all_tvs_except2.begin(), all_tvs_except2.end()});
+    SetSelector selector1({all_tvs_except2.begin(), all_tvs_except2.end()});
     MaxRootDomainInfoSpanningTree entire_dag_except_outputs(
-        reference1, &selector);
+        reference1, &selector1);
     entire_dag_except_outputs.traverse(&propagator);
     if (propagator.p2c_via_view) {
       return reject_p2c_via_view;
