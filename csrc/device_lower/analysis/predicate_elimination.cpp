@@ -1014,7 +1014,7 @@ Val* PredicateElimination::getInitValue(TensorView* tv) const {
   if (init_val == nullptr) {
     // No reduction restriction. Just use zero
     auto dtype = *tv->getDataType();
-    if (std::holds_alternative<ArrayOf>(dtype.type)) {
+    if (std::holds_alternative<ArrayType>(dtype.type)) {
       return IrBuilder::create<NamedScalar>("{}", dtype);
     }
     return GpuLower::current()->kernel()->zeroVal();
