@@ -15,6 +15,7 @@
 #include <type.h>
 
 #include <deque>
+#include <fstream>
 #include <optional>
 #include <sstream>
 #include <string>
@@ -256,6 +257,8 @@ struct Printer<T> {
 SPECIALIZE_PRINTER(bool);
 SPECIALIZE_PRINTER(int);
 SPECIALIZE_PRINTER(std::string);
+using ConstCharStar = const char*;
+SPECIALIZE_PRINTER(ConstCharStar);
 SPECIALIZE_PRINTER(int64_t);
 SPECIALIZE_PRINTER(DataType);
 SPECIALIZE_PRINTER(MemoryType);

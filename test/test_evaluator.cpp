@@ -293,6 +293,28 @@ TEST_F(ExprEvalTest, Array) {
   checkIntValue(evaluator, bb, 5L);
 }
 
+TEST_F(ExprEvalTest, Struct) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto* a = IrBuilder::create<Val>(DataType::Int);
+  auto* b = IrBuilder::create<Val>(DataType::Int);
+
+  auto struct_ = IrBuilder::structExpr({{"a", a}, {"b", b}}, "test_struct");
+
+  auto aa = IrBuilder::getAttrExpr(struct_, "a");
+  auto bb = IrBuilder::getAttrExpr(struct_, "b");
+
+  ExpressionEvaluator evaluator;
+  evaluator.bind(a, 2L);
+  evaluator.bind(b, 5L);
+
+  Struct<PolymorphicValue> expect({{"a", 2L}, {"b", 5L}});
+  EXPECT_EQ(evaluator.evaluate(struct_), expect);
+  EXPECT_EQ(evaluator.evaluate(aa), 2L);
+  EXPECT_EQ(evaluator.evaluate(bb), 5L);
+}
+
 TEST_F(ExprEvalTest, TensorEagerExecution) {
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -301,8 +323,8 @@ TEST_F(ExprEvalTest, TensorEagerExecution) {
   TensorView* tv1 = makeSymbolicTensor(2);
   auto tv2 = add(tv0, tv1);
 
-  at::Tensor a = at::rand({6, 128});
-  at::Tensor b = at::rand({6, 128});
+  at::Tensor a = at::rand({6, 128}).cuda();
+  at::Tensor b = at::rand({6, 128}).cuda();
 
   ExpressionEvaluator evaluator;
   evaluator.bind(tv0, a);
@@ -318,14 +340,14 @@ TEST_F(ExprEvalTest, TensorMetaData) {
   TensorView* tv = makeSymbolicTensor(2);
   auto metadata = IrBuilder::metadataExpr(tv);
   auto data = IrBuilder::getAttrExpr(metadata, "data");
-  auto sizes = IrBuilder::getAttrExpr(metadata, "size");
-  auto strides = IrBuilder::getAttrExpr(metadata, "stride");
+  auto sizes = IrBuilder::getAttrExpr(metadata, "logical_size");
+  auto strides = IrBuilder::getAttrExpr(metadata, "alloc_stride");
   auto size0 = IrBuilder::getItemExpr(sizes, fusion.zeroVal());
   auto size1 = IrBuilder::getItemExpr(sizes, fusion.oneVal());
   auto stride0 = IrBuilder::getItemExpr(strides, fusion.zeroVal());
   auto stride1 = IrBuilder::getItemExpr(strides, fusion.oneVal());
 
-  at::Tensor a = at::rand({6, 128});
+  at::Tensor a = at::rand({6, 128}).cuda();
 
   ExpressionEvaluator evaluator;
   evaluator.bind(tv, a);
@@ -359,6 +381,43 @@ TEST_F(ExprEvalTest, OpaqueEquality) {
   EXPECT_EQ(d, d);
   EXPECT_EQ(c, d);
   EXPECT_EQ(d, c);
+}
+
+TEST_F(ExprEvalTest, Validation) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto a = IrBuilder::create<Val>(DataType::Int);
+  auto b = IrBuilder::create<Val>(DataType::Int);
+  auto one = fusion.oneVal(DataType::Int);
+  auto c = add(a, one);
+  auto d = add(c, b);
+
+  ExpressionEvaluator evaluator;
+  evaluator.bind(a, 299792458L);
+  evaluator.bind(b, 1L);
+
+  EXPECT_THAT(
+      [&]() { evaluator.bind(c, 4L, true); },
+      ::testing::ThrowsMessage<c10::Error>(
+          ::testing::HasSubstr("Tried to bind to a value: ")));
+  EXPECT_EQ(evaluator.evaluate(c), 299792459L);
+  evaluator.bind(d, 299792460L, true);
+}
+
+TEST_F(ExprEvalTest, ReverseArray) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto input = IrBuilder::create<Val>(
+      DataType(ArrayType{std::make_shared<DataType>(DataType::Int), 5}));
+  auto output = IrBuilder::reverseArrayExpr(input);
+
+  ExpressionEvaluator evaluator;
+  evaluator.bind(input, std::vector<int64_t>{1, 2, 3, 4, 5});
+
+  auto expect = std::vector<int64_t>{5, 4, 3, 2, 1};
+  EXPECT_EQ((std::vector<int64_t>)evaluator.evaluate(output), expect);
 }
 
 } // namespace nvfuser

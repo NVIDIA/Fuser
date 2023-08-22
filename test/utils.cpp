@@ -456,21 +456,26 @@ std::pair<at::Tensor, at::Tensor> matmulAtInput(
 }
 
 at::Tensor matmulAtInput(
-    const int M,
-    const int N,
-    const int K,
     const MatmulLayout layout,
     const TensorMatmulPos tensor,
     const c10::ScalarType dtype,
+    const int M,
+    const int N,
+    const int K,
+    const int B,
     const int device) {
   const auto options =
       at::TensorOptions().dtype(dtype).device(at::kCUDA, device);
+  const auto is_batch = B != 0;
 
   // handle C and D tensors, layout does not impact shape
   switch (tensor) {
     case TensorMatmulPos::C:
     case TensorMatmulPos::D:
-      return at::randn({M, N}, options);
+      return is_batch ? at::randn({B, M, N}, options)
+                      : at::randn({M, N}, options);
+    case TensorMatmulPos::Bias:
+      return is_batch ? at::randn({B, M}, options) : at::randn({M}, options);
     default:
       break;
   }
@@ -479,9 +484,11 @@ at::Tensor matmulAtInput(
     case MatmulLayout::TT:
       switch (tensor) {
         case TensorMatmulPos::A:
-          return at::randn({M, K}, options);
+          return is_batch ? at::randn({M, B, K}, options)
+                          : at::randn({M, K}, options);
         case TensorMatmulPos::B:
-          return at::randn({K, N}, options);
+          return is_batch ? at::randn({B, K, N}, options)
+                          : at::randn({K, N}, options);
         default:
           break;
       }
@@ -489,9 +496,11 @@ at::Tensor matmulAtInput(
     case MatmulLayout::TN:
       switch (tensor) {
         case TensorMatmulPos::A:
-          return at::randn({M, K}, options);
+          return is_batch ? at::randn({M, B, K}, options)
+                          : at::randn({M, K}, options);
         case TensorMatmulPos::B:
-          return at::randn({N, K}, options);
+          return is_batch ? at::randn({N, B, K}, options)
+                          : at::randn({N, K}, options);
         default:
           break;
       }
@@ -499,9 +508,11 @@ at::Tensor matmulAtInput(
     case MatmulLayout::NT:
       switch (tensor) {
         case TensorMatmulPos::A:
-          return at::randn({K, M}, options);
+          return is_batch ? at::randn({B, K, M}, options)
+                          : at::randn({K, M}, options);
         case TensorMatmulPos::B:
-          return at::randn({K, N}, options);
+          return is_batch ? at::randn({B, K, N}, options)
+                          : at::randn({K, N}, options);
         default:
           break;
       }
@@ -509,45 +520,19 @@ at::Tensor matmulAtInput(
     case MatmulLayout::NN:
       switch (tensor) {
         case TensorMatmulPos::A:
-          return at::randn({K, M}, options);
+          return is_batch ? at::randn({B, K, M}, options)
+                          : at::randn({K, M}, options);
         case TensorMatmulPos::B:
-          return at::randn({N, K}, options);
+          return is_batch ? at::randn({N, B, K}, options)
+                          : at::randn({N, K}, options);
         default:
           break;
       }
       break;
     default:
-      TORCH_CHECK(false, "unsupported data layout.");
+      TORCH_CHECK(false, "unsupported data layout, got ", (size_t)layout);
   }
-  TORCH_CHECK(false, "unsupported tensor position.");
-}
-
-std::pair<at::Tensor, at::Tensor> splitkLikeBatchedMatmulAtInput(
-    int M,
-    int N,
-    int B,
-    int K,
-    MatmulLayout layout,
-    c10::ScalarType dtype) {
-  auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
-
-  switch (layout) {
-    case MatmulLayout::TT:
-      return std::make_pair(
-          at::randn({M, B, K}, options), at::randn({B, K, N}, options));
-    case MatmulLayout::TN:
-      return std::make_pair(
-          at::randn({M, B, K}, options), at::randn({N, B, K}, options));
-    case MatmulLayout::NT:
-      return std::make_pair(
-          at::randn({B, K, M}, options), at::randn({B, K, N}, options));
-    case MatmulLayout::NN:
-      return std::make_pair(
-          at::randn({B, K, M}, options), at::randn({N, B, K}, options));
-    default:
-      TORCH_CHECK(false, "unsupported data layout.");
-  }
-  return std::make_pair(at::Tensor(), at::Tensor());
+  TORCH_CHECK(false, "unsupported tensor position, got ", (size_t)tensor);
 }
 
 bool isSchedulerInUse(
@@ -597,6 +582,93 @@ void validateSegmentation(
         group->heuristic(),
         " was used");
   }
+}
+
+TensorView* biasEpilogue(TensorView* tensor, TensorView* bias) {
+  TORCH_CHECK(
+      tensor->dtype() == bias->dtype(),
+      "bias vector must have the same type as tensor with two domains, bias: ",
+      bias->dtype(),
+      ", tensor: ",
+      tensor->dtype());
+  TORCH_CHECK(
+      tensor->nDims() >= 2,
+      "Tensors to have bias applied needs to have 2 or more domains, got ",
+      tensor->nDims());
+
+  const auto concrete = TensorDomain::noReductions(
+      TensorDomain::noBroadcasts(tensor->getLeafDomain()));
+
+  TensorView *biasb = nullptr, *biased = nullptr;
+
+  switch (concrete.size()) {
+    case 2:
+      // regular matmul (non-strided batch gemm)
+      TORCH_CHECK(
+          bias->nDims() == 1,
+          "bias vector must have one domain, got",
+          bias->nDims());
+      biasb = broadcast(bias, {false, true});
+      break;
+    case 3:
+      // strided batch gemm case
+      if (bias->nDims() == 1) {
+        // case with a single bias used through whole batch
+        biasb = broadcast(bias, {true, false, true});
+      } else if (bias->nDims() == 2) {
+        // case with dedicated bias for each problem in the batch
+        biasb = broadcast(bias, {false, false, true});
+      } else {
+        TORCH_CHECK(
+            false,
+            "bias vector must have one (single bias for batch) "
+            "or two (bias for each batch entries)), got",
+            bias->nDims());
+      }
+      break;
+    default:
+      TORCH_CHECK(
+          false,
+          "Only tensors with two (matmul) or three (strided batch matmul) "
+          "concrete domains have support for bias epilogue enabled, got ",
+          concrete.size());
+  }
+
+  biased = add(tensor, biasb);
+  return biased;
+}
+
+at::Tensor atBiasEpilogue(const at::Tensor& tensor, const at::Tensor& bias) {
+  switch (tensor.dim()) {
+    case 2:
+      TORCH_CHECK(
+          bias.dim() == 1,
+          "For single matmul problem bias must be a vector, got ",
+          bias.dim());
+      break;
+    case 3:
+      TORCH_CHECK(
+          (bias.dim() == 1 || bias.dim() == 2),
+          "For strided batch matmul problem bias must be 1d or 2d tensor, got ",
+          bias.dim());
+      break;
+    default:
+      TORCH_CHECK(
+          false,
+          "Only tensors with two (matmul) or three (strided batch matmul) "
+          "concrete domains have support for bias epilogue enabled, got ",
+          tensor.dim());
+  }
+
+  // The inner most dimension of bias tensor contains the rows number
+  const int64_t rows = bias.size(-1);
+
+  // We skip number of columns and access directly dim for rows, hence '-2'
+  TORCH_CHECK(
+      tensor.size(tensor.dim() - 2) == rows,
+      "Tensor must have the same number of rows as bias vector");
+
+  return tensor.add(bias.unsqueeze(-1));
 }
 
 } // namespace nvfuser

@@ -28,12 +28,29 @@ struct Struct {
   // straightforward, but this is not guaranteed to work by C++ standard.
   // See [Incomplete type support in STL]
 #if defined(STD_UNORDERED_SET_SUPPORTS_INCOMPLETE_TYPE)
+
   std::unordered_map<std::string, T> fields;
+  Struct(std::initializer_list<std::pair<const std::string, T>> init)
+      : fields(init) {}
 #define MAYBE_STAR
+
 #else
+
   std::unordered_map<std::string, std::shared_ptr<T>> fields;
+  Struct(std::initializer_list<std::pair<const std::string, T>> init) {
+    for (const auto& [key, value] : init) {
+      fields[key] = std::make_shared<T>(value);
+    }
+  }
 #define MAYBE_STAR *
+
 #endif
+
+  Struct() = default;
+  Struct(const Struct& other) = default;
+  Struct(Struct&& other) = default;
+  Struct& operator=(const Struct& other) = default;
+  Struct& operator=(Struct&& other) = default;
 
   const T& operator[](const std::string& key) const {
     return MAYBE_STAR fields.at(key);
@@ -50,8 +67,41 @@ struct Struct {
 #endif
   }
 
-#undef MAYBE_STAR
+  bool operator==(const Struct& other) const {
+    if (this == &other) {
+      return true;
+    }
+    if (fields.size() != other.fields.size()) {
+      return false;
+    }
+    for (const auto& [key, _] : fields) {
+      if (other.fields.find(key) == other.fields.end()) {
+        return false;
+      }
+      if ((*this)[key] != other[key]) {
+        return false;
+      }
+    }
+    return true;
+  }
 };
+
+template <typename T>
+inline std::ostream& operator<<(std::ostream& os, const Struct<T>& s) {
+  os << "struct { ";
+  bool first = true;
+  for (const auto& [key, value] : s.fields) {
+    if (!first) {
+      os << ", ";
+    }
+    os << key << " = " << MAYBE_STAR value;
+    first = false;
+  }
+  os << "}";
+  return os;
+}
+
+#undef MAYBE_STAR
 
 struct DataType;
 
@@ -67,10 +117,13 @@ class Pointer {
 
   inline Pointer(void* ptr, DataType dtype);
 
+  int64_t size() const {
+    return size_;
+  }
+
   template <typename T>
   explicit operator T*() const {
-    TORCH_INTERNAL_ASSERT(size_ == sizeof(T));
-    return static_cast<T*>(ptr_);
+    return reinterpret_cast<T*>(ptr_);
   }
 
   Pointer& operator+=(int64_t offset) {
@@ -169,10 +222,19 @@ class Pointer {
   explicit operator unsigned() const {
     return (unsigned)(int64_t)(*this);
   }
+
+  explicit operator size_t() const {
+    return reinterpret_cast<size_t>(ptr_);
+  }
 };
 
 inline Pointer operator+(int64_t offset, const Pointer& ptr) {
   return ptr + offset;
+}
+
+inline std::ostream& operator<<(std::ostream& os, const Pointer& ptr) {
+  os << (void*)ptr;
+  return os;
 }
 
 struct Opaque {
@@ -228,6 +290,30 @@ using PolymorphicValue = DynamicType<
 
 namespace PolymorphicValue_functions {
 
+inline std::string toString(const PolymorphicValue& v) {
+  std::stringstream ss;
+  if (v.is<at::Tensor>()) {
+    const auto& t = v.as<at::Tensor>();
+    ss << "Tensor(sizes=" << t.sizes() << ", "
+       << "stride=" << t.strides() << ", " << t.dtype() << ", " << t.device()
+       << ")";
+  } else {
+    ss << v;
+  }
+  return ss.str();
+}
+
+inline bool isSame(const PolymorphicValue& a, const PolymorphicValue& b) {
+  if (a.type() != b.type()) {
+    return false;
+  }
+  if (a.is<at::Tensor>() && b.is<at::Tensor>()) {
+    return (a.as<at::Tensor>().is_same(b.as<at::Tensor>()));
+  } else {
+    return (a == b);
+  }
+}
+
 inline PolymorphicValue ceildiv(
     const PolymorphicValue& a,
     const PolymorphicValue& b) {
@@ -261,17 +347,6 @@ inline PolymorphicValue gcd(
   return PolymorphicValue(std::gcd(a.as<int64_t>(), b.as<int64_t>()));
 }
 
-inline PolymorphicValue notExpr(const PolymorphicValue& a) {
-  if (a.is<int64_t>()) {
-    return PolymorphicValue(~a.as<int64_t>());
-  }
-  if (a.is<bool>()) {
-    return PolymorphicValue(!a.as<bool>());
-  }
-  TORCH_INTERNAL_ASSERT(
-      false, "PolymorphicValue notExpr not implemented for ", a.type().name());
-}
-
 inline PolymorphicValue abs(const PolymorphicValue& a) {
   if (a.is<int64_t>()) {
     return PolymorphicValue(std::abs(a.as<int64_t>()));
@@ -281,6 +356,9 @@ inline PolymorphicValue abs(const PolymorphicValue& a) {
   }
   if (a.is<bool>()) {
     return a;
+  }
+  if (a.is<std::complex<double>>()) {
+    return std::abs(a.as<std::complex<double>>());
   }
   TORCH_INTERNAL_ASSERT(
       false, "PolymorphicValue abs not implemented for ", a.type().name());
@@ -295,13 +373,15 @@ inline PolymorphicValue erf(const PolymorphicValue& a) {
 }
 
 // Convert scalars, vector of scalars, vector of vector of scalars, etc., into
-// an at::Tensor
-inline PolymorphicValue toTensor(const PolymorphicValue& x) {
+// an at::Tensor. device argument allows for the creation of CPU Scalars.
+inline PolymorphicValue toTensor(
+    const PolymorphicValue& x,
+    at::DeviceType device_type = at::kCUDA,
+    int8_t device_index = 0) {
   if (x.is<at::Tensor>()) {
     return x;
   }
-  // TODO: allow specifying device
-  auto options = at::TensorOptions().device(at::kCUDA, 0);
+  auto options = at::TensorOptions().device(device_type, device_index);
   if (x.is<int64_t>()) {
     return PolymorphicValue(
         at::tensor(x.as<int64_t>(), options.dtype(at::kLong)).squeeze());

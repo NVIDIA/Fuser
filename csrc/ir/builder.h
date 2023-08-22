@@ -56,16 +56,21 @@ class TORCH_CUDA_CU_API IrBuilder {
   static T* clone(const T* src, IrCloner* ir_cloner);
 
   // Unary operations
+  static Val* derefExpr(Val* val);
   static Val* negExpr(Val* val);
-  static Val* notExpr(Val* val);
+  static Val* logicalNotExpr(Val* val);
+  static Val* bitwiseNotExpr(Val* val);
   static Val* absExpr(Val* val);
   static Val* setExpr(Val* val);
+  static Val* maybeCastExpr(DataType dtype, Val* val);
   static NamedScalar* setExprNamedScalar(const std::string& name, Val* val);
   static NamedScalar* addressExprNamedScalar(const std::string& name, Val* val);
 
   // Binary operations
-  static Val* andExpr(Val* lhs, Val* rhs);
-  static Val* orExpr(Val* lhs, Val* rhs);
+  static Val* logicalAndExpr(Val* lhs, Val* rhs);
+  static Val* logicalOrExpr(Val* lhs, Val* rhs);
+  static Val* bitwiseAndExpr(Val* lhs, Val* rhs);
+  static Val* bitwiseOrExpr(Val* lhs, Val* rhs);
   static Val* eqExpr(Val* lhs, Val* rhs);
   static Val* neExpr(Val* lhs, Val* rhs);
   static Val* gtExpr(Val* lhs, Val* rhs);
@@ -89,6 +94,7 @@ class TORCH_CUDA_CU_API IrBuilder {
   static Val* getItemExpr(Val* array, Val* index);
   static Val* getItemExpr(Val* array, PolymorphicValue index);
   static Val* getAttrExpr(Val* struct_, std::string attr);
+  static Val* reverseArrayExpr(Val* array);
 
   // Get tensor metadata
   static Val* metadataExpr(TensorView* tv);
@@ -101,7 +107,7 @@ class TORCH_CUDA_CU_API IrBuilder {
           !members.empty(), "Cannot create an array with no members.");
       auto in_dtype = members.at(0)->dtype();
       auto out_dtype =
-          ArrayOf{std::make_shared<DataType>(in_dtype), members.size()};
+          ArrayType{std::make_shared<DataType>(in_dtype), members.size()};
       auto out = newScalar(out_dtype);
       create<ArrayConstruct>(out, members);
       return out;
@@ -118,6 +124,10 @@ class TORCH_CUDA_CU_API IrBuilder {
       return arrayExpr(array_members);
     }
   }
+
+  static Val* structExpr(
+      const std::vector<std::pair<std::string, Val*>>& fields,
+      std::string name = "");
 
   static Val* newScalar(DataType dtype);
 
@@ -144,21 +154,32 @@ class TORCH_CUDA_CU_API IrBuilder {
 class TORCH_CUDA_CU_API SimplifyingIrBuilder : public IrBuilder {
  public:
   static Val* negExpr(Val* val);
-  static Val* notExpr(Val* val);
+  static Val* logicalNotExpr(Val* val);
+  static Val* bitwiseNotExpr(Val* val);
+  static Val* maybeCastExpr(DataType dtype, Val* val);
 
-  static Val* addExpr(Val* lhs, PolymorphicValue rhs);
+  static Val* addExpr(
+      Val* lhs,
+      PolymorphicValue rhs,
+      DataType rhs_dtype = DataType::Null);
   static Val* addExpr(Val* lhs, Val* rhs);
 
   static Val* subExpr(Val* lhs, Val* rhs);
 
-  static Val* mulExpr(Val* lhs, PolymorphicValue rhs);
+  static Val* mulExpr(
+      Val* lhs,
+      PolymorphicValue rhs,
+      DataType rhs_dtype = DataType::Null);
   static Val* mulExpr(Val* lhs, Val* rhs);
   static Val* divExpr(Val* lhs, Val* rhs);
 
   static Val* ceilDivExpr(Val* lhs, Val* rhs);
 
   static Val* modExpr(Val* lhs, Val* rhs);
-  static Val* andExpr(Val* lhs, Val* rhs);
+  static Val* logicalAndExpr(Val* lhs, Val* rhs);
+  static Val* logicalOrExpr(Val* lhs, Val* rhs);
+  static Val* bitwiseAndExpr(Val* lhs, Val* rhs);
+  static Val* bitwiseOrExpr(Val* lhs, Val* rhs);
   static Val* maxExpr(Val* lhs, Val* rhs);
   static Val* minExpr(Val* lhs, Val* rhs);
   static Val* gcdExpr(Val* lhs, Val* rhs);

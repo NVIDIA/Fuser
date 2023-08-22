@@ -120,33 +120,6 @@ bool Val::removeUse(Expr* expr) {
   return false;
 }
 
-// Converts the data type of TensorView or Scalar representing index
-// values. The data type of the original input should be
-// DataType::Index, but DataType::Int is also allowed as it is used
-// for index expressions.
-void Val::resolveIndexDtype() {
-  TORCH_INTERNAL_ASSERT(
-      vtype_ == ValType::TensorView || vtype_ == ValType::Others ||
-          vtype_ == ValType::NamedScalar,
-      "Resolving index type is currently only supported on tensor view or scalar values. "
-      "Value type: ",
-      vtype_);
-  TORCH_INTERNAL_ASSERT(
-      isIntegralType(dtype_),
-      "Can only resolve index type if a Val has an Index or Int DataType. ",
-      "Data type: ",
-      dtype_);
-  TORCH_INTERNAL_ASSERT(
-      container()->isA<kir::Kernel>(),
-      "Index type can only be resolved at compile time.");
-  auto index_dtype = container()->as<kir::Kernel>()->indexType();
-  TORCH_INTERNAL_ASSERT(
-      index_dtype == DataType::Int || index_dtype == DataType::Int32,
-      "Invalid index data type: ",
-      index_dtype);
-  dtype_ = index_dtype;
-}
-
 bool Val::sameAs(const Statement* other) const {
   if (this == other) {
     return true;
@@ -230,16 +203,16 @@ bool Val::isConstScalar() const {
   if (!isScalar()) {
     return false;
   }
-  return ir_utils::dependenciesSatisfied({this});
+  return ir_utils::dependenciesSatisfied(this);
 }
 
 bool Val::isConstInt() const {
-  return ir_utils::dependenciesSatisfied({this}) && isIntegralScalar();
+  return ir_utils::dependenciesSatisfied(this) && isIntegralScalar();
 }
 
 int64_t Val::evaluateInt() {
   TORCH_INTERNAL_ASSERT(
-      ir_utils::dependenciesSatisfied(std::vector<const Val*>{this}),
+      ir_utils::dependenciesSatisfied(this),
       "Cannot get Int of not const values through IR nodes, must use runtime ExpressionEvaluator.");
 
   if (this->value().hasValue()) {
@@ -257,7 +230,7 @@ int64_t Val::evaluateInt() {
 
 double Val::evaluateDouble() {
   TORCH_INTERNAL_ASSERT(
-      ir_utils::dependenciesSatisfied(std::vector<const Val*>{this}),
+      ir_utils::dependenciesSatisfied(this),
       "Cannot get Double of not const doubles through IR nodes, must use runtime ExpressionEvaluator.");
 
   if (this->value().hasValue()) {
@@ -274,7 +247,7 @@ double Val::evaluateDouble() {
 
 bool Val::evaluateBool() {
   TORCH_INTERNAL_ASSERT(
-      ir_utils::dependenciesSatisfied(std::vector<const Val*>{this}),
+      ir_utils::dependenciesSatisfied(this),
       "Cannot get Bool of not const bools through IR nodes, must use runtime ExpressionEvaluator.");
 
   if (this->value().hasValue()) {
@@ -490,6 +463,7 @@ Expr* Expr::withWritePredicate(kir::Predicate* predicate) {
 }
 
 std::vector<PolymorphicValue> Expr::evaluate(
+    const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
   TORCH_INTERNAL_ASSERT(
       false,

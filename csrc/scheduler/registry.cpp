@@ -51,15 +51,6 @@ bool rejectScheduleFusionInputRequirement(
         " must be fusion input.");
     return true;
   }
-  if (expr->input(0)->uses().size() > 1) {
-    scheduler_debug_utils::canScheduleRejectReason(
-        schedule_stragety,
-        "First input of ",
-        expr->getOpString(),
-        " can only be used by ",
-        expr->getOpString());
-    return true;
-  }
   return false;
 }
 
@@ -971,34 +962,30 @@ SchedulerRuntimeInfo::SchedulerRuntimeInfo(
         *expression_evaluator_);
   }
 
-  // Convert all abstract tensor args into tensor args and do tensor stride
-  // inference
-  std::vector<TensorView*> tvs;
-  tvs.reserve(complete_fusion_->inputs().size());
-  for (auto val : complete_fusion_->inputs()) {
-    tvs.emplace_back(dynamic_cast<TensorView*>(val));
-  }
-  args.getBuffer(index_type_, tvs, *expression_evaluator_);
-
   for (auto inp_i : c10::irange(static_cast<int64_t>(args.size()))) {
-    auto kernel_arg = args[inp_i];
+    auto fusion_inp = complete_fusion_->inputs().at(inp_i);
+    auto input_tv = dynamic_cast<TensorView*>(fusion_inp);
     // Note: we are skipping CpuScalar tensor here
-    if (auto tensor_arg_abstract =
-            dynamic_cast<const TensorArgAbstract*>(kernel_arg)) {
-      auto fusion_inp = complete_fusion_->inputs()[inp_i];
-      input_ptrs_[fusion_inp] = tensor_arg_abstract->getPointerAddress();
+    if (input_tv != nullptr && !input_tv->isCpuScalar()) {
+      const auto& metadata =
+          expression_evaluator_->evaluate(IrBuilder::metadataExpr(input_tv));
+      const auto& alloc_sizes = metadata["alloc_size"].as<std::vector>();
+      const auto& alloc_strides = metadata["alloc_stride"].as<std::vector>();
+      TORCH_INTERNAL_ASSERT(alloc_sizes.size() == alloc_strides.size());
+
+      input_ptrs_[fusion_inp] = (size_t)metadata["data"];
 
       // find and push discontiguous stride
-      auto dtype_size = dataTypeSize(tensor_arg_abstract->getDataType());
+      int64_t dtype_size = dataTypeSize(input_tv->dtype());
       input_discontig_strides_[fusion_inp] = {};
-      auto dims = tensor_arg_abstract->getAllocRank();
+      int64_t dims = (int64_t)alloc_strides.size();
       int64_t expected_stride = 1;
-      for (auto dim = dims - 1; dim >= 0; dim--) {
-        auto size = tensor_arg_abstract->getAllocSize((int)dim);
+      for (int64_t dim = dims - 1; dim >= 0; dim--) {
+        auto size = alloc_sizes.at(dim).as<int64_t>();
         if (size <= 1) {
           continue;
         }
-        auto stride = tensor_arg_abstract->getAllocStride((int)dim);
+        auto stride = alloc_strides.at(dim).as<int64_t>();
         if (stride != expected_stride) {
           input_discontig_strides_[fusion_inp].push_back(stride * dtype_size);
           expected_stride = stride;
@@ -1030,11 +1017,10 @@ std::unique_ptr<ExpressionEvaluator> SchedulerRuntimeInfo::
         const KernelArgumentHolder& args,
         PrecomputedValues* precomputed_values) {
   std::unique_ptr<ExpressionEvaluator> ee =
-      std::make_unique<ExpressionEvaluator>();
+      std::make_unique<ExpressionEvaluator>(
+          executor_utils::bindInputs(args, complete_fusion_));
   if (precomputed_values) {
     ee->bindPrecomputedValues(precomputed_values);
-  } else {
-    *ee = executor_utils::bindInputs(args, complete_fusion_);
   }
   return ee;
 }
@@ -1975,7 +1961,8 @@ class PersistentKernelScheduler : public SchedulerEntry {
 
     if (persistent_buffer_size > available_persistent_buffer_size) {
       scheduler_debug_utils::canScheduleRejectReason(
-          ScheduleHeuristic::Persistent, "not enough registers for persistece");
+          ScheduleHeuristic::Persistent,
+          "not enough registers or shared memory for persistence");
       return false;
     }
 
@@ -2166,13 +2153,44 @@ class PersistentKernelScheduler : public SchedulerEntry {
           normalization_scheduler_utils::partialReductionBufferSize(
               outer_reduction_tvs, runtime_info);
     }
+
     // At this point, we use the full register file size only for the
     // inner-outer case. It does not mean the full size shouldn't be used
     // otherwise, but more detailed tuning of the heuristics would be required.
-    const int64_t available_persistent_buffer_size =
-        combined_inner_outer_reduction
+    int64_t available_persistent_buffer_size = combined_inner_outer_reduction
         ? scheduler_utils::register_file_size_full
         : scheduler_utils::register_file_size;
+
+    // Use shared memory for persistent buffer is only tested for inner
+    // reduction
+    // TODO: extend to outer reduction and combined reduction
+    const bool allow_shared_memory =
+        inner_reduction_count > 0 && outer_reduction_count == 0;
+    if (allow_shared_memory) {
+      const auto dev_prop = at::cuda::getCurrentDeviceProperties();
+      const int64_t max_shared_memory_size =
+          (int64_t)dev_prop->sharedMemPerBlockOptin;
+      // Some shared memories are reserved for kernel launch overhead and
+      // reduction_broadcast_workspace. Estimation is conservative, but should
+      // be good enough. The actual threads per block is set in the heuristics
+      // and it may be smaller than maxThreadsPerBlock.
+      // TODO: More accurate estimation of available shared memory size.
+      const int64_t kernel_overhead =
+          (int64_t)dev_prop->reservedSharedMemPerBlock;
+      int64_t max_buffer_dtype_size = 1;
+      for (auto tv : persistent_buffer_info.persistent_buffers) {
+        max_buffer_dtype_size = std::max(
+            max_buffer_dtype_size,
+            dataTypeSize(
+                tv->getDataType().value(), runtime_info.getIndexType()));
+      }
+      const int64_t reduction_broadcast_workspace =
+          (int64_t)(dev_prop->maxThreadsPerBlock) * max_buffer_dtype_size;
+      const int64_t available_shared_memory_size = max_shared_memory_size -
+          kernel_overhead - reduction_broadcast_workspace;
+      available_persistent_buffer_size = std::max(
+          available_persistent_buffer_size, available_shared_memory_size);
+    }
 
     return std::make_pair(
         persistent_buffer_size, available_persistent_buffer_size);

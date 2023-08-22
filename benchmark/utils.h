@@ -52,6 +52,9 @@ int64_t runBenchmarkIterations(
     const LaunchParams& launch_constraints = LaunchParams(),
     CompileParams compile_params = CompileParams());
 
+void addCasesOneWave128To32K(benchmark::internal::Benchmark* b);
+void addCases16Wave128To32K(benchmark::internal::Benchmark* b);
+
 class CudaKernelTimer {
  public:
   CudaKernelTimer() {

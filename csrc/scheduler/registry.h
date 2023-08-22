@@ -38,7 +38,7 @@ class TORCH_CUDA_CU_API SchedulerRuntimeInfo : public NonCopyable {
  public:
   // Max vector size we will consider, in bytes,
   //  currently set to 16B = 128b
-  static constexpr size_t max_alignment_size_in_byte = 16;
+  static constexpr int64_t max_alignment_size_in_byte = 16;
 
   //! Create runtime info for given fusion and input. Creating and binding
   //! evaluator is optional. The evaluator is used to manage intermediate

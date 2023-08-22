@@ -164,31 +164,14 @@ void PrecomputedValues::bindInputs(const KernelArgumentHolder& args) {
 
   for (const auto i : c10::irange((int64_t)inputs.size())) {
     const auto input = inputs[i];
-    const ArgAbstract* arg = args[i];
     TORCH_INTERNAL_ASSERT(input != nullptr);
     if (auto tensor_input = dynamic_cast<TensorView*>(input)) {
-      if (const auto& tensor_arg_abstract =
-              dynamic_cast<const TensorArgAbstract*>(arg)) {
-        bindTensorMetaData(tensor_input, tensor_arg_abstract);
-      } else {
-        TORCH_CHECK(
-            arg != nullptr && arg->isType(ArgType::CpuScalarTensor),
-            "binding input to TensorView expects input arg to be of tensor type");
+      const auto& tensor = args[i]->as<at::Tensor>();
+      if (!tensor.is_cpu()) {
+        bindTensorMetaData(tensor_input, tensor);
       }
-    } else if (input->isScalar()) {
-      if (input->getDataType() == DataType::Int) {
-        TORCH_CHECK(
-            arg->isType(ArgType::Long),
-            "binding input to integer type expects input arg to be a scalar of Long type");
-        bindValue(
-            input->evaluatorIndex(), *static_cast<const int64_t*>(arg->arg()));
-      } else if (input->getDataType() == DataType::Double) {
-        TORCH_CHECK(
-            arg->isType(ArgType::Double),
-            "binding input to double type expects input arg to be a scalar of Double type");
-        bindValue(
-            input->evaluatorIndex(), *static_cast<const double*>(arg->arg()));
-      }
+    } else {
+      bindValue(input->evaluatorIndex(), *args[i]);
     }
   }
 }
@@ -220,13 +203,14 @@ void PrecomputedValues::initializeValueList(
   }
 }
 
-PolymorphicValue PrecomputedValues::getMaybeValueFor(const Val* val) const {
+const PolymorphicValue& PrecomputedValues::getMaybeValueFor(
+    const Val* val) const {
   auto index = val->evaluatorIndex();
   if (index < 0) {
-    return std::monostate{};
+    return null_;
   }
   if (!defined_[index] && !is_constant_[index]) {
-    return std::monostate{};
+    return null_;
   }
   return values_[index];
 }
@@ -324,9 +308,10 @@ void PrecomputedValues::initializeNamedScalars() {
 
 void PrecomputedValues::validate() {
   FUSER_PERF_SCOPE("PrecomputedValuess::Validate");
+  using namespace PolymorphicValue_functions;
   for (const auto& it : binding_log_) {
     TORCH_INTERNAL_ASSERT(
-        values_[it.first] == it.second,
+        isSame(values_[it.first], it.second),
         "Precomputed values failed to validate.",
         "\nSomething unexpected changed between the compilation and execution.\n",
         values_[it.first],
@@ -338,16 +323,15 @@ void PrecomputedValues::validate() {
 
 void PrecomputedValues::bindTensorMetaData(
     TensorView* tv,
-    const TensorArgAbstract* tensor_arg_abstract) {
+    const at::Tensor& tensor) {
   const auto root_domain =
       TensorDomain::noReductions(tv->getMaybeRFactorDomain());
   TORCH_INTERNAL_ASSERT(
-      tensor_arg_abstract->getRank() ==
-          static_cast<int64_t>(root_domain.size()),
+      tensor.dim() == static_cast<int64_t>(root_domain.size()),
       "Something went wrong configuring launch. Inputs do not match.");
 
   for (const auto dim : c10::irange(root_domain.size())) {
-    auto value = tensor_arg_abstract->getSize(static_cast<int64_t>(dim));
+    auto value = tensor.size((int64_t)dim);
     if (root_domain[dim]->hasExpandedExtent()) {
       auto extent = root_domain[dim]->extent();
       auto expanded_extent = root_domain[dim]->expandedExtent();
@@ -370,7 +354,8 @@ NaiveValueMachine::NaiveValueMachine(PrecomputedValues& precomputed_values)
       } else if (auto bop = dynamic_cast<BinaryOp*>(def)) {
         makeBinaryOp(bop);
       } else {
-        TORCH_INTERNAL_ASSERT(false, "Unsupported expr");
+        // There could be some ops not supported yet. For these ops, we will
+        // bind their outputs. So ignoring them here.
       }
     }
   }
@@ -496,18 +481,25 @@ void NaiveValueMachine::runUnaryOp(int index) {
       dest = -src;
       break;
     case UnaryOpType::Cast:
-      if (data_type_[index] == DataType::Double) {
+      if (isFloatingPointType(data_type_[index])) {
         dest = PolymorphicValue((double)src);
-      } else if (data_type_[index] == DataType::Int) {
+      } else if (isIntegralType(data_type_[index])) {
         dest = PolymorphicValue((int64_t)src);
       } else if (data_type_[index] == DataType::Bool) {
         dest = PolymorphicValue((bool)src);
       } else {
-        TORCH_INTERNAL_ASSERT(false, "dtype not supported in evaluator");
+        TORCH_INTERNAL_ASSERT(
+            false, "dtype not supported in evaluator: ", data_type_[index]);
       }
       break;
     case UnaryOpType::Abs:
       dest = abs(src);
+      break;
+    case UnaryOpType::LogicalNot:
+      dest = !src;
+      break;
+    case UnaryOpType::BitwiseNot:
+      dest = ~src;
       break;
     default:
       TORCH_CHECK(!"Unexpected operator type ", uop_type_[index]);
@@ -558,8 +550,20 @@ void NaiveValueMachine::runBinaryOp(int index) {
       TORCH_CHECK(rhs != 0);
       dest = ceildiv(lhs, rhs);
       break;
-    case BinaryOpType::And:
+    case BinaryOpType::LogicalAnd:
       dest = lhs && rhs;
+      break;
+    case BinaryOpType::BitwiseAnd:
+      dest = lhs & rhs;
+      break;
+    case BinaryOpType::LogicalOr:
+      dest = lhs || rhs;
+      break;
+    case BinaryOpType::BitwiseOr:
+      dest = lhs | rhs;
+      break;
+    case BinaryOpType::BitwiseXor:
+      dest = lhs ^ rhs;
       break;
     case BinaryOpType::Max:
       dest = lhs > rhs ? lhs : rhs;

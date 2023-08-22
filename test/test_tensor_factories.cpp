@@ -465,13 +465,17 @@ __global__ void CUDAGeneratedKernel(int64_t i0, int64_t i1, int64_t i2, Tensor<i
   i5 = abs(i2);
   int64_t i6;
   i6 = ceilDiv(i4, i5);
+  nvfuser_index_t i7;
+  i7 = (nvfuser_index_t)(i6);
+  int64_t i8;
+  i8 = (int64_t)(i7);
   #pragma unroll 1
-  for(nvfuser_index_t i7 = 0; i7 < i6; ++i7) {
-    T0[i7] = (i0 + (i2 * i7));
+  for(nvfuser_index_t i9 = 0; i9 < i7; ++i9) {
+    T0[i9] = (i0 + (i2 * i9));
   }
   #pragma unroll 1
-  for(nvfuser_index_t i8 = 0; i8 < i6; ++i8) {
-    T1[i8] = i6;
+  for(nvfuser_index_t i10 = 0; i10 < i7; ++i10) {
+    T1[i10] = i8;
   }
 }
 )";
@@ -526,9 +530,9 @@ TEST_F(TensorFactoryTest, MetadataAsTensor) {
 
   // also test unamed structure
   auto unamed_dtype0 = metaDataTypeOf(tv0);
-  std::get<StructOf>(unamed_dtype0.type).name = "";
+  std::get<StructType>(unamed_dtype0.type).name = "";
   auto unamed_dtype1 = metaDataTypeOf(tv1);
-  std::get<StructOf>(unamed_dtype1.type).name = "";
+  std::get<StructType>(unamed_dtype1.type).name = "";
   auto meta0_copy1 = IrBuilder::newScalar(unamed_dtype0);
   auto meta1_copy1 = IrBuilder::newScalar(unamed_dtype1);
   IrBuilder::create<LoadStoreOp>(
@@ -539,10 +543,10 @@ TEST_F(TensorFactoryTest, MetadataAsTensor) {
   auto meta0_copy2 = set(meta0_copy1);
   auto meta1_copy2 = set(meta1_copy1);
 
-  auto size0 = IrBuilder::getAttrExpr(meta0_copy2, "size");
-  auto stride0 = IrBuilder::getAttrExpr(meta0_copy2, "stride");
-  auto size1 = IrBuilder::getAttrExpr(meta1_copy2, "size");
-  auto stride1 = IrBuilder::getAttrExpr(meta1_copy2, "stride");
+  auto size0 = IrBuilder::getAttrExpr(meta0_copy2, "logical_size");
+  auto stride0 = IrBuilder::getAttrExpr(meta0_copy2, "alloc_stride");
+  auto size1 = IrBuilder::getAttrExpr(meta1_copy2, "logical_size");
+  auto stride1 = IrBuilder::getAttrExpr(meta1_copy2, "alloc_stride");
 
   auto output = tensor(std::vector<Val*>{size0, stride0, size1, stride1});
   fusion->addOutput(output);

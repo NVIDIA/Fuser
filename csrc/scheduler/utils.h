@@ -529,7 +529,7 @@ TORCH_CUDA_CU_API std::unordered_map<int, int> domainReorderAsRfactorMap(
 
 // Assumes view's are consistent as detected by
 // registery.cpp::requiresForwardViewReplay returning false
-void propagateViewTransforms(Fusion* fusion, const ComputeAtMap& ca_map);
+void propagateReshapeTransforms(Fusion* fusion, const ComputeAtMap& ca_map);
 
 //! Check if tv is an output of a fastest-dim reduction
 bool isFastestDimReduction(TensorView* tv);

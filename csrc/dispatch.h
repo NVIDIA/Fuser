@@ -78,8 +78,10 @@ class UnaryOp;
 class BinaryOp;
 class TernaryOp;
 class ArrayConstruct;
+class StructConstruct;
 class GetAttr;
 class GetItem;
+class ReverseArray;
 class GetMetaData;
 class TensorConstruct;
 class SelectOp;
@@ -133,6 +135,7 @@ class VectorizedWelfordOp;
 class AllocateFusedReduction;
 class InitMagicZero;
 class UpdateMagicZero;
+class GetRNGSeedAndOffsetFromHost;
 
 } // namespace kir
 
@@ -168,8 +171,10 @@ class TORCH_CUDA_CU_API OptOutConstDispatch : public PolymorphicBase {
   virtual void handle(const BinaryOp* stmt);
   virtual void handle(const TernaryOp* stmt);
   virtual void handle(const ArrayConstruct* stmt);
+  virtual void handle(const StructConstruct* stmt);
   virtual void handle(const GetAttr* stmt);
   virtual void handle(const GetItem* stmt);
+  virtual void handle(const ReverseArray* stmt);
   virtual void handle(const GetMetaData* stmt);
   virtual void handle(const TensorConstruct* stmt);
   virtual void handle(const SelectOp* stmt);
@@ -215,6 +220,7 @@ class TORCH_CUDA_CU_API OptOutConstDispatch : public PolymorphicBase {
   virtual void handle(const kir::GroupedGridWelford*);
   virtual void handle(const kir::VectorizedWelfordOp*);
   virtual void handle(const kir::AllocateFusedReduction*);
+  virtual void handle(const kir::GetRNGSeedAndOffsetFromHost* stmt);
 
   virtual void handle(const PipelineStage*);
   virtual void handle(const PipelineCommunication*);
@@ -250,8 +256,10 @@ class TORCH_CUDA_CU_API OptOutDispatch : public PolymorphicBase {
   virtual void handle(BinaryOp* stmt);
   virtual void handle(TernaryOp* stmt);
   virtual void handle(ArrayConstruct* stmt);
+  virtual void handle(StructConstruct* stmt);
   virtual void handle(GetAttr* stmt);
   virtual void handle(GetItem* stmt);
+  virtual void handle(ReverseArray* stmt);
   virtual void handle(GetMetaData* stmt);
   virtual void handle(TensorConstruct* stmt);
   virtual void handle(SelectOp* stmt);
@@ -297,6 +305,7 @@ class TORCH_CUDA_CU_API OptOutDispatch : public PolymorphicBase {
   virtual void handle(kir::GroupedGridWelford* stmt);
   virtual void handle(kir::VectorizedWelfordOp* stmt);
   virtual void handle(kir::AllocateFusedReduction* stmt);
+  virtual void handle(kir::GetRNGSeedAndOffsetFromHost* stmt);
 
   virtual void handle(PipelineStage* stmt);
   virtual void handle(PipelineCommunication* stmt);

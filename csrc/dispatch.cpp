@@ -110,12 +110,20 @@ void Expr::dispatch(T handler, Expr* expr) {
     ptr(handler)->handle(expr->as<ArrayConstruct>());
     return;
   }
+  if (expr->isStrictlyA<StructConstruct>()) {
+    ptr(handler)->handle(expr->as<StructConstruct>());
+    return;
+  }
   if (expr->isStrictlyA<GetAttr>()) {
     ptr(handler)->handle(expr->as<GetAttr>());
     return;
   }
   if (expr->isStrictlyA<GetItem>()) {
     ptr(handler)->handle(expr->as<GetItem>());
+    return;
+  }
+  if (expr->isStrictlyA<ReverseArray>()) {
+    ptr(handler)->handle(expr->as<ReverseArray>());
     return;
   }
   if (expr->isStrictlyA<GetMetaData>()) {
@@ -288,6 +296,10 @@ void Expr::dispatch(T handler, Expr* expr) {
   }
   if (expr->isStrictlyA<kir::AllocateFusedReduction>()) {
     ptr(handler)->handle(expr->as<kir::AllocateFusedReduction>());
+    return;
+  }
+  if (expr->isStrictlyA<kir::GetRNGSeedAndOffsetFromHost>()) {
+    ptr(handler)->handle(expr->as<kir::GetRNGSeedAndOffsetFromHost>());
     return;
   }
   if (expr->isStrictlyA<PipelineStage>()) {
@@ -378,12 +390,20 @@ void Expr::constDispatch(T handler, const Expr* expr) {
     ptr(handler)->handle(expr->as<ArrayConstruct>());
     return;
   }
+  if (expr->isStrictlyA<StructConstruct>()) {
+    ptr(handler)->handle(expr->as<StructConstruct>());
+    return;
+  }
   if (expr->isStrictlyA<GetAttr>()) {
     ptr(handler)->handle(expr->as<GetAttr>());
     return;
   }
   if (expr->isStrictlyA<GetItem>()) {
     ptr(handler)->handle(expr->as<GetItem>());
+    return;
+  }
+  if (expr->isStrictlyA<ReverseArray>()) {
+    ptr(handler)->handle(expr->as<ReverseArray>());
     return;
   }
   if (expr->isStrictlyA<GetMetaData>()) {
@@ -556,6 +576,10 @@ void Expr::constDispatch(T handler, const Expr* expr) {
   }
   if (expr->isStrictlyA<kir::AllocateFusedReduction>()) {
     ptr(handler)->handle(expr->as<kir::AllocateFusedReduction>());
+    return;
+  }
+  if (expr->isStrictlyA<kir::GetRNGSeedAndOffsetFromHost>()) {
+    ptr(handler)->handle(expr->as<kir::GetRNGSeedAndOffsetFromHost>());
     return;
   }
   if (expr->isStrictlyA<PipelineStage>()) {
@@ -776,10 +800,16 @@ void OptOutConstDispatch::handle(const TernaryOp* stmt) {
 void OptOutConstDispatch::handle(const ArrayConstruct* stmt) {
   unhandled(stmt);
 }
+void OptOutConstDispatch::handle(const StructConstruct* stmt) {
+  unhandled(stmt);
+}
 void OptOutConstDispatch::handle(const GetAttr* stmt) {
   unhandled(stmt);
 }
 void OptOutConstDispatch::handle(const GetItem* stmt) {
+  unhandled(stmt);
+}
+void OptOutConstDispatch::handle(const ReverseArray* stmt) {
   unhandled(stmt);
 }
 void OptOutConstDispatch::handle(const GetMetaData* stmt) {
@@ -913,6 +943,9 @@ void OptOutConstDispatch::handle(const kir::VectorizedWelfordOp* stmt) {
 void OptOutConstDispatch::handle(const kir::AllocateFusedReduction* stmt) {
   unhandled(stmt);
 }
+void OptOutConstDispatch::handle(const kir::GetRNGSeedAndOffsetFromHost* stmt) {
+  unhandled(stmt);
+}
 
 void OptOutConstDispatch::handle(const PipelineStage* stmt) {
   unhandled(stmt);
@@ -973,10 +1006,16 @@ void OptOutDispatch::handle(TernaryOp* stmt) {
 void OptOutDispatch::handle(ArrayConstruct* stmt) {
   unhandled(stmt);
 }
+void OptOutDispatch::handle(StructConstruct* stmt) {
+  unhandled(stmt);
+}
 void OptOutDispatch::handle(GetAttr* stmt) {
   unhandled(stmt);
 }
 void OptOutDispatch::handle(GetItem* stmt) {
+  unhandled(stmt);
+}
+void OptOutDispatch::handle(ReverseArray* stmt) {
   unhandled(stmt);
 }
 void OptOutDispatch::handle(GetMetaData* stmt) {
@@ -1110,6 +1149,10 @@ void OptOutDispatch::handle(kir::VectorizedWelfordOp* stmt) {
 void OptOutDispatch::handle(kir::AllocateFusedReduction* stmt) {
   unhandled(stmt);
 }
+void OptOutDispatch::handle(kir::GetRNGSeedAndOffsetFromHost* stmt) {
+  unhandled(stmt);
+}
+
 void OptOutDispatch::handle(PipelineStage* stmt) {
   unhandled(stmt);
 }

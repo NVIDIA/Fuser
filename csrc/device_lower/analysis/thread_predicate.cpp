@@ -50,7 +50,7 @@ Val* getPredicatePerParallelType(
     Val* zero = GpuLower::current()->kernel()->zeroVal();
     Val* pred = GpuLower::current()->kernel()->trueVal();
     for (auto broadcast_rd_index : broadcast_rd_indices) {
-      pred = SimplifyingIrBuilder::andExpr(
+      pred = SimplifyingIrBuilder::logicalAndExpr(
           pred, SimplifyingIrBuilder::eqExpr(broadcast_rd_index, zero));
     }
     return pred;
@@ -76,7 +76,7 @@ Val* ThreadPredicateMap::getPredicateFromPredicateInfo(
   Val* pred = nullptr;
   for (const auto pt : pred_types) {
     const auto tp = getPredicatePerParallelType(pt, pred_info);
-    pred = SimplifyingIrBuilder::andExpr(pred, tp);
+    pred = SimplifyingIrBuilder::logicalAndExpr(pred, tp);
   }
   TORCH_INTERNAL_ASSERT(pred != nullptr);
 
@@ -396,6 +396,11 @@ class RedundantUseAnalysis : BackwardVisitor {
       redundant_use.setAllBID();
       redundant_use.setAllTID();
       for (auto expr : fusion_->unordered_uses(tv)) {
+        if (!ir_utils::isTvOp(expr)) {
+          // For non-TV op that takes a tensor as input, such as, GetMetaData
+          // we should not consider it for predication.
+          continue;
+        }
         redundant_use &= redundant_expr_use_map_.at(expr);
       }
 

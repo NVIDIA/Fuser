@@ -65,8 +65,6 @@ enum class DebugDumpOption {
   ExprSort, //! Print merging decisions on expression sorting
   ExprSortVerbose, //! Print verbose debug info on expression sorting
   LoopRotation, //! Print loop rotation log
-  MatmulChecks, //! Print logs from tools around matmul scheduler used in
-                //! segmenter
   Occupancy, // Dump occupancy
   IndexType, //! Print the index type of the launched kernel
   EndOfOption //! Placeholder for counting the number of elements
@@ -109,6 +107,8 @@ enum class DisableOption {
                //! input shapes
   VarNameRemapping, //! Disable variable name remapping
   WelfordVectorization, //! Disable vectorizaton of Welford ops
+  ReuseMismatchedTypeRegisters, //! Disable explicitly re-using registers unless
+                                //! types match
   EndOfOption //! Placeholder for counting the number of elements
 };
 

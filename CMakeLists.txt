@@ -158,6 +158,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/partition.cpp
   ${NVFUSER_SRCS_DIR}/predicate_compute.cpp
   ${NVFUSER_SRCS_DIR}/register_interface.cpp
+  ${NVFUSER_SRCS_DIR}/rng.cpp
   ${NVFUSER_SRCS_DIR}/root_domain_map.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/pointwise.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/pointwise_utils.cpp
@@ -176,6 +177,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/type_inference.cpp
   ${NVFUSER_SRCS_DIR}/type_promotion.cpp
   ${NVFUSER_SRCS_DIR}/fusion_segmenter.cpp
+  ${NVFUSER_SRCS_DIR}/tensor_metadata.cpp
   ${NVFUSER_SRCS_DIR}/tensor_view.cpp
   ${NVFUSER_SRCS_DIR}/transform_iter.cpp
   ${NVFUSER_SRCS_DIR}/transform_replay.cpp
@@ -197,6 +199,7 @@ if(BUILD_PYTHON)
     ${NVFUSER_SRCS_DIR}/python_frontend/fusion_definition.cpp
     ${NVFUSER_SRCS_DIR}/python_frontend/fusion_state.cpp
     ${NVFUSER_SRCS_DIR}/serde/fusion_record_serde.cpp
+    ${NVFUSER_SRCS_DIR}/serde/polymorphic_value_serde.cpp
     ${NVFUSER_SRCS_DIR}/serde/utils.cpp)
 endif()
 
@@ -232,8 +235,9 @@ set_property(TARGET ${NVFUSER_CODEGEN} PROPERTY CXX_STANDARD 17)
 if(PROJECT_IS_TOP_LEVEL)
   target_link_libraries(${NVFUSER_CODEGEN} PRIVATE torch ${TORCH_LIBRARIES})
 
-  # this is to find pip installed nvrtc .so
-  set_target_properties(${NVFUSER_CODEGEN} PROPERTIES INSTALL_RPATH "$ORIGIN/../../nvidia/cuda_nvrtc/lib")
+  # this is to find pip installed nvrtc/nvtx .so
+  set_target_properties(${NVFUSER_CODEGEN} PROPERTIES INSTALL_RPATH
+	  "$ORIGIN/../../nvidia/cuda_nvrtc/lib:$ORIGIN/../../nvidia/nvtx/lib")
   install(TARGETS ${NVFUSER_CODEGEN} EXPORT NvfuserTargets DESTINATION lib)
 
   # We are keeping fusion_cache_generated.h for the submodule build because flatc is unavailable.
@@ -411,6 +415,7 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/test/test_resize.cpp
     ${NVFUSER_ROOT}/test/test_gpu_tensorcore.cpp
     ${NVFUSER_ROOT}/test/test_matmul_sass.cpp
+    ${NVFUSER_ROOT}/test/test_matmul_scheduler.cpp
     ${NVFUSER_ROOT}/test/test_gpu_view.cpp
     ${NVFUSER_ROOT}/test/test_gpu_transpose.cpp
     ${NVFUSER_ROOT}/test/test_gpu_utils.cpp
@@ -421,6 +426,7 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/test/test_optimization_pass.cpp
     ${NVFUSER_ROOT}/test/test_pipeline.cpp
     ${NVFUSER_ROOT}/test/test_rng.cpp
+    ${NVFUSER_ROOT}/test/test_smem_reuse.cpp
   )
 
   if(BUILD_PYTHON)
@@ -507,6 +513,7 @@ if(BUILD_NVFUSER_BENCHMARK)
   # only install nvfuser_bench with submodule build
   else()
     torch_compile_options(${NVFUSER_BENCHMARK})
+    target_include_directories(${NVFUSER_BENCHMARK} PRIVATE ${TORCH_ROOT}/third_party/flatbuffers/include)
     target_link_libraries(${NVFUSER_BENCHMARK} PRIVATE torch_library benchmark)
     install(TARGETS ${NVFUSER_BENCHMARK} DESTINATION bin)
   endif()
@@ -551,8 +558,6 @@ list(APPEND NVFUSER_RUNTIME_FILES
   ${NVFUSER_ROOT}/runtime/type_traits.cu
   ${NVFUSER_ROOT}/runtime/warp.cu
   ${NVFUSER_ROOT}/runtime/welford.cu
-  ${ATEN_CUDA_ROOT}/cuda/detail/PhiloxCudaStateRaw.cuh
-  ${ATEN_CUDA_ROOT}/cuda/detail/UnpackRaw.cuh
 )
 
 file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/include/nvfuser_resources")
