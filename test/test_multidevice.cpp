@@ -50,8 +50,6 @@ using namespace at::indexing;
 // We create the communicator globally for all the tests
 Communicator MultiDeviceTest::comm = {};
 
-// utility function for validation
-
 // Send a possibly sharded tensor represented by a PipelineVal
 // to one "tester" device
 void SendToTester(
