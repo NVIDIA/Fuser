@@ -140,11 +140,8 @@ TEST_F(SmemReuseTest, SimpleCase) {
 //       +-+-----+
 //   a   b c * d e   f
 //
-TEST_F(SmemReuseTest, NeedsReorderedPush) {
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-
-  int64_t H = 5;
+std::tuple<TensorView*, TensorView*> needsReorderedPushDefinition(int64_t H) {
+  auto fusion = FusionGuard::getCurFusion();
 
   auto tv0 = full(
       {IrBuilder::create<Val>(H)},
@@ -169,6 +166,16 @@ TEST_F(SmemReuseTest, NeedsReorderedPush) {
 
   auto tv7 = neg(tv5); // pos = f
   fusion->addOutput(tv7);
+
+  return {tv0, tv3};
+}
+
+TEST_F(SmemReuseTest, NeedsReorderedPush) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  int64_t H = 5;
+  auto [tv0, tv3] = needsReorderedPushDefinition(H);
 
   { // This should not re-use memory
     GpuLower gpulw(fusion.get());
@@ -214,30 +221,7 @@ TEST_F(SmemReuseTest, PromoteReuse) {
   FusionGuard fg(fusion.get());
 
   int64_t H = 5;
-
-  auto tv0 = full(
-      {IrBuilder::create<Val>(H)},
-      fusion->oneVal(),
-      DataType::Float); // pos = a. A = tv0
-  tv0->setMemoryType(MemoryType::Shared);
-
-  auto tv1 =
-      pad(tv0, {fusion->zeroVal(), fusion->oneVal()}); // pos = b. B = tv1
-  tv1->setMemoryType(MemoryType::Shared);
-
-  auto tv2 = mul(tv1, tv1); // pos = c
-
-  auto tv3 = sum(tv2, {0}); // gap between b and c. Can parallelize to sync
-
-  auto tv4 = broadcast(tv3, {true});
-  auto tv5 = mul(tv4, tv1); // pos = d. C = tv5
-  tv5->setMemoryType(MemoryType::Shared);
-
-  auto tv6 = add(tv1, tv1); // pos = e
-  fusion->addOutput(tv6);
-
-  auto tv7 = neg(tv5); // pos = f
-  fusion->addOutput(tv7);
+  auto [tv0, tv3] = needsReorderedPushDefinition(H);
 
   { // This should not re-use memory
     GpuLower gpulw(fusion.get());
