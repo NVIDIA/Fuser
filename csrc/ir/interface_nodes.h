@@ -518,7 +518,7 @@ class TORCH_CUDA_CU_API TensorView : public Val {
 
   //! Returns whether we should insert syncs if needed in order to reuse the
   //! memory of this tensor.
-  bool getPromoteReuse() const {
+  bool shouldPromoteReuse() const {
     return promote_reuse_;
   }
 

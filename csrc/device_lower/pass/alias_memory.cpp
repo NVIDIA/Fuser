@@ -1846,7 +1846,8 @@ class PromoteReuseSyncModifier : private kir::ExprMutator {
     // subsequent allocations.
     for (const auto& alloc_info : allocation_info_map.allAllocationInfos()) {
       auto tv = alloc_info->alloc_expr->buffer()->as<TensorView>();
-      if (tv->getMemoryType() != MemoryType::Shared || !tv->getPromoteReuse()) {
+      if (tv->getMemoryType() != MemoryType::Shared ||
+          !tv->shouldPromoteReuse()) {
         continue;
       }
       auto last_read = alloc_info->getAliasedOuterLastRead();
