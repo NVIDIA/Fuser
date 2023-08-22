@@ -957,7 +957,14 @@ class AllocationInfoMap : private kir::IrVisitor {
 
   //! Mark the tensor of "from" be an alias of the tensor of "to".
   void setAlias(AllocationInfo* from, AllocationInfo* to) {
-    TORCH_CHECK(!to->alias_to, "Multi-hop aliases are not supported");
+    TORCH_INTERNAL_ASSERT(
+        to->alias_to == nullptr,
+        "Multi-hop aliases are not supported. Attempted to alias ",
+        from->alloc_expr->buffer()->toString(),
+        " to ",
+        to->alloc_expr->buffer()->toString(),
+        " which is already aliased to ",
+        to->alias_to->buffer()->toString());
     alias_map_[from] = to;
     from->alias_to = to->alloc_expr;
     to->outer_aliased_by.push_back(from);
