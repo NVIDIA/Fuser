@@ -433,7 +433,7 @@ void RecordFunctorFactory::registerAllParsers() {
   auto deserializeScalarRecord = [](const serde::RecordFunctor* buffer) {
     return new python_frontend::ScalarRecord(
         parseStateArgs(buffer->outputs()),
-        parsePolymorphicValue(buffer->data_as_Scalar()),
+        deserializePolymorphicValue(buffer->data_as_Scalar()),
         mapToNvfuserDtype(buffer->data_as_Scalar()->dtype()));
   };
   registerParser(serde::RecordType_Scalar, deserializeScalarRecord);

@@ -314,7 +314,7 @@ inferAndValidateAllocationSizesAndStrides(
           stride);
     }
   }
-  return {sizes, strides};
+  return {std::move(sizes), std::move(strides)};
 }
 
 } // namespace
@@ -328,10 +328,10 @@ std::vector<PolymorphicValue> GetMetaData::evaluate(
       "Currently, GetMetaData only supports TensorView");
   TensorView* tv = in()->as<TensorView>();
 
-  at::Tensor input = inputs.at(0).as<at::Tensor>();
+  const at::Tensor& input = inputs.at(0).as<at::Tensor>();
 
   TORCH_INTERNAL_ASSERT(
-      input.is_cuda(),
+      input.is_cuda() || input.is_meta(),
       "GetMetaData expects a CUDA tensor as input, but got undefined tensor");
 
   Struct<PolymorphicValue> concrete_value;
@@ -345,7 +345,7 @@ std::vector<PolymorphicValue> GetMetaData::evaluate(
     concrete_value["alloc_size"] = std::move(allocation_data.first);
     concrete_value["alloc_stride"] = std::move(allocation_data.second);
   }
-  return {PolymorphicValue(concrete_value)};
+  return {PolymorphicValue(std::move(concrete_value))};
 }
 
 } // namespace nvfuser

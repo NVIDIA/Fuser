@@ -48,7 +48,7 @@ T& Expr::attribute(size_t index) const {
   if constexpr (PolymorphicValue::is_candidate_type<T>) {
     return attributeVal(index)->value().as<T>();
   } else {
-    return std::any_cast<T&>(attributeVal(index)->value().as<Opaque>().value);
+    return attributeVal(index)->value().as<Opaque>().as<T>();
   }
 }
 

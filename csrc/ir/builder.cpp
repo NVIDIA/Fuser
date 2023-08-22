@@ -96,7 +96,7 @@ Val* IrBuilder::bitwiseNotExpr(Val* val) {
 
 Val* IrBuilder::derefExpr(Val* val) {
   TORCH_CHECK(val != nullptr, "val is a nullptr in derefExpr.");
-  auto result = newScalar(*(std::get<PointerOf>(val->dtype().type).type));
+  auto result = newScalar(*(std::get<PointerType>(val->dtype().type).type));
   IrBuilder::create<UnaryOp>(UnaryOpType::Dereference, result, val);
   return result;
 }
@@ -218,14 +218,14 @@ Val* IrBuilder::gcdExpr(Val* lhs, Val* rhs) {
 }
 
 Val* IrBuilder::getItemExpr(Val* array, Val* index) {
-  auto item_dtype = std::get<ArrayOf>(array->dtype().type).type;
+  auto item_dtype = std::get<ArrayType>(array->dtype().type).type;
   auto out = newScalar(*item_dtype);
   create<GetItem>(array->container(), out, array, index);
   return out;
 }
 
 Val* IrBuilder::getItemExpr(Val* array, PolymorphicValue index) {
-  auto item_dtype = std::get<ArrayOf>(array->dtype().type).type;
+  auto item_dtype = std::get<ArrayType>(array->dtype().type).type;
   auto out = newScalar(*item_dtype);
   create<GetItem>(
       array->container(), out, array, newConstant(index, DataType::Int));
@@ -233,15 +233,37 @@ Val* IrBuilder::getItemExpr(Val* array, PolymorphicValue index) {
 }
 
 Val* IrBuilder::getAttrExpr(Val* struct_, std::string attr) {
-  auto item_dtype = NVFUSER_MAYBE_STAR std::get<StructOf>(struct_->dtype().type)
-                        .types.at(attr);
+  auto item_dtype =
+      NVFUSER_MAYBE_STAR std::get<StructType>(struct_->dtype().type)
+          .types.at(attr);
   auto out = newScalar(item_dtype);
   create<GetAttr>(struct_->container(), out, struct_, std::move(attr));
   return out;
 }
 
+Val* IrBuilder::reverseArrayExpr(Val* array) {
+  auto out = newScalar(array->dtype());
+  create<ReverseArray>(out, array);
+  return out;
+}
+
 Val* IrBuilder::metadataExpr(TensorView* tv) {
   return tv->fusion()->metadataOf(tv);
+}
+
+Val* IrBuilder::structExpr(
+    const std::vector<std::pair<std::string, Val*>>& fields,
+    std::string name) {
+  StructType output_type;
+  output_type.name = std::move(name);
+  for (auto& field : fields) {
+    output_type.types.emplace(
+        field.first, NVFUSER_MAYBE_MAKE_SHARED(field.second->dtype()));
+    output_type.field_names.emplace_back(field.first);
+  }
+  auto out = newScalar(DataType(output_type));
+  create<StructConstruct>(out, fields);
+  return out;
 }
 
 Val* SimplifyingIrBuilder::negExpr(Val* val) {

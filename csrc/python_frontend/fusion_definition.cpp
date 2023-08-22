@@ -151,10 +151,17 @@ void FusionDefinition::print(std::ostream& os) const {
 std::vector<at::Tensor> FusionDefinition::execute(
     const at::ArrayRef<c10::IValue>& inputs,
     bool override_user_schedule,
+    bool capture_debug_output,
     std::optional<int8_t> selected_device) const {
+  debug_output_ = std::nullopt;
+  std::stringstream debug_ss;
+  DebugStreamGuard dsg(capture_debug_output ? debug_ss : std::cout);
+
   TORCH_CHECK(id().has_value(), "Valid fusion schedule is not available!");
 
   auto scheds = fusionCache()->queryFusionSchedules(id().value());
+
+  std::vector<at::Tensor> outputs;
 
   if (!override_user_schedule) {
     auto device = getCommonDeviceCUDA(inputs, selected_device);
@@ -167,12 +174,18 @@ std::vector<at::Tensor> FusionDefinition::execute(
           scheds, user_sched_id.value(), device);
       scheds->last_user_def_scheduled_ir = user_sched.schedule.get();
       scheds->last_user_def_executor = user_sched.executor.get();
-      return user_sched.executor->runFusion(inputs);
+      outputs = user_sched.executor->runFusion(inputs);
     }
   }
 
-  return scheds->auto_gen_schedules->runFusionWithInputs(
+  outputs = scheds->auto_gen_schedules->runFusionWithInputs(
       inputs, std::nullopt, selected_device);
+
+  if (capture_debug_output) {
+    debug_output_ = debug_ss.str();
+  }
+
+  return outputs;
 }
 
 std::string FusionDefinition::fusionIr() {

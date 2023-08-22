@@ -396,6 +396,11 @@ class RedundantUseAnalysis : BackwardVisitor {
       redundant_use.setAllBID();
       redundant_use.setAllTID();
       for (auto expr : fusion_->unordered_uses(tv)) {
+        if (!ir_utils::isTvOp(expr)) {
+          // For non-TV op that takes a tensor as input, such as, GetMetaData
+          // we should not consider it for predication.
+          continue;
+        }
         redundant_use &= redundant_expr_use_map_.at(expr);
       }
 
