@@ -1902,14 +1902,14 @@ class PromoteReuseSyncModifier : private kir::ExprMutator {
       kir::ExprMutator::dispatch(expr);
     }
 
-    position_ = allocation_info_map_.getScopeMap().getExprPos(expr);
+    auto position = allocation_info_map_.getScopeMap().getExprPos(expr);
 
     // If this is an upcoming first write that has not yet been erased, it means
     // we have not seen a sync in its interval. So we should insert a BlockSync
     // before this expr.
-    if (upcoming_first_writes_.erase(position_)) {
+    if (upcoming_first_writes_.erase(position)) {
       if (isDebugDumpEnabled(DebugDumpOption::BufferReuseInfo)) {
-        debug() << "Inserting block sync before position " << position_
+        debug() << "Inserting block sync before position " << position
                 << std::endl;
       }
       auto new_sync = IrBuilder::create<kir::BlockSync>();
@@ -1921,17 +1921,17 @@ class PromoteReuseSyncModifier : private kir::ExprMutator {
     // writes since they can be considered safe.
     if (lower_utils::hasBlockSync(expr, GpuLower::current()->threadPredMap())) {
       if (isDebugDumpEnabled(DebugDumpOption::BufferReuseInfo)) {
-        debug() << "Found blocking expression at position " << position_
+        debug() << "Found blocking expression at position " << position
                 << std::endl;
       }
       upcoming_first_writes_.clear();
     }
 
     // If this is the lower endpoint of a sync interval, add the upper endpoint
-    auto range = sync_intervals_.equal_range(position_);
+    auto range = sync_intervals_.equal_range(position);
     for (auto& it = range.first; it != range.second; ++it) {
       if (isDebugDumpEnabled(DebugDumpOption::BufferReuseInfo)) {
-        debug() << "Found dependency last read at position " << position_
+        debug() << "Found dependency last read at position " << position
                 << " corresponding to first write at " << it->second
                 << std::endl;
       }
@@ -1948,9 +1948,6 @@ class PromoteReuseSyncModifier : private kir::ExprMutator {
   // threads in a block should arrive at the start of each interval before any
   // thread proceeds past the end of the interval.
   std::unordered_multimap<int, int> sync_intervals_;
-
-  // Position within the traversal
-  int position_ = -1;
 
   // These are the upper endpoints of needed sync intervals for which we've
   // already passed over the lower endpoint.
