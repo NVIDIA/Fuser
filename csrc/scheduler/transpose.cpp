@@ -31,17 +31,17 @@ namespace nvfuser {
 namespace {
 
 struct TransposeViewPropagator : public MaxInfoSpanningTree::Propagator {
-  void propagateC2P(TensorView* from, TensorView* to) override {};
+  void propagateC2P(TensorView* from, TensorView* to) override{};
   void propagateP2C(TensorView* from, TensorView* to) override {
     if (p2c_via_view) {
       return;
     }
-    chain_exprs = StmtSort::getExprsBetween(from->fusion(), {from}, {to});
+    auto chain_exprs = StmtSort::getExprsBetween(from->fusion(), {from}, {to});
     if (!ir_utils::filterByType<ViewOp>(chain_exprs).empty()) {
       p2c_via_view = true;
     };
   };
-  void propagateSibling(TensorView* from, TensorView* to) override {};
+  void propagateSibling(TensorView* from, TensorView* to) override{};
   ~TransposeViewPropagator() = default;
 
   bool p2c_via_view = false;
@@ -563,6 +563,7 @@ std::string getTransposeRuntimeRejectReason(
       getReferenceTensors(data_cache, domain_map, grouped_inputs_outputs);
   auto reference_tensors = reference_tensors_entry.get();
   TensorView* reference1 = reference_tensors[0];
+  TensorView* reference2 = reference_tensors[1];
 
   auto pair =
       getShapeInReference(data_cache, runtime_info, reference1, domain_map);
@@ -627,6 +628,8 @@ std::string getTransposeRuntimeRejectReason(
   }
 #endif
 
+  // TODO: ideally we shouldn't have to manually match schedule transformation
+  // here. It is hard to maintain consistent code logic.
   if (!scheduler_utils::getViewTVs(fusion).empty()) {
     const auto index_type = runtime_info.getIndexType();
     auto params =
@@ -647,11 +650,42 @@ std::string getTransposeRuntimeRejectReason(
       return "Small transpose dimensions and view op cannot be currently be handled by transpose scheduler. See: https://github.com/NVIDIA/Fuser/pull/592";
     }
 
+    // mimic transform propagation
+    // NOTE: in the actual transpose scheduler, we are applying cacheBefore and
+    // cacheAfter, which I think would mean different propagation is happening
+    // than what's done here. So this might not be bullet proof.
     TransposeViewPropagator propagator;
+    constexpr std::string reject_p2c_via_view =
+        "producer to consumer transform propagation passing view op is not yet supported";
+
+    // global schedule traverse dry-run
     MaxRootDomainInfoSpanningTree entire_dag(reference1);
     entire_dag.traverse(&propagator);
     if (propagator.p2c_via_view) {
-      return "producer to consumer transform propagation passing view op is not yet supported";
+      return reject_p2c_via_view;
+    }
+
+    // group2 schedule traverse dry-run
+    auto all_tvs_except1 = ir_utils::allTvsExcept(
+        fusion,
+        {grouped_inputs_outputs[0].begin(), grouped_inputs_outputs[0].end()});
+    SetSelector selector({all_tvs_except1.begin(), all_tvs_except1.end()});
+    MaxRootDomainInfoSpanningTree entire_dag_except1(reference2, &selector);
+    entire_dag_except1.traverse(&propagator);
+    if (propagator.p2c_via_view) {
+      return reject_p2c_via_view;
+    }
+
+    // group1 schedule traverse dry-run
+    auto all_tvs_except2 = ir_utils::allTvsExcept(
+        fusion,
+        {grouped_inputs_outputs[1].begin(), grouped_inputs_outputs[1].end()});
+    SetSelector selector({all_tvs_except2.begin(), all_tvs_except2.end()});
+    MaxRootDomainInfoSpanningTree entire_dag_except_outputs(
+        reference1, &selector);
+    entire_dag_except_outputs.traverse(&propagator);
+    if (propagator.p2c_via_view) {
+      return reject_p2c_via_view;
     }
   }
 

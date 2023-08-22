@@ -2447,9 +2447,9 @@ TEST_F(NVFuserTest, ReshapeOfReshape_CUDA) {
   TORCH_CHECK(ref.equal(cg_outputs.at(0)));
 }
 
-// This is extracted from CSA in nanogpt, where we want transpose scheduler
 TEST_F(NVFuserTest, ReshapePermuteTransposeScheduler_CUDA) {
   {
+    // This is extracted from CSA in nanogpt, where we want transpose scheduler
     auto fusion = std::make_unique<Fusion>();
     FusionGuard fg(fusion.get());
 
@@ -2474,8 +2474,11 @@ TEST_F(NVFuserTest, ReshapePermuteTransposeScheduler_CUDA) {
     auto runtime = executor_cache.getMostRecentKernelRuntime();
     TORCH_CHECK(!runtime->isSegmented(), "Segmentation not expected");
 
-    auto heuristic =
-        runtime->schedulerHeuristics()->heuristicsList().at(0).get()->heuristic();
+    auto heuristic = runtime->schedulerHeuristics()
+                         ->heuristicsList()
+                         .at(0)
+                         .get()
+                         ->heuristic();
     TORCH_CHECK(
         heuristic == ScheduleHeuristic::Transpose,
         "Unexpected heuristic: ",
@@ -2493,6 +2496,8 @@ TEST_F(NVFuserTest, ReshapePermuteTransposeScheduler_CUDA) {
   }
 
   {
+    // This example sets transpose scheduler that requires P2C transform
+    // propagation across a reshape op, which is not currently supported yet.
     auto fusion = std::make_unique<Fusion>();
     FusionGuard fg(fusion.get());
 
@@ -2519,10 +2524,13 @@ TEST_F(NVFuserTest, ReshapePermuteTransposeScheduler_CUDA) {
     auto runtime = executor_cache.getMostRecentKernelRuntime();
     TORCH_CHECK(!runtime->isSegmented(), "Segmentation not expected");
 
-    auto heuristic =
-        runtime->schedulerHeuristics()->heuristicsList().at(0).get()->heuristic();
+    auto heuristic = runtime->schedulerHeuristics()
+                         ->heuristicsList()
+                         .at(0)
+                         .get()
+                         ->heuristic();
     TORCH_CHECK(
-        heuristic == ScheduleHeuristic::Transpose,
+        heuristic != ScheduleHeuristic::Transpose,
         "Unexpected heuristic: ",
         heuristic);
 
