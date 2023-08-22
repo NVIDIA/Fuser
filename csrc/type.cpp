@@ -198,8 +198,6 @@ static std::string data_type2string(DataType t) {
               return "std::complex<float>";
             case DataType::ComplexDouble:
               return "std::complex<double>";
-            case DataType::Opaque:
-              return "std::any";
             default:
               TORCH_INTERNAL_ASSERT(false, "No string found for data type.");
           }
@@ -222,6 +220,12 @@ static std::string data_type2string(DataType t) {
           }
           ss << "}";
           return ss.str();
+        } else if constexpr (std::is_same_v<T, OpaqueType>) {
+          if (dtype.display_name != "") {
+            return dtype.display_name;
+          } else {
+            return dtype.type_info.get().name();
+          }
         } else {
           TORCH_INTERNAL_ASSERT(false, "No string found for data type.");
         }
@@ -1157,6 +1161,9 @@ std::string typePrefix(const DataType data_type) {
   if (std::holds_alternative<StructType>(data_type.type)) {
     return "s";
   }
+  if (std::holds_alternative<OpaqueType>(data_type.type)) {
+    return "var";
+  }
   switch (std::get<PrimDataType>(data_type.type)) {
     case DataType::Bool:
       return "b";
@@ -1174,8 +1181,6 @@ std::string typePrefix(const DataType data_type) {
     case DataType::ComplexFloat:
     case DataType::ComplexDouble:
       return "c";
-    case DataType::Opaque:
-      return "opaque";
     default:
       TORCH_INTERNAL_ASSERT(false, "No data type found for scalar type.");
   }
