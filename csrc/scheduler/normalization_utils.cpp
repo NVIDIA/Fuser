@@ -975,10 +975,6 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
           n_smem_buffer++;
         }
       }
-      std::cout << "n_smem_buffer= " << n_smem_buffer
-                << ", smem_config_size= " << smem_config_size
-                << ", buffer_config_ratio_old= " << buffer_config_ratio
-                << std::endl;
     }
     // move n_smem_buffer buffers to shared memory
     for (int i = 0; i < n_smem_buffer; i++) {
