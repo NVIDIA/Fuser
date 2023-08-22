@@ -233,8 +233,9 @@ Val* IrBuilder::getItemExpr(Val* array, PolymorphicValue index) {
 }
 
 Val* IrBuilder::getAttrExpr(Val* struct_, std::string attr) {
-  auto item_dtype = NVFUSER_MAYBE_STAR std::get<StructType>(struct_->dtype().type)
-                        .types.at(attr);
+  auto item_dtype =
+      NVFUSER_MAYBE_STAR std::get<StructType>(struct_->dtype().type)
+          .types.at(attr);
   auto out = newScalar(item_dtype);
   create<GetAttr>(struct_->container(), out, struct_, std::move(attr));
   return out;

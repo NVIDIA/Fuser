@@ -407,7 +407,8 @@ inline DataType getDataType(const PolymorphicValue& value) {
         const auto& vec = value.as<T>();
         size_t size = vec.size();
         TORCH_CHECK(size > 0, "Empty array is not supported");
-        dtype = ArrayType{std::make_shared<DataType>(getDataType(vec[0])), size};
+        dtype =
+            ArrayType{std::make_shared<DataType>(getDataType(vec[0])), size};
       }
     } else if constexpr (std::is_same_v<T, Struct<PolymorphicValue>>) {
       if (value.is<T>()) {

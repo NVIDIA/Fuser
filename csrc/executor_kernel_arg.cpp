@@ -218,7 +218,8 @@ std::vector<std::byte> polymorphicValueToBytes(
     return buffer;
   } else if (argument.is<std::vector>()) {
     TORCH_INTERNAL_ASSERT(
-        std::holds_alternative<ArrayType>(dtype.type), "Expected ArrayType type.");
+        std::holds_alternative<ArrayType>(dtype.type),
+        "Expected ArrayType type.");
     auto dtype_ = std::get<ArrayType>(dtype.type);
     std::vector<std::byte> buffer;
     for (const auto& elem : argument.as<std::vector>()) {
