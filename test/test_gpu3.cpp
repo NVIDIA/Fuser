@@ -1730,21 +1730,33 @@ TEST_F(NVFuserTest, FusionIndexHoist3_CUDA) {
 __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> T2) {
   nvfuser_index_t i0;
   i0 = ((nvfuser_index_t)threadIdx.x) + (256 * ((nvfuser_index_t)blockIdx.x));
-  nvfuser_index_t i1;
-  i1 = T0.logical_size[0] * T0.logical_size[1];
-  bool b2;
-  b2 = i0 < i1;
-  float f3;
-  f3 = (float)(i1);
+  Tensor<float, 2, 2> s1;
+  s1.data = T0.data;
+  s1.logical_size = T0.logical_size;
+  s1.alloc_stride = T0.alloc_stride;
+  Array<nvfuser_index_t, 2, 1> a2;
+  a2 = s1.logical_size;
+  nvfuser_index_t i3;
+  i3 = a2[0];
+  Array<nvfuser_index_t, 2, 1> a4;
+  a4 = s1.logical_size;
+  nvfuser_index_t i5;
+  i5 = a4[1];
+  nvfuser_index_t i6;
+  i6 = i3 * i5;
+  bool b7;
+  b7 = i0 < i6;
+  float f8;
+  f8 = (float)(i6);
   float T1[1];
-  if (b2) {
+  if (b7) {
     T1[0]
        = sinf(T0[i0]);
   }
-  if (b2) {
+  if (b7) {
     T2[i0]
       = T1[0]
-      + f3;
+      + f8;
   }
 }
 )";
@@ -9878,6 +9890,33 @@ TEST_F(NVFuserTest, UnswitchPredicateIssueRepro681_CUDA) {
   auto ref = t0.to(at::kDouble).sum();
 
   testValidate(&fusion, outputs, aten_inputs, {ref}, __LINE__, __FILE__);
+}
+
+TEST_F(NVFuserTest, StructConstruct) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto real = IrBuilder::create<Val>(DataType::Float);
+  auto imag = IrBuilder::create<Val>(DataType::Float);
+  fusion.addInput(real);
+  fusion.addInput(imag);
+
+  auto struct_ = IrBuilder::structExpr({{"real", real}, {"imag", imag}});
+  auto complex = bitCastOp(DataType::ComplexFloat, struct_);
+
+  auto tv = full(
+      {IrBuilder::newConstant(1L, DataType::Index)},
+      complex,
+      DataType::ComplexFloat);
+
+  fusion.addOutput(tv);
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion);
+  auto outputs = fe.runFusion({1.2, 3.4});
+
+  EXPECT_EQ(
+      outputs.at(0).item<c10::complex<float>>(), c10::complex<float>(1.2, 3.4));
 }
 
 // Test file size should be up to 10K LoC. Create a new file for more tests.
