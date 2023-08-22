@@ -30,6 +30,19 @@ namespace nvfuser {
 
 namespace {
 
+struct TransposeViewPropagator : public MaxInfoSpanningTree::Propagator {
+  void propagateC2P(TensorView* from, TensorView* to) override {};
+  void propagateP2C(TensorView* from, TensorView* to) override {
+    if (!p2c_via_view && !ir_utils::filterByType<ViewOp>(StmtSort::getExprsBetween(from->fusion(), {from}, {to})).empty()) {
+      p2c_via_view = true;
+    };
+  };
+  void propagateSibling(TensorView* from, TensorView* to) override {};
+  ~TransposeViewPropagator() = default;
+
+  bool p2c_via_view = false;
+};
+
 bool hasSmallTransposeDimensions(
     const std::shared_ptr<TransposeParams>& params) {
   return !params->split_before_tiling.empty() ||
@@ -610,24 +623,32 @@ std::string getTransposeRuntimeRejectReason(
   }
 #endif
 
-  // disallow transpose scheduler when we have a combination of:
-  // 1. view op; and
-  // 2. small transpose transformation
-  // See note [Supporting small transpose dimensions]
-  const auto index_type = runtime_info.getIndexType();
-  auto params =
-      std::make_shared<TransposeParams>("Transpose heuristics", index_type);
-  maybeBuildVirtualInnerDims(
-      *params,
-      device_multiprocessor_count,
-      n_elems,
-      shape_in_ref1,
-      inner_most_pos1_in_ref1,
-      inner_most_pos2_in_ref1);
+  if (!scheduler_utils::getViewTVs(fusion).empty()) {
+    const auto index_type = runtime_info.getIndexType();
+    auto params =
+        std::make_shared<TransposeParams>("Transpose heuristics", index_type);
+    maybeBuildVirtualInnerDims(
+        *params,
+        device_multiprocessor_count,
+        n_elems,
+        shape_in_ref1,
+        inner_most_pos1_in_ref1,
+        inner_most_pos2_in_ref1);
 
-  if (!scheduler_utils::getViewTVs(fusion).empty() &&
-      hasSmallTransposeDimensions(params)) {
-    return "Small transpose dimensions and view op cannot be currently be handled by transpose scheduler. See: https://github.com/NVIDIA/Fuser/pull/592";
+    // disallow transpose scheduler when we have a combination of:
+    // 1. view op; and
+    // 2. small transpose transformation
+    // See note [Supporting small transpose dimensions]
+    if (hasSmallTransposeDimensions(params)) {
+      return "Small transpose dimensions and view op cannot be currently be handled by transpose scheduler. See: https://github.com/NVIDIA/Fuser/pull/592";
+    }
+
+    TransposeViewPropagator propagator;
+    MaxRootDomainInfoSpanningTree entire_dag(reference1);
+    entire_dag.traverse(&propagator);
+    if (propagator.p2c_via_view) {
+      return "producer to consumer transform propagation passing view op is not yet supported";
+    }
   }
 
   return "";
