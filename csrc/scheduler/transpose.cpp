@@ -786,19 +786,23 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
 
   constexpr int64_t kSixteen = 16; // clang tidy
 
-  int64_t max_input_dtype_size = 1;
+  int64_t max_io_dtype_size = 1;
 
-  size_t n_input_tensors = 0;
-  for (auto inp : ir_utils::filterByType<TensorView>(fusion->inputs())) {
-    max_input_dtype_size = std::max(
-        max_input_dtype_size,
-        (int64_t)dataTypeSize(inp->getDataType().value(), index_type));
-    n_input_tensors++;
-  }
+  size_t n_io_tensors = 0;
+  auto scan_max_dtype_size = [&](const auto& vals) {
+    for (auto inp : ir_utils::filterByType<TensorView>(vals)) {
+      max_io_dtype_size = std::max(
+          max_io_dtype_size,
+          (int64_t)dataTypeSize(inp->getDataType().value(), index_type));
+      n_io_tensors++;
+    }
+  };
+  scan_max_dtype_size(fusion->inputs());
+  scan_max_dtype_size(fusion->outputs());
 
   auto max_unroll_factor = ceilDiv(
       // Available unrolling based on size of data type
-      (int64_t)kSixteen / max_input_dtype_size,
+      (int64_t)kSixteen / max_io_dtype_size,
       // Reduce max unrolling factor if we have many inputs/outputs to unroll
       // as it could start consuming a lot of registers.
       std::max(
@@ -948,8 +952,8 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
             << "outputs: " << ir_utils::toString(fusion->outputs()) << "\n"
             << "shape: " << shape_in_ref1 << "\n"
             << "num_elems: " << n_elems << "\n"
-            << "n_input_tensors: " << n_input_tensors << "\n"
-            << "max_input_dtype_size: " << max_input_dtype_size << "\n"
+            << "n_io_tensors: " << n_io_tensors << "\n"
+            << "max_io_dtype_size: " << max_io_dtype_size << "\n"
             << "group 1: " << ir_utils::toString(grouped_inputs_outputs[0])
             << "\n"
             << "reference1: " << reference1 << "\n"
