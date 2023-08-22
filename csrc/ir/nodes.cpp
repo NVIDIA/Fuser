@@ -3054,14 +3054,14 @@ TensorDomain::TensorDomain(
   resetDomains();
 }
 
-TensorDomain* TensorDomain::duplicateTensorDomain(const TensorDomain* src) {
+TensorDomain* TensorDomain::duplicate() const {
   return IrBuilder::create<TensorDomain>(
-      src->container(),
-      src->root_domain_,
-      src->rfactor_domain_,
-      src->allocation_domain_,
-      src->leaf_domain_,
-      src->contiguity_);
+      container(),
+      root_domain_,
+      rfactor_domain_,
+      allocation_domain_,
+      leaf_domain_,
+      contiguity_);
 }
 
 TensorDomain::TensorDomain(const TensorDomain* src, IrCloner* ir_cloner)

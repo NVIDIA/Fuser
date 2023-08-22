@@ -21,6 +21,7 @@ namespace nvfuser {
 
 // Friends for direct access to split
 class TensorDomain;
+class IterDomain;
 class ReplayTransformations;
 class IndexReferenceReplay;
 class ViewTransform;
@@ -456,7 +457,7 @@ class TORCH_CUDA_CU_API TensorDomain : public Val {
 
   TensorDomain(const TensorDomain* src, IrCloner* ir_cloner);
 
-  static TensorDomain* duplicateTensorDomain(const TensorDomain* src);
+  TensorDomain* duplicate() const;
 
   NVFUSER_DECLARE_CLONE
 
