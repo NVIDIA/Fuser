@@ -1190,12 +1190,10 @@ class ReusableAllocationFinder : private kir::IrVisitor {
           }
         }
 
-        // TODO:
-        //  Outer interval based sharing supports arbitrary re-indexing into
-        //    the same buffer and would require additional syncs if fully
-        //    enabled.
-        //  Need a few more checks to insert syncs if necessary before turning
-        //    on this sharing.
+        // Outer aliasing of shared memory requires thread block synchronization
+        // since it could involve arbitrary re-indexing. Instead, we will leave
+        // this type of re-use to the allocation phase. See
+        // assignSharedMemoryAllocations and promoteReuseSyncs.
         if (!inner_aliasing_pass_ &&
             alloc_info->mem_type == MemoryType::Shared) {
           continue;
