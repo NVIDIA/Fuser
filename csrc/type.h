@@ -164,7 +164,7 @@ struct DataType {
 
   DataType() = default;
   DataType(VariantOfSupportedTypes type) : type(std::move(type)) {}
-  DataType(PrimDataType type) : type(std::move(type)) {}
+  DataType(PrimDataType type) : type(type) {}
   DataType(ArrayOf type) : type(std::move(type)) {}
   DataType(PointerOf type) : type(std::move(type)) {}
   DataType(StructOf type) : type(std::move(type)) {}
