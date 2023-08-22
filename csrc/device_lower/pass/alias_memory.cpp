@@ -763,7 +763,7 @@ class AllocationInfoMap : private kir::IrVisitor {
 
   void handle(kir::ForLoop* for_loop) final {
     auto loop_info = scope_map_.getLoopScopeInfo(for_loop);
-    if (!for_loop->iter_domain()->isParallelized()) {
+    if (!for_loop->isTrivial()) {
       // Parallelized loops do not result in for loops in the CUDA kernel, so
       // they should not affect liveness analysis. This means that
       // current_stack_ will differ from kir::IrVisitor::for_loops_, which will
@@ -777,7 +777,7 @@ class AllocationInfoMap : private kir::IrVisitor {
     if (debug_printer_) {
       debug_printer_->popScope();
     }
-    if (!for_loop->iter_domain()->isParallelized()) {
+    if (!for_loop->isTrivial()) {
       current_stack_.pop_back();
     }
   }
