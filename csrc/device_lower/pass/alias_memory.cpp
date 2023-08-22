@@ -1899,14 +1899,6 @@ class PromoteReuseSyncModifier : private kir::ExprMutator {
   using kir::ExprMutator::dispatch;
 
   void dispatch(Expr* expr) final {
-    // Skip inserted syncs
-    if (inserted_syncs_.find(expr) != inserted_syncs_.end()) {
-      if (isDebugDumpEnabled(DebugDumpOption::BufferReuseInfo)) {
-        debug() << "Skipping new sync expression " << expr->toString();
-      }
-      kir::ExprMutator::dispatch(expr);
-    }
-
     auto position = allocation_info_map_.getScopeMap().getExprPos(expr);
 
     // If this is an upcoming first write that has not yet been erased, it means
