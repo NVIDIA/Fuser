@@ -28,7 +28,6 @@ namespace nvfuser {
 //! compilation, we are not unnecessarily holding memory that is not needed.
 class TORCH_CUDA_CU_API KernelArgumentHolder {
  public:
-
   static KernelArgumentHolder createKernelArgumentHolder(
       const c10::ArrayRef<c10::IValue>& inputs,
       std::optional<int8_t> device = std::nullopt);
