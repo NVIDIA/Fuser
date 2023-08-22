@@ -3060,7 +3060,7 @@ TensorDomain::TensorDomain(const TensorDomain* src) :
       rfactor_domain_(src->rfactor_domain_),
       allocation_domain_(src->allocation_domain_),
       leaf_domain_(src->leaf_domain_),
-      no_bcast_domain_(src->no_bcast_domain),
+      no_bcast_domain_(src->no_bcast_domain_),
       no_reduction_domain_(src->no_reduction_domain_),
       contiguity_(src->contiguity_),
       has_reduction_(src->has_reduction_) {}
