@@ -107,7 +107,7 @@ class TORCH_CUDA_CU_API IrBuilder {
           !members.empty(), "Cannot create an array with no members.");
       auto in_dtype = members.at(0)->dtype();
       auto out_dtype =
-          ArrayOf{std::make_shared<DataType>(in_dtype), members.size()};
+          ArrayType{std::make_shared<DataType>(in_dtype), members.size()};
       auto out = newScalar(out_dtype);
       create<ArrayConstruct>(out, members);
       return out;

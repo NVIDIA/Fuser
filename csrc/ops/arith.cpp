@@ -2433,8 +2433,8 @@ TensorView* gather(
 
 TensorView* viewAsScalar(TensorView* inp) {
   auto inp_type = inp->getDataType().value();
-  auto vec_size = std::get<ArrayOf>(inp_type.type).size;
-  auto out_type = *std::get<ArrayOf>(inp_type.type).type;
+  auto vec_size = std::get<ArrayType>(inp_type.type).size;
+  auto out_type = *std::get<ArrayType>(inp_type.type).type;
 
   std::vector<IterDomain*> out_domain;
   auto inp_domain = TensorDomain::noReductions(inp->getMaybeRFactorDomain());
@@ -2584,9 +2584,9 @@ TensorView* tensor(Val* val) {
     return full({}, val, dtype);
   }
   std::vector<int64_t> sizes;
-  while (std::holds_alternative<ArrayOf>(dtype.type)) {
-    sizes.push_back((int64_t)std::get<ArrayOf>(dtype.type).size);
-    dtype = *std::get<ArrayOf>(dtype.type).type;
+  while (std::holds_alternative<ArrayType>(dtype.type)) {
+    sizes.push_back((int64_t)std::get<ArrayType>(dtype.type).size);
+    dtype = *std::get<ArrayType>(dtype.type).type;
   }
   TORCH_INTERNAL_ASSERT(
       std::holds_alternative<PrimDataType>(dtype.type),

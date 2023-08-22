@@ -410,7 +410,7 @@ TEST_F(ExprEvalTest, ReverseArray) {
   FusionGuard fg(&fusion);
 
   auto input = IrBuilder::create<Val>(
-      DataType(ArrayOf{std::make_shared<DataType>(DataType::Int), 5}));
+      DataType(ArrayType{std::make_shared<DataType>(DataType::Int), 5}));
   auto output = IrBuilder::reverseArrayExpr(input);
 
   ExpressionEvaluator evaluator;
