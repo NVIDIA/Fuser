@@ -655,37 +655,34 @@ std::string getTransposeRuntimeRejectReason(
     // cacheAfter, which I think would mean different propagation is happening
     // than what's done here. So this might not be bullet proof.
     TransposeViewPropagator propagator;
-    constexpr std::string_view reject_p2c_via_view =
-        "producer to consumer transform propagation passing view op is not yet supported";
 
     // global schedule traverse dry-run
     MaxRootDomainInfoSpanningTree entire_dag(reference1);
     entire_dag.traverse(&propagator);
-    if (propagator.p2c_via_view) {
-      return reject_p2c_via_view;
+
+    if (!propagator.p2c_via_view) {
+      // group2 schedule traverse dry-run
+      auto all_tvs_except1 = ir_utils::allTvsExcept(
+          fusion,
+          {grouped_inputs_outputs[0].begin(), grouped_inputs_outputs[0].end()});
+      SetSelector selector2({all_tvs_except1.begin(), all_tvs_except1.end()});
+      MaxRootDomainInfoSpanningTree entire_dag_except1(reference2, &selector2);
+      entire_dag_except1.traverse(&propagator);
     }
 
-    // group2 schedule traverse dry-run
-    auto all_tvs_except1 = ir_utils::allTvsExcept(
-        fusion,
-        {grouped_inputs_outputs[0].begin(), grouped_inputs_outputs[0].end()});
-    SetSelector selector2({all_tvs_except1.begin(), all_tvs_except1.end()});
-    MaxRootDomainInfoSpanningTree entire_dag_except1(reference2, &selector2);
-    entire_dag_except1.traverse(&propagator);
-    if (propagator.p2c_via_view) {
-      return reject_p2c_via_view;
+    if (!propagator.p2c_via_view) {
+      // group1 schedule traverse dry-run
+      auto all_tvs_except2 = ir_utils::allTvsExcept(
+          fusion,
+          {grouped_inputs_outputs[1].begin(), grouped_inputs_outputs[1].end()});
+      SetSelector selector1({all_tvs_except2.begin(), all_tvs_except2.end()});
+      MaxRootDomainInfoSpanningTree entire_dag_except_outputs(
+          reference1, &selector1);
+      entire_dag_except_outputs.traverse(&propagator);
     }
 
-    // group1 schedule traverse dry-run
-    auto all_tvs_except2 = ir_utils::allTvsExcept(
-        fusion,
-        {grouped_inputs_outputs[1].begin(), grouped_inputs_outputs[1].end()});
-    SetSelector selector1({all_tvs_except2.begin(), all_tvs_except2.end()});
-    MaxRootDomainInfoSpanningTree entire_dag_except_outputs(
-        reference1, &selector1);
-    entire_dag_except_outputs.traverse(&propagator);
     if (propagator.p2c_via_view) {
-      return reject_p2c_via_view;
+      return "producer to consumer transform propagation passing view op is not yet supported";
     }
   }
 
