@@ -50,18 +50,24 @@ def serde_check(test_fn: Callable):
     Currently, it uses serialization to rebuild the FusionCache structure.
     """
 
-    def inner(*args, **kwargs):
+    def inner_fn(*args, **kwargs):
         self, fusion_func, inputs = args
         # Deep copy inputs because when a fusion output aliases an input, it will change the input value for the
         # subsequent function calls.
         inputs_copy = deepcopy(inputs)
 
-        # For debug purposes, clear FusionCache before running first test
+        # NOTE: For debug purposes, clear FusionCache before running first test
         # if ("new_fusion_expected" not in kwargs) or kwargs["new_fusion_expected"]:
         #    FusionCache.reset()
 
+        # skip_serde_check is only used by the decorator so remove it before running test_fn
+        skip_serde_check = kwargs.pop("skip_serde_check", False)
+
         # Run test to populate FusionCache
-        test_fn(*args, **kwargs)
+        result = test_fn(*args, **kwargs)
+
+        if skip_serde_check:
+            return result
 
         with tempfile.NamedTemporaryFile() as tmp:
             # Serialize FusionCache
@@ -78,7 +84,7 @@ def serde_check(test_fn: Callable):
         kwargs["new_fusion_expected"] = False
         return test_fn(self, fusion_func, inputs_copy, **kwargs)
 
-    return inner
+    return inner_fn
 
 
 @unittest.skipIf(not RUN_NVFUSER, "requires CUDA")
@@ -1560,6 +1566,11 @@ class TestNvFuserFrontend(TestCase):
             with self.assertRaisesRegex(RuntimeError, "Fusion is not compiled!"):
                 _ = fd.scheduled_fusion_ir_for(big_inputs)
 
+        # It is necessary to reset the Fusion Cache
+        # so serialization/deserialization does not exhibit the same error across tests.
+        fc = FusionCache.get()
+        fc.reset()
+
     def test_pad(self):
         inputs = [
             torch.testing.make_tensor((2, 3), dtype=torch.float32, device="cuda"),
@@ -2005,12 +2016,16 @@ class TestNvFuserFrontend(TestCase):
                         partial(check, acts=inp), inp, new_fusion_expected=first_check
                     )
                 else:
+                    # When a fusion definition with errors is deserialized, it is recreated, triggering an error.
+                    # skip_serde_check=True is necessary to skip these failing fusion definitions
+                    # so serialization/deserialization does not exhibit the same errors in subsequent tests.
                     self.assertRaisesRegex(
                         RuntimeError,
                         error,
                         self.exec_nvfuser,
                         partial(check, acts=inp),
                         inp,
+                        skip_serde_check=True,
                     )
             first_check = False
 

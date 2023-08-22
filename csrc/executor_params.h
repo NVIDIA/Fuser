@@ -6,6 +6,7 @@
  */
 // clang-format on
 #pragma once
+#include <serde/fusion_cache_generated.h>
 #include <type.h>
 
 #include <optional>
@@ -143,6 +144,13 @@ class TORCH_CUDA_CU_API LaunchParams {
   void print() const;
 
   std::string toString() const;
+
+  //! Serialize LaunchParams using flatbuffers
+  flatbuffers::Offset<serde::LaunchParams> serialize(
+      flatbuffers::FlatBufferBuilder& builder) const;
+
+  //! Deserialize LaunchParams using flatbuffers
+  void deserialize(const serde::LaunchParams* buffer);
 
  private:
   // Spell them out because I want signed ints to know if they were initialized

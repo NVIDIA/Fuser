@@ -346,7 +346,7 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
     std::stringstream ss;
     ss << "Matmul scheduler supports fusions only with a single MMA op, got: "
        << mma_exprs.size();
-    if (isDebugDumpEnabled(DebugDumpOption::MatmulChecks)) {
+    if (isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
       debug() << MATMUL_LOG_PREFIX << ss.str() << std::endl;
     }
     return ss.str();
@@ -356,7 +356,7 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
   {
     const auto input_layout_opt = mma_utils::getMatmulLayout(fusion);
     if (!input_layout_opt.isValid()) {
-      if (isDebugDumpEnabled(DebugDumpOption::MatmulChecks)) {
+      if (isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
         debug() << MATMUL_LOG_PREFIX << input_layout_opt.getErrorMsg()
                 << std::endl;
       }
@@ -369,7 +369,7 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
     for (auto mma_expr : mma_exprs) {
       auto support_status = isMatmulFusionDefinitionSupported(fusion, mma_expr);
       if (!support_status.empty()) {
-        if (isDebugDumpEnabled(DebugDumpOption::MatmulChecks)) {
+        if (isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
           debug() << MATMUL_LOG_PREFIX << support_status << std::endl;
         }
         return support_status;
@@ -427,7 +427,7 @@ std::shared_ptr<MatmulParams> getMatmulHeuristics(
       params->double_buffer_options.smem_double_buffer_stage,
       getMmaDataTypes(roles_map_opt.getData()));
 
-  if (isDebugDumpEnabled(DebugDumpOption::MatmulChecks)) {
+  if (isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
     debug() << params->toString() << std::endl;
   }
 

@@ -128,7 +128,6 @@ std::unordered_map<DebugDumpOption, std::vector<std::string>> Options<
       {"launch_param", DebugDumpOption::LaunchParam},
       {"loop_rotation", DebugDumpOption::LoopRotation},
       {"lower_verbose", DebugDumpOption::LowerVerbose},
-      {"matmul_checks", DebugDumpOption::MatmulChecks},
       {"occupancy", DebugDumpOption::Occupancy},
       {"parallel_dimensions", DebugDumpOption::ParallelDimensions},
       {"perf_debug_verbose", DebugDumpOption::PerfDebugVerbose},

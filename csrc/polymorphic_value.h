@@ -28,12 +28,29 @@ struct Struct {
   // straightforward, but this is not guaranteed to work by C++ standard.
   // See [Incomplete type support in STL]
 #if defined(STD_UNORDERED_SET_SUPPORTS_INCOMPLETE_TYPE)
+
   std::unordered_map<std::string, T> fields;
+  Struct(std::initializer_list<std::pair<const std::string, T>> init)
+      : fields(init) {}
 #define MAYBE_STAR
+
 #else
+
   std::unordered_map<std::string, std::shared_ptr<T>> fields;
+  Struct(std::initializer_list<std::pair<const std::string, T>> init) {
+    for (const auto& [key, value] : init) {
+      fields[key] = std::make_shared<T>(value);
+    }
+  }
 #define MAYBE_STAR *
+
 #endif
+
+  Struct() = default;
+  Struct(const Struct& other) = default;
+  Struct(Struct&& other) = default;
+  Struct& operator=(const Struct& other) = default;
+  Struct& operator=(Struct&& other) = default;
 
   const T& operator[](const std::string& key) const {
     return MAYBE_STAR fields.at(key);
@@ -48,6 +65,24 @@ struct Struct {
     }
     return *fields.at(key);
 #endif
+  }
+
+  bool operator==(const Struct& other) const {
+    if (this == &other) {
+      return true;
+    }
+    if (fields.size() != other.fields.size()) {
+      return false;
+    }
+    for (const auto& [key, _] : fields) {
+      if (other.fields.find(key) == other.fields.end()) {
+        return false;
+      }
+      if ((*this)[key] != other[key]) {
+        return false;
+      }
+    }
+    return true;
   }
 };
 
@@ -338,13 +373,15 @@ inline PolymorphicValue erf(const PolymorphicValue& a) {
 }
 
 // Convert scalars, vector of scalars, vector of vector of scalars, etc., into
-// an at::Tensor
-inline PolymorphicValue toTensor(const PolymorphicValue& x) {
+// an at::Tensor. device argument allows for the creation of CPU Scalars.
+inline PolymorphicValue toTensor(
+    const PolymorphicValue& x,
+    at::DeviceType device_type = at::kCUDA,
+    int8_t device_index = 0) {
   if (x.is<at::Tensor>()) {
     return x;
   }
-  // TODO: allow specifying device
-  auto options = at::TensorOptions().device(at::kCUDA, 0);
+  auto options = at::TensorOptions().device(device_type, device_index);
   if (x.is<int64_t>()) {
     return PolymorphicValue(
         at::tensor(x.as<int64_t>(), options.dtype(at::kLong)).squeeze());
