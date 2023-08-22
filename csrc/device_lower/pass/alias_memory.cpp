@@ -640,11 +640,10 @@ class AllocationInfoMap : private kir::IrVisitor {
     current_stack_.pop_back();
   }
 
-  std::optional<AllocationInfo*> getMaybeAllocationInfo(
-      const kir::Allocate* alloc) const {
+  AllocationInfo* getAllocationInfo(const kir::Allocate* alloc) const {
     auto it = allocation_info_map_.find(alloc);
     if (it == allocation_info_map_.end()) {
-      return std::nullopt;
+      return nullptr;
     }
     return it->second;
   }
@@ -715,10 +714,10 @@ class AllocationInfoMap : private kir::IrVisitor {
     return all_allocations_;
   }
 
-  std::optional<AllocationInfo*> getMaybeAllocInfoFromTV(TensorView* tv) const {
+  AllocationInfo* getAllocInfoFromTV(TensorView* tv) const {
     auto alloc_it = tv_to_allocation_map_.find(tv->name());
     if (alloc_it == tv_to_allocation_map_.end()) {
-      return std::nullopt;
+      return nullptr;
     }
     return alloc_it->second;
   }
@@ -876,48 +875,45 @@ class AllocationInfoMap : private kir::IrVisitor {
     //  expr. The current analysis isn't enough to capture
     //  their liveness range.
     for (auto input_tv : ir_utils::filterByType<TensorView>(expr->inputs())) {
-      auto maybe_alloc_info = getMaybeAllocInfoFromTV(input_tv);
-      if (maybe_alloc_info.has_value()) {
+      auto alloc_info = getAllocInfoFromTV(input_tv);
+      if (alloc_info) {
         if (!isSerialBroadcastResolution(input_tv, for_loops_)) {
-          maybe_alloc_info.value()->inner_live_interval->markRead(expr_pos);
+          alloc_info->inner_live_interval->markRead(expr_pos);
         } else {
           // Disable inner alias info for this buffer, since line number based
           //  analysis is no longer precise enough for inplace sharing
           //  if a serial broadcast is realized.
-          maybe_alloc_info.value()->can_use_inner_alias = false;
+          alloc_info->can_use_inner_alias = false;
         }
 
-        auto outer_loop_info =
-            ascendLoopNestToSameLevelAs(maybe_alloc_info.value());
+        auto outer_loop_info = ascendLoopNestToSameLevelAs(alloc_info);
 
         if (outer_loop_info) {
-          maybe_alloc_info.value()->outer_live_interval->markRead(
-              outer_loop_info->end_pos);
+          alloc_info->outer_live_interval->markRead(outer_loop_info->end_pos);
         } else {
           // Allocate is inlined in the innermost loop,
           //  so outer live interval is the same as inner.
-          maybe_alloc_info.value()->outer_live_interval->markRead(expr_pos);
+          alloc_info->outer_live_interval->markRead(expr_pos);
         }
       }
     }
     for (auto output_tv : ir_utils::filterByType<TensorView>(expr->outputs())) {
-      auto maybe_alloc_info = getMaybeAllocInfoFromTV(output_tv);
-      if (maybe_alloc_info.has_value()) {
+      auto alloc_info = getAllocInfoFromTV(output_tv);
+      if (alloc_info) {
         // Reductions use outputs as read-write parameters, so their
         // outputs need to be marked as read as well
         const bool is_read_write = ir_utils::isReductionOp(expr);
-        maybe_alloc_info.value()->inner_live_interval->markWrite(expr_pos);
+        alloc_info->inner_live_interval->markWrite(expr_pos);
         if (is_read_write) {
-          maybe_alloc_info.value()->inner_live_interval->markRead(expr_pos);
+          alloc_info->inner_live_interval->markRead(expr_pos);
         }
-        auto outer_loop_info =
-            ascendLoopNestToSameLevelAs(maybe_alloc_info.value());
+        auto outer_loop_info = ascendLoopNestToSameLevelAs(alloc_info);
         auto write_pos =
             outer_loop_info ? outer_loop_info->start_pos : expr_pos;
-        maybe_alloc_info.value()->outer_live_interval->markWrite(write_pos);
+        alloc_info->outer_live_interval->markWrite(write_pos);
         if (is_read_write) {
           auto read_pos = outer_loop_info ? outer_loop_info->end_pos : expr_pos;
-          maybe_alloc_info.value()->outer_live_interval->markRead(read_pos);
+          alloc_info->outer_live_interval->markRead(read_pos);
         }
       }
     }
@@ -996,13 +992,14 @@ void BufferReuseDebugPrinter::printAllocInfo(const kir::Allocate* alloc) {
   TORCH_INTERNAL_ASSERT(allocation_info_map_ != nullptr);
   std::string message_header(" \033[1;32m^^^^^ ---Buffer Reuse Info---  ");
   std::string message_end("  \033[0m\n");
-  if (!allocation_info_map_->getMaybeAllocationInfo(alloc).has_value()) {
+
+  auto alloc_info = allocation_info_map_->getAllocationInfo(alloc);
+
+  if (!alloc_info) {
     // This buffer is not considered for any sharing, either
     //  because of un-supported op or size below threshold.
     return;
   }
-
-  auto alloc_info = allocation_info_map_->getMaybeAllocationInfo(alloc).value();
 
   indent() << message_header;
   if (alloc_info->alias_to) {
@@ -1012,8 +1009,7 @@ void BufferReuseDebugPrinter::printAllocInfo(const kir::Allocate* alloc) {
       os_ << "(outer) ";
     }
     os_ << " alias to alloc at pos "
-        << allocation_info_map_->getMaybeAllocationInfo(alloc_info->alias_to)
-               .value()
+        << allocation_info_map_->getAllocationInfo(alloc_info->alias_to)
                ->alloc_pos
         << " ";
   } else {
@@ -1078,17 +1074,14 @@ class ReusableAllocationFinder : private kir::IrVisitor {
     // Check that if this allocation site is one that
     //  we want to re-use or replace with an alias
 
-    auto maybe_alloc_info =
-        allocation_info_map_.getMaybeAllocationInfo(allocate);
-    if (maybe_alloc_info.has_value() &&
-        maybe_alloc_info.value()->alias_to == nullptr) {
+    auto alloc_info = allocation_info_map_.getAllocationInfo(allocate);
+    if (alloc_info && alloc_info->alias_to == nullptr) {
       // Try to re-use existing allocates
-      if (!tryReuseOtherAllocate(maybe_alloc_info.value())) {
+      if (!tryReuseOtherAllocate(alloc_info)) {
         // If didn't re-use, should register this
         // allocate so that future allocates
         // can re-use this one.
-        current_visible_buffer_stack_.back()->push_back(
-            maybe_alloc_info.value());
+        current_visible_buffer_stack_.back()->push_back(alloc_info);
       }
     }
   }
@@ -1402,13 +1395,10 @@ class AllocationAliasModifier : private kir::ExprMutator {
 
   //! Replace an kir::Allocate with a new aliased Allocate
   void handle(kir::Allocate* allocate) final {
-    auto maybe_alloc_info =
-        allocation_info_map_.getMaybeAllocationInfo(allocate);
-    if (!maybe_alloc_info.has_value()) {
+    auto alloc_info_from = allocation_info_map_.getAllocationInfo(allocate);
+    if (!alloc_info_from) {
       return;
     }
-
-    AllocationInfo* alloc_info_from = maybe_alloc_info.value();
 
     auto alias_it = allocation_info_map_.getAliasMap().find(alloc_info_from);
     if (alias_it == allocation_info_map_.getAliasMap().end()) {
@@ -1739,10 +1729,10 @@ class StackBasedSharedMemAllocator : kir::IrVisitor {
       }
       if (alloc_info->alias_to) {
         auto alias_info =
-            allocation_info_map_.getMaybeAllocationInfo(alloc_info->alias_to);
-        TORCH_CHECK(alias_info.has_value());
-        auto prev_last_read = lastAliasedRead(alias_info.value());
-        last_aliased_read_[alias_info.value()] = std::max(
+            allocation_info_map_.getAllocationInfo(alloc_info->alias_to);
+        TORCH_CHECK(alias_info);
+        auto prev_last_read = lastAliasedRead(alias_info);
+        last_aliased_read_[alias_info] = std::max(
             prev_last_read, alloc_info->outer_live_interval->lastRead());
       } else {
         last_aliased_read_[alloc_info.get()] =
