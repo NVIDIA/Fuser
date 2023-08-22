@@ -9920,6 +9920,46 @@ TEST_F(NVFuserTest, StructConstruct) {
       outputs.at(0).item<c10::complex<float>>(), c10::complex<float>(1.2, 3.4));
 }
 
+// Repro of an issue found in PR #733. Previously the runtime
+// validation of strides of vectorized tensors issued a false positive
+TEST_F(NVFuserTest, VectorizationStrideValidation) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  const std::vector<int64_t> shape({2, 1, 3});
+  const std::vector<int64_t> expanded_shape({2, 5, 3});
+
+  auto tv0 = TensorViewBuilder()
+                 .ndims(shape.size())
+                 .shape(expanded_shape)
+                 .contiguity({false, std::nullopt, true})
+                 .expanded({false, true, false})
+                 .build();
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  fusion.addOutput(tv1);
+
+  tv1->merge(0)->merge(0);
+  tv1->split(0, 2);
+
+  tv1->axis(-1)->parallelize(ParallelType::Vectorize);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape, options).expand({-1, 5, -1});
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs);
+
+  // This previously triggered a false positive error with the stride
+  // validation
+  auto cg_outputs = fe.runFusion(aten_inputs);
+
+  ASSERT_TRUE(cg_outputs[0].equal(t0));
+}
+
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser

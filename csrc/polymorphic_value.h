@@ -10,6 +10,7 @@
 #include <macros.h>
 
 #include <dynamic_type.h>
+#include <opaque_type.h>
 #include <any>
 #include <complex>
 #include <cstddef>
@@ -236,47 +237,6 @@ inline std::ostream& operator<<(std::ostream& os, const Pointer& ptr) {
   os << (void*)ptr;
   return os;
 }
-
-struct Opaque {
-  std::any value;
-
-  // Because the type information is not available at compile time, we can't
-  // accurately compare the values of two opaque values. So, by default,
-  // equality check is done by pointer compare. However, we also support
-  // manually specifying the equality comparator.
-  std::function<bool(const Opaque&, const Opaque&)> equals =
-      [](const Opaque& a, const Opaque& b) { return &a == &b; };
-
-  bool operator==(const Opaque& other) const {
-    if (this == &other) {
-      return true;
-    }
-    if (value.type() != other.value.type()) {
-      return false;
-    }
-    bool result1 = equals(*this, other);
-    bool result2 = equals(other, *this);
-    TORCH_INTERNAL_ASSERT(
-        result1 == result2, "Opaque equality is not symmetric");
-    return result1;
-  }
-
-  bool operator!=(const Opaque& other) const {
-    return !(*this == other);
-  }
-};
-
-inline std::ostream& operator<<(std::ostream& os, const Opaque& opaque) {
-  os << "Opaque<" << opaque.value.type().name() << ">";
-  return os;
-}
-
-template <typename T>
-struct OpaqueEquals {
-  bool operator()(const Opaque& a, const Opaque& b) const {
-    return std::any_cast<T>(a.value) == std::any_cast<T>(b.value);
-  }
-};
 
 using PolymorphicValue = DynamicType<
     Containers<std::vector, Struct>,
