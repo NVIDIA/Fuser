@@ -129,6 +129,24 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
   }
 
   //! Detect possibly empty TensorViews and dynamic IterDomain transforms
+  //!
+  //! NOTE: we detect IterDomain transforms this way instead of e.g.
+  //! handle(Resize*) to guarantee that the dynamic_exprs_ vector will be
+  //! topologically sorted _with respect to TensorView expressions_. To see why
+  //! this is necessary, consider this example:
+  //!
+  //!   auto tv1 = reshape(tv0, dyn_shape);
+  //!   auto tv2 = pad(tv1, {s0, s1});
+  //!
+  //! We need to process the reshape op before processing the Resize of the last
+  //! axis of tv2, since we might define a placeholder extent on the last axis
+  //! of tv1 which will need to be bound before we handle the Resize. However,
+  //! IterDomains do not have TensorViews as producers, so a valid topological
+  //! ordering could handle _all_ IterDomains in the Fusion before processing
+  //! the TensorViews. By processing IterDomains only when we visit a TensorView
+  //! and not earlier, we guarantee that we have already processed the
+  //! TensorView definition, which means we've had a chance to bind placeholder
+  //! extents if needed.
   void handle(TensorView* tv) override {
     const auto& rfd = tv->getMaybeRFactorDomain();
     for (auto id : rfd) {
