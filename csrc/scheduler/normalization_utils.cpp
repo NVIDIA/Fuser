@@ -918,11 +918,13 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
   //! ratio.
   if (buffer_params.regs_buffer_size > available_regs) {
     const int64_t n_buffers = (int64_t)persistent_buffers.size();
+    int64_t n_broadcast_buffers = 0;
     std::vector<TensorView*> sorted_candidate_tvs;
     sorted_candidate_tvs.reserve(n_buffers);
     for (auto tv : persistent_buffers) {
       if (isDirectlyUsedByBroadcast(tv)) {
         sorted_candidate_tvs.insert(sorted_candidate_tvs.begin(), tv);
+        n_broadcast_buffers++;
       } else {
         sorted_candidate_tvs.push_back(tv);
       }
@@ -973,7 +975,8 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
     // raising the need to 130K, could lead to a selection of the 132K
     // configuration, optimizing usage.
     const int64_t min_resg_buffer = buffer_params.combined_reduction ? 0l : 1l;
-    if (n_buffers - n_smem_buffer > min_resg_buffer) {
+    if (n_smem_buffer > n_broadcast_buffers &&
+        n_buffers - n_smem_buffer > min_resg_buffer) {
       int64_t smem_buffer_size = acc_smem_buffer_sizes[n_smem_buffer];
       int64_t smem_config_size = getSharedMemoryConfigSize(
           smem_buffer_size + buffer_params.smem_overhead);
