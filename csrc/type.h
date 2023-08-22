@@ -167,8 +167,8 @@ struct OpaqueType {
 };
 
 struct DataType {
-  using VariantOfSupportedTypes =
-      std::variant<PrimDataType, ArrayType, PointerType, StructType, OpaqueType>;
+  using VariantOfSupportedTypes = std::
+      variant<PrimDataType, ArrayType, PointerType, StructType, OpaqueType>;
   VariantOfSupportedTypes type = PrimDataType::Null;
 
   DataType() = default;
