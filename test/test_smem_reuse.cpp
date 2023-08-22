@@ -277,12 +277,6 @@ TEST_F(SmemReuseTest, PromoteReuse) {
   }
 }
 
-// TODO: Add tests with
-// - one promoted tensor with multiple other tensors that could reuse the
-// promoted tensor
-// - multiple promoted tensors
-// - aliased promoted tensor showing when we can re-use
-
 // In this example, we promote a single tensor for re-use in a Fusion with two
 // downstream tensors that could use its memory. The first downstream tensor is
 // not re-used since it is not promoted.
