@@ -82,8 +82,6 @@ enum class PrimDataType {
   ComplexFloat,
   // Pointers
   SMemAddress,
-  // Opaque data type
-  Opaque,
   // Null
   Null
 };
@@ -150,17 +148,27 @@ struct StructOf {
   inline bool operator==(const StructOf& other) const;
 };
 
+struct OpaqueType {
+  std::string display_name;
+  std::reference_wrapper<const std::type_info> type_info;
+
+  inline bool operator==(const OpaqueType& other) const {
+    return type_info.get() == other.type_info.get();
+  }
+};
+
 struct DataType {
   using VariantOfSupportedTypes =
-      std::variant<PrimDataType, ArrayOf, PointerOf, StructOf>;
+      std::variant<PrimDataType, ArrayOf, PointerOf, StructOf, OpaqueType>;
   VariantOfSupportedTypes type = PrimDataType::Null;
 
   DataType() = default;
   DataType(VariantOfSupportedTypes type) : type(std::move(type)) {}
-  DataType(const PrimDataType& type) : type(type) {}
-  DataType(const ArrayOf& type) : type(type) {}
-  DataType(const PointerOf& type) : type(type) {}
-  DataType(const StructOf& type) : type(type) {}
+  DataType(PrimDataType type) : type(std::move(type)) {}
+  DataType(ArrayOf type) : type(std::move(type)) {}
+  DataType(PointerOf type) : type(std::move(type)) {}
+  DataType(StructOf type) : type(std::move(type)) {}
+  DataType(OpaqueType type) : type(std::move(type)) {}
 
   static constexpr PrimDataType Double = PrimDataType::Double;
   static constexpr PrimDataType Float = PrimDataType::Float;
@@ -173,7 +181,6 @@ struct DataType {
   static constexpr PrimDataType ComplexFloat = PrimDataType::ComplexFloat;
   static constexpr PrimDataType ComplexDouble = PrimDataType::ComplexDouble;
   static constexpr PrimDataType SMemAddress = PrimDataType::SMemAddress;
-  static constexpr PrimDataType Opaque = PrimDataType::Opaque;
   static constexpr PrimDataType Null = PrimDataType::Null;
 };
 
@@ -389,7 +396,6 @@ DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
     DataType::ComplexDouble,
     at::ScalarType::ComplexDouble,
     std::complex<double>);
-DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::Opaque, Opaque);
 
 #undef DEFINE_DATATYPE_TO_NATIVE_TYPE
 #undef DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE
@@ -423,6 +429,11 @@ inline DataType getDataType(const PolymorphicValue& value) {
       // For pointers in polymorphic value, we only store the data size of the
       // pointee, so it is impossible to infer the pointer type.
       TORCH_CHECK(!value.is<T>(), "Can not infer pointer type.");
+    } else if constexpr (std::is_same_v<T, Opaque>) {
+      if (value.is<T>()) {
+        dtype =
+            DataType(OpaqueType{.type_info = value.as<Opaque>().any().type()});
+      }
     }
   });
   TORCH_CHECK(dtype.has_value(), "Unknown dtype for ", value.type().name());
@@ -467,6 +478,12 @@ inline bool isCompatibleDataType(DataType dtype, DataType dtype2) {
       }
     }
     return true;
+  }
+  if (std::holds_alternative<OpaqueType>(dtype.type) &&
+      std::holds_alternative<OpaqueType>(dtype2.type)) {
+    const auto& opaque_type = std::get<OpaqueType>(dtype.type);
+    const auto& opaque_type2 = std::get<OpaqueType>(dtype2.type);
+    return opaque_type.type_info.get() == opaque_type2.type_info.get();
   }
   return false;
 }
