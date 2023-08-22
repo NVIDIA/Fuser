@@ -33,7 +33,11 @@ namespace {
 struct TransposeViewPropagator : public MaxInfoSpanningTree::Propagator {
   void propagateC2P(TensorView* from, TensorView* to) override {};
   void propagateP2C(TensorView* from, TensorView* to) override {
-    if (!p2c_via_view && !ir_utils::filterByType<ViewOp>(StmtSort::getExprsBetween(from->fusion(), {from}, {to})).empty()) {
+    if (p2c_via_view) {
+      return;
+    }
+    chain_exprs = StmtSort::getExprsBetween(from->fusion(), {from}, {to});
+    if (!ir_utils::filterByType<ViewOp>(chain_exprs).empty()) {
       p2c_via_view = true;
     };
   };
