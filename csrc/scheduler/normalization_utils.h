@@ -224,7 +224,7 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
 //! driver and the space for the reduction broadcast workspace.
 int64_t getSharedMemoryOverheadPerBlock(
     Fusion* fusion,
-    const std::vector<TensorView*>& persistent_buffer_tvs,
+    const std::vector<TensorView*>& reduction_tvs,
     const int64_t max_threads_per_block);
 
 //! Use the first inner reduction tv as the reference tv if the fusion has both

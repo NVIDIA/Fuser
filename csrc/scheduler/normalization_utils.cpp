@@ -712,13 +712,12 @@ std::pair<int64_t, int64_t> getInnerOuterPersistentBufferBatches(
 
 int64_t getSharedMemoryOverheadPerBlock(
     Fusion* fusion,
-    const std::vector<TensorView*>& persistent_buffers,
+    const std::vector<TensorView*>& reduction_tvs,
     const int64_t max_threads_per_block) {
   const auto& dev_prop = at::cuda::getCurrentDeviceProperties();
-  int64_t buffer_dtype_size = 1;
-  for (auto tv : persistent_buffers) {
-    buffer_dtype_size =
-        std::max(buffer_dtype_size, dataTypeSize(tv->getDataType().value()));
+  int64_t dtype_size = 1;
+  for (auto tv : reduction_tvs) {
+    dtype_size = std::max(dtype_size, dataTypeSize(tv->getDataType().value()));
   }
   auto hasWelford = [&fusion]() -> bool {
     for (auto expr : fusion->exprs()) {
@@ -730,7 +729,7 @@ int64_t getSharedMemoryOverheadPerBlock(
   };
   int64_t welford_factor = hasWelford() ? 3l : 1l;
   int64_t reduction_broadcast_workspace =
-      max_threads_per_block * buffer_dtype_size * welford_factor;
+      max_threads_per_block * dtype_size * welford_factor;
   int64_t smem_overhead_per_block =
       (int64_t)dev_prop->reservedSharedMemPerBlock +
       reduction_broadcast_workspace;
@@ -796,6 +795,15 @@ int64_t roundUpSharedMemory(
   const int64_t n_batch =
       ceilDiv(ceilDiv(n_elements, vectorize_factor), threads_per_block);
   return n_batch * vectorize_factor * threads_per_block * data_type_size;
+}
+
+bool isDirectlyUsedByBroadcast(TensorView* tv) {
+  for (auto consumer : ir_utils::consumerTvsOf(tv)) {
+    if (consumer->hasBroadcast()) {
+      return true;
+    }
+  }
+  return false;
 }
 
 } // namespace
@@ -894,7 +902,7 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
   // Shared memory persistent is only implemented for the inner and combined
   // case.
   buffer_params.smem_overhead = getSharedMemoryOverheadPerBlock(
-      fusion, persistent_buffers, max_threads_per_block);
+      fusion, reduction_tvs, max_threads_per_block);
   int64_t available_smem = inner_reduction
       ? (int64_t)dev_prop->sharedMemPerBlockOptin - buffer_params.smem_overhead
       : 0l;
@@ -903,17 +911,30 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
   buffer_params.regs_buffer_size = total_buffer_size;
   buffer_params.smem_buffer_size = 0;
 
-  // Try to move some buffers to shared memory to reduce register usage
+  //! Move buffers to shared memory following the 3 rules:
+  //! (1) Prioritize moving buffers that are directly used by broadcast ops.
+  //! (2) Move N buffers until the register buffer size is below the available
+  //! limit. (3) Move one more if leads to higher shared memory utilization
+  //! ratio.
   if (buffer_params.regs_buffer_size > available_regs) {
-    // calculate the accumulated buffer size of the first N buffers
     const int64_t n_buffers = (int64_t)persistent_buffers.size();
+    std::vector<TensorView*> sorted_candidate_tvs;
+    sorted_candidate_tvs.reserve(n_buffers);
+    for (auto tv : persistent_buffers) {
+      if (isDirectlyUsedByBroadcast(tv)) {
+        sorted_candidate_tvs.insert(sorted_candidate_tvs.begin(), tv);
+      } else {
+        sorted_candidate_tvs.push_back(tv);
+      }
+    }
+    // calculate the accumulated buffer size of the first N buffers
     std::vector<int64_t> acc_regs_buffer_sizes(n_buffers + 1, 0);
     std::vector<int64_t> acc_smem_buffer_sizes(n_buffers + 1, 0);
     for (int i = 1; i <= n_buffers; i++) {
       int64_t tv_buffer_size_regs = scheduler_utils::getOnePersistentBufferSize(
-          persistent_buffers[i - 1], runtime_info, persistent_buffer_info);
+          sorted_candidate_tvs[i - 1], runtime_info, persistent_buffer_info);
       int64_t tv_buffer_size_smem = roundUpSharedMemory(
-          persistent_buffers[i - 1],
+          sorted_candidate_tvs[i - 1],
           tv_buffer_size_regs,
           vectorize_factor,
           max_threads_per_block);
@@ -980,7 +1001,7 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
     }
     // move n_smem_buffer buffers to shared memory
     for (int i = 0; i < n_smem_buffer; i++) {
-      buffer_params.smem_tvs.emplace_back(persistent_buffers[i]);
+      buffer_params.smem_tvs.emplace_back(sorted_candidate_tvs[i]);
     }
     buffer_params.regs_buffer_size -= acc_regs_buffer_sizes[n_smem_buffer];
     buffer_params.smem_buffer_size = acc_smem_buffer_sizes[n_smem_buffer];
