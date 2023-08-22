@@ -241,10 +241,7 @@ class TORCH_CUDA_CU_API Val : public Statement {
   explicit Val(IrBuilderPasskey passkey, PrimDataType dtype)
       : Val(passkey, ValType::Others, DataType(dtype)) {}
   explicit Val(IrBuilderPasskey passkey, PolymorphicValue value)
-      : Val(passkey,
-            ValType::Others,
-            nvfuser::getDataType(value),
-            value) {}
+      : Val(passkey, ValType::Others, nvfuser::getDataType(value), value) {}
   explicit Val(IrBuilderPasskey passkey, PolymorphicValue value, DataType dtype)
       : Val(passkey,
             ValType::Others,
