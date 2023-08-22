@@ -3054,16 +3054,15 @@ TensorDomain::TensorDomain(
   resetDomains();
 }
 
-TensorDomain::TensorDomain(const TensorDomain* src) :
-    : Val(IrBuilderPasskey(src->fusion()), ValType::TensorDomain, DataType::Null),
-      root_domain_(src->root_domain_),
-      rfactor_domain_(src->rfactor_domain_),
-      allocation_domain_(src->allocation_domain_),
-      leaf_domain_(src->leaf_domain_),
-      no_bcast_domain_(src->no_bcast_domain_),
-      no_reduction_domain_(src->no_reduction_domain_),
-      contiguity_(src->contiguity_),
-      has_reduction_(src->has_reduction_) {}
+TensorDomain* TensorDomain::duplicateTensorDomain(const TensorDomain* src) {
+  return IrBuilder::create<TensorDomain>(
+      src->container(),
+      src->root_domain_,
+      src->rfactor_domain_,
+      src->allocation_domain_,
+      src->leaf_domain_,
+      src->contiguity_);
+}
 
 TensorDomain::TensorDomain(const TensorDomain* src, IrCloner* ir_cloner)
     : Val(src, ir_cloner),

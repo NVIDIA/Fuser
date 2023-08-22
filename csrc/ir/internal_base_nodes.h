@@ -456,7 +456,7 @@ class TORCH_CUDA_CU_API TensorDomain : public Val {
 
   TensorDomain(const TensorDomain* src, IrCloner* ir_cloner);
 
-  TensorDomain(const TensorDomain* src);
+  static TensorDomain* duplicateTensorDomain(const TensorDomain* src);
 
   NVFUSER_DECLARE_CLONE
 
