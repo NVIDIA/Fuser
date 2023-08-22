@@ -345,20 +345,10 @@ TEST_F(ExprEvalTest, TensorMetaData) {
 
 TEST_F(ExprEvalTest, OpaqueEquality) {
   Opaque a{DataType::Int}, b{DataType::Int};
-  // Because the type information is not available at compile time, we can't
-  // accurately compare the values of two opaque values. So, by default,
-  // equality check is done by pointer compare.
   EXPECT_EQ(a, a);
   EXPECT_EQ(b, b);
-  EXPECT_NE(a, b);
-  EXPECT_NE(b, a);
-  // However, we can manually specify the comparator to use for equality check.
-  Opaque c{DataType::Int, OpaqueEquals<PrimDataType>{}},
-      d{DataType::Int, OpaqueEquals<PrimDataType>{}};
-  EXPECT_EQ(c, c);
-  EXPECT_EQ(d, d);
-  EXPECT_EQ(c, d);
-  EXPECT_EQ(d, c);
+  EXPECT_EQ(a, b);
+  EXPECT_EQ(b, a);
 }
 
 TEST_F(ExprEvalTest, Validation) {
