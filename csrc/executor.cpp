@@ -225,7 +225,11 @@ void FusionExecutor::debugCompileFusionFromStr(
         "The static shared memory allocation is larger than available memory.");
   }
 
-  std::tie(compiled_kernel_, last_compiler_log_, last_compiled_binary_) =
+  std::tie(
+      compiled_kernel_,
+      last_compiler_log_,
+      last_compiled_binary_,
+      last_compiled_kernel_name_) =
       executor_utils::getCompiledKernel(std::nullopt, code, name, fusion_id_);
   TORCH_INTERNAL_ASSERT(
       fusion_id_ > 0, "assign a fusion_id_ <= 0 is not accepted.");
@@ -409,15 +413,18 @@ void FusionExecutor::compileFusion(
       (block_size.has_value() ? block_size.value() : 1),
       block_size_high_water_mark_);
   maxrregcount_high_water_mark_ = compile_params.maxrregcount;
-  std::tie(compiled_kernel_, last_compiler_log_, last_compiled_binary_) =
+  std::tie(
+      compiled_kernel_,
+      last_compiler_log_,
+      last_compiled_binary_,
+      last_compiled_kernel_name_) =
       executor_utils::getCompiledKernel(
           kernel_code_,
           structured_code,
           getCanonicalKernelName(),
           fusion_id_,
           compile_params,
-          block_size,
-          save_compiled_binary_ || isDebugDumpEnabled(DebugDumpOption::Sass));
+          block_size);
   TORCH_INTERNAL_ASSERT(
       fusion_id_ > 0, "failed to assign a fusion_id_ after compilation.");
 
@@ -1521,15 +1528,18 @@ void FusionExecutor::recompileKernel(
   block_size_high_water_mark_ = new_launch_params.nThreads();
   maxrregcount_high_water_mark_ = new_compile_params.maxrregcount;
 
-  std::tie(compiled_kernel_, last_compiler_log_, last_compiled_binary_) =
+  std::tie(
+      compiled_kernel_,
+      last_compiler_log_,
+      last_compiled_binary_,
+      last_compiled_kernel_name_) =
       executor_utils::getCompiledKernel(
           kernel_code_,
           structured_code,
           getCanonicalKernelName(),
           fusion_id_,
           new_compile_params,
-          block_size_high_water_mark_,
-          save_compiled_binary_);
+          block_size_high_water_mark_);
 
   resetCompiledKernelProperties();
 
@@ -1881,7 +1891,11 @@ void FusionExecutor::compileRtc(
   }
   fusion_id_ = 1;
 
-  std::tie(compiled_kernel_, last_compiler_log_, last_compiled_binary_) =
+  std::tie(
+      compiled_kernel_,
+      last_compiler_log_,
+      last_compiled_binary_,
+      last_compiled_kernel_name_) =
       executor_utils::getCompiledKernel(std::nullopt, scode, name, fusion_id_);
 }
 
@@ -1961,6 +1975,13 @@ flatbuffers::Offset<serde::FusionExecutor> FusionExecutor::serialize(
     executor_entry_lookup_values_fb.push_back(serialize(builder, value));
   }
 
+  auto kernel_name_fb = builder.CreateString(last_compiled_kernel_name_);
+  auto object_code_fb = builder.CreateVector<int8_t>(
+      (const int8_t*)last_compiled_binary_.data(),
+      last_compiled_binary_.size());
+  auto kernel_fb = serde::CreateCudaKernel(
+      builder, kernel_name_fb, object_code_fb, last_compiled_binary_.size());
+
   return serde::CreateFusionExecutorDirect(
       builder,
       device_smem_limit_,
@@ -1972,7 +1993,8 @@ flatbuffers::Offset<serde::FusionExecutor> FusionExecutor::serialize(
       kernel_code_.c_str(),
       &executor_entry_lookup_keys_fb,
       &executor_entry_lookup_values_fb,
-      serde::mapToSerdeDtype(kernel()->indexType()));
+      serde::mapToSerdeDtype(kernel()->indexType()),
+      kernel_fb);
 }
 
 flatbuffers::Offset<serde::ExecutorEntry> FusionExecutor::serialize(
@@ -2093,15 +2115,15 @@ void FusionExecutor::deserialize(
         deserialize(buffer->executor_entry_lookup_values()->Get(idx)));
   }
 
-  std::tie(compiled_kernel_, last_compiler_log_, last_compiled_binary_) =
+  std::tie(
+      compiled_kernel_,
+      last_compiler_log_,
+      last_compiled_binary_,
+      last_compiled_kernel_name_) =
       executor_utils::getCompiledKernel(
-          kernel_code_,
-          getStructuredCode(),
-          getCanonicalKernelName(),
-          fusion_id_,
+          buffer->compiled_kernel(),
           compile_params,
-          block_size_high_water_mark_,
-          save_compiled_binary_);
+          block_size_high_water_mark_);
 
   TORCH_INTERNAL_ASSERT(isCompiled(), "Failed to deserialize FusionExecutor");
 }

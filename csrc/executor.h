@@ -158,11 +158,6 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
     measure_kernel_time_ = measure_kernel_time;
   }
 
-  //! Internal knob used for debugging/profiling only
-  void setSaveCompiledBinaryFlag(bool save_compiled_binary) {
-    save_compiled_binary_ = save_compiled_binary;
-  }
-
   //! Returns the last kernel execution time, in milliseconds
   //!
   //! \note The kernel time is only tracked if enabled by calling
@@ -441,11 +436,11 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
   // Profiling support: nvrtc log for debugging
   std::string last_compiler_log_;
 
-  // save compiled binary
-  bool save_compiled_binary_ = false;
-
   // nvrtc compiled binary
   std::vector<char> last_compiled_binary_;
+
+  // compiled binary name
+  std::string last_compiled_kernel_name_;
 };
 
 } // namespace nvfuser

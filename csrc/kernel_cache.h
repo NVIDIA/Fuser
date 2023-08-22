@@ -118,7 +118,7 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
   flatbuffers::Offset<serde::FusionKernelRuntime> serialize(
       flatbuffers::FlatBufferBuilder& builder) const;
 
-  //! Deerialize Fusion Kernel Runtime using flatbuffers
+  //! Deserialize Fusion Kernel Runtime using flatbuffers
   void deserialize(const serde::FusionKernelRuntime* buffer);
 
   //! Note that all heuristics use the same index type.

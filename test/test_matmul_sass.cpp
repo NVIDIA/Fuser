@@ -78,7 +78,6 @@ sass::Container getSASSFor(
   auto inputs = matmulAtInput(M, N, K, layout);
 
   FusionExecutor fe;
-  fe.setSaveCompiledBinaryFlag(true);
   fe.compileFusion(
       &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
   auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
@@ -135,7 +134,6 @@ sass::Container getBinaryOpMulEpilogueSASSFor(
   const double alpha = 2.5;
 
   FusionExecutor fe;
-  fe.setSaveCompiledBinaryFlag(true);
   fe.compileFusion(
       &fusion,
       {inputs.first, inputs.second, alpha},

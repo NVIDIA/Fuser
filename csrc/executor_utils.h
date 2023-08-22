@@ -48,14 +48,21 @@ struct NvrtcFunction {
 };
 
 // Returns executable function and the ptxas log from compilation
-std::tuple<NvrtcFunction, std::string, std::vector<char>> getCompiledKernel(
+std::tuple<NvrtcFunction, std::string, std::vector<char>, std::string>
+getCompiledKernel(
     std::optional<std::reference_wrapper<const std::string>> kernel_code,
     const std::string& code,
     const std::string& func_name,
     int64_t id,
     const CompileParams& compile_params = CompileParams(),
-    std::optional<int64_t> opt_block_size = std::nullopt,
-    bool return_compiled_binary = false);
+    std::optional<int64_t> opt_block_size = std::nullopt);
+
+// Returns executable function using flatbuffer object
+std::tuple<NvrtcFunction, std::string, std::vector<char>, std::string>
+getCompiledKernel(
+    const serde::CudaKernel* buffer,
+    const CompileParams& compile_params,
+    std::optional<int64_t> opt_block_size);
 
 namespace caching {
 // TODO: Could consider putting some of

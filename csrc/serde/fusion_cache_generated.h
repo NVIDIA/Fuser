@@ -102,6 +102,9 @@ struct TensorCreationSymbolicBuilder;
 struct Vector;
 struct VectorBuilder;
 
+struct CudaKernel;
+struct CudaKernelBuilder;
+
 struct FusionExecutor;
 struct FusionExecutorBuilder;
 
@@ -2642,6 +2645,83 @@ inline ::flatbuffers::Offset<Vector> CreateVector(
   return builder_.Finish();
 }
 
+struct CudaKernel FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
+  typedef CudaKernelBuilder Builder;
+  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
+    VT_KERNEL_NAME = 4,
+    VT_OBJECT_CODE = 6,
+    VT_OBJECT_CODE_SIZE = 8
+  };
+  const ::flatbuffers::String *kernel_name() const {
+    return GetPointer<const ::flatbuffers::String *>(VT_KERNEL_NAME);
+  }
+  const ::flatbuffers::Vector<int8_t> *object_code() const {
+    return GetPointer<const ::flatbuffers::Vector<int8_t> *>(VT_OBJECT_CODE);
+  }
+  uint64_t object_code_size() const {
+    return GetField<uint64_t>(VT_OBJECT_CODE_SIZE, 0);
+  }
+  bool Verify(::flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyOffset(verifier, VT_KERNEL_NAME) &&
+           verifier.VerifyString(kernel_name()) &&
+           VerifyOffset(verifier, VT_OBJECT_CODE) &&
+           verifier.VerifyVector(object_code()) &&
+           VerifyField<uint64_t>(verifier, VT_OBJECT_CODE_SIZE, 8) &&
+           verifier.EndTable();
+  }
+};
+
+struct CudaKernelBuilder {
+  typedef CudaKernel Table;
+  ::flatbuffers::FlatBufferBuilder &fbb_;
+  ::flatbuffers::uoffset_t start_;
+  void add_kernel_name(::flatbuffers::Offset<::flatbuffers::String> kernel_name) {
+    fbb_.AddOffset(CudaKernel::VT_KERNEL_NAME, kernel_name);
+  }
+  void add_object_code(::flatbuffers::Offset<::flatbuffers::Vector<int8_t>> object_code) {
+    fbb_.AddOffset(CudaKernel::VT_OBJECT_CODE, object_code);
+  }
+  void add_object_code_size(uint64_t object_code_size) {
+    fbb_.AddElement<uint64_t>(CudaKernel::VT_OBJECT_CODE_SIZE, object_code_size, 0);
+  }
+  explicit CudaKernelBuilder(::flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  ::flatbuffers::Offset<CudaKernel> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = ::flatbuffers::Offset<CudaKernel>(end);
+    return o;
+  }
+};
+
+inline ::flatbuffers::Offset<CudaKernel> CreateCudaKernel(
+    ::flatbuffers::FlatBufferBuilder &_fbb,
+    ::flatbuffers::Offset<::flatbuffers::String> kernel_name = 0,
+    ::flatbuffers::Offset<::flatbuffers::Vector<int8_t>> object_code = 0,
+    uint64_t object_code_size = 0) {
+  CudaKernelBuilder builder_(_fbb);
+  builder_.add_object_code_size(object_code_size);
+  builder_.add_object_code(object_code);
+  builder_.add_kernel_name(kernel_name);
+  return builder_.Finish();
+}
+
+inline ::flatbuffers::Offset<CudaKernel> CreateCudaKernelDirect(
+    ::flatbuffers::FlatBufferBuilder &_fbb,
+    const char *kernel_name = nullptr,
+    const std::vector<int8_t> *object_code = nullptr,
+    uint64_t object_code_size = 0) {
+  auto kernel_name__ = kernel_name ? _fbb.CreateString(kernel_name) : 0;
+  auto object_code__ = object_code ? _fbb.CreateVector<int8_t>(*object_code) : 0;
+  return nvfuser::serde::CreateCudaKernel(
+      _fbb,
+      kernel_name__,
+      object_code__,
+      object_code_size);
+}
+
 struct FusionExecutor FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
   typedef FusionExecutorBuilder Builder;
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
@@ -2654,7 +2734,8 @@ struct FusionExecutor FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
     VT_KERNEL_CODE = 16,
     VT_EXECUTOR_ENTRY_LOOKUP_KEYS = 18,
     VT_EXECUTOR_ENTRY_LOOKUP_VALUES = 20,
-    VT_INDEX_TYPE = 22
+    VT_INDEX_TYPE = 22,
+    VT_COMPILED_KERNEL = 24
   };
   int64_t device_smem_limit() const {
     return GetField<int64_t>(VT_DEVICE_SMEM_LIMIT, 0);
@@ -2686,6 +2767,9 @@ struct FusionExecutor FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
   nvfuser::serde::DataType index_type() const {
     return static_cast<nvfuser::serde::DataType>(GetField<int32_t>(VT_INDEX_TYPE, 0));
   }
+  const nvfuser::serde::CudaKernel *compiled_kernel() const {
+    return GetPointer<const nvfuser::serde::CudaKernel *>(VT_COMPILED_KERNEL);
+  }
   bool Verify(::flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyField<int64_t>(verifier, VT_DEVICE_SMEM_LIMIT, 8) &&
@@ -2702,6 +2786,8 @@ struct FusionExecutor FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
            verifier.VerifyVector(executor_entry_lookup_values()) &&
            verifier.VerifyVectorOfTables(executor_entry_lookup_values()) &&
            VerifyField<int32_t>(verifier, VT_INDEX_TYPE, 4) &&
+           VerifyOffset(verifier, VT_COMPILED_KERNEL) &&
+           verifier.VerifyTable(compiled_kernel()) &&
            verifier.EndTable();
   }
 };
@@ -2740,6 +2826,9 @@ struct FusionExecutorBuilder {
   void add_index_type(nvfuser::serde::DataType index_type) {
     fbb_.AddElement<int32_t>(FusionExecutor::VT_INDEX_TYPE, static_cast<int32_t>(index_type), 0);
   }
+  void add_compiled_kernel(::flatbuffers::Offset<nvfuser::serde::CudaKernel> compiled_kernel) {
+    fbb_.AddOffset(FusionExecutor::VT_COMPILED_KERNEL, compiled_kernel);
+  }
   explicit FusionExecutorBuilder(::flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
     start_ = fbb_.StartTable();
@@ -2762,7 +2851,8 @@ inline ::flatbuffers::Offset<FusionExecutor> CreateFusionExecutor(
     ::flatbuffers::Offset<::flatbuffers::String> kernel_code = 0,
     ::flatbuffers::Offset<::flatbuffers::Vector<uint64_t>> executor_entry_lookup_keys = 0,
     ::flatbuffers::Offset<::flatbuffers::Vector<::flatbuffers::Offset<nvfuser::serde::ExecutorEntry>>> executor_entry_lookup_values = 0,
-    nvfuser::serde::DataType index_type = nvfuser::serde::DataType_Double) {
+    nvfuser::serde::DataType index_type = nvfuser::serde::DataType_Double,
+    ::flatbuffers::Offset<nvfuser::serde::CudaKernel> compiled_kernel = 0) {
   FusionExecutorBuilder builder_(_fbb);
   builder_.add_fusion_id_counter(fusion_id_counter);
   builder_.add_fusion_id(fusion_id);
@@ -2770,6 +2860,7 @@ inline ::flatbuffers::Offset<FusionExecutor> CreateFusionExecutor(
   builder_.add_maxrregcount_high_water_mark(maxrregcount_high_water_mark);
   builder_.add_block_size_high_water_mark(block_size_high_water_mark);
   builder_.add_device_smem_limit(device_smem_limit);
+  builder_.add_compiled_kernel(compiled_kernel);
   builder_.add_index_type(index_type);
   builder_.add_executor_entry_lookup_values(executor_entry_lookup_values);
   builder_.add_executor_entry_lookup_keys(executor_entry_lookup_keys);
@@ -2788,7 +2879,8 @@ inline ::flatbuffers::Offset<FusionExecutor> CreateFusionExecutorDirect(
     const char *kernel_code = nullptr,
     const std::vector<uint64_t> *executor_entry_lookup_keys = nullptr,
     const std::vector<::flatbuffers::Offset<nvfuser::serde::ExecutorEntry>> *executor_entry_lookup_values = nullptr,
-    nvfuser::serde::DataType index_type = nvfuser::serde::DataType_Double) {
+    nvfuser::serde::DataType index_type = nvfuser::serde::DataType_Double,
+    ::flatbuffers::Offset<nvfuser::serde::CudaKernel> compiled_kernel = 0) {
   auto kernel_code__ = kernel_code ? _fbb.CreateString(kernel_code) : 0;
   auto executor_entry_lookup_keys__ = executor_entry_lookup_keys ? _fbb.CreateVector<uint64_t>(*executor_entry_lookup_keys) : 0;
   auto executor_entry_lookup_values__ = executor_entry_lookup_values ? _fbb.CreateVector<::flatbuffers::Offset<nvfuser::serde::ExecutorEntry>>(*executor_entry_lookup_values) : 0;
@@ -2803,7 +2895,8 @@ inline ::flatbuffers::Offset<FusionExecutor> CreateFusionExecutorDirect(
       kernel_code__,
       executor_entry_lookup_keys__,
       executor_entry_lookup_values__,
-      index_type);
+      index_type,
+      compiled_kernel);
 }
 
 struct FusionKernelRuntime FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {

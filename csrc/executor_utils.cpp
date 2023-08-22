@@ -1152,14 +1152,14 @@ std::tuple<std::vector<char>, std::string, std::string> compileSource(
 } // namespace
 
 // Compile the source if no existing compiled binary is found in KernelDB
-std::tuple<NvrtcFunction, std::string, std::vector<char>> getCompiledKernel(
+std::tuple<NvrtcFunction, std::string, std::vector<char>, std::string>
+getCompiledKernel(
     std::optional<std::reference_wrapper<const std::string>> kernel_code,
     const std::string& full_src_code,
     const std::string& func_name,
     int64_t id,
     const CompileParams& compile_params,
-    std::optional<int64_t> opt_block_size,
-    bool return_compiled_binary) {
+    std::optional<int64_t> opt_block_size) {
   FUSER_PERF_SCOPE("executor_utils::NVRTC");
 
   at::cuda::jit::initializeCudaContext();
@@ -1266,11 +1266,72 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> getCompiledKernel(
       compiled_kernel.module,
       lowered_kernel_name_str.c_str()));
 
-  if (!return_compiled_binary) {
-    object_code.clear();
+  return {compiled_kernel, log.str(), object_code, lowered_kernel_name_str};
+}
+
+std::tuple<NvrtcFunction, std::string, std::vector<char>, std::string>
+getCompiledKernel(
+    const serde::CudaKernel* buffer,
+    const CompileParams& compile_params,
+    std::optional<int64_t> opt_block_size) {
+  FUSER_PERF_SCOPE("executor_utils::serde_NVRTC");
+
+  TORCH_INTERNAL_ASSERT(
+      buffer != nullptr, "serde::CudaKernel is not compiled.");
+
+  const char* object_code_ptr =
+      reinterpret_cast<const char*>(buffer->object_code()->Data());
+  std::vector<char> object_code(
+      object_code_ptr, object_code_ptr + buffer->object_code_size());
+
+  at::cuda::jit::initializeCudaContext();
+
+  // The above initialization works in some cases. However, it seems to
+  // occasionally fail to initialize a primary context. Here we check for that
+  // and if we detect that no context exists, we create one manually.
+  int device = 0;
+  cudaGetDevice(&device);
+  if (!at::detail::getCUDAHooks().hasPrimaryContext(device)) {
+    // CUDA>=12 creates a context when cudaSetDevice is called. However, before
+    // cu12, that context is not necessarily created. In that case, we create
+    // one here implicitly. See https://github.com/NVIDIA/Fuser/issues/429
+    cudaFree(nullptr);
   }
 
-  return {compiled_kernel, log.str(), object_code};
+  const auto prop = at::cuda::getCurrentDeviceProperties();
+
+  int major = 0, minor = 0;
+  bool compile_to_sass = false;
+  queryTargetGPUVersion(prop, major, minor, compile_to_sass);
+
+  NvrtcCompileDriver nvrtc_compile_driver;
+  CuModuleLoadDataDriver module_load_driver;
+
+  fillCompileOptions(
+      nvrtc_compile_driver,
+      module_load_driver,
+      compile_to_sass,
+      major,
+      minor,
+      compile_params,
+      opt_block_size);
+
+  const auto compile_args =
+      toDelimitedString(nvrtc_compile_driver.options(), " ");
+
+  std::stringstream log;
+  NvrtcFunction compiled_kernel;
+
+  log << module_load_driver.invoke(compiled_kernel.module, object_code.data())
+      << std::endl;
+
+  NVFUSER_CUDA_SAFE_CALL(cuModuleGetFunction(
+      &(compiled_kernel.function),
+      compiled_kernel.module,
+      buffer->kernel_name()->c_str()));
+
+  return {
+      compiled_kernel, log.str(), object_code, buffer->kernel_name()->str()};
 }
 
 namespace caching {
