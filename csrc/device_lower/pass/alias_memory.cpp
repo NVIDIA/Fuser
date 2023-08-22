@@ -1855,6 +1855,10 @@ class PromoteReuseSyncModifier : private kir::ExprMutator {
       std::optional<int> nearest_first_write = std::nullopt;
 
       for (const auto& other : allocation_info_map.allAllocationInfos()) {
+        if (other->alias_to || other->mem_type != MemoryType::Shared) {
+          // Skip other if it aliases an earlier allocation
+          continue;
+        }
         auto first_write = other->outer_live_interval->firstWrite();
         if (first_write <= last_read) {
           continue;
