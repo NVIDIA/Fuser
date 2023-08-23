@@ -365,7 +365,6 @@ table Vector {
 table CudaKernel {
   kernel_name: string;
   object_code: [byte];
-  object_code_size: ulong;
 }
 
 // Each Fusion Executor maps to a lowered and compiled kernel.

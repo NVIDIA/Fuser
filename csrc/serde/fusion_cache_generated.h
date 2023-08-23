@@ -20,116 +20,153 @@ struct State;
 
 struct Scalar;
 struct ScalarBuilder;
+struct ScalarT;
 
 struct ScalarCpu;
 struct ScalarCpuBuilder;
+struct ScalarCpuT;
 
 struct TensorArg;
 struct TensorArgBuilder;
+struct TensorArgT;
 
 struct PolymorphicValue;
 struct PolymorphicValueBuilder;
+struct PolymorphicValueT;
 
 struct KernelArgumentHolder;
 struct KernelArgumentHolderBuilder;
+struct KernelArgumentHolderT;
 
 struct TensorShape;
 struct TensorShapeBuilder;
+struct TensorShapeT;
 
 struct LaunchParams;
 struct LaunchParamsBuilder;
+struct LaunchParamsT;
 
 struct GlobalBufferInfo;
 struct GlobalBufferInfoBuilder;
+struct GlobalBufferInfoT;
 
 struct ExecutorEntry;
 struct ExecutorEntryBuilder;
+struct ExecutorEntryT;
 
 struct At;
 struct AtBuilder;
+struct AtT;
 
 struct BatchNorm;
 struct BatchNormBuilder;
+struct BatchNormT;
 
 struct Broadcast;
 struct BroadcastBuilder;
+struct BroadcastT;
 
 struct BroadcastInDim;
 struct BroadcastInDimBuilder;
+struct BroadcastInDimT;
 
 struct Dtype;
 struct DtypeBuilder;
+struct DtypeT;
 
 struct Dimension;
 struct DimensionBuilder;
+struct DimensionT;
 
 struct Norm;
 struct NormBuilder;
+struct NormT;
 
 struct Output;
 struct OutputBuilder;
+struct OutputT;
 
 struct Pad;
 struct PadBuilder;
+struct PadT;
 
 struct Permute;
 struct PermuteBuilder;
+struct PermuteT;
 
 struct Reduction;
 struct ReductionBuilder;
+struct ReductionT;
 
 struct Reshape;
 struct ReshapeBuilder;
+struct ReshapeT;
 
 struct Size;
 struct SizeBuilder;
+struct SizeT;
 
 struct Slice;
 struct SliceBuilder;
+struct SliceT;
 
 struct Squeeze;
 struct SqueezeBuilder;
+struct SqueezeT;
 
 struct Tensor;
 struct TensorBuilder;
+struct TensorT;
 
 struct TensorCreation;
 struct TensorCreationBuilder;
+struct TensorCreationT;
 
 struct TensorCreationSymbolic;
 struct TensorCreationSymbolicBuilder;
+struct TensorCreationSymbolicT;
 
 struct Vector;
 struct VectorBuilder;
+struct VectorT;
 
 struct CudaKernel;
 struct CudaKernelBuilder;
+struct CudaKernelT;
 
 struct FusionExecutor;
 struct FusionExecutorBuilder;
+struct FusionExecutorT;
 
 struct FusionKernelRuntime;
 struct FusionKernelRuntimeBuilder;
+struct FusionKernelRuntimeT;
 
 struct EncodingEntry;
 
 struct InputsIdLookup;
 struct InputsIdLookupBuilder;
+struct InputsIdLookupT;
 
 struct KernelRuntimeState;
 struct KernelRuntimeStateBuilder;
+struct KernelRuntimeStateT;
 
 struct FusionExecutorCache;
 struct FusionExecutorCacheBuilder;
+struct FusionExecutorCacheT;
 
 struct RecordFunctor;
 struct RecordFunctorBuilder;
+struct RecordFunctorT;
 
 struct TrieNode;
 struct TrieNodeBuilder;
+struct TrieNodeT;
 
 struct FusionCache;
 struct FusionCacheBuilder;
+struct FusionCacheT;
 
 enum DataType : int32_t {
   DataType_Double = 0,
@@ -620,6 +657,282 @@ template<> struct RecordDataTraits<nvfuser::serde::Vector> {
   static const RecordData enum_value = RecordData_Vector;
 };
 
+template<typename T> struct RecordDataUnionTraits {
+  static const RecordData enum_value = RecordData_NONE;
+};
+
+template<> struct RecordDataUnionTraits<nvfuser::serde::AtT> {
+  static const RecordData enum_value = RecordData_At;
+};
+
+template<> struct RecordDataUnionTraits<nvfuser::serde::BatchNormT> {
+  static const RecordData enum_value = RecordData_BatchNorm;
+};
+
+template<> struct RecordDataUnionTraits<nvfuser::serde::BroadcastT> {
+  static const RecordData enum_value = RecordData_Broadcast;
+};
+
+template<> struct RecordDataUnionTraits<nvfuser::serde::BroadcastInDimT> {
+  static const RecordData enum_value = RecordData_BroadcastInDim;
+};
+
+template<> struct RecordDataUnionTraits<nvfuser::serde::DimensionT> {
+  static const RecordData enum_value = RecordData_Dimension;
+};
+
+template<> struct RecordDataUnionTraits<nvfuser::serde::DtypeT> {
+  static const RecordData enum_value = RecordData_Dtype;
+};
+
+template<> struct RecordDataUnionTraits<nvfuser::serde::NormT> {
+  static const RecordData enum_value = RecordData_Norm;
+};
+
+template<> struct RecordDataUnionTraits<nvfuser::serde::OutputT> {
+  static const RecordData enum_value = RecordData_Output;
+};
+
+template<> struct RecordDataUnionTraits<nvfuser::serde::PadT> {
+  static const RecordData enum_value = RecordData_Pad;
+};
+
+template<> struct RecordDataUnionTraits<nvfuser::serde::PermuteT> {
+  static const RecordData enum_value = RecordData_Permute;
+};
+
+template<> struct RecordDataUnionTraits<nvfuser::serde::SliceT> {
+  static const RecordData enum_value = RecordData_Slice;
+};
+
+template<> struct RecordDataUnionTraits<nvfuser::serde::SqueezeT> {
+  static const RecordData enum_value = RecordData_Squeeze;
+};
+
+template<> struct RecordDataUnionTraits<nvfuser::serde::ReductionT> {
+  static const RecordData enum_value = RecordData_Reduction;
+};
+
+template<> struct RecordDataUnionTraits<nvfuser::serde::ReshapeT> {
+  static const RecordData enum_value = RecordData_Reshape;
+};
+
+template<> struct RecordDataUnionTraits<nvfuser::serde::ScalarT> {
+  static const RecordData enum_value = RecordData_Scalar;
+};
+
+template<> struct RecordDataUnionTraits<nvfuser::serde::SizeT> {
+  static const RecordData enum_value = RecordData_Size;
+};
+
+template<> struct RecordDataUnionTraits<nvfuser::serde::TensorT> {
+  static const RecordData enum_value = RecordData_Tensor;
+};
+
+template<> struct RecordDataUnionTraits<nvfuser::serde::TensorCreationT> {
+  static const RecordData enum_value = RecordData_TensorCreation;
+};
+
+template<> struct RecordDataUnionTraits<nvfuser::serde::TensorCreationSymbolicT> {
+  static const RecordData enum_value = RecordData_TensorCreationSymbolic;
+};
+
+template<> struct RecordDataUnionTraits<nvfuser::serde::VectorT> {
+  static const RecordData enum_value = RecordData_Vector;
+};
+
+struct RecordDataUnion {
+  RecordData type;
+  void *value;
+
+  RecordDataUnion() : type(RecordData_NONE), value(nullptr) {}
+  RecordDataUnion(RecordDataUnion&& u) FLATBUFFERS_NOEXCEPT :
+    type(RecordData_NONE), value(nullptr)
+    { std::swap(type, u.type); std::swap(value, u.value); }
+  RecordDataUnion(const RecordDataUnion &);
+  RecordDataUnion &operator=(const RecordDataUnion &u)
+    { RecordDataUnion t(u); std::swap(type, t.type); std::swap(value, t.value); return *this; }
+  RecordDataUnion &operator=(RecordDataUnion &&u) FLATBUFFERS_NOEXCEPT
+    { std::swap(type, u.type); std::swap(value, u.value); return *this; }
+  ~RecordDataUnion() { Reset(); }
+
+  void Reset();
+
+  template <typename T>
+  void Set(T&& val) {
+    typedef typename std::remove_reference<T>::type RT;
+    Reset();
+    type = RecordDataUnionTraits<RT>::enum_value;
+    if (type != RecordData_NONE) {
+      value = new RT(std::forward<T>(val));
+    }
+  }
+
+  static void *UnPack(const void *obj, RecordData type, const ::flatbuffers::resolver_function_t *resolver);
+  ::flatbuffers::Offset<void> Pack(::flatbuffers::FlatBufferBuilder &_fbb, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr) const;
+
+  nvfuser::serde::AtT *AsAt() {
+    return type == RecordData_At ?
+      reinterpret_cast<nvfuser::serde::AtT *>(value) : nullptr;
+  }
+  const nvfuser::serde::AtT *AsAt() const {
+    return type == RecordData_At ?
+      reinterpret_cast<const nvfuser::serde::AtT *>(value) : nullptr;
+  }
+  nvfuser::serde::BatchNormT *AsBatchNorm() {
+    return type == RecordData_BatchNorm ?
+      reinterpret_cast<nvfuser::serde::BatchNormT *>(value) : nullptr;
+  }
+  const nvfuser::serde::BatchNormT *AsBatchNorm() const {
+    return type == RecordData_BatchNorm ?
+      reinterpret_cast<const nvfuser::serde::BatchNormT *>(value) : nullptr;
+  }
+  nvfuser::serde::BroadcastT *AsBroadcast() {
+    return type == RecordData_Broadcast ?
+      reinterpret_cast<nvfuser::serde::BroadcastT *>(value) : nullptr;
+  }
+  const nvfuser::serde::BroadcastT *AsBroadcast() const {
+    return type == RecordData_Broadcast ?
+      reinterpret_cast<const nvfuser::serde::BroadcastT *>(value) : nullptr;
+  }
+  nvfuser::serde::BroadcastInDimT *AsBroadcastInDim() {
+    return type == RecordData_BroadcastInDim ?
+      reinterpret_cast<nvfuser::serde::BroadcastInDimT *>(value) : nullptr;
+  }
+  const nvfuser::serde::BroadcastInDimT *AsBroadcastInDim() const {
+    return type == RecordData_BroadcastInDim ?
+      reinterpret_cast<const nvfuser::serde::BroadcastInDimT *>(value) : nullptr;
+  }
+  nvfuser::serde::DimensionT *AsDimension() {
+    return type == RecordData_Dimension ?
+      reinterpret_cast<nvfuser::serde::DimensionT *>(value) : nullptr;
+  }
+  const nvfuser::serde::DimensionT *AsDimension() const {
+    return type == RecordData_Dimension ?
+      reinterpret_cast<const nvfuser::serde::DimensionT *>(value) : nullptr;
+  }
+  nvfuser::serde::DtypeT *AsDtype() {
+    return type == RecordData_Dtype ?
+      reinterpret_cast<nvfuser::serde::DtypeT *>(value) : nullptr;
+  }
+  const nvfuser::serde::DtypeT *AsDtype() const {
+    return type == RecordData_Dtype ?
+      reinterpret_cast<const nvfuser::serde::DtypeT *>(value) : nullptr;
+  }
+  nvfuser::serde::NormT *AsNorm() {
+    return type == RecordData_Norm ?
+      reinterpret_cast<nvfuser::serde::NormT *>(value) : nullptr;
+  }
+  const nvfuser::serde::NormT *AsNorm() const {
+    return type == RecordData_Norm ?
+      reinterpret_cast<const nvfuser::serde::NormT *>(value) : nullptr;
+  }
+  nvfuser::serde::OutputT *AsOutput() {
+    return type == RecordData_Output ?
+      reinterpret_cast<nvfuser::serde::OutputT *>(value) : nullptr;
+  }
+  const nvfuser::serde::OutputT *AsOutput() const {
+    return type == RecordData_Output ?
+      reinterpret_cast<const nvfuser::serde::OutputT *>(value) : nullptr;
+  }
+  nvfuser::serde::PadT *AsPad() {
+    return type == RecordData_Pad ?
+      reinterpret_cast<nvfuser::serde::PadT *>(value) : nullptr;
+  }
+  const nvfuser::serde::PadT *AsPad() const {
+    return type == RecordData_Pad ?
+      reinterpret_cast<const nvfuser::serde::PadT *>(value) : nullptr;
+  }
+  nvfuser::serde::PermuteT *AsPermute() {
+    return type == RecordData_Permute ?
+      reinterpret_cast<nvfuser::serde::PermuteT *>(value) : nullptr;
+  }
+  const nvfuser::serde::PermuteT *AsPermute() const {
+    return type == RecordData_Permute ?
+      reinterpret_cast<const nvfuser::serde::PermuteT *>(value) : nullptr;
+  }
+  nvfuser::serde::SliceT *AsSlice() {
+    return type == RecordData_Slice ?
+      reinterpret_cast<nvfuser::serde::SliceT *>(value) : nullptr;
+  }
+  const nvfuser::serde::SliceT *AsSlice() const {
+    return type == RecordData_Slice ?
+      reinterpret_cast<const nvfuser::serde::SliceT *>(value) : nullptr;
+  }
+  nvfuser::serde::SqueezeT *AsSqueeze() {
+    return type == RecordData_Squeeze ?
+      reinterpret_cast<nvfuser::serde::SqueezeT *>(value) : nullptr;
+  }
+  const nvfuser::serde::SqueezeT *AsSqueeze() const {
+    return type == RecordData_Squeeze ?
+      reinterpret_cast<const nvfuser::serde::SqueezeT *>(value) : nullptr;
+  }
+  nvfuser::serde::ReductionT *AsReduction() {
+    return type == RecordData_Reduction ?
+      reinterpret_cast<nvfuser::serde::ReductionT *>(value) : nullptr;
+  }
+  const nvfuser::serde::ReductionT *AsReduction() const {
+    return type == RecordData_Reduction ?
+      reinterpret_cast<const nvfuser::serde::ReductionT *>(value) : nullptr;
+  }
+  nvfuser::serde::ReshapeT *AsReshape() {
+    return type == RecordData_Reshape ?
+      reinterpret_cast<nvfuser::serde::ReshapeT *>(value) : nullptr;
+  }
+  const nvfuser::serde::ReshapeT *AsReshape() const {
+    return type == RecordData_Reshape ?
+      reinterpret_cast<const nvfuser::serde::ReshapeT *>(value) : nullptr;
+  }
+  nvfuser::serde::ScalarT *AsScalar() {
+    return type == RecordData_Scalar ?
+      reinterpret_cast<nvfuser::serde::ScalarT *>(value) : nullptr;
+  }
+  const nvfuser::serde::ScalarT *AsScalar() const {
+    return type == RecordData_Scalar ?
+      reinterpret_cast<const nvfuser::serde::ScalarT *>(value) : nullptr;
+  }
+  nvfuser::serde::SizeT *AsSize() {
+    return type == RecordData_Size ?
+      reinterpret_cast<nvfuser::serde::SizeT *>(value) : nullptr;
+  }
+  const nvfuser::serde::SizeT *AsSize() const {
+    return type == RecordData_Size ?
+      reinterpret_cast<const nvfuser::serde::SizeT *>(value) : nullptr;
+  }
+  nvfuser::serde::TensorT *AsTensor() {
+    return type == RecordData_Tensor ?
+      reinterpret_cast<nvfuser::serde::TensorT *>(value) : nullptr;
+  }
+  const nvfuser::serde::TensorT *AsTensor() const {
+    return type == RecordData_Tensor ?
+      reinterpret_cast<const nvfuser::serde::TensorT *>(value) : nullptr;
+  }
+  nvfuser::serde::TensorCreationT *AsTensorCreation() {
+    return type == RecordData_TensorCreation ?
+      reinterpret_cast<nvfuser::serde::TensorCreationT *>(value) : nullptr;
+  }
+  const nvfuser::serde::TensorCreationT *AsTensorCreation() const {
+    return type == RecordData_TensorCreation ?
+      reinterpret_cast<const nvfuser::serde::TensorCreationT *>(value) : nullptr;
+  }
+  nvfuser::serde::TensorCreationSymbolicT *AsTensorCreationSymbolic() {
+    return type == RecordData_TensorCreationSymbolic ?
+      reinterpret_cast<nvfuser::serde::TensorCreationSymbolicT *>(value) : nullptr;
+  }
+  const nvfuser::serde::TensorCreationSymbolicT *AsTensorCreationSymbolic() const {
+    return type == RecordData_TensorCreationSymbolic ?
+      reinterpret_cast<const nvfuser::serde::TensorCreationSymbolicT *>(value) : nullptr;
+  }
+  nvfuser::serde::VectorT *AsVector() {
+    return type == RecordData_Vector ?
+      reinterpret_cast<nvfuser::serde::VectorT *>(value) : nullptr;
+  }
+  const nvfuser::serde::VectorT *AsVector() const {
+    return type == RecordData_Vector ?
+      reinterpret_cast<const nvfuser::serde::VectorT *>(value) : nullptr;
+  }
+};
+
 bool VerifyRecordData(::flatbuffers::Verifier &verifier, const void *obj, RecordData type);
 bool VerifyRecordDataVector(::flatbuffers::Verifier &verifier, const ::flatbuffers::Vector<::flatbuffers::Offset<void>> *values, const ::flatbuffers::Vector<uint8_t> *types);
 
@@ -675,6 +988,78 @@ template<> struct PolymorphicValueDataTraits<nvfuser::serde::TensorArg> {
   static const PolymorphicValueData enum_value = PolymorphicValueData_TensorArg;
 };
 
+template<typename T> struct PolymorphicValueDataUnionTraits {
+  static const PolymorphicValueData enum_value = PolymorphicValueData_NONE;
+};
+
+template<> struct PolymorphicValueDataUnionTraits<nvfuser::serde::ScalarT> {
+  static const PolymorphicValueData enum_value = PolymorphicValueData_Scalar;
+};
+
+template<> struct PolymorphicValueDataUnionTraits<nvfuser::serde::ScalarCpuT> {
+  static const PolymorphicValueData enum_value = PolymorphicValueData_ScalarCpu;
+};
+
+template<> struct PolymorphicValueDataUnionTraits<nvfuser::serde::TensorArgT> {
+  static const PolymorphicValueData enum_value = PolymorphicValueData_TensorArg;
+};
+
+struct PolymorphicValueDataUnion {
+  PolymorphicValueData type;
+  void *value;
+
+  PolymorphicValueDataUnion() : type(PolymorphicValueData_NONE), value(nullptr) {}
+  PolymorphicValueDataUnion(PolymorphicValueDataUnion&& u) FLATBUFFERS_NOEXCEPT :
+    type(PolymorphicValueData_NONE), value(nullptr)
+    { std::swap(type, u.type); std::swap(value, u.value); }
+  PolymorphicValueDataUnion(const PolymorphicValueDataUnion &);
+  PolymorphicValueDataUnion &operator=(const PolymorphicValueDataUnion &u)
+    { PolymorphicValueDataUnion t(u); std::swap(type, t.type); std::swap(value, t.value); return *this; }
+  PolymorphicValueDataUnion &operator=(PolymorphicValueDataUnion &&u) FLATBUFFERS_NOEXCEPT
+    { std::swap(type, u.type); std::swap(value, u.value); return *this; }
+  ~PolymorphicValueDataUnion() { Reset(); }
+
+  void Reset();
+
+  template <typename T>
+  void Set(T&& val) {
+    typedef typename std::remove_reference<T>::type RT;
+    Reset();
+    type = PolymorphicValueDataUnionTraits<RT>::enum_value;
+    if (type != PolymorphicValueData_NONE) {
+      value = new RT(std::forward<T>(val));
+    }
+  }
+
+  static void *UnPack(const void *obj, PolymorphicValueData type, const ::flatbuffers::resolver_function_t *resolver);
+  ::flatbuffers::Offset<void> Pack(::flatbuffers::FlatBufferBuilder &_fbb, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr) const;
+
+  nvfuser::serde::ScalarT *AsScalar() {
+    return type == PolymorphicValueData_Scalar ?
+      reinterpret_cast<nvfuser::serde::ScalarT *>(value) : nullptr;
+  }
+  const nvfuser::serde::ScalarT *AsScalar() const {
+    return type == PolymorphicValueData_Scalar ?
+      reinterpret_cast<const nvfuser::serde::ScalarT *>(value) : nullptr;
+  }
+  nvfuser::serde::ScalarCpuT *AsScalarCpu() {
+    return type == PolymorphicValueData_ScalarCpu ?
+      reinterpret_cast<nvfuser::serde::ScalarCpuT *>(value) : nullptr;
+  }
+  const nvfuser::serde::ScalarCpuT *AsScalarCpu() const {
+    return type == PolymorphicValueData_ScalarCpu ?
+      reinterpret_cast<const nvfuser::serde::ScalarCpuT *>(value) : nullptr;
+  }
+  nvfuser::serde::TensorArgT *AsTensorArg() {
+    return type == PolymorphicValueData_TensorArg ?
+      reinterpret_cast<nvfuser::serde::TensorArgT *>(value) : nullptr;
+  }
+  const nvfuser::serde::TensorArgT *AsTensorArg() const {
+    return type == PolymorphicValueData_TensorArg ?
+      reinterpret_cast<const nvfuser::serde::TensorArgT *>(value) : nullptr;
+  }
+};
+
 bool VerifyPolymorphicValueData(::flatbuffers::Verifier &verifier, const void *obj, PolymorphicValueData type);
 bool VerifyPolymorphicValueDataVector(::flatbuffers::Verifier &verifier, const ::flatbuffers::Vector<::flatbuffers::Offset<void>> *values, const ::flatbuffers::Vector<uint8_t> *types);
 
@@ -724,7 +1109,20 @@ FLATBUFFERS_MANUALLY_ALIGNED_STRUCT(8) EncodingEntry FLATBUFFERS_FINAL_CLASS {
 };
 FLATBUFFERS_STRUCT_END(EncodingEntry, 16);
 
+struct ScalarT : public ::flatbuffers::NativeTable {
+  typedef Scalar TableType;
+  nvfuser::serde::DataType dtype = nvfuser::serde::DataType_Double;
+  bool has_value = false;
+  nvfuser::serde::DataType value_type = nvfuser::serde::DataType_Double;
+  bool bool_value = false;
+  int64_t long_value = 0;
+  double double_value = 0.0;
+  double real_value = 0.0;
+  double imag_value = 0.0;
+};
+
 struct Scalar FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
+  typedef ScalarT NativeTableType;
   typedef ScalarBuilder Builder;
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
     VT_DTYPE = 4,
@@ -772,6 +1170,9 @@ struct Scalar FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
            VerifyField<double>(verifier, VT_IMAG_VALUE, 8) &&
            verifier.EndTable();
   }
+  ScalarT *UnPack(const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(ScalarT *_o, const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static ::flatbuffers::Offset<Scalar> Pack(::flatbuffers::FlatBufferBuilder &_fbb, const ScalarT* _o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
 };
 
 struct ScalarBuilder {
@@ -835,7 +1236,19 @@ inline ::flatbuffers::Offset<Scalar> CreateScalar(
   return builder_.Finish();
 }
 
+::flatbuffers::Offset<Scalar> CreateScalar(::flatbuffers::FlatBufferBuilder &_fbb, const ScalarT *_o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct ScalarCpuT : public ::flatbuffers::NativeTable {
+  typedef ScalarCpu TableType;
+  std::unique_ptr<nvfuser::serde::ScalarT> scalar_value{};
+  ScalarCpuT() = default;
+  ScalarCpuT(const ScalarCpuT &o);
+  ScalarCpuT(ScalarCpuT&&) FLATBUFFERS_NOEXCEPT = default;
+  ScalarCpuT &operator=(ScalarCpuT o) FLATBUFFERS_NOEXCEPT;
+};
+
 struct ScalarCpu FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
+  typedef ScalarCpuT NativeTableType;
   typedef ScalarCpuBuilder Builder;
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
     VT_SCALAR_VALUE = 4
@@ -849,6 +1262,9 @@ struct ScalarCpu FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
            verifier.VerifyTable(scalar_value()) &&
            verifier.EndTable();
   }
+  ScalarCpuT *UnPack(const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(ScalarCpuT *_o, const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static ::flatbuffers::Offset<ScalarCpu> Pack(::flatbuffers::FlatBufferBuilder &_fbb, const ScalarCpuT* _o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
 };
 
 struct ScalarCpuBuilder {
@@ -877,7 +1293,18 @@ inline ::flatbuffers::Offset<ScalarCpu> CreateScalarCpu(
   return builder_.Finish();
 }
 
+::flatbuffers::Offset<ScalarCpu> CreateScalarCpu(::flatbuffers::FlatBufferBuilder &_fbb, const ScalarCpuT *_o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct TensorArgT : public ::flatbuffers::NativeTable {
+  typedef TensorArg TableType;
+  uint64_t ptr = 0;
+  std::vector<int64_t> sizes{};
+  std::vector<int64_t> strides{};
+  nvfuser::serde::DataType dtype = nvfuser::serde::DataType_Double;
+};
+
 struct TensorArg FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
+  typedef TensorArgT NativeTableType;
   typedef TensorArgBuilder Builder;
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
     VT_PTR = 4,
@@ -907,6 +1334,9 @@ struct TensorArg FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
            VerifyField<int32_t>(verifier, VT_DTYPE, 4) &&
            verifier.EndTable();
   }
+  TensorArgT *UnPack(const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(TensorArgT *_o, const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static ::flatbuffers::Offset<TensorArg> Pack(::flatbuffers::FlatBufferBuilder &_fbb, const TensorArgT* _o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
 };
 
 struct TensorArgBuilder {
@@ -966,7 +1396,15 @@ inline ::flatbuffers::Offset<TensorArg> CreateTensorArgDirect(
       dtype);
 }
 
+::flatbuffers::Offset<TensorArg> CreateTensorArg(::flatbuffers::FlatBufferBuilder &_fbb, const TensorArgT *_o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct PolymorphicValueT : public ::flatbuffers::NativeTable {
+  typedef PolymorphicValue TableType;
+  nvfuser::serde::PolymorphicValueDataUnion data{};
+};
+
 struct PolymorphicValue FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
+  typedef PolymorphicValueT NativeTableType;
   typedef PolymorphicValueBuilder Builder;
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
     VT_DATA_TYPE = 4,
@@ -995,6 +1433,9 @@ struct PolymorphicValue FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
            VerifyPolymorphicValueData(verifier, data(), data_type()) &&
            verifier.EndTable();
   }
+  PolymorphicValueT *UnPack(const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(PolymorphicValueT *_o, const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static ::flatbuffers::Offset<PolymorphicValue> Pack(::flatbuffers::FlatBufferBuilder &_fbb, const PolymorphicValueT* _o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
 };
 
 template<> inline const nvfuser::serde::Scalar *PolymorphicValue::data_as<nvfuser::serde::Scalar>() const {
@@ -1040,7 +1481,21 @@ inline ::flatbuffers::Offset<PolymorphicValue> CreatePolymorphicValue(
   return builder_.Finish();
 }
 
+::flatbuffers::Offset<PolymorphicValue> CreatePolymorphicValue(::flatbuffers::FlatBufferBuilder &_fbb, const PolymorphicValueT *_o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct KernelArgumentHolderT : public ::flatbuffers::NativeTable {
+  typedef KernelArgumentHolder TableType;
+  std::vector<std::unique_ptr<nvfuser::serde::PolymorphicValueT>> arguments{};
+  int8_t device_index = 0;
+  uint64_t cache_id = 0;
+  KernelArgumentHolderT() = default;
+  KernelArgumentHolderT(const KernelArgumentHolderT &o);
+  KernelArgumentHolderT(KernelArgumentHolderT&&) FLATBUFFERS_NOEXCEPT = default;
+  KernelArgumentHolderT &operator=(KernelArgumentHolderT o) FLATBUFFERS_NOEXCEPT;
+};
+
 struct KernelArgumentHolder FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
+  typedef KernelArgumentHolderT NativeTableType;
   typedef KernelArgumentHolderBuilder Builder;
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
     VT_ARGUMENTS = 4,
@@ -1065,6 +1520,9 @@ struct KernelArgumentHolder FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Tab
            VerifyField<uint64_t>(verifier, VT_CACHE_ID, 8) &&
            verifier.EndTable();
   }
+  KernelArgumentHolderT *UnPack(const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(KernelArgumentHolderT *_o, const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static ::flatbuffers::Offset<KernelArgumentHolder> Pack(::flatbuffers::FlatBufferBuilder &_fbb, const KernelArgumentHolderT* _o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
 };
 
 struct KernelArgumentHolderBuilder {
@@ -1116,7 +1574,15 @@ inline ::flatbuffers::Offset<KernelArgumentHolder> CreateKernelArgumentHolderDir
       cache_id);
 }
 
+::flatbuffers::Offset<KernelArgumentHolder> CreateKernelArgumentHolder(::flatbuffers::FlatBufferBuilder &_fbb, const KernelArgumentHolderT *_o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct TensorShapeT : public ::flatbuffers::NativeTable {
+  typedef TensorShape TableType;
+  std::vector<int64_t> shape{};
+};
+
 struct TensorShape FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
+  typedef TensorShapeT NativeTableType;
   typedef TensorShapeBuilder Builder;
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
     VT_SHAPE = 4
@@ -1130,6 +1596,9 @@ struct TensorShape FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
            verifier.VerifyVector(shape()) &&
            verifier.EndTable();
   }
+  TensorShapeT *UnPack(const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(TensorShapeT *_o, const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static ::flatbuffers::Offset<TensorShape> Pack(::flatbuffers::FlatBufferBuilder &_fbb, const TensorShapeT* _o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
 };
 
 struct TensorShapeBuilder {
@@ -1167,7 +1636,26 @@ inline ::flatbuffers::Offset<TensorShape> CreateTensorShapeDirect(
       shape__);
 }
 
+::flatbuffers::Offset<TensorShape> CreateTensorShape(::flatbuffers::FlatBufferBuilder &_fbb, const TensorShapeT *_o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct LaunchParamsT : public ::flatbuffers::NativeTable {
+  typedef LaunchParams TableType;
+  int64_t gdimx = 0;
+  int64_t gdimy = 0;
+  int64_t gdimz = 0;
+  int64_t bdimx = 0;
+  int64_t bdimy = 0;
+  int64_t bdimz = 0;
+  int64_t smem = 0;
+  std::vector<std::unique_ptr<nvfuser::serde::TensorShapeT>> output_sizes{};
+  LaunchParamsT() = default;
+  LaunchParamsT(const LaunchParamsT &o);
+  LaunchParamsT(LaunchParamsT&&) FLATBUFFERS_NOEXCEPT = default;
+  LaunchParamsT &operator=(LaunchParamsT o) FLATBUFFERS_NOEXCEPT;
+};
+
 struct LaunchParams FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
+  typedef LaunchParamsT NativeTableType;
   typedef LaunchParamsBuilder Builder;
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
     VT_GDIMX = 4,
@@ -1217,6 +1705,9 @@ struct LaunchParams FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
            verifier.VerifyVectorOfTables(output_sizes()) &&
            verifier.EndTable();
   }
+  LaunchParamsT *UnPack(const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(LaunchParamsT *_o, const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static ::flatbuffers::Offset<LaunchParams> Pack(::flatbuffers::FlatBufferBuilder &_fbb, const LaunchParamsT* _o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
 };
 
 struct LaunchParamsBuilder {
@@ -1303,7 +1794,21 @@ inline ::flatbuffers::Offset<LaunchParams> CreateLaunchParamsDirect(
       output_sizes__);
 }
 
+::flatbuffers::Offset<LaunchParams> CreateLaunchParams(::flatbuffers::FlatBufferBuilder &_fbb, const LaunchParamsT *_o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct GlobalBufferInfoT : public ::flatbuffers::NativeTable {
+  typedef GlobalBufferInfo TableType;
+  int64_t tv = -1LL;
+  std::vector<int64_t> sizes{};
+  std::vector<int64_t> strides{};
+  nvfuser::serde::DataType dtype = nvfuser::serde::DataType_Double;
+  bool zero_init = false;
+  bool is_profile_buffer = false;
+  bool is_fusion_output = false;
+};
+
 struct GlobalBufferInfo FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
+  typedef GlobalBufferInfoT NativeTableType;
   typedef GlobalBufferInfoBuilder Builder;
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
     VT_TV = 4,
@@ -1348,6 +1853,9 @@ struct GlobalBufferInfo FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
            VerifyField<uint8_t>(verifier, VT_IS_FUSION_OUTPUT, 1) &&
            verifier.EndTable();
   }
+  GlobalBufferInfoT *UnPack(const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(GlobalBufferInfoT *_o, const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static ::flatbuffers::Offset<GlobalBufferInfo> Pack(::flatbuffers::FlatBufferBuilder &_fbb, const GlobalBufferInfoT* _o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
 };
 
 struct GlobalBufferInfoBuilder {
@@ -1428,7 +1936,24 @@ inline ::flatbuffers::Offset<GlobalBufferInfo> CreateGlobalBufferInfoDirect(
       is_fusion_output);
 }
 
+::flatbuffers::Offset<GlobalBufferInfo> CreateGlobalBufferInfo(::flatbuffers::FlatBufferBuilder &_fbb, const GlobalBufferInfoT *_o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct ExecutorEntryT : public ::flatbuffers::NativeTable {
+  typedef ExecutorEntry TableType;
+  bool init = false;
+  std::unique_ptr<nvfuser::serde::LaunchParamsT> launch_params{};
+  std::vector<int32_t> output_aliases{};
+  std::vector<int32_t> input_aliases{};
+  std::vector<std::unique_ptr<nvfuser::serde::GlobalBufferInfoT>> outputs{};
+  std::vector<std::unique_ptr<nvfuser::serde::GlobalBufferInfoT>> intermediates{};
+  ExecutorEntryT() = default;
+  ExecutorEntryT(const ExecutorEntryT &o);
+  ExecutorEntryT(ExecutorEntryT&&) FLATBUFFERS_NOEXCEPT = default;
+  ExecutorEntryT &operator=(ExecutorEntryT o) FLATBUFFERS_NOEXCEPT;
+};
+
 struct ExecutorEntry FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
+  typedef ExecutorEntryT NativeTableType;
   typedef ExecutorEntryBuilder Builder;
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
     VT_INIT = 4,
@@ -1473,6 +1998,9 @@ struct ExecutorEntry FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
            verifier.VerifyVectorOfTables(intermediates()) &&
            verifier.EndTable();
   }
+  ExecutorEntryT *UnPack(const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(ExecutorEntryT *_o, const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static ::flatbuffers::Offset<ExecutorEntry> Pack(::flatbuffers::FlatBufferBuilder &_fbb, const ExecutorEntryT* _o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
 };
 
 struct ExecutorEntryBuilder {
@@ -1548,7 +2076,15 @@ inline ::flatbuffers::Offset<ExecutorEntry> CreateExecutorEntryDirect(
       intermediates__);
 }
 
+::flatbuffers::Offset<ExecutorEntry> CreateExecutorEntry(::flatbuffers::FlatBufferBuilder &_fbb, const ExecutorEntryT *_o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct AtT : public ::flatbuffers::NativeTable {
+  typedef At TableType;
+  int64_t index = 0;
+};
+
 struct At FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
+  typedef AtT NativeTableType;
   typedef AtBuilder Builder;
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
     VT_INDEX = 4
@@ -1561,6 +2097,9 @@ struct At FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
            VerifyField<int64_t>(verifier, VT_INDEX, 8) &&
            verifier.EndTable();
   }
+  AtT *UnPack(const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(AtT *_o, const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static ::flatbuffers::Offset<At> Pack(::flatbuffers::FlatBufferBuilder &_fbb, const AtT* _o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
 };
 
 struct AtBuilder {
@@ -1589,7 +2128,16 @@ inline ::flatbuffers::Offset<At> CreateAt(
   return builder_.Finish();
 }
 
+::flatbuffers::Offset<At> CreateAt(::flatbuffers::FlatBufferBuilder &_fbb, const AtT *_o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct BatchNormT : public ::flatbuffers::NativeTable {
+  typedef BatchNorm TableType;
+  bool training = false;
+  bool channels_last = false;
+};
+
 struct BatchNorm FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
+  typedef BatchNormT NativeTableType;
   typedef BatchNormBuilder Builder;
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
     VT_TRAINING = 4,
@@ -1607,6 +2155,9 @@ struct BatchNorm FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
            VerifyField<uint8_t>(verifier, VT_CHANNELS_LAST, 1) &&
            verifier.EndTable();
   }
+  BatchNormT *UnPack(const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(BatchNormT *_o, const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static ::flatbuffers::Offset<BatchNorm> Pack(::flatbuffers::FlatBufferBuilder &_fbb, const BatchNormT* _o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
 };
 
 struct BatchNormBuilder {
@@ -1640,7 +2191,15 @@ inline ::flatbuffers::Offset<BatchNorm> CreateBatchNorm(
   return builder_.Finish();
 }
 
+::flatbuffers::Offset<BatchNorm> CreateBatchNorm(::flatbuffers::FlatBufferBuilder &_fbb, const BatchNormT *_o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct BroadcastT : public ::flatbuffers::NativeTable {
+  typedef Broadcast TableType;
+  std::vector<bool> broadcast_dims{};
+};
+
 struct Broadcast FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
+  typedef BroadcastT NativeTableType;
   typedef BroadcastBuilder Builder;
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
     VT_BROADCAST_DIMS = 4
@@ -1654,6 +2213,9 @@ struct Broadcast FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
            verifier.VerifyVector(broadcast_dims()) &&
            verifier.EndTable();
   }
+  BroadcastT *UnPack(const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(BroadcastT *_o, const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static ::flatbuffers::Offset<Broadcast> Pack(::flatbuffers::FlatBufferBuilder &_fbb, const BroadcastT* _o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
 };
 
 struct BroadcastBuilder {
@@ -1691,7 +2253,16 @@ inline ::flatbuffers::Offset<Broadcast> CreateBroadcastDirect(
       broadcast_dims__);
 }
 
+::flatbuffers::Offset<Broadcast> CreateBroadcast(::flatbuffers::FlatBufferBuilder &_fbb, const BroadcastT *_o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct BroadcastInDimT : public ::flatbuffers::NativeTable {
+  typedef BroadcastInDim TableType;
+  uint64_t output_size = 0;
+  std::vector<int64_t> broadcast_dims{};
+};
+
 struct BroadcastInDim FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
+  typedef BroadcastInDimT NativeTableType;
   typedef BroadcastInDimBuilder Builder;
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
     VT_OUTPUT_SIZE = 4,
@@ -1710,6 +2281,9 @@ struct BroadcastInDim FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
            verifier.VerifyVector(broadcast_dims()) &&
            verifier.EndTable();
   }
+  BroadcastInDimT *UnPack(const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(BroadcastInDimT *_o, const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static ::flatbuffers::Offset<BroadcastInDim> Pack(::flatbuffers::FlatBufferBuilder &_fbb, const BroadcastInDimT* _o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
 };
 
 struct BroadcastInDimBuilder {
@@ -1754,7 +2328,15 @@ inline ::flatbuffers::Offset<BroadcastInDim> CreateBroadcastInDimDirect(
       broadcast_dims__);
 }
 
+::flatbuffers::Offset<BroadcastInDim> CreateBroadcastInDim(::flatbuffers::FlatBufferBuilder &_fbb, const BroadcastInDimT *_o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct DtypeT : public ::flatbuffers::NativeTable {
+  typedef Dtype TableType;
+  nvfuser::serde::DataType dtype = nvfuser::serde::DataType_Double;
+};
+
 struct Dtype FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
+  typedef DtypeT NativeTableType;
   typedef DtypeBuilder Builder;
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
     VT_DTYPE = 4
@@ -1767,6 +2349,9 @@ struct Dtype FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
            VerifyField<int32_t>(verifier, VT_DTYPE, 4) &&
            verifier.EndTable();
   }
+  DtypeT *UnPack(const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(DtypeT *_o, const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static ::flatbuffers::Offset<Dtype> Pack(::flatbuffers::FlatBufferBuilder &_fbb, const DtypeT* _o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
 };
 
 struct DtypeBuilder {
@@ -1795,7 +2380,15 @@ inline ::flatbuffers::Offset<Dtype> CreateDtype(
   return builder_.Finish();
 }
 
+::flatbuffers::Offset<Dtype> CreateDtype(::flatbuffers::FlatBufferBuilder &_fbb, const DtypeT *_o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct DimensionT : public ::flatbuffers::NativeTable {
+  typedef Dimension TableType;
+  int64_t dim = 0;
+};
+
 struct Dimension FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
+  typedef DimensionT NativeTableType;
   typedef DimensionBuilder Builder;
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
     VT_DIM = 4
@@ -1808,6 +2401,9 @@ struct Dimension FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
            VerifyField<int64_t>(verifier, VT_DIM, 8) &&
            verifier.EndTable();
   }
+  DimensionT *UnPack(const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(DimensionT *_o, const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static ::flatbuffers::Offset<Dimension> Pack(::flatbuffers::FlatBufferBuilder &_fbb, const DimensionT* _o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
 };
 
 struct DimensionBuilder {
@@ -1836,7 +2432,17 @@ inline ::flatbuffers::Offset<Dimension> CreateDimension(
   return builder_.Finish();
 }
 
+::flatbuffers::Offset<Dimension> CreateDimension(::flatbuffers::FlatBufferBuilder &_fbb, const DimensionT *_o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct NormT : public ::flatbuffers::NativeTable {
+  typedef Norm TableType;
+  std::vector<int32_t> axes{};
+  int64_t correction = 0;
+  bool keep_dim = false;
+};
+
 struct Norm FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
+  typedef NormT NativeTableType;
   typedef NormBuilder Builder;
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
     VT_AXES = 4,
@@ -1860,6 +2466,9 @@ struct Norm FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
            VerifyField<uint8_t>(verifier, VT_KEEP_DIM, 1) &&
            verifier.EndTable();
   }
+  NormT *UnPack(const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(NormT *_o, const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static ::flatbuffers::Offset<Norm> Pack(::flatbuffers::FlatBufferBuilder &_fbb, const NormT* _o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
 };
 
 struct NormBuilder {
@@ -1911,7 +2520,15 @@ inline ::flatbuffers::Offset<Norm> CreateNormDirect(
       keep_dim);
 }
 
+::flatbuffers::Offset<Norm> CreateNorm(::flatbuffers::FlatBufferBuilder &_fbb, const NormT *_o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct OutputT : public ::flatbuffers::NativeTable {
+  typedef Output TableType;
+  std::vector<int64_t> stride_order{};
+};
+
 struct Output FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
+  typedef OutputT NativeTableType;
   typedef OutputBuilder Builder;
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
     VT_STRIDE_ORDER = 4
@@ -1925,6 +2542,9 @@ struct Output FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
            verifier.VerifyVector(stride_order()) &&
            verifier.EndTable();
   }
+  OutputT *UnPack(const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(OutputT *_o, const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static ::flatbuffers::Offset<Output> Pack(::flatbuffers::FlatBufferBuilder &_fbb, const OutputT* _o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
 };
 
 struct OutputBuilder {
@@ -1962,7 +2582,15 @@ inline ::flatbuffers::Offset<Output> CreateOutputDirect(
       stride_order__);
 }
 
+::flatbuffers::Offset<Output> CreateOutput(::flatbuffers::FlatBufferBuilder &_fbb, const OutputT *_o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct PadT : public ::flatbuffers::NativeTable {
+  typedef Pad TableType;
+  std::vector<int64_t> pad_widths{};
+};
+
 struct Pad FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
+  typedef PadT NativeTableType;
   typedef PadBuilder Builder;
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
     VT_PAD_WIDTHS = 4
@@ -1976,6 +2604,9 @@ struct Pad FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
            verifier.VerifyVector(pad_widths()) &&
            verifier.EndTable();
   }
+  PadT *UnPack(const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(PadT *_o, const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static ::flatbuffers::Offset<Pad> Pack(::flatbuffers::FlatBufferBuilder &_fbb, const PadT* _o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
 };
 
 struct PadBuilder {
@@ -2013,7 +2644,15 @@ inline ::flatbuffers::Offset<Pad> CreatePadDirect(
       pad_widths__);
 }
 
+::flatbuffers::Offset<Pad> CreatePad(::flatbuffers::FlatBufferBuilder &_fbb, const PadT *_o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct PermuteT : public ::flatbuffers::NativeTable {
+  typedef Permute TableType;
+  std::vector<int64_t> dims{};
+};
+
 struct Permute FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
+  typedef PermuteT NativeTableType;
   typedef PermuteBuilder Builder;
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
     VT_DIMS = 4
@@ -2027,6 +2666,9 @@ struct Permute FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
            verifier.VerifyVector(dims()) &&
            verifier.EndTable();
   }
+  PermuteT *UnPack(const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(PermuteT *_o, const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static ::flatbuffers::Offset<Permute> Pack(::flatbuffers::FlatBufferBuilder &_fbb, const PermuteT* _o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
 };
 
 struct PermuteBuilder {
@@ -2064,7 +2706,17 @@ inline ::flatbuffers::Offset<Permute> CreatePermuteDirect(
       dims__);
 }
 
+::flatbuffers::Offset<Permute> CreatePermute(::flatbuffers::FlatBufferBuilder &_fbb, const PermuteT *_o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct ReductionT : public ::flatbuffers::NativeTable {
+  typedef Reduction TableType;
+  std::vector<int32_t> axes{};
+  bool keep_dim = false;
+  nvfuser::serde::DataType dtype = nvfuser::serde::DataType_Double;
+};
+
 struct Reduction FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
+  typedef ReductionT NativeTableType;
   typedef ReductionBuilder Builder;
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
     VT_AXES = 4,
@@ -2088,6 +2740,9 @@ struct Reduction FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
            VerifyField<int32_t>(verifier, VT_DTYPE, 4) &&
            verifier.EndTable();
   }
+  ReductionT *UnPack(const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(ReductionT *_o, const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static ::flatbuffers::Offset<Reduction> Pack(::flatbuffers::FlatBufferBuilder &_fbb, const ReductionT* _o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
 };
 
 struct ReductionBuilder {
@@ -2139,7 +2794,16 @@ inline ::flatbuffers::Offset<Reduction> CreateReductionDirect(
       dtype);
 }
 
+::flatbuffers::Offset<Reduction> CreateReduction(::flatbuffers::FlatBufferBuilder &_fbb, const ReductionT *_o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct ReshapeT : public ::flatbuffers::NativeTable {
+  typedef Reshape TableType;
+  std::vector<int64_t> original_shape{};
+  std::vector<int64_t> new_shape{};
+};
+
 struct Reshape FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
+  typedef ReshapeT NativeTableType;
   typedef ReshapeBuilder Builder;
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
     VT_ORIGINAL_SHAPE = 4,
@@ -2159,6 +2823,9 @@ struct Reshape FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
            verifier.VerifyVector(new_shape()) &&
            verifier.EndTable();
   }
+  ReshapeT *UnPack(const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(ReshapeT *_o, const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static ::flatbuffers::Offset<Reshape> Pack(::flatbuffers::FlatBufferBuilder &_fbb, const ReshapeT* _o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
 };
 
 struct ReshapeBuilder {
@@ -2204,7 +2871,15 @@ inline ::flatbuffers::Offset<Reshape> CreateReshapeDirect(
       new_shape__);
 }
 
+::flatbuffers::Offset<Reshape> CreateReshape(::flatbuffers::FlatBufferBuilder &_fbb, const ReshapeT *_o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct SizeT : public ::flatbuffers::NativeTable {
+  typedef Size TableType;
+  int64_t dim = 0;
+};
+
 struct Size FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
+  typedef SizeT NativeTableType;
   typedef SizeBuilder Builder;
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
     VT_DIM = 4
@@ -2217,6 +2892,9 @@ struct Size FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
            VerifyField<int64_t>(verifier, VT_DIM, 8) &&
            verifier.EndTable();
   }
+  SizeT *UnPack(const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(SizeT *_o, const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static ::flatbuffers::Offset<Size> Pack(::flatbuffers::FlatBufferBuilder &_fbb, const SizeT* _o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
 };
 
 struct SizeBuilder {
@@ -2245,7 +2923,17 @@ inline ::flatbuffers::Offset<Size> CreateSize(
   return builder_.Finish();
 }
 
+::flatbuffers::Offset<Size> CreateSize(::flatbuffers::FlatBufferBuilder &_fbb, const SizeT *_o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct SliceT : public ::flatbuffers::NativeTable {
+  typedef Slice TableType;
+  std::vector<int64_t> start_indices{};
+  std::vector<int64_t> end_indices{};
+  std::vector<int64_t> strides{};
+};
+
 struct Slice FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
+  typedef SliceT NativeTableType;
   typedef SliceBuilder Builder;
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
     VT_START_INDICES = 4,
@@ -2271,6 +2959,9 @@ struct Slice FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
            verifier.VerifyVector(strides()) &&
            verifier.EndTable();
   }
+  SliceT *UnPack(const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(SliceT *_o, const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static ::flatbuffers::Offset<Slice> Pack(::flatbuffers::FlatBufferBuilder &_fbb, const SliceT* _o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
 };
 
 struct SliceBuilder {
@@ -2324,7 +3015,16 @@ inline ::flatbuffers::Offset<Slice> CreateSliceDirect(
       strides__);
 }
 
+::flatbuffers::Offset<Slice> CreateSlice(::flatbuffers::FlatBufferBuilder &_fbb, const SliceT *_o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct SqueezeT : public ::flatbuffers::NativeTable {
+  typedef Squeeze TableType;
+  std::vector<int64_t> original_shape{};
+  std::vector<int64_t> squeeze_dims{};
+};
+
 struct Squeeze FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
+  typedef SqueezeT NativeTableType;
   typedef SqueezeBuilder Builder;
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
     VT_ORIGINAL_SHAPE = 4,
@@ -2344,6 +3044,9 @@ struct Squeeze FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
            verifier.VerifyVector(squeeze_dims()) &&
            verifier.EndTable();
   }
+  SqueezeT *UnPack(const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(SqueezeT *_o, const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static ::flatbuffers::Offset<Squeeze> Pack(::flatbuffers::FlatBufferBuilder &_fbb, const SqueezeT* _o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
 };
 
 struct SqueezeBuilder {
@@ -2389,7 +3092,18 @@ inline ::flatbuffers::Offset<Squeeze> CreateSqueezeDirect(
       squeeze_dims__);
 }
 
+::flatbuffers::Offset<Squeeze> CreateSqueeze(::flatbuffers::FlatBufferBuilder &_fbb, const SqueezeT *_o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct TensorT : public ::flatbuffers::NativeTable {
+  typedef Tensor TableType;
+  std::vector<int64_t> sizes{};
+  std::vector<nvfuser::serde::Contiguity> contiguity{};
+  nvfuser::serde::DataType dtype = nvfuser::serde::DataType_Double;
+  bool is_cpu = false;
+};
+
 struct Tensor FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
+  typedef TensorT NativeTableType;
   typedef TensorBuilder Builder;
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
     VT_SIZES = 4,
@@ -2419,6 +3133,9 @@ struct Tensor FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
            VerifyField<uint8_t>(verifier, VT_IS_CPU, 1) &&
            verifier.EndTable();
   }
+  TensorT *UnPack(const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(TensorT *_o, const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static ::flatbuffers::Offset<Tensor> Pack(::flatbuffers::FlatBufferBuilder &_fbb, const TensorT* _o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
 };
 
 struct TensorBuilder {
@@ -2478,7 +3195,16 @@ inline ::flatbuffers::Offset<Tensor> CreateTensorDirect(
       is_cpu);
 }
 
+::flatbuffers::Offset<Tensor> CreateTensor(::flatbuffers::FlatBufferBuilder &_fbb, const TensorT *_o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct TensorCreationT : public ::flatbuffers::NativeTable {
+  typedef TensorCreation TableType;
+  std::vector<int64_t> shape{};
+  nvfuser::serde::DataType dtype = nvfuser::serde::DataType_Double;
+};
+
 struct TensorCreation FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
+  typedef TensorCreationT NativeTableType;
   typedef TensorCreationBuilder Builder;
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
     VT_SHAPE = 4,
@@ -2497,6 +3223,9 @@ struct TensorCreation FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
            VerifyField<int32_t>(verifier, VT_DTYPE, 4) &&
            verifier.EndTable();
   }
+  TensorCreationT *UnPack(const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(TensorCreationT *_o, const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static ::flatbuffers::Offset<TensorCreation> Pack(::flatbuffers::FlatBufferBuilder &_fbb, const TensorCreationT* _o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
 };
 
 struct TensorCreationBuilder {
@@ -2541,7 +3270,16 @@ inline ::flatbuffers::Offset<TensorCreation> CreateTensorCreationDirect(
       dtype);
 }
 
+::flatbuffers::Offset<TensorCreation> CreateTensorCreation(::flatbuffers::FlatBufferBuilder &_fbb, const TensorCreationT *_o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct TensorCreationSymbolicT : public ::flatbuffers::NativeTable {
+  typedef TensorCreationSymbolic TableType;
+  std::vector<nvfuser::serde::State> shape{};
+  nvfuser::serde::DataType dtype = nvfuser::serde::DataType_Double;
+};
+
 struct TensorCreationSymbolic FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
+  typedef TensorCreationSymbolicT NativeTableType;
   typedef TensorCreationSymbolicBuilder Builder;
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
     VT_SHAPE = 4,
@@ -2560,6 +3298,9 @@ struct TensorCreationSymbolic FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::T
            VerifyField<int32_t>(verifier, VT_DTYPE, 4) &&
            verifier.EndTable();
   }
+  TensorCreationSymbolicT *UnPack(const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(TensorCreationSymbolicT *_o, const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static ::flatbuffers::Offset<TensorCreationSymbolic> Pack(::flatbuffers::FlatBufferBuilder &_fbb, const TensorCreationSymbolicT* _o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
 };
 
 struct TensorCreationSymbolicBuilder {
@@ -2604,7 +3345,15 @@ inline ::flatbuffers::Offset<TensorCreationSymbolic> CreateTensorCreationSymboli
       dtype);
 }
 
+::flatbuffers::Offset<TensorCreationSymbolic> CreateTensorCreationSymbolic(::flatbuffers::FlatBufferBuilder &_fbb, const TensorCreationSymbolicT *_o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct VectorT : public ::flatbuffers::NativeTable {
+  typedef Vector TableType;
+  nvfuser::serde::DataType dtype = nvfuser::serde::DataType_Double;
+};
+
 struct Vector FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
+  typedef VectorT NativeTableType;
   typedef VectorBuilder Builder;
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
     VT_DTYPE = 4
@@ -2617,6 +3366,9 @@ struct Vector FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
            VerifyField<int32_t>(verifier, VT_DTYPE, 4) &&
            verifier.EndTable();
   }
+  VectorT *UnPack(const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(VectorT *_o, const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static ::flatbuffers::Offset<Vector> Pack(::flatbuffers::FlatBufferBuilder &_fbb, const VectorT* _o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
 };
 
 struct VectorBuilder {
@@ -2645,12 +3397,20 @@ inline ::flatbuffers::Offset<Vector> CreateVector(
   return builder_.Finish();
 }
 
+::flatbuffers::Offset<Vector> CreateVector(::flatbuffers::FlatBufferBuilder &_fbb, const VectorT *_o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct CudaKernelT : public ::flatbuffers::NativeTable {
+  typedef CudaKernel TableType;
+  std::string kernel_name{};
+  std::vector<int8_t> object_code{};
+};
+
 struct CudaKernel FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
+  typedef CudaKernelT NativeTableType;
   typedef CudaKernelBuilder Builder;
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
     VT_KERNEL_NAME = 4,
-    VT_OBJECT_CODE = 6,
-    VT_OBJECT_CODE_SIZE = 8
+    VT_OBJECT_CODE = 6
   };
   const ::flatbuffers::String *kernel_name() const {
     return GetPointer<const ::flatbuffers::String *>(VT_KERNEL_NAME);
@@ -2658,18 +3418,17 @@ struct CudaKernel FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
   const ::flatbuffers::Vector<int8_t> *object_code() const {
     return GetPointer<const ::flatbuffers::Vector<int8_t> *>(VT_OBJECT_CODE);
   }
-  uint64_t object_code_size() const {
-    return GetField<uint64_t>(VT_OBJECT_CODE_SIZE, 0);
-  }
   bool Verify(::flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyOffset(verifier, VT_KERNEL_NAME) &&
            verifier.VerifyString(kernel_name()) &&
            VerifyOffset(verifier, VT_OBJECT_CODE) &&
            verifier.VerifyVector(object_code()) &&
-           VerifyField<uint64_t>(verifier, VT_OBJECT_CODE_SIZE, 8) &&
            verifier.EndTable();
   }
+  CudaKernelT *UnPack(const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(CudaKernelT *_o, const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static ::flatbuffers::Offset<CudaKernel> Pack(::flatbuffers::FlatBufferBuilder &_fbb, const CudaKernelT* _o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
 };
 
 struct CudaKernelBuilder {
@@ -2681,9 +3440,6 @@ struct CudaKernelBuilder {
   }
   void add_object_code(::flatbuffers::Offset<::flatbuffers::Vector<int8_t>> object_code) {
     fbb_.AddOffset(CudaKernel::VT_OBJECT_CODE, object_code);
-  }
-  void add_object_code_size(uint64_t object_code_size) {
-    fbb_.AddElement<uint64_t>(CudaKernel::VT_OBJECT_CODE_SIZE, object_code_size, 0);
   }
   explicit CudaKernelBuilder(::flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
@@ -2699,10 +3455,8 @@ struct CudaKernelBuilder {
 inline ::flatbuffers::Offset<CudaKernel> CreateCudaKernel(
     ::flatbuffers::FlatBufferBuilder &_fbb,
     ::flatbuffers::Offset<::flatbuffers::String> kernel_name = 0,
-    ::flatbuffers::Offset<::flatbuffers::Vector<int8_t>> object_code = 0,
-    uint64_t object_code_size = 0) {
+    ::flatbuffers::Offset<::flatbuffers::Vector<int8_t>> object_code = 0) {
   CudaKernelBuilder builder_(_fbb);
-  builder_.add_object_code_size(object_code_size);
   builder_.add_object_code(object_code);
   builder_.add_kernel_name(kernel_name);
   return builder_.Finish();
@@ -2711,18 +3465,38 @@ inline ::flatbuffers::Offset<CudaKernel> CreateCudaKernel(
 inline ::flatbuffers::Offset<CudaKernel> CreateCudaKernelDirect(
     ::flatbuffers::FlatBufferBuilder &_fbb,
     const char *kernel_name = nullptr,
-    const std::vector<int8_t> *object_code = nullptr,
-    uint64_t object_code_size = 0) {
+    const std::vector<int8_t> *object_code = nullptr) {
   auto kernel_name__ = kernel_name ? _fbb.CreateString(kernel_name) : 0;
   auto object_code__ = object_code ? _fbb.CreateVector<int8_t>(*object_code) : 0;
   return nvfuser::serde::CreateCudaKernel(
       _fbb,
       kernel_name__,
-      object_code__,
-      object_code_size);
+      object_code__);
 }
 
+::flatbuffers::Offset<CudaKernel> CreateCudaKernel(::flatbuffers::FlatBufferBuilder &_fbb, const CudaKernelT *_o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct FusionExecutorT : public ::flatbuffers::NativeTable {
+  typedef FusionExecutor TableType;
+  int64_t device_smem_limit = 0;
+  int64_t block_size_high_water_mark = 0;
+  int64_t maxrregcount_high_water_mark = 0;
+  int64_t warp_size = 0;
+  int64_t fusion_id = 0;
+  int64_t fusion_id_counter = 0;
+  std::string kernel_code{};
+  std::vector<uint64_t> executor_entry_lookup_keys{};
+  std::vector<std::unique_ptr<nvfuser::serde::ExecutorEntryT>> executor_entry_lookup_values{};
+  nvfuser::serde::DataType index_type = nvfuser::serde::DataType_Double;
+  std::unique_ptr<nvfuser::serde::CudaKernelT> compiled_kernel{};
+  FusionExecutorT() = default;
+  FusionExecutorT(const FusionExecutorT &o);
+  FusionExecutorT(FusionExecutorT&&) FLATBUFFERS_NOEXCEPT = default;
+  FusionExecutorT &operator=(FusionExecutorT o) FLATBUFFERS_NOEXCEPT;
+};
+
 struct FusionExecutor FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
+  typedef FusionExecutorT NativeTableType;
   typedef FusionExecutorBuilder Builder;
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
     VT_DEVICE_SMEM_LIMIT = 4,
@@ -2790,6 +3564,9 @@ struct FusionExecutor FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
            verifier.VerifyTable(compiled_kernel()) &&
            verifier.EndTable();
   }
+  FusionExecutorT *UnPack(const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(FusionExecutorT *_o, const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static ::flatbuffers::Offset<FusionExecutor> Pack(::flatbuffers::FlatBufferBuilder &_fbb, const FusionExecutorT* _o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
 };
 
 struct FusionExecutorBuilder {
@@ -2899,7 +3676,20 @@ inline ::flatbuffers::Offset<FusionExecutor> CreateFusionExecutorDirect(
       compiled_kernel);
 }
 
+::flatbuffers::Offset<FusionExecutor> CreateFusionExecutor(::flatbuffers::FlatBufferBuilder &_fbb, const FusionExecutorT *_o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct FusionKernelRuntimeT : public ::flatbuffers::NativeTable {
+  typedef FusionKernelRuntime TableType;
+  std::unique_ptr<nvfuser::serde::KernelArgumentHolderT> args{};
+  std::vector<std::unique_ptr<nvfuser::serde::FusionExecutorT>> executors{};
+  FusionKernelRuntimeT() = default;
+  FusionKernelRuntimeT(const FusionKernelRuntimeT &o);
+  FusionKernelRuntimeT(FusionKernelRuntimeT&&) FLATBUFFERS_NOEXCEPT = default;
+  FusionKernelRuntimeT &operator=(FusionKernelRuntimeT o) FLATBUFFERS_NOEXCEPT;
+};
+
 struct FusionKernelRuntime FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
+  typedef FusionKernelRuntimeT NativeTableType;
   typedef FusionKernelRuntimeBuilder Builder;
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
     VT_ARGS = 4,
@@ -2920,6 +3710,9 @@ struct FusionKernelRuntime FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Tabl
            verifier.VerifyVectorOfTables(executors()) &&
            verifier.EndTable();
   }
+  FusionKernelRuntimeT *UnPack(const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(FusionKernelRuntimeT *_o, const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static ::flatbuffers::Offset<FusionKernelRuntime> Pack(::flatbuffers::FlatBufferBuilder &_fbb, const FusionKernelRuntimeT* _o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
 };
 
 struct FusionKernelRuntimeBuilder {
@@ -2964,7 +3757,19 @@ inline ::flatbuffers::Offset<FusionKernelRuntime> CreateFusionKernelRuntimeDirec
       executors__);
 }
 
+::flatbuffers::Offset<FusionKernelRuntime> CreateFusionKernelRuntime(::flatbuffers::FlatBufferBuilder &_fbb, const FusionKernelRuntimeT *_o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct InputsIdLookupT : public ::flatbuffers::NativeTable {
+  typedef InputsIdLookup TableType;
+  uint64_t max_cache_size = 0;
+  uint64_t current_id = 0;
+  std::vector<std::string> lru_cache{};
+  std::vector<std::string> encoding_lookup_keys{};
+  std::vector<nvfuser::serde::EncodingEntry> encoding_lookup_values{};
+};
+
 struct InputsIdLookup FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
+  typedef InputsIdLookupT NativeTableType;
   typedef InputsIdLookupBuilder Builder;
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
     VT_MAX_CACHE_SIZE = 4,
@@ -3002,6 +3807,9 @@ struct InputsIdLookup FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
            verifier.VerifyVector(encoding_lookup_values()) &&
            verifier.EndTable();
   }
+  InputsIdLookupT *UnPack(const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(InputsIdLookupT *_o, const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static ::flatbuffers::Offset<InputsIdLookup> Pack(::flatbuffers::FlatBufferBuilder &_fbb, const InputsIdLookupT* _o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
 };
 
 struct InputsIdLookupBuilder {
@@ -3069,7 +3877,21 @@ inline ::flatbuffers::Offset<InputsIdLookup> CreateInputsIdLookupDirect(
       encoding_lookup_values__);
 }
 
+::flatbuffers::Offset<InputsIdLookup> CreateInputsIdLookup(::flatbuffers::FlatBufferBuilder &_fbb, const InputsIdLookupT *_o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct KernelRuntimeStateT : public ::flatbuffers::NativeTable {
+  typedef KernelRuntimeState TableType;
+  uint64_t device_id = 0;
+  bool has_dynamic_transform_info = false;
+  std::vector<std::unique_ptr<nvfuser::serde::FusionKernelRuntimeT>> runtimes{};
+  KernelRuntimeStateT() = default;
+  KernelRuntimeStateT(const KernelRuntimeStateT &o);
+  KernelRuntimeStateT(KernelRuntimeStateT&&) FLATBUFFERS_NOEXCEPT = default;
+  KernelRuntimeStateT &operator=(KernelRuntimeStateT o) FLATBUFFERS_NOEXCEPT;
+};
+
 struct KernelRuntimeState FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
+  typedef KernelRuntimeStateT NativeTableType;
   typedef KernelRuntimeStateBuilder Builder;
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
     VT_DEVICE_ID = 4,
@@ -3094,6 +3916,9 @@ struct KernelRuntimeState FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table
            verifier.VerifyVectorOfTables(runtimes()) &&
            verifier.EndTable();
   }
+  KernelRuntimeStateT *UnPack(const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(KernelRuntimeStateT *_o, const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static ::flatbuffers::Offset<KernelRuntimeState> Pack(::flatbuffers::FlatBufferBuilder &_fbb, const KernelRuntimeStateT* _o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
 };
 
 struct KernelRuntimeStateBuilder {
@@ -3145,7 +3970,22 @@ inline ::flatbuffers::Offset<KernelRuntimeState> CreateKernelRuntimeStateDirect(
       runtimes__);
 }
 
+::flatbuffers::Offset<KernelRuntimeState> CreateKernelRuntimeState(::flatbuffers::FlatBufferBuilder &_fbb, const KernelRuntimeStateT *_o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct FusionExecutorCacheT : public ::flatbuffers::NativeTable {
+  typedef FusionExecutorCache TableType;
+  std::unique_ptr<nvfuser::serde::InputsIdLookupT> inputs_cache{};
+  std::vector<std::unique_ptr<nvfuser::serde::KernelRuntimeStateT>> kernel_runtimes_map{};
+  std::vector<uint64_t> kernel_cache_keys{};
+  std::vector<uint64_t> kernel_cache_values{};
+  FusionExecutorCacheT() = default;
+  FusionExecutorCacheT(const FusionExecutorCacheT &o);
+  FusionExecutorCacheT(FusionExecutorCacheT&&) FLATBUFFERS_NOEXCEPT = default;
+  FusionExecutorCacheT &operator=(FusionExecutorCacheT o) FLATBUFFERS_NOEXCEPT;
+};
+
 struct FusionExecutorCache FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
+  typedef FusionExecutorCacheT NativeTableType;
   typedef FusionExecutorCacheBuilder Builder;
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
     VT_INPUTS_CACHE = 4,
@@ -3178,6 +4018,9 @@ struct FusionExecutorCache FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Tabl
            verifier.VerifyVector(kernel_cache_values()) &&
            verifier.EndTable();
   }
+  FusionExecutorCacheT *UnPack(const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(FusionExecutorCacheT *_o, const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static ::flatbuffers::Offset<FusionExecutorCache> Pack(::flatbuffers::FlatBufferBuilder &_fbb, const FusionExecutorCacheT* _o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
 };
 
 struct FusionExecutorCacheBuilder {
@@ -3238,7 +4081,19 @@ inline ::flatbuffers::Offset<FusionExecutorCache> CreateFusionExecutorCacheDirec
       kernel_cache_values__);
 }
 
+::flatbuffers::Offset<FusionExecutorCache> CreateFusionExecutorCache(::flatbuffers::FlatBufferBuilder &_fbb, const FusionExecutorCacheT *_o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct RecordFunctorT : public ::flatbuffers::NativeTable {
+  typedef RecordFunctor TableType;
+  std::vector<nvfuser::serde::State> args{};
+  std::vector<nvfuser::serde::State> outputs{};
+  std::string name{};
+  nvfuser::serde::RecordType type = nvfuser::serde::RecordType_Base;
+  nvfuser::serde::RecordDataUnion data{};
+};
+
 struct RecordFunctor FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
+  typedef RecordFunctorT NativeTableType;
   typedef RecordFunctorBuilder Builder;
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
     VT_ARGS = 4,
@@ -3341,6 +4196,9 @@ struct RecordFunctor FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
            VerifyRecordData(verifier, data(), data_type()) &&
            verifier.EndTable();
   }
+  RecordFunctorT *UnPack(const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(RecordFunctorT *_o, const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static ::flatbuffers::Offset<RecordFunctor> Pack(::flatbuffers::FlatBufferBuilder &_fbb, const RecordFunctorT* _o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
 };
 
 template<> inline const nvfuser::serde::At *RecordFunctor::data_as<nvfuser::serde::At>() const {
@@ -3495,7 +4353,23 @@ inline ::flatbuffers::Offset<RecordFunctor> CreateRecordFunctorDirect(
       data);
 }
 
+::flatbuffers::Offset<RecordFunctor> CreateRecordFunctor(::flatbuffers::FlatBufferBuilder &_fbb, const RecordFunctorT *_o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct TrieNodeT : public ::flatbuffers::NativeTable {
+  typedef TrieNode TableType;
+  std::unique_ptr<nvfuser::serde::RecordFunctorT> record{};
+  std::vector<uint64_t> children{};
+  uint64_t fusion_id = 0;
+  uint64_t visits = 0;
+  bool is_terminal = false;
+  TrieNodeT() = default;
+  TrieNodeT(const TrieNodeT &o);
+  TrieNodeT(TrieNodeT&&) FLATBUFFERS_NOEXCEPT = default;
+  TrieNodeT &operator=(TrieNodeT o) FLATBUFFERS_NOEXCEPT;
+};
+
 struct TrieNode FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
+  typedef TrieNodeT NativeTableType;
   typedef TrieNodeBuilder Builder;
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
     VT_RECORD = 4,
@@ -3530,6 +4404,9 @@ struct TrieNode FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
            VerifyField<uint8_t>(verifier, VT_IS_TERMINAL, 1) &&
            verifier.EndTable();
   }
+  TrieNodeT *UnPack(const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(TrieNodeT *_o, const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static ::flatbuffers::Offset<TrieNode> Pack(::flatbuffers::FlatBufferBuilder &_fbb, const TrieNodeT* _o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
 };
 
 struct TrieNodeBuilder {
@@ -3595,7 +4472,22 @@ inline ::flatbuffers::Offset<TrieNode> CreateTrieNodeDirect(
       is_terminal);
 }
 
+::flatbuffers::Offset<TrieNode> CreateTrieNode(::flatbuffers::FlatBufferBuilder &_fbb, const TrieNodeT *_o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct FusionCacheT : public ::flatbuffers::NativeTable {
+  typedef FusionCache TableType;
+  uint64_t max_fusions = 0;
+  std::vector<std::unique_ptr<nvfuser::serde::TrieNodeT>> structure{};
+  std::vector<uint64_t> terminal_nodes{};
+  std::vector<std::unique_ptr<nvfuser::serde::FusionExecutorCacheT>> auto_gen_schedules{};
+  FusionCacheT() = default;
+  FusionCacheT(const FusionCacheT &o);
+  FusionCacheT(FusionCacheT&&) FLATBUFFERS_NOEXCEPT = default;
+  FusionCacheT &operator=(FusionCacheT o) FLATBUFFERS_NOEXCEPT;
+};
+
 struct FusionCache FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
+  typedef FusionCacheT NativeTableType;
   typedef FusionCacheBuilder Builder;
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
     VT_MAX_FUSIONS = 4,
@@ -3628,6 +4520,9 @@ struct FusionCache FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
            verifier.VerifyVectorOfTables(auto_gen_schedules()) &&
            verifier.EndTable();
   }
+  FusionCacheT *UnPack(const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(FusionCacheT *_o, const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static ::flatbuffers::Offset<FusionCache> Pack(::flatbuffers::FlatBufferBuilder &_fbb, const FusionCacheT* _o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
 };
 
 struct FusionCacheBuilder {
@@ -3686,6 +4581,1381 @@ inline ::flatbuffers::Offset<FusionCache> CreateFusionCacheDirect(
       structure__,
       terminal_nodes__,
       auto_gen_schedules__);
+}
+
+::flatbuffers::Offset<FusionCache> CreateFusionCache(::flatbuffers::FlatBufferBuilder &_fbb, const FusionCacheT *_o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+inline ScalarT *Scalar::UnPack(const ::flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = std::unique_ptr<ScalarT>(new ScalarT());
+  UnPackTo(_o.get(), _resolver);
+  return _o.release();
+}
+
+inline void Scalar::UnPackTo(ScalarT *_o, const ::flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = dtype(); _o->dtype = _e; }
+  { auto _e = has_value(); _o->has_value = _e; }
+  { auto _e = value_type(); _o->value_type = _e; }
+  { auto _e = bool_value(); _o->bool_value = _e; }
+  { auto _e = long_value(); _o->long_value = _e; }
+  { auto _e = double_value(); _o->double_value = _e; }
+  { auto _e = real_value(); _o->real_value = _e; }
+  { auto _e = imag_value(); _o->imag_value = _e; }
+}
+
+inline ::flatbuffers::Offset<Scalar> Scalar::Pack(::flatbuffers::FlatBufferBuilder &_fbb, const ScalarT* _o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateScalar(_fbb, _o, _rehasher);
+}
+
+inline ::flatbuffers::Offset<Scalar> CreateScalar(::flatbuffers::FlatBufferBuilder &_fbb, const ScalarT *_o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { ::flatbuffers::FlatBufferBuilder *__fbb; const ScalarT* __o; const ::flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _dtype = _o->dtype;
+  auto _has_value = _o->has_value;
+  auto _value_type = _o->value_type;
+  auto _bool_value = _o->bool_value;
+  auto _long_value = _o->long_value;
+  auto _double_value = _o->double_value;
+  auto _real_value = _o->real_value;
+  auto _imag_value = _o->imag_value;
+  return nvfuser::serde::CreateScalar(
+      _fbb,
+      _dtype,
+      _has_value,
+      _value_type,
+      _bool_value,
+      _long_value,
+      _double_value,
+      _real_value,
+      _imag_value);
+}
+
+inline ScalarCpuT::ScalarCpuT(const ScalarCpuT &o)
+      : scalar_value((o.scalar_value) ? new nvfuser::serde::ScalarT(*o.scalar_value) : nullptr) {
+}
+
+inline ScalarCpuT &ScalarCpuT::operator=(ScalarCpuT o) FLATBUFFERS_NOEXCEPT {
+  std::swap(scalar_value, o.scalar_value);
+  return *this;
+}
+
+inline ScalarCpuT *ScalarCpu::UnPack(const ::flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = std::unique_ptr<ScalarCpuT>(new ScalarCpuT());
+  UnPackTo(_o.get(), _resolver);
+  return _o.release();
+}
+
+inline void ScalarCpu::UnPackTo(ScalarCpuT *_o, const ::flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = scalar_value(); if (_e) { if(_o->scalar_value) { _e->UnPackTo(_o->scalar_value.get(), _resolver); } else { _o->scalar_value = std::unique_ptr<nvfuser::serde::ScalarT>(_e->UnPack(_resolver)); } } else if (_o->scalar_value) { _o->scalar_value.reset(); } }
+}
+
+inline ::flatbuffers::Offset<ScalarCpu> ScalarCpu::Pack(::flatbuffers::FlatBufferBuilder &_fbb, const ScalarCpuT* _o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateScalarCpu(_fbb, _o, _rehasher);
+}
+
+inline ::flatbuffers::Offset<ScalarCpu> CreateScalarCpu(::flatbuffers::FlatBufferBuilder &_fbb, const ScalarCpuT *_o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { ::flatbuffers::FlatBufferBuilder *__fbb; const ScalarCpuT* __o; const ::flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _scalar_value = _o->scalar_value ? CreateScalar(_fbb, _o->scalar_value.get(), _rehasher) : 0;
+  return nvfuser::serde::CreateScalarCpu(
+      _fbb,
+      _scalar_value);
+}
+
+inline TensorArgT *TensorArg::UnPack(const ::flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = std::unique_ptr<TensorArgT>(new TensorArgT());
+  UnPackTo(_o.get(), _resolver);
+  return _o.release();
+}
+
+inline void TensorArg::UnPackTo(TensorArgT *_o, const ::flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = ptr(); _o->ptr = _e; }
+  { auto _e = sizes(); if (_e) { _o->sizes.resize(_e->size()); for (::flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->sizes[_i] = _e->Get(_i); } } else { _o->sizes.resize(0); } }
+  { auto _e = strides(); if (_e) { _o->strides.resize(_e->size()); for (::flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->strides[_i] = _e->Get(_i); } } else { _o->strides.resize(0); } }
+  { auto _e = dtype(); _o->dtype = _e; }
+}
+
+inline ::flatbuffers::Offset<TensorArg> TensorArg::Pack(::flatbuffers::FlatBufferBuilder &_fbb, const TensorArgT* _o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateTensorArg(_fbb, _o, _rehasher);
+}
+
+inline ::flatbuffers::Offset<TensorArg> CreateTensorArg(::flatbuffers::FlatBufferBuilder &_fbb, const TensorArgT *_o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { ::flatbuffers::FlatBufferBuilder *__fbb; const TensorArgT* __o; const ::flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _ptr = _o->ptr;
+  auto _sizes = _o->sizes.size() ? _fbb.CreateVector(_o->sizes) : 0;
+  auto _strides = _o->strides.size() ? _fbb.CreateVector(_o->strides) : 0;
+  auto _dtype = _o->dtype;
+  return nvfuser::serde::CreateTensorArg(
+      _fbb,
+      _ptr,
+      _sizes,
+      _strides,
+      _dtype);
+}
+
+inline PolymorphicValueT *PolymorphicValue::UnPack(const ::flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = std::unique_ptr<PolymorphicValueT>(new PolymorphicValueT());
+  UnPackTo(_o.get(), _resolver);
+  return _o.release();
+}
+
+inline void PolymorphicValue::UnPackTo(PolymorphicValueT *_o, const ::flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = data_type(); _o->data.type = _e; }
+  { auto _e = data(); if (_e) _o->data.value = nvfuser::serde::PolymorphicValueDataUnion::UnPack(_e, data_type(), _resolver); }
+}
+
+inline ::flatbuffers::Offset<PolymorphicValue> PolymorphicValue::Pack(::flatbuffers::FlatBufferBuilder &_fbb, const PolymorphicValueT* _o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  return CreatePolymorphicValue(_fbb, _o, _rehasher);
+}
+
+inline ::flatbuffers::Offset<PolymorphicValue> CreatePolymorphicValue(::flatbuffers::FlatBufferBuilder &_fbb, const PolymorphicValueT *_o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { ::flatbuffers::FlatBufferBuilder *__fbb; const PolymorphicValueT* __o; const ::flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _data_type = _o->data.type;
+  auto _data = _o->data.Pack(_fbb);
+  return nvfuser::serde::CreatePolymorphicValue(
+      _fbb,
+      _data_type,
+      _data);
+}
+
+inline KernelArgumentHolderT::KernelArgumentHolderT(const KernelArgumentHolderT &o)
+      : device_index(o.device_index),
+        cache_id(o.cache_id) {
+  arguments.reserve(o.arguments.size());
+  for (const auto &arguments_ : o.arguments) { arguments.emplace_back((arguments_) ? new nvfuser::serde::PolymorphicValueT(*arguments_) : nullptr); }
+}
+
+inline KernelArgumentHolderT &KernelArgumentHolderT::operator=(KernelArgumentHolderT o) FLATBUFFERS_NOEXCEPT {
+  std::swap(arguments, o.arguments);
+  std::swap(device_index, o.device_index);
+  std::swap(cache_id, o.cache_id);
+  return *this;
+}
+
+inline KernelArgumentHolderT *KernelArgumentHolder::UnPack(const ::flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = std::unique_ptr<KernelArgumentHolderT>(new KernelArgumentHolderT());
+  UnPackTo(_o.get(), _resolver);
+  return _o.release();
+}
+
+inline void KernelArgumentHolder::UnPackTo(KernelArgumentHolderT *_o, const ::flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = arguments(); if (_e) { _o->arguments.resize(_e->size()); for (::flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { if(_o->arguments[_i]) { _e->Get(_i)->UnPackTo(_o->arguments[_i].get(), _resolver); } else { _o->arguments[_i] = std::unique_ptr<nvfuser::serde::PolymorphicValueT>(_e->Get(_i)->UnPack(_resolver)); }; } } else { _o->arguments.resize(0); } }
+  { auto _e = device_index(); _o->device_index = _e; }
+  { auto _e = cache_id(); _o->cache_id = _e; }
+}
+
+inline ::flatbuffers::Offset<KernelArgumentHolder> KernelArgumentHolder::Pack(::flatbuffers::FlatBufferBuilder &_fbb, const KernelArgumentHolderT* _o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateKernelArgumentHolder(_fbb, _o, _rehasher);
+}
+
+inline ::flatbuffers::Offset<KernelArgumentHolder> CreateKernelArgumentHolder(::flatbuffers::FlatBufferBuilder &_fbb, const KernelArgumentHolderT *_o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { ::flatbuffers::FlatBufferBuilder *__fbb; const KernelArgumentHolderT* __o; const ::flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _arguments = _o->arguments.size() ? _fbb.CreateVector<::flatbuffers::Offset<nvfuser::serde::PolymorphicValue>> (_o->arguments.size(), [](size_t i, _VectorArgs *__va) { return CreatePolymorphicValue(*__va->__fbb, __va->__o->arguments[i].get(), __va->__rehasher); }, &_va ) : 0;
+  auto _device_index = _o->device_index;
+  auto _cache_id = _o->cache_id;
+  return nvfuser::serde::CreateKernelArgumentHolder(
+      _fbb,
+      _arguments,
+      _device_index,
+      _cache_id);
+}
+
+inline TensorShapeT *TensorShape::UnPack(const ::flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = std::unique_ptr<TensorShapeT>(new TensorShapeT());
+  UnPackTo(_o.get(), _resolver);
+  return _o.release();
+}
+
+inline void TensorShape::UnPackTo(TensorShapeT *_o, const ::flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = shape(); if (_e) { _o->shape.resize(_e->size()); for (::flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->shape[_i] = _e->Get(_i); } } else { _o->shape.resize(0); } }
+}
+
+inline ::flatbuffers::Offset<TensorShape> TensorShape::Pack(::flatbuffers::FlatBufferBuilder &_fbb, const TensorShapeT* _o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateTensorShape(_fbb, _o, _rehasher);
+}
+
+inline ::flatbuffers::Offset<TensorShape> CreateTensorShape(::flatbuffers::FlatBufferBuilder &_fbb, const TensorShapeT *_o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { ::flatbuffers::FlatBufferBuilder *__fbb; const TensorShapeT* __o; const ::flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _shape = _o->shape.size() ? _fbb.CreateVector(_o->shape) : 0;
+  return nvfuser::serde::CreateTensorShape(
+      _fbb,
+      _shape);
+}
+
+inline LaunchParamsT::LaunchParamsT(const LaunchParamsT &o)
+      : gdimx(o.gdimx),
+        gdimy(o.gdimy),
+        gdimz(o.gdimz),
+        bdimx(o.bdimx),
+        bdimy(o.bdimy),
+        bdimz(o.bdimz),
+        smem(o.smem) {
+  output_sizes.reserve(o.output_sizes.size());
+  for (const auto &output_sizes_ : o.output_sizes) { output_sizes.emplace_back((output_sizes_) ? new nvfuser::serde::TensorShapeT(*output_sizes_) : nullptr); }
+}
+
+inline LaunchParamsT &LaunchParamsT::operator=(LaunchParamsT o) FLATBUFFERS_NOEXCEPT {
+  std::swap(gdimx, o.gdimx);
+  std::swap(gdimy, o.gdimy);
+  std::swap(gdimz, o.gdimz);
+  std::swap(bdimx, o.bdimx);
+  std::swap(bdimy, o.bdimy);
+  std::swap(bdimz, o.bdimz);
+  std::swap(smem, o.smem);
+  std::swap(output_sizes, o.output_sizes);
+  return *this;
+}
+
+inline LaunchParamsT *LaunchParams::UnPack(const ::flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = std::unique_ptr<LaunchParamsT>(new LaunchParamsT());
+  UnPackTo(_o.get(), _resolver);
+  return _o.release();
+}
+
+inline void LaunchParams::UnPackTo(LaunchParamsT *_o, const ::flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = gdimx(); _o->gdimx = _e; }
+  { auto _e = gdimy(); _o->gdimy = _e; }
+  { auto _e = gdimz(); _o->gdimz = _e; }
+  { auto _e = bdimx(); _o->bdimx = _e; }
+  { auto _e = bdimy(); _o->bdimy = _e; }
+  { auto _e = bdimz(); _o->bdimz = _e; }
+  { auto _e = smem(); _o->smem = _e; }
+  { auto _e = output_sizes(); if (_e) { _o->output_sizes.resize(_e->size()); for (::flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { if(_o->output_sizes[_i]) { _e->Get(_i)->UnPackTo(_o->output_sizes[_i].get(), _resolver); } else { _o->output_sizes[_i] = std::unique_ptr<nvfuser::serde::TensorShapeT>(_e->Get(_i)->UnPack(_resolver)); }; } } else { _o->output_sizes.resize(0); } }
+}
+
+inline ::flatbuffers::Offset<LaunchParams> LaunchParams::Pack(::flatbuffers::FlatBufferBuilder &_fbb, const LaunchParamsT* _o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateLaunchParams(_fbb, _o, _rehasher);
+}
+
+inline ::flatbuffers::Offset<LaunchParams> CreateLaunchParams(::flatbuffers::FlatBufferBuilder &_fbb, const LaunchParamsT *_o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { ::flatbuffers::FlatBufferBuilder *__fbb; const LaunchParamsT* __o; const ::flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _gdimx = _o->gdimx;
+  auto _gdimy = _o->gdimy;
+  auto _gdimz = _o->gdimz;
+  auto _bdimx = _o->bdimx;
+  auto _bdimy = _o->bdimy;
+  auto _bdimz = _o->bdimz;
+  auto _smem = _o->smem;
+  auto _output_sizes = _o->output_sizes.size() ? _fbb.CreateVector<::flatbuffers::Offset<nvfuser::serde::TensorShape>> (_o->output_sizes.size(), [](size_t i, _VectorArgs *__va) { return CreateTensorShape(*__va->__fbb, __va->__o->output_sizes[i].get(), __va->__rehasher); }, &_va ) : 0;
+  return nvfuser::serde::CreateLaunchParams(
+      _fbb,
+      _gdimx,
+      _gdimy,
+      _gdimz,
+      _bdimx,
+      _bdimy,
+      _bdimz,
+      _smem,
+      _output_sizes);
+}
+
+inline GlobalBufferInfoT *GlobalBufferInfo::UnPack(const ::flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = std::unique_ptr<GlobalBufferInfoT>(new GlobalBufferInfoT());
+  UnPackTo(_o.get(), _resolver);
+  return _o.release();
+}
+
+inline void GlobalBufferInfo::UnPackTo(GlobalBufferInfoT *_o, const ::flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = tv(); _o->tv = _e; }
+  { auto _e = sizes(); if (_e) { _o->sizes.resize(_e->size()); for (::flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->sizes[_i] = _e->Get(_i); } } else { _o->sizes.resize(0); } }
+  { auto _e = strides(); if (_e) { _o->strides.resize(_e->size()); for (::flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->strides[_i] = _e->Get(_i); } } else { _o->strides.resize(0); } }
+  { auto _e = dtype(); _o->dtype = _e; }
+  { auto _e = zero_init(); _o->zero_init = _e; }
+  { auto _e = is_profile_buffer(); _o->is_profile_buffer = _e; }
+  { auto _e = is_fusion_output(); _o->is_fusion_output = _e; }
+}
+
+inline ::flatbuffers::Offset<GlobalBufferInfo> GlobalBufferInfo::Pack(::flatbuffers::FlatBufferBuilder &_fbb, const GlobalBufferInfoT* _o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateGlobalBufferInfo(_fbb, _o, _rehasher);
+}
+
+inline ::flatbuffers::Offset<GlobalBufferInfo> CreateGlobalBufferInfo(::flatbuffers::FlatBufferBuilder &_fbb, const GlobalBufferInfoT *_o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { ::flatbuffers::FlatBufferBuilder *__fbb; const GlobalBufferInfoT* __o; const ::flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _tv = _o->tv;
+  auto _sizes = _o->sizes.size() ? _fbb.CreateVector(_o->sizes) : 0;
+  auto _strides = _o->strides.size() ? _fbb.CreateVector(_o->strides) : 0;
+  auto _dtype = _o->dtype;
+  auto _zero_init = _o->zero_init;
+  auto _is_profile_buffer = _o->is_profile_buffer;
+  auto _is_fusion_output = _o->is_fusion_output;
+  return nvfuser::serde::CreateGlobalBufferInfo(
+      _fbb,
+      _tv,
+      _sizes,
+      _strides,
+      _dtype,
+      _zero_init,
+      _is_profile_buffer,
+      _is_fusion_output);
+}
+
+inline ExecutorEntryT::ExecutorEntryT(const ExecutorEntryT &o)
+      : init(o.init),
+        launch_params((o.launch_params) ? new nvfuser::serde::LaunchParamsT(*o.launch_params) : nullptr),
+        output_aliases(o.output_aliases),
+        input_aliases(o.input_aliases) {
+  outputs.reserve(o.outputs.size());
+  for (const auto &outputs_ : o.outputs) { outputs.emplace_back((outputs_) ? new nvfuser::serde::GlobalBufferInfoT(*outputs_) : nullptr); }
+  intermediates.reserve(o.intermediates.size());
+  for (const auto &intermediates_ : o.intermediates) { intermediates.emplace_back((intermediates_) ? new nvfuser::serde::GlobalBufferInfoT(*intermediates_) : nullptr); }
+}
+
+inline ExecutorEntryT &ExecutorEntryT::operator=(ExecutorEntryT o) FLATBUFFERS_NOEXCEPT {
+  std::swap(init, o.init);
+  std::swap(launch_params, o.launch_params);
+  std::swap(output_aliases, o.output_aliases);
+  std::swap(input_aliases, o.input_aliases);
+  std::swap(outputs, o.outputs);
+  std::swap(intermediates, o.intermediates);
+  return *this;
+}
+
+inline ExecutorEntryT *ExecutorEntry::UnPack(const ::flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = std::unique_ptr<ExecutorEntryT>(new ExecutorEntryT());
+  UnPackTo(_o.get(), _resolver);
+  return _o.release();
+}
+
+inline void ExecutorEntry::UnPackTo(ExecutorEntryT *_o, const ::flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = init(); _o->init = _e; }
+  { auto _e = launch_params(); if (_e) { if(_o->launch_params) { _e->UnPackTo(_o->launch_params.get(), _resolver); } else { _o->launch_params = std::unique_ptr<nvfuser::serde::LaunchParamsT>(_e->UnPack(_resolver)); } } else if (_o->launch_params) { _o->launch_params.reset(); } }
+  { auto _e = output_aliases(); if (_e) { _o->output_aliases.resize(_e->size()); for (::flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->output_aliases[_i] = _e->Get(_i); } } else { _o->output_aliases.resize(0); } }
+  { auto _e = input_aliases(); if (_e) { _o->input_aliases.resize(_e->size()); for (::flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->input_aliases[_i] = _e->Get(_i); } } else { _o->input_aliases.resize(0); } }
+  { auto _e = outputs(); if (_e) { _o->outputs.resize(_e->size()); for (::flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { if(_o->outputs[_i]) { _e->Get(_i)->UnPackTo(_o->outputs[_i].get(), _resolver); } else { _o->outputs[_i] = std::unique_ptr<nvfuser::serde::GlobalBufferInfoT>(_e->Get(_i)->UnPack(_resolver)); }; } } else { _o->outputs.resize(0); } }
+  { auto _e = intermediates(); if (_e) { _o->intermediates.resize(_e->size()); for (::flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { if(_o->intermediates[_i]) { _e->Get(_i)->UnPackTo(_o->intermediates[_i].get(), _resolver); } else { _o->intermediates[_i] = std::unique_ptr<nvfuser::serde::GlobalBufferInfoT>(_e->Get(_i)->UnPack(_resolver)); }; } } else { _o->intermediates.resize(0); } }
+}
+
+inline ::flatbuffers::Offset<ExecutorEntry> ExecutorEntry::Pack(::flatbuffers::FlatBufferBuilder &_fbb, const ExecutorEntryT* _o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateExecutorEntry(_fbb, _o, _rehasher);
+}
+
+inline ::flatbuffers::Offset<ExecutorEntry> CreateExecutorEntry(::flatbuffers::FlatBufferBuilder &_fbb, const ExecutorEntryT *_o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { ::flatbuffers::FlatBufferBuilder *__fbb; const ExecutorEntryT* __o; const ::flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _init = _o->init;
+  auto _launch_params = _o->launch_params ? CreateLaunchParams(_fbb, _o->launch_params.get(), _rehasher) : 0;
+  auto _output_aliases = _o->output_aliases.size() ? _fbb.CreateVector(_o->output_aliases) : 0;
+  auto _input_aliases = _o->input_aliases.size() ? _fbb.CreateVector(_o->input_aliases) : 0;
+  auto _outputs = _o->outputs.size() ? _fbb.CreateVector<::flatbuffers::Offset<nvfuser::serde::GlobalBufferInfo>> (_o->outputs.size(), [](size_t i, _VectorArgs *__va) { return CreateGlobalBufferInfo(*__va->__fbb, __va->__o->outputs[i].get(), __va->__rehasher); }, &_va ) : 0;
+  auto _intermediates = _o->intermediates.size() ? _fbb.CreateVector<::flatbuffers::Offset<nvfuser::serde::GlobalBufferInfo>> (_o->intermediates.size(), [](size_t i, _VectorArgs *__va) { return CreateGlobalBufferInfo(*__va->__fbb, __va->__o->intermediates[i].get(), __va->__rehasher); }, &_va ) : 0;
+  return nvfuser::serde::CreateExecutorEntry(
+      _fbb,
+      _init,
+      _launch_params,
+      _output_aliases,
+      _input_aliases,
+      _outputs,
+      _intermediates);
+}
+
+inline AtT *At::UnPack(const ::flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = std::unique_ptr<AtT>(new AtT());
+  UnPackTo(_o.get(), _resolver);
+  return _o.release();
+}
+
+inline void At::UnPackTo(AtT *_o, const ::flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = index(); _o->index = _e; }
+}
+
+inline ::flatbuffers::Offset<At> At::Pack(::flatbuffers::FlatBufferBuilder &_fbb, const AtT* _o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateAt(_fbb, _o, _rehasher);
+}
+
+inline ::flatbuffers::Offset<At> CreateAt(::flatbuffers::FlatBufferBuilder &_fbb, const AtT *_o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { ::flatbuffers::FlatBufferBuilder *__fbb; const AtT* __o; const ::flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _index = _o->index;
+  return nvfuser::serde::CreateAt(
+      _fbb,
+      _index);
+}
+
+inline BatchNormT *BatchNorm::UnPack(const ::flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = std::unique_ptr<BatchNormT>(new BatchNormT());
+  UnPackTo(_o.get(), _resolver);
+  return _o.release();
+}
+
+inline void BatchNorm::UnPackTo(BatchNormT *_o, const ::flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = training(); _o->training = _e; }
+  { auto _e = channels_last(); _o->channels_last = _e; }
+}
+
+inline ::flatbuffers::Offset<BatchNorm> BatchNorm::Pack(::flatbuffers::FlatBufferBuilder &_fbb, const BatchNormT* _o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateBatchNorm(_fbb, _o, _rehasher);
+}
+
+inline ::flatbuffers::Offset<BatchNorm> CreateBatchNorm(::flatbuffers::FlatBufferBuilder &_fbb, const BatchNormT *_o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { ::flatbuffers::FlatBufferBuilder *__fbb; const BatchNormT* __o; const ::flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _training = _o->training;
+  auto _channels_last = _o->channels_last;
+  return nvfuser::serde::CreateBatchNorm(
+      _fbb,
+      _training,
+      _channels_last);
+}
+
+inline BroadcastT *Broadcast::UnPack(const ::flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = std::unique_ptr<BroadcastT>(new BroadcastT());
+  UnPackTo(_o.get(), _resolver);
+  return _o.release();
+}
+
+inline void Broadcast::UnPackTo(BroadcastT *_o, const ::flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = broadcast_dims(); if (_e) { _o->broadcast_dims.resize(_e->size()); for (::flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->broadcast_dims[_i] = _e->Get(_i) != 0; } } else { _o->broadcast_dims.resize(0); } }
+}
+
+inline ::flatbuffers::Offset<Broadcast> Broadcast::Pack(::flatbuffers::FlatBufferBuilder &_fbb, const BroadcastT* _o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateBroadcast(_fbb, _o, _rehasher);
+}
+
+inline ::flatbuffers::Offset<Broadcast> CreateBroadcast(::flatbuffers::FlatBufferBuilder &_fbb, const BroadcastT *_o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { ::flatbuffers::FlatBufferBuilder *__fbb; const BroadcastT* __o; const ::flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _broadcast_dims = _o->broadcast_dims.size() ? _fbb.CreateVector(_o->broadcast_dims) : 0;
+  return nvfuser::serde::CreateBroadcast(
+      _fbb,
+      _broadcast_dims);
+}
+
+inline BroadcastInDimT *BroadcastInDim::UnPack(const ::flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = std::unique_ptr<BroadcastInDimT>(new BroadcastInDimT());
+  UnPackTo(_o.get(), _resolver);
+  return _o.release();
+}
+
+inline void BroadcastInDim::UnPackTo(BroadcastInDimT *_o, const ::flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = output_size(); _o->output_size = _e; }
+  { auto _e = broadcast_dims(); if (_e) { _o->broadcast_dims.resize(_e->size()); for (::flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->broadcast_dims[_i] = _e->Get(_i); } } else { _o->broadcast_dims.resize(0); } }
+}
+
+inline ::flatbuffers::Offset<BroadcastInDim> BroadcastInDim::Pack(::flatbuffers::FlatBufferBuilder &_fbb, const BroadcastInDimT* _o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateBroadcastInDim(_fbb, _o, _rehasher);
+}
+
+inline ::flatbuffers::Offset<BroadcastInDim> CreateBroadcastInDim(::flatbuffers::FlatBufferBuilder &_fbb, const BroadcastInDimT *_o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { ::flatbuffers::FlatBufferBuilder *__fbb; const BroadcastInDimT* __o; const ::flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _output_size = _o->output_size;
+  auto _broadcast_dims = _o->broadcast_dims.size() ? _fbb.CreateVector(_o->broadcast_dims) : 0;
+  return nvfuser::serde::CreateBroadcastInDim(
+      _fbb,
+      _output_size,
+      _broadcast_dims);
+}
+
+inline DtypeT *Dtype::UnPack(const ::flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = std::unique_ptr<DtypeT>(new DtypeT());
+  UnPackTo(_o.get(), _resolver);
+  return _o.release();
+}
+
+inline void Dtype::UnPackTo(DtypeT *_o, const ::flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = dtype(); _o->dtype = _e; }
+}
+
+inline ::flatbuffers::Offset<Dtype> Dtype::Pack(::flatbuffers::FlatBufferBuilder &_fbb, const DtypeT* _o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateDtype(_fbb, _o, _rehasher);
+}
+
+inline ::flatbuffers::Offset<Dtype> CreateDtype(::flatbuffers::FlatBufferBuilder &_fbb, const DtypeT *_o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { ::flatbuffers::FlatBufferBuilder *__fbb; const DtypeT* __o; const ::flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _dtype = _o->dtype;
+  return nvfuser::serde::CreateDtype(
+      _fbb,
+      _dtype);
+}
+
+inline DimensionT *Dimension::UnPack(const ::flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = std::unique_ptr<DimensionT>(new DimensionT());
+  UnPackTo(_o.get(), _resolver);
+  return _o.release();
+}
+
+inline void Dimension::UnPackTo(DimensionT *_o, const ::flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = dim(); _o->dim = _e; }
+}
+
+inline ::flatbuffers::Offset<Dimension> Dimension::Pack(::flatbuffers::FlatBufferBuilder &_fbb, const DimensionT* _o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateDimension(_fbb, _o, _rehasher);
+}
+
+inline ::flatbuffers::Offset<Dimension> CreateDimension(::flatbuffers::FlatBufferBuilder &_fbb, const DimensionT *_o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { ::flatbuffers::FlatBufferBuilder *__fbb; const DimensionT* __o; const ::flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _dim = _o->dim;
+  return nvfuser::serde::CreateDimension(
+      _fbb,
+      _dim);
+}
+
+inline NormT *Norm::UnPack(const ::flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = std::unique_ptr<NormT>(new NormT());
+  UnPackTo(_o.get(), _resolver);
+  return _o.release();
+}
+
+inline void Norm::UnPackTo(NormT *_o, const ::flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = axes(); if (_e) { _o->axes.resize(_e->size()); for (::flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->axes[_i] = _e->Get(_i); } } else { _o->axes.resize(0); } }
+  { auto _e = correction(); _o->correction = _e; }
+  { auto _e = keep_dim(); _o->keep_dim = _e; }
+}
+
+inline ::flatbuffers::Offset<Norm> Norm::Pack(::flatbuffers::FlatBufferBuilder &_fbb, const NormT* _o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateNorm(_fbb, _o, _rehasher);
+}
+
+inline ::flatbuffers::Offset<Norm> CreateNorm(::flatbuffers::FlatBufferBuilder &_fbb, const NormT *_o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { ::flatbuffers::FlatBufferBuilder *__fbb; const NormT* __o; const ::flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _axes = _o->axes.size() ? _fbb.CreateVector(_o->axes) : 0;
+  auto _correction = _o->correction;
+  auto _keep_dim = _o->keep_dim;
+  return nvfuser::serde::CreateNorm(
+      _fbb,
+      _axes,
+      _correction,
+      _keep_dim);
+}
+
+inline OutputT *Output::UnPack(const ::flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = std::unique_ptr<OutputT>(new OutputT());
+  UnPackTo(_o.get(), _resolver);
+  return _o.release();
+}
+
+inline void Output::UnPackTo(OutputT *_o, const ::flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = stride_order(); if (_e) { _o->stride_order.resize(_e->size()); for (::flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->stride_order[_i] = _e->Get(_i); } } else { _o->stride_order.resize(0); } }
+}
+
+inline ::flatbuffers::Offset<Output> Output::Pack(::flatbuffers::FlatBufferBuilder &_fbb, const OutputT* _o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateOutput(_fbb, _o, _rehasher);
+}
+
+inline ::flatbuffers::Offset<Output> CreateOutput(::flatbuffers::FlatBufferBuilder &_fbb, const OutputT *_o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { ::flatbuffers::FlatBufferBuilder *__fbb; const OutputT* __o; const ::flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _stride_order = _o->stride_order.size() ? _fbb.CreateVector(_o->stride_order) : 0;
+  return nvfuser::serde::CreateOutput(
+      _fbb,
+      _stride_order);
+}
+
+inline PadT *Pad::UnPack(const ::flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = std::unique_ptr<PadT>(new PadT());
+  UnPackTo(_o.get(), _resolver);
+  return _o.release();
+}
+
+inline void Pad::UnPackTo(PadT *_o, const ::flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = pad_widths(); if (_e) { _o->pad_widths.resize(_e->size()); for (::flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->pad_widths[_i] = _e->Get(_i); } } else { _o->pad_widths.resize(0); } }
+}
+
+inline ::flatbuffers::Offset<Pad> Pad::Pack(::flatbuffers::FlatBufferBuilder &_fbb, const PadT* _o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  return CreatePad(_fbb, _o, _rehasher);
+}
+
+inline ::flatbuffers::Offset<Pad> CreatePad(::flatbuffers::FlatBufferBuilder &_fbb, const PadT *_o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { ::flatbuffers::FlatBufferBuilder *__fbb; const PadT* __o; const ::flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _pad_widths = _o->pad_widths.size() ? _fbb.CreateVector(_o->pad_widths) : 0;
+  return nvfuser::serde::CreatePad(
+      _fbb,
+      _pad_widths);
+}
+
+inline PermuteT *Permute::UnPack(const ::flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = std::unique_ptr<PermuteT>(new PermuteT());
+  UnPackTo(_o.get(), _resolver);
+  return _o.release();
+}
+
+inline void Permute::UnPackTo(PermuteT *_o, const ::flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = dims(); if (_e) { _o->dims.resize(_e->size()); for (::flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->dims[_i] = _e->Get(_i); } } else { _o->dims.resize(0); } }
+}
+
+inline ::flatbuffers::Offset<Permute> Permute::Pack(::flatbuffers::FlatBufferBuilder &_fbb, const PermuteT* _o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  return CreatePermute(_fbb, _o, _rehasher);
+}
+
+inline ::flatbuffers::Offset<Permute> CreatePermute(::flatbuffers::FlatBufferBuilder &_fbb, const PermuteT *_o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { ::flatbuffers::FlatBufferBuilder *__fbb; const PermuteT* __o; const ::flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _dims = _o->dims.size() ? _fbb.CreateVector(_o->dims) : 0;
+  return nvfuser::serde::CreatePermute(
+      _fbb,
+      _dims);
+}
+
+inline ReductionT *Reduction::UnPack(const ::flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = std::unique_ptr<ReductionT>(new ReductionT());
+  UnPackTo(_o.get(), _resolver);
+  return _o.release();
+}
+
+inline void Reduction::UnPackTo(ReductionT *_o, const ::flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = axes(); if (_e) { _o->axes.resize(_e->size()); for (::flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->axes[_i] = _e->Get(_i); } } else { _o->axes.resize(0); } }
+  { auto _e = keep_dim(); _o->keep_dim = _e; }
+  { auto _e = dtype(); _o->dtype = _e; }
+}
+
+inline ::flatbuffers::Offset<Reduction> Reduction::Pack(::flatbuffers::FlatBufferBuilder &_fbb, const ReductionT* _o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateReduction(_fbb, _o, _rehasher);
+}
+
+inline ::flatbuffers::Offset<Reduction> CreateReduction(::flatbuffers::FlatBufferBuilder &_fbb, const ReductionT *_o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { ::flatbuffers::FlatBufferBuilder *__fbb; const ReductionT* __o; const ::flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _axes = _o->axes.size() ? _fbb.CreateVector(_o->axes) : 0;
+  auto _keep_dim = _o->keep_dim;
+  auto _dtype = _o->dtype;
+  return nvfuser::serde::CreateReduction(
+      _fbb,
+      _axes,
+      _keep_dim,
+      _dtype);
+}
+
+inline ReshapeT *Reshape::UnPack(const ::flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = std::unique_ptr<ReshapeT>(new ReshapeT());
+  UnPackTo(_o.get(), _resolver);
+  return _o.release();
+}
+
+inline void Reshape::UnPackTo(ReshapeT *_o, const ::flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = original_shape(); if (_e) { _o->original_shape.resize(_e->size()); for (::flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->original_shape[_i] = _e->Get(_i); } } else { _o->original_shape.resize(0); } }
+  { auto _e = new_shape(); if (_e) { _o->new_shape.resize(_e->size()); for (::flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->new_shape[_i] = _e->Get(_i); } } else { _o->new_shape.resize(0); } }
+}
+
+inline ::flatbuffers::Offset<Reshape> Reshape::Pack(::flatbuffers::FlatBufferBuilder &_fbb, const ReshapeT* _o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateReshape(_fbb, _o, _rehasher);
+}
+
+inline ::flatbuffers::Offset<Reshape> CreateReshape(::flatbuffers::FlatBufferBuilder &_fbb, const ReshapeT *_o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { ::flatbuffers::FlatBufferBuilder *__fbb; const ReshapeT* __o; const ::flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _original_shape = _o->original_shape.size() ? _fbb.CreateVector(_o->original_shape) : 0;
+  auto _new_shape = _o->new_shape.size() ? _fbb.CreateVector(_o->new_shape) : 0;
+  return nvfuser::serde::CreateReshape(
+      _fbb,
+      _original_shape,
+      _new_shape);
+}
+
+inline SizeT *Size::UnPack(const ::flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = std::unique_ptr<SizeT>(new SizeT());
+  UnPackTo(_o.get(), _resolver);
+  return _o.release();
+}
+
+inline void Size::UnPackTo(SizeT *_o, const ::flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = dim(); _o->dim = _e; }
+}
+
+inline ::flatbuffers::Offset<Size> Size::Pack(::flatbuffers::FlatBufferBuilder &_fbb, const SizeT* _o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateSize(_fbb, _o, _rehasher);
+}
+
+inline ::flatbuffers::Offset<Size> CreateSize(::flatbuffers::FlatBufferBuilder &_fbb, const SizeT *_o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { ::flatbuffers::FlatBufferBuilder *__fbb; const SizeT* __o; const ::flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _dim = _o->dim;
+  return nvfuser::serde::CreateSize(
+      _fbb,
+      _dim);
+}
+
+inline SliceT *Slice::UnPack(const ::flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = std::unique_ptr<SliceT>(new SliceT());
+  UnPackTo(_o.get(), _resolver);
+  return _o.release();
+}
+
+inline void Slice::UnPackTo(SliceT *_o, const ::flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = start_indices(); if (_e) { _o->start_indices.resize(_e->size()); for (::flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->start_indices[_i] = _e->Get(_i); } } else { _o->start_indices.resize(0); } }
+  { auto _e = end_indices(); if (_e) { _o->end_indices.resize(_e->size()); for (::flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->end_indices[_i] = _e->Get(_i); } } else { _o->end_indices.resize(0); } }
+  { auto _e = strides(); if (_e) { _o->strides.resize(_e->size()); for (::flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->strides[_i] = _e->Get(_i); } } else { _o->strides.resize(0); } }
+}
+
+inline ::flatbuffers::Offset<Slice> Slice::Pack(::flatbuffers::FlatBufferBuilder &_fbb, const SliceT* _o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateSlice(_fbb, _o, _rehasher);
+}
+
+inline ::flatbuffers::Offset<Slice> CreateSlice(::flatbuffers::FlatBufferBuilder &_fbb, const SliceT *_o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { ::flatbuffers::FlatBufferBuilder *__fbb; const SliceT* __o; const ::flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _start_indices = _o->start_indices.size() ? _fbb.CreateVector(_o->start_indices) : 0;
+  auto _end_indices = _o->end_indices.size() ? _fbb.CreateVector(_o->end_indices) : 0;
+  auto _strides = _o->strides.size() ? _fbb.CreateVector(_o->strides) : 0;
+  return nvfuser::serde::CreateSlice(
+      _fbb,
+      _start_indices,
+      _end_indices,
+      _strides);
+}
+
+inline SqueezeT *Squeeze::UnPack(const ::flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = std::unique_ptr<SqueezeT>(new SqueezeT());
+  UnPackTo(_o.get(), _resolver);
+  return _o.release();
+}
+
+inline void Squeeze::UnPackTo(SqueezeT *_o, const ::flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = original_shape(); if (_e) { _o->original_shape.resize(_e->size()); for (::flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->original_shape[_i] = _e->Get(_i); } } else { _o->original_shape.resize(0); } }
+  { auto _e = squeeze_dims(); if (_e) { _o->squeeze_dims.resize(_e->size()); for (::flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->squeeze_dims[_i] = _e->Get(_i); } } else { _o->squeeze_dims.resize(0); } }
+}
+
+inline ::flatbuffers::Offset<Squeeze> Squeeze::Pack(::flatbuffers::FlatBufferBuilder &_fbb, const SqueezeT* _o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateSqueeze(_fbb, _o, _rehasher);
+}
+
+inline ::flatbuffers::Offset<Squeeze> CreateSqueeze(::flatbuffers::FlatBufferBuilder &_fbb, const SqueezeT *_o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { ::flatbuffers::FlatBufferBuilder *__fbb; const SqueezeT* __o; const ::flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _original_shape = _o->original_shape.size() ? _fbb.CreateVector(_o->original_shape) : 0;
+  auto _squeeze_dims = _o->squeeze_dims.size() ? _fbb.CreateVector(_o->squeeze_dims) : 0;
+  return nvfuser::serde::CreateSqueeze(
+      _fbb,
+      _original_shape,
+      _squeeze_dims);
+}
+
+inline TensorT *Tensor::UnPack(const ::flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = std::unique_ptr<TensorT>(new TensorT());
+  UnPackTo(_o.get(), _resolver);
+  return _o.release();
+}
+
+inline void Tensor::UnPackTo(TensorT *_o, const ::flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = sizes(); if (_e) { _o->sizes.resize(_e->size()); for (::flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->sizes[_i] = _e->Get(_i); } } else { _o->sizes.resize(0); } }
+  { auto _e = contiguity(); if (_e) { _o->contiguity.resize(_e->size()); for (::flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->contiguity[_i] = static_cast<nvfuser::serde::Contiguity>(_e->Get(_i)); } } else { _o->contiguity.resize(0); } }
+  { auto _e = dtype(); _o->dtype = _e; }
+  { auto _e = is_cpu(); _o->is_cpu = _e; }
+}
+
+inline ::flatbuffers::Offset<Tensor> Tensor::Pack(::flatbuffers::FlatBufferBuilder &_fbb, const TensorT* _o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateTensor(_fbb, _o, _rehasher);
+}
+
+inline ::flatbuffers::Offset<Tensor> CreateTensor(::flatbuffers::FlatBufferBuilder &_fbb, const TensorT *_o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { ::flatbuffers::FlatBufferBuilder *__fbb; const TensorT* __o; const ::flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _sizes = _o->sizes.size() ? _fbb.CreateVector(_o->sizes) : 0;
+  auto _contiguity = _o->contiguity.size() ? _fbb.CreateVectorScalarCast<int32_t>(::flatbuffers::data(_o->contiguity), _o->contiguity.size()) : 0;
+  auto _dtype = _o->dtype;
+  auto _is_cpu = _o->is_cpu;
+  return nvfuser::serde::CreateTensor(
+      _fbb,
+      _sizes,
+      _contiguity,
+      _dtype,
+      _is_cpu);
+}
+
+inline TensorCreationT *TensorCreation::UnPack(const ::flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = std::unique_ptr<TensorCreationT>(new TensorCreationT());
+  UnPackTo(_o.get(), _resolver);
+  return _o.release();
+}
+
+inline void TensorCreation::UnPackTo(TensorCreationT *_o, const ::flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = shape(); if (_e) { _o->shape.resize(_e->size()); for (::flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->shape[_i] = _e->Get(_i); } } else { _o->shape.resize(0); } }
+  { auto _e = dtype(); _o->dtype = _e; }
+}
+
+inline ::flatbuffers::Offset<TensorCreation> TensorCreation::Pack(::flatbuffers::FlatBufferBuilder &_fbb, const TensorCreationT* _o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateTensorCreation(_fbb, _o, _rehasher);
+}
+
+inline ::flatbuffers::Offset<TensorCreation> CreateTensorCreation(::flatbuffers::FlatBufferBuilder &_fbb, const TensorCreationT *_o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { ::flatbuffers::FlatBufferBuilder *__fbb; const TensorCreationT* __o; const ::flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _shape = _o->shape.size() ? _fbb.CreateVector(_o->shape) : 0;
+  auto _dtype = _o->dtype;
+  return nvfuser::serde::CreateTensorCreation(
+      _fbb,
+      _shape,
+      _dtype);
+}
+
+inline TensorCreationSymbolicT *TensorCreationSymbolic::UnPack(const ::flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = std::unique_ptr<TensorCreationSymbolicT>(new TensorCreationSymbolicT());
+  UnPackTo(_o.get(), _resolver);
+  return _o.release();
+}
+
+inline void TensorCreationSymbolic::UnPackTo(TensorCreationSymbolicT *_o, const ::flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = shape(); if (_e) { _o->shape.resize(_e->size()); for (::flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->shape[_i] = *_e->Get(_i); } } else { _o->shape.resize(0); } }
+  { auto _e = dtype(); _o->dtype = _e; }
+}
+
+inline ::flatbuffers::Offset<TensorCreationSymbolic> TensorCreationSymbolic::Pack(::flatbuffers::FlatBufferBuilder &_fbb, const TensorCreationSymbolicT* _o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateTensorCreationSymbolic(_fbb, _o, _rehasher);
+}
+
+inline ::flatbuffers::Offset<TensorCreationSymbolic> CreateTensorCreationSymbolic(::flatbuffers::FlatBufferBuilder &_fbb, const TensorCreationSymbolicT *_o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { ::flatbuffers::FlatBufferBuilder *__fbb; const TensorCreationSymbolicT* __o; const ::flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _shape = _o->shape.size() ? _fbb.CreateVectorOfStructs(_o->shape) : 0;
+  auto _dtype = _o->dtype;
+  return nvfuser::serde::CreateTensorCreationSymbolic(
+      _fbb,
+      _shape,
+      _dtype);
+}
+
+inline VectorT *Vector::UnPack(const ::flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = std::unique_ptr<VectorT>(new VectorT());
+  UnPackTo(_o.get(), _resolver);
+  return _o.release();
+}
+
+inline void Vector::UnPackTo(VectorT *_o, const ::flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = dtype(); _o->dtype = _e; }
+}
+
+inline ::flatbuffers::Offset<Vector> Vector::Pack(::flatbuffers::FlatBufferBuilder &_fbb, const VectorT* _o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateVector(_fbb, _o, _rehasher);
+}
+
+inline ::flatbuffers::Offset<Vector> CreateVector(::flatbuffers::FlatBufferBuilder &_fbb, const VectorT *_o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { ::flatbuffers::FlatBufferBuilder *__fbb; const VectorT* __o; const ::flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _dtype = _o->dtype;
+  return nvfuser::serde::CreateVector(
+      _fbb,
+      _dtype);
+}
+
+inline CudaKernelT *CudaKernel::UnPack(const ::flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = std::unique_ptr<CudaKernelT>(new CudaKernelT());
+  UnPackTo(_o.get(), _resolver);
+  return _o.release();
+}
+
+inline void CudaKernel::UnPackTo(CudaKernelT *_o, const ::flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = kernel_name(); if (_e) _o->kernel_name = _e->str(); }
+  { auto _e = object_code(); if (_e) { _o->object_code.resize(_e->size()); std::copy(_e->begin(), _e->end(), _o->object_code.begin()); } }
+}
+
+inline ::flatbuffers::Offset<CudaKernel> CudaKernel::Pack(::flatbuffers::FlatBufferBuilder &_fbb, const CudaKernelT* _o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateCudaKernel(_fbb, _o, _rehasher);
+}
+
+inline ::flatbuffers::Offset<CudaKernel> CreateCudaKernel(::flatbuffers::FlatBufferBuilder &_fbb, const CudaKernelT *_o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { ::flatbuffers::FlatBufferBuilder *__fbb; const CudaKernelT* __o; const ::flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _kernel_name = _o->kernel_name.empty() ? 0 : _fbb.CreateString(_o->kernel_name);
+  auto _object_code = _o->object_code.size() ? _fbb.CreateVector(_o->object_code) : 0;
+  return nvfuser::serde::CreateCudaKernel(
+      _fbb,
+      _kernel_name,
+      _object_code);
+}
+
+inline FusionExecutorT::FusionExecutorT(const FusionExecutorT &o)
+      : device_smem_limit(o.device_smem_limit),
+        block_size_high_water_mark(o.block_size_high_water_mark),
+        maxrregcount_high_water_mark(o.maxrregcount_high_water_mark),
+        warp_size(o.warp_size),
+        fusion_id(o.fusion_id),
+        fusion_id_counter(o.fusion_id_counter),
+        kernel_code(o.kernel_code),
+        executor_entry_lookup_keys(o.executor_entry_lookup_keys),
+        index_type(o.index_type),
+        compiled_kernel((o.compiled_kernel) ? new nvfuser::serde::CudaKernelT(*o.compiled_kernel) : nullptr) {
+  executor_entry_lookup_values.reserve(o.executor_entry_lookup_values.size());
+  for (const auto &executor_entry_lookup_values_ : o.executor_entry_lookup_values) { executor_entry_lookup_values.emplace_back((executor_entry_lookup_values_) ? new nvfuser::serde::ExecutorEntryT(*executor_entry_lookup_values_) : nullptr); }
+}
+
+inline FusionExecutorT &FusionExecutorT::operator=(FusionExecutorT o) FLATBUFFERS_NOEXCEPT {
+  std::swap(device_smem_limit, o.device_smem_limit);
+  std::swap(block_size_high_water_mark, o.block_size_high_water_mark);
+  std::swap(maxrregcount_high_water_mark, o.maxrregcount_high_water_mark);
+  std::swap(warp_size, o.warp_size);
+  std::swap(fusion_id, o.fusion_id);
+  std::swap(fusion_id_counter, o.fusion_id_counter);
+  std::swap(kernel_code, o.kernel_code);
+  std::swap(executor_entry_lookup_keys, o.executor_entry_lookup_keys);
+  std::swap(executor_entry_lookup_values, o.executor_entry_lookup_values);
+  std::swap(index_type, o.index_type);
+  std::swap(compiled_kernel, o.compiled_kernel);
+  return *this;
+}
+
+inline FusionExecutorT *FusionExecutor::UnPack(const ::flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = std::unique_ptr<FusionExecutorT>(new FusionExecutorT());
+  UnPackTo(_o.get(), _resolver);
+  return _o.release();
+}
+
+inline void FusionExecutor::UnPackTo(FusionExecutorT *_o, const ::flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = device_smem_limit(); _o->device_smem_limit = _e; }
+  { auto _e = block_size_high_water_mark(); _o->block_size_high_water_mark = _e; }
+  { auto _e = maxrregcount_high_water_mark(); _o->maxrregcount_high_water_mark = _e; }
+  { auto _e = warp_size(); _o->warp_size = _e; }
+  { auto _e = fusion_id(); _o->fusion_id = _e; }
+  { auto _e = fusion_id_counter(); _o->fusion_id_counter = _e; }
+  { auto _e = kernel_code(); if (_e) _o->kernel_code = _e->str(); }
+  { auto _e = executor_entry_lookup_keys(); if (_e) { _o->executor_entry_lookup_keys.resize(_e->size()); for (::flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->executor_entry_lookup_keys[_i] = _e->Get(_i); } } else { _o->executor_entry_lookup_keys.resize(0); } }
+  { auto _e = executor_entry_lookup_values(); if (_e) { _o->executor_entry_lookup_values.resize(_e->size()); for (::flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { if(_o->executor_entry_lookup_values[_i]) { _e->Get(_i)->UnPackTo(_o->executor_entry_lookup_values[_i].get(), _resolver); } else { _o->executor_entry_lookup_values[_i] = std::unique_ptr<nvfuser::serde::ExecutorEntryT>(_e->Get(_i)->UnPack(_resolver)); }; } } else { _o->executor_entry_lookup_values.resize(0); } }
+  { auto _e = index_type(); _o->index_type = _e; }
+  { auto _e = compiled_kernel(); if (_e) { if(_o->compiled_kernel) { _e->UnPackTo(_o->compiled_kernel.get(), _resolver); } else { _o->compiled_kernel = std::unique_ptr<nvfuser::serde::CudaKernelT>(_e->UnPack(_resolver)); } } else if (_o->compiled_kernel) { _o->compiled_kernel.reset(); } }
+}
+
+inline ::flatbuffers::Offset<FusionExecutor> FusionExecutor::Pack(::flatbuffers::FlatBufferBuilder &_fbb, const FusionExecutorT* _o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateFusionExecutor(_fbb, _o, _rehasher);
+}
+
+inline ::flatbuffers::Offset<FusionExecutor> CreateFusionExecutor(::flatbuffers::FlatBufferBuilder &_fbb, const FusionExecutorT *_o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { ::flatbuffers::FlatBufferBuilder *__fbb; const FusionExecutorT* __o; const ::flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _device_smem_limit = _o->device_smem_limit;
+  auto _block_size_high_water_mark = _o->block_size_high_water_mark;
+  auto _maxrregcount_high_water_mark = _o->maxrregcount_high_water_mark;
+  auto _warp_size = _o->warp_size;
+  auto _fusion_id = _o->fusion_id;
+  auto _fusion_id_counter = _o->fusion_id_counter;
+  auto _kernel_code = _o->kernel_code.empty() ? 0 : _fbb.CreateString(_o->kernel_code);
+  auto _executor_entry_lookup_keys = _o->executor_entry_lookup_keys.size() ? _fbb.CreateVector(_o->executor_entry_lookup_keys) : 0;
+  auto _executor_entry_lookup_values = _o->executor_entry_lookup_values.size() ? _fbb.CreateVector<::flatbuffers::Offset<nvfuser::serde::ExecutorEntry>> (_o->executor_entry_lookup_values.size(), [](size_t i, _VectorArgs *__va) { return CreateExecutorEntry(*__va->__fbb, __va->__o->executor_entry_lookup_values[i].get(), __va->__rehasher); }, &_va ) : 0;
+  auto _index_type = _o->index_type;
+  auto _compiled_kernel = _o->compiled_kernel ? CreateCudaKernel(_fbb, _o->compiled_kernel.get(), _rehasher) : 0;
+  return nvfuser::serde::CreateFusionExecutor(
+      _fbb,
+      _device_smem_limit,
+      _block_size_high_water_mark,
+      _maxrregcount_high_water_mark,
+      _warp_size,
+      _fusion_id,
+      _fusion_id_counter,
+      _kernel_code,
+      _executor_entry_lookup_keys,
+      _executor_entry_lookup_values,
+      _index_type,
+      _compiled_kernel);
+}
+
+inline FusionKernelRuntimeT::FusionKernelRuntimeT(const FusionKernelRuntimeT &o)
+      : args((o.args) ? new nvfuser::serde::KernelArgumentHolderT(*o.args) : nullptr) {
+  executors.reserve(o.executors.size());
+  for (const auto &executors_ : o.executors) { executors.emplace_back((executors_) ? new nvfuser::serde::FusionExecutorT(*executors_) : nullptr); }
+}
+
+inline FusionKernelRuntimeT &FusionKernelRuntimeT::operator=(FusionKernelRuntimeT o) FLATBUFFERS_NOEXCEPT {
+  std::swap(args, o.args);
+  std::swap(executors, o.executors);
+  return *this;
+}
+
+inline FusionKernelRuntimeT *FusionKernelRuntime::UnPack(const ::flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = std::unique_ptr<FusionKernelRuntimeT>(new FusionKernelRuntimeT());
+  UnPackTo(_o.get(), _resolver);
+  return _o.release();
+}
+
+inline void FusionKernelRuntime::UnPackTo(FusionKernelRuntimeT *_o, const ::flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = args(); if (_e) { if(_o->args) { _e->UnPackTo(_o->args.get(), _resolver); } else { _o->args = std::unique_ptr<nvfuser::serde::KernelArgumentHolderT>(_e->UnPack(_resolver)); } } else if (_o->args) { _o->args.reset(); } }
+  { auto _e = executors(); if (_e) { _o->executors.resize(_e->size()); for (::flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { if(_o->executors[_i]) { _e->Get(_i)->UnPackTo(_o->executors[_i].get(), _resolver); } else { _o->executors[_i] = std::unique_ptr<nvfuser::serde::FusionExecutorT>(_e->Get(_i)->UnPack(_resolver)); }; } } else { _o->executors.resize(0); } }
+}
+
+inline ::flatbuffers::Offset<FusionKernelRuntime> FusionKernelRuntime::Pack(::flatbuffers::FlatBufferBuilder &_fbb, const FusionKernelRuntimeT* _o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateFusionKernelRuntime(_fbb, _o, _rehasher);
+}
+
+inline ::flatbuffers::Offset<FusionKernelRuntime> CreateFusionKernelRuntime(::flatbuffers::FlatBufferBuilder &_fbb, const FusionKernelRuntimeT *_o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { ::flatbuffers::FlatBufferBuilder *__fbb; const FusionKernelRuntimeT* __o; const ::flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _args = _o->args ? CreateKernelArgumentHolder(_fbb, _o->args.get(), _rehasher) : 0;
+  auto _executors = _o->executors.size() ? _fbb.CreateVector<::flatbuffers::Offset<nvfuser::serde::FusionExecutor>> (_o->executors.size(), [](size_t i, _VectorArgs *__va) { return CreateFusionExecutor(*__va->__fbb, __va->__o->executors[i].get(), __va->__rehasher); }, &_va ) : 0;
+  return nvfuser::serde::CreateFusionKernelRuntime(
+      _fbb,
+      _args,
+      _executors);
+}
+
+inline InputsIdLookupT *InputsIdLookup::UnPack(const ::flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = std::unique_ptr<InputsIdLookupT>(new InputsIdLookupT());
+  UnPackTo(_o.get(), _resolver);
+  return _o.release();
+}
+
+inline void InputsIdLookup::UnPackTo(InputsIdLookupT *_o, const ::flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = max_cache_size(); _o->max_cache_size = _e; }
+  { auto _e = current_id(); _o->current_id = _e; }
+  { auto _e = lru_cache(); if (_e) { _o->lru_cache.resize(_e->size()); for (::flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->lru_cache[_i] = _e->Get(_i)->str(); } } else { _o->lru_cache.resize(0); } }
+  { auto _e = encoding_lookup_keys(); if (_e) { _o->encoding_lookup_keys.resize(_e->size()); for (::flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->encoding_lookup_keys[_i] = _e->Get(_i)->str(); } } else { _o->encoding_lookup_keys.resize(0); } }
+  { auto _e = encoding_lookup_values(); if (_e) { _o->encoding_lookup_values.resize(_e->size()); for (::flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->encoding_lookup_values[_i] = *_e->Get(_i); } } else { _o->encoding_lookup_values.resize(0); } }
+}
+
+inline ::flatbuffers::Offset<InputsIdLookup> InputsIdLookup::Pack(::flatbuffers::FlatBufferBuilder &_fbb, const InputsIdLookupT* _o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateInputsIdLookup(_fbb, _o, _rehasher);
+}
+
+inline ::flatbuffers::Offset<InputsIdLookup> CreateInputsIdLookup(::flatbuffers::FlatBufferBuilder &_fbb, const InputsIdLookupT *_o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { ::flatbuffers::FlatBufferBuilder *__fbb; const InputsIdLookupT* __o; const ::flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _max_cache_size = _o->max_cache_size;
+  auto _current_id = _o->current_id;
+  auto _lru_cache = _o->lru_cache.size() ? _fbb.CreateVectorOfStrings(_o->lru_cache) : 0;
+  auto _encoding_lookup_keys = _o->encoding_lookup_keys.size() ? _fbb.CreateVectorOfStrings(_o->encoding_lookup_keys) : 0;
+  auto _encoding_lookup_values = _o->encoding_lookup_values.size() ? _fbb.CreateVectorOfStructs(_o->encoding_lookup_values) : 0;
+  return nvfuser::serde::CreateInputsIdLookup(
+      _fbb,
+      _max_cache_size,
+      _current_id,
+      _lru_cache,
+      _encoding_lookup_keys,
+      _encoding_lookup_values);
+}
+
+inline KernelRuntimeStateT::KernelRuntimeStateT(const KernelRuntimeStateT &o)
+      : device_id(o.device_id),
+        has_dynamic_transform_info(o.has_dynamic_transform_info) {
+  runtimes.reserve(o.runtimes.size());
+  for (const auto &runtimes_ : o.runtimes) { runtimes.emplace_back((runtimes_) ? new nvfuser::serde::FusionKernelRuntimeT(*runtimes_) : nullptr); }
+}
+
+inline KernelRuntimeStateT &KernelRuntimeStateT::operator=(KernelRuntimeStateT o) FLATBUFFERS_NOEXCEPT {
+  std::swap(device_id, o.device_id);
+  std::swap(has_dynamic_transform_info, o.has_dynamic_transform_info);
+  std::swap(runtimes, o.runtimes);
+  return *this;
+}
+
+inline KernelRuntimeStateT *KernelRuntimeState::UnPack(const ::flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = std::unique_ptr<KernelRuntimeStateT>(new KernelRuntimeStateT());
+  UnPackTo(_o.get(), _resolver);
+  return _o.release();
+}
+
+inline void KernelRuntimeState::UnPackTo(KernelRuntimeStateT *_o, const ::flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = device_id(); _o->device_id = _e; }
+  { auto _e = has_dynamic_transform_info(); _o->has_dynamic_transform_info = _e; }
+  { auto _e = runtimes(); if (_e) { _o->runtimes.resize(_e->size()); for (::flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { if(_o->runtimes[_i]) { _e->Get(_i)->UnPackTo(_o->runtimes[_i].get(), _resolver); } else { _o->runtimes[_i] = std::unique_ptr<nvfuser::serde::FusionKernelRuntimeT>(_e->Get(_i)->UnPack(_resolver)); }; } } else { _o->runtimes.resize(0); } }
+}
+
+inline ::flatbuffers::Offset<KernelRuntimeState> KernelRuntimeState::Pack(::flatbuffers::FlatBufferBuilder &_fbb, const KernelRuntimeStateT* _o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateKernelRuntimeState(_fbb, _o, _rehasher);
+}
+
+inline ::flatbuffers::Offset<KernelRuntimeState> CreateKernelRuntimeState(::flatbuffers::FlatBufferBuilder &_fbb, const KernelRuntimeStateT *_o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { ::flatbuffers::FlatBufferBuilder *__fbb; const KernelRuntimeStateT* __o; const ::flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _device_id = _o->device_id;
+  auto _has_dynamic_transform_info = _o->has_dynamic_transform_info;
+  auto _runtimes = _o->runtimes.size() ? _fbb.CreateVector<::flatbuffers::Offset<nvfuser::serde::FusionKernelRuntime>> (_o->runtimes.size(), [](size_t i, _VectorArgs *__va) { return CreateFusionKernelRuntime(*__va->__fbb, __va->__o->runtimes[i].get(), __va->__rehasher); }, &_va ) : 0;
+  return nvfuser::serde::CreateKernelRuntimeState(
+      _fbb,
+      _device_id,
+      _has_dynamic_transform_info,
+      _runtimes);
+}
+
+inline FusionExecutorCacheT::FusionExecutorCacheT(const FusionExecutorCacheT &o)
+      : inputs_cache((o.inputs_cache) ? new nvfuser::serde::InputsIdLookupT(*o.inputs_cache) : nullptr),
+        kernel_cache_keys(o.kernel_cache_keys),
+        kernel_cache_values(o.kernel_cache_values) {
+  kernel_runtimes_map.reserve(o.kernel_runtimes_map.size());
+  for (const auto &kernel_runtimes_map_ : o.kernel_runtimes_map) { kernel_runtimes_map.emplace_back((kernel_runtimes_map_) ? new nvfuser::serde::KernelRuntimeStateT(*kernel_runtimes_map_) : nullptr); }
+}
+
+inline FusionExecutorCacheT &FusionExecutorCacheT::operator=(FusionExecutorCacheT o) FLATBUFFERS_NOEXCEPT {
+  std::swap(inputs_cache, o.inputs_cache);
+  std::swap(kernel_runtimes_map, o.kernel_runtimes_map);
+  std::swap(kernel_cache_keys, o.kernel_cache_keys);
+  std::swap(kernel_cache_values, o.kernel_cache_values);
+  return *this;
+}
+
+inline FusionExecutorCacheT *FusionExecutorCache::UnPack(const ::flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = std::unique_ptr<FusionExecutorCacheT>(new FusionExecutorCacheT());
+  UnPackTo(_o.get(), _resolver);
+  return _o.release();
+}
+
+inline void FusionExecutorCache::UnPackTo(FusionExecutorCacheT *_o, const ::flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = inputs_cache(); if (_e) { if(_o->inputs_cache) { _e->UnPackTo(_o->inputs_cache.get(), _resolver); } else { _o->inputs_cache = std::unique_ptr<nvfuser::serde::InputsIdLookupT>(_e->UnPack(_resolver)); } } else if (_o->inputs_cache) { _o->inputs_cache.reset(); } }
+  { auto _e = kernel_runtimes_map(); if (_e) { _o->kernel_runtimes_map.resize(_e->size()); for (::flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { if(_o->kernel_runtimes_map[_i]) { _e->Get(_i)->UnPackTo(_o->kernel_runtimes_map[_i].get(), _resolver); } else { _o->kernel_runtimes_map[_i] = std::unique_ptr<nvfuser::serde::KernelRuntimeStateT>(_e->Get(_i)->UnPack(_resolver)); }; } } else { _o->kernel_runtimes_map.resize(0); } }
+  { auto _e = kernel_cache_keys(); if (_e) { _o->kernel_cache_keys.resize(_e->size()); for (::flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->kernel_cache_keys[_i] = _e->Get(_i); } } else { _o->kernel_cache_keys.resize(0); } }
+  { auto _e = kernel_cache_values(); if (_e) { _o->kernel_cache_values.resize(_e->size()); for (::flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->kernel_cache_values[_i] = _e->Get(_i); } } else { _o->kernel_cache_values.resize(0); } }
+}
+
+inline ::flatbuffers::Offset<FusionExecutorCache> FusionExecutorCache::Pack(::flatbuffers::FlatBufferBuilder &_fbb, const FusionExecutorCacheT* _o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateFusionExecutorCache(_fbb, _o, _rehasher);
+}
+
+inline ::flatbuffers::Offset<FusionExecutorCache> CreateFusionExecutorCache(::flatbuffers::FlatBufferBuilder &_fbb, const FusionExecutorCacheT *_o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { ::flatbuffers::FlatBufferBuilder *__fbb; const FusionExecutorCacheT* __o; const ::flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _inputs_cache = _o->inputs_cache ? CreateInputsIdLookup(_fbb, _o->inputs_cache.get(), _rehasher) : 0;
+  auto _kernel_runtimes_map = _o->kernel_runtimes_map.size() ? _fbb.CreateVector<::flatbuffers::Offset<nvfuser::serde::KernelRuntimeState>> (_o->kernel_runtimes_map.size(), [](size_t i, _VectorArgs *__va) { return CreateKernelRuntimeState(*__va->__fbb, __va->__o->kernel_runtimes_map[i].get(), __va->__rehasher); }, &_va ) : 0;
+  auto _kernel_cache_keys = _o->kernel_cache_keys.size() ? _fbb.CreateVector(_o->kernel_cache_keys) : 0;
+  auto _kernel_cache_values = _o->kernel_cache_values.size() ? _fbb.CreateVector(_o->kernel_cache_values) : 0;
+  return nvfuser::serde::CreateFusionExecutorCache(
+      _fbb,
+      _inputs_cache,
+      _kernel_runtimes_map,
+      _kernel_cache_keys,
+      _kernel_cache_values);
+}
+
+inline RecordFunctorT *RecordFunctor::UnPack(const ::flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = std::unique_ptr<RecordFunctorT>(new RecordFunctorT());
+  UnPackTo(_o.get(), _resolver);
+  return _o.release();
+}
+
+inline void RecordFunctor::UnPackTo(RecordFunctorT *_o, const ::flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = args(); if (_e) { _o->args.resize(_e->size()); for (::flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->args[_i] = *_e->Get(_i); } } else { _o->args.resize(0); } }
+  { auto _e = outputs(); if (_e) { _o->outputs.resize(_e->size()); for (::flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->outputs[_i] = *_e->Get(_i); } } else { _o->outputs.resize(0); } }
+  { auto _e = name(); if (_e) _o->name = _e->str(); }
+  { auto _e = type(); _o->type = _e; }
+  { auto _e = data_type(); _o->data.type = _e; }
+  { auto _e = data(); if (_e) _o->data.value = nvfuser::serde::RecordDataUnion::UnPack(_e, data_type(), _resolver); }
+}
+
+inline ::flatbuffers::Offset<RecordFunctor> RecordFunctor::Pack(::flatbuffers::FlatBufferBuilder &_fbb, const RecordFunctorT* _o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateRecordFunctor(_fbb, _o, _rehasher);
+}
+
+inline ::flatbuffers::Offset<RecordFunctor> CreateRecordFunctor(::flatbuffers::FlatBufferBuilder &_fbb, const RecordFunctorT *_o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { ::flatbuffers::FlatBufferBuilder *__fbb; const RecordFunctorT* __o; const ::flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _args = _o->args.size() ? _fbb.CreateVectorOfStructs(_o->args) : 0;
+  auto _outputs = _o->outputs.size() ? _fbb.CreateVectorOfStructs(_o->outputs) : 0;
+  auto _name = _o->name.empty() ? 0 : _fbb.CreateString(_o->name);
+  auto _type = _o->type;
+  auto _data_type = _o->data.type;
+  auto _data = _o->data.Pack(_fbb);
+  return nvfuser::serde::CreateRecordFunctor(
+      _fbb,
+      _args,
+      _outputs,
+      _name,
+      _type,
+      _data_type,
+      _data);
+}
+
+inline TrieNodeT::TrieNodeT(const TrieNodeT &o)
+      : record((o.record) ? new nvfuser::serde::RecordFunctorT(*o.record) : nullptr),
+        children(o.children),
+        fusion_id(o.fusion_id),
+        visits(o.visits),
+        is_terminal(o.is_terminal) {
+}
+
+inline TrieNodeT &TrieNodeT::operator=(TrieNodeT o) FLATBUFFERS_NOEXCEPT {
+  std::swap(record, o.record);
+  std::swap(children, o.children);
+  std::swap(fusion_id, o.fusion_id);
+  std::swap(visits, o.visits);
+  std::swap(is_terminal, o.is_terminal);
+  return *this;
+}
+
+inline TrieNodeT *TrieNode::UnPack(const ::flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = std::unique_ptr<TrieNodeT>(new TrieNodeT());
+  UnPackTo(_o.get(), _resolver);
+  return _o.release();
+}
+
+inline void TrieNode::UnPackTo(TrieNodeT *_o, const ::flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = record(); if (_e) { if(_o->record) { _e->UnPackTo(_o->record.get(), _resolver); } else { _o->record = std::unique_ptr<nvfuser::serde::RecordFunctorT>(_e->UnPack(_resolver)); } } else if (_o->record) { _o->record.reset(); } }
+  { auto _e = children(); if (_e) { _o->children.resize(_e->size()); for (::flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->children[_i] = _e->Get(_i); } } else { _o->children.resize(0); } }
+  { auto _e = fusion_id(); _o->fusion_id = _e; }
+  { auto _e = visits(); _o->visits = _e; }
+  { auto _e = is_terminal(); _o->is_terminal = _e; }
+}
+
+inline ::flatbuffers::Offset<TrieNode> TrieNode::Pack(::flatbuffers::FlatBufferBuilder &_fbb, const TrieNodeT* _o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateTrieNode(_fbb, _o, _rehasher);
+}
+
+inline ::flatbuffers::Offset<TrieNode> CreateTrieNode(::flatbuffers::FlatBufferBuilder &_fbb, const TrieNodeT *_o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { ::flatbuffers::FlatBufferBuilder *__fbb; const TrieNodeT* __o; const ::flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _record = _o->record ? CreateRecordFunctor(_fbb, _o->record.get(), _rehasher) : 0;
+  auto _children = _o->children.size() ? _fbb.CreateVector(_o->children) : 0;
+  auto _fusion_id = _o->fusion_id;
+  auto _visits = _o->visits;
+  auto _is_terminal = _o->is_terminal;
+  return nvfuser::serde::CreateTrieNode(
+      _fbb,
+      _record,
+      _children,
+      _fusion_id,
+      _visits,
+      _is_terminal);
+}
+
+inline FusionCacheT::FusionCacheT(const FusionCacheT &o)
+      : max_fusions(o.max_fusions),
+        terminal_nodes(o.terminal_nodes) {
+  structure.reserve(o.structure.size());
+  for (const auto &structure_ : o.structure) { structure.emplace_back((structure_) ? new nvfuser::serde::TrieNodeT(*structure_) : nullptr); }
+  auto_gen_schedules.reserve(o.auto_gen_schedules.size());
+  for (const auto &auto_gen_schedules_ : o.auto_gen_schedules) { auto_gen_schedules.emplace_back((auto_gen_schedules_) ? new nvfuser::serde::FusionExecutorCacheT(*auto_gen_schedules_) : nullptr); }
+}
+
+inline FusionCacheT &FusionCacheT::operator=(FusionCacheT o) FLATBUFFERS_NOEXCEPT {
+  std::swap(max_fusions, o.max_fusions);
+  std::swap(structure, o.structure);
+  std::swap(terminal_nodes, o.terminal_nodes);
+  std::swap(auto_gen_schedules, o.auto_gen_schedules);
+  return *this;
+}
+
+inline FusionCacheT *FusionCache::UnPack(const ::flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = std::unique_ptr<FusionCacheT>(new FusionCacheT());
+  UnPackTo(_o.get(), _resolver);
+  return _o.release();
+}
+
+inline void FusionCache::UnPackTo(FusionCacheT *_o, const ::flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = max_fusions(); _o->max_fusions = _e; }
+  { auto _e = structure(); if (_e) { _o->structure.resize(_e->size()); for (::flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { if(_o->structure[_i]) { _e->Get(_i)->UnPackTo(_o->structure[_i].get(), _resolver); } else { _o->structure[_i] = std::unique_ptr<nvfuser::serde::TrieNodeT>(_e->Get(_i)->UnPack(_resolver)); }; } } else { _o->structure.resize(0); } }
+  { auto _e = terminal_nodes(); if (_e) { _o->terminal_nodes.resize(_e->size()); for (::flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->terminal_nodes[_i] = _e->Get(_i); } } else { _o->terminal_nodes.resize(0); } }
+  { auto _e = auto_gen_schedules(); if (_e) { _o->auto_gen_schedules.resize(_e->size()); for (::flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { if(_o->auto_gen_schedules[_i]) { _e->Get(_i)->UnPackTo(_o->auto_gen_schedules[_i].get(), _resolver); } else { _o->auto_gen_schedules[_i] = std::unique_ptr<nvfuser::serde::FusionExecutorCacheT>(_e->Get(_i)->UnPack(_resolver)); }; } } else { _o->auto_gen_schedules.resize(0); } }
+}
+
+inline ::flatbuffers::Offset<FusionCache> FusionCache::Pack(::flatbuffers::FlatBufferBuilder &_fbb, const FusionCacheT* _o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateFusionCache(_fbb, _o, _rehasher);
+}
+
+inline ::flatbuffers::Offset<FusionCache> CreateFusionCache(::flatbuffers::FlatBufferBuilder &_fbb, const FusionCacheT *_o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { ::flatbuffers::FlatBufferBuilder *__fbb; const FusionCacheT* __o; const ::flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _max_fusions = _o->max_fusions;
+  auto _structure = _o->structure.size() ? _fbb.CreateVector<::flatbuffers::Offset<nvfuser::serde::TrieNode>> (_o->structure.size(), [](size_t i, _VectorArgs *__va) { return CreateTrieNode(*__va->__fbb, __va->__o->structure[i].get(), __va->__rehasher); }, &_va ) : 0;
+  auto _terminal_nodes = _o->terminal_nodes.size() ? _fbb.CreateVector(_o->terminal_nodes) : 0;
+  auto _auto_gen_schedules = _o->auto_gen_schedules.size() ? _fbb.CreateVector<::flatbuffers::Offset<nvfuser::serde::FusionExecutorCache>> (_o->auto_gen_schedules.size(), [](size_t i, _VectorArgs *__va) { return CreateFusionExecutorCache(*__va->__fbb, __va->__o->auto_gen_schedules[i].get(), __va->__rehasher); }, &_va ) : 0;
+  return nvfuser::serde::CreateFusionCache(
+      _fbb,
+      _max_fusions,
+      _structure,
+      _terminal_nodes,
+      _auto_gen_schedules);
 }
 
 inline bool VerifyRecordData(::flatbuffers::Verifier &verifier, const void *obj, RecordData type) {
@@ -3789,6 +6059,375 @@ inline bool VerifyRecordDataVector(::flatbuffers::Verifier &verifier, const ::fl
   return true;
 }
 
+inline void *RecordDataUnion::UnPack(const void *obj, RecordData type, const ::flatbuffers::resolver_function_t *resolver) {
+  (void)resolver;
+  switch (type) {
+    case RecordData_At: {
+      auto ptr = reinterpret_cast<const nvfuser::serde::At *>(obj);
+      return ptr->UnPack(resolver);
+    }
+    case RecordData_BatchNorm: {
+      auto ptr = reinterpret_cast<const nvfuser::serde::BatchNorm *>(obj);
+      return ptr->UnPack(resolver);
+    }
+    case RecordData_Broadcast: {
+      auto ptr = reinterpret_cast<const nvfuser::serde::Broadcast *>(obj);
+      return ptr->UnPack(resolver);
+    }
+    case RecordData_BroadcastInDim: {
+      auto ptr = reinterpret_cast<const nvfuser::serde::BroadcastInDim *>(obj);
+      return ptr->UnPack(resolver);
+    }
+    case RecordData_Dimension: {
+      auto ptr = reinterpret_cast<const nvfuser::serde::Dimension *>(obj);
+      return ptr->UnPack(resolver);
+    }
+    case RecordData_Dtype: {
+      auto ptr = reinterpret_cast<const nvfuser::serde::Dtype *>(obj);
+      return ptr->UnPack(resolver);
+    }
+    case RecordData_Norm: {
+      auto ptr = reinterpret_cast<const nvfuser::serde::Norm *>(obj);
+      return ptr->UnPack(resolver);
+    }
+    case RecordData_Output: {
+      auto ptr = reinterpret_cast<const nvfuser::serde::Output *>(obj);
+      return ptr->UnPack(resolver);
+    }
+    case RecordData_Pad: {
+      auto ptr = reinterpret_cast<const nvfuser::serde::Pad *>(obj);
+      return ptr->UnPack(resolver);
+    }
+    case RecordData_Permute: {
+      auto ptr = reinterpret_cast<const nvfuser::serde::Permute *>(obj);
+      return ptr->UnPack(resolver);
+    }
+    case RecordData_Slice: {
+      auto ptr = reinterpret_cast<const nvfuser::serde::Slice *>(obj);
+      return ptr->UnPack(resolver);
+    }
+    case RecordData_Squeeze: {
+      auto ptr = reinterpret_cast<const nvfuser::serde::Squeeze *>(obj);
+      return ptr->UnPack(resolver);
+    }
+    case RecordData_Reduction: {
+      auto ptr = reinterpret_cast<const nvfuser::serde::Reduction *>(obj);
+      return ptr->UnPack(resolver);
+    }
+    case RecordData_Reshape: {
+      auto ptr = reinterpret_cast<const nvfuser::serde::Reshape *>(obj);
+      return ptr->UnPack(resolver);
+    }
+    case RecordData_Scalar: {
+      auto ptr = reinterpret_cast<const nvfuser::serde::Scalar *>(obj);
+      return ptr->UnPack(resolver);
+    }
+    case RecordData_Size: {
+      auto ptr = reinterpret_cast<const nvfuser::serde::Size *>(obj);
+      return ptr->UnPack(resolver);
+    }
+    case RecordData_Tensor: {
+      auto ptr = reinterpret_cast<const nvfuser::serde::Tensor *>(obj);
+      return ptr->UnPack(resolver);
+    }
+    case RecordData_TensorCreation: {
+      auto ptr = reinterpret_cast<const nvfuser::serde::TensorCreation *>(obj);
+      return ptr->UnPack(resolver);
+    }
+    case RecordData_TensorCreationSymbolic: {
+      auto ptr = reinterpret_cast<const nvfuser::serde::TensorCreationSymbolic *>(obj);
+      return ptr->UnPack(resolver);
+    }
+    case RecordData_Vector: {
+      auto ptr = reinterpret_cast<const nvfuser::serde::Vector *>(obj);
+      return ptr->UnPack(resolver);
+    }
+    default: return nullptr;
+  }
+}
+
+inline ::flatbuffers::Offset<void> RecordDataUnion::Pack(::flatbuffers::FlatBufferBuilder &_fbb, const ::flatbuffers::rehasher_function_t *_rehasher) const {
+  (void)_rehasher;
+  switch (type) {
+    case RecordData_At: {
+      auto ptr = reinterpret_cast<const nvfuser::serde::AtT *>(value);
+      return CreateAt(_fbb, ptr, _rehasher).Union();
+    }
+    case RecordData_BatchNorm: {
+      auto ptr = reinterpret_cast<const nvfuser::serde::BatchNormT *>(value);
+      return CreateBatchNorm(_fbb, ptr, _rehasher).Union();
+    }
+    case RecordData_Broadcast: {
+      auto ptr = reinterpret_cast<const nvfuser::serde::BroadcastT *>(value);
+      return CreateBroadcast(_fbb, ptr, _rehasher).Union();
+    }
+    case RecordData_BroadcastInDim: {
+      auto ptr = reinterpret_cast<const nvfuser::serde::BroadcastInDimT *>(value);
+      return CreateBroadcastInDim(_fbb, ptr, _rehasher).Union();
+    }
+    case RecordData_Dimension: {
+      auto ptr = reinterpret_cast<const nvfuser::serde::DimensionT *>(value);
+      return CreateDimension(_fbb, ptr, _rehasher).Union();
+    }
+    case RecordData_Dtype: {
+      auto ptr = reinterpret_cast<const nvfuser::serde::DtypeT *>(value);
+      return CreateDtype(_fbb, ptr, _rehasher).Union();
+    }
+    case RecordData_Norm: {
+      auto ptr = reinterpret_cast<const nvfuser::serde::NormT *>(value);
+      return CreateNorm(_fbb, ptr, _rehasher).Union();
+    }
+    case RecordData_Output: {
+      auto ptr = reinterpret_cast<const nvfuser::serde::OutputT *>(value);
+      return CreateOutput(_fbb, ptr, _rehasher).Union();
+    }
+    case RecordData_Pad: {
+      auto ptr = reinterpret_cast<const nvfuser::serde::PadT *>(value);
+      return CreatePad(_fbb, ptr, _rehasher).Union();
+    }
+    case RecordData_Permute: {
+      auto ptr = reinterpret_cast<const nvfuser::serde::PermuteT *>(value);
+      return CreatePermute(_fbb, ptr, _rehasher).Union();
+    }
+    case RecordData_Slice: {
+      auto ptr = reinterpret_cast<const nvfuser::serde::SliceT *>(value);
+      return CreateSlice(_fbb, ptr, _rehasher).Union();
+    }
+    case RecordData_Squeeze: {
+      auto ptr = reinterpret_cast<const nvfuser::serde::SqueezeT *>(value);
+      return CreateSqueeze(_fbb, ptr, _rehasher).Union();
+    }
+    case RecordData_Reduction: {
+      auto ptr = reinterpret_cast<const nvfuser::serde::ReductionT *>(value);
+      return CreateReduction(_fbb, ptr, _rehasher).Union();
+    }
+    case RecordData_Reshape: {
+      auto ptr = reinterpret_cast<const nvfuser::serde::ReshapeT *>(value);
+      return CreateReshape(_fbb, ptr, _rehasher).Union();
+    }
+    case RecordData_Scalar: {
+      auto ptr = reinterpret_cast<const nvfuser::serde::ScalarT *>(value);
+      return CreateScalar(_fbb, ptr, _rehasher).Union();
+    }
+    case RecordData_Size: {
+      auto ptr = reinterpret_cast<const nvfuser::serde::SizeT *>(value);
+      return CreateSize(_fbb, ptr, _rehasher).Union();
+    }
+    case RecordData_Tensor: {
+      auto ptr = reinterpret_cast<const nvfuser::serde::TensorT *>(value);
+      return CreateTensor(_fbb, ptr, _rehasher).Union();
+    }
+    case RecordData_TensorCreation: {
+      auto ptr = reinterpret_cast<const nvfuser::serde::TensorCreationT *>(value);
+      return CreateTensorCreation(_fbb, ptr, _rehasher).Union();
+    }
+    case RecordData_TensorCreationSymbolic: {
+      auto ptr = reinterpret_cast<const nvfuser::serde::TensorCreationSymbolicT *>(value);
+      return CreateTensorCreationSymbolic(_fbb, ptr, _rehasher).Union();
+    }
+    case RecordData_Vector: {
+      auto ptr = reinterpret_cast<const nvfuser::serde::VectorT *>(value);
+      return CreateVector(_fbb, ptr, _rehasher).Union();
+    }
+    default: return 0;
+  }
+}
+
+inline RecordDataUnion::RecordDataUnion(const RecordDataUnion &u) : type(u.type), value(nullptr) {
+  switch (type) {
+    case RecordData_At: {
+      value = new nvfuser::serde::AtT(*reinterpret_cast<nvfuser::serde::AtT *>(u.value));
+      break;
+    }
+    case RecordData_BatchNorm: {
+      value = new nvfuser::serde::BatchNormT(*reinterpret_cast<nvfuser::serde::BatchNormT *>(u.value));
+      break;
+    }
+    case RecordData_Broadcast: {
+      value = new nvfuser::serde::BroadcastT(*reinterpret_cast<nvfuser::serde::BroadcastT *>(u.value));
+      break;
+    }
+    case RecordData_BroadcastInDim: {
+      value = new nvfuser::serde::BroadcastInDimT(*reinterpret_cast<nvfuser::serde::BroadcastInDimT *>(u.value));
+      break;
+    }
+    case RecordData_Dimension: {
+      value = new nvfuser::serde::DimensionT(*reinterpret_cast<nvfuser::serde::DimensionT *>(u.value));
+      break;
+    }
+    case RecordData_Dtype: {
+      value = new nvfuser::serde::DtypeT(*reinterpret_cast<nvfuser::serde::DtypeT *>(u.value));
+      break;
+    }
+    case RecordData_Norm: {
+      value = new nvfuser::serde::NormT(*reinterpret_cast<nvfuser::serde::NormT *>(u.value));
+      break;
+    }
+    case RecordData_Output: {
+      value = new nvfuser::serde::OutputT(*reinterpret_cast<nvfuser::serde::OutputT *>(u.value));
+      break;
+    }
+    case RecordData_Pad: {
+      value = new nvfuser::serde::PadT(*reinterpret_cast<nvfuser::serde::PadT *>(u.value));
+      break;
+    }
+    case RecordData_Permute: {
+      value = new nvfuser::serde::PermuteT(*reinterpret_cast<nvfuser::serde::PermuteT *>(u.value));
+      break;
+    }
+    case RecordData_Slice: {
+      value = new nvfuser::serde::SliceT(*reinterpret_cast<nvfuser::serde::SliceT *>(u.value));
+      break;
+    }
+    case RecordData_Squeeze: {
+      value = new nvfuser::serde::SqueezeT(*reinterpret_cast<nvfuser::serde::SqueezeT *>(u.value));
+      break;
+    }
+    case RecordData_Reduction: {
+      value = new nvfuser::serde::ReductionT(*reinterpret_cast<nvfuser::serde::ReductionT *>(u.value));
+      break;
+    }
+    case RecordData_Reshape: {
+      value = new nvfuser::serde::ReshapeT(*reinterpret_cast<nvfuser::serde::ReshapeT *>(u.value));
+      break;
+    }
+    case RecordData_Scalar: {
+      value = new nvfuser::serde::ScalarT(*reinterpret_cast<nvfuser::serde::ScalarT *>(u.value));
+      break;
+    }
+    case RecordData_Size: {
+      value = new nvfuser::serde::SizeT(*reinterpret_cast<nvfuser::serde::SizeT *>(u.value));
+      break;
+    }
+    case RecordData_Tensor: {
+      value = new nvfuser::serde::TensorT(*reinterpret_cast<nvfuser::serde::TensorT *>(u.value));
+      break;
+    }
+    case RecordData_TensorCreation: {
+      value = new nvfuser::serde::TensorCreationT(*reinterpret_cast<nvfuser::serde::TensorCreationT *>(u.value));
+      break;
+    }
+    case RecordData_TensorCreationSymbolic: {
+      value = new nvfuser::serde::TensorCreationSymbolicT(*reinterpret_cast<nvfuser::serde::TensorCreationSymbolicT *>(u.value));
+      break;
+    }
+    case RecordData_Vector: {
+      value = new nvfuser::serde::VectorT(*reinterpret_cast<nvfuser::serde::VectorT *>(u.value));
+      break;
+    }
+    default:
+      break;
+  }
+}
+
+inline void RecordDataUnion::Reset() {
+  switch (type) {
+    case RecordData_At: {
+      auto ptr = reinterpret_cast<nvfuser::serde::AtT *>(value);
+      delete ptr;
+      break;
+    }
+    case RecordData_BatchNorm: {
+      auto ptr = reinterpret_cast<nvfuser::serde::BatchNormT *>(value);
+      delete ptr;
+      break;
+    }
+    case RecordData_Broadcast: {
+      auto ptr = reinterpret_cast<nvfuser::serde::BroadcastT *>(value);
+      delete ptr;
+      break;
+    }
+    case RecordData_BroadcastInDim: {
+      auto ptr = reinterpret_cast<nvfuser::serde::BroadcastInDimT *>(value);
+      delete ptr;
+      break;
+    }
+    case RecordData_Dimension: {
+      auto ptr = reinterpret_cast<nvfuser::serde::DimensionT *>(value);
+      delete ptr;
+      break;
+    }
+    case RecordData_Dtype: {
+      auto ptr = reinterpret_cast<nvfuser::serde::DtypeT *>(value);
+      delete ptr;
+      break;
+    }
+    case RecordData_Norm: {
+      auto ptr = reinterpret_cast<nvfuser::serde::NormT *>(value);
+      delete ptr;
+      break;
+    }
+    case RecordData_Output: {
+      auto ptr = reinterpret_cast<nvfuser::serde::OutputT *>(value);
+      delete ptr;
+      break;
+    }
+    case RecordData_Pad: {
+      auto ptr = reinterpret_cast<nvfuser::serde::PadT *>(value);
+      delete ptr;
+      break;
+    }
+    case RecordData_Permute: {
+      auto ptr = reinterpret_cast<nvfuser::serde::PermuteT *>(value);
+      delete ptr;
+      break;
+    }
+    case RecordData_Slice: {
+      auto ptr = reinterpret_cast<nvfuser::serde::SliceT *>(value);
+      delete ptr;
+      break;
+    }
+    case RecordData_Squeeze: {
+      auto ptr = reinterpret_cast<nvfuser::serde::SqueezeT *>(value);
+      delete ptr;
+      break;
+    }
+    case RecordData_Reduction: {
+      auto ptr = reinterpret_cast<nvfuser::serde::ReductionT *>(value);
+      delete ptr;
+      break;
+    }
+    case RecordData_Reshape: {
+      auto ptr = reinterpret_cast<nvfuser::serde::ReshapeT *>(value);
+      delete ptr;
+      break;
+    }
+    case RecordData_Scalar: {
+      auto ptr = reinterpret_cast<nvfuser::serde::ScalarT *>(value);
+      delete ptr;
+      break;
+    }
+    case RecordData_Size: {
+      auto ptr = reinterpret_cast<nvfuser::serde::SizeT *>(value);
+      delete ptr;
+      break;
+    }
+    case RecordData_Tensor: {
+      auto ptr = reinterpret_cast<nvfuser::serde::TensorT *>(value);
+      delete ptr;
+      break;
+    }
+    case RecordData_TensorCreation: {
+      auto ptr = reinterpret_cast<nvfuser::serde::TensorCreationT *>(value);
+      delete ptr;
+      break;
+    }
+    case RecordData_TensorCreationSymbolic: {
+      auto ptr = reinterpret_cast<nvfuser::serde::TensorCreationSymbolicT *>(value);
+      delete ptr;
+      break;
+    }
+    case RecordData_Vector: {
+      auto ptr = reinterpret_cast<nvfuser::serde::VectorT *>(value);
+      delete ptr;
+      break;
+    }
+    default: break;
+  }
+  value = nullptr;
+  type = RecordData_NONE;
+}
+
 inline bool VerifyPolymorphicValueData(::flatbuffers::Verifier &verifier, const void *obj, PolymorphicValueData type) {
   switch (type) {
     case PolymorphicValueData_NONE: {
@@ -3820,6 +6459,86 @@ inline bool VerifyPolymorphicValueDataVector(::flatbuffers::Verifier &verifier, 
     }
   }
   return true;
+}
+
+inline void *PolymorphicValueDataUnion::UnPack(const void *obj, PolymorphicValueData type, const ::flatbuffers::resolver_function_t *resolver) {
+  (void)resolver;
+  switch (type) {
+    case PolymorphicValueData_Scalar: {
+      auto ptr = reinterpret_cast<const nvfuser::serde::Scalar *>(obj);
+      return ptr->UnPack(resolver);
+    }
+    case PolymorphicValueData_ScalarCpu: {
+      auto ptr = reinterpret_cast<const nvfuser::serde::ScalarCpu *>(obj);
+      return ptr->UnPack(resolver);
+    }
+    case PolymorphicValueData_TensorArg: {
+      auto ptr = reinterpret_cast<const nvfuser::serde::TensorArg *>(obj);
+      return ptr->UnPack(resolver);
+    }
+    default: return nullptr;
+  }
+}
+
+inline ::flatbuffers::Offset<void> PolymorphicValueDataUnion::Pack(::flatbuffers::FlatBufferBuilder &_fbb, const ::flatbuffers::rehasher_function_t *_rehasher) const {
+  (void)_rehasher;
+  switch (type) {
+    case PolymorphicValueData_Scalar: {
+      auto ptr = reinterpret_cast<const nvfuser::serde::ScalarT *>(value);
+      return CreateScalar(_fbb, ptr, _rehasher).Union();
+    }
+    case PolymorphicValueData_ScalarCpu: {
+      auto ptr = reinterpret_cast<const nvfuser::serde::ScalarCpuT *>(value);
+      return CreateScalarCpu(_fbb, ptr, _rehasher).Union();
+    }
+    case PolymorphicValueData_TensorArg: {
+      auto ptr = reinterpret_cast<const nvfuser::serde::TensorArgT *>(value);
+      return CreateTensorArg(_fbb, ptr, _rehasher).Union();
+    }
+    default: return 0;
+  }
+}
+
+inline PolymorphicValueDataUnion::PolymorphicValueDataUnion(const PolymorphicValueDataUnion &u) : type(u.type), value(nullptr) {
+  switch (type) {
+    case PolymorphicValueData_Scalar: {
+      value = new nvfuser::serde::ScalarT(*reinterpret_cast<nvfuser::serde::ScalarT *>(u.value));
+      break;
+    }
+    case PolymorphicValueData_ScalarCpu: {
+      value = new nvfuser::serde::ScalarCpuT(*reinterpret_cast<nvfuser::serde::ScalarCpuT *>(u.value));
+      break;
+    }
+    case PolymorphicValueData_TensorArg: {
+      value = new nvfuser::serde::TensorArgT(*reinterpret_cast<nvfuser::serde::TensorArgT *>(u.value));
+      break;
+    }
+    default:
+      break;
+  }
+}
+
+inline void PolymorphicValueDataUnion::Reset() {
+  switch (type) {
+    case PolymorphicValueData_Scalar: {
+      auto ptr = reinterpret_cast<nvfuser::serde::ScalarT *>(value);
+      delete ptr;
+      break;
+    }
+    case PolymorphicValueData_ScalarCpu: {
+      auto ptr = reinterpret_cast<nvfuser::serde::ScalarCpuT *>(value);
+      delete ptr;
+      break;
+    }
+    case PolymorphicValueData_TensorArg: {
+      auto ptr = reinterpret_cast<nvfuser::serde::TensorArgT *>(value);
+      delete ptr;
+      break;
+    }
+    default: break;
+  }
+  value = nullptr;
+  type = PolymorphicValueData_NONE;
 }
 
 inline const nvfuser::serde::FusionCache *GetFusionCache(const void *buf) {
@@ -3864,6 +6583,18 @@ inline void FinishSizePrefixedFusionCacheBuffer(
     ::flatbuffers::FlatBufferBuilder &fbb,
     ::flatbuffers::Offset<nvfuser::serde::FusionCache> root) {
   fbb.FinishSizePrefixed(root, FusionCacheIdentifier());
+}
+
+inline std::unique_ptr<nvfuser::serde::FusionCacheT> UnPackFusionCache(
+    const void *buf,
+    const ::flatbuffers::resolver_function_t *res = nullptr) {
+  return std::unique_ptr<nvfuser::serde::FusionCacheT>(GetFusionCache(buf)->UnPack(res));
+}
+
+inline std::unique_ptr<nvfuser::serde::FusionCacheT> UnPackSizePrefixedFusionCache(
+    const void *buf,
+    const ::flatbuffers::resolver_function_t *res = nullptr) {
+  return std::unique_ptr<nvfuser::serde::FusionCacheT>(GetSizePrefixedFusionCache(buf)->UnPack(res));
 }
 
 }  // namespace serde

@@ -25,11 +25,17 @@
 #include <ir/all_nodes.h>
 #include <kernel.h>
 
+#include <memory>
 #include <string>
 #include <vector>
 
 namespace nvfuser {
 namespace executor_utils {
+
+struct ObjectCode {
+  std::shared_ptr<char[]> data;
+  size_t size;
+};
 
 // Include all the functions we might need in generated code
 std::string kernelPreamble();
@@ -39,7 +45,7 @@ TORCH_CUDA_CU_API ExpressionEvaluator
 bindInputs(const KernelArgumentHolder& args, Fusion* fusion);
 
 std::string disassembleBinary(
-    const std::vector<char>& cubin,
+    const ObjectCode& cubin,
     const std::string& nvdisasm_args);
 
 struct NvrtcFunction {
@@ -48,7 +54,7 @@ struct NvrtcFunction {
 };
 
 // Returns executable function and the ptxas log from compilation
-std::tuple<NvrtcFunction, std::string, std::vector<char>, std::string>
+std::tuple<NvrtcFunction, std::string, ObjectCode, std::string>
 getCompiledKernel(
     std::optional<std::reference_wrapper<const std::string>> kernel_code,
     const std::string& code,
@@ -58,9 +64,9 @@ getCompiledKernel(
     std::optional<int64_t> opt_block_size = std::nullopt);
 
 // Returns executable function using flatbuffer object
-std::tuple<NvrtcFunction, std::string, std::vector<char>, std::string>
+std::tuple<NvrtcFunction, std::string, ObjectCode, std::string>
 getCompiledKernel(
-    const serde::CudaKernel* buffer,
+    const serde::CudaKernelT& buffer,
     const CompileParams& compile_params,
     std::optional<int64_t> opt_block_size);
 

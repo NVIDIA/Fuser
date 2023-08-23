@@ -196,7 +196,7 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
   }
 
   //! Returns the latest compiled binary
-  std::vector<char> compiledBinary() const {
+  const executor_utils::ObjectCode& compiledBinary() const {
     return last_compiled_binary_;
   }
 
@@ -437,10 +437,13 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
   std::string last_compiler_log_;
 
   // nvrtc compiled binary
-  std::vector<char> last_compiled_binary_;
+  executor_utils::ObjectCode last_compiled_binary_;
 
   // compiled binary name
   std::string last_compiled_kernel_name_;
+
+  // store flatbuffer kernel
+  serde::CudaKernelT kernel_;
 };
 
 } // namespace nvfuser

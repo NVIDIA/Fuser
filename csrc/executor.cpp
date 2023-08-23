@@ -1984,11 +1984,19 @@ flatbuffers::Offset<serde::FusionExecutor> FusionExecutor::serialize(
   }
 
   auto kernel_name_fb = builder.CreateString(last_compiled_kernel_name_);
-  auto object_code_fb = builder.CreateVector<int8_t>(
-      (const int8_t*)last_compiled_binary_.data(),
-      last_compiled_binary_.size());
-  auto kernel_fb = serde::CreateCudaKernel(
-      builder, kernel_name_fb, object_code_fb, last_compiled_binary_.size());
+  flatbuffers::Offset<flatbuffers::Vector<int8_t>> object_code_fb = 0;
+  if (last_compiled_binary_.data && last_compiled_binary_.size != 0) {
+    object_code_fb = builder.CreateVector<int8_t>(
+        (const int8_t*)last_compiled_binary_.data.get(),
+        last_compiled_binary_.size);
+  } else if (!kernel_.object_code.empty()) {
+    object_code_fb = builder.CreateVector<int8_t>(
+        kernel_.object_code.data(), kernel_.object_code.size());
+  } else {
+    TORCH_INTERNAL_ASSERT(false, "Missing Compiled Kernel.");
+  }
+  auto kernel_fb =
+      serde::CreateCudaKernel(builder, kernel_name_fb, object_code_fb);
 
   return serde::CreateFusionExecutorDirect(
       builder,
@@ -2123,15 +2131,15 @@ void FusionExecutor::deserialize(
         deserialize(buffer->executor_entry_lookup_values()->Get(idx)));
   }
 
+  buffer->compiled_kernel()->UnPackTo(&kernel_);
+
   std::tie(
       compiled_kernel_,
       last_compiler_log_,
       last_compiled_binary_,
       last_compiled_kernel_name_) =
       executor_utils::getCompiledKernel(
-          buffer->compiled_kernel(),
-          compile_params,
-          block_size_high_water_mark_);
+          kernel_, compile_params, block_size_high_water_mark_);
 
   TORCH_INTERNAL_ASSERT(isCompiled(), "Failed to deserialize FusionExecutor");
 }

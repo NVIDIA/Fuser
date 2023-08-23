@@ -55,6 +55,7 @@
 
 #include <cstdlib>
 #include <fstream>
+#include <type_traits>
 #include <variant>
 
 #include <nvrtc.h>
@@ -745,9 +746,7 @@ size_t nvrtcGetSize(const nvrtcProgram& program, bool compile_to_sass) {
 }
 
 // Get the program code from nvrtcProgram
-std::vector<char> nvrtcGetCode(
-    const nvrtcProgram& program,
-    bool compile_to_sass) {
+ObjectCode nvrtcGetCode(const nvrtcProgram& program, bool compile_to_sass) {
   const auto size = nvrtcGetSize(program, compile_to_sass);
 
 #if CUDA_VERSION >= 11010
@@ -758,13 +757,15 @@ std::vector<char> nvrtcGetCode(
   const auto getCode = nvrtcGetPTX;
 #endif
 
-  std::vector<char> code(size);
-  NVFUSER_NVRTC_SAFE_CALL(getCode(program, code.data()));
+  ObjectCode code;
+  code.data = std::make_unique<char[]>(size);
+  code.size = size;
+  NVFUSER_NVRTC_SAFE_CALL(getCode(program, code.data.get()));
   return code;
 }
 
 void dumpCompiledCodeToFile(
-    const std::vector<char>& code,
+    const ObjectCode& code,
     int64_t fusion_id,
     bool dump_cubin) {
   std::stringstream file_name;
@@ -773,7 +774,7 @@ void dumpCompiledCodeToFile(
   debug() << "PRINTING: " << file_name.str() << std::endl;
   std::ofstream out(file_name.str());
   TORCH_INTERNAL_ASSERT(out.is_open());
-  out.write(code.data(), (std::streamsize)code.size());
+  out.write(code.data.get(), (std::streamsize)code.size);
   out.close();
 }
 
@@ -1115,7 +1116,7 @@ void createNvrtcProgram(
 
 // Compile the given source code with the NVRTC compiler
 // driver. Return the binary of the kernel, compile log, and its lowered name
-std::tuple<std::vector<char>, std::string, std::string> compileSource(
+std::tuple<ObjectCode, std::string, std::string> compileSource(
     const std::string& full_src_code,
     const std::string& func_name,
     int64_t id,
@@ -1152,7 +1153,7 @@ std::tuple<std::vector<char>, std::string, std::string> compileSource(
 } // namespace
 
 // Compile the source if no existing compiled binary is found in KernelDB
-std::tuple<NvrtcFunction, std::string, std::vector<char>, std::string>
+std::tuple<NvrtcFunction, std::string, ObjectCode, std::string>
 getCompiledKernel(
     std::optional<std::reference_wrapper<const std::string>> kernel_code,
     const std::string& full_src_code,
@@ -1219,11 +1220,17 @@ getCompiledKernel(
   }
 
   // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
-  std::vector<char> object_code;
+  ObjectCode object_code;
   std::string lowered_kernel_name_str;
   const auto compile_args =
       toDelimitedString(nvrtc_compile_driver.options(), " ");
 
+  std::string compile_log;
+  std::tie(object_code, compile_log, lowered_kernel_name_str) = compileSource(
+      full_src_code, func_name, id, compile_to_sass, nvrtc_compile_driver);
+  log << compile_log << std::endl;
+
+  /*
   auto& kernel_db = KernelDb::get();
   const auto use_kernel_db = kernel_db.enabled() && kernel_code.has_value();
 
@@ -1250,10 +1257,12 @@ getCompiledKernel(
       }
     }
   }
+  */
 
   NvrtcFunction compiled_kernel;
 
-  log << module_load_driver.invoke(compiled_kernel.module, object_code.data())
+  log << module_load_driver.invoke(
+             compiled_kernel.module, object_code.data.get())
       << std::endl;
 
   if (isOptionEnabled(EnableOption::WarnRegisterSpill) ||
@@ -1269,20 +1278,12 @@ getCompiledKernel(
   return {compiled_kernel, log.str(), object_code, lowered_kernel_name_str};
 }
 
-std::tuple<NvrtcFunction, std::string, std::vector<char>, std::string>
+std::tuple<NvrtcFunction, std::string, ObjectCode, std::string>
 getCompiledKernel(
-    const serde::CudaKernel* buffer,
+    const serde::CudaKernelT& buffer,
     const CompileParams& compile_params,
     std::optional<int64_t> opt_block_size) {
   FUSER_PERF_SCOPE("executor_utils::serde_NVRTC");
-
-  TORCH_INTERNAL_ASSERT(
-      buffer != nullptr, "serde::CudaKernel is not compiled.");
-
-  const char* object_code_ptr =
-      reinterpret_cast<const char*>(buffer->object_code()->Data());
-  std::vector<char> object_code(
-      object_code_ptr, object_code_ptr + buffer->object_code_size());
 
   at::cuda::jit::initializeCudaContext();
 
@@ -1322,16 +1323,18 @@ getCompiledKernel(
   std::stringstream log;
   NvrtcFunction compiled_kernel;
 
-  log << module_load_driver.invoke(compiled_kernel.module, object_code.data())
+  auto object_code_ptr =
+      reinterpret_cast<const char*>(buffer.object_code.data());
+  log << module_load_driver.invoke(compiled_kernel.module, object_code_ptr)
       << std::endl;
 
   NVFUSER_CUDA_SAFE_CALL(cuModuleGetFunction(
       &(compiled_kernel.function),
       compiled_kernel.module,
-      buffer->kernel_name()->c_str()));
+      buffer.kernel_name.c_str()));
 
-  return {
-      compiled_kernel, log.str(), object_code, buffer->kernel_name()->str()};
+  ObjectCode object_code{nullptr, 0};
+  return {compiled_kernel, log.str(), object_code, buffer.kernel_name};
 }
 
 namespace caching {
