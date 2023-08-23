@@ -759,30 +759,6 @@ TensorView* getReferenceReductionTv(
 
 namespace {
 
-// shared memory is configured to specific sizes, e.g. 8, 16, 32, 64, 100,
-// 132, 164, 196, 228 KB per SM on H100. Here, smem_config_options is set to
-// H100's shared memory configuration. The returned value is the smallest shared
-// memory size required to launch the kernel. The driver may use a larger value
-// if there is enough shared memory to launch more than one block per SM. It's
-// the caller's responsibility to check if the returned value is smaller than
-// the device's shared memory size.
-static const std::array<int64_t, 9> smem_config_options = {
-    8l * 1024l,
-    16l * 1024l,
-    32l * 1024l,
-    64l * 1024l,
-    100l * 1024l,
-    132l * 1024l,
-    164l * 1024l,
-    196l * 1024l,
-    228l * 1024l};
-
-int64_t getSharedMemoryConfigSize(int64_t request_size) {
-  auto it = std::upper_bound(
-      smem_config_options.begin(), smem_config_options.end(), request_size);
-  return (it != smem_config_options.end()) ? *it : smem_config_options.back();
-}
-
 // The roundup is due to the fact that the shared memory buffer is allocated
 // as: ceilDiv(ceilDiv(dim_size, vect), threadsPerBlock)
 int64_t roundUpSharedMemory(
@@ -972,44 +948,6 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
       return buffer_params;
     }
 
-    // Evaluate the possibility of shifting an additional one, but don't move
-    // all of them except for combined case where additional register buffer
-    // will be created to store intermediate outer reduction results.. Doing so
-    // might enhance the efficiency of shared memory utilization due to preset
-    // shared configuration sizes. For instance, a 65K shared memory requirement
-    // might default to a 100K configuration. But transferring an extra buffer,
-    // raising the need to 130K, could lead to a selection of the 132K
-    // configuration, optimizing usage.
-    const int64_t min_resg_buffer = buffer_params.combined_reduction ? 0l : 1l;
-    if (n_smem_buffer > n_broadcast_buffers &&
-        n_buffers - n_smem_buffer > min_resg_buffer) {
-      int64_t smem_buffer_size = acc_smem_buffer_sizes[n_smem_buffer];
-      int64_t smem_config_size = getSharedMemoryConfigSize(
-          smem_buffer_size + buffer_params.smem_overhead);
-      double buffer_config_ratio = static_cast<double>(smem_buffer_size) /
-          static_cast<double>(smem_config_size);
-      if (buffer_config_ratio < 0.6 &&
-          smem_config_size < smem_config_options.back() &&
-          smem_config_size < available_smem) {
-        int64_t smem_buffer_size_tmp = acc_smem_buffer_sizes[n_smem_buffer + 1];
-        int64_t smem_config_size_tmp = getSharedMemoryConfigSize(
-            smem_buffer_size_tmp + buffer_params.smem_overhead);
-        double buffer_config_ratio_tmp =
-            static_cast<double>(smem_buffer_size_tmp) /
-            static_cast<double>(smem_config_size_tmp);
-        if (buffer_config_ratio_tmp > buffer_config_ratio &&
-            smem_config_size_tmp < available_smem) {
-          std::cout << "New n_smem_buffer detected! new n_smem_buffer= "
-                    << n_smem_buffer + 1
-                    << ", smem_config_size_tmp= " << smem_config_size_tmp
-                    << ", buffer_config_ratio_tmp= " << buffer_config_ratio_tmp
-                    << ", buffer_config_ratio_old= " << buffer_config_ratio
-                    << ", n_broadcast_buffers= " << n_broadcast_buffers
-                    << std::endl;
-          n_smem_buffer++;
-        }
-      }
-    }
     // move n_smem_buffer buffers to shared memory
     for (int i = 0; i < n_smem_buffer; i++) {
       buffer_params.smem_tvs.emplace_back(sorted_candidate_tvs[i]);
