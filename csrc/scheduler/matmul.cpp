@@ -975,7 +975,6 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
 
   if (params.use_smem_epilogue) {
     smem_epilogue->setMemoryType(MemoryType::Shared);
-
     swizzleSharedMemory(smem_epilogue, params);
     scheduler_utils::BoundedDirectionalTransformPropagator::forward(
         mma_result,
