@@ -3054,7 +3054,7 @@ TensorDomain::TensorDomain(
   resetDomains();
 }
 
-TensorDomain::TensorDomain(IrBuilderPasskey passkey, TensorDomain* src)
+TensorDomain::TensorDomain(IrBuilderPasskey passkey, const TensorDomain* src)
     : Val(passkey, ValType::TensorDomain, DataType::Null),
       root_domain_(src->root_domain_),
       rfactor_domain_(src->rfactor_domain_),
