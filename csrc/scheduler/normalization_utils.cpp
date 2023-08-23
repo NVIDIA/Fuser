@@ -988,7 +988,7 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
           smem_buffer_size + buffer_params.smem_overhead);
       double buffer_config_ratio = static_cast<double>(smem_buffer_size) /
           static_cast<double>(smem_config_size);
-      if (buffer_config_ratio < 0.8 &&
+      if (buffer_config_ratio < 0.6 &&
           smem_config_size < smem_config_options.back() &&
           smem_config_size < available_smem) {
         int64_t smem_buffer_size_tmp = acc_smem_buffer_sizes[n_smem_buffer + 1];
