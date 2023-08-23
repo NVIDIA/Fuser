@@ -172,7 +172,10 @@ std::optional<size_t> mergeDims(
   }
   auto inner = to_merge[0];
 
-  // NOTE: we need to merge dimensions in the order specified by `to_merge`, otherwise this could results in misaligned memory access due to indexing. This is because we compute vectorization width before applying scheduling transformations.
+  // NOTE: we need to merge dimensions in the order specified by `to_merge`,
+  // otherwise this could results in misaligned memory access due to indexing.
+  // This is because we compute vectorization width before applying scheduling
+  // transformations.
   for (size_t i = 1; i < to_merge.size(); i++) {
     auto outer = to_merge[i];
     if (outer > inner) {
