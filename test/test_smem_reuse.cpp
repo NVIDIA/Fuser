@@ -277,10 +277,6 @@ TEST_F(SmemReuseTest, PromoteReuseMultipleDownstream) {
       full({IrBuilder::create<Val>(H)}, fusion->oneVal(), DataType::Float);
   tv0->setMemoryType(MemoryType::Shared);
 
-  // NOTE: This should work with only a single expression between tv0 and tv1 as
-  // well, since a sync could be placed after tv1 in that case as well. Here we
-  // use two expressions until fixing interval closedness.
-  // See https://github.com/NVIDIA/Fuser/issues/772.
   auto tv1 = neg(tv0);
 
   auto tv2 = pad(tv1, {fusion->zeroVal(), fusion->oneVal()});
