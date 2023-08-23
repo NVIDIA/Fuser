@@ -801,6 +801,10 @@ bool isDirectlyUsedByBroadcast(TensorView* tv) {
   for (auto consumer : ir_utils::consumerTvsOf(tv)) {
     if (consumer->hasBroadcast()) {
       return true;
+    } else if (auto op = dynamic_cast<UnaryOp*>(consumer->definition())) {
+      return op->getUnaryOpType() == UnaryOpType::Cast
+          ? isDirectlyUsedByBroadcast(consumer)
+          : false;
     }
   }
   return false;
@@ -929,6 +933,8 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
         sorted_candidate_tvs.push_back(tv);
       }
     }
+    std::cout << "n_broadcast_buffers= " << n_broadcast_buffers
+              << ", n_buffers= " << n_buffers << std::endl;
     // calculate the accumulated buffer size of the first N buffers
     std::vector<int64_t> acc_regs_buffer_sizes(n_buffers + 1, 0);
     std::vector<int64_t> acc_smem_buffer_sizes(n_buffers + 1, 0);
@@ -998,6 +1004,7 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
                     << ", smem_config_size_tmp= " << smem_config_size_tmp
                     << ", buffer_config_ratio_tmp= " << buffer_config_ratio_tmp
                     << ", buffer_config_ratio_old= " << buffer_config_ratio
+                    << ", n_broadcast_buffers= " << n_broadcast_buffers
                     << std::endl;
           n_smem_buffer++;
         }
