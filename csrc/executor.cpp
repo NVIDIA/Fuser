@@ -1730,10 +1730,13 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   }
 
   std::vector<std::vector<std::byte>> arg_buffers;
-  arg_buffers.reserve(kernel()->parameters().size());
-  for (auto v : kernel()->parameters()) {
-    arg_buffers.emplace_back(
-        getKernelArgument(expr_eval, v, kernel()->indexType()));
+  {
+    FUSER_PERF_SCOPE("ExecutorRunFusion::GetArgsBuffers");
+    arg_buffers.reserve(kernel()->parameters().size());
+    for (auto v : kernel()->parameters()) {
+      arg_buffers.emplace_back(
+          getKernelArgument(expr_eval, v, kernel()->indexType()));
+    }
   }
 
   if (isDebugDumpEnabled(DebugDumpOption::LaunchParam)) {
