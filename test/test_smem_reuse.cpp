@@ -281,17 +281,17 @@ TEST_F(SmemReuseTest, PromoteReuseMultipleDownstream) {
   // well, since a sync could be placed after tv1 in that case as well. Here we
   // use two expressions until fixing interval closedness.
   // See https://github.com/NVIDIA/Fuser/issues/772.
-  auto tv1 = neg(neg(tv0));
+  auto tv1 = neg(tv0);
 
   auto tv2 = pad(tv1, {fusion->zeroVal(), fusion->oneVal()});
   tv2->setMemoryType(MemoryType::Shared);
 
-  auto tv3 = neg(neg(tv2));
+  auto tv3 = neg(tv2);
 
   auto tv4 = pad(tv3, {fusion->zeroVal(), fusion->oneVal()});
   tv4->setMemoryType(MemoryType::Shared);
 
-  auto tv5 = neg(neg(tv4));
+  auto tv5 = neg(tv4);
 
   fusion->addOutput(tv5);
 

@@ -385,7 +385,7 @@ class BufferLiveInterval {
 
   std::string toString() {
     std::stringstream ss;
-    ss << "[ " << first_write_pos_ << " , " << last_read_pos_ << " )";
+    ss << "[ " << first_write_pos_ << " , " << last_read_pos_ << " ]";
     return ss.str();
   }
 
@@ -455,7 +455,7 @@ class ScopeMap : private kir::IrVisitor {
   ScopeMap(const std::vector<Expr*>& exprs)
       : global_scope_info_{makeAndRegisterScopeInfo(nullptr)} {
     handle(exprs);
-    global_scope_info_->end_pos = expr_pos_map_.getCurrentPos() + 1;
+    global_scope_info_->end_pos = expr_pos_map_.getCurrentPos();
 
     // Make sure all loops have end_pos filled
     for (const auto& info : all_scope_info_) {
@@ -474,7 +474,7 @@ class ScopeMap : private kir::IrVisitor {
   void handle(kir::ForLoop* for_loop) final {
     auto loop_info = makeAndRegisterScopeInfo(for_loop);
     kir::IrVisitor::handle(for_loop);
-    loop_info->end_pos = expr_pos_map_.getCurrentPos() + 1;
+    loop_info->end_pos = expr_pos_map_.getCurrentPos();
   }
 
   void handle(kir::IfThenElse* ite) final {
@@ -601,23 +601,18 @@ class AllocationAliasModifier;
 //!       T1 = ...            <--  Inner Live Interval of T1 begin
 //!       T2 = ...
 //!       T3 = T1 + ...    <-- Inner Live Interval of T1 end
-//!       T5 = T3 + ...
-//!     EndFor Idx2
-//!   EndFor Idx1 <-------  Outer Live Interval of T1 end
+//!       T5 = T3 + ...    <-------  Outer Live Interval of T1 end
 //!
 //!   Alloc(T4, register)
 //!   For Idx3 ...
 //!     T4 = ...
-//!   EndFor Idx3
-//! EndFor Idx0
 //!
 //!  Each buffer is associated with an `inner_live_interval` and an
-//!  `outer_live_interval`,
-//!   Inner interval marks the exprs that are the first write and last read of
-//!   the buffer.
-//!   Outer interval marks the beginning of the loop of first write and end of
-//!   the loop of last read, both at the same loop level as the buffer
-//!   allocation.
+//!  `outer_live_interval`. Inner interval marks the exprs that are the first
+//!  write and last read of the buffer. Outer interval marks the beginning of
+//!  the loop of first write and end of the loop of last read, at the same loop
+//!  level as the buffer allocation. Note that the end of a ForLoop is marked by
+//!  the last expression within it.
 class AllocationInfoMap : private kir::IrVisitor {
  public:
   // Alias local memory if it exceeds this threshold
