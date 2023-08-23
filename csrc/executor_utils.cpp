@@ -746,7 +746,9 @@ size_t nvrtcGetSize(const nvrtcProgram& program, bool compile_to_sass) {
 }
 
 // Get the program code from nvrtcProgram
-ObjectCode nvrtcGetCode(const nvrtcProgram& program, bool compile_to_sass) {
+serde::CudaKernelT nvrtcGetCode(
+    const nvrtcProgram& program,
+    bool compile_to_sass) {
   const auto size = nvrtcGetSize(program, compile_to_sass);
 
 #if CUDA_VERSION >= 11010
@@ -757,15 +759,14 @@ ObjectCode nvrtcGetCode(const nvrtcProgram& program, bool compile_to_sass) {
   const auto getCode = nvrtcGetPTX;
 #endif
 
-  ObjectCode code;
-  code.data = std::make_unique<char[]>(size);
-  code.size = size;
-  NVFUSER_NVRTC_SAFE_CALL(getCode(program, code.data.get()));
+  serde::CudaKernelT code;
+  code.object_code.resize(size);
+  NVFUSER_NVRTC_SAFE_CALL(getCode(program, (char*)code.object_code.data()));
   return code;
 }
 
 void dumpCompiledCodeToFile(
-    const ObjectCode& code,
+    const serde::CudaKernelT& code,
     int64_t fusion_id,
     bool dump_cubin) {
   std::stringstream file_name;
@@ -774,7 +775,9 @@ void dumpCompiledCodeToFile(
   debug() << "PRINTING: " << file_name.str() << std::endl;
   std::ofstream out(file_name.str());
   TORCH_INTERNAL_ASSERT(out.is_open());
-  out.write(code.data.get(), (std::streamsize)code.size);
+  out.write(
+      (const char*)code.object_code.data(),
+      (std::streamsize)code.object_code.size());
   out.close();
 }
 
@@ -1116,7 +1119,7 @@ void createNvrtcProgram(
 
 // Compile the given source code with the NVRTC compiler
 // driver. Return the binary of the kernel, compile log, and its lowered name
-std::tuple<ObjectCode, std::string, std::string> compileSource(
+std::tuple<serde::CudaKernelT, std::string> compileSource(
     const std::string& full_src_code,
     const std::string& func_name,
     int64_t id,
@@ -1138,23 +1141,22 @@ std::tuple<ObjectCode, std::string, std::string> compileSource(
   const char* lowered_kernel_name = nullptr;
   NVFUSER_NVRTC_SAFE_CALL(
       nvrtcGetLoweredName(program, func_name.c_str(), &lowered_kernel_name));
-  auto lowered_kernel_name_str = std::string(lowered_kernel_name);
 
   auto object_code = nvrtcGetCode(program, compile_to_sass);
+  object_code.name = std::string(lowered_kernel_name);
 
   if (isDebugDumpEnabled(DebugDumpOption::Ptx) ||
       isDebugDumpEnabled(DebugDumpOption::Cubin)) {
     dumpCompiledCodeToFile(object_code, id, compile_to_sass);
   }
 
-  return {object_code, log.str(), lowered_kernel_name_str};
+  return {object_code, log.str()};
 }
 
 } // namespace
 
 // Compile the source if no existing compiled binary is found in KernelDB
-std::tuple<NvrtcFunction, std::string, ObjectCode, std::string>
-getCompiledKernel(
+std::tuple<NvrtcFunction, std::string, serde::CudaKernelT> getCompiledKernel(
     std::optional<std::reference_wrapper<const std::string>> kernel_code,
     const std::string& full_src_code,
     const std::string& func_name,
@@ -1220,17 +1222,19 @@ getCompiledKernel(
   }
 
   // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
-  ObjectCode object_code;
-  std::string lowered_kernel_name_str;
-  const auto compile_args =
-      toDelimitedString(nvrtc_compile_driver.options(), " ");
+  serde::CudaKernelT compiled_binary;
 
   std::string compile_log;
-  std::tie(object_code, compile_log, lowered_kernel_name_str) = compileSource(
+  std::tie(compiled_binary, compile_log) = compileSource(
       full_src_code, func_name, id, compile_to_sass, nvrtc_compile_driver);
   log << compile_log << std::endl;
 
+  compiled_binary.compile_args =
+      toDelimitedString(nvrtc_compile_driver.options(), " ");
+
   /*
+  const auto compile_args =
+      toDelimitedString(nvrtc_compile_driver.options(), " ");
   auto& kernel_db = KernelDb::get();
   const auto use_kernel_db = kernel_db.enabled() && kernel_code.has_value();
 
@@ -1262,7 +1266,7 @@ getCompiledKernel(
   NvrtcFunction compiled_kernel;
 
   log << module_load_driver.invoke(
-             compiled_kernel.module, object_code.data.get())
+             compiled_kernel.module, compiled_binary.object_code.data())
       << std::endl;
 
   if (isOptionEnabled(EnableOption::WarnRegisterSpill) ||
@@ -1273,14 +1277,13 @@ getCompiledKernel(
   NVFUSER_CUDA_SAFE_CALL(cuModuleGetFunction(
       &(compiled_kernel.function),
       compiled_kernel.module,
-      lowered_kernel_name_str.c_str()));
+      compiled_binary.name.c_str()));
 
-  return {compiled_kernel, log.str(), object_code, lowered_kernel_name_str};
+  return {compiled_kernel, log.str(), compiled_binary};
 }
 
-std::tuple<NvrtcFunction, std::string, ObjectCode, std::string>
-getCompiledKernel(
-    const serde::CudaKernelT& buffer,
+std::tuple<NvrtcFunction, std::string> getCompiledKernel(
+    const serde::CudaKernelT& compiled_binary,
     const CompileParams& compile_params,
     std::optional<int64_t> opt_block_size) {
   FUSER_PERF_SCOPE("executor_utils::serde_NVRTC");
@@ -1324,17 +1327,16 @@ getCompiledKernel(
   NvrtcFunction compiled_kernel;
 
   auto object_code_ptr =
-      reinterpret_cast<const char*>(buffer.object_code.data());
+      reinterpret_cast<const char*>(compiled_binary.object_code.data());
   log << module_load_driver.invoke(compiled_kernel.module, object_code_ptr)
       << std::endl;
 
   NVFUSER_CUDA_SAFE_CALL(cuModuleGetFunction(
       &(compiled_kernel.function),
       compiled_kernel.module,
-      buffer.kernel_name.c_str()));
+      compiled_binary.name.c_str()));
 
-  ObjectCode object_code{nullptr, 0};
-  return {compiled_kernel, log.str(), object_code, buffer.kernel_name};
+  return {compiled_kernel, log.str()};
 }
 
 namespace caching {

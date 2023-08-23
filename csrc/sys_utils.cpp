@@ -24,7 +24,7 @@
 namespace nvfuser::executor_utils {
 
 std::string disassembleBinary(
-    const ObjectCode& cubin,
+    const serde::CudaKernelT& cubin,
     const std::string& nvdisasm_args) {
   const char* err = "Failed to disassemble cubin";
 
@@ -60,15 +60,16 @@ std::string disassembleBinary(
     TORCH_INTERNAL_ASSERT(err_fp != nullptr, err);
 
     // Write cubin to nvdisasm
-    size_t written = fwrite(cubin.data.get(), 1, cubin.size, cubin_fp);
-    TORCH_INTERNAL_ASSERT(written == cubin.size, err);
+    size_t written =
+        fwrite(cubin.object_code.data(), 1, cubin.object_code.size(), cubin_fp);
+    TORCH_INTERNAL_ASSERT(written == cubin.object_code.size(), err);
     fclose(cubin_fp);
 
     int ch = -1;
 
     // read disassembly result
     std::string result;
-    result.reserve(cubin.size);
+    result.reserve(cubin.object_code.size());
     while ((ch = fgetc(disasm_fp)) != EOF) {
       result.push_back((char)ch);
     }

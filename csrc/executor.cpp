@@ -225,11 +225,7 @@ void FusionExecutor::debugCompileFusionFromStr(
         "The static shared memory allocation is larger than available memory.");
   }
 
-  std::tie(
-      compiled_kernel_,
-      last_compiler_log_,
-      last_compiled_binary_,
-      last_compiled_kernel_name_) =
+  std::tie(compiled_kernel_, last_compiler_log_, last_compiled_binary_) =
       executor_utils::getCompiledKernel(std::nullopt, code, name, fusion_id_);
   TORCH_INTERNAL_ASSERT(
       fusion_id_ > 0, "assign a fusion_id_ <= 0 is not accepted.");
@@ -413,11 +409,7 @@ void FusionExecutor::compileFusion(
       (block_size.has_value() ? block_size.value() : 1),
       block_size_high_water_mark_);
   maxrregcount_high_water_mark_ = compile_params.maxrregcount;
-  std::tie(
-      compiled_kernel_,
-      last_compiler_log_,
-      last_compiled_binary_,
-      last_compiled_kernel_name_) =
+  std::tie(compiled_kernel_, last_compiler_log_, last_compiled_binary_) =
       executor_utils::getCompiledKernel(
           kernel_code_,
           structured_code,
@@ -1532,11 +1524,7 @@ void FusionExecutor::recompileKernel(
   block_size_high_water_mark_ = new_launch_params.nThreads();
   maxrregcount_high_water_mark_ = new_compile_params.maxrregcount;
 
-  std::tie(
-      compiled_kernel_,
-      last_compiler_log_,
-      last_compiled_binary_,
-      last_compiled_kernel_name_) =
+  std::tie(compiled_kernel_, last_compiler_log_, last_compiled_binary_) =
       executor_utils::getCompiledKernel(
           kernel_code_,
           structured_code,
@@ -1898,11 +1886,7 @@ void FusionExecutor::compileRtc(
   }
   fusion_id_ = 1;
 
-  std::tie(
-      compiled_kernel_,
-      last_compiler_log_,
-      last_compiled_binary_,
-      last_compiled_kernel_name_) =
+  std::tie(compiled_kernel_, last_compiler_log_, last_compiled_binary_) =
       executor_utils::getCompiledKernel(std::nullopt, scode, name, fusion_id_);
 }
 
@@ -1971,6 +1955,8 @@ float FusionExecutor::runRtc(
 flatbuffers::Offset<serde::FusionExecutor> FusionExecutor::serialize(
     flatbuffers::FlatBufferBuilder& builder) const {
   // See table definition for FusionExecutor in serde/fusion_cache.fbs
+  TORCH_INTERNAL_ASSERT(
+      !last_compiled_binary_.object_code.empty(), "Missing Compiled Kernel.");
 
   using fb_executor_entry = flatbuffers::Offset<serde::ExecutorEntry>;
 
@@ -1982,21 +1968,6 @@ flatbuffers::Offset<serde::FusionExecutor> FusionExecutor::serialize(
     executor_entry_lookup_keys_fb.push_back(key);
     executor_entry_lookup_values_fb.push_back(serialize(builder, value));
   }
-
-  auto kernel_name_fb = builder.CreateString(last_compiled_kernel_name_);
-  flatbuffers::Offset<flatbuffers::Vector<int8_t>> object_code_fb = 0;
-  if (last_compiled_binary_.data && last_compiled_binary_.size != 0) {
-    object_code_fb = builder.CreateVector<int8_t>(
-        (const int8_t*)last_compiled_binary_.data.get(),
-        last_compiled_binary_.size);
-  } else if (!kernel_.object_code.empty()) {
-    object_code_fb = builder.CreateVector<int8_t>(
-        kernel_.object_code.data(), kernel_.object_code.size());
-  } else {
-    TORCH_INTERNAL_ASSERT(false, "Missing Compiled Kernel.");
-  }
-  auto kernel_fb =
-      serde::CreateCudaKernel(builder, kernel_name_fb, object_code_fb);
 
   return serde::CreateFusionExecutorDirect(
       builder,
@@ -2010,7 +1981,7 @@ flatbuffers::Offset<serde::FusionExecutor> FusionExecutor::serialize(
       &executor_entry_lookup_keys_fb,
       &executor_entry_lookup_values_fb,
       serde::mapToSerdeDtype(kernel()->indexType()),
-      kernel_fb);
+      serde::CreateCudaKernel(builder, &last_compiled_binary_));
 }
 
 flatbuffers::Offset<serde::ExecutorEntry> FusionExecutor::serialize(
@@ -2131,15 +2102,11 @@ void FusionExecutor::deserialize(
         deserialize(buffer->executor_entry_lookup_values()->Get(idx)));
   }
 
-  buffer->compiled_kernel()->UnPackTo(&kernel_);
+  buffer->compiled_kernel()->UnPackTo(&last_compiled_binary_);
 
-  std::tie(
-      compiled_kernel_,
-      last_compiler_log_,
-      last_compiled_binary_,
-      last_compiled_kernel_name_) =
+  std::tie(compiled_kernel_, last_compiler_log_) =
       executor_utils::getCompiledKernel(
-          kernel_, compile_params, block_size_high_water_mark_);
+          last_compiled_binary_, compile_params, block_size_high_water_mark_);
 
   TORCH_INTERNAL_ASSERT(isCompiled(), "Failed to deserialize FusionExecutor");
 }
