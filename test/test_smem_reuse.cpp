@@ -262,29 +262,36 @@ TEST_F(SmemReuseTest, PromoteReuse) {
 }
 
 // In this example, we promote a single tensor for re-use in a Fusion with two
-// downstream tensors that could use its memory. The first downstream tensor is
-// not re-used since it is not promoted.
+// downstream tensors that could use its memory.
 TEST_F(SmemReuseTest, PromoteReuseMultipleDownstream) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
   int64_t H = 7;
 
+  // The outer live intervals of tv0, tv2, and tv4 will be non-overlapping, but
+  // adjacent. tv0->promoteReuse() should be able to insert a sync before tv2,
+  // so that tv4 re-uses the memory from tv0, then tv2 is stacked above tv4.
+
   auto tv0 =
       full({IrBuilder::create<Val>(H)}, fusion->oneVal(), DataType::Float);
   tv0->setMemoryType(MemoryType::Shared);
 
-  auto tv1 = neg(tv0);
+  // NOTE: This should work with only a single expression between tv0 and tv1 as
+  // well, since a sync could be placed after tv1 in that case as well. Here we
+  // use two expressions until fixing interval closedness.
+  // See https://github.com/NVIDIA/Fuser/issues/772.
+  auto tv1 = neg(neg(tv0));
 
   auto tv2 = pad(tv1, {fusion->zeroVal(), fusion->oneVal()});
   tv2->setMemoryType(MemoryType::Shared);
 
-  auto tv3 = neg(tv2);
+  auto tv3 = neg(neg(tv2));
 
   auto tv4 = pad(tv3, {fusion->zeroVal(), fusion->oneVal()});
   tv4->setMemoryType(MemoryType::Shared);
 
-  auto tv5 = neg(tv4);
+  auto tv5 = neg(neg(tv4));
 
   fusion->addOutput(tv5);
 
@@ -322,7 +329,7 @@ TEST_F(SmemReuseTest, PromoteReuseMultipleDownstream) {
           dataTypeSize(alloc->buffer()->dtype());
       smem_usage = std::max(smem_usage, addr + size);
     }
-    EXPECT_EQ(smem_usage, alignInt((H + 1) * 4) + (H + 2) * 4);
+    EXPECT_EQ(smem_usage, alignInt((H + 2) * 4) + (H + 1) * 4);
   }
 }
 
