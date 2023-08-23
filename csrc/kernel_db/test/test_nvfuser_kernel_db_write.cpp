@@ -61,7 +61,7 @@ TEST_F(NVFuserTest, KernelDb_Write_CUDA) {
 
   // Try a write for an entry that already exists
   try {
-    ASSERT_FALSE(kernel_db.write(code, compile_args, kernel_signature, cubin));
+    ASSERT_TRUE(kernel_db.write(code, compile_args, kernel_signature, cubin));
     ASSERT_TRUE(kernel_db.size() == 1);
     SUCCEED();
   } catch (const std::exception& e) {

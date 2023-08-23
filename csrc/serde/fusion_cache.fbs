@@ -53,7 +53,6 @@ enum RecordType : int {
     BatchNormOp,
     BroadcastOp,
     BroadcastInDim,
-    BroadcastInDimSymbolic,
     CastTv,
     CastVal,
     CatOp,
@@ -117,7 +116,6 @@ union RecordData {
   BatchNorm,
   Broadcast,
   BroadcastInDim,
-  BroadcastInDimSymbolic,
   Dimension,
   Dtype,
   Norm,
@@ -136,21 +134,15 @@ union RecordData {
   Vector,
 }
 
-// The ArgAbstractData union holds the attribute information for each ArgAbstract.
-union ArgAbstractData {
+// The PolymorphicValueData union holds the attribute information for each PolymorphicValue.
+union PolymorphicValueData {
   Scalar,
-  PhiloxCudaState,
   ScalarCpu,
   TensorArg,
 }
 
 // =====================================================================================
 // Basic data tables
-
-// Data for At
-table At {
-  index: long;
-}
 
 // The State struct represents each scalar and tensor value.
 // e.g., all input, output and intermediate values in the fusion.
@@ -171,29 +163,12 @@ table Scalar {
   imag_value: double;
 }
 
-// Data representing a tensor shape
-table TensorShape {
-  shape : [long];
-}
-
-// Data for Size
-table Size {
-  dim: long;
-}
-
 // =====================================================================================
-// Tables for ArgAbstract, PhiloxCudaState, ScalarCpu, TensorArg, KernelArgumentHolder used in FusionExecutor.
-
-// Data of PhiloxCudaState
-table PhiloxCudaState {
-  seed : ulong;
-  offset : ulong;
-}
+// Tables for PolymorphicValue, ScalarCpu, TensorArg, KernelArgumentHolder used in FusionExecutor.
 
 // The ScalarCpu is represented by a fixed size array of raw bytes.
 table ScalarCpu {
-  instance : [byte];
-  size : ulong;
+  scalar_value : Scalar;
 }
 
 // Data of TensorArg.
@@ -205,25 +180,28 @@ table TensorArg {
   sizes : [long];
   strides : [long];
   dtype: DataType;
-  is_int_index_mode : bool;
-  index_type_resolved : bool;
 }
 
-// This table corresponds with a given ArgAbstract object.
-table ArgAbstract {
-  data : ArgAbstractData;
+// This table corresponds with a given PolymorphicValue object.
+table PolymorphicValue {
+  data : PolymorphicValueData;
 }
 
-// This table holds multiple ArgAbstract objects.
+// This table holds multiple PolymorphicValue objects.
 table KernelArgumentHolder {
-  arguments : [ArgAbstract];
+  arguments : [PolymorphicValue];
   device_index : byte;
   cache_id : ulong;
 }
 
 //
 // =====================================================================================
-// Tables for LaunchParams, GlobalBufferInfo, ExecutorEntry used in FusionExecutor
+// Tables for LaunchParams, GlobalBufferInfo, ExecutorEntry, and TensorShape used in FusionExecutor
+
+// Data representing a tensor shape used in LaunchParam
+table TensorShape {
+  shape : [long];
+}
 
 // This table holds the cached launch parameters for a kernel.
 table LaunchParams {
@@ -261,11 +239,15 @@ table ExecutorEntry {
     input_aliases : [int];
     outputs : [GlobalBufferInfo];
     intermediates : [GlobalBufferInfo];
-    rand_offset : ulong;
 }
 
 // =====================================================================================
 // RecordData tables for RecordFunctor objects
+
+// Data for AtOpRecord
+table At {
+  index: long;
+}
 
 // Data for BatchNormOpRecord
 table BatchNorm {
@@ -278,15 +260,9 @@ table Broadcast {
   broadcast_dims: [bool];
 }
 
-// Data for BroadcastInDimOpRecord<int64_t>
+// Data for BroadcastInDimOpRecord
 table BroadcastInDim {
-  output_shape: [long];
-  broadcast_dims: [long];
-}
-
-// Data for BroadcastInDimOpRecord<nvfuser::State>
-table BroadcastInDimSymbolic {
-  output_shape: [State];
+  output_size: ulong;
   broadcast_dims: [long];
 }
 
@@ -333,6 +309,11 @@ table Reduction {
 table Reshape {
   original_shape: [long];
   new_shape: [long];
+}
+
+// Data for SizeOpRecord
+table Size {
+  dim: long;
 }
 
 // Data for SliceOpRecord
@@ -421,7 +402,7 @@ table InputsIdLookup {
 }
 
 // This table represents a key-value pair in the kernel_runtimes map in FusionExecutorCache.
-table KernelRuntimes {
+table KernelRuntimeState {
   device_id : ulong;
   has_dynamic_transform_info : bool;
   runtimes : [FusionKernelRuntime];
@@ -432,8 +413,9 @@ table KernelRuntimes {
 table FusionExecutorCache {
   inputs_cache : InputsIdLookup;
 
-  // This field represents a map<size_t, vector<FusionKernelRuntime>>.
-  kernel_runtimes : [KernelRuntimes];
+  // This field represents a map<<size_t, DynamicTransformConcretizationInfo>, vector<FusionKernelRuntime>>.
+  // DynamicTransformConcretizationInfo is regenerated during deserialization.
+  kernel_runtimes_map : [KernelRuntimeState];
 
   // This field defines a map<size_t, FusionKernelRuntime> id_to_kernel_runtime.
   kernel_cache_keys : [ulong];

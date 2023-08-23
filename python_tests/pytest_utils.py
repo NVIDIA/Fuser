@@ -4,6 +4,7 @@
 # Owner(s): ["module: nvfuser"]
 
 import torch
+import jax.numpy as jnp
 from torch.testing import make_tensor
 from typing import Optional
 
@@ -64,6 +65,36 @@ map_dtype_to_str = {
     torch.float64: "float64",
     torch.complex64: "complex64",
     torch.complex128: "complex128",
+}
+
+torch_to_jax_dtype_map = {
+    torch.bool: jnp.bool_,
+    torch.uint8: jnp.uint8,
+    torch.int8: jnp.int8,
+    torch.int16: jnp.int16,
+    torch.int32: jnp.int32,
+    torch.int64: jnp.int64,
+    torch.bfloat16: jnp.bfloat16,
+    torch.float16: jnp.float16,
+    torch.float32: jnp.float32,
+    torch.float64: jnp.float64,
+    torch.complex64: jnp.complex64,
+    torch.complex128: jnp.complex128,
+}
+
+torch_to_python_dtype_map = {
+    torch.bool: bool,
+    torch.uint8: int,
+    torch.int8: int,
+    torch.int16: int,
+    torch.int32: int,
+    torch.int64: int,
+    torch.bfloat16: float,
+    torch.float16: float,
+    torch.float32: float,
+    torch.float64: float,
+    torch.complex64: complex,
+    torch.complex128: complex,
 }
 
 

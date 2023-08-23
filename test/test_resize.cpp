@@ -2340,6 +2340,411 @@ TEST_F(ResizeTest, SliceAndReshape2) {
   TORCH_CHECK(t2.equal(cg_outputs[1]));
 }
 
+// Trivial case of slice vectorization. Just slicing a fusion input
+TEST_F(ResizeTest, Slice1DVectorizeManual1) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  const int64_t slice_offset = 4;
+  const std::vector<int64_t> shape({1024 * 1024});
+
+  // Using a concrete tensor to avoid dynamic reshape
+  auto tv0 = makeContigConcreteTensor(shape);
+  fusion.addInput(tv0);
+
+  auto tv1 = slice(
+      tv0,
+      {{IrBuilder::create<Val>(slice_offset),
+        sub(tv0->axis(0)->extent(), IrBuilder::create<Val>(slice_offset))}});
+  fusion.addOutput(tv1);
+
+  tv1->split(0, 4);
+  tv1->split(0, 128);
+
+  tv1->axis(0)->parallelize(ParallelType::BIDx);
+  tv1->axis(1)->parallelize(ParallelType::TIDx);
+  tv1->axis(2)->parallelize(ParallelType::Vectorize);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = fe.runFusion(aten_inputs);
+
+  auto ref =
+      t0.index({at::indexing::Slice(slice_offset, shape[0] - slice_offset)});
+  ASSERT_TRUE(ref.equal(cg_outputs[0]));
+}
+
+// An input is sliced twice. Both should be vectorizable.
+TEST_F(ResizeTest, Slice1DVectorizeManual2) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  const int64_t slice_offset = 4;
+  const std::vector<int64_t> shape({1024 * 1024});
+
+  auto tv0 = makeContigConcreteTensor(shape);
+  fusion.addInput(tv0);
+
+  // Following two slices are vectorized individually. No cache is introduced
+  auto tv1 = slice(
+      tv0,
+      {{IrBuilder::create<Val>(slice_offset),
+        sub(tv0->axis(0)->extent(), IrBuilder::create<Val>(slice_offset))}});
+  fusion.addOutput(tv1);
+
+  auto tv2 = slice(
+      tv0,
+      {{IrBuilder::create<Val>(slice_offset * 2),
+        sub(tv0->axis(0)->extent(),
+            IrBuilder::create<Val>(slice_offset * 2))}});
+  fusion.addOutput(tv2);
+
+  tv1->split(0, 4);
+  tv1->split(0, 128);
+
+  TransformPropagator propagator(tv1);
+  MaxRootDomainInfoSpanningTree(tv1).traverse(&propagator);
+
+  tv1->axis(0)->parallelize(ParallelType::BIDx);
+  tv1->axis(1)->parallelize(ParallelType::TIDx);
+  tv1->axis(2)->parallelize(ParallelType::Vectorize);
+
+  scheduler_utils::parallelizeAllLike(tv1);
+
+  inlineMost();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = fe.runFusion(aten_inputs);
+
+  auto ref_t1 =
+      t0.index({at::indexing::Slice(slice_offset, shape[0] - slice_offset)});
+  auto ref_t2 = t0.index(
+      {at::indexing::Slice(slice_offset * 2, shape[0] - slice_offset * 2)});
+  ASSERT_TRUE(ref_t1.equal(cg_outputs.at(0)));
+  ASSERT_TRUE(ref_t2.equal(cg_outputs.at(1)));
+}
+
+// An input is sliced and also entirely read. Both should be vectorizable.
+TEST_F(ResizeTest, Slice1DVectorizeManual3) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  const int64_t slice_offset = 4;
+  const std::vector<int64_t> shape({1024 * 1024});
+
+  auto tv0 = makeContigConcreteTensor(shape);
+  fusion.addInput(tv0);
+
+  auto tv1 = slice(
+      tv0,
+      {{IrBuilder::create<Val>(slice_offset),
+        sub(tv0->axis(0)->extent(), IrBuilder::create<Val>(slice_offset))}});
+  fusion.addOutput(tv1);
+
+  auto tv2 = set(tv0);
+  fusion.addOutput(tv2);
+
+  tv1->split(0, 4);
+  tv1->split(0, 128);
+
+  TransformPropagator propagator(tv1);
+  MaxRootDomainInfoSpanningTree(tv1).traverse(&propagator);
+
+  tv1->axis(0)->parallelize(ParallelType::BIDx);
+  tv1->axis(1)->parallelize(ParallelType::TIDx);
+  tv1->axis(2)->parallelize(ParallelType::Vectorize);
+
+  scheduler_utils::parallelizeAllLike(tv1);
+
+  inlineMost();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = fe.runFusion(aten_inputs);
+
+  auto ref =
+      t0.index({at::indexing::Slice(slice_offset, shape[0] - slice_offset)});
+  ASSERT_TRUE(ref.equal(cg_outputs.at(0)));
+  ASSERT_TRUE(t0.equal(cg_outputs.at(1)));
+}
+
+// Vectorizing a slice of [1:-3]. It's vectorizable as long as the
+// offset at 1 is aligned
+TEST_F(ResizeTest, Slice1DVectorizeManual4) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  const std::vector<int64_t> shape({1024 * 1024});
+
+  auto tv0 = makeContigConcreteTensor({shape[0] - 4});
+  fusion.addInput(tv0);
+
+  auto tv1 = slice(
+      tv0,
+      {{IrBuilder::create<Val>(1),
+        sub(tv0->axis(0)->extent(), IrBuilder::create<Val>(3))}});
+  fusion.addOutput(tv1);
+
+  tv1->split(0, 4);
+  tv1->split(0, 128);
+
+  tv1->axis(0)->parallelize(ParallelType::BIDx);
+  tv1->axis(1)->parallelize(ParallelType::TIDx);
+  tv1->axis(2)->parallelize(ParallelType::Vectorize);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0_unaligned = at::randn(shape, options);
+  auto t0_aligned = t0_unaligned.index({at::indexing::Slice(3, -1)});
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, {t0_aligned});
+  auto cg_outputs = fe.runFusion({t0_aligned});
+
+  auto ref_aligned = t0_aligned.index({at::indexing::Slice(1, -3)});
+
+  ASSERT_TRUE(ref_aligned.equal(cg_outputs.at(0)));
+}
+
+// Contig merged vectorization with slice
+TEST_F(ResizeTest, Slice2DVectorizeManual1) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  const int64_t slice_offset = 4;
+
+  // The extent of the innermost domain is just 2, and the outer
+  // domain is sliced. This slicing should be vectorizable by a
+  // factor of 4 as the two domains can be merged and vectorized.
+  const std::vector<int64_t> shape({1024 * 1024, 2});
+
+  auto tv0 = makeContigConcreteTensor(shape);
+  fusion.addInput(tv0);
+
+  auto tv1 = slice(
+      tv0,
+      {{IrBuilder::create<Val>(slice_offset),
+        sub(tv0->axis(0)->extent(), IrBuilder::create<Val>(slice_offset))},
+       {IrBuilder::create<Val>(0), tv0->axis(1)->extent()}});
+  fusion.addOutput(tv1);
+
+  tv1->merge(0);
+  tv1->split(0, 4);
+  tv1->split(0, 128);
+
+  tv1->axis(0)->parallelize(ParallelType::BIDx);
+  tv1->axis(1)->parallelize(ParallelType::TIDx);
+  tv1->axis(2)->parallelize(ParallelType::Vectorize);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = fe.runFusion(aten_inputs);
+
+  auto ref = t0.index(
+      {at::indexing::Slice(slice_offset, shape[0] - slice_offset),
+       at::indexing::Slice(0, at::indexing::None)});
+  ASSERT_TRUE(ref.equal(cg_outputs.at(0)));
+}
+
+// Fully contiguous tensor, but a sliced domain makes the domain to
+// the left non-contiguous
+TEST_F(ResizeTest, Slice3DVectorizeManual1) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  const std::vector<int64_t> shape({4, 1025, 3});
+
+  auto tv0 = makeContigConcreteTensor(shape);
+  fusion.addInput(tv0);
+
+  auto tv1 = slice(
+      tv0,
+      {{IrBuilder::create<Val>(0), tv0->axis(0)->extent()},
+       {IrBuilder::create<Val>(4), IrBuilder::create<Val>(6)},
+       {IrBuilder::create<Val>(0), tv0->axis(2)->extent()}});
+  fusion.addOutput(tv1);
+
+  // Vectorize tv1 by a factor of 2. The sliced domain and the
+  // innermost domain can be contiguous merged, thus producing a
+  // domain of extent 6, so vectorization by a factor of 2 appears to
+  // be valid, but due to the middle domain being sliced, the
+  // outermost domain is no longer contiguous, which means its stride
+  // must be divisible by 2, which is not the case here.
+
+  // [4, 2, 3]
+  tv1->merge(1);
+  // [4, 6]
+  tv1->split(1, 2);
+  // [4, 3, 2]
+
+  tv1->axis(0)->parallelize(ParallelType::BIDx);
+  tv1->axis(1)->parallelize(ParallelType::TIDx);
+  tv1->axis(2)->parallelize(ParallelType::Vectorize);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs);
+
+  EXPECT_THAT(
+      [&]() { fe.runFusion(aten_inputs); },
+      ::testing::ThrowsMessage<c10::Error>(::testing::HasSubstr(
+          "with word size 2 not possible due to invalid stride")));
+}
+
+// Similar to Slice3DVectorizeManual2 but with a middle broadcast
+// domain
+TEST_F(ResizeTest, Slice3DVectorizeManual2) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  const std::vector<int64_t> shape({4, 1, 1025, 3});
+
+  auto tv0 = makeContigConcreteTensor(shape);
+  fusion.addInput(tv0);
+
+  auto tv1 = slice(
+      tv0,
+      {{IrBuilder::create<Val>(0), tv0->axis(0)->extent()},
+       {IrBuilder::create<Val>(0), tv0->axis(1)->extent()},
+       {IrBuilder::create<Val>(0), IrBuilder::create<Val>(1024)},
+       {IrBuilder::create<Val>(0), tv0->axis(3)->extent()}});
+  fusion.addOutput(tv1);
+
+  // [4, 1, 1024, 3]
+  tv1->merge(2);
+  // [4, 1, 3072]
+  tv1->split(2, 4);
+  // [4, 1, 768, 4]
+
+  tv1->axis(0)->parallelize(ParallelType::BIDx);
+  tv1->axis(2)->parallelize(ParallelType::TIDx);
+  tv1->axis(3)->parallelize(ParallelType::Vectorize);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs);
+
+  EXPECT_THAT(
+      [&]() { fe.runFusion(aten_inputs); },
+      ::testing::ThrowsMessage<c10::Error>(::testing::HasSubstr(
+          "with word size 4 not possible due to invalid stride")));
+}
+
+// Repro of issue 540 without transpose
+TEST_F(ResizeTest, SliceAndReshapeRepro540Manual) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  const std::vector<int64_t> shape({16, 128, 3072});
+
+  auto tv0 = makeContigConcreteTensor(shape);
+  fusion.addInput(tv0);
+
+  auto tv1 = slice(
+      tv0,
+      {{IrBuilder::create<Val>(0), tv0->axis(0)->extent()},
+       {IrBuilder::create<Val>(0), tv0->axis(1)->extent()},
+       {IrBuilder::create<Val>(0), IrBuilder::create<Val>(1024)}});
+  auto tv2 = slice(
+      tv0,
+      {{IrBuilder::create<Val>(0), tv0->axis(0)->extent()},
+       {IrBuilder::create<Val>(0), tv0->axis(1)->extent()},
+       {IrBuilder::create<Val>(1024), IrBuilder::create<Val>(2048)}});
+  auto tv3 = slice(
+      tv0,
+      {{IrBuilder::create<Val>(0), tv0->axis(0)->extent()},
+       {IrBuilder::create<Val>(0), tv0->axis(1)->extent()},
+       {IrBuilder::create<Val>(2048), IrBuilder::create<Val>(3072)}});
+
+  auto tv4 = reshape(tv1, {16, 128, 1024}, {16, 128, 16, 64});
+  auto tv5 = reshape(tv2, {16, 128, 1024}, {16, 128, 16, 64});
+  auto tv6 = reshape(tv3, {16, 128, 1024}, {16, 128, 16, 64});
+
+  fusion.addOutput(tv4);
+  fusion.addOutput(tv5);
+  fusion.addOutput(tv6);
+
+  tv4->cacheBefore();
+  tv5->cacheBefore();
+  tv6->cacheBefore();
+
+  tv4->merge(0)->merge(0)->merge(0);
+  // Vectorize
+  tv4->split(0, 4);
+  // Unswitch
+  tv4->split(0, 1);
+  // TIDx
+  tv4->split(0, 128);
+
+  tv4->reorder({{1, -1}});
+
+  TransformPropagator propagator(tv4);
+  MaxRootDomainInfoSpanningTree(tv4).traverse(&propagator);
+
+  tv4->axis(0)->parallelize(ParallelType::BIDx);
+  tv4->axis(1)->parallelize(ParallelType::Unswitch);
+  tv4->axis(3)->parallelize(ParallelType::TIDx);
+
+  scheduler_utils::parallelizeAllLike(tv4);
+
+  for (auto output : fusion.outputs()) {
+    output->as<TensorView>()->axis(2)->parallelize(ParallelType::Vectorize);
+  }
+
+  for (auto slice_tv : {tv1, tv2, tv3}) {
+    slice_tv->axis(2)->parallelize(ParallelType::Vectorize);
+  }
+
+  inlineMost();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = fe.runFusion(aten_inputs);
+
+  for (const auto i : c10::irange(3)) {
+    auto slice_out_ref = t0.index(
+        {at::indexing::Slice(0, at::indexing::None),
+         at::indexing::Slice(0, at::indexing::None),
+         at::indexing::Slice(i * 1024, (i + 1) * 1024)});
+    auto ref = at::native::view(slice_out_ref, {16, 128, 16, 64});
+    ASSERT_TRUE(ref.equal(cg_outputs.at(i)));
+  }
+}
+
 namespace {
 
 // Make sure the slice ops with inputs are vectorized

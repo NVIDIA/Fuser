@@ -987,12 +987,10 @@ SchedulerRuntimeInfo::SchedulerRuntimeInfo(
     auto input_tv = dynamic_cast<TensorView*>(fusion_inp);
     // Note: we are skipping CpuScalar tensor here
     if (input_tv != nullptr && !input_tv->isCpuScalar()) {
-      auto metadata =
+      const auto& metadata =
           expression_evaluator_->evaluate(IrBuilder::metadataExpr(input_tv));
-      std::vector<int64_t> alloc_sizes =
-          (std::vector<int64_t>)metadata["alloc_size"];
-      std::vector<int64_t> alloc_strides =
-          (std::vector<int64_t>)metadata["alloc_stride"];
+      const auto& alloc_sizes = metadata["alloc_size"].as<std::vector>();
+      const auto& alloc_strides = metadata["alloc_stride"].as<std::vector>();
       TORCH_INTERNAL_ASSERT(alloc_sizes.size() == alloc_strides.size());
 
       input_ptrs_[fusion_inp] = (size_t)metadata["data"];
@@ -1003,11 +1001,12 @@ SchedulerRuntimeInfo::SchedulerRuntimeInfo(
       int64_t dims = (int64_t)alloc_strides.size();
       int64_t expected_stride = 1;
       for (int64_t dim = dims - 1; dim >= 0; dim--) {
-        auto size = alloc_sizes.at(dim);
+        auto size = alloc_sizes.at(dim).as<int64_t>();
         if (size <= 1) {
           continue;
         }
-        auto stride = alloc_strides.at(dim);
+
+        auto stride = alloc_strides.at(dim).as<int64_t>();
         // If the next inner domain is sliced, this domain is not contiguous
         if (stride != expected_stride ||
             (dim < dims - 1 && isInnerDomainSliced(input_tv, dim))) {
