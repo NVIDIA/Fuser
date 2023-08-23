@@ -154,21 +154,6 @@ std::optional<GridOuterNormalizationParams> getGridOuterNormalizationParams(
     int64_t vectorize_factor,
     int64_t persistent_buffer_size);
 
-//! Parameters store memory space of persistent buffers.
-//! By default, the persistent buffers are stored in registers, however, if it
-//! exists in smem_tvs, it will be allocated in shared memory.
-//! This happens when the persistent buffer size is larger
-//! than the available registers.
-struct PersistentBufferStorageParams {
-  std::vector<TensorView*> smem_tvs;
-  int64_t smem_buffer_size = -1;
-  int64_t regs_buffer_size = -1;
-  int64_t smem_overhead = -1;
-  bool has_enough_regs_and_smem = false;
-  bool project_to_input = false;
-  bool combined_reduction = false;
-};
-
 //! check iter type of each domain in inner and outer reduction tvs
 //! inner reduction must be [I,I,...R,R]
 //! outer reduction must be [R,R,...I,I]
@@ -209,10 +194,19 @@ std::pair<int64_t, int64_t> getInnerOuterPersistentBufferBatches(
     const int64_t vectorize_factor,
     const int64_t warp_size);
 
-//! Check if there are enough registers and shared memories to keep the
-//! persistent buffers on chip. Return regs_buffer_size,
-//! smem_buffer_size, available_register_buffer_size,
-//! has_enough_regs_and_smem
+//! Decide where to store persistent buffers.
+//! By default, they reside in registers.
+//! If register space runs low but there's ample shared memory,
+//! the buffer is allocated there and noted in smem_tvs.
+struct PersistentBufferStorageParams {
+  std::vector<TensorView*> smem_tvs;
+  int64_t smem_buffer_size = -1;
+  int64_t regs_buffer_size = -1;
+  int64_t smem_overhead = -1;
+  bool has_enough_regs_and_smem = false;
+  bool project_to_input = false;
+  bool combined_reduction = false;
+};
 PersistentBufferStorageParams getPersistentBufferStorageParams(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,

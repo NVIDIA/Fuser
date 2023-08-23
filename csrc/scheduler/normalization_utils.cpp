@@ -10,7 +10,6 @@
 #include <scheduler/normalization_utils.h>
 #include <scheduler/registry.h>
 #include <utils.h>
-#include <array>
 
 #include <ATen/cuda/CUDAContext.h>
 namespace nvfuser {
@@ -796,7 +795,6 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
     const int64_t vectorize_factor) {
   PersistentBufferStorageParams buffer_params;
 
-  // Check if the reduction is inner, outer, or combined inner-outer
   bool inner_reduction = false;
   std::vector<TensorView*> outer_reduction_tvs;
   for (auto tv : reduction_tvs) {
@@ -867,8 +865,8 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
     total_buffer_size += intermediate_buffer_size;
   }
 
-  // At this point, we use a much larger register file size for the combined
-  // case as it is rarely fused with other ops.
+  // At this point, we use a larger register file size for the combined
+  // case otherwise it segments at small hidden sizes.
   const auto dev_prop = at::cuda::getCurrentDeviceProperties();
   int64_t available_regs = scheduler_utils::register_file_size;
   if (buffer_params.combined_reduction) {
@@ -894,11 +892,11 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
   //! Move buffers to shared memory following the 3 rules:
   //! (1) Prioritize moving buffers that are directly used by broadcast ops.
   //! (2) Move N buffers until the register buffer size is below the available
-  //! limit. (3) Move one more if leads to higher shared memory utilization
-  //! ratio.
+  //! limit.
   if (buffer_params.regs_buffer_size > available_regs) {
     const int64_t n_buffers = (int64_t)persistent_buffers.size();
     int64_t n_broadcast_buffers = 0;
+    // put buffers that are directly used by broadcast ops in front.
     std::vector<TensorView*> sorted_candidate_tvs;
     sorted_candidate_tvs.reserve(n_buffers);
     for (auto tv : persistent_buffers) {
