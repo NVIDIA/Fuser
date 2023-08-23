@@ -751,13 +751,7 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
 
     // duplicating reference1's TensorDomain, since the transformations applied
     // is not persistent and only needed for us to compute vectorization width.
-    TensorDomain* cloned_1_td = IrBuilder::create<TensorDomain>(
-        reference1->container(),
-        reference1->getRootDomain(),
-        reference1->getRFactorDomain(),
-        reference1->getAllocationDomain(),
-        reference1->getLeafDomain(),
-        reference1->domain()->contiguity());
+    TensorDomain* cloned_1_td = IrBuilder::create<TensorDomain>(reference1->domain());
     // Adding a domain_guard so we can transform reference1
     ir_utils::TVDomainGuard domain_guard(reference1, cloned_1_td);
 
