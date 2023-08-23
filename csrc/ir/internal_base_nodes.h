@@ -455,9 +455,9 @@ class TORCH_CUDA_CU_API TensorDomain : public Val {
       std::vector<IterDomain*> leaf_domain,
       std::vector<std::optional<bool>> contiguity = {});
 
-  TensorDomain(const TensorDomain* src, IrCloner* ir_cloner);
+  TensorDomain(IrBuilderPasskey, TensorDomain* src);
 
-  TensorDomain* duplicate() const;
+  TensorDomain(const TensorDomain* src, IrCloner* ir_cloner);
 
   NVFUSER_DECLARE_CLONE
 
