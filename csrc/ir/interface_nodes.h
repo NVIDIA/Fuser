@@ -505,6 +505,26 @@ class TORCH_CUDA_CU_API TensorView : public Val {
   // ensure consistency.
   void commitLeafToRFactor();
 
+  //! Request that we reclaim the memory of this tv before any subsequent
+  //! tensors are allocated.
+  //!
+  //! This method influences the shared memory allocator that assigns shared
+  //! memory addresses at lowering. It ensures that the proper synchronization
+  //! is present in the kernel to reuse memory and inserts new block
+  //! synchronizations if necessary.
+  void promoteReuse(bool b = true) {
+    TORCH_CHECK(
+        memory_type_ == MemoryType::Shared,
+        "promoteReuse should only be called on shared memory tensors");
+    promote_reuse_ = b;
+  }
+
+  //! Returns whether we should insert syncs if needed in order to reuse the
+  //! memory of this tensor.
+  bool shouldPromoteReuse() const {
+    return promote_reuse_;
+  }
+
  protected:
   void setDomain(TensorDomain* td) {
     domain_ = td;
@@ -567,6 +587,15 @@ class TORCH_CUDA_CU_API TensorView : public Val {
   //! transformed when there may actually be a producer tensor that
   //! may be computed at.
   unsigned int maybe_max_producer_pos_ = 0;
+
+  //! When this is true, it indicates, if this is a shared memory tensor and
+  //! there other shared memory tensors whose lifetimes do not overlap and come
+  //! later than this tensor's lifetime, that we should ensure that thread
+  //! blocks are synchronized such that all threads have performed their last
+  //! read of this tensor (or any tensors aliasing in) before writing to the
+  //! current tensor. This will then allow us to safely reuse the memory
+  //! allocated to this tensor.
+  bool promote_reuse_ = false;
 };
 
 //! A simple TensorView builder
