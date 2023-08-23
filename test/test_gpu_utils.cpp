@@ -49,7 +49,7 @@ TEST_F(NVFuserTest, FusionMergeDims_CUDA) {
   auto tv = makeConcreteTensor(
       {p(0), p(1), p(2), p(3), p(4), p(5), p(6), p(7), p(8), p(9), p(10)});
   std::vector<size_t> dims{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10};
-  auto merged = scheduler_utils::mergeDims(tv, {3, 2, 9, 8, 7}, dims);
+  auto merged = scheduler_utils::mergeDims(tv, {3, 2, 9, 7, 8}, dims);
   EXPECT_EQ(merged, (size_t)2);
   std::vector<int64_t> expect_shape{
       p(0), p(1), p(2) * p(3) * p(7) * p(8) * p(9), p(4), p(5), p(6), p(10)};
