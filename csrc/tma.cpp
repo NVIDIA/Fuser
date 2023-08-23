@@ -98,6 +98,13 @@ inline CUtensorMapFloatOOBfill getCUtensorMapFloatOOBfill(
   }
 }
 
+#else
+
+#define CU_TENSOR_MAP_NUM_QWORDS 16
+struct TensorMap {
+  alignas(64) uint64_t opaque[CU_TENSOR_MAP_NUM_QWORDS];
+};
+
 #endif
 
 std::ostream& operator<<(std::ostream& os, TensorMapInterleave interleave) {
@@ -186,8 +193,9 @@ Val* encodeTensorMapTiled(
     TensorMapSwizzle swizzle,
     TensorMapL2Promotion l2_promotion,
     TensorMapFloatOOBFill oob_fill) {
-  auto output =
-      IrBuilder::create<Val>(global_address->fusion(), DataType::Opaque);
+  auto output = IrBuilder::create<Val>(
+      global_address->fusion(),
+      OpaqueType::make<TensorMap>("const __grid_constant__ TensorMap"));
   IrBuilder::create<kir::EncodeTensorMapTiled>(
       global_address->fusion(),
       output,

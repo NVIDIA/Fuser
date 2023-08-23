@@ -3192,14 +3192,28 @@ Val* Index::cpAsyncBulkIndex(TensorView* tv) {
   }
 
   int64_t dim = tv->nDims();
+  int64_t itemsize = dataTypeSize(tv->dtype());
 
   auto metadata = IrBuilder::metadataExpr(tv);
   auto global_address = IrBuilder::getAttrExpr(metadata, "data");
-  // TODO: reverse order, needs to be column major
-  auto global_dim = IrBuilder::getAttrExpr(metadata, "alloc_size");
-  // TODO: trim first for global_strides
+  auto global_dim =
+      // Reverse array to convert from row major to column major
+      IrBuilder::reverseArray(IrBuilder::getAttrExpr(metadata, "alloc_size"));
   auto global_strides = IrBuilder::getAttrExpr(metadata, "alloc_stride");
-  auto box_dim = IrBuilder::getAttrExpr(metadata, "alloc_size");
+  {
+    // Reverse array to convert from row major to column major, multiply by
+    // element size to convert to bytes, and remove fastest dim as it is assumed
+    // to be one.
+    std::vector<Val*> strides;
+    for (auto i : c10::irange(dim - 1)) {
+      strides.push_back(SimplifyingIrBuilder::mulExpr(
+          IrBuilder::getItemExpr(global_strides, dim - 2 - i), itemsize));
+    }
+    global_strides = IrBuilder::arrayExpr(strides);
+  }
+  auto box_dim =
+      // Reverse array to convert from row major to column major
+      IrBuilder::reverseArray(IrBuilder::getAttrExpr(metadata, "alloc_size"));
   auto element_strides =
       IrBuilder::arrayExpr(std::vector<Val*>(dim, tv->fusion()->oneVal()));
   auto descriptor = encodeTensorMapTiled(
@@ -3217,8 +3231,13 @@ Val* Index::cpAsyncBulkIndex(TensorView* tv) {
   auto coordinate =
       IrBuilder::arrayExpr(std::vector<Val*>(dim, tv->fusion()->zeroVal()));
 
+  std::stringstream ss;
+  ss << "CpAsyncBulkTensorTileSrcType<" << dim << ">";
+
   auto index = IrBuilder::structExpr(
-      {{"descriptor", descriptor}, {"coordinate", coordinate}});
+      {{"descriptor", IrBuilder::addressExpr(descriptor)},
+       {"coordinate", coordinate}},
+      ss.str());
 
   return IrBuilder::create<kir::TensorIndex>(tv, index);
 }
