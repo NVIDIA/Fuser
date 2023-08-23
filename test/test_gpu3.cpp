@@ -9901,7 +9901,7 @@ TEST_F(NVFuserTest, OpaqueTupleAsComplex) {
   DataType dtype =
       OpaqueType::make<std::array<float, 2>>("Tuple<float, float>");
 
-  auto tuple = IrBuilder::create<Val>(DataType(dtype));
+  auto tuple = IrBuilder::create<Val>(dtype);
   fusion.addInput(tuple);
   auto complex = bitCastOp(DataType::ComplexFloat, tuple);
 
