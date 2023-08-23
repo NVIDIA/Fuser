@@ -40,6 +40,14 @@ constexpr int64_t y_grid_limit = 65535;
 constexpr int64_t z_grid_limit = 65535;
 constexpr int64_t z_block_limit = 64;
 
+constexpr int64_t maxVectorizationWidth(int64_t n) {
+  int64_t next_vector_size = 2;
+  while (next_vector_size <= n && n % next_vector_size == 0) {
+    next_vector_size <<= 1;
+  }
+  return next_vector_size >> 1;
+}
+
 // Largest Power of 2 less-than n
 constexpr int64_t lastPow2(int64_t n) {
   TORCH_INTERNAL_ASSERT(n >= 0);
