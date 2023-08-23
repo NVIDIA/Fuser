@@ -980,10 +980,11 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
       int64_t smem_buffer_size = acc_smem_buffer_sizes[n_smem_buffer];
       int64_t smem_config_size = getSharedMemoryConfigSize(
           smem_buffer_size + buffer_params.smem_overhead);
-      if (smem_config_size < smem_config_options.back() &&
+      double buffer_config_ratio = static_cast<double>(smem_buffer_size) /
+          static_cast<double>(smem_config_size);
+      if (buffer_config_ratio < 0.8 &&
+          smem_config_size < smem_config_options.back() &&
           smem_config_size < available_smem) {
-        double buffer_config_ratio = static_cast<double>(smem_buffer_size) /
-            static_cast<double>(smem_config_size);
         int64_t smem_buffer_size_tmp = acc_smem_buffer_sizes[n_smem_buffer + 1];
         int64_t smem_config_size_tmp = getSharedMemoryConfigSize(
             smem_buffer_size_tmp + buffer_params.smem_overhead);
