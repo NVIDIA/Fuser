@@ -288,6 +288,8 @@ std::vector<std::byte> polymorphicValueToBytes(
           dtype,
           " type: only complex float and complex double are supported.");
     }
+  } else if (argument.is<Opaque>()) {
+    return argument.as<Opaque>().bytes();
   } else {
     TORCH_INTERNAL_ASSERT(
         false,

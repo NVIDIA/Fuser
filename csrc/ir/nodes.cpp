@@ -3054,6 +3054,17 @@ TensorDomain::TensorDomain(
   resetDomains();
 }
 
+TensorDomain::TensorDomain(IrBuilderPasskey passkey, const TensorDomain* src)
+    : Val(passkey, ValType::TensorDomain, DataType::Null),
+      root_domain_(src->root_domain_),
+      rfactor_domain_(src->rfactor_domain_),
+      allocation_domain_(src->allocation_domain_),
+      leaf_domain_(src->leaf_domain_),
+      no_bcast_domain_(src->no_bcast_domain_),
+      no_reduction_domain_(src->no_reduction_domain_),
+      contiguity_(src->contiguity_),
+      has_reduction_(src->has_reduction_) {}
+
 TensorDomain::TensorDomain(const TensorDomain* src, IrCloner* ir_cloner)
     : Val(src, ir_cloner),
       root_domain_(ir_cloner->clone(src->root_domain_)),
