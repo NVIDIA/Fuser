@@ -961,8 +961,12 @@ std::vector<at::Tensor> allocOutputs(
       if (shouldFillAllocationWithNan()) {
         fillTensorWithNan(alloc_tensor);
       }
-      outputs.emplace_back(transformOutputFromAllocationToRFactor(
-          alloc_tensor, buf_info.tv, ee));
+      if (buf_info.tv->hasAllocation()) {
+        outputs.emplace_back(transformOutputFromAllocationToRFactor(
+            alloc_tensor, buf_info.tv, ee));
+      } else {
+        outputs.emplace_back(std::move(alloc_tensor));
+      }
     }
   }
 
