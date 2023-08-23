@@ -172,7 +172,7 @@ std::vector<std::byte> polymorphicValueToBytes(
     const DataType& dtype,
     PrimDataType index_type) {
   if (argument.is<Struct>()) {
-    FUSER_PERF_SCOPE("polymorphicValueToBytes(Struct)");
+    // FUSER_PERF_SCOPE("polymorphicValueToBytes(Struct)");
     TORCH_INTERNAL_ASSERT(
         std::holds_alternative<StructType>(dtype.type),
         "Expected StructType type.");
@@ -188,7 +188,7 @@ std::vector<std::byte> polymorphicValueToBytes(
     }
     return buffer;
   } else if (argument.is<at::Tensor>()) {
-    FUSER_PERF_SCOPE("polymorphicValueToBytes(at::Tensor)");
+    // FUSER_PERF_SCOPE("polymorphicValueToBytes(at::Tensor)");
     const auto& tensor = argument.as<at::Tensor>();
     TORCH_INTERNAL_ASSERT(
         tensor.is_cpu() && tensor.numel() == 1,
@@ -210,7 +210,7 @@ std::vector<std::byte> polymorphicValueToBytes(
         (std::byte*)tensor.data_ptr() + tensor.element_size());
     return buffer;
   } else if (argument.is<Pointer>()) {
-    FUSER_PERF_SCOPE("polymorphicValueToBytes(Pointer)");
+    // FUSER_PERF_SCOPE("polymorphicValueToBytes(Pointer)");
     TORCH_INTERNAL_ASSERT(
         std::holds_alternative<PointerType>(dtype.type),
         "Expected PointerType type.");
@@ -221,7 +221,7 @@ std::vector<std::byte> polymorphicValueToBytes(
         buffer.end(), (std::byte*)&ptr, (std::byte*)&ptr + sizeof(void*));
     return buffer;
   } else if (argument.is<std::vector>()) {
-    FUSER_PERF_SCOPE("polymorphicValueToBytes(std::vector)");
+    // FUSER_PERF_SCOPE("polymorphicValueToBytes(std::vector)");
     TORCH_INTERNAL_ASSERT(
         std::holds_alternative<ArrayType>(dtype.type),
         "Expected ArrayType type.");
@@ -233,7 +233,7 @@ std::vector<std::byte> polymorphicValueToBytes(
     }
     return buffer;
   } else if (argument.is<int64_t>()) {
-    FUSER_PERF_SCOPE("polymorphicValueToBytes(int64_t)");
+    // FUSER_PERF_SCOPE("polymorphicValueToBytes(int64_t)");
     int64_t v = argument.as<int64_t>();
     if (dtype == DataType::Int ||
         (index_type == PrimDataType::Int && dtype == DataType::Index)) {
@@ -251,12 +251,12 @@ std::vector<std::byte> polymorphicValueToBytes(
           " type: only int32 and int64 are supported.");
     }
   } else if (argument.is<bool>()) {
-    FUSER_PERF_SCOPE("polymorphicValueToBytes(bool)");
+    // FUSER_PERF_SCOPE("polymorphicValueToBytes(bool)");
     bool v = argument.as<bool>();
     TORCH_INTERNAL_ASSERT(dtype == DataType::Bool, "Expected Bool type.");
     return std::vector<std::byte>((std::byte*)&v, (std::byte*)&v + 1);
   } else if (argument.is<double>()) {
-    FUSER_PERF_SCOPE("polymorphicValueToBytes(double)");
+    // FUSER_PERF_SCOPE("polymorphicValueToBytes(double)");
     double v = argument.as<double>();
     if (dtype == DataType::Double) {
       return std::vector<std::byte>(
@@ -281,7 +281,7 @@ std::vector<std::byte> polymorphicValueToBytes(
           " type: only half, bfloat16, float and double are supported.");
     }
   } else if (argument.is<std::complex<double>>()) {
-    FUSER_PERF_SCOPE("polymorphicValueToBytes(std::complex<double>)");
+    // FUSER_PERF_SCOPE("polymorphicValueToBytes(std::complex<double>)");
     std::complex<double> v = argument.as<std::complex<double>>();
     if (dtype == DataType::ComplexDouble) {
       return std::vector<std::byte>(
@@ -298,6 +298,7 @@ std::vector<std::byte> polymorphicValueToBytes(
           " type: only complex float and complex double are supported.");
     }
   } else if (argument.is<Opaque>()) {
+    // FUSER_PERF_SCOPE("polymorphicValueToBytes(Opaque)");
     return argument.as<Opaque>().bytes();
   } else {
     TORCH_INTERNAL_ASSERT(
