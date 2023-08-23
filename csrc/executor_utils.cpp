@@ -1223,18 +1223,9 @@ std::tuple<NvrtcFunction, std::string, serde::CudaKernelT> getCompiledKernel(
 
   // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
   serde::CudaKernelT compiled_binary;
-
-  std::string compile_log;
-  std::tie(compiled_binary, compile_log) = compileSource(
-      full_src_code, func_name, id, compile_to_sass, nvrtc_compile_driver);
-  log << compile_log << std::endl;
-
   compiled_binary.compile_args =
       toDelimitedString(nvrtc_compile_driver.options(), " ");
 
-  /*
-  const auto compile_args =
-      toDelimitedString(nvrtc_compile_driver.options(), " ");
   auto& kernel_db = KernelDb::get();
   const auto use_kernel_db = kernel_db.enabled() && kernel_code.has_value();
 
@@ -1242,26 +1233,25 @@ std::tuple<NvrtcFunction, std::string, serde::CudaKernelT> getCompiledKernel(
   if (!(use_kernel_db &&
         kernel_db.query(
             kernel_code.value(),
-            compile_args,
-            lowered_kernel_name_str,
-            object_code))) {
+            compiled_binary.compile_args,
+            compiled_binary.name,
+            compiled_binary.object_code))) {
     std::string compile_log;
-    std::tie(object_code, compile_log, lowered_kernel_name_str) = compileSource(
+    std::tie(compiled_binary, compile_log) = compileSource(
         full_src_code, func_name, id, compile_to_sass, nvrtc_compile_driver);
     log << compile_log << std::endl;
     if (use_kernel_db) {
       auto result = kernel_db.write(
           kernel_code.value(),
-          compile_args,
-          lowered_kernel_name_str,
-          object_code);
+          compiled_binary.compile_args,
+          compiled_binary.name,
+          compiled_binary.object_code);
       if (!result) {
         TORCH_WARN(
-            "kernel_db was unable to write kernel: ", lowered_kernel_name_str);
+            "kernel_db was unable to write kernel: ", compiled_binary.name);
       }
     }
   }
-  */
 
   NvrtcFunction compiled_kernel;
 
