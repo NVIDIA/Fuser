@@ -185,11 +185,15 @@ std::optional<size_t> mergeDims(
     // If outer > inner, the merge order conflicts with their order in leaf
     // domain
     if (outer > inner) {
-      // NOTE: reorder here is necessary.
-      // since we want to have the merge dimension be like
-      // (tv->axis(to_merge[i]) * tv->axis(to_merge[i-1]))
-      // without reorder, the merged dimension would be in the wrong order
+      // NOTE: reorder here is necessary to work around the automatic swap in
+      // `TensorDomain::merge`, if the first axis position is larger than the
+      // second. we want to have the merge dimension be like
+      // (tv->axis(to_merge[i]) * tv->axis(to_merge[i-1])), reorder allows us to
+      // compensate the automatic swap in `TensorDomain::merge`.
       tv->reorder({{inner, outer}, {outer, inner}});
+      // swapping inner with outer since we also need to keep track of the
+      // actual outer position for the remaining merge operations as well as for
+      // return value.
       std::swap(inner, outer);
     }
     // from
