@@ -82,8 +82,6 @@ enum class PrimDataType {
   ComplexFloat,
   // Pointers
   SMemAddress,
-  // Opaque data type
-  Opaque,
   // Null
   Null
 };
@@ -95,18 +93,18 @@ enum class PrimDataType {
 
 struct DataType;
 
-struct ArrayOf {
+struct ArrayType {
   std::shared_ptr<DataType> type;
   size_t size;
-  inline bool operator==(const ArrayOf& other) const;
+  inline bool operator==(const ArrayType& other) const;
 };
 
-struct PointerOf {
+struct PointerType {
   std::shared_ptr<DataType> type;
-  inline bool operator==(const PointerOf& other) const;
+  inline bool operator==(const PointerType& other) const;
 };
 
-struct StructOf {
+struct StructType {
   // In nvfuser's type system, there are two types of structs: named structs and
   // anonymous structs. Named structs are lowered to its name in the generated
   // code, while anonymous structs are lowered to `struct {...}`. Generally, we
@@ -147,20 +145,39 @@ struct StructOf {
 #define NVFUSER_MAYBE_MAKE_SHARED2(x, y) std::make_shared<DataType>(x, y)
 #define NVFUSER_MAYBE_STAR *
 #endif
-  inline bool operator==(const StructOf& other) const;
+  inline bool operator==(const StructType& other) const;
+};
+
+struct OpaqueType {
+  std::string display_name;
+  std::reference_wrapper<const std::type_info> type_info;
+  size_t size;
+
+  template <typename T>
+  static OpaqueType make(std::string display_name = "") {
+    return OpaqueType{
+        .display_name = std::move(display_name),
+        .type_info = typeid(T),
+        .size = sizeof(T)};
+  }
+
+  inline bool operator==(const OpaqueType& other) const {
+    return type_info.get() == other.type_info.get();
+  }
 };
 
 struct DataType {
-  using VariantOfSupportedTypes =
-      std::variant<PrimDataType, ArrayOf, PointerOf, StructOf>;
+  using VariantOfSupportedTypes = std::
+      variant<PrimDataType, ArrayType, PointerType, StructType, OpaqueType>;
   VariantOfSupportedTypes type = PrimDataType::Null;
 
   DataType() = default;
   DataType(VariantOfSupportedTypes type) : type(std::move(type)) {}
-  DataType(const PrimDataType& type) : type(type) {}
-  DataType(const ArrayOf& type) : type(type) {}
-  DataType(const PointerOf& type) : type(type) {}
-  DataType(const StructOf& type) : type(type) {}
+  DataType(PrimDataType type) : type(type) {}
+  DataType(ArrayType type) : type(std::move(type)) {}
+  DataType(PointerType type) : type(std::move(type)) {}
+  DataType(StructType type) : type(std::move(type)) {}
+  DataType(OpaqueType type) : type(std::move(type)) {}
 
   static constexpr PrimDataType Double = PrimDataType::Double;
   static constexpr PrimDataType Float = PrimDataType::Float;
@@ -173,7 +190,6 @@ struct DataType {
   static constexpr PrimDataType ComplexFloat = PrimDataType::ComplexFloat;
   static constexpr PrimDataType ComplexDouble = PrimDataType::ComplexDouble;
   static constexpr PrimDataType SMemAddress = PrimDataType::SMemAddress;
-  static constexpr PrimDataType Opaque = PrimDataType::Opaque;
   static constexpr PrimDataType Null = PrimDataType::Null;
 };
 
@@ -185,15 +201,15 @@ inline bool operator!=(const DataType& lhs, const DataType& rhs) {
   return !operator==(lhs, rhs);
 }
 
-bool ArrayOf::operator==(const ArrayOf& other) const {
+bool ArrayType::operator==(const ArrayType& other) const {
   return *type == *other.type && size == other.size;
 }
 
-bool PointerOf::operator==(const PointerOf& other) const {
+bool PointerType::operator==(const PointerType& other) const {
   return *type == *other.type;
 }
 
-bool StructOf::operator==(const StructOf& other) const {
+bool StructType::operator==(const StructType& other) const {
 #if defined(STD_UNORDERED_SET_SUPPORTS_INCOMPLETE_TYPE)
   return types == other.types;
 #else
@@ -267,7 +283,7 @@ TORCH_CUDA_CU_API inline bool isIntegralType(DataType dtype) {
 
 // Returns if the datatype is a pointer type
 TORCH_CUDA_CU_API inline bool isPointerType(DataType dtype) {
-  return std::holds_alternative<PointerOf>(dtype.type) ||
+  return std::holds_alternative<PointerType>(dtype.type) ||
       dtype == DataType::SMemAddress;
 }
 
@@ -389,7 +405,6 @@ DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
     DataType::ComplexDouble,
     at::ScalarType::ComplexDouble,
     std::complex<double>);
-DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::Opaque, Opaque);
 
 #undef DEFINE_DATATYPE_TO_NATIVE_TYPE
 #undef DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE
@@ -407,12 +422,13 @@ inline DataType getDataType(const PolymorphicValue& value) {
         const auto& vec = value.as<T>();
         size_t size = vec.size();
         TORCH_CHECK(size > 0, "Empty array is not supported");
-        dtype = ArrayOf{std::make_shared<DataType>(getDataType(vec[0])), size};
+        dtype =
+            ArrayType{std::make_shared<DataType>(getDataType(vec[0])), size};
       }
     } else if constexpr (std::is_same_v<T, Struct<PolymorphicValue>>) {
       if (value.is<T>()) {
         const auto& struct_ = value.as<T>();
-        StructOf result;
+        StructType result;
         for (const auto& [name, value] : struct_.fields) {
           result.types[name] =
               NVFUSER_MAYBE_MAKE_SHARED(getDataType(NVFUSER_MAYBE_STAR value));
@@ -423,6 +439,12 @@ inline DataType getDataType(const PolymorphicValue& value) {
       // For pointers in polymorphic value, we only store the data size of the
       // pointee, so it is impossible to infer the pointer type.
       TORCH_CHECK(!value.is<T>(), "Can not infer pointer type.");
+    } else if constexpr (std::is_same_v<T, Opaque>) {
+      if (value.is<T>()) {
+        const auto& opaque = value.as<T>();
+        dtype = DataType(OpaqueType{
+            .type_info = opaque.any().type(), .size = opaque.size()});
+      }
     }
   });
   TORCH_CHECK(dtype.has_value(), "Unknown dtype for ", value.type().name());
@@ -442,17 +464,17 @@ inline bool isCompatibleDataType(DataType dtype, DataType dtype2) {
   if (isComplexType(dtype) && isComplexType(dtype2)) {
     return true;
   }
-  if (std::holds_alternative<ArrayOf>(dtype.type) &&
-      std::holds_alternative<ArrayOf>(dtype2.type)) {
-    const auto& array_of = std::get<ArrayOf>(dtype.type);
-    const auto& array_of2 = std::get<ArrayOf>(dtype2.type);
+  if (std::holds_alternative<ArrayType>(dtype.type) &&
+      std::holds_alternative<ArrayType>(dtype2.type)) {
+    const auto& array_of = std::get<ArrayType>(dtype.type);
+    const auto& array_of2 = std::get<ArrayType>(dtype2.type);
     return array_of.size == array_of2.size &&
         isCompatibleDataType(*array_of.type, *array_of2.type);
   }
-  if (std::holds_alternative<StructOf>(dtype.type) &&
-      std::holds_alternative<StructOf>(dtype2.type)) {
-    const auto& struct_of = std::get<StructOf>(dtype.type);
-    const auto& struct_of2 = std::get<StructOf>(dtype2.type);
+  if (std::holds_alternative<StructType>(dtype.type) &&
+      std::holds_alternative<StructType>(dtype2.type)) {
+    const auto& struct_of = std::get<StructType>(dtype.type);
+    const auto& struct_of2 = std::get<StructType>(dtype2.type);
     if (struct_of.types.size() != struct_of2.types.size()) {
       return false;
     }
@@ -468,6 +490,12 @@ inline bool isCompatibleDataType(DataType dtype, DataType dtype2) {
     }
     return true;
   }
+  if (std::holds_alternative<OpaqueType>(dtype.type) &&
+      std::holds_alternative<OpaqueType>(dtype2.type)) {
+    const auto& opaque_type = std::get<OpaqueType>(dtype.type);
+    const auto& opaque_type2 = std::get<OpaqueType>(dtype2.type);
+    return opaque_type.type_info.get() == opaque_type2.type_info.get();
+  }
   return false;
 }
 
@@ -476,11 +504,11 @@ inline bool hasCompatibleDataType(
     DataType dtype) {
   // We can not always completely infer data type from value, so we need some
   // special handling here.
-  if (std::holds_alternative<PointerOf>(dtype.type)) {
+  if (std::holds_alternative<PointerType>(dtype.type)) {
     if (!value.is<Pointer>()) {
       return false;
     }
-    auto ptr = std::get<PointerOf>(dtype.type);
+    auto ptr = std::get<PointerType>(dtype.type);
     return dataTypeSize(*ptr.type) == value.as<Pointer>().size();
   }
   return isCompatibleDataType(getDataType(value), dtype);

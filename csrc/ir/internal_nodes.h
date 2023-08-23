@@ -442,6 +442,34 @@ class TORCH_CUDA_CU_API ArrayConstruct : public Expr {
   }
 };
 
+class TORCH_CUDA_CU_API ReverseArray : public Expr {
+ public:
+  using Expr::Expr;
+
+  ReverseArray(IrBuilderPasskey, Val* output, Val* input);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "ReverseArray";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
+
+  Val* out() const {
+    return output(0);
+  }
+
+  Val* in() const {
+    return input(0);
+  }
+};
+
 // Get an item from an array, array[index]
 class TORCH_CUDA_CU_API GetItem : public Expr {
  public:
@@ -472,6 +500,38 @@ class TORCH_CUDA_CU_API GetItem : public Expr {
 
   Val* index() const {
     return input(1);
+  }
+};
+
+// construct a struct from a list of values
+class TORCH_CUDA_CU_API StructConstruct : public Expr {
+ public:
+  using Expr::Expr;
+
+  StructConstruct(
+      IrBuilderPasskey,
+      Val* output,
+      const std::vector<std::pair<std::string, Val*>>& fields);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "StructConstruct";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
+
+  std::string fieldName(size_t i) const {
+    return attribute<std::string>(i);
+  }
+
+  Val* out() const {
+    return output(0);
   }
 };
 

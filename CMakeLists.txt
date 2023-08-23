@@ -199,6 +199,7 @@ if(BUILD_PYTHON)
     ${NVFUSER_SRCS_DIR}/python_frontend/fusion_definition.cpp
     ${NVFUSER_SRCS_DIR}/python_frontend/fusion_state.cpp
     ${NVFUSER_SRCS_DIR}/serde/fusion_record_serde.cpp
+    ${NVFUSER_SRCS_DIR}/serde/polymorphic_value_serde.cpp
     ${NVFUSER_SRCS_DIR}/serde/utils.cpp)
 endif()
 
@@ -414,6 +415,7 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/test/test_resize.cpp
     ${NVFUSER_ROOT}/test/test_gpu_tensorcore.cpp
     ${NVFUSER_ROOT}/test/test_matmul_sass.cpp
+    ${NVFUSER_ROOT}/test/test_matmul_scheduler.cpp
     ${NVFUSER_ROOT}/test/test_gpu_view.cpp
     ${NVFUSER_ROOT}/test/test_gpu_transpose.cpp
     ${NVFUSER_ROOT}/test/test_gpu_utils.cpp
@@ -511,6 +513,7 @@ if(BUILD_NVFUSER_BENCHMARK)
   # only install nvfuser_bench with submodule build
   else()
     torch_compile_options(${NVFUSER_BENCHMARK})
+    target_include_directories(${NVFUSER_BENCHMARK} PRIVATE ${TORCH_ROOT}/third_party/flatbuffers/include)
     target_link_libraries(${NVFUSER_BENCHMARK} PRIVATE torch_library benchmark)
     install(TARGETS ${NVFUSER_BENCHMARK} DESTINATION bin)
   endif()

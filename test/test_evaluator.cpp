@@ -293,6 +293,28 @@ TEST_F(ExprEvalTest, Array) {
   checkIntValue(evaluator, bb, 5L);
 }
 
+TEST_F(ExprEvalTest, Struct) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto* a = IrBuilder::create<Val>(DataType::Int);
+  auto* b = IrBuilder::create<Val>(DataType::Int);
+
+  auto struct_ = IrBuilder::structExpr({{"a", a}, {"b", b}}, "test_struct");
+
+  auto aa = IrBuilder::getAttrExpr(struct_, "a");
+  auto bb = IrBuilder::getAttrExpr(struct_, "b");
+
+  ExpressionEvaluator evaluator;
+  evaluator.bind(a, 2L);
+  evaluator.bind(b, 5L);
+
+  Struct<PolymorphicValue> expect({{"a", 2L}, {"b", 5L}});
+  EXPECT_EQ(evaluator.evaluate(struct_), expect);
+  EXPECT_EQ(evaluator.evaluate(aa), 2L);
+  EXPECT_EQ(evaluator.evaluate(bb), 5L);
+}
+
 TEST_F(ExprEvalTest, TensorEagerExecution) {
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -345,20 +367,10 @@ TEST_F(ExprEvalTest, TensorMetaData) {
 
 TEST_F(ExprEvalTest, OpaqueEquality) {
   Opaque a{DataType::Int}, b{DataType::Int};
-  // Because the type information is not available at compile time, we can't
-  // accurately compare the values of two opaque values. So, by default,
-  // equality check is done by pointer compare.
   EXPECT_EQ(a, a);
   EXPECT_EQ(b, b);
-  EXPECT_NE(a, b);
-  EXPECT_NE(b, a);
-  // However, we can manually specify the comparator to use for equality check.
-  Opaque c{DataType::Int, OpaqueEquals<PrimDataType>{}},
-      d{DataType::Int, OpaqueEquals<PrimDataType>{}};
-  EXPECT_EQ(c, c);
-  EXPECT_EQ(d, d);
-  EXPECT_EQ(c, d);
-  EXPECT_EQ(d, c);
+  EXPECT_EQ(a, b);
+  EXPECT_EQ(b, a);
 }
 
 TEST_F(ExprEvalTest, Validation) {
@@ -381,6 +393,21 @@ TEST_F(ExprEvalTest, Validation) {
           ::testing::HasSubstr("Tried to bind to a value: ")));
   EXPECT_EQ(evaluator.evaluate(c), 299792459L);
   evaluator.bind(d, 299792460L, true);
+}
+
+TEST_F(ExprEvalTest, ReverseArray) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto input = IrBuilder::create<Val>(
+      DataType(ArrayType{std::make_shared<DataType>(DataType::Int), 5}));
+  auto output = IrBuilder::reverseArrayExpr(input);
+
+  ExpressionEvaluator evaluator;
+  evaluator.bind(input, std::vector<int64_t>{1, 2, 3, 4, 5});
+
+  auto expect = std::vector<int64_t>{5, 4, 3, 2, 1};
+  EXPECT_EQ((std::vector<int64_t>)evaluator.evaluate(output), expect);
 }
 
 } // namespace nvfuser

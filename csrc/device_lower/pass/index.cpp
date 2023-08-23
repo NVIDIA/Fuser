@@ -250,6 +250,17 @@ void IndexLowering::handle(const ArrayConstruct* aop) {
   GpuLower::current()->propagateExprInfo(aop, back());
 }
 
+void IndexLowering::handle(const StructConstruct* sop) {
+  std::vector<std::pair<std::string, Val*>> lowered_named_inputs;
+  for (auto i : c10::irange(sop->inputs().size())) {
+    lowered_named_inputs.emplace_back(
+        sop->fieldName(i), lowerSrcIndex(sop->inputs().at(i), sop->out()));
+  }
+  const auto out = lowerDstIndex(sop->out());
+  pushBack(IrBuilder::create<StructConstruct>(out, lowered_named_inputs));
+  GpuLower::current()->propagateExprInfo(sop, back());
+}
+
 void IndexLowering::handle(const GetAttr* gop) {
   const auto struct_ = lowerSrcIndex(gop->struct_(), gop->out());
   const auto attr = gop->attr();

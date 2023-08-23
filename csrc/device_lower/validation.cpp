@@ -304,6 +304,13 @@ class VectorizeValidator : public OptInDispatch {
     domains_.insert(m->inner());
   }
 
+  void handle(Resize* r) final {
+    if (r->out() == vectorized_id_) {
+      vectorized_id_ = r->in();
+    }
+    domains_.insert(r->in());
+  }
+
   void handle(Swizzle2D* swizzle) final {
     if (swizzle->outX() == vectorized_id_ || swizzle->inX() == vectorized_id_ ||
         swizzle->outY() == vectorized_id_ || swizzle->inY() == vectorized_id_) {
@@ -575,7 +582,8 @@ void validateAndCollectVectorizeInfo(Fusion* fusion) {
     }
     if (has_vectorize_dim) {
       TORCH_INTERNAL_ASSERT(
-          tv->definition() == nullptr || tv->definition()->isA<LoadStoreOp>(),
+          tv->definition() == nullptr || tv->definition()->isA<LoadStoreOp>() ||
+              tv->definition()->isA<SliceOp>(),
           "Vectorized accesses cannot be inline with computation, they are only supported with a Set operation.",
           "TensorView: ",
           tv);

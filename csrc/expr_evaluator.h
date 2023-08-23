@@ -50,10 +50,10 @@ class TORCH_CUDA_CU_API ExpressionEvaluator {
   void bind(ParallelType pt, PolymorphicValue concrete_value);
 
   //! Try to evaluate a Fusion IR value
-  PolymorphicValue evaluate(const Val* value);
+  const PolymorphicValue& evaluate(const Val* value);
 
   //! Try to evaluate a parallel dimension
-  PolymorphicValue evaluate(ParallelType pt);
+  const PolymorphicValue& evaluate(ParallelType pt);
 
   //! Debugging helper, prints all the currently known values
   void print() const;
@@ -76,7 +76,7 @@ class TORCH_CUDA_CU_API ExpressionEvaluator {
   ExpressionEvaluator clone(IrCloner& ir_cloner) const;
 
  private:
-  PolymorphicValue getValue(const Val* value);
+  const PolymorphicValue& getValue(const Val* value);
 
  private:
   // TODO: Consider make this const. It can't be const as bind() of
@@ -88,6 +88,7 @@ class TORCH_CUDA_CU_API ExpressionEvaluator {
   PrecomputedValues* precomputed_values_ = nullptr;
   std::unordered_map<const Val*, PolymorphicValue> known_values_;
   std::unordered_map<std::string, PolymorphicValue> known_named_scalars_;
+  PolymorphicValue null_ = std::monostate{};
 };
 
 } // namespace nvfuser
