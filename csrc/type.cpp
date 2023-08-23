@@ -1228,6 +1228,8 @@ int64_t dataTypeSize(DataType type) {
             size += dataTypeSize(NVFUSER_MAYBE_STAR dtype.types.at(field));
           }
           return size;
+        } else if constexpr (std::is_same_v<T, OpaqueType>) {
+          return dtype.size;
         }
         TORCH_INTERNAL_ASSERT(false, "Size undefined for data type.");
       },
