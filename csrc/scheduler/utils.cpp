@@ -1003,7 +1003,26 @@ std::vector<TensorView*> cacheInputs(Fusion* fusion, bool unroll) {
       // they must be in global memory.
       continue;
     }
-    auto cached_tv = tv->cacheAfter();
+
+    // Do not insert a cache for slice as vectorization needs to be
+    // done directly.
+    //
+    // Note that this means that if an input is sliced and also is
+    // used without slicing, it will be read twice, once for slice and
+    // once more for caching load. It would make sense to use the PTX
+    // caching load instructions.
+    std::unordered_set<Expr*> cached_uses;
+    for (auto use : tv->uses()) {
+      if (!use->isA<SliceOp>()) {
+        cached_uses.insert(use);
+      }
+    }
+
+    if (cached_uses.empty()) {
+      continue;
+    }
+
+    auto cached_tv = tv->cacheAfter(LoadStoreOpType::Set, cached_uses);
     cached_inputs.emplace_back(cached_tv);
   }
   return cached_inputs;
@@ -1090,12 +1109,7 @@ IterDomain* projectIdToRoot(
     } else if (expr->isA<Resize>()) {
       auto resize = expr->as<Resize>();
       if (resize->out() == projected_id) {
-        // We do not allow vectorization with resize at this moment
-        if (vectorize_pass) {
-          projected_id = nullptr;
-        } else {
-          projected_id = resize->in();
-        }
+        projected_id = resize->in();
       }
     } else {
       TORCH_INTERNAL_ASSERT(
@@ -1153,12 +1167,7 @@ IterDomain* projectIdToRFactor(
     } else if (expr->isA<Resize>()) {
       auto resize = expr->as<Resize>();
       if (resize->in() == projected_id) {
-        // We do not allow vectorization wit resize at this moment
-        if (vectorize_pass) {
-          projected_id = nullptr;
-        } else {
-          projected_id = resize->out();
-        }
+        projected_id = resize->out();
       }
     } else {
       TORCH_INTERNAL_ASSERT(
@@ -2132,7 +2141,7 @@ bool revertUseOfInputCache(
 void prepareForMemoryTypePromotion(Fusion* fusion) {
   auto non_pwise_pairs = getNonPointwiseProducerConsumerPairs(fusion);
 
-  // Inserting a copy of each proucer. If a tensor shows up as a
+  // Inserting a copy of each producer. If a tensor shows up as a
   // producer for multiple consumers, only insert one
   // copy and share it with all the consumers.
 
