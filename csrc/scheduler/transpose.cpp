@@ -784,7 +784,6 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
   constexpr int64_t kSixteen = 16; // clang tidy
 
   int64_t max_io_dtype_size = 1;
-
   size_t n_io_tensors = 0;
   auto scan_max_dtype_size = [&](const auto& vals) {
     for (auto inp : ir_utils::filterByType<TensorView>(vals)) {

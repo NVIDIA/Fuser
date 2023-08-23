@@ -74,16 +74,13 @@ ContiguousInnerDimensionsMapper::ContiguousInnerDimensionsMapper(
   auto rfactor_domain = reference->getMaybeRFactorDomain();
   auto filtered_ids = ids;
   if (reference->isFusionInput()) {
-    auto remove_reduction = [](auto& container) {
-      container.erase(
-          std::remove_if(
-              container.begin(),
-              container.end(),
-              [](IterDomain* id) { return id->isReduction(); }),
-          container.end());
-    };
-    remove_reduction(rfactor_domain);
-    remove_reduction(filtered_ids);
+    rfactor_domain = TensorDomain::noReductions(rfactor_domain);
+    filtered_ids = TensorDomain::noReductions(filtered_ids);
+  } else {
+    TORCH_INTERNAL_ASSERT(
+        !TensorDomain::hasReduction(rfactor_domain) &&
+            !TensorDomain::hasReduction(filtered_ids),
+        "Unexpected reduction domain given to ContiguousInnerDimensionsMapper");
   }
 
   // Record while processing reference's information
@@ -96,24 +93,6 @@ ContiguousInnerDimensionsMapper::ContiguousInnerDimensionsMapper(
   // contiguous in the reference, but not the target tensor views, then we
   // cannot consider that a contiguous merge dimension for vectorization.
   auto projected_rfactor = projectId(filtered_ids, rfactor_domain);
-
-  // Need to somehow make sure projected_rfactor is indeed on the reference
-  // tensor, otherwise, getProjectedExtent seems to be complaining. I'm
-  // wondering if we should instead canonicalize the key for projected extent
-  auto map_rfactor = [this, &rfactor_domain](IterDomain* id) {
-    IterDomain* mapped_id = nullptr;
-    for (auto i : c10::irange(rfactor_domain.size())) {
-      if (this->ca_map_->idGraph().exactNodes().permissiveAreMapped(
-              rfactor_domain[i], id)) {
-        mapped_id = rfactor_domain[i];
-        break;
-      }
-    }
-    return mapped_id;
-  };
-  // mapping thing back to rfactor for reference tensor
-  std::for_each(
-      projected_rfactor.begin(), projected_rfactor.end(), map_rfactor);
 
   std::shared_ptr<Information> reference_information = MappedDomain::build(
       projectId(projected_rfactor, reference->getRootDomain()),
@@ -875,8 +854,7 @@ int64_t getVectorizationFactor(
         "Vectorization heuristic could not evaluate inner most size.");
 
     max_vec_size = std::min(
-        nvfuser::scheduler_utils::maxVectorizationWidth(
-            inner_size_opt.as<int64_t>()),
+        scheduler_utils::maxVectorizationWidth(inner_size_opt.as<int64_t>()),
         max_vec_size);
   }
 
