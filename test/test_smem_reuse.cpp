@@ -272,7 +272,7 @@ TEST_F(SmemReuseTest, PromoteReuseMultipleDownstream) {
   // The outer live intervals of tv0, tv2, and tv4 will be non-overlapping, but
   // adjacent. tv0->promoteReuse() should be able to insert a sync before tv2,
   // so that tv2 re-uses the memory from tv0, then tv4 is stacked above tv2.
-  
+
   auto tv0 =
       full({IrBuilder::create<Val>(H)}, fusion->oneVal(), DataType::Float);
   tv0->setMemoryType(MemoryType::Shared);
