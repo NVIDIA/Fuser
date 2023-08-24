@@ -27,6 +27,7 @@ template <
     bool X_THREAD,
     bool Y_THREAD,
     bool Z_THREAD,
+    bool Aligned,
     typename T>
 __device__ void broadcast(
     T& out,
@@ -65,7 +66,7 @@ __device__ void broadcast(
     __threadfence();
   }
 
-  grid_sync::sync<X_BLOCK, Y_BLOCK, Z_BLOCK, true>(
+  grid_sync::sync<X_BLOCK, Y_BLOCK, Z_BLOCK, true, Aligned>(
       sync_flags[grid_seg_idx], grid_seg_size);
 
   if (read_write_pred) {
@@ -74,7 +75,7 @@ __device__ void broadcast(
 
   // Make sure everyone has read from the buffer before continuing the kernel
   // and potentially overwriting
-  grid_sync::sync<X_BLOCK, Y_BLOCK, Z_BLOCK, true>(
+  grid_sync::sync<X_BLOCK, Y_BLOCK, Z_BLOCK, true, Aligned>(
       sync_flags[grid_seg_idx], grid_seg_size);
 }
 } // namespace grid_broadcast

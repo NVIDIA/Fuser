@@ -50,6 +50,20 @@ void copyScalarTypeAndDeviceToOutput(
 }
 
 void copyScalarTypeAndDeviceToOutput(
+    c10::optional<DataType> dtype,
+    c10::optional<c10::Device> device,
+    torch::jit::Node* node,
+    size_t index = 0) {
+  if (dtype.has_value()) {
+    copyScalarTypeAndDeviceToOutput(
+        data_type_to_aten(dtype.value()), device, node, index);
+  } else {
+    c10::optional<c10::ScalarType> nullopt = c10::nullopt;
+    copyScalarTypeAndDeviceToOutput(nullopt, device, node, index);
+  }
+}
+
+void copyScalarTypeAndDeviceToOutput(
     torch::jit::TensorTypePtr from,
     torch::jit::Node* node,
     size_t index = 0) {
@@ -620,7 +634,7 @@ class NaiveTypePropagator {
       torch::jit::Node* node,
       torch::jit::TensorTypePtr const& op0,
       torch::jit::TensorTypePtr const& op1,
-      c10::optional<at::ScalarType> scalar_type = c10::nullopt) {
+      std::optional<at::ScalarType> scalar_type = std::nullopt) {
     torch::jit::TensorTypePtr out;
     TORCH_CHECK(
         op0 != nullptr || op1 != nullptr,

@@ -5,7 +5,9 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <debug.h>
 #include <instrumentation.h>
+#include <options.h>
 #include <python_frontend/fusion_cache.h>
 #include <python_frontend/fusion_definition.h>
 #include <utils.h>
@@ -26,7 +28,7 @@ const char* dtypeToPyString(PrimDataType t) {
     case DataType::Half:
       return "DataType.Half";
     case DataType::BFloat16:
-      return "DataType.Bfloat16";
+      return "DataType.BFloat16";
     case DataType::Int:
       return "DataType.Int";
     case DataType::Int32:
@@ -44,36 +46,12 @@ const char* dtypeToPyString(PrimDataType t) {
   return nullptr;
 }
 
-bool State::operator==(const State& other) const {
-  return (index == other.index) && (stype == other.stype);
-}
-
-bool State::operator!=(const State& other) const {
-  return (index != other.index) || (stype != other.stype);
-}
-
-// Generalized printing of State
-std::ostream& operator<<(std::ostream& os, const State& state) {
-  if (state.stype == serde::StateType_Scalar) {
-    os << "S";
-  } else if (state.stype == serde::StateType_Tensor) {
-    os << "T";
-  } else if (state.stype == serde::StateType_None) {
-    os << "None";
-  } else {
-    TORCH_INTERNAL_ASSERT(false, "Unsupported StateType");
-  }
-  os << state.index;
-  return os;
-}
-
-FusionDefinition::FusionDefinition(c10::optional<size_t> id, size_t max_length)
+FusionDefinition::FusionDefinition(std::optional<size_t> id, size_t max_length)
     : FusionState(),
       max_length_(max_length),
       fusion_id_(id),
       fusion_cache_(FusionCache::get()),
       trie_node_(nullptr),
-      recording_state_(),
       prev_fusion_(nullptr),
       user_sched_(nullptr),
       ops(this),
@@ -97,14 +75,14 @@ void FusionDefinition::finalizeDefinition() {
   auto child_node = fusionCache()->queryChildren(trie_node_, end_record_.get());
   if (!child_node.has_value()) {
     if (isDebugDumpEnabled(DebugDumpOption::PythonFrontendDebug)) {
-      std::cout << "\nFusionDefinition: Terminal Node not found.\n";
+      debug() << "\nFusionDefinition: Terminal Node not found.\n";
     }
     trie_node_ = fusionCache()->createChild(trie_node_, end_record_.get());
-    fusion_id_ = c10::optional<size_t>(trie_node_->fusion_id);
+    fusion_id_ = std::optional<size_t>(trie_node_->fusion_id);
     TORCH_CHECK(id().has_value(), "Invalid fusion id!");
 
     if (isDebugDumpEnabled(DebugDumpOption::PythonDefinition)) {
-      print(std::cout);
+      print(debug());
     }
 
     buildFusionIr(preschedFusion());
@@ -114,10 +92,10 @@ void FusionDefinition::finalizeDefinition() {
     }
   } else {
     if (isDebugDumpEnabled(DebugDumpOption::PythonFrontendDebug)) {
-      std::cout << "\nFusionDefinition: Terminal Node found!\n";
+      debug() << "\nFusionDefinition: Terminal Node found!\n";
     }
     trie_node_ = child_node.value();
-    fusion_id_ = c10::optional<size_t>(trie_node_->fusion_id);
+    fusion_id_ = std::optional<size_t>(trie_node_->fusion_id);
   }
 }
 
@@ -143,6 +121,7 @@ void FusionDefinition::setupSchedule(const at::ArrayRef<c10::IValue>& inputs) {
   prev_fusion_ = FusionGuard::getCurFusion();
   FusionGuard::setCurFusion(user_sched_->schedule.get());
 }
+
 void FusionDefinition::finalizeSchedule(
     const at::ArrayRef<c10::IValue>& inputs) {
   FUSER_PERF_SCOPE("FusionDefinition::finalizeSchedule");
@@ -171,27 +150,42 @@ void FusionDefinition::print(std::ostream& os) const {
 
 std::vector<at::Tensor> FusionDefinition::execute(
     const at::ArrayRef<c10::IValue>& inputs,
-    bool override_user_schedule) const {
+    bool override_user_schedule,
+    bool capture_debug_output,
+    std::optional<int8_t> selected_device) const {
+  debug_output_ = std::nullopt;
+  std::stringstream debug_ss;
+  DebugStreamGuard dsg(capture_debug_output ? debug_ss : std::cout);
+
   TORCH_CHECK(id().has_value(), "Valid fusion schedule is not available!");
 
   auto scheds = fusionCache()->queryFusionSchedules(id().value());
 
+  std::vector<at::Tensor> outputs;
+
   if (!override_user_schedule) {
-    auto device = getCommonDeviceCUDA(inputs);
+    auto device = getCommonDeviceCUDA(inputs, selected_device);
     TORCH_CHECK(
         inputs.empty() || device > -1,
-        "Inputs are not all on the same device!");
+        "Inputs are not all on the same device or don't match selection!");
     auto user_sched_id = fusionCache()->queryUserScheduleId(scheds, inputs);
     if (user_sched_id.has_value()) {
       auto& user_sched = fusionCache()->queryUserSchedule(
           scheds, user_sched_id.value(), device);
       scheds->last_user_def_scheduled_ir = user_sched.schedule.get();
       scheds->last_user_def_executor = user_sched.executor.get();
-      return user_sched.executor->runFusion(inputs);
+      outputs = user_sched.executor->runFusion(inputs);
     }
   }
 
-  return scheds->auto_gen_schedules->runFusionWithInputs(inputs);
+  outputs = scheds->auto_gen_schedules->runFusionWithInputs(
+      inputs, std::nullopt, selected_device);
+
+  if (capture_debug_output) {
+    debug_output_ = debug_ss.str();
+  }
+
+  return outputs;
 }
 
 std::string FusionDefinition::fusionIr() {
@@ -295,7 +289,7 @@ std::string FusionDefinition::scheduledFusionIrFor(
       inputs, tensor_transforms);
 }
 
-c10::optional<size_t> FusionDefinition::id() const {
+std::optional<size_t> FusionDefinition::id() const {
   return fusion_id_;
 }
 
@@ -310,6 +304,13 @@ Tensor FusionDefinition::defineTensor(size_t dims) {
   FUSER_PERF_SCOPE("FusionDefinition::defineTensor");
   Tensor out(recording_state_.size(), dims, this);
   recording_state_.emplace_back(out(), serde::StateType_Tensor);
+  return out;
+}
+
+Vector FusionDefinition::defineVector(size_t size) {
+  FUSER_PERF_SCOPE("FusionDefinition::defineVector");
+  Vector out(recording_state_.size(), size, this);
+  recording_state_.emplace_back(out(), serde::StateType_Vector);
   return out;
 }
 
@@ -329,15 +330,15 @@ void FusionDefinition::defineRecord(RecordFunctor* record) {
   // match it but it also already existed in the cache.
   if (child_node.has_value()) {
     if (isDebugDumpEnabled(DebugDumpOption::PythonFrontendDebug)) {
-      std::cout << "\nFusionDefinition: Record (hash: 0x" << std::hex
-                << record->hash() << ") hit in Fusion Cache.\n";
+      debug() << "\nFusionDefinition: Record (hash: 0x" << std::hex
+              << record->hash() << ") hit in Fusion Cache.\n";
     }
     trie_node_ = child_node.value();
     // The FusionDefinition and the Cache will share the Record
   } else {
     if (isDebugDumpEnabled(DebugDumpOption::PythonFrontendDebug)) {
-      std::cout << "\nFusionDefinition: Record (hash: 0x" << std::hex
-                << record->hash() << ") missed in Fusion Cache.\n";
+      debug() << "\nFusionDefinition: Record (hash: 0x" << std::hex
+              << record->hash() << ") missed in Fusion Cache.\n";
     }
     trie_node_ =
         fusionCache()->createChild(trie_node_, recording_.back().get());

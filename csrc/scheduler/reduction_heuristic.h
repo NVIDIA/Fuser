@@ -13,7 +13,7 @@
 
 namespace nvfuser {
 
-// Parameters of the reduction heuristic to describe the optimial schedule.
+// Parameters of the reduction heuristic to describe the optimal schedule.
 // Warning: equal operator is intended for use in caching the kernel associated
 // with these reduction parameters. It does not check if the launch parameters
 // are equivelent!
@@ -117,6 +117,25 @@ class ReductionParams : public HeuristicParams {
         unroll_factor_outer_reduction > 1;
   }
 
+  // specific to combined inner and outer reduction
+  bool combined_inner_outer = false;
+  // use TIDx for out reduction axis
+  bool tidx_for_outer_reduction = false;
+  // pad outer reduction to warp
+  bool pad_outer_reduction_to_warp = false;
+  // partial result of outer reduction is written to gmem then read back in a
+  // different parallel pattern set the vectorization factor of its read and
+  // write
+  int64_t vectorization_factor_outer = 1;
+  int64_t vectorization_factor_tmp_gmem_write = 1;
+  // inner reduction axis is parallelized by block_dim_inner_reduction (usually
+  // TIDx) the remaining part is further parallelized by
+  // block_dim_inner_reduction_extra (usually TIDy)
+  ParallelType block_dim_inner_reduction_extra = ParallelType::Serial;
+
+  // use shared memory for persistent buffer, if false, will use registers
+  bool shared_mem_persistent_buffer = false;
+
  public:
   using HeuristicParams::HeuristicParams;
 
@@ -155,7 +174,14 @@ class ReductionParams : public HeuristicParams {
         other.batches_per_block_outer_reduction ==
             batches_per_block_outer_reduction &&
         other.compute_persistent_buffer_with_first_consumer ==
-            compute_persistent_buffer_with_first_consumer;
+            compute_persistent_buffer_with_first_consumer &&
+        other.combined_inner_outer == combined_inner_outer &&
+        other.tidx_for_outer_reduction == tidx_for_outer_reduction &&
+        other.pad_outer_reduction_to_warp == pad_outer_reduction_to_warp &&
+        other.vectorization_factor_outer == vectorization_factor_outer &&
+        other.vectorization_factor_tmp_gmem_write ==
+            vectorization_factor_tmp_gmem_write &&
+        other.shared_mem_persistent_buffer == shared_mem_persistent_buffer;
 
     if (other.static_bdimy || static_bdimy) {
       attr_equal = attr_equal && other.lparams.bdimy() == lparams.bdimy();
@@ -169,7 +195,7 @@ class ReductionParams : public HeuristicParams {
   std::string toString() const override {
     std::stringstream ss;
     ss << "\n===== Reduction Parameters ========\n"
-       << (tag == "" ? "" : "Tag: ") << tag << "\n"
+       << (tag.empty() ? "" : "Tag: ") << tag << "\n"
        << (fastest_dim ? "Red On Fastest Dim\n" : "Red On Slow Dim\n")
        << (persistent_kernel ? "Persistent Kernel\n" : "")
        << (project_persistent_buffers ? "Project Persistent Buffers\n" : "");

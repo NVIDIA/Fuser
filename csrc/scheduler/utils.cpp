@@ -12,7 +12,7 @@
 #include <contiguity.h>
 #include <expr_evaluator.h>
 #include <instrumentation.h>
-#include <ir_utils.h>
+#include <ir/utils.h>
 #include <ops/all_ops.h>
 #include <root_domain_map.h>
 #include <scheduler/mma_utils.h>
@@ -20,6 +20,7 @@
 #include <transform_replay.h>
 
 #include <algorithm>
+#include <queue>
 
 namespace nvfuser {
 namespace scheduler_utils {
@@ -139,16 +140,16 @@ void splitDims(
          const std::pair<size_t, size_t>& p2) { return p1.first < p2.first; });
   size_t dim_offset = 0;
   size_t pending_dim_offset = 0;
-  int64_t prev_dim = -1;
+  size_t prev_dim = 0;
   for (auto entry : to_split) {
     size_t dim = entry.first;
     size_t size = entry.second;
-    if ((int64_t)dim != prev_dim) {
+    if (dim != prev_dim) {
       dim_offset += pending_dim_offset;
       pending_dim_offset = 0;
     }
     size_t actual_dim = dim_offset + dim;
-    tv->split(actual_dim, size);
+    tv->split((int)actual_dim, size);
     pending_dim_offset++;
     for (auto& i : to_update) {
       if (i > actual_dim) {
@@ -159,31 +160,64 @@ void splitDims(
   }
 }
 
-c10::optional<size_t> mergeDims(
+std::optional<size_t> mergeDims(
     TensorView* tv,
     std::vector<size_t> to_merge,
     std::vector<size_t>& to_update) {
   if (to_merge.empty()) {
-    return c10::nullopt;
+    return std::nullopt;
   }
   if (to_merge.size() == 1) {
     return to_merge[0];
   }
-  std::sort(to_merge.begin(), to_merge.end());
-  size_t left = to_merge[0];
-  int64_t offset = 0;
-  for (auto right = to_merge.begin() + 1; right != to_merge.end(); right++) {
-    auto actual_right = offset-- + *right;
-    tv->merge(left, actual_right);
-    for (auto& i : to_update) {
-      if (i == actual_right) {
-        i = left;
-      } else if (i > actual_right) {
-        i--;
+  auto inner = to_merge[0];
+
+  // NOTE: The merge is done in the order of `to_merge`, assuming going from
+  // inner to outer dimensions. We want the merged IterDomain to be like:
+  //
+  // tv->axis(to_merge[i-1])*tv->axis(to_merge[i-2])*...*tv->axis(to_merge[0])
+  //
+  // Otherwise this could results in misaligned memory access due to indexing.
+  // This is because we compute vectorization width before applying scheduling
+  // transformations.
+  for (size_t i = 1; i < to_merge.size(); i++) {
+    auto outer = to_merge[i];
+    // If outer > inner, the merge order conflicts with their order in leaf
+    // domain
+    if (outer > inner) {
+      // NOTE: reorder here is necessary to work around the automatic swap in
+      // `TensorDomain::merge`, if the first axis position is larger than the
+      // second. we want to have the merge dimension be like
+      // (tv->axis(to_merge[i]) * tv->axis(to_merge[i-1])), reorder allows us to
+      // compensate the automatic swap in `TensorDomain::merge`.
+      tv->reorder({{inner, outer}, {outer, inner}});
+      // swapping inner with outer since we also need to keep track of the
+      // actual outer position for the remaining merge operations as well as for
+      // return value.
+      std::swap(inner, outer);
+    }
+    // from
+    //   (i..., tv->axis(outer), j..., tv->axis(inner), k...)
+    // to
+    //   (i..., tv->axis(outer) * tv->axis(inner), j..., k...)
+    tv->merge(static_cast<int>(outer), static_cast<int>(inner));
+
+    // compensate future indices for the diminishing inner.
+    for (size_t j = i + 1; j < to_merge.size(); j++) {
+      if (to_merge[j] > inner) {
+        to_merge[j]--;
       }
     }
+    for (auto& val : to_update) {
+      if (val == inner) {
+        val = outer;
+      } else if (val > inner) {
+        val--;
+      }
+    }
+    inner = outer;
   }
-  return left;
+  return inner;
 }
 
 size_t mergeReduction(TensorView* tv) {
@@ -242,7 +276,7 @@ void parallelizeAllLike(
   FusionGuard fg(reference_tv->fusion());
 
   if (pos < 0) {
-    pos += reference_tv->nDims() + 1;
+    pos += (int64_t)reference_tv->nDims() + 1;
   }
   TORCH_CHECK(
       pos >= 0 && pos <= (int64_t)reference_tv->nDims(),
@@ -252,7 +286,7 @@ void parallelizeAllLike(
 
   auto ca_map = ComputeAtMap(FusionGuard::getCurFusion());
 
-  const auto& reference_dom = reference_tv->domain()->domain();
+  const auto& reference_dom = reference_tv->getLeafDomain();
   for (auto it = reference_dom.begin(); it != reference_dom.begin() + pos;
        it++) {
     auto ca_id =
@@ -267,19 +301,19 @@ void parallelizeAllLike(
     if (tv->isFusionInput()) {
       continue;
     }
-    for (const auto i : c10::irange(tv->domain()->domain().size())) {
+    for (const auto i : c10::irange(tv->getLeafDomain().size())) {
       auto ca_id = ca_map.getConcreteMappedID(
-          tv->axis(i), IdMappingMode::PERMISSIVE_RESIZE);
+          tv->axis((int)i), IdMappingMode::PERMISSIVE_RESIZE);
       if (concrete_to_reference_map.count(ca_id) > 0) {
         auto reference_id = concrete_to_reference_map.at(ca_id);
         auto reference_parallel_type = reference_id->getParallelType();
         if (selected_parallel_types.empty() ||
             selected_parallel_types.count(reference_parallel_type)) {
-          tv->axis(i)->parallelize(reference_parallel_type);
+          tv->axis((int)i)->parallelize(reference_parallel_type);
         }
         if (propagate_padding) {
           if (reference_id->hasPaddingToMultipleOfWarp()) {
-            tv->axis(i)->padToMultipleOfWarp(
+            tv->axis((int)i)->padToMultipleOfWarp(
                 reference_id->getMaybeSizeAfterPadding());
           }
         }
@@ -334,7 +368,7 @@ class PersistentBufferResolution : public IterVisitor {
   }
 
  private:
-  void handle(Val* val) final {
+  void dispatch(Val* val) final {
     if (!val->isA<TensorView>()) {
       return;
     }
@@ -363,7 +397,7 @@ class PersistentBufferResolution : public IterVisitor {
     }
   }
 
-  void handle(Expr* expr) final {
+  void dispatch(Expr* expr) final {
     if (!persistent_buffer_hit) {
       return;
     }
@@ -552,7 +586,7 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
   return persistent_buffer_info;
 }
 
-TvProperties getProperties(
+ReductionTvProperties getReductionProperties(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     TensorView* tv) {
@@ -574,7 +608,7 @@ TvProperties getProperties(
   // Start from the inner most dimension, and work outwards. If this is a 3D
   // pattern, i.e. theres a pattern like [r0, r1, i2, r3] or [i0, r1, r2, i3,
   // i4] then compute the inner most dimension to compute separately.
-  const auto& root_dom = tv->getMaybeRFactorDomain();
+  const auto& root_dom = tv->getRootDomain();
   for (size_t i = root_dom.size(); i > 0; i--) {
     auto id = root_dom[i - 1];
     if (id->isBroadcast()) {
@@ -587,9 +621,9 @@ TvProperties getProperties(
       auto inferred_val =
           runtime_info.expressionEvaluator().evaluate(id->extent());
       TORCH_INTERNAL_ASSERT(
-          inferred_val.has_value(), "Error inferring reduction size.");
+          inferred_val.hasValue(), "Error inferring reduction size.");
       inner_most_dimension_numel =
-          inner_most_dimension_numel * inferred_val->as<int64_t>();
+          inner_most_dimension_numel * inferred_val.as<int64_t>();
       inner_most_dimension_ndims++;
     }
   }
@@ -603,16 +637,16 @@ TvProperties getProperties(
     auto inferred_val =
         runtime_info.expressionEvaluator().evaluate(id->extent());
     TORCH_INTERNAL_ASSERT(
-        inferred_val.has_value(),
+        inferred_val.hasValue(),
         "Error inferring dimensions of reduction fusion.");
     if (id->isReduction()) {
-      total_reduction_numel *= inferred_val->as<int64_t>();
+      total_reduction_numel *= inferred_val.as<int64_t>();
     } else {
-      total_iteration_numel *= inferred_val->as<int64_t>();
+      total_iteration_numel *= inferred_val.as<int64_t>();
     }
   }
 
-  TvProperties properties;
+  ReductionTvProperties properties;
   properties.total_reduction_numel = total_reduction_numel;
   properties.total_iteration_numel = total_iteration_numel;
   properties.fastest_dim_reduction = fastest_dim_reduction;
@@ -717,7 +751,7 @@ getScopePersistenceFactors(
       auto input_i = std::distance(projectable_buffer_inputs.begin(), input_it);
 
       // Get the offset in the bool vector for this input
-      input_i += bool_vector_offset;
+      input_i += (int64_t)bool_vector_offset;
 
       // If we project persistence from the persistent buffers to the inputs,
       // then it would have to be active from the resolution points of the
@@ -798,20 +832,19 @@ PersistentBufferSizeReturn persistentBufferSize(
 
       auto id_size = runtime_info.expressionEvaluator().evaluate(id->extent());
       TORCH_INTERNAL_ASSERT(
-          id_size.has_value(), "Could not infer persistent buffer size.");
+          id_size.hasValue(), "Could not infer persistent buffer size.");
       if (persistent_buffer_sizes[buffer_i] == -1) {
-        persistent_buffer_sizes[buffer_i] = id_size->as<int64_t>();
+        persistent_buffer_sizes[buffer_i] = id_size.as<int64_t>();
       } else {
-        persistent_buffer_sizes[buffer_i] *= id_size->as<int64_t>();
+        persistent_buffer_sizes[buffer_i] *= id_size.as<int64_t>();
       }
     }
 
     persistent_buffer_sizes[buffer_i] = persistent_buffer_sizes[buffer_i] == -1
         ? 0
         : persistent_buffer_sizes[buffer_i] *
-            dataTypeSize(
-                buffer->getDataType().value(),
-                indexModeToDtype(runtime_info.getIndexMode()));
+            (int64_t)dataTypeSize(
+                buffer->getDataType().value(), runtime_info.getIndexType());
   }
 
   // Buffers involved in normal persistence
@@ -916,8 +949,8 @@ std::vector<TensorView*> getReductionTvs(Fusion* fusion) {
   for (auto tv : all_tvs) {
     if (!tv->isFusionInput() &&
         std::any_of(
-            tv->domain()->domain().begin(),
-            tv->domain()->domain().end(),
+            tv->getLeafDomain().begin(),
+            tv->getLeafDomain().end(),
             [](IterDomain* id) { return id->isReduction(); })) {
       reduction_tvs.emplace_back(tv);
     }
@@ -997,9 +1030,8 @@ std::vector<TensorView*> cacheInputs(Fusion* fusion, bool unroll) {
   // If we're going to unroll, make a cache of the inputs
   auto in_tvs = ir_utils::filterByType<TensorView>(fusion->inputs());
   for (auto tv : in_tvs) {
-    if (tv->uses().empty() || ir_utils::isTorchGatherIndicesTv(tv) ||
-        ir_utils::isTorchGatherLookupTv(tv) || ir_utils::isSelectInput(tv) ||
-        ir_utils::isIndexSelectLookupTv(tv)) {
+    if (tv->uses().empty() || ir_utils::isTorchGatherLookupTv(tv) ||
+        ir_utils::isSelectInput(tv) || ir_utils::isIndexSelectLookupTv(tv)) {
       // Right now, tensors that are input to the select op can't be cached as
       // they must be in global memory.
       continue;
@@ -1035,7 +1067,7 @@ std::vector<std::pair<TensorView*, TensorView*>> cacheAndForkOutputs(
     // strategy is optimal.
     if (unroll) {
       auto cached_output = output->cacheBefore();
-      cached_outputs.emplace_back(std::make_pair(cached_output, output));
+      cached_outputs.emplace_back(cached_output, output);
     }
   }
   return cached_outputs;
@@ -1049,7 +1081,8 @@ namespace {
 IterDomain* projectIdToRoot(
     TensorView* tv,
     IterDomain* reference_id,
-    bool inner_only) {
+    bool inner_only,
+    bool vectorize_pass) {
   if (reference_id == nullptr) {
     return nullptr;
   }
@@ -1058,8 +1091,7 @@ IterDomain* projectIdToRoot(
     return reference_id;
   }
 
-  auto replay_exprs =
-      StmtSort::getExprs(tv->fusion(), {reference_id}, false, false);
+  auto replay_exprs = StmtSort::getExprsTo(tv->fusion(), {reference_id});
   if (replay_exprs.empty()) {
     return reference_id;
   }
@@ -1091,7 +1123,12 @@ IterDomain* projectIdToRoot(
     } else if (expr->isA<Resize>()) {
       auto resize = expr->as<Resize>();
       if (resize->out() == projected_id) {
-        projected_id = resize->in();
+        // We do not allow vectorization with resize at this moment
+        if (vectorize_pass) {
+          projected_id = nullptr;
+        } else {
+          projected_id = resize->in();
+        }
       }
     } else {
       TORCH_INTERNAL_ASSERT(
@@ -1110,7 +1147,8 @@ IterDomain* projectIdToRoot(
 IterDomain* projectIdToRFactor(
     TensorView* tv,
     IterDomain* reference_id,
-    bool inner_only) {
+    bool inner_only,
+    bool vectorize_pass) {
   if (reference_id == nullptr) {
     return nullptr;
   }
@@ -1119,7 +1157,7 @@ IterDomain* projectIdToRFactor(
     return reference_id;
   }
 
-  auto replay_exprs = StmtSort::getExprs(
+  auto replay_exprs = StmtSort::getExprsTo(
       tv->fusion(),
       {tv->getRFactorDomain().begin(), tv->getRFactorDomain().end()},
       false);
@@ -1128,9 +1166,7 @@ IterDomain* projectIdToRFactor(
   }
 
   IterDomain* projected_id = reference_id;
-  for (auto expr_it = replay_exprs.begin(); expr_it != replay_exprs.end();
-       ++expr_it) {
-    auto expr = *expr_it;
+  for (auto expr : replay_exprs) {
     if (expr->isA<Merge>()) {
       auto merge = expr->as<Merge>();
       if (merge->inner() == projected_id) {
@@ -1150,7 +1186,12 @@ IterDomain* projectIdToRFactor(
     } else if (expr->isA<Resize>()) {
       auto resize = expr->as<Resize>();
       if (resize->in() == projected_id) {
-        projected_id = resize->out();
+        // We do not allow vectorization wit resize at this moment
+        if (vectorize_pass) {
+          projected_id = nullptr;
+        } else {
+          projected_id = resize->out();
+        }
       }
     } else {
       TORCH_INTERNAL_ASSERT(
@@ -1166,16 +1207,7 @@ IterDomain* projectIdToRFactor(
 } // namespace
 
 IterDomain* innerMostRootDim(TensorView* tv) {
-  // This is backwards from how we normally think about grabbing root dimensions
-  // to process. If we're in a reduction scheduler and we're using the rfactored
-  // reduction tensor view, we don't care about the rfactor domain, we care
-  // about the root domain because we're looking to vectorize the reads (input
-  // tensor views). Otherwise we do want the rfactor domain. So this is the
-  // reverse of our typical check, we actually want to selectively ignore the
-  // rfactor domain.
-  const auto& root_domain = tv->hasReduction() && tv->hasRFactor()
-      ? tv->getRootDomain()
-      : tv->getMaybeRFactorDomain();
+  const auto& root_domain = tv->getMaybeRFactorDomain();
 
   if (tv->nDims() == 0) {
     return nullptr;
@@ -1184,12 +1216,7 @@ IterDomain* innerMostRootDim(TensorView* tv) {
   IterDomain* inner_most_id = nullptr;
 
   for (auto it = root_domain.rbegin(); it != root_domain.rend(); it++) {
-    // If we're looking at a reduction domain on an input because of
-    // segmentation we don't want to consider those reduction domains as a
-    // vectorization opportunity. If we're looking at a reduction reference
-    // tensor we want to consider the reduction iteration domains as domains we
-    // can vectorize on.
-    if (((*it)->isReduction() && tv->isFusionInput()) || (*it)->isBroadcast()) {
+    if ((*it)->isReduction() || (*it)->isBroadcast()) {
       continue;
     }
     inner_most_id = *it;
@@ -1202,14 +1229,18 @@ IterDomain* innerMostRootDim(TensorView* tv) {
 FindAllMappedDims::FindAllMappedDims(
     TensorView* from,
     IterDomain* id,
-    bool inner_only)
-    : starting_tv_(from), starting_id_(id), inner_only_(inner_only) {}
+    bool inner_only,
+    bool vectorize_pass)
+    : starting_tv_(from),
+      starting_id_(id),
+      inner_only_(inner_only),
+      vectorize_pass_(vectorize_pass) {}
 
 void FindAllMappedDims::setUp() {
   mapped_root_ids_[starting_tv_] =
-      projectIdToRoot(starting_tv_, starting_id_, inner_only_);
-  mapped_rfactor_ids_[starting_tv_] =
-      projectIdToRFactor(starting_tv_, starting_id_, inner_only_);
+      projectIdToRoot(starting_tv_, starting_id_, inner_only_, vectorize_pass_);
+  mapped_rfactor_ids_[starting_tv_] = projectIdToRFactor(
+      starting_tv_, starting_id_, inner_only_, vectorize_pass_);
 }
 
 void FindAllMappedDims::propagateC2P(TensorView* from, TensorView* to) {
@@ -1218,7 +1249,8 @@ void FindAllMappedDims::propagateC2P(TensorView* from, TensorView* to) {
   auto c2p_map = root_map.mapConsumerToProducer(from->domain(), to->domain());
   auto p_it = c2p_map.find(from_id);
   if (p_it != c2p_map.end()) {
-    mapped_root_ids_[to] = projectIdToRoot(to, p_it->second, inner_only_);
+    mapped_root_ids_[to] =
+        projectIdToRoot(to, p_it->second, inner_only_, vectorize_pass_);
     mapped_rfactor_ids_[to] = p_it->second;
   } else {
     mapped_root_ids_[to] = nullptr;
@@ -1233,7 +1265,8 @@ void FindAllMappedDims::propagateP2C(TensorView* from, TensorView* to) {
   auto c_it = p2c_map.find(from_id);
   if (c_it != p2c_map.end()) {
     mapped_root_ids_[to] = c_it->second;
-    mapped_rfactor_ids_[to] = projectIdToRFactor(to, c_it->second, inner_only_);
+    mapped_rfactor_ids_[to] =
+        projectIdToRFactor(to, c_it->second, inner_only_, vectorize_pass_);
   } else {
     mapped_root_ids_[to] = nullptr;
     mapped_rfactor_ids_[to] = nullptr;
@@ -1269,10 +1302,14 @@ void FindAllMappedDims::propagateSibling(TensorView* from, TensorView* to) {
 std::unordered_set<IterDomain*> FindAllMappedDims::get() const {
   std::unordered_set<IterDomain*> mapped_id_set;
   for (auto entry : mapped_root_ids_) {
-    mapped_id_set.emplace(entry.second);
+    if (entry.second != nullptr) {
+      mapped_id_set.emplace(entry.second);
+    }
   }
   for (auto entry : mapped_rfactor_ids_) {
-    mapped_id_set.emplace(entry.second);
+    if (entry.second != nullptr) {
+      mapped_id_set.emplace(entry.second);
+    }
   }
   return mapped_id_set;
 }
@@ -1282,8 +1319,7 @@ bool hasInnerDim(
     std::unordered_set<IterDomain*> inner_dims,
     bool should_vectorize) {
   const auto& inner_most_dim = innerMostRootDim(tv);
-  // TODO: Why "|| inner_most_dim->isReduction()"
-  if (inner_most_dim == nullptr || inner_most_dim->isReduction()) {
+  if (inner_most_dim == nullptr) {
     return false;
   }
 
@@ -1314,7 +1350,9 @@ bool hasInnerDim(
   TORCH_INTERNAL_ASSERT(contiguity.size() == rfactor_dom.size());
 
   // Don't vectorize if inner most dimension is not contiguous
-  if (!*contiguity[inner_most_dim_pos]) {
+  auto contiguity_opt = contiguity.at(inner_most_dim_pos);
+  TORCH_INTERNAL_ASSERT(contiguity_opt.has_value())
+  if (!*contiguity_opt) {
     return false;
   }
 
@@ -1337,7 +1375,7 @@ std::vector<TensorView*> getInputsOutputsWithInnerDim(
   }
 
   FindAllMappedDims all_mapped_root_dims(
-      reference_tv, inner_most_id, inner_only);
+      reference_tv, inner_most_id, inner_only, vectorize_pass);
   MaxRootDomainInfoSpanningTree tree(reference_tv);
   tree.traverse(&all_mapped_root_dims);
 
@@ -1359,7 +1397,6 @@ std::vector<TensorView*> getInputsOutputsWithInnerDim(
     // for index_select(lookup_tv, dim, index_tv) op
     // ignore it's lookup_tv.
     if (ir_utils::isTorchGatherLookupTv(input_tv) ||
-        ir_utils::isTorchGatherIndicesTv(input_tv) ||
         ir_utils::isIndexSelectLookupTv(input_tv)) {
       continue;
     }
@@ -1376,7 +1413,7 @@ DisjointRFactorSetInfo getDisjointRFactorSetsOf(
     TensorView* of,
     DisjointSets<IterDomain*>& disjoint_rfactor_set) {
   auto rfactor_dom = of->getMaybeRFactorDomain();
-  if (rfactor_dom.size() == 0) {
+  if (rfactor_dom.empty()) {
     return {};
   }
 
@@ -1388,7 +1425,7 @@ DisjointRFactorSetInfo getDisjointRFactorSetsOf(
   std::vector<const VectorOfUniqueEntries<IterDomain*>*> disjoint_set_of_id(
       rfactor_dom.size(), nullptr);
   int current_group_id = 0;
-  int ref_dim_i = rfactor_dom.size() - 1;
+  int64_t ref_dim_i = (int64_t)rfactor_dom.size() - 1;
 
   while (ref_dim_i >= 0) {
     if (disjoint_group_ids[ref_dim_i] != -1) {
@@ -1400,7 +1437,7 @@ DisjointRFactorSetInfo getDisjointRFactorSetsOf(
     const auto& ref_group =
         disjoint_rfactor_set.getDisjointSetOf(rfactor_dom[ref_dim_i]);
 
-    int other_dim_i = ref_dim_i;
+    int64_t other_dim_i = ref_dim_i;
     while (other_dim_i >= 0) {
       const auto& other_group =
           disjoint_rfactor_set.getDisjointSetOf(rfactor_dom[other_dim_i]);
@@ -1546,13 +1583,13 @@ BroadcastMultipleInformation getBroadcastMultiples(
         auto rhs_i = mapped_axes.size() - 1 - mapped_axes_i;
 
         if (lhs) {
-          multiples[lhs_i].lhs_multiple += dtype_size;
+          multiples[lhs_i].lhs_multiple += (int64_t)dtype_size;
         } else if (mapped_axes[lhs_i]) {
           lhs = true;
         }
 
         if (rhs || mapped_axes[rhs_i]) {
-          multiples[rhs_i].rhs_multiple += dtype_size;
+          multiples[rhs_i].rhs_multiple += (int64_t)dtype_size;
           rhs = true;
         }
       }
@@ -1563,337 +1600,6 @@ BroadcastMultipleInformation getBroadcastMultiples(
   bcast_info.broadcast_multiples = multiples;
   return bcast_info;
 }
-
-namespace matmul_utils {
-
-void scheduleWarpTileWithReduction(TensorView* tv, MatMulTileOptions tile) {
-  // Assumes
-  // [M, N, K]
-  auto cta_tile = tile.cta_tile;
-  auto warp_tile = tile.warp_tile;
-  auto instruction_tile = tile.instruction_tile;
-
-  TORCH_CHECK(
-      cta_tile.k % warp_tile.k == 0,
-      "Number of warp on k dimension need to be integer");
-
-  int num_warp_k = cta_tile.k / warp_tile.k;
-
-  mma_util::checkDimSize(
-      tv, {-3, -2, -1}, {cta_tile.m, cta_tile.n, cta_tile.k});
-
-  if (num_warp_k == 1) {
-    // Non split K over warp case:
-
-    //       -3   -2  -1
-    //[...    M,   N,  K]
-    // Distribute warp tile:
-    tv->split(-3, warp_tile.m);
-    tv->split(-2, warp_tile.n);
-
-    //  -5   -4   -3   -2   -1
-    // [Mwo  Mw  Nwo   Nw   K]
-    tv->split(-4, instruction_tile.m);
-    tv->split(-2, instruction_tile.n);
-    tv->split(-1, instruction_tile.k);
-
-    //   -8  -7 -6 -5 -4 -3  -2 -1
-    // [Mwo Mw Mi Nwo Nw Ni Kwo Ki]
-
-    tv->reorder({{-7, -5}, {-6, -3}, {-5, -6}, {-3, -2}, {-2, -8}, {-8, -7}});
-    //   -8  -7 -6  -5 -4 -3 -2 -1
-    // [Kwo Mwo Nwo Mw Nw Mi Ni Ki]
-  } else {
-    // Split K over warp case:
-    // Main difference is that an additional
-    //  thread dimension needs to be reserved
-    //  for cross warp reduction:
-    //       -3   -2  -1
-    //[...    M,   N,  K]
-    // Distribute warp tile:
-    tv->split(-3, warp_tile.m);
-    tv->split(-2, warp_tile.n);
-    tv->split(-1, warp_tile.k);
-
-    //   -6  -5   -4   -3   -2   -1
-    // [Mwo  Mw  Nwo   Nw   Kwo  Kw]
-    tv->split(-5, instruction_tile.m);
-    tv->split(-3, instruction_tile.n);
-    tv->split(-1, instruction_tile.k);
-
-    //  -9  -8  -7 -6 -5 -4 -3 -2 -1
-    // [Mwo Mw Mi Nwo Nw Ni Kwo Kw Ki]
-
-    tv->reorder({{-8, -6}, {-7, -3}, {-6, -8}, {-4, -2}, {-3, -7}, {-2, -4}});
-    //  -9   -8  -7 -6 -5 -4 -3 -2 -1
-    // [Mwo  Nwo Ko Mw Nw Kw, Mi Ni Ki]
-
-    tv->merge(-9);
-    //  -8  -7 -6 -5 -4   -3 -2 -1
-    // [MNwo Ko Mw Nw Kw, Mi Ni Ki]
-  }
-}
-
-void scheduleWarpTileWithNoReduction(TensorView* tv, MatMulTileOptions tile) {
-  // Assumes
-  // [M, N, K]
-  auto cta_tile = tile.cta_tile;
-  auto warp_tile = tile.warp_tile;
-  auto instruction_tile = tile.instruction_tile;
-
-  mma_util::checkDimSize(tv, {-2, -1}, {cta_tile.m, cta_tile.n});
-
-  TORCH_CHECK(
-      cta_tile.k % warp_tile.k == 0,
-      "Number of warp on k dimension need to be integer");
-
-  int num_warp_k = cta_tile.k / warp_tile.k;
-
-  //        -2  -1
-  //[...    M,   N]
-
-  // Distribute warp tile:
-  tv->split(-2, warp_tile.m);
-  tv->split(-1, warp_tile.n);
-
-  //  -4   -3   -2   -1
-  // [Mwo  Mw  Nwo   Nw ]
-  tv->split(-3, instruction_tile.m);
-  tv->split(-1, instruction_tile.n);
-
-  //  -6 -5  -4 -3 -2 -1
-  // [Mwo Mw Mi Nwo Nw Ni]
-
-  tv->reorder({{-5, -4}, {-4, -2}, {-3, -5}, {-2, -3}});
-
-  //  -6   -5  -4 -3 -2 -1
-  // [Mwo  Nwo Mw Nw Mi Ni]
-
-  if (num_warp_k != 1) {
-    // The non reduction warps are merged together
-    //  to save one thread dim for cross dim reduce.
-    tv->merge(-6);
-    //  -5  -4 -3 -2 -1
-    // [MNo Mw Nw Mi Ni]
-  }
-}
-
-//! Split the innermost dim to a vectorized load
-void scheduleContiguousVectorLoad(
-    TensorView* tv,
-    MatMulTileOptions tile,
-    int vector_word,
-    bool vectorize) {
-  auto warp_dims = tile.cta_tile / tile.warp_tile;
-  int num_of_thread = warp_dims.m * warp_dims.n * warp_dims.k * 32;
-
-  tv->split(-1, num_of_thread * vector_word);
-  tv->split(-1, vector_word);
-  // [..., thread, vec]
-  // distribute to warp: for tidx
-  tv->split(-2, 32);
-
-  //      -3    -2    -1
-  // [...warp, lane, vec]
-
-  if (warp_dims.k == 1) {
-    //      -4     -3    -2    -1
-    // [...warpM, warpN, lane, vec]
-    tv->split(-3, warp_dims.n);
-  } else {
-    //      -4     -3    -2    -1
-    // [...warpMN, warpR, lane, vec]
-    tv->split(-3, warp_dims.k);
-  }
-
-  if (vectorize) {
-    tv->axis(-1)->parallelize(ParallelType::Vectorize);
-  }
-
-  tv->axis(-2)->parallelize(ParallelType::TIDx);
-  tv->axis(-3)->parallelize(ParallelType::TIDy);
-  tv->axis(-4)->parallelize(ParallelType::TIDz);
-}
-
-void makeTile(TensorView* tv, std::vector<int> tile_sizes) {
-  TORCH_CHECK(
-      tv->domain()->domain().size() >= tile_sizes.size(),
-      "Tensor dimension less than tile dimension!");
-
-  // Number of inner dimensions we are tiling.
-  const auto tile_dimension_size = tile_sizes.size();
-
-  // Split the inner dimensions:
-  for (auto idx : c10::irange(tile_dimension_size)) {
-    // Using negative indexing to accomodate potential batching
-    //  dimensions on the further left. Eg.:
-    //  0, 1, 2   ->         -3,-2,-1
-    // [M, N, K]  -> [B0, B1, M, N, K]
-    tv->split(idx - tile_dimension_size, tile_sizes.at(idx));
-  }
-
-  // The transformation happened should look like:
-  //   Before               After
-  // [..., M, N, K] -> [..., Mo, Mi, No, Ni, Ko, Ki]
-
-  // Re-order the tiles so that all the outer tiles are
-  //  on the left of all the inner tiles
-  std::unordered_map<int, int> reorder_map_old_to_new;
-
-  // Number of tiled inner dimensions after we split.
-  const auto split_tile_dimension_size = 2 * tile_dimension_size;
-  for (auto idx : c10::irange(split_tile_dimension_size)) {
-    // We want to reorder as follows:
-    //           Before
-    //
-    // [..., Mo, Mi, No, Ni, Ko, Ki] ->
-    //                 After
-    //      vvv group0 vvv  vvv group1 vvv
-    // [..., Mo, No, Ko,     Mi, Ni, Ki]
-
-    // The index offset within group of current
-    //  iterdomain, with grouping specified above.
-    auto index_within_group = idx / 2;
-
-    // The index of the group the current id belongs
-    //  to, as specified above.
-    auto group_index = idx % 2;
-
-    // Calculate the actual index after reordering
-    auto index_after_reorder =
-        group_index * tile_dimension_size + index_within_group;
-
-    // Add pair {idx_before, idx_after} to re-order map.
-    reorder_map_old_to_new.insert(std::make_pair(
-        idx - split_tile_dimension_size,
-        index_after_reorder - split_tile_dimension_size));
-  }
-
-  // Apply the re-order map to tensor
-  tv->reorder(reorder_map_old_to_new);
-}
-
-namespace {
-
-c10::optional<IterDomain*> getMaybeRootIfInnermostTiled(
-    IterDomain* id,
-    const std::unordered_set<IterDomain*>& maybe_rfactor_id_set) {
-  // Root id defaults to an "innermost id".
-  while (id->definition() && !maybe_rfactor_id_set.count(id)) {
-    if (auto split = dynamic_cast<Split*>(id->definition())) {
-      if (id == split->inner()) {
-        id = split->in();
-        continue;
-      }
-    }
-    // Didn't pass the inner most check, return empty.
-    return c10::nullopt;
-  }
-
-  return id;
-}
-
-} // namespace
-
-void orderTiledConcreteIdAsRoot(TensorView* tv) {
-  auto ndims = tv->nDims();
-
-  // Keep track of the left most position where we will
-  //  be reordering the axes.
-  auto leftmost_pos = ndims;
-
-  // Pull the root id's of the given tv.
-  std::unordered_set<IterDomain*> maybe_rfactor_id_set{
-      tv->getMaybeRFactorDomain().begin(), tv->getMaybeRFactorDomain().end()};
-
-  // Keep track of leaf positions that is either a reduction
-  //  or a broadcast.
-  // Note: Currently don't really see a case where this function
-  //  should be called on a reduction output tv, but adding them
-  //  here for completeness.
-  std::deque<int> broadcast_or_reduction_pos;
-
-  // Map the root id's to their innermost concrete id's
-  //  on the leaf.
-  std::unordered_map<IterDomain*, int> root_id_to_inner_leaf_pos;
-
-  // Try to re-order inner iterdomains from the innermost
-  //  position backward. This utility only tries to re-order
-  //  inner tiles on the innermost positions, like the resulting
-  //  tensor from makeTile utility.
-  // The re-ordering would first try to decide the inner iterdomains
-  //  we want to re-order. For this we start from the innermost position
-  //  and move back and collect all the iterdomains that we know
-  //  are inner tiles of some root domain or broadcast/reduction domains
-  //  that won't affect the concrete id layout.
-  // The collection process would stop whenever a iterdomain that is
-  //  neither an inner tile nor reduction/broadcast is found, and would
-  //  not re-order any iterdomain beyond that point to keep the
-  //  outer loop structure unchanged.
-  for (int64_t i = static_cast<int64_t>(ndims) - 1; i >= 0; i--) {
-    auto leaf_id = tv->axis(i);
-    if (leaf_id->isBroadcast() || leaf_id->isReduction()) {
-      // Register this reduction or broadcast axis
-      //  to reorder.
-      broadcast_or_reduction_pos.push_front(i);
-      leftmost_pos = i;
-      continue;
-    }
-    auto maybe_root =
-        getMaybeRootIfInnermostTiled(leaf_id, maybe_rfactor_id_set);
-
-    if (maybe_root.has_value()) {
-      // Found an innermost id, add them to the
-      //  axes to reorder.
-      TORCH_INTERNAL_ASSERT(
-          root_id_to_inner_leaf_pos
-              .insert(std::make_pair(maybe_root.value(), i))
-              .second,
-          "Multiple \"innermost\" id seen for root id :",
-          maybe_root.value()->toString(),
-          " on ",
-          tv->toString(),
-          " very likely an invariant is broken.");
-      leftmost_pos = i;
-    } else {
-      break;
-    }
-  }
-
-  // Calculate the ordering:
-
-  // pointer to the current target postion after
-  //  repordering
-  int current_pos = leftmost_pos;
-  std::unordered_map<int, int> reorder_map_old_to_new;
-
-  // first place all the broadcast and reduction on the left:
-  for (auto original_broadcast_or_reduction_pos : broadcast_or_reduction_pos) {
-    reorder_map_old_to_new[original_broadcast_or_reduction_pos] = current_pos++;
-  }
-
-  // Next put all the innermost leaf id's, we make sure that
-  //  the inner tile ordering follows the corresponding root
-  //  domain ordering by iterating on the root domain and
-  //  find their corresponding inner tile iterdomains from
-  //  the populated root_id_to_inner_leaf_pos.
-  for (auto root_id : tv->getMaybeRFactorDomain()) {
-    auto leaf_id_pos_it = root_id_to_inner_leaf_pos.find(root_id);
-    if (leaf_id_pos_it != root_id_to_inner_leaf_pos.end()) {
-      reorder_map_old_to_new[leaf_id_pos_it->second] = current_pos++;
-    }
-  }
-
-  // Validate that we have processed all inner ids or broadcast/reduction
-  //  ids we have registered.
-  TORCH_INTERNAL_ASSERT(
-      current_pos == (int)ndims, "Inconsistent ordering logic");
-
-  // Apply the new order:
-  tv->reorder(reorder_map_old_to_new);
-}
-
-} // namespace matmul_utils
 
 //! Propagate current transformations on from_tv to all graphs
 void transformPropagateToAllFrom(TensorView* from_tv, int pos) {
@@ -1949,7 +1655,7 @@ bool isFakeBoundaryTensorview(
 //!  transform to by BoundedDirectionalTransformPropagator.
 std::unordered_set<TensorView*> getDirectionalPropagatePathSet(
     TensorView* from_tv,
-    std::vector<TensorView*> boundary_tvs,
+    const std::vector<TensorView*>& boundary_tvs,
     BoundedDirectionalTransformPropagator::Options options,
     PropagateDirection direction) {
   // Prepare to collect all candidate tensorviews
@@ -2057,13 +1763,13 @@ void BoundedDirectionalTransformPropagator::backward(
     TensorView* from,
     int pos,
     std::vector<TensorView*> to,
-    c10::optional<Options> options) {
+    std::optional<Options> options) {
   if (!options.has_value()) {
     options = Options();
   }
-  TORCH_INTERNAL_ASSERT(
-      !to.empty(),
-      "Propagation needs to be bounded, so no support for empty boundary.");
+  if (to.empty()) {
+    to = ir_utils::inputTvsOf(from);
+  }
 
   // Collect all tvs to included on the backward path as specified
   //  by boundary and options.
@@ -2077,7 +1783,7 @@ void BoundedDirectionalTransformPropagator::forward(
     TensorView* from,
     int pos,
     std::vector<TensorView*> to,
-    c10::optional<Options> options) {
+    std::optional<Options> options) {
   if (!options.has_value()) {
     options = Options();
   }
@@ -2099,7 +1805,7 @@ void BoundedDirectionalTransformPropagator::bothWays(
     int pos,
     std::vector<TensorView*> backward_to,
     std::vector<TensorView*> forward_to,
-    c10::optional<Options> options) {
+    std::optional<Options> options) {
   if (!options.has_value()) {
     options = Options();
   }
@@ -2130,7 +1836,7 @@ DisjointSets<IterDomain*> disjointRFactorSets(Fusion* fusion) {
   // If iter domains are involved in any transformation from root domains to
   // rfactor domains they should be considered "contaminated".
   for (auto tv : ir_utils::allTvs(fusion)) {
-    for (auto expr : StmtSort::getExprs(
+    for (auto expr : StmtSort::getExprsTo(
              fusion,
              {tv->getMaybeRFactorDomain().begin(),
               tv->getMaybeRFactorDomain().end()})) {
@@ -2156,7 +1862,7 @@ DisjointSets<IterDomain*> disjointRFactorSets(Fusion* fusion) {
 
 bool breakIsDisjoint(std::vector<int> group_ids, int pos) {
   if (pos < 0) {
-    pos += group_ids.size();
+    pos += (int)group_ids.size();
   }
   TORCH_INTERNAL_ASSERT(
       pos >= 0 && pos <= (int)group_ids.size(),
@@ -2181,9 +1887,8 @@ bool breakIsDisjoint(std::vector<int> group_ids, int pos) {
 
 std::unordered_map<int, int> domainReorderAsRfactorMap(TensorView* tv) {
   FusionGuard fg(tv->fusion());
-  auto transform_exprs = StmtSort::getExprs(
-      tv->fusion(),
-      {tv->domain()->domain().begin(), tv->domain()->domain().end()});
+  auto transform_exprs = StmtSort::getExprsTo(
+      tv->fusion(), {tv->getLeafDomain().begin(), tv->getLeafDomain().end()});
   // simply update this vector of id's as progressing through the transformation
   // expressions. We'll always insert the result of split in the location of the
   // input, and insert the merge result in the position of the inner dimension.
@@ -2237,12 +1942,13 @@ std::unordered_map<int, int> domainReorderAsRfactorMap(TensorView* tv) {
       }
       *find_it = resize->out();
     } else {
+      TORCH_INTERNAL_ASSERT(expr != nullptr);
       TORCH_INTERNAL_ASSERT(false, "Unexpected expression: ", expr->toString());
     }
   }
 
   std::unordered_map<int, int> old2new;
-  for (auto id_i : c10::irange(tv->domain()->domain().size())) {
+  for (auto id_i : c10::irange((int)tv->getLeafDomain().size())) {
     auto leaf_id = tv->axis(id_i);
     auto find_it =
         std::find(reordered_ids.begin(), reordered_ids.end(), leaf_id);
@@ -2251,13 +1957,13 @@ std::unordered_map<int, int> domainReorderAsRfactorMap(TensorView* tv) {
         "Reordering map creation failed, uninitialized iterdomain,",
         " likely something is wrong with the transformations between the rfactor domain and the leaves.");
     int new_pos = (int)std::distance(reordered_ids.begin(), find_it);
-    int old_pos = (int)id_i;
+    int old_pos = id_i;
     old2new[old_pos] = new_pos;
   }
   return old2new;
 }
 
-void propagateViewTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
+void propagateReshapeTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
   std::unordered_set<std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>
       transformed_disjoint_sets;
 
@@ -2276,13 +1982,18 @@ void propagateViewTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
     }
   }
 
-  std::unordered_set<IterDomain*> terminating_rfactor_dims;
+  std::unordered_set<IterDomain*> terminating_reshape_dims;
   for (const auto& disjoint_set_shared_ptr :
        ca_map.idGraph().exactNodes().disjointSets()) {
+    // Find a disjoint set that is produced by a reshape
+    // operation. Ignore resize as it isn't reshape
     if (std::none_of(
             disjoint_set_shared_ptr->vector().begin(),
             disjoint_set_shared_ptr->vector().end(),
-            [](IterDomain* id) { return id->isRFactorProduct(); })) {
+            [](IterDomain* id) {
+              return id->isRFactorProduct() && id->definition() &&
+                  !id->definition()->isA<Resize>();
+            })) {
       continue;
     }
     if (transformed_disjoint_sets.find(disjoint_set_shared_ptr) !=
@@ -2291,7 +2002,7 @@ void propagateViewTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
       continue;
     }
     for (auto id : disjoint_set_shared_ptr->vector()) {
-      terminating_rfactor_dims.emplace(id);
+      terminating_reshape_dims.emplace(id);
     }
   }
 
@@ -2309,22 +2020,20 @@ void propagateViewTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
     // rfactor dims we could try and pull those through the fusion instead of
     // enforcing rfactor dims are in domain.
     for (auto rfactor_id : tv->getMaybeRFactorDomain()) {
-      if (terminating_rfactor_dims.find(rfactor_id) !=
-          terminating_rfactor_dims.end()) {
+      if (terminating_reshape_dims.find(rfactor_id) !=
+          terminating_reshape_dims.end()) {
         auto find_it = std::find(
-            tv->domain()->domain().begin(),
-            tv->domain()->domain().end(),
-            rfactor_id);
+            tv->getLeafDomain().begin(), tv->getLeafDomain().end(), rfactor_id);
         TORCH_INTERNAL_ASSERT(
-            find_it != tv->domain()->domain().end(),
+            find_it != tv->getLeafDomain().end(),
             "Require ",
             rfactor_id,
             " is in the active domain of ",
             tv->toString(),
             " for view propagation.");
-        auto old_pos = std::distance(tv->domain()->domain().begin(), find_it);
+        auto old_pos = std::distance(tv->getLeafDomain().begin(), find_it);
 
-        old2new[old_pos] = old2new.size();
+        old2new[(int)old_pos] = (int)old2new.size();
       }
     }
 
@@ -2335,13 +2044,13 @@ void propagateViewTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
     // Propagate the view transformations
     tv->reorder(old2new);
     //! Propagate current transformations on from_tv to all graphs
-    transformPropagateToAllFrom(tv, old2new.size());
+    transformPropagateToAllFrom(tv, (int)old2new.size());
   }
 }
 
 bool isFastestDimReduction(TensorView* tv) {
-  for (auto it = tv->getMaybeRFactorDomain().rbegin();
-       it != tv->getMaybeRFactorDomain().rend();
+  for (auto it = tv->getMaybeAllocationDomain().rbegin();
+       it != tv->getMaybeAllocationDomain().rend();
        ++it) {
     auto root_id = *it;
     if (root_id->isBroadcast()) {
@@ -2358,28 +2067,48 @@ bool isFastestDimReduction(TensorView* tv) {
 
 namespace {
 
-std::vector<TensorView*> getResizedTensors(Fusion* fusion) {
-  std::vector<TensorView*> resized_tensors;
+// Grab producer and consumer pairs that have non-pointwise
+// access patterns. Those pairs would have inter-thread data
+// dependencies if parallelized.
+std::vector<std::pair<TensorView*, TensorView*>>
+getNonPointwiseProducerConsumerPairs(Fusion* fusion) {
+  std::vector<std::pair<TensorView*, TensorView*>> tvs;
 
-  auto fusion_vals = fusion->usedMathVals();
-  for (auto tv : ir_utils::filterByType<TensorView>(fusion_vals)) {
-    if (ir_utils::hasResizedRfactor(tv)) {
-      resized_tensors.push_back(tv);
+  for (auto consumer : ir_utils::allTvs(fusion)) {
+    if (consumer->isFusionInput()) {
+      continue;
+    }
+    if (auto gather = dynamic_cast<TorchGatherOp*>(consumer->definition())) {
+      tvs.emplace_back(gather->lookupTv(), consumer);
+    } else if (
+        auto index_select =
+            dynamic_cast<IndexSelectOp*>(consumer->definition())) {
+      tvs.emplace_back(index_select->lookupTv(), consumer);
+    } else if (auto select = dynamic_cast<SelectOp*>(consumer->definition())) {
+      tvs.emplace_back(select->lookupTv(), consumer);
+    } else if (ir_utils::hasResizedRfactor(consumer)) {
+      // Exprs based on ResizeOp, e.g., slice
+      auto producers = ir_utils::producerTvsOf(consumer);
+      TORCH_INTERNAL_ASSERT(
+          producers.size() == 1,
+          "Unexpected number of inputs of the defining expression: ",
+          consumer->definition()->toString());
+      tvs.emplace_back(producers.at(0), consumer);
     }
   }
 
-  return resized_tensors;
+  return tvs;
 }
 
-// If the producer of a resized tensor is an input cache and we need to promote
-// it to global memory, just do not cache the input but directly read from the
-// global memory input. It doesn't make any sense to cache a global memory input
-// in global memory. Note that a copy of an input cache is inserted by
+// If an input cache is promoted to global memory, just do not cache
+// the input but directly read from the global memory input. It
+// doesn't make any sense to cache a global memory input in global
+// memory. Note that a copy of an input cache is inserted by
 // prepareForMemoryTypePromotion, so grab the producer of the
 // producer and see if it's included in input_caches.
-bool revertUseOfInputCacheInResize(
-    TensorView* resized_tensor,
-    TensorView* producer_of_resize,
+bool revertUseOfInputCache(
+    TensorView* consumer,
+    TensorView* promoted_producer,
     MemoryType promoted_memory_type,
     const std::vector<TensorView*>& input_caches) {
   auto get_copy_src = [](TensorView* tv) -> TensorView* {
@@ -2396,7 +2125,7 @@ bool revertUseOfInputCacheInResize(
 
   // To see if the producer is a cache of an input, need to look at
   // its producer as a copy is inserted
-  auto producer_of_producer = get_copy_src(producer_of_resize);
+  auto producer_of_producer = get_copy_src(promoted_producer);
   if (producer_of_producer == nullptr) {
     // No copy is detected. This must mean the producer is not a copy
     // of any input cache
@@ -2426,7 +2155,7 @@ bool revertUseOfInputCacheInResize(
   // tv3 = resizeOp(tv0) // some op using resize
 
   ir_utils::replaceValInExpr(
-      resized_tensor->definition(), producer_of_resize, fusion_input);
+      consumer->definition(), promoted_producer, fusion_input);
 
   return true;
 }
@@ -2434,38 +2163,16 @@ bool revertUseOfInputCacheInResize(
 } // namespace
 
 void prepareForMemoryTypePromotion(Fusion* fusion) {
-  auto resized_tensors = getResizedTensors(fusion);
+  auto non_pwise_pairs = getNonPointwiseProducerConsumerPairs(fusion);
 
-  // Inserting a copy of the producer of each resize op. If a tensor
-  // is used as the producer of multiple resize ops, only insert one
-  // copy and share it with the resize ops.
+  // Inserting a copy of each proucer. If a tensor shows up as a
+  // producer for multiple consumers, only insert one
+  // copy and share it with all the consumers.
 
-  // Map to keep track resize producer and its copy
-  std::unordered_map<TensorView*, TensorView*> resize_producer_copy_map;
+  // Map to keep track producer and its copy
+  std::unordered_map<TensorView*, TensorView*> producer_copy_map;
 
-  for (auto resized_tensor : resized_tensors) {
-    // Resized tensors are those created by operations like pad and
-    // slice. If it has no defining expression, it must be a fusion
-    // input, and no need of the memory type promotion
-    if (resized_tensor->definition() == nullptr) {
-      TORCH_INTERNAL_ASSERT(
-          resized_tensor->isFusionInput(),
-          "Unexpected resized tensor: ",
-          resized_tensor->toString());
-      continue;
-    }
-    // Assume it has only one input tensor, which may need to
-    // be placed on a non-local memory for data dependencies.
-    TORCH_INTERNAL_ASSERT(
-        resized_tensor->definition(),
-        "Unexpected to have an undefined resized tensor: ",
-        resized_tensor->toString());
-    auto producers = ir_utils::producerTvsOf(resized_tensor);
-    TORCH_INTERNAL_ASSERT(
-        producers.size() == 1,
-        "Unexpected number of inputs of the defining expression: ",
-        resized_tensor->definition()->toString());
-    auto producer = producers.at(0);
+  for (auto& [producer, consumer] : non_pwise_pairs) {
     // At this point, all tensors should be either on Global or Local
     TORCH_INTERNAL_ASSERT(
         producer->getMemoryType() == MemoryType::Local ||
@@ -2478,32 +2185,30 @@ void prepareForMemoryTypePromotion(Fusion* fusion) {
       continue;
     }
 
-    auto resize_producer_copy_map_it = resize_producer_copy_map.find(producer);
-    if (resize_producer_copy_map_it == resize_producer_copy_map.end()) {
+    auto producer_copy_map_it = producer_copy_map.find(producer);
+    if (producer_copy_map_it == producer_copy_map.end()) {
       // Create a copy of the producer that is to be inserted between
-      // resized_tensor and producer
+      // consumer and producer
       auto copy_of_producer = set(producer);
-      resize_producer_copy_map_it =
-          resize_producer_copy_map.emplace(producer, copy_of_producer).first;
+      producer_copy_map_it =
+          producer_copy_map.emplace(producer, copy_of_producer).first;
     }
 
-    // Insert a copy between resized_tensor and producer
+    // Insert a copy between consumer and producer
     ir_utils::replaceValInExpr(
-        resized_tensor->definition(),
-        producer,
-        resize_producer_copy_map_it->second);
+        consumer->definition(), producer, producer_copy_map_it->second);
   }
 }
 
-void promoteProducerMemoryTypesOfResizedTensors(
+void promoteProducerMemoryTypes(
     Fusion* fusion,
     const std::vector<TensorView*>& input_caches) {
-  auto resized_tensors = getResizedTensors(fusion);
+  auto non_pwise_pairs = getNonPointwiseProducerConsumerPairs(fusion);
 
   // Just make it simpler to promote memory types. Minimum is
   // preferred. Increased as required.
-  auto memoryTypeToInt = [](MemoryType mt1) -> int {
-    switch (mt1) {
+  auto memoryTypeToInt = [](MemoryType m_type) -> int {
+    switch (m_type) {
       case MemoryType::Local:
         return 1;
       case MemoryType::Shared:
@@ -2511,7 +2216,7 @@ void promoteProducerMemoryTypesOfResizedTensors(
       case MemoryType::Global:
         return 3;
       default:
-        TORCH_INTERNAL_ASSERT(false);
+        TORCH_INTERNAL_ASSERT(false, "Unexpected memory type: ", m_type);
     }
   };
 
@@ -2526,70 +2231,106 @@ void promoteProducerMemoryTypesOfResizedTensors(
     }
   };
 
-  for (auto resized_tensor : resized_tensors) {
-    for (auto producer : ir_utils::producerTvsOf(resized_tensor)) {
-      auto c2p_map = BestEffortReplay(
-                         producer->domain()->domain(),
-                         resized_tensor->domain()->domain(),
-                         PairwiseRootDomainMap(producer, resized_tensor, true)
-                             .mapConsumerToProducer(
-                                 resized_tensor->domain(), producer->domain()))
-                         .getReplay();
+  // Analyze each produce and consumer if there's inter-thread data
+  // dependencies
+  // TODO: Clean up once the index map refactor is done
+  for (auto& [producer, consumer] : non_pwise_pairs) {
+    auto c2p_exact_map =
+        BestEffortReplay(
+            producer->getLeafDomain(),
+            consumer->getLeafDomain(),
+            PairwiseRootDomainMap(producer, consumer)
+                .mapBroadcast(false)
+                .mapConsumerToProducer(consumer->domain(), producer->domain()))
+            .getReplay();
 
-      for (const auto i :
-           c10::irange(producer->nDims() - producer->getComputeAtPosition())) {
-        auto producer_non_ca_id =
-            producer->axis(i + producer->getComputeAtPosition());
-        auto producer_non_ca_id_ptype = producer_non_ca_id->getParallelType();
-        if (!isParallelTypeThread(producer_non_ca_id_ptype)) {
-          continue;
-        }
+    for (const auto i :
+         c10::irange(producer->nDims() - producer->getComputeAtPosition())) {
+      auto producer_non_ca_id =
+          producer->axis((int)(i + producer->getComputeAtPosition()));
+      auto producer_non_ca_id_ptype = producer_non_ca_id->getParallelType();
+      if (!isParallelTypeThread(producer_non_ca_id_ptype)) {
+        continue;
+      }
 
-        auto resized_tensor_exact_map_id_it = std::find_if(
-            resized_tensor->domain()->domain().begin(),
-            resized_tensor->domain()->domain().end(),
-            [&](IterDomain* resized_tensor_leaf_id) {
-              auto it = c2p_map.find(resized_tensor_leaf_id);
-              return it != c2p_map.end() && it->second == producer_non_ca_id;
-            });
-        if (resized_tensor_exact_map_id_it !=
-                resized_tensor->domain()->domain().end() &&
-            (*resized_tensor_exact_map_id_it)->getParallelType() ==
-                producer_non_ca_id_ptype) {
-          continue;
-        }
+      auto consumer_exact_map_id_it = std::find_if(
+          consumer->getLeafDomain().begin(),
+          consumer->getLeafDomain().end(),
+          [&](IterDomain* consumer_leaf_id) {
+            auto it = c2p_exact_map.find(consumer_leaf_id);
+            return it != c2p_exact_map.end() &&
+                it->second == producer_non_ca_id;
+          });
+      if (consumer_exact_map_id_it != consumer->getLeafDomain().end() &&
+          (*consumer_exact_map_id_it)->getParallelType() ==
+              producer_non_ca_id_ptype) {
+        continue;
+      }
 
-        // Promotion required
-        if (isParallelTypeThreadDim(producer_non_ca_id_ptype)) {
-          setPromotion(producer, MemoryType::Shared);
-        } else if (isParallelTypeBlockDim(producer_non_ca_id_ptype)) {
-          setPromotion(producer, MemoryType::Global);
-        }
+      // Promotion required
+      if (isParallelTypeThreadDim(producer_non_ca_id_ptype)) {
+        setPromotion(producer, MemoryType::Shared);
+      } else if (isParallelTypeBlockDim(producer_non_ca_id_ptype)) {
+        setPromotion(producer, MemoryType::Global);
+      } else {
+        TORCH_INTERNAL_ASSERT(
+            false, "Unexpected parallel type: ", producer_non_ca_id_ptype);
       }
     }
   }
 
-  // Iterate over resized_tensors so that promotion is done in a
+  // Iterate over non_pwise_pairs so that promotion is done in a
   // deterministic order
-  for (auto resized_tensor : resized_tensors) {
-    for (auto producer : ir_utils::producerTvsOf(resized_tensor)) {
-      auto it = tvs_to_promote.find(producer);
-      if (it == tvs_to_promote.end() ||
-          it->second == producer->getMemoryType()) {
-        continue;
-      }
+  for (auto& [producer, consumer] : non_pwise_pairs) {
+    auto it = tvs_to_promote.find(producer);
+    if (it == tvs_to_promote.end() || it->second == producer->getMemoryType()) {
+      continue;
+    }
 
-      // Required memory type of the producer
-      const auto new_mem_type = it->second;
+    // Required memory type of the producer
+    const auto new_mem_type = it->second;
 
-      if (revertUseOfInputCacheInResize(
-              resized_tensor, producer, new_mem_type, input_caches)) {
-        continue;
-      }
+    if (revertUseOfInputCache(consumer, producer, new_mem_type, input_caches)) {
+      continue;
+    }
 
-      producer->setMemoryType(new_mem_type);
+    producer->setMemoryType(new_mem_type);
+  }
+}
+
+std::unordered_set<TensorView*> getAllTvsFrom(
+    const std::vector<TensorView*>& from_tvs,
+    const std::unordered_set<TensorView*>& cutoff_tv_set) {
+  std::unordered_set<TensorView*> tv_group;
+  std::queue<TensorView*> tensors_to_visit;
+  auto addIfNotVisited = [&](TensorView* tv) {
+    if (tv_group.find(tv) == tv_group.end() &&
+        cutoff_tv_set.find(tv) == cutoff_tv_set.end()) {
+      tv_group.emplace(tv);
+      tensors_to_visit.push(tv);
+    }
+  };
+
+  for (auto tv : from_tvs) {
+    tensors_to_visit.push(tv);
+  }
+  while (!tensors_to_visit.empty()) {
+    auto next_tv = tensors_to_visit.front();
+    tensors_to_visit.pop();
+    // visit consumers
+    for (auto tv : ir_utils::consumerTvsOf(next_tv)) {
+      addIfNotVisited(tv);
+    }
+    // visit siblings
+    for (auto tv : ir_utils::siblingTvsOf(next_tv)) {
+      addIfNotVisited(tv);
+    }
+    // visit producer
+    for (auto tv : ir_utils::producerTvsOf(next_tv)) {
+      addIfNotVisited(tv);
     }
   }
+  return tv_group;
 }
 
 } // namespace scheduler_utils

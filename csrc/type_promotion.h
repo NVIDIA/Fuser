@@ -7,11 +7,9 @@
 // clang-format on
 #pragma once
 
-#include <ATen/Context.h>
-#include <ATen/native/TypeProperties.h>
-#include <c10/core/ScalarType.h>
-#include <ir_interface_nodes.h>
+#include <ir/interface_nodes.h>
 #include <torch/csrc/jit/ir/ir.h>
+#include <type.h>
 
 namespace nvfuser {
 
@@ -30,7 +28,6 @@ namespace nvfuser {
 struct TypePromotionConfig {
   bool promote_integer_inputs_to_float = false;
   bool require_full_precision_promoted = false;
-  TypePromotionConfig() = default;
 };
 
 namespace TypePromotion {
@@ -49,7 +46,7 @@ static const TypePromotionConfig float_only_op_config{
 // Implements the the behavior of the following flags:
 //   - promote_inputs_to_common_dtype
 //   - promote_integer_inputs_to_float
-c10::ScalarType computeTypes(
+DataType computeTypes(
     const TypePromotionConfig& config,
     const std::vector<torch::jit::TypePtr>& operands);
 

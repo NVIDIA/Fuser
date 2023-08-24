@@ -7,11 +7,8 @@
 // clang-format on
 #include <type_promotion.h>
 
-#include <ir_interface_nodes.h>
+#include <ir/interface_nodes.h>
 #include <ops/arith.h>
-
-#include <ATen/native/TypeProperties.h>
-#include <c10/core/ScalarType.h>
 
 namespace nvfuser {
 
@@ -21,27 +18,31 @@ enum ValueType { Tensor, Scalar, None };
 
 struct OperandType {
   ValueType value_type = ValueType::Tensor;
-  c10::ScalarType scalar_type = c10::ScalarType::Undefined;
+  DataType scalar_type = DataType::Null;
   size_t dim = 0;
 };
 
-c10::ScalarType promoteTypesSkipUndefined(
-    c10::ScalarType a,
-    c10::ScalarType b) {
-  if (a == c10::ScalarType::Undefined) {
+struct ResultTypeState {
+  DataType dimResult = DataType::Null;
+  DataType wrappedResult = DataType::Null;
+  DataType zeroResult = DataType::Null;
+};
+
+DataType promoteTypesSkipUndefined(DataType a, DataType b) {
+  if (a == DataType::Null) {
     return b;
   }
-  if (b == c10::ScalarType::Undefined) {
+  if (b == DataType::Null) {
     return a;
   }
-  return c10::promoteTypes(a, b);
+  return promoteType(a, b);
 }
 
-at::native::ResultTypeState updateResultTypeState(
+ResultTypeState updateResultTypeState(
     OperandType tensor,
-    const at::native::ResultTypeState& in_state) {
-  at::native::ResultTypeState new_state = in_state;
-  c10::ScalarType current = tensor.scalar_type;
+    const ResultTypeState& in_state) {
+  ResultTypeState new_state = in_state;
+  DataType current = tensor.scalar_type;
 
   if (tensor.dim > 0) {
     new_state.dimResult =
@@ -53,22 +54,52 @@ at::native::ResultTypeState updateResultTypeState(
   return new_state;
 }
 
-at::native::ResultTypeState updateResultTypeState(
-    const c10::ScalarType scalar,
-    const at::native::ResultTypeState& in_state) {
-  at::native::ResultTypeState new_state = in_state;
-  c10::ScalarType current = scalar;
-  if (scalar == c10::ScalarType::Half || scalar == c10::ScalarType::BFloat16) {
-    current = c10::typeMetaToScalarType(at::get_default_dtype());
+ResultTypeState updateResultTypeState(
+    const DataType scalar,
+    const ResultTypeState& in_state) {
+  ResultTypeState new_state = in_state;
+  DataType current = scalar;
+  if (scalar == DataType::Half || scalar == DataType::BFloat16) {
+    current = DataType::Float;
   }
   new_state.wrappedResult =
       promoteTypesSkipUndefined(in_state.wrappedResult, current);
   return new_state;
 }
 
+inline DataType combineCategories(DataType higher, DataType lower) {
+  // NOLINTNEXTLINE(bugprone-branch-clone)
+  if (isComplexType(higher)) {
+    return higher;
+  } else if (isComplexType(lower)) {
+    // preserve value type of higher if it is floating type.
+    if (isFloatingPointType(higher)) {
+      return getComplexTypeFromType(higher);
+    }
+    // in case of integral input
+    // lower complex takes precedence.
+    return lower;
+  } else if (isFloatingPointType(higher)) {
+    return higher;
+  }
+  if (higher == DataType::Bool || isFloatingPointType(lower)) {
+    return promoteTypesSkipUndefined(higher, lower);
+  }
+  if (higher != DataType::Null) {
+    return higher;
+  }
+  return lower;
+}
+
+DataType resultType(const ResultTypeState& in_state) {
+  return combineCategories(
+      in_state.dimResult,
+      combineCategories(in_state.zeroResult, in_state.wrappedResult));
+}
+
 // Computes a common dtype using type promotion
-c10::ScalarType computeCommonDtype(const std::vector<OperandType>& operands) {
-  at::native::ResultTypeState state = {};
+DataType computeCommonDtype(const std::vector<OperandType>& operands) {
+  ResultTypeState state = {};
   for (const auto& op : operands) {
     if (op.value_type == ValueType::Tensor) {
       state = updateResultTypeState(op, state);
@@ -76,20 +107,20 @@ c10::ScalarType computeCommonDtype(const std::vector<OperandType>& operands) {
       state = updateResultTypeState(op.scalar_type, state);
     }
   }
-  auto common_dtype = at::native::result_type(state);
-  TORCH_INTERNAL_ASSERT(common_dtype != c10::ScalarType::Undefined);
+  auto common_dtype = resultType(state);
+  TORCH_INTERNAL_ASSERT(common_dtype != DataType::Null);
   return common_dtype;
 }
 
-c10::ScalarType computeTypes(
+DataType computeTypes(
     const TypePromotionConfig& config,
     const std::vector<OperandType>& operands) {
-  auto common_dtype = c10::ScalarType::Undefined;
+  DataType common_dtype = DataType::Null;
 
   bool has_different_input_dtypes = false;
   for (auto& op : operands) {
     if (op.scalar_type != common_dtype) {
-      if (common_dtype == c10::ScalarType::Undefined) {
+      if (common_dtype == DataType::Null) {
         common_dtype = op.scalar_type;
       } else {
         has_different_input_dtypes = true;
@@ -104,15 +135,14 @@ c10::ScalarType computeTypes(
 
   // Promotes common dtype to the default float scalar type, if needed
   if (config.promote_integer_inputs_to_float &&
-      c10::isIntegralType(common_dtype, /*includeBool=*/true)) {
-    common_dtype = c10::get_default_dtype_as_scalartype();
+      (isIntegralType(common_dtype) || isBooleanType(common_dtype))) {
+    common_dtype = DataType::Float;
   }
 
   // Some ops like nextafter are not implemented for non-float types
   if (config.require_full_precision_promoted) {
     TORCH_CHECK(
-        common_dtype == c10::ScalarType::Float ||
-            common_dtype == c10::ScalarType::Double,
+        common_dtype == DataType::Float || common_dtype == DataType::Double,
         "Promoted type must be single or double precision float but found ",
         common_dtype);
   }
@@ -128,12 +158,12 @@ OperandType getValueType(at::TypePtr type) {
     // TODO: Type Inference does not propagate Shape Information
     return {
         ValueType::Tensor,
-        tensor_type->scalarType().value(),
+        aten_to_data_type(tensor_type->scalarType().value()),
         tensor_type->dim().has_value() ? tensor_type->dim().value() : 1};
   } else if (auto scalar_type = tryScalarTypeFromJitType(*type)) {
-    return {ValueType::Scalar, scalar_type.value()};
+    return {ValueType::Scalar, aten_to_data_type(scalar_type.value())};
   } else {
-    return {ValueType::None, c10::ScalarType::Undefined};
+    return {ValueType::None, DataType::Null};
   }
 }
 
@@ -144,18 +174,18 @@ OperandType getValueType(Val* type) {
     auto tensor_view = type->as<TensorView>();
     return {
         ValueType::Tensor,
-        data_type_to_aten(tensor_view->getDataType().value()),
+        tensor_view->getDataType().value(),
         tensor_view->getMaybeRFactorDomain().size()};
   } else if (type->getDataType().has_value()) {
-    return {ValueType::Scalar, data_type_to_aten(type->getDataType().value())};
+    return {ValueType::Scalar, type->getDataType().value()};
   } else {
-    return {ValueType::None, c10::ScalarType::Undefined};
+    return {ValueType::None, DataType::Null};
   }
 }
 
 } // namespace
 
-c10::ScalarType computeTypes(
+DataType computeTypes(
     const TypePromotionConfig& config,
     const std::vector<torch::jit::TypePtr>& operands) {
   std::vector<OperandType> vt_operands;
@@ -176,7 +206,7 @@ DataType computeTypes(
     vt_operands.push_back(getValueType(op));
   }
 
-  auto common_type = aten_to_data_type(computeTypes(config, vt_operands));
+  auto common_type = computeTypes(config, vt_operands);
   // Cast FP16 / BFloat16 to Float
   if (cast_half_to_float &&
       (common_type == DataType::Half || common_type == DataType::BFloat16)) {

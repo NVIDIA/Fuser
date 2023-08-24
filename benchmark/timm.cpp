@@ -7,14 +7,17 @@
 // clang-format on
 #include <executor.h>
 #include <fusion.h>
-#include <ir_all_nodes.h>
-#include <ir_builder.h>
+#include <ir/all_nodes.h>
+#include <ir/builder.h>
 
 #include <scheduler/all_schedulers.h>
 
 #include <benchmark/benchmark.h>
 
 #include <benchmark/utils.h>
+#include <test/utils.h>
+
+using namespace nvfuser;
 
 static void setup_vit_base_patch16_224_bcast7(Fusion* fusion, void* null) {
   FusionGuard fg(fusion);
@@ -23,12 +26,12 @@ static void setup_vit_base_patch16_224_bcast7(Fusion* fusion, void* null) {
   auto t3 = TensorViewBuilder()
                 .shape({-1, -1, 1})
                 .dtype(DataType::Float)
-                .contiguity({true, true, c10::nullopt})
+                .contiguity({true, true, std::nullopt})
                 .build();
   auto t4 = TensorViewBuilder()
                 .shape({-1, -1, 1})
                 .dtype(DataType::Float)
-                .contiguity({true, true, c10::nullopt})
+                .contiguity({true, true, std::nullopt})
                 .build();
   auto t7 = makeContigTensor(3, DataType::Half);
 
@@ -122,22 +125,21 @@ static void setup_vit_base_patch16_224_bcast5(Fusion* fusion, void* null) {
   auto t7 = broadcast(t6, bcast_pattern0);
   auto t8 = add(t4, t7);
   auto t9 = rand_like(t8);
-  auto d34 =
-      sub(IrBuilder::create<Double>(1.0), IrBuilder::create<Double>(0.0));
+  auto d34 = sub(IrBuilder::create<Val>(1.0), IrBuilder::create<Val>(0.0));
   auto t10 = lt(t9, d34);
   auto t11 = castOp(DataType::Float, t10);
   auto t12 = mul(t8, t11);
-  auto b36 = eq(d34, IrBuilder::create<Double>(0.0));
+  auto b36 = eq(d34, IrBuilder::create<Val>(0.0));
   auto d37 = castOp(DataType::Double, b36);
   auto d38 = add(d37, d34);
-  auto d40 = div(IrBuilder::create<Double>(1.0), d38);
+  auto d40 = div(IrBuilder::create<Val>(1.0), d38);
   auto t13 = mul(t12, d40);
   auto t14 = set(t13);
   auto t15 = add(t2, t14);
   auto t16 = set(t15);
   auto t36 = sum(t16, {2});
   auto d151 = castOp(DataType::Double, t2->axis(2)->extent());
-  auto d152 = mul(IrBuilder::create<Double>(1.0), d151);
+  auto d152 = mul(IrBuilder::create<Val>(1.0), d151);
   auto t19 = div(t36, d152);
   auto t22 = broadcast(t19, bcast_pattern1);
   auto t23 = sub(t16, t22);
@@ -147,7 +149,7 @@ static void setup_vit_base_patch16_224_bcast5(Fusion* fusion, void* null) {
   auto d95 = castOp(DataType::Double, t2->axis(2)->extent());
   auto d105 = reciprocal(d95);
   auto t25 = mul(t24, d105);
-  auto t26 = add(t25, IrBuilder::create<Double>(1e-6));
+  auto t26 = add(t25, IrBuilder::create<Val>(1e-6));
   auto t27 = rsqrt(t26);
   auto t28 = mul(t23, t27);
   auto t17 = set(t1);
@@ -278,7 +280,7 @@ static void setup_vit_base_patch16_224_norm_inner3(Fusion* fusion, void* null) {
 
   auto t0 = makeContigTensor(4, DataType::Half);
   fusion->addInput(t0);
-  auto d13 = IrBuilder::create<Double>();
+  auto d13 = IrBuilder::create<Val>(DataType::Double);
   fusion->addInput(d13);
 
   auto t1 = castOp(DataType::Float, t0);
@@ -294,13 +296,13 @@ static void setup_vit_base_patch16_224_norm_inner3(Fusion* fusion, void* null) {
   auto t11 = reciprocal(t10);
   auto t12 = mul(t8, t11);
   auto t13 = rand_like(t12);
-  auto d79 = sub(IrBuilder::create<Double>(1), IrBuilder::create<Double>(0));
+  auto d79 = sub(IrBuilder::create<Val>(1.0), IrBuilder::create<Val>(0.0));
   auto t14 = lt(t13, d79);
   auto t15 = castOp(DataType::Float, t14);
-  auto b81 = eq(d79, IrBuilder::create<Double>(0));
+  auto b81 = eq(d79, IrBuilder::create<Val>(0.0));
   auto d82 = castOp(DataType::Double, b81);
   auto d83 = add(d82, d79);
-  auto d85 = div(IrBuilder::create<Double>(1), d83);
+  auto d85 = div(IrBuilder::create<Val>(1.0), d83);
   auto t16 = mul(t12, t15);
   auto t17 = mul(t16, d85);
   auto t18 = set(t17);
@@ -364,20 +366,20 @@ static void setup_vit_base_patch16_224_bcast_outer6(
   auto t4 = broadcast(t3, {true, true, false});
   auto t5 = add(t1, t4);
   auto t6 = set(t5);
-  auto t7 = mul(t6, IrBuilder::create<Double>(0.707106));
+  auto t7 = mul(t6, IrBuilder::create<Val>(0.707106));
   auto t8 = erf(t7);
-  auto t9 = add(IrBuilder::create<Double>(1), t8);
-  auto t10 = mul(IrBuilder::create<Double>(0.5), t9);
+  auto t9 = add(IrBuilder::create<Val>(1.0), t8);
+  auto t10 = mul(IrBuilder::create<Val>(0.5), t9);
   auto t11 = mul(t6, t10);
   auto t12 = rand_like(t11);
-  auto d66 = sub(IrBuilder::create<Double>(1), IrBuilder::create<Double>(0));
+  auto d66 = sub(IrBuilder::create<Val>(1.0), IrBuilder::create<Val>(0.0));
   auto t13 = lt(t12, d66);
   auto t14 = castOp(DataType::Float, t13);
   auto t15 = mul(t11, t14);
-  auto b68 = eq(d66, IrBuilder::create<Double>(0));
+  auto b68 = eq(d66, IrBuilder::create<Val>(0.0));
   auto d69 = castOp(DataType::Double, b68);
   auto d70 = add(d69, d66);
-  auto d72 = div(IrBuilder::create<Double>(1), d70);
+  auto d72 = div(IrBuilder::create<Val>(1.0), d70);
   auto t16 = mul(t15, d72);
   auto t17 = set(t16);
   auto t18 = castOp(DataType::Half, t17);
@@ -453,20 +455,20 @@ static void setup_vit_base_patch16_224_bcast_inner6(
   auto t4 = broadcast(t3, {false, false, true});
   auto t5 = add(t1, t4);
   auto t6 = set(t5);
-  auto t7 = mul(t6, IrBuilder::create<Double>(0.707106));
+  auto t7 = mul(t6, IrBuilder::create<Val>(0.707106));
   auto t8 = erf(t7);
-  auto t9 = add(IrBuilder::create<Double>(1), t8);
-  auto t10 = mul(IrBuilder::create<Double>(0.5), t9);
+  auto t9 = add(IrBuilder::create<Val>(1.0), t8);
+  auto t10 = mul(IrBuilder::create<Val>(0.5), t9);
   auto t11 = mul(t6, t10);
   auto t12 = rand_like(t11);
-  auto d66 = sub(IrBuilder::create<Double>(1), IrBuilder::create<Double>(0));
+  auto d66 = sub(IrBuilder::create<Val>(1.0), IrBuilder::create<Val>(0.0));
   auto t13 = lt(t12, d66);
   auto t14 = castOp(DataType::Float, t13);
   auto t15 = mul(t11, t14);
-  auto b68 = eq(d66, IrBuilder::create<Double>(0));
+  auto b68 = eq(d66, IrBuilder::create<Val>(0.0));
   auto d69 = castOp(DataType::Double, b68);
   auto d70 = add(d69, d66);
-  auto d72 = div(IrBuilder::create<Double>(1), d70);
+  auto d72 = div(IrBuilder::create<Val>(1.0), d70);
   auto t16 = mul(t15, d72);
   auto t17 = set(t16);
   auto t18 = castOp(DataType::Half, t17);
@@ -545,14 +547,14 @@ static void setup_vit_base_patch16_224_LN_BWD(Fusion* fusion, void* null) {
   auto t5 = TensorViewBuilder()
                 .shape({-1, -1, 1})
                 .dtype(DataType::Float)
-                .contiguity({true, true, c10::nullopt})
+                .contiguity({true, true, std::nullopt})
                 .build();
   fusion->addInput(t5);
 
   auto t6 = TensorViewBuilder()
                 .shape({-1, -1, 1})
                 .dtype(DataType::Float)
-                .contiguity({true, true, c10::nullopt})
+                .contiguity({true, true, std::nullopt})
                 .build();
   fusion->addInput(t6);
 
@@ -601,7 +603,7 @@ static void setup_vit_base_patch16_224_LN_BWD(Fusion* fusion, void* null) {
   auto t29 = castOp(DataType::Float, t0);
   auto t30 = mul(t25, t29);
 
-  auto d33 = IrBuilder::create<Double>();
+  auto d33 = IrBuilder::create<Val>(DataType::Double);
   fusion->addInput(d33);
   auto t31 = mul(t30, d33);
   auto t32 = sum(t31, {0, 1});
@@ -677,7 +679,7 @@ static void nhwc_seresnet152d_transpose65(Fusion* fusion, void* null) {
   fusion->addInput(t9);
   fusion->addInput(t4);
 
-  auto d86 = IrBuilder::create<Double>(0);
+  auto d86 = IrBuilder::create<Val>(0.0);
 
   auto t3 = castOp(DataType::Float, t2);
   auto t6 = castOp(DataType::Float, t5);

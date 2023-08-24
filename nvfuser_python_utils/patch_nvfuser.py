@@ -25,9 +25,9 @@ def remove_nvfuser_python_module(installed_nvfuser_dir):
 
 
 def patch_installation():
-    import importlib
+    from importlib import util
 
-    torch_dir = os.path.dirname(importlib.util.find_spec("torch").origin)
+    torch_dir = os.path.dirname(util.find_spec("torch").origin)
     torch_lib = os.path.join(torch_dir, "lib")
 
     installed_nvfuser_dir = os.path.join(os.path.dirname(torch_dir), "nvfuser")

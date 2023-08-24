@@ -7,8 +7,9 @@
 // clang-format on
 #pragma once
 
-#include <ir_interface_nodes.h>
-#include <ir_utils.h>
+#include <debug.h>
+#include <ir/interface_nodes.h>
+#include <ir/utils.h>
 
 namespace nvfuser {
 
@@ -46,7 +47,7 @@ class TORCH_CUDA_CU_API MaxInfoSpanningTree {
     virtual bool allowC2P(TensorView* from, TensorView* to) = 0;
     virtual bool allowP2C(TensorView* from, TensorView* to) = 0;
     virtual bool allowSibling(TensorView* from, TensorView* to) = 0;
-    virtual ~Selector() {}
+    virtual ~Selector() = default;
   };
 
   // This is the interface to implement the actual propagation
@@ -56,7 +57,7 @@ class TORCH_CUDA_CU_API MaxInfoSpanningTree {
     virtual void propagateC2P(TensorView* from, TensorView* to) = 0;
     virtual void propagateP2C(TensorView* from, TensorView* to) = 0;
     virtual void propagateSibling(TensorView* from, TensorView* to) = 0;
-    virtual ~Propagator() {}
+    virtual ~Propagator() = default;
   };
 
   // This is the interface that specifies the structure of information used to
@@ -77,7 +78,7 @@ class TORCH_CUDA_CU_API MaxInfoSpanningTree {
     // information
     bool operator==(const Information& r) const;
     // just to stop compiler warning
-    virtual ~Information() {}
+    virtual ~Information() = default;
   };
 
  private:
@@ -85,14 +86,17 @@ class TORCH_CUDA_CU_API MaxInfoSpanningTree {
     SIBLING,
     C_AS_P,
     P_AS_C,
+    UNDEFINED,
   };
 
   // This is a helper struct that contains all the information about the next
   // step in the Prim's algorithm
   struct NextHop {
-    NextHopType type;
+    // default initialization for clang-tidy
+    // cppcoreguidelines-pro-type-member-init
+    NextHopType type = NextHopType::UNDEFINED;
     TensorView* from = nullptr;
-    TensorView* to;
+    TensorView* to = nullptr;
 
     NextHop() = default;
     NextHop(NextHopType type_, TensorView* from_, TensorView* to_)
@@ -109,7 +113,9 @@ class TORCH_CUDA_CU_API MaxInfoSpanningTree {
         NextHop n_h,
         std::shared_ptr<Information> info_f,
         std::shared_ptr<Information> info_t)
-        : next_hop(n_h), info_from(info_f), info_to(info_t) {}
+        : next_hop(n_h),
+          info_from(std::move(info_f)),
+          info_to(std::move(info_t)) {}
 
     bool operator<(const NextHopWithInfo& r) const {
       return *info_to < *(r.info_to);
@@ -144,7 +150,7 @@ class TORCH_CUDA_CU_API MaxInfoSpanningTree {
       std::shared_ptr<Information> reference_info,
       Selector* selector = nullptr);
   void traverse(Propagator* propagator);
-  virtual ~MaxInfoSpanningTree() {}
+  virtual ~MaxInfoSpanningTree() = default;
 };
 
 // MaxRootDomainInfoSpanningTree is a subclass of MaxInfoSpanningTree which
@@ -208,15 +214,15 @@ class TORCH_CUDA_CU_API MaxRootDomainInfoSpanningTree
     bool operator<(const Information& r) const override;
   };
 
-  virtual std::shared_ptr<Information> computeInfoC2P(
+  std::shared_ptr<Information> computeInfoC2P(
       TensorView* from,
       TensorView* to,
       std::shared_ptr<Information> from_info) override;
-  virtual std::shared_ptr<Information> computeInfoP2C(
+  std::shared_ptr<Information> computeInfoP2C(
       TensorView* from,
       TensorView* to,
       std::shared_ptr<Information> from_info) override;
-  virtual std::shared_ptr<Information> computeInfoSibling(
+  std::shared_ptr<Information> computeInfoSibling(
       TensorView* from,
       TensorView* to,
       std::shared_ptr<Information> from_info) override;
@@ -255,10 +261,11 @@ class TORCH_CUDA_CU_API SpanningTreePrinter
   std::ostream& stream_;
 
  public:
-  virtual void propagateC2P(TensorView* from, TensorView* to) override;
-  virtual void propagateP2C(TensorView* from, TensorView* to) override;
-  virtual void propagateSibling(TensorView* from, TensorView* to) override;
-  SpanningTreePrinter(std::ostream& stream = std::cout) : stream_(stream) {}
+  void propagateC2P(TensorView* from, TensorView* to) override;
+  void propagateP2C(TensorView* from, TensorView* to) override;
+  void propagateSibling(TensorView* from, TensorView* to) override;
+  SpanningTreePrinter(std::ostream& stream) : stream_(stream) {}
+  SpanningTreePrinter() : SpanningTreePrinter(debug()) {}
 };
 
 // Simple selector for selecting subgraphs to build spanning trees. The selector
@@ -268,9 +275,9 @@ class TORCH_CUDA_CU_API SetSelector : public MaxInfoSpanningTree::Selector {
   std::unordered_set<TensorView*> selected_;
 
  public:
-  virtual bool allowC2P(TensorView* from, TensorView* to) override;
-  virtual bool allowP2C(TensorView* from, TensorView* to) override;
-  virtual bool allowSibling(TensorView* from, TensorView* to) override;
+  bool allowC2P(TensorView* from, TensorView* to) override;
+  bool allowP2C(TensorView* from, TensorView* to) override;
+  bool allowSibling(TensorView* from, TensorView* to) override;
 
   SetSelector(std::unordered_set<TensorView*> selected)
       : selected_(std::move(selected)) {}
@@ -278,6 +285,26 @@ class TORCH_CUDA_CU_API SetSelector : public MaxInfoSpanningTree::Selector {
   const std::unordered_set<TensorView*>& selected() const {
     return selected_;
   }
+};
+
+// Simple selector to allow different parallel patterns in the fusion.
+// The propagation is blocked at boundaryNodesSet.
+// For P2C forward propagate, disable propagation to tensorViews in
+// boundaryNodesSet. For C2P backward propagate, disable propagation from
+// tensorViews in boundaryNodesSet
+struct InternalBoundarySelector : public MaxInfoSpanningTree::Selector {
+  const std::unordered_set<TensorView*>& tvs_;
+  bool allowC2P(TensorView* from, TensorView* to) override {
+    return tvs_.count(from) == 0;
+  };
+  bool allowP2C(TensorView* from, TensorView* to) override {
+    return tvs_.count(to) == 0;
+  };
+  bool allowSibling(TensorView* from, TensorView* to) override {
+    return true;
+  }
+  InternalBoundarySelector(const std::unordered_set<TensorView*>& tvs)
+      : tvs_(tvs) {}
 };
 
 } // namespace nvfuser

@@ -5,11 +5,13 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <device_lower/analysis/bank_conflict.h>
 #include <executor.h>
 #include <fusion.h>
-#include <ir_all_nodes.h>
-#include <ir_utils.h>
+#include <ir/all_nodes.h>
+#include <ir/utils.h>
 #include <ops/all_ops.h>
+#include <optimization/pre_segmenter.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/matmul.h>
 #include <scheduler/matmul_heuristic.h>
@@ -19,18 +21,9 @@
 #include <cuda_runtime.h>
 
 #include <benchmark/utils.h>
+#include <test/utils.h>
 
-bool cudaArchGuardShouldSkip(int required_major, int required_minor) {
-  int capability_major = at::cuda::getCurrentDeviceProperties()->major;
-  int capability_minor = at::cuda::getCurrentDeviceProperties()->minor;
-
-  if (capability_major < required_major ||
-      (capability_major == required_major &&
-       capability_minor < required_minor)) {
-    return true;
-  }
-  return false;
-}
+using namespace nvfuser;
 
 bool hasRequiredSmemSize(size_t required_size) {
   // Only checking device 0
@@ -47,94 +40,21 @@ bool hasRequiredSmemSize(size_t required_size) {
   }
 
 // util to track support matmul operand layout.
-using MatmulLayout = MmaOptions::MmaInputLayout;
-
-C10_DIAGNOSTIC_PUSH_AND_IGNORED_IF_DEFINED("-Wunused-variable")
-static constexpr std::array<MatmulLayout, 3> kAllSupportedLayout = {
-    MatmulLayout::TT,
-    MatmulLayout::NT,
-    MatmulLayout::TN};
-C10_DIAGNOSTIC_POP()
-
-// Generic interface to get matmul op with the given layout.
-TensorView* matmul(TensorView* a, TensorView* b, MatmulLayout layout) {
-  TORCH_CHECK(
-      a->nDims() == 2 && b->nDims() == 2, "only pure matmuls for these tests");
-  TensorView *tv2 = nullptr, *tv0b = nullptr, *tv1b = nullptr;
-  switch (layout) {
-    case MatmulLayout::TT:
-      tv0b = broadcast(a, {false, false, true});
-      tv1b = broadcast(b, {true, false, false});
-      tv2 = fusedMultiplySum(tv0b, tv1b, {1});
-      break;
-    case MatmulLayout::TN:
-      tv0b = broadcast(a, {false, true, false});
-      tv1b = broadcast(b, {true, false, false});
-      tv2 = fusedMultiplySum(tv0b, tv1b, {2});
-      break;
-    case MatmulLayout::NT:
-      tv0b = broadcast(a, {false, false, true});
-      tv1b = broadcast(b, {false, true, false});
-      tv2 = fusedMultiplySum(tv0b, tv1b, {0});
-      break;
-    default:
-      TORCH_CHECK(false, "unsupported data layout.");
-  }
-  return tv2;
-}
-
-// Utility to generate matmul input tensors based on given layout
-at::Tensor atMatmul(at::Tensor a, at::Tensor b, MatmulLayout layout) {
-  switch (layout) {
-    case MatmulLayout::TT:
-      return a.matmul(b);
-    case MatmulLayout::TN:
-      return a.matmul(b.t());
-    case MatmulLayout::NT:
-      return a.t().matmul(b);
-    default:
-      TORCH_CHECK(false, "unsupported data layout.");
-  }
-  return at::Tensor();
-}
-
-// Utility to generate reference results based on given layout
-std::pair<at::Tensor, at::Tensor> fp16MatmulAtInput(
-    int M,
-    int N,
-    int K,
-    MatmulLayout layout) {
-  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
-
-  // Use randint to reduce numerical error so we can easily validate the
-  // correctness of results.
-  switch (layout) {
-    case MatmulLayout::TT:
-      return std::make_pair(
-          at::randint(-3, 3, {M, K}, options).div_(8),
-          at::randint(-3, 3, {K, N}, options).div_(8));
-    case MatmulLayout::TN:
-      return std::make_pair(
-          at::randint(-3, 3, {M, K}, options).div_(8),
-          at::randint(-3, 3, {N, K}, options).div_(8));
-    case MatmulLayout::NT:
-      return std::make_pair(
-          at::randint(-3, 3, {K, M}, options).div_(8),
-          at::randint(-3, 3, {K, N}, options).div_(8));
-    default:
-      TORCH_CHECK(false, "unsupported data layout.");
-  }
-  return std::make_pair(at::Tensor(), at::Tensor());
-}
+using MatmulLayout = MmaOptions::MmaLayout;
 
 // TODO: separate compute and schedule definition once the can schedule
 //  logic and pattern matching is ready.
-void setupMatmul(Fusion* fusion, MatmulLayout layout, MatmulParams params) {
+void setupMatmul(
+    Fusion* fusion,
+    MatmulLayout layout,
+    MatmulParams params,
+    bool turing_or_later // TODO: This is a temporary solution. Remove this!
+) {
   // Only hgemm on the initial setup
   auto a = makeContigTensor(2, DataType::Half);
   auto b = makeContigTensor(2, DataType::Half);
 
-  auto c = matmul(a, b, layout);
+  auto c = matmul(a, b, layout, turing_or_later);
 
   fusion->addInput(a);
   fusion->addInput(b);
@@ -204,51 +124,55 @@ static void SingleMatmulBase(
       benchmark_state.range(1),
       benchmark_state.range(2)};
 
+  // Tensor inputs
+  auto inputs =
+      matmulAtInput(input_mnk.at(0), input_mnk.at(1), input_mnk.at(2), layout);
+  auto expected_output = atMatmul(
+      inputs.first.to(at::kDouble), inputs.second.to(at::kDouble), layout);
+
+  // Architecture
+  auto properties = at::cuda::getDeviceProperties(inputs.first.get_device());
+  bool turing_or_later = properties->major >= 8 ||
+      (properties->major == 7 && properties->minor >= 5);
+
   auto fusion_ptr = std::make_unique<Fusion>();
   auto fusion = fusion_ptr.get();
   FusionGuard fg(fusion);
 
   // Define fusion graph
-  setupMatmul(fusion, layout, params);
+  setupMatmul(fusion, layout, params, turing_or_later);
+
+  optimization::OptimizationPass<optimization::PreSegmenter>::runPass(fusion);
 
   // inputs
   at::manual_seed(0);
 
-  // Tensor inputs
-  auto inputs = fp16MatmulAtInput(
-      input_mnk.at(0), input_mnk.at(1), input_mnk.at(2), layout);
-  auto expected_output = atMatmul(
-      inputs.first.to(at::kDouble), inputs.second.to(at::kDouble), layout);
-
   KernelArgumentHolder args = KernelArgumentHolder::createKernelArgumentHolder(
       {inputs.first, inputs.second});
-
-  // Always use 32b indexing mode for now.
-  TORCH_INTERNAL_ASSERT(args.getIndexMode() == KernelIndexMode::INT32);
 
   // Disable magic zero
   CompileParams cparams;
   cparams.enable_magic_zero = false;
+  // Always use 32b indexing mode for now.
+  cparams.index_type = PrimDataType::Int32;
 
   // Compile kernel
+  auto launch_constraints = LaunchParams();
   FusionExecutor fe;
-  fe.compileFusion(fusion, args, LaunchParams(), cparams);
+  fe.compileFusion(fusion, args, launch_constraints, cparams);
+  if (turing_or_later) {
+    TORCH_CHECK(
+        getBankConflictInfo(fe.kernel(), launch_constraints).empty(),
+        "Shared memory bank conflict not removed.");
+  }
+
+  std::vector<c10::IValue> aten_inputs({inputs.first, inputs.second});
 
   // Warm up run
-  auto outputs = fe.runFusion({inputs.first, inputs.second});
-  fe.setMeasureKernelTimeFlag(true);
+  auto outputs = fe.runFusion(aten_inputs);
   checkMatch(expected_output, outputs.at(0).to(at::kDouble), input_mnk.at(2));
 
-  // Sync everything up before we start
-  for (auto _ : benchmark_state) {
-    clearL2Cache();
-    auto outputs = fe.runFusion({inputs.first, inputs.second});
-    checkMatch(expected_output, outputs.at(0).to(at::kDouble), input_mnk.at(2));
-    benchmark_state.SetIterationTime(fe.kernelTimeMs() / 1000.0);
-  }
-  // Sync everything up before we're finished, don't want to run ahead on the
-  // cpu while benchmarking.
-  cudaDeviceSynchronize();
+  runBenchmarkIterations(benchmark_state, &fe, aten_inputs);
 
   // TODO: FLOPS calculation
 }
@@ -263,8 +187,8 @@ static void EagerModeMatmul(
 
   at::manual_seed(0);
 
-  auto inputs = fp16MatmulAtInput(
-      input_mnk.at(0), input_mnk.at(1), input_mnk.at(2), layout);
+  auto inputs =
+      matmulAtInput(input_mnk.at(0), input_mnk.at(1), input_mnk.at(2), layout);
 
   // warm up run
   auto outputs = atMatmul(inputs.first, inputs.second, layout);
@@ -300,8 +224,7 @@ MatmulParams getMatmulParams(
   gemm_tile.instruction_tile = GemmTile(16, 16, 16);
 
   MatmulParams params;
-  params.mma_op = MmaOptions::MacroType::Ampere_16_16_16;
-  params.layout = layout;
+  params.mma_macro = MmaOptions::MacroType::Ampere_16_16_16;
   params.tile_sizes = gemm_tile;
   params.async_gmem_load_operands = true;
   params.double_buffer_options.double_buffer_smem_write = true;
@@ -408,9 +331,11 @@ static void Nvfuser_Matmul_8warp4stage(
   run(TT_Legacy, MatmulLayout::TT, LegacyMatmulShapes); \
   run(TN_Legacy, MatmulLayout::TN, LegacyMatmulShapes); \
   run(NT_Legacy, MatmulLayout::NT, LegacyMatmulShapes); \
+  run(NN_Legacy, MatmulLayout::NN, LegacyMatmulShapes); \
   run(TT_TIMM, MatmulLayout::TT, TIMMMatmulShapes);     \
   run(TN_TIMM, MatmulLayout::TN, TIMMMatmulShapes);     \
-  run(NT_TIMM, MatmulLayout::NT, TIMMMatmulShapes)
+  run(NT_TIMM, MatmulLayout::NT, TIMMMatmulShapes);     \
+  run(NN_TIMM, MatmulLayout::NN, TIMMMatmulShapes)
 
 // Instantiations:
 #define Nvfuser_4warp3stage_test(layout_label, layout, shapes) \

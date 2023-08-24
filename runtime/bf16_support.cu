@@ -20,6 +20,10 @@ struct __align__(2) __bfloat {
     __x = __float2bfloat(f).__x;
   }
 
+  __device__ uint16_t raw() const {
+    return __x;
+  }
+
  protected:
   unsigned short __x;
 };
@@ -44,7 +48,7 @@ __device__ __inline__ __bfloat __double2bfloat(const double d) {
 #endif
 }
 
-__device__ __inline__ __bfloat __int322bfloat(const int i) {
+__device__ __inline__ __bfloat __int2bfloat(const int i) {
 #if __CUDA_ARCH__ >= 900
   __bfloat val;
   asm("{  cvt.rn.bf16.s32 %0, %1;}\n"
@@ -114,6 +118,22 @@ __device__ __inline__ int64_t __bfloat2int(const __bfloat h) {
 #else
   return static_cast<int64_t>(__bfloat2float(h));
 #endif
+}
+
+__device__ __inline__ void __bfloat2int(const __bfloat h, int& output) {
+  output = __bfloat2int32(h);
+}
+
+__device__ __inline__ void __bfloat2int(const __bfloat h, int64_t& output) {
+  output = __bfloat2int(h);
+}
+
+__device__ __inline__ nvfuser_index_t __bfloat2index(
+    const __bfloat h,
+    bool& output) {
+  nvfuser_index_t result;
+  __bfloat2int(h, result);
+  return result;
 }
 
 __device__ __inline__ bool __bfloat2bool(const __bfloat h) {

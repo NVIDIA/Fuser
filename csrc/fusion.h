@@ -11,9 +11,10 @@
 #include <c10/macros/Export.h>
 #include <c10/util/Exception.h>
 
+#include <debug.h>
 #include <executor_params.h>
-#include <ir_base_nodes.h>
-#include <ir_container.h>
+#include <ir/base_nodes.h>
+#include <ir/container.h>
 #include <iter_visitor.h>
 
 #include <any>
@@ -62,6 +63,8 @@ class SegmentCandidateFinder;
 class SegmentedFusion;
 class KernelArgumentHolder;
 
+class DynamicTransformConcretizationInfo;
+
 //! Fusion Guard is our "context manager". It holds the actrive fusion and
 //! allows it to be accessed anywhere through FusionGuard::getCurFusion()
 class TORCH_CUDA_CU_API FusionGuard {
@@ -98,7 +101,7 @@ class TORCH_CUDA_CU_API Fusion : public IrContainer {
   Fusion& operator=(const Fusion& other);
   Fusion& operator=(Fusion&& other) noexcept;
 
-  ~Fusion();
+  ~Fusion() override;
 
   friend void swap(Fusion& a, Fusion& b) noexcept;
 
@@ -131,9 +134,12 @@ class TORCH_CUDA_CU_API Fusion : public IrContainer {
   void validateInputs();
 
   //! Print this fusion to an output stream
-  std::ostream& print(
-      std::ostream& os = std::cout,
-      bool include_tensor_transforms = false);
+  std::ostream& print(std::ostream& os, bool include_tensor_transforms = true);
+
+  //! Print to default debugging output stream
+  std::ostream& print() {
+    return print(debug());
+  }
 
   //! Print Arith exprs
   //! \param from_outputs_only Only print exprs reachable from outputs
@@ -312,7 +318,7 @@ class TORCH_CUDA_CU_API Fusion : public IrContainer {
   using CloneFn = std::function<std::any(IrCloner&, std::any)>;
 
   inline size_t manage(std::any data, CloneFn clone) {
-    managed_data_.push_back(std::make_pair(data, clone));
+    managed_data_.emplace_back(data, clone);
     return managed_data_.size() - 1;
   }
 
@@ -346,13 +352,59 @@ class TORCH_CUDA_CU_API Fusion : public IrContainer {
     return std::any_cast<T&>(managed_named_data_.at(key).first);
   }
 
+  //! Try to get managed data by index, checking that we have an entry for it,
+  //! and that the entry has not been reset (see stopManaging).
+  template <typename T>
+  inline std::optional<const T> getManagedSafe(size_t index) const {
+    if (hasManaged(index)) {
+      return std::any_cast<T>(managed_data_.at(index).first);
+    }
+    return std::nullopt;
+  }
+
+  //! Try to get managed data by key, checking that we have an entry for that
+  //! key.
+  template <typename T>
+  inline std::optional<const T> getManagedSafe(std::string key) const {
+    auto it = managed_named_data_.find(key);
+    if (it == managed_named_data_.end()) {
+      return std::nullopt;
+    }
+    return std::any_cast<T>(it->second.first);
+  }
+
+  //! Disables a piece of managed data. After this, there will still be an entry
+  //! but .has_value() will return false. getManagedSafe() should be used in
+  //! cases where the data management may have been stopped.
+  inline void stopManaging(size_t index) {
+    if (!hasManaged(index)) {
+      return;
+    }
+    managed_data_.at(index).first.reset();
+  }
+
+  //! Disables a piece of managed data by removing the entry with this key.
+  //! getManagedSafe() should be used in cases where the data management may
+  //! have been stopped.
+  inline void stopManaging(std::string key) {
+    auto it = managed_named_data_.find(key);
+    if (it == managed_named_data_.end()) {
+      return;
+    }
+    managed_named_data_.erase(it);
+  }
+
   inline bool hasManaged(size_t index) const {
-    return index >= 0 && index < managed_data_.size();
+    return index < managed_data_.size() &&
+        managed_data_[index].first.has_value();
   }
 
   inline bool hasManaged(std::string key) const {
     return managed_named_data_.find(key) != managed_named_data_.end();
   }
+
+  //! True if any of tensors has a symblic axis
+  bool hasDynamicTransform();
 
  protected:
   friend SegmentCandidateFinder;
@@ -366,7 +418,7 @@ class TORCH_CUDA_CU_API Fusion : public IrContainer {
   using IrContainer::registerVal;
 
   //! Register the Val with this fusion
-  virtual void registerVal(Val* val) override;
+  void registerVal(Val* val) override;
 
   //! Register expr with this fusion.
   //! When we register an expression, we want to update the dependency tracking
@@ -374,7 +426,7 @@ class TORCH_CUDA_CU_API Fusion : public IrContainer {
   //! definitions of outputs and register this Expr as the definition. Otherwise
   //! will update definition if not previously set, but will not remove old
   //! definitions.
-  virtual void registerExpr(Expr* expr) override;
+  void registerExpr(Expr* expr) override;
 
   //! Clear Expr's from TV uses that are not required to produce outputs from
   //! inputs. Only other place this is used (other than Fusion) is in

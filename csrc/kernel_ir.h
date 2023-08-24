@@ -7,14 +7,13 @@
 // clang-format on
 #pragma once
 
-#include <ir_all_nodes.h>
-#include <ir_base_nodes.h>
+#include <ir/all_nodes.h>
+#include <ir/base_nodes.h>
 #include <parallel_type_bitmap.h>
 #include <type.h>
 #include <utils.h>
 
 #include <c10/macros/Export.h>
-#include <c10/util/Optional.h>
 
 #include <cstdint>
 #include <string>
@@ -58,11 +57,11 @@ class TORCH_CUDA_CU_API Predicate final : public Val {
       IrBuilderPasskey passkey,
       PredicateType ptype,
       const Expr* expr = nullptr,
-      Bool* thread_pred = nullptr);
+      Val* thread_pred = nullptr);
 
   explicit Predicate(IrBuilderPasskey passkey, ForLoop* unrolled_loop);
 
-  explicit Predicate(IrBuilderPasskey passkey, Bool* value);
+  explicit Predicate(IrBuilderPasskey passkey, Val* value);
 
   std::string toString(int indent_size = 0) const override;
 
@@ -79,7 +78,7 @@ class TORCH_CUDA_CU_API Predicate final : public Val {
     return expr_;
   }
 
-  Bool* thread_pred() const {
+  Val* thread_pred() const {
     TORCH_INTERNAL_ASSERT(
         ptype_ == PredicateType::Inline ||
         ptype_ == PredicateType::Misaligned || ptype_ == PredicateType::Shift ||
@@ -97,14 +96,14 @@ class TORCH_CUDA_CU_API Predicate final : public Val {
     return value_ != nullptr;
   }
 
-  Bool* value() const {
+  Val* value() const {
     TORCH_INTERNAL_ASSERT(
         value_ != nullptr,
         "The conditional expression for this Predicate is invalid.");
     return value_;
   }
 
-  void setValue(Bool* value) {
+  void setValue(Val* value) {
     TORCH_INTERNAL_ASSERT(value != nullptr, "The Bool expression is invalid.");
     value_ = value;
   }
@@ -125,14 +124,14 @@ class TORCH_CUDA_CU_API Predicate final : public Val {
   const Expr* expr_ = nullptr;
 
   // For PredicateCompute::getInlinePredicate
-  Bool* thread_pred_ = nullptr;
+  Val* thread_pred_ = nullptr;
 
   // For ParallelType::Unswitch - UnswitchPredicate::get
   ForLoop* unrolled_loop_ = nullptr;
 
   // The Bool conditional value
   // The value is nullptr until lower_predicate pass
-  Bool* value_ = nullptr;
+  Val* value_ = nullptr;
 };
 
 class TORCH_CUDA_CU_API TensorIndex final : public Val {
@@ -186,7 +185,7 @@ class TORCH_CUDA_CU_API Allocate final : public Expr {
       Val* size,
       bool zero_init = false);
 
-  virtual const char* getOpString() const override {
+  const char* getOpString() const override {
     return "Allocate";
   }
 
@@ -200,7 +199,7 @@ class TORCH_CUDA_CU_API Allocate final : public Expr {
   }
 
   MemoryType memoryType() const {
-    return attribute(1)->as<Attribute<MemoryType>>()->value;
+    return attribute<MemoryType>(1);
   }
 
   //! Total size
@@ -211,21 +210,43 @@ class TORCH_CUDA_CU_API Allocate final : public Expr {
   //! Size of each dimension
   std::vector<Val*> shape() const {
     std::vector<Val*> result;
-    result.reserve(attributes().size() - 4);
-    for (auto i = attributes().begin() + 4; i != attributes().end(); ++i) {
+    result.reserve(attributes().size() - 5);
+    for (auto i = attributes().begin() + 5; i != attributes().end(); ++i) {
       result.emplace_back((*i)->as<Val>());
     }
     return result;
   }
 
   bool zeroInit() const {
-    return attribute(2)->as<Attribute<bool>>()->value;
+    return attribute<bool>(2);
   }
 
   // This alias tracks the next Allocate node in a linked chain of aliases
   // If the alias is nullptr, then the Allocate node uses memory in the kernel
   const Allocate* alias() const {
     return dynamic_cast<const Allocate*>(attribute(3));
+  }
+
+  // Set the address of a shared memory allocation within the dynamic shared
+  // memory array. The addr argument should be a scalar expression describing an
+  // aligned address in bytes.
+  void setAddress(Val* addr) {
+    TORCH_CHECK(
+        memoryType() == MemoryType::Shared,
+        "Allocation address may only be set for shared memory allocations. Memory type is ",
+        memoryType());
+    TORCH_CHECK(
+        address() == nullptr,
+        "Attempted to set address twice for allocation ",
+        toString());
+    attributes_[4] = addr;
+  }
+
+  // This is an integer scalar describing the byte address within the dynamic
+  // shared memory array for a shared memory allocation. For memory types other
+  // than Shared, or before allocation, this function might return nullptr.
+  Val* address() const {
+    return attributeVal(4);
   }
 };
 
@@ -239,7 +260,7 @@ class TORCH_CUDA_CU_API BlockSync final : public Expr {
 
   explicit BlockSync(IrBuilderPasskey passkey, bool war_sync = false);
 
-  virtual const char* getOpString() const override {
+  const char* getOpString() const override {
     return "BlockSync";
   }
 
@@ -250,17 +271,7 @@ class TORCH_CUDA_CU_API BlockSync final : public Expr {
 
   // TODO: war_sync_ is only used for testing/validation purposes.
   bool isWarHazardSync() const {
-    return attribute(0)->as<Attribute<bool>>()->value;
-  }
-
-  //! Sets the flag signifying that this block sync is
-  //!  thread aligned.
-  void convertToAligned() {
-    attribute(1)->as<Attribute<bool>>()->value = true;
-  }
-
-  bool isAligned() const {
-    return attribute(1)->as<Attribute<bool>>()->value;
+    return attribute<bool>(0);
   }
 };
 
@@ -277,7 +288,7 @@ class TORCH_CUDA_CU_API GridSync final : public Expr {
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
-  virtual const char* getOpString() const override {
+  const char* getOpString() const override {
     return "GridSync";
   }
 
@@ -285,7 +296,7 @@ class TORCH_CUDA_CU_API GridSync final : public Expr {
   std::string toInlineString(int indent_size = 0) const override;
 
   ParallelTypeBitmap syncDims() const {
-    return attribute(0)->as<Attribute<ParallelTypeBitmap>>()->value;
+    return attribute<ParallelTypeBitmap>(0);
   }
 
   Val* syncBuffer() const {
@@ -298,11 +309,11 @@ class TORCH_CUDA_CU_API CpAsyncWait final : public Expr {
  public:
   using Expr::Expr;
 
-  explicit CpAsyncWait(IrBuilderPasskey passkey, unsigned int keep_stages = 0);
+  explicit CpAsyncWait(IrBuilderPasskey passkey, int64_t keep_stages = 0);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
-  virtual const char* getOpString() const override {
+  const char* getOpString() const override {
     return "CpAsyncWait";
   }
 
@@ -311,8 +322,8 @@ class TORCH_CUDA_CU_API CpAsyncWait final : public Expr {
 
   //! Returns the remaining number of stages that are not synchronized
   //!  after this op.
-  unsigned int keepStages() const {
-    return attribute(0)->as<Attribute<unsigned int>>()->value;
+  int64_t keepStages() const {
+    return attribute<int64_t>(0);
   }
 };
 
@@ -327,7 +338,7 @@ class TORCH_CUDA_CU_API CpAsyncCommit final : public Expr {
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
-  virtual const char* getOpString() const override {
+  const char* getOpString() const override {
     return "CpAsyncCommit";
   }
 
@@ -345,7 +356,7 @@ class TORCH_CUDA_CU_API InitMagicZero final : public Expr {
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
-  virtual const char* getOpString() const override {
+  const char* getOpString() const override {
     return "InitMagicZero";
   }
 
@@ -363,41 +374,8 @@ class TORCH_CUDA_CU_API UpdateMagicZero final : public Expr {
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
-  virtual const char* getOpString() const override {
+  const char* getOpString() const override {
     return "UpdateMagicZero";
-  }
-
-  std::string toString(int indent_size = 0) const override;
-  std::string toInlineString(int indent_size = 0) const override;
-};
-
-class TORCH_CUDA_CU_API BaseAddress final : public Expr {
- public:
-  using Expr::Expr;
-
-  explicit BaseAddress(IrBuilderPasskey passkey, Val* out, TensorView* tv);
-
-  NVFUSER_DECLARE_CLONE_AND_CREATE
-
-  virtual const char* getOpString() const override {
-    return "BaseAddress";
-  }
-
-  TensorView* tv() const {
-    return input(0)->as<TensorView>();
-  }
-
-  bool sameAs(const Statement* other) const override {
-    auto other_saddr = dynamic_cast<const BaseAddress*>(other);
-    if (other_saddr == nullptr) {
-      return false;
-    }
-    // For shared memory address, we compare pointer of the TVs, instead of
-    // using sameAs to compare TVs. Because, for example, if I have:
-    // T1_s = set(T0)
-    // T2_s = set(T0)
-    // Then T1_s and T2_s has different address although T1_s->sameAs(T2_s)
-    return other_saddr->tv() == tv();
   }
 
   std::string toString(int indent_size = 0) const override;
@@ -528,7 +506,7 @@ class TORCH_CUDA_CU_API ForLoop final : public Expr {
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
-  virtual const char* getOpString() const override {
+  const char* getOpString() const override {
     return "ForLoop";
   }
 
@@ -537,6 +515,10 @@ class TORCH_CUDA_CU_API ForLoop final : public Expr {
 
   Val* index() const {
     return input(0);
+  }
+
+  Val* indexOrStartIfTrivial() const {
+    return isTrivial() ? start() : index();
   }
 
   Val* start() const;
@@ -559,11 +541,11 @@ class TORCH_CUDA_CU_API ForLoop final : public Expr {
 
   // TODO: Return pointer instead of reference to be more consistent
   Scope& body() {
-    return attribute(7)->as<Attribute<Scope>>()->value;
+    return attribute<Scope>(7);
   }
 
   const Scope& body() const {
-    return attribute(7)->as<Attribute<Scope>>()->value;
+    return attribute<Scope>(7);
   }
 
   bool empty() const {
@@ -573,7 +555,7 @@ class TORCH_CUDA_CU_API ForLoop final : public Expr {
   // vectorize is true when the for-loop contains a vectorize set
   // the flag is used to omit the for-loop from the kernel
   bool vectorize() const {
-    return attribute(3)->as<Attribute<bool>>()->value;
+    return attribute<bool>(3);
   }
 
   //! True if unrolled (i.e., "#pragma unroll" is attached)
@@ -581,12 +563,12 @@ class TORCH_CUDA_CU_API ForLoop final : public Expr {
 
   //! True if unroll is required for avoiding stack allocation
   bool isUnrollRequired() const {
-    return attribute(5)->as<Attribute<bool>>()->value;
+    return attribute<bool>(5);
   }
 
   //! Set unrolling required
   void requireUnroll() {
-    attribute(5)->as<Attribute<bool>>()->value = true;
+    attribute<bool>(5) = true;
   }
 
   //! True if no actual for-loop is materialized
@@ -598,12 +580,17 @@ class TORCH_CUDA_CU_API ForLoop final : public Expr {
   //! Returns the stage of a double buffered iterdomain
   //!  that this for loop materializes.
   auto doubleBufferLoopStage() const {
-    return attribute(6)->as<Attribute<DoubleBufferLoopStage>>()->value;
+    return attribute<DoubleBufferLoopStage>(6);
   }
 
  private:
   //! Returns if a loop could be unrolled.
   bool isUnrollable() const;
+
+  //! Not storing this as an attribute because this is only a cache for
+  //! simplifiedStop. We are not interested in keeping this across clone/serde,
+  //! etc.
+  mutable Val* simplified_stop_ = nullptr;
 };
 
 //! IfThenElse provides scoping for an boolean operator. Exprs placed in its
@@ -621,7 +608,7 @@ class TORCH_CUDA_CU_API IfThenElse final : public Expr {
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
-  virtual const char* getOpString() const override {
+  const char* getOpString() const override {
     return "IfThenElse";
   }
 
@@ -629,18 +616,18 @@ class TORCH_CUDA_CU_API IfThenElse final : public Expr {
   std::string toInlineString(int indent_size = 0) const override;
 
   Scope& thenBody() {
-    return attribute(0)->as<Attribute<Scope>>()->value;
+    return attribute<Scope>(0);
   }
   const Scope& thenBody() const {
-    return attribute(0)->as<Attribute<Scope>>()->value;
+    return attribute<Scope>(0);
   }
 
   Scope& elseBody() {
-    return attribute(1)->as<Attribute<Scope>>()->value;
+    return attribute<Scope>(1);
   }
 
   const Scope& elseBody() const {
-    return attribute(1)->as<Attribute<Scope>>()->value;
+    return attribute<Scope>(1);
   }
 
   bool hasElse() const {
@@ -679,7 +666,7 @@ class TORCH_CUDA_CU_API GridReduction final : public ReductionOp {
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
-  virtual const char* getOpString() const override {
+  const char* getOpString() const override {
     return "GridReduction";
   }
 
@@ -708,15 +695,11 @@ class TORCH_CUDA_CU_API GridReduction final : public ReductionOp {
   // use them, the thread predicate is held here separately from
   // Expr::predicate_.
   const ParallelTypeBitmap& threadPredicate() const {
-    return attribute(num_reduction_op_attr + 4)
-        ->as<Attribute<ParallelTypeBitmap>>()
-        ->value;
+    return attribute<ParallelTypeBitmap>(num_reduction_op_attr + 4);
   }
 
   ParallelTypeBitmap& threadPredicate() {
-    return attribute(num_reduction_op_attr + 4)
-        ->as<Attribute<ParallelTypeBitmap>>()
-        ->value;
+    return attribute<ParallelTypeBitmap>(num_reduction_op_attr + 4);
   }
 
   GridReduction* withThreadPredicate(
@@ -747,11 +730,11 @@ class TORCH_CUDA_CU_API GroupedGridReduction final : public GroupedReductionOp {
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
   // number of attributes in the parent class
-  int numGroupedReductionOpAttr() const {
+  size_t numGroupedReductionOpAttr() const {
     return 2 + outputs().size();
   }
 
-  virtual const char* getOpString() const override {
+  const char* getOpString() const override {
     return "GroupedGridReduction";
   }
 
@@ -796,15 +779,11 @@ class TORCH_CUDA_CU_API GroupedGridReduction final : public GroupedReductionOp {
   // use them, the thread predicate is held here separately from
   // Expr::predicate_.
   const ParallelTypeBitmap& threadPredicate() const {
-    return attribute(numGroupedReductionOpAttr() + 4)
-        ->as<Attribute<ParallelTypeBitmap>>()
-        ->value;
+    return attribute<ParallelTypeBitmap>(numGroupedReductionOpAttr() + 4);
   }
 
   ParallelTypeBitmap& threadPredicate() {
-    return attribute(numGroupedReductionOpAttr() + 4)
-        ->as<Attribute<ParallelTypeBitmap>>()
-        ->value;
+    return attribute<ParallelTypeBitmap>(numGroupedReductionOpAttr() + 4);
   }
 
   GroupedGridReduction* withThreadPredicate(
@@ -834,7 +813,7 @@ class TORCH_CUDA_CU_API GridBroadcast final : public Expr {
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
-  virtual const char* getOpString() const override {
+  const char* getOpString() const override {
     return "GridBroadcast";
   }
 
@@ -879,7 +858,7 @@ class TORCH_CUDA_CU_API GridWelford final : public Expr {
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
-  virtual const char* getOpString() const override {
+  const char* getOpString() const override {
     return "GridWelford";
   }
 
@@ -920,10 +899,10 @@ class TORCH_CUDA_CU_API GridWelford final : public Expr {
   // use them, the thread predicate is held here separately from
   // Expr::predicate_.
   const ParallelTypeBitmap& threadPredicate() const {
-    return attribute(7)->as<Attribute<ParallelTypeBitmap>>()->value;
+    return attribute<ParallelTypeBitmap>(7);
   }
   ParallelTypeBitmap& threadPredicate() {
-    return attribute(7)->as<Attribute<ParallelTypeBitmap>>()->value;
+    return attribute<ParallelTypeBitmap>(7);
   }
 
   GridWelford* withThreadPredicate(const ParallelTypeBitmap& thread_predicate) {
@@ -953,11 +932,11 @@ class TORCH_CUDA_CU_API GroupedGridWelford final : public GroupedWelfordOp {
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
-  int numGroupedWelfordOpAttr() const {
+  size_t numGroupedWelfordOpAttr() const {
     return 1 + outputs().size();
   }
 
-  virtual const char* getOpString() const override {
+  const char* getOpString() const override {
     return "GroupedGridWelford";
   }
 
@@ -1002,14 +981,10 @@ class TORCH_CUDA_CU_API GroupedGridWelford final : public GroupedWelfordOp {
   // use them, the thread predicate is held here separately from
   // Expr::predicate_.
   const ParallelTypeBitmap& threadPredicate() const {
-    return attribute(numGroupedWelfordOpAttr() + 4)
-        ->as<Attribute<ParallelTypeBitmap>>()
-        ->value;
+    return attribute<ParallelTypeBitmap>(numGroupedWelfordOpAttr() + 4);
   }
   ParallelTypeBitmap& threadPredicate() {
-    return attribute(numGroupedWelfordOpAttr() + 4)
-        ->as<Attribute<ParallelTypeBitmap>>()
-        ->value;
+    return attribute<ParallelTypeBitmap>(numGroupedWelfordOpAttr() + 4);
   }
 
   GroupedGridWelford* withThreadPredicate(
@@ -1022,7 +997,7 @@ class TORCH_CUDA_CU_API GroupedGridWelford final : public GroupedWelfordOp {
   // True if the outer-optimized kernel should be used
   bool useOuterOpt() const {
     auto offset = numGroupedWelfordOpAttr() + 5 + outputs().size();
-    return attribute(offset)->as<Attribute<bool>>()->value;
+    return attribute<bool>(offset);
   }
 
   //! Return the required smem buffer size
@@ -1042,11 +1017,11 @@ class TORCH_CUDA_CU_API VectorizedWelfordOp final : public WelfordOp {
       const WelfordTriplet& init,
       Val* count,
       Val* reciprocal_of_count,
-      Bool* hoisted_predicate);
+      Val* hoisted_predicate);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
-  virtual const char* getOpString() const override {
+  const char* getOpString() const override {
     return "VectorizedWelfordOp";
   }
 
@@ -1061,8 +1036,8 @@ class TORCH_CUDA_CU_API VectorizedWelfordOp final : public WelfordOp {
   }
 
   //! Predicate of this expression hoisted out of an innermost loop
-  Bool* hoistedPredicate() const {
-    return attributeVal(WelfordOp::kNumAttrs + 2)->as<Bool>();
+  Val* hoistedPredicate() const {
+    return attributeVal(WelfordOp::kNumAttrs + 2);
   }
 };
 
@@ -1099,7 +1074,7 @@ class TORCH_CUDA_CU_API AllocateFusedReduction final : public Expr {
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
-  virtual const char* getOpString() const override {
+  const char* getOpString() const override {
     return "AllocateFusedReduction";
   }
 
@@ -1114,6 +1089,40 @@ class TORCH_CUDA_CU_API AllocateFusedReduction final : public Expr {
   TensorIndex* out() const;
 
   const ParallelTypeBitmap& threadPredicate() const;
+};
+
+class TORCH_CUDA_CU_API GetRNGSeedAndOffsetFromHost : public Expr {
+ public:
+  using Expr::Expr;
+
+  GetRNGSeedAndOffsetFromHost(
+      IrBuilderPasskey,
+      Val* seed_ptr,
+      Val* seed_val,
+      Val* first_offset_ptr,
+      Val* first_offset_val,
+      int64_t offsets = -1);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "GetRNGSeedAndOffsetFromHost";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  const int64_t& offsets() const {
+    return attribute<int64_t>(0);
+  }
+
+  int64_t& offsets() {
+    return attribute<int64_t>(0);
+  }
+
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
 };
 
 } // namespace kir

@@ -11,8 +11,8 @@
 #include <torch/torch.h>
 
 #include <python_frontend/fusion_cache.h>
-#include <test/test_gpu_validator.h>
-#include <test/test_utils.h>
+#include <test/utils.h>
+#include <test/validator.h>
 
 namespace nvfuser {
 using namespace nvfuser::python_frontend;
@@ -66,7 +66,7 @@ TEST_F(NVFuserTest, PyFusionCache_CUDA) {
     // Cache Lookup should not succeed becase no records are in the cache
     try {
       auto undefined_node = fc->queryChildren(root, test_record.get());
-      ASSERT_TRUE(undefined_node == c10::nullopt);
+      ASSERT_TRUE(undefined_node == std::nullopt);
       SUCCEED();
     } catch (const std::exception& e) {
       FAIL() << "Unexpected assert during cache lookup!" << e.what();
@@ -83,7 +83,7 @@ TEST_F(NVFuserTest, PyFusionCache_CUDA) {
 
     try {
       auto child_node = fc->queryChildren(root, test_record.get());
-      ASSERT_FALSE(child_node == c10::nullopt);
+      ASSERT_FALSE(child_node == std::nullopt);
       node = child_node.value();
       SUCCEED();
     } catch (const std::exception& e) {
@@ -114,14 +114,16 @@ TEST_F(NVFuserTest, PyFusionCache_CUDA) {
   {
     std::unique_ptr<RecordFunctor> cached_record(new TensorRecord(
         {State(0, serde::StateType_Tensor)}, {3}, {true}, DataType::Float));
-    std::unique_ptr<RecordFunctor> new_record(
-        new ScalarRecord({State(1, serde::StateType_Scalar)}, DataType::Float));
+    std::unique_ptr<RecordFunctor> new_record(new ScalarRecord(
+        {State(1, serde::StateType_Scalar)},
+        std::monostate{},
+        DataType::Float));
     TrieNode* root = fc->rootTriePtr();
     TrieNode* node = nullptr;
 
     try {
       auto child_node = fc->queryChildren(root, cached_record.get());
-      ASSERT_FALSE(child_node == c10::nullopt);
+      ASSERT_FALSE(child_node == std::nullopt);
       node = child_node.value();
       SUCCEED();
     } catch (const std::exception& e) {
@@ -130,7 +132,7 @@ TEST_F(NVFuserTest, PyFusionCache_CUDA) {
 
     try {
       auto undefined_node = fc->queryChildren(node, new_record.get());
-      ASSERT_TRUE(undefined_node == c10::nullopt);
+      ASSERT_TRUE(undefined_node == std::nullopt);
       SUCCEED();
     } catch (const std::exception& e) {
       FAIL() << "Cache lookup unexpectedly asserted!" << e.what();
@@ -164,7 +166,7 @@ TEST_F(NVFuserTest, PyFusionCache_CUDA) {
 
     try {
       auto child_node = fc->queryChildren(root, test_record.get());
-      ASSERT_FALSE(child_node == c10::nullopt);
+      ASSERT_FALSE(child_node == std::nullopt);
       node = child_node.value();
       SUCCEED();
     } catch (const std::exception& e) {

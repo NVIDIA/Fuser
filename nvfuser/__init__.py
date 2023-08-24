@@ -2,18 +2,34 @@
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 
+import logging
 import os
 import sys
+from typing import Optional, Union  # noqa: F401
 
 import torch
 
 # This is needed when libnvfuser.so is patched and doesn't have the pytorch library location available.
-sys.path.append(os.path.join(os.path.dirname(torch.__file__), "lib"))
+pytorch_lib_dir = os.path.join(os.path.dirname(torch.__file__), "lib")
+if pytorch_lib_dir not in sys.path:
+    sys.path.append(pytorch_lib_dir)
 
 # we need to import _C here to avoid confusing error message generated from failure in this python script ended up with
 # complaining on `_C` not defined for `_C._FusionDefinition`
-from . import _C
+try:
+    from . import _C
+except ImportError as err:
+    logging.getLogger("nvfuser").error(
+        """==== importing nvfuser failed ====
+             try run `patch-nvfuser` if https://github.com/NVIDIA/Fuser is installed via pip package"""
+    )
+    raise err
 from ._C import *  # noqa: F401,F403
+
+from . import contrib  # noqa: F401
+
+
+logger = logging.getLogger("nvfuser")
 
 
 class FusionDefinition(_C._FusionDefinition):
@@ -29,21 +45,64 @@ class FusionDefinition(_C._FusionDefinition):
     def schedule(self):
         raise NotImplementedError("schedule() should be implemented by child class!")
 
-    def execute(self, inputs, **kwargs):
+    def execute(
+        self,
+        inputs,
+        *,
+        device=None,
+        override_user_schedule=False,
+        capture_debug_output=False,
+    ):
         """
         Executes an nvFuser set of kernels for a given Fusion
+
+        The FusionDefinition will be executed on a single CUDA device.
+        Typically, which device to run on is determined by the devices where
+        the input tensors reside. However, if the Fusion is defined such that
+        none of the inputs are tensors, we are not able to infer a device from
+        the inputs. For example, the following FusionDefinition will be unable
+        to unambiguously infer the device of its output:
+
+            with FusionDefinition() as fd:
+                tv1 = fd.ops.full([5])
+                fd.add_output(tv1)
+
+        In that case, we default to selecting the first CUDA
+        device, i.e. `torch.device("cuda:0")`. This method enables selecting an
+        alternative preferred device.
 
         Args:
             inputs (List[Union[Tensor, Scalar]]): A list of inputs to fusion.
 
         Kwargs:
-            override_user_schedule (bool): For a user defined schedule, override with auto-generated schedule (default: False)
+            override_user_schedule (bool): For a user defined schedule,
+                override with auto-generated schedule (default: False)
+            device (Optional[Union[int, str, torch.device]]): This is a hint to run
+                the Fusion on the given CUDA device. This is not typically
+                necessary, as the device is usually inferred from the locations
+                of input tensors. However, for some fusion definitions, no
+                tensors will be input (for example when all tensors are
+                generated with `full` or `uniform` ops). In these cases, we
+                must either tell NVFuser where to run the resulting kernel, or
+                let it default to 0. Note that passing this option providing
+                and input tensors that lie on another device is an error.
+            capture_debug_output (bool): Whether to capture any printed
+                debugging information as a string. If True, the string can be
+                retrieved after execution using :meth:`get_debug_output`. If False,
+                then that method will return None when called.
 
         Returns:
             List[Tensor]
         """
-        override_user_schedule = kwargs.pop("override_user_schedule", False)
         func_based_def = False
+
+        if device is not None:
+            if not isinstance(device, torch.device):
+                device = torch.device(device)
+            assert (
+                device.type == "cuda"
+            ), "If device argument is passed it must be a CUDA device"
+            device = device.index
 
         # if definition is not defined by a context manager, try a child class
         if self.id() is None:
@@ -60,20 +119,75 @@ class FusionDefinition(_C._FusionDefinition):
 
         result = None
         try:
-            result = self._execute(inputs, override_user_schedule)
+            result = self._execute(
+                inputs,
+                override_user_schedule,
+                device=device,
+                capture_debug_output=capture_debug_output,
+            )
         except Exception as err:
-            print("\nError executing nvFuser FusionDefinition:")
-            print(self)
-            raise RuntimeError(err)
+            msg = (
+                f"An error occurred while executing nvFuser FusionDefinition {self.id()}.\n"
+                "If you believe this is a bug or need assistance, please file an issue at "
+                "https://github.com/NVIDIA/Fuser/issues/new\n"
+            )
+            msg += (
+                f"Here's a script to reproduce the error:\n"
+                "```\n"
+                "import torch\n"
+                "from nvfuser import FusionDefinition, DataType\n"
+                f"{self}"
+                "with FusionDefinition() as fd:\n"
+                f"    nvfuser_fusion_id{self.id()}(fd)\n"
+                "\n"
+                "inputs = [\n"
+            )
+            for i in inputs:
+                if isinstance(i, torch.Tensor):
+                    if i.dtype.is_floating_point:
+                        msg += (
+                            f"    torch.randn({tuple(i.size())}, dtype={i.dtype}, device='{i.device}')"
+                            f".as_strided({tuple(i.size())}, {tuple(i.stride())}),\n"
+                        )
+                    else:
+                        msg += (
+                            f"    torch.randint(0, 10, {tuple(i.size())}, dtype={i.dtype}, device='{i.device}')"
+                            f".as_strided({tuple(i.size())}, {tuple(i.stride())}),\n"
+                        )
+                else:
+                    msg += f"    {i},\n"
+            msg += "]"
+            msg += "\nfd.execute(inputs)\n"
+            msg += "```\n"
+            logger.exception(msg)
+            raise
 
         return result
 
-    def from_pytorch(self, tensor):
+    def debug_output(self):
         """
-        Defines an nvfuser input tensor from a pytorch tensor
+        Retrieve string of captured debug information from the previous execution.
+
+        Note that `capture_debug_output=True` must be passed to `execute()` in
+        order to enable capturing this output. Otherwise, this method will
+        return `None`.
+
+        Returns:
+            Optional[String] : the captured debug output for the previous call
+            to execute(). If the `capture_debug_output` argument to that call
+            was False, returns None. Otherwise, returns the output as a string.
+        """
+        return self._debug_output()
+
+    def from_pytorch(self, tensor, static_sizes=False):
+        """
+        Defines an nvfuser input tensor from a pytorch tensor and defaults
+        to definining a symbolic tensor for dynamic shape usage.
 
         Args:
             tensor (torch.Tensor): Input tensor to nvFuser
+            static_sizes (bool)  : Interprets sizes as static rather than
+                                   as symbolic for dynamic shape usage
 
         Returns:
             nvfuser.Tensor
@@ -90,6 +204,7 @@ class FusionDefinition(_C._FusionDefinition):
             sizes=tensor.size(),
             strides=tensor.stride(),
             dtype=torch_dtype_to_nvfuser_dtype(tensor.dtype),
+            static_sizes=static_sizes,
         )
 
     def fusion_ir(self):

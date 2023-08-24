@@ -6,16 +6,395 @@
  */
 // clang-format on
 
+#include <ATen/cuda/CUDAContext.h>
+#include <device_lower/utils.h>
 #include <expr_evaluator.h>
-#include <ir_printer.h>
-#include <lower_utils.h>
+#include <ir/printer.h>
 #include <root_domain_map.h>
 #include <scheduler/mma_utils.h>
 #include <scheduler/utils.h>
-
+#include <variant>
+#include "mma_type.h"
 namespace nvfuser {
 
-namespace mma_util {
+namespace mma_utils {
+
+bool generateSharedMemoryEpilogueHeuristics(
+    const MatMulTileOptions& gemm_tile,
+    const int smem_double_buffer_stage,
+    const MmaDataTypes& data_types,
+    const bool ignore_occupancy_drop) {
+  const auto properties = at::cuda::getCurrentDeviceProperties();
+  const size_t device_smem_limit = properties->sharedMemPerBlockOptin;
+  const size_t shared_memory_overhead = properties->reservedSharedMemPerBlock;
+  const size_t shared_memory_available =
+      device_smem_limit - shared_memory_overhead;
+
+  auto warp_dims = gemm_tile.cta_tile / gemm_tile.warp_tile;
+  const auto threads_per_block =
+      warp_dims.m * warp_dims.n * warp_dims.k * properties->warpSize;
+
+  // see scheduleContiguousVectorLoad
+  const int vector_word = 8;
+  const int round_to_factor = warp_dims.m * warp_dims.n * warp_dims.k *
+      properties->warpSize * vector_word;
+  const int mk = gemm_tile.cta_tile.m * gemm_tile.cta_tile.k;
+  const int nk = gemm_tile.cta_tile.n * gemm_tile.cta_tile.k;
+  const size_t smem_a = (size_t)(ceilDiv(mk, round_to_factor) *
+                                 round_to_factor * smem_double_buffer_stage) *
+      dataTypeSize(data_types[0]);
+  const size_t smem_b = (size_t)(ceilDiv(nk, round_to_factor) *
+                                 round_to_factor * smem_double_buffer_stage) *
+      dataTypeSize(data_types[1]);
+  const size_t smem_c = (size_t)(gemm_tile.cta_tile.m * gemm_tile.cta_tile.n) *
+      dataTypeSize(data_types[2]);
+
+  // shortcut where occupancy change is ignored.
+  if (ignore_occupancy_drop) {
+    return shared_memory_available >= smem_a + smem_b + smem_c;
+  }
+
+  // use additional shared memory for epilogue if occupancy is not changed.
+  // occupancy is estimated using register and shared memory usage.
+  const auto threads_per_sm = getThreadsPerSMGivenRegPerThread(255);
+  const auto blocks_per_sm_by_register = threads_per_sm / threads_per_block;
+  const auto blocks_per_sm_without_smem_epilogue = std::min(
+      shared_memory_available / (smem_a + smem_b),
+      (size_t)blocks_per_sm_by_register);
+  const auto blocks_per_sm_with_smem_epilogue = std::min(
+      shared_memory_available / (smem_a + smem_b + smem_c),
+      (size_t)blocks_per_sm_by_register);
+
+  return blocks_per_sm_with_smem_epilogue ==
+      blocks_per_sm_without_smem_epilogue;
+}
+
+void scheduleWarpTileWithReduction(TensorView* tv, MatMulTileOptions tile) {
+  // Assumes
+  // [M, N, K]
+  auto cta_tile = tile.cta_tile;
+  auto warp_tile = tile.warp_tile;
+  auto instruction_tile = tile.instruction_tile;
+
+  TORCH_CHECK(
+      cta_tile.k % warp_tile.k == 0,
+      "Number of warp on k dimension need to be integer");
+
+  int num_warp_k = cta_tile.k / warp_tile.k;
+
+  mma_utils::checkDimSize(
+      tv, {-3, -2, -1}, {cta_tile.m, cta_tile.n, cta_tile.k});
+
+  if (num_warp_k == 1) {
+    // Non split K over warp case:
+
+    //       -3   -2  -1
+    //[...    M,   N,  K]
+    // Distribute warp tile:
+    tv->split(-3, warp_tile.m);
+    tv->split(-2, warp_tile.n);
+
+    //  -5   -4   -3   -2   -1
+    // [Mwo  Mw  Nwo   Nw   K]
+    tv->split(-4, instruction_tile.m);
+    tv->split(-2, instruction_tile.n);
+    tv->split(-1, instruction_tile.k);
+
+    //   -8  -7 -6 -5 -4 -3  -2 -1
+    // [Mwo Mw Mi Nwo Nw Ni Kwo Ki]
+
+    tv->reorder({{-7, -5}, {-6, -3}, {-5, -6}, {-3, -2}, {-2, -8}, {-8, -7}});
+    //   -8  -7 -6  -5 -4 -3 -2 -1
+    // [Kwo Mwo Nwo Mw Nw Mi Ni Ki]
+  } else {
+    // Split K over warp case:
+    // Main difference is that an additional
+    //  thread dimension needs to be reserved
+    //  for cross warp reduction:
+    //       -3   -2  -1
+    //[...    M,   N,  K]
+    // Distribute warp tile:
+    tv->split(-3, warp_tile.m);
+    tv->split(-2, warp_tile.n);
+    tv->split(-1, warp_tile.k);
+
+    //   -6  -5   -4   -3   -2   -1
+    // [Mwo  Mw  Nwo   Nw   Kwo  Kw]
+    tv->split(-5, instruction_tile.m);
+    tv->split(-3, instruction_tile.n);
+    tv->split(-1, instruction_tile.k);
+
+    //  -9  -8  -7 -6 -5 -4 -3 -2 -1
+    // [Mwo Mw Mi Nwo Nw Ni Kwo Kw Ki]
+
+    tv->reorder({{-8, -6}, {-7, -3}, {-6, -8}, {-4, -2}, {-3, -7}, {-2, -4}});
+    //  -9   -8  -7 -6 -5 -4 -3 -2 -1
+    // [Mwo  Nwo Ko Mw Nw Kw, Mi Ni Ki]
+
+    tv->merge(-9);
+    //  -8  -7 -6 -5 -4   -3 -2 -1
+    // [MNwo Ko Mw Nw Kw, Mi Ni Ki]
+  }
+}
+
+void scheduleWarpTileWithNoReduction(TensorView* tv, MatMulTileOptions tile) {
+  // Assumes
+  // [M, N, K]
+  auto cta_tile = tile.cta_tile;
+  auto warp_tile = tile.warp_tile;
+  auto instruction_tile = tile.instruction_tile;
+
+  mma_utils::checkDimSize(tv, {-2, -1}, {cta_tile.m, cta_tile.n});
+
+  TORCH_CHECK(
+      cta_tile.k % warp_tile.k == 0,
+      "Number of warp on k dimension need to be integer");
+
+  int num_warp_k = cta_tile.k / warp_tile.k;
+
+  //        -2  -1
+  //[...    M,   N]
+
+  // Distribute warp tile:
+  tv->split(-2, warp_tile.m);
+  tv->split(-1, warp_tile.n);
+
+  //  -4   -3   -2   -1
+  // [Mwo  Mw  Nwo   Nw ]
+  tv->split(-3, instruction_tile.m);
+  tv->split(-1, instruction_tile.n);
+
+  //  -6 -5  -4 -3 -2 -1
+  // [Mwo Mw Mi Nwo Nw Ni]
+
+  tv->reorder({{-5, -4}, {-4, -2}, {-3, -5}, {-2, -3}});
+
+  //  -6   -5  -4 -3 -2 -1
+  // [Mwo  Nwo Mw Nw Mi Ni]
+
+  if (num_warp_k != 1) {
+    // The non reduction warps are merged together
+    //  to save one thread dim for cross dim reduce.
+    tv->merge(-6);
+    //  -5  -4 -3 -2 -1
+    // [MNo Mw Nw Mi Ni]
+  }
+}
+
+//! Split the innermost dim to a vectorized load
+void scheduleContiguousVectorLoad(
+    TensorView* tv,
+    MatMulTileOptions tile,
+    int vector_word,
+    bool vectorize) {
+  auto warp_dims = tile.cta_tile / tile.warp_tile;
+  int num_of_thread = warp_dims.m * warp_dims.n * warp_dims.k * 32;
+
+  tv->split(-1, num_of_thread * vector_word);
+  tv->split(-1, vector_word);
+  // [..., thread, vec]
+  // distribute to warp: for tidx
+  tv->split(-2, 32);
+
+  //      -3    -2    -1
+  // [...warp, lane, vec]
+
+  if (warp_dims.k == 1) {
+    //      -4     -3    -2    -1
+    // [...warpM, warpN, lane, vec]
+    tv->split(-3, warp_dims.n);
+  } else {
+    //      -4     -3    -2    -1
+    // [...warpMN, warpR, lane, vec]
+    tv->split(-3, warp_dims.k);
+  }
+
+  if (vectorize) {
+    tv->axis(-1)->parallelize(ParallelType::Vectorize);
+  }
+
+  tv->axis(-2)->parallelize(ParallelType::TIDx);
+  tv->axis(-3)->parallelize(ParallelType::TIDy);
+  tv->axis(-4)->parallelize(ParallelType::TIDz);
+}
+
+void makeTile(TensorView* tv, std::vector<int> tile_sizes) {
+  TORCH_CHECK(
+      tv->getLeafDomain().size() >= tile_sizes.size(),
+      "Tensor dimension less than tile dimension!");
+
+  // Number of inner dimensions we are tiling.
+  const int64_t tile_dimension_size = (int64_t)tile_sizes.size();
+
+  // Split the inner dimensions:
+  for (int64_t idx : c10::irange(tile_dimension_size)) {
+    // Using negative indexing to accomodate potential batching
+    //  dimensions on the further left. Eg.:
+    //  0, 1, 2   ->         -3,-2,-1
+    // [M, N, K]  -> [B0, B1, M, N, K]
+    tv->split((int)(idx - tile_dimension_size), (int)tile_sizes.at(idx));
+  }
+
+  // The transformation happened should look like:
+  //   Before               After
+  // [..., M, N, K] -> [..., Mo, Mi, No, Ni, Ko, Ki]
+
+  // Re-order the tiles so that all the outer tiles are
+  //  on the left of all the inner tiles
+  std::unordered_map<int, int> reorder_map_old_to_new;
+
+  // Number of tiled inner dimensions after we split.
+  const auto split_tile_dimension_size = 2 * tile_dimension_size;
+  for (auto idx : c10::irange(split_tile_dimension_size)) {
+    // We want to reorder as follows:
+    //           Before
+    //
+    // [..., Mo, Mi, No, Ni, Ko, Ki] ->
+    //                 After
+    //      vvv group0 vvv  vvv group1 vvv
+    // [..., Mo, No, Ko,     Mi, Ni, Ki]
+
+    // The index offset within group of current
+    //  iterdomain, with grouping specified above.
+    auto index_within_group = idx / 2;
+
+    // The index of the group the current id belongs
+    //  to, as specified above.
+    auto group_index = idx % 2;
+
+    // Calculate the actual index after reordering
+    auto index_after_reorder =
+        group_index * tile_dimension_size + index_within_group;
+
+    // Add pair {idx_before, idx_after} to re-order map.
+    reorder_map_old_to_new.insert(std::make_pair(
+        idx - split_tile_dimension_size,
+        index_after_reorder - split_tile_dimension_size));
+  }
+
+  // Apply the re-order map to tensor
+  tv->reorder(reorder_map_old_to_new);
+}
+
+namespace {
+
+std::optional<IterDomain*> getMaybeRootIfInnermostTiled(
+    IterDomain* id,
+    const std::unordered_set<IterDomain*>& maybe_rfactor_id_set) {
+  // Root id defaults to an "innermost id".
+  while (id->definition() && !maybe_rfactor_id_set.count(id)) {
+    if (auto split = dynamic_cast<Split*>(id->definition())) {
+      if (id == split->inner()) {
+        id = split->in();
+        continue;
+      }
+    }
+    // Didn't pass the inner most check, return empty.
+    return std::nullopt;
+  }
+
+  return id;
+}
+
+} // namespace
+
+void orderTiledConcreteIdAsRoot(TensorView* tv) {
+  auto ndims = tv->nDims();
+
+  // Keep track of the left most position where we will
+  //  be reordering the axes.
+  auto leftmost_pos = ndims;
+
+  // Pull the root id's of the given tv.
+  std::unordered_set<IterDomain*> maybe_rfactor_id_set{
+      tv->getMaybeRFactorDomain().begin(), tv->getMaybeRFactorDomain().end()};
+
+  // Keep track of leaf positions that is either a reduction
+  //  or a broadcast.
+  // Note: Currently don't really see a case where this function
+  //  should be called on a reduction output tv, but adding them
+  //  here for completeness.
+  std::deque<int> broadcast_or_reduction_pos;
+
+  // Map the root id's to their innermost concrete id's
+  //  on the leaf.
+  std::unordered_map<IterDomain*, int> root_id_to_inner_leaf_pos;
+
+  // Try to re-order inner iterdomains from the innermost
+  //  position backward. This utility only tries to re-order
+  //  inner tiles on the innermost positions, like the resulting
+  //  tensor from makeTile utility.
+  // The re-ordering would first try to decide the inner iterdomains
+  //  we want to re-order. For this we start from the innermost position
+  //  and move back and collect all the iterdomains that we know
+  //  are inner tiles of some root domain or broadcast/reduction domains
+  //  that won't affect the concrete id layout.
+  // The collection process would stop whenever a iterdomain that is
+  //  neither an inner tile nor reduction/broadcast is found, and would
+  //  not re-order any iterdomain beyond that point to keep the
+  //  outer loop structure unchanged.
+  for (int64_t i = static_cast<int64_t>(ndims) - 1; i >= 0; i--) {
+    auto leaf_id = tv->axis((int)i);
+    if (leaf_id->isBroadcast() || leaf_id->isReduction()) {
+      // Register this reduction or broadcast axis
+      //  to reorder.
+      broadcast_or_reduction_pos.push_front((int)i);
+      leftmost_pos = i;
+      continue;
+    }
+    auto maybe_root =
+        getMaybeRootIfInnermostTiled(leaf_id, maybe_rfactor_id_set);
+
+    if (maybe_root.has_value()) {
+      // Found an innermost id, add them to the
+      //  axes to reorder.
+      TORCH_INTERNAL_ASSERT(
+          root_id_to_inner_leaf_pos
+              .insert(std::make_pair(maybe_root.value(), i))
+              .second,
+          "Multiple \"innermost\" id seen for root id :",
+          maybe_root.value()->toString(),
+          " on ",
+          tv->toString(),
+          " very likely an invariant is broken.");
+      leftmost_pos = i;
+    } else {
+      break;
+    }
+  }
+
+  // Calculate the ordering:
+
+  // pointer to the current target postion after
+  //  repordering
+  int current_pos = (int)leftmost_pos;
+  std::unordered_map<int, int> reorder_map_old_to_new;
+
+  // first place all the broadcast and reduction on the left:
+  for (auto original_broadcast_or_reduction_pos : broadcast_or_reduction_pos) {
+    reorder_map_old_to_new[original_broadcast_or_reduction_pos] = current_pos++;
+  }
+
+  // Next put all the innermost leaf id's, we make sure that
+  //  the inner tile ordering follows the corresponding root
+  //  domain ordering by iterating on the root domain and
+  //  find their corresponding inner tile iterdomains from
+  //  the populated root_id_to_inner_leaf_pos.
+  for (auto root_id : tv->getMaybeRFactorDomain()) {
+    auto leaf_id_pos_it = root_id_to_inner_leaf_pos.find(root_id);
+    if (leaf_id_pos_it != root_id_to_inner_leaf_pos.end()) {
+      reorder_map_old_to_new[leaf_id_pos_it->second] = current_pos++;
+    }
+  }
+
+  // Validate that we have processed all inner ids or broadcast/reduction
+  //  ids we have registered.
+  TORCH_INTERNAL_ASSERT(
+      current_pos == (int)ndims, "Inconsistent ordering logic");
+
+  // Apply the new order:
+  tv->reorder(reorder_map_old_to_new);
+}
 
 namespace {
 
@@ -50,11 +429,6 @@ bool canValidateIsInnerDim(
       if (!split->factor()->isConstInt()) {
         return false;
       }
-      if (split->factor()->evaluateInt() < inner_dim_size) {
-        // This might be too restrictive. Would need more
-        //   bookkeeping to relax.
-        return false;
-      }
       leaf = split->in();
     } else if (auto merge = dynamic_cast<Merge*>(expr)) {
       // Might consider just rejecting merge.
@@ -65,9 +439,6 @@ bool canValidateIsInnerDim(
 
       // Only support merging with constant sized dims
       if (!leaf->extent()->isConstInt()) {
-        return false;
-      }
-      if (leaf->extent()->evaluateInt() != inner_dim_size) {
         return false;
       }
       leaf = merge->inner();
@@ -109,7 +480,9 @@ void checkDimSize(
         ":",
         id->extent()->evaluateInt(),
         "vs",
-        expect[axis_index]);
+        expect[axis_index],
+        "\n for tv: ",
+        tv->toString());
   }
 }
 
@@ -214,7 +587,7 @@ std::vector<IterDomain*> getMmaDomains(MmaOp* mma, MmaDimension dimension) {
 
   std::vector<IterDomain*> result;
 
-  for (int id_idx : c10::irange(a_domain.size())) {
+  for (auto id_idx : c10::irange(a_domain.size())) {
     // checks if this id should be included in the result
     bool include_this_id = false;
     bool is_broadcast_in_a = a_domain[id_idx]->isBroadcast();
@@ -414,10 +787,13 @@ bool checkLdMatrixTv(TensorView* tv) {
     TORCH_CHECK(tv_def != nullptr, "ldmatrix : invalid tv");
     is_immediate_output = false;
   }
-  TORCH_CHECK(ir_utils::isLdMatrixOp(tv_def), "ldmatrix : invalid op type");
   TORCH_CHECK(
-      tv->nDims() > 2,
-      "ldmatrix: scheduled tv needs to be more than 2 dimensional");
+      ir_utils::isLdMatrixOp(tv_def),
+      "ldmatrix : invalid op type: ",
+      tv_def->toString());
+  TORCH_CHECK(
+      tv->nDims() >= 2,
+      "ldmatrix: scheduled tv needs to be at least 2 dimensional");
   TORCH_CHECK(
       !tv->axis(-1)->isBroadcast(), "ldmatrix: unsupported scheduled axes");
   TORCH_CHECK(
@@ -504,10 +880,6 @@ void scheduleLdMatrix(TensorView* tv, MmaOptions options) {
   //   if tv is immediate output of ldmatrix
   bool is_immediate_output = checkLdMatrixTv(tv);
 
-  // Decode transposition requirement for turing mma
-  bool transposed = options.operand == MmaOptions::Operand::A
-      ? !isOperandTransposed(options)
-      : isOperandTransposed(options);
   // Check mma option is supported
   TORCH_CHECK(
       options.macro == MmaOptions::MacroType::Ampere_16_8_16 ||
@@ -522,6 +894,9 @@ void scheduleLdMatrix(TensorView* tv, MmaOptions options) {
     auto mma = options.mmaOp();
     auto m_dims = getMmaRootDimensions(tv, mma, MmaDimension::M);
     auto k_dims = getMmaRootDimensions(tv, mma, MmaDimension::K);
+    bool transposed =
+        (options.layout == MmaOptions::MmaLayout::NN ||
+         options.layout == MmaOptions::MmaLayout::NT);
 
     TORCH_INTERNAL_ASSERT(
         canValidateIsInnerDim(m_dims.back(), tv->axis(-2), 16),
@@ -555,6 +930,9 @@ void scheduleLdMatrix(TensorView* tv, MmaOptions options) {
     auto mma = options.mmaOp();
     auto n_dims = getMmaRootDimensions(tv, mma, MmaDimension::N);
     auto k_dims = getMmaRootDimensions(tv, mma, MmaDimension::K);
+    bool transposed =
+        (options.layout == MmaOptions::MmaLayout::NT ||
+         options.layout == MmaOptions::MmaLayout::TT);
 
     TORCH_INTERNAL_ASSERT(
         canValidateIsInnerDim(k_dims.back(), tv->axis(-1), 16),
@@ -591,9 +969,6 @@ void scheduleLdMatrix(TensorView* tv, MmaOptions options) {
 
       // [Warp, K8]
       tv->axis(-2)->parallelize(ParallelType::TIDx);
-      if (is_immediate_output) {
-        tv->axis(-1)->parallelize(ParallelType::Vectorize);
-      }
     } else {
       // validation:
       TORCH_INTERNAL_ASSERT(
@@ -816,17 +1191,17 @@ bool isMmaInitLoop(const kir::Scope& loop_body) {
       if (!isMmaInitLoop(inner_loop->body())) {
         return false;
       }
-    } else if (expr->isA<LoadStoreOp>()) {
-      if (!ir_utils::isTvOp(expr)) {
+    } else if (auto ldst = dynamic_cast<LoadStoreOp*>(expr)) {
+      if (!ir_utils::isTvOp(ldst)) {
         return false;
       }
-      if (auto ti = dynamic_cast<kir::TensorIndex*>(expr->output(0))) {
+      if (auto ti = dynamic_cast<kir::TensorIndex*>(ldst->output(0))) {
         if (!ti->view()->definition() ||
             !ti->view()->definition()->isA<MmaOp>()) {
           return false;
         }
       }
-      if (auto tv = dynamic_cast<TensorView*>(expr->output(0))) {
+      if (auto tv = dynamic_cast<TensorView*>(ldst->output(0))) {
         if (!tv->definition() || !tv->definition()->isA<MmaOp>()) {
           return false;
         }
@@ -851,9 +1226,7 @@ bool isMmaInitLoop(const kir::ForLoop* loop) {
   return isMmaInitLoop(loop->body());
 }
 
-} // namespace mma_util
-
-void scheduler_utils::matmul_utils::canonicalizeMmaTvOrdering(TensorView* tv) {
+void canonicalizeMmaTvOrdering(TensorView* tv) {
   std::unordered_set<IterDomain*> root_id_set{
       tv->getMaybeRFactorDomain().begin(), tv->getMaybeRFactorDomain().end()};
 
@@ -861,13 +1234,13 @@ void scheduler_utils::matmul_utils::canonicalizeMmaTvOrdering(TensorView* tv) {
   TORCH_CHECK(
       mma != nullptr, "canonicalizeMmaTvOrdering : only support mma op output");
 
-  auto m_id_set = mma_util::getMmaDomainSet(mma, mma_util::MmaDimension::M);
-  auto n_id_set = mma_util::getMmaDomainSet(mma, mma_util::MmaDimension::N);
-  auto k_id_set = mma_util::getMmaDomainSet(mma, mma_util::MmaDimension::K);
+  auto m_id_set = mma_utils::getMmaDomainSet(mma, mma_utils::MmaDimension::M);
+  auto n_id_set = mma_utils::getMmaDomainSet(mma, mma_utils::MmaDimension::N);
+  auto k_id_set = mma_utils::getMmaDomainSet(mma, mma_utils::MmaDimension::K);
 
   std::vector<int> batch_pos, prev_reduction_pos, m_pos, n_pos, k_pos;
 
-  auto ndims = tv->nDims();
+  int ndims = (int)tv->nDims();
 
   for (auto idx : c10::irange(ndims)) {
     auto id = tv->axis(idx);
@@ -917,11 +1290,247 @@ void scheduler_utils::matmul_utils::canonicalizeMmaTvOrdering(TensorView* tv) {
 
   // Validate that all of the root ids are covered by
   //  the inserted categories.
-  TORCH_INTERNAL_ASSERT(
-      current_pos == (int)ndims, "Id not completely categorized");
+  TORCH_INTERNAL_ASSERT(current_pos == ndims, "Id not completely categorized");
 
   // Apply the new ordering
   tv->reorder(order_map);
 }
+
+namespace {
+
+inline void resolveTvToMatmulDomainsMapping(
+    DependenciesMap& deps_map,
+    const std::vector<TensorView*>& tensors,
+    IterDomain* m,
+    IterDomain* n,
+    IterDomain* k,
+    const ComputeAtMap& ca_map) {
+  for (const auto tv : tensors) {
+    for (const auto domain : tv->getLeafDomain()) {
+      if (ca_map.areMapped(m, domain, IdMappingMode::EXACT)) {
+        deps_map[tv].push_back(MatmulDomain::M);
+        continue;
+      }
+      if (ca_map.areMapped(n, domain, IdMappingMode::EXACT)) {
+        deps_map[tv].push_back(MatmulDomain::N);
+        continue;
+      }
+      if (ca_map.areMapped(k, domain, IdMappingMode::EXACT)) {
+        deps_map[tv].push_back(MatmulDomain::K);
+        continue;
+      }
+    }
+  }
+}
+
+} // anonymous namespace
+
+ProblemIterDomainsOpt getProblemIterDomains(Fusion* fusion) {
+  auto mma_exprs = ir_utils::getMmaOps(fusion);
+  if (mma_exprs.size() != 1) {
+    std::stringstream ss;
+    ss << "Invalid number of MmaOp instances in fusion, expected 1, got "
+       << mma_exprs.size();
+    return ss.str();
+  }
+  const auto mma_output = mma_exprs.front()->out();
+
+  // NOTE: the iter domains of MMA output should be [...,M,K,N]
+  IterDomain* m = nullptr;
+  IterDomain* n = nullptr;
+  IterDomain* k = nullptr;
+
+  const auto leaf_domains =
+      static_cast<const TensorView*>(mma_output)->getLeafDomain();
+  const auto concrete =
+      TensorDomain::noReductions(TensorDomain::noBroadcasts(leaf_domains));
+  if (concrete.size() < MIN_MATMUL_INPUTS_NUMBER) {
+    std::stringstream ss;
+    ss << "Failed to find the minimum number of MMA input candidates, expected "
+       << MIN_MATMUL_INPUTS_NUMBER << ", got " << concrete.size();
+    return ss.str();
+  }
+
+  // M,N are inner most concrete iter domains
+  m = concrete.rbegin()[1];
+  n = concrete.rbegin()[0];
+
+  // K is a reduction domain, search for the inner most reduction domain
+  for (auto iter_domain = leaf_domains.rbegin();
+       iter_domain != leaf_domains.rend();
+       ++iter_domain) {
+    if ((*iter_domain)->isReduction()) {
+      k = *iter_domain;
+      break;
+    }
+  }
+  TORCH_INTERNAL_ASSERT(k != nullptr, "Failed to find K domain in MMA output");
+
+  return ProblemIterDomains{m, n, k};
+}
+
+MatmulProblemLayoutOpt getMatmulLayout(Fusion* fusion) {
+  ComputeAtMap ca_map(fusion);
+  const auto mma_input_candidates =
+      ir_utils::filterByType<TensorView>(fusion->inputs()).vector();
+  if (mma_input_candidates.empty()) {
+    return {"Failed to find any TV that is fusion input"};
+  }
+
+  const auto mma_output_domains = getProblemIterDomains(fusion);
+  if (!mma_output_domains.isValid()) {
+    return mma_output_domains.getErrorMsg();
+  }
+
+  const auto domains_data = mma_output_domains.getData();
+  const auto m = domains_data[(size_t)MatmulDomain::M];
+  const auto n = domains_data[(size_t)MatmulDomain::N];
+  const auto k = domains_data[(size_t)MatmulDomain::K];
+
+  DependenciesMap deps_map;
+  resolveTvToMatmulDomainsMapping(
+      deps_map, mma_input_candidates, m, n, k, ca_map);
+
+  bool mk_found = false;
+  bool km_found = false;
+  bool nk_found = false;
+  bool kn_found = false;
+  const static DomainsDesc mk_desc = {MatmulDomain::M, MatmulDomain::K};
+  const static DomainsDesc km_desc = {MatmulDomain::K, MatmulDomain::M};
+  const static DomainsDesc nk_desc = {MatmulDomain::N, MatmulDomain::K};
+  const static DomainsDesc kn_desc = {MatmulDomain::K, MatmulDomain::N};
+
+  for (const auto& item : deps_map) {
+    if (item.second == mk_desc) {
+      if (mk_found) {
+        return {
+            "Failed to find MMA input, more than one fusion input has [..., M, ..., K, ...] iter domains"};
+      }
+      mk_found = true;
+    }
+    if (item.second == km_desc) {
+      if (km_found) {
+        return {
+            "Failed to find MMA input, more than one fusion input has [..., K, ..., M, ...] iter domains"};
+      }
+      km_found = true;
+    }
+    if (item.second == nk_desc) {
+      if (nk_found) {
+        return {
+            "Failed to find MMA input, more than one fusion input has [..., N, ..., K, ...] iter domains"};
+      }
+      nk_found = true;
+    }
+    if (item.second == kn_desc) {
+      if (kn_found) {
+        return {
+            "Failed to find MMA input, more than one fusion input has [..., K, ..., N, ...] iter domains"};
+      }
+      kn_found = true;
+    }
+  }
+
+  if ((mk_found && kn_found) && !(km_found || nk_found)) {
+    return MmaOptions::MmaLayout::TT;
+  }
+  if ((km_found && kn_found) && !(mk_found || nk_found)) {
+    return MmaOptions::MmaLayout::NT;
+  }
+  if ((mk_found && nk_found) && !(km_found || kn_found)) {
+    return MmaOptions::MmaLayout::TN;
+  }
+  if ((km_found && nk_found) && !(mk_found || kn_found)) {
+    return MmaOptions::MmaLayout::NN;
+  }
+
+  return {"Failed to decide fusion inputs' data layout."};
+}
+
+RolesMapOpt getTensorsRoles(Fusion* fusion) {
+  ComputeAtMap ca_map(fusion);
+  const auto mma_input_candidates =
+      ir_utils::filterByType<TensorView>(fusion->inputs()).vector();
+  if (mma_input_candidates.empty()) {
+    return {"Failed to find any TV that is fusion input"};
+  }
+  const auto mma_output_candidates =
+      ir_utils::filterByType<TensorView>(fusion->outputs()).vector();
+  if (mma_output_candidates.empty()) {
+    return {"Failed to find any TV that is fusion output"};
+  }
+
+  const auto mma_output_domains = getProblemIterDomains(fusion);
+  if (!mma_output_domains.isValid()) {
+    return mma_output_domains.getErrorMsg();
+  }
+
+  const auto findRolesByDomains = [](const DependenciesMap& deps_map,
+                                     RolesMap& roles_map,
+                                     const bool processing_output) {
+    for (const auto& entry : deps_map) {
+      const auto& domains = entry.second;
+      const auto begin = domains.begin();
+      const auto end = domains.end();
+
+      bool has_m = (end != std::find(begin, end, MatmulDomain::M));
+      bool has_n = (end != std::find(begin, end, MatmulDomain::N));
+      bool has_k = (end != std::find(begin, end, MatmulDomain::K));
+
+      if (!processing_output && has_m && has_k && !has_n) {
+        roles_map[MatmulRole::INPUT_A].push_back(entry.first);
+        continue;
+      }
+      if (!processing_output && has_n && has_k && !has_m) {
+        roles_map[MatmulRole::INPUT_B].push_back(entry.first);
+        continue;
+      }
+      if (!processing_output && has_m && has_n && !has_k) {
+        roles_map[MatmulRole::INPUT_C].push_back(entry.first);
+        continue;
+      }
+      // Bias vectors are assigned to INPUT_C role
+      if (!processing_output && has_m && !has_n && !has_k) {
+        roles_map[MatmulRole::INPUT_C].push_back(entry.first);
+        continue;
+      }
+
+      // NOTE: depending on fusion definition k domain may appear in the output:
+      //  - for mma_output == fusion output k domain is present
+      //  - for mma_output != fusion output (fusion with epilogue) k domain
+      //    is not present
+      if (processing_output && has_m && has_n) {
+        roles_map[MatmulRole::OUTPUT_D].push_back(entry.first);
+        continue;
+      }
+    }
+  };
+
+  const auto domains_data = mma_output_domains.getData();
+  const auto m = domains_data[(size_t)MatmulDomain::M];
+  const auto n = domains_data[(size_t)MatmulDomain::N];
+  const auto k = domains_data[(size_t)MatmulDomain::K];
+
+  DependenciesMap deps_map;
+  RolesMap roles_map;
+
+  // Handle fusion input TensorView objects
+  bool handling_output = false;
+  resolveTvToMatmulDomainsMapping(
+      deps_map, mma_input_candidates, m, n, k, ca_map);
+  findRolesByDomains(deps_map, roles_map, handling_output);
+
+  deps_map.clear();
+
+  // Handle fusion output TensorView objects
+  handling_output = true;
+  resolveTvToMatmulDomainsMapping(
+      deps_map, mma_output_candidates, m, n, k, ca_map);
+  findRolesByDomains(deps_map, roles_map, handling_output);
+
+  return roles_map;
+}
+
+} // namespace mma_utils
 
 } // namespace nvfuser

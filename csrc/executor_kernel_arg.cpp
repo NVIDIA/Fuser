@@ -11,141 +11,24 @@
 #include <kernel_cache.h>
 
 #include <executor_kernel_arg.h>
+#include <instrumentation.h>
+#include <serde/polymorphic_value_serde.h>
 
 namespace nvfuser {
 
-std::string TensorArgAbstract::toString() const {
-  std::stringstream ss;
-  auto rank = getRank();
-  ss << "tensor dtype: " << getDataType() << " sizes: (";
-  for (auto i = 0; i < rank; i++) {
-    ss << getSize(i) << ", ";
-  }
-  ss << ") stride: (";
-  for (auto i = 0; i < rank; i++) {
-    ss << getStride(i) << ", ";
-  }
-  ss << ") pointer: " << getPointer();
-  return ss.str();
-}
-
-namespace {
-
-template <typename T, typename nvfuser_index_t>
-std::unique_ptr<TensorArgAbstract> getTensorArg(int nDims) {
-  switch (nDims) {
-    case (0):
-      return std::make_unique<TensorArg<
-          TensorArgCodegen<T, 0, nvfuser_index_t>,
-          nvfuser_index_t>>();
-    case (1):
-      return std::make_unique<TensorArg<
-          TensorArgCodegen<T, 1, nvfuser_index_t>,
-          nvfuser_index_t>>();
-    case (2):
-      return std::make_unique<TensorArg<
-          TensorArgCodegen<T, 2, nvfuser_index_t>,
-          nvfuser_index_t>>();
-    case (3):
-      return std::make_unique<TensorArg<
-          TensorArgCodegen<T, 3, nvfuser_index_t>,
-          nvfuser_index_t>>();
-    case (4):
-      return std::make_unique<TensorArg<
-          TensorArgCodegen<T, 4, nvfuser_index_t>,
-          nvfuser_index_t>>();
-    case (5):
-      return std::make_unique<TensorArg<
-          TensorArgCodegen<T, 5, nvfuser_index_t>,
-          nvfuser_index_t>>();
-    case (6):
-      return std::make_unique<TensorArg<
-          TensorArgCodegen<T, 6, nvfuser_index_t>,
-          nvfuser_index_t>>();
-    case (7):
-      return std::make_unique<TensorArg<
-          TensorArgCodegen<T, 7, nvfuser_index_t>,
-          nvfuser_index_t>>();
-    case (8):
-      return std::make_unique<TensorArg<
-          TensorArgCodegen<T, 8, nvfuser_index_t>,
-          nvfuser_index_t>>();
-    default:
-      TORCH_INTERNAL_ASSERT(
-          false,
-          "Tried to generate a tensor to run a generated kernel with ",
-          nDims,
-          " dimensions, however only 0 to 8 dimensional tensor are supported.");
-  }
-  return nullptr;
-}
-
-template <typename nvfuser_index_t>
-struct GetTensorArgWithNativeType {
-  template <typename T>
-  std::unique_ptr<TensorArgAbstract> operator()(int ndims) {
-    return getTensorArg<T, nvfuser_index_t>(ndims);
-  };
-};
-
-template <typename INDEX_MODE>
-std::unique_ptr<TensorArgAbstract> getTensorArg(
-    c10::ScalarType dtype,
-    int nDims) {
-  return atenTypeDispatchWithC10Complex(
-      dtype, GetTensorArgWithNativeType<INDEX_MODE>(), nDims);
-}
-
-std::unique_ptr<TensorArgAbstract> getTensorArg(
-    c10::ScalarType dtype,
-    int nDims,
-    KernelIndexMode index_mode) {
-  switch (index_mode) {
-    case KernelIndexMode::INT32:
-      return getTensorArg<int>(dtype, nDims);
-    case KernelIndexMode::INT64:
-      return getTensorArg<int64_t>(dtype, nDims);
-    default:
-      break;
-  }
-
-  TORCH_INTERNAL_ASSERT(false, "unknown index mode");
-  return nullptr;
-}
-
-} // namespace
-
 KernelArgumentHolder KernelArgumentHolder::createKernelArgumentHolder(
     const c10::ArrayRef<c10::IValue>& inputs,
-    const std::optional<KernelIndexMode>& opt_index_mode) {
+    std::optional<int8_t> selected_device) {
   if (inputs.empty()) {
-    // default to int32 on device 0
-    KernelArgumentHolder args(
-        opt_index_mode.has_value() ? opt_index_mode.value()
-                                   : KernelIndexMode::INT32);
-    args.setDeviceIndex(0);
+    // default to device 0
+    KernelArgumentHolder args;
+    args.setDeviceIndex(
+        selected_device.has_value() ? selected_device.value() : (int8_t)0);
     return args;
   }
-  auto device_index = getCommonDeviceCUDA(inputs);
-  auto input_index_mode = collectIndexMode(inputs);
+  auto device_index = getCommonDeviceCUDA(inputs, selected_device);
 
-  auto index_mode = input_index_mode;
-
-  // Use index_mode if given. Make sure it is as large as the index
-  // mode required for the inputs
-  if (opt_index_mode.has_value()) {
-    TORCH_INTERNAL_ASSERT(
-        (opt_index_mode == input_index_mode) ||
-            opt_index_mode == KernelIndexMode::INT64,
-        "Given index mode and argument index mode don't match.",
-        "Index mode: ",
-        opt_index_mode.value(),
-        ", argument index mode: ",
-        input_index_mode);
-    index_mode = opt_index_mode.value();
-  }
-
-  KernelArgumentHolder args(index_mode);
+  KernelArgumentHolder args;
   args.setDeviceIndex(device_index);
   args.push(inputs);
 
@@ -154,102 +37,47 @@ KernelArgumentHolder KernelArgumentHolder::createKernelArgumentHolder(
 
 namespace {
 
-struct MakeCpuScalarTensor {
-  template <typename T>
-  std::unique_ptr<ArgAbstract> operator()(const at::Tensor& tensor) const {
-    return std::make_unique<CpuScalarTensorArg<CpuScalarTensorCodegen<T>>>(
-        tensor.data_ptr<T>()[0]);
+PolymorphicValue IValueToPolymorphicValue(const c10::IValue& val) {
+  if (val.isTensor()) {
+    return val.toTensor();
   }
-};
 
-} // namespace
-
-// Push a tensor to the arguments
-void KernelArgumentHolder::push(const at::Tensor& tensor) {
-  changed_ = true;
-  if (is_cpu_scalar(tensor)) {
-    arguments_.push_back(atenTypeDispatchWithC10Complex(
-        tensor.scalar_type(), MakeCpuScalarTensor(), tensor));
-  } else {
-    int nDims = (int)tensor.ndimension();
-
-    c10::ScalarType dtype = tensor.scalar_type();
-    std::unique_ptr<TensorArgAbstract> tensor_arg =
-        getTensorArg(dtype, nDims, index_mode_);
-    tensor_arg->setTensor(tensor);
-    tensor_arg->setPointer(tensor.data_ptr());
-    tensor_arg->setDataType(aten_to_data_type(dtype));
-    for (const auto i : c10::irange(nDims)) {
-      tensor_arg->setSize(i, tensor.sizes()[i]);
-      tensor_arg->setStride(i, tensor.strides()[i]);
-    }
-    arguments_.push_back(std::move(tensor_arg));
-  }
-}
-
-// Push a scalar or integer to the arguments
-void KernelArgumentHolder::push(const c10::IValue& val) {
-  changed_ = true;
-  TORCH_INTERNAL_ASSERT(
-      val.isScalar(),
-      "Tried to push an arg to run in a fused kernel, expected a scalar but got, ",
-      val);
   auto scalar_val = val.toScalar();
   switch (scalar_val.type()) {
     case c10::ScalarType::ComplexDouble:
-      arguments_.push_back(
-          std::make_unique<ComplexDoubleArg>(scalar_val.toComplexDouble()));
-      return;
+      return (std::complex<double>)scalar_val.toComplexDouble();
     case c10::ScalarType::Double:
-      arguments_.push_back(std::make_unique<DoubleArg>(scalar_val.toDouble()));
-      return;
+      return scalar_val.toDouble();
     case c10::ScalarType::Long:
-      arguments_.push_back(std::make_unique<LongArg>(scalar_val.toLong()));
-      return;
+      return scalar_val.toLong();
     case c10::ScalarType::Bool:
-      arguments_.push_back(std::make_unique<BoolArg>(scalar_val.toBool()));
-      return;
+      return scalar_val.toBool();
     default:
       TORCH_INTERNAL_ASSERT(
-          false,
-          " Tried to create argument to send to a fused kernel, but got an unexpected type.");
+          false, "Can not convert IValue to PolymorphicValue");
   }
-  TORCH_INTERNAL_ASSERT(
-      false,
-      " Tried to create argument to send to a fused kernel, but got a non-scalar type.");
 }
 
-void KernelArgumentHolder::push(int64_t val) {
-  arguments_.push_back(std::make_unique<LongArg>(val));
-}
-
-void KernelArgumentHolder::push(const at::PhiloxCudaState& val) {
-  arguments_.push_back(std::make_unique<PhiloxCudaStateArg>(val));
-}
-
-// Create buffer, flatten arguments into it, align by 8 Bytes, return pointers
-// in the buffer
-void** KernelArgumentHolder::getBuffer() {
-  if (changed_) {
-    void_ptrs_ = std::vector<void*>(arguments_.size(), nullptr);
-    for (const auto i : c10::irange(arguments_.size())) {
-      void_ptrs_[i] = static_cast<void*>(arguments_[i]->arg());
+PrimDataType getSmallestIndexType(const at::Tensor& tensor) {
+  KernelIndexTypeCompute index_type_helper;
+  for (const auto dim_i : c10::irange(tensor.ndimension())) {
+    auto size = tensor.size(dim_i);
+    auto stride = tensor.stride(dim_i);
+    if (index_type_helper.addDim(size, stride) == PrimDataType::Int) {
+      return PrimDataType::Int;
     }
-    changed_ = false;
   }
-  return void_ptrs_.data();
+  return PrimDataType::Int32;
 }
+
+} // namespace
 
 void KernelArgumentHolder::push(const c10::ArrayRef<c10::IValue>& args) {
   // Naive I/O setup, I'm ignoring all the potential transformation (i.e. I/O
   // allocated here from the subgraph could be, and very likely are, different
   // from I/O expected by the generated CUDA kernel.
   for (const auto& arg : args) {
-    if (arg.isTensor()) {
-      push(arg.toTensor());
-    } else {
-      push(arg);
-    }
+    push(IValueToPolymorphicValue(arg));
   }
 }
 
@@ -259,28 +87,246 @@ void KernelArgumentHolder::push(const std::vector<at::Tensor>& tensors) {
   }
 }
 
-void KernelArgumentHolder::push(const ArgAbstract* arg) {
-  changed_ = true;
-  arguments_.emplace_back(arg->copy_unique_ptr());
+void KernelArgumentHolder::erase(const PolymorphicValue* arg_to_delete) {
+  auto iter = std::remove_if(
+      arguments_.begin(), arguments_.end(), [&](const auto& ref) {
+        return arg_to_delete == ref.get();
+      });
+  arguments_.erase(iter, arguments_.end());
 }
 
-void KernelArgumentHolder::swap(int i, const ArgAbstract* arg) {
-  changed_ = true;
-  auto holder = arg->copy_unique_ptr();
-  arguments_[i].swap(holder);
-}
-
-void KernelArgumentHolder::appendPhiloxRNGSeed(uint64_t rand_offset) {
-  at::PhiloxCudaState philox_engine_inputs;
-  auto gen = at::cuda::detail::getDefaultCUDAGenerator();
-  {
-    // See Note [Acquire lock when using random generators]
-    std::lock_guard<std::mutex> lock(gen.mutex());
-    philox_engine_inputs =
-        at::check_generator<at::CUDAGeneratorImpl>(gen)->philox_cuda_state(
-            rand_offset);
+std::string KernelArgumentHolder::toString() const {
+  std::stringstream ss;
+  for (const auto& arg : arguments_) {
+    ss << *arg << "\n";
   }
-  push(philox_engine_inputs);
+  return ss.str();
+}
+
+PrimDataType KernelArgumentHolder::getSmallestIndexTypeOfArguments() const {
+  for (const auto& arg : arguments_) {
+    if (arg->is<at::Tensor>()) {
+      if (getSmallestIndexType(arg->as<at::Tensor>()) == PrimDataType::Int) {
+        return PrimDataType::Int;
+      }
+    }
+  }
+  return PrimDataType::Int32;
+}
+
+void KernelArgumentHolder::pushTensorProxy(
+    const std::vector<int64_t>& sizes,
+    const std::vector<int64_t>& strides,
+    at::ScalarType dtype) {
+  TORCH_INTERNAL_ASSERT(strides.size() == sizes.size());
+  auto meta_tensor = at::detail::empty_strided_meta(
+      sizes,
+      strides,
+      dtype,
+      c10::nullopt,
+      c10::Device(c10::DeviceType::Meta, 0),
+      c10::nullopt);
+  push(meta_tensor);
+}
+
+flatbuffers::Offset<serde::KernelArgumentHolder> KernelArgumentHolder::
+    serialize(flatbuffers::FlatBufferBuilder& builder) const {
+  // See table definitions for KernelArgumentHolder and PolymorphicValue
+  // in serde/fusion_cache.fbs
+
+  using fb_poly_value = flatbuffers::Offset<serde::PolymorphicValue>;
+
+  std::vector<fb_poly_value> arguments_fb;
+  arguments_fb.reserve(arguments_.size());
+  for (auto& arg : arguments_) {
+    arguments_fb.push_back(serde::serializePolymorphicValue(builder, arg));
+  }
+
+  return serde::CreateKernelArgumentHolderDirect(
+      builder, &arguments_fb, device_index_, cache_id_.value_or(SIZE_MAX));
+}
+
+void KernelArgumentHolder::deserialize(
+    const serde::KernelArgumentHolder* buffer) {
+  // See table definitions for KernelArgumentHolder and PolymorphicValue
+  // in serde/fusion_cache.fbs
+
+  TORCH_INTERNAL_ASSERT(
+      buffer != nullptr, "serde::KernelArgumentHolder is nullptr.");
+
+  device_index_ = buffer->device_index();
+  cache_id_ = (buffer->cache_id() != SIZE_MAX)
+      ? std::optional<size_t>(buffer->cache_id())
+      : std::nullopt;
+
+  serde::PolymorphicValueFactory poly_value_factory;
+  for (auto fb_poly_value : *buffer->arguments()) {
+    TORCH_INTERNAL_ASSERT(
+        fb_poly_value != nullptr, "serde::PolymorphicValue is nullptr.");
+    push(poly_value_factory.parse(fb_poly_value->data_type(), fb_poly_value));
+  }
+}
+
+std::vector<std::byte> polymorphicValueToBytes(
+    const PolymorphicValue& argument,
+    const DataType& dtype,
+    PrimDataType index_type) {
+  if (argument.is<Struct>()) {
+    // FUSER_PERF_SCOPE("polymorphicValueToBytes(Struct)");
+    TORCH_INTERNAL_ASSERT(
+        std::holds_alternative<StructType>(dtype.type),
+        "Expected StructType type.");
+    auto dtype_ = std::get<StructType>(dtype.type);
+    auto struct_ = argument.as<Struct>();
+    std::vector<std::byte> buffer;
+    for (const auto& field : dtype_.field_names) {
+      auto field_data = polymorphicValueToBytes(
+          struct_[field],
+          NVFUSER_MAYBE_STAR dtype_.types.at(field),
+          index_type);
+      buffer.insert(buffer.end(), field_data.begin(), field_data.end());
+    }
+    return buffer;
+  } else if (argument.is<at::Tensor>()) {
+    // FUSER_PERF_SCOPE("polymorphicValueToBytes(at::Tensor)");
+    const auto& tensor = argument.as<at::Tensor>();
+    TORCH_INTERNAL_ASSERT(
+        tensor.is_cpu() && tensor.numel() == 1,
+        "Only CPU scalar tensors are supported here. ",
+        "For GPU tensors, please use their metadata.");
+    auto scalar_type = tensor.scalar_type();
+    TORCH_INTERNAL_ASSERT(
+        dtype == aten_to_data_type(scalar_type),
+        "Expected ",
+        dtype,
+        " but got ",
+        aten_to_data_type(scalar_type),
+        ".");
+    std::vector<std::byte> buffer;
+    buffer.reserve(tensor.element_size());
+    buffer.insert(
+        buffer.end(),
+        (std::byte*)tensor.data_ptr(),
+        (std::byte*)tensor.data_ptr() + tensor.element_size());
+    return buffer;
+  } else if (argument.is<Pointer>()) {
+    // FUSER_PERF_SCOPE("polymorphicValueToBytes(Pointer)");
+    TORCH_INTERNAL_ASSERT(
+        std::holds_alternative<PointerType>(dtype.type),
+        "Expected PointerType type.");
+    void* ptr = (void*)argument;
+    std::vector<std::byte> buffer;
+    buffer.reserve(sizeof(void*));
+    buffer.insert(
+        buffer.end(), (std::byte*)&ptr, (std::byte*)&ptr + sizeof(void*));
+    return buffer;
+  } else if (argument.is<std::vector>()) {
+    // FUSER_PERF_SCOPE("polymorphicValueToBytes(std::vector)");
+    TORCH_INTERNAL_ASSERT(
+        std::holds_alternative<ArrayType>(dtype.type),
+        "Expected ArrayType type.");
+    auto dtype_ = std::get<ArrayType>(dtype.type);
+    std::vector<std::byte> buffer;
+    for (const auto& elem : argument.as<std::vector>()) {
+      auto elem_data = polymorphicValueToBytes(elem, *dtype_.type, index_type);
+      buffer.insert(buffer.end(), elem_data.begin(), elem_data.end());
+    }
+    return buffer;
+  } else if (argument.is<int64_t>()) {
+    // FUSER_PERF_SCOPE("polymorphicValueToBytes(int64_t)");
+    int64_t v = argument.as<int64_t>();
+    if (dtype == DataType::Int ||
+        (index_type == PrimDataType::Int && dtype == DataType::Index)) {
+      return std::vector<std::byte>((std::byte*)&v, (std::byte*)&v + 8);
+    } else if (
+        dtype == DataType::Int32 ||
+        (index_type == PrimDataType::Int32 && dtype == DataType::Index)) {
+      int32_t v32 = (int32_t)v;
+      return std::vector<std::byte>((std::byte*)&v32, (std::byte*)&v32 + 4);
+    } else {
+      TORCH_INTERNAL_ASSERT(
+          false,
+          "Cannot convert int64_t to ",
+          dtype,
+          " type: only int32 and int64 are supported.");
+    }
+  } else if (argument.is<bool>()) {
+    // FUSER_PERF_SCOPE("polymorphicValueToBytes(bool)");
+    bool v = argument.as<bool>();
+    TORCH_INTERNAL_ASSERT(dtype == DataType::Bool, "Expected Bool type.");
+    return std::vector<std::byte>((std::byte*)&v, (std::byte*)&v + 1);
+  } else if (argument.is<double>()) {
+    // FUSER_PERF_SCOPE("polymorphicValueToBytes(double)");
+    double v = argument.as<double>();
+    if (dtype == DataType::Double) {
+      return std::vector<std::byte>(
+          (std::byte*)&v, (std::byte*)&v + sizeof(double));
+    } else if (dtype == DataType::Float) {
+      float v32 = (float)v;
+      return std::vector<std::byte>(
+          (std::byte*)&v32, (std::byte*)&v32 + sizeof(float));
+    } else if (dtype == DataType::Half) {
+      at::Half v16 = (at::Half)(float)v;
+      return std::vector<std::byte>(
+          (std::byte*)&v16, (std::byte*)&v16 + sizeof(at::Half));
+    } else if (dtype == DataType::BFloat16) {
+      at::BFloat16 v16 = (at::BFloat16)(float)v;
+      return std::vector<std::byte>(
+          (std::byte*)&v16, (std::byte*)&v16 + sizeof(at::BFloat16));
+    } else {
+      TORCH_INTERNAL_ASSERT(
+          false,
+          "Cannot convert double to ",
+          dtype,
+          " type: only half, bfloat16, float and double are supported.");
+    }
+  } else if (argument.is<std::complex<double>>()) {
+    // FUSER_PERF_SCOPE("polymorphicValueToBytes(std::complex<double>)");
+    std::complex<double> v = argument.as<std::complex<double>>();
+    if (dtype == DataType::ComplexDouble) {
+      return std::vector<std::byte>(
+          (std::byte*)&v, (std::byte*)&v + sizeof(std::complex<double>));
+    } else if (dtype == DataType::ComplexFloat) {
+      std::complex<float> v32 = (std::complex<float>)v;
+      return std::vector<std::byte>(
+          (std::byte*)&v32, (std::byte*)&v32 + sizeof(std::complex<float>));
+    } else {
+      TORCH_INTERNAL_ASSERT(
+          false,
+          "Cannot convert complex double to ",
+          dtype,
+          " type: only complex float and complex double are supported.");
+    }
+  } else if (argument.is<Opaque>()) {
+    // FUSER_PERF_SCOPE("polymorphicValueToBytes(Opaque)");
+    return argument.as<Opaque>().bytes();
+  } else {
+    TORCH_INTERNAL_ASSERT(
+        false,
+        "Cannot convert ",
+        argument.type().name(),
+        " to kernel argument data.");
+  }
+}
+
+std::vector<std::byte> getKernelArgument(
+    ExpressionEvaluator& ee,
+    Val* parameter,
+    PrimDataType index_type) {
+  FUSER_PERF_SCOPE("getKernelArgument");
+  TORCH_INTERNAL_ASSERT(parameter != nullptr);
+  PolymorphicValue pv = ee.evaluate(parameter);
+  if (auto tv = dynamic_cast<TensorView*>(parameter)) {
+    if (tv->isCpuScalar()) {
+      return polymorphicValueToBytes(pv, tv->dtype(), index_type);
+    } else {
+      auto metadata_val = IrBuilder::metadataExpr(tv);
+      auto metadata = ee.evaluate(metadata_val);
+      return polymorphicValueToBytes(
+          metadata, metadata_val->dtype(), index_type);
+    }
+  }
+  return polymorphicValueToBytes(pv, parameter->dtype(), index_type);
 }
 
 } // namespace nvfuser

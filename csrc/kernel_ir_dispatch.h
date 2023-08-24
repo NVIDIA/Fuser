@@ -34,13 +34,13 @@ class Scope;
 // Expr list
 class TORCH_CUDA_CU_API IrVisitor : public OptOutDispatch {
  public:
-  std::vector<Expr*> handle(const std::vector<Expr*>& expr);
+  std::vector<Expr*> handle(const std::vector<Expr*>& exprs);
 
  protected:
   using OptOutDispatch::handle;
 
-  virtual void handle(ForLoop*) override;
-  virtual void handle(IfThenElse*) override;
+  void handle(ForLoop*) override;
+  void handle(IfThenElse*) override;
 
  protected:
   std::vector<ForLoop*> for_loops_;
@@ -52,13 +52,13 @@ class TORCH_CUDA_CU_API IrVisitor : public OptOutDispatch {
 // Const version of IrVisitor
 class TORCH_CUDA_CU_API ConstIrVisitor : public OptOutConstDispatch {
  public:
-  std::vector<const Expr*> handle(const std::vector<const Expr*>& expr);
+  std::vector<const Expr*> handle(const std::vector<const Expr*>& exprs);
 
  protected:
   using OptOutConstDispatch::handle;
 
-  virtual void handle(const ForLoop*) override;
-  virtual void handle(const IfThenElse*) override;
+  void handle(const ForLoop*) override;
+  void handle(const IfThenElse*) override;
 
  protected:
   std::vector<const ForLoop*> for_loops_;
@@ -93,7 +93,7 @@ class TORCH_CUDA_CU_API ConstIrVisitor : public OptOutConstDispatch {
 class ExprMutator : public IrVisitor {
  protected:
   std::vector<Expr*> traverseAndInsert(
-      const std::vector<Expr*>& expr,
+      const std::vector<Expr*>& exprs,
       bool reverse_order = false);
 
   std::vector<Expr*> mutate(bool reverse_order = false);

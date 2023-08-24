@@ -56,7 +56,7 @@ namespace impl {
 // registers than just returing the output. Results would vary
 // depending on compiler versions, but it seems safer to return outputs
 // as a new value.
-template <int NumVals, typename DataType, int BDIMX, int BDIMY>
+template <bool Aligned, int NumVals, typename DataType, int BDIMX, int BDIMY>
 __inline__ __device__ WelfordTriplet<DataType> blockWelfordOuter(
     DataType* inp_avg,
     DataType* inp_var,
@@ -188,7 +188,7 @@ __inline__ __device__ WelfordTriplet<DataType> blockWelfordOuter(
     }
   }
 
-  __syncthreads();
+  block_sync::sync<Aligned>();
 
   // The next step is to let each thread of a warp independently
   // accumulate the partial results on the shared memory
@@ -245,7 +245,7 @@ __inline__ __device__ WelfordTriplet<DataType> blockWelfordOuter(
     }
   }
 
-  __syncthreads();
+  block_sync::sync<Aligned>();
 
   // Nothing to do for warps whose wid is larger than NunVals
   if (wid >= NumVals) {

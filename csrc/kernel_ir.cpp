@@ -5,15 +5,15 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <device_lower/lower2device.h>
+#include <device_lower/utils.h>
 #include <expr_evaluator.h>
 #include <expr_simplifier.h>
-#include <ir_builder.h>
-#include <ir_cloner.h>
-#include <ir_iostream.h>
+#include <ir/builder.h>
+#include <ir/cloner.h>
+#include <ir/iostream.h>
 #include <kernel.h>
 #include <kernel_ir.h>
-#include <lower2device.h>
-#include <lower_utils.h>
 #include <type.h>
 
 #include <iostream>
@@ -33,11 +33,12 @@ Predicate::Predicate(
     IrBuilderPasskey passkey,
     PredicateType ptype,
     const Expr* expr,
-    Bool* thread_pred)
+    Val* thread_pred)
     : Val(passkey, ValType::Predicate, DataType::Bool),
       ptype_(ptype),
       expr_(expr),
       thread_pred_(thread_pred) {
+  TORCH_INTERNAL_ASSERT(passkey.ir_container_ != nullptr);
   TORCH_INTERNAL_ASSERT(
       passkey.ir_container_->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
@@ -49,16 +50,18 @@ Predicate::Predicate(IrBuilderPasskey passkey, ForLoop* unrolled_loop)
     : Val(passkey, ValType::Predicate, DataType::Bool),
       ptype_(PredicateType::Unswitch),
       unrolled_loop_(unrolled_loop) {
+  TORCH_INTERNAL_ASSERT(passkey.ir_container_ != nullptr);
   TORCH_INTERNAL_ASSERT(
       passkey.ir_container_->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
   TORCH_INTERNAL_ASSERT(unrolled_loop != nullptr);
 }
 
-Predicate::Predicate(IrBuilderPasskey passkey, Bool* value)
+Predicate::Predicate(IrBuilderPasskey passkey, Val* value)
     : Val(passkey, ValType::Predicate, DataType::Bool),
       ptype_(PredicateType::Manual),
       value_(value) {
+  TORCH_INTERNAL_ASSERT(passkey.ir_container_ != nullptr);
   TORCH_INTERNAL_ASSERT(
       passkey.ir_container_->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
@@ -85,11 +88,12 @@ TensorIndex::TensorIndex(
     : Val(passkey, ValType::TensorIndex, view->getDataType().value()),
       view_(view),
       index_(index) {
+  TORCH_INTERNAL_ASSERT(passkey.ir_container_ != nullptr);
   TORCH_INTERNAL_ASSERT(
       passkey.ir_container_->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
   TORCH_INTERNAL_ASSERT(
-      isIntegralOrPointerType(index->dtype()),
+      isPointerType(index->dtype()) || index->dtype() == DataType::Index,
       "Cannot index with a value other than an int.");
 }
 
@@ -128,6 +132,7 @@ Allocate::Allocate(
     bool zero_init,
     Allocate* alias)
     : Expr(passkey) {
+  TORCH_INTERNAL_ASSERT(passkey.ir_container_ != nullptr);
   TORCH_INTERNAL_ASSERT(
       passkey.ir_container_->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
@@ -167,12 +172,11 @@ Allocate::Allocate(
 
   addInput(size);
   addAttribute(buffer);
-  addAttribute(IrBuilder::create<Attribute<MemoryType>>(
-      passkey.ir_container_, memory_type));
-  addAttribute(
-      IrBuilder::create<Attribute<bool>>(passkey.ir_container_, zero_init));
-
+  addDataAttribute(memory_type);
+  addDataAttribute(zero_init);
   addAttribute(alias);
+  // Always initialize shared memory address to nullptr
+  addAttribute(nullptr);
 
   for (auto s : shape) {
     addAttribute(s);
@@ -215,13 +219,11 @@ std::string Allocate::toInlineString(int indent_size) const {
 NVFUSER_DEFINE_CLONE_AND_CREATE(Allocate)
 
 BlockSync::BlockSync(IrBuilderPasskey passkey, bool war_sync) : Expr(passkey) {
+  TORCH_INTERNAL_ASSERT(passkey.ir_container_ != nullptr);
   TORCH_INTERNAL_ASSERT(
       passkey.ir_container_->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
-  addAttribute(
-      IrBuilder::create<Attribute<bool>>(passkey.ir_container_, war_sync));
-  addAttribute(
-      IrBuilder::create<Attribute<bool>>(passkey.ir_container_, false));
+  addDataAttribute(war_sync);
 }
 
 std::string BlockSync::toString(int indent_size) const {
@@ -242,8 +244,8 @@ GridSync::GridSync(
     ParallelTypeBitmap sync_dims,
     Val* sync_buffer)
     : Expr(passkey) {
-  addAttribute(IrBuilder::create<Attribute<ParallelTypeBitmap>>(
-      passkey.ir_container_, sync_dims));
+  TORCH_INTERNAL_ASSERT(passkey.ir_container_ != nullptr);
+  addDataAttribute(sync_dims);
   addAttribute(sync_buffer);
 }
 
@@ -260,13 +262,13 @@ std::string GridSync::toInlineString(int indent_size) const {
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(GridSync)
 
-CpAsyncWait::CpAsyncWait(IrBuilderPasskey passkey, unsigned int keep_stages)
+CpAsyncWait::CpAsyncWait(IrBuilderPasskey passkey, int64_t keep_stages)
     : Expr(passkey) {
+  TORCH_INTERNAL_ASSERT(passkey.ir_container_ != nullptr);
   TORCH_INTERNAL_ASSERT(
       passkey.ir_container_->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
-  addAttribute(IrBuilder::create<Attribute<unsigned int>>(
-      passkey.ir_container_, keep_stages));
+  addDataAttribute(keep_stages);
 }
 
 std::string CpAsyncWait::toString(int indent_size) const {
@@ -282,6 +284,7 @@ std::string CpAsyncWait::toInlineString(int indent_size) const {
 NVFUSER_DEFINE_CLONE_AND_CREATE(CpAsyncWait)
 
 CpAsyncCommit::CpAsyncCommit(IrBuilderPasskey passkey) : Expr(passkey) {
+  TORCH_INTERNAL_ASSERT(passkey.ir_container_ != nullptr);
   TORCH_INTERNAL_ASSERT(
       passkey.ir_container_->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
@@ -300,6 +303,7 @@ std::string CpAsyncCommit::toInlineString(int indent_size) const {
 NVFUSER_DEFINE_CLONE_AND_CREATE(CpAsyncCommit)
 
 InitMagicZero::InitMagicZero(IrBuilderPasskey passkey) : Expr(passkey) {
+  TORCH_INTERNAL_ASSERT(passkey.ir_container_ != nullptr);
   TORCH_INTERNAL_ASSERT(
       passkey.ir_container_->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
@@ -307,7 +311,7 @@ InitMagicZero::InitMagicZero(IrBuilderPasskey passkey) : Expr(passkey) {
 
 std::string InitMagicZero::toString(int indent_size) const {
   std::stringstream ss;
-  indent(ss, indent_size) << "NVFUSER_DEFINE_MAGIC_ZERO\n";
+  indent(ss, indent_size) << "NVFUSER_DEFINE_MAGIC_ZERO;\n";
   return ss.str();
 }
 
@@ -318,6 +322,7 @@ std::string InitMagicZero::toInlineString(int indent_size) const {
 NVFUSER_DEFINE_CLONE_AND_CREATE(InitMagicZero)
 
 UpdateMagicZero::UpdateMagicZero(IrBuilderPasskey passkey) : Expr(passkey) {
+  TORCH_INTERNAL_ASSERT(passkey.ir_container_ != nullptr);
   TORCH_INTERNAL_ASSERT(
       passkey.ir_container_->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
@@ -325,7 +330,7 @@ UpdateMagicZero::UpdateMagicZero(IrBuilderPasskey passkey) : Expr(passkey) {
 
 std::string UpdateMagicZero::toString(int indent_size) const {
   std::stringstream ss;
-  indent(ss, indent_size) << "NVFUSER_UPDATE_MAGIC_ZERO\n";
+  indent(ss, indent_size) << "NVFUSER_UPDATE_MAGIC_ZERO;\n";
   return ss.str();
 }
 
@@ -334,29 +339,6 @@ std::string UpdateMagicZero::toInlineString(int indent_size) const {
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(UpdateMagicZero)
-
-BaseAddress::BaseAddress(IrBuilderPasskey passkey, Val* out, TensorView* tv)
-    : Expr(passkey) {
-  TORCH_INTERNAL_ASSERT(
-      passkey.ir_container_->isA<kir::Kernel>(),
-      "IR type only valid for Kernel container.");
-  addOutput(out);
-  addInput(tv);
-}
-
-std::string BaseAddress::toString(int indent_size) const {
-  std::stringstream ss;
-  indent(ss, indent_size) << "BaseAddress(" << ir_utils::varName(tv()) << ")\n";
-  return ss.str();
-}
-
-std::string BaseAddress::toInlineString(int indent_size) const {
-  std::stringstream ss;
-  ss << "BaseAddress(" << ir_utils::varName(tv()) << ")";
-  return ss.str();
-}
-
-NVFUSER_DEFINE_CLONE_AND_CREATE(BaseAddress)
 
 std::string Scope::toString(int indent_size) const {
   std::stringstream ss;
@@ -441,10 +423,11 @@ ForLoop::ForLoop(
     bool unroll_required,
     DoubleBufferLoopStage double_buffer_loop_stage)
     : Expr(passkey) {
+  TORCH_INTERNAL_ASSERT(passkey.ir_container_ != nullptr);
   TORCH_INTERNAL_ASSERT(
       passkey.ir_container_->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
-  TORCH_INTERNAL_ASSERT(index->dtype() == DataType::Int);
+  TORCH_INTERNAL_ASSERT(isIntegralType(index->dtype()));
   addInput(index);
   addInput(iter_domain);
   if (start == nullptr && iter_domain->isThread()) {
@@ -457,20 +440,26 @@ ForLoop::ForLoop(
       step = FusionGuard::getCurFusion()->oneVal();
     }
   }
+  TORCH_INTERNAL_ASSERT(
+      index->dtype() == DataType::Index, "Loop index must be an index type.");
+  TORCH_INTERNAL_ASSERT(
+      start == nullptr || start->dtype() == DataType::Index,
+      "Loop start must be an index type.");
+  TORCH_INTERNAL_ASSERT(
+      step->dtype() == DataType::Index, "Loop step must be an index type.");
+  TORCH_INTERNAL_ASSERT(
+      stop == nullptr || stop->dtype() == DataType::Index,
+      "Loop stop must be an index type.");
   addAttribute(start);
   addAttribute(stop);
   addAttribute(step);
-  addAttribute(
-      IrBuilder::create<Attribute<bool>>(passkey.ir_container_, vectorize));
+  addDataAttribute(vectorize);
   addAttribute(vectorize_shift);
-  addAttribute(IrBuilder::create<Attribute<bool>>(
-      passkey.ir_container_, unroll_required));
-  addAttribute(IrBuilder::create<Attribute<DoubleBufferLoopStage>>(
-      passkey.ir_container_, double_buffer_loop_stage));
+  addDataAttribute(unroll_required);
+  addDataAttribute(double_buffer_loop_stage);
   // Storing IR nodes as Attribute is not safe with IrCloner, but fortunately
   // kernel IR does not need this feature.
-  addAttribute(
-      IrBuilder::create<Attribute<Scope>>(passkey.ir_container_, this));
+  addDataAttribute(Scope(this));
 }
 
 ForLoop::ForLoop(
@@ -592,7 +581,11 @@ Val* ForLoop::step() const {
 }
 
 Val* ForLoop::simplifiedStop() const {
-  return simplifyExpr(stop());
+  if (simplified_stop_ == nullptr) {
+    simplified_stop_ =
+        GpuLower::current()->commonScalarMap().hoistScalar(stop(), {});
+  }
+  return simplified_stop_;
 }
 
 bool ForLoop::isTrivial() const {
@@ -627,7 +620,8 @@ bool ForLoop::isTrivial() const {
   }
 
   // Extent-1 loop: for (int i = 0; i < 1; ++i) {
-  if (start()->isZeroInt() && stop()->isOneInt() && step()->isOneInt()) {
+  if (start()->isZeroInt() && simplifiedStop()->isOneInt() &&
+      step()->isOneInt()) {
     return true;
   }
 
@@ -665,12 +659,12 @@ class ExprFinder : kir::ConstIrVisitor {
 
   using kir::ConstIrVisitor::handle;
 
-  void handle(const Expr* expr) final {
+  void dispatch(const Expr* expr) final {
     if (expr_types_.find(typeid(*expr)) != expr_types_.end()) {
       is_found_ = true;
       return;
     }
-    kir::ConstIrVisitor::handle(expr);
+    kir::ConstIrVisitor::dispatch(expr);
   }
 
  private:
@@ -702,10 +696,8 @@ IfThenElse::IfThenElse(IrBuilderPasskey passkey, Predicate* cond)
   addInput(cond);
   // Storing IR nodes as Attribute is not safe with IrCloner, but fortunately
   // kernel IR does not need this feature.
-  addAttribute(
-      IrBuilder::create<Attribute<Scope>>(passkey.ir_container_, this));
-  addAttribute(
-      IrBuilder::create<Attribute<Scope>>(passkey.ir_container_, this));
+  addDataAttribute(Scope(this));
+  addDataAttribute(Scope(this));
 }
 
 std::string IfThenElse::toString(int indent_size) const {
@@ -737,6 +729,7 @@ GridReduction::GridReduction(
     Val* entrances,
     bool is_allreduce)
     : ReductionOp(passkey, reduction_op_type, init, out, in, is_allreduce) {
+  TORCH_INTERNAL_ASSERT(passkey.ir_container_ != nullptr);
   TORCH_INTERNAL_ASSERT(
       passkey.ir_container_->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
@@ -748,8 +741,7 @@ GridReduction::GridReduction(
   addAttribute(sync_buffer);
   addAttribute(entrance_index);
   addAttribute(entrances);
-  addAttribute(
-      IrBuilder::create<Attribute<ParallelTypeBitmap>>(passkey.ir_container_));
+  addDataAttribute(ParallelTypeBitmap{});
 }
 
 std::string GridReduction::toString(int indent_size) const {
@@ -810,19 +802,19 @@ GroupedGridReduction::GroupedGridReduction(
           std::move(outputs),
           std::move(inputs),
           is_allreduce) {
+  TORCH_INTERNAL_ASSERT(passkey.ir_container_ != nullptr);
   TORCH_INTERNAL_ASSERT(
       passkey.ir_container_->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
   TORCH_INTERNAL_ASSERT(
-      (int)attributes().size() == numGroupedReductionOpAttr(),
+      attributes().size() == numGroupedReductionOpAttr(),
       "The numGroupedReductionOpAttr() does not match the number of attributes GroupedReductionOp has."
       "If you changed GroupedReductionOp, please change numGroupedReductionOpAttr() accordingly.");
   addAttribute(sync_buffer);
   addAttribute(entrance_index);
   addAttribute(entrances);
   addAttribute(buffer_stride);
-  addAttribute(
-      IrBuilder::create<Attribute<ParallelTypeBitmap>>(passkey.ir_container_));
+  addDataAttribute(ParallelTypeBitmap{});
   for (auto buffer : reduction_buffers) {
     addAttribute(buffer);
   }
@@ -876,6 +868,7 @@ GridBroadcast::GridBroadcast(
     Allocate* broadcast_buffer,
     Allocate* sync_buffer)
     : Expr(passkey) {
+  TORCH_INTERNAL_ASSERT(passkey.ir_container_ != nullptr);
   TORCH_INTERNAL_ASSERT(
       passkey.ir_container_->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
@@ -913,6 +906,7 @@ GridWelford::GridWelford(
     Val* entrance_index,
     Val* entrances)
     : Expr(passkey) {
+  TORCH_INTERNAL_ASSERT(passkey.ir_container_ != nullptr);
   TORCH_INTERNAL_ASSERT(
       passkey.ir_container_->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
@@ -923,8 +917,7 @@ GridWelford::GridWelford(
   addAttribute(sync_buffer);
   addAttribute(entrance_index);
   addAttribute(entrances);
-  addAttribute(
-      IrBuilder::create<Attribute<ParallelTypeBitmap>>(passkey.ir_container_));
+  addDataAttribute(ParallelTypeBitmap{});
 }
 
 std::string GridWelford::toString(int indent_size) const {
@@ -1012,19 +1005,19 @@ GroupedGridWelford::GroupedGridWelford(
           std::move(input_vals),
           std::move(init_vals),
           is_allreduce) {
+  TORCH_INTERNAL_ASSERT(passkey.ir_container_ != nullptr);
   TORCH_INTERNAL_ASSERT(
       passkey.ir_container_->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
   TORCH_INTERNAL_ASSERT(
-      (int)attributes().size() == numGroupedWelfordOpAttr(),
+      attributes().size() == numGroupedWelfordOpAttr(),
       "The numGroupedWelfordOpAttr() does not match the number of attributes GroupedWelfordOp has."
       "If you changed GroupedReductionOp, please change numGroupedWelfordOpAttr() accordingly.");
   addAttribute(sync_buffer);
   addAttribute(entrance_index);
   addAttribute(entrances);
   addAttribute(buffer_stride);
-  addAttribute(
-      IrBuilder::create<Attribute<ParallelTypeBitmap>>(passkey.ir_container_));
+  addDataAttribute(ParallelTypeBitmap{});
   TORCH_INTERNAL_ASSERT(
       reduction_buffers[0].size() == reduction_buffers[1].size());
   TORCH_INTERNAL_ASSERT(
@@ -1035,8 +1028,7 @@ GroupedGridWelford::GroupedGridWelford(
     addAttribute(reduction_buffers[2].at(i));
   }
 
-  addAttribute(
-      IrBuilder::create<Attribute<bool>>(passkey.ir_container_, use_outer_opt));
+  addDataAttribute(use_outer_opt);
 }
 
 int GroupedGridWelford::getSmemBufferSize(int bdimx, int bdimy, int bdimz)
@@ -1057,7 +1049,7 @@ int GroupedGridWelford::getSmemBufferSize(int bdimx, int bdimy, int bdimz)
   // GroupCount
 
   int group_count = 1;
-  for (auto axis : out_tv->domain()->domain()) {
+  for (auto axis : out_tv->getLeafDomain()) {
     auto pt = axis->getParallelType();
     if (pt == ParallelType::Group) {
       auto extent_int = axis->extent()->getInt();
@@ -1144,8 +1136,12 @@ VectorizedWelfordOp::VectorizedWelfordOp(
     const WelfordTriplet& init,
     Val* count,
     Val* reciprocal_of_count,
-    Bool* hoisted_predicate)
+    Val* hoisted_predicate)
     : WelfordOp(passkey, output, input, init, false) {
+  TORCH_INTERNAL_ASSERT(passkey.ir_container_ != nullptr);
+  TORCH_INTERNAL_ASSERT(
+      passkey.ir_container_->isA<kir::Kernel>(),
+      "IR type only valid for Kernel container.");
   addAttribute(count);
   addAttribute(reciprocal_of_count);
   addAttribute(hoisted_predicate);
@@ -1157,6 +1153,7 @@ AllocateFusedReduction::AllocateFusedReduction(
     IrBuilderPasskey passkey,
     Expr* grid_expr)
     : Expr(passkey) {
+  TORCH_INTERNAL_ASSERT(passkey.ir_container_ != nullptr);
   TORCH_INTERNAL_ASSERT(
       passkey.ir_container_->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
@@ -1212,6 +1209,37 @@ const ParallelTypeBitmap& AllocateFusedReduction::threadPredicate() const {
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(AllocateFusedReduction)
+
+GetRNGSeedAndOffsetFromHost::GetRNGSeedAndOffsetFromHost(
+    IrBuilderPasskey passkey,
+    Val* seed_ptr,
+    Val* seed_val,
+    Val* first_offset_ptr,
+    Val* first_offset_val,
+    int64_t offsets)
+    : Expr(passkey) {
+  addOutput(seed_ptr);
+  addOutput(seed_val);
+  addOutput(first_offset_ptr);
+  addOutput(first_offset_val);
+  addDataAttribute(offsets);
+}
+
+std::string GetRNGSeedAndOffsetFromHost::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << "(" << output(0)->toString() << ", "
+                          << output(1)->toString() << ", "
+                          << output(2)->toString() << ", "
+                          << output(3)->toString() << ") = " << getOpString()
+                          << "()\n";
+  return ss.str();
+}
+
+std::string GetRNGSeedAndOffsetFromHost::toInlineString(int indent_size) const {
+  return std::string(getOpString()) + "()";
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(GetRNGSeedAndOffsetFromHost)
 
 } // namespace kir
 } // namespace nvfuser

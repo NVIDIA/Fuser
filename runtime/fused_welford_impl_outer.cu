@@ -212,7 +212,7 @@ template <
     int Z_THREAD,
     bool PERSISTENT_REDUCTION,
     bool BROADCAST>
-template <int NumVals, typename DataType, int BDIMX, int BDIMY>
+template <bool Aligned, int NumVals, typename DataType, int BDIMX, int BDIMY>
 __device__ __inline__ void ParallelReduce<
     X_BLOCK,
     Y_BLOCK,
@@ -261,7 +261,7 @@ __device__ __inline__ void ParallelReduce<
           threadIdx, blockDim);
 
   auto per_block_result =
-      impl::blockWelfordOuter<NumVals, DataType, BDIMX, BDIMY>(
+      impl::blockWelfordOuter<Aligned, NumVals, DataType, BDIMX, BDIMY>(
           out_avg, out_var, in_N, shared_buf);
 
   // At this point, threads with tid_in_group == 0 has valid partial
@@ -309,15 +309,15 @@ __device__ __inline__ void ParallelReduce<
       isReduce(X_BLOCK),
       isReduce(Y_BLOCK),
       isReduce(Z_BLOCK),
-      PERSISTENT_REDUCTION>(
-      global_sync_buffer[blockIdx.x], gridDim.y, last_block);
+      PERSISTENT_REDUCTION,
+      Aligned>(global_sync_buffer[blockIdx.x], gridDim.y, last_block);
 
   auto partial_results =
       welfordGroupAccumulateGlobalBuffer<NumVals, DataType, BDIMX, BDIMY>(
           global_buf_avg, global_buf_var, global_buf_N, !flip);
 
   auto per_block_final_result =
-      impl::blockWelfordOuter<NumVals, DataType, BDIMX, BDIMY>(
+      impl::blockWelfordOuter<Aligned, NumVals, DataType, BDIMX, BDIMY>(
           partial_results.avg_.array,
           partial_results.var_.array,
           partial_results.N_,
@@ -361,7 +361,7 @@ template <
     int Z_THREAD,
     bool PERSISTENT_REDUCTION,
     bool BROADCAST>
-template <int NumVals, typename DataType, int BDIMX, int BDIMY>
+template <bool Aligned, int NumVals, typename DataType, int BDIMX, int BDIMY>
 __device__ __inline__ void ParallelReduce<
     X_BLOCK,
     Y_BLOCK,
@@ -392,7 +392,7 @@ __device__ __inline__ void ParallelReduce<
     start_counter = readCycleCounter();
   }
 
-  welfordGroupOuter<NumVals, DataType, BDIMX, BDIMY>(
+  welfordGroupOuter<Aligned, NumVals, DataType, BDIMX, BDIMY>(
       out_avg,
       out_var,
       out_N,

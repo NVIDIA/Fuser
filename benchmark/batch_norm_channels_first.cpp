@@ -5,12 +5,12 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <device_lower/lower2device.h>
 #include <executor.h>
 #include <fusion.h>
-#include <ir_all_nodes.h>
-#include <ir_builder.h>
-#include <ir_utils.h>
-#include <lower2device.h>
+#include <ir/all_nodes.h>
+#include <ir/builder.h>
+#include <ir/utils.h>
 #include <ops/all_ops.h>
 #include <scheduler/all_schedulers.h>
 
@@ -19,6 +19,9 @@
 #include <cuda_runtime.h>
 
 #include <benchmark/utils.h>
+#include <test/utils.h>
+
+using namespace nvfuser;
 
 //------------------------------------------------------------------------------
 
@@ -50,8 +53,8 @@ static void setupBatchNorm(Fusion* fusion, DataType dtype) {
     bias = castOp(DataType::Float, bias);
   }
 
-  auto momentum_ptr = IrBuilder::create<Double>(kMomentum);
-  auto eps_ptr = IrBuilder::create<Double>(kEps);
+  auto momentum_ptr = IrBuilder::create<Val>(kMomentum);
+  auto eps_ptr = IrBuilder::create<Val>(kEps);
 
   auto result = batch_norm(
       input,

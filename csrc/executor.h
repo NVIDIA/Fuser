@@ -6,14 +6,15 @@
  */
 // clang-format on
 #pragma once
+#include <device_lower/lower2device.h>
 #include <executor_params.h>
 #include <executor_utils.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
-#include <ir_all_nodes.h>
-#include <ir_cloner.h>
-#include <ir_printer.h>
-#include <lower2device.h>
+#include <ir/all_nodes.h>
+#include <ir/cloner.h>
+#include <ir/printer.h>
+#include <serde/fusion_cache_generated.h>
 #include <utils.h>
 
 #include <c10/core/DeviceType.h>
@@ -23,27 +24,6 @@ namespace nvfuser {
 TORCH_CUDA_CU_API bool shouldFillAllocationWithNan();
 TORCH_CUDA_CU_API void setFillAllocationWithNan(bool value);
 
-// Note [Limitation of boundary assert]:
-// When set to true we will add boundary check to the generated kernel's
-// Tensor::operator[]. However, this does not always work and can have false
-// positives and false negatives.
-//
-// False positive:
-// For some cases, such as reduction, we generate code like
-//  int index = 1025;
-//  blockReduce(/*reference*/T0[index], ..., index < 1024);
-// In the above example, we do not really read from T0[index], thanks to the
-// predicate, however, the boundary check in operator[] is still executed.
-// As a result, this would causes false alarm.
-//
-// False negative:
-// Not all global memory accesses use operator[], for example, vectorized access
-// uses loadGeneric on pointers. And this might miss cases like
-//   int index = 1024;
-//   loadGeneric<dtype, 4>(dest, &T0[index]); // T0.size[0] == 1026
-TORCH_CUDA_CU_API bool shouldAssertOutOfBound();
-TORCH_CUDA_CU_API void setAssertOutOfBound(bool value);
-
 // TODO: Should this actually be in launch params?
 struct TORCH_CUDA_CU_API CompileOptions {
   c10::Device device = c10::Device(c10::DeviceType::CUDA, 0);
@@ -52,6 +32,7 @@ struct TORCH_CUDA_CU_API CompileOptions {
 class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
  public:
   struct GlobalBufferInfo {
+    TensorView* tv = nullptr;
     std::vector<int64_t> sizes;
     std::vector<int64_t> strides;
     at::ScalarType type = at::ScalarType::Undefined;
@@ -68,12 +49,20 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
       int id,
       CompileOptions options = CompileOptions());
 
-  //! infers output sizes via returning non-allocated KernelArgumentHolder.
-  //! this function is useful for async compilation for segmented fusion
+  //! This function is useful for parallel compilation of segmented fusions.
+  //! It returns non-allocated KernelArgumentHolder, representing the output
+  //! sizes from kernel execution.
+  //! Notes: 1. This API should ignore aliased outputs instead of
+  //! pushing scalar int 0 as a place-holder.
+  //! 2. This API does not allocate output in memory, but only returns the
+  //! inferred output sizes.
   KernelArgumentHolder inferOutputSizes(
-      const KernelArgumentHolder& args,
-      const LaunchParams& launch_constraints);
+      Fusion* fusion,
+      const KernelArgumentHolder& args);
 
+  //! To compile a fusion with the 32-bit index type, CompileParams
+  //! must be passed in. There used to be an index type associated
+  //! with KernelArgumentHolder, but it is no longer the case.
   void compileFusion(
       Fusion* fusion,
       const KernelArgumentHolder& args,
@@ -104,10 +93,9 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
       const std::vector<at::Tensor>& outputs,
       const LaunchParams& launch_constraints = LaunchParams(),
       CompileParams compile_params = CompileParams(),
-      const c10::optional<size_t>& opt_code = c10::nullopt) {
+      const std::optional<size_t>& opt_code = std::nullopt) {
     KernelArgumentHolder args =
-        KernelArgumentHolder::createKernelArgumentHolder(
-            inputs, indexTypeToMode(kernel()->indexType()));
+        KernelArgumentHolder::createKernelArgumentHolder(inputs);
     if (opt_code.has_value()) {
       args.setCacheId(*opt_code);
     }
@@ -118,14 +106,14 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
       const at::ArrayRef<c10::IValue>& inputs,
       const LaunchParams& launch_constraints = LaunchParams(),
       CompileParams compile_params = CompileParams(),
-      const c10::optional<size_t>& opt_code = c10::nullopt) {
+      const std::optional<size_t>& opt_code = std::nullopt) {
     return runFusion(inputs, {}, launch_constraints, compile_params, opt_code);
   }
 
   // function to query whether a `FusionExecutor` has a compiled kernel to
   // execute
-  bool compiled() const {
-    return fusion_id_ != -1 && lowered_;
+  bool isCompiled() const {
+    return fusion_id_ != -1 && lowered_ && compiled_kernel_.function != nullptr;
   };
 
   void evictCache(size_t cache_id) {
@@ -146,7 +134,6 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
     std::vector<GlobalBufferInfo> outputs;
     // Temporary work buffers and intemediate global-memory tensors
     std::vector<GlobalBufferInfo> intermediates;
-    uint64_t rand_offset = 0;
   };
 
   using ExecutorCompileTimeInfoCache =
@@ -155,6 +142,10 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
   kir::Kernel* kernel() const {
     TORCH_INTERNAL_ASSERT(lowered_);
     return lowered_->kernel();
+  }
+
+  const ThreadPredicateMap& threadPredMap() const {
+    return lowered_->threadPredMap();
   }
 
   //! Internal knob used for debugging/profiling only
@@ -259,11 +250,15 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
     disable_parameter_cache_ = true;
   }
 
-  //! Used in distributed setting where we only want to
-  //!  allocate output space and receive output data from
-  //!  a different rank instead of computing them.
-  std::vector<at::Tensor> allocOutputSpace(
-      const at::ArrayRef<c10::IValue>& inputs);
+  //! Serialize Fusion Executor using flatbuffers
+  flatbuffers::Offset<serde::FusionExecutor> serialize(
+      flatbuffers::FlatBufferBuilder& builder) const;
+
+  //! Deserialize Fusion Executor using flatbuffers
+  void deserialize(
+      const serde::FusionExecutor* buffer,
+      Fusion* fusion,
+      CompileParams compile_params);
 
  private:
   static std::string kernelNamespace() {
@@ -273,19 +268,21 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
   LaunchParams computeLaunchParams(
       const LaunchParams& launch_constraints,
       ExpressionEvaluator& expr_eval,
-      const int warp_size);
+      const int64_t warp_size,
+      DataType index_dtype);
 
-  uint64_t computeSharedMemory(
+  int64_t computeSharedMemory(
       ExpressionEvaluator& expr_eval,
       const std::vector<const kir::Allocate*>& buffers,
-      bool align_padding = false,
-      uint64_t total = 0);
+      DataType index_dtype,
+      int64_t smem_offset = 0);
 
   //! Return information necessay for allocating intermediate tensors,
   //! including temporary work buffers as well as intermediate
   //! global-memory tensors
   std::vector<GlobalBufferInfo> getIntermediateBufferInfo(
-      ExpressionEvaluator& expr_eval);
+      ExpressionEvaluator& expr_eval,
+      DataType index_dtype);
 
   //! Return information necessay for allocating output tensors. Input
   //! and output tensors are allowed to alias each other, which is
@@ -293,7 +290,8 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
   std::vector<GlobalBufferInfo> getOutputBufferInfo(
       const KernelArgumentHolder& args,
       ExpressionEvaluator& expr_eval,
-      const std::vector<std::pair<int, int>>& input_to_output_aliases);
+      const std::vector<std::pair<int, int>>& input_to_output_aliases,
+      DataType index_dtype);
 
   void setUsedTVs();
 
@@ -305,22 +303,14 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
     return &compile_time_info_cache_;
   }
 
-  //! returns KernelArgumentHolder representing the output sizes from kernel
-  //! execution. Note: 1. this API would ignoring aliased outputs and instead
-  //! pushing scalar int 0 as a place holder; 2. this API doesn't actually
-  //! allocate output in memory, but rather is used just to infer output sizes.
-  KernelArgumentHolder evaluateOutputSizes(
-      const KernelArgumentHolder& args,
-      ExpressionEvaluator& expr_eval,
-      const std::unordered_set<int>& alias_indices = {});
-
   //! TODO: Consider changing this to a constructor of ExecutorEntry
   void initializeExecutorEntry(
       ExecutorEntry& executor_entry,
       const KernelArgumentHolder& args,
       const LaunchParams& launch_constraints,
       const CompileParams& compile_params,
-      const std::vector<at::Tensor>& outputs);
+      const std::vector<at::Tensor>& outputs,
+      DataType index_type);
 
   std::unique_ptr<PrecomputedValues>& evaluatorPrecomputedValues();
 
@@ -330,34 +320,75 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
       const LaunchParams& new_launch_params,
       const CompileParams& new_compile_params);
 
+  // ExecutorEntry is an internal POD struct for the FusionExecutor class.
+  // We define ExecutorEntry's serialize and deserialize as private methods in
+  // FusionExecutor.
+  flatbuffers::Offset<serde::ExecutorEntry> serialize(
+      flatbuffers::FlatBufferBuilder& builder,
+      const ExecutorEntry& data) const;
+
+  //! Deserialize ExecutorEntry using flatbuffers
+  ExecutorEntry deserialize(const serde::ExecutorEntry* buffer);
+
+  // GlobalBufferInfo is an internal POD struct for the FusionExecutor class.
+  // We define GlobalBufferInfo's serialize and deserialize as private methods
+  // in FusionExecutor.
+  flatbuffers::Offset<serde::GlobalBufferInfo> serialize(
+      flatbuffers::FlatBufferBuilder& builder,
+      const GlobalBufferInfo& data,
+      int64_t tv_position,
+      bool is_fusion_output) const;
+
+  //! Deserialize GlobalBufferInfo using flatbuffers
+  GlobalBufferInfo deserialize(const serde::GlobalBufferInfo* buffer);
+
+  //! Get the current dynamic shared memory size
+  int64_t getAvailableDynamicSmemSize();
+
+  //! Get the static shared memory size of the current compiled kernel
+  int64_t getStaticSmemSize();
+
+  //! Check if the shared memory size can be expandable to accommodate
+  //! the given dynamic size. The total shared memory size consumed
+  //! would be the sum of the static and dynamic sizes.
+  void validateDynamicSmemSize(int64_t dynamic_smem_size);
+
+  //! Make sure the dynamic shared memory size is at least as large as
+  //! the given size
+  int64_t ensureAvailableDynamicSmemSize(int64_t dynamic_smem_size);
+
+  //! Clear the cached properties of the compiled kernel
+  void resetCompiledKernelProperties();
+
  private:
   CompileOptions options_;
 
-  //! Current configured total shared mem size from cudaDeviceProp
-  size_t configured_device_smem_ = std::numeric_limits<size_t>().max();
+  //! Absolute limit of all available shared mem space from cudaDeviceProp
+  int64_t device_smem_limit_ = 0;
+
+  //! Static shared memory size of the current compiled kernel
+  std::optional<int64_t> static_smem_size_ = std::nullopt;
 
   //! Available shared memory space for dynamic allocation for the current
   //!  compiled kernel at the current shared memory/L1 configuration
-  c10::optional<size_t> maybe_available_dynamic_smem_ = c10::nullopt;
-
-  //! Absolute limit of all available shared mem space from cudaDeviceProp
-  size_t device_smem_limit_ = std::numeric_limits<size_t>().max();
+  std::optional<int64_t> available_dynamic_smem_size_ = std::nullopt;
 
   // Assuming sm70 or above:
   //  limit of statically allocated smem is 48 KB:
   // See:
   // https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#shared-memory-7-x
   // https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#shared-memory-8-x
-  const uint64_t max_static_smem_ = 48 << 10;
-  int warp_size_ = 0;
+  const int64_t max_static_smem_ = 48 << 10;
+
+  int64_t warp_size_ = 0;
   executor_utils::NvrtcFunction compiled_kernel_;
 
   // TensorViews actually used in the kernel.
   std::vector<TensorView*> used_tvs_;
 
   // Counter to be used for kernel name.
-  int fusion_id_ = -1;
-  static int fusion_id_counter_;
+  int64_t fusion_id_ = -1;
+  static int64_t fusion_id_counter_;
 
   std::unique_ptr<GpuLower> lowered_;
   // Copy of lowered_->kernel()
@@ -366,7 +397,7 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
   // Track the block size this kernel was compiled with. If the block size
   // increases, recompile to adjust maxregister count.
   int64_t block_size_high_water_mark_ = 1;
-  int maxrregcount_high_water_mark_ = 255;
+  int64_t maxrregcount_high_water_mark_ = 255;
 
   // lookup table to take short cut to retrieve recorded information in order to
   // launch kernels without re-inference parameters.

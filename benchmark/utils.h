@@ -7,12 +7,12 @@
 // clang-format on
 #pragma once
 
+#include <device_lower/lower2device.h>
 #include <executor.h>
 #include <fusion.h>
-#include <ir_all_nodes.h>
-#include <ir_utils.h>
+#include <ir/all_nodes.h>
+#include <ir/utils.h>
 #include <kernel_cache.h>
-#include <lower2device.h>
 #include <ops/all_ops.h>
 #include <scheduler/all_schedulers.h>
 
@@ -26,39 +26,34 @@
 
 using namespace nvfuser;
 
-// Make a tensor that is known to be non-contiguous of dimensionality=ndims,
-// but unknown sizes
-TensorView* makeSymbolicTensor(size_t ndims, DataType dtype = DataType::Float);
-
-// Make a tensor that is known to be fully contiguous of dimensionality=ndims,
-// but unknown sizes. Taken from test_gpu.cpp
-TensorView* makeContigTensor(size_t ndims, DataType dtype = DataType::Float);
-
-// Make a non-contiguous tensor of compile-time known sizes
-TensorView* makeConcreteTensor(
-    std::vector<int64_t> shape,
-    DataType dtype = DataType::Float);
-
-// Make a contiguous tensor of compile-time known sizes
-TensorView* makeContigConcreteTensor(
-    std::vector<int64_t> shape,
-    DataType dtype = DataType::Float);
-
 std::string toString(const ReductionParams& rparams);
 std::string toString(const PointwiseParams& params);
 std::string toString(const TransposeParams& params);
 std::string toString(const std::shared_ptr<HeuristicParams>& params);
 std::string toString(LaunchParams lparams);
 
-// Run benchmark iterations with provided inputs. If not segmented, report
-// kernel time from the runtime, as well as heuristic parameters. If segmented
-// use timers. Make sure to clear L2 between iterations.
-void runBenchmarkIterations(
+//! Run benchmark iterations with a fusion executor cache and
+//! inputs. The kernel time from the executor cache, which
+//! aggregates the kernel times of all segments, is added to
+//! benchmark_state. Heuristic parameters are also recorded but only
+//! if not segmented.
+int64_t runBenchmarkIterations(
     benchmark::State& benchmark_state,
     FusionExecutorCache* fusion_executor_cache,
     std::vector<c10::IValue>& aten_inputs);
 
-void clearL2Cache();
+//! Run benchmark iterations with a fusion executor and
+//! inputs. The fusion is assumed to have already been compiled. The
+//! kernel time is added to benchmark_state.
+int64_t runBenchmarkIterations(
+    benchmark::State& benchmark_state,
+    FusionExecutor* fusion_executor,
+    std::vector<c10::IValue>& aten_inputs,
+    const LaunchParams& launch_constraints = LaunchParams(),
+    CompileParams compile_params = CompileParams());
+
+void addCasesOneWave128To32K(benchmark::internal::Benchmark* b);
+void addCases16Wave128To32K(benchmark::internal::Benchmark* b);
 
 class CudaKernelTimer {
  public:

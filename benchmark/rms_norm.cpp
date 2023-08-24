@@ -5,12 +5,12 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <device_lower/lower2device.h>
 #include <executor.h>
 #include <fusion.h>
-#include <ir_all_nodes.h>
-#include <ir_builder.h>
-#include <ir_utils.h>
-#include <lower2device.h>
+#include <ir/all_nodes.h>
+#include <ir/builder.h>
+#include <ir/utils.h>
 #include <ops/all_ops.h>
 #include <scheduler/all_schedulers.h>
 
@@ -19,6 +19,9 @@
 #include <cuda_runtime.h>
 
 #include <benchmark/utils.h>
+#include <test/utils.h>
+
+using namespace nvfuser;
 
 //------------------------------------------------------------------------------
 
@@ -31,10 +34,10 @@ static void setupRMSNorm(Fusion* fusion, DataType dtype) {
 
   const float kEps = 1e-6;
 
-  Double* eps_ptr = IrBuilder::create<Double>(kEps);
+  Val* eps_ptr = IrBuilder::create<Val>(kEps);
 
   // setup fusion
-  auto input = makeContigTensor(3, dtype);
+  auto input = makeContigTensor(2, dtype);
   auto weight = makeContigTensor(1, dtype);
 
   fusion->addInput(input);
@@ -64,14 +67,15 @@ static void NvFuserScheduler_RMSNorm(
       dtype == DataType::Float || dtype == DataType::Half ||
       dtype == DataType::BFloat16);
 
-  std::vector<int64_t> input_shape{8, benchmark_state.range(0), 1024};
+  std::vector<int64_t> input_shape{
+      benchmark_state.range(0), benchmark_state.range(1)};
 
   // inputs
   at::manual_seed(0);
   auto options =
       at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
   at::Tensor input = at::randn(input_shape, options);
-  at::Tensor weight = at::randn({input_shape[2]}, options);
+  at::Tensor weight = at::randn({input_shape[1]}, options);
 
   std::vector<c10::IValue> aten_inputs({input, weight});
 
@@ -83,6 +87,11 @@ static void NvFuserScheduler_RMSNorm(
 }
 
 //------------------------------------------------------------------------------
+NVFUSER_BENCHMARK_DEFINE(
+    NvFuserScheduler_RMSNorm_fp16,
+    setupRMSNorm,
+    NvFuserScheduler_RMSNorm,
+    DataType::Half);
 
 NVFUSER_BENCHMARK_DEFINE(
     NvFuserScheduler_RMSNorm_fp32,
@@ -90,56 +99,23 @@ NVFUSER_BENCHMARK_DEFINE(
     NvFuserScheduler_RMSNorm,
     DataType::Float);
 
-NVFUSER_BENCHMARK_RUN(NvFuserScheduler_RMSNorm_fp32)
-    ->RangeMultiplier(2)
-    ->Ranges({{16, 64}})
-    ->Unit(benchmark::kMicrosecond)
-    ->UseManualTime();
-
-NVFUSER_BENCHMARK_RUN(NvFuserScheduler_RMSNorm_fp32)
-    ->RangeMultiplier(2)
-    ->Ranges({{18, 56}})
-    ->Unit(benchmark::kMicrosecond)
-    ->UseManualTime();
-
-NVFUSER_BENCHMARK_RUN(NvFuserScheduler_RMSNorm_fp32)
-    ->RangeMultiplier(2)
-    ->Ranges({{22, 44}})
-    ->Unit(benchmark::kMicrosecond)
-    ->UseManualTime();
-
-NVFUSER_BENCHMARK_RUN(NvFuserScheduler_RMSNorm_fp32)
-    ->RangeMultiplier(2)
-    ->Ranges({{24, 48}})
-    ->Unit(benchmark::kMicrosecond)
-    ->UseManualTime();
-NVFUSER_BENCHMARK_DEFINE(
-    NvFuserScheduler_RMSNorm_fp16,
-    setupRMSNorm,
-    NvFuserScheduler_RMSNorm,
-    DataType::Half);
-
 NVFUSER_BENCHMARK_RUN(NvFuserScheduler_RMSNorm_fp16)
-    ->RangeMultiplier(2)
-    ->Ranges({{16, 64}})
+    ->Apply(addCasesOneWave128To32K)
     ->Unit(benchmark::kMicrosecond)
     ->UseManualTime();
 
 NVFUSER_BENCHMARK_RUN(NvFuserScheduler_RMSNorm_fp16)
-    ->RangeMultiplier(2)
-    ->Ranges({{18, 56}})
+    ->Apply(addCases16Wave128To32K)
     ->Unit(benchmark::kMicrosecond)
     ->UseManualTime();
 
-NVFUSER_BENCHMARK_RUN(NvFuserScheduler_RMSNorm_fp16)
-    ->RangeMultiplier(2)
-    ->Ranges({{22, 44}})
+NVFUSER_BENCHMARK_RUN(NvFuserScheduler_RMSNorm_fp32)
+    ->Apply(addCasesOneWave128To32K)
     ->Unit(benchmark::kMicrosecond)
     ->UseManualTime();
 
-NVFUSER_BENCHMARK_RUN(NvFuserScheduler_RMSNorm_fp16)
-    ->RangeMultiplier(2)
-    ->Ranges({{24, 48}})
+NVFUSER_BENCHMARK_RUN(NvFuserScheduler_RMSNorm_fp32)
+    ->Apply(addCases16Wave128To32K)
     ->Unit(benchmark::kMicrosecond)
     ->UseManualTime();
 

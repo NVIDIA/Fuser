@@ -6,6 +6,7 @@
  */
 // clang-format on
 #pragma once
+#include <serde/fusion_cache_generated.h>
 #include <type.h>
 
 #include <optional>
@@ -14,8 +15,10 @@ namespace nvfuser {
 
 struct TORCH_CUDA_CU_API CompileParams {
   std::optional<PrimDataType> index_type = std::nullopt;
-  int maxrregcount = 255;
+  int64_t maxrregcount = 255;
   bool enable_magic_zero = true;
+  // if true, save ptxas info to compile log and check for register spilling
+  bool enable_ptxas_verbose = false;
 
   bool operator==(const CompileParams& other) const {
     // Disallow comparison if the index type is nullopt
@@ -142,10 +145,17 @@ class TORCH_CUDA_CU_API LaunchParams {
 
   std::string toString() const;
 
+  //! Serialize LaunchParams using flatbuffers
+  flatbuffers::Offset<serde::LaunchParams> serialize(
+      flatbuffers::FlatBufferBuilder& builder) const;
+
+  //! Deserialize LaunchParams using flatbuffers
+  void deserialize(const serde::LaunchParams* buffer);
+
  private:
   // Spell them out because I want signed ints to know if they were initialized
   // or not.
-  // TODO: convert to c10::optional
+  // TODO: convert to std::optional
   int64_t gdimx_ = UNINITIALIZED_VAL;
   int64_t gdimy_ = UNINITIALIZED_VAL;
   int64_t gdimz_ = UNINITIALIZED_VAL;

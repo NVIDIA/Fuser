@@ -8,13 +8,11 @@
 #include <python_frontend/python_bindings.h>
 
 #include <c10/util/ArrayRef.h>
-#include <c10/util/Optional.h>
 #include <c10/util/irange.h>
 #include <instrumentation.h>
-#include <ir_all_nodes.h>
-#include <ir_builder.h>
-#include <ops/arith.h>
-#include <ops/composite.h>
+#include <ir/all_nodes.h>
+#include <ir/builder.h>
+#include <ops/all_ops.h>
 #include <python_frontend/fusion_cache.h>
 #include <python_frontend/fusion_definition.h>
 #include <python_frontend/fusion_record.h>
@@ -22,28 +20,141 @@
 #include <torch/csrc/jit/python/pybind_utils.h>
 #include <complex>
 #include <iostream>
+#include <optional>
 #include <tuple>
+
+#include <pybind11/complex.h>
+#include <pybind11/stl.h>
 
 namespace nvfuser::python_frontend {
 
-std::vector<c10::optional<bool>> computeContiguity(
+// Set of local functions that are used to compose python FusionDefinition
+// bindings. Ideally, these would be templated lambda functions but those
+// are not available without C++20.
+namespace {
+Vector define_vector_base_fn(FusionDefinition& fd, std::vector<Scalar>& args) {
+  FUSER_PERF_SCOPE("python_frontend::define_vector_base_fn");
+  TORCH_CHECK(!fd.completed(), "Attempting to add to a completed definition!");
+  std::vector<State> inputs;
+  inputs.reserve(args.size());
+  for (const auto& arg : args) {
+    inputs.push_back(fd.recordingState(arg()));
+  }
+  Vector out = fd.defineVector(inputs.size());
+  fd.defineRecord(
+      new VectorRecord(inputs, {fd.recordingState(out())}, DataType::Int));
+  return out;
+}
+
+template <class ITERABLE>
+Vector define_vector_fn(
+    FusionDefinition& self,
+    ITERABLE& values,
+    PrimDataType dtype = DataType::Int) {
+  FUSER_PERF_SCOPE("python_frontend::define_vector_fn");
+  std::vector<Scalar> args;
+  size_t idx = 0;
+  for (const auto& item : values) {
+    TORCH_CHECK(
+        idx < 8,
+        "The specified vector size exceeds the max tensor size for nvfuser.");
+    if (py::isinstance<py::int_>(item)) {
+      auto int_value = py::cast<int64_t>(item);
+      TORCH_CHECK(
+          int_value >= -1,
+          "The value ",
+          int_value,
+          " at index ",
+          idx,
+          " was neither symbolic(-1), zero_element(0), broadcast(1), or static(>1).");
+      Scalar out = self.defineScalar();
+      self.defineRecord(new ScalarRecord(
+          {self.recordingState(out())}, py::cast<int64_t>(item), dtype));
+      args.emplace_back(out);
+    } else if (py::isinstance<Scalar>(item)) {
+      args.emplace_back(py::cast<Scalar>(item));
+    } else {
+      TORCH_CHECK(
+          false,
+          "Unsupported iterable object type for define_vector! Index:",
+          idx);
+    }
+    ++idx;
+  }
+  return define_vector_base_fn(self, args);
+}
+
+template <class ShapeType>
+Tensor broadcast_in_dim_fn(
+    FusionDefinition::Operators& op,
+    Tensor arg,
+    ShapeType shape,
+    std::vector<int64_t>& broadcast_dims) {
+  FUSER_PERF_SCOPE("Operators.broadcast_in_dim");
+  FusionDefinition* fd = op.fusion_definition;
+  TORCH_CHECK(!fd->completed(), "Attempting to add to a completed definition!");
+  size_t output_size = 0;
+  if constexpr (std::is_same_v<ShapeType, Vector>) {
+    output_size = shape.size;
+  } else {
+    output_size = shape.size();
+  }
+  TORCH_CHECK(op.validUse(), "Attempting to add to a completed definition!");
+  TORCH_CHECK(
+      output_size >= broadcast_dims.size(),
+      "broadcast_dims vector size is too big for output shape!");
+
+  Vector output_shape = [](FusionDefinition& fd, ShapeType shape) -> Vector {
+    if constexpr (std::is_same_v<ShapeType, Vector>) {
+      return shape;
+    } else {
+      if constexpr (!(std::is_same_v<ShapeType, py::list> ||
+                      std::is_same_v<ShapeType, py::tuple>)) {
+        TORCH_CHECK(
+            false, "broadcast_in_dim's shape argument type is not supported!");
+      }
+      return define_vector_fn<ShapeType>(fd, shape);
+    }
+  }(*fd, shape);
+
+  Tensor output = fd->defineTensor(output_size);
+  fd->defineRecord(new BroadcastInDimOpRecord(
+      {fd->recordingState(arg()), fd->recordingState(output_shape())},
+      {fd->recordingState(output())},
+      output_size,
+      broadcast_dims));
+  return output;
+}
+} // namespace
+
+std::vector<std::optional<bool>> computeContiguity(
     const std::vector<int64_t>& sizes,
     const std::vector<int64_t>& strides) {
   TORCH_CHECK(
       sizes.size() == strides.size(),
       "compute_contiguity: Sizes and strides must have the same number of dimensions");
+  // Not a broadcast means neither the stride == 0 (size can be non-zero)
+  // or the size == 1 that each can indicate a broadcast
   auto not_broadcast = [&](auto i) { return strides[i] != 0 && sizes[i] != 1; };
-  std::vector<c10::optional<bool>> contiguity(sizes.size(), c10::nullopt);
-  if (contiguity.empty()) {
+  // Contiguity defaults to vector of all None's
+  std::vector<std::optional<bool>> contiguity(sizes.size(), std::nullopt);
+  if (contiguity.empty()) { // zero-dim tensor
     return contiguity;
   }
-  int64_t last = (int64_t)sizes.size() - 1;
+  int64_t last = (int64_t)sizes.size() - 1; // inner most dimension
+  // Contiguity normallly is determined by the current dimension and one
+  // dimension to the right.  The innermost dimension, that is not broadcasted,
+  // does not have any dimension to it's right and needs to be specially marked
+  // contiguous.
   for (; last >= 0; --last) {
     if (not_broadcast(last)) {
       contiguity[last] = (strides.at(last) == 1);
       break;
     }
   }
+  // Dimensions are marked contiguous by inspecting the current dimension and
+  // one to the right towards the inner dimension while skipping over broadcast
+  // dimensions.
   for (int64_t i = 0; i < last;) {
     if (not_broadcast(i)) {
       auto l = i++;
@@ -123,7 +234,7 @@ void initNvFuserPythonBindings(PyObject* module) {
   py::class_<Tensor> tensor_class(nvfuser, "Tensor");
   tensor_class.def("__repr__", [](Tensor& self) {
     std::stringstream ss;
-    ss << "Tensor(index=" << self.index << ", dims=" << self.dims << ")";
+    ss << "Tensor(index=" << self.index << ", ndim=" << self.dims << ")";
     return ss.str();
   });
   tensor_class.def_property_readonly(
@@ -132,21 +243,6 @@ void initNvFuserPythonBindings(PyObject* module) {
     return self.fusion_definition;
   });
 
-  auto tensor_sizes = [](Tensor arg) -> std::vector<Scalar> {
-    FUSER_PERF_SCOPE("Operators.tensor_sizes");
-    auto fd = arg.fusion_definition;
-    std::vector<Scalar> outputs;
-    std::vector<State> output_state;
-    for (const auto idx : c10::irange(arg.dims)) {
-      outputs.push_back(fd->defineScalar());
-      output_state.push_back(fd->recordingState(outputs[idx]()));
-    }
-    fd->defineRecord(
-        new TensorSizesRecord({fd->recordingState(arg())}, output_state));
-    return outputs;
-  };
-  tensor_class.def_property_readonly("shape", tensor_sizes);
-
   py::class_<Scalar> scalar_class(nvfuser, "Scalar");
   scalar_class.def("__repr__", [](Scalar& self) {
     std::stringstream ss;
@@ -154,13 +250,22 @@ void initNvFuserPythonBindings(PyObject* module) {
     return ss.str();
   });
 
+  py::class_<Vector> vector_class(nvfuser, "Vector");
+  vector_class.def("__repr__", [](Vector& self) {
+    std::stringstream ss;
+    ss << "Vector(index=" << self.index << ", size=" << self.size << ")";
+    return ss.str();
+  });
+  vector_class.def_property_readonly(
+      "size", [](Vector& self) { return self.size; });
+
   //! The FusionDefinition is a context manager in Python where the user will
   //! define the set the operations and connections between operations for
   //! nvFuser to create.
   py::class_<FusionDefinition> fusion_def(nvfuser, "_FusionDefinition");
   fusion_def
       .def(
-          py::init<c10::optional<size_t>, size_t>(),
+          py::init<std::optional<size_t>, size_t>(),
           py::arg("id") = py::none(),
           py::arg("max_length") = int(1024))
       .def_readwrite("ops", &FusionDefinition::ops)
@@ -212,15 +317,42 @@ void initNvFuserPythonBindings(PyObject* module) {
           "_execute",
           [](FusionDefinition& self,
              const py::iterable& iter,
-             bool override_user_schedule) {
+             bool override_user_schedule,
+             std::optional<int64_t> device,
+             bool capture_debug_output) {
             std::vector<c10::IValue> inputs;
             for (py::handle obj : iter) {
-              inputs.push_back(torch::jit::toIValue(obj, c10::AnyType::get()));
+              // Allows for a Vector of Sizes to be inputed as a list
+              if (py::isinstance<py::list>(obj)) {
+                for (py::handle item : obj) {
+                  inputs.push_back(
+                      torch::jit::toIValue(item, c10::AnyType::get()));
+                }
+              } else {
+                inputs.push_back(
+                    torch::jit::toIValue(obj, c10::AnyType::get()));
+              }
             }
-            return self.execute(inputs, override_user_schedule);
+            std::optional<int8_t> int8_device = std::nullopt;
+            if (device.has_value()) {
+              TORCH_CHECK(device.value() < 256, "Maximum device index is 255");
+              int8_device = (int8_t)device.value();
+            }
+            return self.execute(
+                inputs,
+                override_user_schedule,
+                capture_debug_output,
+                int8_device);
           },
           py::arg("inputs"),
           py::arg("override_user_schedule") = false,
+          py::kw_only(),
+          py::arg("device") = py::none(),
+          py::arg("capture_debug_output") = false,
+          py::return_value_policy::reference)
+      .def(
+          "_debug_output",
+          [](FusionDefinition& self) { return self.getDebugOutput(); },
           py::return_value_policy::reference)
       .def(
           "_fusion_ir",
@@ -283,7 +415,7 @@ void initNvFuserPythonBindings(PyObject* module) {
           py::return_value_policy::reference)
       .def(
           "id",
-          [](FusionDefinition& self) -> c10::optional<size_t> {
+          [](FusionDefinition& self) -> std::optional<size_t> {
             return self.id();
           })
       .def(
@@ -301,7 +433,7 @@ void initNvFuserPythonBindings(PyObject* module) {
           "add_output",
           [](FusionDefinition& self,
              Tensor output,
-             c10::optional<Tensor> alias_input = c10::nullopt) {
+             std::optional<Tensor> alias_input = std::nullopt) {
             FUSER_PERF_SCOPE("FusionDefinition.add_output (tensor)");
             TORCH_CHECK(
                 !self.completed(),
@@ -347,11 +479,21 @@ void initNvFuserPythonBindings(PyObject* module) {
           },
           py::arg("output"),
           py::arg("stride_order"))
+      // This version of define_tensor is the canonical version
+      // that displays the values as they are passed to the IR's
+      // TensorViewBuilder.
+      // Each dimension can be of value:
+      // -1 : Symbolic for Dynamic usage
+      //  0 : Zero-element
+      //  1 : Broadcast
+      // >1 : Static size
+      // NOTE: A Tensor defined for dynamic shape usage should only
+      // contain either symbolic(-1) or broadcast(1) defined dimensions.
       .def(
           "define_tensor",
           [](FusionDefinition& self,
-             std::vector<int64_t>& symbolic_sizes,
-             std::vector<c10::optional<bool>>& contiguous,
+             std::vector<int64_t>& shape,
+             std::vector<std::optional<bool>>& contiguity,
              PrimDataType dtype = DataType::Float,
              bool is_cpu = false) -> Tensor {
             FUSER_PERF_SCOPE("FusionDefinition.define_tensor (default)");
@@ -359,28 +501,28 @@ void initNvFuserPythonBindings(PyObject* module) {
                 !self.completed(),
                 "Attempting to add to a completed definition!");
 
-            for (size_t i = 0; i < symbolic_sizes.size(); ++i) {
+            for (size_t i = 0; i < shape.size(); ++i) {
               TORCH_CHECK(
-                  symbolic_sizes[i] == -1 || symbolic_sizes[i] == 1,
+                  shape[i] >= -1,
                   "The value ",
-                  symbolic_sizes[i],
+                  shape[i],
                   " at index ",
                   i,
-                  " was neither broadcast(1) or symbolic(-1).");
+                  " was neither symbolic(-1), zero_element(0), broadcast(1), or static(>1).");
             }
 
-            Tensor out = self.defineTensor(symbolic_sizes.size());
+            Tensor out = self.defineTensor(shape.size());
             self.defineRecord(new TensorRecord(
                 {self.recordingState(out())},
-                symbolic_sizes,
-                contiguous,
+                shape,
+                contiguity,
                 dtype,
                 is_cpu));
 
             return out;
           },
-          py::arg("symbolic_sizes"),
-          py::arg("contiguous"),
+          py::arg("shape"),
+          py::arg("contiguity"),
           py::arg("dtype") = DataType::Float,
           py::arg("is_cpu") = false,
           py::return_value_policy::reference)
@@ -390,6 +532,7 @@ void initNvFuserPythonBindings(PyObject* module) {
              std::vector<int64_t>& sizes,
              std::vector<int64_t>& strides,
              PrimDataType dtype = DataType::Float,
+             bool static_sizes = false,
              bool is_cpu = false) -> Tensor {
             FUSER_PERF_SCOPE("FusionDefinition.define_tensor (integration)");
             TORCH_CHECK(
@@ -406,25 +549,29 @@ void initNvFuserPythonBindings(PyObject* module) {
             // identified by -1, and size == 0 is not supported.
 
             // Translate to TensorViewBuilder's view of the world.
-            std::vector<int64_t> maybe_symbolic_sizes;
-            maybe_symbolic_sizes.reserve(sizes.size());
+            std::vector<int64_t> dim_sizes;
+            dim_sizes.reserve(sizes.size());
             for (const auto i : c10::irange(sizes.size())) {
               TORCH_INTERNAL_ASSERT(
                   sizes[i] >= 0,
                   "Size of ",
                   sizes[i],
                   " is not supported in nvFuser. Expected size >= 0.");
-              if (sizes[i] == 1) {
-                maybe_symbolic_sizes.push_back(1);
-              } else {
-                maybe_symbolic_sizes.push_back(-1);
+              if (static_sizes) {
+                dim_sizes.push_back(sizes[i]);
+              } else { // Symbolic defined tensor for dynamic shape usage
+                if (sizes[i] == 1) {
+                  dim_sizes.push_back(1);
+                } else {
+                  dim_sizes.push_back(-1);
+                }
               }
             }
 
             Tensor out = self.defineTensor(sizes.size());
             self.defineRecord(new TensorRecord(
                 {self.recordingState(out())},
-                std::move(maybe_symbolic_sizes),
+                std::move(dim_sizes),
                 computeContiguity(sizes, strides),
                 dtype,
                 is_cpu));
@@ -434,104 +581,88 @@ void initNvFuserPythonBindings(PyObject* module) {
           py::arg("sizes"),
           py::arg("strides"),
           py::arg("dtype") = DataType::Float,
+          py::arg("static_sizes") = false,
           py::arg("is_cpu") = false,
-          py::return_value_policy::reference)
-      .def(
-          "define_constant",
-          [](FusionDefinition& self,
-             double val,
-             PrimDataType dtype = DataType::Double) -> Scalar {
-            FUSER_PERF_SCOPE("FusionDefinition.define_constant (double)");
-            TORCH_CHECK(
-                !self.completed(),
-                "Attempting to add to a completed definition!");
-            Scalar out = self.defineScalar();
-            self.defineRecord(new ConstantRecord<Double, double>(
-                {self.recordingState(out())},
-                serde::RecordType_ConstantDouble,
-                val,
-                dtype));
-            return out;
-          },
-          py::arg("val"),
-          py::arg("dtype") = DataType::Double,
-          py::return_value_policy::reference)
-      .def(
-          "define_constant",
-          [](FusionDefinition& self,
-             std::complex<double> val,
-             PrimDataType dtype = DataType::ComplexDouble) -> Scalar {
-            FUSER_PERF_SCOPE("FusionDefinition.define_constant (complex)");
-            TORCH_CHECK(
-                !self.completed(),
-                "Attempting to add to a completed definition!");
-            Scalar out = self.defineScalar();
-            self.defineRecord(
-                new ConstantRecord<ComplexDouble, std::complex<double>>(
-                    {self.recordingState(out())},
-                    serde::RecordType_ConstantComplexDouble,
-                    val,
-                    dtype));
-            return out;
-          },
-          py::arg("val"),
-          py::arg("dtype") = DataType::ComplexDouble,
-          py::return_value_policy::reference)
-      .def(
-          "define_constant",
-          [](FusionDefinition& self,
-             bool val,
-             PrimDataType dtype = DataType::Bool) -> Scalar {
-            FUSER_PERF_SCOPE("FusionDefinition.define_constant (bool)");
-            TORCH_CHECK(
-                !self.completed(),
-                "Attempting to add to a completed definition!");
-            Scalar out = self.defineScalar();
-            self.defineRecord(new ConstantRecord<Bool, bool>(
-                {self.recordingState(out())},
-                serde::RecordType_ConstantBool,
-                val,
-                dtype));
-            return out;
-          },
-          py::arg("val"),
-          py::arg("dtype") = DataType::Bool,
-          py::return_value_policy::reference)
-      .def(
-          "define_constant",
-          [](FusionDefinition& self,
-             int64_t val,
-             PrimDataType dtype = DataType::Int) -> Scalar {
-            FUSER_PERF_SCOPE("FusionDefinition.define_constant (int)");
-            TORCH_CHECK(
-                !self.completed(),
-                "Attempting to add to a completed definition!");
-            Scalar out = self.defineScalar();
-            self.defineRecord(new ConstantRecord<Int, int64_t>(
-                {self.recordingState(out())},
-                serde::RecordType_ConstantInt,
-                val,
-                dtype));
-            return out;
-          },
-          py::arg("val"),
-          py::arg("dtype") = DataType::Int,
           py::return_value_policy::reference)
       .def(
           "define_scalar",
           [](FusionDefinition& self,
              PrimDataType dtype = DataType::Double) -> Scalar {
-            FUSER_PERF_SCOPE("FusionDefinition.define_scalar");
+            FUSER_PERF_SCOPE("FusionDefinition.define_scalar (input_specific)");
             TORCH_CHECK(
                 !self.completed(),
                 "Attempting to add to a completed definition!");
             Scalar out = self.defineScalar();
-            self.defineRecord(
-                new ScalarRecord({self.recordingState(out())}, dtype));
+            self.defineRecord(new ScalarRecord(
+                {self.recordingState(out())}, std::monostate{}, dtype));
             return out;
           },
           py::arg("dtype") = DataType::Double,
           py::return_value_policy::reference);
+  fusion_def.def(
+      "define_scalar",
+      [](FusionDefinition& self,
+         PolymorphicValue::VariantType value,
+         std::optional<PrimDataType> dtype) -> Scalar {
+        FUSER_PERF_SCOPE("FusionDefinition.define_scalar");
+        Scalar out = self.defineScalar();
+        self.defineRecord(
+            new ScalarRecord({self.recordingState(out())}, value, dtype));
+        return out;
+      },
+      py::arg("value"),
+      py::arg("dtype") = std::nullopt,
+      py::return_value_policy::reference);
+  fusion_def.def(
+      "define_constant",
+      [](FusionDefinition& self,
+         PolymorphicValue::VariantType value,
+         std::optional<PrimDataType> dtype) -> Scalar {
+        FUSER_PERF_SCOPE("FusionDefinition.define_contant");
+        TORCH_WARN_ONCE(
+            "Deprecating define_constant functions in favor of define_scalar for constants.");
+        Scalar out = self.defineScalar();
+        self.defineRecord(
+            new ScalarRecord({self.recordingState(out())}, value, dtype));
+        return out;
+      },
+      py::arg("value"),
+      py::arg("dtype") = std::nullopt,
+      py::return_value_policy::reference);
+
+  // This is the input version of define_vector
+  fusion_def.def(
+      "define_vector",
+      [](FusionDefinition& self, size_t size) -> Vector {
+        TORCH_CHECK(
+            size < 8,
+            "The specified vector size exceeds the max tensor size for nvfuser.");
+        std::vector<Scalar> args;
+        args.reserve(size);
+        for (size_t i = 0; i < size; ++i) {
+          Scalar out = self.defineScalar();
+          self.defineRecord(new ScalarRecord(
+              {self.recordingState(out())}, std::monostate{}, DataType::Int));
+          args.emplace_back(out);
+        }
+        return define_vector_base_fn(self, args);
+      },
+      py::arg("size"),
+      py::return_value_policy::reference);
+  // This is the constant version of define_vector when given a vector
+  // of constant values.
+  fusion_def.def(
+      "define_vector",
+      define_vector_fn<py::list>,
+      py::arg("values"),
+      py::arg("dtype") = DataType::Int,
+      py::return_value_policy::reference);
+  fusion_def.def(
+      "define_vector",
+      define_vector_fn<py::tuple>,
+      py::arg("values"),
+      py::arg("dtype") = DataType::Int,
+      py::return_value_policy::reference);
 
   //! The Operators class is a nested class of FusionDefinition to allow the
   //! user to query the class for the list of operators.
@@ -546,74 +677,40 @@ void initNvFuserPythonBindings(PyObject* module) {
 
   // ******************** INSERT OP BINDINGS BELOW HERE ********************
 #define OP_PREFIX "Operators."
-#define NVFUSER_PYTHON_BINDING_UNARY_OP(op_str, op_name)                       \
-  nvf_ops.def(                                                                 \
-      op_str,                                                                  \
-      [](FusionDefinition::Operators& self, Tensor input) -> Tensor {          \
-        FUSER_PERF_SCOPE("Operators." op_str);                                 \
-        TORCH_CHECK(                                                           \
-            self.validUse(), "Attempting to add to a completed definition!");  \
-        FusionDefinition* fd = self.fusion_definition;                         \
-        Tensor output = fd->defineTensor(input.dims);                          \
-        fd->defineRecord(new OpRecord<TensorView*, TensorView*>(               \
-            {fd->recordingState(input())},                                     \
-            {fd->recordingState(output())},                                    \
-            ("ops." op_str),                                                   \
-            serde::RecordType_Unary_TV,                                        \
-            static_cast<TensorView* (*)(TensorView*)>(op_name)));              \
-        return output;                                                         \
-      },                                                                       \
-      py::return_value_policy::reference);                                     \
-  nvf_ops.def(                                                                 \
-      op_str,                                                                  \
-      [](FusionDefinition::Operators& self, Scalar input) -> Scalar {          \
-        FUSER_PERF_SCOPE("Operators." op_str);                                 \
-        TORCH_CHECK(                                                           \
-            self.validUse(), "Attempting to add to a completed definition!");  \
-        FusionDefinition* fd = self.fusion_definition;                         \
-        Scalar output = fd->defineScalar();                                    \
-        fd->defineRecord(new OpRecord<Val*, Val*>(                             \
-            {fd->recordingState(input())},                                     \
-            {fd->recordingState(output())},                                    \
-            ("ops." op_str),                                                   \
-            serde::RecordType_Unary_VAL,                                       \
-            static_cast<Val* (*)(Val*)>(op_name)));                            \
-        return output;                                                         \
-      },                                                                       \
-      py::return_value_policy::reference);                                     \
-  tensor_class.def(                                                            \
-      op_str,                                                                  \
-      [](Tensor input) -> Tensor {                                             \
-        FUSER_PERF_SCOPE("Operators." op_str);                                 \
-        FusionDefinition* fd = input.fusion_definition;                        \
-        TORCH_CHECK(                                                           \
-            !fd->completed(), "Attempting to add to a completed definition!"); \
-        Tensor output = fd->defineTensor(input.dims);                          \
-        fd->defineRecord(new OpRecord<TensorView*, TensorView*>(               \
-            {fd->recordingState(input())},                                     \
-            {fd->recordingState(output())},                                    \
-            ("ops." op_str),                                                   \
-            serde::RecordType_Unary_TV,                                        \
-            static_cast<TensorView* (*)(TensorView*)>(op_name)));              \
-        return output;                                                         \
-      },                                                                       \
-      py::return_value_policy::reference);                                     \
-  scalar_class.def(                                                            \
-      op_str,                                                                  \
-      [](Scalar input) -> Scalar {                                             \
-        FUSER_PERF_SCOPE("Operators." op_str);                                 \
-        FusionDefinition* fd = input.fusion_definition;                        \
-        TORCH_CHECK(                                                           \
-            !fd->completed(), "Attempting to add to a completed definition!"); \
-        Scalar output = fd->defineScalar();                                    \
-        fd->defineRecord(new OpRecord<Val*, Val*>(                             \
-            {fd->recordingState(input())},                                     \
-            {fd->recordingState(output())},                                    \
-            ("ops." op_str),                                                   \
-            serde::RecordType_Unary_VAL,                                       \
-            static_cast<Val* (*)(Val*)>(op_name)));                            \
-        return output;                                                         \
-      },                                                                       \
+#define NVFUSER_PYTHON_BINDING_UNARY_OP(op_str, op_name)                      \
+  nvf_ops.def(                                                                \
+      op_str,                                                                 \
+      [](FusionDefinition::Operators& self, Tensor input) -> Tensor {         \
+        FUSER_PERF_SCOPE("Operators." op_str);                                \
+        TORCH_CHECK(                                                          \
+            self.validUse(), "Attempting to add to a completed definition!"); \
+        FusionDefinition* fd = self.fusion_definition;                        \
+        Tensor output = fd->defineTensor(input.dims);                         \
+        fd->defineRecord(new OpRecord<TensorView*, TensorView*>(              \
+            {fd->recordingState(input())},                                    \
+            {fd->recordingState(output())},                                   \
+            ("ops." op_str),                                                  \
+            serde::RecordType_Unary_TV,                                       \
+            static_cast<TensorView* (*)(TensorView*)>(op_name)));             \
+        return output;                                                        \
+      },                                                                      \
+      py::return_value_policy::reference);                                    \
+  nvf_ops.def(                                                                \
+      op_str,                                                                 \
+      [](FusionDefinition::Operators& self, Scalar input) -> Scalar {         \
+        FUSER_PERF_SCOPE("Operators." op_str);                                \
+        TORCH_CHECK(                                                          \
+            self.validUse(), "Attempting to add to a completed definition!"); \
+        FusionDefinition* fd = self.fusion_definition;                        \
+        Scalar output = fd->defineScalar();                                   \
+        fd->defineRecord(new OpRecord<Val*, Val*>(                            \
+            {fd->recordingState(input())},                                    \
+            {fd->recordingState(output())},                                   \
+            ("ops." op_str),                                                  \
+            serde::RecordType_Unary_VAL,                                      \
+            static_cast<Val* (*)(Val*)>(op_name)));                           \
+        return output;                                                        \
+      },                                                                      \
       py::return_value_policy::reference);
 
   NVFUSER_PYTHON_BINDING_UNARY_OP("abs", abs)
@@ -641,6 +738,7 @@ void initNvFuserPythonBindings(PyObject* module) {
   NVFUSER_PYTHON_BINDING_UNARY_OP("log1p", log1p)
   NVFUSER_PYTHON_BINDING_UNARY_OP("log2", log2)
   NVFUSER_PYTHON_BINDING_UNARY_OP("neg", neg)
+  NVFUSER_PYTHON_BINDING_UNARY_OP("logical_not", logical_not)
   NVFUSER_PYTHON_BINDING_UNARY_OP("bitwise_not", bitwise_not)
   NVFUSER_PYTHON_BINDING_UNARY_OP("relu", relu)
   NVFUSER_PYTHON_BINDING_UNARY_OP("rand_like", rand_like)
@@ -649,8 +747,10 @@ void initNvFuserPythonBindings(PyObject* module) {
   NVFUSER_PYTHON_BINDING_UNARY_OP("round", round)
   NVFUSER_PYTHON_BINDING_UNARY_OP("rsqrt", rsqrt)
   NVFUSER_PYTHON_BINDING_UNARY_OP("set", set)
+  NVFUSER_PYTHON_BINDING_UNARY_OP("segment_set", segment_set)
   NVFUSER_PYTHON_BINDING_UNARY_OP("sign", sign)
   NVFUSER_PYTHON_BINDING_UNARY_OP("sigmoid", sigmoid)
+  NVFUSER_PYTHON_BINDING_UNARY_OP("signbit", signbit)
   NVFUSER_PYTHON_BINDING_UNARY_OP("silu", silu)
   NVFUSER_PYTHON_BINDING_UNARY_OP("sin", sin)
   NVFUSER_PYTHON_BINDING_UNARY_OP("sinh", sinh)
@@ -667,6 +767,45 @@ void initNvFuserPythonBindings(PyObject* module) {
   NVFUSER_PYTHON_BINDING_UNARY_OP("real", real)
   NVFUSER_PYTHON_BINDING_UNARY_OP("imag", imag)
 #undef NVFUSER_PYTHON_BINDING_UNARY_OP
+
+// rand_like and randn_like are normally used with a single TensorView argument,
+// like a UnaryOp. However, they also take an optional pair (rng_seed,
+// rng_offset) which converts them to deterministic ops. When those args are
+// provided, and they must both be provided if either is, then the op behaves
+// like a ternary op. We handle the UnaryOp case above and the TernaryOp case
+// here.
+#define NVFUSER_PYTHON_BINDING_TERNARY_RANDOM_OP(op_str, op_name)             \
+  nvf_ops.def(                                                                \
+      op_str,                                                                 \
+      [](FusionDefinition::Operators& self,                                   \
+         Tensor input,                                                        \
+         Scalar rng_seed,                                                     \
+         Scalar rng_offset) -> Tensor {                                       \
+        FUSER_PERF_SCOPE("Operators." op_str);                                \
+        TORCH_CHECK(                                                          \
+            self.validUse(), "Attempting to add to a completed definition!"); \
+        FusionDefinition* fd = self.fusion_definition;                        \
+        Tensor output = fd->defineTensor(input.dims);                         \
+        fd->defineRecord(new OpRecord<TensorView*, TensorView*>(              \
+            {fd->recordingState(input()),                                     \
+             fd->recordingState(rng_seed()),                                  \
+             fd->recordingState(rng_offset())},                               \
+            {fd->recordingState(output())},                                   \
+            ("ops." op_str),                                                  \
+            serde::RecordType_Ternary_TV_VAL_VAL,                             \
+            static_cast<TensorView* (*)(TensorView*)>(op_name)));             \
+        return output;                                                        \
+      },                                                                      \
+      py::arg("arg"),                                                         \
+      py::kw_only(),                                                          \
+      py::arg("rng_seed"),                                                    \
+      py::arg("rng_offset"),                                                  \
+      py::return_value_policy::reference);
+
+  NVFUSER_PYTHON_BINDING_TERNARY_RANDOM_OP("rand_like", rand_like)
+  NVFUSER_PYTHON_BINDING_TERNARY_RANDOM_OP("randn_like", randn_like)
+
+#undef NVFUSER_PYTHON_BINDING_UNARY_RANDOM_OP
 
 #define NVFUSER_PYTHON_BINDING_UNARY_OP_SPECIAL(op_str, op_name)               \
   tensor_class.def(                                                            \
@@ -706,6 +845,33 @@ void initNvFuserPythonBindings(PyObject* module) {
   NVFUSER_PYTHON_BINDING_UNARY_OP_SPECIAL("abs", abs)
   NVFUSER_PYTHON_BINDING_UNARY_OP_SPECIAL("neg", neg)
 #undef NVFUSER_PYTHON_BINDING_UNARY_OP_SPECIAL
+
+#define NVFUSER_PYTHON_BINDING_BINARY_OP_TENSORS_ONLY(op_str, op_name)         \
+  nvf_ops.def(                                                                 \
+      op_str,                                                                  \
+      [](FusionDefinition::Operators& self,                                    \
+         Tensor arg1,                                                          \
+         Tensor arg2) -> Tensor {                                              \
+        FUSER_PERF_SCOPE("Operators." op_str);                                 \
+        TORCH_CHECK(                                                           \
+            self.validUse(), "Attempting to add to a completed definition!");  \
+        FusionDefinition* fd = self.fusion_definition;                         \
+        Tensor output = fd->defineTensor(arg1.dims);                           \
+        fd->defineRecord(new OpRecord<TensorView*, TensorView*, TensorView*>(  \
+            {fd->recordingState(arg1()), fd->recordingState(arg2())},          \
+            {fd->recordingState(output())},                                    \
+            ("ops." op_str),                                                   \
+            serde::RecordType_Binary_TV,                                       \
+            static_cast<TensorView* (*)(TensorView*, TensorView*)>(op_name))); \
+        return output;                                                         \
+      },                                                                       \
+      py::return_value_policy::reference);
+
+  NVFUSER_PYTHON_BINDING_BINARY_OP_TENSORS_ONLY("_matmul_nn", _matmul_nn)
+  NVFUSER_PYTHON_BINDING_BINARY_OP_TENSORS_ONLY("_matmul_nt", _matmul_nt)
+  NVFUSER_PYTHON_BINDING_BINARY_OP_TENSORS_ONLY("_matmul_tn", _matmul_tn)
+  NVFUSER_PYTHON_BINDING_BINARY_OP_TENSORS_ONLY("_matmul_tt", _matmul_tt)
+#undef NVFUSER_PYTHON_BINDING_BINARY_OP_TENSORS_ONLY
 
 #define NVFUSER_PYTHON_BINDING_BINARY_OP(op_str, op_name)                      \
   nvf_ops.def(                                                                 \
@@ -783,79 +949,12 @@ void initNvFuserPythonBindings(PyObject* module) {
             static_cast<Val* (*)(Val*, Val*)>(op_name)));                      \
         return output;                                                         \
       },                                                                       \
-      py::return_value_policy::reference);                                     \
-  tensor_class.def(                                                            \
-      op_str,                                                                  \
-      [](Tensor arg1, Tensor arg2) -> Tensor {                                 \
-        FUSER_PERF_SCOPE("Operators." op_str);                                 \
-        FusionDefinition* fd = arg1.fusion_definition;                         \
-        TORCH_CHECK(                                                           \
-            !fd->completed(), "Attempting to add to a completed definition!"); \
-        Tensor output = fd->defineTensor(arg1.dims);                           \
-        fd->defineRecord(new OpRecord<TensorView*, TensorView*, TensorView*>(  \
-            {fd->recordingState(arg1()), fd->recordingState(arg2())},          \
-            {fd->recordingState(output())},                                    \
-            ("ops." op_str),                                                   \
-            serde::RecordType_Binary_TV,                                       \
-            static_cast<TensorView* (*)(TensorView*, TensorView*)>(op_name))); \
-        return output;                                                         \
-      },                                                                       \
-      py::return_value_policy::reference);                                     \
-  tensor_class.def(                                                            \
-      op_str,                                                                  \
-      [](Tensor arg1, Scalar arg2) -> Tensor {                                 \
-        FUSER_PERF_SCOPE("Operators." op_str);                                 \
-        FusionDefinition* fd = arg1.fusion_definition;                         \
-        TORCH_CHECK(                                                           \
-            !fd->completed(), "Attempting to add to a completed definition!"); \
-        Tensor output = fd->defineTensor(arg1.dims);                           \
-        fd->defineRecord(new OpRecord<TensorView*, TensorView*, Val*>(         \
-            {fd->recordingState(arg1()), fd->recordingState(arg2())},          \
-            {fd->recordingState(output())},                                    \
-            ("ops." op_str),                                                   \
-            serde::RecordType_Binary_TV_VAL,                                   \
-            static_cast<TensorView* (*)(TensorView*, Val*)>(op_name)));        \
-        return output;                                                         \
-      },                                                                       \
-      py::return_value_policy::reference);                                     \
-  scalar_class.def(                                                            \
-      op_str,                                                                  \
-      [](Scalar arg1, Tensor arg2) -> Tensor {                                 \
-        FUSER_PERF_SCOPE("Operators." op_str);                                 \
-        FusionDefinition* fd = arg1.fusion_definition;                         \
-        TORCH_CHECK(                                                           \
-            !fd->completed(), "Attempting to add to a completed definition!"); \
-        Tensor output = fd->defineTensor(arg2.dims);                           \
-        fd->defineRecord(new OpRecord<TensorView*, Val*, TensorView*>(         \
-            {fd->recordingState(arg1()), fd->recordingState(arg2())},          \
-            {fd->recordingState(output())},                                    \
-            ("ops." op_str),                                                   \
-            serde::RecordType_Binary_VAL_TV,                                   \
-            static_cast<TensorView* (*)(Val*, TensorView*)>(op_name)));        \
-        return output;                                                         \
-      },                                                                       \
-      py::return_value_policy::reference);                                     \
-  scalar_class.def(                                                            \
-      op_str,                                                                  \
-      [](Scalar arg1, Scalar arg2) -> Scalar {                                 \
-        FUSER_PERF_SCOPE("Operators." op_str);                                 \
-        FusionDefinition* fd = arg1.fusion_definition;                         \
-        TORCH_CHECK(                                                           \
-            !fd->completed(), "Attempting to add to a completed definition!"); \
-        Scalar output = fd->defineScalar();                                    \
-        fd->defineRecord(new OpRecord<Val*, Val*, Val*>(                       \
-            {fd->recordingState(arg1()), fd->recordingState(arg2())},          \
-            {fd->recordingState(output())},                                    \
-            ("ops." op_str),                                                   \
-            serde::RecordType_Binary_VAL,                                      \
-            static_cast<Val* (*)(Val*, Val*)>(op_name)));                      \
-        return output;                                                         \
-      },                                                                       \
       py::return_value_policy::reference);
 
   NVFUSER_PYTHON_BINDING_BINARY_OP("add", add)
   NVFUSER_PYTHON_BINDING_BINARY_OP("atan2", atan2)
   NVFUSER_PYTHON_BINDING_BINARY_OP("div", div)
+  NVFUSER_PYTHON_BINDING_BINARY_OP("truediv", truediv)
   NVFUSER_PYTHON_BINDING_BINARY_OP("fmod", fmod)
   NVFUSER_PYTHON_BINDING_BINARY_OP("mul", mul)
   NVFUSER_PYTHON_BINDING_BINARY_OP("nextafter", nextafter)
@@ -869,11 +968,15 @@ void initNvFuserPythonBindings(PyObject* module) {
   NVFUSER_PYTHON_BINDING_BINARY_OP("le", le)
   NVFUSER_PYTHON_BINDING_BINARY_OP("lt", lt)
   NVFUSER_PYTHON_BINDING_BINARY_OP("ne", ne)
+  NVFUSER_PYTHON_BINDING_BINARY_OP("logical_and", logical_and)
+  NVFUSER_PYTHON_BINDING_BINARY_OP("logical_or", logical_or)
   NVFUSER_PYTHON_BINDING_BINARY_OP("bitwise_and", bitwise_and)
   NVFUSER_PYTHON_BINDING_BINARY_OP("bitwise_or", bitwise_or)
   NVFUSER_PYTHON_BINDING_BINARY_OP("bitwise_xor", bitwise_xor)
   NVFUSER_PYTHON_BINDING_BINARY_OP("bitwise_left_shift", bitwise_left_shift)
-  NVFUSER_PYTHON_BINDING_BINARY_OP("bitwise_right_shift", bitwise_left_shift)
+  NVFUSER_PYTHON_BINDING_BINARY_OP("bitwise_right_shift", bitwise_right_shift)
+  NVFUSER_PYTHON_BINDING_BINARY_OP("logical_right_shift", logical_right_shift)
+  NVFUSER_PYTHON_BINDING_BINARY_OP("gcd", gcd)
 #undef NVFUSER_PYTHON_BINDING_BINARY_OP
 
 #define NVFUSER_PYTHON_BINDING_BINARY_OP_SPECIAL(py_op, op_str, op_name)       \
@@ -957,7 +1060,7 @@ void initNvFuserPythonBindings(PyObject* module) {
   NVFUSER_PYTHON_BINDING_BINARY_OP_SPECIAL(
       "__lshift__", "bitwise_left_shift", bitwise_left_shift)
   NVFUSER_PYTHON_BINDING_BINARY_OP_SPECIAL(
-      "__rshift__", "bitwise_right_shift", bitwise_left_shift)
+      "__rshift__", "bitwise_right_shift", bitwise_right_shift)
   // In PyTorch, __div__ (//) and __truediv__ (/) are different.
   // When applied to integer-dtype arguments, they do as expected, returning
   // integer and float outputs, respectively. When applied to two floating-type
@@ -969,526 +1072,287 @@ void initNvFuserPythonBindings(PyObject* module) {
   NVFUSER_PYTHON_BINDING_BINARY_OP_SPECIAL("__truediv__", "div", div)
 #undef NVFUSER_PYTHON_BINDING_BINARY_OP_SPECIAL
 
-#define NVFUSER_PYTHON_BINDING_BINARY_WITH_ALPHA_OP(op_str, op_name)           \
-  nvf_ops.def(                                                                 \
-      op_str,                                                                  \
-      [](FusionDefinition::Operators& self,                                    \
-         Tensor arg1,                                                          \
-         Tensor arg2,                                                          \
-         Scalar arg3) -> Tensor {                                              \
-        FUSER_PERF_SCOPE("Operators." op_str);                                 \
-        TORCH_CHECK(                                                           \
-            self.validUse(), "Attempting to add to a completed definition!");  \
-        FusionDefinition* fd = self.fusion_definition;                         \
-        Tensor output = fd->defineTensor(arg1.dims);                           \
-        fd->defineRecord(                                                      \
-            new OpRecord<TensorView*, TensorView*, TensorView*, Val*>(         \
-                {fd->recordingState(arg1()),                                   \
-                 fd->recordingState(arg2()),                                   \
-                 fd->recordingState(arg3())},                                  \
-                {fd->recordingState(output())},                                \
-                ("ops." op_str),                                               \
-                serde::RecordType_Ternary_TV_TV_VAL,                           \
-                static_cast<TensorView* (*)(TensorView*, TensorView*, Val*)>(  \
-                    op_name)));                                                \
-        return output;                                                         \
-      },                                                                       \
-      py::return_value_policy::reference);                                     \
-  nvf_ops.def(                                                                 \
-      op_str,                                                                  \
-      [](FusionDefinition::Operators& self,                                    \
-         Tensor arg1,                                                          \
-         Scalar arg2,                                                          \
-         Scalar arg3) -> Tensor {                                              \
-        FUSER_PERF_SCOPE("Operators." op_str);                                 \
-        TORCH_CHECK(                                                           \
-            self.validUse(), "Attempting to add to a completed definition!");  \
-        FusionDefinition* fd = self.fusion_definition;                         \
-        Tensor output = fd->defineTensor(arg1.dims);                           \
-        fd->defineRecord(new OpRecord<TensorView*, TensorView*, Val*, Val*>(   \
-            {fd->recordingState(arg1()),                                       \
-             fd->recordingState(arg2()),                                       \
-             fd->recordingState(arg3())},                                      \
-            {fd->recordingState(output())},                                    \
-            ("ops." op_str),                                                   \
-            serde::RecordType_Ternary_TV_VAL_VAL,                              \
-            static_cast<TensorView* (*)(TensorView*, Val*, Val*)>(op_name)));  \
-        return output;                                                         \
-      },                                                                       \
-      py::return_value_policy::reference);                                     \
-  nvf_ops.def(                                                                 \
-      op_str,                                                                  \
-      [](FusionDefinition::Operators& self,                                    \
-         Scalar arg1,                                                          \
-         Tensor arg2,                                                          \
-         Scalar arg3) -> Tensor {                                              \
-        FUSER_PERF_SCOPE("Operators." op_str);                                 \
-        TORCH_CHECK(                                                           \
-            self.validUse(), "Attempting to add to a completed definition!");  \
-        FusionDefinition* fd = self.fusion_definition;                         \
-        Tensor output = fd->defineTensor(arg2.dims);                           \
-        fd->defineRecord(new OpRecord<TensorView*, Val*, TensorView*, Val*>(   \
-            {fd->recordingState(arg1()),                                       \
-             fd->recordingState(arg2()),                                       \
-             fd->recordingState(arg3())},                                      \
-            {fd->recordingState(output())},                                    \
-            ("ops." op_str),                                                   \
-            serde::RecordType_Ternary_VAL_TV_VAL,                              \
-            static_cast<TensorView* (*)(Val*, TensorView*, Val*)>(op_name)));  \
-        return output;                                                         \
-      },                                                                       \
-      py::return_value_policy::reference);                                     \
-  nvf_ops.def(                                                                 \
-      op_str,                                                                  \
-      [](FusionDefinition::Operators& self,                                    \
-         Scalar arg1,                                                          \
-         Scalar arg2,                                                          \
-         Scalar arg3) -> Scalar {                                              \
-        FUSER_PERF_SCOPE("Operators." op_str);                                 \
-        TORCH_CHECK(                                                           \
-            self.validUse(), "Attempting to add to a completed definition!");  \
-        FusionDefinition* fd = self.fusion_definition;                         \
-        Scalar output = fd->defineScalar();                                    \
-        fd->defineRecord(new OpRecord<Val*, Val*, Val*, Val*>(                 \
-            {fd->recordingState(arg1()),                                       \
-             fd->recordingState(arg2()),                                       \
-             fd->recordingState(arg3())},                                      \
-            {fd->recordingState(output())},                                    \
-            ("ops." op_str),                                                   \
-            serde::RecordType_Ternary_VAL,                                     \
-            static_cast<Val* (*)(Val*, Val*, Val*)>(op_name)));                \
-        return output;                                                         \
-      },                                                                       \
-      py::return_value_policy::reference);                                     \
-  tensor_class.def(                                                            \
-      op_str,                                                                  \
-      [](Tensor arg1, Tensor arg2, Scalar arg3) -> Tensor {                    \
-        FUSER_PERF_SCOPE("Operators." op_str);                                 \
-        FusionDefinition* fd = arg1.fusion_definition;                         \
-        TORCH_CHECK(                                                           \
-            !fd->completed(), "Attempting to add to a completed definition!"); \
-        Tensor output = fd->defineTensor(arg1.dims);                           \
-        fd->defineRecord(                                                      \
-            new OpRecord<TensorView*, TensorView*, TensorView*, Val*>(         \
-                {fd->recordingState(arg1()),                                   \
-                 fd->recordingState(arg2()),                                   \
-                 fd->recordingState(arg3())},                                  \
-                {fd->recordingState(output())},                                \
-                ("ops." op_str),                                               \
-                serde::RecordType_Ternary_TV_TV_VAL,                           \
-                static_cast<TensorView* (*)(TensorView*, TensorView*, Val*)>(  \
-                    op_name)));                                                \
-        return output;                                                         \
-      },                                                                       \
-      py::return_value_policy::reference);                                     \
-  tensor_class.def(                                                            \
-      op_str,                                                                  \
-      [](Tensor arg1, Scalar arg2, Scalar arg3) -> Tensor {                    \
-        FUSER_PERF_SCOPE("Operators." op_str);                                 \
-        FusionDefinition* fd = arg1.fusion_definition;                         \
-        TORCH_CHECK(                                                           \
-            !fd->completed(), "Attempting to add to a completed definition!"); \
-        Tensor output = fd->defineTensor(arg1.dims);                           \
-        fd->defineRecord(new OpRecord<TensorView*, TensorView*, Val*, Val*>(   \
-            {fd->recordingState(arg1()),                                       \
-             fd->recordingState(arg2()),                                       \
-             fd->recordingState(arg3())},                                      \
-            {fd->recordingState(output())},                                    \
-            ("ops." op_str),                                                   \
-            serde::RecordType_Ternary_TV_VAL_VAL,                              \
-            static_cast<TensorView* (*)(TensorView*, Val*, Val*)>(op_name)));  \
-        return output;                                                         \
-      },                                                                       \
-      py::return_value_policy::reference);                                     \
-  scalar_class.def(                                                            \
-      op_str,                                                                  \
-      [](Scalar arg1, Tensor arg2, Scalar arg3) -> Tensor {                    \
-        FUSER_PERF_SCOPE("Operators." op_str);                                 \
-        FusionDefinition* fd = arg1.fusion_definition;                         \
-        TORCH_CHECK(                                                           \
-            !fd->completed(), "Attempting to add to a completed definition!"); \
-        Tensor output = fd->defineTensor(arg2.dims);                           \
-        fd->defineRecord(new OpRecord<TensorView*, Val*, TensorView*, Val*>(   \
-            {fd->recordingState(arg1()),                                       \
-             fd->recordingState(arg2()),                                       \
-             fd->recordingState(arg3())},                                      \
-            {fd->recordingState(output())},                                    \
-            ("ops." op_str),                                                   \
-            serde::RecordType_Ternary_VAL_TV_VAL,                              \
-            static_cast<TensorView* (*)(Val*, TensorView*, Val*)>(op_name)));  \
-        return output;                                                         \
-      },                                                                       \
-      py::return_value_policy::reference);                                     \
-  scalar_class.def(                                                            \
-      op_str,                                                                  \
-      [](Scalar arg1, Scalar arg2, Scalar arg3) -> Scalar {                    \
-        FUSER_PERF_SCOPE("Operators." op_str);                                 \
-        FusionDefinition* fd = arg1.fusion_definition;                         \
-        TORCH_CHECK(                                                           \
-            !fd->completed(), "Attempting to add to a completed definition!"); \
-        Scalar output = fd->defineScalar();                                    \
-        fd->defineRecord(new OpRecord<Val*, Val*, Val*, Val*>(                 \
-            {fd->recordingState(arg1()),                                       \
-             fd->recordingState(arg2()),                                       \
-             fd->recordingState(arg3())},                                      \
-            {fd->recordingState(output())},                                    \
-            ("ops." op_str),                                                   \
-            serde::RecordType_Ternary_VAL,                                     \
-            static_cast<Val* (*)(Val*, Val*, Val*)>(op_name)));                \
-        return output;                                                         \
-      },                                                                       \
+#define NVFUSER_PYTHON_BINDING_BINARY_WITH_ALPHA_OP(op_str, op_name)          \
+  nvf_ops.def(                                                                \
+      op_str,                                                                 \
+      [](FusionDefinition::Operators& self,                                   \
+         Tensor arg1,                                                         \
+         Tensor arg2,                                                         \
+         Scalar arg3) -> Tensor {                                             \
+        FUSER_PERF_SCOPE("Operators." op_str);                                \
+        TORCH_CHECK(                                                          \
+            self.validUse(), "Attempting to add to a completed definition!"); \
+        FusionDefinition* fd = self.fusion_definition;                        \
+        Tensor output = fd->defineTensor(arg1.dims);                          \
+        fd->defineRecord(                                                     \
+            new OpRecord<TensorView*, TensorView*, TensorView*, Val*>(        \
+                {fd->recordingState(arg1()),                                  \
+                 fd->recordingState(arg2()),                                  \
+                 fd->recordingState(arg3())},                                 \
+                {fd->recordingState(output())},                               \
+                ("ops." op_str),                                              \
+                serde::RecordType_Ternary_TV_TV_VAL,                          \
+                static_cast<TensorView* (*)(TensorView*, TensorView*, Val*)>( \
+                    op_name)));                                               \
+        return output;                                                        \
+      },                                                                      \
+      py::return_value_policy::reference);                                    \
+  nvf_ops.def(                                                                \
+      op_str,                                                                 \
+      [](FusionDefinition::Operators& self,                                   \
+         Tensor arg1,                                                         \
+         Scalar arg2,                                                         \
+         Scalar arg3) -> Tensor {                                             \
+        FUSER_PERF_SCOPE("Operators." op_str);                                \
+        TORCH_CHECK(                                                          \
+            self.validUse(), "Attempting to add to a completed definition!"); \
+        FusionDefinition* fd = self.fusion_definition;                        \
+        Tensor output = fd->defineTensor(arg1.dims);                          \
+        fd->defineRecord(new OpRecord<TensorView*, TensorView*, Val*, Val*>(  \
+            {fd->recordingState(arg1()),                                      \
+             fd->recordingState(arg2()),                                      \
+             fd->recordingState(arg3())},                                     \
+            {fd->recordingState(output())},                                   \
+            ("ops." op_str),                                                  \
+            serde::RecordType_Ternary_TV_VAL_VAL,                             \
+            static_cast<TensorView* (*)(TensorView*, Val*, Val*)>(op_name))); \
+        return output;                                                        \
+      },                                                                      \
+      py::return_value_policy::reference);                                    \
+  nvf_ops.def(                                                                \
+      op_str,                                                                 \
+      [](FusionDefinition::Operators& self,                                   \
+         Scalar arg1,                                                         \
+         Tensor arg2,                                                         \
+         Scalar arg3) -> Tensor {                                             \
+        FUSER_PERF_SCOPE("Operators." op_str);                                \
+        TORCH_CHECK(                                                          \
+            self.validUse(), "Attempting to add to a completed definition!"); \
+        FusionDefinition* fd = self.fusion_definition;                        \
+        Tensor output = fd->defineTensor(arg2.dims);                          \
+        fd->defineRecord(new OpRecord<TensorView*, Val*, TensorView*, Val*>(  \
+            {fd->recordingState(arg1()),                                      \
+             fd->recordingState(arg2()),                                      \
+             fd->recordingState(arg3())},                                     \
+            {fd->recordingState(output())},                                   \
+            ("ops." op_str),                                                  \
+            serde::RecordType_Ternary_VAL_TV_VAL,                             \
+            static_cast<TensorView* (*)(Val*, TensorView*, Val*)>(op_name))); \
+        return output;                                                        \
+      },                                                                      \
+      py::return_value_policy::reference);                                    \
+  nvf_ops.def(                                                                \
+      op_str,                                                                 \
+      [](FusionDefinition::Operators& self,                                   \
+         Scalar arg1,                                                         \
+         Scalar arg2,                                                         \
+         Scalar arg3) -> Scalar {                                             \
+        FUSER_PERF_SCOPE("Operators." op_str);                                \
+        TORCH_CHECK(                                                          \
+            self.validUse(), "Attempting to add to a completed definition!"); \
+        FusionDefinition* fd = self.fusion_definition;                        \
+        Scalar output = fd->defineScalar();                                   \
+        fd->defineRecord(new OpRecord<Val*, Val*, Val*, Val*>(                \
+            {fd->recordingState(arg1()),                                      \
+             fd->recordingState(arg2()),                                      \
+             fd->recordingState(arg3())},                                     \
+            {fd->recordingState(output())},                                   \
+            ("ops." op_str),                                                  \
+            serde::RecordType_Ternary_VAL,                                    \
+            static_cast<Val* (*)(Val*, Val*, Val*)>(op_name)));               \
+        return output;                                                        \
+      },                                                                      \
       py::return_value_policy::reference);
 
   NVFUSER_PYTHON_BINDING_BINARY_WITH_ALPHA_OP("add_alpha", add_alpha)
   NVFUSER_PYTHON_BINDING_BINARY_WITH_ALPHA_OP("sub_alpha", sub_alpha)
 #undef NVFUSER_PYTHON_BINDING_BINARY_WITH_ALPHA_OP
 
-#define NVFUSER_PYTHON_BINDING_TERNARY_OP(op_str, op_name)                     \
-  nvf_ops.def(                                                                 \
-      op_str,                                                                  \
-      [](FusionDefinition::Operators& self,                                    \
-         Scalar arg1,                                                          \
-         Scalar arg2,                                                          \
-         Scalar arg3) -> Scalar {                                              \
-        FUSER_PERF_SCOPE("Operators." op_str);                                 \
-        TORCH_CHECK(                                                           \
-            self.validUse(), "Attempting to add to a completed definition!");  \
-        FusionDefinition* fd = self.fusion_definition;                         \
-        Scalar output = fd->defineScalar();                                    \
-        fd->defineRecord(new OpRecord<Val*, Val*, Val*, Val*>(                 \
-            {fd->recordingState(arg1()),                                       \
-             fd->recordingState(arg2()),                                       \
-             fd->recordingState(arg3())},                                      \
-            {fd->recordingState(output())},                                    \
-            ("ops." op_str),                                                   \
-            serde::RecordType_Ternary_VAL,                                     \
-            static_cast<Val* (*)(Val*, Val*, Val*)>(op_name)));                \
-        return output;                                                         \
-      },                                                                       \
-      py::return_value_policy::reference);                                     \
-  nvf_ops.def(                                                                 \
-      op_str,                                                                  \
-      [](FusionDefinition::Operators& self,                                    \
-         Tensor arg1,                                                          \
-         Tensor arg2,                                                          \
-         Tensor arg3) -> Tensor {                                              \
-        FUSER_PERF_SCOPE("Operators." op_str);                                 \
-        TORCH_CHECK(                                                           \
-            self.validUse(), "Attempting to add to a completed definition!");  \
-        FusionDefinition* fd = self.fusion_definition;                         \
-        Tensor output = fd->defineTensor(arg1.dims);                           \
-        fd->defineRecord(                                                      \
-            new OpRecord<TensorView*, TensorView*, TensorView*, TensorView*>(  \
-                {fd->recordingState(arg1()),                                   \
-                 fd->recordingState(arg2()),                                   \
-                 fd->recordingState(arg3())},                                  \
-                {fd->recordingState(output())},                                \
-                ("ops." op_str),                                               \
-                serde::RecordType_Ternary_TV,                                  \
-                static_cast<                                                   \
-                    TensorView* (*)(TensorView*, TensorView*, TensorView*)>(   \
-                    op_name)));                                                \
-        return output;                                                         \
-      },                                                                       \
-      py::return_value_policy::reference);                                     \
-  nvf_ops.def(                                                                 \
-      op_str,                                                                  \
-      [](FusionDefinition::Operators& self,                                    \
-         Tensor arg1,                                                          \
-         Tensor arg2,                                                          \
-         Scalar arg3) -> Tensor {                                              \
-        FUSER_PERF_SCOPE("Operators." op_str);                                 \
-        TORCH_CHECK(                                                           \
-            self.validUse(), "Attempting to add to a completed definition!");  \
-        FusionDefinition* fd = self.fusion_definition;                         \
-        Tensor output = fd->defineTensor(arg1.dims);                           \
-        fd->defineRecord(                                                      \
-            new OpRecord<TensorView*, TensorView*, TensorView*, Val*>(         \
-                {fd->recordingState(arg1()),                                   \
-                 fd->recordingState(arg2()),                                   \
-                 fd->recordingState(arg3())},                                  \
-                {fd->recordingState(output())},                                \
-                ("ops." op_str),                                               \
-                serde::RecordType_Ternary_TV_TV_VAL,                           \
-                static_cast<TensorView* (*)(TensorView*, TensorView*, Val*)>(  \
-                    op_name)));                                                \
-        return output;                                                         \
-      },                                                                       \
-      py::return_value_policy::reference);                                     \
-  nvf_ops.def(                                                                 \
-      op_str,                                                                  \
-      [](FusionDefinition::Operators& self,                                    \
-         Tensor arg1,                                                          \
-         Scalar arg2,                                                          \
-         Tensor arg3) -> Tensor {                                              \
-        FUSER_PERF_SCOPE("Operators." op_str);                                 \
-        TORCH_CHECK(                                                           \
-            self.validUse(), "Attempting to add to a completed definition!");  \
-        FusionDefinition* fd = self.fusion_definition;                         \
-        Tensor output = fd->defineTensor(arg1.dims);                           \
-        fd->defineRecord(                                                      \
-            new OpRecord<TensorView*, TensorView*, Val*, TensorView*>(         \
-                {fd->recordingState(arg1()),                                   \
-                 fd->recordingState(arg2()),                                   \
-                 fd->recordingState(arg3())},                                  \
-                {fd->recordingState(output())},                                \
-                ("ops." op_str),                                               \
-                serde::RecordType_Ternary_TV_VAL_TV,                           \
-                static_cast<TensorView* (*)(TensorView*, Val*, TensorView*)>(  \
-                    op_name)));                                                \
-        return output;                                                         \
-      },                                                                       \
-      py::return_value_policy::reference);                                     \
-  nvf_ops.def(                                                                 \
-      op_str,                                                                  \
-      [](FusionDefinition::Operators& self,                                    \
-         Scalar arg1,                                                          \
-         Tensor arg2,                                                          \
-         Tensor arg3) -> Tensor {                                              \
-        FUSER_PERF_SCOPE("Operators." op_str);                                 \
-        TORCH_CHECK(                                                           \
-            self.validUse(), "Attempting to add to a completed definition!");  \
-        FusionDefinition* fd = self.fusion_definition;                         \
-        Tensor output = fd->defineTensor(arg2.dims);                           \
-        fd->defineRecord(                                                      \
-            new OpRecord<TensorView*, Val*, TensorView*, TensorView*>(         \
-                {fd->recordingState(arg1()),                                   \
-                 fd->recordingState(arg2()),                                   \
-                 fd->recordingState(arg3())},                                  \
-                {fd->recordingState(output())},                                \
-                ("ops." op_str),                                               \
-                serde::RecordType_Ternary_VAL_TV_TV,                           \
-                static_cast<TensorView* (*)(Val*, TensorView*, TensorView*)>(  \
-                    op_name)));                                                \
-        return output;                                                         \
-      },                                                                       \
-      py::return_value_policy::reference);                                     \
-  nvf_ops.def(                                                                 \
-      op_str,                                                                  \
-      [](FusionDefinition::Operators& self,                                    \
-         Scalar arg1,                                                          \
-         Scalar arg2,                                                          \
-         Tensor arg3) -> Tensor {                                              \
-        FUSER_PERF_SCOPE("Operators." op_str);                                 \
-        TORCH_CHECK(                                                           \
-            self.validUse(), "Attempting to add to a completed definition!");  \
-        FusionDefinition* fd = self.fusion_definition;                         \
-        Tensor output = fd->defineTensor(arg3.dims);                           \
-        fd->defineRecord(new OpRecord<TensorView*, Val*, Val*, TensorView*>(   \
-            {fd->recordingState(arg1()),                                       \
-             fd->recordingState(arg2()),                                       \
-             fd->recordingState(arg3())},                                      \
-            {fd->recordingState(output())},                                    \
-            ("ops." op_str),                                                   \
-            serde::RecordType_Ternary_VAL_VAL_TV,                              \
-            static_cast<TensorView* (*)(Val*, Val*, TensorView*)>(op_name)));  \
-        return output;                                                         \
-      },                                                                       \
-      py::return_value_policy::reference);                                     \
-  nvf_ops.def(                                                                 \
-      op_str,                                                                  \
-      [](FusionDefinition::Operators& self,                                    \
-         Tensor arg1,                                                          \
-         Scalar arg2,                                                          \
-         Scalar arg3) -> Tensor {                                              \
-        FUSER_PERF_SCOPE("Operators." op_str);                                 \
-        TORCH_CHECK(                                                           \
-            self.validUse(), "Attempting to add to a completed definition!");  \
-        FusionDefinition* fd = self.fusion_definition;                         \
-        Tensor output = fd->defineTensor(arg1.dims);                           \
-        fd->defineRecord(new OpRecord<TensorView*, TensorView*, Val*, Val*>(   \
-            {fd->recordingState(arg1()),                                       \
-             fd->recordingState(arg2()),                                       \
-             fd->recordingState(arg3())},                                      \
-            {fd->recordingState(output())},                                    \
-            ("ops." op_str),                                                   \
-            serde::RecordType_Ternary_TV_VAL_VAL,                              \
-            static_cast<TensorView* (*)(TensorView*, Val*, Val*)>(op_name)));  \
-        return output;                                                         \
-      },                                                                       \
-      py::return_value_policy::reference);                                     \
-  nvf_ops.def(                                                                 \
-      op_str,                                                                  \
-      [](FusionDefinition::Operators& self,                                    \
-         Scalar arg1,                                                          \
-         Tensor arg2,                                                          \
-         Scalar arg3) -> Tensor {                                              \
-        FUSER_PERF_SCOPE("Operators." op_str);                                 \
-        TORCH_CHECK(                                                           \
-            self.validUse(), "Attempting to add to a completed definition!");  \
-        FusionDefinition* fd = self.fusion_definition;                         \
-        Tensor output = fd->defineTensor(arg2.dims);                           \
-        fd->defineRecord(new OpRecord<TensorView*, Val*, TensorView*, Val*>(   \
-            {fd->recordingState(arg1()),                                       \
-             fd->recordingState(arg2()),                                       \
-             fd->recordingState(arg3())},                                      \
-            {fd->recordingState(output())},                                    \
-            ("ops." op_str),                                                   \
-            serde::RecordType_Ternary_VAL_TV_VAL,                              \
-            static_cast<TensorView* (*)(Val*, TensorView*, Val*)>(op_name)));  \
-        return output;                                                         \
-      },                                                                       \
-      py::return_value_policy::reference);                                     \
-  scalar_class.def(                                                            \
-      op_str,                                                                  \
-      [](Scalar arg1, Scalar arg2, Scalar arg3) -> Scalar {                    \
-        FUSER_PERF_SCOPE("Operators." op_str);                                 \
-        FusionDefinition* fd = arg1.fusion_definition;                         \
-        TORCH_CHECK(                                                           \
-            !fd->completed(), "Attempting to add to a completed definition!"); \
-        Scalar output = fd->defineScalar();                                    \
-        fd->defineRecord(new OpRecord<Val*, Val*, Val*, Val*>(                 \
-            {fd->recordingState(arg1()),                                       \
-             fd->recordingState(arg2()),                                       \
-             fd->recordingState(arg3())},                                      \
-            {fd->recordingState(output())},                                    \
-            ("ops." op_str),                                                   \
-            serde::RecordType_Ternary_VAL,                                     \
-            static_cast<Val* (*)(Val*, Val*, Val*)>(op_name)));                \
-        return output;                                                         \
-      },                                                                       \
-      py::return_value_policy::reference);                                     \
-  tensor_class.def(                                                            \
-      op_str,                                                                  \
-      [](Tensor arg1, Tensor arg2, Tensor arg3) -> Tensor {                    \
-        FUSER_PERF_SCOPE("Operators." op_str);                                 \
-        FusionDefinition* fd = arg1.fusion_definition;                         \
-        TORCH_CHECK(                                                           \
-            !fd->completed(), "Attempting to add to a completed definition!"); \
-        Tensor output = fd->defineTensor(arg1.dims);                           \
-        fd->defineRecord(                                                      \
-            new OpRecord<TensorView*, TensorView*, TensorView*, TensorView*>(  \
-                {fd->recordingState(arg1()),                                   \
-                 fd->recordingState(arg2()),                                   \
-                 fd->recordingState(arg3())},                                  \
-                {fd->recordingState(output())},                                \
-                ("ops." op_str),                                               \
-                serde::RecordType_Ternary_TV,                                  \
-                static_cast<                                                   \
-                    TensorView* (*)(TensorView*, TensorView*, TensorView*)>(   \
-                    op_name)));                                                \
-        return output;                                                         \
-      },                                                                       \
-      py::return_value_policy::reference);                                     \
-  tensor_class.def(                                                            \
-      op_str,                                                                  \
-      [](Tensor arg1, Tensor arg2, Scalar arg3) -> Tensor {                    \
-        FUSER_PERF_SCOPE("Operators." op_str);                                 \
-        FusionDefinition* fd = arg1.fusion_definition;                         \
-        TORCH_CHECK(                                                           \
-            !fd->completed(), "Attempting to add to a completed definition!"); \
-        Tensor output = fd->defineTensor(arg1.dims);                           \
-        fd->defineRecord(                                                      \
-            new OpRecord<TensorView*, TensorView*, TensorView*, Val*>(         \
-                {fd->recordingState(arg1()),                                   \
-                 fd->recordingState(arg2()),                                   \
-                 fd->recordingState(arg3())},                                  \
-                {fd->recordingState(output())},                                \
-                ("ops." op_str),                                               \
-                serde::RecordType_Ternary_TV_TV_VAL,                           \
-                static_cast<TensorView* (*)(TensorView*, TensorView*, Val*)>(  \
-                    op_name)));                                                \
-        return output;                                                         \
-      },                                                                       \
-      py::return_value_policy::reference);                                     \
-  tensor_class.def(                                                            \
-      op_str,                                                                  \
-      [](Tensor arg1, Scalar arg2, Tensor arg3) -> Tensor {                    \
-        FUSER_PERF_SCOPE("Operators." op_str);                                 \
-        FusionDefinition* fd = arg1.fusion_definition;                         \
-        TORCH_CHECK(                                                           \
-            !fd->completed(), "Attempting to add to a completed definition!"); \
-        Tensor output = fd->defineTensor(arg1.dims);                           \
-        fd->defineRecord(                                                      \
-            new OpRecord<TensorView*, TensorView*, Val*, TensorView*>(         \
-                {fd->recordingState(arg1()),                                   \
-                 fd->recordingState(arg2()),                                   \
-                 fd->recordingState(arg3())},                                  \
-                {fd->recordingState(output())},                                \
-                ("ops." op_str),                                               \
-                serde::RecordType_Ternary_TV_VAL_TV,                           \
-                static_cast<TensorView* (*)(TensorView*, Val*, TensorView*)>(  \
-                    op_name)));                                                \
-        return output;                                                         \
-      },                                                                       \
-      py::return_value_policy::reference);                                     \
-  scalar_class.def(                                                            \
-      op_str,                                                                  \
-      [](Scalar arg1, Tensor arg2, Tensor arg3) -> Tensor {                    \
-        FUSER_PERF_SCOPE("Operators." op_str);                                 \
-        FusionDefinition* fd = arg1.fusion_definition;                         \
-        TORCH_CHECK(                                                           \
-            !fd->completed(), "Attempting to add to a completed definition!"); \
-        Tensor output = fd->defineTensor(arg2.dims);                           \
-        fd->defineRecord(                                                      \
-            new OpRecord<TensorView*, Val*, TensorView*, TensorView*>(         \
-                {fd->recordingState(arg1()),                                   \
-                 fd->recordingState(arg2()),                                   \
-                 fd->recordingState(arg3())},                                  \
-                {fd->recordingState(output())},                                \
-                ("ops." op_str),                                               \
-                serde::RecordType_Ternary_VAL_TV_TV,                           \
-                static_cast<TensorView* (*)(Val*, TensorView*, TensorView*)>(  \
-                    op_name)));                                                \
-        return output;                                                         \
-      },                                                                       \
-      py::return_value_policy::reference);                                     \
-  scalar_class.def(                                                            \
-      op_str,                                                                  \
-      [](Scalar arg1, Scalar arg2, Tensor arg3) -> Tensor {                    \
-        FUSER_PERF_SCOPE("Operators." op_str);                                 \
-        FusionDefinition* fd = arg1.fusion_definition;                         \
-        TORCH_CHECK(                                                           \
-            !fd->completed(), "Attempting to add to a completed definition!"); \
-        Tensor output = fd->defineTensor(arg3.dims);                           \
-        fd->defineRecord(new OpRecord<TensorView*, Val*, Val*, TensorView*>(   \
-            {fd->recordingState(arg1()),                                       \
-             fd->recordingState(arg2()),                                       \
-             fd->recordingState(arg3())},                                      \
-            {fd->recordingState(output())},                                    \
-            ("ops." op_str),                                                   \
-            serde::RecordType_Ternary_VAL_VAL_TV,                              \
-            static_cast<TensorView* (*)(Val*, Val*, TensorView*)>(op_name)));  \
-        return output;                                                         \
-      },                                                                       \
-      py::return_value_policy::reference);                                     \
-  tensor_class.def(                                                            \
-      op_str,                                                                  \
-      [](Tensor arg1, Scalar arg2, Scalar arg3) -> Tensor {                    \
-        FUSER_PERF_SCOPE("Operators." op_str);                                 \
-        FusionDefinition* fd = arg1.fusion_definition;                         \
-        TORCH_CHECK(                                                           \
-            !fd->completed(), "Attempting to add to a completed definition!"); \
-        Tensor output = fd->defineTensor(arg1.dims);                           \
-        fd->defineRecord(new OpRecord<TensorView*, TensorView*, Val*, Val*>(   \
-            {fd->recordingState(arg1()),                                       \
-             fd->recordingState(arg2()),                                       \
-             fd->recordingState(arg3())},                                      \
-            {fd->recordingState(output())},                                    \
-            ("ops." op_str),                                                   \
-            serde::RecordType_Ternary_TV_VAL_VAL,                              \
-            static_cast<TensorView* (*)(TensorView*, Val*, Val*)>(op_name)));  \
-        return output;                                                         \
-      },                                                                       \
-      py::return_value_policy::reference);                                     \
-  scalar_class.def(                                                            \
-      op_str,                                                                  \
-      [](Scalar arg1, Tensor arg2, Scalar arg3) -> Tensor {                    \
-        FUSER_PERF_SCOPE("Operators." op_str);                                 \
-        FusionDefinition* fd = arg1.fusion_definition;                         \
-        TORCH_CHECK(                                                           \
-            !fd->completed(), "Attempting to add to a completed definition!"); \
-        Tensor output = fd->defineTensor(arg2.dims);                           \
-        fd->defineRecord(new OpRecord<TensorView*, Val*, TensorView*, Val*>(   \
-            {fd->recordingState(arg1()),                                       \
-             fd->recordingState(arg2()),                                       \
-             fd->recordingState(arg3())},                                      \
-            {fd->recordingState(output())},                                    \
-            ("ops." op_str),                                                   \
-            serde::RecordType_Ternary_VAL_TV_VAL,                              \
-            static_cast<TensorView* (*)(Val*, TensorView*, Val*)>(op_name)));  \
-        return output;                                                         \
-      },                                                                       \
+#define NVFUSER_PYTHON_BINDING_TERNARY_OP(op_str, op_name)                    \
+  nvf_ops.def(                                                                \
+      op_str,                                                                 \
+      [](FusionDefinition::Operators& self,                                   \
+         Scalar arg1,                                                         \
+         Scalar arg2,                                                         \
+         Scalar arg3) -> Scalar {                                             \
+        FUSER_PERF_SCOPE("Operators." op_str);                                \
+        TORCH_CHECK(                                                          \
+            self.validUse(), "Attempting to add to a completed definition!"); \
+        FusionDefinition* fd = self.fusion_definition;                        \
+        Scalar output = fd->defineScalar();                                   \
+        fd->defineRecord(new OpRecord<Val*, Val*, Val*, Val*>(                \
+            {fd->recordingState(arg1()),                                      \
+             fd->recordingState(arg2()),                                      \
+             fd->recordingState(arg3())},                                     \
+            {fd->recordingState(output())},                                   \
+            ("ops." op_str),                                                  \
+            serde::RecordType_Ternary_VAL,                                    \
+            static_cast<Val* (*)(Val*, Val*, Val*)>(op_name)));               \
+        return output;                                                        \
+      },                                                                      \
+      py::return_value_policy::reference);                                    \
+  nvf_ops.def(                                                                \
+      op_str,                                                                 \
+      [](FusionDefinition::Operators& self,                                   \
+         Tensor arg1,                                                         \
+         Tensor arg2,                                                         \
+         Tensor arg3) -> Tensor {                                             \
+        FUSER_PERF_SCOPE("Operators." op_str);                                \
+        TORCH_CHECK(                                                          \
+            self.validUse(), "Attempting to add to a completed definition!"); \
+        FusionDefinition* fd = self.fusion_definition;                        \
+        Tensor output = fd->defineTensor(arg1.dims);                          \
+        fd->defineRecord(                                                     \
+            new OpRecord<TensorView*, TensorView*, TensorView*, TensorView*>( \
+                {fd->recordingState(arg1()),                                  \
+                 fd->recordingState(arg2()),                                  \
+                 fd->recordingState(arg3())},                                 \
+                {fd->recordingState(output())},                               \
+                ("ops." op_str),                                              \
+                serde::RecordType_Ternary_TV,                                 \
+                static_cast<                                                  \
+                    TensorView* (*)(TensorView*, TensorView*, TensorView*)>(  \
+                    op_name)));                                               \
+        return output;                                                        \
+      },                                                                      \
+      py::return_value_policy::reference);                                    \
+  nvf_ops.def(                                                                \
+      op_str,                                                                 \
+      [](FusionDefinition::Operators& self,                                   \
+         Tensor arg1,                                                         \
+         Tensor arg2,                                                         \
+         Scalar arg3) -> Tensor {                                             \
+        FUSER_PERF_SCOPE("Operators." op_str);                                \
+        TORCH_CHECK(                                                          \
+            self.validUse(), "Attempting to add to a completed definition!"); \
+        FusionDefinition* fd = self.fusion_definition;                        \
+        Tensor output = fd->defineTensor(arg1.dims);                          \
+        fd->defineRecord(                                                     \
+            new OpRecord<TensorView*, TensorView*, TensorView*, Val*>(        \
+                {fd->recordingState(arg1()),                                  \
+                 fd->recordingState(arg2()),                                  \
+                 fd->recordingState(arg3())},                                 \
+                {fd->recordingState(output())},                               \
+                ("ops." op_str),                                              \
+                serde::RecordType_Ternary_TV_TV_VAL,                          \
+                static_cast<TensorView* (*)(TensorView*, TensorView*, Val*)>( \
+                    op_name)));                                               \
+        return output;                                                        \
+      },                                                                      \
+      py::return_value_policy::reference);                                    \
+  nvf_ops.def(                                                                \
+      op_str,                                                                 \
+      [](FusionDefinition::Operators& self,                                   \
+         Tensor arg1,                                                         \
+         Scalar arg2,                                                         \
+         Tensor arg3) -> Tensor {                                             \
+        FUSER_PERF_SCOPE("Operators." op_str);                                \
+        TORCH_CHECK(                                                          \
+            self.validUse(), "Attempting to add to a completed definition!"); \
+        FusionDefinition* fd = self.fusion_definition;                        \
+        Tensor output = fd->defineTensor(arg1.dims);                          \
+        fd->defineRecord(                                                     \
+            new OpRecord<TensorView*, TensorView*, Val*, TensorView*>(        \
+                {fd->recordingState(arg1()),                                  \
+                 fd->recordingState(arg2()),                                  \
+                 fd->recordingState(arg3())},                                 \
+                {fd->recordingState(output())},                               \
+                ("ops." op_str),                                              \
+                serde::RecordType_Ternary_TV_VAL_TV,                          \
+                static_cast<TensorView* (*)(TensorView*, Val*, TensorView*)>( \
+                    op_name)));                                               \
+        return output;                                                        \
+      },                                                                      \
+      py::return_value_policy::reference);                                    \
+  nvf_ops.def(                                                                \
+      op_str,                                                                 \
+      [](FusionDefinition::Operators& self,                                   \
+         Scalar arg1,                                                         \
+         Tensor arg2,                                                         \
+         Tensor arg3) -> Tensor {                                             \
+        FUSER_PERF_SCOPE("Operators." op_str);                                \
+        TORCH_CHECK(                                                          \
+            self.validUse(), "Attempting to add to a completed definition!"); \
+        FusionDefinition* fd = self.fusion_definition;                        \
+        Tensor output = fd->defineTensor(arg2.dims);                          \
+        fd->defineRecord(                                                     \
+            new OpRecord<TensorView*, Val*, TensorView*, TensorView*>(        \
+                {fd->recordingState(arg1()),                                  \
+                 fd->recordingState(arg2()),                                  \
+                 fd->recordingState(arg3())},                                 \
+                {fd->recordingState(output())},                               \
+                ("ops." op_str),                                              \
+                serde::RecordType_Ternary_VAL_TV_TV,                          \
+                static_cast<TensorView* (*)(Val*, TensorView*, TensorView*)>( \
+                    op_name)));                                               \
+        return output;                                                        \
+      },                                                                      \
+      py::return_value_policy::reference);                                    \
+  nvf_ops.def(                                                                \
+      op_str,                                                                 \
+      [](FusionDefinition::Operators& self,                                   \
+         Scalar arg1,                                                         \
+         Scalar arg2,                                                         \
+         Tensor arg3) -> Tensor {                                             \
+        FUSER_PERF_SCOPE("Operators." op_str);                                \
+        TORCH_CHECK(                                                          \
+            self.validUse(), "Attempting to add to a completed definition!"); \
+        FusionDefinition* fd = self.fusion_definition;                        \
+        Tensor output = fd->defineTensor(arg3.dims);                          \
+        fd->defineRecord(new OpRecord<TensorView*, Val*, Val*, TensorView*>(  \
+            {fd->recordingState(arg1()),                                      \
+             fd->recordingState(arg2()),                                      \
+             fd->recordingState(arg3())},                                     \
+            {fd->recordingState(output())},                                   \
+            ("ops." op_str),                                                  \
+            serde::RecordType_Ternary_VAL_VAL_TV,                             \
+            static_cast<TensorView* (*)(Val*, Val*, TensorView*)>(op_name))); \
+        return output;                                                        \
+      },                                                                      \
+      py::return_value_policy::reference);                                    \
+  nvf_ops.def(                                                                \
+      op_str,                                                                 \
+      [](FusionDefinition::Operators& self,                                   \
+         Tensor arg1,                                                         \
+         Scalar arg2,                                                         \
+         Scalar arg3) -> Tensor {                                             \
+        FUSER_PERF_SCOPE("Operators." op_str);                                \
+        TORCH_CHECK(                                                          \
+            self.validUse(), "Attempting to add to a completed definition!"); \
+        FusionDefinition* fd = self.fusion_definition;                        \
+        Tensor output = fd->defineTensor(arg1.dims);                          \
+        fd->defineRecord(new OpRecord<TensorView*, TensorView*, Val*, Val*>(  \
+            {fd->recordingState(arg1()),                                      \
+             fd->recordingState(arg2()),                                      \
+             fd->recordingState(arg3())},                                     \
+            {fd->recordingState(output())},                                   \
+            ("ops." op_str),                                                  \
+            serde::RecordType_Ternary_TV_VAL_VAL,                             \
+            static_cast<TensorView* (*)(TensorView*, Val*, Val*)>(op_name))); \
+        return output;                                                        \
+      },                                                                      \
+      py::return_value_policy::reference);                                    \
+  nvf_ops.def(                                                                \
+      op_str,                                                                 \
+      [](FusionDefinition::Operators& self,                                   \
+         Scalar arg1,                                                         \
+         Tensor arg2,                                                         \
+         Scalar arg3) -> Tensor {                                             \
+        FUSER_PERF_SCOPE("Operators." op_str);                                \
+        TORCH_CHECK(                                                          \
+            self.validUse(), "Attempting to add to a completed definition!"); \
+        FusionDefinition* fd = self.fusion_definition;                        \
+        Tensor output = fd->defineTensor(arg2.dims);                          \
+        fd->defineRecord(new OpRecord<TensorView*, Val*, TensorView*, Val*>(  \
+            {fd->recordingState(arg1()),                                      \
+             fd->recordingState(arg2()),                                      \
+             fd->recordingState(arg3())},                                     \
+            {fd->recordingState(output())},                                   \
+            ("ops." op_str),                                                  \
+            serde::RecordType_Ternary_VAL_TV_VAL,                             \
+            static_cast<TensorView* (*)(Val*, TensorView*, Val*)>(op_name))); \
+        return output;                                                        \
+      },                                                                      \
       py::return_value_policy::reference);
 
   NVFUSER_PYTHON_BINDING_TERNARY_OP("lerp", lerp)
@@ -1528,44 +1392,6 @@ void initNvFuserPythonBindings(PyObject* module) {
         TORCH_CHECK(                                                           \
             !self.validUse(), "Attempting to add to a completed definition!"); \
         FusionDefinition* fd = self.fusion_definition;                         \
-        Tensor output = fd->defineTensor(arg1.dims);                           \
-        fd->defineRecord(new OpRecord<TensorView*, TensorView*, Val*, Val*>(   \
-            {fd->recordingState(arg1()),                                       \
-             fd->recordingState(arg2()),                                       \
-             fd->recordingState(arg3())},                                      \
-            {fd->recordingState(output())},                                    \
-            ("ops." op_str),                                                   \
-            serde::RecordType_Ternary_TV_VAL_VAL,                              \
-            static_cast<TensorView* (*)(TensorView*, Val*, Val*)>(op_name)));  \
-        return output;                                                         \
-      },                                                                       \
-      py::return_value_policy::reference);                                     \
-  scalar_class.def(                                                            \
-      op_str,                                                                  \
-      [](Scalar arg1, Scalar arg2, Scalar arg3) -> Scalar {                    \
-        FUSER_PERF_SCOPE("Operators." op_str);                                 \
-        FusionDefinition* fd = arg1.fusion_definition;                         \
-        TORCH_CHECK(                                                           \
-            !fd->completed(), "Attempting to add to a completed definition!"); \
-        Scalar output = fd->defineScalar();                                    \
-        fd->defineRecord(new OpRecord<Val*, Val*, Val*, Val*>(                 \
-            {fd->recordingState(arg1()),                                       \
-             fd->recordingState(arg2()),                                       \
-             fd->recordingState(arg3())},                                      \
-            {fd->recordingState(output())},                                    \
-            ("ops." op_str),                                                   \
-            serde::RecordType_Ternary_VAL,                                     \
-            static_cast<Val* (*)(Val*, Val*, Val*)>(op_name)));                \
-        return output;                                                         \
-      },                                                                       \
-      py::return_value_policy::reference);                                     \
-  tensor_class.def(                                                            \
-      op_str,                                                                  \
-      [](Tensor arg1, Scalar arg2, Scalar arg3) -> Tensor {                    \
-        FUSER_PERF_SCOPE("Operators." op_str);                                 \
-        FusionDefinition* fd = arg1.fusion_definition;                         \
-        TORCH_CHECK(                                                           \
-            !fd->completed(), "Attempting to add to a completed definition!"); \
         Tensor output = fd->defineTensor(arg1.dims);                           \
         fd->defineRecord(new OpRecord<TensorView*, TensorView*, Val*, Val*>(   \
             {fd->recordingState(arg1()),                                       \
@@ -1797,311 +1623,105 @@ void initNvFuserPythonBindings(PyObject* module) {
                     op_name)));                                                \
         return output;                                                         \
       },                                                                       \
-      py::return_value_policy::reference);                                     \
-  scalar_class.def(                                                            \
-      op_str,                                                                  \
-      [](Scalar arg1, Scalar arg2, Scalar arg3, Scalar arg4) -> Scalar {       \
-        FUSER_PERF_SCOPE("Operators." op_str);                                 \
-        FusionDefinition* fd = arg1.fusion_definition;                         \
-        TORCH_CHECK(                                                           \
-            !fd->completed(), "Attempting to add to a completed definition!"); \
-        Scalar output = fd->defineScalar();                                    \
-        fd->defineRecord(new OpRecord<Val*, Val*, Val*, Val*, Val*>(           \
-            {fd->recordingState(arg1()),                                       \
-             fd->recordingState(arg2()),                                       \
-             fd->recordingState(arg3()),                                       \
-             fd->recordingState(arg4())},                                      \
-            {fd->recordingState(output())},                                    \
-            ("ops." op_str),                                                   \
-            serde::RecordType_Ternary_Alpha_VAL,                               \
-            static_cast<Val* (*)(Val*, Val*, Val*, Val*)>(op_name)));          \
-        return output;                                                         \
-      },                                                                       \
-      py::return_value_policy::reference);                                     \
-  tensor_class.def(                                                            \
-      op_str,                                                                  \
-      [](Tensor arg1, Tensor arg2, Tensor arg3, Scalar arg4) -> Tensor {       \
-        FUSER_PERF_SCOPE("Operators." op_str);                                 \
-        FusionDefinition* fd = arg1.fusion_definition;                         \
-        TORCH_CHECK(                                                           \
-            !fd->completed(), "Attempting to add to a completed definition!"); \
-        Tensor output = fd->defineTensor(arg1.dims);                           \
-        fd->defineRecord(new OpRecord<                                         \
-                         TensorView*,                                          \
-                         TensorView*,                                          \
-                         TensorView*,                                          \
-                         TensorView*,                                          \
-                         Val*>(                                                \
-            {fd->recordingState(arg1()),                                       \
-             fd->recordingState(arg2()),                                       \
-             fd->recordingState(arg3()),                                       \
-             fd->recordingState(arg4())},                                      \
-            {fd->recordingState(output())},                                    \
-            ("ops." op_str),                                                   \
-            serde::RecordType_Ternary_Alpha_TV,                                \
-            static_cast<                                                       \
-                TensorView* (*)(TensorView*, TensorView*, TensorView*, Val*)>( \
-                op_name)));                                                    \
-        return output;                                                         \
-      },                                                                       \
-      py::return_value_policy::reference);                                     \
-  tensor_class.def(                                                            \
-      op_str,                                                                  \
-      [](Tensor arg1, Tensor arg2, Scalar arg3, Scalar arg4) -> Tensor {       \
-        FUSER_PERF_SCOPE("Operators." op_str);                                 \
-        FusionDefinition* fd = arg1.fusion_definition;                         \
-        TORCH_CHECK(                                                           \
-            !fd->completed(), "Attempting to add to a completed definition!"); \
-        Tensor output = fd->defineTensor(arg1.dims);                           \
-        fd->defineRecord(                                                      \
-            new OpRecord<TensorView*, TensorView*, TensorView*, Val*, Val*>(   \
-                {fd->recordingState(arg1()),                                   \
-                 fd->recordingState(arg2()),                                   \
-                 fd->recordingState(arg3()),                                   \
-                 fd->recordingState(arg4())},                                  \
-                {fd->recordingState(output())},                                \
-                ("ops." op_str),                                               \
-                serde::RecordType_Ternary_Alpha_TV_TV_VAL,                     \
-                static_cast<                                                   \
-                    TensorView* (*)(TensorView*, TensorView*, Val*, Val*)>(    \
-                    op_name)));                                                \
-        return output;                                                         \
-      },                                                                       \
-      py::return_value_policy::reference);                                     \
-  tensor_class.def(                                                            \
-      op_str,                                                                  \
-      [](Tensor arg1, Scalar arg2, Tensor arg3, Scalar arg4) -> Tensor {       \
-        FUSER_PERF_SCOPE("Operators." op_str);                                 \
-        FusionDefinition* fd = arg1.fusion_definition;                         \
-        TORCH_CHECK(                                                           \
-            !fd->completed(), "Attempting to add to a completed definition!"); \
-        Tensor output = fd->defineTensor(arg1.dims);                           \
-        fd->defineRecord(                                                      \
-            new OpRecord<TensorView*, TensorView*, Val*, TensorView*, Val*>(   \
-                {fd->recordingState(arg1()),                                   \
-                 fd->recordingState(arg2()),                                   \
-                 fd->recordingState(arg3()),                                   \
-                 fd->recordingState(arg4())},                                  \
-                {fd->recordingState(output())},                                \
-                ("ops." op_str),                                               \
-                serde::RecordType_Ternary_Alpha_TV_VAL_TV,                     \
-                static_cast<                                                   \
-                    TensorView* (*)(TensorView*, Val*, TensorView*, Val*)>(    \
-                    op_name)));                                                \
-        return output;                                                         \
-      },                                                                       \
-      py::return_value_policy::reference);                                     \
-  scalar_class.def(                                                            \
-      op_str,                                                                  \
-      [](Scalar arg1, Tensor arg2, Tensor arg3, Scalar arg4) -> Tensor {       \
-        FUSER_PERF_SCOPE("Operators." op_str);                                 \
-        FusionDefinition* fd = arg1.fusion_definition;                         \
-        TORCH_CHECK(                                                           \
-            !fd->completed(), "Attempting to add to a completed definition!"); \
-        Tensor output = fd->defineTensor(arg2.dims);                           \
-        fd->defineRecord(                                                      \
-            new OpRecord<TensorView*, Val*, TensorView*, TensorView*, Val*>(   \
-                {fd->recordingState(arg1()),                                   \
-                 fd->recordingState(arg2()),                                   \
-                 fd->recordingState(arg3()),                                   \
-                 fd->recordingState(arg4())},                                  \
-                {fd->recordingState(output())},                                \
-                ("ops." op_str),                                               \
-                serde::RecordType_Ternary_Alpha_TV_TV_VAL,                     \
-                static_cast<                                                   \
-                    TensorView* (*)(Val*, TensorView*, TensorView*, Val*)>(    \
-                    op_name)));                                                \
-        return output;                                                         \
-      },                                                                       \
-      py::return_value_policy::reference);                                     \
-  scalar_class.def(                                                            \
-      op_str,                                                                  \
-      [](Scalar arg1, Scalar arg2, Tensor arg3, Scalar arg4) -> Tensor {       \
-        FUSER_PERF_SCOPE("Operators." op_str);                                 \
-        FusionDefinition* fd = arg1.fusion_definition;                         \
-        TORCH_CHECK(                                                           \
-            !fd->completed(), "Attempting to add to a completed definition!"); \
-        Tensor output = fd->defineTensor(arg3.dims);                           \
-        fd->defineRecord(                                                      \
-            new OpRecord<TensorView*, Val*, Val*, TensorView*, Val*>(          \
-                {fd->recordingState(arg1()),                                   \
-                 fd->recordingState(arg2()),                                   \
-                 fd->recordingState(arg3()),                                   \
-                 fd->recordingState(arg4())},                                  \
-                {fd->recordingState(output())},                                \
-                ("ops." op_str),                                               \
-                serde::RecordType_Ternary_Alpha_VAL_VAL_TV,                    \
-                static_cast<TensorView* (*)(Val*, Val*, TensorView*, Val*)>(   \
-                    op_name)));                                                \
-        return output;                                                         \
-      },                                                                       \
-      py::return_value_policy::reference);                                     \
-  tensor_class.def(                                                            \
-      op_str,                                                                  \
-      [](Tensor arg1, Scalar arg2, Scalar arg3, Scalar arg4) -> Tensor {       \
-        FUSER_PERF_SCOPE("Operators." op_str);                                 \
-        FusionDefinition* fd = arg1.fusion_definition;                         \
-        TORCH_CHECK(                                                           \
-            !fd->completed(), "Attempting to add to a completed definition!"); \
-        Tensor output = fd->defineTensor(arg1.dims);                           \
-        fd->defineRecord(                                                      \
-            new OpRecord<TensorView*, TensorView*, Val*, Val*, Val*>(          \
-                {fd->recordingState(arg1()),                                   \
-                 fd->recordingState(arg2()),                                   \
-                 fd->recordingState(arg3()),                                   \
-                 fd->recordingState(arg4())},                                  \
-                {fd->recordingState(output())},                                \
-                ("ops." op_str),                                               \
-                serde::RecordType_Ternary_Alpha_TV_VAL_VAL,                    \
-                static_cast<TensorView* (*)(TensorView*, Val*, Val*, Val*)>(   \
-                    op_name)));                                                \
-        return output;                                                         \
-      },                                                                       \
-      py::return_value_policy::reference);                                     \
-  scalar_class.def(                                                            \
-      op_str,                                                                  \
-      [](Scalar arg1, Tensor arg2, Scalar arg3, Scalar arg4) -> Tensor {       \
-        FUSER_PERF_SCOPE("Operators." op_str);                                 \
-        FusionDefinition* fd = arg1.fusion_definition;                         \
-        TORCH_CHECK(                                                           \
-            !fd->completed(), "Attempting to add to a completed definition!"); \
-        Tensor output = fd->defineTensor(arg2.dims);                           \
-        fd->defineRecord(                                                      \
-            new OpRecord<TensorView*, Val*, TensorView*, Val*, Val*>(          \
-                {fd->recordingState(arg1()),                                   \
-                 fd->recordingState(arg2()),                                   \
-                 fd->recordingState(arg3()),                                   \
-                 fd->recordingState(arg4())},                                  \
-                {fd->recordingState(output())},                                \
-                ("ops." op_str),                                               \
-                serde::RecordType_Ternary_Alpha_VAL_TV_VAL,                    \
-                static_cast<TensorView* (*)(Val*, TensorView*, Val*, Val*)>(   \
-                    op_name)));                                                \
-        return output;                                                         \
-      },                                                                       \
       py::return_value_policy::reference);
 
   NVFUSER_PYTHON_BINDING_TERNARY_WITH_ALPHA_OP("addcmul", addcmul)
 #undef NVFUSER_PYTHON_BINDING_TERNARY_WITH_ALPHA_OP
 
-#define NVFUSER_PYTHON_BINDING_REDUCTION_OP(op_str, op_name, record_type)               \
-  nvf_ops.def(                                                                          \
-      op_str,                                                                           \
-      [](FusionDefinition::Operators& self,                                             \
-         Tensor arg,                                                                    \
-         PrimDataType dtype) -> Tensor {                                                \
-        FUSER_PERF_SCOPE("Operators." op_str);                                          \
-        TORCH_CHECK(                                                                    \
-            self.validUse(), "Attempting to add to a completed definition!");           \
-        FusionDefinition* fd = self.fusion_definition;                                  \
-        size_t ndims = 0;                                                               \
-        std::vector<int> axes(arg.dims);                                                \
-        std::iota(axes.begin(), axes.end(), 0);                                         \
-        Tensor output = fd->defineTensor(ndims);                                        \
-        fd->defineRecord(new ReductionOpRecord(                                         \
-            {fd->recordingState(arg())},                                                \
-            {fd->recordingState(output())},                                             \
-            ("ops." op_str),                                                            \
-            record_type,                                                                \
-            static_cast<                                                                \
-                TensorView* (*)(TensorView*, const std::vector<int>&, bool, DataType)>( \
-                op_name),                                                               \
-            axes,                                                                       \
-            false,                                                                      \
-            dtype));                                                                    \
-        return output;                                                                  \
-      },                                                                                \
-      py::arg("arg"),                                                                   \
-      py::arg("dtype") = DataType::Null,                                                \
-      py::return_value_policy::reference);                                              \
-  nvf_ops.def(                                                                          \
-      op_str,                                                                           \
-      [](FusionDefinition::Operators& self,                                             \
-         Tensor arg,                                                                    \
-         int axis,                                                                      \
-         bool keepdim,                                                                  \
-         PrimDataType dtype) -> Tensor {                                                \
-        FUSER_PERF_SCOPE("Operators." op_str);                                          \
-        TORCH_CHECK(                                                                    \
-            self.validUse(), "Attempting to add to a completed definition!");           \
-        FusionDefinition* fd = self.fusion_definition;                                  \
-        size_t ndims = keepdim ? arg.dims : (arg.dims - 1);                             \
-        Tensor output = fd->defineTensor(ndims);                                        \
-        fd->defineRecord(new ReductionOpRecord(                                         \
-            {fd->recordingState(arg())},                                                \
-            {fd->recordingState(output())},                                             \
-            ("ops." op_str),                                                            \
-            record_type,                                                                \
-            static_cast<                                                                \
-                TensorView* (*)(TensorView*, const std::vector<int>&, bool, DataType)>( \
-                op_name),                                                               \
-            {axis},                                                                     \
-            keepdim,                                                                    \
-            dtype));                                                                    \
-        return output;                                                                  \
-      },                                                                                \
-      py::arg("arg"),                                                                   \
-      py::arg("axis"),                                                                  \
-      py::arg("keepdim") = false,                                                       \
-      py::arg("dtype") = DataType::Null,                                                \
-      py::return_value_policy::reference);                                              \
-  nvf_ops.def(                                                                          \
-      op_str,                                                                           \
-      [](FusionDefinition::Operators& self,                                             \
-         Tensor arg,                                                                    \
-         const std::vector<int>& axes,                                                  \
-         bool keepdim,                                                                  \
-         PrimDataType dtype) -> Tensor {                                                \
-        FUSER_PERF_SCOPE("Operators." op_str);                                          \
-        TORCH_CHECK(                                                                    \
-            self.validUse(), "Attempting to add to a completed definition!");           \
-        FusionDefinition* fd = self.fusion_definition;                                  \
-        size_t ndims = keepdim ? arg.dims : (arg.dims - axes.size());                   \
-        Tensor output = fd->defineTensor(ndims);                                        \
-        fd->defineRecord(new ReductionOpRecord(                                         \
-            {fd->recordingState(arg())},                                                \
-            {fd->recordingState(output())},                                             \
-            ("ops." op_str),                                                            \
-            record_type,                                                                \
-            static_cast<                                                                \
-                TensorView* (*)(TensorView*, const std::vector<int>&, bool, DataType)>( \
-                op_name),                                                               \
-            axes,                                                                       \
-            keepdim,                                                                    \
-            dtype));                                                                    \
-        return output;                                                                  \
-      },                                                                                \
-      py::arg("arg"),                                                                   \
-      py::arg("axes"),                                                                  \
-      py::arg("keepdim") = false,                                                       \
-      py::arg("dtype") = DataType::Null,                                                \
-      py::return_value_policy::reference);                                              \
-  tensor_class.def(                                                                     \
-      op_str,                                                                           \
-      [](Tensor arg,                                                                    \
-         const std::vector<int>& axes,                                                  \
-         bool keepdim,                                                                  \
-         PrimDataType dtype) -> Tensor {                                                \
-        FUSER_PERF_SCOPE("Operators." op_str);                                          \
-        FusionDefinition* fd = arg.fusion_definition;                                   \
-        size_t ndims = keepdim ? arg.dims : (arg.dims - axes.size());                   \
-        Tensor output = fd->defineTensor(ndims);                                        \
-        fd->defineRecord(new ReductionOpRecord(                                         \
-            {fd->recordingState(arg())},                                                \
-            {fd->recordingState(output())},                                             \
-            ("ops." op_str),                                                            \
-            record_type,                                                                \
-            static_cast<                                                                \
-                TensorView* (*)(TensorView*, const std::vector<int>&, bool, DataType)>( \
-                op_name),                                                               \
-            axes,                                                                       \
-            keepdim,                                                                    \
-            dtype));                                                                    \
-        return output;                                                                  \
-      },                                                                                \
-      py::arg("axes"),                                                                  \
-      py::arg("keepdim") = false,                                                       \
-      py::arg("dtype") = DataType::Null,                                                \
+#define NVFUSER_PYTHON_BINDING_REDUCTION_OP(op_str, op_name, record_type)     \
+  nvf_ops.def(                                                                \
+      op_str,                                                                 \
+      [](FusionDefinition::Operators& self,                                   \
+         Tensor arg,                                                          \
+         PrimDataType dtype) -> Tensor {                                      \
+        FUSER_PERF_SCOPE("Operators." op_str);                                \
+        TORCH_CHECK(                                                          \
+            self.validUse(), "Attempting to add to a completed definition!"); \
+        FusionDefinition* fd = self.fusion_definition;                        \
+        size_t ndims = 0;                                                     \
+        std::vector<int> axes(arg.dims);                                      \
+        std::iota(axes.begin(), axes.end(), 0);                               \
+        Tensor output = fd->defineTensor(ndims);                              \
+        fd->defineRecord(new ReductionOpRecord(                               \
+            {fd->recordingState(arg())},                                      \
+            {fd->recordingState(output())},                                   \
+            ("ops." op_str),                                                  \
+            record_type,                                                      \
+            static_cast<TensorView* (*)(TensorView*,                          \
+                                        const std::vector<int>&,              \
+                                        bool,                                 \
+                                        DataType)>(op_name),                  \
+            axes,                                                             \
+            false,                                                            \
+            dtype));                                                          \
+        return output;                                                        \
+      },                                                                      \
+      py::arg("arg"),                                                         \
+      py::arg("dtype") = DataType::Null,                                      \
+      py::return_value_policy::reference);                                    \
+  nvf_ops.def(                                                                \
+      op_str,                                                                 \
+      [](FusionDefinition::Operators& self,                                   \
+         Tensor arg,                                                          \
+         int axis,                                                            \
+         bool keepdim,                                                        \
+         PrimDataType dtype) -> Tensor {                                      \
+        FUSER_PERF_SCOPE("Operators." op_str);                                \
+        TORCH_CHECK(                                                          \
+            self.validUse(), "Attempting to add to a completed definition!"); \
+        FusionDefinition* fd = self.fusion_definition;                        \
+        size_t ndims = keepdim ? arg.dims : (arg.dims - 1);                   \
+        Tensor output = fd->defineTensor(ndims);                              \
+        fd->defineRecord(new ReductionOpRecord(                               \
+            {fd->recordingState(arg())},                                      \
+            {fd->recordingState(output())},                                   \
+            ("ops." op_str),                                                  \
+            record_type,                                                      \
+            static_cast<TensorView* (*)(TensorView*,                          \
+                                        const std::vector<int>&,              \
+                                        bool,                                 \
+                                        DataType)>(op_name),                  \
+            {axis},                                                           \
+            keepdim,                                                          \
+            dtype));                                                          \
+        return output;                                                        \
+      },                                                                      \
+      py::arg("arg"),                                                         \
+      py::arg("axis"),                                                        \
+      py::arg("keepdim") = false,                                             \
+      py::arg("dtype") = DataType::Null,                                      \
+      py::return_value_policy::reference);                                    \
+  nvf_ops.def(                                                                \
+      op_str,                                                                 \
+      [](FusionDefinition::Operators& self,                                   \
+         Tensor arg,                                                          \
+         const std::vector<int>& axes,                                        \
+         bool keepdim,                                                        \
+         PrimDataType dtype) -> Tensor {                                      \
+        FUSER_PERF_SCOPE("Operators." op_str);                                \
+        TORCH_CHECK(                                                          \
+            self.validUse(), "Attempting to add to a completed definition!"); \
+        FusionDefinition* fd = self.fusion_definition;                        \
+        size_t ndims = keepdim ? arg.dims : (arg.dims - axes.size());         \
+        Tensor output = fd->defineTensor(ndims);                              \
+        fd->defineRecord(new ReductionOpRecord(                               \
+            {fd->recordingState(arg())},                                      \
+            {fd->recordingState(output())},                                   \
+            ("ops." op_str),                                                  \
+            record_type,                                                      \
+            static_cast<TensorView* (*)(TensorView*,                          \
+                                        const std::vector<int>&,              \
+                                        bool,                                 \
+                                        DataType)>(op_name),                  \
+            axes,                                                             \
+            keepdim,                                                          \
+            dtype));                                                          \
+        return output;                                                        \
+      },                                                                      \
+      py::arg("arg"),                                                         \
+      py::arg("axes"),                                                        \
+      py::arg("keepdim") = false,                                             \
+      py::arg("dtype") = DataType::Null,                                      \
       py::return_value_policy::reference);
 
   NVFUSER_PYTHON_BINDING_REDUCTION_OP(
@@ -2114,88 +1734,50 @@ void initNvFuserPythonBindings(PyObject* module) {
       "sum", sum, serde::RecordType::RecordType_ReductionSum)
 #undef NVFUSER_PYTHON_BINDING_REDUCTION_OP
 
-#define NVFUSER_PYTHON_BINDING_CAST_OP(op_str, op_name)                        \
-  nvf_ops.def(                                                                 \
-      op_str,                                                                  \
-      [](FusionDefinition::Operators& self,                                    \
-         Tensor arg,                                                           \
-         PrimDataType dtype) -> Tensor {                                       \
-        FUSER_PERF_SCOPE("Operators." op_str);                                 \
-        TORCH_CHECK(                                                           \
-            self.validUse(), "Attempting to add to a completed definition!");  \
-        FusionDefinition* fd = self.fusion_definition;                         \
-        Tensor output = fd->defineTensor(arg.dims);                            \
-        fd->defineRecord(new CastOpRecord<TensorView*, TensorView*>(           \
-            {fd->recordingState(arg())},                                       \
-            {fd->recordingState(output())},                                    \
-            ("ops." op_str),                                                   \
-            serde::RecordType_CastTv,                                          \
-            static_cast<TensorView* (*)(DataType, TensorView*)>(op_name),      \
-            dtype));                                                           \
-        return output;                                                         \
-      },                                                                       \
-      py::arg("arg"),                                                          \
-      py::arg("dtype"),                                                        \
-      py::return_value_policy::reference);                                     \
-  nvf_ops.def(                                                                 \
-      op_str,                                                                  \
-      [](FusionDefinition::Operators& self,                                    \
-         Scalar arg,                                                           \
-         PrimDataType dtype) -> Scalar {                                       \
-        FUSER_PERF_SCOPE("Operators." op_str);                                 \
-        TORCH_CHECK(                                                           \
-            self.validUse(), "Attempting to add to a completed definition!");  \
-        FusionDefinition* fd = self.fusion_definition;                         \
-        Scalar output = fd->defineScalar();                                    \
-        fd->defineRecord(new CastOpRecord<Val*, Val*>(                         \
-            {fd->recordingState(arg())},                                       \
-            {fd->recordingState(output())},                                    \
-            ("ops." op_str),                                                   \
-            serde::RecordType_CastVal,                                         \
-            static_cast<Val* (*)(DataType, Val*)>(op_name),                    \
-            dtype));                                                           \
-        return output;                                                         \
-      },                                                                       \
-      py::arg("arg"),                                                          \
-      py::arg("dtype"),                                                        \
-      py::return_value_policy::reference);                                     \
-  tensor_class.def(                                                            \
-      op_str,                                                                  \
-      [](Tensor arg, PrimDataType dtype) -> Tensor {                           \
-        FUSER_PERF_SCOPE("Operators." op_str);                                 \
-        FusionDefinition* fd = arg.fusion_definition;                          \
-        TORCH_CHECK(                                                           \
-            !fd->completed(), "Attempting to add to a completed definition!"); \
-        Tensor output = fd->defineTensor(arg.dims);                            \
-        fd->defineRecord(new CastOpRecord<TensorView*, TensorView*>(           \
-            {fd->recordingState(arg())},                                       \
-            {fd->recordingState(output())},                                    \
-            ("ops." op_str),                                                   \
-            serde::RecordType_CastTv,                                          \
-            static_cast<TensorView* (*)(DataType, TensorView*)>(op_name),      \
-            dtype));                                                           \
-        return output;                                                         \
-      },                                                                       \
-      py::arg("dtype"),                                                        \
-      py::return_value_policy::reference);                                     \
-  scalar_class.def(                                                            \
-      op_str,                                                                  \
-      [](Scalar arg, PrimDataType dtype) -> Scalar {                           \
-        FUSER_PERF_SCOPE("Operators." op_str);                                 \
-        FusionDefinition* fd = arg.fusion_definition;                          \
-        TORCH_CHECK(                                                           \
-            !fd->completed(), "Attempting to add to a completed definition!"); \
-        Scalar output = fd->defineScalar();                                    \
-        fd->defineRecord(new CastOpRecord<Val*, Val*>(                         \
-            {fd->recordingState(arg())},                                       \
-            {fd->recordingState(output())},                                    \
-            ("ops." op_str),                                                   \
-            serde::RecordType_CastVal,                                         \
-            static_cast<Val* (*)(DataType, Val*)>(op_name),                    \
-            dtype));                                                           \
-        return output;                                                         \
-      },                                                                       \
-      py::arg("dtype"),                                                        \
+#define NVFUSER_PYTHON_BINDING_CAST_OP(op_str, op_name)                       \
+  nvf_ops.def(                                                                \
+      op_str,                                                                 \
+      [](FusionDefinition::Operators& self,                                   \
+         Tensor arg,                                                          \
+         PrimDataType dtype) -> Tensor {                                      \
+        FUSER_PERF_SCOPE("Operators." op_str);                                \
+        TORCH_CHECK(                                                          \
+            self.validUse(), "Attempting to add to a completed definition!"); \
+        FusionDefinition* fd = self.fusion_definition;                        \
+        Tensor output = fd->defineTensor(arg.dims);                           \
+        fd->defineRecord(new CastOpRecord<TensorView*, TensorView*>(          \
+            {fd->recordingState(arg())},                                      \
+            {fd->recordingState(output())},                                   \
+            ("ops." op_str),                                                  \
+            serde::RecordType_CastTv,                                         \
+            static_cast<TensorView* (*)(DataType, TensorView*)>(op_name),     \
+            dtype));                                                          \
+        return output;                                                        \
+      },                                                                      \
+      py::arg("arg"),                                                         \
+      py::arg("dtype"),                                                       \
+      py::return_value_policy::reference);                                    \
+  nvf_ops.def(                                                                \
+      op_str,                                                                 \
+      [](FusionDefinition::Operators& self,                                   \
+         Scalar arg,                                                          \
+         PrimDataType dtype) -> Scalar {                                      \
+        FUSER_PERF_SCOPE("Operators." op_str);                                \
+        TORCH_CHECK(                                                          \
+            self.validUse(), "Attempting to add to a completed definition!"); \
+        FusionDefinition* fd = self.fusion_definition;                        \
+        Scalar output = fd->defineScalar();                                   \
+        fd->defineRecord(new CastOpRecord<Val*, Val*>(                        \
+            {fd->recordingState(arg())},                                      \
+            {fd->recordingState(output())},                                   \
+            ("ops." op_str),                                                  \
+            serde::RecordType_CastVal,                                        \
+            static_cast<Val* (*)(DataType, Val*)>(op_name),                   \
+            dtype));                                                          \
+        return output;                                                        \
+      },                                                                      \
+      py::arg("arg"),                                                         \
+      py::arg("dtype"),                                                       \
       py::return_value_policy::reference);
 
   NVFUSER_PYTHON_BINDING_CAST_OP("cast", castOp)
@@ -2205,10 +1787,10 @@ void initNvFuserPythonBindings(PyObject* module) {
       "batch_norm",
       [](FusionDefinition::Operators& self,
          Tensor arg,
-         c10::optional<Tensor> weight,
-         c10::optional<Tensor> bias,
-         c10::optional<Tensor> running_mean,
-         c10::optional<Tensor> running_var,
+         std::optional<Tensor> weight,
+         std::optional<Tensor> bias,
+         std::optional<Tensor> running_mean,
+         std::optional<Tensor> running_var,
          Scalar momentum,
          Scalar eps,
          bool training,
@@ -2257,171 +1839,27 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("training"),
       py::arg("channels_last") = false,
       py::return_value_policy::reference);
-  tensor_class.def(
-      "batch_norm",
-      [](Tensor arg,
-         c10::optional<Tensor> weight,
-         c10::optional<Tensor> bias,
-         c10::optional<Tensor> running_mean,
-         c10::optional<Tensor> running_var,
-         Scalar momentum,
-         Scalar eps,
-         bool training,
-         bool channels_last) -> decltype(auto) {
-        FUSER_PERF_SCOPE("Operators.batch_norm");
-        FusionDefinition* fd = arg.fusion_definition;
-        Tensor output = fd->defineTensor(arg.dims);
-        Tensor mean = fd->defineTensor(1);
-        Tensor invstd = fd->defineTensor(1);
-        auto weight_state = weight.has_value()
-            ? fd->recordingState(weight.value()())
-            : State(0, serde::StateType_None);
-        auto bias_state = bias.has_value() ? fd->recordingState(bias.value()())
-                                           : State(0, serde::StateType_None);
-        auto running_mean_state = running_mean.has_value()
-            ? fd->recordingState(running_mean.value()())
-            : State(0, serde::StateType_None);
-        auto running_var_state = running_var.has_value()
-            ? fd->recordingState(running_var.value()())
-            : State(0, serde::StateType_None);
-        fd->defineRecord(new BatchNormOpRecord(
-            {fd->recordingState(arg()),
-             weight_state,
-             bias_state,
-             running_mean_state,
-             running_var_state,
-             fd->recordingState(momentum()),
-             fd->recordingState(eps())},
-            {fd->recordingState(output()),
-             fd->recordingState(mean()),
-             fd->recordingState(invstd())},
-            training,
-            channels_last));
-        return std::make_tuple(output, mean, invstd);
-      },
-      py::arg("weight").none(true),
-      py::arg("bias").none(true),
-      py::arg("running_mean").none(true),
-      py::arg("running_var").none(true),
-      py::arg("momentum"),
-      py::arg("eps"),
-      py::arg("training"),
-      py::arg("channels_last") = false,
-      py::return_value_policy::reference);
-  // Concreate Output Shape Overload
   nvf_ops.def(
       "broadcast_in_dim",
-      [](FusionDefinition::Operators& self,
-         Tensor arg,
-         std::vector<int64_t>& output_shape,
-         std::vector<int64_t>& broadcast_dims) -> Tensor {
-        FUSER_PERF_SCOPE("Operators.broadcast_in_dim");
-        FusionDefinition* fd = self.fusion_definition;
-        TORCH_CHECK(
-            self.validUse(), "Attempting to add to a completed definition!");
-        TORCH_CHECK(
-            output_shape.size() >= broadcast_dims.size(),
-            "broadcast_dims vector size is too big for output shape!");
-        Tensor output = fd->defineTensor(output_shape.size());
-        fd->defineRecord(new BroadcastInDimOpRecord<int64_t>(
-            {fd->recordingState(arg())},
-            {fd->recordingState(output())},
-            "ops.broadcast_in_dim",
-            serde::RecordType_BroadcastInDim,
-            std::move(output_shape),
-            std::move(broadcast_dims)));
-        return output;
-      },
+      broadcast_in_dim_fn<python_frontend::Vector>,
       py::arg("arg"),
-      py::arg("output_shape"),
+      py::arg("shape"),
       py::arg("broadcast_dims"),
       py::return_value_policy::reference);
-  tensor_class.def(
-      "broadcast_in_dim",
-      [](Tensor arg,
-         std::vector<int64_t>& output_shape,
-         std::vector<int64_t>& broadcast_dims) -> Tensor {
-        FUSER_PERF_SCOPE("Operators.broadcast_in_dim");
-        FusionDefinition* fd = arg.fusion_definition;
-        TORCH_CHECK(
-            output_shape.size() >= broadcast_dims.size(),
-            "broadcast_dims vector size is too big for output shape!");
-        Tensor output = fd->defineTensor(output_shape.size());
-        fd->defineRecord(new BroadcastInDimOpRecord<int64_t>(
-            {fd->recordingState(arg())},
-            {fd->recordingState(output())},
-            "ops.broadcast_in_dim",
-            serde::RecordType_BroadcastInDim,
-            output_shape,
-            broadcast_dims));
-        return output;
-      },
-      py::arg("output_shape"),
-      py::arg("broadcast_dims"),
-      py::return_value_policy::reference);
-  // Symbolic Output Shape Overload
   nvf_ops.def(
       "broadcast_in_dim",
-      [](FusionDefinition::Operators& self,
-         Tensor arg,
-         std::vector<Scalar>& output_shape,
-         std::vector<int64_t>& broadcast_dims) -> Tensor {
-        FUSER_PERF_SCOPE("Operators.broadcast_in_dim");
-        FusionDefinition* fd = self.fusion_definition;
-        TORCH_CHECK(
-            self.validUse(), "Attempting to add to a completed definition!");
-        TORCH_CHECK(
-            output_shape.size() >= broadcast_dims.size(),
-            "broadcast_dims vector size is too big for output shape!");
-        Tensor output = fd->defineTensor(output_shape.size());
-        std::vector<State> output_shape_states(
-            output_shape.size(), State(0, serde::StateType_Scalar));
-        std::transform(
-            output_shape.begin(),
-            output_shape.end(),
-            output_shape_states.begin(),
-            [&fd](const Scalar& s) { return fd->recordingState(s()); });
-        fd->defineRecord(new BroadcastInDimOpRecord<State>(
-            {fd->recordingState(arg())},
-            {fd->recordingState(output())},
-            "ops.broadcast_in_dim",
-            serde::RecordType_BroadcastInDimSymbolic,
-            std::move(output_shape_states),
-            std::move(broadcast_dims)));
-        return output;
-      },
+      broadcast_in_dim_fn<py::list>,
       py::arg("arg"),
-      py::arg("output_shape"),
+      py::arg("shape"),
       py::arg("broadcast_dims"),
       py::return_value_policy::reference);
-  tensor_class.def(
+  // NOTE: Tuple support was added to facilitate the direct usage of Pytorch's
+  // Tensor.size() function that returns a child class of a Tuple.
+  nvf_ops.def(
       "broadcast_in_dim",
-      [](Tensor arg,
-         std::vector<Scalar>& output_shape,
-         std::vector<int64_t>& broadcast_dims) -> Tensor {
-        FUSER_PERF_SCOPE("Operators.broadcast_in_dim");
-        FusionDefinition* fd = arg.fusion_definition;
-        TORCH_CHECK(
-            output_shape.size() >= broadcast_dims.size(),
-            "broadcast_dims vector size is too big for output shape!");
-        Tensor output = fd->defineTensor(output_shape.size());
-        std::vector<State> output_shape_states(
-            output_shape.size(), State(0, serde::StateType_Scalar));
-        std::transform(
-            output_shape.begin(),
-            output_shape.end(),
-            output_shape_states.begin(),
-            [&fd](const Scalar& s) { return fd->recordingState(s()); });
-        fd->defineRecord(new BroadcastInDimOpRecord<State>(
-            {fd->recordingState(arg())},
-            {fd->recordingState(output())},
-            "ops.broadcast_in_dim",
-            serde::RecordType_BroadcastInDimSymbolic,
-            std::move(output_shape_states),
-            std::move(broadcast_dims)));
-        return output;
-      },
-      py::arg("output_shape"),
+      broadcast_in_dim_fn<py::tuple>,
+      py::arg("arg"),
+      py::arg("shape"),
       py::arg("broadcast_dims"),
       py::return_value_policy::reference);
   nvf_ops.def(
@@ -2442,21 +1880,6 @@ void initNvFuserPythonBindings(PyObject* module) {
         return output;
       },
       py::arg("arg"),
-      py::arg("is_broadcast_dim"),
-      py::return_value_policy::reference);
-  tensor_class.def(
-      "broadcast",
-      [](Tensor arg, std::vector<bool>& is_broadcast_dim) -> Tensor {
-        FUSER_PERF_SCOPE("Operators.broadcast");
-        FusionDefinition* fd = arg.fusion_definition;
-        Tensor output = fd->defineTensor(arg.dims);
-        fd->defineRecord(new BroadcastOpRecord(
-            {fd->recordingState(arg())},
-            {fd->recordingState(output())},
-            "ops.broadcast",
-            is_broadcast_dim));
-        return output;
-      },
       py::arg("is_broadcast_dim"),
       py::return_value_policy::reference);
   nvf_ops.def(
@@ -2480,7 +1903,7 @@ void initNvFuserPythonBindings(PyObject* module) {
         return output;
       },
       py::arg("tensors"),
-      py::arg("dim"),
+      py::arg("dim") = 0,
       py::return_value_policy::reference);
   nvf_ops.def(
       "index_select",
@@ -2515,6 +1938,23 @@ void initNvFuserPythonBindings(PyObject* module) {
         FUSER_PERF_SCOPE("Operators.gather");
         TORCH_CHECK(
             self.validUse(), "Attempting to add to a completed definition!");
+        TORCH_CHECK(
+            arg1.dims == index.dims,
+            "Tensor arguments have different dimensions ",
+            arg1.dims,
+            " and ",
+            index.dims);
+        auto num_dims = (int64_t)arg1.dims;
+        TORCH_CHECK(
+            dim >= -num_dims && dim < num_dims,
+            "Tensor arguments have dimension ",
+            num_dims,
+            " so dim argument must satisfy ",
+            -num_dims,
+            " <= dim < ",
+            num_dims,
+            ", but received ",
+            dim);
         FusionDefinition* fd = self.fusion_definition;
         Tensor output = fd->defineTensor(arg1.dims);
         fd->defineRecord(new TorchGatherOpRecord(
@@ -2526,25 +1966,28 @@ void initNvFuserPythonBindings(PyObject* module) {
             dim));
         return output;
       },
+      R"pbdoc(
+        Index arg1 in dim at positions given by index.
+
+        The dimension of arg1 and index must match. For all axes other than dim
+        the extent of index in that axis need not be equal to its counterpart
+        in arg1 but must not be greater than it.
+
+        Args:
+            arg1 (Tensor): Tensor of shape `(Ni...,M,Nk...)` where `M` is the
+                extent of `arg1` in the dimension `dim`.
+            index (Tensor): Tensor of dtype `DataType::Int` of shape
+                `(Mi...,J,Mk...)` where all the extents other than `J` are less
+                than or equal to their counterparts in `arg1`; for example `Mk
+                <= Nk`.
+            dim (int): Which position to index along.
+
+        Returns:
+            (Tensor): Tensor of same dtype as `arg1` and of shape
+                `(Mi...,J,Mk...)` where the element at position `(i...,j,k...)`
+                is equal to `arg1[i,...,index[i,...,j,k,...],k,...]`.
+      )pbdoc",
       py::arg("arg1"),
-      py::arg("index"),
-      py::arg("dim"),
-      py::return_value_policy::reference);
-  tensor_class.def(
-      "gather",
-      [](Tensor arg1, Tensor index, int64_t dim) -> Tensor {
-        FUSER_PERF_SCOPE("Operators.gather");
-        FusionDefinition* fd = arg1.fusion_definition;
-        Tensor output = fd->defineTensor(arg1.dims);
-        fd->defineRecord(new TorchGatherOpRecord(
-            {
-                fd->recordingState(arg1()),
-                fd->recordingState(index()),
-            },
-            {fd->recordingState(output())},
-            dim));
-        return output;
-      },
       py::arg("index"),
       py::arg("dim"),
       py::return_value_policy::reference);
@@ -2553,7 +1996,7 @@ void initNvFuserPythonBindings(PyObject* module) {
       [](FusionDefinition::Operators& self,
          Tensor arg,
          std::vector<int64_t>& pad_widths,
-         c10::optional<Scalar> value) -> Tensor {
+         std::optional<Scalar> value) -> Tensor {
         FUSER_PERF_SCOPE("Operators.pad");
         TORCH_CHECK(
             self.validUse(), "Attempting to add to a completed definition!");
@@ -2575,27 +2018,64 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("pad_widths"),
       py::arg("value") = py::none(),
       py::return_value_policy::reference);
-  tensor_class.def(
-      "pad",
-      [](Tensor arg,
-         std::vector<int64_t>& pad_widths,
-         c10::optional<Scalar> value) -> Tensor {
-        FUSER_PERF_SCOPE("Operators.pad");
-        FusionDefinition* fd = arg.fusion_definition;
+  nvf_ops.def(
+      "take_along_axis",
+      [](FusionDefinition::Operators& self,
+         Tensor arg1,
+         Tensor index,
+         int64_t dim) -> Tensor {
+        FUSER_PERF_SCOPE("Operators.take_along_axis");
         TORCH_CHECK(
-            !fd->completed(), "Attempting to add to a completed definition!");
-        Tensor output = fd->defineTensor(arg.dims);
-        auto value_state = value.has_value()
-            ? fd->recordingState(value.value()())
-            : State(0, serde::StateType_None);
-        fd->defineRecord(new PadOpRecord(
-            {fd->recordingState(arg()), value_state},
+            self.validUse(), "Attempting to add to a completed definition!");
+        TORCH_CHECK(
+            arg1.dims == index.dims,
+            "Tensor arguments have different dimensions ",
+            arg1.dims,
+            " and ",
+            index.dims);
+        auto num_dims = (int64_t)arg1.dims;
+        TORCH_CHECK(
+            dim >= -num_dims && dim < num_dims,
+            "Tensor arguments have dimension ",
+            num_dims,
+            " so dim argument must satisfy ",
+            -num_dims,
+            " <= dim < ",
+            num_dims,
+            ", but received ",
+            dim);
+        FusionDefinition* fd = self.fusion_definition;
+        Tensor output = fd->defineTensor(arg1.dims);
+        fd->defineRecord(new TakeAlongAxisOpRecord(
+            {
+                fd->recordingState(arg1()),
+                fd->recordingState(index()),
+            },
             {fd->recordingState(output())},
-            std::move(pad_widths)));
+            dim));
         return output;
       },
-      py::arg("pad_widths"),
-      py::arg("value") = py::none(),
+      R"pbdoc(
+        Index arg1 in dim at positions given by index.
+
+        This operation is very similar to :meth:'gather' but enforces that all
+        dimensions other than dim must be equal between arg1 and index.
+
+        Args:
+            arg1 (Tensor): Tensor of shape `(Ni...,M,Nk...)` where `M` is the
+                extent of `arg1` in the dimension `dim`.
+            index (Tensor): Tensor of dtype `DataType::Int` of shape
+                `(Ni...,J,Nk...)`.
+            dim (int): Which position to index along.
+
+        Returns:
+            (Tensor): Tensor of same dtype as `arg1` and of shape
+                `(Ni...,J,Nk...)` where the element at position `(i...,j,k...)`
+                is equal to `arg1[i,...,index[i,...,j,k,...],k,...]`.
+      )pbdoc",
+      py::arg("arg1"),
+      py::arg("index"),
+      py::arg("dim"),
       py::return_value_policy::reference);
   nvf_ops.def(
       "permute",
@@ -2615,17 +2095,86 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("arg"),
       py::arg("dims"),
       py::return_value_policy::reference);
+
+  auto shape_def = [](Tensor arg) -> Vector {
+    FUSER_PERF_SCOPE("Operators.shape");
+    auto fd = arg.fusion_definition;
+    TORCH_CHECK(
+        fd->ops.validUse(), "Attempting to add to a completed definition!");
+    Vector output = fd->defineVector(arg.dims);
+    fd->defineRecord(new ShapeOpRecord(
+        {fd->recordingState(arg())}, {fd->recordingState(output())}));
+    return output;
+  };
+
   tensor_class.def(
-      "permute",
-      [](Tensor arg, std::vector<int64_t>& dims) -> Tensor {
-        FusionDefinition* fd = arg.fusion_definition;
-        Tensor output = fd->defineTensor(arg.dims);
-        fd->defineRecord(new PermuteOpRecord(
-            {fd->recordingState(arg())}, {fd->recordingState(output())}, dims));
-        return output;
-      },
-      py::arg("dims"),
+      "shape",
+      [&shape_def](Tensor arg) -> Vector { return shape_def(arg); },
       py::return_value_policy::reference);
+  nvf_ops.def(
+      "shape",
+      [&shape_def](FusionDefinition::Operators& self, Tensor arg) -> Vector {
+        return shape_def(arg);
+      },
+      py::arg("arg"),
+      py::return_value_policy::reference);
+
+  auto size_def = [](Tensor arg, int64_t dim) -> Scalar {
+    FUSER_PERF_SCOPE("Operators.size");
+    auto fd = arg.fusion_definition;
+    TORCH_CHECK(
+        fd->ops.validUse(), "Attempting to add to a completed definition!");
+    Scalar output = fd->defineScalar();
+    fd->defineRecord(new SizeOpRecord(
+        {fd->recordingState(arg())}, {fd->recordingState(output())}, dim));
+    return output;
+  };
+
+  tensor_class.def(
+      "size",
+      [&size_def](Tensor arg, int64_t dim) -> Scalar {
+        return size_def(arg, dim);
+      },
+      py::return_value_policy::reference);
+  nvf_ops.def(
+      "size",
+      [&size_def](FusionDefinition::Operators& self, Tensor arg, int64_t dim)
+          -> Scalar { return size_def(arg, dim); },
+      py::arg("arg"),
+      py::arg("dim"),
+      py::return_value_policy::reference);
+
+  auto at_def = [](Vector arg, int64_t index) -> Scalar {
+    FUSER_PERF_SCOPE("Operators.at");
+    auto fd = arg.fusion_definition;
+    TORCH_CHECK(
+        fd->ops.validUse(), "Attempting to add to a completed definition!");
+    Scalar output = fd->defineScalar();
+    fd->defineRecord(new AtOpRecord(
+        {fd->recordingState(arg())}, {fd->recordingState(output())}, index));
+    return output;
+  };
+
+  vector_class.def(
+      "at",
+      [&at_def](Vector arg, int64_t index) -> Scalar {
+        return at_def(arg, index);
+      },
+      py::return_value_policy::reference);
+  vector_class.def(
+      "__getitem__",
+      [&at_def](Vector arg, int64_t index) -> Scalar {
+        return at_def(arg, index);
+      },
+      py::return_value_policy::reference);
+  nvf_ops.def(
+      "at",
+      [&at_def](FusionDefinition::Operators& self, Vector arg, int64_t index)
+          -> Scalar { return at_def(arg, index); },
+      py::arg("arg"),
+      py::arg("index"),
+      py::return_value_policy::reference);
+
   nvf_ops.def(
       "slice",
       [](FusionDefinition::Operators& self,
@@ -2707,89 +2256,6 @@ void initNvFuserPythonBindings(PyObject* module) {
         return output;
       },
       py::arg("arg"),
-      py::arg("start_indices"),
-      py::arg("end_indices"),
-      py::arg("strides") = py::none(),
-      py::return_value_policy::reference);
-  tensor_class.def(
-      "slice",
-      [](Tensor arg,
-         std::vector<int64_t>& start_indices,
-         std::vector<int64_t>& end_indices,
-         // NOTE: Tried to use std::reference_wrapper to a vector and during
-         // testing, I was not getting the proper value back.  It was like
-         // like the code was referencing the strides vector that holds the
-         // default value.
-         std::optional<std::vector<int64_t>> opt_strides =
-             std::nullopt) -> Tensor {
-        FUSER_PERF_SCOPE("Operators.slice");
-        FusionDefinition* fd = arg.fusion_definition;
-        TORCH_CHECK(
-            fd->ops.validUse(), "Attempting to add to a completed definition!");
-
-        std::vector<int64_t> strides(start_indices.size(), int64_t(1));
-        if (opt_strides.has_value()) {
-          TORCH_CHECK(
-              start_indices.size() == opt_strides.value().size(),
-              "Slice start_indices and strides don't match! Start Indices: ",
-              start_indices.size(),
-              " Strides: ",
-              opt_strides.value().size());
-          strides.assign(
-              opt_strides.value().begin(), opt_strides.value().end());
-        }
-        TORCH_CHECK(
-            arg.dims == start_indices.size(),
-            "Number of tensor dimensions does not match slice dimensions! Tensor-dims: ",
-            arg.dims,
-            " Slice-dims: ",
-            start_indices.size());
-        TORCH_CHECK(
-            start_indices.size() == end_indices.size(),
-            "Slice indexing attribute dimensions don't match! Start Indices: ",
-            start_indices.size(),
-            " End Indices: ",
-            end_indices.size(),
-            " Strides: ",
-            strides.size());
-        for (const auto i : c10::irange(arg.dims)) {
-          auto start_idx = start_indices[i];
-          auto end_idx = end_indices[i];
-          auto stride = strides[i];
-          TORCH_CHECK(
-              start_idx >= 0,
-              "Slice operation start_indices must be greater-than-or-equal-to 0. Start Indices: ",
-              start_indices,
-              " End Indices: ",
-              end_indices,
-              " Strides: ",
-              strides);
-          TORCH_CHECK(
-              end_idx >= start_idx,
-              "Slice operation end_indices must be greater-than-or-equal-to start_indices. Start Indices: ",
-              start_indices,
-              " End Indices: ",
-              end_indices,
-              " Strides: ",
-              strides);
-          TORCH_CHECK(
-              stride == 1,
-              "nvFuser Limitation: All slice operation strides must be of size 1. Start Indices: ",
-              start_indices,
-              " End Indices: ",
-              end_indices,
-              " Strides: ",
-              strides);
-        }
-        Tensor output = fd->defineTensor(arg.dims);
-        fd->defineRecord(new SliceOpRecord(
-            {fd->recordingState(arg())},
-            {fd->recordingState(output())},
-            start_indices,
-            end_indices,
-            strides));
-        return output;
-      },
       py::arg("start_indices"),
       py::arg("end_indices"),
       py::arg("strides") = py::none(),
@@ -2813,26 +2279,6 @@ void initNvFuserPythonBindings(PyObject* module) {
         return output;
       },
       py::arg("arg"),
-      py::arg("original_shape"),
-      py::arg("dims"),
-      py::return_value_policy::reference);
-  tensor_class.def(
-      "squeeze",
-      [](Tensor arg,
-         std::vector<int64_t>& original_shape,
-         std::vector<int64_t>& dims) -> Tensor {
-        FUSER_PERF_SCOPE("Operators.squeeze");
-        FusionDefinition* fd = arg.fusion_definition;
-        TORCH_CHECK(
-            !fd->completed(), "Attempting to add to a completed definition!");
-        Tensor output = fd->defineTensor(arg.dims - 1);
-        fd->defineRecord(new SqueezeOpRecord(
-            {fd->recordingState(arg())},
-            {fd->recordingState(output())},
-            original_shape,
-            dims));
-        return output;
-      },
       py::arg("original_shape"),
       py::arg("dims"),
       py::return_value_policy::reference);
@@ -2855,22 +2301,6 @@ void initNvFuserPythonBindings(PyObject* module) {
       },
       py::arg("arg"),
       py::return_value_policy::reference);
-  tensor_class.def(
-      "tensor_sizes",
-      [](Tensor arg) -> std::vector<Scalar> {
-        FUSER_PERF_SCOPE("Operators.tensor_sizes");
-        FusionDefinition* fd = arg.fusion_definition;
-        std::vector<Scalar> outputs;
-        std::vector<State> output_state;
-        for (const auto idx : c10::irange(arg.dims)) {
-          outputs.push_back(fd->defineScalar());
-          output_state.push_back(fd->recordingState(outputs[idx]()));
-        }
-        fd->defineRecord(
-            new TensorSizesRecord({fd->recordingState(arg())}, output_state));
-        return outputs;
-      },
-      py::return_value_policy::reference);
   nvf_ops.def(
       "reshape",
       [](FusionDefinition::Operators& self,
@@ -2892,50 +2322,33 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("original_shape"),
       py::arg("new_shape"),
       py::return_value_policy::reference);
-  tensor_class.def(
-      "reshape",
-      [](Tensor arg,
-         std::vector<int64_t>& original_shape,
-         std::vector<int64_t>& new_shape) -> Tensor {
-        FusionDefinition* fd = arg.fusion_definition;
-        Tensor output = fd->defineTensor(new_shape.size());
-        fd->defineRecord(new ReshapeOpRecord(
-            {fd->recordingState(arg())},
-            {fd->recordingState(output())},
-            original_shape,
-            new_shape));
-        return output;
-      },
-      py::arg("original_shape"),
-      py::arg("new_shape"),
-      py::return_value_policy::reference);
   nvf_ops.def(
       "full",
       [](FusionDefinition::Operators& self,
-         std::vector<int64_t>& size,
-         Scalar arg,
+         std::vector<int64_t>& shape,
+         Scalar fill_value,
          PrimDataType dtype) -> Tensor {
         TORCH_CHECK(
             self.validUse(), "Attempting to add to a completed definition!");
         FusionDefinition* fd = self.fusion_definition;
-        Tensor output = fd->defineTensor(size.size());
+        Tensor output = fd->defineTensor(shape.size());
         fd->defineRecord(new FullOpRecord(
-            {fd->recordingState(arg())},
+            {fd->recordingState(fill_value())},
             {fd->recordingState(output())},
-            std::move(size),
+            std::move(shape),
             dtype));
         return output;
       },
-      py::arg("size"),
-      py::arg("arg"),
+      py::arg("shape"),
+      py::arg("fill_value"),
       py::arg("dtype"),
       py::return_value_policy::reference);
   nvf_ops.def(
       "iota",
       [](FusionDefinition::Operators& self,
          Scalar length,
-         c10::optional<Scalar> start,
-         c10::optional<Scalar> step,
+         std::optional<Scalar> start,
+         std::optional<Scalar> step,
          PrimDataType dtype) -> Tensor {
         TORCH_CHECK(
             self.validUse(), "Attempting to add to a completed definition!");
@@ -2983,26 +2396,6 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("correction"),
       py::arg("keepdim") = false,
       py::return_value_policy::reference);
-  tensor_class.def(
-      "var",
-      [](Tensor arg, std::vector<int>& axes, int64_t correction, bool keepdim)
-          -> Tensor {
-        FUSER_PERF_SCOPE("Operators.var");
-        FusionDefinition* fd = arg.fusion_definition;
-        size_t ndims = keepdim ? arg.dims : (arg.dims - axes.size());
-        Tensor output = fd->defineTensor(ndims);
-        fd->defineRecord(new VarianceOpRecord(
-            {fd->recordingState(arg())},
-            {fd->recordingState(output())},
-            axes,
-            correction,
-            keepdim));
-        return output;
-      },
-      py::arg("axes"),
-      py::arg("correction"),
-      py::arg("keepdim") = false,
-      py::return_value_policy::reference);
   nvf_ops.def(
       "var_mean",
       [](FusionDefinition::Operators& self,
@@ -3027,31 +2420,7 @@ void initNvFuserPythonBindings(PyObject* module) {
       },
       py::arg("arg"),
       py::arg("axes"),
-      py::arg("correction"),
-      py::arg("keepdim") = false,
-      py::return_value_policy::reference);
-  tensor_class.def(
-      "var_mean",
-      [](Tensor arg, std::vector<int>& axes, int64_t correction, bool keepdim)
-          -> decltype(auto) {
-        FUSER_PERF_SCOPE("Operators.var_mean");
-        FusionDefinition* fd = arg.fusion_definition;
-        TORCH_CHECK(
-            !fd->completed(),
-            "Attempting to use a SchedOperators Op prior to definition!");
-        size_t ndims = keepdim ? arg.dims : (arg.dims - axes.size());
-        Tensor var = fd->defineTensor(ndims);
-        Tensor mean = fd->defineTensor(ndims);
-        fd->defineRecord(new VarianceMeanOpRecord(
-            {fd->recordingState(arg())},
-            {fd->recordingState(var()), fd->recordingState(mean())},
-            axes,
-            correction,
-            keepdim));
-        return std::make_tuple(var, mean);
-      },
-      py::arg("axes"),
-      py::arg("correction"),
+      py::arg("correction") = 1,
       py::arg("keepdim") = false,
       py::return_value_policy::reference);
   nvf_ops.def(
@@ -3060,7 +2429,9 @@ void initNvFuserPythonBindings(PyObject* module) {
          Scalar minval,
          Scalar maxval,
          std::vector<Scalar>& shape,
-         PrimDataType dtype) -> Tensor {
+         PrimDataType dtype,
+         std::optional<Scalar> rng_seed,
+         std::optional<Scalar> rng_offset) -> Tensor {
         FUSER_PERF_SCOPE("Operators.uniform");
         TORCH_CHECK(
             self.validUse(), "Attempting to add to a completed definition!");
@@ -3073,11 +2444,19 @@ void initNvFuserPythonBindings(PyObject* module) {
             shape.end(),
             output_shape_states.begin(),
             [&fd](const Scalar& s) { return fd->recordingState(s()); });
+        std::vector<State> arg_states = {
+            fd->recordingState(minval()),
+            fd->recordingState(maxval()),
+        };
+        if (rng_seed.has_value()) {
+          TORCH_CHECK(
+              rng_offset.has_value(),
+              "When providing rng_seed, rng_offset must also be provided");
+          arg_states.push_back(fd->recordingState(rng_seed.value()()));
+          arg_states.push_back(fd->recordingState(rng_offset.value()()));
+        }
         fd->defineRecord(new RandomOpRecord(
-            {
-                fd->recordingState(minval()),
-                fd->recordingState(maxval()),
-            },
+            arg_states,
             {fd->recordingState(output())},
             output_shape_states,
             "ops.uniform",
@@ -3088,6 +2467,9 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("maxval"),
       py::arg("shape"),
       py::arg("dtype") = DataType::Float,
+      py::kw_only(),
+      py::arg("rng_seed") = py::none(),
+      py::arg("rng_offset") = py::none(),
       py::return_value_policy::reference);
   nvf_ops.def(
       "normal",
@@ -3095,7 +2477,9 @@ void initNvFuserPythonBindings(PyObject* module) {
          Scalar mean,
          Scalar std,
          std::vector<Scalar>& shape,
-         PrimDataType dtype) -> Tensor {
+         PrimDataType dtype,
+         std::optional<Scalar> rng_seed,
+         std::optional<Scalar> rng_offset) -> Tensor {
         FUSER_PERF_SCOPE("Operators.normal");
         TORCH_CHECK(
             self.validUse(), "Attempting to add to a completed definition!");
@@ -3108,11 +2492,19 @@ void initNvFuserPythonBindings(PyObject* module) {
             shape.end(),
             output_shape_states.begin(),
             [&fd](const Scalar& s) { return fd->recordingState(s()); });
+        std::vector<State> arg_states = {
+            fd->recordingState(mean()),
+            fd->recordingState(std()),
+        };
+        if (rng_seed.has_value()) {
+          TORCH_CHECK(
+              rng_offset.has_value(),
+              "When providing rng_seed, rng_offset must also be provided");
+          arg_states.push_back(fd->recordingState(rng_seed.value()()));
+          arg_states.push_back(fd->recordingState(rng_offset.value()()));
+        }
         fd->defineRecord(new RandomOpRecord(
-            {
-                fd->recordingState(mean()),
-                fd->recordingState(std()),
-            },
+            arg_states,
             {fd->recordingState(output())},
             output_shape_states,
             "ops.normal",
@@ -3123,6 +2515,9 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("std"),
       py::arg("shape"),
       py::arg("dtype") = DataType::Float,
+      py::kw_only(),
+      py::arg("rng_seed") = py::none(),
+      py::arg("rng_offset") = py::none(),
       py::return_value_policy::reference);
   //! The ScedOperators class is a nested class of FusionDefinition to allow the
   //! user to query the class for the list of schedule operators.
@@ -3148,6 +2543,46 @@ void initNvFuserPythonBindings(PyObject* module) {
       },
       py::arg("arg"),
       py::arg("dim"));
+  auto reduction_factor_func = [](FusionDefinition::SchedOperators& self,
+                                  Tensor arg,
+                                  const std::vector<int>& dims) -> Tensor {
+    FUSER_PERF_SCOPE("SchedOperators.reduction_factor");
+    TORCH_CHECK(
+        self.validUse(),
+        "Attempting to use a SchedOperators Op prior to definition!");
+    FusionDefinition* fd = self.fusion_definition;
+    auto input_tv = fd->getFusionState(arg.index)->template as<TensorView>();
+    auto output_tv = input_tv->rFactor(dims);
+    Tensor output = fd->defineTensor(arg.dims);
+    TORCH_CHECK(
+        output.index == fd->numFusionStates(),
+        "Fusion State index does not match the size!");
+    fd->addFusionState(output_tv);
+    return output;
+  };
+  nvf_sched.def(
+      "reduction_factor",
+      reduction_factor_func,
+      py::arg("arg"),
+      py::arg("dims"));
+  nvf_sched.def(
+      "rfactor", reduction_factor_func, py::arg("arg"), py::arg("dims"));
+  nvf_sched.def(
+      "reorder",
+      [](FusionDefinition::SchedOperators& self,
+         Tensor arg,
+         const std::unordered_map<int, int>& old2new) {
+        FUSER_PERF_SCOPE("SchedOperators.reorder");
+        TORCH_CHECK(
+            self.validUse(),
+            "Attempting to use a SchedOperators Op prior to definition!");
+        FusionDefinition* fd = self.fusion_definition;
+        auto input_tv =
+            fd->getFusionState(arg.index)->template as<TensorView>();
+        input_tv->reorder(old2new);
+      },
+      py::arg("arg"),
+      py::arg("old2new"));
   nvf_sched.def(
       "split",
       [](FusionDefinition::SchedOperators& self,

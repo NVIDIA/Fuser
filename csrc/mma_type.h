@@ -11,6 +11,26 @@
 
 namespace nvfuser {
 
+constexpr std::string_view MATMUL_LOG_PREFIX = "[MATMUL DEBUG] ";
+
+//! Named descriptors of domains in matmul
+enum class MatmulDomain { M = 0, N, K };
+
+//! Named descriptors of TensorView roles in fusion
+//!  INPUT_A - a producer of MMA input A
+//!  INPUT_B - a producer of MMA input B
+//!  OUTPUT_D - the main consumer of MMA op results
+//!  INPUT_C - a producer of a tensor used in fusion epilogue,
+//!            for example tensor used in beta scaling fusion
+//!
+//! Naming convention is based on the following formula:
+//!    D = alpha * A x B + beta * C
+//!  Note: bias vector tensors will be assigned to INPUT_C role.
+enum class MatmulRole { INPUT_A = 0, INPUT_B, OUTPUT_D, INPUT_C };
+
+//! The expected number of occurances of core TensorView roles in fusion
+static constexpr size_t MATMUL_CORE_ROLES_EXPECTED_COUNT = 1;
+
 //! Utility data structure for recording gemm tiles
 struct GemmTile {
   int m, n, k;
@@ -74,14 +94,13 @@ struct MmaOptions {
 
   //! [Operand Layout Convention]
   //! Operand layout, T=transposed/row_major, N=normal/col_major
-  //!   We don't support calling NN mma directly since it implies
-  //!    a fused transpose. User needs to swap the operands and use
-  //!    TT mma to make the transpose explicit.
   //! Ordered by position of K
-  //! NT : K,M x K,N -> K,M,N
-  //! TT : M,K X K,N -> M,K,N
-  //! TN : M,K X N,K -> M,N,K
-  enum class MmaInputLayout { NT = 0, TT, TN };
+  //! NT : K,M x K,N -> M,N
+  //! TT : M,K X K,N -> M,N
+  //! TN : M,K X N,K -> M,N
+  //! NN : K,M X N,K -> M,N
+  //! TODO: NN is currently not supported on pre-Turing and Hopper wgmma
+  enum class MmaLayout { NT = 0, TT, TN, NN };
 
   //! Utility to annotate which input of mma this option struct describes
   enum class Operand { Accumulator = 0, A, B };
@@ -90,7 +109,7 @@ struct MmaOptions {
   MacroType macro = MacroType::NoMMA;
 
   //! Utility to annotate transposition of operands
-  MmaInputLayout operand_layout = MmaInputLayout::TT;
+  MmaLayout layout = MmaLayout::TT;
 
   //! Utility to annotate which input of mma this option struct describes
   Operand operand = Operand::A;
@@ -100,7 +119,7 @@ struct MmaOptions {
   int accumulator_stride = 0;
 
   bool operator==(const MmaOptions& other) const {
-    return macro == other.macro && operand_layout == other.operand_layout &&
+    return macro == other.macro && layout == other.layout &&
         operand == other.operand &&
         accumulator_stride == other.accumulator_stride;
   }
@@ -135,7 +154,7 @@ class TORCH_CUDA_CU_API MmaBuilder {
   //! User configuration function:
   //!  Specifies the input matrix layout for the mma instruction.
   //!    see [Operand Layout Convention].
-  MmaBuilder& layout(MmaOptions::MmaInputLayout layout);
+  MmaBuilder& layout(MmaOptions::MmaLayout layout);
 
   //! User configuration function:
   //!  Specifies which element in the mma op this builder is generating
@@ -163,7 +182,7 @@ class TORCH_CUDA_CU_API MmaBuilder {
   //! TODO: This step will very likely be removed in a follow up PR. All of
   //!  the options configured here could actually be inferred from fusion IR
   //!  once we are feature complete.
-  void configureMma(TensorView* mma_output) const;
+  void configureMma(MmaOp* mma) const;
 
   //! Export all the parameters with user's configurations applied.
   MmaOptions build() const;
@@ -191,14 +210,14 @@ GemmTile getMmaOpShape(MmaOptions::MacroType macro);
 
 // MMA stringify utils
 std::string toString(MmaOptions::MacroType macro);
-std::string toString(MmaOptions::MmaInputLayout input_layout);
+std::string toString(MmaOptions::MmaLayout input_layout);
 std::string toString(const GemmTile& tile);
 std::string toString(const MatMulTileOptions& opts);
 std::string toString(MmaOptions::MacroType macro, bool);
 
 // MMA hash utils
 size_t hash(MmaOptions::MacroType macro);
-size_t hash(MmaOptions::MmaInputLayout input_layout);
+size_t hash(MmaOptions::MmaLayout input_layout);
 size_t hash(const GemmTile& tile);
 size_t hash(const MatMulTileOptions& opts);
 } // namespace nvfuser

@@ -67,11 +67,7 @@ class MatmulParams : public HeuristicParams {
   MatMulTileOptions tile_sizes = {};
 
   //! Specify the type of MMA op to be used in generated kernel.
-  MmaOptions::MacroType mma_op = MmaOptions::MacroType::NoMMA;
-
-  //! Specify the input layout of input tensors.
-  MmaOptions::MmaInputLayout layout =
-      static_cast<MmaOptions::MmaInputLayout>(-1);
+  MmaOptions::MacroType mma_macro = MmaOptions::MacroType::NoMMA;
 
   //! Specify CTA rastrization order.
   TileRasterizationOrder cta_order = TileRasterizationOrder::RowMajor;
@@ -94,12 +90,15 @@ class MatmulParams : public HeuristicParams {
   //!    C3 C4 D3 D4
   int grid_swizzle_factor = 1;
 
+  //! Unswizzle MMA results in shared memory to get
+  //!  coalesced write to global memory
+  bool use_smem_epilogue = false;
+
   std::string toString() const override {
     std::stringstream ss;
     ss << "\n===== Matmul Parameters ========\n"
        << (tag.empty() ? "" : "Tag: ") << tag << "\n"
-       << "MMA op: " << nvfuser::toString(mma_op, true) << "\n"
-       << "Layout: " << nvfuser::toString(layout) << "\n"
+       << "MMA macro: " << nvfuser::toString(mma_macro, true) << "\n"
        << double_buffer_options.toString() << "\n"
        << nvfuser::toString(tile_sizes) << "\n"
        << "Rotate ldmatrix out of main loop: "
@@ -107,15 +106,17 @@ class MatmulParams : public HeuristicParams {
        << "Async global mem load: "
        << (async_gmem_load_operands ? "true" : "false") << "\n"
        << "Indexing mode: "
-       << "Tile rastrization order: "
-       << ((cta_order == TileRasterizationOrder::RowMajor) ? "row-major"
-                                                           : "column-major")
-       << "Grid swizzle factor: " << grid_swizzle_factor
        << (cparams.index_type.has_value()
                ? (cparams.index_type.value() == PrimDataType::Int ? "int64_t"
                                                                   : "int32_t")
                : "unavailable")
        << "\n"
+       << "Tile rastrization order: "
+       << ((cta_order == TileRasterizationOrder::RowMajor) ? "row-major"
+                                                           : "column-major")
+       << "\n"
+       << "Grid swizzle factor: " << grid_swizzle_factor << "\n"
+       << "Use shared memory epilogue: " << use_smem_epilogue << "\n"
        << "====================================\n";
     return ss.str();
   }
@@ -127,11 +128,11 @@ class MatmulParams : public HeuristicParams {
         (static_cast<size_t>(async_gmem_load_operands));
 
     // combined hash
-    attr_hash = std::hash<size_t>{}(attr_hash) ^ (nvfuser::hash(mma_op) << 1) ^
-        (nvfuser::hash(layout) << 2) ^ (double_buffer_options.hash() << 3) ^
-        (nvfuser::hash(tile_sizes) << 4) ^
-        (std::hash<size_t>{}(static_cast<size_t>(cta_order)) << 5) ^
-        (std::hash<size_t>{}(grid_swizzle_factor) << 6);
+    attr_hash = std::hash<size_t>{}(attr_hash) ^
+        (nvfuser::hash(mma_macro) << 1) ^ (double_buffer_options.hash() << 2) ^
+        (nvfuser::hash(tile_sizes) << 3) ^
+        (std::hash<size_t>{}(static_cast<size_t>(cta_order)) << 4) ^
+        (std::hash<size_t>{}(grid_swizzle_factor) << 5);
     return attr_hash;
   }
 
@@ -142,7 +143,7 @@ class MatmulParams : public HeuristicParams {
       return false;
     }
 
-    return other_casted->layout == layout && other_casted->mma_op == mma_op &&
+    return other_casted->mma_macro == mma_macro &&
         other_casted->async_gmem_load_operands == async_gmem_load_operands &&
         other_casted->rotate_ldmatrix_out_of_main_loop ==
         rotate_ldmatrix_out_of_main_loop &&

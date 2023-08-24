@@ -6,12 +6,12 @@
  */
 // clang-format on
 #include <arith.h>
+#include <device_lower/lower2device.h>
 #include <executor.h>
 #include <fusion.h>
-#include <ir_all_nodes.h>
-#include <ir_builder.h>
-#include <ir_utils.h>
-#include <lower2device.h>
+#include <ir/all_nodes.h>
+#include <ir/builder.h>
+#include <ir/utils.h>
 #include <ops/all_ops.h>
 #include <scheduler/all_schedulers.h>
 
@@ -20,6 +20,9 @@
 #include <cuda_runtime.h>
 
 #include <benchmark/utils.h>
+#include <test/utils.h>
+
+using namespace nvfuser;
 
 //------------------------------------------------------------------------------
 
@@ -41,7 +44,7 @@ static void setupSoftmaxDropout(
   auto attention_scores = makeContigTensor(4, dtype);
   auto attention_mask = makeContigTensor(4, dtype);
 
-  Double* divisor = IrBuilder::create<Double>();
+  Val* divisor = IrBuilder::create<Val>(DataType::Double);
 
   fusion->addInput(attention_scores);
   fusion->addInput(attention_mask);
@@ -55,8 +58,8 @@ static void setupSoftmaxDropout(
   attention_scores = div(attention_scores, divisor);
   attention_scores = add(attention_scores, attention_mask);
   auto attention_probs = softmax(attention_scores, kReductionAxis);
-  auto prob = IrBuilder::create<Double>(kDropoutProbability);
-  auto scale = IrBuilder::create<Double>(kScale);
+  auto prob = IrBuilder::create<Val>(kDropoutProbability);
+  auto scale = IrBuilder::create<Val>(kScale);
   auto dropout_results = dropout(attention_probs, prob, scale);
   auto output = dropout_results.output;
 

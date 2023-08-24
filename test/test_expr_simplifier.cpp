@@ -7,15 +7,16 @@
 // clang-format on
 #include <gtest/gtest.h>
 
-#include <assume.h>
 #include <expr_simplifier.h>
 #include <ops/all_ops.h>
-#include <test/test_gpu_validator.h>
-#include <test/test_utils.h>
+#include <test/utils.h>
+#include <test/validator.h>
 
 #include <cctype>
 #include <deque>
 #include <memory>
+#include <random>
+#include <regex>
 #include <string>
 #include <string_view>
 #include <variant>
@@ -28,45 +29,33 @@ namespace {
 // simplifies to true. We don't use x->sameAs(y), because we want to consider
 // a(b+c), ab+ac, (b+c)a, ba+ca as equivalent, but `sameAs` can not do this job.
 bool isEquivalent(Val* x, Val* y) {
-  return simplifyExpr(eq(x, y))->getBool() == true;
+  return simplifyExpr(IrBuilder::eqExpr(x, y))->getBool() == true;
 }
 
 // assert that x/y -> z
-void assertSimplifiedDiv(
+void expectSimplifiedDiv(
     Val* x,
     Val* y,
     Val* z,
-    std::vector<Bool*> assumptions = {}) {
-  auto simplified = simplifyExpr(cpp_div(x, y), {}, assumptions);
-  TORCH_CHECK(
-      isEquivalent(simplified, z),
-      "Expect ",
-      x->toInlineString(),
-      " / ",
-      y->toInlineString(),
-      " to be simplified to ",
-      z->toInlineString(),
-      ", but get ",
-      simplified->toInlineString());
+    std::vector<Val*> assumptions = {}) {
+  auto simplified = simplifyExpr(IrBuilder::divExpr(x, y), {}, assumptions);
+  EXPECT_TRUE(isEquivalent(simplified, z))
+      << "Expect " << x->toInlineString() << " / " << y->toInlineString()
+      << " to be simplified to " << z->toInlineString() << ", but get "
+      << simplified->toInlineString();
 }
 
 // assert that x % y -> z
-void assertSimplifiedMod(
+void expectSimplifiedMod(
     Val* x,
     Val* y,
     Val* z,
-    std::vector<Bool*> assumptions = {}) {
-  auto simplified = simplifyExpr(mod(x, y), {}, assumptions);
-  TORCH_CHECK(
-      isEquivalent(simplified, z),
-      "Expect ",
-      x->toInlineString(),
-      " % ",
-      y->toInlineString(),
-      " to be simplified to ",
-      z->toInlineString(),
-      ", but get ",
-      simplified->toInlineString());
+    std::vector<Val*> assumptions = {}) {
+  auto simplified = simplifyExpr(IrBuilder::modExpr(x, y), {}, assumptions);
+  EXPECT_TRUE(isEquivalent(simplified, z))
+      << "Expect " << x->toInlineString() << " % " << y->toInlineString()
+      << " to be simplified to " << z->toInlineString() << ", but get "
+      << simplified->toInlineString();
 }
 
 } // namespace
@@ -82,6 +71,7 @@ namespace stupid_simple_compiler {
 
 using fun1_t = Val* (*)(Val*);
 using fun2_t = Val* (*)(Val*, Val*);
+using fun3_t = Val* (*)(Val*, Val*, Val*);
 struct LeftParenthesis {
   int64_t prev_lparen_pos;
 };
@@ -96,32 +86,75 @@ using token_t = std::variant<
     Val*, // variable or constant
     fun1_t, // unary op
     fun2_t, // binary op
+    fun3_t, // ternary op
     LeftParenthesis,
     FunctionCall,
     Comma,
     LowestPrecedence>;
+
+Val* randomlyReuseOrCreateNamedScalar(
+    std::string_view name_view,
+    DataType dtype) {
+  Fusion* fusion = FusionGuard::getCurFusion();
+  auto name = std::string(name_view);
+  if (!fusion->hasManaged(name)) {
+    auto ns = IrBuilder::create<NamedScalar>(name, dtype);
+    fusion->manage(name, std::vector<Val*>{ns});
+    return ns;
+  }
+  auto& existing_vals = fusion->getManaged<std::vector<Val*>>(name);
+  std::random_device rd;
+  std::mt19937 gen(rd());
+  std::uniform_int_distribution<size_t> dis(0, existing_vals.size());
+  auto index = dis(gen);
+  if (index == existing_vals.size()) {
+    // create a new one
+    auto ns = IrBuilder::create<NamedScalar>(name, dtype);
+    existing_vals.push_back(ns);
+    return ns;
+  } else {
+    // reuse an existing one
+    return existing_vals[index];
+  }
+}
 
 Val* parseIdentifier(std::string_view token_str) {
   if (token_str == "true") {
     return IrBuilder::newConstant(true, DataType::Bool);
   } else if (token_str == "false") {
     return IrBuilder::newConstant(false, DataType::Bool);
+  } else if (token_str.at(0) == 'T') {
+    std::string s(token_str);
+    std::regex regex(R"((T\d+)\.(\w+)\[(\d+)\])");
+    std::smatch match;
+    std::regex_search(s, match, regex);
+    TORCH_CHECK(match.size() == 4, "Invalid tensor access: ", token_str);
+    auto tensor_name = match[1];
+    auto attr = match[2];
+    auto index = std::stol(match[3]);
+    Fusion* fusion = FusionGuard::getCurFusion();
+    TensorView* tv = nullptr;
+    if (fusion->hasManaged(tensor_name)) {
+      tv = fusion->getManaged<TensorView*>(tensor_name);
+    } else {
+      tv = makeSymbolicTensor(10);
+      fusion->manage(tensor_name, tv);
+    }
+    return IrBuilder::getItemExpr(
+        IrBuilder::getAttrExpr(IrBuilder::metadataExpr(tv), attr), index);
   } else if (
-      token_str.at(0) == 'i' || token_str.at(0) == 'T' ||
-      token_str == "threadIdx.x" || token_str == "threadIdx.y" ||
-      token_str == "threadIdx.z" || token_str == "blockIdx.x" ||
-      token_str == "blockIdx.y" || token_str == "blockIdx.z" ||
-      token_str == "blockDim.x" || token_str == "blockDim.y" ||
-      token_str == "blockDim.z" || token_str == "gridDim.x" ||
-      token_str == "gridDim.y" || token_str == "gridDim.z") {
-    return IrBuilder::create<NamedScalar>(
-        std::string(token_str), DataType::Int);
+      token_str.at(0) == 'i' || token_str == "threadIdx.x" ||
+      token_str == "threadIdx.y" || token_str == "threadIdx.z" ||
+      token_str == "blockIdx.x" || token_str == "blockIdx.y" ||
+      token_str == "blockIdx.z" || token_str == "blockDim.x" ||
+      token_str == "blockDim.y" || token_str == "blockDim.z" ||
+      token_str == "gridDim.x" || token_str == "gridDim.y" ||
+      token_str == "gridDim.z") {
+    return randomlyReuseOrCreateNamedScalar(token_str, DataType::Int);
   } else if (token_str.at(0) == 'b') {
-    return IrBuilder::create<NamedScalar>(
-        std::string(token_str), DataType::Bool);
+    return randomlyReuseOrCreateNamedScalar(token_str, DataType::Bool);
   } else if (token_str.at(0) == 'd') {
-    return IrBuilder::create<NamedScalar>(
-        std::string(token_str), DataType::Double);
+    return randomlyReuseOrCreateNamedScalar(token_str, DataType::Double);
   } else {
     TORCH_INTERNAL_ASSERT(false, "Identifier with unknown type: ", token_str);
   }
@@ -168,7 +201,11 @@ Val* parseNumber(std::string_view token_str) {
 }
 
 Val* functionCall(std::string_view name, std::deque<Val*> args) {
-  if (name == "max") {
+  if (name == "gcd") {
+    TORCH_CHECK(
+        args.size() == 2, "Invalid argument: ", toDelimitedString(args));
+    return IrBuilder::gcdExpr(args.at(0), args.at(1));
+  } else if (name == "max") {
     TORCH_CHECK(
         args.size() == 2, "Invalid argument: ", toDelimitedString(args));
     return IrBuilder::maxExpr(args.at(0), args.at(1));
@@ -180,6 +217,14 @@ Val* functionCall(std::string_view name, std::deque<Val*> args) {
     TORCH_CHECK(
         args.size() == 2, "Invalid argument: ", toDelimitedString(args));
     return IrBuilder::ceilDivExpr(args.at(0), args.at(1));
+  } else if (name == "where") {
+    TORCH_CHECK(
+        args.size() == 3, "Invalid argument: ", toDelimitedString(args));
+    return IrBuilder::whereExpr(args.at(0), args.at(1), args.at(2));
+  } else if (name == "abs") {
+    TORCH_CHECK(
+        args.size() == 1, "Invalid argument: ", toDelimitedString(args));
+    return IrBuilder::absExpr(args.at(0));
   }
   TORCH_CHECK(false, "Unknown function: ", name);
 }
@@ -194,16 +239,16 @@ token_t parseToken(std::string_view token_str, bool& expect_val) {
     return parseIdentifier(token_str);
   } else if (token_str == "-") {
     if (expect_val) {
-      return fun1_t(&neg);
+      return fun1_t(&IrBuilder::negExpr);
     } else {
       expect_val = true;
-      return fun2_t(&sub);
+      return fun2_t(&IrBuilder::subExpr);
     }
   }
   if (token_str.at(0) == '!' || token_str.at(0) == '~') {
     TORCH_CHECK(
         expect_val, "Syntax error: not expecting unary op but get ", token_str);
-    return fun1_t(&notOp);
+    return fun1_t(&IrBuilder::logicalNotExpr);
   } else if (token_str.at(0) == '-' || std::isdigit(token_str.at(0))) {
     TORCH_CHECK(
         expect_val, "Syntax error: not expecting number but get ", token_str);
@@ -218,30 +263,30 @@ token_t parseToken(std::string_view token_str, bool& expect_val) {
     if (token_str.size() == 1) {
       switch (token_str.at(0)) {
         case '+':
-          return fun2_t(&add);
+          return fun2_t(&IrBuilder::addExpr);
         case '*':
-          return fun2_t(&mul);
+          return fun2_t(&IrBuilder::mulExpr);
         case '/':
-          return fun2_t(&cpp_div);
+          return fun2_t(&IrBuilder::divExpr);
         case '%':
-          return fun2_t(&mod);
+          return fun2_t(&IrBuilder::modExpr);
         case '>':
-          return fun2_t(&gt);
+          return fun2_t(&IrBuilder::gtExpr);
         case '<':
-          return fun2_t(&lt);
+          return fun2_t(&IrBuilder::ltExpr);
       }
     } else if (token_str == "==") {
-      return fun2_t(&eq);
+      return fun2_t(&IrBuilder::eqExpr);
     } else if (token_str == "!=") {
-      return fun2_t(&eq);
+      return fun2_t(&IrBuilder::neExpr);
     } else if (token_str == ">=") {
-      return fun2_t(&ge);
+      return fun2_t(&IrBuilder::geExpr);
     } else if (token_str == "<=") {
-      return fun2_t(&le);
+      return fun2_t(&IrBuilder::leExpr);
     } else if (token_str == "&&") {
-      return fun2_t(&bitwise_and);
+      return fun2_t(&IrBuilder::logicalAndExpr);
     } else if (token_str == "||") {
-      return fun2_t(&bitwise_or);
+      return fun2_t(&IrBuilder::logicalOrExpr);
     }
     TORCH_CHECK(false, "Unrecognized token: ", token_str);
   }
@@ -257,7 +302,8 @@ int getOpPrecedence(token_t op) {
   }
   if (std::holds_alternative<fun1_t>(op)) {
     auto uop = std::get<fun1_t>(op);
-    if (uop == fun1_t(neg) || uop == fun1_t(notOp)) {
+    if (uop == fun1_t(IrBuilder::negExpr) ||
+        uop == fun1_t(IrBuilder::logicalNotExpr)) {
       return 3;
     }
     TORCH_CHECK(false, "Unexpected unary op");
@@ -265,23 +311,29 @@ int getOpPrecedence(token_t op) {
 
   if (std::holds_alternative<fun2_t>(op)) {
     auto bop = std::get<fun2_t>(op);
-    if (bop == fun2_t(&mul) || bop == fun2_t(&cpp_div) || bop == fun2_t(&mod)) {
+    if (bop == fun2_t(&IrBuilder::mulExpr) ||
+        bop == fun2_t(&IrBuilder::divExpr) ||
+        bop == fun2_t(&IrBuilder::modExpr)) {
       return 5;
     }
-    if (bop == fun2_t(&add) || bop == fun2_t(&sub)) {
+    if (bop == fun2_t(&IrBuilder::addExpr) ||
+        bop == fun2_t(&IrBuilder::subExpr)) {
       return 6;
     }
-    if (bop == fun2_t(&lt) || bop == fun2_t(&le) || bop == fun2_t(&gt) ||
-        bop == fun2_t(&ge)) {
+    if (bop == fun2_t(&IrBuilder::ltExpr) ||
+        bop == fun2_t(&IrBuilder::leExpr) ||
+        bop == fun2_t(&IrBuilder::gtExpr) ||
+        bop == fun2_t(&IrBuilder::geExpr)) {
       return 9;
     }
-    if (bop == fun2_t(&eq) || bop == fun2_t(&ne)) {
+    if (bop == fun2_t(&IrBuilder::eqExpr) ||
+        bop == fun2_t(&IrBuilder::neExpr)) {
       return 10;
     }
-    if (bop == fun2_t(&bitwise_and)) {
+    if (bop == fun2_t(&IrBuilder::logicalAndExpr)) {
       return 14;
     }
-    if (bop == fun2_t(&bitwise_or)) {
+    if (bop == fun2_t(&IrBuilder::logicalOrExpr)) {
       return 15;
     }
     TORCH_CHECK(false, "Unexpected binary op");
@@ -414,37 +466,34 @@ Val* operator""_(const char* str, size_t) {
   return parse(str);
 }
 
-Bool* operator""_b(const char* str, size_t) {
-  return parse(str)->as<Bool>();
-}
-
 } // namespace ops
 
 } // namespace stupid_simple_compiler
 
 using namespace stupid_simple_compiler::ops;
 
-class ExprSimplifierTest : public NVFuserTest {};
+class ExprSimplifierTest : public NVFuserTest {
+  std::unique_ptr<Fusion> fusion_ptr;
+  std::unique_ptr<FusionGuard> fusion_guard_ptr;
 
-TEST_F(ExprSimplifierTest, StupidSimpleCompiler_CUDA) {
-  auto fusion_ptr = std::make_unique<Fusion>();
-  Fusion& fusion = *fusion_ptr.get();
-  FusionGuard fg(&fusion);
+  void SetUp() override {
+    NVFuserTest::SetUp();
+    fusion_ptr = std::make_unique<Fusion>();
+    fusion_guard_ptr = std::make_unique<FusionGuard>(fusion_ptr.get());
+  }
+};
 
-  ASSERT_EQ(
+TEST_F(ExprSimplifierTest, StupidSimpleCompiler) {
+  EXPECT_EQ(
       "( ( ( ( ( i2 * i3 ) + ( ( i4 + i5 ) + 3 ) ) + 3 ) * ( ( ( ( i0 + i1 ) + 3 ) + 5 ) + i2 ) ) * i0 )"_
           ->toInlineString(),
       "( ( ( ( ( i2 * i3 ) + ( ( i4 + i5 ) + 3 ) ) + 3 ) * ( ( ( ( i0 + i1 ) + 3 ) + 5 ) + i2 ) ) * i0 )");
-  ASSERT_EQ(
+  EXPECT_EQ(
       "( ( i1 * i2 ) - ( i2 * i1 ) )"_->toInlineString(),
       "( ( i1 * i2 ) - ( i2 * i1 ) )");
 }
 
-TEST_F(ExprSimplifierTest, AssociativeAndCommutativeReordering_CUDA) {
-  auto fusion_ptr = std::make_unique<Fusion>();
-  Fusion& fusion = *fusion_ptr.get();
-  FusionGuard fg(&fusion);
-
+TEST_F(ExprSimplifierTest, AssociativeAndCommutativeReordering) {
   std::vector<VarInfo> variables(6);
   variables[0].variable = "i0"_;
   variables[1].variable = "i1"_;
@@ -457,12 +506,27 @@ TEST_F(ExprSimplifierTest, AssociativeAndCommutativeReordering_CUDA) {
     auto val = "( ( i3 * i2 ) + i4 ) + ( i1 + 3 )"_;
     auto simplified = simplifyExpr(val, {variables.begin(), variables.end()});
     auto expect = "( ( ( 3 + i1 ) + ( i2 * i3 ) ) + i4 )"_;
-    TORCH_CHECK(
-        expect->sameAs(simplified) && simplified->sameAs(expect),
-        "Expect the simplified expression ",
-        simplified->toInlineString(),
-        " to be the same as ",
-        expect->toInlineString());
+    EXPECT_TRUE(expect->sameAs(simplified) && simplified->sameAs(expect))
+        << "Expect the simplified expression " << simplified->toInlineString()
+        << " to be the same as " << expect->toInlineString();
+  }
+
+  {
+    auto val = "i3 + i2 - i1 + i0"_;
+    auto simplified = simplifyExpr(val, {variables.begin(), variables.end()});
+    auto expect = "i0 - i1 + i2 + i3"_;
+    EXPECT_TRUE(expect->sameAs(simplified) && simplified->sameAs(expect))
+        << "Expect the simplified expression " << simplified->toInlineString()
+        << " to be the same as " << expect->toInlineString();
+  }
+
+  {
+    auto val = "i3 + i2 + i1 - i0"_;
+    auto simplified = simplifyExpr(val, {variables.begin(), variables.end()});
+    auto expect = "- i0 + i1 + i2 + i3"_;
+    EXPECT_TRUE(expect->sameAs(simplified) && simplified->sameAs(expect))
+        << "Expect the simplified expression " << simplified->toInlineString()
+        << " to be the same as " << expect->toInlineString();
   }
 
   {
@@ -471,84 +535,98 @@ TEST_F(ExprSimplifierTest, AssociativeAndCommutativeReordering_CUDA) {
     auto simplified = simplifyExpr(val, {variables.begin(), variables.end()});
     auto expect =
         "( i0 * ( ( ( 8 + i0 ) + i1 ) + i2 ) ) * ( ( ( 6 + ( i2 * i3 ) ) + i4 ) + i5 )"_;
-    TORCH_CHECK(
+    EXPECT_TRUE(
         // Use isEquivalent to check equivalence because distributeMul will
         // expand the expression.
-        isEquivalent(simplified, expect),
-        "Expect the simplified expression ",
-        simplified->toInlineString(),
-        " to be the same as ",
-        expect->toInlineString());
+        isEquivalent(simplified, expect))
+        << "Expect the simplified expression " << simplified->toInlineString()
+        << " to be the same as " << expect->toInlineString();
   }
 }
 
-TEST_F(ExprSimplifierTest, EliminateTrivialComputation_CUDA) {
-  auto fusion_ptr = std::make_unique<Fusion>();
-  Fusion& fusion = *fusion_ptr.get();
-  FusionGuard fg(&fusion);
-
+TEST_F(ExprSimplifierTest, EliminateTrivialComputation) {
   auto simplify = [](Val* x, Val* assumption) {
-    return simplifyExpr(x, {}, {assumption->as<Bool>()});
+    return simplifyExpr(x, {}, {assumption});
   };
 
   // constant folding
-  ASSERT_TRUE(simplifyExpr("ceilDiv( 5 , 3 ) * 5"_)->sameAs("10"_));
+  EXPECT_TRUE(simplifyExpr("ceilDiv( 5 , 3 ) * 5"_)->sameAs("10"_));
 
-  ASSERT_TRUE(simplifyExpr("1 * i"_)->sameAs("i"_));
-  ASSERT_TRUE(simplifyExpr("1.0 * d"_)->sameAs("d"_));
-  ASSERT_TRUE(simplifyExpr("i * 1"_)->sameAs("i"_));
-  ASSERT_TRUE(simplifyExpr("d * 1.0"_)->sameAs("d"_));
-  ASSERT_EQ(simplifyExpr("0 * i"_)->getInt(), 0);
-  ASSERT_EQ(simplifyExpr("i * 0"_)->getInt(), 0);
+  EXPECT_TRUE(simplifyExpr("1 * i"_)->sameAs("i"_));
+  EXPECT_TRUE(simplifyExpr("1.0 * d"_)->sameAs("d"_));
+  EXPECT_TRUE(simplifyExpr("i * 1"_)->sameAs("i"_));
+  EXPECT_TRUE(simplifyExpr("d * 1.0"_)->sameAs("d"_));
+  EXPECT_EQ(simplifyExpr("0 * i"_)->getInt(), 0);
+  EXPECT_EQ(simplifyExpr("i * 0"_)->getInt(), 0);
+  EXPECT_TRUE(simplifyExpr("gcd( i , 0 )"_)->sameAs("abs( i )"_));
 
-  ASSERT_TRUE(simplifyExpr("0 + i"_)->sameAs("i"_));
-  ASSERT_TRUE(simplifyExpr("0.0 + d"_)->sameAs("d"_));
-  ASSERT_TRUE(simplifyExpr("i + 0"_)->sameAs("i"_));
-  ASSERT_TRUE(simplifyExpr("d + 0.0"_)->sameAs("d"_));
+  EXPECT_TRUE(simplifyExpr("0 + i"_)->sameAs("i"_));
+  EXPECT_TRUE(simplifyExpr("0.0 + d"_)->sameAs("d"_));
+  EXPECT_TRUE(simplifyExpr("i + 0"_)->sameAs("i"_));
+  EXPECT_TRUE(simplifyExpr("d + 0.0"_)->sameAs("d"_));
+  EXPECT_EQ(simplifyExpr("gcd( i , 1 )"_)->getInt(), 1);
 
-  ASSERT_TRUE(simplifyExpr("true && b"_)->sameAs("b"_));
-  ASSERT_TRUE(simplifyExpr("b && true"_)->sameAs("b"_));
-  ASSERT_EQ(simplifyExpr("false && b"_)->getBool(), false);
-  ASSERT_EQ(simplifyExpr("b && false"_)->getBool(), false);
+  EXPECT_TRUE(simplifyExpr("true && b"_)->sameAs("b"_));
+  EXPECT_TRUE(simplifyExpr("b && true"_)->sameAs("b"_));
+  EXPECT_EQ(simplifyExpr("false && b"_)->getBool(), false);
+  EXPECT_EQ(simplifyExpr("b && false"_)->getBool(), false);
 
-  ASSERT_EQ(simplifyExpr("true || b"_)->getBool(), true);
-  ASSERT_EQ(simplifyExpr("b || true"_)->getBool(), true);
-  ASSERT_TRUE(simplifyExpr("false || b"_)->sameAs("b"_));
-  ASSERT_TRUE(simplifyExpr("b || false"_)->sameAs("b"_));
+  EXPECT_EQ(simplifyExpr("true || b"_)->getBool(), true);
+  EXPECT_EQ(simplifyExpr("b || true"_)->getBool(), true);
+  EXPECT_TRUE(simplifyExpr("false || b"_)->sameAs("b"_));
+  EXPECT_TRUE(simplifyExpr("b || false"_)->sameAs("b"_));
 
-  ASSERT_TRUE(simplifyExpr("b && b"_)->sameAs("b"_));
-  ASSERT_TRUE(simplifyExpr("b || b"_)->sameAs("b"_));
-  ASSERT_TRUE(simplifyExpr("max( i , i )"_)->sameAs("i"_));
-  ASSERT_TRUE(simplifyExpr("min( i , i )"_)->sameAs("i"_));
-  ASSERT_TRUE(simplify("max( i1 , i2 )"_, "i1 <= i2"_)->sameAs("i2"_));
-  ASSERT_TRUE(simplify("max( i2 , i1 )"_, "i1 <= i2"_)->sameAs("i2"_));
-  ASSERT_TRUE(simplify("min( i1 , i2 )"_, "i1 <= i2"_)->sameAs("i1"_));
-  ASSERT_TRUE(simplify("min( i2 , i1 )"_, "i1 <= i2"_)->sameAs("i1"_));
+  EXPECT_TRUE(simplifyExpr("b && b"_)->sameAs("b"_));
+  EXPECT_TRUE(simplifyExpr("b || b"_)->sameAs("b"_));
+  EXPECT_TRUE(simplifyExpr("max( i , i )"_)->sameAs("i"_));
+  EXPECT_TRUE(simplifyExpr("min( i , i )"_)->sameAs("i"_));
+  EXPECT_TRUE(simplify("max( i1 , i2 )"_, "i1 <= i2"_)->sameAs("i2"_));
+  EXPECT_TRUE(simplify("max( i2 , i1 )"_, "i1 <= i2"_)->sameAs("i2"_));
+  EXPECT_TRUE(simplify("min( i1 , i2 )"_, "i1 <= i2"_)->sameAs("i1"_));
+  EXPECT_TRUE(simplify("min( i2 , i1 )"_, "i1 <= i2"_)->sameAs("i1"_));
 
-  ASSERT_TRUE(simplifyExpr("i / 1"_)->sameAs("i"_));
-  ASSERT_TRUE(simplifyExpr("d / 1.0"_)->sameAs("d"_));
+  EXPECT_TRUE(simplifyExpr("i / 1"_)->sameAs("i"_));
+  EXPECT_TRUE(simplifyExpr("d / 1.0"_)->sameAs("d"_));
 
-  ASSERT_EQ(simplifyExpr("0 / i"_)->getInt(), 0);
-  ASSERT_EQ(simplifyExpr("i % 1"_)->getInt(), 0);
+  EXPECT_EQ(simplifyExpr("0 / i"_)->getInt(), 0);
+  EXPECT_EQ(simplifyExpr("i % 1"_)->getInt(), 0);
 
   // -(-a) -> a
-  ASSERT_TRUE(simplifyExpr("- - i"_)->sameAs("i"_));
-  ASSERT_TRUE(simplifyExpr("~ ~ i"_)->sameAs("i"_));
-  ASSERT_TRUE(simplifyExpr("! ! b"_)->sameAs("b"_));
+  EXPECT_TRUE(simplifyExpr("- - i"_)->sameAs("i"_));
+  EXPECT_TRUE(simplifyExpr("~ ~ i"_)->sameAs("i"_));
+  EXPECT_TRUE(simplifyExpr("! ! b"_)->sameAs("b"_));
 
   // Test constant folding
-  ASSERT_TRUE(simplifyExpr("1 + i + 1"_)->sameAs("i + 2"_));
-  ASSERT_TRUE(simplifyExpr("1.0 + d + 1.0"_)->sameAs("d + 2.0"_));
+  EXPECT_TRUE(simplifyExpr("1 + i + 1"_)->sameAs("i + 2"_));
+  EXPECT_TRUE(simplifyExpr("1.0 + d + 1.0"_)->sameAs("d + 2.0"_));
 
   // Test that FlattenedAssocCommOp::sameAs ignores order
-  ASSERT_TRUE(simplifyExpr("( i1 * i2 ) - ( i2 * i1 )"_)->isZeroInt());
+  EXPECT_TRUE(simplifyExpr("( i1 * i2 ) == ( i2 * i1 )"_)->isTrue());
+
+  // where(true, x, y) -> x, where(false, x, y) -> y
+  EXPECT_TRUE(simplifyExpr("where( true , i1 , i2 )"_)->sameAs("i1"_));
+  EXPECT_TRUE(simplifyExpr("where( false , i1 , i2 )"_)->sameAs("i2"_));
+
+  // abs(x) -> x, if x >= 0
+  EXPECT_TRUE(simplifyExpr("abs( i )"_, {}, {"i >= 0"_})->sameAs("i"_));
+
+  // x - x -> 0
+  EXPECT_TRUE(simplifyExpr("i - i"_)->isZeroInt());
+  EXPECT_TRUE(simplifyExpr("i - i - i"_)->sameAs("- i"_));
+  EXPECT_TRUE(simplifyExpr("i - i + i"_)->sameAs("i"_));
+  EXPECT_TRUE(simplifyExpr("i - i + i - i"_)->isZeroInt());
+  EXPECT_TRUE(simplifyExpr("i1 - ( i2 + i3 ) + i2"_)->sameAs("i1 - i3"_));
+  EXPECT_TRUE(simplifyExpr("i2 - ( i2 - i3 ) - i3"_)->isZeroInt());
+  EXPECT_TRUE(simplifyExpr("i1 - ( i2 - i3 ) - i3"_)->sameAs("i1 - i2"_));
+  // Using the same Val* multiple times in FlattenedAdd so that we can test if
+  // our passes are working correctly with the same Val* appearing multiple
+  // times
+  auto i = "i"_;
+  EXPECT_TRUE(
+      simplifyExpr(IrBuilder::subExpr(IrBuilder::addExpr(i, i), i))->sameAs(i));
 }
 
-TEST_F(ExprSimplifierTest, SimplifyDivisibleDivMod_CUDA) {
-  auto fusion_ptr = std::make_unique<Fusion>();
-  Fusion& fusion = *fusion_ptr.get();
-  FusionGuard fg(&fusion);
-
+TEST_F(ExprSimplifierTest, SimplifyDivisibleDivMod) {
   // assert that our system can correctly find that x is a multiple of y and z,
   // and simplify:
   // x % y -> 0
@@ -556,112 +634,105 @@ TEST_F(ExprSimplifierTest, SimplifyDivisibleDivMod_CUDA) {
   // x / y -> z
   // and if x_div_z is true, also test
   // x / z -> y
-  auto assertSimplifiedDivMod = [&fusion](Val* x, Val* y, Val* z) {
-    assertSimplifiedMod(x, y, fusion.zeroVal());
-    assertSimplifiedMod(x, z, fusion.zeroVal());
-    assertSimplifiedDiv(x, y, z);
-    assertSimplifiedDiv(x, z, y);
+  auto expectSimplifiedDivMod = [](Val* x, Val* y, Val* z) {
+    expectSimplifiedMod(x, y, "0"_);
+    expectSimplifiedMod(x, z, "0"_);
+    expectSimplifiedDiv(x, y, z);
+    expectSimplifiedDiv(x, z, y);
   };
 
-  assertSimplifiedDivMod("6"_, "3"_, "2"_);
-  assertSimplifiedDivMod("i1 * i2"_, "i1"_, "i2"_);
-  assertSimplifiedDivMod("i1 * i2"_, "i1 * i2"_, "1"_);
-  assertSimplifiedDivMod("i1 * i2 * i3"_, "i1"_, "i2 * i3"_);
-  assertSimplifiedDivMod("i1 * i2 * i3"_, "i2"_, "i1 * i3"_);
-  assertSimplifiedDivMod("i1 * i2 * i3"_, "i3"_, "i1 * i2"_);
-  assertSimplifiedDivMod("i1 * i2 * i3"_, "i1 * ( i2 * i3 )"_, "1"_);
-  assertSimplifiedDivMod(
+  expectSimplifiedDivMod("6"_, "3"_, "2"_);
+  expectSimplifiedDivMod("i1 * i2"_, "i1"_, "i2"_);
+  expectSimplifiedDivMod("i1 * i2"_, "i1 * i2"_, "1"_);
+  expectSimplifiedDivMod("i1 * i2 * i3"_, "i1"_, "i2 * i3"_);
+  expectSimplifiedDivMod("i1 * i2 * i3"_, "i2"_, "i1 * i3"_);
+  expectSimplifiedDivMod("i1 * i2 * i3"_, "i3"_, "i1 * i2"_);
+  expectSimplifiedDivMod("i1 * i2 * i3"_, "i1 * ( i2 * i3 )"_, "1"_);
+  expectSimplifiedDivMod(
       "i1 * i2 * i3 + i1 * i2 * i4"_, "i1"_, "i2 * i3 + i2 * i4"_);
-  assertSimplifiedDivMod(
+  expectSimplifiedDivMod(
       "i1 * i2 * i3 + i1 * i2 * i4"_, "i2"_, "i1 * i3 + i1 * i4"_);
-  assertSimplifiedDivMod(
+  expectSimplifiedDivMod(
       "i1 * i2 * i3 + i1 * i2 * i4"_, "i1 * i2"_, "i3 + i4"_);
-  assertSimplifiedDivMod(
+  expectSimplifiedDivMod(
       "( i1 + i2 ) * i3 + ( i1 + i2 ) * i4"_, "i1 + i2"_, "i3 + i4"_);
-  assertSimplifiedDivMod(
+  expectSimplifiedDivMod(
       "( i1 * i2 ) * ( i3 * 6 )"_, "( i1 * i2 ) * ( i3 * 6 )"_, "1"_);
-  assertSimplifiedDivMod(
+  expectSimplifiedDivMod(
       "( i1 * i2 ) * ( i3 * 6 )"_, "i1 * ( i2 * i3 )"_, "6"_);
-  assertSimplifiedDivMod(
+  expectSimplifiedDivMod(
       "( i1 * i2 ) * ( i3 * 6 )"_, "3"_, "( i1 * i2 ) * ( i3 * 2 )"_);
-  assertSimplifiedDivMod(
+  expectSimplifiedDivMod(
       "( i1 * i2 ) * ( i3 * 6 )"_, "( i1 * i2 ) * ( i3 * 3 )"_, "2"_);
-  assertSimplifiedDivMod(
+  expectSimplifiedDivMod(
       "( i1 * i2 ) * ( i3 * 6 )"_, "i1 * ( i3 * 3 )"_, "i2 * 2"_);
-  assertSimplifiedDivMod("( i1 + ( i1 * i3 ) ) * i2"_, "i1 * i2"_, "1 + i3"_);
-  assertSimplifiedDivMod(
+  expectSimplifiedDivMod("( i1 + ( i1 * i3 ) ) * i2"_, "i1 * i2"_, "1 + i3"_);
+  expectSimplifiedDivMod(
       "( ( i1 * i2 ) + ( i1 * i3 ) ) * ( ( i2 * i1 ) + ( i2 * i4 ) )"_,
       "i1 * i2"_,
       "( i2 + i3 ) * ( i1 + i4 )"_);
-  assertSimplifiedDivMod(
+  expectSimplifiedDivMod(
       "( 3 * i2 + 6 * i3 ) * ( i2 * i1 + i2 * i4 )"_,
       "3 * i2"_,
       "( i2 + 2 * i3 ) * ( i1 + i4 )"_);
-  assertSimplifiedDivMod(
+  expectSimplifiedDivMod(
       "( 3 * i2 + 6 ) * ( i2 * i1 + i2 * i4 )"_,
       "3 * i2"_,
       "( i2 + 2 ) * ( i1 + i4 )"_);
-  assertSimplifiedDivMod(
+  expectSimplifiedDivMod(
       "( 6 * i2 + 3 ) * ( i2 * i1 + i2 * i4 )"_,
       "3 * i2"_,
       "( 2 * i2 + 1 ) * ( i1 + i4 )"_);
-  assertSimplifiedDivMod("i1 * i2 * 3 + i2 * i1 * 6"_, "3 * i2 * i1"_, "3"_);
+  expectSimplifiedDivMod("i1 * i2 * 3 + i2 * i1 * 6"_, "3 * i2 * i1"_, "3"_);
 }
 
-TEST_F(ExprSimplifierTest, SignProve_CUDA) {
-  auto fusion_ptr = std::make_unique<Fusion>();
-  Fusion& fusion = *fusion_ptr.get();
-  FusionGuard fg(&fusion);
-  auto assertProvedPositive = [&fusion](
-                                  Val* x,
-                                  const std::vector<Bool*>& assumptions = {}) {
+TEST_F(ExprSimplifierTest, SignProve) {
+  auto assertProvedPositive = [](Val* x,
+                                 const std::vector<Val*>& assumptions = {}) {
     auto proved =
-        (simplifyExpr(IrBuilder::gtExpr(x, fusion.zeroVal()), {}, assumptions)
-             ->getBool() == true) &&
-        (simplifyExpr(IrBuilder::geExpr(x, fusion.zeroVal()), {}, assumptions)
-             ->getBool() == true) &&
-        (simplifyExpr(IrBuilder::ltExpr(fusion.zeroVal(), x), {}, assumptions)
-             ->getBool() == true) &&
-        (simplifyExpr(IrBuilder::leExpr(fusion.zeroVal(), x), {}, assumptions)
-             ->getBool() == true) &&
-        (simplifyExpr(IrBuilder::leExpr(x, fusion.zeroVal()), {}, assumptions)
-             ->getBool() == false) &&
-        (simplifyExpr(IrBuilder::ltExpr(x, fusion.zeroVal()), {}, assumptions)
-             ->getBool() == false) &&
-        (simplifyExpr(IrBuilder::geExpr(fusion.zeroVal(), x), {}, assumptions)
-             ->getBool() == false) &&
-        (simplifyExpr(IrBuilder::gtExpr(fusion.zeroVal(), x), {}, assumptions)
-             ->getBool() == false);
-    TORCH_CHECK(proved, "Unable to prove ", x->toInlineString(), " > 0");
+        (simplifyExpr(IrBuilder::gtExpr(x, "0"_), {}, assumptions)->getBool() ==
+         true) &&
+        (simplifyExpr(IrBuilder::geExpr(x, "0"_), {}, assumptions)->getBool() ==
+         true) &&
+        (simplifyExpr(IrBuilder::ltExpr("0"_, x), {}, assumptions)->getBool() ==
+         true) &&
+        (simplifyExpr(IrBuilder::leExpr("0"_, x), {}, assumptions)->getBool() ==
+         true) &&
+        (simplifyExpr(IrBuilder::leExpr(x, "0"_), {}, assumptions)->getBool() ==
+         false) &&
+        (simplifyExpr(IrBuilder::ltExpr(x, "0"_), {}, assumptions)->getBool() ==
+         false) &&
+        (simplifyExpr(IrBuilder::geExpr("0"_, x), {}, assumptions)->getBool() ==
+         false) &&
+        (simplifyExpr(IrBuilder::gtExpr("0"_, x), {}, assumptions)->getBool() ==
+         false);
+    EXPECT_TRUE(proved) << "Unable to prove " << x->toInlineString() << " > 0";
   };
-  auto assertProvedNonNegative = [&fusion](
-                                     Val* x,
-                                     const std::vector<Bool*>& assumptions =
-                                         {}) {
+  auto assertProvedNonNegative = [](Val* x,
+                                    const std::vector<Val*>& assumptions = {}) {
     auto proved =
-        (simplifyExpr(IrBuilder::geExpr(x, fusion.zeroVal()), {}, assumptions)
-             ->getBool() == true) &&
-        (simplifyExpr(IrBuilder::leExpr(fusion.zeroVal(), x), {}, assumptions)
-             ->getBool() == true) &&
-        (simplifyExpr(IrBuilder::ltExpr(x, fusion.zeroVal()), {}, assumptions)
-             ->getBool() == false) &&
-        (simplifyExpr(IrBuilder::gtExpr(fusion.zeroVal(), x), {}, assumptions)
-             ->getBool() == false);
-    TORCH_CHECK(proved, "Unable to prove ", x->toInlineString(), " >= 0");
+        (simplifyExpr(IrBuilder::geExpr(x, "0"_), {}, assumptions)->getBool() ==
+         true) &&
+        (simplifyExpr(IrBuilder::leExpr("0"_, x), {}, assumptions)->getBool() ==
+         true) &&
+        (simplifyExpr(IrBuilder::ltExpr(x, "0"_), {}, assumptions)->getBool() ==
+         false) &&
+        (simplifyExpr(IrBuilder::gtExpr("0"_, x), {}, assumptions)->getBool() ==
+         false);
+    EXPECT_TRUE(proved) << "Unable to prove " << x->toInlineString() << " >= 0";
   };
-  auto assertProvedNonZero = [&fusion](
-                                 Val* x,
-                                 const std::vector<Bool*>& assumptions = {}) {
+  auto assertProvedNonZero = [](Val* x,
+                                const std::vector<Val*>& assumptions = {}) {
     auto proved =
-        (simplifyExpr(IrBuilder::neExpr(x, fusion.zeroVal()), {}, assumptions)
-             ->getBool() == true) &&
-        (simplifyExpr(IrBuilder::neExpr(fusion.zeroVal(), x), {}, assumptions)
-             ->getBool() == true) &&
-        (simplifyExpr(IrBuilder::eqExpr(x, fusion.zeroVal()), {}, assumptions)
-             ->getBool() == false) &&
-        (simplifyExpr(IrBuilder::eqExpr(fusion.zeroVal(), x), {}, assumptions)
-             ->getBool() == false);
-    TORCH_CHECK(proved, "Unable to prove ", x->toInlineString(), " != 0");
+        (simplifyExpr(IrBuilder::neExpr(x, "0"_), {}, assumptions)->getBool() ==
+         true) &&
+        (simplifyExpr(IrBuilder::neExpr("0"_, x), {}, assumptions)->getBool() ==
+         true) &&
+        (simplifyExpr(IrBuilder::eqExpr(x, "0"_), {}, assumptions)->getBool() ==
+         false) &&
+        (simplifyExpr(IrBuilder::eqExpr("0"_, x), {}, assumptions)->getBool() ==
+         false);
+    EXPECT_TRUE(proved) << "Unable to prove " << x->toInlineString() << " != 0";
   };
 
   assertProvedPositive(NamedScalar::getParallelDim(ParallelType::TIDx));
@@ -685,14 +756,14 @@ TEST_F(ExprSimplifierTest, SignProve_CUDA) {
   assertProvedNonZero("1"_);
   assertProvedNonZero("2"_);
 
-  assertProvedNonNegative("T123.size[3]"_);
-  assertProvedNonNegative("T123.stride[3]"_);
+  assertProvedNonNegative("T123.logical_size[3]"_);
+  assertProvedNonNegative("T123.alloc_stride[3]"_);
 
-  std::vector<Bool*> assumptions{
-      "i1 < 2 && i1 >= 0"_b,
-      "i2 < 2 && i2 >= 0"_b,
-      "i3 < 2 && i3 >= 0"_b,
-      "i4 < 2 && i4 >= 0"_b,
+  std::vector<Val*> assumptions{
+      "i1 < 2 && i1 >= 0"_,
+      "i2 < 2 && i2 >= 0"_,
+      "i3 < 2 && i3 >= 0"_,
+      "i4 < 2 && i4 >= 0"_,
   };
 
   assertProvedNonNegative("i1"_, assumptions);
@@ -713,40 +784,28 @@ TEST_F(ExprSimplifierTest, SignProve_CUDA) {
       "( i4 + 1 ) % ( ( i1 + 2 ) + ( i2 + i3 ) )"_, assumptions);
 }
 
-TEST_F(ExprSimplifierTest, PredicateProve_CUDA) {
-  auto fusion_ptr = std::make_unique<Fusion>();
-  Fusion& fusion = *fusion_ptr.get();
-  FusionGuard fg(&fusion);
-
-  std::vector<Bool*> assumptions{"i1 < 5 && i2 <= 5 && i3 > 5 && i4 >= 5"_b};
-  ASSERT_EQ(simplifyExpr("i1 < 5"_, {}, assumptions)->getBool(), true);
-  ASSERT_EQ(simplifyExpr("i1 <= 5"_, {}, assumptions)->getBool(), true);
-  ASSERT_EQ(simplifyExpr("5 > i1"_, {}, assumptions)->getBool(), true);
-  ASSERT_EQ(simplifyExpr("5 >= i1"_, {}, assumptions)->getBool(), true);
-  ASSERT_EQ(simplifyExpr("i2 <= 5"_, {}, assumptions)->getBool(), true);
-  ASSERT_EQ(simplifyExpr("5 >= i2"_, {}, assumptions)->getBool(), true);
-  ASSERT_EQ(simplifyExpr("i3 > 5"_, {}, assumptions)->getBool(), true);
-  ASSERT_EQ(simplifyExpr("i3 >= 5"_, {}, assumptions)->getBool(), true);
-  ASSERT_EQ(simplifyExpr("5 < i3"_, {}, assumptions)->getBool(), true);
-  ASSERT_EQ(simplifyExpr("5 <= i3"_, {}, assumptions)->getBool(), true);
-  ASSERT_EQ(simplifyExpr("i4 >= 5"_, {}, assumptions)->getBool(), true);
-  ASSERT_EQ(simplifyExpr("5 <= i4"_, {}, assumptions)->getBool(), true);
+TEST_F(ExprSimplifierTest, PredicateProve) {
+  std::vector<Val*> assumptions{"i1 < 5 && i2 <= 5 && i3 > 5 && i4 >= 5"_};
+  EXPECT_EQ(simplifyExpr("i1 < 5"_, {}, assumptions)->getBool(), true);
+  EXPECT_EQ(simplifyExpr("i1 <= 5"_, {}, assumptions)->getBool(), true);
+  EXPECT_EQ(simplifyExpr("5 > i1"_, {}, assumptions)->getBool(), true);
+  EXPECT_EQ(simplifyExpr("5 >= i1"_, {}, assumptions)->getBool(), true);
+  EXPECT_EQ(simplifyExpr("i2 <= 5"_, {}, assumptions)->getBool(), true);
+  EXPECT_EQ(simplifyExpr("5 >= i2"_, {}, assumptions)->getBool(), true);
+  EXPECT_EQ(simplifyExpr("i3 > 5"_, {}, assumptions)->getBool(), true);
+  EXPECT_EQ(simplifyExpr("i3 >= 5"_, {}, assumptions)->getBool(), true);
+  EXPECT_EQ(simplifyExpr("5 < i3"_, {}, assumptions)->getBool(), true);
+  EXPECT_EQ(simplifyExpr("5 <= i3"_, {}, assumptions)->getBool(), true);
+  EXPECT_EQ(simplifyExpr("i4 >= 5"_, {}, assumptions)->getBool(), true);
+  EXPECT_EQ(simplifyExpr("5 <= i4"_, {}, assumptions)->getBool(), true);
 }
 
-TEST_F(ExprSimplifierTest, EquivalenceSimplification_CUDA) {
-  auto fusion_ptr = std::make_unique<Fusion>();
-  Fusion& fusion = *fusion_ptr.get();
-  FusionGuard fg(&fusion);
-
+TEST_F(ExprSimplifierTest, EquivalenceSimplification) {
   auto assertProvedEquiv = [](Val* x, Val* y) {
     auto proved = (simplifyExpr(IrBuilder::eqExpr(x, y))->getBool() == true) &&
         (simplifyExpr(IrBuilder::neExpr(x, y))->getBool() == false);
-    TORCH_CHECK(
-        proved,
-        "Unable to prove ",
-        x->toInlineString(),
-        " == ",
-        y->toInlineString());
+    EXPECT_TRUE(proved) << "Unable to prove " << x->toInlineString()
+                        << " == " << y->toInlineString();
   };
 
   assertProvedEquiv("i"_, "i"_);
@@ -754,150 +813,138 @@ TEST_F(ExprSimplifierTest, EquivalenceSimplification_CUDA) {
   assertProvedEquiv("( i1 * i3 ) % i2"_, "( i3 * i1 ) % i2"_);
 }
 
-TEST_F(ExprSimplifierTest, CancelDivMod_CUDA) {
-  auto fusion_ptr = std::make_unique<Fusion>();
-  Fusion& fusion = *fusion_ptr.get();
-  FusionGuard fg(&fusion);
-
-  assertSimplifiedDiv(
+TEST_F(ExprSimplifierTest, CancelDivMod) {
+  expectSimplifiedDiv(
       "6 * ( i1 * i3 )"_, "15 * ( i1 * i2 )"_, "( 2 * i3 ) / ( 5 * i2 )"_);
-  assertSimplifiedMod(
+  expectSimplifiedMod(
       "6 * ( i1 * i3 )"_,
       "15 * ( i1 * i2 )"_,
       "( ( 2 * i3 ) % ( 5 * i2 ) ) * ( 3 * i1 )"_);
-  assertSimplifiedDiv("( 3 * i1 )"_, "15 * ( i1 * i2 )"_, "1 / ( 5 * i2 )"_);
-  assertSimplifiedMod(
+  expectSimplifiedDiv("( 3 * i1 )"_, "15 * ( i1 * i2 )"_, "1 / ( 5 * i2 )"_);
+  expectSimplifiedMod(
       "( 3 * i1 )"_, "15 * ( i1 * i2 )"_, "( 1 % ( 5 * i2 ) ) * ( 3 * i1 )"_);
 }
 
-TEST_F(ExprSimplifierTest, DistributeDivisibleDivMod_CUDA) {
-  auto fusion_ptr = std::make_unique<Fusion>();
-  Fusion& fusion = *fusion_ptr.get();
-  FusionGuard fg(&fusion);
+TEST_F(ExprSimplifierTest, DistributeDivisibleDivMod) {
+  std::vector<Val*> assumptions{"i1 >= 0 && i2 >= 0 && i3 >= 0"_};
 
-  std::vector<Bool*> assumptions{"i1 >= 0 && i2 >= 0 && i3 >= 0"_b};
-
-  assertSimplifiedDiv("i1 * i2 + i3"_, "i1"_, "i2 + i3 / i1"_, assumptions);
-  assertSimplifiedMod("i1 * i2 + i3"_, "i1"_, "i3 % i1"_, assumptions);
+  expectSimplifiedDiv("i1 * i2 + i3"_, "i1"_, "i2 + i3 / i1"_, assumptions);
+  expectSimplifiedMod("i1 * i2 + i3"_, "i1"_, "i3 % i1"_, assumptions);
 }
 
-TEST_F(ExprSimplifierTest, DistributeGcdRemainderDivMod_CUDA) {
-  auto fusion_ptr = std::make_unique<Fusion>();
-  Fusion& fusion = *fusion_ptr.get();
-  FusionGuard fg(&fusion);
-
-  assertSimplifiedDiv("i1 * 3 + 2"_, "6"_, "i1 / 2"_, {"i1 >= 0"_b});
-  assertSimplifiedMod(
-      "i1 * 3 + 2"_, "6"_, "( i1 % 2 ) * 3 + 2"_, {"i1 >= 0"_b});
-  assertSimplifiedDiv(
+TEST_F(ExprSimplifierTest, DistributeGcdRemainderDivMod) {
+  expectSimplifiedDiv("i1 * 3 + 2"_, "6"_, "i1 / 2"_, {"i1 >= 0"_});
+  expectSimplifiedMod("i1 * 3 + 2"_, "6"_, "( i1 % 2 ) * 3 + 2"_, {"i1 >= 0"_});
+  expectSimplifiedDiv(
       "i1 * 4 + 3"_,
-      "32 * T0.size[0]"_,
-      "i1 / ( 8 * T0.size[0] )"_,
-      {"i1 >= 0"_b});
-  assertSimplifiedMod(
+      "32 * T0.logical_size[0]"_,
+      "i1 / ( 8 * T0.logical_size[0] )"_,
+      {"i1 >= 0"_});
+  expectSimplifiedMod(
       "i1 * 4 + 3"_,
-      "32 * T0.size[0]"_,
-      "( i1 % ( 8 * T0.size[0] ) ) * 4 + 3"_,
-      {"i1 >= 0"_b});
-  assertSimplifiedDiv(
-      "( ( ( blockIdx.x * 128 + threadIdx.x ) % ( T0.size[3] * 24 ) ) * 4 ) + 3"_,
-      "32 * T0.size[3]"_,
-      "( ( blockIdx.x * 128 + threadIdx.x ) % ( T0.size[3] * 24 ) ) / ( 8 * T0.size[3] )"_,
+      "32 * T0.logical_size[0]"_,
+      "( i1 % ( 8 * T0.logical_size[0] ) ) * 4 + 3"_,
+      {"i1 >= 0"_});
+  expectSimplifiedDiv(
+      "( ( ( blockIdx.x * 128 + threadIdx.x ) % ( T0.logical_size[3] * 24 ) ) * 4 ) + 3"_,
+      "32 * T0.logical_size[3]"_,
+      "( ( blockIdx.x * 128 + threadIdx.x ) % ( T0.logical_size[3] * 24 ) ) / ( 8 * T0.logical_size[3] )"_,
       {});
 }
 
-TEST_F(ExprSimplifierTest, DistributeMul_CUDA) {
-  auto fusion_ptr = std::make_unique<Fusion>();
-  Fusion& fusion = *fusion_ptr.get();
-  FusionGuard fg(&fusion);
-
-  TORCH_CHECK(isEquivalent("i1 * ( i2 + i3 )"_, "( i1 * i2 ) + ( i1 * i3 )"_));
-  TORCH_CHECK(isEquivalent(
+TEST_F(ExprSimplifierTest, DistributeMul) {
+  EXPECT_TRUE(isEquivalent("i1 * ( i2 + i3 )"_, "( i1 * i2 ) + ( i1 * i3 )"_));
+  EXPECT_TRUE(isEquivalent(
       "i1 * ( i2 + i3 + i4 )"_, "( i1 * i2 ) + ( i1 * i3 ) + ( i1 * i4 )"_));
 }
 
-TEST_F(ExprSimplifierTest, Compare_CUDA) {
-  auto fusion_ptr = std::make_unique<Fusion>();
-  Fusion& fusion = *fusion_ptr.get();
-  FusionGuard fg(&fusion);
-
+TEST_F(ExprSimplifierTest, Compare) {
   auto simplify = [](Val* x, Val* assumption) {
-    return simplifyExpr(x, {}, {assumption->as<Bool>()})->getBool();
+    return simplifyExpr(x, {}, {assumption})->getBool();
   };
 
-  ASSERT_TRUE(*simplify("i1 <= i1"_, "i1 < i2"_));
+  EXPECT_TRUE(*simplify("i1 <= i1"_, "i1 < i2"_));
 
-  ASSERT_TRUE(*simplify("i1 < i3"_, "i1 < i2 && i2 < i3"_));
-  ASSERT_TRUE(*simplify("i1 < i3"_, "i1 < i2 && i2 <= i3"_));
-  ASSERT_TRUE(*simplify("i1 < i3"_, "i1 <= i2 && i2 < i3"_));
-  ASSERT_FALSE(simplify("i1 < i3"_, "i1 <= i2 && i2 <= i3"_).has_value());
+  EXPECT_TRUE(*simplify("i1 < i3"_, "i1 < i2 && i2 < i3"_));
+  EXPECT_TRUE(*simplify("i1 < i3"_, "i1 < i2 && i2 <= i3"_));
+  EXPECT_TRUE(*simplify("i1 < i3"_, "i1 <= i2 && i2 < i3"_));
+  EXPECT_FALSE(simplify("i1 < i3"_, "i1 <= i2 && i2 <= i3"_).has_value());
 
-  ASSERT_TRUE(*simplify("i1 > i3"_, "i1 > i2 && i2 > i3"_));
-  ASSERT_TRUE(*simplify("i1 > i3"_, "i1 > i2 && i2 >= i3"_));
-  ASSERT_TRUE(*simplify("i1 > i3"_, "i1 >= i2 && i2 > i3"_));
-  ASSERT_FALSE(simplify("i1 > i3"_, "i1 >= i2 && i2 >= i3"_).has_value());
+  EXPECT_TRUE(*simplify("i1 > i3"_, "i1 > i2 && i2 > i3"_));
+  EXPECT_TRUE(*simplify("i1 > i3"_, "i1 > i2 && i2 >= i3"_));
+  EXPECT_TRUE(*simplify("i1 > i3"_, "i1 >= i2 && i2 > i3"_));
+  EXPECT_FALSE(simplify("i1 > i3"_, "i1 >= i2 && i2 >= i3"_).has_value());
 
-  ASSERT_TRUE(*simplify("i1 <= i3"_, "i1 < i2 && i2 < i3"_));
-  ASSERT_TRUE(*simplify("i1 <= i3"_, "i1 < i2 && i2 <= i3"_));
-  ASSERT_TRUE(*simplify("i1 <= i3"_, "i1 <= i2 && i2 < i3"_));
-  ASSERT_TRUE(*simplify("i1 <= i3"_, "i1 <= i2 && i2 <= i3"_));
+  EXPECT_TRUE(*simplify("i1 <= i3"_, "i1 < i2 && i2 < i3"_));
+  EXPECT_TRUE(*simplify("i1 <= i3"_, "i1 < i2 && i2 <= i3"_));
+  EXPECT_TRUE(*simplify("i1 <= i3"_, "i1 <= i2 && i2 < i3"_));
+  EXPECT_TRUE(*simplify("i1 <= i3"_, "i1 <= i2 && i2 <= i3"_));
 
-  ASSERT_TRUE(*simplify("i1 >= i3"_, "i1 > i2 && i2 > i3"_));
-  ASSERT_TRUE(*simplify("i1 >= i3"_, "i1 > i2 && i2 >= i3"_));
-  ASSERT_TRUE(*simplify("i1 >= i3"_, "i1 >= i2 && i2 > i3"_));
-  ASSERT_TRUE(*simplify("i1 >= i3"_, "i1 >= i2 && i2 >= i3"_));
+  EXPECT_TRUE(*simplify("i1 >= i3"_, "i1 > i2 && i2 > i3"_));
+  EXPECT_TRUE(*simplify("i1 >= i3"_, "i1 > i2 && i2 >= i3"_));
+  EXPECT_TRUE(*simplify("i1 >= i3"_, "i1 >= i2 && i2 > i3"_));
+  EXPECT_TRUE(*simplify("i1 >= i3"_, "i1 >= i2 && i2 >= i3"_));
 
-  ASSERT_TRUE(*simplify(
+  EXPECT_TRUE(*simplify(
       "i1 < 3"_,
       "i1 < i2 && i2 <= i3 && i3 < i4 && i4 <= i5 && i5 <= i6 && i6 < i7 && i7 <= i8 && i8 <= 2"_));
 
-  ASSERT_TRUE(*simplify("i1 <= i1 * i2"_, "i1 >= 0 && i2 > 0"_));
-  ASSERT_TRUE(*simplify("i1 >= i1 * i2"_, "i1 <= 0 && i2 > 0"_));
-  ASSERT_TRUE(*simplify("d1 <= d1 * d2"_, "d1 >= 0.0 && d2 >= 1.0"_));
-  ASSERT_TRUE(*simplify("d1 >= d1 * d2"_, "d1 <= 0.0 && d2 >= 1.0"_));
-  ASSERT_TRUE(
+  EXPECT_TRUE(*simplify("i1 <= i1 * i2"_, "i1 >= 0 && i2 > 0"_));
+  EXPECT_TRUE(*simplify("i1 >= i1 * i2"_, "i1 <= 0 && i2 > 0"_));
+  EXPECT_TRUE(*simplify("d1 <= d1 * d2"_, "d1 >= 0.0 && d2 >= 1.0"_));
+  EXPECT_TRUE(*simplify("d1 >= d1 * d2"_, "d1 <= 0.0 && d2 >= 1.0"_));
+  EXPECT_TRUE(
       *simplifyExpr(
-           "ceilDiv( T0.size[0] , 128 ) * 4 >= ceilDiv( T0.size[0] , 128 )"_)
+           "ceilDiv( T0.logical_size[0] , 128 ) * 4 >= ceilDiv( T0.logical_size[0] , 128 )"_)
            ->getBool());
 
-  ASSERT_TRUE(*simplify("ceilDiv( i1 , i2 ) > 0"_, "i1 > 0 && i2 > 0"_));
-  ASSERT_TRUE(*simplify("ceilDiv( i1 , i2 ) >= 1"_, "i1 > 0 && i2 > 0"_));
+  EXPECT_TRUE(*simplify("ceilDiv( i1 , i2 ) > 0"_, "i1 > 0 && i2 > 0"_));
+  EXPECT_TRUE(*simplify("ceilDiv( i1 , i2 ) >= 1"_, "i1 > 0 && i2 > 0"_));
 
-  ASSERT_TRUE(*simplify(
-      "blockIdx.x < ceilDiv( T0.size[0] , 128 ) * 4"_,
-      "blockIdx.x < ceilDiv( T0.size[0] , 128 ) * 4"_));
+  EXPECT_TRUE(*simplify(
+      "blockIdx.x < ceilDiv( T0.logical_size[0] , 128 ) * 4"_,
+      "blockIdx.x < ceilDiv( T0.logical_size[0] , 128 ) * 4"_));
+
+  EXPECT_TRUE(*simplify("i1 % i2 < i2"_, "i2 >= 0"_));
+
+  EXPECT_TRUE(
+      *simplifyExpr("T0.logical_size[0] - 1 < T0.logical_size[0]"_)->getBool());
+  EXPECT_TRUE(
+      *simplifyExpr(
+           "T0.logical_size[0] + 1 + 2 + 3 < T0.logical_size[0] + 1 + 2 + 3 + 4"_)
+           ->getBool());
+  // Two terms of the LHS are both the same as the single RHS term,
+  // but the removal should be done only for one of them. If doubly
+  // removed, the predicate would be false
+  EXPECT_TRUE(*simplify("i1 + i1 > i1"_, "i1 > 0"_));
+  EXPECT_TRUE(*simplify("i1 < i1 + i1"_, "i1 > 0"_));
+  EXPECT_TRUE(*simplify("i1 + i1 < i1 + i1 + i1"_, "i1 > 0"_));
 }
 
-TEST_F(ExprSimplifierTest, FundamentalDivisionWithRemainderProperty_CUDA) {
-  auto fusion_ptr = std::make_unique<Fusion>();
-  Fusion& fusion = *fusion_ptr.get();
-  FusionGuard fg(&fusion);
-
-  TORCH_CHECK(
-      isEquivalent("i1 / T1.size[0] * T1.size[0] + i1 % T1.size[0]"_, "i1"_));
-  TORCH_CHECK(isEquivalent(
-      "( i2 + i1 / T1.size[0] * T1.size[0] ) + i1 % T1.size[0]"_, "i1 + i2"_));
-  TORCH_CHECK(isEquivalent(
-      "( i1 / T1.size[0] ) * ( T1.size[0] * T1.size[1] ) + T1.size[1] * ( i1 % T1.size[0] )"_,
-      "i1 * T1.size[1]"_));
-  TORCH_CHECK(isEquivalent(
-      "i2 + ( i1 / T1.size[0] ) * ( T1.size[0] * T1.size[1] ) + T1.size[1] * ( i1 % T1.size[0] )"_,
-      "i1 * T1.size[1] + i2"_));
+TEST_F(ExprSimplifierTest, FundamentalDivisionWithRemainderProperty) {
+  EXPECT_TRUE(isEquivalent(
+      "i1 / T1.logical_size[0] * T1.logical_size[0] + i1 % T1.logical_size[0]"_,
+      "i1"_));
+  EXPECT_TRUE(isEquivalent(
+      "( i2 + i1 / T1.logical_size[0] * T1.logical_size[0] ) + i1 % T1.logical_size[0]"_,
+      "i1 + i2"_));
+  EXPECT_TRUE(isEquivalent(
+      "( i1 / T1.logical_size[0] ) * ( T1.logical_size[0] * T1.logical_size[1] ) + T1.logical_size[1] * ( i1 % T1.logical_size[0] )"_,
+      "i1 * T1.logical_size[1]"_));
+  EXPECT_TRUE(isEquivalent(
+      "i2 + ( i1 / T1.logical_size[0] ) * ( T1.logical_size[0] * T1.logical_size[1] ) + T1.logical_size[1] * ( i1 % T1.logical_size[0] )"_,
+      "i1 * T1.logical_size[1] + i2"_));
 }
 
-TEST_F(ExprSimplifierTest, ReducePredicateRegisterUsage_CUDA) {
-  auto fusion_ptr = std::make_unique<Fusion>();
-  Fusion& fusion = *fusion_ptr.get();
-  FusionGuard fg(&fusion);
-
+TEST_F(ExprSimplifierTest, ReducePredicateRegisterUsage) {
   auto a = IrBuilder::create<NamedScalar>("a", DataType::Int);
   auto b = IrBuilder::create<NamedScalar>("b", DataType::Int);
   auto u1 = IrBuilder::create<NamedScalar>("u1", DataType::Int);
   auto u2 = IrBuilder::create<NamedScalar>("u2", DataType::Int);
   auto tidx = NamedScalar::getParallelIndex(ParallelType::TIDx);
-  auto zero = fusion.zeroVal();
-  auto five = IrBuilder::create<Int>(5);
-  auto neg_five = IrBuilder::create<Int>(-5);
+  auto zero = "0"_;
+  auto five = IrBuilder::create<Val>(5L);
+  auto neg_five = IrBuilder::create<Val>(-5L);
 
   auto unroll_gp1 = mul(tidx, u1);
   auto unroll_uniform1 = mul(a, u1);
@@ -912,173 +959,170 @@ TEST_F(ExprSimplifierTest, ReducePredicateRegisterUsage_CUDA) {
   {
     // can not save
     auto v1 = eq(add(b, unroll_gp1), add(five, unroll_gp2));
-    TORCH_CHECK(simplifyExpr(v1, variables)->sameAs(v1));
+    EXPECT_TRUE(simplifyExpr(v1, variables)->sameAs(v1));
     auto v2 = eq(add(b, unroll_uniform1), add(five, unroll_uniform2));
-    TORCH_CHECK(simplifyExpr(v2, variables)->sameAs(v2));
+    EXPECT_TRUE(simplifyExpr(v2, variables)->sameAs(v2));
 
     // save general purpose register
     auto v3 = eq(add(unroll_uniform1, tidx), add(unroll_uniform2, five));
     auto v3_simplified =
         eq(add(tidx, neg_five), add(neg(unroll_uniform1), unroll_uniform2));
-    TORCH_CHECK(simplifyExpr(v3, variables)->sameAs(v3_simplified));
+    EXPECT_TRUE(simplifyExpr(v3, variables)->sameAs(v3_simplified));
     auto v4 = eq(add(unroll_imm1, tidx), add(unroll_imm2, five));
     auto v4_simplified =
         eq(add(tidx, neg_five), add(neg(unroll_imm1), unroll_imm2));
-    TORCH_CHECK(simplifyExpr(v4, variables)->sameAs(v4_simplified));
+    EXPECT_TRUE(simplifyExpr(v4, variables)->sameAs(v4_simplified));
 
     // unroll + other == unroll + other, save uniform register
     auto v5 = eq(add(unroll_imm1, a), add(unroll_imm2, five));
     auto v5_simplify = eq(add(a, neg_five), add(neg(unroll_imm1), unroll_imm2));
-    TORCH_CHECK(simplifyExpr(v5, variables)->sameAs(v5_simplify));
+    EXPECT_TRUE(simplifyExpr(v5, variables)->sameAs(v5_simplify));
   }
 
   // unroll + other == unroll
   {
     // can not save
     auto v1 = eq(add(b, unroll_gp1), unroll_gp2);
-    TORCH_CHECK(simplifyExpr(v1, variables)->sameAs(v1));
+    EXPECT_TRUE(simplifyExpr(v1, variables)->sameAs(v1));
     auto v2 = eq(add(b, unroll_uniform1), unroll_uniform2);
-    TORCH_CHECK(simplifyExpr(v2, variables)->sameAs(v2));
+    EXPECT_TRUE(simplifyExpr(v2, variables)->sameAs(v2));
 
     // save general purpose register
     auto v3 = eq(add(unroll_uniform1, tidx), unroll_uniform2);
     auto v3_simplified = eq(tidx, add(neg(unroll_uniform1), unroll_uniform2));
-    TORCH_CHECK(simplifyExpr(v3, variables)->sameAs(v3_simplified));
+    EXPECT_TRUE(simplifyExpr(v3, variables)->sameAs(v3_simplified));
     auto v4 = eq(add(unroll_imm1, tidx), unroll_imm2);
     auto v4_simplified = eq(tidx, add(neg(unroll_imm1), unroll_imm2));
-    TORCH_CHECK(simplifyExpr(v4, variables)->sameAs(v4_simplified));
+    EXPECT_TRUE(simplifyExpr(v4, variables)->sameAs(v4_simplified));
 
     // unroll + other == unroll + other, save uniform register
     auto v5 = eq(add(unroll_imm1, a), unroll_imm2);
     auto v5_simplify = eq(a, add(neg(unroll_imm1), unroll_imm2));
-    TORCH_CHECK(simplifyExpr(v5, variables)->sameAs(v5_simplify));
+    EXPECT_TRUE(simplifyExpr(v5, variables)->sameAs(v5_simplify));
   }
 
   // unroll + other == other
   {
     // can not save
     auto v1 = eq(add(b, unroll_gp1), five);
-    TORCH_CHECK(simplifyExpr(v1, variables)->sameAs(v1));
+    EXPECT_TRUE(simplifyExpr(v1, variables)->sameAs(v1));
     auto v2 = eq(add(b, unroll_uniform1), five);
-    TORCH_CHECK(simplifyExpr(v2, variables)->sameAs(v2));
+    EXPECT_TRUE(simplifyExpr(v2, variables)->sameAs(v2));
 
     // save general purpose register
     auto v3 = eq(add(unroll_uniform1, tidx), five);
     auto v3_simplified = eq(add(tidx, neg_five), neg(unroll_uniform1));
-    TORCH_CHECK(simplifyExpr(v3, variables)->sameAs(v3_simplified));
+    EXPECT_TRUE(simplifyExpr(v3, variables)->sameAs(v3_simplified));
     auto v4 = eq(add(unroll_imm1, tidx), five);
     auto v4_simplified = eq(add(tidx, neg_five), neg(unroll_imm1));
-    TORCH_CHECK(simplifyExpr(v4, variables)->sameAs(v4_simplified));
+    EXPECT_TRUE(simplifyExpr(v4, variables)->sameAs(v4_simplified));
 
     // unroll + other == unroll + other, save uniform register
     auto v5 = eq(add(unroll_imm1, a), five);
     auto v5_simplify = eq(add(a, neg_five), neg(unroll_imm1));
-    TORCH_CHECK(simplifyExpr(v5, variables)->sameAs(v5_simplify));
+    EXPECT_TRUE(simplifyExpr(v5, variables)->sameAs(v5_simplify));
   }
 
   // unroll + other == 0
   {
     // can not save
     auto v1 = eq(add(b, unroll_gp1), zero);
-    TORCH_CHECK(simplifyExpr(v1, variables)->sameAs(v1));
+    EXPECT_TRUE(simplifyExpr(v1, variables)->sameAs(v1));
     auto v2 = eq(add(b, unroll_uniform1), zero);
-    TORCH_CHECK(simplifyExpr(v2, variables)->sameAs(v2));
+    EXPECT_TRUE(simplifyExpr(v2, variables)->sameAs(v2));
 
     // save general purpose register
     auto v3 = eq(add(unroll_uniform1, tidx), zero);
     auto v3_simplified = eq(tidx, neg(unroll_uniform1));
-    TORCH_CHECK(simplifyExpr(v3, variables)->sameAs(v3_simplified));
+    EXPECT_TRUE(simplifyExpr(v3, variables)->sameAs(v3_simplified));
     auto v4 = eq(add(unroll_imm1, tidx), zero);
     auto v4_simplified = eq(tidx, neg(unroll_imm1));
-    TORCH_CHECK(simplifyExpr(v4, variables)->sameAs(v4_simplified));
+    EXPECT_TRUE(simplifyExpr(v4, variables)->sameAs(v4_simplified));
 
     // unroll + other == unroll + other, save uniform register
     auto v5 = eq(add(unroll_imm1, a), zero);
     auto v5_simplify = eq(a, neg(unroll_imm1));
-    TORCH_CHECK(simplifyExpr(v5, variables)->sameAs(v5_simplify));
+    EXPECT_TRUE(simplifyExpr(v5, variables)->sameAs(v5_simplify));
   }
 
   // unroll == other
   {
     auto v1 = eq(unroll_gp1, five);
-    TORCH_CHECK(simplifyExpr(v1, variables)->sameAs(v1));
+    EXPECT_TRUE(simplifyExpr(v1, variables)->sameAs(v1));
     auto v2 = eq(unroll_uniform1, five);
-    TORCH_CHECK(simplifyExpr(v2, variables)->sameAs(v2));
+    EXPECT_TRUE(simplifyExpr(v2, variables)->sameAs(v2));
     auto v3 = eq(unroll_imm1, five);
-    TORCH_CHECK(simplifyExpr(v3, variables)->sameAs(v3));
+    EXPECT_TRUE(simplifyExpr(v3, variables)->sameAs(v3));
   }
 
   // other == unroll
   {
     auto v1 = eq(five, unroll_gp1);
-    TORCH_CHECK(simplifyExpr(v1, variables)->sameAs(v1));
+    EXPECT_TRUE(simplifyExpr(v1, variables)->sameAs(v1));
     auto v2 = eq(five, unroll_uniform1);
-    TORCH_CHECK(simplifyExpr(v2, variables)->sameAs(v2));
+    EXPECT_TRUE(simplifyExpr(v2, variables)->sameAs(v2));
     auto v3 = eq(five, unroll_imm1);
-    TORCH_CHECK(simplifyExpr(v3, variables)->sameAs(v3));
+    EXPECT_TRUE(simplifyExpr(v3, variables)->sameAs(v3));
   }
 
   // other == other
   {
     auto v1 = eq(five, tidx);
-    TORCH_CHECK(simplifyExpr(v1, variables)->sameAs(v1));
+    EXPECT_TRUE(simplifyExpr(v1, variables)->sameAs(v1));
     auto v2 = eq(five, a);
-    TORCH_CHECK(simplifyExpr(v2, variables)->sameAs(v2));
+    EXPECT_TRUE(simplifyExpr(v2, variables)->sameAs(v2));
   }
 
   // unroll == unroll
   {
     auto v1 = eq(unroll_gp2, unroll_gp1);
-    TORCH_CHECK(simplifyExpr(v1, variables)->sameAs(v1));
+    EXPECT_TRUE(simplifyExpr(v1, variables)->sameAs(v1));
     auto v2 = eq(unroll_gp2, unroll_uniform1);
-    TORCH_CHECK(simplifyExpr(v2, variables)->sameAs(v2));
+    EXPECT_TRUE(simplifyExpr(v2, variables)->sameAs(v2));
     auto v3 = eq(unroll_gp2, unroll_imm1);
-    TORCH_CHECK(simplifyExpr(v3, variables)->sameAs(v3));
+    EXPECT_TRUE(simplifyExpr(v3, variables)->sameAs(v3));
     auto v4 = eq(unroll_uniform2, unroll_gp1);
-    TORCH_CHECK(simplifyExpr(v4, variables)->sameAs(v4));
+    EXPECT_TRUE(simplifyExpr(v4, variables)->sameAs(v4));
     auto v5 = eq(unroll_uniform2, unroll_uniform1);
-    TORCH_CHECK(simplifyExpr(v5, variables)->sameAs(v5));
+    EXPECT_TRUE(simplifyExpr(v5, variables)->sameAs(v5));
     auto v6 = eq(unroll_uniform2, unroll_imm1);
-    TORCH_CHECK(simplifyExpr(v6, variables)->sameAs(v6));
+    EXPECT_TRUE(simplifyExpr(v6, variables)->sameAs(v6));
     auto v7 = eq(unroll_imm2, unroll_gp1);
-    TORCH_CHECK(simplifyExpr(v7, variables)->sameAs(v7));
+    EXPECT_TRUE(simplifyExpr(v7, variables)->sameAs(v7));
     auto v8 = eq(unroll_imm2, unroll_uniform1);
-    TORCH_CHECK(simplifyExpr(v8, variables)->sameAs(v8));
+    EXPECT_TRUE(simplifyExpr(v8, variables)->sameAs(v8));
     auto v9 = eq(unroll_imm2, unroll_imm1);
-    TORCH_CHECK(simplifyExpr(v9, variables)->sameAs(v9));
+    EXPECT_TRUE(simplifyExpr(v9, variables)->sameAs(v9));
   }
 }
 
-TEST_F(ExprSimplifierTest, MinMax_CUDA) {
-  auto fusion_ptr = std::make_unique<Fusion>();
-  Fusion& fusion = *fusion_ptr.get();
-  FusionGuard fg(&fusion);
-
+TEST_F(ExprSimplifierTest, MinMax) {
   auto simplify = [](Val* x, Val* assumption) {
-    return simplifyExpr(x, {}, {assumption->as<Bool>()});
+    return simplifyExpr(x, {}, {assumption});
   };
 
   auto expr =
-      "max( max( ceilDiv( T0.size[0] , 128 ) * 4 , ceilDiv( T0.size[0] , 128 ) ) , 4 )"_;
-  ASSERT_TRUE(simplify(expr, assume::tensorsAreNotEmpty(expr))
-                  ->sameAs("ceilDiv( T0.size[0] , 128 ) * 4"_));
+      "max( max( ceilDiv( T0.logical_size[0] , 128 ) * 4 , ceilDiv( T0.logical_size[0] , 128 ) ) , 4 )"_;
+  EXPECT_TRUE(simplify(expr, "T0.logical_size[0] > 0"_)
+                  ->sameAs("ceilDiv( T0.logical_size[0] , 128 ) * 4"_));
 }
 
-TEST_F(ExprSimplifierTest, Assume_CUDA) {
-  auto fusion_ptr = std::make_unique<Fusion>();
-  Fusion& fusion = *fusion_ptr.get();
-  FusionGuard fg(&fusion);
+TEST_F(ExprSimplifierTest, PredicateDivToMul) {
+  auto simplified =
+      simplifyExpr("i1 / T0.logical_size[0] < i2"_, {}, {"i1 >= 0"_});
+  auto expect = "i1 < ( i2 * T0.logical_size[0] )"_;
 
-  auto expr =
-      "max( max( ceilDiv( T0.size[0] , 128 ) * 4 , ceilDiv( T0.size[1] , 128 ) ) , 4 )"_;
-  ASSERT_EQ(
-      simplifyExpr(IrBuilder::eqExpr(
-                       assume::tensorsAreNotEmpty(expr),
-                       "T0.size[0] > 0 && T0.size[1] > 0"_))
-          ->getBool(),
-      true);
-  expr = "ceilDiv( T0.size[0] , T0.size[0] ) * T0.size[0]"_;
-  ASSERT_TRUE(assume::tensorsAreNotEmpty(expr)->sameAs("T0.size[0] > 0"_));
+  EXPECT_TRUE(simplified->sameAs(expect));
+}
+
+TEST_F(ExprSimplifierTest, FactorizeGcd) {
+  EXPECT_TRUE(simplifyExpr("gcd( i1 * i2 , i3 * i2 )"_)
+                  ->sameAs("gcd( i1 , i3 ) * abs( i2 )"_));
+  EXPECT_TRUE(simplifyExpr("gcd( i1 * i2 , i3 * i2 )"_, {}, {"i2 >= 0"_})
+                  ->sameAs("gcd( i1 , i3 ) * i2"_));
+  EXPECT_TRUE(simplifyExpr("gcd( i1 * i2 , i2 )"_)->sameAs("abs( i2 )"_));
+  EXPECT_TRUE(
+      simplifyExpr("gcd( i1 * i2 , i2 )"_, {}, {"i2 >= 0"_})->sameAs("i2"_));
 }
 
 } // namespace nvfuser

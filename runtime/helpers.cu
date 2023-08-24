@@ -92,9 +92,7 @@ __device__ double fmax(double a, double b) {
   // check and propagate NaN
   if (a != a) {
     return a;
-  } else if (b != b) {
-    return b;
-  } else {
+  } else { // If b is nan, it will be returned in the next line
     return a > b ? a : b;
   }
 }
@@ -103,9 +101,7 @@ __device__ float fmax(float a, float b) {
   // check and propagate NaN
   if (a != a) {
     return a;
-  } else if (b != b) {
-    return b;
-  } else {
+  } else { // If b is nan, it will be returned in the next line
     return a > b ? a : b;
   }
 }
@@ -128,22 +124,18 @@ __device__ constexpr int64_t min(int64_t a, int64_t b) {
 
 __device__ double fmin(double a, double b) {
   // check and propagate NaN
-  if (a != a) {
-    return a;
-  } else if (b != b) {
+  if (b != b) {
     return b;
-  } else {
+  } else { // If a is nan, it will be returned in the next line
     return a > b ? b : a;
   }
 }
 
 __device__ float fmin(float a, float b) {
   // check and propagate NaN
-  if (a != a) {
-    return a;
-  } else if (b != b) {
+  if (b != b) {
     return b;
-  } else {
+  } else { // If a is nan, it will be returned in the next line
     return a > b ? b : a;
   }
 }
@@ -361,29 +353,56 @@ __device__ int64_t rsqrt(int64_t z) {
   return ::rsqrt((double)z);
 }
 
-template <int size, int align = size>
-struct alignas(align) TypelessData {
-  int8_t data[size];
+__device__ double signbit(double a) {
+  return ::signbit(a);
+}
 
-  template <typename T, std::enable_if_t<sizeof(T) == size, int> _ = 0>
-  TypelessData(T x) {
-    *reinterpret_cast<T*>(data) = x;
-  }
+__device__ float signbit(float a) {
+  return ::signbit(a);
+}
 
-  template <typename T, std::enable_if_t<sizeof(T) == size, int> _ = 0>
-  operator T() {
-    return *reinterpret_cast<T*>(data);
-  }
-};
+__device__ int signbit(int a) {
+  return a < 0;
+}
 
+__device__ int64_t signbit(int64_t a) {
+  return a < 0;
+}
+
+// Reference:
+// https://en.wikipedia.org/wiki/Euclidean_algorithm#Implementations
+// https://github.com/pytorch/pytorch/blob/c9f4f01981fd73fcc7c27676cc50230cd1b5bc22/aten/src/ATen/native/Math.h#L1232
 template <typename T>
-TypelessData<sizeof(T), alignof(T)> erase_type(T x) {
-  return x;
+__device__ T gcd(T a, T b) {
+  a = abs(a);
+  b = abs(b);
+  while (b != 0) {
+    auto t = b;
+    b = a % b;
+    a = t;
+  }
+  return a;
 }
 
 template <typename T>
 bool isfinite(T x) {
   return ::isfinite(x);
+}
+
+// ref:
+// https://github.com/NVIDIA/cutlass/blob/6fbc0d33800008d3180d3fefed4e1a653e5f72a0/include/cutlass/bfloat16.h#L213
+template <>
+bool isfinite<__bfloat>(__bfloat x) {
+  const auto exponent_biased = int((x.raw() >> 7) & 0x0ff);
+  return exponent_biased != 0x0ff;
+}
+
+// ref:
+// https://github.com/NVIDIA/cutlass/blob/6fbc0d33800008d3180d3fefed4e1a653e5f72a0/include/cutlass/half.h#L511
+template <>
+bool isfinite<__half>(__half x) {
+  const auto exponent_biased = int((x.raw() >> 10) & 0x1f);
+  return exponent_biased != 0x1f;
 }
 
 template <typename T>

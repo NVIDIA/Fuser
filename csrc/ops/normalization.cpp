@@ -5,7 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <ir_builder.h>
+#include <ir/builder.h>
 #include <ops/arith.h>
 #include <ops/normalization.h>
 
@@ -16,13 +16,15 @@ int nonNegativeAxis(int axis, size_t ndims) {
 }
 
 Val* numFeatures(TensorView* x, const std::vector<int>& dims, size_t ndims) {
-  Val* num_features = IrBuilder::create<Double>(x->container(), 1);
+
+  Val* num_features = IrBuilder::create<Val>(x->container(), 1.0);
   if (ndims == 0) {
     return num_features;
   }
+
   for (const auto dim : dims) {
     const int axis = nonNegativeAxis(dim, ndims);
-    num_features = mul(num_features, x->domain()->domain()[axis]->extent());
+    num_features = mul(num_features, x->getLeafDomain()[axis]->extent());
   }
   return num_features;
 }
@@ -69,7 +71,7 @@ TensorView* variance(
   auto num_features = numFeatures(x, dims, kNumberOfDims);
   if (correction > 0) {
     num_features =
-        sub(num_features, IrBuilder::create<Int>(x->container(), correction));
+        sub(num_features, IrBuilder::create<Val>(x->container(), correction));
   }
   auto y = div(sum_x_mean_sub_sq, num_features);
 
@@ -95,19 +97,14 @@ VarMeanResult variance_mean(
       " please upcast to float");
 
   if (isComplexType(x->getDataType().value())) {
-    // There are compilation errors:
-    // __tmp_kernel1.cu(6727): error: namespace "CudaCodeGen::std" has no member
-    // "imagf"
-    // __tmp_kernel1.cu(6753): error: namespace "CudaCodeGen::std" has no member
-    // "realf"
-    TORCH_CHECK(false, "var_mean is not supported for complex types.");
+    // The variance of a complex tensor is a real number its value equals the
+    // sum of real and imaginary variances. The mean of a complex tensor is a
+    // complex number its real and image parts equals the mean of real and
+    // imaginary parts of the original tensor, separately.
     auto out_real = variance_mean(real(x), dims, correction, keepdim);
     auto out_imag = variance_mean(imag(x), dims, correction, keepdim);
-    // variance of a complex tensor is the sum of real and imaginary variances
-    // and is real mean of a complex tensor is complex complex(out_real.mean,
-    // out_imag.mean) It seems construction of a complex tensor from two real
-    // tensors is not supported yet
-    return {add(out_real.var, out_imag.var), nullptr};
+    return {
+        add(out_real.var, out_imag.var), complex(out_real.mean, out_imag.mean)};
   }
 
   const size_t kNumberOfDims =
@@ -115,7 +112,7 @@ VarMeanResult variance_mean(
   auto num_features = numFeatures(x, dims, kNumberOfDims);
   if (correction > 0) {
     num_features =
-        sub(num_features, IrBuilder::create<Int>(x->container(), correction));
+        sub(num_features, IrBuilder::create<Val>(x->container(), correction));
   }
 
   // Welford op can't handle 0-dim tensors, so we need to handle them separately
@@ -265,12 +262,12 @@ auto norm_properties_from_num_dims(
     outer_broadcast_mask[idx] = true;
   }
 
-  Val* num_features = IrBuilder::create<Double>(x->container(), 1);
+  Val* num_features = IrBuilder::create<Val>(x->container(), 1.0);
   for (const auto idx : c10::irange(kNormShapeNumDims)) {
     const size_t axis = kNumberOfDims - 1 - idx;
     inner_reduction_axes[idx] = (int)axis;
     inner_broadcast_mask[axis] = true;
-    num_features = mul(num_features, x->domain()->domain()[axis]->extent());
+    num_features = mul(num_features, x->getLeafDomain()[axis]->extent());
   }
   struct result {
     std::vector<int> outer_reduction_axes;
@@ -511,13 +508,13 @@ ForwardNormResult batch_norm(
 
   std::vector<int> reduction_axes;
   std::vector<bool> broadcast_mask(kNumberOfDims, false);
-  Val* num_features = IrBuilder::create<Double>(x->container(), 1);
+  Val* num_features = IrBuilder::create<Val>(x->container(), 1.0);
 
   for (const auto axis : c10::irange(kNumberOfDims)) {
     if (axis != c_axis) {
       reduction_axes.push_back((int)axis);
       broadcast_mask[axis] = true;
-      num_features = mul(num_features, x->domain()->domain()[axis]->extent());
+      num_features = mul(num_features, x->getLeafDomain()[axis]->extent());
     }
   }
 
@@ -536,7 +533,7 @@ ForwardNormResult batch_norm(
           "When running stats are provided, batch stats should only be computed during training");
 
       auto rev_momentum =
-          sub(IrBuilder::create<Double>(x->container(), 1.0), momentum);
+          sub(IrBuilder::create<Val>(x->container(), 1.0), momentum);
       auto current_mean_hat = mul(welford_out.avg, momentum);
       auto mean_hat = mul(running_mean, rev_momentum);
       auto new_mean_hat = add(mean_hat, current_mean_hat);
@@ -662,10 +659,10 @@ BackwardNormResult batch_norm_backward(
       broadcast_mask[axis] = true;
       if (num_features == nullptr) {
         num_features =
-            castOp(DataType::Double, input->domain()->domain()[axis]->extent());
+            castOp(DataType::Double, input->getLeafDomain()[axis]->extent());
       } else {
         num_features =
-            mul(num_features, input->domain()->domain()[axis]->extent());
+            mul(num_features, input->getLeafDomain()[axis]->extent());
       }
     }
   }
@@ -696,7 +693,7 @@ BackwardNormResult batch_norm_backward(
   if (weight == nullptr) {
     grad_scale =
         mul(broadcast(invstd, broadcast_mask),
-            IrBuilder::create<Double>(input->container(), 1));
+            IrBuilder::create<Val>(input->container(), 1.0));
   } else {
     grad_scale = mul(
         broadcast(invstd, broadcast_mask), broadcast(weight, broadcast_mask));
@@ -762,16 +759,16 @@ ForwardNormResult instance_norm(
 
   std::vector<int> x_reduction_axes;
   std::vector<bool> x_broadcast_mask(kNumberOfDims, false);
-  Val* N = IrBuilder::create<Double>(x->container(), 1);
+  Val* N = IrBuilder::create<Val>(x->container(), 1.0);
   for (const auto axis : c10::irange(kNumberOfDims)) {
     if (axis != kBatchDim && axis != kChannelsDim) {
       x_reduction_axes.push_back((int)axis);
       x_broadcast_mask[axis] = true;
-      N = mul(N, x->domain()->domain()[axis]->extent());
+      N = mul(N, x->getLeafDomain()[axis]->extent());
     }
   }
-  Val* B = IrBuilder::create<Double>(x->container(), 1);
-  B = mul(B, x->domain()->domain()[kBatchDim]->extent());
+  Val* B = IrBuilder::create<Val>(x->container(), 1.0);
+  B = mul(B, x->getLeafDomain()[kBatchDim]->extent());
 
   std::vector<bool> channels_only_broadcast_mask(kNumberOfDims, false);
   for (const auto axis : c10::irange(kNumberOfDims)) {
@@ -800,7 +797,7 @@ ForwardNormResult instance_norm(
         _running_var = castOp(DataType::Float, running_var);
       }
       auto rev_momentum =
-          sub(IrBuilder::create<Double>(x->container(), 1.0), momentum);
+          sub(IrBuilder::create<Val>(x->container(), 1.0), momentum);
       auto current_mean_hat = mul(welford_out.avg, momentum);
       auto mean_hat = mul(_running_mean, rev_momentum);
       auto new_mean_hat = add(mean_hat, current_mean_hat);
@@ -817,7 +814,7 @@ ForwardNormResult instance_norm(
       // fusion->addOutput(new_mean_channels_only);
       fusion->aliasOutputToInput(new_mean_channels_only, running_mean);
 
-      auto num_feature_decrement = sub(N, x->container()->oneVal());
+      auto num_feature_decrement = sub(N, x->container()->oneVal(N->dtype()));
       auto unbiased_var =
           mul(welford_out.var_sum, reciprocal(num_feature_decrement));
       auto current_var_hat = mul(unbiased_var, momentum);
@@ -922,11 +919,11 @@ BackwardNormResult instance_norm_backward(
         reduction_axes.push_back((int)axis);
         broadcast_mask[axis] = true;
         if (num_features == nullptr) {
-          num_features = castOp(
-              DataType::Double, input->domain()->domain()[axis]->extent());
+          num_features =
+              castOp(DataType::Double, input->getLeafDomain()[axis]->extent());
         } else {
           num_features =
-              mul(num_features, input->domain()->domain()[axis]->extent());
+              mul(num_features, input->getLeafDomain()[axis]->extent());
         }
       }
     }
@@ -959,7 +956,7 @@ BackwardNormResult instance_norm_backward(
   if (weight == nullptr) {
     grad_scale =
         mul(broadcast(invstd, broadcast_mask),
-            IrBuilder::create<Double>(input->container(), 1));
+            IrBuilder::create<Val>(input->container(), 1.0));
   } else {
     grad_scale =
         mul(broadcast(invstd, broadcast_mask),

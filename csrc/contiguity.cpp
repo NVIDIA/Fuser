@@ -5,9 +5,9 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <ir_utils.h>
+#include <device_lower/lower2device.h>
+#include <ir/utils.h>
 #include <iter_visitor.h>
-#include <lower2device.h>
 
 #include <contiguity.h>
 
@@ -15,40 +15,40 @@ namespace nvfuser {
 
 OrderedIdInformation::OrderedIdInformation(
     const std::vector<IterDomain*>& ids,
-    const std::vector<IterDomain*>& root_domain,
+    const std::vector<IterDomain*>& alloc_domain,
     std::shared_ptr<const ConcretizedBroadcastDomains> concrete_info)
-    : active_ids_(root_domain), concrete_info_(std::move(concrete_info)) {
-  if (ids.empty() || root_domain.empty()) {
+    : active_ids_(alloc_domain), concrete_info_(std::move(concrete_info)) {
+  if (ids.empty() || alloc_domain.empty()) {
     return;
   }
 
-  // Grab root ids and initialize them.
-  for (const auto root_i : c10::irange(root_domain.size())) {
-    auto root_id = root_domain[root_i]->as<IterDomain>();
+  // Grab allocation ids and initialize them.
+  for (const auto alloc_i : c10::irange(alloc_domain.size())) {
+    auto alloc_id = alloc_domain[alloc_i]->as<IterDomain>();
 
-    // Initialize id_to_root_ids to map roots to themselves
-    id_to_root_ids_[root_id] = {root_id};
+    // Initialize id_to_alloc_ids to map allocs to themselves
+    id_to_alloc_ids_[alloc_id] = {alloc_id};
 
-    // Initialize roots as being made up of correctly ordered transforms.
-    consistently_ordered_ids_.emplace(root_id);
+    // Initialize allocations as being made up of correctly ordered transforms.
+    consistently_ordered_ids_.emplace(alloc_id);
 
-    exclusively_consumes_roots_.emplace(root_id);
+    exclusively_consumes_allocs_.emplace(alloc_id);
   }
 
-  // Iterate from the root domain to the provided ids and fill
-  // consistently_ordered_ids_, id_to_root_ids_, and exclusively_consumes_roots_
-  // for all the IDs
+  // Iterate from the allocation domain to the provided ids and fill
+  // consistently_ordered_ids_, id_to_alloc_ids_, and
+  // exclusively_consumes_allocs_ for all the IDs
   auto exprs = StmtSort::getExprsBetween(
       ids[0]->fusion(),
-      {root_domain.begin(), root_domain.end()},
+      {alloc_domain.begin(), alloc_domain.end()},
       {ids.begin(), ids.end()});
 
   for (auto expr : exprs) {
-    OptInDispatch::handle(expr);
+    OptInDispatch::dispatch(expr);
   }
 }
 
-bool OrderedIdInformation::checkExclusivelyConsumesRoots(IterDomain* id) {
+bool OrderedIdInformation::checkExclusivelyConsumesAllocs(IterDomain* id) {
   TORCH_INTERNAL_ASSERT(
       std::find(active_ids_.begin(), active_ids_.end(), id) !=
           active_ids_.end(),
@@ -56,31 +56,31 @@ bool OrderedIdInformation::checkExclusivelyConsumesRoots(IterDomain* id) {
       id->toString(),
       " to be in the active ID set.");
 
-  auto root_id_it = id_to_root_ids_.find(id);
+  auto alloc_id_it = id_to_alloc_ids_.find(id);
   TORCH_INTERNAL_ASSERT(
-      root_id_it != id_to_root_ids_.end(),
-      "Error replaying transforms in contiguous ID checker, couldn't find mapped roots of ",
+      alloc_id_it != id_to_alloc_ids_.end(),
+      "Error replaying transforms in contiguous ID checker, couldn't find mapped allocs of ",
       id->toString());
 
-  const auto& root_ids = root_id_it->second;
+  const auto& alloc_ids = alloc_id_it->second;
 
-  // Check all the roots of all other ids, to see if any root_ids in id are also
-  // in them.
+  // Check all the allocations of all other ids, to see if any alloc_ids in id
+  // are also in them.
   for (auto other_active_id : active_ids_) {
     if (other_active_id == id || other_active_id == nullptr) {
       continue;
     }
 
-    auto root_id_it = id_to_root_ids_.find(other_active_id);
+    auto alloc_id_it = id_to_alloc_ids_.find(other_active_id);
     TORCH_INTERNAL_ASSERT(
-        root_id_it != id_to_root_ids_.end(),
-        "Error replaying transforms in contiguous ID checker, couldn't find mapped roots of ",
+        alloc_id_it != id_to_alloc_ids_.end(),
+        "Error replaying transforms in contiguous ID checker, couldn't find mapped allocs of ",
         other_active_id->toString());
 
-    const auto& other_root_ids = root_id_it->second;
+    const auto& other_alloc_ids = alloc_id_it->second;
 
-    for (auto other_root_id : other_root_ids) {
-      if (root_ids.has(other_root_id)) {
+    for (auto other_alloc_id : other_alloc_ids) {
+      if (alloc_ids.has(other_alloc_id)) {
         return false;
       }
     }
@@ -111,25 +111,25 @@ void OrderedIdInformation::handle(Merge* merge) {
   bool inner_ordered = inner_ordered_it != consistently_ordered_ids_.end();
   bool outer_ordered = outer_ordered_it != consistently_ordered_ids_.end();
 
-  // Get root ids of the two inputs
-  const auto inner_root_ids_it = id_to_root_ids_.find(merge->inner());
-  const auto outer_root_ids_it = id_to_root_ids_.find(merge->outer());
+  // Get allocation ids of the two inputs
+  const auto inner_alloc_ids_it = id_to_alloc_ids_.find(merge->inner());
+  const auto outer_alloc_ids_it = id_to_alloc_ids_.find(merge->outer());
 
   TORCH_INTERNAL_ASSERT(
-      inner_root_ids_it != id_to_root_ids_.end() &&
-          outer_root_ids_it != id_to_root_ids_.end(),
+      inner_alloc_ids_it != id_to_alloc_ids_.end() &&
+          outer_alloc_ids_it != id_to_alloc_ids_.end(),
       "Error replaying transforms in contiguous ID checker.");
 
-  const auto& inner_root_ids = inner_root_ids_it->second;
-  const auto& outer_root_ids = outer_root_ids_it->second;
+  const auto& inner_alloc_ids = inner_alloc_ids_it->second;
+  const auto& outer_alloc_ids = outer_alloc_ids_it->second;
 
   // TODO: Concretization may prevent contiguous indexing or vectorization.
   //  It prevents contiguous indexing if the concretization is within the IDs
   //  that are used for indexing.
   //  For vectorization it just means we need to make sure the extents of the
-  //  axes to the right of the broadcast root domain in the contigous merge is
-  //  bigger than the vectorization dimension. And that the tensor buffer
-  //  supports the vector word size (always done).
+  //  axes to the right of the broadcast allocation domain in the contigous
+  //  merge is bigger than the vectorization dimension. And that the tensor
+  //  buffer supports the vector word size (always done).
   bool outer_is_concretized_bcast = merge->outer()->isBroadcast() &&
       concrete_info_->isConcretized(merge->outer());
 
@@ -209,15 +209,15 @@ void OrderedIdInformation::handle(Merge* merge) {
     }
   }
 
-  // Update the root_id entry for the output.
-  VectorOfUniqueEntries<IterDomain*> root_ids = inner_root_ids;
-  root_ids.pushBack(outer_root_ids);
+  // Update the alloc_id entry for the output.
+  VectorOfUniqueEntries<IterDomain*> alloc_ids = inner_alloc_ids;
+  alloc_ids.pushBack(outer_alloc_ids);
 
-  id_to_root_ids_[merge->out()] = root_ids;
+  id_to_alloc_ids_[merge->out()] = alloc_ids;
 
-  // Need to check this after updating active_ids_ and id_to_root_ids_
-  if (checkExclusivelyConsumesRoots(merge->out())) {
-    exclusively_consumes_roots_.emplace(merge->out());
+  // Need to check this after updating active_ids_ and id_to_alloc_ids_
+  if (checkExclusivelyConsumesAllocs(merge->out())) {
+    exclusively_consumes_allocs_.emplace(merge->out());
   }
 }
 
@@ -237,14 +237,14 @@ void OrderedIdInformation::handle(Split* split) {
 
   bool in_ordered = in_ordered_it != consistently_ordered_ids_.end();
 
-  // Get root ids of the input
-  const auto in_root_ids_it = id_to_root_ids_.find(split->in());
+  // Get allocation ids of the input
+  const auto in_alloc_ids_it = id_to_alloc_ids_.find(split->in());
 
   TORCH_INTERNAL_ASSERT(
-      in_root_ids_it != id_to_root_ids_.end(),
+      in_alloc_ids_it != id_to_alloc_ids_.end(),
       "Error replaying transforms in contiguous ID checker.");
 
-  VectorOfUniqueEntries<IterDomain*> in_root_ids = in_root_ids_it->second;
+  VectorOfUniqueEntries<IterDomain*> in_alloc_ids = in_alloc_ids_it->second;
 
   // Update map for outputs
   // Remove inputs from the active_ids_ and insert the output ID
@@ -257,9 +257,9 @@ void OrderedIdInformation::handle(Split* split) {
     consistently_ordered_ids_.emplace(split->inner());
   }
 
-  // Update the root_id entry for the outputs.
-  id_to_root_ids_[split->outer()] = in_root_ids;
-  id_to_root_ids_[split->inner()] = in_root_ids;
+  // Update the alloc_id entry for the outputs.
+  id_to_alloc_ids_[split->outer()] = in_alloc_ids;
+  id_to_alloc_ids_[split->inner()] = in_alloc_ids;
 }
 
 // Swizzle generally can't be contiguous because of the non-affine nature of it,
@@ -285,17 +285,17 @@ void OrderedIdInformation::handle(Swizzle2D* swizzle) {
   bool in_x_ordered = in_x_ordered_it != consistently_ordered_ids_.end();
   bool in_y_ordered = in_y_ordered_it != consistently_ordered_ids_.end();
 
-  // Get root ids of the two inputs
-  const auto in_x_root_ids_it = id_to_root_ids_.find(swizzle->inX());
-  const auto in_y_root_ids_it = id_to_root_ids_.find(swizzle->inY());
+  // Get allocation ids of the two inputs
+  const auto in_x_alloc_ids_it = id_to_alloc_ids_.find(swizzle->inX());
+  const auto in_y_alloc_ids_it = id_to_alloc_ids_.find(swizzle->inY());
 
   TORCH_INTERNAL_ASSERT(
-      in_x_root_ids_it != id_to_root_ids_.end() &&
-          in_y_root_ids_it != id_to_root_ids_.end(),
+      in_x_alloc_ids_it != id_to_alloc_ids_.end() &&
+          in_y_alloc_ids_it != id_to_alloc_ids_.end(),
       "Error replaying transforms in contiguous ID checker.");
 
-  const auto& in_x_root_ids = in_x_root_ids_it->second;
-  const auto& in_y_root_ids = in_y_root_ids_it->second;
+  const auto& in_x_alloc_ids = in_x_alloc_ids_it->second;
+  const auto& in_y_alloc_ids = in_y_alloc_ids_it->second;
 
   // Update map for outputs
   // Remove inputs from the active_ids_ and insert the output ID
@@ -309,25 +309,25 @@ void OrderedIdInformation::handle(Swizzle2D* swizzle) {
       consistently_ordered_ids_.emplace(swizzle->outX());
     }
 
-    if (exclusivelyConsumesRoots(swizzle->inX())) {
-      exclusively_consumes_roots_.emplace(swizzle->outX());
+    if (exclusivelyConsumesAllocs(swizzle->inX())) {
+      exclusively_consumes_allocs_.emplace(swizzle->outX());
     }
 
     if (in_y_ordered) {
       consistently_ordered_ids_.emplace(swizzle->outY());
     }
 
-    if (exclusivelyConsumesRoots(swizzle->inY())) {
-      exclusively_consumes_roots_.emplace(swizzle->outY());
+    if (exclusivelyConsumesAllocs(swizzle->inY())) {
+      exclusively_consumes_allocs_.emplace(swizzle->outY());
     }
 
-    id_to_root_ids_[swizzle->outX()] = in_x_root_ids;
-    id_to_root_ids_[swizzle->outY()] = in_y_root_ids;
+    id_to_alloc_ids_[swizzle->outX()] = in_x_alloc_ids;
+    id_to_alloc_ids_[swizzle->outY()] = in_y_alloc_ids;
   } else {
-    VectorOfUniqueEntries<IterDomain*> root_ids = in_x_root_ids;
-    root_ids.pushBack(in_y_root_ids);
-    id_to_root_ids_[swizzle->outX()] = root_ids;
-    id_to_root_ids_[swizzle->outY()] = root_ids;
+    VectorOfUniqueEntries<IterDomain*> alloc_ids = in_x_alloc_ids;
+    alloc_ids.pushBack(in_y_alloc_ids);
+    id_to_alloc_ids_[swizzle->outX()] = alloc_ids;
+    id_to_alloc_ids_[swizzle->outY()] = alloc_ids;
   }
 }
 
@@ -347,14 +347,14 @@ void OrderedIdInformation::handle(Resize* resize) {
 
   bool in_ordered = in_ordered_it != consistently_ordered_ids_.end();
 
-  // Get root ids of the two inputs
-  const auto in_root_ids_it = id_to_root_ids_.find(resize->in());
+  // Get allocation ids of the two inputs
+  const auto in_alloc_ids_it = id_to_alloc_ids_.find(resize->in());
 
   TORCH_INTERNAL_ASSERT(
-      in_root_ids_it != id_to_root_ids_.end(),
+      in_alloc_ids_it != id_to_alloc_ids_.end(),
       "Error replaying transforms in contiguous ID checker.");
 
-  const auto& in_root_ids = in_root_ids_it->second;
+  const auto& in_alloc_ids = in_alloc_ids_it->second;
 
   // Update map for outputs
   // Remove inputs from the active_ids_ and insert the output ID
@@ -366,11 +366,11 @@ void OrderedIdInformation::handle(Resize* resize) {
     consistently_ordered_ids_.emplace(resize->out());
   }
 
-  if (exclusivelyConsumesRoots(resize->in())) {
-    exclusively_consumes_roots_.emplace(resize->out());
+  if (exclusivelyConsumesAllocs(resize->in())) {
+    exclusively_consumes_allocs_.emplace(resize->out());
   }
 
-  id_to_root_ids_[resize->out()] = in_root_ids;
+  id_to_alloc_ids_[resize->out()] = in_alloc_ids;
 }
 
 NonDivisibleSplitDependencies::NonDivisibleSplitDependencies(
@@ -380,24 +380,24 @@ NonDivisibleSplitDependencies::NonDivisibleSplitDependencies(
     // see if there's conflicts where a split might look non divisible but
     // actually is divisible and one's overruling the other.
     const std::vector<IterDomain*>& ids,
-    const std::vector<IterDomain*>& root_domain,
+    const std::vector<IterDomain*>& alloc_domain,
     const std::unordered_set<Split*>& divisible_splits) {
-  if (ids.empty() || root_domain.empty()) {
+  if (ids.empty() || alloc_domain.empty()) {
     return;
   }
   auto transforms = StmtSort::getExprsBetween(
       ids[0]->fusion(),
-      {root_domain.begin(), root_domain.end()},
+      {alloc_domain.begin(), alloc_domain.end()},
       {ids.begin(), ids.end()});
   for (auto transform : transforms) {
     auto inp_ids = ir_utils::filterByType<IterDomain>(transform->inputs());
     for (auto inp_id : inp_ids) {
-      if (std::find(root_domain.begin(), root_domain.end(), inp_id) !=
-          root_domain.end()) {
+      if (std::find(alloc_domain.begin(), alloc_domain.end(), inp_id) !=
+          alloc_domain.end()) {
         // This generally shouldn't happen as there shouldn't be
-        // transformations before the root ids, but in case for some reason
-        // we eventually do have cases like that, we should reset the
-        // root_ids if for some reason they've been placed in the non
+        // transformations before the allocation ids, but in case for some
+        // reason we eventually do have cases like that, we should reset the
+        // alloc_ids if for some reason they've been placed in the non
         // divisible split set.
         depends_on_non_divisible_split.erase(inp_id);
       }
@@ -434,23 +434,23 @@ NonDivisibleSplitDependencies::NonDivisibleSplitDependencies(
 
 ContigIDs::ContigIDs(
     const std::vector<IterDomain*>& ids,
-    const std::vector<IterDomain*>& root_domain,
-    const std::vector<c10::optional<bool>>& root_contiguity,
+    const std::vector<IterDomain*>& alloc_domain,
+    const std::vector<std::optional<bool>>& alloc_contiguity,
     const std::unordered_set<IterDomain*>& final_ids,
     const std::unordered_map<IterDomain*, Val*>& index_map,
     const std::unordered_set<Split*>& divisible_splits,
     std::unordered_map<IterDomain*, IterDomain*> p2c_id_map,
     bool ignore_indexability,
     bool ignore_consistent_ordering)
-    : root_domain_(root_domain),
-      root_contiguity_(root_contiguity),
+    : alloc_domain_(alloc_domain),
+      alloc_contiguity_(alloc_contiguity),
       final_ids_(final_ids),
       index_map_(index_map),
       divisible_splits_(divisible_splits),
       p2c_id_map_(std::move(p2c_id_map)),
       ignore_indexability_(ignore_indexability),
       ignore_consistent_ordering_(ignore_consistent_ordering),
-      non_divisible_id_info_(ids, root_domain_, divisible_splits_) {
+      non_divisible_id_info_(ids, alloc_domain_, divisible_splits_) {
   if (!ids.empty()) {
     // This constructor doesn't provide the following information so it needs to
     // be built.
@@ -460,15 +460,15 @@ ContigIDs::ContigIDs(
         std::make_shared<ConcretizedBroadcastDomains>(ids[0]->fusion());
 
     consistent_transform_info_ = std::make_unique<const OrderedIdInformation>(
-        ids, root_domain, concrete_info_);
+        ids, alloc_domain, concrete_info_);
   }
   build(ids);
 }
 
 ContigIDs::ContigIDs(
     const std::vector<IterDomain*>& ids,
-    const std::vector<IterDomain*>& root_domain,
-    const std::vector<c10::optional<bool>>& root_contiguity,
+    const std::vector<IterDomain*>& alloc_domain,
+    const std::vector<std::optional<bool>>& alloc_contiguity,
     const std::unordered_set<IterDomain*>& final_ids,
     const std::unordered_map<IterDomain*, Val*>& index_map,
     const std::unordered_set<Split*>& divisible_splits,
@@ -478,8 +478,8 @@ ContigIDs::ContigIDs(
     std::unordered_map<IterDomain*, IterDomain*> p2c_id_map,
     bool ignore_indexability,
     bool ignore_consistent_ordering)
-    : root_domain_(root_domain),
-      root_contiguity_(root_contiguity),
+    : alloc_domain_(alloc_domain),
+      alloc_contiguity_(alloc_contiguity),
       final_ids_(final_ids),
       index_map_(index_map),
       divisible_splits_(divisible_splits),
@@ -491,9 +491,9 @@ ContigIDs::ContigIDs(
       ignore_consistent_ordering_(ignore_consistent_ordering),
       consistent_transform_info_(std::make_unique<const OrderedIdInformation>(
           ids,
-          root_domain,
+          alloc_domain,
           concrete_info_)),
-      non_divisible_id_info_(ids, root_domain, divisible_splits_) {
+      non_divisible_id_info_(ids, alloc_domain, divisible_splits_) {
   build(ids);
 }
 
@@ -502,49 +502,57 @@ ContigIDs ContigIDs::getNonContigIDs() {
 }
 
 void ContigIDs::build(const std::vector<IterDomain*>& ids) {
-  if (ids.empty() || root_domain_.empty()) {
+  if (ids.empty() || alloc_domain_.empty()) {
     return;
   }
 
   TORCH_INTERNAL_ASSERT(
-      root_domain_.size() == root_contiguity_.size(),
+      alloc_domain_.size() == alloc_contiguity_.size(),
       "Arguments don't match ",
-      root_domain_.size(),
+      alloc_domain_.size(),
       " != ",
-      root_contiguity_.size());
+      alloc_contiguity_.size());
 
-  for (const auto root_domain_i : c10::irange(root_domain_.size())) {
-    auto root_domain_id = root_domain_.at(root_domain_i)->as<IterDomain>();
-    if (root_domain_id->isBroadcast()) {
-      TORCH_INTERNAL_ASSERT(!root_contiguity_.at(root_domain_i).has_value());
+  for (const auto alloc_domain_i : c10::irange(alloc_domain_.size())) {
+    auto alloc_domain_id = alloc_domain_.at(alloc_domain_i);
+    if (alloc_domain_id->isBroadcast()) {
+      TORCH_INTERNAL_ASSERT(!alloc_contiguity_.at(alloc_domain_i).has_value());
       continue;
     }
-    root_to_indexed_id_[root_domain_id] = root_domain_id;
+    alloc_to_indexed_id_[alloc_domain_id] = alloc_domain_id;
     // Initialize to false
-    is_contig_root_[root_domain_id] = false;
-    // If a root domain has halo, can't use merged domain even if
+    is_contig_alloc_[alloc_domain_id] = false;
+    // If a allocation domain has halo, can't use merged domain even if
     // both inputs are contiguous. HaloInfo is also initialized for
     // rfactor root domains, which should just return "zero"
     // RootAxisInfo. This should be safe as no rfactor tensor should
     // need halo.
-    if (*root_contiguity_.at(root_domain_i) &&
-        !halo_info_->getRootAxisInfo(root_domain_id).hasHalo() &&
-        root_domain_id->getIterType() != IterType::GatherScatter) {
-      contig_ids_.emplace(root_domain_id);
-      is_contig_root_.at(root_domain_id) = true;
-      within_contig_ids_[root_domain_id] = std::unordered_set<IterDomain*>();
+    auto alloc_contiguity = alloc_contiguity_.at(alloc_domain_i);
+    TORCH_INTERNAL_ASSERT(
+        alloc_domain_id->isReduction() != alloc_contiguity.has_value(),
+        "Expecting a reduction because contiguity has no value, get ",
+        alloc_domain_id->toString());
+    // Index of merged reductions can always be coalesced, so considering
+    // reduction as true contiguity.
+    if (alloc_contiguity.value_or(true) &&
+        !halo_info_->getRootAxisInfo(alloc_domain_id).hasHalo() &&
+        alloc_domain_id->getIterType() != IterType::GatherScatter) {
+      contig_ids_.emplace(alloc_domain_id);
+      is_contig_alloc_.at(alloc_domain_id) = true;
+      within_contig_ids_[alloc_domain_id] = std::unordered_set<IterDomain*>();
     }
   }
 
   if (!contig_ids_.empty()) {
     auto exprs = StmtSort::getExprsBetween(
         ids.at(0)->fusion(),
-        {root_domain_.begin(), root_domain_.end()},
+        {alloc_domain_.begin(), alloc_domain_.end()},
         {ids.begin(), ids.end()});
     for (auto expr : exprs) {
       if (auto resize = dynamic_cast<Resize*>(expr)) {
         resize_deps_.insert(resize->out());
       } else {
+        TORCH_INTERNAL_ASSERT(expr != nullptr);
         if (std::any_of(
                 expr->inputs().begin(), expr->inputs().end(), [&](Val* inp) {
                   return inp->isA<IterDomain>() &&
@@ -555,21 +563,21 @@ void ContigIDs::build(const std::vector<IterDomain*>& ids) {
           }
         }
       }
-      handle(expr);
+      dispatch(expr);
     }
   }
 }
 
 void ContigIDs::handle(Merge* merge) {
-  // If output is not consistently ordered or doesn't solely consume all root
-  // domains in its dependencies, then it can't be a contiguously indexable
-  // iterdomain.
+  // If output is not consistently ordered or doesn't solely consume all
+  // allocation domains in its dependencies, then it can't be a contiguously
+  // indexable iterdomain.
   if (!(ignore_consistent_ordering_ ||
         consistent_transform_info_->isConsistentlyOrdered(merge->out()))) {
     return;
   }
 
-  if (!consistent_transform_info_->exclusivelyConsumesRoots(merge->out())) {
+  if (!consistent_transform_info_->exclusivelyConsumesAllocs(merge->out())) {
     return;
   }
 
@@ -584,44 +592,51 @@ void ContigIDs::handle(Merge* merge) {
     return;
   }
 
-  // Check root domains for contiguity
-  auto root_ids_it =
-      consistent_transform_info_->idToRootIds().find(merge->out());
+  // Check allocation domains for contiguity
+  auto alloc_ids_it =
+      consistent_transform_info_->idToAllocIds().find(merge->out());
 
   TORCH_INTERNAL_ASSERT(
-      root_ids_it != consistent_transform_info_->idToRootIds().end(),
+      alloc_ids_it != consistent_transform_info_->idToAllocIds().end(),
       "\nError in contiguous analysis, merge info doesn't exist for:\n",
       merge->toString(),
       "\nId: ",
       merge->out()->toString());
 
-  VectorOfUniqueEntries<IterDomain*> root_ids = root_ids_it->second;
+  VectorOfUniqueEntries<IterDomain*> alloc_ids = alloc_ids_it->second;
 
   bool is_indexing_pass = !ignore_consistent_ordering_;
 
-  IterDomain* last_root = nullptr;
-  for (auto root_id_i : c10::irange(root_domain_.size())) {
-    auto root_id = root_domain_[root_id_i];
-    if (root_id->isBroadcast()) {
-      TORCH_INTERNAL_ASSERT(!root_contiguity_.at(root_id_i).has_value());
+  IterDomain* last_alloc = nullptr;
+  for (auto alloc_id_i : c10::irange(alloc_domain_.size())) {
+    auto alloc_id = alloc_domain_[alloc_id_i];
+    if (alloc_id->isBroadcast()) {
+      TORCH_INTERNAL_ASSERT(!alloc_contiguity_.at(alloc_id_i).has_value());
       continue;
     }
-    if (root_ids.has(root_id)) {
+    if (alloc_ids.has(alloc_id)) {
       // ID found, remove it
-      root_ids.erase(root_id);
+      alloc_ids.erase(alloc_id);
       // If we're indexing:
       // we could still potentially consider this ID linearly indexable, as we
-      // could multiple the index by the last root's stride.
+      // could multiple the index by the last allocation's stride.
       //
       // If we're computing predicates (ignore_consistent_ordering_==true),
       // then we don't have this same constraint, we can just ignore
-      // contiguity of the roots all together.
-      if (!*root_contiguity_.at(root_id_i) && is_indexing_pass) {
-        if (!root_ids.empty()) {
+      // contiguity of the allocations all together.
+      auto alloc_contiguity = alloc_contiguity_.at(alloc_id_i);
+      TORCH_INTERNAL_ASSERT(
+          alloc_id->isReduction() != alloc_contiguity.has_value(),
+          "Expecting a reduction because contiguity has no value, get ",
+          alloc_id->toString());
+      // Index of merged reductions can always be coalesced, so considering
+      // reduction as true contiguity.
+      if (!alloc_contiguity.value_or(true) && is_indexing_pass) {
+        if (!alloc_ids.empty()) {
           return;
         }
       }
-      last_root = root_id;
+      last_alloc = alloc_id;
     }
   }
 
@@ -638,20 +653,20 @@ void ContigIDs::handle(Merge* merge) {
   }
 
   // All broadcasting
-  if (last_root == nullptr) {
+  if (last_alloc == nullptr) {
     return;
   }
 
   // Now we know merge->out is a contiguously indexable ID
 
-  // Reset root_ids
-  root_ids = root_ids_it->second;
-  for (auto root_id : root_ids) {
-    root_to_indexed_id_[root_id] = merge->out();
+  // Reset alloc_ids
+  alloc_ids = alloc_ids_it->second;
+  for (auto alloc_id : alloc_ids) {
+    alloc_to_indexed_id_[alloc_id] = merge->out();
   }
 
   auto all_within_vals = DependencyCheck::getAllValsBetween(
-      {root_domain_.begin(), root_domain_.end()}, {merge->out()});
+      {alloc_domain_.begin(), alloc_domain_.end()}, {merge->out()});
   auto all_within_ids = ir_utils::filterByType<IterDomain>(all_within_vals);
 
   std::unordered_set<IterDomain*> within_id_set(

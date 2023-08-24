@@ -7,10 +7,10 @@
 // clang-format on
 #pragma once
 
+#include <device_lower/analysis/trivial_broadcast.h>
 #include <disjoint_set.h>
-#include <ir_all_nodes.h>
+#include <ir/all_nodes.h>
 #include <kernel_ir.h>
-#include <lower_trivial_broadcast.h>
 
 #include <deque>
 #include <unordered_map>
@@ -56,7 +56,8 @@ namespace nvfuser {
 // IdMappingMode::PERMISSIVE_RESIZE
 //   Include everything in PERMISSIVE. Map also domains that are
 //   inputs and outputs of resize ops. Used for, e.g., propagating
-//   parallel types across those domains.
+//   parallel types across those domains. It also maps producers and
+//   consumers of gathered and scattered domains
 // IdMappingMode::EXACT
 //   Don't map any broadcast axes to non-broadcast axes
 //   Do not forward through any broadcast IDs
@@ -157,11 +158,11 @@ class TORCH_CUDA_CU_API IterDomainGraph {
   // include reduction rfactor IDs as well at PR #2562
   std::unordered_set<IterDomain*> rfactor_ids_;
 
-  c10::optional<std::tuple<TensorView*, IterDomain*, IterDomain*, std::string>>
-      self_mapping_info_ = c10::nullopt;
+  std::optional<std::tuple<TensorView*, IterDomain*, IterDomain*, std::string>>
+      self_mapping_info_ = std::nullopt;
 };
 
-using DoubleBufferIndices = std::unordered_map<DoubleBufferLoopStage, Int*>;
+using DoubleBufferIndices = std::unordered_map<DoubleBufferLoopStage, Val*>;
 
 class TORCH_CUDA_CU_API ComputeAtMap {
  public:

@@ -8,14 +8,16 @@
 #pragma once
 
 #include <compute_at_map.h>
+#include <device_lower/analysis/divisible_split.h>
 #include <fusion.h>
-#include <ir_all_nodes.h>
-#include <lower_divisible_split.h>
+#include <ir/all_nodes.h>
 #include <maxinfo_propagator.h>
 // TODO: Move to cpp file.
-#include <ir_builder.h>
+#include <ir/builder.h>
 
 #include <sstream>
+#include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace nvfuser {
@@ -24,293 +26,6 @@ class SchedulerRuntimeInfo;
 class HeuristicSummary;
 
 namespace vectorize_helper {
-
-// Basic factorization helpers used to simplify factors with only
-// multiplications and divisions. i.e. can help simplify: 21/3 but not
-// (15-7)/(3+2). This is all that's necessary for current support to partially
-// map dimensions through our compute at DAG.
-namespace factorization_helpers {
-
-// Returns factors of i
-TORCH_CUDA_CU_API std::multiset<int64_t> computeFactors(int64_t i);
-
-TORCH_CUDA_CU_API std::multiset<int64_t> getAllFactors(
-    const std::multiset<int64_t>& in_vals);
-
-TORCH_CUDA_CU_API std::pair<std::multiset<int64_t>, std::multiset<int64_t>>
-removeCommonFactors(
-    const std::multiset<int64_t>& set1,
-    const std::multiset<int64_t>& set2);
-
-// Given factors made up of a product of integers over a product of integers,
-// simplify the factors. Factorization algorithm here could be improved for
-// performance.
-TORCH_CUDA_CU_API std::pair<std::vector<int64_t>, std::vector<int64_t>>
-removeCommonFactors(
-    const std::vector<int64_t>& vec1,
-    const std::vector<int64_t>& vec2);
-
-TORCH_CUDA_CU_API std::pair<std::multiset<Val*>, std::multiset<Val*>>
-removeSameVals(
-    const std::multiset<Val*>& set1,
-    const std::multiset<Val*>& set2);
-
-// Remove all Val*s that are in both vec1 and vec2
-TORCH_CUDA_CU_API std::pair<std::vector<Val*>, std::vector<Val*>> removeSameVals(
-    const std::vector<Val*>& vec1,
-    const std::vector<Val*>& vec2);
-} // namespace factorization_helpers
-
-// Helper class that to track partial mappings of extents. The stored extent in
-// this class is product(numerator values)/product(denominator values) and has
-// basic functionality like adding a multiplied factor to either the numerator
-// or denominator. This class starts with a value of 0/1, but once a value is
-// added it can never be zero again.
-class TORCH_CUDA_CU_API ProjectedExtent {
- public:
-  // Multiply numerator by provided value, or if currently zero set numerator to
-  // provided value.
-  void multiplyNumeratorValue(Val* new_numerator_val) {
-    TORCH_INTERNAL_ASSERT(
-        !new_numerator_val->isZeroInt() &&
-            (!new_numerator_val->isConstInt() ||
-             new_numerator_val->evaluateInt() > 0),
-        "Adding numerator value of zero not supported in ProjectedExtent.");
-
-    zero_ = false;
-    if (new_numerator_val->isConstInt()) {
-      const_numerator_vals_.push_back(new_numerator_val->evaluateInt());
-    } else {
-      symb_numerator_vals_.push_back(new_numerator_val);
-    }
-    valid_extents_ = false;
-    is_simplified_ = false;
-  }
-
-  // Multiply denominator by provided value
-  void multiplyDenominatorValue(Val* new_denominator_val) {
-    TORCH_INTERNAL_ASSERT(
-        !new_denominator_val->isZeroInt(), "Divide by zero detected.");
-    if (new_denominator_val->isConstInt()) {
-      TORCH_INTERNAL_ASSERT(
-          new_denominator_val->evaluateInt() > 0,
-          "Divide by zero or negative value detected, not supported: ",
-          new_denominator_val->evaluateInt());
-      const_denominator_vals_.push_back(new_denominator_val->evaluateInt());
-    } else {
-      symb_denominator_vals_.push_back(new_denominator_val);
-    }
-    valid_extents_ = false;
-    is_simplified_ = false;
-  }
-
-  // Multiply by other but wrap each value in other with the provided predicate.
-  void maybeMul(Val* pred, const ProjectedExtent& other) {
-    TORCH_INTERNAL_ASSERT(
-        !other.isZero(),
-        "Maybe multiplying by zero ProjectedExtent not supported.");
-
-    TORCH_INTERNAL_ASSERT(
-        pred != nullptr && pred->isA<Bool>(),
-        "Predicate must be a bool value for this function.");
-    for (auto other_const_numer : other.const_numerator_vals_) {
-      multiplyNumeratorValue(SimplifyingIrBuilder::whereExpr(
-          pred,
-          IrBuilder::create<Int>(other_const_numer),
-          FusionGuard::getCurFusion()->oneVal()));
-    }
-
-    for (auto other_symb_numer : other.symb_numerator_vals_) {
-      multiplyNumeratorValue(SimplifyingIrBuilder::whereExpr(
-          pred, other_symb_numer, FusionGuard::getCurFusion()->oneVal()));
-    }
-
-    for (auto other_const_denom : other.const_denominator_vals_) {
-      multiplyDenominatorValue(SimplifyingIrBuilder::whereExpr(
-          pred,
-          IrBuilder::create<Int>(other_const_denom),
-          FusionGuard::getCurFusion()->oneVal()));
-    }
-
-    for (auto other_symb_numer : other.symb_denominator_vals_) {
-      multiplyDenominatorValue(SimplifyingIrBuilder::whereExpr(
-          pred, other_symb_numer, FusionGuard::getCurFusion()->oneVal()));
-    }
-
-    valid_extents_ = false;
-    is_simplified_ = false;
-  }
-
-  // If necessary simplify the PartialExtent and return all the numerator values
-  // multiplied together as a single Val.
-  Val* getNumerator() {
-    if (!valid_extents_) {
-      computeNumerDenomir();
-    }
-    return numerator_;
-  }
-
-  // If necessary simplify the PartialExtent and return all the denominator
-  // values multiplied together as a single Val.
-  Val* getDenominator() {
-    if (!valid_extents_) {
-      computeNumerDenomir();
-    }
-    return denominator_;
-  }
-
-  bool isZero() const {
-    return zero_;
-  }
-
-  std::string toString() const {
-    std::stringstream ss;
-    ss << "{";
-    bool first = true;
-    for (auto numer : const_numerator_vals_) {
-      if (!first) {
-        ss << " * ";
-      }
-      first = false;
-
-      ss << numer;
-    }
-
-    for (auto numer : symb_numerator_vals_) {
-      if (numer == nullptr || numer->isOneInt()) {
-        continue;
-      }
-      if (!first) {
-        ss << " * ";
-      }
-      first = false;
-      ss << numer->toInlineString();
-    }
-
-    ss << "} / {";
-    first = true;
-    for (auto denom : const_denominator_vals_) {
-      if (!first) {
-        ss << " * ";
-      }
-      first = false;
-
-      ss << denom;
-    }
-
-    for (auto denom : symb_denominator_vals_) {
-      if (denom == nullptr || denom->isOneInt()) {
-        continue;
-      }
-      if (!first) {
-        ss << " * ";
-      }
-      first = false;
-
-      ss << denom->toInlineString();
-    }
-    ss << "}";
-    return ss.str();
-  }
-
- private:
-  // Simplify the partial extent as much as possibly by removing common factors
-  // from the numerator and denominator.
-  void simplify() {
-    if (is_simplified_) {
-      return;
-    }
-
-    std::tie(const_numerator_vals_, const_denominator_vals_) =
-        factorization_helpers::removeCommonFactors(
-            const_numerator_vals_, const_denominator_vals_);
-
-    std::tie(symb_numerator_vals_, symb_denominator_vals_) =
-        factorization_helpers::removeSameVals(
-            symb_numerator_vals_, symb_denominator_vals_);
-
-    valid_extents_ = false;
-    is_simplified_ = true;
-  }
-
-  // Simplify the partial extent and generate the Val* for numerator and
-  // denominator by multiplying all the factors.
-  void computeNumerDenomir() {
-    if (valid_extents_) {
-      return;
-    }
-    simplify();
-
-    numerator_ = nullptr;
-
-    auto const_numerator_factor = 1;
-    for (auto factor : const_numerator_vals_) {
-      const_numerator_factor *= factor;
-    }
-
-    if (const_numerator_factor > 1) {
-      numerator_ = IrBuilder::create<Int>(const_numerator_factor);
-    }
-
-    for (auto numerator_val : symb_numerator_vals_) {
-      if (numerator_ == nullptr) {
-        numerator_ = numerator_val;
-      } else {
-        numerator_ = SimplifyingIrBuilder::mulExpr(numerator_, numerator_val);
-      }
-    }
-
-    if (numerator_ == nullptr) {
-      numerator_ = isZero() ? FusionGuard::getCurFusion()->zeroVal()
-                            : FusionGuard::getCurFusion()->oneVal();
-    }
-
-    denominator_ = nullptr;
-
-    auto const_denominator_factor = 1;
-    for (auto factor : const_denominator_vals_) {
-      const_denominator_factor *= factor;
-    }
-
-    if (const_denominator_factor > 1) {
-      denominator_ = IrBuilder::create<Int>(const_denominator_factor);
-    }
-
-    for (auto denominator_val : symb_denominator_vals_) {
-      if (denominator_ == nullptr) {
-        denominator_ = denominator_val;
-      } else {
-        denominator_ =
-            SimplifyingIrBuilder::mulExpr(denominator_, denominator_val);
-      }
-    }
-
-    if (denominator_ == nullptr) {
-      denominator_ = FusionGuard::getCurFusion()->oneVal();
-    }
-    valid_extents_ = true;
-  }
-
-  // True if numerator and denominator have been computed and don't need to be
-  // updated
-  bool valid_extents_ = false;
-  // True if no numerator or denominator was added since the last simplify() was
-  // called
-  bool is_simplified_ = false;
-  // Fraction starts at zero, but if a value is ever added in the numerator it
-  // can never be zero again, it must be at least 1.
-  bool zero_ = true;
-
-  // numerator and denominator values (product of the sets below)
-  Val* numerator_ = nullptr;
-  Val* denominator_ = nullptr;
-
-  // Const and symbolic numerator and denominator values.
-  std::vector<int64_t> const_numerator_vals_;
-  std::vector<Val*> symb_numerator_vals_;
-  std::vector<int64_t> const_denominator_vals_;
-  std::vector<Val*> symb_denominator_vals_;
-};
 
 // Projects IterDomains through the fusion starting at provided reference. IDs
 // in the reference are expected to be "contiguous", simply means dimensions
@@ -462,18 +177,19 @@ class TORCH_CUDA_CU_API ContiguousInnerDimensionsMapper
         ->mapped_rfactor_ids_;
   }
 
-  ProjectedExtent& getMappedExtent(IterDomain* id) {
-    if (projected_extent_.find(id) != projected_extent_.end()) {
-      return projected_extent_.at(id);
+  Val* getProjectedExtent(IterDomain* id) const {
+    if (projected_extent_.find(id) == projected_extent_.end()) {
+      TORCH_INTERNAL_ASSERT(false, "Not projected: ", id->toString());
     }
-    projected_extent_[id] = ProjectedExtent();
     return projected_extent_.at(id);
   }
+
+  std::unordered_map<TensorView*, Val*> getTvToContigMergeOfInnerSizeMap();
 
  private:
   ContiguousInnerDimensionsMapper(
       TensorView* reference,
-      const std::vector<IterDomain*>& reference_ids,
+      const std::vector<IterDomain*>& ids,
       std::shared_ptr<const ComputeAtMap> ca_map,
       const std::unordered_set<Split*>& divisible_splits);
 
@@ -514,12 +230,36 @@ class TORCH_CUDA_CU_API ContiguousInnerDimensionsMapper
     bool is_c2p_ = true;
   };
 
-  void addProjectedExtent(IterDomain* id, ProjectedExtent pe) {
+  // TODO: make pe a lanmda function so it is not evaluated if not needed
+  void addProjectedExtent(IterDomain* id, Val* pe) {
     if (!recording_) {
       return;
     }
+
+    TORCH_INTERNAL_ASSERT(
+        projected_extent_.count(id) == 0,
+        "Already registered: ",
+        id->toString(),
+        ", existing: ",
+        projected_extent_.at(id)->toInlineString(),
+        ", new: ",
+        pe->toInlineString());
+
     projected_extent_[id] = pe;
   }
+
+  // Return a boolean predicate indicating if the given ID is fully projected.
+  Val* isFullyProjected(IterDomain* id);
+
+  // From the projected extent (PE) of I1 and I2, update the PE of I1*I2.
+  template <typename MergeOrSplit>
+  void combinePE(const MergeOrSplit* merge_or_split, bool outer_maps);
+  // From the projected extent (PE) of I1*I2, update the PE of I1 and I2.
+  template <typename MergeOrSplit>
+  void distributePE(const MergeOrSplit* merge_or_split);
+
+  // Returns the projected inner size. Contiguous inner dimensions are merged.
+  Val* getContigMergeOfInnerSize(TensorView* of_tv);
 
   // MaxInfoSpanningTree functions
   std::shared_ptr<Information> computeInfoC2P(
@@ -538,24 +278,14 @@ class TORCH_CUDA_CU_API ContiguousInnerDimensionsMapper
       std::shared_ptr<Information> from_info) final;
 
   // Projection from root<->rfactor domains
-  std::vector<IterDomain*> projectIdToRoot(
-      TensorView* ref,
-      std::vector<IterDomain*> from_info);
-
-  std::vector<IterDomain*> projectIdToRFactor(
-      TensorView* ref,
-      std::vector<IterDomain*> from_info);
+  std::vector<IterDomain*> projectId(
+      const std::vector<IterDomain*>& from,
+      const std::vector<IterDomain*>& to);
 
   // Propagator functions
   void propagateC2P(TensorView* from, TensorView* to) final;
   void propagateP2C(TensorView* from, TensorView* to) final;
   void propagateSibling(TensorView* from, TensorView* to) final;
-
-  // Extent propagation through single transformation operations
-  void propagateExtentSplitBackward(Split* split, bool outer_maps);
-  void propagateExtentMergeBackward(const Merge* merge);
-  void propagateExtentMergeForward(const Merge* merge, bool outer_maps);
-  void propagateExtentSplitForward(Split* split);
 
   // Initialized to false, series of compute... calls will be performed to find
   // the spanning tree. Then propagate... calls will call the compute... calls.
@@ -565,7 +295,7 @@ class TORCH_CUDA_CU_API ContiguousInnerDimensionsMapper
   bool recording_ = false;
 
   std::shared_ptr<const ComputeAtMap> ca_map_;
-  std::unordered_set<Split*> divisible_splits_;
+  const std::unordered_set<Split*>& divisible_splits_;
 
   // Mapped root dimensions for each TensorView as we propogate. These
   // mappings are in the order of the reference.
@@ -575,41 +305,32 @@ class TORCH_CUDA_CU_API ContiguousInnerDimensionsMapper
       std::shared_ptr<MaxInfoSpanningTree::Information>>
       tv_infos_;
 
-  std::unordered_map<IterDomain*, ProjectedExtent> projected_extent_;
+  std::unordered_map<IterDomain*, Val*> projected_extent_;
 };
 
-// Returns Mappings of all dims in reference starting from inner most position
-// to outer most position.
-//
-// A tensor like T0[i0, r1, b2] will return 3 Mapper instances associated
-// with:
-// {{i0, r1, b1}, {r1, b1}, {b1}}
-std::vector<ContiguousInnerDimensionsMapper> getAllVectorizedMapsOf(
-    TensorView* ref);
-
-// Returns PartialExtent entires associated with each dimension that should be
-// evaluated based on contiguity of reference and dimensions mapped to ref in
-// mapper.
-std::vector<std::pair<ProjectedExtent&, IterDomain*>> getContigVectorSizesOf(
-    TensorView* of_tv,
-    ContiguousInnerDimensionsMapper& mapper);
-
-// TODO: vectorizable_inputs_outputs should actually be known based on the
-// computed mappings. If nothing is mapped for a tensorview it's not
-// vectorizable.
-size_t getExpandedVectorization(
-    const std::vector<ContiguousInnerDimensionsMapper>& reference_maps,
-    SchedulerRuntimeInfo& runtime_info,
-    const std::vector<TensorView*> vectorizable_inputs_outputs,
-    TensorView* reference_tv,
-    int break_point,
-    size_t default_word_size);
-
-size_t getVectorizationFactor(
+int64_t getVectorizationFactor(
     SchedulerRuntimeInfo& runtime_info,
     TensorView* reference_tv,
     HeuristicSummary* data_cache,
-    int break_point);
+    int64_t break_point);
+
+//! Find the break point for vectorization. Here, we vectorize either
+//! the innermost reduction or iteration domains. We use the producer
+//! of the reduction as a reference of the vectorization
+//! analsis.
+//
+//! Since this is for the reduction and normalization schedulers, the
+//! producer of the reduction should not have reduction domains,
+//! except when it's a fusion input, in which case the reduction
+//! domains of the producer should just be ignored.
+//
+//! \param reduction_consumer
+//! \param reduction_producer
+//! \param consumer_innermost_ndims Innermost consumer domains to vectorize
+int64_t getVectorizationBreakPointOfReductionProducer(
+    TensorView* reduction_consumer,
+    TensorView* reduction_producer,
+    int64_t consumer_innermost_ndims);
 
 } // namespace vectorize_helper
 } // namespace nvfuser

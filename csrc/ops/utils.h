@@ -7,7 +7,7 @@
 // clang-format on
 #pragma once
 
-#include <ir_all_nodes.h>
+#include <ir/all_nodes.h>
 #include <type.h>
 
 #include <vector>
@@ -30,6 +30,10 @@ Val* promoteSize(Val* v1, Val* v2);
 Val* newScalar(ValType vtype, DataType dtype);
 
 IterType promoteIterType(IterType type1, IterType type2);
+
+std::vector<IterDomain*> newOutputDomain(
+    const std::vector<Val*>& vals,
+    DataType dtype);
 
 TensorView* newOutputTV(const std::vector<Val*>& vals, DataType dtype);
 

@@ -36,4 +36,7 @@ TORCH_CUDA_CU_API void schedulePersistentKernel(
     Fusion* fusion,
     const ReductionParams& rparams);
 
+TORCH_CUDA_CU_API void schedulePersistentKernelInnerOuter(
+    Fusion* fusion,
+    const ReductionParams& rparams);
 } // namespace nvfuser

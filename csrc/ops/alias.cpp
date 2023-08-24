@@ -5,8 +5,9 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <ir_builder.h>
-#include <ir_utils.h>
+#include <expr_simplifier.h>
+#include <ir/builder.h>
+#include <ir/utils.h>
 #include <ops/alias.h>
 #include <ops/arith.h>
 #include <ops/utils.h>
@@ -25,54 +26,15 @@ TensorView* set(TensorView* tv) {
   return set(tv->as<Val>())->as<TensorView>();
 }
 
-namespace {
-
-//! Transform TensorView according to keep, merge, and split transformations.
-//! Squeeze and broadcast transformations are handled separately.
-//! It is recommend to use the composite ops view function, which will call
-//! the analyzeView function to generate the appropriate transformations.
-//!
-//! For example:
-//! original sizes = [2, 10, 40]
-//! new_size = [2, 10, 2, 20]
-//! auto analysis = analyzeView(TV0, original_sizes, new_sizes)
-//! auto TV1 = TV0->view(analysis.transforms);
-//!
-//! Transforms = [(Keep I0), (Keep I1), (Split I2 by 2)]
-//! Before: TV0[I0, I1, I2]
-//! After: TV0[I0, I1, 2, ceilDiv(I2, 2)]
-//!
-//! orig_tv is the tensor view originally coming in from user for the view
-//! operation. This is the tensor view all of the view analysis is relative to.
-//! View might be doing squeezes before sending into the view operation, so we
-//! want the actual input to the view operation to be potentially after the
-//! original view operation.
-TensorView* applyViewTransforms(
-    TensorView* orig_tv,
-    TensorView* post_reduce_tv,
-    const AnalyzeViewResult& view_analysis) {
-  TORCH_INTERNAL_ASSERT(orig_tv != nullptr, "Input is invalid.");
-  TORCH_INTERNAL_ASSERT(post_reduce_tv != nullptr, "Input is invalid.");
-  TORCH_INTERNAL_ASSERT(
-      !post_reduce_tv->hasComputeAt(),
-      "Cannot modify rfactor domain after compute at has been set.");
-
-  TORCH_INTERNAL_ASSERT(
-      post_reduce_tv->nDims() > 0, "Tried to view a 0-dim TensorView");
-
-  TORCH_INTERNAL_ASSERT(!view_analysis.transforms.empty());
-
-  TensorView* consumer = IrBuilder::create<TensorView>(
-      orig_tv->container(),
-      orig_tv->domain()->view(view_analysis),
-      orig_tv->getDataType().value());
-
-  IrBuilder::create<ViewOp>(orig_tv->container(), consumer, post_reduce_tv);
-
-  return consumer;
+Val* segment_set(Val* v) {
+  Val* out = ops::newValLike(v, v->getDataType().value());
+  IrBuilder::create<LoadStoreOp>(LoadStoreOpType::SegmenterSet, out, v);
+  return out;
 }
 
-} // namespace
+TensorView* segment_set(TensorView* tv) {
+  return segment_set(tv->as<Val>())->as<TensorView>();
+}
 
 TensorView* view(TensorView* x, DataType dtype) {
   TORCH_INTERNAL_ASSERT(x != nullptr, "Input is invalid.");
@@ -102,25 +64,113 @@ TensorView* reshape(
 
   auto view_analysis = analyzeView(x, original_sizes, new_sizes);
 
-  auto squeezed = std::any_of(
-                      view_analysis.squeeze_axes.begin(),
-                      view_analysis.squeeze_axes.end(),
-                      [](bool s) { return s; })
-      ? squeeze(x, view_analysis.squeeze_axes)
-      : x;
+  return reshape(x, view_analysis);
+}
 
-  auto view = view_analysis.transforms.empty()
-      ? squeezed
-      : applyViewTransforms(x, squeezed, view_analysis);
+namespace {
 
-  auto bcasted = std::any_of(
-                     view_analysis.broadcast_axes.begin(),
-                     view_analysis.broadcast_axes.end(),
-                     [](bool b) { return b; })
-      ? broadcast(view, view_analysis.broadcast_axes)
-      : view;
+// Check if a dynamic reshape is actually static. Returns a reshaped
+// tensor if static. Nullptr if not.
+TensorView* tryStaticReshape(
+    TensorView* inp_tv,
+    const std::vector<IterDomain*>& inp_dom,
+    const std::vector<Val*>& new_sizes) {
+  std::vector<int64_t> inp_sizes(inp_dom.size());
+  for (const auto i : c10::irange(inp_dom.size())) {
+    auto id = inp_dom.at(i);
+    auto id_size = id->extent()->getInt();
+    if (!id_size.has_value()) {
+      return nullptr;
+    }
+    inp_sizes.at(i) = id_size.value();
+  }
 
-  return bcasted;
+  std::vector<int64_t> out_sizes(new_sizes.size());
+  for (const auto i : c10::irange(new_sizes.size())) {
+    auto id_size = new_sizes.at(i)->getInt();
+    if (!id_size.has_value()) {
+      return nullptr;
+    }
+    out_sizes.at(i) = id_size.value();
+  }
+
+  // Both inputs are outputs are static. Just use the static version
+  // of reshape
+  return reshape(inp_tv, inp_sizes, out_sizes);
+}
+
+} // namespace
+
+TensorView* reshape(TensorView* inp_tv, const std::vector<Val*>& new_sizes) {
+  auto inp_dom = TensorDomain::noReductions(inp_tv->getMaybeRFactorDomain());
+
+  TORCH_CHECK(
+      std::none_of(
+          inp_dom.begin(),
+          inp_dom.end(),
+          [](auto inp_id) { return inp_id->maybePartial(); }),
+      "Unsupported input tensor to reshape as its axes may be partial: ",
+      inp_tv->toString());
+
+  auto static_reshape_output = tryStaticReshape(inp_tv, inp_dom, new_sizes);
+  if (static_reshape_output) {
+    return static_reshape_output;
+  }
+
+  auto root_domain = ops::newOutputDomain({inp_tv}, inp_tv->dtype());
+
+  // Create placeholder rfactor domain. Note it's not connected with the root
+  // domain.
+  std::vector<IterDomain*> rfactor_domain(new_sizes.size(), nullptr);
+  bool found_neg_one = false;
+  for (const auto i : c10::irange(new_sizes.size())) {
+    auto new_size = new_sizes.at(i);
+    if (new_size->isConstScalar() && new_size->evaluateInt() == -1) {
+      // It is usually safe to use the provided scalars as the output shapes.
+      // However, if -1 is provided for some position, it will not correspond to
+      // the actual extent in that position.
+
+      TORCH_CHECK(
+          !found_neg_one,
+          "A maximum of one value of -1 can be provided to reshape.");
+      found_neg_one = true;
+
+      Val* numel = FusionGuard::getCurFusion()->oneVal();
+      Val* other_new_numel = FusionGuard::getCurFusion()->oneVal();
+      for (const auto j : c10::irange(inp_dom.size())) {
+        numel = mul(numel, inp_dom.at(j)->extent());
+      }
+      for (const auto j : c10::irange(new_sizes.size())) {
+        if (i == j) {
+          continue;
+        }
+        other_new_numel = mul(other_new_numel, new_sizes.at(j));
+      }
+      new_size = div(numel, other_new_numel);
+      new_size = simplifyExpr(new_size);
+    }
+    if (new_size->dtype() != DataType::Index) {
+      new_size = castOp(DataType::Index, new_size);
+    }
+    auto rf_id =
+        IterDomainBuilder(FusionGuard::getCurFusion()->zeroVal(), new_size)
+            .iter_type(IterType::Symbolic)
+            .is_rfactor_domain(true)
+            .build();
+    rfactor_domain.at(i) = rf_id;
+  }
+
+  auto out_tv = IrBuilder::create<TensorView>(
+      IrBuilder::create<TensorDomain>(
+          root_domain,
+          rfactor_domain,
+          rfactor_domain,
+          TensorDomain::getContiguityFilledWith(rfactor_domain, true)),
+      inp_tv->dtype());
+
+  IrBuilder::create<ViewOp>(inp_tv->container(), out_tv, inp_tv);
+
+  return out_tv;
 }
 
 TensorView* flatten(TensorView* x, int64_t start_dim, int64_t end_dim) {
@@ -171,13 +221,16 @@ TensorView* squeeze(TensorView* x, const std::vector<bool>& to_squeeze) {
   for (const auto idx : c10::irange(ndims)) {
     auto id = x_dom[idx];
     if (to_squeeze[idx]) {
-      TORCH_CHECK(
-          id->isBroadcast(), "Can not squeeze non-broadcasting dimension(s).");
-      TORCH_CHECK(
-          !id->hasExpandedExtent(), "Can not squeeze expanded dimension(s).");
-      TORCH_CHECK(
-          id->extent()->isOneInt(),
-          "Can not squeeze dimension(s) with size != 1.");
+      if (!id->isSymbolic()) {
+        TORCH_CHECK(
+            id->isBroadcast(),
+            "Can not squeeze non-broadcasting dimension(s).");
+        TORCH_CHECK(
+            !id->hasExpandedExtent(), "Can not squeeze expanded dimension(s).");
+        TORCH_CHECK(
+            id->extent()->isOneInt(),
+            "Can not squeeze dimension(s) with size != 1.");
+      }
     } else {
       out_domain.push_back(id->cloneWithoutRFactor());
     }
@@ -398,29 +451,45 @@ TensorView* transpose(TensorView* x) {
   return transpose(x, 0, 1);
 }
 
+bool hasSimilarDtype(DataType base, DataType dt) {
+  if (base == dt) {
+    return true;
+  } else if (isComplexType(base)) {
+    return isComplexType(dt);
+  } else if (isFloatingPointType(base)) {
+    return isFloatingPointType(dt);
+  } else if (isBooleanType(base)) {
+    return isBooleanType(dt);
+  } else if (isIntegralType(base)) {
+    return isIntegralType(dt);
+  }
+  TORCH_INTERNAL_ASSERT(false, "Unrecognized base dtype.");
+}
+
 // Padding widths are assumed to be non-negative. Currently there's no
 // validation.
 TensorView* pad(
     TensorView* inp,
     const std::vector<Val*>& pad_widths,
-    Val* value) {
+    Val* value,
+    std::optional<IterType> iter_type_opt) {
   DataType dt = inp->getDataType().value();
   if (!value) {
     // Create a zero of the appropriate type
     if (isComplexType(dt)) {
-      value = static_cast<Val*>(IrBuilder::create<ComplexDouble>(0, dt));
+      value = static_cast<Val*>(
+          IrBuilder::create<Val>(std::complex<double>(0), dt));
     } else if (isFloatingPointType(dt)) {
-      value = static_cast<Val*>(IrBuilder::create<Double>(0, dt));
+      value = static_cast<Val*>(IrBuilder::create<Val>(0.0, dt));
     } else if (isBooleanType(dt)) {
-      value = static_cast<Val*>(IrBuilder::create<Bool>(false, dt));
+      value = static_cast<Val*>(IrBuilder::create<Val>(false, dt));
     } else {
-      value = static_cast<Val*>(IrBuilder::create<Int>(0, dt));
+      value = static_cast<Val*>(IrBuilder::create<Val>(0L, dt));
     }
   }
-  if (value->getDataType().value() != dt) {
-    // Insert an explicit castOp if dtype of value does not match TensorView's
-    value = castOp(dt, value);
-  }
+  TORCH_CHECK(
+      hasSimilarDtype(dt, value->getDataType().value()),
+      "Tensor arg and pad value must have the same dtype.");
   const auto inp_dom = TensorDomain::noReductions(inp->getMaybeRFactorDomain());
   const auto ndims = inp_dom.size();
 
@@ -452,8 +521,8 @@ TensorView* pad(
   for (const auto i : c10::irange(num_padded_dims)) {
     auto left_pad = pad_widths.at(num_padded_dims * 2 - (i + 1) * 2);
     auto right_pad = pad_widths.at(num_padded_dims * 2 - (i + 1) * 2 + 1);
-    normalized_pad_widths.push_back(left_pad);
-    normalized_pad_widths.push_back(right_pad);
+    normalized_pad_widths.push_back(maybeCastOp(DataType::Index, left_pad));
+    normalized_pad_widths.push_back(maybeCastOp(DataType::Index, right_pad));
   }
 
   // Indicates if any dimension is actually padded. Can be false even
@@ -473,7 +542,8 @@ TensorView* pad(
       out_root_id =
           IterDomainBuilder(inp_root_id).is_rfactor_domain(true).build();
       // Expand the root domain and mark it as a rfactor domain
-      out_rf_id = IterDomain::resize(out_root_id, left_pad, right_pad, true);
+      out_rf_id = IterDomain::resize(
+          out_root_id, left_pad, right_pad, true, iter_type_opt);
       is_padded_any = true;
     }
     root_ids.at(idx) = out_root_id;
@@ -502,7 +572,10 @@ TensorView* pad(
 // account for the size difference between each of the inputs and the
 // output. All of the inputs to CatOp have the same shape as the
 // output shape.
-TensorView* cat(const std::vector<TensorView*>& inputs, int64_t cat_dim) {
+TensorView* cat(
+    const std::vector<TensorView*>& inputs,
+    int64_t cat_dim,
+    std::optional<IterType> iter_type_opt) {
   TORCH_CHECK(!inputs.empty(), "No input tensor given");
 
   const auto dtype = inputs.at(0)->getDataType().value();
@@ -605,7 +678,8 @@ TensorView* cat(const std::vector<TensorView*>& inputs, int64_t cat_dim) {
       pad_widths.at((ndims - dim - 1) * 2 + 1) = right_pad_i;
     }
 
-    resized_inputs.at(input_idx) = pad(inputs.at(input_idx), pad_widths);
+    resized_inputs.at(input_idx) =
+        pad(inputs.at(input_idx), pad_widths, nullptr, iter_type_opt);
   }
 
   // Now all of resized_inputs have the same shape as the out tensor
@@ -639,6 +713,18 @@ TensorView* slice(TensorView* inp, const std::vector<Slice>& ranges) {
     }
     if (range.step == nullptr) {
       range.step = FusionGuard::getCurFusion()->oneVal();
+    }
+    if (range.start->dtype() != DataType::Index) {
+      range.start =
+          SimplifyingIrBuilder::maybeCastExpr(DataType::Index, range.start);
+    }
+    if (range.stop->dtype() != DataType::Index) {
+      range.stop =
+          SimplifyingIrBuilder::maybeCastExpr(DataType::Index, range.stop);
+    }
+    if (range.step->dtype() != DataType::Index) {
+      range.step =
+          SimplifyingIrBuilder::maybeCastExpr(DataType::Index, range.step);
     }
     return range;
   };

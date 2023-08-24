@@ -12,10 +12,11 @@ namespace broadcast {
 // X_THREAD: Broadcast from threadIdx.x == 0 if true
 // Y_THREAD: Broadcast from threadIdx.y == 0 if true
 // Z_THREAD: Broadcast from threadIdx.z == 0 if true
+// Aligned: Called from aligned threads if true
 // inp_val: Per-thread source value. Only valid when the thread is a source.
 // out: Per-thread output location
 //
-template <bool X_THREAD, bool Y_THREAD, bool Z_THREAD, typename T>
+template <bool X_THREAD, bool Y_THREAD, bool Z_THREAD, bool Aligned, typename T>
 __device__ void blockBroadcast(
     T& out,
     const T& inp_val,
@@ -32,13 +33,13 @@ __device__ void blockBroadcast(
     shared_mem[shared_offset] = inp_val;
   }
 
-  block_sync::sync();
+  block_sync::sync<Aligned>();
 
   if (read_write_pred) {
     out = shared_mem[shared_offset];
   }
 
-  block_sync::sync();
+  block_sync::sync<Aligned>();
 }
 
 } // namespace broadcast

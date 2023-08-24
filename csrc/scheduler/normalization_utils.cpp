@@ -5,12 +5,13 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <expr_evaluator.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/normalization_utils.h>
+#include <scheduler/registry.h>
 #include <utils.h>
 
 #include <ATen/cuda/CUDAContext.h>
-
 namespace nvfuser {
 namespace normalization_scheduler_utils {
 
@@ -63,7 +64,7 @@ void PreferredLaunchConfig::initValidGdims() {
       static_cast<int>(std::sqrt(static_cast<float>(num_sms)));
   for (int gdimy = 2; gdimy <= max_first_half; ++gdimy) {
     int gdimx = num_sms / gdimy;
-    grid_dims.push_back(std::make_pair(gdimx, gdimy));
+    grid_dims.emplace_back(gdimx, gdimy);
   }
   // Reverse the first half and swap gridDim.x and gridDim.y. That
   // list becomes the latter half
@@ -74,7 +75,7 @@ void PreferredLaunchConfig::initValidGdims() {
       // This is already in the first half
       continue;
     }
-    grid_dims.push_back(std::make_pair(gdimx_gdimy.second, gdimx_gdimy.first));
+    grid_dims.emplace_back(gdimx_gdimy.second, gdimx_gdimy.first);
   }
   valid_grid_dims_ = grid_dims;
 }
@@ -150,10 +151,10 @@ namespace {
 int64_t getAvailableRegisterCount(int64_t persistent_buffer_factor) {
   // The thread block size is (currently) always 256, so each thread
   // can use up to 255 registers
-  int64_t register_count = 255;
+  int64_t register_count = scheduler_utils::max_registers_per_thread;
 
   // Offset a constant overhead
-  register_count -= 40;
+  register_count -= scheduler_utils::register_overhead;
 
   // Allow small number of spills
   register_count += 5;
@@ -258,14 +259,14 @@ std::optional<std::tuple<int64_t, int64_t, bool>> reduceWorkOfLastBlock(
   // Start with the current gdimy and buffer size. Gradually increase
   // the buffer size and in turn decrease gdimy with the bounds set as
   // below.
-  auto current_gdimy = launch_cfg.gdimy();
+  int64_t current_gdimy = launch_cfg.gdimy();
   auto current_buffer_size =
       getMinPersistentBufferSize(total_reduction_numel, bdimy, current_gdimy);
 
   log("reduceWorkOfLastBlock: ", current_gdimy, ", ", current_buffer_size);
 
   // Threshold to stop decreasing gdimy
-  const auto min_gdimy = current_gdimy * 0.9;
+  const auto min_gdimy = static_cast<int64_t>((double)current_gdimy * 0.9);
 
   // Keep track of the best gdimy and buffer size configuration
   auto optimal_size = current_buffer_size;
@@ -499,6 +500,226 @@ std::optional<GridOuterNormalizationParams> getGridOuterNormalizationParams(
   // as invalid
   TORCH_INTERNAL_ASSERT(launch_cfg.isInvalid());
   return std::nullopt;
+}
+
+bool checkIfReductionsAreInnerOuter(
+    const std::vector<TensorView*>& inner_reduction_tvs,
+    const std::vector<TensorView*>& outer_reduction_tvs) {
+  bool pass_combined_heck = true;
+  // inner reduction must be [I,I,...R,R]
+  auto innerReductionCheck = [](TensorView* tv) {
+    int ndim = static_cast<int>(tv->nDims());
+    int lastIter = -1;
+    while (lastIter < ndim - 1 && tv->axis(lastIter + 1)->isIteration()) {
+      lastIter++;
+    }
+    int firstRedu = ndim;
+    while (firstRedu > 0 && tv->axis(firstRedu - 1)->isReduction()) {
+      firstRedu--;
+    }
+    return lastIter >= 0 && firstRedu < ndim && lastIter == firstRedu - 1;
+  };
+  // outer reduction must be [R,R,..I,I]
+  auto outerReductionCheck = [](TensorView* tv) {
+    int ndim = static_cast<int>(tv->nDims());
+    int lastRedu = -1;
+    while (lastRedu < ndim - 1 && tv->axis(lastRedu + 1)->isReduction()) {
+      lastRedu++;
+    }
+    int firstIter = ndim;
+    while (firstIter > 0 && tv->axis(firstIter - 1)->isIteration()) {
+      firstIter--;
+    }
+    return lastRedu >= 0 && firstIter < ndim && lastRedu == firstIter - 1;
+  };
+  for (auto itv : inner_reduction_tvs) {
+    if (!innerReductionCheck(itv)) {
+      pass_combined_heck = false;
+      break;
+    }
+  }
+  for (auto otv : outer_reduction_tvs) {
+    if (!outerReductionCheck(otv)) {
+      pass_combined_heck = false;
+      break;
+    }
+  }
+  return pass_combined_heck;
+}
+
+bool hasSharedInput(
+    const std::vector<TensorView*>& inner_reduction_tvs,
+    const std::vector<TensorView*>& outer_reduction_tvs) {
+  bool has_shared_input = false;
+  std::unordered_set<TensorView*> input_inner_reduction_tvs;
+  for (auto tv : inner_reduction_tvs) {
+    for (auto input_tv : ir_utils::inputTvsOf(tv)) {
+      input_inner_reduction_tvs.emplace(input_tv);
+    }
+  }
+  for (auto tv : outer_reduction_tvs) {
+    for (auto input_tv : ir_utils::inputTvsOf(tv)) {
+      if (input_inner_reduction_tvs.find(input_tv) !=
+          input_inner_reduction_tvs.end()) {
+        has_shared_input = true;
+        break;
+      }
+    }
+    if (has_shared_input) {
+      break;
+    }
+  }
+  return has_shared_input;
+}
+
+bool isConnectedOnlyThroughReductionProducer(
+    const std::vector<TensorView*>& inner_reduction_tvs,
+    const std::vector<TensorView*>& outer_reduction_tvs) {
+  const std::unordered_set<TensorView*> outer_tv_set{
+      outer_reduction_tvs.begin(), outer_reduction_tvs.end()};
+  // initialize disjoint sets with tvs connected to inner reduction tvs
+  std::unordered_set<TensorView*> disjoint_tvs =
+      scheduler_utils::getAllTvsFrom(inner_reduction_tvs, outer_tv_set);
+  // get disjoint sets with tvs connected to outer reduction tvs
+  // check if there is any intersection
+  for (auto otv : outer_reduction_tvs) {
+    const auto& producers = ir_utils::producerTvsOf(otv);
+    // cutoff at producers of outer reduction tvs as they are computed with
+    // inner reducitons
+    const auto& connected_tv_set = scheduler_utils::getAllTvsFrom(
+        {otv}, {producers.begin(), producers.end()});
+    for (auto tv : connected_tv_set) {
+      if (!disjoint_tvs.emplace(tv).second) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+int64_t partialReductionBufferSize(
+    const std::vector<TensorView*>& outer_reduction_tvs,
+    SchedulerRuntimeInfo& runtime_info) {
+  int64_t partial_reduction_buffer_size = 0;
+  for (auto buffer : outer_reduction_tvs) {
+    int64_t buffer_size = -1;
+    for (auto id : buffer->getMaybeRFactorDomain()) {
+      if (id->isReduction() || id->isBroadcast()) {
+        continue;
+      }
+      auto id_size = runtime_info.expressionEvaluator().evaluate(id->extent());
+      TORCH_INTERNAL_ASSERT(
+          id_size.hasValue(), "Could not infer persistent buffer size.");
+      if (buffer_size == -1) {
+        buffer_size = id_size.as<int64_t>();
+      } else {
+        buffer_size *= id_size.as<int64_t>();
+      }
+    }
+    buffer_size = (buffer_size == -1) ? 0
+                                      : buffer_size *
+            (int64_t)dataTypeSize(buffer->getDataType().value(),
+                                  runtime_info.getIndexType());
+    partial_reduction_buffer_size += buffer_size;
+  }
+  return partial_reduction_buffer_size;
+}
+
+std::pair<std::optional<int64_t>, int64_t>
+getOptionalInnerOuterPersistentBufferBatches(
+    const int64_t inner_dim_numel,
+    const int64_t outer_dim_numel,
+    const int64_t persistent_buffer_size,
+    const int64_t vectorize_factor,
+    const int64_t warp_size,
+    const bool ignore_register_size_limit) {
+  // if inner_dim_numel <= 1024, we are doing multiple reductions per block
+  // with a constant batch size of 1 if vectorized. See Step 5 of
+  // innerOuterPersistentHeuristic. Although batch size is 1, each thread also
+  // needs to do serial reduction of [vectorize_factor] elements. However, if
+  // vectorize_factor is 1, we can increase batch size to set a minimum serial
+  // reduction workload for each thread to take advantage of zero intra-threads
+  // communication cost. Here a middle value of 4 is selected without spending
+  // time to tune as these un-vectorized small cases should be rare in real
+  // world.
+  if (inner_dim_numel <= 1024l) {
+    const int64_t batch = (vectorize_factor == 1) ? 4l : 1l;
+    return std::make_pair(
+        batch, ceilDiv(inner_dim_numel, batch * vectorize_factor));
+  }
+  // Set a minimum workload for each thread to take advantage of low
+  // intra-threads communication cost. Tuned for layer_norm backward on A100.
+  auto getMinimumBatch = [&]() -> int64_t {
+    if (inner_dim_numel >= 3072l) {
+      if (outer_dim_numel <= 2048l && inner_dim_numel == 3072l) {
+        return 3l;
+      } else {
+        return 4l;
+      }
+    } else if (inner_dim_numel >= 2048l) {
+      return 2l;
+    }
+    return 1l;
+  };
+  //! Each thread can use a maximum of 255 registers, and assume 40 of them are
+  //! reserved for indexing and other purposes. So, each thread can use up to
+  //! 215 registers for persistent buffer. Calculate number of buffer batches
+  //! using these 215 registers. total_buffer_bytes is the total size of
+  //! persistent buffers in bytes. reduction_elements is the number of elements
+  //! in the reduction domain. vectorization_factor is the vectorization factor
+  //! of inputs and outputs.
+  auto getMaximumInnerOuterPersistentBufferBatch = [&]() -> int64_t {
+    int64_t register_per_batch = ceilDiv(
+        persistent_buffer_size / inner_dim_numel * vectorize_factor,
+        scheduler_utils::bytes_per_register);
+    return scheduler_utils::safeDiv(
+        scheduler_utils::max_registers_per_thread -
+            scheduler_utils::register_overhead,
+        register_per_batch);
+  };
+
+  const int64_t after_vectorization = inner_dim_numel / vectorize_factor;
+  const int64_t threads_per_block_min = std::min(after_vectorization, 128l);
+  const int64_t threads_per_block_max = getThreadsPerSMGivenRegPerThread(255l);
+  const int64_t batch_min = getMinimumBatch();
+  const int64_t batch_max = getMaximumInnerOuterPersistentBufferBatch();
+
+  // Start from the smallest threads_per_block. If the corresponding batch size
+  // is larger than batch_max, try increase threads per block by a warp until
+  // the threads_per_block reaches threads_per_block_max or the batch size
+  // reaches batch_min.
+  int64_t threads_per_block = threads_per_block_min;
+  int64_t inner_batch = ceilDiv(after_vectorization, threads_per_block);
+  while (inner_batch > batch_max &&
+         threads_per_block + warp_size <= threads_per_block_max &&
+         ceilDiv(after_vectorization, threads_per_block + warp_size) >=
+             batch_min) {
+    threads_per_block += warp_size;
+    inner_batch = ceilDiv(after_vectorization, threads_per_block);
+  }
+
+  // The maximum feature size can be processed without register spills and
+  // fusion segmentation for fp16 is 14K. Here, we can allow register spills to
+  // avoid fusion segmentation by incrase maximum batch size by 3. This allows
+  // us to process up to 20K features (14K + 256*8*3).
+  // Performance on A100-80G:
+  // (1) shape= 16384 x 16384, 1300 GB/s, time_us mean(var)= 1245.08 (8.89703),
+  // 64 bytes stack frame, 64 bytes spill stores, 128 bytes spill loads. (2)
+  // shape= 16384 x 18432, 1070 GB/s, time_us mean(var)= 1683.87 (19.527), 192
+  // bytes stack frame, 192 bytes spill stores, 384 bytes spill loads.
+  // (3) shape= 16384 x 20480, 730 GB/s time_us mean(var)= 2766.64 (12.3883),
+  // 320 bytes stack frame, 320 bytes spill stores, 640 bytes spill loads. As a
+  // ref, the segmented version takes time_us mean(var)= 2841.91 (5.20231)
+  // without considering the overhead of fusion segmentation.
+  // (4) Disable this optimization if vectorize_factor is 1 due to high register
+  // usage in cases can't be vectorized.
+  const int64_t batch_max_reg_spill =
+      vectorize_factor > 1 ? batch_max + 3 : batch_max;
+  if (ignore_register_size_limit || inner_batch <= batch_max_reg_spill) {
+    return std::make_pair(inner_batch, threads_per_block);
+  } else {
+    return std::make_pair(std::nullopt, -1);
+  }
 }
 
 } // namespace normalization_scheduler_utils

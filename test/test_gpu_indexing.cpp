@@ -10,13 +10,13 @@
 
 #include <executor.h>
 #include <inlining.h>
-#include <ir_all_nodes.h>
-#include <ir_builder.h>
+#include <ir/all_nodes.h>
+#include <ir/builder.h>
 #include <ops/all_ops.h>
 #include <scheduler/all_schedulers.h>
 
-#include <test/test_gpu_validator.h>
-#include <test/test_utils.h>
+#include <test/utils.h>
+#include <test/validator.h>
 
 #include <torch/torch.h>
 
@@ -34,7 +34,7 @@ TEST_F(NVFuserTest, FusionIndexing1_CUDA) {
   fusion.addInput(tv0);
   fusion.addInput(tv1);
 
-  auto tv2 = add(tv0, IrBuilder::create<Double>(1.0));
+  auto tv2 = add(tv0, IrBuilder::create<Val>(1.0));
   auto tv3 = broadcast(tv2, {true, false, false, false});
   auto tv4 = add(tv3, tv1);
 
@@ -88,7 +88,7 @@ TEST_F(NVFuserTest, FusionIndexing2_CUDA) {
   fusion.addInput(tv0);
   fusion.addInput(tv1);
 
-  auto tv2 = add(tv0, IrBuilder::create<Double>(1.0));
+  auto tv2 = add(tv0, IrBuilder::create<Val>(1.0));
   auto tv3 = broadcast(tv2, {true, false, false, false});
   auto tv4 = add(tv3, tv1);
 
@@ -141,7 +141,7 @@ TEST_F(NVFuserTest, FusionIndexing3_CUDA) {
   fusion.addInput(tv0);
   fusion.addInput(tv1);
 
-  auto tv2 = add(tv0, IrBuilder::create<Double>(1.0));
+  auto tv2 = add(tv0, IrBuilder::create<Val>(1.0));
   auto tv3 = add(tv2, tv1);
   fusion.addOutput(tv3);
 
@@ -174,7 +174,7 @@ TEST_F(NVFuserTest, FusionIndexing4_CUDA) {
   TensorView* tv1 = makeConcreteTensor({4, 4, 8});
   fusion.addInput(tv1);
 
-  TensorView* tv2 = add(tv0, IrBuilder::create<Double>(1));
+  TensorView* tv2 = add(tv0, IrBuilder::create<Val>(1.0));
   TensorView* tv3 = broadcast(tv2, {true, false, false});
   TensorView* tv4 = add(tv3, tv1);
   fusion.addOutput(tv4);
@@ -206,7 +206,7 @@ TEST_F(NVFuserTest, FusionIndexing5_CUDA) {
   TensorView* tv1 = makeSymbolicTensor(3);
   fusion.addInput(tv1);
 
-  TensorView* tv2 = add(tv0, IrBuilder::create<Double>(1));
+  TensorView* tv2 = add(tv0, IrBuilder::create<Val>(1.0));
   TensorView* tv3 = broadcast(tv2, {true, false, true});
   TensorView* tv4 = add(tv3, tv1);
   fusion.addOutput(tv4);
@@ -381,7 +381,7 @@ TEST_F(NVFuserTest, FusionIndexing9_CUDA) {
 
   auto tv1 = broadcast(tv0, {false, true});
 
-  auto tv2 = mul(tv1, IrBuilder::create<Double>(2));
+  auto tv2 = mul(tv1, IrBuilder::create<Val>(2.0));
   fusion.addOutput(tv2);
 
   auto tv3 = makeSymbolicTensor(3);
@@ -427,7 +427,7 @@ TEST_F(NVFuserTest, FusionIndexing10_CUDA) {
 
   // Do math with it, it returns a `Val*` but can be static_casted back to
   // TensorView
-  TensorView* tv2 = add(tv1, IrBuilder::create<Double>(2.0));
+  TensorView* tv2 = add(tv1, IrBuilder::create<Val>(2.0));
   TensorView* tv3 = add(tv0, tv2);
 
   // Register your outputs
@@ -484,7 +484,7 @@ TEST_F(NVFuserTest, FusionIndexing11_CUDA) {
   fusion.addInput(tv0);
   fusion.addInput(tv1);
 
-  auto tv2 = add(tv1, IrBuilder::create<Double>(1.0));
+  auto tv2 = add(tv1, IrBuilder::create<Val>(1.0));
   auto tv3 = broadcast(tv2, {true, false, true, true});
   auto tv4 = add(tv3, tv0);
 
@@ -533,9 +533,9 @@ TEST_F(NVFuserTest, FusionIndexing12_CUDA) {
   TensorView* tv0 = makeConcreteTensor({9, 5});
   fusion.addInput(tv0);
 
-  TensorView* tv1 = add(tv0, IrBuilder::create<Double>(1));
-  TensorView* tv2 = add(tv1, IrBuilder::create<Double>(2));
-  TensorView* tv3 = add(tv1, IrBuilder::create<Double>(3));
+  TensorView* tv1 = add(tv0, IrBuilder::create<Val>(1.0));
+  TensorView* tv2 = add(tv1, IrBuilder::create<Val>(2.0));
+  TensorView* tv3 = add(tv1, IrBuilder::create<Val>(3.0));
   TensorView* tv4 = sum(tv3, {1});
 
   fusion.addOutput(tv2);
@@ -547,7 +547,6 @@ TEST_F(NVFuserTest, FusionIndexing12_CUDA) {
   tv1->computeAt(tv5, 2);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(1);
   at::Tensor aten_input = at::randn({9, 5}, options);
 
   auto t1 = aten_input.add(1.0);
@@ -577,7 +576,7 @@ TEST_F(NVFuserTest, FusionIndexing13_CUDA) {
   TensorView* tv2 = makeSymbolicTensor(3);
   fusion.addInput(tv2);
 
-  TensorView* tv3 = add(tv0, IrBuilder::create<Double>(1));
+  TensorView* tv3 = add(tv0, IrBuilder::create<Val>(1.0));
   TensorView* tv4 = broadcast(tv3, {false, true});
   TensorView* tv5 = add(tv4, tv1);
   TensorView* tv6 = add(tv5, tv2);
@@ -630,13 +629,13 @@ TEST_F(NVFuserTest, FusionIndexing14_CUDA) {
   fusion.addInput(tv1);
 
   // [b0, i1]
-  auto tv2 = add(tv0, IrBuilder::create<Double>(2.0));
+  auto tv2 = add(tv0, IrBuilder::create<Val>(2.0));
 
   // [i0, i1]
-  auto tv3 = add(tv1, IrBuilder::create<Double>(3.0));
+  auto tv3 = add(tv1, IrBuilder::create<Val>(3.0));
 
   // [b0, i1]
-  auto tv4 = add(tv2, IrBuilder::create<Double>(4.0));
+  auto tv4 = add(tv2, IrBuilder::create<Val>(4.0));
 
   // [io, i1]
   auto tv5 = add(tv2, tv3);
@@ -726,7 +725,6 @@ TEST_F(NVFuserTest, FusionIndexing16_CUDA) {
   tv1->computeAt(tv2, 1);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(1);
   at::Tensor t0 = at::randn({5, 4, 3}, options);
   at::Tensor t1 = at::randn({5, 3}, options);
   auto t2 = t1.unsqueeze(1);
@@ -766,7 +764,6 @@ TEST_F(NVFuserTest, FusionIndexing17_CUDA) {
   tv3->computeAt(tv7, -1, ComputeAtMode::BestEffort);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(1);
   at::Tensor t0 = at::randn({5, 4, 3}, options);
   at::Tensor t1 = at::randn({4}, options);
 
@@ -816,7 +813,6 @@ TEST_F(NVFuserTest, FusionIndexing18_CUDA) {
   inlineAllAt(tv4, 1, true);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(1);
   at::Tensor t0 = at::randn({5}, options);
   at::Tensor t1 = at::randn({5, 3}, options);
   std::vector<c10::IValue> inputs = {t0, t1};

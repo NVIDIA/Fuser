@@ -8,6 +8,7 @@
 #include <gtest/gtest.h>
 
 #include <codegen.h>
+#include <device_lower/lower2device.h>
 #include <disjoint_set.h>
 #include <executor.h>
 #include <executor_params.h>
@@ -16,23 +17,21 @@
 #include <fusion_segmenter.h>
 #include <grouped_reduction.h>
 #include <inlining.h>
-#include <ir_all_nodes.h>
-#include <ir_builder.h>
-#include <ir_graphviz.h>
-#include <ir_iostream.h>
-#include <ir_utils.h>
+#include <ir/all_nodes.h>
+#include <ir/builder.h>
+#include <ir/graphviz.h>
+#include <ir/iostream.h>
+#include <ir/utils.h>
 #include <iter_visitor.h>
 #include <kernel_cache.h>
 #include <kernel_ir.h>
-#include <lower2device.h>
-#include <mutator.h>
 #include <ops/all_ops.h>
 #include <root_domain_map.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/reduction_utils.h>
 #include <scheduler/utils.h>
-#include <test/test_gpu_validator.h>
-#include <test/test_utils.h>
+#include <test/utils.h>
+#include <test/validator.h>
 #include <transform_replay.h>
 #include <transform_rfactor.h>
 
@@ -113,7 +112,6 @@ TEST_F(NVFuserTest, FusionGridAllreduce1_CUDA) {
   validateNoParallelBroadcastExist(gpulw.kernel());
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
   auto t0 = at::randn({nx}, options);
 
   FusionExecutor fe;
@@ -163,7 +161,6 @@ TEST_F(NVFuserTest, FusionGridAllreduce2_CUDA) {
   validateNoParallelBroadcastExist(gpulw.kernel());
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
   auto t0 = at::randn({nx}, options);
 
   FusionExecutor fe;
@@ -212,7 +209,6 @@ TEST_F(NVFuserTest, FusionGridAllreduce3_CUDA) {
   validateNoParallelBroadcastExist(gpulw.kernel());
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
   auto t0 = at::randn({nx, ny}, options);
 
   FusionExecutor fe;
@@ -240,7 +236,7 @@ TEST_F(NVFuserTest, FusionGridAllreduce4_CUDA) {
   fusion.addInput(tv0);
 
   auto tv1 = sum(tv0, {0});
-  auto tv2 = add(tv1, IrBuilder::create<Double>(1));
+  auto tv2 = add(tv1, IrBuilder::create<Val>(1.0));
   auto tv3 = broadcast(tv2, {true});
   auto tv4 = add(tv0, tv3);
 
@@ -258,7 +254,6 @@ TEST_F(NVFuserTest, FusionGridAllreduce4_CUDA) {
   validateNoParallelBroadcastExist(gpulw.kernel());
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
   auto t0 = at::randn({nx}, options);
 
   FusionExecutor fe;
@@ -292,7 +287,7 @@ TEST_F(NVFuserTest, FusionGridAllreduce5_CUDA) {
   fusion.addInput(tv0);
 
   auto tv1 = sum(tv0, {1});
-  auto tv2 = add(tv1, IrBuilder::create<Double>(1));
+  auto tv2 = add(tv1, IrBuilder::create<Val>(1.0));
   auto tv3 = broadcast(tv2, {false, true});
   auto tv4 = add(tv0, tv3);
 
@@ -320,7 +315,6 @@ TEST_F(NVFuserTest, FusionGridAllreduce5_CUDA) {
   validateNoParallelBroadcastExist(gpulw.kernel());
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
   auto t0 = at::randn({iter, nx}, options);
   auto t5 = at::randn({bdimy, bdimx}, options);
 
@@ -374,7 +368,6 @@ TEST_F(NVFuserTest, FusionGridAllreduce6_CUDA) {
   tv1->axis(4)->parallelize(ParallelType::Vectorize);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
   auto t0 = at::randn(shape, options);
 
   FusionExecutor fe;
@@ -421,7 +414,6 @@ TEST_F(NVFuserTest, FusionGridAllreduceWelford1_CUDA) {
   validateNoParallelBroadcastExist(gpulw.kernel());
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
   auto t0 = at::randn({nx}, options);
 
   FusionExecutor fe;
@@ -472,7 +464,6 @@ TEST_F(NVFuserTest, FusionGridAllreduceWelford2_CUDA) {
   validateNoParallelBroadcastExist(gpulw.kernel());
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
   auto t0 = at::randn({nx, ny}, options);
 
   FusionExecutor fe;
@@ -504,25 +495,25 @@ TEST_F(NVFuserTest, FusionFusedReductionBatchnorm_CUDA) {
   auto tv4 = makeSymbolicTensor(1, DataType::Float);
   fusion.addInput(tv4);
 
-  auto d34 = IrBuilder::create<Double>(1);
+  auto d34 = IrBuilder::create<Val>(1.0);
   auto tv5 = castOp(DataType::Float, tv0);
   auto tv6 = castOp(DataType::Float, tv1);
   auto tv7 = castOp(DataType::Float, tv2);
   auto tvs = Welford(tv5, {0, 2, 3});
   auto tv8 = tvs.avg;
   auto tv9 = tvs.var_sum;
-  auto tv11 = mul(tv8, IrBuilder::create<Double>(0.1));
+  auto tv11 = mul(tv8, IrBuilder::create<Val>(0.1));
   auto tv12 = mul(tv3, d34);
   auto tv13 = add(tv12, tv11);
-  auto d43 = IrBuilder::create<Double>(0.5);
+  auto d43 = IrBuilder::create<Val>(0.5);
   auto tv14 = mul(tv9, d43);
-  auto tv15 = mul(tv14, IrBuilder::create<Double>(0.1));
+  auto tv15 = mul(tv14, IrBuilder::create<Val>(0.1));
   auto tv16 = mul(tv4, d34);
   auto tv17 = add(tv16, tv15);
   auto tv18 = broadcast(tv8, {true, false, true, true});
   auto tv19 = sub(tv5, tv18);
   auto tv20 = mul(tv9, d43);
-  auto tv21 = add(tv20, IrBuilder::create<Double>(0.0001));
+  auto tv21 = add(tv20, IrBuilder::create<Val>(0.0001));
   auto tv22 = rsqrt(tv21);
   auto tv23 = broadcast(tv22, {true, false, true, true});
   auto tv24 = mul(tv19, tv23);
@@ -584,7 +575,6 @@ TEST_F(NVFuserTest, FusionFusedReductionBatchnorm_CUDA) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_half = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
-  at::manual_seed(0);
   auto t0 = at::randn(input_shape, options_half);
   auto t1 = at::randn(input_shape[1], options_half);
   auto t2 = at::randn(input_shape[1], options_half);
@@ -679,10 +669,10 @@ TEST_F(NVFuserTest, FusionGroupedReduction2_CUDA) {
   auto tv0 = makeSymbolicTensor(2);
   fusion.addInput(tv0);
 
-  auto tv1 = add(tv0, IrBuilder::create<Double>(1));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
   auto tv2 = sum(tv1, {1});
 
-  auto tv3 = add(tv0, IrBuilder::create<Double>(2));
+  auto tv3 = add(tv0, IrBuilder::create<Val>(2.0));
   auto tv4 = max(tv3, {1});
 
   auto tv5 = add(tv2, tv4);
@@ -810,13 +800,13 @@ TEST_F(NVFuserTest, FusionGroupedReduction6_CUDA) {
   auto tv0 = makeSymbolicTensor(2);
   fusion.addInput(tv0);
 
-  auto tv1 = add(tv0, IrBuilder::create<Double>(1));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
   auto tv2 = sum(tv1, {1});
 
-  auto tv3 = add(tv0, IrBuilder::create<Double>(2));
+  auto tv3 = add(tv0, IrBuilder::create<Val>(2.0));
   auto tv4 = sum(tv3, {1});
 
-  auto tv5 = add(tv0, IrBuilder::create<Double>(3));
+  auto tv5 = add(tv0, IrBuilder::create<Val>(3.0));
   auto tv6 = sum(tv5, {1});
 
   auto tv7 = add(add(tv2, tv4), tv6);
@@ -964,7 +954,7 @@ TEST_F(NVFuserTest, FusionGroupedReductionAfterComputeAt_CUDA) {
   auto tv0 = makeSymbolicTensor(2);
   fusion.addInput(tv0);
 
-  auto tv1 = add(tv0, IrBuilder::create<Double>(1));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
   auto tv2 = sum(tv1, {1});
   auto tv3 = sum(tv1, {1});
   auto tv4 = add(tv2, tv3);
@@ -1160,7 +1150,8 @@ TEST_F(NVFuserTest, FusionGroupAllreduce4_CUDA) {
   std::vector<TensorView*> reduction_tvs;
 
   for (int i = 0; i < num_reductions; ++i) {
-    auto reduction = sum(add(tv0, IrBuilder::create<Double>(i)), {0});
+    auto reduction =
+        sum(add(tv0, IrBuilder::create<Val>(static_cast<double>(i))), {0});
     reduction_tvs.push_back(reduction);
     auto avg = div(reduction, tv0->axis(0)->extent());
     auto bc = broadcast(avg, {true});
@@ -1281,9 +1272,9 @@ TEST_F(NVFuserTest, FusionGroupAllreduce5_CUDA) {
 
   auto t3 = t0 / t0.sum({0}).unsqueeze(0).to(at::kComplexDouble);
   auto t7 = t4 / t4.sum({0}).unsqueeze(0).to(at::kComplexDouble);
-  auto t11 = t8 / t8.sum({0}).unsqueeze(0).to(at::kComplexDouble);
+  auto t11 = at::div(t8, t8.sum({0}).unsqueeze(0), "trunc");
   auto t15 = t12 / t12.sum({0}).unsqueeze(0).to(at::kComplexDouble);
-  auto t19 = t16 / t16.sum({0}).unsqueeze(0);
+  auto t19 = t16 / t16.sum({0}).unsqueeze(0).to(at::kComplexDouble);
   auto ref = t3 + t7 + t11 + t15 + t19;
   testValidate(fe.kernel(), outputs, aten_inputs, {ref}, __LINE__, __FILE__);
 }
@@ -1322,10 +1313,10 @@ TEST_F(NVFuserTest, FusionPersistentBNBackwardAllreduce_CUDA) {
       broadcast_mask[axis] = true;
       if (num_features == nullptr) {
         num_features =
-            castOp(DataType::Double, input->domain()->domain()[axis]->extent());
+            castOp(DataType::Double, input->getLeafDomain()[axis]->extent());
       } else {
         num_features =
-            mul(num_features, input->domain()->domain()[axis]->extent());
+            mul(num_features, input->getLeafDomain()[axis]->extent());
       }
     }
   }
@@ -1350,7 +1341,7 @@ TEST_F(NVFuserTest, FusionPersistentBNBackwardAllreduce_CUDA) {
   if (weight == nullptr) {
     grad_scale =
         mul(broadcast(invstd, broadcast_mask),
-            IrBuilder::create<Double>(input->container(), 1));
+            IrBuilder::create<Val>(input->container(), 1.0));
   } else {
     grad_scale = mul(
         broadcast(invstd, broadcast_mask), broadcast(weight, broadcast_mask));
@@ -1504,10 +1495,10 @@ TEST_F(NVFuserTest, FusionGroupedReductionReEntrant1_CUDA) {
   auto tv0 = makeSymbolicTensor(2);
   fusion.addInput(tv0);
 
-  auto tv1 = add(tv0, IrBuilder::create<Double>(1));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
   auto tv2 = sum(tv1, {0});
 
-  auto tv3 = add(tv0, IrBuilder::create<Double>(2));
+  auto tv3 = add(tv0, IrBuilder::create<Val>(2.0));
   auto tv4 = sum(tv3, {0});
 
   auto tv5 = add(tv2, tv4);
@@ -1542,7 +1533,6 @@ TEST_F(NVFuserTest, FusionGroupedReductionReEntrant1_CUDA) {
   std::vector<int64_t> shape({99, 999});
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
 
   auto t0 = at::randn(shape, options);
 
@@ -1860,7 +1850,7 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduce1_CUDA) {
       continue;
     }
     auto out = ir_utils::getTvOutput(grouped_grid_reduction);
-    for (auto out_axis : out->domain()->domain()) {
+    for (auto out_axis : out->getLeafDomain()) {
       auto out_axis_pt = out_axis->getParallelType();
       TORCH_CHECK(
           isParallelTypeThread(out_axis_pt) ||
@@ -1878,7 +1868,6 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduce1_CUDA) {
   std::vector<int64_t> shape({99, 101});
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
   auto t0 = at::randn(shape, options);
 
   FusionExecutor fe;
@@ -1941,7 +1930,7 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduce2_CUDA) {
       continue;
     }
     auto out = ir_utils::getTvOutput(grouped_grid_reduction);
-    for (auto out_axis : out->domain()->domain()) {
+    for (auto out_axis : out->getLeafDomain()) {
       auto out_axis_pt = out_axis->getParallelType();
       TORCH_CHECK(
           isParallelTypeThread(out_axis_pt) ||
@@ -1957,7 +1946,6 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduce2_CUDA) {
       validated, "Invalid lowered kernel. No GroupedGridReduction found.");
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
   auto t0 = at::randn(shape, options);
 
   FusionExecutor fe;
@@ -1978,12 +1966,12 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduce3_CUDA) {
   auto tv0 = makeSymbolicTensor(2);
   fusion.addInput(tv0);
 
-  auto tv1 = add(tv0, IrBuilder::create<Double>(1));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
   auto tv2 = sum(tv1, {0});
   auto tv3 = broadcast(tv2, {true, false});
   auto tv4 = add(tv1, tv3);
 
-  auto tv5 = add(tv0, IrBuilder::create<Double>(2));
+  auto tv5 = add(tv0, IrBuilder::create<Val>(2.0));
   auto tv6 = sum(tv5, {0});
   auto tv7 = broadcast(tv6, {true, false});
   auto tv8 = add(tv5, tv7);
@@ -2024,7 +2012,7 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduce3_CUDA) {
       continue;
     }
     auto out = ir_utils::getTvOutput(grouped_grid_reduction);
-    for (auto out_axis : out->domain()->domain()) {
+    for (auto out_axis : out->getLeafDomain()) {
       auto out_axis_pt = out_axis->getParallelType();
       TORCH_CHECK(
           isParallelTypeThread(out_axis_pt) ||
@@ -2042,7 +2030,6 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduce3_CUDA) {
   std::vector<int64_t> shape({99, 101});
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
   auto t0 = at::randn(shape, options);
 
   FusionExecutor fe;
@@ -2117,7 +2104,7 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduce4_CUDA) {
       continue;
     }
     auto out = ir_utils::getTvOutput(grouped_grid_reduction);
-    for (auto out_axis : out->domain()->domain()) {
+    for (auto out_axis : out->getLeafDomain()) {
       auto out_axis_pt = out_axis->getParallelType();
       TORCH_CHECK(
           isParallelTypeThread(out_axis_pt) ||
@@ -2135,7 +2122,6 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduce4_CUDA) {
   std::vector<int64_t> shape({99, 101});
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
   auto t0 = at::randn(shape, options);
 
   FusionExecutor fe;
@@ -2198,7 +2184,6 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduceWelford1_CUDA) {
   std::vector<int64_t> shape({99, 101});
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
   auto t0 = at::randn(shape, options);
 
   FusionExecutor fe;
@@ -2265,7 +2250,6 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduceWelford2_CUDA) {
       validated, "Invalid lowered kernel. No GroupedGridWelford found.");
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
   auto t0 = at::randn(shape, options);
 
   FusionExecutor fe;
@@ -2299,7 +2283,7 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduceWelfordShmoo_CUDA) {
     std::vector<bool> bcast_pattern{true, true, true, false};
     std::vector<int> reduction_dims{2, 1, 0};
 
-    auto tv0 = makeSymbolicTensor(4);
+    auto tv0 = makeContigTensor(4);
     fusion.addInput(tv0);
 
     auto tv1 = set(tv0);
@@ -2356,20 +2340,20 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduceWelfordShmoo_CUDA) {
     MaxRootDomainInfoSpanningTree(transform_ref_rf).traverse(&propagator);
 
     int vec_id = std::distance(
-        transform_ref_rf->domain()->domain().begin(),
+        transform_ref_rf->getLeafDomain().begin(),
         std::find_if(
-            transform_ref_rf->domain()->domain().begin(),
-            transform_ref_rf->domain()->domain().end(),
+            transform_ref_rf->getLeafDomain().begin(),
+            transform_ref_rf->getLeafDomain().end(),
             [](auto id) {
               return id->getParallelType() == ParallelType::Vectorize;
             }));
     transform_ref_rf->axis(vec_id)->parallelize(ParallelType::Serial);
 
     int unswitch_id = std::distance(
-        transform_ref_rf->domain()->domain().begin(),
+        transform_ref_rf->getLeafDomain().begin(),
         std::find_if(
-            transform_ref_rf->domain()->domain().begin(),
-            transform_ref_rf->domain()->domain().end(),
+            transform_ref_rf->getLeafDomain().begin(),
+            transform_ref_rf->getLeafDomain().end(),
             [](auto id) {
               return id->getParallelType() == ParallelType::Unswitch;
             }));
@@ -2401,7 +2385,6 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduceWelfordShmoo_CUDA) {
         validated, "Invalid lowered kernel. No GroupedGridWelford found.");
 
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-    at::manual_seed(0);
 
     const std::vector<int64_t> input_shape{
         params.N, params.H, params.W, params.C};
@@ -2450,6 +2433,11 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduceWelfordShmoo_CUDA) {
   }
 
   for (const auto& params : param_vec) {
+    // Shmoo tests can occupy a lot of memory due to allocating many
+    // different tensor sizes. So in order to avoid an OOM during this
+    // test, we manually clear the allocator after it's reached a certain
+    // threshold.
+    maybeClearAllocator();
     test(params);
   }
 }
@@ -2470,23 +2458,23 @@ TEST_F(NVFuserTest, FusionGeluBwdReduction_CUDA) {
   const float k_079 = 0.79788456;
   const float k_004 = 0.044715;
   const float k_010 = 0.1070322243;
-  auto t8 = mul(tv1_xvar, IrBuilder::create<Double>(k_079));
-  auto t9 = mul(tv1_xvar, IrBuilder::create<Double>(k_004));
+  auto t8 = mul(tv1_xvar, IrBuilder::create<Val>(k_079));
+  auto t9 = mul(tv1_xvar, IrBuilder::create<Val>(k_004));
   auto t10 = mul(t9, tv1_xvar);
-  auto t11 = add(t10, IrBuilder::create<Int>(1));
+  auto t11 = add(t10, IrBuilder::create<Val>(1L));
   auto t12 = mul(t8, t11);
   auto t13 = unaryOp(UnaryOpType::Tanh, t12);
-  auto t14 = mul(tv1_xvar, IrBuilder::create<Double>(0.5));
+  auto t14 = mul(tv1_xvar, IrBuilder::create<Val>(0.5));
   auto t15 = mul(t13, t13);
   auto t16 = unaryOp(UnaryOpType::Neg, t15);
-  auto t17 = add(t16, IrBuilder::create<Int>(1));
-  auto t18 = mul(tv1_xvar, IrBuilder::create<Double>(k_010));
+  auto t17 = add(t16, IrBuilder::create<Val>(1L));
+  auto t18 = mul(tv1_xvar, IrBuilder::create<Val>(k_010));
   auto t19 = mul(t18, tv1_xvar);
-  auto t20 = add(t19, IrBuilder::create<Double>(k_079));
+  auto t20 = add(t19, IrBuilder::create<Val>(k_079));
   auto t21 = mul(t17, t20);
   auto t22 = mul(t14, t21);
-  auto t23 = add(t13, IrBuilder::create<Int>(1));
-  auto t24 = mul(t23, IrBuilder::create<Double>(0.5));
+  auto t23 = add(t13, IrBuilder::create<Val>(1L));
+  auto t24 = mul(t23, IrBuilder::create<Val>(0.5));
   auto t25 = add(t22, t24);
   auto t26 = mul(t25, tv0_grad);
   auto t27 = sum(t26, {0});
@@ -2496,7 +2484,6 @@ TEST_F(NVFuserTest, FusionGeluBwdReduction_CUDA) {
   fusion.addOutput(t27);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(1);
 
   // reference values
   at::Tensor at_grad = at::randn(tensor_shape, options);
@@ -2525,6 +2512,54 @@ TEST_F(NVFuserTest, FusionGeluBwdReduction_CUDA) {
       __FILE__,
       "",
       reduction_params->lparams);
+}
+
+// Test gathering for lookup as is done in the cross_entropy pattern
+// See https://github.com/NVIDIA/Fuser/issues/151
+TEST_F(NVFuserTest, FusionCrossEntropyGatherPattern_CUDA) {
+  const int batch_size = 16384;
+  const int num_classes = 60;
+  const int tidx = 128;
+  const int bidx = 1;
+
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto log_probs = makeSymbolicTensor(2);
+  auto labels = makeSymbolicTensor(1, DataType::Int);
+  fusion.addInput(log_probs);
+  fusion.addInput(labels);
+
+  auto tv2 = broadcast(labels, {false, true});
+  auto tv3 = torch_gather(log_probs, 1, tv2);
+  auto tv4 = squeeze(tv3, std::vector<bool>({false, true}));
+
+  fusion.addOutput(tv4);
+
+  tv4->split(0, tidx);
+  tv4->split(0, bidx);
+  tv4->split(0, 1); // unswitch
+  TransformPropagator propagator(tv4);
+  MaxRootDomainInfoSpanningTree(tv4).traverse(&propagator);
+
+  tv4->axis(0)->parallelize(ParallelType::BIDy);
+  tv4->axis(2)->parallelize(ParallelType::BIDx);
+  tv4->axis(3)->parallelize(ParallelType::TIDx);
+  scheduler_utils::parallelizeAllLike(tv4);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto at_log_probs = at::randn({batch_size, num_classes}, options);
+  auto at_labels =
+      at::randint(0, num_classes, {batch_size}, options.dtype(at::kLong));
+  std::vector<c10::IValue> inputs = {at_log_probs, at_labels};
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, inputs);
+  auto cg_outputs = fe.runFusion(inputs);
+
+  auto ref = at::gather(at_log_probs, 1, at_labels.unsqueeze(1)).squeeze();
+
+  testValidate(&fusion, cg_outputs, inputs, {ref}, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser

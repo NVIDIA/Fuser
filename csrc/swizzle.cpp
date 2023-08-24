@@ -7,7 +7,7 @@
 // clang-format on
 #include <swizzle.h>
 
-#include <ir_builder.h>
+#include <ir/builder.h>
 #include <ops/arith.h>
 
 namespace nvfuser {
@@ -28,7 +28,7 @@ namespace swizzles {
 std::pair<Val*, Val*> ZShape(Val* x, Val* y, Val* size_y) {
   auto zero = x->fusion()->zeroVal();
   auto one = x->fusion()->oneVal();
-  auto two = IrBuilder::create<Int>(2);
+  auto two = IrBuilder::create<Val>(2L, DataType::Index);
   return {x, where(eq(mod(x, two), zero), y, sub(sub(size_y, one), y))};
 }
 
@@ -70,27 +70,6 @@ std::pair<Val*, Val*> unCyclicShift(Val* x, Val* y, Val* size_x) {
   return {x, mod(sub(add(size_x, y), x), size_x)};
 }
 
-// Scatter swizzle:
-//   Corresponds to the data layout out of ldmatrix intrinsic.
-//   supported dimensions are : 8x4, 16x4, 32x4
-std::pair<Val*, Val*> Scatter(Val* x, Val* y, int64_t size_x) {
-  TORCH_CHECK(
-      size_x == 8 || size_x == 16 || size_x == 32,
-      "Unsupported Scatter swizzle size");
-  Val* size_x_val = IrBuilder::create<Int>(size_x);
-  auto four = IrBuilder::create<Int>(4);
-  return {cpp_div(add(mul(y, size_x_val), x), four), mod(x, four)};
-}
-
-std::pair<Val*, Val*> unScatter(Val* x, Val* y, int64_t size_x) {
-  TORCH_CHECK(
-      size_x == 8 || size_x == 16 || size_x == 32,
-      "Unsupported Scatter swizzle size");
-  Val* size_x_div_4 = IrBuilder::create<Int>(size_x / 4);
-  auto four = IrBuilder::create<Int>(4);
-  return {add(y, mul(mod(x, size_x_div_4), four)), cpp_div(x, size_x_div_4)};
-}
-
 } // namespace swizzles
 
 std::pair<Val*, Val*> dispatchSwizzle(
@@ -106,8 +85,6 @@ std::pair<Val*, Val*> dispatchSwizzle(
       return swizzles::Xor(x, y);
     case Swizzle2DType::CyclicShift:
       return swizzles::CyclicShift(x, y, maybe_size_x);
-    case Swizzle2DType::Scatter:
-      return swizzles::Scatter(x, y, maybe_size_x->evaluateInt());
     default:
       TORCH_INTERNAL_ASSERT(false, "Unsupported swizzle type");
   }
@@ -126,8 +103,6 @@ std::pair<Val*, Val*> dispatchUnSwizzle(
       return swizzles::unXor(x, y);
     case Swizzle2DType::CyclicShift:
       return swizzles::unCyclicShift(x, y, maybe_size_x);
-    case Swizzle2DType::Scatter:
-      return swizzles::unScatter(x, y, maybe_size_x->evaluateInt());
     default:
       TORCH_INTERNAL_ASSERT(false, "Unsupported swizzle type");
   }

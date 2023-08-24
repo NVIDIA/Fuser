@@ -11,8 +11,8 @@
 #include <torch/torch.h>
 
 #include <python_frontend/fusion_record.h>
-#include <test/test_gpu_validator.h>
-#include <test/test_utils.h>
+#include <test/utils.h>
+#include <test/validator.h>
 
 namespace nvfuser {
 using namespace nvfuser::python_frontend;
@@ -98,9 +98,10 @@ TEST_F(NVFuserTest, RecordFunctorEquality_CUDA) {
         {out},
         "ops.sum",
         serde::RecordType_ReductionSum,
-        static_cast<
-            TensorView* (*)(TensorView*, const std::vector<int>&, bool, DataType)>(
-            sum),
+        static_cast<TensorView* (*)(TensorView*,
+                                    const std::vector<int>&,
+                                    bool,
+                                    DataType)>(sum),
         {0},
         false,
         DataType::Float));
@@ -109,9 +110,10 @@ TEST_F(NVFuserTest, RecordFunctorEquality_CUDA) {
         {out},
         "ops.sum",
         serde::RecordType_ReductionSum,
-        static_cast<
-            TensorView* (*)(TensorView*, const std::vector<int>&, bool, DataType)>(
-            sum),
+        static_cast<TensorView* (*)(TensorView*,
+                                    const std::vector<int>&,
+                                    bool,
+                                    DataType)>(sum),
         {0},
         false,
         DataType::Float));
@@ -120,9 +122,10 @@ TEST_F(NVFuserTest, RecordFunctorEquality_CUDA) {
         {out},
         "ops.sum",
         serde::RecordType_ReductionSum,
-        static_cast<
-            TensorView* (*)(TensorView*, const std::vector<int>&, bool, DataType)>(
-            sum),
+        static_cast<TensorView* (*)(TensorView*,
+                                    const std::vector<int>&,
+                                    bool,
+                                    DataType)>(sum),
         {0},
         false,
         DataType::Float));

@@ -12,8 +12,8 @@
 
 #include <python_frontend/fusion_definition.h>
 #include <python_frontend/fusion_record.h>
-#include <test/test_gpu_validator.h>
-#include <test/test_utils.h>
+#include <test/utils.h>
+#include <test/validator.h>
 
 namespace nvfuser {
 using namespace nvfuser::python_frontend;
@@ -22,7 +22,7 @@ using namespace nvfuser::python_frontend;
 TEST_F(NVFuserTest, FusionDefinition_CUDA) {
   // Test that the FusionDefinition asserts on max_length == 0
   {
-    FusionDefinition fd(c10::nullopt, 0);
+    FusionDefinition fd(std::nullopt, 0);
 
     try {
       fd.setupDefinition();
@@ -34,7 +34,7 @@ TEST_F(NVFuserTest, FusionDefinition_CUDA) {
 
   // Create a new FusionDefinition that is not found in the cache
   {
-    FusionDefinition fd(c10::nullopt, 4);
+    FusionDefinition fd(std::nullopt, 4);
 
     try {
       fd.setupDefinition();
@@ -55,8 +55,8 @@ TEST_F(NVFuserTest, FusionDefinition_CUDA) {
 
     auto s1 = fd.defineScalar();
     try {
-      fd.defineRecord(
-          new ScalarRecord({fd.recordingState(s1())}, DataType::Double));
+      fd.defineRecord(new ScalarRecord(
+          {fd.recordingState(s1())}, std::monostate{}, DataType::Double));
       SUCCEED();
     } catch (const std::exception& e) {
       FAIL() << "Unexpected assert during Scalar Record creation! " << e.what();
@@ -114,7 +114,7 @@ TEST_F(NVFuserTest, FusionDefinition_CUDA) {
 
   // Look up a FusionDefinition completely in the cache
   {
-    FusionDefinition fd(c10::nullopt, 4);
+    FusionDefinition fd(std::nullopt, 4);
 
     try {
       fd.setupDefinition();
@@ -135,8 +135,8 @@ TEST_F(NVFuserTest, FusionDefinition_CUDA) {
 
     auto s1 = fd.defineScalar();
     try {
-      fd.defineRecord(
-          new ScalarRecord({fd.recordingState(s1())}, DataType::Double));
+      fd.defineRecord(new ScalarRecord(
+          {fd.recordingState(s1())}, std::monostate{}, DataType::Double));
       SUCCEED();
     } catch (const std::exception& e) {
       FAIL() << "Unexpected assert during Scalar Record creation! " << e.what();

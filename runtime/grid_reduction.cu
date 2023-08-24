@@ -73,6 +73,7 @@ template <
     bool X_THREAD,
     bool Y_THREAD,
     bool Z_THREAD,
+    bool Aligned,
     typename T,
     typename Func>
 __device__ void gridReduceLastBlock(
@@ -121,15 +122,8 @@ __device__ void gridReduceLastBlock(
 
   // Block reduce the per thread values into per "participating" thread values
   T inp_tmp = init_val;
-  blockReduce<!X_THREAD, !Y_THREAD, !Z_THREAD>(
-      inp_tmp,
-      inp,
-      reduction_op,
-      threadIdx,
-      blockDim,
-      shared_buf,
-      true,
-      init_val);
+  blockReduce<!X_THREAD, !Y_THREAD, !Z_THREAD, Aligned>(
+      inp_tmp, inp, reduction_op, shared_buf, true, init_val);
   const bool should_write = (X_THREAD || threadIdx.x == 0) &&
       (Y_THREAD || threadIdx.y == 0) && (Z_THREAD || threadIdx.z == 0);
   if (should_write && write_pred) {
@@ -195,6 +189,7 @@ template <
     bool Y_THREAD,
     bool Z_THREAD,
     bool PERSISTENT_REDUCTION,
+    bool Aligned,
     typename T,
     typename Func>
 __device__ void gridReduce(
@@ -213,12 +208,10 @@ __device__ void gridReduce(
 
   // Do block reduction when required
   if (X_THREAD || Y_THREAD || Z_THREAD) {
-    blockReduce<X_THREAD, Y_THREAD, Z_THREAD>(
+    blockReduce<X_THREAD, Y_THREAD, Z_THREAD, Aligned>(
         block_reduction_val,
         inp_val,
         reduction_op,
-        threadIdx,
-        blockDim,
         shared_buf,
         read_pred,
         true,
@@ -264,12 +257,12 @@ __device__ void gridReduce(
     work_buf[work_buf_offset] = block_reduction_val;
   }
   if (PERSISTENT_REDUCTION) {
-    grid_sync::sync<X_BLOCK, Y_BLOCK, Z_BLOCK, PERSISTENT_REDUCTION>(
+    grid_sync::sync<X_BLOCK, Y_BLOCK, Z_BLOCK, PERSISTENT_REDUCTION, Aligned>(
         sync_flags[idx_in_grid_segment], grid_reduction_segment_size);
 
   } else {
     // Use a different sync flag for each call
-    grid_sync::sync<X_BLOCK, Y_BLOCK, Z_BLOCK, PERSISTENT_REDUCTION>(
+    grid_sync::sync<X_BLOCK, Y_BLOCK, Z_BLOCK, PERSISTENT_REDUCTION, Aligned>(
         sync_flags[entrance_ind * grid_segment_size + idx_in_grid_segment],
         grid_reduction_segment_size);
   }
@@ -279,7 +272,7 @@ __device__ void gridReduce(
 
   if (last_block) {
     // Cleanup with block reduction
-    gridReduceLastBlock<!X_THREAD, !Y_THREAD, !Z_THREAD>(
+    gridReduceLastBlock<!X_THREAD, !Y_THREAD, !Z_THREAD, Aligned>(
         out,
         (T*)work_buf,
         grid_reduction_segment_size,
@@ -293,7 +286,7 @@ __device__ void gridReduce(
   if (PERSISTENT_REDUCTION) {
     // Make sure we're done with global memory before we allow the kernel to
     // continue
-    grid_sync::sync<X_BLOCK, Y_BLOCK, Z_BLOCK, PERSISTENT_REDUCTION>(
+    grid_sync::sync<X_BLOCK, Y_BLOCK, Z_BLOCK, PERSISTENT_REDUCTION, Aligned>(
         sync_flags[idx_in_grid_segment], grid_reduction_segment_size);
   }
 }
@@ -302,7 +295,7 @@ __device__ void gridReduce(
 // measure the elapsed cycles. The measurement must be done just by
 // one thread, and in this case it should be done by one of the
 // threads in the last thread block.
-#ifdef PYTORCH_NVFUSER_PROFILE_KERNEL
+#ifdef NVFUSER_PROFILE_KERNEL
 template <
     bool X_BLOCK,
     bool Y_BLOCK,
@@ -311,6 +304,7 @@ template <
     bool Y_THREAD,
     bool Z_THREAD,
     bool PERSISTENT_REDUCTION,
+    bool Aligned,
     typename T,
     typename Func>
 __device__ void gridReduce(
@@ -342,6 +336,7 @@ __device__ void gridReduce(
       Y_THREAD,
       Z_THREAD,
       PERSISTENT_REDUCTION,
+      Aligned,
       T,
       Func>(
       out,
@@ -362,7 +357,7 @@ __device__ void gridReduce(
     ++count;
   }
 }
-#endif // PYTORCH_NVFUSER_PROFILE_KERNEL
+#endif // NVFUSER_PROFILE_KERNEL
 
 template <
     bool X_BLOCK,
@@ -371,6 +366,7 @@ template <
     bool X_THREAD,
     bool Y_THREAD,
     bool Z_THREAD,
+    bool Aligned,
     typename T,
     typename Func>
 __device__ void gridReduce2PartialReduction(
@@ -387,12 +383,10 @@ __device__ void gridReduce2PartialReduction(
 
   // Do block reduction when required
   if (X_THREAD || Y_THREAD || Z_THREAD) {
-    blockReduce<X_THREAD, Y_THREAD, Z_THREAD>(
+    blockReduce<X_THREAD, Y_THREAD, Z_THREAD, Aligned>(
         block_reduction_val,
         inp_val,
         reduction_op,
-        threadIdx,
-        blockDim,
         shared_buf,
         read_pred,
         true,
@@ -423,6 +417,7 @@ template <
     bool Y_THREAD,
     bool Z_THREAD,
     bool PERSISTENT_REDUCTION,
+    bool Aligned,
     typename T1,
     typename Func1,
     typename T2,
@@ -478,7 +473,8 @@ __device__ void gridReduceGroup(
       Z_BLOCK,
       X_THREAD,
       Y_THREAD,
-      Z_THREAD>(
+      Z_THREAD,
+      Aligned>(
       inp_val1,
       init_val1,
       reduction_op1,
@@ -495,7 +491,8 @@ __device__ void gridReduceGroup(
       Z_BLOCK,
       X_THREAD,
       Y_THREAD,
-      Z_THREAD>(
+      Z_THREAD,
+      Aligned>(
       inp_val2,
       init_val2,
       reduction_op2,
@@ -507,10 +504,10 @@ __device__ void gridReduceGroup(
       block_reduction_segment_size);
 
   if (PERSISTENT_REDUCTION) {
-    grid_sync::sync<X_BLOCK, Y_BLOCK, Z_BLOCK, PERSISTENT_REDUCTION>(
+    grid_sync::sync<X_BLOCK, Y_BLOCK, Z_BLOCK, PERSISTENT_REDUCTION, Aligned>(
         sync_flags[idx_in_grid_segment], grid_reduction_segment_size);
   } else {
-    grid_sync::sync<X_BLOCK, Y_BLOCK, Z_BLOCK, PERSISTENT_REDUCTION>(
+    grid_sync::sync<X_BLOCK, Y_BLOCK, Z_BLOCK, PERSISTENT_REDUCTION, Aligned>(
         sync_flags[entrance_ind * grid_segment_size + idx_in_grid_segment],
         grid_reduction_segment_size);
   }
@@ -520,7 +517,7 @@ __device__ void gridReduceGroup(
 
   if (last_block) {
     // Cleanup with block reduction
-    gridReduceLastBlock<!X_THREAD, !Y_THREAD, !Z_THREAD>(
+    gridReduceLastBlock<!X_THREAD, !Y_THREAD, !Z_THREAD, Aligned>(
         out1,
         work_buf1,
         grid_reduction_segment_size,
@@ -529,7 +526,7 @@ __device__ void gridReduceGroup(
         (T1*)shared_buf,
         write_pred,
         init_val1);
-    gridReduceLastBlock<!X_THREAD, !Y_THREAD, !Z_THREAD>(
+    gridReduceLastBlock<!X_THREAD, !Y_THREAD, !Z_THREAD, Aligned>(
         out2,
         work_buf2,
         grid_reduction_segment_size,
@@ -543,12 +540,12 @@ __device__ void gridReduceGroup(
   if (PERSISTENT_REDUCTION) {
     // Make sure we're done with global memory before we allow the kernel to
     // continue
-    grid_sync::sync<X_BLOCK, Y_BLOCK, Z_BLOCK, PERSISTENT_REDUCTION>(
+    grid_sync::sync<X_BLOCK, Y_BLOCK, Z_BLOCK, PERSISTENT_REDUCTION, Aligned>(
         sync_flags[idx_in_grid_segment], grid_reduction_segment_size);
   }
 }
 
-#ifdef PYTORCH_NVFUSER_PROFILE_KERNEL
+#ifdef NVFUSER_PROFILE_KERNEL
 template <
     bool X_BLOCK,
     bool Y_BLOCK,
@@ -557,6 +554,7 @@ template <
     bool Y_THREAD,
     bool Z_THREAD,
     bool PERSISTENT_REDUCTION,
+    bool Aligned,
     typename T1,
     typename Func1,
     typename T2,
@@ -595,6 +593,7 @@ __device__ void gridReduceGroup(
       Y_THREAD,
       Z_THREAD,
       PERSISTENT_REDUCTION,
+      Aligned,
       T1,
       Func1,
       T2,
@@ -622,6 +621,6 @@ __device__ void gridReduceGroup(
     ++count;
   }
 }
-#endif // PYTORCH_NVFUSER_PROFILE_KERNEL
+#endif // NVFUSER_PROFILE_KERNEL
 
 } // namespace reduction

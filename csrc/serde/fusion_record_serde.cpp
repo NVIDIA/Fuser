@@ -8,8 +8,8 @@
 #include <ops/arith.h>
 #include <ops/composite.h>
 #include <python_frontend/fusion_record.h>
+#include <serde/fusion_cache_generated.h>
 #include <serde/fusion_record_serde.h>
-#include <serde/python_fusion_cache_generated.h>
 #include <functional>
 
 namespace nvfuser::serde {
@@ -23,88 +23,17 @@ std::vector<python_frontend::State> parseStateArgs(
   return result;
 }
 
-template <typename T>
-std::vector<T> parseVector(const flatbuffers::Vector<T>* fb_vector) {
-  std::vector<T> result(fb_vector->begin(), fb_vector->end());
-  return result;
-}
-
-// Flatbuffer stores bool values as uint8_t.
-std::vector<bool> parseBoolVector(
-    const flatbuffers::Vector<uint8_t>* fb_vector) {
-  std::vector<bool> result(fb_vector->begin(), fb_vector->end());
-  return result;
-}
-
-serde::DataType mapToSerdeDtype(PrimDataType t) {
-  switch (t) {
-    case PrimDataType::Bool:
-      return serde::DataType_Bool;
-    case PrimDataType::Double:
-      return serde::DataType_Double;
-    case PrimDataType::Float:
-      return serde::DataType_Float;
-    case PrimDataType::Half:
-      return serde::DataType_Half;
-    case PrimDataType::BFloat16:
-      return serde::DataType_BFloat16;
-    case PrimDataType::Int:
-      return serde::DataType_Int;
-    case PrimDataType::Int32:
-      return serde::DataType_Int32;
-    case PrimDataType::ComplexFloat:
-      return serde::DataType_ComplexFloat;
-    case PrimDataType::ComplexDouble:
-      return serde::DataType_ComplexDouble;
-    case PrimDataType::Null:
-      return serde::DataType_None;
-    default:
-      break;
-  }
-  TORCH_INTERNAL_ASSERT(false, "No serde dtype found for nvfuser data type.");
-  return serde::DataType_MAX;
-}
-
-PrimDataType mapToNvfuserDtype(serde::DataType t) {
-  switch (t) {
-    case serde::DataType_Bool:
-      return PrimDataType::Bool;
-    case serde::DataType_Double:
-      return PrimDataType::Double;
-    case serde::DataType_Float:
-      return PrimDataType::Float;
-    case serde::DataType_Half:
-      return PrimDataType::Half;
-    case serde::DataType_BFloat16:
-      return PrimDataType::BFloat16;
-    case serde::DataType_Int:
-      return PrimDataType::Int;
-    case serde::DataType_Int32:
-      return PrimDataType::Int32;
-    case serde::DataType_ComplexFloat:
-      return PrimDataType::ComplexFloat;
-    case serde::DataType_ComplexDouble:
-      return PrimDataType::ComplexDouble;
-    case serde::DataType_None:
-      return PrimDataType::Null;
-    default:
-      break;
-  }
-  TORCH_INTERNAL_ASSERT(false, "No nvfuser dtype found for serde data type.");
-  return PrimDataType::Null;
-}
-
-c10::optional<bool> mapContiguityEnumToOptional(int v) {
+std::optional<bool> mapContiguityEnumToOptional(int v) {
   switch (v) {
     case serde::Contiguity_Strided:
-      return c10::optional<bool>(false);
+      return std::optional<bool>(false);
     case serde::Contiguity_Contiguous:
-      return c10::optional<bool>(true);
+      return std::optional<bool>(true);
     case serde::Contiguity_None:
-      return c10::nullopt;
+      return std::nullopt;
   }
   TORCH_INTERNAL_ASSERT(false, "Invalid contiguity type.");
-  return c10::nullopt;
+  return std::nullopt;
 }
 
 template <class fn_type, class... Signature>
@@ -466,31 +395,14 @@ void RecordFunctorFactory::registerAllParsers() {
   auto deserializeBroadcastInDimRecord =
       [](const serde::RecordFunctor* buffer) {
         auto data = buffer->data_as_BroadcastInDim();
-        return new python_frontend::BroadcastInDimOpRecord<int64_t>(
+        return new python_frontend::BroadcastInDimOpRecord(
             parseStateArgs(buffer->args()),
             parseStateArgs(buffer->outputs()),
-            buffer->name()->str(),
-            serde::RecordType_BroadcastInDim,
-            parseVector(data->output_shape()),
+            data->output_size(),
             parseVector(data->broadcast_dims()));
       };
   registerParser(
       serde::RecordType_BroadcastInDim, deserializeBroadcastInDimRecord);
-
-  auto deserializeBroadcastInDimSymbolicRecord = [](const serde::RecordFunctor*
-                                                        buffer) {
-    auto data = buffer->data_as_BroadcastInDimSymbolic();
-    return new python_frontend::BroadcastInDimOpRecord<python_frontend::State>(
-        parseStateArgs(buffer->args()),
-        parseStateArgs(buffer->outputs()),
-        buffer->name()->str(),
-        serde::RecordType_BroadcastInDimSymbolic,
-        parseStateArgs(data->output_shape()),
-        parseVector(data->broadcast_dims()));
-  };
-  registerParser(
-      serde::RecordType_BroadcastInDimSymbolic,
-      deserializeBroadcastInDimSymbolicRecord);
 
   auto deserializeCastTvRecord = [](const serde::RecordFunctor* buffer) {
     std::function<TensorView*(nvfuser::DataType, TensorView*)> fusion_op =
@@ -518,50 +430,13 @@ void RecordFunctorFactory::registerAllParsers() {
   };
   registerParser(serde::RecordType_CastVal, deserializeCastValRecord);
 
-  auto deserializeConstantBoolRecord = [](const serde::RecordFunctor* buffer) {
-    return new python_frontend::ConstantRecord<nvfuser::Bool, bool>(
+  auto deserializeScalarRecord = [](const serde::RecordFunctor* buffer) {
+    return new python_frontend::ScalarRecord(
         parseStateArgs(buffer->outputs()),
-        serde::RecordType_ConstantBool,
-        buffer->data_as_Bool()->bool_val(),
-        nvfuser::DataType::Bool);
+        deserializePolymorphicValue(buffer->data_as_Scalar()),
+        mapToNvfuserDtype(buffer->data_as_Scalar()->dtype()));
   };
-  registerParser(serde::RecordType_ConstantBool, deserializeConstantBoolRecord);
-
-  auto deserializeConstantDoubleRecord =
-      [](const serde::RecordFunctor* buffer) {
-        auto data = buffer->data_as_Double();
-        return new python_frontend::ConstantRecord<nvfuser::Double, double>(
-            parseStateArgs(buffer->outputs()),
-            serde::RecordType_ConstantDouble,
-            data->double_val(),
-            mapToNvfuserDtype(data->dtype()));
-      };
-  registerParser(
-      serde::RecordType_ConstantDouble, deserializeConstantDoubleRecord);
-
-  auto deserializeConstantComplexDoubleRecord =
-      [](const serde::RecordFunctor* buffer) {
-        auto data = buffer->data_as_ComplexDouble();
-        return new python_frontend::
-            ConstantRecord<nvfuser::ComplexDouble, std::complex<double>>(
-                parseStateArgs(buffer->outputs()),
-                serde::RecordType_ConstantComplexDouble,
-                std::complex<double>(data->real(), data->imag()),
-                mapToNvfuserDtype(data->dtype()));
-      };
-  registerParser(
-      serde::RecordType_ConstantComplexDouble,
-      deserializeConstantComplexDoubleRecord);
-
-  auto deserializeConstantIntRecord = [](const serde::RecordFunctor* buffer) {
-    auto data = buffer->data_as_Int();
-    return new python_frontend::ConstantRecord<nvfuser::Int, int64_t>(
-        parseStateArgs(buffer->outputs()),
-        serde::RecordType_ConstantInt,
-        data->int_val(),
-        mapToNvfuserDtype(data->dtype()));
-  };
-  registerParser(serde::RecordType_ConstantInt, deserializeConstantIntRecord);
+  registerParser(serde::RecordType_Scalar, deserializeScalarRecord);
 
   auto deserializeFullRecord = [](const serde::RecordFunctor* buffer) {
     auto data = buffer->data_as_TensorCreation();
@@ -588,6 +463,15 @@ void RecordFunctorFactory::registerAllParsers() {
         buffer->data_as_Dimension()->dim());
   };
   registerParser(serde::RecordType_TorchGatherOp, deserializeTorchGatherRecord);
+
+  auto deserializeTakeAlongAxisRecord = [](const serde::RecordFunctor* buffer) {
+    return new python_frontend::TakeAlongAxisOpRecord(
+        parseStateArgs(buffer->args()),
+        parseStateArgs(buffer->outputs()),
+        buffer->data_as_Dimension()->dim());
+  };
+  registerParser(
+      serde::RecordType_TakeAlongAxisOp, deserializeTakeAlongAxisRecord);
 
   auto deserializeIndexSelectRecord = [](const serde::RecordFunctor* buffer) {
     return new python_frontend::IndexSelectOpRecord(
@@ -652,13 +536,6 @@ void RecordFunctorFactory::registerAllParsers() {
   };
   registerParser(serde::RecordType_ReshapeOp, deserializeReshapeRecord);
 
-  auto deserializeScalarRecord = [](const serde::RecordFunctor* buffer) {
-    return new python_frontend::ScalarRecord(
-        parseStateArgs(buffer->outputs()),
-        mapToNvfuserDtype(buffer->data_as_Dtype()->dtype()));
-  };
-  registerParser(serde::RecordType_Scalar, deserializeScalarRecord);
-
   auto deserializeSliceRecord = [](const serde::RecordFunctor* buffer) {
     auto data = buffer->data_as_Slice();
     return new python_frontend::SliceOpRecord(
@@ -683,17 +560,17 @@ void RecordFunctorFactory::registerAllParsers() {
   auto deserializeTensorRecord = [](const serde::RecordFunctor* buffer) {
     auto data = buffer->data_as_Tensor();
 
-    std::vector<c10::optional<bool>> contiguous_info;
+    std::vector<std::optional<bool>> contiguity;
     std::transform(
         data->contiguity()->cbegin(),
         data->contiguity()->cend(),
-        std::back_inserter(contiguous_info),
+        std::back_inserter(contiguity),
         mapContiguityEnumToOptional);
 
     return new python_frontend::TensorRecord(
         parseStateArgs(buffer->outputs()),
         parseVector(data->sizes()),
-        contiguous_info,
+        contiguity,
         mapToNvfuserDtype(data->dtype()),
         data->is_cpu());
   };
@@ -704,6 +581,30 @@ void RecordFunctorFactory::registerAllParsers() {
         parseStateArgs(buffer->args()), parseStateArgs(buffer->outputs()));
   };
   registerParser(serde::RecordType_TensorSizes, deserializeTensorSizesRecord);
+
+  auto deserializeShapeOpRecord = [](const serde::RecordFunctor* buffer) {
+    return new python_frontend::ShapeOpRecord(
+        parseStateArgs(buffer->args()), parseStateArgs(buffer->outputs()));
+  };
+  registerParser(serde::RecordType_ShapeOp, deserializeShapeOpRecord);
+
+  auto deserializeSizeOpRecord = [](const serde::RecordFunctor* buffer) {
+    auto data = buffer->data_as_Size();
+    return new python_frontend::SizeOpRecord(
+        parseStateArgs(buffer->args()),
+        parseStateArgs(buffer->outputs()),
+        data->dim());
+  };
+  registerParser(serde::RecordType_SizeOp, deserializeSizeOpRecord);
+
+  auto deserializeAtOpRecord = [](const serde::RecordFunctor* buffer) {
+    auto data = buffer->data_as_At();
+    return new python_frontend::AtOpRecord(
+        parseStateArgs(buffer->args()),
+        parseStateArgs(buffer->outputs()),
+        data->index());
+  };
+  registerParser(serde::RecordType_AtOp, deserializeAtOpRecord);
 
   auto deserializeVarianceRecord = [](const serde::RecordFunctor* buffer) {
     auto data = buffer->data_as_Norm();
@@ -727,6 +628,15 @@ void RecordFunctorFactory::registerAllParsers() {
   };
   registerParser(
       serde::RecordType_VarianceMeanOp, deserializeVarianceMeanRecord);
+
+  auto deserializeVectorRecord = [](const serde::RecordFunctor* buffer) {
+    auto data = buffer->data_as_Vector();
+    return new python_frontend::VectorRecord(
+        parseStateArgs(buffer->args()),
+        parseStateArgs(buffer->outputs()),
+        mapToNvfuserDtype(data->dtype()));
+  };
+  registerParser(serde::RecordType_Vector, deserializeVectorRecord);
 }
 
 void RecordFunctorFactory::setupFunctionMaps() {
@@ -734,6 +644,11 @@ void RecordFunctorFactory::setupFunctionMaps() {
   unary_tv.emplace(                                                         \
       ("ops." op_str), static_cast<TensorView* (*)(TensorView*)>(op_name)); \
   unary_val.emplace(("ops." op_str), static_cast<Val* (*)(Val*)>(op_name));
+
+#define NVFUSER_BINARY_TV_ONLY_OP(op_str, op_name) \
+  binary_tv.emplace(                               \
+      ("ops." op_str),                             \
+      static_cast<TensorView* (*)(TensorView*, TensorView*)>(op_name));
 
 #define NVFUSER_BINARY_TV_OP(op_str, op_name)                           \
   binary_tv.emplace(                                                    \
@@ -857,9 +772,11 @@ void RecordFunctorFactory::setupFunctionMaps() {
   NVFUSER_UNARY_TV_OP("reciprocal", reciprocal)
   NVFUSER_UNARY_TV_OP("round", round)
   NVFUSER_UNARY_TV_OP("rsqrt", rsqrt)
+  NVFUSER_UNARY_TV_OP("segment_set", segment_set)
   NVFUSER_UNARY_TV_OP("set", set)
   NVFUSER_UNARY_TV_OP("sign", sign)
   NVFUSER_UNARY_TV_OP("sigmoid", sigmoid)
+  NVFUSER_UNARY_TV_OP("signbit", signbit)
   NVFUSER_UNARY_TV_OP("silu", silu)
   NVFUSER_UNARY_TV_OP("sin", sin)
   NVFUSER_UNARY_TV_OP("sinh", sinh)
@@ -876,9 +793,15 @@ void RecordFunctorFactory::setupFunctionMaps() {
   NVFUSER_UNARY_TV_OP("real", real)
   NVFUSER_UNARY_TV_OP("imag", imag)
 
+  NVFUSER_BINARY_TV_ONLY_OP("_matmul_nn", _matmul_nn)
+  NVFUSER_BINARY_TV_ONLY_OP("_matmul_nt", _matmul_nt)
+  NVFUSER_BINARY_TV_ONLY_OP("_matmul_tn", _matmul_tn)
+  NVFUSER_BINARY_TV_ONLY_OP("_matmul_tt", _matmul_tt)
+
   NVFUSER_BINARY_TV_OP("add", add)
   NVFUSER_BINARY_TV_OP("atan2", atan2)
   NVFUSER_BINARY_TV_OP("div", div)
+  NVFUSER_BINARY_TV_OP("truediv", truediv)
   NVFUSER_BINARY_TV_OP("fmod", fmod)
   NVFUSER_BINARY_TV_OP("mul", mul)
   NVFUSER_BINARY_TV_OP("nextafter", nextafter)
@@ -896,13 +819,23 @@ void RecordFunctorFactory::setupFunctionMaps() {
   NVFUSER_BINARY_TV_OP("bitwise_or", bitwise_or)
   NVFUSER_BINARY_TV_OP("bitwise_xor", bitwise_xor)
   NVFUSER_BINARY_TV_OP("bitwise_left_shift", bitwise_left_shift)
-  NVFUSER_BINARY_TV_OP("bitwise_right_shift", bitwise_left_shift)
+  NVFUSER_BINARY_TV_OP("bitwise_right_shift", bitwise_right_shift)
+  NVFUSER_BINARY_TV_OP("logical_right_shift", logical_right_shift)
+  NVFUSER_BINARY_TV_OP("gcd", gcd)
 
   NVFUSER_BINARY_TV_ALPHA_OP("add_alpha", add_alpha)
   NVFUSER_BINARY_TV_ALPHA_OP("sub_alpha", sub_alpha)
 
   NVFUSER_TERNARY_TV_OP("lerp", lerp)
   NVFUSER_TERNARY_TV_OP("where", where)
+
+  // The following ops behave like TernaryOps but are only TV_VAL_VAL
+  ternary_tv_val_val.emplace(
+      "ops.rand_like",
+      static_cast<TensorView* (*)(TensorView*, Val*, Val*)>(rand_like));
+  ternary_tv_val_val.emplace(
+      "ops.randn_like",
+      static_cast<TensorView* (*)(TensorView*, Val*, Val*)>(randn_like));
 
   NVFUSER_THRESHOLD_TV_OP("clamp", clamp)
   NVFUSER_THRESHOLD_TV_OP("threshold", threshold)

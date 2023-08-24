@@ -8,7 +8,7 @@
 #include <executor.h>
 #include <fusion.h>
 #include <instrumentation.h>
-#include <ir_iostream.h>
+#include <ir/iostream.h>
 #include <kernel_cache.h>
 #include <manager.h>
 #include <parser.h>
@@ -256,7 +256,7 @@ void compileCudaFusionGroup(torch::jit::Node* fusion_node) {
           __FUNCTION__,
           ". This is an indication that codegen Failed for some reason.\n"
           "To debug try disable codegen fallback path via setting the env"
-          " variable `export PYTORCH_NVFUSER_DISABLE=fallback`\n"
+          " variable `export NVFUSER_DISABLE=fallback`\n"
           "To report the issue, try enable logging via setting the env"
           "variable ` export PYTORCH_JIT_LOG_LEVEL=manager.cpp`\n");
       GRAPH_DUMP("`compile_fusion` hits fallback on graph\n", graph);
@@ -292,7 +292,7 @@ void runCudaFusionGroup(
     torch::jit::InterpreterState{*fallback_code}.run(stack);
   };
 
-  c10::optional<torch::jit::Stack> stack_copy;
+  std::optional<torch::jit::Stack> stack_copy;
   auto compare_callback = torch::jit::getCudaFuserComparisonCallback();
   if (compare_callback.run_fallback) {
     // make a copy of the stack

@@ -10,14 +10,25 @@
 #include <ATen/ATen.h>
 #include <c10/util/Exception.h>
 #include <torch/csrc/jit/ir/ir.h>
+
+#include <debug.h>
 #include <type.h>
 
 #include <deque>
+#include <fstream>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <type_traits>
 #include <typeinfo>
 #include <vector>
+
+//! IR header hierarchy
+//! 1. ** utils.h ** - PolymorphicBase and NonCopyable
+//! 2. ir/base_nodes.h - Statement, Expr, and Val
+//! 3. ir/internal_base_nodes.h - IterDomain and TensorDomain
+//! 4. ir/interface_nodes.h - TensorView and Scalar
+//! 5. ir/internal_nodes.h ** - Any internal-only IR nodes
 
 namespace nvfuser {
 
@@ -29,112 +40,24 @@ bool is_zero_sized_tensor(const std::shared_ptr<c10::TensorType>& tensor_type);
 bool is_cpu_scalar(const at::Tensor& tensor);
 bool is_cpu_scalar(const c10::TensorType& tensor_type);
 
-// TODO: merge these two
-// check if input is compatible with 32b index mode
-int8_t getCommonDeviceCUDA(const at::ArrayRef<c10::IValue>& inputs);
-KernelIndexMode collectIndexMode(const at::ArrayRef<c10::IValue>& inputs);
+//! Find common device among tensor inputs. If no tensor inputs are found and
+//! the selected_device argument is omitted, a default value of 0 is returned.
+//! If no tensor inputs are found and selected_device is provided,
+//! selected_device will be returned. If tensor inputs are found their devices
+//! must match one another, and if selected_device is given they must match it
+//! as well, otherwise -1 is returned.
+int8_t getCommonDeviceCUDA(
+    const at::ArrayRef<c10::IValue>& inputs,
+    std::optional<int8_t> selected_device = std::nullopt);
 
-//! Types of debug print-outs
-//!
-//! These can be set through the `PYTORCH_NVFUSER_DUMP` environment variable
-//!
-enum class DebugDumpOption {
-  FusionIr, //!< Dump the Fusion IR before lowering
-  FusionIrMath, //!< Dump just the compute (math) part of the Fusion IR
-  FusionIrPresched, //!< Dump the Fusion IR before it is scheduled.
-  KernelIr, //!< Dump the compiler Kernel IR
-  ComputeAtMap, //!< Dump the computeAt map
-  CudaKernel, //!< Dump the generated CUDA C++ kernel code
-  CudaFull, //!< Dump the complete CUDA C++ code
-  CudaToFile, //!< Dump CUDA Strings to File
-  DebugInfo, //!< Embed line info and debug info to compiled kernel, and dump
-             //!< the full CUDA C++ code
-  AssertMemoryViolation, //!< Assert in the kernel when accessing global tensor
-                         //!< out of bound. This might hurt performance.
-  LaunchParam, //!< Dump the Launch parameters of kernel
-  FusionSegments, //!< Dump Segmented Fusion Graph
-  FusionSegmenterLog, //!< Dump Detailed Segmenter Logging
-  FusionArgs, //!< Print the runtime fusion arguments
-  KernelArgs, //!< Print the runtime kernel arguments when launching kernels
-  EffectiveBandwidth, //! Measure kernel performance and print effective
-                      //! bandwidth
-  FusionSegmentsDrawing, //!< Dump Segmented Fusion Graph
-  PrintPtxasLog, //!< Print the ptxas verbose log including register usage
-  BufferReuseInfo, //!< Dump the analysis details of local/shared buffer re-use
-  SchedulerDebug, //! Dump scheduler heuristic parameters
-  SchedulerVerbose, //! Dump detailed scheduler logging
-  ParallelDimensions, //!< Dump known parallel dimensions
-  Halo, //! Halo information of tensors
-  PerfDebugVerbose, //! When running kernels, print verbose information
-                    //! associated with what's running
-  PythonDefinition, //! Python Frontend Fusion Definition.
-  PythonFrontendDebug, //! Python Frontend debug information.
-  TransformPropagator, //! When running TransformPropagator, print propagation
-                       //! path and replay result
-  Cubin, //! Dump compiled CUBIN
-  Sass, // Dump disassembled SASS
-  Ptx, //! Dump compiled PTX
-  BankConflictInfo, //! Dump bank confliction info
-  SyncMap, //! RAW dependency info
-  LowerVerbose, //! Print all passes' transform in GpuLower::lower
-  ExprSimplification, //! Print all passes' transform in simplifyExpr
-  ExprSort, //! Print merging decisions on expression sorting
-  LoopRotation, //! Print loop rotation log
-  MatmulChecks, //! Print logs from tools around matmul scheduler used in
-                //! segmenter
-  EndOfOption //! Placeholder for counting the number of elements
-};
+TORCH_CUDA_CU_API int64_t
+getRegPerThreadGivenThreadsPerSM(int64_t threads_per_sm);
 
-TORCH_CUDA_CU_API bool isDebugDumpEnabled(DebugDumpOption option);
-TORCH_CUDA_CU_API const std::vector<std::string>& getDebugDumpArguments(
-    DebugDumpOption option);
+TORCH_CUDA_CU_API int64_t
+getThreadsPerSMGivenRegPerThread(int64_t reg_per_thread);
 
-//! Types of features to disable
-//!
-//! These can be set through the `PYTORCH_NVFUSER_DISABLE` environment variable
-//!
-enum class DisableOption {
-  ArchCheck, //! Disable hardware-specific checks to enable cross arch debug
-  CompileToSass, //! Disable direct compilation to sass so the ptx can be
-                 //! examined
-  Fallback, //! Disable fallback
-  Fma, //! Disable FMA instructions
-  GroupedGridWelfordOuterOpt, //! Disable use of outer-optimized
-                              //! grouped grid welford kernel
-  IndexHoist, //! Disable index hoisting
-  ExprSimplify, //! Disable expression simplifier
-  Nvtx, //! Disable NVTX instrumentation
-  PredicateElimination, //! Disable predicate elimination
-  WelfordVectorization, //! Disable vectorizaton of Welford ops
-  MagicZero, //! Disable nvfuser_zero
-  EndOfOption //! Placeholder for counting the number of elements
-};
-
-TORCH_CUDA_CU_API bool isOptionDisabled(DisableOption option);
-TORCH_CUDA_CU_API const std::vector<std::string>& getDisableOptionArguments(
-    DisableOption option);
-
-//! Types of features to enable
-//!
-//! These can be set through the `PYTORCH_NVFUSER_ENABLE` environment variable
-//!
-enum class EnableOption {
-  Complex, //! Enable complex support on python
-  KernelProfile, //! Enable intra-kernel performance profiling
-  LinearDecomposition, //! Enable linear-bias decomposition
-  ConvDecomposition, //! Enable conv-bias decomposition
-  GraphOp, //! Enable graphOps(index_select/gather/scatter)
-  KernelDb, //! Enable Kernel Database
-  WarnRegisterSpill, //! Enable warnings of register spill
-  EndOfOption //! Placeholder for counting the number of elements
-};
-
-TORCH_CUDA_CU_API bool isOptionEnabled(EnableOption option);
-TORCH_CUDA_CU_API const std::vector<std::string>& getEnableOptionArguments(
-    EnableOption option);
-
-// Check if fallback path should be used which will dispatch to eagermode if any
-// errors are encountered. Helpful for debugging.
+// Check if fallback path should be used which will dispatch to eager mode if
+// any errors are encountered. Helpful for debugging.
 bool useFallback();
 
 //! Ceil integer division
@@ -270,9 +193,8 @@ std::vector<KeyType> getSortedKeys(
 
 // Based on https://stackoverflow.com/a/9154394
 template <typename T>
-static auto hasToStringHelper(int) -> decltype(
-    std::declval<typename std::remove_pointer<T>::type>().toString(),
-    std::true_type{});
+static auto hasToStringHelper(int)
+    -> decltype(std::declval<typename std::remove_pointer<T>::type>().toString(), std::true_type{});
 
 template <typename>
 static auto hasToStringHelper(long) -> std::false_type;
@@ -335,6 +257,8 @@ struct Printer<T> {
 SPECIALIZE_PRINTER(bool);
 SPECIALIZE_PRINTER(int);
 SPECIALIZE_PRINTER(std::string);
+using ConstCharStar = const char*;
+SPECIALIZE_PRINTER(ConstCharStar);
 SPECIALIZE_PRINTER(int64_t);
 SPECIALIZE_PRINTER(DataType);
 SPECIALIZE_PRINTER(MemoryType);
@@ -384,6 +308,13 @@ std::string toDelimitedString(
   return toDelimitedString(dq.begin(), dq.end(), delim);
 }
 
+template <typename Printable>
+std::string toDelimitedString(
+    const std::unordered_set<Printable>& set,
+    std::string delim = ", ") {
+  return toDelimitedString(set.begin(), set.end(), delim);
+}
+
 template <int64_t index, int64_t stop, int64_t step, typename func_t>
 void unrolled_for(func_t fun) {
   if constexpr (index < stop) {
@@ -419,16 +350,32 @@ std::string toDelimitedString(
   return ss.str();
 }
 
+template <typename ContainerOfStatement>
+std::string toDelimitedInlineString(
+    const ContainerOfStatement& container,
+    std::string delim = ", ") {
+  std::stringstream ss;
+  bool first_val = true;
+  for (const auto& item : container) {
+    if (!first_val) {
+      ss << delim;
+    }
+    ss << item->toInlineString();
+    first_val = false;
+  }
+  return ss.str();
+}
+
 template <typename... Args>
 class DebugPrintScope {
  public:
   DebugPrintScope(std::string name, Args... args) : name_(std::move(name)) {
-    std::cout << "Entering " << name_ << "("
-              << toDelimitedString(std::forward_as_tuple(args...)) << ")"
-              << std::endl;
+    debug() << "Entering " << name_ << "("
+            << toDelimitedString(std::forward_as_tuple(args...)) << ")"
+            << std::endl;
   }
   ~DebugPrintScope() {
-    std::cout << "Leaving " << name_ << std::endl;
+    debug() << "Leaving " << name_ << std::endl;
   }
 
  private:
@@ -442,107 +389,58 @@ class DebugPrintScope {
 #define DEBUG_PRINT_SCOPE(...) \
   DebugPrintScope _debug_print_scope(__func__, ##__VA_ARGS__)
 
-//! Dispatch Functor::opeartor()<NativeType>(Args) where NativeType is
-//! the actual C++ type that corresponds to the given Aten scalar
-//! type. Deduction of the native type is done using
-//! AtenTypeToNativeType, so for example at::ScalarType::ComplexFloat
-//! corresponds to std::complex<float> rathe than
-//! c10::complex<float>. For the latter behavior, please use
-//! atenTypeDispatchWithC10Complex below.
-template <typename Functor, typename... Args>
-auto atenTypeDispatch(at::ScalarType type, Functor func, Args&&... args) {
-  switch (type) {
-    case at::ScalarType::Int:
-      return func
-          .template operator()<AtenTypeToNativeType<at::ScalarType::Int>::type>(
-              std::forward<Args>(args)...);
-    case at::ScalarType::Long:
-      return func.template
-      operator()<AtenTypeToNativeType<at::ScalarType::Long>::type>(
-          std::forward<Args>(args)...);
-    case at::ScalarType::Bool:
-      return func.template
-      operator()<AtenTypeToNativeType<at::ScalarType::Bool>::type>(
-          std::forward<Args>(args)...);
-    case at::ScalarType::Float:
-      return func.template
-      operator()<AtenTypeToNativeType<at::ScalarType::Float>::type>(
-          std::forward<Args>(args)...);
-    case at::ScalarType::Double:
-      return func.template
-      operator()<AtenTypeToNativeType<at::ScalarType::Double>::type>(
-          std::forward<Args>(args)...);
-    case at::ScalarType::Half:
-      return func.template
-      operator()<AtenTypeToNativeType<at::ScalarType::Half>::type>(
-          std::forward<Args>(args)...);
-    case at::ScalarType::BFloat16:
-      return func.template
-      operator()<AtenTypeToNativeType<at::ScalarType::BFloat16>::type>(
-          std::forward<Args>(args)...);
-    case at::ScalarType::ComplexFloat:
-      return func.template
-      operator()<AtenTypeToNativeType<at::ScalarType::ComplexFloat>::type>(
-          std::forward<Args>(args)...);
-    case at::ScalarType::ComplexDouble:
-      return func.template
-      operator()<AtenTypeToNativeType<at::ScalarType::ComplexDouble>::type>(
-          std::forward<Args>(args)...);
-    default:
-      TORCH_INTERNAL_ASSERT(false, "Unexpected aten type: ", type);
+// Computes the index type required.
+// Made into a class w/ state to allow reuse with
+// different tensors and without needing to pass an allocated
+// vector of size+stride
+class KernelIndexTypeCompute {
+  // Save 1 more bit besides the sign bit to be conservative
+  static constexpr int64_t most_positive_int32_index =
+      std::numeric_limits<int>::max() / 2;
+
+ public:
+  // Updates counters and returns current reqd mode
+  inline PrimDataType addDim(int64_t size, int64_t stride) {
+    if (size > 1) {
+      TORCH_INTERNAL_ASSERT(
+          stride >= 0, "Negative stride is not supported: ", stride);
+      if (stride > 0) {
+        // Accumulate positive stride
+        tensor_most_positive_index_ += (size - 1) * stride;
+      }
+    }
+    return getType();
   }
+
+  inline PrimDataType getType() const {
+    if (tensor_most_positive_index_ > most_positive_int32_index) {
+      return PrimDataType::Int;
+    } else {
+      return PrimDataType::Int32;
+    }
+  }
+
+ private:
+  int64_t tensor_most_positive_index_ = 0;
+};
+
+template <typename>
+struct is_std_vector : std::false_type {};
+
+template <typename T, typename A>
+struct is_std_vector<std::vector<T, A>> : std::true_type {};
+
+template <typename T>
+constexpr auto is_std_vector_v = is_std_vector<T>::value;
+
+//! Alter an existing hash in order to combine it with a new hash in a way that
+//! is order-dependent and spreads bits over the entire range of a size_t.
+//! Inspired by boost::hash_combine. See https://stackoverflow.com/q/35985960
+inline void hashCombine(size_t& hash, size_t new_hash) {
+  hash ^= new_hash + 0x9e3779b9 + (hash << 6) + (hash >> 2);
 }
 
-//! Dispatch Functor::opeartor()<NativeType>(Args) where NativeType is
-//! the actual C++ type that corresponds to the given Aten scalar
-//! type. Deduction of the native type is done using
-//! AtenTypeToNativeTypeWithC10Complex, so for example
-//! at::ScalarType::ComplexFloat corresponds to c10::complex<float> rathe than
-//! std::complex<float>. For the latter behavior, please use
-//! atenTypeDispatch above.
-template <typename Functor, typename... Args>
-auto atenTypeDispatchWithC10Complex(
-    at::ScalarType type,
-    Functor func,
-    Args&&... args) {
-  switch (type) {
-    case at::ScalarType::Int:
-      return func.template
-      operator()<AtenTypeToNativeTypeWithC10Complex<at::ScalarType::Int>::type>(
-          std::forward<Args>(args)...);
-    case at::ScalarType::Long:
-      return func.template operator()<
-          AtenTypeToNativeTypeWithC10Complex<at::ScalarType::Long>::type>(
-          std::forward<Args>(args)...);
-    case at::ScalarType::Bool:
-      return func.template operator()<
-          AtenTypeToNativeTypeWithC10Complex<at::ScalarType::Bool>::type>(
-          std::forward<Args>(args)...);
-    case at::ScalarType::Float:
-      return func.template operator()<
-          AtenTypeToNativeTypeWithC10Complex<at::ScalarType::Float>::type>(
-          std::forward<Args>(args)...);
-    case at::ScalarType::Double:
-      return func.template operator()<
-          AtenTypeToNativeTypeWithC10Complex<at::ScalarType::Double>::type>(
-          std::forward<Args>(args)...);
-    case at::ScalarType::Half:
-      return func.template operator()<
-          AtenTypeToNativeTypeWithC10Complex<at::ScalarType::Half>::type>(
-          std::forward<Args>(args)...);
-    case at::ScalarType::BFloat16:
-      return func.template operator()<
-          AtenTypeToNativeTypeWithC10Complex<at::ScalarType::BFloat16>::type>(
-          std::forward<Args>(args)...);
-    case at::ScalarType::ComplexFloat:
-      return func.template operator()<AtenTypeToNativeTypeWithC10Complex<
-          at::ScalarType::ComplexFloat>::type>(std::forward<Args>(args)...);
-    case at::ScalarType::ComplexDouble:
-      return func.template operator()<AtenTypeToNativeTypeWithC10Complex<
-          at::ScalarType::ComplexDouble>::type>(std::forward<Args>(args)...);
-    default:
-      TORCH_INTERNAL_ASSERT(false, "Unexpected aten type: ", type);
-  }
-}
+//! A wrapper to std::getenv. env_name is prepended with NVFUSER_.
+char* getNvFuserEnv(const char* env_name);
 
 } // namespace nvfuser

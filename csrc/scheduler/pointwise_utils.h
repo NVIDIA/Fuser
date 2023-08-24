@@ -8,8 +8,8 @@
 #pragma once
 
 #include <compute_at_map.h>
-#include <ir_all_nodes.h>
-#include <ir_utils.h>
+#include <ir/all_nodes.h>
+#include <ir/utils.h>
 #include <scheduler/utils.h>
 
 namespace nvfuser {
@@ -30,23 +30,23 @@ class DomainMap {
   // The reference tensor must map to all the iterDomains in each input.
   bool isValidReference(TensorView* tv) const;
 
-  // Determine if and ID is a selected ID of some SelectOp
-  bool isSelectId(IterDomain* id) const {
-    return select_ids_.count(id);
-  }
-
  protected:
   // Determine if all IterDomains are mapped between input and the given tvs
   bool areAllInputIdsMappedTo(TensorView* input_tv, TensorView* output_tv)
       const;
+
+  virtual IterDomain* getMappedInputConcreteID(
+      const std::unordered_set<IterDomain*>& in_concrete_ids,
+      IterDomain* out_id) const;
 
   // Erase input concrete ID if it is mapped to output ID
   bool eraseIfMapped(
       std::unordered_set<IterDomain*>& in_concrete_ids,
       IterDomain* out_id) const;
 
-  // Check if in_ids are mapped to ids through any rfactor domain.
-  void eraseIfInputMappedThroughRFactorDomain(
+  // Check if in_ids are mapped to ids through any rfactor domain as
+  // well as indirectly accessed domains with ops like torch_gather
+  void eraseifInputMappedThroughRFactorDomainAndIndexing(
       std::unordered_set<IterDomain*>& in_ids,
       const std::vector<IterDomain*>& ids) const;
 
@@ -58,7 +58,6 @@ class DomainMap {
   Fusion* fusion_ = nullptr;
   ComputeAtMap ca_map_;
   std::vector<TensorView*> tvs_with_rfactor_;
-  std::unordered_set<IterDomain*> select_ids_;
 };
 
 // Returns number of non-reduction/non-broadcast dims in rfactor domain

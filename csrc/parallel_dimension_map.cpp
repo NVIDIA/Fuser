@@ -8,12 +8,11 @@
 #include <parallel_dimension_map.h>
 
 #include <ATen/cuda/CUDAContext.h>
-#include <assume.h>
+#include <device_lower/lower2device.h>
 #include <disjoint_set.h>
 #include <expr_simplifier.h>
-#include <ir_utils.h>
+#include <ir/utils.h>
 #include <iter_visitor.h>
-#include <lower2device.h>
 
 #include <functional>
 #include <sstream>
@@ -42,7 +41,7 @@ void ParallelDimensionMap::build(Fusion* fusion) {
   VectorOfUniqueEntries<PAndID> all_concrete_ids;
   auto all_vals = fusion->usedMathVals();
   for (auto tv : ir_utils::filterByType<TensorView>(all_vals)) {
-    for (auto id : tv->domain()->domain()) {
+    for (auto id : tv->getLeafDomain()) {
       auto ptype = id->getParallelType();
       if (!isParallelTypeThread(ptype)) {
         continue;
@@ -70,16 +69,7 @@ void ParallelDimensionMap::build(Fusion* fusion) {
 
   // Simplify dim_map_
   for (auto& [k, v] : dim_map_) {
-    // Well, this isn't really correct, but we need this assumption to better
-    // handle non-empty cases. If this turn out to be an issue, I believe we
-    // then need to find a more systematic way to handle empty tensor, rather
-    // than just disable this assumption.
-    auto assume = assume::tensorsAreNotEmpty(v);
-    if (assume != nullptr) {
-      v = simplifyExpr(v, {}, {assume});
-    } else {
-      v = simplifyExpr(v);
-    }
+    v = simplifyExpr(v);
   }
 
   // Compute exact_types_
@@ -108,7 +98,7 @@ void ParallelDimensionMap::adjustMappingsForWarpPadding() {
   }
 
   const auto tidx_pt = ParallelType::TIDx;
-  auto warp_size_val = IrBuilder::create<Int>(32);
+  auto warp_size_val = IrBuilder::create<Val>(32L, DataType::Index);
   auto tidx_dim = getRaw(tidx_pt);
 
   TORCH_INTERNAL_ASSERT(tidx_dim != nullptr);

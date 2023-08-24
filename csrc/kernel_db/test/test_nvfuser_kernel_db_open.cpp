@@ -12,8 +12,8 @@
 
 #include <kernel_db/kernel_db.h>
 #include <kernel_db/utils.h>
-#include <test/test_gpu_validator.h>
-#include <test/test_utils.h>
+#include <test/utils.h>
+#include <test/validator.h>
 
 // RUN CMD: bin/test_jit --gtest_filter="NVFuserTest*KernelDb_Open*"
 

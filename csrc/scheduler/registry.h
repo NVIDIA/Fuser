@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 #include <executor_kernel_arg.h>
+#include <expr_evaluator.h>
 #include <fusion.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/compile_time_info.h>
@@ -37,23 +38,27 @@ class TORCH_CUDA_CU_API SchedulerRuntimeInfo : public NonCopyable {
  public:
   // Max vector size we will consider, in bytes,
   //  currently set to 16B = 128b
-  static constexpr size_t max_alignment_size_in_byte = 16;
+  static constexpr int64_t max_alignment_size_in_byte = 16;
 
   //! Create runtime info for given fusion and input. Creating and binding
-  //!  evaluator is optional. The evaluator is used to manage intermediate
-  //!  integers in the fusion. We need them for segmenter and schedulers,
-  //!  but we don't need them when we are just using this class to provide
-  //!  additional encoding for kernel cache lookup.
+  //! evaluator is optional. The evaluator is used to manage intermediate
+  //! integers in the fusion. We need them for segmenter and schedulers,
+  //! but we don't need them when we are just using this class to provide
+  //! additional encoding for kernel cache lookup.
+  //!
+  //! The index type of forced_index_type is used if given, no matter
+  //! how large the actual arguments and fusion tensors
+  //! are. CORRECTNESS IS NOT GUARANTEED.
   SchedulerRuntimeInfo(
       Fusion* complete_fusion,
-      const KernelArgumentHolder& inputs,
-      bool create_expr_evaluator = false);
+      KernelArgumentHolder args,
+      PrecomputedValues* precomputed_values = nullptr,
+      const std::vector<TensorView*>& all_tvs = {},
+      std::optional<PrimDataType> forced_index_type = std::nullopt);
 
-  // TODO: Remove this guy below. Everything needs to go into the other ctor
   SchedulerRuntimeInfo(
       Fusion* complete_fusion,
-      const at::ArrayRef<c10::IValue>& aten_inputs,
-      bool create_expr_evaluator = false);
+      const at::ArrayRef<c10::IValue>& aten_inputs);
 
   //! Lookup for the alignment sizes of the given tv. Currently only returns
   //!  actual alignment info for input tensors to the complete fusion,
@@ -62,22 +67,19 @@ class TORCH_CUDA_CU_API SchedulerRuntimeInfo : public NonCopyable {
   size_t getAlignmentSize(TensorView* tv);
 
   // Gets maximum vectorizable width of tv, assumes we can merge across all
-  // iteration domains if contiguous. Cannot permute the dimensions to fix
-  // contiguity. Ignores dimensions that are broadcast or reduction.
-  size_t getMaxVectorizableWidth(TensorView* tv);
-
-  // Gets the vectorizable width of the inner most dimension of tv if it's
-  // contiguous. Ignores inner most dimensions that are broadcast or reduction.
-  size_t getInnerDimVectorizableWidth(TensorView* tv);
+  // iteration domains if contiguous, unless contig_merge=false. Cannot permute
+  // the dimensions to fix contiguity. Ignores dimensions that are broadcast or
+  // reduction.
+  size_t getMaxVectorizableWidth(TensorView* tv, bool contig_merge = true);
 
   // Computes alignment size in bytes for provided ptr address
   static size_t computeAlignmentSize(size_t ptr_address);
 
   // Return the runtime pointer value for provided tensor view
-  size_t ptrOf(TensorView* tv);
+  size_t ptrOf(TensorView* tv) const;
 
-  KernelIndexMode getIndexMode() {
-    return index_mode_;
+  PrimDataType getIndexType() const {
+    return index_type_;
   }
 
   Fusion* fusion() {
@@ -90,11 +92,10 @@ class TORCH_CUDA_CU_API SchedulerRuntimeInfo : public NonCopyable {
   }
 
  private:
-  // Bind full fusion inputs to the internal expression evaluator
-  void initializeExpressionEvaluator(const KernelArgumentHolder& inputs);
-
-  // Initialize SchedulerRuntimeInfo
-  void initialize(const KernelArgumentHolder& args, bool create_expr_evaluator);
+  // Build and bind full fusion inputs to an expression evaluator
+  std::unique_ptr<ExpressionEvaluator> getExpressionEvaluator(
+      const KernelArgumentHolder& inputs,
+      PrecomputedValues* precomputed_values);
 
   bool isInputTv(TensorView* tv) {
     return std::find(
@@ -125,11 +126,9 @@ class TORCH_CUDA_CU_API SchedulerRuntimeInfo : public NonCopyable {
   std::unordered_map<TensorView*, size_t> alignment_map_;
   // Cache for getMaxVectorizableWidth
   std::unordered_map<TensorView*, size_t> max_vectorword_map_;
-  // Cache for getInnerDimVectorizableWidth
-  std::unordered_map<TensorView*, size_t> inner_vectorword_map_;
 
   // Found index mode kernel needs to be run in
-  KernelIndexMode index_mode_ = KernelIndexMode::INT64;
+  PrimDataType index_type_ = PrimDataType::Int;
 
   // TODO: Remove
   std::unordered_map<TensorView*, size_t> vectorword_map_;
@@ -165,7 +164,7 @@ class TORCH_CUDA_CU_API SchedulerEntry {
   //! Fusion segmenter facing API,
   //!   returns a schedule that applies in the given fusion, returns a nullopt
   //!   if no schedule in the registry can handle.
-  static c10::optional<ScheduleHeuristic> proposeHeuristics(
+  static std::optional<ScheduleHeuristic> proposeHeuristics(
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info);
 

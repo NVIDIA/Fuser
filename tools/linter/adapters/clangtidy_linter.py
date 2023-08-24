@@ -13,14 +13,15 @@ from pathlib import Path
 from sysconfig import get_paths as gp
 from typing import Any, List, NamedTuple, Optional, Pattern
 
-# PyTorch directory root
+# Nvfuser directory root
 result = subprocess.run(
     ["git", "rev-parse", "--show-toplevel"],
     stdout=subprocess.PIPE,
     check=True,
 )
-PYTORCH_ROOT = result.stdout.decode("utf-8").strip()
+NVFUSER_ROOT = result.stdout.decode("utf-8").strip()
 IS_WINDOWS: bool = os.name == "nt"
+
 
 # Returns '/usr/local/include/python<version number>'
 def get_python_include_dir() -> str:
@@ -132,7 +133,7 @@ include_args = []
 include_dir = [
     "/usr/lib/llvm-11/include/openmp",
     get_python_include_dir(),
-    os.path.join(PYTORCH_ROOT, "third_party/pybind11/include"),
+    os.path.join(NVFUSER_ROOT, "third_party/pybind11/include"),
 ] + clang_search_dirs()
 for dir in include_dir:
     include_args += ["--extra-arg", f"-I{dir}"]
@@ -147,7 +148,7 @@ def check_file(
         proc = run_command(
             [binary, f"-p={build_dir}", *include_args, filename],
         )
-    except (OSError) as err:
+    except OSError as err:
         return [
             LintMessage(
                 path=filename,
@@ -232,6 +233,7 @@ def main() -> None:
         stream=sys.stderr,
     )
 
+    args.binary = os.path.expanduser(args.binary)
     if not os.path.exists(args.binary):
         err_msg = LintMessage(
             path="<none>",

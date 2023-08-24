@@ -384,7 +384,7 @@ MaxRootDomainInfoSpanningTree::getReferenceRootIDInfo(
       "MaxRootDomainInfoSpanningTree called on an leaf_pos outside valid range.");
   RootDomainInfo result;
   const auto& root_domain = tv->getMaybeRFactorDomain();
-  const auto& leaf_domain = tv->domain()->domain();
+  const auto& leaf_domain = tv->getLeafDomain();
   std::unordered_set<IterDomain*> selected_leaves(
       leaf_domain.begin(), leaf_domain.begin() + leaf_pos);
   for (auto id : root_domain) {

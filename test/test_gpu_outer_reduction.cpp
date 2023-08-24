@@ -10,14 +10,15 @@
 
 #include <grouped_reduction.h>
 #include <inlining.h>
-#include <ir_utils.h>
+#include <ir/utils.h>
 #include <kernel_cache.h>
 #include <ops/all_ops.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/reduction_utils.h>
 #include <scheduler/utils.h>
-#include <test/test_gpu_validator.h>
-#include <test/test_utils.h>
+#include <test/utils.h>
+#include <test/validator.h>
+#include <utils.h>
 
 #include <ATen/cuda/CUDAContext.h>
 #include <ATen/cuda/Exceptions.h>
@@ -106,7 +107,6 @@ TEST_F(NVFuserTest, FusionGroupedGridWelfordOuterOpt_CUDA) {
 
     auto at_dtype = params.dtype == DataType::Half ? at::kHalf : at::kFloat;
     auto options = at::TensorOptions().dtype(at_dtype).device(at::kCUDA, 0);
-    at::manual_seed(0);
 
     const std::vector<int64_t> input_shape{reduction_size, iteration_size};
     auto t0 = at::randn(input_shape, options);
@@ -218,6 +218,11 @@ TEST_F(NVFuserTest, FusionGroupedGridWelfordOuterOpt_CUDA) {
   }
 
   for (const auto& params : test_params) {
+    // Shmoo tests can occupy a lot of memory due to allocating many
+    // different tensor sizes. So in order to avoid an OOM during this
+    // test, we manually clear the allocator after it's reached a certain
+    // threshold.
+    maybeClearAllocator();
     run_test(params);
   }
 }
@@ -226,7 +231,7 @@ namespace {
 
 // A quick opt-in switch to enable performance measurements.
 bool isBenchmarkMode() {
-  return getenv("PYTORCH_NVFUSER_OUTER_REDUCTION_BENCHMARK") != nullptr;
+  return getNvFuserEnv("OUTER_REDUCTION_BENCHMARK") != nullptr;
 }
 
 struct OuterReductionParams {
@@ -533,10 +538,10 @@ void scheduleNormalization(Fusion& fusion, const OuterReductionParams& params) {
   // Clear unswitch
   IterDomain* unswitch_id = nullptr;
   auto unswitch_id_it = std::find_if(
-      reduction_tv_rf->domain()->domain().begin(),
-      reduction_tv_rf->domain()->domain().end(),
+      reduction_tv_rf->getLeafDomain().begin(),
+      reduction_tv_rf->getLeafDomain().end(),
       [](auto id) { return id->getParallelType() == ParallelType::Unswitch; });
-  if (unswitch_id_it != reduction_tv_rf->domain()->domain().end()) {
+  if (unswitch_id_it != reduction_tv_rf->getLeafDomain().end()) {
     unswitch_id = *unswitch_id_it;
   }
 
@@ -627,7 +632,6 @@ void grid_persistent_reduction_outer_norm_like(
 
   auto options =
       at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
-  at::manual_seed(0);
 
   const std::vector<int64_t> input_shape{N, HW, HW, C};
   auto t0 = at::randn(input_shape, options);
@@ -735,7 +739,6 @@ void grid_persistent_welford_outer_norm_like(
 
   auto options_half =
       at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
-  at::manual_seed(0);
 
   const std::vector<int64_t> input_shape{N, HW, HW, C};
   auto t0 = at::randn(input_shape, options_half);
@@ -872,8 +875,8 @@ void grid_persistent_batchnorm_manual(
     bias = castOp(DataType::Float, bias);
   }
 
-  auto momentum_ptr = IrBuilder::create<Double>(kMomentum);
-  auto eps_ptr = IrBuilder::create<Double>(kEps);
+  auto momentum_ptr = IrBuilder::create<Val>(kMomentum);
+  auto eps_ptr = IrBuilder::create<Val>(kEps);
 
   auto result = batch_norm(
       input,
@@ -908,7 +911,6 @@ void grid_persistent_batchnorm_manual(
       at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options =
       at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
-  at::manual_seed(0);
 
   auto at_input = at::randn({N, C, HW, HW}, options)
                       .contiguous(c10::MemoryFormat::ChannelsLast);
@@ -1039,7 +1041,7 @@ void grid_persistent_reduction_outer_norm_bwd_like(
   fusion.addInput(tv1);
 
   auto norm =
-      IrBuilder::create<Double>(1.0 / ((double)N * (double)HW * (double)HW));
+      IrBuilder::create<Val>(1.0 / ((double)N * (double)HW * (double)HW));
 
   auto tv2 = dtype == DataType::Half ? castOp(DataType::Float, tv0) : tv0;
   auto tv3 = dtype == DataType::Half ? castOp(DataType::Float, tv1) : tv1;
@@ -1071,7 +1073,6 @@ void grid_persistent_reduction_outer_norm_bwd_like(
 
   auto options =
       at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
-  at::manual_seed(0);
 
   const std::vector<int64_t> input_shape{N, HW, HW, C};
   auto t0 = at::randn(input_shape, options);
@@ -1194,7 +1195,7 @@ void grid_persistent_batchnorm_bwd_manual(
     grad_output = castOp(DataType::Float, grad_output);
   }
 
-  auto eps_ptr = IrBuilder::create<Double>(kEps);
+  auto eps_ptr = IrBuilder::create<Val>(kEps);
 
   auto result = batch_norm_backward(
       input,
@@ -1237,7 +1238,6 @@ void grid_persistent_batchnorm_bwd_manual(
       at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options =
       at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
-  at::manual_seed(0);
 
   const std::vector<int64_t> input_shape{N, HW, HW, C};
 
@@ -1438,7 +1438,6 @@ void grid_persistent_reduction_outer_norm_like_scheduler(
   auto options_weight = at::TensorOptions()
                             .dtype(data_type_to_aten(weights_dtype))
                             .device(at::kCUDA, 0);
-  at::manual_seed(0);
 
   const std::vector<int64_t> input_shape{N, HW, HW, C};
   auto t0 = at::randn(input_shape, options);
@@ -1597,7 +1596,6 @@ void grid_persistent_welford_outer_norm_like_scheduler(
   auto options_weight = at::TensorOptions()
                             .dtype(data_type_to_aten(weights_dtype))
                             .device(at::kCUDA, 0);
-  at::manual_seed(0);
 
   const std::vector<int64_t> input_shape{N, HW, HW, C};
   auto t0 = at::randn(input_shape, options);
@@ -1747,8 +1745,8 @@ void grid_persistent_batchnorm_scheduler(
     bias = castOp(DataType::Float, bias);
   }
 
-  auto momentum_ptr = IrBuilder::create<Double>(kMomentum);
-  auto eps_ptr = IrBuilder::create<Double>(kEps);
+  auto momentum_ptr = IrBuilder::create<Val>(kMomentum);
+  auto eps_ptr = IrBuilder::create<Val>(kEps);
 
   auto result = batch_norm(
       input,
@@ -1773,7 +1771,6 @@ void grid_persistent_batchnorm_scheduler(
       at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options =
       at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
-  at::manual_seed(0);
 
   auto at_input = at::randn({N, C, HW, HW}, options)
                       .contiguous(c10::MemoryFormat::ChannelsLast);
@@ -1896,7 +1893,7 @@ void grid_persistent_reduction_outer_norm_bwd_like_scheduler(
   fusion.addInput(tv1);
 
   auto norm =
-      IrBuilder::create<Double>(1.0 / ((double)N * (double)HW * (double)HW));
+      IrBuilder::create<Val>(1.0 / ((double)N * (double)HW * (double)HW));
 
   auto tv2 = dtype == DataType::Half ? castOp(DataType::Float, tv0) : tv0;
   auto tv3 = dtype == DataType::Half ? castOp(DataType::Float, tv1) : tv1;
@@ -1918,7 +1915,6 @@ void grid_persistent_reduction_outer_norm_bwd_like_scheduler(
 
   auto options =
       at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
-  at::manual_seed(0);
 
   const std::vector<int64_t> input_shape{N, HW, HW, C};
   auto t0 = at::randn(input_shape, options);
@@ -2056,7 +2052,7 @@ void grid_persistent_batchnorm_bwd_scheduler(
     grad_output = castOp(DataType::Float, grad_output);
   }
 
-  auto eps_ptr = IrBuilder::create<Double>(kEps);
+  auto eps_ptr = IrBuilder::create<Val>(kEps);
 
   auto result = batch_norm_backward(
       input,
@@ -2089,7 +2085,6 @@ void grid_persistent_batchnorm_bwd_scheduler(
       at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options =
       at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
-  at::manual_seed(0);
 
   const std::vector<int64_t> input_shape{N, HW, HW, C};
 

@@ -8,18 +8,18 @@
 #include <transform_iter.h>
 
 #include <c10/util/irange.h>
-#include <ir_utils.h>
+#include <ir/utils.h>
 
 #include <typeinfo>
 
 namespace nvfuser {
 
 // Transform dispatch
-void ReplayTransformations::handle(Expr* e) {
+void ReplayTransformations::dispatch(Expr* e) {
   auto is_supported_expr = e->isOneOf<Split, Merge, Swizzle2D, Resize>();
   TORCH_INTERNAL_ASSERT(
       is_supported_expr, "Invalid expr type found in transform traversal.");
-  IterVisitor::handle(e);
+  IterVisitor::dispatch(e);
 }
 
 // We're going to replay this split operation on the corresponding ID
@@ -201,7 +201,11 @@ void ReplayTransformations::handle(Resize* exp) {
   auto out = mapped;
 
   if (replay_resize_) {
-    out = IterDomain::resize(mapped, exp->leftExpand(), exp->rightExpand());
+    out = IterDomain::resize(
+        mapped,
+        exp->leftExpand(),
+        exp->rightExpand(),
+        mapped->isRFactorProduct());
   }
 
   leaf_ids_.erase(mapped);
@@ -318,7 +322,7 @@ BestEffortReplay::BestEffortReplay(
   }
 
   // Grab expr history of iter domains in target_domain
-  std::vector<Expr*> target_exprs = StmtSort::getExprs(
+  std::vector<Expr*> target_exprs = StmtSort::getExprsTo(
       FusionGuard::getCurFusion(),
       std::vector<Val*>(target_domain.begin(), target_domain.end()));
 
@@ -329,7 +333,7 @@ BestEffortReplay::BestEffortReplay(
   // replay_domain map.
 
   // Map replay domain's IterDomains to the Exprs they're used in
-  std::vector<Expr*> replay_exprs = StmtSort::getExprs(
+  std::vector<Expr*> replay_exprs = StmtSort::getExprsTo(
       FusionGuard::getCurFusion(),
       std::vector<Val*>(replay_domain.begin(), replay_domain.end()));
 
@@ -382,7 +386,7 @@ BestEffortReplay::BestEffortReplay(
   }
 
   if (skip_resize) {
-    skipResizes();
+    skipResizes(target_exprs, replay_exprs);
   }
 
   std::string err_str(
@@ -622,7 +626,7 @@ BestEffortReplay::BestEffortReplay(
     }
 
     if (skip_resize) {
-      skipResizes();
+      skipResizes(target_exprs, replay_exprs);
     }
   }
 }
@@ -634,10 +638,10 @@ int BestEffortReplay::findFirstMismatchedID(
     const TensorDomain* td1,
     const TensorDomain* td2) {
   std::unordered_map<IterDomain*, IterDomain*> id_map;
-  auto rd1 = td1->getRootDomain();
-  auto rd2 = td2->getRootDomain();
+  auto rd1 = td1->root();
+  auto rd2 = td2->root();
   std::unordered_set<IterDomain*> rd2_set(
-      td2->getRootDomain().begin(), td2->getRootDomain().end());
+      td2->root().begin(), td2->root().end());
 
   // Find matching root IterDomains, we could make this O(nlog(n)) if we could
   // sort IterDomains.
@@ -651,9 +655,9 @@ int BestEffortReplay::findFirstMismatchedID(
     }
   }
 
-  BestEffortReplay ber(td2->domain(), td1->domain(), id_map);
+  BestEffortReplay ber(td2->leaf(), td1->leaf(), id_map);
   for (const auto i :
-       c10::irange(std::max(td1->domain().size(), td2->domain().size()))) {
+       c10::irange(std::max(td1->leaf().size(), td2->leaf().size()))) {
     if (ber.getReplay().find(td1->axis((int)i)) == ber.getReplay().end()) {
       return (int)i;
     }
@@ -748,11 +752,11 @@ struct ForwardingInfo {
     // We have root axes in active_tv that don't exist in the inactive tensor,
     // now forward those to include all id's in active_tv comprised of only axes
     // not in the inactive tensor.
-    std::vector<Expr*> active_tv_history = StmtSort::getExprs(
+    std::vector<Expr*> active_tv_history = StmtSort::getExprsTo(
         FusionGuard::getCurFusion(),
         std::vector<Val*>(
-            active_tv->domain()->domain().begin(),
-            active_tv->domain()->domain().end()));
+            active_tv->getLeafDomain().begin(),
+            active_tv->getLeafDomain().end()));
 
     auto isIdOnlyInActiveTv = [&forwarded_ids](IterDomain* input_id) {
       return forwarded_ids.count(input_id) > 0;
@@ -821,7 +825,6 @@ IterDomain* getSwizzleFinalOutput(
     // This means id is a leaf that doesn't
     //  have any consumers. Stop iteration in this case.
     if (expr_it == id2expr.end()) {
-      is_swizzle_input = false;
       break;
     }
 
@@ -900,7 +903,7 @@ void BestEffortReplay::addComplimentLeafIDs(
   }
 
   // Grab all exprs used to make the forwarded compliments
-  auto compliment_exprs = StmtSort::getExprs(
+  auto compliment_exprs = StmtSort::getExprsTo(
       FusionGuard::getCurFusion(), {compliments.begin(), compliments.end()});
 
   // Figure out if there are any leaves in compliment_exprs that aren't
@@ -941,8 +944,8 @@ BestEffortReplay BestEffortReplay::replayCasP(
 
   // producer ids we need to match in consumer
   std::vector<IterDomain*> producer_CA_ids(
-      producer->domain()->domain().begin(),
-      producer->domain()->domain().begin() + producer_compute_at_axis);
+      producer->getLeafDomain().begin(),
+      producer->getLeafDomain().begin() + producer_compute_at_axis);
   producer_CA_ids = TensorDomain::noReductions(producer_CA_ids);
 
   // If producer has an rfactor root, that's what will match to the consumer
@@ -971,7 +974,7 @@ BestEffortReplay BestEffortReplay::replayCasP(
   ForwardingInfo forwarding_info(producer, consumer);
 
   auto consumer_replay = BestEffortReplay(
-      consumer->domain()->domain(),
+      consumer->getLeafDomain(),
       producer_CA_ids,
       p2c_root_map,
       forwarding_info.consumer_forwarding_map,
@@ -1006,8 +1009,8 @@ BestEffortReplay BestEffortReplay::replayPasC(
 
   // consumer ids we need to match in producer
   std::vector<IterDomain*> consumer_CA_ids(
-      consumer->domain()->domain().begin(),
-      consumer->domain()->domain().begin() + consumer_compute_at_axis);
+      consumer->getLeafDomain().begin(),
+      consumer->getLeafDomain().begin() + consumer_compute_at_axis);
 
   // Figure out all inputs required to generate the compute_at dimensions
   auto consumer_CA_root_vals = IterVisitor::getInputsTo(
@@ -1029,7 +1032,7 @@ BestEffortReplay BestEffortReplay::replayPasC(
   // of producer if they match ops on consumer. Enforce if we modify an
   // rfactor axis that those ops must match.
   auto producer_replay = BestEffortReplay(
-      producer->domain()->domain(),
+      producer->getLeafDomain(),
       consumer_CA_ids,
       c2p_root_map,
       forwarding_info.producer_forwarding_map,
@@ -1086,9 +1089,18 @@ void BestEffortReplay::skipSwizzles(
 }
 
 // Same logic as skipSwizzles
-void BestEffortReplay::skipResizes() {
-  auto isResizeInput = [](IterDomain* id) -> bool {
-    return id->uses().size() == 1 && id->uses().front()->isA<Resize>();
+void BestEffortReplay::skipResizes(
+    const std::vector<Expr*>& target_exprs,
+    const std::vector<Expr*>& replay_exprs) {
+  auto getResizeUse = [](IterDomain* id,
+                         const std::vector<Expr*>& exprs) -> Resize* {
+    for (auto id_use : id->uses()) {
+      if (std::find(exprs.begin(), exprs.end(), id_use) == exprs.end()) {
+        continue;
+      }
+      return dynamic_cast<Resize*>(id_use);
+    }
+    return nullptr;
   };
 
   bool updated = true;
@@ -1100,11 +1112,15 @@ void BestEffortReplay::skipResizes() {
       auto new_target_id = target_id;
       auto replay_id = it.second;
       auto new_replay_id = replay_id;
-      if (isResizeInput(target_id)) {
-        new_target_id = target_id->uses().front()->as<Resize>()->out();
+      if (auto target_resize = getResizeUse(target_id, target_exprs);
+          target_resize != nullptr) {
+        new_target_id = target_resize->out();
+        skipped_resize_id_map_.emplace(target_id, new_target_id);
       }
-      if (isResizeInput(replay_id)) {
-        new_replay_id = replay_id->uses().front()->as<Resize>()->out();
+      if (auto replay_resize = getResizeUse(replay_id, replay_exprs);
+          replay_resize != nullptr) {
+        new_replay_id = replay_resize->out();
+        skipped_resize_id_map_.emplace(replay_id, new_replay_id);
       }
 
       if (new_target_id == target_id && new_replay_id == replay_id) {
@@ -1132,8 +1148,11 @@ void BestEffortReplay::skipResizes() {
 DisjointSets<IterDomain*> BestEffortReplay::getIterDomainEquivalence() {
   DisjointSets<IterDomain*> result;
   using IterDomainMap = std::unordered_map<IterDomain*, IterDomain*>;
-  const std::array<IterDomainMap*, 3> maps = {
-      &target2replay_id_map_, &replay_forward_id_map_, &target_forward_id_map_};
+  const std::array<IterDomainMap*, 4> maps = {
+      &target2replay_id_map_,
+      &replay_forward_id_map_,
+      &target_forward_id_map_,
+      &skipped_resize_id_map_};
   for (auto map : maps) {
     // Sort the keys so that they appear in a deterministic order
     for (auto key : getSortedKeys(*map, Statement::lessThan)) {

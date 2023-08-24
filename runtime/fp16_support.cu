@@ -20,6 +20,10 @@ struct __align__(2) __half {
     __x = __float2half(f).__x;
   }
 
+  __device__ uint16_t raw() const {
+    return __x;
+  }
+
  protected:
   unsigned short __x;
 };
@@ -40,7 +44,7 @@ __device__ __inline__ __half __double2half(const double d) {
   return val;
 }
 
-__device__ __inline__ __half __int322half(const int i) {
+__device__ __inline__ __half __int2half(const int i) {
   __half val;
   asm("{  cvt.rn.f16.s32 %0, %1;}\n"
       : "=h"(__NVFUSER_HALF_TO_US(val))
@@ -86,6 +90,20 @@ __device__ __inline__ int64_t __half2int(const __half h) {
       : "=l"(val)
       : "h"(__NVFUSER_HALF_TO_CUS(h)));
   return val;
+}
+
+__device__ __inline__ void __half2int(const __half h, int& output) {
+  output = __half2int32(h);
+}
+
+__device__ __inline__ void __half2int(const __half h, int64_t& output) {
+  output = __half2int(h);
+}
+
+__device__ __inline__ nvfuser_index_t __half2index(const __half h) {
+  nvfuser_index_t result;
+  __half2int(h, result);
+  return result;
 }
 
 __device__ __inline__ bool __half2bool(const __half h) {

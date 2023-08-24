@@ -4,6 +4,8 @@
  * All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  */
+// clang-format on
+
 // Utility macro for this file
 #define DEVICE_INLINE __device__ inline
 
@@ -73,37 +75,46 @@ DEVICE_INLINE void adjustPartialLdMatrixAddrInTuring(unsigned& addr_in_byte) {
 //   then thread 0-15 will specify the start of each row.
 // Finally is an x4 modifier producing a 32x8 using addrs from 0-31 in each
 // warp.
-DEVICE_INLINE void ldMatrix(Array<__half, 4, 4>& out, unsigned addr) {
-  uint2& val = reinterpret_cast<uint2&>(out);
+
+template <typename T>
+DEVICE_INLINE void ldMatrix(Array<T, 4, 4>* out, unsigned addr) {
+  static_assert(sizeof(T) == 2);
+  uint2* val = reinterpret_cast<uint2*>(out);
   util::adjustPartialLdMatrixAddrInTuring(addr);
   asm volatile("ldmatrix.sync.aligned.x2.m8n8.shared.b16 {%0,%1}, [%2];"
-               : "=r"(val.x), "=r"(val.y)
+               : "=r"(val->x), "=r"(val->y)
                : "r"(addr));
 }
 
 // Same as previous, 8x8 matrix is vectorized loaded, then scattered (to perform
 // transpose) so threads will hold 2 values down a column (instead of the
 // previous instruction that's across a row).
-DEVICE_INLINE void ldMatrixT(Array<__half, 4, 4>& out, unsigned addr) {
-  uint2& val = reinterpret_cast<uint2&>(out);
+template <typename T>
+DEVICE_INLINE void ldMatrixT(Array<T, 4, 4>* out, unsigned addr) {
+  static_assert(sizeof(T) == 2);
+  uint2* val = reinterpret_cast<uint2*>(out);
   util::adjustPartialLdMatrixAddrInTuring(addr);
   asm volatile("ldmatrix.sync.aligned.x2.trans.m8n8.shared.b16 {%0,%1}, [%2];"
-               : "=r"(val.x), "=r"(val.y)
+               : "=r"(val->x), "=r"(val->y)
                : "r"(addr));
 }
 
-DEVICE_INLINE void ldMatrix(Array<__half, 8, 8>& out, unsigned addr) {
-  uint4& val = reinterpret_cast<uint4&>(out);
+template <typename T>
+DEVICE_INLINE void ldMatrix(Array<T, 8, 8>* out, unsigned addr) {
+  static_assert(sizeof(T) == 2);
+  uint4* val = reinterpret_cast<uint4*>(out);
   asm volatile("ldmatrix.sync.aligned.x4.m8n8.shared.b16 {%0,%1,%2,%3}, [%4];"
-               : "=r"(val.x), "=r"(val.y), "=r"(val.z), "=r"(val.w)
+               : "=r"(val->x), "=r"(val->y), "=r"(val->z), "=r"(val->w)
                : "r"(addr));
 }
 
-DEVICE_INLINE void ldMatrixT(Array<__half, 8, 8>& out, unsigned addr) {
-  uint4& val = reinterpret_cast<uint4&>(out);
+template <typename T>
+DEVICE_INLINE void ldMatrixT(Array<T, 8, 8>* out, unsigned addr) {
+  static_assert(sizeof(T) == 2);
+  uint4* val = reinterpret_cast<uint4*>(out);
   asm volatile(
       "ldmatrix.sync.aligned.x4.trans.m8n8.shared.b16 {%0,%1,%2,%3}, [%4];"
-      : "=r"(val.x), "=r"(val.y), "=r"(val.z), "=r"(val.w)
+      : "=r"(val->x), "=r"(val->y), "=r"(val->z), "=r"(val->w)
       : "r"(addr));
 }
 

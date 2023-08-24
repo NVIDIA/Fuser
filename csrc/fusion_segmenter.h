@@ -7,9 +7,11 @@
 // clang-format on
 #pragma once
 
+#include <debug.h>
 #include <fusion.h>
-#include <ir_base_nodes.h>
+#include <ir/base_nodes.h>
 #include <kernel_cache.h>
+#include <options.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/registry.h>
 #include <utils.h>
@@ -44,6 +46,15 @@ std::ostream& operator<<(std::ostream& os, const SegmentedEdge* edge);
 //! Can be used to produce fusions
 class TORCH_CUDA_CU_API SegmentedGroup {
  public:
+  //! Utility struct to represent a group connection
+  //!  both the group to connect with and the edge
+  //!  to connect through
+  struct NeighborGroup {
+    NeighborGroup(SegmentedGroup* g, SegmentedEdge* e) : group(g), edge(e) {}
+    SegmentedGroup* group;
+    SegmentedEdge* edge;
+  };
+
   SegmentedGroup(SegmentedFusion* segmented_fusion)
       : segmented_fusion_(segmented_fusion) {}
 
@@ -114,7 +125,7 @@ class TORCH_CUDA_CU_API SegmentedGroup {
   //!  Note that the schedule params can be different.
   //! Returns a nullopt if this group cannot be scheduled
   //!  with the same heuristics.
-  c10::optional<std::unique_ptr<SchedulerEntry>> getMaybeSchedulerEntry(
+  std::optional<std::unique_ptr<SchedulerEntry>> getMaybeSchedulerEntry(
       SchedulerRuntimeInfo& runtime_info);
 
   //! Query if this is a group for a fusion input
@@ -186,15 +197,6 @@ class TORCH_CUDA_CU_API SegmentedGroup {
   //! Return all segmented groups connected with *this
   std::vector<SegmentedGroup*> getNeighbors();
 
-  //! Utility struct to represent a group connection
-  //!  both the group to connect with and the edge
-  //!  to connect through
-  struct NeighborGroup {
-    NeighborGroup(SegmentedGroup* g, SegmentedEdge* e) : group(g), edge(e) {}
-    SegmentedGroup* group;
-    SegmentedEdge* edge;
-  };
-
   //! TODO: May want to sort this based on size of connections between this and
   //! neighbors as well as if the connection is an output of the fusion (has to
   //! be saved to gmem anyways)
@@ -237,10 +239,10 @@ class TORCH_CUDA_CU_API FusionHeuristics {
   explicit FusionHeuristics(
       ScheduleHeuristic schedule_heuristic,
       SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache = nullptr) {
+      HeuristicSummary* data_cache = nullptr)
+      : is_segmented_(false) {
     heuristics_.emplace_back(SchedulerEntry::makeEntry(
         schedule_heuristic, runtime_info.fusion(), runtime_info, data_cache));
-    is_segmented_ = false;
   }
 
   FusionHeuristics(const FusionHeuristics&) = delete;
@@ -333,7 +335,8 @@ class TORCH_CUDA_CU_API SegmentedFusion {
 
   //! Make heuristics for all groups in this segmented fusion
   std::unique_ptr<FusionHeuristics> makeInitialHeuristics(
-      const KernelArgumentHolder& inputs);
+      const KernelArgumentHolder& inputs,
+      SchedulerRuntimeInfo& runtime_info);
 
   //! Inline Debug print for segmented fusion
   std::string toString(int verbosity) const;
@@ -521,8 +524,8 @@ class TORCH_CUDA_CU_API SegmentCandidateFinder {
       SegmentCandidateFinderOptions options = SegmentCandidateFinderOptions()) {
     auto fusion_copy = std::make_unique<Fusion>(*fusion);
     if (isDebugDumpEnabled(DebugDumpOption::FusionSegments)) {
-      std::cout << "Segment the fusion (Original Fusion Un-modified): "
-                << std::endl;
+      debug() << "Segment the fusion (Original Fusion Un-modified): "
+              << std::endl;
       fusion_copy->printMath();
     }
     SegmentCandidateFinder scf(std::move(fusion_copy), inputs, options);
@@ -536,12 +539,19 @@ class TORCH_CUDA_CU_API SegmentCandidateFinder {
       SegmentCandidateFinderOptions options = SegmentCandidateFinderOptions()) {
     SegmentCandidateFinder scf(std::move(fusion), inputs, options);
     if (isDebugDumpEnabled(DebugDumpOption::FusionSegments)) {
-      std::cout << "Segment the fusion (Original Fusion Un-modified): "
-                << std::endl;
+      debug() << "Segment the fusion (Original Fusion Un-modified): "
+              << std::endl;
       scf.completeFusion()->printMath();
     }
     return std::move(scf.segmented_fusion_);
   }
+
+  static std::unique_ptr<SegmentedFusion> segment(
+      std::unique_ptr<Fusion> fusion,
+      const KernelArgumentHolder& inputs,
+      SchedulerRuntimeInfo& runtime_info);
+
+  static bool hasSegmentHints(Fusion* fusion);
 
   static bool translateWelfordInFusion(
       Fusion* fusion,
@@ -565,6 +575,14 @@ class TORCH_CUDA_CU_API SegmentCandidateFinder {
   void buildInitialSegments();
 
   void findSegments();
+
+  //! Find a group found in candidates that can be merged with the
+  //! given group and set them to be merged if found. When no
+  //! candidate is given, SegmentedGroup::getMergeCandidates is used
+  //! to get candidates.
+  void trySetUpMerge(
+      SegmentedGroup* group,
+      std::vector<SegmentedGroup::NeighborGroup> candidates = {});
 
   std::unordered_set<SegmentedEdge*> disconnectGroup(SegmentedGroup* group);
 

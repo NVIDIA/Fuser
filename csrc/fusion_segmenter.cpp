@@ -5,14 +5,15 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <debug.h>
 #include <fusion.h>
 #include <fusion_segmenter.h>
 #include <instrumentation.h>
-#include <ir_all_nodes.h>
-#include <ir_cloner.h>
-#include <ir_graphviz.h>
-#include <ir_iostream.h>
-#include <ir_utils.h>
+#include <ir/all_nodes.h>
+#include <ir/cloner.h>
+#include <ir/graphviz.h>
+#include <ir/iostream.h>
+#include <ir/utils.h>
 #include <ops/arith.h>
 #include <scheduler/debug_utils.h>
 
@@ -244,7 +245,7 @@ std::ostream& operator<<(std::ostream& os, const SegmentedGroup* group) {
 }
 
 void SegmentedGroup::print() const {
-  std::cout << this << "\n";
+  debug() << this << "\n";
 }
 
 bool SegmentedGroup::isFusionInputGroup() const {
@@ -264,7 +265,7 @@ std::ostream& operator<<(std::ostream& os, const SegmentedEdge* edge) {
 }
 
 void SegmentedEdge::print() const {
-  std::cout << this << "\n";
+  debug() << this << "\n";
 }
 
 std::string toString(const SegmentedEdge* edge) {
@@ -278,6 +279,9 @@ std::unique_ptr<SegmentedFusion> SegmentedFusion::fromCompleteFusion(
     ScheduleHeuristic heuristic,
     const KernelArgumentHolder& runtime_inputs) {
   auto fusion = fusion_ptr.get();
+  TORCH_INTERNAL_ASSERT(
+      !SegmentCandidateFinder::hasSegmentHints(fusion),
+      "SegmentedFusion::fromCompleteFusion cannot be called on a fusion with segment hints!");
 
   // convert Welford to two-pass if option is enabled and the original heuristic
   // is persistent
@@ -1301,6 +1305,8 @@ void GroupDependencyAnalysis::mergeGroups(
       }
       // insert the new group as producer
       it.second->pushBack(merged);
+      // all producers of merged are now producers of `it`
+      mergeAllKnownProducersIntoFrom(it.first, merged);
     }
   }
 }
@@ -1419,16 +1425,72 @@ std::ostream& operator<<(
 }
 
 void SegmentedFusion::print() const {
-  std::cout << "Segmented_Fusion Dump: -- Re-written complete fusion:{\n";
+  debug() << "Segmented_Fusion Dump: -- Re-written complete fusion:{\n";
   completeFusion()->printMath();
-  std::cout << "} // {Re-written complete fusion}\n";
-  std::cout << this << "\n";
+  debug() << "} // {Re-written complete fusion}\n";
+  debug() << this << "\n";
 }
 
 std::string toString(const SegmentedFusion* segmented_fusion) {
   std::stringstream ss;
   ss << segmented_fusion;
   return ss.str();
+}
+
+//! Sets the rfactor as root and erases rfactor of all inputs in fusion. Any
+//! non-constant expressions in those extents are replaced by new scalars with
+//! no definition. These mutations are performed throughout the Fusion so that
+//! downstream expressions dependent on the original inputs' rfactor extents can
+//! be computed properly.
+void convertInputRfactorsToRoots(Fusion* fusion) {
+  FusionGuard fg(fusion);
+
+  // Holds all Val replacements across all inputs
+  std::unordered_map<Val*, Val*> replacement_map;
+
+  for (auto tv : ir_utils::filterByType<TensorView>(fusion->inputs())) {
+    // Create a new root domain and replacement TensorDomain.
+    // Given an rfactor domain, create a new IterDomain.
+    // Otherwise, clone the previous IterDomain
+    std::vector<IterDomain*> new_root_domain;
+    auto rfactor = tv->getMaybeRFactorDomain();
+    new_root_domain.reserve(rfactor.size());
+
+    // Does the domain (root / rfactor) contain all concrete sized extents?
+    bool tv_is_concrete = true;
+    for (auto id : rfactor) {
+      if (!id->extent()->isConstScalar()) {
+        tv_is_concrete = false;
+        break;
+      }
+    }
+
+    for (const auto& id : rfactor) {
+      if (id->isRFactorProduct()) {
+        // Create new symbolic extents for rfactor iterDomains
+        auto domain_extent = (!tv_is_concrete)
+            ? IrBuilder::create<Val>(DataType::Index)
+            : id->extent();
+        replacement_map.emplace(id->extent(), domain_extent);
+        new_root_domain.push_back(IterDomainBuilder(id)
+                                      .extent(domain_extent)
+                                      .resetSchedulingParams()
+                                      .build());
+      } else {
+        new_root_domain.push_back(id->cloneWithoutRFactor());
+      }
+    }
+
+    TORCH_INTERNAL_ASSERT(
+        new_root_domain.size() == tv->domain()->contiguity().size());
+    auto new_td = IrBuilder::create<TensorDomain>(
+        new_root_domain, tv->domain()->contiguity());
+    replacement_map.emplace(tv->domain(), new_td);
+  }
+
+  // This will replace the values in the mapping replacement_map throughout the
+  // Fusion
+  ir_utils::replaceValue(fusion, replacement_map);
 }
 
 std::unique_ptr<Fusion> SegmentedFusion::makeFusion(SegmentedGroup* sg) {
@@ -1463,11 +1525,45 @@ std::unique_ptr<Fusion> SegmentedFusion::makeFusion(SegmentedGroup* sg) {
     fusion_segment->addOutput(complete_to_segment_map.clone(out));
   }
 
-  for (auto tv : view_tvs) {
-    tv->convertRfactorToRootDomain();
-  }
+  // Replace all vals that are rfactor extents in fusion_segment->inputs() with
+  // new Vals so that they can be bound to the segment inputs.
+  convertInputRfactorsToRoots(fusion_segment.get());
 
   return fusion_segment;
+}
+
+std::unique_ptr<SegmentedFusion> SegmentCandidateFinder::segment(
+    std::unique_ptr<Fusion> fusion,
+    const KernelArgumentHolder& inputs,
+    SchedulerRuntimeInfo& runtime_info) {
+  if (!hasSegmentHints(fusion.get())) {
+    scheduler_debug_utils::canScheduleMessage(
+        "***Runtime***: Try to schedule fusion un-segmented:\n");
+    const auto maybe_complete_fusion_heuristic =
+        SchedulerEntry::proposeHeuristics(fusion.get(), runtime_info);
+    if (maybe_complete_fusion_heuristic.has_value()) {
+      return SegmentedFusion::fromCompleteFusion(
+          std::move(fusion), maybe_complete_fusion_heuristic.value(), inputs);
+    }
+  }
+  if (fusion) {
+    return SegmentCandidateFinder::segment(std::move(fusion), inputs);
+  } else {
+    TORCH_INTERNAL_ASSERT(false, "unreachable!");
+  }
+}
+
+bool SegmentCandidateFinder::hasSegmentHints(Fusion* fusion) {
+  for (const auto& expr : fusion->exprs()) {
+    if (expr->isA<LoadStoreOp>()) {
+      auto op = expr->as<LoadStoreOp>();
+      // SegmenterSet is a segmenter hint that needs explicit segment call
+      if (op->opType() == LoadStoreOpType::SegmenterSet) {
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 void SegmentCandidateFinder::resetTraversal() {
@@ -1788,7 +1884,26 @@ SegmentedGroup* SegmentCandidateFinder::mergeAllGivenGroups(
   joined_group->setHeuristic(deriveHeuristic(joined_group));
   return joined_group;
 }
+
 namespace {
+
+// SegmenterSet hints a kernel break
+bool tryingToMergeSegmenterSet(Fusion* fusion) {
+  for (auto expr : fusion->exprs()) {
+    if (expr->isA<LoadStoreOp>() &&
+        expr->as<LoadStoreOp>()->opType() == LoadStoreOpType::SegmenterSet) {
+      auto out = expr->output(0);
+      // output from SegmenterSet node should be:
+      //   1. an output from the given fusion, and
+      //   2. not be used by any node within the graph
+      // This ensures no segment spans across the data flow from SegmenterSet
+      if (!out->isFusionOutput() || !out->uses().empty()) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
 
 // Guard to temporarily change the inputs and outputs of a
 // fusion. Cast expressions to fp32 and fp16 are also inserted. On
@@ -1976,7 +2091,7 @@ class FusionSegmentGuard : public NonCopyable {
 #endif
 };
 
-c10::optional<ScheduleHeuristic> tryMerge(
+std::optional<ScheduleHeuristic> tryMerge(
     SegmentedFusion* segmented_fusion,
     SchedulerRuntimeInfo& runtime_info,
     SegmentedGroup* a,
@@ -1986,11 +2101,14 @@ c10::optional<ScheduleHeuristic> tryMerge(
   scheduler_debug_utils::canScheduleMessage(
       "\n**Segmenter** Considering fusion:\n",
       segmented_fusion->completeFusion());
+  if (tryingToMergeSegmenterSet(segmented_fusion->completeFusion())) {
+    return std::nullopt;
+  }
   return SchedulerEntry::proposeHeuristics(
       segmented_fusion->completeFusion(), runtime_info);
 }
 
-c10::optional<ScheduleHeuristic> tryMerge(
+std::optional<ScheduleHeuristic> tryMerge(
     SegmentedFusion* segmented_fusion,
     SchedulerRuntimeInfo& runtime_info,
     const std::vector<SegmentedGroup*>& segmented_groups) {
@@ -1998,6 +2116,9 @@ c10::optional<ScheduleHeuristic> tryMerge(
   scheduler_debug_utils::canScheduleMessage(
       "\n**Segmenter** Considering fusion:\n",
       segmented_fusion->completeFusion());
+  if (tryingToMergeSegmenterSet(segmented_fusion->completeFusion())) {
+    return std::nullopt;
+  }
   return SchedulerEntry::proposeHeuristics(
       segmented_fusion->completeFusion(), runtime_info);
 }
@@ -2034,7 +2155,7 @@ void deDuplicateScalarExprs(std::vector<Expr*>& exprs) {
 
 } // namespace
 
-c10::optional<std::unique_ptr<SchedulerEntry>> SegmentedGroup::
+std::optional<std::unique_ptr<SchedulerEntry>> SegmentedGroup::
     getMaybeSchedulerEntry(SchedulerRuntimeInfo& runtime_info) {
   FUSER_PERF_SCOPE("SegmentedGroup::getMaybeSchedulerEntry");
   auto fusion = segmented_fusion_->completeFusion();
@@ -2045,7 +2166,7 @@ c10::optional<std::unique_ptr<SchedulerEntry>> SegmentedGroup::
   FusionSegmentGuard fsg(fusion, getAllInputs(this), getAllOutputs(this));
   if (!SchedulerEntry::canSchedule(
           heuristic(), fusion, runtime_info, data_cache)) {
-    return c10::nullopt;
+    return std::nullopt;
   }
   return SchedulerEntry::makeEntry(
       heuristic(), fusion, runtime_info, data_cache);
@@ -2229,8 +2350,14 @@ bool TranslateApplicableWelford::isValidPersistentFusion(
 
   auto scheduler = SchedulerEntry::makeEntry(
       ScheduleHeuristic::Persistent, translated_fusion, runtime_info);
+  // Translate welford to two-pass enhances performance for block
+  // reductions by reducing instructions and the impact of an extra block
+  // synchronization has negligible overhead.
+  // However, when it comes to cross grid reduction, the additional grid
+  // synchronization carries substantial overhead and does not yield any
+  // performance gains.
   return scheduler->reductionParams().persistent_kernel &&
-      scheduler->reductionParams().fastest_dim;
+      !scheduler->reductionParams().cross_grid_outer_reduction;
 }
 
 // Note that when segmented it is assumed that insertion of lower
@@ -2285,7 +2412,7 @@ bool TranslateApplicableWelford::wouldTranslateToPersistent(
     translateSingleWelford(welford_to_translate);
   }
 
-  SchedulerRuntimeInfo runtime_info(test_copy.get(), runtime_inputs_, true);
+  SchedulerRuntimeInfo runtime_info(test_copy.get(), runtime_inputs_);
   // If we are looking at a segment of fusion,
   //  we maintain the segmented group boundary,
   //  one set for in_progress copy and one set
@@ -2376,7 +2503,7 @@ void TranslateApplicableWelford::translateSingleWelford(WelfordOp* welford) {
 
   // Create scalar version of the feature element
   //  counting.
-  Val* num_features = IrBuilder::create<Double>(1);
+  Val* num_features = IrBuilder::create<Val>(1.0);
   std::vector<bool> broadcast_mask(in_root.size(), false);
   for (const auto i : c10::irange(in_root.size())) {
     if (out_root.at(i)->isReduction()) {
@@ -2410,10 +2537,7 @@ void TranslateApplicableWelford::translateSingleWelford(WelfordOp* welford) {
 
   auto x_mean_sub_pow = mul(x_mean_sub, x_mean_sub);
   IrBuilder::create<ReductionOp>(
-      BinaryOpType::Add,
-      IrBuilder::create<Double>(0.0),
-      out_var,
-      x_mean_sub_pow);
+      BinaryOpType::Add, IrBuilder::create<Val>(0.0), out_var, x_mean_sub_pow);
   IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out_N, num_features);
 
   // out_avg, out_N are now outputs of a pointwise ops and we
@@ -2973,6 +3097,108 @@ bool areDirectlyConnected(SegmentedGroup* group1, SegmentedGroup* group2) {
   return false;
 }
 
+//! Allow the segmentation algorithm to prefer certain exprs to merge
+class PreferredMergeCandidatePicker {
+ public:
+  static std::vector<std::pair<SegmentedGroup*, SegmentedGroup::NeighborGroup>>
+  get(const std::vector<SegmentedGroup*>& groups) {
+    return PreferredMergeCandidatePicker(groups).candidates_;
+  }
+
+ private:
+  PreferredMergeCandidatePicker(const std::vector<SegmentedGroup*>& groups)
+      : groups_(groups) {
+    for (auto& group : groups_) {
+      // Currently there's only one preference for select-like
+      // ops. Additional preferences can be added similarly.
+      auto neighbor_to_merge = mergeSelectLikeOpsWithProducers(group);
+      if (!neighbor_to_merge.has_value()) {
+        continue;
+      }
+      candidates_.emplace_back(group, *neighbor_to_merge);
+    }
+  }
+
+  //! Prefer merging groups with select-like exprs with producer
+  //! groups, including index_select, torch_gather and take_along_axis
+  //! where only one element is selected/gathered/taken, producing a
+  //! broadcast domain. Fusing these exprs with producers is
+  //! straightforward, but may not be always possible with consumers as
+  //! consumer reference tensors may not know about the gathered
+  //! domain, much like reduction domains. Moreover, if segmentation is
+  //! necessary, it would be more efficient to segment a kernel after
+  //! these exprs as the segment output tensors would become smaller.
+  //!
+  //! A motivating example is cross-entropy loss, where softmax is
+  //! followed by take_along_axis, and then is followed by a
+  //! reduction. Currently, it's not possible to fuse the softmax and
+  //! the reduction, so it must be segmented to two groups, and we
+  //! want to segment the fusion between the take_along_axis and the
+  //! reduction, not between the softmax and take_along_axis.
+  std::optional<SegmentedGroup::NeighborGroup> mergeSelectLikeOpsWithProducers(
+      SegmentedGroup* group) const;
+
+ private:
+  const std::vector<SegmentedGroup*>& groups_;
+  std::vector<std::pair<SegmentedGroup*, SegmentedGroup::NeighborGroup>>
+      candidates_;
+};
+
+std::optional<SegmentedGroup::NeighborGroup> PreferredMergeCandidatePicker::
+    mergeSelectLikeOpsWithProducers(SegmentedGroup* group) const {
+  const auto& exprs = group->exprs();
+
+  // I *think* it's enough to consider the initial merge of
+  // select-like ops.
+  if (exprs.size() != 1) {
+    return std::nullopt;
+  }
+
+  auto expr = exprs.at(0);
+
+  // Select-like exprs have a producer ID that is indirectly
+  // accessed with an index input
+  if (ir_utils::getIndexedProducerID(expr) == nullptr) {
+    return std::nullopt;
+  }
+
+  auto lookup_tv = ir_utils::getTvInput(expr);
+
+  // If the lookup tv is a fusion input, there's nothing to do
+  if (lookup_tv->isFusionInput()) {
+    return std::nullopt;
+  }
+
+  auto consumer_of_indexed_id = ir_utils::getConsumerOfIndexedProducerID(expr);
+
+  // There must be a consumer ID unless it's a Select expr
+  TORCH_INTERNAL_ASSERT(
+      consumer_of_indexed_id != nullptr || expr->isA<SelectOp>(),
+      "Consumer of indexed ID not found: ",
+      expr->toString());
+
+  // In case of non select expr, make sure the consumer ID is a broadcat
+  if (!expr->isA<SelectOp>() && !consumer_of_indexed_id->isBroadcast()) {
+    return std::nullopt;
+  }
+
+  // Find the producer group that corresponds to the lookup tensor
+  // of the expr.
+  auto producer_edge_it = std::find_if(
+      group->producer_edges.begin(),
+      group->producer_edges.end(),
+      [&lookup_tv](SegmentedEdge* edge) { return edge->val == lookup_tv; });
+
+  // Not sure this could happen. Just assert for now.
+  if (producer_edge_it == group->producer_edges.end()) {
+    TORCH_INTERNAL_ASSERT(false, "Unexpected");
+    return std::nullopt;
+  }
+
+  return SegmentedGroup::NeighborGroup(
+      (*producer_edge_it)->from, *producer_edge_it);
+}
+
 } // namespace
 
 bool SegmentCandidateFinder::codeGenSupportedMerge(
@@ -3000,7 +3226,7 @@ SegmentCandidateFinder::SegmentCandidateFinder(
     const KernelArgumentHolder& inputs,
     SegmentCandidateFinderOptions options)
     : options_(options),
-      runtime_info_(fusion.get(), inputs, true),
+      runtime_info_(fusion.get(), inputs),
       runtime_inputs_(inputs) {
   segmented_fusion_ = std::make_unique<SegmentedFusion>(std::move(fusion));
   findSegments();
@@ -3073,6 +3299,42 @@ void SegmentCandidateFinder::buildInitialSegments() {
   }
 }
 
+void SegmentCandidateFinder::trySetUpMerge(
+    SegmentedGroup* group,
+    std::vector<SegmentedGroup::NeighborGroup> candidates) {
+  if (group->merged_ || group->isFusionInputGroup()) {
+    return;
+  }
+
+  if (candidates.empty()) {
+    candidates = group->getMergeCandidates();
+  }
+
+  if (candidates.empty()) {
+    return;
+  }
+
+  auto candidate_it = candidates.begin();
+  while (candidate_it != candidates.end() &&
+         !codeGenSupportedMerge(group, candidate_it->group)) {
+    candidate_it++;
+  }
+  if (candidate_it == candidates.end()) {
+    return;
+  }
+
+  to_merge_.emplace_back(group);
+  to_merge_.emplace_back(candidate_it->group);
+
+  group->merged_ = true;
+  group->merge_with_ = candidate_it->group;
+  group->merge_through_ = candidate_it->edge;
+
+  candidate_it->group->merged_ = true;
+  candidate_it->group->merge_with_ = group;
+  candidate_it->group->merge_through_ = candidate_it->edge;
+}
+
 void SegmentCandidateFinder::findSegments() {
   FUSER_PERF_SCOPE("Finding valid fusion segment solutions");
 
@@ -3123,34 +3385,18 @@ void SegmentCandidateFinder::findSegments() {
 
       resetLevels();
 
-      for (auto& group : groups()) {
-        if (group->merged_ || group->isFusionInputGroup()) {
-          continue;
-        }
-        auto candidates = group->getMergeCandidates();
-        if (candidates.empty()) {
-          continue;
-        }
+      // Try preferred merge first
+      for (auto& [group, neighbor] :
+           PreferredMergeCandidatePicker::get(groups())) {
+        trySetUpMerge(group, {neighbor});
+      }
 
-        auto candidate_it = candidates.begin();
-        while (candidate_it != candidates.end() &&
-               !codeGenSupportedMerge(group, candidate_it->group)) {
-          candidate_it++;
+      // If there are preferred groups to merge, merge them first
+      // without considering the rest of groups
+      if (to_merge_.empty()) {
+        for (auto& group : groups()) {
+          trySetUpMerge(group);
         }
-        if (candidate_it == candidates.end()) {
-          continue;
-        }
-
-        to_merge_.emplace_back(group);
-        to_merge_.emplace_back(candidate_it->group);
-
-        group->merged_ = true;
-        group->merge_with_ = candidate_it->group;
-        group->merge_through_ = candidate_it->edge;
-
-        candidate_it->group->merged_ = true;
-        candidate_it->group->merge_with_ = group;
-        candidate_it->group->merge_through_ = candidate_it->edge;
       }
 
       if (to_merge_.empty()) {
@@ -3212,13 +3458,21 @@ void SegmentCandidateFinder::forwardInputs() {
         continue;
       }
 
-      if (expr->output(0)->uses().size() > 1) {
+      // expr is a unary op so there is a single output. Here we look at that
+      // output's further uses
+      const auto& output_uses = expr->output(0)->uses();
+
+      if (output_uses.size() == 1) {
+        // If there is a single use, visit it to try and extend the chain of
+        // unaryOps
+        to_visit.emplace_back(output_uses.at(0));
+      } else {
+        // If there are either no more uses, or more than one use, we cannot
+        // extend the chain of unary Ops. In either case, finalize this chain by
+        // saving the expr and its output.
         excluded_inp_unary_exprs_.pushBack(expr);
         forwarded_inputs.pushBack(expr->output(0));
-        continue;
       }
-
-      to_visit.emplace_back(expr->output(0)->uses()[0]);
     }
   }
 
@@ -3405,7 +3659,7 @@ void SegmentCandidateFinder::resolveInputsInGroup(SegmentedGroup* group) {
   group->input_vals = IterVisitor::getInputsTo(group->inputs());
 
   // Grab all expressions needed to produce to_visit
-  auto input_exprs = StmtSort::getExprs(completeFusion(), to_visit);
+  auto input_exprs = StmtSort::getExprsTo(completeFusion(), to_visit);
 
   // Insert those expressions at the beginning of the group
   group->exprs_.insert(
@@ -3501,9 +3755,9 @@ FusionKernelRuntime::SchedulerEntryPtr SegmentedFusion::
 }
 
 std::unique_ptr<FusionHeuristics> SegmentedFusion::makeInitialHeuristics(
-    const KernelArgumentHolder& inputs) {
+    const KernelArgumentHolder& inputs,
+    SchedulerRuntimeInfo& runtime_info) {
   auto ret = std::make_unique<FusionHeuristics>();
-  SchedulerRuntimeInfo runtime_info(completeFusion(), inputs, true);
   for (auto g : groups()) {
     ret->emplaceBack(makeInitialSchedulerEntry(g, runtime_info));
   }
@@ -3681,7 +3935,7 @@ class ForceHalfAnnotation : public IterVisitor {
   }
 
   std::unordered_set<TensorView*> force_fp16_tv_set_;
-  c10::optional<DataType> cast_to_type_ = c10::nullopt;
+  std::optional<DataType> cast_to_type_ = std::nullopt;
 };
 
 } // namespace

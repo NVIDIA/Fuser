@@ -20,10 +20,27 @@
 #   --no-ninja
 #     In case you want to use make instead of ninja for build
 #
+#   --build-with-ucc
+#     Build nvfuser with UCC support. You may need to specify environment variables of UCC_HOME, UCC_DIR, UCX_HOME, UCX_DIR.
+#
+#   --debug
+#     Building nvfuser in debug mode
+#
+#   --debinfo
+#     Building nvfuser in release mode with debug info, a.k.a. RelwithDebInfo
+#
 #   -version-tag=TAG
 #     Specify the tag for build nvfuser version, this is used for pip wheel
 #     package nightly where we might want to add a date tag
 #     nvfuser-VERSION+TAG+gitSHA1-....-whl
+#
+#   -install_requires=pkg0[,pkg1...]
+#     this is used for pip wheel build to specify package required for install
+#     e.g. -install_requires=nvidia-cuda-nvrtc-cu12
+#
+#   -wheel-name=NAME
+#     Specify the wheel name this is used for pip wheel package where we want
+#     to identify the cuda toolkit version
 #
 
 import multiprocessing
@@ -43,9 +60,13 @@ NO_PYTHON = False
 NO_TEST = False
 NO_BENCHMARK = False
 NO_NINJA = False
+BUILD_WITH_UCC = False
 PATCH_NVFUSER = True
 OVERWRITE_VERSION = False
 VERSION_TAG = None
+BUILD_TYPE = "Release"
+WHEEL_NAME = "nvfuser"
+INSTALL_REQUIRES = []
 forward_args = []
 for i, arg in enumerate(sys.argv):
     if arg == "--cmake-only":
@@ -63,9 +84,24 @@ for i, arg in enumerate(sys.argv):
     if arg == "--no-ninja":
         NO_NINJA = True
         continue
+    if arg == "--build-with-ucc":
+        BUILD_WITH_UCC = True
+        continue
+    if arg == "--debug":
+        BUILD_TYPE = "Debug"
+        continue
+    if arg == "--debinfo":
+        BUILD_TYPE = "RelwithDebInfo"
+        continue
+    if arg.startswith("-install_requires="):
+        INSTALL_REQUIRES = arg.split("=")[1].split(",")
+        continue
     if arg.startswith("-version-tag="):
         OVERWRITE_VERSION = True
         VERSION_TAG = arg.split("=")[1]
+        continue
+    if arg.startswith("-wheel-name="):
+        WHEEL_NAME = arg.split("=")[1]
         continue
     if arg in ["clean"]:
         # only disables BUILD_SETUP, but keep the argument for setuptools
@@ -108,28 +144,20 @@ class clean(setuptools.Command):
 
 
 class build_ext(setuptools.command.build_ext.build_ext):
-    def build_extensions(self):
-        for i, ext in enumerate(self.extensions):
-            if ext.name == "nvfuser._C":
-                # NOTE: nvfuser pybind target is built with cmake, we remove the entry for ext_modules
-                del self.extensions[i]
+    def build_extension(self, ext):
+        if ext.name == "nvfuser._C":
+            # Copy files on necessity.
+            filename = self.get_ext_filename(self.get_ext_fullname(ext.name))
+            fileext = os.path.splitext(filename)[1]
 
-                # Copy nvfuser extension to proper file name
-                fullname = self.get_ext_fullname("nvfuser._C")
-                filename = self.get_ext_filename(fullname)
-                fileext = os.path.splitext(filename)[1]
-                cwd = os.path.dirname(os.path.abspath(__file__))
-                src = os.path.join(cwd, "nvfuser", "lib", "libnvfuser" + fileext)
-                dst = os.path.join(cwd, filename)
-                if os.path.exists(src):
-                    print(
-                        "handling nvfuser pybind API, copying from {} to {}".format(
-                            src, dst
-                        )
-                    )
-                    self.copy_file(src, dst)
-
-        setuptools.command.build_ext.build_ext.build_extensions(self)
+            libnvfuser_path = os.path.join("./nvfuser/lib", f"libnvfuser{fileext}")
+            assert os.path.exists(libnvfuser_path)
+            install_dst = os.path.join(self.build_lib, filename)
+            if not os.path.exists(os.path.dirname(install_dst)):
+                os.makedirs(os.path.dirname(install_dst))
+            self.copy_file(libnvfuser_path, install_dst)
+        else:
+            super().build_extension(ext)
 
 
 class concat_third_party_license:
@@ -211,45 +239,83 @@ else:
                 super().run()
 
 
-def cmake():
+def version_tag():
+    from tools.gen_nvfuser_version import get_version
+
+    version = get_version()
+    if OVERWRITE_VERSION:
+        version = version.split("+")[0]
+        if len(VERSION_TAG) != 0:
+            # use "." to be pypi friendly
+            version = ".".join([version, VERSION_TAG])
+    return version
+
+
+from tools.memory import get_available_memory_gb
+
+
+def cmake(build_dir: str = "", install_prefix: str = "./nvfuser"):
     # make build directories
-    build_dir_name = "build"
     cwd = os.path.dirname(os.path.abspath(__file__))
-    cmake_build_dir = os.path.join(cwd, "build")
+    cmake_build_dir = os.path.join(cwd, "build" if not build_dir else build_dir)
     if not os.path.exists(cmake_build_dir):
         os.makedirs(cmake_build_dir)
 
     from tools.gen_nvfuser_version import get_pytorch_cmake_prefix
 
+    # this is used to suppress import error.
+    # so we can get the right pytorch prefix for cmake
+    import logging
+
+    logger = logging.getLogger("nvfuser")
+    logger_level = logger.getEffectiveLevel()
+    logger.setLevel(logging.CRITICAL)
+
     pytorch_cmake_config = "-DCMAKE_PREFIX_PATH=" + get_pytorch_cmake_prefix()
+
+    logger.setLevel(logger_level)
 
     # generate cmake directory
     cmd_str = [
         get_cmake_bin(),
         pytorch_cmake_config,
+        "-DCMAKE_BUILD_TYPE=" + BUILD_TYPE,
+        f"-DCMAKE_INSTALL_PREFIX={install_prefix}",
         "-B",
-        build_dir_name,
+        cmake_build_dir,
     ]
+    if BUILD_WITH_UCC:
+        cmd_str.append("-DNVFUSER_STANDALONE_BUILD_WITH_UCC=ON")
     if not NO_NINJA:
         cmd_str.append("-G")
         cmd_str.append("Ninja")
-    cmd_str.append(".")
     if not NO_TEST:
         cmd_str.append("-DBUILD_TEST=ON")
     if not NO_PYTHON:
         cmd_str.append("-DBUILD_PYTHON=ON")
+        cmd_str.append(f"-DPython_EXECUTABLE={sys.executable}")
     if not NO_BENCHMARK:
         cmd_str.append("-DBUILD_NVFUSER_BENCHMARK=ON")
+    cmd_str.append(".")
 
+    print(f"Configuring CMake with {' '.join(cmd_str)}")
     subprocess.check_call(cmd_str)
+
+    max_jobs = multiprocessing.cpu_count()
+    mem_gb_per_task = 3  # Currently compilation of nvFuser souce code takes ~3GB of memory per task, we should adjust this value if it changes in the future.
+    available_mem = get_available_memory_gb()
+    if available_mem > 0:
+        max_jobs_mem = int(available_mem / mem_gb_per_task)
+        max_jobs = min(max_jobs, max_jobs_mem)
 
     if not CMAKE_ONLY:
         # build binary
-        max_jobs = os.getenv("MAX_JOBS", str(multiprocessing.cpu_count()))
+        max_jobs = os.getenv("MAX_JOBS", str(max_jobs))
+        print(f"Using {max_jobs} jobs for compilation")
         cmd_str = [
             get_cmake_bin(),
             "--build",
-            build_dir_name,
+            cmake_build_dir,
             "--target",
             "install",
             "--",
@@ -259,35 +325,45 @@ def cmake():
         subprocess.check_call(cmd_str)
 
 
-def version_tag():
-    from tools.gen_nvfuser_version import get_version
-
-    version = get_version()
-    if OVERWRITE_VERSION:
-        version = version.split("+")[0]
-        if len(VERSION_TAG) != 0:
-            version = "+".join([version, VERSION_TAG])
-    return version
-
-
 def main():
+    # NOTE(crcrpar): Deliberately build basically two dynamic libraries here so that they can
+    # be treated as "nvfuser_package_data". This function call will put the two of "nvfuser" and
+    # "nvfuser_codegen" into "./nvfuser/lib", and the former will be "nvfuser._C".
     if BUILD_SETUP:
         cmake()
-
     if not CMAKE_ONLY:
         # NOTE: package include files for cmake
+        # TODO(crcrpar): Better avoid hardcoding `libnvfuser_codegen.so`
+        # might can be treated by using `exclude_package_data`.
         nvfuser_package_data = [
-            "*.so",
-            "lib/*.so",
+            "lib/libnvfuser_codegen.so",
+            "include/nvfuser/*.h",
+            "include/nvfuser/C++20/type_traits",
+            "include/nvfuser/device_lower/*.h",
+            "include/nvfuser/device_lower/analysis/*.h",
+            "include/nvfuser/device_lower/pass/*.h",
+            "include/nvfuser/kernel_db/*.h",
+            "include/nvfuser/multidevice/*.h",
+            "include/nvfuser/ops/*.h",
+            "include/nvfuser/python_frontend/*.h",
+            "include/nvfuser/scheduler/*.h",
+            "include/nvfuser/serde*.h",
+            "share/cmake/nvfuser/NvfuserConfig*",
+            "contrib/*",
+            "contrib/nn/*",
+            # TODO(crcrpar): it'd be better to ship the following two binaries.
+            # Would need some change in CMakeLists.txt.
+            # "bin/nvfuser_tests",
+            # "bin/nvfuser_bench"
         ]
 
         setup(
-            name="nvfuser",
+            name=WHEEL_NAME,
             version=version_tag(),
             url="https://github.com/NVIDIA/Fuser",
             description="A Fusion Code Generator for NVIDIA GPUs (commonly known as 'nvFuser')",
             packages=["nvfuser", "nvfuser_python_utils"],
-            ext_modules=[Extension(name=str("nvfuser._C"), sources=[])],
+            ext_modules=[Extension(name="nvfuser._C", sources=[])],
             license_files=("LICENSE",),
             cmdclass={
                 "bdist_wheel": build_whl,
@@ -296,6 +372,10 @@ def main():
             },
             package_data={
                 "nvfuser": nvfuser_package_data,
+            },
+            install_requires=INSTALL_REQUIRES,
+            extra_requires={
+                "test": ["numpy", "expecttest", "pytest"],
             },
             entry_points={
                 "console_scripts": [
@@ -306,7 +386,10 @@ def main():
         )
 
         if BUILD_SETUP and PATCH_NVFUSER:
-            subprocess.check_call(["patch-nvfuser"])
+            sys.path.append("./nvfuser_python_utils")
+            from patch_nvfuser import patch_installation
+
+            patch_installation()
 
 
 if __name__ == "__main__":

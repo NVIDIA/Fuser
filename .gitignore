@@ -9,7 +9,10 @@ build
 dist
 
 nvfuser/version.py
+nvfuser/include
 nvfuser/lib
+nvfuser/share
+nvfuser/cmake
 
 .hypothesis
 *.egg-info/
@@ -39,3 +42,4 @@ nvfuser/lib
 
 # debugging temporaries
 *.log
+foo.bin

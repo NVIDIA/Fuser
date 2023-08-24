@@ -10,8 +10,8 @@
 #include <c10/macros/Export.h>
 
 #include <disjoint_set.h>
-#include <ir_all_nodes.h>
-#include <ir_iostream.h>
+#include <ir/all_nodes.h>
+#include <ir/iostream.h>
 #include <iter_visitor.h>
 #include <root_domain_map.h>
 #include <unordered_map>
@@ -100,7 +100,7 @@ class TORCH_CUDA_CU_API ReplayTransformations : public IterVisitor {
   using IterVisitor::handle;
 
   // Transform dispatch
-  void handle(Expr* e) override;
+  void dispatch(Expr* e) override;
 
   // We're going to replay this split operation on the corresponding ID
   void handle(Split* s) override;
@@ -212,6 +212,7 @@ class TORCH_CUDA_CU_API BestEffortReplay {
   std::unordered_map<IterDomain*, IterDomain*> target_forward_id_map_;
   std::unordered_map<IterDomain*, size_t> leaf_ids_;
   std::vector<IterDomain*> forwarded_ids_;
+  std::unordered_map<IterDomain*, IterDomain*> skipped_resize_id_map_;
 
   // Need to track which id's have been forwarded. Later need to make sure leaf
   // nodes to produce compliment axes are properly tracked. i.e.
@@ -306,7 +307,9 @@ class TORCH_CUDA_CU_API BestEffortReplay {
       const std::unordered_map<IterDomain*, Expr*>& replay_id2expr);
 
   // Skip resize in both target and replay domains
-  void skipResizes();
+  void skipResizes(
+      const std::vector<Expr*>& target_exprs,
+      const std::vector<Expr*>& replay_exprs);
 
  public:
   // When skip_resize is true, resize is ignored or in other words forwarded

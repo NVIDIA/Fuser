@@ -8,11 +8,11 @@
 #pragma once
 
 #include <compute_at_map.h>
+#include <device_lower/pass/loop_rotation.h>
 #include <disjoint_set.h>
 #include <fusion.h>
-#include <ir_all_nodes.h>
-#include <ir_cloner.h>
-#include <lower_loop_rotation.h>
+#include <ir/all_nodes.h>
+#include <ir/cloner.h>
 #include <maxinfo_propagator.h>
 #include <scheduler/reduction_heuristic.h>
 
@@ -25,14 +25,28 @@ namespace scheduler_utils {
 
 // Assume any only half of the register file is available to spend on buffers,
 // this is because when we allocate a buffer in register is has to be accesed
-// with a compile time coonstant index. Unfortunately nvcc seems to be using
+// with a compile time constant index. Unfortunately nvcc seems to be using
 // many registers for indexing. This is a bad estimation of extra register use,
 // but it's hard to get a better one.
-constexpr int64_t register_file_size = 256 * 1024 / 2;
+constexpr int64_t register_file_size_full = (int64_t)256 * 1024;
+constexpr int64_t register_file_size = register_file_size_full / 2;
+// Empirically observed number. Not guaranteed to be a good estimate
+constexpr int64_t register_overhead = 40l;
+constexpr int64_t max_registers_per_thread = 255l;
+constexpr int64_t bytes_per_register = 4l;
+
 constexpr int64_t x_grid_limit = ((int64_t)1 << (int64_t)31) - (int64_t)1;
 constexpr int64_t y_grid_limit = 65535;
 constexpr int64_t z_grid_limit = 65535;
 constexpr int64_t z_block_limit = 64;
+
+constexpr int64_t maxVectorizationWidth(int64_t n) {
+  int64_t next_vector_size = 2;
+  while (next_vector_size <= n && n % next_vector_size == 0) {
+    next_vector_size <<= 1;
+  }
+  return next_vector_size >> 1;
+}
 
 // Largest Power of 2 less-than n
 constexpr int64_t lastPow2(int64_t n) {
@@ -44,6 +58,29 @@ constexpr int64_t lastPow2(int64_t n) {
   n |= (n >> 16); // NOLINT(cppcoreguidelines-avoid-magic-numbers)
   n |= (n >> 32); // NOLINT(cppcoreguidelines-avoid-magic-numbers)
   return std::max((int64_t)1, n - (n >> 1));
+}
+
+// round up to multiple of 8 or pow2 whichever smaller
+constexpr int64_t roundUpPow2Or8(const int64_t x) {
+  auto round_up_pow2 = lastPow2(x);
+  if (round_up_pow2 < x) {
+    round_up_pow2 *= 2;
+  }
+  constexpr int64_t kEight = 8;
+  auto round_up_8 = x % kEight == 0 ? x : x + (kEight - x % kEight);
+  return std::min(round_up_8, round_up_pow2);
+}
+
+constexpr int64_t roundUpPow2(const int64_t x) {
+  auto round_up_pow2 = scheduler_utils::lastPow2(x);
+  if (round_up_pow2 < x) {
+    round_up_pow2 *= 2;
+  }
+  return round_up_pow2;
+}
+
+constexpr int64_t roundUpToN(const int64_t x, const int64_t n) {
+  return x % n == 0 ? x : x + (n - x % n);
 }
 
 // Div x by y, but min at 1
@@ -71,12 +108,14 @@ TORCH_CUDA_CU_API inline void splitDims(
 // update the dimensions in `to_update` to the positions in the merged tensor.
 // Returns the merged dimension. All given dimensions are numbers before any
 // merge.
-TORCH_CUDA_CU_API c10::optional<size_t> mergeDims(
+// NOTE: merged is done as the entries in the order of `to_merge`, assuming an
+// order from inner to outer
+TORCH_CUDA_CU_API std::optional<size_t> mergeDims(
     TensorView* tv,
     std::vector<size_t> to_merge,
     std::vector<size_t>& to_update);
 
-TORCH_CUDA_CU_API inline c10::optional<size_t> mergeDims(
+TORCH_CUDA_CU_API inline std::optional<size_t> mergeDims(
     TensorView* tv,
     std::vector<size_t> to_merge) {
   std::vector<size_t> unused;
@@ -150,7 +189,7 @@ struct PersistentBufferInfo {
 // can simply be read multiple times from GMEM in the same kernel.
 TORCH_CUDA_CU_API PersistentBufferInfo persistentBuffers(Fusion* fusion);
 
-struct TvProperties {
+struct ReductionTvProperties {
   // How many elements in tensor view are there to reduce.
   int64_t total_reduction_numel = 1;
 
@@ -174,8 +213,8 @@ struct TvProperties {
   int64_t dimensionality = 1;
 };
 
-// Fill TvProperties structure about tv
-TvProperties getProperties(
+// Fill ReductionTvProperties structure about tv
+ReductionTvProperties getReductionProperties(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     TensorView* tv);
@@ -230,14 +269,7 @@ TORCH_CUDA_CU_API std::vector<std::pair<TensorView*, TensorView*>>
 cacheAndForkOutputs(Fusion* fusion, bool unroll);
 
 // Ignores broadcast and reduction, returns iter domain in root domain that's
-// "inner most". If this is an rfactored reduction domain, actually check the
-// root domain, this is because the rfactored reduction tensorview has the
-// vectorized dimension, but that means the rfactor domain could have reordered
-// what we consider the "inner most" allocated position on it if we consider the
-// rfactor dimension.
-//
-// If reduction tv and has rfactor return root domain, otherwise return rfactor
-// domain.
+// "inner most".
 IterDomain* innerMostRootDim(TensorView* tv);
 
 // Looks through fusion and finds all dims that match to the one provided in
@@ -258,13 +290,18 @@ class FindAllMappedDims : public MaxInfoSpanningTree::Propagator {
   TensorView* starting_tv_ = nullptr;
   IterDomain* starting_id_ = nullptr;
   bool inner_only_;
+  bool vectorize_pass_;
 
  public:
-  FindAllMappedDims(TensorView* from, IterDomain* starting_id, bool inner_only);
-  virtual void setUp() override;
-  virtual void propagateC2P(TensorView* from, TensorView* to) override;
-  virtual void propagateP2C(TensorView* from, TensorView* to) override;
-  virtual void propagateSibling(TensorView* from, TensorView* to) override;
+  FindAllMappedDims(
+      TensorView* from,
+      IterDomain* starting_id,
+      bool inner_only,
+      bool vectorize_pass);
+  void setUp() override;
+  void propagateC2P(TensorView* from, TensorView* to) override;
+  void propagateP2C(TensorView* from, TensorView* to) override;
+  void propagateSibling(TensorView* from, TensorView* to) override;
   std::unordered_set<IterDomain*> get() const;
 };
 
@@ -358,61 +395,6 @@ struct BroadcastMultipleInformation {
 TORCH_CUDA_CU_API BroadcastMultipleInformation
 getBroadcastMultiples(TensorView* reference_tv, DataType index_type);
 
-namespace matmul_utils {
-//! Utilities in this namespace facilitates scheduling matmul kernels with
-//!  hierarchichal tiling specified in MatMulTileOptions.
-
-//! Schedule utility for matmul prolog:
-//!   Use all the threads on a CTA tile to load matmul operands
-//!  into shared memory with the given vectorization word.
-//! TODO:
-//!  will need to add bank conflict removal swizzle in a follow up.
-TORCH_CUDA_CU_API void scheduleContiguousVectorLoad(
-    TensorView* tv,
-    MatMulTileOptions tile,
-    int vector_word,
-    bool vectorize = true);
-
-//! Schedule utility for mma output in matmul main loop:
-//!  Realize the hierarchical tiling based on the given tiling options.
-//! TODO: rewrite this one with makeTile
-TORCH_CUDA_CU_API void scheduleWarpTileWithReduction(
-    TensorView* tv,
-    MatMulTileOptions tile);
-
-//! Schedule utility for mma output in matmul main loop:
-//!  Realize the hierarchical tiling based on the given tiling options
-//! on consumers of mma ops in epilog.
-//! TODO: remove this one eventually.
-TORCH_CUDA_CU_API void scheduleWarpTileWithNoReduction(
-    TensorView* tv,
-    MatMulTileOptions tile);
-
-//! Lower level primitive spliting inner iterdomains into tiles:
-//! Eg.
-//!  A[B,I0,I1,I2] -> makeTile({1,2,3})
-//! Gives A[B, I0o, I1o, I2o, I0i(1), I1i(2), I2i(3)]
-TORCH_CUDA_CU_API void makeTile(TensorView* tv, std::vector<int> tile_sizes);
-
-//! Order the inner tile dimensions as the original order in
-//!  root domain. Also putting broadcast domains on the left.
-//! Eg. A[I0o,I1o,B2o,I0i,I1i,B2i] (root domain: I1,B,I0)
-//! -> A[I0o, I1o, B2o, B2i, I1i, I0i]
-//! This is used to facilitate data layout swizzling and
-//!  defining vectorized loads.
-TORCH_CUDA_CU_API void orderTiledConcreteIdAsRoot(TensorView* tv);
-
-//! Orders the root id ordering of the given tv as
-//! [Batch, Previous Reduction, M, N, K]
-//!  for easier processing of later scheduling steps.
-//!
-//! This matching works on root domain only, and
-//!  will throw if the tv has a leaf iterdomain that is
-//!  not a root id.
-TORCH_CUDA_CU_API void canonicalizeMmaTvOrdering(TensorView* tv);
-
-} // namespace matmul_utils
-
 //! Propagate current transformations on from_tv up to the given
 //!  position, to all tensorviews on the owning fusion that has
 //!  a connection with `from_tv` on the fusion graph.
@@ -483,7 +465,7 @@ struct TORCH_CUDA_CU_API BoundedDirectionalTransformPropagator {
       TensorView* from,
       int pos,
       std::vector<TensorView*> to,
-      c10::optional<Options> options = c10::nullopt);
+      std::optional<Options> options = std::nullopt);
 
   //! Replay transforms from tensorview `from`
   //! to the tensorviews that are producers
@@ -492,7 +474,7 @@ struct TORCH_CUDA_CU_API BoundedDirectionalTransformPropagator {
       TensorView* from,
       int pos,
       std::vector<TensorView*> to,
-      c10::optional<Options> options = c10::nullopt);
+      std::optional<Options> options = std::nullopt);
 
   //! Replay transforms from tensorview `from`
   //!  to all the tensorviews that are consumers
@@ -504,7 +486,7 @@ struct TORCH_CUDA_CU_API BoundedDirectionalTransformPropagator {
       int pos,
       std::vector<TensorView*> backward_to,
       std::vector<TensorView*> forward_to,
-      c10::optional<Options> options = c10::nullopt);
+      std::optional<Options> options = std::nullopt);
 
  private:
   //! Utility function:
@@ -557,7 +539,7 @@ TORCH_CUDA_CU_API std::unordered_map<int, int> domainReorderAsRfactorMap(
 
 // Assumes view's are consistent as detected by
 // registery.cpp::requiresForwardViewReplay returning false
-void propagateViewTransforms(Fusion* fusion, const ComputeAtMap& ca_map);
+void propagateReshapeTransforms(Fusion* fusion, const ComputeAtMap& ca_map);
 
 //! Check if tv is an output of a fastest-dim reduction
 bool isFastestDimReduction(TensorView* tv);
@@ -603,13 +585,21 @@ inline void rotateLoop(
 //! tv1 still uses tv1.
 TORCH_CUDA_CU_API void prepareForMemoryTypePromotion(Fusion* fusion);
 
-//! If a resized tensor induces a data dependency between threads,
+//! If a consumer tensor induces a data dependency between threads,
 //! move its producer to a shared memory that is sufficient to satisfy
-//! the dependency. A proper RAW sync will be automatically inserted
-//! when the fusion is lowered.
-TORCH_CUDA_CU_API void promoteProducerMemoryTypesOfResizedTensors(
+//! the dependency. For example, if the domain is parallelized
+//! with blockIdx, the producer memory type will be changed to
+//! Global. A proper RAW sync will be automatically inserted when the
+//! fusion is lowered.
+TORCH_CUDA_CU_API void promoteProducerMemoryTypes(
     Fusion* fusion,
     const std::vector<TensorView*>& input_caches);
+
+//! Get all tensors that are connected to from_tvs without going through
+//! any tvs in the cutoff_tv_set.
+TORCH_CUDA_CU_API std::unordered_set<TensorView*> getAllTvsFrom(
+    const std::vector<TensorView*>& from_tvs,
+    const std::unordered_set<TensorView*>& cutoff_tv_set);
 
 } // namespace scheduler_utils
 } // namespace nvfuser

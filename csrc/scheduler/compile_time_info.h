@@ -36,7 +36,7 @@ enum class CompileTimeEntryType {
   REFERENCE_TENSORS_FOR_GROUPS,
   VECTORIZABLE_INPUTS_AND_OUTPUTS,
   INPUTS_AND_OUTPUTS_INNER_DIM_GROUPS,
-  VECTORIZE_MAPS,
+  TV_TO_CONTIG_INNER_SIZE_MAPS,
   UNROLLABLE_INPUTS_AND_OUTPUTS,
   REDUCTION_TVS,
   PERSISTENT_BUFFER_INFO,
@@ -92,14 +92,13 @@ class VectorizableInputsAndOutputs {
       CompileTimeEntryType::VECTORIZABLE_INPUTS_AND_OUTPUTS;
 };
 
-//! Entry type definition class for `VECTORIZE_MAPS`,
+//! Entry type definition class for `TV_TO_CONTIG_INNER_SIZE_MAPS`,
 //!  stores the vectorizable TensorViews on a fusion's inputs and outputs.
-class VectorizeMaps {
+class TvToContigInnerSizeMaps {
  public:
-  using DataType =
-      std::vector<vectorize_helper::ContiguousInnerDimensionsMapper>;
+  using DataType = std::vector<std::unordered_map<TensorView*, Val*>>;
   static const CompileTimeEntryType EntryType =
-      CompileTimeEntryType::VECTORIZE_MAPS;
+      CompileTimeEntryType::TV_TO_CONTIG_INNER_SIZE_MAPS;
 };
 
 //! Entry type definition class for `INPUTS_AND_OUTPUTS_INNER_DIM_GROUPS`,

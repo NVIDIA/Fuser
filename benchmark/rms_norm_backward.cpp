@@ -5,12 +5,12 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <device_lower/lower2device.h>
 #include <executor.h>
 #include <fusion.h>
-#include <ir_all_nodes.h>
-#include <ir_builder.h>
-#include <ir_utils.h>
-#include <lower2device.h>
+#include <ir/all_nodes.h>
+#include <ir/builder.h>
+#include <ir/utils.h>
 #include <ops/all_ops.h>
 #include <scheduler/all_schedulers.h>
 
@@ -19,6 +19,9 @@
 #include <cuda_runtime.h>
 
 #include <benchmark/utils.h>
+#include <test/utils.h>
+
+using namespace nvfuser;
 
 //------------------------------------------------------------------------------
 
@@ -30,12 +33,12 @@ static void setupRMSNorm_BWD(Fusion* fusion, DataType dtype) {
       dtype == DataType::BFloat16);
 
   // setup fusion
-  auto grad_out = makeContigTensor(3, dtype);
-  auto input = makeContigTensor(3, dtype);
+  auto grad_out = makeContigTensor(2, dtype);
+  auto input = makeContigTensor(2, dtype);
   auto weight = makeContigTensor(1, dtype);
   auto rstd = TensorViewBuilder()
-                  .contiguity({false, false, c10::nullopt})
-                  .shape({-1, -1, 1})
+                  .contiguity({false, std::nullopt})
+                  .shape({-1, 1})
                   .dtype(dtype)
                   .build();
 
@@ -71,7 +74,8 @@ static void NvFuserScheduler_RMSNorm_BWD(
       dtype == DataType::Float || dtype == DataType::Half ||
       dtype == DataType::BFloat16);
 
-  std::vector<int64_t> input_shape{8, benchmark_state.range(0), 1024};
+  std::vector<int64_t> input_shape{
+      benchmark_state.range(0), benchmark_state.range(1)};
 
   // inputs
   at::manual_seed(0);
@@ -79,8 +83,8 @@ static void NvFuserScheduler_RMSNorm_BWD(
       at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
   at::Tensor grad_out = at::randn(input_shape, options);
   at::Tensor input = at::randn(input_shape, options);
-  at::Tensor weight = at::randn({input_shape[2]}, options);
-  at::Tensor rstd = at::randn({input_shape[0], input_shape[1], 1}, options);
+  at::Tensor weight = at::randn({input_shape[1]}, options);
+  at::Tensor rstd = at::randn({input_shape[0], 1}, options);
 
   std::vector<c10::IValue> aten_inputs({grad_out, input, weight, rstd});
 
@@ -95,50 +99,34 @@ static void NvFuserScheduler_RMSNorm_BWD(
 //------------------------------------------------------------------------------
 
 NVFUSER_BENCHMARK_DEFINE(
-    NvFuserScheduler_RMSNorm_BWD_fp32,
-    setupRMSNorm_BWD,
-    NvFuserScheduler_RMSNorm_BWD,
-    DataType::Float);
-
-NVFUSER_BENCHMARK_RUN(NvFuserScheduler_RMSNorm_BWD_fp32)
-    ->RangeMultiplier(2)
-    ->Ranges({{16, 64}})
-    ->Unit(benchmark::kMicrosecond)
-    ->UseManualTime();
-
-NVFUSER_BENCHMARK_RUN(NvFuserScheduler_RMSNorm_BWD_fp32)
-    ->RangeMultiplier(2)
-    ->Ranges({{28, 56}})
-    ->Unit(benchmark::kMicrosecond)
-    ->UseManualTime();
-
-NVFUSER_BENCHMARK_RUN(NvFuserScheduler_RMSNorm_BWD_fp32)
-    ->RangeMultiplier(2)
-    ->Ranges({{24, 48}})
-    ->Unit(benchmark::kMicrosecond)
-    ->UseManualTime();
-
-NVFUSER_BENCHMARK_DEFINE(
     NvFuserScheduler_RMSNorm_BWD_fp16,
     setupRMSNorm_BWD,
     NvFuserScheduler_RMSNorm_BWD,
     DataType::Half);
 
+NVFUSER_BENCHMARK_DEFINE(
+    NvFuserScheduler_RMSNorm_BWD_fp32,
+    setupRMSNorm_BWD,
+    NvFuserScheduler_RMSNorm_BWD,
+    DataType::Float);
+
 NVFUSER_BENCHMARK_RUN(NvFuserScheduler_RMSNorm_BWD_fp16)
-    ->RangeMultiplier(2)
-    ->Ranges({{16, 64}})
+    ->Apply(addCasesOneWave128To32K)
     ->Unit(benchmark::kMicrosecond)
     ->UseManualTime();
 
 NVFUSER_BENCHMARK_RUN(NvFuserScheduler_RMSNorm_BWD_fp16)
-    ->RangeMultiplier(2)
-    ->Ranges({{28, 56}})
+    ->Apply(addCases16Wave128To32K)
     ->Unit(benchmark::kMicrosecond)
     ->UseManualTime();
 
-NVFUSER_BENCHMARK_RUN(NvFuserScheduler_RMSNorm_BWD_fp16)
-    ->RangeMultiplier(2)
-    ->Ranges({{24, 48}})
+NVFUSER_BENCHMARK_RUN(NvFuserScheduler_RMSNorm_BWD_fp32)
+    ->Apply(addCasesOneWave128To32K)
+    ->Unit(benchmark::kMicrosecond)
+    ->UseManualTime();
+
+NVFUSER_BENCHMARK_RUN(NvFuserScheduler_RMSNorm_BWD_fp32)
+    ->Apply(addCases16Wave128To32K)
     ->Unit(benchmark::kMicrosecond)
     ->UseManualTime();
 

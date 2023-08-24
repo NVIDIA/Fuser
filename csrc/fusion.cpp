@@ -6,19 +6,20 @@
  */
 // clang-format on
 #include <codegen.h>
+#include <debug.h>
+#include <device_lower/analysis/bank_conflict.h>
+#include <device_lower/lower2device.h>
 #include <disjoint_set.h>
 #include <executor_params.h>
 #include <fusion.h>
 #include <fusion_segmenter.h>
 #include <instrumentation.h>
-#include <ir_all_nodes.h>
-#include <ir_cloner.h>
-#include <ir_printer.h>
-#include <ir_utils.h>
+#include <ir/all_nodes.h>
+#include <ir/cloner.h>
+#include <ir/printer.h>
+#include <ir/utils.h>
 #include <iter_visitor.h>
 #include <kernel.h>
-#include <lower2device.h>
-#include <lower_bank_conflict.h>
 #include <ops/arith.h>
 
 #include <iterator>
@@ -96,12 +97,19 @@ IrCloner Fusion::copy(const Fusion* from, Fusion* to) {
   to->is_during_update_uses_ = from->is_during_update_uses_;
 
   for (const auto& i : from->managed_data_) {
-    to->managed_data_.emplace_back(i.second(ir_cloner, i.first), i.second);
+    if (i.first.has_value()) {
+      to->managed_data_.emplace_back(i.second(ir_cloner, i.first), i.second);
+    } else {
+      // Don't clone managed data if it has been reset
+      to->managed_data_.emplace_back(i.first, i.second);
+    }
   }
 
   for (auto [k, v] : from->managed_named_data_) {
-    to->managed_named_data_.insert(std::make_pair(
-        k, std::make_pair(v.second(ir_cloner, v.first), v.second)));
+    if (v.first.has_value()) {
+      to->managed_named_data_.insert(std::make_pair(
+          k, std::make_pair(v.second(ir_cloner, v.first), v.second)));
+    }
   }
 
   return ir_cloner;
@@ -204,30 +212,13 @@ void Fusion::removeVal(Val* val) {
 void Fusion::addInput(Val* input) {
   assertInContainer(input, "Cannot register input ");
 
-  TORCH_INTERNAL_ASSERT(
-      input->getDataType() != DataType::Index,
-      "Data type Index is a local compile time data type only, it cannot be used as an input in case it was generated from another kernel.");
-
   if (input->getValType().value() == ValType::TensorView) {
     auto tv = input->as<TensorView>();
     tv->setMemoryType(MemoryType::Global);
-  } else if (input->getValType().value() == ValType::Scalar) {
+  } else if (input->getValType().value() == ValType::Others) {
     TORCH_CHECK(
         !input->isConst(),
         "Immediate scalar value cannot be added as an input. It is not necessary to pass it as an input.");
-    TORCH_CHECK(
-        !(input->isA<Double>() && input->getDataType() != DataType::Double),
-        "Found ",
-        input->getDataType().value(),
-        ". Using a Double scalar as an input with dtype other than DataType::Double is not supported ",
-        "as double is the only floating-point type in Python.");
-    TORCH_CHECK(
-        !(input->isA<ComplexDouble>() &&
-          input->getDataType() != DataType::ComplexDouble),
-        "Found ",
-        input->getDataType().value(),
-        ". Using a ComplexDouble scalar as an input with dtype other than DataType::ComplexDouble ",
-        "is not supported as complex double is the only complex type in Python.");
   }
 
   inputs_.push_back(input);
@@ -322,7 +313,7 @@ bool Fusion::isNoOp() {
     auto root_dom = TensorDomain::noReductions(out_tv->getMaybeRFactorDomain());
     bool size_zero = false;
     for (auto id : root_dom) {
-      if (id->extent()->isZeroInt()) {
+      if (id->extent()->isConstScalar() && id->extent()->evaluateInt() == 0) {
         size_zero = true;
         break;
       }
@@ -390,7 +381,7 @@ void Fusion::printKernel(const CompileParams& compile_params) {
       !this->isA<kir::Kernel>(),
       "Cannot \"print kernel\" of a kernel container. ",
       "This would require lowering during lowering.");
-  std::cout << codegen::generateCudaKernel(
+  debug() << codegen::generateCudaKernel(
       GpuLower(this, compile_params).kernel());
 }
 
@@ -467,14 +458,14 @@ void Fusion::printMath(bool from_outputs_only) {
 
   FusionGuard fg(this);
   auto exprs_for_print = exprs();
-  std::cout << "Inputs:" << std::endl;
+  debug() << "Inputs:" << std::endl;
   for (auto inp : inputs()) {
-    std::cout << "  " << inp << ", " << inp->getDataType().value() << std::endl;
+    debug() << "  " << inp << ", " << inp->getDataType().value() << std::endl;
   }
 
-  std::cout << "Outputs:" << std::endl;
+  debug() << "Outputs:" << std::endl;
   for (auto out : outputs()) {
-    std::cout << "  " << out << ", " << out->getDataType().value() << std::endl;
+    debug() << "  " << out << ", " << out->getDataType().value() << std::endl;
   }
 
   // If we want everything in the fusion, grab all values without uses to
@@ -486,14 +477,14 @@ void Fusion::printMath(bool from_outputs_only) {
         leaf_vals.push_back(val);
       }
     }
-    exprs_for_print = StmtSort::getExprs(this, leaf_vals);
+    exprs_for_print = StmtSort::getExprsTo(this, leaf_vals);
   }
 
-  std::cout << "\n%kernel_math {\n";
+  debug() << "\n%kernel_math {\n";
   for (auto expr : exprs_for_print) {
-    std::cout << expr;
+    debug() << expr;
   }
-  std::cout << "}\n\n";
+  debug() << "}\n\n";
 }
 
 std::vector<Val*> Fusion::inputsAndCreated() {
@@ -513,7 +504,7 @@ void Fusion::printTransforms() {
   FUSER_PERF_SCOPE("Fusion::printTransforms");
 
   FusionGuard fg(this);
-  IrTransformPrinter t_exprs(std::cout);
+  IrTransformPrinter t_exprs(debug());
   t_exprs.handle(this);
 }
 
@@ -664,7 +655,9 @@ Expr* Fusion::definition(const Val* val) const {
 bool Fusion::isStochastic() {
   for (auto expr : exprs()) {
     if (expr->isA<RNGOp>()) {
-      return true;
+      // Note that RNGOps without seed is not stochastic since the random seed
+      // and offset are given as Vals.
+      return !expr->as<RNGOp>()->isDeterministic();
     }
   }
   return false;
@@ -676,6 +669,7 @@ std::vector<Val*> Fusion::getTerminatingOutputs() const {
   auto is_reachable_to_output = [](Val* val) {
     // traverse to consumers of val and see if there is an output
     std::deque<Val*> consumers;
+    std::unordered_set<Val*> visited;
     for (auto use : val->uses()) {
       for (auto consumer : use->outputs()) {
         consumers.push_back(consumer);
@@ -687,12 +681,17 @@ std::vector<Val*> Fusion::getTerminatingOutputs() const {
       if (consumer->isFusionOutput()) {
         return true;
       }
+      // short-cut to break infinite loop with cycles
+      if (visited.count(consumer) > 0) {
+        continue;
+      }
       // consumer is not an output; proceed to its consumers
       for (auto use : consumer->uses()) {
         for (auto consumer_of_consumer : use->outputs()) {
           consumers.push_back(consumer_of_consumer);
         }
       }
+      visited.insert(consumer);
     }
     return false;
   };
@@ -819,6 +818,10 @@ std::vector<std::pair<int, int>> Fusion::getOutputToInputAliasIndices() const {
   // outputs are present
 
   return alias_indices;
+}
+
+bool Fusion::hasDynamicTransform() {
+  return !ir_utils::getTVsWithDynamicTransform(this).empty();
 }
 
 } // namespace nvfuser

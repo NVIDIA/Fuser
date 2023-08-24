@@ -9,7 +9,7 @@
 
 #include <c10/macros/Export.h>
 
-#include <ir_interface_nodes.h>
+#include <ir/interface_nodes.h>
 #include <type.h>
 
 //
@@ -23,12 +23,24 @@ namespace nvfuser {
 TORCH_CUDA_CU_API Val* set(Val*);
 TORCH_CUDA_CU_API TensorView* set(TensorView*);
 
+// segment_set hints segmenter to break kernel
+TORCH_CUDA_CU_API Val* segment_set(Val*);
+TORCH_CUDA_CU_API TensorView* segment_set(TensorView*);
+
 TORCH_CUDA_CU_API TensorView* view(TensorView* x, DataType dtype);
 
 TORCH_CUDA_CU_API TensorView* reshape(
     TensorView* x,
     const std::vector<int64_t>& original_sizes,
     const std::vector<int64_t>& new_sizes);
+
+//! Dynamic version of reshape. The number of dimensions is statically
+//! fixed as the length of the new_sizes vector, but the size Vals can be
+//! symbolic, which are then concretized at run time with actual
+//! fusion inputs.
+TORCH_CUDA_CU_API TensorView* reshape(
+    TensorView* x,
+    const std::vector<Val*>& new_sizes);
 
 TORCH_CUDA_CU_API TensorView* flatten(
     TensorView* x,
@@ -85,12 +97,14 @@ TORCH_CUDA_CU_API TensorView* transpose(TensorView* x);
 TORCH_CUDA_CU_API TensorView* pad(
     TensorView* x,
     const std::vector<Val*>& pad_widths,
-    Val* value = nullptr);
+    Val* value = nullptr,
+    std::optional<IterType> iter_type_opt = std::nullopt);
 
 //! Concatenate tensors in the given dimension
 TORCH_CUDA_CU_API TensorView* cat(
     const std::vector<TensorView*>& inputs,
-    int64_t dim);
+    int64_t dim,
+    std::optional<IterType> iter_type_opt = std::nullopt);
 
 //! Return a tensor where each dimension is sliced as specified by the
 //! ranges parameter. Stepping must be one at this moment.
