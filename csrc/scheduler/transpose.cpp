@@ -760,12 +760,12 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
 
     params->vectorize_factor1 =
         vectorize_helper::getVectorizationVectorTransposeGroup(
-            max_unroll_factor,
+	    runtime_info,
 	    reference1,
             inner_most_pos1_in_ref1,
 	    params->dims_merged_with_1,
             grouped_inputs_outputs[0],
-	    runtime_info);
+            max_unroll_factor);
 
     // TODO: Since group2 only has global->shared and shared->global set op, we
     // can have fine-grained control of unroll/vectorization at per tensor
@@ -773,12 +773,12 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
     // entire group 2
     params->vectorize_factor2 =
         vectorize_helper::getVectorizationVectorTransposeGroup(
-            max_unroll_factor,
+	    runtime_info,
 	    reference2,
             inner_most_pos2_in_ref1,
 	    params->dims_merged_with_2,
             grouped_inputs_outputs[1],
-	    runtime_info);
+            max_unroll_factor);
   }
 
   params->lparams.bind(params->getThreadsPerBlock(), ParallelType::TIDx);

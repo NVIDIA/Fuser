@@ -315,12 +315,12 @@ int64_t getVectorizationFactor(
     int64_t break_point);
 
 int64_t getVectorizationVectorTransposeGroup(
-    int64_t max_vectorization,
+    SchedulerRuntimeInfo& runtime_info,
     TensorView* reference,
     size_t inner_most_dim,
     const std::vector<size_t>& dims_to_merge,
     const std::vector<TensorView*>& vec_tv,
-    SchedulerRuntimeInfo& runtime_info);
+    int64_t max_vectorization);
 
 //! Find the break point for vectorization. Here, we vectorize either
 //! the innermost reduction or iteration domains. We use the producer
