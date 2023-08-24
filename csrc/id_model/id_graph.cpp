@@ -619,6 +619,24 @@ void IdGraph::initializeId(
 }
 
 bool IdGraph::exprsMap(Expr* first, Expr* second, bool forward) const {
+#if 0
+  bool debug = first->isA<Merge>() && second->isA<Merge>() &&
+      (first->as<Merge>()->out()->name() == 29 ||
+       first->as<Merge>()->out()->name() == 30 ||
+       second->as<Merge>()->out()->name() == 29 ||
+       second->as<Merge>()->out()->name() == 30 ||
+       first->as<Merge>()->out()->name() == 23 ||
+       first->as<Merge>()->out()->name() == 24 ||
+       second->as<Merge>()->out()->name() == 23 ||
+       second->as<Merge>()->out()->name() == 24);
+#else
+  bool debug = false;
+#endif
+
+  if (debug) {
+    std::cerr << "exprsMap? " << first->toString() << second->toString();
+  }
+
   if (!transformAtributesMatch(first, second)) {
     return false;
   }
@@ -645,6 +663,10 @@ bool IdGraph::exprsMap(Expr* first, Expr* second, bool forward) const {
     for (const auto i : c10::irange(first_ids.size())) {
       if (!disjointIdSets().permissiveAreMapped(
               first_ids.at(i), second_ids.at(i))) {
+        if (debug) {
+          std::cerr << "exprsMap false: " << first->toString()
+                    << second->toString();
+        }
         return false;
       }
     }
@@ -662,17 +684,27 @@ bool IdGraph::exprsMap(Expr* first, Expr* second, bool forward) const {
     auto extent_1o = merge1->outer()->extent();
     auto extent_1i = merge1->inner()->extent();
 
-    auto extent_0_match = extent_0o->sameAs(extent_1o) ||
+    auto extent_o_match = extent_0o->sameAs(extent_1o) ||
         (extent_0o->isConstInt() && extent_1o->isConstInt() &&
          extent_0o->evaluateInt() == extent_1o->evaluateInt()) ||
         disjointIdSets().permissiveAreMapped(merge0->outer(), merge1->outer());
 
-    auto extent_1_match = extent_0i->sameAs(extent_1i) ||
+    auto extent_i_match = extent_0i->sameAs(extent_1i) ||
         (extent_0i->isConstInt() && extent_1i->isConstInt() &&
          extent_0i->evaluateInt() == extent_1i->evaluateInt()) ||
         disjointIdSets().permissiveAreMapped(merge0->inner(), merge1->inner());
 
-    if (!(extent_0_match || extent_1_match)) {
+    if (!(extent_o_match || extent_i_match)) {
+      return false;
+    }
+
+    // TODO-NM
+    if (extent_o_match &&
+        disjointIdSets().permissiveAreMapped(merge0->out(), merge0->outer())) {
+      return false;
+    }
+    if (extent_i_match &&
+        disjointIdSets().permissiveAreMapped(merge0->out(), merge0->inner())) {
       return false;
     }
   }
@@ -692,6 +724,10 @@ bool IdGraph::exprsMap(Expr* first, Expr* second, bool forward) const {
             second->as<Resize>()->rightExpand())) {
       return false;
     }
+  }
+
+  if (debug) {
+    std::cerr << "exprsMap true: " << first->toString() << second->toString();
   }
 
   return true;
@@ -720,7 +756,17 @@ void IdGraph::mapIds(IterDomain* id0, IterDomain* id1) {
     return;
   }
 
+  bool debug = (id0->name() == 21 && id1->name() == 18) ||
+      (id0->name() == 17 && id1->name() == 29);
+
+  if (debug) {
+    std::cerr << "mapIds: " << id0->name() << ", " << id1->name() << std::endl;
+  }
+
   if (disjointIdSets().strictAreMapped(id0, id1)) {
+    if (debug) {
+      std::cerr << "mapIds: Already mapped\n";
+    }
     return;
   }
   // Definitions and uses are based on the groups of id0 and id1, don't merge
@@ -742,17 +788,50 @@ void IdGraph::mapIds(IterDomain* id0, IterDomain* id1) {
   unique_definitions_[new_id_group] = orig_defs0.computeUnion(orig_defs1);
   unique_uses_[new_id_group] = orig_uses0.computeUnion(orig_uses1);
 
+  if (debug) {
+    for (const auto& exprs : orig_uses0) {
+      std::cerr << "Expr use group 0 ->\n";
+      for (auto expr : exprs->vector()) {
+        std::cerr << "Expr0: " << expr->toString();
+      }
+    }
+    for (const auto& exprs : orig_uses1) {
+      std::cerr << "Expr use group 1 ->\n";
+      for (auto expr : exprs->vector()) {
+        std::cerr << "Expr1: " << expr->toString();
+      }
+    }
+  }
+
   // Propagate on uses
   if (!orig_uses0.empty() && !orig_uses1.empty()) {
     for (const ExprGroup& use_group_1 : orig_uses1) {
+      // TODO-NM: why this?
+      // In Indexing19, when iS17 and iS29 are mapped in the
+      // permissive map, we want to propagate the mapping to the the
+      // merge of iS23 and iS22 and the merge of iS29 and
+      // iS19. However, since the merge of iS29 and iS19 are included
+      // as a use of both IDs, no propagation happens.
+#if 0
       if (orig_uses0.has(use_group_1)) {
+        if (debug) {
+          std::cerr << "Expr included in both: " << use_group_1->front()->toString();
+        }
         continue;
       }
+#endif
 
       for (const ExprGroup& use_group_0 : orig_uses0) {
+        if (use_group_0 == use_group_1) {
+          continue;
+        }
         Expr* use0 = use_group_0->front();
         Expr* use1 = use_group_1->front();
         maybeMapThroughExprs(use0, use1, true);
+        if (debug) {
+          std::cerr << "mapIds: use maybeMapThroughExprs: " << use0->toString()
+                    << use1->toString();
+        }
       }
     }
   }
@@ -760,14 +839,20 @@ void IdGraph::mapIds(IterDomain* id0, IterDomain* id1) {
   // Propagate on definitions
   if (!orig_defs0.empty() && !orig_defs1.empty()) {
     for (const ExprGroup& def_group_1 : orig_defs1) {
+#if 0
       if (orig_defs0.has(def_group_1)) {
         continue;
       }
+#endif
 
       for (const ExprGroup& def_group_0 : orig_defs0) {
         auto def0 = def_group_0->front();
         auto def1 = def_group_1->front();
         maybeMapThroughExprs(def0, def1, false);
+        if (debug) {
+          std::cerr << "mapIds: def maybeMapThroughExprs: " << def0->toString()
+                    << def1->toString();
+        }
       }
     }
   }
@@ -776,6 +861,10 @@ void IdGraph::mapIds(IterDomain* id0, IterDomain* id1) {
   unique_definitions_.erase(orig_id_group1);
   unique_uses_.erase(orig_id_group0);
   unique_uses_.erase(orig_id_group1);
+
+  if (debug) {
+    std::cerr << "mapIds done\n";
+  }
 }
 
 void IdGraph::maybeMapThroughExprs(Expr* expr0, Expr* expr1, bool forward) {
@@ -786,6 +875,12 @@ void IdGraph::maybeMapThroughExprs(Expr* expr0, Expr* expr1, bool forward) {
   // Expr inputs are mapped. If propagate_exprs_ is true, map the
   // exprs and outputs
   if (propagate_through_exprs_) {
+#if 0
+    VERBOSE() << "propagate through (" << forward << "): "
+              << expr0->toString()
+              << expr1->toString()
+              << std::endl;
+#endif
     mapExprs(expr0, expr1);
     mapThroughExpr(expr0, expr1, forward);
   } else if (
@@ -912,6 +1007,8 @@ void IdGraph::mapThroughTrivialExprs() {
     // Map through trivial expressions
     for (auto mapped_id_group : mapped_ids) {
       for (auto id : mapped_id_group) {
+        std::cerr << "Map trivial: " << mapped_id_group.front()->name() << ", "
+                  << id->name() << std::endl;
         mapIds(mapped_id_group.front(), id);
       }
     }

@@ -415,6 +415,7 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/test/test_gpu_compute_with.cpp
     ${NVFUSER_ROOT}/test/test_expr_simplifier.cpp
     ${NVFUSER_ROOT}/test/test_external_src.cpp
+    ${NVFUSER_ROOT}/test/test_id_graph.cpp
     ${NVFUSER_ROOT}/test/test_swizzle.cpp
     ${NVFUSER_ROOT}/test/test_tensor_factories.cpp
     ${NVFUSER_ROOT}/test/test_gpu_fused_reduction.cpp

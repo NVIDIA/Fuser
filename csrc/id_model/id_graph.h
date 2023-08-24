@@ -16,6 +16,17 @@
 
 namespace nvfuser {
 
+inline std::ostream& verbose(int line) {
+  return std::cerr << "[DEBUG@" << line << "] ";
+}
+
+inline std::ostream& warn(int line) {
+  return std::cerr << "[WARN@" << line << "] ";
+}
+
+#define VERBOSE() verbose(__LINE__)
+#define WARN() warn(__LINE__)
+
 using IdGroup = std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>;
 using IdGroups = VectorOfUniqueEntries<IdGroup>;
 using ExprGroup = std::shared_ptr<VectorOfUniqueEntries<Expr*>>;
@@ -121,7 +132,9 @@ class TORCH_CUDA_CU_API IdGraph {
   //! Same as iterDomainGroupDefinitions but for uses instead of
   //! definitions
   //!
-  //! TODO-NM: ExprGroups is a real container. Consider returning a reference
+  //! TODO-NM: ExprGroups is a real container. Consider returning a
+  //! reference
+  //! TODO-NM: Rename to getMaybeUses. See getUses
   std::pair<ExprGroups, bool> getUses(const IdGroup& id_group) const;
 
   std::string toString() const;
@@ -196,6 +209,10 @@ class TORCH_CUDA_CU_API IdGraph {
   // output id group. This means traversing on this expression doesn't actually
   // do anything.
   bool isTrivialExprGroup(const ExprGroup& expr_group) const;
+
+  void setPropagateThroughExprs(bool b) {
+    propagate_through_exprs_ = b;
+  }
 
  private:
   // Map expr0 and expr1 with eachother, update unique_definitions_ unique_uses_
