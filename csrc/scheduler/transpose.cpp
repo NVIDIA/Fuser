@@ -758,10 +758,10 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
 
     params->vectorize_factor1 =
         vectorize_helper::getVectorizationVectorTransposeGroup(
-	    runtime_info,
-	    reference1,
+            runtime_info,
+            reference1,
             inner_most_pos1_in_ref1,
-	    params->dims_merged_with_1,
+            params->dims_merged_with_1,
             grouped_inputs_outputs[0],
             max_unroll_factor);
 
@@ -771,10 +771,10 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
     // entire group 2
     params->vectorize_factor2 =
         vectorize_helper::getVectorizationVectorTransposeGroup(
-	    runtime_info,
-	    reference1,
+            runtime_info,
+            reference1,
             inner_most_pos2_in_ref1,
-	    params->dims_merged_with_2,
+            params->dims_merged_with_2,
             grouped_inputs_outputs[1],
             max_unroll_factor);
   }
