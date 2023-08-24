@@ -24,6 +24,7 @@
 
 #include <gtest/gtest.h>
 
+#include <chrono>
 #include <cstddef>
 #include <string>
 #include <unordered_map>
@@ -409,6 +410,8 @@ inline bool maybeClearAllocator(int64_t max_bytes = ((int64_t)1 << 32)) {
   return false;
 }
 
+size_t getRandomSeed();
+
 // Fixture class must be uniquely identified, i.e., can't be in an
 // anonymous namespace
 class NVFuserTest : public ::testing::Test {
@@ -422,7 +425,17 @@ class NVFuserTest : public ::testing::Test {
 
     maybeClearAllocator();
 
-    at::manual_seed(0);
+    // If NVFUSER_TEST_RANDOM_SEED is provided, use that for the random seed.
+    // Otherwise, use system time. If a test fails, the seed will be printed
+    at::manual_seed(getRandomSeed());
+    std::srand(getRandomSeed());
+  }
+
+  void TearDown() override {
+    if (::testing::Test::HasFailure()) {
+      std::cerr << "Random seed used for ATen and std::srand: "
+                << getRandomSeed() << std::endl;
+    }
   }
 };
 

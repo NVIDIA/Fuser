@@ -671,4 +671,20 @@ at::Tensor atBiasEpilogue(const at::Tensor& tensor, const at::Tensor& bias) {
   return tensor.add(bias.unsqueeze(-1));
 }
 
+size_t getRandomSeed() {
+  static thread_local bool found_seed = false;
+  static thread_local size_t seed = 0;
+
+  if (!found_seed) {
+    auto seed_str = getNvFuserEnv("TEST_RANDOM_SEED");
+    if (seed_str) {
+      seed = std::stol(seed_str);
+    } else {
+      seed = std::chrono::system_clock::now().time_since_epoch().count();
+    }
+  }
+
+  return seed;
+}
+
 } // namespace nvfuser
