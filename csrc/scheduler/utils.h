@@ -108,6 +108,8 @@ TORCH_CUDA_CU_API inline void splitDims(
 // update the dimensions in `to_update` to the positions in the merged tensor.
 // Returns the merged dimension. All given dimensions are numbers before any
 // merge.
+// NOTE: merged is done as the entries in the order of `to_merge`, assuming an
+// order from inner to outer
 TORCH_CUDA_CU_API std::optional<size_t> mergeDims(
     TensorView* tv,
     std::vector<size_t> to_merge,
