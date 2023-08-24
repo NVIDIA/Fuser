@@ -756,8 +756,6 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
     // simply map those merged domains via ContiguousInnerDimensionsMapper
     scheduler_utils::splitDims(reference1, params->split_before_tiling);
 
-    std::vector<size_t> dims_group1 = params->dims_merged_with_1;
-
     params->vectorize_factor1 =
         vectorize_helper::getVectorizationVectorTransposeGroup(
 	    runtime_info,
@@ -774,7 +772,7 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
     params->vectorize_factor2 =
         vectorize_helper::getVectorizationVectorTransposeGroup(
 	    runtime_info,
-	    reference2,
+	    reference1,
             inner_most_pos2_in_ref1,
 	    params->dims_merged_with_2,
             grouped_inputs_outputs[1],
