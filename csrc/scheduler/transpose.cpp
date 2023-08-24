@@ -657,30 +657,21 @@ std::string getTransposeRuntimeRejectReason(
     TransposeViewPropagator propagator;
 
     // global schedule traverse dry-run
+    // see `Step 2: global schedule`
+    //
+    // This is the step where we create virtual innermost dimension and prepare
+    // for scheduling tiling on the two groups. Propagation from P2C across view
+    // is challenging at this step and could result in propagating incoherent
+    // transformation which resulted in assert. Hence our try run here examines
+    // the path for propagation and conservatively rejects fusion that requires
+    // propagation in the risky direction.
+    //
+    // NOTE: there are three traverse called during scheduling. We are only
+    // doing dry-run on the first traverse. Since the following twos are only
+    // used for scheduling tiling, which is not going to cause issue, since we
+    // are only tiling on the merged virtual innermost dimensions.
     MaxRootDomainInfoSpanningTree entire_dag(reference1);
     entire_dag.traverse(&propagator);
-
-    if (!propagator.p2c_via_view) {
-      // group2 schedule traverse dry-run
-      auto all_tvs_except1 = ir_utils::allTvsExcept(
-          fusion,
-          {grouped_inputs_outputs[0].begin(), grouped_inputs_outputs[0].end()});
-      SetSelector selector2({all_tvs_except1.begin(), all_tvs_except1.end()});
-      MaxRootDomainInfoSpanningTree entire_dag_except1(reference2, &selector2);
-      entire_dag_except1.traverse(&propagator);
-    }
-
-    if (!propagator.p2c_via_view) {
-      // group1 schedule traverse dry-run
-      auto all_tvs_except2 = ir_utils::allTvsExcept(
-          fusion,
-          {grouped_inputs_outputs[1].begin(), grouped_inputs_outputs[1].end()});
-      SetSelector selector1({all_tvs_except2.begin(), all_tvs_except2.end()});
-      MaxRootDomainInfoSpanningTree entire_dag_except_outputs(
-          reference1, &selector1);
-      entire_dag_except_outputs.traverse(&propagator);
-    }
-
     if (propagator.p2c_via_view) {
       return "producer to consumer transform propagation passing view op is not yet supported";
     }
