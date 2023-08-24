@@ -16,7 +16,6 @@ int nonNegativeAxis(int axis, size_t ndims) {
 }
 
 Val* numFeatures(TensorView* x, const std::vector<int>& dims, size_t ndims) {
-
   Val* num_features = IrBuilder::create<Val>(x->container(), 1.0);
   if (ndims == 0) {
     return num_features;
