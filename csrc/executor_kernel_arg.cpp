@@ -171,23 +171,7 @@ std::vector<std::byte> polymorphicValueToBytes(
     const PolymorphicValue& argument,
     const DataType& dtype,
     PrimDataType index_type) {
-  if (argument.is<Struct>()) {
-    // FUSER_PERF_SCOPE("polymorphicValueToBytes(Struct)");
-    TORCH_INTERNAL_ASSERT(
-        std::holds_alternative<StructType>(dtype.type),
-        "Expected StructType type.");
-    auto dtype_ = std::get<StructType>(dtype.type);
-    auto struct_ = argument.as<Struct>();
-    std::vector<std::byte> buffer;
-    for (const auto& field : dtype_.field_names) {
-      auto field_data = polymorphicValueToBytes(
-          struct_[field],
-          NVFUSER_MAYBE_STAR dtype_.types.at(field),
-          index_type);
-      buffer.insert(buffer.end(), field_data.begin(), field_data.end());
-    }
-    return buffer;
-  } else if (argument.is<at::Tensor>()) {
+  if (argument.is<at::Tensor>()) {
     // FUSER_PERF_SCOPE("polymorphicValueToBytes(at::Tensor)");
     const auto& tensor = argument.as<at::Tensor>();
     TORCH_INTERNAL_ASSERT(
@@ -296,6 +280,67 @@ std::vector<std::byte> polymorphicValueToBytes(
           "Cannot convert complex double to ",
           dtype,
           " type: only complex float and complex double are supported.");
+    }
+  } else if (argument.is<StructHolder>()) {
+    // FUSER_PERF_SCOPE("polymorphicValueToBytes(StructHolder)");
+    const auto& struct_ = argument.as<StructHolder>();
+    std::vector<std::byte> buffer;
+    const auto& dtype_ = std::get<StructType>(dtype.type);
+    if (struct_.is<TensorMetaData>()) {
+      // special handle for TensorMetaData so that CPU overhead is minimal.
+      const TensorMetaData& tmd = struct_.as<TensorMetaData>();
+      if (index_type == PrimDataType::Int) {
+        buffer.reserve(
+            sizeof(void*) + sizeof(int64_t) * tmd.logical_size.size() +
+            sizeof(int64_t) * tmd.alloc_stride.size());
+        buffer.insert(
+            buffer.end(),
+            (std::byte*)&tmd.data,
+            (std::byte*)&tmd.data + sizeof(void*));
+        buffer.insert(
+            buffer.end(),
+            (std::byte*)tmd.logical_size.data(),
+            (std::byte*)tmd.logical_size.data() +
+                sizeof(int64_t) * tmd.logical_size.size());
+        buffer.insert(
+            buffer.end(),
+            (std::byte*)tmd.alloc_stride.data(),
+            (std::byte*)tmd.alloc_stride.data() +
+                sizeof(int64_t) * tmd.alloc_stride.size());
+      } else {
+        buffer.reserve(
+            sizeof(void*) + sizeof(int32_t) * tmd.logical_size.size() +
+            sizeof(int32_t) * tmd.alloc_stride.size());
+        buffer.insert(
+            buffer.end(),
+            (std::byte*)&tmd.data,
+            (std::byte*)&tmd.data + sizeof(void*));
+        std::vector<int32_t> logical_size32(
+            tmd.logical_size.begin(), tmd.logical_size.end());
+        buffer.insert(
+            buffer.end(),
+            (std::byte*)logical_size32.data(),
+            (std::byte*)logical_size32.data() +
+                sizeof(int32_t) * logical_size32.size());
+        std::vector<int32_t> alloc_stride32(
+            tmd.alloc_stride.begin(), tmd.alloc_stride.end());
+        buffer.insert(
+            buffer.end(),
+            (std::byte*)alloc_stride32.data(),
+            (std::byte*)alloc_stride32.data() +
+                sizeof(int32_t) * alloc_stride32.size());
+      }
+      return buffer;
+    } else {
+      for (const auto& field : dtype_.fields) {
+        if (!field.used_in_kernel) {
+          continue;
+        }
+        auto field_data = polymorphicValueToBytes(
+            struct_[field.name], *field.type, index_type);
+        buffer.insert(buffer.end(), field_data.begin(), field_data.end());
+      }
+      return buffer;
     }
   } else if (argument.is<Opaque>()) {
     // FUSER_PERF_SCOPE("polymorphicValueToBytes(Opaque)");

@@ -345,8 +345,9 @@ struct DynamicType {
         using T = typename decltype(t)::type;
         if constexpr (opcheck<T>[opcheck<IndexT>]) {
           return std::is_same_v<
-              decltype(std::declval<T>()[std::declval<IndexT>()]),
-              DynamicType&>;
+              std::remove_cvref_t<
+                  decltype(std::declval<T>()[std::declval<IndexT>()])>,
+              DynamicType>;
         }
         return false;
       },

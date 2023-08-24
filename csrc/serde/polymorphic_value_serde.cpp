@@ -117,8 +117,11 @@ flatbuffers::Offset<serde::PolymorphicValue> serializePolymorphicValue(
   TORCH_INTERNAL_ASSERT(
       !v->is<std::monostate>(), "PolymorphicValue is a std::monostate.");
   TORCH_INTERNAL_ASSERT(
-      !v->is<nvfuser::Struct>(),
+      !v->is<nvfuser::StructHolder>(),
       "Serialization of arbitrary struct is not implemented.");
+  TORCH_INTERNAL_ASSERT(
+      !v->is<nvfuser::Opaque>(),
+      "Serialization of arbitrary opaque value is not implemented.");
   TORCH_INTERNAL_ASSERT(
       !v->is<nvfuser::Pointer>(), "Serialization of pointer is not allowed.");
   TORCH_INTERNAL_ASSERT(

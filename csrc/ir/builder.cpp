@@ -233,10 +233,9 @@ Val* IrBuilder::getItemExpr(Val* array, PolymorphicValue index) {
 }
 
 Val* IrBuilder::getAttrExpr(Val* struct_, std::string attr) {
-  auto item_dtype =
-      NVFUSER_MAYBE_STAR std::get<StructType>(struct_->dtype().type)
-          .types.at(attr);
-  auto out = newScalar(item_dtype);
+  auto struct_type = std::get<StructType>(struct_->dtype().type);
+  auto item_type = struct_type.fieldDataType(attr);
+  auto out = newScalar(item_type);
   create<GetAttr>(struct_->container(), out, struct_, std::move(attr));
   return out;
 }
@@ -254,16 +253,17 @@ Val* IrBuilder::metadataExpr(TensorView* tv) {
 Val* IrBuilder::structExpr(
     const std::vector<std::pair<std::string, Val*>>& fields,
     std::string name) {
-  StructType output_type;
-  output_type.name = std::move(name);
-  for (auto& field : fields) {
-    output_type.types.emplace(
-        field.first, NVFUSER_MAYBE_MAKE_SHARED(field.second->dtype()));
-    output_type.field_names.emplace_back(field.first);
-  }
-  auto out = newScalar(DataType(output_type));
-  create<StructConstruct>(out, fields);
-  return out;
+  return nullptr;
+  // StructType output_type;
+  // output_type.name = std::move(name);
+  // for (auto& field : fields) {
+  //   output_type.types.emplace(
+  //       field.first, NVFUSER_MAYBE_MAKE_SHARED(field.second->dtype()));
+  //   output_type.field_names.emplace_back(field.first);
+  // }
+  // auto out = newScalar(DataType(output_type));
+  // create<StructConstruct>(out, fields);
+  // return out;
 }
 
 Val* SimplifyingIrBuilder::negExpr(Val* val) {

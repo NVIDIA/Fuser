@@ -11,6 +11,7 @@
 
 #include <dynamic_type.h>
 #include <opaque_type.h>
+#include <struct.h>
 #include <any>
 #include <complex>
 #include <cstddef>
@@ -22,87 +23,6 @@
 #include <ATen/ATen.h>
 
 namespace nvfuser {
-
-template <typename T>
-struct Struct {
-  // Using std::unordered_map<std::string, T> is more convenient and
-  // straightforward, but this is not guaranteed to work by C++ standard.
-  // See [Incomplete type support in STL]
-#if defined(STD_UNORDERED_SET_SUPPORTS_INCOMPLETE_TYPE)
-
-  std::unordered_map<std::string, T> fields;
-  Struct(std::initializer_list<std::pair<const std::string, T>> init)
-      : fields(init) {}
-#define MAYBE_STAR
-
-#else
-
-  std::unordered_map<std::string, std::shared_ptr<T>> fields;
-  Struct(std::initializer_list<std::pair<const std::string, T>> init) {
-    for (const auto& [key, value] : init) {
-      fields[key] = std::make_shared<T>(value);
-    }
-  }
-#define MAYBE_STAR *
-
-#endif
-
-  Struct() = default;
-  Struct(const Struct& other) = default;
-  Struct(Struct&& other) = default;
-  Struct& operator=(const Struct& other) = default;
-  Struct& operator=(Struct&& other) = default;
-
-  const T& operator[](const std::string& key) const {
-    return MAYBE_STAR fields.at(key);
-  }
-
-  T& operator[](const std::string& key) {
-#if defined(STD_UNORDERED_SET_SUPPORTS_INCOMPLETE_TYPE)
-    return fields[key];
-#else
-    if (fields.find(key) == fields.end()) {
-      fields[key] = std::make_shared<T>();
-    }
-    return *fields.at(key);
-#endif
-  }
-
-  bool operator==(const Struct& other) const {
-    if (this == &other) {
-      return true;
-    }
-    if (fields.size() != other.fields.size()) {
-      return false;
-    }
-    for (const auto& [key, _] : fields) {
-      if (other.fields.find(key) == other.fields.end()) {
-        return false;
-      }
-      if ((*this)[key] != other[key]) {
-        return false;
-      }
-    }
-    return true;
-  }
-};
-
-template <typename T>
-inline std::ostream& operator<<(std::ostream& os, const Struct<T>& s) {
-  os << "struct { ";
-  bool first = true;
-  for (const auto& [key, value] : s.fields) {
-    if (!first) {
-      os << ", ";
-    }
-    os << key << " = " << MAYBE_STAR value;
-    first = false;
-  }
-  os << "}";
-  return os;
-}
-
-#undef MAYBE_STAR
 
 struct DataType;
 
@@ -239,7 +159,7 @@ inline std::ostream& operator<<(std::ostream& os, const Pointer& ptr) {
 }
 
 using PolymorphicValue = DynamicType<
-    Containers<std::vector, Struct>,
+    Containers<std::vector, StructHolder>,
     Pointer,
     Opaque,
     at::Tensor,
@@ -247,6 +167,14 @@ using PolymorphicValue = DynamicType<
     double,
     int64_t,
     bool>;
+
+using Struct = StructTemplate<PolymorphicValue>;
+
+template <typename PolymorphicValue>
+inline PolymorphicValue StructHolder<PolymorphicValue>::operator[](
+    const std::string& key) const {
+  return (*struct_ptr_)[key];
+}
 
 namespace PolymorphicValue_functions {
 
