@@ -1168,6 +1168,14 @@ struct CD {
   constexpr const int& operator->*(int D::*member) const {
     return std::get<D>(v).*member;
   }
+
+  constexpr int& operator->*(int C::*member) {
+    return std::get<C>(v).*member;
+  }
+
+  constexpr int& operator->*(int D::*member) {
+    return std::get<D>(v).*member;
+  }
 };
 
 using ABCD = DynamicType<NoContainers, A, B, CD>;
@@ -1189,7 +1197,23 @@ static_assert(opcheck<ABCD>->*opcheck<int C::*>);
 static_assert(opcheck<ABCD>->*opcheck<int D::*>);
 static_assert(!(opcheck<ABCD>->*opcheck<int E::*>));
 
-TEST_F(DynamicTypeTest, MemberPointer) {}
+TEST_F(DynamicTypeTest, MemberPointer) {
+  ABCD aa = a;
+  EXPECT_EQ(aa->*&A::x, 1);
+  EXPECT_EQ(aa->*&A::y, 2);
+  aa->*&A::x = 299792458;
+  aa->*&A::y = 314159;
+  EXPECT_EQ(aa->*&A::x, 299792458);
+  EXPECT_EQ(aa->*&A::y, 314159);
+
+  ABCD cc = c;
+  EXPECT_EQ(cc->*&C::x, 5);
+  EXPECT_EQ(cc->*&C::y, 6);
+  cc->*&C::x = 299792458;
+  cc->*&C::y = 314159;
+  EXPECT_EQ(cc->*&C::x, 299792458);
+  EXPECT_EQ(cc->*&C::y, 314159);
+}
 
 } // namespace member_pointer_test
 

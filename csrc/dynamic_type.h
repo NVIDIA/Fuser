@@ -423,47 +423,52 @@ struct DynamicType {
   DEFINE_SQUARE_BRACKET_OPERATOR(const)
 #undef DEFINE_SQUARE_BRACKET_OPERATOR
 
-  template <typename Ret, typename Class>
-  static constexpr bool has_arrow_star = any_check(
-      [](auto t) {
-        using T = typename decltype(t)::type;
-        using MemberPtr = Ret Class::*;
-        if constexpr (opcheck<T>->*opcheck<MemberPtr>) {
-          return std::is_same_v<
-              decltype(std::declval<T>()->*std::declval<MemberPtr>()),
-              const Ret&>;
-        }
-        return false;
-      },
-      type_identities_as_tuple);
-
-  template <typename Ret, typename Class>
-  constexpr std::enable_if_t<
-      is_candidate_type<Class> || has_arrow_star<Ret, Class>,
-      const Ret&>
-  operator->*(Ret Class::*member) const {
-    if constexpr (is_candidate_type<Class>) {
-      return as<Class>().*member;
-    } else {
-      std::optional<const Ret*> ret = std::nullopt;
-      for_all_types([this, &member, &ret](auto t) {
-        using T = typename decltype(t)::type;
-        if constexpr (opcheck<T>->*opcheck<Ret Class::*>) {
-          if (is<T>()) {
-            ret = &(as<T>()->*member);
-          }
-        }
-      });
-      TORCH_CHECK(
-          ret.has_value(),
-          "Cannot access member with type ",
-          typeid(Ret).name(),
-          " in class ",
-          typeid(Class).name(),
-          " : incompatible type");
-      return *ret.value();
-    }
+#define DEFINE_ARROW_STAR_OPERATOR(__const)                            \
+  template <typename Ret, typename Class>                              \
+  static constexpr bool has_arrow_star##__const = any_check(           \
+      [](auto t) {                                                     \
+        using T = typename decltype(t)::type;                          \
+        using MemberPtr = Ret Class::*;                                \
+        if constexpr (opcheck<T>->*opcheck<MemberPtr>) {               \
+          return std::is_same_v<                                       \
+              decltype(std::declval<T>()->*std::declval<MemberPtr>()), \
+              __const Ret&>;                                           \
+        }                                                              \
+        return false;                                                  \
+      },                                                               \
+      type_identities_as_tuple);                                       \
+                                                                       \
+  template <typename Ret, typename Class>                              \
+  constexpr std::enable_if_t<                                          \
+      is_candidate_type<Class> || has_arrow_star<Ret, Class>,          \
+      __const Ret&>                                                    \
+  operator->*(Ret Class::*member) __const {                            \
+    if constexpr (is_candidate_type<Class>) {                          \
+      return as<Class>().*member;                                      \
+    } else {                                                           \
+      std::optional<__const Ret*> ret = std::nullopt;                  \
+      for_all_types([this, &member, &ret](auto t) {                    \
+        using T = typename decltype(t)::type;                          \
+        if constexpr (opcheck<T>->*opcheck<Ret Class::*>) {            \
+          if (is<T>()) {                                               \
+            ret = &(as<T>()->*member);                                 \
+          }                                                            \
+        }                                                              \
+      });                                                              \
+      TORCH_CHECK(                                                     \
+          ret.has_value(),                                             \
+          "Cannot access member with type ",                           \
+          typeid(Ret).name(),                                          \
+          " in class ",                                                \
+          typeid(Class).name(),                                        \
+          " : incompatible type");                                     \
+      return *ret.value();                                             \
+    }                                                                  \
   }
+
+  DEFINE_ARROW_STAR_OPERATOR()
+  DEFINE_ARROW_STAR_OPERATOR(const)
+#undef DEFINE_ARROW_STAR_OPERATOR
 
   // TODO: support operator(). This is not supported yet because it is the most
   // difficulty one to implement because it can has arbitrary number of
