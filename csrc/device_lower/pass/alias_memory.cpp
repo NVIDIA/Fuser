@@ -455,6 +455,9 @@ class ScopeMap : private kir::IrVisitor {
   ScopeMap(const std::vector<Expr*>& exprs)
       : global_scope_info_{makeAndRegisterScopeInfo(nullptr)} {
     handle(exprs);
+    // Note that this introduces a position at the end of the scope with no
+    // corresponding Expr. See also handle(kir::ForLoop*) below.
+    expr_pos_map_.moveToNext();
     global_scope_info_->end_pos = expr_pos_map_.getCurrentPos();
 
     // Make sure all loops have end_pos filled
@@ -474,6 +477,9 @@ class ScopeMap : private kir::IrVisitor {
   void handle(kir::ForLoop* for_loop) final {
     auto loop_info = makeAndRegisterScopeInfo(for_loop);
     kir::IrVisitor::handle(for_loop);
+    // Note that this introduces a position at the end of the scope with no
+    // corresponding Expr.
+    expr_pos_map_.moveToNext();
     loop_info->end_pos = expr_pos_map_.getCurrentPos();
   }
 
@@ -1867,7 +1873,8 @@ class PromoteReuseSyncModifier : private kir::ExprMutator {
       if (isDebugDumpEnabled(DebugDumpOption::BufferReuseInfo)) {
         debug() << "Ensuring syncs within these intervals:" << std::endl;
         for (auto [last_read, first_write] : sync_intervals_) {
-          debug() << "  " << last_read << " - " << first_write << std::endl;
+          debug() << "  (" << last_read << ", " << first_write << ")"
+                  << std::endl;
         }
       }
       traverseAndInsert(exprs);
@@ -1888,6 +1895,20 @@ class PromoteReuseSyncModifier : private kir::ExprMutator {
   void dispatch(Expr* expr) final {
     auto position = allocation_info_map_.getScopeMap().getExprPos(expr);
 
+    // Intervals are open. If this is the first expr past the lower endpoint of
+    // a sync interval, then add the corresponding upper endpoint.
+    // Note that we add these first so that we can detect adjacent intervals
+    // properly.
+    auto range = sync_intervals_.equal_range(position - 1);
+    for (auto& it = range.first; it != range.second; ++it) {
+      if (isDebugDumpEnabled(DebugDumpOption::BufferReuseInfo)) {
+        debug() << "Found dependency last read at position " << position - 1
+                << " corresponding to first write at " << it->second
+                << std::endl;
+      }
+      upcoming_first_writes_.insert(it->second);
+    }
+
     // If this is an upcoming first write that has not yet been erased, it means
     // we have not seen a sync in its interval. So we should insert a BlockSync
     // before this expr.
@@ -1899,6 +1920,11 @@ class PromoteReuseSyncModifier : private kir::ExprMutator {
       auto new_sync = IrBuilder::create<kir::BlockSync>();
       inserted_syncs_.insert(new_sync);
       registerInsertBefore(expr, new_sync);
+      // Now that we have inserted a sync, we can safely clear any other
+      // upcoming first writes.
+      upcoming_first_writes_.clear();
+      kir::ExprMutator::dispatch(expr);
+      return;
     }
 
     // If we have a sync at this location, we can clear any upcoming first
@@ -1909,17 +1935,6 @@ class PromoteReuseSyncModifier : private kir::ExprMutator {
                 << std::endl;
       }
       upcoming_first_writes_.clear();
-    }
-
-    // If this is the lower endpoint of a sync interval, add the upper endpoint
-    auto range = sync_intervals_.equal_range(position);
-    for (auto& it = range.first; it != range.second; ++it) {
-      if (isDebugDumpEnabled(DebugDumpOption::BufferReuseInfo)) {
-        debug() << "Found dependency last read at position " << position
-                << " corresponding to first write at " << it->second
-                << std::endl;
-      }
-      upcoming_first_writes_.insert(it->second);
     }
 
     kir::ExprMutator::dispatch(expr);
