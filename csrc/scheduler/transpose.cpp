@@ -747,7 +747,8 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
   {
     // duplicating reference1's TensorDomain, since the transformations applied
     // is not persistent and only needed for us to compute vectorization width.
-    TensorDomain* cloned_1_td = IrBuilder::create<TensorDomain>(reference1->domain());
+    TensorDomain* cloned_1_td =
+        IrBuilder::create<TensorDomain>(reference1->domain());
     // Adding a domain_guard so we can transform reference1
     ir_utils::TVDomainGuard domain_guard(reference1, cloned_1_td);
 
@@ -759,7 +760,7 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
     dims_group1.insert(dims_group1.begin(), 
 
     params->vectorize_factor1 =
-        getVectorizationVectorTransposeGroup(
+        vectorize_helper::getVectorizationVectorTransposeGroup(
             max_unroll_factor,
 	    reference1,
             inner_most_pos1_in_ref1,
@@ -772,10 +773,10 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
     // level. We should not be using a single global vectorize factor for the
     // entire group 2
     params->vectorize_factor2 =
-        getVectorizationVectorTransposeGroup(
+        vectorize_helper::getVectorizationVectorTransposeGroup(
             max_unroll_factor,
 	    reference2,
-            inner_most_pos1_in_ref2,
+            inner_most_pos2_in_ref1,
 	    dims_group2,
             grouped_inputs_outputs[1],
 	    runtime_info);
