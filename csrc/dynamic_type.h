@@ -440,7 +440,7 @@ struct DynamicType {
                                                                        \
   template <typename Ret, typename Class>                              \
   constexpr std::enable_if_t<                                          \
-      is_candidate_type<Class> || has_arrow_star<Ret, Class>,          \
+      is_candidate_type<Class> || has_arrow_star##__const<Ret, Class>, \
       __const Ret&>                                                    \
   operator->*(Ret Class::*member) __const {                            \
     if constexpr (is_candidate_type<Class>) {                          \
