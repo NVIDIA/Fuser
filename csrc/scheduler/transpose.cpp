@@ -563,7 +563,6 @@ std::string getTransposeRuntimeRejectReason(
       getReferenceTensors(data_cache, domain_map, grouped_inputs_outputs);
   auto reference_tensors = reference_tensors_entry.get();
   TensorView* reference1 = reference_tensors[0];
-  TensorView* reference2 = reference_tensors[1];
 
   auto pair =
       getShapeInReference(data_cache, runtime_info, reference1, domain_map);
