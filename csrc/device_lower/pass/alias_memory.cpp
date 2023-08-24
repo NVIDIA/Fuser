@@ -1900,10 +1900,10 @@ class PromoteReuseSyncModifier : private kir::ExprMutator {
   void dispatch(Expr* expr) final {
     auto position = allocation_info_map_.getScopeMap().getExprPos(expr);
 
-    // Intervals are open. If this is the first expr past the lower endpoint of
-    // a sync interval, then add the corresponding upper endpoint.
-    // Note that we add these first so that we can detect adjacent intervals
-    // properly.
+    // Lifetime intervals are closed, so sync intervals are open. If this is the
+    // first expr past a lifetime's last read, then add the corresponding upper
+    // endpoint for the sync interval. Note that we add these before checking
+    // for first writes so that we can detect adjacent intervals properly.
     auto range = sync_intervals_.equal_range(position - 1);
     for (auto& it = range.first; it != range.second; ++it) {
       if (isDebugDumpEnabled(DebugDumpOption::BufferReuseInfo)) {
