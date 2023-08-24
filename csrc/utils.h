@@ -14,6 +14,7 @@
 #include <debug.h>
 #include <type.h>
 
+#include <c10/core/thread_pool.h>
 #include <deque>
 #include <fstream>
 #include <optional>
@@ -31,6 +32,9 @@
 //! 5. ir/internal_nodes.h ** - Any internal-only IR nodes
 
 namespace nvfuser {
+
+int getNumThreads();
+c10::ThreadPool* getThreadPool();
 
 void debugPrint(const c10::TensorTypePtr& type);
 

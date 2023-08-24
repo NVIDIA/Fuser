@@ -10,6 +10,7 @@
 #include <options.h>
 #include <python_frontend/fusion_cache.h>
 #include <serde/fusion_record_serde.h>
+#include <utils.h>
 
 #include <filesystem>
 namespace fs = std::filesystem;
@@ -303,7 +304,7 @@ TrieNode* FusionCache::rootTriePtr() {
 }
 
 void FusionCache::serialize(std::string filename) const {
-  FUSER_PERF_SCOPE("FusionCache::Serialize");
+  FUSER_PERF_SCOPE("FusionCache::serialize");
   flatbuffers::FlatBufferBuilder builder(1024);
   // TODO: Serialize Fusion IR containers
 
@@ -387,6 +388,7 @@ namespace {
 typedef std::vector<uint8_t> BinaryBuffer;
 
 BinaryBuffer openFusionCache(std::string filename) {
+  FUSER_PERF_SCOPE("Flatbuffers::openFusionCache");
   auto file_handle = std::fopen(filename.c_str(), "rb");
   TORCH_CHECK(file_handle != nullptr, "Failed to open FusionCache buffer.");
 
@@ -403,6 +405,7 @@ BinaryBuffer openFusionCache(std::string filename) {
 }
 
 const serde::FusionCache* verifyFusionCache(const BinaryBuffer& buffer) {
+  FUSER_PERF_SCOPE("Flatbuffers::verifyFusionCache");
   auto fusion_cache_buffer = serde::GetFusionCache(buffer.data());
   flatbuffers::Verifier v(buffer.data(), buffer.size());
   TORCH_CHECK(
@@ -526,8 +529,15 @@ void FusionCache::deserialize(std::string filename) {
 
     auto fb_fec_node = fusion_cache_buffer->auto_gen_schedules()->Get(idx);
     auto fusion_schedule = queryFusionSchedules(trie_node->fusion_id);
-    fusion_schedule->auto_gen_schedules->deserialize(fb_fec_node);
+
+    // Parallelize the deserialization of each FusionExecutorCache.
+    getThreadPool()->run([=]() {
+      FUSER_PERF_SCOPE("FusionCache::deserializeFusionParallel");
+      fusion_schedule->auto_gen_schedules->deserialize(fb_fec_node);
+    });
   }
+  // Wait until all fusion executor caches are deserialized
+  getThreadPool()->waitWorkComplete();
 }
 
 } // namespace nvfuser::python_frontend
