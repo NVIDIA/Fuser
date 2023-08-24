@@ -990,24 +990,30 @@ void scheduleTranspose(Fusion* fusion, TransposeParams params) {
   // inner-most dims to create the virtual inner-most dim
   scheduler_utils::splitDims(reference1, params.split_before_tiling);
 
+  // prepare all dimensions in merge order for group1
   std::vector<size_t> dims_group1 = params.dims_merged_with_1;
   size_t inner_most_pos1_in_ref1 =
       domain_map.getInnerLeafDim(reference1, inner_most_id1);
   dims_group1.insert(dims_group1.begin(), inner_most_pos1_in_ref1);
 
+  // prepare all dimensions in merge order for group2
   std::vector<size_t> dims_group2 = params.dims_merged_with_2;
   size_t inner_most_pos2_in_ref1 =
       domain_map.getInnerLeafDim(reference1, inner_most_id2);
   dims_group2.insert(dims_group2.begin(), inner_most_pos2_in_ref1);
 
+  // merge all dimensions in group1, while updating all indices for group2
   auto merged1 =
       scheduler_utils::mergeDims(reference1, dims_group1, dims_group2);
   std::vector<size_t> merged1_vec;
   if (merged1.has_value()) {
     merged1_vec.push_back(*merged1);
   }
+  // merge all dimensions in group2, while updating merged index for group1
   auto merged2 =
       scheduler_utils::mergeDims(reference1, dims_group2, merged1_vec);
+
+  // updating merged1 & merged2 indices if applicable
   if (merged1.has_value()) {
     inner_most_pos1_in_ref1 = merged1_vec[0];
   }
