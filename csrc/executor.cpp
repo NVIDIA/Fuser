@@ -961,8 +961,12 @@ std::vector<at::Tensor> allocOutputs(
       if (shouldFillAllocationWithNan()) {
         fillTensorWithNan(alloc_tensor);
       }
-      outputs.emplace_back(transformOutputFromAllocationToRFactor(
-          alloc_tensor, buf_info.tv, ee));
+      if (buf_info.tv->hasAllocation()) {
+        outputs.emplace_back(transformOutputFromAllocationToRFactor(
+            alloc_tensor, buf_info.tv, ee));
+      } else {
+        outputs.emplace_back(std::move(alloc_tensor));
+      }
     }
   }
 
@@ -1730,10 +1734,13 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   }
 
   std::vector<std::vector<std::byte>> arg_buffers;
-  arg_buffers.reserve(kernel()->parameters().size());
-  for (auto v : kernel()->parameters()) {
-    arg_buffers.emplace_back(
-        getKernelArgument(expr_eval, v, kernel()->indexType()));
+  {
+    FUSER_PERF_SCOPE("ExecutorRunFusion::GetArgsBuffers");
+    arg_buffers.reserve(kernel()->parameters().size());
+    for (auto v : kernel()->parameters()) {
+      arg_buffers.emplace_back(
+          getKernelArgument(expr_eval, v, kernel()->indexType()));
+    }
   }
 
   if (isDebugDumpEnabled(DebugDumpOption::LaunchParam)) {
