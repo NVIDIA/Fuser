@@ -329,4 +329,30 @@ std::vector<std::byte> getKernelArgument(
   return polymorphicValueToBytes(pv, parameter->dtype(), index_type);
 }
 
+ std::vector<void*>& KernelArgumentHolder::getArgumentPointers(
+    kir::Kernel* kernel,
+    ExpressionEvaluator& expr_eval) {
+  FUSER_PERF_SCOPE("KernelArgumentHolder::getArgumentPointers");
+  if (!kernel_argument_pointers_.empty()) {
+    TORCH_INTERNAL_ASSERT(
+        kernel_ == kernel,
+        "KernelArgumentHolder::getArgumentPointers() called with a different kernel.");
+    return kernel_argument_pointers_;
+  }
+
+  TORCH_INTERNAL_ASSERT(kernel != nullptr);
+  kernel_ = kernel;
+  TORCH_INTERNAL_ASSERT(kernel_argument_bytes_.empty());
+  TORCH_INTERNAL_ASSERT(kernel_argument_pointers_.empty());
+
+  kernel_argument_bytes_.reserve(kernel->parameters().size());
+  for (auto v : kernel->parameters()) {
+    kernel_argument_bytes_.emplace_back(
+        getKernelArgument(expr_eval, v, kernel->indexType()));
+    kernel_argument_pointers_.push_back(kernel_argument_bytes_.back().data());
+  }
+
+  return kernel_argument_pointers_;
+}
+
 } // namespace nvfuser

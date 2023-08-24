@@ -21,11 +21,6 @@
 
 namespace nvfuser {
 
-//! KernelArgumentHolder copies meta information from kernel inputs, including
-//! tensor sizes/shapes/dtype/memory_ptr and copies scalar inputs. It is used
-//! for both compilation as well as kernel execution. The important thing is to
-//! strip ownership of tensor from KernelArgumentHolder, so that during async
-//! compilation, we are not unnecessarily holding memory that is not needed.
 class TORCH_CUDA_CU_API KernelArgumentHolder {
  public:
   static KernelArgumentHolder createKernelArgumentHolder(
@@ -109,21 +104,26 @@ class TORCH_CUDA_CU_API KernelArgumentHolder {
   //! Deserialize Kernel Argument Holder using flatbuffers
   void deserialize(const serde::KernelArgumentHolder* buffer);
 
+  // In principle, this should return a `const std::vector<void*>&`, but
+  // unfortunately cuLaunchKernel requires a non-const pointer `void**` instead
+  // of a const pointer `void* const*`
+  std::vector<void*>& getArgumentPointers(
+      kir::Kernel* kernel,
+      ExpressionEvaluator& expr_eval);
+
  private:
   std::vector<std::shared_ptr<PolymorphicValue>> arguments_;
+  std::vector<std::vector<std::byte>> kernel_argument_bytes_;
+  std::vector<void*> kernel_argument_pointers_;
 
   int8_t device_index_ = 0;
   std::optional<size_t> cache_id_ = std::nullopt;
+  kir::Kernel* kernel_ = nullptr;
 };
 
 std::vector<std::byte> polymorphicValueToBytes(
     const PolymorphicValue& argument,
     const DataType& dtype,
-    PrimDataType index_type);
-
-std::vector<std::byte> getKernelArgument(
-    ExpressionEvaluator& ee,
-    Val* parameter,
     PrimDataType index_type);
 
 } // namespace nvfuser

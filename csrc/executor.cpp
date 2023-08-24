@@ -1733,16 +1733,6 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     }
   }
 
-  std::vector<std::vector<std::byte>> arg_buffers;
-  {
-    FUSER_PERF_SCOPE("ExecutorRunFusion::GetArgsBuffers");
-    arg_buffers.reserve(kernel()->parameters().size());
-    for (auto v : kernel()->parameters()) {
-      arg_buffers.emplace_back(
-          getKernelArgument(expr_eval, v, kernel()->indexType()));
-    }
-  }
-
   if (isDebugDumpEnabled(DebugDumpOption::LaunchParam)) {
     launch_params_.print();
   }
@@ -1774,11 +1764,8 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   if (execute_kernel_) {
     ensureAvailableDynamicSmemSize(executor_entry->launch_params.smem());
 
-    std::vector<void*> arg_buffer_ptrs;
-    arg_buffer_ptrs.reserve(arg_buffers.size());
-    for (auto& arg_buffer : arg_buffers) {
-      arg_buffer_ptrs.push_back(arg_buffer.data());
-    }
+    std::vector<void*>& arg_buffer_ptrs =
+        args.getArgumentPointers(kernel(), expr_eval);
 
     if (isDebugDumpEnabled(DebugDumpOption::Occupancy) ||
         isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
