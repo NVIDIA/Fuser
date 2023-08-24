@@ -849,19 +849,10 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
   // vectorization impact. i.e. when split_before_tiling, we should try to split
   // on a factor that allows vectorization.
   {
-    // Compute maximum vectorize factor that can be used
-    int64_t vectorize_factor1 = max_unroll_factor;
-    int64_t vectorize_factor2 = max_unroll_factor;
-
     // duplicating reference1's TensorDomain, since the transformations applied
     // is not persistent and only needed for us to compute vectorization width.
-    TensorDomain* cloned_1_td = IrBuilder::create<TensorDomain>(
-        reference1->container(),
-        reference1->getRootDomain(),
-        reference1->getRFactorDomain(),
-        reference1->getAllocationDomain(),
-        reference1->getLeafDomain(),
-        reference1->domain()->contiguity());
+    TensorDomain* cloned_1_td =
+        IrBuilder::create<TensorDomain>(reference1->domain());
     // Adding a domain_guard so we can transform reference1
     ir_utils::TVDomainGuard domain_guard(reference1, cloned_1_td);
 
@@ -869,75 +860,27 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
     // simply map those merged domains via ContiguousInnerDimensionsMapper
     scheduler_utils::splitDims(reference1, params->split_before_tiling);
 
-    std::vector<IterDomain*> virtual_innermost1;
-    for (const auto& dim : params->dims_merged_with_1) {
-      virtual_innermost1.insert(
-          virtual_innermost1.begin(), reference1->axis(static_cast<int>(dim)));
-    }
-    virtual_innermost1.push_back(
-        reference1->getMaybeRFactorDomain()[inner_most_pos1_in_ref1]);
+    params->vectorize_factor1 =
+        vectorize_helper::getVectorizationVectorTransposeGroup(
+            runtime_info,
+            reference1,
+            inner_most_pos1_in_ref1,
+            params->dims_merged_with_1,
+            grouped_inputs_outputs[0],
+            max_unroll_factor);
 
-    // NOTE: do I need to consider stride here?! sounds like
-    // ContiguousInnerDimensionsMapper::map requires reference1 to be
-    // contiguous, but does it handle stride order?
-    auto group1_contig_inner_map =
-        vectorize_helper::ContiguousInnerDimensionsMapper::map(
-            reference1, virtual_innermost1)
-            .getTvToContigMergeOfInnerSizeMap();
-    for (auto tv : grouped_inputs_outputs[0]) {
-      auto inner_size_it = group1_contig_inner_map.find(tv);
-      auto tv_vectorize_factor_opt =
-          inner_size_it == group1_contig_inner_map.end()
-          ? 1
-          : runtime_info.expressionEvaluator().evaluate(inner_size_it->second);
-      // TODO: Do not assert here. we can just reduce vectorization size to 1 if
-      // we can't infer an inner size.
-      TORCH_INTERNAL_ASSERT(
-          tv_vectorize_factor_opt.hasValue(),
-          "Vectorization heuristic could not evaluate inner most size.");
-      int64_t tv_vectorize_factor = tv_vectorize_factor_opt.as<int64_t>();
-      vectorize_factor1 = std::min(
-          vectorize_factor1,
-          scheduler_utils::maxVectorizationWidth(tv_vectorize_factor));
-    }
-
-    // find the virtual_innermost dimension in reference1 so we can later map
-    // that to individuals in group2.
-    std::vector<IterDomain*> virtual_innermost2;
-    for (const auto& dim : params->dims_merged_with_2) {
-      virtual_innermost2.insert(
-          virtual_innermost2.begin(), reference1->axis(static_cast<int>(dim)));
-    }
-    virtual_innermost2.push_back(
-        reference1->getMaybeRFactorDomain()[inner_most_pos2_in_ref1]);
-
-    auto group2_contig_inner_map =
-        vectorize_helper::ContiguousInnerDimensionsMapper::map(
-            reference1, virtual_innermost2)
-            .getTvToContigMergeOfInnerSizeMap();
     // TODO: Since group2 only has global->shared and shared->global set op, we
     // can have fine-grained control of unroll/vectorization at per tensor
     // level. We should not be using a single global vectorize factor for the
     // entire group 2
-    for (auto tv : grouped_inputs_outputs[1]) {
-      auto inner_size_it = group2_contig_inner_map.find(tv);
-      auto tv_vectorize_factor_opt =
-          inner_size_it == group2_contig_inner_map.end()
-          ? 1
-          : runtime_info.expressionEvaluator().evaluate(inner_size_it->second);
-      TORCH_INTERNAL_ASSERT(
-          tv_vectorize_factor_opt.hasValue(),
-          "Vectorization heuristic could not evaluate inner most size.");
-      int64_t tv_vectorize_factor = tv_vectorize_factor_opt.as<int64_t>();
-      vectorize_factor2 = std::min(
-          vectorize_factor2,
-          scheduler_utils::maxVectorizationWidth(tv_vectorize_factor));
-    }
-
-    params->vectorize_factor1 = scheduler_utils::lastPow2(
-        std::min(max_unroll_factor, vectorize_factor1));
-    params->vectorize_factor2 = scheduler_utils::lastPow2(
-        std::min(max_unroll_factor, vectorize_factor2));
+    params->vectorize_factor2 =
+        vectorize_helper::getVectorizationVectorTransposeGroup(
+            runtime_info,
+            reference1,
+            inner_most_pos2_in_ref1,
+            params->dims_merged_with_2,
+            grouped_inputs_outputs[1],
+            max_unroll_factor);
   }
 
   params->lparams.bind(params->getThreadsPerBlock(), ParallelType::TIDx);
@@ -1098,24 +1041,30 @@ void scheduleTranspose(Fusion* fusion, TransposeParams params) {
   // inner-most dims to create the virtual inner-most dim
   scheduler_utils::splitDims(reference1, params.split_before_tiling);
 
+  // prepare all dimensions in merge order for group1
   std::vector<size_t> dims_group1 = params.dims_merged_with_1;
   size_t inner_most_pos1_in_ref1 =
       domain_map.getInnerLeafDim(reference1, inner_most_id1);
   dims_group1.insert(dims_group1.begin(), inner_most_pos1_in_ref1);
 
+  // prepare all dimensions in merge order for group2
   std::vector<size_t> dims_group2 = params.dims_merged_with_2;
   size_t inner_most_pos2_in_ref1 =
       domain_map.getInnerLeafDim(reference1, inner_most_id2);
   dims_group2.insert(dims_group2.begin(), inner_most_pos2_in_ref1);
 
+  // merge all dimensions in group1, while updating all indices for group2
   auto merged1 =
       scheduler_utils::mergeDims(reference1, dims_group1, dims_group2);
   std::vector<size_t> merged1_vec;
   if (merged1.has_value()) {
     merged1_vec.push_back(*merged1);
   }
+  // merge all dimensions in group2, while updating merged index for group1
   auto merged2 =
       scheduler_utils::mergeDims(reference1, dims_group2, merged1_vec);
+
+  // updating merged1 & merged2 indices if applicable
   if (merged1.has_value()) {
     inner_most_pos1_in_ref1 = merged1_vec[0];
   }
