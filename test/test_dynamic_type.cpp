@@ -1201,16 +1201,16 @@ TEST_F(DynamicTypeTest, MemberPointer) {
   ABCD aa = a;
   EXPECT_EQ(aa->*&A::x, 1);
   EXPECT_EQ(aa->*&A::y, 2);
-  aa->*&A::x = 299792458;
-  aa->*&A::y = 314159;
+  aa->*& A::x = 299792458;
+  aa->*& A::y = 314159;
   EXPECT_EQ(aa->*&A::x, 299792458);
   EXPECT_EQ(aa->*&A::y, 314159);
 
   ABCD cc = c;
   EXPECT_EQ(cc->*&C::x, 5);
   EXPECT_EQ(cc->*&C::y, 6);
-  cc->*&C::x = 299792458;
-  cc->*&C::y = 314159;
+  cc->*& C::x = 299792458;
+  cc->*& C::y = 314159;
   EXPECT_EQ(cc->*&C::x, 299792458);
   EXPECT_EQ(cc->*&C::y, 314159);
 }
