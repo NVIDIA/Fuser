@@ -757,14 +757,13 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
     scheduler_utils::splitDims(reference1, params->split_before_tiling);
 
     std::vector<size_t> dims_group1 = params->dims_merged_with_1;
-    dims_group1.insert(dims_group1.begin(), 
 
     params->vectorize_factor1 =
         vectorize_helper::getVectorizationVectorTransposeGroup(
             max_unroll_factor,
 	    reference1,
             inner_most_pos1_in_ref1,
-	    dims_group1,
+	    params->dims_merged_with_1,
             grouped_inputs_outputs[0],
 	    runtime_info);
 
@@ -777,7 +776,7 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
             max_unroll_factor,
 	    reference2,
             inner_most_pos2_in_ref1,
-	    dims_group2,
+	    params->dims_merged_with_2,
             grouped_inputs_outputs[1],
 	    runtime_info);
   }

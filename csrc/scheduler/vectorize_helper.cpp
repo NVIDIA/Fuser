@@ -867,7 +867,7 @@ int64_t getVectorizationVectorTransposeGroup(
     size_t inner_most_dim,
     const std::vector<size_t>& dims_to_merge,
     const std::vector<TensorView*>& vec_tv,
-    SchedulerRuntimeInfo& runtime_info, ) {
+    SchedulerRuntimeInfo& runtime_info) {
   max_vectorization = scheduler_utils::maxVectorizationWidth(max_vectorization);
   std::vector<IterDomain*> virtual_innermost_dim;
   // find the virtual_innermost_dim in reference so we can later map
