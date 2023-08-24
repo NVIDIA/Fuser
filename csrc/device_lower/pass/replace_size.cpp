@@ -155,7 +155,7 @@ std::unordered_map<Val*, Val*> getSimplificationMap(Fusion* fusion) {
       // extent_to_min_input_id_extent[id->extent()]. For reproducibility's
       // sake, only do so if it would lower the index of the mapped value.
       if (prev_it != extent_to_min_input_id_extent.end() &&
-          prev_it->second->name() < input_id->extent()->name()) {
+          prev_it->second->name() <= input_id->extent()->name()) {
         continue;
       }
       extent_to_min_input_id_extent[id->extent()] = input_id->extent();
