@@ -92,15 +92,6 @@ struct HasArrowOperator<
     std::void_t<decltype(std::declval<decltype(&T::operator->)>())>>
     : std::true_type {};
 
-template <typename T, typename = void>
-struct HasArrowStarOperator : std::false_type {};
-
-template <typename T>
-struct HasArrowStarOperator<
-    T,
-    std::void_t<decltype(std::declval<decltype(&T::operator->*)>())>>
-    : std::true_type {};
-
 struct TrueType {
   static constexpr bool value() {
     return true;
@@ -178,18 +169,12 @@ struct OperatorChecker {
     return nullptr;
   }
 
-  template <
-      typename T1,
-      typename T2 = int,
-      std::enable_if_t<HasArrowStarOperator<T>::value, T2> = 0>
-  constexpr bool operator->*(T1) const {
+  template <typename T1>
+  constexpr auto operator->*(OperatorChecker<T1>) const
+      -> decltype((std::declval<T>()->*std::declval<T1>()), true) {
     return true;
   }
-  template <
-      typename T1,
-      typename T2 = int,
-      std::enable_if_t<!HasArrowStarOperator<T>::value, T2> = 0>
-  constexpr bool operator->*(T1) const {
+  constexpr bool operator->*(CastableFromOperatorChecker) const {
     return false;
   }
 
