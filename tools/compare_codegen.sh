@@ -53,7 +53,6 @@ do
   esac
 done
 # getopts stops parsing if it sees "--". We can detect that case and record command
-hascustomcommand=0
 while [[ $# -gt 0 ]]
 do
   if [[ "$1" == "--" ]]
