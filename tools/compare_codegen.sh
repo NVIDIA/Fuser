@@ -70,7 +70,7 @@ collect_kernels() {
     outdir=$1
     commit=$2
 
-    git checkout "$commit"
+    git -c advice.detachedHead=false checkout "$commit"
     git submodule update --init --recursive
     currentcommit=$commit
 
@@ -116,6 +116,7 @@ collect_kernels() {
             --benchmark_repetitions=1 \
             --benchmark_min_time=0 \
             --benchmark_enable_random_interleaving=false \
+            --benchmark_filter=NvFuserScheduler \
             --benchmark_color=true
 }
 
