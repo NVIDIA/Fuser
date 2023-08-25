@@ -671,16 +671,36 @@ at::Tensor atBiasEpilogue(const at::Tensor& tensor, const at::Tensor& bias) {
   return tensor.add(bias.unsqueeze(-1));
 }
 
-size_t getRandomSeed() {
+size_t getRandomSeed(bool aten) {
   static thread_local bool found_seed = false;
   static thread_local size_t seed = 0;
 
   if (!found_seed) {
-    auto seed_str = getNvFuserEnv("TEST_RANDOM_SEED");
+    const char* env_var = aten ? "TEST_ATEN_RANDOM_SEED" : "TEST_RANDOM_SEED";
+    auto seed_str = getNvFuserEnv(env_var);
     if (seed_str) {
-      seed = std::stol(seed_str);
+      try {
+        seed = std::stol(seed_str);
+      } catch (const std::exception& e) {
+        std::cerr << "Could not parse environment variable NVFUSER_" << env_var
+                  << std::endl;
+        throw e;
+      }
     } else {
-      seed = std::chrono::system_clock::now().time_since_epoch().count();
+      // We default to setting the ATen seed to zero, instead of system time.The
+      // C PRNG, std::rand() is typically used for structural parameters such as
+      // choosing random sizes or indices. These combinatorial tests benefit
+      // from increased coverage since exhaustive testing would be ideal but
+      // impractical in those cases. ATen randomness, on the other hand, is
+      // typically used for filling in data in test tensors, and results are
+      // then used in inexact matching tests. Those tests pass with high
+      // probability but might fail often where the test exhaustive. By fixing
+      // the default ATen seed to zero, we avoid a lot of false positive test
+      // failures.
+      seed = aten ? 0
+                  : std::chrono::duration_cast<std::chrono::seconds>(
+                        std::chrono::system_clock::now().time_since_epoch())
+                        .count();
     }
   }
 

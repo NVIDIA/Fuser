@@ -410,7 +410,9 @@ inline bool maybeClearAllocator(int64_t max_bytes = ((int64_t)1 << 32)) {
   return false;
 }
 
-size_t getRandomSeed();
+//! Get the random seed to use for each test. If aten=true, returns the ATen
+//! seed. Otherwise returns the seed for std::rand()
+size_t getRandomSeed(bool aten = false);
 
 // Fixture class must be uniquely identified, i.e., can't be in an
 // anonymous namespace
@@ -425,16 +427,23 @@ class NVFuserTest : public ::testing::Test {
 
     maybeClearAllocator();
 
-    // If NVFUSER_TEST_RANDOM_SEED is provided, use that for the random seed.
-    // Otherwise, use system time. If a test fails, the seed will be printed
-    at::manual_seed(getRandomSeed());
-    std::srand(getRandomSeed());
+    // If NVFUSER_TEST_RANDOM_SEED is provided, use that for the C random seed.
+    // Otherwise, use system time. If a test fails, this seed will be printed.
+    at::manual_seed(getRandomSeed(false));
+
+    // If NVFUSER_TEST_ATEN_RANDOM_SEED is provided, use that for the ATen
+    // random seed. Otherwise, use zero. If a test fails, this seed will be
+    // printed.
+    std::srand(getRandomSeed(true));
   }
 
   void TearDown() override {
     if (::testing::Test::HasFailure()) {
-      std::cerr << "Random seed used for ATen and std::srand: "
-                << getRandomSeed() << std::endl;
+      std::cerr
+          << "To reproduce, use environment variables NVFUSER_TEST_RANDOM_SEED="
+          << getRandomSeed(false)
+          << " NVFUSER_TEST_ATEN_RANDOM_SEED=" << getRandomSeed(true)
+          << std::endl;
     }
   }
 };
