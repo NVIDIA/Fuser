@@ -114,7 +114,9 @@ class DomainMap : public pointwise_utils::DomainMap {
     return domain_map.getMappedRootDimIn(ref1, innermost2) != nullptr;
   }
 
-  size_t getInnerLeafDim(TensorView* tv, IterDomain* root_dim) const {
+  // scheduler assumes inner leaf dimension on tv is an exact mapping, when the
+  // mapping cannot be resolved, we'll return a `-1`
+  int64_t getInnerLeafDim(TensorView* tv, IterDomain* root_dim) const {
     auto mapped_id = getMappedRootDimIn(tv, root_dim);
     TORCH_INTERNAL_ASSERT(
         mapped_id != nullptr,
@@ -144,8 +146,7 @@ class DomainMap : public pointwise_utils::DomainMap {
         return i;
       }
     }
-    TORCH_INTERNAL_ASSERT(
-        false, "Can not find ID mapped to ", root_dim, " in tensor ", tv);
+    return -1;
   }
 
   // Group inputs and outputs of a fusion by its inner most domain. For example
@@ -556,6 +557,11 @@ std::string getTransposeRuntimeRejectReason(
   auto innermost_info_entry = getInnerMostDimInfoInReference(
       data_cache, reference_tensors, reference1, domain_map);
   auto innermost_info = innermost_info_entry.get();
+  auto inner_most_pos1_in_ref1 = innermost_info[0];
+  auto inner_most_pos2_in_ref1 = innermost_info[1];
+  if (inner_most_pos1_in_ref1 < 0 || inner_most_pos2_in_ref1 < 0) {
+    return "Transpose scheduler requires exact mapping on inner most dimension on reference tensor.";
+  }
 
   constexpr size_t default_tile_elements =
       TransposeParams::getDefaultTileSize() *
@@ -568,9 +574,6 @@ std::string getTransposeRuntimeRejectReason(
   if ((int64_t)elements_per_wave > n_elems) {
     return "Transpose scheduler does not perform well on small problem sizes.";
   }
-
-  auto inner_most_pos1_in_ref1 = innermost_info[0];
-  auto inner_most_pos2_in_ref1 = innermost_info[1];
 
   auto inner_size1 = shape_in_ref1[inner_most_pos1_in_ref1];
   auto inner_size2 = shape_in_ref1[inner_most_pos2_in_ref1];
@@ -710,6 +713,10 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
 
   auto inner_most_pos1_in_ref1 = innermost_info[0];
   auto inner_most_pos2_in_ref1 = innermost_info[1];
+  // No exact innermost leaf dimension mapping on referenc1. cannot schedule
+  if (inner_most_pos1_in_ref1 < 0 || inner_most_pos2_in_ref1 < 0) {
+    return nullptr;
+  }
 
   auto params =
       std::make_shared<TransposeParams>("Transpose heuristics", index_type);
@@ -1017,14 +1024,18 @@ void scheduleTranspose(Fusion* fusion, TransposeParams params) {
 
   // prepare all dimensions in merge order for group1
   std::vector<size_t> dims_group1 = params.dims_merged_with_1;
-  size_t inner_most_pos1_in_ref1 =
+  auto inner_leaf_index1 =
       domain_map.getInnerLeafDim(reference1, inner_most_id1);
+  TORCH_INTERNAL_ASSERT(inner_leaf_index1 >= 0, "getInnerLeafDim cannot be resolved");
+  size_t inner_most_pos1_in_ref1 = static_cast<size_t>(inner_leaf_index1);
   dims_group1.insert(dims_group1.begin(), inner_most_pos1_in_ref1);
 
   // prepare all dimensions in merge order for group2
   std::vector<size_t> dims_group2 = params.dims_merged_with_2;
-  size_t inner_most_pos2_in_ref1 =
+  auto inner_leaf_index2 =
       domain_map.getInnerLeafDim(reference1, inner_most_id2);
+  size_t inner_most_pos2_in_ref1 = inner_leaf_index2;
+  TORCH_INTERNAL_ASSERT(inner_leaf_index2 >= 0, "getInnerLeafDim cannot be resolved");
   dims_group2.insert(dims_group2.begin(), inner_most_pos2_in_ref1);
 
   // merge all dimensions in group1, while updating all indices for group2
