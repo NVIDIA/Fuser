@@ -48,6 +48,24 @@ cleanup() {
 
 trap "cleanup" INT TERM EXIT
 
+run_test() {
+    testdir=$1
+    if [[ -d "$testdir/cuda" ]]
+    then
+        echo "Skipping since $testdir/cuda exists"
+        return
+    fi
+
+    shift
+    testcmd=$*
+
+    mkdir -p "$testdir"
+    $testcmd | tee "$testdir/stdout-$(date +%Y%m%d_%H%M%S).log"
+    mkdir -p "$testdir/cuda"
+    movecudafiles "$testdir/cuda"
+}
+
+
 collect_kernels() {
     outdir=$1
     commit=$2
@@ -56,11 +74,12 @@ collect_kernels() {
     git submodule update --init --recursive
     currentcommit=$commit
 
-    testdir=$outdir/$commit/test
-    benchdir=$outdir/$commit/bench
+    testdir=$outdir/$commit/binary_tests
+    benchdir=$outdir/$commit/benchmarks
+    pyfrontenddir=$outdir/$commit/python_frontend_tests
 
     # build in release mode so that everything runs a bit faster
-    if [[ -d "$testdir/cuda" && -d "$benchdir/cuda" ]]
+    if [[ -d "$testdir/cuda" && -d "$benchdir/cuda" && -d "$pyfrontenddir/cuda" ]]
     then
         # Test for output directories and return early if they exist. This
         # avoids rebuilds when we are changing code and comparing repeatedly to
@@ -78,31 +97,13 @@ collect_kernels() {
 
     mkdir -p "$outdir/$commit"
 
-    if [[ ! -d "$testdir/cuda" ]]
-    then
-        mkdir -p "$testdir"
-        build/nvfuser_tests --gtest_color=yes | \
-            tee "$testdir/stdout-$(date +%Y%m%d_%H%M%S).log"
-        mkdir -p "$testdir/cuda"
-        movecudafiles "$testdir/cuda"
-    else
-        echo "Skipping tests since $testdir/cuda exists"
-    fi
-
-    if [[ ! -d "$benchdir/cuda" ]]
-    then
-        mkdir -p "$benchdir"
-        build/nvfuser_bench \
+    run_command "$pyfrontenddir" python -m pytest python_tests/test_python_frontend.py -v --color=yes
+    run_command "$testdir" build/nvfuser_tests --gtest_color=yes
+    run_command "$benchdir" build/nvfuser_bench \
             --benchmark_repetitions=1 \
             --benchmark_min_time=0 \
             --benchmark_enable_random_interleaving=false \
-            --benchmark_color=true \
-         | tee "$benchdir/stdout-$(date +%Y%m%d_%H%M%S).log"
-        mkdir -p "$benchdir/cuda"
-        movecudafiles "$benchdir/cuda"
-    else
-        echo "Skipping benchmarks since $benchdir/cuda exists"
-    fi
+            --benchmark_color=true
 }
 
 collect_kernels "$outdir" "$origcommit"
