@@ -6,19 +6,47 @@
 set -e
 set -o pipefail
 
-if (( $# > 2 ))
-then
-    echo "Usage: $0 [ compare_ref=origin/main ] [ out_dir=codegen_comparison ]"
-    exit 1
-fi
+usage() {
+  echo "Usage: $0 [-h] [-r origin/main] [-o codegen_comparison] [-- custom command to run]"
+  echo -n "If given, custom command should only run a single executable. "
+  echo "If multiple executables are run, kernels may be overwritten."
+}
 
-comparetoref=${1:-origin/main}
-comparecommit=$(git describe --always --long "$comparetoref")
-outdir=${2:-codegen_comparison}
+comparetoref=origin/main
+outdir=codegen_comparison
+
+while getopts "r:o:h-" arg
+do
+  case $arg in
+    r)
+      comparetoref=$OPTARG
+      ;;
+    o)
+      outdir=$OPTARG
+      ;;
+    h | ?)
+      usage
+      exit 1
+      ;;
+  esac
+done
+# getopts stops parsing if it sees "--". We can detect that case and record command
+hascustomcommand=0
+while [[ $# -gt 0 ]]
+do
+  if [[ "$1" == "--" ]]
+  then
+    hascustomcommand=1
+    shift
+    break
+  fi
+  shift
+done
+customcommand=$*
 
 if [[ $(git status --porcelain --untracked-files=no) ]]
 then
-    echo "Must checkout main in order to compare. Commit changes before running this script."
+    echo "Must use git checkout in order to compare. Commit changes before running this script."
     exit 1
 fi
 
@@ -26,6 +54,11 @@ fi
 currentcommit=$(git describe --always --long)
 origcommit=$currentcommit
 orighead=$(git symbolic-ref --short HEAD)
+
+comparecommit=$(git describe --always --long "$comparetoref")
+
+# record launch time to name custom command directories consistently
+launchtime=$(date +%Y%m%d_%H%M%S)
 
 movecudafiles() {
     find . -maxdepth 1 -name '__tmp_kernel*.cu' -exec mv '{}' "$1" \;
@@ -74,6 +107,8 @@ collect_kernels() {
     git submodule update --init --recursive
     currentcommit=$commit
 
+    customcmddir=$outdir/$commit/custom_command_$launchtime
+
     testdir=$outdir/$commit/binary_tests
     benchdir=$outdir/$commit/benchmarks
     pyfrontenddir=$outdir/$commit/python_frontend_tests
@@ -81,13 +116,21 @@ collect_kernels() {
     pyschedopsdir=$outdir/$commit/python_shedule_ops_tests
     torchscriptdir=$outdir/$commit/python_torchscript_tests
 
-    # build in release mode so that everything runs a bit faster
-    if [[ -d "$testdir/cuda" && -d "$benchdir/cuda" && -d "$pyfrontenddir/cuda" ]]
+    # Test for output directories and return early if they exist. This
+    # avoids rebuilds when we are changing code and comparing repeatedly to
+    # the same earlier commit.
+    if [[ $hascustomcommand ]]
     then
-        # Test for output directories and return early if they exist. This
-        # avoids rebuilds when we are changing code and comparing repeatedly to
-        # the same earlier commit.
-        return
+      if [[ -d "$customcmddir/cuda" ]]
+      then
+          return
+      fi
+    else
+      if [[ -d "$testdir/cuda" && -d "$benchdir/cuda" && -d "$pyfrontenddir/cuda" &&
+          -d "$pyopsdir/cuda" && -d "$pyschedopsdir/cuda" && -d "$torchscriptdir/cuda" ]]
+      then
+          return
+      fi
     fi
 
     # Build in Release mode
@@ -103,22 +146,27 @@ collect_kernels() {
 
     mkdir -p "$outdir/$commit"
 
-    # python tests
-    run_test "$pyopsdir" python -m pytest python_tests/pytest_ops.py -v --color=yes
-    run_test "$pyschedopsdir" python -m pytest python_tests/test_schedule_ops.py -v --color=yes
-    run_test "$pyfrontenddir" python -m pytest python_tests/test_python_frontend.py -v --color=yes
-    run_test "$torchscriptdir" python -m pytest python_tests/test_torchscript.py -v --color=yes
+    if [[ $hascustomcommand ]]
+    then
+      run_test "$customcmddir" $customcommand
+    else
+      # python tests
+      run_test "$pyopsdir" python -m pytest python_tests/pytest_ops.py -v --color=yes
+      run_test "$pyschedopsdir" python -m pytest python_tests/test_schedule_ops.py -v --color=yes
+      run_test "$pyfrontenddir" python -m pytest python_tests/test_python_frontend.py -v --color=yes
+      run_test "$torchscriptdir" python -m pytest python_tests/test_torchscript.py -v --color=yes
 
-    # binary tests
-    run_test "$testdir" build/nvfuser_tests --gtest_color=yes
+      # binary tests
+      run_test "$testdir" build/nvfuser_tests --gtest_color=yes
 
-    # benchmarks
-    run_test "$benchdir" build/nvfuser_bench \
-            --benchmark_repetitions=1 \
-            --benchmark_min_time=0 \
-            --benchmark_enable_random_interleaving=false \
-            --benchmark_filter=NvFuserScheduler \
-            --benchmark_color=true
+      # benchmarks
+      run_test "$benchdir" build/nvfuser_bench \
+              --benchmark_repetitions=1 \
+              --benchmark_min_time=0 \
+              --benchmark_enable_random_interleaving=false \
+              --benchmark_filter=NvFuserScheduler \
+              --benchmark_color=true
+    fi
 }
 
 collect_kernels "$outdir" "$origcommit"
