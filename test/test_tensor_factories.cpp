@@ -530,9 +530,9 @@ TEST_F(TensorFactoryTest, MetadataAsTensor) {
 
   // also test unamed structure
   auto unamed_dtype0 = metaDataTypeOf(tv0);
-  std::get<StructType>(unamed_dtype0.type).display_name = "";
+  std::get<StructType>(unamed_dtype0.type).name = "";
   auto unamed_dtype1 = metaDataTypeOf(tv1);
-  std::get<StructType>(unamed_dtype1.type).display_name = "";
+  std::get<StructType>(unamed_dtype1.type).name = "";
   auto meta0_copy1 = IrBuilder::newScalar(unamed_dtype0);
   auto meta1_copy1 = IrBuilder::newScalar(unamed_dtype1);
   IrBuilder::create<LoadStoreOp>(

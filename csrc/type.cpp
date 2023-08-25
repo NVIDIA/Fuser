@@ -233,8 +233,8 @@ static std::string data_type2string(DataType t) {
              << ", 1>";
           return ss.str();
         } else if constexpr (std::is_same_v<T, StructType>) {
-          if (dtype.display_name != "") {
-            return dtype.display_name;
+          if (dtype.name != "") {
+            return dtype.name;
           }
           std::stringstream ss;
           ss << "struct { ";
@@ -244,8 +244,8 @@ static std::string data_type2string(DataType t) {
           ss << "}";
           return ss.str();
         } else if constexpr (std::is_same_v<T, OpaqueType>) {
-          if (dtype.display_name != "") {
-            return dtype.display_name;
+          if (dtype.name != "") {
+            return dtype.name;
           } else {
             return dtype.type_info.get().name();
           }
