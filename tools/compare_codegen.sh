@@ -103,16 +103,16 @@ collect_kernels() {
     mkdir -p "$outdir/$commit"
 
     # python tests
-    run_command "$pyopsdir" python -m pytest python_tests/pytest_ops.py -v --color=yes
-    run_command "$pyschedopsdir" python -m pytest python_tests/test_schedule_ops.py -v --color=yes
-    run_command "$pyfrontenddir" python -m pytest python_tests/test_python_frontend.py -v --color=yes
-    run_command "$torchscriptdir" python -m pytest python_tests/test_torchscript.py -v --color=yes
+    run_test "$pyopsdir" python -m pytest python_tests/pytest_ops.py -v --color=yes
+    run_test "$pyschedopsdir" python -m pytest python_tests/test_schedule_ops.py -v --color=yes
+    run_test "$pyfrontenddir" python -m pytest python_tests/test_python_frontend.py -v --color=yes
+    run_test "$torchscriptdir" python -m pytest python_tests/test_torchscript.py -v --color=yes
 
     # binary tests
-    run_command "$testdir" build/nvfuser_tests --gtest_color=yes
+    run_test "$testdir" build/nvfuser_tests --gtest_color=yes
 
     # benchmarks
-    run_command "$benchdir" build/nvfuser_bench \
+    run_test "$benchdir" build/nvfuser_bench \
             --benchmark_repetitions=1 \
             --benchmark_min_time=0 \
             --benchmark_enable_random_interleaving=false \
