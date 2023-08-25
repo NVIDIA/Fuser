@@ -156,7 +156,7 @@ class DomainMap : public pointwise_utils::DomainMap {
     const auto& dom = tv->getLeafDomain();
     for (auto i : c10::irange(dom.size())) {
       if (dom[i] == mapped_id) {
-        return i;
+        return static_cast<int64_t>(i);
       }
     }
     return -1;
