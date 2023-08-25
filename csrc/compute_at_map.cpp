@@ -720,6 +720,7 @@ void IterDomainGraph::build(Fusion* fusion) {
       if (merge->outer()->extent()->isOneInt()) {
         almost_exact_nodes_.mapEntries(merge->inner(), merge->out());
       }
+      permissive_relaxed_resize_nodes_.mapEntries(merge->inner(), merge->out());
     } else if (auto split = dynamic_cast<Split*>(def)) {
       if (split->factor()->isOneInt() && split->startOffset()->isZeroInt() &&
           split->stopOffset()->isZeroInt()) {
@@ -729,7 +730,6 @@ void IterDomainGraph::build(Fusion* fusion) {
           almost_exact_nodes_.mapEntries(split->in(), split->inner());
         }
       }
-      // No idea if I'm doing the right thing yet.
       permissive_relaxed_resize_nodes_.mapEntries(split->in(), split->inner());
     }
   }
