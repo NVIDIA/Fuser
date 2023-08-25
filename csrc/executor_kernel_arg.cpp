@@ -180,10 +180,8 @@ std::vector<std::byte> polymorphicValueToBytes(
     auto struct_ = argument.as<Struct>();
     std::vector<std::byte> buffer;
     for (const auto& field : dtype_.fields) {
-      auto field_data = polymorphicValueToBytes(
-          struct_[field.name],
-          *field.type,
-          index_type);
+      auto field_data =
+          polymorphicValueToBytes(struct_[field.name], *field.type, index_type);
       buffer.insert(buffer.end(), field_data.begin(), field_data.end());
     }
     return buffer;

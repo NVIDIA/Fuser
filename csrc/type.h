@@ -408,7 +408,9 @@ inline DataType getDataType(const PolymorphicValue& value) {
         std::vector<StructType::FieldInfo> fields_info;
         for (const auto& [name, value] : struct_.fields) {
           fields_info.push_back(
-              {name, std::make_shared<DataType>(getDataType(NVFUSER_MAYBE_STAR value))});
+              {name,
+               std::make_shared<DataType>(
+                   getDataType(NVFUSER_MAYBE_STAR value))});
         }
         dtype = StructType::make(std::move(fields_info));
       }
