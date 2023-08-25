@@ -110,12 +110,11 @@ struct StructType {
   struct FieldInfo {
     std::string name;
     std::shared_ptr<DataType> type;
-    bool used_in_kernel = false;
+    bool used_in_kernel = true;
   };
 
   std::vector<FieldInfo> fields;
 
-  template <typename T>
   static StructType make(
       std::vector<FieldInfo> fields,
       std::string display_name = "") {
@@ -552,8 +551,9 @@ inline bool hasCompatibleDataType(
 struct Dict : public Struct {
   std::unordered_map<std::string, PolymorphicValue> fields;
 
-  template <typename... Args>
-  Dict(Args&&... args) : fields(std::forward<Args>(args)...) {}
+  Dict() = default;
+  Dict(std::unordered_map<std::string, PolymorphicValue> fields)
+      : fields(std::move(fields)) {}
 
   std::function<PolymorphicValue()> getter(std::string key) const override {
     return [this, key = std::move(key)]() -> PolymorphicValue {
@@ -573,7 +573,7 @@ struct Dict : public Struct {
       fields_info.push_back(
           {name, std::make_shared<DataType>(getDataType(value))});
     }
-    return StructType::make<Dict>(std::move(fields_info));
+    return StructType::make(std::move(fields_info));
   }
 
   bool operator==(const Dict& other) const {

@@ -310,7 +310,7 @@ TEST_F(ExprEvalTest, Struct) {
   // evaluator.bind(b, 5L);
 
   // Dict expect({{"a", 2L}, {"b", 5L}});
-  // EXPECT_EQ(evaluator.evaluate(struct_).as<Opaque>().as<Dict>(), expect);
+  // EXPECT_EQ(evaluator.evaluate(struct_), expect);
   // EXPECT_EQ(evaluator.evaluate(aa), 2L);
   // EXPECT_EQ(evaluator.evaluate(bb), 5L);
 }
