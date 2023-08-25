@@ -116,7 +116,11 @@ run_test() {
     mkdir -p "$testdir"
     echo "$testcmd" > "$testdir/command.txt"
 
+    # Allow next command to fail
+    set +e
     $testcmd | tee "$testdir/stdout-$(date +%Y%m%d_%H%M%S).log"
+    echo $? > $testdir/returncode
+    set -e
     mkdir -p "$testdir/cuda"
     movecudafiles "$testdir/cuda"
 }
@@ -132,7 +136,7 @@ collect_kernels() {
 
     customcmddir=$outdir/$commit/custom_command_$launchtime
 
-    testdir=$outdir/$commit/binary_tests
+    binarytestdir=$outdir/$commit/binary_tests
     benchdir=$outdir/$commit/benchmarks
     pyfrontenddir=$outdir/$commit/python_frontend_tests
     pyopsdir=$outdir/$commit/python_ops_tests
@@ -149,7 +153,7 @@ collect_kernels() {
           return
       fi
     else
-      if [[ -d "$testdir/cuda" && -d "$benchdir/cuda" && -d "$pyfrontenddir/cuda" &&
+      if [[ -d "$binarytestdir/cuda" && -d "$benchdir/cuda" && -d "$pyfrontenddir/cuda" &&
           -d "$pyopsdir/cuda" && -d "$pyschedopsdir/cuda" && -d "$torchscriptdir/cuda" ]]
       then
           return
@@ -164,8 +168,6 @@ collect_kernels() {
     export NVFUSER_DISABLE=parallel_compile
     # run tests and benchmarks with cuda_to_file and dump output to files
     export NVFUSER_DUMP=cuda_to_file
-    # Skip slow torchscript tests
-    export PYTORCH_TEST_WITH_SLOW=0
 
     mkdir -p "$outdir/$commit"
 
@@ -181,7 +183,7 @@ collect_kernels() {
       run_test "$torchscriptdir" python -m pytest python_tests/test_torchscript.py -v -s --color=yes
 
       # binary tests
-      run_test "$testdir" build/nvfuser_tests --gtest_color=yes
+      run_test "$binarytestdir" build/nvfuser_tests --gtest_color=yes
 
       # benchmarks
       run_test "$benchdir" build/nvfuser_bench \
