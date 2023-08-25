@@ -606,6 +606,11 @@ template <typename T, typename... Rest>
 struct are_all_same<const std::tuple<T, Rest...>>
     : std::conjunction<std::is_same<T, Rest>...> {};
 
+template <typename T>
+constexpr bool all_same_type(T) {
+  return are_all_same<T>::value;
+}
+
 // For example:
 static_assert(are_all_same<std::tuple<int, int, int>>::value);
 static_assert(are_all_same<const std::tuple<int, int, int>>::value);

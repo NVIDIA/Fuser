@@ -492,7 +492,7 @@ struct DynamicType {
                                                                                 \
   template <typename MemberT>                                                   \
   static constexpr bool all_arrow_star_ret_types_are_same##__const =            \
-      are_all_same<AllArrowStarRetTypes##__const<MemberT>>::value;              \
+      all_same_type(all_arrow_star_ret_types##__const<MemberT>);                \
                                                                                 \
   template <typename MemberT>                                                   \
   using ArrowStarRetType##__const =                                             \
