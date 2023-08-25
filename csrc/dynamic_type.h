@@ -471,6 +471,67 @@ struct DynamicType {
   DEFINE_ARROW_STAR_OPERATOR(const)
 #undef DEFINE_ARROW_STAR_OPERATOR
 
+  // ->* operator for non-member-pointers, this is used to support use cases
+  // like `value->*"myfield"`. Due to limitations of C++'s type system, we can
+  // only enable this when all the types in the type list that support this
+  // operator have the same return type.
+
+#define DEFINE_ARROW_STAR_OPERATOR(__const)                                     \
+  template <typename MemberT>                                                   \
+  static constexpr auto all_arrow_star_ret_types##__const =                     \
+      remove_void_from_tuple(for_all_types([](auto t) {                         \
+        using T = typename decltype(t)::type;                                   \
+        if constexpr (opcheck<T>->*opcheck<MemberT>) {                          \
+          return std::type_identity<                                            \
+              decltype(std::declval<__const T>()->*std::declval<MemberT>())>{}; \
+        }                                                                       \
+      }));                                                                      \
+                                                                                \
+  template <typename MemberT>                                                   \
+  using AllArrowStarRetTypes##__const =                                         \
+      decltype(all_arrow_star_ret_types##__const<MemberT>);                     \
+                                                                                \
+  template <typename MemberT>                                                   \
+  static constexpr bool all_arrow_star_ret_types_are_same##__const =            \
+      all_same_type(all_arrow_star_ret_types##__const<MemberT>);                \
+                                                                                \
+  template <typename MemberT>                                                   \
+  using ArrowStarRetType##__const =                                             \
+      typename first_or_void<AllArrowStarRetTypes##__const<MemberT>>::type;     \
+                                                                                \
+  template <typename MemberT>                                                   \
+  constexpr std::enable_if_t<                                                   \
+      !std::is_member_pointer_v<MemberT> &&                                     \
+          all_arrow_star_ret_types_are_same##__const<MemberT> &&                \
+          std::is_same_v<                                                       \
+              __const std::remove_cvref_t<                                      \
+                  typename ArrowStarRetType##__const<MemberT>::type>&,          \
+              typename ArrowStarRetType##__const<MemberT>::type>,               \
+      typename ArrowStarRetType##__const<MemberT>::type>                        \
+  operator->*(const MemberT& member) __const {                                  \
+    using RetT = std::remove_cvref_t<                                           \
+        typename ArrowStarRetType##__const<MemberT>::type>;                     \
+    std::optional<__const RetT*> ret;                                           \
+    for_all_types([this, &member, &ret](auto t) {                               \
+      using T = typename decltype(t)::type;                                     \
+      if constexpr (opcheck<T>->*opcheck<MemberT>) {                            \
+        if (is<T>()) {                                                          \
+          ret = &(as<T>()->*member);                                            \
+        }                                                                       \
+      }                                                                         \
+    });                                                                         \
+    TORCH_CHECK(                                                                \
+        ret.has_value(),                                                        \
+        "Cannot access member with type ",                                      \
+        typeid(RetT).name(),                                                    \
+        " : incompatible type");                                                \
+    return *ret.value();                                                        \
+  }
+
+  DEFINE_ARROW_STAR_OPERATOR()
+  DEFINE_ARROW_STAR_OPERATOR(const)
+#undef DEFINE_ARROW_STAR_OPERATOR
+
   // TODO: support operator(). This is not supported yet because it is the most
   // difficulty one to implement because it can has arbitrary number of
   // arguments. I believe it is doable, but I decide to leave it for future.

@@ -19,6 +19,7 @@
 #include <iostream>
 #include <list>
 #include <memory>
+#include <stdexcept>
 #include <unordered_set>
 #include <vector>
 
@@ -1178,26 +1179,26 @@ struct CD {
   }
 };
 
-using ABCD = DynamicType<NoContainers, A, B, CD>;
-constexpr ABCD a = A{1, 2};
-static_assert(a->*&A::x == 1);
-static_assert(a->*&A::y == 2);
-constexpr ABCD b = B{3, 4};
-static_assert(b->*&B::x == 3);
-static_assert(b->*&B::y == 4);
-constexpr ABCD c = CD{C{5, 6}};
-static_assert(c->*&C::x == 5);
-static_assert(c->*&C::y == 6);
-constexpr ABCD d = CD{D{7, 8}};
-static_assert(d->*&D::x == 7);
-static_assert(d->*&D::y == 8);
-static_assert(opcheck<ABCD>->*opcheck<int A::*>);
-static_assert(opcheck<ABCD>->*opcheck<int B::*>);
-static_assert(opcheck<ABCD>->*opcheck<int C::*>);
-static_assert(opcheck<ABCD>->*opcheck<int D::*>);
-static_assert(!(opcheck<ABCD>->*opcheck<int E::*>));
-
 TEST_F(DynamicTypeTest, MemberPointer) {
+  using ABCD = DynamicType<NoContainers, A, B, CD>;
+  constexpr ABCD a = A{1, 2};
+  static_assert(a->*&A::x == 1);
+  static_assert(a->*&A::y == 2);
+  constexpr ABCD b = B{3, 4};
+  static_assert(b->*&B::x == 3);
+  static_assert(b->*&B::y == 4);
+  constexpr ABCD c = CD{C{5, 6}};
+  static_assert(c->*&C::x == 5);
+  static_assert(c->*&C::y == 6);
+  constexpr ABCD d = CD{D{7, 8}};
+  static_assert(d->*&D::x == 7);
+  static_assert(d->*&D::y == 8);
+  static_assert(opcheck<ABCD>->*opcheck<int A::*>);
+  static_assert(opcheck<ABCD>->*opcheck<int B::*>);
+  static_assert(opcheck<ABCD>->*opcheck<int C::*>);
+  static_assert(opcheck<ABCD>->*opcheck<int D::*>);
+  static_assert(!(opcheck<ABCD>->*opcheck<int E::*>));
+
   ABCD aa = a;
   EXPECT_EQ(aa->*&A::x, 1);
   EXPECT_EQ(aa->*&A::y, 2);
@@ -1213,6 +1214,54 @@ TEST_F(DynamicTypeTest, MemberPointer) {
   cc->*& C::y = 314159;
   EXPECT_EQ(cc->*&C::x, 299792458);
   EXPECT_EQ(cc->*&C::y, 314159);
+}
+
+struct F {
+  int x;
+  int y;
+  constexpr const int& operator->*(std::string_view member) const {
+    if (member == "x") {
+      return x;
+    } else if (member == "y") {
+      return y;
+    } else {
+      throw std::runtime_error("invalid member");
+    }
+  }
+  constexpr int& operator->*(std::string_view member) {
+    if (member == "x") {
+      return x;
+    } else if (member == "y") {
+      return y;
+    } else {
+      throw std::runtime_error("invalid member");
+    }
+  }
+};
+
+struct G : public F {};
+
+TEST_F(DynamicTypeTest, NonMemberPointerArrowStar) {
+  using EFG = DynamicType<NoContainers, E, F, G>;
+
+  constexpr EFG f = F{1, 2};
+  static_assert(f->*"x" == 1);
+  static_assert(f->*"y" == 2);
+
+  constexpr EFG g = G{3, 4};
+  static_assert(g->*"x" == 3);
+  static_assert(g->*"y" == 4);
+
+  static_assert(opcheck<EFG>->*opcheck<std::string_view>);
+  static_assert(!(opcheck<EFG>->*opcheck<int>));
+
+  EFG ff = f;
+  EXPECT_EQ(ff->*"x", 1);
+  EXPECT_EQ(ff->*"y", 2);
+  ff->*"x" = 299792458;
+  ff->*"y" = 314159;
+  EXPECT_EQ(ff->*"x", 299792458);
+  EXPECT_EQ(ff->*"y", 314159);
 }
 
 } // namespace member_pointer_test
