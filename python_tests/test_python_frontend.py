@@ -2094,8 +2094,6 @@ class TestNvFuserFrontend(TestCase):
 
         self.assertTrue(nvf_out[0].device.index == 1)
 
-    """
-    # disabled - requires handling rfactor, allocation, and leaf domains in serde expression generator
     def test_matmuls(self):
         # Matmul Constraints:
         # 1. Inputs shapes need to be a multiple of 8
@@ -2167,7 +2165,6 @@ class TestNvFuserFrontend(TestCase):
                 # across tests
                 fc = FusionCache.get()
                 fc.reset()
-    """
 
     def test_integer_division(self):
         inputs = [

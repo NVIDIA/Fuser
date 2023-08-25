@@ -21,29 +21,38 @@ struct State;
 struct Scalar;
 struct ScalarBuilder;
 
-struct Symbolic;
-struct SymbolicBuilder;
-
-struct NamedScalar;
-struct NamedScalarBuilder;
-
-struct UnaryOp;
-struct UnaryOpBuilder;
-
 struct BinaryOp;
 struct BinaryOpBuilder;
 
-struct Split;
-struct SplitBuilder;
+struct GetAttr;
+struct GetAttrBuilder;
+
+struct GetItem;
+struct GetItemBuilder;
+
+struct GetMetaData;
+struct GetMetaDataBuilder;
 
 struct Merge;
 struct MergeBuilder;
 
-struct Swizzle2D;
-struct Swizzle2DBuilder;
+struct NamedScalar;
+struct NamedScalarBuilder;
 
 struct Resize;
 struct ResizeBuilder;
+
+struct Split;
+struct SplitBuilder;
+
+struct Swizzle2D;
+struct Swizzle2DBuilder;
+
+struct Symbolic;
+struct SymbolicBuilder;
+
+struct UnaryOp;
+struct UnaryOpBuilder;
 
 struct Instruction;
 struct InstructionBuilder;
@@ -921,45 +930,54 @@ bool VerifyPolymorphicValueDataVector(::flatbuffers::Verifier &verifier, const :
 enum InstructionData : uint8_t {
   InstructionData_NONE = 0,
   InstructionData_BinaryOp = 1,
-  InstructionData_Symbolic = 2,
-  InstructionData_Scalar = 3,
-  InstructionData_Merge = 4,
-  InstructionData_NamedScalar = 5,
-  InstructionData_Resize = 6,
-  InstructionData_Split = 7,
-  InstructionData_Swizzle2D = 8,
-  InstructionData_UnaryOp = 9,
+  InstructionData_GetAttr = 2,
+  InstructionData_GetItem = 3,
+  InstructionData_GetMetaData = 4,
+  InstructionData_Merge = 5,
+  InstructionData_NamedScalar = 6,
+  InstructionData_Resize = 7,
+  InstructionData_Scalar = 8,
+  InstructionData_Split = 9,
+  InstructionData_Swizzle2D = 10,
+  InstructionData_Symbolic = 11,
+  InstructionData_UnaryOp = 12,
   InstructionData_MIN = InstructionData_NONE,
   InstructionData_MAX = InstructionData_UnaryOp
 };
 
-inline const InstructionData (&EnumValuesInstructionData())[10] {
+inline const InstructionData (&EnumValuesInstructionData())[13] {
   static const InstructionData values[] = {
     InstructionData_NONE,
     InstructionData_BinaryOp,
-    InstructionData_Symbolic,
-    InstructionData_Scalar,
+    InstructionData_GetAttr,
+    InstructionData_GetItem,
+    InstructionData_GetMetaData,
     InstructionData_Merge,
     InstructionData_NamedScalar,
     InstructionData_Resize,
+    InstructionData_Scalar,
     InstructionData_Split,
     InstructionData_Swizzle2D,
+    InstructionData_Symbolic,
     InstructionData_UnaryOp
   };
   return values;
 }
 
 inline const char * const *EnumNamesInstructionData() {
-  static const char * const names[11] = {
+  static const char * const names[14] = {
     "NONE",
     "BinaryOp",
-    "Symbolic",
-    "Scalar",
+    "GetAttr",
+    "GetItem",
+    "GetMetaData",
     "Merge",
     "NamedScalar",
     "Resize",
+    "Scalar",
     "Split",
     "Swizzle2D",
+    "Symbolic",
     "UnaryOp",
     nullptr
   };
@@ -980,12 +998,16 @@ template<> struct InstructionDataTraits<nvfuser::serde::BinaryOp> {
   static const InstructionData enum_value = InstructionData_BinaryOp;
 };
 
-template<> struct InstructionDataTraits<nvfuser::serde::Symbolic> {
-  static const InstructionData enum_value = InstructionData_Symbolic;
+template<> struct InstructionDataTraits<nvfuser::serde::GetAttr> {
+  static const InstructionData enum_value = InstructionData_GetAttr;
 };
 
-template<> struct InstructionDataTraits<nvfuser::serde::Scalar> {
-  static const InstructionData enum_value = InstructionData_Scalar;
+template<> struct InstructionDataTraits<nvfuser::serde::GetItem> {
+  static const InstructionData enum_value = InstructionData_GetItem;
+};
+
+template<> struct InstructionDataTraits<nvfuser::serde::GetMetaData> {
+  static const InstructionData enum_value = InstructionData_GetMetaData;
 };
 
 template<> struct InstructionDataTraits<nvfuser::serde::Merge> {
@@ -1000,12 +1022,20 @@ template<> struct InstructionDataTraits<nvfuser::serde::Resize> {
   static const InstructionData enum_value = InstructionData_Resize;
 };
 
+template<> struct InstructionDataTraits<nvfuser::serde::Scalar> {
+  static const InstructionData enum_value = InstructionData_Scalar;
+};
+
 template<> struct InstructionDataTraits<nvfuser::serde::Split> {
   static const InstructionData enum_value = InstructionData_Split;
 };
 
 template<> struct InstructionDataTraits<nvfuser::serde::Swizzle2D> {
   static const InstructionData enum_value = InstructionData_Swizzle2D;
+};
+
+template<> struct InstructionDataTraits<nvfuser::serde::Symbolic> {
+  static const InstructionData enum_value = InstructionData_Symbolic;
 };
 
 template<> struct InstructionDataTraits<nvfuser::serde::UnaryOp> {
@@ -1172,67 +1202,351 @@ inline ::flatbuffers::Offset<Scalar> CreateScalar(
   return builder_.Finish();
 }
 
-struct Symbolic FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
-  typedef SymbolicBuilder Builder;
+struct BinaryOp FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
+  typedef BinaryOpBuilder Builder;
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_SRC0 = 4,
-    VT_NAME = 6
+    VT_BINARY_TYPE = 4,
+    VT_SRC0 = 6,
+    VT_SRC1 = 8,
+    VT_OUT = 10,
+    VT_NAME = 12
   };
+  nvfuser::serde::BinaryOpType binary_type() const {
+    return static_cast<nvfuser::serde::BinaryOpType>(GetField<int32_t>(VT_BINARY_TYPE, 0));
+  }
   int64_t src0() const {
     return GetField<int64_t>(VT_SRC0, 0);
+  }
+  int64_t src1() const {
+    return GetField<int64_t>(VT_SRC1, 0);
+  }
+  int64_t out() const {
+    return GetField<int64_t>(VT_OUT, 0);
   }
   const ::flatbuffers::String *name() const {
     return GetPointer<const ::flatbuffers::String *>(VT_NAME);
   }
   bool Verify(::flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
+           VerifyField<int32_t>(verifier, VT_BINARY_TYPE, 4) &&
            VerifyField<int64_t>(verifier, VT_SRC0, 8) &&
+           VerifyField<int64_t>(verifier, VT_SRC1, 8) &&
+           VerifyField<int64_t>(verifier, VT_OUT, 8) &&
            VerifyOffset(verifier, VT_NAME) &&
            verifier.VerifyString(name()) &&
            verifier.EndTable();
   }
 };
 
-struct SymbolicBuilder {
-  typedef Symbolic Table;
+struct BinaryOpBuilder {
+  typedef BinaryOp Table;
   ::flatbuffers::FlatBufferBuilder &fbb_;
   ::flatbuffers::uoffset_t start_;
+  void add_binary_type(nvfuser::serde::BinaryOpType binary_type) {
+    fbb_.AddElement<int32_t>(BinaryOp::VT_BINARY_TYPE, static_cast<int32_t>(binary_type), 0);
+  }
   void add_src0(int64_t src0) {
-    fbb_.AddElement<int64_t>(Symbolic::VT_SRC0, src0, 0);
+    fbb_.AddElement<int64_t>(BinaryOp::VT_SRC0, src0, 0);
+  }
+  void add_src1(int64_t src1) {
+    fbb_.AddElement<int64_t>(BinaryOp::VT_SRC1, src1, 0);
+  }
+  void add_out(int64_t out) {
+    fbb_.AddElement<int64_t>(BinaryOp::VT_OUT, out, 0);
   }
   void add_name(::flatbuffers::Offset<::flatbuffers::String> name) {
-    fbb_.AddOffset(Symbolic::VT_NAME, name);
+    fbb_.AddOffset(BinaryOp::VT_NAME, name);
   }
-  explicit SymbolicBuilder(::flatbuffers::FlatBufferBuilder &_fbb)
+  explicit BinaryOpBuilder(::flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
     start_ = fbb_.StartTable();
   }
-  ::flatbuffers::Offset<Symbolic> Finish() {
+  ::flatbuffers::Offset<BinaryOp> Finish() {
     const auto end = fbb_.EndTable(start_);
-    auto o = ::flatbuffers::Offset<Symbolic>(end);
+    auto o = ::flatbuffers::Offset<BinaryOp>(end);
     return o;
   }
 };
 
-inline ::flatbuffers::Offset<Symbolic> CreateSymbolic(
+inline ::flatbuffers::Offset<BinaryOp> CreateBinaryOp(
     ::flatbuffers::FlatBufferBuilder &_fbb,
+    nvfuser::serde::BinaryOpType binary_type = nvfuser::serde::BinaryOpType_None,
     int64_t src0 = 0,
+    int64_t src1 = 0,
+    int64_t out = 0,
     ::flatbuffers::Offset<::flatbuffers::String> name = 0) {
-  SymbolicBuilder builder_(_fbb);
+  BinaryOpBuilder builder_(_fbb);
+  builder_.add_out(out);
+  builder_.add_src1(src1);
   builder_.add_src0(src0);
   builder_.add_name(name);
+  builder_.add_binary_type(binary_type);
   return builder_.Finish();
 }
 
-inline ::flatbuffers::Offset<Symbolic> CreateSymbolicDirect(
+inline ::flatbuffers::Offset<BinaryOp> CreateBinaryOpDirect(
     ::flatbuffers::FlatBufferBuilder &_fbb,
+    nvfuser::serde::BinaryOpType binary_type = nvfuser::serde::BinaryOpType_None,
     int64_t src0 = 0,
+    int64_t src1 = 0,
+    int64_t out = 0,
     const char *name = nullptr) {
   auto name__ = name ? _fbb.CreateString(name) : 0;
-  return nvfuser::serde::CreateSymbolic(
+  return nvfuser::serde::CreateBinaryOp(
       _fbb,
+      binary_type,
       src0,
+      src1,
+      out,
       name__);
+}
+
+struct GetAttr FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
+  typedef GetAttrBuilder Builder;
+  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
+    VT_STRUCT_ = 4,
+    VT_ATTR = 6,
+    VT_OUT = 8
+  };
+  int64_t struct_() const {
+    return GetField<int64_t>(VT_STRUCT_, 0);
+  }
+  const ::flatbuffers::String *attr() const {
+    return GetPointer<const ::flatbuffers::String *>(VT_ATTR);
+  }
+  int64_t out() const {
+    return GetField<int64_t>(VT_OUT, 0);
+  }
+  bool Verify(::flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyField<int64_t>(verifier, VT_STRUCT_, 8) &&
+           VerifyOffset(verifier, VT_ATTR) &&
+           verifier.VerifyString(attr()) &&
+           VerifyField<int64_t>(verifier, VT_OUT, 8) &&
+           verifier.EndTable();
+  }
+};
+
+struct GetAttrBuilder {
+  typedef GetAttr Table;
+  ::flatbuffers::FlatBufferBuilder &fbb_;
+  ::flatbuffers::uoffset_t start_;
+  void add_struct_(int64_t struct_) {
+    fbb_.AddElement<int64_t>(GetAttr::VT_STRUCT_, struct_, 0);
+  }
+  void add_attr(::flatbuffers::Offset<::flatbuffers::String> attr) {
+    fbb_.AddOffset(GetAttr::VT_ATTR, attr);
+  }
+  void add_out(int64_t out) {
+    fbb_.AddElement<int64_t>(GetAttr::VT_OUT, out, 0);
+  }
+  explicit GetAttrBuilder(::flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  ::flatbuffers::Offset<GetAttr> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = ::flatbuffers::Offset<GetAttr>(end);
+    return o;
+  }
+};
+
+inline ::flatbuffers::Offset<GetAttr> CreateGetAttr(
+    ::flatbuffers::FlatBufferBuilder &_fbb,
+    int64_t struct_ = 0,
+    ::flatbuffers::Offset<::flatbuffers::String> attr = 0,
+    int64_t out = 0) {
+  GetAttrBuilder builder_(_fbb);
+  builder_.add_out(out);
+  builder_.add_struct_(struct_);
+  builder_.add_attr(attr);
+  return builder_.Finish();
+}
+
+inline ::flatbuffers::Offset<GetAttr> CreateGetAttrDirect(
+    ::flatbuffers::FlatBufferBuilder &_fbb,
+    int64_t struct_ = 0,
+    const char *attr = nullptr,
+    int64_t out = 0) {
+  auto attr__ = attr ? _fbb.CreateString(attr) : 0;
+  return nvfuser::serde::CreateGetAttr(
+      _fbb,
+      struct_,
+      attr__,
+      out);
+}
+
+struct GetItem FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
+  typedef GetItemBuilder Builder;
+  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
+    VT_ARRAY = 4,
+    VT_INDEX = 6,
+    VT_OUT = 8
+  };
+  int64_t array() const {
+    return GetField<int64_t>(VT_ARRAY, 0);
+  }
+  int64_t index() const {
+    return GetField<int64_t>(VT_INDEX, 0);
+  }
+  int64_t out() const {
+    return GetField<int64_t>(VT_OUT, 0);
+  }
+  bool Verify(::flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyField<int64_t>(verifier, VT_ARRAY, 8) &&
+           VerifyField<int64_t>(verifier, VT_INDEX, 8) &&
+           VerifyField<int64_t>(verifier, VT_OUT, 8) &&
+           verifier.EndTable();
+  }
+};
+
+struct GetItemBuilder {
+  typedef GetItem Table;
+  ::flatbuffers::FlatBufferBuilder &fbb_;
+  ::flatbuffers::uoffset_t start_;
+  void add_array(int64_t array) {
+    fbb_.AddElement<int64_t>(GetItem::VT_ARRAY, array, 0);
+  }
+  void add_index(int64_t index) {
+    fbb_.AddElement<int64_t>(GetItem::VT_INDEX, index, 0);
+  }
+  void add_out(int64_t out) {
+    fbb_.AddElement<int64_t>(GetItem::VT_OUT, out, 0);
+  }
+  explicit GetItemBuilder(::flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  ::flatbuffers::Offset<GetItem> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = ::flatbuffers::Offset<GetItem>(end);
+    return o;
+  }
+};
+
+inline ::flatbuffers::Offset<GetItem> CreateGetItem(
+    ::flatbuffers::FlatBufferBuilder &_fbb,
+    int64_t array = 0,
+    int64_t index = 0,
+    int64_t out = 0) {
+  GetItemBuilder builder_(_fbb);
+  builder_.add_out(out);
+  builder_.add_index(index);
+  builder_.add_array(array);
+  return builder_.Finish();
+}
+
+struct GetMetaData FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
+  typedef GetMetaDataBuilder Builder;
+  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
+    VT_IN = 4,
+    VT_OUT = 6
+  };
+  int64_t in() const {
+    return GetField<int64_t>(VT_IN, 0);
+  }
+  int64_t out() const {
+    return GetField<int64_t>(VT_OUT, 0);
+  }
+  bool Verify(::flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyField<int64_t>(verifier, VT_IN, 8) &&
+           VerifyField<int64_t>(verifier, VT_OUT, 8) &&
+           verifier.EndTable();
+  }
+};
+
+struct GetMetaDataBuilder {
+  typedef GetMetaData Table;
+  ::flatbuffers::FlatBufferBuilder &fbb_;
+  ::flatbuffers::uoffset_t start_;
+  void add_in(int64_t in) {
+    fbb_.AddElement<int64_t>(GetMetaData::VT_IN, in, 0);
+  }
+  void add_out(int64_t out) {
+    fbb_.AddElement<int64_t>(GetMetaData::VT_OUT, out, 0);
+  }
+  explicit GetMetaDataBuilder(::flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  ::flatbuffers::Offset<GetMetaData> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = ::flatbuffers::Offset<GetMetaData>(end);
+    return o;
+  }
+};
+
+inline ::flatbuffers::Offset<GetMetaData> CreateGetMetaData(
+    ::flatbuffers::FlatBufferBuilder &_fbb,
+    int64_t in = 0,
+    int64_t out = 0) {
+  GetMetaDataBuilder builder_(_fbb);
+  builder_.add_out(out);
+  builder_.add_in(in);
+  return builder_.Finish();
+}
+
+struct Merge FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
+  typedef MergeBuilder Builder;
+  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
+    VT_INNER = 4,
+    VT_OUTER = 6,
+    VT_OUT = 8
+  };
+  int64_t inner() const {
+    return GetField<int64_t>(VT_INNER, 0);
+  }
+  int64_t outer() const {
+    return GetField<int64_t>(VT_OUTER, 0);
+  }
+  int64_t out() const {
+    return GetField<int64_t>(VT_OUT, 0);
+  }
+  bool Verify(::flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyField<int64_t>(verifier, VT_INNER, 8) &&
+           VerifyField<int64_t>(verifier, VT_OUTER, 8) &&
+           VerifyField<int64_t>(verifier, VT_OUT, 8) &&
+           verifier.EndTable();
+  }
+};
+
+struct MergeBuilder {
+  typedef Merge Table;
+  ::flatbuffers::FlatBufferBuilder &fbb_;
+  ::flatbuffers::uoffset_t start_;
+  void add_inner(int64_t inner) {
+    fbb_.AddElement<int64_t>(Merge::VT_INNER, inner, 0);
+  }
+  void add_outer(int64_t outer) {
+    fbb_.AddElement<int64_t>(Merge::VT_OUTER, outer, 0);
+  }
+  void add_out(int64_t out) {
+    fbb_.AddElement<int64_t>(Merge::VT_OUT, out, 0);
+  }
+  explicit MergeBuilder(::flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  ::flatbuffers::Offset<Merge> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = ::flatbuffers::Offset<Merge>(end);
+    return o;
+  }
+};
+
+inline ::flatbuffers::Offset<Merge> CreateMerge(
+    ::flatbuffers::FlatBufferBuilder &_fbb,
+    int64_t inner = 0,
+    int64_t outer = 0,
+    int64_t out = 0) {
+  MergeBuilder builder_(_fbb);
+  builder_.add_out(out);
+  builder_.add_outer(outer);
+  builder_.add_inner(inner);
+  return builder_.Finish();
 }
 
 struct NamedScalar FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
@@ -1286,202 +1600,75 @@ inline ::flatbuffers::Offset<NamedScalar> CreateNamedScalarDirect(
       name__);
 }
 
-struct UnaryOp FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
-  typedef UnaryOpBuilder Builder;
+struct Resize FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
+  typedef ResizeBuilder Builder;
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_UNARY_TYPE = 4,
-    VT_DATA_TYPE = 6,
-    VT_SRC0 = 8,
-    VT_DEST = 10,
-    VT_NAME = 12
+    VT_IN = 4,
+    VT_LEFT_EXPANSION = 6,
+    VT_RIGHT_EXPANSION = 8,
+    VT_OUT = 10
   };
-  nvfuser::serde::UnaryOpType unary_type() const {
-    return static_cast<nvfuser::serde::UnaryOpType>(GetField<int32_t>(VT_UNARY_TYPE, 0));
+  int64_t in() const {
+    return GetField<int64_t>(VT_IN, 0);
   }
-  nvfuser::serde::DataType data_type() const {
-    return static_cast<nvfuser::serde::DataType>(GetField<int32_t>(VT_DATA_TYPE, 0));
+  int64_t left_expansion() const {
+    return GetField<int64_t>(VT_LEFT_EXPANSION, 0);
   }
-  int64_t src0() const {
-    return GetField<int64_t>(VT_SRC0, 0);
+  int64_t right_expansion() const {
+    return GetField<int64_t>(VT_RIGHT_EXPANSION, 0);
   }
-  int64_t dest() const {
-    return GetField<int64_t>(VT_DEST, 0);
-  }
-  const ::flatbuffers::String *name() const {
-    return GetPointer<const ::flatbuffers::String *>(VT_NAME);
+  int64_t out() const {
+    return GetField<int64_t>(VT_OUT, 0);
   }
   bool Verify(::flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
-           VerifyField<int32_t>(verifier, VT_UNARY_TYPE, 4) &&
-           VerifyField<int32_t>(verifier, VT_DATA_TYPE, 4) &&
-           VerifyField<int64_t>(verifier, VT_SRC0, 8) &&
-           VerifyField<int64_t>(verifier, VT_DEST, 8) &&
-           VerifyOffset(verifier, VT_NAME) &&
-           verifier.VerifyString(name()) &&
+           VerifyField<int64_t>(verifier, VT_IN, 8) &&
+           VerifyField<int64_t>(verifier, VT_LEFT_EXPANSION, 8) &&
+           VerifyField<int64_t>(verifier, VT_RIGHT_EXPANSION, 8) &&
+           VerifyField<int64_t>(verifier, VT_OUT, 8) &&
            verifier.EndTable();
   }
 };
 
-struct UnaryOpBuilder {
-  typedef UnaryOp Table;
+struct ResizeBuilder {
+  typedef Resize Table;
   ::flatbuffers::FlatBufferBuilder &fbb_;
   ::flatbuffers::uoffset_t start_;
-  void add_unary_type(nvfuser::serde::UnaryOpType unary_type) {
-    fbb_.AddElement<int32_t>(UnaryOp::VT_UNARY_TYPE, static_cast<int32_t>(unary_type), 0);
+  void add_in(int64_t in) {
+    fbb_.AddElement<int64_t>(Resize::VT_IN, in, 0);
   }
-  void add_data_type(nvfuser::serde::DataType data_type) {
-    fbb_.AddElement<int32_t>(UnaryOp::VT_DATA_TYPE, static_cast<int32_t>(data_type), 0);
+  void add_left_expansion(int64_t left_expansion) {
+    fbb_.AddElement<int64_t>(Resize::VT_LEFT_EXPANSION, left_expansion, 0);
   }
-  void add_src0(int64_t src0) {
-    fbb_.AddElement<int64_t>(UnaryOp::VT_SRC0, src0, 0);
+  void add_right_expansion(int64_t right_expansion) {
+    fbb_.AddElement<int64_t>(Resize::VT_RIGHT_EXPANSION, right_expansion, 0);
   }
-  void add_dest(int64_t dest) {
-    fbb_.AddElement<int64_t>(UnaryOp::VT_DEST, dest, 0);
+  void add_out(int64_t out) {
+    fbb_.AddElement<int64_t>(Resize::VT_OUT, out, 0);
   }
-  void add_name(::flatbuffers::Offset<::flatbuffers::String> name) {
-    fbb_.AddOffset(UnaryOp::VT_NAME, name);
-  }
-  explicit UnaryOpBuilder(::flatbuffers::FlatBufferBuilder &_fbb)
+  explicit ResizeBuilder(::flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
     start_ = fbb_.StartTable();
   }
-  ::flatbuffers::Offset<UnaryOp> Finish() {
+  ::flatbuffers::Offset<Resize> Finish() {
     const auto end = fbb_.EndTable(start_);
-    auto o = ::flatbuffers::Offset<UnaryOp>(end);
+    auto o = ::flatbuffers::Offset<Resize>(end);
     return o;
   }
 };
 
-inline ::flatbuffers::Offset<UnaryOp> CreateUnaryOp(
+inline ::flatbuffers::Offset<Resize> CreateResize(
     ::flatbuffers::FlatBufferBuilder &_fbb,
-    nvfuser::serde::UnaryOpType unary_type = nvfuser::serde::UnaryOpType_None,
-    nvfuser::serde::DataType data_type = nvfuser::serde::DataType_None,
-    int64_t src0 = 0,
-    int64_t dest = 0,
-    ::flatbuffers::Offset<::flatbuffers::String> name = 0) {
-  UnaryOpBuilder builder_(_fbb);
-  builder_.add_dest(dest);
-  builder_.add_src0(src0);
-  builder_.add_name(name);
-  builder_.add_data_type(data_type);
-  builder_.add_unary_type(unary_type);
+    int64_t in = 0,
+    int64_t left_expansion = 0,
+    int64_t right_expansion = 0,
+    int64_t out = 0) {
+  ResizeBuilder builder_(_fbb);
+  builder_.add_out(out);
+  builder_.add_right_expansion(right_expansion);
+  builder_.add_left_expansion(left_expansion);
+  builder_.add_in(in);
   return builder_.Finish();
-}
-
-inline ::flatbuffers::Offset<UnaryOp> CreateUnaryOpDirect(
-    ::flatbuffers::FlatBufferBuilder &_fbb,
-    nvfuser::serde::UnaryOpType unary_type = nvfuser::serde::UnaryOpType_None,
-    nvfuser::serde::DataType data_type = nvfuser::serde::DataType_None,
-    int64_t src0 = 0,
-    int64_t dest = 0,
-    const char *name = nullptr) {
-  auto name__ = name ? _fbb.CreateString(name) : 0;
-  return nvfuser::serde::CreateUnaryOp(
-      _fbb,
-      unary_type,
-      data_type,
-      src0,
-      dest,
-      name__);
-}
-
-struct BinaryOp FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
-  typedef BinaryOpBuilder Builder;
-  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_BINARY_TYPE = 4,
-    VT_SRC0 = 6,
-    VT_SRC1 = 8,
-    VT_DEST = 10,
-    VT_NAME = 12
-  };
-  nvfuser::serde::BinaryOpType binary_type() const {
-    return static_cast<nvfuser::serde::BinaryOpType>(GetField<int32_t>(VT_BINARY_TYPE, 0));
-  }
-  int64_t src0() const {
-    return GetField<int64_t>(VT_SRC0, 0);
-  }
-  int64_t src1() const {
-    return GetField<int64_t>(VT_SRC1, 0);
-  }
-  int64_t dest() const {
-    return GetField<int64_t>(VT_DEST, 0);
-  }
-  const ::flatbuffers::String *name() const {
-    return GetPointer<const ::flatbuffers::String *>(VT_NAME);
-  }
-  bool Verify(::flatbuffers::Verifier &verifier) const {
-    return VerifyTableStart(verifier) &&
-           VerifyField<int32_t>(verifier, VT_BINARY_TYPE, 4) &&
-           VerifyField<int64_t>(verifier, VT_SRC0, 8) &&
-           VerifyField<int64_t>(verifier, VT_SRC1, 8) &&
-           VerifyField<int64_t>(verifier, VT_DEST, 8) &&
-           VerifyOffset(verifier, VT_NAME) &&
-           verifier.VerifyString(name()) &&
-           verifier.EndTable();
-  }
-};
-
-struct BinaryOpBuilder {
-  typedef BinaryOp Table;
-  ::flatbuffers::FlatBufferBuilder &fbb_;
-  ::flatbuffers::uoffset_t start_;
-  void add_binary_type(nvfuser::serde::BinaryOpType binary_type) {
-    fbb_.AddElement<int32_t>(BinaryOp::VT_BINARY_TYPE, static_cast<int32_t>(binary_type), 0);
-  }
-  void add_src0(int64_t src0) {
-    fbb_.AddElement<int64_t>(BinaryOp::VT_SRC0, src0, 0);
-  }
-  void add_src1(int64_t src1) {
-    fbb_.AddElement<int64_t>(BinaryOp::VT_SRC1, src1, 0);
-  }
-  void add_dest(int64_t dest) {
-    fbb_.AddElement<int64_t>(BinaryOp::VT_DEST, dest, 0);
-  }
-  void add_name(::flatbuffers::Offset<::flatbuffers::String> name) {
-    fbb_.AddOffset(BinaryOp::VT_NAME, name);
-  }
-  explicit BinaryOpBuilder(::flatbuffers::FlatBufferBuilder &_fbb)
-        : fbb_(_fbb) {
-    start_ = fbb_.StartTable();
-  }
-  ::flatbuffers::Offset<BinaryOp> Finish() {
-    const auto end = fbb_.EndTable(start_);
-    auto o = ::flatbuffers::Offset<BinaryOp>(end);
-    return o;
-  }
-};
-
-inline ::flatbuffers::Offset<BinaryOp> CreateBinaryOp(
-    ::flatbuffers::FlatBufferBuilder &_fbb,
-    nvfuser::serde::BinaryOpType binary_type = nvfuser::serde::BinaryOpType_None,
-    int64_t src0 = 0,
-    int64_t src1 = 0,
-    int64_t dest = 0,
-    ::flatbuffers::Offset<::flatbuffers::String> name = 0) {
-  BinaryOpBuilder builder_(_fbb);
-  builder_.add_dest(dest);
-  builder_.add_src1(src1);
-  builder_.add_src0(src0);
-  builder_.add_name(name);
-  builder_.add_binary_type(binary_type);
-  return builder_.Finish();
-}
-
-inline ::flatbuffers::Offset<BinaryOp> CreateBinaryOpDirect(
-    ::flatbuffers::FlatBufferBuilder &_fbb,
-    nvfuser::serde::BinaryOpType binary_type = nvfuser::serde::BinaryOpType_None,
-    int64_t src0 = 0,
-    int64_t src1 = 0,
-    int64_t dest = 0,
-    const char *name = nullptr) {
-  auto name__ = name ? _fbb.CreateString(name) : 0;
-  return nvfuser::serde::CreateBinaryOp(
-      _fbb,
-      binary_type,
-      src0,
-      src1,
-      dest,
-      name__);
 }
 
 struct Split FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
@@ -1572,67 +1759,6 @@ inline ::flatbuffers::Offset<Split> CreateSplit(
   builder_.add_in(in);
   builder_.add_trim_out_of_bounds(trim_out_of_bounds);
   builder_.add_inner_split(inner_split);
-  return builder_.Finish();
-}
-
-struct Merge FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
-  typedef MergeBuilder Builder;
-  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_INNER = 4,
-    VT_OUTER = 6,
-    VT_OUT = 8
-  };
-  int64_t inner() const {
-    return GetField<int64_t>(VT_INNER, 0);
-  }
-  int64_t outer() const {
-    return GetField<int64_t>(VT_OUTER, 0);
-  }
-  int64_t out() const {
-    return GetField<int64_t>(VT_OUT, 0);
-  }
-  bool Verify(::flatbuffers::Verifier &verifier) const {
-    return VerifyTableStart(verifier) &&
-           VerifyField<int64_t>(verifier, VT_INNER, 8) &&
-           VerifyField<int64_t>(verifier, VT_OUTER, 8) &&
-           VerifyField<int64_t>(verifier, VT_OUT, 8) &&
-           verifier.EndTable();
-  }
-};
-
-struct MergeBuilder {
-  typedef Merge Table;
-  ::flatbuffers::FlatBufferBuilder &fbb_;
-  ::flatbuffers::uoffset_t start_;
-  void add_inner(int64_t inner) {
-    fbb_.AddElement<int64_t>(Merge::VT_INNER, inner, 0);
-  }
-  void add_outer(int64_t outer) {
-    fbb_.AddElement<int64_t>(Merge::VT_OUTER, outer, 0);
-  }
-  void add_out(int64_t out) {
-    fbb_.AddElement<int64_t>(Merge::VT_OUT, out, 0);
-  }
-  explicit MergeBuilder(::flatbuffers::FlatBufferBuilder &_fbb)
-        : fbb_(_fbb) {
-    start_ = fbb_.StartTable();
-  }
-  ::flatbuffers::Offset<Merge> Finish() {
-    const auto end = fbb_.EndTable(start_);
-    auto o = ::flatbuffers::Offset<Merge>(end);
-    return o;
-  }
-};
-
-inline ::flatbuffers::Offset<Merge> CreateMerge(
-    ::flatbuffers::FlatBufferBuilder &_fbb,
-    int64_t inner = 0,
-    int64_t outer = 0,
-    int64_t out = 0) {
-  MergeBuilder builder_(_fbb);
-  builder_.add_out(out);
-  builder_.add_outer(outer);
-  builder_.add_inner(inner);
   return builder_.Finish();
 }
 
@@ -1727,75 +1853,166 @@ inline ::flatbuffers::Offset<Swizzle2D> CreateSwizzle2D(
   return builder_.Finish();
 }
 
-struct Resize FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
-  typedef ResizeBuilder Builder;
+struct Symbolic FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
+  typedef SymbolicBuilder Builder;
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_IN = 4,
-    VT_LEFT_EXPANSION = 6,
-    VT_RIGHT_EXPANSION = 8,
-    VT_OUT = 10
+    VT_SRC0 = 4,
+    VT_NAME = 6
   };
-  int64_t in() const {
-    return GetField<int64_t>(VT_IN, 0);
+  int64_t src0() const {
+    return GetField<int64_t>(VT_SRC0, 0);
   }
-  int64_t left_expansion() const {
-    return GetField<int64_t>(VT_LEFT_EXPANSION, 0);
-  }
-  int64_t right_expansion() const {
-    return GetField<int64_t>(VT_RIGHT_EXPANSION, 0);
-  }
-  int64_t out() const {
-    return GetField<int64_t>(VT_OUT, 0);
+  const ::flatbuffers::String *name() const {
+    return GetPointer<const ::flatbuffers::String *>(VT_NAME);
   }
   bool Verify(::flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
-           VerifyField<int64_t>(verifier, VT_IN, 8) &&
-           VerifyField<int64_t>(verifier, VT_LEFT_EXPANSION, 8) &&
-           VerifyField<int64_t>(verifier, VT_RIGHT_EXPANSION, 8) &&
-           VerifyField<int64_t>(verifier, VT_OUT, 8) &&
+           VerifyField<int64_t>(verifier, VT_SRC0, 8) &&
+           VerifyOffset(verifier, VT_NAME) &&
+           verifier.VerifyString(name()) &&
            verifier.EndTable();
   }
 };
 
-struct ResizeBuilder {
-  typedef Resize Table;
+struct SymbolicBuilder {
+  typedef Symbolic Table;
   ::flatbuffers::FlatBufferBuilder &fbb_;
   ::flatbuffers::uoffset_t start_;
-  void add_in(int64_t in) {
-    fbb_.AddElement<int64_t>(Resize::VT_IN, in, 0);
+  void add_src0(int64_t src0) {
+    fbb_.AddElement<int64_t>(Symbolic::VT_SRC0, src0, 0);
   }
-  void add_left_expansion(int64_t left_expansion) {
-    fbb_.AddElement<int64_t>(Resize::VT_LEFT_EXPANSION, left_expansion, 0);
+  void add_name(::flatbuffers::Offset<::flatbuffers::String> name) {
+    fbb_.AddOffset(Symbolic::VT_NAME, name);
   }
-  void add_right_expansion(int64_t right_expansion) {
-    fbb_.AddElement<int64_t>(Resize::VT_RIGHT_EXPANSION, right_expansion, 0);
-  }
-  void add_out(int64_t out) {
-    fbb_.AddElement<int64_t>(Resize::VT_OUT, out, 0);
-  }
-  explicit ResizeBuilder(::flatbuffers::FlatBufferBuilder &_fbb)
+  explicit SymbolicBuilder(::flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
     start_ = fbb_.StartTable();
   }
-  ::flatbuffers::Offset<Resize> Finish() {
+  ::flatbuffers::Offset<Symbolic> Finish() {
     const auto end = fbb_.EndTable(start_);
-    auto o = ::flatbuffers::Offset<Resize>(end);
+    auto o = ::flatbuffers::Offset<Symbolic>(end);
     return o;
   }
 };
 
-inline ::flatbuffers::Offset<Resize> CreateResize(
+inline ::flatbuffers::Offset<Symbolic> CreateSymbolic(
     ::flatbuffers::FlatBufferBuilder &_fbb,
-    int64_t in = 0,
-    int64_t left_expansion = 0,
-    int64_t right_expansion = 0,
-    int64_t out = 0) {
-  ResizeBuilder builder_(_fbb);
-  builder_.add_out(out);
-  builder_.add_right_expansion(right_expansion);
-  builder_.add_left_expansion(left_expansion);
-  builder_.add_in(in);
+    int64_t src0 = 0,
+    ::flatbuffers::Offset<::flatbuffers::String> name = 0) {
+  SymbolicBuilder builder_(_fbb);
+  builder_.add_src0(src0);
+  builder_.add_name(name);
   return builder_.Finish();
+}
+
+inline ::flatbuffers::Offset<Symbolic> CreateSymbolicDirect(
+    ::flatbuffers::FlatBufferBuilder &_fbb,
+    int64_t src0 = 0,
+    const char *name = nullptr) {
+  auto name__ = name ? _fbb.CreateString(name) : 0;
+  return nvfuser::serde::CreateSymbolic(
+      _fbb,
+      src0,
+      name__);
+}
+
+struct UnaryOp FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
+  typedef UnaryOpBuilder Builder;
+  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
+    VT_UNARY_TYPE = 4,
+    VT_DATA_TYPE = 6,
+    VT_SRC0 = 8,
+    VT_OUT = 10,
+    VT_NAME = 12
+  };
+  nvfuser::serde::UnaryOpType unary_type() const {
+    return static_cast<nvfuser::serde::UnaryOpType>(GetField<int32_t>(VT_UNARY_TYPE, 0));
+  }
+  nvfuser::serde::DataType data_type() const {
+    return static_cast<nvfuser::serde::DataType>(GetField<int32_t>(VT_DATA_TYPE, 0));
+  }
+  int64_t src0() const {
+    return GetField<int64_t>(VT_SRC0, 0);
+  }
+  int64_t out() const {
+    return GetField<int64_t>(VT_OUT, 0);
+  }
+  const ::flatbuffers::String *name() const {
+    return GetPointer<const ::flatbuffers::String *>(VT_NAME);
+  }
+  bool Verify(::flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyField<int32_t>(verifier, VT_UNARY_TYPE, 4) &&
+           VerifyField<int32_t>(verifier, VT_DATA_TYPE, 4) &&
+           VerifyField<int64_t>(verifier, VT_SRC0, 8) &&
+           VerifyField<int64_t>(verifier, VT_OUT, 8) &&
+           VerifyOffset(verifier, VT_NAME) &&
+           verifier.VerifyString(name()) &&
+           verifier.EndTable();
+  }
+};
+
+struct UnaryOpBuilder {
+  typedef UnaryOp Table;
+  ::flatbuffers::FlatBufferBuilder &fbb_;
+  ::flatbuffers::uoffset_t start_;
+  void add_unary_type(nvfuser::serde::UnaryOpType unary_type) {
+    fbb_.AddElement<int32_t>(UnaryOp::VT_UNARY_TYPE, static_cast<int32_t>(unary_type), 0);
+  }
+  void add_data_type(nvfuser::serde::DataType data_type) {
+    fbb_.AddElement<int32_t>(UnaryOp::VT_DATA_TYPE, static_cast<int32_t>(data_type), 0);
+  }
+  void add_src0(int64_t src0) {
+    fbb_.AddElement<int64_t>(UnaryOp::VT_SRC0, src0, 0);
+  }
+  void add_out(int64_t out) {
+    fbb_.AddElement<int64_t>(UnaryOp::VT_OUT, out, 0);
+  }
+  void add_name(::flatbuffers::Offset<::flatbuffers::String> name) {
+    fbb_.AddOffset(UnaryOp::VT_NAME, name);
+  }
+  explicit UnaryOpBuilder(::flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  ::flatbuffers::Offset<UnaryOp> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = ::flatbuffers::Offset<UnaryOp>(end);
+    return o;
+  }
+};
+
+inline ::flatbuffers::Offset<UnaryOp> CreateUnaryOp(
+    ::flatbuffers::FlatBufferBuilder &_fbb,
+    nvfuser::serde::UnaryOpType unary_type = nvfuser::serde::UnaryOpType_None,
+    nvfuser::serde::DataType data_type = nvfuser::serde::DataType_None,
+    int64_t src0 = 0,
+    int64_t out = 0,
+    ::flatbuffers::Offset<::flatbuffers::String> name = 0) {
+  UnaryOpBuilder builder_(_fbb);
+  builder_.add_out(out);
+  builder_.add_src0(src0);
+  builder_.add_name(name);
+  builder_.add_data_type(data_type);
+  builder_.add_unary_type(unary_type);
+  return builder_.Finish();
+}
+
+inline ::flatbuffers::Offset<UnaryOp> CreateUnaryOpDirect(
+    ::flatbuffers::FlatBufferBuilder &_fbb,
+    nvfuser::serde::UnaryOpType unary_type = nvfuser::serde::UnaryOpType_None,
+    nvfuser::serde::DataType data_type = nvfuser::serde::DataType_None,
+    int64_t src0 = 0,
+    int64_t out = 0,
+    const char *name = nullptr) {
+  auto name__ = name ? _fbb.CreateString(name) : 0;
+  return nvfuser::serde::CreateUnaryOp(
+      _fbb,
+      unary_type,
+      data_type,
+      src0,
+      out,
+      name__);
 }
 
 struct Instruction FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
@@ -1814,11 +2031,14 @@ struct Instruction FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
   const nvfuser::serde::BinaryOp *data_as_BinaryOp() const {
     return data_type() == nvfuser::serde::InstructionData_BinaryOp ? static_cast<const nvfuser::serde::BinaryOp *>(data()) : nullptr;
   }
-  const nvfuser::serde::Symbolic *data_as_Symbolic() const {
-    return data_type() == nvfuser::serde::InstructionData_Symbolic ? static_cast<const nvfuser::serde::Symbolic *>(data()) : nullptr;
+  const nvfuser::serde::GetAttr *data_as_GetAttr() const {
+    return data_type() == nvfuser::serde::InstructionData_GetAttr ? static_cast<const nvfuser::serde::GetAttr *>(data()) : nullptr;
   }
-  const nvfuser::serde::Scalar *data_as_Scalar() const {
-    return data_type() == nvfuser::serde::InstructionData_Scalar ? static_cast<const nvfuser::serde::Scalar *>(data()) : nullptr;
+  const nvfuser::serde::GetItem *data_as_GetItem() const {
+    return data_type() == nvfuser::serde::InstructionData_GetItem ? static_cast<const nvfuser::serde::GetItem *>(data()) : nullptr;
+  }
+  const nvfuser::serde::GetMetaData *data_as_GetMetaData() const {
+    return data_type() == nvfuser::serde::InstructionData_GetMetaData ? static_cast<const nvfuser::serde::GetMetaData *>(data()) : nullptr;
   }
   const nvfuser::serde::Merge *data_as_Merge() const {
     return data_type() == nvfuser::serde::InstructionData_Merge ? static_cast<const nvfuser::serde::Merge *>(data()) : nullptr;
@@ -1829,11 +2049,17 @@ struct Instruction FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
   const nvfuser::serde::Resize *data_as_Resize() const {
     return data_type() == nvfuser::serde::InstructionData_Resize ? static_cast<const nvfuser::serde::Resize *>(data()) : nullptr;
   }
+  const nvfuser::serde::Scalar *data_as_Scalar() const {
+    return data_type() == nvfuser::serde::InstructionData_Scalar ? static_cast<const nvfuser::serde::Scalar *>(data()) : nullptr;
+  }
   const nvfuser::serde::Split *data_as_Split() const {
     return data_type() == nvfuser::serde::InstructionData_Split ? static_cast<const nvfuser::serde::Split *>(data()) : nullptr;
   }
   const nvfuser::serde::Swizzle2D *data_as_Swizzle2D() const {
     return data_type() == nvfuser::serde::InstructionData_Swizzle2D ? static_cast<const nvfuser::serde::Swizzle2D *>(data()) : nullptr;
+  }
+  const nvfuser::serde::Symbolic *data_as_Symbolic() const {
+    return data_type() == nvfuser::serde::InstructionData_Symbolic ? static_cast<const nvfuser::serde::Symbolic *>(data()) : nullptr;
   }
   const nvfuser::serde::UnaryOp *data_as_UnaryOp() const {
     return data_type() == nvfuser::serde::InstructionData_UnaryOp ? static_cast<const nvfuser::serde::UnaryOp *>(data()) : nullptr;
@@ -1851,12 +2077,16 @@ template<> inline const nvfuser::serde::BinaryOp *Instruction::data_as<nvfuser::
   return data_as_BinaryOp();
 }
 
-template<> inline const nvfuser::serde::Symbolic *Instruction::data_as<nvfuser::serde::Symbolic>() const {
-  return data_as_Symbolic();
+template<> inline const nvfuser::serde::GetAttr *Instruction::data_as<nvfuser::serde::GetAttr>() const {
+  return data_as_GetAttr();
 }
 
-template<> inline const nvfuser::serde::Scalar *Instruction::data_as<nvfuser::serde::Scalar>() const {
-  return data_as_Scalar();
+template<> inline const nvfuser::serde::GetItem *Instruction::data_as<nvfuser::serde::GetItem>() const {
+  return data_as_GetItem();
+}
+
+template<> inline const nvfuser::serde::GetMetaData *Instruction::data_as<nvfuser::serde::GetMetaData>() const {
+  return data_as_GetMetaData();
 }
 
 template<> inline const nvfuser::serde::Merge *Instruction::data_as<nvfuser::serde::Merge>() const {
@@ -1871,12 +2101,20 @@ template<> inline const nvfuser::serde::Resize *Instruction::data_as<nvfuser::se
   return data_as_Resize();
 }
 
+template<> inline const nvfuser::serde::Scalar *Instruction::data_as<nvfuser::serde::Scalar>() const {
+  return data_as_Scalar();
+}
+
 template<> inline const nvfuser::serde::Split *Instruction::data_as<nvfuser::serde::Split>() const {
   return data_as_Split();
 }
 
 template<> inline const nvfuser::serde::Swizzle2D *Instruction::data_as<nvfuser::serde::Swizzle2D>() const {
   return data_as_Swizzle2D();
+}
+
+template<> inline const nvfuser::serde::Symbolic *Instruction::data_as<nvfuser::serde::Symbolic>() const {
+  return data_as_Symbolic();
 }
 
 template<> inline const nvfuser::serde::UnaryOp *Instruction::data_as<nvfuser::serde::UnaryOp>() const {
@@ -5351,12 +5589,16 @@ inline bool VerifyInstructionData(::flatbuffers::Verifier &verifier, const void 
       auto ptr = reinterpret_cast<const nvfuser::serde::BinaryOp *>(obj);
       return verifier.VerifyTable(ptr);
     }
-    case InstructionData_Symbolic: {
-      auto ptr = reinterpret_cast<const nvfuser::serde::Symbolic *>(obj);
+    case InstructionData_GetAttr: {
+      auto ptr = reinterpret_cast<const nvfuser::serde::GetAttr *>(obj);
       return verifier.VerifyTable(ptr);
     }
-    case InstructionData_Scalar: {
-      auto ptr = reinterpret_cast<const nvfuser::serde::Scalar *>(obj);
+    case InstructionData_GetItem: {
+      auto ptr = reinterpret_cast<const nvfuser::serde::GetItem *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
+    case InstructionData_GetMetaData: {
+      auto ptr = reinterpret_cast<const nvfuser::serde::GetMetaData *>(obj);
       return verifier.VerifyTable(ptr);
     }
     case InstructionData_Merge: {
@@ -5371,12 +5613,20 @@ inline bool VerifyInstructionData(::flatbuffers::Verifier &verifier, const void 
       auto ptr = reinterpret_cast<const nvfuser::serde::Resize *>(obj);
       return verifier.VerifyTable(ptr);
     }
+    case InstructionData_Scalar: {
+      auto ptr = reinterpret_cast<const nvfuser::serde::Scalar *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
     case InstructionData_Split: {
       auto ptr = reinterpret_cast<const nvfuser::serde::Split *>(obj);
       return verifier.VerifyTable(ptr);
     }
     case InstructionData_Swizzle2D: {
       auto ptr = reinterpret_cast<const nvfuser::serde::Swizzle2D *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
+    case InstructionData_Symbolic: {
+      auto ptr = reinterpret_cast<const nvfuser::serde::Symbolic *>(obj);
       return verifier.VerifyTable(ptr);
     }
     case InstructionData_UnaryOp: {

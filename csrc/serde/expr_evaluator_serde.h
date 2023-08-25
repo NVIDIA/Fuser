@@ -33,13 +33,21 @@ class ExpressionSerializer {
       const std::vector<const kir::Allocate*>& allocations);
 
  private:
-  flatbuffers::Offset<Instruction> serializeUnaryOp(
-      flatbuffers::FlatBufferBuilder& builder,
-      nvfuser::UnaryOp* uop) const;
-
   flatbuffers::Offset<Instruction> serializeBinaryOp(
       flatbuffers::FlatBufferBuilder& builder,
       nvfuser::BinaryOp* bop) const;
+
+  flatbuffers::Offset<Instruction> serializeGetAttr(
+      flatbuffers::FlatBufferBuilder& builder,
+      nvfuser::GetAttr* attr) const;
+
+  flatbuffers::Offset<Instruction> serializeGetItem(
+      flatbuffers::FlatBufferBuilder& builder,
+      nvfuser::GetItem* item) const;
+
+  flatbuffers::Offset<Instruction> serializeGetMetaData(
+      flatbuffers::FlatBufferBuilder& builder,
+      nvfuser::GetMetaData* metadata) const;
 
   flatbuffers::Offset<Instruction> serializeMerge(
       flatbuffers::FlatBufferBuilder& builder,
@@ -57,6 +65,10 @@ class ExpressionSerializer {
       flatbuffers::FlatBufferBuilder& builder,
       nvfuser::Swizzle2D* swizzle) const;
 
+  flatbuffers::Offset<Instruction> serializeUnaryOp(
+      flatbuffers::FlatBufferBuilder& builder,
+      nvfuser::UnaryOp* uop) const;
+
   flatbuffers::Offset<SymbolicTensor> serialize(
       flatbuffers::FlatBufferBuilder& builder,
       const nvfuser::TensorView* tv);
@@ -64,6 +76,16 @@ class ExpressionSerializer {
   flatbuffers::Offset<flatbuffers::Vector<int64_t>> serialize(
       flatbuffers::FlatBufferBuilder& builder,
       std::vector<Val*> domain);
+
+  void printStack() const {
+    std::cout << "================ ExpressionSerializer Stack ================"
+              << std::endl;
+    for (auto item : operation_stack_) {
+      std::cout << item.first->toString() << "\t" << item.second << std::endl;
+    }
+    std::cout << "============================================================"
+              << std::endl;
+  }
 
   std::unordered_map<Val*, long> operation_stack_;
 };
@@ -88,6 +110,17 @@ class ExpressionBuilder {
   void deserialize(const Instruction* buffer);
   Val* buildUnaryOp(const UnaryOp* buffer);
   Val* buildBinaryOp(const BinaryOp* buffer);
+
+  void printStack() const {
+    std::cout << "================ ExpressionBuilder Stack ================"
+              << std::endl;
+    for (auto idx : c10::irange(operation_stack_.size())) {
+      std::cout << idx << "\t" << operation_stack_.at(idx)->toString()
+                << std::endl;
+    }
+    std::cout << "========================================================="
+              << std::endl;
+  }
 
   kir::Kernel* kernel_;
   std::vector<Val*> operation_stack_;

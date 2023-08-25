@@ -127,9 +127,9 @@ void bindDomain(
 void bind(std::vector<Val*>& all_values, nvfuser::TensorView* tv) {
   bindRootDomain(all_values, tv->getRootDomain());
   // disabled to pass python frontend tests
-  // bindDomain(all_values, tv->getRFactorDomain());
-  // bindDomain(all_values, tv->getAllocationDomain());
-  // bindDomain(all_values, tv->getLeafDomain());
+  bindDomain(all_values, tv->getRFactorDomain());
+  bindDomain(all_values, tv->getAllocationDomain());
+  bindDomain(all_values, tv->getLeafDomain());
 }
 
 } // namespace
@@ -177,6 +177,41 @@ flatbuffers::Offset<Instruction> ExpressionSerializer::serializeMerge(
       builder, serde::InstructionData_Merge, merge_fb.Union());
 }
 
+flatbuffers::Offset<Instruction> ExpressionSerializer::serializeGetAttr(
+    flatbuffers::FlatBufferBuilder& builder,
+    nvfuser::GetAttr* attr) const {
+  auto attr_fb = serde::CreateGetAttr(
+      builder,
+      operation_stack_.at(attr->struct_()),
+      builder.CreateString(attr->attr()),
+      (int64_t)operation_stack_.size());
+  return serde::CreateInstruction(
+      builder, serde::InstructionData_GetAttr, attr_fb.Union());
+}
+
+flatbuffers::Offset<Instruction> ExpressionSerializer::serializeGetItem(
+    flatbuffers::FlatBufferBuilder& builder,
+    nvfuser::GetItem* item) const {
+  auto item_fb = serde::CreateGetItem(
+      builder,
+      operation_stack_.at(item->array()),
+      operation_stack_.at(item->index()),
+      (int64_t)operation_stack_.size());
+  return serde::CreateInstruction(
+      builder, serde::InstructionData_GetItem, item_fb.Union());
+}
+
+flatbuffers::Offset<Instruction> ExpressionSerializer::serializeGetMetaData(
+    flatbuffers::FlatBufferBuilder& builder,
+    nvfuser::GetMetaData* metadata) const {
+  auto metadata_fb = serde::CreateGetMetaData(
+      builder,
+      operation_stack_.at(metadata->in()),
+      (int64_t)operation_stack_.size());
+  return serde::CreateInstruction(
+      builder, serde::InstructionData_GetMetaData, metadata_fb.Union());
+}
+
 flatbuffers::Offset<Instruction> ExpressionSerializer::serializeResize(
     flatbuffers::FlatBufferBuilder& builder,
     nvfuser::Resize* resize) const {
@@ -193,10 +228,6 @@ flatbuffers::Offset<Instruction> ExpressionSerializer::serializeResize(
 flatbuffers::Offset<Instruction> ExpressionSerializer::serializeSplit(
     flatbuffers::FlatBufferBuilder& builder,
     nvfuser::Split* split) const {
-  std::cout << operation_stack_.count(split->in()) << std::endl;
-  std::cout << operation_stack_.count(split->factor()) << std::endl;
-  std::cout << split->in()->toString() << std::endl;
-  std::cout << split->factor()->toString() << std::endl;
   auto split_fb = serde::CreateSplit(
       builder,
       operation_stack_.at(split->in()),
@@ -241,36 +272,44 @@ flatbuffers::Offset<serde::NaiveValueGenerator> ExpressionSerializer::serialize(
     }
   }
 
-  // 2) Sort values by dependency order
-  // 3) Divide values into NamedScalar, Int, Symbolic, and Derived values
-  std::unordered_set<nvfuser::NamedScalar*> named_scalar_values;
-  std::unordered_set<nvfuser::Val*> const_int_values;
-  std::unordered_set<nvfuser::Val*> symbolic_values;
+  std::vector<nvfuser::NamedScalar*> named_scalar_values;
+  std::vector<nvfuser::Val*> const_int_values;
+  std::vector<nvfuser::Val*> symbolic_values;
   std::deque<nvfuser::Val*> derived_values;
-  for (auto v : makeSortedEvaluationList(all_values)) {
-    if (v->definition() == nullptr) {
-      if (auto ns = dynamic_cast<nvfuser::NamedScalar*>(v)) {
-        named_scalar_values.insert(ns);
-      } else if (v->isConstInt()) {
-        const_int_values.insert(v);
-      } else {
-        symbolic_values.insert(v);
-      }
-    } else {
-      derived_values.push_back(v);
+
+  auto insert_item = [](auto& container, auto v) {
+    if (std::find(container.begin(), container.end(), v) == container.end()) {
+      container.push_back(v);
     }
-  }
+  };
 
   // Add TensorView RootDomain IterDomain Extents for all kernel inputs
   // TODO Get deterministic order
   for (auto input : kernel->inputs()) {
     if (TensorView* tv = dynamic_cast<TensorView*>(input)) {
+      insert_item(symbolic_values, tv);
       for (auto id : tv->getRootDomain()) {
         auto extent = id->extent();
         if (!extent->isA<NamedScalar>() && !extent->isConstInt()) {
-          symbolic_values.insert(extent);
+          insert_item(symbolic_values, extent);
         }
       }
+    }
+  }
+
+  // 2) Sort values by dependency order
+  // 3) Divide values into NamedScalar, Int, Symbolic, and Derived values
+  for (auto v : makeSortedEvaluationList(all_values)) {
+    if (v->definition() == nullptr) {
+      if (auto ns = dynamic_cast<nvfuser::NamedScalar*>(v)) {
+        insert_item(named_scalar_values, ns);
+      } else if (v->isConstInt()) {
+        insert_item(const_int_values, v);
+      } else {
+        insert_item(symbolic_values, v);
+      }
+    } else {
+      insert_item(derived_values, v);
     }
   }
 
@@ -315,6 +354,10 @@ flatbuffers::Offset<serde::NaiveValueGenerator> ExpressionSerializer::serialize(
     auto def = val->definition();
     derived_values.pop_front();
 
+    if (operation_stack_.count(val)) {
+      continue;
+    }
+
     TORCH_INTERNAL_ASSERT(
         def != nullptr, "Expected definition with derived value.");
     if (auto uop = dynamic_cast<nvfuser::UnaryOp*>(def)) {
@@ -351,6 +394,18 @@ flatbuffers::Offset<serde::NaiveValueGenerator> ExpressionSerializer::serialize(
       instructions_fb.push_back(serializeResize(builder, rop));
       operation_stack_.emplace(val, operation_stack_.size());
 
+    } else if (auto mop = dynamic_cast<nvfuser::GetMetaData*>(def)) {
+      instructions_fb.push_back(serializeGetMetaData(builder, mop));
+      operation_stack_.emplace(val, operation_stack_.size());
+
+    } else if (auto iop = dynamic_cast<nvfuser::GetItem*>(def)) {
+      instructions_fb.push_back(serializeGetItem(builder, iop));
+      operation_stack_.emplace(val, operation_stack_.size());
+
+    } else if (auto aop = dynamic_cast<nvfuser::GetAttr*>(def)) {
+      instructions_fb.push_back(serializeGetAttr(builder, aop));
+      operation_stack_.emplace(val, operation_stack_.size());
+
     } else {
       TORCH_INTERNAL_ASSERT(false, "Unknown Expression.\t", def->toString());
     }
@@ -368,6 +423,11 @@ std::vector<flatbuffers::Offset<AllocateBuffer>> ExpressionSerializer::
   for (auto alloc : allocations) {
     auto alloc_buffer_tv = alloc->buffer()->as<nvfuser::TensorView>();
     TORCH_INTERNAL_ASSERT(alloc_buffer_tv);
+
+    // Serde only gmem tensorviews because of missing values in operation_stack
+    if (alloc_buffer_tv->getMemoryType() != nvfuser::MemoryType::Global) {
+      continue;
+    }
 
     auto fb_alloc = serde::CreateAllocateBuffer(
         builder,
@@ -419,15 +479,22 @@ flatbuffers::Offset<serde::SymbolicTensor> ExpressionSerializer::serialize(
 }
 
 ExpressionBuilder::ExpressionBuilder(kir::Kernel* kernel) : kernel_(kernel) {
+  auto insert_item = [](auto& container, auto v) {
+    if (std::find(container.begin(), container.end(), v) == container.end()) {
+      container.push_back(v);
+    }
+  };
+
   // Add TensorView RootDomain IterDomain Extents for all kernel inputs
   // TODO Get deterministic order
-  std::unordered_set<nvfuser::Val*> symbolic_values;
+  std::vector<nvfuser::Val*> symbolic_values;
   for (auto input : kernel->inputs()) {
     if (TensorView* tv = dynamic_cast<TensorView*>(input)) {
+      insert_item(symbolic_values, tv);
       for (auto id : tv->getRootDomain()) {
         auto extent = id->extent();
         if (!extent->isA<NamedScalar>() && !extent->isConstInt()) {
-          symbolic_values.insert(extent);
+          insert_item(symbolic_values, extent);
         }
       }
     }
@@ -437,25 +504,14 @@ ExpressionBuilder::ExpressionBuilder(kir::Kernel* kernel) : kernel_(kernel) {
 }
 
 void ExpressionBuilder::deserialize(const NaiveValueGenerator* buffer) {
-  // table NaiveValueGenerator {
-  //   instructions : [Instruction];
-  // }
   for (auto inst : *buffer->instructions()) {
     deserialize(inst);
   }
 }
 
 void ExpressionBuilder::deserialize(const Instruction* buffer) {
-  // table Instruction {
-  //  instruction : InstructionType;
-  //  unary_type : UnaryOpType;
-  //  binary_type : BinaryOpType;
-  //  data_type : DataType;
-  //  src0 : int;
-  //  src1 : int;
-  //  dest : int;
-  //  name : string;
-  // }
+  auto exists = [&](size_t idx) { return idx < operation_stack_.size(); };
+
   FusionGuard fg(kernel_);
   switch (buffer->data_type()) {
     case serde::InstructionData_Symbolic:
@@ -464,24 +520,64 @@ void ExpressionBuilder::deserialize(const Instruction* buffer) {
     case serde::InstructionData_NamedScalar: {
       auto data = buffer->data_as_NamedScalar();
       auto ns = IrBuilder::create<nvfuser::NamedScalar>(
-          data->name()->str(), nvfuser::DataType::Int);
+          data->name()->str(), nvfuser::DataType::Index);
       operation_stack_.push_back(ns);
       break;
     }
     case serde::InstructionData_Scalar: {
       auto data = buffer->data_as_Scalar();
-      auto int_val = IrBuilder::create<nvfuser::Val>(data->long_value());
+      auto int_val = IrBuilder::create<nvfuser::Val>(
+          data->long_value(), nvfuser::DataType::Index);
       operation_stack_.push_back(int_val);
       break;
     }
     case serde::InstructionData_UnaryOp: {
-      auto uop = buildUnaryOp(buffer->data_as_UnaryOp());
-      operation_stack_.push_back(uop);
+      auto data = buffer->data_as_UnaryOp();
+      TORCH_INTERNAL_ASSERT(data != nullptr, "serde::UnaryOp is nullptr.")
+      if (!exists(data->out())) {
+        auto uop = buildUnaryOp(data);
+        operation_stack_.push_back(uop);
+      }
       break;
     }
     case serde::InstructionData_BinaryOp: {
-      auto bop = buildBinaryOp(buffer->data_as_BinaryOp());
-      operation_stack_.push_back(bop);
+      auto data = buffer->data_as_BinaryOp();
+      TORCH_INTERNAL_ASSERT(data != nullptr, "serde::BinaryOp is nullptr.")
+      if (!exists(data->out())) {
+        auto bop = buildBinaryOp(data);
+        operation_stack_.push_back(bop);
+      }
+      break;
+    }
+    case serde::InstructionData_GetAttr: {
+      auto data = buffer->data_as_GetAttr();
+      TORCH_INTERNAL_ASSERT(data != nullptr, "serde::GetAttr is nullptr.")
+      if (!exists(data->out())) {
+        auto aop = IrBuilder::getAttrExpr(
+            operation_stack_.at(data->struct_()), data->attr()->str());
+        operation_stack_.push_back(aop);
+      }
+      break;
+    }
+    case serde::InstructionData_GetItem: {
+      auto data = buffer->data_as_GetItem();
+      TORCH_INTERNAL_ASSERT(data != nullptr, "serde::GetItem is nullptr.")
+      if (!exists(data->out())) {
+        auto iop = IrBuilder::getItemExpr(
+            operation_stack_.at(data->array()),
+            operation_stack_.at(data->index()));
+        operation_stack_.push_back(iop);
+      }
+      break;
+    }
+    case serde::InstructionData_GetMetaData: {
+      auto data = buffer->data_as_GetMetaData();
+      TORCH_INTERNAL_ASSERT(data != nullptr, "serde::GetMetaData is nullptr.")
+      if (!exists(data->out())) {
+        auto val = operation_stack_.at(data->in());
+        auto mop = kernel_->metadataOf(val);
+        operation_stack_.push_back(mop);
+      }
       break;
     }
     default:
@@ -539,27 +635,6 @@ Val* ExpressionBuilder::buildBinaryOp(const BinaryOp* buffer) {
 
 std::vector<const kir::Allocate*> ExpressionBuilder::deserialize(
     const ExpressionBuilder::Allocations* buffers) {
-  // table IterationDomain {
-  //  extent : long;
-  // }
-  //
-  // table Domain {
-  //  dims : [IterationDomain];
-  // }
-  //
-  // table SymbolicTensor {
-  //  dtype : DataType;
-  //  root : Domain;
-  //  rfactor : Domain;
-  //  allocate : Domain;
-  //  leaf : Domain;
-  // }
-  //
-  // table AllocateBuffer {
-  //  tv : SymbolicTensor;
-  //  shape : Domain;
-  //  zero_init : bool;
-  // }
   FusionGuard fg(kernel_);
 
   std::vector<const kir::Allocate*> results;
