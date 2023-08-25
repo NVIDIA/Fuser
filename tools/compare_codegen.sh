@@ -43,6 +43,7 @@ cleanup() {
     fi
 
     git switch "$orighead"
+    git submodule update --init --recursive
 }
 
 trap "cleanup" INT TERM EXIT
@@ -52,6 +53,7 @@ collect_kernels() {
     commit=$2
 
     git checkout "$commit"
+    git submodule update --init --recursive
     currentcommit=$commit
 
     testdir=$outdir/$commit/test
