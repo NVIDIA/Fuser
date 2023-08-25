@@ -1170,7 +1170,6 @@ TEST_F(NVFuserTest, TransposeAggregatedVectorizationWidth_CUDA) {
 }
 
 TEST_F(NVFuserTest, ViewTransposeReshape_CUDA) {
-  GTEST_SKIP() << "test for PR 690 https://github.com/NVIDIA/Fuser/pull/690";
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -1202,9 +1201,7 @@ TEST_F(NVFuserTest, ViewTransposeReshape_CUDA) {
   TORCH_CHECK(ref.equal(cg_outputs.at(0)));
 }
 
-// TODO: this one currently breaks when I have reshape+transpose scheduler.
-TEST_F(NVFuserTest, ViewTransposeVectorizationWidth1_CUDA) {
-  GTEST_SKIP() << "test for PR 690 https://github.com/NVIDIA/Fuser/pull/690";
+TEST_F(NVFuserTest, ViewTransposeMergedInnermostOnGroupTwo_CUDA) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
