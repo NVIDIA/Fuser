@@ -429,21 +429,23 @@ class NVFuserTest : public ::testing::Test {
 
     // If NVFUSER_TEST_RANDOM_SEED is provided, use that for the C random seed.
     // Otherwise, use system time. If a test fails, this seed will be printed.
-    at::manual_seed(getRandomSeed(false));
+    at::manual_seed(getRandomSeed(true));
 
     // If NVFUSER_TEST_ATEN_RANDOM_SEED is provided, use that for the ATen
     // random seed. Otherwise, use zero. If a test fails, this seed will be
     // printed.
-    std::srand(getRandomSeed(true));
+    std::srand(getRandomSeed(false));
   }
 
   void TearDown() override {
     if (::testing::Test::HasFailure()) {
-      std::cerr
-          << "To reproduce, use environment variables NVFUSER_TEST_RANDOM_SEED="
-          << getRandomSeed(false)
-          << " NVFUSER_TEST_ATEN_RANDOM_SEED=" << getRandomSeed(true)
-          << std::endl;
+      auto test_info = ::testing::UnitTest::GetInstance()->current_test_info();
+      std::cerr << "To reproduce: NVFUSER_TEST_RANDOM_SEED="
+                << getRandomSeed(false)
+                << " NVFUSER_TEST_ATEN_RANDOM_SEED=" << getRandomSeed(true)
+                << " nvfuser_tests --gtest_filter='"
+                << test_info->test_suite_name() << "." << test_info->name()
+                << "'" << std::endl;
     }
   }
 };
