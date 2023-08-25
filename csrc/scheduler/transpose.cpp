@@ -30,21 +30,34 @@ namespace nvfuser {
 
 namespace {
 
+// TransposeViewPropagator doesn't propagate anything. It simply walks across
+// the path of potential propagation checking if there's any incompatible
+// propagation that would not be resolved.
 struct TransposeViewPropagator : public MaxInfoSpanningTree::Propagator {
   void propagateC2P(TensorView* from, TensorView* to) override{};
   void propagateP2C(TensorView* from, TensorView* to) override {
-    if (p2c_via_view) {
+    // short-cut to skip if we know we are already rejecting the fusion for
+    // transpose scheduler
+    if (shouldReject()) {
       return;
     }
+    // checking to see if propagation would trigger producer to consumer
+    // propagation travelling across view op. Note this is a conservative check,
+    // since view does NOT necessarily always introduce incoherent transform
+    // that would break the propagation.
     auto chain_exprs = StmtSort::getExprsBetween(from->fusion(), {from}, {to});
     if (!ir_utils::filterByType<ViewOp>(chain_exprs).empty()) {
-      p2c_via_view = true;
+      should_reject = true;
     };
   };
   void propagateSibling(TensorView* from, TensorView* to) override{};
   ~TransposeViewPropagator() override = default;
 
-  bool p2c_via_view = false;
+  bool shouldReject() {
+    return should_reject;
+  }
+
+  bool should_reject = false;
 };
 
 bool hasSmallTransposeDimensions(
@@ -658,8 +671,8 @@ std::string getTransposeRuntimeRejectReason(
     // are only tiling on the merged virtual innermost dimensions.
     MaxRootDomainInfoSpanningTree entire_dag(reference1);
     entire_dag.traverse(&propagator);
-    if (propagator.p2c_via_view) {
-      return "producer to consumer transform propagation passing view op is not yet supported";
+    if (propagator.shouldReject()) {
+      return "transpose scheduler could potentially trigger incoherent transform propagation";
     }
   }
 
@@ -1026,7 +1039,8 @@ void scheduleTranspose(Fusion* fusion, TransposeParams params) {
   std::vector<size_t> dims_group1 = params.dims_merged_with_1;
   auto inner_leaf_index1 =
       domain_map.getInnerLeafDim(reference1, inner_most_id1);
-  TORCH_INTERNAL_ASSERT(inner_leaf_index1 >= 0, "getInnerLeafDim cannot be resolved");
+  TORCH_INTERNAL_ASSERT(
+      inner_leaf_index1 >= 0, "getInnerLeafDim cannot be resolved");
   size_t inner_most_pos1_in_ref1 = static_cast<size_t>(inner_leaf_index1);
   dims_group1.insert(dims_group1.begin(), inner_most_pos1_in_ref1);
 
@@ -1035,7 +1049,8 @@ void scheduleTranspose(Fusion* fusion, TransposeParams params) {
   auto inner_leaf_index2 =
       domain_map.getInnerLeafDim(reference1, inner_most_id2);
   size_t inner_most_pos2_in_ref1 = inner_leaf_index2;
-  TORCH_INTERNAL_ASSERT(inner_leaf_index2 >= 0, "getInnerLeafDim cannot be resolved");
+  TORCH_INTERNAL_ASSERT(
+      inner_leaf_index2 >= 0, "getInnerLeafDim cannot be resolved");
   dims_group2.insert(dims_group2.begin(), inner_most_pos2_in_ref1);
 
   // merge all dimensions in group1, while updating all indices for group2
