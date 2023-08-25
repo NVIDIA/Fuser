@@ -77,6 +77,9 @@ collect_kernels() {
     testdir=$outdir/$commit/binary_tests
     benchdir=$outdir/$commit/benchmarks
     pyfrontenddir=$outdir/$commit/python_frontend_tests
+    pyopsdir=$outdir/$commit/python_ops_tests
+    pyschedopsdir=$outdir/$commit/python_shedule_ops_tests
+    torchscriptdir=$outdir/$commit/python_torchscript_tests
 
     # build in release mode so that everything runs a bit faster
     if [[ -d "$testdir/cuda" && -d "$benchdir/cuda" && -d "$pyfrontenddir/cuda" ]]
@@ -94,11 +97,21 @@ collect_kernels() {
     export NVFUSER_TEST_RANDOM_SEED=0
     # run tests and benchmarks with cuda_to_file and dump output to files
     export NVFUSER_DUMP=cuda_to_file
+    # Skip slow torchscript tests
+    export PYTORCH_TEST_WITH_SLOW=0
 
     mkdir -p "$outdir/$commit"
 
+    # python tests
+    run_command "$pyopsdir" python -m pytest python_tests/pytest_ops.py -v --color=yes
+    run_command "$pyschedopsdir" python -m pytest python_tests/test_schedule_ops.py -v --color=yes
     run_command "$pyfrontenddir" python -m pytest python_tests/test_python_frontend.py -v --color=yes
+    run_command "$torchscriptdir" python -m pytest python_tests/test_torchscript.py -v --color=yes
+
+    # binary tests
     run_command "$testdir" build/nvfuser_tests --gtest_color=yes
+
+    # benchmarks
     run_command "$benchdir" build/nvfuser_bench \
             --benchmark_repetitions=1 \
             --benchmark_min_time=0 \
