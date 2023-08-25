@@ -125,6 +125,14 @@ Val* IrBuilder::maybeCastExpr(DataType dtype, Val* val) {
   return result;
 }
 
+Val* IrBuilder::addressExpr(Val* val) {
+  TORCH_CHECK(val != nullptr, "val is a nullptr in addressExpr.");
+  auto result = newScalar(
+      DataType(PointerType{std::make_shared<DataType>(val->dtype())}));
+  IrBuilder::create<UnaryOp>(UnaryOpType::Address, result, val);
+  return result;
+}
+
 NamedScalar* IrBuilder::setExprNamedScalar(const std::string& name, Val* val) {
   TORCH_CHECK(val != nullptr, "val is a nullptr in setExprNamedScalar.");
   auto result = IrBuilder::create<NamedScalar>(name, val->dtype());
@@ -135,9 +143,9 @@ NamedScalar* IrBuilder::setExprNamedScalar(const std::string& name, Val* val) {
 NamedScalar* IrBuilder::addressExprNamedScalar(
     const std::string& name,
     Val* val) {
-  TORCH_CHECK(val != nullptr, "val is a nullptr in addressExprNamedScalar.");
+  auto ptr = addressExpr(val);
   auto result = IrBuilder::create<NamedScalar>(name, DataType::Int);
-  IrBuilder::create<UnaryOp>(UnaryOpType::Address, result, val);
+  IrBuilder::create<UnaryOp>(UnaryOpType::BitCast, result, ptr);
   return result;
 }
 
