@@ -1914,7 +1914,8 @@ float FusionExecutor::runRtc(
 
   for (const auto& input : args) {
     DataType metadata_type = globalTensorMetaData(
-        aten_to_data_type(input.scalar_type()), input.dim());
+        std::get<PrimDataType>(aten_to_data_type(input.scalar_type()).type),
+        input.dim());
 
     Struct<PolymorphicValue> concrete_value;
     concrete_value["data"] = PolymorphicValue(
