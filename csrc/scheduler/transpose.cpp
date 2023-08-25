@@ -757,7 +757,7 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
     scheduler_utils::splitDims(reference1, params->split_before_tiling);
 
     params->vectorize_factor1 =
-        vectorize_helper::getVectorizationVectorTransposeGroup(
+        vectorize_helper::getVectorizationFactorTransposeGroup(
             runtime_info,
             reference1,
             inner_most_pos1_in_ref1,
@@ -770,7 +770,7 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
     // level. We should not be using a single global vectorize factor for the
     // entire group 2
     params->vectorize_factor2 =
-        vectorize_helper::getVectorizationVectorTransposeGroup(
+        vectorize_helper::getVectorizationFactorTransposeGroup(
             runtime_info,
             reference1,
             inner_most_pos2_in_ref1,
