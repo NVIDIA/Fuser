@@ -93,6 +93,8 @@ run_test() {
     testcmd=$*
 
     mkdir -p "$testdir"
+    echo "$testcmd" > "$testdir/command.txt"
+
     $testcmd | tee "$testdir/stdout-$(date +%Y%m%d_%H%M%S).log"
     mkdir -p "$testdir/cuda"
     movecudafiles "$testdir/cuda"
