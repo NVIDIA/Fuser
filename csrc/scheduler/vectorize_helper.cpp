@@ -861,6 +861,50 @@ int64_t getVectorizationFactor(
   return max_vec_size;
 }
 
+int64_t getVectorizationFactorTransposeGroup(
+    SchedulerRuntimeInfo& runtime_info,
+    TensorView* reference,
+    size_t inner_most_dim,
+    const std::vector<size_t>& dims_to_merge,
+    const std::vector<TensorView*>& vec_tv,
+    int64_t max_vectorization) {
+  max_vectorization = scheduler_utils::maxVectorizationWidth(max_vectorization);
+  std::vector<IterDomain*> virtual_innermost_dim;
+  // find the virtual_innermost_dim in reference so we can later map
+  // that to individual TensorView in vec_tv.
+  for (const auto& dim : dims_to_merge) {
+    virtual_innermost_dim.insert(
+        virtual_innermost_dim.begin(), reference->axis(static_cast<int>(dim)));
+  }
+  virtual_innermost_dim.push_back(
+      reference->getMaybeRFactorDomain()[inner_most_dim]);
+
+  // NOTE: do I need to consider stride here?! sounds like
+  // ContiguousInnerDimensionsMapper::map requires reference to be
+  // contiguous, but does it handle stride order?
+  auto contig_inner_map =
+      vectorize_helper::ContiguousInnerDimensionsMapper::map(
+          reference, virtual_innermost_dim)
+          .getTvToContigMergeOfInnerSizeMap();
+  for (auto tv : vec_tv) {
+    auto inner_size_it = contig_inner_map.find(tv);
+    auto tv_vectorize_factor_opt = inner_size_it == contig_inner_map.end()
+        ? 1
+        : runtime_info.expressionEvaluator().evaluate(inner_size_it->second);
+    // TODO: Do not assert here. we can just reduce vectorization size to 1 if
+    // we can't infer an inner size.
+    TORCH_INTERNAL_ASSERT(
+        tv_vectorize_factor_opt.hasValue(),
+        "Vectorization heuristic could not evaluate inner most size.");
+    int64_t tv_vectorize_factor = tv_vectorize_factor_opt.as<int64_t>();
+    max_vectorization = std::min(
+        max_vectorization,
+        scheduler_utils::maxVectorizationWidth(tv_vectorize_factor));
+  }
+
+  return max_vectorization;
+}
+
 int64_t getVectorizationBreakPointOfReductionProducer(
     TensorView* reduction_consumer,
     TensorView* reduction_producer,
