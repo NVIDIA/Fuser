@@ -65,8 +65,9 @@ collect_kernels() {
         # the same earlier commit.
         return
     fi
-    python setup.py develop --cmake-only
-    ninja -j20 -C build nvfuser_tests nvfuser_bench
+
+    # Build in Release mode
+    python setup.py develop
 
     # Make tests reproducible
     export NVFUSER_TEST_RANDOM_SEED=0
