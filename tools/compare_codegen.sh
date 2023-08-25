@@ -2,6 +2,28 @@
 # SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION & AFFILIATES.
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
+#
+# compare_codegen.sh - compare generated CUDA kernels between git commits
+#
+# This script is made to compare generated kernels when making changes to
+# codegen. Invoking it without any arguments while checkout origin/main, as
+# well as this commit. For each, it will build the project in release mode then
+# invoke all tests and benchmarks, saving the generated cuda kernels to files.
+# It will then diff these files and report which ones changed. The exit code is
+# the number of cuda kernels that differ between commits.
+#
+# The -r option controls the git ref to compare against. The -o option is the
+# name of the output directory.
+#
+# If the -- option is given, then instead of running all benchmarks and tests,
+# we will use the rest of the command line as the test to run. For example, to
+# compare the generated code for a single binary test, you could use:
+#
+#   tools/compare_codegen.sh -- build/nvfuser_tests --gtest_filter='*TestFoo*'
+#
+# In that case, the outputs will be placed in a subdirectory of the output
+# directory for each commit labelled "custom_command_$LAUNCHTIME" where
+# $LAUNCHTIME is a string representing the time this script was launched.
 
 set -e
 set -o pipefail
