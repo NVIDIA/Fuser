@@ -861,7 +861,7 @@ int64_t getVectorizationFactor(
   return max_vec_size;
 }
 
-int64_t getVectorizationVectorTransposeGroup(
+int64_t getVectorizationFactorTransposeGroup(
     SchedulerRuntimeInfo& runtime_info,
     TensorView* reference,
     size_t inner_most_dim,

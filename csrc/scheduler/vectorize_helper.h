@@ -314,7 +314,7 @@ int64_t getVectorizationFactor(
     HeuristicSummary* data_cache,
     int64_t break_point);
 
-int64_t getVectorizationVectorTransposeGroup(
+int64_t getVectorizationFactorTransposeGroup(
     SchedulerRuntimeInfo& runtime_info,
     TensorView* reference,
     size_t inner_most_dim,
