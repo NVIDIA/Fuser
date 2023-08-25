@@ -262,13 +262,16 @@ TEST_F(SmemReuseTest, PromoteReuse) {
 }
 
 // In this example, we promote a single tensor for re-use in a Fusion with two
-// downstream tensors that could use its memory. The first downstream tensor is
-// not re-used since it is not promoted.
+// downstream tensors that could use its memory.
 TEST_F(SmemReuseTest, PromoteReuseMultipleDownstream) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
   int64_t H = 7;
+
+  // The outer live intervals of tv0, tv2, and tv4 will be non-overlapping, but
+  // adjacent. tv0->promoteReuse() should be able to insert a sync before tv2,
+  // so that tv4 re-uses the memory from tv0, then tv2 is stacked above tv4.
 
   auto tv0 =
       full({IrBuilder::create<Val>(H)}, fusion->oneVal(), DataType::Float);
@@ -322,7 +325,7 @@ TEST_F(SmemReuseTest, PromoteReuseMultipleDownstream) {
           dataTypeSize(alloc->buffer()->dtype());
       smem_usage = std::max(smem_usage, addr + size);
     }
-    EXPECT_EQ(smem_usage, alignInt((H + 1) * 4) + (H + 2) * 4);
+    EXPECT_EQ(smem_usage, alignInt((H + 2) * 4) + (H + 1) * 4);
   }
 }
 
