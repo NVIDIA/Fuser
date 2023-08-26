@@ -430,9 +430,7 @@ struct DynamicType {
         using T = typename decltype(t)::type;                                  \
         using MemberPtr = Ret Class::*;                                        \
         if constexpr (opcheck<T>->*opcheck<MemberPtr>) {                       \
-          return std::is_same_v<                                               \
-              decltype(std::declval<__const T>()->*std::declval<MemberPtr>()), \
-              __const Ret&>;                                                   \
+          return true;                                                   \
         }                                                                      \
         return false;                                                          \
       },                                                                       \

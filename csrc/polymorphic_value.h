@@ -236,8 +236,50 @@ inline std::ostream& operator<<(std::ostream& os, const Pointer& ptr) {
   return os;
 }
 
+struct Struct;
+struct Accessor;
+struct StructType;
+
+class StructHolder {
+  std::shared_ptr<Struct> struct_ptr_;
+
+ public:
+  StructHolder(std::shared_ptr<Struct> struct_ptr)
+      : struct_ptr_(std::move(struct_ptr)) {}
+  StructHolder& operator=(std::shared_ptr<Struct> struct_ptr) {
+    struct_ptr_ = std::move(struct_ptr);
+    return *this;
+  }
+
+  StructHolder(const StructHolder& other) = default;
+  StructHolder(StructHolder&& other) = default;
+  StructHolder& operator=(const StructHolder& other) = default;
+  StructHolder& operator=(StructHolder&& other) = default;
+
+  template <typename T>
+  bool is() const {
+    return std::dynamic_pointer_cast<T>(struct_ptr_) != nullptr;
+  }
+
+  template <typename T>
+  inline T& as() const {
+    return *std::dynamic_pointer_cast<T>(struct_ptr_);
+  }
+
+  inline StructType type() const;
+
+  template <typename Ret, typename Class>
+  inline std::enable_if_t<std::is_base_of_v<Struct, Class>, Ret&> operator->*(
+      Ret Class::*member) const {
+    return as<Class>().*member;
+  }
+
+  inline Accessor operator->*(const std::string& key) const;
+};
+
 using PolymorphicValue = DynamicType<
     Containers<std::vector, LegacyStruct>,
+    StructHolder,
     Pointer,
     Opaque,
     at::Tensor,
@@ -375,3 +417,5 @@ inline PolymorphicValue toTensor(
 } // namespace PolymorphicValue_functions
 
 } // namespace nvfuser
+
+#include <struct.inl>
