@@ -24,21 +24,21 @@
 namespace nvfuser {
 
 template <typename T>
-struct Struct {
+struct LegacyStruct {
   // Using std::unordered_map<std::string, T> is more convenient and
   // straightforward, but this is not guaranteed to work by C++ standard.
   // See [Incomplete type support in STL]
 #if defined(STD_UNORDERED_SET_SUPPORTS_INCOMPLETE_TYPE)
 
   std::unordered_map<std::string, T> fields;
-  Struct(std::initializer_list<std::pair<const std::string, T>> init)
+  LegacyStruct(std::initializer_list<std::pair<const std::string, T>> init)
       : fields(init) {}
 #define NVFUSER_MAYBE_STAR
 
 #else
 
   std::unordered_map<std::string, std::shared_ptr<T>> fields;
-  Struct(std::initializer_list<std::pair<const std::string, T>> init) {
+  LegacyStruct(std::initializer_list<std::pair<const std::string, T>> init) {
     for (const auto& [key, value] : init) {
       fields[key] = std::make_shared<T>(value);
     }
@@ -47,11 +47,11 @@ struct Struct {
 
 #endif
 
-  Struct() = default;
-  Struct(const Struct& other) = default;
-  Struct(Struct&& other) = default;
-  Struct& operator=(const Struct& other) = default;
-  Struct& operator=(Struct&& other) = default;
+  LegacyStruct() = default;
+  LegacyStruct(const LegacyStruct& other) = default;
+  LegacyStruct(LegacyStruct&& other) = default;
+  LegacyStruct& operator=(const LegacyStruct& other) = default;
+  LegacyStruct& operator=(LegacyStruct&& other) = default;
 
   const T& operator[](const std::string& key) const {
     return NVFUSER_MAYBE_STAR fields.at(key);
@@ -68,7 +68,7 @@ struct Struct {
 #endif
   }
 
-  bool operator==(const Struct& other) const {
+  bool operator==(const LegacyStruct& other) const {
     if (this == &other) {
       return true;
     }
@@ -88,7 +88,7 @@ struct Struct {
 };
 
 template <typename T>
-inline std::ostream& operator<<(std::ostream& os, const Struct<T>& s) {
+inline std::ostream& operator<<(std::ostream& os, const LegacyStruct<T>& s) {
   os << "struct { ";
   bool first = true;
   for (const auto& [key, value] : s.fields) {
@@ -237,7 +237,7 @@ inline std::ostream& operator<<(std::ostream& os, const Pointer& ptr) {
 }
 
 using PolymorphicValue = DynamicType<
-    Containers<std::vector, Struct>,
+    Containers<std::vector, LegacyStruct>,
     Pointer,
     Opaque,
     at::Tensor,

@@ -396,7 +396,7 @@ inline DataType getDataType(const PolymorphicValue& value) {
         dtype =
             ArrayType{std::make_shared<DataType>(getDataType(vec[0])), size};
       }
-    } else if constexpr (std::is_same_v<T, Struct<PolymorphicValue>>) {
+    } else if constexpr (std::is_same_v<T, LegacyStruct<PolymorphicValue>>) {
       if (value.is<T>()) {
         const auto& struct_ = value.as<T>();
         std::vector<StructType::FieldInfo> fields_info;

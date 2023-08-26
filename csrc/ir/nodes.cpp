@@ -835,7 +835,7 @@ std::vector<PolymorphicValue> StructConstruct::evaluate(
       "StructConstruct expects ",
       this->inputs().size(),
       " inputs");
-  Struct<PolymorphicValue> result;
+  LegacyStruct<PolymorphicValue> result;
   for (int64_t i : c10::irange((int64_t)inputs.size())) {
     result[attribute<std::string>(i)] = inputs.at(i);
   }
