@@ -179,11 +179,12 @@ std::vector<std::byte> polymorphicValueToBytes(
     auto dtype_ = std::get<StructType>(dtype.type);
     auto struct_ = argument.as<Struct>();
     std::vector<std::byte> buffer;
-    for (const auto& field : dtype_.field_names) {
-      auto field_data = polymorphicValueToBytes(
-          struct_[field],
-          NVFUSER_MAYBE_STAR dtype_.types.at(field),
-          index_type);
+    for (const auto& field : dtype_.fields) {
+      if (!field.used_in_kernel) {
+        continue;
+      }
+      auto field_data =
+          polymorphicValueToBytes(struct_[field.name], *field.type, index_type);
       buffer.insert(buffer.end(), field_data.begin(), field_data.end());
     }
     return buffer;

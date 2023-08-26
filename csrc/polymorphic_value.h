@@ -33,7 +33,7 @@ struct Struct {
   std::unordered_map<std::string, T> fields;
   Struct(std::initializer_list<std::pair<const std::string, T>> init)
       : fields(init) {}
-#define MAYBE_STAR
+#define NVFUSER_MAYBE_STAR
 
 #else
 
@@ -43,7 +43,7 @@ struct Struct {
       fields[key] = std::make_shared<T>(value);
     }
   }
-#define MAYBE_STAR *
+#define NVFUSER_MAYBE_STAR *
 
 #endif
 
@@ -54,7 +54,7 @@ struct Struct {
   Struct& operator=(Struct&& other) = default;
 
   const T& operator[](const std::string& key) const {
-    return MAYBE_STAR fields.at(key);
+    return NVFUSER_MAYBE_STAR fields.at(key);
   }
 
   T& operator[](const std::string& key) {
@@ -95,14 +95,12 @@ inline std::ostream& operator<<(std::ostream& os, const Struct<T>& s) {
     if (!first) {
       os << ", ";
     }
-    os << key << " = " << MAYBE_STAR value;
+    os << key << " = " << NVFUSER_MAYBE_STAR value;
     first = false;
   }
   os << "}";
   return os;
 }
-
-#undef MAYBE_STAR
 
 struct DataType;
 

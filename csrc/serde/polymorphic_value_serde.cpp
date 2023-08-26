@@ -120,6 +120,9 @@ flatbuffers::Offset<serde::PolymorphicValue> serializePolymorphicValue(
       !v->is<nvfuser::Struct>(),
       "Serialization of arbitrary struct is not implemented.");
   TORCH_INTERNAL_ASSERT(
+      !v->is<nvfuser::Opaque>(),
+      "Serialization of arbitrary opaque value is not implemented.");
+  TORCH_INTERNAL_ASSERT(
       !v->is<nvfuser::Pointer>(), "Serialization of pointer is not allowed.");
   TORCH_INTERNAL_ASSERT(
       !v->is<std::vector>(), "Serialization of vector is not implemented.");
