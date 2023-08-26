@@ -109,12 +109,12 @@ TEST_F(PolymorphicValueTest, Struct) {
     PolymorphicValue b = type.creator();
     b->*"x" = 2788;
     b->*"y" = 2.71828;
-    EXPECT_EQ((b->*"x").operator PolymorphicValue(), 2788);
-    EXPECT_EQ((b->*"y").operator PolymorphicValue(), 2.71828);
+    EXPECT_EQ((PolymorphicValue)(b->*"x"), 2788);
+    EXPECT_EQ((PolymorphicValue)(b->*"y"), 2.71828);
     b->*"x" = 299792458;
     b->*"y" = 3.1415926;
-    EXPECT_EQ((b->*"x").operator PolymorphicValue(), 299792458);
-    EXPECT_EQ((b->*"y").operator PolymorphicValue(), 3.1415926);
+    EXPECT_EQ((PolymorphicValue)(b->*"x"), 299792458);
+    EXPECT_EQ((PolymorphicValue)(b->*"y"), 3.1415926);
 
     // EXPECT_EQ(type, (b->*&StructHolder::type)());
     EXPECT_EQ(type, b.as<StructHolder>().type());
