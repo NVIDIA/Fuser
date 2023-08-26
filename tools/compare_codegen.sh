@@ -6,22 +6,29 @@
 # compare_codegen.sh - compare generated CUDA kernels between git commits
 #
 # This script is made to compare generated kernels when making changes to
-# codegen. Invoking it without any arguments while checkout origin/main, as
-# well as this commit. For each, it will build the project in release mode then
-# invoke all tests and benchmarks, saving the generated cuda kernels to files.
-# It will then diff these files and report which ones changed. The exit code is
-# the number of cuda kernels that differ between commits.
+# codegen. Invoking it without any arguments will checkout origin/main, as well
+# as this commit. For each, it will build the project in release mode then
+# invoke all binary and python tests, saving the generated cuda kernels to .cu
+# files. It will then diff these files and report which ones changed. The exit
+# code is the number of cuda kernels that differ between commits.
 #
-# The -r option controls the git ref to compare against. The -o option is the
-# name of the output directory.
+# The -r option controls the git ref to compare against. The -o option lets you
+# specify the output directory.
 #
-# If the -- option is given, then instead of running all benchmarks and tests,
-# we will use the rest of the command line as the test to run. For example, to
-# compare the generated code for a single binary test, you could use:
+# If the -- option is given then instead of running all tests, we will use the
+# rest of the command line as the test to run. For example, to compare the
+# generated code for a single binary test, you could use:
 #
 #   tools/compare_codegen.sh -- build/nvfuser_tests --gtest_filter='*TestFoo*'
 #
-# In that case, the outputs will be placed in a subdirectory of the output
+# or to run all benchmarks you can use:
+#
+#   tools/compare_codegen.sh -- build/nvfuser_bench \
+#       --benchmark_filter=NvFuserScheduler \
+#       --benchmark_repetitions=1 \
+#       --benchmark_min_time=0
+#
+# In those cases, the outputs will be placed in a subdirectory of the output
 # directory for each commit labelled "custom_command_$LAUNCHTIME" where
 # $LAUNCHTIME is a string representing the time this script was launched.
 
@@ -30,8 +37,8 @@ set -o pipefail
 
 usage() {
   echo "Usage: $0 [-h] [-r origin/main] [-o codegen_comparison] [-- custom command to run]"
-  echo -n "If given, custom command should only run a single executable. "
-  echo "If multiple executables are run, kernels may be overwritten."
+  echo -n "If given, the custom command should only run a single executable. "
+  echo "If multiple executables are run, kernel files may be overwritten."
 }
 
 # top-level directory of nvfuser repo
@@ -140,7 +147,6 @@ collect_kernels() {
     customcmddir=$outdir/$commit/custom_command_$launchtime
 
     binarytestdir=$outdir/$commit/binary_tests
-    benchdir=$outdir/$commit/benchmarks
     pyfrontenddir=$outdir/$commit/python_frontend_tests
     pyopsdir=$outdir/$commit/python_ops_tests
     pyschedopsdir=$outdir/$commit/python_shedule_ops_tests
@@ -156,8 +162,9 @@ collect_kernels() {
           return
       fi
     else
-      if [[ -d "$binarytestdir/cuda" && -d "$benchdir/cuda" && -d "$pyfrontenddir/cuda" &&
-          -d "$pyopsdir/cuda" && -d "$pyschedopsdir/cuda" && -d "$torchscriptdir/cuda" ]]
+      if [[ -d "$binarytestdir/cuda" && -d "$pyfrontenddir/cuda" &&
+          -d "$pyopsdir/cuda" && -d "$pyschedopsdir/cuda" &&
+          -d "$torchscriptdir/cuda" ]]
       then
           return
       fi
