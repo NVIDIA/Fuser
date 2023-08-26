@@ -501,21 +501,16 @@ struct DynamicType {
   template <typename MemberT>                                                   \
   constexpr std::enable_if_t<                                                   \
       !std::is_member_pointer_v<MemberT> &&                                     \
-          all_arrow_star_ret_types_are_same##__const<MemberT> &&                \
-          std::is_same_v<                                                       \
-              __const std::remove_cvref_t<                                      \
-                  typename ArrowStarRetType##__const<MemberT>::type>&,          \
-              typename ArrowStarRetType##__const<MemberT>::type>,               \
+          all_arrow_star_ret_types_are_same##__const<MemberT>,                  \
       typename ArrowStarRetType##__const<MemberT>::type>                        \
   operator->*(const MemberT& member) __const {                                  \
-    using RetT = std::remove_cvref_t<                                           \
-        typename ArrowStarRetType##__const<MemberT>::type>;                     \
-    std::optional<__const RetT*> ret;                                           \
+    using RetT = typename ArrowStarRetType##__const<MemberT>::type;             \
+    std::optional<wrap_reference_t<RetT>> ret = std::nullopt;                   \
     for_all_types([this, &member, &ret](auto t) {                               \
       using T = typename decltype(t)::type;                                     \
       if constexpr (opcheck<T>->*opcheck<MemberT>) {                            \
         if (is<T>()) {                                                          \
-          ret = &(as<T>()->*member);                                            \
+          ret = as<T>()->*member;                                               \
         }                                                                       \
       }                                                                         \
     });                                                                         \
@@ -524,7 +519,7 @@ struct DynamicType {
         "Cannot access member with type ",                                      \
         typeid(RetT).name(),                                                    \
         " : incompatible type");                                                \
-    return *ret.value();                                                        \
+    return ret.value();                                                         \
   }
 
   DEFINE_ARROW_STAR_OPERATOR()

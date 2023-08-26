@@ -647,3 +647,30 @@ static_assert(std::is_same_v<first_or_void<std::tuple<>>::type, void>);
 static_assert(std::is_same_v<first_or_void<int>::type, void>);
 
 } // namespace nvfuser
+
+namespace nvfuser {
+
+// If T is not a reference, then return T, otherwise the wrapped reference type.
+
+template <typename T>
+struct wrap_reference {
+  using type = T;
+};
+
+template <typename T>
+struct wrap_reference<T&> {
+  using type = std::reference_wrapper<T>;
+};
+
+template <typename T>
+using wrap_reference_t = typename wrap_reference<T>::type;
+
+// For example:
+static_assert(std::is_same_v<wrap_reference<int>::type, int>);
+static_assert(
+    std::is_same_v<wrap_reference<int&>::type, std::reference_wrapper<int>>);
+static_assert(std::is_same_v<
+              wrap_reference<const int&>::type,
+              std::reference_wrapper<const int>>);
+
+} // namespace nvfuser
