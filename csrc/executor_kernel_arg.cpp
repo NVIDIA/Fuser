@@ -119,14 +119,14 @@ void KernelArgumentHolder::pushTensorProxy(
     const std::vector<int64_t>& strides,
     at::ScalarType dtype) {
   TORCH_INTERNAL_ASSERT(strides.size() == sizes.size());
-  auto meta_tensor = at::detail::empty_strided_meta(
+  at::Tensor meta_tensor = at::detail::empty_strided_meta(
       sizes,
       strides,
       dtype,
       c10::nullopt,
       c10::Device(c10::DeviceType::Meta, 0),
       c10::nullopt);
-  push(meta_tensor);
+  push(std::move(meta_tensor));
 }
 
 flatbuffers::Offset<serde::KernelArgumentHolder> KernelArgumentHolder::
