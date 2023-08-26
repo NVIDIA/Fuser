@@ -242,7 +242,7 @@ Val* IrBuilder::getItemExpr(Val* array, PolymorphicValue index) {
 
 Val* IrBuilder::getAttrExpr(Val* struct_, std::string attr) {
   auto struct_type = std::get<StructType>(struct_->dtype().type);
-  auto item_type = struct_type.fieldDataType(attr);
+  const auto& item_type = struct_type.fieldDataType(attr);
   auto out = newScalar(item_type);
   create<GetAttr>(struct_->container(), out, struct_, std::move(attr));
   return out;
@@ -262,6 +262,7 @@ Val* IrBuilder::structExpr(
     const std::vector<std::pair<std::string, Val*>>& fields,
     std::string name) {
   std::vector<StructType::FieldInfo> field_infos;
+  field_infos.reserve(fields.size());
   for (auto& field : fields) {
     field_infos.emplace_back(StructType::FieldInfo{
         field.first, std::make_shared<DataType>(field.second->dtype()), true});

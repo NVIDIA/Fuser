@@ -1241,16 +1241,26 @@ struct F {
 
 struct G : public F {};
 
-TEST_F(DynamicTypeTest, NonMemberPointerArrowStar) {
+TEST_F(DynamicTypeTest, NonMemberPointerArrowStarRef) {
   using EFG = DynamicType<NoContainers, E, F, G>;
 
   constexpr EFG f = F{1, 2};
+#if __cplusplus >= 202002L
   static_assert(f->*"x" == 1);
   static_assert(f->*"y" == 2);
+#else
+  EXPECT_EQ(f->*"x", 1);
+  EXPECT_EQ(f->*"y", 2);
+#endif
 
   constexpr EFG g = G{3, 4};
+#if __cplusplus >= 202002L
   static_assert(g->*"x" == 3);
   static_assert(g->*"y" == 4);
+#else
+  EXPECT_EQ(g->*"x", 3);
+  EXPECT_EQ(g->*"y", 4);
+#endif
 
   static_assert(opcheck<EFG>->*opcheck<std::string_view>);
   static_assert(!(opcheck<EFG>->*opcheck<int>));
@@ -1262,6 +1272,82 @@ TEST_F(DynamicTypeTest, NonMemberPointerArrowStar) {
   ff->*"y" = 314159;
   EXPECT_EQ(ff->*"x", 299792458);
   EXPECT_EQ(ff->*"y", 314159);
+}
+
+class ConstAccessor {
+  std::function<int()> getter_;
+
+ public:
+  ConstAccessor(std::function<int()> getter) : getter_(getter) {}
+
+  operator int() const {
+    return getter_();
+  }
+};
+
+class Accessor {
+  std::function<int()> getter_;
+  std::function<void(int)> setter_;
+
+ public:
+  Accessor(std::function<int()> getter, std::function<void(int)> setter)
+      : getter_(getter), setter_(setter) {}
+
+  const Accessor& operator=(int value) const {
+    setter_(value);
+    return *this;
+  }
+  operator int() const {
+    return getter_();
+  }
+};
+
+struct H {
+  int x;
+  int y;
+  ConstAccessor operator->*(std::string_view member) const {
+    if (member == "x") {
+      return ConstAccessor{[this]() { return x; }};
+    } else if (member == "y") {
+      return ConstAccessor{[this]() { return y; }};
+    } else {
+      throw std::runtime_error("invalid member");
+    }
+  }
+  Accessor operator->*(std::string_view member) {
+    if (member == "x") {
+      return Accessor{[this]() { return x; }, [this](int value) { x = value; }};
+    } else if (member == "y") {
+      return Accessor{[this]() { return y; }, [this](int value) { y = value; }};
+    } else {
+      throw std::runtime_error("invalid member");
+    }
+  }
+};
+
+struct I : public H {};
+
+TEST_F(DynamicTypeTest, NonMemberPointerArrowStaAccessor) {
+  using EHI = DynamicType<NoContainers, E, H, I>;
+
+  EHI h = H{1, 2};
+  EXPECT_EQ(h->*"x", 1);
+  EXPECT_EQ(h->*"y", 2);
+
+  EHI i = I{3, 4};
+  EXPECT_EQ(i->*"x", 3);
+  EXPECT_EQ(i->*"y", 4);
+
+  static_assert(opcheck<EHI>->*opcheck<std::string_view>);
+  static_assert(!(opcheck<EHI>->*opcheck<int>));
+
+  EHI hh = h;
+  EXPECT_EQ(hh->*"x", 1);
+  EXPECT_EQ(hh->*"y", 2);
+  hh->*"x" = 299792458;
+  hh->*"y" = 314159;
+  EXPECT_EQ(hh->*"x", 299792458);
+  EXPECT_EQ(hh->*"y", 314159);
 }
 
 } // namespace member_pointer_test

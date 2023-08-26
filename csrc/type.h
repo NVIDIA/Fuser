@@ -105,7 +105,7 @@ struct PointerType {
 };
 
 struct StructType {
-  std::string display_name;
+  std::string name;
 
   struct FieldInfo {
     std::string name;
@@ -115,11 +115,8 @@ struct StructType {
 
   std::vector<FieldInfo> fields;
 
-  static StructType make(
-      std::vector<FieldInfo> fields,
-      std::string display_name = "") {
-    return StructType{
-        .display_name = std::move(display_name), .fields = std::move(fields)};
+  static StructType make(std::vector<FieldInfo> fields, std::string name = "") {
+    return StructType{.name = std::move(name), .fields = std::move(fields)};
   }
 
   inline const DataType& fieldDataType(const std::string& name) const {
@@ -129,23 +126,21 @@ struct StructType {
       }
     }
     TORCH_INTERNAL_ASSERT(
-        false, "Field ", name, " not found in struct ", display_name);
+        false, "Field ", name, " not found in struct ", this->name);
   }
 
   inline bool operator==(const StructType& other) const;
 };
 
 struct OpaqueType {
-  std::string display_name;
+  std::string name;
   std::reference_wrapper<const std::type_info> type_info;
   size_t size;
 
   template <typename T>
-  static OpaqueType make(std::string display_name = "") {
+  static OpaqueType make(std::string name = "") {
     return OpaqueType{
-        .display_name = std::move(display_name),
-        .type_info = typeid(T),
-        .size = sizeof(T)};
+        .name = std::move(name), .type_info = typeid(T), .size = sizeof(T)};
   }
 
   inline bool operator==(const OpaqueType& other) const {
