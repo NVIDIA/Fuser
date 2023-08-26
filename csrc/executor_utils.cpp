@@ -407,53 +407,124 @@ void validateAlignedVectorizeExtents(
   //     info.word_size);
 }
 
+namespace {
+
+// Return offsets of the first points accessed as well as sliced root
+// domains. Currently only non-zero when tensor is sliced.
+std::pair<std::unordered_set<size_t>, std::unordered_set<IterDomain*>>
+getTensorOffsets(
+    TensorView* tv,
+    const std::vector<int64_t>& logical_strides,
+    ExpressionEvaluator& eval) {
+  if (!tv->isFusionInput()) {
+    return {{0}, {}};
+  }
+
+  std::unordered_set<size_t> offsets;
+  std::unordered_set<IterDomain*> sliced_domains;
+
+  const auto root_ids = TensorDomain::noReductions(tv->getMaybeRFactorDomain());
+
+  for (auto use : tv->uses()) {
+    auto slice = dynamic_cast<SliceOp*>(use);
+
+    if (slice == nullptr) {
+      offsets.insert(0);
+      continue;
+    }
+
+    TORCH_INTERNAL_ASSERT(logical_strides.size() == root_ids.size());
+    const auto slice_info = slice->getRanges();
+
+    size_t offset = 0;
+    for (const auto i : c10::irange(root_ids.size())) {
+      auto slice_start_eval = eval.evaluate(slice_info.at(i).start);
+      TORCH_INTERNAL_ASSERT(slice_start_eval.hasValue());
+      auto slice_stop_eval = eval.evaluate(slice_info.at(i).stop);
+      TORCH_INTERNAL_ASSERT(slice_stop_eval.hasValue());
+      auto extent_eval =
+          eval.evaluate(root_ids.at(i)->getMaybeExpandedExtent());
+      TORCH_INTERNAL_ASSERT(extent_eval.hasValue());
+
+      offset += static_cast<size_t>(
+          slice_start_eval.as<int64_t>() * logical_strides.at(i));
+
+      // Keep track of the root domain unless this slice is
+      // effectively no-op
+      if (slice_start_eval.as<int64_t>() != 0 ||
+          slice_stop_eval.as<int64_t>() != extent_eval.as<int64_t>()) {
+        sliced_domains.insert(root_ids.at(i));
+      }
+    }
+
+    offsets.insert(offset);
+  }
+
+  return std::make_pair(offsets, sliced_domains);
+}
+
+} // namespace
+
 void validateAlignedVectorizedFusionInputOutput(
     const at::Tensor& aten_tensor,
     int word_size,
     TensorView* tv,
-    ExpressionEvaluator eval) {
+    ExpressionEvaluator& eval) {
   eval.bind(tv, aten_tensor);
-  auto metadata = eval.evaluate(IrBuilder::metadataExpr(tv));
+  const auto& metadata = eval.evaluate(IrBuilder::metadataExpr(tv));
+
+  const auto [offsets, sliced_domains] = getTensorOffsets(
+      tv, std::vector<int64_t>(metadata["logical_stride"]), eval);
+  const bool is_sliced = !sliced_domains.empty();
+
+  const auto& domain_to_validate =
+      is_sliced ? tv->getMaybeRFactorDomain() : tv->getMaybeAllocationDomain();
 
   std::vector<int64_t> no_reduction_to_full;
-  for (int64_t i :
-       c10::irange((int64_t)tv->getMaybeAllocationDomain().size())) {
-    auto alloc_id = tv->getMaybeAllocationDomain().at(i);
+  for (int64_t i : c10::irange((int64_t)domain_to_validate.size())) {
+    auto alloc_id = domain_to_validate.at(i);
     if (!alloc_id->isReduction()) {
       no_reduction_to_full.emplace_back(i);
     }
   }
 
-  auto sizes = std::vector<int64_t>(metadata["alloc_size"]);
-  auto strides = std::vector<int64_t>(metadata["alloc_stride"]);
+  const auto& sizes = is_sliced ? metadata["logical_size"].as<std::vector>()
+                                : metadata["alloc_size"].as<std::vector>();
+  const auto& strides = is_sliced ? metadata["logical_stride"].as<std::vector>()
+                                  : metadata["alloc_stride"].as<std::vector>();
   TORCH_INTERNAL_ASSERT(sizes.size() == no_reduction_to_full.size());
   TORCH_INTERNAL_ASSERT(strides.size() == no_reduction_to_full.size());
 
-  TORCH_INTERNAL_ASSERT(
-      reinterpret_cast<size_t>(aten_tensor.data_ptr()) %
-              (word_size * aten_tensor.dtype().itemsize()) ==
-          0,
-      "Vectorization of ",
-      tv->toString(),
-      " not possible as the memory address is not aligned. ",
-      "Address: ",
-      aten_tensor.data_ptr(),
-      ", vector word size: ",
-      word_size,
-      ", data type: ",
-      aten_tensor.dtype());
+  for (auto offset : offsets) {
+    TORCH_INTERNAL_ASSERT(
+        (reinterpret_cast<size_t>(aten_tensor.data_ptr()) +
+         offset * aten_tensor.dtype().itemsize()) %
+                (word_size * aten_tensor.dtype().itemsize()) ==
+            0,
+        "Vectorization of ",
+        tv->toString(),
+        " not possible as the memory address is not aligned. ",
+        "Address: ",
+        aten_tensor.data_ptr(),
+        ", offset: ",
+        offset,
+        ", vector word size: ",
+        word_size,
+        ", data type: ",
+        aten_tensor.dtype());
+  }
 
   // Traverse strides from the right-most domains. The rightmost
   // domain must have stride 1.
   int64_t cur_contig_stride = 1;
   bool still_rightmost = true;
+  bool non_contig_due_to_slice = false;
   for (int64_t i = (int64_t)sizes.size() - 1; i >= 0; --i) {
-    const auto size = sizes.at(i);
-    const auto stride = strides.at(i);
-    auto alloc_id =
-        tv->getMaybeAllocationDomain().at(no_reduction_to_full.at(i));
+    const auto size = sizes.at(i).as<int64_t>();
+    const auto stride = strides.at(i).as<int64_t>();
+    auto id = domain_to_validate.at(no_reduction_to_full.at(i));
     const auto is_expanded_broadcasting =
-        alloc_id->isBroadcast() && alloc_id->hasExpandedExtent();
+        id->isBroadcast() && id->hasExpandedExtent();
 
     if (is_expanded_broadcasting) {
       TORCH_INTERNAL_ASSERT(
@@ -466,8 +537,12 @@ void validateAlignedVectorizedFusionInputOutput(
     // If this domain is contiguous or size == 1, then not necessary to check
     // the stride. Otherwise, stride must be 1 if it's rightmost or
     // divisible by word_size
+
+    bool is_contiguous =
+        stride == cur_contig_stride && !non_contig_due_to_slice;
+
     TORCH_INTERNAL_ASSERT(
-        stride == cur_contig_stride || size == 1 || is_expanded_broadcasting ||
+        is_contiguous || size == 1 || is_expanded_broadcasting ||
             (still_rightmost && stride == 1) ||
             (!still_rightmost && stride % word_size == 0),
         "Vectorization of ",
@@ -479,16 +554,23 @@ void validateAlignedVectorizedFusionInputOutput(
         tv->axis(i)->toString(),
         ", stride: ",
         stride,
-        ", cur_contig_stride ",
-        cur_contig_stride);
+        ", cur_contig_stride: ",
+        cur_contig_stride,
+        ", non contig due to slice: ",
+        non_contig_due_to_slice);
     // If the domain is size-1, the next domain is still considered
     // rightmost.
     still_rightmost =
         still_rightmost && (size == 1 || is_expanded_broadcasting);
     // We do not update cur_contig_stride for size==1 dimensions,
-    // since we have specialized vectorization stride check for them
-    if (size != 1) {
+    // since we have specialized vectorization stride check for
+    // them. Same for non_contig_due_to_slice.
+    if (size != 1 && !is_expanded_broadcasting) {
       cur_contig_stride = stride * size;
+      // Note that when a domain is sliced, the next outer domain is
+      // no longer contiguous.
+      non_contig_due_to_slice = sliced_domains.count(
+          domain_to_validate.at(no_reduction_to_full.at(i)));
     }
   }
 }

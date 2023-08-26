@@ -67,7 +67,6 @@ std::vector<VALTYPE*> makeSortedEvaluationList(std::vector<VALTYPE*> input) {
       }
     }
   }
-
   return sorted;
 }
 
@@ -127,9 +126,9 @@ void bindDomain(
 void bind(std::vector<Val*>& all_values, nvfuser::TensorView* tv) {
   bindRootDomain(all_values, tv->getRootDomain());
   // disabled to pass python frontend tests
-  bindDomain(all_values, tv->getRFactorDomain());
-  bindDomain(all_values, tv->getAllocationDomain());
-  bindDomain(all_values, tv->getLeafDomain());
+  // bindDomain(all_values, tv->getRFactorDomain());
+  // bindDomain(all_values, tv->getAllocationDomain());
+  // bindDomain(all_values, tv->getLeafDomain());
 }
 
 } // namespace

@@ -189,7 +189,7 @@ class TORCH_CUDA_CU_API ContiguousInnerDimensionsMapper
  private:
   ContiguousInnerDimensionsMapper(
       TensorView* reference,
-      const std::vector<IterDomain*>& reference_ids,
+      const std::vector<IterDomain*>& ids,
       std::shared_ptr<const ComputeAtMap> ca_map,
       const std::unordered_set<Split*>& divisible_splits);
 
@@ -313,6 +313,14 @@ int64_t getVectorizationFactor(
     TensorView* reference_tv,
     HeuristicSummary* data_cache,
     int64_t break_point);
+
+int64_t getVectorizationFactorTransposeGroup(
+    SchedulerRuntimeInfo& runtime_info,
+    TensorView* reference,
+    size_t inner_most_dim,
+    const std::vector<size_t>& dims_to_merge,
+    const std::vector<TensorView*>& vec_tv,
+    int64_t max_vectorization);
 
 //! Find the break point for vectorization. Here, we vectorize either
 //! the innermost reduction or iteration domains. We use the producer

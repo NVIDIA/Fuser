@@ -110,12 +110,20 @@ void Expr::dispatch(T handler, Expr* expr) {
     ptr(handler)->handle(expr->as<ArrayConstruct>());
     return;
   }
+  if (expr->isStrictlyA<StructConstruct>()) {
+    ptr(handler)->handle(expr->as<StructConstruct>());
+    return;
+  }
   if (expr->isStrictlyA<GetAttr>()) {
     ptr(handler)->handle(expr->as<GetAttr>());
     return;
   }
   if (expr->isStrictlyA<GetItem>()) {
     ptr(handler)->handle(expr->as<GetItem>());
+    return;
+  }
+  if (expr->isStrictlyA<ReverseArray>()) {
+    ptr(handler)->handle(expr->as<ReverseArray>());
     return;
   }
   if (expr->isStrictlyA<GetMetaData>()) {
@@ -382,12 +390,20 @@ void Expr::constDispatch(T handler, const Expr* expr) {
     ptr(handler)->handle(expr->as<ArrayConstruct>());
     return;
   }
+  if (expr->isStrictlyA<StructConstruct>()) {
+    ptr(handler)->handle(expr->as<StructConstruct>());
+    return;
+  }
   if (expr->isStrictlyA<GetAttr>()) {
     ptr(handler)->handle(expr->as<GetAttr>());
     return;
   }
   if (expr->isStrictlyA<GetItem>()) {
     ptr(handler)->handle(expr->as<GetItem>());
+    return;
+  }
+  if (expr->isStrictlyA<ReverseArray>()) {
+    ptr(handler)->handle(expr->as<ReverseArray>());
     return;
   }
   if (expr->isStrictlyA<GetMetaData>()) {
@@ -784,10 +800,16 @@ void OptOutConstDispatch::handle(const TernaryOp* stmt) {
 void OptOutConstDispatch::handle(const ArrayConstruct* stmt) {
   unhandled(stmt);
 }
+void OptOutConstDispatch::handle(const StructConstruct* stmt) {
+  unhandled(stmt);
+}
 void OptOutConstDispatch::handle(const GetAttr* stmt) {
   unhandled(stmt);
 }
 void OptOutConstDispatch::handle(const GetItem* stmt) {
+  unhandled(stmt);
+}
+void OptOutConstDispatch::handle(const ReverseArray* stmt) {
   unhandled(stmt);
 }
 void OptOutConstDispatch::handle(const GetMetaData* stmt) {
@@ -984,10 +1006,16 @@ void OptOutDispatch::handle(TernaryOp* stmt) {
 void OptOutDispatch::handle(ArrayConstruct* stmt) {
   unhandled(stmt);
 }
+void OptOutDispatch::handle(StructConstruct* stmt) {
+  unhandled(stmt);
+}
 void OptOutDispatch::handle(GetAttr* stmt) {
   unhandled(stmt);
 }
 void OptOutDispatch::handle(GetItem* stmt) {
+  unhandled(stmt);
+}
+void OptOutDispatch::handle(ReverseArray* stmt) {
   unhandled(stmt);
 }
 void OptOutDispatch::handle(GetMetaData* stmt) {
