@@ -171,13 +171,13 @@ std::vector<std::byte> polymorphicValueToBytes(
     const PolymorphicValue& argument,
     const DataType& dtype,
     PrimDataType index_type) {
-  if (argument.is<Struct>()) {
-    // FUSER_PERF_SCOPE("polymorphicValueToBytes(Struct)");
+  if (argument.is<LegacyStruct>()) {
+    // FUSER_PERF_SCOPE("polymorphicValueToBytes(LegacyStruct)");
     TORCH_INTERNAL_ASSERT(
         std::holds_alternative<StructType>(dtype.type),
         "Expected StructType type.");
     auto dtype_ = std::get<StructType>(dtype.type);
-    auto struct_ = argument.as<Struct>();
+    auto struct_ = argument.as<LegacyStruct>();
     std::vector<std::byte> buffer;
     for (const auto& field : dtype_.fields) {
       if (!field.used_in_kernel) {

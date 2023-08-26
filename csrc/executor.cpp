@@ -1917,7 +1917,7 @@ float FusionExecutor::runRtc(
         std::get<PrimDataType>(aten_to_data_type(input.scalar_type()).type),
         input.dim());
 
-    Struct<PolymorphicValue> concrete_value;
+    LegacyStruct<PolymorphicValue> concrete_value;
     concrete_value["data"] = PolymorphicValue(
         Pointer(input.data_ptr(), aten_to_data_type(input.scalar_type())));
     concrete_value["logical_size"] = PolymorphicValue(input.sizes().vec());
