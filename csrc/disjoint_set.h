@@ -70,7 +70,7 @@ class VectorOfUniqueEntries {
 
   // Returns first element in vector
   T front() const {
-#ifdef NDEBUG
+#ifndef NDEBUG
     TORCH_INTERNAL_ASSERT(!empty());
 #endif // NDEBUG
     return vector_.front();
@@ -78,7 +78,7 @@ class VectorOfUniqueEntries {
 
   // Returns last element in vector
   T back() const {
-#ifdef NDEBUG
+#ifndef NDEBUG
     TORCH_INTERNAL_ASSERT(!empty());
 #endif // NDEBUG
     return vector_.back();
@@ -86,7 +86,7 @@ class VectorOfUniqueEntries {
 
   // Remove and returns the last element in vector
   T popBack() {
-#ifdef NDEBUG
+#ifndef NDEBUG
     TORCH_INTERNAL_ASSERT(!empty());
 #endif // NDEBUG
     T v = vector_.back();
