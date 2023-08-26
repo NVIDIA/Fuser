@@ -106,7 +106,7 @@ TEST_F(PolymorphicValueTest, Struct) {
     // This is less efficient than the static context because type conversions
     // and key checking are required, but it is the only way to access fields if
     // we don't know the C++ type of the struct.
-    PolymorphicValue b = type.creator();
+    PolymorphicValue b = type.create();
     b->*"x" = 2788;
     b->*"y" = 2.71828;
     EXPECT_EQ((PolymorphicValue)(b->*"x"), 2788);

@@ -106,7 +106,7 @@ struct PointerType {
 
 struct StructType {
   std::string name;
-  std::function<std::shared_ptr<Struct>()> creator;
+  std::function<std::shared_ptr<Struct>()> create;
 
   struct FieldInfo {
     std::string name;
@@ -123,7 +123,7 @@ struct StructType {
         "StructType::make only accepts Struct types");
     return StructType{
         .name = std::move(name),
-        .creator =
+        .create =
             []() {
               return std::static_pointer_cast<Struct>(std::make_shared<T>());
             },
