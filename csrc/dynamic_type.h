@@ -425,50 +425,33 @@ struct DynamicType {
   DEFINE_SQUARE_BRACKET_OPERATOR(const)
 #undef DEFINE_SQUARE_BRACKET_OPERATOR
 
-#define DEFINE_ARROW_STAR_OPERATOR(__const)                            \
-  template <typename Ret, typename Class>                              \
-  static constexpr bool has_arrow_star##__const = any_check(           \
-      [](auto t) {                                                     \
-        using T = typename decltype(t)::type;                          \
-        using MemberPtr = Ret Class::*;                                \
-        if constexpr (opcheck<T>->*opcheck<MemberPtr>) {               \
-          return true;                                                 \
-        }                                                              \
-        return false;                                                  \
-      },                                                               \
-      type_identities_as_tuple);                                       \
-                                                                       \
-  template <typename Ret, typename Class>                              \
-  constexpr std::enable_if_t<                                          \
-      is_candidate_type<Class> || has_arrow_star##__const<Ret, Class>, \
-      __const Ret&>                                                    \
-  operator->*(Ret Class::*member) __const {                            \
-    if constexpr (is_candidate_type<Class>) {                          \
-      return as<Class>().*member;                                      \
-    } else {                                                           \
-      std::optional<__const Ret*> ret = std::nullopt;                  \
-      for_all_types([this, &member, &ret](auto t) {                    \
-        using T = typename decltype(t)::type;                          \
-        if constexpr (opcheck<T>->*opcheck<Ret Class::*>) {            \
-          if (is<T>()) {                                               \
-            ret = &(as<T>()->*member);                                 \
-          }                                                            \
-        }                                                              \
-      });                                                              \
-      TORCH_CHECK(                                                     \
-          ret.has_value(),                                             \
-          "Cannot access member with type ",                           \
-          typeid(Ret).name(),                                          \
-          " in class ",                                                \
-          typeid(Class).name(),                                        \
-          " : incompatible type");                                     \
-      return *ret.value();                                             \
-    }                                                                  \
+  template <
+      typename Ret,
+      typename Class,
+      typename = std::enable_if_t<is_candidate_type<Class>>>
+  constexpr decltype(auto) operator->*(Ret Class::*member) const {
+    if constexpr (std::is_function_v<Ret>) {
+      return [this, member](auto&&... args) {
+        return (as<Class>().*member)(std::forward<decltype(args)>(args)...);
+      };
+    } else {
+      return as<Class>().*member;
+    }
   }
 
-  DEFINE_ARROW_STAR_OPERATOR()
-  DEFINE_ARROW_STAR_OPERATOR(const)
-#undef DEFINE_ARROW_STAR_OPERATOR
+  template <
+      typename Ret,
+      typename Class,
+      typename = std::enable_if_t<is_candidate_type<Class>>>
+  constexpr decltype(auto) operator->*(Ret Class::*member) {
+    if constexpr (std::is_function_v<Ret>) {
+      return [this, member](auto&&... args) {
+        return (as<Class>().*member)(std::forward<decltype(args)>(args)...);
+      };
+    } else {
+      return as<Class>().*member;
+    }
+  }
 
   // ->* operator for non-member-pointers, this is used to support use cases
   // like `value->*"myfield"`. Due to limitations of C++'s type system, we can
@@ -500,8 +483,7 @@ struct DynamicType {
                                                                                 \
   template <typename MemberT>                                                   \
   constexpr std::enable_if_t<                                                   \
-      !std::is_member_pointer_v<MemberT> &&                                     \
-          all_arrow_star_ret_types_are_same##__const<MemberT>,                  \
+      all_arrow_star_ret_types_are_same##__const<MemberT>,                      \
       typename ArrowStarRetType##__const<MemberT>::type>                        \
   operator->*(const MemberT& member) __const {                                  \
     using RetT = typename ArrowStarRetType##__const<MemberT>::type;             \

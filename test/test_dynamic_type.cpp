@@ -1188,11 +1188,21 @@ TEST_F(DynamicTypeTest, MemberPointer) {
   static_assert(b->*&B::x == 3);
   static_assert(b->*&B::y == 4);
   constexpr ABCD c = CD{C{5, 6}};
+#if __cplusplus >= 202002L
   static_assert(c->*&C::x == 5);
   static_assert(c->*&C::y == 6);
+#else
+  EXPECT_EQ(c->*&C::x, 5);
+  EXPECT_EQ(c->*&C::y, 6);
+#endif
   constexpr ABCD d = CD{D{7, 8}};
+#if __cplusplus >= 202002L
   static_assert(d->*&D::x == 7);
   static_assert(d->*&D::y == 8);
+#else
+  EXPECT_EQ(d->*&D::x, 7);
+  EXPECT_EQ(d->*&D::y, 8);
+#endif
   static_assert(opcheck<ABCD>->*opcheck<int A::*>);
   static_assert(opcheck<ABCD>->*opcheck<int B::*>);
   static_assert(opcheck<ABCD>->*opcheck<int C::*>);
