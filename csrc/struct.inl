@@ -23,22 +23,6 @@ struct Struct {
       const std::string& key) = 0;
 };
 
-class ConstAccessor {
-  std::function<PolymorphicValue()> getter_;
-
- public:
-  ConstAccessor(std::function<PolymorphicValue()> getter)
-      : getter_(std::move(getter)) {}
-  ConstAccessor(const ConstAccessor& value) = default;
-  ConstAccessor(ConstAccessor&& value) = default;
-  ConstAccessor& operator=(const ConstAccessor& value) = default;
-  ConstAccessor& operator=(ConstAccessor&& value) = default;
-
-  inline operator PolymorphicValue() const {
-    return getter_();
-  }
-};
-
 class Accessor {
   std::function<PolymorphicValue()> getter_;
   std::function<void(const PolymorphicValue&)> setter_;

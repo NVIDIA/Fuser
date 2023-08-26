@@ -206,11 +206,6 @@ struct DynamicType {
 
   constexpr DynamicType() = default;
 
-  // template <
-  //     typename T,
-  //     typename = std::enable_if_t<
-  //         std::is_constructible_v<VariantType, T> ||
-  //         std::is_convertible_v<T, VariantType>>>
   template <
       typename T,
       typename = std::void_t<decltype(VariantType(std::declval<T>()))>>
