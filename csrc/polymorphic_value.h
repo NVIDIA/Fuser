@@ -170,12 +170,6 @@ using PolymorphicValue = DynamicType<
 
 using Struct = StructTemplate<PolymorphicValue>;
 
-template <typename PolymorphicValue>
-inline PolymorphicValue StructHolder<PolymorphicValue>::operator[](
-    const std::string& key) const {
-  return (*struct_ptr_)[key];
-}
-
 namespace PolymorphicValue_functions {
 
 inline std::string toString(const PolymorphicValue& v) {

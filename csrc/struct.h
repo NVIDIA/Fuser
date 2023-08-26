@@ -16,12 +16,30 @@ namespace nvfuser {
 struct StructType;
 
 template <typename PolymorphicValue>
+struct StructTemplate {
+  virtual ~StructTemplate() = default;
+
+  virtual StructType type() const = 0;
+  virtual std::function<PolymorphicValue()> getter(
+      const std::string& key) const = 0;
+  virtual std::function<void(const PolymorphicValue&)> setter(
+      const std::string& key) = 0;
+};
+
+template <typename PolymorphicValue>
 class ConstAccessorTemplate {
   const std::function<PolymorphicValue()> getter_;
 
  public:
+  ConstAccessorTemplate() = default;
   ConstAccessorTemplate(std::function<PolymorphicValue()> getter)
       : getter_(std::move(getter)) {}
+  ConstAccessorTemplate(const ConstAccessorTemplate& value) = default;
+  ConstAccessorTemplate(ConstAccessorTemplate&& value) = default;
+  ConstAccessorTemplate& operator=(const ConstAccessorTemplate& value) =
+      default;
+  ConstAccessorTemplate& operator=(ConstAccessorTemplate&& value) = default;
+
   operator PolymorphicValue() const {
     return getter_();
   }
@@ -30,37 +48,25 @@ class ConstAccessorTemplate {
 template <typename PolymorphicValue>
 class AccessorTemplate {
   const std::function<PolymorphicValue()> getter_;
-  const std::function<void(PolymorphicValue)> setter_;
+  const std::function<void(const PolymorphicValue&)> setter_;
 
  public:
+  AccessorTemplate() = default;
   AccessorTemplate(
       std::function<PolymorphicValue()> getter,
-      std::function<void(PolymorphicValue)> setter)
+      std::function<void(const PolymorphicValue&)> setter)
       : getter_(std::move(getter)), setter_(std::move(setter)) {}
-  const AccessorTemplate& operator=(PolymorphicValue value) const {
+  AccessorTemplate(const AccessorTemplate& value) = default;
+  AccessorTemplate(AccessorTemplate&& value) = default;
+  AccessorTemplate& operator=(const AccessorTemplate& value) = default;
+  AccessorTemplate& operator=(AccessorTemplate&& value) = default;
+
+  const AccessorTemplate& operator=(const PolymorphicValue& value) const {
     setter_(std::move(value));
     return *this;
   }
   operator PolymorphicValue() const {
     return getter_();
-  }
-};
-
-template <typename PolymorphicValue>
-struct StructTemplate {
-  using ConstAccessor = ConstAccessorTemplate<PolymorphicValue>;
-  using Accessor = AccessorTemplate<PolymorphicValue>;
-  virtual ~StructTemplate() = default;
-
-  virtual StructType type() const = 0;
-  virtual std::function<PolymorphicValue()> getter(std::string key) const = 0;
-  virtual std::function<void(PolymorphicValue)> setter(std::string key) = 0;
-
-  ConstAccessor operator[](std::string key) const {
-    return ConstAccessor(getter(std::move(key)));
-  }
-  Accessor operator[](const std::string& key) {
-    return Accessor(getter(key), setter(key));
   }
 };
 
@@ -95,6 +101,9 @@ class StructHolder {
   inline T& as() {
     return *std::dynamic_pointer_cast<T>(struct_ptr_);
   }
+
+  inline StructType type() const;
+
   template <typename Ret, typename Class>
   inline const Ret& operator->*(Ret Class::*member) const {
     return as<Class>().*member;
@@ -103,8 +112,9 @@ class StructHolder {
   inline Ret& operator->*(Ret Class::*member) {
     return as<Class>().*member;
   }
-  inline PolymorphicValue operator[](const std::string& key) const;
-  inline StructType type() const;
+  Accessor operator->*(const std::string& key) const {
+    return Accessor(struct_ptr_->getter(key), struct_ptr_->setter(key));
+  }
 };
 
 } // namespace nvfuser

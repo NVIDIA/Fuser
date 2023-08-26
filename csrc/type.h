@@ -238,40 +238,46 @@ struct TensorMetaData : public Struct {
         alloc_size == other.alloc_size && alloc_stride == other.alloc_stride;
   }
 
-  std::function<PolymorphicValue()> getter(std::string key) const override {
-    return [this, key = std::move(key)]() -> PolymorphicValue {
-      if (key == "data") {
-        return PolymorphicValue(Pointer(data, dtype));
-      } else if (key == "logical_size") {
-        return PolymorphicValue(logical_size.vec());
-      } else if (key == "logical_stride") {
-        return PolymorphicValue(logical_stride.vec());
-      } else if (key == "alloc_size") {
-        return PolymorphicValue(alloc_size);
-      } else if (key == "alloc_stride") {
-        return PolymorphicValue(alloc_stride);
-      } else {
-        TORCH_INTERNAL_ASSERT(false, "Unknown key ", key);
-      }
-    };
+  std::function<PolymorphicValue()> getter(
+      const std::string& key) const override {
+    if (key == "data") {
+      return [this]() { return PolymorphicValue(Pointer(data, dtype)); };
+    } else if (key == "logical_size") {
+      return [this]() { return PolymorphicValue(logical_size.vec()); };
+    } else if (key == "logical_stride") {
+      return [this]() { return PolymorphicValue(logical_stride.vec()); };
+    } else if (key == "alloc_size") {
+      return [this]() { return PolymorphicValue(alloc_size); };
+    } else if (key == "alloc_stride") {
+      return [this]() { return PolymorphicValue(alloc_stride); };
+    } else {
+      TORCH_INTERNAL_ASSERT(false, "Unknown key ", key);
+    }
   }
 
-  std::function<void(PolymorphicValue)> setter(std::string key) override {
-    return [this, key = std::move(key)](PolymorphicValue value) {
-      if (key == "data") {
-        data = (void*)value;
-      } else if (key == "logical_size") {
+  std::function<void(const PolymorphicValue&)> setter(
+      const std::string& key) override {
+    if (key == "data") {
+      return [this](const PolymorphicValue& value) { data = (void*)value; };
+    } else if (key == "logical_size") {
+      return [this](const PolymorphicValue& value) {
         logical_size = (std::vector<int64_t>)value;
-      } else if (key == "logical_stride") {
+      };
+    } else if (key == "logical_stride") {
+      return [this](const PolymorphicValue& value) {
         logical_stride = (std::vector<int64_t>)value;
-      } else if (key == "alloc_size") {
+      };
+    } else if (key == "alloc_size") {
+      return [this](const PolymorphicValue& value) {
         alloc_size = (std::vector<int64_t>)value;
-      } else if (key == "alloc_stride") {
+      };
+    } else if (key == "alloc_stride") {
+      return [this](const PolymorphicValue& value) {
         alloc_stride = (std::vector<int64_t>)value;
-      } else {
-        TORCH_INTERNAL_ASSERT(false, "Unknown key ", key);
-      }
-    };
+      };
+    } else {
+      TORCH_INTERNAL_ASSERT(false, "Unknown key ", key);
+    }
   }
 
   StructType type() const override {
@@ -555,16 +561,14 @@ struct Dict : public Struct {
   Dict(std::unordered_map<std::string, PolymorphicValue> fields)
       : fields(std::move(fields)) {}
 
-  std::function<PolymorphicValue()> getter(std::string key) const override {
-    return [this, key = std::move(key)]() -> PolymorphicValue {
-      return fields.at(key);
-    };
+  std::function<PolymorphicValue()> getter(
+      const std::string& key) const override {
+    return [this, key]() -> PolymorphicValue { return fields.at(key); };
   }
 
-  std::function<void(PolymorphicValue)> setter(std::string key) override {
-    return [this, key = std::move(key)](PolymorphicValue value) {
-      fields[key] = std::move(value);
-    };
+  std::function<void(const PolymorphicValue&)> setter(
+      const std::string& key) override {
+    return [this, key](const PolymorphicValue& value) { fields[key] = value; };
   }
 
   StructType type() const override {

@@ -337,7 +337,7 @@ std::vector<std::byte> polymorphicValueToBytes(
           continue;
         }
         auto field_data = polymorphicValueToBytes(
-            struct_[field.name], *field.type, index_type);
+            struct_->*field.name, *field.type, index_type);
         buffer.insert(buffer.end(), field_data.begin(), field_data.end());
       }
       return buffer;

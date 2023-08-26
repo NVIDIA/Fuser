@@ -835,12 +835,12 @@ std::vector<PolymorphicValue> StructConstruct::evaluate(
       "StructConstruct expects ",
       this->inputs().size(),
       " inputs");
-  std::shared_ptr<Struct> result = std::make_shared<Dict>();
-  Dict& dict = *(Dict*)result.get();
+  std::vector<PolymorphicValue> result = {
+      std::static_pointer_cast<Struct>(std::make_shared<Dict>())};
   for (int64_t i : c10::irange((int64_t)inputs.size())) {
-    dict[attribute<std::string>(i)] = inputs.at(i);
+    result.back()->*attribute<std::string>(i) = inputs.at(i);
   }
-  return {std::move(result)};
+  return result;
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(StructConstruct)
@@ -877,8 +877,7 @@ std::vector<PolymorphicValue> GetAttr::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
   TORCH_INTERNAL_ASSERT(inputs.size() == 1, "GetAttr expects 1 input");
-  auto struct_type = std::get<StructType>(struct_()->dtype().type);
-  return {inputs.at(0)[attr()]};
+  return {inputs.at(0)->*attr()};
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(GetAttr)
