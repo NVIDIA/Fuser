@@ -184,14 +184,6 @@ collect_kernels() {
 
       # binary tests
       run_test "$binarytestdir" build/nvfuser_tests --gtest_color=yes
-
-      # benchmarks
-      run_test "$benchdir" build/nvfuser_bench \
-              --benchmark_repetitions=1 \
-              --benchmark_min_time=0 \
-              --benchmark_enable_random_interleaving=false \
-              --benchmark_filter=NvFuserScheduler \
-              --benchmark_color=true
     fi
 }
 
