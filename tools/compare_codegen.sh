@@ -34,8 +34,11 @@ usage() {
   echo "If multiple executables are run, kernels may be overwritten."
 }
 
+# top-level directory of nvfuser repo
+nvfuserdir=$(dirname $(dirname $(readlink -f $BASH_SOURCE)))
+
 comparetoref=origin/main
-outdir=codegen_comparison
+outdir=$nvfuserdir/codegen_comparison
 
 while getopts "r:o:h-" arg
 do
@@ -161,7 +164,10 @@ collect_kernels() {
     fi
 
     # Build in Release mode
-    python setup.py develop
+    (
+        cd $nvfuserdir
+        python setup.py develop
+    )
 
     # Make tests reproducible
     export NVFUSER_TEST_RANDOM_SEED=0
@@ -177,13 +183,13 @@ collect_kernels() {
     else
       # python tests
       # Using -s to disable capturing stdout. This is important as it will let us see which tests creates each .cu file
-      run_test "$pyopsdir" python -m pytest python_tests/pytest_ops.py -v -s --color=yes
-      run_test "$pyschedopsdir" python -m pytest python_tests/test_schedule_ops.py -v -s --color=yes
-      run_test "$pyfrontenddir" python -m pytest python_tests/test_python_frontend.py -v -s --color=yes
-      run_test "$torchscriptdir" python -m pytest python_tests/test_torchscript.py -v -s --color=yes
+      run_test "$pyopsdir" python -m pytest $nvfuserdir/python_tests/pytest_ops.py -v -s --color=yes
+      run_test "$pyschedopsdir" python -m pytest $nvfuserdir/python_tests/test_schedule_ops.py -v -s --color=yes
+      run_test "$pyfrontenddir" python -m pytest $nvfuserdir/python_tests/test_python_frontend.py -v -s --color=yes
+      run_test "$torchscriptdir" python -m pytest $nvfuserdir/python_tests/test_torchscript.py -v -s --color=yes
 
       # binary tests
-      run_test "$binarytestdir" build/nvfuser_tests --gtest_color=yes
+      run_test "$binarytestdir" $nvfuserdir/build/nvfuser_tests --gtest_color=yes
     fi
 }
 
