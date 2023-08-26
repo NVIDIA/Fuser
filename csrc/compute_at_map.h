@@ -17,7 +17,7 @@
 
 namespace nvfuser {
 
-// There's three modes of these iter domain mappings all uniquely important in
+// There's four modes of these iter domain mappings all uniquely important in
 // the lowering process.
 //
 // For EXACT/PERMISSIVE mode consider:
@@ -58,8 +58,6 @@ namespace nvfuser {
 //   inputs and outputs of resize ops. Used for, e.g., propagating
 //   parallel types across those domains. It also maps producers and
 //   consumers of gathered and scattered domains
-// IdMappingMode::PERMISSIVE_FUZZY_RESIZE
-//   Include everything in PERMISSIVE_RESIZE and more.
 // IdMappingMode::EXACT
 //   Don't map any broadcast axes to non-broadcast axes
 //   Do not forward through any broadcast IDs
@@ -146,6 +144,10 @@ class TORCH_CUDA_CU_API IterDomainGraph {
   DisjointSets<IterDomain*> almost_exact_nodes_;
   DisjointSets<IterDomain*> loop_nodes_;
   DisjointSets<IterDomain*> permissive_resize_nodes_;
+  // permissive_relaxed_resize_nodes_ is permissive_resize_nodes_. Also maps
+  // iter domain across split/merge to the inner domain, it is used to map inner
+  // most iter domain. i.e. transpose scheduler use this to map inner most
+  // domain.
   DisjointSets<IterDomain*> permissive_relaxed_resize_nodes_;
 
   // Consumers and producers is not symmetric like the other sets.

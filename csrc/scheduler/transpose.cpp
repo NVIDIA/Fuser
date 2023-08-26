@@ -661,7 +661,7 @@ std::string getTransposeRuntimeRejectReason(
     // This is the step where we create virtual innermost dimension and prepare
     // for scheduling tiling on the two groups. Propagation from P2C across view
     // is challenging at this step and could result in propagating incoherent
-    // transformation which resulted in assert. Hence our try run here examines
+    // transformation which resulted in assert. Hence our dry run here examines
     // the path for propagation and conservatively rejects fusion that requires
     // propagation in the risky direction.
     //
