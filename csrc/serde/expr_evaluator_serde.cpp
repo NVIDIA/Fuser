@@ -15,6 +15,20 @@ namespace nvfuser::serde {
 namespace {
 
 template <typename VALTYPE>
+std::vector<VALTYPE*> getAttributes(VALTYPE* val) {
+  if (!val->definition()) {
+    return std::vector<VALTYPE*>();
+  }
+  std::vector<VALTYPE*> data_attributes;
+  for (auto a : val->definition()->attributes()) {
+    if (a->isVal()) {
+      data_attributes.push_back(a->asVal());
+    }
+  }
+  return data_attributes;
+}
+
+template <typename VALTYPE>
 std::vector<VALTYPE*> getImmediateProducers(VALTYPE* val) {
   return (val->definition()) ? val->definition()->inputs()
                              : std::vector<VALTYPE*>();
@@ -57,9 +71,17 @@ std::vector<VALTYPE*> makeSortedEvaluationList(std::vector<VALTYPE*> input) {
           to_sort.push_back(producer);
         }
       }
+      /*
+      for (auto attribute : getAttributes(top_val)) {
+        if (!visited.count(attribute)) {
+          ready_to_pop = false;
+          to_sort.push_back(attribute);
+        }
+      }
+      */
       if (ready_to_pop) {
         // Some definition operations generate multiple outputs. e.g., split and
-        // resize We add sibling outputs together in the sorted list.
+        // resize. We add sibling outputs together in the sorted list.
         for (auto consumer : getConsumers(top_val)) {
           visited.insert(consumer);
           sorted.push_back(consumer);
@@ -125,17 +147,26 @@ void bindDomain(
 // allocation, and leaf domains
 void bind(std::vector<Val*>& all_values, nvfuser::TensorView* tv) {
   bindRootDomain(all_values, tv->getRootDomain());
-  // disabled to pass python frontend tests
-  // bindDomain(all_values, tv->getRFactorDomain());
-  // bindDomain(all_values, tv->getAllocationDomain());
-  // bindDomain(all_values, tv->getLeafDomain());
+  bindDomain(all_values, tv->getRFactorDomain());
+  bindDomain(all_values, tv->getAllocationDomain());
+  bindDomain(all_values, tv->getLeafDomain());
 }
 
 } // namespace
 
+flatbuffers::Offset<Instruction> ExpressionSerializer::serializeAttribute(
+    flatbuffers::FlatBufferBuilder& builder,
+    nvfuser::Val* val) {
+  operation_stack_.emplace(val, operation_stack_.size());
+  auto sv_fb = serde::CreateSymbolicDirect(
+      builder, val->name(), val->toString().c_str());
+  return serde::CreateInstruction(
+      builder, serde::InstructionData_Symbolic, sv_fb.Union());
+}
+
 flatbuffers::Offset<Instruction> ExpressionSerializer::serializeUnaryOp(
     flatbuffers::FlatBufferBuilder& builder,
-    nvfuser::UnaryOp* uop) const {
+    nvfuser::UnaryOp* uop) {
   serde::DataType dtype = (uop->getUnaryOpType() == nvfuser::UnaryOpType::Cast)
       ? mapToSerdeDtype(uop->out()->getDataType().value())
       : serde::DataType_None;
@@ -152,7 +183,7 @@ flatbuffers::Offset<Instruction> ExpressionSerializer::serializeUnaryOp(
 
 flatbuffers::Offset<Instruction> ExpressionSerializer::serializeBinaryOp(
     flatbuffers::FlatBufferBuilder& builder,
-    nvfuser::BinaryOp* bop) const {
+    nvfuser::BinaryOp* bop) {
   auto bop_fb = serde::CreateBinaryOpDirect(
       builder,
       mapToSerdeBinaryOp(bop->getBinaryOpType()),
@@ -166,7 +197,7 @@ flatbuffers::Offset<Instruction> ExpressionSerializer::serializeBinaryOp(
 
 flatbuffers::Offset<Instruction> ExpressionSerializer::serializeMerge(
     flatbuffers::FlatBufferBuilder& builder,
-    nvfuser::Merge* merge) const {
+    nvfuser::Merge* merge) {
   auto merge_fb = serde::CreateMerge(
       builder,
       operation_stack_.at(merge->inner()),
@@ -178,7 +209,7 @@ flatbuffers::Offset<Instruction> ExpressionSerializer::serializeMerge(
 
 flatbuffers::Offset<Instruction> ExpressionSerializer::serializeGetAttr(
     flatbuffers::FlatBufferBuilder& builder,
-    nvfuser::GetAttr* attr) const {
+    nvfuser::GetAttr* attr) {
   auto attr_fb = serde::CreateGetAttr(
       builder,
       operation_stack_.at(attr->struct_()),
@@ -190,7 +221,7 @@ flatbuffers::Offset<Instruction> ExpressionSerializer::serializeGetAttr(
 
 flatbuffers::Offset<Instruction> ExpressionSerializer::serializeGetItem(
     flatbuffers::FlatBufferBuilder& builder,
-    nvfuser::GetItem* item) const {
+    nvfuser::GetItem* item) {
   auto item_fb = serde::CreateGetItem(
       builder,
       operation_stack_.at(item->array()),
@@ -202,7 +233,7 @@ flatbuffers::Offset<Instruction> ExpressionSerializer::serializeGetItem(
 
 flatbuffers::Offset<Instruction> ExpressionSerializer::serializeGetMetaData(
     flatbuffers::FlatBufferBuilder& builder,
-    nvfuser::GetMetaData* metadata) const {
+    nvfuser::GetMetaData* metadata) {
   auto metadata_fb = serde::CreateGetMetaData(
       builder,
       operation_stack_.at(metadata->in()),
@@ -211,35 +242,42 @@ flatbuffers::Offset<Instruction> ExpressionSerializer::serializeGetMetaData(
       builder, serde::InstructionData_GetMetaData, metadata_fb.Union());
 }
 
-flatbuffers::Offset<Instruction> ExpressionSerializer::serializeResize(
-    flatbuffers::FlatBufferBuilder& builder,
-    nvfuser::Resize* resize) const {
+std::array<flatbuffers::Offset<Instruction>, 3> ExpressionSerializer::
+    serializeResize(
+        flatbuffers::FlatBufferBuilder& builder,
+        nvfuser::Resize* resize) {
+  auto left_expand_inst = serializeAttribute(builder, resize->leftExpand());
+  auto right_expand_inst = serializeAttribute(builder, resize->leftExpand());
   auto resize_fb = serde::CreateResize(
       builder,
       operation_stack_.at(resize->in()),
       operation_stack_.at(resize->leftExpand()),
       operation_stack_.at(resize->rightExpand()),
       (int64_t)operation_stack_.size());
-  return serde::CreateInstruction(
+  auto resize_inst = serde::CreateInstruction(
       builder, serde::InstructionData_Resize, resize_fb.Union());
+  return {left_expand_inst, right_expand_inst, resize_inst};
 }
 
-flatbuffers::Offset<Instruction> ExpressionSerializer::serializeSplit(
-    flatbuffers::FlatBufferBuilder& builder,
-    nvfuser::Split* split) const {
+std::array<flatbuffers::Offset<Instruction>, 2> ExpressionSerializer::
+    serializeSplit(
+        flatbuffers::FlatBufferBuilder& builder,
+        nvfuser::Split* split) {
+  auto factor_inst = serializeAttribute(builder, split->factor());
   auto split_fb = serde::CreateSplit(
       builder,
       operation_stack_.at(split->in()),
       operation_stack_.at(split->factor()),
       (int64_t)operation_stack_.size(),
       (int64_t)operation_stack_.size() + 1);
-  return serde::CreateInstruction(
+  auto split_inst = serde::CreateInstruction(
       builder, serde::InstructionData_Split, split_fb.Union());
+  return {factor_inst, split_inst};
 }
 
 flatbuffers::Offset<Instruction> ExpressionSerializer::serializeSwizzle2D(
     flatbuffers::FlatBufferBuilder& builder,
-    nvfuser::Swizzle2D* swizzle) const {
+    nvfuser::Swizzle2D* swizzle) {
   auto swizzle_fb = serde::CreateSwizzle2D(
       builder,
       operation_stack_.at(swizzle->inX()),
@@ -372,7 +410,10 @@ flatbuffers::Offset<serde::NaiveValueGenerator> ExpressionSerializer::serialize(
       operation_stack_.emplace(val, operation_stack_.size());
 
     } else if (auto sop = dynamic_cast<nvfuser::Split*>(def)) {
-      instructions_fb.push_back(serializeSplit(builder, sop));
+      auto inst = serializeSplit(builder, sop);
+      for (auto i : inst) {
+        instructions_fb.push_back(i);
+      }
       operation_stack_.emplace(val, operation_stack_.size());
 
       auto next_val = derived_values.front();
@@ -390,7 +431,10 @@ flatbuffers::Offset<serde::NaiveValueGenerator> ExpressionSerializer::serialize(
       derived_values.pop_front();
 
     } else if (auto rop = dynamic_cast<nvfuser::Resize*>(def)) {
-      instructions_fb.push_back(serializeResize(builder, rop));
+      auto inst = serializeResize(builder, rop);
+      for (auto i : inst) {
+        instructions_fb.push_back(i);
+      }
       operation_stack_.emplace(val, operation_stack_.size());
 
     } else if (auto mop = dynamic_cast<nvfuser::GetMetaData*>(def)) {
@@ -406,7 +450,8 @@ flatbuffers::Offset<serde::NaiveValueGenerator> ExpressionSerializer::serialize(
       operation_stack_.emplace(val, operation_stack_.size());
 
     } else {
-      TORCH_INTERNAL_ASSERT(false, "Unknown Expression.\t", def->toString());
+      TORCH_INTERNAL_ASSERT(
+          false, "Serialization unknown expression.\t", def->toString());
     }
   }
   return serde::CreateNaiveValueGeneratorDirect(builder, &instructions_fb);
@@ -503,12 +548,15 @@ ExpressionBuilder::ExpressionBuilder(kir::Kernel* kernel) : kernel_(kernel) {
 }
 
 void ExpressionBuilder::deserialize(const NaiveValueGenerator* buffer) {
+  TORCH_INTERNAL_ASSERT(
+      buffer != nullptr, "serde::NaiveValueGenerator is nullptr.");
   for (auto inst : *buffer->instructions()) {
     deserialize(inst);
   }
 }
 
 void ExpressionBuilder::deserialize(const Instruction* buffer) {
+  TORCH_INTERNAL_ASSERT(buffer != nullptr, "serde::Instruction is nullptr.");
   auto exists = [&](size_t idx) { return idx < operation_stack_.size(); };
 
   FusionGuard fg(kernel_);
@@ -579,8 +627,30 @@ void ExpressionBuilder::deserialize(const Instruction* buffer) {
       }
       break;
     }
-    default:
-      TORCH_INTERNAL_ASSERT(false, "Unsupported instruction.");
+    case serde::InstructionData_Merge: {
+      // TODO implement
+      TORCH_INTERNAL_ASSERT(false, "Unsupported implemented merge.");
+      break;
+    }
+    case serde::InstructionData_Split: {
+      // TODO implement
+      TORCH_INTERNAL_ASSERT(false, "Unsupported implemented split.");
+      break;
+    }
+    case serde::InstructionData_Resize: {
+      // TODO implement
+      TORCH_INTERNAL_ASSERT(false, "Unsupported implemented resize.");
+      break;
+    }
+    case serde::InstructionData_Swizzle2D: {
+      // TODO implement
+      TORCH_INTERNAL_ASSERT(false, "Unsupported implemented swizzle2d.");
+      break;
+    }
+    default: {
+      TORCH_INTERNAL_ASSERT(
+          false, "Unsupported instruction during deserialization.");
+    }
   }
 }
 

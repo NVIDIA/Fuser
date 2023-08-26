@@ -33,41 +33,45 @@ class ExpressionSerializer {
       const std::vector<const kir::Allocate*>& allocations);
 
  private:
+  flatbuffers::Offset<Instruction> serializeAttribute(
+      flatbuffers::FlatBufferBuilder& builder,
+      nvfuser::Val* val);
+
   flatbuffers::Offset<Instruction> serializeBinaryOp(
       flatbuffers::FlatBufferBuilder& builder,
-      nvfuser::BinaryOp* bop) const;
+      nvfuser::BinaryOp* bop);
 
   flatbuffers::Offset<Instruction> serializeGetAttr(
       flatbuffers::FlatBufferBuilder& builder,
-      nvfuser::GetAttr* attr) const;
+      nvfuser::GetAttr* attr);
 
   flatbuffers::Offset<Instruction> serializeGetItem(
       flatbuffers::FlatBufferBuilder& builder,
-      nvfuser::GetItem* item) const;
+      nvfuser::GetItem* item);
 
   flatbuffers::Offset<Instruction> serializeGetMetaData(
       flatbuffers::FlatBufferBuilder& builder,
-      nvfuser::GetMetaData* metadata) const;
+      nvfuser::GetMetaData* metadata);
 
   flatbuffers::Offset<Instruction> serializeMerge(
       flatbuffers::FlatBufferBuilder& builder,
-      nvfuser::Merge* merge) const;
+      nvfuser::Merge* merge);
 
-  flatbuffers::Offset<Instruction> serializeResize(
+  std::array<flatbuffers::Offset<Instruction>, 3> serializeResize(
       flatbuffers::FlatBufferBuilder& builder,
-      nvfuser::Resize* resize) const;
+      nvfuser::Resize* resize);
 
-  flatbuffers::Offset<Instruction> serializeSplit(
+  std::array<flatbuffers::Offset<Instruction>, 2> serializeSplit(
       flatbuffers::FlatBufferBuilder& builder,
-      nvfuser::Split* split) const;
+      nvfuser::Split* split);
 
   flatbuffers::Offset<Instruction> serializeSwizzle2D(
       flatbuffers::FlatBufferBuilder& builder,
-      nvfuser::Swizzle2D* swizzle) const;
+      nvfuser::Swizzle2D* swizzle);
 
   flatbuffers::Offset<Instruction> serializeUnaryOp(
       flatbuffers::FlatBufferBuilder& builder,
-      nvfuser::UnaryOp* uop) const;
+      nvfuser::UnaryOp* uop);
 
   flatbuffers::Offset<SymbolicTensor> serialize(
       flatbuffers::FlatBufferBuilder& builder,
