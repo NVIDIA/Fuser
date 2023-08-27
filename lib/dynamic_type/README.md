@@ -167,6 +167,7 @@ TODO: document the following:
 - `is`, `as`
 - `[]` for subscripting
 - `->*` for member access
+- hashing
 
 Also, operations on `DynamicType` are as `constexpr` as possible. So most
 tests in `DynamicTypeTest` are `static_assert` tests.
