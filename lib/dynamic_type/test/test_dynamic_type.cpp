@@ -6,15 +6,8 @@
  */
 // clang-format on
 
-#include <macros.h>
-
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
-
-#include <test/utils.h>
-#include <type_traits.h>
-
-#include <polymorphic_value.h>
 
 #include <iostream>
 #include <list>
@@ -23,7 +16,13 @@
 #include <unordered_set>
 #include <vector>
 
-namespace nvfuser {
+#include "dynamic_type.h"
+
+#if defined(__GLIBCXX__) && __GLIBCXX__ >= 20230714
+#define STD_UNORDERED_SET_SUPPORTS_INCOMPLETE_TYPE 1
+#endif
+
+namespace dynamic_type {
 
 #if defined(__clang__)
 #pragma clang diagnostic push
@@ -252,7 +251,7 @@ static_assert(std::is_same_v<
 
 } // namespace ForAllTypesTests
 
-class DynamicTypeTest : public NVFuserTest {};
+class DynamicTypeTest : public ::testing::Test {};
 
 struct NonInstantiable {
   NonInstantiable() = delete;
@@ -335,7 +334,7 @@ TEST_F(DynamicTypeTest, Typing) {
   EXPECT_THAT(
       // suppress unused value warning
       []() { (void)(SomeType)IntSomeType(1); },
-      ::testing::ThrowsMessage<c10::Error>(
+      ::testing::ThrowsMessage<std::runtime_error>(
           ::testing::HasSubstr("Cannot cast from ")));
 }
 
@@ -421,20 +420,20 @@ static_assert(std::monostate{} >= a);
         (3L op 2L));                                                           \
     EXPECT_THAT(                                                               \
         [&]() { DoubleInt64Bool() op DoubleInt64Bool(2L); },                   \
-        ::testing::ThrowsMessage<c10::Error>(                                  \
+        ::testing::ThrowsMessage<std::runtime_error>(                          \
             ::testing::HasSubstr("Cannot compute ")));                         \
     EXPECT_THAT(                                                               \
         [&]() {                                                                \
           DoubleInt64BoolVec(std::vector<DoubleInt64BoolVec>{})                \
               op DoubleInt64BoolVec(2L);                                       \
         },                                                                     \
-        ::testing::ThrowsMessage<c10::Error>(                                  \
+        ::testing::ThrowsMessage<std::runtime_error>(                          \
             ::testing::HasSubstr("Cannot compute ")));                         \
     static_assert(opcheck<IntSomeType> + opcheck<IntSomeType>);                \
     static_assert(!(opcheck<SomeTypes> + opcheck<SomeTypes>));                 \
     EXPECT_THAT(                                                               \
         [&]() { IntSomeType(SomeType{}) + IntSomeType(SomeType{}); },          \
-        ::testing::ThrowsMessage<c10::Error>(                                  \
+        ::testing::ThrowsMessage<std::runtime_error>(                          \
             ::testing::HasSubstr("Cannot compute ")));                         \
   }
 
@@ -475,20 +474,20 @@ TEST_BINARY_OP_ALLTYPE(LogicalOr, ||);
     EXPECT_EQ((3L op DoubleInt64BoolVec(2L)), (3L op 2L));                     \
     EXPECT_THAT(                                                               \
         [&]() { DoubleInt64Bool() op DoubleInt64Bool(2L); },                   \
-        ::testing::ThrowsMessage<c10::Error>(                                  \
+        ::testing::ThrowsMessage<std::runtime_error>(                          \
             ::testing::HasSubstr("Cannot compute ")));                         \
     EXPECT_THAT(                                                               \
         [&]() {                                                                \
           DoubleInt64BoolVec(std::vector<DoubleInt64BoolVec>{})                \
               op DoubleInt64BoolVec(2L);                                       \
         },                                                                     \
-        ::testing::ThrowsMessage<c10::Error>(                                  \
+        ::testing::ThrowsMessage<std::runtime_error>(                          \
             ::testing::HasSubstr("Cannot compute ")));                         \
     static_assert(opcheck<IntSomeType> + opcheck<IntSomeType>);                \
     static_assert(!(opcheck<SomeTypes> + opcheck<SomeTypes>));                 \
     EXPECT_THAT(                                                               \
         [&]() { IntSomeType(SomeType{}) + IntSomeType(SomeType{}); },          \
-        ::testing::ThrowsMessage<c10::Error>(                                  \
+        ::testing::ThrowsMessage<std::runtime_error>(                          \
             ::testing::HasSubstr("Cannot compute ")));                         \
   }
 
@@ -519,20 +518,20 @@ TEST_COMPARE_OP(Ge, >=);
     EXPECT_EQ((3L op DoubleInt64BoolVec(2L)).as<int64_t>(), (3L op 2L));       \
     EXPECT_THAT(                                                               \
         [&]() { DoubleInt64Bool() op DoubleInt64Bool(2L); },                   \
-        ::testing::ThrowsMessage<c10::Error>(                                  \
+        ::testing::ThrowsMessage<std::runtime_error>(                          \
             ::testing::HasSubstr("Cannot compute ")));                         \
     EXPECT_THAT(                                                               \
         [&]() {                                                                \
           DoubleInt64BoolVec(std::vector<DoubleInt64BoolVec>{})                \
               op DoubleInt64BoolVec(2L);                                       \
         },                                                                     \
-        ::testing::ThrowsMessage<c10::Error>(                                  \
+        ::testing::ThrowsMessage<std::runtime_error>(                          \
             ::testing::HasSubstr("Cannot compute ")));                         \
     static_assert(opcheck<IntSomeType> + opcheck<IntSomeType>);                \
     static_assert(!(opcheck<SomeTypes> + opcheck<SomeTypes>));                 \
     EXPECT_THAT(                                                               \
         [&]() { IntSomeType(SomeType{}) + IntSomeType(SomeType{}); },          \
-        ::testing::ThrowsMessage<c10::Error>(                                  \
+        ::testing::ThrowsMessage<std::runtime_error>(                          \
             ::testing::HasSubstr("Cannot compute ")));                         \
   }
 
@@ -551,17 +550,17 @@ TEST_BINARY_OP_INT_ONLY(RShift, >>);
     EXPECT_EQ((op DoubleInt64BoolVec(2L)).as<decltype(op 2L)>(), (op 2L));    \
     EXPECT_THAT(                                                              \
         [&]() { op DoubleInt64Bool(); },                                      \
-        ::testing::ThrowsMessage<c10::Error>(                                 \
+        ::testing::ThrowsMessage<std::runtime_error>(                         \
             ::testing::HasSubstr("Cannot compute ")));                        \
     EXPECT_THAT(                                                              \
         [&]() { op DoubleInt64BoolVec(std::vector<DoubleInt64BoolVec>{}); },  \
-        ::testing::ThrowsMessage<c10::Error>(                                 \
+        ::testing::ThrowsMessage<std::runtime_error>(                         \
             ::testing::HasSubstr("Cannot compute ")));                        \
     static_assert(op opcheck<int_or_bool##SomeType>);                         \
     static_assert(!(op opcheck<SomeTypes>));                                  \
     EXPECT_THAT(                                                              \
         [&]() { op int_or_bool##SomeType(SomeType{}); },                      \
-        ::testing::ThrowsMessage<c10::Error>(                                 \
+        ::testing::ThrowsMessage<std::runtime_error>(                         \
             ::testing::HasSubstr("Cannot compute ")));                        \
   }
 
@@ -606,11 +605,11 @@ TEST_F(DynamicTypeTest, ExamplesInNote) {
     static_assert((f + f).as<float>() == 5.0f);
     EXPECT_THAT(
         [&]() { i + null; },
-        ::testing::ThrowsMessage<c10::Error>(
+        ::testing::ThrowsMessage<std::runtime_error>(
             ::testing::HasSubstr("Cannot compute ")));
     EXPECT_THAT(
         [&]() { i + c; },
-        ::testing::ThrowsMessage<c10::Error>(
+        ::testing::ThrowsMessage<std::runtime_error>(
             ::testing::HasSubstr("Cannot compute ")));
   }
   // example 3
@@ -633,7 +632,7 @@ TEST_F(DynamicTypeTest, ExamplesInNote) {
           BFloatOrHalfZeroOrInt(half_zero{}) +
               BFloatOrHalfZeroOrInt(bfloat16_zero{});
         },
-        ::testing::ThrowsMessage<c10::Error>(
+        ::testing::ThrowsMessage<std::runtime_error>(
             ::testing::HasSubstr("Cannot compute ")));
   }
   // example 5
@@ -663,7 +662,7 @@ TEST_F(DynamicTypeTest, ExamplesInNote) {
     EXPECT_THAT(
         // std::list can not be indexed
         [&]() { y[0]; },
-        ::testing::ThrowsMessage<c10::Error>(
+        ::testing::ThrowsMessage<std::runtime_error>(
             ::testing::HasSubstr("Cannot index ")));
   }
 }
@@ -683,7 +682,7 @@ TEST_F(DynamicTypeTest, UnaryOpAdvancedTyping) {
   auto bad = [&]() { +DynamicType<NoContainers, Type2, int>(Type2{}); };
   EXPECT_THAT(
       bad,
-      ::testing::ThrowsMessage<c10::Error>(
+      ::testing::ThrowsMessage<std::runtime_error>(
           ::testing::HasSubstr("Cannot compute ")));
 }
 
@@ -734,7 +733,7 @@ TEST_F(DynamicTypeTest, BinaryOpAdvancedTyping) {
   };
   EXPECT_THAT(
       bad,
-      ::testing::ThrowsMessage<c10::Error>(
+      ::testing::ThrowsMessage<std::runtime_error>(
           ::testing::HasSubstr("Cannot compute ")));
   // test bool to int conversion
   using Int = DynamicType<NoContainers, int>;
@@ -755,11 +754,11 @@ TEST_F(DynamicTypeTest, Printing) {
 
   EXPECT_THAT(
       [&]() { ss << IntSomeType(); },
-      ::testing::ThrowsMessage<c10::Error>(
+      ::testing::ThrowsMessage<std::runtime_error>(
           ::testing::HasSubstr("Can not print")));
   EXPECT_THAT(
       [&]() { ss << IntSomeType(SomeType{}); },
-      ::testing::ThrowsMessage<c10::Error>(
+      ::testing::ThrowsMessage<std::runtime_error>(
           ::testing::HasSubstr("Can not print")));
   static_assert(!(opcheck<std::stringstream&> << opcheck<SomeTypes>));
 }
@@ -777,14 +776,14 @@ TEST_F(DynamicTypeTest, PlusPlusMinusMinus) {
           IntSomeType x;
           ++x;
         },
-        ::testing::ThrowsMessage<c10::Error>(
+        ::testing::ThrowsMessage<std::runtime_error>(
             ::testing::HasSubstr("Cannot compute ")));
     EXPECT_THAT(
         []() {
           IntSomeType x(SomeType{});
           ++x;
         },
-        ::testing::ThrowsMessage<c10::Error>(
+        ::testing::ThrowsMessage<std::runtime_error>(
             ::testing::HasSubstr("Cannot compute ")));
     static_assert(!(++opcheck<SomeTypes&>));
   }
@@ -800,14 +799,14 @@ TEST_F(DynamicTypeTest, PlusPlusMinusMinus) {
           IntSomeType x;
           --x;
         },
-        ::testing::ThrowsMessage<c10::Error>(
+        ::testing::ThrowsMessage<std::runtime_error>(
             ::testing::HasSubstr("Cannot compute ")));
     EXPECT_THAT(
         []() {
           IntSomeType x(SomeType{});
           --x;
         },
-        ::testing::ThrowsMessage<c10::Error>(
+        ::testing::ThrowsMessage<std::runtime_error>(
             ::testing::HasSubstr("Cannot compute ")));
     static_assert(!(--opcheck<SomeTypes&>));
   }
@@ -822,14 +821,14 @@ TEST_F(DynamicTypeTest, PlusPlusMinusMinus) {
           IntSomeType x;
           x++;
         },
-        ::testing::ThrowsMessage<c10::Error>(
+        ::testing::ThrowsMessage<std::runtime_error>(
             ::testing::HasSubstr("Cannot compute ")));
     EXPECT_THAT(
         []() {
           IntSomeType x(SomeType{});
           x++;
         },
-        ::testing::ThrowsMessage<c10::Error>(
+        ::testing::ThrowsMessage<std::runtime_error>(
             ::testing::HasSubstr("Cannot compute ")));
     static_assert(!(opcheck<SomeTypes&> ++));
   }
@@ -844,14 +843,14 @@ TEST_F(DynamicTypeTest, PlusPlusMinusMinus) {
           IntSomeType x;
           x--;
         },
-        ::testing::ThrowsMessage<c10::Error>(
+        ::testing::ThrowsMessage<std::runtime_error>(
             ::testing::HasSubstr("Cannot compute ")));
     EXPECT_THAT(
         []() {
           IntSomeType x(SomeType{});
           x--;
         },
-        ::testing::ThrowsMessage<c10::Error>(
+        ::testing::ThrowsMessage<std::runtime_error>(
             ::testing::HasSubstr("Cannot compute ")));
     static_assert(!(opcheck<SomeTypes&> --));
   }
@@ -868,7 +867,7 @@ TEST_F(DynamicTypeTest, Star) {
   EXPECT_EQ(*y, 299792457);
   EXPECT_THAT(
       [&]() { *x; },
-      ::testing::ThrowsMessage<c10::Error>(
+      ::testing::ThrowsMessage<std::runtime_error>(
           ::testing::HasSubstr("Cannot dereference ")));
 }
 
@@ -884,14 +883,14 @@ TEST_F(DynamicTypeTest, Star) {
           IntSomeType x;                                   \
           x += 1;                                          \
         },                                                 \
-        ::testing::ThrowsMessage<c10::Error>(              \
+        ::testing::ThrowsMessage<std::runtime_error>(      \
             ::testing::HasSubstr("Cannot compute ")));     \
     EXPECT_THAT(                                           \
         []() {                                             \
           IntSomeType x(SomeType{});                       \
           x += 1;                                          \
         },                                                 \
-        ::testing::ThrowsMessage<c10::Error>(              \
+        ::testing::ThrowsMessage<std::runtime_error>(      \
             ::testing::HasSubstr("Cannot compute ")));     \
     static_assert(!(opcheck<SomeTypes&> += opcheck<int>)); \
   }
@@ -1113,16 +1112,16 @@ TEST_F(DynamicTypeTest, Hash) {
   EXPECT_EQ(m.at(IntOrStr("pi")), 3.14159);
 }
 
-} // namespace nvfuser
+} // namespace dynamic_type
 
 template <>
-struct std::hash<nvfuser::DoubleInt64Bool> {
-  size_t operator()(const nvfuser::DoubleInt64Bool& x) const {
+struct std::hash<dynamic_type::DoubleInt64Bool> {
+  size_t operator()(const dynamic_type::DoubleInt64Bool& x) const {
     return 0;
   }
 };
 
-namespace nvfuser {
+namespace dynamic_type {
 
 TEST_F(DynamicTypeTest, Hash2) {
   std::unordered_map<DoubleInt64Bool, double> m;
@@ -1352,4 +1351,4 @@ TEST_F(DynamicTypeTest, NonMemberPointerArrowStaAccessor) {
 
 } // namespace member_pointer_test
 
-} // namespace nvfuser
+} // namespace dynamic_type

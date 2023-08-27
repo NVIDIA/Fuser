@@ -9,6 +9,10 @@
 
 #include <type_traits>
 
+#if __has_include(<bits/c++config.h>)
+#include <bits/c++config.h>
+#endif
+
 namespace std {
 
 #if !__cpp_lib_type_identity

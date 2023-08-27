@@ -7,16 +7,15 @@
 // clang-format on
 #pragma once
 
-#include <c10/util/Exception.h>
-
-#include <type_traits.h>
-
-#include <C++20/type_traits>
 #include <optional>
 #include <ostream>
 #include <type_traits>
 #include <typeinfo>
 #include <variant>
+
+#include "C++20/type_traits"
+#include "error.h"
+#include "type_traits.h"
 
 // Note [Design of DynamicType]
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -111,7 +110,7 @@
 // Also, operations on DynamicType should be as constexpr as possible. So most
 // tests in DynamicTypeTest are static_assert tests.
 
-namespace nvfuser {
+namespace dynamic_type {
 
 // We must disable a lot of compiler warnings to make this work. The reason for
 // the need to disable these warnings is not because the code quality in this
@@ -141,7 +140,7 @@ namespace nvfuser {
 // code:
 //   std::optional<bool> ret = std::nullopt;
 //   ...
-//   TORCH_CHECK(ret.has_value(), ...);
+//   DYNAMIC_TYPE_CHECK(ret.has_value(), ...);
 //   return ret.value();
 // saying that ret.value() is used uninitialized. This complaint is totoally
 // nonsense.
@@ -163,13 +162,13 @@ struct Containers {
       std::type_identity<Templates<DynamicType>>...>;
 
   template <typename DynamicType, typename... MemberTypes>
-  using ForAllTypes = nvfuser::
+  using ForAllTypes = dynamic_type::
       ForAllTypes<std::monostate, MemberTypes..., Templates<DynamicType>...>;
 
   // Check if T is one of the types in the type list MemberTypes..., or a
   // container
   template <typename T, typename DynamicType, typename... MemberTypes>
-  static constexpr auto is_candidate_type = nvfuser::
+  static constexpr auto is_candidate_type = dynamic_type::
       belongs_to<T, std::monostate, MemberTypes..., Templates<DynamicType>...>;
 };
 
@@ -290,7 +289,7 @@ struct DynamicType {
         }
       }
     });
-    TORCH_CHECK(
+    DYNAMIC_TYPE_CHECK(
         ret.has_value(),
         "Cannot cast from ",
         type().name(),
@@ -307,7 +306,7 @@ struct DynamicType {
       typename = std::enable_if_t<
           is_candidate_type<Template<DynamicType>> && can_cast_to<ItemT>>>
   explicit constexpr operator Template<ItemT>() const {
-    TORCH_CHECK(
+    DYNAMIC_TYPE_CHECK(
         is<Template<DynamicType>>(),
         "Cannot cast from ",
         type().name(),
@@ -372,7 +371,7 @@ struct DynamicType {
         }                                                                      \
       }                                                                        \
     });                                                                        \
-    TORCH_CHECK(                                                               \
+    DYNAMIC_TYPE_CHECK(                                                        \
         ret.has_value(),                                                       \
         "Cannot index ",                                                       \
         type().name(),                                                         \
@@ -409,7 +408,7 @@ struct DynamicType {
         }                                                            \
       }                                                              \
     });                                                              \
-    TORCH_CHECK(                                                     \
+    DYNAMIC_TYPE_CHECK(                                              \
         ret.has_value(),                                             \
         "Cannot index ",                                             \
         type().name(),                                               \
@@ -455,7 +454,7 @@ struct DynamicType {
           }                                                                    \
         }                                                                      \
       });                                                                      \
-      TORCH_CHECK(                                                             \
+      DYNAMIC_TYPE_CHECK(                                                      \
           ret.has_value(),                                                     \
           "Cannot access member with type ",                                   \
           typeid(Ret).name(),                                                  \
@@ -514,7 +513,7 @@ struct DynamicType {
         }                                                                       \
       }                                                                         \
     });                                                                         \
-    TORCH_CHECK(                                                                \
+    DYNAMIC_TYPE_CHECK(                                                         \
         ret.has_value(),                                                        \
         "Cannot access member with type ",                                      \
         typeid(RetT).name(),                                                    \
@@ -580,7 +579,7 @@ constexpr bool is_dynamic_type_v = is_dynamic_type<T>::value;
         }                                                                  \
       });                                                                  \
     });                                                                    \
-    TORCH_CHECK(                                                           \
+    DYNAMIC_TYPE_CHECK(                                                    \
         !ret.template is<std::monostate>(),                                \
         "Cannot compute ",                                                 \
         x.type().name(),                                                   \
@@ -625,7 +624,7 @@ constexpr bool is_dynamic_type_v = is_dynamic_type<T>::value;
         }                                                                  \
       }                                                                    \
     });                                                                    \
-    TORCH_CHECK(                                                           \
+    DYNAMIC_TYPE_CHECK(                                                    \
         !ret.template is<std::monostate>(),                                \
         "Cannot compute ",                                                 \
         x.type().name(),                                                   \
@@ -670,7 +669,7 @@ constexpr bool is_dynamic_type_v = is_dynamic_type<T>::value;
         }                                                                  \
       }                                                                    \
     });                                                                    \
-    TORCH_CHECK(                                                           \
+    DYNAMIC_TYPE_CHECK(                                                    \
         !ret.template is<std::monostate>(),                                \
         "Cannot compute ",                                                 \
         typeid(LHS).name(),                                                \
@@ -736,7 +735,7 @@ DEFINE_BINARY_OP(rshift, >>);
         }                                                                     \
       });                                                                     \
     });                                                                       \
-    TORCH_CHECK(                                                              \
+    DYNAMIC_TYPE_CHECK(                                                       \
         ret.has_value(),                                                      \
         "Cannot compute ",                                                    \
         x.type().name(),                                                      \
@@ -781,7 +780,7 @@ DEFINE_BINARY_OP(rshift, >>);
         }                                                                     \
       }                                                                       \
     });                                                                       \
-    TORCH_CHECK(                                                              \
+    DYNAMIC_TYPE_CHECK(                                                       \
         ret.has_value(),                                                      \
         "Cannot compute ",                                                    \
         x.type().name(),                                                      \
@@ -825,7 +824,7 @@ DEFINE_BINARY_OP(rshift, >>);
         }                                                                     \
       }                                                                       \
     });                                                                       \
-    TORCH_CHECK(                                                              \
+    DYNAMIC_TYPE_CHECK(                                                       \
         ret.has_value(),                                                      \
         "Cannot compute ",                                                    \
         typeid(LHS).name(),                                                   \
@@ -879,7 +878,7 @@ DEFINE_COMPARE_OP(ge, >=);
         }                                                                      \
       }                                                                        \
     });                                                                        \
-    TORCH_CHECK(                                                               \
+    DYNAMIC_TYPE_CHECK(                                                        \
         !ret.template is<std::monostate>(),                                    \
         "Cannot compute ",                                                     \
         #op,                                                                   \
@@ -926,7 +925,7 @@ DT& operator*(const DT& x) {
       }
     }
   });
-  TORCH_CHECK(ret.has_value(), "Cannot dereference ", x.type().name());
+  DYNAMIC_TYPE_CHECK(ret.has_value(), "Cannot dereference ", x.type().name());
   return ret.value();
 }
 
@@ -964,7 +963,7 @@ std::ostream& operator<<(std::ostream& os, const DT& dt) {
       }
     }
   });
-  TORCH_CHECK(
+  DYNAMIC_TYPE_CHECK(
       printed, "Can not print ", dt.type().name(), " : incompatible type");
   return os;
 }
@@ -999,7 +998,7 @@ std::ostream& operator<<(std::ostream& os, const DT& dt) {
         }                                                                      \
       }                                                                        \
     });                                                                        \
-    TORCH_CHECK(                                                               \
+    DYNAMIC_TYPE_CHECK(                                                        \
         computed,                                                              \
         "Cannot compute ",                                                     \
         #op,                                                                   \
@@ -1046,7 +1045,7 @@ DEFINE_LEFT_PPMM(lmm, --);
         }                                                                      \
       }                                                                        \
     });                                                                        \
-    TORCH_CHECK(                                                               \
+    DYNAMIC_TYPE_CHECK(                                                        \
         !ret.template is<std::monostate>(),                                    \
         "Cannot compute ",                                                     \
         x.type().name(),                                                       \
@@ -1109,12 +1108,12 @@ constexpr bool has_cross_type_equality =
 #pragma GCC diagnostic pop
 #endif
 
-} // namespace nvfuser
+} // namespace dynamic_type
 
 // Hashing:
 
 template <typename Containers, typename... Ts>
-struct std::hash<nvfuser::DynamicType<Containers, Ts...>> {
+struct std::hash<dynamic_type::DynamicType<Containers, Ts...>> {
   // The hashing should be consistent with the equality operator. That is, if
   // a == b, then a and b should always has the same hash. However, because we
   // are using the hashing function for std::variant as our hasing function,
@@ -1123,10 +1122,10 @@ struct std::hash<nvfuser::DynamicType<Containers, Ts...>> {
   // So the hashing function for DynamicType<NoContainers, int, double> as
   // defined here is illegal.
   static_assert(
-      !nvfuser::has_cross_type_equality<
-          nvfuser::DynamicType<Containers, Ts...>>,
+      !dynamic_type::has_cross_type_equality<
+          dynamic_type::DynamicType<Containers, Ts...>>,
       "Hash function of DynamicType can not be automatically defined while there are cross-type equality.");
-  using DT = nvfuser::DynamicType<Containers, Ts...>;
+  using DT = dynamic_type::DynamicType<Containers, Ts...>;
   std::size_t operator()(DT const& dt) const noexcept {
     return std::hash<typename DT::VariantType>{}(dt.value);
   }
