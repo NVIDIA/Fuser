@@ -124,12 +124,12 @@ run_test() {
     testcmd=$*
 
     mkdir -p "$testdir"
-    echo "$testcmd" > "$testdir/command.txt"
+    echo "$testcmd" > "$testdir/command"
 
     # Allow next command to fail
     set +e
     $testcmd | tee "$testdir/stdout-$(date +%Y%m%d_%H%M%S).log"
-    echo $? > $testdir/returncode
+    echo $? > "$testdir/exitcode"
     set -e
     mkdir -p "$testdir/cuda"
     movecudafiles "$testdir/cuda"
@@ -206,8 +206,9 @@ collect_kernels "$outdir" "$comparecommit"
 cleanup
 
 # Print mismatching files. Note that logs are expected to differ since timings are included
+set +e  # exit status of diff is 1 if there are any mismatches
 diffs=$(diff -qr -x '*.log' "$outdir/$origcommit" "$outdir/$comparecommit")
-echo "$diffs"
+echo -e "\n\nDIFF RESULT:\n$diffs\n\n"
 
 # Return number of mismatched cuda files. Success=0
 num_mismatches=$(echo "$diffs" | wc -l)
