@@ -60,3 +60,111 @@ TEST_F(DynamicTypeTest, UnaryOpAdvancedTyping) {
       ::testing::ThrowsMessage<std::runtime_error>(
           ::testing::HasSubstr("Cannot compute ")));
 }
+
+TEST_F(DynamicTypeTest, Star) {
+  using IntOrPtr = DynamicType<Containers<std::shared_ptr>, int>;
+  static_assert(*opcheck<IntOrPtr>);
+  static_assert(!(*opcheck<DoubleInt64Bool>));
+  IntOrPtr x = 299792458;
+  IntOrPtr y = std::make_shared<IntOrPtr>(x);
+  EXPECT_EQ(*y, 299792458);
+  (*y)--;
+  EXPECT_EQ(*y, 299792457);
+  EXPECT_THAT(
+      [&]() { *x; },
+      ::testing::ThrowsMessage<std::runtime_error>(
+          ::testing::HasSubstr("Cannot dereference ")));
+}
+
+TEST_F(DynamicTypeTest, PlusPlusMinusMinus) {
+  // ++x
+  {
+    IntSomeType x(1);
+    auto& y = ++x;
+    EXPECT_EQ(x.as<int>(), 2);
+    EXPECT_EQ(y.as<int>(), 2);
+    EXPECT_EQ(&x, &y);
+    EXPECT_THAT(
+        []() {
+          IntSomeType x;
+          ++x;
+        },
+        ::testing::ThrowsMessage<std::runtime_error>(
+            ::testing::HasSubstr("Cannot compute ")));
+    EXPECT_THAT(
+        []() {
+          IntSomeType x(SomeType{});
+          ++x;
+        },
+        ::testing::ThrowsMessage<std::runtime_error>(
+            ::testing::HasSubstr("Cannot compute ")));
+    static_assert(!(++opcheck<SomeTypes&>));
+  }
+  // --x
+  {
+    IntSomeType x(1);
+    auto& y = --x;
+    EXPECT_EQ(x.as<int>(), 0);
+    EXPECT_EQ(y.as<int>(), 0);
+    EXPECT_EQ(&x, &y);
+    EXPECT_THAT(
+        []() {
+          IntSomeType x;
+          --x;
+        },
+        ::testing::ThrowsMessage<std::runtime_error>(
+            ::testing::HasSubstr("Cannot compute ")));
+    EXPECT_THAT(
+        []() {
+          IntSomeType x(SomeType{});
+          --x;
+        },
+        ::testing::ThrowsMessage<std::runtime_error>(
+            ::testing::HasSubstr("Cannot compute ")));
+    static_assert(!(--opcheck<SomeTypes&>));
+  }
+  // x++
+  {
+    IntSomeType x(1);
+    auto y = x++;
+    EXPECT_EQ(x.as<int>(), 2);
+    EXPECT_EQ(y.as<int>(), 1);
+    EXPECT_THAT(
+        []() {
+          IntSomeType x;
+          x++;
+        },
+        ::testing::ThrowsMessage<std::runtime_error>(
+            ::testing::HasSubstr("Cannot compute ")));
+    EXPECT_THAT(
+        []() {
+          IntSomeType x(SomeType{});
+          x++;
+        },
+        ::testing::ThrowsMessage<std::runtime_error>(
+            ::testing::HasSubstr("Cannot compute ")));
+    static_assert(!(opcheck<SomeTypes&> ++));
+  }
+  // x--
+  {
+    IntSomeType x(1);
+    auto y = x--;
+    EXPECT_EQ(x.as<int>(), 0);
+    EXPECT_EQ(y.as<int>(), 1);
+    EXPECT_THAT(
+        []() {
+          IntSomeType x;
+          x--;
+        },
+        ::testing::ThrowsMessage<std::runtime_error>(
+            ::testing::HasSubstr("Cannot compute ")));
+    EXPECT_THAT(
+        []() {
+          IntSomeType x(SomeType{});
+          x--;
+        },
+        ::testing::ThrowsMessage<std::runtime_error>(
+            ::testing::HasSubstr("Cannot compute ")));
+    static_assert(!(opcheck<SomeTypes&> --));
+  }
+}
