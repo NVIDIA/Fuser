@@ -12,6 +12,8 @@
 
 using namespace dynamic_type;
 
+// Test opcheck
+
 struct SomeType {};
 struct SomeType2 {};
 

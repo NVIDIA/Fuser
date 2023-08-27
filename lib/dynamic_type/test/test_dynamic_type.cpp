@@ -18,6 +18,8 @@
 
 #include "dynamic_type.h"
 
+#include "utils.h"
+
 #if defined(__GLIBCXX__) && __GLIBCXX__ >= 20230714
 #define STD_UNORDERED_SET_SUPPORTS_INCOMPLETE_TYPE 1
 #endif
@@ -31,96 +33,6 @@ namespace dynamic_type {
 #pragma clang diagnostic ignored "-Wliteral-conversion"
 #pragma clang diagnostic ignored "-Wunused-lambda-capture"
 #endif
-
-struct SomeType {};
-struct SomeType2 {};
-
-class DynamicTypeTest : public ::testing::Test {};
-
-struct NonInstantiable {
-  NonInstantiable() = delete;
-};
-
-// Adding NonInstantiable as a member type to test that we never instantiate any
-// member types when not necessary.
-using DoubleInt64Bool =
-    DynamicType<NoContainers, double, int64_t, bool, NonInstantiable>;
-// Note: because std::vector does not has trivial destructor, we can not
-// static_assert to test the following class:
-using DoubleInt64BoolVec = DynamicType<
-    Containers<std::vector>,
-    double,
-    int64_t,
-    bool,
-    NonInstantiable>;
-using IntSomeType = DynamicType<NoContainers, int, SomeType, NonInstantiable>;
-using BoolSomeType = DynamicType<NoContainers, bool, SomeType, NonInstantiable>;
-using SomeTypes =
-    DynamicType<NoContainers, SomeType, SomeType, NonInstantiable>;
-
-// Utilities for testing if we have T->as<U> defined
-template <typename T, typename U>
-static auto hasAsHelper(int)
-    -> decltype(std::declval<T>().template as<U>(), std::true_type{});
-
-template <typename, typename>
-static auto hasAsHelper(long) -> std::false_type;
-
-template <typename T, typename U>
-struct hasAs : decltype(hasAsHelper<T, U>(int{})) {};
-
-// Utilities for testing if we have T->as<Template> defined
-template <typename T, template <typename...> typename Template>
-static auto hasAsTemplateHelper(int)
-    -> decltype(std::declval<T>().template as<Template>(), std::true_type{});
-
-template <typename, template <typename...> typename>
-static auto hasAsTemplateHelper(long) -> std::false_type;
-
-template <typename T, template <typename...> typename Template>
-struct hasAsTemplate : decltype(hasAsTemplateHelper<T, Template>(int{})) {};
-
-TEST_F(DynamicTypeTest, Typing) {
-  static_assert(DoubleInt64Bool().isNull());
-  static_assert(!DoubleInt64Bool(1.0).isNull());
-  static_assert(!DoubleInt64Bool().hasValue());
-  static_assert(DoubleInt64Bool(1.0).hasValue());
-  EXPECT_TRUE(DoubleInt64BoolVec().isNull());
-  EXPECT_FALSE(DoubleInt64BoolVec(1.0).isNull());
-  EXPECT_FALSE(DoubleInt64BoolVec().hasValue());
-  EXPECT_TRUE(DoubleInt64BoolVec(1.0).hasValue());
-
-  static_assert(hasAs<DoubleInt64BoolVec, double>::value);
-  static_assert(hasAs<DoubleInt64BoolVec, int64_t>::value);
-  static_assert(hasAs<DoubleInt64BoolVec, bool>::value);
-  static_assert(
-      hasAs<DoubleInt64BoolVec, std::vector<DoubleInt64BoolVec>>::value);
-  static_assert(hasAsTemplate<DoubleInt64BoolVec, std::vector>::value);
-  static_assert(!hasAs<DoubleInt64BoolVec, SomeType>::value);
-  static_assert(!hasAs<DoubleInt64BoolVec, int>::value);
-  static_assert(!hasAsTemplate<DoubleInt64BoolVec, std::list>::value);
-
-  static_assert((int)DoubleInt64Bool(true) == 1);
-  EXPECT_EQ((int)DoubleInt64BoolVec(true), 1);
-
-  EXPECT_ANY_THROW(DoubleInt64Bool(1.0).as<bool>());
-  EXPECT_ANY_THROW(DoubleInt64BoolVec(1.0).as<std::vector>());
-
-  struct CustomType {};
-  static_assert(opcheck<IntSomeType>.canCastTo(opcheck<double>));
-  static_assert(opcheck<IntSomeType>.canCastTo(opcheck<int64_t>));
-  static_assert(opcheck<IntSomeType>.canCastTo(opcheck<bool>));
-  static_assert(opcheck<IntSomeType>.canCastTo(opcheck<int>));
-  static_assert(opcheck<IntSomeType>.canCastTo(opcheck<float>));
-  static_assert(opcheck<IntSomeType>.canCastTo(opcheck<SomeType>));
-  static_assert(!opcheck<IntSomeType>.canCastTo(opcheck<CustomType>));
-  static_assert((int64_t)IntSomeType(1) == 1);
-  EXPECT_THAT(
-      // suppress unused value warning
-      []() { (void)(SomeType)IntSomeType(1); },
-      ::testing::ThrowsMessage<std::runtime_error>(
-          ::testing::HasSubstr("Cannot cast from ")));
-}
 
 TEST_F(DynamicTypeTest, MoveCtor) {
   struct NonCopyable {
@@ -815,8 +727,8 @@ TEST_F(DynamicTypeTest, Hash) {
 } // namespace dynamic_type
 
 template <>
-struct std::hash<dynamic_type::DoubleInt64Bool> {
-  size_t operator()(const dynamic_type::DoubleInt64Bool& x) const {
+struct std::hash<DoubleInt64Bool> {
+  size_t operator()(const DoubleInt64Bool& x) const {
     return 0;
   }
 };
