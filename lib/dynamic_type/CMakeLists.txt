@@ -14,6 +14,7 @@ function(add_test_for_standard std_version)
         test/binary_ops.cpp
         test/container.cpp
         test/examples.cpp
+        test/hash.cpp
         test/move.cpp
         test/null.cpp
         test/opcheck.cpp
