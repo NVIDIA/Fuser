@@ -9,9 +9,10 @@ function(add_test_for_standard std_version)
     set(target test_dynamic_type_${std_version})
     add_executable(${target}
         test/test_dynamic_type.cpp
-        test/assignment.cpp
         test/ForAllTypes.cpp
+        test/assignment.cpp
         test/binary_ops.cpp
+        test/container.cpp
         test/examples.cpp
         test/move.cpp
         test/null.cpp
