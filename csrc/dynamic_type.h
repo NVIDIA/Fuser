@@ -447,19 +447,9 @@ struct DynamicType {
     }                                                                          \
   }
 
-  template <
-      typename Ret,
-      typename Class,
-      typename = std::enable_if_t<is_candidate_type<Class>>>
-  constexpr decltype(auto) operator->*(Ret Class::*member) {
-    if constexpr (std::is_function_v<Ret>) {
-      return [this, member](auto&&... args) {
-        return (as<Class>().*member)(std::forward<decltype(args)>(args)...);
-      };
-    } else {
-      return as<Class>().*member;
-    }
-  }
+  DEFINE_ARROW_STAR_OPERATOR()
+  DEFINE_ARROW_STAR_OPERATOR(const)
+#undef DEFINE_ARROW_STAR_OPERATOR
 
   // ->* operator for non-candidate access. This will just forward the argument
   // to the overloaded ->* of candidates. Due to limitations of C++'s type
