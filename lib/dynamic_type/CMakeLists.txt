@@ -16,6 +16,7 @@ function(add_test_for_standard std_version)
         test/null.cpp
         test/opcheck.cpp
         test/typing.cpp
+        test/unary_ops.cpp
     )
     target_include_directories(${target} PUBLIC src)
     target_link_libraries(${target} PRIVATE gtest_main gmock_main)
