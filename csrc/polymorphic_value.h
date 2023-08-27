@@ -19,8 +19,8 @@
 
 #define DYNAMIC_TYPE_CHECK TORCH_INTERNAL_ASSERT
 
-#include <macros.h>
 #include <dynamic_type.h>
+#include <macros.h>
 #include <opaque_type.h>
 
 namespace nvfuser {
