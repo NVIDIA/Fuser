@@ -35,52 +35,6 @@ namespace dynamic_type {
 struct SomeType {};
 struct SomeType2 {};
 
-namespace ForAllTypesTests {
-
-// Find all primes < 10 using template deduction
-
-using From2To10 = ForAllTypes<
-    std::integral_constant<int, 2>,
-    std::integral_constant<int, 3>,
-    std::integral_constant<int, 4>,
-    std::integral_constant<int, 5>,
-    std::integral_constant<int, 6>,
-    std::integral_constant<int, 7>,
-    std::integral_constant<int, 8>,
-    std::integral_constant<int, 9>,
-    std::integral_constant<int, 10>>;
-
-constexpr bool is_prime(int n) {
-  return all(From2To10{}([n](auto _) {
-    auto divisor = decltype(_)::type::value;
-    return n % divisor != 0 || n == divisor;
-  }));
-}
-
-auto void_or_prime = [](auto _) constexpr {
-  constexpr auto value = decltype(_)::type::value;
-  if constexpr (is_prime(value)) {
-    return std::integral_constant<int, value>{};
-  } else {
-    return;
-  }
-};
-
-// (2, 3, Void, 5, Void, 7, Void, Void, Void)
-using result_with_void = decltype(From2To10{}(void_or_prime));
-
-using result = decltype(remove_void_from_tuple(result_with_void{}));
-
-static_assert(std::is_same_v<
-              result,
-              std::tuple<
-                  std::integral_constant<int, 2>,
-                  std::integral_constant<int, 3>,
-                  std::integral_constant<int, 5>,
-                  std::integral_constant<int, 7>>>);
-
-} // namespace ForAllTypesTests
-
 class DynamicTypeTest : public ::testing::Test {};
 
 struct NonInstantiable {
