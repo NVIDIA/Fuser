@@ -742,6 +742,18 @@ TEST_F(DynamicTypeTest, BinaryOpAdvancedTyping) {
   static_assert((Int(2) && Int(3)) == 1);
 }
 
+TEST_F(DynamicTypeTest, CastToDynamicType) {
+  using IntOrFloat = DynamicType<NoContainers, int, float>;
+  struct A {
+    constexpr operator IntOrFloat() const {
+      return 1;
+    }
+  };
+  static_assert((IntOrFloat)A{} == 1);
+  IntOrFloat x = A{};
+  EXPECT_EQ(x, 1);
+}
+
 TEST_F(DynamicTypeTest, Printing) {
   std::stringstream ss;
   ss << DoubleInt64Bool(299792458L) << ", " << DoubleInt64Bool(3.14159) << ", "
