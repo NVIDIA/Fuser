@@ -79,3 +79,15 @@ TEST_F(DynamicTypeTest, Typing) {
       ::testing::ThrowsMessage<std::runtime_error>(
           ::testing::HasSubstr("Cannot cast from ")));
 }
+
+TEST_F(DynamicTypeTest, CastToDynamicType) {
+  using IntOrFloat = DynamicType<NoContainers, int, float>;
+  struct A {
+    constexpr operator IntOrFloat() const {
+      return 1;
+    }
+  };
+  static_assert((IntOrFloat)A{} == 1);
+  IntOrFloat x = A{};
+  EXPECT_EQ(x, 1);
+}
