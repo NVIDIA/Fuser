@@ -206,10 +206,8 @@ struct DynamicType {
 
   constexpr DynamicType() = default;
 
-  template <
-      typename T,
-      typename = std::void_t<decltype(VariantType(std::declval<T>()))>>
-  constexpr DynamicType(T&& value) : value(std::forward<T>(value)) {}
+  template <typename T, typename = decltype(VariantType(std::declval<T>()))>
+  constexpr DynamicType(T value) : value(std::move(value)) {}
 
   template <
       template <typename...>
