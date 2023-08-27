@@ -16,6 +16,7 @@ function(add_test_for_standard std_version)
         test/move.cpp
         test/null.cpp
         test/opcheck.cpp
+        test/print.cpp
         test/typing.cpp
         test/unary_ops.cpp
     )
