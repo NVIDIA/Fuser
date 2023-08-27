@@ -149,7 +149,7 @@ the above code is:
 using IntFloatVecList = DynamicType<Containers<std::vector, std::list>, int, float>;
 ```
 
-with the above definition, the value contained in `IntFloatVecList` can be
+With the above definition, the value contained in `IntFloatVecList` can be
 an `int`, a `float`, a `std::vector<IntFloatVecList>`, or a
 `std::list<IntFloatVecList>`. For example, we can have:
 
