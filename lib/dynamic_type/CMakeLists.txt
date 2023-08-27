@@ -1,0 +1,7 @@
+add_library(dynamic_type INTERFACE)
+target_include_directories(dynamic_type INTERFACE src)
+
+add_executable(test_dynamic_type test/test_dynamic_type.cpp)
+target_include_directories(test_dynamic_type PUBLIC src)
+target_link_libraries(test_dynamic_type PRIVATE gtest_main gmock_main)
+set_property(TARGET test_dynamic_type PROPERTY CXX_STANDARD 17)
