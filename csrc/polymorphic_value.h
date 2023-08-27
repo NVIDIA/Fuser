@@ -237,7 +237,7 @@ inline std::ostream& operator<<(std::ostream& os, const Pointer& ptr) {
 }
 
 struct Struct;
-struct Accessor;
+class Accessor;
 struct StructType;
 
 class StructHandle {
