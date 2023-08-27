@@ -106,8 +106,8 @@ IntOrFloat x = 1;
 float y = 2.5f;
 ```
 
-then `x + y` or `y + x` should be an `IntOrFloat` with value `3.5f`. However, if you
-have
+then `x + y` or `y + x` should be an `IntOrFloat` with value `3.5f`. However, if
+you have
 
 ```C++
 IntOrFloat x = 1;
@@ -115,8 +115,8 @@ double y = 2.5;
 ```
 
 then you will get a compilation error for doing `x + y` or `y + x`, because
-`int + double` and `double + int` are `double`, which can not be used to construct
-`IntOrFloat`.
+`int + double` and `double + int` are `double`, which can not be used to
+construct `IntOrFloat`.
 
 All the above behaviors are handled by template meta-programming, so they are
 automatic. Adding a new type to the list of types does not introduce any
@@ -149,8 +149,9 @@ the above code is:
 using IntFloatVecList = DynamicType<Containers<std::vector, std::list>, int, float>;
 ```
 
-with the above definition, the value contained in `IntFloatVecList` can be an `int`,
-a `float`, a `std::vector<IntFloatVecList>`, or a `std::list<IntFloatVecList>`. For example, we can have:
+with the above definition, the value contained in `IntFloatVecList` can be
+an `int`, a `float`, a `std::vector<IntFloatVecList>`, or a
+`std::list<IntFloatVecList>`. For example, we can have:
 
 ```C++
 IntFloatVecList x = std::vector<IntFloatVecList>{1, 2.0f};
