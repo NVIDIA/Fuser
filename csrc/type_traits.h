@@ -589,3 +589,88 @@ static_assert(!any_check(
     std::make_tuple(-2, -1)));
 
 } // namespace nvfuser
+
+namespace nvfuser {
+
+// Check if all the types in the tuple are the same. If the tuple is empty, or
+// the provided type is not a tuple, then it is considered to be false.
+
+template <typename Tuple>
+struct are_all_same : std::false_type {};
+
+template <typename T, typename... Rest>
+struct are_all_same<std::tuple<T, Rest...>>
+    : std::conjunction<std::is_same<T, Rest>...> {};
+
+template <typename T, typename... Rest>
+struct are_all_same<const std::tuple<T, Rest...>>
+    : std::conjunction<std::is_same<T, Rest>...> {};
+
+template <typename T>
+constexpr bool all_same_type(T) {
+  return are_all_same<T>::value;
+}
+
+// For example:
+static_assert(are_all_same<std::tuple<int, int, int>>::value);
+static_assert(are_all_same<const std::tuple<int, int, int>>::value);
+static_assert(!are_all_same<std::tuple<int, int, float>>::value);
+static_assert(!are_all_same<std::tuple<>>::value);
+
+} // namespace nvfuser
+
+namespace nvfuser {
+
+// Get the first type in a tuple. If the tuple is empty, or the type is not a
+// tuple, then it is considered to be void.
+
+template <typename T>
+struct first_or_void {
+  using type = void;
+};
+
+template <typename T, typename... Ts>
+struct first_or_void<std::tuple<T, Ts...>> {
+  using type = T;
+};
+
+template <typename T, typename... Ts>
+struct first_or_void<const std::tuple<T, Ts...>> {
+  using type = T;
+};
+
+// For example:
+static_assert(std::is_same_v<first_or_void<std::tuple<int, float>>::type, int>);
+static_assert(
+    std::is_same_v<first_or_void<const std::tuple<int, float>>::type, int>);
+static_assert(std::is_same_v<first_or_void<std::tuple<>>::type, void>);
+static_assert(std::is_same_v<first_or_void<int>::type, void>);
+
+} // namespace nvfuser
+
+namespace nvfuser {
+
+// If T is not a reference, then return T, otherwise the wrapped reference type.
+
+template <typename T>
+struct wrap_reference {
+  using type = T;
+};
+
+template <typename T>
+struct wrap_reference<T&> {
+  using type = std::reference_wrapper<T>;
+};
+
+template <typename T>
+using wrap_reference_t = typename wrap_reference<T>::type;
+
+// For example:
+static_assert(std::is_same_v<wrap_reference<int>::type, int>);
+static_assert(
+    std::is_same_v<wrap_reference<int&>::type, std::reference_wrapper<int>>);
+static_assert(std::is_same_v<
+              wrap_reference<const int&>::type,
+              std::reference_wrapper<const int>>);
+
+} // namespace nvfuser

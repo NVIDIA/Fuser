@@ -334,7 +334,7 @@ std::vector<PolymorphicValue> GetMetaData::evaluate(
       input.is_cuda() || input.is_meta(),
       "GetMetaData expects a CUDA tensor as input, but got undefined tensor");
 
-  Struct<PolymorphicValue> concrete_value;
+  LegacyStruct<PolymorphicValue> concrete_value;
   concrete_value["data"] = PolymorphicValue(
       Pointer(input.data_ptr(), aten_to_data_type(input.scalar_type())));
   concrete_value["logical_size"] = PolymorphicValue(input.sizes().vec());

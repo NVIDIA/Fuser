@@ -237,7 +237,7 @@ if(PROJECT_IS_TOP_LEVEL)
 
   # this is to find pip installed nvrtc/nvtx .so
   set_target_properties(${NVFUSER_CODEGEN} PROPERTIES INSTALL_RPATH
-	  "$ORIGIN/../../nvidia/cuda_nvrtc/lib:$ORIGIN/../../nvidia/nvtx/lib")
+    "$ORIGIN/../../nvidia/cuda_nvrtc/lib:$ORIGIN/../../nvidia/nvtx/lib")
   install(TARGETS ${NVFUSER_CODEGEN} EXPORT NvfuserTargets DESTINATION lib)
 
   # We are keeping fusion_cache_generated.h for the submodule build because flatc is unavailable.
@@ -414,6 +414,7 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/test/test_gpu_shift.cpp
     ${NVFUSER_ROOT}/test/test_resize.cpp
     ${NVFUSER_ROOT}/test/test_gpu_tensorcore.cpp
+    ${NVFUSER_ROOT}/test/test_polymorphic_value.cpp
     ${NVFUSER_ROOT}/test/test_matmul_sass.cpp
     ${NVFUSER_ROOT}/test/test_matmul_scheduler.cpp
     ${NVFUSER_ROOT}/test/test_gpu_view.cpp
