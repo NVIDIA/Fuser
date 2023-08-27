@@ -11,6 +11,7 @@ function(add_test_for_standard std_version)
         test/test_dynamic_type.cpp
         test/ForAllTypes.cpp
         test/examples.cpp
+        test/move.cpp
         test/opcheck.cpp
         test/typing.cpp
     )
