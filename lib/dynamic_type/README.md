@@ -171,3 +171,8 @@ TODO: document the following:
 
 Also, operations on `DynamicType` are as `constexpr` as possible. So most
 tests in `DynamicTypeTest` are `static_assert` tests.
+
+
+# Benchmarks
+
+# Compilation time
