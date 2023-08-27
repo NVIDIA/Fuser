@@ -11,8 +11,8 @@
 
 #include "dynamic_type.h"
 
-#include <string>
 #include <sstream>
+#include <string>
 
 #include "utils.h"
 
