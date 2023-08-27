@@ -423,18 +423,28 @@ struct DynamicType {
   DEFINE_SQUARE_BRACKET_OPERATOR(const)
 #undef DEFINE_SQUARE_BRACKET_OPERATOR
 
-  template <
-      typename Ret,
-      typename Class,
-      typename = std::enable_if_t<is_candidate_type<Class>>>
-  constexpr decltype(auto) operator->*(Ret Class::*member) const {
-    if constexpr (std::is_function_v<Ret>) {
-      return [this, member](auto&&... args) {
-        return (as<Class>().*member)(std::forward<decltype(args)>(args)...);
-      };
-    } else {
-      return as<Class>().*member;
-    }
+  // ->* over for accessing candidate members. This will be converted as a .*
+  // with a candidate type. For example, if you have:
+  // DynamicType<NoContainers, A, B, C> abc;
+  // then you can use abc->*A::x to access the member x of A. Member access also
+  // support functions, just make sure that you get the correct precedence. For
+  // example: use (abc->*A::print)() instead of abc->*A::print().
+
+#define DEFINE_ARROW_STAR_OPERATOR(__const)                                    \
+  template <                                                                   \
+      typename Ret,                                                            \
+      typename Class,                                                          \
+      typename = std::enable_if_t<is_candidate_type<Class>>>                   \
+  constexpr decltype(auto) operator->*(Ret Class::*member) __const {           \
+    /* Use decltype(auto) instead of auto as return type so that references */ \
+    /* and qualifiers are preserved*/                                          \
+    if constexpr (std::is_function_v<Ret>) {                                   \
+      return [this, member](auto&&... args) {                                  \
+        return (as<Class>().*member)(std::forward<decltype(args)>(args)...);   \
+      };                                                                       \
+    } else {                                                                   \
+      return as<Class>().*member;                                              \
+    }                                                                          \
   }
 
   template <
@@ -451,10 +461,10 @@ struct DynamicType {
     }
   }
 
-  // ->* operator for non-member-pointers, this is used to support use cases
-  // like `value->*"myfield"`. Due to limitations of C++'s type system, we can
-  // only enable this when all the types in the type list that support this
-  // operator have the same return type.
+  // ->* operator for non-candidate access. This will just forward the argument
+  // to the overloaded ->* of candidates. Due to limitations of C++'s type
+  // system, we can only enable this when all the types in the type list that
+  // support this operator have the same return type.
 
 #define DEFINE_ARROW_STAR_OPERATOR(__const)                                     \
   template <typename MemberT>                                                   \

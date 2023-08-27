@@ -1372,6 +1372,82 @@ TEST_F(DynamicTypeTest, NonMemberPointerArrowStaAccessor) {
   EXPECT_EQ(hh->*"y", 314159);
 }
 
+TEST_F(DynamicTypeTest, MemberFunctions) {
+  struct J {
+    constexpr std::string_view no_qualifiers() {
+      return "no qualifiers";
+    }
+
+    constexpr std::string_view const_qualifiers() const {
+      return "const qualifiers";
+    }
+
+    constexpr std::string_view volatile_qualifiers() volatile {
+      return "volatile qualifiers";
+    }
+
+    constexpr std::string_view const_volatile_qualifiers() const volatile {
+      return "const volatile qualifiers";
+    }
+
+    constexpr std::string_view lvalue_ref_qualifiers() & {
+      return "lvalue ref qualifiers";
+    }
+
+    constexpr std::string_view const_lvalue_ref_qualifiers() const& {
+      return "const lvalue ref qualifiers";
+    }
+
+    constexpr std::string_view volatile_lvalue_ref_qualifiers() volatile& {
+      return "volatile lvalue ref qualifiers";
+    }
+
+    constexpr std::string_view noexcept_qualifiers() noexcept {
+      return "noexcept qualifiers";
+    }
+
+    constexpr std::string_view noexcept_false_qualifiers() noexcept(false) {
+      return "noexcept(false) qualifiers";
+    }
+
+    constexpr std::string_view noexcept_true_qualifiers() noexcept(true) {
+      return "noexcept(true) qualifiers";
+    }
+
+    constexpr int two_arguments(int a, int b) const {
+      return a + b;
+    }
+
+    constexpr int three_arguments(int a, int b, int c) const {
+      return a + b + c;
+    }
+  };
+
+  using EJ = DynamicType<NoContainers, E, J>;
+  constexpr EJ j = J{};
+  static_assert((j->*&J::const_qualifiers)() == "const qualifiers");
+  static_assert(
+      (j->*&J::const_volatile_qualifiers)() == "const volatile qualifiers");
+  static_assert(
+      (j->*&J::const_lvalue_ref_qualifiers)() == "const lvalue ref qualifiers");
+  static_assert((j->*&J::two_arguments)(10, 2) == 12);
+  static_assert((j->*&J::three_arguments)(10, 2, 300) == 312);
+
+  // Not using static_assert below because we can not call functions without
+  // const qualifier in the constant evaluation context
+  EJ jj = j;
+  EXPECT_EQ((jj->*&J::no_qualifiers)(), "no qualifiers");
+  EXPECT_EQ((jj->*&J::volatile_qualifiers)(), "volatile qualifiers");
+  EXPECT_EQ((jj->*&J::lvalue_ref_qualifiers)(), "lvalue ref qualifiers");
+  EXPECT_EQ(
+      (jj->*&J::volatile_lvalue_ref_qualifiers)(),
+      "volatile lvalue ref qualifiers");
+  EXPECT_EQ((jj->*&J::noexcept_qualifiers)(), "noexcept qualifiers");
+  EXPECT_EQ(
+      (jj->*&J::noexcept_false_qualifiers)(), "noexcept(false) qualifiers");
+  EXPECT_EQ((jj->*&J::noexcept_true_qualifiers)(), "noexcept(true) qualifiers");
+}
+
 } // namespace member_pointer_test
 
 } // namespace nvfuser
