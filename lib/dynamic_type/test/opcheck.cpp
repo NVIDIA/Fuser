@@ -46,6 +46,8 @@ static_assert(!(opcheck<SomeType&> --));
 static_assert((opcheck<SomeType>, opcheck<SomeType>));
 static_assert(
     std::is_same_v<decltype((opcheck<SomeType>, opcheck<SomeType>)), bool>);
+// TODO: how to test negative case for comma operator? I can not think of any
+// case where comma operator is not valid.
 
 // Binary operators
 
