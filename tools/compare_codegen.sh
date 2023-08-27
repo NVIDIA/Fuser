@@ -190,10 +190,10 @@ collect_kernels() {
     else
       # python tests
       # Using -s to disable capturing stdout. This is important as it will let us see which tests creates each .cu file
-      run_test "$pyopsdir" python -m pytest $nvfuserdir/python_tests/pytest_ops.py -v -s --color=yes
-      run_test "$pyschedopsdir" python -m pytest $nvfuserdir/python_tests/test_schedule_ops.py -v -s --color=yes
-      run_test "$pyfrontenddir" python -m pytest $nvfuserdir/python_tests/test_python_frontend.py -v -s --color=yes
-      run_test "$torchscriptdir" python -m pytest $nvfuserdir/python_tests/test_torchscript.py -v -s --color=yes
+      run_test "$pyopsdir" python -m pytest $nvfuserdir/python_tests/pytest_ops.py -n 0 -v -s --color=yes
+      run_test "$pyschedopsdir" python -m pytest $nvfuserdir/python_tests/test_schedule_ops.py -n 0 -v -s --color=yes
+      run_test "$pyfrontenddir" python -m pytest $nvfuserdir/python_tests/test_python_frontend.py -n 0 -v -s --color=yes
+      run_test "$torchscriptdir" python -m pytest $nvfuserdir/python_tests/test_torchscript.py -n 0 -v -s --color=yes
 
       # binary tests
       run_test "$binarytestdir" $nvfuserdir/build/nvfuser_tests --gtest_color=yes
