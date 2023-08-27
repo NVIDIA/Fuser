@@ -10,6 +10,7 @@ function(add_test_for_standard std_version)
     add_executable(${target}
         test/test_dynamic_type.cpp
         test/examples.cpp
+        test/opcheck.cpp
     )
     target_include_directories(${target} PUBLIC src)
     target_link_libraries(${target} PRIVATE gtest_main gmock_main)
