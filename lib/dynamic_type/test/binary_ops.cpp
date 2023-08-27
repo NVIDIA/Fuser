@@ -13,6 +13,12 @@
 
 #include "utils.h"
 
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunused-comparison"
+#pragma clang diagnostic ignored "-Wliteral-conversion"
+#endif
+
 #define TEST_BINARY_OP_ALLTYPE(name, op)                                       \
   TEST_F(DynamicTypeTest, name) {                                              \
     static_assert(opcheck<DoubleInt64Bool> op opcheck<DoubleInt64Bool>);       \
@@ -216,3 +222,7 @@ TEST_F(DynamicTypeTest, BinaryOpAdvancedTyping) {
   static_assert((Int(2) && Int(0)) == 0);
   static_assert((Int(2) && Int(3)) == 1);
 }
+
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#endif
