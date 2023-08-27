@@ -736,7 +736,7 @@ void IterDomainGraph::build(Fusion* fusion) {
       }
       if (split->factor()->isOneInt() && split->innerSplit()) {
         permissive_relaxed_resize_nodes_.mapEntries(split->in(), split->outer());
-      else {
+      } else {
         // maps to inner dimension, even though it's not an identical mapping.
         // This is used for transpose scheduler to map inner leaf dimensions
         permissive_relaxed_resize_nodes_.mapEntries(split->in(), split->inner());
