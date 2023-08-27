@@ -47,7 +47,7 @@ class Accessor {
   }
 };
 
-inline Accessor StructHolder::operator->*(const std::string& key) const {
+inline Accessor StructHandle::operator->*(const std::string& key) const {
   return Accessor(struct_ptr_->getter(key), struct_ptr_->setter(key));
 }
 

@@ -240,21 +240,21 @@ struct Struct;
 struct Accessor;
 struct StructType;
 
-class StructHolder {
+class StructHandle {
   std::shared_ptr<Struct> struct_ptr_;
 
  public:
-  StructHolder(std::shared_ptr<Struct> struct_ptr)
+  StructHandle(std::shared_ptr<Struct> struct_ptr)
       : struct_ptr_(std::move(struct_ptr)) {}
-  StructHolder& operator=(std::shared_ptr<Struct> struct_ptr) {
+  StructHandle& operator=(std::shared_ptr<Struct> struct_ptr) {
     struct_ptr_ = std::move(struct_ptr);
     return *this;
   }
 
-  StructHolder(const StructHolder& other) = default;
-  StructHolder(StructHolder&& other) = default;
-  StructHolder& operator=(const StructHolder& other) = default;
-  StructHolder& operator=(StructHolder&& other) = default;
+  StructHandle(const StructHandle& other) = default;
+  StructHandle(StructHandle&& other) = default;
+  StructHandle& operator=(const StructHandle& other) = default;
+  StructHandle& operator=(StructHandle&& other) = default;
 
   template <typename T>
   bool is() const {
@@ -279,7 +279,7 @@ class StructHolder {
 
 using PolymorphicValue = DynamicType<
     Containers<std::vector, LegacyStruct>,
-    StructHolder,
+    StructHandle,
     Pointer,
     Opaque,
     at::Tensor,

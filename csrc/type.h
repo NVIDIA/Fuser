@@ -215,7 +215,7 @@ bool StructType::operator==(const StructType& other) const {
   return true;
 }
 
-inline StructType StructHolder::type() const {
+inline StructType StructHandle::type() const {
   return struct_ptr_->type();
 }
 

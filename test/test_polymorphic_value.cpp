@@ -80,7 +80,7 @@ TEST_F(PolymorphicValueTest, Struct) {
   EXPECT_EQ(a->*&A::x, 2788);
   EXPECT_EQ(a->*&A::y, 2.71828);
 
-  StructType type = (a->*&StructHolder::type)();
+  StructType type = (a->*&StructHandle::type)();
   EXPECT_EQ(type.name, "A");
   EXPECT_EQ(type.fields.size(), 2);
   EXPECT_EQ(type.fields.at(0).name, "x");
@@ -115,7 +115,7 @@ TEST_F(PolymorphicValueTest, Struct) {
     EXPECT_EQ((PolymorphicValue)(b->*"x"), 299792458);
     EXPECT_EQ((PolymorphicValue)(b->*"y"), 3.1415926);
 
-    EXPECT_EQ(type, (b->*&StructHolder::type)());
+    EXPECT_EQ(type, (b->*&StructHandle::type)());
   }
 }
 
