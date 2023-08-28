@@ -110,7 +110,7 @@ cleanup() {
     git submodule update --init --recursive
 }
 
-trap "cleanup" INT TERM EXIT
+trap "cleanup" EXIT
 
 run_test() {
     testdir=$1
@@ -173,7 +173,8 @@ collect_kernels() {
     # Build in Release mode
     (
         cd $nvfuserdir
-        python setup.py develop
+        CUSTOM_BUILD_COMMAND="${CUSTOM_BUILD_COMMAND:-python setup.py develop}"
+        bash -c "${CUSTOM_BUILD_COMMAND}"
     )
 
     # Make tests reproducible
@@ -208,8 +209,14 @@ cleanup
 # Print mismatching files. Note that logs are expected to differ since timings are included
 set +e  # exit status of diff is 1 if there are any mismatches
 diffs=$(diff -qr -x '*.log' "$outdir/$origcommit" "$outdir/$comparecommit")
-echo -e "\n\nDIFF RESULT:\n$diffs\n\n"
+if [[ "$?" == 0 ]]
+then
+  echo "No difference found"
+  exit 0
+else
+  echo -e "\n\nDIFF RESULT:\n$diffs\n\n"
 
-# Return number of mismatched cuda files. Success=0
-num_mismatches=$(echo "$diffs" | wc -l)
-exit "$num_mismatches"
+  # Return number of mismatched cuda files. Success=0
+  num_mismatches=$(echo "$diffs" | wc -l)
+  exit "$num_mismatches"
+fi
