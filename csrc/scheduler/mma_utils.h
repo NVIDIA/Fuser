@@ -220,7 +220,7 @@ constexpr size_t MIN_MATMUL_INPUTS_NUMBER = 2;
 //! An alias for data structure for passing IterDomains representing problem
 //! shape dimensions
 //!  TODO: extend definition for handling batch matmuls
-using ProblemIterDomains = std::array<IterDomain*, 3>;
+using ProblemIterDomains = std::array<IterDomain*, 4>;
 
 //! An alias for mapping between TensorView instance and its role in
 //!  matmul fusion definition, some roles can be assigned to more than
@@ -283,10 +283,9 @@ TORCH_CUDA_CU_API MatmulProblemLayoutOpt getMatmulLayout(Fusion* fusion);
 //! Returns wrapped collection of IterDomains that can be used to get
 //!  problem shape with runtime info.
 //!  Data is stored in the order in which lables are defined in MatmulDomain
-//!  enum class, that is in the following order: m, n, k.
+//!  enum class, that is in the following order: m, n, k, batch.
 //!  An error message is stored in retruned object if valid data cannot
 //!  be gathered.
-//!  TODO: 4th domain must be added for batch gemm support.
 TORCH_CUDA_CU_API ProblemIterDomainsOpt getProblemIterDomains(Fusion* fusion);
 
 //! Returns wrapped collection of TensorView roles in fusion.

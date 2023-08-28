@@ -1430,10 +1430,11 @@ ProblemIterDomainsOpt getProblemIterDomains(Fusion* fusion) {
   }
   const auto mma_output = mma_exprs.front()->out();
 
-  // NOTE: the iter domains of MMA output should be [...,M,K,N]
+  // NOTE: the iter domains of MMA output should be [...,batch,M,K,N]
   IterDomain* m = nullptr;
   IterDomain* n = nullptr;
   IterDomain* k = nullptr;
+  IterDomain* batch = nullptr;
 
   const auto leaf_domains =
       static_cast<const TensorView*>(mma_output)->getLeafDomain();
@@ -1446,9 +1447,17 @@ ProblemIterDomainsOpt getProblemIterDomains(Fusion* fusion) {
     return ss.str();
   }
 
-  // M,N are inner most concrete iter domains
-  m = concrete.rbegin()[1];
-  n = concrete.rbegin()[0];
+  using Pos_t = decltype(leaf_domains)::size_type;
+
+  // N,M,B are the inner most concrete iter domains in tv, so positions are
+  //  counted from the end of the container
+  constexpr Pos_t POS_N = 0, POS_M = 1, POS_BATCH = 2;
+
+  m = concrete.rbegin()[POS_M];
+  n = concrete.rbegin()[POS_N];
+  if (concrete.size() > POS_BATCH) {
+    batch = concrete.rbegin()[POS_BATCH];
+  }
 
   // K is a reduction domain, search for the inner most reduction domain
   for (auto iter_domain = leaf_domains.rbegin();
@@ -1461,7 +1470,7 @@ ProblemIterDomainsOpt getProblemIterDomains(Fusion* fusion) {
   }
   NVF_ERROR(k != nullptr, "Failed to find K domain in MMA output");
 
-  return ProblemIterDomains{m, n, k};
+  return ProblemIterDomains{m, n, k, batch};
 }
 
 MatmulProblemLayoutOpt getMatmulLayout(Fusion* fusion) {

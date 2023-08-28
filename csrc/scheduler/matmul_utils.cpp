@@ -39,7 +39,7 @@ namespace {
 using MatmulLayout = MmaOptions::MmaLayout;
 //! Access to the structure should be done with labels defined in
 //!  MmaOptions::MmaDomains.
-using ProblemShape = std::array<int64_t, 3>;
+using ProblemShape = std::array<int64_t, 4>;
 
 //! A helper for deciding the type of MMA op for given fusion and problem shape.
 inline std::optional<MmaOptions::MacroType> getMmaOp(
@@ -153,11 +153,14 @@ ProblemShape getProblemShape(
     NVF_ERROR(false, mma_output_domains.getErrorMsg());
   }
 
-  const auto [m, n, k] = mma_output_domains.getData();
+  const auto [m, n, k, batch] = mma_output_domains.getData();
 
   auto m_extend = runtime_info.expressionEvaluator().evaluate(m->extent());
   auto n_extend = runtime_info.expressionEvaluator().evaluate(n->extent());
   auto k_extend = runtime_info.expressionEvaluator().evaluate(k->extent());
+  auto batch_extend =
+      (batch ? runtime_info.expressionEvaluator().evaluate(batch->extent())
+             : 0L);
 
   if (!(m_extend && n_extend && k_extend)) {
     NVF_ERROR(
@@ -172,7 +175,10 @@ ProblemShape getProblemShape(
   }
 
   return ProblemShape{
-      m_extend.as<int64_t>(), n_extend.as<int64_t>(), k_extend.as<int64_t>()};
+      m_extend.as<int64_t>(),
+      n_extend.as<int64_t>(),
+      k_extend.as<int64_t>(),
+      batch_extend.as<int64_t>()};
 }
 
 std::string isMatmulFusionDefinitionSupported(
