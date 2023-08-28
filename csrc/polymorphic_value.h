@@ -7,10 +7,6 @@
 // clang-format on
 #pragma once
 
-#include <macros.h>
-
-#include <dynamic_type.h>
-#include <opaque_type.h>
 #include <any>
 #include <complex>
 #include <cstddef>
@@ -20,6 +16,12 @@
 #include <unordered_map>
 
 #include <ATen/ATen.h>
+
+#define DYNAMIC_TYPE_CHECK TORCH_INTERNAL_ASSERT
+
+#include <dynamic_type.h>
+#include <macros.h>
+#include <opaque_type.h>
 
 namespace nvfuser {
 
@@ -277,7 +279,7 @@ class StructHandle {
   inline Accessor operator->*(const std::string& key) const;
 };
 
-using PolymorphicValue = DynamicType<
+using PolymorphicValue = dynamic_type::DynamicType<
     Containers<std::vector, LegacyStruct>,
     StructHandle,
     Pointer,
