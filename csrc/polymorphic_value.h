@@ -242,6 +242,7 @@ struct Struct;
 class Accessor;
 struct StructType;
 
+// See Note [Struct Support in PolymorphicValue] for documentation.
 class StructHandle {
   std::shared_ptr<Struct> struct_ptr_;
 
