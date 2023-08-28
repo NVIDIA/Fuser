@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 
+#include <algorithm>
 #include <optional>
 #include <ostream>
 #include <type_traits>
