@@ -43,10 +43,7 @@ static inline void assertBuffersHaveSameSize(
   }
 }
 
-Collective::Collective(
-    CollectiveParams params,
-    std::string name,
-    bool has_root)
+Collective::Collective(CollectiveParams params, std::string name, bool has_root)
     : params_(std::move(params)),
       collective_type_(std::move(name)),
       has_root_(has_root) {
@@ -61,7 +58,8 @@ Collective::Collective(
     auto it = std::find(params_.team.begin(), params_.team.end(), params_.root);
     TORCH_INTERNAL_ASSERT(
         it != params_.team.end(),
-        "root (device ", params_.root,
+        "root (device ",
+        params_.root,
         ") must be present in the collective's team");
     root_rank_ = std::distance(params_.team.begin(), it);
   }
@@ -117,10 +115,9 @@ c10::intrusive_ptr<c10d::Work> Broadcast::post(Communicator& comm) {
   }
 
   return comm.getTeam(params_.team)
-                       ->broadcast(
-                           comm.deviceId() == params_.root ? params_.src_bufs
-                                                           : params_.dst_bufs,
-                           {.rootRank = root_rank_});
+      ->broadcast(
+          comm.deviceId() == params_.root ? params_.src_bufs : params_.dst_bufs,
+          {.rootRank = root_rank_});
 }
 
 Gather::Gather(CollectiveParams params) : Collective(params, "gather") {
@@ -138,7 +135,7 @@ c10::intrusive_ptr<c10d::Work> Gather::post(Communicator& comm) {
   }
 
   return comm.getTeam(params_.team)
-          ->gather(buf_list_, params_.src_bufs, {.rootRank = root_rank_});
+      ->gather(buf_list_, params_.src_bufs, {.rootRank = root_rank_});
 }
 
 Allgather::Allgather(CollectiveParams params)
@@ -166,12 +163,11 @@ c10::intrusive_ptr<c10d::Work> Scatter::post(Communicator& comm) {
     assertBufferCount(params_.src_bufs, 0);
   }
   return comm.getTeam(params_.team)
-          ->scatter(params_.dst_bufs, buf_list_, {.rootRank = root_rank_});
+      ->scatter(params_.dst_bufs, buf_list_, {.rootRank = root_rank_});
 }
 
 SendRecv::SendRecv(CollectiveParams params) : Collective(params, "send/recv") {
-  TORCH_INTERNAL_ASSERT(
-      params_.team.size() == 2, "the team size should be 2");
+  TORCH_INTERNAL_ASSERT(params_.team.size() == 2, "the team size should be 2");
 }
 
 c10::intrusive_ptr<c10d::Work> SendRecv::post(Communicator& comm) {
@@ -187,7 +183,7 @@ c10::intrusive_ptr<c10d::Work> SendRecv::post(Communicator& comm) {
 
   return comm.sendRecv(
       (params_.team.at(0) == params_.root) ? params_.team.at(1)
-                                          : params_.team.at(0),
+                                           : params_.team.at(0),
       params_.root,
       params_.dst_bufs.empty() ? params_.src_bufs : params_.dst_bufs);
 }

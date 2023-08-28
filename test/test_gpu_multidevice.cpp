@@ -66,13 +66,13 @@ void testValidateMultidevice(
   std::vector<c10::IValue> input_tensors;
   for (auto i : c10::irange(inputs.size())) {
     auto sender = runtime.pipeline()
-                           ->inputs()
-                           .at(i)
-                           ->as<PipelineVal>()
-                           ->getStage()
-                           ->descriptor()
-                           ->mesh.deviceIndices()
-                           .at(0);
+                      ->inputs()
+                      .at(i)
+                      ->as<PipelineVal>()
+                      ->getStage()
+                      ->descriptor()
+                      ->mesh.deviceIndices()
+                      .at(0);
     buffer = {inputs.at(i).toTensor()};
     comm.sendRecv(tester, sender, buffer);
     input_tensors.push_back(buffer.at(0));

@@ -205,9 +205,9 @@ c10::intrusive_ptr<c10d::Work> Communicator::sendRecv(
     int tag) {
   TORCH_INTERNAL_ASSERT(sender != receiver, "cannot send to self");
   if (deviceId() == sender) {
-    return world_->send(tensors, dIdToRank(receiver), tag);
+    return world_->send(tensors, static_cast<int>(dIdToRank(receiver)), tag);
   }
-  return world_->recv(tensors, dIdToRank(sender), tag);
+  return world_->recv(tensors, static_cast<int>(dIdToRank(sender)), tag);
 }
 
 } // namespace nvfuser

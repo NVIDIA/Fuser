@@ -35,12 +35,12 @@ Later, Collective could be made a derived class of Expr and be thought
 as a kernel IRs resulting of the lowering of a PipelineCommunication.
 
 CollectiveParams contains the arguments for the collective constructors.
-Note that each rank (associated with a device index through communicator.deviceId())
-will fill CollectiveParams with different arguments, depending on the role
-they play in this collective. For example, the root of a Gather collective will
-have <team_size> destination buffers, whereas non-root will have no destination
-buffers. Also, the ranks not participating in the collective should not
-instantiate it.
+Note that each rank (associated with a device index through
+communicator.deviceId()) will fill CollectiveParams with different arguments,
+depending on the role they play in this collective. For example, the root of a
+Gather collective will have <team_size> destination buffers, whereas non-root
+will have no destination buffers. Also, the ranks not participating in the
+collective should not instantiate it.
 
 The method "post" triggers the execution of the collective. This call is
 non-blocking. The collective can be posted multiple times.
@@ -62,7 +62,7 @@ class TORCH_CUDA_CU_API Collective {
   // Triggers the execution of the collective. This is a non-blocking call.
   // The collective can be posted multiple times
   virtual c10::intrusive_ptr<c10d::Work> post(Communicator& comm) {
-        TORCH_INTERNAL_ASSERT(false, "not implemented");
+    TORCH_INTERNAL_ASSERT(false, "not implemented");
   };
 
  protected:
