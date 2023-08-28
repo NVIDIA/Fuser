@@ -209,7 +209,7 @@ cleanup
 # Print mismatching files. Note that logs are expected to differ since timings are included
 set +e  # exit status of diff is 1 if there are any mismatches
 diffs=$(diff -qr -x '*.log' "$outdir/$origcommit" "$outdir/$comparecommit")
-if [[ "$?" == 0 ]]
+if [[ "$?" == 0 || -z "${diffs}" ]]
 then
   echo "No difference found"
   exit 0
