@@ -2823,12 +2823,16 @@ IterDomain* IterDomain::resize(
   if (iter_type_opt.has_value()) {
     iter_type = iter_type_opt.value();
   } else if (left_expansion->isConstInt() && right_expansion->isConstInt()) {
-    if (resized_id_size->isConstInt()) {
+    auto left = left_expansion->evaluateInt();
+    auto right = right_expansion->evaluateInt();
+    if (left == 0 && right == 0) {
+      // Trivial Resize
+      return in;
+    } else if (resized_id_size->isConstInt()) {
       // Means input extent is also known
       auto out_extent = resized_id_size->evaluateInt();
       iter_type = out_extent == 1 ? IterType::Broadcast : IterType::Iteration;
-    } else if (
-        left_expansion->evaluateInt() + right_expansion->evaluateInt() > 1) {
+    } else if (left + right > 1) {
       // Input extent is non-negative, so we know out_extent > 1
       iter_type = IterType::Iteration;
     }

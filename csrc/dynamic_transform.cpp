@@ -629,18 +629,29 @@ void DynamicTransformConcretizer::mutate(TensorView* tv) {
       IterType iter_type = IterType::Symbolic;
       for (auto inp_id : ir_utils::filterByType<IterDomain>(expr->inputs())) {
         auto updated_id = maybeMutated(inp_id)->as<IterDomain>();
-        iter_type = ops::promoteIterType(iter_type, updated_id->getIterType());
+        // ops::promoteIterType will favor Symbolic if it encounters it
+        // alongside Broadcast. This is preferable at fusion definition, but
+        // here we are propagating, and if we only see Broadcast in some
+        // dimension, then we should not retain Symbolic. To work around this,
+        // we always overwrite Symbolic with the first concrete IterType we
+        // encounter.
+        iter_type = iter_type == IterType::Symbolic
+            ? updated_id->getIterType()
+            : ops::promoteIterType(iter_type, updated_id->getIterType());
       }
-      TORCH_INTERNAL_ASSERT(
-          iter_type != IterType::Symbolic,
-          "Failed to concretize an output IterType for expression: ",
-          expr->toString());
-
       // Update the IterType of each output
       for (auto out_id : ir_utils::filterByType<IterDomain>(expr->outputs())) {
         if (!out_id->isSymbolic()) {
           continue;
         }
+
+        // If out_id is Symbolic, we need to concretize it here. If we did not
+        // yet determine its IterType, then we've missed our chance.
+        TORCH_INTERNAL_ASSERT(
+            iter_type != IterType::Symbolic,
+            "Failed to concretize an output IterType for expression: ",
+            expr->toString());
+
         auto concretized_out_id =
             IterDomainBuilder(maybeMutated(out_id)->as<IterDomain>())
                 .iter_type(iter_type)
