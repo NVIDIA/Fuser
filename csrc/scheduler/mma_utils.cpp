@@ -24,7 +24,8 @@ bool generateSharedMemoryEpilogueHeuristics(
     const int smem_double_buffer_stage,
     const MmaDataTypes& data_types,
     const bool ignore_occupancy_drop,
-    const bool smem_reuse_guaranteed) {
+    const bool smem_a_reuse_guaranteed,
+    const bool smem_b_reuse_guaranteed) {
   const auto properties = at::cuda::getCurrentDeviceProperties();
   const size_t device_smem_limit = properties->sharedMemPerBlockOptin;
   const size_t shared_memory_overhead = properties->reservedSharedMemPerBlock;
@@ -56,9 +57,10 @@ bool generateSharedMemoryEpilogueHeuristics(
   // Even if we actually do wind up re-claiming smem_a and smem_b, if we
   // cannot prove it at this point then we have to assume it will not be
   // reclaimed.
-  const size_t total_with_smem_epilogue = smem_reuse_guaranteed
-      ? std::max(smem_a + smem_b, smem_c)
-      : smem_a + smem_b + smem_c;
+  const size_t total_with_smem_epilogue = std::max(
+      smem_a + smem_b,
+      (smem_a_reuse_guaranteed ? 0 : smem_a) +
+          (smem_b_reuse_guaranteed ? 0 : smem_b) + smem_c);
 
   // shortcut where occupancy change is ignored.
   if (ignore_occupancy_drop) {

@@ -444,12 +444,14 @@ std::shared_ptr<MatmulParams> getMatmulHeuristics(
   const auto roles_map = roles_map_opt.getData();
   TensorView* a = roles_map.at(MatmulRole::INPUT_A).front();
   TensorView* b = roles_map.at(MatmulRole::INPUT_B).front();
-  bool smem_reuse_guaranteed = a->uses().size() == 1 && b->uses().size() == 1;
+  bool smem_a_reuse_guaranteed = a->uses().size() == 1;
+  bool smem_b_reuse_guaranteed = b->uses().size() == 1;
   params->use_smem_epilogue = mma_utils::generateSharedMemoryEpilogueHeuristics(
       params->tile_sizes,
       params->double_buffer_options.smem_double_buffer_stage,
       getMmaDataTypes(roles_map_opt.getData()),
-      smem_reuse_guaranteed);
+      smem_a_reuse_guaranteed,
+      smem_b_reuse_guaranteed);
 
   if (isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
     debug() << params->toString() << std::endl;

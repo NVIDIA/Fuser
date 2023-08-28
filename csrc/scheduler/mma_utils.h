@@ -306,7 +306,8 @@ TORCH_CUDA_CU_API bool generateSharedMemoryEpilogueHeuristics(
     const int smem_double_buffer_stage,
     const MmaDataTypes& data_types,
     const bool ignore_occupancy_drop = false,
-    const bool smem_reuse_guaranteed = false);
+    const bool smem_a_reuse_guaranteed = false,
+    const bool smem_b_reuse_guaranteed = false);
 
 } // namespace mma_utils
 
