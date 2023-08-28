@@ -202,8 +202,6 @@ TEST_F(NVFuserTest, FusionMultiGPU_CUDA) {
   //        COMMUNICATOR
   // ===========================================================
 
-  Communicator comm;
-
   int requested_world_size = 6;
   if (!comm.is_available() || comm.size() < requested_world_size) {
     GTEST_SKIP() << "This test needs distributed setting with at least "

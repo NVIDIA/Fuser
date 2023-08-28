@@ -16,6 +16,10 @@
 
 namespace nvfuser {
 
+#ifdef USE_DISTRIBUTED
+Communicator NVFuserTest::comm = {};
+#endif
+
 int64_t prime_number(int64_t i) {
   static std::vector<int64_t> p{
       2,    3,    5,    7,    11,   13,   17,   19,   23,   29,   31,   37,
