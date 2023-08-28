@@ -101,7 +101,9 @@ class DomainMap : public pointwise_utils::DomainMap {
     IterDomain* mapped_id = nullptr;
     for (auto i : c10::irange(root_dom.size())) {
       if (ca_map_.areMapped(
-              root_dom[i], root_dim, IdMappingMode::PermissiveRelaxedResize)) {
+              root_dom[i],
+              root_dim,
+              IdMappingMode::PERMISSIVE_RELAXED_RESIZE)) {
         mapped_id = root_dom[i];
         break;
       }
