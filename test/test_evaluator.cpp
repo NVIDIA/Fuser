@@ -30,6 +30,7 @@ inline void checkIntValue(
   EXPECT_TRUE(actual_value.hasValue());
   EXPECT_EQ(actual_value, expected_value);
 }
+
 } // namespace
 
 // Evaluate basic scalar operations with constant values
@@ -309,7 +310,7 @@ TEST_F(ExprEvalTest, Struct) {
   evaluator.bind(a, 2L);
   evaluator.bind(b, 5L);
 
-  Struct<PolymorphicValue> expect({{"a", 2L}, {"b", 5L}});
+  LegacyStruct<PolymorphicValue> expect({{"a", 2L}, {"b", 5L}});
   EXPECT_EQ(evaluator.evaluate(struct_), expect);
   EXPECT_EQ(evaluator.evaluate(aa), 2L);
   EXPECT_EQ(evaluator.evaluate(bb), 5L);
@@ -363,24 +364,6 @@ TEST_F(ExprEvalTest, TensorMetaData) {
   checkIntValue(evaluator, size1, 128L);
   checkIntValue(evaluator, stride0, 128L);
   checkIntValue(evaluator, stride1, 1L);
-}
-
-TEST_F(ExprEvalTest, OpaqueEquality) {
-  Opaque a{DataType::Int}, b{DataType::Int};
-  // Because the type information is not available at compile time, we can't
-  // accurately compare the values of two opaque values. So, by default,
-  // equality check is done by pointer compare.
-  EXPECT_EQ(a, a);
-  EXPECT_EQ(b, b);
-  EXPECT_NE(a, b);
-  EXPECT_NE(b, a);
-  // However, we can manually specify the comparator to use for equality check.
-  Opaque c{DataType::Int, OpaqueEquals<PrimDataType>{}},
-      d{DataType::Int, OpaqueEquals<PrimDataType>{}};
-  EXPECT_EQ(c, c);
-  EXPECT_EQ(d, d);
-  EXPECT_EQ(c, d);
-  EXPECT_EQ(d, c);
 }
 
 TEST_F(ExprEvalTest, Validation) {

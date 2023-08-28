@@ -334,16 +334,19 @@ std::vector<PolymorphicValue> GetMetaData::evaluate(
       input.is_cuda() || input.is_meta(),
       "GetMetaData expects a CUDA tensor as input, but got undefined tensor");
 
-  Struct<PolymorphicValue> concrete_value;
+  LegacyStruct<PolymorphicValue> concrete_value;
   concrete_value["data"] = PolymorphicValue(
       Pointer(input.data_ptr(), aten_to_data_type(input.scalar_type())));
   concrete_value["logical_size"] = PolymorphicValue(input.sizes().vec());
   concrete_value["logical_stride"] = PolymorphicValue(input.strides().vec());
-  {
+  if (tv->hasAllocation()) {
     auto allocation_data =
         inferAndValidateAllocationSizesAndStrides(input, tv, ee);
     concrete_value["alloc_size"] = std::move(allocation_data.first);
     concrete_value["alloc_stride"] = std::move(allocation_data.second);
+  } else {
+    concrete_value["alloc_size"] = PolymorphicValue(input.sizes().vec());
+    concrete_value["alloc_stride"] = PolymorphicValue(input.strides().vec());
   }
   return {PolymorphicValue(std::move(concrete_value))};
 }

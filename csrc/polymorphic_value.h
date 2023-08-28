@@ -7,9 +7,6 @@
 // clang-format on
 #pragma once
 
-#include <macros.h>
-
-#include <dynamic_type.h>
 #include <any>
 #include <complex>
 #include <cstddef>
@@ -20,40 +17,46 @@
 
 #include <ATen/ATen.h>
 
+#define DYNAMIC_TYPE_CHECK TORCH_INTERNAL_ASSERT
+
+#include <dynamic_type.h>
+#include <macros.h>
+#include <opaque_type.h>
+
 namespace nvfuser {
 
 template <typename T>
-struct Struct {
+struct LegacyStruct {
   // Using std::unordered_map<std::string, T> is more convenient and
   // straightforward, but this is not guaranteed to work by C++ standard.
   // See [Incomplete type support in STL]
 #if defined(STD_UNORDERED_SET_SUPPORTS_INCOMPLETE_TYPE)
 
   std::unordered_map<std::string, T> fields;
-  Struct(std::initializer_list<std::pair<const std::string, T>> init)
+  LegacyStruct(std::initializer_list<std::pair<const std::string, T>> init)
       : fields(init) {}
-#define MAYBE_STAR
+#define NVFUSER_MAYBE_STAR
 
 #else
 
   std::unordered_map<std::string, std::shared_ptr<T>> fields;
-  Struct(std::initializer_list<std::pair<const std::string, T>> init) {
+  LegacyStruct(std::initializer_list<std::pair<const std::string, T>> init) {
     for (const auto& [key, value] : init) {
       fields[key] = std::make_shared<T>(value);
     }
   }
-#define MAYBE_STAR *
+#define NVFUSER_MAYBE_STAR *
 
 #endif
 
-  Struct() = default;
-  Struct(const Struct& other) = default;
-  Struct(Struct&& other) = default;
-  Struct& operator=(const Struct& other) = default;
-  Struct& operator=(Struct&& other) = default;
+  LegacyStruct() = default;
+  LegacyStruct(const LegacyStruct& other) = default;
+  LegacyStruct(LegacyStruct&& other) = default;
+  LegacyStruct& operator=(const LegacyStruct& other) = default;
+  LegacyStruct& operator=(LegacyStruct&& other) = default;
 
   const T& operator[](const std::string& key) const {
-    return MAYBE_STAR fields.at(key);
+    return NVFUSER_MAYBE_STAR fields.at(key);
   }
 
   T& operator[](const std::string& key) {
@@ -67,7 +70,7 @@ struct Struct {
 #endif
   }
 
-  bool operator==(const Struct& other) const {
+  bool operator==(const LegacyStruct& other) const {
     if (this == &other) {
       return true;
     }
@@ -87,21 +90,19 @@ struct Struct {
 };
 
 template <typename T>
-inline std::ostream& operator<<(std::ostream& os, const Struct<T>& s) {
+inline std::ostream& operator<<(std::ostream& os, const LegacyStruct<T>& s) {
   os << "struct { ";
   bool first = true;
   for (const auto& [key, value] : s.fields) {
     if (!first) {
       os << ", ";
     }
-    os << key << " = " << MAYBE_STAR value;
+    os << key << " = " << NVFUSER_MAYBE_STAR value;
     first = false;
   }
   os << "}";
   return os;
 }
-
-#undef MAYBE_STAR
 
 struct DataType;
 
@@ -237,49 +238,8 @@ inline std::ostream& operator<<(std::ostream& os, const Pointer& ptr) {
   return os;
 }
 
-struct Opaque {
-  std::any value;
-
-  // Because the type information is not available at compile time, we can't
-  // accurately compare the values of two opaque values. So, by default,
-  // equality check is done by pointer compare. However, we also support
-  // manually specifying the equality comparator.
-  std::function<bool(const Opaque&, const Opaque&)> equals =
-      [](const Opaque& a, const Opaque& b) { return &a == &b; };
-
-  bool operator==(const Opaque& other) const {
-    if (this == &other) {
-      return true;
-    }
-    if (value.type() != other.value.type()) {
-      return false;
-    }
-    bool result1 = equals(*this, other);
-    bool result2 = equals(other, *this);
-    TORCH_INTERNAL_ASSERT(
-        result1 == result2, "Opaque equality is not symmetric");
-    return result1;
-  }
-
-  bool operator!=(const Opaque& other) const {
-    return !(*this == other);
-  }
-};
-
-inline std::ostream& operator<<(std::ostream& os, const Opaque& opaque) {
-  os << "Opaque<" << opaque.value.type().name() << ">";
-  return os;
-}
-
-template <typename T>
-struct OpaqueEquals {
-  bool operator()(const Opaque& a, const Opaque& b) const {
-    return std::any_cast<T>(a.value) == std::any_cast<T>(b.value);
-  }
-};
-
-using PolymorphicValue = DynamicType<
-    Containers<std::vector, Struct>,
+using PolymorphicValue = dynamic_type::DynamicType<
+    dynamic_type::Containers<std::vector, LegacyStruct>,
     Pointer,
     Opaque,
     at::Tensor,

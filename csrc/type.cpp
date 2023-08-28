@@ -17,27 +17,50 @@
 
 namespace nvfuser {
 
-DataType globalTensorMetaData(
-    const DataType& dtype,
+StructType globalTensorMetaData(
+    const PrimDataType& dtype,
     size_t dim,
     size_t alloc_dim) {
   std::stringstream ss;
   ss << "Tensor<" << dtype << ", " << dim << ", " << alloc_dim << ">";
 
-  StructType tv_metadata;
-  tv_metadata.name = ss.str();
-  tv_metadata.field_names = {"data", "logical_size", "alloc_stride"};
-  tv_metadata.types["data"] =
-      NVFUSER_MAYBE_MAKE_SHARED(PointerType{std::make_shared<DataType>(dtype)});
-  tv_metadata.types["logical_size"] = NVFUSER_MAYBE_MAKE_SHARED2(
+  StructType::FieldInfo data_field;
+  data_field.name = "data";
+  data_field.type = std::make_shared<DataType>(
+      PointerType{std::make_shared<DataType>(dtype)});
+  data_field.used_in_kernel = true;
+
+  StructType::FieldInfo logical_size_field;
+  logical_size_field.name = "logical_size";
+  logical_size_field.type = std::make_shared<DataType>(
       ArrayType{std::make_shared<DataType>(DataType::Index), dim});
-  tv_metadata.types["logical_stride"] = NVFUSER_MAYBE_MAKE_SHARED2(
+  logical_size_field.used_in_kernel = true;
+
+  StructType::FieldInfo logical_stride_field;
+  logical_stride_field.name = "logical_stride";
+  logical_stride_field.type = std::make_shared<DataType>(
       ArrayType{std::make_shared<DataType>(DataType::Index), dim});
-  tv_metadata.types["alloc_size"] = NVFUSER_MAYBE_MAKE_SHARED2(
+  logical_stride_field.used_in_kernel = false;
+
+  StructType::FieldInfo alloc_size_field;
+  alloc_size_field.name = "alloc_size";
+  alloc_size_field.type = std::make_shared<DataType>(
       ArrayType{std::make_shared<DataType>(DataType::Index), alloc_dim});
-  tv_metadata.types["alloc_stride"] = NVFUSER_MAYBE_MAKE_SHARED2(
+  alloc_size_field.used_in_kernel = false;
+
+  StructType::FieldInfo alloc_stride_field;
+  alloc_stride_field.name = "alloc_stride";
+  alloc_stride_field.type = std::make_shared<DataType>(
       ArrayType{std::make_shared<DataType>(DataType::Index), alloc_dim});
-  return tv_metadata;
+  alloc_stride_field.used_in_kernel = true;
+
+  return StructType::make(
+      {data_field,
+       logical_size_field,
+       logical_stride_field,
+       alloc_size_field,
+       alloc_stride_field},
+      ss.str());
 }
 
 DataType metaDataTypeOf(const Val* v) {
@@ -52,7 +75,8 @@ DataType metaDataTypeOf(const Val* v) {
   size_t dim = TensorDomain::noReductions(tv->getMaybeRFactorDomain()).size();
   size_t alloc_dim =
       TensorDomain::noReductions(tv->getMaybeAllocationDomain()).size();
-  return globalTensorMetaData(tv->dtype(), dim, alloc_dim);
+  return globalTensorMetaData(
+      std::get<PrimDataType>(tv->dtype().type), dim, alloc_dim);
 }
 
 PrimDataType indexModeToDtype(KernelIndexMode index_mode) {
@@ -198,8 +222,6 @@ static std::string data_type2string(DataType t) {
               return "std::complex<float>";
             case DataType::ComplexDouble:
               return "std::complex<double>";
-            case DataType::Opaque:
-              return "std::any";
             default:
               TORCH_INTERNAL_ASSERT(false, "No string found for data type.");
           }
@@ -216,12 +238,17 @@ static std::string data_type2string(DataType t) {
           }
           std::stringstream ss;
           ss << "struct { ";
-          for (auto& name : dtype.field_names) {
-            ss << data_type2string(NVFUSER_MAYBE_STAR dtype.types.at(name))
-               << " " << name << "; ";
+          for (const auto& field : dtype.fields) {
+            ss << data_type2string(*field.type) << " " << field.name << "; ";
           }
           ss << "}";
           return ss.str();
+        } else if constexpr (std::is_same_v<T, OpaqueType>) {
+          if (dtype.name != "") {
+            return dtype.name;
+          } else {
+            return dtype.type_info.get().name();
+          }
         } else {
           TORCH_INTERNAL_ASSERT(false, "No string found for data type.");
         }
@@ -437,7 +464,7 @@ static const char* unary_op_type_inline_op2string(UnaryOpType t) {
     case UnaryOpType::BitwiseNot:
       return "~";
     case UnaryOpType::Address:
-      return "(int64_t) &";
+      return "&";
     default:
       break;
   }
@@ -1157,6 +1184,9 @@ std::string typePrefix(const DataType data_type) {
   if (std::holds_alternative<StructType>(data_type.type)) {
     return "s";
   }
+  if (std::holds_alternative<OpaqueType>(data_type.type)) {
+    return "var";
+  }
   switch (std::get<PrimDataType>(data_type.type)) {
     case DataType::Bool:
       return "b";
@@ -1174,8 +1204,6 @@ std::string typePrefix(const DataType data_type) {
     case DataType::ComplexFloat:
     case DataType::ComplexDouble:
       return "c";
-    case DataType::Opaque:
-      return "opaque";
     default:
       TORCH_INTERNAL_ASSERT(false, "No data type found for scalar type.");
   }
@@ -1219,10 +1247,15 @@ int64_t dataTypeSize(DataType type) {
           return dataTypeSize(*dtype.type) * dtype.size;
         } else if constexpr (std::is_same_v<T, StructType>) {
           int64_t size = 0;
-          for (const auto& field : dtype.field_names) {
-            size += dataTypeSize(NVFUSER_MAYBE_STAR dtype.types.at(field));
+          for (const auto& field : dtype.fields) {
+            if (!field.used_in_kernel) {
+              continue;
+            }
+            size += dataTypeSize(*field.type);
           }
           return size;
+        } else if constexpr (std::is_same_v<T, OpaqueType>) {
+          return dtype.size;
         }
         TORCH_INTERNAL_ASSERT(false, "Size undefined for data type.");
       },
