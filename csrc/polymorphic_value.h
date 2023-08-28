@@ -7,10 +7,6 @@
 // clang-format on
 #pragma once
 
-#include <macros.h>
-
-#include <dynamic_type.h>
-#include <opaque_type.h>
 #include <any>
 #include <complex>
 #include <cstddef>
@@ -20,6 +16,12 @@
 #include <unordered_map>
 
 #include <ATen/ATen.h>
+
+#define DYNAMIC_TYPE_CHECK TORCH_INTERNAL_ASSERT
+
+#include <dynamic_type.h>
+#include <macros.h>
+#include <opaque_type.h>
 
 namespace nvfuser {
 
@@ -236,8 +238,8 @@ inline std::ostream& operator<<(std::ostream& os, const Pointer& ptr) {
   return os;
 }
 
-using PolymorphicValue = DynamicType<
-    Containers<std::vector, LegacyStruct>,
+using PolymorphicValue = dynamic_type::DynamicType<
+    dynamic_type::Containers<std::vector, LegacyStruct>,
     Pointer,
     Opaque,
     at::Tensor,

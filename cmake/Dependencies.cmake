@@ -12,6 +12,8 @@ set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build shared libs" FORCE)
 set(INSTALL_GTEST OFF CACHE BOOL "Install gtest." FORCE)
 set(BUILD_GMOCK ON CACHE BOOL "Build gmock." FORCE)
 
+add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/../lib/dynamic_type)
+
 # Add googletest subdirectory but make sure our INCLUDE_DIRECTORIES do not bleed into it.
 # This is because libraries installed into the root conda env (e.g. MKL) add a global /opt/conda/include directory,
 # and if there is gtest installed in conda, the third_party/googletest/**.cc source files would try to include headers
