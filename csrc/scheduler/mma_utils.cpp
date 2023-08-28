@@ -1569,9 +1569,11 @@ RolesMapOpt getTensorsRoles(Fusion* fusion) {
     return mma_output_domains.getErrorMsg();
   }
 
-  const auto findRolesByDomains = [](const DependenciesMap& deps_map,
-                                     RolesMap& roles_map,
-                                     const bool processing_output) {
+  TensorView* invalid_tv = nullptr;
+  const auto findRolesByDomains = [&invalid_tv](
+                                      const DependenciesMap& deps_map,
+                                      RolesMap& roles_map,
+                                      const bool processing_output) {
     for (const auto& entry : deps_map) {
       const auto& domains = entry.second;
       const auto begin = domains.begin();
@@ -1607,6 +1609,9 @@ RolesMapOpt getTensorsRoles(Fusion* fusion) {
         roles_map[MatmulRole::OUTPUT_D].push_back(entry.first);
         continue;
       }
+
+      invalid_tv = entry.first;
+      break;
     }
   };
 
@@ -1623,6 +1628,12 @@ RolesMapOpt getTensorsRoles(Fusion* fusion) {
   resolveTvToMatmulDomainsMapping(
       deps_map, mma_input_candidates, m, n, k, ca_map);
   findRolesByDomains(deps_map, roles_map, handling_output);
+  if (invalid_tv) {
+    std::stringstream ss;
+    ss << "One of fusion inputs cannot have role assigned! TV details: "
+       << invalid_tv->toString() << "\n";
+    return {ss.str()};
+  }
 
   deps_map.clear();
 
@@ -1631,6 +1642,12 @@ RolesMapOpt getTensorsRoles(Fusion* fusion) {
   resolveTvToMatmulDomainsMapping(
       deps_map, mma_output_candidates, m, n, k, ca_map);
   findRolesByDomains(deps_map, roles_map, handling_output);
+  if (invalid_tv) {
+    std::stringstream ss;
+    ss << "One of fusion outputs cannot have role assigned! TV details: "
+       << invalid_tv->toString() << "\n";
+    return {ss.str()};
+  }
 
   return roles_map;
 }

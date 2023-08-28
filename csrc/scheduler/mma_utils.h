@@ -250,7 +250,7 @@ class DataWrapperOpt {
   }
   std::string getErrorMsg() const {
     if (data.valueless_by_exception() ||
-        std::holds_alternative<std::string>(data)) {
+        !std::holds_alternative<std::string>(data)) {
       return "Uninitialized data in data holder object";
     } else {
       return std::get<std::string>(data);
