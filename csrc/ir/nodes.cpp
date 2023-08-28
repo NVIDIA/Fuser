@@ -782,19 +782,15 @@ StructConstruct::StructConstruct(
       !fields.empty(), "Cannot create a struct with no members.");
   auto output_dtype = std::get<StructType>(output->dtype().type);
   TORCH_INTERNAL_ASSERT(
-      output_dtype.types.size() == fields.size(),
+      output_dtype.fields.size() == fields.size(),
       "StructConstruct output must have the same number of fields as the inputs");
-  TORCH_INTERNAL_ASSERT(
-      output_dtype.field_names.size() == fields.size(),
-      "StructConstruct output must have the same number of fields as the inputs");
-  auto it = output_dtype.field_names.begin();
+  auto it = output_dtype.fields.begin();
   for (const auto& field : fields) {
     TORCH_INTERNAL_ASSERT(
-        *it == field.first,
+        it->name == field.first,
         "StructConstruct field names must match the output");
     TORCH_INTERNAL_ASSERT(
-        (NVFUSER_MAYBE_STAR output_dtype.types.at(field.first)) ==
-            field.second->dtype(),
+        *(it->type) == field.second->dtype(),
         "StructConstruct field ",
         field.first,
         " must have the same data type as the output");
@@ -839,7 +835,7 @@ std::vector<PolymorphicValue> StructConstruct::evaluate(
       "StructConstruct expects ",
       this->inputs().size(),
       " inputs");
-  Struct<PolymorphicValue> result;
+  LegacyStruct<PolymorphicValue> result;
   for (int64_t i : c10::irange((int64_t)inputs.size())) {
     result[attribute<std::string>(i)] = inputs.at(i);
   }
@@ -855,8 +851,8 @@ GetAttr::GetAttr(
     std::string attr)
     : Expr(passkey) {
   TORCH_INTERNAL_ASSERT(
-      NVFUSER_MAYBE_STAR std::get<StructType>(struct_->dtype().type)
-              .types.at(attr) == output->dtype(),
+      std::get<StructType>(struct_->dtype().type).fieldDataType(attr) ==
+          output->dtype(),
       "Data type mismatch for GetAttr");
   addOutput(output);
   addInput(struct_);
