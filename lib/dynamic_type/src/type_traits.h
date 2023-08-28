@@ -7,15 +7,16 @@
 // clang-format on
 #pragma once
 
-#include <C++20/type_traits>
 #include <tuple>
 #include <type_traits>
 #include <utility>
 
+#include "C++20/type_traits"
+
 // Note on the coding style of this file:
-// - I use `namespace nvfuser` and `} // namespace nvfuser` a lot to separate
-//   different parts of the code, so that we can easily fold and unfold them in
-//   editors that support folding.
+// - I use `namespace dynamic_type` and `} // namespace dynamic_type` a lot to
+//   separate different parts of the code, so that we can easily fold and unfold
+//   them in editors that support folding.
 // - Many tests are done with static_assert, so I just put it here, instead of
 //   writing a separate test file. Because I think these tests serves as a good
 //   documentation of the usage.
@@ -42,7 +43,7 @@
 //    }
 //  };
 
-namespace nvfuser {
+namespace dynamic_type {
 
 // Implementation detail
 namespace can_use_args_impl {
@@ -72,9 +73,9 @@ constexpr bool can_use_args =
 static_assert(can_use_args<float (*)(float), int>);
 static_assert(!can_use_args<float (*)(float), float*>);
 
-} // namespace nvfuser
+} // namespace dynamic_type
 
-namespace nvfuser {
+namespace dynamic_type {
 
 // Implementation detail for opcheck. This implementation is very long, I
 // recommend read the usage doc below first before reading this implementation.
@@ -316,9 +317,9 @@ static_assert(!(opcheck<int>->value()));
 // Reference about operator overloading:
 // https://en.cppreference.com/w/cpp/language/operators
 
-} // namespace nvfuser
+} // namespace dynamic_type
 
-namespace nvfuser {
+namespace dynamic_type {
 
 // Basically just "void". We need this because if we have something like
 // std::tuple<void, int> we will be unable to create an instance of it.
@@ -371,9 +372,9 @@ struct ForAllTypes<> {
   }
 };
 
-} // namespace nvfuser
+} // namespace dynamic_type
 
-namespace nvfuser {
+namespace dynamic_type {
 
 // Check if all the booleans in the arguments are true. There are two versions:
 // one for variadic arguments, and one for std::tuple.
@@ -394,9 +395,9 @@ static_assert(all(std::make_tuple(true, true, true)));
 static_assert(!all(true, false, true));
 static_assert(!all(std::make_tuple(true, false, true)));
 
-} // namespace nvfuser
+} // namespace dynamic_type
 
-namespace nvfuser {
+namespace dynamic_type {
 
 // Check if all the booleans in the arguments are true. There are two versions:
 // one for variadic arguments, and one for std::tuple.
@@ -419,9 +420,9 @@ static_assert(any(std::make_tuple(true, false, true)));
 static_assert(!any(false, false, false));
 static_assert(!any(std::make_tuple(false, false, false)));
 
-} // namespace nvfuser
+} // namespace dynamic_type
 
-namespace nvfuser {
+namespace dynamic_type {
 
 // Remove all the voids from a tuple. For example:
 // (Void, T1, Void, T2, Void, T3, ...) -> (T1, T2, T3, ...)
@@ -454,9 +455,9 @@ static_assert(
         std::make_tuple(Void{}, 1, Void{}, true, Void{}, 3.5, Void{})) ==
     std::make_tuple(1, true, 3.5));
 
-} // namespace nvfuser
+} // namespace dynamic_type
 
-namespace nvfuser {
+namespace dynamic_type {
 
 namespace belongs_to_impl {
 
@@ -492,9 +493,9 @@ constexpr bool belongs_to =
 static_assert(belongs_to<int, float, double, int>);
 static_assert(!belongs_to<int, float, double, long>);
 
-} // namespace nvfuser
+} // namespace dynamic_type
 
-namespace nvfuser {
+namespace dynamic_type {
 
 // Take the cartesion product of two tuples.
 // For example:
@@ -556,9 +557,9 @@ static_assert(
         std::make_tuple(true, 4, std::size_t(0)),
         std::make_tuple(true, 4, nullptr)));
 
-} // namespace nvfuser
+} // namespace dynamic_type
 
-namespace nvfuser {
+namespace dynamic_type {
 
 // Can I find an x from tuple1 and a y from tuple12 such that f(x, y) is
 // true? f(x, y) must be defined for all x in tuple1 and y in tuple2.
@@ -588,4 +589,89 @@ static_assert(!any_check(
     std::make_tuple(1.0, 1),
     std::make_tuple(-2, -1)));
 
-} // namespace nvfuser
+} // namespace dynamic_type
+
+namespace dynamic_type {
+
+// Check if all the types in the tuple are the same. If the tuple is empty, or
+// the provided type is not a tuple, then it is considered to be false.
+
+template <typename Tuple>
+struct are_all_same : std::false_type {};
+
+template <typename T, typename... Rest>
+struct are_all_same<std::tuple<T, Rest...>>
+    : std::conjunction<std::is_same<T, Rest>...> {};
+
+template <typename T, typename... Rest>
+struct are_all_same<const std::tuple<T, Rest...>>
+    : std::conjunction<std::is_same<T, Rest>...> {};
+
+template <typename T>
+constexpr bool all_same_type(T) {
+  return are_all_same<T>::value;
+}
+
+// For example:
+static_assert(are_all_same<std::tuple<int, int, int>>::value);
+static_assert(are_all_same<const std::tuple<int, int, int>>::value);
+static_assert(!are_all_same<std::tuple<int, int, float>>::value);
+static_assert(!are_all_same<std::tuple<>>::value);
+
+} // namespace dynamic_type
+
+namespace dynamic_type {
+
+// Get the first type in a tuple. If the tuple is empty, or the type is not a
+// tuple, then it is considered to be void.
+
+template <typename T>
+struct first_or_void {
+  using type = void;
+};
+
+template <typename T, typename... Ts>
+struct first_or_void<std::tuple<T, Ts...>> {
+  using type = T;
+};
+
+template <typename T, typename... Ts>
+struct first_or_void<const std::tuple<T, Ts...>> {
+  using type = T;
+};
+
+// For example:
+static_assert(std::is_same_v<first_or_void<std::tuple<int, float>>::type, int>);
+static_assert(
+    std::is_same_v<first_or_void<const std::tuple<int, float>>::type, int>);
+static_assert(std::is_same_v<first_or_void<std::tuple<>>::type, void>);
+static_assert(std::is_same_v<first_or_void<int>::type, void>);
+
+} // namespace dynamic_type
+
+namespace dynamic_type {
+
+// If T is not a reference, then return T, otherwise the wrapped reference type.
+
+template <typename T>
+struct wrap_reference {
+  using type = T;
+};
+
+template <typename T>
+struct wrap_reference<T&> {
+  using type = std::reference_wrapper<T>;
+};
+
+template <typename T>
+using wrap_reference_t = typename wrap_reference<T>::type;
+
+// For example:
+static_assert(std::is_same_v<wrap_reference<int>::type, int>);
+static_assert(
+    std::is_same_v<wrap_reference<int&>::type, std::reference_wrapper<int>>);
+static_assert(std::is_same_v<
+              wrap_reference<const int&>::type,
+              std::reference_wrapper<const int>>);
+
+} // namespace dynamic_type
