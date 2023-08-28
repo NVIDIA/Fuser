@@ -280,7 +280,7 @@ class StructHandle {
 };
 
 using PolymorphicValue = dynamic_type::DynamicType<
-    Containers<std::vector, LegacyStruct>,
+    dynamic_type::Containers<std::vector, LegacyStruct>,
     StructHandle,
     Pointer,
     Opaque,

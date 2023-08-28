@@ -16,6 +16,8 @@
 
 namespace nvfuser {
 
+using dynamic_type::opcheck;
+
 class PolymorphicValueTest : public NVFuserTest {};
 
 TEST_F(PolymorphicValueTest, OpaqueEquality) {
