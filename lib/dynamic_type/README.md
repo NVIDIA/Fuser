@@ -2,7 +2,7 @@
 
 **dynamic_type** is a header-only C++ template library that defines `DynamicType`.
 
-`DynamicType` is a class template that can used to define polymorphic types.
+`DynamicType` is a class template that can be used to define polymorphic types.
 It is similar to `std::variant`, but it is designed to be used in a way that
 is more similar to how dynamic types are used in Python. For example, in Python,
 you can do something like this:
