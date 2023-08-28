@@ -1430,6 +1430,8 @@ std::string ComputeAtMap::toString() const {
      << idGraphNodesToString(*this, IdMappingMode::PERMISSIVE);
   ss << "Permissive-Resize map:\n"
      << idGraphNodesToString(*this, IdMappingMode::PERMISSIVE_RESIZE);
+  ss << "Permissive-Relaxed-Resize map:\n"
+     << idGraphNodesToString(*this, IdMappingMode::PERMISSIVE_RELAXED_RESIZE);
   ss << "Consumer maps:\n";
   for (auto key : getSortedKeys(id_graph_.consumers(), Statement::lessThan)) {
     auto consumers = id_graph_.consumers().at(key);
@@ -1491,6 +1493,8 @@ const DisjointSets<IterDomain*>& ComputeAtMap::getIdSets(
       return id_graph_.permissiveNodes();
     case IdMappingMode::PERMISSIVE_RESIZE:
       return id_graph_.permissiveResizeNodes();
+    case IdMappingMode::PERMISSIVE_RELAXED_RESIZE:
+      return id_graph_.permissiveRelaxedResizeNodes();
   }
   TORCH_INTERNAL_ASSERT(false, "Error with mapping mode provided.");
 }

@@ -58,6 +58,10 @@ namespace nvfuser {
 //   inputs and outputs of resize ops. Used for, e.g., propagating
 //   parallel types across those domains. It also maps producers and
 //   consumers of gathered and scattered domains
+// IdMappingMode::PERMISSIVE_RELAXED_RESIZE
+//   Include everything in PERMISSIVE_RESIZE. Maps also iter domain across
+//   split/merge to the inner domain, it is used to map inner most iter domain.
+//   i.e. transpose scheduler use this to map inner most domain.
 // IdMappingMode::EXACT
 //   Don't map any broadcast axes to non-broadcast axes
 //   Do not forward through any broadcast IDs
@@ -144,10 +148,6 @@ class TORCH_CUDA_CU_API IterDomainGraph {
   DisjointSets<IterDomain*> almost_exact_nodes_;
   DisjointSets<IterDomain*> loop_nodes_;
   DisjointSets<IterDomain*> permissive_resize_nodes_;
-  // permissive_relaxed_resize_nodes_ is permissive_resize_nodes_. Also maps
-  // iter domain across split/merge to the inner domain, it is used to map inner
-  // most iter domain. i.e. transpose scheduler use this to map inner most
-  // domain.
   DisjointSets<IterDomain*> permissive_relaxed_resize_nodes_;
 
   // Consumers and producers is not symmetric like the other sets.
@@ -205,7 +205,8 @@ class TORCH_CUDA_CU_API ComputeAtMap {
   //!  would help optimizing the generated integer math for indexing.
   void allocateIndexVariables();
 
-  //! Returns if id0 and id1 are mapped to eachother with provided IdMappingMode
+  //! Returns if id0 and id1 are mapped to each other with provided
+  //! IdMappingMode
   bool areMapped(IterDomain* id0, IterDomain* id1, IdMappingMode mode) const;
 
   //! Returns an iter domain that is the maximum expanded size of all iter
