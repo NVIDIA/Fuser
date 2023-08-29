@@ -110,7 +110,7 @@ struct DynamicStruct {
 using StructVecDouble =
     DynamicType<Containers<DynamicStruct, std::vector>, double>;
 
-static StructVecDouble kNN_DynamicType(
+static StructVecDouble kNN_Dictionary(
     const StructVecDouble& data,
     const StructVecDouble& query_point,
     int64_t k) {
@@ -146,7 +146,7 @@ static StructVecDouble kNN_DynamicType(
   return sum / k;
 }
 
-static void kNN_DynamicType(benchmark::State& state) {
+static void kNN_Dictionary(benchmark::State& state) {
   StructVecDouble data = std::vector<StructVecDouble>{};
   auto& data_vector = data.as<std::vector>();
   for (const auto& point_and_value : random_data) {
@@ -164,8 +164,8 @@ static void kNN_DynamicType(benchmark::State& state) {
   query_point["y"] = 0.0;
   query_point["z"] = 0.0;
   for (auto _ : state) {
-    kNN_DynamicType(data, query_point, 10);
+    kNN_Dictionary(data, query_point, 10);
   }
 }
 
-BENCHMARK(kNN_DynamicType)->Unit(benchmark::kMillisecond);
+BENCHMARK(kNN_Dictionary)->Unit(benchmark::kMillisecond);
