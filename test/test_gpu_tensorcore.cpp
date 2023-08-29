@@ -3997,8 +3997,19 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSmemEpilogue_CUDA) {
     TORCH_CHECK(smem_allocs.size() == 3);
     if (params.promote_prologue_smem_reuse) {
       // Check prologue shared memory re-use
-      TORCH_CHECK(smem_allocs.at(1)->address()->isZero());
-      TORCH_CHECK(smem_allocs.at(2)->address()->isZero());
+      // smem_allocs = {A, B, C} where C is the epilogue buffer
+      // since A and B have no further uses, we should be able to reuse both of
+      // them, implying that the address of C is zero. In this case, B will also
+      // be allocated at address 0 with A stacked above it at position 8192.
+      EXPECT_EQ(smem_allocs.size(), 3);
+      EXPECT_EQ(
+          smem_allocs.at(0)->address()->evaluateInt(),
+          // Assuming B size times size(dtype) is a multiple of 16 so that this
+          // address is aligned
+          smem_allocs.at(1)->size()->evaluateInt() *
+              dataTypeSize(smem_allocs.at(1)->buffer()->dtype()));
+      EXPECT_EQ(smem_allocs.at(1)->address()->evaluateInt(), 0L);
+      EXPECT_EQ(smem_allocs.at(2)->address()->evaluateInt(), 0L);
     }
   }
 }
