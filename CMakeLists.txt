@@ -82,6 +82,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/dynamic_transform.cpp
   ${NVFUSER_SRCS_DIR}/expr_evaluator.cpp
   ${NVFUSER_SRCS_DIR}/expr_simplifier.cpp
+  ${NVFUSER_SRCS_DIR}/exceptions.cpp
   ${NVFUSER_SRCS_DIR}/executor.cpp
   ${NVFUSER_SRCS_DIR}/executor_kernel_arg.cpp
   ${NVFUSER_SRCS_DIR}/executor_params.cpp
@@ -402,6 +403,7 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/test/test_allocation_domain.cpp
     ${NVFUSER_ROOT}/test/test_dynamic_transform.cpp
     ${NVFUSER_ROOT}/test/test_evaluator.cpp
+    ${NVFUSER_ROOT}/test/test_exceptions.cpp
     ${NVFUSER_ROOT}/test/test_expr_sort.cpp
     ${NVFUSER_ROOT}/test/test_gather.cpp
     ${NVFUSER_ROOT}/test/test_gpu1.cpp
