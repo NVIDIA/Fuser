@@ -10,7 +10,7 @@
 # as this commit. For each, it will build the project in release mode then
 # invoke all binary and python tests, saving the generated cuda kernels to .cu
 # files. It will then diff these files and report which ones changed. The exit
-# code is the number of cuda kernels that differ between commits.
+# code is 1 if there are differences.
 #
 # The -r option controls the git ref to compare against. The -o option lets you
 # specify the output directory.
@@ -31,6 +31,10 @@
 # In those cases, the outputs will be placed in a subdirectory of the output
 # directory for each commit labelled "custom_command_$LAUNCHTIME" where
 # $LAUNCHTIME is a string representing the time this script was launched.
+# 
+# By default, `python setup.py develop` is used to rebuild the project.
+# You can also set environment variable CUSTOM_BUILD_COMMAND if your build
+# is different.
 
 set -e
 set -o pipefail
