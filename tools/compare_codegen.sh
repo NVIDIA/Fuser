@@ -31,7 +31,7 @@
 # In those cases, the outputs will be placed in a subdirectory of the output
 # directory for each commit labelled "custom_command_$LAUNCHTIME" where
 # $LAUNCHTIME is a string representing the time this script was launched.
-# 
+#
 # By default, `python setup.py develop` is used to rebuild the project.
 # You can also set environment variable CUSTOM_BUILD_COMMAND if your build
 # is different.
