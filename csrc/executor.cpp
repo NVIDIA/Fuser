@@ -1069,6 +1069,7 @@ LaunchParams FusionExecutor::computeLaunchParams(
         parallel_iter_extents, launch_constraints);
     expr_eval.precomputedValues()->evaluate();
   }
+  expr_eval.propagateBoundValuesThroughExactMaps(fusion_);
 
   // If any dimension was set in launch constraints we need to run through
   // IterDomains that have been parallelized, and bind those values. Or make
@@ -1286,6 +1287,7 @@ KernelArgumentHolder FusionExecutor::inferOutputSizes(
 
   ExpressionEvaluator expr_eval;
   expr_eval.precomputedValues() = evaluator_precomputed_values.get();
+  expr_eval.propagateBoundValuesThroughExactMaps(fusion);
 
   auto arg_index_type = args.getSmallestIndexTypeOfArguments();
   const auto& output_to_input_aliases = fusion->getOutputToInputAliasIndices();

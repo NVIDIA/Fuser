@@ -952,6 +952,8 @@ SchedulerRuntimeInfo::SchedulerRuntimeInfo(
 
   expression_evaluator_ = getExpressionEvaluator(args, precomputed_values);
 
+  expressionEvaluator().propagateBoundValuesThroughExactMaps(complete_fusion);
+
   if (forced_index_type.has_value()) {
     index_type_ = forced_index_type.value();
   } else {

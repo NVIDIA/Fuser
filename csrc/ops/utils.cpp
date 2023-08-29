@@ -221,8 +221,26 @@ std::vector<IterDomain*> newOutputDomain(
               promoteSize(expanded_extent_vals[i], dom[i]->expandedExtent());
         }
         continue;
+      } else if (
+          dom[i]->isSymbolic() && !dom[i]->extent()->isConstInt() &&
+          dom[i]->extent()->definition()) {
+        // Only use a Symbolic IterDomain's extent if it is constant or has no
+        // definition (pure symbolic). Symbolic r-factor IterDomains can have
+        // extents with complicated expressions, but we should not propagate
+        // these downstream. Instead, we will introduce new place-holder extents
+        // in these cases.
+
+        if (!extent_vals[i] ||
+            (!extent_vals[i]->isConstInt() && extent_vals[i]->definition())) {
+          // skip creating new Val if extent_vals[i] is defined, and is constant
+          // or pure symbolic already
+          extent_vals[i] = promoteSize(
+              extent_vals[i], IrBuilder::create<Val>(DataType::Index));
+        }
+      } else {
+        extent_vals[i] = promoteSize(extent_vals[i], dom[i]->extent());
       }
-      extent_vals[i] = promoteSize(extent_vals[i], dom[i]->extent());
+
       if (iter_types[i].has_value()) {
         iter_types[i] =
             promoteIterType(iter_types[i].value(), dom[i]->getIterType());
