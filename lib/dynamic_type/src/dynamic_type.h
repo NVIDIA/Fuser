@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 
+#include <algorithm>
 #include <optional>
 #include <ostream>
 #include <type_traits>
@@ -16,99 +17,6 @@
 #include "C++20/type_traits"
 #include "error.h"
 #include "type_traits.h"
-
-// Note [Design of DynamicType]
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// DynamicType is a type that can be one of a set of types. It is similar to
-// std::variant, but it is designed to be used in a way that is more similar to
-// how dynamic types are used in Python. For example, in Python, you can do
-// something like this:
-//   x = 1; y = 2.5; z = x + y
-// and z will be a dynamic float. However in C++, you will not be able to do:
-//   using IntOrFloat = std::variant<int, float>;
-//   IntOrFloat x = 1; IntOrFloat y = 2.5f; IntOrFloat z = x + y;
-// because the operator+ on std::variant is not defined. The goal of DynamicType
-// is to fill this gap. So you can do:
-//   using IntOrFloat = DynamicType<NoContainers, int, float>;
-//   IntOrFloat x = 1; IntOrFloat y = 2.5f; IntOrFloat z = x + y;
-//
-// The design purpose of DynamicType is to allow the user to forget about the
-// actual type as much as possible, and use operators seamlessly just like if
-// they are using Python. DynamicType should support arbitrary types, including
-// user-defined types, pointers, but excluding references, due to the limitation
-// of the C++ standard. The definition of operators on DynamicType should be
-// automatic. For example, if you have:
-//   struct CustomType {};
-//   using IntOrFloatOrCustom
-//     = DynamicType<NoContainers, int, float, CustomType>;
-// The the operator+ on IntOrFloatOrCustom should be defined, and it should be
-// equivalent to one of the following:
-//  - operator+(int, int)
-//  - operator+(float, float)
-//  - operator+(int, float)
-//  - operator+(float, int)
-// depending on the actual type of the DynamicType. If the actual type is
-// CustomType which does not have operator+, or if the value is null, then this
-// is a runtime error.
-// However, if have:
-//   struct CustomType2 {};
-//   using Custom12 = DynamicType<NoContainers, CustomType, CustomType2>;
-// Then the operator+ on Custom12 should not be defined at compile time, and
-// doing Custom12{} + Custom12{} results in a compilation error. It is a
-// compilation error because we know at compile time that none of them are
-// defined:
-//  - operator+(CustomType, CustomType)
-//  - operator+(CustomType, CustomType2)
-//  - operator+(CustomType2, CustomType)
-//  - operator+(CustomType2, CustomType2)
-// So we decide to not create the operator+ for Custom12.
-//
-// Also, besides requiring operator+(T1, T2) to be defined for some T1 and T2 in
-// the type list, it is also required that the result type of operator+(T1, T2)
-// is also in the type list. For example, if you have:
-//   struct bfloat16_zero {}; struct half_zero {};
-//   float operator+(bfloat16_zero, half_zero) { return 0.0f; }
-//   using BFloatOrHalfZero
-//     = DynamicType<NoContainers, bfloat16_zero, half_zero>;
-// Then the operator+ on BFloatOrHalf should not be defined, because the result
-// type is not in the type list. However, if you have:
-//   using BFloatOrHalfZeroOrInt
-//     = DynamicType<NoContainers, bfloat16_zero, half_zero, int>;
-// Then the operator+ on BFloatOrHalfZeroOrInt should be defined at compile time
-// because int+int is defined, but
-// BFloatOrHalfZeroOrInt(half_zero{}) + BFloatOrHalfZeroOrInt(bfloat16_zero{})
-// should be a runtime error, because the the result of half_zero+bfloat16_zero,
-// i.e. float, is not in the type list.
-//
-// Besides the operators within DynamicType, such as DynamicType + DynamicType,
-// DynamicType also support operators with static type. For example, if you have
-//   IntOrFloat x = 1; float y = 2.5f;
-// then x + y or y + x should be an IntOrFloat with value 3.5f. However, if you
-// have
-//   IntOrFloat x = 1; double y = 2.5;
-// then you will get a compilation error for doing x + y or y + x, because int +
-// double and double + int are double, which is not in the list of types of
-// IntOrFloat.
-//
-// All the above behaviors are handled by template meta-programming, so they are
-// automatic. Adding a new type to the list of types does not introduce any
-// extra work. All the behaviors mentioned in this note is tested in
-// DynamicTypeTest.ExamplesInNote, so if you want to change anything in this
-// doc, please make sure to update the test as well.
-//
-// DynamicType also support nested types, that is, the type list can contain
-// DynamicType. For example, we can have:
-//   using IntFloatVecList
-//     = DynamicType<Containers<std::vector, std::list>, int, float>;
-// Then the value contained in IntFloatVecList can be an int, a float, a
-// std::vector<IntFloatVecList>, or a std::list<IntFloatVecList>. For example,
-// we can have:
-//   IntFloatVecList x = std::vector<IntFloatVecList>{1, 2.0f};
-//   IntFloatVecList y = std::list<IntFloatVecList>{3, x};
-// then y will have a structure like {3, {1, 2.0f}}.
-//
-// Also, operations on DynamicType should be as constexpr as possible. So most
-// tests in DynamicTypeTest are static_assert tests.
 
 namespace dynamic_type {
 
