@@ -16,8 +16,6 @@ endif()
 set(NVFUSER_ROOT ${PROJECT_SOURCE_DIR})
 set(NVFUSER_SRCS_DIR "${NVFUSER_ROOT}/csrc")
 
-add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/lib/dynamic_type)
-
 option(NVFUSER_STANDALONE_BUILD_WITH_UCC "" OFF)
 
 if(PROJECT_IS_TOP_LEVEL)
@@ -59,6 +57,8 @@ else() # PROJECT_IS_TOP_LEVEL
   set(TORCH_INSTALL_LIB_DIR ${TORCH_ROOT}/torch/lib)
   find_package(CUDAToolkit REQUIRED)
 endif() # PROJECT_IS_TOP_LEVEL
+
+add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/lib/dynamic_type)
 
 # TODO: fix MSVC
 if(NOT MSVC)
