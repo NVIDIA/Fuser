@@ -17,6 +17,10 @@
 
 namespace nvfuser {
 
+StructType NotImplementedStruct::type() const {
+  TORCH_INTERNAL_ASSERT(false, "Not implemented");
+}
+
 StructType globalTensorMetaData(
     const PrimDataType& dtype,
     size_t dim,
@@ -54,7 +58,7 @@ StructType globalTensorMetaData(
       ArrayType{std::make_shared<DataType>(DataType::Index), alloc_dim});
   alloc_stride_field.used_in_kernel = true;
 
-  return StructType::make(
+  return StructType::make<NotImplementedStruct>(
       {data_field,
        logical_size_field,
        logical_stride_field,

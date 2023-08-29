@@ -258,21 +258,6 @@ Val* IrBuilder::metadataExpr(TensorView* tv) {
   return tv->fusion()->metadataOf(tv);
 }
 
-Val* IrBuilder::structExpr(
-    const std::vector<std::pair<std::string, Val*>>& fields,
-    std::string name) {
-  std::vector<StructType::FieldInfo> field_infos;
-  field_infos.reserve(fields.size());
-  for (auto& field : fields) {
-    field_infos.emplace_back(StructType::FieldInfo{
-        field.first, std::make_shared<DataType>(field.second->dtype()), true});
-  }
-  DataType dtype = StructType::make(std::move(field_infos), std::move(name));
-  auto out = newScalar(dtype);
-  create<StructConstruct>(out, fields);
-  return out;
-}
-
 Val* SimplifyingIrBuilder::negExpr(Val* val) {
   if (val->isZeroInt()) {
     return val->container()->zeroVal(val->dtype());
