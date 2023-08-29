@@ -137,7 +137,8 @@ class MatmulParams : public HeuristicParams {
         (nvfuser::hash(mma_macro) << 1) ^ (double_buffer_options.hash() << 2) ^
         (nvfuser::hash(tile_sizes) << 3) ^
         (std::hash<size_t>{}(static_cast<size_t>(cta_order)) << 4) ^
-        (std::hash<size_t>{}(grid_swizzle_factor) << 5);
+        (std::hash<size_t>{}(grid_swizzle_factor) << 5) ^
+        (use_smem_epilogue << 6) ^ (use_smem_epilogue << 7);
     return attr_hash;
   }
 
@@ -155,7 +156,10 @@ class MatmulParams : public HeuristicParams {
         other_casted->tile_sizes == tile_sizes &&
         other_casted->double_buffer_options == double_buffer_options &&
         other_casted->cta_order == cta_order &&
-        other_casted->grid_swizzle_factor == grid_swizzle_factor;
+        other_casted->grid_swizzle_factor == grid_swizzle_factor &&
+        other_casted->use_smem_epilogue == use_smem_epilogue &&
+        other_casted->promote_prologue_smem_reuse ==
+        promote_prologue_smem_reuse;
   }
 
   std::shared_ptr<HeuristicParams> clone() const override {
