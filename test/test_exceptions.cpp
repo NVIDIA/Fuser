@@ -1,7 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION &
- * AFFILIATES. All rights reserved. SPDX-License-Identifier: BSD-3-Clause
- */
+// This is a refactor of the tests used for PyTorch macros --
+// TORCH_INTERNAL_ASSERT and TORCH_CHECK.
 
 #include <csrc/exceptions.h>
 #include <gtest/gtest.h>

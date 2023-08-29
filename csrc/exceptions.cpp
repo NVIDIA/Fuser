@@ -1,7 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION &
- * AFFILIATES. All rights reserved. SPDX-License-Identifier: BSD-3-Clause
- */
+// This is a refactor of the TORCH_INTERNAL_ASSERT and TORCH_CHECK macros
+// from PyTorch for implementing NVFuser specific macros.
 
 #include <c10/util/irange.h>
 #include <cxxabi.h>
