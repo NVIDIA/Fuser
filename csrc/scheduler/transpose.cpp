@@ -143,16 +143,25 @@ class DomainMap : public pointwise_utils::DomainMap {
     // Project the root id to leaf id. Similar to projectIdToRFactor.
     for (auto expr : replay_exprs) {
       if (expr->isA<Split>()) {
+        // Split with factor one is not supposed to be here, reshape would map
+        // this to a broadcast. This is a conservative assert, we can relaxed it
+        // and support with mapping it to outer.
+        TORCH_INTERNAL_ASSERT(
+            !expr->as<Split>()->factor()->isOneInt(),
+            "split with factor one is supposed to be translated to broadcast by reshape");
         if (expr->as<Split>()->in() == mapped_id) {
           mapped_id = expr->as<Split>()->inner();
-        } else if (expr->as<Split>()->factor()->isOneInt()) {
-          mapped_id = expr->as<Split>()->outer();
         }
-      } else if (
-          expr->isA<Merge>() &&
-          (expr->as<Merge>()->inner() == mapped_id ||
-           expr->as<Merge>()->inner()->extent()->isOneInt())) {
-        mapped_id = expr->as<Merge>()->out();
+      } else if (expr->isA<Merge>()) {
+        // Merge with size-1 dimension is not supposed to be here, reshape would
+        // map this to a squeeze. This is a conservative assert, we can relaxed
+        // it and support with mapping it to out.
+        TORCH_INTERNAL_ASSERT(
+            !expr->as<Merge>()->inner()->extent()->isOneInt(),
+            "merge with size-1 dimension is supposed to be translated to squeeze by reshape");
+        if (expr->as<Merge>()->inner() == mapped_id) {
+          mapped_id = expr->as<Merge>()->out();
+        }
       } else if (expr->isA<Resize>() && expr->as<Resize>()->in() == mapped_id) {
         mapped_id = expr->as<Resize>()->out();
       }
