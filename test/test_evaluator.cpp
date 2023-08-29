@@ -30,6 +30,7 @@ inline void checkIntValue(
   EXPECT_TRUE(actual_value.hasValue());
   EXPECT_EQ(actual_value, expected_value);
 }
+
 } // namespace
 
 // Evaluate basic scalar operations with constant values
@@ -300,7 +301,8 @@ TEST_F(ExprEvalTest, Struct) {
   auto* a = IrBuilder::create<Val>(DataType::Int);
   auto* b = IrBuilder::create<Val>(DataType::Int);
 
-  auto struct_ = IrBuilder::structExpr({{"a", a}, {"b", b}}, "test_struct");
+  auto struct_ = IrBuilder::structExpr<NotImplementedStruct>(
+      {{"a", a}, {"b", b}}, "test_struct");
 
   auto aa = IrBuilder::getAttrExpr(struct_, "a");
   auto bb = IrBuilder::getAttrExpr(struct_, "b");
@@ -309,7 +311,7 @@ TEST_F(ExprEvalTest, Struct) {
   evaluator.bind(a, 2L);
   evaluator.bind(b, 5L);
 
-  Struct<PolymorphicValue> expect({{"a", 2L}, {"b", 5L}});
+  LegacyStruct<PolymorphicValue> expect({{"a", 2L}, {"b", 5L}});
   EXPECT_EQ(evaluator.evaluate(struct_), expect);
   EXPECT_EQ(evaluator.evaluate(aa), 2L);
   EXPECT_EQ(evaluator.evaluate(bb), 5L);
@@ -363,14 +365,6 @@ TEST_F(ExprEvalTest, TensorMetaData) {
   checkIntValue(evaluator, size1, 128L);
   checkIntValue(evaluator, stride0, 128L);
   checkIntValue(evaluator, stride1, 1L);
-}
-
-TEST_F(ExprEvalTest, OpaqueEquality) {
-  Opaque a{DataType::Int}, b{DataType::Int};
-  EXPECT_EQ(a, a);
-  EXPECT_EQ(b, b);
-  EXPECT_EQ(a, b);
-  EXPECT_EQ(b, a);
 }
 
 TEST_F(ExprEvalTest, Validation) {
