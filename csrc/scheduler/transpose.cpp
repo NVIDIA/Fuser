@@ -95,13 +95,13 @@ class DomainMap : public pointwise_utils::DomainMap {
     return result;
   }
 
-  IterDomain* getMappedRootDimIn(TensorView* tv, IterDomain* root_dim) const {
-    // Find the root id mapped to `root_dim`
-    const auto& root_dom = tv->getRootDomain();
+  IterDomain* getMappedInnermostDimIn(
+      const std::vector<IterDomain*>& dom,
+      IterDomain* root_dim) const {
     IterDomain* mapped_id = nullptr;
-    for (auto i : c10::irange(root_dom.size())) {
-      if (ca_map_.areMapped(root_dom[i], root_dim, IdMappingMode::INNERMOST)) {
-        mapped_id = root_dom[i];
+    for (auto i : c10::irange(dom.size())) {
+      if (ca_map_.areMapped(dom[i], dim, IdMappingMode::INNERMOST)) {
+        mapped_id = dom[i];
         break;
       }
     }
@@ -123,57 +123,29 @@ class DomainMap : public pointwise_utils::DomainMap {
     // reference 1 is the global reference, so it must have dim mapped the
     // innermost dim of both groups
     auto innermost2 = scheduler_utils::innerMostRootDim(ref2);
-    return domain_map.getMappedRootDimIn(ref1, innermost2) != nullptr;
+    return domain_map.getMappedInnermostDimIn(
+               ref1->getRootDomain(), innermost2) != nullptr;
   }
 
   // scheduler assumes inner leaf dimension on tv is an exact mapping, when the
   // mapping cannot be resolved, we'll return a `-1`
   int64_t getInnerLeafDim(TensorView* tv, IterDomain* root_dim) const {
-    auto mapped_id = getMappedRootDimIn(tv, root_dim);
-    TORCH_INTERNAL_ASSERT(
-        mapped_id != nullptr,
-        "Can not find ID mapped to ",
-        root_dim,
-        " in tensor ",
-        tv);
-    auto replay_exprs = StmtSort::getExprsBetween(
-        tv->fusion(),
-        {mapped_id},
-        {tv->getLeafDomain().begin(), tv->getLeafDomain().end()});
-    // Project the root id to leaf id. Similar to projectIdToRFactor.
-    for (auto expr : replay_exprs) {
-      if (expr->isA<Split>()) {
-        // Split with factor one is not supposed to be here, reshape would map
-        // this to a broadcast. This is a conservative assert, we can relaxed it
-        // and support with mapping it to outer.
-        TORCH_INTERNAL_ASSERT(
-            !expr->as<Split>()->factor()->isOneInt(),
-            "split with factor one is supposed to be translated to broadcast by reshape");
-        if (expr->as<Split>()->in() == mapped_id) {
-          mapped_id = expr->as<Split>()->inner();
-        }
-      } else if (expr->isA<Merge>()) {
-        // Merge with size-1 dimension is not supposed to be here, reshape would
-        // map this to a squeeze. This is a conservative assert, we can relaxed
-        // it and support with mapping it to out.
-        TORCH_INTERNAL_ASSERT(
-            !expr->as<Merge>()->inner()->extent()->isOneInt(),
-            "merge with size-1 dimension is supposed to be translated to squeeze by reshape");
-        if (expr->as<Merge>()->inner() == mapped_id) {
-          mapped_id = expr->as<Merge>()->out();
-        }
-      } else if (expr->isA<Resize>() && expr->as<Resize>()->in() == mapped_id) {
-        mapped_id = expr->as<Resize>()->out();
-      }
+    int64_t ret_index = -1;
+    auto mapped_id = getMappedInnermostDimIn(tv->getLeafDomain(), root_dim);
+    // couldn't find mapping
+    if (mapped_id == nullptr) {
+      return ret_index;
     }
+
     // Find the position of the leaf id
     const auto& dom = tv->getLeafDomain();
     for (auto i : c10::irange(dom.size())) {
       if (dom[i] == mapped_id) {
-        return static_cast<int64_t>(i);
+        ret_index = static_cast<int64_t>(i);
+        break;
       }
     }
-    return -1;
+    return ret_index;
   }
 
   // Group inputs and outputs of a fusion by its inner most domain. For example
