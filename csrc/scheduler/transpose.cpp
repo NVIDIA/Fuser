@@ -97,7 +97,7 @@ class DomainMap : public pointwise_utils::DomainMap {
 
   IterDomain* getMappedInnermostDimIn(
       const std::vector<IterDomain*>& dom,
-      IterDomain* dim) const {
+      IterDomain* root_dim) const {
     IterDomain* mapped_id = nullptr;
     for (auto i : c10::irange(dom.size())) {
       if (ca_map_.areMapped(dom[i], dim, IdMappingMode::INNERMOST)) {
@@ -129,9 +129,9 @@ class DomainMap : public pointwise_utils::DomainMap {
 
   // scheduler assumes inner leaf dimension on tv is an exact mapping, when the
   // mapping cannot be resolved, we'll return a `-1`
-  int64_t getInnerLeafDim(TensorView* tv, IterDomain* dim) const {
+  int64_t getInnerLeafDim(TensorView* tv, IterDomain* root_dim) const {
     int64_t ret_index = -1;
-    auto mapped_id = getMappedInnermostDimIn(tv->getLeafDomain(), dim);
+    auto mapped_id = getMappedInnermostDimIn(tv->getLeafDomain(), root_dim);
     // couldn't find mapping
     if (mapped_id == nullptr) {
       return ret_index;
