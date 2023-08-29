@@ -2494,8 +2494,8 @@ TEST_F(ResizeTest, Slice1DVectorizeManual4) {
 
   auto tv1 = slice(
       tv0,
-      {{IrBuilder::create<Val>(1),
-        sub(tv0->axis(0)->extent(), IrBuilder::create<Val>(3))}});
+      {{IrBuilder::create<Val>(1L),
+        sub(tv0->axis(0)->extent(), IrBuilder::create<Val>(3L))}});
   fusion.addOutput(tv1);
 
   tv1->split(0, 4);
@@ -2538,7 +2538,7 @@ TEST_F(ResizeTest, Slice2DVectorizeManual1) {
       tv0,
       {{IrBuilder::create<Val>(slice_offset),
         sub(tv0->axis(0)->extent(), IrBuilder::create<Val>(slice_offset))},
-       {IrBuilder::create<Val>(0), tv0->axis(1)->extent()}});
+       {IrBuilder::create<Val>(0L), tv0->axis(1)->extent()}});
   fusion.addOutput(tv1);
 
   tv1->merge(0);
@@ -2577,9 +2577,9 @@ TEST_F(ResizeTest, Slice3DVectorizeManual1) {
 
   auto tv1 = slice(
       tv0,
-      {{IrBuilder::create<Val>(0), tv0->axis(0)->extent()},
-       {IrBuilder::create<Val>(4), IrBuilder::create<Val>(6)},
-       {IrBuilder::create<Val>(0), tv0->axis(2)->extent()}});
+      {{IrBuilder::create<Val>(0L), tv0->axis(0)->extent()},
+       {IrBuilder::create<Val>(4L), IrBuilder::create<Val>(6L)},
+       {IrBuilder::create<Val>(0L), tv0->axis(2)->extent()}});
   fusion.addOutput(tv1);
 
   // Vectorize tv1 by a factor of 2. The sliced domain and the
@@ -2626,10 +2626,10 @@ TEST_F(ResizeTest, Slice3DVectorizeManual2) {
 
   auto tv1 = slice(
       tv0,
-      {{IrBuilder::create<Val>(0), tv0->axis(0)->extent()},
-       {IrBuilder::create<Val>(0), tv0->axis(1)->extent()},
-       {IrBuilder::create<Val>(0), IrBuilder::create<Val>(1024)},
-       {IrBuilder::create<Val>(0), tv0->axis(3)->extent()}});
+      {{IrBuilder::create<Val>(0L), tv0->axis(0)->extent()},
+       {IrBuilder::create<Val>(0L), tv0->axis(1)->extent()},
+       {IrBuilder::create<Val>(0L), IrBuilder::create<Val>(1024L)},
+       {IrBuilder::create<Val>(0L), tv0->axis(3)->extent()}});
   fusion.addOutput(tv1);
 
   // [4, 1, 1024, 3]
@@ -2668,19 +2668,19 @@ TEST_F(ResizeTest, SliceAndReshapeRepro540Manual) {
 
   auto tv1 = slice(
       tv0,
-      {{IrBuilder::create<Val>(0), tv0->axis(0)->extent()},
-       {IrBuilder::create<Val>(0), tv0->axis(1)->extent()},
-       {IrBuilder::create<Val>(0), IrBuilder::create<Val>(1024)}});
+      {{IrBuilder::create<Val>(0L), tv0->axis(0)->extent()},
+       {IrBuilder::create<Val>(0L), tv0->axis(1)->extent()},
+       {IrBuilder::create<Val>(0L), IrBuilder::create<Val>(1024L)}});
   auto tv2 = slice(
       tv0,
-      {{IrBuilder::create<Val>(0), tv0->axis(0)->extent()},
-       {IrBuilder::create<Val>(0), tv0->axis(1)->extent()},
-       {IrBuilder::create<Val>(1024), IrBuilder::create<Val>(2048)}});
+      {{IrBuilder::create<Val>(0L), tv0->axis(0)->extent()},
+       {IrBuilder::create<Val>(0L), tv0->axis(1)->extent()},
+       {IrBuilder::create<Val>(1024L), IrBuilder::create<Val>(2048L)}});
   auto tv3 = slice(
       tv0,
-      {{IrBuilder::create<Val>(0), tv0->axis(0)->extent()},
-       {IrBuilder::create<Val>(0), tv0->axis(1)->extent()},
-       {IrBuilder::create<Val>(2048), IrBuilder::create<Val>(3072)}});
+      {{IrBuilder::create<Val>(0L), tv0->axis(0)->extent()},
+       {IrBuilder::create<Val>(0L), tv0->axis(1)->extent()},
+       {IrBuilder::create<Val>(2048L), IrBuilder::create<Val>(3072L)}});
 
   auto tv4 = reshape(tv1, {16, 128, 1024}, {16, 128, 16, 64});
   auto tv5 = reshape(tv2, {16, 128, 1024}, {16, 128, 16, 64});
