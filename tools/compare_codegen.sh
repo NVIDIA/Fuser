@@ -208,15 +208,6 @@ cleanup
 
 # Print mismatching files. Note that logs are expected to differ since timings are included
 set +e  # exit status of diff is 1 if there are any mismatches
-diffs=$(diff -qr -x '*.log' "$outdir/$origcommit" "$outdir/$comparecommit")
-if [[ "$?" == 0 || -z "${diffs}" ]]
-then
-  echo "No difference found"
-  exit 0
-else
-  echo -e "\n\nDIFF RESULT:\n$diffs\n\n"
-
-  # Return number of mismatched cuda files. Success=0
-  num_mismatches=$(echo "$diffs" | wc -l)
-  exit "$num_mismatches"
-fi
+echo -e "\n\nDIFF RESULT:\n"
+diff -qr -x '*.log' "$outdir/$origcommit" "$outdir/$comparecommit" && echo "No difference found"
+echo $?
