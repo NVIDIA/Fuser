@@ -187,4 +187,3 @@ TEST_F(Examples, Example10) {
   EXPECT_EQ(b->*&B::y, 2.5);
   EXPECT_EQ((b->*&B::name)(), "B");
 }
-
