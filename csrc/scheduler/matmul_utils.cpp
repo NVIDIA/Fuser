@@ -143,23 +143,6 @@ inline bool initCoreHeuristics(
   return true;
 }
 
-//! A wrapper to get MMA Tensor data types
-//!   The order of returned types: INPUT_A, INPUT_B, OUTPUT_D
-inline mma_utils::MmaDataTypes getMmaDataTypes(
-    const std::map<MatmulRole, std::vector<TensorView*>>& roles_map) {
-  auto getMMADataType = [&](MatmulRole role) {
-    auto entry = roles_map.find(role);
-    if (entry != roles_map.end() && !entry->second.empty()) {
-      return entry->second.front()->dtype();
-    }
-    TORCH_INTERNAL_ASSERT(false, "Get MMA Tensor data type failed!");
-  };
-  const auto a_type = getMMADataType(MatmulRole::INPUT_A);
-  const auto b_type = getMMADataType(MatmulRole::INPUT_B);
-  const auto c_type = getMMADataType(MatmulRole::OUTPUT_D);
-  return mma_utils::MmaDataTypes{a_type, b_type, c_type};
-}
-
 //! A helper for getting problem shape from fusion and runtime info.
 ProblemShape getProblemShape(
     Fusion* fusion,
@@ -417,42 +400,12 @@ std::shared_ptr<MatmulParams> getMatmulHeuristics(
   TORCH_INTERNAL_ASSERT(
       roles_map_opt.isValid(), "Tensor roles map in mma is not valid.");
 
-  // smem_a and smem_b are guaranteed to be re-used for smem_c as long as:
-  //   - they are marked for re-use using promoteReuse
-  //   - they are not aliased by another tensor whose lifetime extends past the
-  //   start of smem_epilogue's.
-  //   - their lifetimes do not overlap smem_epilogue
-  //
-  // We guarantee the first condition by calling tv->promoteReuse() in
-  // scheduleProlog.
-  //
-  // The second condition would only be the case if another smem tensor had the
-  // same indexing and its lifetime did not overlap. This scheduler only uses
-  // smem for these three arrays, so the only candidate for aliasing is C. If C
-  // aliases either A or B, the following expression is still valid.
-  //
-  // The third condition is satisfied in the simple cases where the inputs to
-  // the matmul have only this use. However, it could be violated if a or b has
-  // other uses that get ordered after the matmul; for example when computing
-  // matmul(A, B) + A for square matrices A and B. In that case, the smem tensor
-  // resulting from A->cacheAfter() will be used in both the matmul as well as
-  // the addition that occurs in the epilogue, extending the lifetime such that
-  // it violates the third condition above. In order to avoid errors in these
-  // cases, we check that there is no re-use when there is more than one use of
-  // either a or b. If there are multiple uses we might wind up re-using memory,
-  // but in that case the calculation below will be overly conservative.
   const auto roles_map = roles_map_opt.getData();
-  TensorView* a = roles_map.at(MatmulRole::INPUT_A).front();
-  TensorView* b = roles_map.at(MatmulRole::INPUT_B).front();
-  bool smem_a_reuse_guaranteed = a->uses().size() == 1;
-  bool smem_b_reuse_guaranteed = b->uses().size() == 1;
   std::tie(params->use_smem_epilogue, params->promote_prologue_smem_reuse) =
       mma_utils::generateSharedMemoryEpilogueHeuristics(
           params->tile_sizes,
           params->double_buffer_options.smem_double_buffer_stage,
-          getMmaDataTypes(roles_map_opt.getData()),
-          smem_a_reuse_guaranteed,
-          smem_b_reuse_guaranteed);
+          roles_map);
 
   if (isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
     debug() << params->toString() << std::endl;

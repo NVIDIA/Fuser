@@ -309,10 +309,8 @@ TORCH_CUDA_CU_API RolesMapOpt getTensorsRoles(Fusion* fusion);
 TORCH_CUDA_CU_API std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
     const MatMulTileOptions& gemm_tile,
     const int smem_double_buffer_stage,
-    const MmaDataTypes& data_types,
-    const bool ignore_occupancy_drop = false,
-    const bool smem_a_reuse_guaranteed = false,
-    const bool smem_b_reuse_guaranteed = false);
+    const RolesMap& roles_map,
+    bool ignore_occupancy_drop = false);
 
 } // namespace mma_utils
 
