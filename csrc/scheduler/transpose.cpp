@@ -142,10 +142,16 @@ class DomainMap : public pointwise_utils::DomainMap {
         {tv->getLeafDomain().begin(), tv->getLeafDomain().end()});
     // Project the root id to leaf id. Similar to projectIdToRFactor.
     for (auto expr : replay_exprs) {
-      if (expr->isA<Split>() && expr->as<Split>()->in() == mapped_id) {
-        mapped_id = expr->as<Split>()->inner();
+      if (expr->isA<Split>()) {
+        if (expr->as<Split>()->in() == mapped_id) {
+          mapped_id = expr->as<Split>()->inner();
+        } else if (expr->as<Split>()->factor()->isOneInt()) {
+          mapped_id = expr->as<Split>()->outer();
+        }
       } else if (
-          expr->isA<Merge>() && expr->as<Merge>()->inner() == mapped_id) {
+          expr->isA<Merge>() &&
+          (expr->as<Merge>()->inner() == mapped_id ||
+           expr->as<Merge>()->inner()->extent()->isOneInt())) {
         mapped_id = expr->as<Merge>()->out();
       } else if (expr->isA<Resize>() && expr->as<Resize>()->in() == mapped_id) {
         mapped_id = expr->as<Resize>()->out();
