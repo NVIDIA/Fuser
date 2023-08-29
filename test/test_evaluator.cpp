@@ -301,7 +301,8 @@ TEST_F(ExprEvalTest, Struct) {
   auto* a = IrBuilder::create<Val>(DataType::Int);
   auto* b = IrBuilder::create<Val>(DataType::Int);
 
-  auto struct_ = IrBuilder::structExpr({{"a", a}, {"b", b}}, "test_struct");
+  auto struct_ = IrBuilder::structExpr<NotImplementedStruct>(
+      {{"a", a}, {"b", b}}, "test_struct");
 
   auto aa = IrBuilder::getAttrExpr(struct_, "a");
   auto bb = IrBuilder::getAttrExpr(struct_, "b");
