@@ -1,3 +1,8 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION &
+ * AFFILIATES. All rights reserved. SPDX-License-Identifier: BSD-3-Clause
+ */
+
 #include <csrc/exceptions.h>
 #include <gtest/gtest.h>
 #include <stdexcept>
@@ -28,17 +33,20 @@ TEST_F(NVFuserTest, ErrorFormatting) {
 }
 
 static int assertionArgumentCounter = 0;
-static int getAssertionArgument() {
+
+namespace {
+int getAssertionArgument() {
   return ++assertionArgumentCounter;
 }
 
-static void failCheck() {
+void failCheck() {
   NVF_CHECK(false, "message ", getAssertionArgument());
 }
 
-static void failError() {
+void failError() {
   NVF_ERROR(false, "message ", getAssertionArgument());
 }
+} // namespace
 
 TEST_F(NVFuserTest, MultipleArgCalls) {
   assertionArgumentCounter = 0;

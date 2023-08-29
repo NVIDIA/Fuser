@@ -1,10 +1,8 @@
-// clang-format off
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION & AFFILIATES.
- * All rights reserved.
- * SPDX-License-Identifier: BSD-3-Clause
+ * SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION &
+ * AFFILIATES. All rights reserved. SPDX-License-Identifier: BSD-3-Clause
  */
-// clang-format on
+
 #pragma once
 
 #include <array>
@@ -240,23 +238,22 @@ inline const char* nvfCheckMsgImpl(const char* /*msg*/, const char* args) {
 #define STRINGIZE_IMPL(x) #x
 #define STRINGIZE(x) STRINGIZE_IMPL(x)
 
-#define NVF_ERROR(cond, ...)                                \
-  if ((!(cond))) {                                          \
+#define NVF_ERROR(cond, ...)                                  \
+  if ((!(cond))) {                                            \
     nvfuser::nvfErrorFail(                                  \
         __FUNCTION__,                                       \
         __FILE__,                                           \
         static_cast<uint32_t>(__LINE__),                    \
-        #cond " INTERNAL ASSERT FAILED at " STRINGIZE(__FILE__) ":" STRINGIZE(__LINE__) ", please report a bug to NVFuser. ", \
-            nvfuser::to_str(__VA_ARGS__));                  \
+        #cond " INTERNAL ASSERT FAILED at " \
+        STRINGIZE(__FILE__) ":" STRINGIZE(__LINE__) \
+        ", please report a bug with repro script to NVFuser at " \
+        "https://github.com/NVIDIA/Fuser/issues. ", \
+        nvfuser::to_str(__VA_ARGS__)); \
   }
 
-#define NVF_CHECK_MSG(cond, type, ...)                     \
-  (nvfuser::nvfCheckMsgImpl(                               \
-      "Expected " #cond                                    \
-      " to be true, but got false.  "                      \
-      "(Could this error message be improved?  If so, "    \
-      "please report an enhancement request to NVFuser.)", \
-      ##__VA_ARGS__))
+#define NVF_CHECK_MSG(cond, type, ...) \
+  (nvfuser::nvfCheckMsgImpl(           \
+      "Expected " #cond " to be true, but got false.  ", ##__VA_ARGS__))
 
 #define NVF_CHECK(cond, ...)                     \
   if ((!(cond))) {                               \
