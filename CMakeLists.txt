@@ -58,6 +58,8 @@ else() # PROJECT_IS_TOP_LEVEL
   find_package(CUDAToolkit REQUIRED)
 endif() # PROJECT_IS_TOP_LEVEL
 
+add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/lib/dynamic_type)
+
 # TODO: fix MSVC
 if(NOT MSVC)
   find_library(LIBNVTOOLSEXT libnvToolsExt.so PATHS ${CUDA_TOOLKIT_ROOT_DIR}/lib64/)
