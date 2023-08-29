@@ -19,7 +19,7 @@ namespace nvfuser {
 
 namespace mma_utils {
 
-bool generateSharedMemoryEpilogueHeuristics(
+std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
     const MatMulTileOptions& gemm_tile,
     const int smem_double_buffer_stage,
     const MmaDataTypes& data_types,
@@ -57,14 +57,20 @@ bool generateSharedMemoryEpilogueHeuristics(
   // Even if we actually do wind up re-claiming smem_a and smem_b, if we
   // cannot prove it at this point then we have to assume it will not be
   // reclaimed.
-  const size_t total_with_smem_epilogue = std::max(
+  const size_t total_with_reused_smem_epilogue = std::max(
       smem_a + smem_b,
       (smem_a_reuse_guaranteed ? 0 : smem_a) +
           (smem_b_reuse_guaranteed ? 0 : smem_b) + smem_c);
 
+  const size_t total_with_noreuse_smem_epilogue = smem_a + smem_b + smem_c;
+
   // shortcut where occupancy change is ignored.
   if (ignore_occupancy_drop) {
-    return shared_memory_available >= total_with_smem_epilogue;
+    if (shared_memory_available >= total_with_noreuse_smem_epilogue) {
+      return {true, false};
+    } else {
+      return {shared_memory_available >= total_with_reused_smem_epilogue, true};
+    }
   }
 
   // use additional shared memory for epilogue if occupancy is not changed.
@@ -74,12 +80,23 @@ bool generateSharedMemoryEpilogueHeuristics(
   const auto blocks_per_sm_without_smem_epilogue = std::min(
       shared_memory_available / total_without_smem_epilogue,
       (size_t)blocks_per_sm_by_register);
-  const auto blocks_per_sm_with_smem_epilogue = std::min(
-      shared_memory_available / total_with_smem_epilogue,
+  const auto blocks_per_sm_with_reused_smem_epilogue = std::min(
+      shared_memory_available / total_with_reused_smem_epilogue,
+      (size_t)blocks_per_sm_by_register);
+  const auto blocks_per_sm_with_noreuse_smem_epilogue = std::min(
+      shared_memory_available / total_with_noreuse_smem_epilogue,
       (size_t)blocks_per_sm_by_register);
 
-  return blocks_per_sm_with_smem_epilogue ==
-      blocks_per_sm_without_smem_epilogue;
+  // Return whether we should use smem for epilogue, and whether syncing for
+  // re-use is desired. We avoid the sync if omitting it does not decrease
+  // occupancy.
+  auto promote_prologue_smem_reuse = blocks_per_sm_with_reused_smem_epilogue !=
+      blocks_per_sm_with_noreuse_smem_epilogue;
+
+  return {
+      blocks_per_sm_with_reused_smem_epilogue ==
+          blocks_per_sm_without_smem_epilogue,
+      promote_prologue_smem_reuse};
 }
 
 void scheduleWarpTileWithReduction(TensorView* tv, MatMulTileOptions tile) {

@@ -94,6 +94,9 @@ class MatmulParams : public HeuristicParams {
   //!  coalesced write to global memory
   bool use_smem_epilogue = false;
 
+  //! Promote reuse of prologue shared memory
+  bool promote_prologue_smem_reuse = false;
+
   std::string toString() const override {
     std::stringstream ss;
     ss << "\n===== Matmul Parameters ========\n"
@@ -117,6 +120,8 @@ class MatmulParams : public HeuristicParams {
        << "\n"
        << "Grid swizzle factor: " << grid_swizzle_factor << "\n"
        << "Use shared memory epilogue: " << use_smem_epilogue << "\n"
+       << "Promote re-use of prologue shared memory: "
+       << promote_prologue_smem_reuse << "\n"
        << "====================================\n";
     return ss.str();
   }

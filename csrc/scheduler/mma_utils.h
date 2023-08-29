@@ -293,15 +293,20 @@ TORCH_CUDA_CU_API ProblemIterDomainsOpt getProblemIterDomains(Fusion* fusion);
 //!  be gathered.
 TORCH_CUDA_CU_API RolesMapOpt getTensorsRoles(Fusion* fusion);
 
-//! Return whether use shared memory epilogue or not.
-//!  Returns true if using shared memory epilogue won't cause
+//! Return pair of whether use shared memory epilogue or not and whether to
+//! reuse shared memory for the prologue at the expense of an additional block
+//! sync.
+//!  Returns true in first position if using shared memory epilogue won't cause
 //!  the decrease of occupancy ratio. The occupancy ratio is
 //!  estimated using register and shared memory usage.
 //!  If ignore_occupancy_drop is set to true, returns true if
 //!  there is enough shared memory to launch the kernel without
 //!  considering the occupancy, useful for debug and validate
 //!  shared memory epilogue implementation.
-TORCH_CUDA_CU_API bool generateSharedMemoryEpilogueHeuristics(
+//!
+//! Returns true in the second position if reusing shared memory for the
+//! epilogue does not increase occupancy.
+TORCH_CUDA_CU_API std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
     const MatMulTileOptions& gemm_tile,
     const int smem_double_buffer_stage,
     const MmaDataTypes& data_types,

@@ -514,7 +514,9 @@ void scheduleProlog(TensorView* shared_mem_tv, const MatmulParams& params) {
   // needed. This is not done by default as we do not insert new syncs unless
   // requested to do so. If smem is not used for the epilogue, this call will
   // have no effect.
-  shared_mem_tv->promoteReuse();
+  if (params.promote_prologue_smem_reuse) {
+    shared_mem_tv->promoteReuse();
+  }
 
   mma_utils::orderTiledConcreteIdAsRoot(shared_mem_tv);
 

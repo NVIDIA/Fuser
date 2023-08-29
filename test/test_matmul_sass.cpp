@@ -328,7 +328,7 @@ TEST_F(MatmulSASSTest, AmpereModifiersSharedMemoryEpilogue_CUDA) {
   gemm_tile.instruction_tile = GemmTile(16, 8, 16);
   const int smem_double_buffer_stage = 4;
   const bool ignore_occupancy_drop = true;
-  const bool use_smem_epilogue =
+  const auto [use_smem_epilogue, skip_promote_reuse] =
       mma_utils::generateSharedMemoryEpilogueHeuristics(
           gemm_tile,
           smem_double_buffer_stage,

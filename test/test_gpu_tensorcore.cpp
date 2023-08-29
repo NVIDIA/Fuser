@@ -3258,7 +3258,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck4warp_CUDA) {
         params.tile_sizes = gemm_tile;
         params.async_gmem_load_operands = true;
         params.double_buffer_options.double_buffer_smem_write = true;
-        params.use_smem_epilogue =
+        std::tie(params.use_smem_epilogue, params.promote_prologue_smem_reuse) =
             mma_utils::generateSharedMemoryEpilogueHeuristics(
                 gemm_tile,
                 params.double_buffer_options.smem_double_buffer_stage,
@@ -3326,7 +3326,8 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck8warp_CUDA) {
           params.double_buffer_options.double_buffer_smem_write = true;
           params.double_buffer_options.double_buffer_smem_read = true;
           params.double_buffer_options.smem_double_buffer_stage = 2;
-          params.use_smem_epilogue =
+          std::tie(
+              params.use_smem_epilogue, params.promote_prologue_smem_reuse) =
               mma_utils::generateSharedMemoryEpilogueHeuristics(
                   gemm_tile,
                   params.double_buffer_options.smem_double_buffer_stage,
@@ -3389,7 +3390,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck6warp_CUDA) {
       params.double_buffer_options.double_buffer_smem_write = true;
       params.double_buffer_options.double_buffer_smem_read = true;
       params.double_buffer_options.smem_double_buffer_stage = 2;
-      params.use_smem_epilogue =
+      std::tie(params.use_smem_epilogue, params.promote_prologue_smem_reuse) =
           mma_utils::generateSharedMemoryEpilogueHeuristics(
               gemm_tile,
               params.double_buffer_options.smem_double_buffer_stage,
@@ -3938,7 +3939,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSmemEpilogue_CUDA) {
     params.double_buffer_options.double_buffer_smem_write = true;
     params.double_buffer_options.double_buffer_smem_read = true;
     params.double_buffer_options.smem_double_buffer_stage = 2;
-    params.use_smem_epilogue =
+    std::tie(params.use_smem_epilogue, params.promote_prologue_smem_reuse) =
         mma_utils::generateSharedMemoryEpilogueHeuristics(
             gemm_tile,
             params.double_buffer_options.smem_double_buffer_stage,
@@ -4025,7 +4026,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSmemEpilogueCast_CUDA) {
     params.double_buffer_options.double_buffer_smem_write = true;
     params.double_buffer_options.double_buffer_smem_read = true;
     params.double_buffer_options.smem_double_buffer_stage = 4;
-    params.use_smem_epilogue =
+    std::tie(params.use_smem_epilogue, params.promote_prologue_smem_reuse) =
         mma_utils::generateSharedMemoryEpilogueHeuristics(
             gemm_tile,
             params.double_buffer_options.smem_double_buffer_stage,
@@ -4112,7 +4113,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSmemEpilogueRelu_CUDA) {
     params.double_buffer_options.double_buffer_smem_write = true;
     params.double_buffer_options.double_buffer_smem_read = true;
     params.double_buffer_options.smem_double_buffer_stage = 4;
-    params.use_smem_epilogue =
+    std::tie(params.use_smem_epilogue, params.promote_prologue_smem_reuse) =
         mma_utils::generateSharedMemoryEpilogueHeuristics(
             gemm_tile,
             params.double_buffer_options.smem_double_buffer_stage,
