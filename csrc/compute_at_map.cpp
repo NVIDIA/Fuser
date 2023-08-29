@@ -700,7 +700,7 @@ void IterDomainGraph::build(Fusion* fusion) {
     }
   }
 
-  permissive_relaxed_resize_nodes_ = permissive_resize_nodes_;
+  innermost_nodes_ = permissive_resize_nodes_;
   // Build almost exact map by forwarding through broadcast axes
   almost_exact_nodes_ = exact_nodes_;
   std::unordered_set<Expr*> visited;
@@ -716,13 +716,11 @@ void IterDomainGraph::build(Fusion* fusion) {
     if (auto merge = dynamic_cast<Merge*>(def)) {
       if (merge->inner()->extent()->isOneInt()) {
         almost_exact_nodes_.mapEntries(merge->outer(), merge->out());
-        permissive_relaxed_resize_nodes_.mapEntries(
-            merge->outer(), merge->out());
+        innermost_nodes_.mapEntries(merge->outer(), merge->out());
       } else {
         // maps to inner dimension, even though it's not an identical mapping.
         // This is used for transpose scheduler to map inner leaf dimensions
-        permissive_relaxed_resize_nodes_.mapEntries(
-            merge->inner(), merge->out());
+        innermost_nodes_.mapEntries(merge->inner(), merge->out());
       }
       if (merge->outer()->extent()->isOneInt()) {
         almost_exact_nodes_.mapEntries(merge->inner(), merge->out());
@@ -737,13 +735,11 @@ void IterDomainGraph::build(Fusion* fusion) {
         }
       }
       if (split->factor()->isOneInt() && split->innerSplit()) {
-        permissive_relaxed_resize_nodes_.mapEntries(
-            split->in(), split->outer());
+        innermost_nodes_.mapEntries(split->in(), split->outer());
       } else {
         // maps to inner dimension, even though it's not an identical mapping.
         // This is used for transpose scheduler to map inner leaf dimensions
-        permissive_relaxed_resize_nodes_.mapEntries(
-            split->in(), split->inner());
+        innermost_nodes_.mapEntries(split->in(), split->inner());
       }
     }
   }
@@ -1431,7 +1427,7 @@ std::string ComputeAtMap::toString() const {
   ss << "Permissive-Resize map:\n"
      << idGraphNodesToString(*this, IdMappingMode::PERMISSIVE_RESIZE);
   ss << "Permissive-Relaxed-Resize map:\n"
-     << idGraphNodesToString(*this, IdMappingMode::PERMISSIVE_RELAXED_RESIZE);
+     << idGraphNodesToString(*this, IdMappingMode::INNERMOST_RESIZE);
   ss << "Consumer maps:\n";
   for (auto key : getSortedKeys(id_graph_.consumers(), Statement::lessThan)) {
     auto consumers = id_graph_.consumers().at(key);
@@ -1493,7 +1489,7 @@ const DisjointSets<IterDomain*>& ComputeAtMap::getIdSets(
       return id_graph_.permissiveNodes();
     case IdMappingMode::PERMISSIVE_RESIZE:
       return id_graph_.permissiveResizeNodes();
-    case IdMappingMode::PERMISSIVE_RELAXED_RESIZE:
+    case IdMappingMode::INNERMOST_RESIZE:
       return id_graph_.permissiveRelaxedResizeNodes();
   }
   TORCH_INTERNAL_ASSERT(false, "Error with mapping mode provided.");

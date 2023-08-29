@@ -58,7 +58,7 @@ namespace nvfuser {
 //   inputs and outputs of resize ops. Used for, e.g., propagating
 //   parallel types across those domains. It also maps producers and
 //   consumers of gathered and scattered domains
-// IdMappingMode::PERMISSIVE_RELAXED_RESIZE
+// IdMappingMode::INNERMOST
 //   Include everything in PERMISSIVE_RESIZE. Maps also iter domain across
 //   split/merge to the inner domain, it is used to map inner most iter domain.
 //   i.e. transpose scheduler use this to map inner most domain.
@@ -92,7 +92,7 @@ class TORCH_CUDA_CU_API IterDomainGraph {
     return permissive_resize_nodes_;
   }
   const DisjointSets<IterDomain*>& permissiveRelaxedResizeNodes() const {
-    return permissive_relaxed_resize_nodes_;
+    return innermost_nodes_;
   }
 
   // Consumers and producers is not symmetric like the other sets
@@ -148,7 +148,7 @@ class TORCH_CUDA_CU_API IterDomainGraph {
   DisjointSets<IterDomain*> almost_exact_nodes_;
   DisjointSets<IterDomain*> loop_nodes_;
   DisjointSets<IterDomain*> permissive_resize_nodes_;
-  DisjointSets<IterDomain*> permissive_relaxed_resize_nodes_;
+  DisjointSets<IterDomain*> innermost_nodes_;
 
   // Consumers and producers is not symmetric like the other sets.
   // Mapping is based on the most permissive map, i.e., the

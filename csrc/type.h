@@ -683,7 +683,7 @@ enum class IdMappingMode {
   LOOP,
   PERMISSIVE,
   PERMISSIVE_RESIZE,
-  PERMISSIVE_RELAXED_RESIZE
+  INNERMOST
 };
 
 static constexpr std::array<IdMappingMode, 6> kIdMappingModes = {
@@ -692,7 +692,7 @@ static constexpr std::array<IdMappingMode, 6> kIdMappingModes = {
     IdMappingMode::LOOP,
     IdMappingMode::PERMISSIVE,
     IdMappingMode::PERMISSIVE_RESIZE,
-    IdMappingMode::PERMISSIVE_RELAXED_RESIZE};
+    IdMappingMode::INNERMOST};
 
 //! Used to annotate the special memory intrinsics that a loadstore op will be
 //!  lowered to.
