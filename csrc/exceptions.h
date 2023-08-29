@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 
+#include <array>
 #include <deque>
 #include <fstream>
 #include <optional>
@@ -15,7 +16,6 @@
 #include <type_traits>
 #include <typeinfo>
 #include <vector>
-#include <array>
 
 namespace nvfuser {
 
