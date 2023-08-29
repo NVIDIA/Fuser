@@ -214,4 +214,5 @@ cleanup
 set +e  # exit status of diff is 1 if there are any mismatches
 echo -e "\n\nDIFF RESULT:\n"
 diff -qr -x '*.log' "$outdir/$origcommit" "$outdir/$comparecommit" && echo "No difference found"
-echo $?
+
+exit $?
