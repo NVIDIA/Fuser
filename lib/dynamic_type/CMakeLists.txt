@@ -25,6 +25,16 @@ function(add_test_for_standard std_version)
     target_include_directories(${target} PUBLIC src)
     target_link_libraries(${target} PRIVATE gtest_main gmock_main)
     set_property(TARGET ${target} PROPERTY CXX_STANDARD ${std_version})
+
+    set(target bench_dynamic_type_${std_version})
+    add_executable(${target}
+        benchmark/main.cpp
+        benchmark/knn.cpp
+        benchmark/sort.cpp
+    )
+    target_include_directories(${target} PUBLIC src)
+    target_link_libraries(${target} PRIVATE benchmark::benchmark)
+    set_property(TARGET ${target} PROPERTY CXX_STANDARD ${std_version})
 endfunction()
 
 add_test_for_standard(17)
