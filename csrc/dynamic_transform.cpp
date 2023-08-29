@@ -627,17 +627,26 @@ void DynamicTransformConcretizer::mutate(TensorView* tv) {
 
       // Determine the output IterType
       IterType iter_type = IterType::Symbolic;
-      for (auto inp_id : ir_utils::filterByType<IterDomain>(expr->inputs())) {
+      const auto input_ids =
+          ir_utils::filterByType<IterDomain>(expr->inputs()).vector();
+      for (auto i : c10::irange(input_ids.size())) {
+        auto inp_id = input_ids.at(i);
         auto updated_id = maybeMutated(inp_id)->as<IterDomain>();
-        // ops::promoteIterType will favor Symbolic if it encounters it
-        // alongside Broadcast. This is preferable at fusion definition, but
-        // here we are propagating, and if we only see Broadcast in some
-        // dimension, then we should not retain Symbolic. To work around this,
-        // we always overwrite Symbolic with the first concrete IterType we
-        // encounter.
-        iter_type = iter_type == IterType::Symbolic
-            ? updated_id->getIterType()
-            : ops::promoteIterType(iter_type, updated_id->getIterType());
+        TORCH_CHECK(
+            updated_id == inp_id || !updated_id->isSymbolic(),
+            "Mutated IterDomains between root and rfactor should not be symbolic");
+        if (i == 0) {
+          // ops::promoteIterType will favor Symbolic if it encounters it
+          // alongside Broadcast. This is preferable at fusion definition, but
+          // here we are propagating, and if we only see Broadcast in some
+          // dimension, then we should not retain Symbolic. To work around this,
+          // we always overwrite Symbolic with the first concrete IterType we
+          // encounter.
+          iter_type = updated_id->getIterType();
+        } else {
+          iter_type =
+              ops::promoteIterType(iter_type, updated_id->getIterType());
+        }
       }
       // Update the IterType of each output
       for (auto out_id : ir_utils::filterByType<IterDomain>(expr->outputs())) {
