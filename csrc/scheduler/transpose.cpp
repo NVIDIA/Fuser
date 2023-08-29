@@ -129,6 +129,11 @@ class DomainMap : public pointwise_utils::DomainMap {
   // scheduler assumes inner leaf dimension on tv is an exact mapping, when the
   // mapping cannot be resolved, we'll return a `-1`
   int64_t getInnerLeafDim(TensorView* tv, IterDomain* root_dim) const {
+    // TODO: ideally we should be mapping to leaf domain directly here.
+    // However, our current compute at map is constructed before leaf domain is
+    // transformed. So the mapping here would require a new compute at map to be
+    // constructed from the updated fusion. We'll revisit this once our id graph
+    // refactor is done.
     auto mapped_id = getMappedRootDimIn(tv, root_dim);
     TORCH_INTERNAL_ASSERT(
         mapped_id != nullptr,
