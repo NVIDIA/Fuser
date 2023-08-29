@@ -3992,6 +3992,14 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSmemEpilogue_CUDA) {
       GTEST_SKIP()
           << "Test conducted without utilizing shared memory epilogue due to the device's constrained shared memory capacity.";
     }
+
+    auto smem_allocs = fe.kernel()->summary().dynamic_smem_allocations;
+    TORCH_CHECK(smem_allocs.size() == 3);
+    if (params.promote_prologue_smem_reuse) {
+      // Check prologue shared memory re-use
+      TORCH_CHECK(smem_allocs.at(1)->address()->isZero());
+      TORCH_CHECK(smem_allocs.at(2)->address()->isZero());
+    }
   }
 }
 
