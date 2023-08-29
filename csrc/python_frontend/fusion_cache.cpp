@@ -530,18 +530,19 @@ void FusionCache::deserialize(std::string filename) {
     auto fb_fec_node = fusion_cache_buffer->auto_gen_schedules()->Get(idx);
     auto fusion_schedule = queryFusionSchedules(trie_node->fusion_id);
 
-    if (isOptionDisabled(DisableOption::ParallelSerde)) {
-      FUSER_PERF_SCOPE("FusionCache::deserializeFusionSerial");
-      fusion_schedule->auto_gen_schedules->deserialize(fb_fec_node);
-    } else {
+    if (!isOptionDisabled(DisableOption::ParallelSerde)) {
       // Parallelize the deserialization of each FusionExecutorCache.
       getThreadPool()->run([=]() {
         FUSER_PERF_SCOPE("FusionCache::deserializeFusionParallel");
         fusion_schedule->auto_gen_schedules->deserialize(fb_fec_node);
       });
+    } else {
+      FUSER_PERF_SCOPE("FusionCache::deserializeFusionSerial");
+      fusion_schedule->auto_gen_schedules->deserialize(fb_fec_node);
     }
   }
-  if (isOptionDisabled(DisableOption::ParallelSerde)) {
+
+  if (!isOptionDisabled(DisableOption::ParallelSerde)) {
     // Wait until all fusion executor caches are deserialized
     getThreadPool()->waitWorkComplete();
   }
