@@ -116,3 +116,74 @@ TEST_F(Examples, Example6) {
       ::testing::ThrowsMessage<std::runtime_error>(
           ::testing::HasSubstr("Cannot index ")));
 }
+
+TEST_F(Examples, Example7) {
+  using IntFloatVec = DynamicType<Containers<std::vector>, int, float>;
+  IntFloatVec x = std::vector<int>{1, 2};
+  IntFloatVec y = std::vector<std::vector<int>>{{1, 2}, {3, 4}};
+  EXPECT_TRUE(x.is<std::vector>());
+  EXPECT_EQ(x.as<std::vector>().size(), 2);
+  EXPECT_EQ(x.as<std::vector>()[0], 1);
+  EXPECT_EQ(x.as<std::vector>()[1], 2);
+  EXPECT_TRUE(y.is<std::vector>());
+  EXPECT_EQ(y.as<std::vector>().size(), 2);
+  EXPECT_TRUE(y.as<std::vector>()[0].is<std::vector>());
+  EXPECT_EQ(y.as<std::vector>()[0].as<std::vector>().size(), 2);
+  EXPECT_EQ(y.as<std::vector>()[0].as<std::vector>()[0], 1);
+  EXPECT_EQ(y.as<std::vector>()[0].as<std::vector>()[1], 2);
+  EXPECT_TRUE(y.as<std::vector>()[1].is<std::vector>());
+  EXPECT_EQ(y.as<std::vector>()[1].as<std::vector>().size(), 2);
+  EXPECT_EQ(y.as<std::vector>()[1].as<std::vector>()[0], 3);
+  EXPECT_EQ(y.as<std::vector>()[1].as<std::vector>()[1], 4);
+}
+
+TEST_F(Examples, Example8) {
+  using IntFloatVec = DynamicType<Containers<std::vector>, int, float>;
+
+  IntFloatVec x = std::vector<IntFloatVec>{1, 2.3f};
+  auto y = (std::vector<int>)x;
+  EXPECT_EQ(y.size(), 2);
+  EXPECT_EQ(y[0], 1);
+  EXPECT_EQ(y[1], 2);
+
+  IntFloatVec z = std::vector<std::vector<IntFloatVec>>{{1, 2.3f}, {3.4f, 5}};
+  auto q = (std::vector<std::vector<int>>)z;
+  EXPECT_EQ(q.size(), 2);
+  EXPECT_EQ(q[0].size(), 2);
+  EXPECT_EQ(q[0][0], 1);
+  EXPECT_EQ(q[0][1], 2);
+  EXPECT_EQ(q[1].size(), 2);
+  EXPECT_EQ(q[1][0], 3);
+  EXPECT_EQ(q[1][1], 5);
+}
+
+TEST_F(Examples, Example9) {
+  using IntFloatVec = DynamicType<Containers<std::vector>, int, float>;
+  IntFloatVec x = std::vector<IntFloatVec>{1, 2.3f};
+  EXPECT_EQ(x[0], 1);
+  EXPECT_EQ(x[1], 2.3f);
+}
+
+TEST_F(Examples, Example10) {
+  struct A {
+    int x;
+    std::string name() const {
+      return "A";
+    }
+  };
+
+  struct B {
+    double y;
+    std::string name() const {
+      return "B";
+    }
+  };
+
+  using AB = DynamicType<NoContainers, A, B>;
+  AB a = A{1};
+  EXPECT_EQ(a->*&A::x, 1);
+  EXPECT_EQ((a->*&A::name)(), "A");
+  AB b = B{2.5};
+  EXPECT_EQ(b->*&B::y, 2.5);
+  EXPECT_EQ((b->*&B::name)(), "B");
+}

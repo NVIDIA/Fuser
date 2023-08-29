@@ -121,8 +121,8 @@ construct `IntOrFloat`.
 All the above behaviors are handled by template meta-programming, so they are
 automatic. Adding a new type to the list of types does not introduce any
 extra work. All the behaviors mentioned in this note are tested in
-`DynamicTypeTest.ExamplesInNote`, so if you want to change anything in this
-doc, please make sure to update the test as well.
+`test/examples.cpp`, so if you want to change anything in this doc, please make
+sure to update the test as well.
 
 `DynamicType` also supports recursive types, that is, the type list can
 contain `DynamicType`. For example, something like:
@@ -158,20 +158,85 @@ IntFloatVecList x = std::vector<IntFloatVecList>{1, 2.0f};
 IntFloatVecList y = std::list<IntFloatVecList>{3, x};
 ```
 
-then y will have a structure like `{3, {1, 2.0f}}`.
+then `y` will have a structure like `{3, {1, 2.0f}}`.
 
-TODO: document the following:
-- ctor `IntFloatVecList(std::vector<int>)`
-- casting operators `(std::vector<int>)IntFloatVecList`
-- `Containers` can be more than containers
-- `is`, `as`
-- `[]` for subscripting
-- `->*` for member access
-- hashing
+`DynamicType` also has overloaded constructors for converting containers of concrete
+type into a `DynamicType`, for example:
 
-Also, operations on `DynamicType` are as `constexpr` as possible. So most
-tests in `DynamicTypeTest` are `static_assert` tests.
+```C++
+using IntFloatVec = DynamicType<Containers<std::vector>, int, float>;
+IntFloatVec x = std::vector<int>{1, 2};
+IntFloatVec y = std::vector<std::vector<int>>{{1, 2}, {3, 4}};
+```
 
+You can also cast from a `DynamicType` into a container of concrete types, for example:
+
+```C++
+using IntFloatVec = DynamicType<Containers<std::vector>, int, float>;
+IntFloatVec x = std::vector<IntFloatVec>{1, 2.3f};
+auto y = (std::vector<int>)x;
+IntFloatVec z = std::vector<std::vector<IntFloatVec>>{{1, 2.3f}, {3.4f, 5}};
+auto q = (std::vector<std::vector<int>>)z;
+```
+
+Also, although the name `Containers`, it is not limited to containers like `std::vector`.
+It can be used to define arbitrary recursive type, such as `Containers<std::shared_ptr>`.
+
+To check the actual type of the dynamic type, use `is<T>()`. For containers, you can just
+use `is<Template>()` like `is<std::vector>()`, instead of having to fully spell it out as
+`is<std::vector<IntFloatVec>>()`. Similarly, use `as<T>()` or `as<Template>()` to get the
+reference or constant reference of the actual data. Also, use `type` to get the `type_info`
+of the underlying data.
+
+`DynamicType` supports subscripting. You can use `operator[]` just like using it with the
+containers itself. For example:
+
+```C++
+using IntFloatVec = DynamicType<Containers<std::vector>, int, float>;
+IntFloatVec x = std::vector<IntFloatVec>{1, 2.3f};
+x[0] // gets IntFloatVec(1)
+x[1] // gets IntFloatVec(2.3f)
+```
+
+If one of the candidate type of `DynamicType` is a struct or class, then we can use
+operator `->*&` to access their members. For example:
+
+```C++
+struct A {
+  int x;
+  std::string name() const {
+    return "A";
+  }
+};
+
+struct B {
+  double y;
+  std::string name() const {
+    return "B";
+  }
+};
+
+using AB = DynamicType<NoContainers, A, B>;
+AB a = A{1};
+a->*&A::x // 1
+(a->*&A::name)() // "A"
+AB b = B{2.5};
+b->*&B::y // 2.5
+(b->*&B::name)() // "B"
+```
+
+`DynamicType` also supports forwarding `->*` operators, that is, if a candidate type
+defines `->*`, then we calling `->*` on the `DynamicType` will just forward the `->*`
+call to the candidate type. See note `[Struct Support in PolymorphicValue]` in nvFuser
+for an example.
+
+The `std::hash` for `DynamicType` is also overloaded using the `std::hash` for `std::variant`.
+However, this approach has a limitation that it can not be used if there are cross-type
+equality between types, because if such equality exists, two values satisfying `a == b` might
+get different hash, which does not make sense.
+
+Operations on `DynamicType` are as `constexpr` as possible. So most tests in
+`DynamicTypeTest` are `static_assert` tests.
 
 # Benchmarks
 
