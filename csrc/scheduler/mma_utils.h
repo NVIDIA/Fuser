@@ -312,6 +312,16 @@ TORCH_CUDA_CU_API std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
     const RolesMap& roles_map,
     bool ignore_occupancy_drop = false);
 
+//! This version assumes roles_map has been analyzed to determine smem datatypes
+//! as well as guarantees about prologue smem reuse.
+TORCH_CUDA_CU_API std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
+    const MatMulTileOptions& gemm_tile,
+    const int smem_double_buffer_stage,
+    const MmaDataTypes& data_types,
+    bool smem_a_reuse_guaranteed = false,
+    bool smem_b_reuse_guaranteed = false,
+    bool ignore_occupancy_drop = false);
+
 } // namespace mma_utils
 
 } // namespace nvfuser

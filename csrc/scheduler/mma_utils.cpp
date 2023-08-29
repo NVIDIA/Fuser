@@ -39,8 +39,10 @@ inline mma_utils::MmaDataTypes getMmaDataTypes(
 std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
     const MatMulTileOptions& gemm_tile,
     const int smem_double_buffer_stage,
-    const RolesMap& roles_map,
-    const bool ignore_occupancy_drop) {
+    const MmaDataTypes& data_types,
+    bool smem_a_reuse_guaranteed,
+    bool smem_b_reuse_guaranteed,
+    bool ignore_occupancy_drop) {
   const auto properties = at::cuda::getCurrentDeviceProperties();
   const size_t device_smem_limit = properties->sharedMemPerBlockOptin;
   const size_t shared_memory_overhead = properties->reservedSharedMemPerBlock;
@@ -50,8 +52,6 @@ std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
   auto warp_dims = gemm_tile.cta_tile / gemm_tile.warp_tile;
   const auto threads_per_block =
       warp_dims.m * warp_dims.n * warp_dims.k * properties->warpSize;
-
-  const auto data_types = getMmaDataTypes(roles_map);
 
   // see scheduleContiguousVectorLoad
   const int vector_word = 8;
@@ -68,37 +68,11 @@ std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
   const size_t smem_c = (size_t)(gemm_tile.cta_tile.m * gemm_tile.cta_tile.n) *
       dataTypeSize(data_types[2]);
 
-  // smem_a and smem_b are guaranteed to be re-used for smem_c as long as:
-  //   - they are marked for re-use using promoteReuse
-  //   - they are not aliased by another tensor whose lifetime extends past the
-  //   start of smem_epilogue's.
-  //   - their lifetimes do not overlap smem_epilogue
-  //
-  // We can guarantee the first condition by calling tv->promoteReuse() in
-  // scheduleProlog.
-  //
-  // The second condition would only be the case if another smem tensor had the
-  // same indexing and its lifetime did not overlap. This scheduler only uses
-  // smem for these three arrays, so the only candidate for aliasing is C. If C
-  // aliases either A or B, the following expression is still valid.
-  //
-  // The third condition is satisfied in the simple cases where the inputs to
-  // the matmul have only this use. However, it could be violated if a or b has
-  // other uses that get ordered after the matmul; for example when computing
-  // matmul(A, B) + A for square matrices A and B. In that case, the smem tensor
-  // resulting from A->cacheAfter() will be used in both the matmul as well as
-  // the addition that occurs in the epilogue, extending the lifetime such that
-  // it violates the third condition above. In order to avoid errors in these
-  // cases, we check that there is no re-use when there is more than one use of
-  // either a or b. If there are multiple uses we might wind up re-using memory,
-  // but in that case the calculation below will be overly conservative.
-  TensorView* a = roles_map.at(MatmulRole::INPUT_A).front();
-  TensorView* b = roles_map.at(MatmulRole::INPUT_B).front();
-  bool smem_a_reuse_guaranteed = a->uses().size() == 1;
-  bool smem_b_reuse_guaranteed = b->uses().size() == 1;
-
   // NOTE: we can simply add these sizes since they should be integer multiples
-  // of 16 bytes, so they will automatically be aligned.
+  // of 16 bytes, so they will automatically be aligned. This may change with
+  // FP8, in which case the expressions below should be updated to insert
+  // alignment expressions, using the expected stack ordering in
+  // StackBasedSharedMemAllocator.
   TORCH_CHECK(smem_a % 16 == 0 && smem_b % 16 == 0 && smem_b % 16 == 0);
 
   const size_t total_without_smem_epilogue = smem_a + smem_b;
@@ -144,6 +118,51 @@ std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
       blocks_per_sm_with_reused_smem_epilogue ==
           blocks_per_sm_without_smem_epilogue,
       promote_prologue_smem_reuse};
+}
+
+std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
+    const MatMulTileOptions& gemm_tile,
+    const int smem_double_buffer_stage,
+    const RolesMap& roles_map,
+    const bool ignore_occupancy_drop) {
+  const auto data_types = getMmaDataTypes(roles_map);
+
+  // smem_a and smem_b are guaranteed to be re-used for smem_c as long as:
+  //   - they are marked for re-use using promoteReuse
+  //   - they are not aliased by another tensor whose lifetime extends past the
+  //   start of smem_epilogue's.
+  //   - their lifetimes do not overlap smem_epilogue
+  //
+  // We can guarantee the first condition by calling tv->promoteReuse() in
+  // scheduleProlog.
+  //
+  // The second condition would only be the case if another smem tensor had the
+  // same indexing and its lifetime did not overlap. This scheduler only uses
+  // smem for these three arrays, so the only candidate for aliasing is C. If C
+  // aliases either A or B, the following expression is still valid.
+  //
+  // The third condition is satisfied in the simple cases where the inputs to
+  // the matmul have only this use. However, it could be violated if a or b has
+  // other uses that get ordered after the matmul; for example when computing
+  // matmul(A, B) + A for square matrices A and B. In that case, the smem tensor
+  // resulting from A->cacheAfter() will be used in both the matmul as well as
+  // the addition that occurs in the epilogue, extending the lifetime such that
+  // it violates the third condition above. In order to avoid errors in these
+  // cases, we check that there is no re-use when there is more than one use of
+  // either a or b. If there are multiple uses we might wind up re-using memory,
+  // but in that case the calculation below will be overly conservative.
+  TensorView* a = roles_map.at(MatmulRole::INPUT_A).front();
+  TensorView* b = roles_map.at(MatmulRole::INPUT_B).front();
+  bool smem_a_reuse_guaranteed = a->uses().size() == 1;
+  bool smem_b_reuse_guaranteed = b->uses().size() == 1;
+
+  return generateSharedMemoryEpilogueHeuristics(
+      gemm_tile,
+      smem_double_buffer_stage,
+      data_types,
+      smem_a_reuse_guaranteed,
+      smem_b_reuse_guaranteed,
+      ignore_occupancy_drop);
 }
 
 void scheduleWarpTileWithReduction(TensorView* tv, MatMulTileOptions tile) {
