@@ -71,12 +71,14 @@ std::vector<VALTYPE*> makeSortedEvaluationList(std::vector<VALTYPE*> input) {
           to_sort.push_back(producer);
         }
       }
+
       for (auto attribute : getAttributes(top_val)) {
         if (!visited.count(attribute)) {
           ready_to_pop = false;
           to_sort.push_back(attribute);
         }
       }
+
       if (ready_to_pop) {
         // Some definition operations generate multiple outputs. e.g., split and
         // resize. We add sibling outputs together in the sorted list.
@@ -145,9 +147,9 @@ void bindDomain(
 // allocation, and leaf domains
 void bind(std::vector<Val*>& all_values, nvfuser::TensorView* tv) {
   bindRootDomain(all_values, tv->getRootDomain());
-  bindDomain(all_values, tv->getRFactorDomain());
-  bindDomain(all_values, tv->getAllocationDomain());
-  bindDomain(all_values, tv->getLeafDomain());
+  // bindDomain(all_values, tv->getRFactorDomain());
+  // bindDomain(all_values, tv->getAllocationDomain());
+  // bindDomain(all_values, tv->getLeafDomain());
 }
 
 } // namespace
@@ -623,23 +625,77 @@ void ExpressionBuilder::deserialize(const Instruction* buffer) {
       break;
     }
     case serde::InstructionData_Merge: {
-      // TODO implement
-      NVF_ERROR(false, "Unsupported implemented merge.");
+      auto data = buffer->data_as_Merge();
+      NVF_ERROR(data != nullptr, "serde::Merge is nullptr.")
+      if (!exists(data->out())) {
+        auto inner = operation_stack_.at(data->inner());
+        auto outer = operation_stack_.at(data->outer());
+        NVF_ERROR(inner->isA<IterDomain>());
+        NVF_ERROR(outer->isA<IterDomain>());
+
+        auto merged_id =
+            IterDomain::merge(inner->as<IterDomain>(), outer->as<IterDomain>());
+        operation_stack_.push_back(merged_id);
+      }
       break;
     }
     case serde::InstructionData_Split: {
-      // TODO implement
-      NVF_ERROR(false, "Unsupported implemented split.");
+      auto data = buffer->data_as_Split();
+      NVF_ERROR(data != nullptr, "serde::Split is nullptr.")
+      if (!exists(data->inner()) || !exists(data->outer())) {
+        auto in = operation_stack_.at(data->in());
+        NVF_ERROR(in->isA<IterDomain>());
+
+        auto factor = operation_stack_.at(data->factor());
+        auto split_ids = IterDomain::split(
+            in->as<IterDomain>(),
+            factor,
+            data->inner_split(),
+            data->trim_out_of_bounds());
+        operation_stack_.push_back(split_ids.first);
+        operation_stack_.push_back(split_ids.second);
+      }
       break;
     }
     case serde::InstructionData_Resize: {
-      // TODO implement
-      NVF_ERROR(false, "Unsupported implemented resize.");
+      auto data = buffer->data_as_Resize();
+      NVF_ERROR(data != nullptr, "serde::Resize is nullptr.")
+      if (!exists(data->out())) {
+        auto in = operation_stack_.at(data->in());
+        NVF_ERROR(in->isA<IterDomain>());
+
+        auto left_expansion = operation_stack_.at(data->left_expansion());
+        auto right_expansion = operation_stack_.at(data->right_expansion());
+
+        // TODO add mark_as_rfactor attribute
+        // TODO add optional itertype attribute
+        auto resized_id = IterDomain::resize(
+            in->as<IterDomain>(),
+            left_expansion,
+            right_expansion,
+            false /* mark_as_rfactor */);
+        operation_stack_.push_back(resized_id);
+      }
       break;
     }
     case serde::InstructionData_Swizzle2D: {
-      // TODO implement
-      NVF_ERROR(false, "Unsupported implemented swizzle2d.");
+      auto data = buffer->data_as_Swizzle2D();
+      NVF_ERROR(data != nullptr, "serde::Swizzle2D is nullptr.")
+      if (!exists(data->out_x()) || !exists(data->out_y())) {
+        auto in_x = operation_stack_.at(data->in_x());
+        auto in_y = operation_stack_.at(data->in_y());
+        NVF_ERROR(in_x->isA<IterDomain>());
+        NVF_ERROR(in_y->isA<IterDomain>());
+
+        // TODO support all enum types - Swizzle2DType and SwizzleMode
+        auto swizzle_ids = IterDomain::swizzle(
+            nvfuser::Swizzle2DType::ZShape,
+            in_x->as<IterDomain>(),
+            in_y->as<IterDomain>(),
+            nvfuser::SwizzleMode::Data);
+        operation_stack_.push_back(swizzle_ids.first);
+        operation_stack_.push_back(swizzle_ids.second);
+      }
       break;
     }
     default: {
