@@ -91,7 +91,7 @@ class TORCH_CUDA_CU_API IterDomainGraph {
   const DisjointSets<IterDomain*>& permissiveResizeNodes() const {
     return permissive_resize_nodes_;
   }
-  const DisjointSets<IterDomain*>& permissiveRelaxedResizeNodes() const {
+  const DisjointSets<IterDomain*>& innermostNodes() const {
     return innermost_nodes_;
   }
 
