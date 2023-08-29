@@ -1956,7 +1956,8 @@ flatbuffers::Offset<serde::FusionExecutor> FusionExecutor::serialize(
     flatbuffers::FlatBufferBuilder& builder) const {
   // See table definition for FusionExecutor in serde/fusion_cache.fbs
   TORCH_INTERNAL_ASSERT(
-      !last_compiled_binary_.object_code.empty(), "Missing Compiled Kernel.");
+      !last_compiled_binary_.object_code.empty(),
+      "Expected compiled cuda kernel before serializing FusionExecutor.");
 
   using fb_executor_entry = flatbuffers::Offset<serde::ExecutorEntry>;
 
@@ -2102,8 +2103,8 @@ void FusionExecutor::deserialize(
         deserialize(buffer->executor_entry_lookup_values()->Get(idx)));
   }
 
+  // Load compiled cuda kernel from flatbuffer
   buffer->compiled_kernel()->UnPackTo(&last_compiled_binary_);
-
   std::tie(compiled_kernel_, last_compiler_log_) =
       executor_utils::getCompiledKernel(
           last_compiled_binary_, compile_params, block_size_high_water_mark_);

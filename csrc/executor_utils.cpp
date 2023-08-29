@@ -55,7 +55,6 @@
 
 #include <cstdlib>
 #include <fstream>
-#include <type_traits>
 #include <variant>
 
 #include <nvrtc.h>
@@ -1294,12 +1293,13 @@ std::tuple<NvrtcFunction, std::string> getCompiledKernel(
 
   const auto prop = at::cuda::getCurrentDeviceProperties();
 
+  // Generate compile args and compare against saved args in compiled_binary
+  NvrtcCompileDriver nvrtc_compile_driver;
+  CuModuleLoadDataDriver module_load_driver;
+
   int major = 0, minor = 0;
   bool compile_to_sass = false;
   queryTargetGPUVersion(prop, major, minor, compile_to_sass);
-
-  NvrtcCompileDriver nvrtc_compile_driver;
-  CuModuleLoadDataDriver module_load_driver;
 
   fillCompileOptions(
       nvrtc_compile_driver,
@@ -1310,8 +1310,12 @@ std::tuple<NvrtcFunction, std::string> getCompiledKernel(
       compile_params,
       opt_block_size);
 
-  const auto compile_args =
+  const auto latest_compile_args =
       toDelimitedString(nvrtc_compile_driver.options(), " ");
+  TORCH_INTERNAL_ASSERT(
+      latest_compile_args == compiled_binary.compile_args,
+      "The compile arguments for the serialized cuda kernel does not ",
+      "match the latest generated compile args.");
 
   std::stringstream log;
   NvrtcFunction compiled_kernel;
