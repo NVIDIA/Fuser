@@ -3993,23 +3993,56 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSmemEpilogue_CUDA) {
           << "Test conducted without utilizing shared memory epilogue due to the device's constrained shared memory capacity.";
     }
 
+    // Check that smem is allocated as expected.
+    // There are three cases that are determined by the current device in
+    // mma_utils::generateSharedMemoryEpilogueHeuristics:
+    //   - !use_smem_epilogue : A + B
+    //   - use_smem_epilogue && !promote_prologue_smem_reuse : A + B + C
+    //   - use_smem_epilogue && promote_prologue_smem_reuse : max(A + B, C)
     auto smem_allocs = fe.kernel()->summary().dynamic_smem_allocations;
-    TORCH_CHECK(smem_allocs.size() == 3);
-    if (params.promote_prologue_smem_reuse) {
-      // Check prologue shared memory re-use
-      // smem_allocs = {A, B, C} where C is the epilogue buffer
-      // since A and B have no further uses, we should be able to reuse both of
-      // them, implying that the address of C is zero. In this case, B will also
-      // be allocated at address 0 with A stacked above it at position 8192.
-      EXPECT_EQ(smem_allocs.size(), 3);
+    if (params.use_smem_epilogue) {
+      TORCH_CHECK(smem_allocs.size() == 3);
+      if (params.promote_prologue_smem_reuse) {
+        // Check prologue shared memory re-use
+        // smem_allocs = {A, B, C} where C is the epilogue buffer
+        // since A and B have no further uses, we should be able to reuse both
+        // of them, implying that the address of C is zero. In this case, B will
+        // also be allocated at address 0 with A stacked above it at position
+        // 8192.
+        EXPECT_EQ(
+            smem_allocs.at(0)->address()->evaluateInt(),
+            // Assuming B numel times size(dtype) is a multiple of 16 so that
+            // this address is aligned
+            smem_allocs.at(1)->size()->evaluateInt() *
+                dataTypeSize(smem_allocs.at(1)->buffer()->dtype()));
+        EXPECT_EQ(smem_allocs.at(1)->address()->evaluateInt(), 0L);
+        EXPECT_EQ(smem_allocs.at(2)->address()->evaluateInt(), 0L);
+      } else {
+        // Prologue shared memory is not re-used. In this case, memory should
+        // stack in C, B, A order.
+        EXPECT_EQ(
+            smem_allocs.at(0)->address()->evaluateInt(),
+            // Assuming for B and C that numel times size(dtype) is a multiple
+            // of 16 so that this address is aligned
+            smem_allocs.at(1)->size()->evaluateInt() *
+                    dataTypeSize(smem_allocs.at(1)->buffer()->dtype()) +
+                smem_allocs.at(2)->size()->evaluateInt() *
+                    dataTypeSize(smem_allocs.at(2)->buffer()->dtype()));
+        EXPECT_EQ(
+            smem_allocs.at(1)->address()->evaluateInt(),
+            smem_allocs.at(2)->size()->evaluateInt() *
+                dataTypeSize(smem_allocs.at(2)->buffer()->dtype()));
+        EXPECT_EQ(smem_allocs.at(2)->address()->evaluateInt(), 0L);
+      }
+    } else {
+      TORCH_CHECK(smem_allocs.size() == 2);
       EXPECT_EQ(
           smem_allocs.at(0)->address()->evaluateInt(),
-          // Assuming B size times size(dtype) is a multiple of 16 so that this
+          // Assuming B numel times size(dtype) is a multiple of 16 so that this
           // address is aligned
           smem_allocs.at(1)->size()->evaluateInt() *
               dataTypeSize(smem_allocs.at(1)->buffer()->dtype()));
       EXPECT_EQ(smem_allocs.at(1)->address()->evaluateInt(), 0L);
-      EXPECT_EQ(smem_allocs.at(2)->address()->evaluateInt(), 0L);
     }
   }
 }
