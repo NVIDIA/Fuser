@@ -7,6 +7,7 @@ import inspect
 import torch
 from typing import Callable
 from pytest_utils import map_dtype_to_str
+import pytest
 
 
 def _instantiate_opinfo_test_template(
@@ -15,6 +16,15 @@ def _instantiate_opinfo_test_template(
     """Instantiates a test template for an operator."""
 
     def test():
+        # Ref: https://github.com/pytorch/pytorch/blob/aa8ea1d787a9d21b064b664c5344376265feea6c/torch/testing/_internal/common_utils.py#L2251-L2263
+        # > CUDA device side error will cause subsequence test cases to fail.
+        # > stop entire test suite if catches RuntimeError during torch.cuda.synchronize().
+        if torch.cuda.is_initialized():
+            try:
+                torch.cuda.synchronize()
+            except RuntimeError as rte:
+                pytest.exit("TEST SUITE EARLY TERMINATION due to torch.cuda.synchronize() failure")
+
         return template(opinfo, dtype)
 
     test.__name__ = "_".join((template.__name__, opinfo.name, map_dtype_to_str[dtype]))
