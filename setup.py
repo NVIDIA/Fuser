@@ -338,6 +338,7 @@ def main():
         nvfuser_package_data = [
             "lib/libnvfuser_codegen.so",
             "include/nvfuser/*.h",
+            "include/nvfuser/struct.inl",
             "include/nvfuser/C++20/type_traits",
             "include/nvfuser/device_lower/*.h",
             "include/nvfuser/device_lower/analysis/*.h",
@@ -347,7 +348,8 @@ def main():
             "include/nvfuser/ops/*.h",
             "include/nvfuser/python_frontend/*.h",
             "include/nvfuser/scheduler/*.h",
-            "include/nvfuser/serde*.h",
+            "include/nvfuser/serde/*.h",
+            "include/nvfuser/flatbuffers/*.h",
             "share/cmake/nvfuser/NvfuserConfig*",
             "contrib/*",
             "contrib/nn/*",
