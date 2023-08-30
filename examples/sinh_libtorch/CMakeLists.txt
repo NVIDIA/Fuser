@@ -9,6 +9,5 @@ find_package(Torch REQUIRED)
 find_package(Nvfuser REQUIRED)
 
 add_executable(sinh_example main.cpp)
-
 target_link_libraries(sinh_example ${TORCH_LIBRARIES})
 target_link_libraries(sinh_example nvfuser_codegen)

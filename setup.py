@@ -346,6 +346,7 @@ def main():
             "include/nvfuser/kernel_db/*.h",
             "include/nvfuser/multidevice/*.h",
             "include/nvfuser/ops/*.h",
+            "include/nvfuser/ir/*.h",
             "include/nvfuser/python_frontend/*.h",
             "include/nvfuser/scheduler/*.h",
             "include/nvfuser/serde/*.h",
