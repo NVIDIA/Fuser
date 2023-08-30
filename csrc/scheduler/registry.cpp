@@ -20,6 +20,7 @@
 #include <scheduler/registry.h>
 #include <scheduler/transpose.h>
 #include <scheduler/utils.h>
+#include <tensor_metadata.h>
 
 #include <limits>
 
@@ -969,11 +970,11 @@ SchedulerRuntimeInfo::SchedulerRuntimeInfo(
     if (input_tv != nullptr && !input_tv->isCpuScalar()) {
       const auto& metadata =
           expression_evaluator_->evaluate(IrBuilder::metadataExpr(input_tv));
-      const auto& alloc_sizes = metadata["alloc_size"].as<std::vector>();
-      const auto& alloc_strides = metadata["alloc_stride"].as<std::vector>();
+      const auto& alloc_sizes = metadata->*&TensorMetaData::alloc_size;
+      const auto& alloc_strides = metadata->*&TensorMetaData::alloc_stride;
       TORCH_INTERNAL_ASSERT(alloc_sizes.size() == alloc_strides.size());
 
-      input_ptrs_[fusion_inp] = (size_t)metadata["data"];
+      input_ptrs_[fusion_inp] = (size_t)(metadata->*&TensorMetaData::data);
 
       // find and push discontiguous stride
       int64_t dtype_size = dataTypeSize(input_tv->dtype());
@@ -981,11 +982,11 @@ SchedulerRuntimeInfo::SchedulerRuntimeInfo(
       int64_t dims = (int64_t)alloc_strides.size();
       int64_t expected_stride = 1;
       for (int64_t dim = dims - 1; dim >= 0; dim--) {
-        auto size = alloc_sizes.at(dim).as<int64_t>();
+        auto size = alloc_sizes.at(dim);
         if (size <= 1) {
           continue;
         }
-        auto stride = alloc_strides.at(dim).as<int64_t>();
+        auto stride = alloc_strides.at(dim);
         if (stride != expected_stride) {
           input_discontig_strides_[fusion_inp].push_back(stride * dtype_size);
           expected_stride = stride;
