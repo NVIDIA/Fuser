@@ -230,7 +230,10 @@ class TORCH_CUDA_CU_API Val : public Statement {
     if (value_.hasValue()) {
       TORCH_CHECK(
           hasCompatibleDataType(value_, dtype_),
-          "Scalar value is not compatible with the given data type.");
+          "Scalar value is not compatible with the given data type ",
+          dtype_,
+          " for value ",
+          PolymorphicValue_functions::toString(value_));
     }
   }
   explicit Val(IrBuilderPasskey passkey, DataType dtype)
@@ -238,10 +241,7 @@ class TORCH_CUDA_CU_API Val : public Statement {
   explicit Val(IrBuilderPasskey passkey, PrimDataType dtype)
       : Val(passkey, ValType::Others, DataType(dtype)) {}
   explicit Val(IrBuilderPasskey passkey, PolymorphicValue value)
-      : Val(passkey,
-            ValType::Others,
-            nvfuser::getDataType(value),
-            std::move(value)) {}
+      : Val(passkey, ValType::Others, nvfuser::getDataType(value), value) {}
   explicit Val(IrBuilderPasskey passkey, PolymorphicValue value, DataType dtype)
       : Val(passkey,
             ValType::Others,
@@ -636,15 +636,15 @@ class TORCH_CUDA_CU_API Expr : public Statement {
   }
 
   // TODO: Add Fusion passkey
-  void addScalarAttribute(PolymorphicValue attr);
+  void addDataAttribute(PolymorphicValue attr);
 
   // TODO: Add Fusion passkey
   template <typename T>
   void addDataAttribute(T attr) {
     if constexpr (PolymorphicValue::is_candidate_type<T>) {
-      addScalarAttribute(std::move(attr));
+      addDataAttribute(PolymorphicValue(std::move(attr)));
     } else {
-      addScalarAttribute(Opaque{std::any(std::move(attr)), OpaqueEquals<T>{}});
+      addDataAttribute(Opaque(std::move(attr)));
     }
   }
 

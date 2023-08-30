@@ -103,10 +103,7 @@ Val* randomlyReuseOrCreateNamedScalar(
     return ns;
   }
   auto& existing_vals = fusion->getManaged<std::vector<Val*>>(name);
-  std::random_device rd;
-  std::mt19937 gen(rd());
-  std::uniform_int_distribution<size_t> dis(0, existing_vals.size());
-  auto index = dis(gen);
+  auto index = (size_t)std::rand() % (existing_vals.size() + 1);
   if (index == existing_vals.size()) {
     // create a new one
     auto ns = IrBuilder::create<NamedScalar>(name, dtype);

@@ -31,7 +31,7 @@ getRNGSeedAndOffsetFromHost() {
   // host to the dereferenced offset pointer. In this ways, the offset value on
   // the host is the intra-cuda-graph offset, and the offset value on the device
   // is the base offset for this entire CUDA graph.
-  auto intptr = PointerOf{std::make_shared<DataType>(DataType::Int)};
+  auto intptr = PointerType{std::make_shared<DataType>(DataType::Int)};
   Val* seed_ptr = IrBuilder::newScalar(intptr);
   Val* seed_val = IrBuilder::newScalar(DataType::Int);
   Val* offset_ptr = IrBuilder::newScalar(intptr);
