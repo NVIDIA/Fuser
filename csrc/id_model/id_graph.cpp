@@ -23,7 +23,7 @@ IdGraph::IdGraph(const IdGraph& other)
     auto new_id_group = toGroup(orig_id_group->front());
 
     ExprGroups new_expr_groups;
-    for (auto orig_expr_group : orig_expr_groups) {
+    for (const ExprGroup& orig_expr_group : orig_expr_groups) {
       new_expr_groups.pushBack(toGroup(orig_expr_group->front()));
     }
 
@@ -36,7 +36,7 @@ IdGraph::IdGraph(const IdGraph& other)
     auto new_id_group = toGroup(orig_id_group->front());
 
     ExprGroups new_expr_groups;
-    for (auto orig_expr_group : orig_expr_groups) {
+    for (const ExprGroup& orig_expr_group : orig_expr_groups) {
       new_expr_groups.pushBack(toGroup(orig_expr_group->front()));
     }
 
@@ -199,12 +199,12 @@ ExprGroups IdGraph::allDefinitionsOf(const IdGroups& of) const {
 
 ExprGroups IdGraph::getExprsBetween(const IdGroups& from, const IdGroups& to)
     const {
-  auto all_uses_of_from = allUsesOf(from);
-  auto all_definitions_of_to = allDefinitionsOf(to);
+  ExprGroups all_uses_of_from = allUsesOf(from);
+  ExprGroups all_definitions_of_to = allDefinitionsOf(to);
 
   // All of the expressions between from and to. Not all will be used as we
   // just want to define each iter domain group once.
-  auto all_exprs = all_uses_of_from.intersect(all_definitions_of_to);
+  ExprGroups all_exprs = all_uses_of_from.intersect(all_definitions_of_to);
 
   // There could be IterDomains in from or to that are between other from and
   // to nodes. Make sure to clear those out.
@@ -215,10 +215,10 @@ ExprGroups IdGraph::getExprsBetween(const IdGroups& from, const IdGroups& to)
     IdGroups not_outputs;
     IdGroups all_id_groups;
 
-    for (auto expr_group : all_exprs) {
-      auto inp_groups = inputGroups(expr_group);
-      auto out_groups = outputGroups(expr_group);
-      if (IdGroups(inp_groups).intersect(IdGroups(out_groups)).size() > 0) {
+    for (const ExprGroup& expr_group : all_exprs) {
+      std::vector<IdGroup> inp_groups = inputGroups(expr_group);
+      std::vector<IdGroup> out_groups = outputGroups(expr_group);
+      if (!IdGroups(inp_groups).intersect(IdGroups(out_groups)).empty()) {
         // Expression is just a loop to its current group, ignore
         continue;
       }
@@ -278,47 +278,47 @@ ExprGroups IdGraph::getExprsBetween(const IdGroups& from, const IdGroups& to)
 #endif
 
   // Returns all expression groups in required_ind_exprs_ids of outputs
-  auto requiredExprsOutputs = [&](ExprGroup expr) {
+  auto requiredExprsOutputs = [&](ExprGroup expr_group) -> ExprGroups {
     ExprGroups all_output_required_exprs;
-    for (auto id_group : outputGroups(expr)) {
-      auto id_group_exprs_it = required_ind_exprs_ids.find(id_group);
+    for (const IdGroup& output_id_group : outputGroups(expr_group)) {
+      auto id_group_exprs_it = required_ind_exprs_ids.find(output_id_group);
       TORCH_INTERNAL_ASSERT(
           id_group_exprs_it != required_ind_exprs_ids.end(),
           "Failure in Iter Domain Graph index resolution, count expected for group: ",
-          id_group->toString());
+          output_id_group->toString());
       all_output_required_exprs.pushBack(id_group_exprs_it->second);
     }
     return all_output_required_exprs;
   };
 
-  auto processExpr = [&](ExprGroup expr) {
-    if (!outputsVisited(expr)) {
+  auto processExprGroup = [&](ExprGroup expr_group) -> bool {
+    if (!outputsVisited(expr_group)) {
       return false;
     }
     // Accumulate expressions from all outputs add this expression and set it
     // as current expressions required indexing expressions.
-    required_ind_exprs_exprs[expr] = requiredExprsOutputs(expr);
+    required_ind_exprs_exprs[expr_group] = requiredExprsOutputs(expr_group);
     return true;
   };
 
-  auto processId = [&](IdGroup id) {
+  auto processIdGroup = [&](IdGroup id_group) -> bool {
     // Track if we've grabed any of the uses required indexing expressions.
     bool initialized = false;
     // Expression group of all indexing expressions required for this iter
     // domain coming back from any of its uses.
     ExprGroups min_groups;
 
-    auto uses_pair = iterDomainGroupUses(id);
+    auto uses_pair = iterDomainGroupUses(id_group);
     if (!uses_pair.second) {
       // No expressions required for this iter domain, it must be a
       // terminating output.
-      required_ind_exprs_ids[id] = min_groups;
+      required_ind_exprs_ids[id_group] = min_groups;
       return true;
     }
 
     // Only worry about expressions between inputs and outputs we're
     // looking at.
-    for (auto use_group : uses_pair.first.intersect(all_exprs)) {
+    for (const ExprGroup& use_group : uses_pair.first.intersect(all_exprs)) {
       auto use_required_ind_exprs_it = required_ind_exprs_exprs.find(use_group);
       if (use_required_ind_exprs_it == required_ind_exprs_exprs.end()) {
         // If there isn't an entry for the use expression it wasn't
@@ -338,14 +338,15 @@ ExprGroups IdGraph::getExprsBetween(const IdGroups& from, const IdGroups& to)
             use_required_ind_exprs_it->second.computeUnion({use_group});
       }
     }
-    required_ind_exprs_ids[id] = min_groups;
+    required_ind_exprs_ids[id_group] = min_groups;
     return true;
   };
 
+  // Backward traversal from the terminating outputs
   IdGroups to_visit_ids = terminating_outputs;
   ExprGroups to_visit_exprs;
 
-  while (to_visit_ids.size() > 0 || to_visit_exprs.size() > 0) {
+  while (!to_visit_ids.empty() || !to_visit_exprs.empty()) {
     // Process expressions first as all uses of iter domains have to be
     // processed before we can process that iter domain.
 
@@ -353,38 +354,39 @@ ExprGroups IdGraph::getExprsBetween(const IdGroups& from, const IdGroups& to)
     // infinite loop
     bool something_was_processed = false;
     ExprGroups still_to_visit_exprs;
-    while (to_visit_exprs.size() > 0) {
-      auto currently_visiting = to_visit_exprs.popFront();
-      if (required_ind_exprs_exprs.find(currently_visiting) !=
+    while (!to_visit_exprs.empty()) {
+      ExprGroup currently_visiting_exprs = to_visit_exprs.popFront();
+      if (required_ind_exprs_exprs.find(currently_visiting_exprs) !=
           required_ind_exprs_exprs.end()) {
         continue;
       }
-      if (processExpr(currently_visiting)) {
+      if (processExprGroup(currently_visiting_exprs)) {
         something_was_processed = true;
-        auto inp_groups = inputGroups(currently_visiting);
-        for (auto inp_group : inp_groups) {
+        std::vector<IdGroup> inp_groups = inputGroups(currently_visiting_exprs);
+        for (const IdGroup& inp_group : inp_groups) {
           to_visit_ids.pushBack(inp_group);
         }
       } else {
-        still_to_visit_exprs.pushBack(currently_visiting);
+        still_to_visit_exprs.pushBack(currently_visiting_exprs);
       }
     }
 
     std::swap(to_visit_exprs, still_to_visit_exprs);
 
     IdGroups still_to_visit_ids;
-    while (to_visit_ids.size() > 0) {
-      auto currently_visiting = to_visit_ids.popFront();
-      if (required_ind_exprs_ids.find(currently_visiting) !=
+    while (!to_visit_ids.empty()) {
+      auto currently_visiting_ids = to_visit_ids.popFront();
+      if (required_ind_exprs_ids.find(currently_visiting_ids) !=
           required_ind_exprs_ids.end()) {
         continue;
       }
 
-      if (processId(currently_visiting)) {
+      if (processIdGroup(currently_visiting_ids)) {
         something_was_processed = true;
-        auto definitions_pair = iterDomainGroupDefinitions(currently_visiting);
+        auto definitions_pair =
+            iterDomainGroupDefinitions(currently_visiting_ids);
         if (definitions_pair.second) {
-          for (auto def : definitions_pair.first) {
+          for (const ExprGroup& def : definitions_pair.first) {
             if (!all_exprs.has(def)) {
               continue;
             }
@@ -395,7 +397,7 @@ ExprGroups IdGraph::getExprsBetween(const IdGroups& from, const IdGroups& to)
           }
         }
       } else {
-        still_to_visit_ids.pushBack(currently_visiting);
+        still_to_visit_ids.pushBack(currently_visiting_ids);
       }
     }
 
@@ -422,28 +424,28 @@ ExprGroups IdGraph::getExprsBetween(const IdGroups& from, const IdGroups& to)
 
   // Topologically sort the uses_path.
   ExprGroups sorted_exprs;
-  ExprGroups to_visit;
+  ExprGroups to_visit_expr_groups;
 
-  for (auto inp : terminating_inputs) {
+  for (const IdGroup& inp : terminating_inputs) {
     auto use_it = uses_path.find(inp);
     if (use_it == uses_path.end()) {
       // This can happen for a trivial traversal where inputs and outputs are
       // exactly the same.
       continue;
     }
-    auto uses = use_it->second;
-    for (auto use : uses) {
-      to_visit.pushBack(use);
+    const ExprGroups& uses = use_it->second;
+    for (const ExprGroup& use : uses) {
+      to_visit_expr_groups.pushBack(use);
     }
   }
 
   IdGroups visited = terminating_inputs;
 
-  while (to_visit.size() > 0) {
+  while (!to_visit_expr_groups.empty()) {
     bool something_processed = false;
     ExprGroups still_to_visit;
-    while (to_visit.size() > 0) {
-      auto currently_visiting = to_visit.popFront();
+    while (!to_visit_expr_groups.empty()) {
+      auto currently_visiting = to_visit_expr_groups.popFront();
       auto inputs = inputGroups(currently_visiting);
       if (std::all_of(inputs.begin(), inputs.end(), [&](IdGroup inp_id) {
             return visited.has(inp_id);
@@ -463,7 +465,7 @@ ExprGroups IdGraph::getExprsBetween(const IdGroups& from, const IdGroups& to)
         still_to_visit.pushBack(currently_visiting);
       }
     }
-    std::swap(to_visit, still_to_visit);
+    std::swap(to_visit_expr_groups, still_to_visit);
     TORCH_INTERNAL_ASSERT(something_processed, "Infinite loop entered.");
   }
 
@@ -604,7 +606,7 @@ bool IdGraph::transformAtributesMatch(Expr* first, Expr* second) {
   TORCH_INTERNAL_ASSERT(
       first->isA<Merge>() || first->isA<Split>() || first->isA<Swizzle2D>() ||
           first->isA<Resize>(),
-      "Merge and split are the only expressions supported through rfactor operations in compute at map, but found:\n",
+      "Unsupported rfactor expressions in compute at map:\n",
       first->toString());
 
   if (typeid(*first) != typeid(*second)) {
@@ -642,14 +644,16 @@ void IdGraph::initializeId(
 
   ExprGroups def_groups;
   for (auto def : definitions) {
-    auto expr_set = disjointExprSets().initializeSet(def).first->second;
+    const ExprGroup& expr_set =
+        disjointExprSets().initializeSet(def).first->second;
     def_groups.pushBack(expr_set);
   }
   unique_definitions_[id_disjoint_set] = def_groups;
 
   ExprGroups use_groups;
   for (auto use : uses) {
-    auto expr_set = disjointExprSets().initializeSet(use).first->second;
+    const ExprGroup& expr_set =
+        disjointExprSets().initializeSet(use).first->second;
     use_groups.pushBack(expr_set);
   }
   unique_uses_[id_disjoint_set] = use_groups;
@@ -795,35 +799,31 @@ void IdGraph::mapIds(IterDomain* id0, IterDomain* id1) {
   unique_uses_[new_id_group] = orig_uses0.computeUnion(orig_uses1);
 
   // Propagate on uses
-  if (orig_uses0.size() > 0 || orig_uses1.size() > 0) {
-    if (orig_uses0.size() > 0 && orig_uses1.size() > 0) {
-      for (auto use_group_1 : orig_uses1) {
-        if (orig_uses0.has(use_group_1)) {
-          continue;
-        }
+  if (!orig_uses0.empty() && !orig_uses1.empty()) {
+    for (const ExprGroup& use_group_1 : orig_uses1) {
+      if (orig_uses0.has(use_group_1)) {
+        continue;
+      }
 
-        for (auto use_group_0 : orig_uses0) {
-          auto use0 = use_group_0->front();
-          auto use1 = use_group_1->front();
-          maybeMapThroughExprs(use0, use1, true);
-        }
+      for (const ExprGroup& use_group_0 : orig_uses0) {
+        Expr* use0 = use_group_0->front();
+        Expr* use1 = use_group_1->front();
+        maybeMapThroughExprs(use0, use1, true);
       }
     }
   }
 
   // Propagate on definitions
-  if (orig_defs0.size() > 0 || orig_defs1.size() > 0) {
-    if (orig_defs0.size() > 0 && orig_defs1.size() > 0) {
-      for (auto def_group_1 : orig_defs1) {
-        if (orig_defs0.has(def_group_1)) {
-          continue;
-        }
+  if (!orig_defs0.empty() && !orig_defs1.empty()) {
+    for (const ExprGroup& def_group_1 : orig_defs1) {
+      if (orig_defs0.has(def_group_1)) {
+        continue;
+      }
 
-        for (auto def_group_0 : orig_defs0) {
-          auto def0 = def_group_0->front();
-          auto def1 = def_group_1->front();
-          maybeMapThroughExprs(def0, def1, false);
-        }
+      for (const ExprGroup& def_group_0 : orig_defs0) {
+        auto def0 = def_group_0->front();
+        auto def1 = def_group_1->front();
+        maybeMapThroughExprs(def0, def1, false);
       }
     }
   }
@@ -922,7 +922,7 @@ bool IdGraph::mapThroughExpr(Expr* first, Expr* second, bool forward) {
 void IdGraph::mapThroughLoopSwizzles() {
   std::vector<Swizzle2D*> all_swizzles;
 
-  for (auto expr_set : disjointExprSets().disjointSets()) {
+  for (const auto& expr_set : disjointExprSets().disjointSets()) {
     auto swizzles_in_expr_set = ir_utils::filterByType<Swizzle2D>(
         expr_set->vector().begin(), expr_set->vector().end());
     all_swizzles.insert(
@@ -943,7 +943,7 @@ void IdGraph::mapThroughTrivialExprs() {
   // Grab all expressions
   std::vector<Expr*> exprs;
 
-  for (auto expr_group : disjointExprSets().disjointSets()) {
+  for (const auto& expr_group : disjointExprSets().disjointSets()) {
     for (auto expr : *expr_group) {
       exprs.push_back(expr);
     }
@@ -968,7 +968,7 @@ void IdGraph::mapThroughTrivialExprs() {
 void IdGraph::removeTrivialExprs() {
   ExprGroups trivial_expr_groups;
   // This seems like it shouls just be a copy if.
-  for (auto expr_group : disjointExprSets().disjointSets()) {
+  for (const ExprGroup& expr_group : disjointExprSets().disjointSets()) {
     if (isTrivialExprGroup(expr_group)) {
       trivial_expr_groups.pushBack(expr_group);
     }
