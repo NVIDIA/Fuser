@@ -450,7 +450,13 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     const bool has_alloc = alloc_map_.find(s) != alloc_map_.end();
     const bool is_param = kernel_params_.find(s) != kernel_params_.end();
     if (def != nullptr && !has_alloc && !is_param) {
-      code_ << "(" << genInline(def) << ")";
+      if (def->isOneOf<GetAttr, GetItem, GetMetaData>() ||
+          (def->isA<UnaryOp>() &&
+           !inline_op_str(def->as<UnaryOp>()->getUnaryOpType()).has_value())) {
+        code_ << genInline(def);
+      } else {
+        code_ << "(" << genInline(def) << ")";
+      }
     } else if (s->isConst()) {
       auto value = s->value();
       auto dtype = s->dtype();
@@ -579,10 +585,13 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       std::visit(
           [&](auto&& dtype) {
             using T = std::decay_t<decltype(dtype)>;
-            if constexpr (std::is_same_v<T, StructOf>) {
-              for (auto& name : dtype.field_names) {
-                indent() << gen(gop->output(0)) << "." << name << " = "
-                         << gen(gop->in()) << "." << name << ";\n";
+            if constexpr (std::is_same_v<T, StructType>) {
+              for (const auto& field : dtype.fields) {
+                if (!field.used_in_kernel) {
+                  continue;
+                }
+                indent() << gen(gop->output(0)) << "." << field.name << " = "
+                         << gen(gop->in()) << "." << field.name << ";\n";
               }
             } else {
               indent() << gen(gop->output(0)) << " = " << gen(gop->in())
@@ -590,6 +599,24 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
             }
           },
           out_type.type);
+    }
+  }
+
+  void handle(const StructConstruct* sop) final {
+    if (!print_inline_) {
+      indent() << gen(sop->output(0)) << " = ";
+    }
+    code_ << "{ ";
+    for (auto i : c10::irange(sop->inputs().size())) {
+      if (i > 0) {
+        code_ << ", ";
+      }
+      // TODO: upgrade to C++20 and use dot initialization
+      code_ << /*"." << sop->fieldName(i) << " = " <<*/ gen(sop->input(i));
+    }
+    code_ << " }";
+    if (!print_inline_) {
+      code_ << ";\n";
     }
   }
 
@@ -1355,28 +1382,15 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     TORCH_INTERNAL_ASSERT(optype == LoadStoreOpType::Set);
 
     if (!print_inline_ &&
-        std::holds_alternative<StructOf>(ldst->out()->dtype().type)) {
-      auto out_type = std::get<StructOf>(ldst->out()->dtype().type);
-      auto in_type = std::get<StructOf>(ldst->in()->dtype().type);
-      TORCH_INTERNAL_ASSERT(
-          out_type.types.size() == in_type.types.size(),
-          "Mismatched number of fields in struct assignment: ",
-          ldst->out()->dtype(),
-          " = ",
-          ldst->in()->dtype());
-      for (auto& name : out_type.field_names) {
-        TORCH_INTERNAL_ASSERT(
-            in_type.types.find(name) != in_type.types.end(),
-            "Mismatched field in struct assignment: ",
-            ldst->out()->dtype(),
-            ".",
-            name,
-            " = ",
-            ldst->in()->dtype(),
-            ".",
-            name);
-        indent() << gen(ldst->out()) << "." << name << " = " << gen(ldst->in())
-                 << "." << name << ";\n";
+        std::holds_alternative<StructType>(ldst->out()->dtype().type)) {
+      auto out_type = std::get<StructType>(ldst->out()->dtype().type);
+      auto in_type = std::get<StructType>(ldst->in()->dtype().type);
+      for (const auto& field : out_type.fields) {
+        if (!field.used_in_kernel) {
+          continue;
+        }
+        indent() << gen(ldst->out()) << "." << field.name << " = "
+                 << gen(ldst->in()) << "." << field.name << ";\n";
       }
       return;
     }

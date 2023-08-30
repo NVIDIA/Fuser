@@ -7,9 +7,6 @@
 // clang-format on
 #pragma once
 
-#include <macros.h>
-
-#include <dynamic_type.h>
 #include <any>
 #include <complex>
 #include <cstddef>
@@ -20,23 +17,46 @@
 
 #include <ATen/ATen.h>
 
+#define DYNAMIC_TYPE_CHECK TORCH_INTERNAL_ASSERT
+
+#include <dynamic_type.h>
+#include <macros.h>
+#include <opaque_type.h>
+
 namespace nvfuser {
 
 template <typename T>
-struct Struct {
+struct LegacyStruct {
   // Using std::unordered_map<std::string, T> is more convenient and
   // straightforward, but this is not guaranteed to work by C++ standard.
   // See [Incomplete type support in STL]
 #if defined(STD_UNORDERED_SET_SUPPORTS_INCOMPLETE_TYPE)
+
   std::unordered_map<std::string, T> fields;
-#define MAYBE_STAR
+  LegacyStruct(std::initializer_list<std::pair<const std::string, T>> init)
+      : fields(init) {}
+#define NVFUSER_MAYBE_STAR
+
 #else
+
   std::unordered_map<std::string, std::shared_ptr<T>> fields;
-#define MAYBE_STAR *
+  LegacyStruct(std::initializer_list<std::pair<const std::string, T>> init) {
+    for (const auto& [key, value] : init) {
+      fields[key] = std::make_shared<T>(value);
+    }
+  }
+#define NVFUSER_MAYBE_STAR *
+
 #endif
 
+  LegacyStruct() = default;
+  LegacyStruct(const LegacyStruct& other) = default;
+  LegacyStruct(LegacyStruct&& other) = default;
+  LegacyStruct& operator=(const LegacyStruct& other) = default;
+  LegacyStruct& operator=(LegacyStruct&& other) = default;
+
   const T& operator[](const std::string& key) const {
-    return MAYBE_STAR fields.at(key);
+    return NVFUSER_MAYBE_STAR fields.at(key);
   }
 
   T& operator[](const std::string& key) {
@@ -50,8 +70,39 @@ struct Struct {
 #endif
   }
 
-#undef MAYBE_STAR
+  bool operator==(const LegacyStruct& other) const {
+    if (this == &other) {
+      return true;
+    }
+    if (fields.size() != other.fields.size()) {
+      return false;
+    }
+    for (const auto& [key, _] : fields) {
+      if (other.fields.find(key) == other.fields.end()) {
+        return false;
+      }
+      if ((*this)[key] != other[key]) {
+        return false;
+      }
+    }
+    return true;
+  }
 };
+
+template <typename T>
+inline std::ostream& operator<<(std::ostream& os, const LegacyStruct<T>& s) {
+  os << "struct { ";
+  bool first = true;
+  for (const auto& [key, value] : s.fields) {
+    if (!first) {
+      os << ", ";
+    }
+    os << key << " = " << NVFUSER_MAYBE_STAR value;
+    first = false;
+  }
+  os << "}";
+  return os;
+}
 
 struct DataType;
 
@@ -182,49 +233,13 @@ inline Pointer operator+(int64_t offset, const Pointer& ptr) {
   return ptr + offset;
 }
 
-struct Opaque {
-  std::any value;
-
-  // Because the type information is not available at compile time, we can't
-  // accurately compare the values of two opaque values. So, by default,
-  // equality check is done by pointer compare. However, we also support
-  // manually specifying the equality comparator.
-  std::function<bool(const Opaque&, const Opaque&)> equals =
-      [](const Opaque& a, const Opaque& b) { return &a == &b; };
-
-  bool operator==(const Opaque& other) const {
-    if (this == &other) {
-      return true;
-    }
-    if (value.type() != other.value.type()) {
-      return false;
-    }
-    bool result1 = equals(*this, other);
-    bool result2 = equals(other, *this);
-    TORCH_INTERNAL_ASSERT(
-        result1 == result2, "Opaque equality is not symmetric");
-    return result1;
-  }
-
-  bool operator!=(const Opaque& other) const {
-    return !(*this == other);
-  }
-};
-
-inline std::ostream& operator<<(std::ostream& os, const Opaque& opaque) {
-  os << "Opaque<" << opaque.value.type().name() << ">";
+inline std::ostream& operator<<(std::ostream& os, const Pointer& ptr) {
+  os << (void*)ptr;
   return os;
 }
 
-template <typename T>
-struct OpaqueEquals {
-  bool operator()(const Opaque& a, const Opaque& b) const {
-    return std::any_cast<T>(a.value) == std::any_cast<T>(b.value);
-  }
-};
-
-using PolymorphicValue = DynamicType<
-    Containers<std::vector, Struct>,
+using PolymorphicValue = dynamic_type::DynamicType<
+    dynamic_type::Containers<std::vector, LegacyStruct>,
     Pointer,
     Opaque,
     at::Tensor,
@@ -234,6 +249,30 @@ using PolymorphicValue = DynamicType<
     bool>;
 
 namespace PolymorphicValue_functions {
+
+inline std::string toString(const PolymorphicValue& v) {
+  std::stringstream ss;
+  if (v.is<at::Tensor>()) {
+    const auto& t = v.as<at::Tensor>();
+    ss << "Tensor(sizes=" << t.sizes() << ", "
+       << "stride=" << t.strides() << ", " << t.dtype() << ", " << t.device()
+       << ")";
+  } else {
+    ss << v;
+  }
+  return ss.str();
+}
+
+inline bool isSame(const PolymorphicValue& a, const PolymorphicValue& b) {
+  if (a.type() != b.type()) {
+    return false;
+  }
+  if (a.is<at::Tensor>() && b.is<at::Tensor>()) {
+    return (a.as<at::Tensor>().is_same(b.as<at::Tensor>()));
+  } else {
+    return (a == b);
+  }
+}
 
 inline PolymorphicValue ceildiv(
     const PolymorphicValue& a,
@@ -294,13 +333,15 @@ inline PolymorphicValue erf(const PolymorphicValue& a) {
 }
 
 // Convert scalars, vector of scalars, vector of vector of scalars, etc., into
-// an at::Tensor
-inline PolymorphicValue toTensor(const PolymorphicValue& x) {
+// an at::Tensor. device argument allows for the creation of CPU Scalars.
+inline PolymorphicValue toTensor(
+    const PolymorphicValue& x,
+    at::DeviceType device_type = at::kCUDA,
+    int8_t device_index = 0) {
   if (x.is<at::Tensor>()) {
     return x;
   }
-  // TODO: allow specifying device
-  auto options = at::TensorOptions().device(at::kCUDA, 0);
+  auto options = at::TensorOptions().device(device_type, device_index);
   if (x.is<int64_t>()) {
     return PolymorphicValue(
         at::tensor(x.as<int64_t>(), options.dtype(at::kLong)).squeeze());

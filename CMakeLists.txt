@@ -204,6 +204,7 @@ if(BUILD_PYTHON)
     ${NVFUSER_SRCS_DIR}/python_frontend/fusion_definition.cpp
     ${NVFUSER_SRCS_DIR}/python_frontend/fusion_state.cpp
     ${NVFUSER_SRCS_DIR}/serde/fusion_record_serde.cpp
+    ${NVFUSER_SRCS_DIR}/serde/polymorphic_value_serde.cpp
     ${NVFUSER_SRCS_DIR}/serde/utils.cpp)
 endif()
 
@@ -225,6 +226,7 @@ target_link_libraries(${NVFUSER_CODEGEN} PRIVATE flatbuffers)
 
 # For kernel_db, linking STL Filesystem Library for backward compatability with C++14
 target_link_libraries(${NVFUSER_CODEGEN} PRIVATE stdc++fs)
+target_link_libraries(${NVFUSER_CODEGEN} PRIVATE dynamic_type)
 target_link_libraries(${NVFUSER_CODEGEN} PRIVATE ${CUDA_NVRTC_LIB} ${LIBNVTOOLSEXT})
 target_include_directories(${NVFUSER_CODEGEN} PRIVATE ${CUDA_INCLUDE_DIRS})
 
@@ -239,8 +241,9 @@ set_property(TARGET ${NVFUSER_CODEGEN} PROPERTY CXX_STANDARD 17)
 if(PROJECT_IS_TOP_LEVEL)
   target_link_libraries(${NVFUSER_CODEGEN} PRIVATE torch ${TORCH_LIBRARIES})
 
-  # this is to find pip installed nvrtc .so
-  set_target_properties(${NVFUSER_CODEGEN} PROPERTIES INSTALL_RPATH "$ORIGIN/../../nvidia/cuda_nvrtc/lib")
+  # this is to find pip installed nvrtc/nvtx .so
+  set_target_properties(${NVFUSER_CODEGEN} PROPERTIES INSTALL_RPATH
+    "$ORIGIN/../../nvidia/cuda_nvrtc/lib:$ORIGIN/../../nvidia/nvtx/lib")
   install(TARGETS ${NVFUSER_CODEGEN} EXPORT NvfuserTargets DESTINATION lib)
 
   # We are keeping fusion_cache_generated.h for the submodule build because flatc is unavailable.
@@ -354,6 +357,7 @@ if(BUILD_PYTHON)
     target_compile_options(${NVFUSER} PRIVATE -Wall -Wno-unused-function)
     target_link_libraries(${NVFUSER} PRIVATE ${TORCH_LIBRARIES})
     target_link_libraries(${NVFUSER} PRIVATE "${TORCH_INSTALL_PREFIX}/lib/libtorch_python.so")
+    target_link_libraries(${NVFUSER} PRIVATE dynamic_type)
     target_link_libraries(${NVFUSER} PRIVATE pybind11::pybind11)
     set_target_properties(${NVFUSER} PROPERTIES INSTALL_RPATH "$ORIGIN/../torch/lib")
     install(TARGETS ${NVFUSER} DESTINATION lib)
@@ -363,6 +367,7 @@ if(BUILD_PYTHON)
     target_link_libraries(${NVFUSER} PRIVATE torch torch_python ${TORCHLIB_FLAVOR})
     target_include_directories(${NVFUSER} PRIVATE ${TORCH_ROOT})
 
+    target_link_libraries(${NVFUSER} PRIVATE dynamic_type)
     target_link_libraries(${NVFUSER} PRIVATE pybind::pybind11)
     target_compile_options(${NVFUSER} PRIVATE ${TORCH_PYTHON_COMPILE_OPTIONS})
 
@@ -399,7 +404,6 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/test/utils.cpp
     ${NVFUSER_ROOT}/test/test_allocation_domain.cpp
     ${NVFUSER_ROOT}/test/test_dynamic_transform.cpp
-    ${NVFUSER_ROOT}/test/test_dynamic_type.cpp
     ${NVFUSER_ROOT}/test/test_evaluator.cpp
     ${NVFUSER_ROOT}/test/test_expr_sort.cpp
     ${NVFUSER_ROOT}/test/test_gather.cpp
@@ -417,7 +421,9 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/test/test_gpu_shift.cpp
     ${NVFUSER_ROOT}/test/test_resize.cpp
     ${NVFUSER_ROOT}/test/test_gpu_tensorcore.cpp
+    ${NVFUSER_ROOT}/test/test_polymorphic_value.cpp
     ${NVFUSER_ROOT}/test/test_matmul_sass.cpp
+    ${NVFUSER_ROOT}/test/test_matmul_scheduler.cpp
     ${NVFUSER_ROOT}/test/test_gpu_view.cpp
     ${NVFUSER_ROOT}/test/test_gpu_transpose.cpp
     ${NVFUSER_ROOT}/test/test_gpu_utils.cpp
@@ -447,7 +453,7 @@ if(BUILD_TEST)
     ${JIT_TEST_CU_SRCS})
   set_property(TARGET ${NVFUSER_TESTS} PROPERTY CXX_STANDARD 17)
   target_compile_definitions(${NVFUSER_TESTS} PRIVATE USE_GTEST)
-  target_link_libraries(${NVFUSER_TESTS} PRIVATE ${NVFUSER_CODEGEN} gtest_main gmock_main flatbuffers)
+  target_link_libraries(${NVFUSER_TESTS} PRIVATE ${NVFUSER_CODEGEN} dynamic_type gtest_main gmock_main flatbuffers)
   target_include_directories(${NVFUSER_TESTS} PRIVATE "${NVFUSER_ROOT}")
 
   if(PROJECT_IS_TOP_LEVEL)
@@ -509,12 +515,14 @@ if(BUILD_NVFUSER_BENCHMARK)
 
   if(PROJECT_IS_TOP_LEVEL)
     target_compile_options(${NVFUSER_BENCHMARK} PRIVATE -Wall -Wno-unused-function)
+    target_link_libraries(${NVFUSER_BENCHMARK} PRIVATE dynamic_type)
     target_link_libraries(${NVFUSER_BENCHMARK} PRIVATE ${TORCH_LIBRARIES})
     target_link_libraries(${NVFUSER_BENCHMARK} PRIVATE benchmark::benchmark)
 
   # only install nvfuser_bench with submodule build
   else()
     torch_compile_options(${NVFUSER_BENCHMARK})
+    target_include_directories(${NVFUSER_BENCHMARK} PRIVATE ${TORCH_ROOT}/third_party/flatbuffers/include)
     target_link_libraries(${NVFUSER_BENCHMARK} PRIVATE torch_library benchmark)
     install(TARGETS ${NVFUSER_BENCHMARK} DESTINATION bin)
   endif()

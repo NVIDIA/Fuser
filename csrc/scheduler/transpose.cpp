@@ -679,19 +679,22 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
 
   constexpr int64_t kSixteen = 16; // clang tidy
 
-  int64_t max_input_dtype_size = 1;
-
-  size_t n_input_tensors = 0;
-  for (auto inp : ir_utils::filterByType<TensorView>(fusion->inputs())) {
-    max_input_dtype_size = std::max(
-        max_input_dtype_size,
-        (int64_t)dataTypeSize(inp->getDataType().value(), index_type));
-    n_input_tensors++;
-  }
+  int64_t max_io_dtype_size = 1;
+  size_t n_io_tensors = 0;
+  auto scan_max_dtype_size = [&](const auto& vals) {
+    for (auto inp : ir_utils::filterByType<TensorView>(vals)) {
+      max_io_dtype_size = std::max(
+          max_io_dtype_size,
+          (int64_t)dataTypeSize(inp->getDataType().value(), index_type));
+      n_io_tensors++;
+    }
+  };
+  scan_max_dtype_size(fusion->inputs());
+  scan_max_dtype_size(fusion->outputs());
 
   auto max_unroll_factor = ceilDiv(
       // Available unrolling based on size of data type
-      (int64_t)kSixteen / max_input_dtype_size,
+      (int64_t)kSixteen / max_io_dtype_size,
       // Reduce max unrolling factor if we have many inputs/outputs to unroll
       // as it could start consuming a lot of registers.
       std::max(
@@ -714,29 +717,67 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
       ceilDiv((int64_t)params->tile_size1 * (int64_t)params->tile_size2, 32l);
   max_unroll_factor = std::min(max_unroll_factor, max_unroll_factor_block);
 
-  // Compute maximum vectorize factor that can be used
-  size_t vectorize_factor1 = max_unroll_factor;
-  size_t vectorize_factor2 = max_unroll_factor;
+  // Note: [Computing Vectorization Width for Transpose]
+  //
+  // With support of small transpose dimension (see Note [Supporting small
+  // transpose dimensions]), we need to consider the transformation applied on
+  // our tile to compute the safe vectorization width. e.g. For a simple
+  // transpose:
+  //    (i0, i1, i2, i3, i4) size (2, 3, 65536, 4, 7)
+  // -> (i3, i4, i2, i0, i1)
+  //
+  // transpose scheduler would apply transformation and tile on virtual
+  // innermost dimensions. ( (i0*i1*i2/2), (2*i3*i4)/32) So we need to use the
+  // size of the virtual innermost dimensions to compute our vectorization
+  // width. In the example above, we are looking at 2*3*65536/2, 2*4*7.
+  //
+  // Currently there's limitation on our iter domain mapping. Since we can only
+  // do it on rfactor/root domain, we cannot map across `split` domains. So the
+  // example above will only have vectorization size of 2 and 4 repsectively for
+  // the merge virtual innermost dimensions, rather than considering the split
+  // and merged i2/2 & 2.
+  //
+  // TODO: We use ContiguousInnerDimensionsMapper to compute the size of virtual
+  // innermost dimension. The analysis right now is limited on rfactor domain
+  // only, so we can't actually map the `split` iter domains, which limits the
+  // vectorization width we can apply. We need to fix that.
+  // TODO 2: Small transpose dimensions transformation should also consider the
+  // vectorization impact. i.e. when split_before_tiling, we should try to split
+  // on a factor that allows vectorization.
+  {
+    // duplicating reference1's TensorDomain, since the transformations applied
+    // is not persistent and only needed for us to compute vectorization width.
+    TensorDomain* cloned_1_td =
+        IrBuilder::create<TensorDomain>(reference1->domain());
+    // Adding a domain_guard so we can transform reference1
+    ir_utils::TVDomainGuard domain_guard(reference1, cloned_1_td);
 
-  for (auto tv : grouped_inputs_outputs[0]) {
-    const auto tv_vectorize_factor =
-        runtime_info.getMaxVectorizableWidth(tv, false);
-    vectorize_factor1 = std::min(vectorize_factor1, tv_vectorize_factor);
-  }
-  // TODO: Since group2 only has global->shared and shared->global set op, we
-  // can have fine-grained control of unroll/vectorization at per tensor level.
-  // We should not be using a single global vectorize factor for the entire
-  // group 2
-  for (auto tv : grouped_inputs_outputs[1]) {
-    const auto tv_vectorize_factor =
-        runtime_info.getMaxVectorizableWidth(tv, false);
-    vectorize_factor2 = std::min(vectorize_factor2, tv_vectorize_factor);
-  }
+    // we only apply split here, since we want to merge split dimensions, we can
+    // simply map those merged domains via ContiguousInnerDimensionsMapper
+    scheduler_utils::splitDims(reference1, params->split_before_tiling);
 
-  params->vectorize_factor1 = scheduler_utils::lastPow2(
-      (int64_t)std::min((size_t)(max_unroll_factor), vectorize_factor1));
-  params->vectorize_factor2 = scheduler_utils::lastPow2(
-      (int64_t)std::min((size_t)(max_unroll_factor), vectorize_factor2));
+    params->vectorize_factor1 =
+        vectorize_helper::getVectorizationFactorTransposeGroup(
+            runtime_info,
+            reference1,
+            inner_most_pos1_in_ref1,
+            params->dims_merged_with_1,
+            grouped_inputs_outputs[0],
+            max_unroll_factor);
+
+    // TODO: Since group2 only has global->shared and shared->global set op, we
+    // can have fine-grained control of unroll/vectorization at per tensor
+    // level. We should not be using a single global vectorize factor for the
+    // entire group 2
+    params->vectorize_factor2 =
+        vectorize_helper::getVectorizationFactorTransposeGroup(
+            runtime_info,
+            reference1,
+            inner_most_pos2_in_ref1,
+            params->dims_merged_with_2,
+            grouped_inputs_outputs[1],
+            max_unroll_factor);
+  }
 
   params->lparams.bind(params->getThreadsPerBlock(), ParallelType::TIDx);
 
@@ -746,8 +787,8 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
             << "outputs: " << ir_utils::toString(fusion->outputs()) << "\n"
             << "shape: " << shape_in_ref1 << "\n"
             << "num_elems: " << n_elems << "\n"
-            << "n_input_tensors: " << n_input_tensors << "\n"
-            << "max_input_dtype_size: " << max_input_dtype_size << "\n"
+            << "n_io_tensors: " << n_io_tensors << "\n"
+            << "max_io_dtype_size: " << max_io_dtype_size << "\n"
             << "group 1: " << ir_utils::toString(grouped_inputs_outputs[0])
             << "\n"
             << "reference1: " << reference1 << "\n"
@@ -897,54 +938,35 @@ void scheduleTranspose(Fusion* fusion, TransposeParams params) {
   // split big dims so that we have enough dimensions available to merge with
   // inner-most dims to create the virtual inner-most dim
   scheduler_utils::splitDims(reference1, params.split_before_tiling);
-  // Merging reference 1's dims_merged_with_1 but updating dims_merged_with_2
-  // based on the changes in the dimensions that were merged. So we can then run
-  // merge with dims_merged_with_2.
-  auto merged1 = scheduler_utils::mergeDims(
-      reference1, params.dims_merged_with_1, params.dims_merged_with_2);
-  // Merging reference 1's dims_merged_with_2 and updating `merged1`.
+
+  // prepare all dimensions in merge order for group1
+  std::vector<size_t> dims_group1 = params.dims_merged_with_1;
+  size_t inner_most_pos1_in_ref1 =
+      domain_map.getInnerLeafDim(reference1, inner_most_id1);
+  dims_group1.insert(dims_group1.begin(), inner_most_pos1_in_ref1);
+
+  // prepare all dimensions in merge order for group2
+  std::vector<size_t> dims_group2 = params.dims_merged_with_2;
+  size_t inner_most_pos2_in_ref1 =
+      domain_map.getInnerLeafDim(reference1, inner_most_id2);
+  dims_group2.insert(dims_group2.begin(), inner_most_pos2_in_ref1);
+
+  // merge all dimensions in group1, while updating all indices for group2
+  auto merged1 =
+      scheduler_utils::mergeDims(reference1, dims_group1, dims_group2);
   std::vector<size_t> merged1_vec;
   if (merged1.has_value()) {
     merged1_vec.push_back(*merged1);
   }
-  auto merged2 = scheduler_utils::mergeDims(
-      reference1, params.dims_merged_with_2, merged1_vec);
-  if (merged1.has_value()) {
-    merged1 = merged1_vec[0];
-  }
+  // merge all dimensions in group2, while updating merged index for group1
+  auto merged2 =
+      scheduler_utils::mergeDims(reference1, dims_group2, merged1_vec);
 
-  // merge with inner most dims to get virtual inner most dims
-  size_t inner_most_pos1_in_ref1 =
-      domain_map.getInnerLeafDim(reference1, inner_most_id1);
-  size_t inner_most_pos2_in_ref1 =
-      domain_map.getInnerLeafDim(reference1, inner_most_id2);
+  // updating merged1 & merged2 indices if applicable
   if (merged1.has_value()) {
-    if (inner_most_pos1_in_ref1 < *merged1) {
-      reference1->reorder(
-          {{*merged1, inner_most_pos1_in_ref1},
-           {inner_most_pos1_in_ref1, *merged1}});
-      std::swap(*merged1, inner_most_pos1_in_ref1);
-    }
-    if (inner_most_pos2_in_ref1 > inner_most_pos1_in_ref1) {
-      inner_most_pos2_in_ref1--;
-    }
-    if (merged2.has_value() && *merged2 > inner_most_pos1_in_ref1) {
-      (*merged2)--;
-    }
-    reference1->merge((int)*merged1, (int)inner_most_pos1_in_ref1);
-    inner_most_pos1_in_ref1 = *merged1;
+    inner_most_pos1_in_ref1 = merged1_vec[0];
   }
   if (merged2.has_value()) {
-    if (inner_most_pos2_in_ref1 < *merged2) {
-      reference1->reorder(
-          {{*merged2, inner_most_pos2_in_ref1},
-           {inner_most_pos2_in_ref1, *merged2}});
-      std::swap(*merged2, inner_most_pos2_in_ref1);
-    }
-    if (inner_most_pos1_in_ref1 > inner_most_pos2_in_ref1) {
-      inner_most_pos1_in_ref1--;
-    }
-    reference1->merge((int)*merged2, (int)inner_most_pos2_in_ref1);
     inner_most_pos2_in_ref1 = *merged2;
   }
 

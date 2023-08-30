@@ -41,11 +41,6 @@ using MatmulLayout = MmaOptions::MmaLayout;
 //!  MmaOptions::MmaDomains.
 using ProblemShape = std::array<int64_t, 3>;
 
-//! A wrapper for printing debug details.
-void printMsg(const std::string& msg) {
-  debug() << msg << std::endl;
-}
-
 //! A helper for deciding the type of MMA op for given fusion and problem shape.
 inline std::optional<MmaOptions::MacroType> getMmaOp(
     const int dev_version,
@@ -86,7 +81,7 @@ inline bool initCoreHeuristics(
 
   // warp tile shape
   {
-    if (isAmpere(mma_op)) {
+    if (isAmpere(mma_op) || isTuring(mma_op)) {
       // Initial target:
       // - 1 MMA ops per thread in a warp (32 threads), warp tile should be
       //   then 32x bigger than instruction tile,
@@ -102,7 +97,7 @@ inline bool initCoreHeuristics(
           instruction_tile.n * n_ratio,
           instruction_tile.k * k_ratio};
     } else {
-      // No support for Volta and Turing
+      // No support for Volta
       return false;
     }
   }
@@ -132,20 +127,18 @@ inline bool initCoreHeuristics(
   params->mma_macro = mma_op;
   params->tile_sizes = {cta_tile, warp_tile, instruction_tile};
 
-  return true;
-}
+  // stages and async mem copy
+  {
+    // NOTE: compilation errors when async is enabled on Turing devices
+    if (isAmpere(mma_op)) {
+      constexpr int stages = 3;
 
-//! A wrapper for additional heuristics initialization
-inline bool initExtraHeuristics(
-    std::shared_ptr<MatmulParams> params,
-    const ProblemShape& problem_shape) {
-  // TODO: add logic to calculate efficient number of stages
-  constexpr int stages = 3;
-
-  params->async_gmem_load_operands = true;
-  params->double_buffer_options.double_buffer_smem_write = true;
-  params->double_buffer_options.double_buffer_smem_read = true;
-  params->double_buffer_options.smem_double_buffer_stage = stages;
+      params->async_gmem_load_operands = true;
+      params->double_buffer_options.double_buffer_smem_write = true;
+      params->double_buffer_options.double_buffer_smem_read = true;
+      params->double_buffer_options.smem_double_buffer_stage = stages;
+    }
+  }
 
   return true;
 }
@@ -217,12 +210,13 @@ std::string isMatmulFusionDefinitionSupported(
 
   // Quick checks - MmaOp
   {
-    // Check if MmaOp processes single gemm
+    // Check if MmaOp represents gemm (requires M/N/K == 1, B == 0)
+    //  or bgemm (requires M/N/K/B == 1)
     constexpr size_t expected_axes_numbers = 1;
     if (mma_expr->mAxes().size() != expected_axes_numbers ||
         mma_expr->nAxes().size() != expected_axes_numbers ||
         mma_expr->kAxes().size() != expected_axes_numbers ||
-        !mma_expr->batchAxes().empty()) {
+        mma_expr->batchAxes().size() > expected_axes_numbers) {
       return "MmaOp has unsupported number of one of M/N/K/Batch axes";
     }
 
@@ -350,6 +344,9 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
     std::stringstream ss;
     ss << "Matmul scheduler supports fusions only with a single MMA op, got: "
        << mma_exprs.size();
+    if (isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
+      debug() << MATMUL_LOG_PREFIX << ss.str() << std::endl;
+    }
     return ss.str();
   }
 
@@ -357,6 +354,10 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
   {
     const auto input_layout_opt = mma_utils::getMatmulLayout(fusion);
     if (!input_layout_opt.isValid()) {
+      if (isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
+        debug() << MATMUL_LOG_PREFIX << input_layout_opt.getErrorMsg()
+                << std::endl;
+      }
       return input_layout_opt.getErrorMsg();
     }
   }
@@ -366,6 +367,9 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
     for (auto mma_expr : mma_exprs) {
       auto support_status = isMatmulFusionDefinitionSupported(fusion, mma_expr);
       if (!support_status.empty()) {
+        if (isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
+          debug() << MATMUL_LOG_PREFIX << support_status << std::endl;
+        }
         return support_status;
       }
     }
@@ -395,16 +399,12 @@ std::shared_ptr<MatmulParams> getMatmulHeuristics(
   const auto mma_op =
       getMmaOp(device_prop->major * 10 + device_prop->minor, problem_shape);
   TORCH_INTERNAL_ASSERT(
-      mma_op.has_value(), "Can not determine MMA op for problem.");
+      mma_op.has_value(), "Failed to determine a MMA op for given problem.");
 
   // Populate heuristic details
   auto status = initCoreHeuristics(params, mma_op.value(), problem_shape);
   TORCH_INTERNAL_ASSERT(
-      status, "Core part of heuristics failed to initialize.");
-
-  status = initExtraHeuristics(params, problem_shape);
-  TORCH_INTERNAL_ASSERT(
-      status, "Additional part of heuristics failed to initialize.");
+      status, "Initialization of core part of heuristics failed.");
 
   // Set kernel index mode
   params->cparams.index_type = runtime_info.getIndexType();
@@ -421,8 +421,8 @@ std::shared_ptr<MatmulParams> getMatmulHeuristics(
       params->double_buffer_options.smem_double_buffer_stage,
       getMmaDataTypes(roles_map_opt.getData()));
 
-  if (isDebugDumpEnabled(DebugDumpOption::MatmulChecks)) {
-    printMsg(params->toString());
+  if (isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
+    debug() << params->toString() << std::endl;
   }
 
   return params;

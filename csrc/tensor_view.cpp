@@ -252,7 +252,8 @@ TensorView::TensorView(const TensorView* src, IrCloner* ir_cloner)
       cpu_scalar_(src->cpu_scalar_),
       has_swizzle_op_(src->has_swizzle_op_),
       compute_with_consumers_(ir_cloner->clone(src->compute_with_consumers_)),
-      compute_with_pos_(src->compute_with_pos_) {}
+      compute_with_pos_(src->compute_with_pos_),
+      promote_reuse_(src->promote_reuse_) {}
 
 // sets cpu_scalar_ value, which is special handling for CPU based zero-dim
 // tensors (i.e. CPU Tensors that only have one value). This is only used if

@@ -150,6 +150,14 @@ std::unordered_map<Val*, Val*> getSimplificationMap(Fusion* fusion) {
     auto* set = entry.first;
     auto input_id = entry.second;
     for (auto id : *set) {
+      auto prev_it = extent_to_min_input_id_extent.find(id->extent());
+      // We loop in an unspecified order, so we might overwrite
+      // extent_to_min_input_id_extent[id->extent()]. For reproducibility's
+      // sake, only do so if it would lower the index of the mapped value.
+      if (prev_it != extent_to_min_input_id_extent.end() &&
+          prev_it->second->name() <= input_id->extent()->name()) {
+        continue;
+      }
       extent_to_min_input_id_extent[id->extent()] = input_id->extent();
     }
   }
@@ -186,7 +194,7 @@ void replaceSymbolicSizes(Fusion* fusion) {
     // Replace the domain with one based on Ti.size[j]
     const std::vector<IterDomain*>& root_td = tv->getRootDomain();
 
-    size_t dim = 0;
+    int64_t dim = 0;
     for (auto id : root_td) {
       Val* orig_size = id->getMaybeExpandedExtent();
       // Output sizes could have reduction axes, which isn't what gets output.
@@ -202,10 +210,9 @@ void replaceSymbolicSizes(Fusion* fusion) {
       //  since FusionKernelRuntime will provide these as integer inputs
       if (tensor_dim_map.find(orig_size) == tensor_dim_map.end() &&
           !orig_size->isFusionInput() && !orig_size->isConstScalar()) {
-        std::stringstream ss;
-        ss << "T" << tv->name() << ".logical_size[" << dim++ << "]";
-        tensor_dim_map[orig_size] = IrBuilder::create<NamedScalar>(
-            ss.str(), orig_size->getDataType().value());
+        tensor_dim_map[orig_size] = IrBuilder::getItemExpr(
+            IrBuilder::getAttrExpr(IrBuilder::metadataExpr(tv), "logical_size"),
+            dim++);
       } else {
         dim++;
       }
