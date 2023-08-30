@@ -7,111 +7,18 @@
 // clang-format on
 #pragma once
 
-#include <c10/util/Exception.h>
-
-#include <type_traits.h>
-
-#include <C++20/type_traits>
+#include <algorithm>
 #include <optional>
 #include <ostream>
 #include <type_traits>
 #include <typeinfo>
 #include <variant>
 
-// Note [Design of DynamicType]
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// DynamicType is a type that can be one of a set of types. It is similar to
-// std::variant, but it is designed to be used in a way that is more similar to
-// how dynamic types are used in Python. For example, in Python, you can do
-// something like this:
-//   x = 1; y = 2.5; z = x + y
-// and z will be a dynamic float. However in C++, you will not be able to do:
-//   using IntOrFloat = std::variant<int, float>;
-//   IntOrFloat x = 1; IntOrFloat y = 2.5f; IntOrFloat z = x + y;
-// because the operator+ on std::variant is not defined. The goal of DynamicType
-// is to fill this gap. So you can do:
-//   using IntOrFloat = DynamicType<NoContainers, int, float>;
-//   IntOrFloat x = 1; IntOrFloat y = 2.5f; IntOrFloat z = x + y;
-//
-// The design purpose of DynamicType is to allow the user to forget about the
-// actual type as much as possible, and use operators seamlessly just like if
-// they are using Python. DynamicType should support arbitrary types, including
-// user-defined types, pointers, but excluding references, due to the limitation
-// of the C++ standard. The definition of operators on DynamicType should be
-// automatic. For example, if you have:
-//   struct CustomType {};
-//   using IntOrFloatOrCustom
-//     = DynamicType<NoContainers, int, float, CustomType>;
-// The the operator+ on IntOrFloatOrCustom should be defined, and it should be
-// equivalent to one of the following:
-//  - operator+(int, int)
-//  - operator+(float, float)
-//  - operator+(int, float)
-//  - operator+(float, int)
-// depending on the actual type of the DynamicType. If the actual type is
-// CustomType which does not have operator+, or if the value is null, then this
-// is a runtime error.
-// However, if have:
-//   struct CustomType2 {};
-//   using Custom12 = DynamicType<NoContainers, CustomType, CustomType2>;
-// Then the operator+ on Custom12 should not be defined at compile time, and
-// doing Custom12{} + Custom12{} results in a compilation error. It is a
-// compilation error because we know at compile time that none of them are
-// defined:
-//  - operator+(CustomType, CustomType)
-//  - operator+(CustomType, CustomType2)
-//  - operator+(CustomType2, CustomType)
-//  - operator+(CustomType2, CustomType2)
-// So we decide to not create the operator+ for Custom12.
-//
-// Also, besides requiring operator+(T1, T2) to be defined for some T1 and T2 in
-// the type list, it is also required that the result type of operator+(T1, T2)
-// is also in the type list. For example, if you have:
-//   struct bfloat16_zero {}; struct half_zero {};
-//   float operator+(bfloat16_zero, half_zero) { return 0.0f; }
-//   using BFloatOrHalfZero
-//     = DynamicType<NoContainers, bfloat16_zero, half_zero>;
-// Then the operator+ on BFloatOrHalf should not be defined, because the result
-// type is not in the type list. However, if you have:
-//   using BFloatOrHalfZeroOrInt
-//     = DynamicType<NoContainers, bfloat16_zero, half_zero, int>;
-// Then the operator+ on BFloatOrHalfZeroOrInt should be defined at compile time
-// because int+int is defined, but
-// BFloatOrHalfZeroOrInt(half_zero{}) + BFloatOrHalfZeroOrInt(bfloat16_zero{})
-// should be a runtime error, because the the result of half_zero+bfloat16_zero,
-// i.e. float, is not in the type list.
-//
-// Besides the operators within DynamicType, such as DynamicType + DynamicType,
-// DynamicType also support operators with static type. For example, if you have
-//   IntOrFloat x = 1; float y = 2.5f;
-// then x + y or y + x should be an IntOrFloat with value 3.5f. However, if you
-// have
-//   IntOrFloat x = 1; double y = 2.5;
-// then you will get a compilation error for doing x + y or y + x, because int +
-// double and double + int are double, which is not in the list of types of
-// IntOrFloat.
-//
-// All the above behaviors are handled by template meta-programming, so they are
-// automatic. Adding a new type to the list of types does not introduce any
-// extra work. All the behaviors mentioned in this note is tested in
-// DynamicTypeTest.ExamplesInNote, so if you want to change anything in this
-// doc, please make sure to update the test as well.
-//
-// DynamicType also support nested types, that is, the type list can contain
-// DynamicType. For example, we can have:
-//   using IntFloatVecList
-//     = DynamicType<Containers<std::vector, std::list>, int, float>;
-// Then the value contained in IntFloatVecList can be an int, a float, a
-// std::vector<IntFloatVecList>, or a std::list<IntFloatVecList>. For example,
-// we can have:
-//   IntFloatVecList x = std::vector<IntFloatVecList>{1, 2.0f};
-//   IntFloatVecList y = std::list<IntFloatVecList>{3, x};
-// then y will have a structure like {3, {1, 2.0f}}.
-//
-// Also, operations on DynamicType should be as constexpr as possible. So most
-// tests in DynamicTypeTest are static_assert tests.
+#include "C++20/type_traits"
+#include "error.h"
+#include "type_traits.h"
 
-namespace nvfuser {
+namespace dynamic_type {
 
 // We must disable a lot of compiler warnings to make this work. The reason for
 // the need to disable these warnings is not because the code quality in this
@@ -141,7 +48,7 @@ namespace nvfuser {
 // code:
 //   std::optional<bool> ret = std::nullopt;
 //   ...
-//   TORCH_CHECK(ret.has_value(), ...);
+//   DYNAMIC_TYPE_CHECK(ret.has_value(), ...);
 //   return ret.value();
 // saying that ret.value() is used uninitialized. This complaint is totoally
 // nonsense.
@@ -163,13 +70,13 @@ struct Containers {
       std::type_identity<Templates<DynamicType>>...>;
 
   template <typename DynamicType, typename... MemberTypes>
-  using ForAllTypes = nvfuser::
+  using ForAllTypes = dynamic_type::
       ForAllTypes<std::monostate, MemberTypes..., Templates<DynamicType>...>;
 
   // Check if T is one of the types in the type list MemberTypes..., or a
   // container
   template <typename T, typename DynamicType, typename... MemberTypes>
-  static constexpr auto is_candidate_type = nvfuser::
+  static constexpr auto is_candidate_type = dynamic_type::
       belongs_to<T, std::monostate, MemberTypes..., Templates<DynamicType>...>;
 };
 
@@ -179,7 +86,7 @@ template <typename Containers, typename... Ts>
 struct DynamicType {
   using VariantType =
       typename Containers::template VariantType<DynamicType, Ts...>;
-  VariantType value_;
+  VariantType value;
 
   // TODO: Not supporting operators for containers for now, because containers
   // has nested DynamicType, trying to support operators for containers will
@@ -206,8 +113,8 @@ struct DynamicType {
 
   constexpr DynamicType() = default;
 
-  template <typename T>
-  constexpr DynamicType(T value) : value_(std::move(value)) {}
+  template <typename T, typename = decltype(VariantType(std::declval<T>()))>
+  constexpr DynamicType(T value) : value(std::move(value)) {}
 
   template <
       template <typename...>
@@ -217,7 +124,7 @@ struct DynamicType {
           is_candidate_type<Template<DynamicType>> &&
           !std::is_same_v<ItemT, DynamicType>>>
   constexpr DynamicType(Template<ItemT> value)
-      : value_([](auto input) {
+      : value([](auto input) {
           Template<DynamicType> result;
           std::transform(
               input.begin(),
@@ -227,17 +134,17 @@ struct DynamicType {
           return result;
         }(std::move(value))) {}
 
-  // Returns the type_info of the actual type of the variant value_. For
-  // example, if value_ holds an int, then this will return typeid(int).
+  // Returns the type_info of the actual type of the variant value. For
+  // example, if value holds an int, then this will return typeid(int).
   const std::type_info& type() const {
     return std::visit(
         [](auto value) -> const std::type_info& { return typeid(value); },
-        value_);
+        value);
   }
 
   template <typename T>
   constexpr bool is() const {
-    return std::holds_alternative<T>(value_);
+    return std::holds_alternative<T>(value);
   }
 
   template <template <typename...> typename Template>
@@ -246,7 +153,7 @@ struct DynamicType {
   }
 
   constexpr bool isNull() const {
-    return std::holds_alternative<std::monostate>(value_);
+    return std::holds_alternative<std::monostate>(value);
   }
 
   constexpr bool hasValue() const {
@@ -255,12 +162,12 @@ struct DynamicType {
 
   template <typename T, typename = std::enable_if_t<is_candidate_type<T>>>
   constexpr const T& as() const {
-    return std::get<T>(value_);
+    return std::get<T>(value);
   }
 
   template <typename T, typename = std::enable_if_t<is_candidate_type<T>>>
   constexpr T& as() {
-    return std::get<T>(value_);
+    return std::get<T>(value);
   }
 
   template <
@@ -290,7 +197,7 @@ struct DynamicType {
         }
       }
     });
-    TORCH_CHECK(
+    DYNAMIC_TYPE_CHECK(
         ret.has_value(),
         "Cannot cast from ",
         type().name(),
@@ -307,7 +214,7 @@ struct DynamicType {
       typename = std::enable_if_t<
           is_candidate_type<Template<DynamicType>> && can_cast_to<ItemT>>>
   explicit constexpr operator Template<ItemT>() const {
-    TORCH_CHECK(
+    DYNAMIC_TYPE_CHECK(
         is<Template<DynamicType>>(),
         "Cannot cast from ",
         type().name(),
@@ -372,7 +279,7 @@ struct DynamicType {
         }                                                                      \
       }                                                                        \
     });                                                                        \
-    TORCH_CHECK(                                                               \
+    DYNAMIC_TYPE_CHECK(                                                        \
         ret.has_value(),                                                       \
         "Cannot index ",                                                       \
         type().name(),                                                         \
@@ -409,7 +316,7 @@ struct DynamicType {
         }                                                            \
       }                                                              \
     });                                                              \
-    TORCH_CHECK(                                                     \
+    DYNAMIC_TYPE_CHECK(                                              \
         ret.has_value(),                                             \
         "Cannot index ",                                             \
         type().name(),                                               \
@@ -423,9 +330,88 @@ struct DynamicType {
   DEFINE_SQUARE_BRACKET_OPERATOR(const)
 #undef DEFINE_SQUARE_BRACKET_OPERATOR
 
-  // TODO: support ->* operator. This operator is rarely used, so we don't
-  // implement it yet. But if in the future, it turns to be useful, we should
-  // implement it.
+  // ->* over for accessing candidate members. This will be converted as a .*
+  // with a candidate type. For example, if you have:
+  // DynamicType<NoContainers, A, B, C> abc;
+  // then you can use abc->*A::x to access the member x of A. Member access also
+  // support functions, just make sure that you get the correct precedence. For
+  // example: use (abc->*A::print)() instead of abc->*A::print().
+
+#define DEFINE_ARROW_STAR_OPERATOR(__const)                                    \
+  template <                                                                   \
+      typename Ret,                                                            \
+      typename Class,                                                          \
+      typename = std::enable_if_t<is_candidate_type<Class>>>                   \
+  constexpr decltype(auto) operator->*(Ret Class::*member) __const {           \
+    /* Use decltype(auto) instead of auto as return type so that references */ \
+    /* and qualifiers are preserved*/                                          \
+    if constexpr (std::is_function_v<Ret>) {                                   \
+      return [this, member](auto&&... args) {                                  \
+        return (as<Class>().*member)(std::forward<decltype(args)>(args)...);   \
+      };                                                                       \
+    } else {                                                                   \
+      return as<Class>().*member;                                              \
+    }                                                                          \
+  }
+
+  DEFINE_ARROW_STAR_OPERATOR()
+  DEFINE_ARROW_STAR_OPERATOR(const)
+#undef DEFINE_ARROW_STAR_OPERATOR
+
+  // ->* operator for non-candidate access. This will just forward the argument
+  // to the overloaded ->* of candidates. Due to limitations of C++'s type
+  // system, we can only enable this when all the types in the type list that
+  // support this operator have the same return type.
+
+#define DEFINE_ARROW_STAR_OPERATOR(__const)                                     \
+  template <typename MemberT>                                                   \
+  static constexpr auto all_arrow_star_ret_types##__const =                     \
+      remove_void_from_tuple(for_all_types([](auto t) {                         \
+        using T = typename decltype(t)::type;                                   \
+        if constexpr (opcheck<T>->*opcheck<MemberT>) {                          \
+          return std::type_identity<                                            \
+              decltype(std::declval<__const T>()->*std::declval<MemberT>())>{}; \
+        }                                                                       \
+      }));                                                                      \
+                                                                                \
+  template <typename MemberT>                                                   \
+  using AllArrowStarRetTypes##__const =                                         \
+      decltype(all_arrow_star_ret_types##__const<MemberT>);                     \
+                                                                                \
+  template <typename MemberT>                                                   \
+  static constexpr bool all_arrow_star_ret_types_are_same##__const =            \
+      all_same_type(all_arrow_star_ret_types##__const<MemberT>);                \
+                                                                                \
+  template <typename MemberT>                                                   \
+  using ArrowStarRetType##__const =                                             \
+      typename first_or_void<AllArrowStarRetTypes##__const<MemberT>>::type;     \
+                                                                                \
+  template <typename MemberT>                                                   \
+  constexpr std::enable_if_t<                                                   \
+      all_arrow_star_ret_types_are_same##__const<MemberT>,                      \
+      typename ArrowStarRetType##__const<MemberT>::type>                        \
+  operator->*(const MemberT& member) __const {                                  \
+    using RetT = typename ArrowStarRetType##__const<MemberT>::type;             \
+    std::optional<wrap_reference_t<RetT>> ret = std::nullopt;                   \
+    for_all_types([this, &member, &ret](auto t) {                               \
+      using T = typename decltype(t)::type;                                     \
+      if constexpr (opcheck<T>->*opcheck<MemberT>) {                            \
+        if (is<T>()) {                                                          \
+          ret = as<T>()->*member;                                               \
+        }                                                                       \
+      }                                                                         \
+    });                                                                         \
+    DYNAMIC_TYPE_CHECK(                                                         \
+        ret.has_value(),                                                        \
+        "Cannot access member with type ",                                      \
+        typeid(RetT).name(),                                                    \
+        " : incompatible type");                                                \
+    return ret.value();                                                         \
+  }
+
+  DEFINE_ARROW_STAR_OPERATOR()
+  DEFINE_ARROW_STAR_OPERATOR(const)
+#undef DEFINE_ARROW_STAR_OPERATOR
 
   // TODO: support operator(). This is not supported yet because it is the most
   // difficulty one to implement because it can has arbitrary number of
@@ -481,7 +467,7 @@ constexpr bool is_dynamic_type_v = is_dynamic_type<T>::value;
         }                                                                  \
       });                                                                  \
     });                                                                    \
-    TORCH_CHECK(                                                           \
+    DYNAMIC_TYPE_CHECK(                                                    \
         !ret.template is<std::monostate>(),                                \
         "Cannot compute ",                                                 \
         x.type().name(),                                                   \
@@ -526,7 +512,7 @@ constexpr bool is_dynamic_type_v = is_dynamic_type<T>::value;
         }                                                                  \
       }                                                                    \
     });                                                                    \
-    TORCH_CHECK(                                                           \
+    DYNAMIC_TYPE_CHECK(                                                    \
         !ret.template is<std::monostate>(),                                \
         "Cannot compute ",                                                 \
         x.type().name(),                                                   \
@@ -571,7 +557,7 @@ constexpr bool is_dynamic_type_v = is_dynamic_type<T>::value;
         }                                                                  \
       }                                                                    \
     });                                                                    \
-    TORCH_CHECK(                                                           \
+    DYNAMIC_TYPE_CHECK(                                                    \
         !ret.template is<std::monostate>(),                                \
         "Cannot compute ",                                                 \
         typeid(LHS).name(),                                                \
@@ -637,7 +623,7 @@ DEFINE_BINARY_OP(rshift, >>);
         }                                                                     \
       });                                                                     \
     });                                                                       \
-    TORCH_CHECK(                                                              \
+    DYNAMIC_TYPE_CHECK(                                                       \
         ret.has_value(),                                                      \
         "Cannot compute ",                                                    \
         x.type().name(),                                                      \
@@ -682,7 +668,7 @@ DEFINE_BINARY_OP(rshift, >>);
         }                                                                     \
       }                                                                       \
     });                                                                       \
-    TORCH_CHECK(                                                              \
+    DYNAMIC_TYPE_CHECK(                                                       \
         ret.has_value(),                                                      \
         "Cannot compute ",                                                    \
         x.type().name(),                                                      \
@@ -726,7 +712,7 @@ DEFINE_BINARY_OP(rshift, >>);
         }                                                                     \
       }                                                                       \
     });                                                                       \
-    TORCH_CHECK(                                                              \
+    DYNAMIC_TYPE_CHECK(                                                       \
         ret.has_value(),                                                      \
         "Cannot compute ",                                                    \
         typeid(LHS).name(),                                                   \
@@ -780,7 +766,7 @@ DEFINE_COMPARE_OP(ge, >=);
         }                                                                      \
       }                                                                        \
     });                                                                        \
-    TORCH_CHECK(                                                               \
+    DYNAMIC_TYPE_CHECK(                                                        \
         !ret.template is<std::monostate>(),                                    \
         "Cannot compute ",                                                     \
         #op,                                                                   \
@@ -827,7 +813,7 @@ DT& operator*(const DT& x) {
       }
     }
   });
-  TORCH_CHECK(ret.has_value(), "Cannot dereference ", x.type().name());
+  DYNAMIC_TYPE_CHECK(ret.has_value(), "Cannot dereference ", x.type().name());
   return ret.value();
 }
 
@@ -865,7 +851,7 @@ std::ostream& operator<<(std::ostream& os, const DT& dt) {
       }
     }
   });
-  TORCH_CHECK(
+  DYNAMIC_TYPE_CHECK(
       printed, "Can not print ", dt.type().name(), " : incompatible type");
   return os;
 }
@@ -900,7 +886,7 @@ std::ostream& operator<<(std::ostream& os, const DT& dt) {
         }                                                                      \
       }                                                                        \
     });                                                                        \
-    TORCH_CHECK(                                                               \
+    DYNAMIC_TYPE_CHECK(                                                        \
         computed,                                                              \
         "Cannot compute ",                                                     \
         #op,                                                                   \
@@ -947,7 +933,7 @@ DEFINE_LEFT_PPMM(lmm, --);
         }                                                                      \
       }                                                                        \
     });                                                                        \
-    TORCH_CHECK(                                                               \
+    DYNAMIC_TYPE_CHECK(                                                        \
         !ret.template is<std::monostate>(),                                    \
         "Cannot compute ",                                                     \
         x.type().name(),                                                       \
@@ -986,6 +972,22 @@ DEFINE_ASSIGNMENT_OP(>>, >>=);
 // overloaded, and the automatically defined version by the compiler usually
 // does what we want.
 
+// Check that, whether there exist two different types T and U, where both T and
+// U are contained in the type list of dynamic type DT, and T == U is defined.
+template <typename DT>
+constexpr bool has_cross_type_equality =
+    any(remove_void_from_tuple(DT::for_all_types([](auto t) {
+      using T = typename decltype(t)::type;
+      return any(remove_void_from_tuple(DT::for_all_types([](auto u) {
+        using U = typename decltype(u)::type;
+        if constexpr (std::is_same_v<T, U>) {
+          return;
+        } else {
+          return opcheck<T> == opcheck<U>;
+        }
+      })));
+    })));
+
 #if defined(__clang__)
 #pragma clang diagnostic pop
 #endif
@@ -994,4 +996,25 @@ DEFINE_ASSIGNMENT_OP(>>, >>=);
 #pragma GCC diagnostic pop
 #endif
 
-} // namespace nvfuser
+} // namespace dynamic_type
+
+// Hashing:
+
+template <typename Containers, typename... Ts>
+struct std::hash<dynamic_type::DynamicType<Containers, Ts...>> {
+  // The hashing should be consistent with the equality operator. That is, if
+  // a == b, then a and b should always has the same hash. However, because we
+  // are using the hashing function for std::variant as our hasing function,
+  // there is no way for us to guarantee this if there are cross-type
+  // equality. For example, 0 == 0.0, but they don't have the same hash value.
+  // So the hashing function for DynamicType<NoContainers, int, double> as
+  // defined here is illegal.
+  static_assert(
+      !dynamic_type::has_cross_type_equality<
+          dynamic_type::DynamicType<Containers, Ts...>>,
+      "Hash function of DynamicType can not be automatically defined while there are cross-type equality.");
+  using DT = dynamic_type::DynamicType<Containers, Ts...>;
+  std::size_t operator()(DT const& dt) const noexcept {
+    return std::hash<typename DT::VariantType>{}(dt.value);
+  }
+};

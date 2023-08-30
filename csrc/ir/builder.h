@@ -63,6 +63,7 @@ class TORCH_CUDA_CU_API IrBuilder {
   static Val* absExpr(Val* val);
   static Val* setExpr(Val* val);
   static Val* maybeCastExpr(DataType dtype, Val* val);
+  static Val* addressExpr(Val* val);
   static NamedScalar* setExprNamedScalar(const std::string& name, Val* val);
   static NamedScalar* addressExprNamedScalar(const std::string& name, Val* val);
 
@@ -94,6 +95,7 @@ class TORCH_CUDA_CU_API IrBuilder {
   static Val* getItemExpr(Val* array, Val* index);
   static Val* getItemExpr(Val* array, PolymorphicValue index);
   static Val* getAttrExpr(Val* struct_, std::string attr);
+  static Val* reverseArrayExpr(Val* array);
 
   // Get tensor metadata
   static Val* metadataExpr(TensorView* tv);
@@ -106,7 +108,7 @@ class TORCH_CUDA_CU_API IrBuilder {
           !members.empty(), "Cannot create an array with no members.");
       auto in_dtype = members.at(0)->dtype();
       auto out_dtype =
-          ArrayOf{std::make_shared<DataType>(in_dtype), members.size()};
+          ArrayType{std::make_shared<DataType>(in_dtype), members.size()};
       auto out = newScalar(out_dtype);
       create<ArrayConstruct>(out, members);
       return out;
@@ -122,6 +124,25 @@ class TORCH_CUDA_CU_API IrBuilder {
           [](const T& member) { return arrayExpr(member); });
       return arrayExpr(array_members);
     }
+  }
+
+  template <typename T = NotImplementedStruct>
+  static Val* structExpr(
+      const std::vector<std::pair<std::string, Val*>>& fields,
+      std::string name = "") {
+    std::vector<StructType::FieldInfo> field_infos;
+    field_infos.reserve(fields.size());
+    for (auto& field : fields) {
+      field_infos.emplace_back(StructType::FieldInfo{
+          field.first,
+          std::make_shared<DataType>(field.second->dtype()),
+          true});
+    }
+    DataType dtype =
+        StructType::make<T>(std::move(field_infos), std::move(name));
+    auto out = newScalar(dtype);
+    create<StructConstruct>(out, fields);
+    return out;
   }
 
   static Val* newScalar(DataType dtype);

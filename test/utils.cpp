@@ -456,23 +456,26 @@ std::pair<at::Tensor, at::Tensor> matmulAtInput(
 }
 
 at::Tensor matmulAtInput(
-    const int M,
-    const int N,
-    const int K,
     const MatmulLayout layout,
     const TensorMatmulPos tensor,
     const c10::ScalarType dtype,
+    const int M,
+    const int N,
+    const int K,
+    const int B,
     const int device) {
   const auto options =
       at::TensorOptions().dtype(dtype).device(at::kCUDA, device);
+  const auto is_batch = B != 0;
 
   // handle C and D tensors, layout does not impact shape
   switch (tensor) {
     case TensorMatmulPos::C:
     case TensorMatmulPos::D:
-      return at::randn({M, N}, options);
+      return is_batch ? at::randn({B, M, N}, options)
+                      : at::randn({M, N}, options);
     case TensorMatmulPos::Bias:
-      return at::randn({M}, options);
+      return is_batch ? at::randn({B, M}, options) : at::randn({M}, options);
     default:
       break;
   }
@@ -481,9 +484,11 @@ at::Tensor matmulAtInput(
     case MatmulLayout::TT:
       switch (tensor) {
         case TensorMatmulPos::A:
-          return at::randn({M, K}, options);
+          return is_batch ? at::randn({M, B, K}, options)
+                          : at::randn({M, K}, options);
         case TensorMatmulPos::B:
-          return at::randn({K, N}, options);
+          return is_batch ? at::randn({B, K, N}, options)
+                          : at::randn({K, N}, options);
         default:
           break;
       }
@@ -491,9 +496,11 @@ at::Tensor matmulAtInput(
     case MatmulLayout::TN:
       switch (tensor) {
         case TensorMatmulPos::A:
-          return at::randn({M, K}, options);
+          return is_batch ? at::randn({M, B, K}, options)
+                          : at::randn({M, K}, options);
         case TensorMatmulPos::B:
-          return at::randn({N, K}, options);
+          return is_batch ? at::randn({N, B, K}, options)
+                          : at::randn({N, K}, options);
         default:
           break;
       }
@@ -501,9 +508,11 @@ at::Tensor matmulAtInput(
     case MatmulLayout::NT:
       switch (tensor) {
         case TensorMatmulPos::A:
-          return at::randn({K, M}, options);
+          return is_batch ? at::randn({B, K, M}, options)
+                          : at::randn({K, M}, options);
         case TensorMatmulPos::B:
-          return at::randn({K, N}, options);
+          return is_batch ? at::randn({B, K, N}, options)
+                          : at::randn({K, N}, options);
         default:
           break;
       }
@@ -511,45 +520,19 @@ at::Tensor matmulAtInput(
     case MatmulLayout::NN:
       switch (tensor) {
         case TensorMatmulPos::A:
-          return at::randn({K, M}, options);
+          return is_batch ? at::randn({B, K, M}, options)
+                          : at::randn({K, M}, options);
         case TensorMatmulPos::B:
-          return at::randn({N, K}, options);
+          return is_batch ? at::randn({N, B, K}, options)
+                          : at::randn({N, K}, options);
         default:
           break;
       }
       break;
     default:
-      TORCH_CHECK(false, "unsupported data layout.");
+      TORCH_CHECK(false, "unsupported data layout, got ", (size_t)layout);
   }
-  TORCH_CHECK(false, "unsupported tensor position.");
-}
-
-std::pair<at::Tensor, at::Tensor> splitkLikeBatchedMatmulAtInput(
-    int M,
-    int N,
-    int B,
-    int K,
-    MatmulLayout layout,
-    c10::ScalarType dtype) {
-  auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
-
-  switch (layout) {
-    case MatmulLayout::TT:
-      return std::make_pair(
-          at::randn({M, B, K}, options), at::randn({B, K, N}, options));
-    case MatmulLayout::TN:
-      return std::make_pair(
-          at::randn({M, B, K}, options), at::randn({N, B, K}, options));
-    case MatmulLayout::NT:
-      return std::make_pair(
-          at::randn({B, K, M}, options), at::randn({B, K, N}, options));
-    case MatmulLayout::NN:
-      return std::make_pair(
-          at::randn({B, K, M}, options), at::randn({N, B, K}, options));
-    default:
-      TORCH_CHECK(false, "unsupported data layout.");
-  }
-  return std::make_pair(at::Tensor(), at::Tensor());
+  TORCH_CHECK(false, "unsupported tensor position, got ", (size_t)tensor);
 }
 
 bool isSchedulerInUse(
@@ -608,32 +591,77 @@ TensorView* biasEpilogue(TensorView* tensor, TensorView* bias) {
       bias->dtype(),
       ", tensor: ",
       tensor->dtype());
-  const auto concrete = TensorDomain::noReductions(
-      TensorDomain::noBroadcasts(tensor->getLeafDomain()));
-  TORCH_CHECK(
-      concrete.size() == 2,
-      "Only tensors with two concrete domains have support for bias epilogue enabled, got ",
-      concrete.size());
   TORCH_CHECK(
       tensor->nDims() >= 2,
       "Tensors to have bias applied needs to have 2 or more domains, got ",
       tensor->nDims());
-  TORCH_CHECK(
-      bias->nDims() == 1,
-      "bias vector must have one dimension, got",
-      bias->nDims());
+
+  const auto concrete = TensorDomain::noReductions(
+      TensorDomain::noBroadcasts(tensor->getLeafDomain()));
 
   TensorView *biasb = nullptr, *biased = nullptr;
-  biasb = broadcast(bias, {false, true});
+
+  switch (concrete.size()) {
+    case 2:
+      // regular matmul (non-strided batch gemm)
+      TORCH_CHECK(
+          bias->nDims() == 1,
+          "bias vector must have one domain, got",
+          bias->nDims());
+      biasb = broadcast(bias, {false, true});
+      break;
+    case 3:
+      // strided batch gemm case
+      if (bias->nDims() == 1) {
+        // case with a single bias used through whole batch
+        biasb = broadcast(bias, {true, false, true});
+      } else if (bias->nDims() == 2) {
+        // case with dedicated bias for each problem in the batch
+        biasb = broadcast(bias, {false, false, true});
+      } else {
+        TORCH_CHECK(
+            false,
+            "bias vector must have one (single bias for batch) "
+            "or two (bias for each batch entries)), got",
+            bias->nDims());
+      }
+      break;
+    default:
+      TORCH_CHECK(
+          false,
+          "Only tensors with two (matmul) or three (strided batch matmul) "
+          "concrete domains have support for bias epilogue enabled, got ",
+          concrete.size());
+  }
+
   biased = add(tensor, biasb);
   return biased;
 }
 
 at::Tensor atBiasEpilogue(const at::Tensor& tensor, const at::Tensor& bias) {
-  TORCH_CHECK(bias.dim() == 1, "Bias must be a vector");
-  TORCH_CHECK(
-      tensor.dim() == 2, "Only 2d tensors have support for bias epilogue");
-  const int64_t rows = bias.size(0);
+  switch (tensor.dim()) {
+    case 2:
+      TORCH_CHECK(
+          bias.dim() == 1,
+          "For single matmul problem bias must be a vector, got ",
+          bias.dim());
+      break;
+    case 3:
+      TORCH_CHECK(
+          (bias.dim() == 1 || bias.dim() == 2),
+          "For strided batch matmul problem bias must be 1d or 2d tensor, got ",
+          bias.dim());
+      break;
+    default:
+      TORCH_CHECK(
+          false,
+          "Only tensors with two (matmul) or three (strided batch matmul) "
+          "concrete domains have support for bias epilogue enabled, got ",
+          tensor.dim());
+  }
+
+  // The inner most dimension of bias tensor contains the rows number
+  const int64_t rows = bias.size(-1);
 
   // We skip number of columns and access directly dim for rows, hence '-2'
   TORCH_CHECK(
@@ -641,6 +669,74 @@ at::Tensor atBiasEpilogue(const at::Tensor& tensor, const at::Tensor& bias) {
       "Tensor must have the same number of rows as bias vector");
 
   return tensor.add(bias.unsqueeze(-1));
+}
+
+size_t getCRandomSeed() {
+  static thread_local bool found_seed = false;
+  static thread_local size_t seed = 0L;
+
+  if (!found_seed) {
+    const char* env_var = "TEST_RANDOM_SEED";
+    auto seed_str = getNvFuserEnv(env_var);
+    if (seed_str) {
+      try {
+        seed = std::stol(seed_str);
+      } catch (const std::exception& e) {
+        std::cerr << "Could not parse environment variable NVFUSER_" << env_var
+                  << std::endl;
+        throw e;
+      }
+    } else {
+      // We default to setting the C random seed to the system time in seconds
+      // since the epoch in order to promote structural randomness in tests. For
+      // example, if a test uses `std::rand()` to choose random sizes or
+      // dimensions, then the number of combinations grows combinatorially.
+      // Using a changing, but controlled, seed like this is helpful in these
+      // cases since it increases the coverage of the test when numerous
+      // different runs of the test suite are considered. When an error is
+      // encountered, we can repeat with that seed  since it will be printed
+      // upon error.
+      seed = std::chrono::duration_cast<std::chrono::seconds>(
+                 std::chrono::system_clock::now().time_since_epoch())
+                 .count();
+    }
+  }
+
+  return seed;
+}
+
+size_t getATenRandomSeed() {
+  static thread_local bool found_seed = false;
+  static thread_local size_t seed = 0L;
+
+  if (!found_seed) {
+    const char* env_var = "TEST_ATEN_RANDOM_SEED";
+    auto seed_str = getNvFuserEnv(env_var);
+    if (seed_str) {
+      try {
+        seed = std::stol(seed_str);
+      } catch (const std::exception& e) {
+        std::cerr << "Could not parse environment variable NVFUSER_" << env_var
+                  << std::endl;
+        throw e;
+      }
+    } else {
+      // We default to setting the ATen seed to zero, instead of system time.
+      // The C PRNG, std::rand() is typically used for structural parameters
+      // such as choosing random sizes or indices. These combinatorial tests
+      // benefit from increased coverage since exhaustive testing would be ideal
+      // but impractical in those cases. ATen randomness, on the other hand, is
+      // typically used for filling in data in test tensors, and results are
+      // then used in inexact matching tests. Those tests pass with high
+      // probability but might fail often were the test exhaustive. By fixing
+      // the default ATen seed to zero, we can avoid some false positive test
+      // failures while still ensuring there is at least one seed for which the
+      // tests pass.
+      seed = 0L;
+    }
+  }
+
+  return seed;
 }
 
 } // namespace nvfuser

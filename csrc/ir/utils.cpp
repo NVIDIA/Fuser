@@ -1023,26 +1023,6 @@ std::vector<Statement*> checkCycle(
   return {};
 }
 
-bool dependenciesSatisfied(
-    std::vector<const Val*> needed_vals,
-    std::unordered_set<const Val*> known_vals) {
-  while (!needed_vals.empty()) {
-    auto needed_val = needed_vals.back();
-    needed_vals.pop_back();
-    if (known_vals.count(needed_val) > 0 || needed_val->isConst()) {
-      continue;
-    }
-    auto def = needed_val->definition();
-    if (def == nullptr) {
-      return false;
-    }
-    for (auto input : def->inputs()) {
-      needed_vals.emplace_back(input);
-    }
-  }
-  return true;
-}
-
 bool isAlignedScopeExpr(const Expr* expr) {
   TORCH_INTERNAL_ASSERT(expr != nullptr);
   if (auto ite = dynamic_cast<const kir::IfThenElse*>(expr)) {
@@ -1096,12 +1076,6 @@ inline bool isTensorAttr(const Val* val, const std::string& attr_name) {
 } // namespace
 
 bool isTensorSize(const Val* val) {
-  if (auto ns = dynamic_cast<const NamedScalar*>(val)) {
-    // TODO: remove this
-    if (ns->isTensorSize()) {
-      return true;
-    }
-  }
   return isTensorAttr(val, "logical_size") || isTensorAttr(val, "alloc_size");
 }
 

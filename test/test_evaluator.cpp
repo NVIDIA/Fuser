@@ -30,6 +30,7 @@ inline void checkIntValue(
   EXPECT_TRUE(actual_value.hasValue());
   EXPECT_EQ(actual_value, expected_value);
 }
+
 } // namespace
 
 // Evaluate basic scalar operations with constant values
@@ -293,6 +294,29 @@ TEST_F(ExprEvalTest, Array) {
   checkIntValue(evaluator, bb, 5L);
 }
 
+TEST_F(ExprEvalTest, Struct) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto* a = IrBuilder::create<Val>(DataType::Int);
+  auto* b = IrBuilder::create<Val>(DataType::Int);
+
+  auto struct_ = IrBuilder::structExpr<NotImplementedStruct>(
+      {{"a", a}, {"b", b}}, "test_struct");
+
+  auto aa = IrBuilder::getAttrExpr(struct_, "a");
+  auto bb = IrBuilder::getAttrExpr(struct_, "b");
+
+  ExpressionEvaluator evaluator;
+  evaluator.bind(a, 2L);
+  evaluator.bind(b, 5L);
+
+  LegacyStruct<PolymorphicValue> expect({{"a", 2L}, {"b", 5L}});
+  EXPECT_EQ(evaluator.evaluate(struct_), expect);
+  EXPECT_EQ(evaluator.evaluate(aa), 2L);
+  EXPECT_EQ(evaluator.evaluate(bb), 5L);
+}
+
 TEST_F(ExprEvalTest, TensorEagerExecution) {
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -343,22 +367,41 @@ TEST_F(ExprEvalTest, TensorMetaData) {
   checkIntValue(evaluator, stride1, 1L);
 }
 
-TEST_F(ExprEvalTest, OpaqueEquality) {
-  Opaque a{DataType::Int}, b{DataType::Int};
-  // Because the type information is not available at compile time, we can't
-  // accurately compare the values of two opaque values. So, by default,
-  // equality check is done by pointer compare.
-  EXPECT_EQ(a, a);
-  EXPECT_EQ(b, b);
-  EXPECT_NE(a, b);
-  EXPECT_NE(b, a);
-  // However, we can manually specify the comparator to use for equality check.
-  Opaque c{DataType::Int, OpaqueEquals<PrimDataType>{}},
-      d{DataType::Int, OpaqueEquals<PrimDataType>{}};
-  EXPECT_EQ(c, c);
-  EXPECT_EQ(d, d);
-  EXPECT_EQ(c, d);
-  EXPECT_EQ(d, c);
+TEST_F(ExprEvalTest, Validation) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto a = IrBuilder::create<Val>(DataType::Int);
+  auto b = IrBuilder::create<Val>(DataType::Int);
+  auto one = fusion.oneVal(DataType::Int);
+  auto c = add(a, one);
+  auto d = add(c, b);
+
+  ExpressionEvaluator evaluator;
+  evaluator.bind(a, 299792458L);
+  evaluator.bind(b, 1L);
+
+  EXPECT_THAT(
+      [&]() { evaluator.bind(c, 4L, true); },
+      ::testing::ThrowsMessage<c10::Error>(
+          ::testing::HasSubstr("Tried to bind to a value: ")));
+  EXPECT_EQ(evaluator.evaluate(c), 299792459L);
+  evaluator.bind(d, 299792460L, true);
+}
+
+TEST_F(ExprEvalTest, ReverseArray) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto input = IrBuilder::create<Val>(
+      DataType(ArrayType{std::make_shared<DataType>(DataType::Int), 5}));
+  auto output = IrBuilder::reverseArrayExpr(input);
+
+  ExpressionEvaluator evaluator;
+  evaluator.bind(input, std::vector<int64_t>{1, 2, 3, 4, 5});
+
+  auto expect = std::vector<int64_t>{5, 4, 3, 2, 1};
+  EXPECT_EQ((std::vector<int64_t>)evaluator.evaluate(output), expect);
 }
 
 } // namespace nvfuser

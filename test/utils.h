@@ -24,6 +24,7 @@
 
 #include <gtest/gtest.h>
 
+#include <chrono>
 #include <cstddef>
 #include <string>
 #include <unordered_map>
@@ -409,6 +410,12 @@ inline bool maybeClearAllocator(int64_t max_bytes = ((int64_t)1 << 32)) {
   return false;
 }
 
+//! Returns the seed for std::rand() used for every test.
+size_t getCRandomSeed();
+
+//! Returns the seed for ATen functions like at::randn() used for every test.
+size_t getATenRandomSeed();
+
 // Fixture class must be uniquely identified, i.e., can't be in an
 // anonymous namespace
 class NVFuserTest : public ::testing::Test {
@@ -422,7 +429,25 @@ class NVFuserTest : public ::testing::Test {
 
     maybeClearAllocator();
 
-    at::manual_seed(0);
+    // If NVFUSER_TEST_RANDOM_SEED is provided, use that for the C random seed.
+    // Otherwise, use system time. If a test fails, this seed will be printed.
+    at::manual_seed(getATenRandomSeed());
+
+    // If NVFUSER_TEST_ATEN_RANDOM_SEED is provided, use that for the ATen
+    // random seed. Otherwise, use zero. If a test fails, this seed will be
+    // printed.
+    std::srand(getCRandomSeed());
+  }
+
+  void TearDown() override {
+    if (::testing::Test::HasFailure()) {
+      auto test_info = ::testing::UnitTest::GetInstance()->current_test_info();
+      std::cerr << "To reproduce: NVFUSER_TEST_RANDOM_SEED=" << getCRandomSeed()
+                << " NVFUSER_TEST_ATEN_RANDOM_SEED=" << getATenRandomSeed()
+                << " nvfuser_tests --gtest_filter='"
+                << test_info->test_suite_name() << "." << test_info->name()
+                << "'" << std::endl;
+    }
   }
 };
 
@@ -558,15 +583,6 @@ std::pair<at::Tensor, at::Tensor> matmulAtInput(
     MatmulLayout layout,
     c10::ScalarType dtype = at::kHalf);
 
-// Utility to generate inputs based on given layout
-std::pair<at::Tensor, at::Tensor> splitkLikeBatchedMatmulAtInput(
-    int M,
-    int N,
-    int B,
-    int K,
-    MatmulLayout layout,
-    c10::ScalarType dtype = at::kHalf);
-
 // Labels to describe tensor position in matmul:
 // A, B - input
 // C - input if beta is provided, shape must be the same as output (D)
@@ -575,14 +591,15 @@ std::pair<at::Tensor, at::Tensor> splitkLikeBatchedMatmulAtInput(
 enum class TensorMatmulPos { A, B, C, D, Bias };
 
 // Utility to generate buffers based on given problem, layout and tensor
-// position in matmul
+//  position in matmul with support for matmul and strided batch matmul
 at::Tensor matmulAtInput(
+    const MatmulLayout layout,
+    const TensorMatmulPos tensor,
+    const c10::ScalarType dtype,
     const int M,
     const int N,
     const int K,
-    const MatmulLayout layout,
-    const TensorMatmulPos tensor,
-    const c10::ScalarType dtype = at::kHalf,
+    const int B = 0,
     const int device = 0);
 
 #define REQUIRE_DEVICE_SMEM_SIZE(required_size, device_idx)                 \

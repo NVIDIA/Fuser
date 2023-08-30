@@ -11,6 +11,8 @@
 #include <kernel_cache.h>
 
 #include <executor_kernel_arg.h>
+#include <instrumentation.h>
+#include <serde/polymorphic_value_serde.h>
 
 namespace nvfuser {
 
@@ -127,26 +129,67 @@ void KernelArgumentHolder::pushTensorProxy(
   push(meta_tensor);
 }
 
+flatbuffers::Offset<serde::KernelArgumentHolder> KernelArgumentHolder::
+    serialize(flatbuffers::FlatBufferBuilder& builder) const {
+  // See table definitions for KernelArgumentHolder and PolymorphicValue
+  // in serde/fusion_cache.fbs
+
+  using fb_poly_value = flatbuffers::Offset<serde::PolymorphicValue>;
+
+  std::vector<fb_poly_value> arguments_fb;
+  arguments_fb.reserve(arguments_.size());
+  for (auto& arg : arguments_) {
+    arguments_fb.push_back(serde::serializePolymorphicValue(builder, arg));
+  }
+
+  return serde::CreateKernelArgumentHolderDirect(
+      builder, &arguments_fb, device_index_, cache_id_.value_or(SIZE_MAX));
+}
+
+void KernelArgumentHolder::deserialize(
+    const serde::KernelArgumentHolder* buffer) {
+  // See table definitions for KernelArgumentHolder and PolymorphicValue
+  // in serde/fusion_cache.fbs
+
+  TORCH_INTERNAL_ASSERT(
+      buffer != nullptr, "serde::KernelArgumentHolder is nullptr.");
+
+  device_index_ = buffer->device_index();
+  cache_id_ = (buffer->cache_id() != SIZE_MAX)
+      ? std::optional<size_t>(buffer->cache_id())
+      : std::nullopt;
+
+  serde::PolymorphicValueFactory poly_value_factory;
+  for (auto fb_poly_value : *buffer->arguments()) {
+    TORCH_INTERNAL_ASSERT(
+        fb_poly_value != nullptr, "serde::PolymorphicValue is nullptr.");
+    push(poly_value_factory.parse(fb_poly_value->data_type(), fb_poly_value));
+  }
+}
+
 std::vector<std::byte> polymorphicValueToBytes(
     const PolymorphicValue& argument,
     const DataType& dtype,
     PrimDataType index_type) {
-  if (argument.is<Struct>()) {
+  if (argument.is<LegacyStruct>()) {
+    // FUSER_PERF_SCOPE("polymorphicValueToBytes(LegacyStruct)");
     TORCH_INTERNAL_ASSERT(
-        std::holds_alternative<StructOf>(dtype.type),
-        "Expected StructOf type.");
-    auto dtype_ = std::get<StructOf>(dtype.type);
-    auto struct_ = argument.as<Struct>();
+        std::holds_alternative<StructType>(dtype.type),
+        "Expected StructType type.");
+    auto dtype_ = std::get<StructType>(dtype.type);
+    auto struct_ = argument.as<LegacyStruct>();
     std::vector<std::byte> buffer;
-    for (const auto& field : dtype_.field_names) {
-      auto field_data = polymorphicValueToBytes(
-          struct_[field],
-          NVFUSER_MAYBE_STAR dtype_.types.at(field),
-          index_type);
+    for (const auto& field : dtype_.fields) {
+      if (!field.used_in_kernel) {
+        continue;
+      }
+      auto field_data =
+          polymorphicValueToBytes(struct_[field.name], *field.type, index_type);
       buffer.insert(buffer.end(), field_data.begin(), field_data.end());
     }
     return buffer;
   } else if (argument.is<at::Tensor>()) {
+    // FUSER_PERF_SCOPE("polymorphicValueToBytes(at::Tensor)");
     const auto& tensor = argument.as<at::Tensor>();
     TORCH_INTERNAL_ASSERT(
         tensor.is_cpu() && tensor.numel() == 1,
@@ -168,9 +211,10 @@ std::vector<std::byte> polymorphicValueToBytes(
         (std::byte*)tensor.data_ptr() + tensor.element_size());
     return buffer;
   } else if (argument.is<Pointer>()) {
+    // FUSER_PERF_SCOPE("polymorphicValueToBytes(Pointer)");
     TORCH_INTERNAL_ASSERT(
-        std::holds_alternative<PointerOf>(dtype.type),
-        "Expected PointerOf type.");
+        std::holds_alternative<PointerType>(dtype.type),
+        "Expected PointerType type.");
     void* ptr = (void*)argument;
     std::vector<std::byte> buffer;
     buffer.reserve(sizeof(void*));
@@ -178,9 +222,11 @@ std::vector<std::byte> polymorphicValueToBytes(
         buffer.end(), (std::byte*)&ptr, (std::byte*)&ptr + sizeof(void*));
     return buffer;
   } else if (argument.is<std::vector>()) {
+    // FUSER_PERF_SCOPE("polymorphicValueToBytes(std::vector)");
     TORCH_INTERNAL_ASSERT(
-        std::holds_alternative<ArrayOf>(dtype.type), "Expected ArrayOf type.");
-    auto dtype_ = std::get<ArrayOf>(dtype.type);
+        std::holds_alternative<ArrayType>(dtype.type),
+        "Expected ArrayType type.");
+    auto dtype_ = std::get<ArrayType>(dtype.type);
     std::vector<std::byte> buffer;
     for (const auto& elem : argument.as<std::vector>()) {
       auto elem_data = polymorphicValueToBytes(elem, *dtype_.type, index_type);
@@ -188,6 +234,7 @@ std::vector<std::byte> polymorphicValueToBytes(
     }
     return buffer;
   } else if (argument.is<int64_t>()) {
+    // FUSER_PERF_SCOPE("polymorphicValueToBytes(int64_t)");
     int64_t v = argument.as<int64_t>();
     if (dtype == DataType::Int ||
         (index_type == PrimDataType::Int && dtype == DataType::Index)) {
@@ -205,10 +252,12 @@ std::vector<std::byte> polymorphicValueToBytes(
           " type: only int32 and int64 are supported.");
     }
   } else if (argument.is<bool>()) {
+    // FUSER_PERF_SCOPE("polymorphicValueToBytes(bool)");
     bool v = argument.as<bool>();
     TORCH_INTERNAL_ASSERT(dtype == DataType::Bool, "Expected Bool type.");
     return std::vector<std::byte>((std::byte*)&v, (std::byte*)&v + 1);
   } else if (argument.is<double>()) {
+    // FUSER_PERF_SCOPE("polymorphicValueToBytes(double)");
     double v = argument.as<double>();
     if (dtype == DataType::Double) {
       return std::vector<std::byte>(
@@ -233,6 +282,7 @@ std::vector<std::byte> polymorphicValueToBytes(
           " type: only half, bfloat16, float and double are supported.");
     }
   } else if (argument.is<std::complex<double>>()) {
+    // FUSER_PERF_SCOPE("polymorphicValueToBytes(std::complex<double>)");
     std::complex<double> v = argument.as<std::complex<double>>();
     if (dtype == DataType::ComplexDouble) {
       return std::vector<std::byte>(
@@ -248,6 +298,9 @@ std::vector<std::byte> polymorphicValueToBytes(
           dtype,
           " type: only complex float and complex double are supported.");
     }
+  } else if (argument.is<Opaque>()) {
+    // FUSER_PERF_SCOPE("polymorphicValueToBytes(Opaque)");
+    return argument.as<Opaque>().bytes();
   } else {
     TORCH_INTERNAL_ASSERT(
         false,
@@ -261,6 +314,7 @@ std::vector<std::byte> getKernelArgument(
     ExpressionEvaluator& ee,
     Val* parameter,
     PrimDataType index_type) {
+  FUSER_PERF_SCOPE("getKernelArgument");
   TORCH_INTERNAL_ASSERT(parameter != nullptr);
   PolymorphicValue pv = ee.evaluate(parameter);
   if (auto tv = dynamic_cast<TensorView*>(parameter)) {

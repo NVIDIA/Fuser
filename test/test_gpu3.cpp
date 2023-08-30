@@ -53,6 +53,7 @@
 #include <iostream>
 #include <sstream>
 #include <thread>
+#include <typeinfo>
 
 namespace nvfuser {
 
@@ -1730,21 +1731,33 @@ TEST_F(NVFuserTest, FusionIndexHoist3_CUDA) {
 __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> T2) {
   nvfuser_index_t i0;
   i0 = ((nvfuser_index_t)threadIdx.x) + (256 * ((nvfuser_index_t)blockIdx.x));
-  nvfuser_index_t i1;
-  i1 = T0.logical_size[0] * T0.logical_size[1];
-  bool b2;
-  b2 = i0 < i1;
-  float f3;
-  f3 = (float)(i1);
+  Tensor<float, 2, 2> s1;
+  s1.data = T0.data;
+  s1.logical_size = T0.logical_size;
+  s1.alloc_stride = T0.alloc_stride;
+  Array<nvfuser_index_t, 2, 1> a2;
+  a2 = s1.logical_size;
+  nvfuser_index_t i3;
+  i3 = a2[0];
+  Array<nvfuser_index_t, 2, 1> a4;
+  a4 = s1.logical_size;
+  nvfuser_index_t i5;
+  i5 = a4[1];
+  nvfuser_index_t i6;
+  i6 = i3 * i5;
+  bool b7;
+  b7 = i0 < i6;
+  float f8;
+  f8 = (float)(i6);
   float T1[1];
-  if (b2) {
+  if (b7) {
     T1[0]
        = sinf(T0[i0]);
   }
-  if (b2) {
+  if (b7) {
     T2[i0]
       = T1[0]
-      + f3;
+      + f8;
   }
 }
 )";
@@ -9667,10 +9680,11 @@ TEST_F(NVFuserTest, AllInputDtypes) {
     auto bf16 = IrBuilder::create<Val>(DataType::BFloat16);
     auto cf = IrBuilder::create<Val>(DataType::ComplexFloat);
     auto cd = IrBuilder::create<Val>(DataType::ComplexDouble);
-    DataType ptr_type = PointerOf{std::make_shared<DataType>(DataType::Float)};
+    DataType ptr_type =
+        PointerType{std::make_shared<DataType>(DataType::Float)};
     auto ptr = IrBuilder::create<Val>(ptr_type);
     DataType array_type =
-        ArrayOf{std::make_shared<DataType>(DataType::Float), 2};
+        ArrayType{std::make_shared<DataType>(DataType::Float), 2};
     auto array = IrBuilder::create<Val>(array_type);
     fusion->addInput(tv0);
     fusion->addInput(tv1);
@@ -9878,6 +9892,102 @@ TEST_F(NVFuserTest, UnswitchPredicateIssueRepro681_CUDA) {
   auto ref = t0.to(at::kDouble).sum();
 
   testValidate(&fusion, outputs, aten_inputs, {ref}, __LINE__, __FILE__);
+}
+
+TEST_F(NVFuserTest, OpaqueTupleAsComplex) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  DataType dtype =
+      OpaqueType::make<std::array<float, 2>>("Tuple<float, float>");
+
+  auto tuple = IrBuilder::create<Val>(dtype);
+  fusion.addInput(tuple);
+  auto complex = bitCastOp(DataType::ComplexFloat, tuple);
+
+  auto tv = full(
+      {IrBuilder::newConstant(1L, DataType::Index)},
+      complex,
+      DataType::ComplexFloat);
+
+  fusion.addOutput(tv);
+
+  KernelArgumentHolder args;
+  args.push(Opaque(std::array<float, 2>{1.2, 3.4}));
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion);
+  auto outputs = fe.runFusion(args);
+
+  EXPECT_EQ(
+      outputs.at(0).item<c10::complex<float>>(), c10::complex<float>(1.2, 3.4));
+}
+
+TEST_F(NVFuserTest, StructConstruct) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto real = IrBuilder::create<Val>(DataType::Float);
+  auto imag = IrBuilder::create<Val>(DataType::Float);
+  fusion.addInput(real);
+  fusion.addInput(imag);
+
+  auto struct_ = IrBuilder::structExpr({{"real", real}, {"imag", imag}});
+  auto complex = bitCastOp(DataType::ComplexFloat, struct_);
+
+  auto tv = full(
+      {IrBuilder::newConstant(1L, DataType::Index)},
+      complex,
+      DataType::ComplexFloat);
+
+  fusion.addOutput(tv);
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion);
+  auto outputs = fe.runFusion({1.2, 3.4});
+
+  EXPECT_EQ(
+      outputs.at(0).item<c10::complex<float>>(), c10::complex<float>(1.2, 3.4));
+}
+
+// Repro of an issue found in PR #733. Previously the runtime
+// validation of strides of vectorized tensors issued a false positive
+TEST_F(NVFuserTest, VectorizationStrideValidation) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  const std::vector<int64_t> shape({2, 1, 3});
+  const std::vector<int64_t> expanded_shape({2, 5, 3});
+
+  auto tv0 = TensorViewBuilder()
+                 .ndims(shape.size())
+                 .shape(expanded_shape)
+                 .contiguity({false, std::nullopt, true})
+                 .expanded({false, true, false})
+                 .build();
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  fusion.addOutput(tv1);
+
+  tv1->merge(0)->merge(0);
+  tv1->split(0, 2);
+
+  tv1->axis(-1)->parallelize(ParallelType::Vectorize);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape, options).expand({-1, 5, -1});
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs);
+
+  // This previously triggered a false positive error with the stride
+  // validation
+  auto cg_outputs = fe.runFusion(aten_inputs);
+
+  ASSERT_TRUE(cg_outputs[0].equal(t0));
 }
 
 // Test file size should be up to 10K LoC. Create a new file for more tests.
