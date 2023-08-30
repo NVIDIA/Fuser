@@ -24,12 +24,6 @@ struct TensorMetaData : public Struct {
   std::vector<int64_t> alloc_size_data;
   std::vector<int64_t> alloc_stride_data;
 
-  // bool operator==(const TensorMetaData& other) const {
-  //   return data == other.data && logical_size == other.logical_size &&
-  //       logical_stride == other.logical_stride &&
-  //       alloc_size == other.alloc_size && alloc_stride == other.alloc_stride;
-  // }
-
   std::function<PolymorphicValue()> getter(
       const std::string& key) const override {
     if (key == "data") {
