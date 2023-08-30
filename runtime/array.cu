@@ -170,7 +170,16 @@ __device__ void loadLocalToGlobal(
   }
 }
 
-template <typename scalar_t, int vec_size, bool is_volatile>
+// See
+// https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#cache-operators
+// for what each option means.
+enum CacheOperator : int {
+  kCacheAllLevels = 0,  // Default.
+  kCacheStreaming,
+};
+
+template <typename scalar_t, int vec_size, bool is_volatile, CacheOperator
+cache_op=kCacheAllLevels>
 __device__ void loadGlobalToLocal(
     scalar_t* to,
     typename MaybeVolatile<scalar_t, is_volatile>::type* from) {
@@ -189,9 +198,18 @@ __device__ void loadGlobalToLocal(
         break;
       } else {
         uint2& data = *reinterpret_cast<uint2*>(to);
-        asm volatile("ld.global.cs.v2.s32 {%0,%1}, [%2];"
-                     : "=r"(data.x), "=r"(data.y)
-                     : "l"((uint2*)from));
+        switch (cache_op) {
+          case kCacheAllLevels:
+            asm volatile("ld.global.ca.v2.s32 {%0,%1}, [%2];"
+                         : "=r"(data.x), "=r"(data.y)
+                         : "l"((uint2*)from));
+            break;
+          case kCacheStreaming:
+            asm volatile("ld.global.cs.v2.s32 {%0,%1}, [%2];"
+                         : "=r"(data.x), "=r"(data.y)
+                         : "l"((uint2*)from));
+            break;
+        }
       }
       break;
     }
@@ -203,9 +221,18 @@ __device__ void loadGlobalToLocal(
                      : "l"((uint4*)from));
       } else {
         uint4& data = *reinterpret_cast<uint4*>(to);
-        asm volatile("ld.global.cs.v4.s32 {%0,%1,%2,%3}, [%4];"
-                     : "=r"(data.x), "=r"(data.y), "=r"(data.z), "=r"(data.w)
-                     : "l"((uint4*)from));
+        switch (cache_op) {
+          case kCacheAllLevels:
+            asm volatile("ld.global.ca.v4.s32 {%0,%1,%2,%3}, [%4];"
+                         : "=r"(data.x), "=r"(data.y), "=r"(data.z), "=r"(data.w)
+                         : "l"((uint4*)from));
+            break;
+          case kCacheStreaming:
+            asm volatile("ld.global.cs.v4.s32 {%0,%1,%2,%3}, [%4];"
+                         : "=r"(data.x), "=r"(data.y), "=r"(data.z), "=r"(data.w)
+                         : "l"((uint4*)from));
+            break;
+        }
       }
       break;
     }
