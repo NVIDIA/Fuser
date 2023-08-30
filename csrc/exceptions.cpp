@@ -188,7 +188,6 @@ std::string _get_backtrace(
   // Toggles to true after the first skipped python frame.
   bool has_skipped_python_frames = false;
 
-  // TODO(prmishra): Replace c10::irange.
   for (const auto frame_number : c10::irange(callstack.size())) {
     const auto frame = parse_frame_information(symbols[frame_number]);
 
