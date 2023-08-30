@@ -402,7 +402,7 @@ void FusionExecutor::compileFusion(
   // TODO: high water mark should be computed via occupancy API after
   // compilation.
 
-  // Basically setting high water martk as 1 when we don't provide args for
+  // Basically setting high water mark as 1 when we don't provide args for
   // compilation, it will just generate a kernel that gets ditched at the first
   // run - not great. We should have better heuristics.
   block_size_high_water_mark_ = std::max<int64_t>(
@@ -2106,8 +2106,7 @@ void FusionExecutor::deserialize(
   // Load compiled cuda kernel from flatbuffer
   buffer->compiled_kernel()->UnPackTo(&last_compiled_binary_);
   std::tie(compiled_kernel_, last_compiler_log_) =
-      executor_utils::getCompiledKernel(
-          last_compiled_binary_, compile_params, block_size_high_water_mark_);
+      executor_utils::getCompiledKernel(last_compiled_binary_, compile_params);
 
   TORCH_INTERNAL_ASSERT(isCompiled(), "Failed to deserialize FusionExecutor");
 }

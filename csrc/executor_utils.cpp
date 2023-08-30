@@ -745,7 +745,7 @@ size_t nvrtcGetSize(const nvrtcProgram& program, bool compile_to_sass) {
 }
 
 // Get the program code from nvrtcProgram
-serde::CudaKernelT nvrtcGetCode(
+std::vector<int8_t> nvrtcGetCode(
     const nvrtcProgram& program,
     bool compile_to_sass) {
   const auto size = nvrtcGetSize(program, compile_to_sass);
@@ -758,14 +758,13 @@ serde::CudaKernelT nvrtcGetCode(
   const auto getCode = nvrtcGetPTX;
 #endif
 
-  serde::CudaKernelT code;
-  code.object_code.resize(size);
-  NVFUSER_NVRTC_SAFE_CALL(getCode(program, (char*)code.object_code.data()));
+  std::vector<int8_t> code(size);
+  NVFUSER_NVRTC_SAFE_CALL(getCode(program, (char*)code.data()));
   return code;
 }
 
 void dumpCompiledCodeToFile(
-    const serde::CudaKernelT& code,
+    const std::vector<int8_t>& code,
     int64_t fusion_id,
     bool dump_cubin) {
   std::stringstream file_name;
@@ -774,9 +773,7 @@ void dumpCompiledCodeToFile(
   debug() << "PRINTING: " << file_name.str() << std::endl;
   std::ofstream out(file_name.str());
   TORCH_INTERNAL_ASSERT(out.is_open());
-  out.write(
-      (const char*)code.object_code.data(),
-      (std::streamsize)code.object_code.size());
+  out.write((const char*)code.data(), (std::streamsize)code.size());
   out.close();
 }
 
@@ -1118,7 +1115,7 @@ void createNvrtcProgram(
 
 // Compile the given source code with the NVRTC compiler
 // driver. Return the binary of the kernel, compile log, and its lowered name
-std::tuple<serde::CudaKernelT, std::string> compileSource(
+std::tuple<std::vector<int8_t>, std::string, std::string> compileSource(
     const std::string& full_src_code,
     const std::string& func_name,
     int64_t id,
@@ -1140,16 +1137,16 @@ std::tuple<serde::CudaKernelT, std::string> compileSource(
   const char* lowered_kernel_name = nullptr;
   NVFUSER_NVRTC_SAFE_CALL(
       nvrtcGetLoweredName(program, func_name.c_str(), &lowered_kernel_name));
+  auto lowered_kernel_name_str = std::string(lowered_kernel_name);
 
   auto object_code = nvrtcGetCode(program, compile_to_sass);
-  object_code.name = std::string(lowered_kernel_name);
 
   if (isDebugDumpEnabled(DebugDumpOption::Ptx) ||
       isDebugDumpEnabled(DebugDumpOption::Cubin)) {
     dumpCompiledCodeToFile(object_code, id, compile_to_sass);
   }
 
-  return {object_code, log.str()};
+  return {object_code, log.str(), lowered_kernel_name_str};
 }
 
 } // namespace
@@ -1236,8 +1233,13 @@ std::tuple<NvrtcFunction, std::string, serde::CudaKernelT> getCompiledKernel(
             compiled_binary.name,
             compiled_binary.object_code))) {
     std::string compile_log;
-    std::tie(compiled_binary, compile_log) = compileSource(
-        full_src_code, func_name, id, compile_to_sass, nvrtc_compile_driver);
+    std::tie(compiled_binary.object_code, compile_log, compiled_binary.name) =
+        compileSource(
+            full_src_code,
+            func_name,
+            id,
+            compile_to_sass,
+            nvrtc_compile_driver);
     log << compile_log << std::endl;
     if (use_kernel_db) {
       auto result = kernel_db.write(
@@ -1268,13 +1270,17 @@ std::tuple<NvrtcFunction, std::string, serde::CudaKernelT> getCompiledKernel(
       compiled_kernel.module,
       compiled_binary.name.c_str()));
 
+  // Store block size used to generate compile arguments
+  if (opt_block_size.has_value()) {
+    compiled_binary.block_size = opt_block_size.value();
+  }
+
   return {compiled_kernel, log.str(), compiled_binary};
 }
 
 std::tuple<NvrtcFunction, std::string> getCompiledKernel(
     const serde::CudaKernelT& compiled_binary,
-    const CompileParams& compile_params,
-    std::optional<int64_t> opt_block_size) {
+    const CompileParams& compile_params) {
   FUSER_PERF_SCOPE("executor_utils::serde_NVRTC");
 
   at::cuda::jit::initializeCudaContext();
@@ -1301,6 +1307,11 @@ std::tuple<NvrtcFunction, std::string> getCompiledKernel(
   bool compile_to_sass = false;
   queryTargetGPUVersion(prop, major, minor, compile_to_sass);
 
+  std::optional<int64_t> opt_block_size;
+  if (compiled_binary.block_size >= -1) {
+    opt_block_size = compiled_binary.block_size;
+  }
+
   fillCompileOptions(
       nvrtc_compile_driver,
       module_load_driver,
@@ -1315,7 +1326,10 @@ std::tuple<NvrtcFunction, std::string> getCompiledKernel(
   TORCH_INTERNAL_ASSERT(
       latest_compile_args == compiled_binary.compile_args,
       "The compile arguments for the serialized cuda kernel does not ",
-      "match the latest generated compile args.");
+      "match the latest generated compile args.\t",
+      latest_compile_args,
+      "\t",
+      compiled_binary.compile_args);
 
   std::stringstream log;
   NvrtcFunction compiled_kernel;

@@ -60,8 +60,7 @@ std::tuple<NvrtcFunction, std::string, serde::CudaKernelT> getCompiledKernel(
 // Returns executable function using flatbuffer object
 std::tuple<NvrtcFunction, std::string> getCompiledKernel(
     const serde::CudaKernelT& buffer,
-    const CompileParams& compile_params,
-    std::optional<int64_t> opt_block_size);
+    const CompileParams& compile_params);
 
 namespace caching {
 // TODO: Could consider putting some of
