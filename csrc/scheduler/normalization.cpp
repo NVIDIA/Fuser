@@ -405,7 +405,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
     const int64_t regs_buffer_size,
     const int64_t smem_buffer_size,
     const size_t vectorize_factor) {
-  if (smem_buffer_size > 0) {
+  if (smem_buffer_size > 0 && regs_buffer_size == 0) {
     // use shared memory for persistent buffer
     return innerPersistentHeuristicSharedMemory(
         total_reduction_numel,
@@ -912,9 +912,9 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
       LaunchParams::UNINITIALIZED_VAL,
       bdimy,
       LaunchParams::UNINITIALIZED_VAL);
-
+  rparams->shared_mem_persistent_buffer = smem_buffer_size > 0;
   if (rparams->shared_mem_persistent_buffer) {
-    rparams->tag = "Inner Shared Memory Persistent Heuristic.\n";
+    rparams->tag = "Inner Register and Shared Memory Persistent Heuristic.\n";
   } else {
     rparams->tag = "Inner Register Persistent Heuristic.\n";
   }
