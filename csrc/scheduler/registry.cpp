@@ -20,6 +20,7 @@
 #include <scheduler/registry.h>
 #include <scheduler/transpose.h>
 #include <scheduler/utils.h>
+#include <tensor_metadata.h>
 
 #include <limits>
 
@@ -49,15 +50,6 @@ bool rejectScheduleFusionInputRequirement(
         "First input of ",
         expr->getOpString(),
         " must be fusion input.");
-    return true;
-  }
-  if (expr->input(0)->uses().size() > 1) {
-    scheduler_debug_utils::canScheduleRejectReason(
-        schedule_stragety,
-        "First input of ",
-        expr->getOpString(),
-        " can only be used by ",
-        expr->getOpString());
     return true;
   }
   return false;
@@ -976,15 +968,13 @@ SchedulerRuntimeInfo::SchedulerRuntimeInfo(
     auto input_tv = dynamic_cast<TensorView*>(fusion_inp);
     // Note: we are skipping CpuScalar tensor here
     if (input_tv != nullptr && !input_tv->isCpuScalar()) {
-      auto metadata =
+      const auto& metadata =
           expression_evaluator_->evaluate(IrBuilder::metadataExpr(input_tv));
-      std::vector<int64_t> alloc_sizes =
-          (std::vector<int64_t>)metadata["alloc_size"];
-      std::vector<int64_t> alloc_strides =
-          (std::vector<int64_t>)metadata["alloc_stride"];
+      const auto& alloc_sizes = metadata->*&TensorMetaData::alloc_size;
+      const auto& alloc_strides = metadata->*&TensorMetaData::alloc_stride;
       TORCH_INTERNAL_ASSERT(alloc_sizes.size() == alloc_strides.size());
 
-      input_ptrs_[fusion_inp] = (size_t)metadata["data"];
+      input_ptrs_[fusion_inp] = (size_t)(metadata->*&TensorMetaData::data);
 
       // find and push discontiguous stride
       int64_t dtype_size = dataTypeSize(input_tv->dtype());
@@ -1064,110 +1054,6 @@ size_t SchedulerRuntimeInfo::getAlignmentSize(TensorView* tv) {
   }
   alignment_map_[tv] = alignment_size;
   return alignment_size;
-}
-
-// Gets maximum vectorizable width of tv, assumes we can merge across all
-// iteration domains if contiguous. Cannot permute the dimensions to fix
-// contiguity.
-size_t SchedulerRuntimeInfo::getMaxVectorizableWidth(
-    TensorView* tv,
-    bool contig_merge) {
-  // Gets the vectorizable width of the tv starting from the inner most
-  // dimension, working its way towards the outer most dimension, if they're
-  // contiguous. Ignores broadcast and reduction domains.
-  auto max_vectorword_map_it_ = max_vectorword_map_.find(tv);
-  if (max_vectorword_map_it_ != max_vectorword_map_.end()) {
-    return max_vectorword_map_it_->second;
-  }
-
-  // If we don't have an record, either it is a tv with innermost broadcast,
-  // or it is an intermediate tensor allocated by fuser.
-  auto tv_alloc = tv->getMaybeAllocationDomain();
-
-  auto tv_alloc_no_reductions = TensorDomain::noReductions(tv_alloc);
-
-  auto contiguity = tv->domain()->contiguity();
-  // Appears after reductions the reduction domain often has a contiguity entry.
-  // This only matters if the result of the reduction is an output
-  if (contiguity.size() == tv_alloc.size() &&
-      contiguity.size() != tv_alloc_no_reductions.size()) {
-    std::vector<std::optional<bool>> new_contiguity;
-    for (auto i : c10::irange(tv_alloc.size())) {
-      if (!tv_alloc[i]->isReduction()) {
-        new_contiguity.push_back(contiguity[i]);
-      }
-    }
-    contiguity = new_contiguity;
-  }
-  tv_alloc = tv_alloc_no_reductions;
-
-  auto tv_alloc_size = tv_alloc.size();
-
-  // Filter out 0-dim tensors
-  if (tv_alloc_size < 1) {
-    return 1;
-  }
-
-  // Filter out mismatched contiguity info
-  if (tv_alloc_size != contiguity.size()) {
-    return 1;
-  }
-
-  size_t item_size = dataTypeSize(tv->dtype(), getIndexType());
-
-  // Alignment should always at least be the data type size
-  TORCH_INTERNAL_ASSERT(getAlignmentSize(tv) % item_size == 0);
-  size_t max_vector_size = getAlignmentSize(tv) / item_size;
-
-  if (max_vector_size == 1) {
-    return 1;
-  }
-
-  size_t numel = 1;
-  for (auto i : c10::irange(tv_alloc_size)) {
-    auto root_i = tv_alloc_size - i - 1;
-    auto root_id = tv_alloc[root_i];
-
-    if (root_id->extent()->isOneInt() || root_id->isBroadcast()) {
-      continue;
-    }
-
-    // Not contiguous
-    auto contiguity_opt = contiguity.at(root_i);
-    TORCH_INTERNAL_ASSERT(contiguity_opt.has_value());
-    if (!*contiguity_opt) {
-      break;
-    }
-
-    auto dim_size = expression_evaluator_->evaluate(root_id->extent());
-    // Inference failed for some reason, assume not-contiguous at this point
-    if (!dim_size.hasValue()) {
-      break;
-    }
-
-    // Still contiguous
-    numel *= dim_size.as<int64_t>();
-
-    if (!contig_merge) {
-      break;
-    }
-  }
-
-  // Assuming intermediate tensors have friendly alignment, and
-  //  all contiguity true. Determine the largest power of 2 below
-  //  innermost dimension size for the word size of vectorizaiton
-  size_t vector_size = 1;
-  size_t next_vector_size = 2;
-  while (next_vector_size <= max_vector_size &&
-         next_vector_size <= (size_t)numel && numel % next_vector_size == 0) {
-    vector_size = next_vector_size;
-    next_vector_size *= 2;
-  }
-
-  // save output to avoid re-compute
-  max_vectorword_map_[tv] = vector_size;
-
-  return vector_size;
 }
 
 bool SchedulerEntry::sameAs(const SchedulerEntry* other) {

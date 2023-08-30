@@ -1097,4 +1097,114 @@ TEST_F(NVFuserTest, FusionTransposeBankConflict9_CUDA) {
   testValidate(&fusion, outputs, {input}, {tv_ref}, __LINE__, __FILE__);
 }
 
+// small transpose dimension with merge and split. See issue #667
+TEST_F(NVFuserTest, UnswitchPredicateIssueRepro667_CUDA) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeContigTensor(5);
+  fusion->addInput(tv0);
+
+  auto tv1 = transpose(tv0, 1, 4);
+  auto tv2 = transpose(tv1, 0, 3);
+  fusion->addOutput(tv2);
+
+  std::vector<int64_t> shape({2, 7, 102400, 4, 5});
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+
+  auto runtime = executor_cache.getMostRecentKernelRuntime();
+  TORCH_CHECK(!runtime->isSegmented(), "Segmentation not expected");
+
+  auto ref = t0.transpose(1, 4).transpose(0, 3);
+
+  TORCH_CHECK(ref.equal(cg_outputs.at(0)));
+}
+
+// small transpose dimension with merge but no split
+TEST_F(NVFuserTest, TransposeAggregatedVectorizationWidth_CUDA) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeContigTensor(5);
+  fusion->addInput(tv0);
+
+  auto tv1 = transpose(tv0, 0, 4);
+  auto tv2 = transpose(tv1, 1, 3);
+  fusion->addOutput(tv2);
+
+  std::vector<int64_t> shape({2, 7, 102400, 4, 9});
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+
+  auto runtime = executor_cache.getMostRecentKernelRuntime();
+  TORCH_CHECK(!runtime->isSegmented(), "Segmentation not expected");
+  auto scheduler = runtime->schedulerHeuristics()->heuristicsList().at(0).get();
+  auto heuristic = scheduler->heuristic();
+  TORCH_CHECK(
+      heuristic == ScheduleHeuristic::Transpose,
+      "Unexpected heuristic: ",
+      heuristic);
+  TORCH_CHECK(
+      scheduler->transposeParams().vectorize_factor1 == 4,
+      "expecting vectorization for group 1 to be 4");
+  TORCH_CHECK(
+      scheduler->transposeParams().vectorize_factor2 == 4,
+      "expecting vectorization for group 2 to be 4");
+
+  auto ref = t0.transpose(0, 4).transpose(1, 3);
+
+  TORCH_CHECK(ref.equal(cg_outputs.at(0)));
+}
+
+// TODO: we don't yet support vectorization on split dimension
+// https://github.com/NVIDIA/Fuser/pull/690#issue-1837392331
+TEST_F(NVFuserTest, TransposeSplitAggregatedVectorizationWidth_CUDA) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeContigTensor(3);
+  fusion->addInput(tv0);
+
+  auto tv1 = transpose(tv0, 0, 2);
+  fusion->addOutput(tv1);
+
+  // vectorization on input should be exploited.
+  std::vector<int64_t> shape({7, 102400, 9});
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+
+  auto runtime = executor_cache.getMostRecentKernelRuntime();
+  TORCH_CHECK(!runtime->isSegmented(), "Segmentation not expected");
+  // TODO: check on vectorization!
+  auto heuristic =
+      runtime->schedulerHeuristics()->heuristicsList().at(0).get()->heuristic();
+  TORCH_CHECK(
+      heuristic == ScheduleHeuristic::Transpose,
+      "Unexpected heuristic: ",
+      heuristic);
+
+  auto ref = t0.transpose(0, 2);
+
+  TORCH_CHECK(ref.equal(cg_outputs.at(0)));
+}
+
 } // namespace nvfuser

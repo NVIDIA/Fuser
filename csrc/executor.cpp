@@ -19,6 +19,8 @@
 #include <iter_visitor.h>
 #include <kernel_ir.h>
 #include <options.h>
+#include <serde/utils.h>
+#include <tensor_metadata.h>
 #include <utils.h>
 
 #include <ATen/core/LegacyTypeDispatch.h>
@@ -81,6 +83,55 @@ static const std::string& includeStdComplex() {
   return result;
 }
 
+// When executing nvFuser with: NVFUSER_EXTERNAL_SRC=file1.cu,file2.cu
+// This function retrieves structured code from the specified files.
+// The files should be comma-separated, and their order corresponds to the
+// fusion_id order. If the provided number of files is fewer than the fusion
+// segments, the function will resort to the available files in sequence
+// and issue a warning.
+std::string getStructuredCodeFromExternalFiles(const int64_t fusion_id) {
+  auto external_code_path = getNvFuserEnv("EXTERNAL_SRC");
+  if (!external_code_path) {
+    return "";
+  }
+  std::string all_external_code_paths(external_code_path);
+  if (all_external_code_paths.empty() || fusion_id < 1) {
+    return "";
+  }
+  auto getExternalCodeFile =
+      [fusion_id](const std::string& input) -> std::string {
+    std::stringstream ss(input);
+    std::string token;
+    int64_t count = 0;
+    while (std::getline(ss, token, ',')) {
+      if (++count == fusion_id) {
+        return token;
+      }
+    }
+    debug()
+        << "Didn't find requested external source code. Will use generated code!\n"
+        << "Number of source code files should equal the number of fusion segments.\n"
+        << "External source code filenames should be delineated with commas, e.g.: file1.cu,file2.cu.\n";
+    return "";
+  };
+
+  std::string single_code_path = getExternalCodeFile(all_external_code_paths);
+  if (single_code_path.empty()) {
+    return "";
+  }
+  std::ifstream cuda_src(single_code_path);
+  if (!cuda_src.is_open()) {
+    debug() << "Failed to open external source file: " << single_code_path
+            << std::endl;
+    return "";
+  }
+  debug() << "--------> Compiling external CUDA code: " << single_code_path
+          << std::endl;
+
+  std::stringstream buffer;
+  buffer << cuda_src.rdbuf();
+  return buffer.str();
+}
 } // namespace
 
 std::unique_ptr<PrecomputedValues>& FusionExecutor::
@@ -167,7 +218,9 @@ void FusionExecutor::debugCompileFusionFromStr(
   if (!kernel_summary.static_smem_allocations.empty()) {
     ExpressionEvaluator static_evaluator;
     const auto static_smem_size = computeSharedMemory(
-        static_evaluator, kernel_summary.static_smem_allocations);
+        static_evaluator,
+        kernel_summary.static_smem_allocations,
+        kernel->indexType());
     TORCH_INTERNAL_ASSERT(
         static_smem_size < max_static_smem_,
         "The static shared memory allocation is larger than available memory.");
@@ -299,18 +352,14 @@ void FusionExecutor::compileFusion(
 
   kernel_code_ = codegen::generateCudaKernel(kernel, kernelName());
 
-  auto load_external_code = [](const char* external_code_path) {
-    debug() << "--------> Compiling external cuda code: " << external_code_path
-            << std::endl;
-    std::ifstream cuda_src(external_code_path);
-    std::stringstream buffer;
-    buffer << cuda_src.rdbuf();
-    return buffer.str();
-  };
-  auto external_code_path = getNvFuserEnv("EXTERNAL_SRC");
-  const auto structured_code = external_code_path
-      ? load_external_code(external_code_path)
-      : getStructuredCode();
+  // If NVFUSER_EXTERNAL_SRC is set, utilize the external source code.
+  // If the loaded external source code is empty, revert to the default codegen.
+  // The external_structured_code is moved to structured_code and explicitly
+  // cleared to avoid use-after-move scenarios.
+  auto structured_code = getStructuredCodeFromExternalFiles(fusion_id_);
+  if (structured_code.empty()) {
+    structured_code = getStructuredCode();
+  }
 
   const auto& kernel_summary = kernel->summary();
 
@@ -320,7 +369,9 @@ void FusionExecutor::compileFusion(
   if (!kernel_summary.static_smem_allocations.empty()) {
     ExpressionEvaluator static_evaluator;
     const auto static_smem_size = computeSharedMemory(
-        static_evaluator, kernel_summary.static_smem_allocations);
+        static_evaluator,
+        kernel_summary.static_smem_allocations,
+        kernel->indexType());
     TORCH_INTERNAL_ASSERT(
         static_smem_size < max_static_smem_,
         "The static shared memory allocation is larger than available memory.");
@@ -341,8 +392,8 @@ void FusionExecutor::compileFusion(
   std::optional<int64_t> block_size = std::nullopt;
   if (!args.empty()) {
     auto expr_eval = executor_utils::bindInputs(args, kernel);
-    auto launch_params =
-        computeLaunchParams(launch_constraints, expr_eval, warp_size_);
+    auto launch_params = computeLaunchParams(
+        launch_constraints, expr_eval, warp_size_, kernel->indexType());
     block_size = launch_params.nThreads();
     dynamic_smem = launch_params.smem();
     TORCH_INTERNAL_ASSERT(
@@ -884,11 +935,10 @@ std::vector<at::Tensor> allocOutputs(
     // for kernel execution, so would need to push them to args
     if (alias_it != output_to_input_aliases.end()) {
       auto aliased_input_index = alias_it->second;
-      auto tensor_arg_abstract = dynamic_cast<const TensorArgAbstract*>(
-          inputs.at(aliased_input_index));
       TORCH_INTERNAL_ASSERT(
-          tensor_arg_abstract, "alias io only supports tensor");
-      outputs.emplace_back(tensor_arg_abstract->getTensor());
+          inputs[aliased_input_index]->is<at::Tensor>(),
+          "alias io only supports tensor");
+      outputs.emplace_back(*inputs[aliased_input_index]);
     } else if (kernel->outputs().at(output_idx)->isFusionInput()) {
       // pushing empty tensor for trivial forwarding. Since we handle this in
       // integration, see step 1 - note [trivial forwarding]
@@ -912,8 +962,12 @@ std::vector<at::Tensor> allocOutputs(
       if (shouldFillAllocationWithNan()) {
         fillTensorWithNan(alloc_tensor);
       }
-      outputs.emplace_back(transformOutputFromAllocationToRFactor(
-          alloc_tensor, buf_info.tv, ee));
+      if (buf_info.tv->hasAllocation()) {
+        outputs.emplace_back(transformOutputFromAllocationToRFactor(
+            alloc_tensor, buf_info.tv, ee));
+      } else {
+        outputs.emplace_back(std::move(alloc_tensor));
+      }
     }
   }
 
@@ -925,31 +979,50 @@ std::vector<at::Tensor> allocOutputs(
 int64_t FusionExecutor::computeSharedMemory(
     ExpressionEvaluator& expr_eval,
     const std::vector<const kir::Allocate*>& buffers,
-    bool align_padding,
-    int64_t total) {
+    DataType index_type,
+    int64_t smem_offset) {
   FUSER_PERF_SCOPE("computeSharedMemory");
+  int64_t total = smem_offset;
+  // align smem_offset at 16 bytes
+  smem_offset = (smem_offset + 15) & (~15);
   for (auto smem_alloc : buffers) {
     // If this buffer aliases another buffer,
     // then do not allocate memory for this buffer.
     if (smem_alloc->alias() == nullptr) {
-      const auto inferred_val = expr_eval.evaluate(smem_alloc->size());
-      if (inferred_val.hasValue()) {
-        const auto data_size =
-            static_cast<int64_t>(dataTypeSize(smem_alloc->buffer()->dtype()));
-        // Add padding to align dynamic shared memory
-        if (align_padding) {
-          const int align_size = 16; // always align to 16B/128b.
-          total = ceilDiv(total, align_size) * align_size;
-        }
-        total += inferred_val.as<int64_t>() * data_size;
-      } else {
-        TORCH_INTERNAL_ASSERT(
-            false,
-            "Failed to evaluate the size ",
-            smem_alloc->size(),
-            " of shared memory buffer - T",
-            smem_alloc->buffer()->name());
-      }
+      TORCH_INTERNAL_ASSERT(
+          smem_alloc->address(),
+          "Smem address is not set for buffer T",
+          smem_alloc->buffer()->name());
+      const auto address_val = expr_eval.evaluate(smem_alloc->address());
+      TORCH_INTERNAL_ASSERT(
+          address_val.hasValue(),
+          "Failed to evaluate the address ",
+          smem_alloc->address()->toInlineString(),
+          " of shared memory buffer T",
+          smem_alloc->buffer()->name());
+      TORCH_INTERNAL_ASSERT(
+          address_val.is<int64_t>(),
+          "Address val ",
+          smem_alloc->address()->toInlineString(),
+          " of shared memory buffer T",
+          smem_alloc->buffer()->name(),
+          " should be int64 but found ",
+          address_val);
+      const auto size_val = expr_eval.evaluate(smem_alloc->size());
+      TORCH_INTERNAL_ASSERT(
+          size_val.hasValue(),
+          "Failed to evaluate the size ",
+          smem_alloc->size(),
+          " of shared memory buffer - T",
+          smem_alloc->buffer()->name());
+
+      const auto first_byte = smem_offset + address_val.as<int64_t>();
+      const auto data_size =
+          dataTypeSize(smem_alloc->buffer()->dtype(), index_type);
+      const int64_t size_bytes = size_val.as<int64_t>() * data_size;
+      const auto last_byte = first_byte + size_bytes;
+
+      total = std::max(total, last_byte);
     }
   }
   return total;
@@ -958,7 +1031,8 @@ int64_t FusionExecutor::computeSharedMemory(
 LaunchParams FusionExecutor::computeLaunchParams(
     const LaunchParams& launch_constraints,
     ExpressionEvaluator& expr_eval,
-    const int64_t warp_size) {
+    const int64_t warp_size,
+    DataType index_type) {
   FUSER_PERF_SCOPE("FusionExecutor::ComputeLaunchParams");
   TORCH_INTERNAL_ASSERT(warp_size > 0, "WARP_SIZE should be larger than 0");
 
@@ -1076,7 +1150,8 @@ LaunchParams FusionExecutor::computeLaunchParams(
         kernel_summary.has_block_welford || kernel_summary.has_grid_welford ? 3
                                                                             : 1;
     reduction_broadcast_workspace =
-        (int64_t)dataTypeSize(kernel_summary.largest_smem_data_type) *
+        (int64_t)dataTypeSize(
+            kernel_summary.largest_smem_data_type, index_type) *
         welford_factor * launch_params.bdimx() * launch_params.bdimy() *
         launch_params.bdimz();
 
@@ -1090,14 +1165,14 @@ LaunchParams FusionExecutor::computeLaunchParams(
   const auto dynamic_smem_size = computeSharedMemory(
       expr_eval,
       kernel_summary.dynamic_smem_allocations,
-      true,
+      index_type,
       reduction_broadcast_workspace);
 
   // Check that requested smem size can be dynamically allocated.
   //  This check is only done once a kernel has been compiled, since
   //  maybe_available_dynamic_smem_ needs to be evaluated on
   //  a compiled kernel.
-  if (compiled()) {
+  if (isCompiled()) {
     validateDynamicSmemSize(dynamic_smem_size);
   }
 
@@ -1107,7 +1182,9 @@ LaunchParams FusionExecutor::computeLaunchParams(
 }
 
 std::vector<FusionExecutor::GlobalBufferInfo> FusionExecutor::
-    getIntermediateBufferInfo(ExpressionEvaluator& expr_eval) {
+    getIntermediateBufferInfo(
+        ExpressionEvaluator& expr_eval,
+        DataType index_type) {
   FUSER_PERF_SCOPE("FusionExecutor::GetIntermediateBufferInfo");
 
   std::vector<GlobalBufferInfo> global_buffers;
@@ -1124,10 +1201,12 @@ std::vector<FusionExecutor::GlobalBufferInfo> FusionExecutor::
       continue;
     }
     GlobalBufferInfo info;
+    info.tv = tv;
     info.zero_init = alloc->zeroInit();
     std::tie(info.sizes, info.strides) =
         inferShapeOfIntermediate(tv, alloc, expr_eval);
-    info.type = data_type_to_aten(tv->dtype());
+    auto dtype = (tv->dtype() == DataType::Index ? index_type : tv->dtype());
+    info.type = data_type_to_aten(dtype);
 
     // Remember the tensor buffer used for storing kernel profile
     if (isOptionEnabled(EnableOption::KernelProfile) &&
@@ -1145,7 +1224,8 @@ std::vector<FusionExecutor::GlobalBufferInfo> FusionExecutor::
     getOutputBufferInfo(
         const KernelArgumentHolder& args,
         ExpressionEvaluator& expr_eval,
-        const std::vector<std::pair<int, int>>& output_to_input_aliases) {
+        const std::vector<std::pair<int, int>>& output_to_input_aliases,
+        DataType index_dtype) {
   FUSER_PERF_SCOPE("FusionExecutor::GetOutbufferInfo");
   const auto kernel = lowered_->kernel();
   std::vector<GlobalBufferInfo> outputs;
@@ -1177,7 +1257,10 @@ std::vector<FusionExecutor::GlobalBufferInfo> FusionExecutor::
       } else {
         std::tie(info.sizes, info.strides) =
             inferShapeOfOutput(output, expr_eval);
-        info.type = data_type_to_aten(output->dtype());
+        auto dtype =
+            (output->dtype() == DataType::Index ? index_dtype
+                                                : output->dtype());
+        info.type = data_type_to_aten(dtype);
         info.zero_init = false;
       }
     }
@@ -1223,12 +1306,7 @@ KernelArgumentHolder FusionExecutor::inferOutputSizes(
           input_it != fusion->inputs().end(),
           "Issue with an input showing up as output but could not find input.");
       auto inp_i = std::distance(fusion->inputs().begin(), input_it);
-      auto tensor_arg_abstract =
-          dynamic_cast<const TensorArgAbstract*>(args[inp_i]);
-      TORCH_INTERNAL_ASSERT(
-          tensor_arg_abstract,
-          "Cannot register a scalar as an output in a fusion.");
-      ret.push(tensor_arg_abstract);
+      ret.push(*args[inp_i]);
     } else {
       TORCH_INTERNAL_ASSERT(
           fusion->outputs()[out_i]->isA<TensorView>(),
@@ -1245,7 +1323,7 @@ KernelArgumentHolder FusionExecutor::inferOutputSizes(
       if (alias_it != output_to_input_aliases.end()) {
         // When aliasing output to an input, we do not need to allocate a new
         // output but still need to push an entry.
-        ret.push(int64_t(0));
+        ret.push(PolymorphicValue(0L));
       } else {
         const auto& [sizes, strides] = inferShapeOfOutput(output_tv, expr_eval);
         const auto dtype = (output_tv->dtype() == DataType::Index)
@@ -1259,9 +1337,9 @@ KernelArgumentHolder FusionExecutor::inferOutputSizes(
   for (const auto& [aliased_output_index, aliased_input_index] :
        output_to_input_aliases) {
     TORCH_INTERNAL_ASSERT(
-        args[aliased_input_index]->isType(ArgType::Tensor),
+        args[aliased_input_index]->is<at::Tensor>(),
         "alias io only supports tensor");
-    ret.swap(aliased_output_index, args[aliased_input_index]);
+    *ret[aliased_output_index] = *args[aliased_input_index];
   }
   return ret;
 }
@@ -1327,7 +1405,7 @@ void dumpFusionArgs(
   debug() << "Arguments for fusion" << fusion_id << ":" << std::endl
           << "Inputs:" << std::endl;
   for (auto i : c10::irange(args.size())) {
-    debug() << "  " << args[i]->toString() << std::endl;
+    debug() << "  " << args[i] << std::endl;
   }
   debug() << "Outputs:" << std::endl;
   for (const auto& output : outputs) {
@@ -1350,10 +1428,11 @@ void dumpKernelArgs(
     const std::vector<at::Tensor>& allocated_outputs,
     const std::vector<at::Tensor>& intermediates,
     const std::vector<FusionExecutor::GlobalBufferInfo>& intermediates_info) {
+  using namespace PolymorphicValue_functions;
   debug() << "Arguments for kernel" << fusion_id << ":" << std::endl
           << "Inputs:" << std::endl;
   for (auto i : c10::irange(num_inputs)) {
-    debug() << "  " << args[i]->toString() << std::endl;
+    debug() << "  " << toString(*args[i]) << std::endl;
   }
   debug() << "Outputs:" << std::endl;
   // note: add aliased outputs here.
@@ -1387,15 +1466,16 @@ void FusionExecutor::initializeExecutorEntry(
     const KernelArgumentHolder& args,
     const LaunchParams& launch_constraints,
     const CompileParams& compile_params,
-    const std::vector<at::Tensor>& outputs) {
+    const std::vector<at::Tensor>& outputs,
+    DataType index_type) {
   FUSER_PERF_SCOPE("ExecutorRunFusion::InitializeExecutorEntry");
 
   ExpressionEvaluator expr_eval;
   evaluatorPrecomputedValues()->bindInputs(args);
   expr_eval.precomputedValues() = evaluatorPrecomputedValues().get();
 
-  auto launch_params =
-      computeLaunchParams(launch_constraints, expr_eval, warp_size_);
+  auto launch_params = computeLaunchParams(
+      launch_constraints, expr_eval, warp_size_, index_type);
 
   executor_utils::validateVectorizedTensors(
       kernel(), args, outputs, compileTimeDataCache(), expr_eval);
@@ -1413,7 +1493,8 @@ void FusionExecutor::initializeExecutorEntry(
   std::vector<GlobalBufferInfo> output_info;
 
   if (outputs.empty()) {
-    output_info = getOutputBufferInfo(args, expr_eval, output_to_input_aliases);
+    output_info = getOutputBufferInfo(
+        args, expr_eval, output_to_input_aliases, index_type);
   } else {
     // Need to save the information necessary for allocations as
     // future uses of this ExecutorEntry may not be provided with
@@ -1423,7 +1504,7 @@ void FusionExecutor::initializeExecutorEntry(
     }
   }
 
-  auto intermediates = getIntermediateBufferInfo(expr_eval);
+  auto intermediates = getIntermediateBufferInfo(expr_eval, index_type);
 
   // All information is gathered. Save it to ExecutorEntry
   executor_entry.launch_params = launch_params;
@@ -1470,7 +1551,7 @@ void FusionExecutor::recompileKernel(
 
 int64_t FusionExecutor::getAvailableDynamicSmemSize() {
   TORCH_INTERNAL_ASSERT(
-      compiled(), "Cannot get dynamic smem size unless kernel is compiled");
+      isCompiled(), "Cannot get dynamic smem size unless kernel is compiled");
   if (!available_dynamic_smem_size_.has_value()) {
     int size = 0;
     NVFUSER_CUDA_SAFE_CALL(cuFuncGetAttribute(
@@ -1484,7 +1565,7 @@ int64_t FusionExecutor::getAvailableDynamicSmemSize() {
 
 int64_t FusionExecutor::getStaticSmemSize() {
   TORCH_INTERNAL_ASSERT(
-      compiled(), "Cannot get static smem size unless kernel is compiled");
+      isCompiled(), "Cannot get static smem size unless kernel is compiled");
   if (!static_smem_size_.has_value()) {
     int size = 0;
     // Is this really a costly operation worth caching?
@@ -1512,7 +1593,7 @@ void FusionExecutor::validateDynamicSmemSize(int64_t dynamic_smem_size) {
 int64_t FusionExecutor::ensureAvailableDynamicSmemSize(
     int64_t dynamic_smem_size) {
   TORCH_INTERNAL_ASSERT(
-      compiled(), "Cannot set dynamic smem size unless kernel is compiled");
+      isCompiled(), "Cannot set dynamic smem size unless kernel is compiled");
   if (dynamic_smem_size > getAvailableDynamicSmemSize()) {
     validateDynamicSmemSize(dynamic_smem_size);
     NVFUSER_CUDA_SAFE_CALL(cuFuncSetAttribute(
@@ -1535,7 +1616,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     CompileParams compile_params,
     std::vector<at::Tensor> outputs) {
   FUSER_PERF_SCOPE("FusionExecutor::RunFusion");
-  TORCH_INTERNAL_ASSERT(compiled());
+  TORCH_INTERNAL_ASSERT(isCompiled());
   TORCH_INTERNAL_ASSERT(
       fusion_id_ > 0, "Cannot run fusion, it was not compiled.");
   TORCH_INTERNAL_ASSERT(
@@ -1567,7 +1648,12 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   // Initialize the executor entry if not initlized
   if (!executor_entry->init) {
     initializeExecutorEntry(
-        *executor_entry, args, launch_constraints, compile_params, outputs);
+        *executor_entry,
+        args,
+        launch_constraints,
+        compile_params,
+        outputs,
+        kernel()->indexType());
   }
 
   recompileKernel(executor_entry->launch_params, compile_params);
@@ -1582,8 +1668,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   const auto& inputs = kernel()->inputs();
 
   for (const auto i : c10::irange(inputs.size())) {
-    executor_utils::bindInputForExprEvaluation(
-        inputs.at(i), args[i], true, expr_eval);
+    expr_eval.bind(inputs[i], *args[i]);
   }
 
   // only allocate outputs when not given
@@ -1613,8 +1698,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
       // Skip trivially forwarded outputs because they are just placeholders
       continue;
     }
-    executor_utils::bindInputForExprEvaluation(
-        output, args[inputs.size() + i], true, expr_eval, false);
+    expr_eval.bind(output, *args[inputs.size() + i]);
   }
 
   std::vector<at::Tensor> intermediates;
@@ -1641,12 +1725,9 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
       }
       args.push(intermediate_buffer);
       intermediates.push_back(intermediate_buffer);
-      executor_utils::bindInputForExprEvaluation(
+      expr_eval.bind(
           kernel()->summary().global_allocations.at(i)->buffer(),
-          args[inputs.size() + outputs.size() + i],
-          true,
-          expr_eval,
-          false);
+          *args[inputs.size() + outputs.size() + i]);
       if (buf_info.is_profile_buffer) {
         profile_buffer = intermediate_buffer;
       }
@@ -1654,10 +1735,13 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   }
 
   std::vector<std::vector<std::byte>> arg_buffers;
-  arg_buffers.reserve(kernel()->parameters().size());
-  for (auto v : kernel()->parameters()) {
-    arg_buffers.emplace_back(
-        getKernelArgument(expr_eval, v, kernel()->indexType()));
+  {
+    FUSER_PERF_SCOPE("ExecutorRunFusion::GetArgsBuffers");
+    arg_buffers.reserve(kernel()->parameters().size());
+    for (auto v : kernel()->parameters()) {
+      arg_buffers.emplace_back(
+          getKernelArgument(expr_eval, v, kernel()->indexType()));
+    }
   }
 
   if (isDebugDumpEnabled(DebugDumpOption::LaunchParam)) {
@@ -1759,10 +1843,10 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
       bytes_processed_ = 0;
       // Figure how many bytes are inputs, outputs, and temporary buffers
       for (auto i : c10::irange(num_inputs)) {
-        if (auto tensor_arg_abstract =
-                dynamic_cast<const TensorArgAbstract*>(args[i])) {
-          bytes_processed_ += tensor_arg_abstract->numel() *
-              (int64_t)dataTypeSize(tensor_arg_abstract->getDataType());
+        if (args[i]->is<at::Tensor>()) {
+          bytes_processed_ += args[i]->as<at::Tensor>().numel() *
+              (int64_t)dataTypeSize(aten_to_data_type(
+                  args[i]->as<at::Tensor>().scalar_type()));
         }
       }
       for (const auto& output : outputs) {
@@ -1830,17 +1914,21 @@ float FusionExecutor::runRtc(
   std::vector<void*> pointers;
 
   for (const auto& input : args) {
-    DataType metadata_type = globalTensorMetaData(
-        aten_to_data_type(input.scalar_type()), input.dim());
+    auto dtype =
+        std::get<PrimDataType>(aten_to_data_type(input.scalar_type()).type);
+    DataType metadata_type = globalTensorMetaData(dtype, input.dim());
 
-    Struct<PolymorphicValue> concrete_value;
-    concrete_value["data"] = PolymorphicValue(
-        Pointer(input.data_ptr(), aten_to_data_type(input.scalar_type())));
-    concrete_value["logical_size"] = PolymorphicValue(input.sizes().vec());
-    concrete_value["alloc_stride"] = PolymorphicValue(input.strides().vec());
+    std::shared_ptr<Struct> struct_ = std::make_shared<TensorMetaData>();
+    TensorMetaData* metadata = (TensorMetaData*)struct_.get();
+    metadata->dtype = dtype;
+    metadata->data = input.data_ptr();
+    metadata->logical_size = input.sizes();
+    metadata->logical_stride = input.strides();
+    metadata->alloc_size = input.sizes();
+    metadata->alloc_stride = input.strides();
 
-    data.emplace_back(
-        polymorphicValueToBytes(concrete_value, metadata_type, index_type));
+    data.emplace_back(polymorphicValueToBytes(
+        PolymorphicValue(std::move(struct_)), metadata_type, index_type));
     pointers.emplace_back(data.back().data());
   }
 
@@ -1868,6 +1956,231 @@ float FusionExecutor::runRtc(
   NVFUSER_CUDA_RT_SAFE_CALL(cudaEventDestroy(finish_event));
 
   return kernel_time_ms;
+}
+
+flatbuffers::Offset<serde::FusionExecutor> FusionExecutor::serialize(
+    flatbuffers::FlatBufferBuilder& builder) const {
+  // See table definition for FusionExecutor in serde/fusion_cache.fbs
+
+  using fb_executor_entry = flatbuffers::Offset<serde::ExecutorEntry>;
+
+  // Separate unordered_map for executor_entry_lookup into key and value
+  // vectors. The key value is the cache_id value in the KernelArgumentHolder.
+  std::vector<size_t> executor_entry_lookup_keys_fb;
+  std::vector<fb_executor_entry> executor_entry_lookup_values_fb;
+  for (const auto& [key, value] : executor_entry_lookup_) {
+    executor_entry_lookup_keys_fb.push_back(key);
+    executor_entry_lookup_values_fb.push_back(serialize(builder, value));
+  }
+
+  return serde::CreateFusionExecutorDirect(
+      builder,
+      device_smem_limit_,
+      block_size_high_water_mark_,
+      maxrregcount_high_water_mark_,
+      warp_size_,
+      fusion_id_,
+      fusion_id_counter_,
+      kernel_code_.c_str(),
+      &executor_entry_lookup_keys_fb,
+      &executor_entry_lookup_values_fb,
+      serde::mapToSerdeDtype(kernel()->indexType()));
+}
+
+flatbuffers::Offset<serde::ExecutorEntry> FusionExecutor::serialize(
+    flatbuffers::FlatBufferBuilder& builder,
+    const ExecutorEntry& data) const {
+  // See table definition for ExecutorEntry in serde/fusion_cache.fbs
+
+  // In the flatbuffer schema, we store the vector of pairs as a pair of
+  // vectors.
+  std::vector<int> output_aliases_fb;
+  std::vector<int> input_aliases_fb;
+  output_aliases_fb.reserve(data.output_to_input_aliases.size());
+  input_aliases_fb.reserve(data.output_to_input_aliases.size());
+  for (auto [out, in] : data.output_to_input_aliases) {
+    output_aliases_fb.push_back(out);
+    input_aliases_fb.push_back(in);
+  }
+
+  // Serialize GlobalBufferInfo for outputs.
+  // We map the output TensorView pointer to its corresponding position in
+  // fusion outputs assuming that the output ordering is consistent.
+  using fb_global_buffer_info = flatbuffers::Offset<serde::GlobalBufferInfo>;
+  std::vector<fb_global_buffer_info> outputs_fb;
+  outputs_fb.reserve(data.outputs.size());
+  for (const auto& buffer : data.outputs) {
+    auto tv_iter = std::find(
+        kernel()->outputs().cbegin(), kernel()->outputs().cend(), buffer.tv);
+    auto tv_position = (tv_iter == kernel()->outputs().cend())
+        ? -1
+        : std::distance(kernel()->outputs().cbegin(), tv_iter);
+    outputs_fb.push_back(
+        serialize(builder, buffer, tv_position, true /* is_fusion_output */));
+  }
+
+  // Serialize GlobalBufferInfo for intermediates.
+  // We map the intermediate TensorView pointer to its corresponding position in
+  // KernelSummary global allocations. We assume that the ordering is consistent
+  // between GpuLower objects with the same scheduled fusion.
+  std::vector<fb_global_buffer_info> intermediates_fb;
+  intermediates_fb.reserve(data.intermediates.size());
+  for (const auto& buffer : data.intermediates) {
+    auto match_tv_predicate = [buffer_tv = buffer.tv](const kir::Allocate* a) {
+      return a->buffer() == buffer_tv;
+    };
+    auto tv_iter = std::find_if(
+        kernel()->summary().global_allocations.cbegin(),
+        kernel()->summary().global_allocations.cend(),
+        match_tv_predicate);
+    auto tv_position =
+        (tv_iter == kernel()->summary().global_allocations.cend())
+        ? -1
+        : std::distance(
+              kernel()->summary().global_allocations.cbegin(), tv_iter);
+    intermediates_fb.push_back(
+        serialize(builder, buffer, tv_position, false /* is_fusion_output */));
+  }
+
+  return serde::CreateExecutorEntryDirect(
+      builder,
+      data.init,
+      data.launch_params.serialize(builder),
+      &output_aliases_fb,
+      &input_aliases_fb,
+      &outputs_fb,
+      &intermediates_fb);
+}
+
+flatbuffers::Offset<serde::GlobalBufferInfo> FusionExecutor::serialize(
+    flatbuffers::FlatBufferBuilder& builder,
+    const GlobalBufferInfo& data,
+    int64_t tv_position,
+    bool is_fusion_output) const {
+  // See table definition for GlobalBufferInfo in serde/fusion_cache.fbs
+  return serde::CreateGlobalBufferInfoDirect(
+      builder,
+      tv_position,
+      &data.sizes,
+      &data.strides,
+      serde::mapToSerdeDtype(data.type),
+      data.zero_init,
+      data.is_profile_buffer,
+      is_fusion_output);
+}
+
+void FusionExecutor::deserialize(
+    const serde::FusionExecutor* buffer,
+    Fusion* fusion,
+    CompileParams compile_params) {
+  // See table definition for FusionExecutor in serde/fusion_cache.fbs
+
+  TORCH_INTERNAL_ASSERT(buffer != nullptr, "serde::FusionExecutor is nullptr.");
+
+  // Initialize internal fields
+  device_smem_limit_ = buffer->device_smem_limit();
+  block_size_high_water_mark_ = buffer->block_size_high_water_mark();
+  maxrregcount_high_water_mark_ = buffer->maxrregcount_high_water_mark();
+  warp_size_ = buffer->warp_size();
+  fusion_id_ = buffer->fusion_id();
+  fusion_id_counter_ = buffer->fusion_id_counter();
+  kernel_code_ = buffer->kernel_code()->str();
+
+  // KernelDB query checks kernel_code string and compile_params before
+  // copying cubin.
+  compile_params.index_type = serde::mapToNvfuserDtype(buffer->index_type());
+  compile_params.maxrregcount = maxrregcount_high_water_mark_;
+
+  // Get lowered fusion
+  lowered_ = std::make_unique<GpuLower>(fusion, compile_params);
+
+  // Replace integers that are tensor sizes by named scalars like "T0.size[0]"
+  fusion_ = lowered_->kernel()->as<Fusion>();
+  setUsedTVs();
+
+  // GlobalBufferInfo requires lowered kernel before deserialization
+  for (auto idx : c10::irange(buffer->executor_entry_lookup_keys()->size())) {
+    executor_entry_lookup_.emplace(
+        buffer->executor_entry_lookup_keys()->Get(idx),
+        deserialize(buffer->executor_entry_lookup_values()->Get(idx)));
+  }
+
+  std::tie(compiled_kernel_, last_compiler_log_, last_compiled_binary_) =
+      executor_utils::getCompiledKernel(
+          kernel_code_,
+          getStructuredCode(),
+          getCanonicalKernelName(),
+          fusion_id_,
+          compile_params,
+          block_size_high_water_mark_,
+          save_compiled_binary_);
+
+  TORCH_INTERNAL_ASSERT(isCompiled(), "Failed to deserialize FusionExecutor");
+}
+
+FusionExecutor::ExecutorEntry FusionExecutor::deserialize(
+    const serde::ExecutorEntry* buffer) {
+  // See table definition for ExecutorEntry in serde/fusion_cache.fbs
+
+  TORCH_INTERNAL_ASSERT(buffer != nullptr, "serde::ExecutorEntry is nullptr.");
+
+  ExecutorEntry entry;
+
+  entry.init = buffer->init();
+
+  entry.launch_params.deserialize(buffer->launch_params());
+
+  for (auto idx : c10::irange(buffer->output_aliases()->size())) {
+    entry.output_to_input_aliases.emplace_back(
+        buffer->output_aliases()->Get(idx), buffer->input_aliases()->Get(idx));
+  }
+
+  for (auto output_buffer : *buffer->outputs()) {
+    entry.outputs.push_back(deserialize(output_buffer));
+  }
+
+  for (auto intermediate_buffer : *buffer->intermediates()) {
+    entry.intermediates.push_back(deserialize(intermediate_buffer));
+  }
+
+  return entry;
+}
+
+FusionExecutor::GlobalBufferInfo FusionExecutor::deserialize(
+    const serde::GlobalBufferInfo* buffer) {
+  // See table definition for GlobalBufferInfo in serde/fusion_cache.fbs
+
+  TORCH_INTERNAL_ASSERT(
+      buffer != nullptr, "serde::GlobalBufferInfo is nullptr.");
+
+  TORCH_INTERNAL_ASSERT(
+      buffer->tv() != -1, "Serialization failed to encode buffer tv position.");
+
+  TORCH_INTERNAL_ASSERT(fusion_ != nullptr, "Fusion is not initialized.");
+
+  GlobalBufferInfo info;
+  if (buffer->is_fusion_output()) {
+    auto out_val = fusion_->outputs().at(buffer->tv());
+    TORCH_INTERNAL_ASSERT(out_val != nullptr);
+    info.tv = dynamic_cast<TensorView*>(out_val);
+  } else {
+    auto out_val = kernel()->summary().global_allocations.at(buffer->tv());
+    TORCH_INTERNAL_ASSERT(out_val != nullptr);
+    info.tv = dynamic_cast<TensorView*>(out_val->buffer());
+  }
+
+  for (auto dim_size : *buffer->sizes()) {
+    info.sizes.emplace_back(dim_size);
+  }
+
+  for (auto dim_stride : *buffer->strides()) {
+    info.strides.emplace_back(dim_stride);
+  }
+
+  info.type = mapToAtenDtype(buffer->dtype());
+  info.zero_init = buffer->zero_init();
+  info.is_profile_buffer = buffer->is_profile_buffer();
+  return info;
 }
 
 } // namespace nvfuser

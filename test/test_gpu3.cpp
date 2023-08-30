@@ -53,6 +53,7 @@
 #include <iostream>
 #include <sstream>
 #include <thread>
+#include <typeinfo>
 
 namespace nvfuser {
 
@@ -1510,8 +1511,8 @@ TEST_F(NVFuserTest, FusionIndexHoist1_CUDA) {
         exprs.at(0)->toString());
     auto hoisted_index = exprs.at(0)->as<kir::Allocate>()->buffer();
     TORCH_CHECK(
-        hoisted_index->dtype() == DataType::Int32,
-        "Invalid data type of hoisted indices. Should be Int32 but: ",
+        hoisted_index->dtype() == DataType::Index,
+        "Invalid data type of hoisted indices. Should be nvfuser_index_t but: ",
         hoisted_index->dtype());
     kir::Predicate* pred = nullptr;
     for (auto expr : exprs) {
@@ -1728,23 +1729,35 @@ TEST_F(NVFuserTest, FusionIndexHoist3_CUDA) {
 
   const std::string expected_kernel = R"(
 __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> T2) {
-  int64_t i0;
+  nvfuser_index_t i0;
   i0 = ((nvfuser_index_t)threadIdx.x) + (256 * ((nvfuser_index_t)blockIdx.x));
-  int64_t i1;
-  i1 = T0.logical_size[0] * T0.logical_size[1];
-  bool b2;
-  b2 = i0 < i1;
-  float f3;
-  f3 = (float)(i1);
+  Tensor<float, 2, 2> s1;
+  s1.data = T0.data;
+  s1.logical_size = T0.logical_size;
+  s1.alloc_stride = T0.alloc_stride;
+  Array<nvfuser_index_t, 2, 1> a2;
+  a2 = s1.logical_size;
+  nvfuser_index_t i3;
+  i3 = a2[0];
+  Array<nvfuser_index_t, 2, 1> a4;
+  a4 = s1.logical_size;
+  nvfuser_index_t i5;
+  i5 = a4[1];
+  nvfuser_index_t i6;
+  i6 = i3 * i5;
+  bool b7;
+  b7 = i0 < i6;
+  float f8;
+  f8 = (float)(i6);
   float T1[1];
-  if (b2) {
+  if (b7) {
     T1[0]
        = sinf(T0[i0]);
   }
-  if (b2) {
+  if (b7) {
     T2[i0]
       = T1[0]
-      + f3;
+      + f8;
   }
 }
 )";
@@ -4681,16 +4694,17 @@ TEST_F(NVFuserTest, FusionExpandRepro1860_CUDA) {
     if (i == 0) {
       domain1[i] = IterDomainBuilder(
                        FusionGuard::getCurFusion()->zeroVal(),
-                       IrBuilder::create<Val>(1L))
+                       IrBuilder::create<Val>(1L, DataType::Index))
                        .iter_type(IterType::Broadcast)
                        .build();
     } else {
-      domain1[i] = IterDomainBuilder(
-                       FusionGuard::getCurFusion()->zeroVal(),
-                       IrBuilder::create<Val>(1L))
-                       .expanded_extent(IrBuilder::create<Val>(1L + i))
-                       .iter_type(IterType::Broadcast)
-                       .build();
+      domain1[i] =
+          IterDomainBuilder(
+              FusionGuard::getCurFusion()->zeroVal(),
+              IrBuilder::create<Val>(1L, DataType::Index))
+              .expanded_extent(IrBuilder::create<Val>(1L + i, DataType::Index))
+              .iter_type(IterType::Broadcast)
+              .build();
     }
   }
 
@@ -4830,11 +4844,12 @@ TEST_F(NVFuserTest, FusionExpandBadShapeTest_CUDA) {
   std::vector<IterDomain*> domains = {
       IterDomainBuilder(
           FusionGuard::getCurFusion()->zeroVal(),
-          IrBuilder::create<Val>(DataType::Int))
+          IrBuilder::create<Val>(DataType::Index))
           .build(),
       IterDomainBuilder(
-          FusionGuard::getCurFusion()->zeroVal(), IrBuilder::create<Val>(1L))
-          .expanded_extent(IrBuilder::create<Val>(10L))
+          FusionGuard::getCurFusion()->zeroVal(),
+          FusionGuard::getCurFusion()->oneVal())
+          .expanded_extent(IrBuilder::create<Val>(10L, DataType::Index))
           .iter_type(IterType::Broadcast)
           .build()};
 
@@ -5139,7 +5154,7 @@ TEST_F(NVFuserTest, FusionCheckedSymbolicShape_CUDA) {
     EXPECT_THAT(
         [&]() { matched_add(a, c); },
         ::testing::ThrowsMessage<c10::Error>(
-            ::testing::HasSubstr("Attempting to bind")));
+            ::testing::HasSubstr("Conflicting sizes")));
   }
 }
 
@@ -5147,7 +5162,7 @@ TEST_F(NVFuserTest, FusionSizeDependentData_CUDA) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
-  Val* s1 = IrBuilder::create<Val>(DataType::Int);
+  Val* s1 = IrBuilder::create<Val>(DataType::Index);
   auto builder = TensorViewBuilder().shape(std::vector<Val*>{s1});
   TensorView* tv0 = builder.build();
 
@@ -7546,7 +7561,7 @@ class ThreadPredChecker : public kir::IrVisitor {
   }
 
   void handle(BinaryOp* bop) final {
-    if (bop->getBinaryOpType() == BinaryOpType::And) {
+    if (bop->getBinaryOpType() == BinaryOpType::LogicalAnd) {
       dispatch(bop->lhs());
       dispatch(bop->rhs());
     } else if (bop->getBinaryOpType() == BinaryOpType::Eq) {
@@ -9502,7 +9517,105 @@ TEST_F(NVFuserTest, FusionInstanceNormNHWC_CUDA) {
   testValidate(fusion, cg_outputs, inputs, outputs, __LINE__, __FILE__);
 }
 
-// Repro of issue #658. Vectorization failed with the second segment
+// Repro of issue #657
+TEST_F(NVFuserTest, VectorizeWithBroadcastAndReshape1) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  // Sizes don't matter as long as they are large enough to trigger
+  // vectorization
+  std::vector<int64_t> shape1{1024, 1024};
+  std::vector<int64_t> shape2{1024, 1024, 4};
+  std::vector<int64_t> shape3{1024 * 1024 * 4};
+
+  auto tv0 = makeContigConcreteTensor(shape1);
+  fusion->addInput(tv0);
+
+  auto tv1 = makeContigConcreteTensor(shape2);
+  fusion->addInput(tv1);
+
+  auto tv2 = broadcast(tv0, {false, false, true});
+  fusion->addOutput(tv2);
+
+  auto tv3 = add(tv1, tv2);
+  auto tv4 = reshape(tv3, shape2, shape3);
+  fusion->addOutput(tv4);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::manual_seed(0);
+  auto t0 = at::randn(shape1, options);
+  auto t1 = at::randn(shape2, options);
+  std::vector<c10::IValue> aten_inputs({t0, t1});
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+
+  TORCH_CHECK(!executor_cache.getMostRecentKernelRuntime()->isSegmented());
+  auto heuristic_params = executor_cache.getMostRecentKernelRuntime()
+                              ->schedulerHeuristics()
+                              ->heuristicsList()
+                              .at(0)
+                              ->params();
+  ASSERT_TRUE(heuristic_params->isA<PointwiseParams>());
+  auto pparams = heuristic_params->as<PointwiseParams>();
+  ASSERT_TRUE(pparams->vectorize) << "Failed to vectorize";
+  ASSERT_EQ(pparams->unroll_factor, 4) << "Unexpected vectorize factor";
+}
+
+// Repro of issue #657
+TEST_F(NVFuserTest, VectorizeWithBroadcastAndReshape2) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  // Sizes don't matter as long as they are large enough to trigger
+  // vectorization
+  std::vector<int64_t> shape1{1024, 1024};
+  std::vector<int64_t> shape2{1024, 1024, 4};
+  std::vector<int64_t> shape3{1024 * 1024 * 4};
+
+  auto tv0 = makeContigConcreteTensor(shape1);
+  fusion->addInput(tv0);
+
+  auto tv1 = makeContigConcreteTensor(shape1);
+  fusion->addInput(tv1);
+
+  auto tv2 = makeContigConcreteTensor(shape2);
+  fusion->addInput(tv2);
+
+  auto tv3 = broadcast(tv0, {false, false, true});
+  fusion->addOutput(tv3);
+
+  auto tv4 = add(tv3, tv2);
+
+  auto tv5 = broadcast(tv1, {false, false, true});
+
+  auto tv6 = add(tv4, tv5);
+
+  auto tv7 = reshape(tv6, shape2, shape3);
+  fusion->addOutput(tv7);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::manual_seed(0);
+  auto t0 = at::randn(shape1, options);
+  auto t1 = at::randn(shape1, options);
+  auto t2 = at::randn(shape2, options);
+  std::vector<c10::IValue> aten_inputs({t0, t1, t2});
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+
+  TORCH_CHECK(!executor_cache.getMostRecentKernelRuntime()->isSegmented());
+  auto heuristic_params = executor_cache.getMostRecentKernelRuntime()
+                              ->schedulerHeuristics()
+                              ->heuristicsList()
+                              .at(0)
+                              ->params();
+  ASSERT_TRUE(heuristic_params->isA<PointwiseParams>());
+  auto pparams = heuristic_params->as<PointwiseParams>();
+  ASSERT_TRUE(pparams->vectorize) << "Failed to vectorize";
+  ASSERT_EQ(pparams->unroll_factor, 4) << "Unexpected vectorize factor";
+}
+
 TEST_F(NVFuserTest, VectorizeBackToBackReductions) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -9547,6 +9660,334 @@ TEST_F(NVFuserTest, VectorizeBackToBackReductions) {
 
   testValidate(
       executor_cache.fusion(), outputs, {at_x}, {t3}, __LINE__, __FILE__);
+}
+
+TEST_F(NVFuserTest, AllInputDtypes) {
+  for (auto index_type : {DataType::Int, DataType::Int32}) {
+    auto fusion = std::make_unique<Fusion>();
+    FusionGuard fg(fusion.get());
+
+    auto tv0 = makeContigTensor(0, DataType::Double);
+    auto tv1 = makeContigTensor(0, DataType::Double);
+    tv1->setCpuScalar(true);
+    auto d = IrBuilder::create<Val>(DataType::Double);
+    auto f = IrBuilder::create<Val>(DataType::Float);
+    auto h = IrBuilder::create<Val>(DataType::Half);
+    auto i = IrBuilder::create<Val>(DataType::Int);
+    auto idx = IrBuilder::create<Val>(DataType::Index);
+    auto i32 = IrBuilder::create<Val>(DataType::Int32);
+    auto b = IrBuilder::create<Val>(DataType::Bool);
+    auto bf16 = IrBuilder::create<Val>(DataType::BFloat16);
+    auto cf = IrBuilder::create<Val>(DataType::ComplexFloat);
+    auto cd = IrBuilder::create<Val>(DataType::ComplexDouble);
+    DataType ptr_type =
+        PointerType{std::make_shared<DataType>(DataType::Float)};
+    auto ptr = IrBuilder::create<Val>(ptr_type);
+    DataType array_type =
+        ArrayType{std::make_shared<DataType>(DataType::Float), 2};
+    auto array = IrBuilder::create<Val>(array_type);
+    fusion->addInput(tv0);
+    fusion->addInput(tv1);
+    fusion->addInput(d);
+    fusion->addInput(f);
+    fusion->addInput(h);
+    fusion->addInput(i);
+    fusion->addInput(idx);
+    fusion->addInput(i32);
+    fusion->addInput(b);
+    fusion->addInput(bf16);
+    fusion->addInput(cf);
+    fusion->addInput(cd);
+    fusion->addInput(ptr);
+    fusion->addInput(array);
+
+    auto output = d;
+    output = IrBuilder::addExpr(output, f);
+    output = IrBuilder::addExpr(output, castOp(DataType::Double, h));
+    output = IrBuilder::addExpr(output, i);
+    output = IrBuilder::addExpr(output, idx);
+    output = IrBuilder::addExpr(output, i32);
+    output = IrBuilder::addExpr(output, b);
+    output = IrBuilder::addExpr(output, castOp(DataType::Double, bf16));
+    output = IrBuilder::addExpr(output, abs(cf));
+    output = IrBuilder::addExpr(output, abs(cd));
+    output = IrBuilder::addExpr(output, IrBuilder::derefExpr(ptr));
+    output = IrBuilder::addExpr(
+        output, IrBuilder::getItemExpr(array, PolymorphicValue(0L)));
+    output = IrBuilder::addExpr(
+        output, IrBuilder::getItemExpr(array, PolymorphicValue(1L)));
+    output = add(tv0, output);
+    output = add(tv1, output);
+
+    fusion->addOutput(output);
+
+    at::Tensor t0 = at::randn(
+        {}, at::TensorOptions().dtype(at::kDouble).device(at::kCUDA, 0));
+    at::Tensor t1 =
+        at::randn({}, at::TensorOptions().dtype(at::kDouble).device(at::kCPU));
+    // Use page-locked memory so the pointer can be accessed both on host and on
+    // device.
+    at::Tensor t2 = at::randn(
+        {},
+        at::TensorOptions()
+            .dtype(at::kFloat)
+            .device(at::kCPU)
+            .pinned_memory(true));
+
+    KernelArgumentHolder args;
+    args.push(t0);
+    args.push(t1);
+    args.push(2.3);
+    args.push(4.5);
+    args.push(6.7);
+    args.push(8L);
+    args.push(9L);
+    args.push(10L);
+    args.push(true);
+    args.push(12.3);
+    args.push(std::complex<double>(4.5, 6.7));
+    args.push(std::complex<double>(8.9, 10.11));
+    args.push(t2.data_ptr<float>());
+    args.push(std::vector<PolymorphicValue>{12.3, 45.0});
+
+    auto ee = executor_utils::bindInputs(args, fusion.get());
+
+    CompileParams opt{.index_type = index_type};
+
+    FusionExecutor fe;
+    fe.compileFusion(fusion.get(), args, LaunchParams{}, opt);
+    auto outputs = fe.runFusion(args, LaunchParams{}, opt);
+
+    auto kernel_result = outputs.at(0).item<double>();
+    auto expect = ee.evaluate(output).as<at::Tensor>().item<double>();
+    EXPECT_NEAR(kernel_result, expect, 0.1);
+  }
+}
+
+TEST_F(NVFuserTest, IndexDataTypePromotion) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto a = IrBuilder::create<Val>(DataType::Int);
+  auto b = IrBuilder::create<Val>(DataType::Index);
+  auto c = add(a, b);
+
+  ExpressionEvaluator ee;
+  ee.bind(a, 1L);
+  ee.bind(b, 299792458L);
+  EXPECT_EQ(ee.evaluate(c), 299792459L);
+  EXPECT_EQ(c->dtype(), DataType::Index);
+}
+
+TEST_F(NVFuserTest, FusionCrossGridInnerReductionSplitGridIteration_CUDA) {
+  // reduction size is set to 65538 to triger cross grid reduction and iter
+  // unroll. iteration size is set to a value larger than y_grid_limit to test
+  // if iter domain is split grid.
+  // This test requires significant memory. Release any cached memory
+  // from previous tests to ensure availability.
+  maybeClearAllocator(0);
+
+  DataType dtype = DataType::Float;
+  int64_t reduction_size = 65538;
+  int64_t iteration_size = scheduler_utils::y_grid_limit + 8;
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> input_shape{iteration_size, reduction_size};
+  auto t0 = makeContigTensor(2, dtype);
+  auto t1 = sum(t0, {1});
+  fusion.addInput(t0);
+  fusion.addOutput(t1);
+
+  // Estimated_gmem is 17.18 GBytes, skip if not enough memory.
+  size_t n_elements = reduction_size * iteration_size + iteration_size * 2;
+  size_t estimated_gmem = n_elements * dataTypeSize(dtype);
+  size_t device_free, device_total;
+  cudaMemGetInfo(&device_free, &device_total);
+  if (estimated_gmem > device_free) {
+    GTEST_SKIP() << "Skipping test due to limited GPU memory. Requested: "
+                 << estimated_gmem / 1e9 << " GBytes"
+                 << ", device_free: " << device_free / 1e9 << " GBytes"
+                 << ", device_total: " << device_total / 1e9 << " GBytes";
+  }
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  at::Tensor aten_input = at::randn(input_shape, options);
+
+  auto reduction_params = getReductionHeuristics(&fusion, {aten_input});
+  ASSERT_TRUE(reduction_params) << "Reduction schedule was not generated!";
+  ASSERT_TRUE(reduction_params->split_grid_dim_inner_reduction)
+      << "Generated reduction is not cross grid!";
+  ASSERT_TRUE(reduction_params->split_grid_dim_iter_dom_outer)
+      << "Generated reduction is not split iteration domain!";
+  scheduleReduction(&fusion, *reduction_params);
+
+  auto lparams = reduction_params->lparams;
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, {aten_input}, lparams);
+  auto cg_outputs = fe.runFusion({aten_input}, lparams);
+  auto aten_outputs = aten_input.sum({1});
+  testValidate(
+      &fusion,
+      cg_outputs,
+      {aten_input},
+      {aten_outputs},
+      __LINE__,
+      __FILE__,
+      "",
+      lparams);
+}
+
+TEST_F(NVFuserTest, SymbolicOneBroadcasting) {
+  // Test that if a tensor dimension's extent is one, no matter whether this
+  // extent is constant 1 or symbolic 1, we always mark this ID as broadcasting.
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  auto one = IrBuilder::create<Val>(1L);
+  auto zero = sub(one, one);
+  auto symbolic_one = add(zero, one);
+  std::vector<Val*> shape{symbolic_one};
+  auto tv = TensorViewBuilder()
+                .ndims(1)
+                .dtype(DataType::Float)
+                .contiguity(true)
+                .shape(shape)
+                .build();
+  ASSERT_EQ(tv->nDims(), 1);
+  EXPECT_TRUE(tv->axis(0)->isBroadcast());
+}
+
+// Repro of unswitch predicate issue #681
+TEST_F(NVFuserTest, UnswitchPredicateIssueRepro681_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+
+  auto tv1 = sum(tv0, {0, 1});
+  fusion.addOutput(tv1);
+
+  // [i0, i1]
+  tv1->split(1, 4);
+  // [i0, i1/4, 4]
+  tv1->merge(0);
+  // [i0*i1/4, 4]
+  tv1->split(0, 4);
+  // [i0*i1/4/4, 4, 4]
+  tv1->split(0, 1);
+  // [i0*i1/4/4, 1, 4, 4]
+
+  tv1->axis(1)->parallelize(ParallelType::Unswitch);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({4, 10}, options);
+  std::vector<c10::IValue> aten_inputs = {t0};
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs);
+  auto outputs = fe.runFusion(aten_inputs);
+
+  auto ref = t0.to(at::kDouble).sum();
+
+  testValidate(&fusion, outputs, aten_inputs, {ref}, __LINE__, __FILE__);
+}
+
+TEST_F(NVFuserTest, OpaqueTupleAsComplex) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  DataType dtype =
+      OpaqueType::make<std::array<float, 2>>("Tuple<float, float>");
+
+  auto tuple = IrBuilder::create<Val>(dtype);
+  fusion.addInput(tuple);
+  auto complex = bitCastOp(DataType::ComplexFloat, tuple);
+
+  auto tv = full(
+      {IrBuilder::newConstant(1L, DataType::Index)},
+      complex,
+      DataType::ComplexFloat);
+
+  fusion.addOutput(tv);
+
+  KernelArgumentHolder args;
+  args.push(Opaque(std::array<float, 2>{1.2, 3.4}));
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion);
+  auto outputs = fe.runFusion(args);
+
+  EXPECT_EQ(
+      outputs.at(0).item<c10::complex<float>>(), c10::complex<float>(1.2, 3.4));
+}
+
+TEST_F(NVFuserTest, StructConstruct) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto real = IrBuilder::create<Val>(DataType::Float);
+  auto imag = IrBuilder::create<Val>(DataType::Float);
+  fusion.addInput(real);
+  fusion.addInput(imag);
+
+  auto struct_ = IrBuilder::structExpr({{"real", real}, {"imag", imag}});
+  auto complex = bitCastOp(DataType::ComplexFloat, struct_);
+
+  auto tv = full(
+      {IrBuilder::newConstant(1L, DataType::Index)},
+      complex,
+      DataType::ComplexFloat);
+
+  fusion.addOutput(tv);
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion);
+  auto outputs = fe.runFusion({1.2, 3.4});
+
+  EXPECT_EQ(
+      outputs.at(0).item<c10::complex<float>>(), c10::complex<float>(1.2, 3.4));
+}
+
+// Repro of an issue found in PR #733. Previously the runtime
+// validation of strides of vectorized tensors issued a false positive
+TEST_F(NVFuserTest, VectorizationStrideValidation) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  const std::vector<int64_t> shape({2, 1, 3});
+  const std::vector<int64_t> expanded_shape({2, 5, 3});
+
+  auto tv0 = TensorViewBuilder()
+                 .ndims(shape.size())
+                 .shape(expanded_shape)
+                 .contiguity({false, std::nullopt, true})
+                 .expanded({false, true, false})
+                 .build();
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  fusion.addOutput(tv1);
+
+  tv1->merge(0)->merge(0);
+  tv1->split(0, 2);
+
+  tv1->axis(-1)->parallelize(ParallelType::Vectorize);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape, options).expand({-1, 5, -1});
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs);
+
+  // This previously triggered a false positive error with the stride
+  // validation
+  auto cg_outputs = fe.runFusion(aten_inputs);
+
+  ASSERT_TRUE(cg_outputs[0].equal(t0));
 }
 
 // Test file size should be up to 10K LoC. Create a new file for more tests.

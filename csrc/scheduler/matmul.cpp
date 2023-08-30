@@ -608,28 +608,41 @@ void scheduleOutputTensor(
 //! Propagates transformations from fusion output to fusion tv inputs that are
 //!  producers in the epilogue. Transformations' propagation aims at input tvs
 //!  which are not assigned to core roles, that is, are not MMA inputs.
-void scheduleFusionInputsForEpilogue(const mma_utils::RolesMap& roles_map) {
+void scheduleFusionInputsForEpilogue(
+    const mma_utils::RolesMap& roles_map,
+    const bool with_smem_epilogue) {
   std::vector<TensorView*> cached_tvs;
 
   // Handling transformations in fusion input tvs with assigned INPUT_C role by
   //  propagating fusion output transformations through cached views of INPUT_C
   //  fusion input tvs and by setting vectorization of the inner most iterdomain
   //  of these cached views
-  {
+  if (roles_map.count(MatmulRole::INPUT_C)) {
     auto& c_tvs = roles_map.at(MatmulRole::INPUT_C);
-    for (auto* c : c_tvs) {
-      cached_tvs.push_back(c->cacheAfter());
-    }
 
     // The system supports only scenario where there is only one fusion output
     //  with assigned OUTPUT_D role, this condition is already verified so there
     //  is no need for an additional checks here
-    scheduler_utils::BoundedDirectionalTransformPropagator::backward(
-        roles_map.at(MatmulRole::OUTPUT_D).front(), -1, c_tvs);
-
-    for (auto* cc : cached_tvs) {
-      cc->axis(-1)->parallelize(ParallelType::Vectorize);
+    auto output_d = roles_map.at(MatmulRole::OUTPUT_D).front();
+    for (auto* c : c_tvs) {
+      cached_tvs.push_back(c->cacheAfter());
     }
+
+    scheduler_utils::BoundedDirectionalTransformPropagator::backward(
+        output_d, -1, c_tvs);
+
+    std::unordered_set<ParallelType> parallel_types = {};
+    if (with_smem_epilogue) {
+      //! In cases where smem epilogue feature is enabled, the vectorization of
+      //!  domains will be propagated to fusion inputs that are epilogue inputs,
+      //!  this may result in unaligned memory reads. Vectorization is
+      //!  explicitly excluded form parallelization types to avoid this issue.
+      //! This should be changed when vectorization analysis is available and
+      //!  enabled for matmul scheduler.
+      parallel_types = allParallelTypesExcept({ParallelType::Vectorize});
+    }
+    scheduler_utils::parallelizeAllLike(
+        output_d, -1, cached_tvs, parallel_types);
 
     // The cached INPUT_C tvs are not needed anymore
     cached_tvs.clear();
@@ -670,9 +683,9 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
       MmaBuilder(params.mma_macro, params.tile_sizes).layout(mma_layout);
   const auto& gemm_tile = params.tile_sizes;
   const bool has_epilogue = !mma->out()->isFusionOutput();
-  const bool has_non_mma_input_tvs = has_epilogue &&
-      0 != roles_map.count(MatmulRole::INPUT_C) &&
-      !roles_map.at(MatmulRole::INPUT_C).empty();
+
+  const bool has_fusion_c_roles = (0 != roles_map.count(MatmulRole::INPUT_C));
+  const bool has_non_mma_input_tvs = has_epilogue && has_fusion_c_roles;
 
   // Including current tensor naming convention for reference,
   //  this is very temporary and will change over time and
@@ -987,7 +1000,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   //  operations, input tvs with non-core roles
   //  core roles: essential for matmul, for example mma inputs' producers
   if (has_non_mma_input_tvs) {
-    scheduleFusionInputsForEpilogue(roles_map);
+    scheduleFusionInputsForEpilogue(roles_map, params.use_smem_epilogue);
   }
 
   // auto inline for all tensors except register tensors and output tensor

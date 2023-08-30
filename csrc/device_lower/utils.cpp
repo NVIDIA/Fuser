@@ -630,7 +630,7 @@ std::vector<Expr*> getAllSwizzlesBetween(
 namespace lower_utils {
 
 bool hasBlockSync(const Expr* expr, const ThreadPredicateMap& pred_map) {
-  if (expr->isA<kir::BlockSync>()) {
+  if (expr->isA<kir::BlockSync>() || expr->isA<kir::GridSync>()) {
     return true;
   }
 

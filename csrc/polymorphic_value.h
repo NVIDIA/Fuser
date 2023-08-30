@@ -7,9 +7,6 @@
 // clang-format on
 #pragma once
 
-#include <macros.h>
-
-#include <dynamic_type.h>
 #include <any>
 #include <complex>
 #include <cstddef>
@@ -20,38 +17,13 @@
 
 #include <ATen/ATen.h>
 
+#define DYNAMIC_TYPE_CHECK TORCH_INTERNAL_ASSERT
+
+#include <dynamic_type.h>
+#include <macros.h>
+#include <opaque_type.h>
+
 namespace nvfuser {
-
-template <typename T>
-struct Struct {
-  // Using std::unordered_map<std::string, T> is more convenient and
-  // straightforward, but this is not guaranteed to work by C++ standard.
-  // See [Incomplete type support in STL]
-#if defined(STD_UNORDERED_SET_SUPPORTS_INCOMPLETE_TYPE)
-  std::unordered_map<std::string, T> fields;
-#define MAYBE_STAR
-#else
-  std::unordered_map<std::string, std::shared_ptr<T>> fields;
-#define MAYBE_STAR *
-#endif
-
-  const T& operator[](const std::string& key) const {
-    return MAYBE_STAR fields.at(key);
-  }
-
-  T& operator[](const std::string& key) {
-#if defined(STD_UNORDERED_SET_SUPPORTS_INCOMPLETE_TYPE)
-    return fields[key];
-#else
-    if (fields.find(key) == fields.end()) {
-      fields[key] = std::make_shared<T>();
-    }
-    return *fields.at(key);
-#endif
-  }
-
-#undef MAYBE_STAR
-};
 
 struct DataType;
 
@@ -73,7 +45,7 @@ class Pointer {
 
   template <typename T>
   explicit operator T*() const {
-    return static_cast<T*>(ptr_);
+    return reinterpret_cast<T*>(ptr_);
   }
 
   Pointer& operator+=(int64_t offset) {
@@ -182,49 +154,56 @@ inline Pointer operator+(int64_t offset, const Pointer& ptr) {
   return ptr + offset;
 }
 
-struct Opaque {
-  std::any value;
-
-  // Because the type information is not available at compile time, we can't
-  // accurately compare the values of two opaque values. So, by default,
-  // equality check is done by pointer compare. However, we also support
-  // manually specifying the equality comparator.
-  std::function<bool(const Opaque&, const Opaque&)> equals =
-      [](const Opaque& a, const Opaque& b) { return &a == &b; };
-
-  bool operator==(const Opaque& other) const {
-    if (this == &other) {
-      return true;
-    }
-    if (value.type() != other.value.type()) {
-      return false;
-    }
-    bool result1 = equals(*this, other);
-    bool result2 = equals(other, *this);
-    TORCH_INTERNAL_ASSERT(
-        result1 == result2, "Opaque equality is not symmetric");
-    return result1;
-  }
-
-  bool operator!=(const Opaque& other) const {
-    return !(*this == other);
-  }
-};
-
-inline std::ostream& operator<<(std::ostream& os, const Opaque& opaque) {
-  os << "Opaque<" << opaque.value.type().name() << ">";
+inline std::ostream& operator<<(std::ostream& os, const Pointer& ptr) {
+  os << (void*)ptr;
   return os;
 }
 
-template <typename T>
-struct OpaqueEquals {
-  bool operator()(const Opaque& a, const Opaque& b) const {
-    return std::any_cast<T>(a.value) == std::any_cast<T>(b.value);
+struct Struct;
+class Accessor;
+struct StructType;
+
+// See Note [Struct Support in PolymorphicValue] for documentation.
+class StructHandle {
+  std::shared_ptr<Struct> struct_ptr_;
+
+ public:
+  StructHandle(std::shared_ptr<Struct> struct_ptr)
+      : struct_ptr_(std::move(struct_ptr)) {}
+  StructHandle& operator=(std::shared_ptr<Struct> struct_ptr) {
+    struct_ptr_ = std::move(struct_ptr);
+    return *this;
   }
+
+  StructHandle(const StructHandle& other) = default;
+  StructHandle(StructHandle&& other) = default;
+  StructHandle& operator=(const StructHandle& other) = default;
+  StructHandle& operator=(StructHandle&& other) = default;
+
+  template <typename T>
+  bool is() const {
+    return std::dynamic_pointer_cast<T>(struct_ptr_) != nullptr;
+  }
+
+  template <typename T>
+  inline T& as() const {
+    return *std::dynamic_pointer_cast<T>(struct_ptr_);
+  }
+
+  inline StructType type() const;
+
+  template <typename Ret, typename Class>
+  inline std::enable_if_t<std::is_base_of_v<Struct, Class>, Ret&> operator->*(
+      Ret Class::*member) const {
+    return as<Class>().*member;
+  }
+
+  inline Accessor operator->*(const std::string& key) const;
 };
 
-using PolymorphicValue = DynamicType<
-    Containers<std::vector, Struct>,
+using PolymorphicValue = dynamic_type::DynamicType<
+    dynamic_type::Containers<std::vector>,
+    StructHandle,
     Pointer,
     Opaque,
     at::Tensor,
@@ -234,6 +213,30 @@ using PolymorphicValue = DynamicType<
     bool>;
 
 namespace PolymorphicValue_functions {
+
+inline std::string toString(const PolymorphicValue& v) {
+  std::stringstream ss;
+  if (v.is<at::Tensor>()) {
+    const auto& t = v.as<at::Tensor>();
+    ss << "Tensor(sizes=" << t.sizes() << ", "
+       << "stride=" << t.strides() << ", " << t.dtype() << ", " << t.device()
+       << ")";
+  } else {
+    ss << v;
+  }
+  return ss.str();
+}
+
+inline bool isSame(const PolymorphicValue& a, const PolymorphicValue& b) {
+  if (a.type() != b.type()) {
+    return false;
+  }
+  if (a.is<at::Tensor>() && b.is<at::Tensor>()) {
+    return (a.as<at::Tensor>().is_same(b.as<at::Tensor>()));
+  } else {
+    return (a == b);
+  }
+}
 
 inline PolymorphicValue ceildiv(
     const PolymorphicValue& a,
@@ -268,17 +271,6 @@ inline PolymorphicValue gcd(
   return PolymorphicValue(std::gcd(a.as<int64_t>(), b.as<int64_t>()));
 }
 
-inline PolymorphicValue notExpr(const PolymorphicValue& a) {
-  if (a.is<int64_t>()) {
-    return PolymorphicValue(~a.as<int64_t>());
-  }
-  if (a.is<bool>()) {
-    return PolymorphicValue(!a.as<bool>());
-  }
-  TORCH_INTERNAL_ASSERT(
-      false, "PolymorphicValue notExpr not implemented for ", a.type().name());
-}
-
 inline PolymorphicValue abs(const PolymorphicValue& a) {
   if (a.is<int64_t>()) {
     return PolymorphicValue(std::abs(a.as<int64_t>()));
@@ -288,6 +280,9 @@ inline PolymorphicValue abs(const PolymorphicValue& a) {
   }
   if (a.is<bool>()) {
     return a;
+  }
+  if (a.is<std::complex<double>>()) {
+    return std::abs(a.as<std::complex<double>>());
   }
   TORCH_INTERNAL_ASSERT(
       false, "PolymorphicValue abs not implemented for ", a.type().name());
@@ -302,13 +297,15 @@ inline PolymorphicValue erf(const PolymorphicValue& a) {
 }
 
 // Convert scalars, vector of scalars, vector of vector of scalars, etc., into
-// an at::Tensor
-inline PolymorphicValue toTensor(const PolymorphicValue& x) {
+// an at::Tensor. device argument allows for the creation of CPU Scalars.
+inline PolymorphicValue toTensor(
+    const PolymorphicValue& x,
+    at::DeviceType device_type = at::kCUDA,
+    int8_t device_index = 0) {
   if (x.is<at::Tensor>()) {
     return x;
   }
-  // TODO: allow specifying device
-  auto options = at::TensorOptions().device(at::kCUDA, 0);
+  auto options = at::TensorOptions().device(device_type, device_index);
   if (x.is<int64_t>()) {
     return PolymorphicValue(
         at::tensor(x.as<int64_t>(), options.dtype(at::kLong)).squeeze());
@@ -344,3 +341,5 @@ inline PolymorphicValue toTensor(const PolymorphicValue& x) {
 } // namespace PolymorphicValue_functions
 
 } // namespace nvfuser
+
+#include <struct.inl>

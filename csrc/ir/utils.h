@@ -173,16 +173,15 @@ TORCH_CUDA_CU_API Expr* replaceValInExpr(
     Val* reference,
     Val* substitute);
 
-//! Replace Vals in an index Val as specified by replacement_map while
-//! cloning the given index Val. The index val is assumed to represent
-//! a tensor index consisting of Ints and arithmetic expressions.
+//! Recursively goes to the definition of the given Val and replace the Vals as
+//! specified by replacement_map while cloning the given Val.
 //!
 //! This is similar to replaceValInExpr but is different as Vals are
 //! cloned such that no other exprs using the same leaf Vals are not
 //! modified. TODO: Consider cleaning up the multiple replacement
 //! routines.
-Val* replaceValInIndexVal(
-    Val* index,
+Val* replaceValRecursively(
+    Val* val,
     const std::unordered_map<Val*, Val*>& replacement_map);
 
 // Makes rfactor generic with reduction ops and Welford
@@ -428,16 +427,39 @@ void validateDomainEquivalence(
     const std::vector<IterDomain*>& derived_domain);
 
 //! Check if all the inputs required to compute needed_val are known
-bool dependenciesSatisfied(
-    std::vector<const Val*> needed_vals,
-    std::unordered_set<const Val*> known_vals = {});
-
+template <
+    typename ValOrVectorOfVal,
+    typename SetOfVal = std::unordered_set<const Val*>>
 inline bool dependenciesSatisfied(
-    std::vector<Val*> needed_vals,
-    std::unordered_set<Val*> known_vals = {}) {
-  return dependenciesSatisfied(
-      std::vector<const Val*>(needed_vals.begin(), needed_vals.end()),
-      std::unordered_set<const Val*>(known_vals.begin(), known_vals.end()));
+    // const Val*, Val*, std::vector<const Val*>, std::vector<Val*> or any other
+    // container that has back(), pop_back(), empty() and emplace_back()
+    ValOrVectorOfVal needed_vals,
+    // std::unordered_set<const Val*>, std::unordered_map<const Val*, T> or any
+    // other container that has count()
+    const SetOfVal& known_vals = {}) {
+  if constexpr (
+      std::is_same_v<ValOrVectorOfVal, const Val*> ||
+      std::is_same_v<ValOrVectorOfVal, Val*>) {
+    // convert a single const Val* or Val* to a vector
+    return dependenciesSatisfied(
+        std::vector<const Val*>{needed_vals}, known_vals);
+  } else {
+    while (!needed_vals.empty()) {
+      auto needed_val = needed_vals.back();
+      needed_vals.pop_back();
+      if (known_vals.count(needed_val) > 0 || needed_val->isConst()) {
+        continue;
+      }
+      auto def = needed_val->definition();
+      if (def == nullptr) {
+        return false;
+      }
+      for (auto input : def->inputs()) {
+        needed_vals.emplace_back(input);
+      }
+    }
+  }
+  return true;
 }
 
 //! Check if a conditional scope, i.e., ForLoop or IfThenElse, is

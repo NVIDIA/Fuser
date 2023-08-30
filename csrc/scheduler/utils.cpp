@@ -170,21 +170,54 @@ std::optional<size_t> mergeDims(
   if (to_merge.size() == 1) {
     return to_merge[0];
   }
-  std::sort(to_merge.begin(), to_merge.end());
-  size_t left = to_merge[0];
-  int64_t offset = 0;
-  for (auto right = to_merge.begin() + 1; right != to_merge.end(); right++) {
-    auto actual_right = offset-- + *right;
-    tv->merge((int)left, (int)actual_right);
-    for (auto& i : to_update) {
-      if (i == actual_right) {
-        i = left;
-      } else if (i > actual_right) {
-        i--;
+  auto inner = to_merge[0];
+
+  // NOTE: The merge is done in the order of `to_merge`, assuming going from
+  // inner to outer dimensions. We want the merged IterDomain to be like:
+  //
+  // tv->axis(to_merge[i-1])*tv->axis(to_merge[i-2])*...*tv->axis(to_merge[0])
+  //
+  // Otherwise this could results in misaligned memory access due to indexing.
+  // This is because we compute vectorization width before applying scheduling
+  // transformations.
+  for (size_t i = 1; i < to_merge.size(); i++) {
+    auto outer = to_merge[i];
+    // If outer > inner, the merge order conflicts with their order in leaf
+    // domain
+    if (outer > inner) {
+      // NOTE: reorder here is necessary to work around the automatic swap in
+      // `TensorDomain::merge`, if the first axis position is larger than the
+      // second. we want to have the merge dimension be like
+      // (tv->axis(to_merge[i]) * tv->axis(to_merge[i-1])), reorder allows us to
+      // compensate the automatic swap in `TensorDomain::merge`.
+      tv->reorder({{inner, outer}, {outer, inner}});
+      // swapping inner with outer since we also need to keep track of the
+      // actual outer position for the remaining merge operations as well as for
+      // return value.
+      std::swap(inner, outer);
+    }
+    // from
+    //   (i..., tv->axis(outer), j..., tv->axis(inner), k...)
+    // to
+    //   (i..., tv->axis(outer) * tv->axis(inner), j..., k...)
+    tv->merge(static_cast<int>(outer), static_cast<int>(inner));
+
+    // compensate future indices for the diminishing inner.
+    for (size_t j = i + 1; j < to_merge.size(); j++) {
+      if (to_merge[j] > inner) {
+        to_merge[j]--;
       }
     }
+    for (auto& val : to_update) {
+      if (val == inner) {
+        val = outer;
+      } else if (val > inner) {
+        val--;
+      }
+    }
+    inner = outer;
   }
-  return left;
+  return inner;
 }
 
 size_t mergeReduction(TensorView* tv) {
@@ -1930,7 +1963,7 @@ std::unordered_map<int, int> domainReorderAsRfactorMap(TensorView* tv) {
   return old2new;
 }
 
-void propagateViewTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
+void propagateReshapeTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
   std::unordered_set<std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>
       transformed_disjoint_sets;
 
@@ -1949,13 +1982,18 @@ void propagateViewTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
     }
   }
 
-  std::unordered_set<IterDomain*> terminating_rfactor_dims;
+  std::unordered_set<IterDomain*> terminating_reshape_dims;
   for (const auto& disjoint_set_shared_ptr :
        ca_map.idGraph().exactNodes().disjointSets()) {
+    // Find a disjoint set that is produced by a reshape
+    // operation. Ignore resize as it isn't reshape
     if (std::none_of(
             disjoint_set_shared_ptr->vector().begin(),
             disjoint_set_shared_ptr->vector().end(),
-            [](IterDomain* id) { return id->isRFactorProduct(); })) {
+            [](IterDomain* id) {
+              return id->isRFactorProduct() && id->definition() &&
+                  !id->definition()->isA<Resize>();
+            })) {
       continue;
     }
     if (transformed_disjoint_sets.find(disjoint_set_shared_ptr) !=
@@ -1964,7 +2002,7 @@ void propagateViewTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
       continue;
     }
     for (auto id : disjoint_set_shared_ptr->vector()) {
-      terminating_rfactor_dims.emplace(id);
+      terminating_reshape_dims.emplace(id);
     }
   }
 
@@ -1982,8 +2020,8 @@ void propagateViewTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
     // rfactor dims we could try and pull those through the fusion instead of
     // enforcing rfactor dims are in domain.
     for (auto rfactor_id : tv->getMaybeRFactorDomain()) {
-      if (terminating_rfactor_dims.find(rfactor_id) !=
-          terminating_rfactor_dims.end()) {
+      if (terminating_reshape_dims.find(rfactor_id) !=
+          terminating_reshape_dims.end()) {
         auto find_it = std::find(
             tv->getLeafDomain().begin(), tv->getLeafDomain().end(), rfactor_id);
         TORCH_INTERNAL_ASSERT(

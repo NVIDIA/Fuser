@@ -302,21 +302,32 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
     case UnaryOpType::Neg:
       return {-in};
     case UnaryOpType::Cast:
-      if (isIntegralType(*out()->getDataType())) {
+      if (in.is<at::Tensor>()) {
+        return {PolymorphicValue(
+            in.as<at::Tensor>().to(data_type_to_aten(out()->dtype())))};
+      } else if (isIntegralType(*out()->getDataType())) {
         return {PolymorphicValue((int64_t)in)};
       } else if (isFloatingPointType(*out()->getDataType())) {
         return {PolymorphicValue((double)in)};
       } else if (out()->getDataType() == DataType::Bool) {
         return {PolymorphicValue((bool)in)};
+      } else if (isComplexType(*out()->getDataType())) {
+        return {PolymorphicValue((std::complex<double>)in)};
       } else {
         TORCH_INTERNAL_ASSERT(
             false, "dtype not supported in evaluator: ", *out()->getDataType());
       }
+    case UnaryOpType::Reciprocal:
+      return {1.0 / in};
+      break;
     case UnaryOpType::Abs:
       return {abs(in)};
       break;
-    case UnaryOpType::Not:
-      return {notExpr(in)};
+    case UnaryOpType::LogicalNot:
+      return {!in};
+      break;
+    case UnaryOpType::BitwiseNot:
+      return {~in};
       break;
     case UnaryOpType::Erf:
       return {erf(in)};
@@ -324,6 +335,13 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
     case UnaryOpType::ToUnsignedSmemAddr:
       return {(int64_t)(unsigned)in};
       break;
+    case UnaryOpType::Dereference:
+      if (*out()->getDataType() == DataType::Float) {
+        return {PolymorphicValue((double)*(float*)in)};
+      } else {
+        TORCH_INTERNAL_ASSERT(
+            false, "dtype not supported in evaluator: ", *out()->getDataType());
+      }
     default:
       TORCH_CHECK(
           false,
@@ -346,12 +364,7 @@ void UnaryOp::printHelper(std::stringstream& ss, std::string input) const {
       TORCH_INTERNAL_ASSERT(cast_str != std::nullopt, "Unsupported Cast");
       ss << cast_str.value();
     } else {
-      if (alsoBooleanOperator(op_type) &&
-          out()->getDataType().value() == DataType::Bool) {
-        ss << stringifyBooleanOp(op_type);
-      } else {
-        ss << op_type;
-      }
+      ss << op_type;
       if (out()->getDataType().value() == DataType::Float &&
           needFloatSuffix(op_type)) {
         ss << "f";
@@ -427,13 +440,19 @@ std::vector<PolymorphicValue> BinaryOp::evaluate(
       TORCH_CHECK(rhs != 0);
       return {ceildiv(lhs, rhs)};
       break;
-    case BinaryOpType::And:
+    case BinaryOpType::LogicalAnd:
       return {lhs && rhs};
       break;
-    case BinaryOpType::Or:
+    case BinaryOpType::LogicalOr:
       return {lhs || rhs};
       break;
-    case BinaryOpType::Xor:
+    case BinaryOpType::BitwiseAnd:
+      return {lhs & rhs};
+      break;
+    case BinaryOpType::BitwiseOr:
+      return {lhs | rhs};
+      break;
+    case BinaryOpType::BitwiseXor:
       return {lhs ^ rhs};
       break;
     case BinaryOpType::Eq:
@@ -489,12 +508,7 @@ void BinaryOp::printHelper(
     ss << " " << inline_bop.value() << " ";
     ss << rhs;
   } else {
-    if (alsoBooleanOperator(op_type) &&
-        out()->getDataType().value() == DataType::Bool) {
-      ss << stringifyBooleanOp(op_type);
-    } else {
-      ss << op_type;
-    }
+    ss << op_type;
     if (out()->getDataType().value() == DataType::Float &&
         needFloatSuffix(op_type)) {
       ss << "f";
@@ -648,7 +662,7 @@ ArrayConstruct::ArrayConstruct(
     }
   }
   auto expected_output_dtype =
-      ArrayOf{std::make_shared<DataType>(input_dtype), inputs.size()};
+      ArrayType{std::make_shared<DataType>(input_dtype), inputs.size()};
   TORCH_CHECK(
       output->getDataType() == expected_output_dtype,
       "Output of ArrayConstruct must be an array of the same data type as the inputs");
@@ -675,13 +689,64 @@ std::vector<PolymorphicValue> ArrayConstruct::evaluate(
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(ArrayConstruct)
 
+ReverseArray::ReverseArray(IrBuilderPasskey passkey, Val* output, Val* input)
+    : Expr(passkey) {
+  TORCH_INTERNAL_ASSERT(
+      std::holds_alternative<ArrayType>(input->dtype().type),
+      "Cannot reverse a non-array type.");
+  TORCH_INTERNAL_ASSERT(
+      std::holds_alternative<ArrayType>(output->dtype().type),
+      "Cannot reverse a non-array type.");
+  auto input_array_type = std::get<ArrayType>(input->dtype().type);
+  auto output_array_type = std::get<ArrayType>(output->dtype().type);
+  TORCH_INTERNAL_ASSERT(
+      input_array_type.type == output_array_type.type,
+      "Cannot reverse an array of type ",
+      input_array_type.type,
+      " into an array of type ",
+      output_array_type.type);
+  TORCH_INTERNAL_ASSERT(
+      input_array_type.size == output_array_type.size,
+      "Cannot reverse an array of size ",
+      input_array_type.size,
+      " into an array of size ",
+      output_array_type.size);
+  addOutput(output);
+  addInput(input);
+}
+
+std::string ReverseArray::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << out()->toString() << " = ReverseArray("
+                          << in()->toString() << ")\n";
+  return ss.str();
+}
+
+std::string ReverseArray::toInlineString(int indent_size) const {
+  std::stringstream ss;
+  ss << "ReverseArray(" << in()->toInlineString() << ")";
+  return ss.str();
+}
+
+std::vector<PolymorphicValue> ReverseArray::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  TORCH_INTERNAL_ASSERT(inputs.size() == 1, "ReverseArray expects 1 input");
+  PolymorphicValue array = inputs.at(0);
+  auto& vec = array.as<std::vector>();
+  std::reverse(vec.begin(), vec.end());
+  return {std::move(array)};
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(ReverseArray)
+
 GetItem::GetItem(IrBuilderPasskey passkey, Val* output, Val* array, Val* index)
     : Expr(passkey) {
   addOutput(output);
   addInput(array);
   addInput(index);
   TORCH_INTERNAL_ASSERT(
-      *(std::get<ArrayOf>(array->dtype().type).type) == output->dtype(),
+      *(std::get<ArrayType>(array->dtype().type).type) == output->dtype(),
       "GetItem array input must have a data type");
 }
 
@@ -708,6 +773,78 @@ std::vector<PolymorphicValue> GetItem::evaluate(
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(GetItem)
 
+StructConstruct::StructConstruct(
+    IrBuilderPasskey passkey,
+    Val* output,
+    const std::vector<std::pair<std::string, Val*>>& fields)
+    : Expr(passkey) {
+  TORCH_INTERNAL_ASSERT(
+      !fields.empty(), "Cannot create a struct with no members.");
+  auto output_dtype = std::get<StructType>(output->dtype().type);
+  TORCH_INTERNAL_ASSERT(
+      output_dtype.fields.size() == fields.size(),
+      "StructConstruct output must have the same number of fields as the inputs");
+  auto it = output_dtype.fields.begin();
+  for (const auto& field : fields) {
+    TORCH_INTERNAL_ASSERT(
+        it->name == field.first,
+        "StructConstruct field names must match the output");
+    TORCH_INTERNAL_ASSERT(
+        *(it->type) == field.second->dtype(),
+        "StructConstruct field ",
+        field.first,
+        " must have the same data type as the output");
+    addDataAttribute(field.first);
+    addInput(field.second);
+    it++;
+  }
+  addOutput(output);
+}
+
+std::string StructConstruct::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << out()->toString() << " = { ";
+  for (int64_t i : c10::irange((int64_t)inputs().size())) {
+    if (i > 0) {
+      ss << ", ";
+    }
+    ss << attribute<std::string>(i) << " = " << input(i)->toString();
+  }
+  ss << " }\n";
+  return ss.str();
+}
+
+std::string StructConstruct::toInlineString(int indent_size) const {
+  std::stringstream ss;
+  ss << "{ ";
+  for (int64_t i : c10::irange((int64_t)inputs().size())) {
+    if (i > 0) {
+      ss << ", ";
+    }
+    ss << attribute<std::string>(i) << " = " << input(i)->toInlineString();
+  }
+  ss << " }";
+  return ss.str();
+}
+
+std::vector<PolymorphicValue> StructConstruct::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  TORCH_INTERNAL_ASSERT(
+      this->inputs().size() == inputs.size(),
+      "StructConstruct expects ",
+      this->inputs().size(),
+      " inputs");
+  PolymorphicValue struct_ =
+      std::get<StructType>(output(0)->dtype().type).create();
+  for (int64_t i : c10::irange((int64_t)inputs.size())) {
+    struct_->*attribute<std::string>(i) = inputs.at(i);
+  }
+  return {std::move(struct_)};
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(StructConstruct)
+
 GetAttr::GetAttr(
     IrBuilderPasskey passkey,
     Val* output,
@@ -715,8 +852,8 @@ GetAttr::GetAttr(
     std::string attr)
     : Expr(passkey) {
   TORCH_INTERNAL_ASSERT(
-      NVFUSER_MAYBE_STAR std::get<StructOf>(struct_->dtype().type)
-              .types.at(attr) == output->dtype(),
+      std::get<StructType>(struct_->dtype().type).fieldDataType(attr) ==
+          output->dtype(),
       "Data type mismatch for GetAttr");
   addOutput(output);
   addInput(struct_);
@@ -740,7 +877,7 @@ std::vector<PolymorphicValue> GetAttr::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
   TORCH_INTERNAL_ASSERT(inputs.size() == 1, "GetAttr expects 1 input");
-  return {inputs.at(0)[attr()]};
+  return {inputs.at(0)->*attr()};
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(GetAttr)
@@ -763,7 +900,7 @@ std::string GetMetaData::toString(int indent_size) const {
 
 std::string GetMetaData::toInlineString(int indent_size) const {
   std::stringstream ss;
-  ss << "getMetaData(" << in()->toInlineString() << ")";
+  ss << "getMetaData(" << ir_utils::varName(in()) << ")";
   return ss.str();
 }
 
@@ -1920,8 +2057,8 @@ ExpandOp::ExpandOp(
   for (auto expanded_extent : _expanded_extents) {
     TORCH_INTERNAL_ASSERT(expanded_extent != nullptr);
     TORCH_INTERNAL_ASSERT(
-        expanded_extent->dtype() == DataType::Int,
-        "Expanded extents must be of Int type.");
+        expanded_extent->dtype() == DataType::Index,
+        "Expanded extents must be of index type.");
     addInput(expanded_extent);
   }
 }
@@ -2293,15 +2430,27 @@ IterDomain::IterDomain(
   // and rfactor.
 
   TORCH_INTERNAL_ASSERT(
-      extent->isIntegralScalar(),
-      "Cannot create an iter domain over an extent that is not an int but received ",
-      extent,
+      extent->dtype() == DataType::Index,
+      "Cannot create an iter domain over an extent that is not an nvfuser_index_t but received ",
+      extent->dtype(),
       " .");
 
   TORCH_INTERNAL_ASSERT(
-      start->isIntegralScalar(),
-      "Cannot create an iter domain with a start that is not an int but received ",
-      start,
+      expanded_extent == nullptr || expanded_extent->dtype() == DataType::Index,
+      "Cannot create an iter domain over an expanded_extent that is not an nvfuser_index_t but received ",
+      expanded_extent->dtype(),
+      " .");
+
+  TORCH_INTERNAL_ASSERT(
+      start->dtype() == DataType::Index,
+      "Cannot create an iter domain with a start that is not an nvfuser_index_t but received ",
+      start->dtype(),
+      " .");
+
+  TORCH_INTERNAL_ASSERT(
+      stop_offset_->dtype() == DataType::Index,
+      "Cannot create an iter domain with a stop_offset_ that is not an nvfuser_index_t but received ",
+      stop_offset_->dtype(),
       " .");
 }
 
@@ -2512,21 +2661,6 @@ std::pair<IterDomain*, IterDomain*> IterDomain::split(
   TORCH_CHECK(
       factor->isIntegralScalar(), "Cannot split by non-integer value ", factor);
 
-  if (factor->getValType() == ValType::Others) {
-    TORCH_CHECK(
-        factor->isConstScalar() ||
-            (FusionGuard::getCurFusion() == factor->fusion() &&
-             factor->isFusionInput()),
-        factor,
-        " is not a constant nor an input. It must be one or the other to be used in a split.",
-        " If you want a symbolic split based on a thread dimension please use IterDomain::split(IterDomain*, ParallelType);");
-  } else if (factor->getValType() == ValType::NamedScalar) {
-    TORCH_CHECK(
-        factor->as<NamedScalar>()->getParallelDim() != std::nullopt,
-        "Splitting a dimension by a named scalar is only supported on block or grid dimensions but received ",
-        factor);
-  }
-
   // outer loop size
   Val* remainder =
       ceilDiv(Split::extent(in->extent(), start_offset, stop_offset), factor);
@@ -2589,7 +2723,10 @@ std::pair<IterDomain*, IterDomain*> IterDomain::split(
 std::pair<IterDomain*, IterDomain*> IterDomain::stridedSplit(int64_t factor) {
   // Use partial split so that only valid values are retained
   auto split_out = IterDomain::split(
-      this, IrBuilder::create<Val>(container(), factor), true, true);
+      this,
+      IrBuilder::create<Val>(container(), factor, DataType::Index),
+      true,
+      true);
 
   split_out.second->iter_type_ = IterType::Stride;
   split_out.first->is_rfactor_domain_ = true;
@@ -2647,6 +2784,19 @@ IterDomain* IterDomain::resize(
       "Expansion factor must be an integer scalar: ",
       right_expansion->toString());
 
+  if (left_expansion->isConstInt() && right_expansion->isConstInt()) {
+    auto left = left_expansion->evaluateInt();
+    auto right = right_expansion->evaluateInt();
+    if (left == 0 && right == 0) {
+      // This is a trivial resize. Check that we are not changing the IterType,
+      // then return the input.
+      TORCH_CHECK(
+          !iter_type_opt.has_value() ||
+              iter_type_opt.value() == in->getIterType(),
+          "If IterType is specified in pad with zero expansion then it must match input");
+      return in;
+    }
+  }
   TORCH_CHECK(
       in->getIterType() == IterType::Iteration ||
           in->getIterType() == IterType::Broadcast ||
@@ -2687,12 +2837,13 @@ IterDomain* IterDomain::resize(
   if (iter_type_opt.has_value()) {
     iter_type = iter_type_opt.value();
   } else if (left_expansion->isConstInt() && right_expansion->isConstInt()) {
+    auto left = left_expansion->evaluateInt();
+    auto right = right_expansion->evaluateInt();
     if (resized_id_size->isConstInt()) {
       // Means input extent is also known
       auto out_extent = resized_id_size->evaluateInt();
       iter_type = out_extent == 1 ? IterType::Broadcast : IterType::Iteration;
-    } else if (
-        left_expansion->evaluateInt() + right_expansion->evaluateInt() > 1) {
+    } else if (left + right > 1) {
       // Input extent is non-negative, so we know out_extent > 1
       iter_type = IterType::Iteration;
     }
@@ -2913,6 +3064,17 @@ TensorDomain::TensorDomain(
   has_reduction_ = false;
   resetDomains();
 }
+
+TensorDomain::TensorDomain(IrBuilderPasskey passkey, const TensorDomain* src)
+    : Val(passkey, ValType::TensorDomain, DataType::Null),
+      root_domain_(src->root_domain_),
+      rfactor_domain_(src->rfactor_domain_),
+      allocation_domain_(src->allocation_domain_),
+      leaf_domain_(src->leaf_domain_),
+      no_bcast_domain_(src->no_bcast_domain_),
+      no_reduction_domain_(src->no_reduction_domain_),
+      contiguity_(src->contiguity_),
+      has_reduction_(src->has_reduction_) {}
 
 TensorDomain::TensorDomain(const TensorDomain* src, IrCloner* ir_cloner)
     : Val(src, ir_cloner),
@@ -3620,11 +3782,6 @@ bool NamedScalar::sameAs(const Statement* other) const {
   return other->as<NamedScalar>()->name().compare(name()) == 0;
 }
 
-bool NamedScalar::isTensorSize() const {
-  static const std::regex r(R"(T\d+\.\w*size\[\d+\])");
-  return std::regex_match(name(), r);
-}
-
 NamedScalar* NamedScalar::getParallelDim(ParallelType p_type) {
   TORCH_INTERNAL_ASSERT(
       isParallelTypeThread(p_type),
@@ -3632,13 +3789,13 @@ NamedScalar* NamedScalar::getParallelDim(ParallelType p_type) {
       p_type);
   TORCH_INTERNAL_ASSERT(FusionGuard::getCurFusion() != nullptr);
   std::string parallel_dim = stringifyThreadSize(p_type);
-  return IrBuilder::create<NamedScalar>(parallel_dim, DataType::Int);
+  return IrBuilder::create<NamedScalar>(parallel_dim, DataType::Index);
 }
 
 NamedScalar* NamedScalar::getParallelIndex(ParallelType p_type) {
   TORCH_INTERNAL_ASSERT(FusionGuard::getCurFusion() != nullptr);
   std::string parallel_ind = stringifyThread(p_type);
-  return IrBuilder::create<NamedScalar>(parallel_ind, DataType::Int);
+  return IrBuilder::create<NamedScalar>(parallel_ind, DataType::Index);
 }
 
 std::optional<ParallelType> NamedScalar::getParallelDim() const {

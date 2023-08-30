@@ -132,7 +132,6 @@ TEST_F(IndexingOpTest, Scatter1DIndexZerosSelfTvSameShape_CUDA) {
 // dim.
 TEST_F(IndexingOpTest, TorchGatherAllRankAllSelectedDim_CUDA) {
   const int max_dim_size = 64;
-  std::srand(0);
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   for (const auto is_take_along : {false, true}) {
@@ -172,7 +171,6 @@ TEST_F(IndexingOpTest, TorchGatherAllRankAllSelectedDim_CUDA) {
 // Test the fusion support of gather operator(producer) and elemetwise(consumer)
 TEST_F(IndexingOpTest, TorchGatherAddMul_CUDA) {
   const int max_dim_size = 64;
-  std::srand(0);
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   for (const auto is_take_along : {false, true}) {
@@ -218,7 +216,6 @@ TEST_F(IndexingOpTest, TorchGatherAddMul_CUDA) {
 // Test the fusion support of index tensor as fusion input in gather operator
 TEST_F(IndexingOpTest, AddGatherSumAdd_CUDA) {
   const int max_dim_size = 8;
-  std::srand(0);
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   for (const auto is_take_along : {false, true}) {
@@ -267,7 +264,6 @@ TEST_F(IndexingOpTest, AddGatherSumAdd_CUDA) {
 // Test the fusion support of gather operator and reduce
 TEST_F(IndexingOpTest, TorchGatherSumAdd_CUDA) {
   const int max_dim_size = 32;
-  std::srand(0);
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   for (const auto is_take_along : {false, true}) {
@@ -323,7 +319,6 @@ TEST_F(IndexingOpTest, TorchGatherSumAdd_CUDA) {
 // Test the correctness when input/index tensor is very large
 TEST_F(IndexingOpTest, TorchGatherAddMulHugeSize_CUDA) {
   const int max_dim_size = 16384;
-  std::srand(0);
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   for (const auto is_take_along : {false, true}) {

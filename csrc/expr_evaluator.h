@@ -23,28 +23,37 @@ class PrecomputedValues;
 
 //! Calculate Fusion IR expressions
 class TORCH_CUDA_CU_API ExpressionEvaluator {
-  void bind_(const Val* value, const PolymorphicValue& concrete_value);
-  void bind_(const std::string& name, const PolymorphicValue& concrete_value);
+  void bind_(
+      const Val* value,
+      PolymorphicValue concrete_value,
+      bool evaluate_validate);
+  void bind_(const std::string& name, PolymorphicValue concrete_value);
 
  public:
   //! Bind a concrete value to an IR variable
-  void bind(const Val* value, const PolymorphicValue& concrete_value) {
-    bind_(value, concrete_value);
+  //! If evaluate_validate is true, and value is evaluatable with the
+  //! information already known, then evaluate and validate the value with the
+  //! concrete value.
+  void bind(
+      const Val* value,
+      PolymorphicValue concrete_value,
+      bool evaluate_validate = false) {
+    bind_(value, std::move(concrete_value), evaluate_validate);
   }
 
   //! Bind a concrete value to a named scalar
-  void bind(const std::string& name, const PolymorphicValue& concrete_value) {
-    bind_(name, concrete_value);
+  void bind(const std::string& name, PolymorphicValue concrete_value) {
+    bind_(name, std::move(concrete_value));
   }
 
   //! Set a concrete value for a parallel dimension
-  void bind(ParallelType pt, const PolymorphicValue& concrete_value);
+  void bind(ParallelType pt, PolymorphicValue concrete_value);
 
   //! Try to evaluate a Fusion IR value
-  PolymorphicValue evaluate(const Val* value);
+  const PolymorphicValue& evaluate(const Val* value);
 
   //! Try to evaluate a parallel dimension
-  PolymorphicValue evaluate(ParallelType pt);
+  const PolymorphicValue& evaluate(ParallelType pt);
 
   //! Debugging helper, prints all the currently known values
   void print() const;
@@ -67,7 +76,7 @@ class TORCH_CUDA_CU_API ExpressionEvaluator {
   ExpressionEvaluator clone(IrCloner& ir_cloner) const;
 
  private:
-  PolymorphicValue getValue(const Val* value);
+  const PolymorphicValue& getValue(const Val* value);
 
  private:
   // TODO: Consider make this const. It can't be const as bind() of
@@ -79,6 +88,7 @@ class TORCH_CUDA_CU_API ExpressionEvaluator {
   PrecomputedValues* precomputed_values_ = nullptr;
   std::unordered_map<const Val*, PolymorphicValue> known_values_;
   std::unordered_map<std::string, PolymorphicValue> known_named_scalars_;
+  PolymorphicValue null_ = std::monostate{};
 };
 
 } // namespace nvfuser

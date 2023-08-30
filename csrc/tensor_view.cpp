@@ -106,13 +106,13 @@ TensorView::TensorView(
       } else {
         // if size is not 1, need to expand
         sizes.push_back(
-            builder.expanded_extent(IrBuilder::create<Val>(DataType::Int))
+            builder.expanded_extent(IrBuilder::create<Val>(DataType::Index))
                 .build());
       }
     } else {
       sizes.push_back(IterDomainBuilder(
                           passkey.ir_container_->zeroVal(),
-                          IrBuilder::create<Val>(DataType::Int))
+                          IrBuilder::create<Val>(DataType::Index))
                           .build());
     }
   }
@@ -252,7 +252,8 @@ TensorView::TensorView(const TensorView* src, IrCloner* ir_cloner)
       cpu_scalar_(src->cpu_scalar_),
       has_swizzle_op_(src->has_swizzle_op_),
       compute_with_consumers_(ir_cloner->clone(src->compute_with_consumers_)),
-      compute_with_pos_(src->compute_with_pos_) {}
+      compute_with_pos_(src->compute_with_pos_),
+      promote_reuse_(src->promote_reuse_) {}
 
 // sets cpu_scalar_ value, which is special handling for CPU based zero-dim
 // tensors (i.e. CPU Tensors that only have one value). This is only used if
@@ -670,6 +671,10 @@ TensorView* TensorView::split(
       ". Tensor: ",
       toString());
 
+  if (factor->dtype() != DataType::Index) {
+    factor = castOp(DataType::Index, factor);
+  }
+
   domain()->split(axis_, factor, inner_split, trim_out_of_bounds);
   return this;
 }
@@ -682,7 +687,7 @@ TensorView* TensorView::split(
   // NOTE: safe cast to int64_t, factor (unsigned int) is within int64_t range
   split(
       axis,
-      IrBuilder::create<Val>((int64_t)factor),
+      IrBuilder::create<Val>((int64_t)factor, DataType::Index),
       inner_split,
       trim_out_of_bounds);
   return this;
@@ -1445,7 +1450,7 @@ TensorViewBuilder& TensorViewBuilder::shape(const std::vector<int64_t>& shape) {
   shape_.reserve(shape.size());
   for (int64_t i : shape) {
     if (i == -1) {
-      shape_.emplace_back(IrBuilder::create<Val>(DataType::Int));
+      shape_.emplace_back(IrBuilder::create<Val>(DataType::Index));
     } else if (i == 1) {
       shape_.emplace_back(FusionGuard::getCurFusion()->oneVal());
     } else if (i == 0) {
@@ -1455,7 +1460,7 @@ TensorViewBuilder& TensorViewBuilder::shape(const std::vector<int64_t>& shape) {
           i >= 0,
           "Invalid extent value. ",
           "For a tensor representing a single scalar use ndims = 0 with no sizes set.");
-      shape_.emplace_back(IrBuilder::create<Val>(i));
+      shape_.emplace_back(IrBuilder::create<Val>(i, DataType::Index));
     }
   }
   return *this;
@@ -1505,12 +1510,13 @@ TensorView* TensorViewBuilder::build() const {
       shape_extent = &expanded_extent;
     }
     if (shape_.empty()) {
-      *shape_extent = IrBuilder::create<Val>(DataType::Int);
+      *shape_extent = IrBuilder::create<Val>(DataType::Index);
     } else {
-      *shape_extent = shape_.at(i);
+      *shape_extent =
+          SimplifyingIrBuilder::maybeCastExpr(DataType::Index, shape_.at(i));
     }
     IterDomainBuilder builder(FusionGuard::getCurFusion()->zeroVal(), extent);
-    if (extent->isOneInt()) {
+    if (extent->isConstScalar() && extent->evaluateInt() == 1) {
       builder.iter_type(IterType::Broadcast);
     }
     if (expanded_extent != nullptr) {

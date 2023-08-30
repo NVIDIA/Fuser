@@ -14,6 +14,7 @@
 #include <ir/all_nodes.h>
 #include <ir/cloner.h>
 #include <ir/printer.h>
+#include <serde/fusion_cache_generated.h>
 #include <utils.h>
 
 #include <c10/core/DeviceType.h>
@@ -111,7 +112,7 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
 
   // function to query whether a `FusionExecutor` has a compiled kernel to
   // execute
-  bool compiled() const {
+  bool isCompiled() const {
     return fusion_id_ != -1 && lowered_ && compiled_kernel_.function != nullptr;
   };
 
@@ -249,6 +250,16 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
     disable_parameter_cache_ = true;
   }
 
+  //! Serialize Fusion Executor using flatbuffers
+  flatbuffers::Offset<serde::FusionExecutor> serialize(
+      flatbuffers::FlatBufferBuilder& builder) const;
+
+  //! Deserialize Fusion Executor using flatbuffers
+  void deserialize(
+      const serde::FusionExecutor* buffer,
+      Fusion* fusion,
+      CompileParams compile_params);
+
  private:
   static std::string kernelNamespace() {
     return "CudaCodeGen";
@@ -257,19 +268,21 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
   LaunchParams computeLaunchParams(
       const LaunchParams& launch_constraints,
       ExpressionEvaluator& expr_eval,
-      const int64_t warp_size);
+      const int64_t warp_size,
+      DataType index_dtype);
 
   int64_t computeSharedMemory(
       ExpressionEvaluator& expr_eval,
       const std::vector<const kir::Allocate*>& buffers,
-      bool align_padding = false,
-      int64_t total = 0);
+      DataType index_dtype,
+      int64_t smem_offset = 0);
 
   //! Return information necessay for allocating intermediate tensors,
   //! including temporary work buffers as well as intermediate
   //! global-memory tensors
   std::vector<GlobalBufferInfo> getIntermediateBufferInfo(
-      ExpressionEvaluator& expr_eval);
+      ExpressionEvaluator& expr_eval,
+      DataType index_dtype);
 
   //! Return information necessay for allocating output tensors. Input
   //! and output tensors are allowed to alias each other, which is
@@ -277,7 +290,8 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
   std::vector<GlobalBufferInfo> getOutputBufferInfo(
       const KernelArgumentHolder& args,
       ExpressionEvaluator& expr_eval,
-      const std::vector<std::pair<int, int>>& input_to_output_aliases);
+      const std::vector<std::pair<int, int>>& input_to_output_aliases,
+      DataType index_dtype);
 
   void setUsedTVs();
 
@@ -295,7 +309,8 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
       const KernelArgumentHolder& args,
       const LaunchParams& launch_constraints,
       const CompileParams& compile_params,
-      const std::vector<at::Tensor>& outputs);
+      const std::vector<at::Tensor>& outputs,
+      DataType index_type);
 
   std::unique_ptr<PrecomputedValues>& evaluatorPrecomputedValues();
 
@@ -304,6 +319,28 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
   void recompileKernel(
       const LaunchParams& new_launch_params,
       const CompileParams& new_compile_params);
+
+  // ExecutorEntry is an internal POD struct for the FusionExecutor class.
+  // We define ExecutorEntry's serialize and deserialize as private methods in
+  // FusionExecutor.
+  flatbuffers::Offset<serde::ExecutorEntry> serialize(
+      flatbuffers::FlatBufferBuilder& builder,
+      const ExecutorEntry& data) const;
+
+  //! Deserialize ExecutorEntry using flatbuffers
+  ExecutorEntry deserialize(const serde::ExecutorEntry* buffer);
+
+  // GlobalBufferInfo is an internal POD struct for the FusionExecutor class.
+  // We define GlobalBufferInfo's serialize and deserialize as private methods
+  // in FusionExecutor.
+  flatbuffers::Offset<serde::GlobalBufferInfo> serialize(
+      flatbuffers::FlatBufferBuilder& builder,
+      const GlobalBufferInfo& data,
+      int64_t tv_position,
+      bool is_fusion_output) const;
+
+  //! Deserialize GlobalBufferInfo using flatbuffers
+  GlobalBufferInfo deserialize(const serde::GlobalBufferInfo* buffer);
 
   //! Get the current dynamic shared memory size
   int64_t getAvailableDynamicSmemSize();

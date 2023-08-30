@@ -127,7 +127,13 @@ class TORCH_CUDA_CU_API FusionDefinition : public FusionState {
   std::vector<at::Tensor> execute(
       const at::ArrayRef<c10::IValue>& inputs,
       bool override_user_schedule,
+      bool capture_debug_output,
       std::optional<int8_t> device) const;
+  //! Return debugging output captured through exeuction with
+  //! capture_debug_output=true
+  std::optional<std::string> getDebugOutput() const {
+    return debug_output_;
+  }
   //! Return the unscheduled Fusion IR
   std::string fusionIr();
   //! Return the Cuda code for the last executed set of inputs
@@ -225,6 +231,9 @@ class TORCH_CUDA_CU_API FusionDefinition : public FusionState {
 
   Operators ops;
   SchedOperators sched;
+
+ private:
+  mutable std::optional<std::string> debug_output_ = std::nullopt;
 };
 
 } // namespace nvfuser::python_frontend

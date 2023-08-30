@@ -13,6 +13,7 @@
 #include <ir/iostream.h>
 #include <ir/utils.h>
 #include <polymorphic_value.h>
+#include <tensor_metadata.h>
 
 namespace nvfuser {
 
@@ -314,7 +315,7 @@ inferAndValidateAllocationSizesAndStrides(
           stride);
     }
   }
-  return {sizes, strides};
+  return {std::move(sizes), std::move(strides)};
 }
 
 } // namespace
@@ -328,20 +329,31 @@ std::vector<PolymorphicValue> GetMetaData::evaluate(
       "Currently, GetMetaData only supports TensorView");
   TensorView* tv = in()->as<TensorView>();
 
-  at::Tensor input = inputs.at(0).as<at::Tensor>();
+  const at::Tensor& input = inputs.at(0).as<at::Tensor>();
 
-  Struct<PolymorphicValue> concrete_value;
-  concrete_value["data"] =
-      PolymorphicValue(Pointer(input.data_ptr(), tv->dtype()));
-  concrete_value["logical_size"] = PolymorphicValue(input.sizes().vec());
-  concrete_value["logical_stride"] = PolymorphicValue(input.strides().vec());
-  {
+  TORCH_INTERNAL_ASSERT(
+      input.is_cuda() || input.is_meta(),
+      "GetMetaData expects a CUDA tensor as input, but got undefined tensor");
+
+  std::shared_ptr<Struct> struct_ = std::make_shared<TensorMetaData>();
+  TensorMetaData* metadata = (TensorMetaData*)struct_.get();
+  metadata->dtype =
+      std::get<PrimDataType>(aten_to_data_type(input.scalar_type()).type);
+  metadata->data = input.data_ptr();
+  metadata->logical_size = input.sizes();
+  metadata->logical_stride = input.strides();
+  if (tv->hasAllocation()) {
     auto allocation_data =
         inferAndValidateAllocationSizesAndStrides(input, tv, ee);
-    concrete_value["alloc_size"] = std::move(allocation_data.first);
-    concrete_value["alloc_stride"] = std::move(allocation_data.second);
+    metadata->alloc_size_data = std::move(allocation_data.first);
+    metadata->alloc_size = c10::makeArrayRef(metadata->alloc_size_data);
+    metadata->alloc_stride_data = std::move(allocation_data.second);
+    metadata->alloc_stride = c10::makeArrayRef(metadata->alloc_stride_data);
+  } else {
+    metadata->alloc_size = input.sizes();
+    metadata->alloc_stride = input.strides();
   }
-  return {PolymorphicValue(concrete_value)};
+  return {PolymorphicValue(std::move(struct_))};
 }
 
 } // namespace nvfuser

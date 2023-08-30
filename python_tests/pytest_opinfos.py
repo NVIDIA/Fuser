@@ -23,6 +23,8 @@ from pytest_input_generators import (
     define_tensor_error_generator,
     define_vector_constant_error_generator,
     define_vector_input_error_generator,
+    elementwise_binary_generator,
+    _elementwise_binary_torch,
     elementwise_unary_generator,
     _elementwise_unary_torch,
     full_error_generator,
@@ -45,7 +47,14 @@ from pytest_input_generators import (
     vector_at_error_generator,
     where_error_generator,
 )
-from pytest_utils import int_float_dtypes, float_complex_dtypes, ArgumentType
+from pytest_utils import (
+    bool_int_dtypes,
+    int_dtypes,
+    full_precision_float_dtypes,
+    int_float_dtypes,
+    float_complex_dtypes,
+    ArgumentType,
+)
 from functools import partial
 from typing import List
 
@@ -90,7 +99,7 @@ fusion_input_ops.append(define_vector_input_opinfo)
 """ End Fusion Input Operations """
 
 """ Start Unary-Float Operations """
-elementwise_unary_ops = []
+unary_ops = []
 
 abs_opinfo = OpInfo(
     lambda fd: fd.ops.abs,
@@ -98,7 +107,7 @@ abs_opinfo = OpInfo(
     sample_input_generator=elementwise_unary_generator,
     reference=_elementwise_unary_torch(torch.abs),
 )
-elementwise_unary_ops.append(abs_opinfo)
+unary_ops.append(abs_opinfo)
 
 acos_opinfo = OpInfo(
     lambda fd: fd.ops.acos,
@@ -107,7 +116,7 @@ acos_opinfo = OpInfo(
     sample_input_generator=elementwise_unary_generator,
     reference=_elementwise_unary_torch(torch.acos),
 )
-elementwise_unary_ops.append(acos_opinfo)
+unary_ops.append(acos_opinfo)
 
 acosh_opinfo = OpInfo(
     lambda fd: fd.ops.acosh,
@@ -116,7 +125,7 @@ acosh_opinfo = OpInfo(
     sample_input_generator=elementwise_unary_generator,
     reference=_elementwise_unary_torch(torch.acosh),
 )
-elementwise_unary_ops.append(acosh_opinfo)
+unary_ops.append(acosh_opinfo)
 
 asin_opinfo = OpInfo(
     lambda fd: fd.ops.asin,
@@ -125,7 +134,7 @@ asin_opinfo = OpInfo(
     sample_input_generator=elementwise_unary_generator,
     reference=_elementwise_unary_torch(torch.asin),
 )
-elementwise_unary_ops.append(asin_opinfo)
+unary_ops.append(asin_opinfo)
 
 asinh_opinfo = OpInfo(
     lambda fd: fd.ops.asinh,
@@ -133,7 +142,7 @@ asinh_opinfo = OpInfo(
     sample_input_generator=elementwise_unary_generator,
     reference=_elementwise_unary_torch(torch.asinh),
 )
-elementwise_unary_ops.append(asinh_opinfo)
+unary_ops.append(asinh_opinfo)
 
 atan_opinfo = OpInfo(
     lambda fd: fd.ops.atan,
@@ -141,7 +150,7 @@ atan_opinfo = OpInfo(
     sample_input_generator=elementwise_unary_generator,
     reference=_elementwise_unary_torch(torch.atan),
 )
-elementwise_unary_ops.append(atan_opinfo)
+unary_ops.append(atan_opinfo)
 
 atanh_opinfo = OpInfo(
     lambda fd: fd.ops.atanh,
@@ -150,7 +159,26 @@ atanh_opinfo = OpInfo(
     sample_input_generator=elementwise_unary_generator,
     reference=_elementwise_unary_torch(torch.atanh),
 )
-elementwise_unary_ops.append(atanh_opinfo)
+unary_ops.append(atanh_opinfo)
+
+bitwise_not_opinfo = OpInfo(
+    lambda fd: fd.ops.bitwise_not,
+    "bitwise_not",
+    dtypes=bool_int_dtypes,
+    sample_input_generator=elementwise_unary_generator,
+    reference=_elementwise_unary_torch(torch.bitwise_not),
+)
+unary_ops.append(bitwise_not_opinfo)
+
+# TODO add nvfuser exception for int dtypes
+ceil_opinfo = OpInfo(
+    lambda fd: fd.ops.ceil,
+    "ceil",
+    dtypes=full_precision_float_dtypes,
+    sample_input_generator=elementwise_unary_generator,
+    reference=_elementwise_unary_torch(torch.ceil),
+)
+unary_ops.append(ceil_opinfo)
 
 cos_opinfo = OpInfo(
     lambda fd: fd.ops.cos,
@@ -158,7 +186,7 @@ cos_opinfo = OpInfo(
     sample_input_generator=elementwise_unary_generator,
     reference=_elementwise_unary_torch(torch.cos),
 )
-elementwise_unary_ops.append(cos_opinfo)
+unary_ops.append(cos_opinfo)
 
 cosh_opinfo = OpInfo(
     lambda fd: fd.ops.cosh,
@@ -166,7 +194,7 @@ cosh_opinfo = OpInfo(
     sample_input_generator=elementwise_unary_generator,
     reference=_elementwise_unary_torch(torch.cosh),
 )
-elementwise_unary_ops.append(cosh_opinfo)
+unary_ops.append(cosh_opinfo)
 
 erf_opinfo = OpInfo(
     lambda fd: fd.ops.erf,
@@ -175,7 +203,7 @@ erf_opinfo = OpInfo(
     sample_input_generator=elementwise_unary_generator,
     reference=_elementwise_unary_torch(torch.erf),
 )
-elementwise_unary_ops.append(erf_opinfo)
+unary_ops.append(erf_opinfo)
 
 erfc_opinfo = OpInfo(
     lambda fd: fd.ops.erfc,
@@ -184,7 +212,7 @@ erfc_opinfo = OpInfo(
     sample_input_generator=elementwise_unary_generator,
     reference=_elementwise_unary_torch(torch.erfc),
 )
-elementwise_unary_ops.append(erfc_opinfo)
+unary_ops.append(erfc_opinfo)
 
 erfcinv_opinfo = OpInfo(
     lambda fd: fd.ops.erfcinv,
@@ -197,7 +225,7 @@ erfcinv_opinfo = OpInfo(
     sample_input_generator=elementwise_unary_generator,
     reference=_elementwise_unary_torch(lambda x: torch.erfinv(1 - x)),
 )
-elementwise_unary_ops.append(erfcinv_opinfo)
+unary_ops.append(erfcinv_opinfo)
 
 erfinv_opinfo = OpInfo(
     lambda fd: fd.ops.erfinv,
@@ -207,7 +235,7 @@ erfinv_opinfo = OpInfo(
     sample_input_generator=elementwise_unary_generator,
     reference=_elementwise_unary_torch(torch.erfinv),
 )
-elementwise_unary_ops.append(erfinv_opinfo)
+unary_ops.append(erfinv_opinfo)
 
 exp_opinfo = OpInfo(
     lambda fd: fd.ops.exp,
@@ -215,7 +243,7 @@ exp_opinfo = OpInfo(
     sample_input_generator=elementwise_unary_generator,
     reference=_elementwise_unary_torch(torch.exp),
 )
-elementwise_unary_ops.append(exp_opinfo)
+unary_ops.append(exp_opinfo)
 
 exp2_opinfo = OpInfo(
     lambda fd: fd.ops.exp2,
@@ -224,7 +252,7 @@ exp2_opinfo = OpInfo(
     sample_input_generator=elementwise_unary_generator,
     reference=_elementwise_unary_torch(torch.exp2),
 )
-elementwise_unary_ops.append(exp2_opinfo)
+unary_ops.append(exp2_opinfo)
 
 expm1_opinfo = OpInfo(
     lambda fd: fd.ops.expm1,
@@ -233,7 +261,78 @@ expm1_opinfo = OpInfo(
     sample_input_generator=elementwise_unary_generator,
     reference=_elementwise_unary_torch(torch.expm1),
 )
-elementwise_unary_ops.append(expm1_opinfo)
+unary_ops.append(expm1_opinfo)
+
+# TODO add nvfuser exception for int dtypes
+floor_opinfo = OpInfo(
+    lambda fd: fd.ops.floor,
+    "floor",
+    dtypes=full_precision_float_dtypes,
+    sample_input_generator=elementwise_unary_generator,
+    reference=_elementwise_unary_torch(torch.floor),
+)
+unary_ops.append(floor_opinfo)
+
+frac_opinfo = OpInfo(
+    lambda fd: fd.ops.frac,
+    "frac",
+    dtypes=full_precision_float_dtypes,
+    sample_input_generator=elementwise_unary_generator,
+    reference=_elementwise_unary_torch(torch.frac),
+)
+unary_ops.append(frac_opinfo)
+
+isfinite_opinfo = OpInfo(
+    lambda fd: fd.ops.isfinite,
+    "isfinite",
+    sample_input_generator=elementwise_unary_generator,
+    reference=_elementwise_unary_torch(torch.isfinite),
+)
+unary_ops.append(isfinite_opinfo)
+
+isinf_opinfo = OpInfo(
+    lambda fd: fd.ops.isinf,
+    "isinf",
+    sample_input_generator=elementwise_unary_generator,
+    reference=_elementwise_unary_torch(torch.isinf),
+)
+unary_ops.append(isinf_opinfo)
+
+isnan_opinfo = OpInfo(
+    lambda fd: fd.ops.isnan,
+    "isnan",
+    sample_input_generator=elementwise_unary_generator,
+    reference=_elementwise_unary_torch(torch.isnan),
+)
+unary_ops.append(isnan_opinfo)
+
+# NOTE half-precision floating types are not automatically promoted to fp32
+isneginf_opinfo = OpInfo(
+    lambda fd: fd.ops.isneginf,
+    "isneginf",
+    dtypes=full_precision_float_dtypes,
+    sample_input_generator=elementwise_unary_generator,
+    reference=_elementwise_unary_torch(torch.isneginf),
+)
+unary_ops.append(isneginf_opinfo)
+
+# NOTE half-precision floating types are not automatically promoted to fp32
+isposinf_opinfo = OpInfo(
+    lambda fd: fd.ops.isposinf,
+    "isposinf",
+    dtypes=full_precision_float_dtypes,
+    sample_input_generator=elementwise_unary_generator,
+    reference=_elementwise_unary_torch(torch.isposinf),
+)
+unary_ops.append(isposinf_opinfo)
+
+isreal_opinfo = OpInfo(
+    lambda fd: fd.ops.isreal,
+    "isreal",
+    sample_input_generator=elementwise_unary_generator,
+    reference=_elementwise_unary_torch(torch.isreal),
+)
+unary_ops.append(isreal_opinfo)
 
 lgamma_opinfo = OpInfo(
     lambda fd: fd.ops.lgamma,
@@ -243,7 +342,7 @@ lgamma_opinfo = OpInfo(
     sample_input_generator=partial(elementwise_unary_generator, exclude_zero=True),
     reference=_elementwise_unary_torch(torch.lgamma),
 )
-elementwise_unary_ops.append(lgamma_opinfo)
+unary_ops.append(lgamma_opinfo)
 
 log_opinfo = OpInfo(
     lambda fd: fd.ops.log,
@@ -252,7 +351,7 @@ log_opinfo = OpInfo(
     sample_input_generator=partial(elementwise_unary_generator, exclude_zero=True),
     reference=_elementwise_unary_torch(torch.log),
 )
-elementwise_unary_ops.append(log_opinfo)
+unary_ops.append(log_opinfo)
 
 log10_opinfo = OpInfo(
     lambda fd: fd.ops.log10,
@@ -262,7 +361,7 @@ log10_opinfo = OpInfo(
     sample_input_generator=partial(elementwise_unary_generator, exclude_zero=True),
     reference=_elementwise_unary_torch(torch.log10),
 )
-elementwise_unary_ops.append(log10_opinfo)
+unary_ops.append(log10_opinfo)
 
 log1p_opinfo = OpInfo(
     lambda fd: fd.ops.log1p,
@@ -272,7 +371,7 @@ log1p_opinfo = OpInfo(
     sample_input_generator=partial(elementwise_unary_generator, exclude_zero=True),
     reference=_elementwise_unary_torch(torch.log1p),
 )
-elementwise_unary_ops.append(log1p_opinfo)
+unary_ops.append(log1p_opinfo)
 
 log2_opinfo = OpInfo(
     lambda fd: fd.ops.log2,
@@ -281,25 +380,53 @@ log2_opinfo = OpInfo(
     sample_input_generator=partial(elementwise_unary_generator, exclude_zero=True),
     reference=_elementwise_unary_torch(torch.log2),
 )
-elementwise_unary_ops.append(log2_opinfo)
+unary_ops.append(log2_opinfo)
+
+neg_opinfo = OpInfo(
+    lambda fd: fd.ops.neg,
+    "neg",
+    sample_input_generator=elementwise_unary_generator,
+    reference=_elementwise_unary_torch(torch.neg),
+)
+unary_ops.append(neg_opinfo)
 
 reciprocal_opinfo = OpInfo(
     lambda fd: fd.ops.reciprocal,
     "reciprocal",
     domain=Domain(0 + eps, math.inf),
-    sample_input_generator=partial(elementwise_unary_generator, exclude_zero=True),
+    sample_input_generator=partial(
+        elementwise_unary_generator,
+        enable_small_value_testing=False,
+        enable_extremal_value_testing=False,
+        exclude_zero=True,
+    ),
     reference=_elementwise_unary_torch(torch.reciprocal),
 )
-elementwise_unary_ops.append(reciprocal_opinfo)
+unary_ops.append(reciprocal_opinfo)
+
+# TODO add nvfuser exception for int dtypes
+round_opinfo = OpInfo(
+    lambda fd: fd.ops.round,
+    "round",
+    dtypes=full_precision_float_dtypes,
+    sample_input_generator=elementwise_unary_generator,
+    reference=_elementwise_unary_torch(torch.round),
+)
+unary_ops.append(round_opinfo)
 
 rsqrt_opinfo = OpInfo(
     lambda fd: fd.ops.rsqrt,
-    "rqrt",
+    "rsqrt",
     domain=Domain(0 + eps, math.inf),
-    sample_input_generator=partial(elementwise_unary_generator, exclude_zero=True),
+    sample_input_generator=partial(
+        elementwise_unary_generator,
+        enable_small_value_testing=False,
+        enable_extremal_value_testing=False,
+        exclude_zero=True,
+    ),
     reference=_elementwise_unary_torch(torch.rsqrt),
 )
-elementwise_unary_ops.append(rsqrt_opinfo)
+unary_ops.append(rsqrt_opinfo)
 
 sigmoid_opinfo = OpInfo(
     lambda fd: fd.ops.sigmoid,
@@ -307,7 +434,16 @@ sigmoid_opinfo = OpInfo(
     sample_input_generator=elementwise_unary_generator,
     reference=_elementwise_unary_torch(torch.sigmoid),
 )
-elementwise_unary_ops.append(sigmoid_opinfo)
+unary_ops.append(sigmoid_opinfo)
+
+signbit_opinfo = OpInfo(
+    lambda fd: fd.ops.signbit,
+    "signbit",
+    dtypes=int_float_dtypes,
+    sample_input_generator=elementwise_unary_generator,
+    reference=_elementwise_unary_torch(torch.signbit),
+)
+unary_ops.append(signbit_opinfo)
 
 sin_opinfo = OpInfo(
     lambda fd: fd.ops.sin,
@@ -315,7 +451,7 @@ sin_opinfo = OpInfo(
     sample_input_generator=elementwise_unary_generator,
     reference=_elementwise_unary_torch(torch.sin),
 )
-elementwise_unary_ops.append(sin_opinfo)
+unary_ops.append(sin_opinfo)
 
 sinh_opinfo = OpInfo(
     lambda fd: fd.ops.sinh,
@@ -323,7 +459,7 @@ sinh_opinfo = OpInfo(
     sample_input_generator=elementwise_unary_generator,
     reference=_elementwise_unary_torch(torch.sinh),
 )
-elementwise_unary_ops.append(sinh_opinfo)
+unary_ops.append(sinh_opinfo)
 
 sqrt_opinfo = OpInfo(
     lambda fd: fd.ops.sqrt,
@@ -332,7 +468,7 @@ sqrt_opinfo = OpInfo(
     sample_input_generator=elementwise_unary_generator,
     reference=_elementwise_unary_torch(torch.sqrt),
 )
-elementwise_unary_ops.append(sqrt_opinfo)
+unary_ops.append(sqrt_opinfo)
 
 tan_opinfo = OpInfo(
     lambda fd: fd.ops.tan,
@@ -341,7 +477,7 @@ tan_opinfo = OpInfo(
     sample_input_generator=elementwise_unary_generator,
     reference=_elementwise_unary_torch(torch.tan),
 )
-elementwise_unary_ops.append(tan_opinfo)
+unary_ops.append(tan_opinfo)
 
 tanh_opinfo = OpInfo(
     lambda fd: fd.ops.tanh,
@@ -350,9 +486,291 @@ tanh_opinfo = OpInfo(
     sample_input_generator=elementwise_unary_generator,
     reference=_elementwise_unary_torch(torch.tanh),
 )
-elementwise_unary_ops.append(tanh_opinfo)
+unary_ops.append(tanh_opinfo)
+
+# TODO add nvfuser exception for int dtypes
+trunc_opinfo = OpInfo(
+    lambda fd: fd.ops.trunc,
+    "trunc",
+    dtypes=full_precision_float_dtypes,
+    sample_input_generator=elementwise_unary_generator,
+    reference=_elementwise_unary_torch(torch.trunc),
+)
+unary_ops.append(trunc_opinfo)
 
 """ End Unary-Float Operations """
+
+""" Start Binary Operations """
+
+# atan2 --- promote int to float; allows fp16 and bf16
+# nextafter, truediv  --- promote int to float; requires full-precision fp32, fp64
+# ceildiv, div, fmod, mod, remainder, truediv --- except_zero
+# add, mul, pow, sub
+# bitwise_and, bitwise_or, bitwise_xor --- bool_int_only
+# bitwise_left_shift, bitwise_right_shift, logical_right_shift --- int_only
+# eq, ne, ge, gt, le, lt --- compare
+
+# TODO Add "ceildiv" to python_frontend
+# TODO Add support for python reference for "mod".
+# TODO atan2 - complex dtypes are unsupported, but we fail when compiling kernel
+# TODO logical_right_shift - domain of shift parameter is non-zero; Otherwise the result is undefined.
+
+
+binary_ops = []
+
+add_opinfo = OpInfo(
+    lambda fd: fd.ops.add,
+    "add",
+    sample_input_generator=partial(
+        elementwise_binary_generator, enable_extremal_value_testing=False
+    ),
+    reference=_elementwise_binary_torch(torch.add),
+)
+binary_ops.append(add_opinfo)
+
+# TODO complex dtypes are unsupported, but we fail when compiling kernel
+atan2_opinfo = OpInfo(
+    lambda fd: fd.ops.atan2,
+    "atan2",
+    dtypes=int_float_dtypes,
+    sample_input_generator=elementwise_binary_generator,
+    reference=_elementwise_binary_torch(torch.atan2),
+)
+binary_ops.append(atan2_opinfo)
+
+bitwise_and_opinfo = OpInfo(
+    lambda fd: fd.ops.bitwise_and,
+    "bitwise_and",
+    dtypes=bool_int_dtypes,
+    sample_input_generator=elementwise_binary_generator,
+    reference=_elementwise_binary_torch(torch.bitwise_and),
+)
+binary_ops.append(bitwise_and_opinfo)
+
+bitwise_left_shift_opinfo = OpInfo(
+    lambda fd: fd.ops.bitwise_left_shift,
+    "bitwise_left_shift",
+    dtypes=int_dtypes,
+    sample_input_generator=elementwise_binary_generator,
+    reference=_elementwise_binary_torch(torch.bitwise_left_shift),
+)
+binary_ops.append(bitwise_left_shift_opinfo)
+
+bitwise_or_opinfo = OpInfo(
+    lambda fd: fd.ops.bitwise_or,
+    "bitwise_or",
+    dtypes=bool_int_dtypes,
+    sample_input_generator=elementwise_binary_generator,
+    reference=_elementwise_binary_torch(torch.bitwise_or),
+)
+binary_ops.append(bitwise_or_opinfo)
+
+bitwise_right_shift_opinfo = OpInfo(
+    lambda fd: fd.ops.bitwise_right_shift,
+    "bitwise_right_shift",
+    dtypes=int_dtypes,
+    sample_input_generator=elementwise_binary_generator,
+    reference=_elementwise_binary_torch(torch.bitwise_right_shift),
+)
+binary_ops.append(bitwise_right_shift_opinfo)
+
+bitwise_xor_opinfo = OpInfo(
+    lambda fd: fd.ops.bitwise_xor,
+    "bitwise_xor",
+    dtypes=bool_int_dtypes,
+    sample_input_generator=elementwise_binary_generator,
+    reference=_elementwise_binary_torch(torch.bitwise_xor),
+)
+binary_ops.append(bitwise_xor_opinfo)
+
+div_opinfo = OpInfo(
+    lambda fd: fd.ops.div,
+    "div",
+    dtypes=float_complex_dtypes,
+    sample_input_generator=partial(
+        elementwise_binary_generator,
+        enable_small_value_testing=False,
+        enable_extremal_value_testing=False,
+        exclude_zero=True,
+    ),
+    reference=_elementwise_binary_torch(torch.div),
+)
+binary_ops.append(div_opinfo)
+
+eq_opinfo = OpInfo(
+    lambda fd: fd.ops.eq,
+    "eq",
+    sample_input_generator=elementwise_binary_generator,
+    reference=_elementwise_binary_torch(torch.eq),
+)
+binary_ops.append(eq_opinfo)
+
+fmod_opinfo = OpInfo(
+    lambda fd: fd.ops.fmod,
+    "fmod",
+    dtypes=int_float_dtypes,
+    sample_input_generator=partial(elementwise_binary_generator, exclude_zero=True),
+    reference=_elementwise_binary_torch(torch.fmod),
+)
+binary_ops.append(fmod_opinfo)
+
+ge_opinfo = OpInfo(
+    lambda fd: fd.ops.ge,
+    "ge",
+    dtypes=int_float_dtypes,
+    sample_input_generator=elementwise_binary_generator,
+    reference=_elementwise_binary_torch(torch.ge),
+)
+binary_ops.append(ge_opinfo)
+
+gt_opinfo = OpInfo(
+    lambda fd: fd.ops.gt,
+    "gt",
+    dtypes=int_float_dtypes,
+    sample_input_generator=elementwise_binary_generator,
+    reference=_elementwise_binary_torch(torch.gt),
+)
+binary_ops.append(gt_opinfo)
+
+le_opinfo = OpInfo(
+    lambda fd: fd.ops.le,
+    "le",
+    dtypes=int_float_dtypes,
+    sample_input_generator=elementwise_binary_generator,
+    reference=_elementwise_binary_torch(torch.le),
+)
+binary_ops.append(le_opinfo)
+
+# TODO domain of shift parameter greater than zero; Otherwise the result is undefined.
+logical_right_shift_opinfo = OpInfo(
+    lambda fd: fd.ops.logical_right_shift,
+    "logical_right_shift",
+    domain=Domain(0, None),
+    dtypes=int_dtypes,
+    sample_input_generator=partial(
+        elementwise_binary_generator,
+        enable_broadcast_testing=False,
+        enable_extremal_value_testing=False,
+        enable_large_value_testing=False,
+        enable_small_value_testing=False,
+    ),
+    reference=jax.lax.shift_right_logical,
+    reference_type=ReferenceType.Jax,
+)
+binary_ops.append(logical_right_shift_opinfo)
+
+lt_opinfo = OpInfo(
+    lambda fd: fd.ops.lt,
+    "lt",
+    dtypes=int_float_dtypes,
+    sample_input_generator=elementwise_binary_generator,
+    reference=_elementwise_binary_torch(torch.lt),
+)
+binary_ops.append(lt_opinfo)
+
+mod_opinfo = OpInfo(
+    lambda fd: fd.ops.mod,
+    "mod",
+    dtypes=int_dtypes,
+    sample_input_generator=partial(
+        elementwise_binary_generator,
+        exclude_zero=True,
+    ),
+    # Matlab rem (Remainder after Division) function
+    # For more details, see https://www.mathworks.com/help/matlab/ref/rem.html
+    reference=lambda a, b: a - b * torch.trunc(a / b).to(a.dtype),
+)
+binary_ops.append(mod_opinfo)
+
+mul_opinfo = OpInfo(
+    lambda fd: fd.ops.mul,
+    "mul",
+    sample_input_generator=partial(
+        elementwise_binary_generator, enable_extremal_value_testing=False
+    ),
+    reference=_elementwise_binary_torch(torch.mul),
+)
+binary_ops.append(mul_opinfo)
+
+ne_opinfo = OpInfo(
+    lambda fd: fd.ops.ne,
+    "ne",
+    sample_input_generator=elementwise_binary_generator,
+    reference=_elementwise_binary_torch(torch.ne),
+)
+binary_ops.append(ne_opinfo)
+
+nextafter_opinfo = OpInfo(
+    lambda fd: fd.ops.nextafter,
+    "nextafter",
+    dtypes=full_precision_float_dtypes,
+    sample_input_generator=elementwise_binary_generator,
+    reference=_elementwise_binary_torch(torch.nextafter),
+)
+binary_ops.append(nextafter_opinfo)
+
+# complex dtypes --- AssertionError: Tensor-likes are not close!
+pow_opinfo = OpInfo(
+    lambda fd: fd.ops.pow,
+    "pow",
+    dtypes=int_float_dtypes,
+    sample_input_generator=elementwise_binary_generator,
+    reference=_elementwise_binary_torch(torch.pow),
+)
+binary_ops.append(pow_opinfo)
+
+remainder_opinfo = OpInfo(
+    lambda fd: fd.ops.remainder,
+    "remainder",
+    dtypes=int_float_dtypes,
+    sample_input_generator=partial(
+        elementwise_binary_generator,
+        exclude_zero=True,
+        enable_extremal_value_testing=False,
+    ),
+    reference=_elementwise_binary_torch(torch.remainder),
+)
+binary_ops.append(remainder_opinfo)
+
+sub_opinfo = OpInfo(
+    lambda fd: fd.ops.sub,
+    "sub",
+    sample_input_generator=partial(
+        elementwise_binary_generator, enable_extremal_value_testing=False
+    ),
+    reference=_elementwise_binary_torch(torch.sub),
+)
+binary_ops.append(sub_opinfo)
+
+truediv_opinfo = OpInfo(
+    lambda fd: fd.ops.truediv,
+    "truediv",
+    sample_input_generator=partial(
+        elementwise_binary_generator,
+        enable_small_value_testing=False,
+        enable_extremal_value_testing=False,
+        exclude_zero=True,
+    ),
+    reference=_elementwise_binary_torch(torch.true_divide),
+)
+binary_ops.append(truediv_opinfo)
+
+# For int dtypes, nvfuser div op has the semantics of c++ / operator, so its reference is trunc_divide.
+trunc_div_opinfo = OpInfo(
+    lambda fd: fd.ops.div,
+    "trunc_div",
+    dtypes=int_dtypes,
+    sample_input_generator=partial(
+        elementwise_binary_generator,
+        enable_small_value_testing=False,
+        enable_extremal_value_testing=False,
+        exclude_zero=True,
+    ),
+    reference=_elementwise_binary_torch(partial(torch.div, rounding_mode="trunc")),
+)
+binary_ops.append(trunc_div_opinfo)
+
+""" End Binary Operations """
 
 """ Start Ternary Operations """
 
@@ -448,20 +866,52 @@ broadcast_opinfo = OpInfo(
 )
 shape_ops.append(broadcast_opinfo)
 
-broadcast_in_dim_opinfo = OpInfo(
+# NOTE: The constant version of broadcast_in_dim opinfo tests the "shape"
+# argument when a List of Constant Ints is used as an input.
+# The symbolic parameter list lists the argument as "Constant" because
+# otherwise an input is generated to attempt to supply the "shape" arg.
+broadcast_in_dim_constant_opinfo = OpInfo(
     lambda fd: fd.ops.broadcast_in_dim,
-    "broadcast_in_dim",
+    "broadcast_in_dim_constant",
     sample_input_generator=broadcast_in_dim_generator,
     error_input_generator=broadcast_in_dim_error_generator,
     reference=jax.lax.broadcast_in_dim,
     reference_type=ReferenceType.Jax,
     symbolic_parameter_list=(
         ArgumentType.Symbolic,
+        # This argument is purposely Constant even though the positional
+        # argument can also be symbolic.
         ArgumentType.Constant,
         ArgumentType.Constant,
     ),
 )
-shape_ops.append(broadcast_in_dim_opinfo)
+shape_ops.append(broadcast_in_dim_constant_opinfo)
+
+
+# NOTE: The symbolic version of broadcast_in_dim opinfo tests the "shape"
+# argument with a Vector generated from another operation like ops.shape.
+def broadcast_in_dim_sym_fn(fd, arg1, arg2, broadcast_dims):
+    return fd.ops.broadcast_in_dim(arg1, arg2.shape(), broadcast_dims)
+
+
+def jax_broadcast_in_dim_fn(arg1, arg2, broadcast_dims):
+    return jax.lax.broadcast_in_dim(arg1, jax.numpy.shape(arg2), broadcast_dims)
+
+
+broadcast_in_dim_symbolic_opinfo = OpInfo(
+    lambda fd: partial(broadcast_in_dim_sym_fn, fd),
+    "broadcast_in_dim_symbolic",
+    sample_input_generator=broadcast_in_dim_generator,
+    error_input_generator=broadcast_in_dim_error_generator,
+    reference=jax_broadcast_in_dim_fn,
+    reference_type=ReferenceType.Jax,
+    symbolic_parameter_list=(
+        ArgumentType.Symbolic,
+        ArgumentType.Symbolic,
+        ArgumentType.Constant,
+    ),
+)
+shape_ops.append(broadcast_in_dim_symbolic_opinfo)
 
 
 # translate between nvfuser and pytorch argument order for gather, take_along_dim, and index_select
@@ -604,7 +1054,8 @@ tensor_creation_ops.append(iota_opinfo)
 """ End Tensor Creation """
 
 # Puts all opinfos into the "opinfos" list
-opinfos.extend(elementwise_unary_ops)
+opinfos.extend(unary_ops)
+opinfos.extend(binary_ops)
 opinfos.extend(ternary_ops)
 opinfos.extend(fusion_input_ops)
 opinfos.extend(dynamic_shapes_ops)

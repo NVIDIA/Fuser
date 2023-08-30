@@ -177,9 +177,9 @@ class TORCH_CUDA_CU_API ContiguousInnerDimensionsMapper
         ->mapped_rfactor_ids_;
   }
 
-  Val* getProjectedExtent(IterDomain* id) {
+  Val* getProjectedExtent(IterDomain* id) const {
     if (projected_extent_.find(id) == projected_extent_.end()) {
-      projected_extent_[id] = id->container()->oneVal();
+      TORCH_INTERNAL_ASSERT(false, "Not projected: ", id->toString());
     }
     return projected_extent_.at(id);
   }
@@ -189,7 +189,7 @@ class TORCH_CUDA_CU_API ContiguousInnerDimensionsMapper
  private:
   ContiguousInnerDimensionsMapper(
       TensorView* reference,
-      const std::vector<IterDomain*>& reference_ids,
+      const std::vector<IterDomain*>& ids,
       std::shared_ptr<const ComputeAtMap> ca_map,
       const std::unordered_set<Split*>& divisible_splits);
 
@@ -235,6 +235,16 @@ class TORCH_CUDA_CU_API ContiguousInnerDimensionsMapper
     if (!recording_) {
       return;
     }
+
+    TORCH_INTERNAL_ASSERT(
+        projected_extent_.count(id) == 0,
+        "Already registered: ",
+        id->toString(),
+        ", existing: ",
+        projected_extent_.at(id)->toInlineString(),
+        ", new: ",
+        pe->toInlineString());
+
     projected_extent_[id] = pe;
   }
 
@@ -303,6 +313,14 @@ int64_t getVectorizationFactor(
     TensorView* reference_tv,
     HeuristicSummary* data_cache,
     int64_t break_point);
+
+int64_t getVectorizationFactorTransposeGroup(
+    SchedulerRuntimeInfo& runtime_info,
+    TensorView* reference,
+    size_t inner_most_dim,
+    const std::vector<size_t>& dims_to_merge,
+    const std::vector<TensorView*>& vec_tv,
+    int64_t max_vectorization);
 
 //! Find the break point for vectorization. Here, we vectorize either
 //! the innermost reduction or iteration domains. We use the producer

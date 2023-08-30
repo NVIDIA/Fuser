@@ -611,102 +611,55 @@ std::vector<ViewOp*> getViewOps(Fusion* fusion) {
   return view_ops;
 }
 
-namespace {
-
-struct ReplaceValInIndexVal : public OptInDispatch {
- public:
-  //! Apply replacements to index as specified in
-  //! replacement_map. index is assumed to consist only from Int and
-  //! NamedScalar
-  static Val* replace(
-      Val* index,
-      const std::unordered_map<Val*, Val*>& replacement_map) {
-    ReplaceValInIndexVal replace_index_val(replacement_map);
-    replace_index_val.dispatch(index);
-    // Return the original index if not replaced
-    if (replace_index_val.is_replaced_) {
-      return replace_index_val.last_visited_val_;
-    } else {
-      return index;
-    }
-  }
-
- private:
-  ReplaceValInIndexVal(const std::unordered_map<Val*, Val*>& replacement_map)
-      : replacement_map_(replacement_map) {}
-
-  using OptOutDispatch::dispatch;
-  using OptOutDispatch::handle;
-
-  void dispatch(Val* val) override {
-    // if val appears in the replacement map, stop traversing and set
-    // the current val with the replacement
-    auto it = replacement_map_.find(val);
-    if (it != replacement_map_.end()) {
-      last_visited_val_ = it->second;
-      is_replaced_ = true;
-      return;
-    }
-
-    // Recursively traverse its defining expr
-    auto def = val->definition();
-    if (def != nullptr) {
-      if (def->isOneOf<UnaryOp, BinaryOp, TernaryOp>()) {
-        dispatch(val->definition());
-      } else {
-        TORCH_INTERNAL_ASSERT(false, "Unexpected definition: ", def->toString())
-      }
-      // last_visited_val_ is set in the expr handlers
-    } else {
-      last_visited_val_ = val;
-    }
-  }
-
-  // Clone expression after recurisvely replacing inputs
-  void handle(UnaryOp* uop) override {
-    dispatch(uop->in());
-    auto inp = last_visited_val_;
-    auto out = IrBuilder::create<Val>(uop->out()->dtype());
-    IrBuilder::create<UnaryOp>(uop->getUnaryOpType(), out, inp);
-    last_visited_val_ = out;
-  }
-
-  // Clone expression after recurisvely replacing inputs
-  void handle(BinaryOp* bop) override {
-    dispatch(bop->lhs());
-    auto lhs = last_visited_val_;
-    dispatch(bop->rhs());
-    auto rhs = last_visited_val_;
-    auto out = IrBuilder::create<Val>(bop->out()->dtype());
-    IrBuilder::create<BinaryOp>(bop->getBinaryOpType(), out, lhs, rhs);
-    last_visited_val_ = out;
-  }
-
-  // Clone expression after recurisvely replacing inputs
-  void handle(TernaryOp* top) override {
-    dispatch(top->in1());
-    auto in1 = last_visited_val_;
-    dispatch(top->in2());
-    auto in2 = last_visited_val_;
-    dispatch(top->in3());
-    auto in3 = last_visited_val_;
-    auto out = IrBuilder::create<Val>(top->out()->dtype());
-    IrBuilder::create<TernaryOp>(top->getTernaryOpType(), out, in1, in2, in3);
-    last_visited_val_ = out;
-  }
-
- private:
-  const std::unordered_map<Val*, Val*>& replacement_map_;
-  Val* last_visited_val_ = nullptr;
-  bool is_replaced_ = false;
-};
-
-} // namespace
-
-Val* replaceValInIndexVal(
-    Val* index,
+Val* replaceValRecursively(
+    Val* val,
     const std::unordered_map<Val*, Val*>& replacement_map) {
-  return ReplaceValInIndexVal::replace(index, replacement_map);
+  if (replacement_map.find(val) != replacement_map.end()) {
+    return replacement_map.at(val);
+  }
+
+  auto def = val->definition();
+  if (def == nullptr) {
+    return val;
+  }
+
+  TORCH_INTERNAL_ASSERT(def->outputs().size() == 1);
+
+  bool mutated = false;
+
+  std::vector<Val*> mutated_inputs;
+  mutated_inputs.reserve(def->inputs().size());
+  for (auto input : def->inputs()) {
+    auto new_input = replaceValRecursively(input, replacement_map);
+    if (new_input != input) {
+      mutated = true;
+    }
+    mutated_inputs.emplace_back(new_input);
+  }
+
+  std::vector<Statement*> mutated_attrs;
+  mutated_attrs.reserve(def->attributes().size());
+  for (auto attr : def->attributes()) {
+    if (auto attr_val = dynamic_cast<Val*>(attr)) {
+      auto new_attr_val = replaceValRecursively(attr_val, replacement_map);
+      if (new_attr_val != attr_val) {
+        mutated = true;
+      }
+      mutated_attrs.emplace_back(new_attr_val);
+    } else {
+      mutated_attrs.emplace_back(attr);
+    }
+  }
+
+  if (!mutated) {
+    return val;
+  }
+
+  auto out = IrBuilder::create<Val>(val->dtype());
+  auto newObjectFunc = def->newObjectFunc();
+  newObjectFunc(def->container(), mutated_inputs, {out}, mutated_attrs);
+
+  return out;
 }
 
 bool isSqueezeInput(const TensorView* tv) {
@@ -1070,26 +1023,6 @@ std::vector<Statement*> checkCycle(
   return {};
 }
 
-bool dependenciesSatisfied(
-    std::vector<const Val*> needed_vals,
-    std::unordered_set<const Val*> known_vals) {
-  while (!needed_vals.empty()) {
-    auto needed_val = needed_vals.back();
-    needed_vals.pop_back();
-    if (known_vals.count(needed_val) > 0 || needed_val->isConst()) {
-      continue;
-    }
-    auto def = needed_val->definition();
-    if (def == nullptr) {
-      return false;
-    }
-    for (auto input : def->inputs()) {
-      needed_vals.emplace_back(input);
-    }
-  }
-  return true;
-}
-
 bool isAlignedScopeExpr(const Expr* expr) {
   TORCH_INTERNAL_ASSERT(expr != nullptr);
   if (auto ite = dynamic_cast<const kir::IfThenElse*>(expr)) {
@@ -1143,12 +1076,6 @@ inline bool isTensorAttr(const Val* val, const std::string& attr_name) {
 } // namespace
 
 bool isTensorSize(const Val* val) {
-  if (auto ns = dynamic_cast<const NamedScalar*>(val)) {
-    // TODO: remove this
-    if (ns->isTensorSize()) {
-      return true;
-    }
-  }
   return isTensorAttr(val, "logical_size") || isTensorAttr(val, "alloc_size");
 }
 

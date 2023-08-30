@@ -26,6 +26,7 @@ include_patterns = [
     '**/*.h',
     '**/*.cpp',
     '**/*.cu',
+    '**/*.inl',
 ]
 exclude_patterns = [
     'third_party/**',
@@ -50,9 +51,10 @@ is_formatter = true
 [[linter]]
 code = 'CLANGTIDY'
 include_patterns = [
+    '**/*.h',
     '**/*.cpp',
     '**/*.cu',
-    '**/*.h',
+    '**/*.inl',
 ]
 exclude_patterns = [
     'csrc/serde/fusion_cache_generated.h',
