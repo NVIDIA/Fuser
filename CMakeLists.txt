@@ -303,9 +303,16 @@ install(DIRECTORY "${NVFUSER_SRCS_DIR}/"
   PATTERN "csrc/C++20/type_traits"
   PATTERN "csrc/struct.inl")
 
+# TODO guard including flatbuffers headers
 # installing flatbuffers headers
 install(DIRECTORY "${NVFUSER_THIRD_PARTY_DIR}/flatbuffers/include/flatbuffers/"
   DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/nvfuser/flatbuffers")
+
+# installing dynamic_type headers
+install(DIRECTORY "${NVFUSER_SRCS_DIR}/lib/dynamic_type/src/"
+  DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/nvfuser/"
+  FILES_MATCHING
+  PATTERN "*.h")
 
 # -----------------------------
 # build nvfuser python library
