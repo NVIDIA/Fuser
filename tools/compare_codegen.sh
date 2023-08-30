@@ -10,7 +10,7 @@
 # as this commit. For each, it will build the project in release mode then
 # invoke all binary and python tests, saving the generated cuda kernels to .cu
 # files. It will then diff these files and report which ones changed. The exit
-# code is the number of cuda kernels that differ between commits.
+# code is 1 if there are differences.
 #
 # The -r option controls the git ref to compare against. The -o option lets you
 # specify the output directory.
@@ -31,6 +31,10 @@
 # In those cases, the outputs will be placed in a subdirectory of the output
 # directory for each commit labelled "custom_command_$LAUNCHTIME" where
 # $LAUNCHTIME is a string representing the time this script was launched.
+#
+# By default, `python setup.py develop` is used to rebuild the project.
+# You can also set environment variable CUSTOM_BUILD_COMMAND if your build
+# is different.
 
 set -e
 set -o pipefail
@@ -110,7 +114,7 @@ cleanup() {
     git submodule update --init --recursive
 }
 
-trap "cleanup" INT TERM EXIT
+trap "cleanup" EXIT
 
 run_test() {
     testdir=$1
@@ -173,7 +177,8 @@ collect_kernels() {
     # Build in Release mode
     (
         cd $nvfuserdir
-        python setup.py develop
+        CUSTOM_BUILD_COMMAND="${CUSTOM_BUILD_COMMAND:-python setup.py develop}"
+        bash -c "${CUSTOM_BUILD_COMMAND}"
     )
 
     # Make tests reproducible
@@ -207,9 +212,7 @@ cleanup
 
 # Print mismatching files. Note that logs are expected to differ since timings are included
 set +e  # exit status of diff is 1 if there are any mismatches
-diffs=$(diff -qr -x '*.log' "$outdir/$origcommit" "$outdir/$comparecommit")
-echo -e "\n\nDIFF RESULT:\n$diffs\n\n"
+echo -e "\n\nDIFF RESULT:\n"
+diff -qr -x '*.log' "$outdir/$origcommit" "$outdir/$comparecommit" && echo "No difference found"
 
-# Return number of mismatched cuda files. Success=0
-num_mismatches=$(echo "$diffs" | wc -l)
-exit "$num_mismatches"
+exit $?

@@ -671,4 +671,72 @@ at::Tensor atBiasEpilogue(const at::Tensor& tensor, const at::Tensor& bias) {
   return tensor.add(bias.unsqueeze(-1));
 }
 
+size_t getCRandomSeed() {
+  static thread_local bool found_seed = false;
+  static thread_local size_t seed = 0L;
+
+  if (!found_seed) {
+    const char* env_var = "TEST_RANDOM_SEED";
+    auto seed_str = getNvFuserEnv(env_var);
+    if (seed_str) {
+      try {
+        seed = std::stol(seed_str);
+      } catch (const std::exception& e) {
+        std::cerr << "Could not parse environment variable NVFUSER_" << env_var
+                  << std::endl;
+        throw e;
+      }
+    } else {
+      // We default to setting the C random seed to the system time in seconds
+      // since the epoch in order to promote structural randomness in tests. For
+      // example, if a test uses `std::rand()` to choose random sizes or
+      // dimensions, then the number of combinations grows combinatorially.
+      // Using a changing, but controlled, seed like this is helpful in these
+      // cases since it increases the coverage of the test when numerous
+      // different runs of the test suite are considered. When an error is
+      // encountered, we can repeat with that seed  since it will be printed
+      // upon error.
+      seed = std::chrono::duration_cast<std::chrono::seconds>(
+                 std::chrono::system_clock::now().time_since_epoch())
+                 .count();
+    }
+  }
+
+  return seed;
+}
+
+size_t getATenRandomSeed() {
+  static thread_local bool found_seed = false;
+  static thread_local size_t seed = 0L;
+
+  if (!found_seed) {
+    const char* env_var = "TEST_ATEN_RANDOM_SEED";
+    auto seed_str = getNvFuserEnv(env_var);
+    if (seed_str) {
+      try {
+        seed = std::stol(seed_str);
+      } catch (const std::exception& e) {
+        std::cerr << "Could not parse environment variable NVFUSER_" << env_var
+                  << std::endl;
+        throw e;
+      }
+    } else {
+      // We default to setting the ATen seed to zero, instead of system time.
+      // The C PRNG, std::rand() is typically used for structural parameters
+      // such as choosing random sizes or indices. These combinatorial tests
+      // benefit from increased coverage since exhaustive testing would be ideal
+      // but impractical in those cases. ATen randomness, on the other hand, is
+      // typically used for filling in data in test tensors, and results are
+      // then used in inexact matching tests. Those tests pass with high
+      // probability but might fail often were the test exhaustive. By fixing
+      // the default ATen seed to zero, we can avoid some false positive test
+      // failures while still ensuring there is at least one seed for which the
+      // tests pass.
+      seed = 0L;
+    }
+  }
+
+  return seed;
+}
+
 } // namespace nvfuser
