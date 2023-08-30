@@ -192,11 +192,6 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
   int64_t blocks_per_sm_smem = (int64_t)dev_prop->sharedMemPerMultiprocessor /
       (smem_overhead + smem_buffer_size);
   int64_t blocks_per_sm = std::min(blocks_per_sm_regs, blocks_per_sm_smem);
-  std::cout << "sharedMemPerMultiprocessor= "
-            << dev_prop->sharedMemPerMultiprocessor / 1024
-            << ", smem_buffer_size= " << smem_buffer_size / 1024
-            << ", blocks_per_sm_smem= " << blocks_per_sm_smem
-            << ", blocks_per_sm_regs= " << blocks_per_sm_regs << std::endl;
   iop.gdimy = blocks_per_sm * device_multiprocessor_count;
   const int64_t outer_iter_min = 8;
   const int64_t gdimy_max = scheduler_utils::roundUpToN(
@@ -1441,7 +1436,6 @@ void beforeSchedule(
       if (use_smem) {
         tv->setMemoryType(MemoryType::Shared);
       }
-      std::cout << "may_be_smem_tv: " << tv->toString() << std::endl;
     }
   }
 

@@ -907,8 +907,6 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
         sorted_candidate_tvs.push_back(tv);
       }
     }
-    std::cout << "n_broadcast_buffers= " << n_broadcast_buffers
-              << ", n_buffers= " << n_buffers << std::endl;
     // calculate the accumulated buffer size of the first N buffers
     std::vector<int64_t> acc_regs_buffer_sizes(n_buffers + 1, 0);
     std::vector<int64_t> acc_smem_buffer_sizes(n_buffers + 1, 0);
@@ -958,12 +956,6 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
       (buffer_params.smem_buffer_size <= available_smem) &&
       (buffer_params.regs_buffer_size <= available_regs);
 
-  std::cout << "regs_buffer_size: " << buffer_params.regs_buffer_size
-            << ", smem_buffer_size: " << buffer_params.smem_buffer_size
-            << ", available_regs: " << available_regs
-            << ", available_smem: " << available_smem
-            << ", has_enough_regs_and_smem: "
-            << buffer_params.has_enough_regs_and_smem << std::endl;
   TORCH_INTERNAL_ASSERT(
       buffer_params.has_enough_regs_and_smem,
       "Not enough registers and shared memory for persistence! Should return early.");
