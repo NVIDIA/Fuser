@@ -1441,15 +1441,6 @@ class TransposeScheduler : public SchedulerEntry {
   }
 
   static bool canScheduleCompileTime(Fusion* fusion) {
-    // Temporarily disallow view in transpose scheduler
-    // TODO Add more testing before enabling
-    auto view_tvs = scheduler_utils::getViewTVs(fusion);
-    if (!view_tvs.empty()) {
-      scheduler_debug_utils::canScheduleRejectReason(
-          ScheduleHeuristic::Transpose, "No support for view op");
-      return false;
-    }
-
     // Check that inputs of all select/gather-like ops are fusion inputs
     if (rejectScheduleForMemoryPromotion(
             fusion, ScheduleHeuristic::Transpose)) {
