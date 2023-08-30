@@ -2784,6 +2784,19 @@ IterDomain* IterDomain::resize(
       "Expansion factor must be an integer scalar: ",
       right_expansion->toString());
 
+  if (left_expansion->isConstInt() && right_expansion->isConstInt()) {
+    auto left = left_expansion->evaluateInt();
+    auto right = right_expansion->evaluateInt();
+    if (left == 0 && right == 0) {
+      // This is a trivial resize. Check that we are not changing the IterType,
+      // then return the input.
+      TORCH_CHECK(
+          !iter_type_opt.has_value() ||
+              iter_type_opt.value() == in->getIterType(),
+          "If IterType is specified in pad with zero expansion then it must match input");
+      return in;
+    }
+  }
   TORCH_CHECK(
       in->getIterType() == IterType::Iteration ||
           in->getIterType() == IterType::Broadcast ||
@@ -2824,12 +2837,13 @@ IterDomain* IterDomain::resize(
   if (iter_type_opt.has_value()) {
     iter_type = iter_type_opt.value();
   } else if (left_expansion->isConstInt() && right_expansion->isConstInt()) {
+    auto left = left_expansion->evaluateInt();
+    auto right = right_expansion->evaluateInt();
     if (resized_id_size->isConstInt()) {
       // Means input extent is also known
       auto out_extent = resized_id_size->evaluateInt();
       iter_type = out_extent == 1 ? IterType::Broadcast : IterType::Iteration;
-    } else if (
-        left_expansion->evaluateInt() + right_expansion->evaluateInt() > 1) {
+    } else if (left + right > 1) {
       // Input extent is non-negative, so we know out_extent > 1
       iter_type = IterType::Iteration;
     }
