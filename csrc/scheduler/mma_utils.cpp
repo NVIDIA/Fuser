@@ -137,7 +137,7 @@ std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
   // scheduleProlog.
   //
   // The second condition would only be the case if another smem tensor had the
-  // same indexing and its lifetime did not overlap. This scheduler only uses
+  // same indexing and its lifetime did not overlap. Matmul scheduler only uses
   // smem for these three arrays, so the only candidate for aliasing is C. If C
   // aliases either A or B, the following expression is still valid.
   //
