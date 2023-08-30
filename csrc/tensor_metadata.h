@@ -15,10 +15,14 @@ namespace nvfuser {
 struct TensorMetaData : public Struct {
   PrimDataType dtype;
   void* data;
+  // References to the data fields. Does not own the data. The ownership might
+  // belong to at::Tensor or the *_data fields.
   c10::IntArrayRef logical_size;
   c10::IntArrayRef logical_stride;
   c10::IntArrayRef alloc_size;
   c10::IntArrayRef alloc_stride;
+  // The actual data for the above fields. Maybe empty if the fields are not
+  // owned by this object.
   std::vector<int64_t> logical_size_data;
   std::vector<int64_t> logical_stride_data;
   std::vector<int64_t> alloc_size_data;
