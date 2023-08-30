@@ -20,6 +20,7 @@
 #include <ir/utils.h>
 #include <kernel_db/kernel_db.h>
 #include <options.h>
+#include <tensor_metadata.h>
 #include <torch/csrc/jit/resource_guard.h>
 #include <utils.h>
 
@@ -414,7 +415,7 @@ namespace {
 std::pair<std::unordered_set<size_t>, std::unordered_set<IterDomain*>>
 getTensorOffsets(
     TensorView* tv,
-    const std::vector<int64_t>& logical_strides,
+    c10::IntArrayRef logical_strides,
     ExpressionEvaluator& eval) {
   if (!tv->isFusionInput()) {
     return {{0}, {}};
@@ -473,8 +474,8 @@ void validateAlignedVectorizedFusionInputOutput(
   eval.bind(tv, aten_tensor);
   const auto& metadata = eval.evaluate(IrBuilder::metadataExpr(tv));
 
-  const auto [offsets, sliced_domains] = getTensorOffsets(
-      tv, std::vector<int64_t>(metadata["logical_stride"]), eval);
+  const auto [offsets, sliced_domains] =
+      getTensorOffsets(tv, metadata->*&TensorMetaData::logical_stride, eval);
   const bool is_sliced = !sliced_domains.empty();
 
   const auto& domain_to_validate =
@@ -488,10 +489,10 @@ void validateAlignedVectorizedFusionInputOutput(
     }
   }
 
-  const auto& sizes = is_sliced ? metadata["logical_size"].as<std::vector>()
-                                : metadata["alloc_size"].as<std::vector>();
-  const auto& strides = is_sliced ? metadata["logical_stride"].as<std::vector>()
-                                  : metadata["alloc_stride"].as<std::vector>();
+  const auto& sizes = is_sliced ? metadata->*&TensorMetaData::logical_size
+                                : metadata->*&TensorMetaData::alloc_size;
+  const auto& strides = is_sliced ? metadata->*&TensorMetaData::logical_stride
+                                  : metadata->*&TensorMetaData::alloc_stride;
   TORCH_INTERNAL_ASSERT(sizes.size() == no_reduction_to_full.size());
   TORCH_INTERNAL_ASSERT(strides.size() == no_reduction_to_full.size());
 
@@ -520,8 +521,8 @@ void validateAlignedVectorizedFusionInputOutput(
   bool still_rightmost = true;
   bool non_contig_due_to_slice = false;
   for (int64_t i = (int64_t)sizes.size() - 1; i >= 0; --i) {
-    const auto size = sizes.at(i).as<int64_t>();
-    const auto stride = strides.at(i).as<int64_t>();
+    const auto size = sizes.at(i);
+    const auto stride = strides.at(i);
     auto id = domain_to_validate.at(no_reduction_to_full.at(i));
     const auto is_expanded_broadcasting =
         id->isBroadcast() && id->hasExpandedExtent();

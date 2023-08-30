@@ -835,11 +835,11 @@ std::vector<PolymorphicValue> StructConstruct::evaluate(
       "StructConstruct expects ",
       this->inputs().size(),
       " inputs");
-  LegacyStruct<PolymorphicValue> result;
+  PolymorphicValue struct_ = std::get<StructType>(output(0)->dtype().type).create();
   for (int64_t i : c10::irange((int64_t)inputs.size())) {
-    result[attribute<std::string>(i)] = inputs.at(i);
+    struct_->*attribute<std::string>(i) = inputs.at(i);
   }
-  return {std::move(result)};
+  return {std::move(struct_)};
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(StructConstruct)
@@ -876,7 +876,7 @@ std::vector<PolymorphicValue> GetAttr::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
   TORCH_INTERNAL_ASSERT(inputs.size() == 1, "GetAttr expects 1 input");
-  return {inputs.at(0)[attr()]};
+  return {inputs.at(0)->*attr()};
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(GetAttr)
