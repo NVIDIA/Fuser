@@ -266,15 +266,6 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
     disable_parameter_cache_ = true;
   }
 
-  //! Compute the number of elements loaded for input at given position.
-  //!
-  //! Most of the time, this returns arg.numel(). However, some ops like select
-  //! and slice do not load all elements of the input. This method handles these
-  //! cases more carefully in order to reflect the actual number of load
-  //! operations required.
-  int64_t getNumLoadedElements(int64_t input_position, const at::Tensor& arg)
-      const;
-
  private:
   static std::string kernelNamespace() {
     return "CudaCodeGen";
