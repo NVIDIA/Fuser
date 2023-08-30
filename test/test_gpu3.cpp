@@ -32,6 +32,7 @@
 #include <ops/all_ops.h>
 #include <root_domain_map.h>
 #include <scheduler/all_schedulers.h>
+#include <scheduler/normalization_utils.h>
 #include <scheduler/reduction_utils.h>
 #include <scheduler/utils.h>
 #include <test/utils.h>
@@ -9397,11 +9398,28 @@ TEST_F(NVFuserTest, FusionLayerNormSharedMemoryBuffer_CUDA) {
     auto persistent_params =
         getPersistentHeuristics(&fusion, {aten_input, aten_weight, aten_bias});
     TORCH_CHECK(persistent_params, "Persistent schedule was not generated!");
-    if (hidden_size * dataTypeSize(dtype) >
-        scheduler_utils::register_file_size) {
-      TORCH_CHECK(
-          persistent_params->shared_mem_persistent_buffer,
-          "Should use shared memory buffer!");
+
+    //  shared memory if the register file is insufficient but there is ample
+    //  space in shared memory.
+    auto persistent_buffer_size = hidden_size * dataTypeSize(dtype);
+    if (persistent_buffer_size > scheduler_utils::register_file_size) {
+      const auto dev_prop = at::cuda::getCurrentDeviceProperties();
+      auto smem_overhead =
+          normalization_scheduler_utils::getSharedMemoryOverheadPerBlock(
+              &fusion,
+              scheduler_utils::getReductionTvs(&fusion),
+              dev_prop->maxThreadsPerBlock);
+      int64_t available_smem =
+          (int64_t)dev_prop->sharedMemPerBlockOptin - smem_overhead;
+      if (available_smem >= persistent_buffer_size) {
+        TORCH_CHECK(
+            persistent_params->shared_mem_persistent_buffer,
+            "Should use shared memory buffer!",
+            " hidden_size: ",
+            hidden_size,
+            ", dataTypeSize: ",
+            dataTypeSize(dtype));
+      }
     } else {
       TORCH_CHECK(
           !persistent_params->shared_mem_persistent_buffer,

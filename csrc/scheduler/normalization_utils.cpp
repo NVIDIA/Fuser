@@ -869,14 +869,16 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
   // case otherwise it segments at small hidden sizes.
   const auto dev_prop = at::cuda::getCurrentDeviceProperties();
   int64_t available_regs = scheduler_utils::register_file_size;
+  int64_t max_threads_per_block = (int64_t)dev_prop->maxThreadsPerBlock;
   if (buffer_params.combined_reduction) {
     available_regs = vectorize_factor > 1
         ? scheduler_utils::register_file_size_combined
         : scheduler_utils::register_file_size_combined_unvectorized;
+    max_threads_per_block = vectorize_factor > 1
+        ? scheduler_utils::max_threads_per_block_combined
+        : scheduler_utils::max_threads_per_block_combined_unvectorized;
   }
-  const int64_t max_threads_per_block = vectorize_factor > 1
-      ? scheduler_utils::max_threads_per_block_combined
-      : scheduler_utils::max_threads_per_block_combined_unvectorized;
+
   // Shared memory persistent is only implemented for the inner and combined
   // case.
   buffer_params.smem_overhead = getSharedMemoryOverheadPerBlock(

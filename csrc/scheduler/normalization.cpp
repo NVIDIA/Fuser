@@ -327,6 +327,75 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
   return rparams;
 }
 
+std::shared_ptr<ReductionParams> innerPersistentHeuristicSharedMemory(
+    const int64_t total_reduction_numel,
+    const int64_t total_iteration_numel,
+    const int64_t inner_most_dimension_numel,
+    const int64_t n_tensor_inputs,
+    const int64_t max_input_dtype_size,
+    const int64_t regs_buffer_size,
+    const int64_t smem_buffer_size,
+    const size_t max_vectorize_factor) {
+  const auto dev_prop = at::cuda::getCurrentDeviceProperties();
+  auto rparams = std::make_shared<ReductionParams>();
+  rparams->shared_mem_persistent_buffer = true;
+  rparams->persistent_kernel = true;
+  rparams->fastest_dim = true;
+  // Inner reduction domain
+  // This heuristic is only used for cases with large total_reduction_numel.
+  // e.g. layer_norm with hidden size larger than 64K for fp16 or 32K for fp32.
+  // fully vectorized, use maxThreadsPerBlock to reduce workload per threads
+  int64_t vectorize_factor = (int64_t)max_vectorize_factor;
+  int64_t bdimx = dev_prop->maxThreadsPerBlock;
+  TORCH_INTERNAL_ASSERT(
+      total_reduction_numel >= vectorize_factor * bdimx,
+      "total_reduction_numel should be larger than or equal to vectorize_factor * bdimx.\n",
+      "total_reduction_numel= ",
+      total_reduction_numel,
+      ", vectorize_factor= ",
+      vectorize_factor,
+      ", bdimx= ",
+      bdimx);
+  int64_t persistent_batch =
+      ceilDiv(total_reduction_numel, vectorize_factor * bdimx);
+  rparams->cross_block_inner_reduction = true;
+  rparams->block_dim_inner_reduction = ParallelType::TIDx;
+  rparams->pad_inner_reduction_to_warp = true;
+  rparams->batches_per_block_inner_reduction = persistent_batch;
+  rparams->unroll_factor_inner_reduction = vectorize_factor;
+  rparams->vectorize_inner_reduction = vectorize_factor > 1;
+
+  // Iter
+  rparams->multiple_reds_per_blk = false;
+  rparams->grid_dim_iter_dom = ParallelType::BIDx;
+  rparams->unroll_factor_iter_dom = 1;
+  rparams->lparams = LaunchParams(
+      LaunchParams::UNINITIALIZED_VAL,
+      LaunchParams::UNINITIALIZED_VAL,
+      LaunchParams::UNINITIALIZED_VAL,
+      LaunchParams::UNINITIALIZED_VAL,
+      LaunchParams::UNINITIALIZED_VAL,
+      LaunchParams::UNINITIALIZED_VAL);
+
+  rparams->tag = "Inner Shared Memory Persistent Heuristic.\n";
+
+  if (isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
+    debug() << "\n===== Reduction Stats ========\n"
+            << "total_reduction_numel: " << total_reduction_numel << "\n"
+            << "total_iteration_numel: " << total_iteration_numel << "\n"
+            << "inner_most_dimension_numel: " << inner_most_dimension_numel
+            << "\n"
+            << "vectorize_factor: " << vectorize_factor << "\n"
+            << "n_tensor_inputs: " << n_tensor_inputs << "\n"
+            << "max_input_dtype_size: " << max_input_dtype_size << "\n"
+            << "regs_buffer_size: " << regs_buffer_size << "\n"
+            << "smem_buffer_size: " << smem_buffer_size << "\n";
+    debug() << rparams->toString() << std::endl;
+  }
+
+  return rparams;
+}
+
 std::shared_ptr<ReductionParams> innerPersistentHeuristic(
     const int64_t total_reduction_numel,
     const int64_t total_iteration_numel,
@@ -336,8 +405,18 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
     const int64_t regs_buffer_size,
     const int64_t smem_buffer_size,
     const size_t vectorize_factor) {
-  auto rparams = std::make_shared<ReductionParams>();
-  rparams->shared_mem_persistent_buffer = smem_buffer_size > 0;
+  if (smem_buffer_size > 0) {
+    // use shared memory for persistent buffer
+    return innerPersistentHeuristicSharedMemory(
+        total_reduction_numel,
+        total_iteration_numel,
+        inner_most_dimension_numel,
+        n_tensor_inputs,
+        max_input_dtype_size,
+        regs_buffer_size,
+        smem_buffer_size,
+        vectorize_factor);
+  }
 
   // Set some targets for parallelization
   const int64_t n_elems = total_reduction_numel * total_iteration_numel;
@@ -781,6 +860,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
   int64_t gdimy = LaunchParams::UNINITIALIZED_VAL;
   int64_t gdimz = LaunchParams::UNINITIALIZED_VAL;
 
+  auto rparams = std::make_shared<ReductionParams>();
   rparams->cparams.maxrregcount = (int)nvrtc_register_per_thread;
   rparams->persistent_kernel = true;
   rparams->fastest_dim = true;
