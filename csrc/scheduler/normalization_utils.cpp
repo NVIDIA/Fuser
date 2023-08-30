@@ -889,7 +889,7 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
   buffer_params.regs_buffer_size = total_buffer_size;
   buffer_params.smem_buffer_size = 0;
 
-  //! Move buffers to shared memory following the 3 rules:
+  //! Move buffers to shared memory following the 2 rules:
   //! (1) Prioritize moving buffers that are directly used by broadcast ops.
   //! (2) Move N buffers until the register buffer size is below the available
   //! limit.

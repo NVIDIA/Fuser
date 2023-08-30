@@ -838,10 +838,13 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
       bdimy,
       LaunchParams::UNINITIALIZED_VAL);
 
-  rparams->tag = "Inner Persistent Heuristic.\n";
-
+  if (rparams->shared_mem_persistent_buffer) {
+    rparams->tag = "Inner Shared Memory Persistent Heuristic.\n";
+  } else {
+    rparams->tag = "Inner Register Persistent Heuristic.\n";
+  }
   if (isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
-    debug() << "\n===== Reduction Stats ========\n"
+    debug() << "\n===== Inner Persistent Stats ========\n"
             << "total_reduction_numel: " << total_reduction_numel << "\n"
             << "total_iteration_numel: " << total_iteration_numel << "\n"
             << "inner_most_dimension_numel: " << inner_most_dimension_numel
@@ -850,6 +853,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
             << "n_tensor_inputs: " << n_tensor_inputs << "\n"
             << "max_input_dtype_size: " << max_input_dtype_size << "\n"
             << "regs_buffer_size: " << regs_buffer_size << "\n"
+            << "smem_buffer_size: " << smem_buffer_size << "\n"
             << "max_multi_reduction_factor: " << max_multi_reduction_factor
             << "\n"
             << "block(" << (pad_bdimx ? padded_bdimx : bdimx) << ", " << bdimy
@@ -1412,11 +1416,9 @@ void beforeSchedule(
   scheduler_utils::clearMemorySpace(fusion);
   scheduler_utils::prepareForMemoryTypePromotion(fusion);
 
-  // Change storage type to shared memory.
-  // Check persistent tensors first, if they are not in the container, check
-  // their input if it is a cached input. When the
-  // smem_tvs container was created, cached inputs were
-  // not created yet.
+  // Transfer the persistent buffer tensors to shared memory. These tensors are
+  // housed in smem_tvs. Some of these are inputs, hence, only their
+  // associated cached tensors should be relocated.
   if (rparams.shared_mem_persistent_buffer) {
     const auto& persistent_buffers =
         scheduler_utils::persistentBuffers(fusion).persistent_buffers;

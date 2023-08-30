@@ -177,7 +177,7 @@ bool isConnectedOnlyThroughReductionProducer(
 
 //! in combined_inner_outer_reduction, the partial results of outer
 //! reductions must be persistent, calculate the size of these buffers when
-//! estimate register usage
+//! estimate persistent buffer size.
 int64_t partialReductionBufferSize(
     const std::vector<TensorView*>& outer_reduction_tvs,
     SchedulerRuntimeInfo& runtime_info);
