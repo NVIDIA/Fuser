@@ -128,7 +128,8 @@ class MatmulParams : public HeuristicParams {
 
   size_t hash() const override {
     // combine boolean flags for hashing
-    size_t attr_hash =
+    size_t attr_hash = (static_cast<size_t>(promote_prologue_smem_reuse) << 3) |
+        (static_cast<size_t>(use_smem_epilogue) << 2) |
         (static_cast<size_t>(rotate_ldmatrix_out_of_main_loop) << 1) |
         (static_cast<size_t>(async_gmem_load_operands));
 
@@ -137,8 +138,7 @@ class MatmulParams : public HeuristicParams {
         (nvfuser::hash(mma_macro) << 1) ^ (double_buffer_options.hash() << 2) ^
         (nvfuser::hash(tile_sizes) << 3) ^
         (std::hash<size_t>{}(static_cast<size_t>(cta_order)) << 4) ^
-        (std::hash<size_t>{}(grid_swizzle_factor) << 5) ^
-        (use_smem_epilogue << 6) ^ (use_smem_epilogue << 7);
+        (std::hash<size_t>{}(grid_swizzle_factor) << 5);
     return attr_hash;
   }
 
