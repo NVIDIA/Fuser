@@ -23,7 +23,9 @@ def _instantiate_opinfo_test_template(
             try:
                 torch.cuda.synchronize()
             except RuntimeError as rte:
-                pytest.exit("TEST SUITE EARLY TERMINATION due to torch.cuda.synchronize() failure")
+                pytest.exit(
+                    "TEST SUITE EARLY TERMINATION due to torch.cuda.synchronize() failure"
+                )
 
         return template(opinfo, dtype)
 
