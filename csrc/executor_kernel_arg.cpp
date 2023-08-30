@@ -13,6 +13,7 @@
 #include <executor_kernel_arg.h>
 #include <instrumentation.h>
 #include <serde/polymorphic_value_serde.h>
+#include <tensor_metadata.h>
 
 namespace nvfuser {
 
@@ -171,24 +172,7 @@ std::vector<std::byte> polymorphicValueToBytes(
     const PolymorphicValue& argument,
     const DataType& dtype,
     PrimDataType index_type) {
-  if (argument.is<LegacyStruct>()) {
-    // FUSER_PERF_SCOPE("polymorphicValueToBytes(LegacyStruct)");
-    TORCH_INTERNAL_ASSERT(
-        std::holds_alternative<StructType>(dtype.type),
-        "Expected StructType type.");
-    auto dtype_ = std::get<StructType>(dtype.type);
-    auto struct_ = argument.as<LegacyStruct>();
-    std::vector<std::byte> buffer;
-    for (const auto& field : dtype_.fields) {
-      if (!field.used_in_kernel) {
-        continue;
-      }
-      auto field_data =
-          polymorphicValueToBytes(struct_[field.name], *field.type, index_type);
-      buffer.insert(buffer.end(), field_data.begin(), field_data.end());
-    }
-    return buffer;
-  } else if (argument.is<at::Tensor>()) {
+  if (argument.is<at::Tensor>()) {
     // FUSER_PERF_SCOPE("polymorphicValueToBytes(at::Tensor)");
     const auto& tensor = argument.as<at::Tensor>();
     TORCH_INTERNAL_ASSERT(
@@ -297,6 +281,64 @@ std::vector<std::byte> polymorphicValueToBytes(
           "Cannot convert complex double to ",
           dtype,
           " type: only complex float and complex double are supported.");
+    }
+  } else if (argument.is<StructHandle>()) {
+    // FUSER_PERF_SCOPE("polymorphicValueToBytes(StructHandle)");
+    std::vector<std::byte> buffer;
+    const auto& dtype_ = std::get<StructType>(dtype.type);
+    auto& data = argument->*&TensorMetaData::data;
+    auto& logical_size = argument->*&TensorMetaData::logical_size;
+    auto& alloc_stride = argument->*&TensorMetaData::alloc_stride;
+    if (argument.as<StructHandle>().is<TensorMetaData>()) {
+      // special handle for TensorMetaData so that CPU overhead is minimal.
+      if (index_type == PrimDataType::Int) {
+        buffer.reserve(
+            sizeof(void*) + sizeof(int64_t) * logical_size.size() +
+            sizeof(int64_t) * alloc_stride.size());
+        buffer.insert(
+            buffer.end(), (std::byte*)&data, (std::byte*)&data + sizeof(void*));
+        buffer.insert(
+            buffer.end(),
+            (std::byte*)logical_size.data(),
+            (std::byte*)logical_size.data() +
+                sizeof(int64_t) * logical_size.size());
+        buffer.insert(
+            buffer.end(),
+            (std::byte*)alloc_stride.data(),
+            (std::byte*)alloc_stride.data() +
+                sizeof(int64_t) * alloc_stride.size());
+      } else {
+        buffer.reserve(
+            sizeof(void*) + sizeof(int32_t) * logical_size.size() +
+            sizeof(int32_t) * alloc_stride.size());
+        buffer.insert(
+            buffer.end(), (std::byte*)&data, (std::byte*)&data + sizeof(void*));
+        std::vector<int32_t> logical_size32(
+            logical_size.begin(), logical_size.end());
+        buffer.insert(
+            buffer.end(),
+            (std::byte*)logical_size32.data(),
+            (std::byte*)logical_size32.data() +
+                sizeof(int32_t) * logical_size32.size());
+        std::vector<int32_t> alloc_stride32(
+            alloc_stride.begin(), alloc_stride.end());
+        buffer.insert(
+            buffer.end(),
+            (std::byte*)alloc_stride32.data(),
+            (std::byte*)alloc_stride32.data() +
+                sizeof(int32_t) * alloc_stride32.size());
+      }
+      return buffer;
+    } else {
+      for (const auto& field : dtype_.fields) {
+        if (!field.used_in_kernel) {
+          continue;
+        }
+        auto field_data = polymorphicValueToBytes(
+            argument->*field.name, *field.type, index_type);
+        buffer.insert(buffer.end(), field_data.begin(), field_data.end());
+      }
+      return buffer;
     }
   } else if (argument.is<Opaque>()) {
     // FUSER_PERF_SCOPE("polymorphicValueToBytes(Opaque)");

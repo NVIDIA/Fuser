@@ -411,22 +411,14 @@ inline DataType getDataType(const PolymorphicValue& value) {
         dtype =
             ArrayType{std::make_shared<DataType>(getDataType(vec[0])), size};
       }
-    } else if constexpr (std::is_same_v<T, LegacyStruct<PolymorphicValue>>) {
-      if (value.is<T>()) {
-        const auto& struct_ = value.as<T>();
-        std::vector<StructType::FieldInfo> fields_info;
-        for (const auto& [name, value] : struct_.fields) {
-          fields_info.push_back(
-              {name,
-               std::make_shared<DataType>(
-                   getDataType(NVFUSER_MAYBE_STAR value))});
-        }
-        dtype = StructType::make<NotImplementedStruct>(std::move(fields_info));
-      }
     } else if constexpr (std::is_same_v<T, Pointer>) {
       // For pointers in polymorphic value, we only store the data size of the
       // pointee, so it is impossible to infer the pointer type.
       TORCH_CHECK(!value.is<T>(), "Can not infer pointer type.");
+    } else if constexpr (std::is_same_v<T, StructHandle>) {
+      if (value.is<T>()) {
+        dtype = value.as<T>().type();
+      }
     } else if constexpr (std::is_same_v<T, Opaque>) {
       if (value.is<T>()) {
         const auto& opaque = value.as<T>();
