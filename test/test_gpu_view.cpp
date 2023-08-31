@@ -1335,7 +1335,7 @@ TEST_F(NVFuserTest, FusionIllegalReductionFlatten_CUDA) {
         auto tv2 = flatten(tv1, 0, 1);
         fusion->addOutput(tv2);
       },
-      testing::ThrowsMessage<c10::Error>(
+      testing::ThrowsMessage<nvfuser::nvfError>(
           testing::HasSubstr("Invalid end_dim")));
 }
 

@@ -90,7 +90,7 @@ TEST_F(NVFuserTest, DynamicTransform1_CUDA) {
           auto info =
               DynamicTransformConcretizationInfo(&initial_info, &expr_eval);
         },
-        ::testing::ThrowsMessage<c10::Error>(::testing::HasSubstr(
+        ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
             "Values of -1 passed to reshape must be constant at definition")));
   }
 
@@ -111,7 +111,7 @@ TEST_F(NVFuserTest, DynamicTransform1_CUDA) {
           auto info =
               DynamicTransformConcretizationInfo(&initial_info, &expr_eval);
         },
-        ::testing::ThrowsMessage<c10::Error>(::testing::HasSubstr(
+        ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
             "Total element counts across view operation must match.")));
   }
 }

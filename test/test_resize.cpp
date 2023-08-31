@@ -2199,7 +2199,7 @@ TEST_F(ResizeTest, FusionSqueezeSymbolic) {
       [&]() {
         fec.runFusionWithInputs({t0, 10});
       },
-      ::testing::ThrowsMessage<c10::Error>(::testing::HasSubstr(
+      ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
           "must concretize to IterType::Broadcast but found")));
 }
 
@@ -2649,7 +2649,7 @@ TEST_F(ResizeTest, Slice3DVectorizeManual1) {
 
   EXPECT_THAT(
       [&]() { fe.runFusion(aten_inputs); },
-      ::testing::ThrowsMessage<c10::Error>(::testing::HasSubstr(
+      ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
           "with word size 2 not possible due to invalid stride")));
 }
 
@@ -2692,7 +2692,7 @@ TEST_F(ResizeTest, Slice3DVectorizeManual2) {
 
   EXPECT_THAT(
       [&]() { fe.runFusion(aten_inputs); },
-      ::testing::ThrowsMessage<c10::Error>(::testing::HasSubstr(
+      ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
           "with word size 4 not possible due to invalid stride")));
 }
 

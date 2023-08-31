@@ -154,7 +154,7 @@ TEST_F(NVFuserTest, FusionComputeWith1_CUDA) {
         consumer_of_tv1->toString());
     EXPECT_THAT(
         [&]() { consumer_of_tv1->split(-1, 4); },
-        ::testing::ThrowsMessage<c10::Error>(::testing::HasSubstr(
+        ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
             "Cannot split axis within max producer position")));
   }
 

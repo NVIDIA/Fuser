@@ -296,7 +296,7 @@ TEST_F(NVFuserTest, FusionScheduleTransposeNoReference_CUDA) {
       [&]() {
         scheduleTranspose(&fusion, {input0, input1});
       },
-      testing::ThrowsMessage<c10::Error>(
+      testing::ThrowsMessage<nvfuser::nvfError>(
           testing::HasSubstr("reference tensor")));
 }
 
@@ -643,7 +643,7 @@ TEST_F(NVFuserTest, FusionTransposeSelfMapping_CUDA) {
 
   EXPECT_THAT(
       [&]() { IterDomainGraph(fusion_ptr.get()); },
-      testing::ThrowsMessage<c10::Error>(
+      testing::ThrowsMessage<nvfuser::nvfError>(
           testing::HasSubstr("Unsupported domain mapping detected")));
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);

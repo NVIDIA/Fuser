@@ -5151,7 +5151,7 @@ TEST_F(NVFuserTest, FusionCheckedSymbolicShape_CUDA) {
   {
     EXPECT_THAT(
         [&]() { matched_add(a, c); },
-        ::testing::ThrowsMessage<c10::Error>(
+        ::testing::ThrowsMessage<nvfuser::nvfError>(
             ::testing::HasSubstr("Conflicting sizes")));
   }
 }
@@ -7817,7 +7817,7 @@ TEST_F(NVFuserTest, FusionCompileIndexType_CUDA) {
           [&]() {
             fe.runFusion(large_inputs, launch_params, compile_opts_large);
           },
-          testing::ThrowsMessage<c10::Error>(testing::HasSubstr(
+          testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
               "Kernel index type and compilation index type don't match")));
     }
 
@@ -7831,7 +7831,7 @@ TEST_F(NVFuserTest, FusionCompileIndexType_CUDA) {
             fe.compileFusion(
                 &fusion, large_inputs, LaunchParams(), compile_opts);
           },
-          testing::ThrowsMessage<c10::Error>(testing::HasSubstr(
+          testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
               "Compilation with int32 is requested but int64 is required for the arguments")));
     }
   }
@@ -8240,7 +8240,7 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWriteDifferentConcretizedDomains_CUDA) {
       // it should be segmented, if directly lowered, it should throw an error
       EXPECT_THAT(
           [&]() { GpuLower gpulw(&fusion); },
-          testing::ThrowsMessage<c10::Error>(testing::HasSubstr(
+          testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
               "Producer is required to be in Global Memory based on parallelization strategy. RAW flags: (blockIdx.x)")));
     } else {
       FusionExecutorCache fec(std::move(fusion_ptr));
@@ -8437,7 +8437,7 @@ TEST_F(NVFuserTest, FusionDomainEquivalence_CUDA) {
         ir_utils::validateDomainEquivalence(
             tv1->getRootDomain(), {tv1->axis(1), tv1->axis(2)});
       },
-      testing::ThrowsMessage<c10::Error>(
+      testing::ThrowsMessage<nvfuser::nvfError>(
           testing::HasSubstr("Invalid derived domain")));
 
   tv1->merge(0);
@@ -8463,7 +8463,7 @@ TEST_F(NVFuserTest, FusionDomainEquivalence_CUDA) {
             tv1->getRootDomain(),
             {tv1_intermediate_id, tv1->axis(0), tv1->axis(1), tv1->axis(2)});
       },
-      testing::ThrowsMessage<c10::Error>(
+      testing::ThrowsMessage<nvfuser::nvfError>(
           testing::HasSubstr("Invalid derived domain")));
 
   // Testing symbolic domains
@@ -8495,7 +8495,7 @@ TEST_F(NVFuserTest, FusionDomainEquivalence_CUDA) {
         ir_utils::validateDomainEquivalence(
             tv4->getRootDomain(), {tv4->axis(0), tv4->axis(1)});
       },
-      testing::ThrowsMessage<c10::Error>(
+      testing::ThrowsMessage<nvfuser::nvfError>(
           testing::HasSubstr("Invalid derived domain")));
 }
 
@@ -8563,7 +8563,7 @@ TEST_F(NVFuserTest, FusionIllegalParallelizeNonLeafDomain_CUDA) {
   // llegal, as I1 is not a leaf domain
   EXPECT_THAT(
       [&]() { root_domain[1]->parallelize(ParallelType::BIDy); },
-      testing::ThrowsMessage<c10::Error>(
+      testing::ThrowsMessage<nvfuser::nvfError>(
           testing::HasSubstr("Only allowed to parallelize a leaf domain")));
 }
 
