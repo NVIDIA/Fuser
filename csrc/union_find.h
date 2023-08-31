@@ -85,18 +85,18 @@ class UnionFind {
     // possible. If we find a pair of elements that are mapped in this but not
     // in other return false
     for (IndexType i = 0; i < size(); ++i) {
-      IndexType root_i_this = findConst(i);
-      IndexType root_i_other = other.findConst(i);
+      IndexType root_i_this = find(i);
+      IndexType root_i_other = other.find(i);
       for (IndexType j = 0; j < size(); ++j) {
         if (i == j) {
           continue;
         }
-        IndexType root_j_this = findConst(j);
+        IndexType root_j_this = find(j);
         if (root_i_this != root_j_this) {
           continue;
         }
         // i and j are distinct equivalent items in "this"
-        IndexType root_j_other = (IndexType)other.findConst((OtherIndexType)j);
+        IndexType root_j_other = (IndexType)other.find((OtherIndexType)j);
         if (root_i_other != root_j_other) {
           return false;
         }
@@ -159,11 +159,11 @@ class UnionFind {
     // and the representative from other are mapped to one another by the
     // _other_ UnionFind.
     for (IndexType i : c10::irange(size())) {
-      auto a = findConst(i);
-      auto b = other.findConst((OtherIndexType)i);
+      auto a = find(i);
+      auto b = other.find((OtherIndexType)i);
       // map other's class to ours and our class to other's
-      auto findb = findConst(b);
-      auto finda = other.findConst((OtherIndexType)a);
+      auto findb = find(b);
+      auto finda = other.find((OtherIndexType)a);
       if (a != findb || finda != b) {
         return false;
       }
@@ -203,7 +203,7 @@ class UnionFind {
   }
 
   //! Determine root of element a without doing path compression
-  IndexType findConst(IndexType a) const {
+  IndexType find(IndexType a) const {
     TORCH_CHECK(
         a < size(),
         "Tried to find root of element ",
@@ -221,12 +221,6 @@ class UnionFind {
 
   //! Determine root of element a and do path compression
   IndexType find(IndexType a) {
-    TORCH_CHECK(
-        a < size(),
-        "Tried to find root of element ",
-        a,
-        " but total size of UnionFind is ",
-        size());
     // This implementation avoids recursion by doing two passes
     // The equivalent recursive definition is:
     //   auto p = parent_[a];
@@ -236,18 +230,14 @@ class UnionFind {
     //     // Path compression step. Next call will shortcut directly to root.
     //     return parent_[a] = find(p);
     //   }
-
-    // First find the root without path compression
-    auto p = a;
-    auto root = parent_[p];
-    while (p != root) {
-      p = root;
-      root = parent_[p];
-    }
+    
+    // Get root using const find() which does not do path compression
+    const auto root = const_cast<const UnionFind<IndexType>*>(this)->find(a);
 
     // Path compression
     // Loop again to set parents along the path equal to root.
     // On the next call, both loops will not be entered.
+    auto p = a;
     while (a != root) {
       p = parent_[a];
       parent_[a] = root;
@@ -258,8 +248,8 @@ class UnionFind {
   }
 
   //! Test whether two elements are equivalent without path compression
-  bool equivConst(IndexType a, IndexType b) const {
-    return findConst(a) == findConst(b);
+  bool equiv(IndexType a, IndexType b) const {
+    return find(a) == find(b);
   }
 
   //! Test whether two elements are equivalent
@@ -311,12 +301,12 @@ class UnionFind {
   }
 
   //! Const version of computeEquivalenceClass
-  std::vector<IndexType> computeEquivalenceClassConst(IndexType a) const {
+  std::vector<IndexType> computeEquivalenceClass(IndexType a) const {
     std::vector<IndexType> c;
-    const auto root_a = findConst(a);
+    const auto root_a = find(a);
 
     for (const auto i : c10::irange(size())) {
-      const auto root_i = findConst(i);
+      const auto root_i = find(i);
       if (root_i == root_a) {
         c.push_back(i);
       }
@@ -359,11 +349,11 @@ class UnionFind {
   }
 
   //! Const version of computeEquivalenceClasses
-  std::vector<std::vector<IndexType>> computeEquivalenceClassesConst() const {
+  std::vector<std::vector<IndexType>> computeEquivalenceClasses() const {
     std::vector<std::vector<IndexType>> classes;
     // First pass initializes a vector for each equivalence class
     for (const auto i : c10::irange(size())) {
-      const auto root = findConst(i);
+      const auto root = find(i);
       // Only process each class once, when passing its root
       if (root == i) {
         // Create new empty vector for this class to be filled on second pass
@@ -378,7 +368,7 @@ class UnionFind {
     IndexType next_class = 0;
     // Second pass inserts into class vectors in order
     for (const auto i : c10::irange(size())) {
-      const auto root = findConst(i);
+      const auto root = find(i);
       auto class_num = root_to_class_num.at(root);
       if (class_num == classes.size()) {
         // First element in this class
