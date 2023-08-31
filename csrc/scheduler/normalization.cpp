@@ -272,6 +272,11 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
     iop.bdimy = std::min(threads_per_block_mrpb / iop.bdimx, bdimy_tmp);
 
     // Step-4, OuterParams, Reduction dim: bdimx (already done)
+    // Since TIDy is also used, needs explicit mark as padded to use warp reduction
+    if (iop.bdimx % dev_prop->warpSize == 0) {
+      rparams->pad_inner_reduction_to_warp = true;
+      rparams->pad_outer_reduction_to_warp = true;
+    }    
     rparams->block_dim_iter_dom = ParallelType::TIDy;
   } else {
     rparams->block_dim_inner_reduction_extra = ParallelType::TIDy;
