@@ -272,11 +272,6 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
     iop.bdimy = std::min(threads_per_block_mrpb / iop.bdimx, bdimy_tmp);
 
     // Step-4, OuterParams, Reduction dim: bdimx (already done)
-
-    if (iop.bdimx % dev_prop->warpSize == 0) {
-      rparams->pad_inner_reduction_to_warp = true;
-      rparams->pad_outer_reduction_to_warp = true;
-    }
     rparams->block_dim_iter_dom = ParallelType::TIDy;
   } else {
     rparams->block_dim_inner_reduction_extra = ParallelType::TIDy;
@@ -364,7 +359,6 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristicSharedMemory(
       ceilDiv(total_reduction_numel, vectorize_factor * bdimx);
   rparams->cross_block_inner_reduction = true;
   rparams->block_dim_inner_reduction = ParallelType::TIDx;
-  rparams->pad_inner_reduction_to_warp = true;
   rparams->batches_per_block_inner_reduction = persistent_batch;
   rparams->unroll_factor_inner_reduction = vectorize_factor;
   rparams->vectorize_inner_reduction = vectorize_factor > 1;
@@ -764,14 +758,6 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
     batches_per_block_outer_reduction /= 2l;
   }
 
-  auto device_warp_size = (int64_t)at::cuda::warp_size();
-  auto padded_bdimx = bdimx % device_warp_size == 0
-      ? bdimx
-      : bdimx + (device_warp_size - bdimx % device_warp_size);
-
-  bool pad_bdimx = bdimx > 16 &&
-      padded_bdimx * bdimy * bdimz < (int64_t)dev_prop->maxThreadsPerBlock;
-
   // estimate register usage and occupancy raito.
   // If occupancy raito is less than a preset occupancy_ratio, reduce register
   // usage register per thread is estimated as overhead + buffer_size /
@@ -806,8 +792,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
         scheduler_utils::register_overhead;
 
     // check occupancy using blocks per sm
-    const int64_t threads_per_block =
-        pad_bdimx ? padded_bdimx * bdimy * bdimz : bdimx * bdimy * bdimz;
+    const int64_t threads_per_block = bdimx * bdimy * bdimz;
     const int64_t blocks_per_sm_estimated =
         getThreadsPerSMGivenRegPerThread(estimated_register_count) /
         threads_per_block;
@@ -869,7 +854,6 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
   // Inner reduction domain
   rparams->cross_block_inner_reduction = true;
   rparams->block_dim_inner_reduction = ParallelType::TIDx;
-  rparams->pad_inner_reduction_to_warp = pad_bdimx;
   rparams->batches_per_block_inner_reduction =
       batches_per_block_inner_reduction;
 
@@ -929,8 +913,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
             << "\n"
             << "max_multi_reduction_factor: " << max_multi_reduction_factor
             << "\n"
-            << "block(" << (pad_bdimx ? padded_bdimx : bdimx) << ", " << bdimy
-            << ", " << bdimz << ")";
+            << "block(" << bdimx << ", " << bdimy << ", " << bdimz << ")";
     debug() << rparams->toString() << std::endl;
   }
 
@@ -1732,10 +1715,6 @@ void scheduleReductionCombinedOuter(
         outer_reduction_tv->split(
             0, NamedScalar::getParallelDim(ParallelType::TIDx));
         outer_reduction_tv->axis(1)->parallelize(ParallelType::TIDx);
-        // to use warp reduction
-        if (rparams.pad_outer_reduction_to_warp) {
-          outer_reduction_tv->axis(1)->padToMultipleOfWarp();
-        }
       } else {
         outer_reduction_tv->split(
             0, NamedScalar::getParallelDim(ParallelType::TIDy));
