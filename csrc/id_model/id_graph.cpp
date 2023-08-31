@@ -16,9 +16,8 @@ IdGraph::IdGraph(const IdGraph& other)
       disjoint_exprs_(other.disjoint_exprs_),
       unique_definitions_(),
       unique_uses_() {
-  for (auto orig_unique_def_pair : other.unique_definitions_) {
-    auto orig_id_group = orig_unique_def_pair.first;
-    auto orig_expr_groups = orig_unique_def_pair.second;
+  for (const auto& [orig_id_group, orig_expr_groups] :
+       other.unique_definitions_) {
     auto new_id_group = toGroup(orig_id_group->front());
 
     ExprGroups new_expr_groups;
@@ -29,9 +28,7 @@ IdGraph::IdGraph(const IdGraph& other)
     unique_definitions_[new_id_group] = new_expr_groups;
   }
 
-  for (auto orig_unique_use_pair : other.unique_uses_) {
-    auto orig_id_group = orig_unique_use_pair.first;
-    auto orig_expr_groups = orig_unique_use_pair.second;
+  for (const auto& [orig_id_group, orig_expr_groups] : other.unique_uses_) {
     auto new_id_group = toGroup(orig_id_group->front());
 
     ExprGroups new_expr_groups;
@@ -290,7 +287,7 @@ ExprGroups IdGraph::getExprsBetween(const IdGroups& from, const IdGroups& to)
     // domain coming back from any of its uses.
     ExprGroups min_groups;
 
-    auto uses_pair = getUses(id_group);
+    std::pair<ExprGroups, bool> uses_pair = getUses(id_group);
     if (!uses_pair.second) {
       // No expressions required for this iter domain, it must be a
       // terminating output.
@@ -384,18 +381,17 @@ ExprGroups IdGraph::getExprsBetween(const IdGroups& from, const IdGroups& to)
 
     TORCH_INTERNAL_ASSERT(
         something_was_processed ||
-            (to_visit_ids.size() == 0 && to_visit_exprs.size() == 0),
+            (to_visit_ids.empty() && to_visit_exprs.empty()),
         "Infinite loop entered.");
   }
 
   // We want to traverse the expressions registered in required_ind_exprs_ids,
   // let's create a strict "uses path"
   std::unordered_map<IdGroup, ExprGroups> uses_path;
-  for (auto entry : required_ind_exprs_ids) {
-    auto id = entry.first;
-    auto traverse_exprs = entry.second;
-    auto all_uses = getUses(id);
-    if (all_uses.second) {
+  for (const auto& entry : required_ind_exprs_ids) {
+    const IdGroup& id = entry.first;
+    const ExprGroups& traverse_exprs = entry.second;
+    if (auto all_uses = getUses(id); all_uses.second) {
       uses_path[id] = traverse_exprs.intersect(all_uses.first);
     } else {
       uses_path[id] = {};
@@ -511,33 +507,29 @@ std::unordered_map<IterDomain*, VectorOfUniqueEntries<IterDomain*>> IdGraph::
 
 std::pair<ExprGroups, bool> IdGraph::getDefinitions(
     const IdGroup& id_group) const {
-  auto null_return = std::make_pair(ExprGroups(), false);
-
-  if (id_group == nullptr) {
-    return null_return;
+  if (!id_group) {
+    return {{}, false};
   }
 
-  auto definitions_it = unique_definitions_.find(id_group);
-  if (definitions_it == unique_definitions_.end()) {
-    return null_return;
+  if (auto definitions_it = unique_definitions_.find(id_group);
+      definitions_it != unique_definitions_.end()) {
+    return std::make_pair(definitions_it->second, true);
+  } else {
+    return {{}, false};
   }
-
-  return std::make_pair(definitions_it->second, true);
 }
 
 std::pair<ExprGroups, bool> IdGraph::getUses(const IdGroup& id_group) const {
-  auto null_return = std::make_pair(ExprGroups(), false);
-
-  if (id_group == nullptr) {
-    return null_return;
+  if (!id_group) {
+    return {{}, false};
   }
 
-  auto uses_it = unique_uses_.find(id_group);
-  if (uses_it == unique_uses_.end()) {
-    return null_return;
+  if (auto uses_it = unique_uses_.find(id_group);
+      uses_it != unique_uses_.end()) {
+    return std::make_pair(uses_it->second, true);
+  } else {
+    return {{}, false};
   }
-
-  return std::make_pair(uses_it->second, true);
 }
 
 std::string IdGraph::toString() const {
@@ -613,6 +605,8 @@ bool IdGraph::transformAtributesMatch(Expr* first, Expr* second) {
     }
   }
 
+  // TODO: Resize properties
+
   return true;
 }
 
@@ -628,7 +622,10 @@ void IdGraph::initializeId(
         disjointExprSets().initializeSet(def).first->second;
     def_groups.pushBack(expr_set);
   }
-  unique_definitions_[id_disjoint_set] = def_groups;
+  // TODO-NM: def_groups can be empty. Should it be still mapped?
+  // TODO-NM: Can this be overwritten?
+  TORCH_INTERNAL_ASSERT(
+      unique_definitions_.emplace(id_disjoint_set, def_groups).second);
 
   ExprGroups use_groups;
   for (auto use : uses) {
@@ -636,7 +633,10 @@ void IdGraph::initializeId(
         disjointExprSets().initializeSet(use).first->second;
     use_groups.pushBack(expr_set);
   }
-  unique_uses_[id_disjoint_set] = use_groups;
+  // TODO-NM: use_groups can be empty. Should it be still mapped?
+  // TODO-NM: Can this be overwritten?
+  TORCH_INTERNAL_ASSERT(
+      unique_uses_.emplace(id_disjoint_set, use_groups).second);
 }
 
 bool IdGraph::exprsMap(Expr* first, Expr* second, bool forward) const {
@@ -713,6 +713,8 @@ bool IdGraph::exprsMap(Expr* first, Expr* second, bool forward) const {
   // TODO: For now we're using same as, however we could know what val's are
   // exactly the same given the exact map. We might want to pipe that
   // information through to here.
+
+  // TODO-NM: Should this be transformAtributesMatch?
   if (first->isA<Resize>()) {
     if (!first->as<Resize>()->leftExpand()->sameAs(
             second->as<Resize>()->leftExpand())) {
@@ -810,15 +812,19 @@ void IdGraph::mapIds(IterDomain* id0, IterDomain* id1) {
 }
 
 void IdGraph::maybeMapThroughExprs(Expr* expr0, Expr* expr1, bool forward) {
-  if (exprsMap(expr0, expr1, forward)) {
-    if (propagate_exprs_) {
-      mapExprs(expr0, expr1);
-      mapThroughExpr(expr0, expr1, forward);
-    } else if (
-        inputGroups(toGroup(expr0)) == inputGroups(toGroup(expr1)) &&
-        outputGroups(toGroup(expr0)) == outputGroups(toGroup(expr1))) {
-      mapExprs(expr0, expr1);
-    }
+  if (!exprsMap(expr0, expr1, forward)) {
+    return;
+  }
+
+  // Expr inputs are mapped. If propagate_exprs_ is true, map the
+  // exprs and outputs
+  if (propagate_exprs_) {
+    mapExprs(expr0, expr1);
+    mapThroughExpr(expr0, expr1, forward);
+  } else if (
+      inputGroups(toGroup(expr0)) == inputGroups(toGroup(expr1)) &&
+      outputGroups(toGroup(expr0)) == outputGroups(toGroup(expr1))) {
+    mapExprs(expr0, expr1);
   }
 }
 

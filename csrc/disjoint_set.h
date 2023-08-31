@@ -109,7 +109,7 @@ class VectorOfUniqueEntries {
   // Returns a new VectorOfUniqueEntries with entries that are in both this and
   // other, order is preserved as this.
   VectorOfUniqueEntries<T, Hash> intersect(
-      const VectorOfUniqueEntries<T, Hash>& other) {
+      const VectorOfUniqueEntries<T, Hash>& other) const {
     VectorOfUniqueEntries<T, Hash> intersection;
     for (auto entry : vector()) {
       if (other.has(entry)) {
