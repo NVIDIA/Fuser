@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <csrc/exceptions.h>
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
@@ -118,8 +119,7 @@ TEST_F(NVFuserTest, FusionDisjointViewSet_CUDA) {
 
   auto disjoint_exact = scheduler_utils::disjointRFactorSets(fusion.get());
 
-  TORCH_INTERNAL_ASSERT(
-      disjoint_exact.strictAreMapped(tv0->axis(1), tv0->axis(2)));
+  NVF_ERROR(disjoint_exact.strictAreMapped(tv0->axis(1), tv0->axis(2)));
 }
 
 TEST_F(NVFuserTest, FusionBroadcastViewMultiples_CUDA) {

@@ -135,7 +135,7 @@ class DomainMap : public pointwise_utils::DomainMap {
     // constructed from the updated fusion. We'll revisit this once our id graph
     // refactor is done.
     auto mapped_id = getMappedRootDimIn(tv, root_dim);
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         mapped_id != nullptr,
         "Can not find ID mapped to ",
         root_dim,
@@ -151,7 +151,7 @@ class DomainMap : public pointwise_utils::DomainMap {
         // Split with factor one is not supposed to be here, reshape would map
         // this to a broadcast. This is a conservative assert, we can relaxed it
         // and support with mapping it to outer.
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             !expr->as<Split>()->factor()->isOneInt(),
             "split with factor one is supposed to be translated to broadcast by reshape");
         if (expr->as<Split>()->in() == mapped_id) {
@@ -161,7 +161,7 @@ class DomainMap : public pointwise_utils::DomainMap {
         // Merge with size-1 dimension is not supposed to be here, reshape would
         // map this to a squeeze. This is a conservative assert, we can relaxed
         // it and support with mapping it to out.
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             !expr->as<Merge>()->inner()->extent()->isOneInt(),
             "merge with size-1 dimension is supposed to be translated to squeeze by reshape");
         if (expr->as<Merge>()->inner() == mapped_id) {
@@ -487,7 +487,7 @@ getInputsOutputsGroups(HeuristicSummary* data_cache, DomainMap& domain_map) {
           });
   auto& grouped_inputs_outputs = grouped_inputs_outputs_entry.get();
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       grouped_inputs_outputs.size() >= 2,
       "Can not find mismatched inner most dim, should use pointwise scheduler.");
 
@@ -508,12 +508,12 @@ getReferenceTensors(
             return std::make_unique<std::vector<TensorView*>>(std::move(data));
           });
   auto& reference_tensors = reference_tensors_entry.get();
-  TORCH_INTERNAL_ASSERT(reference_tensors.size() == 2);
+  NVF_ERROR(reference_tensors.size() == 2);
   TensorView* reference1 = reference_tensors[0];
   TensorView* reference2 = reference_tensors[1];
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       reference1 != nullptr, "Unable to find reference tensor for group 1");
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       reference2 != nullptr, "Unable to find reference tensor for group 2");
   return reference_tensors_entry;
 }
@@ -532,7 +532,7 @@ std::pair<std::vector<int64_t>, int64_t> getShapeInReference(
         id, IdMappingMode::EXACT);
     auto inferred_val =
         runtime_info.expressionEvaluator().evaluate(concrete_id->extent());
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         inferred_val.hasValue(),
         "Error inferring size for pointwise scheduler: ",
         id->extent()->toInlineString());
@@ -764,7 +764,7 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
       inner_most_pos1_in_ref1,
       inner_most_pos2_in_ref1);
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       !hasSmallTransposeDimensions(params) ||
           scheduler_utils::getViewTVs(fusion).empty(),
       "combination of view op with small transpose dimensions are not supported by transpose scheduler");
@@ -933,8 +933,7 @@ LaunchParams scheduleTranspose(
     const at::ArrayRef<c10::IValue>& runtime_inputs) {
   FUSER_PERF_SCOPE("scheduleFusion");
   auto params = getTransposeHeuristics(fusion, runtime_inputs);
-  TORCH_INTERNAL_ASSERT(
-      params != nullptr, "Could not schedule transpose operation.");
+  NVF_ERROR(params != nullptr, "Could not schedule transpose operation.");
   scheduleTranspose(fusion, *params);
   return params->lparams;
 }
@@ -948,7 +947,7 @@ void scheduleTranspose(Fusion* fusion, TransposeParams params) {
 
   // maybe has_reduction for scheduling should be done on a per output tensor
   // basis.
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       ir_utils::getReductionOps(fusion).empty(),
       "This scheduler only handles pointwise ops.");
 
@@ -989,7 +988,7 @@ void scheduleTranspose(Fusion* fusion, TransposeParams params) {
 
   DomainMap domain_map(fusion);
   auto grouped_inputs_outputs = domain_map.groupInputsOutputsByInnerDim();
-  TORCH_INTERNAL_ASSERT(grouped_inputs_outputs.size() >= 2);
+  NVF_ERROR(grouped_inputs_outputs.size() >= 2);
 
   /*
    * We need something similar to `cacheFork` for input tensors in group 2. We
@@ -1033,11 +1032,11 @@ void scheduleTranspose(Fusion* fusion, TransposeParams params) {
   TensorView* reference2 =
       domain_map.findReferenceFor(grouped_inputs_outputs[1]);
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       reference1 != nullptr,
       "Could not find a fully broadcasted tensor to reference schedule on the first group.");
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       reference2 != nullptr,
       "Could not find a fully broadcasted tensor to reference schedule on the second group.");
 
@@ -1058,8 +1057,7 @@ void scheduleTranspose(Fusion* fusion, TransposeParams params) {
   std::vector<size_t> dims_group1 = params.dims_merged_with_1;
   auto inner_leaf_index1 =
       domain_map.getInnerLeafDim(reference1, inner_most_id1);
-  TORCH_INTERNAL_ASSERT(
-      inner_leaf_index1 >= 0, "getInnerLeafDim cannot be resolved");
+  NVF_ERROR(inner_leaf_index1 >= 0, "getInnerLeafDim cannot be resolved");
   size_t inner_most_pos1_in_ref1 = static_cast<size_t>(inner_leaf_index1);
   dims_group1.insert(dims_group1.begin(), inner_most_pos1_in_ref1);
 
@@ -1068,8 +1066,7 @@ void scheduleTranspose(Fusion* fusion, TransposeParams params) {
   auto inner_leaf_index2 =
       domain_map.getInnerLeafDim(reference1, inner_most_id2);
   size_t inner_most_pos2_in_ref1 = inner_leaf_index2;
-  TORCH_INTERNAL_ASSERT(
-      inner_leaf_index2 >= 0, "getInnerLeafDim cannot be resolved");
+  NVF_ERROR(inner_leaf_index2 >= 0, "getInnerLeafDim cannot be resolved");
   dims_group2.insert(dims_group2.begin(), inner_most_pos2_in_ref1);
 
   // merge all dimensions in group1, while updating all indices for group2

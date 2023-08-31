@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <csrc/exceptions.h>
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
@@ -79,19 +80,19 @@ void checkComputeWith(
     }
   }
 
-  TORCH_CHECK(
+  NVF_CHECK(
       kernel_tv != nullptr,
       "No corresponding TensorView found in lowered kernel: ",
       fusion_tv->toString());
 
-  TORCH_CHECK(
+  NVF_CHECK(
       kernel_tv->getComputeWithPosition() == pos,
       "Invalid computeWith positon: ",
       kernel_tv->toString(),
       ". Expected: ",
       pos);
 
-  TORCH_CHECK(
+  NVF_CHECK(
       kernel_tv->getComputeWithConsumers().size() == target_tvs.size(),
       "Invalid number of computeWith consumers: ",
       kernel_tv->toString(),
@@ -99,7 +100,7 @@ void checkComputeWith(
       target_tvs.size());
 
   for (auto consumer : kernel_tv->getComputeWithConsumers()) {
-    TORCH_CHECK(
+    NVF_CHECK(
         std::find_if(
             target_tvs.begin(),
             target_tvs.end(),
@@ -147,7 +148,7 @@ TEST_F(NVFuserTest, FusionComputeWith1_CUDA) {
   // It is now illegal to modify the innermost ID of the consumers of
   // tv1.
   for (auto consumer_of_tv1 : ir_utils::consumerTvsOf(tv1)) {
-    TORCH_CHECK(
+    NVF_CHECK(
         consumer_of_tv1->getMaybeMaxProducerPosition() == 2,
         "Invalid producer position: ",
         consumer_of_tv1->toString());

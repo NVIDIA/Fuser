@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <csrc/exceptions.h>
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
@@ -88,7 +89,7 @@ TEST_F(ExternalSrcExample, Reduction_CUDA) {
     auto fusion_out = t7.to(at::kFloat);
     std::cout << "Max diff: " << (ref - fusion_out).abs().max().item<float>()
               << std::endl;
-    TORCH_CHECK(ref.allclose(fusion_out, /*rtol*/ 0.005, /*atol*/ 0.5));
+    NVF_CHECK(ref.allclose(fusion_out, /*rtol*/ 0.005, /*atol*/ 0.5));
   }
 }
 
@@ -134,7 +135,7 @@ TEST_F(ExternalSrcExample, Matmul_CUDA) {
 
     std::cout << "Max diff: " << (at_output - output).abs().max().item<float>()
               << std::endl;
-    TORCH_CHECK(at_output.allclose(output, /*rtol*/ 0.005, /*atol*/ 0.5));
+    NVF_CHECK(at_output.allclose(output, /*rtol*/ 0.005, /*atol*/ 0.5));
   }
 }
 

@@ -236,8 +236,7 @@ class Context {
               assoc_comm::flatten(bop->rhs()), assoc_comm::flatten(bop->lhs()));
           break;
         default:
-          TORCH_INTERNAL_ASSERT(
-              false, "Unknown operator type ", bop->getBinaryOpType());
+          NVF_ERROR(false, "Unknown operator type ", bop->getBinaryOpType());
       }
     }
   }
@@ -370,7 +369,7 @@ inline RegisterType promoteRegisterType(RegisterType t1, RegisterType t2) {
 }
 
 RegisterType getRegisterType(Val* value, const Context& context) {
-  TORCH_INTERNAL_ASSERT(value != nullptr);
+  NVF_ERROR(value != nullptr);
   if (auto ns = dynamic_cast<NamedScalar*>(value)) {
     if (ns->getParallelIndex() == ParallelType::TIDx ||
         ns->getParallelIndex() == ParallelType::TIDy ||
@@ -566,13 +565,13 @@ class FlattenedAssocCommOp : public Expr {
       Val* out,
       std::vector<Val*> terms)
       : Expr(passkey) {
-    TORCH_CHECK(
+    NVF_CHECK(
         isAssociativeAndCommutative(op),
         "Can only flatten associative and commutative ops");
     addDataAttribute(op);
     addOutput(out);
     for (auto v : terms) {
-      TORCH_CHECK(
+      NVF_CHECK(
           hasSimilarType(dtype(), *v->getDataType()),
           "Input types should be similar, but got: ",
           dtype(),
@@ -605,7 +604,7 @@ class FlattenedAssocCommOp : public Expr {
       case BinaryOpType::Min:
         return "FlattenedMin";
       default:
-        TORCH_INTERNAL_ASSERT(false, "Unknown operator type ", getOpType());
+        NVF_ERROR(false, "Unknown operator type ", getOpType());
     }
   }
 
@@ -784,7 +783,7 @@ class FlattenedAssocCommOp : public Expr {
         }
         break;
       default:
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             "Unexpected operator type encountered"
             "in PolymorphicValue::evaluate: ",
             getOpType());
@@ -840,7 +839,7 @@ Val* flattenRule(Val* value) {
     return value;
   }
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       def->outputs().size() == 1,
       "Expressions with multiple output are not supported");
 
@@ -944,7 +943,7 @@ Val* unflattenRule(Val* value, const Context& context) {
     return value;
   }
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       def->outputs().size() == 1,
       "Expressions with multiple output are not supported");
 
@@ -953,7 +952,7 @@ Val* unflattenRule(Val* value, const Context& context) {
   if (fop != nullptr) {
     // Handle flattened op:
     // Convert flattened op into original binary ops
-    TORCH_INTERNAL_ASSERT(fop->inputs().size() >= 2);
+    NVF_ERROR(fop->inputs().size() >= 2);
     auto sorted_inputs = fop->sortedInputs(context);
     // We need to recursively unflatten all inputs, because we might have
     // nested flattened expressions like
@@ -1233,8 +1232,8 @@ Val* greatestCommonDivisor(const std::vector<Val*>& inputs) {
         std::move(new_common_symbolic_factors));
   }
 
-  TORCH_INTERNAL_ASSERT(common_const_factor != 0);
-  TORCH_INTERNAL_ASSERT(common_symbolic_factors != nullptr);
+  NVF_ERROR(common_const_factor != 0);
+  NVF_ERROR(common_symbolic_factors != nullptr);
   return productOfFactors(
       getConstOrNullptr(common_const_factor, const_factor_dtype),
       std::move(*common_symbolic_factors),
@@ -1245,7 +1244,7 @@ namespace {
 
 Val* factorizeFlattenedMul(Val* x) {
   auto fop = toFlattenedMul(x->definition());
-  TORCH_INTERNAL_ASSERT(fop != nullptr);
+  NVF_ERROR(fop != nullptr);
   // Recursively factorize all its inputs, and combine their terms
   int64_t const_factor = 1;
   std::vector<Val*> symbolic_factors;
@@ -1292,7 +1291,7 @@ Val* factorizeFlattenedAddOrGcd(Val* x) {
   auto fgcd = toFlattenedGcd(x->definition());
   bool is_gcd = (fgcd != nullptr);
   auto fop = is_gcd ? fgcd : fadd;
-  TORCH_INTERNAL_ASSERT(fop != nullptr);
+  NVF_ERROR(fop != nullptr);
   std::vector<Val*> factorized_inputs;
   for (auto inp : fop->inputs()) {
     factorized_inputs.emplace_back(factorize(inp));
@@ -1307,7 +1306,7 @@ Val* factorizeFlattenedAddOrGcd(Val* x) {
   quotient_inputs.reserve(factorized_inputs.size());
   for (auto inp : factorized_inputs) {
     auto quotient = divideFactorized(inp, common_factor);
-    TORCH_INTERNAL_ASSERT(quotient != nullptr);
+    NVF_ERROR(quotient != nullptr);
     quotient_inputs.emplace_back(quotient);
   }
   auto quotient = IrBuilder::newScalar(inferDtypes(quotient_inputs));
@@ -1331,7 +1330,7 @@ Val* factorizeFlattenedAddOrGcd(Val* x) {
 // Rule O
 Val* factorizeMod(Val* x) {
   auto bop = dynamic_cast<BinaryOp*>(x->definition());
-  TORCH_INTERNAL_ASSERT(bop->getBinaryOpType() == BinaryOpType::Mod);
+  NVF_ERROR(bop->getBinaryOpType() == BinaryOpType::Mod);
   auto flhs = factorize(bop->lhs());
   auto frhs = factorize(bop->rhs());
   auto gcd = greatestCommonDivisor({flhs, frhs});
@@ -2079,7 +2078,7 @@ Val* cancelDivMod(Val* value, const Context& context) {
   if (op == BinaryOpType::Div) {
     return IrBuilder::divExpr(numerator, denominator);
   } else {
-    TORCH_INTERNAL_ASSERT(op == BinaryOpType::Mod);
+    NVF_ERROR(op == BinaryOpType::Mod);
     return assoc_comm::flatten(
         IrBuilder::mulExpr(IrBuilder::modExpr(numerator, denominator), gcd));
   }
@@ -2310,7 +2309,7 @@ Val* distributeGcdRemainderDivMod(Val* value, const Context& context) {
           return assoc_comm::flatten(result);
         }
         default:
-          TORCH_INTERNAL_ASSERT(false);
+          NVF_ERROR(false);
       }
     }
   }

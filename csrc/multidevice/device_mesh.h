@@ -7,6 +7,7 @@
 // clang-format on
 
 #pragma once
+#include <exceptions.h>
 #include <multidevice/multidevice.h>
 
 namespace nvfuser {
@@ -46,8 +47,7 @@ class DeviceMesh final {
     device_indices_ = std::move(device_indices);
     dimensions_ = std::move(dimensions);
 
-    TORCH_INTERNAL_ASSERT(
-        validate(device_indices_), "invalid parameters for Mesh Device");
+    NVF_ERROR(validate(device_indices_), "invalid parameters for Mesh Device");
   }
 
   void set(std::vector<DeviceIdxType> device_indices) {

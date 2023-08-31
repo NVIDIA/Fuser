@@ -28,7 +28,7 @@ inline mma_utils::MmaDataTypes getMmaDataTypes(
     if (entry != roles_map.end() && !entry->second.empty()) {
       return entry->second.front()->dtype();
     }
-    TORCH_INTERNAL_ASSERT(false, "Get MMA Tensor data type failed!");
+    NVF_ERROR(false, "Get MMA Tensor data type failed!");
   };
   const auto a_type = getMMADataType(MatmulRole::INPUT_A);
   const auto b_type = getMMADataType(MatmulRole::INPUT_B);
@@ -73,7 +73,7 @@ std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
   // FP8, in which case the expressions below should be updated to insert
   // alignment expressions, using the expected stack ordering in
   // StackBasedSharedMemAllocator.
-  TORCH_CHECK(smem_a % 16 == 0 && smem_b % 16 == 0 && smem_b % 16 == 0);
+  NVF_CHECK(smem_a % 16 == 0 && smem_b % 16 == 0 && smem_b % 16 == 0);
 
   const size_t total_without_smem_epilogue = smem_a + smem_b;
   const size_t total_with_noreuse_smem_epilogue = smem_a + smem_b + smem_c;
@@ -172,7 +172,7 @@ void scheduleWarpTileWithReduction(TensorView* tv, MatMulTileOptions tile) {
   auto warp_tile = tile.warp_tile;
   auto instruction_tile = tile.instruction_tile;
 
-  TORCH_CHECK(
+  NVF_CHECK(
       cta_tile.k % warp_tile.k == 0,
       "Number of warp on k dimension need to be integer");
 
@@ -242,7 +242,7 @@ void scheduleWarpTileWithNoReduction(TensorView* tv, MatMulTileOptions tile) {
 
   mma_utils::checkDimSize(tv, {-2, -1}, {cta_tile.m, cta_tile.n});
 
-  TORCH_CHECK(
+  NVF_CHECK(
       cta_tile.k % warp_tile.k == 0,
       "Number of warp on k dimension need to be integer");
 
@@ -315,7 +315,7 @@ void scheduleContiguousVectorLoad(
 }
 
 void makeTile(TensorView* tv, std::vector<int> tile_sizes) {
-  TORCH_CHECK(
+  NVF_CHECK(
       tv->getLeafDomain().size() >= tile_sizes.size(),
       "Tensor dimension less than tile dimension!");
 
@@ -444,7 +444,7 @@ void orderTiledConcreteIdAsRoot(TensorView* tv) {
     if (maybe_root.has_value()) {
       // Found an innermost id, add them to the
       //  axes to reorder.
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           root_id_to_inner_leaf_pos
               .insert(std::make_pair(maybe_root.value(), i))
               .second,
@@ -485,8 +485,7 @@ void orderTiledConcreteIdAsRoot(TensorView* tv) {
 
   // Validate that we have processed all inner ids or broadcast/reduction
   //  ids we have registered.
-  TORCH_INTERNAL_ASSERT(
-      current_pos == (int)ndims, "Inconsistent ordering logic");
+  NVF_ERROR(current_pos == (int)ndims, "Inconsistent ordering logic");
 
   // Apply the new order:
   tv->reorder(reorder_map_old_to_new);
@@ -554,11 +553,11 @@ void checkDimSize(
     TensorView* tv,
     std::vector<int> axis,
     std::vector<int> expect) {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       axis.size() == expect.size(),
       "CheckDimSize: Mismatched axis and expect size");
   for (auto axis_index : c10::irange(axis.size())) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         ((axis[axis_index] + static_cast<int>(tv->nDims())) >= 0) &&
             (axis[axis_index] < (int)tv->nDims()),
         "CheckDimSize: axis position out of bound ",
@@ -566,10 +565,10 @@ void checkDimSize(
         " ",
         tv->nDims());
     auto id = tv->axis(axis[axis_index]);
-    TORCH_CHECK(
+    NVF_CHECK(
         id->extent()->isConstInt(),
         "Mma warp mapping: instruction tile has to be constant");
-    TORCH_CHECK(
+    NVF_CHECK(
         id->extent()->evaluateInt() == expect[axis_index],
         "Mma warp mapping: unexpected tile size at",
         axis_index,
@@ -608,7 +607,7 @@ void WarpMmaSwizzler::scheduleMmaWarpOutput(
       }
       break;
     default:
-      TORCH_CHECK(
+      NVF_CHECK(
           false, "scheduleMmaWarp: unsupported mma option ", toString(macro));
       break;
   }
@@ -629,7 +628,7 @@ void WarpMmaSwizzler::scheduleOperandRead(TensorView* tv, MmaOptions options) {
       scheduleTuringOperandRead(tv, options);
       break;
     default:
-      TORCH_CHECK(false, "WarpMmaSwizzler: please specify macro");
+      NVF_CHECK(false, "WarpMmaSwizzler: please specify macro");
       break;
   }
 }
@@ -671,7 +670,7 @@ std::vector<IterDomain*> getMmaDomains(MmaOp* mma, MmaDimension dimension) {
       mma->inA()->as<TensorView>()->getMaybeRFactorDomain());
   auto b_domain = TensorDomain::noReductions(
       mma->inB()->as<TensorView>()->getMaybeRFactorDomain());
-  TORCH_CHECK(
+  NVF_CHECK(
       a_domain.size() == b_domain.size() &&
           a_domain.size() == accumulator_domain.size(),
       "Inconsistent dimensions in mma op",
@@ -710,7 +709,7 @@ std::vector<IterDomain*> getMmaDomains(MmaOp* mma, MmaDimension dimension) {
         break;
 
       default:
-        TORCH_INTERNAL_ASSERT(false, "unreachable");
+        NVF_ERROR(false, "unreachable");
     }
 
     if (include_this_id) {
@@ -814,19 +813,19 @@ void validateMmaRootInnerMNK(
   auto n_dims = getMmaRootDimensions(tv, mma, MmaDimension::N);
   auto k_dims = getMmaRootDimensions(tv, mma, MmaDimension::K);
 
-  TORCH_CHECK(
+  NVF_CHECK(
       !m_dims.empty() && !n_dims.empty() && !k_dims.empty(),
       "validateMmaRootInnerMNK: MMA Axes incomplete");
 
   // Still check the innermost dims of each at the current state:
-  TORCH_INTERNAL_ASSERT(tv->nDims() >= 3);
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(tv->nDims() >= 3);
+  NVF_ERROR(
       canValidateIsInnerDim(m_dims.back(), tv->axis(-3), m),
       "MMA swizzle: requires instruction tile iterdomains on the innermost side of the tensordomain");
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       canValidateIsInnerDim(n_dims.back(), tv->axis(-2), n),
       "MMA swizzle: requires instruction tile iterdomains on the innermost side of the tensordomain");
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       canValidateIsInnerDim(k_dims.back(), tv->axis(-1), k),
       "MMA swizzle: requires instruction tile iterdomains on the innermost side of the tensordomain");
 }
@@ -843,16 +842,16 @@ void validateMmaRootInnerMN(TensorView* tv, MmaOptions options, int m, int n) {
   auto m_dims = getMmaRootDimensions(tv, mma, MmaDimension::M);
   auto n_dims = getMmaRootDimensions(tv, mma, MmaDimension::N);
 
-  TORCH_CHECK(
+  NVF_CHECK(
       !m_dims.empty() && !n_dims.empty(),
       "validateMmaRootInnerMNK: MMA Axes incomplete");
 
   // Still check the innermost dims of each at the current state:
-  TORCH_INTERNAL_ASSERT(tv->nDims() >= 2);
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(tv->nDims() >= 2);
+  NVF_ERROR(
       canValidateIsInnerDim(m_dims.back(), tv->axis(-2), m),
       "MMA swizzle: requires instruction tile iterdomains on the innermost side of the tensordomain");
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       canValidateIsInnerDim(n_dims.back(), tv->axis(-1), n),
       "MMA swizzle: requires instruction tile iterdomains on the innermost side of the tensordomain");
 }
@@ -872,31 +871,31 @@ void validateMmaRootInnerMN(TensorView* tv, MmaOptions options, int m, int n) {
 bool checkLdMatrixTv(TensorView* tv) {
   // First check if tv is an ldmatrix output:
   auto tv_def = tv->definition();
-  TORCH_CHECK(tv_def != nullptr, "ldmatrix : invalid tv");
+  NVF_CHECK(tv_def != nullptr, "ldmatrix : invalid tv");
   bool is_immediate_output = true;
   if (!ir_utils::isLdMatrixOp(tv_def)) {
     // Only allow one broadcast in between tv and the ldmatrix op
-    TORCH_CHECK(
+    NVF_CHECK(
         tv_def->isA<BroadcastOp>(),
         "ldmatrix: only allow serial broadcast between ldmatrix and mma");
     tv_def = tv_def->input(0)->definition();
-    TORCH_CHECK(tv_def != nullptr, "ldmatrix : invalid tv");
+    NVF_CHECK(tv_def != nullptr, "ldmatrix : invalid tv");
     is_immediate_output = false;
   }
-  TORCH_CHECK(
+  NVF_CHECK(
       ir_utils::isLdMatrixOp(tv_def),
       "ldmatrix : invalid op type: ",
       tv_def->toString());
-  TORCH_CHECK(
+  NVF_CHECK(
       tv->nDims() >= 2,
       "ldmatrix: scheduled tv needs to be at least 2 dimensional");
-  TORCH_CHECK(
+  NVF_CHECK(
       !tv->axis(-1)->isBroadcast(), "ldmatrix: unsupported scheduled axes");
-  TORCH_CHECK(
+  NVF_CHECK(
       !tv->axis(-1)->isReduction(), "ldmatrix: unsupported scheduled axes");
-  TORCH_CHECK(
+  NVF_CHECK(
       !tv->axis(-2)->isBroadcast(), "ldmatrix: unsupported scheduled axes");
-  TORCH_CHECK(
+  NVF_CHECK(
       !tv->axis(-2)->isReduction(), "ldmatrix: unsupported scheduled axes");
   return is_immediate_output;
 }
@@ -977,7 +976,7 @@ void scheduleLdMatrix(TensorView* tv, MmaOptions options) {
   bool is_immediate_output = checkLdMatrixTv(tv);
 
   // Check mma option is supported
-  TORCH_CHECK(
+  NVF_CHECK(
       options.macro == MmaOptions::MacroType::Ampere_16_8_16 ||
           options.macro == MmaOptions::MacroType::Ampere_16_16_16 ||
           options.macro == MmaOptions::MacroType::Turing_16_8_16 ||
@@ -985,7 +984,7 @@ void scheduleLdMatrix(TensorView* tv, MmaOptions options) {
       "scheduleLdMatrix: unknown macro for ldmatrix");
 
   if (options.operand == MmaOptions::Operand::A) {
-    TORCH_INTERNAL_ASSERT(tv->nDims() >= 2);
+    NVF_ERROR(tv->nDims() >= 2);
     // validation:
     auto mma = options.mmaOp();
     auto m_dims = getMmaRootDimensions(tv, mma, MmaDimension::M);
@@ -994,10 +993,10 @@ void scheduleLdMatrix(TensorView* tv, MmaOptions options) {
         (options.layout == MmaOptions::MmaLayout::NN ||
          options.layout == MmaOptions::MmaLayout::NT);
 
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         canValidateIsInnerDim(m_dims.back(), tv->axis(-2), 16),
         "MMA swizzle: requires instruction tile iterdomains on the innermost side of the tensordomain");
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         canValidateIsInnerDim(k_dims.back(), tv->axis(-1), 16),
         "MMA swizzle: requires instruction tile iterdomains on the innermost side of the tensordomain",
         tv->toString());
@@ -1030,7 +1029,7 @@ void scheduleLdMatrix(TensorView* tv, MmaOptions options) {
         (options.layout == MmaOptions::MmaLayout::NT ||
          options.layout == MmaOptions::MmaLayout::TT);
 
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         canValidateIsInnerDim(k_dims.back(), tv->axis(-1), 16),
         "MMA swizzle: requires instruction tile iterdomains on the innermost side of the tensordomain");
 
@@ -1067,7 +1066,7 @@ void scheduleLdMatrix(TensorView* tv, MmaOptions options) {
       tv->axis(-2)->parallelize(ParallelType::TIDx);
     } else {
       // validation:
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           canValidateIsInnerDim(n_dims.back(), tv->axis(-2), 8),
           "MMA swizzle: requires instruction tile iterdomains on the innermost side of the tensordomain");
 
@@ -1102,7 +1101,7 @@ void scheduleLdMatrix(TensorView* tv, MmaOptions options) {
       tv->axis(-2)->parallelize(ParallelType::TIDx);
     }
   } else {
-    TORCH_INTERNAL_ASSERT(false, "unreachable");
+    NVF_ERROR(false, "unreachable");
   }
 
   if (is_immediate_output) {
@@ -1125,7 +1124,7 @@ void WarpMmaSwizzler::scheduleVoltaOperandRead(
       setWarpMapped(tv, 4);
       break;
     default:
-      TORCH_CHECK(false, "WarpMmaSwizzler: please specify operand");
+      NVF_CHECK(false, "WarpMmaSwizzler: please specify operand");
   }
 }
 
@@ -1221,7 +1220,7 @@ void WarpMmaSwizzler::scheduleTuringM16N8K16MmaWarpOutput(
 
   //       m
   // [2o, Warp, 2i (,R)]
-  TORCH_CHECK(tv->definition() != nullptr);
+  NVF_CHECK(tv->definition() != nullptr);
 
   if (is_reduction && tv->definition()->isA<MmaOp>()) {
     // Set instruction loops for mma reduce
@@ -1267,7 +1266,7 @@ void WarpMmaSwizzler::scheduleTuringM16N16K16MmaWarpOutput(
 
   //       m
   // [2o, Warp, 2i (,R)]
-  TORCH_CHECK(tv->definition() != nullptr);
+  NVF_CHECK(tv->definition() != nullptr);
 
   if (is_reduction && tv->definition()->isA<MmaOp>()) {
     // Set instruction loops for mma reduce
@@ -1327,7 +1326,7 @@ void canonicalizeMmaTvOrdering(TensorView* tv) {
       tv->getMaybeRFactorDomain().begin(), tv->getMaybeRFactorDomain().end()};
 
   auto mma = dynamic_cast<MmaOp*>(tv->definition());
-  TORCH_CHECK(
+  NVF_CHECK(
       mma != nullptr, "canonicalizeMmaTvOrdering : only support mma op output");
 
   auto m_id_set = mma_utils::getMmaDomainSet(mma, mma_utils::MmaDimension::M);
@@ -1340,7 +1339,7 @@ void canonicalizeMmaTvOrdering(TensorView* tv) {
 
   for (auto idx : c10::irange(ndims)) {
     auto id = tv->axis(idx);
-    TORCH_CHECK(root_id_set.count(id), id->toString(), " not a root id.");
+    NVF_CHECK(root_id_set.count(id), id->toString(), " not a root id.");
 
     // Categorize each original iterdomain position
     if (m_id_set.count(id)) {
@@ -1386,7 +1385,7 @@ void canonicalizeMmaTvOrdering(TensorView* tv) {
 
   // Validate that all of the root ids are covered by
   //  the inserted categories.
-  TORCH_INTERNAL_ASSERT(current_pos == ndims, "Id not completely categorized");
+  NVF_ERROR(current_pos == ndims, "Id not completely categorized");
 
   // Apply the new ordering
   tv->reorder(order_map);
@@ -1460,7 +1459,7 @@ ProblemIterDomainsOpt getProblemIterDomains(Fusion* fusion) {
       break;
     }
   }
-  TORCH_INTERNAL_ASSERT(k != nullptr, "Failed to find K domain in MMA output");
+  NVF_ERROR(k != nullptr, "Failed to find K domain in MMA output");
 
   return ProblemIterDomains{m, n, k};
 }

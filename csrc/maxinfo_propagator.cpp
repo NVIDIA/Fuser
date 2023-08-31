@@ -152,7 +152,7 @@ void MaxInfoSpanningTree::traverse(Propagator* propagator) {
         propagator->propagateC2P(next_hop.from, next_hop.to);
         break;
       default:
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             false, "Unknown next hop type in MaxInfoSpanningTree::traverse.");
     }
   }
@@ -379,7 +379,7 @@ MaxRootDomainInfoSpanningTree::getReferenceRootIDInfo(
   if (leaf_pos < 0) {
     leaf_pos += int64_t(tv->nDims()) + 1;
   }
-  TORCH_CHECK(
+  NVF_CHECK(
       leaf_pos >= 0 && leaf_pos <= int64_t(tv->nDims()),
       "MaxRootDomainInfoSpanningTree called on an leaf_pos outside valid range.");
   RootDomainInfo result;
@@ -422,9 +422,9 @@ std::shared_ptr<MaxInfoSpanningTree::Information> MaxRootDomainInfoSpanningTree:
   const auto& from_rfactor_dom = from->getMaybeRFactorDomain();
   const auto& to_rfactor_dom = to->getMaybeRFactorDomain();
 
-  TORCH_INTERNAL_ASSERT(from->hasRFactor() == to->hasRFactor());
-  TORCH_INTERNAL_ASSERT(from_root_dom.size() == to_root_dom.size());
-  TORCH_INTERNAL_ASSERT(from_rfactor_dom.size() == to_rfactor_dom.size());
+  NVF_ERROR(from->hasRFactor() == to->hasRFactor());
+  NVF_ERROR(from_root_dom.size() == to_root_dom.size());
+  NVF_ERROR(from_rfactor_dom.size() == to_rfactor_dom.size());
 
   std::unordered_map<IterDomain*, IterDomain*> id_map;
   for (auto i : c10::irange(from_root_dom.size())) {

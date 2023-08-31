@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <csrc/exceptions.h>
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
@@ -64,13 +65,13 @@ TEST_F(NVFuserTest, FusionCyclicGraph_CUDA) {
     auto tv4 = set(tv3);
     fusion->addOutput(tv4);
 
-    TORCH_CHECK(
+    NVF_CHECK(
         ir_utils::checkCycle(fusion.get()).empty(),
         "no cycle should be detected in fusion");
     // manually creating a cycle on the an active branch
     auto expr = tv2->definition();
     ir_utils::replaceValInExpr(expr, tv1, tv4);
-    TORCH_CHECK(
+    NVF_CHECK(
         ir_utils::checkCycle(fusion.get()).size() == 6,
         "cycle of size 6 should be detected in fusion");
     EXPECT_THAT(
@@ -105,7 +106,7 @@ TEST_F(NVFuserTest, FusionCyclicGraph_CUDA) {
     ir_utils::replaceValInExpr(expr, s0, tv2);
 
     // cycle on dead branch shouldn't be picked up by default
-    TORCH_CHECK(
+    NVF_CHECK(
         ir_utils::checkCycle(fusion.get()).empty(),
         "cycle on dead branch shouldn't be detected");
 
@@ -119,14 +120,14 @@ TEST_F(NVFuserTest, FusionCyclicGraph_CUDA) {
             ::testing::HasSubstr("cycle detected")));
 
     // check for proper size of cycle detected
-    TORCH_CHECK(
+    NVF_CHECK(
         ir_utils::checkCycle(fusion.get(), {}, to).size() == 4,
         "cycle with size 4 before `to` should be detected");
 
     // adding `tv2` to `from` to hide cycle from detection
     std::unordered_set<Statement*> from;
     from.insert(tv2);
-    TORCH_CHECK(
+    NVF_CHECK(
         ir_utils::checkCycle(fusion.get(), from, to).empty(),
         "cycle after `from` shouldn't be detected");
 

@@ -86,7 +86,7 @@ std::string DynamicTransformInitialInfo::toString() const {
 class DynamicTransformInitialInfoBuilder : public IterVisitor {
  public:
   DynamicTransformInitialInfoBuilder(Fusion* fusion) : info_(fusion) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         !fusion->isA<kir::Kernel>(),
         "Invalid container. Kernel container not allowed.\n");
 
@@ -188,7 +188,7 @@ DynamicTransformConcretizationInfo::DynamicTransformConcretizationInfo(
     const DynamicTransformInitialInfo* initial_info,
     ExpressionEvaluator* expr_eval)
     : initial_info_(initial_info) {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       !fusion()->isA<kir::Kernel>(),
       "Invalid container. Kernel container not allowed.\n");
 
@@ -204,7 +204,7 @@ DynamicTransformConcretizationInfo::DynamicTransformConcretizationInfo(
   for (auto i : c10::irange(maybe_zero_extents.size())) {
     auto ext = maybe_zero_extents.at(i);
     auto ext_opt = expr_eval->evaluate(ext);
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         ext_opt.hasValue(),
         "Could not evaluate dynamic extent: ",
         ext->toString());
@@ -227,7 +227,7 @@ void DynamicTransformConcretizationInfo::analyzeReshapes(
       return;
     }
 
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         out_tv->hasRFactor(),
         "Unexpected output tv of ViewOp: ",
         out_tv->toString());
@@ -241,20 +241,20 @@ void DynamicTransformConcretizationInfo::analyzeReshapes(
       auto inp_id = inp_dom.at(i);
       // This should have been validated when initially creating reshape
       // op, but just in case
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           !inp_id->maybePartial(),
           "Invalid domain to reshape: ",
           inp_id->toString());
       auto extent_val = expr_eval->evaluate(inp_id->extent());
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           extent_val.hasValue(),
           "Cannot evaluate the extent of an input domain to reshape: ",
           inp_id->toString());
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           extent_val.is<int64_t>(),
           "Invalid evaluated value of domain extent: ",
           inp_id->toString());
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           extent_val.as<int64_t>() > 0,
           "Invalid input domain extent: ",
           extent_val.as<int64_t>());
@@ -269,18 +269,18 @@ void DynamicTransformConcretizationInfo::analyzeReshapes(
     for (const auto i : c10::irange(out_dom.size())) {
       auto out_id = out_dom.at(i);
       auto extent_val = expr_eval->evaluate(out_id->extent());
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           extent_val.hasValue(),
           "Cannot evaluate the extent of an output domain to reshape: ",
           out_id->toString());
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           extent_val.is<int64_t>(),
           "Invalid evaluated value of domain extent: ",
           out_id->toString());
       auto extent_int = extent_val.as<int64_t>();
       if (extent_int == -1) {
         // For non-constant Scalar sizes, check that we have not passed -1.
-        TORCH_CHECK(
+        NVF_CHECK(
             out_id->extent()->isConst(),
             "Values of -1 passed to reshape must be constant at definition.")
       }
@@ -300,22 +300,22 @@ void DynamicTransformConcretizationInfo::analyzeResizes(
     auto out_id = resize_ids.at(id_index);
     auto op = out_id->definition()->as<Resize>();
 
-    TORCH_CHECK(
+    NVF_CHECK(
         out_id->getIterType() == IterType::Symbolic,
         "Found non-dynamic Resize in initial concretization info: ",
         op->toString());
 
     auto extent_val = expr_eval->evaluate(out_id->extent());
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         extent_val.hasValue(),
         "Cannot evaluate the extent of a resized domain: ",
         out_id->toString());
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         extent_val.is<int64_t>(),
         "Invalid evaluated value of resized domain extent: ",
         out_id->toString());
     auto extent_int = extent_val.as<int64_t>();
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         extent_int > 0,
         "Invalid resized domain extent ",
         extent_int,
@@ -399,7 +399,7 @@ class DynamicTransformConcretizer : public OptOutMutator {
       Fusion* fusion,
       const DynamicTransformConcretizationInfo* info)
       : info_(info) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         fusion == info->fusion(),
         "Invalid DynamicTransformInitialInfo. The associated Fusion is different from the given Fusion");
     FusionGuard fg(fusion);
@@ -502,7 +502,7 @@ void DynamicTransformConcretizer::concretizeReshape() {
     // like it would have if we had used a static reshape instead.
     auto old_rfactor = incomplete_out_tv->getMaybeRFactorDomain();
     auto new_rfactor = concrete_reshape_out_tv->getMaybeRFactorDomain();
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         old_rfactor.size() == new_rfactor.size(),
         "Concretized reshape rfactor size does not match symbolic rfactor");
     for (auto idx : c10::irange(new_rfactor.size())) {
@@ -536,7 +536,7 @@ void DynamicTransformConcretizer::concretizeResize() {
   // Concretize each resize op.
   for (const auto& [id_index, iter_type] : info_->getResizeIterTypes()) {
     auto id = info_->initialInfo()->getDynamicResizedIterDomains().at(id_index);
-    TORCH_CHECK(
+    NVF_CHECK(
         id->definition() && id->definition()->isA<Resize>(),
         "Resized IterDomain must have a Resize definition");
     auto def = id->definition()->as<Resize>();
@@ -580,7 +580,7 @@ void DynamicTransformConcretizer::mutate(TensorView* tv) {
   // IterDomains.
 
   // At this point, there should be no expr beyond rfactor root
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       tv->getLeafDomain() == tv->getMaybeRFactorDomain(),
       "Invalid tensor: ",
       tv->toString());
@@ -602,7 +602,7 @@ void DynamicTransformConcretizer::mutate(TensorView* tv) {
       // be updated. Assert the assumption to immediately detect such
       // a case if happened.
       for (auto out_val : expr->outputs()) {
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             out_val->isA<IterDomain>(),
             "Unexpected output: ",
             out_val->toString(),
@@ -632,7 +632,7 @@ void DynamicTransformConcretizer::mutate(TensorView* tv) {
       for (auto i : c10::irange(input_ids.size())) {
         auto inp_id = input_ids.at(i);
         auto updated_id = maybeMutated(inp_id)->as<IterDomain>();
-        TORCH_CHECK(
+        NVF_CHECK(
             updated_id == inp_id || !updated_id->isSymbolic(),
             "Mutated IterDomains between root and rfactor should not be symbolic");
         if (i == 0) {
@@ -656,7 +656,7 @@ void DynamicTransformConcretizer::mutate(TensorView* tv) {
 
         // If out_id is Symbolic, we need to concretize it here. If we did not
         // yet determine its IterType, then we've missed our chance.
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             iter_type != IterType::Symbolic,
             "Failed to concretize an output IterType for expression: ",
             expr->toString());
@@ -718,7 +718,7 @@ void DynamicTransformConcretizer::mutate(TensorDomain* td) {
       continue;
     }
 
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         contig.at(i),
         "Unexpected to have a non-contig symbolic domain: ",
         original_id->toString());
@@ -765,13 +765,13 @@ bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
       auto c2p = root_map.mapConsumerToProducer(
           consumer->domain(), producer->domain());
 
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           c2p.find(root_id) != c2p.end(),
           "No input ID found to map with output ID: ",
           root_id->toString());
 
       auto input_id = c2p.at(root_id);
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           input_id->getIterType() != IterType::Symbolic,
           "Producer ID not concretized: ",
           input_id->toString());
@@ -783,14 +783,14 @@ bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
       }
     }
 
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         id_type.has_value(),
         "Did not find id_type for consumer root domain ",
         root_id->toString(),
         ". Perhaps consumer def has no inputs. Consumer definition = ",
         def->toString());
 
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         id_type != IterType::Symbolic,
         "Failed to concretize ",
         root_id->toString(),

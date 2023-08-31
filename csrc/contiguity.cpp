@@ -49,7 +49,7 @@ OrderedIdInformation::OrderedIdInformation(
 }
 
 bool OrderedIdInformation::checkExclusivelyConsumesAllocs(IterDomain* id) {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       std::find(active_ids_.begin(), active_ids_.end(), id) !=
           active_ids_.end(),
       "Error replaying transforms in contiguous ID checker, expected ",
@@ -57,7 +57,7 @@ bool OrderedIdInformation::checkExclusivelyConsumesAllocs(IterDomain* id) {
       " to be in the active ID set.");
 
   auto alloc_id_it = id_to_alloc_ids_.find(id);
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       alloc_id_it != id_to_alloc_ids_.end(),
       "Error replaying transforms in contiguous ID checker, couldn't find mapped allocs of ",
       id->toString());
@@ -72,7 +72,7 @@ bool OrderedIdInformation::checkExclusivelyConsumesAllocs(IterDomain* id) {
     }
 
     auto alloc_id_it = id_to_alloc_ids_.find(other_active_id);
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         alloc_id_it != id_to_alloc_ids_.end(),
         "Error replaying transforms in contiguous ID checker, couldn't find mapped allocs of ",
         other_active_id->toString());
@@ -115,7 +115,7 @@ void OrderedIdInformation::handle(Merge* merge) {
   const auto inner_alloc_ids_it = id_to_alloc_ids_.find(merge->inner());
   const auto outer_alloc_ids_it = id_to_alloc_ids_.find(merge->outer());
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       inner_alloc_ids_it != id_to_alloc_ids_.end() &&
           outer_alloc_ids_it != id_to_alloc_ids_.end(),
       "Error replaying transforms in contiguous ID checker.");
@@ -240,7 +240,7 @@ void OrderedIdInformation::handle(Split* split) {
   // Get allocation ids of the input
   const auto in_alloc_ids_it = id_to_alloc_ids_.find(split->in());
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       in_alloc_ids_it != id_to_alloc_ids_.end(),
       "Error replaying transforms in contiguous ID checker.");
 
@@ -289,7 +289,7 @@ void OrderedIdInformation::handle(Swizzle2D* swizzle) {
   const auto in_x_alloc_ids_it = id_to_alloc_ids_.find(swizzle->inX());
   const auto in_y_alloc_ids_it = id_to_alloc_ids_.find(swizzle->inY());
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       in_x_alloc_ids_it != id_to_alloc_ids_.end() &&
           in_y_alloc_ids_it != id_to_alloc_ids_.end(),
       "Error replaying transforms in contiguous ID checker.");
@@ -350,7 +350,7 @@ void OrderedIdInformation::handle(Resize* resize) {
   // Get allocation ids of the two inputs
   const auto in_alloc_ids_it = id_to_alloc_ids_.find(resize->in());
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       in_alloc_ids_it != id_to_alloc_ids_.end(),
       "Error replaying transforms in contiguous ID checker.");
 
@@ -506,7 +506,7 @@ void ContigIDs::build(const std::vector<IterDomain*>& ids) {
     return;
   }
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       alloc_domain_.size() == alloc_contiguity_.size(),
       "Arguments don't match ",
       alloc_domain_.size(),
@@ -516,7 +516,7 @@ void ContigIDs::build(const std::vector<IterDomain*>& ids) {
   for (const auto alloc_domain_i : c10::irange(alloc_domain_.size())) {
     auto alloc_domain_id = alloc_domain_.at(alloc_domain_i);
     if (alloc_domain_id->isBroadcast()) {
-      TORCH_INTERNAL_ASSERT(!alloc_contiguity_.at(alloc_domain_i).has_value());
+      NVF_ERROR(!alloc_contiguity_.at(alloc_domain_i).has_value());
       continue;
     }
     alloc_to_indexed_id_[alloc_domain_id] = alloc_domain_id;
@@ -528,7 +528,7 @@ void ContigIDs::build(const std::vector<IterDomain*>& ids) {
     // RootAxisInfo. This should be safe as no rfactor tensor should
     // need halo.
     auto alloc_contiguity = alloc_contiguity_.at(alloc_domain_i);
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         alloc_domain_id->isReduction() != alloc_contiguity.has_value(),
         "Expecting a reduction because contiguity has no value, get ",
         alloc_domain_id->toString());
@@ -552,7 +552,7 @@ void ContigIDs::build(const std::vector<IterDomain*>& ids) {
       if (auto resize = dynamic_cast<Resize*>(expr)) {
         resize_deps_.insert(resize->out());
       } else {
-        TORCH_INTERNAL_ASSERT(expr != nullptr);
+        NVF_ERROR(expr != nullptr);
         if (std::any_of(
                 expr->inputs().begin(), expr->inputs().end(), [&](Val* inp) {
                   return inp->isA<IterDomain>() &&
@@ -596,7 +596,7 @@ void ContigIDs::handle(Merge* merge) {
   auto alloc_ids_it =
       consistent_transform_info_->idToAllocIds().find(merge->out());
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       alloc_ids_it != consistent_transform_info_->idToAllocIds().end(),
       "\nError in contiguous analysis, merge info doesn't exist for:\n",
       merge->toString(),
@@ -611,7 +611,7 @@ void ContigIDs::handle(Merge* merge) {
   for (auto alloc_id_i : c10::irange(alloc_domain_.size())) {
     auto alloc_id = alloc_domain_[alloc_id_i];
     if (alloc_id->isBroadcast()) {
-      TORCH_INTERNAL_ASSERT(!alloc_contiguity_.at(alloc_id_i).has_value());
+      NVF_ERROR(!alloc_contiguity_.at(alloc_id_i).has_value());
       continue;
     }
     if (alloc_ids.has(alloc_id)) {
@@ -625,7 +625,7 @@ void ContigIDs::handle(Merge* merge) {
       // then we don't have this same constraint, we can just ignore
       // contiguity of the allocations all together.
       auto alloc_contiguity = alloc_contiguity_.at(alloc_id_i);
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           alloc_id->isReduction() != alloc_contiguity.has_value(),
           "Expecting a reduction because contiguity has no value, get ",
           alloc_id->toString());

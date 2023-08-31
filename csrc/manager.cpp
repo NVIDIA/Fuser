@@ -128,7 +128,7 @@ class CudaFusionManager {
     if (graph_cache_ids_.count(repr) == 0) {
       int32_t kernel_id = getNextUniqueID();
       graph_cache_ids_[repr] = kernel_id;
-      TORCH_CHECK(
+      NVF_CHECK(
           graph_cache_.emplace(kernel_id, std::make_unique<GraphCache>(graph))
               .second);
     }
@@ -157,7 +157,7 @@ class CudaFusionManager {
       int32_t kernel_id,
       const at::ArrayRef<c10::IValue> inputs) {
     std::lock_guard<std::mutex> guard(mutex_);
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         graph_cache_.count(kernel_id) > 0, "graph cache miss at run time");
     return graph_cache_[kernel_id]->runGraphWithInputs(inputs);
   }
@@ -224,7 +224,7 @@ class CudaFusionManager {
 void compileCudaFusionGroup(torch::jit::Node* fusion_node) {
   FUSER_PERF_SCOPE("nvFuser::Manager::compileCudaFusionGroup");
 
-  TORCH_CHECK(
+  NVF_CHECK(
       fusion_node->kind() == at::prim::CudaFusionGroup,
       "Only prim::CudaFusionGroup can be compiled");
   if (fusion_node->hasAttribute(at::attr::cache_id)) {
@@ -278,7 +278,7 @@ void runCudaFusionGroup(
     const torch::jit::Node* fusion_node,
     torch::jit::Stack& stack) {
   FUSER_PERF_SCOPE("nvFuser::Manager::runCudaFusionGroup");
-  TORCH_CHECK(
+  NVF_CHECK(
       fusion_node->hasAttribute(at::attr::cache_id),
       "node prim::CudaFusionGroup has not been compiled yet");
 
@@ -298,7 +298,7 @@ void runCudaFusionGroup(
     // make a copy of the stack
     int64_t inputs_size = static_cast<int64_t>(
         fusion_node->g(at::attr::Subgraph)->inputs().size());
-    TORCH_INTERNAL_ASSERT(int64_t(stack.size()) >= inputs_size);
+    NVF_ERROR(int64_t(stack.size()) >= inputs_size);
     stack_copy = torch::jit::Stack();
     stack_copy->insert(
         stack_copy->end(), stack.begin(), stack.end() - inputs_size);
@@ -311,7 +311,7 @@ void runCudaFusionGroup(
   }
 
   auto run_fusion = [&]() {
-    TORCH_CHECK(
+    NVF_CHECK(
         fusion_node->kind() == at::prim::CudaFusionGroup,
         "prim::CudaFusionGroup expected");
     int32_t kernel_id = (int32_t)fusion_node->i(at::attr::cache_id);
@@ -362,7 +362,7 @@ void runCudaFusionGroup(
     torch::jit::Stack fallback_outputs;
     int64_t output_count = static_cast<int64_t>(
         fusion_node->g(at::attr::Subgraph)->outputs().size());
-    TORCH_CHECK(
+    NVF_CHECK(
         output_count <= int64_t(stack.size()),
         "Expected ",
         output_count,
@@ -375,7 +375,7 @@ void runCudaFusionGroup(
 
     if (stack_copy) {
       take_fallback(*stack_copy);
-      TORCH_CHECK(
+      NVF_CHECK(
           stack_copy->size() == stack.size(),
           "Fused graph returns stack with ",
           stack.size(),

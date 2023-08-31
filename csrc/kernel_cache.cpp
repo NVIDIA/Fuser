@@ -205,7 +205,7 @@ class ArgumentManager {
       const std::vector<Val*>& group_outputs,
       const T& group_runtime_outputs) {
     // Insert graph segment output to tensor map
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         group_outputs.size() == group_runtime_outputs.size(),
         "Output size does not match.");
 
@@ -266,7 +266,7 @@ flatbuffers::Offset<serde::InputsIdLookup> InputsIdLookup::serialize(
 void InputsIdLookup::deserialize(const serde::InputsIdLookup* buffer) {
   // See definitions in serde/fusion_cache.fbs for tables
   // InputsIdLookup and EncodingEntry
-  TORCH_INTERNAL_ASSERT(buffer != nullptr, "serde::InputsIdLookup is nullptr.");
+  NVF_ERROR(buffer != nullptr, "serde::InputsIdLookup is nullptr.");
   using list_iter = std::list<std::string>::iterator;
   std::vector<list_iter> used_entry_iterators;
 
@@ -337,7 +337,7 @@ InputsIdLookup::IdLookupReturn InputsIdLookup::lookupId(
         } else if (input.isComplexDouble()) {
           encodeBuffer(input.toComplexDouble(), encoding_);
         } else {
-          TORCH_INTERNAL_ASSERT(
+          NVF_ERROR(
               false,
               "Unhandled input type when creating input ID. Cannot record ",
               input);
@@ -466,7 +466,7 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
     inputs_vec = inputs.vec();
     for (const auto& pair : to_be_permuted_inputs) {
       auto v = inputs_vec[pair.first];
-      TORCH_CHECK(
+      NVF_CHECK(
           v.isTensor(), "input permutation can only be applied at tensor");
       auto tensor = v.toTensor();
       inputs_vec[pair.first] = tensor.permute(pair.second);
@@ -491,7 +491,7 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
 
   // Make sure the forced index type is indeed used
   if (forced_index_type.has_value()) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         kernel_runtime->getIndexType() == forced_index_type.value(),
         "Enforcing index type of ",
         forced_index_type.value(),
@@ -537,8 +537,8 @@ std::string FusionExecutorCache::getCode(
     FusionKernelRuntime* kernel_runtime,
     bool intrinsic_code) const {
   std::string kernel_code;
-  TORCH_CHECK(kernel_runtime != nullptr, "Invalid fusion definition!");
-  TORCH_CHECK(kernel_runtime->isCompiled(), "Fusion is not compiled!");
+  NVF_CHECK(kernel_runtime != nullptr, "Invalid fusion definition!");
+  NVF_CHECK(kernel_runtime->isCompiled(), "Fusion is not compiled!");
 
   bool first_kernel = true;
   for (const auto& exec : kernel_runtime->executors()) {
@@ -557,7 +557,7 @@ std::string FusionExecutorCache::getCode(
     // Make sure all the segment index types match. All segments currently
     // use the same index type but this code change in the future.
     for (const auto& exec : execs) {
-      TORCH_CHECK(
+      NVF_CHECK(
           index_type == exec.kernel()->indexType(),
           "Index Type mismatch between Segment Executors: ",
           index_type,
@@ -586,8 +586,8 @@ std::string FusionExecutorCache::getCodeFor(
 std::string FusionExecutorCache::getScheduledIr(
     FusionKernelRuntime* kernel_runtime,
     bool tensor_transforms) const {
-  TORCH_CHECK(kernel_runtime != nullptr, "Invalid fusion definition!");
-  TORCH_CHECK(kernel_runtime->isCompiled(), "Fusion is not compiled!");
+  NVF_CHECK(kernel_runtime != nullptr, "Invalid fusion definition!");
+  NVF_CHECK(kernel_runtime->isCompiled(), "Fusion is not compiled!");
   std::stringstream ss;
   if (kernel_runtime->isSegmented()) {
     auto fs = kernel_runtime->fusionSegments();
@@ -618,7 +618,7 @@ std::string FusionExecutorCache::getScheduledIrFor(
 
 void FusionExecutorCache::evictCache(size_t cache_id) {
   auto it = id_to_kernel_runtime_.find(cache_id);
-  TORCH_INTERNAL_ASSERT(it != id_to_kernel_runtime_.end());
+  NVF_ERROR(it != id_to_kernel_runtime_.end());
   it->second->evictCache(cache_id);
   id_to_kernel_runtime_.erase(it);
 }
@@ -642,7 +642,7 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
     std::optional<PrimDataType> forced_index_type) {
   // Check for id hit case
   auto unique_id_opt = args.getCacheId();
-  TORCH_CHECK(
+  NVF_CHECK(
       unique_id_opt.has_value(),
       "KernelArgumentHolder has no cache ID in getKernelRuntimeFor");
   auto unique_id = *unique_id_opt;
@@ -721,7 +721,7 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
     if (initial_info.isDynamic()) {
       const auto& conc_initial_info =
           conc_fusion->getManaged<DynamicTransformInitialInfo>("initial_info");
-      TORCH_INTERNAL_ASSERT(conc_info);
+      NVF_ERROR(conc_info);
       conc_info->setInitialInfo(&conc_initial_info);
 
       if (isDebugDumpEnabled(DebugDumpOption::FusionIrConcretized)) {
@@ -814,8 +814,7 @@ void FusionExecutorCache::deserialize(
   // See definitions in serde/fusion_cache.fbs for tables
   // FusionExecutorCache and KernelRuntimes
 
-  TORCH_INTERNAL_ASSERT(
-      buffer != nullptr, "serde::FusionExecutorCache is nullptr.");
+  NVF_ERROR(buffer != nullptr, "serde::FusionExecutorCache is nullptr.");
 
   inputs_id_lookup_.deserialize(buffer->inputs_cache());
 
@@ -826,10 +825,10 @@ void FusionExecutorCache::deserialize(
   // 1. Deserialize kernel_runtimes_ unordered_map
   for (auto fb_device_runtimes : *buffer->kernel_runtimes_map()) {
     const auto& initial_info = initialInfo();
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         initial_info.isDynamic() ==
         fb_device_runtimes->has_dynamic_transform_info());
-    TORCH_INTERNAL_ASSERT(fb_device_runtimes->runtimes()->size() > 0);
+    NVF_ERROR(fb_device_runtimes->runtimes()->size() > 0);
 
     std::vector<std::unique_ptr<FusionKernelRuntime>> device_runtimes;
 
@@ -856,7 +855,7 @@ void FusionExecutorCache::deserialize(
         const auto& conc_initial_info =
             conc_fusion->getManaged<DynamicTransformInitialInfo>(
                 "initial_info");
-        TORCH_INTERNAL_ASSERT(conc_info != nullptr);
+        NVF_ERROR(conc_info != nullptr);
         conc_info->setInitialInfo(&conc_initial_info);
 
         DynamicTransform::concretizeFusion(conc_fusion.get(), conc_info);
@@ -900,7 +899,7 @@ FusionKernelRuntime::FusionKernelRuntime(
     std::optional<PrimDataType> forced_index_type) {
   FUSER_PERF_SCOPE("FusionKernelRuntime::FusionKernelRuntime");
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       !fusion->hasDynamicTransform(),
       "Fusion must be concretized before constructing FusionKernelRuntime");
 
@@ -968,10 +967,8 @@ void FusionKernelRuntime::deserialize(
     const serde::FusionKernelRuntime* buffer) {
   // See table definition in FusionKernelRuntime in serde/fusion_cache.fbs
 
-  TORCH_INTERNAL_ASSERT(
-      buffer != nullptr, "serde::FusionKernelRuntime is nullptr.");
-  TORCH_INTERNAL_ASSERT(
-      runtime_workspace_.group_run_order.size() == executors_.size());
+  NVF_ERROR(buffer != nullptr, "serde::FusionKernelRuntime is nullptr.");
+  NVF_ERROR(runtime_workspace_.group_run_order.size() == executors_.size());
 
   // 1. Deserialize FusionExecutor objects
   for (auto idx : c10::irange(buffer->executors()->size())) {
@@ -980,7 +977,7 @@ void FusionKernelRuntime::deserialize(
     // Create and schedule Fusion for this SegmentedGroup
     auto group_id = sg->groupId();
     auto scheduler_entry = schedulers().at(group_id).get();
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         !sg || scheduler_entry->heuristic() == sg->heuristic(),
         "Heuristics do not match.");
     std::unique_ptr<Fusion> fusion_to_run = segmented_fusion_->makeFusion(sg);
@@ -1005,7 +1002,7 @@ std::vector<at::Tensor> FusionKernelRuntime::runKernelWithInput(
   // a kernel is compiled and run for a segmented group
   // In the case of complete fusion, sg = nullptr, and the original fusion
   // is complied and run.
-  TORCH_INTERNAL_ASSERT(sg, "runKernelWithInput: need valid group to run");
+  NVF_ERROR(sg, "runKernelWithInput: need valid group to run");
   auto [launch_params, compile_params] = getKernelConfig(args, sg);
   auto group_id = sg->groupId();
   auto scheduler_entry = schedulers().at(group_id).get();
@@ -1105,7 +1102,7 @@ void FusionKernelRuntime::prepareRuntimeOrder() {
         one_ran = true;
       }
     }
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         one_ran,
         "Couldn't run all groups, something must have gone wrong in segmentation.");
   }
@@ -1115,7 +1112,7 @@ void FusionKernelRuntime::prepareRuntimeOrder() {
 void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
   std::lock_guard<std::mutex> guard(mutex_);
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       args.size() == segmented_fusion_->inputs().size(),
       "Inputs were not set up correctly, received ",
       args.size(),
@@ -1184,15 +1181,15 @@ void FusionKernelRuntime::compileKernel(
   auto scheduler_entry = schedulers().at(group_id).get();
 
   // Check that the heuristics are matched, in the case of segmented fusion
-  TORCH_INTERNAL_ASSERT(!sg || scheduler_entry->heuristic() == sg->heuristic());
-  TORCH_INTERNAL_ASSERT(!executors_.at(group_id).isCompiled());
+  NVF_ERROR(!sg || scheduler_entry->heuristic() == sg->heuristic());
+  NVF_ERROR(!executors_.at(group_id).isCompiled());
 
   // Running a segment group as a single kernel,
   // make a fusion to run from segmented fusion
   auto fusion_to_run = segmented_fusion_->makeFusion(sg);
   FusionGuard fg(fusion_to_run.get());
   scheduler_entry->schedule(fusion_to_run.get());
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       scheduler_entry->params()->cparams.index_type.has_value(),
       "Kernel index type is not defined.");
   executors_.at(group_id).compileFusion(
@@ -1210,8 +1207,8 @@ std::pair<LaunchParams, CompileParams> FusionKernelRuntime::getKernelConfig(
   auto scheduler_entry = schedulers().at(group_id).get();
 
   // Check that the heuristics are matched, in the case of segmented fusion
-  TORCH_INTERNAL_ASSERT(!sg || scheduler_entry->heuristic() == sg->heuristic());
-  TORCH_INTERNAL_ASSERT(executors_.at(group_id).isCompiled());
+  NVF_ERROR(!sg || scheduler_entry->heuristic() == sg->heuristic());
+  NVF_ERROR(executors_.at(group_id).isCompiled());
 
   return std::make_pair(
       scheduler_entry->params()->lparams, scheduler_entry->params()->cparams);
@@ -1259,7 +1256,7 @@ std::vector<at::Tensor> FusionKernelRuntime::runWithInputs(
       // 2) Integration handles the trivial forwarding of inputs. When we put
       // together `fusion_outputs` for a given fusion and the outputs are
       // fusion inputs, we directly return the input tensor.
-      TORCH_INTERNAL_ASSERT(iter->second->is<at::Tensor>());
+      NVF_ERROR(iter->second->is<at::Tensor>());
       fusion_outputs.push_back(iter->second->as<at::Tensor>());
     } else {
       bool empty_type_check = output->getDataType().has_value() &&
@@ -1273,7 +1270,7 @@ std::vector<at::Tensor> FusionKernelRuntime::runWithInputs(
       bool empty_tensor_check = out_tv->isZeroDim() || out_tv->isEmptyTensor();
 
       // This is the check for an empty tensor;
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           empty_tensor_check && empty_type_check,
           "Is empty tensor? ",
           !empty_tensor_check,
@@ -1297,7 +1294,7 @@ std::vector<at::Tensor> FusionKernelRuntime::runWithInputs(
 
 std::unordered_map<Val*, const PolymorphicValue*> FusionKernelRuntime::
     runSegmentsWithInputs(KernelArgumentHolder& args) {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       args.size() == segmented_fusion_->inputs().size(),
       "Inputs were not set up correctly, received ",
       args.size(),
@@ -1348,7 +1345,7 @@ void FusionKernelRuntime::updateHeuristicsLaunchParams(
     FusionHeuristics* update_heuristics) {
   FUSER_PERF_SCOPE("FusionKernelRuntime::updateHeuristicsLaunchParams");
   auto scheduler_list_length = heuristics_->heuristicsList().size();
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       update_heuristics->heuristicsList().size() == scheduler_list_length);
   for (const auto i : c10::irange(scheduler_list_length)) {
     auto& schedulerPtr = heuristics_->heuristicsList()[i];
@@ -1405,7 +1402,7 @@ void GraphCache::createFusion(const std::shared_ptr<torch::jit::Graph>& graph) {
 // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init)
 GraphCache::GraphCache(const std::shared_ptr<torch::jit::Graph>& graph) {
   FUSER_PERF_SCOPE("GraphCache::GraphCache");
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       torch::jit::IsNewExecutorEnabled(),
       "legacy executor is not supported by nvfuser");
 
@@ -1420,7 +1417,7 @@ std::vector<at::Tensor> GraphCache::runGraphWithInputs(
 
   GRAPH_DEBUG("running GraphCache: ", this);
   auto outputs = fusion_executor_cache_->runFusionWithInputs(inputs);
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       outputs.size() == num_of_outputs_,
       "FusionExecutorCache returned ",
       outputs.size(),

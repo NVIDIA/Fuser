@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 #include <c10/macros/Export.h>
+#include <exceptions.h>
 
 #include <device_lower/analysis/thread_predicate.h>
 #include <device_lower/utils.h>

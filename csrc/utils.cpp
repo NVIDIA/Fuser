@@ -118,7 +118,7 @@ int8_t getCommonDeviceCUDA(
     if (device.is_cpu() && is_cpu_scalar(input.toTensor())) {
       continue;
     }
-    TORCH_CHECK(device.is_cuda(), "nvfuser only supports cuda device");
+    NVF_CHECK(device.is_cuda(), "nvfuser only supports cuda device");
     auto cur_index = device.index();
     if (found_device && index != cur_index) {
       return -1;
@@ -141,9 +141,9 @@ bool useFallback() {
 }
 
 std::vector<int64_t> getTensorSizes(at::TensorTypePtr const& tensor_type) {
-  TORCH_INTERNAL_ASSERT(tensor_type != nullptr, "Input must be a Tensor.");
+  NVF_ERROR(tensor_type != nullptr, "Input must be a Tensor.");
   auto optional_sizes = tensor_type->sizes().concrete_sizes();
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       optional_sizes.has_value(), "Missing size information for the tensor.");
   return optional_sizes.value();
 }

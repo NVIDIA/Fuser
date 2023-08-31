@@ -38,34 +38,33 @@ Predicate::Predicate(
       ptype_(ptype),
       expr_(expr),
       thread_pred_(thread_pred) {
-  TORCH_INTERNAL_ASSERT(passkey.ir_container_ != nullptr);
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_ERROR(
       passkey.ir_container_->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
-  TORCH_INTERNAL_ASSERT(
-      ptype != PredicateType::Unswitch && ptype != PredicateType::Manual);
+  NVF_ERROR(ptype != PredicateType::Unswitch && ptype != PredicateType::Manual);
 }
 
 Predicate::Predicate(IrBuilderPasskey passkey, ForLoop* unrolled_loop)
     : Val(passkey, ValType::Predicate, DataType::Bool),
       ptype_(PredicateType::Unswitch),
       unrolled_loop_(unrolled_loop) {
-  TORCH_INTERNAL_ASSERT(passkey.ir_container_ != nullptr);
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_ERROR(
       passkey.ir_container_->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
-  TORCH_INTERNAL_ASSERT(unrolled_loop != nullptr);
+  NVF_ERROR(unrolled_loop != nullptr);
 }
 
 Predicate::Predicate(IrBuilderPasskey passkey, Val* value)
     : Val(passkey, ValType::Predicate, DataType::Bool),
       ptype_(PredicateType::Manual),
       value_(value) {
-  TORCH_INTERNAL_ASSERT(passkey.ir_container_ != nullptr);
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_ERROR(
       passkey.ir_container_->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
-  TORCH_INTERNAL_ASSERT(value != nullptr);
+  NVF_ERROR(value != nullptr);
 }
 
 std::string Predicate::toString(int indent_size) const {
@@ -88,11 +87,11 @@ TensorIndex::TensorIndex(
     : Val(passkey, ValType::TensorIndex, view->getDataType().value()),
       view_(view),
       index_(index) {
-  TORCH_INTERNAL_ASSERT(passkey.ir_container_ != nullptr);
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_ERROR(
       passkey.ir_container_->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       isPointerType(index->dtype()) || index->dtype() == DataType::Index,
       "Cannot index with a value other than an int.");
 }
@@ -111,7 +110,7 @@ std::string TensorIndex::toString(int indent_size) const {
       ss << "_l";
       break;
     default:
-      TORCH_INTERNAL_ASSERT(false, "Unknown tensor memory type.");
+      NVF_ERROR(false, "Unknown tensor memory type.");
   }
   ss << "[";
   ss << index()->toInlineString(indent_size);
@@ -132,18 +131,17 @@ Allocate::Allocate(
     bool zero_init,
     Allocate* alias)
     : Expr(passkey) {
-  TORCH_INTERNAL_ASSERT(passkey.ir_container_ != nullptr);
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_ERROR(
       passkey.ir_container_->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
   if (!shape.empty()) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         (shape.size() == 1 && shape[0]->isOneInt()) ||
         buffer->isA<TensorView>());
   } else {
-    TORCH_INTERNAL_ASSERT(buffer->isA<TensorView>());
-    TORCH_INTERNAL_ASSERT(
-        buffer->as<TensorView>()->getMemoryType() == memory_type);
+    NVF_ERROR(buffer->isA<TensorView>());
+    NVF_ERROR(buffer->as<TensorView>()->getMemoryType() == memory_type);
     const auto domain = buffer->as<TensorView>()->domain();
     for (auto axis : domain->noReductions()) {
       shape.push_back(axis->extent());
@@ -164,8 +162,8 @@ Allocate::Allocate(
   }
 
   if (alias != nullptr) {
-    TORCH_INTERNAL_ASSERT(alias != this, "Invalid alias");
-    TORCH_INTERNAL_ASSERT(alias->memoryType() == memory_type, "Invalid alias");
+    NVF_ERROR(alias != this, "Invalid alias");
+    NVF_ERROR(alias->memoryType() == memory_type, "Invalid alias");
   }
 
   size = simplifyExpr(size);
@@ -213,14 +211,14 @@ std::string Allocate::toString(int indent_size) const {
 }
 
 std::string Allocate::toInlineString(int indent_size) const {
-  TORCH_CHECK(false, "Tensor op can not be printed inline");
+  NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(Allocate)
 
 BlockSync::BlockSync(IrBuilderPasskey passkey, bool war_sync) : Expr(passkey) {
-  TORCH_INTERNAL_ASSERT(passkey.ir_container_ != nullptr);
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_ERROR(
       passkey.ir_container_->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
   addDataAttribute(war_sync);
@@ -234,7 +232,7 @@ std::string BlockSync::toString(int indent_size) const {
 }
 
 std::string BlockSync::toInlineString(int indent_size) const {
-  TORCH_CHECK(false, "Tensor op can not be printed inline");
+  NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(BlockSync)
@@ -244,7 +242,7 @@ GridSync::GridSync(
     ParallelTypeBitmap sync_dims,
     Val* sync_buffer)
     : Expr(passkey) {
-  TORCH_INTERNAL_ASSERT(passkey.ir_container_ != nullptr);
+  NVF_ERROR(passkey.ir_container_ != nullptr);
   addDataAttribute(sync_dims);
   addAttribute(sync_buffer);
 }
@@ -257,15 +255,15 @@ std::string GridSync::toString(int indent_size) const {
 }
 
 std::string GridSync::toInlineString(int indent_size) const {
-  TORCH_CHECK(false, "Tensor op can not be printed inline");
+  NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(GridSync)
 
 CpAsyncWait::CpAsyncWait(IrBuilderPasskey passkey, int64_t keep_stages)
     : Expr(passkey) {
-  TORCH_INTERNAL_ASSERT(passkey.ir_container_ != nullptr);
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_ERROR(
       passkey.ir_container_->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
   addDataAttribute(keep_stages);
@@ -278,14 +276,14 @@ std::string CpAsyncWait::toString(int indent_size) const {
 }
 
 std::string CpAsyncWait::toInlineString(int indent_size) const {
-  TORCH_CHECK(false, "Tensor op can not be printed inline");
+  NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(CpAsyncWait)
 
 CpAsyncCommit::CpAsyncCommit(IrBuilderPasskey passkey) : Expr(passkey) {
-  TORCH_INTERNAL_ASSERT(passkey.ir_container_ != nullptr);
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_ERROR(
       passkey.ir_container_->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
 }
@@ -297,14 +295,14 @@ std::string CpAsyncCommit::toString(int indent_size) const {
 }
 
 std::string CpAsyncCommit::toInlineString(int indent_size) const {
-  TORCH_CHECK(false, "Tensor op can not be printed inline");
+  NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(CpAsyncCommit)
 
 InitMagicZero::InitMagicZero(IrBuilderPasskey passkey) : Expr(passkey) {
-  TORCH_INTERNAL_ASSERT(passkey.ir_container_ != nullptr);
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_ERROR(
       passkey.ir_container_->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
 }
@@ -316,14 +314,14 @@ std::string InitMagicZero::toString(int indent_size) const {
 }
 
 std::string InitMagicZero::toInlineString(int indent_size) const {
-  TORCH_CHECK(false, "Tensor op can not be printed inline");
+  NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(InitMagicZero)
 
 UpdateMagicZero::UpdateMagicZero(IrBuilderPasskey passkey) : Expr(passkey) {
-  TORCH_INTERNAL_ASSERT(passkey.ir_container_ != nullptr);
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_ERROR(
       passkey.ir_container_->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
 }
@@ -335,7 +333,7 @@ std::string UpdateMagicZero::toString(int indent_size) const {
 }
 
 std::string UpdateMagicZero::toInlineString(int indent_size) const {
-  TORCH_CHECK(false, "Tensor op can not be printed inline");
+  NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(UpdateMagicZero)
@@ -356,7 +354,7 @@ std::vector<Expr*>::iterator Scope::insert(
 
 std::vector<Expr*>::iterator Scope::insert_before(Expr* ref, Expr* expr) {
   const auto it = std::find(exprs_.begin(), exprs_.end(), ref);
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       it != exprs_.end(),
       "Tried to insert ",
       expr,
@@ -370,7 +368,7 @@ std::vector<Expr*>::iterator Scope::insert_before(Expr* ref, Expr* expr) {
 
 std::vector<Expr*>::iterator Scope::insert_after(Expr* ref, Expr* expr) {
   const auto it = std::find(exprs_.begin(), exprs_.end(), ref);
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       it != exprs_.end(),
       "Tried to insert ",
       expr,
@@ -423,11 +421,11 @@ ForLoop::ForLoop(
     bool unroll_required,
     DoubleBufferLoopStage double_buffer_loop_stage)
     : Expr(passkey) {
-  TORCH_INTERNAL_ASSERT(passkey.ir_container_ != nullptr);
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_ERROR(
       passkey.ir_container_->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
-  TORCH_INTERNAL_ASSERT(isIntegralType(index->dtype()));
+  NVF_ERROR(isIntegralType(index->dtype()));
   addInput(index);
   addInput(iter_domain);
   if (start == nullptr && iter_domain->isThread()) {
@@ -440,14 +438,14 @@ ForLoop::ForLoop(
       step = FusionGuard::getCurFusion()->oneVal();
     }
   }
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       index->dtype() == DataType::Index, "Loop index must be an index type.");
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       start == nullptr || start->dtype() == DataType::Index,
       "Loop start must be an index type.");
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       step->dtype() == DataType::Index, "Loop step must be an index type.");
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       stop == nullptr || stop->dtype() == DataType::Index,
       "Loop stop must be an index type.");
   addAttribute(start);
@@ -509,7 +507,7 @@ std::string ForLoop::toString(int indent_size) const {
 }
 
 std::string ForLoop::toInlineString(int indent_size) const {
-  TORCH_CHECK(false, "Tensor op can not be printed inline");
+  NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
 bool ForLoop::isUnrollable() const {
@@ -560,7 +558,7 @@ Val* ForLoop::start() const {
     return attributeVal(0);
   } else {
     // clang-tidy complains without this
-    TORCH_INTERNAL_ASSERT(iter_domain() != nullptr);
+    NVF_ERROR(iter_domain() != nullptr);
     return iter_domain()->start();
   }
 }
@@ -570,13 +568,13 @@ Val* ForLoop::stop() const {
     return attributeVal(1);
   } else {
     // clang-tidy complains without this
-    TORCH_INTERNAL_ASSERT(iter_domain() != nullptr);
+    NVF_ERROR(iter_domain() != nullptr);
     return iter_domain()->extent();
   }
 }
 
 Val* ForLoop::step() const {
-  TORCH_INTERNAL_ASSERT(attributeVal(2) != nullptr);
+  NVF_ERROR(attributeVal(2) != nullptr);
   return attributeVal(2);
 }
 
@@ -712,7 +710,7 @@ std::string IfThenElse::toString(int indent_size) const {
 }
 
 std::string IfThenElse::toInlineString(int indent_size) const {
-  TORCH_CHECK(false, "Tensor op can not be printed inline");
+  NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(IfThenElse)
@@ -729,11 +727,11 @@ GridReduction::GridReduction(
     Val* entrances,
     bool is_allreduce)
     : ReductionOp(passkey, reduction_op_type, init, out, in, is_allreduce) {
-  TORCH_INTERNAL_ASSERT(passkey.ir_container_ != nullptr);
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_ERROR(
       passkey.ir_container_->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       attributes().size() == num_reduction_op_attr,
       "The num_reduction_op_attr does not match the number of attributes ReductionOp has."
       "If you changed ReductionOp, please change num_reduction_op_attr accordingly.");
@@ -778,7 +776,7 @@ std::string GridReduction::toString(int indent_size) const {
 }
 
 std::string GridReduction::toInlineString(int indent_size) const {
-  TORCH_CHECK(false, "Tensor op can not be printed inline");
+  NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(GridReduction)
@@ -802,11 +800,11 @@ GroupedGridReduction::GroupedGridReduction(
           std::move(outputs),
           std::move(inputs),
           is_allreduce) {
-  TORCH_INTERNAL_ASSERT(passkey.ir_container_ != nullptr);
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_ERROR(
       passkey.ir_container_->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       attributes().size() == numGroupedReductionOpAttr(),
       "The numGroupedReductionOpAttr() does not match the number of attributes GroupedReductionOp has."
       "If you changed GroupedReductionOp, please change numGroupedReductionOpAttr() accordingly.");
@@ -857,7 +855,7 @@ std::string GroupedGridReduction::toString(int indent_size) const {
 }
 
 std::string GroupedGridReduction::toInlineString(int indent_size) const {
-  TORCH_CHECK(false, "Tensor op can not be printed inline");
+  NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(GroupedGridReduction)
@@ -868,8 +866,8 @@ GridBroadcast::GridBroadcast(
     Allocate* broadcast_buffer,
     Allocate* sync_buffer)
     : Expr(passkey) {
-  TORCH_INTERNAL_ASSERT(passkey.ir_container_ != nullptr);
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_ERROR(
       passkey.ir_container_->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
   addAttribute(broadcast_op);
@@ -891,7 +889,7 @@ std::string GridBroadcast::toString(int indent_size) const {
 }
 
 std::string GridBroadcast::toInlineString(int indent_size) const {
-  TORCH_CHECK(false, "Tensor op can not be printed inline");
+  NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(GridBroadcast)
@@ -906,8 +904,8 @@ GridWelford::GridWelford(
     Val* entrance_index,
     Val* entrances)
     : Expr(passkey) {
-  TORCH_INTERNAL_ASSERT(passkey.ir_container_ != nullptr);
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_ERROR(
       passkey.ir_container_->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
   addAttribute(welford_op);
@@ -982,7 +980,7 @@ std::string GridWelford::toString(int indent_size) const {
 }
 
 std::string GridWelford::toInlineString(int indent_size) const {
-  TORCH_CHECK(false, "Tensor op can not be printed inline");
+  NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(GridWelford)
@@ -1005,11 +1003,11 @@ GroupedGridWelford::GroupedGridWelford(
           std::move(input_vals),
           std::move(init_vals),
           is_allreduce) {
-  TORCH_INTERNAL_ASSERT(passkey.ir_container_ != nullptr);
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_ERROR(
       passkey.ir_container_->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       attributes().size() == numGroupedWelfordOpAttr(),
       "The numGroupedWelfordOpAttr() does not match the number of attributes GroupedWelfordOp has."
       "If you changed GroupedReductionOp, please change numGroupedWelfordOpAttr() accordingly.");
@@ -1018,10 +1016,8 @@ GroupedGridWelford::GroupedGridWelford(
   addAttribute(entrances);
   addAttribute(buffer_stride);
   addDataAttribute(ParallelTypeBitmap{});
-  TORCH_INTERNAL_ASSERT(
-      reduction_buffers[0].size() == reduction_buffers[1].size());
-  TORCH_INTERNAL_ASSERT(
-      reduction_buffers[0].size() == reduction_buffers[2].size());
+  NVF_ERROR(reduction_buffers[0].size() == reduction_buffers[1].size());
+  NVF_ERROR(reduction_buffers[0].size() == reduction_buffers[2].size());
   for (auto i : c10::irange(reduction_buffers[0].size())) {
     addAttribute(reduction_buffers[0].at(i));
     addAttribute(reduction_buffers[1].at(i));
@@ -1035,7 +1031,7 @@ int GroupedGridWelford::getSmemBufferSize(int bdimx, int bdimy, int bdimz)
     const {
   auto out_tv = ir_utils::getTvOutput(this);
   auto kernel = dynamic_cast<kir::Kernel*>(container());
-  TORCH_INTERNAL_ASSERT(kernel != nullptr);
+  NVF_ERROR(kernel != nullptr);
 
   // By default, the required size is the same as the normal Welford reduction
   if (!useOuterOpt()) {
@@ -1053,15 +1049,15 @@ int GroupedGridWelford::getSmemBufferSize(int bdimx, int bdimy, int bdimz)
     auto pt = axis->getParallelType();
     if (pt == ParallelType::Group) {
       auto extent_int = axis->extent()->getInt();
-      TORCH_INTERNAL_ASSERT(extent_int.has_value());
+      NVF_ERROR(extent_int.has_value());
       group_count *= (int)extent_int.value();
     }
   }
 
-  TORCH_INTERNAL_ASSERT(group_count > 1);
+  NVF_ERROR(group_count > 1);
 
   int num_warps = bdimx * bdimy / 32;
-  TORCH_INTERNAL_ASSERT((bdimx * bdimy) % 32 == 0);
+  NVF_ERROR((bdimx * bdimy) % 32 == 0);
 
   int buf_size_for_avg_var = bdimx * num_warps * group_count *
       (int)dataTypeSize(out_tv->getDataType().value());
@@ -1124,7 +1120,7 @@ std::string GroupedGridWelford::toString(int indent_size) const {
 }
 
 std::string GroupedGridWelford::toInlineString(int indent_size) const {
-  TORCH_CHECK(false, "Tensor op can not be printed inline");
+  NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(GroupedGridWelford)
@@ -1138,8 +1134,8 @@ VectorizedWelfordOp::VectorizedWelfordOp(
     Val* reciprocal_of_count,
     Val* hoisted_predicate)
     : WelfordOp(passkey, output, input, init, false) {
-  TORCH_INTERNAL_ASSERT(passkey.ir_container_ != nullptr);
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_ERROR(
       passkey.ir_container_->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
   addAttribute(count);
@@ -1153,8 +1149,8 @@ AllocateFusedReduction::AllocateFusedReduction(
     IrBuilderPasskey passkey,
     Expr* grid_expr)
     : Expr(passkey) {
-  TORCH_INTERNAL_ASSERT(passkey.ir_container_ != nullptr);
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_ERROR(
       passkey.ir_container_->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
   addAttribute(grid_expr);
@@ -1168,11 +1164,11 @@ std::string AllocateFusedReduction::toString(int indent_size) const {
 }
 
 std::string AllocateFusedReduction::toInlineString(int indent_size) const {
-  TORCH_CHECK(false, "Tensor op can not be printed inline");
+  NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
 TensorIndex* AllocateFusedReduction::out() const {
-  TORCH_INTERNAL_ASSERT(gridExpr() != nullptr);
+  NVF_ERROR(gridExpr() != nullptr);
   if (gridExpr()->isA<GridReduction>() ||
       gridExpr()->isA<GroupedGridReduction>()) {
     return gridExpr()->outputs().at(0)->as<kir::TensorIndex>();
@@ -1183,13 +1179,12 @@ TensorIndex* AllocateFusedReduction::out() const {
           dynamic_cast<GroupedGridWelford*>(gridExpr())) {
     return grouped_grid_welford->out(0)->as<kir::TensorIndex>();
   } else {
-    TORCH_INTERNAL_ASSERT(
-        false, "Invalid grid expression: ", gridExpr()->toString());
+    NVF_ERROR(false, "Invalid grid expression: ", gridExpr()->toString());
   }
 }
 
 const ParallelTypeBitmap& AllocateFusedReduction::threadPredicate() const {
-  TORCH_INTERNAL_ASSERT(gridExpr() != nullptr);
+  NVF_ERROR(gridExpr() != nullptr);
   if (auto grid_reduction = dynamic_cast<GridReduction*>(gridExpr())) {
     return grid_reduction->threadPredicate();
   } else if (auto grid_welford = dynamic_cast<GridWelford*>(gridExpr())) {
@@ -1203,8 +1198,7 @@ const ParallelTypeBitmap& AllocateFusedReduction::threadPredicate() const {
           dynamic_cast<GroupedGridWelford*>(gridExpr())) {
     return grouped_grid_welford->threadPredicate();
   } else {
-    TORCH_INTERNAL_ASSERT(
-        false, "Invalid grid expression: ", gridExpr()->toString());
+    NVF_ERROR(false, "Invalid grid expression: ", gridExpr()->toString());
   }
 }
 
