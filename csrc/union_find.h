@@ -230,7 +230,7 @@ class UnionFind {
     //     // Path compression step. Next call will shortcut directly to root.
     //     return parent_[a] = find(p);
     //   }
-    
+
     // Get root using const find() which does not do path compression
     const auto root = const_cast<const UnionFind<IndexType>*>(this)->find(a);
 
