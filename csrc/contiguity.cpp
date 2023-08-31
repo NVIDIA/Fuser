@@ -44,7 +44,7 @@ OrderedIdInformation::OrderedIdInformation(
       {ids.begin(), ids.end()});
 
   for (auto expr : exprs) {
-    OptInDispatch::handle(expr);
+    OptInDispatch::dispatch(expr);
   }
 }
 
@@ -563,7 +563,7 @@ void ContigIDs::build(const std::vector<IterDomain*>& ids) {
           }
         }
       }
-      handle(expr);
+      dispatch(expr);
     }
   }
 }

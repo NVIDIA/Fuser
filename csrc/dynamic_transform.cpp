@@ -37,6 +37,18 @@ DynamicTransformInitialInfo DynamicTransformInitialInfo::clone(
       cloned_info.dynamic_resized_ids_.push_back(ir_cloner.clone(op));
     }
   }
+  cloned_info.maybe_zero_extents_set_.reserve(maybe_zero_extents_set_.size());
+  for (const auto v : maybe_zero_extents_set_) {
+    if (v) {
+      cloned_info.maybe_zero_extents_set_.insert(ir_cloner.clone(v));
+    }
+  }
+  cloned_info.maybe_zero_extents_.reserve(maybe_zero_extents_.size());
+  for (const auto v : maybe_zero_extents_) {
+    if (v) {
+      cloned_info.maybe_zero_extents_.push_back(ir_cloner.clone(v));
+    }
+  }
   cloned_info.root_dynamic_vals_.reserve(root_dynamic_vals_.size());
   for (const auto v : root_dynamic_vals_) {
     if (v) {
@@ -58,6 +70,10 @@ std::string DynamicTransformInitialInfo::toString() const {
   for (const auto& op : dynamic_resized_ids_) {
     ss << indent << indent << op->toString() << "\n";
   }
+  ss << indent << "Dynamic extent Vals:\n";
+  for (const auto& v : maybe_zero_extents_) {
+    ss << indent << indent << v->toString() << "\n";
+  }
   ss << indent << "Root dynamic Vals:\n";
   for (const auto& v : root_dynamic_vals_) {
     ss << indent << indent << v->toString() << "\n";
@@ -77,6 +93,8 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
     traverseTo(fusion, fusion->getTerminatingOutputs(), false, false);
 
     finalizeDynamicVals();
+
+    finalizeMaybeEmptyExtents();
   }
 
   const auto& getInfo() const {
@@ -95,22 +113,25 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
       info_.dynamic_reshaped_tvs_.push_back(out_tv);
 
       // Input and output extent expressions both affect concretization
-      const auto& inp_dom =
-          TensorDomain::noReductions(inp_tv->getMaybeRFactorDomain());
-      for (const auto id : inp_dom) {
-        leaf_dynamic_vals_.push_back(id->extent());
+      for (const auto& id :
+           TensorDomain::noReductions(inp_tv->getMaybeRFactorDomain())) {
+        leaf_dynamic_vals_.push_back(id->getMaybeExpandedExtent());
       }
-      const auto& out_dom = out_tv->getMaybeRFactorDomain();
-      for (const auto id : out_dom) {
-        leaf_dynamic_vals_.push_back(id->extent());
+      for (const auto& id : out_tv->getMaybeRFactorDomain()) {
+        leaf_dynamic_vals_.push_back(id->getMaybeExpandedExtent());
       }
     }
   }
 
-  //! Detect dynamic IterDomain transforms when handling TensorViews
+  //! Detect possibly empty TensorViews and dynamic IterDomain transforms
   void handle(TensorView* tv) override {
     const auto& rfd = tv->getMaybeRFactorDomain();
     for (auto id : rfd) {
+      if (!id->getMaybeExpandedExtent()->isConstScalar() ||
+          id->getMaybeExpandedExtent()->evaluateInt() == 0) {
+        info_.maybe_zero_extents_set_.insert(id->getMaybeExpandedExtent());
+        leaf_dynamic_vals_.push_back(id->getMaybeExpandedExtent());
+      }
       if (!id->definition() || id->getIterType() != IterType::Symbolic) {
         continue;
       }
@@ -141,6 +162,15 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
     }
   }
 
+  //! Convert maybe_zero_extents_set_ to a vector so we can index it reliably
+  void finalizeMaybeEmptyExtents() {
+    info_.maybe_zero_extents_ = std::vector<Val*>(
+        info_.maybe_zero_extents_set_.begin(),
+        info_.maybe_zero_extents_set_.end());
+    // Clear the corresponding set to free memory and speed up cloning
+    info_.maybe_zero_extents_set_.clear();
+  }
+
  private:
   DynamicTransformInitialInfo info_;
 
@@ -153,6 +183,36 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
   //! to compute a minimal cache key in InputsIdLookup::lookupId().
   std::vector<Val*> leaf_dynamic_vals_;
 };
+
+DynamicTransformConcretizationInfo::DynamicTransformConcretizationInfo(
+    const DynamicTransformInitialInfo* initial_info,
+    ExpressionEvaluator* expr_eval)
+    : initial_info_(initial_info) {
+  TORCH_INTERNAL_ASSERT(
+      !fusion()->isA<kir::Kernel>(),
+      "Invalid container. Kernel container not allowed.\n");
+
+  // Make sure all exactly mapped IDs have the same value in the
+  // evaluator when any one of the IDs has a known value
+  expr_eval->propagateBoundValuesThroughExactMaps(initial_info_->fusion());
+
+  analyzeReshapes(expr_eval);
+
+  analyzeResizes(expr_eval);
+
+  auto maybe_zero_extents = initial_info_->getMaybeZeroExtents();
+  for (auto i : c10::irange(maybe_zero_extents.size())) {
+    auto ext = maybe_zero_extents.at(i);
+    auto ext_opt = expr_eval->evaluate(ext);
+    TORCH_INTERNAL_ASSERT(
+        ext_opt.hasValue(),
+        "Could not evaluate dynamic extent: ",
+        ext->toString());
+    if (ext_opt == 0) {
+      empty_extents_.push_back(i);
+    }
+  }
+}
 
 void DynamicTransformConcretizationInfo::analyzeReshapes(
     ExpressionEvaluator* expr_eval) {
@@ -187,18 +247,18 @@ void DynamicTransformConcretizationInfo::analyzeReshapes(
           inp_id->toString());
       auto extent_val = expr_eval->evaluate(inp_id->extent());
       TORCH_INTERNAL_ASSERT(
-          extent_val.has_value(),
+          extent_val.hasValue(),
           "Cannot evaluate the extent of an input domain to reshape: ",
           inp_id->toString());
       TORCH_INTERNAL_ASSERT(
-          extent_val->isInt(),
+          extent_val.is<int64_t>(),
           "Invalid evaluated value of domain extent: ",
           inp_id->toString());
       TORCH_INTERNAL_ASSERT(
-          extent_val->as<int64_t>() > 0,
+          extent_val.as<int64_t>() > 0,
           "Invalid input domain extent: ",
-          extent_val->as<int64_t>());
-      inp_shape.at(i) = extent_val->as<int64_t>();
+          extent_val.as<int64_t>());
+      inp_shape.at(i) = extent_val.as<int64_t>();
     }
 
     const auto& out_dom = out_tv->getMaybeRFactorDomain();
@@ -206,28 +266,23 @@ void DynamicTransformConcretizationInfo::analyzeReshapes(
     // Determine output shape using expr evaluator. Note there may be
     // one domain of extent -1
     std::vector<int64_t> out_shape(out_dom.size(), 0);
-    bool extent_m1_found = false;
     for (const auto i : c10::irange(out_dom.size())) {
       auto out_id = out_dom.at(i);
       auto extent_val = expr_eval->evaluate(out_id->extent());
       TORCH_INTERNAL_ASSERT(
-          extent_val.has_value(),
+          extent_val.hasValue(),
           "Cannot evaluate the extent of an output domain to reshape: ",
           out_id->toString());
       TORCH_INTERNAL_ASSERT(
-          extent_val->isInt(),
+          extent_val.is<int64_t>(),
           "Invalid evaluated value of domain extent: ",
           out_id->toString());
-      const auto extent_int = extent_val->as<int64_t>();
+      auto extent_int = extent_val.as<int64_t>();
       if (extent_int == -1) {
-        TORCH_INTERNAL_ASSERT(
-            !extent_m1_found,
-            "Multiple output domains of size -1 not allowed",
-            out_tv->toString());
-        extent_m1_found = true;
-      } else {
-        TORCH_INTERNAL_ASSERT(
-            extent_int > 0, "Invalid output domain extent: ", extent_int);
+        // For non-constant Scalar sizes, check that we have not passed -1.
+        TORCH_CHECK(
+            out_id->extent()->isConst(),
+            "Values of -1 passed to reshape must be constant at definition.")
       }
       out_shape.at(i) = extent_int;
     }
@@ -252,14 +307,14 @@ void DynamicTransformConcretizationInfo::analyzeResizes(
 
     auto extent_val = expr_eval->evaluate(out_id->extent());
     TORCH_INTERNAL_ASSERT(
-        extent_val.has_value(),
+        extent_val.hasValue(),
         "Cannot evaluate the extent of a resized domain: ",
         out_id->toString());
     TORCH_INTERNAL_ASSERT(
-        extent_val->isInt(),
+        extent_val.is<int64_t>(),
         "Invalid evaluated value of resized domain extent: ",
         out_id->toString());
-    auto extent_int = extent_val->as<int64_t>();
+    auto extent_int = extent_val.as<int64_t>();
     TORCH_INTERNAL_ASSERT(
         extent_int > 0,
         "Invalid resized domain extent ",
@@ -281,7 +336,8 @@ bool DynamicTransformConcretizationInfo::operator==(
   }
 
   if (reshape_transforms_.size() != other.reshape_transforms_.size() ||
-      resize_itertypes_.size() != other.resize_itertypes_.size()) {
+      resize_itertypes_.size() != other.resize_itertypes_.size() ||
+      empty_extents_.size() != other.empty_extents_.size()) {
     return false;
   }
 
@@ -301,6 +357,14 @@ bool DynamicTransformConcretizationInfo::operator==(
     }
   }
 
+  for (const auto i : c10::irange(empty_extents_.size())) {
+    const auto& ee = empty_extents_.at(i);
+    const auto& other_ee = other.empty_extents_.at(i);
+    if (ee != other_ee) {
+      return false;
+    }
+  }
+
   return true;
 }
 
@@ -308,6 +372,11 @@ std::string DynamicTransformConcretizationInfo::toString() const {
   std::stringstream ss;
   ss << "DynamicTransformConcretizationInfo\n";
   std::string indent = "  ";
+  ss << indent << "Empty tensor extents:\n";
+  for (const auto& i : empty_extents_) {
+    auto ext = initial_info_->getMaybeZeroExtents().at(i);
+    ss << indent << indent << ext->toString() << " is zero\n";
+  }
   ss << indent << "Reshape:\n";
   for (const auto& [tv_index, analyze_result] : reshape_transforms_) {
     auto tv = initial_info_->getDynamicReshapedTensorViews().at(tv_index);
@@ -333,6 +402,7 @@ class DynamicTransformConcretizer : public OptOutMutator {
     TORCH_INTERNAL_ASSERT(
         fusion == info->fusion(),
         "Invalid DynamicTransformInitialInfo. The associated Fusion is different from the given Fusion");
+    FusionGuard fg(fusion);
     concretize();
   }
 
@@ -342,6 +412,8 @@ class DynamicTransformConcretizer : public OptOutMutator {
   void concretizeReshape();
 
   void concretizeResize();
+
+  void concretizeEmptyExtents();
 
   //! Use this instead of calling registerMutation directly, since it will also
   //! check that the concretized value is a valid input to all of its uses.
@@ -370,18 +442,44 @@ class DynamicTransformConcretizer : public OptOutMutator {
 };
 
 void DynamicTransformConcretizer::concretize() {
-  // First, concretize all dynamic reshape ops
+  // Concretize all dynamic reshape ops
   concretizeReshape();
 
   // Set output IterTypes for dynamic resize ops
   concretizeResize();
 
+  // Registers replacement of all empty extents with zeroVal()
+  concretizeEmptyExtents();
+
   // Finally, propagate concretized domains
-  auto all_stmts = StmtSort::getStmts(info_->fusion(), true);
-  for (auto stmt : all_stmts) {
-    if (stmt->isA<Val>()) {
-      mutate(stmt);
+  auto all_stmts = StmtSort::getStmts(
+      info_->fusion(),
+      /*traverse_members*/ true,
+      /*traverse_attributes*/ true,
+      /*traverse_siblings*/ true);
+  for (auto tv : ir_utils::filterByType<TensorView>(all_stmts)) {
+    mutate(tv);
+  }
+}
+
+void DynamicTransformConcretizer::concretizeEmptyExtents() {
+  auto fusion = FusionGuard::getCurFusion();
+  for (const auto& ext_index : info_->getEmptyExtents()) {
+    auto ext = info_->initialInfo()->getMaybeZeroExtents().at(ext_index);
+    auto zero = fusion->zeroVal(ext->getDataType().value());
+    auto uses = ext->uses();
+    for (auto use : uses) {
+      ir_utils::replaceValInExpr(use, ext, zero);
     }
+    // Register the concretization of this scalar, which allows us to replace it
+    // whenever it is used as an extent member of an IterDomain.
+    //
+    // When we ext in all uses above, it affects downstream expressions. For
+    // example we might replace i0 with 0 in (i0 + i1) + i2 to form (0 + i1) +
+    // i2. However, i0 itself might be used as the extent, start, or stop values
+    // in an IterDomain, so we register the concretization here so that we can
+    // replace these values whenever we encounter them.
+    registerConcretization(ext, zero);
   }
 }
 
@@ -399,8 +497,28 @@ void DynamicTransformConcretizer::concretizeReshape() {
     // replacement is valid
     checkConcretizedUses(incomplete_out_tv, concrete_reshape_out_tv);
 
+    // Extent expressions often change when concretizing a reshape. Here we
+    // replace these in all downstream expressions so that the Fusion looks just
+    // like it would have if we had used a static reshape instead.
+    auto old_rfactor = incomplete_out_tv->getMaybeRFactorDomain();
+    auto new_rfactor = concrete_reshape_out_tv->getMaybeRFactorDomain();
+    TORCH_INTERNAL_ASSERT(
+        old_rfactor.size() == new_rfactor.size(),
+        "Concretized reshape rfactor size does not match symbolic rfactor");
+    for (auto idx : c10::irange(new_rfactor.size())) {
+      auto old_extent = old_rfactor.at(idx)->extent();
+      auto new_extent = new_rfactor.at(idx)->extent();
+      // If the old extent did not have a definition, we don't need to replace
+      // it, since it will get bound whenever this tensor is a segmentation
+      // edge.
+      if (old_extent->definition() && !new_extent->sameAs(old_extent)) {
+        registerConcretization(old_extent, new_extent);
+      }
+    }
+
     // Replace the old tensor with the new concretized tensor
-    for (auto use_of_old_tv : incomplete_out_tv->uses()) {
+    auto uses = incomplete_out_tv->uses();
+    for (auto use_of_old_tv : uses) {
       ir_utils::replaceValInExpr(
           use_of_old_tv, incomplete_out_tv, concrete_reshape_out_tv);
     }
@@ -446,8 +564,10 @@ void DynamicTransformConcretizer::checkConcretizedUses(
 // concretized. Since symbolic IDs may be propagated down to
 // consumers, those domains need to be concretized accordingly.
 void DynamicTransformConcretizer::mutate(TensorView* tv) {
-  if (!tv->domain()->hasSymbolicAxis()) {
-    return;
+  for (auto root_id : tv->getRootDomain()) {
+    // This will register root_id for mutation if its extent, start, or
+    // stop_offset is registered for mutation
+    OptOutMutator::mutate(root_id);
   }
 
   // First, try to concretize the root domain as there may be symbolic
@@ -507,27 +627,49 @@ void DynamicTransformConcretizer::mutate(TensorView* tv) {
 
       // Determine the output IterType
       IterType iter_type = IterType::Symbolic;
-      for (auto inp_id : ir_utils::filterByType<IterDomain>(expr->inputs())) {
+      const auto input_ids =
+          ir_utils::filterByType<IterDomain>(expr->inputs()).vector();
+      for (auto i : c10::irange(input_ids.size())) {
+        auto inp_id = input_ids.at(i);
         auto updated_id = maybeMutated(inp_id)->as<IterDomain>();
-        iter_type = ops::promoteIterType(iter_type, updated_id->getIterType());
+        TORCH_CHECK(
+            updated_id == inp_id || !updated_id->isSymbolic(),
+            "Mutated IterDomains between root and rfactor should not be symbolic");
+        if (i == 0) {
+          // ops::promoteIterType will favor Symbolic if it encounters it
+          // alongside Broadcast. This is preferable at fusion definition, but
+          // here we are propagating, and if we only see Broadcast in some
+          // dimension, then we should not retain Symbolic. To work around this,
+          // we always overwrite Symbolic with the first concrete IterType we
+          // encounter.
+          iter_type = updated_id->getIterType();
+        } else {
+          iter_type =
+              ops::promoteIterType(iter_type, updated_id->getIterType());
+        }
       }
-      TORCH_INTERNAL_ASSERT(
-          iter_type != IterType::Symbolic,
-          "Failed to concretize an output IterType for expression: ",
-          expr->toString());
-
       // Update the IterType of each output
       for (auto out_id : ir_utils::filterByType<IterDomain>(expr->outputs())) {
         if (!out_id->isSymbolic()) {
           continue;
         }
+
+        // If out_id is Symbolic, we need to concretize it here. If we did not
+        // yet determine its IterType, then we've missed our chance.
+        TORCH_INTERNAL_ASSERT(
+            iter_type != IterType::Symbolic,
+            "Failed to concretize an output IterType for expression: ",
+            expr->toString());
+
         auto concretized_out_id =
-            IterDomainBuilder(out_id).iter_type(iter_type).build();
+            IterDomainBuilder(maybeMutated(out_id)->as<IterDomain>())
+                .iter_type(iter_type)
+                .build();
         registerConcretization(out_id, concretized_out_id);
       }
 
-      // The expr itself needs to be mutated as well in case the outputs are
-      // mutated, which can be done by the mutate method
+      // expr must be mutated in order to set it as the definition for the
+      // concretized outputs.
       OptOutMutator::mutate(expr);
     }
   }
@@ -656,7 +798,9 @@ bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
         consumer->toString());
 
     auto concretized_id =
-        IterDomainBuilder(root_id).iter_type(*id_type).build();
+        IterDomainBuilder(maybeMutated(root_id)->as<IterDomain>())
+            .iter_type(*id_type)
+            .build();
 
     registerConcretization(root_id, concretized_id);
     is_concretized = true;

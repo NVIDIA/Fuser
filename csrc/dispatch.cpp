@@ -47,45 +47,9 @@ T* ptr(T* obj) {
 template <typename T>
 void Val::dispatch(T handler, Val* val) {
   switch (*(val->getValType())) {
-    case ValType::Scalar:
-      if (std::holds_alternative<PointerOf>(val->getDataType()->type)) {
-        ptr(handler)->handle(val->as<Int>());
-        return;
-      }
-      if (std::holds_alternative<ArrayOf>(val->getDataType()->type)) {
-        ptr(handler)->handleArrayType(val);
-        return;
-      }
-      switch (std::get<PrimDataType>(val->getDataType()->type)) {
-        case DataType::Bool:
-          ptr(handler)->handle(val->as<Bool>());
-          return;
-        case DataType::Float:
-        case DataType::Double:
-        case DataType::Half:
-        case DataType::BFloat16:
-          ptr(handler)->handle(val->as<Double>());
-          return;
-        case DataType::Int:
-        case DataType::Int32:
-        case DataType::Index:
-        case DataType::SMemAddress:
-          // Dispatch to Int even with Int32 as we don't have Int32 IR
-          // node.
-          ptr(handler)->handle(val->as<Int>());
-          return;
-        case DataType::ComplexFloat:
-        case DataType::ComplexDouble:
-          ptr(handler)->handle(val->as<ComplexDouble>());
-          return;
-        default:
-          break;
-      }
-      break;
     case ValType::NamedScalar:
       ptr(handler)->handle(val->as<NamedScalar>());
       return;
-
     case ValType::IterDomain:
       ptr(handler)->handle(val->as<IterDomain>());
       return;
@@ -101,15 +65,12 @@ void Val::dispatch(T handler, Val* val) {
     case ValType::TensorIndex:
       ptr(handler)->handle(val->as<kir::TensorIndex>());
       return;
-    case ValType::AggregateVal:
-      ptr(handler)->handle(val->as<AggregateVal>());
+    case ValType::PipelineVal:
+      ptr(handler)->handle(val->as<PipelineVal>());
       return;
-    case ValType::Attribute:
-      TORCH_INTERNAL_ASSERT(
-          false,
-          "ValType::Attribute can not be dispatched. Template type is needed.");
     default:
-      break;
+      ptr(handler)->handle(val);
+      return;
   }
   TORCH_INTERNAL_ASSERT(
       false,
@@ -149,8 +110,24 @@ void Expr::dispatch(T handler, Expr* expr) {
     ptr(handler)->handle(expr->as<ArrayConstruct>());
     return;
   }
+  if (expr->isStrictlyA<StructConstruct>()) {
+    ptr(handler)->handle(expr->as<StructConstruct>());
+    return;
+  }
+  if (expr->isStrictlyA<GetAttr>()) {
+    ptr(handler)->handle(expr->as<GetAttr>());
+    return;
+  }
   if (expr->isStrictlyA<GetItem>()) {
     ptr(handler)->handle(expr->as<GetItem>());
+    return;
+  }
+  if (expr->isStrictlyA<ReverseArray>()) {
+    ptr(handler)->handle(expr->as<ReverseArray>());
+    return;
+  }
+  if (expr->isStrictlyA<GetMetaData>()) {
+    ptr(handler)->handle(expr->as<GetMetaData>());
     return;
   }
   if (expr->isStrictlyA<TensorConstruct>()) {
@@ -321,16 +298,16 @@ void Expr::dispatch(T handler, Expr* expr) {
     ptr(handler)->handle(expr->as<kir::AllocateFusedReduction>());
     return;
   }
-  if (expr->isStrictlyA<kir::BaseAddress>()) {
-    ptr(handler)->handle(expr->as<kir::BaseAddress>());
+  if (expr->isStrictlyA<kir::GetRNGSeedAndOffsetFromHost>()) {
+    ptr(handler)->handle(expr->as<kir::GetRNGSeedAndOffsetFromHost>());
     return;
   }
-  if (expr->isStrictlyA<AggregateExpr>()) {
-    ptr(handler)->handle(expr->as<AggregateExpr>());
+  if (expr->isStrictlyA<PipelineStage>()) {
+    ptr(handler)->handle(expr->as<PipelineStage>());
     return;
   }
-  if (expr->isStrictlyA<SendRecv>()) {
-    ptr(handler)->handle(expr->as<SendRecv>());
+  if (expr->isStrictlyA<PipelineCommunication>()) {
+    ptr(handler)->handle(expr->as<PipelineCommunication>());
     return;
   }
   TORCH_INTERNAL_ASSERT(false, "Unknown exprtype in dispatch!");
@@ -339,55 +316,20 @@ void Expr::dispatch(T handler, Expr* expr) {
 template <typename T>
 void Statement::dispatch(T handler, Statement* stmt) {
   if (stmt->isVal()) {
-    ptr(handler)->handle(stmt->as<Val>());
+    ptr(handler)->dispatch(stmt->as<Val>());
   } else if (stmt->isExpr()) {
-    ptr(handler)->handle(stmt->as<Expr>());
-  } else
+    ptr(handler)->dispatch(stmt->as<Expr>());
+  } else {
     TORCH_INTERNAL_ASSERT(false, "Unknown stmttype in dispatch!");
+  }
 }
 
 template <typename T>
 void Val::constDispatch(T handler, const Val* val) {
   switch (*(val->getValType())) {
-    case ValType::Scalar:
-      if (std::holds_alternative<PointerOf>(val->getDataType()->type)) {
-        ptr(handler)->handle(val->as<Int>());
-        return;
-      }
-      if (std::holds_alternative<ArrayOf>(val->getDataType()->type)) {
-        ptr(handler)->handleArrayType(val);
-        return;
-      }
-      switch (std::get<PrimDataType>(val->getDataType()->type)) {
-        case DataType::Bool:
-          ptr(handler)->handle(val->as<Bool>());
-          return;
-        case DataType::Float:
-        case DataType::Double:
-        case DataType::Half:
-        case DataType::BFloat16:
-          ptr(handler)->handle(val->as<Double>());
-          return;
-        case DataType::Int:
-        case DataType::Index:
-        case DataType::Int32:
-        case DataType::SMemAddress:
-          // Dispatch to Int even with Int32 as we don't have Int32 IR
-          // node.
-          ptr(handler)->handle(val->as<Int>());
-          return;
-        case DataType::ComplexFloat:
-        case DataType::ComplexDouble:
-          ptr(handler)->handle(val->as<ComplexDouble>());
-          return;
-        default:
-          break;
-      }
-      break;
     case ValType::NamedScalar:
       ptr(handler)->handle(val->as<NamedScalar>());
       return;
-
     case ValType::IterDomain:
       ptr(handler)->handle(val->as<IterDomain>());
       return;
@@ -403,15 +345,12 @@ void Val::constDispatch(T handler, const Val* val) {
     case ValType::TensorIndex:
       ptr(handler)->handle(val->as<kir::TensorIndex>());
       return;
-    case ValType::AggregateVal:
-      ptr(handler)->handle(val->as<AggregateVal>());
-      return;
-    case ValType::Attribute:
-      // Attribute Val is just a wrapper for non-IR data, so there is nothing to
-      // handle
+    case ValType::PipelineVal:
+      ptr(handler)->handle(val->as<PipelineVal>());
       return;
     default:
-      break;
+      ptr(handler)->handle(val);
+      return;
   }
   TORCH_INTERNAL_ASSERT(
       false,
@@ -451,8 +390,24 @@ void Expr::constDispatch(T handler, const Expr* expr) {
     ptr(handler)->handle(expr->as<ArrayConstruct>());
     return;
   }
+  if (expr->isStrictlyA<StructConstruct>()) {
+    ptr(handler)->handle(expr->as<StructConstruct>());
+    return;
+  }
+  if (expr->isStrictlyA<GetAttr>()) {
+    ptr(handler)->handle(expr->as<GetAttr>());
+    return;
+  }
   if (expr->isStrictlyA<GetItem>()) {
     ptr(handler)->handle(expr->as<GetItem>());
+    return;
+  }
+  if (expr->isStrictlyA<ReverseArray>()) {
+    ptr(handler)->handle(expr->as<ReverseArray>());
+    return;
+  }
+  if (expr->isStrictlyA<GetMetaData>()) {
+    ptr(handler)->handle(expr->as<GetMetaData>());
     return;
   }
   if (expr->isStrictlyA<TensorConstruct>()) {
@@ -623,16 +578,16 @@ void Expr::constDispatch(T handler, const Expr* expr) {
     ptr(handler)->handle(expr->as<kir::AllocateFusedReduction>());
     return;
   }
-  if (expr->isStrictlyA<kir::BaseAddress>()) {
-    ptr(handler)->handle(expr->as<kir::BaseAddress>());
+  if (expr->isStrictlyA<kir::GetRNGSeedAndOffsetFromHost>()) {
+    ptr(handler)->handle(expr->as<kir::GetRNGSeedAndOffsetFromHost>());
     return;
   }
-  if (expr->isStrictlyA<AggregateExpr>()) {
-    ptr(handler)->handle(expr->as<AggregateExpr>());
+  if (expr->isStrictlyA<PipelineStage>()) {
+    ptr(handler)->handle(expr->as<PipelineStage>());
     return;
   }
-  if (expr->isStrictlyA<SendRecv>()) {
-    ptr(handler)->handle(expr->as<SendRecv>());
+  if (expr->isStrictlyA<PipelineCommunication>()) {
+    ptr(handler)->handle(expr->as<PipelineCommunication>());
     return;
   }
   TORCH_INTERNAL_ASSERT(false, "Unknown exprtype in dispatch!");
@@ -641,9 +596,9 @@ void Expr::constDispatch(T handler, const Expr* expr) {
 template <typename T>
 void Statement::constDispatch(T handler, const Statement* stmt) {
   if (stmt->isVal()) {
-    ptr(handler)->handle(stmt->as<Val>());
+    ptr(handler)->dispatch(stmt->as<Val>());
   } else if (stmt->isExpr()) {
-    ptr(handler)->handle(stmt->as<Expr>());
+    ptr(handler)->dispatch(stmt->as<Expr>());
   } else
     TORCH_INTERNAL_ASSERT(false, "Unknown stmttype in dispatch!");
 }
@@ -662,43 +617,9 @@ void Statement::constDispatch(T handler, const Statement* stmt) {
 template <typename T>
 void Val::mutatorDispatch(T mutator, Val* val) {
   switch (*(val->getValType())) {
-    case ValType::Scalar:
-      if (std::holds_alternative<PointerOf>(val->getDataType()->type)) {
-        ptr(mutator)->mutate(val->as<Int>());
-        return;
-      }
-      if (std::holds_alternative<ArrayOf>(val->getDataType()->type)) {
-        ptr(mutator)->mutateArrayType(val);
-        return;
-      }
-      switch (std::get<PrimDataType>(val->getDataType()->type)) {
-        case DataType::Bool:
-          ptr(mutator)->mutate(val->as<Bool>());
-          return;
-        case DataType::Half:
-        case DataType::BFloat16:
-        case DataType::Float:
-        case DataType::Double:
-          ptr(mutator)->mutate(val->as<Double>());
-          return;
-        case DataType::Int:
-        case DataType::Int32:
-        case DataType::Index:
-        case DataType::SMemAddress:
-          ptr(mutator)->mutate(val->as<Int>());
-          return;
-        case DataType::ComplexFloat:
-        case DataType::ComplexDouble:
-          ptr(mutator)->mutate(val->as<ComplexDouble>());
-          return;
-        default:
-          break;
-      }
-      break;
     case ValType::NamedScalar:
       ptr(mutator)->mutate(val->as<NamedScalar>());
       return;
-
     case ValType::IterDomain:
       ptr(mutator)->mutate(val->as<IterDomain>());
       return;
@@ -714,15 +635,12 @@ void Val::mutatorDispatch(T mutator, Val* val) {
     case ValType::TensorIndex:
       ptr(mutator)->mutate(val->as<kir::TensorIndex>());
       return;
-    case ValType::AggregateVal:
-      ptr(mutator)->mutate(val->as<AggregateVal>());
+    case ValType::PipelineVal:
+      ptr(mutator)->mutate(val->as<PipelineVal>());
       return;
-    case ValType::Attribute:
-      TORCH_INTERNAL_ASSERT(
-          false,
-          "ValType::Attribute can not be dispatched. Template type is needed.");
     default:
-      break;
+      ptr(mutator)->mutate(val);
+      return;
   }
   TORCH_INTERNAL_ASSERT(false, "Unknown valtype in dispatch!");
 }
@@ -730,7 +648,7 @@ void Val::mutatorDispatch(T mutator, Val* val) {
 template <typename T>
 void Statement::mutatorDispatch(T mutator, Statement* stmt) {
   if (stmt->isVal()) {
-    ptr(mutator)->mutate(stmt->as<Val>());
+    ptr(mutator)->dispatchMutate(stmt->as<Val>());
     return;
   }
   if (stmt->isExpr()) {
@@ -778,27 +696,27 @@ template void Statement::mutatorDispatch(OptOutMutator*, Statement*);
 template void Val::mutatorDispatch(OptOutMutator&, Val*);
 template void Val::mutatorDispatch(OptOutMutator*, Val*);
 
-void OptOutDispatch::handle(Statement* s) {
+void OptOutDispatch::dispatch(Statement* s) {
   Statement::dispatch(this, s);
 }
 
-void OptOutDispatch::handle(Expr* e) {
+void OptOutDispatch::dispatch(Expr* e) {
   Expr::dispatch(this, e);
 }
 
-void OptOutDispatch::handle(Val* v) {
+void OptOutDispatch::dispatch(Val* v) {
   Val::dispatch(this, v);
 }
 
-void OptOutConstDispatch::handle(const Statement* s) {
+void OptOutConstDispatch::dispatch(const Statement* s) {
   Statement::constDispatch(this, s);
 }
 
-void OptOutConstDispatch::handle(const Expr* e) {
+void OptOutConstDispatch::dispatch(const Expr* e) {
   Expr::constDispatch(this, e);
 }
 
-void OptOutConstDispatch::handle(const Val* v) {
+void OptOutConstDispatch::dispatch(const Val* v) {
   Val::constDispatch(this, v);
 }
 
@@ -833,16 +751,7 @@ void OptInDispatch::unhandled(Statement* stmt) {
 }
 
 // Vals
-void OptOutConstDispatch::handle(const Bool* stmt) {
-  unhandled(stmt);
-}
-void OptOutConstDispatch::handle(const Double* stmt) {
-  unhandled(stmt);
-}
-void OptOutConstDispatch::handle(const Int* stmt) {
-  unhandled(stmt);
-}
-void OptOutConstDispatch::handle(const ComplexDouble* stmt) {
+void OptOutConstDispatch::handle(const Val* stmt) {
   unhandled(stmt);
 }
 void OptOutConstDispatch::handle(const NamedScalar* stmt) {
@@ -865,11 +774,7 @@ void OptOutConstDispatch::handle(const kir::TensorIndex* stmt) {
   unhandled(stmt);
 }
 
-void OptOutConstDispatch::handle(const AggregateVal* stmt) {
-  unhandled(stmt);
-}
-
-void OptOutConstDispatch::handleArrayType(const Val* stmt) {
+void OptOutConstDispatch::handle(const PipelineVal* stmt) {
   unhandled(stmt);
 }
 
@@ -895,7 +800,19 @@ void OptOutConstDispatch::handle(const TernaryOp* stmt) {
 void OptOutConstDispatch::handle(const ArrayConstruct* stmt) {
   unhandled(stmt);
 }
+void OptOutConstDispatch::handle(const StructConstruct* stmt) {
+  unhandled(stmt);
+}
+void OptOutConstDispatch::handle(const GetAttr* stmt) {
+  unhandled(stmt);
+}
 void OptOutConstDispatch::handle(const GetItem* stmt) {
+  unhandled(stmt);
+}
+void OptOutConstDispatch::handle(const ReverseArray* stmt) {
+  unhandled(stmt);
+}
+void OptOutConstDispatch::handle(const GetMetaData* stmt) {
   unhandled(stmt);
 }
 void OptOutConstDispatch::handle(const TensorConstruct* stmt) {
@@ -1026,30 +943,21 @@ void OptOutConstDispatch::handle(const kir::VectorizedWelfordOp* stmt) {
 void OptOutConstDispatch::handle(const kir::AllocateFusedReduction* stmt) {
   unhandled(stmt);
 }
-void OptOutConstDispatch::handle(const kir::BaseAddress* stmt) {
+void OptOutConstDispatch::handle(const kir::GetRNGSeedAndOffsetFromHost* stmt) {
   unhandled(stmt);
 }
 
-void OptOutConstDispatch::handle(const AggregateExpr* stmt) {
+void OptOutConstDispatch::handle(const PipelineStage* stmt) {
   unhandled(stmt);
 }
-void OptOutConstDispatch::handle(const SendRecv* stmt) {
+void OptOutConstDispatch::handle(const PipelineCommunication* stmt) {
   unhandled(stmt);
 }
 
 void OptOutDispatch::unhandled(Statement*) {}
 
 // Vals
-void OptOutDispatch::handle(Bool* stmt) {
-  unhandled(stmt);
-}
-void OptOutDispatch::handle(Double* stmt) {
-  unhandled(stmt);
-}
-void OptOutDispatch::handle(Int* stmt) {
-  unhandled(stmt);
-}
-void OptOutDispatch::handle(ComplexDouble* stmt) {
+void OptOutDispatch::handle(Val* stmt) {
   unhandled(stmt);
 }
 void OptOutDispatch::handle(NamedScalar* stmt) {
@@ -1072,11 +980,7 @@ void OptOutDispatch::handle(kir::TensorIndex* stmt) {
   unhandled(stmt);
 }
 
-void OptOutDispatch::handle(AggregateVal* stmt) {
-  unhandled(stmt);
-}
-
-void OptOutDispatch::handleArrayType(Val* stmt) {
+void OptOutDispatch::handle(PipelineVal* stmt) {
   unhandled(stmt);
 }
 
@@ -1102,7 +1006,19 @@ void OptOutDispatch::handle(TernaryOp* stmt) {
 void OptOutDispatch::handle(ArrayConstruct* stmt) {
   unhandled(stmt);
 }
+void OptOutDispatch::handle(StructConstruct* stmt) {
+  unhandled(stmt);
+}
+void OptOutDispatch::handle(GetAttr* stmt) {
+  unhandled(stmt);
+}
 void OptOutDispatch::handle(GetItem* stmt) {
+  unhandled(stmt);
+}
+void OptOutDispatch::handle(ReverseArray* stmt) {
+  unhandled(stmt);
+}
+void OptOutDispatch::handle(GetMetaData* stmt) {
   unhandled(stmt);
 }
 void OptOutDispatch::handle(TensorConstruct* stmt) {
@@ -1233,13 +1149,14 @@ void OptOutDispatch::handle(kir::VectorizedWelfordOp* stmt) {
 void OptOutDispatch::handle(kir::AllocateFusedReduction* stmt) {
   unhandled(stmt);
 }
-void OptOutDispatch::handle(kir::BaseAddress* stmt) {
+void OptOutDispatch::handle(kir::GetRNGSeedAndOffsetFromHost* stmt) {
   unhandled(stmt);
 }
-void OptOutDispatch::handle(AggregateExpr* stmt) {
+
+void OptOutDispatch::handle(PipelineStage* stmt) {
   unhandled(stmt);
 }
-void OptOutDispatch::handle(SendRecv* stmt) {
+void OptOutDispatch::handle(PipelineCommunication* stmt) {
   unhandled(stmt);
 }
 

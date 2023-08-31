@@ -34,21 +34,9 @@ namespace executor_utils {
 // Include all the functions we might need in generated code
 std::string kernelPreamble();
 
-void validateKernelInputs(
-    Fusion* fusion,
-    const KernelArgumentHolder& args,
-    const c10::Device& device);
-
-void validateKernelOutputs(
-    Fusion* fusion,
-    const std::vector<at::Tensor>& outputs,
-    const c10::Device& device);
-
 //! Bind input values to runtime values
-TORCH_CUDA_CU_API ExpressionEvaluator bindInputs(
-    const KernelArgumentHolder& args,
-    Fusion* fusion,
-    bool check_consistency = true);
+TORCH_CUDA_CU_API ExpressionEvaluator
+bindInputs(const KernelArgumentHolder& args, Fusion* fusion);
 
 std::string disassembleBinary(
     const std::vector<char>& cubin,
@@ -61,7 +49,7 @@ struct NvrtcFunction {
 
 // Returns executable function and the ptxas log from compilation
 std::tuple<NvrtcFunction, std::string, std::vector<char>> getCompiledKernel(
-    c10::optional<std::reference_wrapper<const std::string>> kernel_code,
+    std::optional<std::reference_wrapper<const std::string>> kernel_code,
     const std::string& code,
     const std::string& func_name,
     int64_t id,

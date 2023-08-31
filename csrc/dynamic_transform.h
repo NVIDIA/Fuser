@@ -14,6 +14,7 @@
 #include <ir/cloner.h>
 #include <iter_visitor.h>
 #include <transform_view.h>
+#include <utils.h>
 
 #include <functional>
 #include <memory>
@@ -38,16 +39,33 @@ class TORCH_CUDA_CU_API DynamicTransformInitialInfo {
     return fusion_;
   }
 
-  //! Return whether any dynamic transforms exist in the Fusion
-  bool hasDynamicTransforms() const {
-    return !dynamic_reshaped_tvs_.empty() || !dynamic_resized_ids_.empty();
+  //! Return whether any dynamic transforms exist in the Fusion, or whether
+  //! there are any tensors which could potentially be empty (size-0 extent)
+  //! given some user input. In either of these cases, concretization may change
+  //! the structure of the Fusion.
+  bool isDynamic() const {
+    return hasPossibleEmptyTensor() || !dynamic_reshaped_tvs_.empty() ||
+        !dynamic_resized_ids_.empty();
+  }
+
+  //! Return whether there are any tensors with unknown extent in some
+  //! dimension, so that they might be empty
+  bool hasPossibleEmptyTensor() const {
+    return !maybe_zero_extents_.empty();
   }
 
   //! Return a set of scalars that are inputs or extents of input TensorViews
   //! and that appear in inputs to dynamic expressions. Any Vals not in this
   //! list do not affect concretization.
-  const std::unordered_set<Val*> getRootDynamicVals() const {
+  const std::unordered_set<Val*>& getRootDynamicVals() const {
     return root_dynamic_vals_;
+  }
+
+  //! Return a set of scalars that appear as extents in TensorViews in the
+  //! Fusion. If any of these evaluate to zero, there is at least one empty
+  //! TensorView present.
+  const std::vector<Val*>& getMaybeZeroExtents() const {
+    return maybe_zero_extents_;
   }
 
   //! Return a vector of outputs of ViewOp expressions that have dynamic output
@@ -93,6 +111,12 @@ class TORCH_CUDA_CU_API DynamicTransformInitialInfo {
 
   std::vector<IterDomain*> dynamic_resized_ids_;
 
+  // This is a minimal set of scalars to check for empty tensors. If any are
+  // zero, we should traverse to find empty tensors.
+  std::unordered_set<Val*> maybe_zero_extents_set_;
+  // The set above is populated then used to create this unique vector
+  std::vector<Val*> maybe_zero_extents_;
+
   // Root Vals that determine concretization
   std::unordered_set<Val*> root_dynamic_vals_;
 
@@ -105,19 +129,10 @@ class TORCH_CUDA_CU_API DynamicTransformConcretizationInfo {
  public:
   DynamicTransformConcretizationInfo(
       const DynamicTransformInitialInfo* initial_info,
-      ExpressionEvaluator* expr_eval)
-      : initial_info_(initial_info) {
-    TORCH_INTERNAL_ASSERT(
-        !fusion()->isA<kir::Kernel>(),
-        "Invalid container. Kernel container not allowed.\n");
+      ExpressionEvaluator* expr_eval);
 
-    // Make sure all exactly mapped IDs have the same value in the
-    // evaluator when any one of the IDs has a known value
-    expr_eval->propagateBoundValuesThroughExactMaps(initial_info->fusion());
-
-    analyzeReshapes(expr_eval);
-
-    analyzeResizes(expr_eval);
+  const std::vector<size_t>& getEmptyExtents() const {
+    return empty_extents_;
   }
 
   //! Return a vector of pairs holding the index of each reshaped TensorView in
@@ -185,10 +200,16 @@ class TORCH_CUDA_CU_API DynamicTransformConcretizationInfo {
   //! result of analyzeView
   std::vector<std::pair<size_t, AnalyzeViewResult>> reshape_transforms_;
 
+  //! Holds a vector of indices into initial_info_.getMaybeZeroExtents() which
+  //! evaluate to 0
+  std::vector<size_t> empty_extents_;
+
   //! Holds the index of the resized IterDomain (output of the Resize op) in the
   //! vector returned by initial_info_->getDynamicResizedIterDomains() along
   //! with its concretized IterType
   std::vector<std::pair<size_t, IterType>> resize_itertypes_;
+
+  friend class DynamicTransformInfoBuilder;
 };
 
 class TORCH_CUDA_CU_API DynamicTransform {
@@ -201,7 +222,7 @@ class TORCH_CUDA_CU_API DynamicTransform {
   //! Concretizes a given fusion. Note that the concretization is
   //! in-place and the given fusion is modified.
   static void concretizeFusion(
-      Fusion*,
+      Fusion* fusion,
       const DynamicTransformConcretizationInfo* info);
 };
 

@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <debug.h>
 #include <fusion.h>
 #include <fusion_segmenter.h>
 #include <instrumentation.h>
@@ -244,7 +245,7 @@ std::ostream& operator<<(std::ostream& os, const SegmentedGroup* group) {
 }
 
 void SegmentedGroup::print() const {
-  std::cout << this << "\n";
+  debug() << this << "\n";
 }
 
 bool SegmentedGroup::isFusionInputGroup() const {
@@ -264,7 +265,7 @@ std::ostream& operator<<(std::ostream& os, const SegmentedEdge* edge) {
 }
 
 void SegmentedEdge::print() const {
-  std::cout << this << "\n";
+  debug() << this << "\n";
 }
 
 std::string toString(const SegmentedEdge* edge) {
@@ -1304,6 +1305,8 @@ void GroupDependencyAnalysis::mergeGroups(
       }
       // insert the new group as producer
       it.second->pushBack(merged);
+      // all producers of merged are now producers of `it`
+      mergeAllKnownProducersIntoFrom(it.first, merged);
     }
   }
 }
@@ -1422,16 +1425,72 @@ std::ostream& operator<<(
 }
 
 void SegmentedFusion::print() const {
-  std::cout << "Segmented_Fusion Dump: -- Re-written complete fusion:{\n";
+  debug() << "Segmented_Fusion Dump: -- Re-written complete fusion:{\n";
   completeFusion()->printMath();
-  std::cout << "} // {Re-written complete fusion}\n";
-  std::cout << this << "\n";
+  debug() << "} // {Re-written complete fusion}\n";
+  debug() << this << "\n";
 }
 
 std::string toString(const SegmentedFusion* segmented_fusion) {
   std::stringstream ss;
   ss << segmented_fusion;
   return ss.str();
+}
+
+//! Sets the rfactor as root and erases rfactor of all inputs in fusion. Any
+//! non-constant expressions in those extents are replaced by new scalars with
+//! no definition. These mutations are performed throughout the Fusion so that
+//! downstream expressions dependent on the original inputs' rfactor extents can
+//! be computed properly.
+void convertInputRfactorsToRoots(Fusion* fusion) {
+  FusionGuard fg(fusion);
+
+  // Holds all Val replacements across all inputs
+  std::unordered_map<Val*, Val*> replacement_map;
+
+  for (auto tv : ir_utils::filterByType<TensorView>(fusion->inputs())) {
+    // Create a new root domain and replacement TensorDomain.
+    // Given an rfactor domain, create a new IterDomain.
+    // Otherwise, clone the previous IterDomain
+    std::vector<IterDomain*> new_root_domain;
+    auto rfactor = tv->getMaybeRFactorDomain();
+    new_root_domain.reserve(rfactor.size());
+
+    // Does the domain (root / rfactor) contain all concrete sized extents?
+    bool tv_is_concrete = true;
+    for (auto id : rfactor) {
+      if (!id->extent()->isConstScalar()) {
+        tv_is_concrete = false;
+        break;
+      }
+    }
+
+    for (const auto& id : rfactor) {
+      if (id->isRFactorProduct()) {
+        // Create new symbolic extents for rfactor iterDomains
+        auto domain_extent = (!tv_is_concrete)
+            ? IrBuilder::create<Val>(DataType::Index)
+            : id->extent();
+        replacement_map.emplace(id->extent(), domain_extent);
+        new_root_domain.push_back(IterDomainBuilder(id)
+                                      .extent(domain_extent)
+                                      .resetSchedulingParams()
+                                      .build());
+      } else {
+        new_root_domain.push_back(id->cloneWithoutRFactor());
+      }
+    }
+
+    TORCH_INTERNAL_ASSERT(
+        new_root_domain.size() == tv->domain()->contiguity().size());
+    auto new_td = IrBuilder::create<TensorDomain>(
+        new_root_domain, tv->domain()->contiguity());
+    replacement_map.emplace(tv->domain(), new_td);
+  }
+
+  // This will replace the values in the mapping replacement_map throughout the
+  // Fusion
+  ir_utils::replaceValue(fusion, replacement_map);
 }
 
 std::unique_ptr<Fusion> SegmentedFusion::makeFusion(SegmentedGroup* sg) {
@@ -1466,9 +1525,9 @@ std::unique_ptr<Fusion> SegmentedFusion::makeFusion(SegmentedGroup* sg) {
     fusion_segment->addOutput(complete_to_segment_map.clone(out));
   }
 
-  for (auto tv : view_tvs) {
-    tv->convertRfactorToRootDomain();
-  }
+  // Replace all vals that are rfactor extents in fusion_segment->inputs() with
+  // new Vals so that they can be bound to the segment inputs.
+  convertInputRfactorsToRoots(fusion_segment.get());
 
   return fusion_segment;
 }
@@ -2032,7 +2091,7 @@ class FusionSegmentGuard : public NonCopyable {
 #endif
 };
 
-c10::optional<ScheduleHeuristic> tryMerge(
+std::optional<ScheduleHeuristic> tryMerge(
     SegmentedFusion* segmented_fusion,
     SchedulerRuntimeInfo& runtime_info,
     SegmentedGroup* a,
@@ -2043,13 +2102,13 @@ c10::optional<ScheduleHeuristic> tryMerge(
       "\n**Segmenter** Considering fusion:\n",
       segmented_fusion->completeFusion());
   if (tryingToMergeSegmenterSet(segmented_fusion->completeFusion())) {
-    return c10::nullopt;
+    return std::nullopt;
   }
   return SchedulerEntry::proposeHeuristics(
       segmented_fusion->completeFusion(), runtime_info);
 }
 
-c10::optional<ScheduleHeuristic> tryMerge(
+std::optional<ScheduleHeuristic> tryMerge(
     SegmentedFusion* segmented_fusion,
     SchedulerRuntimeInfo& runtime_info,
     const std::vector<SegmentedGroup*>& segmented_groups) {
@@ -2058,7 +2117,7 @@ c10::optional<ScheduleHeuristic> tryMerge(
       "\n**Segmenter** Considering fusion:\n",
       segmented_fusion->completeFusion());
   if (tryingToMergeSegmenterSet(segmented_fusion->completeFusion())) {
-    return c10::nullopt;
+    return std::nullopt;
   }
   return SchedulerEntry::proposeHeuristics(
       segmented_fusion->completeFusion(), runtime_info);
@@ -2096,7 +2155,7 @@ void deDuplicateScalarExprs(std::vector<Expr*>& exprs) {
 
 } // namespace
 
-c10::optional<std::unique_ptr<SchedulerEntry>> SegmentedGroup::
+std::optional<std::unique_ptr<SchedulerEntry>> SegmentedGroup::
     getMaybeSchedulerEntry(SchedulerRuntimeInfo& runtime_info) {
   FUSER_PERF_SCOPE("SegmentedGroup::getMaybeSchedulerEntry");
   auto fusion = segmented_fusion_->completeFusion();
@@ -2107,7 +2166,7 @@ c10::optional<std::unique_ptr<SchedulerEntry>> SegmentedGroup::
   FusionSegmentGuard fsg(fusion, getAllInputs(this), getAllOutputs(this));
   if (!SchedulerEntry::canSchedule(
           heuristic(), fusion, runtime_info, data_cache)) {
-    return c10::nullopt;
+    return std::nullopt;
   }
   return SchedulerEntry::makeEntry(
       heuristic(), fusion, runtime_info, data_cache);
@@ -2291,8 +2350,14 @@ bool TranslateApplicableWelford::isValidPersistentFusion(
 
   auto scheduler = SchedulerEntry::makeEntry(
       ScheduleHeuristic::Persistent, translated_fusion, runtime_info);
+  // Translate welford to two-pass enhances performance for block
+  // reductions by reducing instructions and the impact of an extra block
+  // synchronization has negligible overhead.
+  // However, when it comes to cross grid reduction, the additional grid
+  // synchronization carries substantial overhead and does not yield any
+  // performance gains.
   return scheduler->reductionParams().persistent_kernel &&
-      scheduler->reductionParams().fastest_dim;
+      !scheduler->reductionParams().cross_grid_outer_reduction;
 }
 
 // Note that when segmented it is assumed that insertion of lower
@@ -2438,7 +2503,7 @@ void TranslateApplicableWelford::translateSingleWelford(WelfordOp* welford) {
 
   // Create scalar version of the feature element
   //  counting.
-  Val* num_features = IrBuilder::create<Double>(1);
+  Val* num_features = IrBuilder::create<Val>(1.0);
   std::vector<bool> broadcast_mask(in_root.size(), false);
   for (const auto i : c10::irange(in_root.size())) {
     if (out_root.at(i)->isReduction()) {
@@ -2472,10 +2537,7 @@ void TranslateApplicableWelford::translateSingleWelford(WelfordOp* welford) {
 
   auto x_mean_sub_pow = mul(x_mean_sub, x_mean_sub);
   IrBuilder::create<ReductionOp>(
-      BinaryOpType::Add,
-      IrBuilder::create<Double>(0.0),
-      out_var,
-      x_mean_sub_pow);
+      BinaryOpType::Add, IrBuilder::create<Val>(0.0), out_var, x_mean_sub_pow);
   IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out_N, num_features);
 
   // out_avg, out_N are now outputs of a pointwise ops and we
@@ -3396,13 +3458,21 @@ void SegmentCandidateFinder::forwardInputs() {
         continue;
       }
 
-      if (expr->output(0)->uses().size() > 1) {
+      // expr is a unary op so there is a single output. Here we look at that
+      // output's further uses
+      const auto& output_uses = expr->output(0)->uses();
+
+      if (output_uses.size() == 1) {
+        // If there is a single use, visit it to try and extend the chain of
+        // unaryOps
+        to_visit.emplace_back(output_uses.at(0));
+      } else {
+        // If there are either no more uses, or more than one use, we cannot
+        // extend the chain of unary Ops. In either case, finalize this chain by
+        // saving the expr and its output.
         excluded_inp_unary_exprs_.pushBack(expr);
         forwarded_inputs.pushBack(expr->output(0));
-        continue;
       }
-
-      to_visit.emplace_back(expr->output(0)->uses()[0]);
     }
   }
 
@@ -3589,7 +3659,7 @@ void SegmentCandidateFinder::resolveInputsInGroup(SegmentedGroup* group) {
   group->input_vals = IterVisitor::getInputsTo(group->inputs());
 
   // Grab all expressions needed to produce to_visit
-  auto input_exprs = StmtSort::getExprs(completeFusion(), to_visit);
+  auto input_exprs = StmtSort::getExprsTo(completeFusion(), to_visit);
 
   // Insert those expressions at the beginning of the group
   group->exprs_.insert(
@@ -3865,7 +3935,7 @@ class ForceHalfAnnotation : public IterVisitor {
   }
 
   std::unordered_set<TensorView*> force_fp16_tv_set_;
-  c10::optional<DataType> cast_to_type_ = c10::nullopt;
+  std::optional<DataType> cast_to_type_ = std::nullopt;
 };
 
 } // namespace

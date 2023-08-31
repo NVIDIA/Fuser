@@ -140,7 +140,7 @@ class AllocationInserter : public kir::ExprMutator {
       if (extent_with_halo) {
         new_loop = IrBuilder::create<kir::ForLoop>(
             id,
-            IrBuilder::create<Int>(c10::nullopt),
+            IrBuilder::create<Val>(DataType::Index),
             nullptr,
             extent_with_halo,
             nullptr,
@@ -176,7 +176,9 @@ class AllocationInserter : public kir::ExprMutator {
       auto halo_extent = gpu_lower->haloInfo()->getRootAxisInfo(id);
       if (halo_extent.hasHalo()) {
         extent = IrBuilder::addExpr(
-            extent, IrBuilder::create<Int>(halo_extent.width()));
+            extent,
+            IrBuilder::create<Val>(
+                (int64_t)halo_extent.width(), DataType::Index));
       }
       alloc_dims.emplace_back(extent);
     }
@@ -216,7 +218,7 @@ class AllocationInserter : public kir::ExprMutator {
         [](IterDomain* dom) { return dom->as<Val>(); });
 
     // Get all exprs involved in generating the allocation IDs
-    auto exprs = StmtSort::getExprs(tv->fusion(), start_vals);
+    auto exprs = StmtSort::getExprsTo(tv->fusion(), start_vals);
 
     // Get the halo extent if found
     auto getExtent = [this](IterDomain* id) {
@@ -426,11 +428,12 @@ class AllocationInserter : public kir::ExprMutator {
       }
       GpuLower::current()->doubleBufferInfo().setOriginalAllocSize(
           info.buffer, original_alloc_size);
-      int double_buffer_stage = 2;
+      int64_t double_buffer_stage = 2L;
       if (info.buffer->isCircularBuffered()) {
-        double_buffer_stage = (int)info.buffer->circularBufferDepth();
+        double_buffer_stage = (int64_t)info.buffer->circularBufferDepth();
       }
-      alloc_dims.push_back(IrBuilder::create<Int>(double_buffer_stage));
+      alloc_dims.push_back(
+          IrBuilder::create<Val>(double_buffer_stage, DataType::Index));
     }
 
     // Create the allocation node
@@ -438,9 +441,9 @@ class AllocationInserter : public kir::ExprMutator {
         info.buffer, info.buffer->getMemoryType(), alloc_dims);
   }
 
-  void handle(Expr* expr) override {
+  void dispatch(Expr* expr) override {
     if (!ir_utils::isTvOp(expr) || expr->isA<kir::Allocate>()) {
-      ExprMutator::handle(expr);
+      ExprMutator::dispatch(expr);
       return;
     }
 
@@ -474,10 +477,10 @@ class AllocationInserter : public kir::ExprMutator {
             "Welford should not have a default initialization value for predicate elimination.");
         const auto welford = expr->as<WelfordOp>();
         if (out->name() == welford->outVar()->name()) {
-          init = welford->initVar() == nullptr ? IrBuilder::create<Double>(0)
+          init = welford->initVar() == nullptr ? IrBuilder::create<Val>(0.0)
                                                : welford->initVar();
         } else if (out->name() == welford->outAvg()->name()) {
-          init = welford->initAvg() == nullptr ? IrBuilder::create<Double>(0)
+          init = welford->initAvg() == nullptr ? IrBuilder::create<Val>(0.0)
                                                : welford->initAvg();
         } else {
           TORCH_INTERNAL_ASSERT(

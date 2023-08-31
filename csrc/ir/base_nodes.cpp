@@ -12,10 +12,10 @@
 #include <ir/builder.h>
 #include <ir/cloner.h>
 #include <ir/printer.h>
+#include <ir/utils.h>
 #include <kernel.h>
 #include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
-#include <mutator.h>
 
 #include <torch/csrc/jit/ir/ir.h>
 
@@ -88,19 +88,6 @@ kir::Kernel* Statement::kernel() const {
   return ir_container_->as<kir::Kernel>();
 }
 
-// When we create a Val we immediately register them with the active fusion.
-Val::Val(IrBuilderPasskey passkey, ValType _vtype, DataType _dtype)
-    : Statement(passkey), vtype_(_vtype), dtype_(std::move(_dtype)) {}
-
-// NOTE: we don't clone the definition_ and uses_ here
-//  since they may introduce cloning cycles. Instead, we copy
-//  the original pointers and we'll fix them up later part of the
-//  Fusion copy. Neither definition_ nor uses_ are copied through
-//  this constructor now leaving them to be resolved by later stages
-//
-Val::Val(const Val* src, IrCloner* ir_cloner)
-    : Statement(src, ir_cloner), vtype_(src->vtype_), dtype_(src->dtype_) {}
-
 NVFUSER_DEFINE_CLONE(Val)
 
 const std::vector<Expr*>& Val::uses() const {
@@ -133,111 +120,15 @@ bool Val::removeUse(Expr* expr) {
   return false;
 }
 
-// Converts the data type of TensorView or Scalar representing index
-// values. The data type of the original input should be
-// DataType::Index, but DataType::Int is also allowed as it is used
-// for index expressions.
-void Val::resolveIndexDtype() {
-  TORCH_INTERNAL_ASSERT(
-      vtype_ == ValType::TensorView || vtype_ == ValType::Scalar ||
-          vtype_ == ValType::NamedScalar,
-      "Resolving index type is currently only supported on tensor view or scalar values. "
-      "Value type: ",
-      vtype_);
-  TORCH_INTERNAL_ASSERT(
-      isIntegralType(dtype_),
-      "Can only resolve index type if a Val has an Index or Int DataType. ",
-      "Data type: ",
-      dtype_);
-  TORCH_INTERNAL_ASSERT(
-      container()->isA<kir::Kernel>(),
-      "Index type can only be resolved at compile time.");
-  auto index_dtype = container()->as<kir::Kernel>()->indexType();
-  TORCH_INTERNAL_ASSERT(
-      index_dtype == DataType::Int || index_dtype == DataType::Int32,
-      "Invalid index data type: ",
-      index_dtype);
-  dtype_ = index_dtype;
-}
-
-namespace {
-
-// Traverse definition of all values involved in constructing the provided val.
-// Check if all values involved are constant values, meaning the provided
-// val is also a constant value.
-class ConstCheck : private OptOutConstDispatch {
- private:
-  bool is_const_ = true;
-
-  // Returns true if all Val's in the hisotry of provided Val is an Int. Since
-  // our expression evaluator doesn't support any type besides int, it's
-  // important to check it is one.
-  bool is_int_ = true;
-
-  void handle(const Bool* b) final {
-    is_const_ = is_const_ && b->isConst();
-  }
-
-  void handle(const Double* d) final {
-    is_const_ = is_const_ && d->isConst();
-  }
-
-  void handle(const Int* i) final {
-    is_const_ = is_const_ && i->isConst();
-  }
-
-  void handle(const NamedScalar* ns) final {
-    is_const_ = false;
-  }
-
-  void handle(const TensorView* ns) final {
-    is_const_ = false;
-  }
-
-  void handle(const kir::TensorIndex* ns) final {
-    is_const_ = false;
-  }
-
-  void handle(const Expr* expr) final {
-    for (auto inp : expr->inputs()) {
-      handle(inp);
-    }
-  }
-
-  void handle(const Val* val) final {
-    if (!val->isIntegralScalar()) {
-      is_int_ = false;
-    }
-
-    if (val->definition() != nullptr) {
-      handle(val->definition());
-    } else {
-      OptOutConstDispatch::handle(val);
-    }
-  }
-
- public:
-  static bool isConst(const Val* val) {
-    ConstCheck cc;
-    cc.handle(val);
-    return cc.is_const_;
-  }
-
-  static bool isConstInt(const Val* val) {
-    ConstCheck cc;
-    cc.handle(val);
-    return cc.is_const_ && cc.is_int_;
-  }
-};
-
-} // namespace
-
 bool Val::sameAs(const Statement* other) const {
   if (this == other) {
     return true;
   }
   if (auto other_val = dynamic_cast<const Val*>(other)) {
-    if (definition_ == nullptr || other_val->definition_ == nullptr) {
+    if (typeid(*this) != typeid(*other_val)) {
+      return false;
+    }
+    if ((definition_ == nullptr) != (other_val->definition_ == nullptr)) {
       return false;
     }
     if (vtype_ != other_val->vtype_) {
@@ -245,6 +136,16 @@ bool Val::sameAs(const Statement* other) const {
     }
     if (dtype_ != other_val->dtype_) {
       return false;
+    }
+    if (value_.hasValue() != other_val->value_.hasValue()) {
+      return false;
+    }
+    if (definition_ == nullptr) {
+      if (value_.hasValue()) {
+        return value_ == other_val->value_;
+      } else {
+        return false;
+      }
     }
     if (!definition_->sameAs(other_val->definition_)) {
       return false;
@@ -266,88 +167,128 @@ bool Val::sameAs(const Statement* other) const {
   return false;
 }
 
+std::string Val::toString(int indent_size) const {
+  std::stringstream ss;
+  if (isSymbolic()) {
+    ss << ir_utils::varName(this);
+    return ss.str();
+  }
+  auto dtype = getDataType().value();
+  if (dtype == DataType::Bool) {
+    ss << (value() ? "true" : "false");
+  } else if (isFloatingPointType(dtype) || isComplexType(dtype)) {
+    ss << dtype << "(" << std::setprecision(max_digits10(dtype)) << value()
+       << ")";
+  } else {
+    ss << value();
+  }
+  return ss.str();
+}
+
+std::string Val::toInlineString(int indent_size) const {
+  if (definition() != nullptr) {
+    std::stringstream ss;
+    ss << "( " << definition()->toInlineString(indent_size) << " )";
+    return ss.str();
+  } else {
+    return toString(indent_size);
+  }
+}
+
 bool Val::isConstScalar() const {
   if (!isScalar()) {
     return false;
   }
-  return ConstCheck::isConst(this);
+  return ir_utils::dependenciesSatisfied(this);
 }
 
 bool Val::isConstInt() const {
-  return ConstCheck::isConst(this) && isIntegralScalar();
+  return ir_utils::dependenciesSatisfied(this) && isIntegralScalar();
 }
 
 int64_t Val::evaluateInt() {
   TORCH_INTERNAL_ASSERT(
-      ConstCheck::isConst(this),
+      ir_utils::dependenciesSatisfied(this),
       "Cannot get Int of not const values through IR nodes, must use runtime ExpressionEvaluator.");
 
-  if (this->as<Int>()->value().has_value()) {
-    return this->as<Int>()->value().value();
+  if (this->value().hasValue()) {
+    return this->value().as<int64_t>();
   }
 
   ExpressionEvaluator ee;
   auto evaluated_val = ee.evaluate(this);
   TORCH_INTERNAL_ASSERT(
-      evaluated_val.has_value(),
+      evaluated_val.hasValue(),
       "Detected a const integer but failed to infer its value: ",
       toInlineString());
-  return evaluated_val->as<int64_t>();
+  return evaluated_val.as<int64_t>();
 }
 
 double Val::evaluateDouble() {
   TORCH_INTERNAL_ASSERT(
-      ConstCheck::isConst(this),
+      ir_utils::dependenciesSatisfied(this),
       "Cannot get Double of not const doubles through IR nodes, must use runtime ExpressionEvaluator.");
 
-  if (this->as<Double>()->value().has_value()) {
-    return this->as<Double>()->value().value();
+  if (this->value().hasValue()) {
+    return this->value().as<double>();
   }
 
   ExpressionEvaluator ee;
   auto evaluated_val = ee.evaluate(this);
   TORCH_INTERNAL_ASSERT(
-      evaluated_val.has_value(),
+      evaluated_val.hasValue(),
       "Detected a const integer but failed to infer its value.");
-  return evaluated_val->as<double>();
+  return evaluated_val.as<double>();
 }
 
 bool Val::evaluateBool() {
   TORCH_INTERNAL_ASSERT(
-      ConstCheck::isConst(this),
+      ir_utils::dependenciesSatisfied(this),
       "Cannot get Bool of not const bools through IR nodes, must use runtime ExpressionEvaluator.");
 
-  if (this->as<Bool>()->value().has_value()) {
-    return this->as<Bool>()->value().value();
+  if (this->value().hasValue()) {
+    return this->value().as<bool>();
   }
 
   ExpressionEvaluator ee;
   auto evaluated_val = ee.evaluate(this);
   TORCH_INTERNAL_ASSERT(
-      evaluated_val.has_value(),
+      evaluated_val.hasValue(),
       "Detected a const integer but failed to infer its value.");
-  return evaluated_val->as<bool>();
+  return evaluated_val.as<bool>();
 }
 
-c10::optional<int64_t> Val::getInt() const {
-  if (isConstScalar() && isIntegralScalar() && isA<Int>()) {
-    return this->as<Int>()->value();
+std::optional<int64_t> Val::getInt() const {
+  if (isConstScalar() && isIntegralScalar()) {
+    auto val = this->value();
+    if (val.is<int64_t>()) {
+      return val.as<int64_t>();
+    }
+    return std::nullopt;
   }
-  return c10::nullopt;
+  return std::nullopt;
 }
 
-c10::optional<double> Val::getDouble() const {
-  if (isConstScalar() && isFloatingPointScalar() && isA<Double>()) {
-    return this->as<Double>()->value();
+std::optional<double> Val::getDouble() const {
+  if (isConstScalar() && isFloatingPointScalar()) {
+    auto val = this->value();
+    if (val.is<double>()) {
+      return val.as<double>();
+    }
+    return std::nullopt;
   }
-  return c10::nullopt;
+  return std::nullopt;
 }
 
-c10::optional<bool> Val::getBool() const {
-  if (isConstScalar() && isABool() && isA<Bool>()) {
-    return this->as<Bool>()->value();
+std::optional<bool> Val::getBool() const {
+  if (isConstScalar() && isABool()) {
+    auto val = this->value();
+    if (val.is<bool>()) {
+      return val.as<bool>();
+    }
+    return std::nullopt;
   }
-  return c10::nullopt;
+  return std::nullopt;
 }
 
 bool Val::isZero() const {
@@ -376,7 +317,7 @@ bool Val::isFalse() const {
   return getBool() == false;
 }
 
-c10::optional<DataType> Val::getDataType() const {
+std::optional<DataType> Val::getDataType() const {
   TORCH_INTERNAL_ASSERT(
       dtype_ != DataType::Null, "Value does not have a data type.");
   return dtype_;
@@ -517,14 +458,19 @@ Expr* Expr::withWritePredicate(kir::Predicate* predicate) {
   return result;
 }
 
-std::vector<EvaluatorValue> Expr::evaluate(
-    const std::vector<EvaluatorValue>& inputs) const {
+std::vector<PolymorphicValue> Expr::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
   TORCH_INTERNAL_ASSERT(
       false,
       "`evaluate` method for expression ",
       getOpString(),
       " is not defined. ",
       "Please override the evaluate method");
+}
+
+void Expr::addDataAttribute(PolymorphicValue attr) {
+  addAttribute(IrBuilder::create<Val>(container(), std::move(attr)));
 }
 
 } // namespace nvfuser

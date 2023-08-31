@@ -101,6 +101,11 @@ struct IndexingParameters {
 
   //! The inferred halo padded extents of the concrete iterdomains.
   std::unordered_map<IterDomain*, Val*> concrete_id_to_halo_extent;
+
+  //! Unswitched concrete domains. Back-traversing through the inner
+  //! domain of a merge may need to be replaced with the maximum of
+  //! the inner domain.
+  std::unordered_set<IterDomain*> unswitched_domains;
 };
 
 // Initial loop index map for global producer or consumer case.
@@ -153,12 +158,13 @@ IndexingParameters getLinearIndexParameters(
                 loop_id, IdMappingMode::EXACT);
 
         auto stage_depth =
-            GpuLower::current()->doubleBufferInfo().getStageDepthFor(
+            (int64_t)GpuLower::current()->doubleBufferInfo().getStageDepthFor(
                 loop->iter_domain());
         index_parameters.initial_concrete_id_index[concrete_loop_id] =
             SimplifyingIrBuilder::addExpr(
                 index_parameters.initial_concrete_id_index[concrete_loop_id],
-                SimplifyingIrBuilder::create<Int>(stage_depth - 1));
+                SimplifyingIrBuilder::create<Val>(
+                    stage_depth - 1L, DataType::Index));
       }
     }
   }
@@ -298,6 +304,31 @@ bool predicateAtEnd(kir::ForLoop* loop) {
   return true;
 }
 
+// Check if this loop is actually unswitched, meaning an initial index
+// of the maximum value from a non-size-one range is used.
+bool trackUnswitchedDomain(kir::ForLoop* loop) {
+  // Loop index has only one valid value per thread, which means the
+  // loop is not actually unswitched
+  if (loop->isTrivial()) {
+    return false;
+  }
+
+  // The same can be said as long as it's exactly mapped with a
+  // vectorized domain
+  const auto& id_exact_set = GpuLower::current()
+                                 ->caMap()
+                                 ->getIdSets(IdMappingMode::EXACT)
+                                 .getDisjointSetOf(loop->iter_domain());
+
+  if (std::any_of(id_exact_set.begin(), id_exact_set.end(), [](auto id) {
+        return id->getParallelType() == ParallelType::Vectorize;
+      })) {
+    return false;
+  }
+
+  return true;
+}
+
 //! Initial index parameters for predicate, adjusts loop to indexing
 //!  may according to the information annotated on the loop nest.
 //!
@@ -421,6 +452,20 @@ IndexingParameters getPredicateInitialIndexParameters(
         loop_to_ind_map[loop] = SimplifyingIrBuilder::subExpr(
             loop_id->extent(), GpuLower::current()->kernel()->oneVal());
       }
+
+      // When predicating a loop at the maximum end, predicate
+      // expressions such as (extent-1) are used, which represent the
+      // maximum possible value of the loop range but are not
+      // guaranteed to result in the maximum index when traversing
+      // through merge inner domains as modulo is used. Keep track of
+      // those domains, which will be used by IndexCompute to make
+      // necessary adjustments. See also csrc/index_compute.h for more
+      // context.
+      if (!is_start_predicate && trackUnswitchedDomain(loop)) {
+        index_parameters.unswitched_domains.insert(
+            GpuLower::current()->caMap()->getConcreteMappedID(
+                loop_id, IdMappingMode::EXACT));
+      }
     }
   }
 
@@ -437,7 +482,7 @@ IndexingParameters getPredicateInitialIndexParameters(
       // unswitch. In that case, it is not necessary to move ahead the
       // index for double buffering.
       auto stage_depth =
-          GpuLower::current()->doubleBufferInfo().getStageDepthFor(
+          (int64_t)GpuLower::current()->doubleBufferInfo().getStageDepthFor(
               db_loop->iter_domain());
       bool is_same =
           (rotated_loops.count(db_loop)
@@ -446,7 +491,9 @@ IndexingParameters getPredicateInitialIndexParameters(
                : cur_index == db_loop->indexOrStartIfTrivial());
       if (is_same) {
         loop_to_ind_map[db_loop] = SimplifyingIrBuilder::addExpr(
-            cur_index, SimplifyingIrBuilder::create<Int>(stage_depth - 1));
+            cur_index,
+            SimplifyingIrBuilder::create<Val>(
+                stage_depth - 1L, DataType::Index));
       }
     }
   }
@@ -968,7 +1015,8 @@ IndexFromIdGraph getPredicateIndexingFromIdGraph(
       index_parameters.initial_concrete_id_index,
       index_parameters.zero_domains,
       index_parameters.preferred_concrete_ids,
-      index_parameters.concrete_id_to_halo_extent);
+      index_parameters.concrete_id_to_halo_extent,
+      index_parameters.unswitched_domains);
 
   indexing.run(loop_indexing);
 
@@ -1347,14 +1395,14 @@ class LoopIndexingPreferredPathCompute : public IterVisitor {
     }
 
     for (auto expr : loop_indexing.getForwardExprList()) {
-      compute.handle(expr);
+      compute.dispatch(expr);
     }
 
     return compute.preferred_path_;
   }
 
  private:
-  void handle(Expr* e) override {
+  void dispatch(Expr* e) override {
     // If an input ID is marked, propagate the marking to outputs of the
     // expression
     auto all_iter_inputs = ir_utils::filterByType<IterDomain>(e->inputs());

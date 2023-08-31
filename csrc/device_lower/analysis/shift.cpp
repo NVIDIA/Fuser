@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <debug.h>
 #include <device_lower/analysis/index_compute.h>
 #include <device_lower/analysis/shift.h>
 #include <device_lower/lower2device.h>
@@ -16,6 +17,7 @@
 #include <ir/utils.h>
 #include <kernel_ir.h>
 #include <ops/arith.h>
+#include <options.h>
 
 #include <functional>
 
@@ -24,7 +26,7 @@ namespace nvfuser {
 Expr* ShiftPredicateInserter::insert(
     Expr* expr,
     const std::vector<kir::ForLoop*>& loops,
-    Bool* thread_pred,
+    Val* thread_pred,
     bool within_unswitch) {
   const auto gpu_lower = GpuLower::current();
 
@@ -86,9 +88,11 @@ Expr* ShiftPredicateInserter::insert(
   kir::Predicate* padding_pred = IrBuilder::create<kir::Predicate>(
       PredicateType::Padding, expr, thread_pred);
   auto bounds_ite = IrBuilder::create<kir::IfThenElse>(padding_pred);
-  const int pad_value = 0;
+  const int64_t pad_value = 0L;
   auto pad_expr = IrBuilder::create<LoadStoreOp>(
-      LoadStoreOpType::Set, out_tv, IrBuilder::create<Int>(pad_value));
+      LoadStoreOpType::Set,
+      out_tv,
+      IrBuilder::create<Val>(pad_value, DataType::Index));
   bounds_ite->thenBody().push_back(pad_expr);
   // Insert the else block
   shift_ite->elseBody().push_back(bounds_ite);
@@ -202,7 +206,7 @@ HaloInfo::HaloInfo(Fusion* fusion, std::shared_ptr<const ComputeAtMap> ca_map) {
   }
 
   if (isDebugDumpEnabled(DebugDumpOption::Halo)) {
-    std::cout << toString() << std::endl;
+    debug() << toString() << std::endl;
   }
 
   // Note that validation requires consumer halo info
@@ -340,8 +344,9 @@ void HaloInfo::initializeFromRootAxisInfo(IterDomain* id) {
     return;
   }
 
-  auto expanded_extent =
-      IrBuilder::addExpr(id->extent(), IrBuilder::create<Int>(halo_width));
+  auto expanded_extent = IrBuilder::addExpr(
+      id->extent(),
+      IrBuilder::create<Val>((int64_t)halo_width, DataType::Index));
   extent_map_[id] = expanded_extent;
   halo_width_map_[id] = halo_width;
 
@@ -419,7 +424,7 @@ void HaloInfo::build(TensorDomain* td) {
       auto out_id = split->inner();
 
       auto expanded_extent =
-          SimplifyingIrBuilder::addExpr(out_id->extent(), halo_width);
+          SimplifyingIrBuilder::addExpr(out_id->extent(), (int64_t)halo_width);
       extent_map_.insert({out_id, expanded_extent});
 
       setHaloWidth(split->outer(), 0);
@@ -818,7 +823,7 @@ std::unordered_map<IterDomain*, Val*> HaloInfo::buildConcreteHaloExtentMap(
           split->inner(), IdMappingMode::EXACT);
 
       auto expanded_extent =
-          SimplifyingIrBuilder::addExpr(out_id->extent(), halo_width);
+          SimplifyingIrBuilder::addExpr(out_id->extent(), (int64_t)halo_width);
       local_halo_info.extent_map_.insert({out_id, expanded_extent});
 
       local_halo_info.setHaloWidth(

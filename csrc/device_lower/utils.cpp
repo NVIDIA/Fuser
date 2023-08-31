@@ -18,6 +18,7 @@
 #include <ops/arith.h>
 #include <root_domain_map.h>
 
+#include <expr_simplifier.h>
 #include <algorithm>
 
 // TODO: refactor this file (one per namespace)
@@ -259,12 +260,12 @@ bool isIterDomainOp(const Expr* expr) {
   return expr->isOneOf<Split, Merge, Swizzle2D, Resize>();
 }
 
-c10::optional<IterDomain*> getMaybeWarpReductionDim(
+std::optional<IterDomain*> getMaybeWarpReductionDim(
     const Val* output,
     const Val* input) {
   auto tv_out = getTv(output);
   if (tv_out == nullptr) {
-    return c10::nullopt;
+    return std::nullopt;
   }
 
   auto tv_in = getTv(input);
@@ -272,7 +273,7 @@ c10::optional<IterDomain*> getMaybeWarpReductionDim(
   // only support reducing to registers for now.
   if (tv_in->getMemoryType() != MemoryType::Local ||
       tv_out->getMemoryType() != MemoryType::Local) {
-    return c10::nullopt;
+    return std::nullopt;
   }
 
   IterDomain* reduction_on_xdim = nullptr;
@@ -283,30 +284,30 @@ c10::optional<IterDomain*> getMaybeWarpReductionDim(
       if (id->getParallelType() == ParallelType::TIDx) {
         reduction_on_xdim = id;
       } else if (id->isThread()) {
-        return c10::nullopt;
+        return std::nullopt;
       }
     }
   }
   if (!reduction_on_xdim) {
-    return c10::nullopt;
+    return std::nullopt;
   }
 
   if (!reduction_on_xdim->start()->isZeroInt()) {
-    return c10::nullopt;
+    return std::nullopt;
   }
 
   if (reduction_on_xdim->hasPaddingToMultipleOfWarp()) {
-    return c10::optional<IterDomain*>(reduction_on_xdim);
+    return std::optional<IterDomain*>(reduction_on_xdim);
   }
 
   if (reduction_on_xdim->extent()->isConstInt()) {
     auto extent_value = reduction_on_xdim->extent()->evaluateInt();
     if (extent_value % at::cuda::warp_size() == 0) {
-      return c10::optional<IterDomain*>(reduction_on_xdim);
+      return std::optional<IterDomain*>(reduction_on_xdim);
     }
   }
 
-  return c10::nullopt;
+  return std::nullopt;
 }
 
 std::unordered_map<ParallelType, IterDomain*> getParallelDomains(
@@ -339,7 +340,7 @@ bool isCpAsyncInit(const Expr* expr) {
       isCpAsyncOp(getTvOutput(expr)->definition());
 }
 
-c10::optional<Expr*> getMaybePredicatedSingleton(Expr* expr) {
+std::optional<Expr*> getMaybePredicatedSingleton(Expr* expr) {
   if (auto ite = dynamic_cast<kir::IfThenElse*>(expr)) {
     if (ite->elseBody().empty()) {
       if (ite->thenBody().size() == 1) {
@@ -347,7 +348,7 @@ c10::optional<Expr*> getMaybePredicatedSingleton(Expr* expr) {
       }
     }
   }
-  return c10::nullopt;
+  return std::nullopt;
 }
 
 //! Short-cut for checking if the expression loads from global memory.
@@ -383,9 +384,9 @@ class ExprFlattener : private kir::IrVisitor {
  private:
   using kir::IrVisitor::handle;
 
-  void handle(Expr* expr) final {
+  void dispatch(Expr* expr) final {
     if (expr->isA<kir::ForLoop>() || expr->isA<kir::IfThenElse>()) {
-      kir::IrVisitor::handle(expr);
+      kir::IrVisitor::dispatch(expr);
     } else {
       flat_exprs_.push_back(expr);
     }
@@ -399,7 +400,7 @@ class ExprFlattener : private kir::IrVisitor {
   static std::vector<Expr*> flatten(const std::vector<Expr*>& loop_nests) {
     ExprFlattener flattener;
     for (auto expr : loop_nests) {
-      flattener.handle(expr);
+      flattener.dispatch(expr);
     }
     return flattener.flat_exprs_;
   }
@@ -429,7 +430,7 @@ class ReplaceExprInput : private kir::ExprMutator {
 
   using kir::ExprMutator::handle;
 
-  c10::optional<std::unordered_map<Val*, Val*>> getMaybeInputReplacementMap(
+  std::optional<std::unordered_map<Val*, Val*>> getMaybeInputReplacementMap(
       Expr* expr) {
     bool need_replacement = false;
 
@@ -444,9 +445,9 @@ class ReplaceExprInput : private kir::ExprMutator {
       }
     }
     if (need_replacement) {
-      return c10::optional<std::unordered_map<Val*, Val*>>(replaced_val);
+      return std::optional<std::unordered_map<Val*, Val*>>(replaced_val);
     } else {
-      return c10::nullopt;
+      return std::nullopt;
     }
   }
 
@@ -614,7 +615,7 @@ std::vector<Expr*> getAllSwizzlesBetween(
 namespace lower_utils {
 
 bool hasBlockSync(const Expr* expr, const ThreadPredicateMap& pred_map) {
-  if (expr->isA<kir::BlockSync>()) {
+  if (expr->isA<kir::BlockSync>() || expr->isA<kir::GridSync>()) {
     return true;
   }
 
@@ -760,6 +761,16 @@ bool isScalarExpr(Expr* expr) {
     }
   }
   return true;
+}
+
+bool isExtentEqualToMaxParallelTypeExtent(const IterDomain* id) {
+  const auto& parallel_dim_map = GpuLower::current()->parallelDimensionMap();
+  auto* pdm_max_extent = parallel_dim_map.get(id->getParallelType());
+  if (nullptr == pdm_max_extent) {
+    return false;
+  }
+  auto* is_exact_val = IrBuilder::eqExpr(id->extent(), pdm_max_extent);
+  return simplifyExpr(is_exact_val)->isTrue();
 }
 
 } // namespace lower_utils

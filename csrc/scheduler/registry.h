@@ -38,7 +38,7 @@ class TORCH_CUDA_CU_API SchedulerRuntimeInfo : public NonCopyable {
  public:
   // Max vector size we will consider, in bytes,
   //  currently set to 16B = 128b
-  static constexpr size_t max_alignment_size_in_byte = 16;
+  static constexpr int64_t max_alignment_size_in_byte = 16;
 
   //! Create runtime info for given fusion and input. Creating and binding
   //! evaluator is optional. The evaluator is used to manage intermediate
@@ -65,12 +65,6 @@ class TORCH_CUDA_CU_API SchedulerRuntimeInfo : public NonCopyable {
   //!  and for other intermediate/fuser-allocated tensors will
   //!  return max_alignment_size_in_byte.
   size_t getAlignmentSize(TensorView* tv);
-
-  // Gets maximum vectorizable width of tv, assumes we can merge across all
-  // iteration domains if contiguous, unless contig_merge=false. Cannot permute
-  // the dimensions to fix contiguity. Ignores dimensions that are broadcast or
-  // reduction.
-  size_t getMaxVectorizableWidth(TensorView* tv, bool contig_merge = true);
 
   // Computes alignment size in bytes for provided ptr address
   static size_t computeAlignmentSize(size_t ptr_address);
@@ -124,8 +118,6 @@ class TORCH_CUDA_CU_API SchedulerRuntimeInfo : public NonCopyable {
 
   // Cache for getAlignmentSize
   std::unordered_map<TensorView*, size_t> alignment_map_;
-  // Cache for getMaxVectorizableWidth
-  std::unordered_map<TensorView*, size_t> max_vectorword_map_;
 
   // Found index mode kernel needs to be run in
   PrimDataType index_type_ = PrimDataType::Int;
@@ -164,7 +156,7 @@ class TORCH_CUDA_CU_API SchedulerEntry {
   //! Fusion segmenter facing API,
   //!   returns a schedule that applies in the given fusion, returns a nullopt
   //!   if no schedule in the registry can handle.
-  static c10::optional<ScheduleHeuristic> proposeHeuristics(
+  static std::optional<ScheduleHeuristic> proposeHeuristics(
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info);
 

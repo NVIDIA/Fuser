@@ -49,7 +49,7 @@ class TORCH_CUDA_CU_API PredicateElimination : public IterVisitor {
  private:
   using IterVisitor::handle;
 
-  void handle(Expr* expr) final;
+  void dispatch(Expr* expr) final;
 
   //! Set a value to initialize out-of-bound regions
   bool setDefaultInitValue(TensorView* tv);

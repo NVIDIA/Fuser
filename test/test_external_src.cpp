@@ -12,6 +12,7 @@
 #include <fusion.h>
 #include <test/utils.h>
 #include <test/validator.h>
+#include <utils.h>
 
 namespace nvfuser {
 
@@ -19,7 +20,7 @@ class ExternalSrcExample : public NVFuserTest {};
 
 // This is for internal testing only and is intended to be used as a template to
 // compile and run an external source file. By default, it should just
-// return immediately, but if PYTORCH_NVFUSER_EXTERNAL_SRC is defined,
+// return immediately, but if NVFUSER_EXTERNAL_SRC is defined,
 // the file specified by the env var is loaded and compiled.
 TEST_F(ExternalSrcExample, Reduction_CUDA) {
   Fusion fusion;
@@ -29,7 +30,7 @@ TEST_F(ExternalSrcExample, Reduction_CUDA) {
   // By default, this env var should not be defined. To test using an
   // external source file, set it to the path to the external source
   // file.
-  auto path = std::getenv("PYTORCH_NVFUSER_EXTERNAL_SRC");
+  auto path = getNvFuserEnv("EXTERNAL_SRC");
   if (path == nullptr) {
     return;
   }
@@ -101,7 +102,7 @@ TEST_F(ExternalSrcExample, Matmul_CUDA) {
   // By default, this env var should not be defined. To test using an
   // external source file, set it to the path to the external source
   // file.
-  auto path = std::getenv("PYTORCH_NVFUSER_EXTERNAL_SRC");
+  auto path = getNvFuserEnv("EXTERNAL_SRC");
   if (path == nullptr) {
     return;
   }

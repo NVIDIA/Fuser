@@ -7,17 +7,22 @@
 // clang-format on
 #pragma once
 
+#include <macros.h>
+
 #include <c10/core/ScalarType.h>
 #include <c10/util/Exception.h>
-#include <c10/util/Optional.h>
 
 #include <c10/macros/Export.h>
+
+#include <polymorphic_value.h>
 
 #include <array>
 #include <complex>
 #include <cstdint>
 #include <iostream>
+#include <optional>
 #include <string>
+#include <type_traits>
 #include <unordered_set>
 #include <variant>
 
@@ -28,12 +33,11 @@ enum class ValType {
   TensorDomain,
   IterDomain,
   TensorView,
-  Scalar,
   NamedScalar,
   Predicate,
   TensorIndex,
-  AggregateVal,
-  Attribute
+  PipelineVal,
+  Others
 };
 
 // Manual - The user provides the Bool value. Predicate generation is bypassed.
@@ -82,29 +86,90 @@ enum class PrimDataType {
   Null
 };
 
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
+#endif
+
 struct DataType;
 
-struct ArrayOf {
+struct ArrayType {
   std::shared_ptr<DataType> type;
   size_t size;
-  inline bool operator==(const ArrayOf& other) const;
+  inline bool operator==(const ArrayType& other) const;
 };
 
-struct PointerOf {
+struct PointerType {
   std::shared_ptr<DataType> type;
-  inline bool operator==(const PointerOf& other) const;
+  inline bool operator==(const PointerType& other) const;
+};
+
+struct StructType {
+  std::string name;
+  std::function<std::shared_ptr<Struct>()> create;
+
+  struct FieldInfo {
+    std::string name;
+    std::shared_ptr<DataType> type;
+    bool used_in_kernel = true;
+  };
+
+  std::vector<FieldInfo> fields;
+
+  template <typename T>
+  static StructType make(std::vector<FieldInfo> fields, std::string name = "") {
+    static_assert(
+        std::is_base_of<Struct, T>::value,
+        "StructType::make only accepts Struct types");
+    return StructType{
+        .name = std::move(name),
+        .create =
+            []() {
+              return std::static_pointer_cast<Struct>(std::make_shared<T>());
+            },
+        .fields = std::move(fields)};
+  }
+
+  inline const DataType& fieldDataType(const std::string& name) const {
+    for (const auto& field : fields) {
+      if (field.name == name) {
+        return *field.type;
+      }
+    }
+    TORCH_INTERNAL_ASSERT(false, "Field ", name, " not found in struct ", name);
+  }
+
+  inline bool operator==(const StructType& other) const;
+};
+
+struct OpaqueType {
+  std::string name;
+  std::reference_wrapper<const std::type_info> type_info;
+  size_t size;
+
+  template <typename T>
+  static OpaqueType make(std::string name = "") {
+    return OpaqueType{
+        .name = std::move(name), .type_info = typeid(T), .size = sizeof(T)};
+  }
+
+  inline bool operator==(const OpaqueType& other) const {
+    return type_info.get() == other.type_info.get();
+  }
 };
 
 struct DataType {
-  using VariantOfSupportedTypes =
-      std::variant<PrimDataType, ArrayOf, PointerOf>;
+  using VariantOfSupportedTypes = std::
+      variant<PrimDataType, ArrayType, PointerType, StructType, OpaqueType>;
   VariantOfSupportedTypes type = PrimDataType::Null;
 
   DataType() = default;
   DataType(VariantOfSupportedTypes type) : type(std::move(type)) {}
-  DataType(const PrimDataType& type) : type(type) {}
-  DataType(const ArrayOf& type) : type(type) {}
-  DataType(const PointerOf& type) : type(type) {}
+  DataType(PrimDataType type) : type(type) {}
+  DataType(ArrayType type) : type(std::move(type)) {}
+  DataType(PointerType type) : type(std::move(type)) {}
+  DataType(StructType type) : type(std::move(type)) {}
+  DataType(OpaqueType type) : type(std::move(type)) {}
 
   static constexpr PrimDataType Double = PrimDataType::Double;
   static constexpr PrimDataType Float = PrimDataType::Float;
@@ -128,13 +193,44 @@ inline bool operator!=(const DataType& lhs, const DataType& rhs) {
   return !operator==(lhs, rhs);
 }
 
-bool ArrayOf::operator==(const ArrayOf& other) const {
+bool ArrayType::operator==(const ArrayType& other) const {
   return *type == *other.type && size == other.size;
 }
 
-bool PointerOf::operator==(const PointerOf& other) const {
+bool PointerType::operator==(const PointerType& other) const {
   return *type == *other.type;
 }
+
+bool StructType::operator==(const StructType& other) const {
+  if (fields.size() != other.fields.size()) {
+    return false;
+  }
+  for (auto i : c10::irange(fields.size())) {
+    if (fields[i].name != other.fields[i].name ||
+        *fields[i].type != *other.fields[i].type ||
+        fields[i].used_in_kernel != other.fields[i].used_in_kernel) {
+      return false;
+    }
+  }
+  return true;
+}
+
+inline StructType StructHandle::type() const {
+  return struct_ptr_->type();
+}
+
+StructType globalTensorMetaData(
+    const PrimDataType& dtype,
+    size_t dim,
+    size_t alloc_dim);
+
+inline StructType globalTensorMetaData(const PrimDataType& dtype, size_t dim) {
+  return globalTensorMetaData(dtype, dim, dim);
+}
+
+class Val;
+//! Get the type of a Val's metadata, currently only supporting tensors
+DataType metaDataTypeOf(const Val* tv);
 
 enum class KernelIndexMode { INT32, INT64 };
 
@@ -147,9 +243,6 @@ bool isInclusiveType(const DataType& base_type, const DataType& type);
 
 // Returns if the datatype is a floating point type
 TORCH_CUDA_CU_API inline bool isFloatingPointType(DataType dtype) {
-  TORCH_CHECK(
-      dtype != DataType::Null,
-      "Null type is not a valid argument to isFloatingPointType");
   return dtype == DataType::Double || dtype == DataType::Float ||
       dtype == DataType::Half || dtype == DataType::BFloat16;
 }
@@ -165,9 +258,6 @@ TORCH_CUDA_CU_API inline bool isIntegralType(DataType dtype) {
             case DataType::Int:
             case DataType::Int32:
               return true;
-            case DataType::Null:
-              TORCH_CHECK(
-                  false, "Null type is not a valid argument to isIntegralType");
             default:
               return false;
           }
@@ -179,7 +269,7 @@ TORCH_CUDA_CU_API inline bool isIntegralType(DataType dtype) {
 
 // Returns if the datatype is a pointer type
 TORCH_CUDA_CU_API inline bool isPointerType(DataType dtype) {
-  return std::holds_alternative<PointerOf>(dtype.type) ||
+  return std::holds_alternative<PointerType>(dtype.type) ||
       dtype == DataType::SMemAddress;
 }
 
@@ -190,17 +280,11 @@ TORCH_CUDA_CU_API inline bool isIntegralOrPointerType(DataType dtype) {
 
 // Returns if the datatype is a boolean type
 TORCH_CUDA_CU_API inline bool isBooleanType(DataType dtype) {
-  TORCH_CHECK(
-      dtype != DataType::Null,
-      "Null type is not a valid argument to isBooleanType");
   return dtype == DataType::Bool;
 }
 
 // Returns if the datatype is a complex type
 TORCH_CUDA_CU_API inline bool isComplexType(DataType dtype) {
-  TORCH_CHECK(
-      dtype != DataType::Null,
-      "Null type is not a valid argument to isComplexType");
   return dtype == DataType::ComplexFloat || dtype == DataType::ComplexDouble;
 }
 
@@ -211,11 +295,13 @@ DataType getComplexTypeFromType(DataType dtype);
 // Return if the datatype is supported on the current device
 TORCH_CUDA_CU_API bool isSupportedTypeByDevice(DataType dtype);
 
-template <PrimDataType DT>
-struct DataTypeToNativeType;
+TORCH_CUDA_CU_API int64_t dataTypeSize(DataType type);
+
+// If the index type is known it will be automatically used here
+TORCH_CUDA_CU_API int64_t dataTypeSize(DataType type, DataType index_type);
 
 template <PrimDataType DT>
-struct DataTypeToNativeTypeWithC10Complex;
+struct DataTypeToNativeType;
 
 template <PrimDataType DT>
 struct DataTypeToAtenType;
@@ -223,96 +309,191 @@ struct DataTypeToAtenType;
 template <typename NativeType>
 struct NativeTypeToDataType;
 
-template <typename NativeType>
-struct NativeTypeWithC10ComplexToDataType;
-
 template <at::ScalarType aten_type>
 struct AtenTypeToDataType;
 
 template <at::ScalarType aten_type>
 struct AtenTypeToNativeType;
 
-template <at::ScalarType aten_type>
-struct AtenTypeToNativeTypeWithC10Complex;
+template <typename NativeType>
+struct IsPrimitiveNativeType : std::false_type {};
 
-#define DEFINE_DATATYPE_TO_NATIVE_TYPE(                                     \
-    data_type, at_type, native_type, native_type_with_c10_complex)          \
-  template <>                                                               \
-  struct DataTypeToNativeType<data_type> {                                  \
-    using type = native_type;                                               \
-  };                                                                        \
-  template <>                                                               \
-  struct DataTypeToNativeTypeWithC10Complex<data_type> {                    \
-    using type = native_type_with_c10_complex;                              \
-  };                                                                        \
-  template <>                                                               \
-  struct DataTypeToAtenType<data_type> {                                    \
-    static constexpr at::ScalarType type = at_type;                         \
-  };                                                                        \
-  template <>                                                               \
-  struct NativeTypeToDataType<native_type> {                                \
-    static constexpr PrimDataType type = data_type;                         \
-  };                                                                        \
-  template <>                                                               \
-  struct NativeTypeWithC10ComplexToDataType<native_type_with_c10_complex> { \
-    static constexpr PrimDataType type = data_type;                         \
-  };                                                                        \
-  template <>                                                               \
-  struct AtenTypeToDataType<at_type> {                                      \
-    static constexpr PrimDataType type = data_type;                         \
-  };                                                                        \
-  template <>                                                               \
-  struct AtenTypeToNativeType<at_type> {                                    \
-    using type = native_type;                                               \
-  };                                                                        \
-  template <>                                                               \
-  struct AtenTypeToNativeTypeWithC10Complex<at_type> {                      \
-    using type = native_type_with_c10_complex;                              \
-  };
+#define DEFINE_DATATYPE_TO_NATIVE_TYPE(data_type, native_type) \
+  template <>                                                  \
+  struct DataTypeToNativeType<data_type> {                     \
+    using type = native_type;                                  \
+  };                                                           \
+  template <>                                                  \
+  struct NativeTypeToDataType<native_type> {                   \
+    static constexpr PrimDataType type = data_type;            \
+  };                                                           \
+  template <>                                                  \
+  struct IsPrimitiveNativeType<native_type> : std::true_type {}
 
-DEFINE_DATATYPE_TO_NATIVE_TYPE(
+#define DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(                 \
+    data_type, at_type, native_type)                             \
+  template <>                                                    \
+  struct DataTypeToNativeType<data_type> {                       \
+    using type = native_type;                                    \
+  };                                                             \
+  template <>                                                    \
+  struct DataTypeToAtenType<data_type> {                         \
+    static constexpr at::ScalarType type = at_type;              \
+  };                                                             \
+  template <>                                                    \
+  struct NativeTypeToDataType<native_type> {                     \
+    static constexpr PrimDataType type = data_type;              \
+  };                                                             \
+  template <>                                                    \
+  struct IsPrimitiveNativeType<native_type> : std::true_type {}; \
+  template <>                                                    \
+  struct AtenTypeToDataType<at_type> {                           \
+    static constexpr PrimDataType type = data_type;              \
+  };                                                             \
+  template <>                                                    \
+  struct AtenTypeToNativeType<at_type> {                         \
+    using type = native_type;                                    \
+  }
+
+DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
     DataType::Float,
     at::ScalarType::Float,
-    float,
     float);
-DEFINE_DATATYPE_TO_NATIVE_TYPE(
+DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
     DataType::Double,
     at::ScalarType::Double,
-    double,
     double);
-DEFINE_DATATYPE_TO_NATIVE_TYPE(
+DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
     DataType::Half,
     at::ScalarType::Half,
-    at::Half,
     at::Half);
-DEFINE_DATATYPE_TO_NATIVE_TYPE(
+DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
     DataType::BFloat16,
     at::ScalarType::BFloat16,
-    at::BFloat16,
     at::BFloat16);
-DEFINE_DATATYPE_TO_NATIVE_TYPE(
+DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
     DataType::Int,
     at::ScalarType::Long,
-    int64_t,
     int64_t);
-DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::Int32, at::ScalarType::Int, int, int);
-DEFINE_DATATYPE_TO_NATIVE_TYPE(
+DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
+    DataType::Int32,
+    at::ScalarType::Int,
+    int);
+DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
     DataType::Bool,
     at::ScalarType::Bool,
-    bool,
     bool);
-DEFINE_DATATYPE_TO_NATIVE_TYPE(
+DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
     DataType::ComplexFloat,
     at::ScalarType::ComplexFloat,
-    std::complex<float>,
-    c10::complex<float>);
-DEFINE_DATATYPE_TO_NATIVE_TYPE(
+    std::complex<float>);
+DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
     DataType::ComplexDouble,
     at::ScalarType::ComplexDouble,
-    std::complex<double>,
-    c10::complex<double>);
+    std::complex<double>);
 
 #undef DEFINE_DATATYPE_TO_NATIVE_TYPE
+#undef DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE
+
+inline DataType getDataType(const PolymorphicValue& value) {
+  std::optional<DataType> dtype = std::nullopt;
+  PolymorphicValue::for_all_types([&value, &dtype](auto _) {
+    using T = typename decltype(_)::type;
+    if constexpr (IsPrimitiveNativeType<T>::value) {
+      if (value.is<T>()) {
+        dtype = NativeTypeToDataType<T>::type;
+      }
+    } else if constexpr (std::is_same_v<T, std::vector<PolymorphicValue>>) {
+      if (value.is<T>()) {
+        const auto& vec = value.as<T>();
+        size_t size = vec.size();
+        TORCH_CHECK(size > 0, "Empty array is not supported");
+        dtype =
+            ArrayType{std::make_shared<DataType>(getDataType(vec[0])), size};
+      }
+    } else if constexpr (std::is_same_v<T, Pointer>) {
+      // For pointers in polymorphic value, we only store the data size of the
+      // pointee, so it is impossible to infer the pointer type.
+      TORCH_CHECK(!value.is<T>(), "Can not infer pointer type.");
+    } else if constexpr (std::is_same_v<T, StructHandle>) {
+      if (value.is<T>()) {
+        dtype = value.as<T>().type();
+      }
+    } else if constexpr (std::is_same_v<T, Opaque>) {
+      if (value.is<T>()) {
+        const auto& opaque = value.as<T>();
+        dtype = DataType(OpaqueType{
+            .type_info = opaque.any().type(), .size = opaque.size()});
+      }
+    }
+  });
+  TORCH_CHECK(dtype.has_value(), "Unknown dtype for ", value.type().name());
+  return dtype.value();
+}
+
+inline bool isCompatibleDataType(DataType dtype, DataType dtype2) {
+  if (dtype == dtype2) {
+    return true;
+  }
+  if (isIntegralType(dtype) && isIntegralType(dtype2)) {
+    return true;
+  }
+  if (isFloatingPointType(dtype) && isFloatingPointType(dtype2)) {
+    return true;
+  }
+  if (isComplexType(dtype) && isComplexType(dtype2)) {
+    return true;
+  }
+  if (std::holds_alternative<ArrayType>(dtype.type) &&
+      std::holds_alternative<ArrayType>(dtype2.type)) {
+    const auto& array_type = std::get<ArrayType>(dtype.type);
+    const auto& array_type2 = std::get<ArrayType>(dtype2.type);
+    return array_type.size == array_type2.size &&
+        isCompatibleDataType(*array_type.type, *array_type2.type);
+  }
+  if (std::holds_alternative<StructType>(dtype.type) &&
+      std::holds_alternative<StructType>(dtype2.type)) {
+    const auto& struct_type = std::get<StructType>(dtype.type);
+    const auto& struct_type2 = std::get<StructType>(dtype2.type);
+    if (struct_type.fields.size() != struct_type2.fields.size()) {
+      return false;
+    }
+    for (auto i : c10::irange(struct_type.fields.size())) {
+      if (struct_type.fields[i].name != struct_type2.fields[i].name ||
+          !isCompatibleDataType(
+              *struct_type.fields[i].type, *struct_type2.fields[i].type)) {
+        return false;
+      }
+    }
+    return true;
+  }
+  if (std::holds_alternative<OpaqueType>(dtype.type) &&
+      std::holds_alternative<OpaqueType>(dtype2.type)) {
+    const auto& opaque_type = std::get<OpaqueType>(dtype.type);
+    const auto& opaque_type2 = std::get<OpaqueType>(dtype2.type);
+    return opaque_type.type_info.get() == opaque_type2.type_info.get();
+  }
+  return false;
+}
+
+inline bool hasCompatibleDataType(
+    const PolymorphicValue& value,
+    DataType dtype) {
+  // We can not always completely infer data type from value, so we need some
+  // special handling here.
+  if (std::holds_alternative<PointerType>(dtype.type)) {
+    if (!value.is<Pointer>()) {
+      return false;
+    }
+    auto ptr = std::get<PointerType>(dtype.type);
+    return dataTypeSize(*ptr.type) == value.as<Pointer>().size();
+  }
+  return isCompatibleDataType(getDataType(value), dtype);
+}
+
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
 
 //! Returns the number of base-10 digits required to guarantee a lossless
 //! binary->text->binary round-trip. For exact types, this function returns 0.
@@ -331,6 +512,7 @@ enum class UnaryOpType {
   Ceil,
   Cos,
   Cosh,
+  Dereference,
   Exp,
   Exp2,
   Expm1,
@@ -367,8 +549,9 @@ enum class UnaryOpType {
   // Tools to help debugging
   Print,
 
-  // Might be a bitwise operator or boolean operator.
-  Not,
+  // Logical and bitwise negation
+  LogicalNot,
+  BitwiseNot,
 
   // Operators returning boolean values
   IsFinite,
@@ -377,10 +560,10 @@ enum class UnaryOpType {
   IsNegInf,
   IsPosInf,
   IsReal,
-};
 
-// Primarily for Not, which could be Not a boolean, or a bitwise not.
-bool alsoBooleanOperator(const UnaryOpType uopt);
+  // Special unary ops
+  ToUnsignedSmemAddr
+};
 
 // TODO: Order of this list is important as it affects type promotion. it's not
 // in the right order now.
@@ -399,12 +582,19 @@ enum class BinaryOpType {
   Sub,
   // TypeAs,
 
-  // Integer output ops. If changing modify isIntegerOp
+  // Integer output ops.
   Mod,
   CeilDiv,
   Lshift,
   Rshift,
   Gcd,
+
+  // Bitwise Ops
+  // These always return integers, as if each arg is first cast to int
+  //  If changing modify isIntegerOp.
+  BitwiseAnd,
+  BitwiseOr,
+  BitwiseXor,
 
   // Logical Ops
   // Int operations, leave position of Mod as first logical op see
@@ -416,12 +606,9 @@ enum class BinaryOpType {
   LT,
   NE,
 
-  // Maybe bitwise or boolean op, leave position of and as first bool/int
-  // op. These are ops that have different operators based on output type. See
-  // is boolean op. These ops also don't work on floating point inputs.
-  And,
-  Or,
-  Xor,
+  // These ops compare as if each arg is first cast to bool
+  LogicalAnd,
+  LogicalOr,
 
   // generate complex from real and imaginary parts
   Complex
@@ -442,10 +629,6 @@ bool isIntegerOp(const BinaryOpType bopt);
 
 // Return if output of operator should be a boolean
 bool isLogicalOp(const BinaryOpType bopt);
-
-// Operations that could be a bitwise operation or a boolean operation depending
-// on input, for example bitwise_and is also used for boolean and in the jit
-bool alsoBooleanOperator(const BinaryOpType bopt);
 
 enum class TernaryOpType { Clamp, Lerp, Threshold, Where };
 
@@ -506,15 +689,17 @@ enum class IdMappingMode {
   ALMOSTEXACT,
   LOOP,
   PERMISSIVE,
-  PERMISSIVE_RESIZE
+  PERMISSIVE_RESIZE,
+  INNERMOST
 };
 
-static constexpr std::array<IdMappingMode, 5> kIdMappingModes = {
+static constexpr std::array<IdMappingMode, 6> kIdMappingModes = {
     IdMappingMode::EXACT,
     IdMappingMode::ALMOSTEXACT,
     IdMappingMode::LOOP,
     IdMappingMode::PERMISSIVE,
-    IdMappingMode::PERMISSIVE_RESIZE};
+    IdMappingMode::PERMISSIVE_RESIZE,
+    IdMappingMode::INNERMOST};
 
 //! Used to annotate the special memory intrinsics that a loadstore op will be
 //!  lowered to.
@@ -685,9 +870,6 @@ TORCH_CUDA_CU_API std::ostream& operator<<(
     std::ostream&,
     const KernelIndexMode&);
 
-std::string stringifyBooleanOp(const UnaryOpType);
-std::string stringifyBooleanOp(const BinaryOpType);
-
 std::string stringifyThreadSize(const ParallelType);
 std::string stringifyThread(const ParallelType);
 TORCH_CUDA_CU_API std::string typePrefix(const DataType);
@@ -702,15 +884,15 @@ TORCH_CUDA_CU_API bool isParallelTypeThread(ParallelType);
 
 TORCH_CUDA_CU_API bool isParallelTypeVectorize(ParallelType);
 
-TORCH_CUDA_CU_API c10::optional<std::string> inline_op_str(const UnaryOpType);
-TORCH_CUDA_CU_API c10::optional<std::string> inline_op_str(const BinaryOpType);
-TORCH_CUDA_CU_API c10::optional<std::string> inline_op_str(const RNGOpType);
-TORCH_CUDA_CU_API c10::optional<std::string> integer_op_str(const BinaryOpType);
-TORCH_CUDA_CU_API c10::optional<std::string> bool_op_str(const BinaryOpType);
+TORCH_CUDA_CU_API std::optional<std::string> inline_op_str(const UnaryOpType);
+TORCH_CUDA_CU_API std::optional<std::string> inline_op_str(const BinaryOpType);
+TORCH_CUDA_CU_API std::optional<std::string> inline_op_str(const RNGOpType);
+TORCH_CUDA_CU_API std::optional<std::string> integer_op_str(const BinaryOpType);
+TORCH_CUDA_CU_API std::optional<std::string> bool_op_str(const BinaryOpType);
 TORCH_CUDA_CU_API const char* predicate_type2string(PredicateType t);
 TORCH_CUDA_CU_API const char* load_store_type2string(LoadStoreOpType t);
 
-TORCH_CUDA_CU_API c10::optional<std::string> cast_func_str(
+TORCH_CUDA_CU_API std::optional<std::string> cast_func_str(
     const std::pair<DataType, DataType>&);
 
 constexpr inline size_t primDataTypeSize(PrimDataType type) {
@@ -743,11 +925,6 @@ constexpr inline size_t primDataTypeSize(PrimDataType type) {
   }
 }
 
-TORCH_CUDA_CU_API size_t dataTypeSize(DataType type);
-
-// If the index type is known it will be automatically used here
-TORCH_CUDA_CU_API size_t dataTypeSize(DataType type, DataType index_type);
-
 enum class LaunchConfigType {
   Compatible,
   SharedMemory,
@@ -764,5 +941,32 @@ const char* const kMagicZeroName = "nvfuser_zero";
 //! Maximum number of reductions that can be grouped together. The
 //! limit can be increased by extending struct Tuple define in tuple.cu.
 static constexpr int kMaxNumGroupedReductions = 16;
+
+Pointer::Pointer(void* ptr, DataType dtype)
+    : ptr_(reinterpret_cast<std::byte*>(ptr)), size_(dataTypeSize(dtype)) {}
+
+inline PolymorphicValue castToDtype(
+    PolymorphicValue value,
+    const DataType& dtype) {
+  if (!value.hasValue()) {
+    return value;
+  }
+  // Cast the given value to the given data type. This enables interface
+  // like: IrBuilder::create<Val>(0, DataType::Double) where value is
+  // an integer but the desired data type is double.
+  auto value_dtype = getDataType(value);
+  if (!hasCompatibleDataType(value, dtype)) {
+    PolymorphicValue::for_all_types([&](auto _) {
+      using T = typename decltype(_)::type;
+      if constexpr (IsPrimitiveNativeType<T>::value) {
+        if (isCompatibleDataType(NativeTypeToDataType<T>::type, dtype)) {
+          value = PolymorphicValue(static_cast<T>(value));
+        }
+      }
+      // TODO: support arrays and pointers
+    });
+  }
+  return value;
+}
 
 } // namespace nvfuser

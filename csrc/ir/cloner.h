@@ -77,6 +77,21 @@ class TORCH_CUDA_CU_API IrCloner {
         tup);
   }
 
+  template <typename T, typename U>
+  std::pair<T, U> clone(const std::pair<T, U>& p) {
+    return std::make_pair<T, U>(this->clone(p.first), this->clone(p.second));
+  }
+
+  template <class T, class U>
+  std::unordered_map<T, U> clone(const std::unordered_map<T, U>& container) {
+    std::unordered_map<T, U> copy;
+    copy.reserve(container.size());
+    for (const auto& [k, v] : container) {
+      copy.emplace(clone(k), clone(v));
+    }
+    return copy;
+  }
+
   IrContainer* container() const {
     return ir_container_;
   }
@@ -144,9 +159,6 @@ T* IrBuilder::clone(const T* src, IrCloner* ir_cloner) {
 
   return dest;
 }
-
-template <typename T>
-NVFUSER_DEFINE_CLONE(Attribute<T>)
 
 template <typename T>
 size_t Fusion::manage(T data) {

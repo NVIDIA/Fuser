@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <debug.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
 #include <iter_visitor.h>
@@ -278,7 +279,7 @@ class FindInputDomains : BackwardVisitor {
     return input_keys_;
   }
 
-  void handle(Expr* expr) override {
+  void dispatch(Expr* expr) override {
     for (auto output : expr->outputs()) {
       if (!output->isA<TensorView>()) {
         continue;
@@ -745,7 +746,7 @@ ComputeAtRootDomainMapBuilder::ComputeAtRootDomainMapBuilder(
         ss << "\t\t" << dk.toString() << "\n";
       }
     }
-    std::cerr << ss.str();
+    debug() << ss.str();
   }
   TORCH_INTERNAL_ASSERT(pending_map_.empty());
 }
@@ -889,12 +890,12 @@ void ComputeAtRootDomainMapBuilder::setMaybeMapped(
   }
 }
 
-void ComputeAtRootDomainMapBuilder::handle(Expr* e) {
+void ComputeAtRootDomainMapBuilder::dispatch(Expr* e) {
   // Avoid visiting expressions multiple times
   if (visited_.find(e) != visited_.end()) {
     return;
   }
-  BackwardVisitor::handle(e);
+  BackwardVisitor::dispatch(e);
   visited_.insert(e);
 }
 
@@ -1234,7 +1235,7 @@ class ExactRootDomainMapBuilder : private IterVisitor {
  private:
   using IterVisitor::handle;
 
-  void handle(Expr* expr) final {
+  void dispatch(Expr* expr) final {
     for (auto producer : ir_utils::filterByType<TensorView>(expr->inputs())) {
       for (auto consumer :
            ir_utils::filterByType<TensorView>(expr->outputs())) {

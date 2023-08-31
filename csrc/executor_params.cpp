@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <debug.h>
 #include <executor_params.h>
 
 #include <ATen/cuda/CUDAContext.h>
@@ -116,7 +117,7 @@ bool LaunchParams::operator==(const LaunchParams& other) const {
 }
 
 void LaunchParams::print() const {
-  std::cout << toString();
+  debug() << toString();
 }
 
 std::string LaunchParams::toString() const {
@@ -130,6 +131,46 @@ std::string LaunchParams::toString() const {
      << "GridDim.z = " << (gdimz_ == UNINITIALIZED_VAL ? -1 : gdimz_) << ", "
      << "Smem Size = " << smem() << "\n";
   return ss.str();
+}
+
+flatbuffers::Offset<serde::LaunchParams> LaunchParams::serialize(
+    flatbuffers::FlatBufferBuilder& builder) const {
+  // See table definition for LaunchParams in serde/fusion_cache.fbs
+  using fb_tensor_shape = flatbuffers::Offset<serde::TensorShape>;
+  std::vector<fb_tensor_shape> shapes_fb;
+  shapes_fb.reserve(output_sizes.size());
+  for (const auto& shape : output_sizes) {
+    shapes_fb.push_back(serde::CreateTensorShapeDirect(builder, &shape));
+  }
+  return serde::CreateLaunchParamsDirect(
+      builder,
+      gdimx_,
+      gdimy_,
+      gdimz_,
+      bdimx_,
+      bdimy_,
+      bdimz_,
+      smem_,
+      &shapes_fb);
+}
+
+void LaunchParams::deserialize(const serde::LaunchParams* buffer) {
+  // See table definitions for LaunchParams and TensorShape in
+  // serde/fusion_cache.fbs
+  TORCH_INTERNAL_ASSERT(buffer != nullptr, "serde::LaunchParams is nullptr.");
+
+  gdimx_ = buffer->gdimx();
+  gdimy_ = buffer->gdimy();
+  gdimz_ = buffer->gdimz();
+  bdimx_ = buffer->bdimx();
+  bdimy_ = buffer->bdimy();
+  bdimz_ = buffer->bdimz();
+  smem_ = buffer->smem();
+
+  for (auto fb_shape : *buffer->output_sizes()) {
+    output_sizes.emplace_back(
+        fb_shape->shape()->begin(), fb_shape->shape()->end());
+  }
 }
 
 } // namespace nvfuser

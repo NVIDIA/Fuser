@@ -11,6 +11,7 @@
 #include <instrumentation.h>
 #include <kernel_db/kernel_db.h>
 #include <kernel_db/utils.h>
+#include <options.h>
 #include <utils.h>
 
 namespace nvfuser {
@@ -66,7 +67,7 @@ KernelDb& KernelDb::get(
       success = singleton.open(kernel_db_dir, kernel_db_file, use_temp_dir);
     } catch (const std::exception& e) {
       TORCH_WARN(
-          "nvFuser's kernel_db had an unexpected exception while opening",
+          "nvFuser's kernel_db had an unexpected exception while opening. Exception: ",
           e.what());
     }
     if (!success) {
@@ -117,8 +118,16 @@ bool KernelDb::open(
       if (in_file) {
         bool matched_header = false;
         bool read_db_file = true;
+        // kernel_signature
+        //  --- Group 1: any word character and dash
+        // compile_args
+        //  --- Group 2: any word character, space, plus, dash and equals
+        // kernel_code_file
+        //  --- Group 3: [any word character, dash and slash].cu
+        // cubin_file
+        //  --- Group 4: [any word character, dash and slash].cubin
         std::regex db_line_regex(
-            R"(^([\w-]+),([\w -\=]+),([\w-\/]+\.cu),([\w-\/]+\.cubin)$)");
+            R"(^([\w-]+),([\w \+\-\=]+),([\w\-\/]+\.cu),([\w\-\/]+\.cubin)$)");
         for (std::string line; std::getline(in_file, line);) {
           if (!matched_header) {
             if (line.compare(header) == 0) {
@@ -222,46 +231,50 @@ bool KernelDb::write(
     const std::vector<char>& cubin) {
   FUSER_PERF_SCOPE("KernelDb::write");
   std::lock_guard<std::mutex> guard(kernel_db_lock);
-  bool status = false;
+
+  // Short-circuit path if kernel already exist in database.
+  // Only return false if it does not already exist in the database and we fail
+  // to add kernel to database.
+  if (kernel_map_.count(kernel_code) > 0) {
+    return true;
+  }
 
   // If the kernel doesn't already exist in the hash map, add it.
-  if (kernel_map_.count(kernel_code) == 0) {
-    // The cubin and kernel code files are given a unique number based on the
-    // size of the hash map.
-    std::string kernel_num =
-        std::to_string(static_cast<unsigned long>(kernel_map_.size()));
+  // The cubin and kernel code files are given a unique number based on the
+  // size of the hash map.
+  std::string kernel_num =
+      std::to_string(static_cast<unsigned long>(kernel_map_.size()));
 
-    // Kernel Code File path
-    std::string code_file_name("kernel_" + kernel_num + ".cu");
-    fs::path code_file_path = kernel_db_path_ / code_file_name;
+  // Kernel Code File path
+  std::string code_file_name("kernel_" + kernel_num + ".cu");
+  fs::path code_file_path = kernel_db_path_ / code_file_name;
 
-    // Cubin File path
-    std::string cubin_file_name("kernel_" + kernel_num + ".cubin");
-    fs::path cubin_file_path = kernel_db_path_ / cubin_file_name;
+  // Cubin File path
+  std::string cubin_file_name("kernel_" + kernel_num + ".cubin");
+  fs::path cubin_file_path = kernel_db_path_ / cubin_file_name;
 
-    // Copy kernel code to file
-    status = copy_to_text_file(code_file_path.string(), kernel_code);
+  // Copy kernel code to file
+  bool status = copy_to_text_file(code_file_path.string(), kernel_code);
 
-    // If the kernel code copy was successful, copy the cubin to file
-    if (status) {
-      status = copy_to_binary_file(cubin_file_path.string(), cubin);
-    }
+  // If the kernel code copy was successful, copy the cubin to file
+  if (status) {
+    status = copy_to_binary_file(cubin_file_path.string(), cubin);
+  }
 
-    // If both files were created successfully, add an entry to the CSV file
-    if (status) {
-      std::string entry(kernel_signature);
-      entry += "," + compile_args + "," + code_file_name + "," +
-          cubin_file_name + "\n";
-      status = append_to_text_file(kernel_db_txt_file_.string(), entry);
-    }
+  // If both files were created successfully, add an entry to the CSV file
+  if (status) {
+    std::string entry(kernel_signature);
+    entry += "," + compile_args + "," + code_file_name + "," + cubin_file_name +
+        "\n";
+    status = append_to_text_file(kernel_db_txt_file_.string(), entry);
+  }
 
-    // If writing both files and adding an entry the CSV file was successful,
-    // finally add an entry to the Kernel DB
-    if (status) {
-      KernelDbEntry tmp{
-          kernel_signature, compile_args, code_file_name, cubin_file_name};
-      kernel_map_[kernel_code] = tmp;
-    }
+  // If writing both files and adding an entry the CSV file was successful,
+  // finally add an entry to the Kernel DB
+  if (status) {
+    KernelDbEntry tmp{
+        kernel_signature, compile_args, code_file_name, cubin_file_name};
+    kernel_map_[kernel_code] = tmp;
   }
   return status;
 }

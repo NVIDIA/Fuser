@@ -258,7 +258,7 @@ class WelfordVectorizer : public kir::ExprMutator {
     auto conditional = wop_ite->predicate()->value();
 
     // Allocate a boolean scalar for cond
-    auto pred_var = defineScalar(DataType::Bool)->as<Bool>();
+    auto pred_var = defineScalar(DataType::Bool);
 
     registerInsertBeforeInnerMostLoop(IrBuilder::create<LoadStoreOp>(
         LoadStoreOpType::Set, pred_var, conditional));
@@ -310,7 +310,7 @@ class WelfordVectorizer : public kir::ExprMutator {
 
   kir::VectorizedWelfordOp* applyVectorizeTransformation(
       WelfordOp* wop,
-      Bool* pred) {
+      Val* pred) {
     DataType data_type = wop->outAvg()->getDataType().value();
     DataType index_type = wop->outN()->getDataType().value();
 
@@ -326,12 +326,12 @@ class WelfordVectorizer : public kir::ExprMutator {
 
     auto hoisted_count = hoistCount(wop->outN()->as<kir::TensorIndex>());
 
-    Int* count_increment = nullptr;
+    Val* count_increment = nullptr;
     if (!is_predicated) {
       count_increment = GpuLower::current()->kernel()->oneVal();
     } else {
       // count_increment = (int)pred;
-      count_increment = defineScalar(index_type)->as<Int>();
+      count_increment = defineScalar(index_type);
       registerInsertBeforeInnerMostLoop(
           IrBuilder::create<UnaryOp>(UnaryOpType::Cast, count_increment, pred));
     }
@@ -412,7 +412,7 @@ class WelfordVectorizer : public kir::ExprMutator {
         GpuLower::current()->kernel()->zeroVal());
 
     Val* indices_zero =
-        ir_utils::replaceValInIndexVal(original_index, index_replacement_map);
+        ir_utils::replaceValRecursively(original_index, index_replacement_map);
 
     auto hoisted_count =
         IrBuilder::create<kir::TensorIndex>(out_N->view(), indices_zero);
@@ -526,7 +526,7 @@ class WelfordVectorizer : public kir::ExprMutator {
 
       // Check if the predicate of the expr is known to be true
       if (expr_ite->predicate()->isConst() &&
-          expr_ite->predicate()->value()->value()) {
+          expr_ite->predicate()->value()->value().as<bool>()) {
         continue;
       }
 

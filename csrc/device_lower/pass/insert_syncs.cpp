@@ -200,10 +200,10 @@ class WarSyncInserter : private kir::ExprMutator {
     alloc_map_.insert(allocate);
   }
 
-  void handle(Expr* expr) final {
+  void dispatch(Expr* expr) final {
     // If not a tensor view expression continue with dispatch
     if (!ir_utils::isTvOp(expr)) {
-      kir::ExprMutator::handle(expr);
+      kir::ExprMutator::dispatch(expr);
       return;
     }
 
@@ -355,9 +355,9 @@ class ValidatePlacementAfterWrites : private kir::IrVisitor {
   ValidatePlacementAfterWrites(const std::unordered_set<Expr*>& writes)
       : writes_(writes) {}
 
-  void handle(Expr* expr) final {
+  void dispatch(Expr* expr) final {
     if (expr->isA<kir::ForLoop>() || expr->isA<kir::IfThenElse>()) {
-      kir::IrVisitor::handle(expr);
+      kir::IrVisitor::dispatch(expr);
     } else {
       TORCH_INTERNAL_ASSERT(
           writes_.find(expr) == writes_.end(),
@@ -455,9 +455,9 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
     return true;
   }
 
-  void handle(Expr* expr) final {
+  void dispatch(Expr* expr) final {
     if (!ir_utils::isTvOp(expr) || expr->isA<kir::Allocate>()) {
-      kir::ExprMutator::handle(expr);
+      kir::ExprMutator::dispatch(expr);
       return;
     }
 

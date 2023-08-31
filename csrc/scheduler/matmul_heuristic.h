@@ -90,6 +90,10 @@ class MatmulParams : public HeuristicParams {
   //!    C3 C4 D3 D4
   int grid_swizzle_factor = 1;
 
+  //! Unswizzle MMA results in shared memory to get
+  //!  coalesced write to global memory
+  bool use_smem_epilogue = false;
+
   std::string toString() const override {
     std::stringstream ss;
     ss << "\n===== Matmul Parameters ========\n"
@@ -112,6 +116,7 @@ class MatmulParams : public HeuristicParams {
                                                            : "column-major")
        << "\n"
        << "Grid swizzle factor: " << grid_swizzle_factor << "\n"
+       << "Use shared memory epilogue: " << use_smem_epilogue << "\n"
        << "====================================\n";
     return ss.str();
   }

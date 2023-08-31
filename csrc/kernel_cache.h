@@ -14,6 +14,7 @@
 #include <fusion_segmenter.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/registry.h>
+#include <serde/fusion_cache_generated.h>
 
 #include <c10/macros/Export.h>
 #include <c10/util/ArrayRef.h>
@@ -109,9 +110,16 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
     std::lock_guard<std::mutex> guard(mutex_);
     return std::all_of(
         executors_.begin(), executors_.end(), [](const auto& executor) {
-          return executor.compiled();
+          return executor.isCompiled();
         });
   }
+
+  //! Serialize Fusion Kernel Runtime using flatbuffers
+  flatbuffers::Offset<serde::FusionKernelRuntime> serialize(
+      flatbuffers::FlatBufferBuilder& builder) const;
+
+  //! Deerialize Fusion Kernel Runtime using flatbuffers
+  void deserialize(const serde::FusionKernelRuntime* buffer);
 
   //! Note that all heuristics use the same index type.
   PrimDataType getIndexType() const {
@@ -201,7 +209,7 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
   //
   // Heuristics must use the index type of forced_index_type if given.
   using HeuristicsPtr = std::unique_ptr<FusionHeuristics>;
-  c10::optional<HeuristicsPtr> getMaybeHeuristicsFor(
+  std::optional<HeuristicsPtr> getMaybeHeuristicsFor(
       const KernelArgumentHolder& args,
       std::optional<PrimDataType> forced_index_type = std::nullopt);
 
@@ -218,7 +226,7 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
   //! added back to the arguments, so they can be used as inputs to successive
   //! segments. Returns a map that links each NvFuser Val to its corresponding
   //! tensor.
-  std::unordered_map<Val*, const ArgAbstract*> runSegmentsWithInputs(
+  std::unordered_map<Val*, const PolymorphicValue*> runSegmentsWithInputs(
       KernelArgumentHolder& args);
 
   //! Interface to run a single kernel, either one kernel for single-kernel
@@ -246,6 +254,11 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
   //! Entries indexed by groupID:
   //! Executors holding compiled kernels
   std::vector<FusionExecutor> executors_;
+
+  // A metadata copy of initial arguments used to contruct this
+  // FusionKernelRuntime. Used during deserialization to schedule the fusion
+  // rather than storing the scheduled fusion directly.
+  KernelArgumentHolder args_metadata_;
 
   //! Heuristics object holding scheduler entries for all segments
   std::unique_ptr<FusionHeuristics> heuristics_;
@@ -325,7 +338,7 @@ class TORCH_CUDA_CU_API InputsIdLookup : public NonCopyable {
   //! of input tensors, but on input scalars. For example,
   //!
   //!    auto s = IrBuilder::create<int>();
-  //!    auto tv1 = reshape(tv0, {IrBuilder::create<Int>(-1), s});
+  //!    auto tv1 = reshape(tv0, {IrBuilder::create<Val>(-1), s});
   //!
   //!
   //! This code will accept an integer s and reshape tv0 such that its last
@@ -349,6 +362,13 @@ class TORCH_CUDA_CU_API InputsIdLookup : public NonCopyable {
     return encoding_lookup_.size();
   }
 
+  //! Serialize InputsIdLookup using flatbuffers
+  flatbuffers::Offset<serde::InputsIdLookup> serialize(
+      flatbuffers::FlatBufferBuilder& builder) const;
+
+  //! Deserialize InputsIdLookup using flatbuffers
+  void deserialize(const serde::InputsIdLookup* buffer);
+
  private:
   // string to store encoded input meta information. Reuse the buffer instead of
   // stringtream gives few us perf gain.
@@ -365,7 +385,7 @@ class TORCH_CUDA_CU_API InputsIdLookup : public NonCopyable {
   };
 
   //! maximum cache size for LRU
-  const size_t max_cache_size_;
+  size_t max_cache_size_ = 0;
 
   //! next available unique id, we monotonically increase `current_id_` avoid
   //! conflicts
@@ -616,6 +636,20 @@ class TORCH_CUDA_CU_API FusionExecutorCache {
     auto rt = getMostRecentKernelRuntime();
     TORCH_INTERNAL_ASSERT(rt != nullptr);
     return rt->kernelTimeMs();
+  }
+
+  //! Serialize Fusion Executor Cache using flatbuffers
+  flatbuffers::Offset<serde::FusionExecutorCache> serialize(
+      flatbuffers::FlatBufferBuilder& builder) const;
+
+  //! Deserialize Fusion Executor Cache using flatbuffers
+  void deserialize(const serde::FusionExecutorCache* buffer);
+
+  //! Allocate the outputs of the Fusion given inputs
+  //! TODO: re-implement
+  std::vector<at::Tensor> allocOutputSpace(
+      const at::ArrayRef<c10::IValue>& inputs) {
+    return runFusionWithInputs(inputs);
   }
 
  private:

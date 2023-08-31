@@ -17,7 +17,7 @@
 
 namespace nvfuser {
 
-// There's three modes of these iter domain mappings all uniquely important in
+// There's four modes of these iter domain mappings all uniquely important in
 // the lowering process.
 //
 // For EXACT/PERMISSIVE mode consider:
@@ -58,6 +58,10 @@ namespace nvfuser {
 //   inputs and outputs of resize ops. Used for, e.g., propagating
 //   parallel types across those domains. It also maps producers and
 //   consumers of gathered and scattered domains
+// IdMappingMode::INNERMOST
+//   Include everything in PERMISSIVE_RESIZE. Maps also iter domain across
+//   split/merge to the inner domain, it is used to map inner most iter domain.
+//   i.e. transpose scheduler use this to map inner most domain.
 // IdMappingMode::EXACT
 //   Don't map any broadcast axes to non-broadcast axes
 //   Do not forward through any broadcast IDs
@@ -86,6 +90,9 @@ class TORCH_CUDA_CU_API IterDomainGraph {
   }
   const DisjointSets<IterDomain*>& permissiveResizeNodes() const {
     return permissive_resize_nodes_;
+  }
+  const DisjointSets<IterDomain*>& innermostNodes() const {
+    return innermost_nodes_;
   }
 
   // Consumers and producers is not symmetric like the other sets
@@ -141,6 +148,7 @@ class TORCH_CUDA_CU_API IterDomainGraph {
   DisjointSets<IterDomain*> almost_exact_nodes_;
   DisjointSets<IterDomain*> loop_nodes_;
   DisjointSets<IterDomain*> permissive_resize_nodes_;
+  DisjointSets<IterDomain*> innermost_nodes_;
 
   // Consumers and producers is not symmetric like the other sets.
   // Mapping is based on the most permissive map, i.e., the
@@ -158,11 +166,11 @@ class TORCH_CUDA_CU_API IterDomainGraph {
   // include reduction rfactor IDs as well at PR #2562
   std::unordered_set<IterDomain*> rfactor_ids_;
 
-  c10::optional<std::tuple<TensorView*, IterDomain*, IterDomain*, std::string>>
-      self_mapping_info_ = c10::nullopt;
+  std::optional<std::tuple<TensorView*, IterDomain*, IterDomain*, std::string>>
+      self_mapping_info_ = std::nullopt;
 };
 
-using DoubleBufferIndices = std::unordered_map<DoubleBufferLoopStage, Int*>;
+using DoubleBufferIndices = std::unordered_map<DoubleBufferLoopStage, Val*>;
 
 class TORCH_CUDA_CU_API ComputeAtMap {
  public:
@@ -197,7 +205,8 @@ class TORCH_CUDA_CU_API ComputeAtMap {
   //!  would help optimizing the generated integer math for indexing.
   void allocateIndexVariables();
 
-  //! Returns if id0 and id1 are mapped to eachother with provided IdMappingMode
+  //! Returns if id0 and id1 are mapped to each other with provided
+  //! IdMappingMode
   bool areMapped(IterDomain* id0, IterDomain* id1, IdMappingMode mode) const;
 
   //! Returns an iter domain that is the maximum expanded size of all iter

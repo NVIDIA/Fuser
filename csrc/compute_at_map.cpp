@@ -257,7 +257,7 @@ namespace {
 // assume tv2 can be trivially inlined/parallelized. Instead we'd need to take
 // into consideration the effective communication going on here, so that we pull
 // multiple values of tv0 to compute tv3.
-c10::optional<std::pair<IterDomain*, IterDomain*>> detectMappablePair(
+std::optional<std::pair<IterDomain*, IterDomain*>> detectMappablePair(
     const std::vector<IterDomain*>& ids,
     const IterDomainGraph& id_graph,
     IdMappingMode mode) {
@@ -291,7 +291,7 @@ c10::optional<std::pair<IterDomain*, IterDomain*>> detectMappablePair(
 // those domains should never be mapped with each other. It may be
 // possible to lift this assumption, but it's unclear if it could
 // matter in practice.
-c10::optional<std::tuple<TensorView*, IterDomain*, IterDomain*, std::string>>
+std::optional<std::tuple<TensorView*, IterDomain*, IterDomain*, std::string>>
 findFirstSelfMapping(Fusion* fusion, const IterDomainGraph& id_graph) {
   for (auto tv : ir_utils::allTvs(fusion)) {
     // For each tensor, make sure root, rfactor and leaf domains
@@ -334,7 +334,7 @@ findFirstSelfMapping(Fusion* fusion, const IterDomainGraph& id_graph) {
           "Leaf");
     }
   }
-  return c10::nullopt;
+  return std::nullopt;
 }
 
 } // namespace
@@ -605,7 +605,7 @@ void IterDomainGraph::build(Fusion* fusion) {
 
   // Grab all the rfactor ids.
   for (auto consumer_tv : all_consumer_tvs) {
-    auto exprs = StmtSort::getExprs(
+    auto exprs = StmtSort::getExprsTo(
         fusion,
         {consumer_tv->getMaybeRFactorDomain().begin(),
          consumer_tv->getMaybeRFactorDomain().end()});
@@ -700,6 +700,7 @@ void IterDomainGraph::build(Fusion* fusion) {
     }
   }
 
+  innermost_nodes_ = permissive_resize_nodes_;
   // Build almost exact map by forwarding through broadcast axes
   almost_exact_nodes_ = exact_nodes_;
   std::unordered_set<Expr*> visited;
@@ -715,6 +716,11 @@ void IterDomainGraph::build(Fusion* fusion) {
     if (auto merge = dynamic_cast<Merge*>(def)) {
       if (merge->inner()->extent()->isOneInt()) {
         almost_exact_nodes_.mapEntries(merge->outer(), merge->out());
+        innermost_nodes_.mapEntries(merge->outer(), merge->out());
+      } else {
+        // maps to inner dimension, even though it's not an identical mapping.
+        // This is used for transpose scheduler to map inner leaf dimensions
+        innermost_nodes_.mapEntries(merge->inner(), merge->out());
       }
       if (merge->outer()->extent()->isOneInt()) {
         almost_exact_nodes_.mapEntries(merge->inner(), merge->out());
@@ -727,6 +733,13 @@ void IterDomainGraph::build(Fusion* fusion) {
         } else {
           almost_exact_nodes_.mapEntries(split->in(), split->inner());
         }
+      }
+      if (split->factor()->isOneInt() && split->innerSplit()) {
+        innermost_nodes_.mapEntries(split->in(), split->outer());
+      } else {
+        // maps to inner dimension, even though it's not an identical mapping.
+        // This is used for transpose scheduler to map inner leaf dimensions
+        innermost_nodes_.mapEntries(split->in(), split->inner());
       }
     }
   }
@@ -841,16 +854,16 @@ void ComputeAtMap::allocateIndexVariables() {
       double_buffered_loop_index_variable_map_[loop_disjoint_set.get()] =
           std::make_unique<DoubleBufferIndices>(DoubleBufferIndices(
               {{DoubleBufferLoopStage::Prolog,
-                IrBuilder::create<Int>(c10::nullopt)},
+                IrBuilder::create<Val>(DataType::Index)},
                {DoubleBufferLoopStage::Main,
-                IrBuilder::create<Int>(c10::nullopt)},
+                IrBuilder::create<Val>(DataType::Index)},
                {DoubleBufferLoopStage::Epilog,
-                IrBuilder::create<Int>(c10::nullopt)}}));
+                IrBuilder::create<Val>(DataType::Index)}}));
     } else {
       // Everything now should be serial concrete loops,
       //   we just allocate a loop index integer for each set of loops.
       loop_index_variable_map_[loop_disjoint_set.get()] =
-          IrBuilder::create<Int>(c10::nullopt);
+          IrBuilder::create<Val>(DataType::Index);
     }
   }
 }
@@ -1413,6 +1426,8 @@ std::string ComputeAtMap::toString() const {
      << idGraphNodesToString(*this, IdMappingMode::PERMISSIVE);
   ss << "Permissive-Resize map:\n"
      << idGraphNodesToString(*this, IdMappingMode::PERMISSIVE_RESIZE);
+  ss << "Permissive-Relaxed-Resize map:\n"
+     << idGraphNodesToString(*this, IdMappingMode::INNERMOST);
   ss << "Consumer maps:\n";
   for (auto key : getSortedKeys(id_graph_.consumers(), Statement::lessThan)) {
     auto consumers = id_graph_.consumers().at(key);
@@ -1474,6 +1489,8 @@ const DisjointSets<IterDomain*>& ComputeAtMap::getIdSets(
       return id_graph_.permissiveNodes();
     case IdMappingMode::PERMISSIVE_RESIZE:
       return id_graph_.permissiveResizeNodes();
+    case IdMappingMode::INNERMOST:
+      return id_graph_.innermostNodes();
   }
   TORCH_INTERNAL_ASSERT(false, "Error with mapping mode provided.");
 }

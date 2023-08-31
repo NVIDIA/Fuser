@@ -7,12 +7,14 @@
 // clang-format on
 #include <scheduler/transpose.h>
 
+#include <debug.h>
 #include <device_lower/utils.h>
 #include <executor_utils.h>
 #include <inlining.h>
 #include <instrumentation.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
+#include <options.h>
 #include <scheduler/pointwise_utils.h>
 #include <scheduler/registry.h>
 #include <scheduler/utils.h>
@@ -27,6 +29,43 @@
 namespace nvfuser {
 
 namespace {
+
+// TransposeViewPropagator doesn't propagate anything. It simply walks across
+// the path of potential propagation checking if there's any incompatible
+// propagation that would not be resolved.
+struct TransposeViewPropagator : public MaxInfoSpanningTree::Propagator {
+  void propagateC2P(TensorView* from, TensorView* to) override{};
+  void propagateP2C(TensorView* from, TensorView* to) override {
+    // short-cut to skip if we know we are already rejecting the fusion for
+    // transpose scheduler
+    if (shouldReject()) {
+      return;
+    }
+    // checking to see if propagation would trigger producer to consumer
+    // propagation travelling across view op. Note this is a conservative check,
+    // since view does NOT necessarily always introduce incoherent transform
+    // that would break the propagation.
+    auto chain_exprs = StmtSort::getExprsBetween(from->fusion(), {from}, {to});
+    if (!ir_utils::filterByType<ViewOp>(chain_exprs).empty()) {
+      should_reject = true;
+    };
+  };
+  void propagateSibling(TensorView* from, TensorView* to) override{};
+  ~TransposeViewPropagator() override = default;
+
+  bool shouldReject() {
+    return should_reject;
+  }
+
+  bool should_reject = false;
+};
+
+bool hasSmallTransposeDimensions(
+    const std::shared_ptr<TransposeParams>& params) {
+  return !params->split_before_tiling.empty() ||
+      !params->dims_merged_with_1.empty() ||
+      !params->dims_merged_with_2.empty();
+}
 
 // DomainMap uses the ComputeAtMap to find a reference TensorView
 // that maps to all iterDomains in the fusion.
@@ -61,8 +100,7 @@ class DomainMap : public pointwise_utils::DomainMap {
     const auto& root_dom = tv->getRootDomain();
     IterDomain* mapped_id = nullptr;
     for (auto i : c10::irange(root_dom.size())) {
-      if (ca_map_.idGraph().permissiveNodes().permissiveAreMapped(
-              root_dom[i], root_dim)) {
+      if (ca_map_.areMapped(root_dom[i], root_dim, IdMappingMode::INNERMOST)) {
         mapped_id = root_dom[i];
         break;
       }
@@ -88,7 +126,14 @@ class DomainMap : public pointwise_utils::DomainMap {
     return domain_map.getMappedRootDimIn(ref1, innermost2) != nullptr;
   }
 
-  size_t getInnerLeafDim(TensorView* tv, IterDomain* root_dim) const {
+  // scheduler assumes inner leaf dimension on tv is an exact mapping, when the
+  // mapping cannot be resolved, we'll return a `-1`
+  int64_t getInnerLeafDim(TensorView* tv, IterDomain* root_dim) const {
+    // TODO: ideally we should be mapping to leaf domain directly here.
+    // However, our current compute at map is constructed before leaf domain is
+    // transformed. So the mapping here would require a new compute at map to be
+    // constructed from the updated fusion. We'll revisit this once our id graph
+    // refactor is done.
     auto mapped_id = getMappedRootDimIn(tv, root_dim);
     TORCH_INTERNAL_ASSERT(
         mapped_id != nullptr,
@@ -96,32 +141,44 @@ class DomainMap : public pointwise_utils::DomainMap {
         root_dim,
         " in tensor ",
         tv);
-    // Project the root id to leaf id
-    while (!mapped_id->uses().empty()) {
-      TORCH_INTERNAL_ASSERT(mapped_id->uses().size() == 1);
-      auto expr = mapped_id->uses()[0];
+    auto replay_exprs = StmtSort::getExprsBetween(
+        tv->fusion(),
+        {mapped_id},
+        {tv->getLeafDomain().begin(), tv->getLeafDomain().end()});
+    // Project the root id to leaf id. Similar to projectIdToRFactor.
+    for (auto expr : replay_exprs) {
       if (expr->isA<Split>()) {
-        mapped_id = expr->as<Split>()->inner();
-      } else {
-        auto merge = expr->as<Merge>();
+        // Split with factor one is not supposed to be here, reshape would map
+        // this to a broadcast. This is a conservative assert, we can relaxed it
+        // and support with mapping it to outer.
         TORCH_INTERNAL_ASSERT(
-            mapped_id == merge->inner(),
-            "Can not find ID mapped to ",
-            root_dim,
-            " in tensor ",
-            tv);
-        mapped_id = merge->out();
+            !expr->as<Split>()->factor()->isOneInt(),
+            "split with factor one is supposed to be translated to broadcast by reshape");
+        if (expr->as<Split>()->in() == mapped_id) {
+          mapped_id = expr->as<Split>()->inner();
+        }
+      } else if (expr->isA<Merge>()) {
+        // Merge with size-1 dimension is not supposed to be here, reshape would
+        // map this to a squeeze. This is a conservative assert, we can relaxed
+        // it and support with mapping it to out.
+        TORCH_INTERNAL_ASSERT(
+            !expr->as<Merge>()->inner()->extent()->isOneInt(),
+            "merge with size-1 dimension is supposed to be translated to squeeze by reshape");
+        if (expr->as<Merge>()->inner() == mapped_id) {
+          mapped_id = expr->as<Merge>()->out();
+        }
+      } else if (expr->isA<Resize>() && expr->as<Resize>()->in() == mapped_id) {
+        mapped_id = expr->as<Resize>()->out();
       }
     }
     // Find the position of the leaf id
     const auto& dom = tv->getLeafDomain();
     for (auto i : c10::irange(dom.size())) {
       if (dom[i] == mapped_id) {
-        return i;
+        return static_cast<int64_t>(i);
       }
     }
-    TORCH_INTERNAL_ASSERT(
-        false, "Can not find ID mapped to ", root_dim, " in tensor ", tv);
+    return -1;
   }
 
   // Group inputs and outputs of a fusion by its inner most domain. For example
@@ -211,6 +268,26 @@ class DomainMap : public pointwise_utils::DomainMap {
           return v1.size() > v2.size();
         });
     return groups;
+  }
+
+  // In the transpose scheculing, unlike the pointwise scheduling, the
+  // permissive map is required to find reference tensors. See also PR
+  // #661
+  IterDomain* getMappedInputConcreteID(
+      const std::unordered_set<IterDomain*>& in_concrete_ids,
+      IterDomain* out_id) const override {
+    auto in_concrete_id_iter = std::find_if(
+        in_concrete_ids.begin(),
+        in_concrete_ids.end(),
+        [&](IterDomain* in_concrete_id) {
+          return ca_map_.areMapped(
+              in_concrete_id, out_id, IdMappingMode::PERMISSIVE);
+        });
+    if (in_concrete_id_iter != in_concrete_ids.end()) {
+      return *in_concrete_id_iter;
+    } else {
+      return nullptr;
+    }
   }
 };
 
@@ -456,10 +533,10 @@ std::pair<std::vector<int64_t>, int64_t> getShapeInReference(
     auto inferred_val =
         runtime_info.expressionEvaluator().evaluate(concrete_id->extent());
     TORCH_INTERNAL_ASSERT(
-        inferred_val.has_value(),
+        inferred_val.hasValue(),
         "Error inferring size for pointwise scheduler: ",
         id->extent()->toInlineString());
-    int64_t size = inferred_val->as<int64_t>();
+    int64_t size = inferred_val.as<int64_t>();
     n_elems *= size;
     shape_in_ref.push_back(size);
   }
@@ -512,6 +589,11 @@ std::string getTransposeRuntimeRejectReason(
   auto innermost_info_entry = getInnerMostDimInfoInReference(
       data_cache, reference_tensors, reference1, domain_map);
   auto innermost_info = innermost_info_entry.get();
+  auto inner_most_pos1_in_ref1 = innermost_info[0];
+  auto inner_most_pos2_in_ref1 = innermost_info[1];
+  if (inner_most_pos1_in_ref1 < 0 || inner_most_pos2_in_ref1 < 0) {
+    return "Transpose scheduler requires exact mapping on inner most dimension on reference tensor.";
+  }
 
   constexpr size_t default_tile_elements =
       TransposeParams::getDefaultTileSize() *
@@ -524,9 +606,6 @@ std::string getTransposeRuntimeRejectReason(
   if ((int64_t)elements_per_wave > n_elems) {
     return "Transpose scheduler does not perform well on small problem sizes.";
   }
-
-  auto inner_most_pos1_in_ref1 = innermost_info[0];
-  auto inner_most_pos2_in_ref1 = innermost_info[1];
 
   auto inner_size1 = shape_in_ref1[inner_most_pos1_in_ref1];
   auto inner_size2 = shape_in_ref1[inner_most_pos2_in_ref1];
@@ -566,6 +645,55 @@ std::string getTransposeRuntimeRejectReason(
            "See: https://github.com/csarofeen/pytorch/issues/1964";
   }
 #endif
+
+  // TODO: ideally we shouldn't have to manually match schedule transformation
+  // here. It is hard to maintain consistent code logic.
+  if (!scheduler_utils::getViewTVs(fusion).empty()) {
+    const auto index_type = runtime_info.getIndexType();
+    auto params =
+        std::make_shared<TransposeParams>("Transpose heuristics", index_type);
+    maybeBuildVirtualInnerDims(
+        *params,
+        device_multiprocessor_count,
+        n_elems,
+        shape_in_ref1,
+        inner_most_pos1_in_ref1,
+        inner_most_pos2_in_ref1);
+
+    // disallow transpose scheduler when we have a combination of:
+    // 1. view op; and
+    // 2. small transpose transformation
+    // See note [Supporting small transpose dimensions]
+    if (hasSmallTransposeDimensions(params)) {
+      return "Small transpose dimensions and view op cannot be currently be handled by transpose scheduler. See: https://github.com/NVIDIA/Fuser/pull/592";
+    }
+
+    // mimic transform propagation
+    // NOTE: in the actual transpose scheduler, we are applying cacheBefore and
+    // cacheAfter, which I think would mean different propagation is happening
+    // than what's done here. So this might not be bullet proof.
+    TransposeViewPropagator propagator;
+
+    // global schedule traverse dry-run
+    // see `Step 2: global schedule`
+    //
+    // This is the step where we create virtual innermost dimension and prepare
+    // for scheduling tiling on the two groups. Propagation from P2C across view
+    // is challenging at this step and could result in propagating incoherent
+    // transformation which resulted in assert. Hence our dry run here examines
+    // the path for propagation and conservatively rejects fusion that requires
+    // propagation in the risky direction.
+    //
+    // NOTE: there are three traverse called during scheduling. We are only
+    // doing dry-run on the first traverse. Since the following twos are only
+    // used for scheduling tiling, which is not going to cause issue, since we
+    // are only tiling on the merged virtual innermost dimensions.
+    MaxRootDomainInfoSpanningTree entire_dag(reference1);
+    entire_dag.traverse(&propagator);
+    if (propagator.shouldReject()) {
+      return "transpose scheduler could potentially trigger incoherent transform propagation";
+    }
+  }
 
   return "";
 }
@@ -617,6 +745,10 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
 
   auto inner_most_pos1_in_ref1 = innermost_info[0];
   auto inner_most_pos2_in_ref1 = innermost_info[1];
+  // No exact innermost leaf dimension mapping on referenc1. cannot schedule
+  if (inner_most_pos1_in_ref1 < 0 || inner_most_pos2_in_ref1 < 0) {
+    return nullptr;
+  }
 
   auto params =
       std::make_shared<TransposeParams>("Transpose heuristics", index_type);
@@ -631,6 +763,11 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
       shape_in_ref1,
       inner_most_pos1_in_ref1,
       inner_most_pos2_in_ref1);
+
+  TORCH_INTERNAL_ASSERT(
+      !hasSmallTransposeDimensions(params) ||
+          scheduler_utils::getViewTVs(fusion).empty(),
+      "combination of view op with small transpose dimensions are not supported by transpose scheduler");
 
   // Note [vectorization and unroll of input and output]
   //
@@ -659,19 +796,22 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
 
   constexpr int64_t kSixteen = 16; // clang tidy
 
-  int64_t max_input_dtype_size = 1;
-
-  size_t n_input_tensors = 0;
-  for (auto inp : ir_utils::filterByType<TensorView>(fusion->inputs())) {
-    max_input_dtype_size = std::max(
-        max_input_dtype_size,
-        (int64_t)dataTypeSize(inp->getDataType().value(), index_type));
-    n_input_tensors++;
-  }
+  int64_t max_io_dtype_size = 1;
+  size_t n_io_tensors = 0;
+  auto scan_max_dtype_size = [&](const auto& vals) {
+    for (auto inp : ir_utils::filterByType<TensorView>(vals)) {
+      max_io_dtype_size = std::max(
+          max_io_dtype_size,
+          (int64_t)dataTypeSize(inp->getDataType().value(), index_type));
+      n_io_tensors++;
+    }
+  };
+  scan_max_dtype_size(fusion->inputs());
+  scan_max_dtype_size(fusion->outputs());
 
   auto max_unroll_factor = ceilDiv(
       // Available unrolling based on size of data type
-      (int64_t)kSixteen / max_input_dtype_size,
+      (int64_t)kSixteen / max_io_dtype_size,
       // Reduce max unrolling factor if we have many inputs/outputs to unroll
       // as it could start consuming a lot of registers.
       std::max(
@@ -694,58 +834,94 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
       ceilDiv((int64_t)params->tile_size1 * (int64_t)params->tile_size2, 32l);
   max_unroll_factor = std::min(max_unroll_factor, max_unroll_factor_block);
 
-  // Compute maximum vectorize factor that can be used
-  size_t vectorize_factor1 = max_unroll_factor;
-  size_t vectorize_factor2 = max_unroll_factor;
+  // Note: [Computing Vectorization Width for Transpose]
+  //
+  // With support of small transpose dimension (see Note [Supporting small
+  // transpose dimensions]), we need to consider the transformation applied on
+  // our tile to compute the safe vectorization width. e.g. For a simple
+  // transpose:
+  //    (i0, i1, i2, i3, i4) size (2, 3, 65536, 4, 7)
+  // -> (i3, i4, i2, i0, i1)
+  //
+  // transpose scheduler would apply transformation and tile on virtual
+  // innermost dimensions. ( (i0*i1*i2/2), (2*i3*i4)/32) So we need to use the
+  // size of the virtual innermost dimensions to compute our vectorization
+  // width. In the example above, we are looking at 2*3*65536/2, 2*4*7.
+  //
+  // Currently there's limitation on our iter domain mapping. Since we can only
+  // do it on rfactor/root domain, we cannot map across `split` domains. So the
+  // example above will only have vectorization size of 2 and 4 repsectively for
+  // the merge virtual innermost dimensions, rather than considering the split
+  // and merged i2/2 & 2.
+  //
+  // TODO: We use ContiguousInnerDimensionsMapper to compute the size of virtual
+  // innermost dimension. The analysis right now is limited on rfactor domain
+  // only, so we can't actually map the `split` iter domains, which limits the
+  // vectorization width we can apply. We need to fix that.
+  // TODO 2: Small transpose dimensions transformation should also consider the
+  // vectorization impact. i.e. when split_before_tiling, we should try to split
+  // on a factor that allows vectorization.
+  {
+    // duplicating reference1's TensorDomain, since the transformations applied
+    // is not persistent and only needed for us to compute vectorization width.
+    TensorDomain* cloned_1_td =
+        IrBuilder::create<TensorDomain>(reference1->domain());
+    // Adding a domain_guard so we can transform reference1
+    ir_utils::TVDomainGuard domain_guard(reference1, cloned_1_td);
 
-  for (auto tv : grouped_inputs_outputs[0]) {
-    const auto tv_vectorize_factor =
-        runtime_info.getMaxVectorizableWidth(tv, false);
-    vectorize_factor1 = std::min(vectorize_factor1, tv_vectorize_factor);
-  }
-  // TODO: Since group2 only has global->shared and shared->global set op, we
-  // can have fine-grained control of unroll/vectorization at per tensor level.
-  // We should not be using a single global vectorize factor for the entire
-  // group 2
-  for (auto tv : grouped_inputs_outputs[1]) {
-    const auto tv_vectorize_factor =
-        runtime_info.getMaxVectorizableWidth(tv, false);
-    vectorize_factor2 = std::min(vectorize_factor2, tv_vectorize_factor);
-  }
+    // we only apply split here, since we want to merge split dimensions, we can
+    // simply map those merged domains via ContiguousInnerDimensionsMapper
+    scheduler_utils::splitDims(reference1, params->split_before_tiling);
 
-  params->vectorize_factor1 = scheduler_utils::lastPow2(
-      (int64_t)std::min((size_t)(max_unroll_factor), vectorize_factor1));
-  params->vectorize_factor2 = scheduler_utils::lastPow2(
-      (int64_t)std::min((size_t)(max_unroll_factor), vectorize_factor2));
+    params->vectorize_factor1 =
+        vectorize_helper::getVectorizationFactorTransposeGroup(
+            runtime_info,
+            reference1,
+            inner_most_pos1_in_ref1,
+            params->dims_merged_with_1,
+            grouped_inputs_outputs[0],
+            max_unroll_factor);
+
+    // TODO: Since group2 only has global->shared and shared->global set op, we
+    // can have fine-grained control of unroll/vectorization at per tensor
+    // level. We should not be using a single global vectorize factor for the
+    // entire group 2
+    params->vectorize_factor2 =
+        vectorize_helper::getVectorizationFactorTransposeGroup(
+            runtime_info,
+            reference1,
+            inner_most_pos2_in_ref1,
+            params->dims_merged_with_2,
+            grouped_inputs_outputs[1],
+            max_unroll_factor);
+  }
 
   params->lparams.bind(params->getThreadsPerBlock(), ParallelType::TIDx);
 
   if (isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
-    std::cerr << "\n===== Transpose Stats ========\n"
-              << "inputs: " << ir_utils::toString(fusion->inputs()) << "\n"
-              << "outputs: " << ir_utils::toString(fusion->outputs()) << "\n"
-              << "shape: " << shape_in_ref1 << "\n"
-              << "num_elems: " << n_elems << "\n"
-              << "n_input_tensors: " << n_input_tensors << "\n"
-              << "max_input_dtype_size: " << max_input_dtype_size << "\n"
-              << "group 1: " << ir_utils::toString(grouped_inputs_outputs[0])
-              << "\n"
-              << "reference1: " << reference1 << "\n"
-              << "inner_most_id1 position: " << inner_most_pos1_in_ref1
-              << " (in reference 1)\n"
-              << "group 2: " << ir_utils::toString(grouped_inputs_outputs[1])
-              << "\n"
-              << "reference2: " << reference2 << "\n"
-              << "inner_most_id2 position: " << inner_most_pos2_in_ref1
-              << " (in reference 1)" << std::endl;
-    if (!params->split_before_tiling.empty() ||
-        !params->dims_merged_with_1.empty() ||
-        !params->dims_merged_with_2.empty()) {
-      std::cerr << "small transposed dim, needs virtual inner-most dim"
-                << std::endl;
+    debug() << "\n===== Transpose Stats ========\n"
+            << "inputs: " << ir_utils::toString(fusion->inputs()) << "\n"
+            << "outputs: " << ir_utils::toString(fusion->outputs()) << "\n"
+            << "shape: " << shape_in_ref1 << "\n"
+            << "num_elems: " << n_elems << "\n"
+            << "n_io_tensors: " << n_io_tensors << "\n"
+            << "max_io_dtype_size: " << max_io_dtype_size << "\n"
+            << "group 1: " << ir_utils::toString(grouped_inputs_outputs[0])
+            << "\n"
+            << "reference1: " << reference1 << "\n"
+            << "inner_most_id1 position: " << inner_most_pos1_in_ref1
+            << " (in reference 1)\n"
+            << "group 2: " << ir_utils::toString(grouped_inputs_outputs[1])
+            << "\n"
+            << "reference2: " << reference2 << "\n"
+            << "inner_most_id2 position: " << inner_most_pos2_in_ref1
+            << " (in reference 1)" << std::endl;
+    if (hasSmallTransposeDimensions(params)) {
+      debug() << "small transposed dim, needs virtual inner-most dim"
+              << std::endl;
     }
-    std::cerr << std::endl;
-    std::cerr << params->toString() << std::endl;
+    debug() << std::endl;
+    debug() << params->toString() << std::endl;
   }
 
   return params;
@@ -877,54 +1053,41 @@ void scheduleTranspose(Fusion* fusion, TransposeParams params) {
   // split big dims so that we have enough dimensions available to merge with
   // inner-most dims to create the virtual inner-most dim
   scheduler_utils::splitDims(reference1, params.split_before_tiling);
-  // Merging reference 1's dims_merged_with_1 but updating dims_merged_with_2
-  // based on the changes in the dimensions that were merged. So we can then run
-  // merge with dims_merged_with_2.
-  auto merged1 = scheduler_utils::mergeDims(
-      reference1, params.dims_merged_with_1, params.dims_merged_with_2);
-  // Merging reference 1's dims_merged_with_2 and updating `merged1`.
+
+  // prepare all dimensions in merge order for group1
+  std::vector<size_t> dims_group1 = params.dims_merged_with_1;
+  auto inner_leaf_index1 =
+      domain_map.getInnerLeafDim(reference1, inner_most_id1);
+  TORCH_INTERNAL_ASSERT(
+      inner_leaf_index1 >= 0, "getInnerLeafDim cannot be resolved");
+  size_t inner_most_pos1_in_ref1 = static_cast<size_t>(inner_leaf_index1);
+  dims_group1.insert(dims_group1.begin(), inner_most_pos1_in_ref1);
+
+  // prepare all dimensions in merge order for group2
+  std::vector<size_t> dims_group2 = params.dims_merged_with_2;
+  auto inner_leaf_index2 =
+      domain_map.getInnerLeafDim(reference1, inner_most_id2);
+  size_t inner_most_pos2_in_ref1 = inner_leaf_index2;
+  TORCH_INTERNAL_ASSERT(
+      inner_leaf_index2 >= 0, "getInnerLeafDim cannot be resolved");
+  dims_group2.insert(dims_group2.begin(), inner_most_pos2_in_ref1);
+
+  // merge all dimensions in group1, while updating all indices for group2
+  auto merged1 =
+      scheduler_utils::mergeDims(reference1, dims_group1, dims_group2);
   std::vector<size_t> merged1_vec;
   if (merged1.has_value()) {
     merged1_vec.push_back(*merged1);
   }
-  auto merged2 = scheduler_utils::mergeDims(
-      reference1, params.dims_merged_with_2, merged1_vec);
-  if (merged1.has_value()) {
-    merged1 = merged1_vec[0];
-  }
+  // merge all dimensions in group2, while updating merged index for group1
+  auto merged2 =
+      scheduler_utils::mergeDims(reference1, dims_group2, merged1_vec);
 
-  // merge with inner most dims to get virtual inner most dims
-  size_t inner_most_pos1_in_ref1 =
-      domain_map.getInnerLeafDim(reference1, inner_most_id1);
-  size_t inner_most_pos2_in_ref1 =
-      domain_map.getInnerLeafDim(reference1, inner_most_id2);
+  // updating merged1 & merged2 indices if applicable
   if (merged1.has_value()) {
-    if (inner_most_pos1_in_ref1 < *merged1) {
-      reference1->reorder(
-          {{*merged1, inner_most_pos1_in_ref1},
-           {inner_most_pos1_in_ref1, *merged1}});
-      std::swap(*merged1, inner_most_pos1_in_ref1);
-    }
-    if (inner_most_pos2_in_ref1 > inner_most_pos1_in_ref1) {
-      inner_most_pos2_in_ref1--;
-    }
-    if (merged2.has_value() && *merged2 > inner_most_pos1_in_ref1) {
-      (*merged2)--;
-    }
-    reference1->merge((int)*merged1, (int)inner_most_pos1_in_ref1);
-    inner_most_pos1_in_ref1 = *merged1;
+    inner_most_pos1_in_ref1 = merged1_vec[0];
   }
   if (merged2.has_value()) {
-    if (inner_most_pos2_in_ref1 < *merged2) {
-      reference1->reorder(
-          {{*merged2, inner_most_pos2_in_ref1},
-           {inner_most_pos2_in_ref1, *merged2}});
-      std::swap(*merged2, inner_most_pos2_in_ref1);
-    }
-    if (inner_most_pos1_in_ref1 > inner_most_pos2_in_ref1) {
-      inner_most_pos1_in_ref1--;
-    }
-    reference1->merge((int)*merged2, (int)inner_most_pos2_in_ref1);
     inner_most_pos2_in_ref1 = *merged2;
   }
 

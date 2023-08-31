@@ -14,6 +14,7 @@
 #include <ir/iostream.h>
 #include <ir/utils.h>
 #include <ops/arith.h>
+#include <options.h>
 #include <predicate_compute.h>
 #include <transform_iter.h>
 #include <transform_replay.h>
@@ -46,13 +47,11 @@ namespace {
 //   are exact so that the shared mem read/write would not
 //   run out of bound because of thread over-subscription.
 bool isExactParallelSharedMemAccess(TensorView* tv) {
-  auto& parallel_dimension_map = GpuLower::current()->parallelDimensionMap();
   for (auto id : tv->getLeafDomain()) {
     if (id->isThreadDim()) {
-      auto ptype = id->getParallelType();
       // Need to predicate to avoid out of bound access
       //  because of over-subscribed block size.
-      if (!parallel_dimension_map.isExact(ptype)) {
+      if (!lower_utils::isExtentEqualToMaxParallelTypeExtent(id)) {
         return false;
       }
     }
@@ -82,11 +81,11 @@ class PredicateAnalyzer : public OptOutDispatch {
     }
 
     auto pairwise_map = PairwiseRootDomainMap(producer, consumer);
-    DisjointSets<IterDomain*> disjoint_c2p_ids =
+    auto c2p =
         BestEffortReplay::replayPasC(producer, consumer, -1, pairwise_map)
-            .getIterDomainEquivalence();
+            .getReplay();
 
-    PredicateAnalyzer analyzer(disjoint_c2p_ids);
+    PredicateAnalyzer analyzer(c2p);
 
     for (auto id : consumer->getLeafDomain()) {
       if (analyzer.needsPredicate(id)) {
@@ -98,8 +97,8 @@ class PredicateAnalyzer : public OptOutDispatch {
   }
 
  private:
-  PredicateAnalyzer(const DisjointSets<IterDomain*>& disjoint_c2p_ids)
-      : disjoint_c2p_ids_(disjoint_c2p_ids) {}
+  PredicateAnalyzer(const std::unordered_map<IterDomain*, IterDomain*>& c2p)
+      : c2p_(c2p) {}
 
   // Returns true if no out-of-bound accesses could occur with a
   // producer
@@ -119,9 +118,26 @@ class PredicateAnalyzer : public OptOutDispatch {
       return;
     }
 
+    // If the ID is parallelized with a non-unique parallel type, the
+    // consumer ID may be oversubscribed, which may cause
+    // out-of-bounds accesses in the producer
+    const auto maybe_oversubscribed = consumer_id->isThread() &&
+        (!lower_utils::isExtentEqualToMaxParallelTypeExtent(consumer_id));
+    if (maybe_oversubscribed) {
+      // If oversubscribed, there must be a mapped producer ID that is
+      // parallelized in the same way. Otherwise, needs to be
+      // predicated.
+      auto c2p_it = c2p_.find(consumer_id);
+      if (c2p_it == c2p_.end() ||
+          c2p_it->second->getParallelType() != consumer_id->getParallelType()) {
+        needs_predicate_ = true;
+        return;
+      }
+    }
+
     // If the producer has a matching domain, it should not cause
     // out-of-bound accesses
-    if (disjoint_c2p_ids_.mappingExists(consumer_id)) {
+    if (c2p_.count(consumer_id)) {
       return;
     }
 
@@ -130,7 +146,7 @@ class PredicateAnalyzer : public OptOutDispatch {
       return;
     }
 
-    OptOutDispatch::handle(consumer_id->definition());
+    OptOutDispatch::dispatch(consumer_id->definition());
   }
 
   // If it splits the input axis evenly, proceeds to check the input
@@ -170,7 +186,7 @@ class PredicateAnalyzer : public OptOutDispatch {
 
  private:
   //! BestEffort map from consumer IDs to producer IDs
-  const DisjointSets<IterDomain*>& disjoint_c2p_ids_;
+  const std::unordered_map<IterDomain*, IterDomain*>& c2p_;
   bool needs_predicate_ = false;
 };
 
@@ -184,7 +200,7 @@ class PredicateChcker : public IterVisitor {
     }
 
     PredicateChcker checker(pred_elimination);
-    checker.handle(expr);
+    checker.dispatch(expr);
     return checker.needs_predicate_;
   }
 
@@ -195,7 +211,7 @@ class PredicateChcker : public IterVisitor {
 
   using IterVisitor::handle;
 
-  void handle(Expr* expr) final {
+  void dispatch(Expr* expr) final {
     const bool needs_predicate_smem_access = predicateSharedMemAccess(expr);
     needs_predicate_ = predicateIntDiv(expr) ||
         predicateMisalignedVectorize(expr) || predicateShift(expr) ||
@@ -222,7 +238,7 @@ class PredicateChcker : public IterVisitor {
     }
 
     // Check expr type-specific conditions
-    IterVisitor::handle(expr);
+    IterVisitor::dispatch(expr);
   }
 
   // All "predicateXYZ" functions return true if an expr needs to be
@@ -846,7 +862,7 @@ bool PredicateElimination::needsPredicate(Expr* expr) const {
   return PredicateChcker::needsPredicate(expr, *this);
 }
 
-void PredicateElimination::handle(Expr* expr) {
+void PredicateElimination::dispatch(Expr* expr) {
   if (!ir_utils::isTvOp(expr)) {
     return;
   }
@@ -950,7 +966,7 @@ bool PredicateElimination::setReductionInitValue(
 
 bool PredicateElimination::canOmitPredicate(const Expr* expr) const {
   // Predicate elimination can be disabled with
-  // PYTORCH_NVFUSER_DISABLE=predicate_elimination
+  // NVFUSER_DISABLE=predicate_elimination
   if (isOptionDisabled(DisableOption::PredicateElimination)) {
     assertOnWarpOps(expr);
     return false;
@@ -998,7 +1014,7 @@ Val* PredicateElimination::getInitValue(TensorView* tv) const {
   if (init_val == nullptr) {
     // No reduction restriction. Just use zero
     auto dtype = *tv->getDataType();
-    if (std::holds_alternative<ArrayOf>(dtype.type)) {
+    if (std::holds_alternative<ArrayType>(dtype.type)) {
       return IrBuilder::create<NamedScalar>("{}", dtype);
     }
     return GpuLower::current()->kernel()->zeroVal();

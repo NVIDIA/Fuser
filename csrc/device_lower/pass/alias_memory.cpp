@@ -7,6 +7,7 @@
 // clang-format on
 #include <device_lower/pass/alias_memory.h>
 
+#include <debug.h>
 #include <device_lower/lower2device.h>
 #include <device_lower/utils.h>
 #include <expr_evaluator.h>
@@ -15,6 +16,8 @@
 #include <ir/utils.h>
 #include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
+#include <ops/arith.h>
+#include <options.h>
 
 #include <sstream>
 #include <unordered_map>
@@ -28,7 +31,7 @@
 // - Find allocations of tensors that can reuse other allocations
 //   (class ReusableAllocationFinder)
 // - Replace those allocation expressions with their alias fields
-//   pointing to reused allocations (class AllocationReuseModifier)
+//   pointing to reused allocations (class AllocationAliasModifier)
 
 namespace nvfuser {
 
@@ -157,18 +160,18 @@ class SymbolicSizePrinter : private OptOutConstDispatch {
  public:
   static std::string printSize(const kir::Allocate* allocate) {
     SymbolicSizePrinter printer;
-    printer.handle(allocate->size());
+    printer.dispatch(allocate->size());
     return printer.os_.str();
   }
 
  private:
   using OptOutConstDispatch::handle;
 
-  void handle(const Int* node) final {
+  void dispatch(const Val* node) final {
     if (auto def = node->definition()) {
-      OptOutConstDispatch::handle(def);
+      OptOutConstDispatch::dispatch(def);
     } else if (node->isConst()) {
-      os_ << *node->value();
+      os_ << node->value();
     } else {
       os_ << "ki" << node->name();
     }
@@ -186,9 +189,9 @@ class SymbolicSizePrinter : private OptOutConstDispatch {
 
   void handle(const BinaryOp* binary_op) final {
     os_ << binary_op->getBinaryOpType() << "(";
-    OptOutConstDispatch::handle(binary_op->lhs());
+    OptOutConstDispatch::dispatch(binary_op->lhs());
     os_ << ",";
-    OptOutConstDispatch::handle(binary_op->rhs());
+    OptOutConstDispatch::dispatch(binary_op->rhs());
     os_ << ")";
   }
 
@@ -382,7 +385,7 @@ class BufferLiveInterval {
 
   std::string toString() {
     std::stringstream ss;
-    ss << "[ " << first_write_pos_ << " , " << last_read_pos_ << " )";
+    ss << "[ " << first_write_pos_ << " , " << last_read_pos_ << " ]";
     return ss.str();
   }
 
@@ -403,6 +406,8 @@ struct ScopeInfo {
   // nullptr means it's global scope
   kir::ForLoop* loop = nullptr;
 };
+
+class ScopeMap;
 
 //! Assign an integer position to each expression to help representing
 //! scope ranges. The position starts from 1.
@@ -428,6 +433,14 @@ class ExprPosMap {
     expr_pos_map_[expr] = current_pos_;
   }
 
+ protected:
+  friend ScopeMap;
+
+  //! Assign same position for replaced expression
+  void replaceExpr(const Expr* old_expr, const Expr* new_expr) {
+    expr_pos_map_[new_expr] = get(old_expr);
+  }
+
  private:
   //! Position counter. The first expression is assigned position 1
   int current_pos_ = 0;
@@ -442,7 +455,10 @@ class ScopeMap : private kir::IrVisitor {
   ScopeMap(const std::vector<Expr*>& exprs)
       : global_scope_info_{makeAndRegisterScopeInfo(nullptr)} {
     handle(exprs);
-    global_scope_info_->end_pos = expr_pos_map_.getCurrentPos() + 1;
+    // Note that this introduces a position at the end of the scope with no
+    // corresponding Expr. See also handle(kir::ForLoop*) below.
+    expr_pos_map_.moveToNext();
+    global_scope_info_->end_pos = expr_pos_map_.getCurrentPos();
 
     // Make sure all loops have end_pos filled
     for (const auto& info : all_scope_info_) {
@@ -452,16 +468,19 @@ class ScopeMap : private kir::IrVisitor {
 
   using kir::IrVisitor::handle;
 
-  void handle(Expr* expr) final {
+  void dispatch(Expr* expr) final {
     expr_pos_map_.moveToNext();
     expr_pos_map_.setPosAtCurrent(expr);
-    kir::IrVisitor::handle(expr);
+    kir::IrVisitor::dispatch(expr);
   }
 
   void handle(kir::ForLoop* for_loop) final {
     auto loop_info = makeAndRegisterScopeInfo(for_loop);
     kir::IrVisitor::handle(for_loop);
-    loop_info->end_pos = expr_pos_map_.getCurrentPos() + 1;
+    // Note that this introduces a position at the end of the scope with no
+    // corresponding Expr.
+    expr_pos_map_.moveToNext();
+    loop_info->end_pos = expr_pos_map_.getCurrentPos();
   }
 
   void handle(kir::IfThenElse* ite) final {
@@ -511,6 +530,12 @@ class ScopeMap : private kir::IrVisitor {
     return expr_pos_map_.get(expr);
   }
 
+ protected:
+  friend AllocationInfoMap;
+  void replaceExpr(const Expr* old_expr, const Expr* new_expr) {
+    expr_pos_map_.replaceExpr(old_expr, new_expr);
+  }
+
  private:
   //! Owning list of collected scope info
   std::vector<std::unique_ptr<ScopeInfo>> all_scope_info_;
@@ -552,7 +577,22 @@ struct AllocationInfo {
   std::unique_ptr<BufferLiveInterval> outer_live_interval = nullptr;
   std::unique_ptr<BufferLiveIntervalPtrList> outer_subscribed_intevals =
       nullptr;
+  // Holds allocations that have alloc_expr as their alias_to
+  std::vector<AllocationInfo*> outer_aliased_by;
+
+  //! Get the last outer read position of either this allocation, or any
+  //! allocation that is aliased to this allocation.
+  int getAliasedOuterLastRead() const {
+    auto last_outer_read = outer_live_interval->lastRead();
+    for (auto aliasing : outer_aliased_by) {
+      last_outer_read =
+          std::max(last_outer_read, aliasing->outer_live_interval->lastRead());
+    }
+    return last_outer_read;
+  }
 };
+
+class AllocationAliasModifier;
 
 //! Analysis pass to collect the liveness info of local and shared buffers:
 //! The liveness info is illustrated as follows:
@@ -568,22 +608,22 @@ struct AllocationInfo {
 //!       T2 = ...
 //!       T3 = T1 + ...    <-- Inner Live Interval of T1 end
 //!       T5 = T3 + ...
-//!     EndFor Idx2
-//!   EndFor Idx1 <-------  Outer Live Interval of T1 end
+//!     EndFor Idx2 ...
+//!   EndFor Idx1 ... <-------  Outer Live Interval of T1 end
 //!
 //!   Alloc(T4, register)
 //!   For Idx3 ...
 //!     T4 = ...
-//!   EndFor Idx3
-//! EndFor Idx0
 //!
 //!  Each buffer is associated with an `inner_live_interval` and an
-//!  `outer_live_interval`,
-//!   Inner interval marks the exprs that are the first write and last read of
-//!   the buffer.
-//!   Outer interval marks the beginning of the loop of first write and end of
-//!   the loop of last read, both at the same loop level as the buffer
-//!   allocation.
+//!  `outer_live_interval`. Inner interval marks the exprs that are the first
+//!  write and last read of the buffer. Outer interval marks the beginning of
+//!  the loop of first write and end of the loop of last read, at the same loop
+//!  level as the buffer allocation. Note that the end of a ForLoop is marked by
+//!  the last expression within it. In the case of an outer live interval, if
+//!  the end point is the end of a for loop, it is given a position at which
+//!  that expression would reside, but no actual `Expr` is associated with that
+//!  position.
 class AllocationInfoMap : private kir::IrVisitor {
  public:
   // Alias local memory if it exceeds this threshold
@@ -601,18 +641,21 @@ class AllocationInfoMap : private kir::IrVisitor {
     handle(exprs);
     if (debug_printer_) {
       debug_printer_->popScope();
-      std::cout << debug_printer_->dumpDebugInfo(this);
+      debug() << debug_printer_->dumpDebugInfo(this);
     }
     current_stack_.pop_back();
   }
 
-  c10::optional<AllocationInfo*> getMaybeAllocationInfo(
-      const kir::Allocate* alloc) const {
+  AllocationInfo* getAllocationInfo(const kir::Allocate* alloc) const {
     auto it = allocation_info_map_.find(alloc);
     if (it == allocation_info_map_.end()) {
-      return c10::nullopt;
+      return nullptr;
     }
     return it->second;
+  }
+
+  const ScopeMap& getScopeMap() const {
+    return scope_map_;
   }
 
   const std::unordered_map<const kir::Allocate*, AllocationInfo*>&
@@ -672,14 +715,53 @@ class AllocationInfoMap : private kir::IrVisitor {
     return alias_map_;
   }
 
+  const std::vector<std::unique_ptr<AllocationInfo>>& allAllocationInfos()
+      const {
+    return all_allocations_;
+  }
+
+  AllocationInfo* getAllocInfoFromTV(TensorView* tv) const {
+    auto alloc_it = tv_to_allocation_map_.find(tv->name());
+    if (alloc_it == tv_to_allocation_map_.end()) {
+      return nullptr;
+    }
+    return alloc_it->second;
+  }
+
+ protected:
+  friend AllocationAliasModifier;
+
+  //! When an allocation is registered for replacement, this method should be
+  //! called to update the allocation info so that subsequent lookups behave
+  //! predictably. This method is designed for the cased when allocations X and
+  //! Y exist independently originally, but Y is replaced with a new allocation
+  //! Z that aliases X. If instead there was already an alias to old_alloc, then
+  //! there may be dangling references to it even after running this method.
+  void replaceAllocation(kir::Allocate* old_alloc, kir::Allocate* new_alloc) {
+    auto it = allocation_info_map_.find(old_alloc);
+    TORCH_CHECK(
+        it != allocation_info_map_.end(),
+        "Cannot replace allocation info for ",
+        old_alloc->toString(),
+        " because it was not found");
+    auto alloc_info = it->second;
+
+    alloc_info->alloc_expr = new_alloc;
+    allocation_info_map_[new_alloc] = alloc_info;
+    // Note: we do not update the alias_to field of other allocations here. See
+    // comment above.
+
+    scope_map_.replaceExpr(old_alloc, new_alloc);
+  }
+
  private:
   using kir::IrVisitor::handle;
 
-  void handle(Expr* expr) final {
+  void dispatch(Expr* expr) final {
     if (debug_printer_) {
       debug_printer_->pushBack(scope_map_.getExprPos(expr), expr);
     }
-    kir::IrVisitor::handle(expr);
+    kir::IrVisitor::dispatch(expr);
     if (ir_utils::isTvOp(expr)) {
       collectLivenessInfoOfExpr(expr);
     }
@@ -687,7 +769,13 @@ class AllocationInfoMap : private kir::IrVisitor {
 
   void handle(kir::ForLoop* for_loop) final {
     auto loop_info = scope_map_.getLoopScopeInfo(for_loop);
-    current_stack_.push_back(loop_info);
+    if (!for_loop->isTrivial()) {
+      // Parallelized loops do not result in for loops in the CUDA kernel, so
+      // they should not affect liveness analysis. This means that
+      // current_stack_ will differ from kir::IrVisitor::for_loops_, which will
+      // actually hold all ForLoops regardless of parallelization.
+      current_stack_.push_back(loop_info);
+    }
     if (debug_printer_) {
       debug_printer_->pushScope();
     }
@@ -695,7 +783,9 @@ class AllocationInfoMap : private kir::IrVisitor {
     if (debug_printer_) {
       debug_printer_->popScope();
     }
-    current_stack_.pop_back();
+    if (!for_loop->isTrivial()) {
+      current_stack_.pop_back();
+    }
   }
 
   void handle(kir::IfThenElse* ite) final {
@@ -791,59 +881,48 @@ class AllocationInfoMap : private kir::IrVisitor {
     //  expr. The current analysis isn't enough to capture
     //  their liveness range.
     for (auto input_tv : ir_utils::filterByType<TensorView>(expr->inputs())) {
-      auto maybe_alloc_info = getMaybeAllocInfoFromTV(input_tv);
-      if (maybe_alloc_info.has_value()) {
+      auto alloc_info = getAllocInfoFromTV(input_tv);
+      if (alloc_info) {
         if (!isSerialBroadcastResolution(input_tv, for_loops_)) {
-          maybe_alloc_info.value()->inner_live_interval->markRead(expr_pos);
+          alloc_info->inner_live_interval->markRead(expr_pos);
         } else {
           // Disable inner alias info for this buffer, since line number based
           //  analysis is no longer precise enough for inplace sharing
           //  if a serial broadcast is realized.
-          maybe_alloc_info.value()->can_use_inner_alias = false;
+          alloc_info->can_use_inner_alias = false;
         }
 
-        auto outer_loop_info =
-            ascendLoopNestToSameLevelAs(maybe_alloc_info.value());
+        auto outer_loop_info = ascendLoopNestToSameLevelAs(alloc_info);
 
         if (outer_loop_info) {
-          maybe_alloc_info.value()->outer_live_interval->markRead(
-              outer_loop_info->end_pos);
+          alloc_info->outer_live_interval->markRead(outer_loop_info->end_pos);
         } else {
           // Allocate is inlined in the innermost loop,
           //  so outer live interval is the same as inner.
-          maybe_alloc_info.value()->outer_live_interval->markRead(expr_pos);
+          alloc_info->outer_live_interval->markRead(expr_pos);
         }
       }
     }
     for (auto output_tv : ir_utils::filterByType<TensorView>(expr->outputs())) {
-      auto maybe_alloc_info = getMaybeAllocInfoFromTV(output_tv);
-      if (maybe_alloc_info.has_value()) {
+      auto alloc_info = getAllocInfoFromTV(output_tv);
+      if (alloc_info) {
         // Reductions use outputs as read-write parameters, so their
         // outputs need to be marked as read as well
         const bool is_read_write = ir_utils::isReductionOp(expr);
-        maybe_alloc_info.value()->inner_live_interval->markWrite(expr_pos);
+        alloc_info->inner_live_interval->markWrite(expr_pos);
         if (is_read_write) {
-          maybe_alloc_info.value()->inner_live_interval->markRead(expr_pos);
+          alloc_info->inner_live_interval->markRead(expr_pos);
         }
-        auto outer_loop_info =
-            ascendLoopNestToSameLevelAs(maybe_alloc_info.value());
+        auto outer_loop_info = ascendLoopNestToSameLevelAs(alloc_info);
         auto write_pos =
             outer_loop_info ? outer_loop_info->start_pos : expr_pos;
-        maybe_alloc_info.value()->outer_live_interval->markWrite(write_pos);
+        alloc_info->outer_live_interval->markWrite(write_pos);
         if (is_read_write) {
           auto read_pos = outer_loop_info ? outer_loop_info->end_pos : expr_pos;
-          maybe_alloc_info.value()->outer_live_interval->markRead(read_pos);
+          alloc_info->outer_live_interval->markRead(read_pos);
         }
       }
     }
-  }
-
-  c10::optional<AllocationInfo*> getMaybeAllocInfoFromTV(TensorView* tv) const {
-    auto alloc_it = tv_to_allocation_map_.find(tv->name());
-    if (alloc_it == tv_to_allocation_map_.end()) {
-      return c10::nullopt;
-    }
-    return alloc_it->second;
   }
 
   //! Find the loop level of expr that apears in the same scope as
@@ -884,14 +963,23 @@ class AllocationInfoMap : private kir::IrVisitor {
 
   //! Mark the tensor of "from" be an alias of the tensor of "to".
   void setAlias(AllocationInfo* from, AllocationInfo* to) {
+    TORCH_INTERNAL_ASSERT(
+        to->alias_to == nullptr,
+        "Multi-hop aliases are not supported. Attempted to alias ",
+        from->alloc_expr->buffer()->toString(),
+        " to ",
+        to->alloc_expr->buffer()->toString(),
+        " which is already aliased to ",
+        to->alias_to->buffer()->toString());
     alias_map_[from] = to;
     from->alias_to = to->alloc_expr;
+    to->outer_aliased_by.push_back(from);
   }
 
  private:
   friend BufferReuseDebugPrinter;
 
-  const ScopeMap scope_map_;
+  ScopeMap scope_map_;
 
   //! Map TensorView name to Allocate node.
   //!  Note: this assumes that each tensor view is only allocated once.
@@ -918,13 +1006,14 @@ void BufferReuseDebugPrinter::printAllocInfo(const kir::Allocate* alloc) {
   TORCH_INTERNAL_ASSERT(allocation_info_map_ != nullptr);
   std::string message_header(" \033[1;32m^^^^^ ---Buffer Reuse Info---  ");
   std::string message_end("  \033[0m\n");
-  if (!allocation_info_map_->getMaybeAllocationInfo(alloc).has_value()) {
+
+  auto alloc_info = allocation_info_map_->getAllocationInfo(alloc);
+
+  if (!alloc_info) {
     // This buffer is not considered for any sharing, either
     //  because of un-supported op or size below threshold.
     return;
   }
-
-  auto alloc_info = allocation_info_map_->getMaybeAllocationInfo(alloc).value();
 
   indent() << message_header;
   if (alloc_info->alias_to) {
@@ -934,8 +1023,7 @@ void BufferReuseDebugPrinter::printAllocInfo(const kir::Allocate* alloc) {
       os_ << "(outer) ";
     }
     os_ << " alias to alloc at pos "
-        << allocation_info_map_->getMaybeAllocationInfo(alloc_info->alias_to)
-               .value()
+        << allocation_info_map_->getAllocationInfo(alloc_info->alias_to)
                ->alloc_pos
         << " ";
   } else {
@@ -1000,17 +1088,14 @@ class ReusableAllocationFinder : private kir::IrVisitor {
     // Check that if this allocation site is one that
     //  we want to re-use or replace with an alias
 
-    auto maybe_alloc_info =
-        allocation_info_map_.getMaybeAllocationInfo(allocate);
-    if (maybe_alloc_info.has_value() &&
-        maybe_alloc_info.value()->alias_to == nullptr) {
+    auto alloc_info = allocation_info_map_.getAllocationInfo(allocate);
+    if (alloc_info && alloc_info->alias_to == nullptr) {
       // Try to re-use existing allocates
-      if (!tryReuseOtherAllocate(maybe_alloc_info.value())) {
+      if (!tryReuseOtherAllocate(alloc_info)) {
         // If didn't re-use, should register this
         // allocate so that future allocates
         // can re-use this one.
-        current_visible_buffer_stack_.back()->push_back(
-            maybe_alloc_info.value());
+        current_visible_buffer_stack_.back()->push_back(alloc_info);
       }
     }
   }
@@ -1051,7 +1136,20 @@ class ReusableAllocationFinder : private kir::IrVisitor {
         }
 
         // Check if this alloc has the same data type
-        if (alloc_info->data_type != alloc_to_reuse->data_type) {
+        if (alloc_info->mem_type == MemoryType::Local &&
+            isOptionDisabled(DisableOption::ReuseMismatchedTypeRegisters)) {
+          // With this option, registers must have exactly matching dtypes in
+          // order to be re-used
+          if (alloc_info->data_type != alloc_to_reuse->data_type) {
+            continue;
+          }
+        } else if (
+            dataTypeSize(
+                alloc_info->data_type, GpuLower::current()->indexType()) !=
+            dataTypeSize(
+                alloc_to_reuse->data_type, GpuLower::current()->indexType())) {
+          // Behavior for shared or global memory and default behavior for
+          // registers is to re-use if dtypes have same size.
           continue;
         }
 
@@ -1105,12 +1203,10 @@ class ReusableAllocationFinder : private kir::IrVisitor {
           }
         }
 
-        // TODO:
-        //  Outer interval based sharing supports arbitrary re-indexing into
-        //    the same buffer and would require additional syncs if fully
-        //    enabled.
-        //  Need a few more checks to insert syncs if necessary before turning
-        //    on this sharing.
+        // Outer aliasing of shared memory requires thread block synchronization
+        // since it could involve arbitrary re-indexing. Instead, we will leave
+        // this type of re-use to the allocation phase. See
+        // assignSharedMemoryAllocations and promoteReuseSyncs.
         if (!inner_aliasing_pass_ &&
             alloc_info->mem_type == MemoryType::Shared) {
           continue;
@@ -1290,19 +1386,19 @@ class ReusableAllocationFinder : private kir::IrVisitor {
 };
 
 // Replace Allocate exprs as determined by the alias analysis
-class AllocationReuseModifier : private kir::ExprMutator {
+class AllocationAliasModifier : private kir::ExprMutator {
  public:
   static std::vector<Expr*> modify(
       const std::vector<Expr*>& exprs,
-      const AllocationInfoMap& allocation_info_map) {
-    AllocationReuseModifier modifier(exprs, allocation_info_map);
+      AllocationInfoMap& allocation_info_map) {
+    AllocationAliasModifier modifier(exprs, allocation_info_map);
     return modifier.exprs_;
   }
 
  private:
-  AllocationReuseModifier(
+  AllocationAliasModifier(
       const std::vector<Expr*>& exprs,
-      const AllocationInfoMap& allocation_info_map)
+      AllocationInfoMap& allocation_info_map)
       : allocation_info_map_(allocation_info_map) {
     traverseAndInsert(exprs);
   }
@@ -1311,13 +1407,10 @@ class AllocationReuseModifier : private kir::ExprMutator {
 
   //! Replace an kir::Allocate with a new aliased Allocate
   void handle(kir::Allocate* allocate) final {
-    auto maybe_alloc_info =
-        allocation_info_map_.getMaybeAllocationInfo(allocate);
-    if (!maybe_alloc_info.has_value()) {
+    auto alloc_info_from = allocation_info_map_.getAllocationInfo(allocate);
+    if (!alloc_info_from) {
       return;
     }
-
-    AllocationInfo* alloc_info_from = maybe_alloc_info.value();
 
     auto alias_it = allocation_info_map_.getAliasMap().find(alloc_info_from);
     if (alias_it == allocation_info_map_.getAliasMap().end()) {
@@ -1349,6 +1442,8 @@ class AllocationReuseModifier : private kir::ExprMutator {
 
     TORCH_INTERNAL_ASSERT(old2new_.emplace(old_alloc, new_alloc).second);
 
+    allocation_info_map_.replaceAllocation(old_alloc, new_alloc);
+
     // TODO: Consider more robust way to keep the information map up-to-date
     GpuLower::current()->propagateExprInfo(old_alloc, new_alloc);
   }
@@ -1363,14 +1458,552 @@ class AllocationReuseModifier : private kir::ExprMutator {
   }
 
  private:
-  const AllocationInfoMap& allocation_info_map_;
+  AllocationInfoMap& allocation_info_map_;
 
   //! Keep track of new Allocate exprs
   std::unordered_map<kir::Allocate*, kir::Allocate*> old2new_;
 };
 
+Val* alignExpr(Val* addr, int64_t alignment = 16) {
+  if (alignment == 1) {
+    return addr;
+  }
+  auto n_minus_one = IrBuilder::create<Val>(alignment - 1, DataType::Index);
+  return SimplifyingIrBuilder::bitwiseAndExpr(
+      SimplifyingIrBuilder::addExpr(addr, n_minus_one),
+      SimplifyingIrBuilder::bitwiseNotExpr(n_minus_one));
+}
+
+Val* allocSizeBytes(kir::Allocate* alloc) {
+  const auto buffer_dtype = alloc->buffer()->dtype();
+  const auto dtype_size = dataTypeSize(buffer_dtype);
+  auto size = dtype_size == 1
+      ? alloc->size()
+      : SimplifyingIrBuilder::mulExpr(
+            alloc->size(), IrBuilder::create<Val>(dtype_size, DataType::Index));
+  return size;
+}
+
+//! Allocate differently-sized buffers using a single pass where we push
+//! allocations on a stack then pop them after their last read. This only does
+//! outer sharing: inner sharing is only valid for aliasing.
+//!
+//! Consider the following case, where time proceeds from left to right and
+//! memory is laid out in the upward direction by a naive algorithm:
+//!
+//!                 +-----+
+//!                 |  C  |
+//!       +-----+   +-----+
+//!       |  B  |
+//!   +---+-----+-----+
+//!   |      A        |
+//!   +---------------+
+//!
+//! In this case the A allocation overlaps both B and C so it cannot be re-used
+//! but we can re-use B's memory. If B and C are compatible, they can be
+//! aliased; however, in this class we assume that all eligible aliases are
+//! already set. We can still reuse memory like below (time points are labelled
+//! along the horizontal axis), as long as threads within a block are
+//! synchronized between time points c and d to prevent race hazards:
+//!
+//!       +-----+   +-----+
+//!       |  B  |   |  C  |
+//!   +---+-----+---+-+---+
+//!   |      A        |
+//!   +---------------+
+//!   a   b     c   d e   f
+//!
+//! Note that we might have incomplete information about allocation sizes prior
+//! to runtime, so our approach only places new allocations on top of the
+//! highest active previous allocation. We implement this with a stack of
+//! allocations to which we push and pop at each time point of interest:
+//!
+//!   a: Allocate A at address 0. Push A
+//!   b: Set T=stack.back()=A. Allocate B at address(T)+size(T). Push B
+//!   c: Pop B
+//!   d: Set T=stack.back()=A. Allocate C at address(T)+size(T). Push C
+//!   e: Don't pop A since it is not at back of stack.
+//!   f: Pop C and A (all inactive allocations at top of stack)
+//!
+//! Note that in order to ensure safety, we only perform pops (step C) when we
+//! encounter an expression that synchronizes the thread block. We do not insert
+//! new synchronizations in this method.
+//!
+//! This stack-based method is safe regardless of the size of the allocations.
+//! We never assign an address to an allocation X that could overlap another
+//! allocation Y whose last read occurs after the first write of X. This is
+//! ensured since we only assign allocations at the top of the stack and we
+//! guarantee that only allocations that became inactive prior to the most
+//! recent block synchronization are popped; since any previous allocations
+//! overlapping that new space must have been previously popped they must be
+//! inactive and sync'ed, avoiding a race hazard.
+//!
+//! [Reordering Pushes]
+//! Consider the following case:
+//!
+//!           +-----+
+//!           |  C  |
+//!       +---+-+---+
+//!       |  B  |
+//!   +---+-+---+
+//!   |  A  |
+//!   +-----+
+//!   a   b c d e   f
+//!
+//! A simple linear stack approach would fail to re-use any memory in the case
+//! illustrated above, even though A can be overwritten for C:
+//!
+//!   a: Push A
+//!   b: Push B
+//!   c: Cannot pop A since it is covered by B
+//!   d: Must allocate C on top of B, which is on top of A. i.e. NO RE-USE
+//!   e: Cannot pop B since it is covered by C
+//!   f: Finally pop C, B, and A
+//!
+//! A slight tweak can help in these tougher cases. Instead of immediately
+//! pushing/allocating whenever we encounter a first write, we can instead
+//! append the allocation into a holding area vector. When we encounter a
+//! syncing operation, we then check whether any waiting allocations in the
+//! holding area are already inactive. If so, then we form a mini-stack made of
+//! only the holding area allocations, with the recently inactive allocation on
+//! top. In fact, we can just order the holding area by last use (descending)
+//! and push/allocate them all at once, which ensures that at least within that
+//! set, we will be able to pop as soon as possible. The algorithm would do the
+//! following in the above example, assuming a pre-existing sync at C:
+//!
+//!   a: Append A to holding area
+//!   b: Append B to holding area
+//!   c: Sort, reorder, and push:
+//!      c.1: Sort holding area by last read (desc): {B, A}.
+//!      c.2: Push B.
+//!      c.3: Push A.
+//!      c.4: Pop A.
+//!      c.5: Clear holding area.
+//!   d: Allocate C on top of B. Since A was popped, THIS RE-USES A
+//!   e: Cannot pop B since it is covered by C
+//!   f: Pop C and B
+//!
+//!   +-----+ +-----+
+//!   |  A  | |  C  |
+//!   +---+-+-+-+---+
+//!       |  B  |
+//!       +-----+
+//!   a   b c d e   f
+//!
+//! Recall that the simple stack-based approach (i.e. without reordering pushes)
+//! guarantees safety since new allocations are placed at the top of the stack
+//! and all popped allocations are inactive and synced. By its construction, the
+//! holding area only contains allocations with first writes occuring after the
+//! time of the last sync. Since we reclaim memory only at block syncs, we know
+//! that all pops from the stack have last reads prior to the last sync as well.
+//! So all allocations in the holding area contains are safe to re-use any
+//! reclaimed memory, regardless of their position. This means reordering the
+//! holding area cannot violate the safety constraint that the allocation must
+//! not overlap an allocation whose synced last read is later than its first
+//! write. Reordering can, however, give more opportunities to pop allocations
+//! as soon as they become inactive by placing short-lived allocations closer to
+//! the top of the stack than longer-lived ones.
+//!
+//! Note that more complex patterns can still result in suboptimal memory use
+//! even with reordering using the holding area. If cases like that are observed
+//! in practice, we should consider using a more sophisticated algorithm that
+//! does backtracking to improve memory use, as an alternative to this purely
+//! prospective algorithm.
+//!
+//! [Syncs for Reused (Not Aliased) Shared Memory]
+//! We will need to ensure the block is synced to prevent a race hazard where
+//! C is written to before some threads have read B, leading to corruption of
+//! those threads. These syncs need to ensure that the last read that might
+//! overlap the new allocation has finished before the first write of the new
+//! allocation. In this case that could be accomplished with an arrive/wait
+//! barrier between time points c and d, but any synchronizations contained
+//! within that interval in the original kernel, including a __syncthreads(),
+//! should be preferred over inserting new syncs.
+//!
+//! [Aliased Allocations]
+//! We handle aliased allocations by using a single liveness interval spanning
+//! from the first write of the base Allocation to the last read of either that
+//! allocation or the last alias. In some cases, this could be suboptimal; for
+//! example if a large tensor is used briefly at the beginning and is aliased
+//! near the end of the Fusion, then with this approach we will not be able to
+//! re-use its memory in the middle, which might be wasteful.
+class StackBasedSharedMemAllocator : kir::IrVisitor {
+ public:
+  StackBasedSharedMemAllocator(const AllocationInfoMap& allocation_info_map)
+      : allocation_info_map_(allocation_info_map) {}
+
+  void allocate(const std::vector<Expr*>& exprs) {
+    recordEvents();
+
+    // Traverse expressions: reclaim memory when we pass a blockSync, append to
+    // waiting_to_push_ when we pass an Allocate
+    handle(exprs);
+
+    // This is done whenever we pass a syncing op, but we need to do it again in
+    // case there are some allocations waiting around to be allocated.
+    sortPushAndAssignWaiting();
+  }
+
+ private:
+  void dispatch(Expr* expr) final {
+    position_ = allocation_info_map_.getScopeMap().getExprPos(expr);
+
+    // Check whether this is a first write position for any allocations
+    auto it = first_write_positions_.find(position_);
+    if (it != first_write_positions_.end()) {
+      for (auto alloc_info : it->second) {
+        waiting_to_push_.push_back(alloc_info);
+      }
+    }
+
+    // Reclaim memory whenever we pass an Expr that is known to synchronize the
+    // block
+    if (lower_utils::hasBlockSync(expr, GpuLower::current()->threadPredMap())) {
+      if (isDebugDumpEnabled(DebugDumpOption::BufferReuseInfo)) {
+        debug() << "Block syncing expr found at position " << position_
+                << ". Reclaiming memory." << std::endl;
+      }
+      reclaimMemory();
+    }
+
+    kir::IrVisitor::dispatch(expr);
+  }
+
+  int lastAliasedRead(AllocationInfo* alloc_info) {
+    auto it = last_aliased_read_.find(alloc_info);
+    TORCH_CHECK(
+        it != last_aliased_read_.end(),
+        "Could not find last aliased read info for ",
+        alloc_info->alloc_expr->toString());
+    return it->second;
+  }
+
+  void sortPushAndAssignWaiting() {
+    // Sort descending by last read
+    std::sort(
+        waiting_to_push_.begin(),
+        waiting_to_push_.end(),
+        [this](AllocationInfo* a, AllocationInfo* b) {
+          auto pa = lastAliasedRead(a);
+          auto pb = lastAliasedRead(b);
+          if (pa == pb) {
+            // break ties so that allocations will be deterministic
+            return a->alloc_expr->name() > b->alloc_expr->name();
+          }
+          return pa > pb;
+        });
+    for (auto alloc_info : waiting_to_push_) {
+      pushAndAssign(alloc_info);
+    }
+    waiting_to_push_.clear();
+  }
+
+  void pushAndAssign(AllocationInfo* alloc_info) {
+    if (isDebugDumpEnabled(DebugDumpOption::BufferReuseInfo)) {
+      auto alloc = alloc_info->alloc_expr;
+      debug() << "Pushing allocation for T" << alloc->buffer()->name()
+              << std::endl;
+    }
+
+    // Assign new address
+    assignNextAddress(alloc_info);
+
+    alloc_stack_.push_back(alloc_info);
+  }
+
+  void assignNextAddress(AllocationInfo* alloc_info) {
+    auto alloc = alloc_info->alloc_expr;
+    if (alloc_stack_.empty()) {
+      alloc->setAddress(FusionGuard::getCurFusion()->zeroVal());
+    } else {
+      auto top_alloc = alloc_stack_.back()->alloc_expr;
+      auto top_size = allocSizeBytes(top_alloc);
+      auto unaligned_address =
+          SimplifyingIrBuilder::addExpr(top_alloc->address(), top_size);
+      auto aligned_address = alignExpr(unaligned_address);
+      // TODO: hoisting of addresses using for_loops_ recorded at first write
+      alloc->setAddress(aligned_address);
+    }
+    if (isDebugDumpEnabled(DebugDumpOption::BufferReuseInfo)) {
+      debug() << "Assigned address " << alloc->address()->toInlineString()
+              << " for T" << alloc->buffer()->name() << " with size "
+              << alloc->size()->toInlineString() << " * "
+              << dataTypeSize(alloc->buffer()->dtype()) << " bytes"
+              << std::endl;
+    }
+  }
+
+  //! Record first reads and last writes, respecting aliased buffers
+  void recordEvents() {
+    for (auto& alloc_info : allocation_info_map_.allAllocationInfos()) {
+      if (alloc_info->mem_type != MemoryType::Shared) {
+        continue;
+      }
+      if (alloc_info->alias_to) {
+        auto alias_info =
+            allocation_info_map_.getAllocationInfo(alloc_info->alias_to);
+        TORCH_CHECK(alias_info);
+        auto prev_last_read = lastAliasedRead(alias_info);
+        last_aliased_read_[alias_info] = std::max(
+            prev_last_read, alloc_info->outer_live_interval->lastRead());
+      } else {
+        last_aliased_read_[alloc_info.get()] =
+            alloc_info->outer_live_interval->lastRead();
+      }
+    }
+
+    for (auto [alloc_info, last_read_pos] : last_aliased_read_) {
+      // Record the first write
+      auto write_it =
+          first_write_positions_
+              .emplace(alloc_info->outer_live_interval->firstWrite(), 0)
+              .first;
+      write_it->second.push_back(alloc_info);
+      // Ensure there is an entry for the last read position
+      last_read_positions_.insert(last_read_pos);
+    }
+  }
+
+  //! Pop all allocations on the top of the stack that are no longer active.
+  void reclaimMemory() {
+    if (!waiting_to_push_.empty()) {
+      // Check whether we have any allocations waiting to be pushed that are now
+      // inactive. If so, then they need to be ordered and allocated at the top
+      // of the stack before continuing.
+      if (std::any_of(
+              waiting_to_push_.begin(),
+              waiting_to_push_.end(),
+              [this](AllocationInfo* alloc_info) {
+                return lastAliasedRead(alloc_info) <= position_;
+              })) {
+        sortPushAndAssignWaiting();
+      } else {
+        // We cannot pop off the stack because there are allocations still
+        // waiting to be pushed onto the stack.
+        return;
+      }
+    }
+
+    while (!alloc_stack_.empty()) {
+      auto last_read = lastAliasedRead(alloc_stack_.back());
+      if (last_read <= position_) {
+        if (isDebugDumpEnabled(DebugDumpOption::BufferReuseInfo)) {
+          auto alloc = alloc_stack_.back()->alloc_expr;
+          debug() << "Popping allocation for T" << alloc->buffer()->name()
+                  << " which has assigned address "
+                  << alloc->address()->toInlineString() << std::endl;
+        }
+        alloc_stack_.pop_back();
+      } else {
+        break;
+      }
+    }
+  }
+
+ private:
+  const AllocationInfoMap& allocation_info_map_;
+
+  int position_ = -1;
+
+  // This records the actual last read position of an AllocationInfo, computed
+  // as the maximum last outer read position of all Allocations that alias it.
+  std::unordered_map<AllocationInfo*, int> last_aliased_read_;
+
+  // This holds all positions which are the first write positions for some
+  // allocation. At these positions we should queue up allocations for assigning
+  // addresses.
+  std::unordered_map<int, std::vector<AllocationInfo*>> first_write_positions_;
+
+  // This holds all positions which are the last read positions for some
+  // allocation. These are points at which we can try to reclaim memory.
+  std::unordered_set<int> last_read_positions_;
+
+  // Stack of allocations "below" the current eligible address. At any given
+  // time, all memory above the last allocation in this vector is guaranteed to
+  // be free.
+  std::vector<AllocationInfo*> alloc_stack_;
+
+  // This represents allocations that are waiting to be pushed onto the stack.
+  // At the last moment, i.e. when one of them needs to be popped, we sort these
+  // in descending order of their last read, and push them onto the stack.
+  std::vector<AllocationInfo*> waiting_to_push_;
+};
+
 } // namespace
 
+// Use allocation info map to find aliases, i.e. allocations that are properly
+// sized and parallelized so that they can be re-used without any
+// synchronization.
+std::vector<Expr*> aliasMemoryAllocations(
+    const std::vector<Expr*>& exprs,
+    AllocationInfoMap& allocation_info_map) {
+  ReusableAllocationFinder::find(exprs, allocation_info_map);
+  return AllocationAliasModifier::modify(exprs, allocation_info_map);
+}
+
+class PromoteReuseSyncModifier : private kir::ExprMutator {
+ public:
+  PromoteReuseSyncModifier(
+      const std::vector<Expr*>& exprs,
+      const AllocationInfoMap& allocation_info_map)
+      : allocation_info_map_(allocation_info_map) {
+    // Find next allocation after last aliased read of all allocations whose
+    // reuse we need to promote, and record shortest sync intervals relative to
+    // subsequent allocations.
+    for (const auto& alloc_info : allocation_info_map.allAllocationInfos()) {
+      auto tv = alloc_info->alloc_expr->buffer()->as<TensorView>();
+      if (tv->getMemoryType() != MemoryType::Shared ||
+          !tv->shouldPromoteReuse()) {
+        continue;
+      }
+      auto last_read = alloc_info->getAliasedOuterLastRead();
+
+      std::optional<int> nearest_first_write = std::nullopt;
+
+      for (const auto& other : allocation_info_map.allAllocationInfos()) {
+        if (other->alias_to || other->mem_type != MemoryType::Shared) {
+          // Skip other if it aliases an earlier allocation
+          continue;
+        }
+        auto first_write = other->outer_live_interval->firstWrite();
+        if (first_write <= last_read) {
+          continue;
+        }
+        if (!nearest_first_write.has_value() ||
+            first_write < nearest_first_write.value()) {
+          nearest_first_write = first_write;
+        }
+      }
+
+      if (nearest_first_write.has_value()) {
+        sync_intervals_.emplace(last_read, nearest_first_write.value());
+      }
+    }
+
+    if (sync_intervals_.empty()) {
+      exprs_ = exprs;
+    } else {
+      if (isDebugDumpEnabled(DebugDumpOption::BufferReuseInfo)) {
+        debug() << "Ensuring syncs within these intervals:" << std::endl;
+        for (auto [last_read, first_write] : sync_intervals_) {
+          debug() << "  (" << last_read << ", " << first_write << ")"
+                  << std::endl;
+        }
+      }
+      traverseAndInsert(exprs);
+    }
+  }
+
+  const std::unordered_set<Expr*>& insertedSyncs() const {
+    return inserted_syncs_;
+  }
+
+  const std::vector<Expr*>& modifiedExprs() const {
+    return exprs_;
+  }
+
+ private:
+  using kir::ExprMutator::dispatch;
+
+  void dispatch(Expr* expr) final {
+    auto position = allocation_info_map_.getScopeMap().getExprPos(expr);
+
+    // Lifetime intervals are closed, so sync intervals are open. If this is the
+    // first expr past a lifetime's last read, then add the corresponding upper
+    // endpoint for the sync interval. Note that we add these before checking
+    // for first writes so that we can detect adjacent intervals properly.
+    auto range = sync_intervals_.equal_range(position - 1);
+    for (auto& it = range.first; it != range.second; ++it) {
+      if (isDebugDumpEnabled(DebugDumpOption::BufferReuseInfo)) {
+        debug() << "Found dependency last read at position " << position - 1
+                << " corresponding to first write at " << it->second
+                << std::endl;
+      }
+      upcoming_first_writes_.insert(it->second);
+    }
+
+    // If this is an upcoming first write that has not yet been erased, it means
+    // we have not seen a sync in its interval. So we should insert a BlockSync
+    // before this expr.
+    if (upcoming_first_writes_.erase(position)) {
+      if (isDebugDumpEnabled(DebugDumpOption::BufferReuseInfo)) {
+        debug() << "Inserting block sync before position " << position
+                << std::endl;
+      }
+      auto new_sync = IrBuilder::create<kir::BlockSync>();
+      inserted_syncs_.insert(new_sync);
+      registerInsertBefore(expr, new_sync);
+      // Now that we have inserted a sync, we can safely clear any other
+      // upcoming first writes.
+      upcoming_first_writes_.clear();
+      kir::ExprMutator::dispatch(expr);
+      return;
+    }
+
+    // If we have a sync at this location, we can clear any upcoming first
+    // writes since they can be considered safe.
+    if (lower_utils::hasBlockSync(expr, GpuLower::current()->threadPredMap())) {
+      if (isDebugDumpEnabled(DebugDumpOption::BufferReuseInfo)) {
+        debug() << "Found blocking expression at position " << position
+                << std::endl;
+      }
+      upcoming_first_writes_.clear();
+    }
+
+    kir::ExprMutator::dispatch(expr);
+  }
+
+ private:
+  const AllocationInfoMap& allocation_info_map_;
+
+  // This holds intervals in which we need to ensure a sync exists. All
+  // threads in a block should arrive at the start of each interval before any
+  // thread proceeds past the end of the interval.
+  std::unordered_multimap<int, int> sync_intervals_;
+
+  // These are the upper endpoints of needed sync intervals for which we've
+  // already passed over the lower endpoint.
+  std::unordered_set<int> upcoming_first_writes_;
+
+  // Holds all new syncs we have inserted
+  std::unordered_set<Expr*> inserted_syncs_;
+};
+
+// Insert missing synchronizations in cases where a TensorView is marked as
+// needing reuse promotion. This should be done before
+// allocateSharedMemoryAllocations, which uses synchronization points to reclaim
+// unused shared memory.
+std::pair<std::vector<Expr*>, bool> promoteReuseSyncs(
+    const std::vector<Expr*>& exprs,
+    AllocationInfoMap& allocation_info_map) {
+  auto modifier = PromoteReuseSyncModifier(exprs, allocation_info_map);
+  return {modifier.modifiedExprs(), !modifier.insertedSyncs().empty()};
+}
+
+// Assign addresses for dynamic shared memory allocations. This re-uses memory
+// by reclaiming memory that is unused when encountering a block
+// synchronization.
+void assignSharedMemoryAllocations(
+    const std::vector<Expr*>& exprs,
+    AllocationInfoMap& allocation_info_map) {
+  StackBasedSharedMemAllocator(allocation_info_map).allocate(exprs);
+
+  // Verify that all smem allocations have a non-null address now
+  for (auto& alloc_info : allocation_info_map.allAllocationInfos()) {
+    if (alloc_info->mem_type != MemoryType::Shared || alloc_info->alias_to) {
+      continue;
+    }
+    auto alloc = alloc_info->alloc_expr;
+    TORCH_INTERNAL_ASSERT(
+        alloc->address(),
+        "Unaliased allocation for shared memory tensor ",
+        alloc->buffer()->toString(),
+        " was not assigned an address");
+  }
+}
+
+// Entry point for all memory re-use including unsynced aliasing as well as
+// insertion of requested syncs and memory allocation with reclamation.
 std::vector<Expr*> reuseMemoryAllocations(const std::vector<Expr*>& exprs) {
   FUSER_PERF_SCOPE("reuseMemoryAllocations");
 
@@ -1378,9 +2011,21 @@ std::vector<Expr*> reuseMemoryAllocations(const std::vector<Expr*>& exprs) {
 
   AllocationInfoMap allocation_info_map(exprs, debug_print);
 
-  ReusableAllocationFinder::find(exprs, allocation_info_map);
+  const auto aliased_exprs = aliasMemoryAllocations(exprs, allocation_info_map);
 
-  return AllocationReuseModifier::modify(exprs, allocation_info_map);
+  const auto [synced_exprs, inserted_syncs] =
+      promoteReuseSyncs(aliased_exprs, allocation_info_map);
+
+  // If we inserted sync expressions, we need to recompute positions of any
+  // downstream expressions. Rather than try to keep those in sync, we just
+  // recompute the allocation info map here.
+  if (inserted_syncs) {
+    allocation_info_map = AllocationInfoMap(synced_exprs, false);
+  }
+
+  assignSharedMemoryAllocations(synced_exprs, allocation_info_map);
+
+  return synced_exprs;
 }
 
 } // namespace nvfuser

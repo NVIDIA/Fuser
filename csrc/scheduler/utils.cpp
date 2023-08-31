@@ -160,31 +160,64 @@ void splitDims(
   }
 }
 
-c10::optional<size_t> mergeDims(
+std::optional<size_t> mergeDims(
     TensorView* tv,
     std::vector<size_t> to_merge,
     std::vector<size_t>& to_update) {
   if (to_merge.empty()) {
-    return c10::nullopt;
+    return std::nullopt;
   }
   if (to_merge.size() == 1) {
     return to_merge[0];
   }
-  std::sort(to_merge.begin(), to_merge.end());
-  size_t left = to_merge[0];
-  int64_t offset = 0;
-  for (auto right = to_merge.begin() + 1; right != to_merge.end(); right++) {
-    auto actual_right = offset-- + *right;
-    tv->merge((int)left, (int)actual_right);
-    for (auto& i : to_update) {
-      if (i == actual_right) {
-        i = left;
-      } else if (i > actual_right) {
-        i--;
+  auto inner = to_merge[0];
+
+  // NOTE: The merge is done in the order of `to_merge`, assuming going from
+  // inner to outer dimensions. We want the merged IterDomain to be like:
+  //
+  // tv->axis(to_merge[i-1])*tv->axis(to_merge[i-2])*...*tv->axis(to_merge[0])
+  //
+  // Otherwise this could results in misaligned memory access due to indexing.
+  // This is because we compute vectorization width before applying scheduling
+  // transformations.
+  for (size_t i = 1; i < to_merge.size(); i++) {
+    auto outer = to_merge[i];
+    // If outer > inner, the merge order conflicts with their order in leaf
+    // domain
+    if (outer > inner) {
+      // NOTE: reorder here is necessary to work around the automatic swap in
+      // `TensorDomain::merge`, if the first axis position is larger than the
+      // second. we want to have the merge dimension be like
+      // (tv->axis(to_merge[i]) * tv->axis(to_merge[i-1])), reorder allows us to
+      // compensate the automatic swap in `TensorDomain::merge`.
+      tv->reorder({{inner, outer}, {outer, inner}});
+      // swapping inner with outer since we also need to keep track of the
+      // actual outer position for the remaining merge operations as well as for
+      // return value.
+      std::swap(inner, outer);
+    }
+    // from
+    //   (i..., tv->axis(outer), j..., tv->axis(inner), k...)
+    // to
+    //   (i..., tv->axis(outer) * tv->axis(inner), j..., k...)
+    tv->merge(static_cast<int>(outer), static_cast<int>(inner));
+
+    // compensate future indices for the diminishing inner.
+    for (size_t j = i + 1; j < to_merge.size(); j++) {
+      if (to_merge[j] > inner) {
+        to_merge[j]--;
       }
     }
+    for (auto& val : to_update) {
+      if (val == inner) {
+        val = outer;
+      } else if (val > inner) {
+        val--;
+      }
+    }
+    inner = outer;
   }
-  return left;
+  return inner;
 }
 
 size_t mergeReduction(TensorView* tv) {
@@ -335,7 +368,7 @@ class PersistentBufferResolution : public IterVisitor {
   }
 
  private:
-  void handle(Val* val) final {
+  void dispatch(Val* val) final {
     if (!val->isA<TensorView>()) {
       return;
     }
@@ -364,7 +397,7 @@ class PersistentBufferResolution : public IterVisitor {
     }
   }
 
-  void handle(Expr* expr) final {
+  void dispatch(Expr* expr) final {
     if (!persistent_buffer_hit) {
       return;
     }
@@ -588,9 +621,9 @@ ReductionTvProperties getReductionProperties(
       auto inferred_val =
           runtime_info.expressionEvaluator().evaluate(id->extent());
       TORCH_INTERNAL_ASSERT(
-          inferred_val.has_value(), "Error inferring reduction size.");
+          inferred_val.hasValue(), "Error inferring reduction size.");
       inner_most_dimension_numel =
-          inner_most_dimension_numel * inferred_val->as<int64_t>();
+          inner_most_dimension_numel * inferred_val.as<int64_t>();
       inner_most_dimension_ndims++;
     }
   }
@@ -604,12 +637,12 @@ ReductionTvProperties getReductionProperties(
     auto inferred_val =
         runtime_info.expressionEvaluator().evaluate(id->extent());
     TORCH_INTERNAL_ASSERT(
-        inferred_val.has_value(),
+        inferred_val.hasValue(),
         "Error inferring dimensions of reduction fusion.");
     if (id->isReduction()) {
-      total_reduction_numel *= inferred_val->as<int64_t>();
+      total_reduction_numel *= inferred_val.as<int64_t>();
     } else {
-      total_iteration_numel *= inferred_val->as<int64_t>();
+      total_iteration_numel *= inferred_val.as<int64_t>();
     }
   }
 
@@ -799,11 +832,11 @@ PersistentBufferSizeReturn persistentBufferSize(
 
       auto id_size = runtime_info.expressionEvaluator().evaluate(id->extent());
       TORCH_INTERNAL_ASSERT(
-          id_size.has_value(), "Could not infer persistent buffer size.");
+          id_size.hasValue(), "Could not infer persistent buffer size.");
       if (persistent_buffer_sizes[buffer_i] == -1) {
-        persistent_buffer_sizes[buffer_i] = id_size->as<int64_t>();
+        persistent_buffer_sizes[buffer_i] = id_size.as<int64_t>();
       } else {
-        persistent_buffer_sizes[buffer_i] *= id_size->as<int64_t>();
+        persistent_buffer_sizes[buffer_i] *= id_size.as<int64_t>();
       }
     }
 
@@ -1048,7 +1081,8 @@ namespace {
 IterDomain* projectIdToRoot(
     TensorView* tv,
     IterDomain* reference_id,
-    bool inner_only) {
+    bool inner_only,
+    bool vectorize_pass) {
   if (reference_id == nullptr) {
     return nullptr;
   }
@@ -1057,8 +1091,7 @@ IterDomain* projectIdToRoot(
     return reference_id;
   }
 
-  auto replay_exprs =
-      StmtSort::getExprs(tv->fusion(), {reference_id}, false, false);
+  auto replay_exprs = StmtSort::getExprsTo(tv->fusion(), {reference_id});
   if (replay_exprs.empty()) {
     return reference_id;
   }
@@ -1090,7 +1123,12 @@ IterDomain* projectIdToRoot(
     } else if (expr->isA<Resize>()) {
       auto resize = expr->as<Resize>();
       if (resize->out() == projected_id) {
-        projected_id = resize->in();
+        // We do not allow vectorization with resize at this moment
+        if (vectorize_pass) {
+          projected_id = nullptr;
+        } else {
+          projected_id = resize->in();
+        }
       }
     } else {
       TORCH_INTERNAL_ASSERT(
@@ -1109,7 +1147,8 @@ IterDomain* projectIdToRoot(
 IterDomain* projectIdToRFactor(
     TensorView* tv,
     IterDomain* reference_id,
-    bool inner_only) {
+    bool inner_only,
+    bool vectorize_pass) {
   if (reference_id == nullptr) {
     return nullptr;
   }
@@ -1118,7 +1157,7 @@ IterDomain* projectIdToRFactor(
     return reference_id;
   }
 
-  auto replay_exprs = StmtSort::getExprs(
+  auto replay_exprs = StmtSort::getExprsTo(
       tv->fusion(),
       {tv->getRFactorDomain().begin(), tv->getRFactorDomain().end()},
       false);
@@ -1147,7 +1186,12 @@ IterDomain* projectIdToRFactor(
     } else if (expr->isA<Resize>()) {
       auto resize = expr->as<Resize>();
       if (resize->in() == projected_id) {
-        projected_id = resize->out();
+        // We do not allow vectorization wit resize at this moment
+        if (vectorize_pass) {
+          projected_id = nullptr;
+        } else {
+          projected_id = resize->out();
+        }
       }
     } else {
       TORCH_INTERNAL_ASSERT(
@@ -1185,14 +1229,18 @@ IterDomain* innerMostRootDim(TensorView* tv) {
 FindAllMappedDims::FindAllMappedDims(
     TensorView* from,
     IterDomain* id,
-    bool inner_only)
-    : starting_tv_(from), starting_id_(id), inner_only_(inner_only) {}
+    bool inner_only,
+    bool vectorize_pass)
+    : starting_tv_(from),
+      starting_id_(id),
+      inner_only_(inner_only),
+      vectorize_pass_(vectorize_pass) {}
 
 void FindAllMappedDims::setUp() {
   mapped_root_ids_[starting_tv_] =
-      projectIdToRoot(starting_tv_, starting_id_, inner_only_);
-  mapped_rfactor_ids_[starting_tv_] =
-      projectIdToRFactor(starting_tv_, starting_id_, inner_only_);
+      projectIdToRoot(starting_tv_, starting_id_, inner_only_, vectorize_pass_);
+  mapped_rfactor_ids_[starting_tv_] = projectIdToRFactor(
+      starting_tv_, starting_id_, inner_only_, vectorize_pass_);
 }
 
 void FindAllMappedDims::propagateC2P(TensorView* from, TensorView* to) {
@@ -1201,7 +1249,8 @@ void FindAllMappedDims::propagateC2P(TensorView* from, TensorView* to) {
   auto c2p_map = root_map.mapConsumerToProducer(from->domain(), to->domain());
   auto p_it = c2p_map.find(from_id);
   if (p_it != c2p_map.end()) {
-    mapped_root_ids_[to] = projectIdToRoot(to, p_it->second, inner_only_);
+    mapped_root_ids_[to] =
+        projectIdToRoot(to, p_it->second, inner_only_, vectorize_pass_);
     mapped_rfactor_ids_[to] = p_it->second;
   } else {
     mapped_root_ids_[to] = nullptr;
@@ -1216,7 +1265,8 @@ void FindAllMappedDims::propagateP2C(TensorView* from, TensorView* to) {
   auto c_it = p2c_map.find(from_id);
   if (c_it != p2c_map.end()) {
     mapped_root_ids_[to] = c_it->second;
-    mapped_rfactor_ids_[to] = projectIdToRFactor(to, c_it->second, inner_only_);
+    mapped_rfactor_ids_[to] =
+        projectIdToRFactor(to, c_it->second, inner_only_, vectorize_pass_);
   } else {
     mapped_root_ids_[to] = nullptr;
     mapped_rfactor_ids_[to] = nullptr;
@@ -1325,7 +1375,7 @@ std::vector<TensorView*> getInputsOutputsWithInnerDim(
   }
 
   FindAllMappedDims all_mapped_root_dims(
-      reference_tv, inner_most_id, inner_only);
+      reference_tv, inner_most_id, inner_only, vectorize_pass);
   MaxRootDomainInfoSpanningTree tree(reference_tv);
   tree.traverse(&all_mapped_root_dims);
 
@@ -1713,7 +1763,7 @@ void BoundedDirectionalTransformPropagator::backward(
     TensorView* from,
     int pos,
     std::vector<TensorView*> to,
-    c10::optional<Options> options) {
+    std::optional<Options> options) {
   if (!options.has_value()) {
     options = Options();
   }
@@ -1733,7 +1783,7 @@ void BoundedDirectionalTransformPropagator::forward(
     TensorView* from,
     int pos,
     std::vector<TensorView*> to,
-    c10::optional<Options> options) {
+    std::optional<Options> options) {
   if (!options.has_value()) {
     options = Options();
   }
@@ -1755,7 +1805,7 @@ void BoundedDirectionalTransformPropagator::bothWays(
     int pos,
     std::vector<TensorView*> backward_to,
     std::vector<TensorView*> forward_to,
-    c10::optional<Options> options) {
+    std::optional<Options> options) {
   if (!options.has_value()) {
     options = Options();
   }
@@ -1786,7 +1836,7 @@ DisjointSets<IterDomain*> disjointRFactorSets(Fusion* fusion) {
   // If iter domains are involved in any transformation from root domains to
   // rfactor domains they should be considered "contaminated".
   for (auto tv : ir_utils::allTvs(fusion)) {
-    for (auto expr : StmtSort::getExprs(
+    for (auto expr : StmtSort::getExprsTo(
              fusion,
              {tv->getMaybeRFactorDomain().begin(),
               tv->getMaybeRFactorDomain().end()})) {
@@ -1837,7 +1887,7 @@ bool breakIsDisjoint(std::vector<int> group_ids, int pos) {
 
 std::unordered_map<int, int> domainReorderAsRfactorMap(TensorView* tv) {
   FusionGuard fg(tv->fusion());
-  auto transform_exprs = StmtSort::getExprs(
+  auto transform_exprs = StmtSort::getExprsTo(
       tv->fusion(), {tv->getLeafDomain().begin(), tv->getLeafDomain().end()});
   // simply update this vector of id's as progressing through the transformation
   // expressions. We'll always insert the result of split in the location of the
@@ -1913,7 +1963,7 @@ std::unordered_map<int, int> domainReorderAsRfactorMap(TensorView* tv) {
   return old2new;
 }
 
-void propagateViewTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
+void propagateReshapeTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
   std::unordered_set<std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>
       transformed_disjoint_sets;
 
@@ -1932,13 +1982,18 @@ void propagateViewTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
     }
   }
 
-  std::unordered_set<IterDomain*> terminating_rfactor_dims;
+  std::unordered_set<IterDomain*> terminating_reshape_dims;
   for (const auto& disjoint_set_shared_ptr :
        ca_map.idGraph().exactNodes().disjointSets()) {
+    // Find a disjoint set that is produced by a reshape
+    // operation. Ignore resize as it isn't reshape
     if (std::none_of(
             disjoint_set_shared_ptr->vector().begin(),
             disjoint_set_shared_ptr->vector().end(),
-            [](IterDomain* id) { return id->isRFactorProduct(); })) {
+            [](IterDomain* id) {
+              return id->isRFactorProduct() && id->definition() &&
+                  !id->definition()->isA<Resize>();
+            })) {
       continue;
     }
     if (transformed_disjoint_sets.find(disjoint_set_shared_ptr) !=
@@ -1947,7 +2002,7 @@ void propagateViewTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
       continue;
     }
     for (auto id : disjoint_set_shared_ptr->vector()) {
-      terminating_rfactor_dims.emplace(id);
+      terminating_reshape_dims.emplace(id);
     }
   }
 
@@ -1965,8 +2020,8 @@ void propagateViewTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
     // rfactor dims we could try and pull those through the fusion instead of
     // enforcing rfactor dims are in domain.
     for (auto rfactor_id : tv->getMaybeRFactorDomain()) {
-      if (terminating_rfactor_dims.find(rfactor_id) !=
-          terminating_rfactor_dims.end()) {
+      if (terminating_reshape_dims.find(rfactor_id) !=
+          terminating_reshape_dims.end()) {
         auto find_it = std::find(
             tv->getLeafDomain().begin(), tv->getLeafDomain().end(), rfactor_id);
         TORCH_INTERNAL_ASSERT(

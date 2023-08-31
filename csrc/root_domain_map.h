@@ -421,7 +421,7 @@ class TORCH_CUDA_CU_API ComputeAtRootDomainMapBuilder
 
   using BackwardVisitor::handle;
 
-  void handle(Expr* e) override;
+  void dispatch(Expr* e) override;
 
   void handle(UnaryOp* uop) override {
     mapPointwiseOrReductionOp(uop);

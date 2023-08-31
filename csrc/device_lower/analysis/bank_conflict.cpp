@@ -7,11 +7,11 @@
 // clang-format on
 #include <device_lower/analysis/bank_conflict.h>
 
-#include <dynamic_type.h>
 #include <expr_evaluator.h>
 #include <ir/utils.h>
 #include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
+#include <polymorphic_value.h>
 #include <type.h>
 
 #include <unordered_set>
@@ -39,34 +39,6 @@ int64_t getVectorizeSize(kir::TensorIndex* ti) {
     return id->extent()->evaluateInt();
   }
   return 1;
-}
-
-// Sometimes, the index can have pointer type like:
-//   BaseAddress(T7) + 16 * threadIdx.x + 8192 * i487 + 2048 * i481
-// For this case, we need to replace BaseAddress(T7) with 0 because expression
-// evaluator can not handle BaseAddress(T7)
-Val* replaceBaseAddrWithZero(Val* index) {
-  std::unordered_map<Val*, Val*> replacement_map;
-  std::vector<Val*> to_visit{index};
-  Val* zero = index->container()->zeroVal();
-  while (!to_visit.empty()) {
-    auto back = to_visit.back();
-    to_visit.pop_back();
-    auto def = back->definition();
-    if (def == nullptr) {
-      continue;
-    }
-    if (def->isA<kir::BaseAddress>()) {
-      replacement_map.emplace(back, zero);
-      continue;
-    }
-    to_visit.insert(to_visit.end(), def->inputs().begin(), def->inputs().end());
-  }
-  if (replacement_map.empty()) {
-    return index;
-  }
-  FusionGuard guard(index->fusion());
-  return ir_utils::replaceValInIndexVal(index, replacement_map);
 }
 
 inline int64_t getPhaseSize(int64_t word_size_bytes) {
@@ -136,8 +108,8 @@ std::vector<int64_t> evaluateAddressesOnFirstPhase(
     num_threads = getLdMatrixNumThreads(getVectorizeSize(consumer));
   } else {
     word_size = getVectorizeSize(consumer);
-    num_threads = (bdimx ? bdimx->as<int64_t>() : 1) *
-        (bdimy ? bdimy->as<int64_t>() : 1) * (bdimz ? bdimz->as<int64_t>() : 1);
+    num_threads = (bdimx ? bdimx.as<int64_t>() : 1) *
+        (bdimy ? bdimy.as<int64_t>() : 1) * (bdimz ? bdimz.as<int64_t>() : 1);
   }
   int64_t dtype_size = (int64_t)dataTypeSize(*(ti->getDataType()));
   int64_t word_size_bytes = dtype_size * word_size;
@@ -148,31 +120,35 @@ std::vector<int64_t> evaluateAddressesOnFirstPhase(
     int64_t tidx = linear_tidx;
     int64_t tidy = 0;
     int64_t tidz = 0;
-    if (bdimx.has_value()) {
-      tidy = tidx / bdimx->as<int64_t>();
-      tidx = tidx % bdimx->as<int64_t>();
+    if (bdimx.hasValue()) {
+      tidy = tidx / bdimx.as<int64_t>();
+      tidx = tidx % bdimx.as<int64_t>();
     }
-    if (bdimy.has_value()) {
-      tidz = tidy / bdimy->as<int64_t>();
-      tidy = tidy % bdimy->as<int64_t>();
+    if (bdimy.hasValue()) {
+      tidz = tidy / bdimy.as<int64_t>();
+      tidy = tidy % bdimy.as<int64_t>();
     }
     // make a copy of the expression evaluator
     ExpressionEvaluator expr_eval = expr_eval_common;
     expr_eval.bind("threadIdx.x", tidx);
     expr_eval.bind("threadIdx.y", tidy);
     expr_eval.bind("threadIdx.z", tidz);
+    // Smem tensor is defined locally as a pointer. It is impossible to know the
+    // actual address, but using nullptr is a good approximation.
+    expr_eval.bind(
+        IrBuilder::metadataExpr(ti->view()),
+        Pointer((void*)nullptr, ti->dtype()));
     for (auto fl : for_loops) {
       if (fl->index()->isA<NamedScalar>()) {
         auto ns = fl->index()->as<NamedScalar>();
         TORCH_INTERNAL_ASSERT(
             ns->isThreadIdx() || ns->isBlockIdx(), "unknow loop index");
       } else {
-        auto start = expr_eval.evaluate(fl->start())->as<int64_t>();
+        auto start = expr_eval.evaluate(fl->start()).as<int64_t>();
         expr_eval.bind(fl->index(), start);
       }
     }
-    auto index_val = replaceBaseAddrWithZero(ti->index());
-    int64_t index = expr_eval.evaluate(index_val)->as<int64_t>();
+    int64_t index = expr_eval.evaluate(ti->index()).as<int64_t>();
     if (ir_utils::isLdMatrixOp(ldst) || ir_utils::isCpAsyncOp(ldst)) {
       addresses.emplace_back(index);
     } else {
@@ -202,7 +178,7 @@ class BankConflictInfo : public kir::IrVisitor {
   static std::unordered_map<const Expr*, std::pair<int, int>> get(
       const kir::Kernel* kernel,
       LaunchParams launch_params,
-      const std::unordered_map<Val*, EvaluatorValue>& known_values) {
+      const std::unordered_map<Val*, PolymorphicValue>& known_values) {
     if (kernel->topLevelExprs().empty()) {
       return {};
     }
@@ -214,7 +190,7 @@ class BankConflictInfo : public kir::IrVisitor {
   BankConflictInfo(
       const kir::Kernel* kernel,
       LaunchParams launch_params,
-      const std::unordered_map<Val*, EvaluatorValue>& known_values) {
+      const std::unordered_map<Val*, PolymorphicValue>& known_values) {
     bindValues(launch_params, known_values);
     inferLaunchParams(kernel);
     handle(kernel->topLevelExprs());
@@ -222,10 +198,10 @@ class BankConflictInfo : public kir::IrVisitor {
 
   void bindValues(
       LaunchParams launch_params,
-      const std::unordered_map<Val*, EvaluatorValue>& known_values) {
-    expr_eval_.bind("blockIdx.x", 0);
-    expr_eval_.bind("blockIdx.y", 0);
-    expr_eval_.bind("blockIdx.z", 0);
+      const std::unordered_map<Val*, PolymorphicValue>& known_values) {
+    expr_eval_.bind("blockIdx.x", 0L);
+    expr_eval_.bind("blockIdx.y", 0L);
+    expr_eval_.bind("blockIdx.z", 0L);
     if (launch_params.bdimx() != LaunchParams::UNINITIALIZED_VAL) {
       expr_eval_.bind(ParallelType::TIDx, launch_params.bdimx());
     }
@@ -254,17 +230,17 @@ class BankConflictInfo : public kir::IrVisitor {
         kernel->summary().parallel_dimension_map_.getMap();
     for (const auto& [p, v] : parallel_dimension_map) {
       auto inferred_parallel_dim = expr_eval_.evaluate(v);
-      if (inferred_parallel_dim.has_value()) {
-        expr_eval_.bind(p, inferred_parallel_dim->as<int64_t>());
+      if (inferred_parallel_dim.hasValue()) {
+        expr_eval_.bind(p, inferred_parallel_dim.as<int64_t>());
       }
     }
   }
 
   using kir::IrVisitor::handle;
 
-  void handle(Expr* expr) final {
+  void dispatch(Expr* expr) final {
     if (expr->isA<kir::ForLoop>() || expr->isA<kir::IfThenElse>()) {
-      kir::IrVisitor::handle(expr);
+      kir::IrVisitor::dispatch(expr);
       return;
     }
 
@@ -294,7 +270,7 @@ class BankConflictInfo : public kir::IrVisitor {
 std::unordered_map<const Expr*, std::pair<int, int>> getBankConflictInfo(
     const kir::Kernel* kernel,
     LaunchParams launch_params,
-    const std::unordered_map<Val*, EvaluatorValue>& known_values) {
+    const std::unordered_map<Val*, PolymorphicValue>& known_values) {
   for (const auto& pair : known_values) {
     if (auto ns = dynamic_cast<NamedScalar*>(pair.first)) {
       TORCH_CHECK(

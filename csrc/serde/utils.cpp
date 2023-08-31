@@ -1,3 +1,4 @@
+#include <polymorphic_value.h>
 #include <serde/utils.h>
 
 namespace nvfuser::serde {

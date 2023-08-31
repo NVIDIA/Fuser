@@ -10,9 +10,12 @@
 #include <ATen/ATen.h>
 #include <c10/util/Exception.h>
 #include <torch/csrc/jit/ir/ir.h>
+
+#include <debug.h>
 #include <type.h>
 
 #include <deque>
+#include <fstream>
 #include <optional>
 #include <sstream>
 #include <string>
@@ -47,117 +50,6 @@ int8_t getCommonDeviceCUDA(
     const at::ArrayRef<c10::IValue>& inputs,
     std::optional<int8_t> selected_device = std::nullopt);
 
-//! Types of debug print-outs
-//!
-//! These can be set through the `PYTORCH_NVFUSER_DUMP` environment variable
-//!
-enum class DebugDumpOption {
-  FusionIr, //!< Dump the Fusion IR before lowering
-  FusionIrMath, //!< Dump just the compute (math) part of the Fusion IR
-  FusionIrPresched, //!< Dump the Fusion IR before it is scheduled.
-  FusionIrConcretized, //!< Dump the Fusion IR after concretization
-  KernelIr, //!< Dump the compiler Kernel IR
-  ComputeAtMap, //!< Dump the computeAt map
-  CudaKernel, //!< Dump the generated CUDA C++ kernel code
-  CudaFull, //!< Dump the complete CUDA C++ code
-  CudaToFile, //!< Dump CUDA Strings to File
-  DebugInfo, //!< Embed line info and debug info to compiled kernel, and dump
-             //!< the full CUDA C++ code
-  AssertMemoryViolation, //!< Assert in the kernel when accessing global tensor
-                         //!< out of bound. This might hurt performance.
-  LaunchParam, //!< Dump the Launch parameters of kernel
-  FusionSegments, //!< Dump Segmented Fusion Graph
-  FusionSegmenterLog, //!< Dump Detailed Segmenter Logging
-  FusionArgs, //!< Print the runtime fusion arguments
-  KernelArgs, //!< Print the runtime kernel arguments when launching kernels
-  EffectiveBandwidth, //! Measure kernel performance and print effective
-                      //! bandwidth
-  FusionSegmentsDrawing, //!< Dump Segmented Fusion Graph
-  PrintPtxasLog, //!< Print the ptxas verbose log including register usage
-  BufferReuseInfo, //!< Dump the analysis details of local/shared buffer re-use
-  SchedulerDebug, //! Dump scheduler heuristic parameters
-  SchedulerVerbose, //! Dump detailed scheduler logging
-  ParallelDimensions, //!< Dump known parallel dimensions
-  Halo, //! Halo information of tensors
-  PerfDebugVerbose, //! When running kernels, print verbose information
-                    //! associated with what's running
-  PythonDefinition, //! Python Frontend Fusion Definition.
-  PythonFrontendDebug, //! Python Frontend debug information.
-  TransformPropagator, //! When running TransformPropagator, print propagation
-                       //! path and replay result
-  Cubin, //! Dump compiled CUBIN
-  Sass, // Dump disassembled SASS
-  Ptx, //! Dump compiled PTX
-  BankConflictInfo, //! Dump bank confliction info
-  SyncMap, //! RAW dependency info
-  LowerVerbose, //! Print all passes' transform in GpuLower::lower
-  ExprSimplification, //! Print all passes' transform in simplifyExpr
-  ExprSort, //! Print merging decisions on expression sorting
-  LoopRotation, //! Print loop rotation log
-  MatmulChecks, //! Print logs from tools around matmul scheduler used in
-                //! segmenter
-  Occupancy, // Dump occupancy
-  IndexType, //! Print the index type of the launched kernel
-  EndOfOption //! Placeholder for counting the number of elements
-};
-
-TORCH_CUDA_CU_API bool isDebugDumpEnabled(DebugDumpOption option);
-TORCH_CUDA_CU_API const std::vector<std::string>& getDebugDumpArguments(
-    DebugDumpOption option);
-
-//! Types of features to disable
-//!
-//! These can be set through the `PYTORCH_NVFUSER_DISABLE` environment variable
-//!
-enum class DisableOption {
-  CompileToSass, //! Disable direct compilation to sass so the ptx can be
-                 //! examined
-  Fallback, //! Disable fallback
-  Fma, //! Disable FMA instructions
-  GroupedGridWelfordOuterOpt, //! Disable use of outer-optimized
-                              //! grouped grid welford kernel
-  IndexHoist, //! Disable index hoisting
-  ExprSimplify, //! Disable expression simplifier
-  Nvtx, //! Disable NVTX instrumentation
-  PredicateElimination, //! Disable predicate elimination
-  WelfordVectorization, //! Disable vectorizaton of Welford ops
-  MagicZero, //! Disable nvfuser_zero
-  VarNameRemapping, //! Disable variable name remapping
-  EndOfOption //! Placeholder for counting the number of elements
-};
-
-// used only for testing/debugging
-class TORCH_CUDA_CU_API ThreadLocalFmaDisableOverwrite {
- public:
-  ThreadLocalFmaDisableOverwrite(bool flag = true);
-  ~ThreadLocalFmaDisableOverwrite();
-
- private:
-  bool old_flag_;
-};
-
-TORCH_CUDA_CU_API bool isOptionDisabled(DisableOption option);
-TORCH_CUDA_CU_API const std::vector<std::string>& getDisableOptionArguments(
-    DisableOption option);
-
-//! Types of features to enable
-//!
-//! These can be set through the `PYTORCH_NVFUSER_ENABLE` environment variable
-//!
-enum class EnableOption {
-  Complex, //! Enable complex support on python
-  KernelProfile, //! Enable intra-kernel performance profiling
-  LinearDecomposition, //! Enable linear-bias decomposition
-  ConvDecomposition, //! Enable conv-bias decomposition
-  GraphOp, //! Enable graphOps(index_select/gather/scatter)
-  KernelDb, //! Enable Kernel Database
-  WarnRegisterSpill, //! Enable warnings of register spill
-  EndOfOption //! Placeholder for counting the number of elements
-};
-
-TORCH_CUDA_CU_API bool isOptionEnabled(EnableOption option);
-TORCH_CUDA_CU_API const std::vector<std::string>& getEnableOptionArguments(
-    EnableOption option);
 TORCH_CUDA_CU_API int64_t
 getRegPerThreadGivenThreadsPerSM(int64_t threads_per_sm);
 
@@ -301,9 +193,8 @@ std::vector<KeyType> getSortedKeys(
 
 // Based on https://stackoverflow.com/a/9154394
 template <typename T>
-static auto hasToStringHelper(int) -> decltype(
-    std::declval<typename std::remove_pointer<T>::type>().toString(),
-    std::true_type{});
+static auto hasToStringHelper(int)
+    -> decltype(std::declval<typename std::remove_pointer<T>::type>().toString(), std::true_type{});
 
 template <typename>
 static auto hasToStringHelper(long) -> std::false_type;
@@ -366,6 +257,8 @@ struct Printer<T> {
 SPECIALIZE_PRINTER(bool);
 SPECIALIZE_PRINTER(int);
 SPECIALIZE_PRINTER(std::string);
+using ConstCharStar = const char*;
+SPECIALIZE_PRINTER(ConstCharStar);
 SPECIALIZE_PRINTER(int64_t);
 SPECIALIZE_PRINTER(DataType);
 SPECIALIZE_PRINTER(MemoryType);
@@ -477,12 +370,12 @@ template <typename... Args>
 class DebugPrintScope {
  public:
   DebugPrintScope(std::string name, Args... args) : name_(std::move(name)) {
-    std::cout << "Entering " << name_ << "("
-              << toDelimitedString(std::forward_as_tuple(args...)) << ")"
-              << std::endl;
+    debug() << "Entering " << name_ << "("
+            << toDelimitedString(std::forward_as_tuple(args...)) << ")"
+            << std::endl;
   }
   ~DebugPrintScope() {
-    std::cout << "Leaving " << name_ << std::endl;
+    debug() << "Leaving " << name_ << std::endl;
   }
 
  private:
@@ -546,5 +439,8 @@ constexpr auto is_std_vector_v = is_std_vector<T>::value;
 inline void hashCombine(size_t& hash, size_t new_hash) {
   hash ^= new_hash + 0x9e3779b9 + (hash << 6) + (hash >> 2);
 }
+
+//! A wrapper to std::getenv. env_name is prepended with NVFUSER_.
+char* getNvFuserEnv(const char* env_name);
 
 } // namespace nvfuser

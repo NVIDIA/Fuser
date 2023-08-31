@@ -19,15 +19,15 @@ namespace nvfuser {
 class SwizzleTest : public NVFuserTest {};
 
 // Test a basic swizzle pattern
-TEST_F(SwizzleTest, SimpleSwizzle0_CUDA) {
+TEST_F(SwizzleTest, SimpleSwizzle0) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
   auto tv0 = makeConcreteTensor({2, 32});
   fusion.addInput(tv0);
 
-  auto tv1 = add(tv0, IrBuilder::create<Double>(1));
-  auto tv2 = add(tv1, IrBuilder::create<Double>(1));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
+  auto tv2 = add(tv1, IrBuilder::create<Val>(1.0));
 
   fusion.addOutput(tv2);
 
@@ -60,16 +60,16 @@ TEST_F(SwizzleTest, SimpleSwizzle0_CUDA) {
 }
 
 // Test swizzle inlining
-TEST_F(SwizzleTest, SimpleSwizzle1_CUDA) {
+TEST_F(SwizzleTest, SimpleSwizzle1) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
   auto tv0 = makeConcreteTensor({2, 32});
   fusion.addInput(tv0);
 
-  auto tv1 = add(tv0, IrBuilder::create<Double>(1));
-  auto tv2 = add(tv1, IrBuilder::create<Double>(1));
-  auto tv3 = add(tv2, IrBuilder::create<Double>(1));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
+  auto tv2 = add(tv1, IrBuilder::create<Val>(1.0));
+  auto tv3 = add(tv2, IrBuilder::create<Val>(1.0));
 
   fusion.addOutput(tv3);
 
@@ -102,15 +102,15 @@ TEST_F(SwizzleTest, SimpleSwizzle1_CUDA) {
 // Test sync insertion and memory check in parallelized swizzles.
 //  In this test, data is parallel written into smem in zcurve
 //   pattern and then read out and output to global mem unswizzled.
-TEST_F(SwizzleTest, SimpleSwizzle2_CUDA) {
+TEST_F(SwizzleTest, SimpleSwizzle2) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
   auto tv0 = makeConcreteTensor({32, 32});
   fusion.addInput(tv0);
 
-  auto tv1 = add(tv0, IrBuilder::create<Double>(1));
-  auto tv2 = add(tv1, IrBuilder::create<Double>(1));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
+  auto tv2 = add(tv1, IrBuilder::create<Val>(1.0));
 
   fusion.addOutput(tv2);
 
@@ -159,16 +159,16 @@ TEST_F(SwizzleTest, SimpleSwizzle2_CUDA) {
 }
 
 // Test BestEffortReplay behavior with swizzle op
-TEST_F(SwizzleTest, SwizzleMapping_CUDA) {
+TEST_F(SwizzleTest, SwizzleMapping) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
   auto tv0 = makeConcreteTensor({2, 32});
   fusion.addInput(tv0);
 
-  auto tv1 = add(tv0, IrBuilder::create<Double>(1));
-  auto tv2 = add(tv1, IrBuilder::create<Double>(1));
-  auto tv3 = add(tv2, IrBuilder::create<Double>(1));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
+  auto tv2 = add(tv1, IrBuilder::create<Val>(1.0));
+  auto tv3 = add(tv2, IrBuilder::create<Val>(1.0));
 
   fusion.addOutput(tv3);
 
@@ -257,15 +257,15 @@ TEST_F(SwizzleTest, SwizzleMapping_CUDA) {
 }
 
 // Test a basic loop swizzle pattern
-TEST_F(SwizzleTest, LoopSwizzle0_CUDA) {
+TEST_F(SwizzleTest, LoopSwizzle0) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
   auto tv0 = makeConcreteTensor({2, 32});
   fusion.addInput(tv0);
 
-  auto tv1 = add(tv0, IrBuilder::create<Double>(1));
-  auto tv2 = add(tv1, IrBuilder::create<Double>(1));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
+  auto tv2 = add(tv1, IrBuilder::create<Val>(1.0));
 
   fusion.addOutput(tv2);
 
@@ -289,15 +289,15 @@ TEST_F(SwizzleTest, LoopSwizzle0_CUDA) {
 }
 
 // Outer block zshape pattern
-TEST_F(SwizzleTest, LoopSwizzle1_CUDA) {
+TEST_F(SwizzleTest, LoopSwizzle1) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
   auto tv0 = makeContigTensor(2);
   fusion.addInput(tv0);
 
-  auto tv1 = add(tv0, IrBuilder::create<Double>(1));
-  auto tv2 = add(tv1, IrBuilder::create<Double>(1));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
+  auto tv2 = add(tv1, IrBuilder::create<Val>(1.0));
 
   fusion.addOutput(tv2);
 
@@ -325,15 +325,15 @@ TEST_F(SwizzleTest, LoopSwizzle1_CUDA) {
 }
 
 // Test assertion in unsupported pattern: non-leaf loop swizzle.
-TEST_F(SwizzleTest, LoopSwizzleCheck0_CUDA) {
+TEST_F(SwizzleTest, LoopSwizzleCheck0) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
   auto tv0 = makeConcreteTensor({2, 32});
   fusion.addInput(tv0);
 
-  auto tv1 = add(tv0, IrBuilder::create<Double>(1));
-  auto tv2 = add(tv1, IrBuilder::create<Double>(1));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
+  auto tv2 = add(tv1, IrBuilder::create<Val>(1.0));
 
   fusion.addOutput(tv2);
 
@@ -354,16 +354,16 @@ TEST_F(SwizzleTest, LoopSwizzleCheck0_CUDA) {
 }
 
 // Test assertion in unsupported pattern: half-inlined loop swizzle.
-TEST_F(SwizzleTest, LoopSwizzleCheck1_CUDA) {
+TEST_F(SwizzleTest, LoopSwizzleCheck1) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
   auto tv0 = makeConcreteTensor({2, 32});
   fusion.addInput(tv0);
 
-  auto tv1 = add(tv0, IrBuilder::create<Double>(1));
-  auto tv2 = add(tv1, IrBuilder::create<Double>(1));
-  auto tv3 = add(tv2, IrBuilder::create<Double>(1));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
+  auto tv2 = add(tv1, IrBuilder::create<Val>(1.0));
+  auto tv3 = add(tv2, IrBuilder::create<Val>(1.0));
 
   fusion.addOutput(tv3);
 
@@ -385,7 +385,7 @@ TEST_F(SwizzleTest, LoopSwizzleCheck1_CUDA) {
   ASSERT_ANY_THROW(fe.compileFusion(&fusion));
 }
 
-TEST_F(SwizzleTest, SwizzleVectorize_CUDA) {
+TEST_F(SwizzleTest, SwizzleVectorize) {
   // When there is a swizzle, non of the involved dimensions are contiguous, so
   // unable to vectorize.
   Fusion fusion;
@@ -404,7 +404,7 @@ TEST_F(SwizzleTest, SwizzleVectorize_CUDA) {
   ASSERT_ANY_THROW(GpuLower lower(&fusion));
 }
 
-TEST_F(SwizzleTest, TransposeBankConflictSwizzle1_CUDA) {
+TEST_F(SwizzleTest, TransposeBankConflictSwizzle1) {
   // Both Xor and CyclicShift swizzling should fully remove bank confliction of
   // a 32x32 non-vectorized transpose.
   std::vector<Swizzle2DType> swizzles{
@@ -445,7 +445,7 @@ TEST_F(SwizzleTest, TransposeBankConflictSwizzle1_CUDA) {
   }
 }
 
-TEST_F(SwizzleTest, TransposeBankConflictSwizzle2_CUDA) {
+TEST_F(SwizzleTest, TransposeBankConflictSwizzle2) {
   // ZShape should remove half of the bank confliction of a 32x32 non-vectorized
   // transpose.
   Fusion fusion;
@@ -476,7 +476,7 @@ TEST_F(SwizzleTest, TransposeBankConflictSwizzle2_CUDA) {
   ASSERT_EQ(bank_conflict_info.at(tv1).first, std::vector<int>{16});
 }
 
-TEST_F(SwizzleTest, DataSwizzleGlobal_CUDA) {
+TEST_F(SwizzleTest, DataSwizzleGlobal) {
   // Data swizzle is ignored in global indexing, so we should just throw an
   // error if someone wants to do so.
   Fusion fusion;
@@ -511,8 +511,8 @@ at::Tensor getSwizzledTensor(
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
-  Int* size_x_input = IrBuilder::create<Int>();
-  Int* size_y_input = IrBuilder::create<Int>();
+  Val* size_x_input = IrBuilder::create<Val>(DataType::Int);
+  Val* size_y_input = IrBuilder::create<Val>(DataType::Int);
   fusion.addInput(size_x_input);
   fusion.addInput(size_y_input);
   auto x = arange(size_x_input);
@@ -536,7 +536,7 @@ at::Tensor getSwizzledTensor(
 
 } // namespace
 
-TEST_F(SwizzleTest, SwizzleExampleZShape_CUDA) {
+TEST_F(SwizzleTest, SwizzleExampleZShape) {
   //    1 2 3      1 2 3
   //    4 5 6  =>  6 5 4
   //    7 8 9      7 8 9
@@ -549,7 +549,7 @@ TEST_F(SwizzleTest, SwizzleExampleZShape_CUDA) {
   TORCH_CHECK(at::equal(input, unswizzled));
 }
 
-TEST_F(SwizzleTest, SwizzleExampleXor_CUDA) {
+TEST_F(SwizzleTest, SwizzleExampleXor) {
   //    1   2  3  4       1   2   3  4
   //    5   6  7  8       6   5   8  7
   //    9  10 11 12  =>   11  12  9 10
@@ -565,7 +565,7 @@ TEST_F(SwizzleTest, SwizzleExampleXor_CUDA) {
   TORCH_CHECK(at::equal(input, unswizzled));
 }
 
-TEST_F(SwizzleTest, SwizzleExampleCyclicShift_CUDA) {
+TEST_F(SwizzleTest, SwizzleExampleCyclicShift) {
   //    1   2  3  4       1   2   3   4
   //    5   6  7  8       8   5   6   7
   //    9  10 11 12  =>   11  12  9  10
@@ -581,36 +581,7 @@ TEST_F(SwizzleTest, SwizzleExampleCyclicShift_CUDA) {
   TORCH_CHECK(at::equal(input, unswizzled));
 }
 
-// Small repro for the replay fix needed for non-affine
-//  swizzle support.
-TEST_F(SwizzleTest, SwizzleReplayFixRepro_CUDA) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-  auto tv0 = makeConcreteTensor({32, 32});
-
-  fusion.addInput(tv0);
-  auto tv1 = set(tv0);
-  auto tv2 = set(tv1);
-  fusion.addOutput(tv2);
-
-  tv1->swizzle(Swizzle2DType::XOR, 0, 1);
-  tv2->split(0, 16);
-
-  auto replayed_domain = TransformReplay::replayPasC(tv1, tv2, -1).first;
-
-  auto id_ops = DependencyCheck::getAllExprsBetween(
-      {replayed_domain->root().begin(), replayed_domain->root().end()},
-      {replayed_domain->leaf().begin(), replayed_domain->leaf().end()});
-
-  TORCH_INTERNAL_ASSERT(
-      std::none_of(
-          id_ops.begin(),
-          id_ops.end(),
-          [](Expr* expr) { return expr->isA<Swizzle2D>(); }),
-      "Swizzle op should be removed by backward replay.");
-}
-
-TEST_F(SwizzleTest, SwizzleIndexing170_CUDA) {
+TEST_F(SwizzleTest, SwizzleIndexing170) {
   // https://github.com/NVIDIA/Fuser/issues/170
   GTEST_SKIP() << "Repro for an unfixed bug";
   Fusion fusion;
@@ -649,6 +620,41 @@ TEST_F(SwizzleTest, SwizzleIndexing170_CUDA) {
   auto outputs = fe.runFusion({t});
 
   testValidate(&fusion, outputs, {t}, {t}, __LINE__, __FILE__);
+}
+
+TEST_F(SwizzleTest, TransformPropagatorSkipSwizzleOnTarget) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  auto tv0 = makeConcreteTensor({64, 64});
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  fusion->addInput(tv0);
+  fusion->addOutput(tv2);
+  tv1->setMemoryType(MemoryType::Shared);
+
+  tv0->split(1, 8);
+  tv0->split(0, 8);
+  tv0->merge(0);
+  tv0->merge(1);
+
+  tv1->split(1, 8);
+  tv1->split(0, 8);
+  tv1->swizzle(Swizzle2DType::XOR, 0, 2);
+  tv1->merge(0);
+  tv1->merge(1);
+
+  tv0->merge(0);
+
+  TransformPropagatorWithCheck propagator(tv0);
+  MaxRootDomainInfoSpanningTree(tv0).traverse(&propagator);
+
+  auto exprs = StmtSort::getExprsBetween(
+      tv1->fusion(),
+      {tv1->getRootDomain().begin(), tv1->getRootDomain().end()},
+      {tv1->getLeafDomain().begin(), tv1->getLeafDomain().end()});
+  EXPECT_TRUE(std::any_of(exprs.begin(), exprs.end(), [](Expr* expr) {
+    return expr->isA<Swizzle2D>();
+  }));
 }
 
 } // namespace nvfuser

@@ -13,10 +13,10 @@
 namespace nvfuser {
 
 ForwardDropoutResult dropout(TensorView* x, Val* prob) {
-  auto p1m = sub(IrBuilder::create<Double>(x->container(), 1.), prob);
+  auto p1m = sub(IrBuilder::create<Val>(x->container(), 1.), prob);
   auto zero_check =
-      add(eq(p1m, IrBuilder::create<Double>(x->container(), 0.)), p1m);
-  auto scale = div(IrBuilder::create<Double>(x->container(), 1.), zero_check);
+      add(eq(p1m, IrBuilder::create<Val>(x->container(), 0.)), p1m);
+  auto scale = div(IrBuilder::create<Val>(x->container(), 1.), zero_check);
   return dropout(x, p1m, scale);
 }
 
@@ -134,9 +134,9 @@ namespace {
 template <typename T>
 T* sign(T* x) {
   TORCH_INTERNAL_ASSERT(x != nullptr, "Input is invalid.");
-  auto zero = IrBuilder::create<Double>(x->container(), 0.);
-  auto one = IrBuilder::create<Double>(x->container(), 1.);
-  auto minus_one = IrBuilder::create<Double>(x->container(), -1.);
+  auto zero = IrBuilder::create<Val>(x->container(), 0.);
+  auto one = IrBuilder::create<Val>(x->container(), 1.);
+  auto minus_one = IrBuilder::create<Val>(x->container(), -1.);
   auto sign = where(gt(x, zero), one, where(lt(x, zero), minus_one, zero));
   return castOp(x->getDataType().value(), sign);
 }
@@ -165,9 +165,9 @@ TensorView* softplus(TensorView* x, Val* beta, Val* threshold) {
 TensorView* gelu(TensorView* x) {
   TORCH_INTERNAL_ASSERT(x != nullptr, "Input is invalid");
 
-  auto kappa = IrBuilder::create<Double>(x->container(), M_SQRT1_2);
-  auto half = IrBuilder::create<Double>(x->container(), 0.5);
-  auto one = IrBuilder::create<Double>(x->container(), 1.);
+  auto kappa = IrBuilder::create<Val>(x->container(), M_SQRT1_2);
+  auto half = IrBuilder::create<Val>(x->container(), 0.5);
+  auto one = IrBuilder::create<Val>(x->container(), 1.);
 
   auto cdf = mul(half, add(one, erf(mul(x, kappa))));
   auto y = mul(x, cdf);
@@ -181,17 +181,17 @@ TensorView* gelu_backward(TensorView* dy, TensorView* x) {
   constexpr double kAlpha = M_2_SQRTPI * M_SQRT1_2 * 0.5;
   const double kHalf = 0.5;
 
-  auto cdf_1 = mul(x, IrBuilder::create<Double>(x->container(), M_SQRT1_2));
+  auto cdf_1 = mul(x, IrBuilder::create<Val>(x->container(), M_SQRT1_2));
   auto cdf_2 = erf(cdf_1);
-  auto cdf_3 = add(cdf_2, IrBuilder::create<Double>(x->container(), 1.));
-  auto cdf_4 = mul(cdf_3, IrBuilder::create<Double>(x->container(), kHalf));
+  auto cdf_3 = add(cdf_2, IrBuilder::create<Val>(x->container(), 1.));
+  auto cdf_4 = mul(cdf_3, IrBuilder::create<Val>(x->container(), kHalf));
 
   auto pdf_1 = mul(x, x);
-  auto pdf_2 = mul(pdf_1, IrBuilder::create<Double>(x->container(), -kHalf));
+  auto pdf_2 = mul(pdf_1, IrBuilder::create<Val>(x->container(), -kHalf));
   auto pdf_3 = exp(pdf_2);
 
-  auto out = addcmul(
-      cdf_4, x, pdf_3, IrBuilder::create<Double>(x->container(), kAlpha));
+  auto out =
+      addcmul(cdf_4, x, pdf_3, IrBuilder::create<Val>(x->container(), kAlpha));
   auto dx = mul(out, dy);
   return dx;
 }
@@ -204,14 +204,14 @@ TensorView* tanh_gelu(TensorView* x) {
 
   auto x_cube = mul(x, mul(x, x));
 
-  auto inner_1 = mul(IrBuilder::create<Double>(x->container(), kKappa), x_cube);
+  auto inner_1 = mul(IrBuilder::create<Val>(x->container(), kKappa), x_cube);
   auto inner_2 = add(x, inner_1);
-  auto inner_3 = mul(IrBuilder::create<Double>(x->container(), kBeta), inner_2);
+  auto inner_3 = mul(IrBuilder::create<Val>(x->container(), kBeta), inner_2);
   auto tanh_inner = tanh(inner_3);
 
   auto out =
-      mul(x, add(IrBuilder::create<Double>(x->container(), 1.), tanh_inner));
-  auto y = mul(IrBuilder::create<Double>(x->container(), 0.5), out);
+      mul(x, add(IrBuilder::create<Val>(x->container(), 1.), tanh_inner));
+  auto y = mul(IrBuilder::create<Val>(x->container(), 0.5), out);
   return y;
 }
 
@@ -225,25 +225,25 @@ TensorView* tanh_gelu_backward(TensorView* dy, TensorView* x) {
   auto x_sq = mul(x, x);
   auto x_cube = mul(x, x_sq);
 
-  auto inner_1 = mul(IrBuilder::create<Double>(x->container(), kKappa), x_cube);
+  auto inner_1 = mul(IrBuilder::create<Val>(x->container(), kKappa), x_cube);
   auto inner_2 = add(x, inner_1);
-  auto inner_3 = mul(IrBuilder::create<Double>(x->container(), kBeta), inner_2);
+  auto inner_3 = mul(IrBuilder::create<Val>(x->container(), kBeta), inner_2);
   auto tanh_inner = tanh(inner_3);
 
-  auto left = mul(IrBuilder::create<Double>(x->container(), 0.5), x);
-  auto right = add(IrBuilder::create<Double>(x->container(), 1.), tanh_inner);
+  auto left = mul(IrBuilder::create<Val>(x->container(), 0.5), x);
+  auto right = add(IrBuilder::create<Val>(x->container(), 1.), tanh_inner);
 
   auto left_derivative =
-      mul(IrBuilder::create<Double>(x->container(), 0.5), right);
+      mul(IrBuilder::create<Val>(x->container(), 0.5), right);
 
   auto tanh_inner_sq = mul(tanh_inner, tanh_inner);
   auto tanh_derivative =
-      sub(IrBuilder::create<Double>(x->container(), 1), tanh_inner_sq);
+      sub(IrBuilder::create<Val>(x->container(), 1.0), tanh_inner_sq);
 
   auto constant_mul_x_sq =
-      mul(IrBuilder::create<Double>(x->container(), kBeta * 3 * kKappa), x_sq);
+      mul(IrBuilder::create<Val>(x->container(), kBeta * 3 * kKappa), x_sq);
   auto inner_derivative =
-      add(IrBuilder::create<Double>(x->container(), kBeta), constant_mul_x_sq);
+      add(IrBuilder::create<Val>(x->container(), kBeta), constant_mul_x_sq);
   auto right_derivative = mul(left, mul(tanh_derivative, inner_derivative));
 
   auto dx = mul(dy, add(left_derivative, right_derivative));
@@ -254,7 +254,7 @@ TensorView* tanh_backward(TensorView* dy, TensorView* tanh_x) {
   TORCH_INTERNAL_ASSERT(dy != nullptr, "Grad Output is invalid.");
   TORCH_INTERNAL_ASSERT(tanh_x != nullptr, "Input is invalid");
 
-  auto one = IrBuilder::create<Double>(tanh_x->container(), 1.);
+  auto one = IrBuilder::create<Val>(tanh_x->container(), 1.);
   auto tanh_sq = mul(tanh_x, tanh_x);
   auto sub_tanh_sq = sub(one, tanh_sq);
   auto dx = mul(dy, sub_tanh_sq);
@@ -264,7 +264,7 @@ TensorView* tanh_backward(TensorView* dy, TensorView* tanh_x) {
 TensorView* leaky_relu(TensorView* x, Val* negative_slope) {
   TORCH_INTERNAL_ASSERT(x != nullptr, "input is invalid.");
   TORCH_INTERNAL_ASSERT(negative_slope != nullptr, "negative_slope is invalid");
-  auto zero = IrBuilder::create<Double>(x->container(), 0.);
+  auto zero = IrBuilder::create<Val>(x->container(), 0.);
   return where(ge(x, zero), x, mul(negative_slope, x));
 }
 
@@ -274,7 +274,7 @@ TensorView* view_as_real(TensorView* x) {
       isComplexType(input_type),
       "Operand of view_as_real must have complex type");
 
-  auto vec_type = ArrayOf{
+  auto vec_type = ArrayType{
       std::make_shared<DataType>(getTypeFromComplexType(input_type)), 2};
   auto tv_vector = bitCastOp(vec_type, x);
   return viewAsScalar(tv_vector);

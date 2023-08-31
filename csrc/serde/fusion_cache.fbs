@@ -4,7 +4,6 @@
  * All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  */
-// clang-format on
 namespace nvfuser.serde;
 
 // This indicates the flatbuffer compatibility. The number will bump up when a
@@ -28,8 +27,7 @@ enum DataType : int {
     None
 }
 
-// The StateType enum is used to indicate the whether the state object is a
-// Scalar or Tensor.
+// The StateType enum indicates whether the state object is a Scalar or Tensor.
 enum StateType : int {
     Tensor = 0,
     Scalar,
@@ -37,6 +35,8 @@ enum StateType : int {
     None,
 }
 
+// The Contiguity enum shows whether a tensor dimension is contiguous
+// with the dimension to its right.
 enum Contiguity : int {
     Strided = 0,
     Contiguous,
@@ -49,10 +49,10 @@ enum Contiguity : int {
 // them during deserialization.
 enum RecordType : int {
     Base = 0,
+    AtOp,
     BatchNormOp,
     BroadcastOp,
     BroadcastInDim,
-    BroadcastInDimSymbolic,
     CastTv,
     CastVal,
     CatOp,
@@ -94,11 +94,9 @@ enum RecordType : int {
     ReductionProd,
     ReductionSum,
     ReshapeOp,
-    ScalarBool,
-    ScalarComplexDouble,
-    ScalarDouble,
-    ScalarInput,
-    ScalarLong,
+    Scalar,
+    ShapeOp,
+    SizeOp,
     SliceOp,
     SqueezeOp,
     Start,
@@ -106,8 +104,7 @@ enum RecordType : int {
     TensorSizes,
     VarianceOp,
     VarianceMeanOp,
-    VectorInput,
-    VectorLong,
+    Vector,
 }
 
 // =====================================================================================
@@ -115,16 +112,12 @@ enum RecordType : int {
 
 // The RecordData hold the attribute information for each Record Functor.
 union RecordData {
+  At,
   BatchNorm,
-  Bool,
   Broadcast,
   BroadcastInDim,
-  BroadcastInDimSymbolic,
-  ComplexDouble,
   Dimension,
-  Double,
   Dtype,
-  Long,
   Norm,
   Output,
   Pad,
@@ -133,63 +126,128 @@ union RecordData {
   Squeeze,
   Reduction,
   Reshape,
-  ScalarInput,
+  Scalar,
+  Size,
   Tensor,
   TensorCreation,
   TensorCreationSymbolic,
-  VectorInput,
-  VectorLong,
+  Vector,
+}
+
+// The PolymorphicValueData union holds the attribute information for each PolymorphicValue.
+union PolymorphicValueData {
+  Scalar,
+  ScalarCpu,
+  TensorArg,
 }
 
 // =====================================================================================
 // Basic data tables
 
-// Data for Constant Bool
-table Bool {
-  value: bool;
+// The State struct represents each scalar and tensor value.
+// e.g., all input, output and intermediate values in the fusion.
+struct State {
+  index: int;
+  type: StateType;
 }
 
-// Data for Constant Double and Float
-table Double {
-  value: double;
+// Data for Scalar
+table Scalar {
+  dtype: DataType;
+  has_value: bool;
+  value_type: DataType;
+  bool_value: bool;
+  long_value: long;
+  double_value: double;
+  real_value: double;
+  imag_value: double;
+}
+
+// =====================================================================================
+// Tables for PolymorphicValue, ScalarCpu, TensorArg, KernelArgumentHolder used in FusionExecutor.
+
+// The ScalarCpu is represented by a fixed size array of raw bytes.
+table ScalarCpu {
+  scalar_value : Scalar;
+}
+
+// Data of TensorArg.
+// The original cpp TensorArg holds real data.
+// However, only a metadata tensor is returned upon deserialization.
+// The ptr parameter is used to determine vectorization during scheduling.
+table TensorArg {
+  ptr : ulong;
+  sizes : [long];
+  strides : [long];
   dtype: DataType;
 }
 
-// Data for Constant Long and Int32
-table Long {
-  value: long;
-  dtype: DataType;
+// This table corresponds with a given PolymorphicValue object.
+table PolymorphicValue {
+  data : PolymorphicValueData;
 }
 
-// Data for Half
-table Half {
-  value: ushort;
-}
-
-// Data for BFloat16
-table BFloat16 {
-  value: ushort;
-}
-
-// Data for Constant Complex Double and Float
-table ComplexDouble {
-  real: double;
-  imag: double;
-  dtype: DataType;
-}
-
-// Data representing a tensor shape
-table TensorShape {
-  shape : [long];
-}
-
-// Data for Scalar Input
-table ScalarInput {
-  dtype: DataType;
+// This table holds multiple PolymorphicValue objects.
+table KernelArgumentHolder {
+  arguments : [PolymorphicValue];
+  device_index : byte;
+  cache_id : ulong;
 }
 
 //
 // =====================================================================================
+// Tables for LaunchParams, GlobalBufferInfo, ExecutorEntry, and TensorShape used in FusionExecutor
+
+// Data representing a tensor shape used in LaunchParam
+table TensorShape {
+  shape : [long];
+}
+
+// This table holds the cached launch parameters for a kernel.
+table LaunchParams {
+  gdimx : long;
+  gdimy : long;
+  gdimz : long;
+  bdimx : long;
+  bdimy : long;
+  bdimz : long;
+  smem : long;
+  output_sizes : [TensorShape];
+}
+
+// This table describes the cached global buffers for a kernel.
+// The original cpp GlobalBufferInfo contains a TensorView pointer.
+// For this table, we represent the pointer with an integer position.
+// For output tensors, we use its position in the fusion outputs.
+// For intermediate tensors, we use its position in the KernelSummary global_allocations.
+table GlobalBufferInfo {
+  tv : long = -1;
+  sizes : [long];
+  strides : [long];
+  dtype : DataType;
+  zero_init : bool;
+  is_profile_buffer : bool;
+  is_fusion_output : bool;
+}
+
+// This table describes the cached ExecutorEntry for a kernel.
+table ExecutorEntry {
+    init : bool;
+    launch_params : LaunchParams;
+    // Aliased output and input mappings
+    output_aliases : [int];
+    input_aliases : [int];
+    outputs : [GlobalBufferInfo];
+    intermediates : [GlobalBufferInfo];
+}
+
+// =====================================================================================
+// RecordData tables for RecordFunctor objects
+
+// Data for AtOpRecord
+table At {
+  index: long;
+}
 
 // Data for BatchNormOpRecord
 table BatchNorm {
@@ -202,15 +260,9 @@ table Broadcast {
   broadcast_dims: [bool];
 }
 
-// Data for BroadcastInDimOpRecord<int64_t>
+// Data for BroadcastInDimOpRecord
 table BroadcastInDim {
-  output_shape: [long];
-  broadcast_dims: [long];
-}
-
-// Data for BroadcastInDimOpRecord<nvfuser::State>
-table BroadcastInDimSymbolic {
-  output_shape: [State];
+  output_size: ulong;
   broadcast_dims: [long];
 }
 
@@ -259,6 +311,11 @@ table Reshape {
   new_shape: [long];
 }
 
+// Data for SizeOpRecord
+table Size {
+  dim: long;
+}
+
 // Data for SliceOpRecord
 table Slice {
   start_indices: [long];
@@ -294,32 +351,80 @@ table TensorCreationSymbolic {
   dtype: DataType;
 }
 
-// Data for Input Vector
-table VectorInput {
-  size: long;
+// Data for Vector
+table Vector {
   dtype: DataType;
 }
 
-// Data for Vector of Constant Int or Long
-table VectorLong {
-  value: [long];
-  size: long;
-  dtype: DataType;
-}
-
-//
 // =====================================================================================
+//
 
-// The State struct represents each scalar and tensor value.
-// e.g., all input, output and intermediate values in the fusion.
-struct State {
-  index: int;
-  type: StateType;
+// Each Fusion Executor maps to a lowered and compiled kernel.
+table FusionExecutor {
+  device_smem_limit: long;
+  block_size_high_water_mark: long;
+  maxrregcount_high_water_mark: long;
+  warp_size: long;
+  fusion_id: long;
+  fusion_id_counter : long;
+  kernel_code : string;
+  executor_entry_lookup_keys : [ulong];
+  executor_entry_lookup_values : [ExecutorEntry];
+  // Is this kernel being compiled with int32 or int64 indexing. This
+  // information is required to resolve DataType::Index
+  index_type : DataType;
 }
 
-// RecordFunctor is represents operations in the Fusion. It is a node in the
-// graph with input and output edges. Some operations require storing extra
-// attributes in the RecordData field.
+// Each FusionKernelRuntime represents a concretized, segmented Fusion.
+// We store the metadata for the original arguments to segment, schedule, and compile the Fusion at deserialization.
+// Each fusion segment is given a FusionExecutor.
+// The unscheduled fusion is defined by traversing Trie in FusionCache.
+table FusionKernelRuntime {
+  args : KernelArgumentHolder;
+  executors : [FusionExecutor];
+}
+
+// EncodingEntry for InputsIdLookup LRU cache.
+struct EncodingEntry {
+  id: ulong;
+  lru_iter: ulong;
+}
+
+// This table is a LRU cache containing input arguments known by the FusionExecutorCache.
+table InputsIdLookup {
+  max_cache_size : ulong;
+  current_id : ulong;
+  lru_cache : [string];
+
+  // This field defines map<std::string, EncodingEntry> encoding_lookup
+  encoding_lookup_keys : [string];
+  encoding_lookup_values : [EncodingEntry];
+}
+
+// This table represents a key-value pair in the kernel_runtimes map in FusionExecutorCache.
+table KernelRuntimeState {
+  device_id : ulong;
+  has_dynamic_transform_info : bool;
+  runtimes : [FusionKernelRuntime];
+}
+
+// This table describes the FusionExecutorCache.
+// The unscheduled fusion is defined by traversing Trie in FusionCache.
+table FusionExecutorCache {
+  inputs_cache : InputsIdLookup;
+
+  // This field represents a map<<size_t, DynamicTransformConcretizationInfo>, vector<FusionKernelRuntime>>.
+  // DynamicTransformConcretizationInfo is regenerated during deserialization.
+  kernel_runtimes_map : [KernelRuntimeState];
+
+  // This field defines a map<size_t, FusionKernelRuntime> id_to_kernel_runtime.
+  kernel_cache_keys : [ulong];
+  // indices into kernel_runtime_values
+  kernel_cache_values : [ulong];
+}
+
+// RecordFunctor represents operations in the Fusion. It is a node in the graph with input and output edges.
+// Some operations require storing extra attributes in the RecordData field.
 table RecordFunctor {
   args: [State];
   outputs: [State];
@@ -342,11 +447,14 @@ table TrieNode {
 // its leaves. For serialization, we flatten the trie structure using
 // breadth-first search.
 //
-// TODO serialize Fusion cpp container
+// TODO We skipped these fields required for user-defined schedulers
+// * fusion_schedules
+// * user_def_input_encodings
 table FusionCache {
   max_fusions: ulong;
   structure: [TrieNode];
   terminal_nodes: [ulong];
+  auto_gen_schedules : [FusionExecutorCache];
 }
 
 root_type FusionCache;

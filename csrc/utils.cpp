@@ -8,6 +8,8 @@
 #include <ATen/cuda/CUDAContext.h>
 #include <c10/util/string_view.h>
 #include <cuda_occupancy.h>
+#include <debug.h>
+#include <options.h>
 #include <utils.h>
 
 #include <cstdlib>
@@ -16,194 +18,6 @@
 #include <unordered_map>
 
 namespace nvfuser {
-
-namespace {
-
-// thread_local variable used only for debugging/testing
-thread_local bool overwrite_disable_fma = false;
-
-// OptionEnum must be an enum like DebugDumpOption
-template <typename OptionEnum>
-auto parseEnvOptions(
-    const char* option_env_name,
-    const std::unordered_map<std::string, OptionEnum>& available_options) {
-  // Make sure available_options includes all of the enum values
-  TORCH_INTERNAL_ASSERT(
-      available_options.size() == static_cast<int>(OptionEnum::EndOfOption),
-      "Invalid available option map");
-
-  std::unordered_map<OptionEnum, std::vector<std::string>> options;
-
-  if (const char* dump_options = std::getenv(option_env_name)) {
-    std::string_view options_view(dump_options);
-    while (!options_view.empty()) {
-      const auto comma_pos = options_view.find_first_of(',');
-      const auto lparentheses_pos = options_view.find_first_of('(');
-      auto end_pos = std::min(comma_pos, lparentheses_pos);
-      const auto token = options_view.substr(0, end_pos);
-
-      auto option_it = available_options.find(std::string(token));
-
-      if (option_it == available_options.end()) {
-        std::vector<std::string> option_values;
-        std::transform(
-            available_options.begin(),
-            available_options.end(),
-            std::back_inserter(option_values),
-            [](const auto& kv) { return kv.first; });
-        std::sort(option_values.begin(), option_values.end());
-        TORCH_CHECK(
-            false,
-            "Parsing ",
-            option_env_name,
-            " failed. Invalid option: '",
-            token,
-            "'\nAvailable options: ",
-            toDelimitedString(option_values));
-      }
-
-      options_view = (end_pos != std::string_view::npos)
-          ? options_view.substr(end_pos + 1)
-          : "";
-
-      std::vector<std::string> arguments;
-      if (lparentheses_pos < comma_pos) {
-        bool closed = false;
-        while (!closed) {
-          const auto comma_pos = options_view.find_first_of(',');
-          const auto rparentheses_pos = options_view.find_first_of(')');
-          TORCH_CHECK(
-              rparentheses_pos != std::string_view::npos,
-              "Parsing ",
-              option_env_name,
-              " failed when parsing arguments for ",
-              token,
-              ". Syntax error: unclosed '('");
-          auto end_pos = std::min(comma_pos, rparentheses_pos);
-          arguments.emplace_back(options_view.substr(0, end_pos));
-
-          options_view = options_view.substr(end_pos + 1);
-          closed = (rparentheses_pos < comma_pos);
-        }
-        if (!options_view.empty()) {
-          TORCH_CHECK(
-              options_view[0] == ',',
-              "Parsing ",
-              option_env_name,
-              " failed when parsing arguments for ",
-              token,
-              ". Syntax error: expect a ',' after ')'");
-          options_view = options_view.substr(1);
-        }
-      }
-
-      options[option_it->second] = std::move(arguments);
-    }
-  }
-
-  return options;
-}
-
-auto parseDebugDumpOptions() {
-  const std::unordered_map<std::string, DebugDumpOption> available_options = {
-      {"fusion_ir", DebugDumpOption::FusionIr},
-      {"fusion_ir_math", DebugDumpOption::FusionIrMath},
-      {"fusion_ir_presched", DebugDumpOption::FusionIrPresched},
-      {"fusion_ir_concretized", DebugDumpOption::FusionIrConcretized},
-      {"kernel_ir", DebugDumpOption::KernelIr},
-      {"ca_map", DebugDumpOption::ComputeAtMap},
-      {"cuda_kernel", DebugDumpOption::CudaKernel},
-      {"cuda_full", DebugDumpOption::CudaFull},
-      {"cuda_to_file", DebugDumpOption::CudaToFile},
-      {"debug_info", DebugDumpOption::DebugInfo},
-      {"assert_memory_violation", DebugDumpOption::AssertMemoryViolation},
-      {"launch_param", DebugDumpOption::LaunchParam},
-      {"segmented_fusion", DebugDumpOption::FusionSegments},
-      {"segmenter_logging", DebugDumpOption::FusionSegmenterLog},
-      {"fusion_args", DebugDumpOption::FusionArgs},
-      {"kernel_args", DebugDumpOption::KernelArgs},
-      {"index_type", DebugDumpOption::IndexType},
-      {"dump_eff_bandwidth", DebugDumpOption::EffectiveBandwidth},
-      {"draw_segmented_fusion", DebugDumpOption::FusionSegmentsDrawing},
-      {"ptxas_verbose", DebugDumpOption::PrintPtxasLog},
-      {"buffer_reuse_verbose", DebugDumpOption::BufferReuseInfo},
-      {"scheduler_params", DebugDumpOption::SchedulerDebug},
-      {"scheduler_verbose", DebugDumpOption::SchedulerVerbose},
-      {"parallel_dimensions", DebugDumpOption::ParallelDimensions},
-      {"halo", DebugDumpOption::Halo},
-      {"perf_debug_verbose", DebugDumpOption::PerfDebugVerbose},
-      {"python_definition", DebugDumpOption::PythonDefinition},
-      {"python_frontend_debug", DebugDumpOption::PythonFrontendDebug},
-      {"transform_propagator", DebugDumpOption::TransformPropagator},
-      {"cubin", DebugDumpOption::Cubin},
-      {"sass", DebugDumpOption::Sass},
-      {"ptx", DebugDumpOption::Ptx},
-      {"bank_conflict", DebugDumpOption::BankConflictInfo},
-      {"sync_map", DebugDumpOption::SyncMap},
-      {"lower_verbose", DebugDumpOption::LowerVerbose},
-      {"expr_simplify", DebugDumpOption::ExprSimplification},
-      {"expr_sort", DebugDumpOption::ExprSort},
-      {"loop_rotation", DebugDumpOption::LoopRotation},
-      {"matmul_checks", DebugDumpOption::MatmulChecks},
-      {"occupancy", DebugDumpOption::Occupancy}};
-
-  return parseEnvOptions("PYTORCH_NVFUSER_DUMP", available_options);
-}
-
-const auto& getDebugDumpOptions() {
-  static const auto options = parseDebugDumpOptions();
-  return options;
-}
-
-auto parseDisableOptions() {
-  const std::unordered_map<std::string, DisableOption> available_options = {
-      {"compile_to_sass", DisableOption::CompileToSass},
-      {"fallback", DisableOption::Fallback},
-      {"fma", DisableOption::Fma},
-      {"grouped_grid_welford_outer_opt",
-       DisableOption::GroupedGridWelfordOuterOpt},
-      {"index_hoist", DisableOption::IndexHoist},
-      {"expr_simplify", DisableOption::ExprSimplify},
-      {"nvtx", DisableOption::Nvtx},
-      {"predicate_elimination", DisableOption::PredicateElimination},
-      {"welford_vectorization", DisableOption::WelfordVectorization},
-      {"magic_zero", DisableOption::MagicZero},
-      {"var_name_remapping", DisableOption::VarNameRemapping}};
-
-  auto options = parseEnvOptions("PYTORCH_NVFUSER_DISABLE", available_options);
-
-  if (options.count(DisableOption::Fma)) {
-    TORCH_WARN(
-        "fmad is disabled for nvrtc, which could negatively affect performance. Try removing `fma` from env variable PYTORCH_NVFUSER_DISABLE for optimal performance.");
-  }
-
-  return options;
-}
-
-const auto& getDisableOptions() {
-  static const auto options = parseDisableOptions();
-  return options;
-}
-
-auto parseEnableOptions() {
-  const std::unordered_map<std::string, EnableOption> available_options = {
-      {"complex", EnableOption::Complex},
-      {"kernel_profile", EnableOption::KernelProfile},
-      {"linear_decomposition", EnableOption::LinearDecomposition},
-      {"conv_decomposition", EnableOption::ConvDecomposition},
-      {"graph_op_fusion", EnableOption::GraphOp},
-      {"kernel_db", EnableOption::KernelDb},
-      {"warn_register_spill", EnableOption::WarnRegisterSpill}};
-
-  return parseEnvOptions("PYTORCH_NVFUSER_ENABLE", available_options);
-}
-
-const auto& getEnableOptions() {
-  static const auto options = parseEnableOptions();
-  return options;
-}
-
-} // namespace
 
 C10_DIAGNOSTIC_PUSH_AND_IGNORED_IF_DEFINED("-Wunused-function")
 void debugPrint(const c10::TensorTypePtr& type) {
@@ -220,7 +34,7 @@ void debugPrint(const c10::TensorTypePtr& type) {
   } else {
     sizes_s << "no size available";
   }
-  std::cout << "sizes:" << sizes_s.str() << std::endl;
+  debug() << "sizes:" << sizes_s.str() << std::endl;
   if (const auto& stride_properties = type->stride_properties().sizes()) {
     std::stringstream stride_s;
     std::stringstream index_s;
@@ -245,11 +59,11 @@ void debugPrint(const c10::TensorTypePtr& type) {
         contig_s << "?, ";
       }
     }
-    std::cout << "stride: " << stride_s.str() << std::endl;
-    std::cout << "stride index: " << index_s.str() << std::endl;
-    std::cout << "contiguous: " << contig_s.str() << std::endl;
+    debug() << "stride: " << stride_s.str() << std::endl;
+    debug() << "stride index: " << index_s.str() << std::endl;
+    debug() << "contiguous: " << contig_s.str() << std::endl;
   } else {
-    std::cout << "no stride properties available" << std::endl;
+    debug() << "no stride properties available" << std::endl;
   }
 }
 C10_DIAGNOSTIC_POP()
@@ -316,46 +130,9 @@ int8_t getCommonDeviceCUDA(
   return found_device ? index : (int8_t)0;
 }
 
-bool isDebugDumpEnabled(DebugDumpOption option) {
-  return getDebugDumpOptions().count(option);
-}
-
-ThreadLocalFmaDisableOverwrite::ThreadLocalFmaDisableOverwrite(bool flag)
-    : old_flag_{overwrite_disable_fma} {
-  overwrite_disable_fma = flag;
-}
-
-ThreadLocalFmaDisableOverwrite::~ThreadLocalFmaDisableOverwrite() {
-  overwrite_disable_fma = old_flag_;
-}
-
-bool isOptionDisabled(DisableOption option) {
-  if (option == DisableOption::Fma && overwrite_disable_fma) {
-    return true;
-  }
-  return getDisableOptions().count(option);
-}
-
-bool isOptionEnabled(EnableOption option) {
-  return getEnableOptions().count(option);
-}
-
-const std::vector<std::string>& getDebugDumpArguments(DebugDumpOption option) {
-  return getDebugDumpOptions().at(option);
-}
-
-const std::vector<std::string>& getDisableOptionArguments(
-    DisableOption option) {
-  return getDisableOptions().at(option);
-}
-
-const std::vector<std::string>& getEnableOptionArguments(EnableOption option) {
-  return getEnableOptions().at(option);
-}
-
 bool useFallback() {
   // Keep this env var for compatibility
-  const char* disable_fb_env = getenv("PYTORCH_NVFUSER_DISABLE_FALLBACK");
+  const char* disable_fb_env = getNvFuserEnv("DISABLE_FALLBACK");
   bool fallback_disabled = disable_fb_env ? atoi(disable_fb_env) : false;
   fallback_disabled =
       fallback_disabled || isOptionDisabled(DisableOption::Fallback);
@@ -410,4 +187,32 @@ int64_t getThreadsPerSMGivenRegPerThread(int64_t reg_per_thread) {
   int num_warps = warps_per_sm_partition * num_partition;
   return num_warps * static_cast<int64_t>(warp_size);
 }
+
+char* getNvFuserEnv(const char* env_name) {
+  // Prepend the default prefix and try if the variable is defined.
+  const std::string prefix = "NVFUSER_";
+  auto prefixed_name = prefix + env_name;
+  auto env = std::getenv(prefixed_name.c_str());
+  if (env) {
+    return env;
+  }
+
+  // Try the PYTROCH_NVFUSER prefix as well, which is considered
+  // deprecated.
+  const std::string pyt_prefix = "PYTORCH_NVFUSER_";
+  auto pyt_prefixed_name = pyt_prefix + env_name;
+  auto pyt_env = std::getenv(pyt_prefixed_name.c_str());
+  if (pyt_env) {
+    TORCH_WARN(
+        "Environment variable, ",
+        pyt_prefixed_name,
+        ", is deprecated. Please use ",
+        prefixed_name,
+        " instead.");
+    return pyt_env;
+  }
+
+  return nullptr;
+}
+
 } // namespace nvfuser

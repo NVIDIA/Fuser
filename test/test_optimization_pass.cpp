@@ -96,7 +96,7 @@ TEST_F(NVFuserTest, FusionCyclicGraph_CUDA) {
     auto tv_var = tvs.var;
     fusion->addOutput(tv_var);
     auto tv_mean = tvs.mean;
-    nvfuser::Val* s0 = IrBuilder::create<Double>(1.0, DataType::Double);
+    nvfuser::Val* s0 = IrBuilder::create<Val>(1.0, DataType::Double);
     auto tv1 = add(tv_mean, s0);
     auto tv2 = set(tv1);
 
@@ -363,6 +363,309 @@ TEST_F(NVFuserTest, FusionTestCastOptimization_CUDA) {
     ref_tv = castOp(DataType::Half, ref_tv);
     ASSERT_TRUE(ref_tv->sameAs(fusion->outputs()[0]));
   }
+}
+
+// Test that we remove empty output branch before segmentation
+TEST_F(NVFuserTest, FusionRemoveEmptyOutput_CUDA) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(fusion_ptr.get());
+  // Concrete tensor with zero for one extent, so that we can prove the output
+  // is empty
+  auto tv0 = makeConcreteTensor({0, 3});
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  fusion.addOutput(tv1);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor at0 = at::randn({0, 3}, options);
+  std::vector<c10::IValue> aten_inputs = {at0};
+
+  auto args = KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
+  FusionKernelRuntime runtime(std::move(fusion_ptr), args);
+
+  // In the FusionKernelRuntime, before segmentation a number of optimization
+  // passes are performed. One of those is RemoveEmptyPass, which should replace
+  // the empty output tv1 with a new TensorView defined by `full({0, 3})` in
+  // this case.
+  auto preseg_fusion = runtime.fusionSegments()->completeFusion();
+  EXPECT_EQ(preseg_fusion->outputs().size(), 1);
+  EXPECT_NE(preseg_fusion->outputs()[0], tv1);
+  EXPECT_NE(preseg_fusion->outputs()[0]->definition(), nullptr);
+  EXPECT_TRUE(preseg_fusion->outputs()[0]->definition()->isA<FullOp>());
+
+  runtime.compileFusionParallel(args);
+  auto outputs = runtime.runWithInputs(args);
+
+  testValidate(preseg_fusion, outputs, aten_inputs, {at0}, __LINE__, __FILE__);
+}
+
+// Test that we replace empty reduction with full
+TEST_F(NVFuserTest, FusionRemoveEmptyReduction_CUDA) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(fusion_ptr.get());
+  // Concrete tensor with zero for one extent, so that we can prove the output
+  // is empty
+  auto tv0 = makeConcreteTensor({0, 3});
+  fusion.addInput(tv0);
+  auto tv1 = sum(tv0, {0});
+  fusion.addOutput(tv1);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor at0 = at::randn({0, 3}, options);
+  std::vector<c10::IValue> aten_inputs = {at0};
+
+  auto args = KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
+  FusionKernelRuntime runtime(std::move(fusion_ptr), args);
+
+  auto preseg_fusion = runtime.fusionSegments()->completeFusion();
+  EXPECT_EQ(preseg_fusion->outputs().size(), 1);
+  EXPECT_NE(preseg_fusion->outputs()[0]->definition(), nullptr);
+  EXPECT_TRUE(preseg_fusion->outputs()[0]->definition()->isA<FullOp>());
+
+  runtime.compileFusionParallel(args);
+  auto outputs = runtime.runWithInputs(args);
+
+  testValidate(
+      preseg_fusion,
+      outputs,
+      aten_inputs,
+      {at::sum(at0, {0})},
+      __LINE__,
+      __FILE__);
+}
+
+// In this test, a reduction over a non-empty axis occurs first, followed by a
+// reduction over the remaining empty axis. The output is actually not empty,
+// even though the first reduction results in an empty tensor.
+TEST_F(NVFuserTest, FusionRemoveEmptyReductionWithNonReduction_CUDA) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(fusion_ptr.get());
+  // Concrete tensor with zero for one extent, so that we can prove the output
+  // is empty
+  auto tv0 = makeConcreteTensor({0, 3, 2});
+  fusion.addInput(tv0);
+  auto tv1 = sum(tv0, {1});
+  auto tv2 = sum(tv1, {0});
+  fusion.addOutput(tv2);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor at0 = at::randn({0, 3, 2}, options);
+  std::vector<c10::IValue> aten_inputs = {at0};
+
+  auto args = KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
+  FusionKernelRuntime runtime(std::move(fusion_ptr), args);
+
+  auto preseg_fusion = runtime.fusionSegments()->completeFusion();
+  EXPECT_EQ(preseg_fusion->outputs().size(), 1);
+  EXPECT_NE(preseg_fusion->outputs()[0]->definition(), nullptr);
+  EXPECT_TRUE(preseg_fusion->outputs()[0]->definition()->isA<FullOp>());
+
+  runtime.compileFusionParallel(args);
+  auto outputs = runtime.runWithInputs(args);
+
+  testValidate(
+      preseg_fusion,
+      outputs,
+      aten_inputs,
+      {at::sum(at::sum(at0, 1), 0)},
+      __LINE__,
+      __FILE__);
+}
+
+// Test that we replace empty Welford with full
+TEST_F(NVFuserTest, FusionRemoveEmptyWelford_CUDA) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(fusion_ptr.get());
+  // Concrete tensor with zero for one extent, so that we can prove the output
+  // is empty
+  auto tv0 = makeConcreteTensor({0, 3});
+  fusion.addInput(tv0);
+  auto w = Welford(tv0, {0});
+  fusion.addOutput(w.avg);
+  auto var = div(w.var_sum, fusion_ptr->zeroVal(DataType::Float));
+  fusion.addOutput(var);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor at0 = at::randn({0, 3}, options);
+  std::vector<c10::IValue> aten_inputs = {at0};
+
+  auto args = KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
+  FusionKernelRuntime runtime(std::move(fusion_ptr), args);
+
+  auto preseg_fusion = runtime.fusionSegments()->completeFusion();
+  EXPECT_EQ(preseg_fusion->outputs().size(), 2);
+
+  EXPECT_NE(preseg_fusion->outputs()[0]->definition(), nullptr);
+  EXPECT_TRUE(preseg_fusion->outputs()[0]->definition()->isA<FullOp>());
+
+  EXPECT_NE(var->definition(), nullptr);
+  EXPECT_TRUE(var->definition()->isA<BinaryOp>());
+  // We divide in the fusion to normalize the variance, so here we have to peel
+  // that back
+  auto var_sum = var->definition()->inputs()[0]->as<TensorView>();
+  EXPECT_TRUE(var_sum->definition()->isA<FullOp>());
+
+  runtime.compileFusionParallel(args);
+  auto outputs = runtime.runWithInputs(args);
+
+  testValidate(
+      preseg_fusion,
+      outputs,
+      aten_inputs,
+      {at::mean(at0, 0), at::var(at0, 0)},
+      __LINE__,
+      __FILE__);
+}
+
+// Test that we replace empty tensors in cat properly
+TEST_F(NVFuserTest, FusionRemoveEmptyCat_CUDA) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(fusion_ptr.get());
+  // Concrete tensor with zero for one extent, so that we can prove the output
+  // is empty
+  auto tv0 = makeConcreteTensor({0, 3});
+  fusion.addInput(tv0);
+  auto tv1 = makeConcreteTensor({2, 3});
+  fusion.addInput(tv1);
+  auto tv2 = makeConcreteTensor({4, 3});
+  fusion.addInput(tv2);
+
+  // equivalent to cat({tv1, tv2}, 0)
+  auto tv3 = cat({tv0, tv1, tv2}, 0);
+  fusion.addOutput(tv3);
+  // set(tv1)
+  auto tv4 = cat({tv0, tv1}, 0);
+  fusion.addOutput(tv4);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor at0 = at::randn({0, 3}, options);
+  at::Tensor at1 = at::randn({2, 3}, options);
+  at::Tensor at2 = at::randn({4, 3}, options);
+  std::vector<c10::IValue> aten_inputs = {at0, at1, at2};
+
+  auto args = KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
+  FusionKernelRuntime runtime(std::move(fusion_ptr), args);
+
+  auto preseg_fusion = runtime.fusionSegments()->completeFusion();
+  EXPECT_EQ(preseg_fusion->outputs().size(), 2);
+
+  EXPECT_NE(preseg_fusion->outputs()[0]->definition(), nullptr);
+  EXPECT_TRUE(preseg_fusion->outputs()[0]->definition()->isA<CatOp>());
+  EXPECT_EQ(preseg_fusion->outputs()[0]->definition()->inputs().size(), 2);
+
+  EXPECT_NE(preseg_fusion->outputs()[1]->definition(), nullptr);
+  EXPECT_TRUE(preseg_fusion->outputs()[1]->definition()->isA<LoadStoreOp>());
+
+  runtime.compileFusionParallel(args);
+  auto outputs = runtime.runWithInputs(args);
+
+  testValidate(
+      preseg_fusion,
+      outputs,
+      aten_inputs,
+      {at::cat({at1, at2}, 0), at1},
+      __LINE__,
+      __FILE__);
+}
+
+// Test that we replace empty tensors in pad properly
+TEST_F(NVFuserTest, FusionRemoveEmptyPad_CUDA) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(fusion_ptr.get());
+  // Concrete tensor with zero for one extent, so that we can prove the output
+  // is empty
+  auto tv0 = makeConcreteTensor({3, 0});
+  fusion.addInput(tv0);
+
+  // Use a non-zero pad value to verify that it is used in the rewritten fill
+  auto pad_val = IrBuilder::create<Val>(3.14, DataType::Float);
+
+  // equivalent to full({3, 2}, pad_val, DataType::Float)
+  auto tv1 = pad(tv0, {fusion.oneVal(), fusion.oneVal()}, pad_val);
+  fusion.addOutput(tv1);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor at0 = at::randn({3, 0}, options);
+  std::vector<c10::IValue> aten_inputs = {at0};
+
+  auto args = KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
+  FusionKernelRuntime runtime(std::move(fusion_ptr), args);
+
+  auto preseg_fusion = runtime.fusionSegments()->completeFusion();
+  EXPECT_EQ(preseg_fusion->outputs().size(), 1);
+
+  EXPECT_NE(preseg_fusion->outputs()[0]->definition(), nullptr);
+  auto rewritten_def = preseg_fusion->outputs()[0]->definition();
+  EXPECT_TRUE(rewritten_def->isA<FullOp>());
+  EXPECT_TRUE(rewritten_def->as<FullOp>()->getFillValue()->sameAs(pad_val));
+
+  runtime.compileFusionParallel(args);
+  auto outputs = runtime.runWithInputs(args);
+
+  testValidate(
+      preseg_fusion,
+      outputs,
+      aten_inputs,
+      {at::pad(at0, {1, 1}, "constant", 3.14)},
+      __LINE__,
+      __FILE__);
+}
+
+// Test that we replace empty tensors in matmuls properly
+TEST_F(NVFuserTest, FusionRemoveEmptyMatmul_CUDA) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(fusion_ptr.get());
+
+  // [M, K]
+  auto tv0 = makeConcreteTensor({16, 0}, DataType::Half);
+  // [K, N]
+  auto tv1 = makeConcreteTensor({0, 8}, DataType::Half);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  // [M, N, K]
+  auto tv0b = broadcast(tv0, {false, true, false});
+  // [M, K, N]
+  auto tv1b = broadcast(tv1, {true, false, false});
+  // [M, N, K]
+  auto tv1t = transpose(tv1b, 1, 2);
+
+  auto tv2 = fusedMultiplySum(tv0b, tv1t, {2});
+  fusion.addOutput(tv2);
+
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+  at::Tensor at0 = at::randn({16, 0}, options);
+  at::Tensor at1 = at::randn({0, 8}, options);
+  std::vector<c10::IValue> aten_inputs = {at0, at1};
+
+  auto args = KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
+  FusionKernelRuntime runtime(std::move(fusion_ptr), args);
+
+  auto preseg_fusion = runtime.fusionSegments()->completeFusion();
+  EXPECT_EQ(preseg_fusion->outputs().size(), 1);
+
+  EXPECT_NE(preseg_fusion->outputs()[0]->definition(), nullptr);
+  auto rewritten_def = preseg_fusion->outputs()[0]->definition();
+  EXPECT_TRUE(rewritten_def->isA<FullOp>());
+  EXPECT_EQ(rewritten_def->as<FullOp>()->getFillValue()->evaluateDouble(), 0.0);
+
+  runtime.compileFusionParallel(args);
+  auto outputs = runtime.runWithInputs(args);
+
+  testValidate(
+      preseg_fusion,
+      outputs,
+      aten_inputs,
+      {at::zeros({16, 8}, options)},
+      __LINE__,
+      __FILE__);
 }
 
 } // namespace nvfuser::optimization

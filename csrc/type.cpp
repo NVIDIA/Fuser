@@ -13,7 +13,76 @@
 #include <stdexcept>
 #include <unordered_map>
 
+#include <ir/all_nodes.h>
+#include <tensor_metadata.h>
+
 namespace nvfuser {
+
+StructType NotImplementedStruct::type() const {
+  TORCH_INTERNAL_ASSERT(false, "Not implemented");
+}
+
+StructType globalTensorMetaData(
+    const PrimDataType& dtype,
+    size_t dim,
+    size_t alloc_dim) {
+  std::stringstream ss;
+  ss << "Tensor<" << dtype << ", " << dim << ", " << alloc_dim << ">";
+
+  StructType::FieldInfo data_field;
+  data_field.name = "data";
+  data_field.type = std::make_shared<DataType>(
+      PointerType{std::make_shared<DataType>(dtype)});
+  data_field.used_in_kernel = true;
+
+  StructType::FieldInfo logical_size_field;
+  logical_size_field.name = "logical_size";
+  logical_size_field.type = std::make_shared<DataType>(
+      ArrayType{std::make_shared<DataType>(DataType::Index), dim});
+  logical_size_field.used_in_kernel = true;
+
+  StructType::FieldInfo logical_stride_field;
+  logical_stride_field.name = "logical_stride";
+  logical_stride_field.type = std::make_shared<DataType>(
+      ArrayType{std::make_shared<DataType>(DataType::Index), dim});
+  logical_stride_field.used_in_kernel = false;
+
+  StructType::FieldInfo alloc_size_field;
+  alloc_size_field.name = "alloc_size";
+  alloc_size_field.type = std::make_shared<DataType>(
+      ArrayType{std::make_shared<DataType>(DataType::Index), alloc_dim});
+  alloc_size_field.used_in_kernel = false;
+
+  StructType::FieldInfo alloc_stride_field;
+  alloc_stride_field.name = "alloc_stride";
+  alloc_stride_field.type = std::make_shared<DataType>(
+      ArrayType{std::make_shared<DataType>(DataType::Index), alloc_dim});
+  alloc_stride_field.used_in_kernel = true;
+
+  return StructType::make<TensorMetaData>(
+      {data_field,
+       logical_size_field,
+       logical_stride_field,
+       alloc_size_field,
+       alloc_stride_field},
+      ss.str());
+}
+
+DataType metaDataTypeOf(const Val* v) {
+  auto tv = dynamic_cast<const TensorView*>(v);
+  TORCH_INTERNAL_ASSERT(
+      tv != nullptr, "Currently, only supports getting metadata of TensorView");
+  if (tv->getMemoryType() == MemoryType::Shared) {
+    // Smem tensor is defined locally as a pointer
+    return PointerType{std::make_shared<DataType>(tv->dtype())};
+  }
+
+  size_t dim = TensorDomain::noReductions(tv->getMaybeRFactorDomain()).size();
+  size_t alloc_dim =
+      TensorDomain::noReductions(tv->getMaybeAllocationDomain()).size();
+  return globalTensorMetaData(
+      std::get<PrimDataType>(tv->dtype().type), dim, alloc_dim);
+}
 
 PrimDataType indexModeToDtype(KernelIndexMode index_mode) {
   switch (index_mode) {
@@ -79,8 +148,10 @@ DataType getTypeFromComplexType(DataType dtype) {
 DataType getComplexTypeFromType(DataType dtype) {
   switch (std::get<PrimDataType>(dtype.type)) {
     case DataType::Float:
+    case DataType::ComplexFloat:
       return DataType::ComplexFloat;
     case DataType::Double:
+    case DataType::ComplexDouble:
       return DataType::ComplexDouble;
     default:
       TORCH_INTERNAL_ASSERT(
@@ -98,19 +169,11 @@ bool isSupportedTypeByDevice(DataType dtype) {
 }
 
 bool isIntegerOp(const BinaryOpType bopt) {
-  return bopt >= BinaryOpType::Mod && bopt <= BinaryOpType::Rshift;
+  return bopt >= BinaryOpType::Mod && bopt <= BinaryOpType::BitwiseXor;
 }
 
 bool isLogicalOp(const BinaryOpType bopt) {
-  return bopt >= BinaryOpType::Eq && bopt <= BinaryOpType::NE;
-}
-
-bool alsoBooleanOperator(const BinaryOpType bopt) {
-  return bopt >= BinaryOpType::And && bopt <= BinaryOpType::Xor;
-}
-
-bool alsoBooleanOperator(const UnaryOpType uopt) {
-  return uopt >= UnaryOpType::Not && uopt <= UnaryOpType::Not;
+  return bopt >= BinaryOpType::Eq && bopt <= BinaryOpType::LogicalOr;
 }
 
 // Return highest on list (smallest enum val)
@@ -118,16 +181,16 @@ ValType promoteType(const ValType& t1, const ValType& t2) {
   if (t1 == ValType::TensorView || t2 == ValType::TensorView) {
     return ValType::TensorView;
   }
-  if (t1 == ValType::Scalar &&
-      (t2 == ValType::Scalar || t2 == ValType::NamedScalar)) {
-    return ValType::Scalar;
+  if (t1 == ValType::Others &&
+      (t2 == ValType::Others || t2 == ValType::NamedScalar)) {
+    return ValType::Others;
   }
-  if (t2 == ValType::Scalar &&
-      (t1 == ValType::Scalar || t1 == ValType::NamedScalar)) {
-    return ValType::Scalar;
+  if (t2 == ValType::Others &&
+      (t1 == ValType::Others || t1 == ValType::NamedScalar)) {
+    return ValType::Others;
   }
   if (t1 == ValType::NamedScalar && t2 == ValType::NamedScalar) {
-    return ValType::Scalar;
+    return ValType::Others;
   }
   TORCH_CHECK(false, "Expected promotable ValTypes but got: ", t1, " and ", t2);
 }
@@ -167,13 +230,32 @@ static std::string data_type2string(DataType t) {
             default:
               TORCH_INTERNAL_ASSERT(false, "No string found for data type.");
           }
-        } else if constexpr (std::is_same_v<T, PointerOf>) {
+        } else if constexpr (std::is_same_v<T, PointerType>) {
           return data_type2string(*dtype.type) + "*";
-        } else if constexpr (std::is_same_v<T, ArrayOf>) {
+        } else if constexpr (std::is_same_v<T, ArrayType>) {
           std::stringstream ss;
           ss << "Array<" << data_type2string(*dtype.type) << ", " << dtype.size
              << ", 1>";
           return ss.str();
+        } else if constexpr (std::is_same_v<T, StructType>) {
+          if (dtype.name != "") {
+            return dtype.name;
+          }
+          std::stringstream ss;
+          ss << "struct { ";
+          for (const auto& field : dtype.fields) {
+            ss << data_type2string(*field.type) << " " << field.name << "; ";
+          }
+          ss << "}";
+          return ss.str();
+        } else if constexpr (std::is_same_v<T, OpaqueType>) {
+          if (dtype.name != "") {
+            return dtype.name;
+          } else {
+            return dtype.type_info.get().name();
+          }
+        } else {
+          TORCH_INTERNAL_ASSERT(false, "No string found for data type.");
         }
         TORCH_INTERNAL_ASSERT(false, "No string found for data type.");
       },
@@ -188,7 +270,7 @@ static const char* val_type2string(ValType t) {
       return "TensorDomain";
     case ValType::IterDomain:
       return "IterDomain";
-    case ValType::Scalar:
+    case ValType::Others:
       return "Scalar";
     case ValType::NamedScalar:
       return "NamedScalar";
@@ -196,10 +278,8 @@ static const char* val_type2string(ValType t) {
       return "Predicate";
     case ValType::TensorIndex:
       return "TensorIndex";
-    case ValType::AggregateVal:
-      return "AggregateVal";
-    case ValType::Attribute:
-      return "Attribute";
+    case ValType::PipelineVal:
+      return "PipelineVal";
     default:
       TORCH_INTERNAL_ASSERT(false, "No string found for val type.");
   }
@@ -239,7 +319,10 @@ bool needFloatSuffix(UnaryOpType t) {
     case UnaryOpType::Imag:
     case UnaryOpType::Silu:
     case UnaryOpType::BitCast:
+    case UnaryOpType::Dereference:
     case UnaryOpType::Neg:
+    case UnaryOpType::BitwiseNot:
+    case UnaryOpType::LogicalNot:
     case UnaryOpType::Real:
     case UnaryOpType::Relu:
     case UnaryOpType::Reciprocal:
@@ -251,6 +334,7 @@ bool needFloatSuffix(UnaryOpType t) {
     case UnaryOpType::IsPosInf:
     case UnaryOpType::IsReal:
     case UnaryOpType::Print:
+    case UnaryOpType::ToUnsignedSmemAddr:
       return false;
     default:
       return true;
@@ -285,6 +369,8 @@ static const char* unary_op_type2string(UnaryOpType t) {
       return "cos";
     case UnaryOpType::Cosh:
       return "cosh";
+    case UnaryOpType::Dereference:
+      return "dereference";
     case UnaryOpType::Exp:
       return "exp";
     case UnaryOpType::Exp2:
@@ -316,11 +402,13 @@ static const char* unary_op_type2string(UnaryOpType t) {
     case UnaryOpType::Log2:
       return "log2";
     case UnaryOpType::BitCast:
-      return "erase_type";
+      return "bit_cast";
     case UnaryOpType::Neg:
       return "neg";
-    case UnaryOpType::Not:
-      return "not";
+    case UnaryOpType::LogicalNot:
+      return "logical_not";
+    case UnaryOpType::BitwiseNot:
+      return "bitwise_not";
     case UnaryOpType::Print:
       return "print";
     case UnaryOpType::Reciprocal:
@@ -363,25 +451,25 @@ static const char* unary_op_type2string(UnaryOpType t) {
       return "std::real";
     case UnaryOpType::Imag:
       return "std::imag";
+    case UnaryOpType::ToUnsignedSmemAddr:
+      return "toSmem";
     default:
       TORCH_INTERNAL_ASSERT(false, "No string found for unary op type.");
   }
 }
 
-std::string stringifyBooleanOp(const UnaryOpType uopt) {
-  TORCH_INTERNAL_ASSERT(
-      uopt == UnaryOpType::Not, uopt, " is not a boolean operator.");
-  return "!";
-}
-
 static const char* unary_op_type_inline_op2string(UnaryOpType t) {
   switch (t) {
+    case UnaryOpType::Dereference:
+      return "*";
     case UnaryOpType::Neg:
       return "-";
-    case UnaryOpType::Not:
+    case UnaryOpType::LogicalNot:
+      return "!";
+    case UnaryOpType::BitwiseNot:
       return "~";
     case UnaryOpType::Address:
-      return "(int64_t) &";
+      return "&";
     default:
       break;
   }
@@ -438,13 +526,19 @@ static const char* binary_op_type2string(BinaryOpType t) {
     case BinaryOpType::Gcd:
       return "gcd";
 
+    // Bitwise Ops
+    case BinaryOpType::BitwiseAnd:
+      return "bitwise_and";
+    case BinaryOpType::BitwiseOr:
+      return "bitwise_or";
+    case BinaryOpType::BitwiseXor:
+      return "bitwise_xor";
+
     // Logical Ops
-    case BinaryOpType::And:
-      return "and";
-    case BinaryOpType::Or:
-      return "or";
-    case BinaryOpType::Xor:
-      return "xor";
+    case BinaryOpType::LogicalAnd:
+      return "logical_and";
+    case BinaryOpType::LogicalOr:
+      return "logical_or";
     case BinaryOpType::Eq:
       return "equal";
     case BinaryOpType::GE:
@@ -519,12 +613,15 @@ static const char* binary_op_type_inline_op2string(BinaryOpType t) {
       return "<";
     case BinaryOpType::NE:
       return "!=";
-    // Assume bitwise, otherwise use stringifyBooleanOp
-    case BinaryOpType::And:
+    case BinaryOpType::LogicalAnd:
+      return "&&";
+    case BinaryOpType::LogicalOr:
+      return "||";
+    case BinaryOpType::BitwiseAnd:
       return "&";
-    case BinaryOpType::Or:
+    case BinaryOpType::BitwiseOr:
       return "|";
-    case BinaryOpType::Xor:
+    case BinaryOpType::BitwiseXor:
       return "^";
     default:
       break;
@@ -546,19 +643,6 @@ static const char* rng_op_type_inline_op2string(RNGOpType t) {
       break;
   }
   return nullptr;
-}
-
-std::string stringifyBooleanOp(const BinaryOpType bopt) {
-  switch (bopt) {
-    case BinaryOpType::And:
-      return "&&";
-    case BinaryOpType::Or:
-      return "||";
-    case BinaryOpType::Xor:
-      return "!=";
-    default:
-      TORCH_INTERNAL_ASSERT(false, bopt, " is not a boolean operator.")
-  }
 }
 
 static const char* ternary_op_type2string(TernaryOpType t) {
@@ -778,6 +862,7 @@ static const char* supported_casts2string(
     case supported_switch_pair(DataType::Int32, DataType::Index):
     case supported_switch_pair(DataType::Float, DataType::Index):
     case supported_switch_pair(DataType::Double, DataType::Index):
+    case supported_switch_pair(DataType::Bool, DataType::Index):
       return "(nvfuser_index_t)";
     case supported_switch_pair(DataType::ComplexFloat, DataType::Index):
     case supported_switch_pair(DataType::ComplexDouble, DataType::Index):
@@ -795,6 +880,7 @@ static const char* supported_casts2string(
     case supported_switch_pair(DataType::Double, DataType::Bool):
     case supported_switch_pair(DataType::Int32, DataType::Bool):
     case supported_switch_pair(DataType::Int, DataType::Bool):
+    case supported_switch_pair(DataType::Index, DataType::Bool):
       return "(bool)";
     case supported_switch_pair(DataType::ComplexFloat, DataType::Bool):
     case supported_switch_pair(DataType::ComplexDouble, DataType::Bool):
@@ -821,8 +907,8 @@ static const char* supported_casts2string(
     case supported_switch_pair(DataType::Double, DataType::Half):
       return "__double2half";
     case supported_switch_pair(DataType::Int32, DataType::Half):
-      return "__int322half";
     case supported_switch_pair(DataType::Int, DataType::Half):
+    case supported_switch_pair(DataType::Index, DataType::Half):
       return "__int2half";
     case supported_switch_pair(DataType::Bool, DataType::Half):
       return "__bool2half";
@@ -838,6 +924,8 @@ static const char* supported_casts2string(
       return "__half2int32";
     case supported_switch_pair(DataType::Half, DataType::Int):
       return "__half2int";
+    case supported_switch_pair(DataType::Half, DataType::Index):
+      return "__half2index";
     case supported_switch_pair(DataType::Half, DataType::Bool):
       return "__half2bool";
     case supported_switch_pair(DataType::Half, DataType::ComplexFloat):
@@ -852,8 +940,8 @@ static const char* supported_casts2string(
     case supported_switch_pair(DataType::Half, DataType::BFloat16):
       return "__half2bfloat";
     case supported_switch_pair(DataType::Int32, DataType::BFloat16):
-      return "__int322bfloat";
     case supported_switch_pair(DataType::Int, DataType::BFloat16):
+    case supported_switch_pair(DataType::Index, DataType::BFloat16):
       return "__int2bfloat";
     case supported_switch_pair(DataType::Bool, DataType::BFloat16):
       return "__bool2bfloat";
@@ -871,6 +959,8 @@ static const char* supported_casts2string(
       return "__bfloat2int32";
     case supported_switch_pair(DataType::BFloat16, DataType::Int):
       return "__bfloat2int";
+    case supported_switch_pair(DataType::BFloat16, DataType::Index):
+      return "__bfloat2index";
     case supported_switch_pair(DataType::BFloat16, DataType::Bool):
       return "__bfloat2bool";
     case supported_switch_pair(DataType::BFloat16, DataType::ComplexFloat):
@@ -1051,34 +1141,34 @@ std::ostream& operator<<(std::ostream& os, const KernelIndexMode& index_mode) {
   return os;
 }
 
-c10::optional<std::string> inline_op_str(const UnaryOpType uotype) {
+std::optional<std::string> inline_op_str(const UnaryOpType uotype) {
   const char* str = unary_op_type_inline_op2string(uotype);
-  return str != nullptr ? c10::optional<std::string>(std::string(str))
-                        : c10::nullopt;
+  return str != nullptr ? std::optional<std::string>(std::string(str))
+                        : std::nullopt;
 }
 
-c10::optional<std::string> inline_op_str(const BinaryOpType botype) {
+std::optional<std::string> inline_op_str(const BinaryOpType botype) {
   const char* str = binary_op_type_inline_op2string(botype);
-  return str != nullptr ? c10::optional<std::string>(std::string(str))
-                        : c10::nullopt;
+  return str != nullptr ? std::optional<std::string>(std::string(str))
+                        : std::nullopt;
 }
 
-c10::optional<std::string> inline_op_str(const RNGOpType rngtype) {
+std::optional<std::string> inline_op_str(const RNGOpType rngtype) {
   const char* str = rng_op_type_inline_op2string(rngtype);
-  return str != nullptr ? c10::optional<std::string>(std::string(str))
-                        : c10::nullopt;
+  return str != nullptr ? std::optional<std::string>(std::string(str))
+                        : std::nullopt;
 }
 
-c10::optional<std::string> integer_op_str(const BinaryOpType botype) {
+std::optional<std::string> integer_op_str(const BinaryOpType botype) {
   const char* str = binary_op_integer_op2string(botype);
-  return str != nullptr ? c10::optional<std::string>(std::string(str))
-                        : c10::nullopt;
+  return str != nullptr ? std::optional<std::string>(std::string(str))
+                        : std::nullopt;
 }
 
-c10::optional<std::string> bool_op_str(const BinaryOpType botype) {
+std::optional<std::string> bool_op_str(const BinaryOpType botype) {
   const char* str = binary_op_bool_op2string(botype);
-  return str != nullptr ? c10::optional<std::string>(std::string(str))
-                        : c10::nullopt;
+  return str != nullptr ? std::optional<std::string>(std::string(str))
+                        : std::nullopt;
 }
 
 std::string stringifyThreadSize(const ParallelType ptype) {
@@ -1090,11 +1180,17 @@ std::string stringifyThread(const ParallelType ptype) {
 }
 
 std::string typePrefix(const DataType data_type) {
-  if (std::holds_alternative<PointerOf>(data_type.type)) {
+  if (std::holds_alternative<PointerType>(data_type.type)) {
     return "ptr";
   }
-  if (std::holds_alternative<ArrayOf>(data_type.type)) {
+  if (std::holds_alternative<ArrayType>(data_type.type)) {
     return "a";
+  }
+  if (std::holds_alternative<StructType>(data_type.type)) {
+    return "s";
+  }
+  if (std::holds_alternative<OpaqueType>(data_type.type)) {
+    return "var";
   }
   switch (std::get<PrimDataType>(data_type.type)) {
     case DataType::Bool:
@@ -1137,30 +1233,41 @@ bool isParallelTypeVectorize(ParallelType ptype) {
       ptype == ParallelType::MisalignedVectorize;
 }
 
-c10::optional<std::string> cast_func_str(
+std::optional<std::string> cast_func_str(
     const std::pair<DataType, DataType>& cast) {
   const char* str = supported_casts2string(cast);
-  return str != nullptr ? c10::optional<std::string>(std::string(str))
-                        : c10::nullopt;
+  return str != nullptr ? std::optional<std::string>(std::string(str))
+                        : std::nullopt;
 }
 
-size_t dataTypeSize(DataType type) {
+int64_t dataTypeSize(DataType type) {
   return std::visit(
-      [](auto&& dtype) -> size_t {
+      [](auto&& dtype) -> int64_t {
         using T = std::decay_t<decltype(dtype)>;
         if constexpr (std::is_same_v<T, PrimDataType>) {
           return primDataTypeSize(dtype);
-        } else if constexpr (std::is_same_v<T, PointerOf>) {
+        } else if constexpr (std::is_same_v<T, PointerType>) {
           return sizeof(void*);
-        } else if constexpr (std::is_same_v<T, ArrayOf>) {
+        } else if constexpr (std::is_same_v<T, ArrayType>) {
           return dataTypeSize(*dtype.type) * dtype.size;
+        } else if constexpr (std::is_same_v<T, StructType>) {
+          int64_t size = 0;
+          for (const auto& field : dtype.fields) {
+            if (!field.used_in_kernel) {
+              continue;
+            }
+            size += dataTypeSize(*field.type);
+          }
+          return size;
+        } else if constexpr (std::is_same_v<T, OpaqueType>) {
+          return dtype.size;
         }
         TORCH_INTERNAL_ASSERT(false, "Size undefined for data type.");
       },
       type.type);
 }
 
-size_t dataTypeSize(DataType type, DataType index_type) {
+int64_t dataTypeSize(DataType type, DataType index_type) {
   if (type == DataType::Index) {
     TORCH_INTERNAL_ASSERT(
         index_type == DataType::Int32 || index_type == DataType::Int,

@@ -11,6 +11,7 @@
 #include <c10/macros/Export.h>
 #include <c10/util/Exception.h>
 
+#include <debug.h>
 #include <executor_params.h>
 #include <ir/base_nodes.h>
 #include <ir/container.h>
@@ -133,9 +134,12 @@ class TORCH_CUDA_CU_API Fusion : public IrContainer {
   void validateInputs();
 
   //! Print this fusion to an output stream
-  std::ostream& print(
-      std::ostream& os = std::cout,
-      bool include_tensor_transforms = true);
+  std::ostream& print(std::ostream& os, bool include_tensor_transforms = true);
+
+  //! Print to default debugging output stream
+  std::ostream& print() {
+    return print(debug());
+  }
 
   //! Print Arith exprs
   //! \param from_outputs_only Only print exprs reachable from outputs

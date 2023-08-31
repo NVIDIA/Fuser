@@ -55,7 +55,14 @@ std::pair<double, double> getTolerance(
     DataType dtype,
     int64_t reduction_size,
     const ValidationConstants& tolerances) {
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
+#endif
   switch (std::get<PrimDataType>(dtype.type)) {
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
     case DataType::ComplexFloat:
     case DataType::ComplexDouble:
     case DataType::Float:
@@ -163,9 +170,8 @@ std::pair<double, double> getTolerance(
       }
     }
     case DataType::Int:
-      return {0.0, 0.0};
     case DataType::Int32:
-      return {0.0, 0.0};
+    case DataType::Index:
     case DataType::Bool:
       return {0.0, 0.0};
     default:
@@ -220,19 +226,18 @@ class ReductionSizeMapper : private IterVisitor {
         auto inferred_extent =
             expr_eval_.evaluate(id->getMaybeExpandedExtent());
         TORCH_INTERNAL_ASSERT(
-            inferred_extent.has_value(),
+            inferred_extent.hasValue(),
             "Couldn't figure out what the dimensions of a tensorview is in evaluation for validation. ",
             id,
             " in ",
             tv);
-        reduction_elements =
-            reduction_elements * inferred_extent->as<int64_t>();
+        reduction_elements = reduction_elements * inferred_extent.as<int64_t>();
       }
     }
     return reduction_elements;
   }
 
-  void handle(Expr* expr) override {
+  void dispatch(Expr* expr) override {
     if (!ir_utils::isTvOp(expr)) {
       return;
     }
@@ -290,15 +295,15 @@ ExpressionEvaluator bindInputsAndLaunchParams(
       auto inferred_extent = expr_eval.evaluate(extent);
       auto p_type = id->getParallelType();
 
-      if (inferred_extent.has_value()) {
+      if (inferred_extent.hasValue()) {
         // This value could have been inferred, make sure it was set right.
         TORCH_CHECK(
-            inferred_extent.value() == launch_constraints.getDim(p_type) ||
+            inferred_extent == launch_constraints.getDim(p_type) ||
                 launch_constraints.getRawVal(p_type) == -1,
             "inferred that ",
             p_type,
             " should be set to ",
-            inferred_extent.value(),
+            inferred_extent,
             " but launch constraints specified ",
             launch_constraints.getRawVal(p_type));
       } else {
@@ -318,11 +323,13 @@ ExpressionEvaluator bindInputsAndLaunchParams(
 // on adding two tensors then summing them. This of course has an assumption
 // that we're always summing values between -2 and 2. If we start summing values
 // larger than that this approach might not hold.
+// If aten_outputs is empty, then infer the expected outputs from the fusion
+// using expr evaluator.
 void testValidate(
     Fusion* fusion,
     const std::vector<at::Tensor>& fusion_outputs,
     const at::ArrayRef<c10::IValue>& aten_inputs,
-    const std::vector<at::Tensor>& aten_outputs,
+    std::vector<at::Tensor> aten_outputs,
     int line_number,
     const char* file_name,
     std::string err_msg = "",
@@ -336,6 +343,12 @@ void testValidate(
       ReductionSizeMapper::computeReductionSizes(fusion, expr_eval);
 
   auto output_alias_indices = fusion->getIndicesOfAliasedOutputs();
+
+  if (aten_outputs.empty()) {
+    for (auto v : fusion->outputs()) {
+      aten_outputs.emplace_back(expr_eval.evaluate(v).as<at::Tensor>());
+    }
+  }
 
   TORCH_INTERNAL_ASSERT(
       fusion_outputs.size() == aten_outputs.size() &&
@@ -437,6 +450,29 @@ void testValidate(
     }
     j++;
   }
+}
+
+// The variant with automatically inferred aten outputs. The `evaluate` method
+// of the exprs in the fusion must be overriden to handle at::Tensor.
+void testValidate(
+    Fusion* fusion,
+    const std::vector<at::Tensor>& fusion_outputs,
+    const at::ArrayRef<c10::IValue>& aten_inputs,
+    int line_number,
+    const char* file_name,
+    std::string err_msg = "",
+    const LaunchParams& lparams = LaunchParams(),
+    const ValidationConstants& tolerances = ValidationConstants()) {
+  testValidate(
+      fusion,
+      fusion_outputs,
+      aten_inputs,
+      {},
+      line_number,
+      file_name,
+      err_msg,
+      lparams,
+      tolerances);
 }
 
 } // namespace

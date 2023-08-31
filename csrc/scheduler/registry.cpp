@@ -20,6 +20,7 @@
 #include <scheduler/registry.h>
 #include <scheduler/transpose.h>
 #include <scheduler/utils.h>
+#include <tensor_metadata.h>
 
 #include <limits>
 
@@ -51,29 +52,41 @@ bool rejectScheduleFusionInputRequirement(
         " must be fusion input.");
     return true;
   }
-  if (expr->input(0)->uses().size() > 1) {
-    scheduler_debug_utils::canScheduleRejectReason(
-        schedule_stragety,
-        "First input of ",
-        expr->getOpString(),
-        " can only be used by ",
-        expr->getOpString());
-    return true;
-  }
   return false;
 }
 
-bool rejectScheduleForSelectLikeOps(
+// TODO: remove this requirement entirely
+bool rejectScheduleForMemoryPromotion(
     Fusion* fusion,
     ScheduleHeuristic schedule_strategy) {
   for (auto expr : fusion->exprs()) {
-    // For now, only relax the input requirement with take_along_axis.
-    // TODO: remove this requirement entirely
-    if ((expr->isOneOf<SelectOp, IndexSelectOp>() ||
-         (expr->isA<TorchGatherOp>() &&
-          !expr->as<TorchGatherOp>()->exactSizes())) &&
-        rejectScheduleFusionInputRequirement(expr, schedule_strategy)) {
-      return true;
+    if (expr->isOneOf<SelectOp, IndexSelectOp, TorchGatherOp>()) {
+      // For now, only relax the input requirement when it's
+      // take_along_axis. Also since this would require memory
+      // promotion, i.e., persistent global sync in the case of
+      // block-parallel ops, it needs to be explictly enabled.
+      if (expr->isA<TorchGatherOp>() &&
+          expr->as<TorchGatherOp>()->exactSizes() &&
+          isOptionEnabled(EnableOption::MemoryPromotion)) {
+        continue;
+      }
+      if (rejectScheduleFusionInputRequirement(expr, schedule_strategy)) {
+        return true;
+      }
+    }
+
+    // Similarly, ops based resize, such as like slice, pad and cat,
+    // may require memory promotion. Require them to be done with
+    // fusion inputs unless explicitly allowed
+    if (!isOptionEnabled(EnableOption::MemoryPromotion) &&
+        std::any_of(
+            expr->outputs().begin(), expr->outputs().end(), [](Val* output) {
+              return output->isA<TensorView>() &&
+                  ir_utils::hasResizedRfactor(output->as<TensorView>());
+            })) {
+      if (rejectScheduleFusionInputRequirement(expr, schedule_strategy)) {
+        return true;
+      }
     }
   }
   return false;
@@ -872,23 +885,23 @@ PrimDataType getTensorIndexType(TensorView* tv, ExpressionEvaluator& ee) {
     // extent size is not determined, but this should be possible to
     // evaluate.
     TORCH_INTERNAL_ASSERT(
-        extent.has_value(),
+        extent.hasValue(),
         "Axis with unknown extent found: ",
         id->toString(),
         ", tensor: ",
         tv->toString());
 
-    auto extent_int = extent->as<int64_t>();
+    auto extent_int = extent.as<int64_t>();
 
     TORCH_INTERNAL_ASSERT(
         extent_int >= 0, "Unexpected size of axis: ", extent_int);
 
     if (extent_int > 0) {
-      if (index_type_helper.addDim(extent->as<int64_t>(), stride) ==
+      if (index_type_helper.addDim(extent.as<int64_t>(), stride) ==
           PrimDataType::Int) {
         return PrimDataType::Int;
       }
-      stride *= extent->as<int64_t>();
+      stride *= extent.as<int64_t>();
     }
   }
 
@@ -950,34 +963,30 @@ SchedulerRuntimeInfo::SchedulerRuntimeInfo(
         *expression_evaluator_);
   }
 
-  // Convert all abstract tensor args into tensor args and do tensor stride
-  // inference
-  std::vector<TensorView*> tvs;
-  tvs.reserve(complete_fusion_->inputs().size());
-  for (auto val : complete_fusion_->inputs()) {
-    tvs.emplace_back(dynamic_cast<TensorView*>(val));
-  }
-  args.getBuffer(index_type_, tvs, *expression_evaluator_);
-
   for (auto inp_i : c10::irange(static_cast<int64_t>(args.size()))) {
-    auto kernel_arg = args[inp_i];
+    auto fusion_inp = complete_fusion_->inputs().at(inp_i);
+    auto input_tv = dynamic_cast<TensorView*>(fusion_inp);
     // Note: we are skipping CpuScalar tensor here
-    if (auto tensor_arg_abstract =
-            dynamic_cast<const TensorArgAbstract*>(kernel_arg)) {
-      auto fusion_inp = complete_fusion_->inputs()[inp_i];
-      input_ptrs_[fusion_inp] = tensor_arg_abstract->getPointerAddress();
+    if (input_tv != nullptr && !input_tv->isCpuScalar()) {
+      const auto& metadata =
+          expression_evaluator_->evaluate(IrBuilder::metadataExpr(input_tv));
+      const auto& alloc_sizes = metadata->*&TensorMetaData::alloc_size;
+      const auto& alloc_strides = metadata->*&TensorMetaData::alloc_stride;
+      TORCH_INTERNAL_ASSERT(alloc_sizes.size() == alloc_strides.size());
+
+      input_ptrs_[fusion_inp] = (size_t)(metadata->*&TensorMetaData::data);
 
       // find and push discontiguous stride
-      auto dtype_size = dataTypeSize(tensor_arg_abstract->getDataType());
+      int64_t dtype_size = dataTypeSize(input_tv->dtype());
       input_discontig_strides_[fusion_inp] = {};
-      auto dims = tensor_arg_abstract->getAllocRank();
+      int64_t dims = (int64_t)alloc_strides.size();
       int64_t expected_stride = 1;
-      for (auto dim = dims - 1; dim >= 0; dim--) {
-        auto size = tensor_arg_abstract->getAllocSize((int)dim);
+      for (int64_t dim = dims - 1; dim >= 0; dim--) {
+        auto size = alloc_sizes.at(dim);
         if (size <= 1) {
           continue;
         }
-        auto stride = tensor_arg_abstract->getAllocStride((int)dim);
+        auto stride = alloc_strides.at(dim);
         if (stride != expected_stride) {
           input_discontig_strides_[fusion_inp].push_back(stride * dtype_size);
           expected_stride = stride;
@@ -1009,11 +1018,10 @@ std::unique_ptr<ExpressionEvaluator> SchedulerRuntimeInfo::
         const KernelArgumentHolder& args,
         PrecomputedValues* precomputed_values) {
   std::unique_ptr<ExpressionEvaluator> ee =
-      std::make_unique<ExpressionEvaluator>();
+      std::make_unique<ExpressionEvaluator>(
+          executor_utils::bindInputs(args, complete_fusion_));
   if (precomputed_values) {
     ee->bindPrecomputedValues(precomputed_values);
-  } else {
-    *ee = executor_utils::bindInputs(args, complete_fusion_);
   }
   return ee;
 }
@@ -1046,110 +1054,6 @@ size_t SchedulerRuntimeInfo::getAlignmentSize(TensorView* tv) {
   }
   alignment_map_[tv] = alignment_size;
   return alignment_size;
-}
-
-// Gets maximum vectorizable width of tv, assumes we can merge across all
-// iteration domains if contiguous. Cannot permute the dimensions to fix
-// contiguity.
-size_t SchedulerRuntimeInfo::getMaxVectorizableWidth(
-    TensorView* tv,
-    bool contig_merge) {
-  // Gets the vectorizable width of the tv starting from the inner most
-  // dimension, working its way towards the outer most dimension, if they're
-  // contiguous. Ignores broadcast and reduction domains.
-  auto max_vectorword_map_it_ = max_vectorword_map_.find(tv);
-  if (max_vectorword_map_it_ != max_vectorword_map_.end()) {
-    return max_vectorword_map_it_->second;
-  }
-
-  // If we don't have an record, either it is a tv with innermost broadcast,
-  // or it is an intermediate tensor allocated by fuser.
-  auto tv_alloc = tv->getMaybeAllocationDomain();
-
-  auto tv_alloc_no_reductions = TensorDomain::noReductions(tv_alloc);
-
-  auto contiguity = tv->domain()->contiguity();
-  // Appears after reductions the reduction domain often has a contiguity entry.
-  // This only matters if the result of the reduction is an output
-  if (contiguity.size() == tv_alloc.size() &&
-      contiguity.size() != tv_alloc_no_reductions.size()) {
-    std::vector<std::optional<bool>> new_contiguity;
-    for (auto i : c10::irange(tv_alloc.size())) {
-      if (!tv_alloc[i]->isReduction()) {
-        new_contiguity.push_back(contiguity[i]);
-      }
-    }
-    contiguity = new_contiguity;
-  }
-  tv_alloc = tv_alloc_no_reductions;
-
-  auto tv_alloc_size = tv_alloc.size();
-
-  // Filter out 0-dim tensors
-  if (tv_alloc_size < 1) {
-    return 1;
-  }
-
-  // Filter out mismatched contiguity info
-  if (tv_alloc_size != contiguity.size()) {
-    return 1;
-  }
-
-  size_t item_size = dataTypeSize(tv->dtype(), getIndexType());
-
-  // Alignment should always at least be the data type size
-  TORCH_INTERNAL_ASSERT(getAlignmentSize(tv) % item_size == 0);
-  size_t max_vector_size = getAlignmentSize(tv) / item_size;
-
-  if (max_vector_size == 1) {
-    return 1;
-  }
-
-  size_t numel = 1;
-  for (auto i : c10::irange(tv_alloc_size)) {
-    auto root_i = tv_alloc_size - i - 1;
-    auto root_id = tv_alloc[root_i];
-
-    if (root_id->extent()->isOneInt() || root_id->isBroadcast()) {
-      continue;
-    }
-
-    // Not contiguous
-    auto contiguity_opt = contiguity.at(root_i);
-    TORCH_INTERNAL_ASSERT(contiguity_opt.has_value());
-    if (!*contiguity_opt) {
-      break;
-    }
-
-    auto dim_size = expression_evaluator_->evaluate(root_id->extent());
-    // Inference failed for some reason, assume not-contiguous at this point
-    if (!dim_size.has_value()) {
-      break;
-    }
-
-    // Still contiguous
-    numel *= dim_size->as<int64_t>();
-
-    if (!contig_merge) {
-      break;
-    }
-  }
-
-  // Assuming intermediate tensors have friendly alignment, and
-  //  all contiguity true. Determine the largest power of 2 below
-  //  innermost dimension size for the word size of vectorizaiton
-  size_t vector_size = 1;
-  size_t next_vector_size = 2;
-  while (next_vector_size <= max_vector_size &&
-         next_vector_size <= (size_t)numel && numel % next_vector_size == 0) {
-    vector_size = next_vector_size;
-    next_vector_size *= 2;
-  }
-
-  // save output to avoid re-compute
-  max_vectorword_map_[tv] = vector_size;
-
-  return vector_size;
 }
 
 bool SchedulerEntry::sameAs(const SchedulerEntry* other) {
@@ -1313,7 +1217,7 @@ class NoOpScheduler : public SchedulerEntry {
     }
 
     // Check that inputs of all select/gather-like ops are fusion inputs
-    if (rejectScheduleForSelectLikeOps(fusion, ScheduleHeuristic::NoOp)) {
+    if (rejectScheduleForMemoryPromotion(fusion, ScheduleHeuristic::NoOp)) {
       return false;
     }
 
@@ -1375,7 +1279,8 @@ class ReductionScheduler : public SchedulerEntry {
     }
 
     // Check that inputs of all select/gather-like ops are fusion inputs
-    if (rejectScheduleForSelectLikeOps(fusion, ScheduleHeuristic::Reduction)) {
+    if (rejectScheduleForMemoryPromotion(
+            fusion, ScheduleHeuristic::Reduction)) {
       return false;
     }
 
@@ -1536,17 +1441,9 @@ class TransposeScheduler : public SchedulerEntry {
   }
 
   static bool canScheduleCompileTime(Fusion* fusion) {
-    // Temporarily disallow view in transpose scheduler
-    // TODO Add more testing before enabling
-    auto view_tvs = scheduler_utils::getViewTVs(fusion);
-    if (!view_tvs.empty()) {
-      scheduler_debug_utils::canScheduleRejectReason(
-          ScheduleHeuristic::Transpose, "No support for view op");
-      return false;
-    }
-
     // Check that inputs of all select/gather-like ops are fusion inputs
-    if (rejectScheduleForSelectLikeOps(fusion, ScheduleHeuristic::Transpose)) {
+    if (rejectScheduleForMemoryPromotion(
+            fusion, ScheduleHeuristic::Transpose)) {
       return false;
     }
 
@@ -1668,7 +1565,8 @@ class PointWiseScheduler : public SchedulerEntry {
     }
 
     // Check that inputs of all select/gather-like ops are fusion inputs
-    if (rejectScheduleForSelectLikeOps(fusion, ScheduleHeuristic::PointWise)) {
+    if (rejectScheduleForMemoryPromotion(
+            fusion, ScheduleHeuristic::PointWise)) {
       return false;
     }
 
@@ -1772,7 +1670,8 @@ class PersistentKernelScheduler : public SchedulerEntry {
     }
 
     // Check that inputs of all select/gather-like ops are fusion inputs
-    if (rejectScheduleForSelectLikeOps(fusion, ScheduleHeuristic::Persistent)) {
+    if (rejectScheduleForMemoryPromotion(
+            fusion, ScheduleHeuristic::Persistent)) {
       return false;
     }
 
@@ -1921,24 +1820,7 @@ class PersistentKernelScheduler : public SchedulerEntry {
         outer_reduction = true;
       }
     }
-    if (inner_reduction && outer_reduction) {
-      // get vectorize_factor, same process to that in getPersistentHeuristics
-      auto reduced_tv = ir_utils::getSoleProducerTv(first_inner_reduction_tv);
-      auto properties = scheduler_utils::getReductionProperties(
-          fusion, runtime_info, first_inner_reduction_tv);
-      const auto vectorize_factor = vectorize_helper::getVectorizationFactor(
-          runtime_info,
-          reduced_tv,
-          data_cache,
-          (int)(reduced_tv->nDims() - properties.inner_most_dimension_ndims));
-      if (!checkCombinedReductionShape(
-              runtime_info, reduction_tvs, (int64_t)vectorize_factor)) {
-        scheduler_debug_utils::canScheduleRejectReason(
-            ScheduleHeuristic::Persistent,
-            "Inner dim of combined reduction should be a multiplication of a quarter warp and max vectorization factor!");
-        return false;
-      }
-    }
+
     // If there is both inner and outer reduction, we use the first inner
     // reduction tv to get properties, otherwise we use the first reduction tv,
     // whether it is inner or outer.
@@ -1948,6 +1830,8 @@ class PersistentKernelScheduler : public SchedulerEntry {
 
     auto properties = scheduler_utils::getReductionProperties(
         fusion, runtime_info, reference_tv);
+
+    const int64_t warp_size = at::cuda::getCurrentDeviceProperties()->warpSize;
 
     if (!properties.fastest_dim_reduction) {
       return canScheduleRunTimeOuter(
@@ -1965,15 +1849,40 @@ class PersistentKernelScheduler : public SchedulerEntry {
 
     if (persistent_buffer_size > available_persistent_buffer_size) {
       scheduler_debug_utils::canScheduleRejectReason(
-          ScheduleHeuristic::Persistent, "not enough registers for persistece");
+          ScheduleHeuristic::Persistent,
+          "not enough registers or shared memory for persistence");
       return false;
+    }
+
+    if (inner_reduction && outer_reduction) {
+      // get vectorize_factor, same process to that in getPersistentHeuristics
+      auto reduced_tv = ir_utils::getSoleProducerTv(reference_tv);
+      const auto vectorize_factor = vectorize_helper::getVectorizationFactor(
+          runtime_info,
+          reduced_tv,
+          data_cache,
+          (int)(reduced_tv->nDims() - properties.inner_most_dimension_ndims));
+      // check if we can schedule the combined reductions with a reasonable
+      // batch size without register spills.
+      if (!normalization_scheduler_utils::
+               getOptionalInnerOuterPersistentBufferBatches(
+                   properties.total_reduction_numel,
+                   properties.total_iteration_numel,
+                   persistent_buffer_size,
+                   (int64_t)vectorize_factor,
+                   warp_size,
+                   false)
+                   .first.has_value()) {
+        scheduler_debug_utils::canScheduleRejectReason(
+            ScheduleHeuristic::Persistent,
+            "Required batch number is larger than available batch number! Will cause register spills!");
+        return false;
+      }
     }
 
     const int64_t device_max_threads_per_multiprocessor =
         (int64_t)at::cuda::getCurrentDeviceProperties()
             ->maxThreadsPerMultiProcessor;
-
-    const int64_t warp_size = at::cuda::warp_size();
 
     // Maximum number of iteration dimensions we can have and still be
     // persistent.
@@ -2087,41 +1996,6 @@ class PersistentKernelScheduler : public SchedulerEntry {
     return true;
   }
 
-  static bool checkCombinedReductionShape(
-      SchedulerRuntimeInfo& runtime_info,
-      const std::vector<TensorView*>& reduction_tvs,
-      const int64_t vectorization_factor) {
-    // In combined_inner_outer_reduction, the inner dim should be a
-    // multiplication of a quarter warp and vectorization factor. Otherwise,
-    // will use segregated version. Since inner reduction dim is splitted by
-    // bdimx, this ensures the largest possible bdimx can be at least of a
-    // quarter warp. So we have enough bdimx threads to cover the iteration
-    // domain of the outer reductions to avoid low performance.
-    const int64_t quarter_warp =
-        at::cuda::getCurrentDeviceProperties()->warpSize / 4;
-    for (auto tv : reduction_tvs) {
-      int64_t n_elements = 1;
-      const int64_t n_elements_factor = quarter_warp * vectorization_factor;
-      const bool is_inner_reduction =
-          scheduler_utils::isFastestDimReduction(tv);
-      for (auto id : tv->getMaybeRFactorDomain()) {
-        // check reduction domain for inner reduction and iteration domain for
-        // outer reduction
-        if (id->isReduction() == is_inner_reduction) {
-          auto id_size =
-              runtime_info.expressionEvaluator().evaluate(id->extent());
-          TORCH_INTERNAL_ASSERT(
-              id_size.has_value(), "Could not infer reduction dim size.");
-          n_elements *= id_size->as<int64_t>();
-        }
-      }
-      if (n_elements % n_elements_factor) {
-        return false;
-      }
-    }
-    return true;
-  }
-
   static std::pair<int64_t, int64_t> getPersistentBufferSize(
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
@@ -2167,13 +2041,44 @@ class PersistentKernelScheduler : public SchedulerEntry {
           normalization_scheduler_utils::partialReductionBufferSize(
               outer_reduction_tvs, runtime_info);
     }
+
     // At this point, we use the full register file size only for the
     // inner-outer case. It does not mean the full size shouldn't be used
     // otherwise, but more detailed tuning of the heuristics would be required.
-    const int64_t available_persistent_buffer_size =
-        combined_inner_outer_reduction
+    int64_t available_persistent_buffer_size = combined_inner_outer_reduction
         ? scheduler_utils::register_file_size_full
         : scheduler_utils::register_file_size;
+
+    // Use shared memory for persistent buffer is only tested for inner
+    // reduction
+    // TODO: extend to outer reduction and combined reduction
+    const bool allow_shared_memory =
+        inner_reduction_count > 0 && outer_reduction_count == 0;
+    if (allow_shared_memory) {
+      const auto dev_prop = at::cuda::getCurrentDeviceProperties();
+      const int64_t max_shared_memory_size =
+          (int64_t)dev_prop->sharedMemPerBlockOptin;
+      // Some shared memories are reserved for kernel launch overhead and
+      // reduction_broadcast_workspace. Estimation is conservative, but should
+      // be good enough. The actual threads per block is set in the heuristics
+      // and it may be smaller than maxThreadsPerBlock.
+      // TODO: More accurate estimation of available shared memory size.
+      const int64_t kernel_overhead =
+          (int64_t)dev_prop->reservedSharedMemPerBlock;
+      int64_t max_buffer_dtype_size = 1;
+      for (auto tv : persistent_buffer_info.persistent_buffers) {
+        max_buffer_dtype_size = std::max(
+            max_buffer_dtype_size,
+            dataTypeSize(
+                tv->getDataType().value(), runtime_info.getIndexType()));
+      }
+      const int64_t reduction_broadcast_workspace =
+          (int64_t)(dev_prop->maxThreadsPerBlock) * max_buffer_dtype_size;
+      const int64_t available_shared_memory_size = max_shared_memory_size -
+          kernel_overhead - reduction_broadcast_workspace;
+      available_persistent_buffer_size = std::max(
+          available_persistent_buffer_size, available_shared_memory_size);
+    }
 
     return std::make_pair(
         persistent_buffer_size, available_persistent_buffer_size);
@@ -2451,6 +2356,7 @@ bool checkCanSchedule(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache = nullptr) {
+  FusionGuard fg(fusion);
   // If a data cache is given, the compile time part doesn't need to be checked,
   // since for all current use cases
   //  it has to pass all the compile time checks to create a data cache for this
@@ -2542,7 +2448,7 @@ std::unique_ptr<SchedulerEntry> SchedulerEntry::makeEntry(
 }
 
 // Simply loop through the list as baseline strategy
-c10::optional<ScheduleHeuristic> SchedulerEntry::proposeHeuristics(
+std::optional<ScheduleHeuristic> SchedulerEntry::proposeHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info) {
   for (auto sh : all_heuristics()) {
@@ -2551,7 +2457,7 @@ c10::optional<ScheduleHeuristic> SchedulerEntry::proposeHeuristics(
       return sh;
     }
   }
-  return c10::nullopt;
+  return std::nullopt;
 }
 
 size_t SchedulerEntryHash::operator()(const SchedulerEntry& se) const {

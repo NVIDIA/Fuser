@@ -8,6 +8,7 @@ from pathlib import Path
 UNKNOWN = "Unknown"
 nvfuser_root = Path(__file__).parent.parent
 
+
 # note that this root currently is still part of pytorch.
 def get_sha() -> str:
     try:

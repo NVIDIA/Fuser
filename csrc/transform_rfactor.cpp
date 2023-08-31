@@ -124,7 +124,7 @@ class ReplayRFactor : public ReplayTransformations {
     IterDomain* ido =
         IterDomainBuilder(
             s->container()->zeroVal(),
-            s->innerSplit() ? remainder->as<Int>() : s->factor())
+            s->innerSplit() ? remainder : s->factor())
             .iter_type(
                 rfactor_axes_.count(s->outer()) ? IterType::Reduction
                                                 : IterType::Iteration)
@@ -135,7 +135,7 @@ class ReplayRFactor : public ReplayTransformations {
     IterDomain* idi =
         IterDomainBuilder(
             s->container()->zeroVal(),
-            s->innerSplit() ? s->factor() : remainder->as<Int>())
+            s->innerSplit() ? s->factor() : remainder)
             .iter_type(
                 rfactor_axes_.count(s->inner()) ? IterType::Reduction
                                                 : IterType::Iteration)
@@ -186,7 +186,7 @@ class ReplayRFactor : public ReplayTransformations {
         mul(id_outer_mapped->extent(), id_inner_mapped->extent());
 
     IterDomain* merged_id =
-        IterDomainBuilder(m->container()->zeroVal(), merged_id_size->as<Int>())
+        IterDomainBuilder(m->container()->zeroVal(), merged_id_size)
             .iter_type(
                 rfactor_axes_.count(m->out()) ? IterType::Reduction
                                               : IterType::Iteration)
