@@ -242,6 +242,13 @@ class TORCH_CUDA_CU_API IdGraph {
   // Keeps a disjoint set entry for all Expressions for all mapping mode types.
   DisjointSets<Expr*> disjoint_exprs_;
 
+  // Definitions of IdGroup. There can be multiple definitions due to
+  // replays.
+  // TODO-NM: IdGroup by a new definition ExprGroup would not be used
+  // by existing uses. Does it make sense to represent uses and defs
+  // this way? In other words, there is a traversal path from a
+  // definition ExprGroup to an IdGroup and its use ExprGroup, but
+  // that does't guarantee the path actually exist
   std::unordered_map<IdGroup, ExprGroups> unique_definitions_;
 
   std::unordered_map<IdGroup, ExprGroups> unique_uses_;
