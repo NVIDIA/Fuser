@@ -1820,10 +1820,8 @@ class PersistentKernelScheduler : public SchedulerEntry {
     auto& reduction_tvs = reduction_tv_entry.get();
     bool inner_reduction = false;
     bool outer_reduction = false;
-    TensorView* first_inner_reduction_tv = nullptr;
     for (auto tv : reduction_tvs) {
       if (scheduler_utils::isFastestDimReduction(tv)) {
-        first_inner_reduction_tv = tv;
         inner_reduction = true;
       } else {
         outer_reduction = true;
@@ -1833,12 +1831,11 @@ class PersistentKernelScheduler : public SchedulerEntry {
     // If there is both inner and outer reduction, we use the first inner
     // reduction tv to get properties, otherwise we use the first reduction tv,
     // whether it is inner or outer.
-    auto reference_tv = inner_reduction && outer_reduction
-        ? first_inner_reduction_tv
-        : reduction_tvs[0];
+    auto ref_red_tv =
+        normalization_scheduler_utils::getReferenceReductionTv(reduction_tvs);
 
     auto properties = scheduler_utils::getReductionProperties(
-        fusion, runtime_info, reference_tv);
+        fusion, runtime_info, ref_red_tv);
 
     const int64_t warp_size = at::cuda::getCurrentDeviceProperties()->warpSize;
 
@@ -1865,7 +1862,7 @@ class PersistentKernelScheduler : public SchedulerEntry {
 
     if (inner_reduction && outer_reduction) {
       // get vectorize_factor, same process to that in getPersistentHeuristics
-      auto reduced_tv = ir_utils::getSoleProducerTv(reference_tv);
+      auto reduced_tv = ir_utils::getSoleProducerTv(ref_red_tv);
       const auto vectorize_factor = vectorize_helper::getVectorizationFactor(
           runtime_info,
           reduced_tv,

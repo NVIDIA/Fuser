@@ -205,5 +205,9 @@ getOptionalInnerOuterPersistentBufferBatches(
     const int64_t warp_size,
     const bool ignore_register_size_limit);
 
+//! Use the first inner reduction tv as the reference tv if the fusion has both
+//! inner and outer reductions, otherwise use the first reduction tv.
+TensorView* getReferenceReductionTv(
+    const std::vector<TensorView*>& reduction_tvs);
 } // namespace normalization_scheduler_utils
 } // namespace nvfuser
