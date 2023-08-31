@@ -46,15 +46,15 @@ TEST_F(UnionFindTest, Basic) {
 TEST_F(UnionFindTest, EquivalenceClasses) {
   UnionFind<uint8_t> uf(5);
   //   Class 0:
-  //     0  [ROOT]
+  //     0  *
   //   Class 1:
-  //     1  [ROOT]
+  //     1  *
   //   Class 2:
-  //     2  [ROOT]
+  //     2  *
   //   Class 3:
-  //     3  [ROOT]
+  //     3  *
   //   Class 3:
-  //     4  [ROOT]
+  //     4  *
   auto c = uf.computeEquivalenceClasses();
   EXPECT_EQ(c.size(), 5);
   for (const auto i : c10::irange(c.size())) {
@@ -65,13 +65,13 @@ TEST_F(UnionFindTest, EquivalenceClasses) {
 
   uf.merge(3, 4);
   //   Class 0:
-  //     0  [ROOT]
+  //     0  *
   //   Class 1:
-  //     1  [ROOT]
+  //     1  *
   //   Class 2:
-  //     2  [ROOT]
+  //     2  *
   //   Class 3:
-  //     3  [ROOT]
+  //     3  *
   //     4
   EXPECT_TRUE(uf.equiv(3, 4));
   EXPECT_FALSE(uf.equiv(2, 3));
@@ -88,20 +88,20 @@ TEST_F(UnionFindTest, EquivalenceClasses) {
 
   uf.enlarge(8);
   //   Class 0:
-  //     0  [ROOT]
+  //     0  *
   //   Class 1:
-  //     1  [ROOT]
+  //     1  *
   //   Class 2:
-  //     2  [ROOT]
+  //     2  *
   //   Class 3:
-  //     3  [ROOT]
+  //     3  *
   //     4
   //   Class 4:
-  //     5  [ROOT]
+  //     5  *
   //   Class 5:
-  //     6  [ROOT]
+  //     6  *
   //   Class 6:
-  //     7  [ROOT]
+  //     7  *
   EXPECT_FALSE(uf.equiv(4, 7));
   c = uf.computeEquivalenceClasses();
   EXPECT_EQ(c.size(), 7);
@@ -119,39 +119,38 @@ TEST_F(UnionFindTest, EquivalenceClasses) {
   EXPECT_EQ(c[3][1], 4);
 
   // Perform a couple more merges to check that ordering is sane
-  uf.merge(6, 1); // 1 -> 6
+  uf.merge(6, 0); // 0 -> 6
+  uf.merge(2, 0); // 0 -> 6 -> 2
   uf.merge(5, 7); // 7 -> 5
   uf.merge(7, 3); // 4 -> 3 -> 7 -> 5
   //   Class 0:
-  //     0  [ROOT]
+  //     0
+  //     2  *
+  //     6
   //   Class 1:
-  //     1
-  //     6  [ROOT]
+  //     1  *
   //   Class 2:
-  //     2  [ROOT]
-  //   Class 3:
   //     3
   //     4
-  //     5  [ROOT]
+  //     5  *
   //     7
   EXPECT_TRUE(uf.equiv(4, 7));
-  for (auto expected_root : {0, 2, 5, 6}) {
+  for (auto expected_root : {1, 2, 5}) {
     EXPECT_EQ(uf.find(expected_root), expected_root);
   }
   c = uf.computeEquivalenceClasses();
-  EXPECT_EQ(c.size(), 4);
-  EXPECT_EQ(c[0].size(), 1);
+  EXPECT_EQ(c.size(), 3);
+  EXPECT_EQ(c[0].size(), 3);
   EXPECT_EQ(c[0][0], 0);
-  EXPECT_EQ(c[1].size(), 2);
+  EXPECT_EQ(c[0][1], 2);
+  EXPECT_EQ(c[0][2], 6);
+  EXPECT_EQ(c[1].size(), 1);
   EXPECT_EQ(c[1][0], 1);
-  EXPECT_EQ(c[1][1], 6);
-  EXPECT_EQ(c[2].size(), 1);
-  EXPECT_EQ(c[2][0], 2);
-  EXPECT_EQ(c[3].size(), 4);
-  EXPECT_EQ(c[3][0], 3);
-  EXPECT_EQ(c[3][1], 4);
-  EXPECT_EQ(c[3][2], 5);
-  EXPECT_EQ(c[3][3], 7);
+  EXPECT_EQ(c[2].size(), 4);
+  EXPECT_EQ(c[2][0], 3);
+  EXPECT_EQ(c[2][1], 4);
+  EXPECT_EQ(c[2][2], 5);
+  EXPECT_EQ(c[2][3], 7);
 
   // Verify that computing individual classes gives same results as these
   for (auto i : c10::irange(c.size())) {
@@ -178,6 +177,10 @@ TEST_F(UnionFindTest, EquivalenceClasses) {
       EXPECT_EQ(cj, ci);
     }
   }
+
+  // Test printing to string
+  const auto s = uf.toString();
+  EXPECT_GT(s.size(), 0);
 }
 
 // Test that joining two UnionFinds results in a partition containing A and B as
