@@ -11,6 +11,11 @@
 
 namespace nvfuser {
 
+namespace {
+using UnorderedSetOfExprGroup = std::unordered_set<ExprGroup>;
+using DequeOfExprGroup = std::deque<ExprGroup>;
+} // namespace
+
 IdGraph::IdGraph(const IdGraph& other)
     : disjoint_ids_(other.disjoint_ids_),
       disjoint_exprs_(other.disjoint_exprs_),
@@ -115,29 +120,26 @@ std::vector<IdGroup> IdGraph::inputGroups(const ExprGroup& expr) const {
 }
 
 ExprGroups IdGraph::allUsesOf(const IdGroups& of) const {
-  ExprGroups to_visit;
-  for (auto of_id_group : of) {
-    auto group_uses_pair = getUses(of_id_group);
-    if (group_uses_pair.second) {
-      to_visit.pushBack(group_uses_pair.first);
+  DequeOfExprGroup to_visit;
+  for (const IdGroup& of_id_group : of) {
+    if (const auto& [group_uses, found] = getUses(of_id_group); found) {
+      to_visit.insert(to_visit.end(), group_uses.begin(), group_uses.end());
     }
   }
 
-  ExprGroups visited;
-  while (to_visit.size() > 0) {
-    auto current_expr = to_visit.popFront();
-    visited.pushBack(current_expr);
-    auto output_ids = outputGroups(current_expr);
-    for (auto output_id : output_ids) {
-      auto group_uses_pair = getUses(output_id);
-      if (!group_uses_pair.second) {
-        continue;
-      }
-      for (auto group_use : group_uses_pair.first) {
-        if (visited.has(group_use)) {
-          continue;
+  UnorderedSetOfExprGroup visited;
+  while (!to_visit.empty()) {
+    ExprGroup current_expr = to_visit.front();
+    to_visit.pop_front();
+    visited.emplace(current_expr);
+    for (const IdGroup& output_id : outputGroups(current_expr)) {
+      if (const auto& [group_uses, found] = getUses(output_id); found) {
+        for (const ExprGroup& group_use : group_uses) {
+          if (visited.count(group_use)) {
+            continue;
+          }
+          to_visit.push_back(group_use);
         }
-        to_visit.pushBack(group_use);
       }
     }
   }
@@ -146,29 +148,26 @@ ExprGroups IdGraph::allUsesOf(const IdGroups& of) const {
 }
 
 ExprGroups IdGraph::allDefinitionsOf(const IdGroups& of) const {
-  ExprGroups to_visit;
-  for (auto of_id_group : of) {
-    auto group_defs_pair = getDefinitions(of_id_group);
-    if (group_defs_pair.second) {
-      to_visit.pushBack(group_defs_pair.first);
+  DequeOfExprGroup to_visit;
+  for (const IdGroup& of_id_group : of) {
+    if (const auto& [group_defs, found] = getDefinitions(of_id_group); found) {
+      to_visit.insert(to_visit.end(), group_defs.begin(), group_defs.end());
     }
   }
 
-  ExprGroups visited;
-  while (to_visit.size() > 0) {
-    auto current_expr = to_visit.popFront();
-    visited.pushBack(current_expr);
-    auto input_ids = inputGroups(current_expr);
-    for (auto input_id : input_ids) {
-      auto group_defs_pair = getDefinitions(input_id);
-      if (!group_defs_pair.second) {
-        continue;
-      }
-      for (auto group_def : group_defs_pair.first) {
-        if (visited.has(group_def)) {
-          continue;
+  UnorderedSetOfExprGroup visited;
+  while (!to_visit.empty()) {
+    ExprGroup current_expr = to_visit.front();
+    to_visit.pop_front();
+    visited.emplace(current_expr);
+    for (const IdGroup& input_id : inputGroups(current_expr)) {
+      if (const auto& [group_defs, found] = getDefinitions(input_id); found) {
+        for (const ExprGroup& group_def : group_defs) {
+          if (visited.count(group_def)) {
+            continue;
+          }
+          to_visit.push_back(group_def);
         }
-        to_visit.pushBack(group_def);
       }
     }
   }
@@ -228,33 +227,16 @@ ExprGroups IdGraph::getExprsBetween(const IdGroups& from, const IdGroups& to)
 
   // Return if all output IterDomain groups of an expression group have
   // already been visited
-  auto outputsVisited = [&](ExprGroup expr) {
-    for (auto id_group : outputGroups(expr)) {
-      if (required_ind_exprs_ids.find(id_group) ==
-          required_ind_exprs_ids.end()) {
-        return false;
-      }
-    }
-    return true;
+  auto outputsVisited = [&](ExprGroup expr_group) {
+    auto output_groups = outputGroups(expr_group);
+    return std::all_of(
+        output_groups.begin(),
+        output_groups.end(),
+        [&](const IdGroup& output_group) {
+          return required_ind_exprs_ids.find(output_group) !=
+              required_ind_exprs_ids.end();
+        });
   };
-
-#if 0
-  auto allIdUsesVisisted = [&](IdGroup id) {
-    auto uses_pair = iterDomainGroupUses(id);
-    if (!uses_pair.second) {
-      return true;
-    }
-    for (auto use_group : uses_pair.first) {
-      if (all_exprs.has(use_group)) {
-        if (required_ind_exprs_exprs.find(use_group) ==
-            required_ind_exprs_exprs.end()) {
-          return false;
-        }
-      }
-    }
-    return true;
-  };
-#endif
 
   // Returns all expression groups in required_ind_exprs_ids of outputs
   auto requiredExprsOutputs = [&](ExprGroup expr_group) -> ExprGroups {
@@ -614,7 +596,8 @@ void IdGraph::initializeId(
     IterDomain* id,
     const VectorOfUniqueEntries<Expr*>& definitions,
     const VectorOfUniqueEntries<Expr*>& uses) {
-  auto id_disjoint_set = disjointIdSets().initializeSet(id).first->second;
+  const IdGroup& id_disjoint_set =
+      disjointIdSets().initializeSet(id).first->second;
 
   ExprGroups def_groups;
   for (auto def : definitions) {
