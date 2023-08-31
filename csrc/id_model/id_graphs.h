@@ -185,7 +185,7 @@ class TORCH_CUDA_CU_API IterDomainGraphs : public PolymorphicBase {
 
   // Iterates over all IterDomains in id_definitions_ and calls initializeID on
   // a new IdGraph and returns it.
-  IdGraph initializeIdGraph();
+  IdGraph initializeIdGraph(bool propagate_through_exprs = true);
 
   // Fills disjoint_ids_[IdMappingMode::EXACT] for relationships between inputs
   // and first output of expr
@@ -280,7 +280,8 @@ class TORCH_CUDA_CU_API IterDomainGraphs : public PolymorphicBase {
   std::unordered_map<IterDomain*, VectorOfUniqueEntries<Expr*>> id_uses_;
 
   // Make sure we don't blindly use definitions as we don't want to grab
-  // transformations before a tensor view's root domain.
+  // transformations before a tensor view's root domain. There can be
+  // multiple definitions due to replays.
   std::unordered_map<IterDomain*, VectorOfUniqueEntries<Expr*>> id_definitions_;
 
   // Debug information to hold if a self mapping in a TensorView is found.

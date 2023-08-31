@@ -31,6 +31,8 @@ class TORCH_CUDA_CU_API IdGraph {
   IdGraph& operator=(const IdGraph& other);
   IdGraph& operator=(IdGraph&& other) = default;
 
+  IdGraph(bool propagate_through_exprs) : propagate_through_exprs_(propagate_through_exprs) {}
+
   // Returns the disjoint IterDomain set.
   const DisjointSets<IterDomain*>& disjointIdSets() const {
     return disjoint_ids_;
@@ -185,17 +187,6 @@ class TORCH_CUDA_CU_API IdGraph {
   // mappings from IdGraph::isTrivialExpr
   void removeTrivialExprs();
 
-  // See comment on propagate_expr_ member bool for description
-  // Once disabled this can't be reenabled on a graph. If it's reenabled it's
-  // hard to predict how mappings will propagate, which will be triggered on the
-  // next mapping. To support changing this flag, we should likely run through
-  // all expressions currently registered and propagate through all of them on
-  // switch. Then once enabled it couldn't be redisabled because we don't record
-  // the history of mapId calls.
-  void disableExprPropagation() {
-    propagate_exprs_ = false;
-  }
-
   // Removes the provided expression group from unique_definitions_ and
   // unique_uses_ breaking traversal through them.
   void eraseExprGroup(const ExprGroup& expr_group);
@@ -223,14 +214,14 @@ class TORCH_CUDA_CU_API IdGraph {
   bool mapThroughExpr(Expr* first, Expr* second, bool forward);
 
  private:
-  // If propagate_exprs_ = false, then mapThroughExpr will not be called as a
+  // If propagate_through_exprs_ = false, then mapThroughExpr will not be called as a
   // consequence of calling mapIds. As well as mapThroughExpr will not be called
   // (again) as a result of calling mapThroughExpr.
   //
   // Note: For the second sentence of above... mapThroughExpr can call mapIds
   // which could in return call mapThoughExpr again, but propagate_exprs_ as
   // mentioned above prevents that from happening.
-  bool propagate_exprs_ = true;
+  bool propagate_through_exprs_ = true;
 
   // Keeps a disjoint set entry for all IterDomain for all mapping mode types.
   //

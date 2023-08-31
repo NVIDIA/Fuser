@@ -627,8 +627,8 @@ IterDomain* IterDomainGraphs::cloneIterDomain(IterDomain* id) {
   return id_copy;
 }
 
-IdGraph IterDomainGraphs::initializeIdGraph() {
-  IdGraph id_graph;
+IdGraph IterDomainGraphs::initializeIdGraph(bool propagate_through_exprs) {
+  IdGraph id_graph(propagate_through_exprs);
 
   for (auto definition_entry : id_definitions_) {
     auto id = definition_entry.first;
@@ -1065,10 +1065,7 @@ IdGraph IterDomainGraphs::buildIntersection(
     const IdGraph& graph0,
     const IdGraph& graph1,
     bool propagate_exprs) {
-  auto intersection = initializeIdGraph();
-  if (!propagate_exprs) {
-    intersection.disableExprPropagation();
-  }
+  auto intersection = initializeIdGraph(propagate_exprs);
   for (auto group0 : graph0.disjointIdSets().disjointSets()) {
     auto set_size = group0->size();
     for (auto id0_i : c10::irange(set_size)) {
@@ -1087,10 +1084,9 @@ IdGraph IterDomainGraphs::buildIntersection(
 }
 
 void IterDomainGraphs::initializeLoopMap(StatefulLoweringInfo& info) {
-  idGraph(IdMappingMode::LOOP) = initializeIdGraph();
   // See Indexing20 example for why we shouldn't propagate when generating loop
   // groups
-  idGraph(IdMappingMode::LOOP).disableExprPropagation();
+  idGraph(IdMappingMode::LOOP) = initializeIdGraph(false);
 
   // Make sure this is called in a deterministic order. Build all inlined
   // relationships in loop graph.

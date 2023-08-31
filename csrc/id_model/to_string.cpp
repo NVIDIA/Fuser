@@ -161,6 +161,7 @@ std::string toInlineString(const std::vector<IdGroup>& id_groups) {
     auto pos = group_name_info[i].second;
     ss << toString(id_groups[pos]);
   }
+  ss << "}";
 
   return ss.str();
 }

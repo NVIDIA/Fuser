@@ -801,7 +801,7 @@ void IdGraph::maybeMapThroughExprs(Expr* expr0, Expr* expr1, bool forward) {
 
   // Expr inputs are mapped. If propagate_exprs_ is true, map the
   // exprs and outputs
-  if (propagate_exprs_) {
+  if (propagate_through_exprs_) {
     mapExprs(expr0, expr1);
     mapThroughExpr(expr0, expr1, forward);
   } else if (
@@ -866,7 +866,7 @@ bool IdGraph::mapThroughExpr(Expr* first, Expr* second, bool forward) {
   }
 
   TORCH_INTERNAL_ASSERT(
-      propagate_exprs_,
+      propagate_through_exprs_,
       "Asked to propagate expression mappings on a graph that has propagate_exprs_ disabled.");
 
   auto first_ids = ir_utils::filterByType<IterDomain>(
