@@ -46,7 +46,8 @@ sass::Container getSASSFor(
     int N,
     int K,
     const int smem_double_buffer_stage = 4,
-    const bool use_smem_epilogue = false) {
+    const bool use_smem_epilogue = false,
+    const bool promote_prologue_smem_reuse = false) {
   Fusion fusion;
   FusionGuard fg(&fusion);
   auto tv0 = makeContigTensor(2, DataType::Half);
@@ -73,6 +74,7 @@ sass::Container getSASSFor(
   params.double_buffer_options.smem_double_buffer_stage =
       smem_double_buffer_stage;
   params.use_smem_epilogue = use_smem_epilogue;
+  params.promote_prologue_smem_reuse = promote_prologue_smem_reuse;
   scheduleMatmul(&fusion, params);
 
   auto inputs = matmulAtInput(M, N, K, layout);
@@ -328,7 +330,7 @@ TEST_F(MatmulSASSTest, AmpereModifiersSharedMemoryEpilogue_CUDA) {
   gemm_tile.instruction_tile = GemmTile(16, 8, 16);
   const int smem_double_buffer_stage = 4;
   const bool ignore_occupancy_drop = true;
-  const bool use_smem_epilogue =
+  const auto [use_smem_epilogue, promote_prologue_smem_reuse] =
       mma_utils::generateSharedMemoryEpilogueHeuristics(
           gemm_tile,
           smem_double_buffer_stage,
@@ -347,9 +349,9 @@ TEST_F(MatmulSASSTest, AmpereModifiersSharedMemoryEpilogue_CUDA) {
     bool found_LDGDEPBAR = false;
     bool found_DEPBAR = false; // kAllSupportedMatmulLayout;
     int BAR_COUNT = 0;
-    // we have three shared memory barriers in the kernel if
-    // use_shared_epilogue
-    const int EXPECTED_BAR_COUNT = 3;
+    // we have at least three shared memory barriers in the kernel if
+    // use_shared_epilogue. If promote_prologue_smem_reuse, then 4
+    const int EXPECTED_BAR_COUNT = promote_prologue_smem_reuse ? 4 : 3;
     sass::Container sass;
     NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
         8,
@@ -364,7 +366,8 @@ TEST_F(MatmulSASSTest, AmpereModifiersSharedMemoryEpilogue_CUDA) {
             N,
             K,
             smem_double_buffer_stage,
-            use_smem_epilogue));
+            use_smem_epilogue,
+            promote_prologue_smem_reuse));
     for (auto inst : sass.code) {
       std::visit(
           [&](auto&& i) {
