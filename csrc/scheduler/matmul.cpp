@@ -509,6 +509,15 @@ void swizzleSharedMemory(
 void scheduleProlog(TensorView* shared_mem_tv, const MatmulParams& params) {
   shared_mem_tv->setMemoryType(MemoryType::Shared);
 
+  // The following line allows us to reclaim the memory allocated to
+  // shared_mem_tv and reuse it for the epilogue, introducing one block sync if
+  // needed. This is not done by default as we do not insert new syncs unless
+  // requested to do so. If smem is not used for the epilogue, this call will
+  // have no effect.
+  if (params.promote_prologue_smem_reuse) {
+    shared_mem_tv->promoteReuse();
+  }
+
   mma_utils::orderTiledConcreteIdAsRoot(shared_mem_tv);
 
   // Swizzle the shared memory data layout
