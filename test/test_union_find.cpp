@@ -22,28 +22,167 @@ namespace nvfuser {
 
 using namespace at::indexing;
 
-TEST_F(NVFuserTest, FusionUnionFind) {
+class UnionFindTest : public NVFuserTest {};
+
+TEST_F(UnionFindTest, Basic) {
   UnionFind<uint8_t> uf(5);
 
   uf.merge(3, 4);
 
-  assert(uf.equiv(3, 4));
-  assert(!uf.equiv(2, 3));
+  EXPECT_TRUE(uf.equiv(3, 4));
+  EXPECT_FALSE(uf.equiv(2, 3));
 
   uf.enlarge(8);
-  assert(!uf.equiv(3, 7));
+  EXPECT_FALSE(uf.equiv(3, 7));
 
   EXPECT_ANY_THROW(uf.enlarge(270); // Try to enlarge past capacity of IndexType
   );
 
-  assert(uf.size() == 8);
+  EXPECT_EQ(uf.size(), 8);
   EXPECT_ANY_THROW(uf.find(8); // Try to index past current size
   );
 }
 
+TEST_F(UnionFindTest, EquivalenceClasses) {
+  UnionFind<uint8_t> uf(5);
+  //   Class 0:
+  //     0  [ROOT]
+  //   Class 1:
+  //     1  [ROOT]
+  //   Class 2:
+  //     2  [ROOT]
+  //   Class 3:
+  //     3  [ROOT]
+  //   Class 3:
+  //     4  [ROOT]
+  auto c = uf.computeEquivalenceClasses();
+  EXPECT_EQ(c.size(), 5);
+  for (const auto i : c10::irange(c.size())) {
+    const auto& ci = c[i];
+    EXPECT_EQ(ci.size(), 1);
+    EXPECT_EQ(ci[0], i);
+  }
+
+  uf.merge(3, 4);
+  //   Class 0:
+  //     0  [ROOT]
+  //   Class 1:
+  //     1  [ROOT]
+  //   Class 2:
+  //     2  [ROOT]
+  //   Class 3:
+  //     3  [ROOT]
+  //     4
+  EXPECT_TRUE(uf.equiv(3, 4));
+  EXPECT_FALSE(uf.equiv(2, 3));
+  EXPECT_EQ(c.size(), 5);
+  c = uf.computeEquivalenceClasses();
+  for (const auto i : c10::irange(3)) {
+    const auto& ci = c[i];
+    EXPECT_EQ(ci.size(), 1);
+    EXPECT_EQ(ci[0], i);
+  }
+  EXPECT_EQ(c[3].size(), 2);
+  EXPECT_EQ(c[3][0], 3);
+  EXPECT_EQ(c[3][1], 4);
+
+  uf.enlarge(8);
+  //   Class 0:
+  //     0  [ROOT]
+  //   Class 1:
+  //     1  [ROOT]
+  //   Class 2:
+  //     2  [ROOT]
+  //   Class 3:
+  //     3  [ROOT]
+  //     4
+  //   Class 4:
+  //     5  [ROOT]
+  //   Class 5:
+  //     6  [ROOT]
+  //   Class 6:
+  //     7  [ROOT]
+  EXPECT_FALSE(uf.equiv(4, 7));
+  c = uf.computeEquivalenceClasses();
+  EXPECT_EQ(c.size(), 7);
+  for (const auto i : c10::irange(7)) {
+    if (i == 3) {
+      continue;
+    }
+    const auto& ci = c[i];
+    EXPECT_EQ(ci.size(), 1);
+    const auto ii = i < 3 ? i : i + 1; // index skip over i=3
+    EXPECT_EQ(ci[0], ii);
+  }
+  EXPECT_EQ(c[3].size(), 2);
+  EXPECT_EQ(c[3][0], 3);
+  EXPECT_EQ(c[3][1], 4);
+
+  // Perform a couple more merges to check that ordering is sane
+  uf.merge(6, 1); // 1 -> 6
+  uf.merge(5, 7); // 7 -> 5
+  uf.merge(7, 3); // 4 -> 3 -> 7 -> 5
+  //   Class 0:
+  //     0  [ROOT]
+  //   Class 1:
+  //     1
+  //     6  [ROOT]
+  //   Class 2:
+  //     2  [ROOT]
+  //   Class 3:
+  //     3
+  //     4
+  //     5  [ROOT]
+  //     7
+  EXPECT_TRUE(uf.equiv(4, 7));
+  for (auto expected_root : {0, 2, 5, 6}) {
+    EXPECT_EQ(uf.find(expected_root), expected_root);
+  }
+  c = uf.computeEquivalenceClasses();
+  EXPECT_EQ(c.size(), 4);
+  EXPECT_EQ(c[0].size(), 1);
+  EXPECT_EQ(c[0][0], 0);
+  EXPECT_EQ(c[1].size(), 2);
+  EXPECT_EQ(c[1][0], 1);
+  EXPECT_EQ(c[1][1], 6);
+  EXPECT_EQ(c[2].size(), 1);
+  EXPECT_EQ(c[2][0], 2);
+  EXPECT_EQ(c[3].size(), 4);
+  EXPECT_EQ(c[3][0], 3);
+  EXPECT_EQ(c[3][1], 4);
+  EXPECT_EQ(c[3][2], 5);
+  EXPECT_EQ(c[3][3], 7);
+
+  // Verify that computing individual classes gives same results as these
+  for (auto i : c10::irange(c.size())) {
+    const auto& ci = c.at(i);
+    for (auto j : ci) {
+      // compute equivalence class directly for this element
+      const auto cj = uf.computeEquivalenceClass(j);
+      // check that this matches what's computed when computing all classes
+      EXPECT_EQ(cj, ci);
+    }
+  }
+
+  // const versions of the above
+  const auto ufc = uf; // copy to const
+  EXPECT_EQ(ufc, uf); // check the copy worked properly
+  auto cc = ufc.computeEquivalenceClasses();
+  EXPECT_EQ(cc, c);
+  for (auto i : c10::irange(cc.size())) {
+    const auto& ci = cc.at(i);
+    for (auto j : ci) {
+      // compute equivalence class directly for this element
+      const auto cj = ufc.computeEquivalenceClass(j);
+      // check that this matches what's computed when computing all classes
+      EXPECT_EQ(cj, ci);
+    }
+  }
+}
+
 // Test that joining two UnionFinds results in a partition containing A and B as
 // refinements
-TEST_F(NVFuserTest, FusionUnionFindJoin) {
+TEST_F(UnionFindTest, Join) {
   UnionFind<uint8_t> a(5);
   UnionFind<uint8_t> b(5);
 
@@ -52,12 +191,12 @@ TEST_F(NVFuserTest, FusionUnionFindJoin) {
 
   auto c = a.join(b);
 
-  assert(a <= c);
-  assert(b <= c);
+  EXPECT_LE(a, c);
+  EXPECT_LE(b, c);
 }
 
 // Test that meeting two UnionFinds results in a refinement of both A and B
-TEST_F(NVFuserTest, FusionUnionFindMeet) {
+TEST_F(UnionFindTest, Meet) {
   using IndexType = uint8_t;
   UnionFind<IndexType> a(5);
   UnionFind<IndexType> b(5);
@@ -74,17 +213,17 @@ TEST_F(NVFuserTest, FusionUnionFindMeet) {
   c.merge(3, 4);
 
   auto d = a.meet(b);
-  assert(d <= a);
-  assert(d <= b);
-  assert(d == UnionFind<IndexType>(5));
-  assert(d != a);
+  EXPECT_LE(d, a);
+  EXPECT_LE(d, b);
+  EXPECT_EQ(d, UnionFind<IndexType>(5));
+  EXPECT_NE(d, a);
 
   auto e = a.meet(c);
-  assert(e <= a);
-  assert(e <= c);
+  EXPECT_LE(e, a);
+  EXPECT_LE(e, c);
   // Since a <= c, meet(a, c) == a
-  assert(a <= c);
-  assert(e == a);
+  EXPECT_LE(a, c);
+  EXPECT_EQ(e, a);
 }
 
 } // namespace nvfuser
