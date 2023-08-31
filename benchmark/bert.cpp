@@ -44,7 +44,7 @@ static void setupDivMaxSoftmaxDropoutForward(Fusion* fusion, DataType dtype) {
   fusion->addInput(tv1);
 
   // TODO: should be input
-  auto d16 = IrBuilder::create<Double>(1.0);
+  auto d16 = IrBuilder::create<Val>(1.0);
 
   if (is_fp16) {
     tv0 = castOp(DataType::Float, tv0);
@@ -55,7 +55,7 @@ static void setupDivMaxSoftmaxDropoutForward(Fusion* fusion, DataType dtype) {
   auto tv3 = add(tv2, tv0);
 
   auto tv10 = softmax(tv3, 3);
-  auto dropout_tvs = dropout(tv10, IrBuilder::create<Double>(0.9));
+  auto dropout_tvs = dropout(tv10, IrBuilder::create<Val>(0.9));
   auto tv12 = dropout_tvs.mask;
   auto tv14 = dropout_tvs.output;
 
@@ -72,6 +72,8 @@ static void setupDivMaxSoftmaxDropoutForward(Fusion* fusion, DataType dtype) {
 }
 
 static void setupDivMaxSoftmaxDropoutBackward(Fusion* fusion, DataType dtype) {
+  FusionGuard fg(fusion);
+
   TensorView* tv0 = makeContigTensor(4, dtype);
   // Strangely tv1 isn't used anywhere, need to come back to that...
   TensorView* tv1 = makeContigTensor(4, dtype);
@@ -91,9 +93,9 @@ static void setupDivMaxSoftmaxDropoutBackward(Fusion* fusion, DataType dtype) {
   }
 
   // TODO: should be inputs
-  auto d32 = IrBuilder::create<Double>(1.0);
+  auto d32 = IrBuilder::create<Val>(1.0);
   // fusion->addInput(d32);
-  auto d33 = IrBuilder::create<Double>(2.0);
+  auto d33 = IrBuilder::create<Val>(2.0);
   // fusion->addInput(d33);
 
   auto tv4 = mul(tv2, tv3);
@@ -114,20 +116,14 @@ static void setupDivMaxSoftmaxDropoutBackward(Fusion* fusion, DataType dtype) {
   fusion->addOutput(tv10);
 }
 
-static void MagicScheduler_DivMaxSoftDropFwd(
+static void NvFuserScheduler_DivMaxSoftDropFwd(
     benchmark::State& benchmark_state,
+    FusionExecutorCache* fusion_executor_cache,
     DataType dtype) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
   auto w = benchmark_state.range(0);
   auto x = benchmark_state.range(1);
   auto y = benchmark_state.range(2);
   auto z = benchmark_state.range(3);
-
-  setupDivMaxSoftmaxDropoutForward(&fusion, dtype);
-
-  auto tvs = ir_utils::allTvs(&fusion);
 
   at::manual_seed(0);
   auto options =
@@ -137,46 +133,22 @@ static void MagicScheduler_DivMaxSoftDropFwd(
   at::Tensor t1 = at::randn({w, x, y, z}, options);
 
   std::vector<c10::IValue> at_inputs = {t0, t1};
-  std::vector<at::Tensor> cg_outputs;
 
-  auto norm_params = getPersistentHeuristics(&fusion, at_inputs);
-  TORCH_CHECK(norm_params != nullptr, "Norm scheduler can't be used!");
-  schedulePersistentKernel(&fusion, *norm_params);
-
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, at_inputs, norm_params->lparams);
-
-  runBenchmarkIterations(benchmark_state, &fe, at_inputs, norm_params->lparams);
-
-  int64_t bytes = 0;
-  for (auto tensor : std::vector<at::Tensor>({t0, t1})) {
-    bytes += tensor.numel() *
-        (int64_t)dataTypeSize(aten_to_data_type(tensor.scalar_type()));
-  }
-
-  for (auto tensor : cg_outputs) {
-    bytes += tensor.numel() *
-        (int64_t)dataTypeSize(aten_to_data_type(tensor.scalar_type()));
-  }
+  auto bytes =
+      runBenchmarkIterations(benchmark_state, fusion_executor_cache, at_inputs);
 
   benchmark_state.SetBytesProcessed(
       bytes * int64_t(benchmark_state.iterations()));
 }
 
-static void MagicScheduler_DivMaxSoftDropBwd(
+static void NvFuserScheduler_DivMaxSoftDropBwd(
     benchmark::State& benchmark_state,
+    FusionExecutorCache* fusion_executor_cache,
     DataType dtype) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
   auto w = benchmark_state.range(0);
   auto x = benchmark_state.range(1);
   auto y = benchmark_state.range(2);
   auto z = benchmark_state.range(3);
-
-  setupDivMaxSoftmaxDropoutBackward(&fusion, dtype);
-
-  auto tvs = ir_utils::allTvs(&fusion);
 
   at::manual_seed(0);
   auto options =
@@ -188,28 +160,13 @@ static void MagicScheduler_DivMaxSoftDropBwd(
   at::Tensor t3 = at::randn({w, x, y, z}, options).round().to(at::kBool);
 
   std::vector<c10::IValue> at_inputs = {t0, t1, t2, t3};
-  std::vector<at::Tensor> cg_outputs;
 
-  auto norm_params = getPersistentHeuristics(&fusion, at_inputs);
-  TORCH_CHECK(norm_params != nullptr, "Norm scheduler can't be used!");
-  schedulePersistentKernel(&fusion, *norm_params);
+  auto bytes =
+      runBenchmarkIterations(benchmark_state, fusion_executor_cache, at_inputs);
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, at_inputs, norm_params->lparams);
-
-  runBenchmarkIterations(benchmark_state, &fe, at_inputs, norm_params->lparams);
-
-  int64_t bytes = 0;
   // Some reason t1 isn't used, ignore it.
-  for (auto tensor : std::vector<at::Tensor>({t0, t2, t3})) {
-    bytes += tensor.numel() *
-        (int64_t)dataTypeSize(aten_to_data_type(tensor.scalar_type()));
-  }
-
-  for (auto tensor : cg_outputs) {
-    bytes += tensor.numel() *
-        (int64_t)dataTypeSize(aten_to_data_type(tensor.scalar_type()));
-  }
+  bytes -=
+      t1.numel() * (int64_t)dataTypeSize(aten_to_data_type(t1.scalar_type()));
 
   benchmark_state.SetBytesProcessed(
       bytes * int64_t(benchmark_state.iterations()));
@@ -242,7 +199,7 @@ static void setupBiasDropoutAddLayernormFwd(Fusion* fusion, DataType dtype) {
 
   auto tv5 = broadcast(tv4, {true, true, false});
   auto tv6 = add(tv3, tv5);
-  auto dropout_outs = dropout(tv6, IrBuilder::create<Double>(0.9));
+  auto dropout_outs = dropout(tv6, IrBuilder::create<Val>(0.9));
 
   auto tv8 = dropout_outs.output;
   auto tv10 = dropout_outs.mask;
@@ -250,7 +207,7 @@ static void setupBiasDropoutAddLayernormFwd(Fusion* fusion, DataType dtype) {
   auto tv11 = add(tv10, tv2);
 
   auto layer_norm_outs =
-      layer_norm(tv11, 1, tv0, tv1, IrBuilder::create<Double>(1e-5));
+      layer_norm(tv11, 1, tv0, tv1, IrBuilder::create<Val>(1e-5));
   auto tv14 = layer_norm_outs.output;
   auto tv21 = layer_norm_outs.mean;
   auto tv26 = layer_norm_outs.invstd;
@@ -269,19 +226,13 @@ static void setupBiasDropoutAddLayernormFwd(Fusion* fusion, DataType dtype) {
   fusion->addOutput(tv26);
 }
 
-static void MagicScheduler_BiasDropoutAddLayernormFwd(
+static void NvFuserScheduler_BiasDropoutAddLayernormFwd(
     benchmark::State& benchmark_state,
+    FusionExecutorCache* fusion_executor_cache,
     DataType dtype) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
   auto x = benchmark_state.range(0);
   auto y = benchmark_state.range(1);
   auto z = benchmark_state.range(2);
-
-  setupBiasDropoutAddLayernormFwd(&fusion, dtype);
-
-  auto tvs = ir_utils::allTvs(&fusion);
 
   at::manual_seed(0);
   auto options =
@@ -294,28 +245,9 @@ static void MagicScheduler_BiasDropoutAddLayernormFwd(
   at::Tensor t4 = at::randn({z}, options);
 
   std::vector<c10::IValue> at_inputs = {t0, t1, t2, t3, t4};
-  std::vector<at::Tensor> cg_outputs;
 
-  auto norm_params = getPersistentHeuristics(&fusion, at_inputs);
-  TORCH_CHECK(norm_params != nullptr, "Norm scheduler can't be used!");
-  schedulePersistentKernel(&fusion, *norm_params);
-
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, at_inputs, norm_params->lparams);
-
-  runBenchmarkIterations(benchmark_state, &fe, at_inputs, norm_params->lparams);
-
-  int64_t bytes = 0;
-  for (auto inp : at_inputs) {
-    auto tensor = inp.toTensor();
-    bytes += tensor.numel() *
-        (int64_t)dataTypeSize(aten_to_data_type(tensor.scalar_type()));
-  }
-
-  for (auto tensor : cg_outputs) {
-    bytes += tensor.numel() *
-        (int64_t)dataTypeSize(aten_to_data_type(tensor.scalar_type()));
-  }
+  auto bytes =
+      runBenchmarkIterations(benchmark_state, fusion_executor_cache, at_inputs);
 
   benchmark_state.SetBytesProcessed(
       bytes * int64_t(benchmark_state.iterations()));
@@ -370,19 +302,13 @@ static void setupBiasDropoutAddLayernormBwd1(Fusion* fusion, DataType dtype) {
   fusion->addOutput(tv8);
 }
 
-static void MagicScheduler_BiasDropoutAddLayernormBwd1(
+static void NvFuserScheduler_BiasDropoutAddLayernormBwd1(
     benchmark::State& benchmark_state,
+    FusionExecutorCache* fusion_executor_cache,
     DataType dtype) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
   auto x = benchmark_state.range(0);
   auto y = benchmark_state.range(1);
   auto z = benchmark_state.range(2);
-
-  setupBiasDropoutAddLayernormBwd1(&fusion, dtype);
-
-  auto tvs = ir_utils::allTvs(&fusion);
 
   at::manual_seed(0);
   auto options =
@@ -394,28 +320,9 @@ static void MagicScheduler_BiasDropoutAddLayernormBwd1(
   at::Tensor t3 = at::randn({x, y, 1}, options);
 
   std::vector<c10::IValue> at_inputs = {t0, t1, t2, t3};
-  std::vector<at::Tensor> cg_outputs;
 
-  auto norm_params = getReductionHeuristics(&fusion, at_inputs);
-  TORCH_CHECK(norm_params != nullptr, "Norm scheduler can't be used!");
-  scheduleReduction(&fusion, *norm_params);
-
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, at_inputs, norm_params->lparams);
-
-  runBenchmarkIterations(benchmark_state, &fe, at_inputs, norm_params->lparams);
-
-  int64_t bytes = 0;
-  for (auto inp : at_inputs) {
-    auto tensor = inp.toTensor();
-    bytes += tensor.numel() *
-        (int64_t)dataTypeSize(aten_to_data_type(tensor.scalar_type()));
-  }
-
-  for (auto tensor : cg_outputs) {
-    bytes += tensor.numel() *
-        (int64_t)dataTypeSize(aten_to_data_type(tensor.scalar_type()));
-  }
+  auto bytes =
+      runBenchmarkIterations(benchmark_state, fusion_executor_cache, at_inputs);
 
   benchmark_state.SetBytesProcessed(
       bytes * int64_t(benchmark_state.iterations()));
@@ -447,7 +354,7 @@ static void setupBiasDropoutAddLayernormBwd2(Fusion* fusion, DataType dtype) {
     tv1 = castOp(DataType::Float, tv1);
     tv8 = castOp(DataType::Float, tv8);
   }
-  auto d36 = mul(IrBuilder::create<Double>(1.0), tv1->axis(2)->extent());
+  auto d36 = mul(IrBuilder::create<Val>(1.0), tv1->axis(2)->extent());
   auto d47 = unaryOp(UnaryOpType::Reciprocal, d36);
 
   auto tv9 = broadcast(tv5, {true, true, false});
@@ -471,19 +378,13 @@ static void setupBiasDropoutAddLayernormBwd2(Fusion* fusion, DataType dtype) {
   fusion->addOutput(tv21);
 }
 
-static void MagicScheduler_BiasDropoutAddLayernormBwd2(
+static void NvFuserScheduler_BiasDropoutAddLayernormBwd2(
     benchmark::State& benchmark_state,
+    FusionExecutorCache* fusion_executor_cache,
     DataType dtype) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
   auto x = benchmark_state.range(0);
   auto y = benchmark_state.range(1);
   auto z = benchmark_state.range(2);
-
-  setupBiasDropoutAddLayernormBwd2(&fusion, dtype);
-
-  auto tvs = ir_utils::allTvs(&fusion);
 
   at::manual_seed(0);
   auto options =
@@ -495,28 +396,9 @@ static void MagicScheduler_BiasDropoutAddLayernormBwd2(
   at::Tensor t8 = at::randn({x, y, z}, options);
 
   std::vector<c10::IValue> at_inputs = {t4, t5, t1, t8};
-  std::vector<at::Tensor> cg_outputs;
 
-  auto norm_params = getPersistentHeuristics(&fusion, at_inputs);
-  TORCH_CHECK(norm_params != nullptr, "Norm scheduler can't be used!");
-  schedulePersistentKernel(&fusion, *norm_params);
-
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, at_inputs, norm_params->lparams);
-
-  runBenchmarkIterations(benchmark_state, &fe, at_inputs, norm_params->lparams);
-
-  int64_t bytes = 0;
-  for (auto inp : at_inputs) {
-    auto tensor = inp.toTensor();
-    bytes += tensor.numel() *
-        (int64_t)dataTypeSize(aten_to_data_type(tensor.scalar_type()));
-  }
-
-  for (auto tensor : cg_outputs) {
-    bytes += tensor.numel() *
-        (int64_t)dataTypeSize(aten_to_data_type(tensor.scalar_type()));
-  }
+  auto bytes =
+      runBenchmarkIterations(benchmark_state, fusion_executor_cache, at_inputs);
 
   benchmark_state.SetBytesProcessed(
       bytes * int64_t(benchmark_state.iterations()));
@@ -539,7 +421,7 @@ static void setupBiasDropoutAddLayernormBwd3(Fusion* fusion, DataType dtype) {
   }
 
   // Uncertain this is the right value, but going for it anyways
-  auto d34 = div(IrBuilder::create<Double>(1.0), tv0->axis(2)->extent());
+  auto d34 = div(IrBuilder::create<Val>(1.0), tv0->axis(2)->extent());
 
   auto tv25 = mul(tv21, tv0);
   auto tv26 = mul(tv25, d34);
@@ -554,19 +436,13 @@ static void setupBiasDropoutAddLayernormBwd3(Fusion* fusion, DataType dtype) {
   fusion->addOutput(tv27);
 }
 
-static void MagicScheduler_BiasDropoutAddLayernormBwd3(
+static void NvFuserScheduler_BiasDropoutAddLayernormBwd3(
     benchmark::State& benchmark_state,
+    FusionExecutorCache* fusion_executor_cache,
     DataType dtype) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
   auto x = benchmark_state.range(0);
   auto y = benchmark_state.range(1);
   auto z = benchmark_state.range(2);
-
-  setupBiasDropoutAddLayernormBwd3(&fusion, dtype);
-
-  auto tvs = ir_utils::allTvs(&fusion);
 
   at::manual_seed(0);
   auto options =
@@ -576,28 +452,9 @@ static void MagicScheduler_BiasDropoutAddLayernormBwd3(
   at::Tensor t21 = at::randn({x, y, z}, options);
 
   std::vector<c10::IValue> at_inputs = {t0, t21};
-  std::vector<at::Tensor> cg_outputs;
 
-  auto norm_params = getReductionHeuristics(&fusion, at_inputs);
-  TORCH_CHECK(norm_params != nullptr, "Norm scheduler can't be used!");
-  scheduleReduction(&fusion, *norm_params);
-
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, at_inputs, norm_params->lparams);
-
-  runBenchmarkIterations(benchmark_state, &fe, at_inputs, norm_params->lparams);
-
-  int64_t bytes = 0;
-  for (auto inp : at_inputs) {
-    auto tensor = inp.toTensor();
-    bytes += tensor.numel() *
-        (int64_t)dataTypeSize(aten_to_data_type(tensor.scalar_type()));
-  }
-
-  for (auto tensor : cg_outputs) {
-    bytes += tensor.numel() *
-        (int64_t)dataTypeSize(aten_to_data_type(tensor.scalar_type()));
-  }
+  auto bytes =
+      runBenchmarkIterations(benchmark_state, fusion_executor_cache, at_inputs);
 
   benchmark_state.SetBytesProcessed(
       bytes * int64_t(benchmark_state.iterations()));
@@ -605,109 +462,122 @@ static void MagicScheduler_BiasDropoutAddLayernormBwd3(
 
 //------------------------------------------------------------------------------
 
-static void DivMaxSoftDropFwd_fp32(benchmark::State& benchmark_state) {
-  MagicScheduler_DivMaxSoftDropFwd(benchmark_state, DataType::Float);
-}
+NVFUSER_BENCHMARK_DEFINE(
+    NvFuserScheduler_DivMaxSoftDropFwd_fp32,
+    setupDivMaxSoftmaxDropoutForward,
+    NvFuserScheduler_DivMaxSoftDropFwd,
+    DataType::Float);
 
-static void DivMaxSoftDropBwd_fp32(benchmark::State& benchmark_state) {
-  MagicScheduler_DivMaxSoftDropBwd(benchmark_state, DataType::Float);
-}
+NVFUSER_BENCHMARK_DEFINE(
+    NvFuserScheduler_DivMaxSoftDropFwd_fp16,
+    setupDivMaxSoftmaxDropoutForward,
+    NvFuserScheduler_DivMaxSoftDropFwd,
+    DataType::Half);
 
-static void DivMaxSoftDropFwd_fp16(benchmark::State& benchmark_state) {
-  MagicScheduler_DivMaxSoftDropFwd(benchmark_state, DataType::Half);
-}
+NVFUSER_BENCHMARK_DEFINE(
+    NvFuserScheduler_DivMaxSoftDropBwd_fp32,
+    setupDivMaxSoftmaxDropoutBackward,
+    NvFuserScheduler_DivMaxSoftDropBwd,
+    DataType::Float);
 
-static void DivMaxSoftDropBwd_fp16(benchmark::State& benchmark_state) {
-  MagicScheduler_DivMaxSoftDropBwd(benchmark_state, DataType::Half);
-}
+NVFUSER_BENCHMARK_DEFINE(
+    NvFuserScheduler_DivMaxSoftDropBwd_fp16,
+    setupDivMaxSoftmaxDropoutBackward,
+    NvFuserScheduler_DivMaxSoftDropBwd,
+    DataType::Half);
 
-static void BiasDropoutAddLayernormFwd_fp32(benchmark::State& benchmark_state) {
-  MagicScheduler_BiasDropoutAddLayernormFwd(benchmark_state, DataType::Float);
-}
+NVFUSER_BENCHMARK_DEFINE(
+    NvFuserScheduler_BiasDropoutAddLayernormFwd_fp32,
+    setupBiasDropoutAddLayernormFwd,
+    NvFuserScheduler_BiasDropoutAddLayernormFwd,
+    DataType::Float);
 
-static void BiasDropoutAddLayernormFwd_tf32(benchmark::State& benchmark_state) {
-  MagicScheduler_BiasDropoutAddLayernormFwd(benchmark_state, DataType::Float);
-}
+// Why is this named with "_tf32"?
+NVFUSER_BENCHMARK_DEFINE(
+    NvFuserScheduler_BiasDropoutAddLayernormFwd_tf32,
+    setupBiasDropoutAddLayernormFwd,
+    NvFuserScheduler_BiasDropoutAddLayernormFwd,
+    DataType::Float);
 
-static void BiasDropoutAddLayernormBwd1_fp32(
-    benchmark::State& benchmark_state) {
-  MagicScheduler_BiasDropoutAddLayernormBwd1(benchmark_state, DataType::Float);
-}
+NVFUSER_BENCHMARK_DEFINE(
+    NvFuserScheduler_BiasDropoutAddLayernormBwd1_fp32,
+    setupBiasDropoutAddLayernormBwd1,
+    NvFuserScheduler_BiasDropoutAddLayernormBwd1,
+    DataType::Float);
+
+// Why is this named with "_tf32"?
+NVFUSER_BENCHMARK_DEFINE(
+    NvFuserScheduler_BiasDropoutAddLayernormBwd1_tf32,
+    setupBiasDropoutAddLayernormBwd1,
+    NvFuserScheduler_BiasDropoutAddLayernormBwd1,
+    DataType::Float);
+
+NVFUSER_BENCHMARK_DEFINE(
+    NvFuserScheduler_BiasDropoutAddLayernormBwd2_fp32,
+    setupBiasDropoutAddLayernormBwd2,
+    NvFuserScheduler_BiasDropoutAddLayernormBwd2,
+    DataType::Float);
+
+NVFUSER_BENCHMARK_DEFINE(
+    NvFuserScheduler_BiasDropoutAddLayernormBwd3_fp32,
+    setupBiasDropoutAddLayernormBwd3,
+    NvFuserScheduler_BiasDropoutAddLayernormBwd3,
+    DataType::Float);
+
+NVFUSER_BENCHMARK_RUN(NvFuserScheduler_DivMaxSoftDropFwd_fp32)
+    // ->RangeMultiplier(2)
+    ->Ranges({{8, 8}, {16, 16}, {128, 128}, {128, 128}})
+    ->Unit(benchmark::kMicrosecond)
+    ->UseManualTime();
+
+NVFUSER_BENCHMARK_RUN(NvFuserScheduler_DivMaxSoftDropFwd_fp16)
+    // ->RangeMultiplier(2)
+    ->Ranges({{8, 8}, {16, 16}, {128, 128}, {128, 128}})
+    ->Unit(benchmark::kMicrosecond)
+    ->UseManualTime();
+
+NVFUSER_BENCHMARK_RUN(NvFuserScheduler_DivMaxSoftDropBwd_fp32)
+    // ->RangeMultiplier(2)
+    ->Ranges({{8, 8}, {16, 16}, {128, 128}, {128, 128}})
+    ->Unit(benchmark::kMicrosecond)
+    ->UseManualTime();
+
+NVFUSER_BENCHMARK_RUN(NvFuserScheduler_DivMaxSoftDropBwd_fp16)
+    // ->RangeMultiplier(2)
+    ->Ranges({{8, 8}, {16, 16}, {128, 128}, {128, 128}})
+    ->Unit(benchmark::kMicrosecond)
+    ->UseManualTime();
+
+NVFUSER_BENCHMARK_RUN(NvFuserScheduler_BiasDropoutAddLayernormFwd_fp32)
+    ->Ranges({{32, 1024}, {128, 128}, {1024, 1024}})
+    ->Unit(benchmark::kMicrosecond)
+    ->UseManualTime();
 
 // Use full ampere wave here
-static void BiasDropoutAddLayernormBwd1_tf32(
-    benchmark::State& benchmark_state) {
-  MagicScheduler_BiasDropoutAddLayernormBwd1(benchmark_state, DataType::Float);
-}
-
-static void BiasDropoutAddLayernormBwd2_fp32(
-    benchmark::State& benchmark_state) {
-  MagicScheduler_BiasDropoutAddLayernormBwd2(benchmark_state, DataType::Float);
-}
-
-static void BiasDropoutAddLayernormBwd3_fp32(
-    benchmark::State& benchmark_state) {
-  MagicScheduler_BiasDropoutAddLayernormBwd3(benchmark_state, DataType::Float);
-}
-
-//------------------------------------------------------------------------------
-
-BENCHMARK(DivMaxSoftDropFwd_fp32)
-    // ->RangeMultiplier(2)
-    ->Ranges({{8, 8}, {16, 16}, {128, 128}, {128, 128}})
+NVFUSER_BENCHMARK_RUN(NvFuserScheduler_BiasDropoutAddLayernormFwd_tf32)
+    ->Ranges({{32, 1024}, {128, 128}, {864, 864}})
     ->Unit(benchmark::kMicrosecond)
     ->UseManualTime();
 
-BENCHMARK(DivMaxSoftDropBwd_fp32)
-    // ->RangeMultiplier(2)
-    ->Ranges({{8, 8}, {16, 16}, {128, 128}, {128, 128}})
-    ->Unit(benchmark::kMicrosecond)
-    ->UseManualTime();
-
-BENCHMARK(DivMaxSoftDropFwd_fp16)
-    // ->RangeMultiplier(2)
-    ->Ranges({{8, 8}, {16, 16}, {128, 128}, {128, 128}})
-    ->Unit(benchmark::kMicrosecond)
-    ->UseManualTime();
-
-BENCHMARK(DivMaxSoftDropBwd_fp16)
-    // ->RangeMultiplier(2)
-    ->Ranges({{8, 8}, {16, 16}, {128, 128}, {128, 128}})
-    ->Unit(benchmark::kMicrosecond)
-    ->UseManualTime();
-
-BENCHMARK(BiasDropoutAddLayernormFwd_fp32)
+NVFUSER_BENCHMARK_RUN(NvFuserScheduler_BiasDropoutAddLayernormBwd1_fp32)
     // ->RangeMultiplier(2)
     ->Ranges({{32, 1024}, {128, 128}, {1024, 1024}})
     ->Unit(benchmark::kMicrosecond)
     ->UseManualTime();
 
 // Use full ampere wave here
-BENCHMARK(BiasDropoutAddLayernormFwd_tf32)
+NVFUSER_BENCHMARK_RUN(NvFuserScheduler_BiasDropoutAddLayernormBwd1_tf32)
     // ->RangeMultiplier(2)
     ->Ranges({{32, 1024}, {128, 128}, {864, 864}})
     ->Unit(benchmark::kMicrosecond)
     ->UseManualTime();
 
-BENCHMARK(BiasDropoutAddLayernormBwd1_fp32)
-    // ->RangeMultiplier(2)
+NVFUSER_BENCHMARK_RUN(NvFuserScheduler_BiasDropoutAddLayernormBwd2_fp32)
     ->Ranges({{32, 1024}, {128, 128}, {1024, 1024}})
     ->Unit(benchmark::kMicrosecond)
     ->UseManualTime();
 
-// Use full ampere wave here
-BENCHMARK(BiasDropoutAddLayernormBwd1_tf32)
-    // ->RangeMultiplier(2)
-    ->Ranges({{32, 1024}, {128, 128}, {864, 864}})
-    ->Unit(benchmark::kMicrosecond)
-    ->UseManualTime();
-
-BENCHMARK(BiasDropoutAddLayernormBwd2_fp32)
-    ->Ranges({{32, 1024}, {128, 128}, {1024, 1024}})
-    ->Unit(benchmark::kMicrosecond)
-    ->UseManualTime();
-
-BENCHMARK(BiasDropoutAddLayernormBwd3_fp32)
+NVFUSER_BENCHMARK_RUN(NvFuserScheduler_BiasDropoutAddLayernormBwd3_fp32)
     ->Ranges({{32, 1024}, {128, 128}, {1024, 1024}})
     ->Unit(benchmark::kMicrosecond)
     ->UseManualTime();

@@ -210,6 +210,7 @@ def main() -> None:
     )
 
     binary = os.path.normpath(args.binary) if IS_WINDOWS else args.binary
+    binary = os.path.expanduser(binary)
     if not Path(binary).exists():
         lint_message = LintMessage(
             path=None,

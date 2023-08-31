@@ -37,7 +37,7 @@ std::string toString(LaunchParams lparams);
 //! aggregates the kernel times of all segments, is added to
 //! benchmark_state. Heuristic parameters are also recorded but only
 //! if not segmented.
-void runBenchmarkIterations(
+int64_t runBenchmarkIterations(
     benchmark::State& benchmark_state,
     FusionExecutorCache* fusion_executor_cache,
     std::vector<c10::IValue>& aten_inputs);
@@ -45,12 +45,15 @@ void runBenchmarkIterations(
 //! Run benchmark iterations with a fusion executor and
 //! inputs. The fusion is assumed to have already been compiled. The
 //! kernel time is added to benchmark_state.
-void runBenchmarkIterations(
+int64_t runBenchmarkIterations(
     benchmark::State& benchmark_state,
     FusionExecutor* fusion_executor,
     std::vector<c10::IValue>& aten_inputs,
     const LaunchParams& launch_constraints = LaunchParams(),
     CompileParams compile_params = CompileParams());
+
+void addCasesOneWave128To32K(benchmark::internal::Benchmark* b);
+void addCases16Wave128To32K(benchmark::internal::Benchmark* b);
 
 class CudaKernelTimer {
  public:

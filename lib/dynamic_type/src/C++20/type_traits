@@ -1,0 +1,37 @@
+// clang-format off
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION & AFFILIATES.
+ * All rights reserved.
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
+// clang-format on
+#pragma once
+
+#include <type_traits>
+
+#if __has_include(<bits/c++config.h>)
+#include <bits/c++config.h>
+#endif
+
+namespace std {
+
+#if !__cpp_lib_type_identity
+template <typename T>
+struct type_identity {
+  using type = T;
+};
+
+template <typename T>
+using type_identity_t = typename type_identity<T>::type;
+#endif
+
+#if !__cpp_lib_remove_cvref
+template <class T>
+struct remove_cvref {
+  typedef std::remove_cv_t<std::remove_reference_t<T>> type;
+};
+template <class T>
+using remove_cvref_t = typename remove_cvref<T>::type;
+#endif
+
+} // namespace std

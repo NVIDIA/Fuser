@@ -1,11 +1,6 @@
-# SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION & AFFILIATES.
-# All rights reserved.
-# SPDX-License-Identifier: BSD-3-Clause
 T0 = fd.define_tensor(symbolic_sizes=[-1], contiguous=[True], dtype=DataType.Float)
 T1 = fd.define_tensor(symbolic_sizes=[-1], contiguous=[True], dtype=DataType.Float)
-T2 = fd.define_tensor(
-    symbolic_sizes=[-1, -1], contiguous=[True, True], dtype=DataType.Half
-)
+T2 = fd.define_tensor(symbolic_sizes=[-1, -1], contiguous=[True, True], dtype=DataType.Half)
 T3 = fd.ops.broadcast_in_dim(T0, output_shape=[1, 1024, 768], broadcast_dims=[2])
 T4 = fd.ops.broadcast_in_dim(T1, output_shape=[1, 1024, 768], broadcast_dims=[2])
 T5 = fd.ops.view(T2, original_shape=[1024, 768], new_shape=[1, 1024, 768])
@@ -25,14 +20,10 @@ T19 = fd.ops.broadcast_in_dim(T17, output_shape=[1, 1024, 1], broadcast_dims=[0,
 T20 = fd.ops.broadcast_in_dim(T18, output_shape=[1, 1024, 1], broadcast_dims=[0, 1])
 S21 = fd.define_scalar(1.00000e-05)
 T22 = fd.ops.add(T19, S21)
-T23 = fd.ops.broadcast_in_dim(
-    T20, output_shape=[1, 1024, 768], broadcast_dims=[0, 1, 2]
-)
+T23 = fd.ops.broadcast_in_dim(T20, output_shape=[1, 1024, 768], broadcast_dims=[0, 1, 2])
 T24 = fd.ops.rsqrt(T22)
 T25 = fd.ops.sub(T16, T23)
-T26 = fd.ops.broadcast_in_dim(
-    T24, output_shape=[1, 1024, 768], broadcast_dims=[0, 1, 2]
-)
+T26 = fd.ops.broadcast_in_dim(T24, output_shape=[1, 1024, 768], broadcast_dims=[0, 1, 2])
 T27 = fd.ops.mul(T25, T26)
 T28 = fd.ops.mul(T27, T3)
 T29 = fd.ops.add(T28, T4)
