@@ -791,7 +791,6 @@ TEST_F(NVFuserTest, FusionIndexing17_CUDA) {
       &fusion, cg_outputs, aten_inputs, aten_outputs, __LINE__, __FILE__);
 }
 
-#if 0
 // TODO: Finish and enable test
 TEST_F(NVFuserTest, FusionIndexing18_CUDA) {
   Fusion fusion;
@@ -828,10 +827,8 @@ TEST_F(NVFuserTest, FusionIndexing18_CUDA) {
   // ComputeAtMap ca_map(&fusion);
   // std::cout << ca_map.idGraph().loopNodes().toString() << std::endl;
 }
-#endif
 
 // TODO: Finish and enable test
-#if 0
 //
 // Create a case where we're missing a valid concrete id so the compute at map
 // processing will fail. We need to be able to create the concrete ID not just
@@ -882,9 +879,7 @@ TEST_F(NVFuserTest, FusionIndexing19_CUDA) {
   fusion.print();
   fusion.printKernel();
 }
-#endif
 
-#if 0
 // TODO: Finish and enable test
 //
 // Progressive loop promotion. producer gets promoted in consumer, consumer is
@@ -935,7 +930,6 @@ TEST_F(NVFuserTest, FusionIndexing20_CUDA) {
 
   fusion.printKernel();
 }
-#endif
 
 // Repro for issue #1873
 TEST_F(NVFuserTest, FusionInlineBroadcastIndexing0_CUDA) {
@@ -1020,7 +1014,6 @@ TEST_F(NVFuserTest, FusionMultiPromotion_CUDA) {
       &fusion, cg_outputs, aten_inputs, {aten_output}, __LINE__, __FILE__);
 }
 
-#if 0
 // TODO: Finish and enable test.
 // Broadcast and concretize same domain in two different ways and try to merge
 // their loops remains unsupported.
@@ -1064,7 +1057,6 @@ TEST_F(NVFuserTest, FusionMultiPromotion2_CUDA) {
 
   ASSERT_ANY_THROW(fusion.printKernel());
 }
-#endif
 
 // TODO: All the above tests are merges followed by splits, we should make some
 // more complex examples even though merging then spliting is the most likely
