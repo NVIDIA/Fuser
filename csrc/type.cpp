@@ -14,6 +14,7 @@
 #include <unordered_map>
 
 #include <ir/all_nodes.h>
+#include <tensor_metadata.h>
 
 namespace nvfuser {
 
@@ -58,7 +59,7 @@ StructType globalTensorMetaData(
       ArrayType{std::make_shared<DataType>(DataType::Index), alloc_dim});
   alloc_stride_field.used_in_kernel = true;
 
-  return StructType::make<NotImplementedStruct>(
+  return StructType::make<TensorMetaData>(
       {data_field,
        logical_size_field,
        logical_stride_field,
