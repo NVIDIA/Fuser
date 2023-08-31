@@ -387,6 +387,34 @@ class UnionFind {
     rank_.clear();
   }
 
+  std::string toString(int indent_size = 0) const {
+    std::stringstream ss;
+    std::string ind = "";
+    while (indent_size-- > 0) {
+      ind += "  ";
+    }
+
+    ss << ind << "UnionFind:" << std::endl;
+    ss << ind << "  size=" << size() << std::endl;
+
+    const auto classes = computeEquivalenceClasses();
+
+    ss << ind << "  classes:" << std::endl;
+    for (const auto class_num : c10::irange(classes.size())) {
+      ss << ind << "    " << class_num << ")" << std::endl;
+      const auto& c = classes.at(class_num);
+      for (const auto i : c) {
+        ss << ind << "      " << std::to_string(i);
+        if (find(i) == i) {
+          ss << "  *"; // indicates root
+        }
+        ss << std::endl;
+      }
+    }
+
+    return ss.str();
+  }
+
  private:
   std::vector<IndexType> parent_;
   std::vector<IndexType> rank_;
