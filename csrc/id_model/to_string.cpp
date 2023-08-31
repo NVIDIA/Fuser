@@ -299,7 +299,7 @@ std::string definitionsString(
     bool with_ptr) {
   ExprGroups defs;
   for (auto id_group : id_graph.disjointIdSets().disjointSets()) {
-    auto definition_pair = id_graph.iterDomainGroupDefinitions(id_group);
+    auto definition_pair = id_graph.getDefinitions(id_group);
     if (definition_pair.second) {
       for (auto expr_group : definition_pair.first) {
         defs.pushBack(expr_group);
@@ -315,7 +315,7 @@ std::string usesString(
     bool with_ptr) {
   ExprGroups uses;
   for (auto id_group : id_graph.disjointIdSets().disjointSets()) {
-    auto definition_pair = id_graph.iterDomainGroupUses(id_group);
+    auto definition_pair = id_graph.getUses(id_group);
     if (definition_pair.second) {
       for (auto expr_group : definition_pair.first) {
         uses.pushBack(expr_group);

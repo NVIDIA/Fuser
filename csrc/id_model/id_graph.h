@@ -32,14 +32,22 @@ class TORCH_CUDA_CU_API IdGraph {
   IdGraph& operator=(IdGraph&& other) = default;
 
   // Returns the disjoint IterDomain set.
-  const DisjointSets<IterDomain*>& disjointIdSets() const;
+  const DisjointSets<IterDomain*>& disjointIdSets() const {
+    return disjoint_ids_;
+  }
 
-  DisjointSets<IterDomain*>& disjointIdSets();
+  DisjointSets<IterDomain*>& disjointIdSets() {
+    return disjoint_ids_;
+  }
 
   // Returns the disjoint Expr set.
-  const DisjointSets<Expr*>& disjointExprSets() const;
+  const DisjointSets<Expr*>& disjointExprSets() const {
+    return disjoint_exprs_;
+  }
 
-  DisjointSets<Expr*>& disjointExprSets();
+  DisjointSets<Expr*>& disjointExprSets() {
+    return disjoint_exprs_;
+  }
 
   // Return if there's a group entry in the graph for this expr
   bool hasGroup(Expr* expr) const;
@@ -48,10 +56,10 @@ class TORCH_CUDA_CU_API IdGraph {
   bool hasGroup(IterDomain* id) const;
 
   // Convert expr to its exprGroup, assert that it exists.
-  ExprGroup toGroup(Expr* expr) const;
+  const ExprGroup& toGroup(Expr* expr) const;
 
   // Convert iter domain to its IdGroup, assert that it exists.
-  IdGroup toGroup(IterDomain* id) const;
+  const IdGroup& toGroup(IterDomain* id) const;
 
   // Convert unique vector of expressions to unique vector of its groups
   ExprGroups toGroups(const VectorOfUniqueEntries<Expr*>& exprs) const;
@@ -60,15 +68,17 @@ class TORCH_CUDA_CU_API IdGraph {
   IdGroups toGroups(const VectorOfUniqueEntries<IterDomain*>& ids) const;
 
   // Return output/input iter domain groups of provided expr
-  std::vector<IdGroup> outputGroups(ExprGroup expr) const;
-  std::vector<IdGroup> inputGroups(ExprGroup expr) const;
+  // Note that the same IdGroup can show up multiple times, so the
+  // output type cannot be VectorOfUniqueEntries
+  std::vector<IdGroup> outputGroups(const ExprGroup& expr) const;
+  std::vector<IdGroup> inputGroups(const ExprGroup& expr) const;
 
-  // Traverses uses of the IdGroups in 'of' and returns all ExprGroups
-  // that have a use in their definition of provided of IdGroups.
+  // Recursively traverses uses of the IdGroups in 'of' and returns all
+  // ExprGroups that have a use in their definition of provided of IdGroups.
   ExprGroups allUsesOf(const IdGroups& of) const;
 
-  // Traverses definitions of the IdGroups in 'of' and returns all ExprGroups
-  // used in this history of defining the 'of' IdGroups.
+  // Recursively traverses definitions of the IdGroups in 'of' and returns all
+  // ExprGroups used in this history of defining the 'of' IdGroups.
   ExprGroups allDefinitionsOf(const IdGroups& of) const;
 
   // Return sorted expressions to go from the provided IterDomains in from to
@@ -101,13 +111,15 @@ class TORCH_CUDA_CU_API IdGraph {
   //! outer vector are expression groups that are not equivalent based on the
   //! provided mode, but produce one of the IterDomains within the same disjoint
   //! Iter Domain set based on the provided mode.
-  //! TODO: Change name to start with get
-  std::pair<ExprGroups, bool> iterDomainGroupDefinitions(
-      IdGroup id_group) const;
+  //!
+  //! TODO-NM: ExprGroups is a real container. Consider returning a reference
+  std::pair<ExprGroups, bool> getDefinitions(const IdGroup& id_group) const;
 
-  //! Same as iterDomainGroupDefinitions but for uses instead of definitions
-  //! TODO: Change name to start with get
-  std::pair<ExprGroups, bool> iterDomainGroupUses(IdGroup id_group) const;
+  //! Same as iterDomainGroupDefinitions but for uses instead of
+  //! definitions
+  //!
+  //! TODO-NM: ExprGroups is a real container. Consider returning a reference
+  std::pair<ExprGroups, bool> getUses(const IdGroup& id_group) const;
 
   std::string toString() const;
 
@@ -137,18 +149,19 @@ class TORCH_CUDA_CU_API IdGraph {
 
   // Returns entry in unique_definitions_ for provided group in provided mode,
   // otherwise errors if no entry is found.
-  ExprGroups uniqueDefinitions(IdGroup group) const;
+  const ExprGroups& getUniqueDefinitions(const IdGroup& group) const;
 
   // Returns entry in unique_uses_ for provided group in provided mode,
   // otherwise errors if no entry is found.
-  ExprGroups uniqueUses(IdGroup group) const;
+  const ExprGroups& getUniqueUses(const IdGroup& group) const;
 
-  std::unordered_map<IdGroup, ExprGroups>& uniqueUses() {
-    return unique_uses_;
+ public:
+  void addUniqueUses(const IdGroup& id_group, const ExprGroup& uses) {
+    unique_uses_.at(id_group).pushBack(uses);
   }
 
-  std::unordered_map<IdGroup, ExprGroups>& uniqueDefinitions() {
-    return unique_definitions_;
+  void addUniqueDefinitions(const IdGroup& id_group, const ExprGroup& defs) {
+    unique_definitions_.at(id_group).pushBack(defs);
   }
 
   // Set id0 and id1 to mapped in disjointIdsSet[mode], attempt to propagate
@@ -159,23 +172,6 @@ class TORCH_CUDA_CU_API IdGraph {
   // expression propagation is on, propagates mapping through them. This should
   // be the only call in IdGraph to mapThroughExpr
   void maybeMapThroughExprs(Expr* expr0, Expr* expr1, bool forward);
-
-  // Map expr0 and expr1 with eachother, update unique_definitions_ unique_uses_
-  // TODO: Make this variant hidden?
-  void mapExprs(Expr* expr0, Expr* expr1);
-
-  // Checks if expr's are considered "the same" where sameness inputs and
-  // outputs in the same position across expressions map with  provided
-  // MappingMode. If the expressions are determined the same then
-  // if forward
-  //   will map outputs
-  // else
-  //   will map inputs
-  // in the provided mode.
-  // Returns if expressions were mapped through.
-  //
-  // TODO: Make this private
-  bool mapThroughExpr(Expr* first, Expr* second, bool forward);
 
   // Map through loop swizzles, as input/output IterDomains are exact, only the
   // order they're traversed differs.
@@ -202,12 +198,29 @@ class TORCH_CUDA_CU_API IdGraph {
 
   // Removes the provided expression group from unique_definitions_ and
   // unique_uses_ breaking traversal through them.
-  void eraseExprGroup(ExprGroup expr_group);
+  void eraseExprGroup(const ExprGroup& expr_group);
 
   // Returns if the expression group has an input id group that matches an
   // output id group. This means traversing on this expression doesn't actually
   // do anything.
-  bool isTrivialExprGroup(ExprGroup expr_group) const;
+  bool isTrivialExprGroup(const ExprGroup& expr_group) const;
+
+ private:
+  // Map expr0 and expr1 with eachother, update unique_definitions_ unique_uses_
+  // TODO: Make this variant hidden?
+  void mapExprs(Expr* expr0, Expr* expr1);
+
+  // Checks if expr's are considered "the same" where sameness inputs and
+  // outputs in the same position across expressions map with  provided
+  // MappingMode. If the expressions are determined the same then
+  // if forward
+  //   will map outputs
+  // else
+  //   will map inputs
+  // in the provided mode.
+  // Returns if expressions were mapped through.
+  //
+  bool mapThroughExpr(Expr* first, Expr* second, bool forward);
 
  private:
   // If propagate_exprs_ = false, then mapThroughExpr will not be called as a
@@ -217,8 +230,6 @@ class TORCH_CUDA_CU_API IdGraph {
   // Note: For the second sentence of above... mapThroughExpr can call mapIds
   // which could in return call mapThoughExpr again, but propagate_exprs_ as
   // mentioned above prevents that from happening.
-  //
-  // TODO: Should propagate_exprs_ be a const member?
   bool propagate_exprs_ = true;
 
   // Keeps a disjoint set entry for all IterDomain for all mapping mode types.
@@ -230,13 +241,6 @@ class TORCH_CUDA_CU_API IdGraph {
 
   // Keeps a disjoint set entry for all Expressions for all mapping mode types.
   DisjointSets<Expr*> disjoint_exprs_;
-
-  // Hold a set of IterDomains that are considered view rfactor ids. This
-  // identification is particularly important to understand if split operations
-  // are divisible or not.
-  //
-  // TODO: This should just be in IterDomainGraphs, not here.
-  std::unordered_set<IterDomain*> view_rfactor_ids_;
 
   std::unordered_map<IdGroup, ExprGroups> unique_definitions_;
 

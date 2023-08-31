@@ -400,7 +400,7 @@ Expr* IterDomainGraphs::addReplayAs(
     // Update uses of the inputs in the graphs
     for (auto inp_id : ir_utils::filterByType<IterDomain>(replay->inputs())) {
       auto inp_group = idGraph(mode).toGroup(inp_id);
-      idGraph(mode).uniqueUses().at(inp_group).pushBack(replay_group);
+      idGraph(mode).addUniqueUses(inp_group, replay_group);
     }
 
     // Propagate through all the uses of the iter domain groups of the inputs
@@ -409,7 +409,7 @@ Expr* IterDomainGraphs::addReplayAs(
     // Gather all use expressions from inputs
     VectorOfUniqueEntries<Expr*> representative_uses;
     for (auto inp : new_inputs) {
-      auto uses_pair = graph.iterDomainGroupUses(graph.toGroup(inp));
+      auto uses_pair = graph.getUses(graph.toGroup(inp));
       if (uses_pair.second) {
         for (auto use_group : uses_pair.first) {
           representative_uses.pushBack(use_group->front());
@@ -534,7 +534,7 @@ Expr* IterDomainGraphs::addExprWithReplacement(
       } else {
         // Update unique uses of existing input ids
         auto inp_group = graph.toGroup(inp_id);
-        graph.uniqueUses()[inp_group].pushBack(replay_group);
+        graph.addUniqueUses(inp_group, replay_group);
       }
     }
 
@@ -547,7 +547,7 @@ Expr* IterDomainGraphs::addExprWithReplacement(
         // out_id is already initialized, add the replay as a unique definition
         // of its group
         auto out_group = graph.toGroup(out_id);
-        graph.uniqueDefinitions()[out_group].pushBack(replay_group);
+        graph.addUniqueDefinitions(out_group, replay_group);
       }
     }
 
@@ -558,7 +558,7 @@ Expr* IterDomainGraphs::addExprWithReplacement(
     // Forward
     VectorOfUniqueEntries<Expr*> representative_uses;
     for (auto in : ir_utils::filterByType<IterDomain>(replay->inputs())) {
-      auto uses_pair = graph.iterDomainGroupUses(graph.toGroup(in));
+      auto uses_pair = graph.getUses(graph.toGroup(in));
       if (uses_pair.second) {
         for (auto use_group : uses_pair.first) {
           if (use_group == replay_group) {
@@ -576,7 +576,7 @@ Expr* IterDomainGraphs::addExprWithReplacement(
     // Backwards
     VectorOfUniqueEntries<Expr*> representative_defs;
     for (auto out : ir_utils::filterByType<IterDomain>(replay->outputs())) {
-      auto defs_pair = graph.iterDomainGroupDefinitions(graph.toGroup(out));
+      auto defs_pair = graph.getDefinitions(graph.toGroup(out));
       if (defs_pair.second) {
         for (auto def_group : defs_pair.first) {
           if (def_group == replay_group) {
@@ -1280,7 +1280,7 @@ std::unordered_map<IdGroup, IterDomain*> IterDomainGraphs::
     ExprGroups non_promoted_input_uses;
     for (auto iel_group : promoted_input_groups.intersect(input_groups)) {
       non_promoted_input_uses.pushBack(
-          intersection_exact_loop_graph.uniqueUses(iel_group));
+          intersection_exact_loop_graph.getUniqueUses(iel_group));
     }
 
     for (auto iel_use_group : non_promoted_input_uses) {
@@ -1363,7 +1363,7 @@ std::unordered_map<IdGroup, IdGroups> computeCoveredGroups(
 
   for (auto id_group : graph.disjointIdSets().disjointSets()) {
     // Initialize inputs
-    if (graph.uniqueDefinitions(id_group).empty()) {
+    if (graph.getUniqueDefinitions(id_group).empty()) {
       covered_ids[id_group] = {id_group};
     }
 
@@ -1695,7 +1695,7 @@ std::unordered_map<IdGroup, IterDomain*> IterDomainGraphs::
       auto inp_exact_group = idGraph(IdMappingMode::EXACT).toGroup(inp_id);
       promoted_input_groups.push_back(inp_exact_group);
       promoted_input_uses.pushBack(
-          idGraph(IdMappingMode::EXACT).uniqueUses(inp_exact_group));
+          idGraph(IdMappingMode::EXACT).getUniqueUses(inp_exact_group));
     }
 
     // Check every use to see if it matches

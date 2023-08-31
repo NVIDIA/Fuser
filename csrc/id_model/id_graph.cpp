@@ -14,7 +14,6 @@ namespace nvfuser {
 IdGraph::IdGraph(const IdGraph& other)
     : disjoint_ids_(other.disjoint_ids_),
       disjoint_exprs_(other.disjoint_exprs_),
-      view_rfactor_ids_(other.view_rfactor_ids_),
       unique_definitions_(),
       unique_uses_() {
   for (auto orig_unique_def_pair : other.unique_definitions_) {
@@ -49,26 +48,9 @@ IdGraph& IdGraph::operator=(const IdGraph& other) {
   disjoint_exprs_.clear();
   unique_definitions_.clear();
   unique_uses_.clear();
-  view_rfactor_ids_.clear();
   IdGraph copy(other);
   std::swap(*this, copy);
   return *this;
-}
-
-const DisjointSets<IterDomain*>& IdGraph::disjointIdSets() const {
-  return disjoint_ids_;
-}
-
-DisjointSets<IterDomain*>& IdGraph::disjointIdSets() {
-  return disjoint_ids_;
-}
-
-const DisjointSets<Expr*>& IdGraph::disjointExprSets() const {
-  return disjoint_exprs_;
-}
-
-DisjointSets<Expr*>& IdGraph::disjointExprSets() {
-  return disjoint_exprs_;
 }
 
 // Return if there's a group entry in the graph for this expr
@@ -81,7 +63,7 @@ bool IdGraph::hasGroup(IterDomain* id) const {
   return disjoint_ids_.mappingExists(id);
 }
 
-ExprGroup IdGraph::toGroup(Expr* expr) const {
+const ExprGroup& IdGraph::toGroup(Expr* expr) const {
   auto disjoint_set_it = disjoint_exprs_.disjointSetMap().find(expr);
   TORCH_INTERNAL_ASSERT(
       disjoint_set_it != disjoint_exprs_.disjointSetMap().end(),
@@ -90,7 +72,7 @@ ExprGroup IdGraph::toGroup(Expr* expr) const {
   return disjoint_set_it->second;
 }
 
-IdGroup IdGraph::toGroup(IterDomain* id) const {
+const IdGroup& IdGraph::toGroup(IterDomain* id) const {
   auto disjoint_set_it = disjoint_ids_.disjointSetMap().find(id);
   TORCH_INTERNAL_ASSERT(
       disjoint_set_it != disjoint_ids_.disjointSetMap().end(),
@@ -117,7 +99,7 @@ IdGroups IdGraph::toGroups(
   return id_groups;
 }
 
-std::vector<IdGroup> IdGraph::outputGroups(ExprGroup expr) const {
+std::vector<IdGroup> IdGraph::outputGroups(const ExprGroup& expr) const {
   std::vector<IdGroup> output_groups;
   for (auto id_output :
        ir_utils::filterByType<IterDomain>(expr->front()->outputs())) {
@@ -126,7 +108,7 @@ std::vector<IdGroup> IdGraph::outputGroups(ExprGroup expr) const {
   return output_groups;
 }
 
-std::vector<IdGroup> IdGraph::inputGroups(ExprGroup expr) const {
+std::vector<IdGroup> IdGraph::inputGroups(const ExprGroup& expr) const {
   std::vector<IdGroup> input_groups;
   for (auto id_input :
        ir_utils::filterByType<IterDomain>(expr->front()->inputs())) {
@@ -138,7 +120,7 @@ std::vector<IdGroup> IdGraph::inputGroups(ExprGroup expr) const {
 ExprGroups IdGraph::allUsesOf(const IdGroups& of) const {
   ExprGroups to_visit;
   for (auto of_id_group : of) {
-    auto group_uses_pair = iterDomainGroupUses(of_id_group);
+    auto group_uses_pair = getUses(of_id_group);
     if (group_uses_pair.second) {
       to_visit.pushBack(group_uses_pair.first);
     }
@@ -150,7 +132,7 @@ ExprGroups IdGraph::allUsesOf(const IdGroups& of) const {
     visited.pushBack(current_expr);
     auto output_ids = outputGroups(current_expr);
     for (auto output_id : output_ids) {
-      auto group_uses_pair = iterDomainGroupUses(output_id);
+      auto group_uses_pair = getUses(output_id);
       if (!group_uses_pair.second) {
         continue;
       }
@@ -169,7 +151,7 @@ ExprGroups IdGraph::allUsesOf(const IdGroups& of) const {
 ExprGroups IdGraph::allDefinitionsOf(const IdGroups& of) const {
   ExprGroups to_visit;
   for (auto of_id_group : of) {
-    auto group_defs_pair = iterDomainGroupDefinitions(of_id_group);
+    auto group_defs_pair = getDefinitions(of_id_group);
     if (group_defs_pair.second) {
       to_visit.pushBack(group_defs_pair.first);
     }
@@ -181,7 +163,7 @@ ExprGroups IdGraph::allDefinitionsOf(const IdGroups& of) const {
     visited.pushBack(current_expr);
     auto input_ids = inputGroups(current_expr);
     for (auto input_id : input_ids) {
-      auto group_defs_pair = iterDomainGroupDefinitions(input_id);
+      auto group_defs_pair = getDefinitions(input_id);
       if (!group_defs_pair.second) {
         continue;
       }
@@ -308,7 +290,7 @@ ExprGroups IdGraph::getExprsBetween(const IdGroups& from, const IdGroups& to)
     // domain coming back from any of its uses.
     ExprGroups min_groups;
 
-    auto uses_pair = iterDomainGroupUses(id_group);
+    auto uses_pair = getUses(id_group);
     if (!uses_pair.second) {
       // No expressions required for this iter domain, it must be a
       // terminating output.
@@ -383,8 +365,7 @@ ExprGroups IdGraph::getExprsBetween(const IdGroups& from, const IdGroups& to)
 
       if (processIdGroup(currently_visiting_ids)) {
         something_was_processed = true;
-        auto definitions_pair =
-            iterDomainGroupDefinitions(currently_visiting_ids);
+        auto definitions_pair = getDefinitions(currently_visiting_ids);
         if (definitions_pair.second) {
           for (const ExprGroup& def : definitions_pair.first) {
             if (!all_exprs.has(def)) {
@@ -413,7 +394,7 @@ ExprGroups IdGraph::getExprsBetween(const IdGroups& from, const IdGroups& to)
   for (auto entry : required_ind_exprs_ids) {
     auto id = entry.first;
     auto traverse_exprs = entry.second;
-    auto all_uses = iterDomainGroupUses(id);
+    auto all_uses = getUses(id);
     if (all_uses.second) {
       uses_path[id] = traverse_exprs.intersect(all_uses.first);
     } else {
@@ -455,7 +436,7 @@ ExprGroups IdGraph::getExprsBetween(const IdGroups& from, const IdGroups& to)
         auto outputs = outputGroups(currently_visiting);
         for (auto out_id : outputs) {
           visited.pushBack(out_id);
-          auto use_pair = iterDomainGroupUses(out_id);
+          auto use_pair = getUses(out_id);
           if (!use_pair.second) {
             continue;
           }
@@ -528,8 +509,8 @@ std::unordered_map<IterDomain*, VectorOfUniqueEntries<IterDomain*>> IdGraph::
   return buildMapBetween(from.vector(), to.vector());
 }
 
-std::pair<ExprGroups, bool> IdGraph::iterDomainGroupDefinitions(
-    IdGroup id_group) const {
+std::pair<ExprGroups, bool> IdGraph::getDefinitions(
+    const IdGroup& id_group) const {
   auto null_return = std::make_pair(ExprGroups(), false);
 
   if (id_group == nullptr) {
@@ -544,8 +525,7 @@ std::pair<ExprGroups, bool> IdGraph::iterDomainGroupDefinitions(
   return std::make_pair(definitions_it->second, true);
 }
 
-std::pair<ExprGroups, bool> IdGraph::iterDomainGroupUses(
-    IdGroup id_group) const {
+std::pair<ExprGroups, bool> IdGraph::getUses(const IdGroup& id_group) const {
   auto null_return = std::make_pair(ExprGroups(), false);
 
   if (id_group == nullptr) {
@@ -748,7 +728,7 @@ bool IdGraph::exprsMap(Expr* first, Expr* second, bool forward) const {
   return true;
 }
 
-ExprGroups IdGraph::uniqueDefinitions(IdGroup group) const {
+const ExprGroups& IdGraph::getUniqueDefinitions(const IdGroup& group) const {
   auto unique_defs_it = unique_definitions_.find(group);
   TORCH_INTERNAL_ASSERT(
       unique_defs_it != unique_definitions_.end(),
@@ -757,7 +737,7 @@ ExprGroups IdGraph::uniqueDefinitions(IdGroup group) const {
   return unique_defs_it->second;
 }
 
-ExprGroups IdGraph::uniqueUses(IdGroup group) const {
+const ExprGroups& IdGraph::getUniqueUses(const IdGroup& group) const {
   auto unique_uses_it = unique_uses_.find(group);
   TORCH_INTERNAL_ASSERT(
       unique_uses_it != unique_uses_.end(),
@@ -779,10 +759,10 @@ void IdGraph::mapIds(IterDomain* id0, IterDomain* id1) {
   // processing.
   auto orig_id_group0 = toGroup(id0);
   auto orig_id_group1 = toGroup(id1);
-  ExprGroups orig_defs0 = uniqueDefinitions(orig_id_group0);
-  ExprGroups orig_defs1 = uniqueDefinitions(orig_id_group1);
-  ExprGroups orig_uses0 = uniqueUses(orig_id_group0);
-  ExprGroups orig_uses1 = uniqueUses(orig_id_group1);
+  ExprGroups orig_defs0 = getUniqueDefinitions(orig_id_group0);
+  ExprGroups orig_defs1 = getUniqueDefinitions(orig_id_group1);
+  ExprGroups orig_uses0 = getUniqueUses(orig_id_group0);
+  ExprGroups orig_uses1 = getUniqueUses(orig_id_group1);
 
   // Map the iter domains together before we traverse across definitions and
   // uses. Traversing definitions and uses could use the new property of id0 and
@@ -867,9 +847,9 @@ void IdGraph::mapExprs(Expr* expr0, Expr* expr1) {
   }
 
   for (auto producer_group : producers) {
-    uniqueUses().at(producer_group).erase(expr0_orig_group);
-    uniqueUses().at(producer_group).erase(expr1_orig_group);
-    uniqueUses().at(producer_group).pushBack(expr_new_group);
+    unique_uses_.at(producer_group).erase(expr0_orig_group);
+    unique_uses_.at(producer_group).erase(expr1_orig_group);
+    unique_uses_.at(producer_group).pushBack(expr_new_group);
   }
 
   // Update unique definitinos of consumers
@@ -881,9 +861,9 @@ void IdGraph::mapExprs(Expr* expr0, Expr* expr1) {
   }
 
   for (auto consumer_group : consumers) {
-    uniqueDefinitions().at(consumer_group).erase(expr0_orig_group);
-    uniqueDefinitions().at(consumer_group).erase(expr1_orig_group);
-    uniqueDefinitions().at(consumer_group).pushBack(expr_new_group);
+    unique_definitions_.at(consumer_group).erase(expr0_orig_group);
+    unique_definitions_.at(consumer_group).erase(expr1_orig_group);
+    unique_definitions_.at(consumer_group).pushBack(expr_new_group);
   }
 }
 
@@ -987,7 +967,7 @@ void IdGraph::removeTrivialExprs() {
 
 // Complexity here is not great. We might want a better complexity version when
 // erasing multiple expr_groups.
-void IdGraph::eraseExprGroup(ExprGroup expr_group) {
+void IdGraph::eraseExprGroup(const ExprGroup& expr_group) {
   // Erase entries that exist in unique_definitions_ and unique_uses_
   for (auto id_group : disjointIdSets().disjointSets()) {
     // Make sure the entries exists
@@ -1009,7 +989,7 @@ void IdGraph::eraseExprGroup(ExprGroup expr_group) {
   }
 }
 
-bool IdGraph::isTrivialExprGroup(ExprGroup expr_group) const {
+bool IdGraph::isTrivialExprGroup(const ExprGroup& expr_group) const {
   return !IdGroups(inputGroups(expr_group))
               .intersect(IdGroups(outputGroups(expr_group)))
               .empty();

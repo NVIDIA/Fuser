@@ -31,7 +31,7 @@ void IdGraphVisitor::traverse() {
           graph().disjointExprSets().disjointSets().end());
     } else {
       for (auto id_group : all_ids) {
-        for (auto def : graph().uniqueDefinitions(id_group)) {
+        for (auto def : graph().getUniqueDefinitions(id_group)) {
           if (all_exprs.has(def)) {
             continue;
           }
@@ -88,7 +88,7 @@ void IdGraphVisitor::traverse() {
   };
 
   auto is_id_ready = [&](IdGroup id_group) {
-    auto unique_defs = graph().uniqueDefinitions(id_group);
+    auto unique_defs = graph().getUniqueDefinitions(id_group);
     return std::all_of(
         unique_defs.begin(), unique_defs.end(), [&](ExprGroup expr_group) {
           return expr_group->empty() || visited_exprs.has(expr_group) ||
@@ -142,7 +142,7 @@ void IdGraphVisitor::traverse() {
         visited_ids.pushBack(current_id_group);
 
         if (!terminating_outputs.has(current_id_group)) {
-          auto uses_pair = graph().iterDomainGroupUses(current_id_group);
+          auto uses_pair = graph().getUses(current_id_group);
           if (uses_pair.second) {
             to_visit_exprs.pushBack(uses_pair.first);
           }
