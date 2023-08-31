@@ -942,7 +942,7 @@ void IterDomainGraphs::build(
       });
 
   auto all_tvs = ir_utils::allTvsOfExprs(tv_exprs);
-  if (additional_tvs.size() > 0) {
+  if (!additional_tvs.empty()) {
     std::unordered_set<TensorView*> all_added_tvs(
         all_tvs.begin(), all_tvs.end());
     for (auto additional_tv : additional_tvs) {
