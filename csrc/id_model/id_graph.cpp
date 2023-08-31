@@ -742,23 +742,18 @@ void IdGraph::mapIds(IterDomain* id0, IterDomain* id1) {
   // Definitions and uses are based on the groups of id0 and id1, don't merge
   // them into a single group until we grab all definitions and uses for later
   // processing.
-  auto orig_id_group0 = toGroup(id0);
-  auto orig_id_group1 = toGroup(id1);
-  ExprGroups orig_defs0 = getUniqueDefinitions(orig_id_group0);
-  ExprGroups orig_defs1 = getUniqueDefinitions(orig_id_group1);
-  ExprGroups orig_uses0 = getUniqueUses(orig_id_group0);
-  ExprGroups orig_uses1 = getUniqueUses(orig_id_group1);
+  IdGroup orig_id_group0 = toGroup(id0);
+  IdGroup orig_id_group1 = toGroup(id1);
+  const ExprGroups& orig_defs0 = getUniqueDefinitions(orig_id_group0);
+  const ExprGroups& orig_defs1 = getUniqueDefinitions(orig_id_group1);
+  const ExprGroups& orig_uses0 = getUniqueUses(orig_id_group0);
+  const ExprGroups& orig_uses1 = getUniqueUses(orig_id_group1);
 
   // Map the iter domains together before we traverse across definitions and
   // uses. Traversing definitions and uses could use the new property of id0 and
   // id1 being mapped.
   disjointIdSets().mapEntries(id0, id1);
   auto new_id_group = toGroup(id0);
-
-  unique_definitions_.erase(orig_id_group0);
-  unique_definitions_.erase(orig_id_group1);
-  unique_uses_.erase(orig_id_group0);
-  unique_uses_.erase(orig_id_group1);
 
   unique_definitions_[new_id_group] = orig_defs0.computeUnion(orig_defs1);
   unique_uses_[new_id_group] = orig_uses0.computeUnion(orig_uses1);
@@ -792,6 +787,11 @@ void IdGraph::mapIds(IterDomain* id0, IterDomain* id1) {
       }
     }
   }
+
+  unique_definitions_.erase(orig_id_group0);
+  unique_definitions_.erase(orig_id_group1);
+  unique_uses_.erase(orig_id_group0);
+  unique_uses_.erase(orig_id_group1);
 }
 
 void IdGraph::maybeMapThroughExprs(Expr* expr0, Expr* expr1, bool forward) {
