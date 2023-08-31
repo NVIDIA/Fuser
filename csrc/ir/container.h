@@ -23,6 +23,7 @@ class IrBuilderPasskey;
 class ExprPasskey;
 class OptOutMutator;
 
+class IterDomain;
 class NamedScalar;
 
 // Passkey for container to register names with statements
@@ -112,6 +113,21 @@ class TORCH_CUDA_CU_API IrContainer : public PolymorphicBase {
   //! underlying UnionFind.
   bool areEqual(const Val* a, const Val* b);
 
+  //! Invert the mapping v -> v->name(). If name is invalid, nullptr is
+  //! returned.
+  Val* getValFromName(ValType vtype, StmtNameType name) {
+    const auto& ntoi = val_type_name_to_index_[(size_t)vtype];
+    if (name >= ntoi.size()) {
+      return nullptr;
+    }
+    const auto ix = ntoi[name];
+    return vals_up_[ix].get();
+  }
+
+  //! Print equivalence classes of scalars that were defined using
+  //! assumeEqual
+  void printScalarEquivalences();
+
   //! Set two IterDomains to be part of the same equivalence class in
   //! exact_mapping_. This also calls assumeEqual on their extents.
   void setExactMapped(const IterDomain* a, const IterDomain* b);
@@ -181,15 +197,17 @@ class TORCH_CUDA_CU_API IrContainer : public PolymorphicBase {
   std::unordered_map<ValType, StmtNameType> val_type_name_map_;
 
   // We keep a mapping from name() to index in vals_up_ for each ValType. The
-  // following should hold for any Val:
-  //    v == val_type_name_to_index_[(size_t)v->valType()][v->name()]
+  // following should hold for any Val v:
+  //   v ==
+  //    vals_up_[val_type_name_to_index_[(size_t)v->valType()][v->name()]].get()
   // This allows us to work with integers only and still be able to retrieve a
   // Val* for a given ValType.
   std::vector<std::vector<size_t>> val_type_name_to_index_;
 
   // UnionFinds represent equivalence relations. Exact mapped IterDomains are
   // tracked with a UnionFind, and their extents are marked as equal using the
-  // more general scalar_equality_ UnionFind.
+  // more general scalar_equality_ UnionFind. The scalar_equality_ UnionFind
+  // should also be updated whenever Vals are proven to be equal.
   using UnionFindIndexType = uint16_t; // Change this if >64k Vals are expected
   UnionFind<UnionFindIndexType> scalar_equality_;
   UnionFind<UnionFindIndexType> exact_mapping_;

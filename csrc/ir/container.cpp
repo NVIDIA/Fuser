@@ -195,7 +195,7 @@ void IrContainer::registerVal(Val* val) {
         exact_mapping_.enlarge(val->name() + 1);
       }
       break;
-    case ValType::Scalar:
+    case ValType::Others:
       if (val->name() >= scalar_equality_.size()) {
         scalar_equality_.enlarge(val->name() + 1);
       }
@@ -380,14 +380,34 @@ void IrContainer::assumeNonNegative(Val* val) {
 void IrContainer::assumeEqual(const Val* a, const Val* b) {
   TORCH_INTERNAL_ASSERT(a->container() == this);
   TORCH_INTERNAL_ASSERT(b->container() == this);
-  // ValType must be Scalar -- not NamedScalar
-  TORCH_INTERNAL_ASSERT(a->getValType().value() == ValType::Scalar);
-  TORCH_INTERNAL_ASSERT(b->getValType().value() == ValType::Scalar);
+  // ValType must be Others -- not NamedScalar
+  TORCH_INTERNAL_ASSERT(a->getValType().value() == ValType::Others);
+  TORCH_INTERNAL_ASSERT(b->getValType().value() == ValType::Others);
   scalar_equality_.merge(a->name(), b->name());
 }
 
 bool IrContainer::areEqual(const Val* a, const Val* b) {
   return false;
+}
+
+void IrContainer::printScalarEquivalences() {
+  debug() << "Equivalence classes of scalars:" << std::endl;
+  const auto classes = scalar_equality_.computeEquivalenceClasses();
+  for (const auto n : c10::irange(classes.size())) {
+    const auto c = classes.at(n);
+    TORCH_INTERNAL_ASSERT(!c.empty());
+    const auto root_name = scalar_equality_.find(c.at(0));
+    debug() << "  class " << n << std::endl;
+    for (const auto s_name : c) {
+      const auto s = getValFromName(ValType::Others, s_name);
+      debug() << "    " << s->toString() << " = " << s->toInlineString();
+      if (s_name == root_name) {
+        // Mark the current root of each class in the printout
+        debug() << "  [ROOT]";
+      }
+      debug() << std::endl;
+    }
+  }
 }
 
 void IrContainer::setExactMapped(const IterDomain* a, const IterDomain* b) {

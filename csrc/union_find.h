@@ -295,6 +295,101 @@ class UnionFind {
     }
   }
 
+  //! Compute a sorted vector of all elements equivalent to a.
+  std::vector<IndexType> computeEquivalenceClass(IndexType a) {
+    std::vector<IndexType> c;
+    const auto root_a = find(a);
+
+    for (const auto i : c10::irange(size())) {
+      const auto root_i = find(i);
+      if (root_i == root_a) {
+        c.push_back(i);
+      }
+    }
+
+    return c;
+  }
+
+  //! Const version of computeEquivalenceClass
+  std::vector<IndexType> computeEquivalenceClassConst(IndexType a) const {
+    std::vector<IndexType> c;
+    const auto root_a = findConst(a);
+
+    for (const auto i : c10::irange(size())) {
+      const auto root_i = findConst(i);
+      if (root_i == root_a) {
+        c.push_back(i);
+      }
+    }
+
+    return c;
+  }
+
+  //! Computes all equivalence classes as sorted vectors of ints. The classes
+  //! are sorted by their lowest members.
+  std::vector<std::vector<IndexType>> computeEquivalenceClasses() {
+    std::vector<std::vector<IndexType>> classes;
+    // First pass initializes a vector for each equivalence class
+    for (const auto i : c10::irange(size())) {
+      const auto root = find(i);
+      // Only process each class once, when passing its root
+      if (root == i) {
+        // Create new empty vector for this class to be filled on second pass
+        classes.emplace_back(0);
+      }
+    }
+    // root_to_class_num maps to position of a root element to index of class.
+    // This is initialized to classes.size() to indicate that the class has not
+    // yet been assigned a position. Those positions are assigned as next_class
+    // whenever we first encounter a member of the class.
+    std::vector<IndexType> root_to_class_num(size(), classes.size());
+    IndexType next_class = 0;
+    // Second pass inserts into class vectors in order
+    for (const auto i : c10::irange(size())) {
+      const auto root = find(i);
+      auto class_num = root_to_class_num.at(root);
+      if (class_num == classes.size()) {
+        // First element in this class
+        root_to_class_num.at(root) = next_class;
+        class_num = next_class++;
+      }
+      classes.at(class_num).push_back(i);
+    }
+    return classes;
+  }
+
+  //! Const version of computeEquivalenceClasses
+  std::vector<std::vector<IndexType>> computeEquivalenceClassesConst() const {
+    std::vector<std::vector<IndexType>> classes;
+    // First pass initializes a vector for each equivalence class
+    for (const auto i : c10::irange(size())) {
+      const auto root = findConst(i);
+      // Only process each class once, when passing its root
+      if (root == i) {
+        // Create new empty vector for this class to be filled on second pass
+        classes.emplace_back(0);
+      }
+    }
+    // root_to_class_num maps to position of a root element to index of class.
+    // This is initialized to classes.size() to indicate that the class has not
+    // yet been assigned a position. Those positions are assigned as next_class
+    // whenever we first encounter a member of the class.
+    std::vector<IndexType> root_to_class_num(size(), classes.size());
+    IndexType next_class = 0;
+    // Second pass inserts into class vectors in order
+    for (const auto i : c10::irange(size())) {
+      const auto root = findConst(i);
+      auto class_num = root_to_class_num.at(root);
+      if (class_num == classes.size()) {
+        // First element in this class
+        root_to_class_num.at(root) = next_class;
+        class_num = next_class++;
+      }
+      classes.at(class_num).push_back(i);
+    }
+    return classes;
+  }
+
   //! Resize to zero losing all merge information without altering reserved
   //! capacity
   virtual void clear() {
@@ -305,64 +400,6 @@ class UnionFind {
  private:
   std::vector<IndexType> parent_;
   std::vector<IndexType> rank_;
-};
-
-//! This union-find holds some associated data that may optionally
-//! be bound to each equivalence class. For example, this can be used to
-//! associate a value to a class of symbolic scalars.
-template <typename IndexType, typename DataType>
-class UnionFindWithData : public UnionFind<IndexType> {
- public:
-  //! Resize the data-structure to equal or larger size than current
-  void enlarge(size_t new_size) override {
-    UnionFind<IndexType>::enlarge(new_size);
-    data_.resize(new_size, std::nullopt);
-  }
-
-  //! Merge classes of a and b so that they will share a root.
-  //! Returns the new root.
-  IndexType merge(IndexType a, IndexType b) override {
-    auto root_a = find(a);
-    auto root_b = find(b);
-    if (root_a == root_b) {
-      return root_a;
-    }
-    // If root_a and root_b both have bound values, just check that they match.
-    // Otherwise, hold on to whichever value is bound, and ensure that after the
-    // merge it is still bound.
-    if (data_[root_a].has_value() && data_[root_b].has_value()) {
-      TORCH_INTERNAL_ASSERT(
-          data_[root_a].value() == data_[root_b].value(),
-          "Bound data values do not match in UnionFindWithData for a=",
-          a,
-          " and b=",
-          b);
-      UnionFind<IndexType>::merge(root_a, root_b);
-    } else {
-      auto bound_val =
-          data_[root_a].has_value() ? data_[root_a] : data_[root_b];
-      UnionFind<IndexType>::merge(root_a, root_b);
-      data_[find(root_a)] = bound_val;
-    }
-  }
-
-  //! Associate data with any element equivalent to a
-  void bind(IndexType a, DataType data) {
-    if (a >= UnionFind<IndexType>::size()) {
-      enlarge(a + 1);
-    }
-    data_[find(a)] = data;
-  }
-
-  //! Resize to zero losing all merge information without altering reserved
-  //! capacity
-  void clear() override {
-    UnionFind<IndexType>::clear();
-    data_.clear();
-  }
-
- private:
-  std::vector<std::optional<DataType>> data_;
 };
 
 } // namespace nvfuser
