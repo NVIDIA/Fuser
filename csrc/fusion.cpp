@@ -1017,10 +1017,89 @@ void Fusion::replaceUncomputableScalars() {
         s->toString(),
         " cannot be made computible since it has no definition.");
 
-    // TODO: Finish this pass
-
-    // Recurse to producers
     std::vector<const Val*> producers_to_process;
+    for (const auto p : def->inputs()) {
+      if (p->vtype() == ValType::Others) {
+        if (computable.at(p->name())) {
+          continue;
+        }
+        const auto p_root = scalar_equality_.find(p->name());
+        if (computable.at(p_root)) {
+          continue;
+        }
+        // neither p itself nor its representative is computable
+        producers_to_process.push_back(getValFromName(ValType::Others, p_root));
+      }
+    }
+    if (producers_to_process.empty()) {
+      // we are ready to replace the root of s
+      auto newObjectFunc = def->newObjectFunc();
+      std::vector<Val*> computable_inputs, computable_outputs;
+      std::vector<Statement*> computable_attrs;
+      computable_inputs.reserve(def->inputs().size());
+      computable_outputs.reserve(def->outputs().size());
+      computable_attrs.reserve(def->attributes().size());
+      for (auto inp : def->inputs()) {
+        TORCH_INTERNAL_ASSERT(
+            inp->vtype() == ValType::Others,
+            "Found unexpected non-scalar expression ",
+            def->toString());
+        if (computable.at(inp->name())) {
+          computable_inputs.push_back(inp);
+        } else {
+          const auto root_name = scalar_equality_.find(inp->name());
+          auto root = getValFromName(ValType::Others, root_name);
+          TORCH_INTERNAL_ASSERT(
+              computable.at(root_name),
+              "Uncomputable input ",
+              s->toString(),
+              " has unexpectedly uncomputable root ",
+              root->toString());
+          computable_inputs.push_back(root);
+        }
+      }
+      for (auto outp : def->outputs()) {
+        // Create new Vals for each output
+        auto new_outp = IrBuilder::create<Val>(outp->dtype());
+        // Mark these outputs equivalent to the originals
+        assumeEqual(outp, new_outp);
+        if (outp == s) {
+          scalar_equality_.setAsRoot(new_outp->name());
+        }
+        computable_outputs.push_back(new_outp);
+      }
+      for (auto attr : def->attributes()) {
+        if (auto attr_val = dynamic_cast<Val*>(attr)) {
+          TORCH_INTERNAL_ASSERT(
+              attr_val->vtype() == ValType::Others,
+              "Found unexpected non-scalar expression ",
+              def->toString());
+          if (computable.at(attr_val->name())) {
+            computable_attrs.push_back(attr_val);
+          } else {
+            const auto root_name = scalar_equality_.find(attr_val->name());
+            auto root = getValFromName(ValType::Others, root_name);
+            TORCH_INTERNAL_ASSERT(
+                computable.at(root_name),
+                "Uncomputable attribute Val ",
+                s->toString(),
+                " has unexpectedly uncomputable root ",
+                root->toString());
+            computable_attrs.push_back(root);
+          }
+        } else {
+          computable_attrs.emplace_back(attr);
+        }
+      }
+      newObjectFunc(
+          this, computable_inputs, computable_outputs, computable_attrs);
+    } else {
+      // recurse to producers if any are uncomputable, then return to s
+      comp_queue.push(s);
+      for (const auto p : producers_to_process) {
+        comp_queue.push(p);
+      }
+    }
   }
 
   // Replacement map should be the mapping from val to root in the UnionFind
