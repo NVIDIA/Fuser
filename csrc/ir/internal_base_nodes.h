@@ -21,6 +21,7 @@ namespace nvfuser {
 
 // Friends for direct access to split
 class TensorDomain;
+class IterDomain;
 class ReplayTransformations;
 class IndexReferenceReplay;
 class ViewTransform;
@@ -458,6 +459,8 @@ class TORCH_CUDA_CU_API TensorDomain : public Val {
       std::vector<IterDomain*> allocation,
       std::vector<IterDomain*> leaf_domain,
       std::vector<std::optional<bool>> contiguity = {});
+
+  TensorDomain(IrBuilderPasskey, const TensorDomain* src);
 
   TensorDomain(const TensorDomain* src, IrCloner* ir_cloner);
 

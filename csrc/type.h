@@ -105,52 +105,53 @@ struct PointerType {
 };
 
 struct StructType {
-  // In nvfuser's type system, there are two types of structs: named structs and
-  // anonymous structs. Named structs are lowered to its name in the generated
-  // code, while anonymous structs are lowered to `struct {...}`. Generally, we
-  // should use named structs for structures that has definition in a file in
-  // runtime/, and anonymous structs for others.
   std::string name;
+  std::function<std::shared_ptr<Struct>()> create;
 
-  // The ordered list of field names. This is used to generate the struct type
-  // on device. This list does not necessarily contain all the fields in the
-  // struct, but it should contain all the fields that are used on device.
-  std::vector<std::string> field_names;
+  struct FieldInfo {
+    std::string name;
+    std::shared_ptr<DataType> type;
+    bool used_in_kernel = true;
+  };
 
-  // Note [Incomplete type support in STL]
-  // std::unordered_map<std::string, DataType> is a STL container of incomplete
-  // type. Not all C++ STL containers supports incomplete type due to historical
-  // reason: It is totally possible to implement STL containers supporting
-  // incomplete type (actually, boost has these container implementations), and
-  // it totally makes sense to implement STL containers that way. However, due
-  // to historical reason, some standard C++ libraries are not implementing STL
-  // containers that way, and after careful consideration, the C++ standard
-  // committee decided to not write the requirement on supporting incomplete
-  // type into the standard because they didn't want to deprecate these
-  // libraries. However, starting from C++17, the standard start to ask
-  // std::vector, std::list and std::forward_list to support incomplete
-  // type. So:
-  //   struct A;
-  //   std::vector<A> a; // valid on C++17
-  //   std::unordered_set<A> s; // undefined behavior, working on newer gcc.
-  //   struct A {};
-#if defined(STD_UNORDERED_SET_SUPPORTS_INCOMPLETE_TYPE)
-  std::unordered_map<std::string, DataType> types;
-#define NVFUSER_MAYBE_MAKE_SHARED(x) x
-#define NVFUSER_MAYBE_MAKE_SHARED2(x, y) x, y
-#define NVFUSER_MAYBE_STAR
-#else
-  std::unordered_map<std::string, std::shared_ptr<DataType>> types;
-#define NVFUSER_MAYBE_MAKE_SHARED(x) std::make_shared<DataType>(x)
-#define NVFUSER_MAYBE_MAKE_SHARED2(x, y) std::make_shared<DataType>(x, y)
-#define NVFUSER_MAYBE_STAR *
-#endif
+  std::vector<FieldInfo> fields;
+
+  template <typename T>
+  static StructType make(std::vector<FieldInfo> fields, std::string name = "") {
+    static_assert(
+        std::is_base_of<Struct, T>::value,
+        "StructType::make only accepts Struct types");
+    return StructType{
+        .name = std::move(name),
+        .create =
+            []() {
+              return std::static_pointer_cast<Struct>(std::make_shared<T>());
+            },
+        .fields = std::move(fields)};
+  }
+
+  inline const DataType& fieldDataType(const std::string& name) const {
+    for (const auto& field : fields) {
+      if (field.name == name) {
+        return *field.type;
+      }
+    }
+    TORCH_INTERNAL_ASSERT(false, "Field ", name, " not found in struct ", name);
+  }
+
   inline bool operator==(const StructType& other) const;
 };
 
 struct OpaqueType {
-  std::string display_name;
+  std::string name;
   std::reference_wrapper<const std::type_info> type_info;
+  size_t size;
+
+  template <typename T>
+  static OpaqueType make(std::string name = "") {
+    return OpaqueType{
+        .name = std::move(name), .type_info = typeid(T), .size = sizeof(T)};
+  }
 
   inline bool operator==(const OpaqueType& other) const {
     return type_info.get() == other.type_info.get();
@@ -201,35 +202,29 @@ bool PointerType::operator==(const PointerType& other) const {
 }
 
 bool StructType::operator==(const StructType& other) const {
-#if defined(STD_UNORDERED_SET_SUPPORTS_INCOMPLETE_TYPE)
-  return types == other.types;
-#else
-  std::unordered_set<std::string> keys;
-  for (auto& [k, v] : types) {
-    keys.insert(k);
-  }
-  std::unordered_set<std::string> other_keys;
-  for (auto& [k, v] : other.types) {
-    other_keys.insert(k);
-  }
-  if (keys != other_keys) {
+  if (fields.size() != other.fields.size()) {
     return false;
   }
-  for (auto& [k, v] : types) {
-    if (*v != *other.types.at(k)) {
+  for (auto i : c10::irange(fields.size())) {
+    if (fields[i].name != other.fields[i].name ||
+        *fields[i].type != *other.fields[i].type ||
+        fields[i].used_in_kernel != other.fields[i].used_in_kernel) {
       return false;
     }
   }
   return true;
-#endif
 }
 
-DataType globalTensorMetaData(
-    const DataType& dtype,
+inline StructType StructHandle::type() const {
+  return struct_ptr_->type();
+}
+
+StructType globalTensorMetaData(
+    const PrimDataType& dtype,
     size_t dim,
     size_t alloc_dim);
 
-inline DataType globalTensorMetaData(const DataType& dtype, size_t dim) {
+inline StructType globalTensorMetaData(const PrimDataType& dtype, size_t dim) {
   return globalTensorMetaData(dtype, dim, dim);
 }
 
@@ -416,24 +411,19 @@ inline DataType getDataType(const PolymorphicValue& value) {
         dtype =
             ArrayType{std::make_shared<DataType>(getDataType(vec[0])), size};
       }
-    } else if constexpr (std::is_same_v<T, Struct<PolymorphicValue>>) {
-      if (value.is<T>()) {
-        const auto& struct_ = value.as<T>();
-        StructType result;
-        for (const auto& [name, value] : struct_.fields) {
-          result.types[name] =
-              NVFUSER_MAYBE_MAKE_SHARED(getDataType(NVFUSER_MAYBE_STAR value));
-        }
-        dtype = result;
-      }
     } else if constexpr (std::is_same_v<T, Pointer>) {
       // For pointers in polymorphic value, we only store the data size of the
       // pointee, so it is impossible to infer the pointer type.
       TORCH_CHECK(!value.is<T>(), "Can not infer pointer type.");
+    } else if constexpr (std::is_same_v<T, StructHandle>) {
+      if (value.is<T>()) {
+        dtype = value.as<T>().type();
+      }
     } else if constexpr (std::is_same_v<T, Opaque>) {
       if (value.is<T>()) {
-        dtype =
-            DataType(OpaqueType{.type_info = value.as<Opaque>().any().type()});
+        const auto& opaque = value.as<T>();
+        dtype = DataType(OpaqueType{
+            .type_info = opaque.any().type(), .size = opaque.size()});
       }
     }
   });
@@ -456,25 +446,22 @@ inline bool isCompatibleDataType(DataType dtype, DataType dtype2) {
   }
   if (std::holds_alternative<ArrayType>(dtype.type) &&
       std::holds_alternative<ArrayType>(dtype2.type)) {
-    const auto& array_of = std::get<ArrayType>(dtype.type);
-    const auto& array_of2 = std::get<ArrayType>(dtype2.type);
-    return array_of.size == array_of2.size &&
-        isCompatibleDataType(*array_of.type, *array_of2.type);
+    const auto& array_type = std::get<ArrayType>(dtype.type);
+    const auto& array_type2 = std::get<ArrayType>(dtype2.type);
+    return array_type.size == array_type2.size &&
+        isCompatibleDataType(*array_type.type, *array_type2.type);
   }
   if (std::holds_alternative<StructType>(dtype.type) &&
       std::holds_alternative<StructType>(dtype2.type)) {
-    const auto& struct_of = std::get<StructType>(dtype.type);
-    const auto& struct_of2 = std::get<StructType>(dtype2.type);
-    if (struct_of.types.size() != struct_of2.types.size()) {
+    const auto& struct_type = std::get<StructType>(dtype.type);
+    const auto& struct_type2 = std::get<StructType>(dtype2.type);
+    if (struct_type.fields.size() != struct_type2.fields.size()) {
       return false;
     }
-    for (const auto& [name, dtype] : struct_of.types) {
-      if (!struct_of2.types.count(name)) {
-        return false;
-      }
-      if (!isCompatibleDataType(
-              NVFUSER_MAYBE_STAR dtype,
-              NVFUSER_MAYBE_STAR struct_of2.types.at(name))) {
+    for (auto i : c10::irange(struct_type.fields.size())) {
+      if (struct_type.fields[i].name != struct_type2.fields[i].name ||
+          !isCompatibleDataType(
+              *struct_type.fields[i].type, *struct_type2.fields[i].type)) {
         return false;
       }
     }
@@ -703,15 +690,17 @@ enum class IdMappingMode {
   ALMOSTEXACT,
   LOOP,
   PERMISSIVE,
-  PERMISSIVE_RESIZE
+  PERMISSIVE_RESIZE,
+  INNERMOST
 };
 
-static constexpr std::array<IdMappingMode, 5> kIdMappingModes = {
+static constexpr std::array<IdMappingMode, 6> kIdMappingModes = {
     IdMappingMode::EXACT,
     IdMappingMode::ALMOSTEXACT,
     IdMappingMode::LOOP,
     IdMappingMode::PERMISSIVE,
-    IdMappingMode::PERMISSIVE_RESIZE};
+    IdMappingMode::PERMISSIVE_RESIZE,
+    IdMappingMode::INNERMOST};
 
 //! Used to annotate the special memory intrinsics that a loadstore op will be
 //!  lowered to.

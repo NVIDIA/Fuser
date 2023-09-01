@@ -30,6 +30,7 @@ inline void checkIntValue(
   EXPECT_TRUE(actual_value.hasValue());
   EXPECT_EQ(actual_value, expected_value);
 }
+
 } // namespace
 
 // Evaluate basic scalar operations with constant values
@@ -297,10 +298,44 @@ TEST_F(ExprEvalTest, Struct) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
+  struct A : public Struct {
+    int64_t a;
+    int64_t b;
+
+    StructType type() const override {
+      std::vector<StructType::FieldInfo> fields(2);
+      fields.at(0) = {"a", std::make_shared<DataType>(DataType::Int), true};
+      fields.at(1) = {"b", std::make_shared<DataType>(DataType::Int), false};
+      return StructType::make<A>(fields, "A");
+    }
+
+    std::function<PolymorphicValue()> getter(
+        const std::string& key) const override {
+      if (key == "a") {
+        return [this]() { return PolymorphicValue(a); };
+      } else if (key == "b") {
+        return [this]() { return PolymorphicValue(b); };
+      } else {
+        TORCH_INTERNAL_ASSERT(false, "Invalid key");
+      }
+    }
+
+    std::function<void(const PolymorphicValue&)> setter(
+        const std::string& key) override {
+      if (key == "a") {
+        return [this](const PolymorphicValue& value) { a = (int64_t)value; };
+      } else if (key == "b") {
+        return [this](const PolymorphicValue& value) { b = (int64_t)value; };
+      } else {
+        TORCH_INTERNAL_ASSERT(false, "Invalid key");
+      }
+    }
+  };
+
   auto* a = IrBuilder::create<Val>(DataType::Int);
   auto* b = IrBuilder::create<Val>(DataType::Int);
 
-  auto struct_ = IrBuilder::structExpr({{"a", a}, {"b", b}}, "test_struct");
+  auto struct_ = IrBuilder::structExpr<A>({{"a", a}, {"b", b}}, "test_struct");
 
   auto aa = IrBuilder::getAttrExpr(struct_, "a");
   auto bb = IrBuilder::getAttrExpr(struct_, "b");
@@ -309,8 +344,9 @@ TEST_F(ExprEvalTest, Struct) {
   evaluator.bind(a, 2L);
   evaluator.bind(b, 5L);
 
-  Struct<PolymorphicValue> expect({{"a", 2L}, {"b", 5L}});
-  EXPECT_EQ(evaluator.evaluate(struct_), expect);
+  auto eval_struct = evaluator.evaluate(struct_);
+  EXPECT_EQ((PolymorphicValue)(eval_struct->*"a"), 2L);
+  EXPECT_EQ((PolymorphicValue)(eval_struct->*"b"), 5L);
   EXPECT_EQ(evaluator.evaluate(aa), 2L);
   EXPECT_EQ(evaluator.evaluate(bb), 5L);
 }
@@ -363,14 +399,6 @@ TEST_F(ExprEvalTest, TensorMetaData) {
   checkIntValue(evaluator, size1, 128L);
   checkIntValue(evaluator, stride0, 128L);
   checkIntValue(evaluator, stride1, 1L);
-}
-
-TEST_F(ExprEvalTest, OpaqueEquality) {
-  Opaque a{DataType::Int}, b{DataType::Int};
-  EXPECT_EQ(a, a);
-  EXPECT_EQ(b, b);
-  EXPECT_EQ(a, b);
-  EXPECT_EQ(b, a);
 }
 
 TEST_F(ExprEvalTest, Validation) {

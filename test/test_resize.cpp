@@ -483,6 +483,46 @@ TEST_F(ResizeTest, FusionResizePadScheduler4) {
       __FILE__);
 }
 
+// Pad a broadcast
+// See https://github.com/NVIDIA/Fuser/issues/798
+TEST_F(ResizeTest, FusionResizePadBroadcastInput) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  // IterTypes are {Broadcast, Iteration}
+  auto tv0 = makeConcreteTensor({1, -1});
+  fusion->addInput(tv0);
+
+  // trivial pad of broadcast dimension
+  auto tv1 =
+      pad(tv0,
+          {fusion->oneVal(),
+           fusion->zeroVal(),
+           fusion->zeroVal(),
+           fusion->zeroVal()});
+  fusion->addOutput(tv1);
+
+  std::vector<int64_t> shape({1, 2});
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+
+  auto t1 = at::pad(t0, {1, 0, 0, 0});
+
+  testValidate(
+      executor_cache.fusion(),
+      cg_outputs,
+      aten_inputs,
+      {t1},
+      __LINE__,
+      __FILE__);
+}
+
 // Trivial cat
 TEST_F(ResizeTest, FusionResizeCat1) {
   Fusion fusion;

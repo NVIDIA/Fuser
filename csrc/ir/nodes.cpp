@@ -782,19 +782,15 @@ StructConstruct::StructConstruct(
       !fields.empty(), "Cannot create a struct with no members.");
   auto output_dtype = std::get<StructType>(output->dtype().type);
   TORCH_INTERNAL_ASSERT(
-      output_dtype.types.size() == fields.size(),
+      output_dtype.fields.size() == fields.size(),
       "StructConstruct output must have the same number of fields as the inputs");
-  TORCH_INTERNAL_ASSERT(
-      output_dtype.field_names.size() == fields.size(),
-      "StructConstruct output must have the same number of fields as the inputs");
-  auto it = output_dtype.field_names.begin();
+  auto it = output_dtype.fields.begin();
   for (const auto& field : fields) {
     TORCH_INTERNAL_ASSERT(
-        *it == field.first,
+        it->name == field.first,
         "StructConstruct field names must match the output");
     TORCH_INTERNAL_ASSERT(
-        (NVFUSER_MAYBE_STAR output_dtype.types.at(field.first)) ==
-            field.second->dtype(),
+        *(it->type) == field.second->dtype(),
         "StructConstruct field ",
         field.first,
         " must have the same data type as the output");
@@ -839,11 +835,12 @@ std::vector<PolymorphicValue> StructConstruct::evaluate(
       "StructConstruct expects ",
       this->inputs().size(),
       " inputs");
-  Struct<PolymorphicValue> result;
+  PolymorphicValue struct_ =
+      std::get<StructType>(output(0)->dtype().type).create();
   for (int64_t i : c10::irange((int64_t)inputs.size())) {
-    result[attribute<std::string>(i)] = inputs.at(i);
+    struct_->*attribute<std::string>(i) = inputs.at(i);
   }
-  return {std::move(result)};
+  return {std::move(struct_)};
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(StructConstruct)
@@ -855,8 +852,8 @@ GetAttr::GetAttr(
     std::string attr)
     : Expr(passkey) {
   TORCH_INTERNAL_ASSERT(
-      NVFUSER_MAYBE_STAR std::get<StructType>(struct_->dtype().type)
-              .types.at(attr) == output->dtype(),
+      std::get<StructType>(struct_->dtype().type).fieldDataType(attr) ==
+          output->dtype(),
       "Data type mismatch for GetAttr");
   addOutput(output);
   addInput(struct_);
@@ -880,7 +877,7 @@ std::vector<PolymorphicValue> GetAttr::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
   TORCH_INTERNAL_ASSERT(inputs.size() == 1, "GetAttr expects 1 input");
-  return {inputs.at(0)[attr()]};
+  return {inputs.at(0)->*attr()};
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(GetAttr)
@@ -2787,6 +2784,19 @@ IterDomain* IterDomain::resize(
       "Expansion factor must be an integer scalar: ",
       right_expansion->toString());
 
+  if (left_expansion->isConstInt() && right_expansion->isConstInt()) {
+    auto left = left_expansion->evaluateInt();
+    auto right = right_expansion->evaluateInt();
+    if (left == 0 && right == 0) {
+      // This is a trivial resize. Check that we are not changing the IterType,
+      // then return the input.
+      TORCH_CHECK(
+          !iter_type_opt.has_value() ||
+              iter_type_opt.value() == in->getIterType(),
+          "If IterType is specified in pad with zero expansion then it must match input");
+      return in;
+    }
+  }
   TORCH_CHECK(
       in->getIterType() == IterType::Iteration ||
           in->getIterType() == IterType::Broadcast ||
@@ -2827,12 +2837,13 @@ IterDomain* IterDomain::resize(
   if (iter_type_opt.has_value()) {
     iter_type = iter_type_opt.value();
   } else if (left_expansion->isConstInt() && right_expansion->isConstInt()) {
+    auto left = left_expansion->evaluateInt();
+    auto right = right_expansion->evaluateInt();
     if (resized_id_size->isConstInt()) {
       // Means input extent is also known
       auto out_extent = resized_id_size->evaluateInt();
       iter_type = out_extent == 1 ? IterType::Broadcast : IterType::Iteration;
-    } else if (
-        left_expansion->evaluateInt() + right_expansion->evaluateInt() > 1) {
+    } else if (left + right > 1) {
       // Input extent is non-negative, so we know out_extent > 1
       iter_type = IterType::Iteration;
     }
@@ -3053,6 +3064,17 @@ TensorDomain::TensorDomain(
   has_reduction_ = false;
   resetDomains();
 }
+
+TensorDomain::TensorDomain(IrBuilderPasskey passkey, const TensorDomain* src)
+    : Val(passkey, ValType::TensorDomain, DataType::Null),
+      root_domain_(src->root_domain_),
+      rfactor_domain_(src->rfactor_domain_),
+      allocation_domain_(src->allocation_domain_),
+      leaf_domain_(src->leaf_domain_),
+      no_bcast_domain_(src->no_bcast_domain_),
+      no_reduction_domain_(src->no_reduction_domain_),
+      contiguity_(src->contiguity_),
+      has_reduction_(src->has_reduction_) {}
 
 TensorDomain::TensorDomain(const TensorDomain* src, IrCloner* ir_cloner)
     : Val(src, ir_cloner),

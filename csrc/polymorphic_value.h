@@ -7,10 +7,6 @@
 // clang-format on
 #pragma once
 
-#include <macros.h>
-
-#include <dynamic_type.h>
-#include <opaque_type.h>
 #include <any>
 #include <complex>
 #include <cstddef>
@@ -21,88 +17,13 @@
 
 #include <ATen/ATen.h>
 
+#define DYNAMIC_TYPE_CHECK TORCH_INTERNAL_ASSERT
+
+#include <dynamic_type.h>
+#include <macros.h>
+#include <opaque_type.h>
+
 namespace nvfuser {
-
-template <typename T>
-struct Struct {
-  // Using std::unordered_map<std::string, T> is more convenient and
-  // straightforward, but this is not guaranteed to work by C++ standard.
-  // See [Incomplete type support in STL]
-#if defined(STD_UNORDERED_SET_SUPPORTS_INCOMPLETE_TYPE)
-
-  std::unordered_map<std::string, T> fields;
-  Struct(std::initializer_list<std::pair<const std::string, T>> init)
-      : fields(init) {}
-#define MAYBE_STAR
-
-#else
-
-  std::unordered_map<std::string, std::shared_ptr<T>> fields;
-  Struct(std::initializer_list<std::pair<const std::string, T>> init) {
-    for (const auto& [key, value] : init) {
-      fields[key] = std::make_shared<T>(value);
-    }
-  }
-#define MAYBE_STAR *
-
-#endif
-
-  Struct() = default;
-  Struct(const Struct& other) = default;
-  Struct(Struct&& other) = default;
-  Struct& operator=(const Struct& other) = default;
-  Struct& operator=(Struct&& other) = default;
-
-  const T& operator[](const std::string& key) const {
-    return MAYBE_STAR fields.at(key);
-  }
-
-  T& operator[](const std::string& key) {
-#if defined(STD_UNORDERED_SET_SUPPORTS_INCOMPLETE_TYPE)
-    return fields[key];
-#else
-    if (fields.find(key) == fields.end()) {
-      fields[key] = std::make_shared<T>();
-    }
-    return *fields.at(key);
-#endif
-  }
-
-  bool operator==(const Struct& other) const {
-    if (this == &other) {
-      return true;
-    }
-    if (fields.size() != other.fields.size()) {
-      return false;
-    }
-    for (const auto& [key, _] : fields) {
-      if (other.fields.find(key) == other.fields.end()) {
-        return false;
-      }
-      if ((*this)[key] != other[key]) {
-        return false;
-      }
-    }
-    return true;
-  }
-};
-
-template <typename T>
-inline std::ostream& operator<<(std::ostream& os, const Struct<T>& s) {
-  os << "struct { ";
-  bool first = true;
-  for (const auto& [key, value] : s.fields) {
-    if (!first) {
-      os << ", ";
-    }
-    os << key << " = " << MAYBE_STAR value;
-    first = false;
-  }
-  os << "}";
-  return os;
-}
-
-#undef MAYBE_STAR
 
 struct DataType;
 
@@ -238,8 +159,51 @@ inline std::ostream& operator<<(std::ostream& os, const Pointer& ptr) {
   return os;
 }
 
-using PolymorphicValue = DynamicType<
-    Containers<std::vector, Struct>,
+struct Struct;
+class Accessor;
+struct StructType;
+
+// See Note [Struct Support in PolymorphicValue] for documentation.
+class StructHandle {
+  std::shared_ptr<Struct> struct_ptr_;
+
+ public:
+  StructHandle(std::shared_ptr<Struct> struct_ptr)
+      : struct_ptr_(std::move(struct_ptr)) {}
+  StructHandle& operator=(std::shared_ptr<Struct> struct_ptr) {
+    struct_ptr_ = std::move(struct_ptr);
+    return *this;
+  }
+
+  StructHandle(const StructHandle& other) = default;
+  StructHandle(StructHandle&& other) = default;
+  StructHandle& operator=(const StructHandle& other) = default;
+  StructHandle& operator=(StructHandle&& other) = default;
+
+  template <typename T>
+  bool is() const {
+    return std::dynamic_pointer_cast<T>(struct_ptr_) != nullptr;
+  }
+
+  template <typename T>
+  inline T& as() const {
+    return *std::dynamic_pointer_cast<T>(struct_ptr_);
+  }
+
+  inline StructType type() const;
+
+  template <typename Ret, typename Class>
+  inline std::enable_if_t<std::is_base_of_v<Struct, Class>, Ret&> operator->*(
+      Ret Class::*member) const {
+    return as<Class>().*member;
+  }
+
+  inline Accessor operator->*(const std::string& key) const;
+};
+
+using PolymorphicValue = dynamic_type::DynamicType<
+    dynamic_type::Containers<std::vector>,
+    StructHandle,
     Pointer,
     Opaque,
     at::Tensor,
@@ -377,3 +341,5 @@ inline PolymorphicValue toTensor(
 } // namespace PolymorphicValue_functions
 
 } // namespace nvfuser
+
+#include <struct.inl>

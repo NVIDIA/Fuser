@@ -53,6 +53,7 @@
 #include <iostream>
 #include <sstream>
 #include <thread>
+#include <typeinfo>
 
 namespace nvfuser {
 
@@ -9891,6 +9892,35 @@ TEST_F(NVFuserTest, UnswitchPredicateIssueRepro681_CUDA) {
   auto ref = t0.to(at::kDouble).sum();
 
   testValidate(&fusion, outputs, aten_inputs, {ref}, __LINE__, __FILE__);
+}
+
+TEST_F(NVFuserTest, OpaqueTupleAsComplex) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  DataType dtype =
+      OpaqueType::make<std::array<float, 2>>("Tuple<float, float>");
+
+  auto tuple = IrBuilder::create<Val>(dtype);
+  fusion.addInput(tuple);
+  auto complex = bitCastOp(DataType::ComplexFloat, tuple);
+
+  auto tv = full(
+      {IrBuilder::newConstant(1L, DataType::Index)},
+      complex,
+      DataType::ComplexFloat);
+
+  fusion.addOutput(tv);
+
+  KernelArgumentHolder args;
+  args.push(Opaque(std::array<float, 2>{1.2, 3.4}));
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion);
+  auto outputs = fe.runFusion(args);
+
+  EXPECT_EQ(
+      outputs.at(0).item<c10::complex<float>>(), c10::complex<float>(1.2, 3.4));
 }
 
 TEST_F(NVFuserTest, StructConstruct) {

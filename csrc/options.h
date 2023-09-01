@@ -102,6 +102,7 @@ enum class DisableOption {
   MagicZero, //! Disable nvfuser_zero
   Nvtx, //! Disable NVTX instrumentation
   ParallelCompile, //! Disable compiling Fusion segments in parallel
+  ParallelSerde, //! Disable deserializing FusionExecutorCache in parallel
   PredicateElimination, //! Disable predicate elimination
   KernelReuse, //! Disable re-using cached FusionKernelRuntimes with different
                //! input shapes
