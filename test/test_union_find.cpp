@@ -8,6 +8,7 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
+#include <fusion.h>
 #include <ops/all_ops.h>
 #include <test/utils.h>
 #include <union_find.h>
@@ -227,6 +228,41 @@ TEST_F(UnionFindTest, Meet) {
   // Since a <= c, meet(a, c) == a
   EXPECT_LE(a, c);
   EXPECT_EQ(e, a);
+}
+
+// Test that uncomputable scalars are properly replaced
+TEST_F(UnionFindTest, FusionReplaceUncomputableScalars) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+
+  // This non-input TV is not computable, nor are its axis extents
+  auto tv1 = makeSymbolicTensor(2);
+
+  auto tv2 = mul(tv0, tv1);
+  // Exact mapped extents are now equivalent
+  // TODO: Implement the above exact mapping so the following is not needed
+  fusion.setExactMapped(tv0->axis(0), tv1->axis(0));
+  fusion.setExactMapped(tv0->axis(1), tv1->axis(1));
+  fusion.setExactMapped(tv0->axis(0), tv2->axis(0));
+  fusion.setExactMapped(tv0->axis(1), tv2->axis(1));
+
+  auto out = full_like(tv1, fusion.oneVal());
+  fusion.addOutput(out);
+
+  fusion.printMath();
+  fusion.printTransforms();
+  fusion.printScalarEquivalences();
+
+  fusion.replaceUncomputableScalars();
+
+  std::cout << "After replaceUncomputableScalars:" << std::endl;
+  fusion.printMath();
+  fusion.printTransforms();
+  fusion.printScalarEquivalences();
 }
 
 } // namespace nvfuser
