@@ -214,8 +214,8 @@ TEST_F(NVFuserTest, CombinedSchedulerLayerNormBackward_CUDA) {
       {1600},
       {1984},
       {1987},
-      {16384}, // use shared memory for persistent
-      {32768}, // Float: segment and the inner reduction part has 2 persistent tensors
+      {16384}, //! use shared memory for persistent
+      {32768}, //! segment and the inner reduction part has 2 persistent tensors
       {65536}};
   for (auto dtype : data_types) {
     for (auto batch_shape : batch_sizes) {

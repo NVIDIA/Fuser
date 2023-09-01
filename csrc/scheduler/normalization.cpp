@@ -1523,8 +1523,8 @@ void beforeSchedule(
   scheduler_utils::prepareForMemoryTypePromotion(fusion);
 
   // Transfer the persistent buffer tensors to shared memory. These tensors are
-  // housed in smem_tvs. Some of these are inputs, hence, only their
-  // associated cached tensors should be relocated.
+  // housed in smem_tvs. If a candidate tensor is input, move its associated
+  // cached tensors.
   if (rparams.shared_mem_persistent_buffer) {
     const auto& persistent_buffers =
         scheduler_utils::persistentBuffers(fusion).persistent_buffers;
