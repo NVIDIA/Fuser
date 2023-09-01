@@ -1291,7 +1291,7 @@ std::tuple<NvrtcFunction, std::string> getCompiledKernel(
   // and if we detect that no context exists, we create one manually.
   int device = 0;
   cudaGetDevice(&device);
-  if (!at::detail::getCUDAHooks().hasPrimaryContext(device)) {
+  if (!at::detail::getCUDAHooks().hasPrimaryContext((c10::DeviceIndex)device)) {
     // CUDA>=12 creates a context when cudaSetDevice is called. However, before
     // cu12, that context is not necessarily created. In that case, we create
     // one here implicitly. See https://github.com/NVIDIA/Fuser/issues/429
