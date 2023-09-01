@@ -1991,6 +1991,7 @@ class FusionSegmentGuard : public NonCopyable {
     narrowToNewSegment(new_inputs, new_outputs);
   }
 
+  // NOLINTNEXTLINE(bugprone-exception-escape)
   ~FusionSegmentGuard() {
     FUSER_PERF_SCOPE("~Segmenter::FusionSegmentGuard");
 
