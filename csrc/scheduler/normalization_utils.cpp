@@ -921,12 +921,19 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
     // Determine the least number of buffers to transfer to shared memory
     // to ensure the register buffer size doesn't exceed the available limit.
     int64_t n_smem_buffer = -1;
-    for (int i = 1; i <= n_buffers; i++) {
-      if (buffer_params.regs_buffer_size - acc_regs_buffer_sizes[i] <=
-          available_regs) {
-        n_smem_buffer = i;
-        break;
+    if (buffer_params.combined_reduction) {
+      for (int i = 1; i <= n_buffers; i++) {
+        if (buffer_params.regs_buffer_size - acc_regs_buffer_sizes[i] <=
+            available_regs) {
+          n_smem_buffer = i;
+          break;
+        }
       }
+    } else {
+      // move all buffers to shared memory for inner reduction
+      // TODO: allow moving a subset of buffers to shared memory for inner
+      // reduction
+      n_smem_buffer = n_buffers;
     }
 
     // Can't be scheduled if n_smem_buffer is not set or requested shared memory
