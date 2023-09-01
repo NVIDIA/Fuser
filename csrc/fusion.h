@@ -406,6 +406,12 @@ class TORCH_CUDA_CU_API Fusion : public IrContainer {
   //! True if any of tensors has a symblic axis
   bool hasDynamicTransform();
 
+  //! Replaces any scalars in this fusion that cannot be computing by binding
+  //! inputs(). This only replaces scalars needed to compute the outputs(), and
+  //! throws an exception if there are scalars left that cannot be computed from
+  //! the inputs.
+  void replaceUncomputableScalars();
+
  protected:
   friend SegmentCandidateFinder;
   friend SegmentedFusion;
