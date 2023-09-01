@@ -625,14 +625,13 @@ int64_t partialReductionBufferSize(
   return partial_reduction_buffer_size;
 }
 
-std::pair<std::optional<int64_t>, int64_t>
-getOptionalInnerOuterPersistentBufferBatches(
+std::pair<int64_t, int64_t> getInnerOuterPersistentBufferBatches(
     const int64_t inner_dim_numel,
     const int64_t outer_dim_numel,
-    const int64_t persistent_buffer_size,
+    const int64_t regs_buffer_size,
+    const int64_t smem_buffer_size,
     const int64_t vectorize_factor,
-    const int64_t warp_size,
-    const bool ignore_register_size_limit) {
+    const int64_t warp_size) {
   // if inner_dim_numel <= 1024, we are doing multiple reductions per block
   // with a constant batch size of 1 if vectorized. See Step 5 of
   // innerOuterPersistentHeuristic. Although batch size is 1, each thread also
@@ -670,7 +669,7 @@ getOptionalInnerOuterPersistentBufferBatches(
   //! of inputs and outputs.
   auto getMaximumInnerOuterPersistentBufferBatch = [&]() -> int64_t {
     int64_t register_per_batch = ceilDiv(
-        persistent_buffer_size / inner_dim_numel * vectorize_factor,
+        regs_buffer_size / inner_dim_numel * vectorize_factor,
         scheduler_utils::bytes_per_register);
     return scheduler_utils::safeDiv(
         scheduler_utils::max_registers_per_thread -
@@ -680,46 +679,271 @@ getOptionalInnerOuterPersistentBufferBatches(
 
   const int64_t after_vectorization = inner_dim_numel / vectorize_factor;
   const int64_t threads_per_block_min = std::min(after_vectorization, 128l);
-  const int64_t threads_per_block_max = getThreadsPerSMGivenRegPerThread(255l);
+  const int64_t threads_per_block_max = std::min(
+      after_vectorization,
+      vectorize_factor > 1
+          ? scheduler_utils::max_threads_per_block_combined
+          : scheduler_utils::max_threads_per_block_combined_unvectorized);
   const int64_t batch_min = getMinimumBatch();
   const int64_t batch_max = getMaximumInnerOuterPersistentBufferBatch();
-
-  // Start from the smallest threads_per_block. If the corresponding batch size
-  // is larger than batch_max, try increase threads per block by a warp until
-  // the threads_per_block reaches threads_per_block_max or the batch size
-  // reaches batch_min.
   int64_t threads_per_block = threads_per_block_min;
   int64_t inner_batch = ceilDiv(after_vectorization, threads_per_block);
-  while (inner_batch > batch_max &&
-         threads_per_block + warp_size <= threads_per_block_max &&
-         ceilDiv(after_vectorization, threads_per_block + warp_size) >=
-             batch_min) {
-    threads_per_block += warp_size;
+
+  // When shared memory is used to store persistent buffers, hidden size is
+  // large. Set threads_per_block to maximum to avoid large batch sizes.
+  if (smem_buffer_size > 0) {
+    threads_per_block = threads_per_block_max;
     inner_batch = ceilDiv(after_vectorization, threads_per_block);
+  } else {
+    while (inner_batch > batch_max &&
+           threads_per_block + warp_size <= threads_per_block_max &&
+           ceilDiv(after_vectorization, threads_per_block + warp_size) >=
+               batch_min) {
+      threads_per_block += warp_size;
+      inner_batch = ceilDiv(after_vectorization, threads_per_block);
+    }
+  }
+  return std::make_pair(inner_batch, threads_per_block);
+}
+
+int64_t getSharedMemoryOverheadPerBlock(
+    Fusion* fusion,
+    const std::vector<TensorView*>& reduction_tvs,
+    const int64_t max_threads_per_block) {
+  const auto& dev_prop = at::cuda::getCurrentDeviceProperties();
+  int64_t dtype_size = 1;
+  for (auto tv : reduction_tvs) {
+    dtype_size = std::max(dtype_size, dataTypeSize(tv->getDataType().value()));
+  }
+  auto hasWelford = [&fusion]() -> bool {
+    for (auto expr : fusion->exprs()) {
+      if (expr->isA<WelfordOp>()) {
+        return true;
+      }
+    }
+    return false;
+  };
+  int64_t welford_factor = hasWelford() ? 3l : 1l;
+  int64_t reduction_broadcast_workspace =
+      max_threads_per_block * dtype_size * welford_factor;
+  int64_t smem_overhead_per_block =
+      (int64_t)dev_prop->reservedSharedMemPerBlock +
+      reduction_broadcast_workspace;
+  return smem_overhead_per_block;
+}
+
+namespace {
+
+// The roundup is due to the fact that the shared memory buffer is allocated
+// as: ceilDiv(ceilDiv(dim_size, vect), threadsPerBlock)
+int64_t roundUpSharedMemory(
+    TensorView* tv,
+    int64_t tv_buffer_size,
+    int64_t vectorize_factor,
+    int64_t threads_per_block) {
+  const int64_t data_type_size = dataTypeSize(tv->getDataType().value());
+  const int64_t n_elements = tv_buffer_size / data_type_size;
+  const int64_t n_batch =
+      ceilDiv(ceilDiv(n_elements, vectorize_factor), threads_per_block);
+  return n_batch * vectorize_factor * threads_per_block * data_type_size;
+}
+
+bool isDirectlyUsedByBroadcast(TensorView* tv) {
+  for (auto consumer : ir_utils::consumerTvsOf(tv)) {
+    if (consumer->hasBroadcast()) {
+      return true;
+    } else if (auto op = dynamic_cast<UnaryOp*>(consumer->definition())) {
+      return op->getUnaryOpType() == UnaryOpType::Cast
+          ? isDirectlyUsedByBroadcast(consumer)
+          : false;
+    }
+  }
+  return false;
+}
+
+} // namespace
+
+PersistentBufferStorageParams getPersistentBufferStorageParams(
+    Fusion* fusion,
+    SchedulerRuntimeInfo& runtime_info,
+    HeuristicSummary* data_cache,
+    const std::vector<TensorView*>& reduction_tvs,
+    const int64_t vectorize_factor) {
+  PersistentBufferStorageParams buffer_params;
+
+  bool inner_reduction = false;
+  std::vector<TensorView*> outer_reduction_tvs;
+  for (auto tv : reduction_tvs) {
+    if (scheduler_utils::isFastestDimReduction(tv)) {
+      inner_reduction = true;
+    } else {
+      outer_reduction_tvs.emplace_back(tv);
+    }
+  }
+  buffer_params.combined_reduction =
+      inner_reduction && !outer_reduction_tvs.empty();
+
+  auto persistent_buffer_info_entry =
+      HeuristicSummaryEntry<HeuristicCompileTime::PersistentBufferInfo>(
+          data_cache, [&fusion]() {
+            return std::make_unique<scheduler_utils::PersistentBufferInfo>(
+                scheduler_utils::persistentBuffers(fusion));
+          });
+
+  auto& persistent_buffer_info = persistent_buffer_info_entry.get();
+
+  auto persistent_buffer_size_info = scheduler_utils::persistentBufferSize(
+      fusion, runtime_info, persistent_buffer_info, data_cache);
+
+  // Figure out if we want to projet persistent buffers to the inputs for
+  // exmaple if we have an input tensor t0 that's fp16:
+  //
+  // t0 = makeSymbolicTensor(2, DataType::Half)
+  // t1 = castOp(DataType::Float, t0)
+  // t2 = sum(t1, 1)
+  // t3 = broadcast(t2, {false, true})
+  // t4 = set(t1)
+  // t5 = add(t4, t3)
+  // t6 = castOp(DataType::Half, t5)
+  //
+  // The persistent buffer is detected as being t1, which would save the
+  // persistent buffer as a float, however we could obviously just save t0 which
+  // is half and would take half the memory. A more complex scenario of this
+  // which requires more advanced analysis is batch norm backwards.
+  // TODO: Fix projected persistent buffers with view
+  // https://github.com/csarofeen/pytorch/issues/2054
+  // Note that projected buffer size can be zero
+  // for layer_norm backward, enable project to input can reuse weight shared
+  // among different rows. Although it increased register usage and may lead
+  // to register spills, the overall performance is increased. This is a
+  // temporary solution, the issue is tracked by
+  // https://github.com/csarofeen/pytorch/issues/2525
+  buffer_params.project_to_input = ir_utils::getViewOps(fusion).empty() &&
+      persistent_buffer_size_info.projected_persistent_buffer_size > 0 &&
+      (persistent_buffer_size_info.projected_persistent_buffer_size <
+           persistent_buffer_size_info.persistent_buffer_size ||
+       buffer_params.combined_reduction);
+  auto total_buffer_size = buffer_params.project_to_input
+      ? persistent_buffer_size_info.projected_persistent_buffer_size
+      : persistent_buffer_size_info.persistent_buffer_size;
+  const auto& persistent_buffers = buffer_params.project_to_input
+      ? persistent_buffer_info.projectable_buffer_inputs
+      : persistent_buffer_info.persistent_buffers;
+  if (buffer_params.combined_reduction) {
+    // In the case of combined_reduction, the scheduler will create
+    // additional tensors in the schedule process to hold the intermediate
+    // results of the outer reduction. These tensors are persistent but are not
+    // captured in the persistent_buffer_info, since they are not exist at this
+    // point.
+    const auto intermediate_buffer_size =
+        normalization_scheduler_utils::partialReductionBufferSize(
+            outer_reduction_tvs, runtime_info);
+    total_buffer_size += intermediate_buffer_size;
   }
 
-  // The maximum feature size can be processed without register spills and
-  // fusion segmentation for fp16 is 14K. Here, we can allow register spills to
-  // avoid fusion segmentation by incrase maximum batch size by 3. This allows
-  // us to process up to 20K features (14K + 256*8*3).
-  // Performance on A100-80G:
-  // (1) shape= 16384 x 16384, 1300 GB/s, time_us mean(var)= 1245.08 (8.89703),
-  // 64 bytes stack frame, 64 bytes spill stores, 128 bytes spill loads. (2)
-  // shape= 16384 x 18432, 1070 GB/s, time_us mean(var)= 1683.87 (19.527), 192
-  // bytes stack frame, 192 bytes spill stores, 384 bytes spill loads.
-  // (3) shape= 16384 x 20480, 730 GB/s time_us mean(var)= 2766.64 (12.3883),
-  // 320 bytes stack frame, 320 bytes spill stores, 640 bytes spill loads. As a
-  // ref, the segmented version takes time_us mean(var)= 2841.91 (5.20231)
-  // without considering the overhead of fusion segmentation.
-  // (4) Disable this optimization if vectorize_factor is 1 due to high register
-  // usage in cases can't be vectorized.
-  const int64_t batch_max_reg_spill =
-      vectorize_factor > 1 ? batch_max + 3 : batch_max;
-  if (ignore_register_size_limit || inner_batch <= batch_max_reg_spill) {
-    return std::make_pair(inner_batch, threads_per_block);
-  } else {
-    return std::make_pair(std::nullopt, -1);
+  // At this point, we use a larger register file size for the combined
+  // case otherwise it segments at small hidden sizes.
+  const auto dev_prop = at::cuda::getCurrentDeviceProperties();
+  int64_t available_regs = scheduler_utils::register_file_size;
+  int64_t max_threads_per_block = (int64_t)dev_prop->maxThreadsPerBlock;
+  if (buffer_params.combined_reduction) {
+    available_regs = vectorize_factor > 1
+        ? scheduler_utils::register_file_size_combined
+        : scheduler_utils::register_file_size_combined_unvectorized;
+    max_threads_per_block = vectorize_factor > 1
+        ? scheduler_utils::max_threads_per_block_combined
+        : scheduler_utils::max_threads_per_block_combined_unvectorized;
   }
+  // Shared memory persistent is only implemented for the inner and combined
+  // case.
+  buffer_params.smem_overhead = getSharedMemoryOverheadPerBlock(
+      fusion, reduction_tvs, max_threads_per_block);
+  int64_t available_smem = inner_reduction
+      ? (int64_t)dev_prop->sharedMemPerBlockOptin - buffer_params.smem_overhead
+      : 0l;
+
+  // Put all the persistent tensors in registers
+  buffer_params.regs_buffer_size = total_buffer_size;
+  buffer_params.smem_buffer_size = 0;
+
+  //! Move buffers to shared memory following the 2 rules:
+  //! (1) Prioritize moving buffers that are directly used by broadcast ops.
+  //! (2) Move N buffers until the register buffer size is below the available
+  //! limit.
+  if (buffer_params.regs_buffer_size > available_regs) {
+    const int64_t n_buffers = (int64_t)persistent_buffers.size();
+    int64_t n_broadcast_buffers = 0;
+    // put buffers that are directly used by broadcast ops in front.
+    std::vector<TensorView*> sorted_candidate_tvs;
+    sorted_candidate_tvs.reserve(n_buffers);
+    for (auto tv : persistent_buffers) {
+      if (isDirectlyUsedByBroadcast(tv)) {
+        sorted_candidate_tvs.insert(sorted_candidate_tvs.begin(), tv);
+        n_broadcast_buffers++;
+      } else {
+        sorted_candidate_tvs.push_back(tv);
+      }
+    }
+    // calculate the accumulated buffer size of the first N buffers
+    std::vector<int64_t> acc_regs_buffer_sizes(n_buffers + 1, 0);
+    std::vector<int64_t> acc_smem_buffer_sizes(n_buffers + 1, 0);
+    for (int i = 1; i <= n_buffers; i++) {
+      int64_t tv_buffer_size_regs = scheduler_utils::getOnePersistentBufferSize(
+          sorted_candidate_tvs[i - 1], runtime_info, persistent_buffer_info);
+      int64_t tv_buffer_size_smem = roundUpSharedMemory(
+          sorted_candidate_tvs[i - 1],
+          tv_buffer_size_regs,
+          vectorize_factor,
+          max_threads_per_block);
+
+      acc_regs_buffer_sizes[i] =
+          acc_regs_buffer_sizes[i - 1] + tv_buffer_size_regs;
+      acc_smem_buffer_sizes[i] =
+          acc_smem_buffer_sizes[i - 1] + tv_buffer_size_smem;
+    }
+
+    // Determine the least number of buffers to transfer to shared memory
+    // to ensure the register buffer size doesn't exceed the available limit.
+    int64_t n_smem_buffer = -1;
+    if (buffer_params.combined_reduction) {
+      for (int i = 1; i <= n_buffers; i++) {
+        if (buffer_params.regs_buffer_size - acc_regs_buffer_sizes[i] <=
+            available_regs) {
+          n_smem_buffer = i;
+          break;
+        }
+      }
+    } else {
+      // move all buffers to shared memory for inner reduction
+      // TODO: allow moving a subset of buffers to shared memory for inner
+      // reduction
+      n_smem_buffer = n_buffers;
+    }
+
+    // Can't be scheduled if n_smem_buffer is not set or requested shared memory
+    // is larger than available.
+    if (n_smem_buffer == -1 ||
+        acc_smem_buffer_sizes[n_smem_buffer] > available_smem) {
+      buffer_params.has_enough_regs_and_smem = false;
+      return buffer_params;
+    }
+
+    // move n_smem_buffer buffers to shared memory
+    for (int i = 0; i < n_smem_buffer; i++) {
+      buffer_params.smem_tvs.emplace_back(sorted_candidate_tvs[i]);
+    }
+    buffer_params.regs_buffer_size -= acc_regs_buffer_sizes[n_smem_buffer];
+    buffer_params.smem_buffer_size = acc_smem_buffer_sizes[n_smem_buffer];
+  }
+
+  buffer_params.has_enough_regs_and_smem =
+      (buffer_params.smem_buffer_size <= available_smem) &&
+      (buffer_params.regs_buffer_size <= available_regs);
+
+  TORCH_INTERNAL_ASSERT(
+      buffer_params.has_enough_regs_and_smem,
+      "Not enough registers and shared memory for persistence! Should return early.");
+  return buffer_params;
 }
 
 } // namespace normalization_scheduler_utils

@@ -782,6 +782,49 @@ getScopePersistenceFactors(
 
 } // namespace
 
+int64_t getOnePersistentBufferSize(
+    const TensorView* buffer,
+    SchedulerRuntimeInfo& runtime_info,
+    const PersistentBufferInfo& persistent_buffer_info) {
+  int64_t buffer_bytes = -1;
+  bool is_input =
+      std::find(
+          persistent_buffer_info.projectable_buffer_inputs.begin(),
+          persistent_buffer_info.projectable_buffer_inputs.end(),
+          buffer) != persistent_buffer_info.projectable_buffer_inputs.end();
+
+  for (auto id : buffer->getMaybeRFactorDomain()) {
+    if (id->isReduction() || id->isBroadcast()) {
+      continue;
+    }
+    // Unmappable dimensions are those that we cannot inline into other
+    // tensor views. So they're the ones that need to be persistent.
+    if (!is_input && !persistent_buffer_info.unmappable_dims.count(id)) {
+      continue;
+    }
+
+    if (is_input &&
+        !persistent_buffer_info.unamppable_dims_projected_to_inputs.count(id)) {
+      continue;
+    }
+
+    auto id_size = runtime_info.expressionEvaluator().evaluate(id->extent());
+    TORCH_INTERNAL_ASSERT(
+        id_size.hasValue(), "Could not infer persistent buffer size.");
+    if (buffer_bytes == -1) {
+      buffer_bytes = id_size.as<int64_t>();
+    } else {
+      buffer_bytes *= id_size.as<int64_t>();
+    }
+  }
+
+  buffer_bytes = buffer_bytes == -1 ? 0
+                                    : buffer_bytes *
+          (int64_t)dataTypeSize(buffer->getDataType().value(),
+                                runtime_info.getIndexType());
+  return buffer_bytes;
+}
+
 PersistentBufferSizeReturn persistentBufferSize(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
@@ -800,9 +843,6 @@ PersistentBufferSizeReturn persistentBufferSize(
       persistent_buffer_info.projectable_persistent_buffers;
   const auto& projectable_buffers_inputs =
       persistent_buffer_info.projectable_buffer_inputs;
-  const auto& unmappable_dims = persistent_buffer_info.unmappable_dims;
-  const auto& input_unmappable_dims =
-      persistent_buffer_info.unamppable_dims_projected_to_inputs;
 
   std::vector<TensorView*> all_buffers = persistent_buffers;
   all_buffers.insert(
@@ -813,38 +853,9 @@ PersistentBufferSizeReturn persistentBufferSize(
   std::vector<int64_t> persistent_buffer_sizes(all_buffers.size(), -1);
 
   for (auto buffer_i : c10::irange(all_buffers.size())) {
-    bool is_input = buffer_i >= persistent_buffers.size();
     auto buffer = all_buffers[buffer_i];
-
-    for (auto id : buffer->getMaybeRFactorDomain()) {
-      if (id->isReduction() || id->isBroadcast()) {
-        continue;
-      }
-      // Unmappable dimensions are those that we cannot inline into other
-      // tensor views. So they're the ones that need to be persistent.
-      if (!is_input && !unmappable_dims.count(id)) {
-        continue;
-      }
-
-      if (is_input && !input_unmappable_dims.count(id)) {
-        continue;
-      }
-
-      auto id_size = runtime_info.expressionEvaluator().evaluate(id->extent());
-      TORCH_INTERNAL_ASSERT(
-          id_size.hasValue(), "Could not infer persistent buffer size.");
-      if (persistent_buffer_sizes[buffer_i] == -1) {
-        persistent_buffer_sizes[buffer_i] = id_size.as<int64_t>();
-      } else {
-        persistent_buffer_sizes[buffer_i] *= id_size.as<int64_t>();
-      }
-    }
-
-    persistent_buffer_sizes[buffer_i] = persistent_buffer_sizes[buffer_i] == -1
-        ? 0
-        : persistent_buffer_sizes[buffer_i] *
-            (int64_t)dataTypeSize(
-                buffer->getDataType().value(), runtime_info.getIndexType());
+    persistent_buffer_sizes[buffer_i] = getOnePersistentBufferSize(
+        buffer, runtime_info, persistent_buffer_info);
   }
 
   // Buffers involved in normal persistence
