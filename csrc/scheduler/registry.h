@@ -6,6 +6,7 @@
  */
 // clang-format on
 #pragma once
+#include <exceptions.h>
 #include <executor_kernel_arg.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
@@ -81,7 +82,7 @@ class TORCH_CUDA_CU_API SchedulerRuntimeInfo : public NonCopyable {
   }
 
   ExpressionEvaluator& expressionEvaluator() {
-    TORCH_INTERNAL_ASSERT(expression_evaluator_ != nullptr);
+    NVF_ERROR(expression_evaluator_ != nullptr);
     return *expression_evaluator_;
   }
 
@@ -178,28 +179,28 @@ class TORCH_CUDA_CU_API SchedulerEntry {
 
   const ReductionParams& reductionParams() const {
     auto rparams = std::dynamic_pointer_cast<ReductionParams>(params_);
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         rparams != nullptr, "Heuristic parameter is not a reduction parameter");
     return *rparams;
   }
 
   const PointwiseParams& pointwiseParams() const {
     auto pparams = std::dynamic_pointer_cast<PointwiseParams>(params_);
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         pparams != nullptr, "Heuristic parameter is not a pointwise parameter");
     return *pparams;
   }
 
   const TransposeParams& transposeParams() const {
     auto tparams = std::dynamic_pointer_cast<TransposeParams>(params_);
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         tparams != nullptr, "Heuristic parameter is not a transpose parameter");
     return *tparams;
   }
 
   const MatmulParams& matmulParams() const {
     auto mparams = std::dynamic_pointer_cast<MatmulParams>(params_);
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         mparams != nullptr, "Heuristic parameter is not a matmul parameter");
     return *mparams;
   }

@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 #include <disjoint_set.h>
+#include <exceptions.h>
 #include <ir/base_nodes.h>
 #include <ir/printer.h>
 

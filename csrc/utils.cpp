@@ -19,6 +19,25 @@
 
 namespace nvfuser {
 
+int getNumThreads() {
+  const char* option_env_name = "NUM_THREADS";
+  auto dump_options = getNvFuserEnv(option_env_name);
+  if (dump_options == nullptr) {
+    constexpr int default_num_threads = 8;
+    return default_num_threads;
+  }
+  auto num_threads_value = std::atoi(dump_options);
+  int max_num_threads = (int)std::thread::hardware_concurrency();
+  return std::max(std::min(num_threads_value, max_num_threads), 1);
+}
+
+// TODO: clean this up with some knobs
+c10::ThreadPool* getThreadPool() {
+  static auto num_threads = getNumThreads();
+  static c10::ThreadPool pool(num_threads);
+  return &pool;
+}
+
 C10_DIAGNOSTIC_PUSH_AND_IGNORED_IF_DEFINED("-Wunused-function")
 void debugPrint(const c10::TensorTypePtr& type) {
   std::stringstream sizes_s;
@@ -118,7 +137,7 @@ int8_t getCommonDeviceCUDA(
     if (device.is_cpu() && is_cpu_scalar(input.toTensor())) {
       continue;
     }
-    TORCH_CHECK(device.is_cuda(), "nvfuser only supports cuda device");
+    NVF_CHECK(device.is_cuda(), "nvfuser only supports cuda device");
     auto cur_index = device.index();
     if (found_device && index != cur_index) {
       return -1;
@@ -141,9 +160,9 @@ bool useFallback() {
 }
 
 std::vector<int64_t> getTensorSizes(at::TensorTypePtr const& tensor_type) {
-  TORCH_INTERNAL_ASSERT(tensor_type != nullptr, "Input must be a Tensor.");
+  NVF_ERROR(tensor_type != nullptr, "Input must be a Tensor.");
   auto optional_sizes = tensor_type->sizes().concrete_sizes();
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       optional_sizes.has_value(), "Missing size information for the tensor.");
   return optional_sizes.value();
 }

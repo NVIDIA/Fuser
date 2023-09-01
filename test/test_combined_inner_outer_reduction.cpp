@@ -1,3 +1,4 @@
+#include <csrc/exceptions.h>
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
@@ -423,7 +424,7 @@ TEST_F(NVFuserTest, CombinedSchedulerSharedConsumer_CUDA) {
       aten_out_linked = aten_out_linked.mul(0.5);
     }
     bool is_segmented = fec.getMostRecentKernelRuntime()->isSegmented();
-    TORCH_CHECK(is_segmented, "Fusion is not segmented");
+    NVF_CHECK(is_segmented, "Fusion is not segmented");
 
     testValidate(
         &fusion,
@@ -556,7 +557,7 @@ TEST_F(NVFuserTest, CombinedSchedulerSharedProducer_CUDA) {
         fusion.addOutput(use_producer_2);
       } break;
       default:
-        TORCH_INTERNAL_ASSERT(false, "Invalid case id");
+        NVF_ERROR(false, "Invalid case id");
     }
 
     fusion.addOutput(layer_norm_results.grad_input);
@@ -625,10 +626,10 @@ TEST_F(NVFuserTest, CombinedSchedulerSharedProducer_CUDA) {
         expected_segmented = true;
       } break;
       default:
-        TORCH_INTERNAL_ASSERT(false, "Invalid case id");
+        NVF_ERROR(false, "Invalid case id");
     }
     bool is_segmented = fec.getMostRecentKernelRuntime()->isSegmented();
-    TORCH_CHECK(
+    NVF_CHECK(
         is_segmented == expected_segmented,
         expected_segmented ? "Fusion should be segmented!"
                            : "Fusion should not be segmented!");

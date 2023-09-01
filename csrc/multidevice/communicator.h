@@ -1,6 +1,7 @@
 #pragma once
 #ifdef USE_DISTRIBUTED
 
+#include <exceptions.h>
 #include <multidevice/multidevice.h>
 #include <torch/csrc/distributed/c10d/ProcessGroup.hpp>
 #include <torch/csrc/distributed/c10d/Store.hpp>

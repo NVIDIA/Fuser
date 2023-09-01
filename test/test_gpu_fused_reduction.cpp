@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <csrc/exceptions.h>
 #include <gtest/gtest.h>
 
 #include <codegen.h>
@@ -63,7 +64,7 @@ void validateNoParallelBroadcastExist(kir::Kernel* kernel) {
     if (bc == nullptr) {
       continue;
     }
-    TORCH_CHECK(
+    NVF_CHECK(
         kernel->summary().broadcast_parallel_types.at(bc).none(),
         "Parallel broadcast should not exist but was found: ",
         bc->toString());
@@ -1380,7 +1381,7 @@ TEST_F(NVFuserTest, FusionPersistentBNBackwardAllreduce_CUDA) {
   const int bidy = 4;
   const int bidx = ceilDiv(shape[0], (int64_t)tidy);
   const int vec_width = 4;
-  TORCH_CHECK(
+  NVF_CHECK(
       (shape[2] * shape[3]) % vec_width == 0,
       "Invalid vector width: ",
       vec_width);
@@ -1390,7 +1391,7 @@ TEST_F(NVFuserTest, FusionPersistentBNBackwardAllreduce_CUDA) {
 
   grad_input->split(0, tidy);
   grad_input->split(2, bidy);
-  TORCH_CHECK(
+  NVF_CHECK(
       grad_input->nDims() == 6,
       "Unexpected number of dimensions: ",
       grad_input->toString());
@@ -1585,7 +1586,7 @@ TEST_F(NVFuserTest, FusionGroupedReductionChannelsLastBatchNormLike_CUDA) {
   // Applies the outer-reduction schedule
   const int64_t num_channels = shape.back();
   const int64_t vector = 2;
-  TORCH_CHECK(num_channels % vector == 0);
+  NVF_CHECK(num_channels % vector == 0);
   // Use at most 32 TIDx threads
   const int64_t tidx = std::min<int64_t>(32l, num_channels / vector);
   const auto bidx = ceilDiv(num_channels, tidx * vector);
@@ -1715,7 +1716,7 @@ TEST_F(
   // Applies the outer-reduction schedule
   const int64_t num_channels = shape.back();
   const int64_t vector = 2;
-  TORCH_CHECK(num_channels % vector == 0);
+  NVF_CHECK(num_channels % vector == 0);
   // Use at most 32 TIDx threads
   const int64_t tidx = std::min<int64_t>(32l, num_channels / vector);
   ceilDiv(num_channels, tidx * vector);
@@ -1852,7 +1853,7 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduce1_CUDA) {
     auto out = ir_utils::getTvOutput(grouped_grid_reduction);
     for (auto out_axis : out->getLeafDomain()) {
       auto out_axis_pt = out_axis->getParallelType();
-      TORCH_CHECK(
+      NVF_CHECK(
           isParallelTypeThread(out_axis_pt) ||
               out_axis_pt == ParallelType::Group,
           "Invalid parallel type of the reduction tensor: ",
@@ -1862,7 +1863,7 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduce1_CUDA) {
     }
     validated = true;
   }
-  TORCH_CHECK(
+  NVF_CHECK(
       validated, "Invalid lowered kernel. No GroupedGridReduction found.");
 
   std::vector<int64_t> shape({99, 101});
@@ -1932,7 +1933,7 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduce2_CUDA) {
     auto out = ir_utils::getTvOutput(grouped_grid_reduction);
     for (auto out_axis : out->getLeafDomain()) {
       auto out_axis_pt = out_axis->getParallelType();
-      TORCH_CHECK(
+      NVF_CHECK(
           isParallelTypeThread(out_axis_pt) ||
               out_axis_pt == ParallelType::Group,
           "Invalid parallel type of the reduction tensor: ",
@@ -1942,7 +1943,7 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduce2_CUDA) {
     }
     validated = true;
   }
-  TORCH_CHECK(
+  NVF_CHECK(
       validated, "Invalid lowered kernel. No GroupedGridReduction found.");
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -2014,7 +2015,7 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduce3_CUDA) {
     auto out = ir_utils::getTvOutput(grouped_grid_reduction);
     for (auto out_axis : out->getLeafDomain()) {
       auto out_axis_pt = out_axis->getParallelType();
-      TORCH_CHECK(
+      NVF_CHECK(
           isParallelTypeThread(out_axis_pt) ||
               out_axis_pt == ParallelType::Group,
           "Invalid parallel type of the reduction tensor: ",
@@ -2024,7 +2025,7 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduce3_CUDA) {
     }
     validated = true;
   }
-  TORCH_CHECK(
+  NVF_CHECK(
       validated, "Invalid lowered kernel. No GroupedGridReduction found.");
 
   std::vector<int64_t> shape({99, 101});
@@ -2075,11 +2076,11 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduce4_CUDA) {
   // This should avoid inlining the grouped domain
   tv0->computeAt(tv4, -1, ComputeAtMode::MostInlined);
 
-  TORCH_CHECK(
+  NVF_CHECK(
       tv1->getComputeAtPosition() == 2,
       "Invalid computeAt position: ",
       tv1->toString());
-  TORCH_CHECK(
+  NVF_CHECK(
       tv2->getComputeAtPosition() == 2,
       "Invalid computeAt position: ",
       tv2->toString());
@@ -2106,7 +2107,7 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduce4_CUDA) {
     auto out = ir_utils::getTvOutput(grouped_grid_reduction);
     for (auto out_axis : out->getLeafDomain()) {
       auto out_axis_pt = out_axis->getParallelType();
-      TORCH_CHECK(
+      NVF_CHECK(
           isParallelTypeThread(out_axis_pt) ||
               out_axis_pt == ParallelType::Group,
           "Invalid parallel type of the reduction tensor: ",
@@ -2116,7 +2117,7 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduce4_CUDA) {
     }
     validated = true;
   }
-  TORCH_CHECK(
+  NVF_CHECK(
       validated, "Invalid lowered kernel. No GroupedGridReduction found.");
 
   std::vector<int64_t> shape({99, 101});
@@ -2178,8 +2179,7 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduceWelford1_CUDA) {
     }
     validated = true;
   }
-  TORCH_CHECK(
-      validated, "Invalid lowered kernel. No GroupedGridWelford found.");
+  NVF_CHECK(validated, "Invalid lowered kernel. No GroupedGridWelford found.");
 
   std::vector<int64_t> shape({99, 101});
 
@@ -2246,8 +2246,7 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduceWelford2_CUDA) {
     }
     validated = true;
   }
-  TORCH_CHECK(
-      validated, "Invalid lowered kernel. No GroupedGridWelford found.");
+  NVF_CHECK(validated, "Invalid lowered kernel. No GroupedGridWelford found.");
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
@@ -2381,7 +2380,7 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduceWelfordShmoo_CUDA) {
       (void)expr; // Suppress unused variable warning
       validated = true;
     }
-    TORCH_CHECK(
+    NVF_CHECK(
         validated, "Invalid lowered kernel. No GroupedGridWelford found.");
 
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -2496,7 +2495,7 @@ TEST_F(NVFuserTest, FusionGeluBwdReduction_CUDA) {
   // fusion values
   std::vector<int64_t> reduction_axes{0};
   auto reduction_params = getReductionHeuristics(&fusion, {at_grad, at_xvar});
-  TORCH_CHECK(reduction_params, "Reduction schedule was not generated!");
+  NVF_CHECK(reduction_params, "Reduction schedule was not generated!");
   scheduleReduction(&fusion, *reduction_params);
 
   FusionExecutor fe;

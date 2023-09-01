@@ -24,7 +24,7 @@ Val* IndexLowering::lowerSrcIndex(
     const std::unordered_map<IterDomain*, Val*>& override_index,
     bool generate_pointer) const {
   if (auto tv = dynamic_cast<TensorView*>(src)) {
-    TORCH_INTERNAL_ASSERT(dst->isA<TensorView>());
+    NVF_ERROR(dst->isA<TensorView>());
     return Index::getProducerIndex(
         tv,
         dst->as<TensorView>(),
@@ -59,17 +59,15 @@ void IndexLowering::pushBack(Expr* expr) {
 
 Expr* IndexLowering::back() const {
   if (active_scope_ == nullptr) {
-    TORCH_INTERNAL_ASSERT(
-        !lowered_exprs_.empty(), "IndexLowering::back: empty scope.");
+    NVF_ERROR(!lowered_exprs_.empty(), "IndexLowering::back: empty scope.");
     return lowered_exprs_.back();
   }
-  TORCH_INTERNAL_ASSERT(
-      !active_scope_->empty(), "IndexLowering::back: empty scope.");
+  NVF_ERROR(!active_scope_->empty(), "IndexLowering::back: empty scope.");
   return active_scope_->exprs().back();
 }
 
 void IndexLowering::insertAtTopLevel(Expr* expr) {
-  TORCH_INTERNAL_ASSERT(!lowered_exprs_.empty());
+  NVF_ERROR(!lowered_exprs_.empty());
   lowered_exprs_.insert(lowered_exprs_.end() - 1, expr);
 }
 
@@ -140,7 +138,7 @@ void IndexLowering::handle(const RNGOp* rop) {
   // Write random tensor indices into the consumer
   //  tensor index if the output is a tensor.
   auto out_tv = dynamic_cast<TensorView*>(rop->output(0));
-  TORCH_INTERNAL_ASSERT(out_tv != nullptr, "rand scalar not yet supported");
+  NVF_ERROR(out_tv != nullptr, "rand scalar not yet supported");
 
   // TensorIndex for philox subsequence and component.
   auto philox_index =
@@ -166,7 +164,7 @@ void IndexLowering::handle(const RNGOp* rop) {
 
 void IndexLowering::handle(const FullOp* fop) {
   auto out_tv = dynamic_cast<TensorView*>(fop->output(0));
-  TORCH_INTERNAL_ASSERT(out_tv != nullptr);
+  NVF_ERROR(out_tv != nullptr);
 
   // TensorIndex for writing output.
   const auto out = lowerDstIndex(out_tv);
@@ -183,7 +181,7 @@ void IndexLowering::handle(const IotaOp* aop) {
   // Write linear tensor indices into the consumer
   //  tensor index if the output is a tensor.
   auto out_tv = dynamic_cast<TensorView*>(aop->output(0));
-  TORCH_INTERNAL_ASSERT(out_tv != nullptr);
+  NVF_ERROR(out_tv != nullptr);
 
   // TensorIndex for writing iota output.
   const auto out = lowerDstIndex(out_tv);
@@ -203,7 +201,7 @@ void IndexLowering::handle(const IotaOp* aop) {
 
 void IndexLowering::handle(const EyeOp* eop) {
   auto out_tv = dynamic_cast<TensorView*>(eop->output(0));
-  TORCH_INTERNAL_ASSERT(out_tv != nullptr);
+  NVF_ERROR(out_tv != nullptr);
 
   // TensorIndex for writing eye output.
   const auto out = lowerDstIndex(out_tv);
@@ -387,7 +385,7 @@ void IndexLowering::handle(const ViewAsScalar* uop) {
       return;
     }
   }
-  TORCH_INTERNAL_ASSERT(false, "Can not find index for vector dim");
+  NVF_ERROR(false, "Can not find index for vector dim");
 }
 
 namespace {
@@ -560,7 +558,7 @@ Val* getEntranceLinIndGridReduce(std::vector<kir::ForLoop*>& for_loops) {
 } // namespace
 
 void IndexLowering::handle(const ReductionOp* rop) {
-  TORCH_INTERNAL_ASSERT(ir_utils::isTvOp(rop));
+  NVF_ERROR(ir_utils::isTvOp(rop));
 
   const auto out_tv = rop->out()->as<TensorView>();
   const auto out_domain = out_tv->domain();
@@ -586,7 +584,7 @@ void IndexLowering::handleBlockReduction(
     const ReductionOp* rop,
     Val* out,
     Val* in) {
-  TORCH_INTERNAL_ASSERT(ir_utils::isTvOp(rop));
+  NVF_ERROR(ir_utils::isTvOp(rop));
 
   ReductionOp* indexed_rop = IrBuilder::create<ReductionOp>(
       rop->getReductionOpType(), rop->init(), out, in, rop->isAllreduce());
@@ -610,11 +608,11 @@ void IndexLowering::handleGridReduction(
   const auto out_tv = out->as<kir::TensorIndex>()->view();
   const auto out_domain = out_tv->domain();
 
-  TORCH_INTERNAL_ASSERT(out_domain->hasGridReduction());
+  NVF_ERROR(out_domain->hasGridReduction());
 
   // If we do a grid reduction we can't have a reduction axis that is not bound
   // to a grid or block dim.
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       std::none_of(
           out_domain->leaf().begin(),
           out_domain->leaf().end(),
@@ -695,7 +693,7 @@ void IndexLowering::handleGridReduction(
 }
 
 void IndexLowering::handle(const GroupedReductionOp* grouped_rop) {
-  TORCH_INTERNAL_ASSERT(ir_utils::isTvOp(grouped_rop));
+  NVF_ERROR(ir_utils::isTvOp(grouped_rop));
 
   const auto out_tv = ir_utils::getTvOutput(grouped_rop);
   const auto out_domain = out_tv->domain();
@@ -732,7 +730,7 @@ void IndexLowering::handleBlockReduction(
     const GroupedReductionOp* grouped_rop,
     const std::vector<Val*>& outputs,
     const std::vector<Val*>& inputs) {
-  TORCH_INTERNAL_ASSERT(ir_utils::isTvOp(grouped_rop));
+  NVF_ERROR(ir_utils::isTvOp(grouped_rop));
 
   GroupedReductionOp* indexed_rop = IrBuilder::create<GroupedReductionOp>(
       grouped_rop->getReductionOpTypes(),
@@ -760,11 +758,11 @@ void IndexLowering::handleGridReduction(
   const auto out_tv = ir_utils::getTvOutput(grouped_rop);
   const auto out_domain = out_tv->domain();
 
-  TORCH_INTERNAL_ASSERT(out_domain->hasGridReduction());
+  NVF_ERROR(out_domain->hasGridReduction());
 
   // If we do a grid reduction we can't have a reduction axis that is not bound
   // to a grid or block dim.
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       std::none_of(
           out_domain->leaf().begin(),
           out_domain->leaf().end(),
@@ -846,7 +844,7 @@ void IndexLowering::handleGridReduction(
 }
 
 void IndexLowering::handle(const WelfordOp* wop) {
-  TORCH_INTERNAL_ASSERT(ir_utils::isTvOp(wop));
+  NVF_ERROR(ir_utils::isTvOp(wop));
 
   const auto out_tv = wop->outAvg()->as<TensorView>();
   const auto out_domain = out_tv->domain();
@@ -855,7 +853,7 @@ void IndexLowering::handle(const WelfordOp* wop) {
   const bool has_grid_reduce = out_domain->hasGridReduction();
 
   if (has_grid_reduce) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         std::none_of(
             out_domain->leaf().begin(),
             out_domain->leaf().end(),
@@ -1015,7 +1013,7 @@ void IndexLowering::handleGridWelford(WelfordOp* indexed_wop) {
 }
 
 void IndexLowering::handle(const GroupedWelfordOp* grouped_wop) {
-  TORCH_INTERNAL_ASSERT(ir_utils::isTvOp(grouped_wop));
+  NVF_ERROR(ir_utils::isTvOp(grouped_wop));
 
   const auto out_tv = ir_utils::getTvOutput(grouped_wop);
   const auto out_domain = out_tv->domain();
@@ -1047,7 +1045,7 @@ void IndexLowering::handle(const GroupedWelfordOp* grouped_wop) {
     handleGroupedGridWelford(
         grouped_wop, indexed_outputs, indexed_inputs, grouped_wop->initVals());
   } else {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         false,
         "Only grid welford is supported. Validation should have caught non-grid welford grouping.");
   }
@@ -1149,7 +1147,7 @@ bool canUseOuterOptRuntimeKernel(const GroupedWelfordOp* grouped_wop) {
   int num_grouped_iterations = 1;
   for (auto axis : out_domain->leaf()) {
     if (axis->getParallelType() == ParallelType::Group) {
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           axis->extent()->isConstInt(),
           "Grouped IterDomain must have a static integer extent: ",
           axis->extent()->toInlineString());
@@ -1197,11 +1195,11 @@ void IndexLowering::handleGroupedGridWelford(
   const auto out_tv = ir_utils::getTvOutput(op);
   const auto out_domain = out_tv->domain();
 
-  TORCH_INTERNAL_ASSERT(out_domain->hasGridReduction());
+  NVF_ERROR(out_domain->hasGridReduction());
 
   // If we do a grid reduction we can't have a reduction axis that is not bound
   // to a grid or block dim.
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       std::none_of(
           out_domain->leaf().begin(),
           out_domain->leaf().end(),
@@ -1308,7 +1306,7 @@ void IndexLowering::handle(const MmaOp* mma) {
 }
 
 void IndexLowering::handle(const BroadcastOp* bop) {
-  TORCH_INTERNAL_ASSERT(ir_utils::isTvOp(bop));
+  NVF_ERROR(ir_utils::isTvOp(bop));
 
   const auto out_tv = bop->out()->as<TensorView>();
 
@@ -1445,7 +1443,7 @@ void IndexLowering::allocateUniqueFusedReduction(
         IrBuilder::create<kir::AllocateFusedReduction>(
             expr->as<kir::GroupedGridWelford>());
   } else {
-    TORCH_INTERNAL_ASSERT(false, "Invalid expr: ", expr->toString());
+    NVF_ERROR(false, "Invalid expr: ", expr->toString());
   }
 
   fused_reduction_map_.emplace(out_tv, fused_reduction_alloc_reduction);
@@ -1480,7 +1478,7 @@ void IndexLowering::handle(const PadOp* pad) {
   for (auto padded_axis : pad->getPaddedAxes()) {
     auto producer_idx = producer_root_indices.at(padded_axis);
     auto producer_root_id = producer_doms.at(padded_axis);
-    TORCH_INTERNAL_ASSERT(!producer_root_id->maybePartial());
+    NVF_ERROR(!producer_root_id->maybePartial());
     pred = SimplifyingIrBuilder::logicalAndExpr(
         pred,
         // idx >= 0 && idx < extent

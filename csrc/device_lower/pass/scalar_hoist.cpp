@@ -208,7 +208,7 @@ std::pair<Val*, bool> CommonScalarMap::hoistScalarImpl(
   // are replaced with hoisted input
   if (changed) {
     value = IrBuilder::newScalar(*value->getDataType());
-    TORCH_INTERNAL_ASSERT(def->outputs().size() == 1);
+    NVF_ERROR(def->outputs().size() == 1);
     auto create_fn = def->newObjectFunc();
     create_fn(value->container(), inputs, {value}, def->attributes());
   }
@@ -365,7 +365,7 @@ std::vector<Val*> CommonScalarMap::getHoistedScalars(kir::ForLoop* loop) const {
 void CommonScalarMap::initialize(const std::vector<Expr*> exprs) {
   // We only hoist scalars not depending on tensors. In lowered expressions, all
   // these scalars are computed in top level scope.
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       common_scalar_map_.empty(),
       "CommonScalarMap used before initialization.");
   for (auto expr : exprs) {
@@ -406,7 +406,7 @@ std::pair<int64_t, bool> findAllocPointFromDataDependency(
   int64_t pos = -1;
   for (auto i : c10::irange(exprs.size())) {
     auto expr = exprs[i];
-    TORCH_INTERNAL_ASSERT(expr != nullptr);
+    NVF_ERROR(expr != nullptr);
     if (auto alloc = dynamic_cast<kir::Allocate*>(expr)) {
       // Currently this branch is only to handle shared memory address. For
       // shared memory address, we generate code like `toSmem(T7)`, this does
@@ -481,7 +481,7 @@ class CommonIndexInserter : private kir::ExprMutator {
       auto alloc = IrBuilder::create<kir::Allocate>(
           value, MemoryType::Local, GpuLower::current()->kernel()->oneVal());
       const auto def = value->definition();
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           def != nullptr,
           "Hoisted value must have a definition. ",
           value->toString());

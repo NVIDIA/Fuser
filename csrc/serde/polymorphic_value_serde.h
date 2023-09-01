@@ -7,6 +7,7 @@
  */
 // clang-format on
 #pragma once
+#include <exceptions.h>
 #include <executor_kernel_arg.h>
 #include <serde/factory.h>
 #include <serde/fusion_cache_generated.h>

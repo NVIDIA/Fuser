@@ -6,6 +6,7 @@
  */
 // clang-format on
 
+#include <csrc/exceptions.h>
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
@@ -47,7 +48,7 @@ TEST_F(PolymorphicValueTest, Struct) {
       } else if (key == "y") {
         return [this]() { return PolymorphicValue(y); };
       } else {
-        TORCH_INTERNAL_ASSERT(false, "Invalid key");
+        NVF_ERROR(false, "Invalid key");
       }
     }
 
@@ -58,7 +59,7 @@ TEST_F(PolymorphicValueTest, Struct) {
       } else if (key == "y") {
         return [this](const PolymorphicValue& value) { y = (double)value; };
       } else {
-        TORCH_INTERNAL_ASSERT(false, "Invalid key");
+        NVF_ERROR(false, "Invalid key");
       }
     }
   };

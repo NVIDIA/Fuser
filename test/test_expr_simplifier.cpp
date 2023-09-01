@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <csrc/exceptions.h>
 #include <gtest/gtest.h>
 
 #include <expr_simplifier.h>
@@ -125,7 +126,7 @@ Val* parseIdentifier(std::string_view token_str) {
     std::regex regex(R"((T\d+)\.(\w+)\[(\d+)\])");
     std::smatch match;
     std::regex_search(s, match, regex);
-    TORCH_CHECK(match.size() == 4, "Invalid tensor access: ", token_str);
+    NVF_CHECK(match.size() == 4, "Invalid tensor access: ", token_str);
     auto tensor_name = match[1];
     auto attr = match[2];
     auto index = std::stol(match[3]);
@@ -153,7 +154,7 @@ Val* parseIdentifier(std::string_view token_str) {
   } else if (token_str.at(0) == 'd') {
     return randomlyReuseOrCreateNamedScalar(token_str, DataType::Double);
   } else {
-    TORCH_INTERNAL_ASSERT(false, "Identifier with unknown type: ", token_str);
+    NVF_ERROR(false, "Identifier with unknown type: ", token_str);
   }
 }
 
@@ -163,14 +164,14 @@ Val* parseNumber(std::string_view token_str) {
   if (neg) {
     s = s.substr(1);
   }
-  TORCH_CHECK(!s.empty(), "Invalid number: ", token_str);
+  NVF_CHECK(!s.empty(), "Invalid number: ", token_str);
   int64_t i = 0;
   while (!s.empty()) {
     auto ch = s.at(0);
     if (ch == '.') {
       break;
     }
-    TORCH_CHECK(std::isdigit(ch), "Invalid number: ", token_str)
+    NVF_CHECK(std::isdigit(ch), "Invalid number: ", token_str)
     i = i * 10 + (ch - '0');
     s = s.substr(1);
   }
@@ -185,7 +186,7 @@ Val* parseNumber(std::string_view token_str) {
     double factor = 0.1;
     while (!s.empty()) {
       auto ch = s.at(0);
-      TORCH_CHECK(std::isdigit(ch), "Invalid number: ", token_str)
+      NVF_CHECK(std::isdigit(ch), "Invalid number: ", token_str)
       d += factor * (ch - '0');
       factor /= 10;
       s = s.substr(1);
@@ -199,36 +200,30 @@ Val* parseNumber(std::string_view token_str) {
 
 Val* functionCall(std::string_view name, std::deque<Val*> args) {
   if (name == "gcd") {
-    TORCH_CHECK(
-        args.size() == 2, "Invalid argument: ", toDelimitedString(args));
+    NVF_CHECK(args.size() == 2, "Invalid argument: ", toDelimitedString(args));
     return IrBuilder::gcdExpr(args.at(0), args.at(1));
   } else if (name == "max") {
-    TORCH_CHECK(
-        args.size() == 2, "Invalid argument: ", toDelimitedString(args));
+    NVF_CHECK(args.size() == 2, "Invalid argument: ", toDelimitedString(args));
     return IrBuilder::maxExpr(args.at(0), args.at(1));
   } else if (name == "min") {
-    TORCH_CHECK(
-        args.size() == 2, "Invalid argument: ", toDelimitedString(args));
+    NVF_CHECK(args.size() == 2, "Invalid argument: ", toDelimitedString(args));
     return IrBuilder::minExpr(args.at(0), args.at(1));
   } else if (name == "ceilDiv") {
-    TORCH_CHECK(
-        args.size() == 2, "Invalid argument: ", toDelimitedString(args));
+    NVF_CHECK(args.size() == 2, "Invalid argument: ", toDelimitedString(args));
     return IrBuilder::ceilDivExpr(args.at(0), args.at(1));
   } else if (name == "where") {
-    TORCH_CHECK(
-        args.size() == 3, "Invalid argument: ", toDelimitedString(args));
+    NVF_CHECK(args.size() == 3, "Invalid argument: ", toDelimitedString(args));
     return IrBuilder::whereExpr(args.at(0), args.at(1), args.at(2));
   } else if (name == "abs") {
-    TORCH_CHECK(
-        args.size() == 1, "Invalid argument: ", toDelimitedString(args));
+    NVF_CHECK(args.size() == 1, "Invalid argument: ", toDelimitedString(args));
     return IrBuilder::absExpr(args.at(0));
   }
-  TORCH_CHECK(false, "Unknown function: ", name);
+  NVF_CHECK(false, "Unknown function: ", name);
 }
 
 token_t parseToken(std::string_view token_str, bool& expect_val) {
   if (std::isalpha(token_str.at(0))) {
-    TORCH_CHECK(
+    NVF_CHECK(
         expect_val,
         "Syntax error: not expecting identifier but get ",
         token_str);
@@ -243,16 +238,16 @@ token_t parseToken(std::string_view token_str, bool& expect_val) {
     }
   }
   if (token_str.at(0) == '!' || token_str.at(0) == '~') {
-    TORCH_CHECK(
+    NVF_CHECK(
         expect_val, "Syntax error: not expecting unary op but get ", token_str);
     return fun1_t(&IrBuilder::logicalNotExpr);
   } else if (token_str.at(0) == '-' || std::isdigit(token_str.at(0))) {
-    TORCH_CHECK(
+    NVF_CHECK(
         expect_val, "Syntax error: not expecting number but get ", token_str);
     expect_val = false;
     return parseNumber(token_str);
   } else {
-    TORCH_CHECK(
+    NVF_CHECK(
         !expect_val,
         "Syntax error: not expecting operator but get ",
         token_str);
@@ -285,7 +280,7 @@ token_t parseToken(std::string_view token_str, bool& expect_val) {
     } else if (token_str == "||") {
       return fun2_t(&IrBuilder::logicalOrExpr);
     }
-    TORCH_CHECK(false, "Unrecognized token: ", token_str);
+    NVF_CHECK(false, "Unrecognized token: ", token_str);
   }
 }
 
@@ -303,7 +298,7 @@ int getOpPrecedence(token_t op) {
         uop == fun1_t(IrBuilder::logicalNotExpr)) {
       return 3;
     }
-    TORCH_CHECK(false, "Unexpected unary op");
+    NVF_CHECK(false, "Unexpected unary op");
   }
 
   if (std::holds_alternative<fun2_t>(op)) {
@@ -333,9 +328,9 @@ int getOpPrecedence(token_t op) {
     if (bop == fun2_t(&IrBuilder::logicalOrExpr)) {
       return 15;
     }
-    TORCH_CHECK(false, "Unexpected binary op");
+    NVF_CHECK(false, "Unexpected binary op");
   }
-  TORCH_CHECK(false, "Unexpected token");
+  NVF_CHECK(false, "Unexpected token");
 }
 
 Val* parse(const char* str) {
@@ -354,18 +349,18 @@ Val* parse(const char* str) {
           if constexpr (std::is_same_v<T, fun1_t>) {
             current = op(current);
           } else if constexpr (std::is_same_v<T, fun2_t>) {
-            TORCH_CHECK(!value_stack.empty(), "Missing operand for binary op");
+            NVF_CHECK(!value_stack.empty(), "Missing operand for binary op");
             current = op(value_stack.back(), current);
             value_stack.pop_back();
           } else {
-            TORCH_CHECK(false, "Unexpected token");
+            NVF_CHECK(false, "Unexpected token");
           }
         },
         op);
   };
 
   auto eval_all_top = [&](token_t token) {
-    TORCH_CHECK(current != nullptr, "Expect value to evaluate top");
+    NVF_CHECK(current != nullptr, "Expect value to evaluate top");
     while (!op_stack.empty() &&
            (std::holds_alternative<fun1_t>(op_stack.back()) ||
             std::holds_alternative<fun2_t>(op_stack.back())) &&
@@ -382,12 +377,12 @@ Val* parse(const char* str) {
     const auto token_str = remaining.substr(0, end_pos);
 
     if (token_str == "(") {
-      TORCH_CHECK(
+      NVF_CHECK(
           expect_val, "Syntax error: not expecting ( but get ", token_str);
       op_stack.push_back(LeftParenthesis{last_lparen_pos});
       last_lparen_pos = op_stack.size() - 1;
     } else if (token_str.back() == '(') {
-      TORCH_CHECK(
+      NVF_CHECK(
           expect_val,
           "Syntax error: not expecting function call but get ",
           token_str);
@@ -395,7 +390,7 @@ Val* parse(const char* str) {
           last_lparen_pos, token_str.substr(0, token_str.size() - 1)});
       last_lparen_pos = op_stack.size() - 1;
     } else if (token_str == ",") {
-      TORCH_CHECK(!expect_val, "Syntax error: not expecting comma");
+      NVF_CHECK(!expect_val, "Syntax error: not expecting comma");
       expect_val = true;
       auto comma = Comma{};
       eval_all_top(comma);
@@ -403,13 +398,13 @@ Val* parse(const char* str) {
       op_stack.emplace_back(comma);
       current = nullptr;
     } else if (token_str == ")") {
-      TORCH_CHECK(
+      NVF_CHECK(
           !expect_val, "Syntax error: not expecting ) but get ", token_str);
       eval_all_top(LowestPrecedence{});
       auto last_lparen = op_stack.at(last_lparen_pos);
-      TORCH_CHECK(!op_stack.empty(), "Unmatched )");
+      NVF_CHECK(!op_stack.empty(), "Unmatched )");
       if (std::holds_alternative<LeftParenthesis>(last_lparen)) {
-        TORCH_INTERNAL_ASSERT(last_lparen_pos == (int64_t)op_stack.size() - 1);
+        NVF_ERROR(last_lparen_pos == (int64_t)op_stack.size() - 1);
         auto lparen = std::get<LeftParenthesis>(op_stack.back());
         last_lparen_pos = lparen.prev_lparen_pos;
         op_stack.pop_back();
@@ -425,12 +420,12 @@ Val* parse(const char* str) {
         op_stack.pop_back();
         current = functionCall(fc.name, std::move(args));
       } else {
-        TORCH_CHECK(false, "Unknown left parenthesis type");
+        NVF_CHECK(false, "Unknown left parenthesis type");
       }
     } else {
       token_t token = parseToken(token_str, expect_val);
       if (std::holds_alternative<Val*>(token)) {
-        TORCH_CHECK(current == nullptr, "Don't expect value");
+        NVF_CHECK(current == nullptr, "Don't expect value");
         current = std::get<Val*>(token);
       } else if (std::holds_alternative<fun1_t>(token)) {
         op_stack.push_back(token);
@@ -440,7 +435,7 @@ Val* parse(const char* str) {
         op_stack.push_back(token);
         current = nullptr;
       } else {
-        TORCH_CHECK(false, "Unexpected token");
+        NVF_CHECK(false, "Unexpected token");
       }
     }
 

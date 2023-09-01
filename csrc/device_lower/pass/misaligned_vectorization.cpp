@@ -94,10 +94,9 @@ class MisalignedVectorizationModifier : public kir::ExprMutator {
   };
 
   ReferenceTensors getReferenceTensors(Expr* vectorized_expr) {
-    TORCH_INTERNAL_ASSERT(vectorized_expr != nullptr);
-    TORCH_INTERNAL_ASSERT(
-        vectorized_expr->outputs().front()->isA<TensorView>());
-    TORCH_INTERNAL_ASSERT(vectorized_expr->inputs().front()->isA<TensorView>());
+    NVF_ERROR(vectorized_expr != nullptr);
+    NVF_ERROR(vectorized_expr->outputs().front()->isA<TensorView>());
+    NVF_ERROR(vectorized_expr->inputs().front()->isA<TensorView>());
 
     auto in_tv = vectorized_expr->inputs().front()->as<TensorView>();
     auto out_tv = vectorized_expr->outputs().front()->as<TensorView>();
@@ -108,7 +107,7 @@ class MisalignedVectorizationModifier : public kir::ExprMutator {
     const bool global_vectorize_read_op =
         (out_tv->getMemoryType() == MemoryType::Local &&
          in_tv->getMemoryType() == MemoryType::Global);
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         global_vectorize_write_op || global_vectorize_read_op,
         "Unsupported vectorize memory configuration detected.");
 
@@ -317,7 +316,7 @@ class MisalignedVectorizationModifier : public kir::ExprMutator {
     // Assumption: All vectorize operations have the same shift
     auto vectorized_expr =
         findFirstVectorizedSetOp(for_loop_structure, child_loops);
-    TORCH_INTERNAL_ASSERT(vectorized_expr != nullptr);
+    NVF_ERROR(vectorized_expr != nullptr);
 
     auto reference_tensors = getReferenceTensors(vectorized_expr);
 
@@ -396,8 +395,7 @@ class MisalignedVectorizationModifier : public kir::ExprMutator {
 
       // If the for loop contains a vectorize Set operation, then
       // it should only contain a single expression
-      TORCH_INTERNAL_ASSERT(
-          !has_vectorize_op || fl->body().exprs().size() == 1);
+      NVF_ERROR(!has_vectorize_op || fl->body().exprs().size() == 1);
 
       const auto new_loop = IrBuilder::create<kir::ForLoop>(
           fl->iter_domain(),
@@ -511,8 +509,7 @@ class MisalignedVectorizationModifier : public kir::ExprMutator {
       // There must be a matching consumer root ID as the producer ID is
       // not reduction and the expression between them is LoadStoreOp.
       auto it = p2c.find(producer_root_id);
-      TORCH_INTERNAL_ASSERT(
-          it != p2c.end(), "No matching consumer root ID found");
+      NVF_ERROR(it != p2c.end(), "No matching consumer root ID found");
       auto consumer_root_id = it->second;
 
       // Don't extend the vectorization domain beyond the CA position
@@ -538,10 +535,10 @@ class MisalignedVectorizationModifier : public kir::ExprMutator {
       // If it's not contiguous, extending the vectorization domain
       // further is not possible
       auto producer_dim_contiguity = producer_contig.at(i);
-      TORCH_INTERNAL_ASSERT(producer_dim_contiguity.has_value());
+      NVF_ERROR(producer_dim_contiguity.has_value());
 
       auto consumer_dim_contiguity = consumer_contig.at(consumer_root_idx);
-      TORCH_INTERNAL_ASSERT(consumer_dim_contiguity.has_value());
+      NVF_ERROR(consumer_dim_contiguity.has_value());
 
       if (!(producer_dim_contiguity.value() &&
             consumer_dim_contiguity.value())) {
@@ -551,7 +548,7 @@ class MisalignedVectorizationModifier : public kir::ExprMutator {
       --consumer_root_idx;
     }
 
-    TORCH_INTERNAL_ASSERT(extent != nullptr);
+    NVF_ERROR(extent != nullptr);
 
     return extent;
   }
@@ -563,7 +560,7 @@ class MisalignedVectorizationModifier : public kir::ExprMutator {
       bool address = false) {
     auto namedScalar = (address) ? IrBuilder::addressExprNamedScalar(name, val)
                                  : IrBuilder::setExprNamedScalar(name, val);
-    TORCH_INTERNAL_ASSERT(namedScalar->definition() != nullptr);
+    NVF_ERROR(namedScalar->definition() != nullptr);
     return namedScalar;
   }
 

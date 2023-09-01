@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <csrc/exceptions.h>
 #include <gtest/gtest.h>
 
 #include <ops/arith.h>
@@ -87,7 +88,7 @@ sass::Container getSASSFor(
   auto tref = atMatmul(
       inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
 
-  TORCH_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+  NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
 
   return sass::parse(fe.disassembledKernelSASS());
 }
@@ -152,7 +153,7 @@ sass::Container getBinaryOpMulEpilogueSASSFor(
                   alpha)
                   .to(at::kFloat);
 
-  TORCH_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+  NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
 
   return sass::parse(fe.disassembledKernelSASS());
 }
@@ -197,9 +198,9 @@ TEST_F(MatmulSASSTest, AmpereSanity_CUDA) {
           },
           inst);
     }
-    TORCH_CHECK(found_LDGSTS);
-    TORCH_CHECK(found_LDSM);
-    TORCH_CHECK(found_HMMA);
+    NVF_CHECK(found_LDGSTS);
+    NVF_CHECK(found_LDSM);
+    NVF_CHECK(found_HMMA);
   }
 }
 
@@ -239,7 +240,7 @@ TEST_F(MatmulSASSTest, AmpereModifiers_CUDA) {
               if (i.opCode() == "LDGSTS") {
                 const std::vector<std::string> expect = {
                     "E", "BYPASS", "LTC128B", "128"};
-                TORCH_CHECK(
+                NVF_CHECK(
                     i.modifiers() == expect,
                     "Modifiers for LDGSTS has changed. "
                     "Please manually check if the new modifiers makes sense and update this test. "
@@ -250,7 +251,7 @@ TEST_F(MatmulSASSTest, AmpereModifiers_CUDA) {
                 found_LDGSTS = true;
               } else if (i.opCode() == "LDGDEPBAR") {
                 const std::vector<std::string> expect;
-                TORCH_CHECK(
+                NVF_CHECK(
                     i.modifiers() == expect,
                     "Modifiers for LDGDEPBAR has changed. "
                     "Please manually check if the new modifiers makes sense and update this test. "
@@ -264,7 +265,7 @@ TEST_F(MatmulSASSTest, AmpereModifiers_CUDA) {
                 const std::vector<std::string> expect2 = {"16", "M88", "4"};
                 const std::vector<std::string> expect3 = {"16", "MT88", "2"};
                 const std::vector<std::string> expect4 = {"16", "MT88", "4"};
-                TORCH_CHECK(
+                NVF_CHECK(
                     i.modifiers() == expect1 || i.modifiers() == expect2 ||
                         i.modifiers() == expect3 || i.modifiers() == expect4,
                     "Modifiers for LDGDEPBAR has changed. "
@@ -272,7 +273,7 @@ TEST_F(MatmulSASSTest, AmpereModifiers_CUDA) {
                 found_LDSM = true;
               } else if (i.opCode() == "HMMA") {
                 const std::vector<std::string> expect = {"16816", "F32"};
-                TORCH_CHECK(
+                NVF_CHECK(
                     i.modifiers() == expect,
                     "Modifiers for HMMA has changed. "
                     "Please manually check if the new modifiers makes sense and update this test. "
@@ -284,7 +285,7 @@ TEST_F(MatmulSASSTest, AmpereModifiers_CUDA) {
               } else if (i.opCode() == "BAR") {
                 const std::vector<std::string> expect = {
                     "SYNC", "DEFER_BLOCKING"};
-                TORCH_CHECK(
+                NVF_CHECK(
                     i.modifiers() == expect,
                     "Modifiers for BAR has changed. "
                     "Please manually check if the new modifiers makes sense and update this test. "
@@ -295,7 +296,7 @@ TEST_F(MatmulSASSTest, AmpereModifiers_CUDA) {
                 found_BAR = true;
               } else if (i.opCode() == "DEPBAR") {
                 const std::vector<std::string> expect = {"LE"};
-                TORCH_CHECK(
+                NVF_CHECK(
                     i.modifiers() == expect,
                     "Modifiers for DEPBAR has changed. "
                     "Please manually check if the new modifiers makes sense and update this test. "
@@ -309,12 +310,12 @@ TEST_F(MatmulSASSTest, AmpereModifiers_CUDA) {
           },
           inst);
     }
-    TORCH_CHECK(found_LDGSTS);
-    TORCH_CHECK(found_LDSM);
-    TORCH_CHECK(found_HMMA);
-    TORCH_CHECK(found_LDGDEPBAR);
-    TORCH_CHECK(found_BAR);
-    TORCH_CHECK(found_DEPBAR);
+    NVF_CHECK(found_LDGSTS);
+    NVF_CHECK(found_LDSM);
+    NVF_CHECK(found_HMMA);
+    NVF_CHECK(found_LDGDEPBAR);
+    NVF_CHECK(found_BAR);
+    NVF_CHECK(found_DEPBAR);
   }
 }
 
@@ -376,7 +377,7 @@ TEST_F(MatmulSASSTest, AmpereModifiersSharedMemoryEpilogue_CUDA) {
               if (i.opCode() == "LDGSTS") {
                 const std::vector<std::string> expect = {
                     "E", "BYPASS", "LTC128B", "128"};
-                TORCH_CHECK(
+                NVF_CHECK(
                     i.modifiers() == expect,
                     "Modifiers for LDGSTS has changed. "
                     "Please manually check if the new modifiers makes sense and update this test. "
@@ -387,7 +388,7 @@ TEST_F(MatmulSASSTest, AmpereModifiersSharedMemoryEpilogue_CUDA) {
                 found_LDGSTS = true;
               } else if (i.opCode() == "LDGDEPBAR") {
                 const std::vector<std::string> expect;
-                TORCH_CHECK(
+                NVF_CHECK(
                     i.modifiers() == expect,
                     "Modifiers for LDGDEPBAR has changed. "
                     "Please manually check if the new modifiers makes sense and update this test. "
@@ -401,7 +402,7 @@ TEST_F(MatmulSASSTest, AmpereModifiersSharedMemoryEpilogue_CUDA) {
                 const std::vector<std::string> expect2 = {"16", "M88", "4"};
                 const std::vector<std::string> expect3 = {"16", "MT88", "2"};
                 const std::vector<std::string> expect4 = {"16", "MT88", "4"};
-                TORCH_CHECK(
+                NVF_CHECK(
                     i.modifiers() == expect1 || i.modifiers() == expect2 ||
                         i.modifiers() == expect3 || i.modifiers() == expect4,
                     "Modifiers for LDGDEPBAR has changed. "
@@ -409,7 +410,7 @@ TEST_F(MatmulSASSTest, AmpereModifiersSharedMemoryEpilogue_CUDA) {
                 found_LDSM = true;
               } else if (i.opCode() == "HMMA") {
                 const std::vector<std::string> expect = {"16816", "F32"};
-                TORCH_CHECK(
+                NVF_CHECK(
                     i.modifiers() == expect,
                     "Modifiers for HMMA has changed. "
                     "Please manually check if the new modifiers makes sense and update this test. "
@@ -421,7 +422,7 @@ TEST_F(MatmulSASSTest, AmpereModifiersSharedMemoryEpilogue_CUDA) {
               } else if (i.opCode() == "BAR") {
                 const std::vector<std::string> expect = {
                     "SYNC", "DEFER_BLOCKING"};
-                TORCH_CHECK(
+                NVF_CHECK(
                     i.modifiers() == expect,
                     "Modifiers for BAR has changed. "
                     "Please manually check if the new modifiers makes sense and update this test. "
@@ -432,7 +433,7 @@ TEST_F(MatmulSASSTest, AmpereModifiersSharedMemoryEpilogue_CUDA) {
                 BAR_COUNT++;
               } else if (i.opCode() == "DEPBAR") {
                 const std::vector<std::string> expect = {"LE"};
-                TORCH_CHECK(
+                NVF_CHECK(
                     i.modifiers() == expect,
                     "Modifiers for DEPBAR has changed. "
                     "Please manually check if the new modifiers makes sense and update this test. "
@@ -446,17 +447,17 @@ TEST_F(MatmulSASSTest, AmpereModifiersSharedMemoryEpilogue_CUDA) {
           },
           inst);
     }
-    TORCH_CHECK(found_LDGSTS);
-    TORCH_CHECK(found_LDSM);
-    TORCH_CHECK(found_HMMA);
-    TORCH_CHECK(found_LDGDEPBAR);
-    TORCH_CHECK(
+    NVF_CHECK(found_LDGSTS);
+    NVF_CHECK(found_LDSM);
+    NVF_CHECK(found_HMMA);
+    NVF_CHECK(found_LDGDEPBAR);
+    NVF_CHECK(
         BAR_COUNT == EXPECTED_BAR_COUNT,
         "Expect ",
         EXPECTED_BAR_COUNT,
         " BARs, got ",
         BAR_COUNT);
-    TORCH_CHECK(found_DEPBAR);
+    NVF_CHECK(found_DEPBAR);
   }
 }
 
@@ -492,7 +493,7 @@ TEST_F(MatmulSASSTest, AmpereEpilogueBinaryOpMul_CUDA) {
               if (i.opCode() == "LDGSTS") {
                 const std::vector<std::string> expect = {
                     "E", "BYPASS", "LTC128B", "128"};
-                TORCH_CHECK(
+                NVF_CHECK(
                     i.modifiers() == expect,
                     "Modifiers for LDGSTS has changed. "
                     "Please manually check if the new modifiers makes sense and update this test. "
@@ -503,7 +504,7 @@ TEST_F(MatmulSASSTest, AmpereEpilogueBinaryOpMul_CUDA) {
                 found_LDGSTS = true;
               } else if (i.opCode() == "LDGDEPBAR") {
                 const std::vector<std::string> expect;
-                TORCH_CHECK(
+                NVF_CHECK(
                     i.modifiers() == expect,
                     "Modifiers for LDGDEPBAR has changed. "
                     "Please manually check if the new modifiers makes sense and update this test. "
@@ -517,7 +518,7 @@ TEST_F(MatmulSASSTest, AmpereEpilogueBinaryOpMul_CUDA) {
                 const std::vector<std::string> expect2 = {"16", "M88", "4"};
                 const std::vector<std::string> expect3 = {"16", "MT88", "2"};
                 const std::vector<std::string> expect4 = {"16", "MT88", "4"};
-                TORCH_CHECK(
+                NVF_CHECK(
                     i.modifiers() == expect1 || i.modifiers() == expect2 ||
                         i.modifiers() == expect3 || i.modifiers() == expect4,
                     "Modifiers for LDGDEPBAR has changed. "
@@ -525,7 +526,7 @@ TEST_F(MatmulSASSTest, AmpereEpilogueBinaryOpMul_CUDA) {
                 found_LDSM = true;
               } else if (i.opCode() == "HMMA") {
                 const std::vector<std::string> expect = {"16816", "F32"};
-                TORCH_CHECK(
+                NVF_CHECK(
                     i.modifiers() == expect,
                     "Modifiers for HMMA has changed. "
                     "Please manually check if the new modifiers makes sense and update this test. "
@@ -537,7 +538,7 @@ TEST_F(MatmulSASSTest, AmpereEpilogueBinaryOpMul_CUDA) {
               } else if (i.opCode() == "BAR") {
                 const std::vector<std::string> expect = {
                     "SYNC", "DEFER_BLOCKING"};
-                TORCH_CHECK(
+                NVF_CHECK(
                     i.modifiers() == expect,
                     "Modifiers for BAR has changed. "
                     "Please manually check if the new modifiers makes sense and update this test. "
@@ -548,7 +549,7 @@ TEST_F(MatmulSASSTest, AmpereEpilogueBinaryOpMul_CUDA) {
                 found_BAR = true;
               } else if (i.opCode() == "DEPBAR") {
                 const std::vector<std::string> expect = {"LE"};
-                TORCH_CHECK(
+                NVF_CHECK(
                     i.modifiers() == expect,
                     "Modifiers for DEPBAR has changed. "
                     "Please manually check if the new modifiers makes sense and update this test. "
@@ -562,12 +563,12 @@ TEST_F(MatmulSASSTest, AmpereEpilogueBinaryOpMul_CUDA) {
           },
           inst);
     }
-    TORCH_CHECK(found_LDGSTS);
-    TORCH_CHECK(found_LDSM);
-    TORCH_CHECK(found_HMMA);
-    TORCH_CHECK(found_LDGDEPBAR);
-    TORCH_CHECK(found_BAR);
-    TORCH_CHECK(found_DEPBAR);
+    NVF_CHECK(found_LDGSTS);
+    NVF_CHECK(found_LDSM);
+    NVF_CHECK(found_HMMA);
+    NVF_CHECK(found_LDGDEPBAR);
+    NVF_CHECK(found_BAR);
+    NVF_CHECK(found_DEPBAR);
   }
 }
 
@@ -623,7 +624,7 @@ TEST_F(MatmulSASSTest, AmpereRegisterUsageLDSM_CUDA) {
                 return;
               }
               auto args = i.args();
-              TORCH_INTERNAL_ASSERT(args.size() == 2);
+              NVF_ERROR(args.size() == 2);
               std::string smem_address = args[1];
               // get base shared memory address
               std::string_view view(smem_address); // example: [R0+UR0+0x200]
@@ -649,7 +650,7 @@ TEST_F(MatmulSASSTest, AmpereRegisterUsageLDSM_CUDA) {
           inst);
     }
     for (auto& [base, offsets] : base_offsets) {
-      TORCH_CHECK(
+      NVF_CHECK(
           offsets.size() > 1,
           "Expect base addresses to be used multiple times, but ",
           base,
