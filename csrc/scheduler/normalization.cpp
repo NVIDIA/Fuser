@@ -1341,6 +1341,7 @@ std::shared_ptr<ReductionParams> persistentHeuristic(
         vectorize_factor);
   }
   rparams->project_persistent_buffers = project_persistent_buffers;
+  rparams->smem_tvs = std::move(smem_tvs);
   return rparams;
 }
 
