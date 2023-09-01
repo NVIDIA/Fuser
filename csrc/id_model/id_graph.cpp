@@ -314,6 +314,7 @@ ExprGroups IdGraph::getExprsBetween(const IdGroups& from, const IdGroups& to)
       ExprGroup currently_visiting_exprs = to_visit_exprs.popFront();
       if (required_ind_exprs_exprs.find(currently_visiting_exprs) !=
           required_ind_exprs_exprs.end()) {
+        // currently_visiting_exprs is already visited
         continue;
       }
       if (processExprGroup(currently_visiting_exprs)) {
