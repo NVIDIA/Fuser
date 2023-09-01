@@ -199,7 +199,7 @@ void IrContainer::registerVal(Val* val) {
         scalar_equality_.enlarge(val->name() + 1);
       }
       break;
-    default: // do nothing
+    default: // do nothing since we do not track equivalence for other Vals
       break;
   }
 
@@ -208,7 +208,7 @@ void IrContainer::registerVal(Val* val) {
   if (val_from_name_.size() <= vtypeInt) {
     val_from_name_.resize(vtypeInt + 1);
   }
-  auto vfn_vec = val_from_name_[vtypeInt];
+  auto& vfn_vec = val_from_name_[vtypeInt];
   if (vfn_vec.size() <= val->name()) {
     vfn_vec.resize(val->name() + 1);
   }

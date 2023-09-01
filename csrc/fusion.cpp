@@ -1126,7 +1126,7 @@ void Fusion::replaceUncomputableScalars() {
     }
   }
 
-  ir_utils::replaceValue(fusion, replacement_map);
+  ir_utils::replaceValue(this, replacement_map);
 }
 
 } // namespace nvfuser
