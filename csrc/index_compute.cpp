@@ -3194,6 +3194,7 @@ Val* Index::cpAsyncBulkIndex(
   }
 
   int64_t dim = tv->nDims();
+  TORCH_INTERNAL_ASSERT(dim > 0);
   int64_t itemsize = dataTypeSize(tv->dtype());
 
   auto metadata = IrBuilder::metadataExpr(tv);
@@ -3203,7 +3204,7 @@ Val* Index::cpAsyncBulkIndex(
       IrBuilder::reverseArrayExpr(
           IrBuilder::getAttrExpr(metadata, "alloc_size"));
   auto global_strides = IrBuilder::getAttrExpr(metadata, "alloc_stride");
-  {
+  if (dim > 1) {
     // Reverse array to convert from row major to column major, multiply by
     // element size to convert to bytes, and remove fastest dim as it is assumed
     // to be one.
@@ -3213,6 +3214,9 @@ Val* Index::cpAsyncBulkIndex(
           IrBuilder::getItemExpr(global_strides, dim - 2 - i), itemsize));
     }
     global_strides = IrBuilder::arrayExpr(strides);
+  } else {
+    global_strides = IrBuilder::create<Val>(
+        ArrayType{std::make_shared<DataType>(DataType::Index), 0});
   }
   auto box_dim =
       // Reverse array to convert from row major to column major
