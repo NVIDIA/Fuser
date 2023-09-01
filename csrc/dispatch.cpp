@@ -11,6 +11,8 @@
 
 #include <dispatch.h>
 
+#include <typeinfo>
+
 namespace nvfuser {
 
 template <typename T>
@@ -310,7 +312,8 @@ void Expr::dispatch(T handler, Expr* expr) {
     ptr(handler)->handle(expr->as<PipelineCommunication>());
     return;
   }
-  TORCH_INTERNAL_ASSERT(false, "Unknown exprtype in dispatch!");
+  TORCH_INTERNAL_ASSERT(
+      false, "Unknown exprtype in dispatch: ", typeid(*expr).name());
 }
 
 template <typename T>
@@ -590,7 +593,8 @@ void Expr::constDispatch(T handler, const Expr* expr) {
     ptr(handler)->handle(expr->as<PipelineCommunication>());
     return;
   }
-  TORCH_INTERNAL_ASSERT(false, "Unknown exprtype in dispatch!");
+  TORCH_INTERNAL_ASSERT(
+      false, "Unknown exprtype in dispatch: ", typeid(*expr).name());
 }
 
 template <typename T>
