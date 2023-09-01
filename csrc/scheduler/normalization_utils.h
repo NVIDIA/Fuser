@@ -9,6 +9,7 @@
 
 #include <executor_params.h>
 #include <ir/all_nodes.h>
+#include <scheduler/utils.h>
 #include <cmath>
 #include <optional>
 #include <ostream>
@@ -204,6 +205,33 @@ getOptionalInnerOuterPersistentBufferBatches(
     const int64_t vectorize_factor,
     const int64_t warp_size,
     const bool ignore_register_size_limit);
+
+//! Return the shared memory overhead per block includes reserved by the CUDA
+//! driver and the space for the reduction broadcast workspace.
+int64_t getSharedMemoryOverheadPerBlock(
+    Fusion* fusion,
+    const std::vector<TensorView*>& reduction_tvs,
+    const int64_t max_threads_per_block);
+
+//! Decide where to store persistent buffers.
+//! By default, they reside in registers.
+//! If register space runs low but there's ample shared memory,
+//! the buffer is allocated there and noted in smem_tvs.
+struct PersistentBufferStorageParams {
+  std::vector<TensorView*> smem_tvs;
+  int64_t smem_buffer_size = -1;
+  int64_t regs_buffer_size = -1;
+  int64_t smem_overhead = -1;
+  bool has_enough_regs_and_smem = false;
+  bool project_to_input = false;
+  bool combined_reduction = false;
+};
+PersistentBufferStorageParams getPersistentBufferStorageParams(
+    Fusion* fusion,
+    SchedulerRuntimeInfo& runtime_info,
+    HeuristicSummary* data_cache,
+    const std::vector<TensorView*>& reduction_tvs,
+    const int64_t vectorize_factor);
 
 } // namespace normalization_scheduler_utils
 } // namespace nvfuser
