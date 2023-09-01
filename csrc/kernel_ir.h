@@ -10,6 +10,7 @@
 #include <ir/all_nodes.h>
 #include <ir/base_nodes.h>
 #include <parallel_type_bitmap.h>
+#include <tma.h>
 #include <type.h>
 #include <utils.h>
 
@@ -1139,10 +1140,10 @@ class TORCH_CUDA_CU_API EncodeTensorMapTiled : public Expr {
       Val* global_strides,
       Val* box_dim,
       Val* element_strides,
-      TensorMapInterleave interleave,
-      TensorMapSwizzle swizzle,
-      TensorMapL2Promotion l2_promotion,
-      TensorMapFloatOOBFill oob_fill);
+      tma::TensorMapInterleave interleave,
+      tma::TensorMapSwizzle swizzle,
+      tma::TensorMapL2Promotion l2_promotion,
+      tma::TensorMapFloatOOBFill oob_fill);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
@@ -1181,20 +1182,20 @@ class TORCH_CUDA_CU_API EncodeTensorMapTiled : public Expr {
     return attribute<int64_t>(1);
   }
 
-  const TensorMapInterleave& interleave() const {
-    return attribute<TensorMapInterleave>(2);
+  const tma::TensorMapInterleave& interleave() const {
+    return attribute<tma::TensorMapInterleave>(2);
   }
 
-  const TensorMapSwizzle& swizzle() const {
-    return attribute<TensorMapSwizzle>(3);
+  const tma::TensorMapSwizzle& swizzle() const {
+    return attribute<tma::TensorMapSwizzle>(3);
   }
 
-  const TensorMapL2Promotion& l2Promotion() const {
-    return attribute<TensorMapL2Promotion>(4);
+  const tma::TensorMapL2Promotion& l2Promotion() const {
+    return attribute<tma::TensorMapL2Promotion>(4);
   }
 
-  const TensorMapFloatOOBFill& oobFill() const {
-    return attribute<TensorMapFloatOOBFill>(5);
+  const tma::TensorMapFloatOOBFill& oobFill() const {
+    return attribute<tma::TensorMapFloatOOBFill>(5);
   }
 
   std::vector<PolymorphicValue> evaluate(

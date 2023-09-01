@@ -1286,10 +1286,10 @@ void IndexLowering::handleGroupedGridWelford(
 
 void IndexLowering::handle(const LoadStoreOp* ldst) {
   Val *in, *out;
-  if (lower_utils::isCpAsyncBulk(ldst)) {
-    TORCH_INTERNAL_ASSERT(lower_utils::isCpAsyncBulkStore(ldst));
+  if (ir_utils::isCpAsyncBulk(ldst)) {
+    TORCH_INTERNAL_ASSERT(ir_utils::isCpAsyncBulkStore(ldst));
     in = lowerSrcIndex(ldst->in(), ldst->out(), {}, true);
-    out = Index::cpAsyncBulkIndex(ldst->out());
+    out = Index::cpAsyncBulkIndex(ldst->out()->as<TensorView>(), for_loops_);
   } else {
     in = lowerSrcIndex(
         ldst->in(),

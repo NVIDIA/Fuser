@@ -584,7 +584,9 @@ class Index {
 
   //! Compute the global index for isCpAsyncBulk, currently just generate naive
   //! zeros
-  static Val* cpAsyncBulkIndex(TensorView* tv);
+  static Val* cpAsyncBulkIndex(
+      TensorView* tv,
+      const std::vector<kir::ForLoop*>& loops);
 };
 
 // Used for local and shared index mapping. Returns a map from loops

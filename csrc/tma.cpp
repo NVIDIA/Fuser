@@ -10,7 +10,9 @@
 
 #include <cuda_utils.h>
 #include <expr_evaluator.h>
+#include <fusion.h>
 #include <ir/all_nodes.h>
+#include <ir/builder.h>
 #include <utils.h>
 
 #include <cstdint>
@@ -18,12 +20,14 @@
 #include <cuda.h>
 #include <cuda_runtime.h>
 
-namespace nvfuser::tma {
+namespace nvfuser {
+
+namespace tma {
 
 #if (CUDA_VERSION >= 12000)
 
-inline CUtensorMapDataType getCUtensorMapDataType(PrimDataType dtype) {
-  switch (dtype) {
+inline CUtensorMapDataType getCUtensorMapDataType(DataType dtype) {
+  switch (std::get<PrimDataType>(dtype.type)) {
     case PrimDataType::Double:
       return CU_TENSOR_MAP_DATA_TYPE_FLOAT64;
     case PrimDataType::Float:
@@ -42,44 +46,44 @@ inline CUtensorMapDataType getCUtensorMapDataType(PrimDataType dtype) {
 }
 
 inline CUtensorMapInterleave getCUtensorMapInterleave(
-    TensorMapInterleaveType interleave) {
+    TensorMapInterleave interleave) {
   switch (interleave) {
-    case TensorMapInterleaveType::NoInterleave:
+    case TensorMapInterleave::NoInterleave:
       return CU_TENSOR_MAP_INTERLEAVE_NONE;
-    case TensorMapInterleaveType::B16:
+    case TensorMapInterleave::B16:
       return CU_TENSOR_MAP_INTERLEAVE_16B;
-    case TensorMapInterleaveType::B32:
+    case TensorMapInterleave::B32:
       return CU_TENSOR_MAP_INTERLEAVE_32B;
     default:
       TORCH_INTERNAL_ASSERT(false, "Unknown tensor map interleave type!");
   }
 }
 
-inline CUtensorMapSwizzle getCUtensorMapSwizzle(TensorMapSwizzleType swizzle) {
+inline CUtensorMapSwizzle getCUtensorMapSwizzle(TensorMapSwizzle swizzle) {
   switch (swizzle) {
-    case TensorMapSwizzleType::NoSwizzle:
+    case TensorMapSwizzle::NoSwizzle:
       return CU_TENSOR_MAP_SWIZZLE_NONE;
-    case TensorMapSwizzleType::B32:
+    case TensorMapSwizzle::B32:
       return CU_TENSOR_MAP_SWIZZLE_32B;
-    case TensorMapSwizzleType::B64:
+    case TensorMapSwizzle::B64:
       return CU_TENSOR_MAP_SWIZZLE_64B;
-    case TensorMapSwizzleType::B128:
+    case TensorMapSwizzle::B128:
       return CU_TENSOR_MAP_SWIZZLE_128B;
     default:
       TORCH_INTERNAL_ASSERT(false, "Unknown tensor map swizzle type!");
   }
 }
 
-inline CUtensorMapL2Promotion getCUtensorMapL2Promotion(
-    TensorMapL2PromotionType l2_promotion) {
+inline CUtensorMapL2promotion getCUtensorMapL2Promotion(
+    TensorMapL2Promotion l2_promotion) {
   switch (l2_promotion) {
-    case TensorMapL2PromotionType::NoL2Promotion:
+    case TensorMapL2Promotion::NoL2Promotion:
       return CU_TENSOR_MAP_L2_PROMOTION_NONE;
-    case TensorMapL2PromotionType::B64:
+    case TensorMapL2Promotion::B64:
       return CU_TENSOR_MAP_L2_PROMOTION_L2_64B;
-    case TensorMapL2PromotionType::B128:
+    case TensorMapL2Promotion::B128:
       return CU_TENSOR_MAP_L2_PROMOTION_L2_128B;
-    case TensorMapL2PromotionType::B256:
+    case TensorMapL2Promotion::B256:
       return CU_TENSOR_MAP_L2_PROMOTION_L2_256B;
     default:
       TORCH_INTERNAL_ASSERT(false, "Unknown tensor map L2 promotion type!");
@@ -97,6 +101,8 @@ inline CUtensorMapFloatOOBfill getCUtensorMapFloatOOBfill(
       TORCH_INTERNAL_ASSERT(false, "Unknown tensor map OOB fill type!");
   }
 }
+
+using TensorMap = CUtensorMap;
 
 #else
 
@@ -197,7 +203,6 @@ Val* encodeTensorMapTiled(
       global_address->fusion(),
       OpaqueType::make<TensorMap>("const __grid_constant__ TensorMap"));
   IrBuilder::create<kir::EncodeTensorMapTiled>(
-      global_address->fusion(),
       output,
       data_type,
       global_address,
@@ -212,9 +217,12 @@ Val* encodeTensorMapTiled(
   return output;
 }
 
+} // namespace tma
+
 std::vector<PolymorphicValue> kir::EncodeTensorMapTiled::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
+  using namespace tma;
 #if (CUDA_VERSION >= 12000)
   cuuint32_t tensor_rank = tensorRank();
   TORCH_INTERNAL_ASSERT(
@@ -224,28 +232,28 @@ std::vector<PolymorphicValue> kir::EncodeTensorMapTiled::evaluate(
   TORCH_INTERNAL_ASSERT(inputs.at(0).is<Pointer>());
   void* global_address = (void*)inputs.at(0);
 
-  TORCH_INTERNAL_ASSERT(inputs.at(1).is<std::vector<int64_t>>());
+  TORCH_INTERNAL_ASSERT(inputs.at(1).is<std::vector>());
   auto global_dim = (std::vector<cuuint64_t>)inputs.at(1);
 
-  TORCH_INTERNAL_ASSERT(inputs.at(2).is<std::vector<int64_t>>());
+  TORCH_INTERNAL_ASSERT(inputs.at(2).is<std::vector>());
   auto global_strides = (std::vector<cuuint64_t>)inputs.at(2);
 
-  TORCH_INTERNAL_ASSERT(inputs.at(3).is<std::vector<int64_t>>());
+  TORCH_INTERNAL_ASSERT(inputs.at(3).is<std::vector>());
   auto box_dim = (std::vector<cuuint32_t>)inputs.at(3);
 
-  TORCH_INTERNAL_ASSERT(inputs.at(4).is<std::vector<int64_t>>());
+  TORCH_INTERNAL_ASSERT(inputs.at(4).is<std::vector>());
   auto element_strides = (std::vector<cuuint32_t>)inputs.at(4);
 
   CUtensorMapDataType data_type = getCUtensorMapDataType(dataType());
   CUtensorMapInterleave interleave =
-      getCUtensorMapInterleave(tensorMapInterleave());
-  CUtensorMapSwizzle swizzle = getCUtensorMapSwizzle(tensorMapSwizzle());
-  CUtensorMapL2Promotion l2_promotion =
-      getCUtensorMapL2Promotion(tensorMapL2Promotion());
-  CUtensorMapFloatOOBfill oob_fill =
-      getCUtensorMapFloatOOBfill(tensorMapFloatOOBFill());
+      getCUtensorMapInterleave(this->interleave());
+  CUtensorMapSwizzle swizzle = getCUtensorMapSwizzle(this->swizzle());
+  CUtensorMapL2promotion l2_promotion =
+      getCUtensorMapL2Promotion(l2Promotion());
+  CUtensorMapFloatOOBfill oob_fill = getCUtensorMapFloatOOBfill(oobFill());
 
-  // Checks based on the documentation of cuTensorMapEncodeTiled
+  // Checks based on the documentation of cuTensorMapEncodeTiled, error messages
+  // are mostly directly copied from the doc
 
   TORCH_INTERNAL_ASSERT(
       tensor_rank != 0 && tensor_rank <= 5,
@@ -290,7 +298,7 @@ std::vector<PolymorphicValue> kir::EncodeTensorMapTiled::evaluate(
   TORCH_INTERNAL_ASSERT(
       padding0 >= 0,
       "Negative pad0 for: globalStrides[0] = globalDim[0] * elementSizeInBytes(tensorDataType) + padding[0];");
-  for (int i = 1; i < tensor_rank - 1; i++) {
+  for (int i = 1; i < (int64_t)tensor_rank - 1; i++) {
     int64_t stride_mul_pad_i = (int64_t)global_strides.at(i) -
         (int64_t)global_dim.at(i) * (int64_t)global_strides.at(i - 1);
     TORCH_INTERNAL_ASSERT(
@@ -337,6 +345,7 @@ std::vector<PolymorphicValue> kir::EncodeTensorMapTiled::evaluate(
             bounding_box_inner_dim <= 128,
             "CU_TENSOR_MAP_SWIZZLE_128B implies the bounding box inner dimension will be <= 128.");
         break;
+      default:;
     }
   }
 
@@ -374,4 +383,4 @@ std::vector<PolymorphicValue> kir::EncodeTensorMapTiled::evaluate(
 #endif
 }
 
-} // namespace nvfuser::tma
+} // namespace nvfuser

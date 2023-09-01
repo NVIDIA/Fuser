@@ -1251,38 +1251,44 @@ EncodeTensorMapTiled::EncodeTensorMapTiled(
     Val* global_strides,
     Val* box_dim,
     Val* element_strides,
-    TensorMapInterleave interleave,
-    TensorMapSwizzle swizzle,
-    TensorMapL2Promotion l2_promotion,
-    TensorMapFloatOOBFill oob_fill)
+    tma::TensorMapInterleave interleave,
+    tma::TensorMapSwizzle swizzle,
+    tma::TensorMapL2Promotion l2_promotion,
+    tma::TensorMapFloatOOBFill oob_fill)
     : Expr(passkey) {
-  TORCH_CHECK(output->dtype() == DataType::Opaque);
+  auto out_dtype = output->dtype();
+  TORCH_CHECK(std::holds_alternative<OpaqueType>(out_dtype.type));
   addOutput(output);
 
   TORCH_CHECK(
       global_address->dtype() ==
-      PointerOf{std::make_shared<DataType>(data_type)});
+      PointerType{std::make_shared<DataType>(data_type)});
   addInput(global_address);
 
-  TORCH_CHECK(std::holds_alternative<ArrayOf>(global_dim->dtype().type));
-  int64_t tensor_rank =
-      (int64_t)std::get<ArrayOf>(global_dim->dtype().type).size;
-  TORCH_CHECK(global_dim->dtype() == ArrayOf{DataType::Index, tensor_rank});
+  TORCH_CHECK(std::holds_alternative<ArrayType>(global_dim->dtype().type));
+  size_t tensor_rank = std::get<ArrayType>(global_dim->dtype().type).size;
+  ArrayType expect_global_dim_type{
+      std::make_shared<DataType>(DataType::Index), tensor_rank};
+  TORCH_CHECK(global_dim->dtype() == expect_global_dim_type);
   addInput(global_dim);
 
-  TORCH_CHECK(
-      global_strides->dtype() == ArrayOf{DataType::Index, tensor_rank - 1});
+  ArrayType expect_global_strides_type{
+      std::make_shared<DataType>(DataType::Index), tensor_rank - 1};
+  TORCH_CHECK(global_strides->dtype() == expect_global_strides_type);
   addInput(global_strides);
 
-  TORCH_CHECK(box_dim->dtype() == ArrayOf{DataType::Index, tensor_rank});
+  ArrayType expect_box_dim_type{
+      std::make_shared<DataType>(DataType::Index), tensor_rank};
+  TORCH_CHECK(box_dim->dtype() == expect_box_dim_type);
   addInput(box_dim);
 
-  TORCH_CHECK(
-      element_strides->dtype() == ArrayOf{DataType::Index, tensor_rank});
+  ArrayType expect_element_strides_type{
+      std::make_shared<DataType>(DataType::Index), tensor_rank};
+  TORCH_CHECK(element_strides->dtype() == expect_element_strides_type);
   addInput(element_strides);
 
   addDataAttribute(data_type);
-  addDataAttribute(tensor_rank);
+  addDataAttribute((int64_t)tensor_rank);
   addDataAttribute(interleave);
   addDataAttribute(swizzle);
   addDataAttribute(l2_promotion);

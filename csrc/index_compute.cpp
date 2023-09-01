@@ -3159,8 +3159,7 @@ Val* Index::iota(
   auto linear_index =
       Index::getLinearLogicalIndex(consumer_tv, loops, rotated_loops);
   auto result = add(start, mul(step, linear_index));
-  GpuLower::current()->commonScalarMap().hoistScalar(result, loops);
-  return result;
+  return GpuLower::current()->commonScalarMap().hoistScalar(result, loops);
 }
 
 Val* Index::eye(
@@ -3172,11 +3171,14 @@ Val* Index::eye(
       Index::getConsumerPerDimLogicalIndex(consumer_tv, loops, rotated_loops);
   TORCH_INTERNAL_ASSERT(indices.size() == 2);
   auto result = maybeCastOp(dtype, eq(indices[0], indices[1]));
-  GpuLower::current()->commonScalarMap().hoistScalar(result, loops);
-  return result;
+  return GpuLower::current()->commonScalarMap().hoistScalar(result, loops);
 }
 
-Val* Index::cpAsyncBulkIndex(TensorView* tv) {
+Val* Index::cpAsyncBulkIndex(
+    TensorView* tv,
+    const std::vector<kir::ForLoop*>& loops) {
+  using namespace tma;
+
   TORCH_INTERNAL_ASSERT(
       tv->getMemoryType() == MemoryType::Global,
       "cpAsyncBulkIndex is only for global memory tensors");
@@ -3198,7 +3200,8 @@ Val* Index::cpAsyncBulkIndex(TensorView* tv) {
   auto global_address = IrBuilder::getAttrExpr(metadata, "data");
   auto global_dim =
       // Reverse array to convert from row major to column major
-      IrBuilder::reverseArray(IrBuilder::getAttrExpr(metadata, "alloc_size"));
+      IrBuilder::reverseArrayExpr(
+          IrBuilder::getAttrExpr(metadata, "alloc_size"));
   auto global_strides = IrBuilder::getAttrExpr(metadata, "alloc_stride");
   {
     // Reverse array to convert from row major to column major, multiply by
@@ -3213,7 +3216,8 @@ Val* Index::cpAsyncBulkIndex(TensorView* tv) {
   }
   auto box_dim =
       // Reverse array to convert from row major to column major
-      IrBuilder::reverseArray(IrBuilder::getAttrExpr(metadata, "alloc_size"));
+      IrBuilder::reverseArrayExpr(
+          IrBuilder::getAttrExpr(metadata, "alloc_size"));
   auto element_strides =
       IrBuilder::arrayExpr(std::vector<Val*>(dim, tv->fusion()->oneVal()));
   auto descriptor = encodeTensorMapTiled(
@@ -3226,7 +3230,7 @@ Val* Index::cpAsyncBulkIndex(TensorView* tv) {
       TensorMapInterleave::NoInterleave,
       TensorMapSwizzle::NoSwizzle,
       TensorMapL2Promotion::NoL2Promotion,
-      TensorMapFloatOOBFill::NoFloatOOBFill);
+      TensorMapFloatOOBFill::NoOOBFill);
 
   auto coordinate =
       IrBuilder::arrayExpr(std::vector<Val*>(dim, tv->fusion()->zeroVal()));
@@ -3238,6 +3242,8 @@ Val* Index::cpAsyncBulkIndex(TensorView* tv) {
       {{"descriptor", IrBuilder::addressExpr(descriptor)},
        {"coordinate", coordinate}},
       ss.str());
+
+  index = GpuLower::current()->commonScalarMap().hoistScalar(index, loops);
 
   return IrBuilder::create<kir::TensorIndex>(tv, index);
 }
