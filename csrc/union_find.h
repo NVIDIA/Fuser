@@ -289,6 +289,9 @@ class UnionFind {
   //! find(a) == a.
   void setAsRoot(IndexType a) {
     const auto root = find(a);
+    if (root == a) {
+      return;
+    }
     parent_[root] = a;
     // The following is premature path compression
     // parent_[a] = a;
