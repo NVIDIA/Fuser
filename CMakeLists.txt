@@ -310,10 +310,8 @@ install(DIRECTORY "${NVFUSER_THIRD_PARTY_DIR}/flatbuffers/include/flatbuffers/"
   DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/nvfuser/flatbuffers")
 
 # installing dynamic_type headers
-install(DIRECTORY "${NVFUSER_SRCS_DIR}/lib/dynamic_type/src/"
-  DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/nvfuser/"
-  FILES_MATCHING
-  PATTERN "*.h")
+install(DIRECTORY "${NVFUSER_ROOT}/lib/dynamic_type/src/dynamic_type"
+  DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/nvfuser")
 
 # -----------------------------
 # build nvfuser python library

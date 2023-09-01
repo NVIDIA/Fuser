@@ -343,6 +343,8 @@ def main():
             "include/nvfuser/device_lower/*.h",
             "include/nvfuser/device_lower/analysis/*.h",
             "include/nvfuser/device_lower/pass/*.h",
+            "include/nvfuser/dynamic_type/*",
+            "include/nvfuser/dynamic_type/C++20/*",
             "include/nvfuser/kernel_db/*.h",
             "include/nvfuser/multidevice/*.h",
             "include/nvfuser/ops/*.h",
