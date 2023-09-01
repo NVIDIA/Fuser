@@ -5,6 +5,7 @@ cmake_minimum_required(VERSION 3.18 FATAL_ERROR)
 project(nvfuser)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 # compensating the lack of PROJECT_IS_TOP_LEVEL for older cmake version
 if(CMAKE_VERSION VERSION_LESS 3.21)
@@ -66,7 +67,7 @@ if(NOT MSVC)
 endif()
 
 # ------------------------------
-# build nvfuser_codegen library
+# build NVFUSER_CODEGEN library
 # ------------------------------
 
 # nvfuser codegen sources
@@ -206,43 +207,42 @@ if(BUILD_PYTHON)
     ${NVFUSER_SRCS_DIR}/serde/utils.cpp)
 endif()
 
-set(NVFUSER_CODEGEN ${PROJECT_NAME}_codegen)
-add_library(${NVFUSER_CODEGEN} SHARED ${NVFUSER_SRCS})
-target_compile_options(${NVFUSER_CODEGEN} PRIVATE -Wall -Wno-unused-function)
-target_compile_options(${NVFUSER_CODEGEN} PRIVATE "-DTORCH_CUDA_BUILD_MAIN_LIB")
+set(NVFUSER_CODEGEN_OBJ ${PROJECT_NAME}_codegen_obj)
+add_library(${NVFUSER_CODEGEN_OBJ} OBJECT ${NVFUSER_SRCS})
+target_compile_options(${NVFUSER_CODEGEN_OBJ} PRIVATE -Wall -Wno-unused-function)
+target_compile_options(${NVFUSER_CODEGEN_OBJ} PRIVATE "-DTORCH_CUDA_BUILD_MAIN_LIB")
 
 if(NOT MSVC)
-  target_compile_options(${NVFUSER_CODEGEN} PRIVATE -Werror)
+  target_compile_options(${NVFUSER_CODEGEN_OBJ} PRIVATE -Werror)
 endif()
 
 # NB: This must be target_compile_definitions, not target_compile_options,
 # as the latter is not respected by nvcc
-target_compile_definitions(${NVFUSER_CODEGEN} PRIVATE "-DTORCH_CUDA_BUILD_MAIN_LIB")
+target_compile_definitions(${NVFUSER_CODEGEN_OBJ} PRIVATE "-DTORCH_CUDA_BUILD_MAIN_LIB")
 
 # Link flatbuffers for serialization support
-target_link_libraries(${NVFUSER_CODEGEN} PRIVATE flatbuffers)
+target_link_libraries(${NVFUSER_CODEGEN_OBJ} PRIVATE flatbuffers)
 
 # For kernel_db, linking STL Filesystem Library for backward compatability with C++14
-target_link_libraries(${NVFUSER_CODEGEN} PRIVATE stdc++fs)
-target_link_libraries(${NVFUSER_CODEGEN} PRIVATE dynamic_type)
-target_link_libraries(${NVFUSER_CODEGEN} PRIVATE ${CUDA_NVRTC_LIB} ${LIBNVTOOLSEXT})
-target_include_directories(${NVFUSER_CODEGEN} PRIVATE ${CUDA_INCLUDE_DIRS})
+target_link_libraries(${NVFUSER_CODEGEN_OBJ} PRIVATE stdc++fs)
+target_link_libraries(${NVFUSER_CODEGEN_OBJ} PRIVATE dynamic_type)
+target_link_libraries(${NVFUSER_CODEGEN_OBJ} PRIVATE ${CUDA_NVRTC_LIB} ${LIBNVTOOLSEXT})
+target_include_directories(${NVFUSER_CODEGEN_OBJ} PRIVATE ${CUDA_INCLUDE_DIRS})
 
 # TODO: we should guard the include of gloo
-target_include_directories(${NVFUSER_CODEGEN} PRIVATE ${PROJECT_SOURCE_DIR}/third_party/gloo)
-target_include_directories(${NVFUSER_CODEGEN} PUBLIC
+target_include_directories(${NVFUSER_CODEGEN_OBJ} PRIVATE ${PROJECT_SOURCE_DIR}/third_party/gloo)
+target_include_directories(${NVFUSER_CODEGEN_OBJ} PUBLIC
   "$<BUILD_INTERFACE:${NVFUSER_SRCS_DIR}>"
   "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/nvfuser>"
 )
-set_property(TARGET ${NVFUSER_CODEGEN} PROPERTY CXX_STANDARD 17)
+set_property(TARGET ${NVFUSER_CODEGEN_OBJ} PROPERTY CXX_STANDARD 17)
 
 if(PROJECT_IS_TOP_LEVEL)
-  target_link_libraries(${NVFUSER_CODEGEN} PRIVATE torch ${TORCH_LIBRARIES})
+  target_link_libraries(${NVFUSER_CODEGEN_OBJ} PRIVATE torch ${TORCH_LIBRARIES})
 
   # this is to find pip installed nvrtc/nvtx .so
-  set_target_properties(${NVFUSER_CODEGEN} PROPERTIES INSTALL_RPATH
+  set_target_properties(${NVFUSER_CODEGEN_OBJ} PROPERTIES INSTALL_RPATH
     "$ORIGIN/../../nvidia/cuda_nvrtc/lib:$ORIGIN/../../nvidia/nvtx/lib")
-  install(TARGETS ${NVFUSER_CODEGEN} EXPORT NvfuserTargets DESTINATION lib)
 
   # We are keeping fusion_cache_generated.h for the submodule build because flatc is unavailable.
   add_custom_command(
@@ -266,33 +266,30 @@ if(PROJECT_IS_TOP_LEVEL)
     add_library(__nvfuser_ucc INTERFACE)
     target_link_libraries(__nvfuser_ucc INTERFACE ucx::ucs ucx::ucp ucc::ucc)
     target_include_directories(__nvfuser_ucc INTERFACE ${UCC_INCLUDE_DIRS})
-    target_link_libraries(${NVFUSER_CODEGEN} PRIVATE __nvfuser_ucc)
-    target_compile_definitions(${NVFUSER_CODEGEN} PRIVATE NVFUSER_BUILD_WITH_UCC)
+    target_link_libraries(${NVFUSER_CODEGEN_OBJ} PRIVATE __nvfuser_ucc)
+    target_compile_definitions(${NVFUSER_CODEGEN_OBJ} PRIVATE NVFUSER_BUILD_WITH_UCC)
   endif()
 
-  add_dependencies(${NVFUSER_CODEGEN} flatc build_flatbuffer_config)
+  add_dependencies(${NVFUSER_CODEGEN_OBJ} flatc build_flatbuffer_config)
 else()
   file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/nvfuser")
-  target_link_libraries(${NVFUSER_CODEGEN} PRIVATE torch ${TORCHLIB_FLAVOR})
+  target_link_libraries(${NVFUSER_CODEGEN_OBJ} PRIVATE torch ${TORCHLIB_FLAVOR})
 
   # NOTE: our CI build somehow fails with find driver lib.
-  target_link_libraries(${NVFUSER_CODEGEN} PUBLIC CUDA::cuda_driver)
+  target_link_libraries(${NVFUSER_CODEGEN_OBJ} PUBLIC CUDA::cuda_driver)
 
   if(UCC_FOUND) # inherited from pytorch source build
     add_library(__nvfuser_ucc INTERFACE)
     target_link_libraries(__nvfuser_ucc INTERFACE ucx::ucs ucx::ucp ucc::ucc)
     target_include_directories(__nvfuser_ucc INTERFACE ${UCC_INCLUDE_DIRS})
-    target_link_libraries(${NVFUSER_CODEGEN} PRIVATE __nvfuser_ucc)
-    target_compile_definitions(${NVFUSER_CODEGEN} PRIVATE NVFUSER_BUILD_WITH_UCC)
+    target_link_libraries(${NVFUSER_CODEGEN_OBJ} PRIVATE __nvfuser_ucc)
+    target_compile_definitions(${NVFUSER_CODEGEN_OBJ} PRIVATE NVFUSER_BUILD_WITH_UCC)
   endif()
 
   # installing nvfuser python tests
   install(DIRECTORY "${NVFUSER_ROOT}/python_tests/"
     DESTINATION "${TORCH_ROOT}/test/_nvfuser"
     FILES_MATCHING PATTERN "*.py")
-
-  # installing nvfuser lib
-  install(TARGETS ${NVFUSER_CODEGEN} EXPORT NvfuserTargets DESTINATION "${TORCH_INSTALL_LIB_DIR}")
 endif()
 
 # installing nvfuser headers
@@ -301,6 +298,18 @@ install(DIRECTORY "${NVFUSER_SRCS_DIR}/"
   FILES_MATCHING
   PATTERN "*.h"
   PATTERN "csrc/C++20/type_traits")
+
+set(NVFUSER_CODEGEN ${PROJECT_NAME}_codegen)
+set(NVFUSER_CODEGEN_STATIC ${NVFUSER_CODEGEN}_static)
+add_library(${NVFUSER_CODEGEN} SHARED $<TARGET_OBJECTS:${NVFUSER_CODEGEN_OBJ}>)
+add_library(${NVFUSER_CODEGEN_STATIC} STATIC $<TARGET_OBJECTS:${NVFUSER_CODEGEN_OBJ}>)
+
+# installing nvfuser lib
+if(PROJECT_IS_TOP_LEVEL)
+  install(TARGETS ${NVFUSER_CODEGEN} EXPORT NvfuserTargets DESTINATION lib)
+else()
+  install(TARGETS ${NVFUSER_CODEGEN} EXPORT NvfuserTargets DESTINATION "${TORCH_INSTALL_LIB_DIR}")
+endif()
 
 # -----------------------------
 # build nvfuser python library
@@ -316,6 +325,7 @@ if(BUILD_PYTHON)
   set(NVFUSER "${PROJECT_NAME}")
   add_library(${NVFUSER} MODULE ${NVFUSER_PYTHON_SRCS})
   set_property(TARGET ${NVFUSER} PROPERTY CXX_STANDARD 17)
+  target_include_directories(${NVFUSER} PRIVATE ${NVFUSER_SRCS_DIR})
 
   # setup python API version
   add_custom_command(
@@ -452,8 +462,9 @@ if(BUILD_TEST)
     ${JIT_TEST_CU_SRCS})
   set_property(TARGET ${NVFUSER_TESTS} PROPERTY CXX_STANDARD 17)
   target_compile_definitions(${NVFUSER_TESTS} PRIVATE USE_GTEST)
-  target_link_libraries(${NVFUSER_TESTS} PRIVATE ${NVFUSER_CODEGEN} dynamic_type gtest_main gmock_main flatbuffers)
+  target_link_libraries(${NVFUSER_TESTS} PRIVATE ${NVFUSER_CODEGEN_STATIC} dynamic_type gtest_main gmock_main flatbuffers)
   target_include_directories(${NVFUSER_TESTS} PRIVATE "${NVFUSER_ROOT}")
+  target_include_directories(${NVFUSER_TESTS} PRIVATE ${NVFUSER_SRCS_DIR})
 
   if(PROJECT_IS_TOP_LEVEL)
     target_compile_options(${NVFUSER_TESTS} PRIVATE -Wall -Wno-unused-function)
@@ -530,8 +541,9 @@ if(BUILD_NVFUSER_BENCHMARK)
     target_compile_options(${NVFUSER_BENCHMARK} PRIVATE -Werror -Wno-deprecated-copy)
   endif()
 
-  target_link_libraries(${NVFUSER_BENCHMARK} PRIVATE ${NVFUSER_CODEGEN})
+  target_link_libraries(${NVFUSER_BENCHMARK} PRIVATE ${NVFUSER_CODEGEN_STATIC})
   target_include_directories(${NVFUSER_BENCHMARK} PRIVATE ${NVFUSER_ROOT})
+  target_include_directories(${NVFUSER_BENCHMARK} PRIVATE ${NVFUSER_SRCS_DIR})
 endif()
 
 # --- generate runtime files
@@ -584,7 +596,7 @@ foreach(src ${NVFUSER_RUNTIME_FILES})
     COMMAND ${PYTHON_EXECUTABLE} ${NVFUSER_STRINGIFY_TOOL} -i ${src} -o ${dst}
   )
   add_custom_target(nvfuser_rt_${filename} DEPENDS ${dst})
-  add_dependencies(${NVFUSER_CODEGEN} nvfuser_rt_${filename})
+  add_dependencies(${NVFUSER_CODEGEN_OBJ} nvfuser_rt_${filename})
 
   # also generate the resource headers during the configuration step
   # (so tools like clang-tidy can run w/o requiring a real build)
@@ -592,7 +604,7 @@ foreach(src ${NVFUSER_RUNTIME_FILES})
     ${PYTHON_EXECUTABLE} ${NVFUSER_STRINGIFY_TOOL} -i ${src} -o ${dst})
 endforeach()
 
-target_include_directories(${NVFUSER_CODEGEN} PRIVATE "${CMAKE_BINARY_DIR}/include")
+target_include_directories(${NVFUSER_CODEGEN_OBJ} PRIVATE "${CMAKE_BINARY_DIR}/include")
 
 # -- install nvfuser cmake config files and symlink to build binaries
 install(EXPORT NvfuserTargets FILE NvfuserConfig.cmake DESTINATION share/cmake/nvfuser)
