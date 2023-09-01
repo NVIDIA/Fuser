@@ -67,7 +67,7 @@ if(NOT MSVC)
 endif()
 
 # ------------------------------
-# build NVFUSER_CODEGEN library
+# build nvfuser_codegen library
 # ------------------------------
 
 # nvfuser codegen sources
