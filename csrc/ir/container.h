@@ -116,12 +116,11 @@ class TORCH_CUDA_CU_API IrContainer : public PolymorphicBase {
   //! Invert the mapping v -> v->name(). If name is invalid, nullptr is
   //! returned.
   Val* getValFromName(ValType vtype, StmtNameType name) {
-    const auto& ntoi = val_type_name_to_index_[(size_t)vtype];
-    if (name >= ntoi.size()) {
+    const auto& vfn = val_from_name_[(size_t)vtype];
+    if (name >= vfn.size()) {
       return nullptr;
     }
-    const auto ix = ntoi[name];
-    return vals_up_[ix].get();
+    return vfn[name];
   }
 
   //! Print equivalence classes of scalars that were defined using
@@ -198,11 +197,11 @@ class TORCH_CUDA_CU_API IrContainer : public PolymorphicBase {
 
   // We keep a mapping from name() to index in vals_up_ for each ValType. The
   // following should hold for any Val v:
-  //   v ==
-  //    vals_up_[val_type_name_to_index_[(size_t)v->valType()][v->name()]].get()
+  //   v == val_from_name_[(size_t)v->valType()][v->name()]]
   // This allows us to work with integers only and still be able to retrieve a
-  // Val* for a given ValType.
-  std::vector<std::vector<size_t>> val_type_name_to_index_;
+  // Val* for a given ValType. Note that since Vals can be removed, these
+  // vectors might contain nullptr.
+  std::vector<std::vector<Val*>> val_from_name_;
 
   // UnionFinds represent equivalence relations. Exact mapped IterDomains are
   // tracked with a UnionFind, and their extents are marked as equal using the

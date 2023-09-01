@@ -70,7 +70,7 @@ IrCloner IrContainer::copy(const IrContainer* from, IrContainer* to) {
     }
   }
 
-  to->val_type_name_to_index_ = from->val_type_name_to_index_;
+  to->val_from_name_ = from->val_from_name_;
 
   to->scalar_equality_ = from->scalar_equality_;
   to->exact_mapping_ = from->exact_mapping_;
@@ -170,6 +170,7 @@ void IrContainer::removeVal(Val* val) {
       val_in_deque != vals_up_.end(),
       "Wanted to remove a value but its unique ptr is missing.");
 
+  val_from_name_[(size_t)val->vtype()][val->name()] = nullptr;
   vals_.erase(val);
   vals_up_.erase(val_in_deque);
   raw_ptrs_.erase((void*)val);
@@ -183,9 +184,7 @@ void IrContainer::registerVal(Val* val) {
 
   vals_up_.emplace_back(std::unique_ptr<Val>(val));
   vals_.emplace(vals_up_.back().get());
-  auto name = getValName(vals_up_.back()->vtype());
-  val->setName(IrContainerPasskey(), name);
-  auto index = raw_ptrs_.size();
+  val->setName(IrContainerPasskey(), getValName(vals_up_.back()->vtype()));
   raw_ptrs_.emplace((void*)vals_up_.back().get());
 
   // resize UnionFinds if necessary
@@ -206,14 +205,14 @@ void IrContainer::registerVal(Val* val) {
 
   // Record mapping from name to index in ValType-specific vector
   auto vtypeInt = (size_t)val->vtype();
-  if (val_type_name_to_index_.size() <= vtypeInt) {
-    val_type_name_to_index_.resize(vtypeInt + 1);
+  if (val_from_name_.size() <= vtypeInt) {
+    val_from_name_.resize(vtypeInt + 1);
   }
-  auto index_vec = val_type_name_to_index_[vtypeInt];
-  if (index_vec.size() <= name) {
-    index_vec.resize(name + 1);
+  auto vfn_vec = val_from_name_[vtypeInt];
+  if (vfn_vec.size() <= val->name()) {
+    vfn_vec.resize(val->name() + 1);
   }
-  index_vec[name] = index;
+  vfn_vec[val->name()] = val;
 }
 
 //! Register expr with this container.
@@ -416,7 +415,7 @@ void IrContainer::printScalarEquivalences() {
   auto class_num = classes.size();
   for (const auto s_name : c10::irange(
            scalar_equality_.size(),
-           val_type_name_to_index_[(size_t)ValType::Others].size())) {
+           val_from_name_[(size_t)ValType::Others].size())) {
     debug() << "  class " << class_num++ << std::endl;
     const auto s = getValFromName(ValType::Others, s_name);
     TORCH_INTERNAL_ASSERT(s != nullptr);

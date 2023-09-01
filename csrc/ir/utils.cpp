@@ -535,6 +535,9 @@ class ValReplacementMutator : private OptOutMutator {
 void replaceValue(
     Fusion* fusion,
     const std::unordered_map<Val*, Val*>& replacement_map) {
+  if (replacement_map.empty()) {
+    return;
+  }
   ValReplacementMutator(fusion, replacement_map);
 }
 

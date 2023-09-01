@@ -856,8 +856,7 @@ void Fusion::replaceUncomputableScalars() {
   //
   // Because of this, the first thing we do is resize the UnionFind such that it
   // represents all scalars.
-  scalar_equality_.enlarge(
-      val_type_name_to_index_[(size_t)ValType::Others].size());
+  scalar_equality_.enlarge(val_from_name_[(size_t)ValType::Others].size());
 
   // whether particular Val (not just some equivalent Val) is computable
   std::vector<bool> computable(scalar_equality_.size(), false);
@@ -1127,10 +1126,7 @@ void Fusion::replaceUncomputableScalars() {
     }
   }
 
-  if (replacement_map.empty()) {
-    // return early since replaceValue() does not
-    return;
-  }
+  ir_utils::replaceValue(fusion, replacement_map);
 }
 
 } // namespace nvfuser
