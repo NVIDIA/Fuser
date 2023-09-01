@@ -8,6 +8,7 @@
 #pragma once
 
 #include <ATen/core/ivalue.h>
+#include <exceptions.h>
 
 #include <fusion.h>
 #include <mma_type.h>

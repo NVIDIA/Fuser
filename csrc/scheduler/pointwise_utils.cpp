@@ -30,21 +30,19 @@ getIndexedConsumerToProducerMap(Fusion* fusion, const ComputeAtMap& ca_map) {
     if (auto gather = dynamic_cast<TorchGatherOp*>(expr)) {
       auto p_id = gather->getIndexedID();
       auto c_id = gather->getConsumerOfIndexedID();
-      TORCH_INTERNAL_ASSERT(
-          indexed_id_map
-              .emplace(
-                  ca_map.disjointSetOf(c_id, IdMappingMode::EXACT),
-                  ca_map.disjointSetOf(p_id, IdMappingMode::EXACT))
-              .second);
+      NVF_ERROR(indexed_id_map
+                    .emplace(
+                        ca_map.disjointSetOf(c_id, IdMappingMode::EXACT),
+                        ca_map.disjointSetOf(p_id, IdMappingMode::EXACT))
+                    .second);
     } else if (auto index_select = dynamic_cast<IndexSelectOp*>(expr)) {
       auto p_id = index_select->getIndexedID();
       auto c_id = index_select->getConsumerOfIndexedID();
-      TORCH_INTERNAL_ASSERT(
-          indexed_id_map
-              .emplace(
-                  ca_map.disjointSetOf(c_id, IdMappingMode::EXACT),
-                  ca_map.disjointSetOf(p_id, IdMappingMode::EXACT))
-              .second);
+      NVF_ERROR(indexed_id_map
+                    .emplace(
+                        ca_map.disjointSetOf(c_id, IdMappingMode::EXACT),
+                        ca_map.disjointSetOf(p_id, IdMappingMode::EXACT))
+                    .second);
     } else {
       // Note there's no consumer ID for select. This means we can't
       // just propagate from consumers to indexed producers. It seems
@@ -68,7 +66,7 @@ bool canIgnoreIndexedInputDomainID(
     TensorView* input_tv,
     IterDomain* root_id,
     const ComputeAtMap& ca_map) {
-  TORCH_INTERNAL_ASSERT(input_tv->isFusionInput());
+  NVF_ERROR(input_tv->isFusionInput());
   for (auto use : input_tv->uses()) {
     if (auto select = dynamic_cast<SelectOp*>(use)) {
       if (root_id != select->getIndexedID()) {

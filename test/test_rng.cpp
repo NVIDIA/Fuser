@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <csrc/exceptions.h>
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
@@ -140,10 +141,10 @@ TEST_F(RNGTest, BroadcastingRNG) {
 
     auto cg_outputs = fec.runFusionWithInputs({t0, t1});
     auto out = cg_outputs[0];
-    TORCH_CHECK((out.select(1, 0) == out.select(1, 1)).all().item<bool>())
-    TORCH_CHECK((out.select(1, 0) == out.select(1, 2)).all().item<bool>())
-    TORCH_CHECK((out.select(1, 0) == out.select(1, 3)).all().item<bool>())
-    TORCH_CHECK((out.select(1, 0) == out.select(1, 4)).all().item<bool>())
+    NVF_CHECK((out.select(1, 0) == out.select(1, 1)).all().item<bool>())
+    NVF_CHECK((out.select(1, 0) == out.select(1, 2)).all().item<bool>())
+    NVF_CHECK((out.select(1, 0) == out.select(1, 3)).all().item<bool>())
+    NVF_CHECK((out.select(1, 0) == out.select(1, 4)).all().item<bool>())
   }
 }
 
@@ -206,10 +207,10 @@ TEST_F(RNGTest, BroadcastingRNGSmem) {
     auto cg_outputs = fe.runFusion({t0, t1}, lparams);
     auto out = cg_outputs[0];
 
-    TORCH_CHECK((out.select(1, 0) == out.select(1, 1)).all().item<bool>())
-    TORCH_CHECK((out.select(1, 0) == out.select(1, 2)).all().item<bool>())
-    TORCH_CHECK((out.select(1, 0) == out.select(1, 3)).all().item<bool>())
-    TORCH_CHECK((out.select(1, 0) == out.select(1, 4)).all().item<bool>())
+    NVF_CHECK((out.select(1, 0) == out.select(1, 1)).all().item<bool>())
+    NVF_CHECK((out.select(1, 0) == out.select(1, 2)).all().item<bool>())
+    NVF_CHECK((out.select(1, 0) == out.select(1, 3)).all().item<bool>())
+    NVF_CHECK((out.select(1, 0) == out.select(1, 4)).all().item<bool>())
   }
 }
 
@@ -242,10 +243,10 @@ TEST_F(RNGTest, BroadcastingRNGSmemNonSquareTile) {
   auto cg_outputs = fe.runFusion({t0, t1});
   auto out = cg_outputs[0];
 
-  TORCH_CHECK((out.select(1, 0) == out.select(1, 1)).all().item<bool>());
-  TORCH_CHECK((out.select(1, 0) == out.select(1, 2)).all().item<bool>());
-  TORCH_CHECK((out.select(1, 0) == out.select(1, 3)).all().item<bool>());
-  TORCH_CHECK((out.select(1, 0) == out.select(1, 4)).all().item<bool>());
+  NVF_CHECK((out.select(1, 0) == out.select(1, 1)).all().item<bool>());
+  NVF_CHECK((out.select(1, 0) == out.select(1, 2)).all().item<bool>());
+  NVF_CHECK((out.select(1, 0) == out.select(1, 3)).all().item<bool>());
+  NVF_CHECK((out.select(1, 0) == out.select(1, 4)).all().item<bool>());
 }
 
 TEST_F(RNGTest, Uniform) {

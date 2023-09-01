@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <csrc/exceptions.h>
 #include <gtest/gtest.h>
 
 #include <kernel_cache.h>
@@ -395,7 +396,7 @@ TEST_F(NVFuserTest, FusionIndexSelectCanSch_CUDA) {
   auto sch_pass = SchedulerEntry::canSchedule(
       ScheduleHeuristic::PointWise, &fusion_pass, runtime_info_pass);
 
-  TORCH_CHECK(sch_pass == true && sch_fail == false && sch_sum_fail == false);
+  NVF_CHECK(sch_pass == true && sch_fail == false && sch_sum_fail == false);
 }
 
 TEST_F(NVFuserTest, FusionIndexSelect_Sum_CUDA) {
@@ -441,7 +442,7 @@ TEST_F(NVFuserTest, FusionIndexSelect_Sum_CUDA) {
   at::Tensor output_add = tv2_ref + 17.0;
   at::Tensor output_ref = output_add.sum({1});
 
-  TORCH_CHECK(output_ref.allclose(output));
+  NVF_CHECK(output_ref.allclose(output));
 }
 
 TEST_F(NVFuserTest, FusionIndexSelectIdxTvFuseable_CUDA) {

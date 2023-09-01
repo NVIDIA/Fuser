@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 
+#include <exceptions.h>
 #include <functional>
 #include <memory>
 #include <string>
@@ -113,12 +114,12 @@ struct NotImplementedStruct : public Struct {
 
   std::function<PolymorphicValue()> getter(
       const std::string& key) const override {
-    TORCH_INTERNAL_ASSERT(false, "Not implemented");
+    NVF_ERROR(false, "Not implemented");
   }
 
   std::function<void(const PolymorphicValue&)> setter(
       const std::string& key) override {
-    TORCH_INTERNAL_ASSERT(false, "Not implemented");
+    NVF_ERROR(false, "Not implemented");
   }
 };
 

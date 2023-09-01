@@ -282,8 +282,7 @@ class FuseBroadcastWithWarpReduce : private kir::IrVisitor {
         }
       }
     }
-    TORCH_INTERNAL_ASSERT(
-        false, "lower_warp_reduce: cannot find allocation for this op");
+    NVF_ERROR(false, "lower_warp_reduce: cannot find allocation for this op");
     return nullptr;
   }
 
@@ -318,7 +317,7 @@ class FuseBroadcastWithWarpReduce : private kir::IrVisitor {
       return;
     }
     auto reduction_ti_out = dynamic_cast<kir::TensorIndex*>(reduction->out());
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         reduction_ti_out,
         "lower_warp_reduce: Pass needs to be run after indexing");
 

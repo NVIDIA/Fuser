@@ -6,6 +6,7 @@
  */
 // clang-format on
 #include <c10/util/irange.h>
+#include <exceptions.h>
 #include <fusion.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
@@ -37,7 +38,7 @@ void OptOutMutator::registerMutation(Val* val, Val* mutation) {
   bool mutation_is_ns = mutation->vtype() == ValType::NamedScalar;
   bool val_is_scalar = val->vtype() == ValType::Others;
   bool mutation_is_scalar = mutation->vtype() == ValType::Others;
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       mutation->dtype() == val->dtype() &&
           (mutation->vtype() == val->vtype() ||
            ((val_is_ns && mutation_is_scalar) ||
@@ -129,15 +130,15 @@ void OptOutMutator::mutate(TensorView* tv) {
 }
 
 void OptOutMutator::mutate(kir::Predicate*) {
-  TORCH_INTERNAL_ASSERT(false, "Not implemented yet.");
+  NVF_ERROR(false, "Not implemented yet.");
 }
 
 void OptOutMutator::mutate(kir::TensorIndex*) {
-  TORCH_INTERNAL_ASSERT(false, "Not implemented yet.");
+  NVF_ERROR(false, "Not implemented yet.");
 }
 
 void OptOutMutator::mutate(PipelineVal*) {
-  TORCH_INTERNAL_ASSERT(false, "Not implemented yet.");
+  NVF_ERROR(false, "Not implemented yet.");
 }
 
 void OptOutMutator::mutate(Expr* op) {

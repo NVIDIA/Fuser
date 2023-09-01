@@ -1,5 +1,5 @@
 // This is a refactor of the tests used for PyTorch macros --
-// TORCH_INTERNAL_ASSERT and TORCH_CHECK.
+// NVF_ERROR and NVF_CHECK.
 
 #include <csrc/exceptions.h>
 #include <gtest/gtest.h>

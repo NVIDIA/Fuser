@@ -159,12 +159,12 @@ void PrecomputedValues::bindInputs(const KernelArgumentHolder& args) {
   }
 
   const auto& inputs = fusion_->inputs();
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       args.size() == inputs.size(), "kernel inputs size does not match args");
 
   for (const auto i : c10::irange((int64_t)inputs.size())) {
     const auto input = inputs[i];
-    TORCH_INTERNAL_ASSERT(input != nullptr);
+    NVF_ERROR(input != nullptr);
     if (auto tensor_input = dynamic_cast<TensorView*>(input)) {
       const auto& tensor = args[i]->as<at::Tensor>();
       if (!tensor.is_cpu()) {
@@ -310,7 +310,7 @@ void PrecomputedValues::validate() {
   FUSER_PERF_SCOPE("PrecomputedValuess::Validate");
   using namespace PolymorphicValue_functions;
   for (const auto& it : binding_log_) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         isSame(values_[it.first], it.second),
         "Precomputed values failed to validate.",
         "\nSomething unexpected changed between the compilation and execution.\n",
@@ -326,7 +326,7 @@ void PrecomputedValues::bindTensorMetaData(
     const at::Tensor& tensor) {
   const auto root_domain =
       TensorDomain::noReductions(tv->getMaybeRFactorDomain());
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       tensor.dim() == static_cast<int64_t>(root_domain.size()),
       "Something went wrong configuring launch. Inputs do not match.");
 
@@ -405,8 +405,8 @@ void NaiveValueMachine::run() {
 void NaiveValueMachine::makeUnaryOp(UnaryOp* uop) {
   int in = uop->inputs()[0]->evaluatorIndex();
   int out = uop->outputs()[0]->evaluatorIndex();
-  TORCH_INTERNAL_ASSERT(in >= 0, "Integer Machine: unknown input: ", uop);
-  TORCH_INTERNAL_ASSERT(out >= 0, "Integer Machine: unknown out: ", uop);
+  NVF_ERROR(in >= 0, "Integer Machine: unknown input: ", uop);
+  NVF_ERROR(out >= 0, "Integer Machine: unknown out: ", uop);
 
   int index = makeInstructionEntry();
   inst_type_[index] = InstructionType::UNARY_OP;
@@ -423,9 +423,9 @@ void NaiveValueMachine::makeBinaryOp(BinaryOp* bop) {
   int in1 = bop->inputs()[1]->evaluatorIndex();
   int out = bop->outputs()[0]->evaluatorIndex();
 
-  TORCH_INTERNAL_ASSERT(in0 >= 0, "Integer Machine: unknown lhs: ", bop);
-  TORCH_INTERNAL_ASSERT(in1 >= 0, "Integer Machine: unknown rhs: ", bop);
-  TORCH_INTERNAL_ASSERT(out >= 0, "Integer Machine: unknown out: ", bop);
+  NVF_ERROR(in0 >= 0, "Integer Machine: unknown lhs: ", bop);
+  NVF_ERROR(in1 >= 0, "Integer Machine: unknown rhs: ", bop);
+  NVF_ERROR(out >= 0, "Integer Machine: unknown out: ", bop);
 
   int index = makeInstructionEntry();
   inst_type_[index] = InstructionType::BINARY_OP;
@@ -488,7 +488,7 @@ void NaiveValueMachine::runUnaryOp(int index) {
       } else if (data_type_[index] == DataType::Bool) {
         dest = PolymorphicValue((bool)src);
       } else {
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             false, "dtype not supported in evaluator: ", data_type_[index]);
       }
       break;
@@ -502,7 +502,7 @@ void NaiveValueMachine::runUnaryOp(int index) {
       dest = ~src;
       break;
     default:
-      TORCH_CHECK(!"Unexpected operator type ", uop_type_[index]);
+      NVF_CHECK(!"Unexpected operator type ", uop_type_[index]);
   }
 
   precomputed_values_.defined_[dest_index] = true;
@@ -539,15 +539,15 @@ void NaiveValueMachine::runBinaryOp(int index) {
       dest = lhs * rhs;
       break;
     case BinaryOpType::Div:
-      TORCH_CHECK(rhs != 0);
+      NVF_CHECK(rhs != 0);
       dest = lhs / rhs;
       break;
     case BinaryOpType::Mod:
-      TORCH_CHECK(rhs != 0);
+      NVF_CHECK(rhs != 0);
       dest = lhs % rhs;
       break;
     case BinaryOpType::CeilDiv:
-      TORCH_CHECK(rhs != 0);
+      NVF_CHECK(rhs != 0);
       dest = ceildiv(lhs, rhs);
       break;
     case BinaryOpType::LogicalAnd:
@@ -575,7 +575,7 @@ void NaiveValueMachine::runBinaryOp(int index) {
       dest = gcd(lhs, rhs);
       break;
     default:
-      TORCH_CHECK(!"Unexpected operator type");
+      NVF_CHECK(!"Unexpected operator type");
   }
 
   precomputed_values_.defined_[dest_index] = true;

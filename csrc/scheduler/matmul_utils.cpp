@@ -150,7 +150,7 @@ ProblemShape getProblemShape(
     SchedulerRuntimeInfo& runtime_info) {
   const auto mma_output_domains = mma_utils::getProblemIterDomains(fusion);
   if (!mma_output_domains.isValid()) {
-    TORCH_INTERNAL_ASSERT(false, mma_output_domains.getErrorMsg());
+    NVF_ERROR(false, mma_output_domains.getErrorMsg());
   }
 
   const auto [m, n, k] = mma_output_domains.getData();
@@ -160,7 +160,7 @@ ProblemShape getProblemShape(
   auto k_extend = runtime_info.expressionEvaluator().evaluate(k->extent());
 
   if (!(m_extend && n_extend && k_extend)) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         false,
         "Failed to acquire one of problem dimensions, M(",
         m_extend.hasValue(),
@@ -372,8 +372,7 @@ std::shared_ptr<MatmulParams> getMatmulHeuristics(
 
   // Check initial conditions
   auto mma_exprs = ir_utils::getMmaOps(fusion);
-  TORCH_INTERNAL_ASSERT(
-      mma_exprs.size() == 1, "Support only fusion with a single mma op.");
+  NVF_ERROR(mma_exprs.size() == 1, "Support only fusion with a single mma op.");
 
   const auto problem_shape =
       getProblemShape(fusion, mma_exprs.front()->as<MmaOp>(), runtime_info);
@@ -381,13 +380,12 @@ std::shared_ptr<MatmulParams> getMatmulHeuristics(
   const auto device_prop = at::cuda::getCurrentDeviceProperties();
   const auto mma_op =
       getMmaOp(device_prop->major * 10 + device_prop->minor, problem_shape);
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       mma_op.has_value(), "Failed to determine a MMA op for given problem.");
 
   // Populate heuristic details
   auto status = initCoreHeuristics(params, mma_op.value(), problem_shape);
-  TORCH_INTERNAL_ASSERT(
-      status, "Initialization of core part of heuristics failed.");
+  NVF_ERROR(status, "Initialization of core part of heuristics failed.");
 
   // Set kernel index mode
   params->cparams.index_type = runtime_info.getIndexType();
@@ -397,8 +395,7 @@ std::shared_ptr<MatmulParams> getMatmulHeuristics(
 
   // Set whether to use shared memory for epilogue
   const auto& roles_map_opt = mma_utils::getTensorsRoles(fusion);
-  TORCH_INTERNAL_ASSERT(
-      roles_map_opt.isValid(), "Tensor roles map in mma is not valid.");
+  NVF_ERROR(roles_map_opt.isValid(), "Tensor roles map in mma is not valid.");
 
   const auto roles_map = roles_map_opt.getData();
   std::tie(params->use_smem_epilogue, params->promote_prologue_smem_reuse) =
