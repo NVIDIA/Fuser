@@ -20,33 +20,14 @@
 #include <scheduler/registry.h>
 #include <torch/csrc/jit/jit_log.h>
 #include <torch/csrc/jit/runtime/graph_executor.h>
+#include <utils.h>
 
-#include <c10/core/thread_pool.h>
 #include <c10/cuda/CUDAGuard.h>
 #include <c10/util/irange.h>
 #include <torch/csrc/jit/jit_log.h>
 namespace nvfuser {
 
 namespace {
-
-int getNumThreads() {
-  const char* option_env_name = "NUM_THREADS";
-  auto dump_options = getNvFuserEnv(option_env_name);
-  if (dump_options == nullptr) {
-    constexpr int default_num_threads = 8;
-    return default_num_threads;
-  }
-  auto num_threads_value = std::atoi(dump_options);
-  int max_num_threads = (int)std::thread::hardware_concurrency();
-  return std::max(std::min(num_threads_value, max_num_threads), 1);
-}
-
-// TODO: clean this up with some knobs
-c10::ThreadPool* getThreadPool() {
-  static auto num_threads = getNumThreads();
-  static c10::ThreadPool pool(num_threads);
-  return &pool;
-}
 
 // Replace CUDA tensor with Meta tensor because storing tensors can cause
 // out-of-memory issues. Other arguments are returned as-is.
