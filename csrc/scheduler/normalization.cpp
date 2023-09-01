@@ -90,10 +90,13 @@ namespace {
 std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
     const int64_t outer_dim_numel,
     const int64_t inner_dim_numel,
-    const int64_t max_persistent_buffer_size,
+    const int64_t regs_buffer_size,
+    const int64_t smem_buffer_size,
+    const int64_t smem_overhead,
     const size_t tmp_gmem_dtype_size,
     const size_t vectorize_factor) {
   auto rparams = std::make_shared<ReductionParams>();
+  rparams->shared_mem_persistent_buffer = smem_buffer_size > 0;
   // Parameters for inner reduction:
   // Reduction dim: inner_vect, inner_batch, bdimx and bdimy
   // Iteration dim: gdimy
@@ -132,7 +135,7 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
   auto getEstimatedRegisterUsage = [&](int64_t batch_mul_vect) {
     constexpr int64_t bytes_per_register = 4;
     const int64_t persistent_buffer_size =
-        max_persistent_buffer_size / inner_dim_numel * batch_mul_vect;
+        regs_buffer_size / inner_dim_numel * batch_mul_vect;
     const int64_t estimated_register_count =
         persistent_buffer_size / bytes_per_register +
         scheduler_utils::register_overhead;
@@ -180,7 +183,7 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
       getOptionalInnerOuterPersistentBufferBatches(
           inner_dim_numel,
           outer_dim_numel,
-          max_persistent_buffer_size,
+          regs_buffer_size,
           iop.inner_vect,
           dev_prop->warpSize,
           ignore_register_size_limit);
@@ -200,8 +203,12 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
   int64_t reg_per_thread =
       getEstimatedRegisterUsage(iop.inner_vect * iop.inner_batch);
   int64_t threads_per_sm = getThreadsPerSMGivenRegPerThread(reg_per_thread);
-  int64_t blocks_per_sm =
+  int64_t blocks_per_sm_regs =
       getBlocksPerSM(threads_per_sm, threads_per_block, dev_prop->warpSize);
+  // check shared memory limitation on blocks per sm
+  int64_t blocks_per_sm_smem = (int64_t)dev_prop->sharedMemPerMultiprocessor /
+      (smem_overhead + smem_buffer_size);
+  int64_t blocks_per_sm = std::min(blocks_per_sm_regs, blocks_per_sm_smem);
   iop.gdimy = blocks_per_sm * device_multiprocessor_count;
   const int64_t outer_iter_min = 8;
   const int64_t gdimy_max = scheduler_utils::roundUpToN(
@@ -308,14 +315,20 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
       iop.bdimy,
       LaunchParams::UNINITIALIZED_VAL);
 
-  rparams->tag = "InnerOuter Persistent Heuristic.\n";
+  if (rparams->shared_mem_persistent_buffer) {
+    rparams->tag =
+        "InnerOuter Register and Shared Memory Persistent Heuristic.\n";
+  } else {
+    rparams->tag = "InnerOuter Register Persistent Heuristic.\n";
+  }
 
   if (isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
     debug() << "\n===== Combined InnerOuter Reduction Stats ========\n"
             << "outer_dim_numel: " << outer_dim_numel << "\n"
             << "inner_dim_numel: " << inner_dim_numel << "\n"
-            << "max_persistent_buffer_size: " << max_persistent_buffer_size
-            << "\n"
+            << "regs_buffer_size: " << regs_buffer_size << "\n"
+            << "smem_buffer_size: " << smem_buffer_size << "\n"
+            << "smem_overhead: " << smem_overhead << "\n"
             << "vectorize_factor_input: " << iop.inner_vect << "\n"
             << "vectorization_factor_tmp_gmem_write: "
             << iop.tmp_gmem_write_vect << "\n"
@@ -330,6 +343,7 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
   }
   return rparams;
 }
+
 // Copied from reduction scheduler, should generalize. Simply needed to take out
 // grid reductions.
 std::shared_ptr<ReductionParams> innerPersistentHeuristicSharedMemory(
@@ -1283,36 +1297,47 @@ std::shared_ptr<ReductionParams> persistentHeuristic(
     const size_t n_tensor_inputs,
     const size_t max_input_dtype_size,
     const size_t tmp_gmem_dtype_size,
-    const int64_t max_persistent_buffer_size,
+    const int64_t regs_buffer_size,
+    const int64_t smem_buffer_size,
+    const int64_t smem_overhead,
+    std::vector<TensorView*> smem_tvs,
     size_t vectorize_factor,
     bool project_persistent_buffers,
-    const bool combined_inner_outer_reduction) {
+    const bool combined_reduction) {
   std::shared_ptr<ReductionParams> rparams;
-  if (combined_inner_outer_reduction) {
+  if (combined_reduction) {
     const int64_t outer_dim_numel = total_iteration_numel;
     const int64_t inner_dim_numel = inner_most_dimension_numel;
     rparams = innerOuterPersistentHeuristic(
         outer_dim_numel,
         inner_dim_numel,
-        max_persistent_buffer_size,
+        regs_buffer_size,
+        smem_buffer_size,
+        smem_overhead,
         tmp_gmem_dtype_size,
         vectorize_factor);
   } else if (fastest_dim_reduction) {
+    TORCH_INTERNAL_ASSERT(
+        smem_buffer_size == 0 || regs_buffer_size == 0,
+        "One of smem buffer size and regs buffer size should be 0 for inner persistent kernels");
     rparams = innerPersistentHeuristic(
         total_reduction_numel,
         total_iteration_numel,
         inner_most_dimension_numel,
         (int64_t)n_tensor_inputs,
         (int64_t)max_input_dtype_size,
-        max_persistent_buffer_size,
+        regs_buffer_size > 0 ? regs_buffer_size : smem_buffer_size,
         vectorize_factor);
   } else {
+    TORCH_INTERNAL_ASSERT(
+        smem_buffer_size == 0,
+        "smem buffer size should be 0 for outer persistent kernels");
     rparams = outerPersistentHeuristic(
         total_reduction_numel,
         total_iteration_numel,
         (int64_t)n_tensor_inputs,
         (int64_t)max_input_dtype_size,
-        max_persistent_buffer_size,
+        regs_buffer_size,
         vectorize_factor);
   }
   rparams->project_persistent_buffers = project_persistent_buffers;
@@ -1385,76 +1410,6 @@ std::shared_ptr<ReductionParams> getPersistentHeuristics(
   auto properties = scheduler_utils::getReductionProperties(
       fusion, runtime_info, first_red_tv);
 
-  // Grab persistent buffer sizes
-  auto persistent_buffer_size_info = scheduler_utils::persistentBufferSize(
-      fusion, runtime_info, persistent_buffer_info, data_cache);
-  // If projected persistent buffers are smaller, they will be used.
-  // TODO: Fix projected persistent buffers with view
-  // https://github.com/csarofeen/pytorch/issues/2054
-  auto max_persistent_size = !ir_utils::getViewOps(fusion).empty()
-      ? persistent_buffer_size_info.persistent_buffer_size
-      : std::min(
-            persistent_buffer_size_info.persistent_buffer_size,
-            persistent_buffer_size_info.projected_persistent_buffer_size);
-
-  // Figure out if we want to projet persistent buffers to the inputs for
-  // exmaple if we have an input tensor t0 that's fp16:
-  //
-  // t0 = makeSymbolicTensor(2, DataType::Half)
-  // t1 = castOp(DataType::Float, t0)
-  // t2 = sum(t1, 1)
-  // t3 = broadcast(t2, {false, true})
-  // t4 = set(t1)
-  // t5 = add(t4, t3)
-  // t6 = castOp(DataType::Half, t5)
-  //
-  // The persistent buffer is detected as being t1, which would save the
-  // persistent buffer as a float, however we could obviously just save t0 which
-  // is half and would take half the memory. A more complex scenario of this
-  // which requires more advanced analysis is batch norm backwards.
-  bool project_persistent_buffers =
-      persistent_buffer_size_info.projected_persistent_buffer_size <
-      persistent_buffer_size_info.persistent_buffer_size;
-
-  if (combined_inner_outer_reduction) {
-    // In combined_inner_outer_reduction, we have additional buffers for partial
-    // results of outer reductions.
-    int64_t outer_reduction_buffer_size =
-        normalization_scheduler_utils::partialReductionBufferSize(
-            outer_reduction_tvs, runtime_info);
-
-    // for layer_norm backward, enable project to input can reuse weight shared
-    // among different rows. Although it increased register usage and may lead
-    // to register spills, the overall performance is increased. The following
-    // code will check if we can do this projection by allowing more registers.
-    // This is a temporary solution, the issue is tracked by
-    // https://github.com/csarofeen/pytorch/issues/2525
-    if (!project_persistent_buffers) {
-      int64_t total_projected_buffer_size =
-          persistent_buffer_size_info.projected_persistent_buffer_size +
-          outer_reduction_buffer_size;
-      // allow 10% more to allow project to input, 14K float should do project
-      // and 16K float should't do. more_register_factor >= 14*1024*5(three
-      // inputs, two outer reduction results)*sizeof(float) /
-      // register_file_size_full
-      constexpr float more_register_factor = 1.1;
-      const int64_t avilable_register_file_size = static_cast<int64_t>(
-          scheduler_utils::register_file_size_full * more_register_factor);
-      if (avilable_register_file_size >= total_projected_buffer_size) {
-        project_persistent_buffers = true;
-      }
-    }
-    // now we have the final decision on whether we project to input or not.
-    if (project_persistent_buffers) {
-      max_persistent_size =
-          persistent_buffer_size_info.projected_persistent_buffer_size +
-          outer_reduction_buffer_size;
-    } else {
-      max_persistent_size = persistent_buffer_size_info.persistent_buffer_size +
-          outer_reduction_buffer_size;
-    }
-  }
-
   auto reduced_tv = ir_utils::getSoleProducerTv(first_red_tv);
 
   auto unrollable_inputs_outputs_entry =
@@ -1473,6 +1428,10 @@ std::shared_ptr<ReductionParams> getPersistentHeuristics(
       data_cache,
       vectorize_helper::getVectorizationBreakPointOfReductionProducer(
           first_red_tv, reduced_tv, properties.inner_most_dimension_ndims));
+
+  const auto buffer_params =
+      normalization_scheduler_utils::getPersistentBufferStorageParams(
+          fusion, runtime_info, data_cache, reduction_tvs, vectorize_factor);
 
   // Base max dtype and n_tensor_inputs on tensors that are vectorizable (i.e.
   // share inner dimension with data pattern we're looking at).
@@ -1509,10 +1468,13 @@ std::shared_ptr<ReductionParams> getPersistentHeuristics(
       n_tensor_inputs,
       max_dtype_size,
       tmp_gmem_dtype_size,
-      max_persistent_size,
+      buffer_params.regs_buffer_size,
+      buffer_params.smem_buffer_size,
+      buffer_params.smem_overhead,
+      buffer_params.smem_tvs,
       vectorize_factor,
-      project_persistent_buffers,
-      combined_inner_outer_reduction);
+      buffer_params.project_to_input,
+      buffer_params.combined_reduction);
   heuristic->cparams.index_type = runtime_info.getIndexType();
   return heuristic;
 }
@@ -1560,12 +1522,31 @@ void beforeSchedule(
   scheduler_utils::clearMemorySpace(fusion);
   scheduler_utils::prepareForMemoryTypePromotion(fusion);
 
-  // Use shared memory to store persistent buffers
+  // Transfer the persistent buffer tensors to shared memory. These tensors are
+  // housed in smem_tvs. Some of these are inputs, hence, only their
+  // associated cached tensors should be relocated.
   if (rparams.shared_mem_persistent_buffer) {
     const auto& persistent_buffers =
         scheduler_utils::persistentBuffers(fusion).persistent_buffers;
+    auto isSharedMemoryPersistent = [&rparams](const TensorView* lookup_tv) {
+      return std::any_of(
+          rparams.smem_tvs.begin(),
+          rparams.smem_tvs.end(),
+          [lookup_tv](const auto* tv) {
+            return tv->name() == lookup_tv->name();
+          });
+    };
     for (auto tv : persistent_buffers) {
-      tv->setMemoryType(MemoryType::Shared);
+      bool use_smem = isSharedMemoryPersistent(tv);
+      if (!use_smem &&
+          std::find(cached_inputs.begin(), cached_inputs.end(), tv) !=
+              cached_inputs.end()) {
+        auto input_tv = ir_utils::producerTvsOf(tv)[0];
+        use_smem = isSharedMemoryPersistent(input_tv);
+      }
+      if (use_smem) {
+        tv->setMemoryType(MemoryType::Shared);
+      }
     }
   }
 
