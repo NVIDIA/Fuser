@@ -400,13 +400,31 @@ void IrContainer::printScalarEquivalences() {
     debug() << "  class " << n << std::endl;
     for (const auto s_name : c) {
       const auto s = getValFromName(ValType::Others, s_name);
+      if (!s) {
+        continue;
+      }
       debug() << "    " << s->toString() << " = " << s->toInlineString();
       if (s_name == root_name) {
         // Mark the current root of each class in the printout
-        debug() << "  [ROOT]";
+        debug() << "  *";
       }
       debug() << std::endl;
     }
+  }
+  // Every scalar whose name() >= scalar_equality_.size() is in a class of its
+  // own
+  auto class_num = classes.size();
+  for (const auto s_name : c10::irange(
+           scalar_equality_.size(),
+           val_type_name_to_index_[(size_t)ValType::Others].size())) {
+    debug() << "  class " << class_num++ << std::endl;
+    const auto s = getValFromName(ValType::Others, s_name);
+    TORCH_INTERNAL_ASSERT(s != nullptr);
+    if (!s) {
+      continue;
+    }
+    debug() << "    " << s->toString() << " = " << s->toInlineString() << "  *"
+            << std::endl;
   }
 }
 
