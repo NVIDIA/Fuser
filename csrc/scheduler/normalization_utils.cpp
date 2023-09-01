@@ -695,14 +695,11 @@ std::pair<int64_t, int64_t> getInnerOuterPersistentBufferBatches(
     threads_per_block = threads_per_block_max;
     inner_batch = ceilDiv(after_vectorization, threads_per_block);
   } else {
-    // Start from the smallest threads_per_block. If the corresponding batch
-    // size is larger than batch_max, try double threads per block
-    // until the threads_per_block reaches threads_per_block_max or the batch
-    // size reaches batch_min.
     while (inner_batch > batch_max &&
-           threads_per_block * 2l <= threads_per_block_max &&
-           ceilDiv(after_vectorization, threads_per_block * 2l) >= batch_min) {
-      threads_per_block *= 2;
+          threads_per_block + warp_size <= threads_per_block_max &&
+          ceilDiv(after_vectorization, threads_per_block + warp_size) >=
+              batch_min) {
+      threads_per_block += warp_size;
       inner_batch = ceilDiv(after_vectorization, threads_per_block);
     }
   }
