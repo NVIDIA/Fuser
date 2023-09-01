@@ -31,7 +31,8 @@ class TORCH_CUDA_CU_API IdGraph {
   IdGraph& operator=(const IdGraph& other);
   IdGraph& operator=(IdGraph&& other) = default;
 
-  IdGraph(bool propagate_through_exprs) : propagate_through_exprs_(propagate_through_exprs) {}
+  IdGraph(bool propagate_through_exprs)
+      : propagate_through_exprs_(propagate_through_exprs) {}
 
   // Returns the disjoint IterDomain set.
   const DisjointSets<IterDomain*>& disjointIdSets() const {
@@ -214,9 +215,9 @@ class TORCH_CUDA_CU_API IdGraph {
   bool mapThroughExpr(Expr* first, Expr* second, bool forward);
 
  private:
-  // If propagate_through_exprs_ = false, then mapThroughExpr will not be called as a
-  // consequence of calling mapIds. As well as mapThroughExpr will not be called
-  // (again) as a result of calling mapThroughExpr.
+  // If propagate_through_exprs_ = false, then mapThroughExpr will not be called
+  // as a consequence of calling mapIds. As well as mapThroughExpr will not be
+  // called (again) as a result of calling mapThroughExpr.
   //
   // Note: For the second sentence of above... mapThroughExpr can call mapIds
   // which could in return call mapThoughExpr again, but propagate_exprs_ as

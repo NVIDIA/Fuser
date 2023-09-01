@@ -194,24 +194,19 @@ ExprGroups IdGraph::getExprsBetween(const IdGroups& from, const IdGroups& to)
     IdGroups all_id_groups;
 
     for (const ExprGroup& expr_group : all_exprs) {
-      std::vector<IdGroup> inp_groups = inputGroups(expr_group);
-      std::vector<IdGroup> out_groups = outputGroups(expr_group);
-      if (!IdGroups(inp_groups).intersect(IdGroups(out_groups)).empty()) {
+      if (isTrivialExprGroup(expr_group)) {
         // Expression is just a loop to its current group, ignore
         continue;
       }
 
-      all_id_groups.pushBack(inp_groups);
+      std::vector<IdGroup> inp_groups = inputGroups(expr_group);
+      std::vector<IdGroup> out_groups = outputGroups(expr_group);
 
-      if (!inp_groups.empty()) {
-        not_outputs.pushBack(inp_groups);
-      }
+      all_id_groups.pushBack(inp_groups);
+      not_outputs.pushBack(inp_groups);
 
       all_id_groups.pushBack(out_groups);
-
-      if (!out_groups.empty()) {
-        not_inputs.pushBack(out_groups);
-      }
+      not_inputs.pushBack(out_groups);
     }
     terminating_inputs = all_id_groups.subtract(not_inputs);
     terminating_outputs = all_id_groups.subtract(not_outputs);
@@ -643,26 +638,14 @@ bool IdGraph::exprsMap(Expr* first, Expr* second, bool forward) const {
       first->toString(),
       second->toString());
 
+  // TODO-MN: Is this equivalent as
+  // inputGroups(toGroup(expr0)) == inputGroups(toGroup(expr1)) ?
   {
-    std::vector<std::pair<IterDomain*, IterDomain*>> zipped_ids;
-
-    std::transform(
-        first_ids.begin(),
-        first_ids.end(),
-        second_ids.begin(),
-        std::back_inserter(zipped_ids),
-        [](IterDomain* first, IterDomain* second) {
-          return std::make_pair(first, second);
-        });
-
-    if (std::any_of(
-            zipped_ids.begin(),
-            zipped_ids.end(),
-            [&](std::pair<IterDomain*, IterDomain*> id_pair) {
-              return !disjointIdSets().permissiveAreMapped(
-                  id_pair.first, id_pair.second);
-            })) {
-      return false;
+    for (const auto i : c10::irange(first_ids.size())) {
+      if (!disjointIdSets().permissiveAreMapped(
+              first_ids.at(i), second_ids.at(i))) {
+        return false;
+      }
     }
   }
 
