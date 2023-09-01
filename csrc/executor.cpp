@@ -20,6 +20,7 @@
 #include <kernel_ir.h>
 #include <options.h>
 #include <serde/utils.h>
+#include <tensor_metadata.h>
 #include <utils.h>
 
 #include <ATen/core/LegacyTypeDispatch.h>
@@ -1911,18 +1912,21 @@ float FusionExecutor::runRtc(
   std::vector<void*> pointers;
 
   for (const auto& input : args) {
-    DataType metadata_type = globalTensorMetaData(
-        std::get<PrimDataType>(aten_to_data_type(input.scalar_type()).type),
-        input.dim());
+    auto dtype =
+        std::get<PrimDataType>(aten_to_data_type(input.scalar_type()).type);
+    DataType metadata_type = globalTensorMetaData(dtype, input.dim());
 
-    LegacyStruct<PolymorphicValue> concrete_value;
-    concrete_value["data"] = PolymorphicValue(
-        Pointer(input.data_ptr(), aten_to_data_type(input.scalar_type())));
-    concrete_value["logical_size"] = PolymorphicValue(input.sizes().vec());
-    concrete_value["alloc_stride"] = PolymorphicValue(input.strides().vec());
+    std::shared_ptr<Struct> struct_ = std::make_shared<TensorMetaData>();
+    TensorMetaData* metadata = (TensorMetaData*)struct_.get();
+    metadata->dtype = dtype;
+    metadata->data = input.data_ptr();
+    metadata->logical_size = input.sizes();
+    metadata->logical_stride = input.strides();
+    metadata->alloc_size = input.sizes();
+    metadata->alloc_stride = input.strides();
 
-    data.emplace_back(
-        polymorphicValueToBytes(concrete_value, metadata_type, index_type));
+    data.emplace_back(polymorphicValueToBytes(
+        PolymorphicValue(std::move(struct_)), metadata_type, index_type));
     pointers.emplace_back(data.back().data());
   }
 
