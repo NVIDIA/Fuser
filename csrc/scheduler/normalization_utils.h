@@ -9,6 +9,7 @@
 
 #include <executor_params.h>
 #include <ir/all_nodes.h>
+#include <scheduler/utils.h>
 #include <cmath>
 #include <optional>
 #include <ostream>
@@ -174,9 +175,9 @@ bool isConnectedOnlyThroughReductionProducer(
     const std::vector<TensorView*>& inner_reduction_tvs,
     const std::vector<TensorView*>& outer_reduction_tvs);
 
-//! in combined_inner_outer_reduction, the partial results of outer reductions
-//! must be persistent, calculate the size of these buffers when estimate
-//! register usage
+//! in combined_inner_outer_reduction, the partial results of outer
+//! reductions must be persistent, calculate the size of these buffers when
+//! estimate persistent buffer size.
 int64_t partialReductionBufferSize(
     const std::vector<TensorView*>& outer_reduction_tvs,
     SchedulerRuntimeInfo& runtime_info);
@@ -184,26 +185,45 @@ int64_t partialReductionBufferSize(
 //! Calculate the persistent buffer batches and threads per block.
 //! Start from a large value of inner_dim_numel / (inner_vect * warpSize/4),
 //! gradually reduce to small values but not smaller than a threshold determined
-//! by inner_dim_numel and outer_dim_numel. If the persistent buffer batch is
-//! smaller than the maximum allowed batch which is determined by the avilable
-//! registers, this function will return that batch value. Otherwise, it will
-//! return nullopt except when ignore_register_size_limit is true where it will
-//! return whatever the batch value is.
-// This exception is needed because the register usage in canScheduleRuntime is
-// based on std::min(project_buffer, not_project_buffer). However, in
-// getPersistentHeuristics() we enforce project_buffer to input if dtype=float
-// and feature size <=14K. It leads to register spills but still faster than
-// unprojected version due to the reuse of a input para in this grid persistent
-// kernel. This is a tmp solution before we have a new persistent heuristics,
-// where the projection should not soley based on size of buffers.
-std::pair<std::optional<int64_t>, int64_t>
-getOptionalInnerOuterPersistentBufferBatches(
+//! by inner_dim_numel and outer_dim_numel.
+std::pair<int64_t, int64_t> getInnerOuterPersistentBufferBatches(
     const int64_t inner_dim_numel,
     const int64_t outer_dim_numel,
-    const int64_t persistent_buffer_size,
+    const int64_t regs_buffer_size,
+    const int64_t smem_buffer_size,
     const int64_t vectorize_factor,
-    const int64_t warp_size,
-    const bool ignore_register_size_limit);
+    const int64_t warp_size);
 
+//! Decide where to store persistent buffers.
+//! By default, they reside in registers.
+//! If register space runs low but there's ample shared memory,
+//! the buffer is allocated there and noted in smem_tvs.
+struct PersistentBufferStorageParams {
+  std::vector<TensorView*> smem_tvs;
+  int64_t smem_buffer_size = -1;
+  int64_t regs_buffer_size = -1;
+  int64_t smem_overhead = -1;
+  bool has_enough_regs_and_smem = false;
+  bool project_to_input = false;
+  bool combined_reduction = false;
+};
+PersistentBufferStorageParams getPersistentBufferStorageParams(
+    Fusion* fusion,
+    SchedulerRuntimeInfo& runtime_info,
+    HeuristicSummary* data_cache,
+    const std::vector<TensorView*>& reduction_tvs,
+    const int64_t vectorize_factor);
+
+//! Return the shared memory overhead per block includes reserved by the CUDA
+//! driver and the space for the reduction broadcast workspace.
+int64_t getSharedMemoryOverheadPerBlock(
+    Fusion* fusion,
+    const std::vector<TensorView*>& reduction_tvs,
+    const int64_t max_threads_per_block);
+
+//! Use the first inner reduction tv as the reference tv if the fusion has both
+//! inner and outer reductions, otherwise use the first reduction tv.
+TensorView* getReferenceReductionTv(
+    const std::vector<TensorView*>& reduction_tvs);
 } // namespace normalization_scheduler_utils
 } // namespace nvfuser
