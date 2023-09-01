@@ -4,6 +4,7 @@
 #pragma once
 
 #include <array>
+#include <cstdint>
 #include <deque>
 #include <fstream>
 #include <optional>

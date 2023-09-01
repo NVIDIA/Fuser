@@ -19,11 +19,30 @@ namespace nvfuser {
 
 namespace mma_utils {
 
-bool generateSharedMemoryEpilogueHeuristics(
+//! A wrapper to get MMA Tensor data types
+//!   The order of returned types: INPUT_A, INPUT_B, OUTPUT_D
+inline mma_utils::MmaDataTypes getMmaDataTypes(
+    const std::map<MatmulRole, std::vector<TensorView*>>& roles_map) {
+  auto getMMADataType = [&](MatmulRole role) {
+    auto entry = roles_map.find(role);
+    if (entry != roles_map.end() && !entry->second.empty()) {
+      return entry->second.front()->dtype();
+    }
+    TORCH_INTERNAL_ASSERT(false, "Get MMA Tensor data type failed!");
+  };
+  const auto a_type = getMMADataType(MatmulRole::INPUT_A);
+  const auto b_type = getMMADataType(MatmulRole::INPUT_B);
+  const auto c_type = getMMADataType(MatmulRole::OUTPUT_D);
+  return mma_utils::MmaDataTypes{a_type, b_type, c_type};
+}
+
+std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
     const MatMulTileOptions& gemm_tile,
     const int smem_double_buffer_stage,
     const MmaDataTypes& data_types,
-    const bool ignore_occupancy_drop) {
+    bool smem_a_reuse_guaranteed,
+    bool smem_b_reuse_guaranteed,
+    bool ignore_occupancy_drop) {
   const auto properties = at::cuda::getCurrentDeviceProperties();
   const size_t device_smem_limit = properties->sharedMemPerBlockOptin;
   const size_t shared_memory_overhead = properties->reservedSharedMemPerBlock;
@@ -49,9 +68,30 @@ bool generateSharedMemoryEpilogueHeuristics(
   const size_t smem_c = (size_t)(gemm_tile.cta_tile.m * gemm_tile.cta_tile.n) *
       dataTypeSize(data_types[2]);
 
+  // NOTE: we can simply add these sizes since they should be integer multiples
+  // of 16 bytes, so they will automatically be aligned. This may change with
+  // FP8, in which case the expressions below should be updated to insert
+  // alignment expressions, using the expected stack ordering in
+  // StackBasedSharedMemAllocator.
+  TORCH_CHECK(smem_a % 16 == 0 && smem_b % 16 == 0 && smem_b % 16 == 0);
+
+  const size_t total_without_smem_epilogue = smem_a + smem_b;
+  const size_t total_with_noreuse_smem_epilogue = smem_a + smem_b + smem_c;
+  // Even if we actually do wind up re-claiming smem_a and smem_b, if we
+  // cannot prove it at this point then we have to assume it will not be
+  // reclaimed.
+  const size_t total_with_reused_smem_epilogue = std::max(
+      smem_a + smem_b,
+      (smem_a_reuse_guaranteed ? 0 : smem_a) +
+          (smem_b_reuse_guaranteed ? 0 : smem_b) + smem_c);
+
   // shortcut where occupancy change is ignored.
   if (ignore_occupancy_drop) {
-    return shared_memory_available >= smem_a + smem_b + smem_c;
+    if (shared_memory_available >= total_with_noreuse_smem_epilogue) {
+      return {true, false};
+    } else {
+      return {shared_memory_available >= total_with_reused_smem_epilogue, true};
+    }
   }
 
   // use additional shared memory for epilogue if occupancy is not changed.
@@ -59,14 +99,70 @@ bool generateSharedMemoryEpilogueHeuristics(
   const auto threads_per_sm = getThreadsPerSMGivenRegPerThread(255);
   const auto blocks_per_sm_by_register = threads_per_sm / threads_per_block;
   const auto blocks_per_sm_without_smem_epilogue = std::min(
-      shared_memory_available / (smem_a + smem_b),
+      shared_memory_available / total_without_smem_epilogue,
       (size_t)blocks_per_sm_by_register);
-  const auto blocks_per_sm_with_smem_epilogue = std::min(
-      shared_memory_available / (smem_a + smem_b + smem_c),
+  const auto blocks_per_sm_with_reused_smem_epilogue = std::min(
+      shared_memory_available / total_with_reused_smem_epilogue,
+      (size_t)blocks_per_sm_by_register);
+  const auto blocks_per_sm_with_noreuse_smem_epilogue = std::min(
+      shared_memory_available / total_with_noreuse_smem_epilogue,
       (size_t)blocks_per_sm_by_register);
 
-  return blocks_per_sm_with_smem_epilogue ==
-      blocks_per_sm_without_smem_epilogue;
+  // Return whether we should use smem for epilogue, and whether syncing for
+  // re-use is desired. We avoid the sync if omitting it does not decrease
+  // occupancy.
+  auto promote_prologue_smem_reuse = blocks_per_sm_with_reused_smem_epilogue !=
+      blocks_per_sm_with_noreuse_smem_epilogue;
+
+  return {
+      blocks_per_sm_with_reused_smem_epilogue ==
+          blocks_per_sm_without_smem_epilogue,
+      promote_prologue_smem_reuse};
+}
+
+std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
+    const MatMulTileOptions& gemm_tile,
+    const int smem_double_buffer_stage,
+    const RolesMap& roles_map,
+    const bool ignore_occupancy_drop) {
+  const auto data_types = getMmaDataTypes(roles_map);
+
+  // smem_a and smem_b are guaranteed to be re-used for smem_c as long as:
+  //   - they are marked for re-use using promoteReuse
+  //   - they are not aliased by another tensor whose lifetime extends past the
+  //   start of smem_epilogue's.
+  //   - their lifetimes do not overlap smem_epilogue
+  //
+  // We can guarantee the first condition by calling tv->promoteReuse() in
+  // scheduleProlog.
+  //
+  // The second condition would only be the case if another smem tensor had the
+  // same indexing and its lifetime did not overlap. Matmul scheduler only uses
+  // smem for these three arrays, so the only candidate for aliasing is C. If C
+  // aliases either A or B, the following expression is still valid.
+  //
+  // The third condition is satisfied in the simple cases where the inputs to
+  // the matmul have only this use. However, it could be violated if a or b has
+  // other uses that get ordered after the matmul; for example when computing
+  // matmul(A, B) + A for square matrices A and B. In that case, the smem tensor
+  // resulting from A->cacheAfter() will be used in both the matmul as well as
+  // the addition that occurs in the epilogue, extending the lifetime such that
+  // it violates the third condition above. In order to avoid errors in these
+  // cases, we check that there is no re-use when there is more than one use of
+  // either a or b. If there are multiple uses we might wind up re-using memory,
+  // but in that case the calculation below will be overly conservative.
+  TensorView* a = roles_map.at(MatmulRole::INPUT_A).front();
+  TensorView* b = roles_map.at(MatmulRole::INPUT_B).front();
+  bool smem_a_reuse_guaranteed = a->uses().size() == 1;
+  bool smem_b_reuse_guaranteed = b->uses().size() == 1;
+
+  return generateSharedMemoryEpilogueHeuristics(
+      gemm_tile,
+      smem_double_buffer_stage,
+      data_types,
+      smem_a_reuse_guaranteed,
+      smem_b_reuse_guaranteed,
+      ignore_occupancy_drop);
 }
 
 void scheduleWarpTileWithReduction(TensorView* tv, MatMulTileOptions tile) {

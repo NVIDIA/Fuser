@@ -143,23 +143,6 @@ inline bool initCoreHeuristics(
   return true;
 }
 
-//! A wrapper to get MMA Tensor data types
-//!   The order of returned types: INPUT_A, INPUT_B, OUTPUT_D
-inline mma_utils::MmaDataTypes getMmaDataTypes(
-    const std::map<MatmulRole, std::vector<TensorView*>>& roles_map) {
-  auto getMMADataType = [&](MatmulRole role) {
-    auto entry = roles_map.find(role);
-    if (entry != roles_map.end() && !entry->second.empty()) {
-      return entry->second.front()->dtype();
-    }
-    TORCH_INTERNAL_ASSERT(false, "Get MMA Tensor data type failed!");
-  };
-  const auto a_type = getMMADataType(MatmulRole::INPUT_A);
-  const auto b_type = getMMADataType(MatmulRole::INPUT_B);
-  const auto c_type = getMMADataType(MatmulRole::OUTPUT_D);
-  return mma_utils::MmaDataTypes{a_type, b_type, c_type};
-}
-
 //! A helper for getting problem shape from fusion and runtime info.
 ProblemShape getProblemShape(
     Fusion* fusion,
@@ -416,10 +399,13 @@ std::shared_ptr<MatmulParams> getMatmulHeuristics(
   const auto& roles_map_opt = mma_utils::getTensorsRoles(fusion);
   TORCH_INTERNAL_ASSERT(
       roles_map_opt.isValid(), "Tensor roles map in mma is not valid.");
-  params->use_smem_epilogue = mma_utils::generateSharedMemoryEpilogueHeuristics(
-      params->tile_sizes,
-      params->double_buffer_options.smem_double_buffer_stage,
-      getMmaDataTypes(roles_map_opt.getData()));
+
+  const auto roles_map = roles_map_opt.getData();
+  std::tie(params->use_smem_epilogue, params->promote_prologue_smem_reuse) =
+      mma_utils::generateSharedMemoryEpilogueHeuristics(
+          params->tile_sizes,
+          params->double_buffer_options.smem_double_buffer_stage,
+          roles_map);
 
   if (isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
     debug() << params->toString() << std::endl;
