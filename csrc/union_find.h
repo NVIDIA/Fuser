@@ -288,15 +288,14 @@ class UnionFind {
   //! Set a as the root of its equivalence class, so that after this call
   //! find(a) == a.
   void setAsRoot(IndexType a) {
-    const auto root = find(a);
-    if (root == a) {
+    const auto orig_root = find(a);
+    if (orig_root == a) {
       return;
     }
-    parent_[root] = a;
-    // The following is premature path compression
-    // parent_[a] = a;
+    parent_[orig_root] = a;
+    parent_[a] = a;
     // Update rank of new root to try and remain balanced
-    rank_[a] = rank_[root] + 1;
+    rank_[a] = rank_[orig_root] + 1;
   }
 
   //! Compute a sorted vector of all elements equivalent to a.
