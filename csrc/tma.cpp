@@ -200,7 +200,6 @@ Val* encodeTensorMapTiled(
     TensorMapL2Promotion l2_promotion,
     TensorMapFloatOOBFill oob_fill) {
   auto output = IrBuilder::create<Val>(
-      global_address->fusion(),
       OpaqueType::make<TensorMap>("const __grid_constant__ TensorMap"));
   IrBuilder::create<kir::EncodeTensorMapTiled>(
       output,
