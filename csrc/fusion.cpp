@@ -1112,6 +1112,9 @@ void Fusion::replaceUncomputableScalars() {
       continue; // s is possibly a deleted Val
     }
     const auto root_name = scalar_equality_.find(s_name);
+    if (root_name == s_name) {
+      continue;
+    }
     const auto root = getValFromName(ValType::Others, root_name);
     TORCH_INTERNAL_ASSERT(
         root != nullptr, "Replacement scalar should not be null");
