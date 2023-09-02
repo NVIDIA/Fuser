@@ -53,7 +53,7 @@ at::ScalarType mapToAtenDtype(serde::DataType t) {
     default:
       break;
   }
-  TORCH_INTERNAL_ASSERT(false, "No nvfuser dtype found for serde data type.");
+  NVF_ERROR(false, "No nvfuser dtype found for serde data type.");
   return at::ScalarType::Undefined;
 }
 
@@ -90,7 +90,7 @@ serde::DataType mapToSerdeDtype(PrimDataType t) {
     default:
       break;
   }
-  TORCH_INTERNAL_ASSERT(false, "No serde dtype found for nvfuser data type.");
+  NVF_ERROR(false, "No serde dtype found for nvfuser data type.");
   return serde::DataType_MAX;
 }
 
@@ -119,7 +119,7 @@ PrimDataType mapToNvfuserDtype(serde::DataType t) {
     default:
       break;
   }
-  TORCH_INTERNAL_ASSERT(false, "No nvfuser dtype found for serde data type.");
+  NVF_ERROR(false, "No nvfuser dtype found for serde data type.");
   return PrimDataType::Null;
 }
 

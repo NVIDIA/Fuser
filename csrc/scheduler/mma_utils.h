@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 
+#include <exceptions.h>
 #include <fusion.h>
 #include <mma_type.h>
 #include <array>

@@ -8,6 +8,7 @@
 #pragma once
 
 #include <c10/macros/Export.h>
+#include <exceptions.h>
 #include <type.h>
 
 #include <array>
@@ -85,16 +86,14 @@ class ParallelTypeBitmap {
   //! Return true if pt is included
   bool get(ParallelType pt) const {
     auto offset = getParallelTypeBitMapOffset(pt);
-    TORCH_INTERNAL_ASSERT(
-        offset != -1, "Could not recognize parallel type: ", pt);
+    NVF_ERROR(offset != -1, "Could not recognize parallel type: ", pt);
     return bitset_[offset];
   }
 
   //! Set the flag of pt
   bool set(ParallelType pt, bool new_val = true) {
     auto offset = getParallelTypeBitMapOffset(pt);
-    TORCH_INTERNAL_ASSERT(
-        offset != -1, "Could not recognize parallel type: ", pt);
+    NVF_ERROR(offset != -1, "Could not recognize parallel type: ", pt);
     bool old_val = bitset_[offset];
     bitset_[offset] = new_val;
     return old_val;
@@ -146,7 +145,7 @@ class ParallelTypeBitmap {
   //! Return true if the parallel type corresponding to a position
   //! defined in offset_to_pt_ is true
   bool operator[](size_t pos) const {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         pos < kNumParallelTypes, "Invalid index to ParallelTypeBitset: ", pos);
     return bitset_[pos];
   }

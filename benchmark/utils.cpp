@@ -122,7 +122,7 @@ std::string toString(const std::shared_ptr<HeuristicParams>& params) {
   if (tparams) {
     return toString(*tparams);
   }
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       false,
       "Unknown heuristic parameter type. Did you just added a new heuristic parameter type but forget to update here?");
 }

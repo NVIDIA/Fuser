@@ -9,6 +9,7 @@
 
 #include <c10/macros/Export.h>
 #include <c10/util/Exception.h>
+#include <exceptions.h>
 
 #include <string>
 #include <unordered_map>
@@ -124,7 +125,7 @@ class Options {
   }
 
   const std::vector<std::string>& getArgs(OptionEnum option) const {
-    TORCH_INTERNAL_ASSERT(has(option), "Option not set");
+    NVF_ERROR(has(option), "Option not set");
     return options_.at(option);
   }
 

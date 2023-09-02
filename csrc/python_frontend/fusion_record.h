@@ -8,6 +8,7 @@
 #pragma once
 #include <c10/util/complex.h>
 #include <debug.h>
+#include <exceptions.h>
 #include <ir/interface_nodes.h>
 #include <ops/all_ops.h>
 #include <options.h>
@@ -784,12 +785,12 @@ struct BroadcastInDimOpRecord : RecordFunctor {
 
     const auto& arg_domains_nr = arg->domain()->noReductions();
     const auto arg_ndims = arg_domains_nr.size();
-    TORCH_CHECK(
+    NVF_CHECK(
         output_ndims_ >= arg_ndims,
         "The new shape is expected to be greater-then-or-equal to the input",
         output_ndims_,
         arg_ndims);
-    TORCH_CHECK(
+    NVF_CHECK(
         arg_ndims == broadcast_dims_.size(),
         "The broadcast dimensions should match the input dimensions.",
         arg_ndims,
@@ -798,11 +799,11 @@ struct BroadcastInDimOpRecord : RecordFunctor {
     std::vector<bool> is_broadcast_dim(output_ndims_, true);
     for (const auto idx : c10::irange(broadcast_dims_.size())) {
       if (idx > 0) {
-        TORCH_CHECK(
+        NVF_CHECK(
             broadcast_dims_[idx - 1] < broadcast_dims_[idx],
             "Broadcast dimension is not greater than the previous value.");
       }
-      TORCH_CHECK(
+      NVF_CHECK(
           broadcast_dims_[idx] < static_cast<int>(output_ndims_),
           "Invalid broadcast_dims value.");
       is_broadcast_dim.at(broadcast_dims_[idx]) = false;
@@ -1239,7 +1240,7 @@ struct TensorRecord : RecordFunctor {
     if (shape_.empty() && is_cpu_) {
       tv->setCpuScalar(true);
     } else {
-      TORCH_CHECK(!is_cpu_, "CPU non-scalar tensor is not supported!");
+      NVF_CHECK(!is_cpu_, "CPU non-scalar tensor is not supported!");
     }
 
     fd.setFusionState(outputs_.at(0).index, tv);
@@ -1393,13 +1394,13 @@ struct OutputRecord : RecordFunctor {
     }
 
     if (alias_input) {
-      TORCH_CHECK(
+      NVF_CHECK(
           stride_order_.empty(),
           "stride_order can't be dictated for aliased outputs.");
       if (std::is_same<OutputType, TensorView>::value) {
         fd.aliasOutputToInput(output, alias_input);
       } else {
-        TORCH_INTERNAL_ASSERT(false, "Scalar outputs should not alias inputs.");
+        NVF_ERROR(false, "Scalar outputs should not alias inputs.");
       }
     } else {
       // With C++17, this statement should be "if constexpr"
@@ -1410,14 +1411,14 @@ struct OutputRecord : RecordFunctor {
           std::vector<int64_t> reverse_perm(stride_order_.size());
           int64_t duplicate_check = 0;
           for (const auto i : c10::irange((int64_t)stride_order_.size())) {
-            TORCH_CHECK(
+            NVF_CHECK(
                 stride_order_[i] >= 0 &&
                     stride_order_[i] < (int64_t)reverse_perm.size(),
                 "stride_order elements need to be within [0, stride_order.size())!");
             reverse_perm[stride_order_[i]] = i;
             duplicate_check |= 1 << stride_order_[i];
           }
-          TORCH_CHECK(
+          NVF_CHECK(
               duplicate_check == (1 << reverse_perm.size()) - 1,
               "duplicated elements in stride_order detected!");
           tv_output = permute(tv_output, reverse_perm);
@@ -1426,7 +1427,7 @@ struct OutputRecord : RecordFunctor {
           fd.addOutput(tv_output);
         }
       } else {
-        TORCH_CHECK(
+        NVF_CHECK(
             stride_order_.empty(),
             "stride_order can't be dictated for scalar outputs.");
         fd.addOutput(output);
@@ -1867,7 +1868,7 @@ struct ScalarRecord : RecordFunctor {
       } else if (value_.is<int64_t>()) {
         os << value_;
       } else {
-        TORCH_CHECK(false, "Unsupported dtype.");
+        NVF_CHECK(false, "Unsupported dtype.");
       }
     } else {
       os << "None";
@@ -2450,7 +2451,7 @@ struct AtOpRecord : RecordFunctor {
   }
 
   void operator()(FusionState& fd) final {
-    TORCH_CHECK(
+    NVF_CHECK(
         args_.at(0).stype == serde::StateType_Vector, "Expected Vector State!");
     auto arg = fd.getFusionStateVector(args_.at(0).index);
     auto result = at(arg, index_);
@@ -2719,8 +2720,7 @@ struct RandomOpRecord : RecordFunctor {
         output = normal(output_shape, arg1, arg2, dtype_, seed, offset);
       }
     } else {
-      TORCH_INTERNAL_ASSERT(
-          false, "random distribution not recognized:", name_);
+      NVF_ERROR(false, "random distribution not recognized:", name_);
     }
     fd.setFusionState(outputs_.at(0).index, output);
   }
@@ -2802,12 +2802,12 @@ struct VectorRecord : RecordFunctor {
 
   void operator()(FusionState& fd) final {
     std::vector<Val*> output(args_.size(), nullptr);
-    TORCH_CHECK(
+    NVF_CHECK(
         dtype_ == DataType::Int,
         "Only Int Dtype is not supported by a vector of sizes: ",
         dtype_);
     for (size_t i = 0; i < args_.size(); ++i) {
-      TORCH_CHECK(
+      NVF_CHECK(
           args_.at(i).stype == serde::StateType_Scalar,
           "Unsupported State type!");
       output.at(i) = fd.getFusionState(args_.at(i).index);
@@ -2863,17 +2863,17 @@ using namespace nvfuser::python_frontend;
 template <>
 struct hash<RecordFunctor*> {
   size_t operator()(const RecordFunctor* p) const {
-    TORCH_CHECK(p, "The RecordFunctor Pointer for hashing is null!");
+    NVF_CHECK(p, "The RecordFunctor Pointer for hashing is null!");
     return p->hash();
   }
 };
 template <>
 struct equal_to<RecordFunctor*> {
   bool operator()(const RecordFunctor* p, const RecordFunctor* q) const {
-    TORCH_CHECK(
+    NVF_CHECK(
         p,
         "The RecordFunctor Pointer on the lhs of an equality check is null!");
-    TORCH_CHECK(
+    NVF_CHECK(
         q,
         "The RecordFunctor Pointer on the rhs of an equality check is null!");
     return p->operator==(*q);

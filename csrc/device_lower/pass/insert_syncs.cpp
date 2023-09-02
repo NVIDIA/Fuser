@@ -59,14 +59,13 @@ class SmemAllocMap {
   //! given TV
   TensorView* getRealBuffer(TensorView* tv) const {
     auto it = map_.find(tv);
-    TORCH_INTERNAL_ASSERT(
-        it != map_.end(), "Allocation not found for ", tv->toString());
+    NVF_ERROR(it != map_.end(), "Allocation not found for ", tv->toString());
     const kir::Allocate* alloc = it->second;
     while (alloc->alias()) {
       alloc = alloc->alias();
     }
     auto buf = alloc->buffer();
-    TORCH_INTERNAL_ASSERT(buf->isA<TensorView>());
+    NVF_ERROR(buf->isA<TensorView>());
     return buf->as<TensorView>();
   }
 
@@ -139,7 +138,7 @@ class WarSyncInserter : private kir::ExprMutator {
   }
 
   void handle(kir::IfThenElse* ite) final {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         ite->elseBody().empty(),
         "Pass does not support conditional flow,",
         " needs to be done before conditional execution is lowered.");
@@ -359,7 +358,7 @@ class ValidatePlacementAfterWrites : private kir::IrVisitor {
     if (expr->isA<kir::ForLoop>() || expr->isA<kir::IfThenElse>()) {
       kir::IrVisitor::dispatch(expr);
     } else {
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           writes_.find(expr) == writes_.end(),
           "Block sync must be placed after ",
           expr->toString());
@@ -374,7 +373,7 @@ namespace {
 
 Val* getGridSyncBufferSize(const ParallelTypeBitmap& ptb) {
   // See the comment above for getGridCommWorkBufferSize.
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       ptb.hasBID(),
       "Detected  needing a grid sync but no grid bits set in bitmap.");
   Val* buffer_size = GpuLower::current()->kernel()->oneVal();
@@ -440,7 +439,7 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
     if (halo_loop_it == for_loops_.begin()) {
       // place in global scope
       auto place_before_it = std::find(exprs_.begin(), exprs_.end(), halo_loop);
-      TORCH_INTERNAL_ASSERT(place_before_it != exprs_.end());
+      NVF_ERROR(place_before_it != exprs_.end());
       exprs_.insert(place_before_it, sync_expr);
     } else {
       auto place_in = *(halo_loop_it - 1);
@@ -518,7 +517,7 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
 
     for (auto last_write : last_writes) {
       auto write_out_tv = ir_utils::getTvOutput(last_write);
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           write_out_tv != nullptr,
           "Error in RAW sync insertion, expecting a TV expr, but didn't find one.");
       if (write_out_tv->getComputeAtPosition() == 0) {
@@ -534,7 +533,7 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
                 loop->iter_domain(), local_id, IdMappingMode::PERMISSIVE);
           });
 
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           loops_it != for_loops_.end(),
           "Could not find loop associated with the alloc position of ",
           write_out_tv->toString());
@@ -558,7 +557,7 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
       // Find location in exprs_
       auto place_before_it =
           std::find(exprs_.begin(), exprs_.end(), place_before);
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           place_before_it != exprs_.end(),
           "Could not figure out where to place synchronization. ",
           "Tried to place after, ",
@@ -596,7 +595,7 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
   }
 
   void handle(kir::IfThenElse*) final {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         false,
         "Pass does not support conditional statements, ",
         "this pass should be run before any conditionals are placed in code.");
@@ -661,12 +660,12 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
 
       auto last_gmem_writes = isModifiedGlobalMemory(gmem, expr->inputs());
       if (!last_gmem_writes.empty()) {
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             prev_tv_expr != nullptr,
             "Can't require sync on inputs, however, detected it's needed.");
         ParallelTypeBitmap bitmap;
         for (auto entry : gmem) {
-          TORCH_INTERNAL_ASSERT(entry.first->isA<TensorView>());
+          NVF_ERROR(entry.first->isA<TensorView>());
           auto sync_bits = GpuLower::current()->syncMap()->needsRawSync(
               entry.first->as<TensorView>());
           bitmap |= sync_bits;
@@ -694,7 +693,7 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
       }
 
       if (!last_smem_writes.empty()) {
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             prev_tv_expr != nullptr,
             "Can't require sync on inputs, however, detected it's needed.");
         ParallelTypeBitmap bitmap;
@@ -745,8 +744,7 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
 
     kir::ExprMutator::traverseAndInsert(_exprs);
 
-    TORCH_INTERNAL_ASSERT(
-        sync_before_.empty(), "Didn't place all required syncs.");
+    NVF_ERROR(sync_before_.empty(), "Didn't place all required syncs.");
   }
 
  private:

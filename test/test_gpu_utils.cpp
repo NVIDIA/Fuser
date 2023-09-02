@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <csrc/exceptions.h>
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
@@ -118,8 +119,7 @@ TEST_F(NVFuserTest, FusionDisjointViewSet_CUDA) {
 
   auto disjoint_exact = scheduler_utils::disjointRFactorSets(fusion.get());
 
-  TORCH_INTERNAL_ASSERT(
-      disjoint_exact.strictAreMapped(tv0->axis(1), tv0->axis(2)));
+  NVF_ERROR(disjoint_exact.strictAreMapped(tv0->axis(1), tv0->axis(2)));
 }
 
 TEST_F(NVFuserTest, FusionBroadcastViewMultiples_CUDA) {
@@ -317,7 +317,7 @@ TEST_F(VectorizeHelperTest, BackwardMapper2_CUDA) {
 
   EXPECT_THAT(
       [&]() { mapper.getProjectedExtent(tv2->axis(0)); },
-      ::testing::ThrowsMessage<c10::Error>(
+      ::testing::ThrowsMessage<nvfuser::nvfError>(
           ::testing::HasSubstr("Not projected")));
   EXPECT_EQ(mapper.getProjectedExtent(tv2->axis(1))->evaluateInt(), 3);
   EXPECT_EQ(mapper.getProjectedExtent(tv2->axis(2))->evaluateInt(), 4);
@@ -640,7 +640,7 @@ TEST_F(VectorizeHelperTest, ForwardMapper2_CUDA) {
 
   EXPECT_THAT(
       [&]() { mapper.getProjectedExtent(tv0->axis(0)); },
-      ::testing::ThrowsMessage<c10::Error>(
+      ::testing::ThrowsMessage<nvfuser::nvfError>(
           ::testing::HasSubstr("Not projected")));
   EXPECT_EQ(mapper.getProjectedExtent(tv0->axis(1))->evaluateInt(), 3);
   EXPECT_EQ(mapper.getProjectedExtent(tv0->axis(2))->evaluateInt(), 4);
@@ -1073,7 +1073,8 @@ TEST_F(NVFuserTest, FusionSASSDumpError_CUDA) {
 
   EXPECT_THAT(
       [&]() { fe.disassembledKernelSASS(); },
-      ::testing::ThrowsMessage<c10::Error>(::testing::HasSubstr("I am fake")));
+      ::testing::ThrowsMessage<nvfuser::nvfError>(
+          ::testing::HasSubstr("I am fake")));
 
   auto cg_outputs = fe.runFusion({t0});
   testValidate(fe.kernel(), cg_outputs, {t0}, {t0}, __LINE__, __FILE__);

@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <csrc/exceptions.h>
 #include <gtest/gtest.h>
 
 #include <codegen.h>
@@ -86,7 +87,7 @@ TEST_F(NVFuserTest, FusionVoltaMMATT_CUDA) {
                          .layout(MmaOptions::MmaLayout::TT);
 
   auto mma_ops = ir_utils::getMmaOps(&fusion);
-  TORCH_CHECK(
+  NVF_CHECK(
       1 == mma_ops.size(),
       "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
       mma_ops.size());
@@ -188,7 +189,7 @@ TEST_F(NVFuserTest, FusionVoltaMMATN_CUDA) {
                          .layout(MmaOptions::MmaLayout::TN);
 
   auto mma_ops = ir_utils::getMmaOps(&fusion);
-  TORCH_CHECK(
+  NVF_CHECK(
       1 == mma_ops.size(),
       "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
       mma_ops.size());
@@ -257,7 +258,7 @@ TEST_F(NVFuserTest, FusionVoltaMMANT_CUDA) {
                          .layout(MmaOptions::MmaLayout::NT);
 
   auto mma_ops = ir_utils::getMmaOps(&fusion);
-  TORCH_CHECK(
+  NVF_CHECK(
       1 == mma_ops.size(),
       "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
       mma_ops.size());
@@ -335,7 +336,7 @@ TEST_F(NVFuserTest, FusionVoltaMMANN_CUDA) {
                          .layout(MmaOptions::MmaLayout::NN);
 
   auto mma_ops = ir_utils::getMmaOps(&fusion);
-  TORCH_CHECK(
+  NVF_CHECK(
       1 == mma_ops.size(),
       "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
       mma_ops.size());
@@ -422,7 +423,7 @@ TEST_F(NVFuserTest, FusionVoltaMatmul_CUDA) {
     auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
     auto tref = atMatmul(
         inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
-    TORCH_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+    NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
   }
 }
 
@@ -471,7 +472,7 @@ TEST_F(NVFuserTest, FusionVoltaMatmulRegDoubleBuffer_CUDA) {
     auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
     auto tref = atMatmul(
         inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
-    TORCH_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+    NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
   }
 }
 
@@ -509,7 +510,7 @@ TEST_F(NVFuserTest, FusionAmpereMMATN_CUDA) {
           .layout(MmaOptions::MmaLayout::TN);
 
   auto mma_ops = ir_utils::getMmaOps(&fusion);
-  TORCH_CHECK(
+  NVF_CHECK(
       1 == mma_ops.size(),
       "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
       mma_ops.size());
@@ -586,7 +587,7 @@ TEST_F(NVFuserTest, FusionAmpereMMATT_CUDA) {
           .layout(MmaOptions::MmaLayout::TT);
 
   auto mma_ops = ir_utils::getMmaOps(&fusion);
-  TORCH_CHECK(
+  NVF_CHECK(
       1 == mma_ops.size(),
       "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
       mma_ops.size());
@@ -667,7 +668,7 @@ TEST_F(NVFuserTest, FusionAmpereMMANT_CUDA) {
           .layout(MmaOptions::MmaLayout::NT);
 
   auto mma_ops = ir_utils::getMmaOps(&fusion);
-  TORCH_CHECK(
+  NVF_CHECK(
       1 == mma_ops.size(),
       "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
       mma_ops.size());
@@ -748,7 +749,7 @@ TEST_F(NVFuserTest, FusionAmpereMMANN_CUDA) {
           .layout(MmaOptions::MmaLayout::NN);
 
   auto mma_ops = ir_utils::getMmaOps(&fusion);
-  TORCH_CHECK(
+  NVF_CHECK(
       1 == mma_ops.size(),
       "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
       mma_ops.size());
@@ -839,7 +840,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmul_CUDA) {
     auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
     auto tref = atMatmul(
         inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
-    TORCH_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+    NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
   }
 }
 
@@ -889,7 +890,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulBFloat16_CUDA) {
     auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
     auto tref = atMatmul(
         inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
-    TORCH_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+    NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
   }
 }
 
@@ -943,7 +944,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulPipelineGmem_CUDA) {
       auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
       auto tref = atMatmul(
           inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
-      TORCH_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+      NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
     }
   }
 }
@@ -1012,7 +1013,7 @@ TEST_F(NVFuserTest, FusionAmpereSwizzle_CUDA) {
     auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
     auto tref = atMatmul(
         inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
-    TORCH_CHECK(cg_outputs[0].allclose(tref, 0.01, 0.01));
+    NVF_CHECK(cg_outputs[0].allclose(tref, 0.01, 0.01));
 
     int gdimx = fe.lastLaunchParams().gdimx();
     int gdimy = fe.lastLaunchParams().gdimy();
@@ -1021,8 +1022,8 @@ TEST_F(NVFuserTest, FusionAmpereSwizzle_CUDA) {
     int expected_gdimx = expected_gdim_unswizzled * swizzle;
     int expected_gdimy = (expected_gdim_unswizzled + swizzle - 1) / swizzle;
 
-    TORCH_CHECK(gdimx == expected_gdimx);
-    TORCH_CHECK(gdimy == expected_gdimy);
+    NVF_CHECK(gdimx == expected_gdimx);
+    NVF_CHECK(gdimy == expected_gdimy);
 
     runtime = fe.kernelTimeMs();
 
@@ -1037,7 +1038,7 @@ TEST_F(NVFuserTest, FusionAmpereSwizzle_CUDA) {
       void handle(MmaOp* uop) final {
         found_mma = true;
         for (auto expr : scope_exprs_) {
-          TORCH_CHECK(
+          NVF_CHECK(
               !expr->isA<kir::IfThenElse>() ||
                   expr->as<kir::IfThenElse>()->predicate()->isTrivial(),
               "MmaOp should't be predicated!",
@@ -1063,7 +1064,7 @@ TEST_F(NVFuserTest, FusionAmpereSwizzle_CUDA) {
 
       // GRID Swizzle requires further changes to work in main. So for now we
       // don't assert the perf benefit here.
-      // TORCH_CHECK(runtime4 < runtime1);
+      // NVF_CHECK(runtime4 < runtime1);
     }
   }
 }
@@ -1117,7 +1118,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulRegDoubleBuffer_CUDA) {
       auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
       auto tref = atMatmul(
           inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
-      TORCH_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+      NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
     }
   }
 }
@@ -1185,7 +1186,7 @@ TEST_F(NVFuserTest, FusionMatmulMatmulAmpere_CUDA) {
           .layout(MmaOptions::MmaLayout::TN);
 
   auto mma_ops = ir_utils::getMmaOps(&fusion);
-  TORCH_CHECK(
+  NVF_CHECK(
       2 == mma_ops.size(),
       "Invalid number of MmaOp instances in fusion definition, expected 2, got ",
       mma_ops.size());
@@ -1395,7 +1396,7 @@ TEST_F(NVFuserTest, FusionMatmulMatmulAmpere_CUDA) {
   auto cg_outputs = fe.runFusion({t0, t1, t2});
 
   // relaxed check for now, err accumulation is significant.
-  TORCH_CHECK(cg_outputs[0].allclose(tref, 0.1, 0.1));
+  NVF_CHECK(cg_outputs[0].allclose(tref, 0.1, 0.1));
 }
 
 // Simplified Matmul-Softmax-Matmul test on Ampere
@@ -1485,7 +1486,7 @@ TEST_F(NVFuserTest, FusionMatmulSoftmaxMatmulAmpere_CUDA) {
           .layout(MmaOptions::MmaLayout::TN);
 
   auto mma_ops = ir_utils::getMmaOps(&fusion);
-  TORCH_CHECK(
+  NVF_CHECK(
       2 == mma_ops.size(),
       "Invalid number of MmaOp instances in fusion definition, expected 2, got ",
       mma_ops.size());
@@ -1776,7 +1777,7 @@ TEST_F(NVFuserTest, FusionMatmulSoftmaxMatmulAmpere_CUDA) {
   auto sg1 = at::_softmax(g1, -1, false);
   auto gsg1 = sg1.matmul(t2.t().to(at::kFloat));
 
-  TORCH_CHECK(cg_outputs[0].allclose(gsg1, 0.001, 0.001));
+  NVF_CHECK(cg_outputs[0].allclose(gsg1, 0.001, 0.001));
 }
 
 // MMA unit test on Turing
@@ -1811,7 +1812,7 @@ TEST_F(NVFuserTest, FusionTuringMMATN_CUDA) {
           .layout(MmaOptions::MmaLayout::TN);
 
   auto mma_ops = ir_utils::getMmaOps(&fusion);
-  TORCH_CHECK(
+  NVF_CHECK(
       1 == mma_ops.size(),
       "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
       mma_ops.size());
@@ -1887,7 +1888,7 @@ TEST_F(NVFuserTest, FusionTuringMMATT_CUDA) {
           .layout(MmaOptions::MmaLayout::TT);
 
   auto mma_ops = ir_utils::getMmaOps(&fusion);
-  TORCH_CHECK(
+  NVF_CHECK(
       1 == mma_ops.size(),
       "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
       mma_ops.size());
@@ -1965,7 +1966,7 @@ TEST_F(NVFuserTest, FusionTuringMMANT_CUDA) {
           .layout(MmaOptions::MmaLayout::NT);
 
   auto mma_ops = ir_utils::getMmaOps(&fusion);
-  TORCH_CHECK(
+  NVF_CHECK(
       1 == mma_ops.size(),
       "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
       mma_ops.size());
@@ -2045,7 +2046,7 @@ TEST_F(NVFuserTest, FusionTuringMMANN_CUDA) {
           .layout(MmaOptions::MmaLayout::NN);
 
   auto mma_ops = ir_utils::getMmaOps(&fusion);
-  TORCH_CHECK(
+  NVF_CHECK(
       1 == mma_ops.size(),
       "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
       mma_ops.size());
@@ -2126,7 +2127,7 @@ TEST_F(NVFuserTest, FusionTuringMatmul_CUDA) {
     auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
     auto tref = atMatmul(
         inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
-    TORCH_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+    NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
   }
 }
 
@@ -2164,7 +2165,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTNcpAsync_CUDA) {
           .layout(MmaOptions::MmaLayout::TN);
 
   auto mma_ops = ir_utils::getMmaOps(&fusion);
-  TORCH_CHECK(
+  NVF_CHECK(
       1 == mma_ops.size(),
       "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
       mma_ops.size());
@@ -2270,7 +2271,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTNcpAsync_CUDA) {
 
   auto tref = t0.to(at::kFloat).matmul(t1.t().to(at::kFloat));
 
-  TORCH_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+  NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
 }
 
 TEST_F(NVFuserTest, FusionAmpereStridedBatchedMatmulTN_CUDA) {
@@ -2307,7 +2308,7 @@ TEST_F(NVFuserTest, FusionAmpereStridedBatchedMatmulTN_CUDA) {
           .layout(MmaOptions::MmaLayout::TN);
 
   auto mma_ops = ir_utils::getMmaOps(&fusion);
-  TORCH_CHECK(
+  NVF_CHECK(
       1 == mma_ops.size(),
       "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
       mma_ops.size());
@@ -2448,7 +2449,7 @@ TEST_F(NVFuserTest, FusionAmpereStridedBatchedMatmulTN_CUDA) {
   auto ref = ref_permuted.view({B0, B1, M, N})
                  .permute({0, 2, 3, 1})
                  .contiguous(); // B0,M,N,B1
-  TORCH_CHECK(cg_outputs[0].allclose(ref, 0.0001, 0.0001));
+  NVF_CHECK(cg_outputs[0].allclose(ref, 0.0001, 0.0001));
 }
 
 // Matmul test on Ampere with a reshape on prolog
@@ -2489,7 +2490,7 @@ TEST_F(NVFuserTest, FusionAmpereViewMatmulTN_CUDA) {
           .layout(MmaOptions::MmaLayout::TN);
 
   auto mma_ops = ir_utils::getMmaOps(&fusion);
-  TORCH_CHECK(
+  NVF_CHECK(
       1 == mma_ops.size(),
       "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
       mma_ops.size());
@@ -2611,7 +2612,7 @@ TEST_F(NVFuserTest, FusionAmpereViewMatmulTN_CUDA) {
   auto tref =
       at::native::view(t0, {M, K}).to(at::kFloat).matmul(t1.t().to(at::kFloat));
 
-  TORCH_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+  NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
 }
 
 // Initial test case for in-CTA split K with VoltaMMA
@@ -2649,7 +2650,7 @@ TEST_F(NVFuserTest, FusionVoltaMatmulTNCrossWarp_CUDA) {
                          .layout(MmaOptions::MmaLayout::TN);
 
   auto mma_ops = ir_utils::getMmaOps(&fusion);
-  TORCH_CHECK(
+  NVF_CHECK(
       1 == mma_ops.size(),
       "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
       mma_ops.size());
@@ -2772,7 +2773,7 @@ TEST_F(NVFuserTest, FusionVoltaMatmulTNCrossWarp_CUDA) {
   fe.compileFusion(&fusion, {t0, t1}, LaunchParams(), matmul_cparams);
   auto cg_outputs = fe.runFusion({t0, t1});
   auto tref = t0.to(at::kFloat).matmul(t1.to(at::kFloat).t());
-  TORCH_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+  NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
 }
 
 // Initial test case for cross-CTA split K with VoltaMMA
@@ -2810,7 +2811,7 @@ TEST_F(NVFuserTest, FusionVoltaMatmulTNCrossCTA_CUDA) {
                          .layout(MmaOptions::MmaLayout::TN);
 
   auto mma_ops = ir_utils::getMmaOps(&fusion);
-  TORCH_CHECK(
+  NVF_CHECK(
       1 == mma_ops.size(),
       "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
       mma_ops.size());
@@ -2945,7 +2946,7 @@ TEST_F(NVFuserTest, FusionVoltaMatmulTNCrossCTA_CUDA) {
   fe.compileFusion(&fusion, {t0, t1}, LaunchParams(), matmul_cparams);
   auto cg_outputs = fe.runFusion({t0, t1});
   auto tref = t0.to(at::kFloat).matmul(t1.to(at::kFloat).t());
-  TORCH_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+  NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
 }
 
 // Test an end-to-end matmul case with swizzled smem
@@ -2983,7 +2984,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTNSwizzled_CUDA) {
   fusion.addOutput(tv2);
 
   auto mma_ops = ir_utils::getMmaOps(&fusion);
-  TORCH_CHECK(
+  NVF_CHECK(
       1 == mma_ops.size(),
       "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
       mma_ops.size());
@@ -3125,7 +3126,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTNSwizzled_CUDA) {
 
   auto tref = t0.to(at::kFloat).matmul(t1.t().to(at::kFloat));
 
-  TORCH_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+  NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
 }
 
 // Matmul test on Ampere using ldmatrix.x4 to load operands
@@ -3174,7 +3175,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulLargeLoad_CUDA) {
     auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
     auto tref = atMatmul(
         inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
-    TORCH_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+    NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
   }
 }
 
@@ -3221,7 +3222,7 @@ TEST_F(NVFuserTest, FusionTuringMatmulLargeLoad_CUDA) {
     auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
     auto tref = atMatmul(
         inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
-    TORCH_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+    NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
   }
 }
 
@@ -3280,7 +3281,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck4warp_CUDA) {
         auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
         auto tref = atMatmul(
             inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
-        TORCH_CHECK(
+        NVF_CHECK(
             cg_outputs[0].allclose(tref, 0.0001, 0.0001),
             "error :",
             (cg_outputs[0] - tref).abs().max(),
@@ -3352,7 +3353,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck8warp_CUDA) {
               inputs.first.to(at::kFloat),
               inputs.second.to(at::kFloat),
               layout);
-          TORCH_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+          NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
         }
       }
     }
@@ -3412,7 +3413,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck6warp_CUDA) {
       auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
       auto tref = atMatmul(
           inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
-      TORCH_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+      NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
     }
   }
 }
@@ -3463,7 +3464,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulLargeLoadLargeK_CUDA) {
     auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
     auto tref = atMatmul(
         inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
-    TORCH_CHECK(cg_outputs[0].allclose(tref, 0.001, 0.001));
+    NVF_CHECK(cg_outputs[0].allclose(tref, 0.001, 0.001));
   }
 }
 
@@ -3504,7 +3505,7 @@ TEST_F(NVFuserTest, FusionAmpereMMATNAlpha_CUDA) {
           .layout(MmaOptions::MmaLayout::TN);
 
   auto mma_ops = ir_utils::getMmaOps(&fusion);
-  TORCH_CHECK(
+  NVF_CHECK(
       1 == mma_ops.size(),
       "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
       mma_ops.size());
@@ -3551,7 +3552,7 @@ TEST_F(NVFuserTest, FusionAmpereMMATNAlpha_CUDA) {
   auto t2 = t0.to(at::kFloat).matmul(t1.t().to(at::kFloat));
   auto tref = t2.mul(alpha);
 
-  TORCH_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+  NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
 }
 
 // MMA and alpha + beta unit test, for Ampere TN
@@ -3606,7 +3607,7 @@ TEST_F(NVFuserTest, FusionAmpereMMATNAlphaBeta_CUDA) {
           .layout(MmaOptions::MmaLayout::TN);
 
   auto mma_ops = ir_utils::getMmaOps(&fusion);
-  TORCH_CHECK(
+  NVF_CHECK(
       1 == mma_ops.size(),
       "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
       mma_ops.size());
@@ -3668,7 +3669,7 @@ TEST_F(NVFuserTest, FusionAmpereMMATNAlphaBeta_CUDA) {
   auto t5 = t2.to(at::kFloat).mul(beta);
   auto t6 = t4.add(t5);
 
-  TORCH_CHECK(cg_outputs[0].allclose(t6, 0.0001, 0.0001));
+  NVF_CHECK(cg_outputs[0].allclose(t6, 0.0001, 0.0001));
 }
 
 // MMA and bias epilogue unit test, for Ampere TN
@@ -3715,7 +3716,7 @@ TEST_F(NVFuserTest, FusionAmpereMMATNBias_CUDA) {
           .layout(MmaOptions::MmaLayout::TN);
 
   auto mma_ops = ir_utils::getMmaOps(&fusion);
-  TORCH_CHECK(
+  NVF_CHECK(
       1 == mma_ops.size(),
       "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
       mma_ops.size());
@@ -3765,7 +3766,7 @@ TEST_F(NVFuserTest, FusionAmpereMMATNBias_CUDA) {
   auto t3 = t0.to(at::kFloat).matmul(t1.t().to(at::kFloat));
   auto t4 = atBiasEpilogue(t3, t2);
 
-  TORCH_CHECK(cg_outputs[0].allclose(t4, 0.0001, 0.0001));
+  NVF_CHECK(cg_outputs[0].allclose(t4, 0.0001, 0.0001));
 }
 
 // Strided batch gemm with MMA unit test, for Ampere TN
@@ -3812,7 +3813,7 @@ TEST_F(NVFuserTest, FusionAmpereMMATNSplitKLikeStridedBatch_CUDA) {
           .layout(layout);
 
   auto mma_ops = ir_utils::getMmaOps(&fusion);
-  TORCH_CHECK(
+  NVF_CHECK(
       1 == mma_ops.size(),
       "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
       mma_ops.size());
@@ -3853,7 +3854,7 @@ TEST_F(NVFuserTest, FusionAmpereMMATNSplitKLikeStridedBatch_CUDA) {
   auto cg_outputs = fe.runFusion({t0, t1});
   auto tref = splitkLikeAtMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout);
 
-  TORCH_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+  NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
 }
 
 // Matmul test for Ampere MMA: across supported layouts
@@ -3900,7 +3901,7 @@ TEST_F(NVFuserTest, FusionAmpereSplitKLikeStridedBatchedMatmul_CUDA) {
     auto cg_outputs = fe.runFusion({t0, t1});
     auto tref =
         splitkLikeAtMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout);
-    TORCH_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+    NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
   }
 }
 
@@ -3956,7 +3957,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSmemEpilogue_CUDA) {
         num_shared_mem_tensors++;
       }
     }
-    TORCH_CHECK(
+    NVF_CHECK(
         num_shared_mem_tensors == expected_num_shared_mem_tensors,
         "Number of shared memory tensors doesn't match!",
         "Expected: ",
@@ -3983,7 +3984,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSmemEpilogue_CUDA) {
     // check bank conflicts
     ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
     // (0.001, 0.001) passed on local A100 but failed on CI A100
-    TORCH_CHECK(
+    NVF_CHECK(
         cg_outputs[0].allclose(tref, 0.01, 0.01),
         "Result validation failed. Max diff: ",
         (cg_outputs[0] - tref).abs().max());
@@ -4000,7 +4001,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSmemEpilogue_CUDA) {
     //   - use_smem_epilogue && !promote_prologue_smem_reuse : A + B + C
     //   - use_smem_epilogue && promote_prologue_smem_reuse : max(A + B, C)
     auto smem_allocs = fe.kernel()->summary().dynamic_smem_allocations;
-    TORCH_CHECK(smem_allocs.size() == 3);
+    NVF_CHECK(smem_allocs.size() == 3);
     if (params.promote_prologue_smem_reuse) {
       // Check prologue shared memory re-use
       // smem_allocs = {A, B, C} where C is the epilogue buffer
@@ -4084,7 +4085,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSmemEpilogueCast_CUDA) {
         num_shared_mem_tensors++;
       }
     }
-    TORCH_CHECK(
+    NVF_CHECK(
         num_shared_mem_tensors == expected_num_shared_mem_tensors,
         "Number of shared memory tensors doesn't match!",
         "Expected: ",
@@ -4111,7 +4112,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSmemEpilogueCast_CUDA) {
     // check bank conflicts
     ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
     // (0.001, 0.001) passed on local A100 but failed on CI A100
-    TORCH_CHECK(
+    NVF_CHECK(
         cg_outputs[0].allclose(tref, 0.01, 0.01),
         "Result validation failed. Max diff: ",
         (cg_outputs[0] - tref).abs().max());
@@ -4171,7 +4172,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSmemEpilogueRelu_CUDA) {
         num_shared_mem_tensors++;
       }
     }
-    TORCH_CHECK(
+    NVF_CHECK(
         num_shared_mem_tensors == expected_num_shared_mem_tensors,
         "Number of shared memory tensors doesn't match!",
         "Expected: ",
@@ -4199,7 +4200,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSmemEpilogueRelu_CUDA) {
     // check bank conflicts
     ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
     // (0.001, 0.001) passed on local A100 but failed on CI A100
-    TORCH_CHECK(
+    NVF_CHECK(
         cg_outputs[0].allclose(tref, 0.01, 0.01),
         "Result validation failed. Max diff: ",
         (cg_outputs[0] - tref).abs().max());

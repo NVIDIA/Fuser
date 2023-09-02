@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 
+#include <exceptions.h>
 #include <utils.h>
 
 #include <nvToolsExt.h>

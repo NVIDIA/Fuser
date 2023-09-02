@@ -72,7 +72,7 @@ class PipelineBuilder final {
     for (auto& stage_desc : pipeline_->descriptor().stage_descriptors) {
       for (auto val : stage_desc.vals()) {
         if (val->isA<TensorView>()) {
-          TORCH_INTERNAL_ASSERT(
+          NVF_ERROR(
               tv_in_stages.insert(val->as<TensorView>()).second,
               "the TensorView " + val->toString() +
                   " belongs to more than one stage");
@@ -82,7 +82,7 @@ class PipelineBuilder final {
     // Check that each TensorView belongs to at least one stage
     for (auto tv : ir_utils::filterByType<TensorView>(
              pipeline_->originalFusion()->vals())) {
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           tv_in_stages.count(tv),
           "the Val " + tv->toString() + " must be added to a stage");
     }
@@ -152,13 +152,13 @@ class PipelineBuilder final {
         // then add the newly created PipelineVal as an input of the pipeline
         if (isGlobalInput(val)) {
           pipeline_->addInput(p_val);
-          TORCH_INTERNAL_ASSERT(
+          NVF_ERROR(
               stage_desc.mesh.size() == 1,
               "A global input must belong to a stage which mesh is of size 1");
         } else {
           // if the Val is a stage input but not a global input, it must be
           // defined by a "Set" operation
-          TORCH_INTERNAL_ASSERT(
+          NVF_ERROR(
               (val->definition()->isA<LoadStoreOp>()) &&
                   (val->definition()->as<LoadStoreOp>()->opType() ==
                    LoadStoreOpType::Set),
@@ -211,7 +211,7 @@ class PipelineBuilder final {
         for (auto& producer : val->definition()->inputs()) {
           ins.push_back(val_to_pipeline_val_output_of_stage_.at(producer));
         }
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             std::size(ins) == 1 && std::size(outs) == 1,
             "Pipeline Communications must involve one input and one output");
         IrBuilder::create<PipelineCommunication>(

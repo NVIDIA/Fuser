@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 #include <device_lower/lower2device.h>
+#include <exceptions.h>
 #include <executor_params.h>
 #include <executor_utils.h>
 #include <expr_evaluator.h>
@@ -140,7 +141,7 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
       executor_utils::caching::ExecutorCompileTimeInfoCache;
 
   kir::Kernel* kernel() const {
-    TORCH_INTERNAL_ASSERT(lowered_);
+    NVF_ERROR(lowered_);
     return lowered_->kernel();
   }
 
@@ -179,7 +180,7 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
 
   //! Returns the string of the compiled kernel
   std::string kernelString() const {
-    TORCH_INTERNAL_ASSERT(!kernel_code_.empty(), "Kernel code not generated");
+    NVF_ERROR(!kernel_code_.empty(), "Kernel code not generated");
     return kernel_code_;
   }
 
