@@ -63,7 +63,7 @@ std::string disassembleBinary(
     // Write cubin to nvdisasm
     size_t written =
         fwrite(cubin.object_code.data(), 1, cubin.object_code.size(), cubin_fp);
-    NVF_ERROR(written == cubin.size(), err);
+    NVF_ERROR(written == cubin.object_code.size(), err);
     fclose(cubin_fp);
 
     int ch = -1;
