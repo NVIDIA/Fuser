@@ -701,6 +701,14 @@ static constexpr std::array<IdMappingMode, 6> kIdMappingModes = {
     IdMappingMode::PERMISSIVE_RESIZE,
     IdMappingMode::INNERMOST};
 
+// See
+// https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#cache-operators
+// for what each option means.
+enum CacheOperator : int {
+  kCacheAllLevels = 0,
+  kCacheStreaming,
+};
+
 //! Used to annotate the special memory intrinsics that a loadstore op will be
 //!  lowered to.
 //!

@@ -174,12 +174,15 @@ __device__ void loadLocalToGlobal(
 // https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#cache-operators
 // for what each option means.
 enum CacheOperator : int {
-  kCacheAllLevels = 0,  // Default.
+  kCacheAllLevels = 0,
   kCacheStreaming,
 };
 
-template <typename scalar_t, int vec_size, bool is_volatile, CacheOperator
-cache_op=kCacheAllLevels>
+template <
+    typename scalar_t,
+    int vec_size,
+    bool is_volatile,
+    CacheOperator cache_op = kCacheStreaming>
 __device__ void loadGlobalToLocal(
     scalar_t* to,
     typename MaybeVolatile<scalar_t, is_volatile>::type* from) {

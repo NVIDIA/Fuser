@@ -1600,7 +1600,12 @@ class TORCH_CUDA_CU_API LoadStoreOp : public Expr {
  public:
   using Expr::Expr;
 
-  LoadStoreOp(IrBuilderPasskey, LoadStoreOpType op_type, Val* out, Val* in);
+  LoadStoreOp(
+      IrBuilderPasskey,
+      LoadStoreOpType op_type,
+      Val* out,
+      Val* in,
+      CacheOperator cache_op = CacheOperator::kCacheStreaming);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
@@ -1621,6 +1626,10 @@ class TORCH_CUDA_CU_API LoadStoreOp : public Expr {
 
   Val* in() const {
     return input(0);
+  }
+
+  CacheOperator cache_operator() const {
+    return attribute<CacheOperator>(0);
   }
 
   LoadStoreOpType opType() const {
