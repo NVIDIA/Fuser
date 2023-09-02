@@ -177,7 +177,7 @@ class UnionFind {
   }
 
   //! Resize the data-structure to equal or larger size than current
-  virtual void enlarge(size_t new_size) {
+  void enlarge(size_t new_size) {
     TORCH_CHECK(new_size >= size(), "Cannot shrink a UnionFind");
     if (new_size == 0) {
       return;
@@ -232,6 +232,7 @@ class UnionFind {
     //   }
 
     // Get root using const find() which does not do path compression
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
     const auto root = const_cast<const UnionFind<IndexType>*>(this)->find(a);
 
     // Path compression
@@ -259,7 +260,7 @@ class UnionFind {
 
   //! Merge classes of a and b so that they will share a root.
   //! Returns the new root
-  virtual IndexType merge(IndexType a, IndexType b) {
+  IndexType merge(IndexType a, IndexType b) {
     auto root_a = find(a);
     auto root_b = find(b);
     if (root_a == root_b) {
@@ -395,7 +396,7 @@ class UnionFind {
 
   //! Resize to zero losing all merge information without altering reserved
   //! capacity
-  virtual void clear() {
+  void clear() {
     parent_.clear();
     rank_.clear();
   }
