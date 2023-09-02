@@ -393,7 +393,7 @@ void IrContainer::printScalarEquivalences() {
   debug() << "Equivalence classes of scalars:" << std::endl;
   const auto classes = scalar_equality_.computeEquivalenceClasses();
   for (const auto n : c10::irange(classes.size())) {
-    const auto c = classes.at(n);
+    const auto& c = classes.at(n);
     TORCH_INTERNAL_ASSERT(!c.empty());
     const auto root_name = scalar_equality_.find(c.at(0));
     debug() << "  class " << n << std::endl;
