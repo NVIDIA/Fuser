@@ -1529,6 +1529,12 @@ std::unique_ptr<Fusion> SegmentedFusion::makeFusion(SegmentedGroup* sg) {
   // new Vals so that they can be bound to the segment inputs.
   convertInputRfactorsToRoots(fusion_segment.get());
 
+  // It is possible to lose track of scalars in some segments, even though they
+  // should be computable in the complete Fusion. The following helps to avoid
+  // these scenarios by replacing Vals in this segment with others that are
+  // computable, whenever possible.
+  fusion_segment->replaceUncomputableScalars();
+
   return fusion_segment;
 }
 
