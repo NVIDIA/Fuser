@@ -31,29 +31,29 @@ class ForwardTraverseFromRFactorToAlloc {
     auto inner = split->inner();
     auto outer = split->outer();
     auto in_it = active_ids_.find(in);
-    // TORCH_INTERNAL_ASSERT(in_it != active_ids_.end())
+    // NVF_ERROR(in_it != active_ids_.end())
     if (in_it == active_ids_.end()) {
       // TODO: see [Allocation domain on both side of rFactor]
       return;
     }
     auto [in_size, in_stride] = in_it->second;
     auto factor = ee_.evaluate(split->factor()).as<int64_t>();
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         in_size % factor == 0,
         "The rFactor domain and allocation domain of fusion input/output ",
         "tensors must be a one-to-one map, therefore, ",
         "non-divisible split is not allowed in allocation domain");
-    TORCH_INTERNAL_ASSERT(active_ids_.erase(in) == 1);
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(active_ids_.erase(in) == 1);
+    NVF_ERROR(
         active_ids_
             .emplace(inner, std::pair<int64_t, int64_t>{factor, in_stride})
             .second);
-    TORCH_INTERNAL_ASSERT(active_ids_
-                              .emplace(
-                                  outer,
-                                  std::pair<int64_t, int64_t>{
-                                      in_size / factor, in_stride * factor})
-                              .second);
+    NVF_ERROR(active_ids_
+                  .emplace(
+                      outer,
+                      std::pair<int64_t, int64_t>{
+                          in_size / factor, in_stride * factor})
+                  .second);
   }
 
   void handle(Merge* merge) {
@@ -62,27 +62,27 @@ class ForwardTraverseFromRFactorToAlloc {
     auto out = merge->out();
     auto inner_it = active_ids_.find(inner);
     auto outer_it = active_ids_.find(outer);
-    // TORCH_INTERNAL_ASSERT(inner_it != active_ids_.end())
-    // TORCH_INTERNAL_ASSERT(outer_it != active_ids_.end())
+    // NVF_ERROR(inner_it != active_ids_.end())
+    // NVF_ERROR(outer_it != active_ids_.end())
     if (inner_it == active_ids_.end() || outer_it == active_ids_.end()) {
       // TODO: see [Allocation domain on both side of rFactor]
       return;
     }
     auto [inner_size, inner_stride] = inner_it->second;
     auto [outer_size, outer_stride] = outer_it->second;
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         inner_stride * inner_size == outer_stride,
         "The rFactor domain and allocation domain of fusion input/output ",
         "tensors must be a one-to-one map, therefore, ",
         "merging of discontiguous dimensions is not allowed in allocation domain");
-    TORCH_INTERNAL_ASSERT(active_ids_.erase(inner) == 1);
-    TORCH_INTERNAL_ASSERT(active_ids_.erase(outer) == 1);
-    TORCH_INTERNAL_ASSERT(active_ids_
-                              .emplace(
-                                  out,
-                                  std::pair<int64_t, int64_t>{
-                                      inner_size * outer_size, inner_stride})
-                              .second);
+    NVF_ERROR(active_ids_.erase(inner) == 1);
+    NVF_ERROR(active_ids_.erase(outer) == 1);
+    NVF_ERROR(active_ids_
+                  .emplace(
+                      out,
+                      std::pair<int64_t, int64_t>{
+                          inner_size * outer_size, inner_stride})
+                  .second);
   }
 
   void handle(Expr* expr) {
@@ -91,8 +91,7 @@ class ForwardTraverseFromRFactorToAlloc {
     } else if (auto merge = dynamic_cast<Merge*>(expr)) {
       handle(merge);
     } else {
-      TORCH_INTERNAL_ASSERT(
-          false, "Unsupported transormation in allocation domain");
+      NVF_ERROR(false, "Unsupported transormation in allocation domain");
     }
   }
 
@@ -128,27 +127,27 @@ class BackwardTraverseFromRFactorToAlloc {
     auto outer = split->outer();
     auto inner_it = active_ids_.find(inner);
     auto outer_it = active_ids_.find(outer);
-    // TORCH_INTERNAL_ASSERT(inner_it != active_ids_.end())
-    // TORCH_INTERNAL_ASSERT(outer_it != active_ids_.end())
+    // NVF_ERROR(inner_it != active_ids_.end())
+    // NVF_ERROR(outer_it != active_ids_.end())
     if (inner_it == active_ids_.end() || outer_it == active_ids_.end()) {
       // TODO: see [Allocation domain on both side of rFactor]
       return;
     }
     auto [inner_size, inner_stride] = inner_it->second;
     auto [outer_size, outer_stride] = outer_it->second;
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         inner_stride * inner_size == outer_stride,
         "The rFactor domain and allocation domain of fusion input/output ",
         "tensors must be a one-to-one map, therefore, ",
         "splitting one dimension into discontiguous dimensions is not allowed in allocation domain");
-    TORCH_INTERNAL_ASSERT(active_ids_.erase(inner) == 1);
-    TORCH_INTERNAL_ASSERT(active_ids_.erase(outer) == 1);
-    TORCH_INTERNAL_ASSERT(active_ids_
-                              .emplace(
-                                  in,
-                                  std::pair<int64_t, int64_t>{
-                                      inner_size * outer_size, inner_stride})
-                              .second);
+    NVF_ERROR(active_ids_.erase(inner) == 1);
+    NVF_ERROR(active_ids_.erase(outer) == 1);
+    NVF_ERROR(active_ids_
+                  .emplace(
+                      in,
+                      std::pair<int64_t, int64_t>{
+                          inner_size * outer_size, inner_stride})
+                  .second);
   }
 
   void handle(Merge* merge) {
@@ -157,28 +156,28 @@ class BackwardTraverseFromRFactorToAlloc {
     auto out = merge->out();
     auto factor = ee_.evaluate(inner->extent()).as<int64_t>();
     auto out_it = active_ids_.find(out);
-    // TORCH_INTERNAL_ASSERT(out_it != active_ids_.end())
+    // NVF_ERROR(out_it != active_ids_.end())
     if (out_it == active_ids_.end()) {
       // TODO: see [Allocation domain on both side of rFactor]
       return;
     }
     auto [out_size, out_stride] = out_it->second;
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         out_size % factor == 0,
         "The rFactor domain and allocation domain of fusion input/output ",
         "tensors must be a one-to-one map, therefore, ",
         "the size of the output must divisible by the size of inner dimension");
-    TORCH_INTERNAL_ASSERT(active_ids_.erase(out) == 1);
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(active_ids_.erase(out) == 1);
+    NVF_ERROR(
         active_ids_
             .emplace(inner, std::pair<int64_t, int64_t>{factor, out_stride})
             .second);
-    TORCH_INTERNAL_ASSERT(active_ids_
-                              .emplace(
-                                  outer,
-                                  std::pair<int64_t, int64_t>{
-                                      out_size / factor, out_stride * factor})
-                              .second);
+    NVF_ERROR(active_ids_
+                  .emplace(
+                      outer,
+                      std::pair<int64_t, int64_t>{
+                          out_size / factor, out_stride * factor})
+                  .second);
   }
 
   void handle(Expr* expr) {
@@ -187,8 +186,7 @@ class BackwardTraverseFromRFactorToAlloc {
     } else if (auto merge = dynamic_cast<Merge*>(expr)) {
       handle(merge);
     } else {
-      TORCH_INTERNAL_ASSERT(
-          false, "Unsupported transormation in allocation domain");
+      NVF_ERROR(false, "Unsupported transormation in allocation domain");
     }
   }
 
@@ -244,7 +242,7 @@ inferAndValidateAllocationSizesAndStrides(
 
   // active IDs and their shape and stride
   std::unordered_map<IterDomain*, std::pair<int64_t, int64_t>> active_ids;
-  TORCH_INTERNAL_ASSERT((int64_t)rfactor.size() == tensor.dim());
+  NVF_ERROR((int64_t)rfactor.size() == tensor.dim());
   for (int64_t i : c10::irange((int64_t)rfactor.size())) {
     auto rf_id = rfactor.at(i);
     active_ids[rf_id] = {tensor.size(i), tensor.stride(i)};
@@ -276,14 +274,14 @@ inferAndValidateAllocationSizesAndStrides(
     }
     auto size = sizes.at(i);
     auto stride = strides.at(i);
-    TORCH_INTERNAL_ASSERT(!contiguity.empty());
+    NVF_ERROR(!contiguity.empty());
     auto last_contiguity = contiguity.back();
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         last_contiguity.has_value(),
         "I don't think this check makes sense, but unfortunately ",
         "clang-tidy is not smart enough to infer from the context that this is always true.");
     if (*last_contiguity) {
-      TORCH_CHECK(
+      NVF_CHECK(
           stride == contiguous_stride,
           "Stride mismatch with contiguity info. ",
           "tv: ",
@@ -300,14 +298,14 @@ inferAndValidateAllocationSizesAndStrides(
     contiguous_stride = stride * size;
     contiguity.pop_back();
   }
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       contiguity.empty(),
       "The size of contiguity mismatch with the dimensionality of allocation domain");
   // Validate that for expanded broadcast, the stride must be zero.
   for (int64_t i : c10::irange((int64_t)strides.size())) {
     if (auto alloc_id = alloc.at(i); alloc_id->hasExpandedExtent()) {
       auto stride = strides.at(i);
-      TORCH_CHECK(
+      NVF_CHECK(
           stride == 0,
           "Expecting an expanded dimension on dimension ",
           i,
@@ -323,15 +321,15 @@ inferAndValidateAllocationSizesAndStrides(
 std::vector<PolymorphicValue> GetMetaData::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
-  TORCH_INTERNAL_ASSERT(inputs.size() == 1, "GetMetaData expects 1 input");
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(inputs.size() == 1, "GetMetaData expects 1 input");
+  NVF_ERROR(
       in()->isA<TensorView>(),
       "Currently, GetMetaData only supports TensorView");
   TensorView* tv = in()->as<TensorView>();
 
   const at::Tensor& input = inputs.at(0).as<at::Tensor>();
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       input.is_cuda() || input.is_meta(),
       "GetMetaData expects a CUDA tensor as input, but got undefined tensor");
 

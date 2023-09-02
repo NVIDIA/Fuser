@@ -38,7 +38,7 @@ bool PreferredLaunchConfig::setBdimx(int bdimx, bool dry_run) {
     return false;
   }
 
-  TORCH_INTERNAL_ASSERT(block_size % bdimx == 0, "Invalid bdimx: ", bdimx);
+  NVF_ERROR(block_size % bdimx == 0, "Invalid bdimx: ", bdimx);
   int bdimy = block_size / bdimx;
 
   if (!dry_run) {
@@ -187,7 +187,7 @@ bool checkIfWithinRegisterSpace(
   auto pb_factor =
       getMinPersistentBufferSize(total_reduction_numel, bdimy, gdimy);
 
-  TORCH_INTERNAL_ASSERT(pb_factor > 0);
+  NVF_ERROR(pb_factor > 0);
 
   const auto available_reg_count = getAvailableRegisterCount(pb_factor);
 
@@ -498,7 +498,7 @@ std::optional<GridOuterNormalizationParams> getGridOuterNormalizationParams(
 
   // No valid config found. Return launch_cfg, which should be marked
   // as invalid
-  TORCH_INTERNAL_ASSERT(launch_cfg.isInvalid());
+  NVF_ERROR(launch_cfg.isInvalid());
   return std::nullopt;
 }
 
@@ -608,8 +608,7 @@ int64_t partialReductionBufferSize(
         continue;
       }
       auto id_size = runtime_info.expressionEvaluator().evaluate(id->extent());
-      TORCH_INTERNAL_ASSERT(
-          id_size.hasValue(), "Could not infer persistent buffer size.");
+      NVF_ERROR(id_size.hasValue(), "Could not infer persistent buffer size.");
       if (buffer_size == -1) {
         buffer_size = id_size.as<int64_t>();
       } else {

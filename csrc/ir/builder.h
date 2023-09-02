@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 
+#include <exceptions.h>
 #include <ir/all_nodes.h>
 #include <ir/builder_passkey.h>
 #include <utils.h>
@@ -28,8 +29,7 @@ class TORCH_CUDA_CU_API IrBuilder {
   static T* create(Args&&... args) {
     auto container = FusionGuard::getCurFusion();
     // return create<T>(container, std::forward<Args>(args)...);
-    TORCH_INTERNAL_ASSERT(
-        container != nullptr, "Need an active container to build IR.");
+    NVF_ERROR(container != nullptr, "Need an active container to build IR.");
     T* node = new T(IrBuilderPasskey(container), std::forward<Args>(args)...);
 
     container->registerStmt(IrBuilderPasskey(container), node);
@@ -41,8 +41,7 @@ class TORCH_CUDA_CU_API IrBuilder {
   //! constructor and registering with the container
   template <class T, class... Args>
   static T* create(IrContainer* container, Args&&... args) {
-    TORCH_INTERNAL_ASSERT(
-        container != nullptr, "Need an active container to build IR.");
+    NVF_ERROR(container != nullptr, "Need an active container to build IR.");
     T* node = new T(IrBuilderPasskey(container), std::forward<Args>(args)...);
 
     container->registerStmt(IrBuilderPasskey(container), node);
@@ -104,8 +103,7 @@ class TORCH_CUDA_CU_API IrBuilder {
   template <typename T>
   static Val* arrayExpr(std::vector<T> members) {
     if constexpr (std::is_same_v<T, Val*>) {
-      TORCH_INTERNAL_ASSERT(
-          !members.empty(), "Cannot create an array with no members.");
+      NVF_ERROR(!members.empty(), "Cannot create an array with no members.");
       auto in_dtype = members.at(0)->dtype();
       auto out_dtype =
           ArrayType{std::make_shared<DataType>(in_dtype), members.size()};

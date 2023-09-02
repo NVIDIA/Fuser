@@ -8,6 +8,7 @@
 #pragma once
 
 #include <c10/macros/Export.h>
+#include <exceptions.h>
 
 #include <disjoint_set.h>
 #include <ir/all_nodes.h>

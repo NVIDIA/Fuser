@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 
+#include <exceptions.h>
 #include <ir/all_nodes.h>
 #include <ir/base_nodes.h>
 #include <parallel_type_bitmap.h>
@@ -72,14 +73,14 @@ class TORCH_CUDA_CU_API Predicate final : public Val {
   }
 
   const Expr* expr() const {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         ptype_ != PredicateType::Unswitch &&
         ptype_ != PredicateType::Vectorize && ptype_ != PredicateType::Manual);
     return expr_;
   }
 
   Val* thread_pred() const {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         ptype_ == PredicateType::Inline ||
         ptype_ == PredicateType::Misaligned || ptype_ == PredicateType::Shift ||
         ptype_ == PredicateType::Padding ||
@@ -88,7 +89,7 @@ class TORCH_CUDA_CU_API Predicate final : public Val {
   }
 
   ForLoop* unrolled_loop() const {
-    TORCH_INTERNAL_ASSERT(ptype_ == PredicateType::Unswitch);
+    NVF_ERROR(ptype_ == PredicateType::Unswitch);
     return unrolled_loop_;
   }
 
@@ -97,14 +98,14 @@ class TORCH_CUDA_CU_API Predicate final : public Val {
   }
 
   Val* value() const {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         value_ != nullptr,
         "The conditional expression for this Predicate is invalid.");
     return value_;
   }
 
   void setValue(Val* value) {
-    TORCH_INTERNAL_ASSERT(value != nullptr, "The Bool expression is invalid.");
+    NVF_ERROR(value != nullptr, "The Bool expression is invalid.");
     value_ = value;
   }
 
@@ -143,7 +144,7 @@ class TORCH_CUDA_CU_API TensorIndex final : public Val {
   }
 
   TensorView* view() const {
-    TORCH_INTERNAL_ASSERT(view_ != nullptr);
+    NVF_ERROR(view_ != nullptr);
     return const_cast<TensorView*>(view_); // NOLINT
   }
 
@@ -231,11 +232,11 @@ class TORCH_CUDA_CU_API Allocate final : public Expr {
   // memory array. The addr argument should be a scalar expression describing an
   // aligned address in bytes.
   void setAddress(Val* addr) {
-    TORCH_CHECK(
+    NVF_CHECK(
         memoryType() == MemoryType::Shared,
         "Allocation address may only be set for shared memory allocations. Memory type is ",
         memoryType());
-    TORCH_CHECK(
+    NVF_CHECK(
         address() == nullptr,
         "Attempted to set address twice for allocation ",
         toString());
@@ -445,7 +446,7 @@ class TORCH_CUDA_CU_API Scope {
   }
 
   bool operator==(const Scope&) const {
-    TORCH_INTERNAL_ASSERT(false, "Should not reach here");
+    NVF_ERROR(false, "Should not reach here");
   }
 
   // Insert expr before pos

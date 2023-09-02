@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 
+#include <exceptions.h>
 #include <iter_visitor.h>
 #include <root_domain_map.h>
 

@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 
+#include <exceptions.h>
 #include <ir/all_nodes.h>
 #include <type.h>
 
@@ -55,7 +56,7 @@ class FilterIterator {
   }
 
   bool operator==(const FilterIterator& other) const {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         end_ == other.end_,
         "Comparing two FilteredViews that originate from different containers");
     return current_ == other.current_;
@@ -470,7 +471,7 @@ bool isAlignedScopeExpr(const Expr* expr);
 //! then throw an error.
 inline TensorView* getSoleProducerTv(const TensorView* tv) {
   auto producers = producerTvsOf(tv);
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       producers.size() == 1,
       "Expected only one producer of ",
       tv->toString(),

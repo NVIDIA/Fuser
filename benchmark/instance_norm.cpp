@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <csrc/exceptions.h>
 #include <device_lower/lower2device.h>
 #include <executor.h>
 #include <fusion.h>
@@ -25,7 +26,7 @@ static void setupInstanceNorm(
     Fusion* fusion,
     DataType dtype,
     bool channels_last_3d = false) {
-  TORCH_INTERNAL_ASSERT(dtype == DataType::Float || dtype == DataType::Half);
+  NVF_ERROR(dtype == DataType::Float || dtype == DataType::Half);
 
   FusionGuard fg(fusion);
 
@@ -83,7 +84,7 @@ static void NvFuserScheduler_InstanceNorm(
     FusionExecutorCache* fusion_executor_cache,
     DataType dtype,
     bool channels_last_3d = false) {
-  TORCH_INTERNAL_ASSERT(dtype == DataType::Float || dtype == DataType::Half);
+  NVF_ERROR(dtype == DataType::Float || dtype == DataType::Half);
 
   std::vector<int64_t> input_shape{
       benchmark_state.range(0),
@@ -130,7 +131,7 @@ static void NvFuserScheduler_InstanceNorm(
 // ------------------------------------------------------------------------------
 // performance of https://github.com/NVIDIA/Fuser/issues/443
 static void setupInstanceNormNHWC(Fusion* fusion, DataType dtype) {
-  TORCH_INTERNAL_ASSERT(dtype == DataType::Float || dtype == DataType::Half);
+  NVF_ERROR(dtype == DataType::Float || dtype == DataType::Half);
   FusionGuard fg(fusion);
 
   auto input = makeContigTensor(4, dtype);
@@ -166,7 +167,7 @@ static void NvFuserScheduler_InstanceNormNHWC(
     benchmark::State& benchmark_state,
     FusionExecutorCache* fusion_executor_cache,
     DataType dtype) {
-  TORCH_INTERNAL_ASSERT(dtype == DataType::Float || dtype == DataType::Half);
+  NVF_ERROR(dtype == DataType::Float || dtype == DataType::Half);
 
   std::vector<int64_t> input_shape{
       benchmark_state.range(0),
@@ -200,7 +201,7 @@ static void Baseline_InstanceNorm(
     benchmark::State& benchmark_state,
     DataType dtype,
     bool channels_last_3d = false) {
-  TORCH_INTERNAL_ASSERT(dtype == DataType::Float || dtype == DataType::Half);
+  NVF_ERROR(dtype == DataType::Float || dtype == DataType::Half);
 
   std::vector<int64_t> input_shape{
       benchmark_state.range(0),

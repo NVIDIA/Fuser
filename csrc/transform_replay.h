@@ -9,6 +9,7 @@
 
 #include <c10/macros/Export.h>
 #include <c10/util/Exception.h>
+#include <exceptions.h>
 #include <ir/internal_nodes.h>
 #include <maxinfo_propagator.h>
 

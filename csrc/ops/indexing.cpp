@@ -23,7 +23,7 @@ namespace nvfuser {
 
 TensorView* select(TensorView* tv, int dim, Val* index) {
   auto dom = TensorDomain::noReductions(tv->getMaybeRFactorDomain());
-  TORCH_CHECK(!dom.empty(), "select can not be applied to 0d tensor.");
+  NVF_CHECK(!dom.empty(), "select can not be applied to 0d tensor.");
 
   std::vector<IterDomain*> new_root;
   new_root.reserve(dom.size() - 1);
@@ -32,7 +32,7 @@ TensorView* select(TensorView* tv, int dim, Val* index) {
     dim += (int)dom.size();
   }
 
-  TORCH_CHECK(
+  NVF_CHECK(
       dim >= 0 && dim < (int)dom.size(),
       "Select on invalid axis, received: ",
       dim,
@@ -56,16 +56,15 @@ TensorView* select(TensorView* tv, int dim, Val* index) {
 // index_select
 TensorView* index_select(TensorView* lookup_tv, int dim, TensorView* index_tv) {
   DataType dtype = lookup_tv->getDataType().value();
-  TORCH_CHECK(
+  NVF_CHECK(
       dtype != DataType::Null, "Invalid datatype provided for new value.");
   auto lookup_dom =
       TensorDomain::noReductions(lookup_tv->getMaybeRFactorDomain());
   auto index_dom =
       TensorDomain::noReductions(index_tv->getMaybeRFactorDomain());
   size_t n_dims = lookup_dom.size();
-  TORCH_CHECK(n_dims > 0, "index_select can not be applied to 0d tensor.");
-  TORCH_CHECK(
-      index_dom.size() <= 1, "index array must be 1d or scalar tensor.");
+  NVF_CHECK(n_dims > 0, "index_select can not be applied to 0d tensor.");
+  NVF_CHECK(index_dom.size() <= 1, "index array must be 1d or scalar tensor.");
 
   if (index_dom.empty()) {
     auto select_tv = select(lookup_tv, dim, index_tv);
@@ -78,7 +77,7 @@ TensorView* index_select(TensorView* lookup_tv, int dim, TensorView* index_tv) {
 
   std::vector<IterDomain*> new_root;
   new_root.reserve(lookup_dom.size() - 1);
-  TORCH_CHECK(
+  NVF_CHECK(
       dim >= 0 && dim < (int)lookup_dom.size(),
       "index_select on invalid axis, received: ",
       dim,
@@ -109,16 +108,16 @@ TensorView* index_select(TensorView* lookup_tv, int dim, TensorView* index_tv) {
 TensorView* torch_gather(TensorView* inp, int dim, TensorView* index) {
   auto inp_domain = TensorDomain::noReductions(inp->getMaybeRFactorDomain());
   auto idx_domain = TensorDomain::noReductions(index->getMaybeRFactorDomain());
-  TORCH_CHECK(
+  NVF_CHECK(
       !inp_domain.empty(), "torch.gather can not be applied to 0d tensor.");
-  TORCH_CHECK(
+  NVF_CHECK(
       idx_domain.size() == inp_domain.size(),
       "the input and index tensor must have the same dimensions for torch.gather");
 
   if (dim < 0) {
     dim += (int)idx_domain.size();
   }
-  TORCH_CHECK(
+  NVF_CHECK(
       dim >= 0 && dim < (int)inp_domain.size(),
       "torch.gather on invalid axis, received: ",
       dim,
@@ -157,14 +156,14 @@ TensorView* scatterOp(
   auto idx_dom = TensorDomain::noReductions(index->getMaybeRFactorDomain());
   auto src_dom = TensorDomain::noReductions(src->getMaybeRFactorDomain());
 
-  TORCH_CHECK(!self_dom.empty(), "scatter can not be applied to 0d tensor.");
-  TORCH_CHECK(
+  NVF_CHECK(!self_dom.empty(), "scatter can not be applied to 0d tensor.");
+  NVF_CHECK(
       self_dom.size() == idx_dom.size() && self_dom.size() == src_dom.size(),
       "self, index and src tensor should all have the same number of dimensions in scatter like ops.");
   if (dim < 0) {
     dim += (int)self_dom.size();
   }
-  TORCH_CHECK(
+  NVF_CHECK(
       dim >= 0 && dim < (int)self_dom.size(),
       "Scatter on invalid axis, received: ",
       dim,
@@ -207,9 +206,9 @@ TensorView* take_along_axis(TensorView* inp, TensorView* index, int64_t dim) {
   const auto idx_domain =
       TensorDomain::noReductions(index->getMaybeRFactorDomain());
 
-  TORCH_CHECK(
+  NVF_CHECK(
       !inp_domain.empty(), "take_along_axis can not be applied to 0d tensor.");
-  TORCH_CHECK(
+  NVF_CHECK(
       idx_domain.size() == inp_domain.size(),
       "The input and index tensor must have the same dimensions for take_along_axis");
 
@@ -217,7 +216,7 @@ TensorView* take_along_axis(TensorView* inp, TensorView* index, int64_t dim) {
     dim += (int)idx_domain.size();
   }
 
-  TORCH_CHECK(
+  NVF_CHECK(
       dim >= 0 && dim < (int)inp_domain.size(),
       "take_along_axis on invalid axis, received: ",
       dim,
@@ -231,21 +230,21 @@ TensorView* take_along_axis(TensorView* inp, TensorView* index, int64_t dim) {
     auto inp_id = inp_domain.at(i);
     auto idx_id = idx_domain.at(i);
 
-    TORCH_CHECK(
+    NVF_CHECK(
         !inp_id->maybePartial(),
         "Partial domain not supported: ",
         inp_id->toString());
-    TORCH_CHECK(
+    NVF_CHECK(
         !idx_id->maybePartial(),
         "Partial domain not supported: ",
         idx_id->toString());
 
-    TORCH_CHECK(
+    NVF_CHECK(
         inp_id->getIterType() != IterType::Iteration ||
             inp_id->getIterType() != IterType::Broadcast,
         "Unsupported IterType of an input domian: ",
         inp_id->toString());
-    TORCH_CHECK(
+    NVF_CHECK(
         idx_id->getIterType() != IterType::Iteration ||
             idx_id->getIterType() != IterType::Broadcast,
         "Unsupported IterType of an index domian: ",

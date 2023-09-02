@@ -9,6 +9,7 @@
 
 #include <compute_at_map.h>
 #include <device_lower/analysis/divisible_split.h>
+#include <exceptions.h>
 #include <fusion.h>
 #include <ir/all_nodes.h>
 #include <maxinfo_propagator.h>
@@ -160,7 +161,7 @@ class TORCH_CUDA_CU_API ContiguousInnerDimensionsMapper
   }
 
   const std::vector<IterDomain*>& mappedRootIds(TensorView* tv) const {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         tv_infos_.find(tv) != tv_infos_.end(),
         "TensorView not found: ",
         tv->toString());
@@ -169,7 +170,7 @@ class TORCH_CUDA_CU_API ContiguousInnerDimensionsMapper
   }
 
   const std::vector<IterDomain*>& mappedRFactorIds(TensorView* tv) const {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         tv_infos_.find(tv) != tv_infos_.end(),
         "TensorView not found: ",
         tv->toString());
@@ -179,7 +180,7 @@ class TORCH_CUDA_CU_API ContiguousInnerDimensionsMapper
 
   Val* getProjectedExtent(IterDomain* id) const {
     if (projected_extent_.find(id) == projected_extent_.end()) {
-      TORCH_INTERNAL_ASSERT(false, "Not projected: ", id->toString());
+      NVF_ERROR(false, "Not projected: ", id->toString());
     }
     return projected_extent_.at(id);
   }
@@ -236,7 +237,7 @@ class TORCH_CUDA_CU_API ContiguousInnerDimensionsMapper
       return;
     }
 
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         projected_extent_.count(id) == 0,
         "Already registered: ",
         id->toString(),
