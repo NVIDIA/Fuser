@@ -13,6 +13,7 @@
 #include <ir/utils.h>
 #include <maxinfo_propagator.h>
 #include <ops/arith.h>
+#include <scheduler/debug_utils.h>
 #include <scheduler/registry.h>
 #include <scheduler/utils.h>
 #include <transform_replay.h>
@@ -864,6 +865,32 @@ std::vector<TensorView*> projectPersistentBuffers(
     const bool project_to_inputs) {
   PersistentBufferProjector pb_projector(fusion, project_to_inputs);
   return pb_projector.project();
+}
+
+ReductionType getReductionType(const std::vector<TensorView*>& reduction_tvs) {
+  bool is_inner_reduction = false;
+  bool is_outer_reduction = false;
+  for (auto tv : reduction_tvs) {
+    if (scheduler_utils::isFastestDimReduction(tv)) {
+      is_inner_reduction = true;
+    } else {
+      is_outer_reduction = true;
+    }
+  }
+  if (is_inner_reduction && is_outer_reduction) {
+    return ReductionType::InnerOuter;
+  } else if (is_inner_reduction) {
+    return ReductionType::Inner;
+  } else if (is_outer_reduction) {
+    return ReductionType::Outer;
+  } else {
+    return ReductionType::None;
+  }
+}
+
+ReductionType getReductionType(Fusion* fusion) {
+  const auto& reduction_tvs = scheduler_utils::getReductionTvs(fusion);
+  return getReductionType(reduction_tvs);
 }
 
 } // namespace reduction_scheduler_utils
