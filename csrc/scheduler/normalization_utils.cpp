@@ -721,6 +721,8 @@ getOptionalInnerOuterPersistentBufferBatches(
   }
 }
 
+//! If the fusion has both inner and outer reductions, use the first inner
+//! reduction tv as the reference tv, otherwise use the first reduction tv.
 TensorView* getReferenceReductionTv(
     const std::vector<TensorView*>& reduction_tvs) {
   TensorView* first_inner_tv = nullptr;
@@ -739,7 +741,7 @@ TensorView* getReferenceReductionTv(
     }
   }
 
-  return reduction_tvs[0];
+  return reduction_tvs.at(0);
 }
 
 } // namespace normalization_scheduler_utils
