@@ -1340,8 +1340,7 @@ std::shared_ptr<ReductionParams> getPersistentHeuristics(
 
   NVF_ERROR(ref_red_tv != nullptr, "Reduction TensorView wasn't found.");
 
-  NVF_ERROR(
-      ref_red_tv->hasReduction(), "TensorView doesn't have a reduction.");
+  NVF_ERROR(ref_red_tv->hasReduction(), "TensorView doesn't have a reduction.");
   const auto red_expr = ref_red_tv->definition();
 
   NVF_ERROR(
