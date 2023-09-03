@@ -8,6 +8,7 @@
 #pragma once
 
 #include <c10/macros/Export.h>
+#include <exceptions.h>
 
 #include <ir/base_nodes.h>
 #include <union_find.h>
@@ -49,7 +50,7 @@ class TORCH_CUDA_CU_API IrContainer : public PolymorphicBase {
   bool inContainer(const Statement* stmt) const;
 
   void assertInContainer(const Statement* stmt, const std::string& msg) const {
-    TORCH_CHECK(
+    NVF_CHECK(
         inContainer(stmt), msg, " it was not found in the active container.");
   }
 

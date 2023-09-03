@@ -9,6 +9,7 @@
 #pragma once
 
 #include <c10/core/DeviceType.h>
+#include <exceptions.h>
 #include <multidevice/communicator.h>
 #include <multidevice/pipeline.h>
 #include <multidevice/pipeline_ir.h>

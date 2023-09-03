@@ -86,7 +86,7 @@ std::pair<Val*, Val*> dispatchSwizzle(
     case Swizzle2DType::CyclicShift:
       return swizzles::CyclicShift(x, y, maybe_size_x);
     default:
-      TORCH_INTERNAL_ASSERT(false, "Unsupported swizzle type");
+      NVF_ERROR(false, "Unsupported swizzle type");
   }
 }
 
@@ -104,7 +104,7 @@ std::pair<Val*, Val*> dispatchUnSwizzle(
     case Swizzle2DType::CyclicShift:
       return swizzles::unCyclicShift(x, y, maybe_size_x);
     default:
-      TORCH_INTERNAL_ASSERT(false, "Unsupported swizzle type");
+      NVF_ERROR(false, "Unsupported swizzle type");
   }
 }
 

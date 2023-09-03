@@ -9,6 +9,7 @@
 
 #include <c10/macros/Export.h>
 #include <dispatch.h>
+#include <exceptions.h>
 #include <ir/builder.h>
 
 #include <tuple>
@@ -134,11 +135,11 @@ class TORCH_CUDA_CU_API RecomputeTv : private IrCloner {
 //! Clone an IR node, forwarding the arguments to the IrCloner constructor.
 template <class T>
 T* IrBuilder::clone(const T* src, IrCloner* ir_cloner) {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       ir_cloner != nullptr,
       "Cannot use create when a cloner object is set. Use clone.");
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       ir_cloner->container() != nullptr,
       "Cloner doesn't have a valid container to store cloned object.");
 

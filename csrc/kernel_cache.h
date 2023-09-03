@@ -9,6 +9,7 @@
 
 #include <dynamic_transform.h>
 #include <evaluator_common.h>
+#include <exceptions.h>
 #include <executor.h>
 #include <fusion.h>
 #include <fusion_segmenter.h>
@@ -129,7 +130,7 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
       return PrimDataType::Int;
     }
     auto index_type = schedulers().at(0).get()->params()->cparams.index_type;
-    TORCH_INTERNAL_ASSERT(index_type.has_value());
+    NVF_ERROR(index_type.has_value());
     return index_type.value();
   }
 
@@ -198,8 +199,7 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
   //! TODO: have a interface for grabbing all recent logs. Need to put a buffer
   //! space for recent logs
   ExecutorLog getMostRecentExecutorLog() {
-    TORCH_INTERNAL_ASSERT(
-        profiling_, "Executor log is only produced in profiling mode");
+    NVF_ERROR(profiling_, "Executor log is only produced in profiling mode");
     return most_recent_executor_log_;
   }
 
@@ -556,7 +556,7 @@ class TORCH_CUDA_CU_API FusionExecutorCache {
   //  to capture runtime profiling info. We also need to define
   //  a suitable profiling window / buffer size.
   ExecutorLog getMostRecentExecutorInfo() {
-    TORCH_INTERNAL_ASSERT(most_recent_runtime_ != nullptr);
+    NVF_ERROR(most_recent_runtime_ != nullptr);
     return most_recent_runtime_->getMostRecentExecutorLog();
   }
 
@@ -634,7 +634,7 @@ class TORCH_CUDA_CU_API FusionExecutorCache {
   //! be zero if the measurement is not enabled
   float getMostRecentKernelTimeMs() const {
     auto rt = getMostRecentKernelRuntime();
-    TORCH_INTERNAL_ASSERT(rt != nullptr);
+    NVF_ERROR(rt != nullptr);
     return rt->kernelTimeMs();
   }
 

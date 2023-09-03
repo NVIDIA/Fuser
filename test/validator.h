@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 
+#include <csrc/exceptions.h>
 #include <device_lower/utils.h>
 #include <executor_utils.h>
 #include <expr_evaluator.h>
@@ -175,7 +176,7 @@ std::pair<double, double> getTolerance(
     case DataType::Bool:
       return {0.0, 0.0};
     default:
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           false, "Do not have tolerance computation for type ", dtype, ".");
   }
 }
@@ -223,9 +224,8 @@ class ReductionSizeMapper : private IterVisitor {
     int64_t reduction_elements = 1;
     for (auto id : tv->getMaybeRFactorDomain()) {
       if (id->isReduction()) {
-        auto inferred_extent =
-            expr_eval_.evaluate(id->getMaybeExpandedExtent());
-        TORCH_INTERNAL_ASSERT(
+        auto inferred_extent = expr_eval_.evaluate(id->getMaybeExpandedExtent());
+        NVF_ERROR(
             inferred_extent.hasValue(),
             "Couldn't figure out what the dimensions of a tensorview is in evaluation for validation. ",
             id,
@@ -297,7 +297,7 @@ ExpressionEvaluator bindInputsAndLaunchParams(
 
       if (inferred_extent.hasValue()) {
         // This value could have been inferred, make sure it was set right.
-        TORCH_CHECK(
+        NVF_CHECK(
             inferred_extent == launch_constraints.getDim(p_type) ||
                 launch_constraints.getRawVal(p_type) == -1,
             "inferred that ",
@@ -350,25 +350,24 @@ void testValidate(
     }
   }
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       fusion_outputs.size() == aten_outputs.size() &&
           aten_outputs.size() ==
               fusion->outputs().size() - output_alias_indices.size(),
       "Number of outputs don't match.");
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       fusion->inputs().size() == aten_inputs.size(),
       "Number of inputs don't match.");
 
   for (size_t i = 0; i < fusion->inputs().size(); i++) {
     if (fusion->inputs()[i]->isA<TensorView>()) {
-      TORCH_INTERNAL_ASSERT(
-          aten_inputs[i].isTensor(), "Mismatch of tensor inputs.");
+      NVF_ERROR(aten_inputs[i].isTensor(), "Mismatch of tensor inputs.");
 
       auto fusion_input_tv = fusion->inputs()[i]->as<TensorView>();
       auto at_tensor = aten_inputs[i].toTensor();
 
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           at_tensor.dim() ==
               static_cast<int64_t>(TensorDomain::noReductions(
                                        fusion_input_tv->getMaybeRFactorDomain())
@@ -378,7 +377,7 @@ void testValidate(
   }
 
   for (size_t i = 0, j = 0; i < fusion->outputs().size(); i++) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         fusion->outputs()[i]->isA<TensorView>(), "Mismatch of tensor outputs.");
     if (output_alias_indices.count(i) != 0) {
       // this is an aliased output, let's not check this;
@@ -389,14 +388,14 @@ void testValidate(
     auto fusion_output_tv = fusion->outputs()[i]->as<TensorView>();
     auto aten_output_tensor = aten_outputs[j];
 
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         reduction_sizes.count(fusion_output_tv),
         "Missed reduction size count on fusion output at index: ",
         i);
 
     int64_t reduction_size = reduction_sizes.at(fusion_output_tv);
 
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         aten_output_tensor.dim() == fusion_output_tensor.dim() &&
             fusion_outputs[j].dim() ==
                 static_cast<int64_t>(
@@ -410,7 +409,7 @@ void testValidate(
 
     if (aten_output_tensor.is_floating_point() ||
         aten_output_tensor.is_complex()) {
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           aten_output_tensor.allclose(
               fusion_output_tensor.to(aten_output_tensor.dtype()),
               tolerance_values.second,
@@ -435,7 +434,7 @@ void testValidate(
           "\n    and relative tolerance set to ",
           tolerance_values.second);
     } else {
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           aten_output_tensor.equal(
               fusion_output_tensor.to(aten_output_tensor.dtype())),
           "\n",

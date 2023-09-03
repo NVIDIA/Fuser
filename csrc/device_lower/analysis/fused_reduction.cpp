@@ -161,7 +161,7 @@ class FusionInspector : private IterVisitor {
       } else if (preceding_expr->isA<WelfordOp>()) {
         fusion_list_.emplace_back(preceding_expr->as<WelfordOp>(), true);
       } else {
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             false, "Invalid preceding expr: ", preceding_expr->toString());
       }
 
@@ -253,7 +253,7 @@ class FusionTransformer {
   }
 
   void transform(const FusedReductionBroadcastInfo& info) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         info.reductions().size() == 1, "Horizontal fusion not supported yet");
 
     for (const auto i : c10::irange(info.reductions().size())) {
@@ -262,7 +262,7 @@ class FusionTransformer {
       Expr* fused_expr = nullptr;
 
       if (auto reduction = dynamic_cast<ReductionOp*>(expr)) {
-        TORCH_INTERNAL_ASSERT(!reduction->isAllreduce());
+        NVF_ERROR(!reduction->isAllreduce());
 
         auto red_op_type = reduction->getReductionOpType();
         auto init = reduction->init();
@@ -274,7 +274,7 @@ class FusionTransformer {
         fused_expr =
             IrBuilder::create<ReductionOp>(red_op_type, init, out, in, true);
       } else if (auto welford = dynamic_cast<WelfordOp*>(expr)) {
-        TORCH_INTERNAL_ASSERT(!welford->isAllreduce());
+        NVF_ERROR(!welford->isAllreduce());
 
         auto out_avg = welford->outAvg();
         auto out_var = welford->outVar();
@@ -294,7 +294,7 @@ class FusionTransformer {
             WelfordTriplet{init_avg, init_var, init_n},
             true);
       } else if (auto grouped_rop = dynamic_cast<GroupedReductionOp*>(expr)) {
-        TORCH_INTERNAL_ASSERT(!grouped_rop->isAllreduce());
+        NVF_ERROR(!grouped_rop->isAllreduce());
 
         auto op_types = grouped_rop->getReductionOpTypes();
         auto init_vals = grouped_rop->initVals();
@@ -306,11 +306,11 @@ class FusionTransformer {
         fused_expr = IrBuilder::create<GroupedReductionOp>(
             op_types, init_vals, outputs, inputs, true);
       } else {
-        TORCH_INTERNAL_ASSERT(expr != nullptr);
-        TORCH_INTERNAL_ASSERT(false, "Invalid expr: ", expr->toString());
+        NVF_ERROR(expr != nullptr);
+        NVF_ERROR(false, "Invalid expr: ", expr->toString());
       }
 
-      TORCH_INTERNAL_ASSERT(fused_expr != nullptr);
+      NVF_ERROR(fused_expr != nullptr);
 
       // Do not just remove the broadcast but just reset the thread
       // predicate of the broadcast op. Since fusion is applied only

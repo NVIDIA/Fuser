@@ -131,7 +131,7 @@ void IrContainer::registerExpr(IrBuilderPasskey, Expr* expr) {
 }
 
 void IrContainer::removeExpr(Expr* expr) {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       exprs_.find(expr) != exprs_.end(),
       "Wanted to remove an expression but it doesn't exist in this container.");
   auto expr_in_deque = std::find_if(
@@ -139,7 +139,7 @@ void IrContainer::removeExpr(Expr* expr) {
       exprs_up_.end(),
       [expr](std::unique_ptr<Expr>& expr_up) { return expr_up.get() == expr; });
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       expr_in_deque != exprs_up_.end(),
       "Wanted to remove an expression but its unique ptr is missing.");
 
@@ -158,7 +158,7 @@ void IrContainer::removeVal(Val* val) {
     return;
   }
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       vals_.find(val) != vals_.end(),
       "Wanted to remove a value but it doesn't exist in this container.");
   auto val_in_deque = std::find_if(
@@ -166,7 +166,7 @@ void IrContainer::removeVal(Val* val) {
         return val_up.get() == val;
       });
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       val_in_deque != vals_up_.end(),
       "Wanted to remove a value but its unique ptr is missing.");
 
@@ -246,18 +246,18 @@ bool IrContainer::inContainer(const Statement* stmt) const {
     return false;
   }
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       stmt->container() == this,
       "Container claims to own stmt, but stmt disagrees.");
 
   Statement* nonconst_stmt = const_cast<Statement*>(stmt); // NOLINT
   if (stmt->isExpr()) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         exprs_.find(nonconst_stmt->as<Expr>()) != exprs_.end(),
         "Somehow container claims to and not to own an Expr.");
   }
   if (stmt->isVal()) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         vals_.find(nonconst_stmt->as<Val>()) != vals_.end(),
         "Somehow container claims to and not to own an Val.");
   }
@@ -269,7 +269,7 @@ bool IrContainer::inContainer(const Statement* stmt) const {
 Val* IrContainer::zeroVal() {
   if (!zero_val_) {
     auto zero_val = IrBuilder::create<Val>(this, 0L, DataType::Index);
-    TORCH_INTERNAL_ASSERT(vals_up_.back().get() == zero_val);
+    NVF_ERROR(vals_up_.back().get() == zero_val);
     zero_val_ = std::unique_ptr<Val>(vals_up_.back().release());
     vals_up_.pop_back();
   }
@@ -290,7 +290,7 @@ Val* IrContainer::zeroVal(DataType dtype) {
 Val* IrContainer::oneVal() {
   if (!one_val_) {
     auto one_val = IrBuilder::create<Val>(this, 1L, DataType::Index);
-    TORCH_INTERNAL_ASSERT(vals_up_.back().get() == one_val);
+    NVF_ERROR(vals_up_.back().get() == one_val);
     one_val_ = std::unique_ptr<Val>(vals_up_.back().release());
     vals_up_.pop_back();
   }
@@ -311,7 +311,7 @@ Val* IrContainer::oneVal(DataType dtype) {
 Val* IrContainer::falseVal() {
   if (!false_val_) {
     auto false_val = IrBuilder::create<Val>(this, false, DataType::Bool);
-    TORCH_INTERNAL_ASSERT(vals_up_.back().get() == false_val);
+    NVF_ERROR(vals_up_.back().get() == false_val);
     false_val_ = std::unique_ptr<Val>(vals_up_.back().release());
     vals_up_.pop_back();
   }
@@ -321,7 +321,7 @@ Val* IrContainer::falseVal() {
 Val* IrContainer::trueVal() {
   if (!true_val_) {
     auto true_val = IrBuilder::create<Val>(this, true, DataType::Bool);
-    TORCH_INTERNAL_ASSERT(vals_up_.back().get() == true_val);
+    NVF_ERROR(vals_up_.back().get() == true_val);
     true_val_ = std::unique_ptr<Val>(vals_up_.back().release());
     vals_up_.pop_back();
   }
@@ -332,7 +332,7 @@ NamedScalar* IrContainer::magicZeroVal() {
   if (!magic_zero_val_) {
     auto magic_zero =
         IrBuilder::create<NamedScalar>(kMagicZeroName, DataType::Index);
-    TORCH_INTERNAL_ASSERT(vals_up_.back().get() == magic_zero);
+    NVF_ERROR(vals_up_.back().get() == magic_zero);
     magic_zero_val_ = std::unique_ptr<NamedScalar>(
         vals_up_.back().release()->as<NamedScalar>());
     vals_up_.pop_back();
@@ -365,13 +365,13 @@ void IrContainer::lazyInitAxioms() {
 }
 
 void IrContainer::assumePositive(Val* val) {
-  TORCH_INTERNAL_ASSERT(val->container() == this);
+  NVF_ERROR(val->container() == this);
   lazyInitAxioms();
   axioms_->emplace_back(IrBuilder::gtExpr(val, zeroVal()));
 }
 
 void IrContainer::assumeNonNegative(Val* val) {
-  TORCH_INTERNAL_ASSERT(val->container() == this);
+  NVF_ERROR(val->container() == this);
   lazyInitAxioms();
   axioms_->emplace_back(IrBuilder::geExpr(val, zeroVal()));
 }

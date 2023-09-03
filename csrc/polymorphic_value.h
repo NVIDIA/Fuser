@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 
+#include <exceptions.h>
 #include <any>
 #include <complex>
 #include <cstddef>
@@ -17,7 +18,7 @@
 
 #include <ATen/ATen.h>
 
-#define DYNAMIC_TYPE_CHECK TORCH_INTERNAL_ASSERT
+#define DYNAMIC_TYPE_CHECK NVF_ERROR
 
 #include <dynamic_type.h>
 #include <macros.h>
@@ -93,7 +94,7 @@ class Pointer {
   }
 
   int64_t operator-(const Pointer& other) const {
-    TORCH_INTERNAL_ASSERT(size_ == other.size_);
+    NVF_ERROR(size_ == other.size_);
     return (ptr_ - other.ptr_) / (int64_t)size_;
   }
 
@@ -284,7 +285,7 @@ inline PolymorphicValue abs(const PolymorphicValue& a) {
   if (a.is<std::complex<double>>()) {
     return std::abs(a.as<std::complex<double>>());
   }
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       false, "PolymorphicValue abs not implemented for ", a.type().name());
 }
 
@@ -292,7 +293,7 @@ inline PolymorphicValue erf(const PolymorphicValue& a) {
   if (a.is<at::Tensor>()) {
     return PolymorphicValue(a.as<at::Tensor>().erf());
   }
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       false, "PolymorphicValue erf not implemented for ", a.type().name());
 }
 
@@ -334,7 +335,7 @@ inline PolymorphicValue toTensor(
     }
     return PolymorphicValue(at::stack(tensors));
   }
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       false, "PolymorphicValue toTensor not implemented for ", x.type().name());
 }
 
