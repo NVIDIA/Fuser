@@ -598,10 +598,14 @@ bool isConnectedOnlyThroughReductionProducer(
 }
 
 int64_t partialReductionBufferSize(
-    const std::vector<TensorView*>& outer_reduction_tvs,
+    const std::vector<TensorView*>& maybe_outer_reduction_tvs,
     SchedulerRuntimeInfo& runtime_info) {
   int64_t partial_reduction_buffer_size = 0;
-  for (auto buffer : outer_reduction_tvs) {
+  for (auto buffer : maybe_outer_reduction_tvs) {
+    // only the outer reduction tvs require additional intermediate buffers
+    if (scheduler_utils::isFastestDimReduction(buffer)) {
+      continue;
+    }
     int64_t buffer_size = -1;
     for (auto id : buffer->getMaybeRFactorDomain()) {
       if (id->isReduction() || id->isBroadcast()) {
@@ -719,6 +723,111 @@ getOptionalInnerOuterPersistentBufferBatches(
   } else {
     return std::make_pair(std::nullopt, -1);
   }
+}
+
+int64_t getAvailableSmemSize(
+    SchedulerRuntimeInfo& runtime_info,
+    const std::vector<TensorView*>& persistent_buffers) {
+  const auto dev_prop = at::cuda::getCurrentDeviceProperties();
+  const int64_t max_shared_memory_size =
+      (int64_t)dev_prop->sharedMemPerBlockOptin;
+  // Some shared memories are reserved for kernel launch overhead and
+  // reduction_broadcast_workspace. Estimation is conservative, but should
+  // be good enough. The actual threads per block is set in the heuristics
+  // and it may be smaller than maxThreadsPerBlock.
+  // TODO: More accurate estimation of available shared memory size.
+  const int64_t kernel_overhead = (int64_t)dev_prop->reservedSharedMemPerBlock;
+  int64_t max_buffer_dtype_size = 1;
+  for (auto tv : persistent_buffers) {
+    max_buffer_dtype_size = std::max(
+        max_buffer_dtype_size,
+        dataTypeSize(tv->getDataType().value(), runtime_info.getIndexType()));
+  }
+  const int64_t reduction_broadcast_workspace =
+      (int64_t)(dev_prop->maxThreadsPerBlock) * max_buffer_dtype_size;
+  const int64_t available_shared_memory_size =
+      max_shared_memory_size - kernel_overhead - reduction_broadcast_workspace;
+  return available_shared_memory_size;
+}
+
+int64_t getPersistentBufferSize(
+    Fusion* fusion,
+    SchedulerRuntimeInfo& runtime_info,
+    HeuristicSummary* data_cache,
+    const scheduler_utils::PersistentBufferInfo& persistent_buffer_info) {
+  auto persistent_buffer_size_info = scheduler_utils::persistentBufferSize(
+      fusion, runtime_info, persistent_buffer_info, data_cache);
+
+  // Note that projected buffer size can be zero
+  auto persistent_buffer_size =
+      persistent_buffer_size_info.projected_persistent_buffer_size == 0
+      ? persistent_buffer_size_info.persistent_buffer_size
+      : std::min(
+            persistent_buffer_size_info.persistent_buffer_size,
+            persistent_buffer_size_info.projected_persistent_buffer_size);
+
+  return persistent_buffer_size;
+  // // in combined_inner_outer_reduction, the partial results of outer
+  // // reductions must be persistent, allow register spill avoid segmentation
+  // int64_t inner_reduction_count = 0;
+  // int64_t outer_reduction_count = 0;
+  // std::vector<TensorView*> outer_reduction_tvs;
+  // for (auto tv : reduction_tvs) {
+  //   if (scheduler_utils::isFastestDimReduction(tv)) {
+  //     inner_reduction_count++;
+  //   } else {
+  //     outer_reduction_count++;
+  //     outer_reduction_tvs.emplace_back(tv);
+  //   }
+  // }
+  // const bool combined_inner_outer_reduction =
+  //     inner_reduction_count && outer_reduction_count;
+  // if (combined_inner_outer_reduction) {
+  //   persistent_buffer_size +=
+  //       normalization_scheduler_utils::partialReductionBufferSize(
+  //           outer_reduction_tvs, runtime_info);
+  // }
+
+  // // At this point, we use the full register file size only for the
+  // // inner-outer case. It does not mean the full size shouldn't be used
+  // // otherwise, but more detailed tuning of the heuristics would be required.
+  // int64_t available_persistent_buffer_size = combined_inner_outer_reduction
+  //     ? scheduler_utils::register_file_size_full
+  //     : scheduler_utils::register_file_size;
+
+  // // Use shared memory for persistent buffer is only tested for inner
+  // // reduction
+  // // TODO: extend to outer reduction and combined reduction
+  // const bool allow_shared_memory =
+  //     inner_reduction_count > 0 && outer_reduction_count == 0;
+  // if (allow_shared_memory) {
+  //   const auto dev_prop = at::cuda::getCurrentDeviceProperties();
+  //   const int64_t max_shared_memory_size =
+  //       (int64_t)dev_prop->sharedMemPerBlockOptin;
+  //   // Some shared memories are reserved for kernel launch overhead and
+  //   // reduction_broadcast_workspace. Estimation is conservative, but should
+  //   // be good enough. The actual threads per block is set in the heuristics
+  //   // and it may be smaller than maxThreadsPerBlock.
+  //   // TODO: More accurate estimation of available shared memory size.
+  //   const int64_t kernel_overhead =
+  //       (int64_t)dev_prop->reservedSharedMemPerBlock;
+  //   int64_t max_buffer_dtype_size = 1;
+  //   for (auto tv : persistent_buffer_info.persistent_buffers) {
+  //     max_buffer_dtype_size = std::max(
+  //         max_buffer_dtype_size,
+  //         dataTypeSize(tv->getDataType().value(),
+  //         runtime_info.getIndexType()));
+  //   }
+  //   const int64_t reduction_broadcast_workspace =
+  //       (int64_t)(dev_prop->maxThreadsPerBlock) * max_buffer_dtype_size;
+  //   const int64_t available_shared_memory_size = max_shared_memory_size -
+  //       kernel_overhead - reduction_broadcast_workspace;
+  //   available_persistent_buffer_size = std::max(
+  //       available_persistent_buffer_size, available_shared_memory_size);
+  // }
+
+  // return std::make_pair(
+  //     persistent_buffer_size, available_persistent_buffer_size);
 }
 
 } // namespace normalization_scheduler_utils
