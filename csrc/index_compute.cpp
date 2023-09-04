@@ -3213,6 +3213,7 @@ Val* Index::cpAsyncBulkIndex(
     global_strides = IrBuilder::arrayExpr(strides);
   } else {
     global_strides = IrBuilder::create<Val>(
+        std::vector<int64_t>{},
         ArrayType{std::make_shared<DataType>(DataType::Index), 0});
   }
   auto box_dim =
