@@ -14,7 +14,13 @@
 namespace nvfuser {
 
 class TMATest : public NVFuserTest {
-  // TODO: assert hopper
+  void SetUp() override {
+    // requires Hopper or newer
+    if (!deviceMajorMinorCheck(9)) {
+      GTEST_SKIP() << "skipping tests on pre-Hopper GPUs";
+    }
+    NVFuserTest::SetUp();
+  }
 };
 
 TEST_F(TMATest, Store1D_CUDA) {
