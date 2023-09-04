@@ -621,7 +621,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     if (!print_inline_) {
       indent() << gen(sop->output(0)) << " = ";
     }
-    code_ << "{ ";
+    auto dtype = std::get<StructType>(sop->output(0)->dtype().type);
+    code_ << dtype.name << "{ ";
     for (auto i : c10::irange(sop->inputs().size())) {
       if (i > 0) {
         code_ << ", ";

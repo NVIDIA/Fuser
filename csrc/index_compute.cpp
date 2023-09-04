@@ -3240,7 +3240,7 @@ Val* Index::cpAsyncBulkIndex(
       IrBuilder::arrayExpr(std::vector<Val*>(dim, tv->fusion()->zeroVal()));
 
   std::stringstream ss;
-  ss << "CpAsyncBulkTensorTileSrcType<" << dim << ">";
+  ss << "Hopper::CpAsyncBulkTensorTileIndex<" << dim << ">";
 
   auto index = IrBuilder::structExpr(
       {{"descriptor", IrBuilder::addressExpr(descriptor)},

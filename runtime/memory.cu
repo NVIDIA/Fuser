@@ -230,13 +230,13 @@ DEVICE_INLINE void cpAsyncBulkPartialReadBarrier() {
 }
 
 template <int dim>
-struct CpAsyncBulkTensorTileDestType {
+struct CpAsyncBulkTensorTileIndex {
   const TensorMap* descriptor;
   Array<int32_t, dim> crds;
 };
 
 DEVICE_INLINE void cpAsyncBulkTensorTileS2G(
-    const CpAsyncBulkTensorTileDestType<1>& dest,
+    const CpAsyncBulkTensorTileIndex<1>& dest,
     uint32_t smem_addr) {
 #if (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 900))
   // TODO: remove this cast?
@@ -256,7 +256,7 @@ DEVICE_INLINE void cpAsyncBulkTensorTileS2G(
 }
 
 DEVICE_INLINE void cpAsyncBulkTensorTileS2G(
-    const CpAsyncBulkTensorTileDestType<2>& dest,
+    const CpAsyncBulkTensorTileIndex<2>& dest,
     uint32_t smem_addr) {
 #if (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 900))
   // TODO: remove this cast?
@@ -276,7 +276,7 @@ DEVICE_INLINE void cpAsyncBulkTensorTileS2G(
 }
 
 DEVICE_INLINE void cpAsyncBulkTensorTileS2G(
-    const CpAsyncBulkTensorTileDestType<3>& dest,
+    const CpAsyncBulkTensorTileIndex<3>& dest,
     uint32_t smem_addr) {
 #if (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 900))
   // TODO: remove this cast?
@@ -300,7 +300,7 @@ DEVICE_INLINE void cpAsyncBulkTensorTileS2G(
 }
 
 DEVICE_INLINE void cpAsyncBulkTensorTileS2G(
-    const CpAsyncBulkTensorTileDestType<4>& dest,
+    const CpAsyncBulkTensorTileIndex<4>& dest,
     uint32_t smem_addr) {
 #if (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 900))
   // TODO: remove this cast?
@@ -325,7 +325,7 @@ DEVICE_INLINE void cpAsyncBulkTensorTileS2G(
 }
 
 DEVICE_INLINE void cpAsyncBulkTensorTileS2G(
-    const CpAsyncBulkTensorTileDestType<5>& dest,
+    const CpAsyncBulkTensorTileIndex<5>& dest,
     uint32_t smem_addr) {
 #if (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 900))
   // TODO: remove this cast?
