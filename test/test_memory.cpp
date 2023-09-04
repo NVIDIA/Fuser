@@ -23,7 +23,7 @@ class TMATest : public NVFuserTest {
   }
 };
 
-TEST_F(TMATest, Store1D_CUDA) {
+TEST_F(TMATest, Store1D) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -47,7 +47,7 @@ TEST_F(TMATest, Store1D_CUDA) {
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
-TEST_F(TMATest, Store2D_CUDA) {
+TEST_F(TMATest, Store2D) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -72,7 +72,7 @@ TEST_F(TMATest, Store2D_CUDA) {
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
-TEST_F(TMATest, Store3D_CUDA) {
+TEST_F(TMATest, Store3D) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -98,7 +98,7 @@ TEST_F(TMATest, Store3D_CUDA) {
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
-TEST_F(TMATest, Store4D_CUDA) {
+TEST_F(TMATest, Store4D) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -125,7 +125,7 @@ TEST_F(TMATest, Store4D_CUDA) {
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
-TEST_F(TMATest, Store5D_CUDA) {
+TEST_F(TMATest, Store5D) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
