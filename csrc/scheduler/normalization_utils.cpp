@@ -830,5 +830,18 @@ int64_t getPersistentBufferSize(
   //     persistent_buffer_size, available_persistent_buffer_size);
 }
 
+scheduler_utils::PersistentBufferInfo& getMaybeCachedPersistentBufferInfo(
+    Fusion* fusion,
+    HeuristicSummary* data_cache) {
+  auto persistent_buffer_info_entry =
+      HeuristicSummaryEntry<HeuristicCompileTime::PersistentBufferInfo>(
+          data_cache, [&fusion]() {
+            return std::make_unique<scheduler_utils::PersistentBufferInfo>(
+                scheduler_utils::persistentBuffers(fusion));
+          });
+
+  return persistent_buffer_info_entry.get();
+}
+
 } // namespace normalization_scheduler_utils
 } // namespace nvfuser

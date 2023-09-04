@@ -28,16 +28,32 @@ TORCH_CUDA_CU_API std::shared_ptr<ReductionParams> getPersistentHeuristics(
     const at::ArrayRef<c10::IValue>& runtime_inputs,
     HeuristicSummary* data_cache = nullptr);
 
-TORCH_CUDA_CU_API std::shared_ptr<ReductionParams> getPersistentHeuristics(
+TORCH_CUDA_CU_API std::shared_ptr<ReductionParams> getInnerPersistentHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache = nullptr);
 
-TORCH_CUDA_CU_API void schedulePersistentKernel(
+TORCH_CUDA_CU_API std::shared_ptr<ReductionParams> getOuterPersistentHeuristics(
+    Fusion* fusion,
+    SchedulerRuntimeInfo& runtime_info,
+    HeuristicSummary* data_cache = nullptr);
+
+TORCH_CUDA_CU_API std::shared_ptr<ReductionParams>
+getInnerOuterPersistentHeuristics(
+    Fusion* fusion,
+    SchedulerRuntimeInfo& runtime_info,
+    HeuristicSummary* data_cache = nullptr);
+
+TORCH_CUDA_CU_API void scheduleInnerPersistentKernel(
     Fusion* fusion,
     const ReductionParams& rparams);
 
-TORCH_CUDA_CU_API void schedulePersistentKernelInnerOuter(
+TORCH_CUDA_CU_API void scheduleOuterPersistentKernel(
     Fusion* fusion,
     const ReductionParams& rparams);
+
+TORCH_CUDA_CU_API void scheduleInnerOuterPersistentKernel(
+    Fusion* fusion,
+    const ReductionParams& rparams);
+
 } // namespace nvfuser

@@ -219,5 +219,9 @@ int64_t getPersistentBufferSize(
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache,
     const scheduler_utils::PersistentBufferInfo& persistent_buffer_info);
+
+scheduler_utils::PersistentBufferInfo& getMaybeCachedPersistentBufferInfo(
+    Fusion* fusion,
+    HeuristicSummary* data_cache);
 } // namespace normalization_scheduler_utils
 } // namespace nvfuser

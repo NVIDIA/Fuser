@@ -893,5 +893,71 @@ ReductionType getReductionType(Fusion* fusion) {
   return getReductionType(reduction_tvs);
 }
 
+std::string toString(ReductionType reduction_type) {
+  switch (reduction_type) {
+    case ReductionType::Inner:
+      return "InnerReduction";
+    case ReductionType::Outer:
+      return "OuterReduction";
+    case ReductionType::InnerOuter:
+      return "InnerOuterReduction";
+    case ReductionType::None:
+      return "NoneReduction";
+    default:
+      NVF_ERROR(false, "undefined ReductionType");
+  }
+  return "";
+}
+
+std::ostream& operator<<(std::ostream& os, ReductionType reduction_type) {
+  os << toString(reduction_type);
+  return os;
+}
+
+// Dispatch to the appropriate scheduler based on reduction type
+std::optional<ScheduleHeuristic> getOptionalPersistentScheduler(
+    Fusion* fusion) {
+  auto reduction_type = reduction_scheduler_utils::getReductionType(fusion);
+  switch (reduction_type) {
+    case ReductionType::Inner:
+      return ScheduleHeuristic::InnerPersistent;
+    case ReductionType::Outer:
+      return ScheduleHeuristic::OuterPersistent;
+    case ReductionType::InnerOuter:
+      return ScheduleHeuristic::InnerOuterPersistent;
+    case ReductionType::None:
+      return std::nullopt;
+    default:
+      NVF_ERROR(false, "Reduction type not defined!");
+      return std::nullopt;
+  }
+}
+
+ReductionType mapScheduleHeuristicToReductionType(ScheduleHeuristic sh) {
+  switch (sh) {
+    case ScheduleHeuristic::InnerPersistent:
+      return ReductionType::Inner;
+    case ScheduleHeuristic::OuterPersistent:
+      return ReductionType::Outer;
+    case ScheduleHeuristic::InnerOuterPersistent:
+      return ReductionType::InnerOuter;
+    default:
+      return ReductionType::None;
+  }
+}
+
+std::vector<TensorView*>& getMaybeCachedReductionTvs(
+    Fusion* fusion,
+    HeuristicSummary* data_cache) {
+  auto reduction_tv_entry =
+      HeuristicSummaryEntry<HeuristicCompileTime::ReductionTVs>(
+          data_cache, [&fusion]() {
+            return std::make_unique<std::vector<TensorView*>>(
+                scheduler_utils::getReductionTvs(fusion));
+          });
+
+  return reduction_tv_entry.get();
+}
+
 } // namespace reduction_scheduler_utils
 } // namespace nvfuser
