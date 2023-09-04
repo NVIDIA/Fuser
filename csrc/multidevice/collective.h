@@ -61,16 +61,12 @@ class TORCH_CUDA_CU_API Collective {
 
   // Triggers the execution of the collective. This is a non-blocking call.
   // The collective can be posted multiple times
-  virtual c10::intrusive_ptr<c10d::Work> post(Communicator& comm) {
-    TORCH_INTERNAL_ASSERT(false, "not implemented");
-  };
+  virtual c10::intrusive_ptr<c10d::Work> post(Communicator& comm) = 0;
 
  protected:
   // argument "name" is only used for printing
-  // argument "has_root" indicates is the collective is rooted
+  // argument "has_root" indicates if the collective is rooted
   Collective(CollectiveParams params, std::string name, bool has_root = true);
-
-  void post_common(Communicator& comm);
 
   // store the arguments of the collective
   CollectiveParams params_;

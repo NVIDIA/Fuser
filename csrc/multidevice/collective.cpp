@@ -10,7 +10,7 @@
 #include <multidevice/collective.h>
 
 namespace nvfuser {
-
+namespace {
 static inline std::vector<std::vector<at::Tensor>> setBufList(
     std::vector<at::Tensor> bufs) {
   return {std::move(bufs)};
@@ -43,6 +43,19 @@ static inline void assertBuffersHaveSameSize(
   }
 }
 
+static inline void post_common(Collective& self, Communicator& comm) {
+  TORCH_INTERNAL_ASSERT(
+      std::find(
+          self.params().team.begin(),
+          self.params().team.end(),
+          comm.deviceId()) != self.params().team.end(),
+      "current device index ",
+      comm.deviceId(),
+      " must be present in the collective's team");
+}
+
+} // namespace
+
 Collective::Collective(CollectiveParams params, std::string name, bool has_root)
     : params_(std::move(params)),
       collective_type_(std::move(name)),
@@ -61,17 +74,10 @@ Collective::Collective(CollectiveParams params, std::string name, bool has_root)
         "root (device ",
         params_.root,
         ") must be present in the collective's team");
+    // pytorch's process group expects the root to be specified
+    // by its relative rank, i.e., the device index's offset within the team
     root_rank_ = std::distance(params_.team.begin(), it);
   }
-}
-
-void Collective::post_common(Communicator& comm) {
-  TORCH_INTERNAL_ASSERT(
-      std::find(params_.team.begin(), params_.team.end(), comm.deviceId()) !=
-          params_.team.end(),
-      "current device index ",
-      comm.deviceId(),
-      " must be present in the collective's team");
 }
 
 std::string Collective::toString(int indent) const {
@@ -104,7 +110,7 @@ Broadcast::Broadcast(CollectiveParams params)
     : Collective(params, "broadcast") {}
 
 c10::intrusive_ptr<c10d::Work> Broadcast::post(Communicator& comm) {
-  post_common(comm);
+  post_common(*this, comm);
 
   if (comm.deviceId() == params_.root) {
     assertBufferCount(params_.src_bufs, 1);
@@ -125,7 +131,7 @@ Gather::Gather(CollectiveParams params) : Collective(params, "gather") {
 }
 
 c10::intrusive_ptr<c10d::Work> Gather::post(Communicator& comm) {
-  post_common(comm);
+  post_common(*this, comm);
 
   if (comm.deviceId() == params_.root) {
     assertBufferCount(params_.dst_bufs, params_.team.size());
@@ -146,7 +152,7 @@ Allgather::Allgather(CollectiveParams params)
 }
 
 c10::intrusive_ptr<c10d::Work> Allgather::post(Communicator& comm) {
-  post_common(comm);
+  post_common(*this, comm);
   return comm.getTeam(params_.team)->allgather(buf_list_, params_.src_bufs, {});
 }
 
@@ -155,7 +161,7 @@ Scatter::Scatter(CollectiveParams params) : Collective(params, "scatter") {
 }
 
 c10::intrusive_ptr<c10d::Work> Scatter::post(Communicator& comm) {
-  post_common(comm);
+  post_common(*this, comm);
   if (comm.deviceId() == params_.root) {
     assertBufferCount(params_.src_bufs, params_.team.size());
     buf_list_ = setBufList(params_.src_bufs);
@@ -171,7 +177,7 @@ SendRecv::SendRecv(CollectiveParams params) : Collective(params, "send/recv") {
 }
 
 c10::intrusive_ptr<c10d::Work> SendRecv::post(Communicator& comm) {
-  post_common(comm);
+  post_common(*this, comm);
 
   if (comm.deviceId() == params_.root) {
     assertBufferCount(params_.src_bufs, 1);
