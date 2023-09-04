@@ -126,7 +126,7 @@ c10::intrusive_ptr<c10d::Backend> createBackend(
     return c10::make_intrusive<::c10d::ProcessGroupUCC>(store, rank, size);
   }
 #endif
-  TORCH_CHECK(false, "no distributed backend available");
+  NVF_CHECK(false, "no distributed backend available");
 }
 
 Communicator::Communicator(
@@ -150,7 +150,7 @@ Communicator::Communicator(
   c10d::TCPStoreOptions store_opts;
   {
     char hostname[HOST_NAME_MAX]; // NOLINT (modernize-avoid-c-arrays)
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         gethostname(hostname, HOST_NAME_MAX) == 0,
         "error when retrieving hostname");
     // we define the server as the process at the master host with local rank 0
@@ -175,12 +175,12 @@ void Communicator::sendRecv(
   }
   if (rank() == sender_rank) {
     // post send and wait for completion
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         pg_->send(tensor, receiver_rank, tag)->wait(),
         "error during communication");
   } else if (rank() == receiver_rank) {
     // post receive and wait for completion
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         pg_->recv(tensor, sender_rank, tag)->wait(),
         "error during communication");
   }

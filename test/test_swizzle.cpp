@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <csrc/exceptions.h>
 #include <gtest/gtest.h>
 
 #include <kernel_cache.h>
@@ -46,7 +47,7 @@ TEST_F(SwizzleTest, SimpleSwizzle0) {
   GpuLower gpulw(&fusion);
   auto exprs = gpulw.kernel()->topLevelExprs();
   auto str = ir_utils::toString(exprs);
-  TORCH_CHECK(str.find("where") != std::string::npos);
+  NVF_CHECK(str.find("where") != std::string::npos);
 
   FusionExecutor fe;
   fe.compileFusion(&fusion);
@@ -141,8 +142,7 @@ TEST_F(SwizzleTest, SimpleSwizzle2) {
     // Will require a sync thread before any shared memory read.
     for (auto inp_tv : ir_utils::filterByType<TensorView>(expr->inputs())) {
       if (inp_tv->getMemoryType() == MemoryType::Shared) {
-        TORCH_INTERNAL_ASSERT(
-            sync_found, "Block sync required but not inserted");
+        NVF_ERROR(sync_found, "Block sync required but not inserted");
       }
     }
   }
@@ -198,11 +198,11 @@ TEST_F(SwizzleTest, SwizzleMapping) {
           .getIterDomainEquivalence();
   // P2C map should exist and both the x and y map should
   //  map to the output of the swizzle op.
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       p2c_disjoint_id_map.mappingExists(tv1->axis(-2)) &&
       p2c_disjoint_id_map.mappingExists(tv1->axis(-1)));
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       p2c_disjoint_id_map.strictAreMapped(tv1->axis(-2), tv2->axis(-2)) &&
       p2c_disjoint_id_map.strictAreMapped(tv1->axis(-1), tv2->axis(-1)));
 
@@ -218,17 +218,17 @@ TEST_F(SwizzleTest, SwizzleMapping) {
   // Input of swizzle ops will not be mapped to any
   //  by BestEffortReplay, as BestEffortReplay has to be
   //  one to one. IdGraph will further map them together.
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       !p2c_disjoint_id_map.mappingExists(swizzle_op->inX()) &&
       !p2c_disjoint_id_map.mappingExists(swizzle_op->inY()));
 
   // Mapping for swizzle outputs should be mapped and should
   //  also map to the corresponding axes on the unswizzled tensor.
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       p2c_disjoint_id_map.mappingExists(swizzle_op->outX()) &&
       p2c_disjoint_id_map.mappingExists(swizzle_op->outY()));
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       p2c_disjoint_id_map.strictAreMapped(swizzle_op->outX(), tv1->axis(-2)) &&
       p2c_disjoint_id_map.strictAreMapped(swizzle_op->outY(), tv1->axis(-1)));
 
@@ -237,22 +237,22 @@ TEST_F(SwizzleTest, SwizzleMapping) {
   ComputeAtMap ca_map(&fusion);
   // Corresponding inputs and outputs of swizzle ops are
   //  map through by exact and permissive map.
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       ca_map.areMapped(tv1->axis(-2), swizzle_op->inX(), IdMappingMode::EXACT));
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       ca_map.areMapped(tv1->axis(-1), swizzle_op->inY(), IdMappingMode::EXACT));
-  TORCH_INTERNAL_ASSERT(ca_map.areMapped(
+  NVF_ERROR(ca_map.areMapped(
       tv1->axis(-2), swizzle_op->outX(), IdMappingMode::EXACT));
-  TORCH_INTERNAL_ASSERT(ca_map.areMapped(
+  NVF_ERROR(ca_map.areMapped(
       tv1->axis(-1), swizzle_op->outY(), IdMappingMode::EXACT));
 
-  TORCH_INTERNAL_ASSERT(ca_map.areMapped(
+  NVF_ERROR(ca_map.areMapped(
       tv1->axis(-2), swizzle_op->inX(), IdMappingMode::PERMISSIVE));
-  TORCH_INTERNAL_ASSERT(ca_map.areMapped(
+  NVF_ERROR(ca_map.areMapped(
       tv1->axis(-1), swizzle_op->inY(), IdMappingMode::PERMISSIVE));
-  TORCH_INTERNAL_ASSERT(ca_map.areMapped(
+  NVF_ERROR(ca_map.areMapped(
       tv1->axis(-2), swizzle_op->outX(), IdMappingMode::PERMISSIVE));
-  TORCH_INTERNAL_ASSERT(ca_map.areMapped(
+  NVF_ERROR(ca_map.areMapped(
       tv1->axis(-1), swizzle_op->outY(), IdMappingMode::PERMISSIVE));
 }
 
@@ -435,7 +435,7 @@ TEST_F(SwizzleTest, TransposeBankConflictSwizzle1) {
     // no bank confliction after swizzle
     tv1->swizzle(swizzle_type, 0, 1);
     bank_conflict_info = fusion.bankConflictInfo();
-    TORCH_CHECK(
+    NVF_CHECK(
         bank_conflict_info.empty(),
         "Expecting no bank conflict after swizzle, but got ",
         bank_conflict_info.size(),
@@ -545,8 +545,8 @@ TEST_F(SwizzleTest, SwizzleExampleZShape) {
   auto expect = torch::tensor({{1, 2, 3}, {6, 5, 4}, {7, 8, 9}}, options);
   auto output = getSwizzledTensor(input, Swizzle2DType::ZShape);
   auto unswizzled = getSwizzledTensor(output, Swizzle2DType::ZShape, true);
-  TORCH_CHECK(at::equal(expect, output));
-  TORCH_CHECK(at::equal(input, unswizzled));
+  NVF_CHECK(at::equal(expect, output));
+  NVF_CHECK(at::equal(input, unswizzled));
 }
 
 TEST_F(SwizzleTest, SwizzleExampleXor) {
@@ -561,8 +561,8 @@ TEST_F(SwizzleTest, SwizzleExampleXor) {
       {{1, 2, 3, 4}, {6, 5, 8, 7}, {11, 12, 9, 10}, {16, 15, 14, 13}}, options);
   auto output = getSwizzledTensor(input, Swizzle2DType::XOR);
   auto unswizzled = getSwizzledTensor(output, Swizzle2DType::XOR, true);
-  TORCH_CHECK(at::equal(expect, output));
-  TORCH_CHECK(at::equal(input, unswizzled));
+  NVF_CHECK(at::equal(expect, output));
+  NVF_CHECK(at::equal(input, unswizzled));
 }
 
 TEST_F(SwizzleTest, SwizzleExampleCyclicShift) {
@@ -577,8 +577,8 @@ TEST_F(SwizzleTest, SwizzleExampleCyclicShift) {
       {{1, 2, 3, 4}, {8, 5, 6, 7}, {11, 12, 9, 10}, {14, 15, 16, 13}}, options);
   auto output = getSwizzledTensor(input, Swizzle2DType::CyclicShift);
   auto unswizzled = getSwizzledTensor(output, Swizzle2DType::CyclicShift, true);
-  TORCH_CHECK(at::equal(expect, output));
-  TORCH_CHECK(at::equal(input, unswizzled));
+  NVF_CHECK(at::equal(expect, output));
+  NVF_CHECK(at::equal(input, unswizzled));
 }
 
 TEST_F(SwizzleTest, SwizzleIndexing170) {

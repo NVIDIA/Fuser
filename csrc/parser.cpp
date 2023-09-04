@@ -82,7 +82,7 @@ typedef Expr* CgOp;
 Val* castTensoToDtype(CgValue self, JitValue* cast_val) {
   auto cast_ival = toIValue(cast_val);
   // we need static type for cast
-  TORCH_INTERNAL_ASSERT(cast_ival.has_value());
+  NVF_ERROR(cast_ival.has_value());
   if (cast_ival->isInt()) {
     auto dtype = cast_ival->toScalarType();
 
@@ -95,7 +95,7 @@ Val* castTensoToDtype(CgValue self, JitValue* cast_val) {
 
     return castOp(aten_to_data_type(dtype), self);
   } else {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         cast_ival->isNone(),
         "unrecognized dtype option, expect 'int' but got: ",
         cast_ival->tagKind());
@@ -223,7 +223,7 @@ struct MemoryFormat {
   //      it will be encoded as permutation_ = 321 (omitting leading '0')
   void setPermutation(const std::vector<int>& stride_order) {
     auto rank = stride_order.size();
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         rank <= 10, "MemoryFormat for permutation only supports rank <= 10");
 
     // storing stride_order in `permuted_order` for a simpler life, so we don't
@@ -415,8 +415,7 @@ class ValueHolder {
   // returns Val in target format.
   CgValue value(const MemoryFormat& format) const {
     auto iter_val = vals_.find(format);
-    TORCH_INTERNAL_ASSERT(
-        iter_val != vals_.end(), "accessing non existing c_last_value()");
+    NVF_ERROR(iter_val != vals_.end(), "accessing non existing c_last_value()");
     return iter_val->second;
   }
 
@@ -435,7 +434,7 @@ class ValueHolder {
     std::tie(format_s, value_s) = getEntry();
 
     auto opt_format_d = format.broadcastToRank(static_cast<size_t>(cur_rank));
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         opt_format_d.has_value(),
         "maybeConvertValue requested for illegal permutation");
     MemoryFormat format_d = opt_format_d.value();
@@ -454,15 +453,14 @@ class ValueHolder {
       return -1;
     } else {
       auto v = std::get<1>(getEntry());
-      TORCH_INTERNAL_ASSERT(
-          v->isA<TensorView>(), "can only access rank of TensorView");
+      NVF_ERROR(v->isA<TensorView>(), "can only access rank of TensorView");
       return static_cast<int>(v->as<TensorView>()->nDims());
     }
   }
 
   // TODO: delete this and update accessor for value_map(_)
   ValueHolder() {
-    TORCH_INTERNAL_ASSERT(false, "can't default constructor ValueHolder");
+    NVF_ERROR(false, "can't default constructor ValueHolder");
   }
 
   ValueHolder(CgValue val, MemoryFormat format = MemoryFormat()) {
@@ -475,7 +473,7 @@ class ValueHolder {
   // returns the MemoryFormat and codegen Val with the highest precedence among
   // existing copies.
   std::tuple<MemoryFormat, CgValue> getEntry() const {
-    TORCH_CHECK(!vals_.empty(), "ValueHolder::getEntry() on empty vals_");
+    NVF_CHECK(!vals_.empty(), "ValueHolder::getEntry() on empty vals_");
     // return the last entry, this allows us to prioritize permuted (e.g.
     // channels-last) tensor over non-permuted tensors
     return *vals_.rbegin();
@@ -499,8 +497,7 @@ class ValueHolder {
       MemoryFormat format_d,
       MemoryFormat format_s,
       CgValue value_s) {
-    TORCH_INTERNAL_ASSERT(
-        value_s->isA<TensorView>(), "cannot convert non-TensorView");
+    NVF_ERROR(value_s->isA<TensorView>(), "cannot convert non-TensorView");
     auto tv = value_s->as<TensorView>();
     // TODO: we could probably merge the two if it has perf impact on generated
     // kernel
@@ -729,7 +726,7 @@ class IrParser {
     std::unordered_map<Val*, MemoryFormat> permuted_tensors;
     // register all inputs;
     for (auto val : block->inputs()) {
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           registerValue(val),
           "Failure when register value: ",
           *(val->node()),
@@ -769,8 +766,7 @@ class IrParser {
       TensorView* out = operand->as<TensorView>();
       // demote output dtype to be match PyTorch JIT graph.
       auto tensor_type = jit_output->type()->cast<at::TensorType>();
-      TORCH_INTERNAL_ASSERT(
-          tensor_type, "output of fusion group is not TensorType.");
+      NVF_ERROR(tensor_type, "output of fusion group is not TensorType.");
       if (tensor_type->scalarType().has_value()) {
         out = optionalCastStrict(
                   aten_to_data_type(*tensor_type->scalarType()), out)
@@ -1322,7 +1318,7 @@ class IrParser {
                     static_cast<c10::TypePtr>(at::NoneType::get()))) {
               auto device =
                   torch::jit::constant_as<c10::Device>(node->input(3));
-              TORCH_INTERNAL_ASSERT(
+              NVF_ERROR(
                   device.has_value() && device->is_cuda(),
                   "rand_like in nvfuser is not on cuda device");
               auto input_tensor_type =
@@ -1333,7 +1329,7 @@ class IrParser {
                 auto input_device = input_tensor_type->device();
                 // we expect device index to be consistent with input and it
                 // should have already been handled by partition
-                TORCH_INTERNAL_ASSERT(
+                NVF_ERROR(
                     !input_device.has_value() ||
                         input_device->index() == device->index(),
                     "rand_like in nvfuser is not on cuda device");
@@ -1540,7 +1536,7 @@ class IrParser {
               auto input = list_val.front();
               list_val.pop_front();
               auto dim_value = torch::jit::constant_as<int>(node->input(1));
-              TORCH_INTERNAL_ASSERT(
+              NVF_ERROR(
                   dim_value.has_value(), "dim in index_select is not valid");
               auto index = list_val.front();
               list_val.pop_front();
@@ -1586,8 +1582,7 @@ class IrParser {
               auto input = list_val.front();
               list_val.pop_front();
               auto dim_value = torch::jit::constant_as<int>(node->input(1));
-              TORCH_INTERNAL_ASSERT(
-                  dim_value.has_value(), "dim parameter is required.");
+              NVF_ERROR(dim_value.has_value(), "dim parameter is required.");
 
               auto index = list_val.front();
               list_val.pop_front();
@@ -1666,8 +1661,7 @@ class IrParser {
             list_val.pop_front();
             auto train = torch::jit::constant_as<bool>(node->input(2));
 
-            TORCH_INTERNAL_ASSERT(
-                train.has_value(), "dropout needs constant `train` flag");
+            NVF_ERROR(train.has_value(), "dropout needs constant `train` flag");
 
             if (train.value()) {
               auto result = dropout(input->as<TensorView>(), prob);
@@ -1714,8 +1708,7 @@ class IrParser {
             list_val.pop_front();
 
             auto train = torch::jit::constant_as<bool>(node->input(2));
-            TORCH_INTERNAL_ASSERT(
-                train.has_value(), "dropout needs constant `train` flag");
+            NVF_ERROR(train.has_value(), "dropout needs constant `train` flag");
 
             if (train.value()) {
               auto result = dropout(input->as<TensorView>(), prob);
@@ -1815,7 +1808,7 @@ class IrParser {
               // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
               auto use_input_stats =
                   torch::jit::constant_as<bool>(node->input(5));
-              TORCH_INTERNAL_ASSERT(
+              NVF_ERROR(
                   use_input_stats.has_value(),
                   "The use_input_stats (bool) parameter is required.");
               const bool kUseInputStats = use_input_stats.value();
@@ -1902,7 +1895,7 @@ class IrParser {
 
               // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
               auto training = torch::jit::constant_as<bool>(node->input(5));
-              TORCH_INTERNAL_ASSERT(
+              NVF_ERROR(
                   training.has_value(),
                   "The training (bool) parameter is required.");
               const bool kTraining = training.value();
@@ -2035,7 +2028,7 @@ class IrParser {
                 ts_eps = node->input(8);
                 ts_mask = node->input(9);
               } else {
-                TORCH_INTERNAL_ASSERT(
+                NVF_ERROR(
                     false,
                     "Forgot to register the key for BN variation: ",
                     node->kind().toDisplayString());
@@ -2098,7 +2091,7 @@ class IrParser {
 
               // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
               auto training = torch::jit::constant_as<bool>(ts_train);
-              TORCH_INTERNAL_ASSERT(
+              NVF_ERROR(
                   training.has_value(),
                   "The training (bool) parameter is required.");
               const bool kTraining = training.value();
@@ -2116,7 +2109,7 @@ class IrParser {
               // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
               auto out_mask_list =
                   torch::jit::constant_as<c10::List<bool>>(ts_mask);
-              TORCH_INTERNAL_ASSERT(
+              NVF_ERROR(
                   out_mask_list.has_value(),
                   "output mask for batch_norm_backward");
               std::vector<bool> output_mask;
@@ -2126,14 +2119,14 @@ class IrParser {
 
               // TODO: merge this loop below.
               if (kTraining) {
-                TORCH_INTERNAL_ASSERT(
+                NVF_ERROR(
                     save_mean != nullptr && save_invstd != nullptr,
                     "When training=True, save_mean and save_invstd are required.");
               } else {
                 // TODO: this is not a legit assumption? Can't we run with
                 // track_running_stats == false && training == false
                 // which should just run through the case above.
-                TORCH_INTERNAL_ASSERT(
+                NVF_ERROR(
                     running_mean != nullptr && running_var != nullptr,
                     "When training=False, running_mean and running_invstd are required.");
               }
@@ -2152,31 +2145,31 @@ class IrParser {
                   format.isChannelsLast());
 
               if (output_mask[0]) {
-                TORCH_INTERNAL_ASSERT(grads.grad_input != nullptr);
+                NVF_ERROR(grads.grad_input != nullptr);
                 value_map.emplace(
                     node->output(0)->unique(),
                     ValueHolder(grads.grad_input, format));
               } else {
-                TORCH_INTERNAL_ASSERT(grads.grad_input == nullptr);
+                NVF_ERROR(grads.grad_input == nullptr);
                 value_map.emplace(
                     node->output(0)->unique(),
                     ValueHolder(TensorViewBuilder().build(), format));
               }
 
               if (output_mask[1]) {
-                TORCH_INTERNAL_ASSERT(grads.grad_weight != nullptr);
+                NVF_ERROR(grads.grad_weight != nullptr);
                 value_map.emplace(node->output(1)->unique(), grads.grad_weight);
               } else {
-                TORCH_INTERNAL_ASSERT(grads.grad_weight == nullptr);
+                NVF_ERROR(grads.grad_weight == nullptr);
                 value_map.emplace(
                     node->output(1)->unique(), TensorViewBuilder().build());
               }
 
               if (output_mask[2]) {
-                TORCH_INTERNAL_ASSERT(grads.grad_bias != nullptr);
+                NVF_ERROR(grads.grad_bias != nullptr);
                 value_map.emplace(node->output(2)->unique(), grads.grad_bias);
               } else {
-                TORCH_INTERNAL_ASSERT(grads.grad_bias == nullptr);
+                NVF_ERROR(grads.grad_bias == nullptr);
                 value_map.emplace(
                     node->output(2)->unique(), TensorViewBuilder().build());
               }
@@ -2206,7 +2199,7 @@ class IrParser {
                   return false;
                 }
               } else {
-                TORCH_INTERNAL_ASSERT(
+                NVF_ERROR(
                     false,
                     "Forgot to update profiled constant check for",
                     node->kind().toDisplayString());
@@ -2239,7 +2232,7 @@ class IrParser {
 
               auto norm_shape_optional =
                   torch::jit::constant_as<c10::List<int64_t>>(node->input(1));
-              TORCH_INTERNAL_ASSERT(
+              NVF_ERROR(
                   norm_shape_optional.has_value(),
                   "The Normalized_Shape list is required.");
               auto norm_shape = norm_shape_optional->vec();
@@ -2315,7 +2308,7 @@ class IrParser {
 
             auto norm_shape_optional =
                 torch::jit::constant_as<c10::List<int64_t>>(node->input(2));
-            TORCH_INTERNAL_ASSERT(
+            NVF_ERROR(
                 norm_shape_optional.has_value(),
                 "The Normalized_Shape list is required.");
             auto norm_shape = norm_shape_optional->vec();
@@ -2342,7 +2335,7 @@ class IrParser {
             // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
             auto output_mask_optional =
                 torch::jit::constant_as<c10::List<bool>>(node->input(7));
-            TORCH_INTERNAL_ASSERT(
+            NVF_ERROR(
                 output_mask_optional.has_value(),
                 "output mask for layer_norm_backward");
             std::vector<bool> output_mask = output_mask_optional->vec();
@@ -2358,28 +2351,28 @@ class IrParser {
                 output_mask);
 
             if (output_mask[0]) {
-              TORCH_INTERNAL_ASSERT(grad.grad_input != nullptr);
+              NVF_ERROR(grad.grad_input != nullptr);
               value_map.emplace(node->output(0)->unique(), grad.grad_input);
             } else {
-              TORCH_INTERNAL_ASSERT(grad.grad_input == nullptr);
+              NVF_ERROR(grad.grad_input == nullptr);
               value_map.emplace(
                   node->output(0)->unique(), TensorViewBuilder().build());
             }
 
             if (output_mask[1] && weight != nullptr) {
-              TORCH_INTERNAL_ASSERT(grad.grad_weight != nullptr);
+              NVF_ERROR(grad.grad_weight != nullptr);
               value_map.emplace(node->output(1)->unique(), grad.grad_weight);
             } else {
-              TORCH_INTERNAL_ASSERT(grad.grad_weight == nullptr);
+              NVF_ERROR(grad.grad_weight == nullptr);
               value_map.emplace(
                   node->output(1)->unique(), TensorViewBuilder().build());
             }
 
             if (output_mask[2] && bias != nullptr) {
-              TORCH_INTERNAL_ASSERT(grad.grad_bias != nullptr);
+              NVF_ERROR(grad.grad_bias != nullptr);
               value_map.emplace(node->output(2)->unique(), grad.grad_bias);
             } else {
-              TORCH_INTERNAL_ASSERT(grad.grad_bias == nullptr);
+              NVF_ERROR(grad.grad_bias == nullptr);
               value_map.emplace(
                   node->output(2)->unique(), TensorViewBuilder().build());
             }
@@ -2422,8 +2415,7 @@ class IrParser {
               auto input = input_t->as<TensorView>();
 
               auto dim_value = torch::jit::constant_as<int>(node->input(1));
-              TORCH_INTERNAL_ASSERT(
-                  dim_value.has_value(), "dim in softmax is not valid");
+              NVF_ERROR(dim_value.has_value(), "dim in softmax is not valid");
 
               DataType data_type = DataType::Null;
               if (const auto opt_ivalue = toIValue(node->input(2))) {
@@ -2480,8 +2472,7 @@ class IrParser {
             auto input = input_t->as<TensorView>();
 
             auto dim_value = torch::jit::constant_as<int>(node->input(1));
-            TORCH_INTERNAL_ASSERT(
-                dim_value.has_value(), "dim in softmax is not valid");
+            NVF_ERROR(dim_value.has_value(), "dim in softmax is not valid");
 
             auto output = softmax(input, dim_value.value());
             value_map.emplace(node->output()->unique(), output);
@@ -2499,7 +2490,7 @@ class IrParser {
             } else {
               const auto half_to_float =
                   torch::jit::constant_as<bool>(node->input(2));
-              TORCH_INTERNAL_ASSERT(
+              NVF_ERROR(
                   half_to_float.has_value(), "Bool half_to_float is not valid");
               auto input_tensor_type =
                   node->input(0)->type()->cast<at::TensorType>();
@@ -2539,8 +2530,7 @@ class IrParser {
               auto output = output_t->as<TensorView>();
 
               auto dim_value = torch::jit::constant_as<int>(node->input(2));
-              TORCH_INTERNAL_ASSERT(
-                  dim_value.has_value(), "dim in softmax is not valid");
+              NVF_ERROR(dim_value.has_value(), "dim in softmax is not valid");
 
               // input_dtype here is ignored! type_inference handles it
               bool is_log_softmax = node->kind() ==
@@ -2594,8 +2584,7 @@ class IrParser {
 
               auto dims_list =
                   torch::jit::constant_as<c10::List<int64_t>>(node->input(1));
-              TORCH_INTERNAL_ASSERT(
-                  dims_list.has_value(), "Cannot fuse with dynamic axes");
+              NVF_ERROR(dims_list.has_value(), "Cannot fuse with dynamic axes");
               std::vector<int> dims;
               if (!dims_list->empty()) {
                 for (const auto dim : dims_list->vec()) {
@@ -2607,11 +2596,11 @@ class IrParser {
               }
 
               auto unbiased = torch::jit::constant_as<bool>(node->input(2));
-              TORCH_INTERNAL_ASSERT(
+              NVF_ERROR(
                   unbiased.has_value(), "Cannot fuse with dynamic unbiased");
 
               auto keepdim = torch::jit::constant_as<bool>(node->input(3));
-              TORCH_INTERNAL_ASSERT(
+              NVF_ERROR(
                   keepdim.has_value(), "Cannot fuse with dynamic keepdim");
 
               auto output = (is_variance)
@@ -2649,7 +2638,7 @@ class IrParser {
             list_val.pop_front();
             auto dims_list =
                 torch::jit::constant_as<c10::List<int64_t>>(node->input(1));
-            TORCH_INTERNAL_ASSERT(
+            NVF_ERROR(
                 dims_list.has_value(),
                 "aten::sum cannot be fused with dynamic axes");
             std::vector<int> dims;
@@ -2662,7 +2651,7 @@ class IrParser {
               std::iota(dims.begin(), dims.end(), 0);
             }
             auto keepdim = torch::jit::constant_as<bool>(node->input(2));
-            TORCH_INTERNAL_ASSERT(
+            NVF_ERROR(
                 keepdim.has_value(),
                 "aten::sum cannot be fused with dynamic keepdim");
             auto out = sum(self->as<TensorView>(), dims, keepdim.value());
@@ -2715,7 +2704,7 @@ class IrParser {
             auto self = operand->as<TensorView>();
             auto dims_list =
                 torch::jit::constant_as<c10::List<int64_t>>(node->input(1));
-            TORCH_INTERNAL_ASSERT(
+            NVF_ERROR(
                 dims_list.has_value(),
                 "aten::mean cannot be fused with dynamic axes");
             std::vector<int> dims;
@@ -2728,7 +2717,7 @@ class IrParser {
               std::iota(dims.begin(), dims.end(), 0);
             }
             auto keepdim = torch::jit::constant_as<bool>(node->input(2));
-            TORCH_INTERNAL_ASSERT(
+            NVF_ERROR(
                 keepdim.has_value(),
                 "aten::mean cannot be fused with dynamic keepdim");
             auto o_sum = sum(self, dims, keepdim.value());
@@ -2791,7 +2780,7 @@ class IrParser {
               list_val.pop_front();
               auto size_to =
                   torch::jit::constant_as<c10::List<int64_t>>(node->input(1));
-              TORCH_INTERNAL_ASSERT(
+              NVF_ERROR(
                   size_to.has_value(),
                   "aten::sum cannot be fused with dynamic axes");
               if (!size_to->empty()) {
@@ -2963,7 +2952,7 @@ class IrParser {
             // transformations between profiling runs to fusion pass.
             auto opt_dtype =
                 value_map[node->inputs()[1]->unique()]->getDataType();
-            TORCH_INTERNAL_ASSERT(opt_dtype.has_value());
+            NVF_ERROR(opt_dtype.has_value());
 
             auto out = castOp(opt_dtype.value(), self);
             value_map.emplace(
@@ -2984,7 +2973,7 @@ class IrParser {
           ptr_op,
           {
             // this entry is created so we do profile input tensors;
-            TORCH_INTERNAL_ASSERT(false, "not implemented yet");
+            NVF_ERROR(false, "not implemented yet");
           },
           [](const torch::jit::Node* node) -> bool {
             // We only profile `linear` layer but not fusing it.
@@ -3073,7 +3062,7 @@ class IrParser {
 
             auto approximate =
                 torch::jit::constant_as<std::string>(node->input(1));
-            TORCH_INTERNAL_ASSERT(
+            NVF_ERROR(
                 approximate.has_value(),
                 "The approximate parameter is required.");
             const auto kTanhGelu =
@@ -3115,7 +3104,7 @@ class IrParser {
 
             auto approximate =
                 torch::jit::constant_as<std::string>(node->input(2));
-            TORCH_INTERNAL_ASSERT(
+            NVF_ERROR(
                 approximate.has_value(),
                 "The approximate parameter is required.");
             const auto kTanhGelu =
@@ -3182,7 +3171,7 @@ class IrParser {
               list_val.pop_front();
               auto dims_list =
                   torch::jit::constant_as<c10::List<int64_t>>(node->input(1));
-              TORCH_INTERNAL_ASSERT(
+              NVF_ERROR(
                   dims_list.has_value(),
                   "aten::amax/amin cannot be fused with dynamic axes");
               std::vector<int> dims;
@@ -3195,7 +3184,7 @@ class IrParser {
                 std::iota(dims.begin(), dims.end(), 0);
               }
               auto keepdim = torch::jit::constant_as<bool>(node->input(2));
-              TORCH_INTERNAL_ASSERT(
+              NVF_ERROR(
                   keepdim.has_value(),
                   "aten::amax/amin cannot be fused with dynamic keepdim");
 
@@ -3206,8 +3195,7 @@ class IrParser {
                   node->kind() == c10::Symbol::fromQualString("aten::amin")) {
                 out = min(self->as<TensorView>(), dims, keepdim.value());
               } else {
-                TORCH_INTERNAL_ASSERT(
-                    false, "unrecognized operation in aten::amax/amin");
+                NVF_ERROR(false, "unrecognized operation in aten::amax/amin");
               }
               value_map.emplace(node->output()->unique(), out);
             },
@@ -3250,12 +3238,12 @@ class IrParser {
               list_val.pop_front();
 
               auto self_type = self_value->type()->cast<c10::TensorType>();
-              TORCH_INTERNAL_ASSERT(self_type != nullptr);
+              NVF_ERROR(self_type != nullptr);
               auto self_sizes = getTensorSizes(self_type);
 
               auto view_sizes =
                   torch::jit::constant_as<c10::List<int64_t>>(node->input(1));
-              TORCH_INTERNAL_ASSERT(
+              NVF_ERROR(
                   view_sizes.has_value(), "The size parameter is required.");
 
               auto output = reshape(self, self_sizes, view_sizes->vec());
@@ -3310,11 +3298,9 @@ class IrParser {
             list_val.pop_front();
 
             auto start_dim_value = torch::jit::constant_as<int>(node->input(1));
-            TORCH_INTERNAL_ASSERT(
-                start_dim_value.has_value(), "start_dim is not valid");
+            NVF_ERROR(start_dim_value.has_value(), "start_dim is not valid");
             auto end_dim_value = torch::jit::constant_as<int>(node->input(2));
-            TORCH_INTERNAL_ASSERT(
-                end_dim_value.has_value(), "end_dim is not valid");
+            NVF_ERROR(end_dim_value.has_value(), "end_dim is not valid");
 
             TensorView* output =
                 flatten(self, start_dim_value.value(), end_dim_value.value());
@@ -3349,7 +3335,7 @@ class IrParser {
             list_val.pop_front();
 
             auto self_type = self_value->type()->cast<c10::TensorType>();
-            TORCH_INTERNAL_ASSERT(self_type != nullptr);
+            NVF_ERROR(self_type != nullptr);
             auto self_sizes = getTensorSizes(self_type);
 
             TensorView* output = nullptr;
@@ -3395,14 +3381,14 @@ class IrParser {
               list_val.pop_front();
 
               auto dim_value = torch::jit::constant_as<int>(node->input(1));
-              TORCH_INTERNAL_ASSERT(dim_value.has_value(), "dim is not valid");
+              NVF_ERROR(dim_value.has_value(), "dim is not valid");
 
               TensorView* output = nullptr;
               if (node->kind() == at::aten::unsqueeze_copy) {
                 output = unsqueeze(self, dim_value.value());
               } else {
                 auto self_type = self_value->type()->cast<c10::TensorType>();
-                TORCH_INTERNAL_ASSERT(self_type != nullptr);
+                NVF_ERROR(self_type != nullptr);
                 auto self_sizes = getTensorSizes(self_type);
                 if (self_sizes.empty()) {
                   // squeeze on scalar tensor should just return itself;
@@ -3480,7 +3466,7 @@ class IrParser {
 
             auto expand_sizes =
                 torch::jit::constant_as<c10::List<int64_t>>(node->input(1));
-            TORCH_INTERNAL_ASSERT(
+            NVF_ERROR(
                 expand_sizes.has_value(), "The size parameter is required.");
 
             std::vector<CgValue> expand_sizes_vec;
@@ -3524,9 +3510,8 @@ class IrParser {
 
             auto dims =
                 torch::jit::constant_as<c10::List<int64_t>>(node->input(1));
-            TORCH_INTERNAL_ASSERT(
-                dims.has_value(), "The dims parameter is required.");
-            TORCH_INTERNAL_ASSERT(
+            NVF_ERROR(dims.has_value(), "The dims parameter is required.");
+            NVF_ERROR(
                 dims.value().size() == self->getMaybeRFactorDomain().size());
 
             auto output = permute(self, dims->vec());
@@ -3563,12 +3548,10 @@ class IrParser {
             auto self = self_t->as<TensorView>();
 
             auto dim0 = torch::jit::constant_as<int>(node->input(1));
-            TORCH_INTERNAL_ASSERT(
-                dim0.has_value(), "dim0 in transpose is not valid.");
+            NVF_ERROR(dim0.has_value(), "dim0 in transpose is not valid.");
 
             auto dim1 = torch::jit::constant_as<int>(node->input(2));
-            TORCH_INTERNAL_ASSERT(
-                dim1.has_value(), "dim1 in transpose is not valid.");
+            NVF_ERROR(dim1.has_value(), "dim1 in transpose is not valid.");
 
             auto output = transpose(self, dim0.value(), dim1.value());
             value_map.emplace(
@@ -3603,7 +3586,7 @@ class IrParser {
             list_val.pop_front();
             auto self = self_t->as<TensorView>();
 
-            TORCH_INTERNAL_ASSERT(self->getMaybeRFactorDomain().size() <= 2);
+            NVF_ERROR(self->getMaybeRFactorDomain().size() <= 2);
 
             auto output = transpose(self);
             value_map.emplace(
@@ -3625,7 +3608,7 @@ class IrParser {
       // partition doesn't take constant node explicitly, but it does and copy
       // constant into subgraph. So we need to register constants in codegen IR;
       for (auto output : node->outputs()) {
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             registerScalar(output),
             "registration of output failed at index ",
             output->offset(),
@@ -3634,7 +3617,7 @@ class IrParser {
       }
     } else {
       auto reg_entry = lookupInRegistry(node);
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           reg_entry != nullptr,
           "CudaFusionGroup Parser doesn't handle node: ",
           torch::jit::canonicalSchemaString(node->schema()));
@@ -3707,7 +3690,7 @@ class IrParser {
       // This is a WAR to allow axes of reduction to be passed as constant list;
       // We simply ignore conversion if the scalar value is a constant;
       auto ivalue = toIValue(val);
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           ivalue.has_value(),
           "List[T] is not supported as an argument by NvFuser. Use a Constant List.");
       return true;
@@ -3730,7 +3713,7 @@ class IrParser {
       }
 
       // check for NHWC contiguous tensor
-      TORCH_CHECK(tensor_type->dim().has_value(), "rank missing");
+      NVF_CHECK(tensor_type->dim().has_value(), "rank missing");
       const auto n_dim = tensor_type->dim().value();
 
       MemoryFormat format;
@@ -3750,7 +3733,7 @@ class IrParser {
       // construct permuted tensor_type
       if (format.hasPermutation()) {
         auto opt_s_vec = tensor_type->symbolic_sizes().sizes();
-        TORCH_CHECK(opt_s_vec.has_value(), "missing rank of symbolic sizes");
+        NVF_CHECK(opt_s_vec.has_value(), "missing rank of symbolic sizes");
         std::vector<c10::ShapeSymbol> s_vec = opt_s_vec.value();
         // apply permutation
         auto permutation = format.apply();
@@ -3761,7 +3744,7 @@ class IrParser {
 
         // copying stride properties because we need to permute it
         auto opt_stride_vec = tensor_type->stride_properties().sizes();
-        TORCH_CHECK(opt_stride_vec.has_value(), "missing stride properties");
+        NVF_CHECK(opt_stride_vec.has_value(), "missing stride properties");
         auto nhwc_stride_vec = opt_stride_vec.value();
         // Make tensor contiguous after permutation.
         // Note that we are only updating stride_properties.stride_index, since
@@ -3857,7 +3840,7 @@ void profileReductionSize(
     } else if (value.isNone()) {
       size_vec.clear();
     } else {
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           false,
           "profileReductionSize does not support data type: ",
           value.tagKind());
@@ -3879,7 +3862,7 @@ void profileReductionSize(
         }
       }
     } else {
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           !pn->hasAttribute(reductionSizeAttr),
           "profiled attribute should have been removed when profiling is marked as failed");
     }
@@ -3903,8 +3886,7 @@ void profileViewSize(
     torch::jit::pop(stack, frame_id);
     c10::IValue value;
     torch::jit::pop(stack, value);
-    TORCH_INTERNAL_ASSERT(
-        value.isIntList(), "profiling seeing the wrong data type");
+    NVF_ERROR(value.isIntList(), "profiling seeing the wrong data type");
     if (!pn->hasAttribute(profileFailedAttr)) {
       if (!pn->hasAttribute(viewSizeAttr)) {
         pn->is_(viewSizeAttr, value.toIntVector());
@@ -3924,7 +3906,7 @@ void profileViewSize(
         }
       }
     } else {
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           !pn->hasAttribute(viewSizeAttr),
           "profiled attribute should have been removed when profiling is marked as failed");
     }
@@ -3949,8 +3931,7 @@ void profileIntList(
     torch::jit::pop(stack, frame_id);
     c10::IValue value;
     torch::jit::pop(stack, value);
-    TORCH_INTERNAL_ASSERT(
-        value.isIntList(), "profiling seeing the wrong data type");
+    NVF_ERROR(value.isIntList(), "profiling seeing the wrong data type");
     if (!pn->hasAttribute(profileFailedAttr)) {
       if (!pn->hasAttribute(intListAttr)) {
         pn->is_(intListAttr, value.toIntVector());
@@ -3970,7 +3951,7 @@ void profileIntList(
         }
       }
     } else {
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           !pn->hasAttribute(intListAttr),
           "profiled attribute should have been removed when profiling is marked as failed");
     }
@@ -3995,8 +3976,7 @@ void profileString(
     torch::jit::pop(stack, frame_id);
     c10::IValue value;
     torch::jit::pop(stack, value);
-    TORCH_INTERNAL_ASSERT(
-        value.isString(), "profiling seeing the wrong data type");
+    NVF_ERROR(value.isString(), "profiling seeing the wrong data type");
     if (!pn->hasAttribute(profileFailedAttr)) {
       if (!pn->hasAttribute(strAttr)) {
         pn->s_(strAttr, value.toStringRef());
@@ -4012,7 +3992,7 @@ void profileString(
         }
       }
     } else {
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           !pn->hasAttribute(strAttr),
           "profiled attribute should have been removed when profiling is marked as failed");
     }
@@ -4037,8 +4017,7 @@ void profileBool(
     torch::jit::pop(stack, frame_id);
     c10::IValue value;
     torch::jit::pop(stack, value);
-    TORCH_INTERNAL_ASSERT(
-        value.isBool(), "profiling seeing the wrong data type");
+    NVF_ERROR(value.isBool(), "profiling seeing the wrong data type");
     if (!pn->hasAttribute(profileFailedAttr)) {
       if (!pn->hasAttribute(boolAttr)) {
         pn->i_(boolAttr, value.toBool());
@@ -4054,7 +4033,7 @@ void profileBool(
         }
       }
     } else {
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           !pn->hasAttribute(boolAttr),
           "profiled attribute should have been removed when profiling is marked as failed");
     }
@@ -4079,8 +4058,7 @@ void profileInt(
     torch::jit::pop(stack, frame_id);
     c10::IValue value;
     torch::jit::pop(stack, value);
-    TORCH_INTERNAL_ASSERT(
-        value.isInt(), "profiling seeing the wrong data type");
+    NVF_ERROR(value.isInt(), "profiling seeing the wrong data type");
     if (!pn->hasAttribute(profileFailedAttr)) {
       if (!pn->hasAttribute(intAttr)) {
         pn->i_(intAttr, value.toInt());
@@ -4096,7 +4074,7 @@ void profileInt(
         }
       }
     } else {
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           !pn->hasAttribute(intAttr),
           "profiled attribute should have been removed when profiling is marked as failed");
     }
@@ -4136,7 +4114,7 @@ void profileIval(
         }
       }
     } else {
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           !pn->hasAttribute(ivalAttr),
           "profiled attribute should have been removed when profiling is marked as failed");
     }
@@ -4161,8 +4139,7 @@ void profileBoolList(
     torch::jit::pop(stack, frame_id);
     c10::IValue value;
     torch::jit::pop(stack, value);
-    TORCH_INTERNAL_ASSERT(
-        value.isBoolList(), "profiling seeing the wrong data type");
+    NVF_ERROR(value.isBoolList(), "profiling seeing the wrong data type");
     if (!pn->hasAttribute(profileFailedAttr)) {
       if (!pn->hasAttribute(boolListAttr)) {
         auto list = value.toBoolList();
@@ -4184,7 +4161,7 @@ void profileBoolList(
         }
       }
     } else {
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           !pn->hasAttribute(boolListAttr),
           "profiled attribute should have been removed when profiling is marked as failed");
     }

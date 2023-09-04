@@ -1,8 +1,9 @@
-// This is a refactor of the TORCH_INTERNAL_ASSERT and TORCH_CHECK macros
+// This is a refactor of the NVF_ERROR and NVF_CHECK macros
 // from PyTorch for implementing NVFuser specific macros.
 
 #pragma once
 
+#include <exceptions.h>
 #include <array>
 #include <cstdint>
 #include <deque>

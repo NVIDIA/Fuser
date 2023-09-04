@@ -57,7 +57,7 @@ int getProducerHaloOffset(
   // reduction axis. Since this function is only used for indexing
   // producer tensors, where reduction axes are skipped, producer_id
   // should never be a reduction axis.
-  TORCH_INTERNAL_ASSERT(it != p2c.end());
+  NVF_ERROR(it != p2c.end());
   IterDomain* consumer_id = it->second;
 
   const auto& halo_map = GpuLower::current()->haloInfo();
@@ -137,7 +137,7 @@ Val* getProducerOffsetWithGather(
     auto concrete_window_id = gpu_lower->caMap()->getConcreteMappedID(
         window_id, IdMappingMode::EXACT);
     auto concrete_2_ref_it = concrete_to_ref_map.find(concrete_window_id);
-    TORCH_INTERNAL_ASSERT(concrete_2_ref_it != concrete_to_ref_map.end());
+    NVF_ERROR(concrete_2_ref_it != concrete_to_ref_map.end());
     window_id = concrete_2_ref_it->second;
   }
 
@@ -237,7 +237,7 @@ Val* getProducerIndexWithGather(
     ++consumer_axis;
   }
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       consumer_axis >= 0 &&
           consumer_axis < (int)gather_op->windowShape().size(),
       "Invalid consumer axis",
@@ -313,7 +313,7 @@ Val* getProducerIndexWithPartialSplit(
 
   auto diff = SimplifyingIrBuilder::subExpr(consumer_offset, producer_offset);
   // We currently only allow constant offsetting
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       diff->isConstScalar(),
       "Invalid partial split, must be a constant value.");
 
@@ -338,7 +338,7 @@ Val* getTensorBaseAddress(TensorView* tv) {
       return output;
     }
     default:
-      TORCH_CHECK(false, "Unsupported memory type ", memtype);
+      NVF_CHECK(false, "Unsupported memory type ", memtype);
   }
 }
 
@@ -351,7 +351,7 @@ bool IndexCompute::hasUnswitchedDependentDomains(IterDomain* id) const {
 }
 
 void IndexCompute::initializeUnswitchDomainMap() {
-  TORCH_INTERNAL_ASSERT(unswitched_domain_map_.empty());
+  NVF_ERROR(unswitched_domain_map_.empty());
   for (auto id : unswitched_leaf_domains_) {
     auto concrete_id = maybeGetExactMapConcreteID(id);
     unswitched_domain_map_.emplace(
@@ -385,7 +385,7 @@ void IndexCompute::updateUnswitchedDomains(Expr* expr) {
     }
   } else {
     // Suppress a clang-tidy warning
-    TORCH_INTERNAL_ASSERT(expr != nullptr);
+    NVF_ERROR(expr != nullptr);
     // Propagate the unswitch info if any of outputs is
     // unswitched. Unlike the split case, the propagated info
     // is just reset as there's no obvious way to back-propagate the
@@ -475,7 +475,7 @@ bool IndexCompute::isModuloInvalidUnswitchedIndex(
   }
 
   for (const auto& unswitched_domain_list : unswitched_domain_map_it->second) {
-    TORCH_INTERNAL_ASSERT(!unswitched_domain_list.empty());
+    NVF_ERROR(!unswitched_domain_list.empty());
 
     // If the stride is a multiple of the inner extent, the leaf
     // unswitched index remains to be a valid maximum index as the
@@ -550,7 +550,7 @@ void IndexCompute::handle(Merge* merge) {
         {merge->out()}, td_->maybeAllocation());
 
     // Shouldn't hit this, but don't want to segfault if somehow we do.
-    TORCH_INTERNAL_ASSERT(!input_ids.empty());
+    NVF_ERROR(!input_ids.empty());
 
     // Try to find the last non broadcast entry to put the index in if it's a
     // contiguous merge. This isn't strictly necessary but there's implicit
@@ -742,7 +742,7 @@ void IndexCompute::handle(Resize* resize) {
 
 void IndexCompute::dispatch(Expr* e) {
   auto is_expected_type = e->isOneOf<Split, Merge, Swizzle2D, Resize>();
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       is_expected_type, "Invalid expr type found in transform traversal.");
   updateUnswitchedDomains(e);
   BackwardVisitor::dispatch(e);
@@ -791,8 +791,7 @@ IndexCompute::IndexCompute(
   const auto& within_contig = contig_finder.withinContigIDs();
   for (auto contig_id : contig_ids_) {
     if (index_map_.find(contig_id) != index_map_.end()) {
-      TORCH_INTERNAL_ASSERT(
-          within_contig.find(contig_id) != within_contig.end());
+      NVF_ERROR(within_contig.find(contig_id) != within_contig.end());
       for (auto id : within_contig.at(contig_id)) {
         index_map_.erase(id);
       }
@@ -821,8 +820,7 @@ IndexCompute::IndexCompute(
 }
 
 void IndexCompute::run(const LoopIndexing& loop_indexing) {
-  TORCH_INTERNAL_ASSERT(
-      concrete_id_pass_, "concrete pass only for this option");
+  NVF_ERROR(concrete_id_pass_, "concrete pass only for this option");
   // Apply loop swizzles if there are any that outputs to
   //  the loop domains.
   // Currently only support loop swizzles that directly output
@@ -1052,7 +1050,7 @@ class UpdateLeafIndices : public IterVisitor {
     // Nothing need to be done when mappings for the output axes
     // already exist.
     if (index_map_.find(outer_id) != index_map_.end()) {
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           index_map_.find(inner_id) != index_map_.end(),
           "Outer exists but inner not found");
       return;
@@ -1063,7 +1061,7 @@ class UpdateLeafIndices : public IterVisitor {
       //  propagation pass and current implementation does not yet
       //  support reduciton on swizzled iterdomains, so un-indexed
       //  reduction iterdomains are just ignored for now.
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           in_id->isReduction(), "Undefined index for ", in_id->toString());
       return;
     }
@@ -1088,7 +1086,7 @@ class UpdateLeafIndices : public IterVisitor {
       //  propagation pass and current implementation does not yet
       //  support reduciton on swizzled iterdomains, so un-indexed
       //  reduction iterdomains are just ignored for now.
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           outer_id->isReduction() && inner_id->isReduction(),
           "Undefined index for ",
           outer_id->toString(),
@@ -1103,9 +1101,9 @@ class UpdateLeafIndices : public IterVisitor {
       return;
     }
 
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         index_map_.find(outer_id) != index_map_.end(), "Outer ID not found");
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         index_map_.find(inner_id) != index_map_.end(), "Inner ID not found");
 
     index_map_[out_id] = SimplifyingIrBuilder::addExpr(
@@ -1247,7 +1245,7 @@ void IndexSwizzle::handle(Swizzle2D* swizzle_2d) {
   auto out_x_it = index_map_.find(out_x_id);
   auto out_y_it = index_map_.find(out_y_id);
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       out_x_it != index_map_.end() && out_y_it != index_map_.end(),
       "Swizzle output indices were not propagated through");
 
@@ -1355,7 +1353,7 @@ bool isParallelLoopIndexSubstitutedAsZero(
   // conditions are already validated, but just double checking.
 
   if (loop_id->getParallelType() != producer_id->getParallelType()) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         (loop_id->isBlockDim() && !producer_id->isBlockDim()) ||
             (loop_id->isThreadDim() && !producer_id->isThread()),
         "Found invalid parallelization that should have been detected by the parallel validation: loop ID: ",
@@ -1510,7 +1508,7 @@ std::unordered_map<IterDomain*, IterDomain*> invertOneToOneMap(
   std::unordered_map<IterDomain*, IterDomain*> inverted;
   for (const auto& kv : map) {
     bool inserted = inverted.emplace(kv.second, kv.first).second;
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         inserted,
         "Multiple mappings to the same value detected: ",
         kv.second->toString());
@@ -1549,8 +1547,7 @@ std::vector<Val*> Index::getGlobalProducerStridedIndices(
     }
   }
 
-  TORCH_INTERNAL_ASSERT(
-      alloc_dom.size() == producer_tv->domain()->contiguity().size());
+  NVF_ERROR(alloc_dom.size() == producer_tv->domain()->contiguity().size());
   Val* cur_contig_stride = GpuLower::current()->kernel()->oneVal();
   for (const auto i : c10::irange(alloc_dom.size())) {
     auto dim = alloc_dom.size() - i - 1;
@@ -1561,9 +1558,9 @@ std::vector<Val*> Index::getGlobalProducerStridedIndices(
     auto producer_dim_contiguity = producer_tv->domain()->contiguity().at(dim);
     if (alloc_dom[dim]->isBroadcast()) {
       strides[dim] = cur_contig_stride->fusion()->zeroVal();
-      TORCH_INTERNAL_ASSERT(!producer_dim_contiguity.has_value());
+      NVF_ERROR(!producer_dim_contiguity.has_value());
     } else if (!producer_dim_contiguity.has_value()) {
-      TORCH_INTERNAL_ASSERT(false, "Expected value for dimension contiguity");
+      NVF_ERROR(false, "Expected value for dimension contiguity");
     } else if (producer_dim_contiguity.value()) {
       // If contig, used the stored stride which may be the previous
       // dimensions stride * previous dimensions size
@@ -1773,7 +1770,7 @@ std::vector<Val*> Index::getNonGlobalProducerStridedIndices(
     auto override_it = override_index.find(alloc_dom[i]);
     const bool is_overriden = override_it != override_index.end();
 
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         is_overriden || index_map.find(alloc_dom[i]) != index_map.end(),
         "Couldn't find allocation mapping for ",
         producer_tv->toString(),
@@ -1906,7 +1903,7 @@ std::vector<Val*> Index::getStrides(TensorView* tv) {
     }
   }
 
-  TORCH_INTERNAL_ASSERT(alloc_dom.size() == tv->domain()->contiguity().size());
+  NVF_ERROR(alloc_dom.size() == tv->domain()->contiguity().size());
   Val* cur_contig_stride = GpuLower::current()->kernel()->oneVal();
   for (const auto i : c10::irange(alloc_dom.size())) {
     auto dim = alloc_dom.size() - i - 1;
@@ -1917,9 +1914,9 @@ std::vector<Val*> Index::getStrides(TensorView* tv) {
     auto dim_contiguity = tv->domain()->contiguity().at(dim);
     if (alloc_dom[dim]->isBroadcast()) {
       strides[dim] = cur_contig_stride->fusion()->zeroVal();
-      TORCH_INTERNAL_ASSERT(!dim_contiguity.has_value());
+      NVF_ERROR(!dim_contiguity.has_value());
     } else if (!dim_contiguity.has_value()) {
-      TORCH_INTERNAL_ASSERT(false, "Expected value for dimension contiguity");
+      NVF_ERROR(false, "Expected value for dimension contiguity");
     } else if (dim_contiguity.value()) {
       // If contig, used the stored stride which may be the previous
       // dimensions stride * previous dimensions size
@@ -1956,7 +1953,7 @@ std::vector<Val*> Index::getConsumerAllocationIndices(
       continue;
     }
 
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         indexing.indexMap().find(alloc_dom[i]) != indexing.indexMap().end(),
         "Couldn't find allocation mapping for ",
         tv->toString(),
@@ -2072,7 +2069,7 @@ std::vector<Val*> Index::getProducerAllocationIndices(
       alloc_ind = producer_indexing.indexMap().at(alloc_dom[i]);
     }
 
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         alloc_ind != nullptr,
         "Couldn't find allocation mapping for ",
         producer_tv->toString(),
@@ -2140,7 +2137,7 @@ std::vector<Val*> Index::getGlobalConsumerStridedIndices(
     }
   }
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       strided_inds.size() == consumer_tv->getMaybeAllocationDomain().size());
 
   return strided_inds;
@@ -2155,7 +2152,7 @@ std::vector<Val*> Index::getNonGlobalConsumerStridedIndices(
   const auto gpu_lower = GpuLower::current();
   // At now, only ScatterOp set override_index, and the output of ScatterOp
   // is on global memory, so in this method, the override_index must be empty.
-  TORCH_INTERNAL_ASSERT(override_index.empty());
+  NVF_ERROR(override_index.empty());
   auto consumer_indexing_from_idgraph = getTensorIndexFromIdGraph(
       loops,
       rotated_loops,
@@ -2198,7 +2195,7 @@ std::vector<Val*> Index::getNonGlobalConsumerStridedIndices(
       }
     }
 
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         index_map.find(alloc_dom[i]) != index_map.end(),
         "Couldn't find allocation mapping for ",
         consumer_tv->toString(),
@@ -2222,7 +2219,7 @@ std::vector<Val*> Index::getNonGlobalConsumerStridedIndices(
         continue;
       }
 
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           index_map.find(alloc_dom[j]) != index_map.end(),
           "Couldn't find allocation mapping for ",
           consumer_tv->toString(),
@@ -2259,7 +2256,7 @@ std::vector<Val*> Index::getNonGlobalConsumerStridedIndices(
   // the prologue loop, strided_inds ends up having one more
   // index, so it's just much simpler to check here before adding the
   // additional index for double buffering.
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       strided_inds.size() == consumer_tv->getMaybeAllocationDomain().size());
 
   if (consumer_tv->isDoubleBuffered() || consumer_tv->isCircularBuffered()) {
@@ -2519,7 +2516,7 @@ std::vector<PredicateDomainInfo> getPredicateContigIds(
 
     auto contig_id_it = contig_finder.allocToIndexedID().find(root_id);
 
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         contig_id_it != contig_finder.allocToIndexedID().end(),
         "Error in predicate contiguity analysis, missing index for root ",
         root_id->toString());
@@ -2620,7 +2617,7 @@ std::pair<Val*, Val*> getStartAndStopOffsetsForShift(
     TensorView* consumer_tv,
     IterDomain* consumer_id,
     bool padding_predicate) {
-  TORCH_INTERNAL_ASSERT(consumer_id != nullptr);
+  NVF_ERROR(consumer_id != nullptr);
 
   auto shift_expr = dynamic_cast<ShiftOp*>(consumer_tv->definition());
 
@@ -2660,7 +2657,7 @@ std::pair<Val*, Val*> getStartAndStopOffsetsForGather(
     const std::unordered_map<IterDomain*, Val*>& ref_start_index_map,
     const std::unordered_map<IterDomain*, Val*>& ref_stop_index_map,
     bool padding_predicate) {
-  TORCH_INTERNAL_ASSERT(consumer_id != nullptr);
+  NVF_ERROR(consumer_id != nullptr);
 
   // Adjustment is not necessary if not gather. Even so, padding
   // predicate does not need any adjustment.
@@ -2742,8 +2739,8 @@ std::pair<Val*, Val*> getStartAndStopOffsetsForGather(
         consumer_stop_offset, producer_stop_offset);
   }
 
-  TORCH_INTERNAL_ASSERT(start_offset != nullptr);
-  TORCH_INTERNAL_ASSERT(stop_offset != nullptr);
+  NVF_ERROR(start_offset != nullptr);
+  NVF_ERROR(stop_offset != nullptr);
 
   return {start_offset, stop_offset};
 }
@@ -2760,7 +2757,7 @@ std::pair<Val*, Val*> getStartAndStopLimitOffsets(
     bool intemediate_domain_pred) {
   const auto gpu_lower = GpuLower::current();
 
-  TORCH_INTERNAL_ASSERT(consumer_id != nullptr);
+  NVF_ERROR(consumer_id != nullptr);
 
   Val* start_limit = consumer_id->start();
   Val* stop_limit = SimplifyingIrBuilder::negExpr(consumer_id->stopOffset());
@@ -2851,7 +2848,7 @@ std::pair<Val*, Val*> getStartAndStopOffsets(
     // accommodate the addition of halo to the loop stop. See the
     // comment in getPredicateIndexingFromIdGraph as well.
     if (unswitch) {
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           !padding_predicate, "Unswitch should not use the padding predicate");
       auto stop_unswitch_offset =
           getUnswitchStopOffset(consumer_id, consumer_tv);
@@ -2970,7 +2967,7 @@ std::unordered_map<IterDomain*, Val*> updateInitialLoopIndexMap(
     const std::unordered_map<IterDomain*, Val*>& initial_loop_index_map,
     const IndexMagicZeroInfo& magic_zero_info) {
   if (magic_zero_info.original_loop_index != nullptr) {
-    TORCH_INTERNAL_ASSERT(magic_zero_info.protected_loop_index != nullptr);
+    NVF_ERROR(magic_zero_info.protected_loop_index != nullptr);
     auto concrete_loop_id = GpuLower::current()->caMap()->getConcreteMappedID(
         magic_zero_info.loop_id, IdMappingMode::EXACT);
     auto updated_map = initial_loop_index_map;
@@ -3169,7 +3166,7 @@ Val* Index::eye(
     DataType dtype) {
   auto indices =
       Index::getConsumerPerDimLogicalIndex(consumer_tv, loops, rotated_loops);
-  TORCH_INTERNAL_ASSERT(indices.size() == 2);
+  NVF_ERROR(indices.size() == 2);
   auto result = maybeCastOp(dtype, eq(indices[0], indices[1]));
   return GpuLower::current()->commonScalarMap().hoistScalar(result, loops);
 }

@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 
+#include <exceptions.h>
 #include <polymorphic_value.h>
 #include <type.h>
 
@@ -57,7 +58,7 @@ struct TensorMetaData : public Struct {
         return [this]() { return PolymorphicValue(alloc_stride.vec()); };
       }
     } else {
-      TORCH_INTERNAL_ASSERT(false, "Unknown key ", key);
+      NVF_ERROR(false, "Unknown key ", key);
     }
   }
 
@@ -86,13 +87,13 @@ struct TensorMetaData : public Struct {
         alloc_stride = c10::makeArrayRef(alloc_stride_data);
       };
     } else {
-      TORCH_INTERNAL_ASSERT(false, "Unknown key ", key);
+      NVF_ERROR(false, "Unknown key ", key);
     }
   }
 
   StructType type() const override {
-    TORCH_INTERNAL_ASSERT(logical_size.size() == logical_stride.size());
-    TORCH_INTERNAL_ASSERT(alloc_size.size() == alloc_stride.size());
+    NVF_ERROR(logical_size.size() == logical_stride.size());
+    NVF_ERROR(alloc_size.size() == alloc_stride.size());
     return globalTensorMetaData(dtype, logical_size.size(), alloc_size.size());
   }
 };

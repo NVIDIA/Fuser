@@ -95,7 +95,7 @@ void ConcretizedBroadcastDomains::dispatch(Expr* expr) {
         const bool is_concretized =
             !c_id->isBroadcast() && !c_id->isReduction();
         auto it = broadcast_origin_map_.find(p_id);
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             it != broadcast_origin_map_.end(),
             "Broadcast origin info not found for producer broadcast domain: ",
             p_id->toString(),

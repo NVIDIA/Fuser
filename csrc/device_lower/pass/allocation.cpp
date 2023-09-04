@@ -78,7 +78,7 @@ class AllocationInserter : public kir::ExprMutator {
           }
         }
       }
-      TORCH_INTERNAL_ASSERT(false, "Could not find desired loop.");
+      NVF_ERROR(false, "Could not find desired loop.");
     };
 
     if (info.init_for_loop == nullptr) {
@@ -106,7 +106,7 @@ class AllocationInserter : public kir::ExprMutator {
       } else {
         // Since there must be an inner unswitched domain,
         // alloc_for_loop should never be the inner-most loop.
-        TORCH_INTERNAL_ASSERT(info.alloc_for_loop != for_loops_.back());
+        NVF_ERROR(info.alloc_for_loop != for_loops_.back());
         info.alloc_place_before = next_fl(info.alloc_for_loop, for_loops_);
       }
     }
@@ -289,7 +289,7 @@ class AllocationInserter : public kir::ExprMutator {
           known_extents.erase(outer_it);
         }
       } else {
-        TORCH_INTERNAL_ASSERT(false, "Unexpected expr: ", expr);
+        NVF_ERROR(false, "Unexpected expr: ", expr);
       }
     }
 
@@ -311,7 +311,7 @@ class AllocationInserter : public kir::ExprMutator {
       for (auto kv : known_extents) {
         ss << kv.first << " ";
       }
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           false, "Non-root axes found for TV", tv->name(), ": ", ss.str());
     }
 
@@ -320,7 +320,7 @@ class AllocationInserter : public kir::ExprMutator {
 
   std::vector<Val*> getNonGlobalAllocExpr(AllocationInformation& info) {
     const auto memory_type = info.buffer->getMemoryType();
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         memory_type != MemoryType::Global,
         "Invalid memory type: ",
         memory_type);
@@ -460,19 +460,19 @@ class AllocationInserter : public kir::ExprMutator {
 
       Val* init = nullptr;
       if (expr->isA<ReductionOp>() && out_tv->hasReduction()) {
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             default_val == nullptr,
             "Reduction should not have a default initialization value for predicate elimination.");
         init = expr->as<ReductionOp>()->init();
       } else if (expr->isA<GroupedReductionOp>() && out_tv->hasReduction()) {
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             default_val == nullptr,
             "Reduction should not have a default initialization value for predicate elimination.");
         init = expr->as<GroupedReductionOp>()->initVal(i);
       } else if (expr->isA<MmaOp>()) {
         init = expr->as<MmaOp>()->init();
       } else if (expr->isA<WelfordOp>()) {
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             default_val == nullptr,
             "Welford should not have a default initialization value for predicate elimination.");
         const auto welford = expr->as<WelfordOp>();
@@ -483,12 +483,11 @@ class AllocationInserter : public kir::ExprMutator {
           init = welford->initAvg() == nullptr ? IrBuilder::create<Val>(0.0)
                                                : welford->initAvg();
         } else {
-          TORCH_INTERNAL_ASSERT(
-              out->name() == welford->outN()->name(), "Unreachable");
+          NVF_ERROR(out->name() == welford->outN()->name(), "Unreachable");
           init = welford->initN();
         }
       } else if (expr->isA<GroupedWelfordOp>()) {
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             default_val == nullptr,
             "Welford should not have a default initialization value for predicate elimination.");
         init = expr->as<GroupedWelfordOp>()->getInitValOfOutput(out);
@@ -497,7 +496,7 @@ class AllocationInserter : public kir::ExprMutator {
       }
 
       if (ir_utils::isCpAsyncOp(expr)) {
-        TORCH_CHECK(
+        NVF_CHECK(
             init == nullptr || init->isZero(),
             "cp.async initialized with non-zero is not supported");
         // cp.async will automatically fill zero when out of bound
@@ -527,10 +526,10 @@ class AllocationInserter : public kir::ExprMutator {
       if (alloc_expr != nullptr) {
         if (allocation.buffer->getMemoryType() == MemoryType::Shared) {
           // Shared allocations go at the begining of scope
-          TORCH_INTERNAL_ASSERT(!exprs_.empty());
+          NVF_ERROR(!exprs_.empty());
           registerInsertBefore(exprs_[0], alloc_expr, nullptr);
         } else {
-          TORCH_INTERNAL_ASSERT(allocation.alloc_place_before != nullptr);
+          NVF_ERROR(allocation.alloc_place_before != nullptr);
           kir::Scope* scope = allocation.alloc_for_loop == nullptr
               ? nullptr
               : &allocation.alloc_for_loop->body();
@@ -540,7 +539,7 @@ class AllocationInserter : public kir::ExprMutator {
       }
 
       if (init_expr != nullptr) {
-        TORCH_INTERNAL_ASSERT(allocation.init_place_before != nullptr);
+        NVF_ERROR(allocation.init_place_before != nullptr);
         kir::Scope* scope = allocation.init_for_loop == nullptr
             ? nullptr
             : &allocation.init_for_loop->body();
@@ -558,7 +557,7 @@ class AllocationInserter : public kir::ExprMutator {
       // Skip output allocation.
       return;
     }
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         !lower_alloc_info_map.count(alloc_expr),
         "duplicated allocation info entry");
 
@@ -575,7 +574,7 @@ class AllocationInserter : public kir::ExprMutator {
   }
 
   void handle(kir::IfThenElse*) final {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         false,
         "Pass does not support conditional statements, ",
         "this pass should be run before any conditionals are placed in code.");

@@ -8,6 +8,7 @@
 #pragma once
 
 #include <c10/macros/Export.h>
+#include <exceptions.h>
 
 #include <compute_at_map.h>
 #include <device_lower/analysis/fused_reduction.h>
@@ -106,12 +107,12 @@ class TORCH_CUDA_CU_API GpuLower : public NonCopyable {
   }
 
   PredicateElimination& predicateElimination() {
-    TORCH_INTERNAL_ASSERT(pred_elimination_.get() != nullptr);
+    NVF_ERROR(pred_elimination_.get() != nullptr);
     return *pred_elimination_;
   }
 
   const PredicateElimination& predicateElimination() const {
-    TORCH_INTERNAL_ASSERT(pred_elimination_.get() != nullptr);
+    NVF_ERROR(pred_elimination_.get() != nullptr);
     return *pred_elimination_;
   }
 

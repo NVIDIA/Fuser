@@ -92,7 +92,7 @@ void UnrollPass::dispatch(Expr* expr) {
         // In the case of Global, we cannot ignore any predicates at
         // all, so don't modify thread_pred. Just make sure no other
         // memory type shows up here.
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             out_tv->getMemoryType() == MemoryType::Global,
             "Unexpected memory type: ",
             out_tv->getMemoryType(),

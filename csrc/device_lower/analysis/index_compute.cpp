@@ -70,7 +70,7 @@ std::unordered_map<IterDomain*, IterDomain*> invertOneToOneMap(
   std::unordered_map<IterDomain*, IterDomain*> inverted;
   for (const auto& kv : map) {
     bool inserted = inverted.emplace(kv.second, kv.first).second;
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         inserted,
         "Multiple mappings to the same value detected: ",
         kv.second->toString());
@@ -218,7 +218,7 @@ IndexingParameters getNonGlobalInitialIndexParameters(
 
   ensureStaticIndexing(alloc_tv, alloc_info.init_for_loop, loops, alloc_id_map);
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       loops.size() <= loop_domains.size(),
       "Loop domain didn't replay all loops");
 
@@ -350,7 +350,7 @@ IndexingParameters getPredicateInitialIndexParameters(
   const auto& loop_domains = loop_indexing.loopDomains();
 
   // This shouldn't be needed.
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       loops.size() <= loop_domains.size(),
       "Loop domain didn't replay all loops");
 
@@ -475,7 +475,7 @@ IndexingParameters getPredicateInitialIndexParameters(
         double_buffer_axis, loops, true);
     if (db_loop != nullptr) {
       auto loop_to_ind_map_it = loop_to_ind_map.find(db_loop);
-      TORCH_INTERNAL_ASSERT(loop_to_ind_map_it != loop_to_ind_map.end());
+      NVF_ERROR(loop_to_ind_map_it != loop_to_ind_map.end());
       auto cur_index = loop_to_ind_map_it->second;
       // if cur_index is not the same as the index of db_loop, it must
       // be true that that index has been modified to support
@@ -565,7 +565,7 @@ LoopIndexingAnalysis::LoopIndexingAnalysis(
       std::back_inserter(initial_loop_domain_ids_),
       [&](IterDomain* consumer_leaf_id) {
         // Make sure consumer_leaf_id is indeed a consumer leaf ID
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             std::find(
                 consumer_tv->getLeafDomain().begin(),
                 consumer_tv->getLeafDomain().end(),
@@ -635,7 +635,7 @@ void LoopIndexingAnalysis::validateLoopStructure(
     auto concrete_loop_id = GpuLower::current()->caMap()->getConcreteMappedID(
         loop_id, IdMappingMode::EXACT);
 
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         !concrete_to_loop.count(concrete_loop_id),
         "Unsupported loop structure. Two loops are mapped together.",
         loop_id->toString(),
@@ -793,7 +793,7 @@ void LoopIndexingAnalysis::constructLoopDomains() {
                   concrete_id, loop_id, IdMappingMode::PERMISSIVE);
         });
 
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         ref_id_it != replayed_concrete_ids_.vector().end(),
         "Could not find required iter domain in reference replay: ",
         loop_id->toString());
@@ -1155,7 +1155,7 @@ LoopIndexingTraversal::LoopIndexingTraversal(
     for (auto id : next_ids) {
       auto concrete_id = GpuLower::current()->caMap()->getConcreteMappedID(
           id, IdMappingMode::EXACT);
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           concrete_id_to_dependency_.insert(std::make_pair(concrete_id, expr))
               .second,
           "Repeated dependency, invalid iterdomain traversal.");
@@ -1174,7 +1174,7 @@ const std::vector<Val*>& LoopIndexingTraversal::nextValsInTraversalOrder(
       break;
 
     default:
-      TORCH_INTERNAL_ASSERT(false, "unimplemented traversal order");
+      NVF_ERROR(false, "unimplemented traversal order");
   }
   return expr->inputs();
 }
@@ -1190,7 +1190,7 @@ const std::vector<Val*>& LoopIndexingTraversal::prevValsInTraversalOrder(
       break;
 
     default:
-      TORCH_INTERNAL_ASSERT(false, "unimplemented traversal order");
+      NVF_ERROR(false, "unimplemented traversal order");
   }
   return expr->inputs();
 }
@@ -1229,7 +1229,7 @@ std::vector<Expr*> LoopIndexingTraversal::getExprList() {
         if (!visited.count(prev_expr)) {
           ready = false;
           to_visit.push_front(prev_expr);
-          TORCH_INTERNAL_ASSERT(
+          NVF_ERROR(
               inserted.insert(prev_expr).second,
               "Circular dependency in loop index expressions.");
           break;
@@ -1343,7 +1343,7 @@ bool isPermissivelyMappedWithAny(IterDomain* id, const std::vector<Val*>& ids) {
     if (auto id_resize = dynamic_cast<Resize*>(id->uses().at(0))) {
       auto mapped_id_resize =
           dynamic_cast<Resize*>(val->as<IterDomain>()->uses().at(0));
-      TORCH_INTERNAL_ASSERT(mapped_id_resize != nullptr);
+      NVF_ERROR(mapped_id_resize != nullptr);
       if (!(id_resize->leftExpand()->sameAs(mapped_id_resize->leftExpand()) &&
             id_resize->rightExpand()->sameAs(
                 mapped_id_resize->rightExpand()))) {

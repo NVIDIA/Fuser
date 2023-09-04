@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <csrc/exceptions.h>
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
@@ -86,7 +87,7 @@ TEST_F(SmemReuseTest, SimpleCase) {
     int64_t smem_usage = 0;
     for (auto alloc : gpulw.kernel()->summary().dynamic_smem_allocations) {
       auto addr = ee.evaluate(alloc->address()).as<int64_t>();
-      TORCH_CHECK(
+      NVF_CHECK(
           addresses.insert(addr).second,
           "Smem addresses should not be re-used");
       auto size = ee.evaluate(alloc->size()).as<int64_t>() *
@@ -186,7 +187,7 @@ TEST_F(SmemReuseTest, NeedsReorderedPush) {
     for (auto alloc : gpulw.kernel()->summary().dynamic_smem_allocations) {
       EXPECT_NE(alloc->address(), nullptr);
       auto addr = ee.evaluate(alloc->address()).as<int64_t>();
-      TORCH_CHECK(
+      NVF_CHECK(
           addresses.insert(addr).second,
           "Smem addresses should not be re-used");
       auto size = ee.evaluate(alloc->size()).as<int64_t>() *
@@ -232,7 +233,7 @@ TEST_F(SmemReuseTest, PromoteReuse) {
     for (auto alloc : gpulw.kernel()->summary().dynamic_smem_allocations) {
       EXPECT_NE(alloc->address(), nullptr);
       auto addr = ee.evaluate(alloc->address()).as<int64_t>();
-      TORCH_CHECK(
+      NVF_CHECK(
           addresses.insert(addr).second,
           "Smem addresses should not be re-used");
       auto size = ee.evaluate(alloc->size()).as<int64_t>() *
@@ -300,7 +301,7 @@ TEST_F(SmemReuseTest, PromoteReuseMultipleDownstream) {
     for (auto alloc : gpulw.kernel()->summary().dynamic_smem_allocations) {
       EXPECT_NE(alloc->address(), nullptr);
       auto addr = ee.evaluate(alloc->address()).as<int64_t>();
-      TORCH_CHECK(
+      NVF_CHECK(
           addresses.insert(addr).second,
           "Smem addresses should not be re-used");
       auto size = ee.evaluate(alloc->size()).as<int64_t>() *
@@ -382,7 +383,7 @@ TEST_F(SmemReuseTest, MultiplePromoteReuse) {
     for (auto alloc : gpulw.kernel()->summary().dynamic_smem_allocations) {
       EXPECT_NE(alloc->address(), nullptr);
       auto addr = ee.evaluate(alloc->address()).as<int64_t>();
-      TORCH_CHECK(
+      NVF_CHECK(
           addresses.insert(addr).second,
           "Smem addresses should not be re-used");
       auto size = ee.evaluate(alloc->size()).as<int64_t>() *
