@@ -18,6 +18,14 @@ namespace nvfuser {
 
 namespace {
 
+bool shouldHoistToHost(Val* value) {
+  if (value->definition() == nullptr) {
+    return false;
+  }
+  auto def = value->definition();
+  return def->isA<EncodeTensorMapTiled>();
+}
+
 // Get the position of the innermost non-trivial loop
 int64_t getInnermostNonTrivialLoop(const std::vector<kir::ForLoop*>& loops) {
   int64_t position = -1;
@@ -325,8 +333,8 @@ Val* CommonScalarMap::reuseScalarIfAlreadyComputed(
   // Find if loop already contain `value`.
   auto it = common_scalar_map_.find(loop);
   if (it != common_scalar_map_.end()) {
-    auto& indices = it->second;
-    for (auto it = indices.begin(); it != indices.end(); it++) {
+    auto& scalars = it->second;
+    for (auto it = scalars.begin(); it != scalars.end(); it++) {
       auto idx = *it;
       auto common_subexpr = findRefAsSubexprOf(idx, value, false);
       if (common_subexpr != nullptr) {
@@ -334,7 +342,7 @@ Val* CommonScalarMap::reuseScalarIfAlreadyComputed(
           // If the reuse is a subexpression instead of the complete
           // expression, we split this subexpression out and allocate it
           // separately.
-          indices.insert(it, common_subexpr);
+          scalars.insert(it, common_subexpr);
         }
         hoisted_or_reused_.emplace(common_subexpr);
         return common_subexpr;
