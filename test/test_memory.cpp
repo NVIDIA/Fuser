@@ -25,14 +25,13 @@ TEST_F(TMATest, Store1D_CUDA) {
   fusion.addInput(tv0);
   auto tv1 = set(tv0);
   auto tv2 = set(tv1);
-  auto tv3 = set(tv2);
-  fusion.addOutput(tv3);
+  fusion.addOutput(tv2);
 
-  tv2->setMemoryType(MemoryType::Shared);
-  tv3->definition()->as<LoadStoreOp>()->setOpType(
+  tv1->setMemoryType(MemoryType::Shared);
+  tv2->definition()->as<LoadStoreOp>()->setOpType(
       LoadStoreOpType::CpAsyncBulkTensorTile);
 
-  tv3->axis(0)->parallelize(ParallelType::Bulk);
+  tv2->axis(0)->parallelize(ParallelType::Bulk);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({32}, options);
@@ -50,15 +49,14 @@ TEST_F(TMATest, Store2D_CUDA) {
   fusion.addInput(tv0);
   auto tv1 = set(tv0);
   auto tv2 = set(tv1);
-  auto tv3 = set(tv2);
-  fusion.addOutput(tv3);
+  fusion.addOutput(tv2);
 
-  tv2->setMemoryType(MemoryType::Shared);
-  tv3->definition()->as<LoadStoreOp>()->setOpType(
+  tv1->setMemoryType(MemoryType::Shared);
+  tv2->definition()->as<LoadStoreOp>()->setOpType(
       LoadStoreOpType::CpAsyncBulkTensorTile);
 
-  tv3->axis(0)->parallelize(ParallelType::Bulk);
-  tv3->axis(1)->parallelize(ParallelType::Bulk);
+  tv2->axis(0)->parallelize(ParallelType::Bulk);
+  tv2->axis(1)->parallelize(ParallelType::Bulk);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({4, 4}, options);
@@ -76,16 +74,15 @@ TEST_F(TMATest, Store3D_CUDA) {
   fusion.addInput(tv0);
   auto tv1 = set(tv0);
   auto tv2 = set(tv1);
-  auto tv3 = set(tv2);
-  fusion.addOutput(tv3);
+  fusion.addOutput(tv2);
 
-  tv2->setMemoryType(MemoryType::Shared);
-  tv3->definition()->as<LoadStoreOp>()->setOpType(
+  tv1->setMemoryType(MemoryType::Shared);
+  tv2->definition()->as<LoadStoreOp>()->setOpType(
       LoadStoreOpType::CpAsyncBulkTensorTile);
 
-  tv3->axis(0)->parallelize(ParallelType::Bulk);
-  tv3->axis(1)->parallelize(ParallelType::Bulk);
-  tv3->axis(2)->parallelize(ParallelType::Bulk);
+  tv2->axis(0)->parallelize(ParallelType::Bulk);
+  tv2->axis(1)->parallelize(ParallelType::Bulk);
+  tv2->axis(2)->parallelize(ParallelType::Bulk);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({4, 4, 4}, options);
@@ -103,17 +100,16 @@ TEST_F(TMATest, Store4D_CUDA) {
   fusion.addInput(tv0);
   auto tv1 = set(tv0);
   auto tv2 = set(tv1);
-  auto tv3 = set(tv2);
-  fusion.addOutput(tv3);
+  fusion.addOutput(tv2);
 
-  tv2->setMemoryType(MemoryType::Shared);
-  tv3->definition()->as<LoadStoreOp>()->setOpType(
+  tv1->setMemoryType(MemoryType::Shared);
+  tv2->definition()->as<LoadStoreOp>()->setOpType(
       LoadStoreOpType::CpAsyncBulkTensorTile);
 
-  tv3->axis(0)->parallelize(ParallelType::Bulk);
-  tv3->axis(1)->parallelize(ParallelType::Bulk);
-  tv3->axis(2)->parallelize(ParallelType::Bulk);
-  tv3->axis(3)->parallelize(ParallelType::Bulk);
+  tv2->axis(0)->parallelize(ParallelType::Bulk);
+  tv2->axis(1)->parallelize(ParallelType::Bulk);
+  tv2->axis(2)->parallelize(ParallelType::Bulk);
+  tv2->axis(3)->parallelize(ParallelType::Bulk);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({4, 4, 4, 4}, options);
@@ -131,18 +127,17 @@ TEST_F(TMATest, Store5D_CUDA) {
   fusion.addInput(tv0);
   auto tv1 = set(tv0);
   auto tv2 = set(tv1);
-  auto tv3 = set(tv2);
-  fusion.addOutput(tv3);
+  fusion.addOutput(tv2);
 
-  tv2->setMemoryType(MemoryType::Shared);
-  tv3->definition()->as<LoadStoreOp>()->setOpType(
+  tv1->setMemoryType(MemoryType::Shared);
+  tv2->definition()->as<LoadStoreOp>()->setOpType(
       LoadStoreOpType::CpAsyncBulkTensorTile);
 
-  tv3->axis(0)->parallelize(ParallelType::Bulk);
-  tv3->axis(1)->parallelize(ParallelType::Bulk);
-  tv3->axis(2)->parallelize(ParallelType::Bulk);
-  tv3->axis(3)->parallelize(ParallelType::Bulk);
-  tv3->axis(4)->parallelize(ParallelType::Bulk);
+  tv2->axis(0)->parallelize(ParallelType::Bulk);
+  tv2->axis(1)->parallelize(ParallelType::Bulk);
+  tv2->axis(2)->parallelize(ParallelType::Bulk);
+  tv2->axis(3)->parallelize(ParallelType::Bulk);
+  tv2->axis(4)->parallelize(ParallelType::Bulk);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({4, 4, 4, 4, 4}, options);

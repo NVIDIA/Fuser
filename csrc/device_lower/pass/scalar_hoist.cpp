@@ -23,7 +23,7 @@ bool shouldHoistToHost(Val* value) {
     return false;
   }
   auto def = value->definition();
-  return def->isA<EncodeTensorMapTiled>();
+  return def->isA<kir::EncodeTensorMapTiled>();
 }
 
 // Get the position of the innermost non-trivial loop
@@ -221,6 +221,12 @@ std::pair<Val*, bool> CommonScalarMap::hoistScalarImpl(
     create_fn(value->container(), inputs, {value}, def->attributes());
   }
 
+  // TODO: this is only a temoprary hack, will be removed in a follow-up PR
+  if (shouldHoistToHost(value)) {
+    GpuLower::current()->allKnownVals().emplace_back(value);
+    return {value, has_tensor_index_dependency};
+  }
+
   // hoist subexpression to outer loop. If `value` depends on a tensor, then we
   // should never insert it into `common_scalar_map_`, because we can not
   // allocate it at the beginning of the loop. If `value` is the given value to
@@ -330,6 +336,12 @@ Val* CommonScalarMap::hoistScalar(
 Val* CommonScalarMap::reuseScalarIfAlreadyComputed(
     Val* value,
     kir::ForLoop* loop) {
+  // Find if value is computed on the host.
+  for (auto val : GpuLower::current()->allKnownVals()) {
+    if (val->sameAs(value)) {
+      return val;
+    }
+  }
   // Find if loop already contain `value`.
   auto it = common_scalar_map_.find(loop);
   if (it != common_scalar_map_.end()) {
