@@ -1283,7 +1283,8 @@ void IndexLowering::handleGroupedGridWelford(
 }
 
 void IndexLowering::handle(const LoadStoreOp* ldst) {
-  Val *in, *out;
+  Val* in = nullptr;
+  Val* out = nullptr;
   if (ir_utils::isCpAsyncBulk(ldst)) {
     TORCH_INTERNAL_ASSERT(ir_utils::isCpAsyncBulkStore(ldst));
     in = lowerSrcIndex(ldst->in(), ldst->out(), {}, true);

@@ -7,6 +7,8 @@
 // clang-format on
 #pragma once
 
+#include <type_traits.h>
+
 #include <any>
 #include <cstddef>
 #include <cstring>

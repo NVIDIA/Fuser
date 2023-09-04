@@ -3190,7 +3190,7 @@ Val* Index::cpAsyncBulkIndex(
         "cpAsyncBulkIndex only support whole tensor copy for now.");
   }
 
-  int64_t dim = tv->nDims();
+  int64_t dim = (int64_t)tv->nDims();
   TORCH_INTERNAL_ASSERT(dim > 0);
   int64_t itemsize = dataTypeSize(tv->dtype());
 
