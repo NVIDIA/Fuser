@@ -958,7 +958,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       indent() << gen(aop->out()) << " = ";
     }
 
-    code_ << "{";
+    code_ << aop->out()->dtype() << "{";
     bool first = true;
     for (auto in : aop->inputs()) {
       if (!first) {
