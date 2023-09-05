@@ -808,7 +808,6 @@ PersistentBufferSizeReturn persistentBufferSize(
       all_buffers.end(),
       projectable_buffers_inputs.begin(),
       projectable_buffers_inputs.end());
-
   std::vector<int64_t> persistent_buffer_sizes(all_buffers.size(), -1);
 
   for (auto buffer_i : c10::irange(all_buffers.size())) {

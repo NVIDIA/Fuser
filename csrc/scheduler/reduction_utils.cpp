@@ -946,18 +946,5 @@ ReductionType mapScheduleHeuristicToReductionType(ScheduleHeuristic sh) {
   }
 }
 
-std::vector<TensorView*>& getMaybeCachedReductionTvs(
-    Fusion* fusion,
-    HeuristicSummary* data_cache) {
-  auto reduction_tv_entry =
-      HeuristicSummaryEntry<HeuristicCompileTime::ReductionTVs>(
-          data_cache, [&fusion]() {
-            return std::make_unique<std::vector<TensorView*>>(
-                scheduler_utils::getReductionTvs(fusion));
-          });
-
-  return reduction_tv_entry.get();
-}
-
 } // namespace reduction_scheduler_utils
 } // namespace nvfuser

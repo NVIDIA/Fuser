@@ -1884,9 +1884,13 @@ class InnerPersistentKernelScheduler : public SchedulerEntry {
     FUSER_PERF_SCOPE("InnerPersistentKernelScheduler::canSchedule");
 
     // (1) check persistent buffer size, ensure we can do persistent.
-    auto& persistent_buffer_info =
-        normalization_scheduler_utils::getMaybeCachedPersistentBufferInfo(
-            fusion, data_cache);
+    auto persistent_buffer_info_entry =
+        HeuristicSummaryEntry<HeuristicCompileTime::PersistentBufferInfo>(
+            data_cache, [&fusion]() {
+              return std::make_unique<scheduler_utils::PersistentBufferInfo>(
+                  scheduler_utils::persistentBuffers(fusion));
+            });
+    auto& persistent_buffer_info = persistent_buffer_info_entry.get();
     const int64_t persistent_buffer_size =
         normalization_scheduler_utils::getPersistentBufferSize(
             fusion, runtime_info, data_cache, persistent_buffer_info);
@@ -1906,9 +1910,13 @@ class InnerPersistentKernelScheduler : public SchedulerEntry {
     }
 
     // (2) check iteration size, ensure we can do persistent efficiently.
-    auto& reduction_tvs = reduction_scheduler_utils::getMaybeCachedReductionTvs(
-        fusion, data_cache);
-
+    auto reduction_tv_entry =
+        HeuristicSummaryEntry<HeuristicCompileTime::ReductionTVs>(
+            data_cache, [&fusion]() {
+              return std::make_unique<std::vector<TensorView*>>(
+                  scheduler_utils::getReductionTvs(fusion));
+            });
+    auto& reduction_tvs = reduction_tv_entry.get();
     auto properties = scheduler_utils::getReductionProperties(
         fusion, runtime_info, reduction_tvs[0]);
 
@@ -1958,12 +1966,21 @@ class OuterPersistentKernelScheduler : public SchedulerEntry {
     FusionGuard fg(fusion);
     const auto device_prop = at::cuda::getCurrentDeviceProperties();
 
-    auto& reduction_tvs = reduction_scheduler_utils::getMaybeCachedReductionTvs(
-        fusion, data_cache);
-    auto& persistent_buffer_info =
-        normalization_scheduler_utils::getMaybeCachedPersistentBufferInfo(
-            fusion, data_cache);
+    auto reduction_tv_entry =
+        HeuristicSummaryEntry<HeuristicCompileTime::ReductionTVs>(
+            data_cache, [&fusion]() {
+              return std::make_unique<std::vector<TensorView*>>(
+                  scheduler_utils::getReductionTvs(fusion));
+            });
+    auto& reduction_tvs = reduction_tv_entry.get();
 
+    auto persistent_buffer_info_entry =
+        HeuristicSummaryEntry<HeuristicCompileTime::PersistentBufferInfo>(
+            data_cache, [&fusion]() {
+              return std::make_unique<scheduler_utils::PersistentBufferInfo>(
+                  scheduler_utils::persistentBuffers(fusion));
+            });
+    auto& persistent_buffer_info = persistent_buffer_info_entry.get();
     auto properties = scheduler_utils::getReductionProperties(
         fusion, runtime_info, reduction_tvs[0]);
 
@@ -2236,13 +2253,21 @@ class InnerOuterPersistentKernelScheduler : public SchedulerEntry {
     FUSER_PERF_SCOPE("InnerOuterPersistentKernelScheduler::canSchedule");
 
     // (1) check if there is enough shared memory or registers for persistent.
-    // additional buffer is needed for intermediate tensors storing partial
-    // outer reduction results.
-    auto& reduction_tvs = reduction_scheduler_utils::getMaybeCachedReductionTvs(
-        fusion, data_cache);
-    auto& persistent_buffer_info =
-        normalization_scheduler_utils::getMaybeCachedPersistentBufferInfo(
-            fusion, data_cache);
+    auto reduction_tv_entry =
+        HeuristicSummaryEntry<HeuristicCompileTime::ReductionTVs>(
+            data_cache, [&fusion]() {
+              return std::make_unique<std::vector<TensorView*>>(
+                  scheduler_utils::getReductionTvs(fusion));
+            });
+    auto& reduction_tvs = reduction_tv_entry.get();
+
+    auto persistent_buffer_info_entry =
+        HeuristicSummaryEntry<HeuristicCompileTime::PersistentBufferInfo>(
+            data_cache, [&fusion]() {
+              return std::make_unique<scheduler_utils::PersistentBufferInfo>(
+                  scheduler_utils::persistentBuffers(fusion));
+            });
+    auto& persistent_buffer_info = persistent_buffer_info_entry.get();
 
     const int64_t persistent_buffer_size =
         normalization_scheduler_utils::getPersistentBufferSize(
@@ -2661,13 +2686,15 @@ void HeuristicSummary::validate() const {
     }
     case ScheduleHeuristic::InnerPersistent:
     case ScheduleHeuristic::OuterPersistent:
+      NVF_ERROR(
+          entry_type_map_.count(EntryType::UNROLLABLE_INPUTS_AND_OUTPUTS));
+    // No break, fall through additional checks
     case ScheduleHeuristic::InnerOuterPersistent: {
       NVF_ERROR(entry_type_map_.count(EntryType::REDUCTION_TVS));
       NVF_ERROR(
           entry_type_map_.count(EntryType::VECTORIZABLE_INPUTS_AND_OUTPUTS));
       NVF_ERROR(entry_type_map_.count(EntryType::TV_TO_CONTIG_INNER_SIZE_MAPS));
-      NVF_ERROR(
-          entry_type_map_.count(EntryType::UNROLLABLE_INPUTS_AND_OUTPUTS));
+
       NVF_ERROR(entry_type_map_.count(EntryType::PERSISTENT_BUFFER_INFO));
       // If check persistent factor only when persistent buffers needed.
       auto persistent_buffer_info =
