@@ -2782,4 +2782,46 @@ TEST_F(ResizeTest, SliceAndReshapeRepro540Manual) {
   }
 }
 
+// Test concretizing a pad that follows a reshape. This requires the
+// ExpressionEvaluator used in concretization to propagate shapes properly
+// across symbolic reshapes in order to infer the size of the downstream pad.
+TEST_F(ResizeTest, ReshapeToPad) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  TensorView* tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+
+  auto s0 = IrBuilder::create<Val>(DataType::Int);
+  auto s1 = IrBuilder::create<Val>(DataType::Int);
+  auto s2 = IrBuilder::create<Val>(DataType::Int);
+  auto s3 = IrBuilder::create<Val>(DataType::Int);
+  fusion.addInput(s0);
+  fusion.addInput(s1);
+  fusion.addInput(s2);
+  fusion.addInput(s3);
+
+  auto tv1 = reshape(tv0, {s2, s3});
+  auto tv2 = pad(tv1, {fusion.zeroVal(), s0, fusion.zeroVal(), s1});
+  fusion.addOutput(tv2);
+
+  FusionExecutorCache fusion_executor_cache(std::move(fusion_ptr));
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor at_x = at::randn({4, 3}, options);
+  std::vector<c10::IValue> aten_inputs = {at_x, 1, 1, 3, 4};
+  auto at_y = at::pad(at_x.reshape({3, 4}), {0, 1, 0, 1});
+
+  auto outputs = fusion_executor_cache.runFusionWithInputs(aten_inputs);
+
+  testValidate(
+      fusion_executor_cache.fusion(),
+      outputs,
+      aten_inputs,
+      {at_y},
+      __LINE__,
+      __FILE__);
+}
+
 } // namespace nvfuser

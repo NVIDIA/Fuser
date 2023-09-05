@@ -3586,6 +3586,15 @@ void SegmentCandidateFinder::resolveScalarsInGroup(SegmentedGroup* group) {
         to_visit.push_back(input);
       }
     }
+    for (auto output : expr->outputs()) {
+      // We must be able to compute output extents for expression, so here we
+      // ensure the scalars involved are all available to this group
+      if (auto tv = dynamic_cast<TensorView*>(output)) {
+        for (auto id : tv->getMaybeRFactorDomain()) {
+          to_visit.push_back(id->getMaybeExpandedExtent());
+        }
+      }
+    }
   }
 
   // Keep track of composite fusion inputs used in this group
