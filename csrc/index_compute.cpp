@@ -3156,8 +3156,7 @@ Val* Index::iota(
   auto linear_index =
       Index::getLinearLogicalIndex(consumer_tv, loops, rotated_loops);
   auto result = add(start, mul(step, linear_index));
-  GpuLower::current()->commonScalarMap().hoistScalar(result, loops);
-  return result;
+  return GpuLower::current()->commonScalarMap().hoistScalar(result, loops);
 }
 
 Val* Index::eye(
@@ -3169,8 +3168,7 @@ Val* Index::eye(
       Index::getConsumerPerDimLogicalIndex(consumer_tv, loops, rotated_loops);
   NVF_ERROR(indices.size() == 2);
   auto result = maybeCastOp(dtype, eq(indices[0], indices[1]));
-  GpuLower::current()->commonScalarMap().hoistScalar(result, loops);
-  return result;
+  return GpuLower::current()->commonScalarMap().hoistScalar(result, loops);
 }
 
 } // namespace nvfuser
