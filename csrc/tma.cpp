@@ -292,21 +292,23 @@ std::vector<PolymorphicValue> kir::EncodeTensorMapTiled::evaluate(
     }
   }
   int64_t elem_size = (int64_t)dataTypeSize(dataType());
-  int64_t padding0 =
-      (int64_t)global_strides.at(0) - (int64_t)global_dim.at(0) * elem_size;
-  TORCH_INTERNAL_ASSERT(
-      padding0 >= 0,
-      "Negative pad0 for: globalStrides[0] = globalDim[0] * elementSizeInBytes(tensorDataType) + padding[0];");
-  for (int i = 1; i < (int64_t)tensor_rank - 1; i++) {
-    int64_t stride_mul_pad_i = (int64_t)global_strides.at(i) -
-        (int64_t)global_dim.at(i) * (int64_t)global_strides.at(i - 1);
+  if (tensor_rank > 1) {
+    int64_t padding0 =
+        (int64_t)global_strides.at(0) - (int64_t)global_dim.at(0) * elem_size;
     TORCH_INTERNAL_ASSERT(
-        stride_mul_pad_i >= 0,
-        "Negative globalStrides[i – 1] * padding[i] for: globalStrides[i] = globalStrides[i – 1] * (globalDim[i] + padding[i]);");
-    // TODO: the check below is copied from the official doc, but does it really
-    // make sense? Strides are in the unit of bytes, but global_dim is in the
-    // unit of elements, how can they compare with each other?
-    TORCH_INTERNAL_ASSERT(global_strides.at(i) >= global_dim.at(i));
+        padding0 >= 0,
+        "Negative pad0 for: globalStrides[0] = globalDim[0] * elementSizeInBytes(tensorDataType) + padding[0];");
+    for (int i = 1; i < (int64_t)tensor_rank - 1; i++) {
+      int64_t stride_mul_pad_i = (int64_t)global_strides.at(i) -
+          (int64_t)global_dim.at(i) * (int64_t)global_strides.at(i - 1);
+      TORCH_INTERNAL_ASSERT(
+          stride_mul_pad_i >= 0,
+          "Negative globalStrides[i – 1] * padding[i] for: globalStrides[i] = globalStrides[i – 1] * (globalDim[i] + padding[i]);");
+      // TODO: the check below is copied from the official doc, but does it
+      // really make sense? Strides are in the unit of bytes, but global_dim is
+      // in the unit of elements, how can they compare with each other?
+      TORCH_INTERNAL_ASSERT(global_strides.at(i) >= global_dim.at(i));
+    }
   }
 
   for (auto box_dim_val : box_dim) {
