@@ -492,8 +492,11 @@ inline bool hasCompatibleDataType(
     if (!value.is<std::vector>()) {
       return false;
     }
-    if (std::get<ArrayType>(dtype.type).size == 0 &&
-        value.as<std::vector>().empty()) {
+    const auto& array_type = std::get<ArrayType>(dtype.type);
+    if (array_type.size != value.as<std::vector>().size()) {
+      return false;
+    }
+    if (array_type.size == 0) {
       return true;
     }
   }
