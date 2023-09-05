@@ -13,6 +13,113 @@
 
 namespace nvfuser {
 
+class InnerPersistentParams : public HeuristicParams {
+  // Project persistent buffers back to inputs to reduce persistent buffer size.
+  // If true, use shared memory for persistent buffer, otherwise use registers.
+  // If true, vectorize, otherwise unroll.
+  // Pad inner dimension to nearest warp.
+  // Perform multiple reductions per block.
+  // Outer split grid dim for iteration axis in case it's too large for cuda.
+  bool project_persistent_buffers = false;
+  bool shared_mem_persistent_buffer = false;
+  bool vectorize_inner_reduction = false;
+  bool pad_inner_reduction_to_warp = false;
+  bool multiple_reds_per_blk = false;
+  bool split_grid_dim_iter_dom_outer = false;
+
+  // Inner Reduction Domain:
+  // Unrolling/Vectorization factor in reduction dimension
+  // batches of persistent buffers
+  // Unrolling factor for iteration dimension
+  int64_t unroll_factor_inner_reduction = 1;
+  int64_t batches_per_block_inner_reduction = 1;
+  int64_t unroll_factor_iter_dom = 1;
+
+  // !!WARNING!! Convenience method, this be unique based on non-parallel type
+  // parameters, not used for equivalence/hashing.
+  // Which block parallel dimension should be used for the inner reduction.
+  // Which block parallel dimension should be used for the iter domain.
+  // Which grid parallel dimension should be used for the iter domain.
+
+  ParallelType block_dim_inner_reduction = ParallelType::Serial;
+  ParallelType block_dim_iter_dom = ParallelType::Serial;
+  ParallelType grid_dim_iter_dom = ParallelType::Serial;
+
+  bool isUnrolled() const {
+    return unroll_factor_inner_reduction > 1 || unroll_factor_iter_dom > 1;
+  }
+
+  using HeuristicParams::HeuristicParams;
+  // Warning: Does not check launch parameters!
+  bool sameAs(
+      const std::shared_ptr<HeuristicParams>& other_base) const override {
+    auto other_casted =
+        std::dynamic_pointer_cast<InnerPersistentParams>(other_base);
+    if (other_casted == nullptr) {
+      return false;
+    }
+    const InnerPersistentParams& other = *other_casted;
+    bool attr_equal = other.cparams == cparams &&
+        other.project_persistent_buffers == project_persistent_buffers &&
+        other.shared_mem_persistent_buffer == shared_mem_persistent_buffer &&
+        other.vectorize_inner_reduction == vectorize_inner_reduction &&
+        other.pad_inner_reduction_to_warp == pad_inner_reduction_to_warp &&
+        other.multiple_reds_per_blk == multiple_reds_per_blk &&
+        other.split_grid_dim_iter_dom_outer == split_grid_dim_iter_dom_outer &&
+        other.unroll_factor_inner_reduction == unroll_factor_inner_reduction &&
+        other.batches_per_block_inner_reduction ==
+            batches_per_block_inner_reduction &&
+        other.unroll_factor_iter_dom == unroll_factor_iter_dom &&
+        other.block_dim_inner_reduction == block_dim_inner_reduction &&
+        other.block_dim_iter_dom == block_dim_iter_dom &&
+        other.grid_dim_iter_dom == grid_dim_iter_dom;
+    return attr_equal;
+  }
+
+  std::string toString() const override {
+    std::stringstream ss;
+    ss << "\n===== InnerPersistent Params ========\n"
+       << (tag.empty() ? "" : "Tag: ") << tag << "\n"
+       << "project_persistent_buffers: " << project_persistent_buffers << "\n"
+       << "shared_mem_persistent_buffer: " << shared_mem_persistent_buffer
+       << "\n"
+       << "vectorize_inner_reduction: " << vectorize_inner_reduction << "\n"
+       << "pad_inner_reduction_to_warp: " << pad_inner_reduction_to_warp << "\n"
+       << "multiple_reds_per_blk: " << multiple_reds_per_blk << "\n"
+       << "split_grid_dim_iter_dom_outer: " << split_grid_dim_iter_dom_outer
+       << "\n"
+       << "unroll_factor_inner_reduction: " << unroll_factor_inner_reduction
+       << "\n"
+       << "batches_per_block_inner_reduction: "
+       << batches_per_block_inner_reduction << "\n"
+       << "unroll_factor_iter_dom: " << unroll_factor_iter_dom << "\n";
+
+    ss << "\n" << lparams.toString() << "\n";
+    ss << "====================================\n";
+    return ss.str();
+  }
+
+  // Warning: Hash is not based on launch parameters!
+  size_t hash() const override {
+    constexpr size_t bits = sizeof(std::size_t) * 8;
+    size_t attr_hash = static_cast<size_t>(project_persistent_buffers)
+            << (bits - 1) ^
+        static_cast<size_t>(shared_mem_persistent_buffer) << (bits - 2) ^
+        static_cast<size_t>(vectorize_inner_reduction) << (bits - 3) ^
+        static_cast<size_t>(pad_inner_reduction_to_warp) << (bits - 4) ^
+        static_cast<size_t>(multiple_reds_per_blk) << (bits - 5) ^
+        static_cast<size_t>(split_grid_dim_iter_dom_outer) << (bits - 6) ^
+        static_cast<size_t>(unroll_factor_inner_reduction) << (bits - 7) ^
+        static_cast<size_t>(batches_per_block_inner_reduction) << (bits - 8) ^
+        static_cast<size_t>(unroll_factor_iter_dom) << (bits - 9);
+    return attr_hash;
+  }
+
+  std::shared_ptr<HeuristicParams> clone() const override {
+    return std::make_shared<InnerPersistentParams>(*this);
+  }
+};
+
 // Parameters of the reduction heuristic to describe the optimal schedule.
 // Warning: equal operator is intended for use in caching the kernel associated
 // with these reduction parameters. It does not check if the launch parameters

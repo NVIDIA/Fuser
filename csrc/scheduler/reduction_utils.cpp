@@ -22,6 +22,130 @@ namespace nvfuser {
 
 namespace reduction_scheduler_utils {
 
+namespace {
+inline void vectorize(TensorView* tv, int axis, int64_t factor) {
+  tv->split(axis, factor);
+  tv->axis(axis + 1)->parallelize(ParallelType::Vectorize);
+}
+
+inline void inner_parallel(TensorView* tv, int axis, ParallelType ptype) {
+  tv->split(axis, NamedScalar::getParallelDim(ptype));
+  tv->axis(axis + 1)->parallelize(ptype);
+}
+
+inline void inner_unswitch(TensorView* tv, int axis) {
+  tv->split(axis, 1);
+  tv->axis(axis + 1)->parallelize(ParallelType::Unswitch);
+}
+
+inline void inner_unroll(TensorView* tv, int axis, int64_t factor) {
+  tv->split(axis, factor);
+  tv->axis(axis + 1)->parallelize(ParallelType::Unroll);
+}
+
+inline void outer_parallel(TensorView* tv, int axis, ParallelType ptype) {
+  tv->split(axis, NamedScalar::getParallelDim(ptype), false);
+  tv->axis(axis)->parallelize(ptype);
+}
+
+inline void outer_unswitch(TensorView* tv, int axis) {
+  tv->split(axis, 1, false);
+  tv->axis(axis)->parallelize(ParallelType::Unswitch);
+}
+
+inline void outer_unroll(TensorView* tv, int axis, int64_t factor) {
+  tv->split(axis, factor, false);
+  tv->axis(axis)->parallelize(ParallelType::Unroll);
+}
+
+} // namespace
+
+TensorView* scheduleInnerPersistentTV(
+    const ReductionParams& rparams,
+    TensorView* tv,
+    bool has_iter_axis) {
+  // This fucntion handles three cases with different leaf domains:
+  // (1) inner reduction without iteration, [innerReductionAxis]
+  // (2) inner reduction with iteration, [IterationAxis, innerReductionAxis]
+  // (3) 3D scheduling, [IterationAxis, outerReductionAxis, innerReductionAxis]
+  // Case-(1) is a special case of case-(2) where the iter axis is not present.
+  // Case-(2) is the most common case e.g. softmax, layer norm, etc.
+  // Case-(3) is used by batch norm channel first backward.
+  const int iter_axis = 0;
+  const int outer_reduce_axis =
+      rparams.schedule_3D ? 1 : std::numeric_limits<int>::max();
+  const int inner_reduce_axis = rparams.schedule_3D ? 2 : has_iter_axis ? 1 : 0;
+  if (!has_iter_axis) {
+    NVF_ERROR(
+        !rparams.multiple_reds_per_blk,
+        "Multiple reductions requires an iter domain.");
+
+    NVF_ERROR(
+        rparams.unroll_factor_iter_dom == 1,
+        "Unrolling on iter domain requires an iter domain.");
+  }
+
+  // innerReductionAxis:
+  // [Grid Split, persistent buffer, unswitch, unroll, thread dim, vectorize]
+  auto axis_pointer = inner_reduce_axis;
+  if (rparams.vectorize_inner_reduction) {
+    vectorize(tv, axis_pointer, rparams.unroll_factor_inner_reduction);
+  }
+  tv->split(axis_pointer++, rparams.batches_per_block_inner_reduction, false);
+
+  outer_unswitch(tv, axis_pointer++);
+
+  if (!rparams.vectorize_inner_reduction &&
+      rparams.unroll_factor_inner_reduction > 1) {
+    outer_unroll(tv, axis_pointer++, rparams.unroll_factor_inner_reduction);
+  }
+
+  tv->axis(axis_pointer)->parallelize(rparams.block_dim_inner_reduction);
+
+  if (rparams.pad_inner_reduction_to_warp) {
+    tv->axis(axis_pointer)->padToMultipleOfWarp();
+  }
+
+  // IterationAxis:
+  // [Grid Split, unswitch, unroll, thread dim]
+  if (has_iter_axis) {
+    if (isParallelTypeThread(rparams.block_dim_iter_dom)) {
+      inner_parallel(tv, iter_axis, rparams.block_dim_iter_dom);
+    }
+
+    if (rparams.unroll_factor_iter_dom > 1) {
+      inner_unroll(tv, iter_axis, rparams.unroll_factor_iter_dom);
+    }
+
+    if (isParallelTypeThread(rparams.grid_dim_iter_dom)) {
+      if (rparams.split_grid_dim_iter_dom_outer) {
+        outer_parallel(tv, iter_axis, rparams.grid_dim_iter_dom);
+      } else {
+        tv->axis(iter_axis)->parallelize(rparams.grid_dim_iter_dom);
+      }
+    }
+  }
+
+  // outerReductionAxis:
+  // [Grid Split, persistent buffer, unroll, thread dim]
+  if (rparams.schedule_3D) {
+    auto outer_i = outer_reduce_axis;
+    if (rparams.cross_grid_outer_reduction) {
+      outer_parallel(tv, outer_i++, rparams.grid_dim_outer_reduction);
+    }
+
+    tv->split(outer_i++, rparams.batches_per_block_outer_reduction, false);
+
+    if (rparams.unroll_factor_outer_reduction > 1) {
+      outer_unroll(tv, outer_i++, rparams.unroll_factor_outer_reduction);
+    }
+
+    tv->axis(outer_i)->parallelize(rparams.block_dim_outer_reduction);
+  }
+
+  return sortAndRFactor(tv);
+}
+
 TensorView* scheduleReductionTV(
     const ReductionParams& rparams,
     TensorView* reduction_tv,

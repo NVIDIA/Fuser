@@ -223,5 +223,11 @@ int64_t getPersistentBufferSize(
 scheduler_utils::PersistentBufferInfo& getMaybeCachedPersistentBufferInfo(
     Fusion* fusion,
     HeuristicSummary* data_cache);
+
+//! If the fusion has both inner and outer reductions, use the first inner
+//! reduction tv as the reference tv, otherwise use the first reduction tv.
+TensorView* getReferenceReductionTv(
+    const std::vector<TensorView*>& reduction_tvs);
+
 } // namespace normalization_scheduler_utils
 } // namespace nvfuser

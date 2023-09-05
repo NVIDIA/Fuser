@@ -9228,9 +9228,9 @@ TEST_F(NVFuserTest, FusionTestWarpSoftMax_CUDA) {
   // Schedule through magic scheduler
   SchedulerRuntimeInfo runtime_info(&fusion, aten_inputs);
   NVF_CHECK(SchedulerEntry::canSchedule(
-      ScheduleHeuristic::Persistent, &fusion, runtime_info));
+      ScheduleHeuristic::InnerPersistent, &fusion, runtime_info));
   auto scheduler = SchedulerEntry::makeEntry(
-      ScheduleHeuristic::Persistent, &fusion, runtime_info);
+      ScheduleHeuristic::InnerPersistent, &fusion, runtime_info);
   scheduler->schedule(&fusion);
 
   // Modify the schedule to use warp reduction

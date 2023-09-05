@@ -1286,13 +1286,13 @@ getCommonHeuristicParams(
   // (1) check
   NVF_ERROR(!reduction_tvs.empty(), "Need reduction tensor views to schedule.");
 
-  auto first_red_tv = reduction_tvs[0];
+  auto ref_red_tv =
+      normalization_scheduler_utils::getReferenceReductionTv(reduction_tvs);
 
-  NVF_ERROR(first_red_tv != nullptr, "Reduction TensorView wasn't found.");
+  NVF_ERROR(ref_red_tv != nullptr, "Reduction TensorView wasn't found.");
 
-  NVF_ERROR(
-      first_red_tv->hasReduction(), "TensorView doesn't have a reduction.");
-  const auto red_expr = first_red_tv->definition();
+  NVF_ERROR(ref_red_tv->hasReduction(), "TensorView doesn't have a reduction.");
+  const auto red_expr = ref_red_tv->definition();
 
   NVF_ERROR(
       ir_utils::isReductionOp(red_expr),
@@ -1304,17 +1304,17 @@ getCommonHeuristicParams(
       "Tried to schedule a fusion with no tensor inputs, currently not supported.");
 
   // (2) reduction properties
-  auto properties = scheduler_utils::getReductionProperties(
-      fusion, runtime_info, first_red_tv);
+  auto properties =
+      scheduler_utils::getReductionProperties(fusion, runtime_info, ref_red_tv);
 
   // (3) vectorization factor
-  auto reduced_tv = ir_utils::getSoleProducerTv(first_red_tv);
+  auto reduced_tv = ir_utils::getSoleProducerTv(ref_red_tv);
   auto vectorize_factor = vectorize_helper::getVectorizationFactor(
       runtime_info,
       reduced_tv,
       data_cache,
       vectorize_helper::getVectorizationBreakPointOfReductionProducer(
-          first_red_tv, reduced_tv, properties.inner_most_dimension_ndims));
+          ref_red_tv, reduced_tv, properties.inner_most_dimension_ndims));
 
   return {reduced_tv, properties, vectorize_factor};
 }
@@ -1483,6 +1483,7 @@ std::shared_ptr<ReductionParams> getInnerPersistentHeuristics(
     HeuristicSummary* data_cache) {
   FUSER_PERF_SCOPE("getInnerPersistentHeuristics");
   FusionGuard fg(fusion);
+
   auto reduction_tv_entry =
       HeuristicSummaryEntry<HeuristicCompileTime::ReductionTVs>(
           data_cache, [&fusion]() {
@@ -1521,6 +1522,7 @@ std::shared_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache) {
   FUSER_PERF_SCOPE("getInnerOuterPersistentHeuristics");
+
   auto reduction_tv_entry =
       HeuristicSummaryEntry<HeuristicCompileTime::ReductionTVs>(
           data_cache, [&fusion]() {
@@ -1560,6 +1562,7 @@ std::shared_ptr<ReductionParams> getOuterPersistentHeuristics(
     HeuristicSummary* data_cache) {
   FUSER_PERF_SCOPE("getOuterPersistentHeuristics");
   FusionGuard fg(fusion);
+
   auto reduction_tv_entry =
       HeuristicSummaryEntry<HeuristicCompileTime::ReductionTVs>(
           data_cache, [&fusion]() {
@@ -1713,6 +1716,56 @@ TensorView* scheduleReductionGeneral(
       rparams, reduction_tv, has_iter_axis);
 }
 
+// check the existance and properties of reduction tvs
+std::pair<TensorView*, bool> checkReductionTv(
+    Fusion* fusion,
+    const ReductionParams& rparams,
+    std::vector<TensorView*>& reduction_tvs) {
+  NVF_ERROR(!reduction_tvs.empty());
+  // Registry assumes the reference tv is the first reduction_tv, if this
+  // changes registry needs to change.
+  auto reduction_tv = reduction_tvs[0];
+
+  if (!ir_utils::getViewOps(fusion).empty()) {
+    ComputeAtMap ca_map(fusion);
+    // Propagate reshape transforms through the graph, expecially the reference.
+    scheduler_utils::propagateReshapeTransforms(fusion, ca_map);
+
+    // Reorder reference_tv after propagating the view operation. This will
+    // reorder for better merging.
+    reduction_tv->reorder(
+        scheduler_utils::domainReorderAsRfactorMap(reduction_tv));
+  }
+
+  auto dim_analysis = scheduler_utils::canonicalDimReduction(
+      fusion, reduction_tv, rparams.fastest_dim && rparams.schedule_3D);
+  bool has_iter_axis = dim_analysis.first;
+  bool has_red_axis = dim_analysis.second;
+
+  NVF_ERROR(
+      has_red_axis,
+      "Could not find reduction axis in tensor used for reduction scheduler.");
+
+  if (!has_iter_axis) {
+    NVF_ERROR(
+        rparams.fastest_dim,
+        "If all dims are reduction, should be sending it to fastest dim scheduler.");
+  }
+  return {reduction_tv, has_iter_axis};
+}
+
+TensorView* scheduleInnerReduction(
+    Fusion* fusion,
+    const ReductionParams& rparams,
+    std::vector<TensorView*>& reduction_tvs) {
+  auto [reduction_tv, has_iter_axis] =
+      checkReductionTv(fusion, rparams, reduction_tvs);
+  return reduction_scheduler_utils::scheduleInnerPersistentTV(
+      rparams, reduction_tv, has_iter_axis);
+  // return reduction_scheduler_utils::scheduleReductionTV(
+  // rparams, reduction_tv, has_iter_axis);
+}
+
 void scheduleReductionCombinedOuter(
     Fusion* fusion,
     const ReductionParams& rparams,
@@ -1846,7 +1899,7 @@ void scheduleInnerPersistentKernel(
       cached_outputs);
 
   TensorView* reference_tv =
-      scheduleReductionGeneral(fusion, rparams, reduction_tvs);
+      scheduleInnerReduction(fusion, rparams, reduction_tvs);
 
   // Reduction tensor views and rfactor tensor views are setup. Let's finish off
   // the scheduling, particularly inlining and unrolling.

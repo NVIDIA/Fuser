@@ -109,5 +109,9 @@ std::optional<ScheduleHeuristic> getOptionalPersistentScheduler(Fusion* fusion);
 // Return the corresponding reduction types given a ScheduleHeuristic
 ReductionType mapScheduleHeuristicToReductionType(ScheduleHeuristic sh);
 
+TensorView* scheduleInnerPersistentTV(
+    const ReductionParams& rparams,
+    TensorView* tv,
+    bool has_iter_axis);
 } // namespace reduction_scheduler_utils
 } // namespace nvfuser
