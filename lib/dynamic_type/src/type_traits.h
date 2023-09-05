@@ -192,7 +192,7 @@ struct OperatorChecker {
 #define DEFINE_UNARY_OP(op)                                 \
   template <typename T1>                                    \
   constexpr auto operator op(OperatorChecker<T1>)           \
-      ->decltype(op std::declval<T1>(), true) {             \
+      -> decltype(op std::declval<T1>(), true) {            \
     return true;                                            \
   }                                                         \
                                                             \
@@ -203,7 +203,7 @@ struct OperatorChecker {
 #define DEFINE_UNARY_SUFFIX_OP(op)                               \
   template <typename T1>                                         \
   constexpr auto operator op(OperatorChecker<T1>, int)           \
-      ->decltype(std::declval<T1>() op, true) {                  \
+      -> decltype(std::declval<T1>() op, true) {                 \
     return true;                                                 \
   }                                                              \
                                                                  \
@@ -214,7 +214,7 @@ struct OperatorChecker {
 #define DEFINE_BINARY_OP(op)                                           \
   template <typename T1, typename T2>                                  \
   constexpr auto operator op(OperatorChecker<T1>, OperatorChecker<T2>) \
-      ->decltype((std::declval<T1>() op std::declval<T2>()), true) {   \
+      -> decltype((std::declval<T1>() op std::declval<T2>()), true) {  \
     return true;                                                       \
   }                                                                    \
                                                                        \
@@ -307,12 +307,18 @@ static_assert(!(opcheck<int> > opcheck<std::pair<int, int>>));
 // This utility works for all overloadable operators in C++. Just use these ops
 // on opcheck and you will know if it is defined for the underlying type.
 //
+// Note that the operators on opcheck might behave differently from normal C++.
+// For example, if you assign one opcheck to another opcheck, it will return a
+// bool telling you whether this asignment is valid for the underlying type,
+// instead of actually doing the assignment and return a reference of the lhs
+// opcheck.
+//
 // Due to the limitiation of C++'s operator overloading, some operators'
 // interface might not be as clean as others. For example, the arrow operator ->
 // is a special one. If you want to check if int has ->, you need to do:
 static_assert(!(opcheck<int>->value()));
 //
-// For more examples, see test_dynamic_type.cpp namespace opcheck_tests
+// For more examples, see test/opcheck.cpp namespace opcheck_tests
 //
 // Reference about operator overloading:
 // https://en.cppreference.com/w/cpp/language/operators
