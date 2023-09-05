@@ -432,7 +432,7 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/test/test_pipeline.cpp
     ${NVFUSER_ROOT}/test/test_rng.cpp
     ${NVFUSER_ROOT}/test/test_smem_reuse.cpp
-    ${NVFUSER_ROOT}/test/test_load_store.cpp
+    ${NVFUSER_ROOT}/test/test_load.cpp
   )
 
   if(BUILD_PYTHON)
