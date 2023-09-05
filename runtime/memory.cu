@@ -198,6 +198,8 @@ DEVICE_INLINE void cpAsyncPartialBarrier() {
 
 #endif // Arch 80
 
+#if (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 900))
+
 namespace Hopper {
 
 // References:
@@ -210,23 +212,15 @@ namespace Hopper {
 // https://docs.nvidia.com/cuda/cuda-driver-api/group__CUDA__TENSOR__MEMORY.html
 
 DEVICE_INLINE void cpAsyncBulkCommit() {
-#if (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 900))
   asm volatile("cp.async.bulk.commit_group;");
-#else
-  assert(false);
-#endif
 }
 
 template <int keep_stages>
 DEVICE_INLINE void cpAsyncBulkPartialReadBarrier() {
-#if (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 900))
   asm volatile("cp.async.bulk.wait_group.read %0;"
                :
                : "n"(keep_stages)
                : "memory");
-#else
-  assert(false);
-#endif
 }
 
 template <int dim>
@@ -238,8 +232,6 @@ struct CpAsyncBulkTensorTileIndex {
 DEVICE_INLINE void cpAsyncBulkTensorTileS2G(
     const CpAsyncBulkTensorTileIndex<1>& dest,
     uint32_t smem_addr) {
-#if (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 900))
-  // TODO: remove this cast?
   uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(dest.descriptor);
   asm volatile(
       "cp.async.bulk.tensor.1d.global.shared::cta.bulk_group [%0, {%2}], [%1];"
@@ -250,16 +242,11 @@ DEVICE_INLINE void cpAsyncBulkTensorTileS2G(
   // build-out stage
   cpAsyncBulkCommit();
   cpAsyncBulkPartialReadBarrier<0>();
-#else
-  assert(false);
-#endif
 }
 
 DEVICE_INLINE void cpAsyncBulkTensorTileS2G(
     const CpAsyncBulkTensorTileIndex<2>& dest,
     uint32_t smem_addr) {
-#if (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 900))
-  // TODO: remove this cast?
   uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(dest.descriptor);
   asm volatile(
       "cp.async.bulk.tensor.2d.global.shared::cta.bulk_group [%0, {%2, %3}], [%1];"
@@ -270,16 +257,11 @@ DEVICE_INLINE void cpAsyncBulkTensorTileS2G(
   // build-out stage
   cpAsyncBulkCommit();
   cpAsyncBulkPartialReadBarrier<0>();
-#else
-  assert(false);
-#endif
 }
 
 DEVICE_INLINE void cpAsyncBulkTensorTileS2G(
     const CpAsyncBulkTensorTileIndex<3>& dest,
     uint32_t smem_addr) {
-#if (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 900))
-  // TODO: remove this cast?
   uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(dest.descriptor);
   asm volatile(
       "cp.async.bulk.tensor.3d.global.shared::cta.bulk_group [%0, {%2, %3, %4}], [%1];"
@@ -294,16 +276,11 @@ DEVICE_INLINE void cpAsyncBulkTensorTileS2G(
   // build-out stage
   cpAsyncBulkCommit();
   cpAsyncBulkPartialReadBarrier<0>();
-#else
-  assert(false);
-#endif
 }
 
 DEVICE_INLINE void cpAsyncBulkTensorTileS2G(
     const CpAsyncBulkTensorTileIndex<4>& dest,
     uint32_t smem_addr) {
-#if (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 900))
-  // TODO: remove this cast?
   uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(dest.descriptor);
   asm volatile(
       "cp.async.bulk.tensor.4d.global.shared::cta.bulk_group [%0, {%2, %3, %4, %5}], [%1];"
@@ -319,16 +296,11 @@ DEVICE_INLINE void cpAsyncBulkTensorTileS2G(
   // build-out stage
   cpAsyncBulkCommit();
   cpAsyncBulkPartialReadBarrier<0>();
-#else
-  assert(false);
-#endif
 }
 
 DEVICE_INLINE void cpAsyncBulkTensorTileS2G(
     const CpAsyncBulkTensorTileIndex<5>& dest,
     uint32_t smem_addr) {
-#if (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 900))
-  // TODO: remove this cast?
   uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(dest.descriptor);
   asm volatile(
       "cp.async.bulk.tensor.5d.global.shared::cta.bulk_group [%0, {%2, %3, %4, %5, %6}], [%1];"
@@ -345,11 +317,10 @@ DEVICE_INLINE void cpAsyncBulkTensorTileS2G(
   // build-out stage
   cpAsyncBulkCommit();
   cpAsyncBulkPartialReadBarrier<0>();
-#else
-  assert(false);
-#endif
 }
 
 } // namespace Hopper
+
+#endif // Arch 90
 
 #undef DEVICE_INLINE
