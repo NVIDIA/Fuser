@@ -1275,10 +1275,10 @@ std::shared_ptr<ReductionParams> outerPersistentHeuristic(
 
 } // namespace
 
-namespace {
+namespace PersistentHeuristicsHelper {
 
 std::tuple<TensorView*, scheduler_utils::ReductionTvProperties, int64_t>
-getCommonHeuristicParams(
+getReductionPropertiesAndVectFactor(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache,
@@ -1462,28 +1462,21 @@ int64_t getOutReductionDataTypeSize(
   return -1;
 }
 
-// Helper function to extract reduction_tvs
-std::vector<TensorView*>& getReductionTVs(
-    HeuristicSummary* data_cache,
-    Fusion* fusion) {
-  auto reduction_tv_entry =
-      HeuristicSummaryEntry<HeuristicCompileTime::ReductionTVs>(
-          data_cache, [&fusion]() {
-            return std::make_unique<std::vector<TensorView*>>(
-                scheduler_utils::getReductionTvs(fusion));
-          });
-  return reduction_tv_entry.get();
-}
+struct CommonHeuristicParams {
+  int64_t total_reduction_numel;
+  int64_t total_iteration_numel;
+  int64_t inner_most_dimension_numel;
+  int64_t n_tensor_inputs;
+  int64_t max_input_dtype_size;
+  int64_t max_persistent_buffer_size;
+  int64_t vectorize_factor;
+  bool project_persistent_buffers;
+};
 
-} // namespace
-
-std::shared_ptr<ReductionParams> getInnerPersistentHeuristics(
+CommonHeuristicParams getCommonHeuristicParams(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache) {
-  FUSER_PERF_SCOPE("getInnerPersistentHeuristics");
-  FusionGuard fg(fusion);
-
   auto reduction_tv_entry =
       HeuristicSummaryEntry<HeuristicCompileTime::ReductionTVs>(
           data_cache, [&fusion]() {
@@ -1494,7 +1487,8 @@ std::shared_ptr<ReductionParams> getInnerPersistentHeuristics(
 
   // (1) reduction properties and vectorization factor
   auto [reduced_tv, properties, vectorize_factor] =
-      getCommonHeuristicParams(fusion, runtime_info, data_cache, reduction_tvs);
+      getReductionPropertiesAndVectFactor(
+          fusion, runtime_info, data_cache, reduction_tvs);
 
   // (2) info about persistent buffer
   auto [project_persistent_buffers, max_persistent_buffer_size] =
@@ -1503,16 +1497,62 @@ std::shared_ptr<ReductionParams> getInnerPersistentHeuristics(
   // (3) info about input tensors
   auto [n_tensor_inputs, max_input_dtype_size] =
       getTensorInputNumAndMaxTypeSize(runtime_info, data_cache, reduced_tv);
-
-  std::shared_ptr<ReductionParams> rparams = innerPersistentHeuristic(
+  return {
       properties.total_reduction_numel,
       properties.total_iteration_numel,
       properties.inner_most_dimension_numel,
       n_tensor_inputs,
       max_input_dtype_size,
       max_persistent_buffer_size,
-      vectorize_factor);
-  rparams->project_persistent_buffers = project_persistent_buffers;
+      vectorize_factor,
+      project_persistent_buffers};
+}
+
+} // namespace PersistentHeuristicsHelper
+
+std::shared_ptr<ReductionParams> getInnerPersistentHeuristics(
+    Fusion* fusion,
+    SchedulerRuntimeInfo& runtime_info,
+    HeuristicSummary* data_cache) {
+  FUSER_PERF_SCOPE("getInnerPersistentHeuristics");
+  FusionGuard fg(fusion);
+
+  PersistentHeuristicsHelper::CommonHeuristicParams params =
+      PersistentHeuristicsHelper::getCommonHeuristicParams(
+          fusion, runtime_info, data_cache);
+
+  std::shared_ptr<ReductionParams> rparams = innerPersistentHeuristic(
+      params.total_reduction_numel,
+      params.total_iteration_numel,
+      params.inner_most_dimension_numel,
+      params.n_tensor_inputs,
+      params.max_input_dtype_size,
+      params.max_persistent_buffer_size,
+      params.vectorize_factor);
+  rparams->project_persistent_buffers = params.project_persistent_buffers;
+  rparams->cparams.index_type = runtime_info.getIndexType();
+  return rparams;
+}
+
+std::shared_ptr<ReductionParams> getOuterPersistentHeuristics(
+    Fusion* fusion,
+    SchedulerRuntimeInfo& runtime_info,
+    HeuristicSummary* data_cache) {
+  FUSER_PERF_SCOPE("getOuterPersistentHeuristics");
+  FusionGuard fg(fusion);
+
+  PersistentHeuristicsHelper::CommonHeuristicParams params =
+      PersistentHeuristicsHelper::getCommonHeuristicParams(
+          fusion, runtime_info, data_cache);
+
+  std::shared_ptr<ReductionParams> rparams = outerPersistentHeuristic(
+      params.total_reduction_numel,
+      params.total_iteration_numel,
+      params.n_tensor_inputs,
+      params.max_input_dtype_size,
+      params.max_persistent_buffer_size,
+      params.vectorize_factor);
+  rparams->project_persistent_buffers = params.project_persistent_buffers;
   rparams->cparams.index_type = runtime_info.getIndexType();
   return rparams;
 }
@@ -1533,62 +1573,24 @@ std::shared_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
 
   // (1) reduction properties and vectorization factor
   auto [reduced_tv, properties, vectorize_factor] =
-      getCommonHeuristicParams(fusion, runtime_info, data_cache, reduction_tvs);
+      PersistentHeuristicsHelper::getReductionPropertiesAndVectFactor(
+          fusion, runtime_info, data_cache, reduction_tvs);
 
   // (2) info about persistent buffer.
   // add additional buffers for partial results of outer reductions.
   // reconsider whether project persistent buffers to inputs or not.
   auto [project_persistent_buffers, max_persistent_buffer_size] =
-      checkAndSetPersistentBufferHeuristics(
+      PersistentHeuristicsHelper::checkAndSetPersistentBufferHeuristics(
           fusion, runtime_info, data_cache, reduction_tvs, true);
 
   // (3) dtype used to store partial outer reduction in combined reduction
   const int64_t tmp_gmem_dtype_size =
-      getOutReductionDataTypeSize(reduction_tvs);
+      PersistentHeuristicsHelper::getOutReductionDataTypeSize(reduction_tvs);
   std::shared_ptr<ReductionParams> rparams = innerOuterPersistentHeuristic(
       properties.total_iteration_numel,
       properties.total_reduction_numel,
       max_persistent_buffer_size,
       tmp_gmem_dtype_size,
-      vectorize_factor);
-  rparams->project_persistent_buffers = project_persistent_buffers;
-  rparams->cparams.index_type = runtime_info.getIndexType();
-  return rparams;
-}
-
-std::shared_ptr<ReductionParams> getOuterPersistentHeuristics(
-    Fusion* fusion,
-    SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache) {
-  FUSER_PERF_SCOPE("getOuterPersistentHeuristics");
-  FusionGuard fg(fusion);
-
-  auto reduction_tv_entry =
-      HeuristicSummaryEntry<HeuristicCompileTime::ReductionTVs>(
-          data_cache, [&fusion]() {
-            return std::make_unique<std::vector<TensorView*>>(
-                scheduler_utils::getReductionTvs(fusion));
-          });
-  auto& reduction_tvs = reduction_tv_entry.get();
-
-  // (1) reduction properties and vectorization factor
-  auto [reduced_tv, properties, vectorize_factor] =
-      getCommonHeuristicParams(fusion, runtime_info, data_cache, reduction_tvs);
-
-  // (2) info about persistent buffer
-  auto [project_persistent_buffers, max_persistent_buffer_size] =
-      checkAndSetPersistentBufferHeuristics(fusion, runtime_info, data_cache);
-
-  // (3) info about input tensors
-  auto [n_tensor_inputs, max_input_dtype_size] =
-      getTensorInputNumAndMaxTypeSize(runtime_info, data_cache, reduced_tv);
-
-  std::shared_ptr<ReductionParams> rparams = outerPersistentHeuristic(
-      properties.total_reduction_numel,
-      properties.total_iteration_numel,
-      n_tensor_inputs,
-      max_input_dtype_size,
-      max_persistent_buffer_size,
       vectorize_factor);
   rparams->project_persistent_buffers = project_persistent_buffers;
   rparams->cparams.index_type = runtime_info.getIndexType();
