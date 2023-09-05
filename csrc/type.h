@@ -493,7 +493,7 @@ inline bool hasCompatibleDataType(
       return false;
     }
     if (std::get<ArrayType>(dtype.type).size == 0 &&
-        value.as<std::vector>.size() == 0) {
+        value.as<std::vector>().size() == 0) {
       return true;
     }
   }
