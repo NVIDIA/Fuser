@@ -7,8 +7,11 @@
 // clang-format on
 #pragma once
 
+#include <type_traits.h>
+
 #include <any>
 #include <cstddef>
+#include <cstring>
 #include <functional>
 #include <ostream>
 
@@ -79,7 +82,11 @@ class Opaque {
 
 template <typename T>
 bool OpaqueEquals<T>::operator()(const Opaque& a, const Opaque& b) const {
-  return a.as<T>() == b.as<T>();
+  if constexpr (dynamic_type::opcheck<T> == dynamic_type::opcheck<T>) {
+    return a.as<T>() == b.as<T>();
+  } else {
+    return std::memcmp(&a.as<T>(), &b.as<T>(), sizeof(T)) == 0;
+  }
 }
 
 template <typename T>

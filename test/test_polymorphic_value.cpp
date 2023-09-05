@@ -27,6 +27,20 @@ TEST_F(PolymorphicValueTest, OpaqueEquality) {
   EXPECT_EQ(b, b);
   EXPECT_EQ(a, b);
   EXPECT_EQ(b, a);
+
+  struct A {
+    int64_t x;
+    double y;
+  };
+  Opaque a1(A{1, 2.0}), a2(A{1, 2.0}), c(A{1, 3.0});
+  EXPECT_EQ(a1, a1);
+  EXPECT_EQ(a2, a2);
+  EXPECT_EQ(a1, a2);
+  EXPECT_EQ(a2, a1);
+  EXPECT_NE(a1, c);
+  EXPECT_NE(c, a1);
+  EXPECT_NE(a2, c);
+  EXPECT_NE(c, a2);
 }
 
 TEST_F(PolymorphicValueTest, Struct) {
