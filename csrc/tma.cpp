@@ -363,6 +363,10 @@ std::vector<PolymorphicValue> kir::EncodeTensorMapTiled::evaluate(
   }
   // All check passes
 
+  // For the case where tensor_rank == 1, global_strides is not used, however,
+  // we still need to pass a valid pointer to cuTensorMapEncodeTiled...
+  cuuint64_t useless_data;
+
   TensorMap tensor_map;
   NVFUSER_CUDA_SAFE_CALL(cuTensorMapEncodeTiled(
       &tensor_map,
@@ -370,7 +374,7 @@ std::vector<PolymorphicValue> kir::EncodeTensorMapTiled::evaluate(
       tensor_rank,
       global_address,
       global_dim.data(),
-      global_strides.data(),
+      global_strides.empty() ? &useless_data : global_strides.data(),
       box_dim.data(),
       element_strides.data(),
       interleave,
