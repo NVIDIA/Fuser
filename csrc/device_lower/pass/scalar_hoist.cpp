@@ -322,11 +322,17 @@ Val* CommonScalarMap::hoistScalar(
 Val* CommonScalarMap::reuseScalarIfAlreadyComputed(
     Val* value,
     kir::ForLoop* loop) {
+  // Find if value is computed on the host.
+  for (auto val : GpuLower::current()->allKnownVals()) {
+    if (val->sameAs(value)) {
+      return val;
+    }
+  }
   // Find if loop already contain `value`.
   auto it = common_scalar_map_.find(loop);
   if (it != common_scalar_map_.end()) {
-    auto& indices = it->second;
-    for (auto it = indices.begin(); it != indices.end(); it++) {
+    auto& scalars = it->second;
+    for (auto it = scalars.begin(); it != scalars.end(); it++) {
       auto idx = *it;
       auto common_subexpr = findRefAsSubexprOf(idx, value, false);
       if (common_subexpr != nullptr) {
@@ -334,7 +340,7 @@ Val* CommonScalarMap::reuseScalarIfAlreadyComputed(
           // If the reuse is a subexpression instead of the complete
           // expression, we split this subexpression out and allocate it
           // separately.
-          indices.insert(it, common_subexpr);
+          scalars.insert(it, common_subexpr);
         }
         hoisted_or_reused_.emplace(common_subexpr);
         return common_subexpr;
