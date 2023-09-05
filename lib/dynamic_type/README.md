@@ -240,4 +240,25 @@ Operations on `DynamicType` are as `constexpr` as possible. So most tests in
 
 # Benchmarks
 
+The benchmark `benchmark/sort.cpp` for running a simple `std::sort` on a vector of `int64_t`
+vs vector of `DynamicType` is shown below:
+
+![Sort benchmark](resources/benchmark-sort.png)
+
+The `int64_t` bar means `std::sort` on a `std::vector` of `int64_t`, and `DynamicTypeN` means
+`std::sort` on a `std::vector` of a `DynamicType` with `N` different type candidates.
+
+The benchmark `benchmark/knn.cpp` for running k-nearest-neighbor inference with and without
+dynamic type is shown below:
+
+![kNN benchmark](resources/benchmark-knn.png)
+
+The `Native struct` bar means structs in the algorithm are C++ native type `struct { ... };`,
+and `Dictionary` means making structs in the algorithm is implemented like a dictionary,
+that is, something like `DynamicType<Containers<std::unordered_map...`. The gap between native
+struct and dictionary-like struct implementation is pretty large. This benchmark tells us that
+dynamic structs should generally not be implemented as a dictionary. Please refer to the note
+`[Struct Support in PolymorphicValue]` in nvFuser for an example on how to implement an efficient
+semi-dynamic struct.
+
 # Compilation time
