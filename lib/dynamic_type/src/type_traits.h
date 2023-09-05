@@ -192,7 +192,7 @@ struct OperatorChecker {
 #define DEFINE_UNARY_OP(op)                                 \
   template <typename T1>                                    \
   constexpr auto operator op(OperatorChecker<T1>)           \
-      -> decltype(op std::declval<T1>(), true) {            \
+      ->decltype(op std::declval<T1>(), true) {             \
     return true;                                            \
   }                                                         \
                                                             \
@@ -203,7 +203,7 @@ struct OperatorChecker {
 #define DEFINE_UNARY_SUFFIX_OP(op)                               \
   template <typename T1>                                         \
   constexpr auto operator op(OperatorChecker<T1>, int)           \
-      -> decltype(std::declval<T1>() op, true) {                 \
+      ->decltype(std::declval<T1>() op, true) {                  \
     return true;                                                 \
   }                                                              \
                                                                  \
@@ -214,7 +214,7 @@ struct OperatorChecker {
 #define DEFINE_BINARY_OP(op)                                           \
   template <typename T1, typename T2>                                  \
   constexpr auto operator op(OperatorChecker<T1>, OperatorChecker<T2>) \
-      -> decltype((std::declval<T1>() op std::declval<T2>()), true) {  \
+      ->decltype((std::declval<T1>() op std::declval<T2>()), true) {   \
     return true;                                                       \
   }                                                                    \
                                                                        \
