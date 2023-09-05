@@ -704,9 +704,9 @@ static constexpr std::array<IdMappingMode, 6> kIdMappingModes = {
 // See
 // https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#cache-operators
 // for what each option means.
-enum CacheOperator : int {
-  kCacheAllLevels = 0,
-  kCacheStreaming,
+enum class CacheOp {
+  AllLevels,
+  Streaming,
 };
 
 //! Used to annotate the special memory intrinsics that a loadstore op will be
@@ -877,6 +877,7 @@ TORCH_CUDA_CU_API std::ostream& operator<<(std::ostream&, const SwizzleMode&);
 TORCH_CUDA_CU_API std::ostream& operator<<(
     std::ostream&,
     const KernelIndexMode&);
+TORCH_CUDA_CU_API std::ostream& operator<<(std::ostream&, const CacheOp&);
 
 std::string stringifyThreadSize(const ParallelType);
 std::string stringifyThread(const ParallelType);

@@ -173,16 +173,16 @@ __device__ void loadLocalToGlobal(
 // See
 // https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#cache-operators
 // for what each option means.
-enum CacheOperator : int {
-  kCacheAllLevels = 0,
-  kCacheStreaming,
+enum class CacheOp {
+  AllLevels,
+  Streaming,
 };
 
 template <
     typename scalar_t,
     int vec_size,
     bool is_volatile,
-    CacheOperator cache_op = kCacheStreaming>
+    CacheOp cache_op = CacheOp::Streaming>
 __device__ void loadGlobalToLocal(
     scalar_t* to,
     typename MaybeVolatile<scalar_t, is_volatile>::type* from) {
@@ -202,12 +202,12 @@ __device__ void loadGlobalToLocal(
       } else {
         uint2& data = *reinterpret_cast<uint2*>(to);
         switch (cache_op) {
-          case kCacheAllLevels:
+          case CacheOp::AllLevels:
             asm volatile("ld.global.ca.v2.s32 {%0,%1}, [%2];"
                          : "=r"(data.x), "=r"(data.y)
                          : "l"((uint2*)from));
             break;
-          case kCacheStreaming:
+          case CacheOp::Streaming:
             asm volatile("ld.global.cs.v2.s32 {%0,%1}, [%2];"
                          : "=r"(data.x), "=r"(data.y)
                          : "l"((uint2*)from));
@@ -225,12 +225,12 @@ __device__ void loadGlobalToLocal(
       } else {
         uint4& data = *reinterpret_cast<uint4*>(to);
         switch (cache_op) {
-          case kCacheAllLevels:
+          case CacheOp::AllLevels:
             asm volatile("ld.global.ca.v4.s32 {%0,%1,%2,%3}, [%4];"
                          : "=r"(data.x), "=r"(data.y), "=r"(data.z), "=r"(data.w)
                          : "l"((uint4*)from));
             break;
-          case kCacheStreaming:
+          case CacheOp::Streaming:
             asm volatile("ld.global.cs.v4.s32 {%0,%1,%2,%3}, [%4];"
                          : "=r"(data.x), "=r"(data.y), "=r"(data.z), "=r"(data.w)
                          : "l"((uint4*)from));

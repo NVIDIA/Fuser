@@ -2251,7 +2251,7 @@ LoadStoreOp::LoadStoreOp(
     LoadStoreOpType op_type,
     Val* out,
     Val* in,
-    CacheOperator cache_op)
+    CacheOp cache_op)
     : Expr(passkey) {
   addOutput(out);
   addInput(in);
