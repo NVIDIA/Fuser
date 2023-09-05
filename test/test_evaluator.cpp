@@ -295,6 +295,28 @@ TEST_F(ExprEvalTest, Array) {
   checkIntValue(evaluator, bb, 5L);
 }
 
+TEST_F(ExprEvalTest, EmptyArray) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  EXPECT_THAT(
+      [&]() {
+        IrBuilder::create<Val>(
+            std::vector<int64_t>{},
+            ArrayType{std::make_shared<DataType>(DataType::Int), 2});
+      },
+      ::testing::ThrowsMessage<nvfuser::nvfError>(
+          ::testing::HasSubstr("not compatible")));
+
+  auto* a = IrBuilder::create<Val>(
+      std::vector<int64_t>{},
+      ArrayType{std::make_shared<DataType>(DataType::Int), 0});
+
+  ExpressionEvaluator evaluator;
+  auto arr_val = evaluator.evaluate(a);
+  EXPECT_EQ(arr_val, std::vector<PolymorphicValue>{});
+}
+
 TEST_F(ExprEvalTest, Struct) {
   Fusion fusion;
   FusionGuard fg(&fusion);
