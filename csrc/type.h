@@ -964,7 +964,6 @@ inline PolymorphicValue castToDtype(
   // Cast the given value to the given data type. This enables interface
   // like: IrBuilder::create<Val>(0, DataType::Double) where value is
   // an integer but the desired data type is double.
-  auto value_dtype = getDataType(value);
   if (!hasCompatibleDataType(value, dtype)) {
     PolymorphicValue::for_all_types([&](auto _) {
       using T = typename decltype(_)::type;
