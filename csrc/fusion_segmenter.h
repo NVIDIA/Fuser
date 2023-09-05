@@ -15,6 +15,7 @@
 #include <options.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/registry.h>
+#include <union_find.h>
 #include <utils.h>
 
 #include <deque>
@@ -400,6 +401,29 @@ class TORCH_CUDA_CU_API SegmentedFusion {
   void validateDAG() const;
   void validateDisjoint() const;
 
+  void findExactMappedExtents();
+
+  //! Replaces any scalars in a fusion that cannot be computing by binding
+  //! inputs(). This only replaces scalars needed to compute the outputs(), and
+  //! throws an exception if there are scalars left that cannot be computed from
+  //! the inputs.
+  void replaceUncomputableScalars(Fusion* fusion);
+
+  //! Assume two scalars are equal. This merges the equivalence classes of a and
+  //! b in the extent_scalar_uf_ UnionFind.
+  void assumeScalarsEqual(const Val* a, const Val* b);
+
+  //! Assume two scalar vals are equal. This merges the equivalence classes of a
+  //! and b in the extent_scalar_uf_ UnionFind.
+  void assumeExtentsEqual(const IterDomain* a, const IterDomain* b) {
+    assumeScalarsEqual(
+        a->getMaybeExpandedExtent(), b->getMaybeExpandedExtent());
+  }
+
+  //! Print equivalence classes of scalars that were defined using
+  //! assumeEqual.
+  void printScalarEquivalences();
+
  private:
   //! Unique name for segmented fusion
   size_t segmented_fusion_name_;
@@ -439,6 +463,9 @@ class TORCH_CUDA_CU_API SegmentedFusion {
   //! Static traversal information to be used for fast heuristics lookup
   std::unordered_map<SegmentedGroup*, std::unique_ptr<HeuristicSummary>>
       heuristic_summary_cache_;
+
+  using UnionFindIndexType = uint16_t;
+  UnionFind<UnionFindIndexType> extent_scalar_uf_;
 
   // TODO: this class needs cleanup
  protected:

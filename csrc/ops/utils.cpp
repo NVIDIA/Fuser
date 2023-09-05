@@ -266,16 +266,6 @@ std::vector<IterDomain*> newOutputDomain(
                               .iter_type(IterType::Broadcast)
                               .build();
     }
-    // Set exact mapping for each of the non-broadcast input IDs
-    for (auto tv : tvs) {
-      auto id =
-          TensorDomain::noReductions(tv->getMaybeRFactorDomain()).at(dim_i);
-      // TODO: Set up proper exact mapping here
-      if (!id->isSymbolic() &&
-          id->getIterType() == out_domain[dim_i]->getIterType()) {
-        id->setExactMapped(out_domain[dim_i]);
-      }
-    }
   }
 
   return out_domain;

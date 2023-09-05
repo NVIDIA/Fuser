@@ -72,9 +72,6 @@ IrCloner IrContainer::copy(const IrContainer* from, IrContainer* to) {
 
   to->val_from_name_ = from->val_from_name_;
 
-  to->scalar_equality_ = from->scalar_equality_;
-  to->exact_mapping_ = from->exact_mapping_;
-
   to->metadata_ = ir_cloner.clone(from->metadata_);
 
   return ir_cloner;
@@ -186,22 +183,6 @@ void IrContainer::registerVal(Val* val) {
   vals_.emplace(vals_up_.back().get());
   val->setName(IrContainerPasskey(), getValName(vals_up_.back()->vtype()));
   raw_ptrs_.emplace((void*)vals_up_.back().get());
-
-  // resize UnionFinds if necessary
-  switch (val->vtype()) {
-    case ValType::IterDomain:
-      if (val->name() >= exact_mapping_.size()) {
-        exact_mapping_.enlarge(val->name() + 1);
-      }
-      break;
-    case ValType::Others:
-      if (val->name() >= scalar_equality_.size()) {
-        scalar_equality_.enlarge(val->name() + 1);
-      }
-      break;
-    default: // do nothing since we do not track equivalence for other Vals
-      break;
-  }
 
   // Record mapping from name to index in ValType-specific vector
   auto vtypeInt = (size_t)val->vtype();
@@ -374,66 +355,6 @@ void IrContainer::assumeNonNegative(Val* val) {
   NVF_ERROR(val->container() == this);
   lazyInitAxioms();
   axioms_->emplace_back(IrBuilder::geExpr(val, zeroVal()));
-}
-
-void IrContainer::assumeEqual(const Val* a, const Val* b) {
-  TORCH_INTERNAL_ASSERT(a->container() == this);
-  TORCH_INTERNAL_ASSERT(b->container() == this);
-  // ValType must be Others -- not NamedScalar
-  TORCH_INTERNAL_ASSERT(a->getValType().value() == ValType::Others);
-  TORCH_INTERNAL_ASSERT(b->getValType().value() == ValType::Others);
-  scalar_equality_.merge(a->name(), b->name());
-}
-
-bool IrContainer::areEqual(const Val* a, const Val* b) {
-  return false;
-}
-
-void IrContainer::printScalarEquivalences() {
-  debug() << "Equivalence classes of scalars:" << std::endl;
-  const auto classes = scalar_equality_.computeEquivalenceClasses();
-  for (const auto n : c10::irange(classes.size())) {
-    const auto& c = classes.at(n);
-    TORCH_INTERNAL_ASSERT(!c.empty());
-    const auto root_name = scalar_equality_.find(c.at(0));
-    debug() << "  class " << n << std::endl;
-    for (const auto s_name : c) {
-      const auto s = getValFromName(ValType::Others, s_name);
-      if (!s) {
-        continue;
-      }
-      debug() << "    " << s->toString() << " = " << s->toInlineString();
-      if (s_name == root_name) {
-        // Mark the current root of each class in the printout
-        debug() << "  *";
-      }
-      debug() << std::endl;
-    }
-  }
-  // Every scalar whose name() >= scalar_equality_.size() is in a class of its
-  // own
-  auto class_num = classes.size();
-  for (const auto s_name : c10::irange(
-           scalar_equality_.size(),
-           val_from_name_[(size_t)ValType::Others].size())) {
-    debug() << "  class " << class_num++ << std::endl;
-    const auto s = getValFromName(ValType::Others, s_name);
-    TORCH_INTERNAL_ASSERT(s != nullptr);
-    if (!s) {
-      continue;
-    }
-    debug() << "    " << s->toString() << " = " << s->toInlineString() << "  *"
-            << std::endl;
-  }
-}
-
-void IrContainer::setExactMapped(const IterDomain* a, const IterDomain* b) {
-  assumeEqual(a->getMaybeExpandedExtent(), b->getMaybeExpandedExtent());
-  exact_mapping_.merge(a->name(), b->name());
-}
-
-bool IrContainer::areExactMapped(const IterDomain* a, const IterDomain* b) {
-  return false;
 }
 
 } // namespace nvfuser

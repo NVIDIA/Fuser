@@ -377,16 +377,6 @@ class TORCH_CUDA_CU_API IterDomain : public Val {
     is_mma_swizzled_ = true;
   }
 
-  //! Set as exact mapped with other
-  void setExactMapped(const IterDomain* other) const {
-    container()->setExactMapped(this, other);
-  }
-
-  //! Set as exact mapped with other
-  bool isExactMappedWith(const IterDomain* other) const {
-    return container()->areExactMapped(this, other);
-  }
-
  protected:
   friend TensorDomain;
   friend ReplayTransformations;

@@ -315,8 +315,12 @@ std::unique_ptr<SegmentedFusion> SegmentedFusion::fromCompleteFusion(
 SegmentedFusion::SegmentedFusion(std::unique_ptr<Fusion> fusion)
     : segmented_fusion_name_{segmentedFusionName()},
       impl_(this),
-      complete_fusion_(std::move(fusion)) {
+      complete_fusion_(std::move(fusion)),
+      extent_scalar_uf_(
+          (UnionFindIndexType)fusion->getNextValName(ValType::Others)) {
   annotateFP16IntermediateTensors();
+
+  findExactMappedExtents();
 }
 
 SegmentedGroup* SegmentedFusion::Impl::makeGroup() {
@@ -1532,7 +1536,7 @@ std::unique_ptr<Fusion> SegmentedFusion::makeFusion(SegmentedGroup* sg) {
   // should be computable in the complete Fusion. The following helps to avoid
   // these scenarios by replacing Vals in this segment with others that are
   // computable, whenever possible.
-  fusion_segment->replaceUncomputableScalars();
+  replaceUncomputableScalars(fusion_segment.get());
 
   return fusion_segment;
 }
@@ -3970,6 +3974,360 @@ std::string toString(const SegmentCandidateFinderOptions& segment_options) {
   }
   ss << "\n}\n";
   return ss.str();
+}
+
+void SegmentedFusion::findExactMappedExtents() {}
+
+// There are three notions of computability used in this function:
+//
+//   - immediately computable Vals are either immediate constants or Fusion
+//     inputs
+//   - computable Vals are ones which can be computed by an
+//     ExpressionEvaluator if it has the Fusion inputs bound
+//   - eventually-computable Vals are ones which can be converted to
+//     computable Vals by recursively replacing some producers with other
+//     equivalent Vals.
+//
+// We pass over the scalar_equality_ UnionFind multiple times in this function,
+// in order to detect computable, then eventually computable Vals, and finally
+// to replace eventually computable Vals with new scalars which are computable.
+//
+// By the end of this function, the scalar_equality_ UnionFind is updated so
+// that any Val that is initially equivalent to an eventually-computable Val has
+// a computable Val as its equivalence class representative (root). We then
+// replace all scalars with their root.
+void SegmentedFusion::replaceUncomputableScalars(Fusion* fusion_segment) {
+  // Copy the UnionFind from the complete fusion. We will modify the new one as
+  // we add Vals to fusion.
+  UnionFind<UnionFindIndexType> uf(extent_scalar_uf_);
+  uf.enlarge(fusion_segment->getNextValName(ValType::Others));
+
+  // whether particular Val (not just some equivalent Val) is computable
+  std::vector<bool> computable(uf.size(), false);
+  // whether this Val is computable as-is or if inputs could be replaced with
+  // equivalent Vals (recursively) to form a new computable Val
+  std::vector<bool> can_be_made_computable(uf.size(), false);
+
+  // Mark all input scalars and immediate constants computable, and for each one
+  // proceed downstream as far as possible to propagate computability.
+  std::vector<const Val*> immediately_computable_vals;
+  for (const UnionFindIndexType s_name : c10::irange(uf.size())) {
+    const auto s = fusion_segment->getValFromName(ValType::Others, s_name);
+    if (s->isConst()) {
+      immediately_computable_vals.push_back(s);
+    }
+  }
+  for (const auto inp : inputs()) {
+    if (const auto inptv = dynamic_cast<TensorView*>(inp)) {
+      for (const auto id : inptv->getRootDomain()) {
+        immediately_computable_vals.push_back(id->getMaybeExpandedExtent());
+      }
+    } else if (inp->vtype() == ValType::Others) {
+      immediately_computable_vals.push_back(inp);
+    }
+  }
+  // Process comp_queue to implement recursion
+  // Since we only recurse once all inputs to a use are marked computable, this
+  // is a breadth-first traversal from inputs.
+  std::queue<const Val*> comp_queue;
+  for (const auto v : immediately_computable_vals) {
+    comp_queue.push(v);
+  }
+  while (!comp_queue.empty()) {
+    const auto s = comp_queue.front();
+    comp_queue.pop();
+    bool s_computable = computable.at(s->name());
+    if (s_computable) {
+      continue;
+    }
+    // if there is no definition, mark this as computable and proceed, since
+    // that means it was added as a constant or a Fusion input
+    const auto def = s->definition();
+    if (!def) {
+      s_computable = true;
+    } else {
+      // s is computable iff all of its producers are computable
+      s_computable = std::all_of(
+          def->inputs().begin(), def->inputs().end(), [&computable](Val* v) {
+            return (v->vtype() == ValType::Others) ? computable.at(v->name())
+                                                   : false;
+          });
+    }
+    if (s_computable) {
+      // Mark as computable and push to queue to recurse into uses
+      computable.at(s->name()) = true;
+      for (const auto use : s->uses()) {
+        if (!ir_utils::isScalarOp(use)) {
+          continue;
+        }
+        for (const auto outp : use->outputs()) {
+          comp_queue.push(outp);
+        }
+      }
+    }
+  }
+  // Now we traverse again to propagate can_be_made_computable. This loosens the
+  // recursion criterion to not just whether the Val itself is computable, but
+  // also whether it _could_ be made compatible by replacement of some producer
+  // Vals.
+  //
+  // This traversal modifies the UnionFind. We do not change the equivalence
+  // classes, but we do change the representatives, so that whenever a Val can
+  // be made computable it can be done by recursively replacing all producers
+  // with their roots. To do this, whenever a Val is marked
+  // can_be_made_computable, if the previous root of its class could not be made
+  // computable, that new Val becomes the new root.
+  for (const auto v : immediately_computable_vals) {
+    comp_queue.push(v);
+  }
+  while (!comp_queue.empty()) {
+    const auto s = comp_queue.front();
+    comp_queue.pop();
+    bool s_can_be_made_computable = can_be_made_computable.at(s->name());
+    if (s_can_be_made_computable) {
+      continue; // already marked computable
+    }
+    // if there is no definition, mark this as computable and proceed, since
+    // that means it was added as a constant or a Fusion input
+    const auto def = s->definition();
+    if (!def) {
+      s_can_be_made_computable = true;
+    } else {
+      // s can be made computable iff all of its producers can be made
+      // computable
+      s_can_be_made_computable = std::all_of(
+          def->inputs().begin(),
+          def->inputs().end(),
+          [&can_be_made_computable](Val* v) -> bool {
+            if (v->vtype() == ValType::Others) {
+              return can_be_made_computable.at(v->name());
+            }
+            return false;
+          });
+    }
+    if (s_can_be_made_computable) {
+      can_be_made_computable.at(s->name()) = true;
+
+      // Now we check the equiv class root to see if it was marked computable.
+      // If not and this is computable, or if root is not marked
+      // "can_be_made_computable" switch s to become new root.
+      auto root_name = uf.find(s->name());
+      if (root_name != s->name() &&
+          ((computable.at(s->name()) && !computable.at(root_name)) ||
+           !can_be_made_computable.at(root_name))) {
+        uf.setAsRoot(s->name());
+      }
+
+      // Recurse
+      for (const auto use : s->uses()) {
+        if (!ir_utils::isScalarOp(use)) {
+          continue;
+        }
+        for (const auto outp : use->outputs()) {
+          comp_queue.push(outp);
+        }
+      }
+    }
+  }
+
+  // Insert new scalars to use as replacements
+  //
+  // TODO: we only really need to create new scalars for those that are
+  // producers of the outputs. Replacing unused scalars pollutes the Fusion, but
+  // should not break anything.
+  // After this pass, any scalars that can be made computable will have a
+  // computable scalar as their equivalence class root.
+  for (const auto s_name : c10::irange(uf.size())) {
+    if (uf.find(s_name) == s_name) {
+      // Need to process all current roots that can be made computable
+      if (!computable.at(s_name) && can_be_made_computable.at(s_name)) {
+        const auto s = fusion_segment->getValFromName(ValType::Others, s_name);
+        comp_queue.push(s);
+      }
+    }
+  }
+  while (!comp_queue.empty()) {
+    const auto s = comp_queue.front();
+    comp_queue.pop();
+    if (computable.at(s->name()) || !can_be_made_computable.at(s->name())) {
+      continue;
+    }
+
+    const auto def = s->definition();
+    NVF_ERROR(
+        def != nullptr,
+        "Uncomputable scalar ",
+        s->toString(),
+        " cannot be made computible since it has no definition.");
+
+    std::vector<const Val*> producers_to_process;
+    for (const auto p : def->inputs()) {
+      if (p->vtype() == ValType::Others) {
+        if (computable.at(p->name())) {
+          continue;
+        }
+        const auto p_root = uf.find(p->name());
+        if (computable.at(p_root)) {
+          continue;
+        }
+        // neither p itself nor its representative is computable
+        producers_to_process.push_back(
+            fusion_segment->getValFromName(ValType::Others, p_root));
+      }
+    }
+    if (producers_to_process.empty()) {
+      // we are ready to replace the root of s
+      auto newObjectFunc = def->newObjectFunc();
+      std::vector<Val*> computable_inputs, computable_outputs;
+      std::vector<Statement*> computable_attrs;
+      computable_inputs.reserve(def->inputs().size());
+      computable_outputs.reserve(def->outputs().size());
+      computable_attrs.reserve(def->attributes().size());
+      for (auto inp : def->inputs()) {
+        NVF_ERROR(
+            inp->vtype() == ValType::Others,
+            "Found unexpected non-scalar expression ",
+            def->toString());
+        if (computable.at(inp->name())) {
+          computable_inputs.push_back(inp);
+        } else {
+          const auto root_name = uf.find(inp->name());
+          auto root =
+              fusion_segment->getValFromName(ValType::Others, root_name);
+          NVF_ERROR(
+              computable.at(root_name),
+              "Uncomputable input ",
+              s->toString(),
+              " has unexpectedly uncomputable root ",
+              root->toString());
+          computable_inputs.push_back(root);
+        }
+      }
+      for (auto outp : def->outputs()) {
+        // Create new Vals for each output
+        auto new_outp = IrBuilder::create<Val>(outp->dtype());
+        // Mark these outputs equivalent to the originals
+        uf.merge(outp->name(), new_outp->name());
+        if (outp == s) {
+          uf.setAsRoot(new_outp->name());
+        }
+        computable_outputs.push_back(new_outp);
+      }
+      for (auto attr : def->attributes()) {
+        if (auto attr_val = dynamic_cast<Val*>(attr)) {
+          NVF_ERROR(
+              attr_val->vtype() == ValType::Others,
+              "Found unexpected non-scalar expression ",
+              def->toString());
+          if (computable.at(attr_val->name())) {
+            computable_attrs.push_back(attr_val);
+          } else {
+            const auto root_name = uf.find(attr_val->name());
+            auto root =
+                fusion_segment->getValFromName(ValType::Others, root_name);
+            NVF_ERROR(
+                computable.at(root_name),
+                "Uncomputable attribute Val ",
+                s->toString(),
+                " has unexpectedly uncomputable root ",
+                root->toString());
+            computable_attrs.push_back(root);
+          }
+        } else {
+          computable_attrs.emplace_back(attr);
+        }
+      }
+      newObjectFunc(
+          fusion_segment,
+          computable_inputs,
+          computable_outputs,
+          computable_attrs);
+    } else {
+      // recurse to producers if any are uncomputable, then return to s
+      comp_queue.push(s);
+      for (const auto p : producers_to_process) {
+        comp_queue.push(p);
+      }
+    }
+  }
+
+  // Replacement map should be the mapping from val to root in the UnionFind
+  std::unordered_map<Val*, Val*> replacement_map;
+  for (const auto s_name : c10::irange(uf.size())) {
+    if (computable.at(s_name)) {
+      continue;
+    }
+    const auto s = fusion_segment->getValFromName(ValType::Others, s_name);
+    if (s == nullptr) {
+      continue; // s is possibly a deleted Val
+    }
+    const auto root_name = uf.find(s_name);
+    if (root_name == s_name) {
+      continue;
+    }
+    const auto root =
+        fusion_segment->getValFromName(ValType::Others, root_name);
+    NVF_ERROR(root != nullptr, "Replacement scalar should not be null");
+    if (computable.at(root_name)) {
+      replacement_map.emplace(s, root);
+    } else {
+      NVF_ERROR(
+          !can_be_made_computable.at(root_name),
+          "Scalar ",
+          s->toString(),
+          "can be made computable but replacement has not yet been set");
+    }
+  }
+
+  ir_utils::replaceValue(fusion_segment, replacement_map);
+}
+
+void SegmentedFusion::assumeScalarsEqual(const Val* a, const Val* b) {
+  NVF_ERROR(a->container() == completeFusion());
+  NVF_ERROR(b->container() == completeFusion());
+  // ValType must be Others -- not NamedScalar
+  NVF_ERROR(a->getValType().value() == ValType::Others);
+  NVF_ERROR(b->getValType().value() == ValType::Others);
+  // TODO: Enlarge to appropriate size
+  extent_scalar_uf_.merge(a->name(), b->name());
+}
+
+void SegmentedFusion::printScalarEquivalences() {
+  debug() << "Equivalence classes of scalars:" << std::endl;
+  const auto classes = extent_scalar_uf_.computeEquivalenceClasses();
+  for (const auto n : c10::irange(classes.size())) {
+    const auto& c = classes.at(n);
+    NVF_ERROR(!c.empty());
+    const auto root_name = extent_scalar_uf_.find(c.at(0));
+    debug() << "  class " << n << std::endl;
+    for (const auto s_name : c) {
+      const auto s = completeFusion()->getValFromName(ValType::Others, s_name);
+      if (!s) {
+        continue;
+      }
+      debug() << "    " << s->toString() << " = " << s->toInlineString();
+      if (s_name == root_name) {
+        // Mark the current root of each class in the printout
+        debug() << "  *";
+      }
+      debug() << std::endl;
+    }
+  }
+  // Every scalar whose name() >= extent_scalar_uf_.size() is in a class of its
+  // own
+  auto class_num = classes.size();
+  for (const auto s_name : c10::irange(
+           extent_scalar_uf_.size(),
+           completeFusion()->getNextValName(ValType::Others))) {
+    debug() << "  class " << class_num++ << std::endl;
+    const auto s = completeFusion()->getValFromName(ValType::Others, s_name);
+    NVF_ERROR(s != nullptr);
+    if (!s) {
+      continue;
+    }
+    debug() << "    " << s->toString() << " = " << s->toInlineString() << "  *"
+            << std::endl;
+  }
 }
 
 } // namespace nvfuser

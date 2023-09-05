@@ -11,7 +11,6 @@
 #include <exceptions.h>
 
 #include <ir/base_nodes.h>
-#include <union_find.h>
 #include <utils.h>
 
 #include <deque>
@@ -105,14 +104,15 @@ class TORCH_CUDA_CU_API IrContainer : public PolymorphicBase {
   void assumePositive(Val* val);
   void assumeNonNegative(Val* val);
 
-  //! Assume two scalar vals are equal. This merges the equivalence classes of a
-  //! and b in the scalar_equality_ UnionFind.
-  void assumeEqual(const Val* a, const Val* b);
-
-  //! Return true only if we have previously called assumeEqual(a, b)
-  //! Note this method is non-const since it will do path compression on the
-  //! underlying UnionFind.
-  bool areEqual(const Val* a, const Val* b);
+  //! Returns the next Val name that will be assigned for a given ValType. This
+  //! should equal the size of val_from_name_[(size_t)vtpe] when it exists.
+  StmtNameType getNextValName(ValType vtype) const {
+    auto it = val_type_name_map_.find(vtype);
+    if (it == val_type_name_map_.end()) {
+      return 0;
+    }
+    return it->second;
+  }
 
   //! Invert the mapping v -> v->name(). If name is invalid, nullptr is
   //! returned.
@@ -123,19 +123,6 @@ class TORCH_CUDA_CU_API IrContainer : public PolymorphicBase {
     }
     return vfn[name];
   }
-
-  //! Print equivalence classes of scalars that were defined using
-  //! assumeEqual
-  void printScalarEquivalences();
-
-  //! Set two IterDomains to be part of the same equivalence class in
-  //! exact_mapping_. This also calls assumeEqual on their extents.
-  void setExactMapped(const IterDomain* a, const IterDomain* b);
-
-  //! Determine whether two IterDomains are marked as being exact mapped
-  //! Note this method is non-const since it will do path compression on the
-  //! underlying UnionFind.
-  bool areExactMapped(const IterDomain* a, const IterDomain* b);
 
  protected:
   static IrCloner copy(const IrContainer* from, IrContainer* to);
@@ -203,14 +190,6 @@ class TORCH_CUDA_CU_API IrContainer : public PolymorphicBase {
   // Val* for a given ValType. Note that since Vals can be removed, these
   // vectors might contain nullptr.
   std::vector<std::vector<Val*>> val_from_name_;
-
-  // UnionFinds represent equivalence relations. Exact mapped IterDomains are
-  // tracked with a UnionFind, and their extents are marked as equal using the
-  // more general scalar_equality_ UnionFind. The scalar_equality_ UnionFind
-  // should also be updated whenever Vals are proven to be equal.
-  using UnionFindIndexType = uint16_t; // Change this if >64k Vals are expected
-  UnionFind<UnionFindIndexType> scalar_equality_;
-  UnionFind<UnionFindIndexType> exact_mapping_;
 
   // Expression names counter
   StmtNameType expr_name_counter_ = 0;
