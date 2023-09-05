@@ -9,6 +9,7 @@
 #pragma once
 
 #include <c10/macros/Export.h>
+#include <exceptions.h>
 
 #include <device_lower/utils.h>
 #include <ir/all_nodes.h>

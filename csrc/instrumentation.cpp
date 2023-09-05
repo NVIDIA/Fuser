@@ -25,7 +25,7 @@ Trace::Trace() {
   const char* trace_filename = getNvFuserEnv("TRACE");
   if (trace_filename != nullptr) {
     log_file_ = fopen(trace_filename, "w");
-    TORCH_CHECK(log_file_ != nullptr, "Can't open trace file");
+    NVF_CHECK(log_file_ != nullptr, "Can't open trace file");
 
     // Disable the file stream buffering, since it may result
     // in torn writes in multi-threaded tracing

@@ -141,7 +141,7 @@ static bool isDeviceCompatible(
 static bool isFusibleDevice(
     const torch::jit::Node* node,
     const c10::Device& device) {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       device.index() != INVALID_INDEX, "fusible device needs to be validate");
   auto opt_device = getDevice(node);
   // we can be more relaxed here as we known that this function tries to merge

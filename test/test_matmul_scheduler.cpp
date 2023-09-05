@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <csrc/exceptions.h>
 #include <gtest/gtest.h>
 
 #include <fusion.h>
@@ -38,22 +39,22 @@ TEST_F(MatmulSchedulerTest, BasicMatmulStrictCheckTT_CUDA) {
   fusion->addInput(tv1);
   fusion->addOutput(tv2);
 
-  TORCH_CHECK(
+  NVF_CHECK(
       1 == ir_utils::getMmaOps(fusion.get()).size(),
       "matmul fusion must have at least one MmaOp");
-  TORCH_CHECK(
+  NVF_CHECK(
       ir_utils::getMmaOps(fusion.get()).front()->layout().has_value(),
       "input layout has not be set for MmaOp");
-  TORCH_CHECK(
+  NVF_CHECK(
       MatmulLayout::TN ==
           ir_utils::getMmaOps(fusion.get()).front()->layout().value(),
       "the MmaOp layout of Ampere MMA must be always TN");
 
   const auto fusion_layout = mma_utils::getMatmulLayout(fusion.get());
-  TORCH_CHECK(
+  NVF_CHECK(
       fusion_layout.isValid(),
       "failed to get decide matmul layout through fusion definition");
-  TORCH_CHECK(
+  NVF_CHECK(
       fusion_layout.getData() == layout,
       "mismatch between test layout (",
       toString(layout),
@@ -69,11 +70,11 @@ TEST_F(MatmulSchedulerTest, BasicMatmulStrictCheckTT_CUDA) {
 
   auto outputs = executor_cache.runFusionWithInputs({t0, t1});
 
-  TORCH_CHECK(
+  NVF_CHECK(
       !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
       "fusion got segmented, expected to match whole fusion with single segment");
 
-  TORCH_CHECK(
+  NVF_CHECK(
       isSchedulerInUse(
           executor_cache.getMostRecentKernelRuntime(),
           ScheduleHeuristic::Matmul),
@@ -100,22 +101,22 @@ TEST_F(MatmulSchedulerTest, BasicMatmulRelaxedCheck_CUDA) {
     fusion->addInput(tv1);
     fusion->addOutput(tv2);
 
-    TORCH_CHECK(
+    NVF_CHECK(
         1 == ir_utils::getMmaOps(fusion.get()).size(),
         "matmul fusion must have at least one MmaOp");
-    TORCH_CHECK(
+    NVF_CHECK(
         ir_utils::getMmaOps(fusion.get()).front()->layout().has_value(),
         "input layout has not be set for MmaOp");
-    TORCH_CHECK(
+    NVF_CHECK(
         MatmulLayout::TN ==
             ir_utils::getMmaOps(fusion.get()).front()->layout().value(),
         "the MmaOp layout of Ampere MMA must be always TN");
 
     const auto fusion_layout = mma_utils::getMatmulLayout(fusion.get());
-    TORCH_CHECK(
+    NVF_CHECK(
         fusion_layout.isValid(),
         "failed to get decide matmul layout through fusion definition");
-    TORCH_CHECK(
+    NVF_CHECK(
         fusion_layout.getData() == layout,
         "mismatch between test layout (",
         toString(layout),
@@ -131,17 +132,17 @@ TEST_F(MatmulSchedulerTest, BasicMatmulRelaxedCheck_CUDA) {
 
     auto outputs = executor_cache.runFusionWithInputs({t0, t1});
 
-    TORCH_CHECK(
+    NVF_CHECK(
         !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
         "fusion got segmented, expected to match whole fusion with single segment");
 
-    TORCH_CHECK(
+    NVF_CHECK(
         isSchedulerInUse(
             executor_cache.getMostRecentKernelRuntime(),
             ScheduleHeuristic::Matmul),
         "matmul scheduler was not used to handle prepared fusion");
 
-    TORCH_CHECK(outputs[0].allclose(tref, 0.001, 0.001));
+    NVF_CHECK(outputs[0].allclose(tref, 0.001, 0.001));
   }
 }
 
@@ -164,22 +165,22 @@ TEST_F(MatmulSchedulerTest, BasicMatmulInputShuffledTT_CUDA) {
   fusion->addInput(tv0);
   fusion->addOutput(tv2);
 
-  TORCH_CHECK(
+  NVF_CHECK(
       1 == ir_utils::getMmaOps(fusion.get()).size(),
       "matmul fusion must have at least one MmaOp");
-  TORCH_CHECK(
+  NVF_CHECK(
       ir_utils::getMmaOps(fusion.get()).front()->layout().has_value(),
       "input layout has not be set for MmaOp");
-  TORCH_CHECK(
+  NVF_CHECK(
       MatmulLayout::TN ==
           ir_utils::getMmaOps(fusion.get()).front()->layout().value(),
       "the MmaOp layout of Ampere MMA must be always TN");
 
   const auto fusion_layout = mma_utils::getMatmulLayout(fusion.get());
-  TORCH_CHECK(
+  NVF_CHECK(
       fusion_layout.isValid(),
       "failed to get decide matmul layout through fusion definition");
-  TORCH_CHECK(
+  NVF_CHECK(
       fusion_layout.getData() == layout,
       "mismatch between test layout (",
       toString(layout),
@@ -195,17 +196,17 @@ TEST_F(MatmulSchedulerTest, BasicMatmulInputShuffledTT_CUDA) {
 
   auto outputs = executor_cache.runFusionWithInputs({t1, t0});
 
-  TORCH_CHECK(
+  NVF_CHECK(
       !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
       "fusion got segmented, expected to match whole fusion with single segment");
 
-  TORCH_CHECK(
+  NVF_CHECK(
       isSchedulerInUse(
           executor_cache.getMostRecentKernelRuntime(),
           ScheduleHeuristic::Matmul),
       "matmul scheduler was not used to handle prepared fusion");
 
-  TORCH_CHECK(outputs[0].allclose(tref, 0.001, 0.001));
+  NVF_CHECK(outputs[0].allclose(tref, 0.001, 0.001));
 }
 
 // Matmul test that relies on segmenter for 'C = float2half(A x B)' fusion, for
@@ -227,22 +228,22 @@ TEST_F(MatmulSchedulerTest, EpilogueOutputCast_CUDA) {
   fusion->addInput(tv1);
   fusion->addOutput(tv3);
 
-  TORCH_CHECK(
+  NVF_CHECK(
       1 == ir_utils::getMmaOps(fusion.get()).size(),
       "matmul fusion must have at least one MmaOp");
-  TORCH_CHECK(
+  NVF_CHECK(
       ir_utils::getMmaOps(fusion.get()).front()->layout().has_value(),
       "input layout has not be set for MmaOp");
-  TORCH_CHECK(
+  NVF_CHECK(
       MatmulLayout::TN ==
           ir_utils::getMmaOps(fusion.get()).front()->layout().value(),
       "the MmaOp layout of Ampere MMA must always be TN");
 
   const auto fusion_layout = mma_utils::getMatmulLayout(fusion.get());
-  TORCH_CHECK(
+  NVF_CHECK(
       fusion_layout.isValid(),
       "failed to get decide matmul layout through fusion definition");
-  TORCH_CHECK(
+  NVF_CHECK(
       fusion_layout.getData() == layout,
       "mismatch between test layout (",
       toString(layout),
@@ -262,11 +263,11 @@ TEST_F(MatmulSchedulerTest, EpilogueOutputCast_CUDA) {
 
   auto outputs = executor_cache.runFusionWithInputs({t0, t1});
 
-  TORCH_CHECK(
+  NVF_CHECK(
       !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
       "segmentation did happen");
 
-  TORCH_CHECK(outputs[0].allclose(tref, 0.001, 0.001));
+  NVF_CHECK(outputs[0].allclose(tref, 0.001, 0.001));
 }
 
 // Matmul test that relies on segmenter for 'C = alpha * (A x B)' fusion, for
@@ -290,22 +291,22 @@ TEST_F(MatmulSchedulerTest, EpilogueAlpha_CUDA) {
   fusion->addInput(s0);
   fusion->addOutput(tv3);
 
-  TORCH_CHECK(
+  NVF_CHECK(
       1 == ir_utils::getMmaOps(fusion.get()).size(),
       "matmul fusion must have at least one MmaOp");
-  TORCH_CHECK(
+  NVF_CHECK(
       ir_utils::getMmaOps(fusion.get()).front()->layout().has_value(),
       "input layout has not be set for MmaOp");
-  TORCH_CHECK(
+  NVF_CHECK(
       MatmulLayout::TN ==
           ir_utils::getMmaOps(fusion.get()).front()->layout().value(),
       "the MmaOp layout of Ampere MMA must always be TN");
 
   const auto fusion_layout = mma_utils::getMatmulLayout(fusion.get());
-  TORCH_CHECK(
+  NVF_CHECK(
       fusion_layout.isValid(),
       "failed to get decide matmul layout through fusion definition");
-  TORCH_CHECK(
+  NVF_CHECK(
       fusion_layout.getData() == layout,
       "mismatch between test layout (",
       toString(layout),
@@ -326,11 +327,11 @@ TEST_F(MatmulSchedulerTest, EpilogueAlpha_CUDA) {
 
   auto outputs = executor_cache.runFusionWithInputs({t0, t1, alpha});
 
-  TORCH_CHECK(
+  NVF_CHECK(
       !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
       "segmentation did happen");
 
-  TORCH_CHECK(outputs[0].allclose(tref, 0.001, 0.001));
+  NVF_CHECK(outputs[0].allclose(tref, 0.001, 0.001));
 }
 
 // Matmul test that relies on segmenter for 'C = float2half(alpha * (A x B))'
@@ -355,22 +356,22 @@ TEST_F(MatmulSchedulerTest, EpilogueAlphaOutputCast_CUDA) {
   fusion->addInput(s0);
   fusion->addOutput(tv4);
 
-  TORCH_CHECK(
+  NVF_CHECK(
       1 == ir_utils::getMmaOps(fusion.get()).size(),
       "matmul fusion must have at least one MmaOp");
-  TORCH_CHECK(
+  NVF_CHECK(
       ir_utils::getMmaOps(fusion.get()).front()->layout().has_value(),
       "input layout has not be set for MmaOp");
-  TORCH_CHECK(
+  NVF_CHECK(
       MatmulLayout::TN ==
           ir_utils::getMmaOps(fusion.get()).front()->layout().value(),
       "the MmaOp layout of Ampere MMA must always be TN");
 
   const auto fusion_layout = mma_utils::getMatmulLayout(fusion.get());
-  TORCH_CHECK(
+  NVF_CHECK(
       fusion_layout.isValid(),
       "failed to get decide matmul layout through fusion definition");
-  TORCH_CHECK(
+  NVF_CHECK(
       fusion_layout.getData() == layout,
       "mismatch between test layout (",
       toString(layout),
@@ -392,11 +393,11 @@ TEST_F(MatmulSchedulerTest, EpilogueAlphaOutputCast_CUDA) {
 
   auto outputs = executor_cache.runFusionWithInputs({t0, t1, alpha});
 
-  TORCH_CHECK(
+  NVF_CHECK(
       !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
       "segmentation did happen");
 
-  TORCH_CHECK(outputs[0].allclose(tref, 0.001, 0.001));
+  NVF_CHECK(outputs[0].allclose(tref, 0.001, 0.001));
 }
 
 // Matmul test that relies on segmenter for 'C = relu(A x B)' fusion, for
@@ -418,22 +419,22 @@ TEST_F(MatmulSchedulerTest, EpilogueRelu_CUDA) {
   fusion->addInput(tv1);
   fusion->addOutput(tv3);
 
-  TORCH_CHECK(
+  NVF_CHECK(
       1 == ir_utils::getMmaOps(fusion.get()).size(),
       "matmul fusion must have at least one MmaOp");
-  TORCH_CHECK(
+  NVF_CHECK(
       ir_utils::getMmaOps(fusion.get()).front()->layout().has_value(),
       "input layout has not be set for MmaOp");
-  TORCH_CHECK(
+  NVF_CHECK(
       MatmulLayout::TN ==
           ir_utils::getMmaOps(fusion.get()).front()->layout().value(),
       "the MmaOp layout of Ampere MMA must always be TN");
 
   const auto fusion_layout = mma_utils::getMatmulLayout(fusion.get());
-  TORCH_CHECK(
+  NVF_CHECK(
       fusion_layout.isValid(),
       "failed to get decide matmul layout through fusion definition");
-  TORCH_CHECK(
+  NVF_CHECK(
       fusion_layout.getData() == layout,
       "mismatch between test layout (",
       toString(layout),
@@ -453,11 +454,11 @@ TEST_F(MatmulSchedulerTest, EpilogueRelu_CUDA) {
 
   auto outputs = executor_cache.runFusionWithInputs({t0, t1});
 
-  TORCH_CHECK(
+  NVF_CHECK(
       !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
       "segmentation did happen");
 
-  TORCH_CHECK(outputs[0].allclose(tref, 0.001, 0.001));
+  NVF_CHECK(outputs[0].allclose(tref, 0.001, 0.001));
 }
 
 // Matmul test that relies on segmenter for 'C = gelu(A x B)' fusion, for
@@ -479,22 +480,22 @@ TEST_F(MatmulSchedulerTest, EpilogueGelu_CUDA) {
   fusion->addInput(tv1);
   fusion->addOutput(tv3);
 
-  TORCH_CHECK(
+  NVF_CHECK(
       1 == ir_utils::getMmaOps(fusion.get()).size(),
       "matmul fusion must have at least one MmaOp");
-  TORCH_CHECK(
+  NVF_CHECK(
       ir_utils::getMmaOps(fusion.get()).front()->layout().has_value(),
       "input layout has not be set for MmaOp");
-  TORCH_CHECK(
+  NVF_CHECK(
       MatmulLayout::TN ==
           ir_utils::getMmaOps(fusion.get()).front()->layout().value(),
       "the MmaOp layout of Ampere MMA must always be TN");
 
   const auto fusion_layout = mma_utils::getMatmulLayout(fusion.get());
-  TORCH_CHECK(
+  NVF_CHECK(
       fusion_layout.isValid(),
       "failed to get decide matmul layout through fusion definition");
-  TORCH_CHECK(
+  NVF_CHECK(
       fusion_layout.getData() == layout,
       "mismatch between test layout (",
       toString(layout),
@@ -514,11 +515,11 @@ TEST_F(MatmulSchedulerTest, EpilogueGelu_CUDA) {
 
   auto outputs = executor_cache.runFusionWithInputs({t0, t1});
 
-  TORCH_CHECK(
+  NVF_CHECK(
       !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
       "segmentation did happen");
 
-  TORCH_CHECK(outputs[0].allclose(tref, 0.001, 0.001));
+  NVF_CHECK(outputs[0].allclose(tref, 0.001, 0.001));
 }
 
 // Matmul test that relies on segmenter for fusion for Ampere:
@@ -551,22 +552,22 @@ TEST_F(MatmulSchedulerTest, EpilogueBeta_CUDA) {
   fusion->addInput(s0);
   fusion->addOutput(tv5);
 
-  TORCH_CHECK(
+  NVF_CHECK(
       1 == ir_utils::getMmaOps(fusion.get()).size(),
       "matmul fusion must have at least one MmaOp");
-  TORCH_CHECK(
+  NVF_CHECK(
       ir_utils::getMmaOps(fusion.get()).front()->layout().has_value(),
       "input layout has not be set for MmaOp");
-  TORCH_CHECK(
+  NVF_CHECK(
       MatmulLayout::TN ==
           ir_utils::getMmaOps(fusion.get()).front()->layout().value(),
       "the MmaOp layout of Ampere MMA must always be TN");
 
   const auto fusion_layout = mma_utils::getMatmulLayout(fusion.get());
-  TORCH_CHECK(
+  NVF_CHECK(
       fusion_layout.isValid(),
       "failed to get decide matmul layout through fusion definition");
-  TORCH_CHECK(
+  NVF_CHECK(
       fusion_layout.getData() == layout,
       "mismatch between test layout (",
       toString(layout),
@@ -591,13 +592,13 @@ TEST_F(MatmulSchedulerTest, EpilogueBeta_CUDA) {
 
   auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2, beta});
 
-  TORCH_CHECK(
+  NVF_CHECK(
       !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
       "segmentation did happen");
 
   // NOTE: increasted absolute tolerance to silence false negative verification
   //       caused by different way of calculating reference
-  TORCH_CHECK(outputs[0].allclose(t5, 0.01, 0.04));
+  NVF_CHECK(outputs[0].allclose(t5, 0.01, 0.04));
 }
 
 // Matmul test that relies on segmenter for fusion for Ampere:
@@ -633,22 +634,22 @@ TEST_F(MatmulSchedulerTest, EpilogueAlphaBeta_CUDA) {
   fusion->addInput(s1);
   fusion->addOutput(tv6);
 
-  TORCH_CHECK(
+  NVF_CHECK(
       1 == ir_utils::getMmaOps(fusion.get()).size(),
       "matmul fusion must have at least one MmaOp");
-  TORCH_CHECK(
+  NVF_CHECK(
       ir_utils::getMmaOps(fusion.get()).front()->layout().has_value(),
       "input layout has not be set for MmaOp");
-  TORCH_CHECK(
+  NVF_CHECK(
       MatmulLayout::TN ==
           ir_utils::getMmaOps(fusion.get()).front()->layout().value(),
       "the MmaOp layout of Ampere MMA must always be TN");
 
   const auto fusion_layout = mma_utils::getMatmulLayout(fusion.get());
-  TORCH_CHECK(
+  NVF_CHECK(
       fusion_layout.isValid(),
       "failed to get decide matmul layout through fusion definition");
-  TORCH_CHECK(
+  NVF_CHECK(
       fusion_layout.getData() == layout,
       "mismatch between test layout (",
       toString(layout),
@@ -675,13 +676,13 @@ TEST_F(MatmulSchedulerTest, EpilogueAlphaBeta_CUDA) {
 
   auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2, alpha, beta});
 
-  TORCH_CHECK(
+  NVF_CHECK(
       !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
       "segmentation did happen");
 
   // NOTE: increasted absolute tolerance to silence false negative verification
   //       caused by different way of calculating reference
-  TORCH_CHECK(outputs[0].allclose(t6, 0.001, 0.004));
+  NVF_CHECK(outputs[0].allclose(t6, 0.001, 0.004));
 }
 
 // Matmul test that relies on segmenter for fusion for Ampere:
@@ -721,22 +722,22 @@ TEST_F(MatmulSchedulerTest, EpilogueAlphaBetaGeluOutputCast_CUDA) {
   fusion->addInput(s1);
   fusion->addOutput(tv8);
 
-  TORCH_CHECK(
+  NVF_CHECK(
       1 == ir_utils::getMmaOps(fusion.get()).size(),
       "matmul fusion must have at least one MmaOp");
-  TORCH_CHECK(
+  NVF_CHECK(
       ir_utils::getMmaOps(fusion.get()).front()->layout().has_value(),
       "input layout has not be set for MmaOp");
-  TORCH_CHECK(
+  NVF_CHECK(
       MatmulLayout::TN ==
           ir_utils::getMmaOps(fusion.get()).front()->layout().value(),
       "the MmaOp layout of Ampere MMA must always be TN");
 
   const auto fusion_layout = mma_utils::getMatmulLayout(fusion.get());
-  TORCH_CHECK(
+  NVF_CHECK(
       fusion_layout.isValid(),
       "failed to get decide matmul layout through fusion definition");
-  TORCH_CHECK(
+  NVF_CHECK(
       fusion_layout.getData() == layout,
       "mismatch between test layout (",
       toString(layout),
@@ -766,13 +767,13 @@ TEST_F(MatmulSchedulerTest, EpilogueAlphaBetaGeluOutputCast_CUDA) {
 
   auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2, alpha, beta});
 
-  TORCH_CHECK(
+  NVF_CHECK(
       !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
       "segmentation did happen");
 
   // NOTE: increasted absolute tolerance to silence false negative verification
   //       caused by different way of calculating reference
-  TORCH_CHECK(outputs[0].allclose(t8, 0.01, 0.06));
+  NVF_CHECK(outputs[0].allclose(t8, 0.01, 0.06));
 }
 
 // Matmul test that relies on segmenter for fusion for Ampere:
@@ -800,22 +801,22 @@ TEST_F(MatmulSchedulerTest, EpilogueBias_CUDA) {
   fusion->addInput(tv2);
   fusion->addOutput(tv4);
 
-  TORCH_CHECK(
+  NVF_CHECK(
       1 == ir_utils::getMmaOps(fusion.get()).size(),
       "matmul fusion must have at least one MmaOp");
-  TORCH_CHECK(
+  NVF_CHECK(
       ir_utils::getMmaOps(fusion.get()).front()->layout().has_value(),
       "input layout has not be set for MmaOp");
-  TORCH_CHECK(
+  NVF_CHECK(
       MatmulLayout::TN ==
           ir_utils::getMmaOps(fusion.get()).front()->layout().value(),
       "the MmaOp layout of Ampere MMA must always be TN");
 
   const auto fusion_layout = mma_utils::getMatmulLayout(fusion.get());
-  TORCH_CHECK(
+  NVF_CHECK(
       fusion_layout.isValid(),
       "failed to get decide matmul layout through fusion definition");
-  TORCH_CHECK(
+  NVF_CHECK(
       fusion_layout.getData() == layout,
       "mismatch between test layout (",
       toString(layout),
@@ -838,13 +839,13 @@ TEST_F(MatmulSchedulerTest, EpilogueBias_CUDA) {
 
   auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
 
-  TORCH_CHECK(
+  NVF_CHECK(
       !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
       "segmentation did happen");
 
   // NOTE: increasted absolute tolerance to silence false negative verification
   //       caused by different way of calculating reference
-  TORCH_CHECK(outputs[0].allclose(t4, 0.001, 0.001));
+  NVF_CHECK(outputs[0].allclose(t4, 0.001, 0.001));
 }
 
 // Matmul test that relies on segmenter for fusion for Ampere:
@@ -885,22 +886,22 @@ TEST_F(MatmulSchedulerTest, EpilogueAlphaBetaBias_CUDA) {
   fusion->addInput(s1);
   fusion->addOutput(tv8);
 
-  TORCH_CHECK(
+  NVF_CHECK(
       1 == ir_utils::getMmaOps(fusion.get()).size(),
       "matmul fusion must have at least one MmaOp");
-  TORCH_CHECK(
+  NVF_CHECK(
       ir_utils::getMmaOps(fusion.get()).front()->layout().has_value(),
       "input layout has not be set for MmaOp");
-  TORCH_CHECK(
+  NVF_CHECK(
       MatmulLayout::TN ==
           ir_utils::getMmaOps(fusion.get()).front()->layout().value(),
       "the MmaOp layout of Ampere MMA must always be TN");
 
   const auto fusion_layout = mma_utils::getMatmulLayout(fusion.get());
-  TORCH_CHECK(
+  NVF_CHECK(
       fusion_layout.isValid(),
       "failed to get decide matmul layout through fusion definition");
-  TORCH_CHECK(
+  NVF_CHECK(
       fusion_layout.getData() == layout,
       "mismatch between test layout (",
       toString(layout),
@@ -933,13 +934,13 @@ TEST_F(MatmulSchedulerTest, EpilogueAlphaBetaBias_CUDA) {
   auto outputs =
       executor_cache.runFusionWithInputs({t0, t1, t2, t3, alpha, beta});
 
-  TORCH_CHECK(
+  NVF_CHECK(
       !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
       "segmentation did happen");
 
   // NOTE: increasted absolute tolerance to silence false negative verification
   //       caused by different way of calculating reference
-  TORCH_CHECK(outputs[0].allclose(t8, 0.01, 0.01));
+  NVF_CHECK(outputs[0].allclose(t8, 0.01, 0.01));
 }
 
 // Strided batch gemm test taht uses matmul scheduler, for Ampere:
@@ -962,22 +963,22 @@ TEST_F(MatmulSchedulerTest, StridedBatch_CUDA) {
     fusion->addInput(tv1);
     fusion->addOutput(tv2);
 
-    TORCH_CHECK(
+    NVF_CHECK(
         1 == ir_utils::getMmaOps(fusion.get()).size(),
         "matmul fusion must have at least one MmaOp");
-    TORCH_CHECK(
+    NVF_CHECK(
         ir_utils::getMmaOps(fusion.get()).front()->layout().has_value(),
         "input layout has not be set for MmaOp");
-    TORCH_CHECK(
+    NVF_CHECK(
         MatmulLayout::TN ==
             ir_utils::getMmaOps(fusion.get()).front()->layout().value(),
         "the MmaOp layout of Ampere MMA must always be TN");
 
     const auto fusion_layout = mma_utils::getMatmulLayout(fusion.get());
-    TORCH_CHECK(
+    NVF_CHECK(
         fusion_layout.isValid(),
         "failed to get decide matmul layout through fusion definition");
-    TORCH_CHECK(
+    NVF_CHECK(
         fusion_layout.getData() == layout,
         "mismatch between test layout (",
         toString(layout),
@@ -994,14 +995,14 @@ TEST_F(MatmulSchedulerTest, StridedBatch_CUDA) {
 
     auto outputs = executor_cache.runFusionWithInputs({t0, t1});
 
-    TORCH_CHECK(
+    NVF_CHECK(
         !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
         "segmentation did happen");
 
     // NOTE: increasted absolute tolerance to silence false negative
     // verification
     //       caused by different way of calculating reference
-    TORCH_CHECK(outputs[0].allclose(t2, 0.0001, 0.0001));
+    NVF_CHECK(outputs[0].allclose(t2, 0.0001, 0.0001));
   }
 }
 
@@ -1040,22 +1041,22 @@ TEST_F(MatmulSchedulerTest, StridedBatchEpilogueAlphaBeta_CUDA) {
     fusion->addInput(s1);
     fusion->addOutput(tv6);
 
-    TORCH_CHECK(
+    NVF_CHECK(
         1 == ir_utils::getMmaOps(fusion.get()).size(),
         "matmul fusion must have at least one MmaOp");
-    TORCH_CHECK(
+    NVF_CHECK(
         ir_utils::getMmaOps(fusion.get()).front()->layout().has_value(),
         "input layout has not be set for MmaOp");
-    TORCH_CHECK(
+    NVF_CHECK(
         MatmulLayout::TN ==
             ir_utils::getMmaOps(fusion.get()).front()->layout().value(),
         "the MmaOp layout of Ampere MMA must always be TN");
 
     const auto fusion_layout = mma_utils::getMatmulLayout(fusion.get());
-    TORCH_CHECK(
+    NVF_CHECK(
         fusion_layout.isValid(),
         "failed to get decide matmul layout through fusion definition");
-    TORCH_CHECK(
+    NVF_CHECK(
         fusion_layout.getData() == layout,
         "mismatch between test layout (",
         toString(layout),
@@ -1081,13 +1082,13 @@ TEST_F(MatmulSchedulerTest, StridedBatchEpilogueAlphaBeta_CUDA) {
     auto outputs =
         executor_cache.runFusionWithInputs({t0, t1, t2, alpha, beta});
 
-    TORCH_CHECK(
+    NVF_CHECK(
         !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
         "segmentation did happen");
 
     // NOTE: increasted absolute tolerance to silence false negative
     //  verification caused by different way of calculating reference
-    TORCH_CHECK(outputs[0].allclose(t6, 0.0001, 0.0001));
+    NVF_CHECK(outputs[0].allclose(t6, 0.0001, 0.0001));
   }
 }
 
@@ -1130,22 +1131,22 @@ TEST_F(MatmulSchedulerTest, StridedBatchEpilogueAlphaSingleBeta_CUDA) {
     fusion->addInput(s1);
     fusion->addOutput(tv7);
 
-    TORCH_CHECK(
+    NVF_CHECK(
         1 == ir_utils::getMmaOps(fusion.get()).size(),
         "matmul fusion must have at least one MmaOp");
-    TORCH_CHECK(
+    NVF_CHECK(
         ir_utils::getMmaOps(fusion.get()).front()->layout().has_value(),
         "input layout has not be set for MmaOp");
-    TORCH_CHECK(
+    NVF_CHECK(
         MatmulLayout::TN ==
             ir_utils::getMmaOps(fusion.get()).front()->layout().value(),
         "the MmaOp layout of Ampere MMA must always be TN");
 
     const auto fusion_layout = mma_utils::getMatmulLayout(fusion.get());
-    TORCH_CHECK(
+    NVF_CHECK(
         fusion_layout.isValid(),
         "failed to get decide matmul layout through fusion definition");
-    TORCH_CHECK(
+    NVF_CHECK(
         fusion_layout.getData() == layout,
         "mismatch between test layout (",
         toString(layout),
@@ -1174,13 +1175,13 @@ TEST_F(MatmulSchedulerTest, StridedBatchEpilogueAlphaSingleBeta_CUDA) {
     auto outputs =
         executor_cache.runFusionWithInputs({t0, t1, t2, alpha, beta});
 
-    TORCH_CHECK(
+    NVF_CHECK(
         !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
         "segmentation did happen");
 
     // NOTE: increasted absolute tolerance to silence false negative
     //  verification caused by different way of calculating reference
-    TORCH_CHECK(outputs[0].allclose(t7, 0.0001, 0.0001));
+    NVF_CHECK(outputs[0].allclose(t7, 0.0001, 0.0001));
   }
 }
 
@@ -1209,22 +1210,22 @@ TEST_F(MatmulSchedulerTest, StridedBatchEpilogueBias_CUDA) {
     fusion->addInput(tv2);
     fusion->addOutput(tv4);
 
-    TORCH_CHECK(
+    NVF_CHECK(
         1 == ir_utils::getMmaOps(fusion.get()).size(),
         "matmul fusion must have at least one MmaOp");
-    TORCH_CHECK(
+    NVF_CHECK(
         ir_utils::getMmaOps(fusion.get()).front()->layout().has_value(),
         "input layout has not be set for MmaOp");
-    TORCH_CHECK(
+    NVF_CHECK(
         MatmulLayout::TN ==
             ir_utils::getMmaOps(fusion.get()).front()->layout().value(),
         "the MmaOp layout of Ampere MMA must always be TN");
 
     const auto fusion_layout = mma_utils::getMatmulLayout(fusion.get());
-    TORCH_CHECK(
+    NVF_CHECK(
         fusion_layout.isValid(),
         "failed to get decide matmul layout through fusion definition");
-    TORCH_CHECK(
+    NVF_CHECK(
         fusion_layout.getData() == layout,
         "mismatch between test layout (",
         toString(layout),
@@ -1245,13 +1246,13 @@ TEST_F(MatmulSchedulerTest, StridedBatchEpilogueBias_CUDA) {
 
     auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
 
-    TORCH_CHECK(
+    NVF_CHECK(
         !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
         "segmentation did happen");
 
     // NOTE: increasted absolute tolerance to silence false negative
     //  verification caused by different way of calculating reference
-    TORCH_CHECK(outputs[0].allclose(t4, 0.0001, 0.0001));
+    NVF_CHECK(outputs[0].allclose(t4, 0.0001, 0.0001));
   }
 }
 
@@ -1281,22 +1282,22 @@ TEST_F(MatmulSchedulerTest, StridedBatchEpilogueSingleBias_CUDA) {
     fusion->addInput(tv2);
     fusion->addOutput(tv4);
 
-    TORCH_CHECK(
+    NVF_CHECK(
         1 == ir_utils::getMmaOps(fusion.get()).size(),
         "matmul fusion must have at least one MmaOp");
-    TORCH_CHECK(
+    NVF_CHECK(
         ir_utils::getMmaOps(fusion.get()).front()->layout().has_value(),
         "input layout has not be set for MmaOp");
-    TORCH_CHECK(
+    NVF_CHECK(
         MatmulLayout::TN ==
             ir_utils::getMmaOps(fusion.get()).front()->layout().value(),
         "the MmaOp layout of Ampere MMA must always be TN");
 
     const auto fusion_layout = mma_utils::getMatmulLayout(fusion.get());
-    TORCH_CHECK(
+    NVF_CHECK(
         fusion_layout.isValid(),
         "failed to get decide matmul layout through fusion definition");
-    TORCH_CHECK(
+    NVF_CHECK(
         fusion_layout.getData() == layout,
         "mismatch between test layout (",
         toString(layout),
@@ -1318,13 +1319,13 @@ TEST_F(MatmulSchedulerTest, StridedBatchEpilogueSingleBias_CUDA) {
 
     auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
 
-    TORCH_CHECK(
+    NVF_CHECK(
         !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
         "segmentation did happen");
 
     // NOTE: increasted absolute tolerance to silence false negative
     //  verification caused by different way of calculating reference
-    TORCH_CHECK(outputs[0].allclose(t4, 0.0001, 0.0001));
+    NVF_CHECK(outputs[0].allclose(t4, 0.0001, 0.0001));
   }
 }
 

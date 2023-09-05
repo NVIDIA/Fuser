@@ -9,11 +9,12 @@
 
 #include <cuda.h>
 #include <cuda_runtime.h>
+#include <exceptions.h>
 
 #define NVFUSER_NVRTC_SAFE_CALL(x)               \
   do {                                           \
     nvrtcResult _result = x;                     \
-    TORCH_INTERNAL_ASSERT(                       \
+    NVF_ERROR(                                   \
         _result == NVRTC_SUCCESS,                \
         "NVRTC error: " #x "failed with error ", \
         nvrtcGetErrorString(_result));           \
@@ -27,7 +28,7 @@
       const char* name;                \
       cuGetErrorName(_result, &name);  \
       cuGetErrorString(_result, &msg); \
-      TORCH_INTERNAL_ASSERT(           \
+      NVF_ERROR(                       \
           _result == CUDA_SUCCESS,     \
           "CUDA error: ",              \
           name,                        \
@@ -39,7 +40,7 @@
 #define NVFUSER_CUDA_RT_SAFE_CALL(x)  \
   do {                                \
     cudaError_t _result = x;          \
-    TORCH_INTERNAL_ASSERT(            \
+    NVF_ERROR(                        \
         _result == cudaSuccess,       \
         "CUDA error: ",               \
         cudaGetErrorName(_result),    \

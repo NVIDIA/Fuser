@@ -119,7 +119,7 @@ void IrGraphGenerator::print(
     DetailLevel detail_level,
     ExprColorMap* expr_color_map) {
   std::ofstream dot_file(filename);
-  TORCH_CHECK(dot_file.good(), "Failed to open the IR graph file");
+  NVF_CHECK(dot_file.good(), "Failed to open the IR graph file");
   dot_file << toGraphviz(fusion, detail_level, expr_color_map);
 }
 
@@ -141,11 +141,11 @@ IrGraphGenerator::IrGraphGenerator(
   // setup inputs & outputs
   // (indexes used to quickly check if a value is fusion input or output)
   for (const auto* input : fusion->inputs()) {
-    TORCH_CHECK(inputs_.count(input) == 0);
+    NVF_CHECK(inputs_.count(input) == 0);
     inputs_.insert(input);
   }
   for (const auto* output : fusion->outputs()) {
-    TORCH_CHECK(outputs_.count(output) == 0);
+    NVF_CHECK(outputs_.count(output) == 0);
     outputs_.insert(output);
   }
 }
@@ -196,8 +196,8 @@ void IrGraphGenerator::printValue(const Val* val, const std::string& label) {
 
 std::string IrGraphGenerator::generate() {
   // IrGraphGenerator instances are not reusable
-  TORCH_CHECK(graph_def_.str().empty());
-  TORCH_CHECK(visited_.empty());
+  NVF_CHECK(graph_def_.str().empty());
+  NVF_CHECK(visited_.empty());
 
   // record detail level
   graph_def_ << "// detail level: ";
@@ -215,7 +215,7 @@ std::string IrGraphGenerator::generate() {
       graph_def_ << "verbose\n";
       break;
     default:
-      TORCH_CHECK(!"Unexpected detail level");
+      NVF_CHECK(!"Unexpected detail level");
   }
 
   graph_def_ << "digraph fusion_ir {\n"
@@ -250,7 +250,7 @@ std::string IrGraphGenerator::generate() {
 
   // Make sure that all referenced nodes have been visited
   for (const auto& kv : id_map_) {
-    TORCH_CHECK(visited(kv.first));
+    NVF_CHECK(visited(kv.first));
   }
 
   return graph_def_.str();

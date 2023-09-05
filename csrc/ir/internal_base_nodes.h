@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 
+#include <exceptions.h>
 #include <ir/base_nodes.h>
 #include <optional>
 
@@ -247,7 +248,7 @@ class TORCH_CUDA_CU_API IterDomain : public Val {
   Val* stopOffset() const;
 
   Val* extent() const {
-    TORCH_INTERNAL_ASSERT(extent_ != nullptr);
+    NVF_ERROR(extent_ != nullptr);
     return extent_;
   }
 
@@ -257,7 +258,7 @@ class TORCH_CUDA_CU_API IterDomain : public Val {
 
   // Returns the expanded extent of a strided broadcast entry.
   Val* expandedExtent() const {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         hasExpandedExtent(),
         "Requested expanded extent, but none found on this dimension.");
     return expanded_extent_;
@@ -286,7 +287,7 @@ class TORCH_CUDA_CU_API IterDomain : public Val {
   //!      based on the given input.
   void padToMultipleOfWarp(std::optional<int64_t> maybe_to_size = {}) {
     // Currently only restricted to TIDx to generate warp reduce
-    TORCH_CHECK(
+    NVF_CHECK(
         parallel_type_ == ParallelType::TIDx,
         "padToMultipleOfWarp : warp padding only supported on TIDx parallel dimension");
     is_padded_dimension_ = true;
