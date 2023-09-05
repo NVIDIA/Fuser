@@ -11,6 +11,8 @@
 #include <regex>
 
 #include <fusion.h>
+#include <inlining.h>
+#include <ir/utils.h>
 #include <ops/alias.h>
 #include <ops/arith.h>
 #include <ops/utils.h>
@@ -38,20 +40,26 @@ TEST_F(LoadTest, LoadCache) {
 
   tv1->split(0, 4);
   tv1->split(0, 32);
+  TransformPropagatorWithCheck propagator(tv1);
+  MaxRootDomainInfoSpanningTree(tv1).traverse(&propagator);
+
+  // Parallelize LoadStoreOps. Other TensorViews don't support vectorization.
   tv1->axis(0)->parallelize(ParallelType::BIDx);
   tv1->axis(1)->parallelize(ParallelType::TIDx);
   tv1->axis(2)->parallelize(ParallelType::Vectorize);
+  scheduler_utils::parallelizeAllLike(tv1, {tv3});
 
-  tv3->split(0, 4);
-  tv3->split(0, 32);
-  tv3->axis(0)->parallelize(ParallelType::BIDx);
-  tv3->axis(1)->parallelize(ParallelType::TIDx);
-  tv3->axis(2)->parallelize(ParallelType::Vectorize);
-
-  tv1->computeAt(tv3, 2);
+  // The vector dimension can't be inlined.
+  std::unordered_set<IterDomain*> uninlinable;
+  for (TensorView* tv : ir_utils::allTvs(&fusion)) {
+    if (tv->nDims() == 3) {
+      uninlinable.insert(tv->axis(2));
+    }
+  }
+  inlineMost(uninlinable);
 
   at::Tensor input = at::randn(
-      {128}, at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0));
+      {1024}, at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0));
   at::Tensor expected_output = input + 1.0f;
 
   FusionExecutor fe;
