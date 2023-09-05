@@ -178,11 +178,7 @@ enum class CacheOp {
   Streaming,
 };
 
-template <
-    typename scalar_t,
-    int vec_size,
-    bool is_volatile,
-    CacheOp cache_op = CacheOp::Streaming>
+template <typename scalar_t, int vec_size, bool is_volatile, CacheOp cache_op>
 __device__ void loadGlobalToLocal(
     scalar_t* to,
     typename MaybeVolatile<scalar_t, is_volatile>::type* from) {
@@ -262,7 +258,11 @@ __device__ void loadGlobalToGlobal(
       break;
     case 12: {
       uint3 local_intermediate;
-      loadGlobalToLocal<scalar_t, vec_size, is_volatile_from>(
+      loadGlobalToLocal<
+          scalar_t,
+          vec_size,
+          is_volatile_from,
+          CacheOp::Streaming>(
           reinterpret_cast<scalar_t*>(&local_intermediate), from);
       loadLocalToGlobal<scalar_t, vec_size, is_volatile_to>(
           to, reinterpret_cast<scalar_t*>(&local_intermediate));
@@ -270,7 +270,11 @@ __device__ void loadGlobalToGlobal(
     }
     case 16: {
       uint4 local_intermediate;
-      loadGlobalToLocal<scalar_t, vec_size, is_volatile_from>(
+      loadGlobalToLocal<
+          scalar_t,
+          vec_size,
+          is_volatile_from,
+          CacheOp::Streaming>(
           reinterpret_cast<scalar_t*>(&local_intermediate), from);
       loadLocalToGlobal<scalar_t, vec_size, is_volatile_to>(
           to, reinterpret_cast<scalar_t*>(&local_intermediate));
