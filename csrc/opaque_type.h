@@ -7,7 +7,7 @@
 // clang-format on
 #pragma once
 
-#include <type_traits.h>
+#include <dynamic_type/type_traits.h>
 
 #include <any>
 #include <cstddef>
@@ -48,6 +48,10 @@ class Opaque {
       return true;
     }
     if (value_.type() != other.value_.type()) {
+      // Note that because C++ is a statically typed language, there is no way
+      // to completely accurately compare equality of opaque values. The
+      // behavior here is just an approximation. For example 1 == 1.0 but
+      // Opaque(1) != Opaque(1.0).
       return false;
     }
     return equals_(*this, other);
@@ -83,8 +87,30 @@ class Opaque {
 template <typename T>
 bool OpaqueEquals<T>::operator()(const Opaque& a, const Opaque& b) const {
   if constexpr (dynamic_type::opcheck<T> == dynamic_type::opcheck<T>) {
+    // If T == T exists, use it
     return a.as<T>() == b.as<T>();
   } else {
+    // Otherwise, do bitwise compare. Note that bitwise comparison is not always
+    // correct. So this is only an approximation. For example:
+    //   struct A {
+    //     int64_t x;
+    //     std::vector<float> y;
+    //   };
+    //   Opaque(A{1, {2.0}}) != Opaque(A{1, {2.0}});
+    // Another example:
+    //   struct A {
+    //     int32_t i;
+    //     double d;
+    //   };
+    //   /*maybe:*/ Opaque(A{1, 2.0}) == Opaque(A{1, 2.0});
+    //   /*maybe:*/ Opaque(A{1, 2.0}) != Opaque(A{1, 2.0});
+    // Because the struct is not packed, usually C++ compiler will allocate A as
+    // something like below:
+    // [=== i (32bits) ===][=== empty (32bits) ===][====== d (64bits) ======]
+    // The padding bits are not initialized and can be different between two
+    // instances of A. So the comparison result is not even deterministic.
+    // This path should only be used for packed POD structs. For other types,
+    // the user should provide an overloaded operator==.
     return std::memcmp(&a.as<T>(), &b.as<T>(), sizeof(T)) == 0;
   }
 }

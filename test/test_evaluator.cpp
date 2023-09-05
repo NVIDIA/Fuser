@@ -299,6 +299,15 @@ TEST_F(ExprEvalTest, EmptyArray) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
+  EXPECT_THAT(
+      [&]() {
+        IrBuilder::create<Val>(
+            std::vector<int64_t>{},
+            ArrayType{std::make_shared<DataType>(DataType::Int), 2});
+      },
+      ::testing::ThrowsMessage<nvfuser::nvfError>(
+          ::testing::HasSubstr("not compatible")));
+
   auto* a = IrBuilder::create<Val>(
       std::vector<int64_t>{},
       ArrayType{std::make_shared<DataType>(DataType::Int), 0});
