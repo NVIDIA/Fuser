@@ -8,7 +8,7 @@
 
 #include <benchmark/benchmark.h>
 
-#include <dynamic_type.h>
+#include <dynamic_type/dynamic_type.h>
 
 #include <cmath>
 #include <memory>
