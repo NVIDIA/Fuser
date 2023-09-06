@@ -5476,7 +5476,6 @@ struct KernelSummaryT : public ::flatbuffers::NativeTable {
   int32_t outer_grouped_grid_welford_largest_smem_size = 0;
   std::unique_ptr<nvfuser::serde::NaiveValueGeneratorT> generator{};
   std::vector<std::unique_ptr<nvfuser::serde::AllocateBufferT>> global_allocations{};
-  std::vector<std::unique_ptr<nvfuser::serde::AllocateBufferT>> dynamic_smem_allocations{};
   KernelSummaryT() = default;
   KernelSummaryT(const KernelSummaryT &o);
   KernelSummaryT(KernelSummaryT&&) FLATBUFFERS_NOEXCEPT = default;
@@ -5499,8 +5498,7 @@ struct KernelSummary FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
     VT_LARGEST_SMEM_DATA_TYPE = 22,
     VT_OUTER_GROUPED_GRID_WELFORD_LARGEST_SMEM_SIZE = 24,
     VT_GENERATOR = 26,
-    VT_GLOBAL_ALLOCATIONS = 28,
-    VT_DYNAMIC_SMEM_ALLOCATIONS = 30
+    VT_GLOBAL_ALLOCATIONS = 28
   };
   bool has_cooperative_grid_reduction() const {
     return GetField<uint8_t>(VT_HAS_COOPERATIVE_GRID_REDUCTION, 0) != 0;
@@ -5541,9 +5539,6 @@ struct KernelSummary FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
   const ::flatbuffers::Vector<::flatbuffers::Offset<nvfuser::serde::AllocateBuffer>> *global_allocations() const {
     return GetPointer<const ::flatbuffers::Vector<::flatbuffers::Offset<nvfuser::serde::AllocateBuffer>> *>(VT_GLOBAL_ALLOCATIONS);
   }
-  const ::flatbuffers::Vector<::flatbuffers::Offset<nvfuser::serde::AllocateBuffer>> *dynamic_smem_allocations() const {
-    return GetPointer<const ::flatbuffers::Vector<::flatbuffers::Offset<nvfuser::serde::AllocateBuffer>> *>(VT_DYNAMIC_SMEM_ALLOCATIONS);
-  }
   bool Verify(::flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyField<uint8_t>(verifier, VT_HAS_COOPERATIVE_GRID_REDUCTION, 1) &&
@@ -5562,9 +5557,6 @@ struct KernelSummary FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
            VerifyOffset(verifier, VT_GLOBAL_ALLOCATIONS) &&
            verifier.VerifyVector(global_allocations()) &&
            verifier.VerifyVectorOfTables(global_allocations()) &&
-           VerifyOffset(verifier, VT_DYNAMIC_SMEM_ALLOCATIONS) &&
-           verifier.VerifyVector(dynamic_smem_allocations()) &&
-           verifier.VerifyVectorOfTables(dynamic_smem_allocations()) &&
            verifier.EndTable();
   }
   KernelSummaryT *UnPack(const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -5615,9 +5607,6 @@ struct KernelSummaryBuilder {
   void add_global_allocations(::flatbuffers::Offset<::flatbuffers::Vector<::flatbuffers::Offset<nvfuser::serde::AllocateBuffer>>> global_allocations) {
     fbb_.AddOffset(KernelSummary::VT_GLOBAL_ALLOCATIONS, global_allocations);
   }
-  void add_dynamic_smem_allocations(::flatbuffers::Offset<::flatbuffers::Vector<::flatbuffers::Offset<nvfuser::serde::AllocateBuffer>>> dynamic_smem_allocations) {
-    fbb_.AddOffset(KernelSummary::VT_DYNAMIC_SMEM_ALLOCATIONS, dynamic_smem_allocations);
-  }
   explicit KernelSummaryBuilder(::flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
     start_ = fbb_.StartTable();
@@ -5643,10 +5632,8 @@ inline ::flatbuffers::Offset<KernelSummary> CreateKernelSummary(
     nvfuser::serde::DataType largest_smem_data_type = nvfuser::serde::DataType_None,
     int32_t outer_grouped_grid_welford_largest_smem_size = 0,
     ::flatbuffers::Offset<nvfuser::serde::NaiveValueGenerator> generator = 0,
-    ::flatbuffers::Offset<::flatbuffers::Vector<::flatbuffers::Offset<nvfuser::serde::AllocateBuffer>>> global_allocations = 0,
-    ::flatbuffers::Offset<::flatbuffers::Vector<::flatbuffers::Offset<nvfuser::serde::AllocateBuffer>>> dynamic_smem_allocations = 0) {
+    ::flatbuffers::Offset<::flatbuffers::Vector<::flatbuffers::Offset<nvfuser::serde::AllocateBuffer>>> global_allocations = 0) {
   KernelSummaryBuilder builder_(_fbb);
-  builder_.add_dynamic_smem_allocations(dynamic_smem_allocations);
   builder_.add_global_allocations(global_allocations);
   builder_.add_generator(generator);
   builder_.add_outer_grouped_grid_welford_largest_smem_size(outer_grouped_grid_welford_largest_smem_size);
@@ -5677,10 +5664,8 @@ inline ::flatbuffers::Offset<KernelSummary> CreateKernelSummaryDirect(
     nvfuser::serde::DataType largest_smem_data_type = nvfuser::serde::DataType_None,
     int32_t outer_grouped_grid_welford_largest_smem_size = 0,
     ::flatbuffers::Offset<nvfuser::serde::NaiveValueGenerator> generator = 0,
-    const std::vector<::flatbuffers::Offset<nvfuser::serde::AllocateBuffer>> *global_allocations = nullptr,
-    const std::vector<::flatbuffers::Offset<nvfuser::serde::AllocateBuffer>> *dynamic_smem_allocations = nullptr) {
+    const std::vector<::flatbuffers::Offset<nvfuser::serde::AllocateBuffer>> *global_allocations = nullptr) {
   auto global_allocations__ = global_allocations ? _fbb.CreateVector<::flatbuffers::Offset<nvfuser::serde::AllocateBuffer>>(*global_allocations) : 0;
-  auto dynamic_smem_allocations__ = dynamic_smem_allocations ? _fbb.CreateVector<::flatbuffers::Offset<nvfuser::serde::AllocateBuffer>>(*dynamic_smem_allocations) : 0;
   return nvfuser::serde::CreateKernelSummary(
       _fbb,
       has_cooperative_grid_reduction,
@@ -5695,8 +5680,7 @@ inline ::flatbuffers::Offset<KernelSummary> CreateKernelSummaryDirect(
       largest_smem_data_type,
       outer_grouped_grid_welford_largest_smem_size,
       generator,
-      global_allocations__,
-      dynamic_smem_allocations__);
+      global_allocations__);
 }
 
 ::flatbuffers::Offset<KernelSummary> CreateKernelSummary(::flatbuffers::FlatBufferBuilder &_fbb, const KernelSummaryT *_o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
@@ -8478,8 +8462,6 @@ inline KernelSummaryT::KernelSummaryT(const KernelSummaryT &o)
         generator((o.generator) ? new nvfuser::serde::NaiveValueGeneratorT(*o.generator) : nullptr) {
   global_allocations.reserve(o.global_allocations.size());
   for (const auto &global_allocations_ : o.global_allocations) { global_allocations.emplace_back((global_allocations_) ? new nvfuser::serde::AllocateBufferT(*global_allocations_) : nullptr); }
-  dynamic_smem_allocations.reserve(o.dynamic_smem_allocations.size());
-  for (const auto &dynamic_smem_allocations_ : o.dynamic_smem_allocations) { dynamic_smem_allocations.emplace_back((dynamic_smem_allocations_) ? new nvfuser::serde::AllocateBufferT(*dynamic_smem_allocations_) : nullptr); }
 }
 
 inline KernelSummaryT &KernelSummaryT::operator=(KernelSummaryT o) FLATBUFFERS_NOEXCEPT {
@@ -8496,7 +8478,6 @@ inline KernelSummaryT &KernelSummaryT::operator=(KernelSummaryT o) FLATBUFFERS_N
   std::swap(outer_grouped_grid_welford_largest_smem_size, o.outer_grouped_grid_welford_largest_smem_size);
   std::swap(generator, o.generator);
   std::swap(global_allocations, o.global_allocations);
-  std::swap(dynamic_smem_allocations, o.dynamic_smem_allocations);
   return *this;
 }
 
@@ -8522,7 +8503,6 @@ inline void KernelSummary::UnPackTo(KernelSummaryT *_o, const ::flatbuffers::res
   { auto _e = outer_grouped_grid_welford_largest_smem_size(); _o->outer_grouped_grid_welford_largest_smem_size = _e; }
   { auto _e = generator(); if (_e) { if(_o->generator) { _e->UnPackTo(_o->generator.get(), _resolver); } else { _o->generator = std::unique_ptr<nvfuser::serde::NaiveValueGeneratorT>(_e->UnPack(_resolver)); } } else if (_o->generator) { _o->generator.reset(); } }
   { auto _e = global_allocations(); if (_e) { _o->global_allocations.resize(_e->size()); for (::flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { if(_o->global_allocations[_i]) { _e->Get(_i)->UnPackTo(_o->global_allocations[_i].get(), _resolver); } else { _o->global_allocations[_i] = std::unique_ptr<nvfuser::serde::AllocateBufferT>(_e->Get(_i)->UnPack(_resolver)); }; } } else { _o->global_allocations.resize(0); } }
-  { auto _e = dynamic_smem_allocations(); if (_e) { _o->dynamic_smem_allocations.resize(_e->size()); for (::flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { if(_o->dynamic_smem_allocations[_i]) { _e->Get(_i)->UnPackTo(_o->dynamic_smem_allocations[_i].get(), _resolver); } else { _o->dynamic_smem_allocations[_i] = std::unique_ptr<nvfuser::serde::AllocateBufferT>(_e->Get(_i)->UnPack(_resolver)); }; } } else { _o->dynamic_smem_allocations.resize(0); } }
 }
 
 inline ::flatbuffers::Offset<KernelSummary> KernelSummary::Pack(::flatbuffers::FlatBufferBuilder &_fbb, const KernelSummaryT* _o, const ::flatbuffers::rehasher_function_t *_rehasher) {
@@ -8546,7 +8526,6 @@ inline ::flatbuffers::Offset<KernelSummary> CreateKernelSummary(::flatbuffers::F
   auto _outer_grouped_grid_welford_largest_smem_size = _o->outer_grouped_grid_welford_largest_smem_size;
   auto _generator = _o->generator ? CreateNaiveValueGenerator(_fbb, _o->generator.get(), _rehasher) : 0;
   auto _global_allocations = _o->global_allocations.size() ? _fbb.CreateVector<::flatbuffers::Offset<nvfuser::serde::AllocateBuffer>> (_o->global_allocations.size(), [](size_t i, _VectorArgs *__va) { return CreateAllocateBuffer(*__va->__fbb, __va->__o->global_allocations[i].get(), __va->__rehasher); }, &_va ) : 0;
-  auto _dynamic_smem_allocations = _o->dynamic_smem_allocations.size() ? _fbb.CreateVector<::flatbuffers::Offset<nvfuser::serde::AllocateBuffer>> (_o->dynamic_smem_allocations.size(), [](size_t i, _VectorArgs *__va) { return CreateAllocateBuffer(*__va->__fbb, __va->__o->dynamic_smem_allocations[i].get(), __va->__rehasher); }, &_va ) : 0;
   return nvfuser::serde::CreateKernelSummary(
       _fbb,
       _has_cooperative_grid_reduction,
@@ -8561,8 +8540,7 @@ inline ::flatbuffers::Offset<KernelSummary> CreateKernelSummary(::flatbuffers::F
       _largest_smem_data_type,
       _outer_grouped_grid_welford_largest_smem_size,
       _generator,
-      _global_allocations,
-      _dynamic_smem_allocations);
+      _global_allocations);
 }
 
 inline CudaKernelT *CudaKernel::UnPack(const ::flatbuffers::resolver_function_t *_resolver) const {
