@@ -233,7 +233,7 @@ class BufferReuseDebugPrinter {
           handle(debug_entry->second);
           break;
         default:
-          TORCH_INTERNAL_ASSERT(false, "unreachable");
+          NVF_ERROR(false, "unreachable");
       }
     }
     os_ << "\n\n";
@@ -261,7 +261,7 @@ class BufferReuseDebugPrinter {
   }
 
   void makeScopeEntry(DebugLineType line_type) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         line_type == DebugLineType::END_BLOCK ||
         line_type == DebugLineType::START_BLOCK);
     auto debug_entry_ptr = std::make_unique<DebugEntry>();
@@ -296,7 +296,7 @@ class BufferReuseDebugPrinter {
     //  if this printer can be used for
     //  other passes or we have more
     //  complex ite pattern.
-    TORCH_INTERNAL_ASSERT(false, "unsupported");
+    NVF_ERROR(false, "unsupported");
   }
 
   void printAllocInfo(const kir::Allocate* alloc);
@@ -358,10 +358,10 @@ class BufferLiveInterval {
 
   void markRead(int pos) {
     last_read_pos_ = pos;
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         first_write_pos_ > 0,
         "lower_alias_memory: a read seen before any write");
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         pos >= first_write_pos_,
         "lower_alias_memory: marking a read (",
         pos,
@@ -462,7 +462,7 @@ class ScopeMap : private kir::IrVisitor {
 
     // Make sure all loops have end_pos filled
     for (const auto& info : all_scope_info_) {
-      TORCH_INTERNAL_ASSERT(info->end_pos != -1);
+      NVF_ERROR(info->end_pos != -1);
     }
   }
 
@@ -484,7 +484,7 @@ class ScopeMap : private kir::IrVisitor {
   }
 
   void handle(kir::IfThenElse* ite) final {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         false, "lower_alias_memory: no support for IfThenElse at this phase.");
   }
 
@@ -500,7 +500,7 @@ class ScopeMap : private kir::IrVisitor {
     all_scope_info_.emplace_back(std::move(loop_info_ptr));
 
     if (loop != nullptr) {
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           loop_to_scope_info_map_.emplace(loop, loop_info).second,
           "Duplicated scope info created for loop: ",
           loop->toString());
@@ -519,7 +519,7 @@ class ScopeMap : private kir::IrVisitor {
 
   ScopeInfo* getLoopScopeInfo(const kir::ForLoop* loop) const {
     auto it = loop_to_scope_info_map_.find(loop);
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         it != loop_to_scope_info_map_.end(),
         "No scope info found for loop: ",
         loop->toString());
@@ -739,7 +739,7 @@ class AllocationInfoMap : private kir::IrVisitor {
   //! there may be dangling references to it even after running this method.
   void replaceAllocation(kir::Allocate* old_alloc, kir::Allocate* new_alloc) {
     auto it = allocation_info_map_.find(old_alloc);
-    TORCH_CHECK(
+    NVF_CHECK(
         it != allocation_info_map_.end(),
         "Cannot replace allocation info for ",
         old_alloc->toString(),
@@ -789,7 +789,7 @@ class AllocationInfoMap : private kir::IrVisitor {
   }
 
   void handle(kir::IfThenElse* ite) final {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         false, "lower_alias_memory: no support for IfThenElse at this phase.");
   }
 
@@ -833,8 +833,8 @@ class AllocationInfoMap : private kir::IrVisitor {
     auto size_print = SymbolicSizePrinter::printSize(alloc);
 
     // Make sure we don't have conflicting information on record
-    TORCH_INTERNAL_ASSERT(!allocation_info_map_.count(alloc));
-    TORCH_INTERNAL_ASSERT(!tv_to_allocation_map_.count(tv->name()));
+    NVF_ERROR(!allocation_info_map_.count(alloc));
+    NVF_ERROR(!tv_to_allocation_map_.count(tv->name()));
 
     // make AllocationUseDefInfo:
     auto alloc_info = makeAllocationInfo();
@@ -953,7 +953,7 @@ class AllocationInfoMap : private kir::IrVisitor {
       }
     }
 
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         current_stack_.back() == allocate_loop_info,
         "lower_alias_memory : expr outer loop inconsistent with allocate");
 
@@ -963,7 +963,7 @@ class AllocationInfoMap : private kir::IrVisitor {
 
   //! Mark the tensor of "from" be an alias of the tensor of "to".
   void setAlias(AllocationInfo* from, AllocationInfo* to) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         to->alias_to == nullptr,
         "Multi-hop aliases are not supported. Attempted to alias ",
         from->alloc_expr->buffer()->toString(),
@@ -1003,7 +1003,7 @@ class AllocationInfoMap : private kir::IrVisitor {
 };
 
 void BufferReuseDebugPrinter::printAllocInfo(const kir::Allocate* alloc) {
-  TORCH_INTERNAL_ASSERT(allocation_info_map_ != nullptr);
+  NVF_ERROR(allocation_info_map_ != nullptr);
   std::string message_header(" \033[1;32m^^^^^ ---Buffer Reuse Info---  ");
   std::string message_end("  \033[0m\n");
 
@@ -1423,7 +1423,7 @@ class AllocationAliasModifier : private kir::ExprMutator {
     // aliased tensor, so alloc_expr_to should be still the allocation
     // expression of the aliased allocation. This assertion should be
     // removed if 2-hop aliasing is enabled.
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         alloc_expr_to == getMaybeNewAllocate(alloc_expr_to),
         "Invalid updated allocation found. Original: ",
         alloc_expr_to->toString(),
@@ -1440,7 +1440,7 @@ class AllocationAliasModifier : private kir::ExprMutator {
 
     registerReplace(old_alloc, new_alloc);
 
-    TORCH_INTERNAL_ASSERT(old2new_.emplace(old_alloc, new_alloc).second);
+    NVF_ERROR(old2new_.emplace(old_alloc, new_alloc).second);
 
     allocation_info_map_.replaceAllocation(old_alloc, new_alloc);
 
@@ -1671,7 +1671,7 @@ class StackBasedSharedMemAllocator : kir::IrVisitor {
 
   int lastAliasedRead(AllocationInfo* alloc_info) {
     auto it = last_aliased_read_.find(alloc_info);
-    TORCH_CHECK(
+    NVF_CHECK(
         it != last_aliased_read_.end(),
         "Could not find last aliased read info for ",
         alloc_info->alloc_expr->toString());
@@ -1742,7 +1742,7 @@ class StackBasedSharedMemAllocator : kir::IrVisitor {
       if (alloc_info->alias_to) {
         auto alias_info =
             allocation_info_map_.getAllocationInfo(alloc_info->alias_to);
-        TORCH_CHECK(alias_info);
+        NVF_CHECK(alias_info);
         auto prev_last_read = lastAliasedRead(alias_info);
         last_aliased_read_[alias_info] = std::max(
             prev_last_read, alloc_info->outer_live_interval->lastRead());
@@ -1994,7 +1994,7 @@ void assignSharedMemoryAllocations(
       continue;
     }
     auto alloc = alloc_info->alloc_expr;
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         alloc->address(),
         "Unaliased allocation for shared memory tensor ",
         alloc->buffer()->toString(),

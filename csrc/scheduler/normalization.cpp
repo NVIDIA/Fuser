@@ -45,18 +45,17 @@ class HeuristicParameterWrapper {
     if (mutable_) {
       value_ = val;
     } else {
-      TORCH_INTERNAL_ASSERT(
-          false, "Trying to set a non-mutable heuristic parameter!");
+      NVF_ERROR(false, "Trying to set a non-mutable heuristic parameter!");
     }
   }
 
   int64_t get() const {
-    TORCH_INTERNAL_ASSERT(value_ != -1, "Heuristic parameter is not set!");
+    NVF_ERROR(value_ != -1, "Heuristic parameter is not set!");
     return value_;
   }
 
   void finalize() {
-    TORCH_INTERNAL_ASSERT(value_ != -1, "Heuristic parameter is not set!");
+    NVF_ERROR(value_ != -1, "Heuristic parameter is not set!");
     mutable_ = false;
   }
 
@@ -111,14 +110,13 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
     int64_t vectorization_factor_outer = -1;
 
     void verify() {
-      TORCH_INTERNAL_ASSERT(inner_vect != -1, "inner_vect is not set.");
-      TORCH_INTERNAL_ASSERT(inner_batch != -1, "inner_batch is not set.");
-      TORCH_INTERNAL_ASSERT(bdimx != -1, "bdimx is not set.");
-      TORCH_INTERNAL_ASSERT(bdimy != -1, "bdimy is not set.");
-      TORCH_INTERNAL_ASSERT(gdimy != -1, "gdimy is not set.");
-      TORCH_INTERNAL_ASSERT(
-          tmp_gmem_write_vect != -1, "tmp_gmem_write_vect is not set.");
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(inner_vect != -1, "inner_vect is not set.");
+      NVF_ERROR(inner_batch != -1, "inner_batch is not set.");
+      NVF_ERROR(bdimx != -1, "bdimx is not set.");
+      NVF_ERROR(bdimy != -1, "bdimy is not set.");
+      NVF_ERROR(gdimy != -1, "gdimy is not set.");
+      NVF_ERROR(tmp_gmem_write_vect != -1, "tmp_gmem_write_vect is not set.");
+      NVF_ERROR(
           vectorization_factor_outer != -1,
           "vectorization_factor_outer is not set.");
     }
@@ -185,11 +183,11 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
           dev_prop->warpSize,
           ignore_register_size_limit);
   auto opt_inner_batch = batch_and_block_size.first;
-  TORCH_INTERNAL_ASSERT(opt_inner_batch.has_value());
+  NVF_ERROR(opt_inner_batch.has_value());
   iop.inner_batch = opt_inner_batch.value();
   int64_t threads_per_block = batch_and_block_size.second;
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       iop.inner_vect * iop.inner_batch * threads_per_block >= inner_dim_numel,
       " iop.inner_vect * iop.inner_batch * threads_per_block should >= inner_dim_numel.");
 
@@ -238,7 +236,7 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
   }
   // Step-4, set OuterParams Reduction dim: bdimy.
   iop.bdimy = threads_per_block / iop.bdimx;
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       iop.bdimy * iop.bdimx == threads_per_block,
       " threads_per_block must be divisible by bdimx and bdimy.");
   // Step-5, special case, when inner_dim_numel <= 1024, bdimx is usually small
@@ -351,7 +349,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristicSharedMemory(
   // fully vectorized, use maxThreadsPerBlock to reduce workload per threads
   int64_t vectorize_factor = (int64_t)max_vectorize_factor;
   int64_t bdimx = dev_prop->maxThreadsPerBlock;
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       total_reduction_numel >= vectorize_factor * bdimx,
       "total_reduction_numel should be larger than or equal to vectorize_factor * bdimx.\n",
       "total_reduction_numel= ",
@@ -952,7 +950,7 @@ std::shared_ptr<ReductionParams> gridOuterPersistentHeuristic(
           (int64_t)vectorize_factor,
           max_persistent_buffer_size);
 
-  TORCH_INTERNAL_ASSERT(outer_params.has_value(), "No valid config found");
+  NVF_ERROR(outer_params.has_value(), "No valid config found");
 
   const auto pb_size = outer_params->persistent_buffer_factor;
   const auto unswitch_factor = outer_params->unswitch_factor;
@@ -1073,17 +1071,17 @@ std::shared_ptr<ReductionParams> outerPersistentHeuristic(
     HeuristicParameterWrapper batches_per_block;
     HeuristicParameterWrapper bdimy;
     void verify() {
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           !iter_unroll_factor.isMutable(),
           "iter_unroll_factor is not finalized.");
-      TORCH_INTERNAL_ASSERT(!bdimx.isMutable(), "bdimx is not finalized.");
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(!bdimx.isMutable(), "bdimx is not finalized.");
+      NVF_ERROR(
           !redu_unroll_factor.isMutable(),
           "redu_unroll_factor is not finalized.");
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           !batches_per_block.isMutable(),
           "batches_per_block is not finalized.");
-      TORCH_INTERNAL_ASSERT(!bdimy.isMutable(), "bdimy is not finalized.");
+      NVF_ERROR(!bdimy.isMutable(), "bdimy is not finalized.");
     }
   };
   HeuristicParams hp;
@@ -1158,7 +1156,7 @@ std::shared_ptr<ReductionParams> outerPersistentHeuristic(
   const int64_t bdimy_min =
       std::min(bdimy_max, min_threads_in_block / hp.bdimx.get());
   const int64_t bdimy_step = std::max(1l, device_warp_size / hp.bdimx.get());
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       device_warp_size % hp.bdimx.get() == 0,
       "bdimx is no divisible by warp_size. bdimx= ",
       hp.bdimx.get());
@@ -1201,7 +1199,7 @@ std::shared_ptr<ReductionParams> outerPersistentHeuristic(
   int64_t sm_required_per_norm_set = ceilDiv(
       max_persistent_buffer_size * hp.bdimx.get() * hp.iter_unroll_factor.get(),
       scheduler_utils::register_file_size);
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       sm_required_per_norm_set == 1,
       "Tried to use multiple SMs on an outer persistent kernel ",
       "yet this kernel should have been within block persistent.",
@@ -1335,24 +1333,22 @@ std::shared_ptr<ReductionParams> getPersistentHeuristics(
 
   auto& reduction_tvs = reduction_tv_entry.get();
 
-  TORCH_INTERNAL_ASSERT(
-      !reduction_tvs.empty(), "Need reduction tensor views to schedule.");
+  NVF_ERROR(!reduction_tvs.empty(), "Need reduction tensor views to schedule.");
 
   auto first_red_tv = reduction_tvs[0];
 
-  TORCH_INTERNAL_ASSERT(
-      first_red_tv != nullptr, "Reduction TensorView wasn't found.");
+  NVF_ERROR(first_red_tv != nullptr, "Reduction TensorView wasn't found.");
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       first_red_tv->hasReduction(), "TensorView doesn't have a reduction.");
   const auto red_expr = first_red_tv->definition();
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       ir_utils::isReductionOp(red_expr),
       "TensorView doesn't have a reduction.");
 
   auto tv_inps = ir_utils::filterByType<TensorView>(fusion->inputs());
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       std::distance(tv_inps.begin(), tv_inps.end()) > 0,
       "Tried to schedule a fusion with no tensor inputs, currently not supported.");
 
@@ -1378,7 +1374,7 @@ std::shared_ptr<ReductionParams> getPersistentHeuristics(
           });
 
   auto& persistent_buffer_info = persistent_buffer_info_entry.get();
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       !persistent_buffer_info.persistent_buffers.empty(),
       "Persistent scheduler requires persistent buffers.");
 
@@ -1580,7 +1576,7 @@ TensorView* scheduleReductionGeneral(
     Fusion* fusion,
     const ReductionParams& rparams,
     std::vector<TensorView*>& reduction_tvs) {
-  TORCH_INTERNAL_ASSERT(!reduction_tvs.empty());
+  NVF_ERROR(!reduction_tvs.empty());
   // Registry assumes the reference tv is the first reduction_tv, if this
   // changes registry needs to change.
   auto reduction_tv = reduction_tvs[0];
@@ -1607,12 +1603,12 @@ TensorView* scheduleReductionGeneral(
   bool has_iter_axis = dim_analysis.first;
   bool has_red_axis = dim_analysis.second;
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       has_red_axis,
       "Could not find reduction axis in tensor used for reduction scheduler.");
 
   if (!has_iter_axis) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         rparams.fastest_dim,
         "If all dims are reduction, should be sending it to fastest dim scheduler.");
   }
@@ -1646,7 +1642,7 @@ void schedulePersistentKernel(Fusion* fusion, const ReductionParams& rparams) {
 
   // Reduction tensor views and rfactor tensor views are setup. Let's finish off
   // the scheduling, particularly inlining and unrolling.
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       reference_tv != nullptr && reduction_tvs[0] != nullptr,
       "Need these two tensor views to finish the scheduling.");
 
@@ -1672,7 +1668,7 @@ void schedulePersistentKernel(Fusion* fusion, const ReductionParams& rparams) {
       dummy_outputs);
 
   if (rparams.compute_persistent_buffer_with_first_consumer) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         rparams.persistent_kernel,
         "computeWith should be only used with persistent kernels");
     for (const auto persistent_buffer : cached_inputs) {
@@ -1822,10 +1818,10 @@ void schedulePersistentKernelInnerOuter(
       outer_reduction_tvs.emplace_back(tv);
     }
   }
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       !inner_reduction_tvs.empty(),
       "schedulePersistentKernelInnerOuter is called but no inner reduction is found.");
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       !outer_reduction_tvs.empty(),
       "schedulePersistentKernelInnerOuter is called but no outer reduction is found.");
 
@@ -1911,7 +1907,7 @@ void schedulePersistentKernelInnerOuter(
   // guaranteed to be smaller or equal to input vectorization factor.
   if (rparams.vectorization_factor_tmp_gmem_write > 1) {
     for (auto tv : cached_gmem) {
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           rparams.vectorization_factor_tmp_gmem_write <=
               rparams.unroll_factor_inner_reduction,
           "vectorization factor of temp gmem write should be smaller than that of inner reduction.")
@@ -1929,7 +1925,7 @@ void schedulePersistentKernelInnerOuter(
   if (rparams.vectorization_factor_outer > 1) {
     for (auto tv : cached_gmem_reload) {
       auto output_tvs = ir_utils::outputTvsOf(tv);
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           !output_tvs.empty(),
           "cached_gmem_reload should have at least one output tensor.")
       scheduler_utils::parallelizeAllLike(

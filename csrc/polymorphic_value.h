@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 
+#include <exceptions.h>
 #include <any>
 #include <complex>
 #include <cstddef>
@@ -17,92 +18,13 @@
 
 #include <ATen/ATen.h>
 
-#define DYNAMIC_TYPE_CHECK TORCH_INTERNAL_ASSERT
+#define DYNAMIC_TYPE_CHECK NVF_ERROR
 
-#include <dynamic_type.h>
+#include <dynamic_type/dynamic_type.h>
 #include <macros.h>
 #include <opaque_type.h>
 
 namespace nvfuser {
-
-template <typename T>
-struct LegacyStruct {
-  // Using std::unordered_map<std::string, T> is more convenient and
-  // straightforward, but this is not guaranteed to work by C++ standard.
-  // See [Incomplete type support in STL]
-#if defined(STD_UNORDERED_SET_SUPPORTS_INCOMPLETE_TYPE)
-
-  std::unordered_map<std::string, T> fields;
-  LegacyStruct(std::initializer_list<std::pair<const std::string, T>> init)
-      : fields(init) {}
-#define NVFUSER_MAYBE_STAR
-
-#else
-
-  std::unordered_map<std::string, std::shared_ptr<T>> fields;
-  LegacyStruct(std::initializer_list<std::pair<const std::string, T>> init) {
-    for (const auto& [key, value] : init) {
-      fields[key] = std::make_shared<T>(value);
-    }
-  }
-#define NVFUSER_MAYBE_STAR *
-
-#endif
-
-  LegacyStruct() = default;
-  LegacyStruct(const LegacyStruct& other) = default;
-  LegacyStruct(LegacyStruct&& other) = default;
-  LegacyStruct& operator=(const LegacyStruct& other) = default;
-  LegacyStruct& operator=(LegacyStruct&& other) = default;
-
-  const T& operator[](const std::string& key) const {
-    return NVFUSER_MAYBE_STAR fields.at(key);
-  }
-
-  T& operator[](const std::string& key) {
-#if defined(STD_UNORDERED_SET_SUPPORTS_INCOMPLETE_TYPE)
-    return fields[key];
-#else
-    if (fields.find(key) == fields.end()) {
-      fields[key] = std::make_shared<T>();
-    }
-    return *fields.at(key);
-#endif
-  }
-
-  bool operator==(const LegacyStruct& other) const {
-    if (this == &other) {
-      return true;
-    }
-    if (fields.size() != other.fields.size()) {
-      return false;
-    }
-    for (const auto& [key, _] : fields) {
-      if (other.fields.find(key) == other.fields.end()) {
-        return false;
-      }
-      if ((*this)[key] != other[key]) {
-        return false;
-      }
-    }
-    return true;
-  }
-};
-
-template <typename T>
-inline std::ostream& operator<<(std::ostream& os, const LegacyStruct<T>& s) {
-  os << "struct { ";
-  bool first = true;
-  for (const auto& [key, value] : s.fields) {
-    if (!first) {
-      os << ", ";
-    }
-    os << key << " = " << NVFUSER_MAYBE_STAR value;
-    first = false;
-  }
-  os << "}";
-  return os;
-}
 
 struct DataType;
 
@@ -172,7 +94,7 @@ class Pointer {
   }
 
   int64_t operator-(const Pointer& other) const {
-    TORCH_INTERNAL_ASSERT(size_ == other.size_);
+    NVF_ERROR(size_ == other.size_);
     return (ptr_ - other.ptr_) / (int64_t)size_;
   }
 
@@ -238,8 +160,51 @@ inline std::ostream& operator<<(std::ostream& os, const Pointer& ptr) {
   return os;
 }
 
+struct Struct;
+class Accessor;
+struct StructType;
+
+// See Note [Struct Support in PolymorphicValue] for documentation.
+class StructHandle {
+  std::shared_ptr<Struct> struct_ptr_;
+
+ public:
+  StructHandle(std::shared_ptr<Struct> struct_ptr)
+      : struct_ptr_(std::move(struct_ptr)) {}
+  StructHandle& operator=(std::shared_ptr<Struct> struct_ptr) {
+    struct_ptr_ = std::move(struct_ptr);
+    return *this;
+  }
+
+  StructHandle(const StructHandle& other) = default;
+  StructHandle(StructHandle&& other) = default;
+  StructHandle& operator=(const StructHandle& other) = default;
+  StructHandle& operator=(StructHandle&& other) = default;
+
+  template <typename T>
+  bool is() const {
+    return std::dynamic_pointer_cast<T>(struct_ptr_) != nullptr;
+  }
+
+  template <typename T>
+  inline T& as() const {
+    return *std::dynamic_pointer_cast<T>(struct_ptr_);
+  }
+
+  inline StructType type() const;
+
+  template <typename Ret, typename Class>
+  inline std::enable_if_t<std::is_base_of_v<Struct, Class>, Ret&> operator->*(
+      Ret Class::*member) const {
+    return as<Class>().*member;
+  }
+
+  inline Accessor operator->*(const std::string& key) const;
+};
+
 using PolymorphicValue = dynamic_type::DynamicType<
-    dynamic_type::Containers<std::vector, LegacyStruct>,
+    dynamic_type::Containers<std::vector>,
+    StructHandle,
     Pointer,
     Opaque,
     at::Tensor,
@@ -320,7 +285,7 @@ inline PolymorphicValue abs(const PolymorphicValue& a) {
   if (a.is<std::complex<double>>()) {
     return std::abs(a.as<std::complex<double>>());
   }
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       false, "PolymorphicValue abs not implemented for ", a.type().name());
 }
 
@@ -328,7 +293,7 @@ inline PolymorphicValue erf(const PolymorphicValue& a) {
   if (a.is<at::Tensor>()) {
     return PolymorphicValue(a.as<at::Tensor>().erf());
   }
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       false, "PolymorphicValue erf not implemented for ", a.type().name());
 }
 
@@ -370,10 +335,12 @@ inline PolymorphicValue toTensor(
     }
     return PolymorphicValue(at::stack(tensors));
   }
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       false, "PolymorphicValue toTensor not implemented for ", x.type().name());
 }
 
 } // namespace PolymorphicValue_functions
 
 } // namespace nvfuser
+
+#include <struct.inl>

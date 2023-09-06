@@ -8,6 +8,7 @@
 #pragma once
 
 #include <c10/macros/Export.h>
+#include <exceptions.h>
 
 #include <expr_evaluator.h>
 #include <ir/all_nodes.h>

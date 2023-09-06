@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <csrc/exceptions.h>
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
@@ -85,20 +86,20 @@ TEST_F(NVFuserTest, FusionNonDivisibleSplit1_CUDA) {
   tv2->split(1, 2);
 
   GpuLower gpulw(&fusion);
-  TORCH_CHECK(
+  NVF_CHECK(
       gpulw.nonDivisibleSplitInfo().splitsToValidate().empty(),
       "There must be no split to validate");
-  TORCH_CHECK(
+  NVF_CHECK(
       gpulw.nonDivisibleSplitInfo().splitsToPredicate().size() == 1,
       "Only tv1 should have a non-divisible predicate.");
   for (auto tv : {loweredTv(tv1, gpulw)}) {
     auto it = gpulw.nonDivisibleSplitInfo().splitsToPredicate().find(tv);
-    TORCH_CHECK(
+    NVF_CHECK(
         it != gpulw.nonDivisibleSplitInfo().splitsToPredicate().end(),
         "No info found for ",
         tv);
     const auto& splits_to_predicate = it->second;
-    TORCH_CHECK(
+    NVF_CHECK(
         splits_to_predicate.size() == 1,
         "There must be one split to predicate");
   }
@@ -138,20 +139,20 @@ TEST_F(NVFuserTest, FusionNonDivisibleSplit2_CUDA) {
   tv1->setMemoryType(MemoryType::Shared);
 
   GpuLower gpulw(&fusion);
-  TORCH_CHECK(
+  NVF_CHECK(
       gpulw.nonDivisibleSplitInfo().splitsToValidate().empty(),
       "There must be no split to validate");
-  TORCH_CHECK(
+  NVF_CHECK(
       gpulw.nonDivisibleSplitInfo().splitsToPredicate().size() == 1,
       "Only tv2 should have a non-divisible predicate.");
   for (auto tv : {loweredTv(tv2, gpulw)}) {
     auto it = gpulw.nonDivisibleSplitInfo().splitsToPredicate().find(tv);
-    TORCH_CHECK(
+    NVF_CHECK(
         it != gpulw.nonDivisibleSplitInfo().splitsToPredicate().end(),
         "No info found for ",
         tv);
     const auto& splits_to_predicate = it->second;
-    TORCH_CHECK(
+    NVF_CHECK(
         splits_to_predicate.size() == 1,
         "There must be one split to predicate");
   }
@@ -188,20 +189,20 @@ TEST_F(NVFuserTest, FusionNonDivisibleSplit3_CUDA) {
   tv2->axis(0)->parallelize(ParallelType::Unswitch);
 
   GpuLower gpulw(&fusion);
-  TORCH_CHECK(
+  NVF_CHECK(
       gpulw.nonDivisibleSplitInfo().splitsToValidate().empty(),
       "There must be no split to validate");
-  TORCH_CHECK(
+  NVF_CHECK(
       gpulw.nonDivisibleSplitInfo().splitsToPredicate().size() == 2,
       "Both tv1 and tv2 should have a non-divisible predicate.");
   for (auto tv : {loweredTv(tv1, gpulw), loweredTv(tv2, gpulw)}) {
     auto it = gpulw.nonDivisibleSplitInfo().splitsToPredicate().find(tv);
-    TORCH_CHECK(
+    NVF_CHECK(
         it != gpulw.nonDivisibleSplitInfo().splitsToPredicate().end(),
         "No info found for ",
         tv);
     const auto& splits_to_predicate = it->second;
-    TORCH_CHECK(
+    NVF_CHECK(
         splits_to_predicate.size() == 1,
         "There must be one split to predicate");
   }
@@ -237,20 +238,20 @@ TEST_F(NVFuserTest, FusionNonDivisibleSplit4_CUDA) {
   tv0->computeAt(tv2, -1);
 
   GpuLower gpulw(&fusion);
-  TORCH_CHECK(
+  NVF_CHECK(
       gpulw.nonDivisibleSplitInfo().splitsToValidate().empty(),
       "There must be no split to validate");
-  TORCH_CHECK(
+  NVF_CHECK(
       gpulw.nonDivisibleSplitInfo().splitsToPredicate().size() == 2,
       "Both tv1 and tv2 should have a non-divisible predicate.");
   for (auto tv : {loweredTv(tv1, gpulw), loweredTv(tv2, gpulw)}) {
     auto it = gpulw.nonDivisibleSplitInfo().splitsToPredicate().find(tv);
-    TORCH_CHECK(
+    NVF_CHECK(
         it != gpulw.nonDivisibleSplitInfo().splitsToPredicate().end(),
         "No info found for ",
         tv);
     const auto& splits_to_predicate = it->second;
-    TORCH_CHECK(
+    NVF_CHECK(
         splits_to_predicate.size() == 1,
         "There must be one split to predicate");
   }
@@ -290,20 +291,20 @@ TEST_F(NVFuserTest, FusionNonDivisibleSplit5_CUDA) {
   tv0->computeAt(tv2, -1);
 
   GpuLower gpulw(&fusion);
-  TORCH_CHECK(
+  NVF_CHECK(
       gpulw.nonDivisibleSplitInfo().splitsToValidate().empty(),
       "There must be no split to validate");
-  TORCH_CHECK(
+  NVF_CHECK(
       gpulw.nonDivisibleSplitInfo().splitsToPredicate().size() == 2,
       "Both tv1 and tv2 should have a non-divisible predicate.");
   for (auto tv : {loweredTv(tv1, gpulw), loweredTv(tv2, gpulw)}) {
     auto it = gpulw.nonDivisibleSplitInfo().splitsToPredicate().find(tv);
-    TORCH_CHECK(
+    NVF_CHECK(
         it != gpulw.nonDivisibleSplitInfo().splitsToPredicate().end(),
         "No info found for ",
         tv);
     const auto& splits_to_predicate = it->second;
-    TORCH_CHECK(
+    NVF_CHECK(
         splits_to_predicate.size() == 1,
         "There must be one split to predicate");
   }
@@ -337,12 +338,12 @@ TEST_F(NVFuserTest, FusionNonDivisibleSplitVectorize1_CUDA) {
   tv1->axis(-1)->parallelize(ParallelType::Vectorize);
 
   GpuLower gpulw(&fusion);
-  TORCH_CHECK(
+  NVF_CHECK(
       gpulw.nonDivisibleSplitInfo().splitsToValidate().size() == 1,
       "There should be one split to validate");
   for (const auto& kv : gpulw.nonDivisibleSplitInfo().splitsToPredicate()) {
     const auto& splits_to_predicate = kv.second;
-    TORCH_CHECK(
+    NVF_CHECK(
         splits_to_predicate.empty(),
         "There must be no split to predicate, but tensor t",
         kv.first->name(),
@@ -390,12 +391,12 @@ TEST_F(NVFuserTest, FusionNonDivisibleSplitVectorize2_CUDA) {
   tv1->axis(2)->parallelize(ParallelType::Vectorize);
 
   GpuLower gpulw(&fusion);
-  TORCH_CHECK(
+  NVF_CHECK(
       gpulw.nonDivisibleSplitInfo().splitsToValidate().size() == 1,
       "There should be one split to validate");
   for (const auto& kv : gpulw.nonDivisibleSplitInfo().splitsToPredicate()) {
     const auto& splits_to_predicate = kv.second;
-    TORCH_CHECK(
+    NVF_CHECK(
         splits_to_predicate.empty(),
         "There must be no split to predicate, but tensor t",
         kv.first->name(),
@@ -446,8 +447,8 @@ TEST_F(NVFuserTest, FusionIssue1284Repro_CUDA) {
   auto t1 = at_in_1 + 2;
 
   auto runtime = fec.getMostRecentKernelRuntime();
-  TORCH_INTERNAL_ASSERT(runtime->isSegmented());
-  TORCH_INTERNAL_ASSERT(runtime->fusionSegments()->groups().size() == 2);
+  NVF_ERROR(runtime->isSegmented());
+  NVF_ERROR(runtime->fusionSegments()->groups().size() == 2);
 
   testValidate(
       &fusion, outputs, {at_in_0, at_in_1}, {at_in_0, t1}, __LINE__, __FILE__);
@@ -490,8 +491,8 @@ TEST_F(NVFuserTest, FusionIssue1284Repro2_CUDA) {
   auto t1 = at_in_0 + at_in_2;
 
   auto runtime = fec.getMostRecentKernelRuntime();
-  TORCH_INTERNAL_ASSERT(runtime->isSegmented());
-  TORCH_INTERNAL_ASSERT(runtime->fusionSegments()->groups().size() == 2);
+  NVF_ERROR(runtime->isSegmented());
+  NVF_ERROR(runtime->fusionSegments()->groups().size() == 2);
 
   testValidate(
       &fusion,
@@ -524,7 +525,7 @@ TEST_F(NVFuserTest, FusionIssue1305Repro_CUDA) {
 
   t3->computeAt(t7, -1, ComputeAtMode::MostInlined);
 
-  TORCH_INTERNAL_ASSERT(t3->getComputeAtPosition() == 1);
+  NVF_ERROR(t3->getComputeAtPosition() == 1);
 }
 
 TEST_F(NVFuserTest, FusionDoubleBuffering1_CUDA) {
@@ -983,7 +984,7 @@ TEST_F(NVFuserTest, FusionSmemBlockGemmCacheDoubleBuffer_CUDA) {
   //   insertion to ensure ordering of double buffered tensor access.
   // The check below makes sure that the sync is inserted so that the
   //   test isn't running on a race condition.
-  TORCH_CHECK(fe.kernel()->summary().war_hazard_syncs_count > 0);
+  NVF_CHECK(fe.kernel()->summary().war_hazard_syncs_count > 0);
 }
 
 TEST_F(NVFuserTest, FusionIntermediateTensorVectorize_CUDA) {
@@ -1057,9 +1058,9 @@ TEST_F(NVFuserTest, FusionBroadcastConcretization1_CUDA) {
   }
 
   GpuLower gpulw(&fusion);
-  TORCH_CHECK(!gpulw.concretizedBroadcastDomains()->isConcretized(
+  NVF_CHECK(!gpulw.concretizedBroadcastDomains()->isConcretized(
       loweredTv(tv4, gpulw)->axis(1)));
-  TORCH_CHECK(gpulw.concretizedBroadcastDomains()->isConcretized(
+  NVF_CHECK(gpulw.concretizedBroadcastDomains()->isConcretized(
       loweredTv(tv7, gpulw)->axis(1)));
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -1104,7 +1105,7 @@ TEST_F(NVFuserTest, FusionBroadcastConcretization2_CUDA) {
   // no actual parallel broadcast
 
   GpuLower gpulw(&fusion);
-  TORCH_CHECK(
+  NVF_CHECK(
       !gpulw.kernel()->summary().has_block_broadcasts &&
           !gpulw.kernel()->summary().has_grid_broadcasts,
       "There must be no parallel broadcast in this fusion");
@@ -1148,7 +1149,7 @@ TEST_F(NVFuserTest, FusionBroadcastConcretization3_CUDA) {
   // be no parallel broadcast.
 
   GpuLower gpulw(&fusion);
-  TORCH_CHECK(
+  NVF_CHECK(
       !gpulw.kernel()->summary().has_block_broadcasts &&
           !gpulw.kernel()->summary().has_grid_broadcasts,
       "There must be no parallel broadcast in this fusion");
@@ -1246,17 +1247,17 @@ TEST_F(NVFuserTest, FusionBroadcastConcretization5_CUDA) {
 
   ConcretizedBroadcastDomains bcast_concretization_info(&fusion);
 
-  TORCH_CHECK(
+  NVF_CHECK(
       bcast_concretization_info.maybeNonUniquelyConcretized(tv5->axis(1)),
       "Failed to detect non-unique concretization of ",
       tv5->toString());
 
-  TORCH_CHECK(
+  NVF_CHECK(
       bcast_concretization_info.isUniquelyConcretized(tv11->axis(1)),
       "Failed to detect unique concretization of ",
       tv11->toString());
 
-  TORCH_CHECK(
+  NVF_CHECK(
       !bcast_concretization_info.isConcretized(tv17->axis(1)),
       "Failed to detect non-concretization of ",
       tv17->toString());
@@ -1417,7 +1418,7 @@ TEST_F(NVFuserTest, FusionCodegenAllocatedScalars_CUDA) {
                << indent << tk0_name << "[(0 + 1)]\n"
                << indent << indent << " = " << tk0_name << "[((0 + 1) + 1)];\n";
 
-  TORCH_CHECK(
+  NVF_CHECK(
       no_alloc_code.find(no_alloc_ref.str()) != std::string::npos,
       "Invalid code generation. Expected:",
       no_alloc_ref.str(),
@@ -1440,331 +1441,12 @@ TEST_F(NVFuserTest, FusionCodegenAllocatedScalars_CUDA) {
             << indent << indent << " = " << tk0_name << "[" << ks1_name
             << "];\n";
 
-  TORCH_CHECK(
+  NVF_CHECK(
       valid_code.find(valid_ref.str()) != std::string::npos,
       "Invalid code generation. Expected:",
       valid_ref.str(),
       "Actual:\n",
       valid_code);
-}
-
-TEST_F(NVFuserTest, FusionIndexHoist1_CUDA) {
-  if (isOptionDisabled(DisableOption::IndexHoist)) {
-    GTEST_SKIP() << "Index hoisting disabled";
-  }
-
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
-  auto tv0 = makeSymbolicTensor(2);
-  fusion.addInput(tv0);
-
-  auto tv1 = set(tv0);
-  auto tv2 = set(tv1);
-  auto tv3 = set(tv2);
-  auto tv4 = set(tv3);
-  auto tv5 = set(tv4);
-  fusion.addOutput(tv5);
-
-  tv1->split(-1, 4);
-  tv2->split(-1, 4);
-  tv3->merge(0, 1);
-  tv3->split(0, 8);
-  tv5->merge(0, 1);
-  tv5->split(0, 8);
-  tv4->computeAt(tv5, -1);
-
-  tv1->setMemoryType(MemoryType::Global);
-  tv2->setMemoryType(MemoryType::Global);
-  tv3->setMemoryType(MemoryType::Global);
-
-  // Use Int32 as the index type to verify Int32 is used as the type
-  // of hoisted indices
-  GpuLower gpulw(&fusion, {DataType::Int32});
-  auto kernel = gpulw.kernel();
-
-  auto is_index_times_ns = [](Val* val, Val* index, std::string name) -> bool {
-    auto def = dynamic_cast<BinaryOp*>(val->definition());
-    if (def == nullptr) {
-      return false;
-    }
-    return def->getBinaryOpType() == BinaryOpType::Mul &&
-        def->rhs()->isA<NamedScalar>() &&
-        def->rhs()->as<NamedScalar>()->name() == name && def->lhs() == index;
-  };
-
-  // Validate indices in the kernel are hoisted as
-  // intended. Validation could be also done by just string comparison
-  // as the parser test, but updating such tests would be tedious.
-  for (auto top_level_loop :
-       ir_utils::filterByType<kir::ForLoop>(kernel->topLevelExprs())) {
-    auto innermost_loop = top_level_loop;
-    while (auto first_expr_loop = dynamic_cast<kir::ForLoop*>(
-               innermost_loop->body().exprs().at(0))) {
-      innermost_loop = first_expr_loop;
-    }
-    const auto& exprs = innermost_loop->body().exprs();
-    TORCH_CHECK(!exprs.empty(), "No expression found");
-    TORCH_CHECK(
-        exprs.at(0)->isA<kir::Allocate>(),
-        "Invalid expression: ",
-        exprs.at(0)->toString());
-    auto hoisted_index = exprs.at(0)->as<kir::Allocate>()->buffer();
-    TORCH_CHECK(
-        hoisted_index->dtype() == DataType::Index,
-        "Invalid data type of hoisted indices. Should be nvfuser_index_t but: ",
-        hoisted_index->dtype());
-    kir::Predicate* pred = nullptr;
-    for (auto expr : exprs) {
-      if (expr->isA<kir::IfThenElse>()) {
-        pred = expr->as<kir::IfThenElse>()->predicate();
-        auto arith_expr = expr->as<kir::IfThenElse>()->thenBody().exprs().at(0);
-        auto out_ti = arith_expr->outputs()[0]->as<kir::TensorIndex>();
-        if (out_ti->view()->name() == 1) {
-          // Ref: T1[*, hoisted_index] = T0[*, hoisted_index * T0.stride];
-          auto t1_index =
-              out_ti->index()->definition()->as<BinaryOp>()->input(1);
-          TORCH_CHECK(
-              t1_index == hoisted_index,
-              "Invalid index: ",
-              t1_index->toInlineString());
-          // Pred: hoisted_index < T0.size[1]
-          TORCH_CHECK(
-              pred->value()->definition()->as<BinaryOp>()->lhs() ==
-                  hoisted_index,
-              "Invalid predicate: ",
-              pred->value()->toInlineString(),
-              ", ",
-              expr->toString());
-          TORCH_CHECK(arith_expr->inputs().size() == 1);
-          auto in0 = arith_expr->inputs().front()->as<kir::TensorIndex>();
-          TORCH_CHECK(in0->view()->name() == 0);
-          // hoisted_index * T0.stride[1]
-          auto t0_index = in0->index()->definition()->as<BinaryOp>()->input(1);
-          TORCH_CHECK(
-              is_index_times_ns(t0_index, hoisted_index, "T0.stride[1]"),
-              "Invalid index: ",
-              t0_index->toInlineString(),
-              ", ",
-              expr->toString());
-        } else if (out_ti->view()->name() == 2) {
-          // Ref: T3[*, hoisted_index] = T2[*, hoisted_index];
-          auto out_index =
-              out_ti->index()->definition()->as<BinaryOp>()->input(1);
-          TORCH_CHECK(
-              out_index == hoisted_index,
-              "Invalid index: ",
-              out_index->toInlineString(),
-              ", ",
-              expr->toString());
-          TORCH_CHECK(
-              pred->value()->definition()->as<BinaryOp>()->lhs() ==
-                  hoisted_index,
-              "Invalid predicate: ",
-              pred->value()->toInlineString(),
-              ", ",
-              expr->toString());
-          TORCH_CHECK(arith_expr->inputs().size() == 1);
-          auto in0 = arith_expr->inputs().front()->as<kir::TensorIndex>();
-          TORCH_CHECK(in0->view()->name() == 1);
-          auto in0_index = in0->index()->definition()->as<BinaryOp>()->input(1);
-          TORCH_CHECK(
-              in0_index == hoisted_index,
-              "Invalid index: ",
-              in0_index->toInlineString(),
-              ", ",
-              expr->toString());
-        } else if (out_ti->view()->name() == 3) {
-          // Ref: T3[hoisted_index] = T2[hoisted_index];
-          auto out_index = out_ti->index();
-          TORCH_CHECK(
-              out_index == hoisted_index,
-              "Invalid index: ",
-              out_index->toInlineString(),
-              ", ",
-              expr->toString());
-          TORCH_CHECK(
-              pred->value()->definition()->as<BinaryOp>()->lhs() ==
-                  hoisted_index,
-              "Invalid predicate: ",
-              pred->value()->toInlineString(),
-              ", ",
-              expr->toString());
-          TORCH_CHECK(arith_expr->inputs().size() == 1);
-          auto in0 = arith_expr->inputs().front()->as<kir::TensorIndex>();
-          TORCH_CHECK(in0->view()->name() == 2);
-          auto in0_index = in0->index();
-          TORCH_CHECK(
-              in0_index == hoisted_index,
-              "Invalid index: ",
-              in0_index->toInlineString(),
-              ", ",
-              expr->toString());
-        } else if (out_ti->view()->name() == 4) {
-          // Ref: T4[0] = T3[hoisted_index];
-          TORCH_CHECK(
-              pred->value()->definition()->as<BinaryOp>()->lhs() ==
-                  hoisted_index,
-              "Invalid predicate: ",
-              pred->value()->toInlineString(),
-              ", ",
-              expr->toString());
-          TORCH_CHECK(arith_expr->inputs().size() == 1);
-          auto in0 = arith_expr->inputs().front()->as<kir::TensorIndex>();
-          TORCH_CHECK(in0->view()->name() == 3);
-          auto in0_index = in0->index();
-          TORCH_CHECK(
-              in0_index == hoisted_index,
-              "Invalid index: ",
-              in0_index->toInlineString(),
-              ", ",
-              expr->toString());
-        } else if (out_ti->view()->name() == 5) {
-          // Ref: T5[hoisted_index] = T4[0]
-          auto out_index = out_ti->index();
-          TORCH_CHECK(
-              out_index == hoisted_index,
-              "Invalid index: ",
-              out_index->toInlineString(),
-              ", ",
-              expr->toString());
-          TORCH_CHECK(
-              pred->value()->definition()->as<BinaryOp>()->lhs() ==
-                  hoisted_index,
-              "Invalid predicate: ",
-              pred->value()->toInlineString(),
-              ", ",
-              expr->toString());
-        }
-      }
-    }
-  }
-
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto t0 = at::randn({15, 17}, options);
-
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {t0});
-  auto cg_outputs = fe.runFusion({t0});
-
-  testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
-}
-
-// Hoist indices for vectorized tensors
-TEST_F(NVFuserTest, FusionIndexHoist2_CUDA) {
-  if (isOptionDisabled(DisableOption::IndexHoist)) {
-    GTEST_SKIP() << "Index hoisting disabled";
-  }
-
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
-  auto tv0 = makeContigTensor(1);
-  fusion.addInput(tv0);
-  auto tv1 = makeContigTensor(1);
-  fusion.addInput(tv1);
-
-  auto tv2 = set(tv0);
-  auto tv3 = set(tv1);
-  auto tv4 = add(tv2, tv3);
-  auto tv5 = set(tv4);
-  fusion.addOutput(tv5);
-
-  tv5->split(-1, 4);
-  TransformPropagatorWithCheck propagator(tv5);
-  MaxRootDomainInfoSpanningTree(tv5).traverse(&propagator);
-
-  tv4->split(-1, 3);
-
-  tv0->computeAt(tv5, 1);
-  tv1->computeAt(tv5, 1);
-
-  tv2->axis(-1)->parallelize(ParallelType::Vectorize);
-  tv3->axis(-1)->parallelize(ParallelType::Vectorize);
-  tv5->axis(-1)->parallelize(ParallelType::Vectorize);
-
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto t0 = at::randn({16}, options);
-  auto t1 = at::randn({16}, options);
-
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {t0, t1});
-  auto cg_outputs = fe.runFusion({t0, t1});
-
-  auto ref = t0 + t1;
-
-  testValidate(&fusion, cg_outputs, {t0, t1}, {ref}, __LINE__, __FILE__);
-}
-
-TEST_F(NVFuserTest, FusionIndexHoist3_CUDA) {
-  if (isOptionDisabled(DisableOption::IndexHoist)) {
-    GTEST_SKIP() << "Index hoisting disabled";
-  }
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-
-  auto input = makeContigTensor(2);
-  fusion->addInput(input);
-  auto sin_input = sin(input);
-  auto numel = mul(input->axis(0)->extent(), input->axis(1)->extent());
-  auto output = add(sin_input, numel);
-  fusion->addOutput(output);
-
-  for (auto tv : {output, sin_input}) {
-    tv->merge(0);
-    tv->split(0, 256);
-    tv->axis(0)->parallelize(ParallelType::BIDx);
-    tv->axis(1)->parallelize(ParallelType::TIDx);
-  }
-  inlineMost();
-
-  const auto options =
-      at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor t0 = at::arange(10000, options).view({100, 100});
-  at::Tensor t1 = t0.sin() + 10000;
-
-  FusionExecutor fe;
-  fe.compileFusion(fusion.get(), {t0});
-  auto cg_outputs = fe.runFusion({t0});
-
-  const std::string expected_kernel = R"(
-__global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> T2) {
-  nvfuser_index_t i0;
-  i0 = ((nvfuser_index_t)threadIdx.x) + (256 * ((nvfuser_index_t)blockIdx.x));
-  Tensor<float, 2, 2> s1;
-  s1.data = T0.data;
-  s1.logical_size = T0.logical_size;
-  s1.alloc_stride = T0.alloc_stride;
-  Array<nvfuser_index_t, 2, 1> a2;
-  a2 = s1.logical_size;
-  nvfuser_index_t i3;
-  i3 = a2[0];
-  Array<nvfuser_index_t, 2, 1> a4;
-  a4 = s1.logical_size;
-  nvfuser_index_t i5;
-  i5 = a4[1];
-  nvfuser_index_t i6;
-  i6 = i3 * i5;
-  bool b7;
-  b7 = i0 < i6;
-  float f8;
-  f8 = (float)(i6);
-  float T1[1];
-  if (b7) {
-    T1[0]
-       = sinf(T0[i0]);
-  }
-  if (b7) {
-    T2[i0]
-      = T1[0]
-      + f8;
-  }
-}
-)";
-
-  assertCUDAKernel(fusion.get(), expected_kernel);
-
-  testValidate(fusion.get(), cg_outputs, {t0}, {t1}, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionTestGridComm_CUDA) {
@@ -2068,7 +1750,7 @@ TEST_F(NVFuserTest, FusionVectorizeContigIndex_CUDA) {
   fe.compileFusion(&fusion, {t0});
   auto cg_outputs = fe.runFusion({t0});
 
-  TORCH_CHECK(t0.equal(cg_outputs[0]));
+  NVF_CHECK(t0.equal(cg_outputs[0]));
 }
 
 // Make sure the same fusion as FusionVectorizeContigIndex fails if
@@ -2170,7 +1852,7 @@ TEST_F(NVFuserTest, FusionVectorizeInputToOutput_CUDA) {
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0});
   auto cg_outputs = fe.runFusion({t0});
-  TORCH_CHECK(t0.equal(cg_outputs[0]));
+  NVF_CHECK(t0.equal(cg_outputs[0]));
 
   // Pass misaligned input. This must fail.
   // NOLINTNEXTLINE(cppcoreguidelines-avoid-goto,hicpp-avoid-goto)
@@ -2380,7 +2062,7 @@ TEST_F(NVFuserTest, FusionVectorizeContigIndexPointwiseSchedule_CUDA) {
   // vector word size should be 4. Broadcasting of tv1 should not
   // matter.
   for (const auto& vec_info : kernel->summary().vectorized_set_info) {
-    TORCH_CHECK(
+    NVF_CHECK(
         vec_info.word_size == 4,
         "Invalid vector word size: ",
         vec_info.word_size);
@@ -2634,7 +2316,7 @@ TEST_F(NVFuserTest, FusionRAWSyncInsertionPlace4_CUDA) {
     void handle(kir::BlockSync* bsync) final {
       // Make sure both shared memory modifying expressions
       //  have been observed at the sync insertion point.
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           number_of_writes_ == 2,
           "FusionRAWSyncInsertionPlace4 test fail:",
           "only 1 sync after the 2 shared mem writes is needed in this test,"
@@ -2929,7 +2611,7 @@ TEST_F(NVFuserTest, FusionDoubleBufferNoSync_CUDA) {
       flattened_exprs.begin(), flattened_exprs.end(), [](Expr* expr) {
         return expr->isA<kir::BlockSync>();
       });
-  TORCH_INTERNAL_ASSERT(!sync_inserted, "Un-expected block sync inserted");
+  NVF_ERROR(!sync_inserted, "Un-expected block sync inserted");
 
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0, t1});
@@ -3029,7 +2711,7 @@ TEST_F(NVFuserTest, FusionPredRemovalCheck_CUDA) {
           return;
         }
         if (auto ite = dynamic_cast<kir::IfThenElse*>(scope_exprs_.back())) {
-          TORCH_INTERNAL_ASSERT(
+          NVF_ERROR(
               ite->predicate()->value()->isConst(),
               "redundant predicate on: ",
               expr);
@@ -3073,12 +2755,12 @@ TEST_F(NVFuserTest, FusionPropagateParallelTypesToSiblings_CUDA) {
       if (ref == sibling) {
         continue;
       }
-      TORCH_CHECK(
+      NVF_CHECK(
           ref->nDims() == sibling->nDims(),
           "Invalid sibling: ",
           sibling->toString());
       for (const auto i : c10::irange(ref->nDims())) {
-        TORCH_CHECK(
+        NVF_CHECK(
             ref->axis(i)->getParallelType() ==
                 sibling->axis(i)->getParallelType(),
             "Mismatched parallel types between siblings. ",
@@ -3128,7 +2810,7 @@ TEST_F(NVFuserTest, FusionExactRootDomainMap_CUDA) {
   auto tv2_bc = tv2->axis(1);
   auto tv3_bc = tv3->axis(0);
 
-  TORCH_CHECK(
+  NVF_CHECK(
       exact_map.areMapped(tv2_bc, tv3_bc),
       "Invalid exact root domain map: ",
       exact_map.toString());
@@ -3139,11 +2821,11 @@ TEST_F(NVFuserTest, FusionExactRootDomainMap_CUDA) {
       if (root_id == tv2_bc || root_id == tv3_bc) {
         continue;
       }
-      TORCH_CHECK(
+      NVF_CHECK(
           !exact_map.areMapped(root_id, tv2_bc),
           "Invalid exact root domain map: ",
           exact_map.toString());
-      TORCH_CHECK(
+      NVF_CHECK(
           !exact_map.areMapped(root_id, tv3_bc),
           "Invalid exact root domain map: ",
           exact_map.toString());
@@ -3387,7 +3069,7 @@ TEST_F(NVFuserTest, FusionTestReEntrantGridWelford_CUDA) {
         auto alias_tv = alias_map_.at(out_tv);
         for (auto inp_ti : ir_utils::filterByType<kir::TensorIndex>(
                  gwop->welford_op()->inputs())) {
-          TORCH_CHECK(
+          NVF_CHECK(
               inp_ti->view() != alias_tv,
               "Invalid alias found between GridWelford input and output. Out tv: ",
               out_tv->toString(),
@@ -3465,7 +3147,7 @@ TEST_F(NVFuserTest, FusionRedundantPredSync_CUDA) {
       flattened_exprs.begin(), flattened_exprs.end(), [](Expr* expr) {
         return expr->isA<kir::BlockSync>();
       });
-  TORCH_INTERNAL_ASSERT(sync_inserted, "Expected block sync not inserted");
+  NVF_ERROR(sync_inserted, "Expected block sync not inserted");
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
@@ -3532,8 +3214,7 @@ TEST_F(NVFuserTest, FusionRedundantPredSync2_CUDA) {
 
   GpuLower gpulw(&fusion);
   checker.handle(gpulw.kernel()->topLevelExprs());
-  TORCH_INTERNAL_ASSERT(
-      checker.result() < 2, "More syncs were inserted than expected");
+  NVF_ERROR(checker.result() < 2, "More syncs were inserted than expected");
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
@@ -3615,7 +3296,7 @@ TEST_F(NVFuserTest, FusionRedundantPredSync3_CUDA) {
   //  where RAW hazards happen: one producing tv2 and the other
   //  producing tv3. This test case expect syncs in both of
   //  these places so we check that 2 RAW syncs are inserted.
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       checker.result() == 2,
       "Exactly 2 RAW sync expected for the two shared memory transfers");
 
@@ -3679,7 +3360,7 @@ TEST_F(NVFuserTest, FusionRedundantUseCheck_CUDA) {
     }
   }
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       lowered_tv2 != nullptr && lowered_tv4 != nullptr,
       "tv2 or tv4 not lowered or mangled");
 
@@ -3689,14 +3370,14 @@ TEST_F(NVFuserTest, FusionRedundantUseCheck_CUDA) {
   // tv2 -> tv3 -> tv4 (shared) is the only use chain for tv2,
   //  and tv4 is redundantly written in tidx so tv2 is redundantly
   //  consumed in tidx.
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       tv2_info.redundant_use_types.get(ParallelType::TIDx),
       "TV2 is redundantly used but not detected.");
 
   // tv4->tv5 (global) is a redundant use chain, but
   // tv4->tv6->tv7 is not, so tv4 should not be detected as
   // a redundant used tensor in tidx.
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       !tv4_info.redundant_use_types.get(ParallelType::TIDx),
       "TV4 is not redundantly used but not detected.");
 }
@@ -3716,9 +3397,8 @@ TEST_F(NVFuserTest, FusionUnsqueeze1_CUDA) {
   auto tv2 = unsqueeze(tv1, -1);
   fusion.addOutput(tv2);
 
-  TORCH_CHECK(
-      tv2->nDims() == 2, "Unpected unsqueeze result: ", tv2->toString());
-  TORCH_CHECK(
+  NVF_CHECK(tv2->nDims() == 2, "Unpected unsqueeze result: ", tv2->toString());
+  NVF_CHECK(
       tv2->axis(1)->isBroadcast(),
       "Unexpected unsqueeze result: ",
       tv2->toString());
@@ -3756,8 +3436,7 @@ TEST_F(NVFuserTest, FusionSqueeze1_CUDA) {
   auto tv2 = squeeze(tv1, std::vector<int64_t>{shape[0], 1});
   fusion.addOutput(tv2);
 
-  TORCH_CHECK(
-      tv2->nDims() == 1, "Unexpected squeeze result: ", tv2->toString());
+  NVF_CHECK(tv2->nDims() == 1, "Unexpected squeeze result: ", tv2->toString());
 
   // [I, R]
   auto tv3 = sum(tv0, {1});
@@ -3795,7 +3474,7 @@ TEST_F(NVFuserTest, FusionContigPredicate_CUDA) {
   tv0->computeAt(tv2, -1);
 
   GpuLower gpulw(&fusion);
-  TORCH_CHECK(PredicatedChecker::isPredicated(tv1, gpulw));
+  NVF_CHECK(PredicatedChecker::isPredicated(tv1, gpulw));
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({3, 4}, options);
@@ -3945,14 +3624,14 @@ TEST_F(NVFuserTest, FusionExpand_CUDA) {
   auto cg_outputs = executor_cache.runFusionWithInputs({t0, t3, t6, w});
   auto cg_out = cg_outputs[1];
 
-  TORCH_INTERNAL_ASSERT(cg_out.size(0) == w);
-  TORCH_INTERNAL_ASSERT(cg_out.size(1) == x);
-  TORCH_INTERNAL_ASSERT(cg_out.size(2) == y);
-  TORCH_INTERNAL_ASSERT(cg_out.size(3) == z);
-  TORCH_INTERNAL_ASSERT(cg_out.stride(0) == 0);
-  TORCH_INTERNAL_ASSERT(cg_out.stride(1) == 1);
-  TORCH_INTERNAL_ASSERT(cg_out.stride(2) == 0);
-  TORCH_INTERNAL_ASSERT(cg_out.stride(3) == 0);
+  NVF_ERROR(cg_out.size(0) == w);
+  NVF_ERROR(cg_out.size(1) == x);
+  NVF_ERROR(cg_out.size(2) == y);
+  NVF_ERROR(cg_out.size(3) == z);
+  NVF_ERROR(cg_out.stride(0) == 0);
+  NVF_ERROR(cg_out.stride(1) == 1);
+  NVF_ERROR(cg_out.stride(2) == 0);
+  NVF_ERROR(cg_out.stride(3) == 0);
 
   auto t10 = t0.unsqueeze(-1)
                  .expand({x, y})
@@ -4010,9 +3689,9 @@ TEST_F(NVFuserTest, FusionExpandIssue1751_CUDA) {
   auto cg_outputs = executor_cache.runFusionWithInputs({t0});
 
   for (const auto& cg_out : cg_outputs) {
-    TORCH_INTERNAL_ASSERT(cg_out.size(0) == x);
-    TORCH_INTERNAL_ASSERT(cg_out.size(1) == y);
-    TORCH_INTERNAL_ASSERT(cg_out.size(2) == z);
+    NVF_ERROR(cg_out.size(0) == x);
+    NVF_ERROR(cg_out.size(1) == y);
+    NVF_ERROR(cg_out.size(2) == z);
   }
 
   auto t2 = t0.expand({x, y, z});
@@ -4047,8 +3726,8 @@ TEST_F(NVFuserTest, FusionExpandToConcrete_CUDA) {
   auto cg_outputs = executor_cache.runFusionWithInputs({t0});
 
   for (const auto& cg_out : cg_outputs) {
-    TORCH_INTERNAL_ASSERT(cg_out.size(0) == x);
-    TORCH_INTERNAL_ASSERT(cg_out.size(1) == y);
+    NVF_ERROR(cg_out.size(0) == x);
+    NVF_ERROR(cg_out.size(1) == y);
   }
 
   auto t2 = t0.expand({x, y});
@@ -4129,7 +3808,7 @@ TEST_F(NVFuserTest, FusionTransformPropagateSibling_CUDA) {
   for (const auto& tensors : siblings) {
     for (auto t1 : tensors) {
       for (auto t2 : tensors) {
-        TORCH_CHECK(TransformReplay::fullSelfMatching(t1, t2));
+        NVF_CHECK(TransformReplay::fullSelfMatching(t1, t2));
       }
     }
   }
@@ -4190,7 +3869,7 @@ TEST_F(NVFuserTest, FusionTransformPropagateSelectorSibling_CUDA) {
     for (const auto& tensors : siblings) {
       for (auto t1 : tensors) {
         for (auto t2 : tensors) {
-          TORCH_CHECK(TransformReplay::fullSelfMatching(t1, t2));
+          NVF_CHECK(TransformReplay::fullSelfMatching(t1, t2));
         }
       }
     }
@@ -4219,7 +3898,7 @@ TEST_F(NVFuserTest, FusionTransformPropagatePosition_CUDA) {
   TransformPropagatorWithCheck propagator(tv0);
   MaxRootDomainInfoSpanningTree(tv0).traverse(&propagator);
 
-  TORCH_CHECK(tv1->nDims() == 4);
+  NVF_CHECK(tv1->nDims() == 4);
 }
 
 TEST_F(NVFuserTest, FusionIgnoreZeroDimReduction_CUDA) {
@@ -4236,7 +3915,7 @@ TEST_F(NVFuserTest, FusionIgnoreZeroDimReduction_CUDA) {
   fusion->addOutput(tv2);
 
   auto tv2_def = dynamic_cast<LoadStoreOp*>(tv2->definition());
-  TORCH_CHECK(
+  NVF_CHECK(
       tv2_def != nullptr,
       "Expected LoadStoreOp but found ",
       tv2->definition()->toString());
@@ -4331,11 +4010,11 @@ TEST_F(NVFuserTest, FusionTransformPropagatorSelector_CUDA) {
   TransformPropagatorWithCheck propagator(tv2);
   MaxRootDomainInfoSpanningTree(tv2, &selector).traverse(&propagator);
 
-  TORCH_CHECK(tv0->nDims() == 2);
-  TORCH_CHECK(tv1->nDims() == 1);
-  TORCH_CHECK(tv2->nDims() == 2);
-  TORCH_CHECK(tv3->nDims() == 2);
-  TORCH_CHECK(tv4->nDims() == 1);
+  NVF_CHECK(tv0->nDims() == 2);
+  NVF_CHECK(tv1->nDims() == 1);
+  NVF_CHECK(tv2->nDims() == 2);
+  NVF_CHECK(tv3->nDims() == 2);
+  NVF_CHECK(tv4->nDims() == 1);
 }
 
 TEST_F(NVFuserTest, FusionTransformPropagatorPos_CUDA) {
@@ -4357,7 +4036,7 @@ TEST_F(NVFuserTest, FusionTransformPropagatorPos_CUDA) {
 
   auto expect = makeConcreteTensor({22, 105});
   expect->split(0, 2);
-  TORCH_CHECK(TransformReplay::fullSelfMatching(expect, tv0));
+  NVF_CHECK(TransformReplay::fullSelfMatching(expect, tv0));
 }
 
 TEST_F(NVFuserTest, FusionMaxRootDomainInfoSpanningTreePrintTwice_CUDA) {
@@ -4407,8 +4086,8 @@ propagateP2C
 from: 1
 to: 2
 )ESCAPE";
-  TORCH_CHECK(printer1.ss.str() == expect);
-  TORCH_CHECK(printer2.ss.str() == expect);
+  NVF_CHECK(printer1.ss.str() == expect);
+  NVF_CHECK(printer2.ss.str() == expect);
 }
 
 TEST_F(NVFuserTest, FusionTransformPropagatorNoOverwrite_CUDA) {
@@ -4433,16 +4112,16 @@ TEST_F(NVFuserTest, FusionTransformPropagatorNoOverwrite_CUDA) {
   TransformPropagatorWithCheck propagator2(tv0);
   path2.traverse(&propagator2);
 
-  TORCH_CHECK(tv1->axis(0)->isBroadcast());
-  TORCH_CHECK(tv1->axis(1)->isBroadcast());
-  TORCH_CHECK(!tv1->axis(2)->isBroadcast());
-  TORCH_CHECK(!tv1->axis(3)->isBroadcast());
-  TORCH_CHECK(tv1->axis(4)->isBroadcast());
+  NVF_CHECK(tv1->axis(0)->isBroadcast());
+  NVF_CHECK(tv1->axis(1)->isBroadcast());
+  NVF_CHECK(!tv1->axis(2)->isBroadcast());
+  NVF_CHECK(!tv1->axis(3)->isBroadcast());
+  NVF_CHECK(tv1->axis(4)->isBroadcast());
 
   auto expect = makeSymbolicTensor(3);
   expect->split(1, 2);
   expect->split(0, 4);
-  TORCH_CHECK(TransformReplay::fullSelfMatching(expect, tv1));
+  NVF_CHECK(TransformReplay::fullSelfMatching(expect, tv1));
 }
 
 TEST_F(NVFuserTest, FusionIssue1785Repro_CUDA) {
@@ -4548,11 +4227,11 @@ TEST_F(NVFuserTest, FusionInlineRepro1803_CUDA) {
 
   tv0->computeAt(tvo, -1, ComputeAtMode::BestEffort);
 
-  TORCH_CHECK(
+  NVF_CHECK(
       tvs.var_sum->getComputeAtPosition() == tvs.avg->getComputeAtPosition());
-  TORCH_CHECK(
+  NVF_CHECK(
       tvs.var_sum->getComputeAtPosition() == tvs.n->getComputeAtPosition());
-  TORCH_CHECK(tvs.var_sum->getComputeAtPosition() == 1);
+  NVF_CHECK(tvs.var_sum->getComputeAtPosition() == 1);
 }
 
 // Unit test for the transform selection logic
@@ -4575,7 +4254,7 @@ TEST_F(NVFuserTest, FusionBoundedDirectionSelection1_CUDA) {
       tv3, -1, {tv0, tv2});
 
   // Check that the splits are replayed on tv2
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       tv2->nDims() == tv3->nDims(),
       "Propagator didn't propagate to tv2: ",
       tv2->toString());
@@ -4583,7 +4262,7 @@ TEST_F(NVFuserTest, FusionBoundedDirectionSelection1_CUDA) {
   // Check that the splits are replayed on tv1 as well. Even though
   //  one of its consumers, tv2, is part of the boundary, another
   //  consumer is not a boundary, so tv1 should be transformed as well.
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       tv1->nDims() == tv3->nDims(),
       "Propagator didn't propagate to tv1: ",
       tv1->toString());
@@ -4669,7 +4348,7 @@ TEST_F(NVFuserTest, FusionInsertMagicZero1_CUDA) {
 
   // The predicate of tv2 should be protected with magic zero
   GpuLower gpulw(&fusion);
-  TORCH_CHECK(
+  NVF_CHECK(
       PredicateMagicZeroChecker::isProtected(tv2, gpulw),
       "Failed to protect the predicates of ",
       tv2->toString());
@@ -4924,11 +4603,11 @@ TEST_F(NVFuserTest, FusionInliningMismatchedDims1_CUDA) {
 
   inlineMost();
 
-  TORCH_CHECK(tv5->getComputeAtPosition() == 3);
-  TORCH_CHECK(tv4->getComputeAtPosition() == 3);
-  TORCH_CHECK(tv3->getComputeAtPosition() == 3);
-  TORCH_CHECK(tv2->getComputeAtPosition() == 1);
-  TORCH_CHECK(tv1->getComputeAtPosition() == 3);
+  NVF_CHECK(tv5->getComputeAtPosition() == 3);
+  NVF_CHECK(tv4->getComputeAtPosition() == 3);
+  NVF_CHECK(tv3->getComputeAtPosition() == 3);
+  NVF_CHECK(tv2->getComputeAtPosition() == 1);
+  NVF_CHECK(tv1->getComputeAtPosition() == 3);
 
   const auto options =
       at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -4957,11 +4636,11 @@ TEST_F(NVFuserTest, FusionInliningMismatchedDims2_CUDA) {
 
   inlineAllAt(tv5, -1, true);
 
-  TORCH_CHECK(tv5->getComputeAtPosition() == 3);
-  TORCH_CHECK(tv4->getComputeAtPosition() == 3);
-  TORCH_CHECK(tv3->getComputeAtPosition() == 3);
-  TORCH_CHECK(tv2->getComputeAtPosition() == 1);
-  TORCH_CHECK(tv1->getComputeAtPosition() == 1);
+  NVF_CHECK(tv5->getComputeAtPosition() == 3);
+  NVF_CHECK(tv4->getComputeAtPosition() == 3);
+  NVF_CHECK(tv3->getComputeAtPosition() == 3);
+  NVF_CHECK(tv2->getComputeAtPosition() == 1);
+  NVF_CHECK(tv1->getComputeAtPosition() == 1);
 
   const auto options =
       at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -4991,11 +4670,11 @@ TEST_F(NVFuserTest, FusionInliningMismatchedDims4_CUDA) {
   tv3->merge(1);
   inlineMost();
 
-  TORCH_CHECK(tv5->getComputeAtPosition() == 3);
-  TORCH_CHECK(tv4->getComputeAtPosition() == 3);
-  TORCH_CHECK(tv3->getComputeAtPosition() == 1);
-  TORCH_CHECK(tv2->getComputeAtPosition() == 1);
-  TORCH_CHECK(tv1->getComputeAtPosition() == 3);
+  NVF_CHECK(tv5->getComputeAtPosition() == 3);
+  NVF_CHECK(tv4->getComputeAtPosition() == 3);
+  NVF_CHECK(tv3->getComputeAtPosition() == 1);
+  NVF_CHECK(tv2->getComputeAtPosition() == 1);
+  NVF_CHECK(tv1->getComputeAtPosition() == 3);
 
   const auto options =
       at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -5030,10 +4709,10 @@ TEST_F(NVFuserTest, FusionInliningBroadcast_CUDA) {
 
   inlineMost();
 
-  TORCH_CHECK(tv4->getComputeAtPosition() == 3);
-  TORCH_CHECK(tv3->getComputeAtPosition() == 3);
-  TORCH_CHECK(tv2->getComputeAtPosition() == 3);
-  TORCH_CHECK(tv1->getComputeAtPosition() == 3);
+  NVF_CHECK(tv4->getComputeAtPosition() == 3);
+  NVF_CHECK(tv3->getComputeAtPosition() == 3);
+  NVF_CHECK(tv2->getComputeAtPosition() == 3);
+  NVF_CHECK(tv1->getComputeAtPosition() == 3);
 
   const auto options =
       at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -5063,13 +4742,13 @@ TEST_F(NVFuserTest, FusionMatchedLeafPosWithoutReplayBroadcast_CUDA) {
     tv->merge(2);
   }
 
-  TORCH_CHECK(
+  NVF_CHECK(
       TransformReplay::getMatchedLeafPosWithoutReplayPasC(tv0, tv1, 3) == 3);
-  TORCH_CHECK(
+  NVF_CHECK(
       TransformReplay::getMatchedLeafPosWithoutReplayCasP(tv1, tv0, 3) == 3);
-  TORCH_CHECK(
+  NVF_CHECK(
       TransformReplay::getMatchedLeafPosWithoutReplayPasC(tv1, tv2, 3) == 3);
-  TORCH_CHECK(
+  NVF_CHECK(
       TransformReplay::getMatchedLeafPosWithoutReplayCasP(tv2, tv1, 3) == 3);
 }
 
@@ -5153,7 +4832,7 @@ TEST_F(NVFuserTest, FusionCheckedSymbolicShape_CUDA) {
   {
     EXPECT_THAT(
         [&]() { matched_add(a, c); },
-        ::testing::ThrowsMessage<c10::Error>(
+        ::testing::ThrowsMessage<nvfuser::nvfError>(
             ::testing::HasSubstr("Conflicting sizes")));
   }
 }
@@ -5208,10 +4887,10 @@ TEST_F(NVFuserTest, FusionDependencyCheck_CUDA) {
     std::unordered_set<Val*> all_vals_set(all_vals.begin(), all_vals.end());
     std::vector<Val*> results({tv0, tv1, tv4, tv5, tv6, tv7, tv8});
     for (auto result : results) {
-      TORCH_CHECK(all_vals_set.count(result) > 0);
+      NVF_CHECK(all_vals_set.count(result) > 0);
       all_vals_set.erase(result);
     }
-    TORCH_CHECK(all_vals_set.empty());
+    NVF_CHECK(all_vals_set.empty());
   }
 
   auto tv10 = add(tv6, tv7);
@@ -5220,10 +4899,10 @@ TEST_F(NVFuserTest, FusionDependencyCheck_CUDA) {
     std::unordered_set<Val*> all_vals_set(all_vals.begin(), all_vals.end());
     std::vector<Val*> results({tv0, tv1, tv6, tv7, tv10});
     for (auto result : results) {
-      TORCH_CHECK(all_vals_set.count(result) > 0);
+      NVF_CHECK(all_vals_set.count(result) > 0);
       all_vals_set.erase(result);
     }
-    TORCH_CHECK(all_vals_set.empty());
+    NVF_CHECK(all_vals_set.empty());
   }
 }
 
@@ -5370,10 +5049,10 @@ TEST_F(NVFuserTest, AsyncCompilation_CUDA) {
 
   auto outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
-  TORCH_CHECK(
+  NVF_CHECK(
       executor_cache.getMostRecentKernelRuntime()->isSegmented(),
       "segmentation didn't happen");
-  TORCH_CHECK(
+  NVF_CHECK(
       executor_cache.getMostRecentKernelRuntime()
               ->fusionSegments()
               ->groups()
@@ -5448,7 +5127,7 @@ TEST_F(NVFuserTest, FusionNullScheduler_CUDA) {
 
   // Check that all groups on the resulting runtime are null.
   for (auto group : groups) {
-    TORCH_INTERNAL_ASSERT(group->heuristic() == ScheduleHeuristic::NoOp);
+    NVF_ERROR(group->heuristic() == ScheduleHeuristic::NoOp);
   }
 }
 
@@ -5482,7 +5161,7 @@ TEST_F(NVFuserTest, FusionNullScheduler2_CUDA) {
 
   // Check that all groups on the resulting runtime are null.
   for (auto group : groups) {
-    TORCH_INTERNAL_ASSERT(group->heuristic() == ScheduleHeuristic::NoOp);
+    NVF_ERROR(group->heuristic() == ScheduleHeuristic::NoOp);
   }
 }
 
@@ -5520,7 +5199,7 @@ TEST_F(NVFuserTest, FusionNullScheduler3_CUDA) {
 
   // Check that all groups on the resulting runtime are null.
   for (auto group : groups) {
-    TORCH_INTERNAL_ASSERT(group->heuristic() == ScheduleHeuristic::NoOp);
+    NVF_ERROR(group->heuristic() == ScheduleHeuristic::NoOp);
   }
 }
 
@@ -5582,7 +5261,7 @@ TEST_F(NVFuserTest, FusionEmpty_CUDA) {
 
   // Check that all groups on the resulting runtime are null.
   for (auto group : groups) {
-    TORCH_INTERNAL_ASSERT(group->heuristic() == ScheduleHeuristic::NoOp);
+    NVF_ERROR(group->heuristic() == ScheduleHeuristic::NoOp);
   }
 }
 
@@ -5612,9 +5291,9 @@ TEST_F(NVFuserTest, FusionMappingRelation_CUDA) {
   ComputeAtMap ca_map(fusion);
 
   auto tv4_inner_node = tv4->axis(0)->definition()->input(1)->as<IterDomain>();
-  TORCH_CHECK(
+  NVF_CHECK(
       ca_map.areMapped(tv2->axis(0), tv4_inner_node, IdMappingMode::EXACT));
-  TORCH_CHECK(ca_map.areMapped(
+  NVF_CHECK(ca_map.areMapped(
       tv2->axis(0), tv4_inner_node, IdMappingMode::PERMISSIVE));
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -5678,7 +5357,7 @@ TEST_F(NVFuserTest, FusionTrivialInputForwarding_CUDA) {
   testValidate(fusion, cg_outputs, {t0, t1}, {t0}, __LINE__, __FILE__);
 
   // Second run to ensure cache hit handles trivial forwarding properly
-  TORCH_CHECK(fec.isCompiled({t0, t1}));
+  NVF_CHECK(fec.isCompiled({t0, t1}));
   auto cg_outputs2 = fec.runFusionWithInputs({t0, t1});
   testValidate(fusion, cg_outputs2, {t0, t1}, {t0}, __LINE__, __FILE__);
 }
@@ -5701,7 +5380,7 @@ TEST_F(NVFuserTest, FusionTrivialInputForwarding2_CUDA) {
   testValidate(fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 
   // Second run to ensure cache hit handles trivial forwarding properly
-  TORCH_CHECK(fec.isCompiled({t0}));
+  NVF_CHECK(fec.isCompiled({t0}));
   auto cg_outputs2 = fec.runFusionWithInputs({t0});
   testValidate(fusion, cg_outputs2, {t0}, {t0}, __LINE__, __FILE__);
 }
@@ -5938,8 +5617,8 @@ TEST_F(NVFuserTest, FusionSimpleAmperePipeline_CUDA) {
 
     void handle(LoadStoreOp* ldst) final {
       if (ldst->opType() == LoadStoreOpType::CpAsyncCa) {
-        TORCH_INTERNAL_ASSERT(!within_ite_, "CPASYNC predicate not inlined");
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(!within_ite_, "CPASYNC predicate not inlined");
+        NVF_ERROR(
             ldst->predicate()->hasValue() &&
                 !ldst->predicate()->value()->isConst(),
             "CPASYNC predicate is not generated");
@@ -6377,9 +6056,9 @@ TEST_F(NVFuserTest, FusionSqueezeInlining_CUDA) {
     MaxRootDomainInfoSpanningTree tree(tv0);
     TransformPropagatorWithCheck tp(tv0);
     tree.traverse(&tp);
-    TORCH_CHECK(tv2->nDims() == 2);
-    TORCH_CHECK(tv1->nDims() == 2);
-    TORCH_CHECK(tv0->nDims() == 2);
+    NVF_CHECK(tv2->nDims() == 2);
+    NVF_CHECK(tv1->nDims() == 2);
+    NVF_CHECK(tv0->nDims() == 2);
   }
 
   {
@@ -6388,9 +6067,9 @@ TEST_F(NVFuserTest, FusionSqueezeInlining_CUDA) {
     MaxRootDomainInfoSpanningTree tree(tv2);
     TransformPropagatorWithCheck tp(tv2);
     tree.traverse(&tp);
-    TORCH_CHECK(tv2->nDims() == 2);
-    TORCH_CHECK(tv1->nDims() == 2);
-    TORCH_CHECK(tv0->nDims() == 2);
+    NVF_CHECK(tv2->nDims() == 2);
+    NVF_CHECK(tv1->nDims() == 2);
+    NVF_CHECK(tv0->nDims() == 2);
   }
 
   tv1->axis(0)->parallelize(ParallelType::BIDx);
@@ -6400,8 +6079,8 @@ TEST_F(NVFuserTest, FusionSqueezeInlining_CUDA) {
 
   inlineMost();
 
-  TORCH_CHECK(tv1->getComputeAtPosition() == 2);
-  TORCH_CHECK(tv2->getComputeAtPosition() == 2);
+  NVF_CHECK(tv1->getComputeAtPosition() == 2);
+  NVF_CHECK(tv2->getComputeAtPosition() == 2);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({1, 1024}, options);
@@ -6724,12 +6403,12 @@ TEST_F(NVFuserTest, FusionPropagateVectorizePredicate_CUDA) {
       if (ldst->out()->as<kir::TensorIndex>()->view()->name() == 2) {
         // Make sure the index of the inner loop isn't used in the
         // predicate of the tv2 expression
-        TORCH_INTERNAL_ASSERT(!scope_exprs_.empty());
-        TORCH_INTERNAL_ASSERT(scope_exprs_.back()->isA<kir::IfThenElse>());
+        NVF_ERROR(!scope_exprs_.empty());
+        NVF_ERROR(scope_exprs_.back()->isA<kir::IfThenElse>());
         auto ite = scope_exprs_.back()->as<kir::IfThenElse>();
         auto cond = ite->predicate()->value();
         // Make sure the index of the inner loop isn't used in the predicate
-        TORCH_INTERNAL_ASSERT(!for_loops_.empty());
+        NVF_ERROR(!for_loops_.empty());
         auto loop_index = for_loops_.back()->index();
         auto cond_inputs = InputsOf::output(cond->fusion(), cond);
         auto index_it =
@@ -6744,26 +6423,26 @@ TEST_F(NVFuserTest, FusionPropagateVectorizePredicate_CUDA) {
         // If vectorized, the predicate should use (vec_factor - 1) or
         // -(vec_factor - 1) rather than the loop index.
         if (vectorized_) {
-          TORCH_CHECK(
+          NVF_CHECK(
               index_it == cond_inputs.end(),
               "Not expected to have ",
               loop_index->toInlineString(),
               " in ",
               cond->toInlineString());
-          TORCH_CHECK(
+          NVF_CHECK(
               vec_factor_it != cond_inputs.end(),
               "Expected to have ",
               vec_factor - 1,
               " in ",
               cond->toInlineString());
         } else {
-          TORCH_CHECK(
+          NVF_CHECK(
               index_it != cond_inputs.end(),
               "Expected to have ",
               loop_index->toInlineString(),
               " in ",
               cond->toInlineString());
-          TORCH_CHECK(
+          NVF_CHECK(
               vec_factor_it == cond_inputs.end(),
               "Not expected to have ",
               vec_factor - 1,
@@ -6798,7 +6477,7 @@ TEST_F(NVFuserTest, FusionPropagateVectorizePredicate_CUDA) {
   fe.compileFusion(&fusion, {t0});
   auto cg_outputs = fe.runFusion({t0});
 
-  TORCH_CHECK(t0.equal(cg_outputs[0]));
+  NVF_CHECK(t0.equal(cg_outputs[0]));
 }
 
 TEST_F(NVFuserTest, FusionSqueezeOnlyWelford_CUDA) {
@@ -6926,48 +6605,48 @@ TEST_F(NVFuserTest, FusionFloatingPointType_CUDA) {
     fusion.addInput(tv0);
 
     auto f2 = IrBuilder::create<Val>(float_val, DataType::Float);
-    TORCH_CHECK(
+    NVF_CHECK(
         f2->getDataType() == DataType::Float,
         "Invalid data type: ",
         f2->getDataType().value());
 
     auto d3 = IrBuilder::create<Val>(double_val, DataType::Double);
-    TORCH_CHECK(
+    NVF_CHECK(
         d3->getDataType() == DataType::Double,
         "Invalid data type: ",
         d3->getDataType().value());
 
     // Adding two Floats produces a Float
     auto f4 = add(f2, f2);
-    TORCH_CHECK(
+    NVF_CHECK(
         f4->getDataType() == DataType::Float,
         "Invalid data type: ",
         f4->getDataType().value());
 
     // Adding a Double and a Float produces a Double
     auto d5 = add(f2, d3);
-    TORCH_CHECK(
+    NVF_CHECK(
         d5->getDataType() == DataType::Double,
         "Invalid data type: ",
         d5->getDataType().value());
 
     // Adding a Float and a Double produces a Double
     auto d6 = add(d3, f2);
-    TORCH_CHECK(
+    NVF_CHECK(
         d6->getDataType() == DataType::Double,
         "Invalid data type: ",
         d6->getDataType().value());
 
     // Adding two Doubles produce a Double
     auto d7 = add(d5, d6);
-    TORCH_CHECK(
+    NVF_CHECK(
         d7->getDataType() == DataType::Double,
         "Invalid data type: ",
         d7->getDataType().value());
 
     // Adding a Float to a Float tensor produces a Float tensor
     auto tv1 = add(tv0, f4);
-    TORCH_CHECK(
+    NVF_CHECK(
         tv1->getDataType() == DataType::Float,
         tv1->toString(),
         " has an invalid data type: ",
@@ -6975,7 +6654,7 @@ TEST_F(NVFuserTest, FusionFloatingPointType_CUDA) {
 
     // Adding a Double to a Float tensor still produces a Float tensor
     auto tv2 = add(tv1, d7);
-    TORCH_CHECK(
+    NVF_CHECK(
         tv2->getDataType() == DataType::Float,
         tv2->toString(),
         " has an invalid data type: ",
@@ -7021,28 +6700,28 @@ TEST_F(NVFuserTest, FusionIntegerType_CUDA) {
 
     // Adding two Ints produces an Int
     auto i4 = add(i2, i2);
-    TORCH_CHECK(
+    NVF_CHECK(
         i4->getDataType() == DataType::Int,
         "Invalid result: ",
         i4->toInlineString());
 
     // Adding two Int32s produces an Int32
     auto i5 = add(i3, i3);
-    TORCH_CHECK(
+    NVF_CHECK(
         i5->getDataType() == DataType::Int32,
         "Invalid result: ",
         i5->toInlineString());
 
     // Adding an Int and an Int32 produces an Int
     auto i6 = add(i4, i5);
-    TORCH_CHECK(
+    NVF_CHECK(
         i6->getDataType() == DataType::Int,
         "Invalid result: ",
         i6->toInlineString());
 
     // Adding an Int32 to an Int32 tensor produces an Int32 tensor
     auto tv1 = add(tv0, i4);
-    TORCH_CHECK(
+    NVF_CHECK(
         tv1->getDataType() == DataType::Int32,
         tv1->toString(),
         " has an invalid data type: ",
@@ -7050,7 +6729,7 @@ TEST_F(NVFuserTest, FusionIntegerType_CUDA) {
 
     // Adding an Int to an Int32 tensor still produces an Int32 tensor
     auto tv2 = add(tv1, i6);
-    TORCH_CHECK(
+    NVF_CHECK(
         tv2->getDataType() == DataType::Int32,
         tv2->toString(),
         " has an invalid data type: ",
@@ -7076,7 +6755,7 @@ TEST_F(NVFuserTest, FusionIntegerType_CUDA) {
   auto t1 = t0 + i4;
   auto t2 = t1 + i6;
 
-  TORCH_CHECK(cg_outputs.at(0).equal(t2));
+  NVF_CHECK(cg_outputs.at(0).equal(t2));
 }
 
 TEST_F(NVFuserTest, FusionVectorizeWelford1_CUDA) {
@@ -7110,7 +6789,7 @@ TEST_F(NVFuserTest, FusionVectorizeWelford1_CUDA) {
       std::count_if(all_exprs.begin(), all_exprs.end(), [](Expr* expr) {
         return expr->isStrictlyA<WelfordOp>();
       });
-  TORCH_CHECK(
+  NVF_CHECK(
       num_welford_ops == 0,
       "All WelfordOp exprs should be converted to VectorizedWelfordOp");
 
@@ -7118,7 +6797,7 @@ TEST_F(NVFuserTest, FusionVectorizeWelford1_CUDA) {
       std::count_if(all_exprs.begin(), all_exprs.end(), [](Expr* expr) {
         return expr->isStrictlyA<kir::VectorizedWelfordOp>();
       });
-  TORCH_CHECK(
+  NVF_CHECK(
       num_vectorized_welford_ops == 1,
       "There must be two VectorizedWelfordOp exprs");
 
@@ -7183,7 +6862,7 @@ TEST_F(NVFuserTest, FusionVectorizeWelford2_CUDA) {
       std::count_if(all_exprs.begin(), all_exprs.end(), [](Expr* expr) {
         return expr->isStrictlyA<WelfordOp>();
       });
-  TORCH_CHECK(
+  NVF_CHECK(
       num_welford_ops == 0,
       "All WelfordOp exprs should be converted to VectorizedWelfordOp");
 
@@ -7191,7 +6870,7 @@ TEST_F(NVFuserTest, FusionVectorizeWelford2_CUDA) {
       std::count_if(all_exprs.begin(), all_exprs.end(), [](Expr* expr) {
         return expr->isStrictlyA<kir::VectorizedWelfordOp>();
       });
-  TORCH_CHECK(
+  NVF_CHECK(
       num_vectorized_welford_ops == 2,
       "There must be two VectorizedWelfordOp exprs");
 
@@ -7303,17 +6982,17 @@ TEST_F(
           {aten_input, aten_weight, aten_bias});
   bool isTranslated =
       SegmentCandidateFinder::translateWelfordInFusion(&fusion, runtime_inputs);
-  TORCH_INTERNAL_ASSERT(isTranslated);
+  NVF_ERROR(isTranslated);
 
   // persistent buffer should be projected to input
   auto persistent_buffer_info = scheduler_utils::persistentBuffers(&fusion);
-  TORCH_CHECK(
+  NVF_CHECK(
       persistent_buffer_info.projectable_persistent_buffers.size() == 1,
       "should have only one projectable_persistent_buffer!");
-  TORCH_CHECK(
+  NVF_CHECK(
       persistent_buffer_info.projectable_buffer_inputs.size() == 1,
       "should have only one projectable_buffer_inputs!");
-  TORCH_CHECK(
+  NVF_CHECK(
       persistent_buffer_info.projectable_buffer_inputs[0] == input_half,
       "persistent buffer should be projected to input!");
 
@@ -7321,7 +7000,7 @@ TEST_F(
   // Generate Launch Parameters
   auto reduction_params =
       getPersistentHeuristics(&fusion, {aten_input, aten_weight, aten_bias});
-  TORCH_CHECK(reduction_params, "Reduction schedule was not generated!");
+  NVF_CHECK(reduction_params, "Reduction schedule was not generated!");
 
   FusionExecutorCache fec(std::move(fusion_ptr));
   auto cg_outputs =
@@ -7417,7 +7096,7 @@ TEST_F(NVFuserTest, FusionFloatConstantWhere_CUDA) {
   auto ref = at::where(t0, (float)3.0, (float)5.0);
 
   // testValidate does not check that dtypes match
-  TORCH_CHECK(cg_outputs[0].dtype() == ref.dtype());
+  NVF_CHECK(cg_outputs[0].dtype() == ref.dtype());
   testValidate(&fusion, cg_outputs, inputs, {ref}, __LINE__, __FILE__);
 }
 
@@ -7626,7 +7305,7 @@ TEST_F(NVFuserTest, FusionPredicateReductionInitShared_CUDA) {
   // threadIdx.x == 0
   GpuLower gpulw(&fusion);
   ParallelTypeBitmap predicated_types(ParallelType::TIDx);
-  TORCH_CHECK(
+  NVF_CHECK(
       ThreadPredChecker::isPredicatedBy(
           tv1->name(), predicated_types, gpulw.kernel()),
       "Validation of lowered kernel failed");
@@ -7680,7 +7359,7 @@ TEST_F(NVFuserTest, FusionPredicateReductionInitGlobal_CUDA) {
   // threadIdx.x == 0 and blockIdx.x == 0
   GpuLower gpulw(&fusion);
   ParallelTypeBitmap predicated_types({ParallelType::TIDx, ParallelType::BIDx});
-  TORCH_CHECK(
+  NVF_CHECK(
       ThreadPredChecker::isPredicatedBy(
           tv1->name(), predicated_types, gpulw.kernel()),
       "Validation of lowered kernel failed");
@@ -7756,10 +7435,10 @@ TEST_F(NVFuserTest, FusionCompileIndexType_CUDA) {
         at::randn({std::numeric_limits<int>::max()}, options).ge(0);
     std::vector<c10::IValue> large_inputs = {t0_large};
 
-    TORCH_CHECK(
+    NVF_CHECK(
         KernelArgumentHolder::createKernelArgumentHolder(large_inputs)
             .getSmallestIndexTypeOfArguments() == PrimDataType::Int);
-    TORCH_CHECK(
+    NVF_CHECK(
         KernelArgumentHolder::createKernelArgumentHolder(small_inputs)
             .getSmallestIndexTypeOfArguments() == PrimDataType::Int32);
 
@@ -7769,7 +7448,7 @@ TEST_F(NVFuserTest, FusionCompileIndexType_CUDA) {
       CompileParams compile_opts = {.index_type = PrimDataType::Int};
       fe.compileFusion(&fusion, large_inputs, LaunchParams(), compile_opts);
 
-      TORCH_CHECK(
+      NVF_CHECK(
           fe.kernel()->indexType() == PrimDataType::Int,
           "Unexpected kernel index type: ",
           fe.kernel()->indexType());
@@ -7786,7 +7465,7 @@ TEST_F(NVFuserTest, FusionCompileIndexType_CUDA) {
       CompileParams compile_opts = {.index_type = PrimDataType::Int};
       fe.compileFusion(&fusion, small_inputs, LaunchParams(), compile_opts);
 
-      TORCH_CHECK(
+      NVF_CHECK(
           fe.kernel()->indexType() == PrimDataType::Int,
           "Unexpected kernel index type: ",
           fe.kernel()->indexType());
@@ -7803,7 +7482,7 @@ TEST_F(NVFuserTest, FusionCompileIndexType_CUDA) {
       CompileParams compile_opts = {.index_type = PrimDataType::Int32};
       fe.compileFusion(&fusion, small_inputs, launch_params, compile_opts);
 
-      TORCH_CHECK(
+      NVF_CHECK(
           fe.kernel()->indexType() == PrimDataType::Int32,
           "Unexpected kernel index type: ",
           fe.kernel()->indexType());
@@ -7819,7 +7498,7 @@ TEST_F(NVFuserTest, FusionCompileIndexType_CUDA) {
           [&]() {
             fe.runFusion(large_inputs, launch_params, compile_opts_large);
           },
-          testing::ThrowsMessage<c10::Error>(testing::HasSubstr(
+          testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
               "Kernel index type and compilation index type don't match")));
     }
 
@@ -7833,7 +7512,7 @@ TEST_F(NVFuserTest, FusionCompileIndexType_CUDA) {
             fe.compileFusion(
                 &fusion, large_inputs, LaunchParams(), compile_opts);
           },
-          testing::ThrowsMessage<c10::Error>(testing::HasSubstr(
+          testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
               "Compilation with int32 is requested but int64 is required for the arguments")));
     }
   }
@@ -7874,7 +7553,7 @@ TEST_F(NVFuserTest, FusionExecutorCacheIndexType1_CUDA) {
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
   auto kernel_runtime = executor_cache.getMostRecentKernelRuntime();
-  TORCH_CHECK(kernel_runtime->getIndexType() == PrimDataType::Int);
+  NVF_CHECK(kernel_runtime->getIndexType() == PrimDataType::Int);
 
   c10::cuda::CUDACachingAllocator::emptyCache();
 }
@@ -7914,12 +7593,12 @@ TEST_F(NVFuserTest, FusionExecutorCacheIndexType2_CUDA) {
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   executor_cache.runFusionWithInputs(aten_inputs);
   auto kernel_runtime = executor_cache.getMostRecentKernelRuntime();
-  TORCH_CHECK(kernel_runtime->getIndexType() == PrimDataType::Int);
+  NVF_CHECK(kernel_runtime->getIndexType() == PrimDataType::Int);
 
   // Running again with forced type of Int32
   executor_cache.runFusionWithInputs(aten_inputs, PrimDataType::Int32);
   kernel_runtime = executor_cache.getMostRecentKernelRuntime();
-  TORCH_CHECK(kernel_runtime->getIndexType() == PrimDataType::Int32);
+  NVF_CHECK(kernel_runtime->getIndexType() == PrimDataType::Int32);
 }
 
 //! Test whether we can create and use float16 scalars
@@ -7999,11 +7678,11 @@ TEST_F(NVFuserTest, IterVisitorTraverseAttributes_CUDA) {
   auto stmts = StmtSort::getStmts(&fusion, true, true);
 
   // Make sure the expansion parameters of tv1_resize are visited
-  TORCH_CHECK(
+  NVF_CHECK(
       std::find(stmts.begin(), stmts.end(), tv1_resize->leftExpand()) !=
           stmts.end(),
       "Resize left expand parameter not found");
-  TORCH_CHECK(
+  NVF_CHECK(
       std::find(stmts.begin(), stmts.end(), tv1_resize->rightExpand()) !=
           stmts.end(),
       "Resize right expand parameter not found");
@@ -8089,7 +7768,7 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWriteBroadcastedSoftmaxInput_CUDA) {
       const auto& thread_pred = thread_pred_map.getPredicateInfo(tv);
       bool predicted = thread_pred.redundant_types.get(ParallelType::BIDx) &&
           thread_pred.broadcast_rd_indices_map.count(ParallelType::BIDx);
-      TORCH_CHECK(
+      NVF_CHECK(
           predicted,
           "Tv15 should be predicted by ParallelType::BIDx with a broadcast_rd_indices_map!");
       break;
@@ -8149,7 +7828,7 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWrite_CUDA) {
         const auto& thread_pred = thread_pred_map.getPredicateInfo(tv);
         bool predicted = thread_pred.redundant_types.get(ParallelType::BIDx) &&
             thread_pred.broadcast_rd_indices_map.count(ParallelType::BIDx);
-        TORCH_CHECK(
+        NVF_CHECK(
             predicted,
             "Tv8 should be predicted by ParallelType::BIDx with a broadcast_rd_indices_map!");
         break;
@@ -8237,20 +7916,19 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWriteDifferentConcretizedDomains_CUDA) {
 
     if (direct_lowering) {
       auto heuristics_params = getReductionHeuristics(&fusion, inputs);
-      TORCH_CHECK(heuristics_params, "Reduction schedule was not generated!");
+      NVF_CHECK(heuristics_params, "Reduction schedule was not generated!");
       scheduleReduction(&fusion, *heuristics_params);
       // it should be segmented, if directly lowered, it should throw an error
       EXPECT_THAT(
           [&]() { GpuLower gpulw(&fusion); },
-          testing::ThrowsMessage<c10::Error>(testing::HasSubstr(
+          testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
               "Producer is required to be in Global Memory based on parallelization strategy. RAW flags: (blockIdx.x)")));
     } else {
       FusionExecutorCache fec(std::move(fusion_ptr));
       auto cg_outputs = fec.runFusionWithInputs(inputs);
 
       auto optimized_fusion = fec.getMostRecentKernelRuntime();
-      TORCH_CHECK(
-          optimized_fusion->isSegmented(), "segmentation didn't happen!");
+      NVF_CHECK(optimized_fusion->isSegmented(), "segmentation didn't happen!");
 
       at::Tensor tb = t0;
       for (size_t i = 0; i < ndim; i++) {
@@ -8326,7 +8004,7 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWriteNonOutput_CUDA) {
       const auto& thread_pred = thread_pred_map.getPredicateInfo(tv);
       bool predicted = thread_pred.redundant_types.get(ParallelType::BIDx) &&
           thread_pred.broadcast_rd_indices_map.count(ParallelType::BIDx);
-      TORCH_CHECK(
+      NVF_CHECK(
           predicted,
           "TV5 and TV6 should be predicted by ParallelType::BIDx with a broadcast_rd_indices_map!");
     }
@@ -8396,7 +8074,7 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWriteNonNeighbor_CUDA) {
       const auto& thread_pred = thread_pred_map.getPredicateInfo(tv);
       bool predicted = thread_pred.redundant_types.get(ParallelType::BIDx) &&
           thread_pred.broadcast_rd_indices_map.count(ParallelType::BIDx);
-      TORCH_CHECK(
+      NVF_CHECK(
           predicted,
           "TV5 and TV6 should be predicted by ParallelType::BIDx with a broadcast_rd_indices_map!");
     }
@@ -8440,7 +8118,7 @@ TEST_F(NVFuserTest, FusionDomainEquivalence_CUDA) {
         ir_utils::validateDomainEquivalence(
             tv1->getRootDomain(), {tv1->axis(1), tv1->axis(2)});
       },
-      testing::ThrowsMessage<c10::Error>(
+      testing::ThrowsMessage<nvfuser::nvfError>(
           testing::HasSubstr("Invalid derived domain")));
 
   tv1->merge(0);
@@ -8466,7 +8144,7 @@ TEST_F(NVFuserTest, FusionDomainEquivalence_CUDA) {
             tv1->getRootDomain(),
             {tv1_intermediate_id, tv1->axis(0), tv1->axis(1), tv1->axis(2)});
       },
-      testing::ThrowsMessage<c10::Error>(
+      testing::ThrowsMessage<nvfuser::nvfError>(
           testing::HasSubstr("Invalid derived domain")));
 
   // Testing symbolic domains
@@ -8498,7 +8176,7 @@ TEST_F(NVFuserTest, FusionDomainEquivalence_CUDA) {
         ir_utils::validateDomainEquivalence(
             tv4->getRootDomain(), {tv4->axis(0), tv4->axis(1)});
       },
-      testing::ThrowsMessage<c10::Error>(
+      testing::ThrowsMessage<nvfuser::nvfError>(
           testing::HasSubstr("Invalid derived domain")));
 }
 
@@ -8566,7 +8244,7 @@ TEST_F(NVFuserTest, FusionIllegalParallelizeNonLeafDomain_CUDA) {
   // llegal, as I1 is not a leaf domain
   EXPECT_THAT(
       [&]() { root_domain[1]->parallelize(ParallelType::BIDy); },
-      testing::ThrowsMessage<c10::Error>(
+      testing::ThrowsMessage<nvfuser::nvfError>(
           testing::HasSubstr("Only allowed to parallelize a leaf domain")));
 }
 
@@ -8598,8 +8276,8 @@ TEST_F(NVFuserTest, FusionClearGmemBetweenSegments_CUDA) {
   auto optimized_fusion = executor_cache.getMostRecentKernelRuntime();
   auto args_num = optimized_fusion->getArgsNumAfterSegmentRuns();
 
-  TORCH_CHECK(optimized_fusion->isSegmented(), "segmentation didn't happen");
-  TORCH_CHECK(
+  NVF_CHECK(optimized_fusion->isSegmented(), "segmentation didn't happen");
+  NVF_CHECK(
       optimized_fusion->fusionSegments()->groups().size() == 3,
       "segmentation didn't happen as expected");
   // group-0: tv1 -> tv2
@@ -8613,7 +8291,7 @@ TEST_F(NVFuserTest, FusionClearGmemBetweenSegments_CUDA) {
   // after group-0, args: {t0, 32, 64, 8, 128, t2}
   // after group-1, args: {t0, 32, 64, 8, 128, t3} (t2 is erased)
   // after group-2, args: {t0, 32, 64, 8, 128, t4} (t3 is erased)
-  TORCH_CHECK(
+  NVF_CHECK(
       args_num[1] == args_num[0] && args_num[2] == args_num[0],
       "unused intermediate args should be deleted");
   testValidate(
@@ -8737,17 +8415,16 @@ TEST_F(NVFuserTest, FusionTestSegmenterHint_CUDA) {
 
   auto optimized_fusion = executor_cache.getMostRecentKernelRuntime();
 
-  TORCH_CHECK(optimized_fusion->isSegmented(), "segmentation didn't happen");
+  NVF_CHECK(optimized_fusion->isSegmented(), "segmentation didn't happen");
   auto groups = optimized_fusion->fusionSegments()->groups();
-  TORCH_CHECK(
-      groups.size() == 2, "segmentation hint isn't working as expected");
+  NVF_CHECK(groups.size() == 2, "segmentation hint isn't working as expected");
   // with the hint, segment_set should be grouped with its producer
   // [relu, segment_set], [neg]
   for (auto& group : groups) {
     // we only check the group with a single node
     if (group->exprs().size() == 1) {
       auto relu_expr = group->exprs()[0];
-      TORCH_CHECK(
+      NVF_CHECK(
           relu_expr->isA<UnaryOp>() &&
               relu_expr->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::Neg,
           "segmentation result is not expected");
@@ -8786,7 +8463,7 @@ TEST_F(NVFuserTest, FusionTestWarnRegisterSpill_CUDA) {
   {
     // generate persistent kernel
     auto persistent_params = getPersistentHeuristics(&fusion, {aten_input});
-    TORCH_CHECK(persistent_params, "Persistent schedule was not generated!");
+    NVF_CHECK(persistent_params, "Persistent schedule was not generated!");
     schedulePersistentKernel(&fusion, *persistent_params);
 
     // compile and run persistent kernel
@@ -8811,7 +8488,7 @@ TEST_F(NVFuserTest, FusionTestWarnRegisterSpill_CUDA) {
         "");
   }
   std::string output = testing::internal::GetCapturedStdout();
-  TORCH_CHECK(
+  NVF_CHECK(
       output.find("Register spill detected") != std::string::npos,
       "Register spill is not captured!");
 }
@@ -8911,13 +8588,13 @@ TEST_F(NVFuserTest, FusionLayerNormFusedOpsRedundantCast_CUDA) {
   }
 
   auto persistent_buffer_info1 = scheduler_utils::persistentBuffers(fusion);
-  TORCH_CHECK(
+  NVF_CHECK(
       persistent_buffer_info1.persistent_buffers.size() == 2,
       "Before project to other buffers, should have two persistent buffers!");
 
   reduction_scheduler_utils::projectPersistentBuffers(fusion, false);
   auto persistent_buffer_info2 = scheduler_utils::persistentBuffers(fusion);
-  TORCH_CHECK(
+  NVF_CHECK(
       persistent_buffer_info2.persistent_buffers.size() == 1,
       "After project to other buffers, should have one persistent buffer!");
 
@@ -8960,7 +8637,7 @@ TEST_F(NVFuserTest, AlignedSyncReduction1_CUDA) {
       codegen::generateCudaKernel(GpuLower(&fusion).kernel());
 
   // The block reduction should use the aligned sync
-  TORCH_CHECK(
+  NVF_CHECK(
       kernel_string.find("blockReduce<true, false, false, true>(") !=
           std::string::npos,
       "blockReduce with aligned sync not found: ",
@@ -9147,13 +8824,13 @@ TEST_F(NVFuserTest, FusionRecomputePersistentBuffer_CUDA) {
   }
 
   auto persistent_buffer_info1 = scheduler_utils::persistentBuffers(fusion);
-  TORCH_CHECK(
+  NVF_CHECK(
       persistent_buffer_info1.persistent_buffers.size() == 2,
       "Before project to other buffers, should have two persistent buffers!");
 
   reduction_scheduler_utils::projectPersistentBuffers(fusion, false);
   auto persistent_buffer_info2 = scheduler_utils::persistentBuffers(fusion);
-  TORCH_CHECK(
+  NVF_CHECK(
       persistent_buffer_info2.persistent_buffers.size() == 1,
       "After project to other buffers, should have one persistent buffer!");
 
@@ -9338,10 +9015,10 @@ TEST_F(NVFuserTest, IterVisitorTraverseSiblings_CUDA) {
       /*traverse_siblings*/ true);
 
   // Make sure the expansion parameters of tv1_resize are visited
-  TORCH_CHECK(
+  NVF_CHECK(
       std::find(stmts.begin(), stmts.end(), wf.avg) != stmts.end(),
       "Welford avg not traversed");
-  TORCH_CHECK(
+  NVF_CHECK(
       std::find(stmts.begin(), stmts.end(), wf.n) != stmts.end(),
       "Welford n not traversed");
 
@@ -9353,10 +9030,10 @@ TEST_F(NVFuserTest, IterVisitorTraverseSiblings_CUDA) {
       /*traverse_attributes*/ false,
       /*traverse_siblings*/ true);
   // Make sure the expansion parameters of tv1_resize are visited
-  TORCH_CHECK(
+  NVF_CHECK(
       std::find(stmts.begin(), stmts.end(), wf.avg) != stmts.end(),
       "Welford avg not traversed in getStmtsTo({n})");
-  TORCH_CHECK(
+  NVF_CHECK(
       std::find(stmts.begin(), stmts.end(), wf.var_sum) != stmts.end(),
       "Welford var_sum not traversed in getStmtsTo({n})");
 }
@@ -9396,14 +9073,14 @@ TEST_F(NVFuserTest, FusionLayerNormSharedMemoryBuffer_CUDA) {
 
     auto persistent_params =
         getPersistentHeuristics(&fusion, {aten_input, aten_weight, aten_bias});
-    TORCH_CHECK(persistent_params, "Persistent schedule was not generated!");
+    NVF_CHECK(persistent_params, "Persistent schedule was not generated!");
     if (hidden_size * dataTypeSize(dtype) >
         scheduler_utils::register_file_size) {
-      TORCH_CHECK(
+      NVF_CHECK(
           persistent_params->shared_mem_persistent_buffer,
           "Should use shared memory buffer!");
     } else {
-      TORCH_CHECK(
+      NVF_CHECK(
           !persistent_params->shared_mem_persistent_buffer,
           "Shouldn't use shared memory buffer!");
     }
@@ -9550,7 +9227,7 @@ TEST_F(NVFuserTest, VectorizeWithBroadcastAndReshape1) {
   FusionExecutorCache executor_cache(std::move(fusion));
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
-  TORCH_CHECK(!executor_cache.getMostRecentKernelRuntime()->isSegmented());
+  NVF_CHECK(!executor_cache.getMostRecentKernelRuntime()->isSegmented());
   auto heuristic_params = executor_cache.getMostRecentKernelRuntime()
                               ->schedulerHeuristics()
                               ->heuristicsList()
@@ -9604,7 +9281,7 @@ TEST_F(NVFuserTest, VectorizeWithBroadcastAndReshape2) {
   FusionExecutorCache executor_cache(std::move(fusion));
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
-  TORCH_CHECK(!executor_cache.getMostRecentKernelRuntime()->isSegmented());
+  NVF_CHECK(!executor_cache.getMostRecentKernelRuntime()->isSegmented());
   auto heuristic_params = executor_cache.getMostRecentKernelRuntime()
                               ->schedulerHeuristics()
                               ->heuristicsList()

@@ -8,6 +8,7 @@
 #include <device_lower/lower2device.h>
 #include <disjoint_set.h>
 #include <dynamic_transform.h>
+#include <exceptions.h>
 #include <ir/cloner.h>
 #include <ir/interface_nodes.h>
 #include <ir/iostream.h>
@@ -63,7 +64,7 @@ std::string FullOp::toString(int indent_size) const {
 }
 
 std::string FullOp::toInlineString(int indent_size) const {
-  TORCH_CHECK(false, "Tensor op can not be printed inline");
+  NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(FullOp)
@@ -92,7 +93,7 @@ std::string SelectOp::toString(int indent_size) const {
 }
 
 std::string SelectOp::toInlineString(int indent_size) const {
-  TORCH_CHECK(false, "Tensor op can not be printed inline");
+  NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
 IterDomain* SelectOp::getIndexedID() const {
@@ -127,7 +128,7 @@ std::string IndexSelectOp::toString(int indent_size) const {
 }
 
 std::string IndexSelectOp::toInlineString(int indent_size) const {
-  TORCH_CHECK(false, "Tensor op can not be printed inline");
+  NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
 IterDomain* IndexSelectOp::getIndexedID() const {
@@ -173,7 +174,7 @@ std::string TorchGatherOp::toString(int indent_size) const {
 }
 
 std::string TorchGatherOp::toInlineString(int indent_size) const {
-  TORCH_CHECK(false, "Tensor op can not be printed inline");
+  NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
 IterDomain* TorchGatherOp::getIndexedID() const {
@@ -216,7 +217,7 @@ std::string ScatterOp::toString(int indent_size) const {
 }
 
 std::string ScatterOp::toInlineString(int indent_size) const {
-  TORCH_CHECK(false, "Scatter op can not be printed inline");
+  NVF_CHECK(false, "Scatter op can not be printed inline");
 }
 
 IterDomain* ScatterOp::getIndexedID() const {
@@ -232,10 +233,10 @@ IotaOp::IotaOp(
     Val* start,
     Val* step)
     : Expr(passkey) {
-  TORCH_CHECK(isIntegralType(*length->getDataType()));
+  NVF_CHECK(isIntegralType(*length->getDataType()));
   addInput(length);
-  TORCH_CHECK(start->getDataType() == step->getDataType());
-  TORCH_CHECK(start->getDataType() == out->getDataType());
+  NVF_CHECK(start->getDataType() == step->getDataType());
+  NVF_CHECK(start->getDataType() == out->getDataType());
   addInput(start);
   addInput(step);
   addOutput(out);
@@ -253,7 +254,7 @@ std::string IotaOp::toString(int indent_size) const {
 }
 
 std::string IotaOp::toInlineString(int indent_size) const {
-  TORCH_CHECK(false, "Tensor op can not be printed inline");
+  NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(IotaOp)
@@ -281,7 +282,7 @@ std::string EyeOp::toString(int indent_size) const {
 }
 
 std::string EyeOp::toInlineString(int indent_size) const {
-  TORCH_CHECK(false, "Tensor op can not be printed inline");
+  NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(EyeOp)
@@ -314,7 +315,7 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
       } else if (isComplexType(*out()->getDataType())) {
         return {PolymorphicValue((std::complex<double>)in)};
       } else {
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             false, "dtype not supported in evaluator: ", *out()->getDataType());
       }
     case UnaryOpType::Reciprocal:
@@ -339,11 +340,11 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
       if (*out()->getDataType() == DataType::Float) {
         return {PolymorphicValue((double)*(float*)in)};
       } else {
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             false, "dtype not supported in evaluator: ", *out()->getDataType());
       }
     default:
-      TORCH_CHECK(
+      NVF_CHECK(
           false,
           "Unexpected operator type ",
           getUnaryOpType(),
@@ -361,7 +362,7 @@ void UnaryOp::printHelper(std::stringstream& ss, std::string input) const {
     if (op_type == UnaryOpType::Cast) {
       std::optional<std::string> cast_str = cast_func_str(std::make_pair(
           in()->getDataType().value(), out()->getDataType().value()));
-      TORCH_INTERNAL_ASSERT(cast_str != std::nullopt, "Unsupported Cast");
+      NVF_ERROR(cast_str != std::nullopt, "Unsupported Cast");
       ss << cast_str.value();
     } else {
       ss << op_type;
@@ -429,15 +430,15 @@ std::vector<PolymorphicValue> BinaryOp::evaluate(
       return {lhs * rhs};
       break;
     case BinaryOpType::Div:
-      TORCH_CHECK(rhs != 0);
+      NVF_CHECK(rhs != 0);
       return {lhs / rhs};
       break;
     case BinaryOpType::Mod:
-      TORCH_CHECK(rhs != 0);
+      NVF_CHECK(rhs != 0);
       return {lhs % rhs};
       break;
     case BinaryOpType::CeilDiv:
-      TORCH_CHECK(rhs != 0);
+      NVF_CHECK(rhs != 0);
       return {ceildiv(lhs, rhs)};
       break;
     case BinaryOpType::LogicalAnd:
@@ -483,7 +484,7 @@ std::vector<PolymorphicValue> BinaryOp::evaluate(
       return {gcd(lhs, rhs)};
       break;
     default:
-      TORCH_CHECK(
+      NVF_CHECK(
           false,
           "Unexpected operator type: ",
           getBinaryOpType(),
@@ -577,7 +578,7 @@ std::vector<PolymorphicValue> TernaryOp::evaluate(
       return {in1.as<bool>() ? in2 : in3};
       break;
     default:
-      TORCH_CHECK(
+      NVF_CHECK(
           false,
           "Unexpected operator type: ",
           getTernaryOpType(),
@@ -645,25 +646,24 @@ ArrayConstruct::ArrayConstruct(
     Val* output,
     std::vector<Val*> inputs)
     : Expr(passkey) {
-  TORCH_INTERNAL_ASSERT(
-      !inputs.empty(), "Cannot create an array with no members.");
+  NVF_ERROR(!inputs.empty(), "Cannot create an array with no members.");
   addOutput(output);
   DataType input_dtype = DataType::Null;
   for (auto in : inputs) {
     addInput(in);
     auto in_dtype_opt = in->getDataType();
-    TORCH_INTERNAL_ASSERT(in_dtype_opt.has_value());
+    NVF_ERROR(in_dtype_opt.has_value());
     if (input_dtype == DataType::Null) {
       input_dtype = *in_dtype_opt;
     } else {
-      TORCH_CHECK(
+      NVF_CHECK(
           input_dtype == *in_dtype_opt,
           "All inputs to ArrayConstruct must have the same data type");
     }
   }
   auto expected_output_dtype =
       ArrayType{std::make_shared<DataType>(input_dtype), inputs.size()};
-  TORCH_CHECK(
+  NVF_CHECK(
       output->getDataType() == expected_output_dtype,
       "Output of ArrayConstruct must be an array of the same data type as the inputs");
 }
@@ -691,21 +691,21 @@ NVFUSER_DEFINE_CLONE_AND_CREATE(ArrayConstruct)
 
 ReverseArray::ReverseArray(IrBuilderPasskey passkey, Val* output, Val* input)
     : Expr(passkey) {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       std::holds_alternative<ArrayType>(input->dtype().type),
       "Cannot reverse a non-array type.");
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       std::holds_alternative<ArrayType>(output->dtype().type),
       "Cannot reverse a non-array type.");
   auto input_array_type = std::get<ArrayType>(input->dtype().type);
   auto output_array_type = std::get<ArrayType>(output->dtype().type);
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       input_array_type.type == output_array_type.type,
       "Cannot reverse an array of type ",
       input_array_type.type,
       " into an array of type ",
       output_array_type.type);
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       input_array_type.size == output_array_type.size,
       "Cannot reverse an array of size ",
       input_array_type.size,
@@ -731,7 +731,7 @@ std::string ReverseArray::toInlineString(int indent_size) const {
 std::vector<PolymorphicValue> ReverseArray::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
-  TORCH_INTERNAL_ASSERT(inputs.size() == 1, "ReverseArray expects 1 input");
+  NVF_ERROR(inputs.size() == 1, "ReverseArray expects 1 input");
   PolymorphicValue array = inputs.at(0);
   auto& vec = array.as<std::vector>();
   std::reverse(vec.begin(), vec.end());
@@ -745,7 +745,7 @@ GetItem::GetItem(IrBuilderPasskey passkey, Val* output, Val* array, Val* index)
   addOutput(output);
   addInput(array);
   addInput(index);
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       *(std::get<ArrayType>(array->dtype().type).type) == output->dtype(),
       "GetItem array input must have a data type");
 }
@@ -767,7 +767,7 @@ std::string GetItem::toInlineString(int indent_size) const {
 std::vector<PolymorphicValue> GetItem::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
-  TORCH_INTERNAL_ASSERT(inputs.size() == 2, "GetItem expects 2 inputs");
+  NVF_ERROR(inputs.size() == 2, "GetItem expects 2 inputs");
   return {PolymorphicValue(inputs.at(0)[inputs.at(1)])};
 }
 
@@ -778,18 +778,17 @@ StructConstruct::StructConstruct(
     Val* output,
     const std::vector<std::pair<std::string, Val*>>& fields)
     : Expr(passkey) {
-  TORCH_INTERNAL_ASSERT(
-      !fields.empty(), "Cannot create a struct with no members.");
+  NVF_ERROR(!fields.empty(), "Cannot create a struct with no members.");
   auto output_dtype = std::get<StructType>(output->dtype().type);
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       output_dtype.fields.size() == fields.size(),
       "StructConstruct output must have the same number of fields as the inputs");
   auto it = output_dtype.fields.begin();
   for (const auto& field : fields) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         it->name == field.first,
         "StructConstruct field names must match the output");
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         *(it->type) == field.second->dtype(),
         "StructConstruct field ",
         field.first,
@@ -830,16 +829,17 @@ std::string StructConstruct::toInlineString(int indent_size) const {
 std::vector<PolymorphicValue> StructConstruct::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       this->inputs().size() == inputs.size(),
       "StructConstruct expects ",
       this->inputs().size(),
       " inputs");
-  LegacyStruct<PolymorphicValue> result;
+  PolymorphicValue struct_ =
+      std::get<StructType>(output(0)->dtype().type).create();
   for (int64_t i : c10::irange((int64_t)inputs.size())) {
-    result[attribute<std::string>(i)] = inputs.at(i);
+    struct_->*attribute<std::string>(i) = inputs.at(i);
   }
-  return {std::move(result)};
+  return {std::move(struct_)};
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(StructConstruct)
@@ -850,7 +850,7 @@ GetAttr::GetAttr(
     Val* struct_,
     std::string attr)
     : Expr(passkey) {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       std::get<StructType>(struct_->dtype().type).fieldDataType(attr) ==
           output->dtype(),
       "Data type mismatch for GetAttr");
@@ -875,8 +875,8 @@ std::string GetAttr::toInlineString(int indent_size) const {
 std::vector<PolymorphicValue> GetAttr::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
-  TORCH_INTERNAL_ASSERT(inputs.size() == 1, "GetAttr expects 1 input");
-  return {inputs.at(0)[attr()]};
+  NVF_ERROR(inputs.size() == 1, "GetAttr expects 1 input");
+  return {inputs.at(0)->*attr()};
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(GetAttr)
@@ -885,7 +885,7 @@ GetMetaData::GetMetaData(IrBuilderPasskey passkey, Val* output, Val* input)
     : Expr(passkey) {
   addOutput(output);
   addInput(input);
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       out()->dtype() == metaDataTypeOf(in()),
       "Data type mismatch for GetMetaData")
 }
@@ -922,13 +922,13 @@ std::string TensorConstruct::toString(int indent_size) const {
 }
 
 std::string TensorConstruct::toInlineString(int indent_size) const {
-  TORCH_CHECK(false, "Tensor op can not be printed inline");
+  NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
 std::vector<PolymorphicValue> TensorConstruct::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
-  TORCH_INTERNAL_ASSERT(inputs.size() == 1, "TensorConstruct expects 1 input");
+  NVF_ERROR(inputs.size() == 1, "TensorConstruct expects 1 input");
   using namespace PolymorphicValue_functions;
   return {toTensor(inputs.at(0))};
 }
@@ -947,7 +947,7 @@ RNGOp::RNGOp(
     : Expr(passkey) {
   if (auto tv_out = dynamic_cast<TensorView*>(out)) {
     for (auto id : tv_out->getRootDomain()) {
-      TORCH_CHECK(!id->isReduction(), "Output of RNGOp can not have reduction");
+      NVF_CHECK(!id->isReduction(), "Output of RNGOp can not have reduction");
       addInput(id->extent());
     }
   }
@@ -955,7 +955,7 @@ RNGOp::RNGOp(
     addInput(v);
   }
   if (philox_seed || philox_offset) {
-    TORCH_CHECK(
+    NVF_CHECK(
         philox_seed && philox_offset,
         "If either philox_seed or philox_offset is provided, the other must be also");
     addInput(philox_seed);
@@ -988,7 +988,7 @@ std::string RNGOp::toString(int indent_size) const {
 }
 
 std::string RNGOp::toInlineString(int indent_size) const {
-  TORCH_CHECK(false, "Tensor op can not be printed inline");
+  NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
 int64_t RNGOp::getOutputDims() const {
@@ -1010,7 +1010,7 @@ BroadcastOp::BroadcastOp(
   auto out_type = out->getValType().value();
   auto in_type = in->getValType().value();
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       (out_type == ValType::TensorView && in_type == ValType::TensorView) ||
           (out_type == ValType::TensorIndex && in_type == ValType::TensorIndex),
       "Cannot braodcast a non-tensor object.");
@@ -1022,12 +1022,12 @@ BroadcastOp::BroadcastOp(
   // TensorView. Broadcast with TensorIndex only appears after
   // lowering, so it should have already been validated.
   if (out->isA<TensorView>()) {
-    TORCH_INTERNAL_ASSERT(in->isA<TensorView>());
+    NVF_ERROR(in->isA<TensorView>());
     auto in_tv = in->as<TensorView>();
     auto out_tv = out->as<TensorView>();
     auto in_dom = TensorDomain::noReductions(in_tv->getMaybeRFactorDomain());
     auto& out_dom = out_tv->getRootDomain();
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         is_broadcast_dims.size() == out_dom.size(),
         "The dimensions of output tensor and does not match with is_broadcast_dims");
 
@@ -1037,23 +1037,23 @@ BroadcastOp::BroadcastOp(
       if (is_broadcast_dims[i]) {
         num_new_broadcasts++;
         auto id = out_dom[i];
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             id->isBroadcast(),
             "New broadcast dimension does not properly set its IterType.");
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             !id->hasExpandedExtent(),
             "New broadcast dimension can not be expanded.");
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             id->extent()->isOneInt(),
             "New broadcast dimension must have extent 1");
       } else {
         auto in_id = in_dom[i - num_new_broadcasts];
         auto out_id = out_dom[i];
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             in_id->sameAs(out_id), "IterDomain does not match in BroadcastOp");
       }
     }
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         out_size == in_dom.size() + num_new_broadcasts,
         "The dimensions of output tensor and does not match with is_broadcast_dims and input tensor");
   }
@@ -1069,13 +1069,13 @@ std::string BroadcastOp::toString(int indent_size) const {
 }
 
 std::string BroadcastOp::toInlineString(int indent_size) const {
-  TORCH_CHECK(false, "Tensor op can not be printed inline");
+  NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
 std::vector<PolymorphicValue> BroadcastOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       inputs.size() == 1,
       "BroadcastOp expects exactly 1 input, but received ",
       inputs.size());
@@ -1103,12 +1103,12 @@ SqueezeOp::SqueezeOp(
   auto out_type = out->getValType().value();
   auto in_type = in->getValType().value();
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       in_type == ValType::TensorView,
       "Squeeze input must be a TensorView: ",
       in->toString());
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       out_type == ValType::TensorView,
       "Squeeze output must be a TensorView: ",
       in->toString());
@@ -1121,7 +1121,7 @@ SqueezeOp::SqueezeOp(
   auto out_tv = out->as<TensorView>();
   auto in_dom = TensorDomain::noReductions(in_tv->getMaybeRFactorDomain());
   auto& out_dom = out_tv->getRootDomain();
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       is_squeeze_dims.size() == in_dom.size(),
       "The dimensions of input tensor and does not match with is_squeeze_dims");
 
@@ -1131,27 +1131,27 @@ SqueezeOp::SqueezeOp(
     if (is_squeeze_dims[i]) {
       num_removed_broadcasts++;
       auto id = in_dom[i];
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           id->isBroadcast() || id->isSymbolic(),
           "Squeeze dimension should be either Symbolic or Broadcast. Found ",
           id->getIterType());
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           !id->hasExpandedExtent(), "Can not squeeze expanded dimension(s).");
       if (id->isBroadcast()) {
         // Check concrete broadcast extent here. For Symbolic inputs, this check
         // will be deferred to concretization. See dynamic_transform.cpp
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             id->extent()->isOneInt(),
             "Can not squeeze dimension(s) with size != 1.");
       }
     } else {
       auto in_id = in_dom[i];
       auto out_id = out_dom[i - num_removed_broadcasts];
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           in_id->sameAs(out_id), "IterDomain does not match in BroadcastOp");
     }
   }
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       in_size == out_tv->nDims() + num_removed_broadcasts,
       "The dimensions of output tensor and does not match with is_squeeze_dims and input tensor");
 
@@ -1166,20 +1166,20 @@ std::string SqueezeOp::toString(int indent_size) const {
 }
 
 std::string SqueezeOp::toInlineString(int indent_size) const {
-  TORCH_CHECK(false, "Tensor op can not be printed inline");
+  NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
 std::vector<PolymorphicValue> SqueezeOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       inputs.size() == 1,
       "SqueezeOp expects exactly 1 input, but received ",
       inputs.size());
   std::vector<int64_t> out_shape;
   const auto& in = inputs.at(0).as<at::Tensor>();
   const auto& is_squeeze_dims = getSqueezeDimFlags();
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       (int64_t)is_squeeze_dims.size() == in.dim(),
       "The dimensions of input tensor and does not match with is_squeeze_dims");
   for (int64_t i : c10::irange((int64_t)is_squeeze_dims.size())) {
@@ -1192,7 +1192,7 @@ std::vector<PolymorphicValue> SqueezeOp::evaluate(
 
 void SqueezeOp::checkConcretization(Val* old_val, Val* new_val) const {
   Expr::checkConcretization(old_val, new_val); // does nullptr, vtype checks
-  TORCH_CHECK(
+  NVF_CHECK(
       old_val == in(),
       "Pre-concretized Val ",
       old_val->toString(),
@@ -1203,7 +1203,7 @@ void SqueezeOp::checkConcretization(Val* old_val, Val* new_val) const {
       TensorView>(); // NOLINT(clang-analyzer-core.CallAndMessage,-warnings-as-errors)
   auto old_rfactor = old_tv->getMaybeRFactorDomain();
   auto new_rfactor = new_tv->getMaybeRFactorDomain();
-  TORCH_CHECK(
+  NVF_CHECK(
       new_rfactor.size() == old_tv->getMaybeRFactorDomain().size(),
       "New TV ",
       new_tv->toString(),
@@ -1218,15 +1218,15 @@ void SqueezeOp::checkConcretization(Val* old_val, Val* new_val) const {
     }
     auto new_id = new_rfactor.at(i);
     // Check that squeezed dimension concretizes to Broadcast
-    TORCH_CHECK(
+    NVF_CHECK(
         new_id->getIterType() == IterType::Broadcast,
         "Squeezed IterDomain ",
         new_id->toString(),
         " must concretize to IterType::Broadcast but found ",
         new_id->toString());
-    TORCH_CHECK(
+    NVF_CHECK(
         !new_id->hasExpandedExtent(), "Can not squeeze expanded dimension(s).");
-    TORCH_CHECK(
+    NVF_CHECK(
         new_id->extent()->isOneInt(),
         "Can not squeeze dimension(s) with size != 1.");
   }
@@ -1242,11 +1242,11 @@ ReductionOp::ReductionOp(
     Val* in,
     bool is_allreduce)
     : Expr(passkey) {
-  TORCH_CHECK(
+  NVF_CHECK(
       out->getValType().value() == ValType::TensorView ||
       out->getValType().value() == ValType::TensorIndex);
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       (in->getValType() == ValType::TensorView &&
        out->getValType() == ValType::TensorView) ||
           (in->getValType() == ValType::TensorIndex &&
@@ -1254,13 +1254,13 @@ ReductionOp::ReductionOp(
       "Reduction operation was created that does not have tensor inputs and outputs.");
 
   if (in->isA<TensorView>()) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         TensorDomain::noReductions(
             in->as<TensorView>()->getMaybeRFactorDomain())
                 .size() == out->as<TensorView>()->getRootDomain().size(),
         "Reduction operation created with mismatched domains.");
   }
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       init->isConstScalar(),
       "Tried to create a reduction operation whith an initial value that isn't a constant.");
 
@@ -1283,7 +1283,7 @@ std::string ReductionOp::toString(int indent_size) const {
 }
 
 std::string ReductionOp::toInlineString(int indent_size) const {
-  TORCH_CHECK(false, "Tensor op can not be printed inline");
+  NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(ReductionOp)
@@ -1328,7 +1328,7 @@ std::string GroupedReductionOp::toString(int indent_size) const {
 }
 
 std::string GroupedReductionOp::toInlineString(int indent_size) const {
-  TORCH_CHECK(false, "Tensor op can not be printed inline");
+  NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
 int GroupedReductionOp::getExprIndexOfOutput(Val* output_val) const {
@@ -1337,7 +1337,7 @@ int GroupedReductionOp::getExprIndexOfOutput(Val* output_val) const {
     return (int)std::distance(outputs().begin(), it);
   }
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       false, "Not an output, ", output_val->toString(), ", of ", toString());
 }
 
@@ -1383,39 +1383,39 @@ WelfordOp::WelfordOp(
   // Previously, nullptr was accepted and implicitly replaced by
   // default values. Looks like we always pass some non-null values,
   // so removed the implicit default behavior for code simplicity.
-  TORCH_INTERNAL_ASSERT(output.avg() != nullptr);
-  TORCH_INTERNAL_ASSERT(output.var() != nullptr);
-  TORCH_INTERNAL_ASSERT(output.N() != nullptr);
-  TORCH_INTERNAL_ASSERT(init.avg() != nullptr);
-  TORCH_INTERNAL_ASSERT(init.var() != nullptr);
-  TORCH_INTERNAL_ASSERT(init.N() != nullptr);
-  TORCH_INTERNAL_ASSERT(input.avg() != nullptr);
-  TORCH_INTERNAL_ASSERT(input.var() != nullptr);
-  TORCH_INTERNAL_ASSERT(input.N() != nullptr);
+  NVF_ERROR(output.avg() != nullptr);
+  NVF_ERROR(output.var() != nullptr);
+  NVF_ERROR(output.N() != nullptr);
+  NVF_ERROR(init.avg() != nullptr);
+  NVF_ERROR(init.var() != nullptr);
+  NVF_ERROR(init.N() != nullptr);
+  NVF_ERROR(input.avg() != nullptr);
+  NVF_ERROR(input.var() != nullptr);
+  NVF_ERROR(input.N() != nullptr);
 
   // Check output type
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       output.avg()->getValType().value() == ValType::TensorView ||
       output.avg()->getValType().value() == ValType::TensorIndex);
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       output.var()->getValType().value() == ValType::TensorView ||
       output.var()->getValType().value() == ValType::TensorIndex);
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       output.N()->getValType().value() == ValType::TensorView ||
       output.N()->getValType().value() == ValType::TensorIndex);
-  TORCH_INTERNAL_ASSERT(isIntegralType(output.N()->dtype()));
+  NVF_ERROR(isIntegralType(output.N()->dtype()));
 
   // check initial value
-  TORCH_INTERNAL_ASSERT(init.N()->getValType().value() == ValType::Others);
-  TORCH_INTERNAL_ASSERT(isIntegralType(init.N()->dtype()));
+  NVF_ERROR(init.N()->getValType().value() == ValType::Others);
+  NVF_ERROR(isIntegralType(init.N()->dtype()));
   if (!init.N()->isZeroInt()) {
     // when initial count is zero, no initial variance or average is needed
     // initial value with a count of 1 is un-common enough that I'll push
     // the responsibility of creating all-zero var tensors to the user
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         init.avg()->getValType().value() == ValType::TensorView ||
         init.avg()->getValType().value() == ValType::TensorIndex);
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         init.var()->getValType().value() == ValType::TensorView ||
             init.var()->getValType().value() == ValType::TensorIndex,
         "Invalid initial var: ",
@@ -1423,23 +1423,23 @@ WelfordOp::WelfordOp(
   }
 
   // check input
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       input.avg()->getValType().value() == ValType::TensorView ||
           input.avg()->getValType().value() == ValType::TensorIndex,
       input.avg()->getValType().value());
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       input.N()->getValType().value() == ValType::Others ||
       input.N()->getValType().value() == ValType::TensorView ||
       input.N()->getValType().value() == ValType::TensorIndex);
-  TORCH_INTERNAL_ASSERT(isIntegralType(input.N()->dtype()));
+  NVF_ERROR(isIntegralType(input.N()->dtype()));
   if (!input.N()->isOneInt()) {
     // when input is only one value, only the value is required through avg
     // input the var part is implicitly 0 and codegen will handle that.
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         input.var()->getValType().value() == ValType::TensorView ||
         input.var()->getValType().value() == ValType::TensorIndex);
   } else {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         input.var() == nullptr || input.var()->isZeroInt(),
         "Invalid var input, which must be either nullptr or scalar zero when the N input is one.");
   }
@@ -1457,7 +1457,7 @@ WelfordOp::WelfordOp(
   addAttribute(init.N());
   addDataAttribute(is_fused);
 
-  TORCH_INTERNAL_ASSERT(attributes().size() == kNumAttrs);
+  NVF_ERROR(attributes().size() == kNumAttrs);
 }
 
 WelfordOp::WelfordOp(
@@ -1482,7 +1482,7 @@ WelfordOp::WelfordOp(
 Val* WelfordOp::getInitValOfOutput(Val* output_val) const {
   auto val_name = outputTriplet().getNameOf(output_val);
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       val_name.has_value(),
       "Not an output val ",
       output_val->toString(),
@@ -1519,7 +1519,7 @@ std::string WelfordOp::toString(int indent_size) const {
 }
 
 std::string WelfordOp::toInlineString(int indent_size) const {
-  TORCH_CHECK(false, "Tensor op can not be printed inline");
+  NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(WelfordOp)
@@ -1533,13 +1533,13 @@ GroupedWelfordOp::GroupedWelfordOp(
     : Expr(passkey) {
   const auto num_grouped_ops = output_vals.size();
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       input_vals.size() == num_grouped_ops,
       "Invalid number of input arguments. Expected: ",
       num_grouped_ops,
       ", Given: ",
       input_vals.size());
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       init_vals.size() == num_grouped_ops,
       "Invalid number of N arguments. Expected: ",
       num_grouped_ops,
@@ -1548,27 +1548,27 @@ GroupedWelfordOp::GroupedWelfordOp(
 
   for (const auto i : c10::irange(num_grouped_ops)) {
     // Check output type
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         output_vals[i].avg()->getValType().value() == ValType::TensorView ||
         output_vals[i].avg()->getValType().value() == ValType::TensorIndex);
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         output_vals[i].var()->getValType().value() == ValType::TensorView ||
         output_vals[i].var()->getValType().value() == ValType::TensorIndex);
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         output_vals[i].N()->getValType().value() == ValType::TensorView ||
         output_vals[i].N()->getValType().value() == ValType::TensorIndex);
-    TORCH_INTERNAL_ASSERT(isIntegralType(output_vals[i].N()->dtype()));
+    NVF_ERROR(isIntegralType(output_vals[i].N()->dtype()));
 
     // check initial value
     auto init_avg = init_vals[i].avg();
     auto init_var = init_vals[i].var();
     auto init_N = init_vals[i].N();
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         init_avg != nullptr && init_var != nullptr && init_N != nullptr,
         "nullptr init vals are not allowed");
-    TORCH_INTERNAL_ASSERT(init_N->getValType().value() == ValType::Others);
-    TORCH_INTERNAL_ASSERT(isIntegralType(init_N->dtype()));
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(init_N->getValType().value() == ValType::Others);
+    NVF_ERROR(isIntegralType(init_N->dtype()));
+    NVF_ERROR(
         init_avg->getValType().value() == ValType::TensorView ||
             init_avg->getValType().value() == ValType::TensorIndex ||
             (init_N->isZeroInt() &&
@@ -1578,7 +1578,7 @@ GroupedWelfordOp::GroupedWelfordOp(
         init_avg->toString(),
         ". Initial N: ",
         init_N->toString());
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         init_var->getValType().value() == ValType::TensorView ||
             init_var->getValType().value() == ValType::TensorIndex ||
             (init_N->isZeroInt() &&
@@ -1590,15 +1590,15 @@ GroupedWelfordOp::GroupedWelfordOp(
     auto in_avg = input_vals[i].avg();
     auto in_var = input_vals[i].var();
     auto in_N = input_vals[i].N();
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         in_avg != nullptr && in_var != nullptr && in_N != nullptr,
         "nullptr input vals are not allowed");
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         in_N->getValType().value() == ValType::Others ||
         in_N->getValType().value() == ValType::TensorView ||
         in_N->getValType().value() == ValType::TensorIndex);
-    TORCH_INTERNAL_ASSERT(isIntegralType(in_N->dtype()));
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(isIntegralType(in_N->dtype()));
+    NVF_ERROR(
         in_avg->getValType().value() == ValType::TensorView ||
             in_avg->getValType().value() == ValType::TensorIndex,
         "Invalid input avg argument type: ",
@@ -1607,12 +1607,12 @@ GroupedWelfordOp::GroupedWelfordOp(
     if (in_N->isOneInt()) {
       // when input is only one value, only the value is required through avg
       // input the var part must be implicitly 0
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           in_var->isZeroInt(),
           "Invalid var input, which must be scalar zero when the N input is one: ",
           in_var->toString());
     } else {
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           in_var->getValType().value() == ValType::TensorView ||
               in_var->getValType().value() == ValType::TensorIndex,
           in_var->getValType().value(),
@@ -1661,7 +1661,7 @@ std::string GroupedWelfordOp::toString(int indent_size) const {
 }
 
 std::string GroupedWelfordOp::toInlineString(int indent_size) const {
-  TORCH_CHECK(false, "Tensor op can not be printed inline");
+  NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
 int GroupedWelfordOp::getExprIndexOfOutput(Val* output_val) const {
@@ -1671,7 +1671,7 @@ int GroupedWelfordOp::getExprIndexOfOutput(Val* output_val) const {
     }
   }
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       false, "Not an output, ", output_val->toString(), ", of ", toString());
 }
 
@@ -1787,7 +1787,7 @@ MmaOptions::MmaLayout getInputLayout(
     return MmaOptions::MmaLayout::NN;
   }
 
-  TORCH_INTERNAL_ASSERT(false, "Unsupported input layout");
+  NVF_ERROR(false, "Unsupported input layout");
 }
 
 MmaOpDetails getMmaOpDetails(
@@ -1870,11 +1870,9 @@ MmaOpDetails getMmaOpDetails(
 
   const auto validateInputDetails = [](const TensorViewDetails& details,
                                        const std::string& desc) {
-    TORCH_INTERNAL_ASSERT(
-        !details.bcasts.empty(), desc, ": has no broadcast domains.");
-    TORCH_INTERNAL_ASSERT(
-        details.rdomains.empty(), desc, ": has reduction domains.");
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(!details.bcasts.empty(), desc, ": has no broadcast domains.");
+    NVF_ERROR(details.rdomains.empty(), desc, ": has reduction domains.");
+    NVF_ERROR(
         details.cdomains.size() >= expected_gemm_cdomains,
         desc,
         ": has unsupported number of concrete domains, expected at least ",
@@ -1886,11 +1884,9 @@ MmaOpDetails getMmaOpDetails(
   const auto validateOutputDetails = [](const TensorViewDetails& details,
                                         const std::string& desc) {
     // TODO: revise rules when add support for batch gemms
-    TORCH_INTERNAL_ASSERT(
-        details.bcasts.empty(), desc, ": has broadcast domains.");
-    TORCH_INTERNAL_ASSERT(
-        !details.rdomains.empty(), desc, ": has no reduction domains.");
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(details.bcasts.empty(), desc, ": has broadcast domains.");
+    NVF_ERROR(!details.rdomains.empty(), desc, ": has no reduction domains.");
+    NVF_ERROR(
         (details.cdomains.size() >= expected_gemm_cdomains),
         desc,
         ": has unsupported number of concrete domains, expected at least ",
@@ -1914,13 +1910,13 @@ MmaOpDetails getMmaOpDetails(
       in_a_details.cdomains, in_b_details.cdomains, out_details.rdomains);
   details.batch_axes = getBatchAxes(in_a_details, in_b_details, out_details);
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       !details.m_axes.empty(),
       "MmaOp inputs must define at least a single M dimension");
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       !details.n_axes.empty(),
       "MmaOp inputs must define at least a single N dimension");
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       !details.k_axes.empty(),
       "MmaOp inputs must define at least a single K dimension");
 
@@ -1945,17 +1941,17 @@ MmaOp::MmaOp(
     Val* in_b,
     Val* init)
     : Expr(passkey) {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       out->getValType().value() == ValType::TensorView ||
           out->getValType().value() == ValType::TensorIndex,
       out->getValType().value());
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       in_a->getValType().value() == ValType::TensorView ||
           in_a->getValType().value() == ValType::TensorIndex,
       in_a->getValType().value());
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       in_b->getValType().value() == ValType::TensorView ||
           in_b->getValType().value() == ValType::TensorIndex,
       in_b->getValType().value());
@@ -2007,8 +2003,8 @@ MmaOp::MmaOp(
 
   const auto input_layout_ = attribute<MmaLayoutOpt>(ATTR_POS_INPUT_LAYOUT);
   if (input_layout_.has_value()) {
-    TORCH_INTERNAL_ASSERT(input_layout.has_value());
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(input_layout.has_value());
+    NVF_ERROR(
         input_layout_.value() == input_layout.value(),
         "Input layout mismatch, infered attribute (",
         nvfuser::toString(input_layout_.value()),
@@ -2029,15 +2025,15 @@ std::string MmaOp::toString(int indent_size) const {
 }
 
 std::string MmaOp::toInlineString(int indent_size) const {
-  TORCH_CHECK(false, "Tensor op can not be printed inline");
+  NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
 void MmaOp::configureOptions(MmaOptions options) {
   OptionsInMma& opt = attribute<OptionsInMma>(ATTR_POS_OPTS);
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       options.macro != MmaOptions::MacroType::NoMMA,
       "Un-configured mma type from options.");
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       options.accumulator_stride > 0, "Un-configured accumulator stride.");
   opt.accumulator_stride = options.accumulator_stride;
   opt.macro = options.macro;
@@ -2054,8 +2050,8 @@ ExpandOp::ExpandOp(
   addOutput(out);
   addInput(in);
   for (auto expanded_extent : _expanded_extents) {
-    TORCH_INTERNAL_ASSERT(expanded_extent != nullptr);
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(expanded_extent != nullptr);
+    NVF_ERROR(
         expanded_extent->dtype() == DataType::Index,
         "Expanded extents must be of index type.");
     addInput(expanded_extent);
@@ -2072,7 +2068,7 @@ std::string ExpandOp::toString(int indent_size) const {
 }
 
 std::string ExpandOp::toInlineString(int indent_size) const {
-  TORCH_CHECK(false, "Tensor op can not be printed inline");
+  NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(ExpandOp)
@@ -2085,24 +2081,24 @@ ShiftOp::ShiftOp(
     std::vector<int> pad_width)
     : Expr(passkey) {
   // clang-tidy complains about out that it may be null.
-  TORCH_INTERNAL_ASSERT(out != nullptr);
-  TORCH_INTERNAL_ASSERT(in != nullptr);
+  NVF_ERROR(out != nullptr);
+  NVF_ERROR(in != nullptr);
 
   auto out_type = out->getValType().value();
   auto in_type = in->getValType().value();
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       out_type == ValType::TensorView && in_type == ValType::TensorView,
       "Cannot shift a non-tensor object.");
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       offsets.size() ==
           TensorDomain::noReductions(in->as<TensorView>()->getRootDomain())
               .size(),
       "Invalid offset vector: ",
       offsets);
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       pad_width.size() ==
           TensorDomain::noReductions(in->as<TensorView>()->getRootDomain())
               .size(),
@@ -2124,7 +2120,7 @@ std::string ShiftOp::toString(int indent_size) const {
 }
 
 std::string ShiftOp::toInlineString(int indent_size) const {
-  TORCH_CHECK(false, "Tensor op can not be printed inline");
+  NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(ShiftOp)
@@ -2137,28 +2133,27 @@ GatherOp::GatherOp(
     std::vector<std::vector<int>> pad_width)
     : Expr(passkey) {
   // clang-tidy complains about out_ that it may be null.
-  TORCH_INTERNAL_ASSERT(out != nullptr);
-  TORCH_INTERNAL_ASSERT(in != nullptr);
+  NVF_ERROR(out != nullptr);
+  NVF_ERROR(in != nullptr);
 
   auto out_type = out->getValType().value();
   auto in_type = in->getValType().value();
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       out_type == ValType::TensorView && in_type == ValType::TensorView,
       "Cannot shift a non-tensor object.");
 
   const auto ndims =
       TensorDomain::noReductions(in->as<TensorView>()->getRootDomain()).size();
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       window_shape.size() == ndims,
       "Invalid window_shape vector: ",
       window_shape);
-  TORCH_INTERNAL_ASSERT(
-      pad_width.size() == ndims, "Invalid pad_width vector: ", pad_width);
+  NVF_ERROR(pad_width.size() == ndims, "Invalid pad_width vector: ", pad_width);
 
   for (const auto& pad : pad_width) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         pad.size() == 2, "Padding size for each axis must have two Int vals.");
   }
 
@@ -2186,14 +2181,14 @@ std::string GatherOp::toString(int indent_size) const {
 }
 
 std::string GatherOp::toInlineString(int indent_size) const {
-  TORCH_CHECK(false, "Tensor op can not be printed inline");
+  NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
 int64_t GatherOp::gatherAxis(int64_t axis) const {
   if (axis < 0) {
     axis += (int64_t)out()->as<TensorView>()->nDims();
   }
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       axis >= 0 && axis < (int64_t)windowShape().size(),
       "Invalid axis: ",
       axis);
@@ -2222,7 +2217,7 @@ std::string ViewAsScalar::toString(int indent_size) const {
 }
 
 std::string ViewAsScalar::toInlineString(int indent_size) const {
-  TORCH_CHECK(false, "Tensor op can not be printed inline");
+  NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(ViewAsScalar)
@@ -2240,7 +2235,7 @@ std::string ViewOp::toString(int indent_size) const {
 }
 
 std::string ViewOp::toInlineString(int indent_size) const {
-  TORCH_CHECK(false, "Tensor op can not be printed inline");
+  NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(ViewOp)
@@ -2289,7 +2284,7 @@ std::string LoadStoreOp::toString(int indent_size) const {
 }
 
 std::string LoadStoreOp::toInlineString(int indent_size) const {
-  TORCH_CHECK(false, "Tensor op can not be printed inline");
+  NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
 bool LoadStoreOp::hasInnerTranspose() const {
@@ -2304,7 +2299,7 @@ NVFUSER_DEFINE_CLONE_AND_CREATE(LoadStoreOp)
 
 IterDomainBuilder::IterDomainBuilder(Val* _start, Val* _extent)
     : start_(_start), extent_(_extent) {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       start_ != nullptr && extent_ != nullptr,
       "Start and extent are required to build an iter domain.");
 }
@@ -2390,7 +2385,7 @@ IterDomainBuilder& IterDomainBuilder::is_mma_swizzled(bool _is_mma_swizzled) {
 }
 
 IterDomain* IterDomainBuilder::build() const {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       start_ != nullptr && extent_ != nullptr,
       "Start and extent are required to build an iter domain.");
   return IrBuilder::create<IterDomain>(start_->container(), *this);
@@ -2428,25 +2423,25 @@ IterDomain::IterDomain(
   // size 1, we will mark it as Broadcast, but the resize must lie between root
   // and rfactor.
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       extent->dtype() == DataType::Index,
       "Cannot create an iter domain over an extent that is not an nvfuser_index_t but received ",
       extent->dtype(),
       " .");
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       expanded_extent == nullptr || expanded_extent->dtype() == DataType::Index,
       "Cannot create an iter domain over an expanded_extent that is not an nvfuser_index_t but received ",
       expanded_extent->dtype(),
       " .");
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       start->dtype() == DataType::Index,
       "Cannot create an iter domain with a start that is not an nvfuser_index_t but received ",
       start->dtype(),
       " .");
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       stop_offset_->dtype() == DataType::Index,
       "Cannot create an iter domain with a stop_offset_ that is not an nvfuser_index_t but received ",
       stop_offset_->dtype(),
@@ -2581,19 +2576,19 @@ std::vector<IterDomain*> IterDomain::clone(
 // domains have valid start and stop, it's not possible to contiguous
 // predication.
 IterDomain* IterDomain::merge(IterDomain* outer, IterDomain* inner) {
-  TORCH_CHECK(
+  NVF_CHECK(
       outer->isReduction() == inner->isReduction(),
       "Merging IterDomains requires that their iteration types match. ",
       "Outer: ",
       outer->toString(),
       ", Inner: ",
       inner->toString());
-  TORCH_CHECK(
+  NVF_CHECK(
       (outer->isGather() && inner->isGather()) ||
           (!outer->isGather() && !inner->isGather()),
       "Merging gather and non-gather domains is not supported.");
 
-  TORCH_CHECK(
+  NVF_CHECK(
       !outer->isStride() && !inner->isStride(),
       "No support for merging stride domains");
 
@@ -2657,7 +2652,7 @@ std::pair<IterDomain*, IterDomain*> IterDomain::split(
     bool inner_split,
     Val* start_offset,
     Val* stop_offset) {
-  TORCH_CHECK(
+  NVF_CHECK(
       factor->isIntegralScalar(), "Cannot split by non-integer value ", factor);
 
   // outer loop size
@@ -2671,7 +2666,7 @@ std::pair<IterDomain*, IterDomain*> IterDomain::split(
 
   if ((start_offset != nullptr && !start_offset->isZeroInt()) ||
       (stop_offset != nullptr && !stop_offset->isZeroInt())) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         in->definition() == nullptr,
         "Partial split is only allowed with root domains");
   }
@@ -2738,23 +2733,23 @@ std::pair<IterDomain*, IterDomain*> IterDomain::swizzle(
     IterDomain* in_x,
     IterDomain* in_y,
     SwizzleMode swizzle_mode) {
-  TORCH_CHECK(
+  NVF_CHECK(
       !in_x->extent()->isZeroInt() && !in_y->extent()->isZeroInt(),
       "Invalid swizzling of a empty dimension.");
 
   // TODO: reduction check on swizzle:
-  TORCH_CHECK(
+  NVF_CHECK(
       !in_x->isReduction() && !in_y->isReduction(),
       "swizzled reduction not yet supported");
 
   for (auto input : InputsOf::outputs(in_x->fusion(), {in_x, in_y})) {
-    TORCH_CHECK(
+    NVF_CHECK(
         !input->as<IterDomain>()->isBroadcast(),
         "swizzling broadcast axes not yet supported");
   }
 
   // TODO: gather and shift check on swizzle
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       !in_x->isGather() && !in_y->isGather(),
       "Swizzled gather not yet supported");
 
@@ -2774,26 +2769,39 @@ IterDomain* IterDomain::resize(
     Val* right_expansion,
     bool mark_as_rfactor,
     std::optional<IterType> iter_type_opt) {
-  TORCH_CHECK(
+  NVF_CHECK(
       left_expansion->isIntegralScalar(),
       "Expansion factor must be an integer scalar: ",
       left_expansion->toString());
-  TORCH_CHECK(
+  NVF_CHECK(
       right_expansion->isIntegralScalar(),
       "Expansion factor must be an integer scalar: ",
       right_expansion->toString());
 
-  TORCH_CHECK(
+  if (left_expansion->isConstInt() && right_expansion->isConstInt()) {
+    auto left = left_expansion->evaluateInt();
+    auto right = right_expansion->evaluateInt();
+    if (left == 0 && right == 0) {
+      // This is a trivial resize. Check that we are not changing the IterType,
+      // then return the input.
+      NVF_CHECK(
+          !iter_type_opt.has_value() ||
+              iter_type_opt.value() == in->getIterType(),
+          "If IterType is specified in pad with zero expansion then it must match input");
+      return in;
+    }
+  }
+  NVF_CHECK(
       in->getIterType() == IterType::Iteration ||
           in->getIterType() == IterType::Broadcast ||
           in->getIterType() == IterType::Symbolic || "Not a valid IterType: ",
       in->getIterType());
 
-  TORCH_CHECK(
+  NVF_CHECK(
       in->start()->isZeroInt(),
       "Non-zero start not supported: ",
       in->toString());
-  TORCH_CHECK(
+  NVF_CHECK(
       in->stopOffset()->isZeroInt(),
       "Non-zero stop offset not considered: ",
       in->toString());
@@ -2812,7 +2820,8 @@ IterDomain* IterDomain::resize(
         left_expansion, right_expansion->definition()->as<BinaryOp>()->lhs());
   } else {
     resized_id_size = SimplifyingIrBuilder::addExpr(
-        SimplifyingIrBuilder::addExpr(in->extent(), left_expansion),
+        SimplifyingIrBuilder::addExpr(
+            in->getMaybeExpandedExtent(), left_expansion),
         right_expansion);
   }
 
@@ -2823,12 +2832,13 @@ IterDomain* IterDomain::resize(
   if (iter_type_opt.has_value()) {
     iter_type = iter_type_opt.value();
   } else if (left_expansion->isConstInt() && right_expansion->isConstInt()) {
+    auto left = left_expansion->evaluateInt();
+    auto right = right_expansion->evaluateInt();
     if (resized_id_size->isConstInt()) {
       // Means input extent is also known
       auto out_extent = resized_id_size->evaluateInt();
       iter_type = out_extent == 1 ? IterType::Broadcast : IterType::Iteration;
-    } else if (
-        left_expansion->evaluateInt() + right_expansion->evaluateInt() > 1) {
+    } else if (left + right > 1) {
       // Input extent is non-negative, so we know out_extent > 1
       iter_type = IterType::Iteration;
     }
@@ -2859,7 +2869,7 @@ void IterDomain::parallelize(ParallelType t) {
   // assert check that we only parallelize a leaf domain.
   // leaf domains are domains that are not used by any other domains.
   if (t != ParallelType::Serial) {
-    TORCH_CHECK(
+    NVF_CHECK(
         uses().empty(),
         "Only allowed to parallelize a leaf domain.",
         " Domain: ",
@@ -2872,7 +2882,7 @@ void IterDomain::parallelize(ParallelType t) {
 
   if (t == ParallelType::Unroll || isParallelTypeVectorize(t) ||
       t == ParallelType::Group) {
-    TORCH_CHECK(
+    NVF_CHECK(
         start()->isZeroInt() && extent()->isConstScalar(),
         "Vectorization, unrolling, unswitching and grouping are only supported with start = 0 and extent as a const int, but got ",
         "a start of ",
@@ -2883,7 +2893,7 @@ void IterDomain::parallelize(ParallelType t) {
   }
 
   if (t == ParallelType::Group) {
-    TORCH_CHECK(
+    NVF_CHECK(
         getIterType() == IterType::Iteration,
         "Grouping IterDomain of non Iteration type is not allowed. ",
         getIterType());
@@ -2897,7 +2907,7 @@ void IterDomain::parallelize(ParallelType t) {
     //  to make copies of the iterdomains. We might eventually just want
     //  to lock these parallel types and not allowing any changes once
     //  they are swizzled.
-    TORCH_CHECK(
+    NVF_CHECK(
         t == ParallelType::Vectorize || t == ParallelType::TIDx ||
             t == ParallelType::Serial || t == ParallelType::Mma,
         "Parallel type other than serial, tidx, vectorize not allowed for mma swizzled ids");
@@ -2927,7 +2937,7 @@ namespace {
 void validateContiguity(
     const std::vector<IterDomain*>& allocation_domain,
     const std::vector<std::optional<bool>>& contiguity) {
-  TORCH_CHECK(
+  NVF_CHECK(
       contiguity.size() == allocation_domain.size(),
       "Invalid contiguity information provided, incorrect size. Received vector of size ",
       contiguity.size(),
@@ -2937,7 +2947,7 @@ void validateContiguity(
     bool expect_null =
         (allocation_domain.at(i)->isBroadcast() ||
          allocation_domain.at(i)->isReduction());
-    TORCH_CHECK(
+    NVF_CHECK(
         expect_null != contiguity.at(i).has_value(),
         "The contiguity of a broadcast/reduction dimension must be None. "
         "The contiguity of a non-broadcast/reduction dimension must be true/false");
@@ -2977,7 +2987,7 @@ TensorDomain::TensorDomain(
   validateContiguity(maybeAllocation(), contiguity_);
 
   if (!root_domain_.empty()) {
-    TORCH_CHECK(!leaf_domain_.empty(), "Root domain is not empty but leaf is");
+    NVF_CHECK(!leaf_domain_.empty(), "Root domain is not empty but leaf is");
     ir_utils::validateDomainEquivalence(root_domain_, leaf_domain_);
   }
 
@@ -3002,7 +3012,7 @@ TensorDomain::TensorDomain(
   validateContiguity(maybeAllocation(), contiguity_);
 
   if (!root_domain_.empty()) {
-    TORCH_CHECK(!leaf_domain_.empty(), "Root domain is not empty but leaf is");
+    NVF_CHECK(!leaf_domain_.empty(), "Root domain is not empty but leaf is");
     ir_utils::validateDomainEquivalence(root_domain_, leaf_domain_);
     if (!rfactor_domain_.empty()) {
       ir_utils::validateDomainEquivalence(root_domain_, rfactor_domain_);
@@ -3033,7 +3043,7 @@ TensorDomain::TensorDomain(
   validateContiguity(maybeAllocation(), contiguity_);
 
   if (!root_domain_.empty()) {
-    TORCH_CHECK(!leaf_domain_.empty(), "Root domain is not empty but leaf is");
+    NVF_CHECK(!leaf_domain_.empty(), "Root domain is not empty but leaf is");
     ir_utils::validateDomainEquivalence(root_domain_, leaf_domain_);
     if (!rfactor_domain_.empty()) {
       ir_utils::validateDomainEquivalence(root_domain_, rfactor_domain_);
@@ -3185,11 +3195,11 @@ std::string TensorDomain::toInlineString(int indent_size) const {
 
 void TensorDomain::setContiguity(
     const std::vector<std::optional<bool>>& contig) {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       maybeAllocation().size() == contig.size(),
       "Invalid size of contiguity vector");
   for (auto i : c10::irange(contig.size())) {
-    TORCH_CHECK(
+    NVF_CHECK(
         maybeAllocation().at(i)->isBroadcast() != contig.at(i).has_value(),
         "The contiguity of a broadcast dimension must be None. "
         "The contiguity of a non-broadcast dimension must be true/false");
@@ -3262,12 +3272,11 @@ std::optional<unsigned int> TensorDomain::getReductionAxis() const {
 // i here is int, as we want to accept negative value and ::size_type can be a
 // uint.
 IterDomain* TensorDomain::axis(int i) const {
-  TORCH_INTERNAL_ASSERT(
-      nDims() > 0, "Tried to access an axis in a 0-dim domain");
+  NVF_ERROR(nDims() > 0, "Tried to access an axis in a 0-dim domain");
   if (i < 0) {
     i += (int)nDims();
   }
-  TORCH_CHECK(
+  NVF_CHECK(
       i >= 0 && (unsigned int)i < nDims(),
       "Tried to access axis ",
       i,
@@ -3277,21 +3286,21 @@ IterDomain* TensorDomain::axis(int i) const {
 }
 
 int64_t TensorDomain::posOf(IterDomain* id) const {
-  TORCH_INTERNAL_ASSERT(nDims() > 0, "Tried to find an axis in a 0-dim domain");
+  NVF_ERROR(nDims() > 0, "Tried to find an axis in a 0-dim domain");
   int64_t i = 0;
   while (i < (int64_t)leaf_domain_.size()) {
     if (leaf_domain_[i] == id)
       return i;
     i++;
   }
-  TORCH_CHECK(false, "Provided id is not part of this domain.");
+  NVF_CHECK(false, "Provided id is not part of this domain.");
 }
 
 int64_t TensorDomain::rootPosOf(IterDomain* id) const {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       !root_domain_.empty(), "Tried to find an axis in a 0-dim root domain");
   auto it = std::find(root_domain_.begin(), root_domain_.end(), id);
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       it != root_domain_.end(), "Provided id is not part of root domain.");
   return std::distance(root_domain_.begin(), it);
 }
@@ -3301,11 +3310,11 @@ void TensorDomain::split(
     Val* factor,
     bool inner_split,
     bool trim_out_of_bounds) {
-  TORCH_INTERNAL_ASSERT(nDims() > 0, "Tried to do split on a 0-dim domain");
+  NVF_ERROR(nDims() > 0, "Tried to do split on a 0-dim domain");
   if (axis_ < 0)
     axis_ += (int)nDims();
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       axis_ >= 0 && (unsigned int)axis_ < nDims(),
       "Tried to split on axis outside TensorDomain's range.");
 
@@ -3313,12 +3322,12 @@ void TensorDomain::split(
 
   // partial split is only allowed with root domains
   if (trim_out_of_bounds) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         std::find(root().begin(), root().end(), id) != root().end(),
         "Partial split is only allowed with root domains");
   }
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       !id->isMmaSwizzled(),
       "Further transformation on warp mapped id's not allowed.");
 
@@ -3332,19 +3341,19 @@ void TensorDomain::split(
 
 // Merge "axis_o" and "axis_i" into 1 dimension
 void TensorDomain::merge(int axis_o, int axis_i) {
-  TORCH_INTERNAL_ASSERT(nDims() > 0, "Tried to do merge on a 0-dim domain");
+  NVF_ERROR(nDims() > 0, "Tried to do merge on a 0-dim domain");
   if (axis_o < 0)
     axis_o += (int)nDims();
 
   if (axis_i < 0)
     axis_i += (int)nDims();
 
-  TORCH_CHECK(
+  NVF_CHECK(
       axis_o >= 0 && (unsigned int)axis_o < nDims() && axis_i >= 0 &&
           (unsigned int)axis_i < nDims(),
       "Invalid merge detected, either one or both axes are outside of TensorView's range.");
 
-  TORCH_CHECK(
+  NVF_CHECK(
       axis_o != axis_i,
       "Invalid merge detected, axes provided are the same axis.");
 
@@ -3357,7 +3366,7 @@ void TensorDomain::merge(int axis_o, int axis_i) {
   IterDomain* first = axis(axis_o);
   IterDomain* second = axis(axis_i);
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       !first->isMmaSwizzled() && !second->isMmaSwizzled(),
       "Further transformation on warp mapped id's not allowed.");
 
@@ -3371,7 +3380,7 @@ void TensorDomain::merge(int axis_o, int axis_i) {
 
 // Reorder axes according to map[old_pos] = new_pos
 void TensorDomain::reorder(const std::unordered_map<int, int>& old2new_) {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       nDims() != 0 || old2new_.empty(), "Tried to reorder a 0-dim domain");
   leaf_domain_ = orderedAs(leaf_domain_, old2new_);
   resetDomains();
@@ -3380,7 +3389,7 @@ void TensorDomain::reorder(const std::unordered_map<int, int>& old2new_) {
 std::vector<IterDomain*> TensorDomain::orderedAs(
     const std::vector<IterDomain*>& dom,
     const std::unordered_map<int, int>& old2new_) {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       !dom.empty() || old2new_.empty(), "Tried to reorder a 0-dim domain");
 
   // Eventhough these checks are already in TensorView, we want to redo them as
@@ -3403,13 +3412,13 @@ void TensorDomain::swizzle(
     int x,
     int y,
     SwizzleMode swizzle_mode) {
-  TORCH_INTERNAL_ASSERT(nDims() > 0, "Tried to do merge on a 0-dim domain");
+  NVF_ERROR(nDims() > 0, "Tried to do merge on a 0-dim domain");
 
-  TORCH_CHECK(
+  NVF_CHECK(
       x >= 0 && (unsigned int)x < nDims(),
       "Invalid swizzle detected, either one or both axes are outside of TensorView's range.");
 
-  TORCH_CHECK(
+  NVF_CHECK(
       y >= 0 && (unsigned int)y < nDims(),
       "Invalid swizzle detected, either one or both axes are outside of TensorView's range.");
 
@@ -3487,7 +3496,7 @@ bool TensorDomain::hasReduction(const std::vector<IterDomain*>& td) {
 }
 
 TensorDomain* TensorDomain::view(const AnalyzeViewResult& view_analysis) {
-  TORCH_INTERNAL_ASSERT(nDims() > 0, "Tried to view transform a 0-dim domain");
+  NVF_ERROR(nDims() > 0, "Tried to view transform a 0-dim domain");
   return transformView(this, view_analysis);
 }
 
@@ -3500,15 +3509,15 @@ TensorDomain* TensorDomain::flatten(int64_t start_dim, int64_t end_dim) {
   if (end_dim < 0) {
     end_dim += (int64_t)inp_domain.size();
   }
-  TORCH_CHECK(
+  NVF_CHECK(
       start_dim >= 0 && start_dim < int64_t(inp_domain.size()),
       "Invalid start_dim ",
       start_dim);
-  TORCH_CHECK(
+  NVF_CHECK(
       end_dim >= 0 && end_dim < int64_t(inp_domain.size()),
       "Invalid end_dim ",
       end_dim);
-  TORCH_CHECK(start_dim <= end_dim, "start_dim must be <= end_dim");
+  NVF_CHECK(start_dim <= end_dim, "start_dim must be <= end_dim");
 
   std::vector<IterDomain*> new_root_domain;
   new_root_domain.reserve(inp_domain.size());
@@ -3589,7 +3598,7 @@ Split::Split(
     Val* start_offset,
     Val* stop_offset)
     : Expr(passkey) {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       factor->isIntegralScalar(),
       "Attempted to create a Split node with a non-integer factor.");
   if (start_offset == nullptr) {
@@ -3630,11 +3639,11 @@ std::string Split::toString(int indent_size) const {
 }
 
 std::string Split::toInlineString(int indent_size) const {
-  TORCH_CHECK(false, "Split can not be printed inline");
+  NVF_CHECK(false, "Split can not be printed inline");
 }
 
 Val* Split::extent(Val* in_extent, Val* start_offset, Val* stop_offset) {
-  TORCH_INTERNAL_ASSERT(in_extent != nullptr);
+  NVF_ERROR(in_extent != nullptr);
 
   if (start_offset != nullptr && !start_offset->isZeroInt()) {
     in_extent = sub(in_extent, start_offset);
@@ -3673,7 +3682,7 @@ std::string Merge::toString(int indent_size) const {
 }
 
 std::string Merge::toInlineString(int indent_size) const {
-  TORCH_CHECK(false, "Tensor op can not be printed inline");
+  NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(Merge)
@@ -3710,7 +3719,7 @@ std::string Swizzle2D::toString(int indent_size) const {
 }
 
 std::string Swizzle2D::toInlineString(int indent_size) const {
-  TORCH_CHECK(false, "Tensor op can not be printed inline");
+  NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(Swizzle2D)
@@ -3741,7 +3750,7 @@ std::string Resize::toString(int indent_size) const {
 }
 
 std::string Resize::toInlineString(int indent_size) const {
-  TORCH_CHECK(false, "Resize can not be printed inline");
+  NVF_CHECK(false, "Resize can not be printed inline");
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(Resize)
@@ -3768,17 +3777,17 @@ bool NamedScalar::sameAs(const Statement* other) const {
 }
 
 NamedScalar* NamedScalar::getParallelDim(ParallelType p_type) {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       isParallelTypeThread(p_type),
       "Cannot get parallel dim of non thread type, received: ",
       p_type);
-  TORCH_INTERNAL_ASSERT(FusionGuard::getCurFusion() != nullptr);
+  NVF_ERROR(FusionGuard::getCurFusion() != nullptr);
   std::string parallel_dim = stringifyThreadSize(p_type);
   return IrBuilder::create<NamedScalar>(parallel_dim, DataType::Index);
 }
 
 NamedScalar* NamedScalar::getParallelIndex(ParallelType p_type) {
-  TORCH_INTERNAL_ASSERT(FusionGuard::getCurFusion() != nullptr);
+  NVF_ERROR(FusionGuard::getCurFusion() != nullptr);
   std::string parallel_ind = stringifyThread(p_type);
   return IrBuilder::create<NamedScalar>(parallel_ind, DataType::Index);
 }
@@ -3826,12 +3835,12 @@ PadOp::PadOp(
     : Expr(passkey) {
   const auto ndims =
       TensorDomain::noReductions(inp->getMaybeRFactorDomain()).size();
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       pad_widths.size() % 2 == 0,
       "Invalid size of padding width vector: ",
       pad_widths.size(),
       ". Number of width vals must be even.");
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       pad_widths.size() == ndims * 2,
       "Invalid size of padding width vector: ",
       pad_widths.size(),
@@ -3840,7 +3849,7 @@ PadOp::PadOp(
   addInput(inp);
   addInput(value);
   for (auto width : pad_widths) {
-    TORCH_CHECK(width != nullptr, "Padding width must not be nullptr");
+    NVF_CHECK(width != nullptr, "Padding width must not be nullptr");
     addInput(width);
   }
 }
@@ -3857,7 +3866,7 @@ std::string PadOp::toString(int indent_size) const {
 }
 
 std::string PadOp::toInlineString(int indent_size) const {
-  TORCH_CHECK(false, "Tensor op can not be printed inline");
+  NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
 std::vector<int> PadOp::getPaddedAxes() const {
@@ -3885,7 +3894,7 @@ std::pair<Val*, Val*> PadOp::getPadWidths(int axis) const {
     axis += num_dims;
   }
 
-  TORCH_CHECK(axis >= 0 && axis < num_dims, "Invalid axis: ", axis);
+  NVF_CHECK(axis >= 0 && axis < num_dims, "Invalid axis: ", axis);
 
   int64_t offset_even = (int64_t)axis * 2;
   int64_t offset_odd = offset_even + 1;
@@ -3902,7 +3911,7 @@ SliceOp::SliceOp(
     : Expr(passkey) {
   const auto ndims =
       TensorDomain::noReductions(inp->getMaybeRFactorDomain()).size();
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       ndims == ranges.size(),
       "The range vector must have the same number of Slice descriptors. Given: ",
       ranges.size(),
@@ -3912,9 +3921,9 @@ SliceOp::SliceOp(
   addOutput(out);
   addInput(inp);
   for (const auto& range : ranges) {
-    TORCH_INTERNAL_ASSERT(range.start != nullptr, "nullptr not allowed");
-    TORCH_INTERNAL_ASSERT(range.stop != nullptr, "nullptr not allowed");
-    TORCH_INTERNAL_ASSERT(range.step != nullptr, "nullptr not allowed");
+    NVF_ERROR(range.start != nullptr, "nullptr not allowed");
+    NVF_ERROR(range.stop != nullptr, "nullptr not allowed");
+    NVF_ERROR(range.step != nullptr, "nullptr not allowed");
     addInput(range.start);
     addInput(range.stop);
     addInput(range.step);
@@ -3940,13 +3949,13 @@ std::string SliceOp::toString(int indent_size) const {
 }
 
 std::string SliceOp::toInlineString(int indent_size) const {
-  TORCH_CHECK(false, "Tensor op can not be printed inline");
+  NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
 std::vector<Slice> SliceOp::getRanges() const {
   const auto num_range_vals =
       std::distance(getRangeInputBegin(), getRangeInputEnd());
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       num_range_vals % 3 == 0,
       "Unexpected number of range vals: ",
       num_range_vals);
@@ -3973,7 +3982,7 @@ CatOp::CatOp(
   for (auto inp : inputs) {
     addInput(inp);
   }
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       concatenated_dim >= 0 &&
           concatenated_dim <
               static_cast<int>(ir_utils::getTv(out)->getRootDomain().size()),
@@ -3991,10 +4000,10 @@ CatOp::CatOp(
     Val* concatenated_domain_index,
     const std::vector<Val*>& preds)
     : Expr(passkey) {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       passkey.ir_container_ != nullptr,
       "IrContainer must be provided to create a CatOp.");
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       passkey.ir_container_->isA<kir::Kernel>(),
       "Should only be used for Kernel container.");
 
@@ -4022,37 +4031,35 @@ std::string CatOp::toString(int indent_size) const {
 }
 
 std::string CatOp::toInlineString(int indent_size) const {
-  TORCH_CHECK(false, "Tensor op can not be printed inline");
+  NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
 Val* CatOp::getConcatenatedDomainIndex() const {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       container()->isA<kir::Kernel>(),
       "Should only be used for Kernel container.");
-  TORCH_INTERNAL_ASSERT(!attributes().empty(), "No attribute found");
-  TORCH_INTERNAL_ASSERT(
-      attribute(1) != nullptr, "nulllptr attribute is invalid");
+  NVF_ERROR(!attributes().empty(), "No attribute found");
+  NVF_ERROR(attribute(1) != nullptr, "nulllptr attribute is invalid");
   auto idx = attribute(1)->as<Val>();
   return idx;
 }
 
 Val* CatOp::getPred(int input_idx) const {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       container()->isA<kir::Kernel>(),
       "Should only be used for Kernel container.");
   const auto num_input_tensors = static_cast<int>(inputs().size());
-  TORCH_INTERNAL_ASSERT(
-      input_idx < num_input_tensors, "Invalid input index: ", input_idx);
+  NVF_ERROR(input_idx < num_input_tensors, "Invalid input index: ", input_idx);
   const auto attr_idx = input_idx + 2;
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       attr_idx < static_cast<int>(attributes().size()),
       "Invalid attribute index: ",
       attr_idx,
       ", number of attributes: ",
       attributes().size());
   auto attr = attributeVal(attr_idx);
-  TORCH_INTERNAL_ASSERT(attr != nullptr, "nullptr attribute is invalid");
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(attr != nullptr, "nullptr attribute is invalid");
+  NVF_ERROR(
       attr->dtype() == DataType::Bool,
       "Attribute must be a Bool val: ",
       attr->toInlineString());

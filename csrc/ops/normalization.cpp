@@ -25,7 +25,7 @@ Val* numFeatures(TensorView* x, const std::vector<int>& dims, size_t ndims) {
 }
 
 TensorView* mean(TensorView* x, const std::vector<int>& dims, bool keepdim) {
-  TORCH_INTERNAL_ASSERT(x != nullptr, "Input is invalid.");
+  NVF_ERROR(x != nullptr, "Input is invalid.");
 
   const size_t kNumberOfDims =
       TensorDomain::noReductions(x->getMaybeRFactorDomain()).size();
@@ -40,7 +40,7 @@ TensorView* variance(
     const std::vector<int>& dims,
     bool unbiased,
     bool keepdim) {
-  TORCH_INTERNAL_ASSERT(x != nullptr, "Input is invalid.");
+  NVF_ERROR(x != nullptr, "Input is invalid.");
   int64_t correction = unbiased ? 1 : 0;
   return variance(x, dims, correction, keepdim);
 }
@@ -50,9 +50,9 @@ TensorView* variance(
     const std::vector<int>& dims,
     int64_t correction,
     bool keepdim) {
-  TORCH_INTERNAL_ASSERT(x != nullptr, "Input is invalid.");
+  NVF_ERROR(x != nullptr, "Input is invalid.");
 
-  TORCH_CHECK(
+  NVF_CHECK(
       correction >= 0, "correction must be non-negative, but got ", correction);
 
   const size_t kNumberOfDims =
@@ -78,14 +78,14 @@ VarMeanResult variance_mean(
     const std::vector<int>& dims,
     int64_t correction,
     bool keepdim) {
-  TORCH_INTERNAL_ASSERT(x != nullptr, "Input is invalid.");
+  NVF_ERROR(x != nullptr, "Input is invalid.");
 
-  TORCH_CHECK(
+  NVF_CHECK(
       correction >= 0, "correction must be non-negative, but got ", correction);
 
   // There are compilation errors for half precision
   auto dtype = x->getDataType().value();
-  TORCH_CHECK(
+  NVF_CHECK(
       !(dtype == DataType::Half || dtype == DataType::BFloat16),
       "variance_mean is not supported for ",
       dtype,
@@ -131,18 +131,17 @@ TensorView* standard_deviation(
     const std::vector<int>& dims,
     bool unbiased,
     bool keepdim) {
-  TORCH_INTERNAL_ASSERT(x != nullptr, "Input is invalid.");
+  NVF_ERROR(x != nullptr, "Input is invalid.");
   return sqrt(variance(x, dims, unbiased, keepdim));
 }
 
 TensorView* softmax(TensorView* x, int dim) {
-  TORCH_INTERNAL_ASSERT(x != nullptr, "Input is invalid.");
+  NVF_ERROR(x != nullptr, "Input is invalid.");
 
   const size_t kNumberOfDims =
       TensorDomain::noReductions(x->getMaybeRFactorDomain()).size();
   const int kReductionAxis = (dim < 0) ? dim + (int)kNumberOfDims : dim;
-  TORCH_INTERNAL_ASSERT(
-      kReductionAxis >= 0 && kReductionAxis < (int)kNumberOfDims);
+  NVF_ERROR(kReductionAxis >= 0 && kReductionAxis < (int)kNumberOfDims);
 
   std::vector<bool> broadcast_mask(kNumberOfDims, false);
   broadcast_mask[kReductionAxis] = true;
@@ -159,14 +158,13 @@ TensorView* softmax(TensorView* x, int dim) {
 }
 
 TensorView* softmax_backward(TensorView* dy, TensorView* y, int dim) {
-  TORCH_INTERNAL_ASSERT(dy != nullptr, "Grad Output is invalid.");
-  TORCH_INTERNAL_ASSERT(y != nullptr, "Output is invalid.");
+  NVF_ERROR(dy != nullptr, "Grad Output is invalid.");
+  NVF_ERROR(y != nullptr, "Output is invalid.");
 
   const size_t kNumberOfDims =
       TensorDomain::noReductions(y->getMaybeRFactorDomain()).size();
   const int kReductionAxis = (dim < 0) ? dim + (int)kNumberOfDims : dim;
-  TORCH_INTERNAL_ASSERT(
-      kReductionAxis >= 0 && kReductionAxis < (int)kNumberOfDims);
+  NVF_ERROR(kReductionAxis >= 0 && kReductionAxis < (int)kNumberOfDims);
 
   std::vector<bool> broadcast_mask(kNumberOfDims, false);
   broadcast_mask[kReductionAxis] = true;
@@ -181,13 +179,12 @@ TensorView* softmax_backward(TensorView* dy, TensorView* y, int dim) {
 }
 
 TensorView* log_softmax(TensorView* x, int dim) {
-  TORCH_INTERNAL_ASSERT(x != nullptr, "Input is invalid.");
+  NVF_ERROR(x != nullptr, "Input is invalid.");
 
   const size_t kNumberOfDims =
       TensorDomain::noReductions(x->getMaybeRFactorDomain()).size();
   const int kReductionAxis = (dim < 0) ? dim + (int)kNumberOfDims : dim;
-  TORCH_INTERNAL_ASSERT(
-      kReductionAxis >= 0 && kReductionAxis < (int)kNumberOfDims);
+  NVF_ERROR(kReductionAxis >= 0 && kReductionAxis < (int)kNumberOfDims);
 
   std::vector<bool> broadcast_mask(kNumberOfDims, false);
   broadcast_mask[kReductionAxis] = true;
@@ -204,14 +201,13 @@ TensorView* log_softmax(TensorView* x, int dim) {
 }
 
 TensorView* log_softmax_backward(TensorView* dy, TensorView* y, int dim) {
-  TORCH_INTERNAL_ASSERT(dy != nullptr, "Grad Output is invalid.");
-  TORCH_INTERNAL_ASSERT(y != nullptr, "Output is invalid.");
+  NVF_ERROR(dy != nullptr, "Grad Output is invalid.");
+  NVF_ERROR(y != nullptr, "Output is invalid.");
 
   const size_t kNumberOfDims =
       TensorDomain::noReductions(y->getMaybeRFactorDomain()).size();
   const int kReductionAxis = (dim < 0) ? dim + (int)kNumberOfDims : dim;
-  TORCH_INTERNAL_ASSERT(
-      kReductionAxis >= 0 && kReductionAxis < (int)kNumberOfDims);
+  NVF_ERROR(kReductionAxis >= 0 && kReductionAxis < (int)kNumberOfDims);
 
   auto bcast_sum_grad = sum(dy, {kReductionAxis}, true /* keepdim */);
   auto softmax = exp(y);
@@ -280,8 +276,8 @@ ForwardNormResult layer_norm(
     TensorView* weight,
     TensorView* bias,
     Val* eps) {
-  TORCH_INTERNAL_ASSERT(x != nullptr, "Input is invalid.");
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(x != nullptr, "Input is invalid.");
+  NVF_ERROR(
       eps != nullptr && eps->getDataType().has_value() &&
           eps->getDataType().value() == DataType::Double,
       "Epsilon (eps) is not a valid Double.");
@@ -328,8 +324,8 @@ ForwardRMSNormResult rms_norm(
     const size_t kNormShapeNumDims,
     TensorView* weight,
     Val* eps) {
-  TORCH_INTERNAL_ASSERT(x != nullptr, "Input is invalid.");
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(x != nullptr, "Input is invalid.");
+  NVF_ERROR(
       eps != nullptr && eps->getDataType().has_value() &&
           eps->getDataType().value() == DataType::Double,
       "Epsilon (eps) is not a valid Double.");
@@ -363,10 +359,10 @@ BackwardNormResult layer_norm_backward(
     TensorView* weight,
     TensorView* bias,
     const std::vector<bool>& output_mask) {
-  TORCH_INTERNAL_ASSERT(dy != nullptr, "Grad Output is invalid.");
-  TORCH_INTERNAL_ASSERT(x != nullptr, "Input is invalid.");
-  TORCH_INTERNAL_ASSERT(mean != nullptr, "Mean is invalid.");
-  TORCH_INTERNAL_ASSERT(invstd != nullptr, "Inv std is invalid.");
+  NVF_ERROR(dy != nullptr, "Grad Output is invalid.");
+  NVF_ERROR(x != nullptr, "Input is invalid.");
+  NVF_ERROR(mean != nullptr, "Mean is invalid.");
+  NVF_ERROR(invstd != nullptr, "Inv std is invalid.");
 
   auto r = norm_properties_from_num_dims(x, norm_shape.size());
 
@@ -417,9 +413,9 @@ BackwardRMSNormResult rms_norm_backward(
     TensorView* invstd,
     TensorView* weight,
     const std::vector<bool>& output_mask) {
-  TORCH_INTERNAL_ASSERT(dy != nullptr, "Grad Output is invalid.");
-  TORCH_INTERNAL_ASSERT(x != nullptr, "Input is invalid.");
-  TORCH_INTERNAL_ASSERT(invstd != nullptr, "Inv std is invalid.");
+  NVF_ERROR(dy != nullptr, "Grad Output is invalid.");
+  NVF_ERROR(x != nullptr, "Input is invalid.");
+  NVF_ERROR(invstd != nullptr, "Inv std is invalid.");
 
   auto r = norm_properties_from_num_dims(x, norm_shape.size());
 
@@ -471,18 +467,18 @@ ForwardNormResult batch_norm(
     bool channels_last) {
   auto fusion = FusionGuard::getCurFusion();
 
-  TORCH_INTERNAL_ASSERT(x != nullptr, "Input is invalid.");
+  NVF_ERROR(x != nullptr, "Input is invalid.");
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       !((running_var == nullptr) ^ (running_mean == nullptr)),
       "running stats should comes in pairs");
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       momentum != nullptr && momentum->getDataType().has_value() &&
           momentum->getDataType().value() == DataType::Double,
       "Momentum is not a valid Double.");
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       eps != nullptr && eps->getDataType().has_value() &&
           eps->getDataType().value() == DataType::Double,
       "Epsilon (eps) is not a valid Double.");
@@ -518,7 +514,7 @@ ForwardNormResult batch_norm(
     // updating running mean and running var
     if (running_mean != nullptr && running_var != nullptr) {
       // Note: kTraining is true here!
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           kTraining,
           "When running stats are provided, batch stats should only be computed during training");
 
@@ -540,16 +536,16 @@ ForwardNormResult batch_norm(
       auto cast_to_input_dtype = [fusion](
                                      Val* cast_input, Val* aliased_output) {
         auto unary_op = cast_input->definition();
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             unary_op->isA<UnaryOp>() &&
                 unary_op->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::Cast,
             "check for cast op");
         auto input_to_cast = unary_op->input(0);
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             input_to_cast->isFusionInput(),
             "IO_tensor batch_norm::running_stats can only updating input tensor to fusion");
         auto rm_dtype = input_to_cast->getDataType();
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             rm_dtype.has_value(),
             "Input running stats must have dtype defined");
         auto cast_output = castOp(*rm_dtype, aliased_output);
@@ -623,9 +619,9 @@ BackwardNormResult batch_norm_backward(
     Val* eps,
     const std::vector<bool>& output_mask,
     bool channels_last) {
-  TORCH_INTERNAL_ASSERT(input != nullptr, "Input is invalid.");
-  TORCH_INTERNAL_ASSERT(grad_output != nullptr, "Grad Output is invalid.");
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(input != nullptr, "Input is invalid.");
+  NVF_ERROR(grad_output != nullptr, "Grad Output is invalid.");
+  NVF_ERROR(
       eps != nullptr && eps->getDataType().has_value() &&
           eps->getDataType().value() == DataType::Double,
       "Epsilon (eps) is not a valid Double.");
@@ -660,7 +656,7 @@ BackwardNormResult batch_norm_backward(
   auto mean = save_mean;
   auto invstd = save_invstd;
   if (kTraining) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         save_mean != nullptr && save_invstd != nullptr,
         "When training=True, save_mean and save_invstd are required.");
   } else {
@@ -722,18 +718,18 @@ ForwardNormResult instance_norm(
     bool channels_last) {
   auto fusion = FusionGuard::getCurFusion();
 
-  TORCH_INTERNAL_ASSERT(x != nullptr, "Input is invalid.");
+  NVF_ERROR(x != nullptr, "Input is invalid.");
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       !((running_var == nullptr) ^ (running_mean == nullptr)),
       "running stats should comes in pairs");
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       momentum != nullptr && momentum->getDataType().has_value() &&
           momentum->getDataType().value() == DataType::Double,
       "Momentum is not a valid Double.");
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       eps != nullptr && eps->getDataType().has_value() &&
           eps->getDataType().value() == DataType::Double,
       "Epsilon (eps) is not a valid Double.");
@@ -878,9 +874,9 @@ BackwardNormResult instance_norm_backward(
     Val* eps,
     const std::vector<bool>& output_mask,
     bool channels_last) {
-  TORCH_INTERNAL_ASSERT(input != nullptr, "Input is invalid.");
-  TORCH_INTERNAL_ASSERT(grad_output != nullptr, "Grad Output is invalid.");
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(input != nullptr, "Input is invalid.");
+  NVF_ERROR(grad_output != nullptr, "Grad Output is invalid.");
+  NVF_ERROR(
       eps != nullptr && eps->getDataType().has_value() &&
           eps->getDataType().value() == DataType::Double,
       "Epsilon (eps) is not a valid Double.");
@@ -922,7 +918,7 @@ BackwardNormResult instance_norm_backward(
   auto mean = save_mean;
   auto invstd = save_invstd;
   if (kTraining) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         save_mean != nullptr && save_invstd != nullptr,
         "When training=True, save_mean and save_invstd are required.");
   } else {

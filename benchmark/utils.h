@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 
+#include <csrc/exceptions.h>
 #include <device_lower/lower2device.h>
 #include <executor.h>
 #include <fusion.h>
@@ -111,7 +112,7 @@ class BenchmarkGraph : public benchmark::Fixture {
 
   FusionExecutorCache* getExecutorCache() {
     auto& executor_ = getExecutorCacheMap()[graphName()];
-    TORCH_INTERNAL_ASSERT(executor_);
+    NVF_ERROR(executor_);
     return executor_.get();
   }
 

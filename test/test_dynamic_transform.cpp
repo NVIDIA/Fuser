@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <csrc/exceptions.h>
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
@@ -41,14 +42,14 @@ TEST_F(NVFuserTest, DynamicTransform1_CUDA) {
   fusion.addOutput(tv3);
 
   // tv2 has symbolic axes as reshape is dynamic
-  TORCH_CHECK(
+  NVF_CHECK(
       tv2->domain()->hasSymbolicAxis(),
       "Expected to have symbolic axes: ",
       tv2->toString());
 
   // The symbolic axes of tv2 should not be propagated to tv3 as tv1
   // is fully concrete
-  TORCH_CHECK(
+  NVF_CHECK(
       !tv3->domain()->hasSymbolicAxis(),
       "Not expected to have symbolic axes: ",
       tv3->toString());
@@ -65,7 +66,7 @@ TEST_F(NVFuserTest, DynamicTransform1_CUDA) {
 
     auto initial_info = DynamicTransform::getInitialInfo(&fusion);
     auto info = DynamicTransformConcretizationInfo(&initial_info, &expr_eval);
-    TORCH_CHECK(
+    NVF_CHECK(
         initial_info.getDynamicExprs().size() == 1 &&
             initial_info.getDynamicExprs().at(0)->isA<ViewOp>(),
         "Expected to have one reshape transform: ",
@@ -96,7 +97,7 @@ TEST_F(NVFuserTest, DynamicTransform1_CUDA) {
           auto info =
               DynamicTransformConcretizationInfo(&initial_info, &expr_eval);
         },
-        ::testing::ThrowsMessage<c10::Error>(::testing::HasSubstr(
+        ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
             "Values of -1 passed to reshape must be constant at definition")));
   }
 
@@ -117,7 +118,7 @@ TEST_F(NVFuserTest, DynamicTransform1_CUDA) {
           auto info =
               DynamicTransformConcretizationInfo(&initial_info, &expr_eval);
         },
-        ::testing::ThrowsMessage<c10::Error>(::testing::HasSubstr(
+        ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
             "Total element counts across view operation must match.")));
   }
 }
@@ -156,7 +157,7 @@ TEST_F(NVFuserTest, DynamicTransform2_CUDA) {
     auto initial_info = DynamicTransform::getInitialInfo(&fusion);
     auto info = DynamicTransformConcretizationInfo(&initial_info, &expr_eval);
 
-    TORCH_CHECK(
+    NVF_CHECK(
         initial_info.getDynamicExprs().size() == 1 &&
             initial_info.getDynamicExprs().at(0)->isA<ViewOp>(),
         "Expected to have one reshape transform: ",
@@ -205,7 +206,7 @@ TEST_F(NVFuserTest, DynamicTransform3_CUDA) {
   auto info = DynamicTransformConcretizationInfo(&initial_info, &expr_eval);
 
   DynamicTransform::concretizeFusion(&fusion, &info);
-  TORCH_CHECK(
+  NVF_CHECK(
       !fusion.hasDynamicTransform(), "Expected to have no dynamic transform");
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -271,7 +272,7 @@ TEST_F(NVFuserTest, DynamicTransform4_CUDA) {
 
     DynamicTransform::concretizeFusion(&fusion, &info);
 
-    TORCH_CHECK(
+    NVF_CHECK(
         !fusion.hasDynamicTransform(), "Expected to have no dynamic transform");
   }
 }
@@ -319,7 +320,7 @@ TEST_F(NVFuserTest, DynamicTransform5_CUDA) {
 
     DynamicTransform::concretizeFusion(&fusion, &info);
 
-    TORCH_CHECK(
+    NVF_CHECK(
         !fusion.hasDynamicTransform(), "Expected to have no dynamic transform");
   }
 }
@@ -372,7 +373,7 @@ TEST_F(NVFuserTest, DynamicTransform6_CUDA) {
 
     DynamicTransform::concretizeFusion(&fusion, &info);
 
-    TORCH_CHECK(
+    NVF_CHECK(
         !fusion.hasDynamicTransform(), "Expected to have no dynamic transform");
   }
 }
@@ -452,7 +453,7 @@ TEST_F(NVFuserTest, DynamicTransform7_CUDA) {
         DynamicTransformConcretizationInfo(&ref_initial_info, &ref_expr_eval);
 
     for (const auto& transform : pattern.equal_transforms) {
-      TORCH_CHECK(transform.shapes.size() == ref_transform.shapes.size());
+      NVF_CHECK(transform.shapes.size() == ref_transform.shapes.size());
       ExpressionEvaluator expr_eval;
       for (const auto i : c10::irange(transform.shapes.size())) {
         const auto& shape = transform.shapes.at(i);
@@ -465,7 +466,7 @@ TEST_F(NVFuserTest, DynamicTransform7_CUDA) {
       auto initial_info = DynamicTransform::getInitialInfo(&fusion);
       auto info = DynamicTransformConcretizationInfo(&initial_info, &expr_eval);
 
-      TORCH_CHECK(
+      NVF_CHECK(
           ref_info == info,
           "Expected to be equal: ",
           ref_info.toString(),
@@ -474,7 +475,7 @@ TEST_F(NVFuserTest, DynamicTransform7_CUDA) {
     }
 
     for (const auto& transform : pattern.different_transforms) {
-      TORCH_CHECK(transform.shapes.size() == ref_transform.shapes.size());
+      NVF_CHECK(transform.shapes.size() == ref_transform.shapes.size());
       ExpressionEvaluator expr_eval;
       for (const auto i : c10::irange(transform.shapes.size())) {
         const auto& shape = transform.shapes.at(i);
@@ -487,7 +488,7 @@ TEST_F(NVFuserTest, DynamicTransform7_CUDA) {
       auto initial_info = DynamicTransform::getInitialInfo(&fusion);
       auto info = DynamicTransformConcretizationInfo(&initial_info, &expr_eval);
 
-      TORCH_CHECK(
+      NVF_CHECK(
           ref_info != info,
           "Expected to be different: ",
           ref_info.toString(),
@@ -510,7 +511,7 @@ TEST_F(NVFuserTest, DynamicTransform8_CUDA) {
   fusion.addOutput(tv1);
 
   // Make sure the reshape is recognized as a static reshape
-  TORCH_CHECK(
+  NVF_CHECK(
       !tv1->domain()->hasSymbolicAxis(),
       "Not expected to have symbolic axes: ",
       tv1->toString());
@@ -533,12 +534,12 @@ TEST_F(NVFuserTest, DynamicTransform9_CUDA) {
   fusion.addOutput(tv2);
 
   // The first reshape is static
-  TORCH_CHECK(
+  NVF_CHECK(
       !tv1->domain()->hasSymbolicAxis(),
       "Unexpected to have symblic axes: ",
       tv1->toString());
   // The second reshape is static
-  TORCH_CHECK(
+  NVF_CHECK(
       tv2->domain()->hasSymbolicAxis(),
       "Expected to have symblic axes: ",
       tv2->toString());
@@ -554,7 +555,7 @@ TEST_F(NVFuserTest, DynamicTransform9_CUDA) {
 
   // There must be only one dynamic reshape entry, and that must be
   // for tv2.
-  TORCH_CHECK(
+  NVF_CHECK(
       initial_info.getDynamicExprs().size() == 1 &&
           initial_info.getDynamicExprs().at(0)->isA<ViewOp>() &&
           initial_info.getDynamicExprs().at(0) == tv2->definition(),
@@ -597,7 +598,7 @@ TEST_F(NVFuserTest, DynamicTransform10_CUDA) {
 
   DynamicTransform::concretizeFusion(&fusion, &info);
 
-  TORCH_CHECK(
+  NVF_CHECK(
       !fusion.hasDynamicTransform(), "Expected to have no dynamic transform");
 }
 
@@ -647,7 +648,7 @@ TEST_F(NVFuserTest, DynamicTransform11_CUDA) {
   // hashes, but in this case they should be different
   auto hash1 = std::hash<DynamicTransformConcretizationInfo>{}(info1);
   auto hash2 = std::hash<DynamicTransformConcretizationInfo>{}(info2);
-  TORCH_CHECK(
+  NVF_CHECK(
       hash1 != hash2,
       "Unexpected hash collision: ",
       hash1,
@@ -673,21 +674,21 @@ TEST_F(NVFuserTest, DynamicTransformFusionExecutorCache_CUDA) {
   fusion->addOutput(tv3);
 
   // tv2 has symbolic axes as reshape is dynamic
-  TORCH_CHECK(
+  NVF_CHECK(
       tv2->domain()->hasSymbolicAxis(),
       "Expected to have symbolic axes: ",
       tv2->toString());
 
   // The symbolic axes of tv2 should not be propagated to tv3 as tv1
   // is fully concrete
-  TORCH_CHECK(
+  NVF_CHECK(
       !tv3->domain()->hasSymbolicAxis(),
       "Not expected to have symbolic axes: ",
       tv3->toString());
 
   FusionExecutorCache executor_cache(std::move(fusion));
 
-  TORCH_CHECK(
+  NVF_CHECK(
       executor_cache.countRuntimes() == 0, "Expect to start with no runtimes");
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -699,7 +700,7 @@ TEST_F(NVFuserTest, DynamicTransformFusionExecutorCache_CUDA) {
     auto ref = t0 + t1;
     testValidate(
         executor_cache.fusion(), cg_outputs, inputs, {ref}, __LINE__, __FILE__);
-    TORCH_CHECK(
+    NVF_CHECK(
         executor_cache.countRuntimes() == 1,
         "Expect to create a single runtime");
   }
@@ -713,8 +714,8 @@ TEST_F(NVFuserTest, DynamicTransformFusionExecutorCache_CUDA) {
         executor_cache.fusion(), cg_outputs, inputs, {ref}, __LINE__, __FILE__);
     auto num_rts = executor_cache.countRuntimes();
     auto num_concs = executor_cache.countConcretizations();
-    TORCH_CHECK(num_rts == 2, "Non-trivial reshape should create new runtime");
-    TORCH_CHECK(
+    NVF_CHECK(num_rts == 2, "Non-trivial reshape should create new runtime");
+    NVF_CHECK(
         num_concs == 2,
         "Non-trivial reshape should create new concretization cache level");
   }
@@ -728,10 +729,10 @@ TEST_F(NVFuserTest, DynamicTransformFusionExecutorCache_CUDA) {
         executor_cache.fusion(), cg_outputs, inputs, {ref}, __LINE__, __FILE__);
     auto num_rts = executor_cache.countRuntimes();
     auto num_concs = executor_cache.countConcretizations();
-    TORCH_CHECK(
+    NVF_CHECK(
         num_rts == 2,
         "Second non-trivial reshape should not create new runtime");
-    TORCH_CHECK(
+    NVF_CHECK(
         num_concs == 2,
         "Second non-trivial reshape should not create new concretization cache level");
   }
@@ -805,8 +806,8 @@ void reductionDynamicViewAddFusion(
     auto output_shape = std::get<1>(inv);
     auto expect_miss = std::get<2>(inv);
 
-    TORCH_INTERNAL_ASSERT(input_shape.size() == input_dims);
-    TORCH_INTERNAL_ASSERT(output_shape.size() == output_dims);
+    NVF_ERROR(input_shape.size() == input_dims);
+    NVF_ERROR(output_shape.size() == output_dims);
 
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
@@ -910,7 +911,7 @@ void reductionDynamicPadAddFusion(
 #define CHECK_CACHE(expect_miss, ...)                              \
   auto current = fusion_executor_cache.getKernelRuntimes().size(); \
   auto expected = num_concretizations + (size_t)expect_miss;       \
-  TORCH_CHECK(                                                     \
+  NVF_CHECK(                                                       \
       current == expected,                                         \
       "Expected cache size ",                                      \
       expected,                                                    \
@@ -931,8 +932,8 @@ void reductionDynamicPadAddFusion(
     auto pad_widths = std::get<1>(inv);
     auto expect_miss = std::get<2>(inv);
 
-    TORCH_INTERNAL_ASSERT(input_shape.size() == input_dims);
-    TORCH_INTERNAL_ASSERT(pad_widths.size() == num_pad_widths);
+    NVF_ERROR(input_shape.size() == input_dims);
+    NVF_ERROR(pad_widths.size() == num_pad_widths);
 
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
