@@ -18,6 +18,7 @@
 #include <test/validator.h>
 
 #include <ATen/cuda/CUDAGeneratorImpl.h>
+#include <ATen/cuda/CUDAGraphsUtils.cuh>
 
 namespace nvfuser {
 
@@ -436,9 +437,25 @@ TEST_F(RNGTest, FunctionalUniform) {
   }
 }
 
-TEST_F(RNGTest, DifferentRandomNumbers) {
-  // Just trying to make sure that we don't get the same random numbers
-  // when we run the same kernel twice.
+namespace {
+
+int64_t get_current_offset() {
+  auto gen = at::cuda::detail::getDefaultCUDAGenerator();
+  {
+    // See Note [Acquire lock when using random generators]
+    std::lock_guard<std::mutex> lock(gen.mutex());
+    auto philox_args =
+        at::check_generator<at::CUDAGeneratorImpl>(gen)->philox_cuda_state(0);
+    auto seeds = at::cuda::philox::unpack(philox_args);
+    return std::get<1>(seeds);
+  }
+}
+
+} // namespace
+
+TEST_F(RNGTest, DifferentOffsets) {
+  // Check that multiple runs of RNG kernel does not produce the same numbers,
+  // and it does bump up RNG offset for ATen.
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   auto fusion = fusion_ptr.get();
   FusionGuard fg(fusion);
@@ -452,8 +469,11 @@ TEST_F(RNGTest, DifferentRandomNumbers) {
 
   for (int64_t size : {1, 4}) {
     at::manual_seed(0);
+    EXPECT_TRUE(get_current_offset() == 0);
     auto r1 = fec.runFusionWithInputs({size}).at(0);
+    EXPECT_TRUE(get_current_offset() == 4);
     auto r2 = fec.runFusionWithInputs({size}).at(0);
+    EXPECT_TRUE(get_current_offset() == 8);
     // Check that non of r1's elements are equal to any r2's elements.
     EXPECT_TRUE(r1.unsqueeze(1).ne(r2.unsqueeze(0)).all().item<bool>());
   }
