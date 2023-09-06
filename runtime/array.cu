@@ -178,6 +178,9 @@ enum class CacheOp {
   Streaming,
 };
 
+// For simplicity, cache_op is only used for non-volatile loads written in
+// inline assembly. Other loads are done with the default cache operator --
+// cache all levels. ld.volatile doesn't accept cache operator anyway.
 template <typename scalar_t, int vec_size, bool is_volatile, CacheOp cache_op>
 __device__ void loadGlobalToLocal(
     scalar_t* to,
@@ -222,14 +225,16 @@ __device__ void loadGlobalToLocal(
         uint4& data = *reinterpret_cast<uint4*>(to);
         switch (cache_op) {
           case CacheOp::AllLevels:
-            asm volatile("ld.global.ca.v4.s32 {%0,%1,%2,%3}, [%4];"
-                         : "=r"(data.x), "=r"(data.y), "=r"(data.z), "=r"(data.w)
-                         : "l"((uint4*)from));
+            asm volatile(
+                "ld.global.ca.v4.s32 {%0,%1,%2,%3}, [%4];"
+                : "=r"(data.x), "=r"(data.y), "=r"(data.z), "=r"(data.w)
+                : "l"((uint4*)from));
             break;
           case CacheOp::Streaming:
-            asm volatile("ld.global.cs.v4.s32 {%0,%1,%2,%3}, [%4];"
-                         : "=r"(data.x), "=r"(data.y), "=r"(data.z), "=r"(data.w)
-                         : "l"((uint4*)from));
+            asm volatile(
+                "ld.global.cs.v4.s32 {%0,%1,%2,%3}, [%4];"
+                : "=r"(data.x), "=r"(data.y), "=r"(data.z), "=r"(data.w)
+                : "l"((uint4*)from));
             break;
         }
       }
