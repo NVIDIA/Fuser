@@ -24,4 +24,8 @@ enum class TORCH_CUDA_CU_API ScheduleHeuristic {
   Matmul
 };
 
+std::string toString(ScheduleHeuristic sh);
+
+std::ostream& operator<<(std::ostream& os, ScheduleHeuristic sh);
+
 } // namespace nvfuser
