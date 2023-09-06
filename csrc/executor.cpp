@@ -2101,29 +2101,41 @@ flatbuffers::Offset<serde::KernelSummary> FusionExecutor::serialize(
       kernel_summary_.dynamic_smem_allocations.begin(),
       kernel_summary_.dynamic_smem_allocations.end());
 
-  serde::ExpressionSerializer es;
-  auto value_generator = es.serialize(builder, kernel(), all_allocations);
-  auto global_allocations =
-      es.serialize(builder, kernel_summary_.global_allocations);
-  auto dynamic_smem_allocations =
-      es.serialize(builder, kernel_summary_.dynamic_smem_allocations);
-
-  return serde::CreateKernelSummaryDirect(
-      builder,
-      summary.has_cooperative_grid_reduction,
-      summary.has_dynamic_local_memory_allocations,
-      summary.has_block_reductions,
-      summary.has_grid_reductions,
-      summary.has_block_broadcasts,
-      summary.has_grid_broadcasts,
-      summary.has_block_welford,
-      summary.has_grid_welford,
-      summary.has_outer_grouped_grid_welford,
-      serde::mapToSerdeDtype(summary.largest_smem_data_type),
-      summary.outer_grouped_grid_welford_largest_smem_size,
-      value_generator,
-      &global_allocations,
-      &dynamic_smem_allocations);
+  if (!kernel_summary_.global_allocations.empty()) {
+    serde::ExpressionSerializer es;
+    auto value_generator = es.serialize(builder, kernel(), all_allocations);
+    auto global_allocations =
+        es.serialize(builder, kernel_summary_.global_allocations);
+    return serde::CreateKernelSummaryDirect(
+        builder,
+        summary.has_cooperative_grid_reduction,
+        summary.has_dynamic_local_memory_allocations,
+        summary.has_block_reductions,
+        summary.has_grid_reductions,
+        summary.has_block_broadcasts,
+        summary.has_grid_broadcasts,
+        summary.has_block_welford,
+        summary.has_grid_welford,
+        summary.has_outer_grouped_grid_welford,
+        serde::mapToSerdeDtype(summary.largest_smem_data_type),
+        summary.outer_grouped_grid_welford_largest_smem_size,
+        value_generator,
+        &global_allocations);
+  } else {
+    return serde::CreateKernelSummaryDirect(
+        builder,
+        summary.has_cooperative_grid_reduction,
+        summary.has_dynamic_local_memory_allocations,
+        summary.has_block_reductions,
+        summary.has_grid_reductions,
+        summary.has_block_broadcasts,
+        summary.has_grid_broadcasts,
+        summary.has_block_welford,
+        summary.has_grid_welford,
+        summary.has_outer_grouped_grid_welford,
+        serde::mapToSerdeDtype(summary.largest_smem_data_type),
+        summary.outer_grouped_grid_welford_largest_smem_size);
+  }
 }
 
 void FusionExecutor::deserialize(
@@ -2267,12 +2279,12 @@ void FusionExecutor::deserialize(const serde::KernelSummary* buffer) {
   kernel_summary_.largest_smem_data_type =
       serde::mapToNvfuserDtype(buffer->largest_smem_data_type());
 
-  serde::ExpressionBuilder es(lowered_->kernel());
-  es.deserialize(buffer->generator());
-  kernel_summary_.global_allocations =
-      es.deserialize(buffer->global_allocations());
-  kernel_summary_.dynamic_smem_allocations =
-      es.deserialize(buffer->dynamic_smem_allocations());
+  if(buffer->generator() != nullptr && buffer->global_allocations() != nullptr) {
+    serde::ExpressionBuilder es(lowered_->kernel());
+    es.deserialize(buffer->generator());
+    kernel_summary_.global_allocations =
+        es.deserialize(buffer->global_allocations());
+  }
 }
 
 } // namespace nvfuser
