@@ -2279,7 +2279,8 @@ void FusionExecutor::deserialize(const serde::KernelSummary* buffer) {
   kernel_summary_.largest_smem_data_type =
       serde::mapToNvfuserDtype(buffer->largest_smem_data_type());
 
-  if(buffer->generator() != nullptr && buffer->global_allocations() != nullptr) {
+  if (buffer->generator() != nullptr &&
+      buffer->global_allocations() != nullptr) {
     serde::ExpressionBuilder es(lowered_->kernel());
     es.deserialize(buffer->generator());
     kernel_summary_.global_allocations =
