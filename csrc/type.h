@@ -715,7 +715,8 @@ static constexpr std::array<IdMappingMode, 6> kIdMappingModes = {
 
 // See
 // https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#cache-operators
-// for what each option means.
+// for what each option means. Will also consider .L1::no_allocate because .cs
+// still pollutes cache to some extent.
 enum class CacheOp {
   AllLevels,
   Streaming,

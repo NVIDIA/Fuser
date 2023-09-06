@@ -170,9 +170,7 @@ __device__ void loadLocalToGlobal(
   }
 }
 
-// See
-// https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#cache-operators
-// for what each option means.
+// This is copied from csrc/type.h and should be kept consistent.
 enum class CacheOp {
   AllLevels,
   Streaming,

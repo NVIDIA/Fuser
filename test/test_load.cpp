@@ -49,14 +49,7 @@ TEST_F(LoadTest, LoadCache) {
   tv1->axis(2)->parallelize(ParallelType::Vectorize);
   scheduler_utils::parallelizeAllLike(tv1, {tv3});
 
-  // The vector dimension can't be inlined.
-  std::unordered_set<IterDomain*> uninlinable;
-  for (TensorView* tv : ir_utils::allTvs(&fusion)) {
-    if (tv->nDims() == 3) {
-      uninlinable.insert(tv->axis(2));
-    }
-  }
-  inlineMost(uninlinable);
+  inlineMost();
 
   at::Tensor input = at::randn(
       {1024}, at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0));
