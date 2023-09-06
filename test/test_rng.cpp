@@ -436,4 +436,27 @@ TEST_F(RNGTest, FunctionalUniform) {
   }
 }
 
+TEST_F(RNGTest, DifferentRandomNumbers) {
+  // Just trying to make sure that we don't get the same random numbers
+  // when we run the same kernel twice.
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  Val* size_val = IrBuilder::create<Val>(DataType::Int);
+  fusion->addInput(size_val);
+  TensorView* tv0 = rand({size_val}, DataType::Float);
+  fusion->addOutput(tv0);
+
+  FusionExecutorCache fec(std::move(fusion_ptr));
+
+  for (int64_t size : {1, 4}) {
+    at::manual_seed(0);
+    auto r1 = fec.runFusionWithInputs({size}).at(0);
+    auto r2 = fec.runFusionWithInputs({size}).at(0);
+    // Check that non of r1's elements are equal to any r2's elements.
+    EXPECT_TRUE(r1.unsqueeze(1).ne(r2.unsqueeze(0)).all().item<bool>());
+  }
+}
+
 } // namespace nvfuser
