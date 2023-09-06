@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <csrc/exceptions.h>
 #include <device_lower/lower2device.h>
 #include <executor.h>
 #include <fusion.h>
@@ -26,7 +27,7 @@ using namespace nvfuser;
 //------------------------------------------------------------------------------
 
 static void setupLayerNormFused(Fusion* fusion, DataType dtype) {
-  TORCH_INTERNAL_ASSERT(dtype == DataType::Half);
+  NVF_ERROR(dtype == DataType::Half);
   const float kEps = 1e-5;
 
   FusionGuard fg(fusion);
@@ -85,7 +86,7 @@ static void NvFuserScheduler_LayerNormFused(
     benchmark::State& benchmark_state,
     FusionExecutorCache* fusion_executor_cache,
     DataType dtype) {
-  TORCH_INTERNAL_ASSERT(dtype == DataType::Half);
+  NVF_ERROR(dtype == DataType::Half);
 
   std::vector<int64_t> input_shape{
       benchmark_state.range(0), benchmark_state.range(1)};
@@ -116,7 +117,7 @@ static void NvFuserScheduler_LayerNormFused(
 static void Baseline_LayerNormFused(
     benchmark::State& benchmark_state,
     DataType dtype) {
-  TORCH_INTERNAL_ASSERT(dtype == DataType::Float || dtype == DataType::Half);
+  NVF_ERROR(dtype == DataType::Float || dtype == DataType::Half);
 
   std::vector<int64_t> input_shape{
       benchmark_state.range(0), benchmark_state.range(1)};

@@ -34,3 +34,23 @@ if(BUILD_TEST)
     # add_test_for_standard(23)
     # add_test_for_standard(26)
 endif()
+
+if(BUILD_NVFUSER_BENCHMARK)
+    function(add_benchmark_for_standard std_version)
+        set(target bench_dynamic_type_${std_version})
+        add_executable(${target}
+            benchmark/main.cpp
+            benchmark/knn.cpp
+            benchmark/sort.cpp
+        )
+        target_include_directories(${target} PUBLIC src)
+        target_link_libraries(${target} PRIVATE benchmark::benchmark)
+        set_property(TARGET ${target} PROPERTY CXX_STANDARD ${std_version})
+    endfunction()
+
+    add_benchmark_for_standard(17)
+
+    # add_benchmark_for_standard(20)
+    # add_benchmark_for_standard(23)
+    # add_benchmark_for_standard(26)
+endif()

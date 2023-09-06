@@ -8,6 +8,7 @@
 #pragma once
 
 #include <c10/util/Exception.h>
+#include <exceptions.h>
 
 #include <algorithm>
 #include <initializer_list>
@@ -71,7 +72,7 @@ class VectorOfUniqueEntries {
   // Returns first element in vector
   T front() const {
 #ifndef NDEBUG
-    TORCH_INTERNAL_ASSERT(!empty());
+    NVF_ERROR(!empty());
 #endif // NDEBUG
     return vector_.front();
   }
@@ -79,7 +80,7 @@ class VectorOfUniqueEntries {
   // Returns last element in vector
   T back() const {
 #ifndef NDEBUG
-    TORCH_INTERNAL_ASSERT(!empty());
+    NVF_ERROR(!empty());
 #endif // NDEBUG
     return vector_.back();
   }
@@ -87,7 +88,7 @@ class VectorOfUniqueEntries {
   // Remove and returns the last element in vector
   T popBack() {
 #ifndef NDEBUG
-    TORCH_INTERNAL_ASSERT(!empty());
+    NVF_ERROR(!empty());
 #endif // NDEBUG
     T v = vector_.back();
     set_.erase(v);
@@ -217,7 +218,7 @@ class DisjointSets {
   // Return the entire disjoint set of provided entry
   const VectorOfUniqueEntries<T, Hash>& getDisjointSetOf(T entry) const {
     auto set_it = disjoint_set_maps_.find(entry);
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         set_it != disjoint_set_maps_.end(),
         "Could not find entry for ",
         entry->toString());
@@ -289,7 +290,7 @@ class DisjointSets {
   // returns if entry0 and entry1 are in the same disjoint set.
   bool strictAreMapped(T entry0, T entry1) const {
     auto entry_it = disjointSetMap().find(entry0);
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         entry_it != disjointSetMap().end(),
         "Strict mapping failed on element: ",
         abstractToString(entry0),
@@ -368,7 +369,7 @@ DisjointSets<T, Hash>::DisjointSets(const DisjointSets<T, Hash>& other) {
     auto new_set = std::make_shared<VectorOfUniqueEntries<T, Hash>>(*other_set);
     int new_set_index = disjoint_sets_.size();
     disjoint_sets_.emplace_back(new_set);
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         ptr_map.emplace(other_set, new_set_index).second,
         "Duplicated set found: ",
         other_set->toString());

@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 
+#include <exceptions.h>
 #include <macros.h>
 
 #include <c10/core/ScalarType.h>
@@ -136,7 +137,7 @@ struct StructType {
         return *field.type;
       }
     }
-    TORCH_INTERNAL_ASSERT(false, "Field ", name, " not found in struct ", name);
+    NVF_ERROR(false, "Field ", name, " not found in struct ", name);
   }
 
   inline bool operator==(const StructType& other) const;
@@ -407,14 +408,14 @@ inline DataType getDataType(const PolymorphicValue& value) {
       if (value.is<T>()) {
         const auto& vec = value.as<T>();
         size_t size = vec.size();
-        TORCH_CHECK(size > 0, "Empty array is not supported");
+        NVF_CHECK(size > 0, "Empty array is not supported");
         dtype =
             ArrayType{std::make_shared<DataType>(getDataType(vec[0])), size};
       }
     } else if constexpr (std::is_same_v<T, Pointer>) {
       // For pointers in polymorphic value, we only store the data size of the
       // pointee, so it is impossible to infer the pointer type.
-      TORCH_CHECK(!value.is<T>(), "Can not infer pointer type.");
+      NVF_CHECK(!value.is<T>(), "Can not infer pointer type.");
     } else if constexpr (std::is_same_v<T, StructHandle>) {
       if (value.is<T>()) {
         dtype = value.as<T>().type();
@@ -427,7 +428,7 @@ inline DataType getDataType(const PolymorphicValue& value) {
       }
     }
   });
-  TORCH_CHECK(dtype.has_value(), "Unknown dtype for ", value.type().name());
+  NVF_CHECK(dtype.has_value(), "Unknown dtype for ", value.type().name());
   return dtype.value();
 }
 
@@ -487,6 +488,17 @@ inline bool hasCompatibleDataType(
     }
     auto ptr = std::get<PointerType>(dtype.type);
     return dataTypeSize(*ptr.type) == value.as<Pointer>().size();
+  } else if (std::holds_alternative<ArrayType>(dtype.type)) {
+    if (!value.is<std::vector>()) {
+      return false;
+    }
+    const auto& array_type = std::get<ArrayType>(dtype.type);
+    if (array_type.size != value.as<std::vector>().size()) {
+      return false;
+    }
+    if (array_type.size == 0) {
+      return true;
+    }
   }
   return isCompatibleDataType(getDataType(value), dtype);
 }
@@ -825,8 +837,7 @@ inline DataType promoteType(const DataType& t1, const DataType& t2) {
   if (isFloatingPointType(t2)) {
     return t2;
   }
-  TORCH_CHECK(
-      false, "Expected promotable DataTypes but got: ", t1, " and ", t2);
+  NVF_CHECK(false, "Expected promotable DataTypes but got: ", t1, " and ", t2);
 }
 
 #undef HANDLE_TYPE_PROMOTION
@@ -841,7 +852,7 @@ inline DataType promoteType(
 }
 
 inline DataType promoteType(const std::vector<DataType>& types) {
-  TORCH_CHECK(!types.empty(), "Can not promote empty type vector")
+  NVF_CHECK(!types.empty(), "Can not promote empty type vector")
   DataType result = types.at(0);
   for (const auto& t : types) {
     result = promoteType(result, t);
@@ -921,7 +932,7 @@ constexpr inline size_t primDataTypeSize(PrimDataType type) {
     case DataType::BFloat16:
       return sizeof(at::BFloat16);
     case DataType::Index:
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           false, "The actual type of Index is only known at compile time.");
     case DataType::Int:
       return sizeof(uint64_t);
@@ -930,7 +941,7 @@ constexpr inline size_t primDataTypeSize(PrimDataType type) {
     case DataType::SMemAddress:
       return sizeof(unsigned);
     default:
-      TORCH_INTERNAL_ASSERT(false, "Size undefined for data type.");
+      NVF_ERROR(false, "Size undefined for data type.");
   }
 }
 
@@ -963,7 +974,6 @@ inline PolymorphicValue castToDtype(
   // Cast the given value to the given data type. This enables interface
   // like: IrBuilder::create<Val>(0, DataType::Double) where value is
   // an integer but the desired data type is double.
-  auto value_dtype = getDataType(value);
   if (!hasCompatibleDataType(value, dtype)) {
     PolymorphicValue::for_all_types([&](auto _) {
       using T = typename decltype(_)::type;

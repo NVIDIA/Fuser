@@ -78,7 +78,7 @@ Val* ThreadPredicateMap::getPredicateFromPredicateInfo(
     const auto tp = getPredicatePerParallelType(pt, pred_info);
     pred = SimplifyingIrBuilder::logicalAndExpr(pred, tp);
   }
-  TORCH_INTERNAL_ASSERT(pred != nullptr);
+  NVF_ERROR(pred != nullptr);
 
   return pred;
 }
@@ -252,7 +252,7 @@ void ThreadPredicateMap::updateBitSet(const Expr* expr) {
       }
     }
 
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         thread_predicates_.find(tv_inp) != thread_predicates_.end(),
         "Thread predicate map was not initialized, couldn't find ",
         inp->toString());
@@ -282,11 +282,11 @@ void ThreadPredicateMap::updateBitSet(const Expr* expr) {
     for (const auto i : c10::irange(ParallelTypeBitmap::kNumParallelTypes)) {
       if (input_reductions[i]) {
         if (id_ptypes[i]) {
-          TORCH_INTERNAL_ASSERT(
+          NVF_ERROR(
               id_reductions[i],
               "Mismatched parallelized reductions found on inputs of epxr: ",
               expr);
-          TORCH_CHECK(
+          NVF_CHECK(
               !id_bcasts[i],
               "Invalid broadcast and reduction combination, tried to parallelize both with the same thread dim: ",
               inp);
@@ -493,7 +493,7 @@ class RedundantUseAnalysis : BackwardVisitor {
         }
       }
 
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           maybe_expr_pred_map.has_value(), "TV op not having a tv output");
       redundant_expr_use_map_[expr] = maybe_expr_pred_map.value();
     }
@@ -610,7 +610,7 @@ class ConcretizedBroadcastRedundantWriteRemover {
           continue;
         }
         auto concrete_root_id = *it;
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             concretized_broadcast_root_domains_.emplace(rd, concrete_root_id)
                 .second);
       }
@@ -651,8 +651,7 @@ class ConcretizedBroadcastRedundantWriteRemover {
     // The following sort is added because in NVFuserTest.FusionIssue2076_CUDA
     // the order is [I3, I1, B2] while the correct order should be [I1, B2, I3]
     size_t n_elements = merged_root_domains.size();
-    TORCH_INTERNAL_ASSERT(
-        n_elements, "The number of merged root domains should > 0");
+    NVF_ERROR(n_elements, "The number of merged root domains should > 0");
     std::vector<int> indices(n_elements);
     std::iota(indices.begin(), indices.end(), 0);
     std::sort(indices.begin(), indices.end(), [&](int a, int b) {
@@ -815,7 +814,7 @@ bool ThreadPredicateMap::update(
 Val* ThreadPredicateMap::getPredicate(
     const TensorView* tv,
     ParallelTypeBitmap mask) const {
-  TORCH_INTERNAL_ASSERT(find(tv) != end(), "Couldn't find ", tv);
+  NVF_ERROR(find(tv) != end(), "Couldn't find ", tv);
   auto pred_info = getPredicateInfo(tv);
   return getPredicateFromPredicateInfo(pred_info, mask);
 }
@@ -863,8 +862,7 @@ ParallelTypeBitmap ThreadPredicateMap::getRedundantConsumerType(
     }
   }
 
-  TORCH_INTERNAL_ASSERT(
-      result.has_value(), "ThreadPredicateMap : TV op assumed");
+  NVF_ERROR(result.has_value(), "ThreadPredicateMap : TV op assumed");
   return result.value();
 }
 

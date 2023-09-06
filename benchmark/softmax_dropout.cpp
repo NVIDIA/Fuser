@@ -6,6 +6,7 @@
  */
 // clang-format on
 #include <arith.h>
+#include <csrc/exceptions.h>
 #include <device_lower/lower2device.h>
 #include <executor.h>
 #include <fusion.h>
@@ -30,7 +31,7 @@ static void setupSoftmaxDropout(
     Fusion* fusion,
     DataType dtype,
     const int kReductionAxis) {
-  TORCH_INTERNAL_ASSERT(dtype == DataType::Float || dtype == DataType::Half);
+  NVF_ERROR(dtype == DataType::Float || dtype == DataType::Half);
 
   FusionGuard fg(fusion);
 
@@ -81,7 +82,7 @@ static void NvFuserScheduler_SoftmaxDropout(
     FusionExecutorCache* fusion_executor_cache,
     DataType dtype,
     const int kReductionAxis) {
-  TORCH_INTERNAL_ASSERT(dtype == DataType::Float || dtype == DataType::Half);
+  NVF_ERROR(dtype == DataType::Float || dtype == DataType::Half);
 
   // reduce across 1, [256, 12, 100, 8]
   std::vector<int64_t> input_shape{256, 12, 100, benchmark_state.range(0)};

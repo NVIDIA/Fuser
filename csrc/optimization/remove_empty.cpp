@@ -86,7 +86,7 @@ class EmptyTensorRemover : public DeadCodeRemover {
 
     if (isTVEmpty(tv)) {
       if (tv->isFusionInput()) {
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             allUsesDead(tv),
             "Empty Fusion input ",
             tv,
@@ -98,7 +98,7 @@ class EmptyTensorRemover : public DeadCodeRemover {
       // Any non-input that we traverse to should be the input to an expression,
       // or a Fusion output. If it's the input to an expression, we should have
       // replaced that expression by handling the appropriate Expr subclass.
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           tv->isFusionOutput(),
           "Found unexpected empty intermediate TensorView ",
           tv->toString());
@@ -140,7 +140,7 @@ class EmptyTensorRemover : public DeadCodeRemover {
     for (auto ax : empty_input_axes) {
       auto id = out->getRootDomain().at(ax);
       // Input rfactor domain positions correspond to output root positions
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           id->isReduction(),
           "Found unexpected unreduced empty axis at position ",
           ax,
@@ -174,7 +174,7 @@ class EmptyTensorRemover : public DeadCodeRemover {
     for (auto ax : empty_input_axes) {
       auto id = avg->getRootDomain().at(ax);
       // Input rfactor domain positions correspond to output root positions
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           id->isReduction(),
           "Found unexpected unreduced empty axis at position ",
           ax,
@@ -247,7 +247,7 @@ class EmptyTensorRemover : public DeadCodeRemover {
     auto dim = cop->concatenatedDim();
     std::vector<TensorView*> non_empty_inputs;
     for (auto inp : cop->inputs()) {
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           inp->definition() && inp->definition()->isA<PadOp>(),
           "Inputs to CatOp must be outputs of PadOps");
       auto tv = inp->definition()->as<PadOp>()->in()->as<TensorView>();

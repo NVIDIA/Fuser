@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <csrc/exceptions.h>
 #include <device_lower/lower2device.h>
 #include <executor.h>
 #include <fusion.h>
@@ -21,7 +22,7 @@
 using namespace nvfuser;
 
 static void setupSBR(Fusion* fusion, DataType dtype) {
-  TORCH_INTERNAL_ASSERT(dtype == DataType::Float || dtype == DataType::Half);
+  NVF_ERROR(dtype == DataType::Float || dtype == DataType::Half);
 
   FusionGuard fg(fusion);
 
@@ -64,7 +65,7 @@ static void setupSBR(Fusion* fusion, DataType dtype) {
 }
 
 static void setupSBRNorm(Fusion* fusion, DataType dtype) {
-  TORCH_INTERNAL_ASSERT(dtype == DataType::Float || dtype == DataType::Half);
+  NVF_ERROR(dtype == DataType::Float || dtype == DataType::Half);
   FusionGuard fg(fusion);
 
   const size_t kNumberOfDims = 4;

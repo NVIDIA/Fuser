@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <csrc/exceptions.h>
 #include <gtest/gtest.h>
 
 #include <codegen.h>
@@ -57,8 +58,7 @@ auto shift(
     at::Tensor tensor,
     const std::vector<int>& offsets,
     std::vector<int> padding = {}) {
-  TORCH_INTERNAL_ASSERT(
-      tensor.ndimension() == static_cast<int64_t>(offsets.size()));
+  NVF_ERROR(tensor.ndimension() == static_cast<int64_t>(offsets.size()));
   if (padding.empty()) {
     padding = offsets;
     for (auto& p : padding) {
@@ -87,7 +87,7 @@ auto shift(
       indices[i] = at::indexing::Slice(0, offset - pad);
     } else {
       offset += pad;
-      TORCH_INTERNAL_ASSERT(offset <= 0);
+      NVF_ERROR(offset <= 0);
       if (offset == 0) {
         continue;
       }
@@ -104,12 +104,12 @@ auto gather(
     const std::vector<int>& window_shape,
     const std::vector<std::vector<int>>& pad_width,
     std::vector<int> strides = {}) {
-  TORCH_CHECK(
+  NVF_CHECK(
       tensor.ndimension() == static_cast<int64_t>(window_shape.size()),
       "Invalid window shape: ",
       window_shape,
       ". Size of the window shape is different from the tensor dimension.");
-  TORCH_CHECK(
+  NVF_CHECK(
       tensor.ndimension() == static_cast<int64_t>(pad_width.size()),
       "Invalid pad width: ",
       pad_width,
@@ -117,7 +117,7 @@ auto gather(
   if (strides.empty()) {
     strides = std::vector<int>(tensor.ndimension(), 1);
   } else {
-    TORCH_CHECK(
+    NVF_CHECK(
         tensor.ndimension() == static_cast<int64_t>(strides.size()),
         "Invalid strides: ",
         strides,
@@ -126,13 +126,13 @@ auto gather(
   at::Tensor t = tensor;
   for (size_t i = 0; i < window_shape.size(); ++i) {
     const auto w_size = window_shape[i];
-    TORCH_CHECK(w_size != 0);
+    NVF_CHECK(w_size != 0);
     const auto& pad = pad_width[i];
-    TORCH_CHECK(pad.size() == 2);
+    NVF_CHECK(pad.size() == 2);
     const auto out_extent_adj = -w_size + 1 + pad[0] + pad[1];
-    TORCH_INTERNAL_ASSERT(out_extent_adj <= 0);
+    NVF_ERROR(out_extent_adj <= 0);
     const auto stride = strides[i];
-    TORCH_CHECK(stride >= 1);
+    NVF_CHECK(stride >= 1);
 
     at::Tensor concat_tensor;
 
@@ -216,16 +216,16 @@ TEST_F(NVFuserTest, FusionShift1_CUDA) {
   auto outputs = fe.runFusion(inputs);
 
   auto t1 = shift(t0, {-1, 0});
-  TORCH_CHECK(t1.equal(outputs[0]));
+  NVF_CHECK(t1.equal(outputs[0]));
 
   auto t2 = shift(t0, {0, 1});
-  TORCH_CHECK(t2.equal(outputs[1]));
+  NVF_CHECK(t2.equal(outputs[1]));
 
   auto t3 = shift(t0, {2, 2});
-  TORCH_CHECK(t3.equal(outputs[2]));
+  NVF_CHECK(t3.equal(outputs[2]));
 
   auto t4 = shift(t0, {-2, -2});
-  TORCH_CHECK(t4.equal(outputs[3]));
+  NVF_CHECK(t4.equal(outputs[3]));
 }
 
 // Shifts an intermediate tensor
@@ -264,28 +264,28 @@ TEST_F(NVFuserTest, FusionShift2_CUDA) {
     if (auto alloc = dynamic_cast<kir::Allocate*>(expr)) {
       auto tensor_name = alloc->buffer()->name();
       if (tensor_name == 1 || tensor_name == 3 || tensor_name == 4) {
-        TORCH_CHECK(alloc->shape().size() == 2);
+        NVF_CHECK(alloc->shape().size() == 2);
         for (int i = 0; i < 2; ++i) {
           if (tensor_name == 1 && i == 1) {
-            TORCH_CHECK(ir_utils::isTensorSize(alloc->shape().at(i)));
+            NVF_CHECK(ir_utils::isTensorSize(alloc->shape().at(i)));
             continue;
           }
           auto def =
               dynamic_cast<BinaryOp*>(alloc->shape().at(i)->definition());
-          TORCH_CHECK(
+          NVF_CHECK(
               def != nullptr && def->getBinaryOpType() == BinaryOpType::Add);
-          TORCH_CHECK(ir_utils::isTensorSize(def->as<BinaryOp>()->lhs()));
+          NVF_CHECK(ir_utils::isTensorSize(def->as<BinaryOp>()->lhs()));
           auto rhs = dynamic_cast<Val*>(def->as<BinaryOp>()->rhs());
-          TORCH_CHECK(rhs != nullptr && rhs->isConst());
+          NVF_CHECK(rhs != nullptr && rhs->isConst());
           auto rhs_value = rhs->value();
           if (tensor_name == 1) {
-            TORCH_CHECK(i == 0);
-            TORCH_CHECK(rhs_value == 1);
+            NVF_CHECK(i == 0);
+            NVF_CHECK(rhs_value == 1);
           } else {
             if (i == 0) {
-              TORCH_CHECK(rhs_value == 2);
+              NVF_CHECK(rhs_value == 2);
             } else {
-              TORCH_CHECK(rhs_value == 1);
+              NVF_CHECK(rhs_value == 1);
             }
           }
         }
@@ -349,7 +349,7 @@ TEST_F(NVFuserTest, FusionShiftRightOfCA_CUDA) {
   auto t1 = t0 + 1;
   auto t2 = shift(t1, {0, 1});
 
-  TORCH_CHECK(t2.allclose(outputs[0]));
+  NVF_CHECK(t2.allclose(outputs[0]));
 }
 
 TEST_F(NVFuserTest, FusionShiftLeftOfCA_CUDA) {
@@ -397,9 +397,9 @@ TEST_F(NVFuserTest, FusionShiftSplit1_CUDA) {
     if (auto alloc = dynamic_cast<kir::Allocate*>(expr)) {
       auto tensor_name = alloc->buffer()->name();
       if (tensor_name == 1) {
-        TORCH_CHECK(alloc->shape().size() == 1);
+        NVF_CHECK(alloc->shape().size() == 1);
         auto size = dynamic_cast<Val*>(alloc->shape().at(0));
-        TORCH_CHECK(size != nullptr && size->isConst() && size->value() == 7);
+        NVF_CHECK(size != nullptr && size->isConst() && size->value() == 7);
       }
     }
   }
@@ -456,15 +456,15 @@ TEST_F(NVFuserTest, FusionShiftSplit2_CUDA) {
     if (auto alloc = dynamic_cast<kir::Allocate*>(expr)) {
       auto tensor_name = alloc->buffer()->name();
       if (tensor_name == 1 || tensor_name == 2) {
-        TORCH_CHECK(alloc->shape().size() == 1);
+        NVF_CHECK(alloc->shape().size() == 1);
         auto size = dynamic_cast<Val*>(alloc->shape().at(0));
-        TORCH_CHECK(size != nullptr && size->isConst() && size->value() == 6);
+        NVF_CHECK(size != nullptr && size->isConst() && size->value() == 6);
       } else if (tensor_name == 4) {
-        TORCH_CHECK(alloc->shape().size() == 1);
+        NVF_CHECK(alloc->shape().size() == 1);
         auto size = dynamic_cast<Val*>(alloc->shape().at(0));
-        TORCH_CHECK(size != nullptr && size->isConst());
+        NVF_CHECK(size != nullptr && size->isConst());
         auto size_value = size->value();
-        TORCH_CHECK(size_value == split_factor);
+        NVF_CHECK(size_value == split_factor);
       }
     }
   }
@@ -522,9 +522,9 @@ TEST_F(NVFuserTest, FusionShiftDoubleSplit_CUDA) {
     if (auto alloc = dynamic_cast<kir::Allocate*>(expr)) {
       auto tensor_name = alloc->buffer()->name();
       if (tensor_name == 1 || tensor_name == 2) {
-        TORCH_CHECK(alloc->shape().size() == 1);
+        NVF_CHECK(alloc->shape().size() == 1);
         auto size = dynamic_cast<Val*>(alloc->shape().at(0));
-        TORCH_CHECK(size != nullptr && size->isConst() && size->value() == 9);
+        NVF_CHECK(size != nullptr && size->isConst() && size->value() == 9);
       }
     }
   }
@@ -593,9 +593,9 @@ TEST_F(NVFuserTest, FusionShift3ptStencil_CUDA) {
     if (auto alloc = dynamic_cast<kir::Allocate*>(expr)) {
       auto tensor_name = alloc->buffer()->name();
       if (tensor_name == cache->name()) {
-        TORCH_CHECK(alloc->shape().size() == 1);
+        NVF_CHECK(alloc->shape().size() == 1);
         auto size = dynamic_cast<Val*>(alloc->shape().at(0));
-        TORCH_CHECK(
+        NVF_CHECK(
             size != nullptr && size->isConst() &&
             size->value() == split_factor + 2);
       }
@@ -664,10 +664,10 @@ TEST_F(NVFuserTest, FusionShift5ptStencil_CUDA) {
     if (auto alloc = dynamic_cast<kir::Allocate*>(expr)) {
       auto tensor_name = alloc->buffer()->name();
       if (tensor_name == cache->name()) {
-        TORCH_CHECK(alloc->shape().size() == 2);
+        NVF_CHECK(alloc->shape().size() == 2);
         for (int i = 0; i < 2; ++i) {
           auto size = dynamic_cast<Val*>(alloc->shape().at(i));
-          TORCH_CHECK(
+          NVF_CHECK(
               size != nullptr && size->isConst() &&
               size->value() == split_factor[i] + 2);
         }
@@ -752,10 +752,10 @@ TEST_F(NVFuserTest, FusionShift9ptStencil_CUDA) {
     if (auto alloc = dynamic_cast<kir::Allocate*>(expr)) {
       auto tensor_name = alloc->buffer()->name();
       if (tensor_name == cache->name()) {
-        TORCH_CHECK(alloc->shape().size() == 2);
+        NVF_CHECK(alloc->shape().size() == 2);
         for (int i = 0; i < 2; ++i) {
           auto size = dynamic_cast<Val*>(alloc->shape().at(i));
-          TORCH_CHECK(
+          NVF_CHECK(
               size != nullptr && size->isConst() &&
               size->value() == split_factor[i] + 2);
         }
@@ -812,10 +812,10 @@ TEST_F(NVFuserTest, FusionShiftSmemBlocking_CUDA) {
     if (auto alloc = dynamic_cast<kir::Allocate*>(expr)) {
       auto tensor_name = alloc->buffer()->name();
       if (tensor_name == tv1->name()) {
-        TORCH_CHECK(alloc->shape().size() == 1);
+        NVF_CHECK(alloc->shape().size() == 1);
         for (int i = 0; i < 1; ++i) {
           auto size = dynamic_cast<Val*>(alloc->shape().at(i));
-          TORCH_CHECK(
+          NVF_CHECK(
               size != nullptr && size->isConst() &&
               size->value() == smem_block_factor + 1);
         }
@@ -992,10 +992,10 @@ TEST_F(NVFuserTest, FusionShiftMerge1_CUDA) {
     if (auto alloc = dynamic_cast<kir::Allocate*>(expr)) {
       auto tensor_name = alloc->buffer()->name();
       if (tensor_name == 1) {
-        TORCH_CHECK(alloc->shape().size() == 2);
+        NVF_CHECK(alloc->shape().size() == 2);
         for (int i = 0; i < 2; ++i) {
           auto size = dynamic_cast<Val*>(alloc->shape().at(i));
-          TORCH_CHECK(
+          NVF_CHECK(
               size != nullptr && size->isConst() &&
               size->value() == split_factor + 1);
         }
@@ -1051,10 +1051,10 @@ TEST_F(NVFuserTest, FusionShiftMerge2_CUDA) {
     if (auto alloc = dynamic_cast<kir::Allocate*>(expr)) {
       auto tensor_name = alloc->buffer()->name();
       if (tensor_name == 1) {
-        TORCH_CHECK(alloc->shape().size() == 2);
+        NVF_CHECK(alloc->shape().size() == 2);
         for (int i = 0; i < 2; ++i) {
           auto size = dynamic_cast<Val*>(alloc->shape().at(i));
-          TORCH_CHECK(
+          NVF_CHECK(
               size != nullptr && size->isConst() &&
               size->value() == split_factor + 2);
         }
@@ -1078,7 +1078,7 @@ TEST_F(NVFuserTest, FusionShiftMerge2_CUDA) {
   auto t3 = shift(t1, {-1, 1});
   auto t4 = t2 + t3;
 
-  TORCH_CHECK(t4.allclose(outputs[0]));
+  NVF_CHECK(t4.allclose(outputs[0]));
 }
 
 TEST_F(NVFuserTest, FusionShiftGlobal_CUDA) {
@@ -1111,17 +1111,17 @@ TEST_F(NVFuserTest, FusionShiftGlobal_CUDA) {
     if (auto alloc = dynamic_cast<kir::Allocate*>(expr)) {
       auto tensor_name = alloc->buffer()->name();
       if (tensor_name == 1) {
-        TORCH_CHECK(alloc->shape().size() == 2);
+        NVF_CHECK(alloc->shape().size() == 2);
         for (int i = 0; i < 2; ++i) {
           auto def =
               dynamic_cast<BinaryOp*>(alloc->shape().at(i)->definition());
-          TORCH_CHECK(
+          NVF_CHECK(
               def != nullptr && def->getBinaryOpType() == BinaryOpType::Add);
-          TORCH_CHECK(ir_utils::isTensorSize(def->as<BinaryOp>()->lhs()));
+          NVF_CHECK(ir_utils::isTensorSize(def->as<BinaryOp>()->lhs()));
           auto rhs = dynamic_cast<Val*>(def->as<BinaryOp>()->rhs());
-          TORCH_CHECK(rhs != nullptr && rhs->isConst());
+          NVF_CHECK(rhs != nullptr && rhs->isConst());
           auto rhs_value = rhs->value();
-          TORCH_CHECK(rhs_value == 1);
+          NVF_CHECK(rhs_value == 1);
         }
       }
     }
@@ -1175,7 +1175,7 @@ TEST_F(NVFuserTest, FusionShiftDoubleSplitMerge1_CUDA) {
       auto tensor_name = alloc->buffer()->name();
       if (tensor_name == 1 || tensor_name == 2) {
         auto size = dynamic_cast<Val*>(alloc->shape().at(0));
-        TORCH_CHECK(
+        NVF_CHECK(
             size != nullptr && size->isConst() &&
             size->value() == split_factor1 + 1);
       }
@@ -1246,10 +1246,10 @@ TEST_F(NVFuserTest, FusionShiftDoubleSplitMerge2_CUDA) {
     if (auto alloc = dynamic_cast<kir::Allocate*>(expr)) {
       auto tensor_name = alloc->buffer()->name();
       if (tensor_name == 1 || tensor_name == 2) {
-        TORCH_CHECK(alloc->shape().size() == 2);
+        NVF_CHECK(alloc->shape().size() == 2);
         for (int i = 0; i < 2; ++i) {
           auto size = dynamic_cast<Val*>(alloc->shape().at(i));
-          TORCH_CHECK(
+          NVF_CHECK(
               size != nullptr && size->isConst() &&
               size->value() == split_factor1 + 1);
         }
@@ -1331,10 +1331,10 @@ TEST_F(NVFuserTest, FusionShift5ptStencilParallel1DThreadBlock_CUDA) {
     if (auto alloc = dynamic_cast<kir::Allocate*>(expr)) {
       auto tensor_name = alloc->buffer()->name();
       if (tensor_name == tv0_cache->name()) {
-        TORCH_CHECK(alloc->shape().size() == 2);
+        NVF_CHECK(alloc->shape().size() == 2);
         for (int i = 0; i < 2; ++i) {
           auto size = dynamic_cast<Val*>(alloc->shape().at(i));
-          TORCH_CHECK(
+          NVF_CHECK(
               size != nullptr && size->isConst() &&
               size->value() == split_factor[i] + 2);
         }
@@ -1449,14 +1449,14 @@ TEST_F(NVFuserTest, FusionShiftChain3_CUDA) {
     if (auto alloc = dynamic_cast<kir::Allocate*>(expr)) {
       auto tensor_name = alloc->buffer()->name();
       if (tensor_name == 1 || tensor_name == 2) {
-        TORCH_CHECK(alloc->shape().size() == 1);
+        NVF_CHECK(alloc->shape().size() == 1);
         for (int i = 0; i < 1; ++i) {
           auto size = dynamic_cast<Val*>(alloc->shape().at(i));
-          TORCH_CHECK(size != nullptr && size->isConst());
+          NVF_CHECK(size != nullptr && size->isConst());
           if (tensor_name == 1) {
-            TORCH_CHECK(size->value() == split_factor + 2);
+            NVF_CHECK(size->value() == split_factor + 2);
           } else if (tensor_name == 2) {
-            TORCH_CHECK(size->value() == split_factor + 1);
+            NVF_CHECK(size->value() == split_factor + 1);
           }
         }
       }
@@ -1516,17 +1516,17 @@ TEST_F(NVFuserTest, FusionShiftChain4_CUDA) {
     if (auto alloc = dynamic_cast<kir::Allocate*>(expr)) {
       auto tensor_name = alloc->buffer()->name();
       if (tensor_name == 1 || tensor_name == 2) {
-        TORCH_CHECK(alloc->shape().size() == 2);
+        NVF_CHECK(alloc->shape().size() == 2);
         for (int i = 0; i < 2; ++i) {
           auto size = dynamic_cast<Val*>(alloc->shape().at(i));
-          TORCH_CHECK(size != nullptr && size->isConst());
+          NVF_CHECK(size != nullptr && size->isConst());
           auto size_val = size->value();
           if (tensor_name == 1) {
-            TORCH_CHECK(size_val == split_factor + 9);
+            NVF_CHECK(size_val == split_factor + 9);
           } else if (tensor_name == 2) {
-            TORCH_CHECK(size_val == split_factor + 7);
+            NVF_CHECK(size_val == split_factor + 7);
           } else if (tensor_name == 3) {
-            TORCH_CHECK(size_val == split_factor + 4);
+            NVF_CHECK(size_val == split_factor + 4);
           }
         }
       }
@@ -1637,14 +1637,14 @@ TEST_F(NVFuserTest, FusionShift5ptStencilChain_CUDA) {
       auto tensor_name = alloc->buffer()->name();
       if (tensor_name == tv0_cache->name() ||
           tensor_name == tv_stencil1->name()) {
-        TORCH_CHECK(alloc->shape().size() == 2);
+        NVF_CHECK(alloc->shape().size() == 2);
         for (int i = 0; i < 2; ++i) {
           auto size = dynamic_cast<Val*>(alloc->shape().at(i));
-          TORCH_CHECK(size != nullptr && size->isConst());
+          NVF_CHECK(size != nullptr && size->isConst());
           if (tensor_name == tv0_cache->name()) {
-            TORCH_CHECK(size->value() == split_factor[i] + 4);
+            NVF_CHECK(size->value() == split_factor[i] + 4);
           } else if (tensor_name == tv_stencil1->name()) {
-            TORCH_CHECK(size->value() == split_factor[i] + 2);
+            NVF_CHECK(size->value() == split_factor[i] + 2);
           }
         }
       }
@@ -2506,7 +2506,7 @@ TEST_F(NVFuserTest, FusionGather1_CUDA) {
   fe.compileFusion(&fusion, {t0});
   auto outputs = fe.runFusion({t0});
 
-  TORCH_CHECK(ref.equal(outputs[0]));
+  NVF_CHECK(ref.equal(outputs[0]));
 }
 
 TEST_F(NVFuserTest, FusionGather2_CUDA) {
@@ -2586,7 +2586,7 @@ TEST_F(NVFuserTest, FusionGather3_CUDA) {
   auto outputs = fe.runFusion({t0}, {output});
 
   auto ref = gather(t0, window_shape, padding_width);
-  TORCH_CHECK(ref.equal(outputs[0]));
+  NVF_CHECK(ref.equal(outputs[0]));
 }
 
 TEST_F(NVFuserTest, FusionGather4_CUDA) {
@@ -2620,7 +2620,7 @@ TEST_F(NVFuserTest, FusionGather4_CUDA) {
 
   auto ref = gather(t0, window_shape, padding_width);
 
-  TORCH_CHECK(ref.equal(outputs[0]));
+  NVF_CHECK(ref.equal(outputs[0]));
 }
 
 TEST_F(NVFuserTest, FusionGather5_CUDA) {
@@ -2654,7 +2654,7 @@ TEST_F(NVFuserTest, FusionGather5_CUDA) {
 
   auto ref = gather(t0, window_shape, padding_width);
 
-  TORCH_CHECK(ref.equal(outputs[0]));
+  NVF_CHECK(ref.equal(outputs[0]));
 }
 
 // Conv-like pattern with no padding
@@ -2714,7 +2714,7 @@ TEST_F(NVFuserTest, FusionGather6_CUDA) {
 
   auto ref = gather(t0, window_shape, padding_width);
 
-  TORCH_CHECK(ref.equal(outputs[0]));
+  NVF_CHECK(ref.equal(outputs[0]));
 }
 
 // Conv-like pattern with irregular padding
@@ -2772,7 +2772,7 @@ TEST_F(NVFuserTest, FusionGather7_CUDA) {
 
   auto ref = gather(t0, window_shape, padding_width);
 
-  TORCH_CHECK(ref.equal(outputs[0]));
+  NVF_CHECK(ref.equal(outputs[0]));
 }
 
 // With no padding but with striding
@@ -2814,7 +2814,7 @@ TEST_F(NVFuserTest, FusionGather8_CUDA) {
 
   auto ref = gather(t0, window_shape, padding_width, strides);
 
-  TORCH_CHECK(ref.equal(outputs[0]));
+  NVF_CHECK(ref.equal(outputs[0]));
 }
 
 // Similar to Gather8 but with splitting and parallelization
@@ -2881,7 +2881,7 @@ TEST_F(NVFuserTest, FusionGather9_CUDA) {
 
   auto ref = gather(t0, window_shape, padding_width, strides);
 
-  TORCH_CHECK(ref.equal(outputs[0]));
+  NVF_CHECK(ref.equal(outputs[0]));
 }
 
 TEST_F(NVFuserTest, FusionConv2D_CUDA) {
@@ -4142,10 +4142,10 @@ TEST_F(NVFuserTest, FusionPartialSplit1_CUDA) {
   auto root_extent = tv4->getRootDomain()[0]->extent();
   evaluator.bind(root_extent, numel_x);
   auto extent_eval = evaluator.evaluate(tv4->axis(0)->extent());
-  TORCH_CHECK(
+  NVF_CHECK(
       extent_eval.hasValue(),
       "Invalid evaluation of outer domain extent of partial split");
-  TORCH_CHECK(
+  NVF_CHECK(
       extent_eval == (numel_x - 2) / 8,
       "Invalid extent of outer domain of partial split");
 
@@ -4494,19 +4494,19 @@ TEST_F(NVFuserTest, FusionShiftUnswitch1_CUDA) {
   auto outputs = fe.runFusion(inputs);
 
   auto t1 = shift(t0, {-1, 0});
-  TORCH_CHECK(t1.equal(outputs[0]));
+  NVF_CHECK(t1.equal(outputs[0]));
 
   auto t2 = shift(t0, {0, 1});
-  TORCH_CHECK(t2.equal(outputs[1]));
+  NVF_CHECK(t2.equal(outputs[1]));
 
   auto t3 = shift(t0, {2, 2});
-  TORCH_CHECK(t3.equal(outputs[2]));
+  NVF_CHECK(t3.equal(outputs[2]));
 
   auto t4 = shift(t0, {-2, -2});
-  TORCH_CHECK(t4.equal(outputs[3]));
+  NVF_CHECK(t4.equal(outputs[3]));
 
   auto t6 = shift(t0 + 1, {0, -1});
-  TORCH_CHECK(t6.equal(outputs[4]));
+  NVF_CHECK(t6.equal(outputs[4]));
 }
 
 TEST_F(NVFuserTest, FusionGatherUnswitch1_CUDA) {
@@ -4556,16 +4556,16 @@ TEST_F(NVFuserTest, FusionGatherUnswitch1_CUDA) {
   auto outputs = fe.runFusion(inputs);
 
   auto t1 = gather(t0, {tv1_gather}, {{tv1_gather_pad, tv1_gather_pad}});
-  TORCH_CHECK(t1.equal(outputs[0]));
+  NVF_CHECK(t1.equal(outputs[0]));
 
   auto t2 = gather(t0, {tv2_gather}, {{tv2_gather_pad, tv2_gather_pad}});
-  TORCH_CHECK(t2.equal(outputs[1]));
+  NVF_CHECK(t2.equal(outputs[1]));
 
   auto t3 = gather(t0, {3}, {{1, 1}});
-  TORCH_CHECK(t3.equal(outputs[2]));
+  NVF_CHECK(t3.equal(outputs[2]));
 
   auto t4 = gather(t0, {5}, {{2, 2}});
-  TORCH_CHECK(t4.equal(outputs[3]));
+  NVF_CHECK(t4.equal(outputs[3]));
 }
 
 TEST_F(NVFuserTest, FusionGatherStrided1_CUDA) {
@@ -4596,13 +4596,13 @@ TEST_F(NVFuserTest, FusionGatherStrided1_CUDA) {
 
   // tv1 has a stride dimension, so its number of dimensions should be
   // input_ndims + window_ndims + stride.
-  TORCH_CHECK(tv1->nDims() == tv0->nDims() * 2 + 1);
+  NVF_CHECK(tv1->nDims() == tv0->nDims() * 2 + 1);
 
   // However, the number of dimensions of the Aten tensor should still
   // be just the twice of the number of dimensions of the input
   // tensor.
   auto fuser_out = outputs[0];
-  TORCH_CHECK(
+  NVF_CHECK(
       fuser_out.ndimension() == static_cast<int64_t>(tv0->nDims()) * 2,
       "Invalid dimensionality of output tensor: ",
       fuser_out.ndimension());
@@ -4615,7 +4615,7 @@ TEST_F(NVFuserTest, FusionGatherStrided1_CUDA) {
             window_shape[i] + 1,
         strides[i]);
     auto actual_dim = outputs[0].size(i);
-    TORCH_CHECK(
+    NVF_CHECK(
         valid_dim == actual_dim,
         "Invalid output size at dimension ",
         i,
@@ -4627,7 +4627,7 @@ TEST_F(NVFuserTest, FusionGatherStrided1_CUDA) {
 
   auto ref = gather(t0, window_shape, padding_width, strides);
 
-  TORCH_CHECK(ref.equal(outputs[0]));
+  NVF_CHECK(ref.equal(outputs[0]));
 }
 
 // Split strided domain
@@ -4804,7 +4804,7 @@ TEST_F(NVFuserTest, FusionGatherStrided5_CUDA) {
 
   auto ref = gather(t0, window_shape, padding_width, strides);
 
-  TORCH_CHECK(ref.equal(outputs[0]));
+  NVF_CHECK(ref.equal(outputs[0]));
 }
 
 // Same as GatherStrided2 but with stride != window
@@ -5358,7 +5358,7 @@ TEST_F(NVFuserTest, FusionGatherIterTypePromotion_CUDA) {
 
   fusion.addOutput(tv3);
 
-  TORCH_CHECK(
+  NVF_CHECK(
       tv3->axis(1)->getIterType() == IterType::Iteration,
       "Invalid IterType promotion: ",
       tv3->axis(1)->toString());
@@ -5433,14 +5433,14 @@ TEST_F(NVFuserTest, FusionContigPredicateShift_CUDA) {
   fe.runFusion(inputs, outputs);
 
   // Make sure the padded region is zero filled
-  TORCH_CHECK(t1[1].equal(at::zeros(2, options)));
+  NVF_CHECK(t1[1].equal(at::zeros(2, options)));
   // Make sure not touched as the shift is not padded
-  TORCH_CHECK(t3[1].equal(at::zeros(2, options)));
+  NVF_CHECK(t3[1].equal(at::zeros(2, options)));
 
   auto ref = shift(t0, {-1, 0});
 
-  TORCH_CHECK(t1.equal(ref));
-  TORCH_CHECK(t3.index(indices).equal((ref + 1).index(indices)));
+  NVF_CHECK(t1.equal(ref));
+  NVF_CHECK(t3.index(indices).equal((ref + 1).index(indices)));
 }
 
 } // namespace nvfuser

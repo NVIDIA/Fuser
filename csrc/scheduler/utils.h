@@ -10,6 +10,7 @@
 #include <compute_at_map.h>
 #include <device_lower/pass/loop_rotation.h>
 #include <disjoint_set.h>
+#include <exceptions.h>
 #include <fusion.h>
 #include <ir/all_nodes.h>
 #include <ir/cloner.h>
@@ -50,7 +51,7 @@ constexpr int64_t maxVectorizationWidth(int64_t n) {
 
 // Largest Power of 2 less-than n
 constexpr int64_t lastPow2(int64_t n) {
-  TORCH_INTERNAL_ASSERT(n >= 0);
+  NVF_ERROR(n >= 0);
   n |= (n >> 1);
   n |= (n >> 2);
   n |= (n >> 4);

@@ -6,6 +6,7 @@
  */
 // clang-format on
 #pragma once
+#include <exceptions.h>
 #include <iostream>
 
 #include <c10/macros/Export.h>

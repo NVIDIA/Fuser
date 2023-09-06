@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <csrc/exceptions.h>
 #include <device_lower/lower2device.h>
 #include <executor.h>
 #include <fusion.h>
@@ -111,7 +112,7 @@ static void LayerNormBackward_HeuristicLookup(
   KernelArgumentHolder args =
       KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
 
-  TORCH_INTERNAL_ASSERT(runtime->getMaybeHeuristicsFor(args).has_value());
+  NVF_ERROR(runtime->getMaybeHeuristicsFor(args).has_value());
 
   for (auto _ : benchmark_state) {
     // Setup (not included in the measurement)
@@ -167,7 +168,7 @@ static void LayerNormForward_HeuristicLookup(
   KernelArgumentHolder args =
       KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
 
-  TORCH_INTERNAL_ASSERT(runtime->getMaybeHeuristicsFor(args).has_value());
+  NVF_ERROR(runtime->getMaybeHeuristicsFor(args).has_value());
 
   for (auto _ : benchmark_state) {
     // Setup (not included in the measurement)

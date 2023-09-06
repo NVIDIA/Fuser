@@ -108,7 +108,7 @@ DataType computeCommonDtype(const std::vector<OperandType>& operands) {
     }
   }
   auto common_dtype = resultType(state);
-  TORCH_INTERNAL_ASSERT(common_dtype != DataType::Null);
+  NVF_ERROR(common_dtype != DataType::Null);
   return common_dtype;
 }
 
@@ -141,7 +141,7 @@ DataType computeTypes(
 
   // Some ops like nextafter are not implemented for non-float types
   if (config.require_full_precision_promoted) {
-    TORCH_CHECK(
+    NVF_CHECK(
         common_dtype == DataType::Float || common_dtype == DataType::Double,
         "Promoted type must be single or double precision float but found ",
         common_dtype);
@@ -152,7 +152,7 @@ DataType computeTypes(
 
 OperandType getValueType(at::TypePtr type) {
   if (auto tensor_type = type->cast<at::TensorType>()) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         tensor_type->scalarType().has_value(),
         "Missing Scalar Type information");
     // TODO: Type Inference does not propagate Shape Information
@@ -168,7 +168,7 @@ OperandType getValueType(at::TypePtr type) {
 }
 
 OperandType getValueType(Val* type) {
-  TORCH_INTERNAL_ASSERT(type->getDataType().has_value());
+  NVF_ERROR(type->getDataType().has_value());
 
   if (type->isA<TensorView>()) {
     auto tensor_view = type->as<TensorView>();
@@ -225,7 +225,7 @@ std::vector<Val*> promoteValues(
     promoted_operands.push_back(optionalCast(common_type, op));
   }
 
-  TORCH_INTERNAL_ASSERT(operands.size() == promoted_operands.size());
+  NVF_ERROR(operands.size() == promoted_operands.size());
   return promoted_operands;
 }
 
@@ -236,7 +236,7 @@ std::vector<Val*> promoteValues(
 }
 
 Val* optionalCast(DataType dtype, Val* v) {
-  TORCH_INTERNAL_ASSERT(v->getDataType().has_value());
+  NVF_ERROR(v->getDataType().has_value());
   // Avoid casting Float/Int/ComplexDouble scalar to any corresponding
   // FloatingPoint/Integral/Double type in fusion. Instead, we cast them
   // directly. The exception is Bool, which is always cast to the desired
@@ -257,7 +257,7 @@ Val* optionalCast(DataType dtype, Val* v) {
 }
 
 Val* optionalCastStrict(DataType dtype, Val* v) {
-  TORCH_INTERNAL_ASSERT(v->getDataType().has_value());
+  NVF_ERROR(v->getDataType().has_value());
   const bool kSameDtype = v->getDataType().value() == dtype;
   return (kSameDtype) ? v : castOp(dtype, v);
 }

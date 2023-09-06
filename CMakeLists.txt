@@ -15,6 +15,7 @@ endif()
 
 set(NVFUSER_ROOT ${PROJECT_SOURCE_DIR})
 set(NVFUSER_SRCS_DIR "${NVFUSER_ROOT}/csrc")
+set(NVFUSER_THIRD_PARTY_DIR "${NVFUSER_ROOT}/third_party")
 
 option(NVFUSER_STANDALONE_BUILD_WITH_UCC "" OFF)
 
@@ -82,6 +83,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/dynamic_transform.cpp
   ${NVFUSER_SRCS_DIR}/expr_evaluator.cpp
   ${NVFUSER_SRCS_DIR}/expr_simplifier.cpp
+  ${NVFUSER_SRCS_DIR}/exceptions.cpp
   ${NVFUSER_SRCS_DIR}/executor.cpp
   ${NVFUSER_SRCS_DIR}/executor_kernel_arg.cpp
   ${NVFUSER_SRCS_DIR}/executor_params.cpp
@@ -250,7 +252,7 @@ if(PROJECT_IS_TOP_LEVEL)
     DEPENDS
     ${NVFUSER_ROOT}/csrc/serde/fusion_cache.fbs
     DEPENDS flatc
-    COMMAND ${CMAKE_CURRENT_BINARY_DIR}/third_party/flatbuffers/flatc -o ${NVFUSER_ROOT}/csrc/serde/ -c -b ${NVFUSER_ROOT}/csrc/serde/fusion_cache.fbs
+    COMMAND ${CMAKE_CURRENT_BINARY_DIR}/third_party/flatbuffers/flatc --gen-object-api -o ${NVFUSER_ROOT}/csrc/serde/ -c -b ${NVFUSER_ROOT}/csrc/serde/fusion_cache.fbs
     COMMENT "Generating fusion_cache_generated header from fusion_cache.fbs"
     VERBATIM
   )
@@ -299,7 +301,17 @@ install(DIRECTORY "${NVFUSER_SRCS_DIR}/"
   DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/nvfuser"
   FILES_MATCHING
   PATTERN "*.h"
-  PATTERN "csrc/C++20/type_traits")
+  PATTERN "csrc/C++20/type_traits"
+  PATTERN "csrc/struct.inl")
+
+# TODO guard including flatbuffers headers
+# installing flatbuffers headers
+install(DIRECTORY "${NVFUSER_THIRD_PARTY_DIR}/flatbuffers/include/flatbuffers/"
+  DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/nvfuser/flatbuffers")
+
+# installing dynamic_type headers
+install(DIRECTORY "${NVFUSER_ROOT}/lib/dynamic_type/src/dynamic_type"
+  DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/nvfuser")
 
 # -----------------------------
 # build nvfuser python library
@@ -402,6 +414,7 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/test/test_allocation_domain.cpp
     ${NVFUSER_ROOT}/test/test_dynamic_transform.cpp
     ${NVFUSER_ROOT}/test/test_evaluator.cpp
+    ${NVFUSER_ROOT}/test/test_exceptions.cpp
     ${NVFUSER_ROOT}/test/test_expr_sort.cpp
     ${NVFUSER_ROOT}/test/test_gather.cpp
     ${NVFUSER_ROOT}/test/test_gpu1.cpp
