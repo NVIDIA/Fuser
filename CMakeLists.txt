@@ -15,6 +15,7 @@ endif()
 
 set(NVFUSER_ROOT ${PROJECT_SOURCE_DIR})
 set(NVFUSER_SRCS_DIR "${NVFUSER_ROOT}/csrc")
+set(NVFUSER_THIRD_PARTY_DIR "${NVFUSER_ROOT}/third_party")
 
 option(NVFUSER_STANDALONE_BUILD_WITH_UCC "" OFF)
 
@@ -300,7 +301,17 @@ install(DIRECTORY "${NVFUSER_SRCS_DIR}/"
   DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/nvfuser"
   FILES_MATCHING
   PATTERN "*.h"
-  PATTERN "csrc/C++20/type_traits")
+  PATTERN "csrc/C++20/type_traits"
+  PATTERN "csrc/struct.inl")
+
+# TODO guard including flatbuffers headers
+# installing flatbuffers headers
+install(DIRECTORY "${NVFUSER_THIRD_PARTY_DIR}/flatbuffers/include/flatbuffers/"
+  DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/nvfuser/flatbuffers")
+
+# installing dynamic_type headers
+install(DIRECTORY "${NVFUSER_ROOT}/lib/dynamic_type/src/dynamic_type"
+  DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/nvfuser")
 
 # -----------------------------
 # build nvfuser python library

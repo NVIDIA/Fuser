@@ -2863,4 +2863,74 @@ TEST_F(ResizeTest, ReshapeToSlice) {
       __FILE__);
 }
 
+// Test that we can cat along broadcast dims
+// See https://github.com/NVIDIA/Fuser/issues/224
+TEST_F(ResizeTest, CatOfBroadcast) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape0({1, 2});
+  std::vector<int64_t> shape1({3, 2});
+
+  auto tv0 = makeConcreteTensor(shape0);
+  fusion.addInput(tv0);
+
+  auto tv1 = makeConcreteTensor(shape1);
+  fusion.addInput(tv1);
+
+  auto tv2 = cat({tv0, tv1}, 0);
+  fusion.addOutput(tv2);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  auto t0 = at::randn(shape0, options);
+  auto t1 = at::randn(shape1, options);
+  std::vector<c10::IValue> aten_inputs({t0, t1});
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = fe.runFusion(aten_inputs);
+
+  auto ref = at::cat({t0, t1}, 0);
+
+  NVF_CHECK(ref.equal(cg_outputs[0]));
+}
+
+// Test that we can cat along broadcast dims that have been expanded
+// See https://github.com/NVIDIA/Fuser/issues/224
+TEST_F(ResizeTest, CatOfExpandedBroadcast) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape0({1, 2});
+  std::vector<int64_t> shape0e({4, 2});
+  std::vector<int64_t> shape1({3, 2});
+
+  auto tv0 = makeConcreteTensor(shape0);
+  fusion.addInput(tv0);
+
+  auto tv1 = makeConcreteTensor(shape1);
+  fusion.addInput(tv1);
+
+  auto tv0e = expand(
+      tv0, {IrBuilder::create<Val>(shape0e.at(0)), tv0->axis(1)->extent()});
+
+  auto tv2 = cat({tv0e, tv1}, 0);
+  fusion.addOutput(tv2);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  auto t0 = at::randn(shape0, options);
+  auto t1 = at::randn(shape1, options);
+  std::vector<c10::IValue> aten_inputs({t0, t1});
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = fe.runFusion(aten_inputs);
+
+  auto ref = at::cat({at::expand_copy(t0, shape0e), t1}, 0);
+
+  NVF_CHECK(ref.equal(cg_outputs[0]));
+}
+
 } // namespace nvfuser
