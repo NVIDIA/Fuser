@@ -1335,13 +1335,13 @@ std::shared_ptr<ReductionParams> getPersistentHeuristics(
 
   NVF_ERROR(!reduction_tvs.empty(), "Need reduction tensor views to schedule.");
 
-  auto ref_red_tv =
-      normalization_scheduler_utils::getReferenceReductionTv(reduction_tvs);
+  auto first_red_tv = reduction_tvs[0];
 
-  NVF_ERROR(ref_red_tv != nullptr, "Reduction TensorView wasn't found.");
+  NVF_ERROR(first_red_tv != nullptr, "Reduction TensorView wasn't found.");
 
-  NVF_ERROR(ref_red_tv->hasReduction(), "TensorView doesn't have a reduction.");
-  const auto red_expr = ref_red_tv->definition();
+  NVF_ERROR(
+      first_red_tv->hasReduction(), "TensorView doesn't have a reduction.");
+  const auto red_expr = first_red_tv->definition();
 
   NVF_ERROR(
       ir_utils::isReductionOp(red_expr),
@@ -1378,8 +1378,8 @@ std::shared_ptr<ReductionParams> getPersistentHeuristics(
       !persistent_buffer_info.persistent_buffers.empty(),
       "Persistent scheduler requires persistent buffers.");
 
-  auto properties =
-      scheduler_utils::getReductionProperties(fusion, runtime_info, ref_red_tv);
+  auto properties = scheduler_utils::getReductionProperties(
+      fusion, runtime_info, first_red_tv);
 
   // Grab persistent buffer sizes
   auto persistent_buffer_size_info = scheduler_utils::persistentBufferSize(
@@ -1451,7 +1451,7 @@ std::shared_ptr<ReductionParams> getPersistentHeuristics(
     }
   }
 
-  auto reduced_tv = ir_utils::getSoleProducerTv(ref_red_tv);
+  auto reduced_tv = ir_utils::getSoleProducerTv(first_red_tv);
 
   auto unrollable_inputs_outputs_entry =
       HeuristicSummaryEntry<HeuristicCompileTime::UnrollableInputsAndOutputs>(
@@ -1468,7 +1468,7 @@ std::shared_ptr<ReductionParams> getPersistentHeuristics(
       reduced_tv,
       data_cache,
       vectorize_helper::getVectorizationBreakPointOfReductionProducer(
-          ref_red_tv, reduced_tv, properties.inner_most_dimension_ndims));
+          first_red_tv, reduced_tv, properties.inner_most_dimension_ndims));
 
   // Base max dtype and n_tensor_inputs on tensors that are vectorizable (i.e.
   // share inner dimension with data pattern we're looking at).
@@ -1492,7 +1492,7 @@ std::shared_ptr<ReductionParams> getPersistentHeuristics(
   // dtype used to store partial outer reduction in combined reduction
   const int64_t tmp_gmem_dtype_size = combined_inner_outer_reduction
       ? dataTypeSize(outer_reduction_tvs[0]->getDataType().value())
-      : dataTypeSize(ref_red_tv->getDataType().value());
+      : dataTypeSize(first_red_tv->getDataType().value());
 
   // Protect heuristics div by 0:
   n_tensor_inputs = std::max(n_tensor_inputs, (int64_t)1);
