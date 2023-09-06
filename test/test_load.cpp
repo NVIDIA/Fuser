@@ -78,7 +78,8 @@ TEST_F(LoadTest, LoadCache) {
   EXPECT_EQ(match.size(), 1);
 
   std::vector<at::Tensor> actual_ts = fe.runFusion({input});
-  testValidate(&fusion, actual_ts, {input}, {expected_output}, __LINE__, __FILE__);
+  testValidate(
+      &fusion, actual_ts, {input}, {expected_output}, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser
