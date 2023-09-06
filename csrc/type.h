@@ -488,6 +488,17 @@ inline bool hasCompatibleDataType(
     }
     auto ptr = std::get<PointerType>(dtype.type);
     return dataTypeSize(*ptr.type) == value.as<Pointer>().size();
+  } else if (std::holds_alternative<ArrayType>(dtype.type)) {
+    if (!value.is<std::vector>()) {
+      return false;
+    }
+    const auto& array_type = std::get<ArrayType>(dtype.type);
+    if (array_type.size != value.as<std::vector>().size()) {
+      return false;
+    }
+    if (array_type.size == 0) {
+      return true;
+    }
   }
   return isCompatibleDataType(getDataType(value), dtype);
 }
@@ -954,7 +965,6 @@ inline PolymorphicValue castToDtype(
   // Cast the given value to the given data type. This enables interface
   // like: IrBuilder::create<Val>(0, DataType::Double) where value is
   // an integer but the desired data type is double.
-  auto value_dtype = getDataType(value);
   if (!hasCompatibleDataType(value, dtype)) {
     PolymorphicValue::for_all_types([&](auto _) {
       using T = typename decltype(_)::type;
