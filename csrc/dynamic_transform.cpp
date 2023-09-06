@@ -225,7 +225,7 @@ DynamicTransformConcretizationInfo::DynamicTransformConcretizationInfo(
     } else if (auto rop = dynamic_cast<Resize*>(expr)) {
       analyze(rop, expr_eval);
     } else {
-      TORCH_CHECK(false, "Unhandled dynamic Expr type: ", expr->toString());
+      NVF_CHECK(false, "Unhandled dynamic Expr type: ", expr->toString());
     }
   }
 
@@ -254,7 +254,7 @@ void DynamicTransformConcretizationInfo::analyze(
     return;
   }
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       out_tv->hasRFactor(),
       "Unexpected output tv of ViewOp: ",
       out_tv->toString());
@@ -268,20 +268,20 @@ void DynamicTransformConcretizationInfo::analyze(
     auto inp_id = inp_dom.at(i);
     // This should have been validated when initially creating reshape
     // op, but just in case
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         !inp_id->maybePartial(),
         "Invalid domain to reshape: ",
         inp_id->toString());
     auto extent_val = expr_eval->evaluate(inp_id->extent());
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         extent_val.hasValue(),
         "Cannot evaluate the extent of an input domain to reshape: ",
         inp_id->toString());
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         extent_val.is<int64_t>(),
         "Invalid evaluated value of domain extent: ",
         inp_id->toString());
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         extent_val.as<int64_t>() > 0,
         "Invalid input domain extent: ",
         extent_val.as<int64_t>());
@@ -324,22 +324,22 @@ void DynamicTransformConcretizationInfo::analyze(
     ExpressionEvaluator* expr_eval) {
   auto out_id = op->out()->as<IterDomain>();
 
-  TORCH_CHECK(
+  NVF_CHECK(
       out_id->getIterType() == IterType::Symbolic,
       "Found non-dynamic Resize in initial concretization info: ",
       op->toString());
 
   auto extent_val = expr_eval->evaluate(out_id->extent());
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       extent_val.hasValue(),
       "Cannot evaluate the extent of a resized domain: ",
       out_id->toString());
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       extent_val.is<int64_t>(),
       "Invalid evaluated value of resized domain extent: ",
       out_id->toString());
   auto extent_int = extent_val.as<int64_t>();
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       extent_int > 0,
       "Invalid resized domain extent ",
       extent_int,
@@ -462,13 +462,13 @@ void DynamicTransformConcretizer::concretize() {
        i >= 0;
        --i) {
     auto op = info_->initialInfo()->getDynamicExprs().at(i);
-    TORCH_CHECK(op != nullptr, "Dynamic expression must not be nullptr");
+    NVF_CHECK(op != nullptr, "Dynamic expression must not be nullptr");
     auto desc_var = info_->getExprConcretizationDescriptors().at(i);
     if (auto vop = dynamic_cast<ViewOp*>(op)) {
       if (auto analyze_result_ptr = std::get_if<AnalyzeViewResult>(&desc_var)) {
         concretizeReshape(vop, *analyze_result_ptr);
       } else {
-        TORCH_CHECK(
+        NVF_CHECK(
             false,
             "Dynamic ViewOp expects AnalyzeViewResult descriptor but found variant index ",
             desc_var.index());
@@ -477,13 +477,13 @@ void DynamicTransformConcretizer::concretize() {
       if (auto iter_type_ptr = std::get_if<IterType>(&desc_var)) {
         concretizeResize(rop, *iter_type_ptr);
       } else {
-        TORCH_CHECK(
+        NVF_CHECK(
             false,
             "Dynamic Resize expects IterType descriptor but found variant index ",
             desc_var.index());
       }
     } else {
-      TORCH_CHECK(false, "Unhandled dynamic Expr type: ", op->toString());
+      NVF_CHECK(false, "Unhandled dynamic Expr type: ", op->toString());
     }
   }
 
@@ -551,7 +551,6 @@ void DynamicTransformConcretizer::concretizeReshape(
     // edge.
     if (old_extent->definition() && !new_extent->sameAs(old_extent)) {
       registerConcretization(old_extent, new_extent);
-      }
     }
   }
 
@@ -868,3 +867,4 @@ size_t DynamicTransformConcretizationInfo::hash() const {
 }
 
 } // namespace nvfuser
+
