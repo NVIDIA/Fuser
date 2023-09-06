@@ -1149,7 +1149,7 @@ std::ostream& operator<<(std::ostream& os, const CacheOp& cache_op) {
       os << "Streaming";
       break;
     default:
-      TORCH_INTERNAL_ASSERT(false, "undefined cache operator");
+      NVF_ERROR(false, "undefined cache operator");
       break;
   }
   return os;
