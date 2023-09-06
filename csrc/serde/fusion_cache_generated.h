@@ -202,6 +202,10 @@ struct KernelSummary;
 struct KernelSummaryBuilder;
 struct KernelSummaryT;
 
+struct CudaKernel;
+struct CudaKernelBuilder;
+struct CudaKernelT;
+
 struct FusionExecutor;
 struct FusionExecutorBuilder;
 struct FusionExecutorT;
@@ -5697,6 +5701,111 @@ inline ::flatbuffers::Offset<KernelSummary> CreateKernelSummaryDirect(
 
 ::flatbuffers::Offset<KernelSummary> CreateKernelSummary(::flatbuffers::FlatBufferBuilder &_fbb, const KernelSummaryT *_o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
 
+struct CudaKernelT : public ::flatbuffers::NativeTable {
+  typedef CudaKernel TableType;
+  std::string name{};
+  std::string compile_args{};
+  std::vector<int8_t> object_code{};
+  int64_t block_size = -1LL;
+};
+
+struct CudaKernel FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
+  typedef CudaKernelT NativeTableType;
+  typedef CudaKernelBuilder Builder;
+  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
+    VT_NAME = 4,
+    VT_COMPILE_ARGS = 6,
+    VT_OBJECT_CODE = 8,
+    VT_BLOCK_SIZE = 10
+  };
+  const ::flatbuffers::String *name() const {
+    return GetPointer<const ::flatbuffers::String *>(VT_NAME);
+  }
+  const ::flatbuffers::String *compile_args() const {
+    return GetPointer<const ::flatbuffers::String *>(VT_COMPILE_ARGS);
+  }
+  const ::flatbuffers::Vector<int8_t> *object_code() const {
+    return GetPointer<const ::flatbuffers::Vector<int8_t> *>(VT_OBJECT_CODE);
+  }
+  int64_t block_size() const {
+    return GetField<int64_t>(VT_BLOCK_SIZE, -1LL);
+  }
+  bool Verify(::flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyOffset(verifier, VT_NAME) &&
+           verifier.VerifyString(name()) &&
+           VerifyOffset(verifier, VT_COMPILE_ARGS) &&
+           verifier.VerifyString(compile_args()) &&
+           VerifyOffset(verifier, VT_OBJECT_CODE) &&
+           verifier.VerifyVector(object_code()) &&
+           VerifyField<int64_t>(verifier, VT_BLOCK_SIZE, 8) &&
+           verifier.EndTable();
+  }
+  CudaKernelT *UnPack(const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(CudaKernelT *_o, const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static ::flatbuffers::Offset<CudaKernel> Pack(::flatbuffers::FlatBufferBuilder &_fbb, const CudaKernelT* _o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
+};
+
+struct CudaKernelBuilder {
+  typedef CudaKernel Table;
+  ::flatbuffers::FlatBufferBuilder &fbb_;
+  ::flatbuffers::uoffset_t start_;
+  void add_name(::flatbuffers::Offset<::flatbuffers::String> name) {
+    fbb_.AddOffset(CudaKernel::VT_NAME, name);
+  }
+  void add_compile_args(::flatbuffers::Offset<::flatbuffers::String> compile_args) {
+    fbb_.AddOffset(CudaKernel::VT_COMPILE_ARGS, compile_args);
+  }
+  void add_object_code(::flatbuffers::Offset<::flatbuffers::Vector<int8_t>> object_code) {
+    fbb_.AddOffset(CudaKernel::VT_OBJECT_CODE, object_code);
+  }
+  void add_block_size(int64_t block_size) {
+    fbb_.AddElement<int64_t>(CudaKernel::VT_BLOCK_SIZE, block_size, -1LL);
+  }
+  explicit CudaKernelBuilder(::flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  ::flatbuffers::Offset<CudaKernel> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = ::flatbuffers::Offset<CudaKernel>(end);
+    return o;
+  }
+};
+
+inline ::flatbuffers::Offset<CudaKernel> CreateCudaKernel(
+    ::flatbuffers::FlatBufferBuilder &_fbb,
+    ::flatbuffers::Offset<::flatbuffers::String> name = 0,
+    ::flatbuffers::Offset<::flatbuffers::String> compile_args = 0,
+    ::flatbuffers::Offset<::flatbuffers::Vector<int8_t>> object_code = 0,
+    int64_t block_size = -1LL) {
+  CudaKernelBuilder builder_(_fbb);
+  builder_.add_block_size(block_size);
+  builder_.add_object_code(object_code);
+  builder_.add_compile_args(compile_args);
+  builder_.add_name(name);
+  return builder_.Finish();
+}
+
+inline ::flatbuffers::Offset<CudaKernel> CreateCudaKernelDirect(
+    ::flatbuffers::FlatBufferBuilder &_fbb,
+    const char *name = nullptr,
+    const char *compile_args = nullptr,
+    const std::vector<int8_t> *object_code = nullptr,
+    int64_t block_size = -1LL) {
+  auto name__ = name ? _fbb.CreateString(name) : 0;
+  auto compile_args__ = compile_args ? _fbb.CreateString(compile_args) : 0;
+  auto object_code__ = object_code ? _fbb.CreateVector<int8_t>(*object_code) : 0;
+  return nvfuser::serde::CreateCudaKernel(
+      _fbb,
+      name__,
+      compile_args__,
+      object_code__,
+      block_size);
+}
+
+::flatbuffers::Offset<CudaKernel> CreateCudaKernel(::flatbuffers::FlatBufferBuilder &_fbb, const CudaKernelT *_o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
 struct FusionExecutorT : public ::flatbuffers::NativeTable {
   typedef FusionExecutor TableType;
   int64_t device_smem_limit = 0;
@@ -5709,6 +5818,7 @@ struct FusionExecutorT : public ::flatbuffers::NativeTable {
   std::vector<uint64_t> executor_entry_lookup_keys{};
   std::vector<std::unique_ptr<nvfuser::serde::ExecutorEntryT>> executor_entry_lookup_values{};
   nvfuser::serde::DataType index_type = nvfuser::serde::DataType_None;
+  std::unique_ptr<nvfuser::serde::CudaKernelT> compiled_kernel{};
   std::unique_ptr<nvfuser::serde::KernelSummaryT> summary{};
   FusionExecutorT() = default;
   FusionExecutorT(const FusionExecutorT &o);
@@ -5730,7 +5840,8 @@ struct FusionExecutor FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
     VT_EXECUTOR_ENTRY_LOOKUP_KEYS = 18,
     VT_EXECUTOR_ENTRY_LOOKUP_VALUES = 20,
     VT_INDEX_TYPE = 22,
-    VT_SUMMARY = 24
+    VT_COMPILED_KERNEL = 24,
+    VT_SUMMARY = 26
   };
   int64_t device_smem_limit() const {
     return GetField<int64_t>(VT_DEVICE_SMEM_LIMIT, 0);
@@ -5762,6 +5873,9 @@ struct FusionExecutor FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
   nvfuser::serde::DataType index_type() const {
     return static_cast<nvfuser::serde::DataType>(GetField<int32_t>(VT_INDEX_TYPE, 0));
   }
+  const nvfuser::serde::CudaKernel *compiled_kernel() const {
+    return GetPointer<const nvfuser::serde::CudaKernel *>(VT_COMPILED_KERNEL);
+  }
   const nvfuser::serde::KernelSummary *summary() const {
     return GetPointer<const nvfuser::serde::KernelSummary *>(VT_SUMMARY);
   }
@@ -5781,6 +5895,8 @@ struct FusionExecutor FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
            verifier.VerifyVector(executor_entry_lookup_values()) &&
            verifier.VerifyVectorOfTables(executor_entry_lookup_values()) &&
            VerifyField<int32_t>(verifier, VT_INDEX_TYPE, 4) &&
+           VerifyOffset(verifier, VT_COMPILED_KERNEL) &&
+           verifier.VerifyTable(compiled_kernel()) &&
            VerifyOffset(verifier, VT_SUMMARY) &&
            verifier.VerifyTable(summary()) &&
            verifier.EndTable();
@@ -5824,6 +5940,9 @@ struct FusionExecutorBuilder {
   void add_index_type(nvfuser::serde::DataType index_type) {
     fbb_.AddElement<int32_t>(FusionExecutor::VT_INDEX_TYPE, static_cast<int32_t>(index_type), 0);
   }
+  void add_compiled_kernel(::flatbuffers::Offset<nvfuser::serde::CudaKernel> compiled_kernel) {
+    fbb_.AddOffset(FusionExecutor::VT_COMPILED_KERNEL, compiled_kernel);
+  }
   void add_summary(::flatbuffers::Offset<nvfuser::serde::KernelSummary> summary) {
     fbb_.AddOffset(FusionExecutor::VT_SUMMARY, summary);
   }
@@ -5850,6 +5969,7 @@ inline ::flatbuffers::Offset<FusionExecutor> CreateFusionExecutor(
     ::flatbuffers::Offset<::flatbuffers::Vector<uint64_t>> executor_entry_lookup_keys = 0,
     ::flatbuffers::Offset<::flatbuffers::Vector<::flatbuffers::Offset<nvfuser::serde::ExecutorEntry>>> executor_entry_lookup_values = 0,
     nvfuser::serde::DataType index_type = nvfuser::serde::DataType_None,
+    ::flatbuffers::Offset<nvfuser::serde::CudaKernel> compiled_kernel = 0,
     ::flatbuffers::Offset<nvfuser::serde::KernelSummary> summary = 0) {
   FusionExecutorBuilder builder_(_fbb);
   builder_.add_fusion_id_counter(fusion_id_counter);
@@ -5859,6 +5979,7 @@ inline ::flatbuffers::Offset<FusionExecutor> CreateFusionExecutor(
   builder_.add_block_size_high_water_mark(block_size_high_water_mark);
   builder_.add_device_smem_limit(device_smem_limit);
   builder_.add_summary(summary);
+  builder_.add_compiled_kernel(compiled_kernel);
   builder_.add_index_type(index_type);
   builder_.add_executor_entry_lookup_values(executor_entry_lookup_values);
   builder_.add_executor_entry_lookup_keys(executor_entry_lookup_keys);
@@ -5878,6 +5999,7 @@ inline ::flatbuffers::Offset<FusionExecutor> CreateFusionExecutorDirect(
     const std::vector<uint64_t> *executor_entry_lookup_keys = nullptr,
     const std::vector<::flatbuffers::Offset<nvfuser::serde::ExecutorEntry>> *executor_entry_lookup_values = nullptr,
     nvfuser::serde::DataType index_type = nvfuser::serde::DataType_None,
+    ::flatbuffers::Offset<nvfuser::serde::CudaKernel> compiled_kernel = 0,
     ::flatbuffers::Offset<nvfuser::serde::KernelSummary> summary = 0) {
   auto kernel_code__ = kernel_code ? _fbb.CreateString(kernel_code) : 0;
   auto executor_entry_lookup_keys__ = executor_entry_lookup_keys ? _fbb.CreateVector<uint64_t>(*executor_entry_lookup_keys) : 0;
@@ -5894,6 +6016,7 @@ inline ::flatbuffers::Offset<FusionExecutor> CreateFusionExecutorDirect(
       executor_entry_lookup_keys__,
       executor_entry_lookup_values__,
       index_type,
+      compiled_kernel,
       summary);
 }
 
@@ -8442,6 +8565,41 @@ inline ::flatbuffers::Offset<KernelSummary> CreateKernelSummary(::flatbuffers::F
       _dynamic_smem_allocations);
 }
 
+inline CudaKernelT *CudaKernel::UnPack(const ::flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = std::unique_ptr<CudaKernelT>(new CudaKernelT());
+  UnPackTo(_o.get(), _resolver);
+  return _o.release();
+}
+
+inline void CudaKernel::UnPackTo(CudaKernelT *_o, const ::flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = name(); if (_e) _o->name = _e->str(); }
+  { auto _e = compile_args(); if (_e) _o->compile_args = _e->str(); }
+  { auto _e = object_code(); if (_e) { _o->object_code.resize(_e->size()); std::copy(_e->begin(), _e->end(), _o->object_code.begin()); } }
+  { auto _e = block_size(); _o->block_size = _e; }
+}
+
+inline ::flatbuffers::Offset<CudaKernel> CudaKernel::Pack(::flatbuffers::FlatBufferBuilder &_fbb, const CudaKernelT* _o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateCudaKernel(_fbb, _o, _rehasher);
+}
+
+inline ::flatbuffers::Offset<CudaKernel> CreateCudaKernel(::flatbuffers::FlatBufferBuilder &_fbb, const CudaKernelT *_o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { ::flatbuffers::FlatBufferBuilder *__fbb; const CudaKernelT* __o; const ::flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _name = _o->name.empty() ? 0 : _fbb.CreateString(_o->name);
+  auto _compile_args = _o->compile_args.empty() ? 0 : _fbb.CreateString(_o->compile_args);
+  auto _object_code = _o->object_code.size() ? _fbb.CreateVector(_o->object_code) : 0;
+  auto _block_size = _o->block_size;
+  return nvfuser::serde::CreateCudaKernel(
+      _fbb,
+      _name,
+      _compile_args,
+      _object_code,
+      _block_size);
+}
+
 inline FusionExecutorT::FusionExecutorT(const FusionExecutorT &o)
       : device_smem_limit(o.device_smem_limit),
         block_size_high_water_mark(o.block_size_high_water_mark),
@@ -8452,6 +8610,7 @@ inline FusionExecutorT::FusionExecutorT(const FusionExecutorT &o)
         kernel_code(o.kernel_code),
         executor_entry_lookup_keys(o.executor_entry_lookup_keys),
         index_type(o.index_type),
+        compiled_kernel((o.compiled_kernel) ? new nvfuser::serde::CudaKernelT(*o.compiled_kernel) : nullptr),
         summary((o.summary) ? new nvfuser::serde::KernelSummaryT(*o.summary) : nullptr) {
   executor_entry_lookup_values.reserve(o.executor_entry_lookup_values.size());
   for (const auto &executor_entry_lookup_values_ : o.executor_entry_lookup_values) { executor_entry_lookup_values.emplace_back((executor_entry_lookup_values_) ? new nvfuser::serde::ExecutorEntryT(*executor_entry_lookup_values_) : nullptr); }
@@ -8468,6 +8627,7 @@ inline FusionExecutorT &FusionExecutorT::operator=(FusionExecutorT o) FLATBUFFER
   std::swap(executor_entry_lookup_keys, o.executor_entry_lookup_keys);
   std::swap(executor_entry_lookup_values, o.executor_entry_lookup_values);
   std::swap(index_type, o.index_type);
+  std::swap(compiled_kernel, o.compiled_kernel);
   std::swap(summary, o.summary);
   return *this;
 }
@@ -8491,6 +8651,7 @@ inline void FusionExecutor::UnPackTo(FusionExecutorT *_o, const ::flatbuffers::r
   { auto _e = executor_entry_lookup_keys(); if (_e) { _o->executor_entry_lookup_keys.resize(_e->size()); for (::flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->executor_entry_lookup_keys[_i] = _e->Get(_i); } } else { _o->executor_entry_lookup_keys.resize(0); } }
   { auto _e = executor_entry_lookup_values(); if (_e) { _o->executor_entry_lookup_values.resize(_e->size()); for (::flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { if(_o->executor_entry_lookup_values[_i]) { _e->Get(_i)->UnPackTo(_o->executor_entry_lookup_values[_i].get(), _resolver); } else { _o->executor_entry_lookup_values[_i] = std::unique_ptr<nvfuser::serde::ExecutorEntryT>(_e->Get(_i)->UnPack(_resolver)); }; } } else { _o->executor_entry_lookup_values.resize(0); } }
   { auto _e = index_type(); _o->index_type = _e; }
+  { auto _e = compiled_kernel(); if (_e) { if(_o->compiled_kernel) { _e->UnPackTo(_o->compiled_kernel.get(), _resolver); } else { _o->compiled_kernel = std::unique_ptr<nvfuser::serde::CudaKernelT>(_e->UnPack(_resolver)); } } else if (_o->compiled_kernel) { _o->compiled_kernel.reset(); } }
   { auto _e = summary(); if (_e) { if(_o->summary) { _e->UnPackTo(_o->summary.get(), _resolver); } else { _o->summary = std::unique_ptr<nvfuser::serde::KernelSummaryT>(_e->UnPack(_resolver)); } } else if (_o->summary) { _o->summary.reset(); } }
 }
 
@@ -8512,6 +8673,7 @@ inline ::flatbuffers::Offset<FusionExecutor> CreateFusionExecutor(::flatbuffers:
   auto _executor_entry_lookup_keys = _o->executor_entry_lookup_keys.size() ? _fbb.CreateVector(_o->executor_entry_lookup_keys) : 0;
   auto _executor_entry_lookup_values = _o->executor_entry_lookup_values.size() ? _fbb.CreateVector<::flatbuffers::Offset<nvfuser::serde::ExecutorEntry>> (_o->executor_entry_lookup_values.size(), [](size_t i, _VectorArgs *__va) { return CreateExecutorEntry(*__va->__fbb, __va->__o->executor_entry_lookup_values[i].get(), __va->__rehasher); }, &_va ) : 0;
   auto _index_type = _o->index_type;
+  auto _compiled_kernel = _o->compiled_kernel ? CreateCudaKernel(_fbb, _o->compiled_kernel.get(), _rehasher) : 0;
   auto _summary = _o->summary ? CreateKernelSummary(_fbb, _o->summary.get(), _rehasher) : 0;
   return nvfuser::serde::CreateFusionExecutor(
       _fbb,
@@ -8525,6 +8687,7 @@ inline ::flatbuffers::Offset<FusionExecutor> CreateFusionExecutor(::flatbuffers:
       _executor_entry_lookup_keys,
       _executor_entry_lookup_values,
       _index_type,
+      _compiled_kernel,
       _summary);
 }
 

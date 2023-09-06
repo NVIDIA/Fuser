@@ -26,6 +26,7 @@
 #include <ir/all_nodes.h>
 #include <kernel.h>
 
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -40,7 +41,7 @@ TORCH_CUDA_CU_API ExpressionEvaluator
 bindInputs(const KernelArgumentHolder& args, Fusion* fusion);
 
 std::string disassembleBinary(
-    const std::vector<char>& cubin,
+    const serde::CudaKernelT& cubin,
     const std::string& nvdisasm_args);
 
 struct NvrtcFunction {
@@ -49,14 +50,18 @@ struct NvrtcFunction {
 };
 
 // Returns executable function and the ptxas log from compilation
-std::tuple<NvrtcFunction, std::string, std::vector<char>> getCompiledKernel(
+std::tuple<NvrtcFunction, std::string, serde::CudaKernelT> getCompiledKernel(
     std::optional<std::reference_wrapper<const std::string>> kernel_code,
     const std::string& code,
     const std::string& func_name,
     int64_t id,
     const CompileParams& compile_params = CompileParams(),
-    std::optional<int64_t> opt_block_size = std::nullopt,
-    bool return_compiled_binary = false);
+    std::optional<int64_t> opt_block_size = std::nullopt);
+
+// Returns executable function using flatbuffer object
+std::tuple<NvrtcFunction, std::string> getCompiledKernel(
+    const serde::CudaKernelT& buffer,
+    const CompileParams& compile_params);
 
 namespace caching {
 // TODO: Could consider putting some of

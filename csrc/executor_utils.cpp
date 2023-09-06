@@ -744,7 +744,7 @@ size_t nvrtcGetSize(const nvrtcProgram& program, bool compile_to_sass) {
 }
 
 // Get the program code from nvrtcProgram
-std::vector<char> nvrtcGetCode(
+std::vector<int8_t> nvrtcGetCode(
     const nvrtcProgram& program,
     bool compile_to_sass) {
   const auto size = nvrtcGetSize(program, compile_to_sass);
@@ -757,13 +757,13 @@ std::vector<char> nvrtcGetCode(
   const auto getCode = nvrtcGetPTX;
 #endif
 
-  std::vector<char> code(size);
-  NVFUSER_NVRTC_SAFE_CALL(getCode(program, code.data()));
+  std::vector<int8_t> code(size);
+  NVFUSER_NVRTC_SAFE_CALL(getCode(program, (char*)code.data()));
   return code;
 }
 
 void dumpCompiledCodeToFile(
-    const std::vector<char>& code,
+    const std::vector<int8_t>& code,
     int64_t fusion_id,
     bool dump_cubin) {
   std::stringstream file_name;
@@ -772,7 +772,7 @@ void dumpCompiledCodeToFile(
   debug() << "PRINTING: " << file_name.str() << std::endl;
   std::ofstream out(file_name.str());
   NVF_ERROR(out.is_open());
-  out.write(code.data(), (std::streamsize)code.size());
+  out.write((const char*)code.data(), (std::streamsize)code.size());
   out.close();
 }
 
@@ -1113,7 +1113,7 @@ void createNvrtcProgram(
 
 // Compile the given source code with the NVRTC compiler
 // driver. Return the binary of the kernel, compile log, and its lowered name
-std::tuple<std::vector<char>, std::string, std::string> compileSource(
+std::tuple<std::vector<int8_t>, std::string, std::string> compileSource(
     const std::string& full_src_code,
     const std::string& func_name,
     int64_t id,
@@ -1150,14 +1150,13 @@ std::tuple<std::vector<char>, std::string, std::string> compileSource(
 } // namespace
 
 // Compile the source if no existing compiled binary is found in KernelDB
-std::tuple<NvrtcFunction, std::string, std::vector<char>> getCompiledKernel(
+std::tuple<NvrtcFunction, std::string, serde::CudaKernelT> getCompiledKernel(
     std::optional<std::reference_wrapper<const std::string>> kernel_code,
     const std::string& full_src_code,
     const std::string& func_name,
     int64_t id,
     const CompileParams& compile_params,
-    std::optional<int64_t> opt_block_size,
-    bool return_compiled_binary) {
+    std::optional<int64_t> opt_block_size) {
   FUSER_PERF_SCOPE("executor_utils::NVRTC");
 
   at::cuda::jit::initializeCudaContext();
@@ -1217,9 +1216,8 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> getCompiledKernel(
   }
 
   // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
-  std::vector<char> object_code;
-  std::string lowered_kernel_name_str;
-  const auto compile_args =
+  serde::CudaKernelT compiled_binary;
+  compiled_binary.compile_args =
       toDelimitedString(nvrtc_compile_driver.options(), " ");
 
   auto& kernel_db = KernelDb::get();
@@ -1229,29 +1227,35 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> getCompiledKernel(
   if (!(use_kernel_db &&
         kernel_db.query(
             kernel_code.value(),
-            compile_args,
-            lowered_kernel_name_str,
-            object_code))) {
+            compiled_binary.compile_args,
+            compiled_binary.name,
+            compiled_binary.object_code))) {
     std::string compile_log;
-    std::tie(object_code, compile_log, lowered_kernel_name_str) = compileSource(
-        full_src_code, func_name, id, compile_to_sass, nvrtc_compile_driver);
+    std::tie(compiled_binary.object_code, compile_log, compiled_binary.name) =
+        compileSource(
+            full_src_code,
+            func_name,
+            id,
+            compile_to_sass,
+            nvrtc_compile_driver);
     log << compile_log << std::endl;
     if (use_kernel_db) {
       auto result = kernel_db.write(
           kernel_code.value(),
-          compile_args,
-          lowered_kernel_name_str,
-          object_code);
+          compiled_binary.compile_args,
+          compiled_binary.name,
+          compiled_binary.object_code);
       if (!result) {
         TORCH_WARN(
-            "kernel_db was unable to write kernel: ", lowered_kernel_name_str);
+            "kernel_db was unable to write kernel: ", compiled_binary.name);
       }
     }
   }
 
   NvrtcFunction compiled_kernel;
 
-  log << module_load_driver.invoke(compiled_kernel.module, object_code.data())
+  log << module_load_driver.invoke(
+             compiled_kernel.module, compiled_binary.object_code.data())
       << std::endl;
 
   if (isOptionEnabled(EnableOption::WarnRegisterSpill) ||
@@ -1262,13 +1266,83 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> getCompiledKernel(
   NVFUSER_CUDA_SAFE_CALL(cuModuleGetFunction(
       &(compiled_kernel.function),
       compiled_kernel.module,
-      lowered_kernel_name_str.c_str()));
+      compiled_binary.name.c_str()));
 
-  if (!return_compiled_binary) {
-    object_code.clear();
+  // Store block size used to generate compile arguments
+  if (opt_block_size.has_value()) {
+    compiled_binary.block_size = opt_block_size.value();
   }
 
-  return {compiled_kernel, log.str(), object_code};
+  return {compiled_kernel, log.str(), compiled_binary};
+}
+
+std::tuple<NvrtcFunction, std::string> getCompiledKernel(
+    const serde::CudaKernelT& compiled_binary,
+    const CompileParams& compile_params) {
+  FUSER_PERF_SCOPE("executor_utils::serde_NVRTC");
+
+  at::cuda::jit::initializeCudaContext();
+
+  // The above initialization works in some cases. However, it seems to
+  // occasionally fail to initialize a primary context. Here we check for that
+  // and if we detect that no context exists, we create one manually.
+  int device = 0;
+  cudaGetDevice(&device);
+  if (!at::detail::getCUDAHooks().hasPrimaryContext((c10::DeviceIndex)device)) {
+    // CUDA>=12 creates a context when cudaSetDevice is called. However, before
+    // cu12, that context is not necessarily created. In that case, we create
+    // one here implicitly. See https://github.com/NVIDIA/Fuser/issues/429
+    cudaFree(nullptr);
+  }
+
+  const auto prop = at::cuda::getCurrentDeviceProperties();
+
+  // Generate compile args and compare against saved args in compiled_binary
+  NvrtcCompileDriver nvrtc_compile_driver;
+  CuModuleLoadDataDriver module_load_driver;
+
+  int major = 0, minor = 0;
+  bool compile_to_sass = false;
+  queryTargetGPUVersion(prop, major, minor, compile_to_sass);
+
+  std::optional<int64_t> opt_block_size;
+  if (compiled_binary.block_size >= -1) {
+    opt_block_size = compiled_binary.block_size;
+  }
+
+  fillCompileOptions(
+      nvrtc_compile_driver,
+      module_load_driver,
+      compile_to_sass,
+      major,
+      minor,
+      compile_params,
+      opt_block_size);
+
+  const auto latest_compile_args =
+      toDelimitedString(nvrtc_compile_driver.options(), " ");
+  NVF_ERROR(
+      latest_compile_args == compiled_binary.compile_args,
+      "The compile arguments for the serialized cuda kernel does not ",
+      "match the latest generated compile args.\t",
+      latest_compile_args,
+      "\t",
+      compiled_binary.compile_args);
+
+  std::stringstream log;
+  NvrtcFunction compiled_kernel;
+
+  auto object_code_ptr =
+      reinterpret_cast<const char*>(compiled_binary.object_code.data());
+  log << module_load_driver.invoke(compiled_kernel.module, object_code_ptr)
+      << std::endl;
+
+  NVFUSER_CUDA_SAFE_CALL(cuModuleGetFunction(
+      &(compiled_kernel.function),
+      compiled_kernel.module,
+      compiled_binary.name.c_str()));
+
+  return {compiled_kernel, log.str()};
 }
 
 namespace caching {

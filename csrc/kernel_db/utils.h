@@ -22,14 +22,14 @@ TORCH_CUDA_CU_API bool append_to_text_file(
 
 TORCH_CUDA_CU_API bool copy_from_binary_file(
     const std::string& file_path,
-    std::vector<char>& dst);
+    std::vector<int8_t>& dst);
 TORCH_CUDA_CU_API bool copy_from_text_file(
     const std::string& file_path,
     std::string& dst);
 
 TORCH_CUDA_CU_API bool copy_to_binary_file(
     const std::string& file_path,
-    const std::vector<char>& dst);
+    const std::vector<int8_t>& dst);
 TORCH_CUDA_CU_API bool copy_to_text_file(
     const std::string& file_path,
     const std::string& src);

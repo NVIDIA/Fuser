@@ -44,9 +44,6 @@ struct KernelDbEntry {
 class TORCH_CUDA_CU_API KernelDb {
   KernelDb(bool _disabled);
 
-  KernelDb(const KernelDb&) = delete;
-  KernelDb& operator=(const KernelDb&) = delete;
-
   //! Open is private because this method should only be called once by the
   //! singleton upon creation to create a new db or restore an existing one.
   bool open(
@@ -55,6 +52,10 @@ class TORCH_CUDA_CU_API KernelDb {
       bool use_temp_dir);
 
  public:
+  // clang-tidy - deleted member function should be public
+  KernelDb(const KernelDb&) = delete;
+  KernelDb& operator=(const KernelDb&) = delete;
+
   //! Thread-Safe method to get the Meyer's singleton -- Interface
   static KernelDb& get();
   //! Thread-Safe method to get the Meyer's singleton -- For testing
@@ -81,14 +82,14 @@ class TORCH_CUDA_CU_API KernelDb {
       const std::string& kernel_code,
       const std::string& compile_args,
       std::string& kernel_signature,
-      std::vector<char>& cubin) const;
+      std::vector<int8_t>& cubin) const;
   //! Write is used to write a new entry to the db upon compilation of a
   //! new fusion
   bool write(
       const std::string& kernel_code,
       const std::string& compile_args,
       const std::string& kernel_signature,
-      const std::vector<char>& cubin);
+      const std::vector<int8_t>& cubin);
 
  private:
   //! Disablement is specified by the user and can also be set by a

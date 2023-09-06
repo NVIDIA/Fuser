@@ -16,6 +16,7 @@
 #include <string>
 #include <vector>
 
+#include <executor_utils.h>
 #include <sys/types.h>
 #include <unistd.h>
 #include <cstdio>
@@ -24,7 +25,7 @@
 namespace nvfuser::executor_utils {
 
 std::string disassembleBinary(
-    const std::vector<char>& cubin,
+    const serde::CudaKernelT& cubin,
     const std::string& nvdisasm_args) {
   const char* err = "Failed to disassemble cubin";
 
@@ -60,15 +61,16 @@ std::string disassembleBinary(
     NVF_ERROR(err_fp != nullptr, err);
 
     // Write cubin to nvdisasm
-    size_t written = fwrite(cubin.data(), 1, cubin.size(), cubin_fp);
-    NVF_ERROR(written == cubin.size(), err);
+    size_t written =
+        fwrite(cubin.object_code.data(), 1, cubin.object_code.size(), cubin_fp);
+    NVF_ERROR(written == cubin.object_code.size(), err);
     fclose(cubin_fp);
 
     int ch = -1;
 
     // read disassembly result
     std::string result;
-    result.reserve(cubin.size());
+    result.reserve(cubin.object_code.size());
     while ((ch = fgetc(disasm_fp)) != EOF) {
       result.push_back((char)ch);
     }
