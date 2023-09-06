@@ -3579,20 +3579,65 @@ void SegmentCandidateFinder::resolveScalarsInGroup(SegmentedGroup* group) {
   std::vector<Val*> to_visit;
   std::unordered_set<Val*> visited;
 
+  const auto processTV = [&to_visit](TensorView* tv) {
+    for (auto id : tv->getRootDomain()) {
+      to_visit.push_back(id->getMaybeExpandedExtent());
+    }
+    if (tv->domain()->hasRFactor()) {
+      // traverse from root to rfactor and inspect all Expr attrs and outputs
+      std::vector<Val*> all_vals;
+      for (const auto id_expr : StmtSort::getExprsBetween(
+               tv->fusion(),
+               {tv->getRootDomain().begin(), tv->getRootDomain().end()},
+               {tv->getMaybeRFactorDomain().begin(),
+                tv->getMaybeRFactorDomain().end()})) {
+        all_vals.insert(
+            all_vals.end(), id_expr->inputs().begin(), id_expr->inputs().end());
+        all_vals.insert(
+            all_vals.end(),
+            id_expr->outputs().begin(),
+            id_expr->outputs().end());
+        for (const auto attr : id_expr->attributes()) {
+          if (attr->isVal()) {
+            all_vals.push_back(attr->asVal());
+          }
+        }
+        for (const auto val : all_vals) {
+          if (val->isScalar()) {
+            to_visit.push_back(val);
+          } else if (const auto id = dynamic_cast<IterDomain*>(val)) {
+            to_visit.push_back(id->getMaybeExpandedExtent());
+          }
+        }
+      }
+    }
+  };
+
   // Collect all scalar uses in the group
   for (auto expr : group->exprs()) {
     for (auto input : expr->inputs()) {
       if (input->isScalar()) {
         to_visit.push_back(input);
+      } else if (auto tv = dynamic_cast<TensorView*>(input)) {
+        processTV(tv);
+      }
+    }
+    for (auto attr : expr->attributes()) {
+      auto attr_val = dynamic_cast<Val*>(attr);
+      if (!attr_val) {
+        continue;
+      }
+      if (attr_val->isScalar()) {
+        to_visit.push_back(attr_val);
+      } else if (auto tv = dynamic_cast<TensorView*>(attr_val)) {
+        processTV(tv);
       }
     }
     for (auto output : expr->outputs()) {
       // We must be able to compute output extents for expression, so here we
       // ensure the scalars involved are all available to this group
       if (auto tv = dynamic_cast<TensorView*>(output)) {
-        for (auto id : tv->getMaybeRFactorDomain()) {
-          to_visit.push_back(id->getMaybeExpandedExtent());
-        }
+        processTV(tv);
       }
     }
   }
