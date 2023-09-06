@@ -2820,7 +2820,8 @@ IterDomain* IterDomain::resize(
         left_expansion, right_expansion->definition()->as<BinaryOp>()->lhs());
   } else {
     resized_id_size = SimplifyingIrBuilder::addExpr(
-        SimplifyingIrBuilder::addExpr(in->extent(), left_expansion),
+        SimplifyingIrBuilder::addExpr(
+            in->getMaybeExpandedExtent(), left_expansion),
         right_expansion);
   }
 
