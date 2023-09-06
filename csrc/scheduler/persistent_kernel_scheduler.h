@@ -21,38 +21,22 @@ class PersistentKernelScheduler : public SchedulerEntry {
       SchedulerRuntimeInfo& runtime_info,
       HeuristicSummary* data_cache = nullptr);
 
-  void schedule(Fusion* fusion) override;
+  virtual ~PersistentKernelScheduler() = default;
 
-  static bool canScheduleCompileTime(Fusion* fusion);
+  virtual void schedule(Fusion* fusion) = 0;
+
+  static bool canScheduleCompileTime(Fusion* fusion) = 0;
 
   static bool canScheduleRunTime(
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache = nullptr);
+      HeuristicSummary* data_cache = nullptr) = 0;
 
  private:
-  void computeHeuristics(
+  virtual void computeHeuristics(
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache = nullptr);
-
-  static bool checkReductionPattern(
-      Fusion* fusion,
-      const std::vector<TensorView*>& inner_reduction_tvs,
-      const std::vector<TensorView*>& outer_reduction_tvs);
-
-  static std::pair<int64_t, int64_t> getPersistentBufferSize(
-      Fusion* fusion,
-      SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache,
-      const std::vector<TensorView*>& reduction_tvs);
-
-  static bool canScheduleRunTimeOuter(
-      Fusion* fusion,
-      SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache,
-      const std::vector<TensorView*>& reduction_tvs,
-      const scheduler_utils::ReductionTvProperties& properties);
+      HeuristicSummary* data_cache = nullptr) = 0;
 };
 
 } // namespace nvfuser
