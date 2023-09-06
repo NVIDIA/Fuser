@@ -10,6 +10,7 @@
 // dynamic_type.h with nvcc is not supported.
 
 #include <ATen/cuda/CUDAGeneratorImpl.h>
+#include <csrc/exceptions.h>
 #include <torch/torch.h>
 #include <ATen/cuda/CUDAGraphsUtils.cuh>
 
@@ -108,7 +109,7 @@ at::Tensor generate_random_numbers(
         at::cuda::getCurrentCUDAStream()>>>(
         result.data_ptr<float>(), size, rng_engine_inputs, rng_test);
   } else {
-    TORCH_CHECK(dtype == at::kDouble);
+    NVF_CHECK(dtype == at::kDouble);
     int64_t block = 128;
     int64_t block_elems = block * 2;
     int64_t grid = (size + block_elems - 1) / block_elems;

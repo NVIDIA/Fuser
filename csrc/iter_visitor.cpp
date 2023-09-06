@@ -267,7 +267,7 @@ void IterVisitor::traverseBetween(
                ir_utils::filterByType<Expr>(cycle.begin(), cycle.end())) {
             ss << expr << std::endl;
           }
-          TORCH_INTERNAL_ASSERT(false, ss.str());
+          NVF_ERROR(false, ss.str());
         }
         // Add all these new stmts to visit to the stack.
         stmt_stack.emplace_back(next_stmts.rbegin(), next_stmts.rend());
@@ -408,8 +408,7 @@ std::vector<Statement*> BackwardVisitor::next(Statement* stmt) {
   } else if (stmt->isExpr()) {
     return next(stmt->as<Expr>());
   } else {
-    TORCH_INTERNAL_ASSERT(
-        false, "BackwardVisitor could not detect type in next_dispatch.");
+    NVF_ERROR(false, "BackwardVisitor could not detect type in next_dispatch.");
   }
 }
 
@@ -480,7 +479,7 @@ void BackwardVisitor::traverseTo(
   if (must_cover_all_expr_outputs_) {
     for (auto traversal_pair : traversal_exprs_) {
       for (auto out : traversal_pair.first->outputs()) {
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             vals.find(out) != vals.end(),
             "Invalid backward traversal found. Some output paths were not provided:",
             out);
@@ -566,7 +565,7 @@ struct Dependencies : public IterVisitor {
     // 1. it is one of the dependencies, or
     // 2. its defining expression is included in the dependent expr set
     if (dependencies_.find(val) != dependencies_.end()) {
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           dependent_vals_.find(val) == dependent_vals_.end(),
           "Trying to add already added val: ",
           val);
@@ -576,7 +575,7 @@ struct Dependencies : public IterVisitor {
       auto def = val->definition();
       if (def != nullptr &&
           dependent_exprs_.find(def) != dependent_exprs_.end()) {
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             dependent_vals_.find(val) == dependent_vals_.end(),
             "Trying to add already added val: ",
             val);
@@ -638,7 +637,7 @@ struct FindOutputs : public IterVisitor {
   void dispatch(Val* val) override {
     if (of_.find(val) != of_.end()) {
       Statement* out_stmt = stmt_stack.front().back();
-      TORCH_INTERNAL_ASSERT(out_stmt->isVal());
+      NVF_ERROR(out_stmt->isVal());
       auto out_val = out_stmt->as<Val>();
       if (of_.find(out_val) == of_.end()) {
         outs_.emplace(out_val);
@@ -1053,7 +1052,7 @@ bool DeadCodeRemover::registerReplacement(Val* old_val, Val* new_val) {
     // Skip removing Fusion inputs
     return false;
   }
-  TORCH_CHECK(
+  NVF_CHECK(
       old_val->definition(),
       "Found non-input ",
       old_val->toString(),
@@ -1061,7 +1060,7 @@ bool DeadCodeRemover::registerReplacement(Val* old_val, Val* new_val) {
 
   // Mark old_val dead even if we can't yet remove it due to its definition
   // having some live outputs
-  TORCH_CHECK(
+  NVF_CHECK(
       markDead(old_val),
       "Attempted to replace ",
       old_val->toString(),
@@ -1091,7 +1090,7 @@ bool DeadCodeRemover::maybeRemoveExpr(Expr* expr) {
 }
 
 void DeadCodeRemover::registerRemoval(Val* val) {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       !val->isFusionInput(),
       "Call to registerRemoval on Fusion input is illegal: ",
       val->toString());
@@ -1140,7 +1139,7 @@ bool DeadCodeRemover::modifyFusion() const {
     // Fusion, and sets all its outputs' definitions to nullptr. So we should
     // not need to manually remove Exprs here. Instead, we just assert that
     // they have already been removed if they were registered for removal.
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         !fusion_->inContainer(expr),
         "Expression ",
         expr->toString(),

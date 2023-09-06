@@ -16,13 +16,13 @@ namespace {
 
 nvfuser::PolymorphicValue makeCpuScalarTensor(
     const serde::ScalarCpu* scalar_cpu) {
-  TORCH_INTERNAL_ASSERT(scalar_cpu != nullptr);
+  NVF_ERROR(scalar_cpu != nullptr);
   auto scalar = deserializePolymorphicValue(scalar_cpu->scalar_value());
   return nvfuser::PolymorphicValue_functions::toTensor(scalar, at::kCPU);
 }
 
 nvfuser::PolymorphicValue getMetaTensorArg(const serde::TensorArg* tensor) {
-  TORCH_INTERNAL_ASSERT(tensor != nullptr);
+  NVF_ERROR(tensor != nullptr);
   if (tensor->strides() != nullptr) {
     auto meta_tensor = at::detail::empty_strided_meta(
         parseVector(tensor->sizes()),
@@ -57,8 +57,7 @@ nvfuser::PolymorphicValue deserializePolymorphicValue(const serde::Scalar* c) {
     return nvfuser::PolymorphicValue(
         std::complex<double>(c->real_value(), c->imag_value()));
   }
-  TORCH_INTERNAL_ASSERT(
-      false, "Unable to deserialize serde::Scalar as PolymorphicValue.");
+  NVF_ERROR(false, "Unable to deserialize serde::Scalar as PolymorphicValue.");
 }
 
 void PolymorphicValueFactory::registerAllParsers() {
@@ -84,7 +83,7 @@ void PolymorphicValueFactory::registerAllParsers() {
 flatbuffers::Offset<serde::Scalar> serializeScalarCpu(
     flatbuffers::FlatBufferBuilder& builder,
     const at::Tensor& tensor) {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       tensor.is_cpu() && tensor.numel() == 1,
       "Only CPU scalar tensors are supported here.");
 
@@ -107,21 +106,23 @@ flatbuffers::Offset<serde::Scalar> serializeScalarCpu(
       return serializeScalar(builder, pv, nvfuser::DataType::ComplexDouble);
     }
     default:
-      TORCH_INTERNAL_ASSERT(false, "Unsupported scalar type.");
+      NVF_ERROR(false, "Unsupported scalar type.");
   }
 }
 
 flatbuffers::Offset<serde::PolymorphicValue> serializePolymorphicValue(
     flatbuffers::FlatBufferBuilder& builder,
     std::shared_ptr<nvfuser::PolymorphicValue> v) {
-  TORCH_INTERNAL_ASSERT(
-      !v->is<std::monostate>(), "PolymorphicValue is a std::monostate.");
-  TORCH_INTERNAL_ASSERT(
-      !v->is<nvfuser::Struct>(),
+  NVF_ERROR(!v->is<std::monostate>(), "PolymorphicValue is a std::monostate.");
+  NVF_ERROR(
+      !v->is<StructHandle>(),
       "Serialization of arbitrary struct is not implemented.");
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
+      !v->is<nvfuser::Opaque>(),
+      "Serialization of arbitrary opaque value is not implemented.");
+  NVF_ERROR(
       !v->is<nvfuser::Pointer>(), "Serialization of pointer is not allowed.");
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       !v->is<std::vector>(), "Serialization of vector is not implemented.");
 
   if (v->is<at::Tensor>()) {
@@ -197,8 +198,7 @@ flatbuffers::Offset<serde::Scalar> serializeScalar(
     builder_.add_imag_value(std::imag(c));
     return builder_.Finish();
   }
-  TORCH_INTERNAL_ASSERT(
-      false, "Unable to convert ", v.type().name(), " to serde::Scalar.");
+  NVF_ERROR(false, "Unable to convert ", v.type().name(), " to serde::Scalar.");
 }
 
 } // namespace nvfuser::serde

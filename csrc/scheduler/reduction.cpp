@@ -53,7 +53,7 @@ int64_t clamp(const int64_t val, const int64_t min_val, const int64_t max_val) {
 // Reduce x, y, z until it's product is less than max value, reduce round robin
 // starting with x
 void reduceProductTo(int64_t& z, int64_t& y, int64_t& x, const int64_t max) {
-  TORCH_INTERNAL_ASSERT(max > 1);
+  NVF_ERROR(max > 1);
   if (z * y * x > max) {
     z = scheduler_utils::safeDiv(z, 2);
   }
@@ -908,17 +908,16 @@ std::shared_ptr<ReductionParams> getReductionHeuristics(
 
   auto& reduction_tvs = reduction_tv_entry.get();
 
-  TORCH_INTERNAL_ASSERT(
-      !reduction_tvs.empty(), "Need reduction tensor views to schedule.");
+  NVF_ERROR(!reduction_tvs.empty(), "Need reduction tensor views to schedule.");
 
   auto reduction_tv = reduction_tvs[0];
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       reduction_tv->hasReduction(), "TensorView doesn't have a reduction.");
 
   const auto red_expr = reduction_tv->definition();
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       ir_utils::isReductionOp(red_expr),
       "TensorView doesn't have a reduction.");
 
@@ -926,7 +925,7 @@ std::shared_ptr<ReductionParams> getReductionHeuristics(
       fusion, runtime_info, reduction_tv);
 
   auto tv_inps = ir_utils::filterByType<TensorView>(fusion->inputs());
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       !tv_inps.empty(),
       "Tried to schedule a fusion with no tensor inputs, currently not supported.");
 
@@ -1004,7 +1003,7 @@ void scheduleReduction(Fusion* fusion, const ReductionParams& rparams) {
 
   auto reduction_tvs = scheduler_utils::getReductionTvs(fusion);
 
-  TORCH_INTERNAL_ASSERT(!reduction_tvs.empty());
+  NVF_ERROR(!reduction_tvs.empty());
 
   // Registry assumes the reference tv is the first reduction_tv, if this
   // changes registry needs to change.
@@ -1027,12 +1026,12 @@ void scheduleReduction(Fusion* fusion, const ReductionParams& rparams) {
   bool has_iter_axis = dim_analysis.first;
   bool has_red_axis = dim_analysis.second;
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       has_red_axis,
       "Could not find reduction axis in tensor used for reduction scheduler.");
 
   if (!has_iter_axis) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         rparams.fastest_dim,
         "If all dims are reduction, should be sending it to fastest dim scheduler.");
   }
@@ -1042,14 +1041,14 @@ void scheduleReduction(Fusion* fusion, const ReductionParams& rparams) {
 
   // Reduction tensor views and rfactor tensor views are setup. Let's finish off
   // the scheduling, particularly inlining and unrolling.
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       reference_tv != nullptr && reduction_tv != nullptr,
       "Need these two tensor views to finish the scheduling.");
   const bool vectorize =
       rparams.vectorize_inner_reduction || rparams.vectorize_iter_dom;
   const bool is_outer_grid_persistence = rparams.persistent_kernel &&
       rparams.cross_grid_inner_reduction && !rparams.fastest_dim;
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       !is_outer_grid_persistence,
       "is_outer_grid_persistence should be false in scheduleReduction.");
   reduction_scheduler_utils::multiReductionInliner(

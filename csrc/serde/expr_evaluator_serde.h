@@ -85,7 +85,8 @@ class ExpressionSerializer {
     std::cout << "================ ExpressionSerializer Stack ================"
               << std::endl;
     for (auto item : operation_stack_) {
-      std::cout << item.first->toString() << "\t" << item.second << std::endl;
+      std::cout << "ptr\t" << ((void*)item.first) << "\t" << item.first << "\t"
+                << item.second << std::endl;
     }
     std::cout << "============================================================"
               << std::endl;
@@ -119,7 +120,8 @@ class ExpressionBuilder {
     std::cout << "================ ExpressionBuilder Stack ================"
               << std::endl;
     for (auto idx : c10::irange(operation_stack_.size())) {
-      std::cout << idx << "\t" << operation_stack_.at(idx)->toString()
+      auto value = operation_stack_.at(idx);
+      std::cout << idx << " ptr: " << ((void*)value) << "\t" << value
                 << std::endl;
     }
     std::cout << "========================================================="

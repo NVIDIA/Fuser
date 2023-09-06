@@ -351,7 +351,7 @@ TEST_F(AllocationDomainTest, NHWC4d_To_NHWC4d_CUDA) {
 
   EXPECT_THAT(
       [&]() { fe.runFusion({t0_wrong_format}); },
-      ::testing::ThrowsMessage<c10::Error>(
+      ::testing::ThrowsMessage<nvfuser::nvfError>(
           ::testing::HasSubstr("Stride mismatch with contiguity info")));
 
   auto cg_outputs = fe.runFusion({t0});
@@ -412,7 +412,7 @@ TEST_F(AllocationDomainTest, NHWC1d_To_NHWC4d_CUDA) {
 
   EXPECT_THAT(
       [&]() { fe.runFusion({t0_wrong_format}); },
-      ::testing::ThrowsMessage<c10::Error>(::testing::HasSubstr(
+      ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
           "splitting one dimension into discontiguous dimensions is not allowed in allocation domain")));
 
   auto cg_outputs = fe.runFusion({t0});
@@ -468,7 +468,7 @@ TEST_F(AllocationDomainTest, NHWC4d_To_NHWC1d_CUDA) {
 
   EXPECT_THAT(
       [&]() { fe.runFusion({t0_wrong_format}); },
-      ::testing::ThrowsMessage<c10::Error>(
+      ::testing::ThrowsMessage<nvfuser::nvfError>(
           ::testing::HasSubstr("Stride mismatch with contiguity info")));
 
   auto cg_outputs = fe.runFusion({t0});
@@ -529,7 +529,7 @@ TEST_F(AllocationDomainTest, NHWC1d_To_NHWC1d_CUDA) {
 
   EXPECT_THAT(
       [&]() { fe.runFusion({t0_wrong_format}); },
-      ::testing::ThrowsMessage<c10::Error>(::testing::HasSubstr(
+      ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
           "splitting one dimension into discontiguous dimensions is not")));
 
   auto cg_outputs = fe.runFusion({t0});
@@ -597,7 +597,7 @@ TEST_F(AllocationDomainTest, NHWC2d_To_NHWC2d_CUDA) {
 
   EXPECT_THAT(
       [&]() { fe.runFusion({t0_wrong_format}); },
-      ::testing::ThrowsMessage<c10::Error>(::testing::HasSubstr(
+      ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
           "splitting one dimension into discontiguous dimensions is not allowed in allocation domain")));
 
   auto cg_outputs = fe.runFusion({t0});
@@ -664,7 +664,7 @@ TEST_F(AllocationDomainTest, NHWC4d_To_NHWC4d_cacheBefore_CUDA) {
 
   EXPECT_THAT(
       [&]() { fe.runFusion({t0_wrong_format}); },
-      ::testing::ThrowsMessage<c10::Error>(
+      ::testing::ThrowsMessage<nvfuser::nvfError>(
           ::testing::HasSubstr("Stride mismatch with contiguity info")));
 
   auto cg_outputs = fe.runFusion({t0});
@@ -741,7 +741,7 @@ TEST_F(AllocationDomainTest, NHWC2d_To_NHWC2d_cacheBefore_CUDA) {
 
   EXPECT_THAT(
       [&]() { fe.runFusion({t0_wrong_format}); },
-      ::testing::ThrowsMessage<c10::Error>(::testing::HasSubstr(
+      ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
           "splitting one dimension into discontiguous dimensions is not allowed in allocation domain")));
 
   auto cg_outputs = fe.runFusion({t0});
@@ -808,7 +808,7 @@ TEST_F(AllocationDomainTest, NHWC4d_To_NHWC4d_cacheAfter_CUDA) {
 
   EXPECT_THAT(
       [&]() { fe.runFusion({t0_wrong_format}); },
-      ::testing::ThrowsMessage<c10::Error>(
+      ::testing::ThrowsMessage<nvfuser::nvfError>(
           ::testing::HasSubstr("Stride mismatch with contiguity info")));
 
   auto cg_outputs = fe.runFusion({t0});
@@ -879,7 +879,7 @@ TEST_F(AllocationDomainTest, NHWC2d_To_NHWC2d_cacheAfter_CUDA) {
 
   EXPECT_THAT(
       [&]() { fe.runFusion({t0_wrong_format}); },
-      ::testing::ThrowsMessage<c10::Error>(::testing::HasSubstr(
+      ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
           "merging of discontiguous dimensions is not allowed in allocation domain")));
 
   auto cg_outputs = fe.runFusion({t0});
@@ -953,7 +953,7 @@ TEST_F(AllocationDomainTest, NHWC4d_To_NHWC4d_cacheFork_CUDA) {
 
   EXPECT_THAT(
       [&]() { fe.runFusion({t0_wrong_format}); },
-      ::testing::ThrowsMessage<c10::Error>(
+      ::testing::ThrowsMessage<nvfuser::nvfError>(
           ::testing::HasSubstr("Stride mismatch with contiguity info")));
 
   auto cg_outputs = fe.runFusion({t0});
@@ -1043,7 +1043,7 @@ TEST_F(AllocationDomainTest, NHWC2d_To_NHWC2d_cacheFork_CUDA) {
 
   EXPECT_THAT(
       [&]() { fe.runFusion({t0_wrong_format}); },
-      ::testing::ThrowsMessage<c10::Error>(::testing::HasSubstr(
+      ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
           "splitting one dimension into discontiguous dimensions is not allowed in allocation domain")));
 
   auto cg_outputs = fe.runFusion({t0});

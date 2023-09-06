@@ -71,14 +71,12 @@ std::vector<VALTYPE*> makeSortedEvaluationList(std::vector<VALTYPE*> input) {
           to_sort.push_back(producer);
         }
       }
-      /*
       for (auto attribute : getAttributes(top_val)) {
         if (!visited.count(attribute)) {
           ready_to_pop = false;
           to_sort.push_back(attribute);
         }
       }
-      */
       if (ready_to_pop) {
         // Some definition operations generate multiple outputs. e.g., split and
         // resize. We add sibling outputs together in the sorted list.
@@ -128,7 +126,7 @@ void bindRootDomain(
     std::vector<Val*>& all_values,
     std::vector<IterDomain*> domain) {
   for (auto d : domain) {
-    TORCH_INTERNAL_ASSERT(d->definition() == nullptr);
+    NVF_ERROR(d->definition() == nullptr);
     bind(all_values, d->extent());
   }
 }
@@ -395,8 +393,7 @@ flatbuffers::Offset<serde::NaiveValueGenerator> ExpressionSerializer::serialize(
       continue;
     }
 
-    TORCH_INTERNAL_ASSERT(
-        def != nullptr, "Expected definition with derived value.");
+    NVF_ERROR(def != nullptr, "Expected definition with derived value.");
     if (auto uop = dynamic_cast<nvfuser::UnaryOp*>(def)) {
       instructions_fb.push_back(serializeUnaryOp(builder, uop));
       operation_stack_.emplace(val, operation_stack_.size());
@@ -417,7 +414,7 @@ flatbuffers::Offset<serde::NaiveValueGenerator> ExpressionSerializer::serialize(
       operation_stack_.emplace(val, operation_stack_.size());
 
       auto next_val = derived_values.front();
-      TORCH_INTERNAL_ASSERT(next_val->definition() == def);
+      NVF_ERROR(next_val->definition() == def);
       operation_stack_.emplace(next_val, operation_stack_.size());
       derived_values.pop_front();
 
@@ -426,7 +423,7 @@ flatbuffers::Offset<serde::NaiveValueGenerator> ExpressionSerializer::serialize(
       operation_stack_.emplace(val, operation_stack_.size());
 
       auto next_val = derived_values.front();
-      TORCH_INTERNAL_ASSERT(next_val->definition() == def);
+      NVF_ERROR(next_val->definition() == def);
       operation_stack_.emplace(next_val, operation_stack_.size());
       derived_values.pop_front();
 
@@ -450,8 +447,7 @@ flatbuffers::Offset<serde::NaiveValueGenerator> ExpressionSerializer::serialize(
       operation_stack_.emplace(val, operation_stack_.size());
 
     } else {
-      TORCH_INTERNAL_ASSERT(
-          false, "Serialization unknown expression.\t", def->toString());
+      NVF_ERROR(false, "Serialization unknown expression.\t", def->toString());
     }
   }
   return serde::CreateNaiveValueGeneratorDirect(builder, &instructions_fb);
@@ -466,7 +462,7 @@ std::vector<flatbuffers::Offset<AllocateBuffer>> ExpressionSerializer::
 
   for (auto alloc : allocations) {
     auto alloc_buffer_tv = alloc->buffer()->as<nvfuser::TensorView>();
-    TORCH_INTERNAL_ASSERT(alloc_buffer_tv);
+    NVF_ERROR(alloc_buffer_tv);
 
     // Serde only gmem tensorviews because of missing values in operation_stack
     if (alloc_buffer_tv->getMemoryType() != nvfuser::MemoryType::Global) {
@@ -490,7 +486,7 @@ flatbuffers::Offset<flatbuffers::Vector<int64_t>> ExpressionSerializer::
         std::vector<Val*> domain) {
   std::vector<long> fb_domain;
   for (auto val : domain) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         operation_stack_.count(val),
         "Missing value in NaiveValueGenerator stack.\t",
         val->toString());
@@ -508,7 +504,7 @@ flatbuffers::Offset<serde::SymbolicTensor> ExpressionSerializer::serialize(
   // operations to move between rfactor, allocate, and leaf domains.
   std::vector<flatbuffers::Offset<IterationDomain>> fb_root_domain;
   for (auto id : tv->getRootDomain()) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         operation_stack_.count(id->extent()),
         "Missing iterDomain extent in NaiveValueGenerator stack.\t",
         id->extent()->toString());
@@ -548,15 +544,14 @@ ExpressionBuilder::ExpressionBuilder(kir::Kernel* kernel) : kernel_(kernel) {
 }
 
 void ExpressionBuilder::deserialize(const NaiveValueGenerator* buffer) {
-  TORCH_INTERNAL_ASSERT(
-      buffer != nullptr, "serde::NaiveValueGenerator is nullptr.");
+  NVF_ERROR(buffer != nullptr, "serde::NaiveValueGenerator is nullptr.");
   for (auto inst : *buffer->instructions()) {
     deserialize(inst);
   }
 }
 
 void ExpressionBuilder::deserialize(const Instruction* buffer) {
-  TORCH_INTERNAL_ASSERT(buffer != nullptr, "serde::Instruction is nullptr.");
+  NVF_ERROR(buffer != nullptr, "serde::Instruction is nullptr.");
   auto exists = [&](size_t idx) { return idx < operation_stack_.size(); };
 
   FusionGuard fg(kernel_);
@@ -580,7 +575,7 @@ void ExpressionBuilder::deserialize(const Instruction* buffer) {
     }
     case serde::InstructionData_UnaryOp: {
       auto data = buffer->data_as_UnaryOp();
-      TORCH_INTERNAL_ASSERT(data != nullptr, "serde::UnaryOp is nullptr.")
+      NVF_ERROR(data != nullptr, "serde::UnaryOp is nullptr.")
       if (!exists(data->out())) {
         auto uop = buildUnaryOp(data);
         operation_stack_.push_back(uop);
@@ -589,7 +584,7 @@ void ExpressionBuilder::deserialize(const Instruction* buffer) {
     }
     case serde::InstructionData_BinaryOp: {
       auto data = buffer->data_as_BinaryOp();
-      TORCH_INTERNAL_ASSERT(data != nullptr, "serde::BinaryOp is nullptr.")
+      NVF_ERROR(data != nullptr, "serde::BinaryOp is nullptr.")
       if (!exists(data->out())) {
         auto bop = buildBinaryOp(data);
         operation_stack_.push_back(bop);
@@ -598,7 +593,7 @@ void ExpressionBuilder::deserialize(const Instruction* buffer) {
     }
     case serde::InstructionData_GetAttr: {
       auto data = buffer->data_as_GetAttr();
-      TORCH_INTERNAL_ASSERT(data != nullptr, "serde::GetAttr is nullptr.")
+      NVF_ERROR(data != nullptr, "serde::GetAttr is nullptr.")
       if (!exists(data->out())) {
         auto aop = IrBuilder::getAttrExpr(
             operation_stack_.at(data->struct_()), data->attr()->str());
@@ -608,7 +603,7 @@ void ExpressionBuilder::deserialize(const Instruction* buffer) {
     }
     case serde::InstructionData_GetItem: {
       auto data = buffer->data_as_GetItem();
-      TORCH_INTERNAL_ASSERT(data != nullptr, "serde::GetItem is nullptr.")
+      NVF_ERROR(data != nullptr, "serde::GetItem is nullptr.")
       if (!exists(data->out())) {
         auto iop = IrBuilder::getItemExpr(
             operation_stack_.at(data->array()),
@@ -619,7 +614,7 @@ void ExpressionBuilder::deserialize(const Instruction* buffer) {
     }
     case serde::InstructionData_GetMetaData: {
       auto data = buffer->data_as_GetMetaData();
-      TORCH_INTERNAL_ASSERT(data != nullptr, "serde::GetMetaData is nullptr.")
+      NVF_ERROR(data != nullptr, "serde::GetMetaData is nullptr.")
       if (!exists(data->out())) {
         auto val = operation_stack_.at(data->in());
         auto mop = kernel_->metadataOf(val);
@@ -629,33 +624,32 @@ void ExpressionBuilder::deserialize(const Instruction* buffer) {
     }
     case serde::InstructionData_Merge: {
       // TODO implement
-      TORCH_INTERNAL_ASSERT(false, "Unsupported implemented merge.");
+      NVF_ERROR(false, "Unsupported implemented merge.");
       break;
     }
     case serde::InstructionData_Split: {
       // TODO implement
-      TORCH_INTERNAL_ASSERT(false, "Unsupported implemented split.");
+      NVF_ERROR(false, "Unsupported implemented split.");
       break;
     }
     case serde::InstructionData_Resize: {
       // TODO implement
-      TORCH_INTERNAL_ASSERT(false, "Unsupported implemented resize.");
+      NVF_ERROR(false, "Unsupported implemented resize.");
       break;
     }
     case serde::InstructionData_Swizzle2D: {
       // TODO implement
-      TORCH_INTERNAL_ASSERT(false, "Unsupported implemented swizzle2d.");
+      NVF_ERROR(false, "Unsupported implemented swizzle2d.");
       break;
     }
     default: {
-      TORCH_INTERNAL_ASSERT(
-          false, "Unsupported instruction during deserialization.");
+      NVF_ERROR(false, "Unsupported instruction during deserialization.");
     }
   }
 }
 
 Val* ExpressionBuilder::buildUnaryOp(const UnaryOp* buffer) {
-  TORCH_INTERNAL_ASSERT(buffer != nullptr, "serde::UnaryOp is nullptr.")
+  NVF_ERROR(buffer != nullptr, "serde::UnaryOp is nullptr.")
   switch (buffer->unary_type()) {
     case serde::UnaryOpType_Cast:
       return castOp(
@@ -664,13 +658,13 @@ Val* ExpressionBuilder::buildUnaryOp(const UnaryOp* buffer) {
     case serde::UnaryOpType_Neg:
       return neg(operation_stack_.at(buffer->src0()));
     default:
-      TORCH_INTERNAL_ASSERT(false, "Unsupported binary operation.\t");
+      NVF_ERROR(false, "Unsupported binary operation.\t");
       return nullptr;
   }
 }
 
 Val* ExpressionBuilder::buildBinaryOp(const BinaryOp* buffer) {
-  TORCH_INTERNAL_ASSERT(buffer != nullptr, "serde::BinaryOp is nullptr.")
+  NVF_ERROR(buffer != nullptr, "serde::BinaryOp is nullptr.")
   switch (buffer->binary_type()) {
     case serde::BinaryOpType_Add:
       return add(
@@ -697,7 +691,7 @@ Val* ExpressionBuilder::buildBinaryOp(const BinaryOp* buffer) {
           operation_stack_.at(buffer->src0()),
           operation_stack_.at(buffer->src1()));
     default:
-      TORCH_INTERNAL_ASSERT(false, "Unsupported binary operation.\t");
+      NVF_ERROR(false, "Unsupported binary operation.\t");
       return nullptr;
   }
 }

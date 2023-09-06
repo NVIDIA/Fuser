@@ -30,7 +30,7 @@ Val* castOp(DataType dtype, Val* v1) {
   }
 
   if (cast_func_str(std::make_pair(orig_dtype, dtype)) == std::nullopt) {
-    TORCH_CHECK(
+    NVF_CHECK(
         false,
         "Illegal Cast value from  DataType: ",
         orig_dtype,
@@ -75,7 +75,7 @@ Val* bitCastOp(DataType dtype, Val* v1) {
     return v1;
   }
 
-  TORCH_CHECK(
+  NVF_CHECK(
       dataTypeSize(v1->getDataType().value()) == dataTypeSize(dtype),
       "BitCast only works for types of the same size");
 
@@ -216,7 +216,7 @@ TensorView* randn(
 }
 
 TensorView* randn_like(TensorView* tv, Val* philox_seed, Val* philox_offset) {
-  TORCH_CHECK(
+  NVF_CHECK(
       isFloatingPointType(tv->dtype()),
       "input must have floating point type, but got ",
       tv->dtype());
@@ -239,7 +239,7 @@ Val* randn_like(Val* v) {
 }
 
 TensorView* rand_like(TensorView* tv, Val* philox_seed, Val* philox_offset) {
-  TORCH_CHECK(
+  NVF_CHECK(
       isFloatingPointType(tv->dtype()),
       "input must have floating point type, but got ",
       tv->dtype());
@@ -326,11 +326,11 @@ TensorView* iota(Val* length, Val* start, Val* step, DataType dtype) {
   if (step == nullptr) {
     step = IrBuilder::newConstant(1L, dtype);
   }
-  TORCH_CHECK(
+  NVF_CHECK(
       isIntegralType(*length->getDataType()),
       "length must be integer, but get dtype ",
       *length->getDataType());
-  TORCH_CHECK(
+  NVF_CHECK(
       !isComplexType(*start->getDataType()) &&
           isIntegralType(*start->getDataType()) == isIntegralType(dtype) &&
           isFloatingPointType(*start->getDataType()) ==
@@ -339,7 +339,7 @@ TensorView* iota(Val* length, Val* start, Val* step, DataType dtype) {
       dtype,
       " but get ",
       *start->getDataType());
-  TORCH_CHECK(
+  NVF_CHECK(
       !isComplexType(*step->getDataType()) &&
           isIntegralType(*step->getDataType()) == isIntegralType(dtype) &&
           isFloatingPointType(*step->getDataType()) ==
@@ -353,18 +353,18 @@ TensorView* iota(Val* length, Val* start, Val* step, DataType dtype) {
   step = maybeCastOp(dtype, step);
 
   if (start->isConst() && start->isFloatingPointScalar()) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         std::isfinite(start->getDouble().value()),
         "iota: length, start, step must be finite numbers.");
   }
 
   if (step->isConst() && step->isFloatingPointScalar()) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         std::isfinite(step->getDouble().value()),
         "iota: length, start, step must be finite numbers.");
   }
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       !step->isConstScalar() || !step->isZero(),
       "iota: step value must not equal zero.");
 
@@ -414,8 +414,8 @@ TensorView* arange(Val* start, Val* end, Val* step, DataType dtype) {
 }
 
 TensorView* eye(Val* rows, Val* cols, DataType dtype) {
-  TORCH_CHECK(rows->getDataType() == DataType::Int, "rows must have type Int");
-  TORCH_CHECK(cols->getDataType() == DataType::Int, "cols must have type Int");
+  NVF_CHECK(rows->getDataType() == DataType::Int, "rows must have type Int");
+  NVF_CHECK(cols->getDataType() == DataType::Int, "cols must have type Int");
   auto out = TensorViewBuilder()
                  .ndims(2)
                  .dtype(dtype)
@@ -463,7 +463,7 @@ TensorView* logical_not(TensorView* tv) {
 
 Val* bitwise_not(Val* v) {
   if (!isIntegralType(v->dtype())) {
-    TORCH_CHECK(
+    NVF_CHECK(
         isBooleanType(v->dtype()),
         "input must have integral or boolean type, but got ",
         v->dtype());
@@ -475,7 +475,7 @@ Val* bitwise_not(Val* v) {
 
 TensorView* bitwise_not(TensorView* tv) {
   if (!isIntegralType(tv->dtype())) {
-    TORCH_CHECK(
+    NVF_CHECK(
         isBooleanType(tv->dtype()),
         "input must have integral or boolean type, but got ",
         tv->dtype());
@@ -549,7 +549,7 @@ Val* imag(Val* v) {
     IrBuilder::create<UnaryOp>(UnaryOpType::Imag, out, v);
     return out;
   }
-  TORCH_CHECK(false, "imag not supported for non-complex tensors");
+  NVF_CHECK(false, "imag not supported for non-complex tensors");
 }
 
 TensorView* imag(TensorView* tv) {
@@ -559,7 +559,7 @@ TensorView* imag(TensorView* tv) {
 // construct complex tensor from real and imag tensors
 Val* complex(Val* r, Val* i) {
   DataType dtype = r->getDataType().value();
-  TORCH_CHECK(
+  NVF_CHECK(
       dtype == i->getDataType().value(),
       "real and imag data type should be same in complex().");
   Val* out = ops::newValLike(r, getComplexTypeFromType(dtype));
@@ -633,7 +633,7 @@ namespace {
 template <typename T1, typename T2>
 TensorView* arithOpOverloads(Val* (*func)(Val*, Val*), T1* v1, T2* v2) {
   Val* out = func(v1->template as<Val>(), v2->template as<Val>());
-  TORCH_INTERNAL_ASSERT(out->isA<TensorView>());
+  NVF_ERROR(out->isA<TensorView>());
   return out->as<TensorView>();
 }
 
@@ -645,7 +645,7 @@ TensorView* arithOpOverloads(
     DataType common_dtype) {
   Val* out = binaryOp(
       type, v1->template as<Val>(), v2->template as<Val>(), common_dtype);
-  TORCH_INTERNAL_ASSERT(out->isA<TensorView>());
+  NVF_ERROR(out->isA<TensorView>());
   return out->as<TensorView>();
 }
 
@@ -660,7 +660,7 @@ TensorView* arithOpOverloads(
       vals[0]->template as<Val>(),
       vals[1]->template as<Val>(),
       vals[2]->template as<Val>());
-  TORCH_INTERNAL_ASSERT(out->isA<TensorView>());
+  NVF_ERROR(out->isA<TensorView>());
   return out->as<TensorView>();
 }
 
@@ -677,7 +677,7 @@ TensorView* arithOpOverloads(
       vals[1]->template as<Val>(),
       vals[2]->template as<Val>(),
       vals[3]->template as<Val>());
-  TORCH_INTERNAL_ASSERT(out->isA<TensorView>());
+  NVF_ERROR(out->isA<TensorView>());
   return out->as<TensorView>();
 }
 
@@ -934,7 +934,7 @@ NVFUSER_DEFINE_BITWISE_OP(bitwise_xor, BitwiseXor, ne)
 
 #define NVFUSER_DEFINE_INT_ONLY_OP(op_name, op_type)                      \
   Val* op_name(Val* v1, Val* v2) {                                        \
-    TORCH_CHECK(                                                          \
+    NVF_CHECK(                                                            \
         isIntegralType(v1->dtype()) && isIntegralType(v2->dtype()),       \
         "input must have integral type, but got ",                        \
         v1->dtype(),                                                      \
@@ -944,7 +944,7 @@ NVFUSER_DEFINE_BITWISE_OP(bitwise_xor, BitwiseXor, ne)
         BinaryOpType::op_type, v1, v2, TypePromotion::default_op_config); \
   }                                                                       \
   TensorView* op_name(TensorView* v1, Val* v2) {                          \
-    TORCH_CHECK(                                                          \
+    NVF_CHECK(                                                            \
         isIntegralType(v1->dtype()) && isIntegralType(v2->dtype()),       \
         "input must have integral type, but got ",                        \
         v1->dtype(),                                                      \
@@ -954,7 +954,7 @@ NVFUSER_DEFINE_BITWISE_OP(bitwise_xor, BitwiseXor, ne)
         BinaryOpType::op_type, v1, v2, TypePromotion::default_op_config); \
   }                                                                       \
   TensorView* op_name(Val* v1, TensorView* v2) {                          \
-    TORCH_CHECK(                                                          \
+    NVF_CHECK(                                                            \
         isIntegralType(v2->dtype()) && isIntegralType(v2->dtype()),       \
         "input must have integral type, but got ",                        \
         v1->dtype(),                                                      \
@@ -964,7 +964,7 @@ NVFUSER_DEFINE_BITWISE_OP(bitwise_xor, BitwiseXor, ne)
         BinaryOpType::op_type, v1, v2, TypePromotion::default_op_config); \
   }                                                                       \
   TensorView* op_name(TensorView* v1, TensorView* v2) {                   \
-    TORCH_CHECK(                                                          \
+    NVF_CHECK(                                                            \
         isIntegralType(v1->dtype()) && isIntegralType(v2->dtype()),       \
         "input must have integral type, but got ",                        \
         v1->dtype(),                                                      \
@@ -1064,11 +1064,11 @@ static TensorView* newForReduction(
 
   std::vector<IterDomain*> new_domain;
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       !axes_set.empty(),
       "Asked for output of reduction, but no reduction axis provided.");
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       (*(axes_set.rbegin())) < orig_domain.size(),
       "Error setting up reduction, reduction axis (",
       *(axes_set.rbegin()),
@@ -1086,7 +1086,7 @@ static TensorView* newForReduction(
 
     const IterDomain* id = orig_domain[dim];
 
-    TORCH_CHECK(
+    NVF_CHECK(
         !(isReduction && id->isBroadcast() && !id->isImplicitBroadcast()),
         "Cannot reduce an axis that is marked as broadcasted as it has an undetermined size. Tried to reduce ID = ",
         id,
@@ -1118,7 +1118,7 @@ namespace {
 // PyTorch accepts reductions of zero-dimensional tensors, which are
 // just ignored.
 TensorView* reductionOpZeroDimTensor(TensorView* inp) {
-  TORCH_INTERNAL_ASSERT(inp->domain()->noReductions().empty());
+  NVF_ERROR(inp->domain()->noReductions().empty());
   return set(inp);
 }
 
@@ -1133,7 +1133,7 @@ std::vector<unsigned int> canonicalizeAxes(
       axis += (int)ndims;
     }
 
-    TORCH_CHECK(
+    NVF_CHECK(
         axis >= 0 && axis < (int)ndims,
         "Reduction on invalid axis, received: ",
         axis,
@@ -1155,11 +1155,11 @@ TensorView* reductionOpRaw(
     DataType dtype /*  DataType::Null */) {
   // TODO: should we use squeeze for size 1 broadcast dim?
 
-  TORCH_CHECK(
+  NVF_CHECK(
       init->isConstScalar(),
       "Cannot create a reduction operation where the initial value is not a const scalar.");
 
-  TORCH_CHECK(
+  NVF_CHECK(
       TensorDomain::sameAs(tv->getMaybeRFactorDomain(), tv->getLeafDomain()),
       "Reducing a tensor once it's gone under transformations is not permitted at this time. \n",
       "Please set reductions before calling split/merge/computeAt.\n  RFactor: ",
@@ -1167,7 +1167,7 @@ TensorView* reductionOpRaw(
       "\n  Domain: ",
       tv->domain()->toString());
 
-  TORCH_CHECK(!axes.empty(), "No reduction axis specified");
+  NVF_CHECK(!axes.empty(), "No reduction axis specified");
 
   // PyTorch allows reduction of 0-dim tensors
   if (tv->domain()->noReductions().empty()) {
@@ -1180,7 +1180,7 @@ TensorView* reductionOpRaw(
   TensorView* out = newForReduction(tv, uint_axes, dtype);
   const auto out_type = out->getDataType().value();
   const auto init_type = init->getDataType().value();
-  TORCH_CHECK(
+  NVF_CHECK(
       (isFloatingPointType(out_type) && isFloatingPointType(init_type)) ||
           (isComplexType(out_type) && isComplexType(init_type)) ||
           (isIntegralType(out_type) && isIntegralType(init_type)) ||
@@ -1255,11 +1255,11 @@ TensorView* reductionOp(
     TensorView* tv,
     bool keep_dim /*=false*/,
     DataType dtype /* DataType::Null */) {
-  TORCH_CHECK(
+  NVF_CHECK(
       init->isConstScalar(),
       "Cannot create a reduction operation where the initial value is not a const scalar.");
 
-  TORCH_CHECK(
+  NVF_CHECK(
       TensorDomain::sameAs(tv->getMaybeRFactorDomain(), tv->getLeafDomain()),
       "Reducing a tensor once it's gone under transformations is not permitted at this time. \n",
       "Please set reductions before calling split/merge/computeAt.\n  RFactor: ",
@@ -1267,7 +1267,7 @@ TensorView* reductionOp(
       "\n  Domain: ",
       tv->domain()->toString());
 
-  TORCH_CHECK(!axes.empty(), "No reduction axis specified");
+  NVF_CHECK(!axes.empty(), "No reduction axis specified");
 
   auto tv_root = TensorDomain::noReductions(tv->getMaybeRFactorDomain());
   const auto ndims = tv_root.size();
@@ -1367,11 +1367,11 @@ TensorView* max(
     const std::vector<int>& axes,
     bool keep_dim /*=false*/,
     DataType dtype /* DataType::Null */) {
-  TORCH_CHECK(
+  NVF_CHECK(
       dtype == DataType::Null,
       "A dtype other than Null is not currently supported.");
   Val* init = ops::getMinimumValue(v1->getDataType().value());
-  TORCH_CHECK(init != nullptr, "Missing initial value");
+  NVF_CHECK(init != nullptr, "Missing initial value");
   return reductionOp(BinaryOpType::Max, axes, init, v1, keep_dim);
 }
 
@@ -1380,11 +1380,11 @@ TensorView* min(
     const std::vector<int>& axes,
     bool keep_dim /*=false*/,
     DataType dtype /* DataType::Null */) {
-  TORCH_CHECK(
+  NVF_CHECK(
       dtype == DataType::Null,
       "A dtype other than Null is not currently supported.");
   Val* init = ops::getMaximumValue(v1->getDataType().value());
-  TORCH_CHECK(init != nullptr, "Missing initial value");
+  NVF_CHECK(init != nullptr, "Missing initial value");
   return reductionOp(BinaryOpType::Min, axes, init, v1, keep_dim);
 }
 
@@ -1400,7 +1400,7 @@ TensorView* broadcast(
     }
   }
 
-  TORCH_CHECK(
+  NVF_CHECK(
       nBCastDims - n_broadcasts ==
           TensorDomain::noReductions(inp->getMaybeRFactorDomain()).size(),
       "Invalid broadcast, number of false entries in is_broadcast_dim expected to be ",
@@ -1410,7 +1410,7 @@ TensorView* broadcast(
 
   if (n_broadcasts == 0) {
     auto identity = set(inp);
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         identity->getValType().value() == ValType::TensorView,
         "Expected identity op, but didn't get a TensorView back.");
     return identity->as<TensorView>();
@@ -1446,7 +1446,7 @@ TensorView* broadcast(
 TensorView* expand(TensorView* inp, const std::vector<Val*>& expanded_sizes) {
   auto inp_domain = TensorDomain::noReductions(inp->getMaybeRFactorDomain());
 
-  TORCH_CHECK(
+  NVF_CHECK(
       expanded_sizes.size() >= inp_domain.size(),
       "Invalid expand, number of sizes provided is expected to be at least ",
       inp_domain.size(),
@@ -1495,7 +1495,7 @@ TensorView* expand(TensorView* inp, const std::vector<Val*>& expanded_sizes) {
       // the expanded size is also concrete.
       auto inp_id_size_int = inp_id->extent()->evaluateInt();
       if (expanded_size_int.has_value()) {
-        TORCH_CHECK(
+        NVF_CHECK(
             inp_id_size_int == expanded_size_int,
             "Invalid expand size, ",
             expanded_sizes[i]->toString(),
@@ -1523,7 +1523,7 @@ TensorView* expand_as(TensorView* inp, TensorView* other) {
   auto other_domain =
       TensorDomain::noReductions(other->getMaybeRFactorDomain());
 
-  TORCH_CHECK(
+  NVF_CHECK(
       inp_domain.size() <= other_domain.size(),
       "Invalid expand_as, dimensions of inp is higher than dimensions of other, expected other to be at least ",
       inp_domain.size(),
@@ -1544,7 +1544,7 @@ TensorView* expand_as(TensorView* inp, TensorView* other) {
     Val* maybe_expanded_size = inp_id->extent();
 
     if (!inp_id->isBroadcast()) {
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           !other_id->isBroadcast(),
           "Cannot expand as a tensor if other has broadcast dimensions that don't map to broadcast dimensions in the input.");
       if (!inp_id->isConstInt() && other_id->isConstInt()) {
@@ -1607,7 +1607,7 @@ Val* size(TensorView* inp, int64_t dim) {
   if (idx < 0) {
     idx = static_cast<int64_t>(iter_domains.size()) + idx;
   }
-  TORCH_CHECK(
+  NVF_CHECK(
       (idx >= 0) && (static_cast<size_t>(idx) < iter_domains.size()),
       __FUNCTION__,
       ": The dimension requested is beyond the bounds of the shape of the indexed tensor!",
@@ -1623,7 +1623,7 @@ Val* at(std::vector<Val*>& inp, int64_t index) {
   if (idx < 0) {
     idx = static_cast<int64_t>(inp.size()) + idx;
   }
-  TORCH_CHECK(
+  NVF_CHECK(
       (idx >= 0) && (static_cast<size_t>(idx) < inp.size()),
       __FUNCTION__,
       ": The index requested is beyond the bounds of the indexed vector!",
@@ -1640,7 +1640,7 @@ WelfordResult WelfordRaw(
     TensorView* init_avg,
     TensorView* init_var,
     Val* init_N) {
-  TORCH_CHECK(
+  NVF_CHECK(
       TensorDomain::sameAs(tv->getMaybeRFactorDomain(), tv->getLeafDomain()),
       "Reducing a tensor once it's gone under transformations is not permitted at this time. \n",
       "Please set reductions before calling split/merge/computeAt.\n  RFactor: ",
@@ -1648,8 +1648,8 @@ WelfordResult WelfordRaw(
       "\n  Domain: ",
       tv->domain()->toString());
 
-  TORCH_CHECK(tv->nDims() > 0, "Tried to reduce a 0-dim tensor");
-  TORCH_CHECK(!axes.empty(), "No reduction axis specified");
+  NVF_CHECK(tv->nDims() > 0, "Tried to reduce a 0-dim tensor");
+  NVF_CHECK(!axes.empty(), "No reduction axis specified");
 
   if (init_N == nullptr) {
     init_N = FusionGuard::getCurFusion()->zeroVal();
@@ -1661,14 +1661,14 @@ WelfordResult WelfordRaw(
   Val* init_avg_val = nullptr;
   Val* init_var_val = nullptr;
   if (!init_N->isZeroInt()) {
-    TORCH_CHECK(
+    NVF_CHECK(
         init_avg != nullptr && init_var != nullptr && init_N != nullptr,
         "welford op: all init values need to be provided");
-    TORCH_CHECK(
+    NVF_CHECK(
         (axes.size() + init_avg->getRootDomain().size()) ==
             tv->getRootDomain().size(),
         "welford op: initial tensor mismatch");
-    TORCH_CHECK(
+    NVF_CHECK(
         (axes.size() + init_var->getRootDomain().size()) ==
             tv->getRootDomain().size(),
         "welford op: initial tensor mismatch");
@@ -1706,7 +1706,7 @@ WelfordResult Welford(
     TensorView* init_avg,
     TensorView* init_var,
     Val* init_N) {
-  TORCH_CHECK(
+  NVF_CHECK(
       TensorDomain::sameAs(tv->getMaybeRFactorDomain(), tv->getLeafDomain()),
       "Reducing a tensor once it's gone under transformations is not permitted at this time. \n",
       "Please set reductions before calling split/merge/computeAt.\n  RFactor: ",
@@ -1714,8 +1714,8 @@ WelfordResult Welford(
       "\n  Domain: ",
       tv->domain()->toString());
 
-  TORCH_CHECK(tv->nDims() > 0, "Tried to reduce a 0-dim tensor");
-  TORCH_CHECK(!axes.empty(), "No reduction axis specified");
+  NVF_CHECK(tv->nDims() > 0, "Tried to reduce a 0-dim tensor");
+  NVF_CHECK(!axes.empty(), "No reduction axis specified");
 
   // Check and collect reduction axes
   auto tv_root = tv->domain()->noReductions();
@@ -1774,10 +1774,10 @@ WelfordResult Welford(
   // Initial values for welford op are tensors, so their dims have to match the
   // output dim
   if (!init_N->isZeroInt()) {
-    TORCH_CHECK(
+    NVF_CHECK(
         init_var != nullptr,
         "welford op: init variance value need to be provided");
-    TORCH_CHECK(
+    NVF_CHECK(
         squeezed->getRootDomain().size() == init_var->getRootDomain().size(),
         "welford op: initial tensor mismatch");
     return WelfordResult(squeezed, init_var, out_N, false);
@@ -1801,15 +1801,15 @@ WelfordResult::WelfordResult(
     // have to be the same.
     return;
   }
-  TORCH_INTERNAL_ASSERT(avg->definition()->sameAs(var_sum->definition()));
-  TORCH_INTERNAL_ASSERT(avg->definition()->sameAs(n->definition()));
+  NVF_ERROR(avg->definition()->sameAs(var_sum->definition()));
+  NVF_ERROR(avg->definition()->sameAs(n->definition()));
 }
 
 // COMPOUND OPERATIONS
 
 // add_alpha
 Val* add_alpha(Val* v1, Val* v2, Val* s) {
-  TORCH_CHECK(
+  NVF_CHECK(
       s->getValType().value() == ValType::Others,
       "Alpha value should be a Scalar Valtype and not ",
       s->getValType().value());
@@ -1832,7 +1832,7 @@ TensorView* add_alpha(TensorView* v1, TensorView* v2, Val* v3) {
 }
 // sub_alpha
 Val* sub_alpha(Val* v1, Val* v2, Val* s) {
-  TORCH_CHECK(
+  NVF_CHECK(
       s->getValType().value() == ValType::Others,
       "Alpha value should be a Scalar Valtype and not ",
       s->getValType().value());
@@ -1902,7 +1902,7 @@ TensorView* lerp(TensorView* v1, TensorView* v2, TensorView* v3) {
 
 // addcmul
 Val* addcmul(Val* v1, Val* v2, Val* v3, Val* s) {
-  TORCH_CHECK(
+  NVF_CHECK(
       s->getValType().value() == ValType::Others,
       "Alpha value should be a Scalar Valtype and not ",
       s->getValType().value());
@@ -1940,7 +1940,7 @@ TensorView* addcmul(TensorView* v1, TensorView* v2, TensorView* v3, Val* v4) {
 // TERNARY OPERATIONS
 // where (c ? v1 : v2)
 Val* where(Val* c, Val* v1, Val* v2) {
-  TORCH_CHECK(
+  NVF_CHECK(
       c->getDataType().value() == DataType::Bool,
       "Condition should be of DataType Bool, not ",
       c->getDataType().value());
@@ -1952,7 +1952,7 @@ Val* where(Val* c, Val* v1, Val* v2) {
   v1 = cast_values[0];
   v2 = cast_values[1];
 
-  TORCH_CHECK(c->getDataType().value() == DataType::Bool);
+  NVF_CHECK(c->getDataType().value() == DataType::Bool);
   const auto& out_dtype = common_dtype;
   auto out_vtype =
       promoteType(v1->getValType().value(), v2->getValType().value());
@@ -1998,7 +1998,7 @@ TensorView* where(TensorView* v1, TensorView* v2, TensorView* v3) {
 // TERNARY OPERATIONS
 
 Val* threshold(Val* in, Val* thresh, Val* value) {
-  TORCH_CHECK(
+  NVF_CHECK(
       (thresh->getValType().value() == ValType::Others ||
        thresh->getValType().value() == ValType::NamedScalar) &&
           (value->getValType().value() == ValType::Others ||
@@ -2019,7 +2019,7 @@ TensorView* threshold(TensorView* in, Val* thresh, Val* value) {
 }
 
 Val* clamp(Val* in, Val* min_val, Val* max_val) {
-  TORCH_CHECK(
+  NVF_CHECK(
       (min_val == nullptr || min_val->getValType().value() == ValType::Others ||
        min_val->getValType().value() == ValType::NamedScalar) &&
           (max_val == nullptr ||
@@ -2030,12 +2030,12 @@ Val* clamp(Val* in, Val* min_val, Val* max_val) {
   min_val = (min_val == nullptr)
       ? ops::getMinimumValue(in->getDataType().value())
       : optionalCast(in->getDataType().value(), min_val);
-  TORCH_CHECK(min_val != nullptr, "Missing minimum value");
+  NVF_CHECK(min_val != nullptr, "Missing minimum value");
 
   max_val = (max_val == nullptr)
       ? ops::getMaximumValue(in->getDataType().value())
       : optionalCast(in->getDataType().value(), max_val);
-  TORCH_CHECK(max_val != nullptr, "Missing maximum value");
+  NVF_CHECK(max_val != nullptr, "Missing maximum value");
 
   Val* out = ops::newValLike(in, in->getDataType().value());
   IrBuilder::create<TernaryOp>(TernaryOpType::Clamp, out, in, min_val, max_val);
@@ -2051,7 +2051,7 @@ TensorView* clamp(TensorView* in, Val* min_val, Val* max_val) {
 TensorView* sum_to(TensorView* in, const std::vector<Val*>& sum_to_size) {
   const auto& root = TensorDomain::noReductions(in->getMaybeRFactorDomain());
 
-  TORCH_CHECK(
+  NVF_CHECK(
       root.size() >= sum_to_size.size(),
       "sum_to: Error trying to reduce",
       in,
@@ -2097,7 +2097,7 @@ TensorView* sum_to(TensorView* in, const std::vector<Val*>& sum_to_size) {
 TensorView* sum_to(TensorView* in, const std::vector<int64_t>& sum_to_size) {
   const auto& root = TensorDomain::noReductions(in->getMaybeRFactorDomain());
 
-  TORCH_CHECK(
+  NVF_CHECK(
       root.size() >= sum_to_size.size(),
       "sum_to: Error trying to reduce",
       in,
@@ -2168,14 +2168,14 @@ TensorView* shift(
     }
   }
 
-  TORCH_CHECK(
+  NVF_CHECK(
       ndims == offsets.size(),
       "Invalid shift offsets, number of entries in offsets expected to be ",
       ndims,
       " but received ",
       offsets.size());
 
-  TORCH_CHECK(
+  NVF_CHECK(
       ndims == pad_width.size(),
       "Invalid padding width list, number of entries in pad_width expected to be ",
       ndims,
@@ -2183,7 +2183,7 @@ TensorView* shift(
       pad_width.size());
 
   std::for_each(pad_width.begin(), pad_width.end(), [](const auto& pad) {
-    TORCH_CHECK(pad >= 0, "Padding width must be >= 0: ", pad);
+    NVF_CHECK(pad >= 0, "Padding width must be >= 0: ", pad);
   });
 
   TensorView* out = nullptr;
@@ -2200,13 +2200,13 @@ TensorView* shift(
     }
 
     Val* current_start_offset = dynamic_cast<Val*>(inp_axis->start());
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         current_start_offset != nullptr && current_start_offset->isConst(),
         "Invalid IterDomain start value:",
         current_start_offset);
 
     Val* current_stop_offset = dynamic_cast<Val*>(inp_axis->stopOffset());
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         current_stop_offset != nullptr && current_stop_offset->isConst(),
         "Invalid IterDomain stop offset value:",
         current_stop_offset);
@@ -2226,7 +2226,7 @@ TensorView* shift(
       // If pad > offset, the extent of the output ID could be larger than the
       // input, and the start offset of the output domain could become
       // negative, which is not supported.
-      TORCH_CHECK(
+      NVF_CHECK(
           out_start_offset >= 0,
           "Invalid shift offset and padding. Padding must not be larger than the absolute extent of shift offset. Padding: ",
           pad,
@@ -2243,7 +2243,7 @@ TensorView* shift(
       // -offset (note offset is negative), the extent of the output
       // ID could be larger than the input, and the stop offset of the
       // output domain could become negative.
-      TORCH_CHECK(
+      NVF_CHECK(
           out_stop_offset >= 0,
           "Invalid shift offset and padding. Padding must not be larger than the absolute extent of shift offset. Padding: ",
           pad,
@@ -2326,7 +2326,7 @@ TensorView* gather(
   auto inp_dom = TensorDomain::noReductions(inp->getMaybeRFactorDomain());
   const auto ndims = inp_dom.size();
 
-  TORCH_CHECK(
+  NVF_CHECK(
       ndims == window_shape.size(),
       "Invalid window shape: number of entries expected to be ",
       ndims,
@@ -2334,10 +2334,10 @@ TensorView* gather(
       window_shape.size());
 
   std::for_each(window_shape.begin(), window_shape.end(), [](const auto& w) {
-    TORCH_CHECK(w > 0, "Window size must be > 0: ", w);
+    NVF_CHECK(w > 0, "Window size must be > 0: ", w);
   });
 
-  TORCH_CHECK(
+  NVF_CHECK(
       ndims == pad_width.size(),
       "Invalid pad width: number of entries expected to be ",
       ndims,
@@ -2345,16 +2345,16 @@ TensorView* gather(
       pad_width.size());
 
   std::for_each(pad_width.begin(), pad_width.end(), [](const auto& p) {
-    TORCH_CHECK(
+    NVF_CHECK(
         p.size() == 2,
         "Each entry of pad_width must have two non-negative integers.");
     std::for_each(p.begin(), p.end(), [](const auto& p_left_or_right) {
-      TORCH_CHECK(
+      NVF_CHECK(
           p_left_or_right >= 0, "Padding must be >= 0: ", p_left_or_right);
     });
   });
 
-  TORCH_CHECK(
+  NVF_CHECK(
       strides.empty() || ndims == strides.size(),
       "Invalid strides: number of entries expected to be ",
       ndims,
@@ -2362,7 +2362,7 @@ TensorView* gather(
       strides.size());
 
   std::for_each(strides.begin(), strides.end(), [](const auto& s) {
-    TORCH_CHECK(s > 0, "Stride must be > 0: ", s);
+    NVF_CHECK(s > 0, "Stride must be > 0: ", s);
   });
 
   std::vector<IterDomain*> out_root_domains;
@@ -2374,14 +2374,14 @@ TensorView* gather(
     const auto pad_left = pad_width[i][0];
     const auto pad_right = pad_width[i][1];
     // This may be over-conservative
-    TORCH_INTERNAL_ASSERT(inp_axis->start()->isZeroInt());
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(inp_axis->start()->isZeroInt());
+    NVF_ERROR(
         inp_axis->stopOffset()->isConstInt(),
         "Dynamic stop offset not supported: ",
         inp_axis);
     const auto inp_stop_offset = inp_axis->stopOffset()->evaluateInt();
     const auto extent_adjustment = window_dim - 1 - pad_left - pad_right;
-    TORCH_CHECK(
+    NVF_CHECK(
         extent_adjustment >= 0,
         "Invalid gather window and padding as output extent would be larger than input.",
         " Window: ",
@@ -2472,18 +2472,18 @@ static TensorView* newForMma(
   auto orig_domain_b =
       TensorDomain::noReductions(tv_b->getMaybeRFactorDomain());
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       orig_domain_a.size() == orig_domain_b.size(),
       "MMA op: need matching dim input");
 
   std::set<unsigned int> axes_set(axes.begin(), axes.end());
   std::vector<IterDomain*> new_domain;
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       !axes_set.empty(),
       "Asked for output of reduction, but no reduction axis provided.");
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       (*(axes_set.rbegin())) < orig_domain_a.size(),
       "Error setting up reduction, reduction axis (",
       *(axes_set.rbegin()),
@@ -2503,7 +2503,7 @@ static TensorView* newForMma(
         ? orig_domain_b[dim]
         : orig_domain_a[dim];
 
-    TORCH_CHECK(
+    NVF_CHECK(
         !(isReduction && id->isBroadcast() && !id->isImplicitBroadcast()),
         "Cannot reduce an axis that is marked as broadcasted as it has an undetermined size. Tried to reduce ID = ",
         id,
@@ -2541,28 +2541,28 @@ TensorView* fusedMultiplySum(
   //  mma as well, for maybe fusing bias in prolog.
   // TODO: check init type if given a tv,
   //  not supported currently though.
-  TORCH_CHECK(
+  NVF_CHECK(
       init->isConstScalar(),
       "Cannot create a reduction operation where the initial value is not a const scalar.");
 
   // TODO:
   //  Validate axis relationships between a and b
-  TORCH_CHECK(tv_a->nDims() > 0, "Tried to reduce a 0-dim tensor");
+  NVF_CHECK(tv_a->nDims() > 0, "Tried to reduce a 0-dim tensor");
 
   // TODO:
   //  Add tf32 and other mma data types
   //  Add fallback path for non-mma data types.
-  TORCH_CHECK(
+  NVF_CHECK(
       tv_a->getDataType().value() == DataType::Half ||
       tv_a->getDataType().value() == DataType::BFloat16);
-  TORCH_CHECK(tv_a->getDataType().value() == tv_b->getDataType().value());
+  NVF_CHECK(tv_a->getDataType().value() == tv_b->getDataType().value());
 
-  TORCH_CHECK(!axes.empty(), "No reduction axis specified");
+  NVF_CHECK(!axes.empty(), "No reduction axis specified");
 
   // TODO:
   //  will lift this in a follow up when we have a
   //  more generic axes matching.
-  TORCH_CHECK(
+  NVF_CHECK(
       axes.size() == 1, "Single axis reduction only for mma op instantiation.")
 
   std::vector<unsigned int> uint_axes =
@@ -2585,7 +2585,7 @@ TensorView* tensor(Val* val) {
     sizes.push_back((int64_t)std::get<ArrayType>(dtype.type).size);
     dtype = *std::get<ArrayType>(dtype.type).type;
   }
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       std::holds_alternative<PrimDataType>(dtype.type),
       "Expected an array of scalar or nested array of scalar");
 

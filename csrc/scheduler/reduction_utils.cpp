@@ -37,7 +37,7 @@ TensorView* scheduleReductionTV(
   const bool is_outer_grid_persistence = rparams.persistent_kernel &&
       rparams.cross_grid_inner_reduction && !rparams.fastest_dim;
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       (int)reduction_tv->nDims() >
           std::max(iter_axis, std::max(outer_reduce_axis, inner_reduce_axis)),
       "Issue in scheduling reduction tv, expecting >",
@@ -45,19 +45,19 @@ TensorView* scheduleReductionTV(
       " dimensions, but found ",
       reduction_tv->nDims());
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       !(rparams.fastest_dim && rparams.vectorize_iter_dom),
       "Cannot vectorize iteration domain on inner reductions.");
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       !(!rparams.fastest_dim && rparams.vectorize_inner_reduction),
       "Cannot vectorize reduction domain on outer reductions.");
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       !(rparams.multiple_reds_per_blk && !has_iter_axis),
       "Multiple reductions requires an iter domain, but one wasn't found.");
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       !(rparams.unroll_factor_iter_dom > 1 && !has_iter_axis),
       "Unrolling on iter domain requires an iter domain.");
 
@@ -104,7 +104,7 @@ TensorView* scheduleReductionTV(
 
   if (is_outer_grid_persistence) {
     const auto reduction_axis = inner_reduce_axis;
-    TORCH_INTERNAL_ASSERT(rparams.static_bdimy, "blockDim.y must be static");
+    NVF_ERROR(rparams.static_bdimy, "blockDim.y must be static");
     inner_parallel_static(
         reduction_axis,
         rparams.block_dim_inner_reduction,
@@ -237,8 +237,7 @@ TensorView* scheduleReductionTV(
 
     if (isParallelTypeThread(rparams.block_dim_iter_dom)) {
       if (is_outer_grid_persistence) {
-        TORCH_INTERNAL_ASSERT(
-            rparams.static_bdimx, "blockDim.x must be static");
+        NVF_ERROR(rparams.static_bdimx, "blockDim.x must be static");
         inner_parallel_static(
             iter_axis, rparams.block_dim_iter_dom, rparams.lparams.bdimx());
       } else {
@@ -284,7 +283,7 @@ TensorView* scheduleReductionTV(
         vec_reorder_map[i] = i - 1;
       }
     }
-    TORCH_INTERNAL_ASSERT(vec_id_cur_pos != -1, "Vectorized ID not found");
+    NVF_ERROR(vec_id_cur_pos != -1, "Vectorized ID not found");
     reduction_rf_tv->reorder(vec_reorder_map);
   }
 
@@ -664,7 +663,7 @@ TensorView* sortAndRFactor(TensorView* reference_tv) {
   }
   for (int old_i = 0; old_i < (int)reference_tv->nDims(); old_i++) {
     auto new_i_it = domain_pos.find(reference_tv->axis(old_i));
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         new_i_it != domain_pos.end(),
         "Error in schedule reorder, didn't reorder all axes in provided tv.");
     auto new_i = new_i_it->second;
@@ -825,7 +824,7 @@ class PersistentBufferProjector {
     // persistent section of the graph, recompute the persistent buffer.
     auto buffer = persistent_buffers[buffer_i];
     for (auto use : getPersistentUseOfBuffer(buffer_i)) {
-      TORCH_INTERNAL_ASSERT(use->definition() != nullptr);
+      NVF_ERROR(use->definition() != nullptr);
       auto buffer_replicate = RecomputeTv::recompute(buffer, producers);
       // Create a shortcut buffer <--> buffer_replicate for propagation.
       // Why is this needed?

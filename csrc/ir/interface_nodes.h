@@ -8,6 +8,7 @@
 #pragma once
 
 #include <c10/macros/Export.h>
+#include <exceptions.h>
 
 #include <fusion.h>
 #include <ir/builder_passkey.h>
@@ -402,8 +403,7 @@ class TORCH_CUDA_CU_API TensorView : public Val {
 
   // Returns the depth of circular buffering if applicable.
   unsigned int circularBufferDepth() const {
-    TORCH_INTERNAL_ASSERT(
-        is_circular_buffered_, toString(), "not circular buffered");
+    NVF_ERROR(is_circular_buffered_, toString(), "not circular buffered");
     return circular_buffer_stage_;
   }
 
@@ -513,7 +513,7 @@ class TORCH_CUDA_CU_API TensorView : public Val {
   //! is present in the kernel to reuse memory and inserts new block
   //! synchronizations if necessary.
   void promoteReuse(bool b = true) {
-    TORCH_CHECK(
+    NVF_CHECK(
         memory_type_ == MemoryType::Shared,
         "promoteReuse should only be called on shared memory tensors");
     promote_reuse_ = b;

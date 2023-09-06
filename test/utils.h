@@ -8,6 +8,7 @@
 #pragma once
 
 #include <codegen.h>
+#include <csrc/exceptions.h>
 #include <device_lower/lower2device.h>
 #include <device_lower/pass/magic_zero.h>
 #include <executor.h>
@@ -24,6 +25,7 @@
 
 #include <gtest/gtest.h>
 
+#include <chrono>
 #include <cstddef>
 #include <string>
 #include <unordered_map>
@@ -116,7 +118,7 @@ inline TensorView* loweredTv(TensorView* tv, kir::Kernel* kernel) {
       matching_tv = lowered_tv;
     }
   }
-  TORCH_INTERNAL_ASSERT(matching_tv != nullptr);
+  NVF_ERROR(matching_tv != nullptr);
   return matching_tv;
 }
 
@@ -321,7 +323,7 @@ struct TransformPropagatorWithCheck : public TransformPropagator {
     TransformPropagator::propagateC2P(from, to);
     auto from_pos = replayed_pos_.at(from);
     auto to_pos = replayed_pos_.at(to);
-    TORCH_CHECK(
+    NVF_CHECK(
         TransformReplay::getMatchedLeafPosWithoutReplayPasC(
             to, from, from_pos) == (int)to_pos);
   }
@@ -329,7 +331,7 @@ struct TransformPropagatorWithCheck : public TransformPropagator {
     TransformPropagator::propagateP2C(from, to);
     auto from_pos = replayed_pos_.at(from);
     auto to_pos = replayed_pos_.at(to);
-    TORCH_CHECK(
+    NVF_CHECK(
         TransformReplay::getMatchedLeafPosWithoutReplayCasP(
             to, from, from_pos) == (int)to_pos);
   }
@@ -337,8 +339,8 @@ struct TransformPropagatorWithCheck : public TransformPropagator {
     TransformPropagator::propagateSibling(from, to);
     auto from_pos = replayed_pos_.at(from);
     auto to_pos = replayed_pos_.at(to);
-    TORCH_CHECK(from_pos == to_pos);
-    TORCH_CHECK(TransformReplay::fullSelfMatching(from, to));
+    NVF_CHECK(from_pos == to_pos);
+    NVF_CHECK(TransformReplay::fullSelfMatching(from, to));
   }
   using TransformPropagator::TransformPropagator;
 };
@@ -409,6 +411,12 @@ inline bool maybeClearAllocator(int64_t max_bytes = ((int64_t)1 << 32)) {
   return false;
 }
 
+//! Returns the seed for std::rand() used for every test.
+size_t getCRandomSeed();
+
+//! Returns the seed for ATen functions like at::randn() used for every test.
+size_t getATenRandomSeed();
+
 // Fixture class must be uniquely identified, i.e., can't be in an
 // anonymous namespace
 class NVFuserTest : public ::testing::Test {
@@ -422,7 +430,25 @@ class NVFuserTest : public ::testing::Test {
 
     maybeClearAllocator();
 
-    at::manual_seed(0);
+    // If NVFUSER_TEST_RANDOM_SEED is provided, use that for the C random seed.
+    // Otherwise, use system time. If a test fails, this seed will be printed.
+    at::manual_seed(getATenRandomSeed());
+
+    // If NVFUSER_TEST_ATEN_RANDOM_SEED is provided, use that for the ATen
+    // random seed. Otherwise, use zero. If a test fails, this seed will be
+    // printed.
+    std::srand(getCRandomSeed());
+  }
+
+  void TearDown() override {
+    if (::testing::Test::HasFailure()) {
+      auto test_info = ::testing::UnitTest::GetInstance()->current_test_info();
+      std::cerr << "To reproduce: NVFUSER_TEST_RANDOM_SEED=" << getCRandomSeed()
+                << " NVFUSER_TEST_ATEN_RANDOM_SEED=" << getATenRandomSeed()
+                << " nvfuser_tests --gtest_filter='"
+                << test_info->test_suite_name() << "." << test_info->name()
+                << "'" << std::endl;
+    }
   }
 };
 

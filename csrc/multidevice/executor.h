@@ -8,6 +8,7 @@
 #ifdef USE_DISTRIBUTED
 #pragma once
 
+#include <exceptions.h>
 #include <iter_visitor.h>
 #include <kernel_cache.h>
 #include <multidevice/pipeline_ir.h>

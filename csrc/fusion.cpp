@@ -192,10 +192,10 @@ void Fusion::removeExpr(Expr* expr) {
 void Fusion::removeVal(Val* val) {
   assertInContainer(val, "Cannot remove val ");
 
-  TORCH_CHECK(
+  NVF_CHECK(
       !val->isFusionInput(),
       "Cannot remove val as it is an input of the fusion.");
-  TORCH_CHECK(
+  NVF_CHECK(
       !val->isFusionOutput(),
       "Cannot remove val as it is an output of the fusion.");
 
@@ -216,7 +216,7 @@ void Fusion::addInput(Val* input) {
     auto tv = input->as<TensorView>();
     tv->setMemoryType(MemoryType::Global);
   } else if (input->getValType().value() == ValType::Others) {
-    TORCH_CHECK(
+    NVF_CHECK(
         !input->isConst(),
         "Immediate scalar value cannot be added as an input. It is not necessary to pass it as an input.");
   }
@@ -238,7 +238,7 @@ void Fusion::addOutput(Val* output) {
   // fusion is fully defined. Tracking this in #1488
   // Apparently we can't do this neither at the time. I think segmentation
   // unfortunately would call addOutput after we marked io_alias_ map.
-  // TORCH_CHECK(io_alias_.count(output) == 0,
+  // NVF_CHECK(io_alias_.count(output) == 0,
   //     "can't register aliased output as real output");
   assertInContainer(output, "Cannot register output ");
   if (output->getValType().value() == ValType::TensorView) {
@@ -271,7 +271,7 @@ void Fusion::removeOutput(Val* output) {
 
 void Fusion::replaceOutput(Val* output, Val* replacement) {
   auto find_output = std::find(outputs_.begin(), outputs_.end(), output);
-  TORCH_CHECK(find_output != outputs_.end(), "Unable to find output in Fusion");
+  NVF_CHECK(find_output != outputs_.end(), "Unable to find output in Fusion");
 
   if (find_output != outputs_.end()) {
     std::replace_if(
@@ -346,7 +346,7 @@ void Fusion::validateInputs() {
   }
   for (Val* input : all_inputs) {
     if (!input->isConstScalar()) {
-      TORCH_CHECK(
+      NVF_CHECK(
           input->isFusionInput() ||
               // TODO: Switch:
               inContainer(input),
@@ -377,7 +377,7 @@ std::ostream& Fusion::print(std::ostream& os, bool include_tensor_transforms) {
 
 void Fusion::printKernel(const CompileParams& compile_params) {
   FUSER_PERF_SCOPE("Fusion::printKernel");
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       !this->isA<kir::Kernel>(),
       "Cannot \"print kernel\" of a kernel container. ",
       "This would require lowering during lowering.");
@@ -409,7 +409,7 @@ Fusion::bankConflictInfo(const CompileParams& compile_params) {
   // Convert TVs in kernel to TVs in fusion
   auto smem_tvs_in_kernel =
       kernel->getManaged<std::vector<TensorView*>>("smem_tvs");
-  TORCH_INTERNAL_ASSERT(smem_tvs_in_kernel.size() == smem_tvs.size());
+  NVF_ERROR(smem_tvs_in_kernel.size() == smem_tvs.size());
   auto getSmemTvInFusion = [&](Val* v) -> TensorView* {
     auto ti = dynamic_cast<kir::TensorIndex*>(v);
     if (ti == nullptr) {
@@ -432,21 +432,21 @@ Fusion::bankConflictInfo(const CompileParams& compile_params) {
     auto expr = i.first;
 
     // Currently only set and load store op are supported
-    TORCH_INTERNAL_ASSERT(expr->inputs().size() == 1);
-    TORCH_INTERNAL_ASSERT(expr->outputs().size() == 1);
+    NVF_ERROR(expr->inputs().size() == 1);
+    NVF_ERROR(expr->outputs().size() == 1);
 
     auto input = getSmemTvInFusion(expr->input(0));
     auto output = getSmemTvInFusion(expr->output(0));
     if (input == nullptr) {
-      TORCH_INTERNAL_ASSERT(i.second.first == 0);
+      NVF_ERROR(i.second.first == 0);
     } else {
-      TORCH_INTERNAL_ASSERT(i.second.first != 0);
+      NVF_ERROR(i.second.first != 0);
       result[input].first.push_back(i.second.first);
     }
     if (output == nullptr) {
-      TORCH_INTERNAL_ASSERT(i.second.second == 0);
+      NVF_ERROR(i.second.second == 0);
     } else {
-      TORCH_INTERNAL_ASSERT(i.second.second != 0);
+      NVF_ERROR(i.second.second != 0);
       result[output].second.push_back(i.second.second);
     }
   }
@@ -514,7 +514,7 @@ void Fusion::registerVal(Val* val) {
   }
 
   if (val->fusion()) {
-    TORCH_CHECK(
+    NVF_CHECK(
         val->fusion() == this, val, " was not found in the active fusion.");
   }
 
@@ -527,7 +527,7 @@ void Fusion::registerExpr(Expr* expr) {
   }
 
   if (expr->fusion()) {
-    TORCH_CHECK(
+    NVF_CHECK(
         expr->fusion() == this, expr, " was not found in the active fusion.");
   }
 
@@ -737,23 +737,23 @@ bool Fusion::isAliasCompatible(Val* left, Val* right) {
 
 void Fusion::aliasOutputToInput(Val* output, Val* input) {
   // Because we could cast output when input is cast.
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       !output->isFusionOutput(),
       "Do NOT add aliased output to fusion output outside of `aliasOutputToInput");
 
   if (!input->isFusionInput()) {
     auto input_expr = input->definition();
-    // TORCH_INTERNAL_ASSERT(input_def->isA<UnaryOp>(),
+    // NVF_ERROR(input_def->isA<UnaryOp>(),
     //     "expected unary op for aliased input");
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         input_expr->isA<UnaryOp>(), "expected unary op for aliased input");
     auto input_uop = input_expr->as<UnaryOp>();
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         input_uop->getUnaryOpType() == UnaryOpType::Cast,
         "expected aliased input to be output of cast op");
     input = input_uop->in();
   }
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       input->getDataType().has_value() && output->getDataType().has_value(),
       "requires DataType to be available for aliased output to input");
 
@@ -761,7 +761,7 @@ void Fusion::aliasOutputToInput(Val* output, Val* input) {
     output = castOp(input->getDataType().value(), output);
   }
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       isAliasCompatible(input, output),
       "The input and output values are not alias-compatible.");
   io_alias_[output] = input;
@@ -809,7 +809,7 @@ std::vector<std::pair<int, int>> Fusion::getOutputToInputAliasIndices() const {
           break;
         }
       }
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           found,
           "io_alias_ mapping failure, alias output is not present in inputs");
     }

@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <csrc/exceptions.h>
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
@@ -132,7 +133,6 @@ TEST_F(IndexingOpTest, Scatter1DIndexZerosSelfTvSameShape_CUDA) {
 // dim.
 TEST_F(IndexingOpTest, TorchGatherAllRankAllSelectedDim_CUDA) {
   const int max_dim_size = 64;
-  std::srand(0);
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   for (const auto is_take_along : {false, true}) {
@@ -172,7 +172,6 @@ TEST_F(IndexingOpTest, TorchGatherAllRankAllSelectedDim_CUDA) {
 // Test the fusion support of gather operator(producer) and elemetwise(consumer)
 TEST_F(IndexingOpTest, TorchGatherAddMul_CUDA) {
   const int max_dim_size = 64;
-  std::srand(0);
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   for (const auto is_take_along : {false, true}) {
@@ -218,7 +217,6 @@ TEST_F(IndexingOpTest, TorchGatherAddMul_CUDA) {
 // Test the fusion support of index tensor as fusion input in gather operator
 TEST_F(IndexingOpTest, AddGatherSumAdd_CUDA) {
   const int max_dim_size = 8;
-  std::srand(0);
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   for (const auto is_take_along : {false, true}) {
@@ -267,7 +265,6 @@ TEST_F(IndexingOpTest, AddGatherSumAdd_CUDA) {
 // Test the fusion support of gather operator and reduce
 TEST_F(IndexingOpTest, TorchGatherSumAdd_CUDA) {
   const int max_dim_size = 32;
-  std::srand(0);
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   for (const auto is_take_along : {false, true}) {
@@ -323,7 +320,6 @@ TEST_F(IndexingOpTest, TorchGatherSumAdd_CUDA) {
 // Test the correctness when input/index tensor is very large
 TEST_F(IndexingOpTest, TorchGatherAddMulHugeSize_CUDA) {
   const int max_dim_size = 16384;
-  std::srand(0);
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   for (const auto is_take_along : {false, true}) {
@@ -573,8 +569,8 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorPointwise1_CUDA) {
 
   // All of the tensors should have the split by 2, except for tv1.
   for (auto tv : ir_utils::allTvsExcept(&fusion, {tv1})) {
-    TORCH_CHECK(tv->nDims() == 3, "Unexpected tensor: ", tv->toString());
-    TORCH_CHECK(
+    NVF_CHECK(tv->nDims() == 3, "Unexpected tensor: ", tv->toString());
+    NVF_CHECK(
         tv->axis(-1)->definition() &&
             tv->axis(-1)->definition()->isA<Split>() &&
             tv->axis(-1)->definition()->as<Split>()->in() ==
@@ -589,7 +585,7 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorPointwise1_CUDA) {
   inlineMost();
   auto take_along_axis_input =
       tv4->definition()->as<TorchGatherOp>()->lookupTv();
-  TORCH_CHECK(
+  NVF_CHECK(
       take_along_axis_input->getComputeAtPosition() == 1,
       "Unexpected computeAt position: ",
       take_along_axis_input->toString());
@@ -603,7 +599,7 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorPointwise1_CUDA) {
     if (tv->isFusionInput()) {
       continue;
     }
-    TORCH_CHECK(
+    NVF_CHECK(
         tv->axis(-2)->getParallelType() == tv4->axis(-2)->getParallelType() &&
             tv->axis(-1)->getParallelType() == tv4->axis(-1)->getParallelType(),
         "Unexpected parallelization of tensor: ",
@@ -613,7 +609,7 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorPointwise1_CUDA) {
   // This should make the producer of take_along_axis saved in shared memory
   scheduler_utils::promoteProducerMemoryTypes(&fusion, {});
 
-  TORCH_CHECK(
+  NVF_CHECK(
       take_along_axis_input->getMemoryType() == MemoryType::Shared,
       "Failed to promote memory type: ",
       take_along_axis_input->toString());
@@ -1252,12 +1248,12 @@ TEST_F(IndexingOpTest, TakeAlongAxisCrossEntropyLoss_CUDA) {
   // Make sure take_along_axis is in the persistent group
   for (const auto group : kernel_runtime->fusionSegments()->groups()) {
     if (group->heuristic() == ScheduleHeuristic::Persistent) {
-      TORCH_CHECK(std::any_of(
+      NVF_CHECK(std::any_of(
           group->exprs().begin(), group->exprs().end(), [](Expr* expr) {
             return expr->isA<TorchGatherOp>();
           }));
     } else {
-      TORCH_CHECK(std::none_of(
+      NVF_CHECK(std::none_of(
           group->exprs().begin(), group->exprs().end(), [](Expr* expr) {
             return expr->isA<TorchGatherOp>();
           }));
