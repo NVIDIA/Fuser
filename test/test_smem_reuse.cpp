@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <csrc/exceptions.h>
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
@@ -86,7 +87,7 @@ TEST_F(SmemReuseTest, SimpleCase) {
     int64_t smem_usage = 0;
     for (auto alloc : gpulw.kernel()->summary().dynamic_smem_allocations) {
       auto addr = ee.evaluate(alloc->address()).as<int64_t>();
-      TORCH_CHECK(
+      NVF_CHECK(
           addresses.insert(addr).second,
           "Smem addresses should not be re-used");
       auto size = ee.evaluate(alloc->size()).as<int64_t>() *
@@ -186,7 +187,7 @@ TEST_F(SmemReuseTest, NeedsReorderedPush) {
     for (auto alloc : gpulw.kernel()->summary().dynamic_smem_allocations) {
       EXPECT_NE(alloc->address(), nullptr);
       auto addr = ee.evaluate(alloc->address()).as<int64_t>();
-      TORCH_CHECK(
+      NVF_CHECK(
           addresses.insert(addr).second,
           "Smem addresses should not be re-used");
       auto size = ee.evaluate(alloc->size()).as<int64_t>() *
@@ -232,7 +233,7 @@ TEST_F(SmemReuseTest, PromoteReuse) {
     for (auto alloc : gpulw.kernel()->summary().dynamic_smem_allocations) {
       EXPECT_NE(alloc->address(), nullptr);
       auto addr = ee.evaluate(alloc->address()).as<int64_t>();
-      TORCH_CHECK(
+      NVF_CHECK(
           addresses.insert(addr).second,
           "Smem addresses should not be re-used");
       auto size = ee.evaluate(alloc->size()).as<int64_t>() *
@@ -277,21 +278,17 @@ TEST_F(SmemReuseTest, PromoteReuseMultipleDownstream) {
       full({IrBuilder::create<Val>(H)}, fusion->oneVal(), DataType::Float);
   tv0->setMemoryType(MemoryType::Shared);
 
-  // NOTE: This should work with only a single expression between tv0 and tv1 as
-  // well, since a sync could be placed after tv1 in that case as well. Here we
-  // use two expressions until fixing interval closedness.
-  // See https://github.com/NVIDIA/Fuser/issues/772.
-  auto tv1 = neg(neg(tv0));
+  auto tv1 = neg(tv0);
 
   auto tv2 = pad(tv1, {fusion->zeroVal(), fusion->oneVal()});
   tv2->setMemoryType(MemoryType::Shared);
 
-  auto tv3 = neg(neg(tv2));
+  auto tv3 = neg(tv2);
 
   auto tv4 = pad(tv3, {fusion->zeroVal(), fusion->oneVal()});
   tv4->setMemoryType(MemoryType::Shared);
 
-  auto tv5 = neg(neg(tv4));
+  auto tv5 = neg(tv4);
 
   fusion->addOutput(tv5);
 
@@ -304,7 +301,7 @@ TEST_F(SmemReuseTest, PromoteReuseMultipleDownstream) {
     for (auto alloc : gpulw.kernel()->summary().dynamic_smem_allocations) {
       EXPECT_NE(alloc->address(), nullptr);
       auto addr = ee.evaluate(alloc->address()).as<int64_t>();
-      TORCH_CHECK(
+      NVF_CHECK(
           addresses.insert(addr).second,
           "Smem addresses should not be re-used");
       auto size = ee.evaluate(alloc->size()).as<int64_t>() *
@@ -386,7 +383,7 @@ TEST_F(SmemReuseTest, MultiplePromoteReuse) {
     for (auto alloc : gpulw.kernel()->summary().dynamic_smem_allocations) {
       EXPECT_NE(alloc->address(), nullptr);
       auto addr = ee.evaluate(alloc->address()).as<int64_t>();
-      TORCH_CHECK(
+      NVF_CHECK(
           addresses.insert(addr).second,
           "Smem addresses should not be re-used");
       auto size = ee.evaluate(alloc->size()).as<int64_t>() *

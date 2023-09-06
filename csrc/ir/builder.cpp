@@ -23,7 +23,7 @@ Val* IrBuilder::newScalar(DataType dtype) {
 }
 
 Val* IrBuilder::newArithmeticExpr(BinaryOpType op_type, Val* lhs, Val* rhs) {
-  TORCH_CHECK(
+  NVF_CHECK(
       lhs != nullptr && rhs != nullptr,
       "Either lhs or rhs is a nullptr in newArithmeticExpr.");
 
@@ -43,8 +43,7 @@ Val* IrBuilder::newArithmeticExpr(BinaryOpType op_type, Val* lhs, Val* rhs) {
   if (lhs->dtype() != rhs->dtype()) {
     dtype = promoteType(lhs->dtype(), rhs->dtype());
     if (isPointerType(lhs->dtype()) || isPointerType(rhs->dtype())) {
-      TORCH_INTERNAL_ASSERT(
-          op_type == BinaryOpType::Add || op_type == BinaryOpType::Sub);
+      NVF_ERROR(op_type == BinaryOpType::Add || op_type == BinaryOpType::Sub);
     }
   }
   auto result = newScalar(dtype);
@@ -54,7 +53,7 @@ Val* IrBuilder::newArithmeticExpr(BinaryOpType op_type, Val* lhs, Val* rhs) {
 }
 
 Val* IrBuilder::newLogicExpr(BinaryOpType op_type, Val* lhs, Val* rhs) {
-  TORCH_CHECK(
+  NVF_CHECK(
       lhs != nullptr && rhs != nullptr,
       "Either lhs or rhs is a nullptr in newLogicExpr.");
   auto result = newScalar(DataType::Bool);
@@ -64,59 +63,59 @@ Val* IrBuilder::newLogicExpr(BinaryOpType op_type, Val* lhs, Val* rhs) {
 }
 
 Val* IrBuilder::whereExpr(Val* pred, Val* lhs, Val* rhs) {
-  TORCH_CHECK(
+  NVF_CHECK(
       pred != nullptr && lhs != nullptr && rhs != nullptr,
       "Either pred, lhs, or rhs is a nullptr in whereExpr.");
-  TORCH_CHECK(lhs->dtype() == rhs->dtype(), "Incompatible operand types");
+  NVF_CHECK(lhs->dtype() == rhs->dtype(), "Incompatible operand types");
   auto result = newScalar(lhs->dtype());
   IrBuilder::create<TernaryOp>(TernaryOpType::Where, result, pred, lhs, rhs);
   return result;
 }
 
 Val* IrBuilder::negExpr(Val* val) {
-  TORCH_CHECK(val != nullptr, "val is a nullptr in negExpr.");
+  NVF_CHECK(val != nullptr, "val is a nullptr in negExpr.");
   auto result = newScalar(val->dtype());
   IrBuilder::create<UnaryOp>(UnaryOpType::Neg, result, val);
   return result;
 }
 
 Val* IrBuilder::logicalNotExpr(Val* val) {
-  TORCH_CHECK(val != nullptr, "val is a nullptr in logicalNotExpr.");
+  NVF_CHECK(val != nullptr, "val is a nullptr in logicalNotExpr.");
   auto result = newScalar(val->dtype());
   IrBuilder::create<UnaryOp>(UnaryOpType::LogicalNot, result, val);
   return result;
 }
 
 Val* IrBuilder::bitwiseNotExpr(Val* val) {
-  TORCH_CHECK(val != nullptr, "val is a nullptr in bitwiseNotExpr.");
+  NVF_CHECK(val != nullptr, "val is a nullptr in bitwiseNotExpr.");
   auto result = newScalar(val->dtype());
   IrBuilder::create<UnaryOp>(UnaryOpType::BitwiseNot, result, val);
   return result;
 }
 
 Val* IrBuilder::derefExpr(Val* val) {
-  TORCH_CHECK(val != nullptr, "val is a nullptr in derefExpr.");
+  NVF_CHECK(val != nullptr, "val is a nullptr in derefExpr.");
   auto result = newScalar(*(std::get<PointerType>(val->dtype().type).type));
   IrBuilder::create<UnaryOp>(UnaryOpType::Dereference, result, val);
   return result;
 }
 
 Val* IrBuilder::absExpr(Val* val) {
-  TORCH_CHECK(val != nullptr, "val is a nullptr in absExpr.");
+  NVF_CHECK(val != nullptr, "val is a nullptr in absExpr.");
   auto result = newScalar(val->dtype());
   IrBuilder::create<UnaryOp>(UnaryOpType::Abs, result, val);
   return result;
 }
 
 Val* IrBuilder::setExpr(Val* val) {
-  TORCH_CHECK(val != nullptr, "val is a nullptr in setExpr.");
+  NVF_CHECK(val != nullptr, "val is a nullptr in setExpr.");
   auto result = newScalar(val->dtype());
   IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, result, val);
   return result;
 }
 
 Val* IrBuilder::maybeCastExpr(DataType dtype, Val* val) {
-  TORCH_CHECK(val != nullptr, "val is a nullptr in castExpr.");
+  NVF_CHECK(val != nullptr, "val is a nullptr in castExpr.");
   if (val->dtype() == dtype) {
     return val;
   }
@@ -125,8 +124,16 @@ Val* IrBuilder::maybeCastExpr(DataType dtype, Val* val) {
   return result;
 }
 
+Val* IrBuilder::addressExpr(Val* val) {
+  NVF_CHECK(val != nullptr, "val is a nullptr in addressExpr.");
+  auto result = newScalar(
+      DataType(PointerType{std::make_shared<DataType>(val->dtype())}));
+  IrBuilder::create<UnaryOp>(UnaryOpType::Address, result, val);
+  return result;
+}
+
 NamedScalar* IrBuilder::setExprNamedScalar(const std::string& name, Val* val) {
-  TORCH_CHECK(val != nullptr, "val is a nullptr in setExprNamedScalar.");
+  NVF_CHECK(val != nullptr, "val is a nullptr in setExprNamedScalar.");
   auto result = IrBuilder::create<NamedScalar>(name, val->dtype());
   IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, result, val);
   return result;
@@ -135,9 +142,9 @@ NamedScalar* IrBuilder::setExprNamedScalar(const std::string& name, Val* val) {
 NamedScalar* IrBuilder::addressExprNamedScalar(
     const std::string& name,
     Val* val) {
-  TORCH_CHECK(val != nullptr, "val is a nullptr in addressExprNamedScalar.");
+  auto ptr = addressExpr(val);
   auto result = IrBuilder::create<NamedScalar>(name, DataType::Int);
-  IrBuilder::create<UnaryOp>(UnaryOpType::Address, result, val);
+  IrBuilder::create<UnaryOp>(UnaryOpType::BitCast, result, ptr);
   return result;
 }
 
@@ -233,10 +240,9 @@ Val* IrBuilder::getItemExpr(Val* array, PolymorphicValue index) {
 }
 
 Val* IrBuilder::getAttrExpr(Val* struct_, std::string attr) {
-  auto item_dtype =
-      NVFUSER_MAYBE_STAR std::get<StructType>(struct_->dtype().type)
-          .types.at(attr);
-  auto out = newScalar(item_dtype);
+  auto struct_type = std::get<StructType>(struct_->dtype().type);
+  const auto& item_type = struct_type.fieldDataType(attr);
+  auto out = newScalar(item_type);
   create<GetAttr>(struct_->container(), out, struct_, std::move(attr));
   return out;
 }
@@ -249,21 +255,6 @@ Val* IrBuilder::reverseArrayExpr(Val* array) {
 
 Val* IrBuilder::metadataExpr(TensorView* tv) {
   return tv->fusion()->metadataOf(tv);
-}
-
-Val* IrBuilder::structExpr(
-    const std::vector<std::pair<std::string, Val*>>& fields,
-    std::string name) {
-  StructType output_type;
-  output_type.name = std::move(name);
-  for (auto& field : fields) {
-    output_type.types.emplace(
-        field.first, NVFUSER_MAYBE_MAKE_SHARED(field.second->dtype()));
-    output_type.field_names.emplace_back(field.first);
-  }
-  auto out = newScalar(DataType(output_type));
-  create<StructConstruct>(out, fields);
-  return out;
 }
 
 Val* SimplifyingIrBuilder::negExpr(Val* val) {
@@ -410,7 +401,7 @@ Val* SimplifyingIrBuilder::modExpr(Val* lhs, Val* rhs) {
 Val* SimplifyingIrBuilder::logicalAndExpr(Val* lhs, Val* rhs) {
   auto lhs_scalar = dynamic_cast<Val*>(lhs);
   auto rhs_scalar = dynamic_cast<Val*>(rhs);
-  TORCH_INTERNAL_ASSERT(!(lhs_scalar == nullptr && rhs_scalar == nullptr));
+  NVF_ERROR(!(lhs_scalar == nullptr && rhs_scalar == nullptr));
 
   if (lhs == nullptr) {
     return rhs_scalar;
@@ -447,7 +438,7 @@ Val* SimplifyingIrBuilder::logicalAndExpr(Val* lhs, Val* rhs) {
 Val* SimplifyingIrBuilder::logicalOrExpr(Val* lhs, Val* rhs) {
   auto lhs_scalar = dynamic_cast<Val*>(lhs);
   auto rhs_scalar = dynamic_cast<Val*>(rhs);
-  TORCH_INTERNAL_ASSERT(!(lhs_scalar == nullptr && rhs_scalar == nullptr));
+  NVF_ERROR(!(lhs_scalar == nullptr && rhs_scalar == nullptr));
 
   if (lhs == nullptr) {
     return rhs_scalar;
@@ -484,7 +475,7 @@ Val* SimplifyingIrBuilder::logicalOrExpr(Val* lhs, Val* rhs) {
 Val* SimplifyingIrBuilder::bitwiseAndExpr(Val* lhs, Val* rhs) {
   auto lhs_scalar = dynamic_cast<Val*>(lhs);
   auto rhs_scalar = dynamic_cast<Val*>(rhs);
-  TORCH_INTERNAL_ASSERT(!(lhs_scalar == nullptr && rhs_scalar == nullptr));
+  NVF_ERROR(!(lhs_scalar == nullptr && rhs_scalar == nullptr));
 
   if (lhs == nullptr) {
     return rhs_scalar;
@@ -525,7 +516,7 @@ Val* SimplifyingIrBuilder::bitwiseAndExpr(Val* lhs, Val* rhs) {
 Val* SimplifyingIrBuilder::bitwiseOrExpr(Val* lhs, Val* rhs) {
   auto lhs_scalar = dynamic_cast<Val*>(lhs);
   auto rhs_scalar = dynamic_cast<Val*>(rhs);
-  TORCH_INTERNAL_ASSERT(!(lhs_scalar == nullptr && rhs_scalar == nullptr));
+  NVF_ERROR(!(lhs_scalar == nullptr && rhs_scalar == nullptr));
 
   if (lhs == nullptr) {
     return rhs_scalar;
@@ -616,7 +607,7 @@ Val* SimplifyingIrBuilder::gcdExpr(Val* lhs, Val* rhs) {
 }
 
 Val* SimplifyingIrBuilder::whereExpr(Val* pred, Val* lhs, Val* rhs) {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       pred->dtype() == DataType::Bool,
       "Where requires a predicate as an input, but received");
 

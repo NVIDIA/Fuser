@@ -37,7 +37,7 @@ TensorView* segment_set(TensorView* tv) {
 }
 
 TensorView* view(TensorView* x, DataType dtype) {
-  TORCH_INTERNAL_ASSERT(x != nullptr, "Input is invalid.");
+  NVF_ERROR(x != nullptr, "Input is invalid.");
   if (x->getDataType() == dtype) {
     return x;
   }
@@ -50,15 +50,15 @@ TensorView* view(TensorView* x, DataType dtype) {
     return bitCastOp(dtype, x);
   }
   // TODO: support view(dtype) for dtypes where input_size != newsize
-  TORCH_INTERNAL_ASSERT(false, "Unsupported reinterpret casting view");
+  NVF_ERROR(false, "Unsupported reinterpret casting view");
 }
 
 TensorView* reshape(
     TensorView* x,
     const std::vector<int64_t>& original_sizes,
     const std::vector<int64_t>& new_sizes) {
-  TORCH_INTERNAL_ASSERT(x != nullptr, "Input is invalid.");
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(x != nullptr, "Input is invalid.");
+  NVF_ERROR(
       TensorDomain::noReductions(x->getMaybeRFactorDomain()).size() ==
       original_sizes.size());
 
@@ -104,7 +104,7 @@ TensorView* tryStaticReshape(
 TensorView* reshape(TensorView* inp_tv, const std::vector<Val*>& new_sizes) {
   auto inp_dom = TensorDomain::noReductions(inp_tv->getMaybeRFactorDomain());
 
-  TORCH_CHECK(
+  NVF_CHECK(
       std::none_of(
           inp_dom.begin(),
           inp_dom.end(),
@@ -130,7 +130,7 @@ TensorView* reshape(TensorView* inp_tv, const std::vector<Val*>& new_sizes) {
       // However, if -1 is provided for some position, it will not correspond to
       // the actual extent in that position.
 
-      TORCH_CHECK(
+      NVF_CHECK(
           !found_neg_one,
           "A maximum of one value of -1 can be provided to reshape.");
       found_neg_one = true;
@@ -174,7 +174,7 @@ TensorView* reshape(TensorView* inp_tv, const std::vector<Val*>& new_sizes) {
 }
 
 TensorView* flatten(TensorView* x, int64_t start_dim, int64_t end_dim) {
-  TORCH_INTERNAL_ASSERT(x != nullptr, "Input is invalid.");
+  NVF_ERROR(x != nullptr, "Input is invalid.");
   auto inp_domain = TensorDomain::noReductions(x->getMaybeRFactorDomain());
   if (start_dim < 0) {
     start_dim += (int64_t)inp_domain.size();
@@ -182,15 +182,15 @@ TensorView* flatten(TensorView* x, int64_t start_dim, int64_t end_dim) {
   if (end_dim < 0) {
     end_dim += (int64_t)inp_domain.size();
   }
-  TORCH_CHECK(
+  NVF_CHECK(
       start_dim >= 0 && start_dim < (int64_t)inp_domain.size(),
       "Invalid start_dim ",
       start_dim);
-  TORCH_CHECK(
+  NVF_CHECK(
       end_dim >= 0 && end_dim < (int64_t)inp_domain.size(),
       "Invalid end_dim ",
       end_dim);
-  TORCH_CHECK(start_dim <= end_dim, "start_dim must be <= end_dim");
+  NVF_CHECK(start_dim <= end_dim, "start_dim must be <= end_dim");
 
   if (start_dim == end_dim) {
     return x;
@@ -206,11 +206,11 @@ TensorView* flatten(TensorView* x, int64_t start_dim, int64_t end_dim) {
 }
 
 TensorView* squeeze(TensorView* x, const std::vector<bool>& to_squeeze) {
-  TORCH_INTERNAL_ASSERT(x != nullptr, "Input is invalid.");
+  NVF_ERROR(x != nullptr, "Input is invalid.");
   auto x_dom = x->domain()->noReductions();
   const auto ndims = static_cast<int>(x_dom.size());
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       ndims == (int)to_squeeze.size(),
       "Invalid to_squeeze for squeeze: ",
       to_squeeze,
@@ -222,12 +222,12 @@ TensorView* squeeze(TensorView* x, const std::vector<bool>& to_squeeze) {
     auto id = x_dom[idx];
     if (to_squeeze[idx]) {
       if (!id->isSymbolic()) {
-        TORCH_CHECK(
+        NVF_CHECK(
             id->isBroadcast(),
             "Can not squeeze non-broadcasting dimension(s).");
-        TORCH_CHECK(
+        NVF_CHECK(
             !id->hasExpandedExtent(), "Can not squeeze expanded dimension(s).");
-        TORCH_CHECK(
+        NVF_CHECK(
             id->extent()->isOneInt(),
             "Can not squeeze dimension(s) with size != 1.");
       }
@@ -247,10 +247,10 @@ TensorView* squeeze(TensorView* x, const std::vector<bool>& to_squeeze) {
 }
 
 TensorView* squeeze(TensorView* x, const std::vector<int64_t>& sizes) {
-  TORCH_INTERNAL_ASSERT(x != nullptr, "Input is invalid.");
+  NVF_ERROR(x != nullptr, "Input is invalid.");
   const auto ndims = static_cast<int>(x->domain()->noReductions().size());
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       ndims == int(sizes.size()),
       "Invalid sizes for squeeze: ",
       sizes,
@@ -265,10 +265,10 @@ TensorView* squeeze(TensorView* x, const std::vector<int64_t>& sizes) {
 }
 
 TensorView* squeeze(TensorView* x, const std::vector<int64_t>& sizes, int dim) {
-  TORCH_INTERNAL_ASSERT(x != nullptr, "Input is invalid.");
+  NVF_ERROR(x != nullptr, "Input is invalid.");
   const auto ndims = static_cast<int>(x->domain()->noReductions().size());
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       ndims == int(sizes.size()),
       "Invalid sizes for squeeze: ",
       sizes,
@@ -279,7 +279,7 @@ TensorView* squeeze(TensorView* x, const std::vector<int64_t>& sizes, int dim) {
     dim = ndims + dim;
   }
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       dim >= 0 && dim < ndims,
       "Invalid position to squeeze: ",
       dim,
@@ -299,10 +299,10 @@ TensorView* squeeze(
     TensorView* x,
     const std::vector<int64_t>& sizes,
     const std::vector<int64_t>& dims) {
-  TORCH_INTERNAL_ASSERT(x != nullptr, "Input is invalid.");
+  NVF_ERROR(x != nullptr, "Input is invalid.");
   const auto ndims = static_cast<int>(x->domain()->noReductions().size());
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       ndims == int(sizes.size()),
       "Invalid sizes for squeeze: ",
       sizes,
@@ -317,7 +317,7 @@ TensorView* squeeze(
       dim = ndims + dim;
     }
 
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         dim >= 0 && dim < ndims,
         "Invalid position to squeeze: ",
         dim,
@@ -337,14 +337,14 @@ TensorView* squeeze(
 }
 
 TensorView* unsqueeze(TensorView* x, int dim) {
-  TORCH_INTERNAL_ASSERT(x != nullptr, "Input is invalid.");
+  NVF_ERROR(x != nullptr, "Input is invalid.");
   const auto ndims = static_cast<int>(x->domain()->noReductions().size());
 
   if (dim < 0) {
     dim = ndims + dim + 1;
   }
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       dim >= 0 && dim <= ndims,
       "Invalid position to unsqueeze: ",
       dim,
@@ -357,13 +357,13 @@ TensorView* unsqueeze(TensorView* x, int dim) {
 }
 
 TensorView* permute(TensorView* x, const std::vector<int64_t>& new2old) {
-  TORCH_INTERNAL_ASSERT(x != nullptr, "Input is invalid.");
+  NVF_ERROR(x != nullptr, "Input is invalid.");
   if (new2old.empty()) {
     return set(x);
   }
   auto inp_domain = TensorDomain::noReductions(x->getMaybeRFactorDomain());
 
-  TORCH_CHECK(
+  NVF_CHECK(
       inp_domain.size() == new2old.size(),
       "The number of dimensions in the tensor input does not match the length",
       " of the desired ordering of dimensions i.e. input.dim() = ",
@@ -403,7 +403,7 @@ TensorView* permute(TensorView* x, const std::vector<int64_t>& new2old) {
 }
 
 TensorView* transpose(TensorView* x, int64_t dim0, int64_t dim1) {
-  TORCH_INTERNAL_ASSERT(x != nullptr, "Input is invalid.");
+  NVF_ERROR(x != nullptr, "Input is invalid.");
   const auto ndims = static_cast<int>(x->domain()->noReductions().size());
 
   if (dim0 < 0) {
@@ -414,10 +414,10 @@ TensorView* transpose(TensorView* x, int64_t dim0, int64_t dim1) {
     dim1 = ndims + dim1;
   }
 
-  TORCH_CHECK(
+  NVF_CHECK(
       dim0 >= 0 && dim0 <= ndims, "Invalid transpose dimension 0: ", dim0);
 
-  TORCH_CHECK(
+  NVF_CHECK(
       dim1 >= 0 && dim1 <= ndims, "Invalid transpose dimension 1: ", dim1);
 
   std::vector<int64_t> new2old(ndims);
@@ -434,10 +434,10 @@ TensorView* transpose(TensorView* x, int64_t dim0, int64_t dim1) {
 }
 
 TensorView* transpose(TensorView* x) {
-  TORCH_INTERNAL_ASSERT(x != nullptr, "Input is invalid.");
+  NVF_ERROR(x != nullptr, "Input is invalid.");
   const auto ndims = static_cast<int>(x->domain()->noReductions().size());
 
-  TORCH_CHECK(
+  NVF_CHECK(
       ndims <= 2,
       "Expected a tensor with <= 2 dimensions, but it has ",
       ndims,
@@ -463,7 +463,7 @@ bool hasSimilarDtype(DataType base, DataType dt) {
   } else if (isIntegralType(base)) {
     return isIntegralType(dt);
   }
-  TORCH_INTERNAL_ASSERT(false, "Unrecognized base dtype.");
+  NVF_ERROR(false, "Unrecognized base dtype.");
 }
 
 // Padding widths are assumed to be non-negative. Currently there's no
@@ -487,13 +487,13 @@ TensorView* pad(
       value = static_cast<Val*>(IrBuilder::create<Val>(0L, dt));
     }
   }
-  TORCH_CHECK(
+  NVF_CHECK(
       hasSimilarDtype(dt, value->getDataType().value()),
       "Tensor arg and pad value must have the same dtype.");
   const auto inp_dom = TensorDomain::noReductions(inp->getMaybeRFactorDomain());
   const auto ndims = inp_dom.size();
 
-  TORCH_CHECK(
+  NVF_CHECK(
       pad_widths.size() % 2 == 0 && pad_widths.size() / 2 <= ndims,
       "Invalid number of padding widths: ",
       pad_widths.size());
@@ -576,7 +576,7 @@ TensorView* cat(
     const std::vector<TensorView*>& inputs,
     int64_t cat_dim,
     std::optional<IterType> iter_type_opt) {
-  TORCH_CHECK(!inputs.empty(), "No input tensor given");
+  NVF_CHECK(!inputs.empty(), "No input tensor given");
 
   const auto dtype = inputs.at(0)->getDataType().value();
 
@@ -584,7 +584,7 @@ TensorView* cat(
   int64_t ndims = -1;
 
   for (auto inp : inputs) {
-    TORCH_CHECK(
+    NVF_CHECK(
         inp->getDataType().value() == dtype,
         "Can't concatenate tensors with different data types: ",
         dtype,
@@ -596,7 +596,7 @@ TensorView* cat(
     if (ndims == -1) {
       ndims = i_ndims;
     } else {
-      TORCH_CHECK(
+      NVF_CHECK(
           ndims == i_ndims,
           "Unexpected number of dimensions: ",
           inp->toString(),
@@ -609,7 +609,7 @@ TensorView* cat(
     cat_dim += ndims;
   }
 
-  TORCH_CHECK(
+  NVF_CHECK(
       cat_dim >= 0 && cat_dim < ndims, "Invalid dimension to cat: ", cat_dim);
 
   // Special handling for the case where there's only one input
@@ -659,8 +659,8 @@ TensorView* cat(
         // TODO: what to do if inp_id is not a normal iterdomain, i.e.,
         // broadcast, partial, etc? For now, assume it's a normal
         // IterDomain.
-        TORCH_INTERNAL_ASSERT(
-            inp_root_id->getIterType() == IterType::Iteration &&
+        NVF_ERROR(
+            (inp_root_id->isIteration() || inp_root_id->isBroadcast()) &&
                 !inp_root_id->maybePartial(),
             "Unsupported IterDomain to concatenate: ",
             inp_root_id->toString());
@@ -670,7 +670,7 @@ TensorView* cat(
             : FusionGuard::getCurFusion()->zeroVal();
         left_pad_i = left_pad;
         right_pad_i = right_pad;
-        left_pad = add(left_pad, inp_root_id->extent());
+        left_pad = add(left_pad, inp_root_id->getMaybeExpandedExtent());
       }
       // The pad width argument to pad should be ordered such that the
       // widths of inner dimensions come first.
@@ -697,7 +697,7 @@ TensorView* slice(TensorView* inp, const std::vector<Slice>& ranges) {
   const auto inp_dom = TensorDomain::noReductions(inp->getMaybeRFactorDomain());
   const int ndims = static_cast<int>(inp_dom.size());
 
-  TORCH_CHECK(
+  NVF_CHECK(
       ndims == static_cast<int>(ranges.size()),
       "The range vector must have the same number of Slice descriptors. Given: ",
       ranges.size(),
@@ -731,7 +731,7 @@ TensorView* slice(TensorView* inp, const std::vector<Slice>& ranges) {
 
   for (auto& range : ranges) {
     // Step not supported yet
-    TORCH_CHECK(
+    NVF_CHECK(
         range.step == nullptr || range.step->isOneInt(),
         "Unsupported step: ",
         range.step->toString());

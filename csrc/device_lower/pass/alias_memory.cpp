@@ -233,7 +233,7 @@ class BufferReuseDebugPrinter {
           handle(debug_entry->second);
           break;
         default:
-          TORCH_INTERNAL_ASSERT(false, "unreachable");
+          NVF_ERROR(false, "unreachable");
       }
     }
     os_ << "\n\n";
@@ -261,7 +261,7 @@ class BufferReuseDebugPrinter {
   }
 
   void makeScopeEntry(DebugLineType line_type) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         line_type == DebugLineType::END_BLOCK ||
         line_type == DebugLineType::START_BLOCK);
     auto debug_entry_ptr = std::make_unique<DebugEntry>();
@@ -296,7 +296,7 @@ class BufferReuseDebugPrinter {
     //  if this printer can be used for
     //  other passes or we have more
     //  complex ite pattern.
-    TORCH_INTERNAL_ASSERT(false, "unsupported");
+    NVF_ERROR(false, "unsupported");
   }
 
   void printAllocInfo(const kir::Allocate* alloc);
@@ -358,10 +358,10 @@ class BufferLiveInterval {
 
   void markRead(int pos) {
     last_read_pos_ = pos;
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         first_write_pos_ > 0,
         "lower_alias_memory: a read seen before any write");
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         pos >= first_write_pos_,
         "lower_alias_memory: marking a read (",
         pos,
@@ -385,7 +385,7 @@ class BufferLiveInterval {
 
   std::string toString() {
     std::stringstream ss;
-    ss << "[ " << first_write_pos_ << " , " << last_read_pos_ << " )";
+    ss << "[ " << first_write_pos_ << " , " << last_read_pos_ << " ]";
     return ss.str();
   }
 
@@ -455,11 +455,14 @@ class ScopeMap : private kir::IrVisitor {
   ScopeMap(const std::vector<Expr*>& exprs)
       : global_scope_info_{makeAndRegisterScopeInfo(nullptr)} {
     handle(exprs);
-    global_scope_info_->end_pos = expr_pos_map_.getCurrentPos() + 1;
+    // Note that this introduces a position at the end of the scope with no
+    // corresponding Expr. See also handle(kir::ForLoop*) below.
+    expr_pos_map_.moveToNext();
+    global_scope_info_->end_pos = expr_pos_map_.getCurrentPos();
 
     // Make sure all loops have end_pos filled
     for (const auto& info : all_scope_info_) {
-      TORCH_INTERNAL_ASSERT(info->end_pos != -1);
+      NVF_ERROR(info->end_pos != -1);
     }
   }
 
@@ -474,11 +477,14 @@ class ScopeMap : private kir::IrVisitor {
   void handle(kir::ForLoop* for_loop) final {
     auto loop_info = makeAndRegisterScopeInfo(for_loop);
     kir::IrVisitor::handle(for_loop);
-    loop_info->end_pos = expr_pos_map_.getCurrentPos() + 1;
+    // Note that this introduces a position at the end of the scope with no
+    // corresponding Expr.
+    expr_pos_map_.moveToNext();
+    loop_info->end_pos = expr_pos_map_.getCurrentPos();
   }
 
   void handle(kir::IfThenElse* ite) final {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         false, "lower_alias_memory: no support for IfThenElse at this phase.");
   }
 
@@ -494,7 +500,7 @@ class ScopeMap : private kir::IrVisitor {
     all_scope_info_.emplace_back(std::move(loop_info_ptr));
 
     if (loop != nullptr) {
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           loop_to_scope_info_map_.emplace(loop, loop_info).second,
           "Duplicated scope info created for loop: ",
           loop->toString());
@@ -513,7 +519,7 @@ class ScopeMap : private kir::IrVisitor {
 
   ScopeInfo* getLoopScopeInfo(const kir::ForLoop* loop) const {
     auto it = loop_to_scope_info_map_.find(loop);
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         it != loop_to_scope_info_map_.end(),
         "No scope info found for loop: ",
         loop->toString());
@@ -602,22 +608,22 @@ class AllocationAliasModifier;
 //!       T2 = ...
 //!       T3 = T1 + ...    <-- Inner Live Interval of T1 end
 //!       T5 = T3 + ...
-//!     EndFor Idx2
-//!   EndFor Idx1 <-------  Outer Live Interval of T1 end
+//!     EndFor Idx2 ...
+//!   EndFor Idx1 ... <-------  Outer Live Interval of T1 end
 //!
 //!   Alloc(T4, register)
 //!   For Idx3 ...
 //!     T4 = ...
-//!   EndFor Idx3
-//! EndFor Idx0
 //!
 //!  Each buffer is associated with an `inner_live_interval` and an
-//!  `outer_live_interval`,
-//!   Inner interval marks the exprs that are the first write and last read of
-//!   the buffer.
-//!   Outer interval marks the beginning of the loop of first write and end of
-//!   the loop of last read, both at the same loop level as the buffer
-//!   allocation.
+//!  `outer_live_interval`. Inner interval marks the exprs that are the first
+//!  write and last read of the buffer. Outer interval marks the beginning of
+//!  the loop of first write and end of the loop of last read, at the same loop
+//!  level as the buffer allocation. Note that the end of a ForLoop is marked by
+//!  the last expression within it. In the case of an outer live interval, if
+//!  the end point is the end of a for loop, it is given a position at which
+//!  that expression would reside, but no actual `Expr` is associated with that
+//!  position.
 class AllocationInfoMap : private kir::IrVisitor {
  public:
   // Alias local memory if it exceeds this threshold
@@ -733,7 +739,7 @@ class AllocationInfoMap : private kir::IrVisitor {
   //! there may be dangling references to it even after running this method.
   void replaceAllocation(kir::Allocate* old_alloc, kir::Allocate* new_alloc) {
     auto it = allocation_info_map_.find(old_alloc);
-    TORCH_CHECK(
+    NVF_CHECK(
         it != allocation_info_map_.end(),
         "Cannot replace allocation info for ",
         old_alloc->toString(),
@@ -763,7 +769,13 @@ class AllocationInfoMap : private kir::IrVisitor {
 
   void handle(kir::ForLoop* for_loop) final {
     auto loop_info = scope_map_.getLoopScopeInfo(for_loop);
-    current_stack_.push_back(loop_info);
+    if (!for_loop->isTrivial()) {
+      // Parallelized loops do not result in for loops in the CUDA kernel, so
+      // they should not affect liveness analysis. This means that
+      // current_stack_ will differ from kir::IrVisitor::for_loops_, which will
+      // actually hold all ForLoops regardless of parallelization.
+      current_stack_.push_back(loop_info);
+    }
     if (debug_printer_) {
       debug_printer_->pushScope();
     }
@@ -771,11 +783,13 @@ class AllocationInfoMap : private kir::IrVisitor {
     if (debug_printer_) {
       debug_printer_->popScope();
     }
-    current_stack_.pop_back();
+    if (!for_loop->isTrivial()) {
+      current_stack_.pop_back();
+    }
   }
 
   void handle(kir::IfThenElse* ite) final {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         false, "lower_alias_memory: no support for IfThenElse at this phase.");
   }
 
@@ -819,8 +833,8 @@ class AllocationInfoMap : private kir::IrVisitor {
     auto size_print = SymbolicSizePrinter::printSize(alloc);
 
     // Make sure we don't have conflicting information on record
-    TORCH_INTERNAL_ASSERT(!allocation_info_map_.count(alloc));
-    TORCH_INTERNAL_ASSERT(!tv_to_allocation_map_.count(tv->name()));
+    NVF_ERROR(!allocation_info_map_.count(alloc));
+    NVF_ERROR(!tv_to_allocation_map_.count(tv->name()));
 
     // make AllocationUseDefInfo:
     auto alloc_info = makeAllocationInfo();
@@ -939,7 +953,7 @@ class AllocationInfoMap : private kir::IrVisitor {
       }
     }
 
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         current_stack_.back() == allocate_loop_info,
         "lower_alias_memory : expr outer loop inconsistent with allocate");
 
@@ -949,7 +963,7 @@ class AllocationInfoMap : private kir::IrVisitor {
 
   //! Mark the tensor of "from" be an alias of the tensor of "to".
   void setAlias(AllocationInfo* from, AllocationInfo* to) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         to->alias_to == nullptr,
         "Multi-hop aliases are not supported. Attempted to alias ",
         from->alloc_expr->buffer()->toString(),
@@ -989,7 +1003,7 @@ class AllocationInfoMap : private kir::IrVisitor {
 };
 
 void BufferReuseDebugPrinter::printAllocInfo(const kir::Allocate* alloc) {
-  TORCH_INTERNAL_ASSERT(allocation_info_map_ != nullptr);
+  NVF_ERROR(allocation_info_map_ != nullptr);
   std::string message_header(" \033[1;32m^^^^^ ---Buffer Reuse Info---  ");
   std::string message_end("  \033[0m\n");
 
@@ -1409,7 +1423,7 @@ class AllocationAliasModifier : private kir::ExprMutator {
     // aliased tensor, so alloc_expr_to should be still the allocation
     // expression of the aliased allocation. This assertion should be
     // removed if 2-hop aliasing is enabled.
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         alloc_expr_to == getMaybeNewAllocate(alloc_expr_to),
         "Invalid updated allocation found. Original: ",
         alloc_expr_to->toString(),
@@ -1426,7 +1440,7 @@ class AllocationAliasModifier : private kir::ExprMutator {
 
     registerReplace(old_alloc, new_alloc);
 
-    TORCH_INTERNAL_ASSERT(old2new_.emplace(old_alloc, new_alloc).second);
+    NVF_ERROR(old2new_.emplace(old_alloc, new_alloc).second);
 
     allocation_info_map_.replaceAllocation(old_alloc, new_alloc);
 
@@ -1657,7 +1671,7 @@ class StackBasedSharedMemAllocator : kir::IrVisitor {
 
   int lastAliasedRead(AllocationInfo* alloc_info) {
     auto it = last_aliased_read_.find(alloc_info);
-    TORCH_CHECK(
+    NVF_CHECK(
         it != last_aliased_read_.end(),
         "Could not find last aliased read info for ",
         alloc_info->alloc_expr->toString());
@@ -1728,7 +1742,7 @@ class StackBasedSharedMemAllocator : kir::IrVisitor {
       if (alloc_info->alias_to) {
         auto alias_info =
             allocation_info_map_.getAllocationInfo(alloc_info->alias_to);
-        TORCH_CHECK(alias_info);
+        NVF_CHECK(alias_info);
         auto prev_last_read = lastAliasedRead(alias_info);
         last_aliased_read_[alias_info] = std::max(
             prev_last_read, alloc_info->outer_live_interval->lastRead());
@@ -1872,7 +1886,8 @@ class PromoteReuseSyncModifier : private kir::ExprMutator {
       if (isDebugDumpEnabled(DebugDumpOption::BufferReuseInfo)) {
         debug() << "Ensuring syncs within these intervals:" << std::endl;
         for (auto [last_read, first_write] : sync_intervals_) {
-          debug() << "  " << last_read << " - " << first_write << std::endl;
+          debug() << "  (" << last_read << ", " << first_write << ")"
+                  << std::endl;
         }
       }
       traverseAndInsert(exprs);
@@ -1893,6 +1908,20 @@ class PromoteReuseSyncModifier : private kir::ExprMutator {
   void dispatch(Expr* expr) final {
     auto position = allocation_info_map_.getScopeMap().getExprPos(expr);
 
+    // Lifetime intervals are closed, so sync intervals are open. If this is the
+    // first expr past a lifetime's last read, then add the corresponding upper
+    // endpoint for the sync interval. Note that we add these before checking
+    // for first writes so that we can detect adjacent intervals properly.
+    auto range = sync_intervals_.equal_range(position - 1);
+    for (auto& it = range.first; it != range.second; ++it) {
+      if (isDebugDumpEnabled(DebugDumpOption::BufferReuseInfo)) {
+        debug() << "Found dependency last read at position " << position - 1
+                << " corresponding to first write at " << it->second
+                << std::endl;
+      }
+      upcoming_first_writes_.insert(it->second);
+    }
+
     // If this is an upcoming first write that has not yet been erased, it means
     // we have not seen a sync in its interval. So we should insert a BlockSync
     // before this expr.
@@ -1904,6 +1933,11 @@ class PromoteReuseSyncModifier : private kir::ExprMutator {
       auto new_sync = IrBuilder::create<kir::BlockSync>();
       inserted_syncs_.insert(new_sync);
       registerInsertBefore(expr, new_sync);
+      // Now that we have inserted a sync, we can safely clear any other
+      // upcoming first writes.
+      upcoming_first_writes_.clear();
+      kir::ExprMutator::dispatch(expr);
+      return;
     }
 
     // If we have a sync at this location, we can clear any upcoming first
@@ -1914,17 +1948,6 @@ class PromoteReuseSyncModifier : private kir::ExprMutator {
                 << std::endl;
       }
       upcoming_first_writes_.clear();
-    }
-
-    // If this is the lower endpoint of a sync interval, add the upper endpoint
-    auto range = sync_intervals_.equal_range(position);
-    for (auto& it = range.first; it != range.second; ++it) {
-      if (isDebugDumpEnabled(DebugDumpOption::BufferReuseInfo)) {
-        debug() << "Found dependency last read at position " << position
-                << " corresponding to first write at " << it->second
-                << std::endl;
-      }
-      upcoming_first_writes_.insert(it->second);
     }
 
     kir::ExprMutator::dispatch(expr);
@@ -1971,7 +1994,7 @@ void assignSharedMemoryAllocations(
       continue;
     }
     auto alloc = alloc_info->alloc_expr;
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         alloc->address(),
         "Unaliased allocation for shared memory tensor ",
         alloc->buffer()->toString(),

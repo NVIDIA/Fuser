@@ -9,6 +9,7 @@
 
 #include <ATen/core/ivalue.h>
 #include <c10/util/Exception.h>
+#include <exceptions.h>
 #include <expr_evaluator.h>
 #include <ir/all_nodes.h>
 #include <serde/fusion_cache_generated.h>

@@ -8,6 +8,7 @@
 #pragma once
 
 #include <c10/macros/Export.h>
+#include <exceptions.h>
 
 #include <device_lower/analysis/sync_information.h>
 #include <device_lower/pass/warp_reduce.h>
@@ -178,7 +179,7 @@ class TORCH_CUDA_CU_API Kernel final : public Fusion {
   Kernel(Fusion* fusion, PrimDataType index_type = PrimDataType::Int)
       : Fusion(*fusion), index_type_(index_type) {
     // Index type must be resolved to either int32 or int64
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         index_type_ == PrimDataType::Int ||
             index_type_ == PrimDataType::Int32 || "Invalid index type: ",
         index_type_);

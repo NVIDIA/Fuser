@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 
+#include <exceptions.h>
 #include <executor_params.h>
 #include <ir/base_nodes.h>
 #include <kernel.h>

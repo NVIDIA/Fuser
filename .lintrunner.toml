@@ -26,6 +26,7 @@ include_patterns = [
     '**/*.h',
     '**/*.cpp',
     '**/*.cu',
+    '**/*.inl',
 ]
 exclude_patterns = [
     'third_party/**',
@@ -48,11 +49,97 @@ init_command = [
 is_formatter = true
 
 [[linter]]
-code = 'CLANGTIDY'
+code = 'TORCH_INTERNAL_ASSERT'
 include_patterns = [
+    '**/*.h',
     '**/*.cpp',
     '**/*.cu',
+    '**/*.inl',
+]
+exclude_patterns = [
+    'pytorch/**/*.cpp',
+    'third_party/**',
+]
+command = [
+    'python3',
+    'tools/linter/adapters/grep_linter.py',
+    '--pattern=TORCH_INTERNAL_ASSERT',
+    '--linter-name=TORCH_INTERNAL_ASSERT',
+    '--error-name=calling TORCH_INTERNAL_ASSERT, user NVF_ERROR instead',
+    '--replace-pattern=s/TORCH_INTERNAL_ASSERT/NVF_ERROR/',
+    """--error-description=\
+        using TORCH_INTERNAL_ASSERT in nvfuser code base is deprecated, \
+        use NVF_ERROR instead\
+    """,
+    '--',
+    '@{{PATHSFILE}}'
+]
+is_formatter = true
+
+[[linter]]
+code = 'TORCH_CHECK'
+include_patterns = [
     '**/*.h',
+    '**/*.cpp',
+    '**/*.cu',
+    '**/*.inl',
+]
+exclude_patterns = [
+    'pytorch/**/*.cpp',
+    'third_party/**',
+]
+command = [
+    'python3',
+    'tools/linter/adapters/grep_linter.py',
+    '--pattern=TORCH_CHECK',
+    '--linter-name=TORCH_CHECK',
+    '--error-name=calling TORCH_CHECK, user NVF_CHECK instead',
+    '--replace-pattern=s/TORCH_CHECK/NVF_CHECK/',
+    """--error-description=\
+        using TORCH_CHECK in nvfuser code base is deprecated, \
+        use NVF_CHECK instead\
+    """,
+    '--',
+    '@{{PATHSFILE}}'
+]
+is_formatter = true
+
+[[linter]]
+code = 'C10_ERROR'
+include_patterns = [
+    '**/*.h',
+    '**/*.cpp',
+    '**/*.cu',
+    '**/*.inl',
+]
+exclude_patterns = [
+    'pytorch/**/*.cpp',
+    'third_party/**',
+]
+command = [
+    'python3',
+    'tools/linter/adapters/grep_linter.py',
+    '--pattern=c10::Error',
+    '--linter-name=C10_ERROR',
+    '--error-name=using c10::Error',
+    '--replace-pattern=s/c10::Error/nvfuser::nvfError/',
+    """--error-description=\
+        using c10::Error in nvfuser code base is deprecated, \
+        use nvfuser::nvfError instead\
+    """,
+    '--',
+    '@{{PATHSFILE}}'
+]
+is_formatter = true
+
+
+[[linter]]
+code = 'CLANGTIDY'
+include_patterns = [
+    '**/*.h',
+    '**/*.cpp',
+    '**/*.cu',
+    '**/*.inl',
 ]
 exclude_patterns = [
     'csrc/serde/fusion_cache_generated.h',

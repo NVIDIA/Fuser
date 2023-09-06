@@ -9,6 +9,7 @@
 
 #include <c10/macros/Export.h>
 #include <dispatch.h>
+#include <exceptions.h>
 
 #include <sstream>
 #include <string>

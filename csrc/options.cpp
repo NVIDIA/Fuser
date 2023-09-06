@@ -19,7 +19,7 @@ auto parseEnvOptions(
     const char* option_env_name,
     const std::unordered_map<std::string, OptionEnum>& available_options) {
   // Make sure available_options includes all of the enum values
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       available_options.size() == static_cast<int>(OptionEnum::EndOfOption),
       "Invalid available option map");
 
@@ -43,7 +43,7 @@ auto parseEnvOptions(
             std::back_inserter(option_values),
             [](const auto& kv) { return kv.first; });
         std::sort(option_values.begin(), option_values.end());
-        TORCH_CHECK(
+        NVF_CHECK(
             false,
             "Parsing ",
             option_env_name,
@@ -63,7 +63,7 @@ auto parseEnvOptions(
         while (!closed) {
           const auto comma_pos = options_view.find_first_of(',');
           const auto rparentheses_pos = options_view.find_first_of(')');
-          TORCH_CHECK(
+          NVF_CHECK(
               rparentheses_pos != std::string_view::npos,
               "Parsing ",
               option_env_name,
@@ -77,7 +77,7 @@ auto parseEnvOptions(
           closed = (rparentheses_pos < comma_pos);
         }
         if (!options_view.empty()) {
-          TORCH_CHECK(
+          NVF_CHECK(
               options_view[0] == ',',
               "Parsing ",
               option_env_name,
@@ -176,6 +176,7 @@ std::unordered_map<DisableOption, std::vector<std::string>> Options<
       {"magic_zero", DisableOption::MagicZero},
       {"nvtx", DisableOption::Nvtx},
       {"parallel_compile", DisableOption::ParallelCompile},
+      {"parallel_serde", DisableOption::ParallelSerde},
       {"predicate_elimination", DisableOption::PredicateElimination},
       {"kernel_reuse", DisableOption::KernelReuse},
       {"var_name_remapping", DisableOption::VarNameRemapping},

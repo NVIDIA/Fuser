@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 
+#include <exceptions.h>
 #include <ir/all_nodes.h>
 
 #include <list>
@@ -83,7 +84,7 @@ class TORCH_CUDA_CU_API CommonScalarMap {
                         // given to `hoistScalar`, then this is the position of
                         // the outer-most loop nest that contains all the
                         // dependencies of its parent.
-      bool is_given = false // true for the given index from the public
+      bool is_given = false // true for the given scalar from the public
                             // `hoistScalar`, false otherwise.
   );
 
