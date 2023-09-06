@@ -2824,4 +2824,43 @@ TEST_F(ResizeTest, ReshapeToPad) {
       __FILE__);
 }
 
+TEST_F(ResizeTest, ReshapeToSlice) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  TensorView* tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+
+  auto s0 = IrBuilder::create<Val>(DataType::Int);
+  auto s1 = IrBuilder::create<Val>(DataType::Int);
+  auto s2 = IrBuilder::create<Val>(DataType::Int);
+  auto s3 = IrBuilder::create<Val>(DataType::Int);
+  fusion.addInput(s0);
+  fusion.addInput(s1);
+  fusion.addInput(s2);
+  fusion.addInput(s3);
+
+  auto tv1 = reshape(tv0, {s2, s3});
+  auto tv2 = slice(tv1, {{fusion.zeroVal(), s0}, {fusion.zeroVal(), s1}});
+  fusion.addOutput(tv2);
+
+  FusionExecutorCache fusion_executor_cache(std::move(fusion_ptr));
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor at_x = at::randn({4, 3}, options);
+  std::vector<c10::IValue> aten_inputs = {at_x, 3, 2, 3, 4};
+  auto at_y = at::slice(at::slice(at_x.reshape({3, 4}), 0, 0, 3), 1, 0, 2);
+
+  auto outputs = fusion_executor_cache.runFusionWithInputs(aten_inputs);
+
+  testValidate(
+      fusion_executor_cache.fusion(),
+      outputs,
+      aten_inputs,
+      {at_y},
+      __LINE__,
+      __FILE__);
+}
+
 } // namespace nvfuser
