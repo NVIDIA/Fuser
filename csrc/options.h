@@ -9,6 +9,7 @@
 
 #include <c10/macros/Export.h>
 #include <c10/util/Exception.h>
+#include <exceptions.h>
 
 #include <string>
 #include <unordered_map>
@@ -65,8 +66,6 @@ enum class DebugDumpOption {
   ExprSort, //! Print merging decisions on expression sorting
   ExprSortVerbose, //! Print verbose debug info on expression sorting
   LoopRotation, //! Print loop rotation log
-  MatmulChecks, //! Print logs from tools around matmul scheduler used in
-                //! segmenter
   Occupancy, // Dump occupancy
   IndexType, //! Print the index type of the launched kernel
   EndOfOption //! Placeholder for counting the number of elements
@@ -104,6 +103,7 @@ enum class DisableOption {
   MagicZero, //! Disable nvfuser_zero
   Nvtx, //! Disable NVTX instrumentation
   ParallelCompile, //! Disable compiling Fusion segments in parallel
+  ParallelSerde, //! Disable deserializing FusionExecutorCache in parallel
   PredicateElimination, //! Disable predicate elimination
   KernelReuse, //! Disable re-using cached FusionKernelRuntimes with different
                //! input shapes
@@ -125,7 +125,7 @@ class Options {
   }
 
   const std::vector<std::string>& getArgs(OptionEnum option) const {
-    TORCH_INTERNAL_ASSERT(has(option), "Option not set");
+    NVF_ERROR(has(option), "Option not set");
     return options_.at(option);
   }
 

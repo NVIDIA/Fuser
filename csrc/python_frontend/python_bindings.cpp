@@ -32,9 +32,9 @@ namespace nvfuser::python_frontend {
 // bindings. Ideally, these would be templated lambda functions but those
 // are not available without C++20.
 namespace {
-Vector define_vector_fn(FusionDefinition& fd, std::vector<Scalar>& args) {
-  FUSER_PERF_SCOPE("FusionDefinition.define_vector (from Scalars)");
-  TORCH_CHECK(!fd.completed(), "Attempting to add to a completed definition!");
+Vector define_vector_base_fn(FusionDefinition& fd, std::vector<Scalar>& args) {
+  FUSER_PERF_SCOPE("python_frontend::define_vector_base_fn");
+  NVF_CHECK(!fd.completed(), "Attempting to add to a completed definition!");
   std::vector<State> inputs;
   inputs.reserve(args.size());
   for (const auto& arg : args) {
@@ -45,12 +45,92 @@ Vector define_vector_fn(FusionDefinition& fd, std::vector<Scalar>& args) {
       new VectorRecord(inputs, {fd.recordingState(out())}, DataType::Int));
   return out;
 }
+
+template <class ITERABLE>
+Vector define_vector_fn(
+    FusionDefinition& self,
+    ITERABLE& values,
+    PrimDataType dtype = DataType::Int) {
+  FUSER_PERF_SCOPE("python_frontend::define_vector_fn");
+  std::vector<Scalar> args;
+  size_t idx = 0;
+  for (const auto& item : values) {
+    NVF_CHECK(
+        idx < 8,
+        "The specified vector size exceeds the max tensor size for nvfuser.");
+    if (py::isinstance<py::int_>(item)) {
+      auto int_value = py::cast<int64_t>(item);
+      NVF_CHECK(
+          int_value >= -1,
+          "The value ",
+          int_value,
+          " at index ",
+          idx,
+          " was neither symbolic(-1), zero_element(0), broadcast(1), or static(>1).");
+      Scalar out = self.defineScalar();
+      self.defineRecord(new ScalarRecord(
+          {self.recordingState(out())}, py::cast<int64_t>(item), dtype));
+      args.emplace_back(out);
+    } else if (py::isinstance<Scalar>(item)) {
+      args.emplace_back(py::cast<Scalar>(item));
+    } else {
+      NVF_CHECK(
+          false,
+          "Unsupported iterable object type for define_vector! Index:",
+          idx);
+    }
+    ++idx;
+  }
+  return define_vector_base_fn(self, args);
+}
+
+template <class ShapeType>
+Tensor broadcast_in_dim_fn(
+    FusionDefinition::Operators& op,
+    Tensor arg,
+    ShapeType shape,
+    std::vector<int64_t>& broadcast_dims) {
+  FUSER_PERF_SCOPE("Operators.broadcast_in_dim");
+  FusionDefinition* fd = op.fusion_definition;
+  NVF_CHECK(!fd->completed(), "Attempting to add to a completed definition!");
+  size_t output_size = 0;
+  if constexpr (std::is_same_v<ShapeType, Vector>) {
+    output_size = shape.size;
+  } else {
+    output_size = shape.size();
+  }
+  NVF_CHECK(op.validUse(), "Attempting to add to a completed definition!");
+  NVF_CHECK(
+      output_size >= broadcast_dims.size(),
+      "broadcast_dims vector size is too big for output shape!");
+
+  Vector output_shape = [](FusionDefinition& fd, ShapeType shape) -> Vector {
+    if constexpr (std::is_same_v<ShapeType, Vector>) {
+      return shape;
+    } else {
+      if constexpr (!(std::is_same_v<ShapeType, py::list> ||
+                      std::is_same_v<ShapeType, py::tuple>)) {
+        NVF_CHECK(
+            false, "broadcast_in_dim's shape argument type is not supported!");
+      }
+      return define_vector_fn<ShapeType>(fd, shape);
+    }
+  }(*fd, shape);
+
+  Tensor output = fd->defineTensor(output_size);
+  fd->defineRecord(new BroadcastInDimOpRecord(
+      {fd->recordingState(arg()), fd->recordingState(output_shape())},
+      {fd->recordingState(output())},
+      output_size,
+      broadcast_dims));
+  return output;
+}
 } // namespace
 
 std::vector<std::optional<bool>> computeContiguity(
     const std::vector<int64_t>& sizes,
     const std::vector<int64_t>& strides) {
-  TORCH_CHECK(
+  NVF_CHECK(
       sizes.size() == strides.size(),
       "compute_contiguity: Sizes and strides must have the same number of dimensions");
   // Not a broadcast means neither the stride == 0 (size can be non-zero)
@@ -238,7 +318,8 @@ void initNvFuserPythonBindings(PyObject* module) {
           [](FusionDefinition& self,
              const py::iterable& iter,
              bool override_user_schedule,
-             std::optional<int64_t> device) {
+             std::optional<int64_t> device,
+             bool capture_debug_output) {
             std::vector<c10::IValue> inputs;
             for (py::handle obj : iter) {
               // Allows for a Vector of Sizes to be inputed as a list
@@ -254,15 +335,24 @@ void initNvFuserPythonBindings(PyObject* module) {
             }
             std::optional<int8_t> int8_device = std::nullopt;
             if (device.has_value()) {
-              TORCH_CHECK(device.value() < 256, "Maximum device index is 255");
+              NVF_CHECK(device.value() < 256, "Maximum device index is 255");
               int8_device = (int8_t)device.value();
             }
-            return self.execute(inputs, override_user_schedule, int8_device);
+            return self.execute(
+                inputs,
+                override_user_schedule,
+                capture_debug_output,
+                int8_device);
           },
           py::arg("inputs"),
           py::arg("override_user_schedule") = false,
           py::kw_only(),
           py::arg("device") = py::none(),
+          py::arg("capture_debug_output") = false,
+          py::return_value_policy::reference)
+      .def(
+          "_debug_output",
+          [](FusionDefinition& self) { return self.getDebugOutput(); },
           py::return_value_policy::reference)
       .def(
           "_fusion_ir",
@@ -332,7 +422,7 @@ void initNvFuserPythonBindings(PyObject* module) {
           "add_output",
           [](FusionDefinition& self, Scalar output) {
             FUSER_PERF_SCOPE("FusionDefinition.add_output (scalar)");
-            TORCH_CHECK(
+            NVF_CHECK(
                 !self.completed(),
                 "Attempting to add to a completed definition!");
             self.defineRecord(new OutputRecord<Val>(
@@ -345,7 +435,7 @@ void initNvFuserPythonBindings(PyObject* module) {
              Tensor output,
              std::optional<Tensor> alias_input = std::nullopt) {
             FUSER_PERF_SCOPE("FusionDefinition.add_output (tensor)");
-            TORCH_CHECK(
+            NVF_CHECK(
                 !self.completed(),
                 "Attempting to add to a completed definition!");
             if (alias_input.has_value()) {
@@ -366,20 +456,20 @@ void initNvFuserPythonBindings(PyObject* module) {
              Tensor output,
              std::vector<int64_t> stride_order) {
             FUSER_PERF_SCOPE("FusionDefinition.add_output (tensor)");
-            TORCH_CHECK(
+            NVF_CHECK(
                 !self.completed(),
                 "Attempting to add to a completed definition!");
-            TORCH_CHECK(
+            NVF_CHECK(
                 stride_order.empty() || output.dims == stride_order.size(),
                 "stride_order needs to be either empty or the same length of Tensor `output`");
             int64_t duplicate_check = 0;
             for (const auto& v : stride_order) {
-              TORCH_CHECK(
+              NVF_CHECK(
                   v >= 0 && v < (int64_t)stride_order.size(),
                   "stride_order elements need to be within [0, stride_order.size())");
               duplicate_check |= 1 << v;
             }
-            TORCH_CHECK(
+            NVF_CHECK(
                 duplicate_check == (1 << stride_order.size()) - 1,
                 "duplicated elements in stride_order detected!");
             self.defineRecord(new OutputRecord<TensorView>(
@@ -407,12 +497,12 @@ void initNvFuserPythonBindings(PyObject* module) {
              PrimDataType dtype = DataType::Float,
              bool is_cpu = false) -> Tensor {
             FUSER_PERF_SCOPE("FusionDefinition.define_tensor (default)");
-            TORCH_CHECK(
+            NVF_CHECK(
                 !self.completed(),
                 "Attempting to add to a completed definition!");
 
             for (size_t i = 0; i < shape.size(); ++i) {
-              TORCH_CHECK(
+              NVF_CHECK(
                   shape[i] >= -1,
                   "The value ",
                   shape[i],
@@ -445,10 +535,10 @@ void initNvFuserPythonBindings(PyObject* module) {
              bool static_sizes = false,
              bool is_cpu = false) -> Tensor {
             FUSER_PERF_SCOPE("FusionDefinition.define_tensor (integration)");
-            TORCH_CHECK(
+            NVF_CHECK(
                 !self.completed(),
                 "Attempting to add to a completed definition!");
-            TORCH_CHECK(
+            NVF_CHECK(
                 sizes.size() == strides.size(),
                 "The number of sizes does not match the number of strides.",
                 sizes.size(),
@@ -462,7 +552,7 @@ void initNvFuserPythonBindings(PyObject* module) {
             std::vector<int64_t> dim_sizes;
             dim_sizes.reserve(sizes.size());
             for (const auto i : c10::irange(sizes.size())) {
-              TORCH_INTERNAL_ASSERT(
+              NVF_ERROR(
                   sizes[i] >= 0,
                   "Size of ",
                   sizes[i],
@@ -499,7 +589,7 @@ void initNvFuserPythonBindings(PyObject* module) {
           [](FusionDefinition& self,
              PrimDataType dtype = DataType::Double) -> Scalar {
             FUSER_PERF_SCOPE("FusionDefinition.define_scalar (input_specific)");
-            TORCH_CHECK(
+            NVF_CHECK(
                 !self.completed(),
                 "Attempting to add to a completed definition!");
             Scalar out = self.defineScalar();
@@ -544,7 +634,7 @@ void initNvFuserPythonBindings(PyObject* module) {
   fusion_def.def(
       "define_vector",
       [](FusionDefinition& self, size_t size) -> Vector {
-        TORCH_CHECK(
+        NVF_CHECK(
             size < 8,
             "The specified vector size exceeds the max tensor size for nvfuser.");
         std::vector<Scalar> args;
@@ -555,7 +645,7 @@ void initNvFuserPythonBindings(PyObject* module) {
               {self.recordingState(out())}, std::monostate{}, DataType::Int));
           args.emplace_back(out);
         }
-        return define_vector_fn(self, args);
+        return define_vector_base_fn(self, args);
       },
       py::arg("size"),
       py::return_value_policy::reference);
@@ -563,41 +653,15 @@ void initNvFuserPythonBindings(PyObject* module) {
   // of constant values.
   fusion_def.def(
       "define_vector",
-      [](FusionDefinition& self, py::list& values) -> Vector {
-        std::vector<Scalar> args;
-        size_t idx = 0;
-        for (const auto& item : values) {
-          TORCH_CHECK(
-              idx < 8,
-              "The specified vector size exceeds the max tensor size for nvfuser.");
-          if (py::isinstance<py::int_>(item)) {
-            auto int_value = py::cast<int64_t>(item);
-            TORCH_CHECK(
-                int_value >= -1,
-                "The value ",
-                int_value,
-                " at index ",
-                idx,
-                " was neither symbolic(-1), zero_element(0), broadcast(1), or static(>1).");
-            Scalar out = self.defineScalar();
-            self.defineRecord(new ScalarRecord(
-                {self.recordingState(out())},
-                py::cast<int64_t>(item),
-                DataType::Int));
-            args.emplace_back(out);
-          } else if (py::isinstance<Scalar>(item)) {
-            args.emplace_back(py::cast<Scalar>(item));
-          } else {
-            TORCH_CHECK(
-                false,
-                "Unsupported iterable object type for define_vector! Index:",
-                idx);
-          }
-          ++idx;
-        }
-        return define_vector_fn(self, args);
-      },
+      define_vector_fn<py::list>,
       py::arg("values"),
+      py::arg("dtype") = DataType::Int,
+      py::return_value_policy::reference);
+  fusion_def.def(
+      "define_vector",
+      define_vector_fn<py::tuple>,
+      py::arg("values"),
+      py::arg("dtype") = DataType::Int,
       py::return_value_policy::reference);
 
   //! The Operators class is a nested class of FusionDefinition to allow the
@@ -618,7 +682,7 @@ void initNvFuserPythonBindings(PyObject* module) {
       op_str,                                                                 \
       [](FusionDefinition::Operators& self, Tensor input) -> Tensor {         \
         FUSER_PERF_SCOPE("Operators." op_str);                                \
-        TORCH_CHECK(                                                          \
+        NVF_CHECK(                                                            \
             self.validUse(), "Attempting to add to a completed definition!"); \
         FusionDefinition* fd = self.fusion_definition;                        \
         Tensor output = fd->defineTensor(input.dims);                         \
@@ -635,7 +699,7 @@ void initNvFuserPythonBindings(PyObject* module) {
       op_str,                                                                 \
       [](FusionDefinition::Operators& self, Scalar input) -> Scalar {         \
         FUSER_PERF_SCOPE("Operators." op_str);                                \
-        TORCH_CHECK(                                                          \
+        NVF_CHECK(                                                            \
             self.validUse(), "Attempting to add to a completed definition!"); \
         FusionDefinition* fd = self.fusion_definition;                        \
         Scalar output = fd->defineScalar();                                   \
@@ -718,7 +782,7 @@ void initNvFuserPythonBindings(PyObject* module) {
          Scalar rng_seed,                                                     \
          Scalar rng_offset) -> Tensor {                                       \
         FUSER_PERF_SCOPE("Operators." op_str);                                \
-        TORCH_CHECK(                                                          \
+        NVF_CHECK(                                                            \
             self.validUse(), "Attempting to add to a completed definition!"); \
         FusionDefinition* fd = self.fusion_definition;                        \
         Tensor output = fd->defineTensor(input.dims);                         \
@@ -749,7 +813,7 @@ void initNvFuserPythonBindings(PyObject* module) {
       [](Tensor input) -> Tensor {                                             \
         FUSER_PERF_SCOPE("Operators." op_str);                                 \
         FusionDefinition* fd = input.fusion_definition;                        \
-        TORCH_CHECK(                                                           \
+        NVF_CHECK(                                                             \
             !fd->completed(), "Attempting to add to a completed definition!"); \
         Tensor output = fd->defineTensor(input.dims);                          \
         fd->defineRecord(new OpRecord<TensorView*, TensorView*>(               \
@@ -766,7 +830,7 @@ void initNvFuserPythonBindings(PyObject* module) {
       [](Scalar input) -> Scalar {                                             \
         FUSER_PERF_SCOPE("Operators." op_str);                                 \
         FusionDefinition* fd = input.fusion_definition;                        \
-        TORCH_CHECK(                                                           \
+        NVF_CHECK(                                                             \
             !fd->completed(), "Attempting to add to a completed definition!"); \
         Scalar output = fd->defineScalar();                                    \
         fd->defineRecord(new OpRecord<Val*, Val*>(                             \
@@ -789,7 +853,7 @@ void initNvFuserPythonBindings(PyObject* module) {
          Tensor arg1,                                                          \
          Tensor arg2) -> Tensor {                                              \
         FUSER_PERF_SCOPE("Operators." op_str);                                 \
-        TORCH_CHECK(                                                           \
+        NVF_CHECK(                                                             \
             self.validUse(), "Attempting to add to a completed definition!");  \
         FusionDefinition* fd = self.fusion_definition;                         \
         Tensor output = fd->defineTensor(arg1.dims);                           \
@@ -816,7 +880,7 @@ void initNvFuserPythonBindings(PyObject* module) {
          Tensor arg1,                                                          \
          Tensor arg2) -> Tensor {                                              \
         FUSER_PERF_SCOPE("Operators." op_str);                                 \
-        TORCH_CHECK(                                                           \
+        NVF_CHECK(                                                             \
             self.validUse(), "Attempting to add to a completed definition!");  \
         FusionDefinition* fd = self.fusion_definition;                         \
         Tensor output = fd->defineTensor(arg1.dims);                           \
@@ -835,7 +899,7 @@ void initNvFuserPythonBindings(PyObject* module) {
          Tensor arg1,                                                          \
          Scalar arg2) -> Tensor {                                              \
         FUSER_PERF_SCOPE("Operators." op_str);                                 \
-        TORCH_CHECK(                                                           \
+        NVF_CHECK(                                                             \
             self.validUse(), "Attempting to add to a completed definition!");  \
         FusionDefinition* fd = self.fusion_definition;                         \
         Tensor output = fd->defineTensor(arg1.dims);                           \
@@ -854,7 +918,7 @@ void initNvFuserPythonBindings(PyObject* module) {
          Scalar arg1,                                                          \
          Tensor arg2) -> Tensor {                                              \
         FUSER_PERF_SCOPE("Operators." op_str);                                 \
-        TORCH_CHECK(                                                           \
+        NVF_CHECK(                                                             \
             self.validUse(), "Attempting to add to a completed definition!");  \
         FusionDefinition* fd = self.fusion_definition;                         \
         Tensor output = fd->defineTensor(arg2.dims);                           \
@@ -873,7 +937,7 @@ void initNvFuserPythonBindings(PyObject* module) {
          Scalar arg1,                                                          \
          Scalar arg2) -> Scalar {                                              \
         FUSER_PERF_SCOPE("Operators." op_str);                                 \
-        TORCH_CHECK(                                                           \
+        NVF_CHECK(                                                             \
             self.validUse(), "Attempting to add to a completed definition!");  \
         FusionDefinition* fd = self.fusion_definition;                         \
         Scalar output = fd->defineScalar();                                    \
@@ -1016,7 +1080,7 @@ void initNvFuserPythonBindings(PyObject* module) {
          Tensor arg2,                                                         \
          Scalar arg3) -> Tensor {                                             \
         FUSER_PERF_SCOPE("Operators." op_str);                                \
-        TORCH_CHECK(                                                          \
+        NVF_CHECK(                                                            \
             self.validUse(), "Attempting to add to a completed definition!"); \
         FusionDefinition* fd = self.fusion_definition;                        \
         Tensor output = fd->defineTensor(arg1.dims);                          \
@@ -1040,7 +1104,7 @@ void initNvFuserPythonBindings(PyObject* module) {
          Scalar arg2,                                                         \
          Scalar arg3) -> Tensor {                                             \
         FUSER_PERF_SCOPE("Operators." op_str);                                \
-        TORCH_CHECK(                                                          \
+        NVF_CHECK(                                                            \
             self.validUse(), "Attempting to add to a completed definition!"); \
         FusionDefinition* fd = self.fusion_definition;                        \
         Tensor output = fd->defineTensor(arg1.dims);                          \
@@ -1062,7 +1126,7 @@ void initNvFuserPythonBindings(PyObject* module) {
          Tensor arg2,                                                         \
          Scalar arg3) -> Tensor {                                             \
         FUSER_PERF_SCOPE("Operators." op_str);                                \
-        TORCH_CHECK(                                                          \
+        NVF_CHECK(                                                            \
             self.validUse(), "Attempting to add to a completed definition!"); \
         FusionDefinition* fd = self.fusion_definition;                        \
         Tensor output = fd->defineTensor(arg2.dims);                          \
@@ -1084,7 +1148,7 @@ void initNvFuserPythonBindings(PyObject* module) {
          Scalar arg2,                                                         \
          Scalar arg3) -> Scalar {                                             \
         FUSER_PERF_SCOPE("Operators." op_str);                                \
-        TORCH_CHECK(                                                          \
+        NVF_CHECK(                                                            \
             self.validUse(), "Attempting to add to a completed definition!"); \
         FusionDefinition* fd = self.fusion_definition;                        \
         Scalar output = fd->defineScalar();                                   \
@@ -1112,7 +1176,7 @@ void initNvFuserPythonBindings(PyObject* module) {
          Scalar arg2,                                                         \
          Scalar arg3) -> Scalar {                                             \
         FUSER_PERF_SCOPE("Operators." op_str);                                \
-        TORCH_CHECK(                                                          \
+        NVF_CHECK(                                                            \
             self.validUse(), "Attempting to add to a completed definition!"); \
         FusionDefinition* fd = self.fusion_definition;                        \
         Scalar output = fd->defineScalar();                                   \
@@ -1134,7 +1198,7 @@ void initNvFuserPythonBindings(PyObject* module) {
          Tensor arg2,                                                         \
          Tensor arg3) -> Tensor {                                             \
         FUSER_PERF_SCOPE("Operators." op_str);                                \
-        TORCH_CHECK(                                                          \
+        NVF_CHECK(                                                            \
             self.validUse(), "Attempting to add to a completed definition!"); \
         FusionDefinition* fd = self.fusion_definition;                        \
         Tensor output = fd->defineTensor(arg1.dims);                          \
@@ -1159,7 +1223,7 @@ void initNvFuserPythonBindings(PyObject* module) {
          Tensor arg2,                                                         \
          Scalar arg3) -> Tensor {                                             \
         FUSER_PERF_SCOPE("Operators." op_str);                                \
-        TORCH_CHECK(                                                          \
+        NVF_CHECK(                                                            \
             self.validUse(), "Attempting to add to a completed definition!"); \
         FusionDefinition* fd = self.fusion_definition;                        \
         Tensor output = fd->defineTensor(arg1.dims);                          \
@@ -1183,7 +1247,7 @@ void initNvFuserPythonBindings(PyObject* module) {
          Scalar arg2,                                                         \
          Tensor arg3) -> Tensor {                                             \
         FUSER_PERF_SCOPE("Operators." op_str);                                \
-        TORCH_CHECK(                                                          \
+        NVF_CHECK(                                                            \
             self.validUse(), "Attempting to add to a completed definition!"); \
         FusionDefinition* fd = self.fusion_definition;                        \
         Tensor output = fd->defineTensor(arg1.dims);                          \
@@ -1207,7 +1271,7 @@ void initNvFuserPythonBindings(PyObject* module) {
          Tensor arg2,                                                         \
          Tensor arg3) -> Tensor {                                             \
         FUSER_PERF_SCOPE("Operators." op_str);                                \
-        TORCH_CHECK(                                                          \
+        NVF_CHECK(                                                            \
             self.validUse(), "Attempting to add to a completed definition!"); \
         FusionDefinition* fd = self.fusion_definition;                        \
         Tensor output = fd->defineTensor(arg2.dims);                          \
@@ -1231,7 +1295,7 @@ void initNvFuserPythonBindings(PyObject* module) {
          Scalar arg2,                                                         \
          Tensor arg3) -> Tensor {                                             \
         FUSER_PERF_SCOPE("Operators." op_str);                                \
-        TORCH_CHECK(                                                          \
+        NVF_CHECK(                                                            \
             self.validUse(), "Attempting to add to a completed definition!"); \
         FusionDefinition* fd = self.fusion_definition;                        \
         Tensor output = fd->defineTensor(arg3.dims);                          \
@@ -1253,7 +1317,7 @@ void initNvFuserPythonBindings(PyObject* module) {
          Scalar arg2,                                                         \
          Scalar arg3) -> Tensor {                                             \
         FUSER_PERF_SCOPE("Operators." op_str);                                \
-        TORCH_CHECK(                                                          \
+        NVF_CHECK(                                                            \
             self.validUse(), "Attempting to add to a completed definition!"); \
         FusionDefinition* fd = self.fusion_definition;                        \
         Tensor output = fd->defineTensor(arg1.dims);                          \
@@ -1275,7 +1339,7 @@ void initNvFuserPythonBindings(PyObject* module) {
          Tensor arg2,                                                         \
          Scalar arg3) -> Tensor {                                             \
         FUSER_PERF_SCOPE("Operators." op_str);                                \
-        TORCH_CHECK(                                                          \
+        NVF_CHECK(                                                            \
             self.validUse(), "Attempting to add to a completed definition!"); \
         FusionDefinition* fd = self.fusion_definition;                        \
         Tensor output = fd->defineTensor(arg2.dims);                          \
@@ -1303,7 +1367,7 @@ void initNvFuserPythonBindings(PyObject* module) {
          Scalar arg2,                                                          \
          Scalar arg3) -> Scalar {                                              \
         FUSER_PERF_SCOPE("Operators." op_str);                                 \
-        TORCH_CHECK(                                                           \
+        NVF_CHECK(                                                             \
             !self.validUse(), "Attempting to add to a completed definition!"); \
         FusionDefinition* fd = self.fusion_definition;                         \
         Scalar output = fd->defineScalar();                                    \
@@ -1325,7 +1389,7 @@ void initNvFuserPythonBindings(PyObject* module) {
          Scalar arg2,                                                          \
          Scalar arg3) -> Tensor {                                              \
         FUSER_PERF_SCOPE("Operators." op_str);                                 \
-        TORCH_CHECK(                                                           \
+        NVF_CHECK(                                                             \
             !self.validUse(), "Attempting to add to a completed definition!"); \
         FusionDefinition* fd = self.fusion_definition;                         \
         Tensor output = fd->defineTensor(arg1.dims);                           \
@@ -1354,7 +1418,7 @@ void initNvFuserPythonBindings(PyObject* module) {
          Scalar arg3,                                                          \
          Scalar arg4) -> Scalar {                                              \
         FUSER_PERF_SCOPE("Operators." op_str);                                 \
-        TORCH_CHECK(                                                           \
+        NVF_CHECK(                                                             \
             self.validUse(), "Attempting to add to a completed definition!");  \
         FusionDefinition* fd = self.fusion_definition;                         \
         Scalar output = fd->defineScalar();                                    \
@@ -1378,7 +1442,7 @@ void initNvFuserPythonBindings(PyObject* module) {
          Tensor arg3,                                                          \
          Scalar arg4) -> Tensor {                                              \
         FUSER_PERF_SCOPE("Operators." op_str);                                 \
-        TORCH_CHECK(                                                           \
+        NVF_CHECK(                                                             \
             self.validUse(), "Attempting to add to a completed definition!");  \
         FusionDefinition* fd = self.fusion_definition;                         \
         Tensor output = fd->defineTensor(arg1.dims);                           \
@@ -1409,7 +1473,7 @@ void initNvFuserPythonBindings(PyObject* module) {
          Scalar arg3,                                                          \
          Scalar arg4) -> Tensor {                                              \
         FUSER_PERF_SCOPE("Operators." op_str);                                 \
-        TORCH_CHECK(                                                           \
+        NVF_CHECK(                                                             \
             self.validUse(), "Attempting to add to a completed definition!");  \
         FusionDefinition* fd = self.fusion_definition;                         \
         Tensor output = fd->defineTensor(arg1.dims);                           \
@@ -1436,7 +1500,7 @@ void initNvFuserPythonBindings(PyObject* module) {
          Tensor arg3,                                                          \
          Scalar arg4) -> Tensor {                                              \
         FUSER_PERF_SCOPE("Operators." op_str);                                 \
-        TORCH_CHECK(                                                           \
+        NVF_CHECK(                                                             \
             self.validUse(), "Attempting to add to a completed definition!");  \
         FusionDefinition* fd = self.fusion_definition;                         \
         Tensor output = fd->defineTensor(arg1.dims);                           \
@@ -1463,7 +1527,7 @@ void initNvFuserPythonBindings(PyObject* module) {
          Tensor arg3,                                                          \
          Scalar arg4) -> Tensor {                                              \
         FUSER_PERF_SCOPE("Operators." op_str);                                 \
-        TORCH_CHECK(                                                           \
+        NVF_CHECK(                                                             \
             self.validUse(), "Attempting to add to a completed definition!");  \
         FusionDefinition* fd = self.fusion_definition;                         \
         Tensor output = fd->defineTensor(arg2.dims);                           \
@@ -1490,7 +1554,7 @@ void initNvFuserPythonBindings(PyObject* module) {
          Tensor arg3,                                                          \
          Scalar arg4) -> Tensor {                                              \
         FUSER_PERF_SCOPE("Operators." op_str);                                 \
-        TORCH_CHECK(                                                           \
+        NVF_CHECK(                                                             \
             self.validUse(), "Attempting to add to a completed definition!");  \
         FusionDefinition* fd = self.fusion_definition;                         \
         Tensor output = fd->defineTensor(arg3.dims);                           \
@@ -1516,7 +1580,7 @@ void initNvFuserPythonBindings(PyObject* module) {
          Scalar arg3,                                                          \
          Scalar arg4) -> Tensor {                                              \
         FUSER_PERF_SCOPE("Operators." op_str);                                 \
-        TORCH_CHECK(                                                           \
+        NVF_CHECK(                                                             \
             self.validUse(), "Attempting to add to a completed definition!");  \
         FusionDefinition* fd = self.fusion_definition;                         \
         Tensor output = fd->defineTensor(arg1.dims);                           \
@@ -1542,7 +1606,7 @@ void initNvFuserPythonBindings(PyObject* module) {
          Scalar arg3,                                                          \
          Scalar arg4) -> Tensor {                                              \
         FUSER_PERF_SCOPE("Operators." op_str);                                 \
-        TORCH_CHECK(                                                           \
+        NVF_CHECK(                                                             \
             self.validUse(), "Attempting to add to a completed definition!");  \
         FusionDefinition* fd = self.fusion_definition;                         \
         Tensor output = fd->defineTensor(arg2.dims);                           \
@@ -1571,7 +1635,7 @@ void initNvFuserPythonBindings(PyObject* module) {
          Tensor arg,                                                          \
          PrimDataType dtype) -> Tensor {                                      \
         FUSER_PERF_SCOPE("Operators." op_str);                                \
-        TORCH_CHECK(                                                          \
+        NVF_CHECK(                                                            \
             self.validUse(), "Attempting to add to a completed definition!"); \
         FusionDefinition* fd = self.fusion_definition;                        \
         size_t ndims = 0;                                                     \
@@ -1603,7 +1667,7 @@ void initNvFuserPythonBindings(PyObject* module) {
          bool keepdim,                                                        \
          PrimDataType dtype) -> Tensor {                                      \
         FUSER_PERF_SCOPE("Operators." op_str);                                \
-        TORCH_CHECK(                                                          \
+        NVF_CHECK(                                                            \
             self.validUse(), "Attempting to add to a completed definition!"); \
         FusionDefinition* fd = self.fusion_definition;                        \
         size_t ndims = keepdim ? arg.dims : (arg.dims - 1);                   \
@@ -1635,7 +1699,7 @@ void initNvFuserPythonBindings(PyObject* module) {
          bool keepdim,                                                        \
          PrimDataType dtype) -> Tensor {                                      \
         FUSER_PERF_SCOPE("Operators." op_str);                                \
-        TORCH_CHECK(                                                          \
+        NVF_CHECK(                                                            \
             self.validUse(), "Attempting to add to a completed definition!"); \
         FusionDefinition* fd = self.fusion_definition;                        \
         size_t ndims = keepdim ? arg.dims : (arg.dims - axes.size());         \
@@ -1677,7 +1741,7 @@ void initNvFuserPythonBindings(PyObject* module) {
          Tensor arg,                                                          \
          PrimDataType dtype) -> Tensor {                                      \
         FUSER_PERF_SCOPE("Operators." op_str);                                \
-        TORCH_CHECK(                                                          \
+        NVF_CHECK(                                                            \
             self.validUse(), "Attempting to add to a completed definition!"); \
         FusionDefinition* fd = self.fusion_definition;                        \
         Tensor output = fd->defineTensor(arg.dims);                           \
@@ -1699,7 +1763,7 @@ void initNvFuserPythonBindings(PyObject* module) {
          Scalar arg,                                                          \
          PrimDataType dtype) -> Scalar {                                      \
         FUSER_PERF_SCOPE("Operators." op_str);                                \
-        TORCH_CHECK(                                                          \
+        NVF_CHECK(                                                            \
             self.validUse(), "Attempting to add to a completed definition!"); \
         FusionDefinition* fd = self.fusion_definition;                        \
         Scalar output = fd->defineScalar();                                   \
@@ -1732,7 +1796,7 @@ void initNvFuserPythonBindings(PyObject* module) {
          bool training,
          bool channels_last) -> decltype(auto) {
         FUSER_PERF_SCOPE("Operators.batch_norm");
-        TORCH_CHECK(
+        NVF_CHECK(
             self.validUse(), "Attempting to add to a completed definition!");
         FusionDefinition* fd = self.fusion_definition;
         Tensor output = fd->defineTensor(arg.dims);
@@ -1775,67 +1839,27 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("training"),
       py::arg("channels_last") = false,
       py::return_value_policy::reference);
-  // Concreate Output Shape Overload
   nvf_ops.def(
       "broadcast_in_dim",
-      [](FusionDefinition::Operators& self,
-         Tensor arg,
-         std::vector<int64_t>& output_shape,
-         std::vector<int64_t>& broadcast_dims) -> Tensor {
-        FUSER_PERF_SCOPE("Operators.broadcast_in_dim");
-        FusionDefinition* fd = self.fusion_definition;
-        TORCH_CHECK(
-            self.validUse(), "Attempting to add to a completed definition!");
-        TORCH_CHECK(
-            output_shape.size() >= broadcast_dims.size(),
-            "broadcast_dims vector size is too big for output shape!");
-        Tensor output = fd->defineTensor(output_shape.size());
-        fd->defineRecord(new BroadcastInDimOpRecord<int64_t>(
-            {fd->recordingState(arg())},
-            {fd->recordingState(output())},
-            "ops.broadcast_in_dim",
-            serde::RecordType_BroadcastInDim,
-            std::move(output_shape),
-            std::move(broadcast_dims)));
-        return output;
-      },
+      broadcast_in_dim_fn<python_frontend::Vector>,
       py::arg("arg"),
-      py::arg("output_shape"),
+      py::arg("shape"),
       py::arg("broadcast_dims"),
       py::return_value_policy::reference);
-  // Symbolic Output Shape Overload
   nvf_ops.def(
       "broadcast_in_dim",
-      [](FusionDefinition::Operators& self,
-         Tensor arg,
-         std::vector<Scalar>& output_shape,
-         std::vector<int64_t>& broadcast_dims) -> Tensor {
-        FUSER_PERF_SCOPE("Operators.broadcast_in_dim");
-        FusionDefinition* fd = self.fusion_definition;
-        TORCH_CHECK(
-            self.validUse(), "Attempting to add to a completed definition!");
-        TORCH_CHECK(
-            output_shape.size() >= broadcast_dims.size(),
-            "broadcast_dims vector size is too big for output shape!");
-        Tensor output = fd->defineTensor(output_shape.size());
-        std::vector<State> output_shape_states(
-            output_shape.size(), State(0, serde::StateType_Scalar));
-        std::transform(
-            output_shape.begin(),
-            output_shape.end(),
-            output_shape_states.begin(),
-            [&fd](const Scalar& s) { return fd->recordingState(s()); });
-        fd->defineRecord(new BroadcastInDimOpRecord<State>(
-            {fd->recordingState(arg())},
-            {fd->recordingState(output())},
-            "ops.broadcast_in_dim",
-            serde::RecordType_BroadcastInDimSymbolic,
-            std::move(output_shape_states),
-            std::move(broadcast_dims)));
-        return output;
-      },
+      broadcast_in_dim_fn<py::list>,
       py::arg("arg"),
-      py::arg("output_shape"),
+      py::arg("shape"),
+      py::arg("broadcast_dims"),
+      py::return_value_policy::reference);
+  // NOTE: Tuple support was added to facilitate the direct usage of Pytorch's
+  // Tensor.size() function that returns a child class of a Tuple.
+  nvf_ops.def(
+      "broadcast_in_dim",
+      broadcast_in_dim_fn<py::tuple>,
+      py::arg("arg"),
+      py::arg("shape"),
       py::arg("broadcast_dims"),
       py::return_value_policy::reference);
   nvf_ops.def(
@@ -1844,7 +1868,7 @@ void initNvFuserPythonBindings(PyObject* module) {
          Tensor arg,
          std::vector<bool>& is_broadcast_dim) -> Tensor {
         FUSER_PERF_SCOPE("Operators.broadcast");
-        TORCH_CHECK(
+        NVF_CHECK(
             self.validUse(), "Attempting to add to a completed definition!");
         FusionDefinition* fd = self.fusion_definition;
         Tensor output = fd->defineTensor(arg.dims);
@@ -1863,10 +1887,10 @@ void initNvFuserPythonBindings(PyObject* module) {
       [](FusionDefinition::Operators& self,
          std::vector<Tensor> tensors,
          int64_t dim) -> Tensor {
-        TORCH_CHECK(
+        NVF_CHECK(
             self.validUse(), "Attempting to add to a completed definition!");
         FusionDefinition* fd = self.fusion_definition;
-        TORCH_CHECK(
+        NVF_CHECK(
             !tensors.empty(), "Attempting to concatenate empty list of tensors")
         Tensor output = fd->defineTensor(tensors[0].dims);
         std::vector<State> tensor_states;
@@ -1888,7 +1912,7 @@ void initNvFuserPythonBindings(PyObject* module) {
          Tensor index,
          int64_t dim) -> Tensor {
         FUSER_PERF_SCOPE("Operators.index_select");
-        TORCH_CHECK(
+        NVF_CHECK(
             self.validUse(), "Attempting to add to a completed definition!");
         FusionDefinition* fd = self.fusion_definition;
         Tensor output = fd->defineTensor(arg.dims);
@@ -1912,16 +1936,16 @@ void initNvFuserPythonBindings(PyObject* module) {
          Tensor index,
          int64_t dim) -> Tensor {
         FUSER_PERF_SCOPE("Operators.gather");
-        TORCH_CHECK(
+        NVF_CHECK(
             self.validUse(), "Attempting to add to a completed definition!");
-        TORCH_CHECK(
+        NVF_CHECK(
             arg1.dims == index.dims,
             "Tensor arguments have different dimensions ",
             arg1.dims,
             " and ",
             index.dims);
         auto num_dims = (int64_t)arg1.dims;
-        TORCH_CHECK(
+        NVF_CHECK(
             dim >= -num_dims && dim < num_dims,
             "Tensor arguments have dimension ",
             num_dims,
@@ -1974,9 +1998,9 @@ void initNvFuserPythonBindings(PyObject* module) {
          std::vector<int64_t>& pad_widths,
          std::optional<Scalar> value) -> Tensor {
         FUSER_PERF_SCOPE("Operators.pad");
-        TORCH_CHECK(
+        NVF_CHECK(
             self.validUse(), "Attempting to add to a completed definition!");
-        TORCH_CHECK(
+        NVF_CHECK(
             pad_widths.size() <= 2 * arg.dims,
             "Number of pad widths must be at most twice the input dimension");
         FusionDefinition* fd = self.fusion_definition;
@@ -2001,16 +2025,16 @@ void initNvFuserPythonBindings(PyObject* module) {
          Tensor index,
          int64_t dim) -> Tensor {
         FUSER_PERF_SCOPE("Operators.take_along_axis");
-        TORCH_CHECK(
+        NVF_CHECK(
             self.validUse(), "Attempting to add to a completed definition!");
-        TORCH_CHECK(
+        NVF_CHECK(
             arg1.dims == index.dims,
             "Tensor arguments have different dimensions ",
             arg1.dims,
             " and ",
             index.dims);
         auto num_dims = (int64_t)arg1.dims;
-        TORCH_CHECK(
+        NVF_CHECK(
             dim >= -num_dims && dim < num_dims,
             "Tensor arguments have dimension ",
             num_dims,
@@ -2058,7 +2082,7 @@ void initNvFuserPythonBindings(PyObject* module) {
       [](FusionDefinition::Operators& self,
          Tensor arg,
          std::vector<int64_t>& dims) -> Tensor {
-        TORCH_CHECK(
+        NVF_CHECK(
             self.validUse(), "Attempting to add to a completed definition!");
         FusionDefinition* fd = self.fusion_definition;
         Tensor output = fd->defineTensor(arg.dims);
@@ -2075,7 +2099,7 @@ void initNvFuserPythonBindings(PyObject* module) {
   auto shape_def = [](Tensor arg) -> Vector {
     FUSER_PERF_SCOPE("Operators.shape");
     auto fd = arg.fusion_definition;
-    TORCH_CHECK(
+    NVF_CHECK(
         fd->ops.validUse(), "Attempting to add to a completed definition!");
     Vector output = fd->defineVector(arg.dims);
     fd->defineRecord(new ShapeOpRecord(
@@ -2098,7 +2122,7 @@ void initNvFuserPythonBindings(PyObject* module) {
   auto size_def = [](Tensor arg, int64_t dim) -> Scalar {
     FUSER_PERF_SCOPE("Operators.size");
     auto fd = arg.fusion_definition;
-    TORCH_CHECK(
+    NVF_CHECK(
         fd->ops.validUse(), "Attempting to add to a completed definition!");
     Scalar output = fd->defineScalar();
     fd->defineRecord(new SizeOpRecord(
@@ -2123,7 +2147,7 @@ void initNvFuserPythonBindings(PyObject* module) {
   auto at_def = [](Vector arg, int64_t index) -> Scalar {
     FUSER_PERF_SCOPE("Operators.at");
     auto fd = arg.fusion_definition;
-    TORCH_CHECK(
+    NVF_CHECK(
         fd->ops.validUse(), "Attempting to add to a completed definition!");
     Scalar output = fd->defineScalar();
     fd->defineRecord(new AtOpRecord(
@@ -2164,12 +2188,12 @@ void initNvFuserPythonBindings(PyObject* module) {
          std::optional<std::vector<int64_t>> opt_strides =
              std::nullopt) -> Tensor {
         FUSER_PERF_SCOPE("Operators.slice");
-        TORCH_CHECK(
+        NVF_CHECK(
             self.validUse(), "Attempting to add to a completed definition!");
 
         std::vector<int64_t> strides(start_indices.size(), int64_t(1));
         if (opt_strides.has_value()) {
-          TORCH_CHECK(
+          NVF_CHECK(
               start_indices.size() == opt_strides.value().size(),
               "Slice start_indices and strides don't match! Start Indices: ",
               start_indices.size(),
@@ -2178,13 +2202,13 @@ void initNvFuserPythonBindings(PyObject* module) {
           strides.assign(
               opt_strides.value().begin(), opt_strides.value().end());
         }
-        TORCH_CHECK(
+        NVF_CHECK(
             arg.dims == start_indices.size(),
             "Number of tensor dimensions does not match slice dimensions! Tensor-dims: ",
             arg.dims,
             " Slice-dims: ",
             start_indices.size());
-        TORCH_CHECK(
+        NVF_CHECK(
             start_indices.size() == end_indices.size(),
             "Slice indexing attribute dimensions don't match! Start Indices: ",
             start_indices.size(),
@@ -2196,7 +2220,7 @@ void initNvFuserPythonBindings(PyObject* module) {
           auto start_idx = start_indices[i];
           auto end_idx = end_indices[i];
           auto stride = strides[i];
-          TORCH_CHECK(
+          NVF_CHECK(
               start_idx >= 0,
               "Slice operation start_indices must be greater-than-or-equal-to 0. Start Indices: ",
               start_indices,
@@ -2204,7 +2228,7 @@ void initNvFuserPythonBindings(PyObject* module) {
               end_indices,
               " Strides: ",
               strides);
-          TORCH_CHECK(
+          NVF_CHECK(
               end_idx >= start_idx,
               "Slice operation end_indices must be greater-than-or-equal-to start_indices. Start Indices: ",
               start_indices,
@@ -2212,7 +2236,7 @@ void initNvFuserPythonBindings(PyObject* module) {
               end_indices,
               " Strides: ",
               strides);
-          TORCH_CHECK(
+          NVF_CHECK(
               stride == 1,
               "nvFuser Limitation: All slice operation strides must be of size 1. Start Indices: ",
               start_indices,
@@ -2243,7 +2267,7 @@ void initNvFuserPythonBindings(PyObject* module) {
          std::vector<int64_t>& original_shape,
          std::vector<int64_t>& dims) -> Tensor {
         FUSER_PERF_SCOPE("Operators.squeeze");
-        TORCH_CHECK(
+        NVF_CHECK(
             self.validUse(), "Attempting to add to a completed definition!");
         FusionDefinition* fd = self.fusion_definition;
         Tensor output = fd->defineTensor(arg.dims - 1);
@@ -2262,7 +2286,7 @@ void initNvFuserPythonBindings(PyObject* module) {
       "tensor_sizes",
       [](FusionDefinition::Operators& self, Tensor arg) -> std::vector<Scalar> {
         FUSER_PERF_SCOPE("Operators.tensor_sizes");
-        TORCH_CHECK(
+        NVF_CHECK(
             self.validUse(), "Attempting to add to a completed definition!");
         FusionDefinition* fd = self.fusion_definition;
         std::vector<Scalar> outputs;
@@ -2283,7 +2307,7 @@ void initNvFuserPythonBindings(PyObject* module) {
          Tensor arg,
          std::vector<int64_t>& original_shape,
          std::vector<int64_t>& new_shape) -> Tensor {
-        TORCH_CHECK(
+        NVF_CHECK(
             self.validUse(), "Attempting to add to a completed definition!");
         FusionDefinition* fd = self.fusion_definition;
         Tensor output = fd->defineTensor(new_shape.size());
@@ -2304,7 +2328,7 @@ void initNvFuserPythonBindings(PyObject* module) {
          std::vector<int64_t>& shape,
          Scalar fill_value,
          PrimDataType dtype) -> Tensor {
-        TORCH_CHECK(
+        NVF_CHECK(
             self.validUse(), "Attempting to add to a completed definition!");
         FusionDefinition* fd = self.fusion_definition;
         Tensor output = fd->defineTensor(shape.size());
@@ -2326,7 +2350,7 @@ void initNvFuserPythonBindings(PyObject* module) {
          std::optional<Scalar> start,
          std::optional<Scalar> step,
          PrimDataType dtype) -> Tensor {
-        TORCH_CHECK(
+        NVF_CHECK(
             self.validUse(), "Attempting to add to a completed definition!");
         FusionDefinition* fd = self.fusion_definition;
         Tensor output = fd->defineTensor(1);
@@ -2354,7 +2378,7 @@ void initNvFuserPythonBindings(PyObject* module) {
          int64_t correction,
          bool keepdim) -> Tensor {
         FUSER_PERF_SCOPE("Operators.var");
-        TORCH_CHECK(
+        NVF_CHECK(
             self.validUse(), "Attempting to add to a completed definition!");
         FusionDefinition* fd = self.fusion_definition;
         size_t ndims = keepdim ? arg.dims : (arg.dims - axes.size());
@@ -2380,7 +2404,7 @@ void initNvFuserPythonBindings(PyObject* module) {
          int64_t correction,
          bool keepdim) -> decltype(auto) {
         FUSER_PERF_SCOPE("Operators.var_mean");
-        TORCH_CHECK(
+        NVF_CHECK(
             self.validUse(), "Attempting to add to a completed definition!");
         FusionDefinition* fd = self.fusion_definition;
         size_t ndims = keepdim ? arg.dims : (arg.dims - axes.size());
@@ -2409,7 +2433,7 @@ void initNvFuserPythonBindings(PyObject* module) {
          std::optional<Scalar> rng_seed,
          std::optional<Scalar> rng_offset) -> Tensor {
         FUSER_PERF_SCOPE("Operators.uniform");
-        TORCH_CHECK(
+        NVF_CHECK(
             self.validUse(), "Attempting to add to a completed definition!");
         FusionDefinition* fd = self.fusion_definition;
         Tensor output = fd->defineTensor(shape.size());
@@ -2425,7 +2449,7 @@ void initNvFuserPythonBindings(PyObject* module) {
             fd->recordingState(maxval()),
         };
         if (rng_seed.has_value()) {
-          TORCH_CHECK(
+          NVF_CHECK(
               rng_offset.has_value(),
               "When providing rng_seed, rng_offset must also be provided");
           arg_states.push_back(fd->recordingState(rng_seed.value()()));
@@ -2457,7 +2481,7 @@ void initNvFuserPythonBindings(PyObject* module) {
          std::optional<Scalar> rng_seed,
          std::optional<Scalar> rng_offset) -> Tensor {
         FUSER_PERF_SCOPE("Operators.normal");
-        TORCH_CHECK(
+        NVF_CHECK(
             self.validUse(), "Attempting to add to a completed definition!");
         FusionDefinition* fd = self.fusion_definition;
         Tensor output = fd->defineTensor(shape.size());
@@ -2473,7 +2497,7 @@ void initNvFuserPythonBindings(PyObject* module) {
             fd->recordingState(std()),
         };
         if (rng_seed.has_value()) {
-          TORCH_CHECK(
+          NVF_CHECK(
               rng_offset.has_value(),
               "When providing rng_seed, rng_offset must also be provided");
           arg_states.push_back(fd->recordingState(rng_seed.value()()));
@@ -2509,7 +2533,7 @@ void initNvFuserPythonBindings(PyObject* module) {
       "merge",
       [](FusionDefinition::SchedOperators& self, Tensor arg, int dim) {
         FUSER_PERF_SCOPE("SchedOperators.merge");
-        TORCH_CHECK(
+        NVF_CHECK(
             self.validUse(),
             "Attempting to use a SchedOperators Op prior to definition!");
         FusionDefinition* fd = self.fusion_definition;
@@ -2523,14 +2547,14 @@ void initNvFuserPythonBindings(PyObject* module) {
                                   Tensor arg,
                                   const std::vector<int>& dims) -> Tensor {
     FUSER_PERF_SCOPE("SchedOperators.reduction_factor");
-    TORCH_CHECK(
+    NVF_CHECK(
         self.validUse(),
         "Attempting to use a SchedOperators Op prior to definition!");
     FusionDefinition* fd = self.fusion_definition;
     auto input_tv = fd->getFusionState(arg.index)->template as<TensorView>();
     auto output_tv = input_tv->rFactor(dims);
     Tensor output = fd->defineTensor(arg.dims);
-    TORCH_CHECK(
+    NVF_CHECK(
         output.index == fd->numFusionStates(),
         "Fusion State index does not match the size!");
     fd->addFusionState(output_tv);
@@ -2549,7 +2573,7 @@ void initNvFuserPythonBindings(PyObject* module) {
          Tensor arg,
          const std::unordered_map<int, int>& old2new) {
         FUSER_PERF_SCOPE("SchedOperators.reorder");
-        TORCH_CHECK(
+        NVF_CHECK(
             self.validUse(),
             "Attempting to use a SchedOperators Op prior to definition!");
         FusionDefinition* fd = self.fusion_definition;
@@ -2568,7 +2592,7 @@ void initNvFuserPythonBindings(PyObject* module) {
          bool inner_split,
          bool trim_out_of_bounds) {
         FUSER_PERF_SCOPE("SchedOperators.split");
-        TORCH_CHECK(
+        NVF_CHECK(
             self.validUse(),
             "Attempting to use a SchedOperators Op prior to definition!");
         FusionDefinition* fd = self.fusion_definition;

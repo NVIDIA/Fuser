@@ -12,8 +12,10 @@
 #include <instrumentation.h>
 #include <ir/all_nodes.h>
 #include <ir/iostream.h>
+#include <ir/utils.h>
 #include <root_domain_map.h>
 
+#include <functional>
 #include <iostream>
 
 namespace nvfuser {
@@ -24,7 +26,7 @@ void validateValWithConcreteValue(
     const Val* value,
     const PolymorphicValue& concrete_value) {
   if (auto tv = dynamic_cast<const TensorView*>(value)) {
-    TORCH_CHECK(
+    NVF_CHECK(
         concrete_value.is<at::Tensor>(),
         "Expected ",
         tv->toString(),
@@ -33,7 +35,7 @@ void validateValWithConcreteValue(
     const auto& t = concrete_value.as<at::Tensor>();
     auto expect_dim =
         (int64_t)TensorDomain::noReductions(tv->getMaybeRFactorDomain()).size();
-    TORCH_CHECK(
+    NVF_CHECK(
         t.dim() == expect_dim,
         "Expected ",
         tv->toString(),
@@ -42,7 +44,7 @@ void validateValWithConcreteValue(
         ", but got a tensor of rank ",
         t.dim());
     auto actual_dtype = aten_to_data_type(t.scalar_type());
-    TORCH_CHECK(
+    NVF_CHECK(
         (value->dtype() == DataType::Index && isIntegralType(actual_dtype)) ||
             (value->dtype() == actual_dtype),
         "Expected ",
@@ -52,7 +54,7 @@ void validateValWithConcreteValue(
         ", but got a tensor of dtype ",
         actual_dtype);
     if (tv->isCpuScalar()) {
-      TORCH_CHECK(
+      NVF_CHECK(
           is_cpu_scalar(t),
           "Expected ",
           tv->toString(),
@@ -63,7 +65,7 @@ void validateValWithConcreteValue(
           t.numel(),
           " elements");
     } else {
-      TORCH_CHECK(
+      NVF_CHECK(
           t.is_cuda() || t.is_meta(),
           "Expected ",
           tv->toString(),
@@ -71,7 +73,7 @@ void validateValWithConcreteValue(
           t.device());
     }
   } else {
-    TORCH_CHECK(
+    NVF_CHECK(
         hasCompatibleDataType(concrete_value, value->dtype()),
         "Scalar value is not compatible with the given data type.");
   }
@@ -81,13 +83,53 @@ void validateValWithConcreteValue(
 
 void ExpressionEvaluator::bind_(
     const Val* value,
-    PolymorphicValue concrete_value) {
-  TORCH_CHECK(concrete_value.hasValue(), "Cannot bind to undefined value");
-  if (value->value().hasValue() && value->value() == concrete_value) {
+    PolymorphicValue concrete_value,
+    bool evaluate_validate) {
+  using namespace PolymorphicValue_functions;
+  NVF_CHECK(concrete_value.hasValue(), "Cannot bind to undefined value");
+  if (value->isConst()) {
+    NVF_CHECK(
+        value->value() == concrete_value,
+        "Tried to bind to a constant value: ",
+        toString(value->value()),
+        " as ",
+        toString(concrete_value));
     return;
   }
-  TORCH_CHECK(!value->isConstScalar(), "Tried to bind to a constant value");
   validateValWithConcreteValue(value, concrete_value);
+  if (evaluate_validate &&
+      ir_utils::dependenciesSatisfied(value, known_values_)) {
+    auto evaluated_value = evaluate(value);
+    using namespace PolymorphicValue_functions;
+    auto same = isSame(evaluated_value, concrete_value);
+    NVF_CHECK(
+        same,
+        "Tried to bind to a value: ",
+        value->toInlineString(),
+        "(which evaluated to ",
+        toString(evaluated_value),
+        ") as ",
+        toString(concrete_value));
+  }
+  if (auto tv = dynamic_cast<const TensorView*>(value)) {
+    const auto& t = concrete_value.as<at::Tensor>();
+    auto rfactor_domain =
+        TensorDomain::noReductions(tv->getMaybeRFactorDomain());
+    NVF_ERROR(
+        t.dim() == (int64_t)rfactor_domain.size(),
+        "Expected ",
+        tv->toString(),
+        " to be bound to a tensor of rank ",
+        rfactor_domain.size(),
+        ", but got a tensor of rank ",
+        t.dim());
+    for (auto i : c10::irange(t.dim())) {
+      bind_(
+          rfactor_domain[i]->getMaybeExpandedExtent(),
+          t.size(i),
+          evaluate_validate);
+    }
+  }
   if (value->isA<NamedScalar>()) {
     known_named_scalars_[value->as<NamedScalar>()->name()] =
         std::move(concrete_value);
@@ -105,7 +147,7 @@ void ExpressionEvaluator::bind_(
 void ExpressionEvaluator::bind(
     ParallelType pt,
     PolymorphicValue concrete_value) {
-  TORCH_INTERNAL_ASSERT(isParallelTypeThread(pt));
+  NVF_ERROR(isParallelTypeThread(pt));
   if (precomputed_values_) {
     // Need to bind the thread value to integer machine
     //  in pre-computed mode.
@@ -116,29 +158,30 @@ void ExpressionEvaluator::bind(
   }
 }
 
-PolymorphicValue ExpressionEvaluator::evaluate(const Val* value) {
+const PolymorphicValue& ExpressionEvaluator::evaluate(const Val* value) {
   if (precomputed_values_ && precomputed_values_->ready()) {
     if (precomputed_values_->getMaybeValueFor(value).hasValue()) {
       return precomputed_values_->getMaybeValueFor(value);
     }
   }
 
-  auto maybe_concrete_value = getValue(value);
-  if (!maybe_concrete_value.hasValue()) {
+  std::reference_wrapper<const PolymorphicValue> maybe_concrete_value =
+      getValue(value);
+  if (!maybe_concrete_value.get().hasValue()) {
     if (auto def = value->definition()) {
       FUSER_PERF_SCOPE("ExpressionEvaluator::evaluate");
       std::vector<PolymorphicValue> inputs;
       inputs.reserve(def->inputs().size());
       for (auto i : def->inputs()) {
-        auto eval_i = evaluate(i);
+        const auto& eval_i = evaluate(i);
         if (!eval_i.hasValue()) {
-          return std::monostate{};
+          return null_;
         }
         inputs.emplace_back(eval_i);
       }
       auto outputs = def->evaluate(*this, inputs);
       for (auto i : c10::irange(def->outputs().size())) {
-        known_values_[def->output(i)] = outputs[i];
+        known_values_[def->output(i)] = std::move(outputs[i]);
       }
       maybe_concrete_value = getValue(value);
     }
@@ -146,15 +189,15 @@ PolymorphicValue ExpressionEvaluator::evaluate(const Val* value) {
   return maybe_concrete_value;
 }
 
-PolymorphicValue ExpressionEvaluator::evaluate(ParallelType pt) {
+const PolymorphicValue& ExpressionEvaluator::evaluate(ParallelType pt) {
   auto it = known_named_scalars_.find(stringifyThreadSize(pt));
   if (it != known_named_scalars_.end()) {
     return it->second;
   }
-  return std::monostate{};
+  return null_;
 }
 
-PolymorphicValue ExpressionEvaluator::getValue(const Val* value) {
+const PolymorphicValue& ExpressionEvaluator::getValue(const Val* value) {
   if (value->isScalar() && value->isConst()) {
     return value->value();
   }
@@ -167,21 +210,23 @@ PolymorphicValue ExpressionEvaluator::getValue(const Val* value) {
   }
 
   const auto it = known_values_.find(value);
-  return it != known_values_.end() ? it->second
-                                   : PolymorphicValue(std::monostate{});
+  return it != known_values_.end() ? it->second : null_;
 }
 
 void ExpressionEvaluator::print() const {
+  using namespace PolymorphicValue_functions;
+
   debug() << "\nEvaluation context\n";
   debug() << "--------------------\n";
+
   for (const auto& kv : known_values_) {
-    TORCH_INTERNAL_ASSERT(!kv.first->isConstScalar());
-    debug() << kv.first << " = " << kv.second << " ; "
+    NVF_ERROR(!kv.first->isConstScalar());
+    debug() << kv.first << " = " << toString(kv.second) << " ; "
             << *kv.first->getValType() << "\n";
   }
 
   for (const auto& kv : known_named_scalars_) {
-    debug() << kv.first << " = " << kv.second << " ;\n";
+    debug() << kv.first << " = " << toString(kv.second) << " ;\n";
   }
 
   debug() << "\nPre-computed Values\n";
@@ -204,10 +249,10 @@ void ExpressionEvaluator::propagateBoundValuesThroughExactMaps(Fusion* fusion) {
     for (const auto id : *set) {
       auto eval_val = evaluate(id->extent());
       if (eval_val.hasValue()) {
-        TORCH_INTERNAL_ASSERT(eval_val.is<int64_t>(), "Invalid extent value");
+        NVF_ERROR(eval_val.is<int64_t>(), "Invalid extent value");
         int64_t this_size = eval_val.as<int64_t>();
         if (known_size != -1) {
-          TORCH_INTERNAL_ASSERT(
+          NVF_ERROR(
               known_size == this_size,
               "Conflicting sizes: ",
               known_size,
@@ -234,7 +279,7 @@ void ExpressionEvaluator::propagateBoundValuesThroughExactMaps(Fusion* fusion) {
 
 ExpressionEvaluator ExpressionEvaluator::clone(IrCloner& ir_cloner) const {
   ExpressionEvaluator expr_eval;
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       !precomputed_values_,
       "Cannot clone ExpressionEvaluator with bound PrecomputedValues");
   for (const auto& kv : known_values_) {

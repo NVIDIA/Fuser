@@ -35,7 +35,7 @@ void validateParallelizationOfTensor(TensorView* tv) {
       continue;
     }
 
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         !pt_map.get(ptype),
         "Multiple use of ",
         ptype,
@@ -54,7 +54,7 @@ void validateParallelizationOfTensor(TensorView* tv) {
 
   auto predicated_parallel_types = pt_map & thread_pred.limited_types;
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       predicated_parallel_types.none(),
       "Invalid parallelization of tensor t",
       tv->name(),
@@ -745,7 +745,7 @@ SyncMap::SyncMap(Fusion* fusion) {
               continue;
             }
             // Can this happen?
-            TORCH_INTERNAL_ASSERT(
+            NVF_ERROR(
                 false,
                 "Unexpected case. Producer: ",
                 producer->toString(),
@@ -762,7 +762,7 @@ SyncMap::SyncMap(Fusion* fusion) {
         } // end for ptypes
 
         if (raw_dims.hasBID()) {
-          TORCH_INTERNAL_ASSERT(
+          NVF_ERROR(
               producer->getMemoryType() == MemoryType::Global,
               "Inconsistent parallelization found between TV",
               producer->name(),
@@ -776,7 +776,7 @@ SyncMap::SyncMap(Fusion* fusion) {
               " RAW flags: ",
               raw_dims.toString());
         } else if (raw_dims.hasTID()) {
-          TORCH_INTERNAL_ASSERT(
+          NVF_ERROR(
               producer->getMemoryType() == MemoryType::Global ||
                   producer->getMemoryType() == MemoryType::Shared,
               "Inconsistent parallelization found between TV",

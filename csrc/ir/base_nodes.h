@@ -10,6 +10,7 @@
 #include <c10/core/ScalarType.h>
 #include <c10/macros/Export.h>
 #include <c10/util/Exception.h>
+#include <exceptions.h>
 
 #include <ir/builder_passkey.h>
 #include <polymorphic_value.h>
@@ -228,9 +229,12 @@ class TORCH_CUDA_CU_API Val : public Statement {
         dtype_(std::move(_dtype)),
         value_(std::move(_value)) {
     if (value_.hasValue()) {
-      TORCH_CHECK(
+      NVF_CHECK(
           hasCompatibleDataType(value_, dtype_),
-          "Scalar value is not compatible with the given data type.");
+          "Scalar value is not compatible with the given data type ",
+          dtype_,
+          " for value ",
+          PolymorphicValue_functions::toString(value_));
     }
   }
   explicit Val(IrBuilderPasskey passkey, DataType dtype)
@@ -238,10 +242,7 @@ class TORCH_CUDA_CU_API Val : public Statement {
   explicit Val(IrBuilderPasskey passkey, PrimDataType dtype)
       : Val(passkey, ValType::Others, DataType(dtype)) {}
   explicit Val(IrBuilderPasskey passkey, PolymorphicValue value)
-      : Val(passkey,
-            ValType::Others,
-            nvfuser::getDataType(value),
-            std::move(value)) {}
+      : Val(passkey, ValType::Others, nvfuser::getDataType(value), value) {}
   explicit Val(IrBuilderPasskey passkey, PolymorphicValue value, DataType dtype)
       : Val(passkey,
             ValType::Others,
@@ -409,7 +410,7 @@ class TORCH_CUDA_CU_API Val : public Statement {
   bool sameAs(const Statement* other) const override;
 
   void setEvaluatorIndex(int to) {
-    TORCH_INTERNAL_ASSERT(evaluator_index_ == -1);
+    NVF_ERROR(evaluator_index_ == -1);
     evaluator_index_ = to;
   }
 
@@ -422,10 +423,6 @@ class TORCH_CUDA_CU_API Val : public Statement {
   void setDefinition(Expr* expr) {
     definition_ = expr;
   }
-
-  // TODO: remove this function. I think we are fine removing this now, but I
-  // need to double check the benchmarks.
-  void resolveIndexDtype();
 
   NVFUSER_DECLARE_CLONE
 
@@ -624,13 +621,13 @@ class TORCH_CUDA_CU_API Expr : public Statement {
 
   // TODO: Add Fusion passkey
   void addInput(Val* input) {
-    TORCH_INTERNAL_ASSERT(input != nullptr);
+    NVF_ERROR(input != nullptr);
     inputs_.push_back(input);
   }
 
   // TODO: Add Fusion passkey
   void addOutput(Val* output) {
-    TORCH_INTERNAL_ASSERT(output != nullptr);
+    NVF_ERROR(output != nullptr);
     outputs_.push_back(output);
   }
 
@@ -640,15 +637,15 @@ class TORCH_CUDA_CU_API Expr : public Statement {
   }
 
   // TODO: Add Fusion passkey
-  void addScalarAttribute(PolymorphicValue attr);
+  void addDataAttribute(PolymorphicValue attr);
 
   // TODO: Add Fusion passkey
   template <typename T>
   void addDataAttribute(T attr) {
     if constexpr (PolymorphicValue::is_candidate_type<T>) {
-      addScalarAttribute(std::move(attr));
+      addDataAttribute(PolymorphicValue(std::move(attr)));
     } else {
-      addScalarAttribute(Opaque{std::any(std::move(attr)), OpaqueEquals<T>{}});
+      addDataAttribute(Opaque(std::move(attr)));
     }
   }
 

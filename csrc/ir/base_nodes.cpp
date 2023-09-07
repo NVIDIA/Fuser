@@ -47,28 +47,28 @@ void Statement::setName(IrBuilderPasskey, StmtNameType name) {
 }
 
 Val* Statement::asVal() {
-  TORCH_INTERNAL_ASSERT(isVal(), "Cannot cast to Val as this is not a Val.");
+  NVF_ERROR(isVal(), "Cannot cast to Val as this is not a Val.");
   return this->as<Val>();
 }
 
 Expr* Statement::asExpr() {
-  TORCH_INTERNAL_ASSERT(isExpr(), "Cannot cast to Expr as this is not a Expr.");
+  NVF_ERROR(isExpr(), "Cannot cast to Expr as this is not a Expr.");
   return this->as<Expr>();
 }
 
 bool Statement::lessThan(const Statement* stmt1, const Statement* stmt2) {
-  TORCH_INTERNAL_ASSERT(stmt1 != nullptr);
-  TORCH_INTERNAL_ASSERT(stmt2 != nullptr);
+  NVF_ERROR(stmt1 != nullptr);
+  NVF_ERROR(stmt2 != nullptr);
   return stmt1->name() < stmt2->name();
 }
 
 std::string Statement::toString(int indent_size) const {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       false, "toString for IR node ", typeid(*this).name(), " is not defined");
 }
 
 std::string Statement::toInlineString(int indent_size) const {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       false,
       "toInlineString for IR node ",
       typeid(*this).name(),
@@ -76,13 +76,13 @@ std::string Statement::toInlineString(int indent_size) const {
 }
 
 Fusion* Statement::fusion() const {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       ir_container_->isA<Fusion>(), "Statement does not belong to a fusion.");
   return ir_container_->as<Fusion>();
 }
 
 kir::Kernel* Statement::kernel() const {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       ir_container_->isA<kir::Kernel>(),
       "Statement does not belong to a kernel.");
   return ir_container_->as<kir::Kernel>();
@@ -118,35 +118,6 @@ bool Val::removeUse(Expr* expr) {
     return true;
   }
   return false;
-}
-
-// Converts the data type of TensorView or Scalar representing index
-// values. The data type of the original input should be
-// DataType::Index, but DataType::Int is also allowed as it is used
-// for index expressions.
-// TODO: remove this function. I think we are fine removing this now, but I need
-// to double check the benchmarks.
-void Val::resolveIndexDtype() {
-  TORCH_INTERNAL_ASSERT(
-      vtype_ == ValType::TensorView || vtype_ == ValType::Others ||
-          vtype_ == ValType::NamedScalar,
-      "Resolving index type is currently only supported on tensor view or scalar values. "
-      "Value type: ",
-      vtype_);
-  TORCH_INTERNAL_ASSERT(
-      isIntegralType(dtype_),
-      "Can only resolve index type if a Val has an Index or Int DataType. ",
-      "Data type: ",
-      dtype_);
-  TORCH_INTERNAL_ASSERT(
-      container()->isA<kir::Kernel>(),
-      "Index type can only be resolved at compile time.");
-  auto index_dtype = container()->as<kir::Kernel>()->indexType();
-  TORCH_INTERNAL_ASSERT(
-      index_dtype == DataType::Int || index_dtype == DataType::Int32,
-      "Invalid index data type: ",
-      index_dtype);
-  dtype_ = DataType::Index;
 }
 
 bool Val::sameAs(const Statement* other) const {
@@ -205,15 +176,11 @@ std::string Val::toString(int indent_size) const {
   auto dtype = getDataType().value();
   if (dtype == DataType::Bool) {
     ss << (value() ? "true" : "false");
-  } else if (isIntegralType(dtype)) {
-    ss << value();
   } else if (isFloatingPointType(dtype) || isComplexType(dtype)) {
     ss << dtype << "(" << std::setprecision(max_digits10(dtype)) << value()
        << ")";
-  } else if (dtype == DataType::Opaque) {
-    ss << "<opaque value>";
   } else {
-    TORCH_INTERNAL_ASSERT(false, "Unknown scalar type: ", dtype);
+    ss << value();
   }
   return ss.str();
 }
@@ -232,16 +199,16 @@ bool Val::isConstScalar() const {
   if (!isScalar()) {
     return false;
   }
-  return ir_utils::dependenciesSatisfied({this});
+  return ir_utils::dependenciesSatisfied(this);
 }
 
 bool Val::isConstInt() const {
-  return ir_utils::dependenciesSatisfied({this}) && isIntegralScalar();
+  return ir_utils::dependenciesSatisfied(this) && isIntegralScalar();
 }
 
 int64_t Val::evaluateInt() {
-  TORCH_INTERNAL_ASSERT(
-      ir_utils::dependenciesSatisfied(std::vector<const Val*>{this}),
+  NVF_ERROR(
+      ir_utils::dependenciesSatisfied(this),
       "Cannot get Int of not const values through IR nodes, must use runtime ExpressionEvaluator.");
 
   if (this->value().hasValue()) {
@@ -250,7 +217,7 @@ int64_t Val::evaluateInt() {
 
   ExpressionEvaluator ee;
   auto evaluated_val = ee.evaluate(this);
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       evaluated_val.hasValue(),
       "Detected a const integer but failed to infer its value: ",
       toInlineString());
@@ -258,8 +225,8 @@ int64_t Val::evaluateInt() {
 }
 
 double Val::evaluateDouble() {
-  TORCH_INTERNAL_ASSERT(
-      ir_utils::dependenciesSatisfied(std::vector<const Val*>{this}),
+  NVF_ERROR(
+      ir_utils::dependenciesSatisfied(this),
       "Cannot get Double of not const doubles through IR nodes, must use runtime ExpressionEvaluator.");
 
   if (this->value().hasValue()) {
@@ -268,15 +235,15 @@ double Val::evaluateDouble() {
 
   ExpressionEvaluator ee;
   auto evaluated_val = ee.evaluate(this);
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       evaluated_val.hasValue(),
       "Detected a const integer but failed to infer its value.");
   return evaluated_val.as<double>();
 }
 
 bool Val::evaluateBool() {
-  TORCH_INTERNAL_ASSERT(
-      ir_utils::dependenciesSatisfied(std::vector<const Val*>{this}),
+  NVF_ERROR(
+      ir_utils::dependenciesSatisfied(this),
       "Cannot get Bool of not const bools through IR nodes, must use runtime ExpressionEvaluator.");
 
   if (this->value().hasValue()) {
@@ -285,7 +252,7 @@ bool Val::evaluateBool() {
 
   ExpressionEvaluator ee;
   auto evaluated_val = ee.evaluate(this);
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       evaluated_val.hasValue(),
       "Detected a const integer but failed to infer its value.");
   return evaluated_val.as<bool>();
@@ -351,14 +318,13 @@ bool Val::isFalse() const {
 }
 
 std::optional<DataType> Val::getDataType() const {
-  TORCH_INTERNAL_ASSERT(
-      dtype_ != DataType::Null, "Value does not have a data type.");
+  NVF_ERROR(dtype_ != DataType::Null, "Value does not have a data type.");
   return dtype_;
 }
 
 bool Val::isProducerOf(const Val* other) const {
-  TORCH_INTERNAL_ASSERT(other != nullptr);
-  TORCH_INTERNAL_ASSERT(container() == other->container());
+  NVF_ERROR(other != nullptr);
+  NVF_ERROR(container() == other->container());
 
   if (definition() == nullptr) {
     return false;
@@ -419,9 +385,9 @@ std::string Expr::getGraphvizLabel() const {
 }
 
 void Expr::checkConcretization(Val* old_val, Val* new_val) const {
-  TORCH_CHECK(old_val, "Pre-concretized value was null");
-  TORCH_CHECK(new_val, "Concretized value is null");
-  TORCH_CHECK(
+  NVF_CHECK(old_val, "Pre-concretized value was null");
+  NVF_CHECK(new_val, "Concretized value is null");
+  NVF_CHECK(
       old_val->vtype() == new_val->vtype(),
       "Concretization must not change ValType");
 }
@@ -456,14 +422,12 @@ bool Expr::sameAs(const Statement* other) const {
 }
 
 kir::Predicate* Expr::predicate() const {
-  TORCH_INTERNAL_ASSERT(
-      container()->isA<kir::Kernel>(), "Function invalid for fusion.");
+  NVF_ERROR(container()->isA<kir::Kernel>(), "Function invalid for fusion.");
   return predicate_;
 }
 
 void Expr::setPredicate(kir::Predicate* predicate) {
-  TORCH_INTERNAL_ASSERT(
-      container()->isA<kir::Kernel>(), "Function invalid for fusion.");
+  NVF_ERROR(container()->isA<kir::Kernel>(), "Function invalid for fusion.");
   predicate_ = predicate;
 }
 
@@ -474,14 +438,12 @@ Expr* Expr::withPredicate(kir::Predicate* predicate) {
 }
 
 kir::Predicate* Expr::writePredicate() const {
-  TORCH_INTERNAL_ASSERT(
-      container()->isA<kir::Kernel>(), "Function invalid for fusion.");
+  NVF_ERROR(container()->isA<kir::Kernel>(), "Function invalid for fusion.");
   return write_predicate_;
 }
 
 void Expr::setWritePredicate(kir::Predicate* write_predicate) {
-  TORCH_INTERNAL_ASSERT(
-      container()->isA<kir::Kernel>(), "Function invalid for fusion.");
+  NVF_ERROR(container()->isA<kir::Kernel>(), "Function invalid for fusion.");
   write_predicate_ = write_predicate;
 }
 
@@ -494,7 +456,7 @@ Expr* Expr::withWritePredicate(kir::Predicate* predicate) {
 std::vector<PolymorphicValue> Expr::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       false,
       "`evaluate` method for expression ",
       getOpString(),
@@ -502,7 +464,7 @@ std::vector<PolymorphicValue> Expr::evaluate(
       "Please override the evaluate method");
 }
 
-void Expr::addScalarAttribute(PolymorphicValue attr) {
+void Expr::addDataAttribute(PolymorphicValue attr) {
   addAttribute(IrBuilder::create<Val>(container(), std::move(attr)));
 }
 

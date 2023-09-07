@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 #include <device_lower/lower2device.h>
+#include <exceptions.h>
 #include <executor_params.h>
 #include <fusion.h>
 #include <ir/all_nodes.h>
@@ -157,7 +158,7 @@ class PrecomputedValues {
 
   //! Returns value for the given IR node if it's stored
   //!  in the workspace and has been evaluated.
-  PolymorphicValue getMaybeValueFor(const Val* val) const;
+  const PolymorphicValue& getMaybeValueFor(const Val* val) const;
 
   //! Debugging helper, prints all the currently known values
   void print() const;
@@ -230,7 +231,7 @@ class PrecomputedValues {
   //! Returns true if workspace has a computed or constant
   //!  value for given index.
   bool hasValue(int index) {
-    TORCH_INTERNAL_ASSERT(index > 0);
+    NVF_ERROR(index > 0);
     return defined_[index] || is_constant_[index];
   }
 
@@ -255,6 +256,10 @@ class PrecomputedValues {
 
   //! Stores the concrete values at each index.
   std::vector<PolymorphicValue> values_;
+
+  //! Use a single monostate to represent null, instead of creating a new
+  //! PolymorphicValue for each null.
+  PolymorphicValue null_ = std::monostate{};
 
   //! Stores the IR nodes corresponding to each index.
   std::vector<Val*> symbols_;

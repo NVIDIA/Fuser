@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 #include <device_lower/lower2device.h>
+#include <exceptions.h>
 #include <executor_params.h>
 #include <executor_utils.h>
 #include <expr_evaluator.h>
@@ -14,6 +15,7 @@
 #include <ir/all_nodes.h>
 #include <ir/cloner.h>
 #include <ir/printer.h>
+#include <serde/fusion_cache_generated.h>
 #include <utils.h>
 
 #include <c10/core/DeviceType.h>
@@ -111,7 +113,7 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
 
   // function to query whether a `FusionExecutor` has a compiled kernel to
   // execute
-  bool compiled() const {
+  bool isCompiled() const {
     return fusion_id_ != -1 && lowered_ && compiled_kernel_.function != nullptr;
   };
 
@@ -139,7 +141,7 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
       executor_utils::caching::ExecutorCompileTimeInfoCache;
 
   kir::Kernel* kernel() const {
-    TORCH_INTERNAL_ASSERT(lowered_);
+    NVF_ERROR(lowered_);
     return lowered_->kernel();
   }
 
@@ -183,7 +185,7 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
 
   //! Returns the string of the compiled kernel
   std::string kernelString() const {
-    TORCH_INTERNAL_ASSERT(!kernel_code_.empty(), "Kernel code not generated");
+    NVF_ERROR(!kernel_code_.empty(), "Kernel code not generated");
     return kernel_code_;
   }
 
@@ -249,6 +251,16 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
     disable_parameter_cache_ = true;
   }
 
+  //! Serialize Fusion Executor using flatbuffers
+  flatbuffers::Offset<serde::FusionExecutor> serialize(
+      flatbuffers::FlatBufferBuilder& builder) const;
+
+  //! Deserialize Fusion Executor using flatbuffers
+  void deserialize(
+      const serde::FusionExecutor* buffer,
+      Fusion* fusion,
+      CompileParams compile_params);
+
  private:
   static std::string kernelNamespace() {
     return "CudaCodeGen";
@@ -308,6 +320,28 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
   void recompileKernel(
       const LaunchParams& new_launch_params,
       const CompileParams& new_compile_params);
+
+  // ExecutorEntry is an internal POD struct for the FusionExecutor class.
+  // We define ExecutorEntry's serialize and deserialize as private methods in
+  // FusionExecutor.
+  flatbuffers::Offset<serde::ExecutorEntry> serialize(
+      flatbuffers::FlatBufferBuilder& builder,
+      const ExecutorEntry& data) const;
+
+  //! Deserialize ExecutorEntry using flatbuffers
+  ExecutorEntry deserialize(const serde::ExecutorEntry* buffer);
+
+  // GlobalBufferInfo is an internal POD struct for the FusionExecutor class.
+  // We define GlobalBufferInfo's serialize and deserialize as private methods
+  // in FusionExecutor.
+  flatbuffers::Offset<serde::GlobalBufferInfo> serialize(
+      flatbuffers::FlatBufferBuilder& builder,
+      const GlobalBufferInfo& data,
+      int64_t tv_position,
+      bool is_fusion_output) const;
+
+  //! Deserialize GlobalBufferInfo using flatbuffers
+  GlobalBufferInfo deserialize(const serde::GlobalBufferInfo* buffer);
 
   //! Get the current dynamic shared memory size
   int64_t getAvailableDynamicSmemSize();

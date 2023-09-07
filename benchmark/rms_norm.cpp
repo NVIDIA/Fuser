@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <csrc/exceptions.h>
 #include <device_lower/lower2device.h>
 #include <executor.h>
 #include <fusion.h>
@@ -26,7 +27,7 @@ using namespace nvfuser;
 //------------------------------------------------------------------------------
 
 static void setupRMSNorm(Fusion* fusion, DataType dtype) {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       dtype == DataType::Float || dtype == DataType::Half ||
       dtype == DataType::BFloat16);
 
@@ -63,7 +64,7 @@ static void NvFuserScheduler_RMSNorm(
     benchmark::State& benchmark_state,
     FusionExecutorCache* fusion_executor_cache,
     DataType dtype) {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       dtype == DataType::Float || dtype == DataType::Half ||
       dtype == DataType::BFloat16);
 

@@ -11,6 +11,8 @@
 
 #include <dispatch.h>
 
+#include <typeinfo>
+
 namespace nvfuser {
 
 template <typename T>
@@ -72,7 +74,7 @@ void Val::dispatch(T handler, Val* val) {
       ptr(handler)->handle(val);
       return;
   }
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       false,
       "Unknown valtype in dispatch! val: ",
       val->toString(),
@@ -110,12 +112,20 @@ void Expr::dispatch(T handler, Expr* expr) {
     ptr(handler)->handle(expr->as<ArrayConstruct>());
     return;
   }
+  if (expr->isStrictlyA<StructConstruct>()) {
+    ptr(handler)->handle(expr->as<StructConstruct>());
+    return;
+  }
   if (expr->isStrictlyA<GetAttr>()) {
     ptr(handler)->handle(expr->as<GetAttr>());
     return;
   }
   if (expr->isStrictlyA<GetItem>()) {
     ptr(handler)->handle(expr->as<GetItem>());
+    return;
+  }
+  if (expr->isStrictlyA<ReverseArray>()) {
+    ptr(handler)->handle(expr->as<ReverseArray>());
     return;
   }
   if (expr->isStrictlyA<GetMetaData>()) {
@@ -302,7 +312,7 @@ void Expr::dispatch(T handler, Expr* expr) {
     ptr(handler)->handle(expr->as<PipelineCommunication>());
     return;
   }
-  TORCH_INTERNAL_ASSERT(false, "Unknown exprtype in dispatch!");
+  NVF_ERROR(false, "Unknown exprtype in dispatch: ", typeid(*expr).name());
 }
 
 template <typename T>
@@ -312,7 +322,7 @@ void Statement::dispatch(T handler, Statement* stmt) {
   } else if (stmt->isExpr()) {
     ptr(handler)->dispatch(stmt->as<Expr>());
   } else {
-    TORCH_INTERNAL_ASSERT(false, "Unknown stmttype in dispatch!");
+    NVF_ERROR(false, "Unknown stmttype in dispatch!");
   }
 }
 
@@ -344,7 +354,7 @@ void Val::constDispatch(T handler, const Val* val) {
       ptr(handler)->handle(val);
       return;
   }
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       false,
       "Unknown valtype in dispatch! val: ",
       val->toString(),
@@ -382,12 +392,20 @@ void Expr::constDispatch(T handler, const Expr* expr) {
     ptr(handler)->handle(expr->as<ArrayConstruct>());
     return;
   }
+  if (expr->isStrictlyA<StructConstruct>()) {
+    ptr(handler)->handle(expr->as<StructConstruct>());
+    return;
+  }
   if (expr->isStrictlyA<GetAttr>()) {
     ptr(handler)->handle(expr->as<GetAttr>());
     return;
   }
   if (expr->isStrictlyA<GetItem>()) {
     ptr(handler)->handle(expr->as<GetItem>());
+    return;
+  }
+  if (expr->isStrictlyA<ReverseArray>()) {
+    ptr(handler)->handle(expr->as<ReverseArray>());
     return;
   }
   if (expr->isStrictlyA<GetMetaData>()) {
@@ -574,7 +592,7 @@ void Expr::constDispatch(T handler, const Expr* expr) {
     ptr(handler)->handle(expr->as<PipelineCommunication>());
     return;
   }
-  TORCH_INTERNAL_ASSERT(false, "Unknown exprtype in dispatch!");
+  NVF_ERROR(false, "Unknown exprtype in dispatch: ", typeid(*expr).name());
 }
 
 template <typename T>
@@ -584,7 +602,7 @@ void Statement::constDispatch(T handler, const Statement* stmt) {
   } else if (stmt->isExpr()) {
     ptr(handler)->dispatch(stmt->as<Expr>());
   } else
-    TORCH_INTERNAL_ASSERT(false, "Unknown stmttype in dispatch!");
+    NVF_ERROR(false, "Unknown stmttype in dispatch!");
 }
 
 /*
@@ -626,7 +644,7 @@ void Val::mutatorDispatch(T mutator, Val* val) {
       ptr(mutator)->mutate(val);
       return;
   }
-  TORCH_INTERNAL_ASSERT(false, "Unknown valtype in dispatch!");
+  NVF_ERROR(false, "Unknown valtype in dispatch!");
 }
 
 template <typename T>
@@ -639,7 +657,7 @@ void Statement::mutatorDispatch(T mutator, Statement* stmt) {
     ptr(mutator)->mutate(stmt->as<Expr>());
     return;
   }
-  TORCH_INTERNAL_ASSERT(false, "Unknown stmttype in dispatch!");
+  NVF_ERROR(false, "Unknown stmttype in dispatch!");
 }
 
 /*
@@ -706,31 +724,31 @@ void OptOutConstDispatch::dispatch(const Val* v) {
 
 void OptInConstDispatch::unhandled(const Statement* stmt) {
   if (stmt->isExpr()) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         false,
         "Handle not overriden for ",
         stmt->as<Expr>()->getOpString(),
         ".");
   } else if (stmt->isVal()) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         false, "Handle not overriden for ", stmt->getValType().value(), ".");
   } else {
-    TORCH_INTERNAL_ASSERT(false, "Unrecognized statement type.");
+    NVF_ERROR(false, "Unrecognized statement type.");
   }
 }
 
 void OptInDispatch::unhandled(Statement* stmt) {
   if (stmt->isExpr()) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         false,
         "Handle not overriden for ",
         stmt->as<Expr>()->getOpString(),
         ".");
   } else if (stmt->isVal()) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         false, "Handle not overriden for ", stmt->getValType().value(), ".");
   } else {
-    TORCH_INTERNAL_ASSERT(false, "Unrecognized statement type.");
+    NVF_ERROR(false, "Unrecognized statement type.");
   }
 }
 
@@ -784,10 +802,16 @@ void OptOutConstDispatch::handle(const TernaryOp* stmt) {
 void OptOutConstDispatch::handle(const ArrayConstruct* stmt) {
   unhandled(stmt);
 }
+void OptOutConstDispatch::handle(const StructConstruct* stmt) {
+  unhandled(stmt);
+}
 void OptOutConstDispatch::handle(const GetAttr* stmt) {
   unhandled(stmt);
 }
 void OptOutConstDispatch::handle(const GetItem* stmt) {
+  unhandled(stmt);
+}
+void OptOutConstDispatch::handle(const ReverseArray* stmt) {
   unhandled(stmt);
 }
 void OptOutConstDispatch::handle(const GetMetaData* stmt) {
@@ -984,10 +1008,16 @@ void OptOutDispatch::handle(TernaryOp* stmt) {
 void OptOutDispatch::handle(ArrayConstruct* stmt) {
   unhandled(stmt);
 }
+void OptOutDispatch::handle(StructConstruct* stmt) {
+  unhandled(stmt);
+}
 void OptOutDispatch::handle(GetAttr* stmt) {
   unhandled(stmt);
 }
 void OptOutDispatch::handle(GetItem* stmt) {
+  unhandled(stmt);
+}
+void OptOutDispatch::handle(ReverseArray* stmt) {
   unhandled(stmt);
 }
 void OptOutDispatch::handle(GetMetaData* stmt) {

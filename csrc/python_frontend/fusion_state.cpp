@@ -16,14 +16,14 @@ using namespace nvfuser::inst;
 namespace nvfuser::python_frontend {
 
 bool State::operator==(const State& other) const {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       (index == other.index ? (stype == other.stype) : true),
       "State indices should not match with different State Types!");
   return (index == other.index) && (stype == other.stype);
 }
 
 bool State::operator!=(const State& other) const {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       (index == other.index ? (stype == other.stype) : true),
       "State indices should not match with different State Types!");
   return (index != other.index) || (stype != other.stype);
@@ -40,7 +40,7 @@ std::ostream& operator<<(std::ostream& os, const State& state) {
   } else if (state.stype == serde::StateType_None) {
     os << "None";
   } else {
-    TORCH_INTERNAL_ASSERT(false, "Unsupported StateType");
+    NVF_ERROR(false, "Unsupported StateType");
   }
   os << state.index;
   return os;
@@ -68,7 +68,7 @@ std::unique_ptr<FusionState> FusionState::clone() {
 
 void FusionState::buildFusionIr(Fusion* fusion) {
   FUSER_PERF_SCOPE("FusionContainer::buildFusionIr");
-  TORCH_CHECK(fusion != nullptr, "Fusion is undefined.");
+  NVF_CHECK(fusion != nullptr, "Fusion is undefined.");
   resetFusionState(fusion, num_recording_states_);
   auto fusion_guard = FusionGuard(fusion);
   for (auto& record : recording_) {
@@ -84,17 +84,17 @@ void FusionState::addRecord(RecordFunctor* record) {
 }
 
 Fusion* FusionState::fusion() {
-  TORCH_CHECK(fusion_ != nullptr, "Fusion is undefined.");
+  NVF_CHECK(fusion_ != nullptr, "Fusion is undefined.");
   return fusion_;
 }
 
 void FusionState::printIr() const {
-  TORCH_CHECK(fusion_ != nullptr, "Fusion is undefined.");
+  NVF_CHECK(fusion_ != nullptr, "Fusion is undefined.");
   fusion_->printMath();
 }
 
 void FusionState::resetFusionState(Fusion* fusion, size_t size) {
-  TORCH_CHECK(fusion != nullptr, "Fusion is undefined.");
+  NVF_CHECK(fusion != nullptr, "Fusion is undefined.");
   fusion_ = fusion;
   fusion_state_.clear();
   fusion_state_.resize(size, {});
@@ -106,7 +106,7 @@ void FusionState::addFusionState(Val* val) {
 
 void FusionState::addFusionStateVector(std::vector<Val*> val) {
   for (auto v : val) {
-    TORCH_CHECK(
+    NVF_CHECK(
         !v->isA<TensorView>(),
         "TensorViews should not be added to State Vectors!");
   }
@@ -115,7 +115,7 @@ void FusionState::addFusionStateVector(std::vector<Val*> val) {
 
 Val* FusionState::getFusionState(size_t index) const {
   const auto& ret = fusion_state_.at(index);
-  TORCH_CHECK(ret.size() == 1, "Expecting to return only one Val*.");
+  NVF_CHECK(ret.size() == 1, "Expecting to return only one Val*.");
   return ret[0];
 }
 
@@ -133,7 +133,7 @@ void FusionState::setFusionState(size_t index, Val* val) {
 
 void FusionState::setFusionStateVector(size_t index, std::vector<Val*> val) {
   for (auto v : val) {
-    TORCH_CHECK(
+    NVF_CHECK(
         !v->isA<TensorView>(),
         "TensorViews should not be added to State Vectors!");
   }
@@ -141,26 +141,26 @@ void FusionState::setFusionStateVector(size_t index, std::vector<Val*> val) {
 }
 
 void FusionState::addInput(Val* input) {
-  TORCH_CHECK(fusion_ != nullptr, "Fusion is undefined.");
+  NVF_CHECK(fusion_ != nullptr, "Fusion is undefined.");
   fusion_->addInput(input);
 }
 
 void FusionState::addOutput(Val* output) {
-  TORCH_CHECK(fusion_ != nullptr, "Fusion is undefined.");
+  NVF_CHECK(fusion_ != nullptr, "Fusion is undefined.");
   fusion_->addOutput(output);
 }
 
 void FusionState::addOutput(
     Val* output,
     const std::vector<int64_t>& permutation) {
-  TORCH_CHECK(fusion_ != nullptr, "Fusion is undefined.");
+  NVF_CHECK(fusion_ != nullptr, "Fusion is undefined.");
   fusion_->addOutput(output);
   fusion_->setPermutationOnOutput(
       (int)fusion_->outputs().size() - 1, permutation);
 }
 
 void FusionState::aliasOutputToInput(Val* output, Val* input) {
-  TORCH_CHECK(fusion_ != nullptr, "Fusion is undefined.");
+  NVF_CHECK(fusion_ != nullptr, "Fusion is undefined.");
   fusion_->aliasOutputToInput(output, input);
 }
 

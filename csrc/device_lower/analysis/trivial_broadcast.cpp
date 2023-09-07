@@ -100,7 +100,7 @@ void ConcretizedBroadcastDomains::dispatch(Expr* expr) {
               c_id, std::unordered_set<IterDomain*>({c_id}));
           continue;
         }
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             it != broadcast_origin_map_.end(),
             "Broadcast origin info not found for producer broadcast domain: ",
             p_id->toString(),

@@ -54,7 +54,7 @@ Val* ContiguousInnerDimensionsMapper::isFullyProjected(IterDomain* id) {
 
 ContiguousInnerDimensionsMapper::ContiguousInnerDimensionsMapper(
     TensorView* reference,
-    const std::vector<IterDomain*>& reference_ids,
+    const std::vector<IterDomain*>& ids,
     std::shared_ptr<const ComputeAtMap> ca_map,
     const std::unordered_set<Split*>& divisible_splits)
     // Send null info to MaxInfoSpanning tree because we need state to compute
@@ -64,63 +64,39 @@ ContiguousInnerDimensionsMapper::ContiguousInnerDimensionsMapper(
       ca_map_(std::move(ca_map)),
       divisible_splits_(divisible_splits) {
   FusionGuard fg(reference->fusion());
-  // Check which domain of tensor view we should be looking at. All IDs must be
-  // found in the the rfactor domain.
-  TORCH_INTERNAL_ASSERT(
-      std::all_of(
-          reference_ids.begin(),
-          reference_ids.end(),
-          [reference](IterDomain* id) {
-            return (
-                std::find(
-                    reference->getMaybeRFactorDomain().begin(),
-                    reference->getMaybeRFactorDomain().end(),
-                    id) != reference->getMaybeRFactorDomain().end());
-          }),
-      "\nIterDomains passed in to ContiguousInnerDimensionsMapper passed in to ",
-      "ContiguousInnerDimensionsMapper must all exist in the rfactor domain.\n",
-      "Reference: ",
-      reference->toString());
+  // Exclude reduction IDs if the reference is a fusion input as they
+  // don't manifest at all in the fusion. This simplifies the
+  // analysis in getContigMergeOfInnerSize, which only looks at
+  // non-reduction rfactor domains. Including reduction domains here
+  // can result in incorrect ordering
+  // NOTE: this is necessary to enable vectorization in
+  // NVFuserTest.FusionSegmentReduceSoftmax_CUDA
+  auto rfactor_domain = reference->getMaybeRFactorDomain();
+  auto filtered_ids = ids;
+  if (reference->isFusionInput()) {
+    rfactor_domain = TensorDomain::noReductions(rfactor_domain);
+    filtered_ids = TensorDomain::noReductions(filtered_ids);
+  } else {
+    NVF_ERROR(
+        !TensorDomain::hasReduction(rfactor_domain) &&
+            !TensorDomain::hasReduction(filtered_ids),
+        "Unexpected reduction domain given to ContiguousInnerDimensionsMapper");
+  }
 
   // Record while processing reference's information
   recording_ = true;
-  std::shared_ptr<Information> reference_information;
+  for (auto id : filtered_ids) {
+    addProjectedExtent(id, commonOrConstExtent(ca_map_, id));
+  }
 
   // Ordering of dimensions is important in this analysis, if an ordering is
   // contiguous in the reference, but not the target tensor views, then we
   // cannot consider that a contiguous merge dimension for vectorization.
-  std::vector<IterDomain*> reordered_rfactor;
-  for (auto id : reference->getMaybeRFactorDomain()) {
-    // Exclude reduction IDs if the reference is a fusion input as they
-    // don't manifest at all in the fusion. This simplifies the
-    // analysis in getContigMergeOfInnerSize, which only looks at
-    // non-reduction rfactor domains. Including reduction domains here
-    // can result in incorrect ordering
-    if (reference->isFusionInput() && id->isReduction()) {
-      continue;
-    }
-    // If not a fusion input, can this be a reduction domain?
-    TORCH_INTERNAL_ASSERT(
-        !id->isReduction(),
-        "Unexpected reduction domain: ",
-        id->toString(),
-        " of tensor ",
-        reference->toString());
-    if (std::find(reference_ids.begin(), reference_ids.end(), id) !=
-        reference_ids.end()) {
-      reordered_rfactor.push_back(id);
-      // Initiailze the extent for the mapped iter domain
-      addProjectedExtent(id, commonOrConstExtent(ca_map_, id));
-    } else if (!id->isBroadcast()) {
-      // Ignore broadcasts in the reference. Otherwise, remove non-contiguous
-      // IDs in the reference tensor as this is the contiguous mapper.
-      reordered_rfactor.clear();
-    }
-  }
+  auto projected_rfactor = projectId(filtered_ids, rfactor_domain);
 
-  reference_information = MappedDomain::build(
-      projectId(reordered_rfactor, reference->getRootDomain()),
-      reordered_rfactor,
+  std::shared_ptr<Information> reference_information = MappedDomain::build(
+      projectId(projected_rfactor, reference->getRootDomain()),
+      projected_rfactor,
       reference->hasRFactor() /*shouldn't matter how we initialize this*/);
 
   // Stop recording before traversal
@@ -136,11 +112,11 @@ ContiguousInnerDimensionsMapper::ContiguousInnerDimensionsMapper(
 
 ContiguousInnerDimensionsMapper ContiguousInnerDimensionsMapper::map(
     TensorView* reference,
-    const std::vector<IterDomain*>& reference_ids,
+    const std::vector<IterDomain*>& ids,
     std::shared_ptr<const ComputeAtMap> ca_map,
     const std::unordered_set<Split*>& divisible_splits) {
   return ContiguousInnerDimensionsMapper(
-      reference, reference_ids, ca_map, divisible_splits);
+      reference, ids, ca_map, divisible_splits);
 }
 
 template <typename MergeOrSplit>
@@ -419,7 +395,7 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
     } else {
       // TODO: I wonder if we should just remove all inputs instead of erroring.
       // Seems that would be safe.
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           false,
           "ProjectDimensions does not support expr type: ",
           expr->toString());
@@ -447,7 +423,7 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
     } else {
       // TODO: I wonder if we should just remove all inputs instead of erroring.
       // Seems that would be safe.
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           false,
           "ProjectDimensions does not support expr type: ",
           expr->toString());
@@ -602,7 +578,7 @@ ContiguousInnerDimensionsMapper::computeInfoSibling(
     TensorView* from,
     TensorView* to,
     std::shared_ptr<MaxInfoSpanningTree::Information> from_info) {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       from->getRootDomain().size() == to->getRootDomain().size(),
       "Siblings of different root sizes not supported, but found:\n  ",
       from->toString(),
@@ -622,7 +598,7 @@ ContiguousInnerDimensionsMapper::computeInfoSibling(
         from->getRootDomain().begin(),
         from->getRootDomain().end(),
         from_root_id);
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         from_it != from->getRootDomain().end(),
         "Expected ",
         from_root_id->toString(),
@@ -644,7 +620,7 @@ ContiguousInnerDimensionsMapper::computeInfoSibling(
         false /*shouldn't matter how we initialize this*/);
   }
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       from->getRFactorDomain().size() == to->getRFactorDomain().size(),
       "Siblings of different rfactor sizes not supported, but found:\n  ",
       from->toString(),
@@ -665,7 +641,7 @@ ContiguousInnerDimensionsMapper::computeInfoSibling(
         from->getRFactorDomain().begin(),
         from->getRFactorDomain().end(),
         from_rfactor_id);
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         from_it != from->getRFactorDomain().end(),
         "Expected ",
         from_rfactor_id->toString(),
@@ -716,7 +692,7 @@ Val* ContiguousInnerDimensionsMapper::getContigMergeOfInnerSize(
   Val* product_of_inner_extents = of_tv->container()->oneVal();
   auto of_tv_root = of_tv->getMaybeRFactorDomain();
 
-  TORCH_INTERNAL_ASSERT(hasMappedDims(of_tv));
+  NVF_ERROR(hasMappedDims(of_tv));
 
   const std::vector<IterDomain*>& projected_dims = mappedRFactorIds(of_tv);
   auto of_tv_root_no_reductions = TensorDomain::noReductions(of_tv_root);
@@ -742,7 +718,7 @@ Val* ContiguousInnerDimensionsMapper::getContigMergeOfInnerSize(
     return product_of_inner_extents;
   }
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       of_tv_root_no_reductions_size == contiguity.size(),
       "Contiguity mismatch found.");
 
@@ -761,7 +737,7 @@ Val* ContiguousInnerDimensionsMapper::getContigMergeOfInnerSize(
     auto root_id = of_tv_root_no_reductions.at(root_i);
 
     if (root_id->extent()->isOneInt() || root_id->isBroadcast()) {
-      if (projected_dims[projected_dims_i - 1]->sameAs(root_id)) {
+      if (projected_dims[projected_dims_i - 1] == root_id) {
         --projected_dims_i;
       }
       continue;
@@ -769,7 +745,7 @@ Val* ContiguousInnerDimensionsMapper::getContigMergeOfInnerSize(
 
     auto contiguity_i = contiguity.at(root_i);
     if (!contiguity_i.has_value()) {
-      TORCH_INTERNAL_ASSERT(false, "contiguity flag at root_i can't be null");
+      NVF_ERROR(false, "contiguity flag at root_i can't be null");
     } else {
       // Not contiguous
       if (!contiguity_i.value()) {
@@ -778,7 +754,7 @@ Val* ContiguousInnerDimensionsMapper::getContigMergeOfInnerSize(
     }
 
     // Mapping order isn't correct, cannot expand vectorization dimension.
-    if (!projected_dims[--projected_dims_i]->sameAs(root_id)) {
+    if (projected_dims[--projected_dims_i] != root_id) {
       break;
     }
 
@@ -802,7 +778,7 @@ namespace {
 // Returns Mappings of all dims in reference starting from inner most position
 // to outer most position. e.g. T0[i0, r1, b2] will return 3 Mapper instances
 // associated with:
-// {{i0, r1, b1}, {r1, b1}, {b1}}
+// {{i0, r1, b2}, {r1, b2}, {b2}}
 std::vector<std::unordered_map<TensorView*, Val*>> getTvToContigInnerSizeMapsOf(
     TensorView* ref) {
   std::vector<std::unordered_map<TensorView*, Val*>> mappers;
@@ -857,7 +833,7 @@ int64_t getVectorizationFactor(
 
     // factor <= alignment / dtype_size
     int64_t alignment_size = (int64_t)runtime_info.getAlignmentSize(inp_or_out);
-    TORCH_INTERNAL_ASSERT(alignment_size % dtype_size == 0);
+    NVF_ERROR(alignment_size % dtype_size == 0);
     max_vec_size = std::min(max_vec_size, alignment_size / dtype_size);
 
     // factor <= projected_extent
@@ -873,29 +849,67 @@ int64_t getVectorizationFactor(
     }
     auto inner_size_opt =
         runtime_info.expressionEvaluator().evaluate(inner_size_it->second);
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         inner_size_opt.hasValue(),
         "Vectorization heuristic could not evaluate inner most size.");
-    int64_t inner_size = inner_size_opt.as<int64_t>();
-    int64_t local_max_vec_size = 1;
 
-    while (inner_size > 1 && inner_size % 2 == 0 &&
-           local_max_vec_size < max_vec_size) {
-      inner_size /= 2;
-      local_max_vec_size *= 2;
-    }
-
-    max_vec_size = std::min(local_max_vec_size, max_vec_size);
+    max_vec_size = std::min(
+        scheduler_utils::maxVectorizationWidth(inner_size_opt.as<int64_t>()),
+        max_vec_size);
   }
 
   return max_vec_size;
+}
+
+int64_t getVectorizationFactorTransposeGroup(
+    SchedulerRuntimeInfo& runtime_info,
+    TensorView* reference,
+    size_t inner_most_dim,
+    const std::vector<size_t>& dims_to_merge,
+    const std::vector<TensorView*>& vec_tv,
+    int64_t max_vectorization) {
+  max_vectorization = scheduler_utils::maxVectorizationWidth(max_vectorization);
+  std::vector<IterDomain*> virtual_innermost_dim;
+  // find the virtual_innermost_dim in reference so we can later map
+  // that to individual TensorView in vec_tv.
+  for (const auto& dim : dims_to_merge) {
+    virtual_innermost_dim.insert(
+        virtual_innermost_dim.begin(), reference->axis(static_cast<int>(dim)));
+  }
+  virtual_innermost_dim.push_back(
+      reference->getMaybeRFactorDomain()[inner_most_dim]);
+
+  // NOTE: do I need to consider stride here?! sounds like
+  // ContiguousInnerDimensionsMapper::map requires reference to be
+  // contiguous, but does it handle stride order?
+  auto contig_inner_map =
+      vectorize_helper::ContiguousInnerDimensionsMapper::map(
+          reference, virtual_innermost_dim)
+          .getTvToContigMergeOfInnerSizeMap();
+  for (auto tv : vec_tv) {
+    auto inner_size_it = contig_inner_map.find(tv);
+    auto tv_vectorize_factor_opt = inner_size_it == contig_inner_map.end()
+        ? 1
+        : runtime_info.expressionEvaluator().evaluate(inner_size_it->second);
+    // TODO: Do not assert here. we can just reduce vectorization size to 1 if
+    // we can't infer an inner size.
+    NVF_ERROR(
+        tv_vectorize_factor_opt.hasValue(),
+        "Vectorization heuristic could not evaluate inner most size.");
+    int64_t tv_vectorize_factor = tv_vectorize_factor_opt.as<int64_t>();
+    max_vectorization = std::min(
+        max_vectorization,
+        scheduler_utils::maxVectorizationWidth(tv_vectorize_factor));
+  }
+
+  return max_vectorization;
 }
 
 int64_t getVectorizationBreakPointOfReductionProducer(
     TensorView* reduction_consumer,
     TensorView* reduction_producer,
     int64_t consumer_innermost_ndims) {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       reduction_consumer->definition() != nullptr &&
           ir_utils::isReductionOp(reduction_consumer->definition()) &&
           reduction_consumer->definition()->input(0) == reduction_producer,
@@ -920,7 +934,7 @@ int64_t getVectorizationBreakPointOfReductionProducer(
     auto c2p_it = c2p.find(consumer_id);
     // Since this is for a reduction op, there must be a mapped
     // producer ID
-    TORCH_INTERNAL_ASSERT(c2p_it != c2p.end());
+    NVF_ERROR(c2p_it != c2p.end());
     auto producer_id = c2p_it->second;
     producer_innermost_ids.insert(producer_id);
   }
@@ -940,7 +954,7 @@ int64_t getVectorizationBreakPointOfReductionProducer(
     // reduction/normalization scheduler do not support fusing
     // multiple back-to-back reductions
     if (producer_rf_id->isReduction()) {
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           reduction_producer->isFusionInput(),
           "Unexpected producer of reduction: ",
           reduction_producer->toString());
@@ -962,8 +976,7 @@ int64_t getVectorizationBreakPointOfReductionProducer(
 
     // Neither reduction nor mapped to consumer innermost IDs.
     // This should not happen
-    TORCH_INTERNAL_ASSERT(
-        false, "Unexpected producer RF ID: ", producer_rf_id->toString())
+    NVF_ERROR(false, "Unexpected producer RF ID: ", producer_rf_id->toString())
   }
 
   return break_point;

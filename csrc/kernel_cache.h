@@ -9,11 +9,13 @@
 
 #include <dynamic_transform.h>
 #include <evaluator_common.h>
+#include <exceptions.h>
 #include <executor.h>
 #include <fusion.h>
 #include <fusion_segmenter.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/registry.h>
+#include <serde/fusion_cache_generated.h>
 
 #include <c10/macros/Export.h>
 #include <c10/util/ArrayRef.h>
@@ -109,9 +111,16 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
     std::lock_guard<std::mutex> guard(mutex_);
     return std::all_of(
         executors_.begin(), executors_.end(), [](const auto& executor) {
-          return executor.compiled();
+          return executor.isCompiled();
         });
   }
+
+  //! Serialize Fusion Kernel Runtime using flatbuffers
+  flatbuffers::Offset<serde::FusionKernelRuntime> serialize(
+      flatbuffers::FlatBufferBuilder& builder) const;
+
+  //! Deerialize Fusion Kernel Runtime using flatbuffers
+  void deserialize(const serde::FusionKernelRuntime* buffer);
 
   //! Note that all heuristics use the same index type.
   PrimDataType getIndexType() const {
@@ -121,7 +130,7 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
       return PrimDataType::Int;
     }
     auto index_type = schedulers().at(0).get()->params()->cparams.index_type;
-    TORCH_INTERNAL_ASSERT(index_type.has_value());
+    NVF_ERROR(index_type.has_value());
     return index_type.value();
   }
 
@@ -190,8 +199,7 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
   //! TODO: have a interface for grabbing all recent logs. Need to put a buffer
   //! space for recent logs
   ExecutorLog getMostRecentExecutorLog() {
-    TORCH_INTERNAL_ASSERT(
-        profiling_, "Executor log is only produced in profiling mode");
+    NVF_ERROR(profiling_, "Executor log is only produced in profiling mode");
     return most_recent_executor_log_;
   }
 
@@ -246,6 +254,11 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
   //! Entries indexed by groupID:
   //! Executors holding compiled kernels
   std::vector<FusionExecutor> executors_;
+
+  // A metadata copy of initial arguments used to contruct this
+  // FusionKernelRuntime. Used during deserialization to schedule the fusion
+  // rather than storing the scheduled fusion directly.
+  KernelArgumentHolder args_metadata_;
 
   //! Heuristics object holding scheduler entries for all segments
   std::unique_ptr<FusionHeuristics> heuristics_;
@@ -349,6 +362,13 @@ class TORCH_CUDA_CU_API InputsIdLookup : public NonCopyable {
     return encoding_lookup_.size();
   }
 
+  //! Serialize InputsIdLookup using flatbuffers
+  flatbuffers::Offset<serde::InputsIdLookup> serialize(
+      flatbuffers::FlatBufferBuilder& builder) const;
+
+  //! Deserialize InputsIdLookup using flatbuffers
+  void deserialize(const serde::InputsIdLookup* buffer);
+
  private:
   // string to store encoded input meta information. Reuse the buffer instead of
   // stringtream gives few us perf gain.
@@ -365,7 +385,7 @@ class TORCH_CUDA_CU_API InputsIdLookup : public NonCopyable {
   };
 
   //! maximum cache size for LRU
-  const size_t max_cache_size_;
+  size_t max_cache_size_ = 0;
 
   //! next available unique id, we monotonically increase `current_id_` avoid
   //! conflicts
@@ -536,7 +556,7 @@ class TORCH_CUDA_CU_API FusionExecutorCache {
   //  to capture runtime profiling info. We also need to define
   //  a suitable profiling window / buffer size.
   ExecutorLog getMostRecentExecutorInfo() {
-    TORCH_INTERNAL_ASSERT(most_recent_runtime_ != nullptr);
+    NVF_ERROR(most_recent_runtime_ != nullptr);
     return most_recent_runtime_->getMostRecentExecutorLog();
   }
 
@@ -614,9 +634,16 @@ class TORCH_CUDA_CU_API FusionExecutorCache {
   //! be zero if the measurement is not enabled
   float getMostRecentKernelTimeMs() const {
     auto rt = getMostRecentKernelRuntime();
-    TORCH_INTERNAL_ASSERT(rt != nullptr);
+    NVF_ERROR(rt != nullptr);
     return rt->kernelTimeMs();
   }
+
+  //! Serialize Fusion Executor Cache using flatbuffers
+  flatbuffers::Offset<serde::FusionExecutorCache> serialize(
+      flatbuffers::FlatBufferBuilder& builder) const;
+
+  //! Deserialize Fusion Executor Cache using flatbuffers
+  void deserialize(const serde::FusionExecutorCache* buffer);
 
   //! Allocate the outputs of the Fusion given inputs
   //! TODO: re-implement

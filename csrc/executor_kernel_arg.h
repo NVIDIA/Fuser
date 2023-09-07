@@ -9,8 +9,10 @@
 
 #include <ATen/core/ivalue.h>
 #include <c10/util/Exception.h>
+#include <exceptions.h>
 #include <expr_evaluator.h>
 #include <ir/all_nodes.h>
+#include <serde/fusion_cache_generated.h>
 #include <torch/csrc/jit/ir/ir.h>
 #include <type.h>
 
@@ -27,9 +29,6 @@ namespace nvfuser {
 //! compilation, we are not unnecessarily holding memory that is not needed.
 class TORCH_CUDA_CU_API KernelArgumentHolder {
  public:
-  //! create KernelArgumentHolder from c10 inputs. Note that we we not taking
-  //! the ownership of the memory from the original inputs, but just recording
-  //! its meta data for kernel execution/compilation.
   static KernelArgumentHolder createKernelArgumentHolder(
       const c10::ArrayRef<c10::IValue>& inputs,
       std::optional<int8_t> device = std::nullopt);
@@ -66,6 +65,18 @@ class TORCH_CUDA_CU_API KernelArgumentHolder {
     return arguments_.at(ind).get();
   };
 
+  auto cbegin() const {
+    return arguments_.cbegin();
+  }
+
+  auto cend() const {
+    return arguments_.cend();
+  }
+
+  auto getBackInserter() {
+    return std::back_inserter(arguments_);
+  }
+
   size_t size() const {
     return arguments_.size();
   }
@@ -91,6 +102,13 @@ class TORCH_CUDA_CU_API KernelArgumentHolder {
   }
 
   std::string toString() const;
+
+  //! Serialize Kernel Argument Holder using flatbuffers
+  flatbuffers::Offset<serde::KernelArgumentHolder> serialize(
+      flatbuffers::FlatBufferBuilder& builder) const;
+
+  //! Deserialize Kernel Argument Holder using flatbuffers
+  void deserialize(const serde::KernelArgumentHolder* buffer);
 
  private:
   std::vector<std::shared_ptr<PolymorphicValue>> arguments_;

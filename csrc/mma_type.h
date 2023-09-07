@@ -7,9 +7,12 @@
 // clang-format on
 #pragma once
 #include <c10/macros/Export.h>
+#include <exceptions.h>
 #include <fusion.h>
 
 namespace nvfuser {
+
+constexpr std::string_view MATMUL_LOG_PREFIX = "[MATMUL DEBUG] ";
 
 //! Named descriptors of domains in matmul
 enum class MatmulDomain { M = 0, N, K };

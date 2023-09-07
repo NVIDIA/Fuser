@@ -30,17 +30,17 @@ Statement* IrCloner::clone(const Statement* statement) {
     // The base cloning constructor (Statement) should have
     // registered the new node. Failure to do so indicates
     // that something went horribly wrong.
-    TORCH_INTERNAL_ASSERT(new_node != nullptr);
-    TORCH_INTERNAL_ASSERT(clones_map_[statement] == new_node);
+    NVF_ERROR(new_node != nullptr);
+    NVF_ERROR(clones_map_[statement] == new_node);
 
     return new_node;
   }
 }
 
 void IrCloner::registerClone(const Statement* src, Statement* clone) {
-  TORCH_CHECK(src != nullptr);
-  TORCH_CHECK(clone != nullptr);
-  TORCH_CHECK(clones_map_.insert({src, clone}).second);
+  NVF_CHECK(src != nullptr);
+  NVF_CHECK(clone != nullptr);
+  NVF_CHECK(clones_map_.insert({src, clone}).second);
 }
 
 Statement* IrCloner::handle(const Statement* s) {
@@ -54,7 +54,7 @@ TensorView* RecomputeTv::recompute(
 
   // Disallow recomputation of inputs or outputs. User would have to be aware of
   // these changes and informed they happened somehow.
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       !tv->isFusionInput(),
       "Cannot recompute buffers that are inputs of the fusion.");
 
@@ -81,9 +81,9 @@ TensorView* RecomputeTv::recompute(
   const auto const_tv = tv;
   // Find the recomputed tensor from the cloner
   auto clone_it = replicator.clones_map_.find(const_tv);
-  TORCH_INTERNAL_ASSERT(clone_it != replicator.clones_map_.end());
+  NVF_ERROR(clone_it != replicator.clones_map_.end());
   auto cloned_val = clone_it->second;
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       cloned_val->isA<TensorView>(),
       "Cloned value is somehow not a tensor view.");
 

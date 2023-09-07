@@ -9,6 +9,7 @@
 
 #include <compute_at_map.h>
 #include <device_lower/analysis/divisible_split.h>
+#include <exceptions.h>
 #include <fusion.h>
 #include <ir/all_nodes.h>
 #include <maxinfo_propagator.h>
@@ -160,7 +161,7 @@ class TORCH_CUDA_CU_API ContiguousInnerDimensionsMapper
   }
 
   const std::vector<IterDomain*>& mappedRootIds(TensorView* tv) const {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         tv_infos_.find(tv) != tv_infos_.end(),
         "TensorView not found: ",
         tv->toString());
@@ -169,7 +170,7 @@ class TORCH_CUDA_CU_API ContiguousInnerDimensionsMapper
   }
 
   const std::vector<IterDomain*>& mappedRFactorIds(TensorView* tv) const {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         tv_infos_.find(tv) != tv_infos_.end(),
         "TensorView not found: ",
         tv->toString());
@@ -179,7 +180,7 @@ class TORCH_CUDA_CU_API ContiguousInnerDimensionsMapper
 
   Val* getProjectedExtent(IterDomain* id) const {
     if (projected_extent_.find(id) == projected_extent_.end()) {
-      TORCH_INTERNAL_ASSERT(false, "Not projected: ", id->toString());
+      NVF_ERROR(false, "Not projected: ", id->toString());
     }
     return projected_extent_.at(id);
   }
@@ -189,7 +190,7 @@ class TORCH_CUDA_CU_API ContiguousInnerDimensionsMapper
  private:
   ContiguousInnerDimensionsMapper(
       TensorView* reference,
-      const std::vector<IterDomain*>& reference_ids,
+      const std::vector<IterDomain*>& ids,
       std::shared_ptr<const ComputeAtMap> ca_map,
       const std::unordered_set<Split*>& divisible_splits);
 
@@ -236,7 +237,7 @@ class TORCH_CUDA_CU_API ContiguousInnerDimensionsMapper
       return;
     }
 
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         projected_extent_.count(id) == 0,
         "Already registered: ",
         id->toString(),
@@ -313,6 +314,14 @@ int64_t getVectorizationFactor(
     TensorView* reference_tv,
     HeuristicSummary* data_cache,
     int64_t break_point);
+
+int64_t getVectorizationFactorTransposeGroup(
+    SchedulerRuntimeInfo& runtime_info,
+    TensorView* reference,
+    size_t inner_most_dim,
+    const std::vector<size_t>& dims_to_merge,
+    const std::vector<TensorView*>& vec_tv,
+    int64_t max_vectorization);
 
 //! Find the break point for vectorization. Here, we vectorize either
 //! the innermost reduction or iteration domains. We use the producer

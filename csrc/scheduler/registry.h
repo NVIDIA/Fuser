@@ -6,6 +6,7 @@
  */
 // clang-format on
 #pragma once
+#include <exceptions.h>
 #include <executor_kernel_arg.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
@@ -66,12 +67,6 @@ class TORCH_CUDA_CU_API SchedulerRuntimeInfo : public NonCopyable {
   //!  return max_alignment_size_in_byte.
   size_t getAlignmentSize(TensorView* tv);
 
-  // Gets maximum vectorizable width of tv, assumes we can merge across all
-  // iteration domains if contiguous, unless contig_merge=false. Cannot permute
-  // the dimensions to fix contiguity. Ignores dimensions that are broadcast or
-  // reduction.
-  size_t getMaxVectorizableWidth(TensorView* tv, bool contig_merge = true);
-
   // Computes alignment size in bytes for provided ptr address
   static size_t computeAlignmentSize(size_t ptr_address);
 
@@ -87,7 +82,7 @@ class TORCH_CUDA_CU_API SchedulerRuntimeInfo : public NonCopyable {
   }
 
   ExpressionEvaluator& expressionEvaluator() {
-    TORCH_INTERNAL_ASSERT(expression_evaluator_ != nullptr);
+    NVF_ERROR(expression_evaluator_ != nullptr);
     return *expression_evaluator_;
   }
 
@@ -124,8 +119,6 @@ class TORCH_CUDA_CU_API SchedulerRuntimeInfo : public NonCopyable {
 
   // Cache for getAlignmentSize
   std::unordered_map<TensorView*, size_t> alignment_map_;
-  // Cache for getMaxVectorizableWidth
-  std::unordered_map<TensorView*, size_t> max_vectorword_map_;
 
   // Found index mode kernel needs to be run in
   PrimDataType index_type_ = PrimDataType::Int;
@@ -186,28 +179,28 @@ class TORCH_CUDA_CU_API SchedulerEntry {
 
   const ReductionParams& reductionParams() const {
     auto rparams = std::dynamic_pointer_cast<ReductionParams>(params_);
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         rparams != nullptr, "Heuristic parameter is not a reduction parameter");
     return *rparams;
   }
 
   const PointwiseParams& pointwiseParams() const {
     auto pparams = std::dynamic_pointer_cast<PointwiseParams>(params_);
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         pparams != nullptr, "Heuristic parameter is not a pointwise parameter");
     return *pparams;
   }
 
   const TransposeParams& transposeParams() const {
     auto tparams = std::dynamic_pointer_cast<TransposeParams>(params_);
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         tparams != nullptr, "Heuristic parameter is not a transpose parameter");
     return *tparams;
   }
 
   const MatmulParams& matmulParams() const {
     auto mparams = std::dynamic_pointer_cast<MatmulParams>(params_);
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         mparams != nullptr, "Heuristic parameter is not a matmul parameter");
     return *mparams;
   }

@@ -120,7 +120,7 @@ void PipelineExecutor::handle(PipelineCommunication* c) {
 std::vector<at::Tensor> PipelineExecutor::runWithInput(
     const std::vector<c10::IValue>& inputs) {
   // Make sure inputs align at global boundary.
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       inputs.size() == runtime_.pipeline_->inputs().size(),
       "Wrong number of inputs");
 

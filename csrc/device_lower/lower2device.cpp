@@ -162,7 +162,7 @@ void GpuLower::collectPaddedParallelDims() {
 
       // Check ifi TIDx is padded in this kernel
       if (id->hasPaddingToMultipleOfWarp()) {
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             id->getParallelType() == ParallelType::TIDx,
             "Padded types supported only on TIDx");
         warp_pad_info_.is_tidx_padded = true;
@@ -256,8 +256,8 @@ void dumpExprsIfEnabled(
 
 void GpuLower::lower(Fusion* fusion) {
   FUSER_PERF_SCOPE("GpuLower::lower");
-  TORCH_INTERNAL_ASSERT(fusion != nullptr);
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(fusion != nullptr);
+  NVF_ERROR(
       active_gpu_lower == nullptr, "Nested lowering passes are not supported");
 
   struct LowerGuard {
@@ -524,13 +524,12 @@ void GpuLower::lower(Fusion* fusion) {
 }
 
 kir::Kernel* GpuLower::kernel() const {
-  TORCH_CHECK(kernel_);
+  NVF_CHECK(kernel_);
   return kernel_.get();
 }
 
 GpuLower* GpuLower::current() {
-  TORCH_INTERNAL_ASSERT(
-      active_gpu_lower != nullptr, "No active GpuLower available");
+  NVF_ERROR(active_gpu_lower != nullptr, "No active GpuLower available");
   return active_gpu_lower;
 }
 

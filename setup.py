@@ -251,6 +251,9 @@ def version_tag():
     return version
 
 
+from tools.memory import get_available_memory_gb
+
+
 def cmake(build_dir: str = "", install_prefix: str = "./nvfuser"):
     # make build directories
     cwd = os.path.dirname(os.path.abspath(__file__))
@@ -298,9 +301,17 @@ def cmake(build_dir: str = "", install_prefix: str = "./nvfuser"):
     print(f"Configuring CMake with {' '.join(cmd_str)}")
     subprocess.check_call(cmd_str)
 
+    max_jobs = multiprocessing.cpu_count()
+    mem_gb_per_task = 3  # Currently compilation of nvFuser souce code takes ~3GB of memory per task, we should adjust this value if it changes in the future.
+    available_mem = get_available_memory_gb()
+    if available_mem > 0:
+        max_jobs_mem = int(available_mem / mem_gb_per_task)
+        max_jobs = min(max_jobs, max_jobs_mem)
+
     if not CMAKE_ONLY:
         # build binary
-        max_jobs = os.getenv("MAX_JOBS", str(multiprocessing.cpu_count()))
+        max_jobs = os.getenv("MAX_JOBS", str(max_jobs))
+        print(f"Using {max_jobs} jobs for compilation")
         cmd_str = [
             get_cmake_bin(),
             "--build",
@@ -327,16 +338,21 @@ def main():
         nvfuser_package_data = [
             "lib/libnvfuser_codegen.so",
             "include/nvfuser/*.h",
+            "include/nvfuser/struct.inl",
             "include/nvfuser/C++20/type_traits",
             "include/nvfuser/device_lower/*.h",
             "include/nvfuser/device_lower/analysis/*.h",
             "include/nvfuser/device_lower/pass/*.h",
+            "include/nvfuser/dynamic_type/*",
+            "include/nvfuser/dynamic_type/C++20/*",
             "include/nvfuser/kernel_db/*.h",
             "include/nvfuser/multidevice/*.h",
             "include/nvfuser/ops/*.h",
+            "include/nvfuser/ir/*.h",
             "include/nvfuser/python_frontend/*.h",
             "include/nvfuser/scheduler/*.h",
-            "include/nvfuser/serde*.h",
+            "include/nvfuser/serde/*.h",
+            "include/nvfuser/flatbuffers/*.h",
             "share/cmake/nvfuser/NvfuserConfig*",
             "contrib/*",
             "contrib/nn/*",

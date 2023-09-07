@@ -124,6 +124,24 @@ Val* findRefAsSubexprOf(Val* from, Val* reference, bool exact) {
   return nullptr;
 }
 
+// Check if the given value is helpful to reuse it. For example
+// in x = (a + b) * (a + b), it is helpful to reuse (a + b) as
+// c = a + b; x = c * c, because it can reduce the number of arithmetic
+// operations. However, it makes no sense to reuse T0.size[0] + T0.size[0] as
+// a = T0.size[0]; x = a + a, because although T0.size[0] is a composition of
+// GetItem with GetAttr, in C++, these operations are free because it just get
+// erased when lowering C++ into assembly languages.
+bool isHelpfulToReuse(Val* value) {
+  auto def = value->definition();
+  if (def == nullptr) {
+    return false;
+  }
+  if (def->isOneOf<GetMetaData, GetAttr, GetItem>()) {
+    return false;
+  }
+  return true;
+}
+
 } // namespace
 
 std::pair<Val*, bool> CommonScalarMap::hoistScalarImpl(
@@ -190,7 +208,7 @@ std::pair<Val*, bool> CommonScalarMap::hoistScalarImpl(
   // are replaced with hoisted input
   if (changed) {
     value = IrBuilder::newScalar(*value->getDataType());
-    TORCH_INTERNAL_ASSERT(def->outputs().size() == 1);
+    NVF_ERROR(def->outputs().size() == 1);
     auto create_fn = def->newObjectFunc();
     create_fn(value->container(), inputs, {value}, def->attributes());
   }
@@ -304,11 +322,17 @@ Val* CommonScalarMap::hoistScalar(
 Val* CommonScalarMap::reuseScalarIfAlreadyComputed(
     Val* value,
     kir::ForLoop* loop) {
+  // Find if value is computed on the host.
+  for (auto val : GpuLower::current()->allKnownVals()) {
+    if (val->sameAs(value)) {
+      return val;
+    }
+  }
   // Find if loop already contain `value`.
   auto it = common_scalar_map_.find(loop);
   if (it != common_scalar_map_.end()) {
-    auto& indices = it->second;
-    for (auto it = indices.begin(); it != indices.end(); it++) {
+    auto& scalars = it->second;
+    for (auto it = scalars.begin(); it != scalars.end(); it++) {
       auto idx = *it;
       auto common_subexpr = findRefAsSubexprOf(idx, value, false);
       if (common_subexpr != nullptr) {
@@ -316,7 +340,7 @@ Val* CommonScalarMap::reuseScalarIfAlreadyComputed(
           // If the reuse is a subexpression instead of the complete
           // expression, we split this subexpression out and allocate it
           // separately.
-          indices.insert(it, common_subexpr);
+          scalars.insert(it, common_subexpr);
         }
         hoisted_or_reused_.emplace(common_subexpr);
         return common_subexpr;
@@ -347,7 +371,7 @@ std::vector<Val*> CommonScalarMap::getHoistedScalars(kir::ForLoop* loop) const {
 void CommonScalarMap::initialize(const std::vector<Expr*> exprs) {
   // We only hoist scalars not depending on tensors. In lowered expressions, all
   // these scalars are computed in top level scope.
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       common_scalar_map_.empty(),
       "CommonScalarMap used before initialization.");
   for (auto expr : exprs) {
@@ -388,7 +412,7 @@ std::pair<int64_t, bool> findAllocPointFromDataDependency(
   int64_t pos = -1;
   for (auto i : c10::irange(exprs.size())) {
     auto expr = exprs[i];
-    TORCH_INTERNAL_ASSERT(expr != nullptr);
+    NVF_ERROR(expr != nullptr);
     if (auto alloc = dynamic_cast<kir::Allocate*>(expr)) {
       // Currently this branch is only to handle shared memory address. For
       // shared memory address, we generate code like `toSmem(T7)`, this does
@@ -455,21 +479,15 @@ class CommonIndexInserter : private kir::ExprMutator {
         alloc_point = existing_alloc_info.first;
         insert_ref = exprs[alloc_point];
       }
-      // Make the type of the hoisted value be the value type of the
-      // kernel, which can be either int64_t or int. Not very clean,
-      // but this seems to be the quickest way to use the value type
-      // as we don't have a scalar IR node for the value type.
-      // TODO: remove this. I think we are fine removing this now, but I need
-      // to double check the benchmarks.
-      auto dtype = value->dtype();
-      if (isIntegralType(dtype) && !isPointerType(dtype)) {
-        value->resolveIndexDtype();
+
+      if (!isHelpfulToReuse(value)) {
+        continue;
       }
 
       auto alloc = IrBuilder::create<kir::Allocate>(
           value, MemoryType::Local, GpuLower::current()->kernel()->oneVal());
       const auto def = value->definition();
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           def != nullptr,
           "Hoisted value must have a definition. ",
           value->toString());

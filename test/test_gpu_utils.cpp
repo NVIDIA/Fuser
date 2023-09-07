@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <csrc/exceptions.h>
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
@@ -49,7 +50,8 @@ TEST_F(NVFuserTest, FusionMergeDims_CUDA) {
   auto tv = makeConcreteTensor(
       {p(0), p(1), p(2), p(3), p(4), p(5), p(6), p(7), p(8), p(9), p(10)});
   std::vector<size_t> dims{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10};
-  auto merged = scheduler_utils::mergeDims(tv, {2, 3, 7, 8, 9}, dims);
+  std::vector<size_t> to_merge{3, 2, 9, 7, 8};
+  auto merged = scheduler_utils::mergeDims(tv, to_merge, dims);
   EXPECT_EQ(merged, (size_t)2);
   std::vector<int64_t> expect_shape{
       p(0), p(1), p(2) * p(3) * p(7) * p(8) * p(9), p(4), p(5), p(6), p(10)};
@@ -59,6 +61,13 @@ TEST_F(NVFuserTest, FusionMergeDims_CUDA) {
   }
   std::vector<size_t> expect_dims{0, 1, 2, 2, 3, 4, 5, 2, 2, 2, 6};
   EXPECT_EQ(dims, expect_dims);
+  auto root_domain = tv->getRootDomain();
+  auto num_merged_dim = to_merge.size();
+  auto inputs = IterVisitor::getInputsTo({tv->axis(2)});
+  for (auto index : c10::irange(num_merged_dim)) {
+    EXPECT_TRUE(root_domain[to_merge[num_merged_dim - 1 - index]]->sameAs(
+        inputs[index]));
+  }
 }
 
 TEST_F(NVFuserTest, FusionReorderAsRFactor_CUDA) {
@@ -110,8 +119,7 @@ TEST_F(NVFuserTest, FusionDisjointViewSet_CUDA) {
 
   auto disjoint_exact = scheduler_utils::disjointRFactorSets(fusion.get());
 
-  TORCH_INTERNAL_ASSERT(
-      disjoint_exact.strictAreMapped(tv0->axis(1), tv0->axis(2)));
+  NVF_ERROR(disjoint_exact.strictAreMapped(tv0->axis(1), tv0->axis(2)));
 }
 
 TEST_F(NVFuserTest, FusionBroadcastViewMultiples_CUDA) {
@@ -309,7 +317,7 @@ TEST_F(VectorizeHelperTest, BackwardMapper2_CUDA) {
 
   EXPECT_THAT(
       [&]() { mapper.getProjectedExtent(tv2->axis(0)); },
-      ::testing::ThrowsMessage<c10::Error>(
+      ::testing::ThrowsMessage<nvfuser::nvfError>(
           ::testing::HasSubstr("Not projected")));
   EXPECT_EQ(mapper.getProjectedExtent(tv2->axis(1))->evaluateInt(), 3);
   EXPECT_EQ(mapper.getProjectedExtent(tv2->axis(2))->evaluateInt(), 4);
@@ -632,7 +640,7 @@ TEST_F(VectorizeHelperTest, ForwardMapper2_CUDA) {
 
   EXPECT_THAT(
       [&]() { mapper.getProjectedExtent(tv0->axis(0)); },
-      ::testing::ThrowsMessage<c10::Error>(
+      ::testing::ThrowsMessage<nvfuser::nvfError>(
           ::testing::HasSubstr("Not projected")));
   EXPECT_EQ(mapper.getProjectedExtent(tv0->axis(1))->evaluateInt(), 3);
   EXPECT_EQ(mapper.getProjectedExtent(tv0->axis(2))->evaluateInt(), 4);
@@ -1066,7 +1074,8 @@ TEST_F(NVFuserTest, FusionSASSDumpError_CUDA) {
 
   EXPECT_THAT(
       [&]() { fe.disassembledKernelSASS(); },
-      ::testing::ThrowsMessage<c10::Error>(::testing::HasSubstr("I am fake")));
+      ::testing::ThrowsMessage<nvfuser::nvfError>(
+          ::testing::HasSubstr("I am fake")));
 
   auto cg_outputs = fe.runFusion({t0});
   testValidate(fe.kernel(), cg_outputs, {t0}, {t0}, __LINE__, __FILE__);

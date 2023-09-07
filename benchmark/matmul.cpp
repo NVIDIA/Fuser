@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <csrc/exceptions.h>
 #include <device_lower/analysis/bank_conflict.h>
 #include <executor.h>
 #include <fusion.h>
@@ -72,7 +73,7 @@ void checkMatch(at::Tensor expect, at::Tensor result, int64_t k) {
   if (allclose) {
     return;
   }
-  TORCH_INTERNAL_ASSERT(is_close.dim() == 2);
+  NVF_ERROR(is_close.dim() == 2);
 
   int64_t lower_row, higher_row, lower_col, higher_col;
   for (lower_row = 0; lower_row < is_close.size(0); lower_row++) {
@@ -96,7 +97,7 @@ void checkMatch(at::Tensor expect, at::Tensor result, int64_t k) {
     }
   }
 
-  TORCH_CHECK(
+  NVF_CHECK(
       false,
       "Fusion returns wrong results! ",
       "The result tensor has shape [",
@@ -161,7 +162,7 @@ static void SingleMatmulBase(
   FusionExecutor fe;
   fe.compileFusion(fusion, args, launch_constraints, cparams);
   if (turing_or_later) {
-    TORCH_CHECK(
+    NVF_CHECK(
         getBankConflictInfo(fe.kernel(), launch_constraints).empty(),
         "Shared memory bank conflict not removed.");
   }

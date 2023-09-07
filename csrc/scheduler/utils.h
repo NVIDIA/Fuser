@@ -10,6 +10,7 @@
 #include <compute_at_map.h>
 #include <device_lower/pass/loop_rotation.h>
 #include <disjoint_set.h>
+#include <exceptions.h>
 #include <fusion.h>
 #include <ir/all_nodes.h>
 #include <ir/cloner.h>
@@ -40,9 +41,17 @@ constexpr int64_t y_grid_limit = 65535;
 constexpr int64_t z_grid_limit = 65535;
 constexpr int64_t z_block_limit = 64;
 
+constexpr int64_t maxVectorizationWidth(int64_t n) {
+  int64_t next_vector_size = 2;
+  while (next_vector_size <= n && n % next_vector_size == 0) {
+    next_vector_size <<= 1;
+  }
+  return next_vector_size >> 1;
+}
+
 // Largest Power of 2 less-than n
 constexpr int64_t lastPow2(int64_t n) {
-  TORCH_INTERNAL_ASSERT(n >= 0);
+  NVF_ERROR(n >= 0);
   n |= (n >> 1);
   n |= (n >> 2);
   n |= (n >> 4);
@@ -100,6 +109,8 @@ TORCH_CUDA_CU_API inline void splitDims(
 // update the dimensions in `to_update` to the positions in the merged tensor.
 // Returns the merged dimension. All given dimensions are numbers before any
 // merge.
+// NOTE: merged is done as the entries in the order of `to_merge`, assuming an
+// order from inner to outer
 TORCH_CUDA_CU_API std::optional<size_t> mergeDims(
     TensorView* tv,
     std::vector<size_t> to_merge,

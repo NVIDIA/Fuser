@@ -6,6 +6,7 @@
  */
 // clang-format on
 #pragma once
+#include <exceptions.h>
 #include <serde/fusion_cache_generated.h>
 #include <type.h>
 
@@ -28,13 +29,6 @@ nvfuser::DataType mapToDtypeStruct(serde::DataType t);
 
 //! A function to map the serde dtype to its corresponding aten dtype
 at::ScalarType mapToAtenDtype(serde::DataType t);
-
-::flatbuffers::Offset<serde::Scalar> serializeScalar(
-    flatbuffers::FlatBufferBuilder& builder,
-    const nvfuser::PolymorphicValue& v,
-    nvfuser::DataType t);
-
-PolymorphicValue parsePolymorphicValue(const serde::Scalar* c);
 
 template <typename T>
 std::vector<T> parseVector(const flatbuffers::Vector<T>* fb_vector) {

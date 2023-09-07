@@ -21,12 +21,12 @@ ForwardDropoutResult dropout(TensorView* x, Val* prob) {
 }
 
 ForwardDropoutResult dropout(TensorView* x, Val* prob, Val* scale) {
-  TORCH_INTERNAL_ASSERT(x != nullptr, "Input is invalid.");
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(x != nullptr, "Input is invalid.");
+  NVF_ERROR(
       prob != nullptr && prob->getDataType().has_value() &&
           prob->getDataType().value() == DataType::Double,
       "Probability is not a valid Double.");
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       scale != nullptr && scale->getDataType().has_value() &&
           scale->getDataType().value() == DataType::Double,
       "Scale is not a valid Double.");
@@ -40,9 +40,9 @@ ForwardDropoutResult dropout(TensorView* x, Val* prob, Val* scale) {
 }
 
 TensorView* dropout_backward(TensorView* dy, TensorView* mask, Val* scale) {
-  TORCH_INTERNAL_ASSERT(dy != nullptr, "Grad Output is invalid.");
-  TORCH_INTERNAL_ASSERT(mask != nullptr, "Mask is invalid");
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(dy != nullptr, "Grad Output is invalid.");
+  NVF_ERROR(mask != nullptr, "Mask is invalid");
+  NVF_ERROR(
       scale != nullptr && scale->getDataType().has_value() &&
           scale->getDataType().value() == DataType::Double,
       "Scale is not a valid Double.");
@@ -54,10 +54,10 @@ TensorView* dropout_backward(TensorView* dy, TensorView* mask, Val* scale) {
 }
 
 TensorView* _matmul_nn(TensorView* a, TensorView* b) {
-  TORCH_CHECK(
+  NVF_CHECK(
       a->nDims() == 2 && b->nDims() == 2, "Only 2-D Tensors are supported!");
   const auto device_prop = at::cuda::getCurrentDeviceProperties();
-  TORCH_CHECK(
+  NVF_CHECK(
       device_prop->major == 8,
       "Only the Ampere MMA Op is currently supported!");
   auto tv0t = transpose(a, 0, 1);
@@ -67,10 +67,10 @@ TensorView* _matmul_nn(TensorView* a, TensorView* b) {
   return tv2;
 }
 TensorView* _matmul_nt(TensorView* a, TensorView* b) {
-  TORCH_CHECK(
+  NVF_CHECK(
       a->nDims() == 2 && b->nDims() == 2, "Only 2-D Tensors are supported!");
   const auto device_prop = at::cuda::getCurrentDeviceProperties();
-  TORCH_CHECK(
+  NVF_CHECK(
       device_prop->major == 8,
       "Only the Ampere MMA Op is currently supported!");
   auto tv0t = transpose(a, 0, 1);
@@ -81,10 +81,10 @@ TensorView* _matmul_nt(TensorView* a, TensorView* b) {
   return tv2;
 }
 TensorView* _matmul_tn(TensorView* a, TensorView* b) {
-  TORCH_CHECK(
+  NVF_CHECK(
       a->nDims() == 2 && b->nDims() == 2, "Only 2-D Tensors are supported!");
   const auto device_prop = at::cuda::getCurrentDeviceProperties();
-  TORCH_CHECK(
+  NVF_CHECK(
       device_prop->major == 8,
       "Only the Ampere MMA Op is currently supported!");
   auto tv0b = broadcast(a, {false, true, false});
@@ -93,10 +93,10 @@ TensorView* _matmul_tn(TensorView* a, TensorView* b) {
   return tv2;
 }
 TensorView* _matmul_tt(TensorView* a, TensorView* b) {
-  TORCH_CHECK(
+  NVF_CHECK(
       a->nDims() == 2 && b->nDims() == 2, "Only 2-D Tensors are supported!");
   const auto device_prop = at::cuda::getCurrentDeviceProperties();
-  TORCH_CHECK(
+  NVF_CHECK(
       device_prop->major == 8,
       "Only the Ampere MMA Op is currently supported!");
   auto tv1t = transpose(b, 0, 1);
@@ -112,12 +112,11 @@ LstmResult lstm(
     TensorView* forget_x,
     TensorView* cell_x,
     TensorView* out_x) {
-  TORCH_INTERNAL_ASSERT(
-      prev_cell != nullptr, "Previous cell state is invalid.");
-  TORCH_INTERNAL_ASSERT(in_x != nullptr, "In-gate input is invalid");
-  TORCH_INTERNAL_ASSERT(forget_x != nullptr, "Forget-gate input is invalid");
-  TORCH_INTERNAL_ASSERT(cell_x != nullptr, "Cell-gate input is invalid");
-  TORCH_INTERNAL_ASSERT(out_x != nullptr, "Out-gate input is invalid");
+  NVF_ERROR(prev_cell != nullptr, "Previous cell state is invalid.");
+  NVF_ERROR(in_x != nullptr, "In-gate input is invalid");
+  NVF_ERROR(forget_x != nullptr, "Forget-gate input is invalid");
+  NVF_ERROR(cell_x != nullptr, "Cell-gate input is invalid");
+  NVF_ERROR(out_x != nullptr, "Out-gate input is invalid");
 
   const auto in_gate = sigmoid(in_x);
   const auto forget_gate = sigmoid(forget_x);
@@ -133,7 +132,7 @@ LstmResult lstm(
 namespace {
 template <typename T>
 T* sign(T* x) {
-  TORCH_INTERNAL_ASSERT(x != nullptr, "Input is invalid.");
+  NVF_ERROR(x != nullptr, "Input is invalid.");
   auto zero = IrBuilder::create<Val>(x->container(), 0.);
   auto one = IrBuilder::create<Val>(x->container(), 1.);
   auto minus_one = IrBuilder::create<Val>(x->container(), -1.);
@@ -151,10 +150,9 @@ Val* sign(Val* x) {
 }
 
 TensorView* softplus(TensorView* x, Val* beta, Val* threshold) {
-  TORCH_INTERNAL_ASSERT(x != nullptr, "Input is invalid.");
-  TORCH_INTERNAL_ASSERT(beta != nullptr, "Beta is invalid.");
-  TORCH_INTERNAL_ASSERT(
-      threshold != nullptr, "Threshold is not a valid Double.");
+  NVF_ERROR(x != nullptr, "Input is invalid.");
+  NVF_ERROR(beta != nullptr, "Beta is invalid.");
+  NVF_ERROR(threshold != nullptr, "Threshold is not a valid Double.");
 
   auto op_beta = mul(x, beta);
   auto maybe_result = div(log1p(exp(op_beta)), beta);
@@ -163,7 +161,7 @@ TensorView* softplus(TensorView* x, Val* beta, Val* threshold) {
 }
 
 TensorView* gelu(TensorView* x) {
-  TORCH_INTERNAL_ASSERT(x != nullptr, "Input is invalid");
+  NVF_ERROR(x != nullptr, "Input is invalid");
 
   auto kappa = IrBuilder::create<Val>(x->container(), M_SQRT1_2);
   auto half = IrBuilder::create<Val>(x->container(), 0.5);
@@ -175,8 +173,8 @@ TensorView* gelu(TensorView* x) {
 }
 
 TensorView* gelu_backward(TensorView* dy, TensorView* x) {
-  TORCH_INTERNAL_ASSERT(dy != nullptr, "Grad Output is invalid.");
-  TORCH_INTERNAL_ASSERT(x != nullptr, "Input is invalid");
+  NVF_ERROR(dy != nullptr, "Grad Output is invalid.");
+  NVF_ERROR(x != nullptr, "Input is invalid");
 
   constexpr double kAlpha = M_2_SQRTPI * M_SQRT1_2 * 0.5;
   const double kHalf = 0.5;
@@ -197,7 +195,7 @@ TensorView* gelu_backward(TensorView* dy, TensorView* x) {
 }
 
 TensorView* tanh_gelu(TensorView* x) {
-  TORCH_INTERNAL_ASSERT(x != nullptr, "Input is invalid");
+  NVF_ERROR(x != nullptr, "Input is invalid");
 
   constexpr double kBeta = M_SQRT2 * M_2_SQRTPI * 0.5;
   constexpr double kKappa = 0.044715;
@@ -216,8 +214,8 @@ TensorView* tanh_gelu(TensorView* x) {
 }
 
 TensorView* tanh_gelu_backward(TensorView* dy, TensorView* x) {
-  TORCH_INTERNAL_ASSERT(dy != nullptr, "Grad Output is invalid.");
-  TORCH_INTERNAL_ASSERT(x != nullptr, "Input is invalid");
+  NVF_ERROR(dy != nullptr, "Grad Output is invalid.");
+  NVF_ERROR(x != nullptr, "Input is invalid");
 
   constexpr double kBeta = M_SQRT2 * M_2_SQRTPI * 0.5;
   constexpr double kKappa = 0.044715;
@@ -251,8 +249,8 @@ TensorView* tanh_gelu_backward(TensorView* dy, TensorView* x) {
 }
 
 TensorView* tanh_backward(TensorView* dy, TensorView* tanh_x) {
-  TORCH_INTERNAL_ASSERT(dy != nullptr, "Grad Output is invalid.");
-  TORCH_INTERNAL_ASSERT(tanh_x != nullptr, "Input is invalid");
+  NVF_ERROR(dy != nullptr, "Grad Output is invalid.");
+  NVF_ERROR(tanh_x != nullptr, "Input is invalid");
 
   auto one = IrBuilder::create<Val>(tanh_x->container(), 1.);
   auto tanh_sq = mul(tanh_x, tanh_x);
@@ -262,19 +260,19 @@ TensorView* tanh_backward(TensorView* dy, TensorView* tanh_x) {
 }
 
 TensorView* leaky_relu(TensorView* x, Val* negative_slope) {
-  TORCH_INTERNAL_ASSERT(x != nullptr, "input is invalid.");
-  TORCH_INTERNAL_ASSERT(negative_slope != nullptr, "negative_slope is invalid");
+  NVF_ERROR(x != nullptr, "input is invalid.");
+  NVF_ERROR(negative_slope != nullptr, "negative_slope is invalid");
   auto zero = IrBuilder::create<Val>(x->container(), 0.);
   return where(ge(x, zero), x, mul(negative_slope, x));
 }
 
 TensorView* view_as_real(TensorView* x) {
   auto input_type = x->getDataType().value();
-  TORCH_CHECK(
+  NVF_CHECK(
       isComplexType(input_type),
       "Operand of view_as_real must have complex type");
 
-  auto vec_type = ArrayOf{
+  auto vec_type = ArrayType{
       std::make_shared<DataType>(getTypeFromComplexType(input_type)), 2};
   auto tv_vector = bitCastOp(vec_type, x);
   return viewAsScalar(tv_vector);

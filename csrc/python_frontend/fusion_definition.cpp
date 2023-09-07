@@ -42,7 +42,7 @@ const char* dtypeToPyString(PrimDataType t) {
     default:
       break;
   }
-  TORCH_INTERNAL_ASSERT(false, "No string found for data type.");
+  NVF_ERROR(false, "No string found for data type.");
   return nullptr;
 }
 
@@ -58,14 +58,13 @@ FusionDefinition::FusionDefinition(std::optional<size_t> id, size_t max_length)
       sched(this) {}
 
 FusionCache* FusionDefinition::fusionCache() const {
-  TORCH_INTERNAL_ASSERT(
-      fusion_cache_ != nullptr, "FusionCache pointer is null!");
+  NVF_ERROR(fusion_cache_ != nullptr, "FusionCache pointer is null!");
   return fusion_cache_;
 }
 
 FusionDefinition* FusionDefinition::setupDefinition() {
-  TORCH_CHECK(max_length_ > 0, "Can't make a FusionDefinition with 0 records!");
-  TORCH_CHECK(!id().has_value(), "Fusion Schedule is already found!");
+  NVF_CHECK(max_length_ > 0, "Can't make a FusionDefinition with 0 records!");
+  NVF_CHECK(!id().has_value(), "Fusion Schedule is already found!");
   trie_node_ = fusionCache()->rootTriePtr();
   return this;
 }
@@ -79,7 +78,7 @@ void FusionDefinition::finalizeDefinition() {
     }
     trie_node_ = fusionCache()->createChild(trie_node_, end_record_.get());
     fusion_id_ = std::optional<size_t>(trie_node_->fusion_id);
-    TORCH_CHECK(id().has_value(), "Invalid fusion id!");
+    NVF_CHECK(id().has_value(), "Invalid fusion id!");
 
     if (isDebugDumpEnabled(DebugDumpOption::PythonDefinition)) {
       print(debug());
@@ -101,12 +100,12 @@ void FusionDefinition::finalizeDefinition() {
 
 void FusionDefinition::setupSchedule(const at::ArrayRef<c10::IValue>& inputs) {
   FUSER_PERF_SCOPE("FusionDefinition::setupSchedule");
-  TORCH_CHECK(id().has_value(), "FusionDefinition definition does not exist!");
+  NVF_CHECK(id().has_value(), "FusionDefinition definition does not exist!");
   auto scheds = fusionCache()->queryFusionSchedules(id().value());
   auto device = getCommonDeviceCUDA(inputs);
-  TORCH_CHECK(
+  NVF_CHECK(
       inputs.empty() || device > -1, "Inputs are not all on the same device!");
-  TORCH_CHECK(user_sched_ == nullptr, "Expected User Scheduler to be null!");
+  NVF_CHECK(user_sched_ == nullptr, "Expected User Scheduler to be null!");
   user_sched_ = fusionCache()->createUserSchedule(scheds, inputs, device);
 
   // Building a new Fusion container for scheduling with definition such that
@@ -151,14 +150,21 @@ void FusionDefinition::print(std::ostream& os) const {
 std::vector<at::Tensor> FusionDefinition::execute(
     const at::ArrayRef<c10::IValue>& inputs,
     bool override_user_schedule,
+    bool capture_debug_output,
     std::optional<int8_t> selected_device) const {
-  TORCH_CHECK(id().has_value(), "Valid fusion schedule is not available!");
+  debug_output_ = std::nullopt;
+  std::stringstream debug_ss;
+  DebugStreamGuard dsg(capture_debug_output ? debug_ss : std::cout);
+
+  NVF_CHECK(id().has_value(), "Valid fusion schedule is not available!");
 
   auto scheds = fusionCache()->queryFusionSchedules(id().value());
 
+  std::vector<at::Tensor> outputs;
+
   if (!override_user_schedule) {
     auto device = getCommonDeviceCUDA(inputs, selected_device);
-    TORCH_CHECK(
+    NVF_CHECK(
         inputs.empty() || device > -1,
         "Inputs are not all on the same device or don't match selection!");
     auto user_sched_id = fusionCache()->queryUserScheduleId(scheds, inputs);
@@ -167,16 +173,22 @@ std::vector<at::Tensor> FusionDefinition::execute(
           scheds, user_sched_id.value(), device);
       scheds->last_user_def_scheduled_ir = user_sched.schedule.get();
       scheds->last_user_def_executor = user_sched.executor.get();
-      return user_sched.executor->runFusion(inputs);
+      outputs = user_sched.executor->runFusion(inputs);
     }
   }
 
-  return scheds->auto_gen_schedules->runFusionWithInputs(
+  outputs = scheds->auto_gen_schedules->runFusionWithInputs(
       inputs, std::nullopt, selected_device);
+
+  if (capture_debug_output) {
+    debug_output_ = debug_ss.str();
+  }
+
+  return outputs;
 }
 
 std::string FusionDefinition::fusionIr() {
-  TORCH_CHECK(id().has_value(), "Invalid fusion definition!");
+  NVF_CHECK(id().has_value(), "Invalid fusion definition!");
   std::stringstream ss;
   preschedFusion()->print(ss, false);
   return ss.str();
@@ -186,7 +198,7 @@ std::string FusionDefinition::lastCudaCode(
     bool intrinsic_code,
     bool override_user_schedule) const {
   std::string result;
-  TORCH_CHECK(id().has_value(), "Invalid fusion definition!");
+  NVF_CHECK(id().has_value(), "Invalid fusion definition!");
   auto scheds = fusionCache()->queryFusionSchedules(id().value());
   auto user_exec = scheds->last_user_def_executor;
 
@@ -207,12 +219,12 @@ std::string FusionDefinition::cudaCodeFor(
     const at::ArrayRef<c10::IValue>& inputs,
     bool intrinsic_code,
     bool override_user_schedule) const {
-  TORCH_CHECK(id().has_value(), "Invalid fusion definition!");
+  NVF_CHECK(id().has_value(), "Invalid fusion definition!");
   auto scheds = fusionCache()->queryFusionSchedules(id().value());
 
   if (!override_user_schedule) {
     auto device = getCommonDeviceCUDA(inputs);
-    TORCH_CHECK(
+    NVF_CHECK(
         inputs.empty() || device > -1,
         "Inputs are not all on the same device!");
     auto user_sched_id = fusionCache()->queryUserScheduleId(scheds, inputs);
@@ -235,7 +247,7 @@ std::string FusionDefinition::lastScheduledFusionIr(
     bool tensor_transforms,
     bool override_user_schedule) const {
   std::string result;
-  TORCH_CHECK(id().has_value(), "Invalid fusion definition!");
+  NVF_CHECK(id().has_value(), "Invalid fusion definition!");
   auto scheds = fusionCache()->queryFusionSchedules(id().value());
   auto user_sched_ir = scheds->last_user_def_scheduled_ir;
 
@@ -254,12 +266,12 @@ std::string FusionDefinition::scheduledFusionIrFor(
     const at::ArrayRef<c10::IValue>& inputs,
     bool tensor_transforms,
     bool override_user_schedule) const {
-  TORCH_CHECK(id().has_value(), "Invalid fusion definition!");
+  NVF_CHECK(id().has_value(), "Invalid fusion definition!");
   auto scheds = fusionCache()->queryFusionSchedules(id().value());
 
   if (!override_user_schedule) {
     auto device = getCommonDeviceCUDA(inputs);
-    TORCH_CHECK(
+    NVF_CHECK(
         inputs.empty() || device > -1,
         "Inputs are not all on the same device!");
     auto user_sched_id = fusionCache()->queryUserScheduleId(scheds, inputs);
@@ -303,7 +315,7 @@ Vector FusionDefinition::defineVector(size_t size) {
 
 void FusionDefinition::defineRecord(RecordFunctor* record) {
   FUSER_PERF_SCOPE("FusionDefinition::defineRecord");
-  TORCH_CHECK(
+  NVF_CHECK(
       (recording_.size() + 1) <= max_length_,
       "The fusion definition has exceeded ",
       max_length_,
@@ -333,7 +345,7 @@ void FusionDefinition::defineRecord(RecordFunctor* record) {
 }
 
 Fusion* FusionDefinition::preschedFusion() {
-  TORCH_CHECK(
+  NVF_CHECK(
       fusion_id_.has_value(),
       "FusionDefinition does not contain a definition, yet!");
   return fusionCache()

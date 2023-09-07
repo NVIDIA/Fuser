@@ -8,6 +8,7 @@
 #pragma once
 
 #include <c10/macros/Export.h>
+#include <exceptions.h>
 
 #include <instrumentation.h>
 #include <kernel_ir.h>
@@ -51,6 +52,7 @@ class TORCH_CUDA_CU_API IndexLowering : private OptOutConstDispatch {
   void handle(const BinaryOp*) final;
   void handle(const TernaryOp*) final;
   void handle(const ArrayConstruct*) final;
+  void handle(const StructConstruct*) final;
   void handle(const GetAttr*) final;
   void handle(const GetItem*) final;
   void handle(const GetMetaData*) final;

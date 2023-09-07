@@ -8,6 +8,7 @@
 #pragma once
 
 #include <c10/macros/Export.h>
+#include <exceptions.h>
 #include <ir/interface_nodes.h>
 
 #include <fusion.h>
@@ -442,6 +443,34 @@ class TORCH_CUDA_CU_API ArrayConstruct : public Expr {
   }
 };
 
+class TORCH_CUDA_CU_API ReverseArray : public Expr {
+ public:
+  using Expr::Expr;
+
+  ReverseArray(IrBuilderPasskey, Val* output, Val* input);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "ReverseArray";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
+
+  Val* out() const {
+    return output(0);
+  }
+
+  Val* in() const {
+    return input(0);
+  }
+};
+
 // Get an item from an array, array[index]
 class TORCH_CUDA_CU_API GetItem : public Expr {
  public:
@@ -472,6 +501,38 @@ class TORCH_CUDA_CU_API GetItem : public Expr {
 
   Val* index() const {
     return input(1);
+  }
+};
+
+// construct a struct from a list of values
+class TORCH_CUDA_CU_API StructConstruct : public Expr {
+ public:
+  using Expr::Expr;
+
+  StructConstruct(
+      IrBuilderPasskey,
+      Val* output,
+      const std::vector<std::pair<std::string, Val*>>& fields);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "StructConstruct";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
+
+  std::string fieldName(size_t i) const {
+    return attribute<std::string>(i);
+  }
+
+  Val* out() const {
+    return output(0);
   }
 };
 
@@ -666,7 +727,7 @@ class TORCH_CUDA_CU_API RNGOp : public Expr {
   }
 
   void setSeedAndOffset(Val* seed, Val* offset) {
-    TORCH_INTERNAL_ASSERT(!isDeterministic());
+    NVF_ERROR(!isDeterministic());
     addInput(seed);
     addInput(offset);
   }
@@ -912,7 +973,7 @@ class TORCH_CUDA_CU_API WelfordTriplet {
   }
 
   TensorView* avgTv() const {
-    TORCH_INTERNAL_ASSERT(avg()->isA<TensorView>());
+    NVF_ERROR(avg()->isA<TensorView>());
     return avg()->as<TensorView>();
   }
 
@@ -925,7 +986,7 @@ class TORCH_CUDA_CU_API WelfordTriplet {
   }
 
   TensorView* varTv() const {
-    TORCH_INTERNAL_ASSERT(var()->isA<TensorView>());
+    NVF_ERROR(var()->isA<TensorView>());
     return var()->as<TensorView>();
   }
 
@@ -938,7 +999,7 @@ class TORCH_CUDA_CU_API WelfordTriplet {
   }
 
   TensorView* NTv() const {
-    TORCH_INTERNAL_ASSERT(N()->isA<TensorView>());
+    NVF_ERROR(N()->isA<TensorView>());
     return N()->as<TensorView>();
   }
 
@@ -1004,7 +1065,7 @@ class TORCH_CUDA_CU_API WelfordTriplet {
 
   //! Convert a given index to a name
   static ValName indexToValName(int index) {
-    TORCH_INTERNAL_ASSERT(index >= 0 && index < 3, "Invalid index: ", index);
+    NVF_ERROR(index >= 0 && index < 3, "Invalid index: ", index);
     return static_cast<ValName>(index);
   }
 
@@ -1540,7 +1601,12 @@ class TORCH_CUDA_CU_API LoadStoreOp : public Expr {
  public:
   using Expr::Expr;
 
-  LoadStoreOp(IrBuilderPasskey, LoadStoreOpType op_type, Val* out, Val* in);
+  LoadStoreOp(
+      IrBuilderPasskey,
+      LoadStoreOpType op_type,
+      Val* out,
+      Val* in,
+      CacheOp cache_op = CacheOp::Streaming);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
@@ -1565,6 +1631,10 @@ class TORCH_CUDA_CU_API LoadStoreOp : public Expr {
 
   LoadStoreOpType opType() const {
     return attribute<LoadStoreOpType>(0);
+  }
+
+  CacheOp cacheOp() const {
+    return attribute<CacheOp>(1);
   }
 
   bool hasInnerTranspose() const;
@@ -1625,14 +1695,14 @@ class TORCH_CUDA_CU_API Split : public Expr {
   //! Start position of the input domain. Non-zero means partial
   //! split. Elements until this offset are ignored.
   Val* startOffset() const {
-    TORCH_INTERNAL_ASSERT(attributeVal(2) != nullptr);
+    NVF_ERROR(attributeVal(2) != nullptr);
     return attributeVal(2);
   }
 
   //! Offset from extent of the input domain. Non-zero means partial
   //! split. Elements after this offset are ignored.
   Val* stopOffset() const {
-    TORCH_INTERNAL_ASSERT(attributeVal(3) != nullptr);
+    NVF_ERROR(attributeVal(3) != nullptr);
     return attributeVal(3);
   }
 
@@ -1837,9 +1907,6 @@ class TORCH_CUDA_CU_API NamedScalar : public Val {
   std::string toInlineString(int indent_size = 0) const override {
     return name_;
   }
-
-  //! Check if this is something like T0.size[1]
-  bool isTensorSize() const;
 
   //! Check if this is threadIdx.{x,y,z}
   bool isThreadIdx() const {

@@ -1,3 +1,4 @@
+#include <polymorphic_value.h>
 #include <serde/utils.h>
 
 namespace nvfuser::serde {
@@ -52,7 +53,7 @@ at::ScalarType mapToAtenDtype(serde::DataType t) {
     default:
       break;
   }
-  TORCH_INTERNAL_ASSERT(false, "No nvfuser dtype found for serde data type.");
+  NVF_ERROR(false, "No nvfuser dtype found for serde data type.");
   return at::ScalarType::Undefined;
 }
 
@@ -89,7 +90,7 @@ serde::DataType mapToSerdeDtype(PrimDataType t) {
     default:
       break;
   }
-  TORCH_INTERNAL_ASSERT(false, "No serde dtype found for nvfuser data type.");
+  NVF_ERROR(false, "No serde dtype found for nvfuser data type.");
   return serde::DataType_MAX;
 }
 
@@ -118,61 +119,8 @@ PrimDataType mapToNvfuserDtype(serde::DataType t) {
     default:
       break;
   }
-  TORCH_INTERNAL_ASSERT(false, "No nvfuser dtype found for serde data type.");
+  NVF_ERROR(false, "No nvfuser dtype found for serde data type.");
   return PrimDataType::Null;
-}
-
-::flatbuffers::Offset<serde::Scalar> serializeScalar(
-    flatbuffers::FlatBufferBuilder& builder,
-    const nvfuser::PolymorphicValue& v,
-    nvfuser::DataType t) {
-  ScalarBuilder builder_(builder);
-  builder_.add_dtype(mapToSerdeDtype(t));
-  if (v.is<std::monostate>()) {
-    builder_.add_has_value(false);
-    return builder_.Finish();
-  } else if (v.is<double>()) {
-    builder_.add_has_value(true);
-    builder_.add_value_type(serde::DataType_Double);
-    builder_.add_double_value(v.as<double>());
-    return builder_.Finish();
-  } else if (v.is<int64_t>()) {
-    builder_.add_has_value(true);
-    builder_.add_value_type(serde::DataType_Int);
-    builder_.add_long_value(v.as<int64_t>());
-    return builder_.Finish();
-  } else if (v.is<bool>()) {
-    builder_.add_has_value(true);
-    builder_.add_value_type(serde::DataType_Bool);
-    builder_.add_bool_value(v.as<bool>());
-    return builder_.Finish();
-  } else if (v.is<std::complex<double>>()) {
-    builder_.add_has_value(true);
-    auto c = v.as<std::complex<double>>();
-    builder_.add_value_type(serde::DataType_ComplexDouble);
-    builder_.add_real_value(std::real(c));
-    builder_.add_imag_value(std::imag(c));
-    return builder_.Finish();
-  }
-  TORCH_INTERNAL_ASSERT(
-      false, "Unable to convert ", v.type().name(), " to serde::Scalar.");
-}
-
-PolymorphicValue parsePolymorphicValue(const serde::Scalar* c) {
-  if (!c->has_value()) {
-    return {};
-  } else if (c->value_type() == serde::DataType_Double) {
-    return PolymorphicValue(c->double_value());
-  } else if (c->value_type() == serde::DataType_Int) {
-    return PolymorphicValue(c->long_value());
-  } else if (c->value_type() == serde::DataType_Bool) {
-    return PolymorphicValue(c->bool_value());
-  } else if (c->value_type() == serde::DataType_ComplexDouble) {
-    return PolymorphicValue(
-        std::complex<double>(c->real_value(), c->imag_value()));
-  }
-  TORCH_INTERNAL_ASSERT(
-      false, "Unable to deserialize serde::Scalar as PolymorphicValue.");
 }
 
 std::vector<bool> parseBoolVector(

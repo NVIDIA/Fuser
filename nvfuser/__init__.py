@@ -45,7 +45,14 @@ class FusionDefinition(_C._FusionDefinition):
     def schedule(self):
         raise NotImplementedError("schedule() should be implemented by child class!")
 
-    def execute(self, inputs, *, device=None, **kwargs):
+    def execute(
+        self,
+        inputs,
+        *,
+        device=None,
+        override_user_schedule=False,
+        capture_debug_output=False,
+    ):
         """
         Executes an nvFuser set of kernels for a given Fusion
 
@@ -68,21 +75,25 @@ class FusionDefinition(_C._FusionDefinition):
             inputs (List[Union[Tensor, Scalar]]): A list of inputs to fusion.
 
         Kwargs:
-            override_user_schedule (bool): For a user defined schedule, override with auto-generated schedule (default: False)
+            override_user_schedule (bool): For a user defined schedule,
+                override with auto-generated schedule (default: False)
             device (Optional[Union[int, str, torch.device]]): This is a hint to run
-            the Fusion on the given CUDA device. This is not typically
-            necessary, as the device is usually inferred from the locations of
-            input tensors. However, for some fusion definitions, no tensors
-            will be input (for example when all tensors are generated with
-            `full` or `uniform` ops). In these cases, we must either tell
-            NVFuser where to run the resulting kernel, or let it default to 0.
-            Note that passing this option providing and input tensors that lie
-            on another device is an error.
+                the Fusion on the given CUDA device. This is not typically
+                necessary, as the device is usually inferred from the locations
+                of input tensors. However, for some fusion definitions, no
+                tensors will be input (for example when all tensors are
+                generated with `full` or `uniform` ops). In these cases, we
+                must either tell NVFuser where to run the resulting kernel, or
+                let it default to 0. Note that passing this option providing
+                and input tensors that lie on another device is an error.
+            capture_debug_output (bool): Whether to capture any printed
+                debugging information as a string. If True, the string can be
+                retrieved after execution using :meth:`get_debug_output`. If False,
+                then that method will return None when called.
 
         Returns:
             List[Tensor]
         """
-        override_user_schedule = kwargs.pop("override_user_schedule", False)
         func_based_def = False
 
         if device is not None:
@@ -108,7 +119,12 @@ class FusionDefinition(_C._FusionDefinition):
 
         result = None
         try:
-            result = self._execute(inputs, override_user_schedule, device=device)
+            result = self._execute(
+                inputs,
+                override_user_schedule,
+                device=device,
+                capture_debug_output=capture_debug_output,
+            )
         except Exception as err:
             msg = (
                 f"An error occurred while executing nvFuser FusionDefinition {self.id()}.\n"
@@ -128,14 +144,21 @@ class FusionDefinition(_C._FusionDefinition):
             )
             for i in inputs:
                 if isinstance(i, torch.Tensor):
+                    # max linear index determines number of elements to generate
+                    sz = 1
+                    for szi, stri in zip(i.size(), i.stride()):
+                        if szi == 0:
+                            sz = 0
+                            break
+                        sz += (szi - 1) * stri
                     if i.dtype.is_floating_point:
                         msg += (
-                            f"    torch.randn({tuple(i.size())}, dtype={i.dtype}, device='{i.device}')"
+                            f"    torch.randn(({sz},), dtype={i.dtype}, device='{i.device}')"
                             f".as_strided({tuple(i.size())}, {tuple(i.stride())}),\n"
                         )
                     else:
                         msg += (
-                            f"    torch.randint(0, 10, {tuple(i.size())}, dtype={i.dtype}, device='{i.device}')"
+                            f"    torch.randint(0, 10, ({sz},), dtype={i.dtype}, device='{i.device}')"
                             f".as_strided({tuple(i.size())}, {tuple(i.stride())}),\n"
                         )
                 else:
@@ -147,6 +170,21 @@ class FusionDefinition(_C._FusionDefinition):
             raise
 
         return result
+
+    def debug_output(self):
+        """
+        Retrieve string of captured debug information from the previous execution.
+
+        Note that `capture_debug_output=True` must be passed to `execute()` in
+        order to enable capturing this output. Otherwise, this method will
+        return `None`.
+
+        Returns:
+            Optional[String] : the captured debug output for the previous call
+            to execute(). If the `capture_debug_output` argument to that call
+            was False, returns None. Otherwise, returns the output as a string.
+        """
+        return self._debug_output()
 
     def from_pytorch(self, tensor, static_sizes=False):
         """
