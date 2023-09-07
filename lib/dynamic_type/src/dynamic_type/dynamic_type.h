@@ -605,7 +605,8 @@ DEFINE_BINARY_OP(rshift, >>);
               opname##_defined_checker,                                       \
               DT::type_identities_as_tuple,                                   \
               DT::type_identities_as_tuple)>>                                 \
-  inline constexpr bool operator op(const DT& x, const DT& y) {               \
+  inline constexpr bool operator op(                                          \
+      const DT& x, const std::type_identity_t<DT>& y) {                       \
     std::optional<bool> ret = std::nullopt;                                   \
     DT::for_all_types([&ret, &x, &y](auto lhs) {                              \
       using LHS = typename decltype(lhs)::type;                               \
