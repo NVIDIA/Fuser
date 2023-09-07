@@ -144,6 +144,9 @@ collect_kernels() {
     outdir=$1
     commit=$2
 
+    # Make sure we are doing a clean rebuild. Otherwise we might get linking error.
+    python setup.py clean
+
     git -c advice.detachedHead=false checkout "$commit"
     git submodule update --init --recursive
     currentcommit=$commit
