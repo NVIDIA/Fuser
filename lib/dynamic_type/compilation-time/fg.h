@@ -22,7 +22,7 @@ T f(T x0) {
   auto x5 = x4 + 1;
   auto x6 = 1 * x5;
   auto x7 = 1 / x6;
-  auto x8 = (int)x7 % x0;
+  auto x8 = x7 % x0;
   if (x8 > 10) {
     x8++;
   } else if (x8 >= 7) {

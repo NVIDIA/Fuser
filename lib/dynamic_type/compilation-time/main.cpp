@@ -13,5 +13,6 @@
 #include <string>
 
 int main() {
+  // TYPE is defined by compiler flags
   gggg<TYPE>(10);
 }
