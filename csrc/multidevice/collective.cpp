@@ -39,8 +39,7 @@ inline void assertBuffersHaveSameSize(
   auto sizes = (bufs1.empty() ? bufs2 : bufs1).at(0).sizes();
   for (auto& bufs : {bufs1, bufs2}) {
     for (auto& buf : bufs) {
-      NVF_ERROR(
-          buf.sizes() == sizes, "all buffers must have the same size");
+      NVF_ERROR(buf.sizes() == sizes, "all buffers must have the same size");
     }
   }
 }
@@ -67,8 +66,7 @@ Collective::Collective(CommParams params, std::string name, bool has_root)
       std::unique(params_.team.begin(), params_.team.end()) ==
           params_.team.end(),
       "the collective must not involve the same device more than once");
-  NVF_ERROR(
-      params_.team.size() > 1, "the team size must be greater than 1");
+  NVF_ERROR(params_.team.size() > 1, "the team size must be greater than 1");
   if (has_root_) {
     auto it = std::find(params_.team.begin(), params_.team.end(), params_.root);
     NVF_ERROR(
@@ -109,8 +107,7 @@ std::string Collective::toString(int indent) const {
   return ss.str();
 }
 
-Broadcast::Broadcast(CommParams params)
-    : Collective(params, "broadcast") {}
+Broadcast::Broadcast(CommParams params) : Collective(params, "broadcast") {}
 
 c10::intrusive_ptr<c10d::Work> Broadcast::post(Communicator& comm) {
   post_common(*this, comm);
@@ -155,7 +152,8 @@ Allgather::Allgather(CommParams params)
 
 c10::intrusive_ptr<c10d::Work> Allgather::post(Communicator& comm) {
   post_common(*this, comm);
-  return comm.getBackendForTeam(params_.team)->allgather(buf_list_, params_.src_bufs, {});
+  return comm.getBackendForTeam(params_.team)
+      ->allgather(buf_list_, params_.src_bufs, {});
 }
 
 Scatter::Scatter(CommParams params) : Collective(params, "scatter") {
@@ -171,7 +169,8 @@ c10::intrusive_ptr<c10d::Work> Scatter::post(Communicator& comm) {
     assertBufferCount(params_.src_bufs, 0);
   }
   return comm.getBackendForTeam(params_.team)
-      ->scatter(params_.dst_bufs, buf_list_,{.rootRank = root_relative_index_});
+      ->scatter(
+          params_.dst_bufs, buf_list_, {.rootRank = root_relative_index_});
 }
 
 SendRecv::SendRecv(CommParams params) : Collective(params, "send/recv") {
