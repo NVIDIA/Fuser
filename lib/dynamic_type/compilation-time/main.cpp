@@ -7,10 +7,10 @@
 // clang-format on
 #include "fg.h"
 
-#include <vector>
-#include <list>
 #include <deque>
+#include <list>
 #include <string>
+#include <vector>
 
 int main() {
   // TYPE is defined by compiler flags

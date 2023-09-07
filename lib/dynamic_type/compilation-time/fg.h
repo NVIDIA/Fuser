@@ -95,7 +95,7 @@ void ggg(T x) {
   gg<T, i + 9>(i + x);
 }
 
-template<typename T>
+template <typename T>
 void gggg(T x) {
   ggg<T, 0>(x);
   ggg<T, 1>(x);
