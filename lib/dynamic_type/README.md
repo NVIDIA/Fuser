@@ -262,3 +262,20 @@ dynamic structs should generally not be implemented as a dictionary. Please refe
 semi-dynamic struct.
 
 # Compilation time
+
+The compilation time and memory usage is exponential with respect to the number of dynamic types.
+Benchmarks for this are located in `compilation-time/` directory and the result is shown below:
+
+![Compilation Time And Memory](resources/compilation-time.png)
+
+Note that on clang++, we can not have more than `15` dynamic types because otherwise we will hit
+an error:
+
+```C++
+In file included from ../src/dynamic_type/dynamic_type.h:19:
+../src/dynamic_type/type_traits.h:413:17: fatal error: instantiating fold expression with 289 arguments exceeded expression nesting limit of 256
+  return (bs || ...);
+         ~~~~~~~^~~~
+../src/dynamic_type/type_traits.h:577:16: note: in instantiation of function template specialization 'dynamic_type::any<bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool>' requested here
+        return any(std::apply(f, candidates)...);
+```
