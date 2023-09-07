@@ -457,25 +457,45 @@ TEST_F(RNGTest, DifferentOffsets) {
   // Check that multiple runs of RNG kernel does not produce the same numbers,
   // and it does bump up RNG offset for ATen.
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
-  auto fusion = fusion_ptr.get();
-  FusionGuard fg(fusion);
-
-  Val* size_val = IrBuilder::create<Val>(DataType::Int);
-  fusion->addInput(size_val);
-  TensorView* tv0 = rand({size_val}, DataType::Float);
-  fusion->addOutput(tv0);
+  {
+    auto fusion = fusion_ptr.get();
+    FusionGuard fg(fusion);
+    Val* size_val = IrBuilder::create<Val>(DataType::Int);
+    fusion->addInput(size_val);
+    TensorView* tv0 = rand({size_val}, DataType::Float);
+    fusion->addOutput(tv0);
+  }
 
   FusionExecutorCache fec(std::move(fusion_ptr));
+
+  std::unique_ptr<Fusion> fusion_ptr2 = std::make_unique<Fusion>();
+  {
+    auto fusion = fusion_ptr2.get();
+    FusionGuard fg(fusion);
+    Val* size_val = IrBuilder::create<Val>(DataType::Int);
+    fusion->addInput(size_val);
+    TensorView* tv0 = rand({size_val}, DataType::Double);
+    TensorView* tv1 = rand({size_val}, DataType::Float);
+    fusion->addOutput(tv0);
+    fusion->addOutput(tv1);
+  }
+
+  FusionExecutorCache fec2(std::move(fusion_ptr2));
 
   for (int64_t size : {1, 4}) {
     at::manual_seed(0);
     EXPECT_TRUE(get_current_offset() == 0);
     auto r1 = fec.runFusionWithInputs({size}).at(0);
     EXPECT_TRUE(get_current_offset() == 4);
-    auto r2 = fec.runFusionWithInputs({size}).at(0);
-    EXPECT_TRUE(get_current_offset() == 8);
+    auto r23 = fec2.runFusionWithInputs({size});
+    auto r2 = r23.at(0);
+    auto r3 = r23.at(1);
+    EXPECT_TRUE(get_current_offset() == 12);
     // Check that non of r1's elements are equal to any r2's elements.
+    // Same for r1 vs r3, and r2 vs r3.
     EXPECT_TRUE(r1.unsqueeze(1).ne(r2.unsqueeze(0)).all().item<bool>());
+    EXPECT_TRUE(r1.unsqueeze(1).ne(r3.unsqueeze(0)).all().item<bool>());
+    EXPECT_TRUE(r2.unsqueeze(1).ne(r3.unsqueeze(0)).all().item<bool>());
   }
 }
 
