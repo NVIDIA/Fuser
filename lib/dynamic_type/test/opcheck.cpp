@@ -188,7 +188,9 @@ static_assert(opcheck<SomeType>.canCastTo(opcheck<SomeType>));
 
 static_assert(!opcheck<float>.hasExplicitCastTo(opcheck<double>));
 struct A {
-  operator int() const { return 0; }
+  operator int() const {
+    return 0;
+  }
 };
 struct B {
   B(const A&) {}
