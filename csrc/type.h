@@ -488,6 +488,17 @@ inline bool hasCompatibleDataType(
     }
     auto ptr = std::get<PointerType>(dtype.type);
     return dataTypeSize(*ptr.type) == value.as<Pointer>().size();
+  } else if (std::holds_alternative<ArrayType>(dtype.type)) {
+    if (!value.is<std::vector>()) {
+      return false;
+    }
+    const auto& array_type = std::get<ArrayType>(dtype.type);
+    if (array_type.size != value.as<std::vector>().size()) {
+      return false;
+    }
+    if (array_type.size == 0) {
+      return true;
+    }
   }
   return isCompatibleDataType(getDataType(value), dtype);
 }
@@ -702,6 +713,15 @@ static constexpr std::array<IdMappingMode, 6> kIdMappingModes = {
     IdMappingMode::PERMISSIVE_RESIZE,
     IdMappingMode::INNERMOST};
 
+// See
+// https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#cache-operators
+// for what each option means. Will also consider .L1::no_allocate because .cs
+// still pollutes cache to some extent.
+enum class CacheOp {
+  AllLevels,
+  Streaming,
+};
+
 //! Used to annotate the special memory intrinsics that a loadstore op will be
 //!  lowered to.
 //!
@@ -869,6 +889,7 @@ TORCH_CUDA_CU_API std::ostream& operator<<(std::ostream&, const SwizzleMode&);
 TORCH_CUDA_CU_API std::ostream& operator<<(
     std::ostream&,
     const KernelIndexMode&);
+TORCH_CUDA_CU_API std::ostream& operator<<(std::ostream&, const CacheOp&);
 
 std::string stringifyThreadSize(const ParallelType);
 std::string stringifyThread(const ParallelType);
@@ -954,7 +975,6 @@ inline PolymorphicValue castToDtype(
   // Cast the given value to the given data type. This enables interface
   // like: IrBuilder::create<Val>(0, DataType::Double) where value is
   // an integer but the desired data type is double.
-  auto value_dtype = getDataType(value);
   if (!hasCompatibleDataType(value, dtype)) {
     PolymorphicValue::for_all_types([&](auto _) {
       using T = typename decltype(_)::type;
