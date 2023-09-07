@@ -22,9 +22,9 @@
 
 namespace nvfuser {
 
-class LoadTest : public NVFuserTest {};
+class MemoryTest : public NVFuserTest {};
 
-TEST_F(LoadTest, LoadCache) {
+TEST_F(MemoryTest, LoadCache) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
