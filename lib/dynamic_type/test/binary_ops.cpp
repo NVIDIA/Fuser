@@ -25,15 +25,25 @@
     static_assert(opcheck<DoubleInt64BoolVec> op opcheck<DoubleInt64BoolVec>); \
     static_assert(opcheck<DoubleInt64Bool> op opcheck<int>);                   \
     static_assert(opcheck<DoubleInt64BoolVec> op opcheck<int>);                \
+    static_assert(opcheck<DoubleInt64Bool> op opcheck<DoubleInt64BoolTwo>);    \
+    static_assert(                                                             \
+        opcheck<DoubleInt64BoolVec> op opcheck<DoubleInt64BoolVecTwo>);        \
     static_assert(opcheck<int> op opcheck<DoubleInt64Bool>);                   \
     static_assert(opcheck<int> op opcheck<DoubleInt64BoolVec>);                \
     static_assert(                                                             \
         (DoubleInt64Bool(2L) op DoubleInt64Bool(2.5))                          \
             .as<decltype(2L op 2.5)>() == (2L op 2.5));                        \
+    static_assert(                                                             \
+        (DoubleInt64Bool(2L) op DoubleInt64BoolTwo{})                          \
+            .as<decltype(2L op 2L)>() == (2L op 2L));                          \
     EXPECT_EQ(                                                                 \
         (DoubleInt64BoolVec(2L) op DoubleInt64BoolVec(2.5))                    \
             .as<decltype(2L op 2.5)>(),                                        \
         (2L op 2.5));                                                          \
+    EXPECT_EQ(                                                                 \
+        (DoubleInt64BoolVec(2L) op DoubleInt64BoolVecTwo{})                    \
+            .as<decltype(2L op 2L)>(),                                         \
+        (2L op 2L));                                                           \
     static_assert(                                                             \
         (DoubleInt64Bool(3L) op 2L).as<decltype((3L op 2L))>() == (3L op 2L)); \
     EXPECT_EQ(                                                                 \
