@@ -263,8 +263,8 @@ semi-dynamic struct.
 
 # Compilation time
 
-The compilation time and memory usage is exponential with respect to the number of dynamic types.
-Benchmarks for this are located in `compilation-time/` directory and the result is shown below:
+The compilation time and memory usage are exponential with respect to the number of dynamic types.
+Benchmarks for this are located in the `compilation-time/` directory and the result is shown below:
 
 ![Compilation Time And Memory](resources/compilation-time.png)
 
