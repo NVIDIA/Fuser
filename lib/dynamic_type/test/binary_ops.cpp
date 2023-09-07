@@ -129,9 +129,9 @@ TEST_BINARY_OP_ALLTYPE(LogicalOr, ||);
     EXPECT_EQ(                                                                 \
         (DoubleInt64BoolVecTwo {} op DoubleInt64BoolVec(2L)), (2L op 2L));     \
     EXPECT_EQ(                                                                 \
-        (DoubleInt64BoolVecTwo {} op DoubleInt64BoolVec(1L)), (1L op 2L));     \
+        (DoubleInt64BoolVecTwo {} op DoubleInt64BoolVec(1L)), (2L op 1L));     \
     EXPECT_EQ(                                                                 \
-        (DoubleInt64BoolVecTwo {} op DoubleInt64BoolVec(3L)), (3L op 2L));     \
+        (DoubleInt64BoolVecTwo {} op DoubleInt64BoolVec(3L)), (2L op 3L));     \
     EXPECT_EQ(                                                                 \
         (DoubleInt64BoolVec(std::vector<int64_t>{2})                           \
              op DoubleInt64BoolVec(std::vector<double>{2.0})),                 \
