@@ -6,15 +6,11 @@
  */
 // clang-format on
 #include <executor_kernel_arg.h>
-#include <executor_utils.h>
-#include <expr_evaluator.h>
-#include <ir/iostream.h>
 #include <ir/utils.h>
 #include <root_domain_map.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/registry_utils.h>
 #include <scheduler/utils.h>
-#include <tensor_metadata.h>
 
 namespace nvfuser {
 

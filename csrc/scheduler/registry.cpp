@@ -5,14 +5,9 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <c10/util/irange.h>
-#include <disjoint_set.h>
+#include <ATen/cuda/CUDAContext.h>
 #include <executor_utils.h>
-#include <expr_evaluator.h>
 #include <instrumentation.h>
-#include <ir/iostream.h>
-#include <ir/utils.h>
-#include <root_domain_map.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/matmul_utils.h>
 #include <scheduler/normalization_utils.h>
@@ -23,9 +18,6 @@
 #include <scheduler/transpose.h>
 #include <scheduler/utils.h>
 #include <tensor_metadata.h>
-
-#include <ATen/cuda/CUDAContext.h>
-#include <limits>
 
 namespace nvfuser {
 
