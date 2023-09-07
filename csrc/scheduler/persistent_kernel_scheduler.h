@@ -19,7 +19,7 @@ class HeuristicSummary;
 //! If there are only inner reduction tvs, Inner.
 //! If there are only outer reduction tvs, Outer.
 //! If there are both inner and outer reduction tvs, InnerOuter.
-enum class ReductionType { Inner, Outer, InnerOuter, None };
+enum class ReductionType { Inner, Outer, InnerOuter, None, NotInitiliazed };
 
 class PersistentKernelScheduler : public SchedulerEntry {
  public:
@@ -33,28 +33,36 @@ class PersistentKernelScheduler : public SchedulerEntry {
   // schedule using the appropriate scheudler and heuristic
   virtual void schedule(Fusion* fusion) = 0;
 
-  // check if can schedule
-  static bool canScheduleCompileTime(Fusion* fusion) = 0;
-
+  // Dispatch check to appropriate sub class
+  // scheduler based on reduction type.
+  static bool canScheduleCompileTime(Fusion* fusion);
   static bool canScheduleRunTime(
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache = nullptr) = 0;
+      HeuristicSummary* data_cache = nullptr);
 
  protected:
-
+  // common methods shared by sub classes
 
  private:
+  ReductionType reduction_type_;
+
   // get the appropriate heuristic
   virtual void computeHeuristics(
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
       HeuristicSummary* data_cache = nullptr) = 0;
 
-  // reduction type, this instance is corresponding to.
-  ReductionType reduction_type_;
+
+  // utility funcitons used only by other member functions in this class.
+  static ReductionType getReductionType(Fusion* fusion);
+  static bool leadingCommonCompileTimeCheck(
+      Fusion* fusion,
+      ScheduleHeuristic heuristic);
+  static bool tailingCommonCompileTimeCheck(
+      Fusion* fusion,
+      const std::vector<TensorView*>& reduction_tvs,
+      ScheduleHeuristic heuristic);
 };
-
-
 
 } // namespace nvfuser

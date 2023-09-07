@@ -14,9 +14,9 @@ namespace nvfuser {
 
 class HeuristicSummary;
 
-class PersistentKernelScheduler : public SchedulerEntry {
+class InnerPersistentKernelScheduler : public PersistentKernelScheduler {
  public:
-  explicit PersistentKernelScheduler(
+  explicit InnerPersistentKernelScheduler(
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
       HeuristicSummary* data_cache = nullptr);

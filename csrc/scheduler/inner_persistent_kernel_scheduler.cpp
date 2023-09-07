@@ -30,20 +30,20 @@
 
 namespace nvfuser {
 
-PersistentKernelScheduler::PersistentKernelScheduler(
+InnerPersistentKernelScheduler::PersistentKernelScheduler(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache)
-    : SchedulerEntry(ScheduleHeuristic::Persistent) {
+    : PersistentKernelScheduler(fusion, runtime_info, data_cache) {
   computeHeuristics(fusion, runtime_info, data_cache);
 }
 
-void PersistentKernelScheduler::schedule(Fusion* fusion) {
+void InnerPersistentKernelScheduler::schedule(Fusion* fusion) {
   FUSER_PERF_SCOPE("Schedule Persistent Fusion");
-  schedulePersistentKernel(fusion, reductionParams());
+  scheduleInnerPersistentKernel(fusion, reductionParams());
 }
 
-bool PersistentKernelScheduler::canScheduleCompileTime(Fusion* fusion) {
+bool InnerPersistentKernelScheduler::canScheduleCompileTime(Fusion* fusion) {
   // Needs at least one reduction to consider.
   auto reduction_ops = ir_utils::getReductionOps(fusion);
   if (reduction_ops.empty()) {
@@ -188,7 +188,7 @@ bool PersistentKernelScheduler::canScheduleCompileTime(Fusion* fusion) {
   return true;
 }
 
-bool PersistentKernelScheduler::canScheduleRunTime(
+bool InnerPersistentKernelScheduler::canScheduleRunTime(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache) {
@@ -325,154 +325,14 @@ bool PersistentKernelScheduler::canScheduleRunTime(
   return true;
 }
 
-void PersistentKernelScheduler::computeHeuristics(
+void InnerPersistentKernelScheduler::computeHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache) {
-  params_ = getPersistentHeuristics(fusion, runtime_info, data_cache);
+  params_ = getInnerPersistentHeuristics(fusion, runtime_info, data_cache);
   NVF_ERROR(params_ != nullptr);
 }
 
-bool PersistentKernelScheduler::checkReductionPattern(
-    Fusion* fusion,
-    const std::vector<TensorView*>& inner_reduction_tvs,
-    const std::vector<TensorView*>& outer_reduction_tvs) {
-  // Use root domain map to check the reduction ops have the same axes
-  FusionGuard fg(fusion);
-  ComputeAtRootDomainMap root_map;
-  root_map.build(true);
-
-  // check inner and outer reductions seperately
-  for (const auto& rtvs : {inner_reduction_tvs, outer_reduction_tvs}) {
-    for (const auto it : c10::irange(1, rtvs.size())) {
-      if (!registry_utils::checkPatternEquivalence(
-              rtvs[it - 1], rtvs[it], root_map)) {
-        scheduler_debug_utils::canScheduleRejectReason(
-            ScheduleHeuristic::Persistent,
-            "unmapped reduction ",
-            rtvs[it - 1],
-            " and ",
-            rtvs[it]);
-        return false;
-      }
-    }
-  }
-  // combined inner and outer reduction is of general purpose but only tested
-  // for layer norm backward
-  if (!inner_reduction_tvs.empty() && !outer_reduction_tvs.empty()) {
-    if (!normalization_scheduler_utils::checkIfReductionsAreInnerOuter(
-            inner_reduction_tvs, outer_reduction_tvs)) {
-      scheduler_debug_utils::canScheduleRejectReason(
-          ScheduleHeuristic::Persistent,
-          "to use combined reduction, inner reduction tensor should be [I,I,...,R,R] and outer reduction tensor should be [R,R,...,I,I]");
-      return false;
-    }
-
-    if (!normalization_scheduler_utils::hasSharedInput(
-            inner_reduction_tvs, outer_reduction_tvs)) {
-      scheduler_debug_utils::canScheduleRejectReason(
-          ScheduleHeuristic::Persistent,
-          "to use combined reduction, inner reduction and outer reduction should have shared input.");
-      return false;
-    }
-
-    if (!normalization_scheduler_utils::isConnectedOnlyThroughReductionProducer(
-            inner_reduction_tvs, outer_reduction_tvs)) {
-      scheduler_debug_utils::canScheduleRejectReason(
-          ScheduleHeuristic::Persistent,
-          "to use combined reduction, inner reduction and outer reduction should not have shared consumer, their consumers should not have shared non-outer-reduction producer.");
-      return false;
-    }
-  }
-  return true;
-}
-
-std::pair<int64_t, int64_t> PersistentKernelScheduler::getPersistentBufferSize(
-    Fusion* fusion,
-    SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache,
-    const std::vector<TensorView*>& reduction_tvs) {
-  auto persistent_buffer_info_entry =
-      HeuristicSummaryEntry<HeuristicCompileTime::PersistentBufferInfo>(
-          data_cache, [&fusion]() {
-            return std::make_unique<scheduler_utils::PersistentBufferInfo>(
-                scheduler_utils::persistentBuffers(fusion));
-          });
-
-  auto& persistent_buffer_info = persistent_buffer_info_entry.get();
-
-  auto persistent_buffer_size_info = scheduler_utils::persistentBufferSize(
-      fusion, runtime_info, persistent_buffer_info, data_cache);
-
-  // Note that projected buffer size can be zero
-  auto persistent_buffer_size =
-      persistent_buffer_size_info.projected_persistent_buffer_size == 0
-      ? persistent_buffer_size_info.persistent_buffer_size
-      : std::min(
-            persistent_buffer_size_info.persistent_buffer_size,
-            persistent_buffer_size_info.projected_persistent_buffer_size);
-
-  // in combined_inner_outer_reduction, the partial results of outer
-  // reductions must be persistent, allow register spill avoid segmentation
-  int64_t inner_reduction_count = 0;
-  int64_t outer_reduction_count = 0;
-  std::vector<TensorView*> outer_reduction_tvs;
-  for (auto tv : reduction_tvs) {
-    if (scheduler_utils::isFastestDimReduction(tv)) {
-      inner_reduction_count++;
-    } else {
-      outer_reduction_count++;
-      outer_reduction_tvs.emplace_back(tv);
-    }
-  }
-  const bool combined_inner_outer_reduction =
-      inner_reduction_count && outer_reduction_count;
-  if (combined_inner_outer_reduction) {
-    persistent_buffer_size +=
-        normalization_scheduler_utils::partialReductionBufferSize(
-            outer_reduction_tvs, runtime_info);
-  }
-
-  // At this point, we use the full register file size only for the
-  // inner-outer case. It does not mean the full size shouldn't be used
-  // otherwise, but more detailed tuning of the heuristics would be required.
-  int64_t available_persistent_buffer_size = combined_inner_outer_reduction
-      ? scheduler_utils::register_file_size_full
-      : scheduler_utils::register_file_size;
-
-  // Use shared memory for persistent buffer is only tested for inner
-  // reduction
-  // TODO: extend to outer reduction and combined reduction
-  const bool allow_shared_memory =
-      inner_reduction_count > 0 && outer_reduction_count == 0;
-  if (allow_shared_memory) {
-    const auto dev_prop = at::cuda::getCurrentDeviceProperties();
-    const int64_t max_shared_memory_size =
-        (int64_t)dev_prop->sharedMemPerBlockOptin;
-    // Some shared memories are reserved for kernel launch overhead and
-    // reduction_broadcast_workspace. Estimation is conservative, but should
-    // be good enough. The actual threads per block is set in the heuristics
-    // and it may be smaller than maxThreadsPerBlock.
-    // TODO: More accurate estimation of available shared memory size.
-    const int64_t kernel_overhead =
-        (int64_t)dev_prop->reservedSharedMemPerBlock;
-    int64_t max_buffer_dtype_size = 1;
-    for (auto tv : persistent_buffer_info.persistent_buffers) {
-      max_buffer_dtype_size = std::max(
-          max_buffer_dtype_size,
-          dataTypeSize(tv->getDataType().value(), runtime_info.getIndexType()));
-    }
-    const int64_t reduction_broadcast_workspace =
-        (int64_t)(dev_prop->maxThreadsPerBlock) * max_buffer_dtype_size;
-    const int64_t available_shared_memory_size = max_shared_memory_size -
-        kernel_overhead - reduction_broadcast_workspace;
-    available_persistent_buffer_size = std::max(
-        available_persistent_buffer_size, available_shared_memory_size);
-  }
-
-  return std::make_pair(
-      persistent_buffer_size, available_persistent_buffer_size);
-}
 
 bool PersistentKernelScheduler::canScheduleRunTimeOuter(
     Fusion* fusion,
