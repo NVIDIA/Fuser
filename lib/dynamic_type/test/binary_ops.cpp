@@ -94,25 +94,19 @@ TEST_BINARY_OP_ALLTYPE(LogicalOr, ||);
     static_assert(                                                             \
         (DoubleInt64Bool(2L) op DoubleInt64Bool(2.0)) == (2L op 2.0));         \
     static_assert(                                                             \
-        (DoubleInt64Bool(2L) op DoubleInt64BoolTwo{}).as<bool>() ==            \
-        (2L op 2L));                                                           \
+        (DoubleInt64Bool(2L) op DoubleInt64BoolTwo{}) == (2L op 2L));          \
     static_assert(                                                             \
-        (DoubleInt64Bool(1L) op DoubleInt64BoolTwo{}).as<bool>() ==            \
-        (1L op 2L));                                                           \
+        (DoubleInt64Bool(1L) op DoubleInt64BoolTwo{}) == (1L op 2L));          \
     static_assert(                                                             \
-        (DoubleInt64Bool(3L) op DoubleInt64BoolTwo{}).as<bool>() ==            \
-        (3L op 2L));                                                           \
+        (DoubleInt64Bool(3L) op DoubleInt64BoolTwo{}) == (3L op 2L));          \
     EXPECT_EQ(                                                                 \
         (DoubleInt64BoolVec(2L) op DoubleInt64BoolVec(2.0)), (2L op 2.0));     \
     EXPECT_EQ(                                                                 \
-        (DoubleInt64BoolVec(2L) op DoubleInt64BoolVecTwo{}).as<bool>(),        \
-        (2L op 2L));                                                           \
+        (DoubleInt64BoolVec(2L) op DoubleInt64BoolVecTwo{}), (2L op 2L));      \
     EXPECT_EQ(                                                                 \
-        (DoubleInt64BoolVec(1L) op DoubleInt64BoolVecTwo{}).as<bool>(),        \
-        (1L op 2L));                                                           \
+        (DoubleInt64BoolVec(1L) op DoubleInt64BoolVecTwo{}), (1L op 2L));      \
     EXPECT_EQ(                                                                 \
-        (DoubleInt64BoolVec(3L) op DoubleInt64BoolVecTwo{}).as<bool>(),        \
-        (3L op 2L));                                                           \
+        (DoubleInt64BoolVec(3L) op DoubleInt64BoolVecTwo{}), (3L op 2L));      \
     EXPECT_EQ(                                                                 \
         (DoubleInt64BoolVec(std::vector<int64_t>{2})                           \
              op DoubleInt64BoolVec(std::vector<double>{2.0})),                 \
