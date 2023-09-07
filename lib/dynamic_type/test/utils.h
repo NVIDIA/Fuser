@@ -27,7 +27,6 @@ struct NonInstantiable {
 using DoubleInt64Bool =
     DynamicType<NoContainers, double, int64_t, bool, NonInstantiable>;
 struct DoubleInt64BoolTwo {
-  constexpr DoubleInt64BoolTwo() = default;
   constexpr operator DoubleInt64Bool() const {
     return {2L};
   }
@@ -41,7 +40,6 @@ using DoubleInt64BoolVec = DynamicType<
     bool,
     NonInstantiable>;
 struct DoubleInt64BoolVecTwo {
-  constexpr DoubleInt64BoolVecTwo() = default;
 #if __cplusplus >= 202002L
   constexpr
 #endif
