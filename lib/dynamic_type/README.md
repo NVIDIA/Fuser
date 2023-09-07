@@ -54,7 +54,7 @@ be equivalent to one of the following:
 - `operator+(float, int)`
 
 depending on the actual type of the `DynamicType`. If the actual type is
-`CustomType` which does not have `operator+``, or if the value is null,
+`CustomType` which does not have `operator+`, or if the value is null,
 then this is a runtime error. However, if have:
 
 ```C++
@@ -93,7 +93,7 @@ using BFloatOrHalfZeroOrInt = DynamicType<NoContainers, bfloat16_zero, half_zero
 ```
 
 Then the `operator+` on `BFloatOrHalfZeroOrInt` should be defined at compile time
-because `int+int`` is defined, but
+because `int+int` is defined, but
 `BFloatOrHalfZeroOrInt(half_zero{}) + BFloatOrHalfZeroOrInt(bfloat16_zero{})`
 should be a runtime error because `BFloatOrHalfZeroOrInt` can not be constructed
 from the result of `half_zero+bfloat16_zero`(i.e. float).
