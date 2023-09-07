@@ -380,11 +380,7 @@ TEST_F(ResizeTest, FusionResizePadScheduler2) {
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
   testValidate(
-      executor_cache.fusion(),
-      cg_outputs,
-      aten_inputs,
-      __LINE__,
-      __FILE__);
+      executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // Disabled due to the same reason as Pad8
@@ -501,11 +497,7 @@ TEST_F(ResizeTest, FusionResizePadBroadcastInput) {
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
   testValidate(
-      executor_cache.fusion(),
-      cg_outputs,
-      aten_inputs,
-      __LINE__,
-      __FILE__);
+      executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // Trivial cat
