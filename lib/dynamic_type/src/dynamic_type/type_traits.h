@@ -93,6 +93,16 @@ struct HasArrowOperator<
     std::void_t<decltype(std::declval<decltype(&T::operator->)>())>>
     : std::true_type {};
 
+template <typename From, typename To, typename = void>
+struct HasExplicitConversion : std::false_type {};
+
+template <typename From, typename To>
+struct HasExplicitConversion<
+    From,
+    To,
+    std::void_t<decltype(std::declval<decltype(&From::operator To)>())>>
+    : std::true_type {};
+
 struct TrueType {
   static constexpr bool value() {
     return true;
@@ -187,12 +197,22 @@ struct OperatorChecker {
   constexpr bool canCastTo(CastableFromOperatorChecker) const {
     return false;
   }
+
+  template <
+      typename T1,
+      typename = std::enable_if_t<HasExplicitConversion<T, T1>::value>>
+  constexpr bool hasExplicitCastTo(OperatorChecker<T1>) const {
+    return true;
+  }
+  constexpr bool hasExplicitCastTo(CastableFromOperatorChecker) const {
+    return false;
+  }
 };
 
 #define DEFINE_UNARY_OP(op)                                 \
   template <typename T1>                                    \
   constexpr auto operator op(OperatorChecker<T1>)           \
-      ->decltype(op std::declval<T1>(), true) {             \
+      -> decltype(op std::declval<T1>(), true) {            \
     return true;                                            \
   }                                                         \
                                                             \
@@ -203,7 +223,7 @@ struct OperatorChecker {
 #define DEFINE_UNARY_SUFFIX_OP(op)                               \
   template <typename T1>                                         \
   constexpr auto operator op(OperatorChecker<T1>, int)           \
-      ->decltype(std::declval<T1>() op, true) {                  \
+      -> decltype(std::declval<T1>() op, true) {                 \
     return true;                                                 \
   }                                                              \
                                                                  \
@@ -214,7 +234,7 @@ struct OperatorChecker {
 #define DEFINE_BINARY_OP(op)                                           \
   template <typename T1, typename T2>                                  \
   constexpr auto operator op(OperatorChecker<T1>, OperatorChecker<T2>) \
-      ->decltype((std::declval<T1>() op std::declval<T2>()), true) {   \
+      -> decltype((std::declval<T1>() op std::declval<T2>()), true) {  \
     return true;                                                       \
   }                                                                    \
                                                                        \
