@@ -3903,6 +3903,27 @@ std::pair<Val*, Val*> PadOp::getPadWidths(int axis) const {
       (*(getPadWidthInputBegin() + offset_odd))->as<Val>());
 }
 
+std::vector<PolymorphicValue> PadOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+
+      const auto& in = inputs.at(0).as<at::Tensor>();
+      double value = (double) inputs.at(1);
+
+      std::vector<int64_t> pad_widths;
+      auto pad_width_offset = getPadWidthInputOffset();
+      auto num_dims = in.dim();
+
+      for (auto i = num_dims-1; i > -1; i--){
+        auto left_pad = (int64_t) inputs.at(pad_width_offset + 2*i);
+        auto right_pad = (int64_t) inputs.at(pad_width_offset + 2*i + 1);
+        pad_widths.push_back(left_pad);
+        pad_widths.push_back(right_pad);
+      }
+
+      return {at::pad(in, pad_widths, "constant", value)};
+}
+
 SliceOp::SliceOp(
     IrBuilderPasskey passkey,
     TensorView* out,

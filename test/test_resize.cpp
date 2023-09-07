@@ -116,7 +116,7 @@ TEST_F(ResizeTest, FusionResizePad3) {
   auto t3 = at::pad(t0, {1, 1});
   auto ref = t3 + t1;
 
-  testValidate(&fusion, cg_outputs, aten_inputs, {ref}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // pad + parallelization
@@ -239,7 +239,7 @@ TEST_F(ResizeTest, FusionResizePad6) {
   auto t3 = at::pad(t2, {1, 1});
   auto ref = t3 + t1;
 
-  testValidate(&fusion, cg_outputs, aten_inputs, {ref}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // pad + unswitch. Having different extents in an unswitched loop nest
@@ -285,7 +285,7 @@ TEST_F(ResizeTest, FusionResizePad7) {
 
   auto ref = at::pad(t0, {1, 1});
 
-  testValidate(&fusion, cg_outputs, aten_inputs, {ref}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // Disable for now. Unclear what would be the best way to handle
@@ -395,7 +395,6 @@ TEST_F(ResizeTest, FusionResizePadScheduler2) {
       executor_cache.fusion(),
       cg_outputs,
       aten_inputs,
-      {ref},
       __LINE__,
       __FILE__);
 }
@@ -519,7 +518,6 @@ TEST_F(ResizeTest, FusionResizePadBroadcastInput) {
       executor_cache.fusion(),
       cg_outputs,
       aten_inputs,
-      {t1},
       __LINE__,
       __FILE__);
 }
