@@ -598,7 +598,7 @@ class ReplaceExprInput : private kir::ExprMutator {
     auto replaced_inputs = getMaybeInputReplacementMap(node);
     if (replaced_inputs.has_value()) {
       auto replacement = IrBuilder::create<LoadStoreOp>(
-          node->opType(), node->out(), node->in());
+          node->opType(), node->out(), node->in(), node->cacheOp());
       registerReplaceWithPredicate(node, replacement);
     }
   }

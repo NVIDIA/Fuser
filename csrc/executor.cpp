@@ -243,7 +243,7 @@ void FusionExecutor::compileFusion(
     const KernelArgumentHolder& args,
     const LaunchParams& launch_constraints,
     CompileParams compile_params) {
-  FUSER_PERF_SCOPE("compileFusion");
+  FUSER_PERF_SCOPE("FusionExecutor::compileFusion");
 
   NVF_ERROR(
       !fusion->outputs().empty(), "No output found for this kernel, aborting.");
@@ -919,7 +919,7 @@ std::vector<at::Tensor> allocOutputs(
     const KernelArgumentHolder& inputs,
     const c10::Device& device,
     ExpressionEvaluator& ee) {
-  FUSER_PERF_SCOPE("ExecutorRunFusion::OutputAlloc");
+  FUSER_PERF_SCOPE("allocOutput");
 
   std::vector<at::Tensor> outputs;
 
@@ -983,7 +983,7 @@ int64_t FusionExecutor::computeSharedMemory(
     const std::vector<const kir::Allocate*>& buffers,
     DataType index_type,
     int64_t smem_offset) {
-  FUSER_PERF_SCOPE("computeSharedMemory");
+  FUSER_PERF_SCOPE("FusionExecutor::computeSharedMemory");
   int64_t total = smem_offset;
   // align smem_offset at 16 bytes
   smem_offset = (smem_offset + 15) & (~15);
@@ -1035,7 +1035,7 @@ LaunchParams FusionExecutor::computeLaunchParams(
     ExpressionEvaluator& expr_eval,
     const int64_t warp_size,
     DataType index_type) {
-  FUSER_PERF_SCOPE("FusionExecutor::ComputeLaunchParams");
+  FUSER_PERF_SCOPE("FusionExecutor::computeLaunchParams");
   NVF_ERROR(warp_size > 0, "WARP_SIZE should be larger than 0");
 
   LaunchParams launch_params;
@@ -1187,7 +1187,7 @@ std::vector<FusionExecutor::GlobalBufferInfo> FusionExecutor::
     getIntermediateBufferInfo(
         ExpressionEvaluator& expr_eval,
         DataType index_type) {
-  FUSER_PERF_SCOPE("FusionExecutor::GetIntermediateBufferInfo");
+  FUSER_PERF_SCOPE("FusionExecutor::getIntermediateBufferInfo");
 
   std::vector<GlobalBufferInfo> global_buffers;
 
@@ -1228,7 +1228,7 @@ std::vector<FusionExecutor::GlobalBufferInfo> FusionExecutor::
         ExpressionEvaluator& expr_eval,
         const std::vector<std::pair<int, int>>& output_to_input_aliases,
         DataType index_dtype) {
-  FUSER_PERF_SCOPE("FusionExecutor::GetOutbufferInfo");
+  FUSER_PERF_SCOPE("FusionExecutor::getOutbufferInfo");
   const auto kernel = lowered_->kernel();
   std::vector<GlobalBufferInfo> outputs;
   NVF_ERROR(
@@ -1470,7 +1470,7 @@ void FusionExecutor::initializeExecutorEntry(
     const CompileParams& compile_params,
     const std::vector<at::Tensor>& outputs,
     DataType index_type) {
-  FUSER_PERF_SCOPE("ExecutorRunFusion::InitializeExecutorEntry");
+  FUSER_PERF_SCOPE("FusionExecutor::initializeExecutorEntry");
 
   ExpressionEvaluator expr_eval;
   evaluatorPrecomputedValues()->bindInputs(args);
@@ -1617,7 +1617,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     const LaunchParams& launch_constraints,
     CompileParams compile_params,
     std::vector<at::Tensor> outputs) {
-  FUSER_PERF_SCOPE("FusionExecutor::RunFusion");
+  FUSER_PERF_SCOPE("FusionExecutor::runFusion");
   NVF_ERROR(isCompiled());
   NVF_ERROR(fusion_id_ > 0, "Cannot run fusion, it was not compiled.");
   NVF_ERROR(
@@ -1877,7 +1877,7 @@ void FusionExecutor::compileRtc(
     const std::string& name,
     bool structured,
     PrimDataType index_type) {
-  FUSER_PERF_SCOPE("ExecutorRunFusion::compileRtc");
+  FUSER_PERF_SCOPE("FusionExecutor::compileRtc");
   NVF_ERROR(
       index_type == PrimDataType::Int || index_type == PrimDataType::Int32 ||
           "Invalid index type: ",
@@ -1898,7 +1898,7 @@ float FusionExecutor::runRtc(
     const LaunchParams& launch_params,
     const std::vector<at::Tensor>& args,
     PrimDataType index_type) {
-  FUSER_PERF_SCOPE("runFusion");
+  FUSER_PERF_SCOPE("FusionExecutor::runRtc");
 
   c10::DeviceGuard dg(options_.device);
   auto stream = at::cuda::getCurrentCUDAStream();

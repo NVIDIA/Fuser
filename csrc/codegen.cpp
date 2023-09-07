@@ -1374,7 +1374,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           } else if (globalToLocal) {
             indent() << "loadGlobalToLocal<" << ldst->out()->dtype() << ", "
                      << vector_word_size << ", "
-                     << (is_volatile_from ? "true" : "false") << ">(&"
+                     << (is_volatile_from ? "true" : "false") << ", "
+                     << "CacheOp::" << ldst->cacheOp() << ">(&"
                      << gen(ldst->out()) << ", ";
             code_ << " &" << gen(ldst->in()) << ");\n";
           } else if (globalToGlobal) {
