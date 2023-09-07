@@ -19,7 +19,9 @@ enum class TORCH_CUDA_CU_API ScheduleHeuristic {
   NoOp,
   PointWise,
   Reduction,
-  Persistent,
+  InnerPersistent,
+  OuterPersistent,
+  InnerOuterPersistent,
   Transpose,
   Matmul
 };

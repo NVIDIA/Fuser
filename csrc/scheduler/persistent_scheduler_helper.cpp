@@ -5,7 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <scheduler/persistent_kernel_scheduler.h>
+#include <scheduler/persistent_scheduler_helper.h>
 #include <scheduler/registry_utils.h>
 
 #include <c10/util/irange.h>
@@ -19,8 +19,7 @@
 #include <scheduler/debug_utils.h>
 #include <scheduler/matmul_utils.h>
 #include <scheduler/normalization_utils.h>
-#include <scheduler/pointwise.h>
-#include <scheduler/transpose.h>
+#include <scheduler/reduction_utils.h>
 #include <scheduler/utils.h>
 #include <tensor_metadata.h>
 
@@ -30,36 +29,7 @@
 
 namespace nvfuser {
 
-PersistentKernelScheduler::PersistentKernelScheduler(
-    Fusion* fusion,
-    SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache)
-    : SchedulerEntry(ScheduleHeuristic::None) {}
-
-bool PersistentKernelScheduler::canScheduleCompileTime(Fusion* fusion) {
-  // (1) common checks shared by all sub classes
-  leadingCommonCompileTimeCheck(fusion, ScheduleHeuristic::PersistentKernel);
-
-  // (2) specific checks for each scheduler
-  std::unique_ptr<PersistentScheduler> scheduler;
-  switch (getReductionType(fusion)) {
-    case ReductionType::Inner:
-      scheduler = std::make_unique<InnerPersistentScheduler>();
-      break;
-    case ReductionType::Outer:
-      scheduler = std::make_unique<OuterPersistentScheduler>();
-      break;
-    case ReductionType::InnerOuter:
-      scheduler = std::make_unique<InnerOuterPersistentScheduler>();
-      break;
-    default:
-      return false;
-  }
-  bool can_schedule = scheduler->canScheduleCompileTime(fusion);
-
-}
-
-bool PersistentKernelScheduler::compileTimeCheckReductionAxis(
+bool PersistentSchedulerHelper::compileTimeCheckReductionAxis(
     Fusion* fusion,
     const std::vector<TensorView*>& reduction_tvs,
     ScheduleHeuristic heuristic) {
@@ -68,7 +38,7 @@ bool PersistentKernelScheduler::compileTimeCheckReductionAxis(
   ComputeAtRootDomainMap root_map;
   root_map.build(true);
   for (const auto it : c10::irange(1, reduction_tvs.size())) {
-    if (!checkPatternEquivalence(
+    if (!registry_utils::checkPatternEquivalence(
             reduction_tvs[it - 1], reduction_tvs[it], root_map)) {
       scheduler_debug_utils::canScheduleRejectReason(
           heuristic,
@@ -82,29 +52,7 @@ bool PersistentKernelScheduler::compileTimeCheckReductionAxis(
   return true;
 }
 
-ReductionType PersistentKernelScheduler::getReductionType(Fusion* fusion) {
-  const auto& reduction_tvs = scheduler_utils::getReductionTvs(fusion);
-  bool is_inner_reduction = false;
-  bool is_outer_reduction = false;
-  for (auto tv : reduction_tvs) {
-    if (scheduler_utils::isFastestDimReduction(tv)) {
-      is_inner_reduction = true;
-    } else {
-      is_outer_reduction = true;
-    }
-  }
-  if (is_inner_reduction && is_outer_reduction) {
-    return ReductionType::InnerOuter;
-  } else if (is_inner_reduction) {
-    return ReductionType::Inner;
-  } else if (is_outer_reduction) {
-    return ReductionType::Outer;
-  } else {
-    return ReductionType::None;
-  }
-}
-
-bool PersistentKernelScheduler::leadingCommonCompileTimeCheck(
+bool PersistentSchedulerHelper::leadingCommonCompileTimeCheck(
     Fusion* fusion,
     ScheduleHeuristic heuristic) {
   // Needs at least one reduction to consider.
@@ -122,7 +70,7 @@ bool PersistentKernelScheduler::leadingCommonCompileTimeCheck(
   }
 
   // Check that inputs of all select/gather-like ops are fusion inputs
-  if (rejectScheduleForMemoryPromotion(fusion, heuristic)) {
+  if (registry_utils::rejectScheduleForMemoryPromotion(fusion, heuristic)) {
     return false;
   }
 
@@ -133,7 +81,7 @@ bool PersistentKernelScheduler::leadingCommonCompileTimeCheck(
     return false;
   }
 
-  if (hasNonUniqueBcast(fusion)) {
+  if (registry_utils::hasNonUniqueBcast(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
         heuristic,
         "Broadcasting dimension might be broadcasting to multiple sizes.");
@@ -142,7 +90,7 @@ bool PersistentKernelScheduler::leadingCommonCompileTimeCheck(
   return true;
 }
 
-bool PersistentKernelScheduler::tailingCommonCompileTimeCheck(
+bool PersistentSchedulerHelper::tailingCommonCompileTimeCheck(
     Fusion* fusion,
     const std::vector<TensorView*>& reduction_tvs,
     ScheduleHeuristic heuristic) {
@@ -161,7 +109,7 @@ bool PersistentKernelScheduler::tailingCommonCompileTimeCheck(
       combined_inner_outer ? inner_reduction_tvs[0] : reduction_tvs[0];
   if (!ir_utils::getViewOps(fusion).empty()) {
     ComputeAtMap ca_map(fusion);
-    if (requiresForwardViewReplay(fusion, ca_map)) {
+    if (registry_utils::requiresForwardViewReplay(fusion, ca_map)) {
       scheduler_debug_utils::canScheduleRejectReason(
           heuristic, "Fusion requires view being reversible.");
       return false;
@@ -169,7 +117,7 @@ bool PersistentKernelScheduler::tailingCommonCompileTimeCheck(
 
     // Persistent scheduler simply uses reference_tv as the reference, if
     // that changes, this needs to be changed.
-    if (reductionInterferingView(fusion, ca_map, reference_tv)) {
+    if (registry_utils::reductionInterferingView(fusion, ca_map, reference_tv)) {
       scheduler_debug_utils::canScheduleRejectReason(
           heuristic, "View may interfere with normalization scheduling.");
       return false;
@@ -216,16 +164,81 @@ bool PersistentKernelScheduler::tailingCommonCompileTimeCheck(
     return false;
   }
 
-  if (SchedulerTopologyChecker::hasNonNormalizePostReductionBCast(fusion)) {
+  if (registry_utils::SchedulerTopologyChecker::hasNonNormalizePostReductionBCast(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
         heuristic, "unsupported post reduction normalization");
     return false;
   }
 
-  if (SchedulerTopologyChecker::hasGatherToBroadcastBeforeReduction(
+  if (registry_utils::SchedulerTopologyChecker::hasGatherToBroadcastBeforeReduction(
           fusion, reduction_tvs)) {
     scheduler_debug_utils::canScheduleRejectReason(
         heuristic, "has unsupported gather-like ops before normalization");
+    return false;
+  }
+  return true;
+}
+
+bool PersistentSchedulerHelper::checkReductionType(
+    const std::vector<TensorView*>& reduction_tvs,
+    ScheduleHeuristic heuristic) {
+  auto reduction_type =
+      reduction_scheduler_utils::getReductionType(reduction_tvs);
+  auto expected_type =
+      reduction_scheduler_utils::mapScheduleHeuristicToReductionType(heuristic);
+  if (reduction_type != expected_type) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        heuristic, "ReductionType and heuristic doesn't match.");
+    return false;
+  }
+  return true;
+}
+
+bool PersistentSchedulerHelper::commonCompileTimeCheck(Fusion* fusion, ScheduleHeuristic heuristic) {
+  // (1) leading common checks for all persistent kernels.
+  if (!leadingCommonCompileTimeCheck(fusion, heuristic)) {
+    return false;
+  }
+
+  // (2) check reduction type.
+  const auto& reduction_tvs = scheduler_utils::getReductionTvs(fusion);
+  if (!checkReductionType(reduction_tvs, heuristic)) {
+    return false;
+  }
+
+  // (3) check reduction axis.
+  if (!compileTimeCheckReductionAxis(
+          fusion, reduction_tvs, heuristic)) {
+    return false;
+  }
+
+  // (4) tailing common checks for all persistent kernels.
+  if (!tailingCommonCompileTimeCheck(
+          fusion, reduction_tvs, heuristic)) {
+    return false;
+  }
+
+  return true;
+}
+
+bool PersistentSchedulerHelper::runTimeCheckIterSize(
+    const scheduler_utils::ReductionTvProperties& properties,
+    ScheduleHeuristic heuristic) {
+  // Don't go persistent if we can't use a small fraction of the
+  // available SMs yet have a large reduction size.
+  const auto device_prop = at::cuda::getCurrentDeviceProperties();
+  const int64_t device_multiprocessor_count =
+      (int64_t)device_prop->multiProcessorCount;
+  const int64_t device_max_threads_per_multiprocessor =
+      (int64_t)device_prop->maxThreadsPerMultiProcessor;
+
+  if ( // Large reduction dim
+      properties.total_reduction_numel >=
+          device_max_threads_per_multiprocessor * 4 &&
+      properties.total_iteration_numel <
+          scheduler_utils::safeDiv(device_multiprocessor_count, 8)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        heuristic, "not enough blocks");
     return false;
   }
   return true;

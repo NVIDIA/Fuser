@@ -865,7 +865,7 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorNormalization1_CUDA) {
   auto outputs = fec.runFusionWithInputs(aten_inputs);
 
   validateSegmentation(
-      fec.getMostRecentKernelRuntime(), {ScheduleHeuristic::Persistent});
+      fec.getMostRecentKernelRuntime(), {ScheduleHeuristic::InnerPersistent});
 
   auto t0_d = t0.to(at::kDouble);
   auto ref = at::take_along_dim(
@@ -909,7 +909,7 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorNormalization2_CUDA) {
 
   validateSegmentation(
       fec.getMostRecentKernelRuntime(),
-      {ScheduleHeuristic::PointWise, ScheduleHeuristic::Persistent});
+      {ScheduleHeuristic::PointWise, ScheduleHeuristic::InnerPersistent});
 
   auto t5 = at::take_along_dim(t0.to(at::kDouble) + 1, t1.unsqueeze(-1), 1)
                 .squeeze(1);
@@ -953,7 +953,7 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorNormalization3_CUDA) {
   auto outputs = fec.runFusionWithInputs(aten_inputs);
 
   validateSegmentation(
-      fec.getMostRecentKernelRuntime(), {ScheduleHeuristic::Persistent});
+      fec.getMostRecentKernelRuntime(), {ScheduleHeuristic::InnerPersistent});
 
   auto t3 = at::take_along_dim(t0.to(at::kDouble) + 1, t1, 1);
   auto ref = t3 / t3.sum({1}).unsqueeze(-1);
@@ -997,7 +997,7 @@ TEST_F(
   // reduction are different, so they are segmented out
   validateSegmentation(
       fec.getMostRecentKernelRuntime(),
-      {ScheduleHeuristic::Persistent, ScheduleHeuristic::Reduction});
+      {ScheduleHeuristic::InnerPersistent, ScheduleHeuristic::Reduction});
 
   auto t0_d = t0.to(at::kDouble);
   auto t5 = at::take_along_dim(t0_d / t0_d.sum({1}).unsqueeze(-1), t1, 1);
@@ -1046,7 +1046,7 @@ TEST_F(
   auto outputs = fec.runFusionWithInputs(aten_inputs);
 
   validateSegmentation(
-      fec.getMostRecentKernelRuntime(), {ScheduleHeuristic::Persistent});
+      fec.getMostRecentKernelRuntime(), {ScheduleHeuristic::InnerPersistent});
 
   auto t0_d = t0.to(at::kDouble);
   auto t6 = at::take_along_dim(
@@ -1243,11 +1243,11 @@ TEST_F(IndexingOpTest, TakeAlongAxisCrossEntropyLoss_CUDA) {
 
   validateSegmentation(
       kernel_runtime,
-      {ScheduleHeuristic::Persistent, ScheduleHeuristic::Reduction});
+      {ScheduleHeuristic::InnerPersistent, ScheduleHeuristic::Reduction});
 
   // Make sure take_along_axis is in the persistent group
   for (const auto group : kernel_runtime->fusionSegments()->groups()) {
-    if (group->heuristic() == ScheduleHeuristic::Persistent) {
+    if (group->heuristic() == ScheduleHeuristic::InnerPersistent) {
       NVF_CHECK(std::any_of(
           group->exprs().begin(), group->exprs().end(), [](Expr* expr) {
             return expr->isA<TorchGatherOp>();

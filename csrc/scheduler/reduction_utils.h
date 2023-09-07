@@ -10,12 +10,13 @@
 #include <exceptions.h>
 #include <fusion.h>
 #include <ir/all_nodes.h>
+#include <scheduler/all_schedulers.h>
 #include <scheduler/reduction_heuristic.h>
 
 namespace nvfuser {
+class HeuristicSummary;
 
 namespace reduction_scheduler_utils {
-
 // Consistent parallelization based on provided reduction parameters. Provided
 // tensor is expected to be reduced by canonicalDimReduction before sending
 // here. reduction_tv should be provided as the tensorview to reduce.
@@ -91,6 +92,22 @@ TORCH_CUDA_CU_API TensorView* sortAndRFactor(TensorView* reference_tv);
 TORCH_CUDA_CU_API std::vector<TensorView*> projectPersistentBuffers(
     Fusion* fusion,
     const bool project_to_inputs);
+
+//! Get reduction types based on the given fusion or reduction tvs.
+//! If there are no reduction tvs, return None.
+//! If there are only inner reduction tvs, return Inner.
+//! If there are only outer reduction tvs, return Outer.
+//! If there are both inner and outer reduction tvs, return InnerOuter.
+enum class ReductionType { Inner, Outer, InnerOuter, None };
+ReductionType getReductionType(Fusion* fusion);
+ReductionType getReductionType(const std::vector<TensorView*>& reduction_tvs);
+
+// Return a InnerPersistent, OuterPersistent, or InnerOuterPersistent
+// ScheduleHeuristic based on reduction types. If no reduction, returns nullptr.
+std::optional<ScheduleHeuristic> getOptionalPersistentScheduler(Fusion* fusion);
+
+// Return the corresponding reduction types given a ScheduleHeuristic
+ReductionType mapScheduleHeuristicToReductionType(ScheduleHeuristic sh);
 
 } // namespace reduction_scheduler_utils
 } // namespace nvfuser

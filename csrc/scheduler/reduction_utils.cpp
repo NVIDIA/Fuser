@@ -13,6 +13,7 @@
 #include <ir/utils.h>
 #include <maxinfo_propagator.h>
 #include <ops/arith.h>
+#include <scheduler/debug_utils.h>
 #include <scheduler/registry.h>
 #include <scheduler/utils.h>
 #include <transform_replay.h>
@@ -20,6 +21,104 @@
 namespace nvfuser {
 
 namespace reduction_scheduler_utils {
+
+namespace {
+inline void vectorize(TensorView* tv, int axis, int64_t factor) {
+  tv->split(axis, factor);
+  tv->axis(axis + 1)->parallelize(ParallelType::Vectorize);
+}
+
+inline void inner_parallel(TensorView* tv, int axis, ParallelType ptype) {
+  tv->split(axis, NamedScalar::getParallelDim(ptype));
+  tv->axis(axis + 1)->parallelize(ptype);
+}
+
+inline void inner_unswitch(TensorView* tv, int axis) {
+  tv->split(axis, 1);
+  tv->axis(axis + 1)->parallelize(ParallelType::Unswitch);
+}
+
+inline void inner_unroll(TensorView* tv, int axis, int64_t factor) {
+  tv->split(axis, factor);
+  tv->axis(axis + 1)->parallelize(ParallelType::Unroll);
+}
+
+inline void outer_parallel(TensorView* tv, int axis, ParallelType ptype) {
+  tv->split(axis, NamedScalar::getParallelDim(ptype), false);
+  tv->axis(axis)->parallelize(ptype);
+}
+
+inline void outer_unswitch(TensorView* tv, int axis) {
+  tv->split(axis, 1, false);
+  tv->axis(axis)->parallelize(ParallelType::Unswitch);
+}
+
+inline void outer_unroll(TensorView* tv, int axis, int64_t factor) {
+  tv->split(axis, factor, false);
+  tv->axis(axis)->parallelize(ParallelType::Unroll);
+}
+
+} // namespace
+TensorView* scheduleInnerPersistentTV(
+    const ReductionParams& rparams,
+    TensorView* tv,
+    bool has_iter_axis) {
+  int inner_reduce_axis = has_iter_axis ? 1 : 0;
+  if (!has_iter_axis) {
+    NVF_ERROR(
+        !rparams.multiple_reds_per_blk,
+        "Multiple reductions requires an iter domain.");
+
+    NVF_ERROR(
+        rparams.unroll_factor_iter_dom == 1,
+        "Unrolling on iter domain requires an iter domain.");
+  }
+
+  // Reduction dimension:
+  // [Grid Split, persistent buffer, unswitch, unroll, thread dim, vectorize]
+  if (rparams.vectorize_inner_reduction) {
+    vectorize(tv, inner_reduce_axis, rparams.unroll_factor_inner_reduction);
+  }
+  tv->split(
+      inner_reduce_axis++, rparams.batches_per_block_inner_reduction, false);
+
+  outer_unswitch(tv, inner_reduce_axis++);
+
+  if (!rparams.vectorize_inner_reduction &&
+      rparams.unroll_factor_inner_reduction > 1) {
+    outer_unroll(
+        tv, inner_reduce_axis++, rparams.unroll_factor_inner_reduction);
+  }
+
+  tv->axis(inner_reduce_axis)->parallelize(rparams.block_dim_inner_reduction);
+
+  if (rparams.pad_inner_reduction_to_warp) {
+    tv->axis(inner_reduce_axis)->padToMultipleOfWarp();
+  }
+
+  // Iteration domain
+  // [Grid Split, unswitch, unroll, thread dim]
+  if (has_iter_axis) {
+    const int iter_axis = 0;
+    if (isParallelTypeThread(rparams.block_dim_iter_dom)) {
+      inner_parallel(tv, iter_axis, rparams.block_dim_iter_dom);
+    }
+
+    if (rparams.unroll_factor_iter_dom > 1) {
+      inner_unroll(tv, iter_axis, rparams.unroll_factor_iter_dom);
+    }
+
+    if (isParallelTypeThread(rparams.grid_dim_iter_dom)) {
+      if (rparams.split_grid_dim_iter_dom_outer) {
+        outer_parallel(tv, iter_axis, rparams.grid_dim_iter_dom);
+      } else {
+        tv->axis(iter_axis)->parallelize(rparams.grid_dim_iter_dom);
+      }
+    }
+  }
+
+  return sortAndRFactor(tv);
+}
 
 TensorView* scheduleReductionTV(
     const ReductionParams& rparams,
@@ -864,6 +963,85 @@ std::vector<TensorView*> projectPersistentBuffers(
     const bool project_to_inputs) {
   PersistentBufferProjector pb_projector(fusion, project_to_inputs);
   return pb_projector.project();
+}
+
+ReductionType getReductionType(const std::vector<TensorView*>& reduction_tvs) {
+  bool is_inner_reduction = false;
+  bool is_outer_reduction = false;
+  for (auto tv : reduction_tvs) {
+    if (scheduler_utils::isFastestDimReduction(tv)) {
+      is_inner_reduction = true;
+    } else {
+      is_outer_reduction = true;
+    }
+  }
+  if (is_inner_reduction && is_outer_reduction) {
+    return ReductionType::InnerOuter;
+  } else if (is_inner_reduction) {
+    return ReductionType::Inner;
+  } else if (is_outer_reduction) {
+    return ReductionType::Outer;
+  } else {
+    return ReductionType::None;
+  }
+}
+
+ReductionType getReductionType(Fusion* fusion) {
+  const auto& reduction_tvs = scheduler_utils::getReductionTvs(fusion);
+  return getReductionType(reduction_tvs);
+}
+
+std::string toString(ReductionType reduction_type) {
+  switch (reduction_type) {
+    case ReductionType::Inner:
+      return "InnerReduction";
+    case ReductionType::Outer:
+      return "OuterReduction";
+    case ReductionType::InnerOuter:
+      return "InnerOuterReduction";
+    case ReductionType::None:
+      return "NoneReduction";
+    default:
+      NVF_ERROR(false, "undefined ReductionType");
+  }
+  return "";
+}
+
+std::ostream& operator<<(std::ostream& os, ReductionType reduction_type) {
+  os << toString(reduction_type);
+  return os;
+}
+
+// Dispatch to the appropriate scheduler based on reduction type
+std::optional<ScheduleHeuristic> getOptionalPersistentScheduler(
+    Fusion* fusion) {
+  auto reduction_type = reduction_scheduler_utils::getReductionType(fusion);
+  switch (reduction_type) {
+    case ReductionType::Inner:
+      return ScheduleHeuristic::InnerPersistent;
+    case ReductionType::Outer:
+      return ScheduleHeuristic::OuterPersistent;
+    case ReductionType::InnerOuter:
+      return ScheduleHeuristic::InnerOuterPersistent;
+    case ReductionType::None:
+      return std::nullopt;
+    default:
+      NVF_ERROR(false, "Reduction type not defined!");
+      return std::nullopt;
+  }
+}
+
+ReductionType mapScheduleHeuristicToReductionType(ScheduleHeuristic sh) {
+  switch (sh) {
+    case ScheduleHeuristic::InnerPersistent:
+      return ReductionType::Inner;
+    case ScheduleHeuristic::OuterPersistent:
+      return ReductionType::Outer;
+    case ScheduleHeuristic::InnerOuterPersistent:
+      return ReductionType::InnerOuter;
+    default:
+      return ReductionType::None;
+  }
 }
 
 } // namespace reduction_scheduler_utils

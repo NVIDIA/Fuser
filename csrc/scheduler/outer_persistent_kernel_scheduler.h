@@ -7,18 +7,18 @@
 // clang-format on
 #pragma once
 
-#include <scheduler/persistent_scheduler_helper.h>
 #include <scheduler/registry.h>
 #include <scheduler/utils.h>
+#include <scheduler/persistent_scheduler_helper.h>
 
 namespace nvfuser {
 
 class HeuristicSummary;
 
-class InnerPersistentKernelScheduler : public SchedulerEntry,
+class OuterPersistentKernelScheduler : public SchedulerEntry,
                                        public PersistentSchedulerHelper {
  public:
-  explicit InnerPersistentKernelScheduler(
+  explicit OuterPersistentKernelScheduler(
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
       HeuristicSummary* data_cache = nullptr);

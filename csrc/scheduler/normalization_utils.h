@@ -10,6 +10,8 @@
 #include <exceptions.h>
 #include <executor_params.h>
 #include <ir/all_nodes.h>
+#include <scheduler/utils.h>
+
 #include <cmath>
 #include <optional>
 #include <ostream>
@@ -17,6 +19,8 @@
 
 namespace nvfuser {
 class SchedulerRuntimeInfo;
+class HeuristicSummary;
+
 namespace normalization_scheduler_utils {
 
 //! Utility class to iterate candidates of launch configurations in a
@@ -205,6 +209,25 @@ getOptionalInnerOuterPersistentBufferBatches(
     const int64_t vectorize_factor,
     const int64_t warp_size,
     const bool ignore_register_size_limit);
+
+int64_t getAvailableSmemSize(
+    SchedulerRuntimeInfo& runtime_info,
+    const std::vector<TensorView*>& persistent_buffers);
+
+int64_t getPersistentBufferSize(
+    Fusion* fusion,
+    SchedulerRuntimeInfo& runtime_info,
+    HeuristicSummary* data_cache,
+    const scheduler_utils::PersistentBufferInfo& persistent_buffer_info);
+
+scheduler_utils::PersistentBufferInfo& getMaybeCachedPersistentBufferInfo(
+    Fusion* fusion,
+    HeuristicSummary* data_cache);
+
+//! If the fusion has both inner and outer reductions, use the first inner
+//! reduction tv as the reference tv, otherwise use the first reduction tv.
+TensorView* getReferenceReductionTv(
+    const std::vector<TensorView*>& reduction_tvs);
 
 } // namespace normalization_scheduler_utils
 } // namespace nvfuser

@@ -598,10 +598,14 @@ bool isConnectedOnlyThroughReductionProducer(
 }
 
 int64_t partialReductionBufferSize(
-    const std::vector<TensorView*>& outer_reduction_tvs,
+    const std::vector<TensorView*>& maybe_outer_reduction_tvs,
     SchedulerRuntimeInfo& runtime_info) {
   int64_t partial_reduction_buffer_size = 0;
-  for (auto buffer : outer_reduction_tvs) {
+  for (auto buffer : maybe_outer_reduction_tvs) {
+    // only the outer reduction tvs require additional intermediate buffers
+    if (scheduler_utils::isFastestDimReduction(buffer)) {
+      continue;
+    }
     int64_t buffer_size = -1;
     for (auto id : buffer->getMaybeRFactorDomain()) {
       if (id->isReduction() || id->isBroadcast()) {
@@ -719,6 +723,73 @@ getOptionalInnerOuterPersistentBufferBatches(
   } else {
     return std::make_pair(std::nullopt, -1);
   }
+}
+
+int64_t getAvailableSmemSize(
+    SchedulerRuntimeInfo& runtime_info,
+    const std::vector<TensorView*>& persistent_buffers) {
+  const auto dev_prop = at::cuda::getCurrentDeviceProperties();
+  const int64_t max_shared_memory_size =
+      (int64_t)dev_prop->sharedMemPerBlockOptin;
+  // Some shared memories are reserved for kernel launch overhead and
+  // reduction_broadcast_workspace. Estimation is conservative, but should
+  // be good enough. The actual threads per block is set in the heuristics
+  // and it may be smaller than maxThreadsPerBlock.
+  // TODO: More accurate estimation of available shared memory size.
+  const int64_t kernel_overhead = (int64_t)dev_prop->reservedSharedMemPerBlock;
+  int64_t max_buffer_dtype_size = 1;
+  for (auto tv : persistent_buffers) {
+    max_buffer_dtype_size = std::max(
+        max_buffer_dtype_size,
+        dataTypeSize(tv->getDataType().value(), runtime_info.getIndexType()));
+  }
+  const int64_t reduction_broadcast_workspace =
+      (int64_t)(dev_prop->maxThreadsPerBlock) * max_buffer_dtype_size;
+  const int64_t available_shared_memory_size =
+      max_shared_memory_size - kernel_overhead - reduction_broadcast_workspace;
+  return available_shared_memory_size;
+}
+
+int64_t getPersistentBufferSize(
+    Fusion* fusion,
+    SchedulerRuntimeInfo& runtime_info,
+    HeuristicSummary* data_cache,
+    const scheduler_utils::PersistentBufferInfo& persistent_buffer_info) {
+  auto persistent_buffer_size_info = scheduler_utils::persistentBufferSize(
+      fusion, runtime_info, persistent_buffer_info, data_cache);
+
+  // Note that projected buffer size can be zero
+  auto persistent_buffer_size =
+      persistent_buffer_size_info.projected_persistent_buffer_size == 0
+      ? persistent_buffer_size_info.persistent_buffer_size
+      : std::min(
+            persistent_buffer_size_info.persistent_buffer_size,
+            persistent_buffer_size_info.projected_persistent_buffer_size);
+
+  return persistent_buffer_size;
+}
+
+//! If the fusion has both inner and outer reductions, use the first inner
+//! reduction tv as the reference tv, otherwise use the first reduction tv.
+TensorView* getReferenceReductionTv(
+    const std::vector<TensorView*>& reduction_tvs) {
+  TensorView* first_inner_tv = nullptr;
+  TensorView* first_outer_tv = nullptr;
+  for (auto tv : reduction_tvs) {
+    bool is_inner = scheduler_utils::isFastestDimReduction(tv);
+
+    if (is_inner && !first_inner_tv) {
+      first_inner_tv = tv;
+    } else if (!is_inner && !first_outer_tv) {
+      first_outer_tv = tv;
+    }
+
+    if (first_inner_tv && first_outer_tv) {
+      return first_inner_tv;
+    }
+  }
+
+  return reduction_tvs.at(0);
 }
 
 } // namespace normalization_scheduler_utils
