@@ -113,9 +113,6 @@ TEST_F(ResizeTest, FusionResizePad3) {
   fe.compileFusion(&fusion, aten_inputs);
   auto cg_outputs = fe.runFusion(aten_inputs);
 
-  auto t3 = at::pad(t0, {1, 1});
-  auto ref = t3 + t1;
-
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
@@ -235,10 +232,6 @@ TEST_F(ResizeTest, FusionResizePad6) {
   fe.compileFusion(&fusion, aten_inputs);
   auto cg_outputs = fe.runFusion(aten_inputs);
 
-  auto t2 = t0 + 1;
-  auto t3 = at::pad(t2, {1, 1});
-  auto ref = t3 + t1;
-
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
@@ -282,8 +275,6 @@ TEST_F(ResizeTest, FusionResizePad7) {
   FusionExecutor fe;
   fe.compileFusion(&fusion, aten_inputs);
   auto cg_outputs = fe.runFusion(aten_inputs);
-
-  auto ref = at::pad(t0, {1, 1});
 
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
@@ -387,9 +378,6 @@ TEST_F(ResizeTest, FusionResizePadScheduler2) {
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
-
-  auto t3 = at::pad(t0, {1, 1});
-  auto ref = t3 + t1;
 
   testValidate(
       executor_cache.fusion(),
@@ -511,8 +499,6 @@ TEST_F(ResizeTest, FusionResizePadBroadcastInput) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
-
-  auto t1 = at::pad(t0, {1, 0, 0, 0});
 
   testValidate(
       executor_cache.fusion(),
