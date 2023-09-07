@@ -26,7 +26,7 @@ TEST_F(NVFuserTest, FusionMultiGPU_Collective_Gather_CUDA) {
   c10::TensorOptions options =
       at::TensorOptions().dtype(at::kFloat).device(comm.device());
 
-  CollectiveParams params;
+  CommParams params;
   params.root = root;
   params.team = std::vector<DeviceIdxType>(comm.size());
   std::iota(params.team.begin(), params.team.end(), 0);
@@ -65,7 +65,7 @@ TEST_F(NVFuserTest, FusionMultiGPU_Collective_Allgather_CUDA) {
   c10::TensorOptions options =
       at::TensorOptions().dtype(at::kFloat).device(comm.device());
 
-  CollectiveParams params;
+  CommParams params;
   params.team = std::vector<DeviceIdxType>(comm.size());
   std::iota(params.team.begin(), params.team.end(), 0);
   params.src_bufs = {at::ones(tensor_size, options) * comm.deviceId()};
@@ -99,7 +99,7 @@ TEST_F(NVFuserTest, FusionMultiGPU_Collective_Scatter_CUDA) {
   c10::TensorOptions options =
       at::TensorOptions().dtype(at::kFloat).device(comm.device());
 
-  CollectiveParams params;
+  CommParams params;
   params.root = root;
   params.team = std::vector<DeviceIdxType>(comm.size());
   std::iota(params.team.begin(), params.team.end(), 0);
@@ -135,7 +135,7 @@ TEST_F(NVFuserTest, FusionMultiGPU_Collective_Broadcast_CUDA) {
   c10::TensorOptions options =
       at::TensorOptions().dtype(at::kFloat).device(comm.device());
 
-  CollectiveParams params;
+  CommParams params;
   params.root = root;
   params.team = std::vector<DeviceIdxType>(comm.size());
   std::iota(params.team.begin(), params.team.end(), 0);
@@ -177,7 +177,7 @@ TEST_F(NVFuserTest, FusionMultiGPU_Collective_SendRecv_CUDA) {
   c10::TensorOptions options =
       at::TensorOptions().dtype(at::kFloat).device(comm.device());
 
-  CollectiveParams params;
+  CommParams params;
   params.root = sender;
   params.team = {0, 1};
   if (comm.deviceId() == sender) {

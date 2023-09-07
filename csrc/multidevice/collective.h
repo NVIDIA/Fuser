@@ -17,7 +17,7 @@ namespace nvfuser {
   This struct gathers all the parameters necessary for the
   construction a collective
 */
-struct TORCH_CUDA_CU_API CollectiveParams {
+struct TORCH_CUDA_CU_API CommParams {
   DeviceIdxType root = -1;
   std::vector<at::Tensor> src_bufs;
   std::vector<at::Tensor> dst_bufs;
@@ -34,9 +34,9 @@ added later.
 Later, Collective could be made a derived class of Expr and be thought
 as a kernel IRs resulting of the lowering of a PipelineCommunication.
 
-CollectiveParams contains the arguments for the collective constructors.
-Note that each rank (associated with a device index through
-communicator.deviceId()) will fill CollectiveParams with different arguments,
+CommParams contains the arguments for the collective constructors.
+Note that each process (associated with a device index given by
+communicator.deviceId()) will fill CommParams with different arguments,
 depending on the role they play in this collective. For example, the root of a
 Gather collective will have <team_size> destination buffers, whereas non-root
 will have no destination buffers. Also, the ranks not participating in the
@@ -66,12 +66,12 @@ class TORCH_CUDA_CU_API Collective {
  protected:
   // argument "name" is only used for printing
   // argument "has_root" indicates if the collective is rooted
-  Collective(CollectiveParams params, std::string name, bool has_root = true);
+  Collective(CommParams params, std::string name, bool has_root = true);
 
   // store the arguments of the collective
-  CollectiveParams params_;
-  // stores the index of the root in the team
-  DeviceIdxType root_rank_ = -1;
+  CommParams params_;
+  // stores the relative index of the root in the team
+  DeviceIdxType root_relative_index_ = -1;
   // utility buffer used in Gather and Scatter derived classes
   std::vector<std::vector<at::Tensor>> buf_list_;
 
@@ -93,7 +93,7 @@ Requirements:
 */
 class TORCH_CUDA_CU_API Broadcast : public Collective {
  public:
-  Broadcast(CollectiveParams params);
+  Broadcast(CommParams params);
   c10::intrusive_ptr<c10d::Work> post(Communicator& comm) override;
 };
 
@@ -110,7 +110,7 @@ Requirements:
 */
 class TORCH_CUDA_CU_API Gather : public Collective {
  public:
-  Gather(CollectiveParams params);
+  Gather(CommParams params);
   c10::intrusive_ptr<c10d::Work> post(Communicator& comm) override;
 };
 
@@ -125,7 +125,7 @@ Requirements:
 */
 class TORCH_CUDA_CU_API Allgather : public Collective {
  public:
-  Allgather(CollectiveParams params);
+  Allgather(CommParams params);
   c10::intrusive_ptr<c10d::Work> post(Communicator& comm) override;
 };
 
@@ -141,7 +141,7 @@ Requirements:
 */
 class TORCH_CUDA_CU_API Scatter : public Collective {
  public:
-  Scatter(CollectiveParams params);
+  Scatter(CommParams params);
   c10::intrusive_ptr<c10d::Work> post(Communicator& comm) override;
 };
 
@@ -159,7 +159,7 @@ sender
 */
 class TORCH_CUDA_CU_API SendRecv : public Collective {
  public:
-  SendRecv(CollectiveParams params);
+  SendRecv(CommParams params);
   c10::intrusive_ptr<c10d::Work> post(Communicator& comm) override;
 };
 

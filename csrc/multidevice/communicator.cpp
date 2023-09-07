@@ -166,16 +166,16 @@ Communicator::Communicator(
   // creates the world's backend
   std::vector<RankType> all_ranks(size_);
   std::iota(all_ranks.begin(), all_ranks.end(), 0);
-  world_ = getTeam(all_ranks);
+  world_ = getBackendForTeam(all_ranks);
 }
 
-c10::intrusive_ptr<c10d::Backend> Communicator::getTeam(
+c10::intrusive_ptr<c10d::Backend> Communicator::getBackendForTeam(
     const std::vector<DeviceIdxType>& ranks) {
   // check if backend associated with the ranks is present in the cache
   if (teams_.find(ranks) == teams_.end()) { // create the backend and cache it
     // check that the caller's rank belongs to the requested team
     auto rank_it = std::find(ranks.begin(), ranks.end(), rank_);
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         rank_it != ranks.end(),
         "only ranks in the team should participate to its initialization");
     // retrieve the caller's rank index/position in the team
@@ -203,7 +203,7 @@ c10::intrusive_ptr<c10d::Work> Communicator::sendRecv(
     DeviceIdxType sender,
     std::vector<at::Tensor>& tensors,
     int tag) {
-  TORCH_INTERNAL_ASSERT(sender != receiver, "cannot send to self");
+  NVF_ERROR(sender != receiver, "cannot send to self");
   if (deviceId() == sender) {
     return world_->send(tensors, static_cast<int>(dIdToRank(receiver)), tag);
   }
