@@ -1140,21 +1140,6 @@ std::ostream& operator<<(std::ostream& os, const KernelIndexMode& index_mode) {
   return os;
 }
 
-std::ostream& operator<<(std::ostream& os, const CacheOp& cache_op) {
-  switch (cache_op) {
-    case CacheOp::AllLevels:
-      os << "AllLevels";
-      break;
-    case CacheOp::Streaming:
-      os << "Streaming";
-      break;
-    default:
-      NVF_ERROR(false, "undefined cache operator");
-      break;
-  }
-  return os;
-}
-
 std::optional<std::string> inline_op_str(const UnaryOpType uotype) {
   const char* str = unary_op_type_inline_op2string(uotype);
   return str != nullptr ? std::optional<std::string>(std::string(str))
