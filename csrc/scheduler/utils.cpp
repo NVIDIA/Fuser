@@ -1046,10 +1046,16 @@ std::vector<std::pair<TensorView*, TensorView*>> cacheAndForkOutputs(
     bool unroll) {
   std::vector<std::pair<TensorView*, TensorView*>> cached_outputs;
   // Track definitions so that we don't repeatedly cache siblings
-  std::unordered_set<Expr*> cached_definitions;
+  std::unordered_set<TensorView*> processed_tvs;
   const auto& orig_tv_outputs =
       ir_utils::filterByType<TensorView>(fusion->outputs());
   for (auto output : orig_tv_outputs) {
+    if (processed_tvs.find(output) != processed_tvs.end()) {
+      // If this is a sibling that has already been processed, then its
+      // definition will have already been removed from the Fusion. We return
+      // early here to avoid dereferencing it.
+      continue;
+    }
     auto def = output->definition();
     if (def == nullptr ||
         // the output of ScatterOp must on the global memory due to the random
@@ -1068,14 +1074,15 @@ std::vector<std::pair<TensorView*, TensorView*>> cacheAndForkOutputs(
     // we'd likely want to cache a forked output to make sure our inlining
     // strategy is optimal.
     if (unroll) {
-      if (cached_definitions.find(def) == cached_definitions.end()) {
-        // Recomputed definition determines siblings
-        auto cached_def = output->cacheBefore()->definition();
-        for (auto i : c10::irange(def->outputs().size())) {
-          auto orig_tv = def->output(i)->as<TensorView>();
-          auto cached_tv = cached_def->output(i)->as<TensorView>();
-          cached_outputs.emplace_back(orig_tv, cached_tv);
-        }
+      // copy vector of sibs
+      const auto orig_sibs = def->outputs();
+
+      auto cached_def = output->cacheBefore()->definition();
+      for (auto i : c10::irange(orig_sibs.size())) {
+        auto orig_tv = orig_sibs.at(i)->as<TensorView>();
+        auto cached_tv = cached_def->output(i)->as<TensorView>();
+        cached_outputs.emplace_back(orig_tv, cached_tv);
+        processed_tvs.insert(orig_tv);
       }
     }
   }
