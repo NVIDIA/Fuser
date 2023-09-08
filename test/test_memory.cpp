@@ -56,14 +56,14 @@ TEST_F(MemoryTest, LoadCache) {
   at::Tensor expected_output = input + 1.0f;
 
   FusionExecutor fe;
-  fe.setSaveCompiledBinaryFlag(true);
   {
     DisableOptionsGuard og;
     DisableOptionsGuard::getCurOptions().set(DisableOption::CompileToSass);
     fe.compileFusion(&fusion, {input});
   }
-  std::vector<char> compiled_binary = fe.compiledBinary();
-  std::string ptx(compiled_binary.begin(), compiled_binary.end());
+  const serde::CudaKernelT& compiled_kernel = fe.compiledBinary();
+  const char* cubin_ptr = (const char*)compiled_kernel.object_code.data();
+  std::string ptx(cubin_ptr, cubin_ptr + compiled_kernel.object_code.size());
 
   std::regex regex(R"(ld\.global\.ca\.\S+)");
   std::smatch match;
