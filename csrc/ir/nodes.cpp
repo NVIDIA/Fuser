@@ -2244,13 +2244,11 @@ LoadStoreOp::LoadStoreOp(
     IrBuilderPasskey passkey,
     LoadStoreOpType op_type,
     Val* out,
-    Val* in,
-    CacheOp cache_op)
+    Val* in)
     : Expr(passkey) {
   addOutput(out);
   addInput(in);
   addDataAttribute(op_type);
-  addDataAttribute(cache_op);
 }
 
 std::vector<PolymorphicValue> LoadStoreOp::evaluate(
