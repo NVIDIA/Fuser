@@ -1121,42 +1121,53 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType cache_op) {
         "Potentially invalid computeAt and caching detected. Apply caching before computeAt.");
   }
 
-  auto producer = RecomputeTv::recompute(this, definition()->inputs());
-  producer->setMemoryType(MemoryType::Local);
+  auto this_producer = RecomputeTv::recompute(this, definition()->inputs());
+  auto orig_definition = definition();
 
-  // Set domain of consumer
-  TensorView* consumer = this;
+  // Connect all recomputed siblings to original siblings
+  for (const auto j : c10::irange(definition()->outputs().size())) {
+    // Recomputed sibling TV
+    auto producer_val = this_producer->definition()->outputs().at(j);
+    // Corresponding original sibling TV
+    auto consumer_val = orig_definition->outputs().at(j);
 
-  size_t i = 0;
-  auto no_reduction_root_domain =
-      TensorDomain::noReductions(getMaybeRFactorDomain());
-  std::vector<IterDomain*> new_root_domain(no_reduction_root_domain.size());
-  for (const auto& dom : no_reduction_root_domain) {
-    new_root_domain[i++] = dom->cloneWithoutRFactor();
+    NVF_ERROR(
+        producer_val->isA<TensorView>() && consumer_val->isA<TensorView>());
+    auto producer = producer_val->as<TensorView>();
+    auto consumer = consumer_val->as<TensorView>();
+
+    producer->setMemoryType(MemoryType::Local);
+
+    // Set domain of consumer
+    size_t i = 0;
+    auto no_reduction_root_domain =
+        TensorDomain::noReductions(getMaybeRFactorDomain());
+    std::vector<IterDomain*> new_root_domain(no_reduction_root_domain.size());
+    for (const auto& dom : no_reduction_root_domain) {
+      new_root_domain[i++] = dom->cloneWithoutRFactor();
+    }
+
+    // Warning: allocation domain is temporarily discarded. It will be recovered
+    // later.
+    consumer->setDomain(IrBuilder::create<TensorDomain>(
+        container(),
+        new_root_domain,
+        TensorDomain::getContiguityFilledWith(new_root_domain, true)));
+
+    // Insert producer - Cache_Before (CB) - before this TV.
+    // Before: Prev TV -> [Definition Op] -> This TV
+    // After:  Prev TV -> [Definition Op] -> New CB TV -> [Set Op] -> This TV
+
+    // definition_ is now the above LoadStoreOp
+    IrBuilder::create<LoadStoreOp>(container(), cache_op, consumer, producer);
+
+    auto replayed_consumer_pair = TransformReplay::replayCasP(
+        consumer, producer, -1, TransformReplayOptions().replayAllocation());
+
+    consumer->setDomain(replayed_consumer_pair.first);
   }
 
-  // Warning: allocation domain is temporarily discarded. It will be recovered
-  // later.
-  consumer->setDomain(IrBuilder::create<TensorDomain>(
-      container(),
-      new_root_domain,
-      TensorDomain::getContiguityFilledWith(new_root_domain, true)));
-
-  // Insert producer - Cache_Before (CB) - before this TV.
-  // Before: Prev TV -> [Definition Op] -> This TV
-  // After:  Prev TV -> [Definition Op] -> New CB TV -> [Set Op] -> This TV
-
-  // Expr* producer_uses =
-  IrBuilder::create<LoadStoreOp>(container(), cache_op, consumer, producer);
-
-  // definition_ is now the above LoadStoreOp
-
-  auto replayed_consumer_pair = TransformReplay::replayCasP(
-      consumer, producer, -1, TransformReplayOptions().replayAllocation());
-
-  consumer->setDomain(replayed_consumer_pair.first);
-
-  return producer;
+  return this_producer;
 }
 
 TensorView* TensorView::cacheFork() {
