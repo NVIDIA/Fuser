@@ -1122,14 +1122,15 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType cache_op) {
   }
 
   auto this_producer = RecomputeTv::recompute(this, definition()->inputs());
-  auto orig_definition = definition();
+  // copy outputs since definition might be removed in loop
+  const auto orig_outputs = definition()->outputs();
 
   // Connect all recomputed siblings to original siblings
-  for (const auto j : c10::irange(definition()->outputs().size())) {
+  for (const auto j : c10::irange(orig_outputs.size())) {
     // Recomputed sibling TV
     auto producer_val = this_producer->definition()->outputs().at(j);
     // Corresponding original sibling TV
-    auto consumer_val = orig_definition->outputs().at(j);
+    auto consumer_val = orig_outputs.at(j);
 
     NVF_ERROR(
         producer_val->isA<TensorView>() && consumer_val->isA<TensorView>());
