@@ -2244,11 +2244,13 @@ LoadStoreOp::LoadStoreOp(
     IrBuilderPasskey passkey,
     LoadStoreOpType op_type,
     Val* out,
-    Val* in)
+    Val* in,
+    CacheOp cache_op)
     : Expr(passkey) {
   addOutput(out);
   addInput(in);
   addDataAttribute(op_type);
+  addDataAttribute(cache_op);
 }
 
 std::vector<PolymorphicValue> LoadStoreOp::evaluate(
@@ -2820,7 +2822,8 @@ IterDomain* IterDomain::resize(
         left_expansion, right_expansion->definition()->as<BinaryOp>()->lhs());
   } else {
     resized_id_size = SimplifyingIrBuilder::addExpr(
-        SimplifyingIrBuilder::addExpr(in->extent(), left_expansion),
+        SimplifyingIrBuilder::addExpr(
+            in->getMaybeExpandedExtent(), left_expansion),
         right_expansion);
   }
 
@@ -3900,6 +3903,26 @@ std::pair<Val*, Val*> PadOp::getPadWidths(int axis) const {
   return std::make_pair(
       (*(getPadWidthInputBegin() + offset_even))->as<Val>(),
       (*(getPadWidthInputBegin() + offset_odd))->as<Val>());
+}
+
+std::vector<PolymorphicValue> PadOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  const auto& in = inputs.at(0).as<at::Tensor>();
+  double value = (double)inputs.at(1);
+
+  std::vector<int64_t> pad_widths;
+  auto pad_width_offset = getPadWidthInputOffset();
+  auto num_dims = in.dim();
+
+  for (auto i = num_dims - 1; i > -1; i--) {
+    auto left_pad = (int64_t)inputs.at(pad_width_offset + 2 * i);
+    auto right_pad = (int64_t)inputs.at(pad_width_offset + 2 * i + 1);
+    pad_widths.push_back(left_pad);
+    pad_widths.push_back(right_pad);
+  }
+
+  return {at::pad(in, pad_widths, "constant", value)};
 }
 
 SliceOp::SliceOp(

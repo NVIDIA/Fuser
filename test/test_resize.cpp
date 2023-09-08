@@ -113,10 +113,7 @@ TEST_F(ResizeTest, FusionResizePad3) {
   fe.compileFusion(&fusion, aten_inputs);
   auto cg_outputs = fe.runFusion(aten_inputs);
 
-  auto t3 = at::pad(t0, {1, 1});
-  auto ref = t3 + t1;
-
-  testValidate(&fusion, cg_outputs, aten_inputs, {ref}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // pad + parallelization
@@ -235,11 +232,7 @@ TEST_F(ResizeTest, FusionResizePad6) {
   fe.compileFusion(&fusion, aten_inputs);
   auto cg_outputs = fe.runFusion(aten_inputs);
 
-  auto t2 = t0 + 1;
-  auto t3 = at::pad(t2, {1, 1});
-  auto ref = t3 + t1;
-
-  testValidate(&fusion, cg_outputs, aten_inputs, {ref}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // pad + unswitch. Having different extents in an unswitched loop nest
@@ -283,9 +276,7 @@ TEST_F(ResizeTest, FusionResizePad7) {
   fe.compileFusion(&fusion, aten_inputs);
   auto cg_outputs = fe.runFusion(aten_inputs);
 
-  auto ref = at::pad(t0, {1, 1});
-
-  testValidate(&fusion, cg_outputs, aten_inputs, {ref}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // Disable for now. Unclear what would be the best way to handle
@@ -388,16 +379,8 @@ TEST_F(ResizeTest, FusionResizePadScheduler2) {
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
-  auto t3 = at::pad(t0, {1, 1});
-  auto ref = t3 + t1;
-
   testValidate(
-      executor_cache.fusion(),
-      cg_outputs,
-      aten_inputs,
-      {ref},
-      __LINE__,
-      __FILE__);
+      executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // Disabled due to the same reason as Pad8
@@ -513,15 +496,8 @@ TEST_F(ResizeTest, FusionResizePadBroadcastInput) {
   FusionExecutorCache executor_cache(std::move(fusion));
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
-  auto t1 = at::pad(t0, {1, 0, 0, 0});
-
   testValidate(
-      executor_cache.fusion(),
-      cg_outputs,
-      aten_inputs,
-      {t1},
-      __LINE__,
-      __FILE__);
+      executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // Trivial cat
@@ -2780,6 +2756,76 @@ TEST_F(ResizeTest, SliceAndReshapeRepro540Manual) {
     auto ref = at::native::view(slice_out_ref, {16, 128, 16, 64});
     ASSERT_TRUE(ref.equal(cg_outputs.at(i)));
   }
+}
+
+// Test that we can cat along broadcast dims
+// See https://github.com/NVIDIA/Fuser/issues/224
+TEST_F(ResizeTest, CatOfBroadcast) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape0({1, 2});
+  std::vector<int64_t> shape1({3, 2});
+
+  auto tv0 = makeConcreteTensor(shape0);
+  fusion.addInput(tv0);
+
+  auto tv1 = makeConcreteTensor(shape1);
+  fusion.addInput(tv1);
+
+  auto tv2 = cat({tv0, tv1}, 0);
+  fusion.addOutput(tv2);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  auto t0 = at::randn(shape0, options);
+  auto t1 = at::randn(shape1, options);
+  std::vector<c10::IValue> aten_inputs({t0, t1});
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = fe.runFusion(aten_inputs);
+
+  auto ref = at::cat({t0, t1}, 0);
+
+  NVF_CHECK(ref.equal(cg_outputs[0]));
+}
+
+// Test that we can cat along broadcast dims that have been expanded
+// See https://github.com/NVIDIA/Fuser/issues/224
+TEST_F(ResizeTest, CatOfExpandedBroadcast) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape0({1, 2});
+  std::vector<int64_t> shape0e({4, 2});
+  std::vector<int64_t> shape1({3, 2});
+
+  auto tv0 = makeConcreteTensor(shape0);
+  fusion.addInput(tv0);
+
+  auto tv1 = makeConcreteTensor(shape1);
+  fusion.addInput(tv1);
+
+  auto tv0e = expand(
+      tv0, {IrBuilder::create<Val>(shape0e.at(0)), tv0->axis(1)->extent()});
+
+  auto tv2 = cat({tv0e, tv1}, 0);
+  fusion.addOutput(tv2);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  auto t0 = at::randn(shape0, options);
+  auto t1 = at::randn(shape1, options);
+  std::vector<c10::IValue> aten_inputs({t0, t1});
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = fe.runFusion(aten_inputs);
+
+  auto ref = at::cat({at::expand_copy(t0, shape0e), t1}, 0);
+
+  NVF_CHECK(ref.equal(cg_outputs[0]));
 }
 
 } // namespace nvfuser

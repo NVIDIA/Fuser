@@ -660,7 +660,7 @@ TensorView* cat(
         // broadcast, partial, etc? For now, assume it's a normal
         // IterDomain.
         NVF_ERROR(
-            inp_root_id->getIterType() == IterType::Iteration &&
+            (inp_root_id->isIteration() || inp_root_id->isBroadcast()) &&
                 !inp_root_id->maybePartial(),
             "Unsupported IterDomain to concatenate: ",
             inp_root_id->toString());
@@ -670,7 +670,7 @@ TensorView* cat(
             : FusionGuard::getCurFusion()->zeroVal();
         left_pad_i = left_pad;
         right_pad_i = right_pad;
-        left_pad = add(left_pad, inp_root_id->extent());
+        left_pad = add(left_pad, inp_root_id->getMaybeExpandedExtent());
       }
       // The pad width argument to pad should be ordered such that the
       // widths of inner dimensions come first.

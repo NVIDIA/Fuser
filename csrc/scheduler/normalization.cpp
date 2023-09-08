@@ -1335,13 +1335,31 @@ std::shared_ptr<ReductionParams> getPersistentHeuristics(
 
   NVF_ERROR(!reduction_tvs.empty(), "Need reduction tensor views to schedule.");
 
-  auto first_red_tv = reduction_tvs[0];
+  int64_t n_tensor_inner_reduction = 0;
+  int64_t n_tensor_outer_reduction = 0;
+  TensorView* first_inner_reduction_tv = nullptr;
+  std::vector<TensorView*> outer_reduction_tvs;
+  for (auto tv : reduction_tvs) {
+    if (scheduler_utils::isFastestDimReduction(tv)) {
+      if (!first_inner_reduction_tv) {
+        first_inner_reduction_tv = tv;
+      }
+      n_tensor_inner_reduction++;
+    } else {
+      n_tensor_outer_reduction++;
+      outer_reduction_tvs.emplace_back(tv);
+    }
+  }
+  const bool combined_inner_outer_reduction =
+      n_tensor_inner_reduction && n_tensor_outer_reduction;
 
-  NVF_ERROR(first_red_tv != nullptr, "Reduction TensorView wasn't found.");
+  auto ref_red_tv = combined_inner_outer_reduction ? first_inner_reduction_tv
+                                                   : reduction_tvs[0];
 
-  NVF_ERROR(
-      first_red_tv->hasReduction(), "TensorView doesn't have a reduction.");
-  const auto red_expr = first_red_tv->definition();
+  NVF_ERROR(ref_red_tv != nullptr, "Reduction TensorView wasn't found.");
+
+  NVF_ERROR(ref_red_tv->hasReduction(), "TensorView doesn't have a reduction.");
+  const auto red_expr = ref_red_tv->definition();
 
   NVF_ERROR(
       ir_utils::isReductionOp(red_expr),
@@ -1351,20 +1369,6 @@ std::shared_ptr<ReductionParams> getPersistentHeuristics(
   NVF_ERROR(
       std::distance(tv_inps.begin(), tv_inps.end()) > 0,
       "Tried to schedule a fusion with no tensor inputs, currently not supported.");
-
-  int64_t n_tensor_inner_reduction = 0;
-  int64_t n_tensor_outer_reduction = 0;
-  std::vector<TensorView*> outer_reduction_tvs;
-  for (auto tv : reduction_tvs) {
-    if (scheduler_utils::isFastestDimReduction(tv)) {
-      n_tensor_inner_reduction++;
-    } else {
-      n_tensor_outer_reduction++;
-      outer_reduction_tvs.emplace_back(tv);
-    }
-  }
-  const bool combined_inner_outer_reduction =
-      n_tensor_inner_reduction && n_tensor_outer_reduction;
 
   auto persistent_buffer_info_entry =
       HeuristicSummaryEntry<HeuristicCompileTime::PersistentBufferInfo>(
@@ -1378,8 +1382,8 @@ std::shared_ptr<ReductionParams> getPersistentHeuristics(
       !persistent_buffer_info.persistent_buffers.empty(),
       "Persistent scheduler requires persistent buffers.");
 
-  auto properties = scheduler_utils::getReductionProperties(
-      fusion, runtime_info, first_red_tv);
+  auto properties =
+      scheduler_utils::getReductionProperties(fusion, runtime_info, ref_red_tv);
 
   // Grab persistent buffer sizes
   auto persistent_buffer_size_info = scheduler_utils::persistentBufferSize(
@@ -1451,7 +1455,7 @@ std::shared_ptr<ReductionParams> getPersistentHeuristics(
     }
   }
 
-  auto reduced_tv = ir_utils::getSoleProducerTv(first_red_tv);
+  auto reduced_tv = ir_utils::getSoleProducerTv(ref_red_tv);
 
   auto unrollable_inputs_outputs_entry =
       HeuristicSummaryEntry<HeuristicCompileTime::UnrollableInputsAndOutputs>(
@@ -1468,7 +1472,7 @@ std::shared_ptr<ReductionParams> getPersistentHeuristics(
       reduced_tv,
       data_cache,
       vectorize_helper::getVectorizationBreakPointOfReductionProducer(
-          first_red_tv, reduced_tv, properties.inner_most_dimension_ndims));
+          ref_red_tv, reduced_tv, properties.inner_most_dimension_ndims));
 
   // Base max dtype and n_tensor_inputs on tensors that are vectorizable (i.e.
   // share inner dimension with data pattern we're looking at).
@@ -1492,7 +1496,7 @@ std::shared_ptr<ReductionParams> getPersistentHeuristics(
   // dtype used to store partial outer reduction in combined reduction
   const int64_t tmp_gmem_dtype_size = combined_inner_outer_reduction
       ? dataTypeSize(outer_reduction_tvs[0]->getDataType().value())
-      : dataTypeSize(first_red_tv->getDataType().value());
+      : dataTypeSize(ref_red_tv->getDataType().value());
 
   // Protect heuristics div by 0:
   n_tensor_inputs = std::max(n_tensor_inputs, (int64_t)1);
