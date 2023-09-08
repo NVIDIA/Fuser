@@ -1114,29 +1114,15 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType cache_op) {
 
   // It also did additional transformation when a producer tensor has computeAt.
   // Make sure we no longer rely on that behavior.
-  if (definition() != nullptr) {
-    for (TensorView* producer_of_producer :
-         ir_utils::filterByType<TensorView>(definition()->inputs())) {
-      NVF_CHECK(
-          !producer_of_producer->hasComputeAt(),
-          "Potentially invalid computeAt and caching detected. Apply caching before computeAt.");
-    }
+  for (TensorView* producer_of_producer :
+       ir_utils::filterByType<TensorView>(definition()->inputs())) {
+    NVF_CHECK(
+        !producer_of_producer->hasComputeAt(),
+        "Potentially invalid computeAt and caching detected. Apply caching before computeAt.");
   }
 
-  // Create Producer Domain
-  // This domain will be the consumer which needs a new domain, so replace the
-  // producers domain with this domain.
-
-  TensorView* producer = IrBuilder::create<TensorView>(
-      container(),
-      IrBuilder::create<TensorDomain>(
-          container(),
-          getRootDomain(),
-          getRFactorDomain(),
-          getAllocationDomain(),
-          getLeafDomain(),
-          getContiguity()),
-      getDataType().value());
+  auto producer = RecomputeTv::recompute(this, definition()->inputs());
+  producer->setMemoryType(MemoryType::Local);
 
   // Set domain of consumer
   TensorView* consumer = this;
@@ -1160,16 +1146,10 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType cache_op) {
   // Before: Prev TV -> [Definition Op] -> This TV
   // After:  Prev TV -> [Definition Op] -> New CB TV -> [Set Op] -> This TV
 
-  // Get inputs for origin expression
-  auto expr_inputs = definition()->inputs();
-  // Expr* producer_definition =
-  ir_utils::replaceValInExpr(definition(), this, producer);
-
   // Expr* producer_uses =
   IrBuilder::create<LoadStoreOp>(container(), cache_op, consumer, producer);
 
-  // definition_ is no longer valid
-  // setDefinition(nullptr);
+  // definition_ is now the above LoadStoreOp
 
   auto replayed_consumer_pair = TransformReplay::replayCasP(
       consumer, producer, -1, TransformReplayOptions().replayAllocation());
