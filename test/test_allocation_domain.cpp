@@ -631,9 +631,20 @@ TEST_F(AllocationDomainTest, NHWC4d_To_NHWC4d_cacheBefore_CUDA) {
   std::vector<IterDomain*> expected_new_allocation_domain{
       tv1->axis(0), tv1->axis(2), tv1->axis(3), tv1->axis(1)};
 
-  ASSERT_EQ(tv0->getAllocationDomain(), tv0_nhwc);
-  ASSERT_EQ(tv1->getAllocationDomain(), expected_new_allocation_domain);
-  ASSERT_EQ(tv2->getAllocationDomain(), tv1_nhwc);
+  const auto compare_domain_extents = [](const std::vector<IterDomain*>& a,
+                                         const std::vector<IterDomain*>& b) {
+    ASSERT_EQ(a.size(), b.size());
+
+    // cacheBefore will clone each of these IterDomains when it recomputes the
+    // original TV. So we just check here that the extents match.
+    for (const auto i : c10::irange(a.size())) {
+      ASSERT_EQ(a.at(i)->extent(), b.at(i)->extent());
+    }
+  };
+  compare_domain_extents(tv0->getAllocationDomain(), tv0_nhwc);
+  compare_domain_extents(
+      tv1->getAllocationDomain(), expected_new_allocation_domain);
+  compare_domain_extents(tv2->getAllocationDomain(), tv1_nhwc);
 
   for (auto tv : {tv1, tv2}) {
     // [N, C, H, W]
