@@ -1258,7 +1258,7 @@ CompiledKernel getCompiledKernel(
   }
 
   log << module_load_driver.invoke(
-             compiled_kernel.nvrtc_func.module,
+             compiled_kernel.module,
              (compile_to_sass ? compiled_kernel.cubin.data()
                               : compiled_kernel.ptx.data()))
       << std::endl;
@@ -1270,8 +1270,8 @@ CompiledKernel getCompiledKernel(
   }
 
   NVFUSER_CUDA_SAFE_CALL(cuModuleGetFunction(
-      &(compiled_kernel.nvrtc_func.function),
-      compiled_kernel.nvrtc_func.module,
+      &(compiled_kernel.function),
+      compiled_kernel.module,
       compiled_kernel.kernel_name.c_str()));
 
   if (!return_compiled_binary) {

@@ -226,13 +226,8 @@ void FusionExecutor::debugCompileFusionFromStr(
         "The static shared memory allocation is larger than available memory.");
   }
 
-  // TODO: store compiled_kernel directly.
-  executor_utils::CompiledKernel compiled_kernel =
+  compiled_kernel_ =
       executor_utils::getCompiledKernel(std::nullopt, code, name, fusion_id_);
-  compiled_kernel_ = compiled_kernel.nvrtc_func;
-  last_compiler_log_ = compiled_kernel.compile_log;
-  last_compiled_binary_ =
-      compiled_kernel.ptx.empty() ? compiled_kernel.cubin : compiled_kernel.ptx;
   NVF_ERROR(fusion_id_ > 0, "assign a fusion_id_ <= 0 is not accepted.");
 }
 
@@ -413,19 +408,14 @@ void FusionExecutor::compileFusion(
       (block_size.has_value() ? block_size.value() : 1),
       block_size_high_water_mark_);
   maxrregcount_high_water_mark_ = compile_params.maxrregcount;
-  executor_utils::CompiledKernel compiled_kernel =
-      executor_utils::getCompiledKernel(
-          kernel_code_,
-          structured_code,
-          getCanonicalKernelName(),
-          fusion_id_,
-          compile_params,
-          block_size,
-          save_compiled_binary_ || isDebugDumpEnabled(DebugDumpOption::Sass));
-  compiled_kernel_ = compiled_kernel.nvrtc_func;
-  last_compiler_log_ = compiled_kernel.compile_log;
-  last_compiled_binary_ =
-      compiled_kernel.ptx.empty() ? compiled_kernel.cubin : compiled_kernel.ptx;
+  compiled_kernel_ = executor_utils::getCompiledKernel(
+      kernel_code_,
+      structured_code,
+      getCanonicalKernelName(),
+      fusion_id_,
+      compile_params,
+      block_size,
+      save_compiled_binary_ || isDebugDumpEnabled(DebugDumpOption::Sass));
   NVF_ERROR(fusion_id_ > 0, "failed to assign a fusion_id_ after compilation.");
 
   // These should be nullopt at this point, but reset just in case
@@ -1530,19 +1520,14 @@ void FusionExecutor::recompileKernel(
   block_size_high_water_mark_ = new_launch_params.nThreads();
   maxrregcount_high_water_mark_ = new_compile_params.maxrregcount;
 
-  executor_utils::CompiledKernel compiled_kernel =
-      executor_utils::getCompiledKernel(
-          kernel_code_,
-          structured_code,
-          getCanonicalKernelName(),
-          fusion_id_,
-          new_compile_params,
-          block_size_high_water_mark_,
-          save_compiled_binary_);
-  compiled_kernel_ = compiled_kernel.nvrtc_func;
-  last_compiler_log_ = compiled_kernel.compile_log;
-  last_compiled_binary_ =
-      compiled_kernel.ptx.empty() ? compiled_kernel.cubin : compiled_kernel.ptx;
+  compiled_kernel_ = executor_utils::getCompiledKernel(
+      kernel_code_,
+      structured_code,
+      getCanonicalKernelName(),
+      fusion_id_,
+      new_compile_params,
+      block_size_high_water_mark_,
+      save_compiled_binary_);
 
   resetCompiledKernelProperties();
 
@@ -1896,12 +1881,8 @@ void FusionExecutor::compileRtc(
   }
   fusion_id_ = 1;
 
-  executor_utils::CompiledKernel compiled_kernel =
+  compiled_kernel_ =
       executor_utils::getCompiledKernel(std::nullopt, scode, name, fusion_id_);
-  compiled_kernel_ = compiled_kernel.nvrtc_func;
-  last_compiler_log_ = compiled_kernel.compile_log;
-  last_compiled_binary_ =
-      compiled_kernel.ptx.empty() ? compiled_kernel.cubin : compiled_kernel.ptx;
 }
 
 float FusionExecutor::runRtc(
@@ -2116,19 +2097,14 @@ void FusionExecutor::deserialize(
         deserialize(buffer->executor_entry_lookup_values()->Get(idx)));
   }
 
-  executor_utils::CompiledKernel compiled_kernel =
-      executor_utils::getCompiledKernel(
-          kernel_code_,
-          getStructuredCode(),
-          getCanonicalKernelName(),
-          fusion_id_,
-          compile_params,
-          block_size_high_water_mark_,
-          save_compiled_binary_);
-  compiled_kernel_ = compiled_kernel.nvrtc_func;
-  last_compiler_log_ = compiled_kernel.compile_log;
-  last_compiled_binary_ =
-      compiled_kernel.ptx.empty() ? compiled_kernel.cubin : compiled_kernel.ptx;
+  compiled_kernel_ = executor_utils::getCompiledKernel(
+      kernel_code_,
+      getStructuredCode(),
+      getCanonicalKernelName(),
+      fusion_id_,
+      compile_params,
+      block_size_high_water_mark_,
+      save_compiled_binary_);
 
   NVF_ERROR(isCompiled(), "Failed to deserialize FusionExecutor");
 }

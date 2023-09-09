@@ -43,13 +43,9 @@ std::string disassembleBinary(
     const std::vector<char>& cubin,
     const std::string& nvdisasm_args);
 
-struct NvrtcFunction {
+struct CompiledKernel {
   CUmodule module = nullptr;
   CUfunction function = nullptr;
-};
-
-struct CompiledKernel {
-  NvrtcFunction nvrtc_func;
   std::string compile_log;
   std::vector<char> ptx;
   std::vector<char> cubin;
