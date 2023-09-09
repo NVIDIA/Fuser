@@ -48,8 +48,16 @@ struct NvrtcFunction {
   CUfunction function = nullptr;
 };
 
+struct CompiledKernel {
+  NvrtcFunction nvrtc_func;
+  std::string compile_log;
+  std::vector<char> ptx;
+  std::vector<char> cubin;
+  std::string kernel_name;
+};
+
 // Returns executable function and the ptxas log from compilation
-std::tuple<NvrtcFunction, std::string, std::vector<char>> getCompiledKernel(
+CompiledKernel getCompiledKernel(
     std::optional<std::reference_wrapper<const std::string>> kernel_code,
     const std::string& code,
     const std::string& func_name,
