@@ -1119,8 +1119,7 @@ CompiledKernel compileSource(
     int64_t id,
     bool compile_to_sass,
     NvrtcCompileDriver& nvrtc_compile) {
-  CompiledKernel compiled_kernel;
-  std::stringstream log(compiled_kernel.compile_log);
+  std::stringstream log;
 
   nvrtcProgram program; // NOLINT(cppcoreguidelines-init-variables)
   torch::jit::ResourceGuard holdProgram([&] {
@@ -1133,10 +1132,12 @@ CompiledKernel compileSource(
   NVFUSER_NVRTC_SAFE_CALL(nvrtcAddNameExpression(program, func_name.c_str()));
   log << nvrtc_compile.invoke(program, full_src_code) << std::endl;
 
+  CompiledKernel compiled_kernel;
   const char* lowered_kernel_name = nullptr;
   NVFUSER_NVRTC_SAFE_CALL(
       nvrtcGetLoweredName(program, func_name.c_str(), &lowered_kernel_name));
   compiled_kernel.kernel_name = lowered_kernel_name;
+  compiled_kernel.compile_log = log.str();
 
   if (compile_to_sass) {
     compiled_kernel.cubin = nvrtcGetCode(program, true);
