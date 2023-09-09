@@ -1262,10 +1262,11 @@ CompiledKernel getCompiledKernel(
              (compile_to_sass ? compiled_kernel.cubin.data()
                               : compiled_kernel.ptx.data()))
       << std::endl;
+  compiled_kernel.compile_log = log.str();
 
   if (isOptionEnabled(EnableOption::WarnRegisterSpill) ||
       compile_params.enable_ptxas_verbose) {
-    warnRegisterSpill(log.str());
+    warnRegisterSpill(compiled_kernel.compile_log);
   }
 
   NVFUSER_CUDA_SAFE_CALL(cuModuleGetFunction(
