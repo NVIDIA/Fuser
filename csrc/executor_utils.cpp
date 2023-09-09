@@ -1257,7 +1257,6 @@ CompiledKernel getCompiledKernel(
     }
   }
 
-  NvrtcFunction compiled_function;
   log << module_load_driver.invoke(
              compiled_kernel.nvrtc_func.module,
              (compile_to_sass ? compiled_kernel.cubin.data()
