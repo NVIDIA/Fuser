@@ -967,102 +967,6 @@ class CuModuleLoadDataDriver {
   std::string log_;
 };
 
-// Fill options for nvrtcCompileProgram and cuModuleLoadDataEx
-void fillCompileOptions(
-    NvrtcCompileDriver& nvrtc_compile_driver,
-    CuModuleLoadDataDriver& module_load_driver,
-    bool compile_to_sass,
-    int major,
-    int minor,
-    const CompileParams& compile_params,
-    std::optional<int64_t> opt_block_size) {
-  nvrtc_compile_driver.setOption("--std=c++17");
-
-  // CUDA 11.1 allows going directly to SASS (sm_) instead of PTX (compute_)
-  // which gives better backwards compatibility to work on older driver,
-  // (since older driver doesn't necessarily recognize PTX emitted by new
-  // toolkit);
-  // Meanwhile, for forward compatibility (future device with
-  // `unsupported_arch==True`), since SASS are not necessarily compatible,
-  // we fallback to PTX instead.
-  const std::string compute = std::string("--gpu-architecture=") +
-      (compile_to_sass ? "sm_" : "compute_") + std::to_string(major) +
-      std::to_string(minor);
-  nvrtc_compile_driver.setOption(compute);
-
-  nvrtc_compile_driver.setOption("-default-device");
-
-  if (isOptionDisabled(DisableOption::Fma)) {
-    nvrtc_compile_driver.setOption("--fmad=false");
-  } else {
-    nvrtc_compile_driver.setOption("--fmad=true");
-  }
-
-  // Add line info to generated kernels
-  if (isDebugDumpEnabled(DebugDumpOption::DebugInfo)) {
-    nvrtc_compile_driver.setOption("-lineinfo");
-  }
-
-#ifdef NDEBUG
-  // Avoid excessive register usage from assertion
-  nvrtc_compile_driver.setOption("-DNDEBUG");
-#endif
-
-  if (isOptionEnabled(EnableOption::KernelProfile)) {
-    nvrtc_compile_driver.setOption("-DNVFUSER_PROFILE_KERNEL");
-  }
-  if (isDebugDumpEnabled(DebugDumpOption::PrintPtxasLog) ||
-      isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose) ||
-      isOptionEnabled(EnableOption::WarnRegisterSpill) ||
-      compile_params.enable_ptxas_verbose) {
-    // show register usage in compilation log
-    if (compile_to_sass) {
-      nvrtc_compile_driver.setOption("--ptxas-options");
-      nvrtc_compile_driver.setOption("--verbose");
-    } else {
-      module_load_driver.enableLogging();
-    }
-  }
-
-  const char* ptxas_opt_level = getNvFuserEnv("JIT_OPT_LEVEL");
-
-  if (ptxas_opt_level) {
-    int val = atoi(ptxas_opt_level);
-    if (val <= 4 && val >= 0) {
-      if (val < 4) {
-        TORCH_WARN(
-            "ptxas optimization level manually set as ",
-            val,
-            ", which could negatively affect performance. Try removing env variable NVFUSER_JIT_OPT_LEVEL for optimal performance.");
-      }
-      if (compile_to_sass) {
-        nvrtc_compile_driver.setOption("--ptxas-options");
-        nvrtc_compile_driver.setOption("-O" + std::to_string(val));
-      } else {
-        module_load_driver.setOption(CU_JIT_OPTIMIZATION_LEVEL, val);
-      }
-    } else {
-      TORCH_WARN_ONCE(
-          "acceptable range for NVFUSER_JIT_OPT_LEVEL is between 0 and 4, but received ",
-          val,
-          ", ignoring the option");
-    }
-  }
-
-  const auto max_register =
-      getMaxRegCount(opt_block_size, compile_params.maxrregcount);
-
-  // If the max register count is set
-  if (max_register.has_value()) {
-    if (compile_to_sass) {
-      nvrtc_compile_driver.setOption(
-          "--maxrregcount=" + std::to_string(*max_register));
-    } else {
-      module_load_driver.setOption(CU_JIT_MAX_REGISTERS, (int)*max_register);
-    }
-  }
-}
-
 // Dump ptxas output if register spill is detected
 void warnRegisterSpill(const std::string& compile_log) {
   auto getRegisterSpillInfo = [](const std::string& log, const char* subStr) {
@@ -1113,50 +1017,190 @@ void createNvrtcProgram(
       &program, full_src_code.c_str(), name.c_str(), 0, nullptr, nullptr));
 }
 
-// Compile the given source code with the NVRTC compiler
-// driver.
-CompiledKernel compileSource(
-    const std::string& full_src_code,
-    const std::string& func_name,
-    int64_t id,
-    bool compile_to_sass,
-    NvrtcCompileDriver& nvrtc_compile) {
-  std::stringstream log;
+class SourceCompiler {
+ public:
+  SourceCompiler(
+      const bool compile_to_sass,
+      const int major,
+      const int minor,
+      const CompileParams& compile_params,
+      const std::optional<int64_t> opt_block_size)
+      : compile_to_sass_(compile_to_sass), compile_params_(compile_params) {
+    // Fill options for nvrtcCompileProgram and cuModuleLoadDataEx
+    nvrtc_compile_driver_.setOption("--std=c++17");
 
-  nvrtcProgram program; // NOLINT(cppcoreguidelines-init-variables)
-  torch::jit::ResourceGuard holdProgram([&] {
-    FUSER_PERF_SCOPE("executor_utils::NvrtcDestroyProgram");
-    NVFUSER_NVRTC_SAFE_CALL(nvrtcDestroyProgram(&program));
-  });
+    // CUDA 11.1 allows going directly to SASS (sm_) instead of PTX (compute_)
+    // which gives better backwards compatibility to work on older driver,
+    // (since older driver doesn't necessarily recognize PTX emitted by new
+    // toolkit);
+    // Meanwhile, for forward compatibility (future device with
+    // `unsupported_arch==True`), since SASS are not necessarily compatible,
+    // we fallback to PTX instead.
+    const std::string compute = std::string("--gpu-architecture=") +
+        (compile_to_sass ? "sm_" : "compute_") + std::to_string(major) +
+        std::to_string(minor);
+    nvrtc_compile_driver_.setOption(compute);
 
-  createNvrtcProgram(program, id, full_src_code);
+    nvrtc_compile_driver_.setOption("-default-device");
 
-  NVFUSER_NVRTC_SAFE_CALL(nvrtcAddNameExpression(program, func_name.c_str()));
-  log << nvrtc_compile.invoke(program, full_src_code) << std::endl;
-
-  CompiledKernel compiled_kernel;
-  const char* lowered_kernel_name = nullptr;
-  NVFUSER_NVRTC_SAFE_CALL(
-      nvrtcGetLoweredName(program, func_name.c_str(), &lowered_kernel_name));
-  compiled_kernel.kernel_name = lowered_kernel_name;
-  compiled_kernel.compile_log = log.str();
-
-  if (compile_to_sass) {
-    compiled_kernel.cubin = nvrtcGetCode(program, true);
-    if (isDebugDumpEnabled(DebugDumpOption::Cubin)) {
-      dumpCompiledCodeToFile(
-          compiled_kernel.cubin, id, /*compile_to_sass=*/true);
+    if (isOptionDisabled(DisableOption::Fma)) {
+      nvrtc_compile_driver_.setOption("--fmad=false");
+    } else {
+      nvrtc_compile_driver_.setOption("--fmad=true");
     }
-  } else {
-    compiled_kernel.ptx = nvrtcGetCode(program, false);
-    if (isDebugDumpEnabled(DebugDumpOption::Ptx)) {
-      dumpCompiledCodeToFile(
-          compiled_kernel.ptx, id, /*compile_to_sass=*/false);
+
+    // Add line info to generated kernels
+    if (isDebugDumpEnabled(DebugDumpOption::DebugInfo)) {
+      nvrtc_compile_driver_.setOption("-lineinfo");
+    }
+
+#ifdef NDEBUG
+    // Avoid excessive register usage from assertion
+    nvrtc_compile_driver_.setOption("-DNDEBUG");
+#endif
+
+    if (isOptionEnabled(EnableOption::KernelProfile)) {
+      nvrtc_compile_driver_.setOption("-DNVFUSER_PROFILE_KERNEL");
+    }
+    if (isDebugDumpEnabled(DebugDumpOption::PrintPtxasLog) ||
+        isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose) ||
+        isOptionEnabled(EnableOption::WarnRegisterSpill) ||
+        compile_params.enable_ptxas_verbose) {
+      // show register usage in compilation log
+      if (compile_to_sass) {
+        nvrtc_compile_driver_.setOption("--ptxas-options");
+        nvrtc_compile_driver_.setOption("--verbose");
+      } else {
+        module_load_driver_.enableLogging();
+      }
+    }
+
+    const char* ptxas_opt_level = getNvFuserEnv("JIT_OPT_LEVEL");
+
+    if (ptxas_opt_level) {
+      int val = atoi(ptxas_opt_level);
+      if (val <= 4 && val >= 0) {
+        if (val < 4) {
+          TORCH_WARN(
+              "ptxas optimization level manually set as ",
+              val,
+              ", which could negatively affect performance. Try removing env variable NVFUSER_JIT_OPT_LEVEL for optimal performance.");
+        }
+        if (compile_to_sass) {
+          nvrtc_compile_driver_.setOption("--ptxas-options");
+          nvrtc_compile_driver_.setOption("-O" + std::to_string(val));
+        } else {
+          module_load_driver_.setOption(CU_JIT_OPTIMIZATION_LEVEL, val);
+        }
+      } else {
+        TORCH_WARN_ONCE(
+            "acceptable range for NVFUSER_JIT_OPT_LEVEL is between 0 and 4, but received ",
+            val,
+            ", ignoring the option");
+      }
+    }
+
+    const auto max_register =
+        getMaxRegCount(opt_block_size, compile_params.maxrregcount);
+
+    // If the max register count is set
+    if (max_register.has_value()) {
+      if (compile_to_sass) {
+        nvrtc_compile_driver_.setOption(
+            "--maxrregcount=" + std::to_string(*max_register));
+      } else {
+        module_load_driver_.setOption(CU_JIT_MAX_REGISTERS, (int)*max_register);
+      }
+    }
+
+    std::stringstream log;
+    if (compile_to_sass) {
+      log << "\nCompile options: ";
+      for (const auto& opt : nvrtc_compile_driver_.options()) {
+        log << opt << " ";
+      }
+      if (opt_block_size.has_value()) {
+        log << " ; block size=" << opt_block_size.value() << "\n";
+      }
+    }
+    compiled_kernel_.compile_log += log.str();
+  }
+
+  // Compile the given source code with the NVRTC compiler
+  // driver.
+  void compileSource(
+      const std::string& full_src_code,
+      const std::string& func_name,
+      int64_t id) {
+    std::stringstream log;
+
+    nvrtcProgram program; // NOLINT(cppcoreguidelines-init-variables)
+    torch::jit::ResourceGuard holdProgram([&] {
+      FUSER_PERF_SCOPE("executor_utils::NvrtcDestroyProgram");
+      NVFUSER_NVRTC_SAFE_CALL(nvrtcDestroyProgram(&program));
+    });
+
+    createNvrtcProgram(program, id, full_src_code);
+
+    NVFUSER_NVRTC_SAFE_CALL(nvrtcAddNameExpression(program, func_name.c_str()));
+    log << nvrtc_compile.invoke(program, full_src_code) << std::endl;
+
+    const char* lowered_kernel_name = nullptr;
+    NVFUSER_NVRTC_SAFE_CALL(
+        nvrtcGetLoweredName(program, func_name.c_str(), &lowered_kernel_name));
+    compiled_kernel_.kernel_name = lowered_kernel_name;
+    compiled_kernel_.compile_log += log.str();
+
+    if (compile_to_sass_) {
+      compiled_kernel_.cubin = nvrtcGetCode(program, true);
+      if (isDebugDumpEnabled(DebugDumpOption::Cubin)) {
+        dumpCompiledCodeToFile(
+            compiled_kernel_.cubin, id, /*compile_to_sass=*/true);
+      }
+    } else {
+      compiled_kernel_.ptx = nvrtcGetCode(program, false);
+      if (isDebugDumpEnabled(DebugDumpOption::Ptx)) {
+        dumpCompiledCodeToFile(
+            compiled_kernel_.ptx, id, /*compile_to_sass=*/false);
+      }
     }
   }
 
-  return compiled_kernel;
-}
+  void loadModule() {
+    std::stringstream log;
+    log << module_load_driver_.invoke(
+               compiled_kernel_.module,
+               (compile_to_sass_ ? compiled_kernel_.cubin.data()
+                                : compiled_kernel_.ptx.data()))
+        << std::endl;
+    compiled_kernel_.compile_log += log.str();
+
+    if (isOptionEnabled(EnableOption::WarnRegisterSpill) ||
+        compile_params_.enable_ptxas_verbose) {
+      warnRegisterSpill(compiled_kernel_.compile_log);
+    }
+
+    NVFUSER_CUDA_SAFE_CALL(cuModuleGetFunction(
+        &(compiled_kernel_.function),
+        compiled_kernel_.module,
+        compiled_kernel_.kernel_name.c_str()));
+  }
+
+  const CompiledKernel& compiled_kernel() const {
+    return compiled_kernel_;
+  }
+
+  const std::vector<std::string>& nvrtc_compile_options() const {
+    return nvrtc_compiler_driver_.options();
+  }
+
+ private:
+  const bool compile_to_sass_;
+  const CompileParams compile_params_;
+  NvrtcCompileDriver nvrtc_compile_driver_;
+  cuModuleLoadDataDriver module_load_driver_;
+  CompiledKernel compiled_kernel_;
+};
 
 } // namespace
 
@@ -1201,32 +1245,10 @@ CompiledKernel getCompiledKernel(
     compile_to_sass = false;
   }
 
-  NvrtcCompileDriver nvrtc_compile_driver;
-  CuModuleLoadDataDriver module_load_driver;
-
-  fillCompileOptions(
-      nvrtc_compile_driver,
-      module_load_driver,
-      compile_to_sass,
-      major,
-      minor,
-      compile_params,
-      opt_block_size);
-
-  std::stringstream log;
-
-  if (compile_to_sass) {
-    log << "\nCompile options: ";
-    for (const auto& opt : nvrtc_compile_driver.options()) {
-      log << opt << " ";
-    }
-    if (opt_block_size.has_value()) {
-      log << " ; block size=" << opt_block_size.value() << "\n";
-    }
-  }
+  SourceCompiler source_compiler(compile_to_sass, major, minor, compile_params, opt_block_size);
 
   const auto compile_args =
-      toDelimitedString(nvrtc_compile_driver.options(), " ");
+      toDelimitedString(source_compiler.nvrtc_copmile_options(), " ");
 
   auto& kernel_db = KernelDb::get();
   const auto use_kernel_db = kernel_db.enabled() && kernel_code.has_value();
