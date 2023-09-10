@@ -713,15 +713,6 @@ static constexpr std::array<IdMappingMode, 6> kIdMappingModes = {
     IdMappingMode::PERMISSIVE_RESIZE,
     IdMappingMode::INNERMOST};
 
-// See
-// https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#cache-operators
-// for what each option means. Will also consider .L1::no_allocate because .cs
-// still pollutes cache to some extent.
-enum class CacheOp {
-  AllLevels,
-  Streaming,
-};
-
 //! Used to annotate the special memory intrinsics that a loadstore op will be
 //!  lowered to.
 //!
@@ -889,7 +880,6 @@ TORCH_CUDA_CU_API std::ostream& operator<<(std::ostream&, const SwizzleMode&);
 TORCH_CUDA_CU_API std::ostream& operator<<(
     std::ostream&,
     const KernelIndexMode&);
-TORCH_CUDA_CU_API std::ostream& operator<<(std::ostream&, const CacheOp&);
 
 std::string stringifyThreadSize(const ParallelType);
 std::string stringifyThread(const ParallelType);
