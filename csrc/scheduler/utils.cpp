@@ -2167,7 +2167,7 @@ bool revertUseOfInputCache(
   // tv0: fusion input
   // tv3 = resizeOp(tv0) // some op using resize
 
-  ir_utils::replaceValInExpr(
+  ir_utils::replaceValInExprInputs(
       consumer->definition(), promoted_producer, fusion_input);
 
   return true;
@@ -2208,7 +2208,7 @@ void prepareForMemoryTypePromotion(Fusion* fusion) {
     }
 
     // Insert a copy between consumer and producer
-    ir_utils::replaceValInExpr(
+    ir_utils::replaceValInExprInputs(
         consumer->definition(), producer, producer_copy_map_it->second);
   }
 }

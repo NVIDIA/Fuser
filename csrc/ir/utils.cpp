@@ -191,10 +191,31 @@ struct SubstituteInExpr : public OptOutMutator {
 
 } // namespace ValReplacement
 
-Expr* replaceValInExpr(Expr* expr, Val* reference, Val* substitute) {
+Expr* replaceValInExprInputs(Expr* expr, Val* reference, Val* substitute) {
   FusionGuard fg(expr->fusion());
   return ValReplacement::SubstituteInExpr::subsitute(
       expr, reference, substitute);
+}
+
+Expr* transferDefinitionToNewOutputs(
+    Expr* expr,
+    const std::vector<Val*>& new_outputs) {
+  NVF_ERROR(
+      new_outputs.size() == expr->outputs().size(),
+      "Number of new outputs must match old outputs");
+  OptOutMutator mutator;
+  for (const auto i : c10::irange(new_outputs.size())) {
+    auto old_output = expr->outputs().at(i);
+    auto new_output = new_outputs.at(i);
+    NVF_ERROR(
+        new_output.vtype() == old_output.vtype(),
+        "transforDefinitionToNewOutputs cannot change val type");
+    NVF_ERROR(
+        new_output.dtype() == old_output.dtype(),
+        "transforDefinitionToNewOutputs cannot change data type");
+    mutator.registerMutation(old_output, new_output);
+  }
+  mutator.mutateExprOutputsOnly(expr);
 }
 
 TensorView* rfactorHelper(

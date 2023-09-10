@@ -475,7 +475,7 @@ void DynamicTransformConcretizer::concretizeEmptyExtents() {
     auto zero = fusion->zeroVal(ext->getDataType().value());
     auto uses = ext->uses();
     for (auto use : uses) {
-      ir_utils::replaceValInExpr(use, ext, zero);
+      ir_utils::replaceValInExprInputs(use, ext, zero);
     }
     // Register the concretization of this scalar, which allows us to replace it
     // whenever it is used as an extent member of an IterDomain.
@@ -525,7 +525,7 @@ void DynamicTransformConcretizer::concretizeReshape() {
     // Replace the old tensor with the new concretized tensor
     auto uses = incomplete_out_tv->uses();
     for (auto use_of_old_tv : uses) {
-      ir_utils::replaceValInExpr(
+      ir_utils::replaceValInExprInputs(
           use_of_old_tv, incomplete_out_tv, concrete_reshape_out_tv);
     }
 

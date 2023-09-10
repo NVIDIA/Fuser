@@ -355,6 +355,9 @@ class TORCH_CUDA_CU_API OptOutMutator : public PolymorphicBase {
     if (mutations_.find(val) == mutations_.end()) {
       return val;
     }
+    // TODO: Check whether val is further mutated and throw error if so. This is
+    // to prevent errors where we depend on recursive mutation, which can be
+    // confusion/ambiguous to support.
     return mutations_.at(val);
   }
 
@@ -373,11 +376,41 @@ class TORCH_CUDA_CU_API OptOutMutator : public PolymorphicBase {
   virtual void mutate(kir::Predicate*);
   virtual void mutate(kir::TensorIndex*);
 
-  virtual void mutate(Expr* e);
+  //! This method replaces e if any inputs or attributes are registered for
+  //! mutation.
+  virtual void mutate(Expr* e) {
+    mutateExpr(
+        e,
+        /*replace_outputs*/ false,
+        /*replace_inputs*/ true,
+        /*replace_attrs*/ true);
+  }
 
- protected:
-  virtual void removeExpr(IrContainer*, Expr*) const;
-  virtual void registerNewExpr(Expr*) {}
-};
+  //! Unlike mutate(Expr*), this method replaces e only if any outputs are
+  //! registered for mutation. Inputs and attributes are unchanges. This method
+  //! is useful for tranferring the definition of e's current outputs to those
+  //! their respective registered mutations.
+  virtual void mutateExprOutputsOnly(Expr* e) {
+    virtual void mutateExprOutputsOnly(Expr * e) {
+      mutateExpr(
+          e,
+          /*replace_outputs*/ true,
+          /*replace_inputs*/ false,
+          /*replace_attrs*/ false);
+    }
+
+   protected:
+    virtual void removeExpr(IrContainer*, Expr*) const;
+    virtual void registerNewExpr(Expr*) {}
+
+   private:
+    //! Replaces Expr if any inputs, attrs, or outputs are registered for
+    //! mutation. See comment on mutateExprOutputsOnly for more information.
+    void mutateExpr(
+        Expr*,
+        bool replace_outputs = false,
+        bool replace_inputs = true,
+        bool replace_attrs = true);
+  };
 
 } // namespace nvfuser

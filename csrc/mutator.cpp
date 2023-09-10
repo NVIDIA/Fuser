@@ -141,24 +141,42 @@ void OptOutMutator::mutate(PipelineVal*) {
   NVF_ERROR(false, "Not implemented yet.");
 }
 
-void OptOutMutator::mutate(Expr* op) {
+void OptOutMutator::mutateExpr(
+    Expr* op,
+    bool replace_outputs,
+    bool replace_inputs,
+    bool replace_attrs) {
+  std::vector<Val*> mutated_outputs;
+  mutated_outputs.reserve(op->outputs().size());
+  for (auto output : op->outputs()) {
+    mutated_outputs.emplace_back(
+        replace_outputs ? maybeMutated(output) : output);
+  }
+
   std::vector<Val*> mutated_inputs;
   mutated_inputs.reserve(op->inputs().size());
   for (auto input : op->inputs()) {
-    mutated_inputs.emplace_back(maybeMutated(input));
+    mutated_inputs.emplace_back(replace_inputs ? maybeMutated(input) : input);
   }
 
   std::vector<Statement*> mutated_attrs;
   mutated_attrs.reserve(op->attributes().size());
   for (auto attr : op->attributes()) {
     if (auto attr_val = dynamic_cast<Val*>(attr)) {
-      mutated_attrs.emplace_back(maybeMutated(attr_val));
+      mutated_attrs.emplace_back(
+          replace_inputs ? maybeMutated(attr_val) : attr_val);
     } else {
       mutated_attrs.emplace_back(attr);
     }
   }
 
   bool all_same = true;
+  for (auto i : c10::irange(op->outputs().size())) {
+    if (!all_same) {
+      break;
+    }
+    all_same = all_same && mutated_outputs[i] == op->output(i);
+  }
   for (auto i : c10::irange(op->inputs().size())) {
     if (!all_same) {
       break;
@@ -184,7 +202,7 @@ void OptOutMutator::mutate(Expr* op) {
   const auto op_outputs = op->outputs();
   removeExpr(container, op);
   auto new_expr =
-      newObjectFunc(container, mutated_inputs, op_outputs, mutated_attrs);
+      newObjectFunc(container, mutated_inputs, mutated_outputs, mutated_attrs);
   registerNewExpr(new_expr);
 }
 

@@ -1287,7 +1287,7 @@ TensorView* TensorView::cacheAfter(LoadStoreOpType cache_op) {
 
   // Expr* consumer_uses =
   for (auto expr : fusion()->unordered_uses(this)) {
-    ir_utils::replaceValInExpr(expr, this, consumer);
+    ir_utils::replaceValInExprInputs(expr, this, consumer);
   }
 
   // Expr* consumer_definition =
