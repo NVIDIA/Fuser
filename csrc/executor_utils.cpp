@@ -902,6 +902,8 @@ class CuModuleLoadDataDriver {
   //! Invoke cuModuleLoadDataEx with ptx or cubin. Dump logging output
   //! if enabled
   std::string invoke(CUmodule& module, const void* image) {
+    std::cerr << "[jingyue] image's first character = "
+              << static_cast<int>(*(const char*)(image)) << std::endl;
     FUSER_PERF_SCOPE("executor_utils::Nvrtc::LoadPTX");
 
     auto [opts, opt_vals] = getOptions();
@@ -1141,17 +1143,16 @@ CompiledKernel compileSource(
 
   if (compile_to_sass) {
     compiled_kernel.cubin = nvrtcGetCode(program, true);
+    if (isDebugDumpEnabled(DebugDumpOption::Cubin)) {
+      dumpCompiledCodeToFile(
+          compiled_kernel.cubin, id, /*compile_to_sass=*/true);
+    }
   } else {
     compiled_kernel.ptx = nvrtcGetCode(program, false);
-  }
-
-  if (isDebugDumpEnabled(DebugDumpOption::Ptx)) {
-    NVF_ERROR(!compiled_kernel.ptx.empty());
-    dumpCompiledCodeToFile(compiled_kernel.ptx, id, /*compile_to_sass=*/false);
-  }
-  if (isDebugDumpEnabled(DebugDumpOption::Cubin)) {
-    NVF_ERROR(!compiled_kernel.cubin.empty());
-    dumpCompiledCodeToFile(compiled_kernel.cubin, id, /*compile_to_sass=*/true);
+    if (isDebugDumpEnabled(DebugDumpOption::Ptx)) {
+      dumpCompiledCodeToFile(
+          compiled_kernel.ptx, id, /*compile_to_sass=*/false);
+    }
   }
 
   return compiled_kernel;
@@ -1195,10 +1196,8 @@ CompiledKernel getCompiledKernel(
   compile_to_sass = false;
 #endif
 
-  if (isOptionDisabled(DisableOption::CompileToSass) ||
-      isDebugDumpEnabled(DebugDumpOption::Ptx)) {
-    // Allows manually disabling compilation to sass
-    //  so the intermediate ptx could be checked.
+  if (isOptionDisabled(DisableOption::CompileToSass)) {
+    // TODO: comment
     compile_to_sass = false;
   }
 
@@ -1273,6 +1272,28 @@ CompiledKernel getCompiledKernel(
       &(compiled_kernel.function),
       compiled_kernel.module,
       compiled_kernel.kernel_name.c_str()));
+
+  if (compile_to_sass && isDebugDumpEnabled(DebugDumpOption::Ptx)) {
+    // TODO: we don't need ot fill compile options for module_load_driver.
+    NvrtcCompileDriver nvrtc_compile_driver_for_ptx;
+    CuModuleLoadDataDriver module_load_driver_for_ptx;
+    fillCompileOptions(
+        nvrtc_compile_driver_for_ptx,
+        module_load_driver_for_ptx,
+        /*compile_to_sass=*/false,
+        major,
+        minor,
+        compile_params,
+        opt_block_size);
+    CompiledKernel kernel_compiled_for_ptx = compileSource(
+        full_src_code,
+        func_name,
+        id,
+        /*compile_to_sass=*/false,
+        nvrtc_compile_driver_for_ptx);
+    NVF_ERROR(compiled_kernel.ptx.empty());
+    compiled_kernel.ptx = kernel_compiled_for_ptx.ptx;
+  }
 
   if (!return_compiled_binary) {
     compiled_kernel.ptx.clear();
