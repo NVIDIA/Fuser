@@ -16,6 +16,7 @@
 #include <ops/alias.h>
 #include <ops/arith.h>
 #include <ops/utils.h>
+#include <options.h>
 #include <test/utils.h>
 #include <test/validator.h>
 #include <type.h>
@@ -57,7 +58,11 @@ TEST_F(MemoryTest, LoadCache) {
 
   FusionExecutor fe;
   fe.setSaveCompiledBinaryFlag(true);
-  fe.compileFusion(&fusion, {input});
+  {
+    DebugDumpOptionsGuard debug_dump_options_guard;
+    DebugDumpOptionsGuard::getCurOptions().set(DebugDumpOption::Ptx);
+    fe.compileFusion(&fusion, {input});
+  }
   std::vector<char> compiled_ptx = fe.compiledPtx();
   std::string ptx(compiled_ptx.begin(), compiled_ptx.end());
 
