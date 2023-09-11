@@ -207,6 +207,9 @@ Expr* transferDefinitionToNewOutputs(
   for (const auto i : c10::irange(new_outputs.size())) {
     auto old_output = expr->outputs().at(i);
     auto new_output = new_outputs.at(i);
+    if (new_output == old_output) {
+      continue;
+    }
     NVF_ERROR(
         new_output->vtype() == old_output->vtype(),
         "transforDefinitionToNewOutputs cannot change val type");

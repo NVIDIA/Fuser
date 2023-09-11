@@ -427,8 +427,6 @@ class DynamicTransformConcretizer : public OptOutMutator {
   //! are marked broadcast during concretization.
   void checkConcretizedUses(Val* old_val, Val* new_val) const;
 
-  void mutateExprReplacingOutputs(Expr* op);
-
   using OptOutMutator::mutate;
 
   void mutate(TensorView* tv) final;
@@ -565,78 +563,6 @@ void DynamicTransformConcretizer::checkConcretizedUses(
   }
 }
 
-// This is similar to OptOutMutator::mutate(Expr*). That method does not alter
-// outputs, since that would redefine the targets of registered mutations
-// leading to unintuitive results. This method implements that functionality and
-// should only be used when every output of op is either not mutated or
-// mutated to a Val with no definition.
-//
-void DynamicTransformConcretizer::mutateExprReplacingOutputs(Expr* op) {
-  std::vector<Val*> mutated_inputs;
-  mutated_inputs.reserve(op->inputs().size());
-  for (auto input : op->inputs()) {
-    mutated_inputs.emplace_back(maybeMutated(input));
-  }
-
-  std::vector<Statement*> mutated_attrs;
-  mutated_attrs.reserve(op->attributes().size());
-  for (auto attr : op->attributes()) {
-    if (auto attr_val = dynamic_cast<Val*>(attr)) {
-      mutated_attrs.emplace_back(maybeMutated(attr_val));
-    } else {
-      mutated_attrs.emplace_back(attr);
-    }
-  }
-
-  std::vector<Val*> mutated_outputs;
-  mutated_outputs.reserve(op->outputs().size());
-  for (auto output : op->outputs()) {
-    auto mut_output = maybeMutated(output);
-    if (mut_output != output) {
-      NVF_ERROR(
-          mut_output->definition() == nullptr,
-          "Outputs to argument to mutateExprReplacingOutputs must be undefined. Got ",
-          mut_output->definition()->toString());
-    }
-    mutated_outputs.emplace_back(mut_output);
-  }
-
-  bool all_same = true;
-  for (auto i : c10::irange(op->outputs().size())) {
-    if (!all_same) {
-      break;
-    }
-    all_same = all_same && mutated_outputs[i] == op->output(i);
-  }
-  for (auto i : c10::irange(op->inputs().size())) {
-    if (!all_same) {
-      break;
-    }
-    all_same = all_same && mutated_inputs[i] == op->input(i);
-  }
-  for (auto i : c10::irange(op->attributes().size())) {
-    if (!all_same) {
-      break;
-    }
-    bool same =
-        ((mutated_attrs[i] == nullptr) && (op->attribute(i) == nullptr)) ||
-        mutated_attrs[i] == op->attribute(i);
-    all_same = all_same && same;
-  }
-
-  if (all_same) {
-    return;
-  }
-
-  auto container = op->container();
-  auto newObjectFunc = op->newObjectFunc();
-  const auto op_outputs = op->outputs();
-  removeExpr(container, op);
-  auto new_expr =
-      newObjectFunc(container, mutated_inputs, mutated_outputs, mutated_attrs);
-  registerNewExpr(new_expr);
-}
-
 // Concretizes inherited symbolic domains. Note that when this is
 // called, it is assumed that all dynamic ops themselves are
 // concretized. Since symbolic IDs may be propagated down to
@@ -746,10 +672,10 @@ void DynamicTransformConcretizer::mutate(TensorView* tv) {
         registerConcretization(out_id, concretized_out_id);
       }
 
-      // expr must be mutated in order to set it as the definition for the
-      // concretized outputs.
-      // OptOutMutator::mutate(expr);
-      mutateExprReplacingOutputs(expr);
+      // Set expr as the definition for concretized outputs
+      expr = mutateExprOutputsOnly(expr);
+      // replace inputs and attributes that were concretized
+      mutate(expr);
     }
   }
 
