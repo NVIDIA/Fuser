@@ -1205,8 +1205,6 @@ TEST_F(NVFuserTest, OptOutMutatorMutatedOutput) {
 
   auto tv3 = set(tv0);
 
-  fusion->printMath(/*from_outputs_only*/ false);
-
   OptOutMutator mut;
   mut.registerMutation(tv1, tv3);
 
@@ -1214,10 +1212,10 @@ TEST_F(NVFuserTest, OptOutMutatorMutatedOutput) {
     mut.dispatchMutate(stmt);
   }
 
-  fusion->printMath(/*from_outputs_only*/ false);
-
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({3}, options);
+
+  inlineMost();
 
   FusionExecutor fe;
   fe.compileFusion(fusion);
@@ -1240,8 +1238,6 @@ TEST_F(NVFuserTest, OptOutMutatorRedefinedConstant) {
   auto tv0 = full({IrBuilder::create<Val>(2L)}, s1, DataType::Int);
   fusion->addOutput(tv0);
 
-  fusion->printMath(/*from_outputs_only*/ false);
-
   // After the following mutation, it's reasonable to expect the input scalar s0
   // to be ignored, and the output to just be ones.
   OptOutMutator mut;
@@ -1251,17 +1247,17 @@ TEST_F(NVFuserTest, OptOutMutatorRedefinedConstant) {
     mut.dispatchMutate(stmt);
   }
 
-  fusion->printMath(/*from_outputs_only*/ false);
-
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::full({2}, 1L, options);
+
+  inlineMost();
 
   FusionExecutor fe;
   fe.compileFusion(fusion);
 
-  auto outputs = fe.runFusion({3});
+  auto outputs = fe.runFusion({3L});
 
-  testValidate(fusion, outputs, {}, {t0}, __LINE__, __FILE__);
+  testValidate(fusion, outputs, {3L}, {t0}, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser
