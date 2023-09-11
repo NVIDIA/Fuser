@@ -174,9 +174,10 @@ TORCH_CUDA_CU_API Expr* replaceValInExprInputs(
     Val* substitute);
 
 //! Removes the given expression and creates a new expression that is identical
-//! to expr, but whose outputs are given by the new_outputs argument. Any Vals
-//! in new_outputs that have definitions will have those definitions removed
-//! from the Fusion.
+//! to expr, but whose outputs are given by the new_outputs argument. It is an
+//! error for Vals in new_outputs that are not equal to their old equivalents to
+//! have a definition as these should be freshly-created Vals that are not yet
+//! defined.
 //!
 //! Warning: Invalidates provided Expr.
 //! Warning: Creates new Expr defining substitutes.

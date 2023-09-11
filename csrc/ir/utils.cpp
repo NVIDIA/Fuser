@@ -212,10 +212,21 @@ Expr* transferDefinitionToNewOutputs(
     }
     NVF_ERROR(
         new_output->vtype() == old_output->vtype(),
-        "transforDefinitionToNewOutputs cannot change val type");
+        "transforDefinitionToNewOutputs cannot change val type. Found ",
+        new_output->vtype(),
+        " and ",
+        old_output->vtype());
     NVF_ERROR(
         new_output->dtype() == old_output->dtype(),
-        "transforDefinitionToNewOutputs cannot change data type");
+        "transforDefinitionToNewOutputs cannot change data type. Found ",
+        new_output->dtype(),
+        " and ",
+        old_output->dtype());
+    NVF_ERROR(
+        new_output->definition() == nullptr,
+        "New output ",
+        new_output->toString(),
+        " must not already have a definition.");
     mutator.registerMutation(old_output, new_output);
   }
   return mutator.mutateExprOutputsOnly(expr);
