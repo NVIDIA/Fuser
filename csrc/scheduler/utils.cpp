@@ -1045,25 +1045,14 @@ std::vector<std::pair<TensorView*, TensorView*>> cacheAndForkOutputs(
     Fusion* fusion,
     bool unroll) {
   std::vector<std::pair<TensorView*, TensorView*>> cached_outputs;
-  // Track definitions so that we don't repeatedly cache siblings
-  std::unordered_set<TensorView*> processed_tvs;
-  const auto& orig_tv_outputs =
-      ir_utils::filterByType<TensorView>(fusion->outputs());
-  for (auto output : orig_tv_outputs) {
-    if (processed_tvs.find(output) != processed_tvs.end()) {
-      // If this is a sibling that has already been processed, then its
-      // definition will have already been removed from the Fusion. We return
-      // early here to avoid dereferencing it.
-      continue;
-    }
-    auto def = output->definition();
-    if (def == nullptr ||
+  // For intermediate outputs, apply cacheFork
+  for (auto output : ir_utils::filterByType<TensorView>(fusion->outputs())) {
+    if (output->definition() == nullptr ||
         // the output of ScatterOp must on the global memory due to the random
         // or atomic access.
-        def->isA<ScatterOp>()) {
+        output->definition()->isA<ScatterOp>()) {
       continue;
     }
-    // For intermediate outputs, apply cacheFork
     if (!output->uses().empty()) {
       output = output->cacheFork();
     }
@@ -1074,16 +1063,8 @@ std::vector<std::pair<TensorView*, TensorView*>> cacheAndForkOutputs(
     // we'd likely want to cache a forked output to make sure our inlining
     // strategy is optimal.
     if (unroll) {
-      // copy vector of sibs
-      const auto orig_sibs = def->outputs();
-
-      auto cached_def = output->cacheBefore()->definition();
-      for (auto i : c10::irange(orig_sibs.size())) {
-        auto orig_tv = orig_sibs.at(i)->as<TensorView>();
-        auto cached_tv = cached_def->output(i)->as<TensorView>();
-        cached_outputs.emplace_back(orig_tv, cached_tv);
-        processed_tvs.insert(orig_tv);
-      }
+      auto cached_output = output->cacheBefore();
+      cached_outputs.emplace_back(cached_output, output);
     }
   }
   return cached_outputs;
@@ -2167,7 +2148,7 @@ bool revertUseOfInputCache(
   // tv0: fusion input
   // tv3 = resizeOp(tv0) // some op using resize
 
-  ir_utils::replaceValInExprInputs(
+  ir_utils::replaceValInExpr(
       consumer->definition(), promoted_producer, fusion_input);
 
   return true;
@@ -2208,7 +2189,7 @@ void prepareForMemoryTypePromotion(Fusion* fusion) {
     }
 
     // Insert a copy between consumer and producer
-    ir_utils::replaceValInExprInputs(
+    ir_utils::replaceValInExpr(
         consumer->definition(), producer, producer_copy_map_it->second);
   }
 }
