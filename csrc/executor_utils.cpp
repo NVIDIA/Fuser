@@ -1112,8 +1112,8 @@ void createNvrtcProgram(
 }
 
 // Compile the given source code with the NVRTC compiler
-// driver. Return the binary of the kernel, compile log, and its lowered name
-std::tuple<std::vector<char>, std::string, std::string> compileSource(
+// driver.
+CompiledKernel compileSource(
     const std::string& full_src_code,
     const std::string& func_name,
     int64_t id,
@@ -1132,25 +1132,35 @@ std::tuple<std::vector<char>, std::string, std::string> compileSource(
   NVFUSER_NVRTC_SAFE_CALL(nvrtcAddNameExpression(program, func_name.c_str()));
   log << nvrtc_compile.invoke(program, full_src_code) << std::endl;
 
+  CompiledKernel compiled_kernel;
   const char* lowered_kernel_name = nullptr;
   NVFUSER_NVRTC_SAFE_CALL(
       nvrtcGetLoweredName(program, func_name.c_str(), &lowered_kernel_name));
-  auto lowered_kernel_name_str = std::string(lowered_kernel_name);
+  compiled_kernel.kernel_name = lowered_kernel_name;
+  compiled_kernel.compile_log = log.str();
 
-  auto object_code = nvrtcGetCode(program, compile_to_sass);
-
-  if (isDebugDumpEnabled(DebugDumpOption::Ptx) ||
-      isDebugDumpEnabled(DebugDumpOption::Cubin)) {
-    dumpCompiledCodeToFile(object_code, id, compile_to_sass);
+  if (compile_to_sass) {
+    compiled_kernel.cubin = nvrtcGetCode(program, true);
+  } else {
+    compiled_kernel.ptx = nvrtcGetCode(program, false);
   }
 
-  return {object_code, log.str(), lowered_kernel_name_str};
+  if (isDebugDumpEnabled(DebugDumpOption::Ptx)) {
+    NVF_ERROR(!compiled_kernel.ptx.empty());
+    dumpCompiledCodeToFile(compiled_kernel.ptx, id, /*dump_cubin=*/false);
+  }
+  if (isDebugDumpEnabled(DebugDumpOption::Cubin)) {
+    NVF_ERROR(!compiled_kernel.cubin.empty());
+    dumpCompiledCodeToFile(compiled_kernel.cubin, id, /*dump_cubin=*/true);
+  }
+
+  return compiled_kernel;
 }
 
 } // namespace
 
 // Compile the source if no existing compiled binary is found in KernelDB
-std::tuple<NvrtcFunction, std::string, std::vector<char>> getCompiledKernel(
+CompiledKernel getCompiledKernel(
     std::optional<std::reference_wrapper<const std::string>> kernel_code,
     const std::string& full_src_code,
     const std::string& func_name,
@@ -1216,59 +1226,60 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> getCompiledKernel(
     }
   }
 
-  // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
-  std::vector<char> object_code;
-  std::string lowered_kernel_name_str;
   const auto compile_args =
       toDelimitedString(nvrtc_compile_driver.options(), " ");
 
   auto& kernel_db = KernelDb::get();
   const auto use_kernel_db = kernel_db.enabled() && kernel_code.has_value();
 
+  CompiledKernel compiled_kernel;
   // If the Kernel Query fails, the Kernel is recompiled
   if (!(use_kernel_db &&
         kernel_db.query(
             kernel_code.value(),
             compile_args,
-            lowered_kernel_name_str,
-            object_code))) {
-    std::string compile_log;
-    std::tie(object_code, compile_log, lowered_kernel_name_str) = compileSource(
+            compiled_kernel.kernel_name,
+            (compile_to_sass ? compiled_kernel.cubin : compiled_kernel.ptx)))) {
+    compiled_kernel = compileSource(
         full_src_code, func_name, id, compile_to_sass, nvrtc_compile_driver);
-    log << compile_log << std::endl;
+    log << compiled_kernel.compile_log << std::endl;
     if (use_kernel_db) {
       auto result = kernel_db.write(
           kernel_code.value(),
           compile_args,
-          lowered_kernel_name_str,
-          object_code);
+          compiled_kernel.kernel_name,
+          (compile_to_sass ? compiled_kernel.cubin : compiled_kernel.ptx));
       if (!result) {
         TORCH_WARN(
-            "kernel_db was unable to write kernel: ", lowered_kernel_name_str);
+            "kernel_db was unable to write kernel: ",
+            compiled_kernel.kernel_name);
       }
     }
   }
 
-  NvrtcFunction compiled_kernel;
-
-  log << module_load_driver.invoke(compiled_kernel.module, object_code.data())
+  log << module_load_driver.invoke(
+             compiled_kernel.module,
+             (compile_to_sass ? compiled_kernel.cubin.data()
+                              : compiled_kernel.ptx.data()))
       << std::endl;
+  compiled_kernel.compile_log = log.str();
 
   if (isOptionEnabled(EnableOption::WarnRegisterSpill) ||
       compile_params.enable_ptxas_verbose) {
-    warnRegisterSpill(log.str());
+    warnRegisterSpill(compiled_kernel.compile_log);
   }
 
   NVFUSER_CUDA_SAFE_CALL(cuModuleGetFunction(
       &(compiled_kernel.function),
       compiled_kernel.module,
-      lowered_kernel_name_str.c_str()));
+      compiled_kernel.kernel_name.c_str()));
 
   if (!return_compiled_binary) {
-    object_code.clear();
+    compiled_kernel.ptx.clear();
+    compiled_kernel.cubin.clear();
   }
 
-  return {compiled_kernel, log.str(), object_code};
+  return compiled_kernel;
 }
 
 namespace caching {
