@@ -567,9 +567,6 @@ TEST_F(NVFuserTest, DynamicTransform10_CUDA) {
         sub(tv1->axis(0)->extent(), IrBuilder::create<Val>(1L))}});
   fusion.addOutput(tv2);
 
-  fusion.printMath();
-  fusion.printTransforms();
-
   // tv2 has an rfactor expr (i.e., resize). The input to the expr is
   // symbolic, so is the output. When concretized, both of the input
   // and output must be concretized.
