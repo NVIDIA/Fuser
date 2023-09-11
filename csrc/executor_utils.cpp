@@ -1147,11 +1147,11 @@ CompiledKernel compileSource(
 
   if (isDebugDumpEnabled(DebugDumpOption::Ptx)) {
     NVF_ERROR(!compiled_kernel.ptx.empty());
-    dumpCompiledCodeToFile(compiled_kernel.ptx, id, /*compile_to_sass=*/false);
+    dumpCompiledCodeToFile(compiled_kernel.ptx, id, /*dump_cubin=*/false);
   }
   if (isDebugDumpEnabled(DebugDumpOption::Cubin)) {
     NVF_ERROR(!compiled_kernel.cubin.empty());
-    dumpCompiledCodeToFile(compiled_kernel.cubin, id, /*compile_to_sass=*/true);
+    dumpCompiledCodeToFile(compiled_kernel.cubin, id, /*dump_cubin=*/true);
   }
 
   return compiled_kernel;
