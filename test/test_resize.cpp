@@ -1,3 +1,4 @@
+#include <csrc/exceptions.h>
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
@@ -39,7 +40,7 @@ TEST_F(ResizeTest, FusionResizePad1) {
 
   auto ref = at::pad(t0, {1, 1});
 
-  TORCH_CHECK(ref.equal(cg_outputs[0]));
+  NVF_CHECK(ref.equal(cg_outputs[0]));
 }
 
 // pad + split
@@ -68,7 +69,7 @@ TEST_F(ResizeTest, FusionResizePad2) {
 
   auto ref = at::pad(t0, {1, 1});
 
-  TORCH_CHECK(ref.equal(cg_outputs[0]));
+  NVF_CHECK(ref.equal(cg_outputs[0]));
 }
 
 // pad, merge + split, inlineMost
@@ -112,10 +113,7 @@ TEST_F(ResizeTest, FusionResizePad3) {
   fe.compileFusion(&fusion, aten_inputs);
   auto cg_outputs = fe.runFusion(aten_inputs);
 
-  auto t3 = at::pad(t0, {1, 1});
-  auto ref = t3 + t1;
-
-  testValidate(&fusion, cg_outputs, aten_inputs, {ref}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // pad + parallelization
@@ -144,7 +142,7 @@ TEST_F(ResizeTest, FusionResizePad4) {
 
   auto ref = at::pad(t0, {1, 1});
 
-  TORCH_CHECK(ref.equal(cg_outputs[0]));
+  NVF_CHECK(ref.equal(cg_outputs[0]));
 }
 
 // pad + parallelization + RAW sync
@@ -166,14 +164,14 @@ TEST_F(ResizeTest, FusionResizePad5) {
 
   scheduler_utils::promoteProducerMemoryTypes(&fusion, {});
 
-  TORCH_CHECK(
+  NVF_CHECK(
       tv1->getMemoryType() == MemoryType::Shared,
       "tv1 should be on shared memory: ",
       tv1->getMemoryType());
 
   GpuLower gpulw(&fusion);
   auto all_lowered_exprs = KernelExprVisitor::getAllExprs(gpulw.kernel());
-  TORCH_CHECK(
+  NVF_CHECK(
       std::find_if(
           all_lowered_exprs.begin(),
           all_lowered_exprs.end(),
@@ -192,7 +190,7 @@ TEST_F(ResizeTest, FusionResizePad5) {
 
   auto ref = at::pad(t0, {1, 1});
 
-  TORCH_CHECK(ref.equal(cg_outputs[0]));
+  NVF_CHECK(ref.equal(cg_outputs[0]));
 }
 
 // pad + merge + split parallelization
@@ -234,11 +232,7 @@ TEST_F(ResizeTest, FusionResizePad6) {
   fe.compileFusion(&fusion, aten_inputs);
   auto cg_outputs = fe.runFusion(aten_inputs);
 
-  auto t2 = t0 + 1;
-  auto t3 = at::pad(t2, {1, 1});
-  auto ref = t3 + t1;
-
-  testValidate(&fusion, cg_outputs, aten_inputs, {ref}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // pad + unswitch. Having different extents in an unswitched loop nest
@@ -282,9 +276,7 @@ TEST_F(ResizeTest, FusionResizePad7) {
   fe.compileFusion(&fusion, aten_inputs);
   auto cg_outputs = fe.runFusion(aten_inputs);
 
-  auto ref = at::pad(t0, {1, 1});
-
-  testValidate(&fusion, cg_outputs, aten_inputs, {ref}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // Disable for now. Unclear what would be the best way to handle
@@ -357,7 +349,7 @@ TEST_F(ResizeTest, FusionResizePadScheduler1) {
 
   auto ref = at::pad(t0, {1, 1});
 
-  TORCH_CHECK(ref.equal(cg_outputs[0]));
+  NVF_CHECK(ref.equal(cg_outputs[0]));
 }
 
 TEST_F(ResizeTest, FusionResizePadScheduler2) {
@@ -387,16 +379,8 @@ TEST_F(ResizeTest, FusionResizePadScheduler2) {
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
-  auto t3 = at::pad(t0, {1, 1});
-  auto ref = t3 + t1;
-
   testValidate(
-      executor_cache.fusion(),
-      cg_outputs,
-      aten_inputs,
-      {ref},
-      __LINE__,
-      __FILE__);
+      executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // Disabled due to the same reason as Pad8
@@ -512,15 +496,8 @@ TEST_F(ResizeTest, FusionResizePadBroadcastInput) {
   FusionExecutorCache executor_cache(std::move(fusion));
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
-  auto t1 = at::pad(t0, {1, 0, 0, 0});
-
   testValidate(
-      executor_cache.fusion(),
-      cg_outputs,
-      aten_inputs,
-      {t1},
-      __LINE__,
-      __FILE__);
+      executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // Trivial cat
@@ -552,7 +529,7 @@ TEST_F(ResizeTest, FusionResizeCat1) {
 
   auto ref = at::cat({t0, t1}, 0);
 
-  TORCH_CHECK(ref.equal(cg_outputs[0]));
+  NVF_CHECK(ref.equal(cg_outputs[0]));
 }
 
 // Trivial 2D inner cat
@@ -584,7 +561,7 @@ TEST_F(ResizeTest, FusionResizeCat2) {
 
   auto ref = at::cat({t0, t1}, 0);
 
-  TORCH_CHECK(ref.equal(cg_outputs[0]));
+  NVF_CHECK(ref.equal(cg_outputs[0]));
 }
 
 // Trivial 2D outer cat
@@ -625,7 +602,7 @@ TEST_F(ResizeTest, FusionResizeCat3) {
 
   auto ref = at::cat({t0, t1}, 1);
 
-  TORCH_CHECK(ref.equal(cg_outputs[0]));
+  NVF_CHECK(ref.equal(cg_outputs[0]));
 }
 
 // Cat + merge + split + parallelization + inlineMost
@@ -669,7 +646,7 @@ TEST_F(ResizeTest, FusionResizeCat4) {
 
   auto ref = at::cat({t0, t1}, 1);
 
-  TORCH_CHECK(ref.equal(cg_outputs[0]));
+  NVF_CHECK(ref.equal(cg_outputs[0]));
 }
 
 // Cat + arith op
@@ -764,7 +741,7 @@ TEST_F(ResizeTest, FusionResizeCat6) {
 
   auto ref = at::cat({t0, t1, t2}, 0);
 
-  TORCH_CHECK(ref.equal(cg_outputs[0]));
+  NVF_CHECK(ref.equal(cg_outputs[0]));
 }
 
 // Cat many tensors
@@ -820,7 +797,7 @@ TEST_F(ResizeTest, FusionResizeCat7) {
 
     auto ref = at::cat(aten_inputs, concat_dim);
 
-    TORCH_CHECK(ref.equal(cg_outputs[0]));
+    NVF_CHECK(ref.equal(cg_outputs[0]));
   }
 }
 
@@ -853,7 +830,7 @@ TEST_F(ResizeTest, FusionResizeCatScheduler1) {
 
   auto ref = at::cat({t0, t1}, 0);
 
-  TORCH_CHECK(ref.equal(cg_outputs[0]));
+  NVF_CHECK(ref.equal(cg_outputs[0]));
 }
 
 // Auto scheduled version of Cat5
@@ -930,7 +907,7 @@ TEST_F(ResizeTest, FusionResizeCatScheduler3) {
 
   auto ref = at::cat({t0, t1, t2}, 0);
 
-  TORCH_CHECK(ref.equal(cg_outputs[0]));
+  NVF_CHECK(ref.equal(cg_outputs[0]));
 }
 
 // Trivial slice
@@ -961,7 +938,7 @@ TEST_F(ResizeTest, FusionResizeSlice1) {
 
   auto ref = t0.index({at::indexing::Slice(1, shape[0] - 1)});
 
-  TORCH_CHECK(ref.equal(cg_outputs[0]));
+  NVF_CHECK(ref.equal(cg_outputs[0]));
 }
 
 // Split a tensor to half and add them up
@@ -971,7 +948,7 @@ TEST_F(ResizeTest, FusionResizeSlice2) {
 
   std::vector<int64_t> shape({11, 30});
 
-  TORCH_CHECK(shape[1] % 2 == 0);
+  NVF_CHECK(shape[1] % 2 == 0);
 
   auto tv0 = makeConcreteTensor(shape);
   fusion.addInput(tv0);
@@ -1018,8 +995,8 @@ TEST_F(ResizeTest, FusionResizeSlice3) {
   auto tv3 = add(tv1, tv2);
   fusion.addOutput(tv3);
 
-  TORCH_CHECK(tv1->definition()->isA<LoadStoreOp>());
-  TORCH_CHECK(tv2->definition()->isA<LoadStoreOp>());
+  NVF_CHECK(tv1->definition()->isA<LoadStoreOp>());
+  NVF_CHECK(tv2->definition()->isA<LoadStoreOp>());
 }
 
 // Partition an input, reduce each and concatenate them
@@ -1201,7 +1178,7 @@ TEST_F(ResizeTest, FusionResizeSliceScheduler1) {
 
   auto ref = t0.index({at::indexing::Slice(1, shape[0] - 1)});
 
-  TORCH_CHECK(ref.equal(cg_outputs[0]));
+  NVF_CHECK(ref.equal(cg_outputs[0]));
 }
 
 TEST_F(ResizeTest, FusionResizePadReduceScheduler1) {
@@ -1635,7 +1612,7 @@ TEST_F(ResizeTest, FusionResizePadWithValue) {
 
   auto ref = at::pad(t0, {1, 1}, "constant", 2);
 
-  TORCH_CHECK(ref.equal(cg_outputs[0]));
+  NVF_CHECK(ref.equal(cg_outputs[0]));
 }
 
 // Test that padding Half tensor by Double does not promote output
@@ -1665,8 +1642,8 @@ TEST_F(ResizeTest, FusionResizePadHalfWithDoubleValue) {
 
   auto ref = at::pad(t0, {1, 1}, "constant", 2.5);
 
-  TORCH_CHECK(ref.dtype() == cg_outputs[0].dtype());
-  TORCH_CHECK(ref.equal(cg_outputs[0]));
+  NVF_CHECK(ref.dtype() == cg_outputs[0].dtype());
+  NVF_CHECK(ref.equal(cg_outputs[0]));
 }
 
 TEST_F(ResizeTest, FusionSliceForNanoGPT1) {
@@ -1720,7 +1697,7 @@ TEST_F(ResizeTest, FusionSliceForNanoGPT1) {
 
   auto kernel =
       executor_cache.getMostRecentKernelRuntime()->executors().at(0).kernel();
-  TORCH_CHECK(
+  NVF_CHECK(
       !kernel->summary().has_cooperative_grid_reduction,
       "Grid sync should not be used as slicing input should avoid input caching");
 
@@ -1803,7 +1780,7 @@ TEST_F(ResizeTest, FusionSliceForNanoGPT2) {
     }
     auto out_tv = ir_utils::getTvOutput(expr);
     if (out_tv->name() == tv3->name() || out_tv->name() == tv5->name()) {
-      TORCH_CHECK(
+      NVF_CHECK(
           expr->isA<LoadStoreOp>(),
           "Unexpected defintion of slice output tensor: ",
           out_tv->toString(),
@@ -1818,7 +1795,7 @@ TEST_F(ResizeTest, FusionSliceForNanoGPT2) {
       if (known_slice_producer == nullptr) {
         known_slice_producer = producer->view();
       } else {
-        TORCH_CHECK(
+        NVF_CHECK(
             known_slice_producer == producer->view(),
             "Expected to have the same tensor is used for the two slice ops. ",
             "Previously found producer: ",
@@ -1833,7 +1810,7 @@ TEST_F(ResizeTest, FusionSliceForNanoGPT2) {
           binary_op->out()->isA<kir::TensorIndex>() &&
           binary_op->out()->as<kir::TensorIndex>()->view()->name() ==
               tv7->name()) {
-        TORCH_CHECK(
+        NVF_CHECK(
             binary_op->lhs()->as<kir::TensorIndex>()->view()->name() ==
                 tv2->name(),
             "Unexpected tv7 definition: ",
@@ -1842,10 +1819,10 @@ TEST_F(ResizeTest, FusionSliceForNanoGPT2) {
     }
   }
 
-  TORCH_CHECK(known_slice_producer != nullptr, "Slice producer not found");
+  NVF_CHECK(known_slice_producer != nullptr, "Slice producer not found");
 
   // The slice producer must be a copy of tv2
-  TORCH_CHECK(
+  NVF_CHECK(
       known_slice_producer->definition() &&
           known_slice_producer->definition()->isA<LoadStoreOp>() &&
           known_slice_producer->definition()->as<LoadStoreOp>()->in()->name() ==
@@ -1918,10 +1895,10 @@ TEST_F(ResizeTest, FusionSliceForNanoGPT3) {
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
   auto runtime = executor_cache.getMostRecentKernelRuntime();
-  TORCH_CHECK(!runtime->isSegmented(), "Segmentation not expected");
+  NVF_CHECK(!runtime->isSegmented(), "Segmentation not expected");
 
   auto kernel = runtime->executors().at(0).kernel();
-  TORCH_CHECK(
+  NVF_CHECK(
       !kernel->summary().has_cooperative_grid_reduction,
       "Grid sync should not be used as slicing input should avoid input caching");
 
@@ -1942,9 +1919,9 @@ TEST_F(ResizeTest, FusionSliceForNanoGPT3) {
   auto at_t5 = at_t2.reshape({16, 128, 16, 64});
   auto at_t6 = at_t3.reshape({16, 128, 16, 64});
 
-  TORCH_CHECK(cg_outputs.at(0).equal(at_t4));
-  TORCH_CHECK(cg_outputs.at(1).equal(at_t5));
-  TORCH_CHECK(cg_outputs.at(2).equal(at_t6));
+  NVF_CHECK(cg_outputs.at(0).equal(at_t4));
+  NVF_CHECK(cg_outputs.at(1).equal(at_t5));
+  NVF_CHECK(cg_outputs.at(2).equal(at_t6));
 }
 
 TEST_F(ResizeTest, ResizeReshapeAndSlice) {
@@ -1975,12 +1952,12 @@ TEST_F(ResizeTest, ResizeReshapeAndSlice) {
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
   auto runtime = executor_cache.getMostRecentKernelRuntime();
-  TORCH_CHECK(!runtime->isSegmented(), "Segmentation not expected");
+  NVF_CHECK(!runtime->isSegmented(), "Segmentation not expected");
 
   auto ref = t0.reshape({8, 4}).index(
       {at::indexing::Slice(0, 2), at::indexing::Slice(0, 2)});
 
-  TORCH_CHECK(ref.equal(cg_outputs.at(0)));
+  NVF_CHECK(ref.equal(cg_outputs.at(0)));
 }
 
 // Make sure resize works with the transpose scheduler
@@ -2019,11 +1996,11 @@ TEST_F(ResizeTest, ResizePermuteAndSlice) {
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
   auto runtime = executor_cache.getMostRecentKernelRuntime();
-  TORCH_CHECK(!runtime->isSegmented(), "Segmentation not expected");
+  NVF_CHECK(!runtime->isSegmented(), "Segmentation not expected");
 
   auto heuristic =
       runtime->schedulerHeuristics()->heuristicsList().at(0).get()->heuristic();
-  TORCH_CHECK(
+  NVF_CHECK(
       heuristic == ScheduleHeuristic::Transpose,
       "Unexpected heuristic: ",
       heuristic);
@@ -2108,12 +2085,12 @@ TEST_F(ResizeTest, FusionSizeZeroSliceSplitSchedule) {
   auto ref4 = t0.index({at::indexing::Slice(6, 6)});
   auto ref5 = t0.index({at::indexing::Slice(6, 8)});
 
-  TORCH_CHECK(ref0.equal(cg_outputs[0]));
-  TORCH_CHECK(ref1.equal(cg_outputs[1]));
-  TORCH_CHECK(ref2.equal(cg_outputs[2]));
-  TORCH_CHECK(ref3.equal(cg_outputs[3]));
-  TORCH_CHECK(ref4.equal(cg_outputs[4]));
-  TORCH_CHECK(ref5.equal(cg_outputs[5]));
+  NVF_CHECK(ref0.equal(cg_outputs[0]));
+  NVF_CHECK(ref1.equal(cg_outputs[1]));
+  NVF_CHECK(ref2.equal(cg_outputs[2]));
+  NVF_CHECK(ref3.equal(cg_outputs[3]));
+  NVF_CHECK(ref4.equal(cg_outputs[4]));
+  NVF_CHECK(ref5.equal(cg_outputs[5]));
 }
 
 // In this test, we split and merge with size-zero dimensions directly.
@@ -2153,7 +2130,7 @@ TEST_F(ResizeTest, FusionSizeZeroSliceSplit) {
 
   auto ref0 = t0.index({at::indexing::Slice(2, 2), at::indexing::Slice(0, 5)});
 
-  TORCH_CHECK(ref0.equal(cg_outputs[0]));
+  NVF_CHECK(ref0.equal(cg_outputs[0]));
 }
 
 // Test squeezing a symbolic dimension
@@ -2192,13 +2169,13 @@ TEST_F(ResizeTest, FusionSqueezeSymbolic) {
 
   auto ref0 = t0.flatten();
 
-  TORCH_CHECK(ref0.equal(cg_outputs[0]));
+  NVF_CHECK(ref0.equal(cg_outputs[0]));
 
   EXPECT_THAT(
       [&]() {
         fec.runFusionWithInputs({t0, 10});
       },
-      ::testing::ThrowsMessage<c10::Error>(::testing::HasSubstr(
+      ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
           "must concretize to IterType::Broadcast but found")));
 }
 
@@ -2241,8 +2218,8 @@ TEST_F(ResizeTest, FusionResizeMultiSliceEmpty) {
   auto ref0 = t0.index({at::indexing::Slice(0, 1)});
   auto ref1 = t0.index({at::indexing::Slice(0, 0)});
 
-  TORCH_CHECK(ref0.equal(cg_outputs[0]));
-  TORCH_CHECK(ref1.equal(cg_outputs[1]));
+  NVF_CHECK(ref0.equal(cg_outputs[0]));
+  NVF_CHECK(ref1.equal(cg_outputs[1]));
 
   // Check that tv2 is replaced by a FullOp
   const auto runtime = executor_cache.getMostRecentKernelRuntime();
@@ -2336,7 +2313,7 @@ TEST_F(ResizeTest, SliceAndReshape1) {
        at::indexing::Slice(1, shape[0] - 1)});
   auto ref = t1.reshape({-1});
 
-  TORCH_CHECK(ref.equal(cg_outputs[0]));
+  NVF_CHECK(ref.equal(cg_outputs[0]));
 }
 
 // An input is sliced and also separately reshaped
@@ -2372,8 +2349,8 @@ TEST_F(ResizeTest, SliceAndReshape2) {
        at::indexing::Slice(1, shape[0] - 1)});
   auto t2 = t0.reshape({-1});
 
-  TORCH_CHECK(t1.equal(cg_outputs[0]));
-  TORCH_CHECK(t2.equal(cg_outputs[1]));
+  NVF_CHECK(t1.equal(cg_outputs[0]));
+  NVF_CHECK(t2.equal(cg_outputs[1]));
 }
 
 // Trivial case of slice vectorization. Just slicing a fusion input
@@ -2648,7 +2625,7 @@ TEST_F(ResizeTest, Slice3DVectorizeManual1) {
 
   EXPECT_THAT(
       [&]() { fe.runFusion(aten_inputs); },
-      ::testing::ThrowsMessage<c10::Error>(::testing::HasSubstr(
+      ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
           "with word size 2 not possible due to invalid stride")));
 }
 
@@ -2691,7 +2668,7 @@ TEST_F(ResizeTest, Slice3DVectorizeManual2) {
 
   EXPECT_THAT(
       [&]() { fe.runFusion(aten_inputs); },
-      ::testing::ThrowsMessage<c10::Error>(::testing::HasSubstr(
+      ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
           "with word size 4 not possible due to invalid stride")));
 }
 
@@ -2779,6 +2756,76 @@ TEST_F(ResizeTest, SliceAndReshapeRepro540Manual) {
     auto ref = at::native::view(slice_out_ref, {16, 128, 16, 64});
     ASSERT_TRUE(ref.equal(cg_outputs.at(i)));
   }
+}
+
+// Test that we can cat along broadcast dims
+// See https://github.com/NVIDIA/Fuser/issues/224
+TEST_F(ResizeTest, CatOfBroadcast) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape0({1, 2});
+  std::vector<int64_t> shape1({3, 2});
+
+  auto tv0 = makeConcreteTensor(shape0);
+  fusion.addInput(tv0);
+
+  auto tv1 = makeConcreteTensor(shape1);
+  fusion.addInput(tv1);
+
+  auto tv2 = cat({tv0, tv1}, 0);
+  fusion.addOutput(tv2);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  auto t0 = at::randn(shape0, options);
+  auto t1 = at::randn(shape1, options);
+  std::vector<c10::IValue> aten_inputs({t0, t1});
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = fe.runFusion(aten_inputs);
+
+  auto ref = at::cat({t0, t1}, 0);
+
+  NVF_CHECK(ref.equal(cg_outputs[0]));
+}
+
+// Test that we can cat along broadcast dims that have been expanded
+// See https://github.com/NVIDIA/Fuser/issues/224
+TEST_F(ResizeTest, CatOfExpandedBroadcast) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape0({1, 2});
+  std::vector<int64_t> shape0e({4, 2});
+  std::vector<int64_t> shape1({3, 2});
+
+  auto tv0 = makeConcreteTensor(shape0);
+  fusion.addInput(tv0);
+
+  auto tv1 = makeConcreteTensor(shape1);
+  fusion.addInput(tv1);
+
+  auto tv0e = expand(
+      tv0, {IrBuilder::create<Val>(shape0e.at(0)), tv0->axis(1)->extent()});
+
+  auto tv2 = cat({tv0e, tv1}, 0);
+  fusion.addOutput(tv2);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  auto t0 = at::randn(shape0, options);
+  auto t1 = at::randn(shape1, options);
+  std::vector<c10::IValue> aten_inputs({t0, t1});
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = fe.runFusion(aten_inputs);
+
+  auto ref = at::cat({at::expand_copy(t0, shape0e), t1}, 0);
+
+  NVF_CHECK(ref.equal(cg_outputs[0]));
 }
 
 } // namespace nvfuser

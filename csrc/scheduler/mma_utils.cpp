@@ -19,11 +19,30 @@ namespace nvfuser {
 
 namespace mma_utils {
 
-bool generateSharedMemoryEpilogueHeuristics(
+//! A wrapper to get MMA Tensor data types
+//!   The order of returned types: INPUT_A, INPUT_B, OUTPUT_D
+inline mma_utils::MmaDataTypes getMmaDataTypes(
+    const std::map<MatmulRole, std::vector<TensorView*>>& roles_map) {
+  auto getMMADataType = [&](MatmulRole role) {
+    auto entry = roles_map.find(role);
+    if (entry != roles_map.end() && !entry->second.empty()) {
+      return entry->second.front()->dtype();
+    }
+    NVF_ERROR(false, "Get MMA Tensor data type failed!");
+  };
+  const auto a_type = getMMADataType(MatmulRole::INPUT_A);
+  const auto b_type = getMMADataType(MatmulRole::INPUT_B);
+  const auto c_type = getMMADataType(MatmulRole::OUTPUT_D);
+  return mma_utils::MmaDataTypes{a_type, b_type, c_type};
+}
+
+std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
     const MatMulTileOptions& gemm_tile,
     const int smem_double_buffer_stage,
     const MmaDataTypes& data_types,
-    const bool ignore_occupancy_drop) {
+    bool smem_a_reuse_guaranteed,
+    bool smem_b_reuse_guaranteed,
+    bool ignore_occupancy_drop) {
   const auto properties = at::cuda::getCurrentDeviceProperties();
   const size_t device_smem_limit = properties->sharedMemPerBlockOptin;
   const size_t shared_memory_overhead = properties->reservedSharedMemPerBlock;
@@ -49,9 +68,30 @@ bool generateSharedMemoryEpilogueHeuristics(
   const size_t smem_c = (size_t)(gemm_tile.cta_tile.m * gemm_tile.cta_tile.n) *
       dataTypeSize(data_types[2]);
 
+  // NOTE: we can simply add these sizes since they should be integer multiples
+  // of 16 bytes, so they will automatically be aligned. This may change with
+  // FP8, in which case the expressions below should be updated to insert
+  // alignment expressions, using the expected stack ordering in
+  // StackBasedSharedMemAllocator.
+  NVF_CHECK(smem_a % 16 == 0 && smem_b % 16 == 0 && smem_b % 16 == 0);
+
+  const size_t total_without_smem_epilogue = smem_a + smem_b;
+  const size_t total_with_noreuse_smem_epilogue = smem_a + smem_b + smem_c;
+  // Even if we actually do wind up re-claiming smem_a and smem_b, if we
+  // cannot prove it at this point then we have to assume it will not be
+  // reclaimed.
+  const size_t total_with_reused_smem_epilogue = std::max(
+      smem_a + smem_b,
+      (smem_a_reuse_guaranteed ? 0 : smem_a) +
+          (smem_b_reuse_guaranteed ? 0 : smem_b) + smem_c);
+
   // shortcut where occupancy change is ignored.
   if (ignore_occupancy_drop) {
-    return shared_memory_available >= smem_a + smem_b + smem_c;
+    if (shared_memory_available >= total_with_noreuse_smem_epilogue) {
+      return {true, false};
+    } else {
+      return {shared_memory_available >= total_with_reused_smem_epilogue, true};
+    }
   }
 
   // use additional shared memory for epilogue if occupancy is not changed.
@@ -59,14 +99,70 @@ bool generateSharedMemoryEpilogueHeuristics(
   const auto threads_per_sm = getThreadsPerSMGivenRegPerThread(255);
   const auto blocks_per_sm_by_register = threads_per_sm / threads_per_block;
   const auto blocks_per_sm_without_smem_epilogue = std::min(
-      shared_memory_available / (smem_a + smem_b),
+      shared_memory_available / total_without_smem_epilogue,
       (size_t)blocks_per_sm_by_register);
-  const auto blocks_per_sm_with_smem_epilogue = std::min(
-      shared_memory_available / (smem_a + smem_b + smem_c),
+  const auto blocks_per_sm_with_reused_smem_epilogue = std::min(
+      shared_memory_available / total_with_reused_smem_epilogue,
+      (size_t)blocks_per_sm_by_register);
+  const auto blocks_per_sm_with_noreuse_smem_epilogue = std::min(
+      shared_memory_available / total_with_noreuse_smem_epilogue,
       (size_t)blocks_per_sm_by_register);
 
-  return blocks_per_sm_with_smem_epilogue ==
-      blocks_per_sm_without_smem_epilogue;
+  // Return whether we should use smem for epilogue, and whether syncing for
+  // re-use is desired. We avoid the sync if omitting it does not decrease
+  // occupancy.
+  auto promote_prologue_smem_reuse = blocks_per_sm_with_reused_smem_epilogue !=
+      blocks_per_sm_with_noreuse_smem_epilogue;
+
+  return {
+      blocks_per_sm_with_reused_smem_epilogue ==
+          blocks_per_sm_without_smem_epilogue,
+      promote_prologue_smem_reuse};
+}
+
+std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
+    const MatMulTileOptions& gemm_tile,
+    const int smem_double_buffer_stage,
+    const RolesMap& roles_map,
+    const bool ignore_occupancy_drop) {
+  const auto data_types = getMmaDataTypes(roles_map);
+
+  // smem_a and smem_b are guaranteed to be re-used for smem_c as long as:
+  //   - they are marked for re-use using promoteReuse
+  //   - they are not aliased by another tensor whose lifetime extends past the
+  //   start of smem_epilogue's.
+  //   - their lifetimes do not overlap smem_epilogue
+  //
+  // We can guarantee the first condition by calling tv->promoteReuse() in
+  // scheduleProlog.
+  //
+  // The second condition would only be the case if another smem tensor had the
+  // same indexing and its lifetime did not overlap. Matmul scheduler only uses
+  // smem for these three arrays, so the only candidate for aliasing is C. If C
+  // aliases either A or B, the following expression is still valid.
+  //
+  // The third condition is satisfied in the simple cases where the inputs to
+  // the matmul have only this use. However, it could be violated if a or b has
+  // other uses that get ordered after the matmul; for example when computing
+  // matmul(A, B) + A for square matrices A and B. In that case, the smem tensor
+  // resulting from A->cacheAfter() will be used in both the matmul as well as
+  // the addition that occurs in the epilogue, extending the lifetime such that
+  // it violates the third condition above. In order to avoid errors in these
+  // cases, we check that there is no re-use when there is more than one use of
+  // either a or b. If there are multiple uses we might wind up re-using memory,
+  // but in that case the calculation below will be overly conservative.
+  TensorView* a = roles_map.at(MatmulRole::INPUT_A).front();
+  TensorView* b = roles_map.at(MatmulRole::INPUT_B).front();
+  bool smem_a_reuse_guaranteed = a->uses().size() == 1;
+  bool smem_b_reuse_guaranteed = b->uses().size() == 1;
+
+  return generateSharedMemoryEpilogueHeuristics(
+      gemm_tile,
+      smem_double_buffer_stage,
+      data_types,
+      smem_a_reuse_guaranteed,
+      smem_b_reuse_guaranteed,
+      ignore_occupancy_drop);
 }
 
 void scheduleWarpTileWithReduction(TensorView* tv, MatMulTileOptions tile) {
@@ -76,7 +172,7 @@ void scheduleWarpTileWithReduction(TensorView* tv, MatMulTileOptions tile) {
   auto warp_tile = tile.warp_tile;
   auto instruction_tile = tile.instruction_tile;
 
-  TORCH_CHECK(
+  NVF_CHECK(
       cta_tile.k % warp_tile.k == 0,
       "Number of warp on k dimension need to be integer");
 
@@ -146,7 +242,7 @@ void scheduleWarpTileWithNoReduction(TensorView* tv, MatMulTileOptions tile) {
 
   mma_utils::checkDimSize(tv, {-2, -1}, {cta_tile.m, cta_tile.n});
 
-  TORCH_CHECK(
+  NVF_CHECK(
       cta_tile.k % warp_tile.k == 0,
       "Number of warp on k dimension need to be integer");
 
@@ -219,7 +315,7 @@ void scheduleContiguousVectorLoad(
 }
 
 void makeTile(TensorView* tv, std::vector<int> tile_sizes) {
-  TORCH_CHECK(
+  NVF_CHECK(
       tv->getLeafDomain().size() >= tile_sizes.size(),
       "Tensor dimension less than tile dimension!");
 
@@ -348,7 +444,7 @@ void orderTiledConcreteIdAsRoot(TensorView* tv) {
     if (maybe_root.has_value()) {
       // Found an innermost id, add them to the
       //  axes to reorder.
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           root_id_to_inner_leaf_pos
               .insert(std::make_pair(maybe_root.value(), i))
               .second,
@@ -389,8 +485,7 @@ void orderTiledConcreteIdAsRoot(TensorView* tv) {
 
   // Validate that we have processed all inner ids or broadcast/reduction
   //  ids we have registered.
-  TORCH_INTERNAL_ASSERT(
-      current_pos == (int)ndims, "Inconsistent ordering logic");
+  NVF_ERROR(current_pos == (int)ndims, "Inconsistent ordering logic");
 
   // Apply the new order:
   tv->reorder(reorder_map_old_to_new);
@@ -458,11 +553,11 @@ void checkDimSize(
     TensorView* tv,
     std::vector<int> axis,
     std::vector<int> expect) {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       axis.size() == expect.size(),
       "CheckDimSize: Mismatched axis and expect size");
   for (auto axis_index : c10::irange(axis.size())) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         ((axis[axis_index] + static_cast<int>(tv->nDims())) >= 0) &&
             (axis[axis_index] < (int)tv->nDims()),
         "CheckDimSize: axis position out of bound ",
@@ -470,10 +565,10 @@ void checkDimSize(
         " ",
         tv->nDims());
     auto id = tv->axis(axis[axis_index]);
-    TORCH_CHECK(
+    NVF_CHECK(
         id->extent()->isConstInt(),
         "Mma warp mapping: instruction tile has to be constant");
-    TORCH_CHECK(
+    NVF_CHECK(
         id->extent()->evaluateInt() == expect[axis_index],
         "Mma warp mapping: unexpected tile size at",
         axis_index,
@@ -512,7 +607,7 @@ void WarpMmaSwizzler::scheduleMmaWarpOutput(
       }
       break;
     default:
-      TORCH_CHECK(
+      NVF_CHECK(
           false, "scheduleMmaWarp: unsupported mma option ", toString(macro));
       break;
   }
@@ -533,7 +628,7 @@ void WarpMmaSwizzler::scheduleOperandRead(TensorView* tv, MmaOptions options) {
       scheduleTuringOperandRead(tv, options);
       break;
     default:
-      TORCH_CHECK(false, "WarpMmaSwizzler: please specify macro");
+      NVF_CHECK(false, "WarpMmaSwizzler: please specify macro");
       break;
   }
 }
@@ -575,7 +670,7 @@ std::vector<IterDomain*> getMmaDomains(MmaOp* mma, MmaDimension dimension) {
       mma->inA()->as<TensorView>()->getMaybeRFactorDomain());
   auto b_domain = TensorDomain::noReductions(
       mma->inB()->as<TensorView>()->getMaybeRFactorDomain());
-  TORCH_CHECK(
+  NVF_CHECK(
       a_domain.size() == b_domain.size() &&
           a_domain.size() == accumulator_domain.size(),
       "Inconsistent dimensions in mma op",
@@ -614,7 +709,7 @@ std::vector<IterDomain*> getMmaDomains(MmaOp* mma, MmaDimension dimension) {
         break;
 
       default:
-        TORCH_INTERNAL_ASSERT(false, "unreachable");
+        NVF_ERROR(false, "unreachable");
     }
 
     if (include_this_id) {
@@ -718,19 +813,19 @@ void validateMmaRootInnerMNK(
   auto n_dims = getMmaRootDimensions(tv, mma, MmaDimension::N);
   auto k_dims = getMmaRootDimensions(tv, mma, MmaDimension::K);
 
-  TORCH_CHECK(
+  NVF_CHECK(
       !m_dims.empty() && !n_dims.empty() && !k_dims.empty(),
       "validateMmaRootInnerMNK: MMA Axes incomplete");
 
   // Still check the innermost dims of each at the current state:
-  TORCH_INTERNAL_ASSERT(tv->nDims() >= 3);
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(tv->nDims() >= 3);
+  NVF_ERROR(
       canValidateIsInnerDim(m_dims.back(), tv->axis(-3), m),
       "MMA swizzle: requires instruction tile iterdomains on the innermost side of the tensordomain");
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       canValidateIsInnerDim(n_dims.back(), tv->axis(-2), n),
       "MMA swizzle: requires instruction tile iterdomains on the innermost side of the tensordomain");
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       canValidateIsInnerDim(k_dims.back(), tv->axis(-1), k),
       "MMA swizzle: requires instruction tile iterdomains on the innermost side of the tensordomain");
 }
@@ -747,16 +842,16 @@ void validateMmaRootInnerMN(TensorView* tv, MmaOptions options, int m, int n) {
   auto m_dims = getMmaRootDimensions(tv, mma, MmaDimension::M);
   auto n_dims = getMmaRootDimensions(tv, mma, MmaDimension::N);
 
-  TORCH_CHECK(
+  NVF_CHECK(
       !m_dims.empty() && !n_dims.empty(),
       "validateMmaRootInnerMNK: MMA Axes incomplete");
 
   // Still check the innermost dims of each at the current state:
-  TORCH_INTERNAL_ASSERT(tv->nDims() >= 2);
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(tv->nDims() >= 2);
+  NVF_ERROR(
       canValidateIsInnerDim(m_dims.back(), tv->axis(-2), m),
       "MMA swizzle: requires instruction tile iterdomains on the innermost side of the tensordomain");
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       canValidateIsInnerDim(n_dims.back(), tv->axis(-1), n),
       "MMA swizzle: requires instruction tile iterdomains on the innermost side of the tensordomain");
 }
@@ -776,31 +871,31 @@ void validateMmaRootInnerMN(TensorView* tv, MmaOptions options, int m, int n) {
 bool checkLdMatrixTv(TensorView* tv) {
   // First check if tv is an ldmatrix output:
   auto tv_def = tv->definition();
-  TORCH_CHECK(tv_def != nullptr, "ldmatrix : invalid tv");
+  NVF_CHECK(tv_def != nullptr, "ldmatrix : invalid tv");
   bool is_immediate_output = true;
   if (!ir_utils::isLdMatrixOp(tv_def)) {
     // Only allow one broadcast in between tv and the ldmatrix op
-    TORCH_CHECK(
+    NVF_CHECK(
         tv_def->isA<BroadcastOp>(),
         "ldmatrix: only allow serial broadcast between ldmatrix and mma");
     tv_def = tv_def->input(0)->definition();
-    TORCH_CHECK(tv_def != nullptr, "ldmatrix : invalid tv");
+    NVF_CHECK(tv_def != nullptr, "ldmatrix : invalid tv");
     is_immediate_output = false;
   }
-  TORCH_CHECK(
+  NVF_CHECK(
       ir_utils::isLdMatrixOp(tv_def),
       "ldmatrix : invalid op type: ",
       tv_def->toString());
-  TORCH_CHECK(
+  NVF_CHECK(
       tv->nDims() >= 2,
       "ldmatrix: scheduled tv needs to be at least 2 dimensional");
-  TORCH_CHECK(
+  NVF_CHECK(
       !tv->axis(-1)->isBroadcast(), "ldmatrix: unsupported scheduled axes");
-  TORCH_CHECK(
+  NVF_CHECK(
       !tv->axis(-1)->isReduction(), "ldmatrix: unsupported scheduled axes");
-  TORCH_CHECK(
+  NVF_CHECK(
       !tv->axis(-2)->isBroadcast(), "ldmatrix: unsupported scheduled axes");
-  TORCH_CHECK(
+  NVF_CHECK(
       !tv->axis(-2)->isReduction(), "ldmatrix: unsupported scheduled axes");
   return is_immediate_output;
 }
@@ -881,7 +976,7 @@ void scheduleLdMatrix(TensorView* tv, MmaOptions options) {
   bool is_immediate_output = checkLdMatrixTv(tv);
 
   // Check mma option is supported
-  TORCH_CHECK(
+  NVF_CHECK(
       options.macro == MmaOptions::MacroType::Ampere_16_8_16 ||
           options.macro == MmaOptions::MacroType::Ampere_16_16_16 ||
           options.macro == MmaOptions::MacroType::Turing_16_8_16 ||
@@ -889,7 +984,7 @@ void scheduleLdMatrix(TensorView* tv, MmaOptions options) {
       "scheduleLdMatrix: unknown macro for ldmatrix");
 
   if (options.operand == MmaOptions::Operand::A) {
-    TORCH_INTERNAL_ASSERT(tv->nDims() >= 2);
+    NVF_ERROR(tv->nDims() >= 2);
     // validation:
     auto mma = options.mmaOp();
     auto m_dims = getMmaRootDimensions(tv, mma, MmaDimension::M);
@@ -898,10 +993,10 @@ void scheduleLdMatrix(TensorView* tv, MmaOptions options) {
         (options.layout == MmaOptions::MmaLayout::NN ||
          options.layout == MmaOptions::MmaLayout::NT);
 
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         canValidateIsInnerDim(m_dims.back(), tv->axis(-2), 16),
         "MMA swizzle: requires instruction tile iterdomains on the innermost side of the tensordomain");
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         canValidateIsInnerDim(k_dims.back(), tv->axis(-1), 16),
         "MMA swizzle: requires instruction tile iterdomains on the innermost side of the tensordomain",
         tv->toString());
@@ -934,7 +1029,7 @@ void scheduleLdMatrix(TensorView* tv, MmaOptions options) {
         (options.layout == MmaOptions::MmaLayout::NT ||
          options.layout == MmaOptions::MmaLayout::TT);
 
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         canValidateIsInnerDim(k_dims.back(), tv->axis(-1), 16),
         "MMA swizzle: requires instruction tile iterdomains on the innermost side of the tensordomain");
 
@@ -971,7 +1066,7 @@ void scheduleLdMatrix(TensorView* tv, MmaOptions options) {
       tv->axis(-2)->parallelize(ParallelType::TIDx);
     } else {
       // validation:
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           canValidateIsInnerDim(n_dims.back(), tv->axis(-2), 8),
           "MMA swizzle: requires instruction tile iterdomains on the innermost side of the tensordomain");
 
@@ -1006,7 +1101,7 @@ void scheduleLdMatrix(TensorView* tv, MmaOptions options) {
       tv->axis(-2)->parallelize(ParallelType::TIDx);
     }
   } else {
-    TORCH_INTERNAL_ASSERT(false, "unreachable");
+    NVF_ERROR(false, "unreachable");
   }
 
   if (is_immediate_output) {
@@ -1029,7 +1124,7 @@ void WarpMmaSwizzler::scheduleVoltaOperandRead(
       setWarpMapped(tv, 4);
       break;
     default:
-      TORCH_CHECK(false, "WarpMmaSwizzler: please specify operand");
+      NVF_CHECK(false, "WarpMmaSwizzler: please specify operand");
   }
 }
 
@@ -1125,7 +1220,7 @@ void WarpMmaSwizzler::scheduleTuringM16N8K16MmaWarpOutput(
 
   //       m
   // [2o, Warp, 2i (,R)]
-  TORCH_CHECK(tv->definition() != nullptr);
+  NVF_CHECK(tv->definition() != nullptr);
 
   if (is_reduction && tv->definition()->isA<MmaOp>()) {
     // Set instruction loops for mma reduce
@@ -1171,7 +1266,7 @@ void WarpMmaSwizzler::scheduleTuringM16N16K16MmaWarpOutput(
 
   //       m
   // [2o, Warp, 2i (,R)]
-  TORCH_CHECK(tv->definition() != nullptr);
+  NVF_CHECK(tv->definition() != nullptr);
 
   if (is_reduction && tv->definition()->isA<MmaOp>()) {
     // Set instruction loops for mma reduce
@@ -1231,7 +1326,7 @@ void canonicalizeMmaTvOrdering(TensorView* tv) {
       tv->getMaybeRFactorDomain().begin(), tv->getMaybeRFactorDomain().end()};
 
   auto mma = dynamic_cast<MmaOp*>(tv->definition());
-  TORCH_CHECK(
+  NVF_CHECK(
       mma != nullptr, "canonicalizeMmaTvOrdering : only support mma op output");
 
   auto m_id_set = mma_utils::getMmaDomainSet(mma, mma_utils::MmaDimension::M);
@@ -1244,7 +1339,7 @@ void canonicalizeMmaTvOrdering(TensorView* tv) {
 
   for (auto idx : c10::irange(ndims)) {
     auto id = tv->axis(idx);
-    TORCH_CHECK(root_id_set.count(id), id->toString(), " not a root id.");
+    NVF_CHECK(root_id_set.count(id), id->toString(), " not a root id.");
 
     // Categorize each original iterdomain position
     if (m_id_set.count(id)) {
@@ -1290,7 +1385,7 @@ void canonicalizeMmaTvOrdering(TensorView* tv) {
 
   // Validate that all of the root ids are covered by
   //  the inserted categories.
-  TORCH_INTERNAL_ASSERT(current_pos == ndims, "Id not completely categorized");
+  NVF_ERROR(current_pos == ndims, "Id not completely categorized");
 
   // Apply the new ordering
   tv->reorder(order_map);
@@ -1364,7 +1459,7 @@ ProblemIterDomainsOpt getProblemIterDomains(Fusion* fusion) {
       break;
     }
   }
-  TORCH_INTERNAL_ASSERT(k != nullptr, "Failed to find K domain in MMA output");
+  NVF_ERROR(k != nullptr, "Failed to find K domain in MMA output");
 
   return ProblemIterDomains{m, n, k};
 }

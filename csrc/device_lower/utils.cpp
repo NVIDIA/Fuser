@@ -333,8 +333,7 @@ std::unordered_map<ParallelType, IterDomain*> getParallelDomains(
   } else if (val->isA<kir::TensorIndex>()) {
     tv = val->as<kir::TensorIndex>()->view();
   } else {
-    TORCH_INTERNAL_ASSERT(
-        false, "Provided val is not TensorIndex or TensorView.");
+    NVF_ERROR(false, "Provided val is not TensorIndex or TensorView.");
   }
 
   std::unordered_map<ParallelType, IterDomain*> parallel_domains;
@@ -689,7 +688,7 @@ BasicAllocInfo getAllocInformation(
 
     if (tv->axis((int)info.alloc_pos)->isReduction()) {
       const auto outputs = FusionGuard::getCurFusion()->getTerminatingOutputs();
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           std::find(outputs.begin(), outputs.end(), tv) != outputs.end(),
           "Invalid computeAt of T",
           tv->name(),

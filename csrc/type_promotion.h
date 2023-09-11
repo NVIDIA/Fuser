@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 
+#include <exceptions.h>
 #include <ir/interface_nodes.h>
 #include <torch/csrc/jit/ir/ir.h>
 #include <type.h>

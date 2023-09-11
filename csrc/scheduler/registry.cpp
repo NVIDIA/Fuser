@@ -225,8 +225,7 @@ class SchedulerTopologyChecker {
               TensorView* backward_running_consumer = nullptr;
               backward_tv_chain.pop_back();
 
-              TORCH_INTERNAL_ASSERT(
-                  backward_running_producer == forward_running_consumer);
+              NVF_ERROR(backward_running_producer == forward_running_consumer);
 
               while (!backward_tv_chain.empty()) {
                 backward_running_consumer = backward_running_producer;
@@ -340,7 +339,7 @@ class SchedulerTopologyChecker {
   static bool supportedPostReductionFusion(
       Fusion* fusion,
       std::vector<TensorView*> reduction_tvs) {
-    TORCH_INTERNAL_ASSERT(!reduction_tvs.empty());
+    NVF_ERROR(!reduction_tvs.empty());
     bool fastest_dim_reduction = true;
     auto red_root_dom = reduction_tvs[0]->getRootDomain();
     for (size_t i = red_root_dom.size(); i > 0; i--) {
@@ -535,15 +534,14 @@ bool isConnectedFusionGraph(Fusion* fusion) {
   // A set of connected components on the fusion graph
   DisjointSets<Val*> component_sets;
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       !fusion->outputs().empty(), "Fusion without output is not supported");
   auto output0 = fusion->outputs()[0];
   component_sets.initializeSet(output0);
 
   // Iterate through all used exprs
   for (auto expr : fusion->exprs()) {
-    TORCH_INTERNAL_ASSERT(
-        !expr->outputs().empty(), "unknown expr with zero output");
+    NVF_ERROR(!expr->outputs().empty(), "unknown expr with zero output");
 
     // Each expr maps all its inputs and
     //  outputs to the same component
@@ -657,7 +655,7 @@ bool requiresForwardViewReplay(Fusion* fusion, ComputeAtMap& ca_map) {
       // If one output of the expression is an rfactor ID all of them should be
       auto def_outs =
           ir_utils::filterByType<IterDomain>(rfactor_def->outputs());
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           std::all_of(
               def_outs.begin(),
               def_outs.end(),
@@ -669,7 +667,7 @@ bool requiresForwardViewReplay(Fusion* fusion, ComputeAtMap& ca_map) {
       // make sense to have transforms on non-rfactor domains that produce
       // rfactor domains.
       auto def_inps = ir_utils::filterByType<IterDomain>(rfactor_def->inputs());
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           std::all_of(
               def_inps.begin(),
               def_inps.end(),
@@ -779,8 +777,7 @@ bool reductionInterferingView(
     }
   }
 
-  TORCH_INTERNAL_ASSERT(
-      dims.empty(), "Error processing ", dims, " in registry.cpp.");
+  NVF_ERROR(dims.empty(), "Error processing ", dims, " in registry.cpp.");
 
   // Make sure groups are disjoint based on view
 
@@ -798,13 +795,13 @@ bool reductionInterferingView(
           reduction_reference->getMaybeRFactorDomain().begin(),
           reduction_reference->getMaybeRFactorDomain().end(),
           id);
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           find_it != reduction_reference->getMaybeRFactorDomain().end(),
           "Issue with view analysis on reduction like schedule, with reference: ",
           reduction_reference->toString());
       auto rfactor_pos = std::distance(
           reduction_reference->getMaybeRFactorDomain().begin(), find_it);
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           rfactor_pos < (int)disjoint_set_information.disjoint_set_ids.size(),
           "Error computing disjoint group on the rfactor domain of ",
           reduction_reference->toString());
@@ -838,7 +835,7 @@ bool reductionInterferingView(
 }
 
 PrimDataType getTensorIndexType(TensorView* tv, ExpressionEvaluator& ee) {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       !tv->isFusionInput(),
       "This function is not supposed to be used for fusion inputs: ",
       tv->toString());
@@ -859,7 +856,7 @@ PrimDataType getTensorIndexType(TensorView* tv, ExpressionEvaluator& ee) {
   // non-contig tensor means a fusion intermediate tensor. However,
   // since we don't support non-contiguous intermediates, there must be
   // something wrong.
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       !non_contig, "Unexpected non-contiguous tensor found: ", tv->toString());
 
   // Note that at this point tensors are not scheduled yet. Each
@@ -884,7 +881,7 @@ PrimDataType getTensorIndexType(TensorView* tv, ExpressionEvaluator& ee) {
     // We could also just conservatively use 64-bit indexing if the
     // extent size is not determined, but this should be possible to
     // evaluate.
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         extent.hasValue(),
         "Axis with unknown extent found: ",
         id->toString(),
@@ -893,8 +890,7 @@ PrimDataType getTensorIndexType(TensorView* tv, ExpressionEvaluator& ee) {
 
     auto extent_int = extent.as<int64_t>();
 
-    TORCH_INTERNAL_ASSERT(
-        extent_int >= 0, "Unexpected size of axis: ", extent_int);
+    NVF_ERROR(extent_int >= 0, "Unexpected size of axis: ", extent_int);
 
     if (extent_int > 0) {
       if (index_type_helper.addDim(extent.as<int64_t>(), stride) ==
@@ -947,7 +943,7 @@ SchedulerRuntimeInfo::SchedulerRuntimeInfo(
     const std::vector<TensorView*>& all_tvs,
     std::optional<PrimDataType> forced_index_type)
     : complete_fusion_(complete_fusion) {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       complete_fusion_->inputs().size() == args.size(),
       "Invalid number of arguments passed in for provided fusion group.");
 
@@ -972,7 +968,7 @@ SchedulerRuntimeInfo::SchedulerRuntimeInfo(
           expression_evaluator_->evaluate(IrBuilder::metadataExpr(input_tv));
       const auto& alloc_sizes = metadata->*&TensorMetaData::alloc_size;
       const auto& alloc_strides = metadata->*&TensorMetaData::alloc_stride;
-      TORCH_INTERNAL_ASSERT(alloc_sizes.size() == alloc_strides.size());
+      NVF_ERROR(alloc_sizes.size() == alloc_strides.size());
 
       input_ptrs_[fusion_inp] = (size_t)(metadata->*&TensorMetaData::data);
 
@@ -1426,7 +1422,7 @@ class ReductionScheduler : public SchedulerEntry {
       SchedulerRuntimeInfo& runtime_info,
       HeuristicSummary* data_cache = nullptr) {
     params_ = getReductionHeuristics(fusion, runtime_info, data_cache);
-    TORCH_INTERNAL_ASSERT(params_ != nullptr);
+    NVF_ERROR(params_ != nullptr);
   }
 };
 
@@ -1441,15 +1437,6 @@ class TransposeScheduler : public SchedulerEntry {
   }
 
   static bool canScheduleCompileTime(Fusion* fusion) {
-    // Temporarily disallow view in transpose scheduler
-    // TODO Add more testing before enabling
-    auto view_tvs = scheduler_utils::getViewTVs(fusion);
-    if (!view_tvs.empty()) {
-      scheduler_debug_utils::canScheduleRejectReason(
-          ScheduleHeuristic::Transpose, "No support for view op");
-      return false;
-    }
-
     // Check that inputs of all select/gather-like ops are fusion inputs
     if (rejectScheduleForMemoryPromotion(
             fusion, ScheduleHeuristic::Transpose)) {
@@ -1549,7 +1536,7 @@ class TransposeScheduler : public SchedulerEntry {
       SchedulerRuntimeInfo& runtime_info,
       HeuristicSummary* data_cache = nullptr) {
     params_ = getTransposeHeuristics(fusion, runtime_info, data_cache);
-    TORCH_INTERNAL_ASSERT(params_ != nullptr);
+    NVF_ERROR(params_ != nullptr);
   }
 };
 
@@ -1643,7 +1630,7 @@ class PointWiseScheduler : public SchedulerEntry {
       SchedulerRuntimeInfo& runtime_info,
       HeuristicSummary* data_cache = nullptr) {
     params_ = getPointwiseHeuristics(fusion, runtime_info, data_cache);
-    TORCH_INTERNAL_ASSERT(params_ != nullptr);
+    NVF_ERROR(params_ != nullptr);
   }
 };
 
@@ -1948,7 +1935,7 @@ class PersistentKernelScheduler : public SchedulerEntry {
       SchedulerRuntimeInfo& runtime_info,
       HeuristicSummary* data_cache = nullptr) {
     params_ = getPersistentHeuristics(fusion, runtime_info, data_cache);
-    TORCH_INTERNAL_ASSERT(params_ != nullptr);
+    NVF_ERROR(params_ != nullptr);
   }
 
   static bool checkReductionPattern(
@@ -2200,7 +2187,7 @@ class PersistentKernelScheduler : public SchedulerEntry {
       }
     }
 
-    TORCH_INTERNAL_ASSERT(!is_cross_grid || cross_grid_params.has_value())
+    NVF_ERROR(!is_cross_grid || cross_grid_params.has_value())
 
     // Maximum number of iteration dimensions we can have and still be
     // persistent.
@@ -2342,7 +2329,7 @@ class MatmulScheduler : public SchedulerEntry {
       SchedulerRuntimeInfo& runtime_info,
       HeuristicSummary* data_cache = nullptr) {
     params_ = getMatmulHeuristics(fusion, runtime_info, data_cache);
-    TORCH_INTERNAL_ASSERT(params_ != nullptr);
+    NVF_ERROR(params_ != nullptr);
   }
 };
 
@@ -2412,7 +2399,7 @@ bool SchedulerEntry::canSchedule(
       return checkCanSchedule<MatmulScheduler>(
           fusion, runtime_info, data_cache);
     default:
-      TORCH_INTERNAL_ASSERT(false, "unreachable");
+      NVF_ERROR(false, "unreachable");
       return false;
   }
   return false;
@@ -2450,7 +2437,7 @@ std::unique_ptr<SchedulerEntry> SchedulerEntry::makeEntry(
           std::make_unique<MatmulScheduler>(fusion, runtime_info, data_cache);
       break;
     default:
-      TORCH_INTERNAL_ASSERT(false, "unreachable");
+      NVF_ERROR(false, "unreachable");
   }
 
   return scheduler_entry;
@@ -2488,7 +2475,7 @@ std::string toString(ScheduleHeuristic sh) {
     case ScheduleHeuristic::Matmul:
       return "matmul";
     default:
-      TORCH_INTERNAL_ASSERT(false, "undefined schedule");
+      NVF_ERROR(false, "undefined schedule");
   }
   return "";
 }
@@ -2547,15 +2534,14 @@ HeuristicSummary::HeuristicSummary(
       break;
     case ScheduleHeuristic::Matmul: {
       const auto heuristics = getMatmulHeuristics(fusion, runtime_info, this);
-      TORCH_INTERNAL_ASSERT(heuristics, "Failed to get matmul heuristics");
+      NVF_ERROR(heuristics, "Failed to get matmul heuristics");
       const auto canSchedule =
           MatmulScheduler::canScheduleRunTime(fusion, runtime_info, this);
-      TORCH_INTERNAL_ASSERT(
-          canSchedule, "Could not schedule matmul (run time)");
+      NVF_ERROR(canSchedule, "Could not schedule matmul (run time)");
       break;
     }
     default:
-      TORCH_INTERNAL_ASSERT(false, "unknown heuristic");
+      NVF_ERROR(false, "unknown heuristic");
   }
   validate();
   recording_ = false;
@@ -2570,17 +2556,14 @@ void HeuristicSummary::validate() const {
     case ScheduleHeuristic::Transpose:
     case ScheduleHeuristic::PointWise: {
       if (heuristic_ == ScheduleHeuristic::PointWise) {
-        TORCH_INTERNAL_ASSERT(entry_type_map_.count(EntryType::DOMAIN_MAP));
-        TORCH_INTERNAL_ASSERT(
-            entry_type_map_.count(EntryType::REFERENCE_TENSORS));
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(entry_type_map_.count(EntryType::DOMAIN_MAP));
+        NVF_ERROR(entry_type_map_.count(EntryType::REFERENCE_TENSORS));
+        NVF_ERROR(
             entry_type_map_.count(EntryType::VECTORIZABLE_INPUTS_AND_OUTPUTS));
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             entry_type_map_.count(EntryType::TV_TO_CONTIG_INNER_SIZE_MAPS));
-        TORCH_INTERNAL_ASSERT(
-            entry_type_map_.count(EntryType::BROADCAST_BYTE_MULTIPLES));
-        TORCH_INTERNAL_ASSERT(
-            entry_type_map_.count(EntryType::CAN_SCHEDULE_TRANSPOSE));
+        NVF_ERROR(entry_type_map_.count(EntryType::BROADCAST_BYTE_MULTIPLES));
+        NVF_ERROR(entry_type_map_.count(EntryType::CAN_SCHEDULE_TRANSPOSE));
         auto can_schedule_transpose =
             entry_type_map_.at(EntryType::CAN_SCHEDULE_TRANSPOSE)
                 ->as<CompileTimeInfo<
@@ -2590,43 +2573,37 @@ void HeuristicSummary::validate() const {
           break;
         }
       }
-      TORCH_INTERNAL_ASSERT(
-          entry_type_map_.count(EntryType::TRANSPOSE_DOMAIN_MAP));
-      TORCH_INTERNAL_ASSERT(entry_type_map_.count(
+      NVF_ERROR(entry_type_map_.count(EntryType::TRANSPOSE_DOMAIN_MAP));
+      NVF_ERROR(entry_type_map_.count(
           EntryType::INPUTS_AND_OUTPUTS_INNER_DIM_GROUPS));
-      TORCH_INTERNAL_ASSERT(
-          entry_type_map_.count(EntryType::REFERENCE_TENSORS_FOR_GROUPS));
-      TORCH_INTERNAL_ASSERT(
-          entry_type_map_.count(EntryType::INNER_MOST_DIMS_INFO));
+      NVF_ERROR(entry_type_map_.count(EntryType::REFERENCE_TENSORS_FOR_GROUPS));
+      NVF_ERROR(entry_type_map_.count(EntryType::INNER_MOST_DIMS_INFO));
       break;
     }
     case ScheduleHeuristic::Reduction: {
-      TORCH_INTERNAL_ASSERT(entry_type_map_.count(EntryType::REDUCTION_TVS));
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(entry_type_map_.count(EntryType::REDUCTION_TVS));
+      NVF_ERROR(
           entry_type_map_.count(EntryType::VECTORIZABLE_INPUTS_AND_OUTPUTS));
-      TORCH_INTERNAL_ASSERT(
-          entry_type_map_.count(EntryType::TV_TO_CONTIG_INNER_SIZE_MAPS));
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(entry_type_map_.count(EntryType::TV_TO_CONTIG_INNER_SIZE_MAPS));
+      NVF_ERROR(
           entry_type_map_.count(EntryType::UNROLLABLE_INPUTS_AND_OUTPUTS));
       break;
     }
     case ScheduleHeuristic::Persistent: {
-      TORCH_INTERNAL_ASSERT(entry_type_map_.count(EntryType::REDUCTION_TVS));
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(entry_type_map_.count(EntryType::REDUCTION_TVS));
+      NVF_ERROR(
           entry_type_map_.count(EntryType::VECTORIZABLE_INPUTS_AND_OUTPUTS));
-      TORCH_INTERNAL_ASSERT(
-          entry_type_map_.count(EntryType::TV_TO_CONTIG_INNER_SIZE_MAPS));
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(entry_type_map_.count(EntryType::TV_TO_CONTIG_INNER_SIZE_MAPS));
+      NVF_ERROR(
           entry_type_map_.count(EntryType::UNROLLABLE_INPUTS_AND_OUTPUTS));
-      TORCH_INTERNAL_ASSERT(
-          entry_type_map_.count(EntryType::PERSISTENT_BUFFER_INFO));
+      NVF_ERROR(entry_type_map_.count(EntryType::PERSISTENT_BUFFER_INFO));
       // If check persistent factor only when persistent buffers needed.
       auto persistent_buffer_info =
           entry_type_map_.at(EntryType::PERSISTENT_BUFFER_INFO)
               ->as<
                   CompileTimeInfo<HeuristicCompileTime::PersistentBufferInfo>>()
               ->get();
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           !persistent_buffer_info->persistent_buffers.empty() &&
           entry_type_map_.count(EntryType::SCOPE_PERSISTENT_FACTOR_INFO));
       break;
@@ -2636,13 +2613,12 @@ void HeuristicSummary::validate() const {
       break;
     }
     default:
-      TORCH_INTERNAL_ASSERT(false, "unknown heuristic");
+      NVF_ERROR(false, "unknown heuristic");
   }
 }
 
 void HeuristicSummary::insert(HeuristicSummary::EntryOwningPtr new_entry) {
-  TORCH_INTERNAL_ASSERT(
-      recording_, "should only insert entries at recording phase");
+  NVF_ERROR(recording_, "should only insert entries at recording phase");
   // Just override when insertion duplicates, equality not checked.
   entry_type_map_[new_entry->type()] = new_entry.get();
   entries_.emplace_back(std::move(new_entry));

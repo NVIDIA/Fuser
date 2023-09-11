@@ -6,6 +6,7 @@
  */
 // clang-format on
 
+#include <csrc/exceptions.h>
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
@@ -294,6 +295,28 @@ TEST_F(ExprEvalTest, Array) {
   checkIntValue(evaluator, bb, 5L);
 }
 
+TEST_F(ExprEvalTest, EmptyArray) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  EXPECT_THAT(
+      [&]() {
+        IrBuilder::create<Val>(
+            std::vector<int64_t>{},
+            ArrayType{std::make_shared<DataType>(DataType::Int), 2});
+      },
+      ::testing::ThrowsMessage<nvfuser::nvfError>(
+          ::testing::HasSubstr("not compatible")));
+
+  auto* a = IrBuilder::create<Val>(
+      std::vector<int64_t>{},
+      ArrayType{std::make_shared<DataType>(DataType::Int), 0});
+
+  ExpressionEvaluator evaluator;
+  auto arr_val = evaluator.evaluate(a);
+  EXPECT_EQ(arr_val, std::vector<PolymorphicValue>{});
+}
+
 TEST_F(ExprEvalTest, Struct) {
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -316,7 +339,7 @@ TEST_F(ExprEvalTest, Struct) {
       } else if (key == "b") {
         return [this]() { return PolymorphicValue(b); };
       } else {
-        TORCH_INTERNAL_ASSERT(false, "Invalid key");
+        NVF_ERROR(false, "Invalid key");
       }
     }
 
@@ -327,7 +350,7 @@ TEST_F(ExprEvalTest, Struct) {
       } else if (key == "b") {
         return [this](const PolymorphicValue& value) { b = (int64_t)value; };
       } else {
-        TORCH_INTERNAL_ASSERT(false, "Invalid key");
+        NVF_ERROR(false, "Invalid key");
       }
     }
   };
@@ -417,7 +440,7 @@ TEST_F(ExprEvalTest, Validation) {
 
   EXPECT_THAT(
       [&]() { evaluator.bind(c, 4L, true); },
-      ::testing::ThrowsMessage<c10::Error>(
+      ::testing::ThrowsMessage<nvfuser::nvfError>(
           ::testing::HasSubstr("Tried to bind to a value: ")));
   EXPECT_EQ(evaluator.evaluate(c), 299792459L);
   evaluator.bind(d, 299792460L, true);

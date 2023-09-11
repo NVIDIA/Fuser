@@ -32,7 +32,7 @@ std::optional<bool> mapContiguityEnumToOptional(int v) {
     case serde::Contiguity_None:
       return std::nullopt;
   }
-  TORCH_INTERNAL_ASSERT(false, "Invalid contiguity type.");
+  NVF_ERROR(false, "Invalid contiguity type.");
   return std::nullopt;
 }
 
@@ -41,7 +41,7 @@ python_frontend::RecordFunctor* deserializeOpRecord(
     const std::unordered_map<std::string, fn_type>& str_to_func_map,
     serde::RecordType record_type,
     const serde::RecordFunctor* buffer) {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       str_to_func_map.find(buffer->name()->str()) != str_to_func_map.end(),
       "Missing mapping from operation string to nvfuser function in serde deserialization.");
   return new python_frontend::OpRecord<Signature...>(

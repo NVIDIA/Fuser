@@ -32,7 +32,7 @@ int64_t getVectorizeSize(kir::TensorIndex* ti) {
       continue;
     }
 
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         id->extent()->isConstInt(),
         "Could not evaluate constant value bound to vectorized dim.");
 
@@ -83,7 +83,7 @@ int64_t getLdMatrixNumThreads(int64_t word_size) {
       // and all the 32 threads contain useful addresses.
       return 32;
     default:
-      TORCH_INTERNAL_ASSERT(false, "Invalid word size for ldmatrix");
+      NVF_ERROR(false, "Invalid word size for ldmatrix");
   }
 }
 
@@ -141,8 +141,7 @@ std::vector<int64_t> evaluateAddressesOnFirstPhase(
     for (auto fl : for_loops) {
       if (fl->index()->isA<NamedScalar>()) {
         auto ns = fl->index()->as<NamedScalar>();
-        TORCH_INTERNAL_ASSERT(
-            ns->isThreadIdx() || ns->isBlockIdx(), "unknow loop index");
+        NVF_ERROR(ns->isThreadIdx() || ns->isBlockIdx(), "unknow loop index");
       } else {
         auto start = expr_eval.evaluate(fl->start()).as<int64_t>();
         expr_eval.bind(fl->index(), start);
@@ -273,16 +272,16 @@ std::unordered_map<const Expr*, std::pair<int, int>> getBankConflictInfo(
     const std::unordered_map<Val*, PolymorphicValue>& known_values) {
   for (const auto& pair : known_values) {
     if (auto ns = dynamic_cast<NamedScalar*>(pair.first)) {
-      TORCH_CHECK(
+      NVF_CHECK(
           !ns->isThreadIdx(),
           "threadIdx.{x,y,z} should be computed instead of provided");
-      TORCH_CHECK(
+      NVF_CHECK(
           !ns->isBlockIdx(),
           "blockIdx.{x,y,z} should not be provided (they are always zero)");
-      TORCH_CHECK(
+      NVF_CHECK(
           !ns->isBlockDim(),
           "blockDim.{x,y,z} should be provided by launch_params");
-      TORCH_CHECK(
+      NVF_CHECK(
           !ns->isGridDim(),
           "gridDim.{x,y,z} should be provided by launch_params");
     }

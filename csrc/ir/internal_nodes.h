@@ -8,6 +8,7 @@
 #pragma once
 
 #include <c10/macros/Export.h>
+#include <exceptions.h>
 #include <ir/interface_nodes.h>
 
 #include <fusion.h>
@@ -726,7 +727,7 @@ class TORCH_CUDA_CU_API RNGOp : public Expr {
   }
 
   void setSeedAndOffset(Val* seed, Val* offset) {
-    TORCH_INTERNAL_ASSERT(!isDeterministic());
+    NVF_ERROR(!isDeterministic());
     addInput(seed);
     addInput(offset);
   }
@@ -972,7 +973,7 @@ class TORCH_CUDA_CU_API WelfordTriplet {
   }
 
   TensorView* avgTv() const {
-    TORCH_INTERNAL_ASSERT(avg()->isA<TensorView>());
+    NVF_ERROR(avg()->isA<TensorView>());
     return avg()->as<TensorView>();
   }
 
@@ -985,7 +986,7 @@ class TORCH_CUDA_CU_API WelfordTriplet {
   }
 
   TensorView* varTv() const {
-    TORCH_INTERNAL_ASSERT(var()->isA<TensorView>());
+    NVF_ERROR(var()->isA<TensorView>());
     return var()->as<TensorView>();
   }
 
@@ -998,7 +999,7 @@ class TORCH_CUDA_CU_API WelfordTriplet {
   }
 
   TensorView* NTv() const {
-    TORCH_INTERNAL_ASSERT(N()->isA<TensorView>());
+    NVF_ERROR(N()->isA<TensorView>());
     return N()->as<TensorView>();
   }
 
@@ -1064,7 +1065,7 @@ class TORCH_CUDA_CU_API WelfordTriplet {
 
   //! Convert a given index to a name
   static ValName indexToValName(int index) {
-    TORCH_INTERNAL_ASSERT(index >= 0 && index < 3, "Invalid index: ", index);
+    NVF_ERROR(index >= 0 && index < 3, "Invalid index: ", index);
     return static_cast<ValName>(index);
   }
 
@@ -1685,14 +1686,14 @@ class TORCH_CUDA_CU_API Split : public Expr {
   //! Start position of the input domain. Non-zero means partial
   //! split. Elements until this offset are ignored.
   Val* startOffset() const {
-    TORCH_INTERNAL_ASSERT(attributeVal(2) != nullptr);
+    NVF_ERROR(attributeVal(2) != nullptr);
     return attributeVal(2);
   }
 
   //! Offset from extent of the input domain. Non-zero means partial
   //! split. Elements after this offset are ignored.
   Val* stopOffset() const {
-    TORCH_INTERNAL_ASSERT(attributeVal(3) != nullptr);
+    NVF_ERROR(attributeVal(3) != nullptr);
     return attributeVal(3);
   }
 
@@ -1974,6 +1975,10 @@ class TORCH_CUDA_CU_API PadOp : public Expr {
 
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
+
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
 
   Val* out() const {
     return output(0);

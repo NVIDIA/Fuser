@@ -215,7 +215,7 @@ class ExprGroup {
       std::vector<ExprGroupConnections*>& edges,
       ExprGroupConnections* edge_to_remove) {
     auto it = std::find(edges.begin(), edges.end(), edge_to_remove);
-    TORCH_INTERNAL_ASSERT(it != edges.end(), "Could not find edge to remove.");
+    NVF_ERROR(it != edges.end(), "Could not find edge to remove.");
     edges.erase(it);
   }
 
@@ -483,7 +483,7 @@ std::vector<ExprGroup*> ExprGroup::getMergeCandidates(
   // If fallback mode already detected a merge somewhere, we shouldn't still be
   // traversing.
   if (fallback_mode_enabled) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         !neighbor_merged,
         "Shouldn't still be traversing in fallback mode if a merge was found.");
   }
@@ -645,7 +645,7 @@ void ExprSegmentationSorter::resetLevels() {
           std::max(visit->payload()->level, inp->from->payload()->level + 1);
     }
   }
-  TORCH_INTERNAL_ASSERT(next_to_visit.empty(), "Error in graph, is not a DAG.");
+  NVF_ERROR(next_to_visit.empty(), "Error in graph, is not a DAG.");
 }
 
 ExprGroup* ExprSegmentationSorter::makeEmptyGroup(bool is_scalar_only) {
@@ -735,7 +735,7 @@ std::vector<ExprGroupConnections*> getMergedEdges(
     const std::vector<ExprGroupConnections*>& edges1,
     const ExprGroup* sg2,
     const std::vector<ExprGroupConnections*>& edges2) {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       sg1 != nullptr && sg2 != nullptr,
       "This function doesn't handle trivial.");
 
@@ -882,7 +882,7 @@ ExprGroup* ExprSegmentationSorter::makeMergedNode(
   auto joined_groups =
       makeEmptyGroup(sg1->isScalarOnly() && sg2->isScalarOnly());
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       producer != nullptr,
       "Tried to merge expr's together that aren't neighbors.");
 
@@ -932,7 +932,7 @@ ExprGroup* ExprSegmentationSorter::makeMergedNode(
       ca_ids.emplace(kernelScopeDomain());
       auto consumer_of_consumer_edge =
           dynamic_cast<TensorView*>(consumer_group_edge->consumer_val);
-      TORCH_INTERNAL_ASSERT(consumer_of_consumer_edge != nullptr);
+      NVF_ERROR(consumer_of_consumer_edge != nullptr);
       for (const auto tv_i :
            c10::irange(producer_of_consumer_edge->getComputePosition(
                consumer_of_consumer_edge))) {
@@ -1091,7 +1091,7 @@ bool ExprSegmentationSorter::interIterUpdate() {
       return false;
     }
     // If we didn't finish and we tried the fallback, throw.
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         !fallback_mode_enabled_,
         "Couldn't succcessfully sort out the fusion expressions. ",
         "There are remaining connections of the heirarchical segmentation which should have been ",
@@ -1114,7 +1114,7 @@ void ExprSegmentationSorter::mergeNodes() {
     ExprGroup *group1 = nullptr, *group2 = nullptr;
     std::tie(group1, group2) = to_merge_.back();
     to_merge_.pop_back();
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         group2 == group1->payload()->merge_with,
         "Expression Sorter: inconsistent to_merge packing");
     clean_up_groups.emplace(group1);
@@ -1138,7 +1138,7 @@ void ExprSegmentationSorter::mergeNodes() {
 
 // Initialize concrete_id_dependencies and concrete_id_to_all_ids
 void ExprSegmentationSorter::initializeForLoopDependencies() {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       concrete_id_dependencies_.empty(),
       "For loop dependencies have already been initialized.");
 
@@ -1255,7 +1255,7 @@ void ExprSegmentationSorter::initializeForLoopDependencies() {
       desc << std::endl;
     }
 
-    TORCH_INTERNAL_ASSERT(false, desc.str());
+    NVF_ERROR(false, desc.str());
   }
 }
 
@@ -1277,13 +1277,13 @@ bool ExprSegmentationSorter::hasCADomains(
 // additional tracking, however we recreate ca_domain_ when we merge groups,
 // so it's hard to track what is no longer needed.
 bool ExprSegmentationSorter::loopReady(IterDomain* concrete_id) const {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       concrete_id == getConcreteID(concrete_id),
       "Received a non-concrete ID: ",
       concrete_id->toString(),
       ", LOOP concrete ID: ",
       getConcreteID(concrete_id)->toString());
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       concrete_id_dependencies_.find(concrete_id) !=
           concrete_id_dependencies_.end(),
       "Dependency information not found for ",
@@ -1401,7 +1401,7 @@ bool ExprSegmentationSorter::supportedMerge(ExprGroup* sg1, ExprGroup* sg2) {
         continue;
       }
 
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           consumer_val->isA<TensorView>(),
           "Mismatched tensorview to non-tensorview in expression sorting. ",
           producer_val,
@@ -1738,11 +1738,11 @@ std::vector<Expr*> reorderExprsForComputeAt() {
   if (fusion->isNoOp()) {
     return {};
   }
-  TORCH_INTERNAL_ASSERT(fusion != nullptr);
+  NVF_ERROR(fusion != nullptr);
   ExprSegmentationSorter sorter(fusion);
   sorter.sort();
   auto sorted_exprs = sorter.getExprs();
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       !sorted_exprs.empty(),
       "Error during expression sorting, no expressions produced.");
   return sorted_exprs;
