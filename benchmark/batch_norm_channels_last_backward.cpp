@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <csrc/exceptions.h>
 #include <device_lower/lower2device.h>
 #include <executor.h>
 #include <fusion.h>
@@ -28,7 +29,7 @@ using namespace nvfuser;
 //------------------------------------------------------------------------------
 
 static void setupBatchNorm_nhwc_BWD(Fusion* fusion, DataType dtype) {
-  TORCH_INTERNAL_ASSERT(dtype == DataType::Float || dtype == DataType::Half);
+  NVF_ERROR(dtype == DataType::Float || dtype == DataType::Half);
 
   FusionGuard fg(fusion);
 
@@ -57,7 +58,7 @@ static void setupBatchNorm_nhwc_BWD(Fusion* fusion, DataType dtype) {
     grad_output = castOp(DataType::Float, grad_output);
   }
 
-  auto eps_ptr = IrBuilder::create<Double>(kEps);
+  auto eps_ptr = IrBuilder::create<Val>(kEps);
 
   auto result = batch_norm_backward(
       input,
@@ -91,7 +92,7 @@ static void NvFuserScheduler_BatchNorm_nhwc_BWD(
     benchmark::State& benchmark_state,
     FusionExecutorCache* fusion_executor_cache,
     DataType dtype) {
-  TORCH_INTERNAL_ASSERT(dtype == DataType::Float || dtype == DataType::Half);
+  NVF_ERROR(dtype == DataType::Float || dtype == DataType::Half);
 
   std::vector<int64_t> input_shape{
       benchmark_state.range(0),
@@ -130,7 +131,7 @@ static void NvFuserScheduler_BatchNorm_nhwc_BWD(
 static void Baseline_BatchNorm_nhwc_BWD(
     benchmark::State& benchmark_state,
     DataType dtype) {
-  TORCH_INTERNAL_ASSERT(dtype == DataType::Float || dtype == DataType::Half);
+  NVF_ERROR(dtype == DataType::Float || dtype == DataType::Half);
 
   const float kMomentum = 0.1;
   const float kEps = 1e-5;

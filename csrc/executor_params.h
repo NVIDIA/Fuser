@@ -6,6 +6,8 @@
  */
 // clang-format on
 #pragma once
+#include <exceptions.h>
+#include <serde/fusion_cache_generated.h>
 #include <type.h>
 
 #include <optional>
@@ -21,10 +23,10 @@ struct TORCH_CUDA_CU_API CompileParams {
 
   bool operator==(const CompileParams& other) const {
     // Disallow comparison if the index type is nullopt
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         index_type.has_value(),
         "cannot compare as the index type is not defined");
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         other.index_type.has_value(),
         "cannot compare as the other index type is not defined");
     return index_type == other.index_type &&
@@ -103,7 +105,7 @@ class TORCH_CUDA_CU_API LaunchParams {
       const int64_t incoming_val,
       int64_t& class_val,
       std::string val) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         class_val == UNINITIALIZED_VAL || incoming_val == class_val,
         "Tried to set ",
         val,
@@ -113,7 +115,7 @@ class TORCH_CUDA_CU_API LaunchParams {
         incoming_val,
         ", but it was already set and new value does not match.",
         " Thread dims all have to be bound to the same value.");
-    TORCH_CHECK(
+    NVF_CHECK(
         incoming_val > 0,
         "Received a thread binding on ",
         val,
@@ -144,10 +146,17 @@ class TORCH_CUDA_CU_API LaunchParams {
 
   std::string toString() const;
 
+  //! Serialize LaunchParams using flatbuffers
+  flatbuffers::Offset<serde::LaunchParams> serialize(
+      flatbuffers::FlatBufferBuilder& builder) const;
+
+  //! Deserialize LaunchParams using flatbuffers
+  void deserialize(const serde::LaunchParams* buffer);
+
  private:
   // Spell them out because I want signed ints to know if they were initialized
   // or not.
-  // TODO: convert to c10::optional
+  // TODO: convert to std::optional
   int64_t gdimx_ = UNINITIALIZED_VAL;
   int64_t gdimy_ = UNINITIALIZED_VAL;
   int64_t gdimz_ = UNINITIALIZED_VAL;

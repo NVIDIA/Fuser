@@ -75,7 +75,7 @@ class WelfordVectorizer : public kir::ExprMutator {
     }
 
     // Check if the innermost loop can be vectorized
-    TORCH_INTERNAL_ASSERT(!for_loops_.empty());
+    NVF_ERROR(!for_loops_.empty());
     auto innermost_loop = for_loops_.back();
 
     if (innermost_loop->isTrivial()) {
@@ -126,7 +126,7 @@ class WelfordVectorizer : public kir::ExprMutator {
     //
     // Bail out if the structure is not detected.
 
-    TORCH_INTERNAL_ASSERT(!scope_exprs_.empty());
+    NVF_ERROR(!scope_exprs_.empty());
     kir::IfThenElse* wop_ite =
         dynamic_cast<kir::IfThenElse*>(scope_exprs_.back());
     if (wop_ite == nullptr) {
@@ -140,7 +140,7 @@ class WelfordVectorizer : public kir::ExprMutator {
       return false;
     }
 
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         wop_ite->predicate()->hasValue(),
         "All predicates should have been lowered at this point: ",
         wop_ite->toString());
@@ -155,15 +155,15 @@ class WelfordVectorizer : public kir::ExprMutator {
 
   // Transform a serial WelfordOp.
   void vectorize(WelfordOp* wop) {
-    TORCH_INTERNAL_ASSERT(!scope_exprs_.empty());
+    NVF_ERROR(!scope_exprs_.empty());
     kir::IfThenElse* wop_ite =
         dynamic_cast<kir::IfThenElse*>(scope_exprs_.back());
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         wop_ite != nullptr,
         "Predicate IfThenElse not found for ",
         wop->toString());
 
-    TORCH_INTERNAL_ASSERT(!for_loops_.empty());
+    NVF_ERROR(!for_loops_.empty());
     innermost_loop_ = for_loops_.back();
 
     scope_of_innermost_loop_ = nullptr;
@@ -172,7 +172,7 @@ class WelfordVectorizer : public kir::ExprMutator {
         scope_of_innermost_loop_ = scope_.at(i - 1);
       }
     }
-    TORCH_INTERNAL_ASSERT(scope_of_innermost_loop_ != nullptr);
+    NVF_ERROR(scope_of_innermost_loop_ != nullptr);
 
     // If the expr is predicated, hoist the predicate as the innermost
     // loop should not have any dependency with the predicate (which
@@ -189,7 +189,7 @@ class WelfordVectorizer : public kir::ExprMutator {
       if (!pred->value()->value()) {
         // Can this happen? This should be just ignored, assuming
         // there's no else path.
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             wop_ite->elseBody().empty(),
             "Unexpected IfThenElse: ",
             wop_ite->toString());
@@ -258,7 +258,7 @@ class WelfordVectorizer : public kir::ExprMutator {
     auto conditional = wop_ite->predicate()->value();
 
     // Allocate a boolean scalar for cond
-    auto pred_var = defineScalar(DataType::Bool)->as<Bool>();
+    auto pred_var = defineScalar(DataType::Bool);
 
     registerInsertBeforeInnerMostLoop(IrBuilder::create<LoadStoreOp>(
         LoadStoreOpType::Set, pred_var, conditional));
@@ -310,7 +310,7 @@ class WelfordVectorizer : public kir::ExprMutator {
 
   kir::VectorizedWelfordOp* applyVectorizeTransformation(
       WelfordOp* wop,
-      Bool* pred) {
+      Val* pred) {
     DataType data_type = wop->outAvg()->getDataType().value();
     DataType index_type = wop->outN()->getDataType().value();
 
@@ -326,12 +326,12 @@ class WelfordVectorizer : public kir::ExprMutator {
 
     auto hoisted_count = hoistCount(wop->outN()->as<kir::TensorIndex>());
 
-    Int* count_increment = nullptr;
+    Val* count_increment = nullptr;
     if (!is_predicated) {
       count_increment = GpuLower::current()->kernel()->oneVal();
     } else {
       // count_increment = (int)pred;
-      count_increment = defineScalar(index_type)->as<Int>();
+      count_increment = defineScalar(index_type);
       registerInsertBeforeInnerMostLoop(
           IrBuilder::create<UnaryOp>(UnaryOpType::Cast, count_increment, pred));
     }
@@ -403,7 +403,7 @@ class WelfordVectorizer : public kir::ExprMutator {
   // with what ever value within the loop range since it is
   // independent of the loop index.
   kir::TensorIndex* hoistCount(kir::TensorIndex* out_N) {
-    TORCH_INTERNAL_ASSERT(!for_loops_.empty());
+    NVF_ERROR(!for_loops_.empty());
     auto innermost_loop = for_loops_.back();
     const auto& original_index = out_N->index();
     std::unordered_map<Val*, Val*> index_replacement_map;
@@ -412,7 +412,7 @@ class WelfordVectorizer : public kir::ExprMutator {
         GpuLower::current()->kernel()->zeroVal());
 
     Val* indices_zero =
-        ir_utils::replaceValInIndexVal(original_index, index_replacement_map);
+        ir_utils::replaceValRecursively(original_index, index_replacement_map);
 
     auto hoisted_count =
         IrBuilder::create<kir::TensorIndex>(out_N->view(), indices_zero);
@@ -468,7 +468,7 @@ class WelfordVectorizer : public kir::ExprMutator {
       return false;
     }
 
-    TORCH_INTERNAL_ASSERT(!for_loops_.empty());
+    NVF_ERROR(!for_loops_.empty());
     auto innermost_loop = for_loops_.back();
 
     // Check all the exprs in the same scope
@@ -526,7 +526,7 @@ class WelfordVectorizer : public kir::ExprMutator {
 
       // Check if the predicate of the expr is known to be true
       if (expr_ite->predicate()->isConst() &&
-          expr_ite->predicate()->value()->value()) {
+          expr_ite->predicate()->value()->value().as<bool>()) {
         continue;
       }
 

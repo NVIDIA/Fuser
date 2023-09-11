@@ -9,11 +9,13 @@
 
 #include <dynamic_transform.h>
 #include <evaluator_common.h>
+#include <exceptions.h>
 #include <executor.h>
 #include <fusion.h>
 #include <fusion_segmenter.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/registry.h>
+#include <serde/fusion_cache_generated.h>
 
 #include <c10/macros/Export.h>
 #include <c10/util/ArrayRef.h>
@@ -41,16 +43,38 @@ struct RuntimeWorkSpace {
   //! Pre-determined order to bind tensor input meta data
   std::vector<Val*> group_extent_binding_order;
 };
-//! Simple hasher for pair<T, U>. There is no default hasher for pairs, since
-//! there are a lot of options how to combine hashes. In a case where one
+//! Simple hasher for pair<T, const U*>. There is no default hasher for pairs,
+//! since there are a lot of options how to combine hashes. In a case where one
 //! element of the pair is unlikely to change much, the following hash is fast
 //! and effective.
-struct SimplePairHash {
+struct PairPointerHash {
   template <typename T, typename U>
-  size_t operator()(const std::pair<T, U>& p) const {
+  size_t operator()(const std::pair<T, const U*>& p) const {
     auto hT = std::hash<T>{}(p.first);
-    auto hU = std::hash<U>{}(p.second);
+    // Using pointer as an optional
+    auto hU =
+        p.second ? std::hash<U>{}(*(p.second)) : std::hash<void*>{}(nullptr);
     return hT ^ hU;
+  }
+};
+
+struct PairPointerEquals {
+  template <typename T, typename U>
+  bool operator()(
+      const std::pair<T, const U*>& lhs,
+      const std::pair<T, const U*>& rhs) const {
+    if (lhs.first != rhs.first) {
+      return false;
+    }
+    if (lhs.second == rhs.second) {
+      return true;
+    }
+    // Compare by dereference, but only if both pointers are non-null
+    if (!lhs.second || !rhs.second) {
+      // We've already compared pointers, so if either is null, they're not both
+      return false;
+    }
+    return *(lhs.second) == *(rhs.second);
   }
 };
 
@@ -87,9 +111,16 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
     std::lock_guard<std::mutex> guard(mutex_);
     return std::all_of(
         executors_.begin(), executors_.end(), [](const auto& executor) {
-          return executor.compiled();
+          return executor.isCompiled();
         });
   }
+
+  //! Serialize Fusion Kernel Runtime using flatbuffers
+  flatbuffers::Offset<serde::FusionKernelRuntime> serialize(
+      flatbuffers::FlatBufferBuilder& builder) const;
+
+  //! Deerialize Fusion Kernel Runtime using flatbuffers
+  void deserialize(const serde::FusionKernelRuntime* buffer);
 
   //! Note that all heuristics use the same index type.
   PrimDataType getIndexType() const {
@@ -99,7 +130,7 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
       return PrimDataType::Int;
     }
     auto index_type = schedulers().at(0).get()->params()->cparams.index_type;
-    TORCH_INTERNAL_ASSERT(index_type.has_value());
+    NVF_ERROR(index_type.has_value());
     return index_type.value();
   }
 
@@ -168,8 +199,7 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
   //! TODO: have a interface for grabbing all recent logs. Need to put a buffer
   //! space for recent logs
   ExecutorLog getMostRecentExecutorLog() {
-    TORCH_INTERNAL_ASSERT(
-        profiling_, "Executor log is only produced in profiling mode");
+    NVF_ERROR(profiling_, "Executor log is only produced in profiling mode");
     return most_recent_executor_log_;
   }
 
@@ -179,7 +209,7 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
   //
   // Heuristics must use the index type of forced_index_type if given.
   using HeuristicsPtr = std::unique_ptr<FusionHeuristics>;
-  c10::optional<HeuristicsPtr> getMaybeHeuristicsFor(
+  std::optional<HeuristicsPtr> getMaybeHeuristicsFor(
       const KernelArgumentHolder& args,
       std::optional<PrimDataType> forced_index_type = std::nullopt);
 
@@ -196,7 +226,7 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
   //! added back to the arguments, so they can be used as inputs to successive
   //! segments. Returns a map that links each NvFuser Val to its corresponding
   //! tensor.
-  std::unordered_map<Val*, const ArgAbstract*> runSegmentsWithInputs(
+  std::unordered_map<Val*, const PolymorphicValue*> runSegmentsWithInputs(
       KernelArgumentHolder& args);
 
   //! Interface to run a single kernel, either one kernel for single-kernel
@@ -224,6 +254,11 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
   //! Entries indexed by groupID:
   //! Executors holding compiled kernels
   std::vector<FusionExecutor> executors_;
+
+  // A metadata copy of initial arguments used to contruct this
+  // FusionKernelRuntime. Used during deserialization to schedule the fusion
+  // rather than storing the scheduled fusion directly.
+  KernelArgumentHolder args_metadata_;
 
   //! Heuristics object holding scheduler entries for all segments
   std::unique_ptr<FusionHeuristics> heuristics_;
@@ -303,7 +338,7 @@ class TORCH_CUDA_CU_API InputsIdLookup : public NonCopyable {
   //! of input tensors, but on input scalars. For example,
   //!
   //!    auto s = IrBuilder::create<int>();
-  //!    auto tv1 = reshape(tv0, {IrBuilder::create<Int>(-1), s});
+  //!    auto tv1 = reshape(tv0, {IrBuilder::create<Val>(-1), s});
   //!
   //!
   //! This code will accept an integer s and reshape tv0 such that its last
@@ -327,6 +362,13 @@ class TORCH_CUDA_CU_API InputsIdLookup : public NonCopyable {
     return encoding_lookup_.size();
   }
 
+  //! Serialize InputsIdLookup using flatbuffers
+  flatbuffers::Offset<serde::InputsIdLookup> serialize(
+      flatbuffers::FlatBufferBuilder& builder) const;
+
+  //! Deserialize InputsIdLookup using flatbuffers
+  void deserialize(const serde::InputsIdLookup* buffer);
+
  private:
   // string to store encoded input meta information. Reuse the buffer instead of
   // stringtream gives few us perf gain.
@@ -343,7 +385,7 @@ class TORCH_CUDA_CU_API InputsIdLookup : public NonCopyable {
   };
 
   //! maximum cache size for LRU
-  const size_t max_cache_size_;
+  size_t max_cache_size_ = 0;
 
   //! next available unique id, we monotonically increase `current_id_` avoid
   //! conflicts
@@ -514,13 +556,41 @@ class TORCH_CUDA_CU_API FusionExecutorCache {
   //  to capture runtime profiling info. We also need to define
   //  a suitable profiling window / buffer size.
   ExecutorLog getMostRecentExecutorInfo() {
-    TORCH_INTERNAL_ASSERT(most_recent_runtime_ != nullptr);
+    NVF_ERROR(most_recent_runtime_ != nullptr);
     return most_recent_runtime_->getMostRecentExecutorLog();
   }
 
   //! Get all cached runtimes
   const auto& getKernelRuntimes() const {
     return kernel_runtimes_;
+  }
+
+  //! Count concretizations. Note that each might have multiple
+  //! FusionKernelRuntimes. If device is given, count only concretizations on
+  //! the given device; otherwise count concretizations on all devices.
+  size_t countConcretizations(int8_t device = -1) const {
+    size_t concs = 0;
+    for (auto& it : kernel_runtimes_) {
+      if (device >= 0 && it.first.first != device) {
+        continue;
+      }
+      concs++;
+    }
+    return concs;
+  }
+
+  //! Count kernel runtimes across all concretizations. If device is given,
+  //! count only runtimes on the given device; otherwise count
+  //! runtimes on all devices.
+  size_t countRuntimes(int8_t device = -1) const {
+    size_t runtimes = 0;
+    for (auto& it : kernel_runtimes_) {
+      if (device >= 0 && it.first.first != device) {
+        continue;
+      }
+      runtimes += it.second.size();
+    }
+    return runtimes;
   }
 
   void profile(bool to_profile) {
@@ -564,8 +634,22 @@ class TORCH_CUDA_CU_API FusionExecutorCache {
   //! be zero if the measurement is not enabled
   float getMostRecentKernelTimeMs() const {
     auto rt = getMostRecentKernelRuntime();
-    TORCH_INTERNAL_ASSERT(rt != nullptr);
+    NVF_ERROR(rt != nullptr);
     return rt->kernelTimeMs();
+  }
+
+  //! Serialize Fusion Executor Cache using flatbuffers
+  flatbuffers::Offset<serde::FusionExecutorCache> serialize(
+      flatbuffers::FlatBufferBuilder& builder) const;
+
+  //! Deserialize Fusion Executor Cache using flatbuffers
+  void deserialize(const serde::FusionExecutorCache* buffer);
+
+  //! Allocate the outputs of the Fusion given inputs
+  //! TODO: re-implement
+  std::vector<at::Tensor> allocOutputSpace(
+      const at::ArrayRef<c10::IValue>& inputs) {
+    return runFusionWithInputs(inputs);
   }
 
  private:
@@ -601,10 +685,18 @@ class TORCH_CUDA_CU_API FusionExecutorCache {
   //! Fusions. We then check each of these to see if we can re-use any of those
   //! kernels and if not, we create a new one.
   std::unordered_map<
-      std::pair<size_t, std::optional<DynamicTransformConcretizationInfo>>,
+      std::pair<int8_t, const DynamicTransformConcretizationInfo*>,
       std::vector<std::unique_ptr<FusionKernelRuntime>>,
-      SimplePairHash>
+      PairPointerHash,
+      PairPointerEquals>
       kernel_runtimes_;
+
+  //! This class owns the initial info and concretization info associated to
+  //! each vector of kernel runtimes
+  std::vector<std::unique_ptr<DynamicTransformInitialInfo>>
+      cached_initial_info_;
+  std::vector<std::unique_ptr<DynamicTransformConcretizationInfo>>
+      cached_conc_info_;
 
   //! Logging state for most recent compilation
   bool profiling_ = false;

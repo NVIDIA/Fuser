@@ -7,15 +7,27 @@
 // clang-format on
 #pragma once
 #include <c10/macros/Export.h>
+#include <exceptions.h>
 #include <fusion.h>
 
 namespace nvfuser {
+
+constexpr std::string_view MATMUL_LOG_PREFIX = "[MATMUL DEBUG] ";
 
 //! Named descriptors of domains in matmul
 enum class MatmulDomain { M = 0, N, K };
 
 //! Named descriptors of TensorView roles in fusion
-enum class MatmulRole { MMA_INPUT_A = 0, MMA_INPUT_B, MMA_OUTPUT };
+//!  INPUT_A - a producer of MMA input A
+//!  INPUT_B - a producer of MMA input B
+//!  OUTPUT_D - the main consumer of MMA op results
+//!  INPUT_C - a producer of a tensor used in fusion epilogue,
+//!            for example tensor used in beta scaling fusion
+//!
+//! Naming convention is based on the following formula:
+//!    D = alpha * A x B + beta * C
+//!  Note: bias vector tensors will be assigned to INPUT_C role.
+enum class MatmulRole { INPUT_A = 0, INPUT_B, OUTPUT_D, INPUT_C };
 
 //! The expected number of occurances of core TensorView roles in fusion
 static constexpr size_t MATMUL_CORE_ROLES_EXPECTED_COUNT = 1;
@@ -171,9 +183,6 @@ class TORCH_CUDA_CU_API MmaBuilder {
   //! TODO: This step will very likely be removed in a follow up PR. All of
   //!  the options configured here could actually be inferred from fusion IR
   //!  once we are feature complete.
-  //! TODO: Remove variant that accepts TensorView, variant with MmaOp
-  //!  simplifies dependencies in scheduleMatmul
-  void configureMma(TensorView* mma_output) const;
   void configureMma(MmaOp* mma) const;
 
   //! Export all the parameters with user's configurations applied.

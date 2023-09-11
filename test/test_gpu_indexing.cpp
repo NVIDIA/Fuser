@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <csrc/exceptions.h>
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
@@ -34,7 +35,7 @@ TEST_F(NVFuserTest, FusionIndexing1_CUDA) {
   fusion.addInput(tv0);
   fusion.addInput(tv1);
 
-  auto tv2 = add(tv0, IrBuilder::create<Double>(1.0));
+  auto tv2 = add(tv0, IrBuilder::create<Val>(1.0));
   auto tv3 = broadcast(tv2, {true, false, false, false});
   auto tv4 = add(tv3, tv1);
 
@@ -88,7 +89,7 @@ TEST_F(NVFuserTest, FusionIndexing2_CUDA) {
   fusion.addInput(tv0);
   fusion.addInput(tv1);
 
-  auto tv2 = add(tv0, IrBuilder::create<Double>(1.0));
+  auto tv2 = add(tv0, IrBuilder::create<Val>(1.0));
   auto tv3 = broadcast(tv2, {true, false, false, false});
   auto tv4 = add(tv3, tv1);
 
@@ -141,7 +142,7 @@ TEST_F(NVFuserTest, FusionIndexing3_CUDA) {
   fusion.addInput(tv0);
   fusion.addInput(tv1);
 
-  auto tv2 = add(tv0, IrBuilder::create<Double>(1.0));
+  auto tv2 = add(tv0, IrBuilder::create<Val>(1.0));
   auto tv3 = add(tv2, tv1);
   fusion.addOutput(tv3);
 
@@ -174,7 +175,7 @@ TEST_F(NVFuserTest, FusionIndexing4_CUDA) {
   TensorView* tv1 = makeConcreteTensor({4, 4, 8});
   fusion.addInput(tv1);
 
-  TensorView* tv2 = add(tv0, IrBuilder::create<Double>(1));
+  TensorView* tv2 = add(tv0, IrBuilder::create<Val>(1.0));
   TensorView* tv3 = broadcast(tv2, {true, false, false});
   TensorView* tv4 = add(tv3, tv1);
   fusion.addOutput(tv4);
@@ -206,7 +207,7 @@ TEST_F(NVFuserTest, FusionIndexing5_CUDA) {
   TensorView* tv1 = makeSymbolicTensor(3);
   fusion.addInput(tv1);
 
-  TensorView* tv2 = add(tv0, IrBuilder::create<Double>(1));
+  TensorView* tv2 = add(tv0, IrBuilder::create<Val>(1.0));
   TensorView* tv3 = broadcast(tv2, {true, false, true});
   TensorView* tv4 = add(tv3, tv1);
   fusion.addOutput(tv4);
@@ -258,7 +259,7 @@ TEST_F(NVFuserTest, FusionIndexing6_CUDA) {
 
   std::vector<int64_t> reduction_axes{0, 1};
   auto reduction_params = getReductionHeuristics(&fusion, {input0, input1});
-  TORCH_CHECK(reduction_params, "Reduction schedule was not generated!");
+  NVF_CHECK(reduction_params, "Reduction schedule was not generated!");
   scheduleReduction(&fusion, *reduction_params);
 
   FusionExecutor fe;
@@ -381,7 +382,7 @@ TEST_F(NVFuserTest, FusionIndexing9_CUDA) {
 
   auto tv1 = broadcast(tv0, {false, true});
 
-  auto tv2 = mul(tv1, IrBuilder::create<Double>(2));
+  auto tv2 = mul(tv1, IrBuilder::create<Val>(2.0));
   fusion.addOutput(tv2);
 
   auto tv3 = makeSymbolicTensor(3);
@@ -427,7 +428,7 @@ TEST_F(NVFuserTest, FusionIndexing10_CUDA) {
 
   // Do math with it, it returns a `Val*` but can be static_casted back to
   // TensorView
-  TensorView* tv2 = add(tv1, IrBuilder::create<Double>(2.0));
+  TensorView* tv2 = add(tv1, IrBuilder::create<Val>(2.0));
   TensorView* tv3 = add(tv0, tv2);
 
   // Register your outputs
@@ -469,7 +470,7 @@ TEST_F(NVFuserTest, FusionIndexing10_CUDA) {
   at::Tensor tv2_ref = input2 + 2.0;
   at::Tensor output_ref = input1 + tv2_ref;
 
-  TORCH_CHECK(output_ref.equal(output));
+  NVF_CHECK(output_ref.equal(output));
 }
 
 TEST_F(NVFuserTest, FusionIndexing11_CUDA) {
@@ -484,7 +485,7 @@ TEST_F(NVFuserTest, FusionIndexing11_CUDA) {
   fusion.addInput(tv0);
   fusion.addInput(tv1);
 
-  auto tv2 = add(tv1, IrBuilder::create<Double>(1.0));
+  auto tv2 = add(tv1, IrBuilder::create<Val>(1.0));
   auto tv3 = broadcast(tv2, {true, false, true, true});
   auto tv4 = add(tv3, tv0);
 
@@ -533,9 +534,9 @@ TEST_F(NVFuserTest, FusionIndexing12_CUDA) {
   TensorView* tv0 = makeConcreteTensor({9, 5});
   fusion.addInput(tv0);
 
-  TensorView* tv1 = add(tv0, IrBuilder::create<Double>(1));
-  TensorView* tv2 = add(tv1, IrBuilder::create<Double>(2));
-  TensorView* tv3 = add(tv1, IrBuilder::create<Double>(3));
+  TensorView* tv1 = add(tv0, IrBuilder::create<Val>(1.0));
+  TensorView* tv2 = add(tv1, IrBuilder::create<Val>(2.0));
+  TensorView* tv3 = add(tv1, IrBuilder::create<Val>(3.0));
   TensorView* tv4 = sum(tv3, {1});
 
   fusion.addOutput(tv2);
@@ -576,7 +577,7 @@ TEST_F(NVFuserTest, FusionIndexing13_CUDA) {
   TensorView* tv2 = makeSymbolicTensor(3);
   fusion.addInput(tv2);
 
-  TensorView* tv3 = add(tv0, IrBuilder::create<Double>(1));
+  TensorView* tv3 = add(tv0, IrBuilder::create<Val>(1.0));
   TensorView* tv4 = broadcast(tv3, {false, true});
   TensorView* tv5 = add(tv4, tv1);
   TensorView* tv6 = add(tv5, tv2);
@@ -629,13 +630,13 @@ TEST_F(NVFuserTest, FusionIndexing14_CUDA) {
   fusion.addInput(tv1);
 
   // [b0, i1]
-  auto tv2 = add(tv0, IrBuilder::create<Double>(2.0));
+  auto tv2 = add(tv0, IrBuilder::create<Val>(2.0));
 
   // [i0, i1]
-  auto tv3 = add(tv1, IrBuilder::create<Double>(3.0));
+  auto tv3 = add(tv1, IrBuilder::create<Val>(3.0));
 
   // [b0, i1]
-  auto tv4 = add(tv2, IrBuilder::create<Double>(4.0));
+  auto tv4 = add(tv2, IrBuilder::create<Val>(4.0));
 
   // [io, i1]
   auto tv5 = add(tv2, tv3);

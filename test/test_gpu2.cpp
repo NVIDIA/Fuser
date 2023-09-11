@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <csrc/exceptions.h>
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
@@ -28,7 +29,6 @@
 #include <kernel_cache.h>
 #include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
-#include <mutator.h>
 #include <ops/all_ops.h>
 #include <register_interface.h>
 #include <root_domain_map.h>
@@ -39,6 +39,7 @@
 #include <test/validator.h>
 #include <transform_replay.h>
 #include <transform_rfactor.h>
+#include <utils.h>
 
 #include <parser.h>
 #include <torch/csrc/jit/api/function_impl.h>
@@ -66,7 +67,7 @@ TEST_F(NVFuserTest, FusionGlobalIntermediate_CUDA) {
   // Set up your input tensor views
   TensorView* tv0 = makeSymbolicTensor(2);
   TensorView* tv1 =
-      reductionOp(BinaryOpType::Add, {1}, IrBuilder::create<Double>(0), tv0);
+      reductionOp(BinaryOpType::Add, {1}, IrBuilder::create<Val>(0.0), tv0);
   fusion.addInput(tv0);
   fusion.addOutput(tv1);
   // tv1[I0, R1] = tv0[I0, I1]
@@ -157,17 +158,17 @@ TEST_F(NVFuserTest, FusionConstCheck_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  auto one = IrBuilder::create<Int>(1);
-  TORCH_CHECK(one->isConstScalar());
+  auto one = IrBuilder::create<Val>(1L);
+  NVF_CHECK(one->isConstScalar());
 
   auto one_x2 = mul(one, one);
-  TORCH_CHECK(one_x2->isConstScalar());
+  NVF_CHECK(one_x2->isConstScalar());
 
   auto one_x3 = mul(one_x2, one);
-  TORCH_CHECK(one_x3->isConstScalar());
+  NVF_CHECK(one_x3->isConstScalar());
 
   auto one_x4 = mul(one_x3, one);
-  TORCH_CHECK(one_x4->isConstScalar());
+  NVF_CHECK(one_x4->isConstScalar());
 }
 
 TEST_F(NVFuserTest, FusionUnrollWithAlloc_CUDA) {
@@ -179,9 +180,9 @@ TEST_F(NVFuserTest, FusionUnrollWithAlloc_CUDA) {
   TensorView* tv0 = makeSymbolicTensor(tensor_dims_in.size());
   fusion.addInput(tv0);
 
-  TensorView* tv1 = add(tv0, IrBuilder::create<Double>(0));
+  TensorView* tv1 = add(tv0, IrBuilder::create<Val>(0.0));
   TensorView* tv2 =
-      reductionOp(BinaryOpType::Add, {1}, IrBuilder::create<Double>(0), tv1);
+      reductionOp(BinaryOpType::Add, {1}, IrBuilder::create<Val>(0.0), tv1);
   fusion.addOutput(tv2);
 
   const auto options =
@@ -218,12 +219,12 @@ TEST_F(NVFuserTest, FusionIsZeroInt_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  Int* x = IrBuilder::create<Int>(0);
-  Int* y = IrBuilder::create<Int>(1);
+  Val* x = IrBuilder::create<Val>(0L);
+  Val* y = IrBuilder::create<Val>(1L);
   Val* z = mul(x, y);
-  TORCH_CHECK(x->isZeroInt());
-  TORCH_CHECK(!y->isZeroInt());
-  TORCH_CHECK(!z->isZeroInt());
+  NVF_CHECK(x->isZeroInt());
+  NVF_CHECK(!y->isZeroInt());
+  NVF_CHECK(!z->isZeroInt());
 }
 
 // Test isOneInt
@@ -231,12 +232,12 @@ TEST_F(NVFuserTest, FusionIsOneInt_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  Int* x = IrBuilder::create<Int>(1);
-  Int* y = IrBuilder::create<Int>(1);
+  Val* x = IrBuilder::create<Val>(1L);
+  Val* y = IrBuilder::create<Val>(1L);
   Val* z = mul(x, y);
-  TORCH_CHECK(x->isOneInt());
-  TORCH_CHECK(y->isOneInt());
-  TORCH_CHECK(!z->isOneInt());
+  NVF_CHECK(x->isOneInt());
+  NVF_CHECK(y->isOneInt());
+  NVF_CHECK(!z->isOneInt());
 }
 
 // This is to verify no cycle of computeAt is created. A more complex
@@ -250,12 +251,12 @@ TEST_F(NVFuserTest, FusionComputeAtNonterminatingOutput_CUDA) {
   fusion.addInput(tv0);
 
   // Common intermediate tensor
-  auto tv1 = add(tv0, IrBuilder::create<Double>(1));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
   // tv1 -> tv2
-  auto tv2 = add(tv1, IrBuilder::create<Double>(2));
+  auto tv2 = add(tv1, IrBuilder::create<Val>(2.0));
   // tv1 -> tv3 -> tv4
-  auto tv3 = add(tv1, IrBuilder::create<Double>(3));
-  auto tv4 = add(tv3, IrBuilder::create<Double>(4));
+  auto tv3 = add(tv1, IrBuilder::create<Val>(3.0));
+  auto tv4 = add(tv3, IrBuilder::create<Val>(4.0));
 
   // NOTE: This should no longer occur as of PR #201.
   // The order of adding outputs matters. If tv3 is added before tv4,
@@ -269,8 +270,8 @@ TEST_F(NVFuserTest, FusionComputeAtNonterminatingOutput_CUDA) {
 
   tv0->computeAt(tv2, -1);
 
-  TORCH_CHECK(tv3->hasComputeAt());
-  TORCH_CHECK(!tv4->hasComputeAt());
+  NVF_CHECK(tv3->hasComputeAt());
+  NVF_CHECK(!tv4->hasComputeAt());
 
   const auto options =
       at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -298,10 +299,10 @@ TEST_F(NVFuserTest, FusionTraversalOrder1_CUDA) {
   TensorView* tv0 = makeSymbolicTensor(2);
   fusion.addInput(tv0);
 
-  TensorView* tv1 = add(tv0, IrBuilder::create<Double>(1));
-  TensorView* tv2 = add(tv0, IrBuilder::create<Double>(2));
-  TensorView* tv3 = add(tv1, IrBuilder::create<Double>(3));
-  TensorView* tv4 = add(tv1, IrBuilder::create<Double>(4));
+  TensorView* tv1 = add(tv0, IrBuilder::create<Val>(1.0));
+  TensorView* tv2 = add(tv0, IrBuilder::create<Val>(2.0));
+  TensorView* tv3 = add(tv1, IrBuilder::create<Val>(3.0));
+  TensorView* tv4 = add(tv1, IrBuilder::create<Val>(4.0));
 
   fusion.addOutput(tv2);
   fusion.addOutput(tv3);
@@ -339,11 +340,11 @@ TEST_F(NVFuserTest, FusionTraversalOrder2_CUDA) {
   TensorView* tv0 = makeSymbolicTensor(2);
   fusion.addInput(tv0);
 
-  TensorView* tv1 = add(tv0, IrBuilder::create<Double>(1));
-  TensorView* tv2 = add(tv1, IrBuilder::create<Double>(2));
+  TensorView* tv1 = add(tv0, IrBuilder::create<Val>(1.0));
+  TensorView* tv2 = add(tv1, IrBuilder::create<Val>(2.0));
 
-  TensorView* tv3 = add(tv0, IrBuilder::create<Double>(3));
-  TensorView* tv4 = add(tv3, IrBuilder::create<Double>(4));
+  TensorView* tv3 = add(tv0, IrBuilder::create<Val>(3.0));
+  TensorView* tv4 = add(tv3, IrBuilder::create<Val>(4.0));
 
   TensorView* tv5 = add(tv1, tv3);
 
@@ -386,11 +387,11 @@ TEST_F(NVFuserTest, FusionTraversalOrder3_CUDA) {
     TensorView* tv0 = makeSymbolicTensor(1);
     fusion.addInput(tv0);
 
-    TensorView* tv1 = add(tv0, IrBuilder::create<Double>(1));
-    TensorView* tv2 = add(tv1, IrBuilder::create<Double>(2));
+    TensorView* tv1 = add(tv0, IrBuilder::create<Val>(1.0));
+    TensorView* tv2 = add(tv1, IrBuilder::create<Val>(2.0));
 
-    TensorView* tv3 = add(tv0, IrBuilder::create<Double>(3));
-    TensorView* tv4 = add(tv3, IrBuilder::create<Double>(4));
+    TensorView* tv3 = add(tv0, IrBuilder::create<Val>(3.0));
+    TensorView* tv4 = add(tv3, IrBuilder::create<Val>(4.0));
 
     TensorView* tv5 = add(tv1, tv3);
 
@@ -446,18 +447,18 @@ TEST_F(NVFuserTest, FusionTraversalOrder4_CUDA) {
   // First tree
   TensorView* tv0 = makeSymbolicTensor(1);
   fusion.addInput(tv0);
-  TensorView* tv1 = add(tv0, IrBuilder::create<Double>(1));
-  TensorView* tv2 = add(tv1, IrBuilder::create<Double>(2));
-  TensorView* tv3 = add(tv1, IrBuilder::create<Double>(3));
+  TensorView* tv1 = add(tv0, IrBuilder::create<Val>(1.0));
+  TensorView* tv2 = add(tv1, IrBuilder::create<Val>(2.0));
+  TensorView* tv3 = add(tv1, IrBuilder::create<Val>(3.0));
   fusion.addOutput(tv2);
   fusion.addOutput(tv3);
 
   // Second tree
   TensorView* tv4 = makeSymbolicTensor(1);
   fusion.addInput(tv4);
-  TensorView* tv5 = add(tv4, IrBuilder::create<Double>(5));
-  TensorView* tv6 = add(tv5, IrBuilder::create<Double>(6));
-  TensorView* tv7 = add(tv5, IrBuilder::create<Double>(7));
+  TensorView* tv5 = add(tv4, IrBuilder::create<Val>(5.0));
+  TensorView* tv6 = add(tv5, IrBuilder::create<Val>(6.0));
+  TensorView* tv7 = add(tv5, IrBuilder::create<Val>(7.0));
   fusion.addOutput(tv6);
   fusion.addOutput(tv7);
 
@@ -497,10 +498,10 @@ TEST_F(NVFuserTest, FusionTraversalOrder5_CUDA) {
 
   TensorView* tv0 = makeSymbolicTensor(1);
   fusion.addInput(tv0);
-  TensorView* tv1 = add(tv0, IrBuilder::create<Double>(1));
-  TensorView* tv2 = add(tv1, IrBuilder::create<Double>(2));
-  TensorView* tv3 = add(tv0, IrBuilder::create<Double>(3));
-  TensorView* tv4 = add(tv3, IrBuilder::create<Double>(4));
+  TensorView* tv1 = add(tv0, IrBuilder::create<Val>(1.0));
+  TensorView* tv2 = add(tv1, IrBuilder::create<Val>(2.0));
+  TensorView* tv3 = add(tv0, IrBuilder::create<Val>(3.0));
+  TensorView* tv4 = add(tv3, IrBuilder::create<Val>(4.0));
   TensorView* tv5 = add(tv2, tv4);
 
   fusion.addOutput(tv1);
@@ -539,10 +540,10 @@ TEST_F(NVFuserTest, FusionTraversalOrder6_CUDA) {
 
   TensorView* tv0 = makeSymbolicTensor(1);
   fusion.addInput(tv0);
-  TensorView* tv1 = add(tv0, IrBuilder::create<Double>(1));
-  TensorView* tv2 = add(tv0, IrBuilder::create<Double>(2));
+  TensorView* tv1 = add(tv0, IrBuilder::create<Val>(1.0));
+  TensorView* tv2 = add(tv0, IrBuilder::create<Val>(2.0));
   TensorView* tv3 = add(tv1, tv2);
-  TensorView* tv4 = add(tv3, IrBuilder::create<Double>(4));
+  TensorView* tv4 = add(tv3, IrBuilder::create<Val>(4.0));
 
   fusion.addOutput(tv4);
 
@@ -579,10 +580,10 @@ TEST_F(NVFuserTest, FusionTraversalOrder7_CUDA) {
 
   TensorView* tv0 = makeSymbolicTensor(1);
   fusion.addInput(tv0);
-  TensorView* tv1 = add(tv0, IrBuilder::create<Double>(1));
-  TensorView* tv2 = add(tv1, IrBuilder::create<Double>(2));
-  TensorView* tv3 = add(tv0, IrBuilder::create<Double>(3));
-  TensorView* tv4 = add(tv3, IrBuilder::create<Double>(4));
+  TensorView* tv1 = add(tv0, IrBuilder::create<Val>(1.0));
+  TensorView* tv2 = add(tv1, IrBuilder::create<Val>(2.0));
+  TensorView* tv3 = add(tv0, IrBuilder::create<Val>(3.0));
+  TensorView* tv4 = add(tv3, IrBuilder::create<Val>(4.0));
   TensorView* tv5 = add(tv2, tv4);
 
   fusion.addOutput(tv5);
@@ -632,9 +633,9 @@ TEST_F(NVFuserTest, FusionThreadPredicate_CUDA) {
   fusion.addInput(tv0);
 
   TensorView* tv1 =
-      reductionOp(BinaryOpType::Add, {1}, IrBuilder::create<Double>(0), tv0);
+      reductionOp(BinaryOpType::Add, {1}, IrBuilder::create<Val>(0.0), tv0);
   TensorView* tv2 = unaryOp(UnaryOpType::Neg, tv1);
-  TensorView* tv3 = add(tv0, IrBuilder::create<Double>(2));
+  TensorView* tv3 = add(tv0, IrBuilder::create<Val>(2.0));
 
   fusion.addOutput(tv3);
   fusion.addOutput(tv2);
@@ -771,7 +772,7 @@ TEST_F(NVFuserTest, FusionReductionHalf_CUDA) {
   fusion.addInput(tv0);
 
   auto tv1 = castOp(DataType::Float, tv0);
-  auto tv2 = add(tv1, IrBuilder::create<Double>(1.0));
+  auto tv2 = add(tv1, IrBuilder::create<Val>(1.0));
   auto tv3 = sum(tv2, {2});
   auto tv4 = castOp(DataType::Half, tv3);
 
@@ -782,10 +783,10 @@ TEST_F(NVFuserTest, FusionReductionHalf_CUDA) {
   at::Tensor aten_input = at::randn({8, 8, 16}, options);
 
   auto reduction_params = getReductionHeuristics(&fusion, {aten_input});
-  TORCH_CHECK(reduction_params, "Reduction schedule was not generated!");
+  NVF_CHECK(reduction_params, "Reduction schedule was not generated!");
   scheduleReduction(&fusion, *reduction_params);
 
-  TORCH_CHECK(reduction_params, "Reduction schedule was not generated!");
+  NVF_CHECK(reduction_params, "Reduction schedule was not generated!");
 
   auto lparams = reduction_params->lparams;
 
@@ -845,7 +846,7 @@ TEST_F(NVFuserTest, FusionReduceImplicitBroadcast_CUDA) {
   fusion.addInput(tv0);
 
   TensorView* tv1 = reductionOp(
-      BinaryOpType::Add, {red_dim, 2}, IrBuilder::create<Double>(0), tv0);
+      BinaryOpType::Add, {red_dim, 2}, IrBuilder::create<Val>(0.0), tv0);
   fusion.addOutput(tv1);
 
   const auto options =
@@ -854,7 +855,7 @@ TEST_F(NVFuserTest, FusionReduceImplicitBroadcast_CUDA) {
 
   // Apply reduction heuristic
   auto reduction_params = getReductionHeuristics(&fusion, {aten_input});
-  TORCH_CHECK(reduction_params, "Reduction schedule was not generated!");
+  NVF_CHECK(reduction_params, "Reduction schedule was not generated!");
   scheduleReduction(&fusion, *reduction_params);
   auto lparams = reduction_params->lparams;
 
@@ -888,10 +889,10 @@ TEST_F(NVFuserTest, FusionReduceImplicitBroadcast2_CUDA) {
   fusion.addInput(tv0);
 
   TensorView* tv1 =
-      reductionOp(BinaryOpType::Add, {2}, IrBuilder::create<Double>(0), tv0);
+      reductionOp(BinaryOpType::Add, {2}, IrBuilder::create<Val>(0.0), tv0);
 
   TensorView* tv2 = reductionOp(
-      BinaryOpType::Add, {red_dim}, IrBuilder::create<Double>(0), tv1);
+      BinaryOpType::Add, {red_dim}, IrBuilder::create<Val>(0.0), tv1);
   fusion.addOutput(tv2);
 
   const auto options =
@@ -900,7 +901,7 @@ TEST_F(NVFuserTest, FusionReduceImplicitBroadcast2_CUDA) {
 
   // Apply reduction heuristic
   auto reduction_params = getReductionHeuristics(&fusion, {aten_input});
-  TORCH_CHECK(reduction_params, "Reduction schedule was not generated!");
+  NVF_CHECK(reduction_params, "Reduction schedule was not generated!");
 
   scheduleReduction(&fusion, *reduction_params);
   auto lparams = reduction_params->lparams;
@@ -944,7 +945,7 @@ TEST_F(NVFuserTest, FusionReduceImplicitBroadcast3_CUDA) {
 
   // Apply reduction heuristic
   auto reduction_params = getReductionHeuristics(&fusion, {aten_input});
-  TORCH_CHECK(reduction_params, "Reduction schedule was not generated!");
+  NVF_CHECK(reduction_params, "Reduction schedule was not generated!");
   scheduleReduction(&fusion, *reduction_params);
   auto lparams = reduction_params->lparams;
 
@@ -973,10 +974,10 @@ TEST_F(NVFuserTest, FusionTrivialReduction_CUDA) {
   TensorView* tv0 = makeConcreteTensor({10, 20, 1});
   fusion.addInput(tv0);
   TensorView* tv1 =
-      reductionOp(BinaryOpType::Add, {2}, IrBuilder::create<Double>(0), tv0);
+      reductionOp(BinaryOpType::Add, {2}, IrBuilder::create<Val>(0.0), tv0);
   fusion.addOutput(tv1);
 
-  TORCH_CHECK(
+  NVF_CHECK(
       ir_utils::getReductionOps(&fusion).empty(),
       "Trivial reduction not converted to squeeze.");
 
@@ -1072,30 +1073,30 @@ TEST_F(NVFuserTest, FusionInputsIdLookup_CUDA) {
   // testing basic function, same encoding for identical inputs
   auto id_0 = inputs_id_lookup.lookupId({t0, t1, 5.0});
   auto id_0_lookup = inputs_id_lookup.lookupId({t0, t1, 2.5});
-  TORCH_CHECK(id_0.id == id_0_lookup.id);
-  TORCH_CHECK(inputs_id_lookup.size() == 1);
-  TORCH_CHECK(id_0.eviction == false);
+  NVF_CHECK(id_0.id == id_0_lookup.id);
+  NVF_CHECK(inputs_id_lookup.size() == 1);
+  NVF_CHECK(id_0.eviction == false);
 
   // new input (even tho same shape, but we have different signature because of
   // missing scalar input
   auto id_1 = inputs_id_lookup.lookupId({t0, t1});
   auto id_1_lookup = inputs_id_lookup.lookupId({t0, t1});
-  TORCH_CHECK(id_1.id == id_1_lookup.id);
-  TORCH_CHECK(inputs_id_lookup.size() == 2);
-  TORCH_CHECK(id_1.eviction == false);
+  NVF_CHECK(id_1.id == id_1_lookup.id);
+  NVF_CHECK(inputs_id_lookup.size() == 2);
+  NVF_CHECK(id_1.eviction == false);
 
   // eviction should happen at this point
   auto id_2 = inputs_id_lookup.lookupId({t2, t1});
-  TORCH_CHECK(id_2.id != id_0.id);
-  TORCH_CHECK(id_2.id != id_1.id);
-  TORCH_CHECK(inputs_id_lookup.size() == 2);
-  TORCH_CHECK(id_2.eviction == true);
-  TORCH_CHECK(id_2.evict_id == id_0.id);
+  NVF_CHECK(id_2.id != id_0.id);
+  NVF_CHECK(id_2.id != id_1.id);
+  NVF_CHECK(inputs_id_lookup.size() == 2);
+  NVF_CHECK(id_2.eviction == true);
+  NVF_CHECK(id_2.evict_id == id_0.id);
 
   // look at input 1 again
   auto id_1_relook = inputs_id_lookup.lookupId({t0, t1});
-  TORCH_CHECK(id_1_relook.id == id_1.id);
-  TORCH_CHECK(id_1_relook.eviction == false);
+  NVF_CHECK(id_1_relook.id == id_1.id);
+  NVF_CHECK(id_1_relook.eviction == false);
 
   // test scalars don't affect ID unless we ask them to
   auto id_3 = inputs_id_lookup.lookupId(
@@ -1106,8 +1107,8 @@ TEST_F(NVFuserTest, FusionInputsIdLookup_CUDA) {
       {t0, t1, 5.0, 1, true}, /*scalar_inputs_to_record*/ {});
   auto id_3_lookup_norecord = inputs_id_lookup.lookupId(
       {t0, t1, 2.5, 2, false}, /*scalar_inputs_to_record*/ {});
-  TORCH_CHECK(id_3.id != id_3_lookup.id);
-  TORCH_CHECK(id_3_norecord.id == id_3_lookup_norecord.id);
+  NVF_CHECK(id_3.id != id_3_lookup.id);
+  NVF_CHECK(id_3_norecord.id == id_3_lookup_norecord.id);
 }
 
 TEST_F(NVFuserTest, FusionGroupGuardSimpleTensor_CUDA) {
@@ -1119,32 +1120,32 @@ TEST_F(NVFuserTest, FusionGroupGuardSimpleTensor_CUDA) {
 
   // pass with identical shape
   auto t0 = at::randn({16, 8, 8}, options);
-  TORCH_CHECK(complyWith(t0, tensor_type));
+  NVF_CHECK(complyWith(t0, tensor_type));
 
   // pass with dynamic shape
   auto t1 = at::randn({16, 16, 8}, options);
-  TORCH_CHECK(complyWith(t1, tensor_type));
+  NVF_CHECK(complyWith(t1, tensor_type));
 
   // broadcasting semantic change failure
   auto t2 = at::randn({16, 1, 8}, options);
-  TORCH_CHECK(!complyWith(t2, tensor_type));
+  NVF_CHECK(!complyWith(t2, tensor_type));
 
   // contiguity failure via slicing
   auto t3 = t0.slice(1, 0, 8, 2);
-  TORCH_CHECK(!complyWith(t3, tensor_type));
+  NVF_CHECK(!complyWith(t3, tensor_type));
 
   // contiguity failure via slicing
   auto t4 = t0.slice(2, 0, 8, 2);
-  TORCH_CHECK(!complyWith(t4, tensor_type));
+  NVF_CHECK(!complyWith(t4, tensor_type));
 
   // rank failure
   auto t5 = at::randn({16, 8, 8, 8}, options);
-  TORCH_CHECK(!complyWith(t5, tensor_type));
+  NVF_CHECK(!complyWith(t5, tensor_type));
 
   // contiguity on stride 1 dimension with implicit broadcasting
   auto t = at::randn({4}, options);
   auto t6 = t.unsqueeze(1).expand({4, 8});
-  TORCH_CHECK(complyWith(t6, at::TensorType::create(t6)));
+  NVF_CHECK(complyWith(t6, at::TensorType::create(t6)));
 }
 
 TEST_F(NVFuserTest, FusionGroupGuardBroadcastTensor_CUDA) {
@@ -1156,19 +1157,19 @@ TEST_F(NVFuserTest, FusionGroupGuardBroadcastTensor_CUDA) {
 
   // broadcasting semantic change
   auto t0 = at::randn({16, 8, 8}, options);
-  TORCH_CHECK(!complyWith(t0, tensor_type));
+  NVF_CHECK(!complyWith(t0, tensor_type));
 
   // dtype failure
   auto t1 = at::randn({16, 1, 8}, options.dtype(at::kHalf));
-  TORCH_CHECK(!complyWith(t1, tensor_type));
+  NVF_CHECK(!complyWith(t1, tensor_type));
 
   // dtype failure
   auto t2 = at::randn({16, 1, 8}, options);
-  TORCH_CHECK(complyWith(t2, tensor_type));
+  NVF_CHECK(complyWith(t2, tensor_type));
 
   // device inconsistency shouldn't fail
   auto t3 = at::randn({16, 1, 8}, options.device(at::kCPU, 0));
-  TORCH_CHECK(complyWith(t3, tensor_type));
+  NVF_CHECK(complyWith(t3, tensor_type));
 }
 
 TEST_F(NVFuserTest, FusionGroupGuardPermutedTensor_CUDA) {
@@ -1180,11 +1181,11 @@ TEST_F(NVFuserTest, FusionGroupGuardPermutedTensor_CUDA) {
 
   // failing permutation
   auto t0 = at::randn({16, 8, 8}, options);
-  TORCH_CHECK(!complyWith(t0, tensor_type));
+  NVF_CHECK(!complyWith(t0, tensor_type));
 
   // passing with dynamic shape
   auto t1 = t0.permute({0, 2, 1});
-  TORCH_CHECK(complyWith(t1, tensor_type));
+  NVF_CHECK(complyWith(t1, tensor_type));
 }
 
 TEST_F(NVFuserTest, FusionGroupGuardRelaxedCheck_CUDA) {
@@ -1196,11 +1197,11 @@ TEST_F(NVFuserTest, FusionGroupGuardRelaxedCheck_CUDA) {
 
   // contiguity check passes although it differs
   auto t0 = at::randn({16, 16, 8}, options);
-  TORCH_CHECK(complyWith(t0, tensor_type));
+  NVF_CHECK(complyWith(t0, tensor_type));
 
   // passing with dynamic shape
   auto t1 = t0.slice(1, 0, 16, 2);
-  TORCH_CHECK(complyWith(t1, tensor_type));
+  NVF_CHECK(complyWith(t1, tensor_type));
 }
 
 TEST_F(NVFuserTest, FusionDisjointSet_CUDA) {
@@ -1218,7 +1219,7 @@ TEST_F(NVFuserTest, FusionDisjointSet_CUDA) {
   // Initially, nothing should be considered equivalent
   for (auto i : group_all) {
     for (auto j : group_all) {
-      TORCH_CHECK(!set.permissiveAreMapped(i, j));
+      NVF_CHECK(!set.permissiveAreMapped(i, j));
     }
   }
 
@@ -1226,24 +1227,24 @@ TEST_F(NVFuserTest, FusionDisjointSet_CUDA) {
   for (auto i : group_x) {
     for (auto j : group_x) {
       set.mapEntries(i, j);
-      TORCH_CHECK(set.mappingExists(i));
-      TORCH_CHECK(set.mappingExists(j));
+      NVF_CHECK(set.mappingExists(i));
+      NVF_CHECK(set.mappingExists(j));
     }
   }
 
   // All values in group_x shoudl be equivalent with each other
   for (auto i : group_x) {
     for (auto j : group_x) {
-      TORCH_CHECK(set.permissiveAreMapped(i, j));
+      NVF_CHECK(set.permissiveAreMapped(i, j));
     }
   }
   // But nothing else should be equivalent
   for (auto i : group_all) {
     for (auto j : group_y) {
-      TORCH_CHECK(!set.permissiveAreMapped(i, j));
+      NVF_CHECK(!set.permissiveAreMapped(i, j));
     }
     for (auto j : group_z) {
-      TORCH_CHECK(!set.permissiveAreMapped(i, j));
+      NVF_CHECK(!set.permissiveAreMapped(i, j));
     }
   }
 
@@ -1251,27 +1252,27 @@ TEST_F(NVFuserTest, FusionDisjointSet_CUDA) {
   for (auto i : group_y) {
     for (auto j : group_y) {
       set.mapEntries(i, j);
-      TORCH_CHECK(set.mappingExists(i));
-      TORCH_CHECK(set.mappingExists(j));
+      NVF_CHECK(set.mappingExists(i));
+      NVF_CHECK(set.mappingExists(j));
     }
   }
 
   // group_x should be still equivalent
   for (auto i : group_x) {
     for (auto j : group_x) {
-      TORCH_CHECK(set.permissiveAreMapped(i, j));
+      NVF_CHECK(set.permissiveAreMapped(i, j));
     }
   }
   // group_y should be now equivalent
   for (auto i : group_y) {
     for (auto j : group_y) {
-      TORCH_CHECK(set.permissiveAreMapped(i, j));
+      NVF_CHECK(set.permissiveAreMapped(i, j));
     }
   }
   // But group_z should not be equivalent with anything yet
   for (auto i : group_all) {
     for (auto j : group_z) {
-      TORCH_CHECK(!set.permissiveAreMapped(i, j));
+      NVF_CHECK(!set.permissiveAreMapped(i, j));
     }
   }
 
@@ -1279,8 +1280,8 @@ TEST_F(NVFuserTest, FusionDisjointSet_CUDA) {
   for (auto i : group_z) {
     for (auto j : group_z) {
       set.mapEntries(i, j);
-      TORCH_CHECK(set.mappingExists(i));
-      TORCH_CHECK(set.mappingExists(j));
+      NVF_CHECK(set.mappingExists(i));
+      NVF_CHECK(set.mappingExists(j));
     }
   }
 
@@ -1290,7 +1291,7 @@ TEST_F(NVFuserTest, FusionDisjointSet_CUDA) {
     for (const auto gj : c10::irange(groups.size())) {
       for (auto i : groups[gi]) {
         for (auto j : groups[gj]) {
-          TORCH_CHECK(
+          NVF_CHECK(
               (gi == gj && set.permissiveAreMapped(i, j)) ||
               (gi != gj && !set.permissiveAreMapped(i, j)));
         }
@@ -1302,15 +1303,15 @@ TEST_F(NVFuserTest, FusionDisjointSet_CUDA) {
   std::sort(all_elements.begin(), all_elements.end());
   std::vector<int> group_all_vec(group_all.begin(), group_all.end());
   std::sort(group_all_vec.begin(), group_all_vec.end());
-  TORCH_CHECK(all_elements == group_all_vec);
+  NVF_CHECK(all_elements == group_all_vec);
 
   set.clear();
-  TORCH_CHECK(set.getAllElements().vector().size() == 0);
+  NVF_CHECK(set.getAllElements().vector().size() == 0);
 
   // All cleared. Nothing should be considered equivalent.
   for (auto i : group_all) {
     for (auto j : group_all) {
-      TORCH_CHECK(!set.permissiveAreMapped(i, j));
+      NVF_CHECK(!set.permissiveAreMapped(i, j));
     }
   }
 }
@@ -1356,14 +1357,14 @@ TEST_F(NVFuserTest, FusionBiasGeluFwd_CUDA) {
   auto t3 = castOp(DataType::Float, t2);
   auto t4 = broadcast(t1, {true, true, false});
   auto t5 = add(t4, t3);
-  auto t6 = mul(t5, IrBuilder::create<Double>(0.5));
-  auto t7 = mul(t5, IrBuilder::create<Double>(k_079));
-  auto t8 = mul(t5, IrBuilder::create<Double>(k_004));
+  auto t6 = mul(t5, IrBuilder::create<Val>(0.5));
+  auto t7 = mul(t5, IrBuilder::create<Val>(k_079));
+  auto t8 = mul(t5, IrBuilder::create<Val>(k_004));
   auto t9 = mul(t8, t5);
-  auto t10 = add(t9, IrBuilder::create<Int>(1));
+  auto t10 = add(t9, IrBuilder::create<Val>(1L));
   auto t11 = mul(t7, t10);
   auto t12 = unaryOp(UnaryOpType::Tanh, t11);
-  auto t13 = add(t12, IrBuilder::create<Double>(1));
+  auto t13 = add(t12, IrBuilder::create<Val>(1L));
   auto t14 = mul(t6, t13);
   auto t15 = castOp(DataType::Half, t14);
   fusion.addOutput(t15);
@@ -1404,7 +1405,8 @@ TEST_F(NVFuserTest, FusionBiasGeluBwd_CUDA) {
   FusionGuard fg(&fusion);
 
   // disable fma to avoid numerical issue for reference implementation
-  ThreadLocalFmaDisableOverwrite over_write;
+  DisableOptionsGuard opt_guard;
+  opt_guard.getCurOptions().set(DisableOption::Fma);
 
   const float k_079 = 0.79788456;
   const float k_004 = 0.044715;
@@ -1424,23 +1426,23 @@ TEST_F(NVFuserTest, FusionBiasGeluBwd_CUDA) {
   auto t5 = castOp(DataType::Float, t4);
   auto t6 = broadcast(t3, {true, true, false});
   auto t7 = add(t6, t5);
-  auto t8 = mul(t7, IrBuilder::create<Double>(k_079));
-  auto t9 = mul(t7, IrBuilder::create<Double>(k_004));
+  auto t8 = mul(t7, IrBuilder::create<Val>(k_079));
+  auto t9 = mul(t7, IrBuilder::create<Val>(k_004));
   auto t10 = mul(t9, t7);
-  auto t11 = add(t10, IrBuilder::create<Int>(1));
+  auto t11 = add(t10, IrBuilder::create<Val>(1L));
   auto t12 = mul(t8, t11);
   auto t13 = unaryOp(UnaryOpType::Tanh, t12);
-  auto t14 = mul(t7, IrBuilder::create<Double>(0.5));
+  auto t14 = mul(t7, IrBuilder::create<Val>(0.5));
   auto t15 = mul(t13, t13);
   auto t16 = unaryOp(UnaryOpType::Neg, t15);
-  auto t17 = add(t16, IrBuilder::create<Int>(1));
-  auto t18 = mul(t7, IrBuilder::create<Double>(k_010));
+  auto t17 = add(t16, IrBuilder::create<Val>(1L));
+  auto t18 = mul(t7, IrBuilder::create<Val>(k_010));
   auto t19 = mul(t18, t7);
-  auto t20 = add(t19, IrBuilder::create<Double>(k_079));
+  auto t20 = add(t19, IrBuilder::create<Val>(k_079));
   auto t21 = mul(t17, t20);
   auto t22 = mul(t14, t21);
-  auto t23 = add(t13, IrBuilder::create<Int>(1));
-  auto t24 = mul(t23, IrBuilder::create<Double>(0.5));
+  auto t23 = add(t13, IrBuilder::create<Val>(1L));
+  auto t24 = mul(t23, IrBuilder::create<Val>(0.5));
   auto t25 = add(t22, t24);
   auto t26 = mul(t25, t1);
   // Save float output for validation
@@ -1498,14 +1500,14 @@ TEST_F(NVFuserTest, FusionIssue459_CUDA) {
   auto tv1 = makeSymbolicTensor(2);
   fusion.addInput(tv1);
 
-  auto tv2 = add(tv0, IrBuilder::create<Double>(1));
+  auto tv2 = add(tv0, IrBuilder::create<Val>(1.0));
   auto tv3 = broadcast(tv2, {true, false});
   auto tv4 = add(tv1, tv3);
 
   // Create two outputs from the final arithmetic result
-  auto tv5 = add(tv4, IrBuilder::create<Double>(1));
+  auto tv5 = add(tv4, IrBuilder::create<Val>(1.0));
   fusion.addOutput(tv5);
-  auto tv6 = add(tv4, IrBuilder::create<Double>(1));
+  auto tv6 = add(tv4, IrBuilder::create<Val>(1.0));
   fusion.addOutput(tv6);
 
   // Scheduling
@@ -1549,9 +1551,9 @@ TEST_F(NVFuserTest, FusionSmemIndexingSimple_CUDA) {
 
   auto tv0 = makeSymbolicTensor(2);
   fusion.addInput(tv0);
-  auto tv1 = add(tv0, IrBuilder::create<Double>(1));
-  auto tv2 = add(tv1, IrBuilder::create<Double>(1));
-  auto tv3 = add(tv2, IrBuilder::create<Double>(1));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
+  auto tv2 = add(tv1, IrBuilder::create<Val>(1.0));
+  auto tv3 = add(tv2, IrBuilder::create<Val>(1.0));
   fusion.addOutput(tv3);
 
   tv3->axis(0)->parallelize(ParallelType::BIDx);
@@ -1580,9 +1582,9 @@ TEST_F(NVFuserTest, FusionSmemIndexing_CUDA) {
   FusionGuard fg(&fusion);
 
   // Symbolic integers we will use for runtime tiling
-  Int* symbolic_m_tile_dim = IrBuilder::create<Int>();
-  Int* symbolic_split_k_tile_dim = IrBuilder::create<Int>();
-  Int* symbolic_block_k_tile_dim = IrBuilder::create<Int>();
+  Val* symbolic_m_tile_dim = IrBuilder::create<Val>(DataType::Int);
+  Val* symbolic_split_k_tile_dim = IrBuilder::create<Val>(DataType::Int);
+  Val* symbolic_block_k_tile_dim = IrBuilder::create<Val>(DataType::Int);
   // Compile-time integer for tiling
   int n_smem_tile = 32;
 
@@ -1694,7 +1696,7 @@ TEST_F(NVFuserTest, FusionCacheBeforeReduction_CUDA) {
 
   auto tv0 = makeSymbolicTensor(2);
   fusion.addInput(tv0);
-  auto tv1 = add(tv0, IrBuilder::create<Double>(1));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
   auto tv2 = sum(tv1, {1});
   fusion.addOutput(tv2);
 
@@ -1730,9 +1732,9 @@ TEST_F(NVFuserTest, FusionCacheBeforeReduction2_CUDA) {
 
   auto tv0 = makeSymbolicTensor(3);
   fusion.addInput(tv0);
-  auto tv1 = add(tv0, IrBuilder::create<Double>(1));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
   auto tv2 = sum(tv1, {1});
-  auto tv3 = add(tv2, IrBuilder::create<Double>(1));
+  auto tv3 = add(tv2, IrBuilder::create<Val>(1.0));
   fusion.addOutput(tv2);
   fusion.addOutput(tv3);
 
@@ -1770,9 +1772,9 @@ TEST_F(NVFuserTest, FusionIssue367_CUDA) {
   FusionGuard fg(&fusion);
 
   // Symbolic integers we will use for runtime tiling
-  Int* symbolic_m_tile_dim = IrBuilder::create<Int>();
-  Int* symbolic_split_k_tile_dim = IrBuilder::create<Int>();
-  Int* symbolic_block_k_tile_dim = IrBuilder::create<Int>();
+  Val* symbolic_m_tile_dim = IrBuilder::create<Val>(DataType::Int);
+  Val* symbolic_split_k_tile_dim = IrBuilder::create<Val>(DataType::Int);
+  Val* symbolic_block_k_tile_dim = IrBuilder::create<Val>(DataType::Int);
   // Compile-time integer for tiling
   int n_smem_tile = 32;
 
@@ -1961,7 +1963,7 @@ TEST_F(NVFuserTest, FusionIssue484_CUDA) {
   auto tv0 = makeSymbolicTensor(2);
   fusion.addInput(tv0);
   auto tv1 = sum(tv0, {1});
-  auto tv2 = add(tv1, IrBuilder::create<Double>(0));
+  auto tv2 = add(tv1, IrBuilder::create<Val>(0.0));
   fusion.addOutput(tv2);
 
   tv1->setMemoryType(MemoryType::Global);
@@ -1988,7 +1990,7 @@ TEST_F(NVFuserTest, FusionIssue329_CUDA) {
 
   auto tv0 = makeSymbolicTensor(2);
   fusion.addInput(tv0);
-  auto tv1 = add(tv0, IrBuilder::create<Double>(1));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
   auto tv2 = sum(tv1, {1});
   fusion.addOutput(tv2);
   auto tv3 = sum(tv1, {1});
@@ -2019,7 +2021,7 @@ TEST_F(NVFuserTest, FusionIssue382_CUDA) {
   auto tv0 = makeSymbolicTensor(2);
   fusion.addInput(tv0);
 
-  auto tv1 = add(tv0, IrBuilder::create<Double>(1));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
   auto tv2 = broadcast(tv1, {false, false, true});
   auto tv3 = makeSymbolicTensor(3);
   fusion.addInput(tv3);
@@ -2061,8 +2063,8 @@ TEST_F(NVFuserTest, FusionIssue507_CUDA) {
 
   auto tv0 = makeSymbolicTensor(2);
   fusion.addInput(tv0);
-  auto tv1 = add(tv0, IrBuilder::create<Double>(1));
-  auto tv2 = add(tv1, IrBuilder::create<Double>(1));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
+  auto tv2 = add(tv1, IrBuilder::create<Val>(1.0));
   fusion.addOutput(tv2);
 
   tv1->setMemoryType(MemoryType::Shared);
@@ -2093,8 +2095,8 @@ TEST_F(NVFuserTest, FusionIssue532_CUDA) {
 
   // Algorithm
   TensorView* tv0 = makeSymbolicTensor(1);
-  TensorView* tv1 = add(tv0, IrBuilder::create<Double>(1));
-  TensorView* tv2 = add(tv1, IrBuilder::create<Double>(1));
+  TensorView* tv1 = add(tv0, IrBuilder::create<Val>(1.0));
+  TensorView* tv2 = add(tv1, IrBuilder::create<Val>(1.0));
   fusion.addInput(tv0);
   fusion.addOutput(tv2);
 
@@ -2134,8 +2136,8 @@ TEST_F(NVFuserTest, FusionLoopUnswitch_CUDA) {
 
   // Algorithm
   TensorView* tv0 = makeSymbolicTensor(1);
-  TensorView* tv1 = add(tv0, IrBuilder::create<Double>(1));
-  TensorView* tv2 = add(tv1, IrBuilder::create<Double>(1));
+  TensorView* tv1 = add(tv0, IrBuilder::create<Val>(1.0));
+  TensorView* tv2 = add(tv1, IrBuilder::create<Val>(1.0));
   fusion.addInput(tv0);
   fusion.addOutput(tv2);
 
@@ -2170,7 +2172,7 @@ TEST_F(NVFuserTest, FusionIssue549_CUDA) {
   fusion.addInput(tv0);
   fusion.addInput(tv1);
 
-  auto tv2 = add(tv0, IrBuilder::create<Double>(1));
+  auto tv2 = add(tv0, IrBuilder::create<Val>(1.0));
 
   TensorView* tv3 = broadcast(tv2, {false, false, true});
   // tv3[I0, I1, B] = tv0[I0, I1]
@@ -2254,8 +2256,8 @@ TEST_F(NVFuserTest, FusionSimpleCompileRtc_CUDA) {
   std::string kernel = R"(
 __global__ void kernel1(Tensor<float, 1> T0, Tensor<float, 1> T1) {
   if(threadIdx.x==0){
-    for(size_t ki28 = 0; ki28 < T0.size[0]; ++ki28) {
-      T1[ki28*T1.stride[0]] = T0[ki28*T0.stride[0]]*2;
+    for(size_t ki28 = 0; ki28 < T0.logical_size[0]; ++ki28) {
+      T1[ki28*T1.alloc_stride[0]] = T0[ki28*T0.alloc_stride[0]]*2;
     }
   }
 }
@@ -2278,7 +2280,7 @@ __global__ void kernel1(Tensor<float, 1> T0, Tensor<float, 1> T1) {
   fe.runRtc(lp, {in0, out0}, PrimDataType::Int);
 
   auto out_ref = in0 * 2;
-  TORCH_CHECK(out_ref.allclose(out0));
+  NVF_CHECK(out_ref.allclose(out0));
 }
 
 TEST_F(NVFuserTest, FusionSerialWelford_CUDA) {
@@ -2291,27 +2293,27 @@ __global__ void kernel1(
     Tensor<float,1> out_var,
     Tensor<float,1> out_avg
 ){
-    for(int i0=0;i0<inp.size[0];i0++){
+    for(int i0=0;i0<inp.logical_size[0];i0++){
         float tmp_M2=0;
         float tmp_avg=0;
         long tmp_N=0;
-        for(int i1=0;i1<inp.size[1];i1++){
-            for(int i2=0;i2<inp.size[2];i2++){
+        for(int i1=0;i1<inp.logical_size[1];i1++){
+            for(int i2=0;i2<inp.logical_size[2];i2++){
                 welfordCombine(
                     tmp_avg,
                     tmp_M2,
                     tmp_N,
-                    inp[i0*inp.stride[0]+
-                        i1*inp.stride[1]+
-                        i2*inp.stride[2]],
+                    inp[i0*inp.alloc_stride[0]+
+                        i1*inp.alloc_stride[1]+
+                        i2*inp.alloc_stride[2]],
                     0.f,
                     (long)1
                 );
             }
         }
-        out_var[i0*out_var.stride[0]]=
+        out_var[i0*out_var.alloc_stride[0]]=
             tmp_M2/(tmp_N);
-        out_avg[i0*out_avg.stride[0]]=
+        out_avg[i0*out_avg.alloc_stride[0]]=
             tmp_avg;
     }
 }
@@ -2334,8 +2336,8 @@ __global__ void kernel1(
   auto out_avg = at::empty({x}, options);
   fe.runRtc(lp, {in0, out_var, out_avg}, PrimDataType::Int);
 
-  TORCH_CHECK(in0.var({1, 2}, false).allclose(out_var));
-  TORCH_CHECK(in0.mean({1, 2}).allclose(out_avg, /*rtol*/ 1e-5, /*atol*/ 1e-6));
+  NVF_CHECK(in0.var({1, 2}, false).allclose(out_var));
+  NVF_CHECK(in0.mean({1, 2}).allclose(out_avg, /*rtol*/ 1e-5, /*atol*/ 1e-6));
 }
 
 TEST_F(NVFuserTest, FusionBlockWelford_CUDA) {
@@ -2356,8 +2358,8 @@ __global__ void kernel1(
     __shared__ float mem_avg[512];
     __shared__ float mem_M2[512];
     __shared__ long mem_N[512];
-    float in=inp[threadIdx.x*inp.stride[0]+
-                        threadIdx.y*inp.stride[1]];
+    float in=inp[threadIdx.x*inp.alloc_stride[0]+
+                        threadIdx.y*inp.alloc_stride[1]];
     float tmp_avg=0;
     float tmp_M2=0;
     long tmp_N=0;
@@ -2371,20 +2373,20 @@ __global__ void kernel1(
         (float*)mem_avg,
         (float*)mem_M2,
         (long*)mem_N,
-        (bool)(threadIdx.x<inp.size[0]),
+        (bool)(threadIdx.x<inp.logical_size[0]),
         0.f);
     __syncthreads();
-    if(threadIdx.x<out_var.size[0] && threadIdx.y==0){
+    if(threadIdx.x<out_var.logical_size[0] && threadIdx.y==0){
         welfordCombine(
                     tmp_avg,
                     tmp_M2,
                     tmp_N,
-                    init_avg[threadIdx.x*init_avg.stride[0]],
-                    init_var[threadIdx.x*init_var.stride[0]]*init_N[0],
+                    init_avg[threadIdx.x*init_avg.alloc_stride[0]],
+                    init_var[threadIdx.x*init_var.alloc_stride[0]]*init_N[0],
                     init_N[0]
                 );
-        out_avg[threadIdx.x*out_avg.stride[0]]=tmp_avg;
-        out_var[threadIdx.x*out_var.stride[0]]=tmp_M2/(tmp_N);
+        out_avg[threadIdx.x*out_avg.alloc_stride[0]]=tmp_avg;
+        out_var[threadIdx.x*out_var.alloc_stride[0]]=tmp_M2/(tmp_N);
     }
 }
     )";
@@ -2422,8 +2424,8 @@ __global__ void kernel1(
 
   // compare with reference output
   auto cat_tensor = at::cat({init_in, in0}, 1);
-  TORCH_CHECK(cat_tensor.var({1}, false).allclose(out_var));
-  TORCH_CHECK(
+  NVF_CHECK(cat_tensor.var({1}, false).allclose(out_var));
+  NVF_CHECK(
       cat_tensor.mean({1}).allclose(out_avg, /*rtol*/ 1e-5, /*atol*/ 1e-6));
 }
 
@@ -2443,9 +2445,9 @@ __global__ void kernel1(
     __shared__ float mem_avg[512];
     __shared__ float mem_M2[512];
     __shared__ long mem_N[512];
-    float in=inp[threadIdx.x*inp.stride[0]+
-                        threadIdx.y*inp.stride[1]+
-                        threadIdx.z*inp.stride[2]];
+    float in=inp[threadIdx.x*inp.alloc_stride[0]+
+                        threadIdx.y*inp.alloc_stride[1]+
+                        threadIdx.z*inp.alloc_stride[2]];
     float tmp_avg=0;
     float tmp_M2=0;
     long tmp_N=0;
@@ -2460,12 +2462,12 @@ __global__ void kernel1(
         (float*)mem_avg,
         (float*)mem_M2,
         (long*)mem_N,
-        (bool)(threadIdx.x<inp.size[0]),
+        (bool)(threadIdx.x<inp.logical_size[0]),
         0.f);
     __syncthreads();
-    if(threadIdx.x<out_var.size[0] && threadIdx.y==0 && threadIdx.z==0){
-        out_avg[threadIdx.x*out_var.stride[0]]=tmp_avg;
-        out_var[threadIdx.x*out_var.stride[0]]=tmp_M2/(tmp_N);
+    if(threadIdx.x<out_var.logical_size[0] && threadIdx.y==0 && threadIdx.z==0){
+        out_avg[threadIdx.x*out_var.alloc_stride[0]]=tmp_avg;
+        out_var[threadIdx.x*out_var.alloc_stride[0]]=tmp_M2/(tmp_N);
     }
 }
     )";
@@ -2487,8 +2489,8 @@ __global__ void kernel1(
   auto out_avg = at::empty({x}, options);
   fe.runRtc(lp, {in0, out_avg, out_var}, PrimDataType::Int);
 
-  TORCH_CHECK(in0.var({1, 2}, false).allclose(out_var));
-  TORCH_CHECK(in0.mean({1, 2}).allclose(out_avg, /*rtol*/ 1e-5, /*atol*/ 1e-6));
+  NVF_CHECK(in0.var({1, 2}, false).allclose(out_var));
+  NVF_CHECK(in0.mean({1, 2}).allclose(out_avg, /*rtol*/ 1e-5, /*atol*/ 1e-6));
 }
 
 TEST_F(NVFuserTest, FusionGridWelfordNoInit_CUDA) {
@@ -2511,9 +2513,9 @@ __global__ void kernel1(
     float tmp_avg=0;
     float tmp_M2=0;
     long tmp_N=0;
-    float in = inp[ blockIdx.x  * inp.stride[0]+
-                    blockIdx.y  * inp.stride[1]+
-                    threadIdx.x * inp.stride[2]];
+    float in = inp[ blockIdx.x  * inp.alloc_stride[0]+
+                    blockIdx.y  * inp.alloc_stride[1]+
+                    threadIdx.x * inp.alloc_stride[2]];
     block_sync::init();
     welford::gridWelford<
         true,true,false,
@@ -2533,14 +2535,14 @@ __global__ void kernel1(
         (float*)shared_buf_avg,
         (float*)shared_buf_M2,
         (long*)shared_buf_N,
-        threadIdx.x<out_var.size[0],
-        threadIdx.x<out_var.size[0],
+        threadIdx.x<out_var.logical_size[0],
+        threadIdx.x<out_var.logical_size[0],
         0.f,
         0,
         1);
     if(blockIdx.x == gridDim.x - 1 && blockIdx.y == gridDim.y - 1){
-        out_avg[threadIdx.x*out_avg.stride[0]]=tmp_avg;
-        out_var[threadIdx.x*out_var.stride[0]]=tmp_M2/tmp_N;
+        out_avg[threadIdx.x*out_avg.alloc_stride[0]]=tmp_avg;
+        out_var[threadIdx.x*out_var.alloc_stride[0]]=tmp_M2/tmp_N;
     }
 }
     )";
@@ -2580,8 +2582,8 @@ __global__ void kernel1(
       PrimDataType::Int);
   std::vector<int64_t> dims{0, 1};
 
-  TORCH_CHECK(in0.mean(dims).allclose(out_avg, /*rtol*/ 1e-5, /*atol*/ 1e-6));
-  TORCH_CHECK(in0.var(dims, false).allclose(out_var));
+  NVF_CHECK(in0.mean(dims).allclose(out_avg, /*rtol*/ 1e-5, /*atol*/ 1e-6));
+  NVF_CHECK(in0.var(dims, false).allclose(out_var));
 }
 
 TEST_F(NVFuserTest, FusionWelfordOp_CUDA) {
@@ -2592,7 +2594,7 @@ TEST_F(NVFuserTest, FusionWelfordOp_CUDA) {
 
   auto tv0 = makeSymbolicTensor(2);
   fusion.addInput(tv0);
-  auto tv1 = mul(tv0, IrBuilder::create<Double>(1));
+  auto tv1 = mul(tv0, IrBuilder::create<Val>(1.0));
   auto tvs = Welford(tv1, {1});
   auto tv_avg = tvs.avg;
   auto tv_M2 = tvs.var_sum;
@@ -2635,7 +2637,7 @@ TEST_F(NVFuserTest, FusionBlockWelfordOp_CUDA) {
 
   auto tv0 = makeSymbolicTensor(2);
   fusion.addInput(tv0);
-  auto tv1 = mul(tv0, IrBuilder::create<Double>(1));
+  auto tv1 = mul(tv0, IrBuilder::create<Val>(1.0));
   auto tvs = Welford(tv1, {1});
   auto tv_avg = tvs.avg;
   auto tv_M2 = tvs.var_sum;
@@ -2680,7 +2682,7 @@ TEST_F(NVFuserTest, FusionGridWelfordOp_CUDA) {
 
   auto tv0 = makeSymbolicTensor(2);
   fusion.addInput(tv0);
-  auto tv1 = mul(tv0, IrBuilder::create<Double>(1));
+  auto tv1 = mul(tv0, IrBuilder::create<Val>(1.0));
   auto tvs = Welford(tv1, {1});
   auto tv_avg = tvs.avg;
   auto tv_M2 = tvs.var_sum;
@@ -2725,7 +2727,7 @@ TEST_F(NVFuserTest, FusionRfactorWelfordOp_CUDA) {
 
   auto tv0 = makeSymbolicTensor(2);
   fusion.addInput(tv0);
-  auto tv1 = mul(tv0, IrBuilder::create<Double>(1));
+  auto tv1 = mul(tv0, IrBuilder::create<Val>(1.0));
   auto tvs = Welford(tv1, {1});
   auto tv_avg = tvs.avg;
   auto tv_M2 = tvs.var_sum;
@@ -2769,7 +2771,7 @@ TEST_F(NVFuserTest, FusionWelfordSchedule_CUDA) {
 
   auto tv0 = makeSymbolicTensor(2);
   fusion.addInput(tv0);
-  auto tv1 = mul(tv0, IrBuilder::create<Double>(1));
+  auto tv1 = mul(tv0, IrBuilder::create<Val>(1.0));
   auto tvs = Welford(tv1, {1});
   auto tv_avg = tvs.avg;
   auto tv_M2 = tvs.var_sum;
@@ -2823,7 +2825,7 @@ void testWelford(DataType dtype, int red_axis, int odim, int rdim) {
     tv0_cast = castOp(DataType::Float, tv0);
   }
   fusion.addInput(tv0);
-  auto tv1 = mul(tv0_cast, IrBuilder::create<Double>(1));
+  auto tv1 = mul(tv0_cast, IrBuilder::create<Val>(1.0));
   auto tvs = Welford(tv1, {axis});
   auto tv_avg = tvs.avg;
   auto tv_M2 = tvs.var_sum;
@@ -2897,11 +2899,9 @@ TEST_F(NVFuserTest, FusionWelfordShmoo_CUDA) {
       DataType::Float,
       DataType::Half};
 
-#if defined(CUDA_VERSION) && CUDA_VERSION >= 11000
   if (at::cuda::getDeviceProperties(0)->major >= 8) {
     dtypes.insert(dtypes.end(), DataType::BFloat16);
   }
-#endif
 
   std::vector<int> red_axis = {1, 0};
   std::vector<int> output_dims = {160, 320};
@@ -3150,10 +3150,10 @@ TEST_F(NVFuserTest, FusionAdvancedComputeAtTransposed1_CUDA) {
 
   tv0 = transpose(tv0);
 
-  TensorView* tv1 = mul(tv0, IrBuilder::create<Double>(0.5));
-  TensorView* tv2 = mul(tv1, IrBuilder::create<Double>(-1.0));
-  TensorView* tv3 = add(tv1, IrBuilder::create<Double>(3.0));
-  TensorView* tv4 = mul(tv1, IrBuilder::create<Double>(2.0));
+  TensorView* tv1 = mul(tv0, IrBuilder::create<Val>(0.5));
+  TensorView* tv2 = mul(tv1, IrBuilder::create<Val>(-1.0));
+  TensorView* tv3 = add(tv1, IrBuilder::create<Val>(3.0));
+  TensorView* tv4 = mul(tv1, IrBuilder::create<Val>(2.0));
   TensorView* tv5 = add(tv3, tv2);
 
   TensorView* tv6 = add(tv5, tv4);
@@ -3172,15 +3172,15 @@ TEST_F(NVFuserTest, FusionAdvancedComputeAtTransposed1_CUDA) {
   tv0->computeAt(tv7, 1);
 
   // The this-position of the last tensor should be zero.
-  TORCH_CHECK(
+  NVF_CHECK(
       tv7->nDims() == 3 && tv7->getComputeAtPosition() == 0 &&
       tv7->getMaxProducerPosition() == 1);
-  TORCH_CHECK(
+  NVF_CHECK(
       tv6->nDims() == 3 && tv6->getComputeAtPosition() == 0 &&
       tv6->getMaxProducerPosition() == 1);
   // The position of every other tensor should be 1.
   for (auto tv : {tv1, tv2, tv3, tv4, tv5}) {
-    TORCH_CHECK(tv->nDims() == 3 && tv->getComputeAtPosition() == 1);
+    NVF_CHECK(tv->nDims() == 3 && tv->getComputeAtPosition() == 1);
   }
 
   for (Val* val : fusion.vals()) {
@@ -3232,9 +3232,9 @@ TEST_F(NVFuserTest, FusionAdvancedComputeAtTransposed2_CUDA) {
 
   tv0 = transpose(tv0);
 
-  TensorView* tv1 = mul(tv0, IrBuilder::create<Double>(-1.0));
-  TensorView* tv2 = add(tv0, IrBuilder::create<Double>(3.0));
-  TensorView* tv3 = mul(tv0, IrBuilder::create<Double>(2.0));
+  TensorView* tv1 = mul(tv0, IrBuilder::create<Val>(-1.0));
+  TensorView* tv2 = add(tv0, IrBuilder::create<Val>(3.0));
+  TensorView* tv3 = mul(tv0, IrBuilder::create<Val>(2.0));
   TensorView* tv4 = add(tv2, tv1);
 
   TensorView* tv5 = add(tv4, tv3);
@@ -3299,7 +3299,7 @@ TEST_F(NVFuserTest, FusionAdvancedComputeAtTransposed3_CUDA) {
 
   tv1 = permute(tv1, {3, 0, 1, 2});
 
-  TensorView* tv2 = mul(tv1, IrBuilder::create<Double>(.979361));
+  TensorView* tv2 = mul(tv1, IrBuilder::create<Val>(.979361));
   TensorView* tv3 = mul(tv2, tv0);
 
   fusion.addOutput(tv3);
@@ -3439,7 +3439,7 @@ TEST_F(NVFuserTest, FusionAdvancedComputeAtTransposed5_CUDA) {
   TensorView* tv1 = makeSymbolicTensor(2);
   fusion.addInput(tv1);
   tv1 = transpose(tv1);
-  TensorView* tv2 = add(tv0, IrBuilder::create<Double>(2.0));
+  TensorView* tv2 = add(tv0, IrBuilder::create<Val>(2.0));
   TensorView* tv3 = mul(tv1, tv2);
   fusion.addOutput(tv3);
 
@@ -3478,7 +3478,7 @@ TEST_F(NVFuserTest, FusionAdvancedComputeAtTransposed6_CUDA) {
   TensorView* tv1 = makeSymbolicTensor(2);
   fusion.addInput(tv1);
   tv1 = transpose(tv1);
-  TensorView* tv2 = add(tv0, IrBuilder::create<Double>(2.0));
+  TensorView* tv2 = add(tv0, IrBuilder::create<Val>(2.0));
   TensorView* tv3 = mul(tv1, tv2);
   fusion.addOutput(tv3);
 
@@ -3522,7 +3522,7 @@ TEST_F(NVFuserTest, FusionSegmentReducePointwise_CUDA) {
   fusion->addInput(tv1);
   fusion->addInput(tv2);
 
-  TensorView* tv3 = add(tv0, IrBuilder::create<Double>(1)); // Group 0
+  TensorView* tv3 = add(tv0, IrBuilder::create<Val>(1.0)); // Group 0
   TensorView* tv4 =
       max(tv3, {0}); // Group 0 (use max instead to avoid numerical issues)
   TensorView* tv5 = add(tv4, tv1); //  Group 0 (Non Broadcast after reduce,
@@ -3545,10 +3545,10 @@ TEST_F(NVFuserTest, FusionSegmentReducePointwise_CUDA) {
 
   auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
 
-  TORCH_CHECK(
+  NVF_CHECK(
       executor_cache.getMostRecentKernelRuntime()->isSegmented(),
       "segmentation didn't happen");
-  TORCH_CHECK(
+  NVF_CHECK(
       executor_cache.getMostRecentKernelRuntime()
               ->fusionSegments()
               ->groups()
@@ -3584,8 +3584,8 @@ TEST_F(NVFuserTest, FusionMultipleVectorize_CUDA) {
   auto runtime1 = executor_cache.getMostRecentKernelRuntime();
   auto log1 =
       executor_cache.getMostRecentExecutorInfo().params->as<PointwiseParams>();
-  TORCH_CHECK(log1 != nullptr);
-  TORCH_CHECK(log1->vectorize);
+  NVF_CHECK(log1 != nullptr);
+  NVF_CHECK(log1->vectorize);
 
   testValidate(
       executor_cache.fusion(), outputs, {t0, t1}, {t2}, __LINE__, __FILE__);
@@ -3598,8 +3598,8 @@ TEST_F(NVFuserTest, FusionMultipleVectorize_CUDA) {
   auto runtime2 = executor_cache.getMostRecentKernelRuntime();
   auto log2 =
       executor_cache.getMostRecentExecutorInfo().params->as<PointwiseParams>();
-  TORCH_CHECK(log2 != nullptr);
-  TORCH_CHECK(log2->vectorize);
+  NVF_CHECK(log2 != nullptr);
+  NVF_CHECK(log2->vectorize);
 
   testValidate(
       executor_cache.fusion(), outputs, {t0, t1}, {t2}, __LINE__, __FILE__);
@@ -3612,14 +3612,14 @@ TEST_F(NVFuserTest, FusionMultipleVectorize_CUDA) {
   auto runtime3 = executor_cache.getMostRecentKernelRuntime();
   auto log3 =
       executor_cache.getMostRecentExecutorInfo().params->as<PointwiseParams>();
-  TORCH_CHECK(log3 != nullptr);
-  TORCH_CHECK(log3->vectorize);
+  NVF_CHECK(log3 != nullptr);
+  NVF_CHECK(log3->vectorize);
 
   testValidate(
       executor_cache.fusion(), outputs, {t0, t1}, {t2}, __LINE__, __FILE__);
 
-  TORCH_CHECK(runtime1 == runtime2);
-  TORCH_CHECK(runtime1 != runtime3);
+  NVF_CHECK(runtime1 == runtime2);
+  NVF_CHECK(runtime1 != runtime3);
 }
 
 TEST_F(NVFuserTest, FusionVectorizeSimple_CUDA) {
@@ -3681,7 +3681,7 @@ TEST_F(NVFuserTest, FusionSimpleVectorizeUnroll_CUDA) {
 
   // Do math with it, it returns a `Val*` but can be static_casted back to
   // TensorView
-  TensorView* tv2 = add(tv1, IrBuilder::create<Double>(2.0));
+  TensorView* tv2 = add(tv1, IrBuilder::create<Val>(2.0));
   TensorView* tv3 = add(tv0, tv2);
 
   // Register your outputs
@@ -3737,7 +3737,7 @@ TEST_F(NVFuserTest, FusionSimpleVectorizeUnroll_CUDA) {
   at::Tensor tv2_ref = input2 + 2.0;
   at::Tensor output_ref = input1 + tv2_ref;
 
-  TORCH_CHECK(output_ref.equal(output));
+  NVF_CHECK(output_ref.equal(output));
 }
 
 TEST_F(NVFuserTest, FusionSegmentReduceSoftmax_CUDA) {
@@ -3754,7 +3754,7 @@ TEST_F(NVFuserTest, FusionSegmentReduceSoftmax_CUDA) {
 
   fusion->addInput(tv0);
 
-  auto tv1 = add(tv0, IrBuilder::create<Double>(1.0));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
   auto tv2 = sum(tv1, {2}); // Group 0
 
   auto output = softmax(tv2, kReductionAxis); // Group 1
@@ -3772,10 +3772,21 @@ TEST_F(NVFuserTest, FusionSegmentReduceSoftmax_CUDA) {
   auto t3 = at::_softmax(t2.to(at::kDouble), -1, false);
 
   auto optimized_fusion = executor_cache.getMostRecentKernelRuntime();
-  TORCH_CHECK(optimized_fusion->isSegmented(), "segmentation didn't happen");
-  TORCH_CHECK(
-      optimized_fusion->fusionSegments()->groups().size() == 2,
-      "segmentation didn't happen as expected");
+  ASSERT_TRUE(optimized_fusion->isSegmented()) << "segmentation didn't happen";
+  ASSERT_EQ(optimized_fusion->fusionSegments()->groups().size(), 2)
+      << "segmentation didn't happen as expected";
+
+  // Make sure the second kernel is vectorized. See issue #658
+  auto heuristic_params = executor_cache.getMostRecentKernelRuntime()
+                              ->schedulerHeuristics()
+                              ->heuristicsList()
+                              .at(1)
+                              ->params();
+  ASSERT_TRUE(heuristic_params->isA<ReductionParams>());
+  auto rparams = heuristic_params->as<ReductionParams>();
+  ASSERT_TRUE(rparams->vectorize_inner_reduction) << "Failed to vectorize";
+  ASSERT_EQ(rparams->unroll_factor_inner_reduction, 2)
+      << "Unexpected vectorization factor";
 
   testValidate(
       executor_cache.fusion(), outputs, {at_x}, {t3}, __LINE__, __FILE__);
@@ -4683,7 +4694,7 @@ TEST_F(NVFuserTest, FusionSizeOneLoop1_CUDA) {
 
   // Make sure the unswitched loop does not have an else clause.
   GpuLower gpulw(&fusion);
-  TORCH_CHECK(!UnswitchInElseChecker::check(gpulw));
+  NVF_CHECK(!UnswitchInElseChecker::check(gpulw));
 
   const int x = 11;
   const int y = 12;
@@ -4712,7 +4723,7 @@ TEST_F(NVFuserTest, FusionSizeOneLoop2_CUDA) {
   auto tv0 = makeConcreteTensor({x});
   fusion.addInput(tv0);
 
-  auto tv1 = add(tv0, IrBuilder::create<Double>(1));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
   fusion.addOutput(tv1);
 
   tv1->split(-1, 4);
@@ -4722,7 +4733,7 @@ TEST_F(NVFuserTest, FusionSizeOneLoop2_CUDA) {
 
   // Make sure the size-one unswitched loop does not omit the else clause.
   GpuLower gpulw(&fusion);
-  TORCH_CHECK(UnswitchInElseChecker::check(gpulw));
+  NVF_CHECK(UnswitchInElseChecker::check(gpulw));
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({x}, options);
@@ -4743,8 +4754,8 @@ TEST_F(NVFuserTest, FusionValidateParallelize1_CUDA) {
   auto tv0 = makeSymbolicTensor(1);
   fusion.addInput(tv0);
 
-  auto tv1 = add(tv0, IrBuilder::create<Double>(1));
-  auto tv2 = add(tv1, IrBuilder::create<Double>(1));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
+  auto tv2 = add(tv1, IrBuilder::create<Val>(1.0));
   fusion.addOutput(tv2);
 
   tv1->axis(-1)->parallelize(ParallelType::TIDx);
@@ -4763,8 +4774,8 @@ TEST_F(NVFuserTest, FusionValidateParallelize2_CUDA) {
   auto tv0 = makeSymbolicTensor(1);
   fusion.addInput(tv0);
 
-  auto tv1 = add(tv0, IrBuilder::create<Double>(1));
-  auto tv2 = add(tv1, IrBuilder::create<Double>(1));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
+  auto tv2 = add(tv1, IrBuilder::create<Val>(1.0));
   fusion.addOutput(tv2);
 
   tv1->axis(-1)->parallelize(ParallelType::TIDx);
@@ -4784,8 +4795,8 @@ TEST_F(NVFuserTest, FusionValidateParallelize3_CUDA) {
   auto tv0 = makeSymbolicTensor(1);
   fusion.addInput(tv0);
 
-  auto tv1 = add(tv0, IrBuilder::create<Double>(1));
-  auto tv2 = add(tv1, IrBuilder::create<Double>(1));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
+  auto tv2 = add(tv1, IrBuilder::create<Val>(1.0));
   fusion.addOutput(tv2);
 
   tv1->split(-1, 4);
@@ -4807,8 +4818,8 @@ TEST_F(NVFuserTest, FusionValidateParallelize4_CUDA) {
   auto tv0 = makeSymbolicTensor(1);
   fusion.addInput(tv0);
 
-  auto tv1 = add(tv0, IrBuilder::create<Double>(1));
-  auto tv2 = add(tv1, IrBuilder::create<Double>(1));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
+  auto tv2 = add(tv1, IrBuilder::create<Val>(1.0));
   fusion.addOutput(tv2);
 
   tv1->split(-1, 4);
@@ -4830,8 +4841,8 @@ TEST_F(NVFuserTest, FusionValidateParallelize5_CUDA) {
   auto tv0 = makeSymbolicTensor(1);
   fusion.addInput(tv0);
 
-  auto tv1 = add(tv0, IrBuilder::create<Double>(1));
-  auto tv2 = add(tv1, IrBuilder::create<Double>(1));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
+  auto tv2 = add(tv1, IrBuilder::create<Val>(1.0));
   fusion.addOutput(tv2);
 
   tv1->split(-1, 4);
@@ -4859,7 +4870,7 @@ TEST_F(NVFuserTest, FusionValidateParallelize6_CUDA) {
   fusion.addInput(tv0);
   fusion.addInput(tv1);
 
-  auto tv2 = add(tv0, IrBuilder::create<Double>(1));
+  auto tv2 = add(tv0, IrBuilder::create<Val>(1.0));
   auto tv3 = broadcast(tv2, {true, false, false, false});
   auto tv4 = add(tv3, tv1);
   fusion.addOutput(tv4);
@@ -4915,7 +4926,7 @@ TEST_F(NVFuserTest, FusionValidateParallelize7_CUDA) {
   // required. It should be placed as a top-level expression.
 
   GpuLower gpulw(&fusion);
-  TORCH_CHECK(
+  NVF_CHECK(
       std::any_of(
           gpulw.kernel()->topLevelExprs().begin(),
           gpulw.kernel()->topLevelExprs().end(),
@@ -4994,7 +5005,7 @@ TEST_F(NVFuserTest, FusionValidateParallelize9_CUDA) {
 
   auto tv2 = set(tv0);
   auto tv3 = broadcast(tv2, {false, true});
-  auto tv4 = add(tv3, IrBuilder::create<Double>(1));
+  auto tv4 = add(tv3, IrBuilder::create<Val>(1.0));
   fusion.addOutput(tv4);
 
   tv4->merge(0)->split(0, 4);
@@ -5135,7 +5146,7 @@ TEST_F(NVFuserTest, FusionDAGMerging_CUDA) {
   auto tv5 = sum(tv4, {0}); // 3
 
   // Branch 1
-  auto tv6 = add(tv1, IrBuilder::create<Double>(1)); // 4
+  auto tv6 = add(tv1, IrBuilder::create<Val>(1.0)); // 4
 
   // Merge
   auto tv7 = add(tv6, tv5); // 5
@@ -5157,7 +5168,7 @@ TEST_F(NVFuserTest, FusionDAGMerging_CUDA) {
   args.push(aten_inputs);
 
   auto fusion_segments = fusion.segment(args);
-  TORCH_CHECK(fusion_segments->groups().size() <= 4);
+  NVF_CHECK(fusion_segments->groups().size() <= 4);
 }
 
 TEST_F(NVFuserTest, FusionDAGScalarMerging_CUDA) {
@@ -5165,12 +5176,12 @@ TEST_F(NVFuserTest, FusionDAGScalarMerging_CUDA) {
   FusionGuard fg(fusion.get());
 
   auto tv0 = makeSymbolicTensor(3);
-  auto i0 = IrBuilder::create<Double>();
+  auto i0 = IrBuilder::create<Val>(DataType::Double);
 
   fusion->addInput(tv0);
   fusion->addInput(i0);
 
-  auto i1 = add(i0, IrBuilder::create<Double>(1.0));
+  auto i1 = add(i0, IrBuilder::create<Val>(1.0));
   auto i2 = mul(i1, i1);
   auto i3 = add(i2, i1);
 
@@ -5202,10 +5213,10 @@ TEST_F(NVFuserTest, FusionDAGScalarMerging_CUDA) {
 
   auto outputs = executor_cache.runFusionWithInputs({t0, s0});
 
-  TORCH_CHECK(
+  NVF_CHECK(
       executor_cache.getMostRecentKernelRuntime()->isSegmented(),
       "segmentation didn't happen");
-  TORCH_CHECK(
+  NVF_CHECK(
       executor_cache.getMostRecentKernelRuntime()
               ->fusionSegments()
               ->groups()
@@ -5327,10 +5338,10 @@ TEST_F(NVFuserTest, FusionIssue728_CUDA) {
   auto tv2 = makeSymbolicTensor(1);
   fusion.addOutput(tv2);
 
-  auto tv3 = add(tv0, IrBuilder::create<Double>(1));
+  auto tv3 = add(tv0, IrBuilder::create<Val>(1.0));
   auto tv4 = add(tv3, tv1);
-  auto tv5 = add(tv4, IrBuilder::create<Double>(1));
-  auto tv6 = add(tv2, IrBuilder::create<Double>(1));
+  auto tv5 = add(tv4, IrBuilder::create<Val>(1.0));
+  auto tv6 = add(tv2, IrBuilder::create<Val>(1.0));
   fusion.addOutput(tv5);
   fusion.addOutput(tv6);
 
@@ -5343,7 +5354,7 @@ TEST_F(NVFuserTest, FusionIssue728_CUDA) {
       DependencyCheck::getAllValsBetween({tv3}, fusion.outputs());
   std::unordered_set<Val*> included_tensors({tv3, tv4, tv5});
   for (auto tv : included_tensors) {
-    TORCH_CHECK(
+    NVF_CHECK(
         std::find(all_vals_under_tv3.begin(), all_vals_under_tv3.end(), tv) !=
             all_vals_under_tv3.end(),
         "TV",
@@ -5352,7 +5363,7 @@ TEST_F(NVFuserTest, FusionIssue728_CUDA) {
   }
   for (auto tv : ir_utils::filterByType<TensorView>(fusion.vals())) {
     if (included_tensors.find(tv) == included_tensors.end()) {
-      TORCH_CHECK(
+      NVF_CHECK(
           std::find(all_vals_under_tv3.begin(), all_vals_under_tv3.end(), tv) ==
               all_vals_under_tv3.end(),
           "TV",
@@ -5362,16 +5373,16 @@ TEST_F(NVFuserTest, FusionIssue728_CUDA) {
   }
 
   auto no_dependency = DependencyCheck::getAllValsBetween({}, fusion.outputs());
-  TORCH_CHECK(no_dependency.empty(), "No val should be returned");
+  NVF_CHECK(no_dependency.empty(), "No val should be returned");
 
   auto no_dep_path = DependencyCheck::getAllValsBetween({tv0, tv1}, {tv6});
-  TORCH_CHECK(no_dep_path.empty(), "No val should be returned");
+  NVF_CHECK(no_dep_path.empty(), "No val should be returned");
 
   auto no_dep_path2 = DependencyCheck::getAllValsBetween({tv2}, {tv5});
-  TORCH_CHECK(no_dep_path2.empty(), "No val should be returned");
+  NVF_CHECK(no_dep_path2.empty(), "No val should be returned");
 
   auto just_tv3 = DependencyCheck::getAllValsBetween({tv3}, {tv3});
-  TORCH_CHECK(
+  NVF_CHECK(
       just_tv3.size() == 1 && *(just_tv3.begin()) == tv3,
       "Only tv3 should be included");
 }
@@ -5491,7 +5502,7 @@ TEST_F(NVFuserTest, FusionSegmentVerticalMerge_CUDA) {
   auto segmented_fusion =
       SegmentCandidateFinder::segment(fusion.get(), args, segment_options);
 
-  TORCH_CHECK(segmented_fusion->groups().size() == 2);
+  NVF_CHECK(segmented_fusion->groups().size() == 2);
 }
 
 TEST_F(NVFuserTest, FusionSegmentHorizontalMerge_CUDA) {
@@ -5499,7 +5510,7 @@ TEST_F(NVFuserTest, FusionSegmentHorizontalMerge_CUDA) {
   FusionGuard fg(fusion.get());
 
   auto tv0 = makeSymbolicTensor(3);
-  auto i0 = IrBuilder::create<Double>();
+  auto i0 = IrBuilder::create<Val>(DataType::Double);
 
   fusion->addInput(tv0);
   fusion->addInput(i0);
@@ -5531,13 +5542,13 @@ TEST_F(NVFuserTest, FusionSegmentHorizontalMerge_CUDA) {
   KernelArgumentHolder args;
   args.setDeviceIndex(0);
   args.push(t0);
-  c10::IValue scalar = 1.0;
+  double scalar = 1.0;
   args.push(scalar);
 
   auto segmented_fusion =
       SegmentCandidateFinder::segment(fusion.get(), args, segment_options);
 
-  TORCH_CHECK(segmented_fusion->groups().size() == 2);
+  NVF_CHECK(segmented_fusion->groups().size() == 2);
 }
 
 TEST_F(NVFuserTest, FusionSegmentMixReduction_CUDA) {
@@ -5580,7 +5591,7 @@ TEST_F(NVFuserTest, FusionSegmentMixReduction_CUDA) {
   auto segmented_fusion =
       SegmentCandidateFinder::segment(fusion.get(), args, segment_options);
 
-  TORCH_CHECK(segmented_fusion->groups().size() <= 2);
+  NVF_CHECK(segmented_fusion->groups().size() <= 2);
 }
 
 TEST_F(NVFuserTest, FusionSBAR_CUDA) {
@@ -5649,9 +5660,9 @@ TEST_F(NVFuserTest, FusionSingleElement_CUDA) {
   auto tv0 = makeSymbolicTensor(0);
   fusion.addInput(tv0);
 
-  auto tv1 = add(tv0, IrBuilder::create<Double>(2.5));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(2.5));
 
-  auto tv2 = add(tv1, IrBuilder::create<Double>(3.5));
+  auto tv2 = add(tv1, IrBuilder::create<Val>(3.5));
   fusion.addOutput(tv2);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -5701,12 +5712,12 @@ TEST_F(NVFuserTest, FusionBNBackwardRepro_CUDA) {
       makeSymbolicTensor(numDims); // single tensor broadcasted is dangerous.
   fusion.addInput(gt_0);
 
-  auto gt_bool = binaryOp(BinaryOpType::GT, gt_0, IrBuilder::create<Int>(1));
+  auto gt_bool = binaryOp(BinaryOpType::GT, gt_0, IrBuilder::create<Val>(1L));
   auto gt_float = castOp(DataType::Float, gt_bool);
 
   auto grad_out = mul(grad_out_prev, gt_float);
 
-  Val* eps_ptr = IrBuilder::create<Double>(1e-5);
+  Val* eps_ptr = IrBuilder::create<Val>(1e-5);
 
   auto grads = batch_norm_backward(
       input,
@@ -5769,12 +5780,12 @@ TEST_F(NVFuserTest, FusionBNBackwardRepro2_CUDA) {
   auto gt_0 = makeConcreteTensor({-1, -1, 1, 1});
   fusion.addInput(gt_0);
 
-  auto gt_bool = binaryOp(BinaryOpType::GT, gt_0, IrBuilder::create<Int>(1));
+  auto gt_bool = binaryOp(BinaryOpType::GT, gt_0, IrBuilder::create<Val>(1L));
   auto gt_float = castOp(DataType::Float, gt_bool);
 
   auto grad_out = mul(grad_out_prev, gt_float);
 
-  Val* eps_ptr = IrBuilder::create<Double>(1e-5);
+  Val* eps_ptr = IrBuilder::create<Val>(1e-5);
 
   auto grads = batch_norm_backward(
       input,
@@ -5834,8 +5845,8 @@ TEST_F(NVFuserTest, FusionBNRepro_CUDA) {
   auto running_var = makeSymbolicTensor(1);
   fusion.addInput(running_var);
 
-  auto momentum_ptr = IrBuilder::create<Double>(kMomentum);
-  auto eps_ptr = IrBuilder::create<Double>(kEps);
+  auto momentum_ptr = IrBuilder::create<Val>(kMomentum);
+  auto eps_ptr = IrBuilder::create<Val>(kEps);
 
   auto result = batch_norm(
       input,
@@ -5907,8 +5918,8 @@ TEST_F(NVFuserTest, FusionBNRepro2_CUDA) {
   auto input = makeSymbolicTensor(numDims);
   fusion.addInput(input);
 
-  Val* momentum_ptr = IrBuilder::create<Double>(kMomentum);
-  Val* eps_ptr = IrBuilder::create<Double>(kEps);
+  Val* momentum_ptr = IrBuilder::create<Val>(kMomentum);
+  Val* eps_ptr = IrBuilder::create<Val>(kEps);
 
   auto result = batch_norm(
       input,
@@ -5960,7 +5971,7 @@ TEST_F(NVFuserTest, FusionZeroSizeTensorPW_CUDA) {
   auto tv1 = makeConcreteTensor({0});
   fusion.addInput(tv1);
 
-  auto tv2 = add(tv0, IrBuilder::create<Double>(2.5));
+  auto tv2 = add(tv0, IrBuilder::create<Val>(2.5));
   fusion.addOutput(tv2);
 
   // This test used to just have:
@@ -6003,9 +6014,9 @@ TEST_F(NVFuserTest, FusionZeroSizeTensorReduction_CUDA) {
   at::Tensor input1 = at::randn({0}, options);
 
   auto reduction_params = getReductionHeuristics(&fusion, {input0, input1});
-  TORCH_CHECK(reduction_params, "Reduction schedule was not generated!");
+  NVF_CHECK(reduction_params, "Reduction schedule was not generated!");
   scheduleReduction(&fusion, *reduction_params);
-  TORCH_CHECK(reduction_params, "Reduction schedule was not generated!");
+  NVF_CHECK(reduction_params, "Reduction schedule was not generated!");
 
   auto lparams = reduction_params->lparams;
   FusionExecutor fe;
@@ -6049,7 +6060,7 @@ TEST_F(NVFuserTest, FusionZeroSizeTensorNormalization_CUDA) {
   at::Tensor input1 = at::randn({0}, options);
 
   auto reduction_params = getPersistentHeuristics(&fusion, {input0, input1});
-  TORCH_CHECK(reduction_params, "Reduction schedule was not generated!");
+  NVF_CHECK(reduction_params, "Reduction schedule was not generated!");
   schedulePersistentKernel(&fusion, *reduction_params);
 
   auto lparams = reduction_params->lparams;
@@ -6082,7 +6093,7 @@ TEST_F(NVFuserTest, FusionSegmentIoAlias_CUDA) {
   fusion->addInput(tv1);
   fusion->addInput(tv2);
 
-  TensorView* tv3 = add(tv0, IrBuilder::create<Double>(1)); // Group 0
+  TensorView* tv3 = add(tv0, IrBuilder::create<Val>(1.0)); // Group 0
   TensorView* tv4 =
       max(tv3, {0}); // Group 0 (use max instead to avoid numerical issues)
   TensorView* tv5 = add(tv4, tv1); //  Group 0 (Non Broadcast after reduce,
@@ -6094,7 +6105,7 @@ TEST_F(NVFuserTest, FusionSegmentIoAlias_CUDA) {
   // TODO: support output on aliased fusion #1488
   // remove tv7 after #1488
   // fusion->addOutput(tv6);
-  TensorView* tv7 = add(tv6, IrBuilder::create<Double>(1)); // Group 0
+  TensorView* tv7 = add(tv6, IrBuilder::create<Val>(1.0)); // Group 0
   fusion->addOutput(tv7);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -6114,12 +6125,12 @@ TEST_F(NVFuserTest, FusionSegmentIoAlias_CUDA) {
 
   // TODO: support output on aliased fusion #1488
   // validating aliasing
-  // TORCH_INTERNAL_ASSERT(outputs[0].data_ptr() == t0.data_ptr());
+  // NVF_ERROR(outputs[0].data_ptr() == t0.data_ptr());
 
-  TORCH_CHECK(
+  NVF_CHECK(
       executor_cache.getMostRecentKernelRuntime()->isSegmented(),
       "segmentation didn't happen");
-  TORCH_CHECK(
+  NVF_CHECK(
       executor_cache.getMostRecentKernelRuntime()
               ->fusionSegments()
               ->groups()
@@ -6184,7 +6195,7 @@ TEST_F(NVFuserTest, FusionTranslate1Welford_CUDA) {
   // Run a translated welford
   auto runtime1 = run_test(64);
   // Check it was translated
-  TORCH_CHECK(
+  NVF_CHECK(
       runtime1->fusionSegments()->groups().size() == 1 &&
       runtime1->fusionSegments()->groups()[0]->exprs().size() > 2);
 
@@ -6199,7 +6210,7 @@ TEST_F(NVFuserTest, FusionTranslate1Welford_CUDA) {
       }
     }
   }
-  TORCH_CHECK(found_welford);
+  NVF_CHECK(found_welford);
 }
 
 TEST_F(NVFuserTest, FusionTranslate2Welford_CUDA) {
@@ -6237,7 +6248,7 @@ TEST_F(NVFuserTest, FusionTranslate2Welford_CUDA) {
   // Run a translated welford
   auto runtime1 = run_test(64);
   // Check it was translated
-  TORCH_CHECK(
+  NVF_CHECK(
       runtime1->fusionSegments()->groups().size() == 1 &&
       runtime1->fusionSegments()->groups()[0]->exprs().size() > 4);
 
@@ -6252,7 +6263,7 @@ TEST_F(NVFuserTest, FusionTranslate2Welford_CUDA) {
       }
     }
   }
-  TORCH_CHECK(found_welford);
+  NVF_CHECK(found_welford);
 }
 
 TEST_F(NVFuserTest, FusionLargeWelfordNormalization_CUDA) {
@@ -6285,7 +6296,7 @@ TEST_F(NVFuserTest, FusionLargeWelfordNormalization_CUDA) {
   };
 
   auto runtime = run_test(65536);
-  TORCH_CHECK(!runtime->isSegmented());
+  NVF_CHECK(!runtime->isSegmented());
 }
 
 TEST_F(NVFuserTest, FusionWelfordOuterPersistence_CUDA) {
@@ -6323,7 +6334,7 @@ TEST_F(NVFuserTest, FusionWelfordOuterPersistence_CUDA) {
 
   for (auto inner_size : {4096, 8192, 32768}) {
     auto runtime = run_test(inner_size);
-    TORCH_CHECK(!runtime->isSegmented());
+    NVF_CHECK(!runtime->isSegmented());
   }
 }
 
@@ -6376,13 +6387,13 @@ TEST_F(NVFuserTest, FusionBackOffInnerBroadcast_CUDA) {
   tv1->computeAt(tv10, -2);
   tv2->computeAt(tv10, -2);
 
-  TORCH_CHECK(tv3->getComputeAtPosition() == 1);
-  TORCH_CHECK(tv4->getComputeAtPosition() == 2);
-  TORCH_CHECK(tv5->getComputeAtPosition() == 3);
+  NVF_CHECK(tv3->getComputeAtPosition() == 1);
+  NVF_CHECK(tv4->getComputeAtPosition() == 2);
+  NVF_CHECK(tv5->getComputeAtPosition() == 3);
 
-  TORCH_CHECK(tv6->getMaxProducerPosition() == 3);
-  TORCH_CHECK(tv7->getMaxProducerPosition() == 3);
-  TORCH_CHECK(tv8->getMaxProducerPosition() == 2);
+  NVF_CHECK(tv6->getMaxProducerPosition() == 3);
+  NVF_CHECK(tv7->getMaxProducerPosition() == 3);
+  NVF_CHECK(tv8->getMaxProducerPosition() == 2);
 }
 
 TEST_F(NVFuserTest, FusionBackOffInnerBroadcast2_CUDA) {
@@ -6401,8 +6412,8 @@ TEST_F(NVFuserTest, FusionBackOffInnerBroadcast2_CUDA) {
   tv3->reorder({{-1, -2}});
   tv0->computeAt(tv3, -2);
   tv1->computeAt(tv3, -2);
-  TORCH_CHECK(tv2->getComputeAtPosition() == 2);
-  TORCH_CHECK(tv3->getMaxProducerPosition() == 2);
+  NVF_CHECK(tv2->getComputeAtPosition() == 2);
+  NVF_CHECK(tv3->getMaxProducerPosition() == 2);
 }
 
 TEST_F(NVFuserTest, FusionBackOffInnerBroadcast3_CUDA) {
@@ -6420,8 +6431,8 @@ TEST_F(NVFuserTest, FusionBackOffInnerBroadcast3_CUDA) {
   fusion->addOutput(tv4);
   tv0->computeAt(tv4, -1);
   tv1->computeAt(tv4, -1);
-  TORCH_CHECK(tv2->getComputeAtPosition() == 2);
-  TORCH_CHECK(tv3->getMaxProducerPosition() == 3);
+  NVF_CHECK(tv2->getComputeAtPosition() == 2);
+  NVF_CHECK(tv3->getMaxProducerPosition() == 3);
 }
 
 TEST_F(NVFuserTest, FusionSimpleWarp_CUDA) {
@@ -6606,7 +6617,7 @@ TEST_F(NVFuserTest, FusionTrivialWarpReduction_CUDA) {
 
   fusion->addInput(tv0);
   auto tv1 = reductionOpRaw(
-      BinaryOpType::Add, {1, 2, 3}, IrBuilder::create<Double>(0.0), tv0);
+      BinaryOpType::Add, {1, 2, 3}, IrBuilder::create<Val>(0.0), tv0);
   auto tv2 = broadcast(tv1, {false, true, true, true});
   auto tv3 = add(tv2, tv0);
 
@@ -6744,7 +6755,7 @@ TEST_F(NVFuserTest, FusionWarpMutipleThreadDim_CUDA) {
 
   auto tv0 = makeSymbolicTensor(2);
   fusion->addInput(tv0);
-  auto tv1 = add(tv0, IrBuilder::create<Double>(1));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
   auto tv2 = sum(tv1, {1});
   fusion->addOutput(tv2);
 
@@ -6840,9 +6851,9 @@ TEST_F(NVFuserTest, FusionWarpReducePredication_CUDA) {
 
   auto tv2 = makeConcreteTensor(shape2);
   fusion.addInput(tv2);
-  auto tv3 = add(tv2, IrBuilder::create<Double>(1));
+  auto tv3 = add(tv2, IrBuilder::create<Val>(1.0));
   auto tv4 = sum(tv3, {0});
-  auto tv5 = add(tv4, IrBuilder::create<Double>(1));
+  auto tv5 = add(tv4, IrBuilder::create<Val>(1.0));
   fusion.addOutput(tv5);
 
   // Just to fill the smem buffer by a thread block of 1024 threads
@@ -6893,7 +6904,7 @@ TEST_F(NVFuserTest, FusionSegfaultReduction_CUDA) {
   std::vector<int64_t> at_sum_axes;
   std::vector<int> outer_reduction_axes;
   std::vector<bool> outer_broadcast_mask(numDims, false);
-  Val* N = IrBuilder::create<Double>(1);
+  Val* N = IrBuilder::create<Val>(1.0);
   for (const auto axis : c10::irange(numDims)) {
     if (axis != 1) {
       outer_reduction_axes.push_back(axis);
@@ -6930,9 +6941,9 @@ TEST_F(NVFuserTest, FusionPredicateElimination1_CUDA) {
   auto tv0 = makeSymbolicTensor(1);
   fusion.addInput(tv0);
 
-  auto tv1 = add(tv0, IrBuilder::create<Double>(1));
-  auto tv2 = add(tv1, IrBuilder::create<Double>(2));
-  auto tv3 = add(tv2, IrBuilder::create<Double>(3));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
+  auto tv2 = add(tv1, IrBuilder::create<Val>(2.0));
+  auto tv3 = add(tv2, IrBuilder::create<Val>(3.0));
 
   fusion.addOutput(tv3);
 
@@ -6943,7 +6954,7 @@ TEST_F(NVFuserTest, FusionPredicateElimination1_CUDA) {
 
   {
     GpuLower gpulw(&fusion);
-    TORCH_CHECK(!PredicatedChecker::isPredicated(tv2, gpulw));
+    NVF_CHECK(!PredicatedChecker::isPredicated(tv2, gpulw));
   }
 
   tv2->axis(1)->parallelize(ParallelType::Serial);
@@ -6951,7 +6962,7 @@ TEST_F(NVFuserTest, FusionPredicateElimination1_CUDA) {
 
   {
     GpuLower gpulw(&fusion);
-    TORCH_CHECK(PredicatedChecker::isPredicated(tv2, gpulw));
+    NVF_CHECK(PredicatedChecker::isPredicated(tv2, gpulw));
   }
 }
 
@@ -6965,9 +6976,9 @@ TEST_F(NVFuserTest, FusionPredicateElimination2_CUDA) {
   auto tv0 = makeConcreteTensor(shape);
   fusion.addInput(tv0);
 
-  auto tv1 = add(tv0, IrBuilder::create<Double>(1));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
   auto tv2 = sum(tv1, {1});
-  auto tv3 = add(tv2, IrBuilder::create<Double>(1));
+  auto tv3 = add(tv2, IrBuilder::create<Val>(1.0));
 
   fusion.addOutput(tv3);
 
@@ -6996,7 +7007,7 @@ TEST_F(NVFuserTest, FusionPredicateElimination3_CUDA) {
   fusion.addInput(tv0);
 
   auto tv1 = sum(tv0, {0});
-  auto tv2 = add(tv1, IrBuilder::create<Double>(1));
+  auto tv2 = add(tv1, IrBuilder::create<Val>(1.0));
   fusion.addOutput(tv2);
 
   tv0->cacheAfter();
@@ -7019,9 +7030,9 @@ TEST_F(NVFuserTest, FusionPredicateElimination3_CUDA) {
   // within each block, and another with the whole grid. All of them
   // should not need to be predicated as they use the same init value
   // and same reduction op.
-  TORCH_CHECK(!PredicatedChecker::isPredicated(tv4, gpulw));
-  TORCH_CHECK(!PredicatedChecker::isPredicated(tv5, gpulw));
-  TORCH_CHECK(!PredicatedChecker::isPredicated(tv1, gpulw));
+  NVF_CHECK(!PredicatedChecker::isPredicated(tv4, gpulw));
+  NVF_CHECK(!PredicatedChecker::isPredicated(tv5, gpulw));
+  NVF_CHECK(!PredicatedChecker::isPredicated(tv1, gpulw));
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
@@ -7047,11 +7058,11 @@ TEST_F(NVFuserTest, FusionPredicateElimination4_CUDA) {
   auto tv1 = sum(tv0, {1});
 
   auto tv2 = sum(tv1, {0});
-  auto tv3 = add(tv2, IrBuilder::create<Double>(1));
+  auto tv3 = add(tv2, IrBuilder::create<Val>(1.0));
   fusion.addOutput(tv3);
 
   auto tv4 = max(tv1, {0});
-  auto tv5 = add(tv4, IrBuilder::create<Double>(1));
+  auto tv5 = add(tv4, IrBuilder::create<Val>(1.0));
   fusion.addOutput(tv5);
 
   tv1->split(1, 7);
@@ -7070,8 +7081,8 @@ TEST_F(NVFuserTest, FusionPredicateElimination4_CUDA) {
   // without a predicate. However, tv4, while it uses the tv1 as its
   // input, the reduction op and init value is different from those of
   // tv1, so tv4 needs to be predicated.
-  TORCH_CHECK(!PredicatedChecker::isPredicated(tv2, gpulw));
-  TORCH_CHECK(PredicatedChecker::isPredicated(tv4, gpulw));
+  NVF_CHECK(!PredicatedChecker::isPredicated(tv2, gpulw));
+  NVF_CHECK(PredicatedChecker::isPredicated(tv4, gpulw));
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
@@ -7118,8 +7129,8 @@ TEST_F(NVFuserTest, FusionPredicateElimination5_CUDA) {
   // The first per-thread welford needs to be predicated as the N
   // input is different from its init value. The second welford op
   // does not need a predicate.
-  TORCH_CHECK(PredicatedChecker::isPredicated(avg_rf, gpulw));
-  TORCH_CHECK(!PredicatedChecker::isPredicated(tvs2.avg, gpulw));
+  NVF_CHECK(PredicatedChecker::isPredicated(avg_rf, gpulw));
+  NVF_CHECK(!PredicatedChecker::isPredicated(tvs2.avg, gpulw));
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
@@ -7144,10 +7155,10 @@ TEST_F(NVFuserTest, FusionPredicateElimination6_CUDA) {
   auto tv0 = makeConcreteTensor({2, 3});
   fusion.addInput(tv0);
 
-  auto tv1 = add(tv0, IrBuilder::create<Double>(1));
-  auto tv2 = add(tv1, IrBuilder::create<Double>(1));
-  auto tv3 = add(tv2, IrBuilder::create<Double>(1));
-  auto tv4 = add(tv3, IrBuilder::create<Double>(1));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
+  auto tv2 = add(tv1, IrBuilder::create<Val>(1.0));
+  auto tv3 = add(tv2, IrBuilder::create<Val>(1.0));
+  auto tv4 = add(tv3, IrBuilder::create<Val>(1.0));
   fusion.addOutput(tv4);
 
   tv4->split(1, 5);
@@ -7164,13 +7175,13 @@ TEST_F(NVFuserTest, FusionPredicateElimination6_CUDA) {
   // for the on on split root domains. As the second root axis of tv2
   // is split, its index exceeds its extent (i.e., 3 in this case)
   // without its predicate.
-  TORCH_CHECK(PredicatedChecker::isPredicated(tv2, gpulw));
+  NVF_CHECK(PredicatedChecker::isPredicated(tv2, gpulw));
 
   // Unlike tv2, tv3 is computed at tv4, so the second root axis does
   // have a zero domain. Its index should look like "i * 5 + j", where
   // i comes from the first root domain and j comes from the split
   // inner domain.
-  TORCH_CHECK(!PredicatedChecker::isPredicated(tv3, gpulw));
+  NVF_CHECK(!PredicatedChecker::isPredicated(tv3, gpulw));
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({2, 3}, options);
@@ -7191,9 +7202,9 @@ TEST_F(NVFuserTest, FusionPredicateElimination7_CUDA) {
   auto tv0 = makeSymbolicTensor(1);
   fusion.addInput(tv0);
 
-  auto tv1 = add(tv0, IrBuilder::create<Double>(1));
-  auto tv2 = add(tv1, IrBuilder::create<Double>(1));
-  auto tv3 = add(tv2, IrBuilder::create<Double>(1));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
+  auto tv2 = add(tv1, IrBuilder::create<Val>(1.0));
+  auto tv3 = add(tv2, IrBuilder::create<Val>(1.0));
   fusion.addOutput(tv3);
 
   tv3->split(-1, 5);
@@ -7207,7 +7218,7 @@ TEST_F(NVFuserTest, FusionPredicateElimination7_CUDA) {
   // The last split of tv2 is a non-divisible split, and omitting it
   // is invalid.
   GpuLower gpulw(&fusion);
-  TORCH_CHECK(PredicatedChecker::isPredicated(tv2, gpulw));
+  NVF_CHECK(PredicatedChecker::isPredicated(tv2, gpulw));
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({123}, options);
@@ -7248,7 +7259,7 @@ TEST_F(NVFuserTest, FusionPredicateElimination8_CUDA) {
 
   std::vector<int> reduction_axes = {0, 2, 3};
 
-  Val* num_features = IrBuilder::create<Double>(tv1->container(), 1);
+  Val* num_features = IrBuilder::create<Val>(tv1->container(), 1.0);
   for (const auto dim : reduction_axes) {
     num_features = mul(num_features, tv1->getLeafDomain()[dim]->extent());
   }
@@ -7256,11 +7267,11 @@ TEST_F(NVFuserTest, FusionPredicateElimination8_CUDA) {
   auto tv5 = mul(tv1, tv0);
   auto tv6 = expand(
       tv2,
-      {IrBuilder::create<Int>(batch_size),
-       IrBuilder::create<Int>(channel_size),
-       IrBuilder::create<Int>(hw_size),
-       IrBuilder::create<Int>(hw_size)});
-  auto tv7 = div(tv6, IrBuilder::create<Double>(3136));
+      {IrBuilder::create<Val>(batch_size),
+       IrBuilder::create<Val>(channel_size),
+       IrBuilder::create<Val>(hw_size),
+       IrBuilder::create<Val>(hw_size)});
+  auto tv7 = div(tv6, IrBuilder::create<Val>(3136.0));
   auto tv8 = add(tv5, tv7);
   auto tv9 = sum(tv8, reduction_axes);
   auto tv10 = broadcast(tv4, {true, false, true, true});
@@ -7289,10 +7300,52 @@ TEST_F(NVFuserTest, FusionPredicateElimination8_CUDA) {
 
   const auto& compiled_executors =
       fec.getMostRecentKernelRuntime()->executors();
-  TORCH_CHECK(compiled_executors.size() == 1, "Unexpected scheduling");
-  TORCH_CHECK(
+  NVF_CHECK(compiled_executors.size() == 1, "Unexpected scheduling");
+  NVF_CHECK(
       !PredicatedChecker::isPredicated(tv6, compiled_executors.at(0).kernel()),
       "T6 should not be predicated");
+}
+
+TEST_F(NVFuserTest, FusionPredicateElimination9_CUDA) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const int M = 1024, split = 512;
+
+  // Algorithm
+  auto tv0 = makeContigConcreteTensor({M}, DataType::Float);
+  auto tv1 = set(tv0);
+
+  fusion->addInput(tv0);
+  fusion->addOutput(tv1);
+
+  // Schedule
+  auto tv0c = tv0->cacheAfter();
+  tv0c->setMemoryType(MemoryType::Shared);
+  tv0c->axis(-1)->parallelize(ParallelType::TIDx);
+
+  tv1->split(-1, split);
+  tv1->axis(-1)->parallelize(ParallelType::TIDx);
+
+  // Validation
+  at::manual_seed(0);
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({M}, options);
+
+  GpuLower gpulw(fusion.get());
+  // tv0c expectation: no predicate present as domain with TIDX parallel type
+  //  has the same extend as max extend stored for TIDx type in parallel domain
+  //  map
+  EXPECT_FALSE(PredicatedChecker::isPredicated(tv0c, gpulw));
+  // tv1 expectation: with a predicate, max extend for TIDx parallel type in
+  //  parallel domain map is not the same as the extend of domain parallized
+  //  with TIDx in this tensor
+  EXPECT_TRUE(PredicatedChecker::isPredicated(tv1, gpulw));
+
+  FusionExecutor fe;
+  fe.compileFusion(fusion.get(), {t0});
+  auto cg_outputs = fe.runFusion({t0});
+  testValidate(fusion.get(), cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionForceFp16Simple_CUDA) {
@@ -7329,7 +7382,7 @@ TEST_F(NVFuserTest, FusionForceFp16Simple_CUDA) {
   auto segmented_fusion = fec.getMostRecentKernelRuntime()->fusionSegments();
   for (auto edge : segmented_fusion->edges()) {
     auto edge_tv = edge->val->as<TensorView>();
-    TORCH_CHECK(edge_tv->getDataType() == DataType::Half);
+    NVF_CHECK(edge_tv->getDataType() == DataType::Half);
   }
 }
 
@@ -7374,7 +7427,7 @@ TEST_F(NVFuserTest, FusionForceBf16Simple_CUDA) {
   auto segmented_fusion = fec.getMostRecentKernelRuntime()->fusionSegments();
   for (auto edge : segmented_fusion->edges()) {
     auto edge_tv = edge->val->as<TensorView>();
-    TORCH_CHECK(edge_tv->getDataType() == DataType::BFloat16);
+    NVF_CHECK(edge_tv->getDataType() == DataType::BFloat16);
   }
 #else
   GTEST_SKIP() << "requires cuda 11.0 or newer toolkit";
@@ -7425,7 +7478,7 @@ TEST_F(NVFuserTest, FusionForceFp16NotAllCast_CUDA) {
     auto edge_tv = edge->val->as<TensorView>();
     if (edge_tv->getDataType() == DataType::Float) {
       auto consumer = *(complete_fusion->unordered_uses(edge_tv).begin());
-      TORCH_CHECK(consumer->isA<ReductionOp>());
+      NVF_CHECK(consumer->isA<ReductionOp>());
     }
   }
 }
@@ -7481,7 +7534,7 @@ TEST_F(NVFuserTest, FusionForceBf16NotAllCast_CUDA) {
     auto edge_tv = edge->val->as<TensorView>();
     if (edge_tv->getDataType() == DataType::Float) {
       auto consumer = *(complete_fusion->unordered_uses(edge_tv).begin());
-      TORCH_CHECK(consumer->isA<ReductionOp>());
+      NVF_CHECK(consumer->isA<ReductionOp>());
     }
   }
 #else
@@ -7500,10 +7553,10 @@ TEST_F(NVFuserTest, FusionBufferReuseBroadCastMultiVisit_CUDA) {
   fusion->addInput(tv0);
   fusion->addInput(tv1);
 
-  auto tv2 = mul(tv0, IrBuilder::create<Double>(2));
+  auto tv2 = mul(tv0, IrBuilder::create<Val>(2.0));
   auto tv3 = broadcast(tv2, {false, false, true});
   auto tv4 = add(tv3, tv1);
-  auto tv5 = mul(tv4, IrBuilder::create<Double>(3));
+  auto tv5 = mul(tv4, IrBuilder::create<Val>(3.0));
   fusion->addOutput(tv5);
 
   // t4 cannot inner re-use t2, because there's a broadcast
@@ -7534,17 +7587,17 @@ TEST_F(NVFuserTest, FusionBufferReuseStressTest_CUDA) {
   fusion->addInput(tv0);
   fusion->addInput(tv1);
 
-  auto tv2 = mul(tv0, IrBuilder::create<Double>(2));
-  auto tv3 = mul(tv0, IrBuilder::create<Double>(3));
+  auto tv2 = mul(tv0, IrBuilder::create<Val>(2.0));
+  auto tv3 = mul(tv0, IrBuilder::create<Val>(3.0));
   auto tv4 = mul(tv2, tv3);
   // Broadcast buffer can be reused through outer sharing
   auto tv5 = broadcast(tv4, {true, false, false});
-  auto tv6 = mul(tv5, IrBuilder::create<Double>(5));
+  auto tv6 = mul(tv5, IrBuilder::create<Val>(5.0));
   auto tv7 = mul(tv6, tv1);
-  mul(tv7, IrBuilder::create<Double>(7));
+  mul(tv7, IrBuilder::create<Val>(7.0));
   // tv9 shouldn't alias to avoid buffer over-subscription
   auto tv9 = broadcast(tv4, {true, false, false});
-  mul(tv9, IrBuilder::create<Double>(9));
+  mul(tv9, IrBuilder::create<Val>(9.0));
   auto tv11 = add(tv5, tv9);
   fusion->addOutput(tv7);
   fusion->addOutput(tv11);
@@ -7587,12 +7640,12 @@ TEST_F(NVFuserTest, FusionBufferReuseLargeBuffer_CUDA) {
 
   fusion->addInput(tv0);
 
-  auto tv1 = mul(tv0, IrBuilder::create<Double>(2));
-  auto tv2 = mul(tv1, IrBuilder::create<Double>(2));
-  auto tv3 = mul(tv2, IrBuilder::create<Double>(2));
-  auto tv4 = mul(tv3, IrBuilder::create<Double>(2));
-  auto tv5 = mul(tv4, IrBuilder::create<Double>(2));
-  auto tv6 = mul(tv5, IrBuilder::create<Double>(2));
+  auto tv1 = mul(tv0, IrBuilder::create<Val>(2.0));
+  auto tv2 = mul(tv1, IrBuilder::create<Val>(2.0));
+  auto tv3 = mul(tv2, IrBuilder::create<Val>(2.0));
+  auto tv4 = mul(tv3, IrBuilder::create<Val>(2.0));
+  auto tv5 = mul(tv4, IrBuilder::create<Val>(2.0));
+  auto tv6 = mul(tv5, IrBuilder::create<Val>(2.0));
 
   fusion->addOutput(tv6);
 
@@ -7622,12 +7675,12 @@ TEST_F(NVFuserTest, FusionBufferReuseNo2hop_CUDA) {
   fusion->addInput(tv0);
   fusion->addInput(tv1);
 
-  auto tv2 = mul(tv0, IrBuilder::create<Double>(2));
+  auto tv2 = mul(tv0, IrBuilder::create<Val>(2.0));
   auto tv3 = broadcast(tv2, {false, false, true});
   auto tv4 = add(tv3, tv1); // T4 to be inner aliased first, and
                             //  shouldn't outer alias on top
-  auto tv5 = mul(tv4, IrBuilder::create<Double>(3));
-  auto tv6 = mul(tv5, IrBuilder::create<Double>(3));
+  auto tv5 = mul(tv4, IrBuilder::create<Val>(3.0));
+  auto tv6 = mul(tv5, IrBuilder::create<Val>(3.0));
   fusion->addOutput(tv6);
 
   tv0->computeAt(tv6, 1, ComputeAtMode::BestEffort);
@@ -7655,8 +7708,8 @@ TEST_F(NVFuserTest, FusionBufferReuseAllocationOrder_CUDA) {
   fusion->addInput(tv0);
 
   auto tv1 = sum(tv0, {1});
-  auto tv2 = mul(tv1, IrBuilder::create<Double>(2));
-  auto tv3 = mul(tv2, IrBuilder::create<Double>(2));
+  auto tv2 = mul(tv1, IrBuilder::create<Val>(2.0));
+  auto tv3 = mul(tv2, IrBuilder::create<Val>(2.0));
 
   fusion->addOutput(tv3);
 
@@ -7690,9 +7743,9 @@ TEST_F(NVFuserTest, FusionBufferReuseLiveInterval_CUDA) {
 
   fusion->addInput(tv0);
 
-  auto tv1 = mul(tv0, IrBuilder::create<Double>(3));
-  auto tv2 = mul(tv1, IrBuilder::create<Double>(2));
-  auto tv3 = mul(tv2, IrBuilder::create<Double>(2));
+  auto tv1 = mul(tv0, IrBuilder::create<Val>(3.0));
+  auto tv2 = mul(tv1, IrBuilder::create<Val>(2.0));
+  auto tv3 = mul(tv2, IrBuilder::create<Val>(2.0));
   // tv1 used till here, cannot be reused by tv2 or tv3
   auto tv4 = mul(tv3, tv1);
 
@@ -7724,12 +7777,12 @@ TEST_F(NVFuserTest, FusionBufferReuseNoAcrossBroadcast_CUDA) {
   fusion->addInput(tv0);
   fusion->addInput(tv1);
 
-  auto tv2 = mul(tv0, IrBuilder::create<Double>(2));
-  auto tv3 = mul(tv0, IrBuilder::create<Double>(3));
+  auto tv2 = mul(tv0, IrBuilder::create<Val>(2.0));
+  auto tv3 = mul(tv0, IrBuilder::create<Val>(3.0));
   auto tv4 = mul(tv2, tv3);
   auto tv5 = broadcast(tv4, {false, false, true});
   auto tv6 = mul(tv5, tv1);
-  auto tv7 = mul(tv6, IrBuilder::create<Double>(7));
+  auto tv7 = mul(tv6, IrBuilder::create<Val>(7.0));
   fusion->addOutput(tv7);
 
   // tv6 shouldn't re-use t2 or t3 because of
@@ -7789,8 +7842,8 @@ TEST_F(NVFuserTest, FusionIssue1016_CUDA) {
   auto tv0 = makeSymbolicTensor(2);
   fusion.addInput(tv0);
 
-  auto tv1 = add(tv0, IrBuilder::create<Double>(1));
-  auto tv2 = add(tv1, IrBuilder::create<Double>(2));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
+  auto tv2 = add(tv1, IrBuilder::create<Val>(2.0));
 
   fusion.addOutput(tv2);
 
@@ -7821,7 +7874,7 @@ TEST_F(NVFuserTest, FusionIssue1021_CUDA) {
 
   auto tv0 = makeSymbolicTensor(1);
   fusion.addInput(tv0);
-  auto tv1 = add(tv0, IrBuilder::create<Double>(1));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
   auto tv2 = broadcast(tv1, {false, true});
   fusion.addOutput(tv2);
 
@@ -7857,7 +7910,7 @@ TEST_F(NVFuserTest, FusionNonUniqueThreadDim_CUDA) {
   auto tv1 = sum(tv0, {0});
   fusion->addOutput(tv1);
 
-  auto tv2 = add(tv0, IrBuilder::create<Double>(1));
+  auto tv2 = add(tv0, IrBuilder::create<Val>(1.0));
   fusion->addOutput(tv2);
 
   tv1->split(0, 8);
@@ -7888,8 +7941,8 @@ TEST_F(NVFuserTest, FusionParallelDimensionMap1_CUDA) {
 
   auto tv0 = makeSymbolicTensor(1);
   fusion->addInput(tv0);
-  auto tv1 = add(tv0, IrBuilder::create<Double>(1));
-  auto tv2 = add(tv0, IrBuilder::create<Double>(1));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
+  auto tv2 = add(tv0, IrBuilder::create<Val>(1.0));
   fusion->addOutput(tv1);
   fusion->addOutput(tv2);
 
@@ -7903,8 +7956,8 @@ TEST_F(NVFuserTest, FusionParallelDimensionMap1_CUDA) {
   GpuLower gpulw(fusion.get());
   const auto& pdmap = gpulw.parallelDimensionMap();
 
-  TORCH_CHECK(pdmap.isExact(ParallelType::TIDx));
-  TORCH_CHECK(
+  NVF_CHECK(pdmap.isExact(ParallelType::TIDx));
+  NVF_CHECK(
       pdmap.get(ParallelType::TIDx)->isA<NamedScalar>() &&
       pdmap.get(ParallelType::TIDx)->as<NamedScalar>()->name() == "blockDim.x");
 
@@ -7944,8 +7997,8 @@ TEST_F(NVFuserTest, FusionParallelDimensionMap2_CUDA) {
 
   GpuLower gpulw(fusion.get());
   const auto& pdmap = gpulw.parallelDimensionMap();
-  TORCH_CHECK(pdmap.isExact(ParallelType::TIDx));
-  TORCH_CHECK(
+  NVF_CHECK(pdmap.isExact(ParallelType::TIDx));
+  NVF_CHECK(
       pdmap.get(ParallelType::TIDx)->isA<NamedScalar>() &&
       pdmap.get(ParallelType::TIDx)->as<NamedScalar>()->name() == "blockDim.x");
 
@@ -7970,17 +8023,17 @@ TEST_F(NVFuserTest, FusionParallelDimensionMap3_CUDA) {
   auto tv0 = makeSymbolicTensor(1);
   fusion->addInput(tv0);
 
-  auto tv2 = add(tv0, IrBuilder::create<Double>(1));
+  auto tv2 = add(tv0, IrBuilder::create<Val>(1.0));
   fusion->addOutput(tv2);
-  auto tv3 = add(tv0, IrBuilder::create<Double>(1));
+  auto tv3 = add(tv0, IrBuilder::create<Val>(1.0));
   fusion->addOutput(tv3);
 
   tv2->split(0, 10);
   tv3->split(0, 20);
 
-  auto tv4 = add(tv0, IrBuilder::create<Double>(1));
+  auto tv4 = add(tv0, IrBuilder::create<Val>(1.0));
   fusion->addOutput(tv4);
-  auto tv5 = add(tv0, IrBuilder::create<Double>(1));
+  auto tv5 = add(tv0, IrBuilder::create<Val>(1.0));
   fusion->addOutput(tv5);
 
   // Not mapped but equal extent
@@ -8025,7 +8078,7 @@ TEST_F(NVFuserTest, FusionParallelDimensionMap4_CUDA) {
   fusion.addInput(tv0);
   auto tv1 = makeSymbolicTensor(2);
   fusion.addInput(tv1);
-  auto tv2 = add(tv0, IrBuilder::create<Double>(1));
+  auto tv2 = add(tv0, IrBuilder::create<Val>(1.0));
   auto tv3 = broadcast(tv2, {true, false});
   auto tv4 = add(tv3, tv1);
   fusion.addOutput(tv4);
@@ -8045,8 +8098,8 @@ TEST_F(NVFuserTest, FusionParallelDimensionMap4_CUDA) {
 
   GpuLower gpulw(&fusion);
   const auto& pdmap = gpulw.parallelDimensionMap();
-  TORCH_CHECK(!pdmap.isExact(ParallelType::TIDx));
-  TORCH_CHECK(
+  NVF_CHECK(!pdmap.isExact(ParallelType::TIDx));
+  NVF_CHECK(
       pdmap.get(ParallelType::TIDx)->isA<NamedScalar>() &&
       pdmap.get(ParallelType::TIDx)->as<NamedScalar>()->name() == "blockDim.x");
 
@@ -8086,12 +8139,12 @@ TEST_F(NVFuserTest, FusionParallelDimensionMap5_CUDA) {
 
   GpuLower gpulw(&fusion);
   const auto& pdmap = gpulw.parallelDimensionMap();
-  TORCH_CHECK(pdmap.isExact(ParallelType::TIDx));
-  TORCH_CHECK(pdmap.isExact(ParallelType::TIDy));
-  TORCH_CHECK(
+  NVF_CHECK(pdmap.isExact(ParallelType::TIDx));
+  NVF_CHECK(pdmap.isExact(ParallelType::TIDy));
+  NVF_CHECK(
       pdmap.get(ParallelType::TIDx)->isConst() &&
-      pdmap.get(ParallelType::TIDx)->as<Int>()->value().value() == 4);
-  TORCH_CHECK(
+      pdmap.get(ParallelType::TIDx)->value() == 4);
+  NVF_CHECK(
       pdmap.get(ParallelType::TIDy)->isA<NamedScalar>() &&
       pdmap.get(ParallelType::TIDy)->as<NamedScalar>()->name() == "blockDim.y");
 
@@ -8122,7 +8175,7 @@ TEST_F(NVFuserTest, FusionSegmenterCombineReductionsCycleRepro_CUDA) {
   auto t13 = makeSymbolicTensor(3, DataType::Half);
   auto t15 = makeSymbolicTensor(3, DataType::Half);
   auto t17 = makeSymbolicTensor(3, DataType::Half);
-  auto d56 = IrBuilder::create<Double>();
+  auto d56 = IrBuilder::create<Val>(DataType::Double);
 
   fusion.addInput(t0);
   fusion.addInput(t1);
@@ -8155,10 +8208,9 @@ TEST_F(NVFuserTest, FusionSegmenterCombineReductionsCycleRepro_CUDA) {
   auto t29 = mul(t25, t23);
   auto t30 = sum(t29, {2});
   auto t31 = broadcast(t30, {false, false, true});
-  auto d59 =
-      mul(t1->getRootDomain()[2]->extent(), IrBuilder::create<Double>(1));
+  auto d59 = mul(t1->getRootDomain()[2]->extent(), IrBuilder::create<Val>(1.0));
   auto t26 = mul(d59, t25);
-  auto txx = mul(t26, IrBuilder::create<Double>(1));
+  auto txx = mul(t26, IrBuilder::create<Val>(1.0));
   auto t33 = sub(txx, t28);
   auto d70 = unaryOp(UnaryOpType::Reciprocal, d59);
   auto t35 = mul(d70, t6);
@@ -8200,12 +8252,10 @@ TEST_F(NVFuserTest, FusionSegmenterCombineReductionsCycleRepro_CUDA) {
   std::vector<at::Tensor> aten_inputs = {
       at_t0, at_t1, at_t3, at_t5, at_t7, at_t11, at_t13, at_t15, at_t17};
 
-  c10::IValue val = at_d56;
-
   KernelArgumentHolder args;
   args.setDeviceIndex(0);
   args.push(aten_inputs);
-  args.push(val);
+  args.push(at_d56);
 
   for (auto i : c10::irange(5)) {
     (void)i; // Suppress unused variable warning
@@ -8221,16 +8271,16 @@ TEST_F(NVFuserTest, FusionSerialAndParallelIndexing_CUDA) {
   auto tv0 = makeSymbolicTensor(1);
   fusion.addInput(tv0);
 
-  auto tv1 = add(tv0, IrBuilder::create<Double>(1));
-  auto tv2 = add(tv1, IrBuilder::create<Double>(1));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
+  auto tv2 = add(tv1, IrBuilder::create<Val>(1.0));
   fusion.addOutput(tv2);
 
-  auto tv3 = add(tv0, IrBuilder::create<Double>(1));
-  auto tv4 = add(tv3, IrBuilder::create<Double>(1));
+  auto tv3 = add(tv0, IrBuilder::create<Val>(1.0));
+  auto tv4 = add(tv3, IrBuilder::create<Val>(1.0));
   fusion.addOutput(tv4);
 
-  auto tv5 = add(tv0, IrBuilder::create<Double>(1));
-  auto tv6 = add(tv5, IrBuilder::create<Double>(1));
+  auto tv5 = add(tv0, IrBuilder::create<Val>(1.0));
+  auto tv6 = add(tv5, IrBuilder::create<Val>(1.0));
   fusion.addOutput(tv6);
 
   // Case 1: local memory tensor computed serially and used by
@@ -8275,10 +8325,10 @@ TEST_F(NVFuserTest, FusionWARSyncAliasedSmem_CUDA) {
   auto tv0 = makeSymbolicTensor(1);
   fusion.addInput(tv0);
 
-  auto tv1 = add(tv0, IrBuilder::create<Double>(1));
-  auto tv2 = add(tv1, IrBuilder::create<Double>(1));
-  auto tv3 = add(tv2, IrBuilder::create<Double>(1));
-  auto tv4 = add(tv3, IrBuilder::create<Double>(1));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
+  auto tv2 = add(tv1, IrBuilder::create<Val>(1.0));
+  auto tv3 = add(tv2, IrBuilder::create<Val>(1.0));
+  auto tv4 = add(tv3, IrBuilder::create<Val>(1.0));
 
   fusion.addOutput(tv4);
 
@@ -8299,13 +8349,13 @@ TEST_F(NVFuserTest, FusionWARSyncAliasedSmem_CUDA) {
   for (const auto& kir_node : gpulw.kernel()->topLevelExprs()) {
     if (auto loop = dynamic_cast<kir::ForLoop*>(kir_node)) {
       const auto& body = loop->body().exprs();
-      TORCH_CHECK(!body.empty());
+      NVF_CHECK(!body.empty());
       auto last_expr = dynamic_cast<kir::BlockSync*>(body.back());
-      TORCH_CHECK(
+      NVF_CHECK(
           last_expr != nullptr,
           "Invalid expr found: ",
           body.back()->toString());
-      TORCH_CHECK(last_expr->isWarHazardSync(), "Not a sync for WAR hazard");
+      NVF_CHECK(last_expr->isWarHazardSync(), "Not a sync for WAR hazard");
     }
   }
 
@@ -8329,17 +8379,17 @@ TEST_F(NVFuserTest, FusionIssue1099_CUDA) {
   auto tv0 = makeSymbolicTensor(1);
   fusion.addInput(tv0);
 
-  auto tv1 = add(tv0, IrBuilder::create<Double>(1));
-  auto tv2 = add(tv1, IrBuilder::create<Double>(1));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
+  auto tv2 = add(tv1, IrBuilder::create<Val>(1.0));
   fusion.addOutput(tv2);
 
   auto tv3 = makeSymbolicTensor(1);
   fusion.addInput(tv3);
 
   // Just to make TIDx/y/z non-exact
-  auto tv4 = add(tv3, IrBuilder::create<Double>(1));
-  auto tv5 = add(tv4, IrBuilder::create<Double>(1));
-  auto tv6 = add(tv5, IrBuilder::create<Double>(1));
+  auto tv4 = add(tv3, IrBuilder::create<Val>(1.0));
+  auto tv5 = add(tv4, IrBuilder::create<Val>(1.0));
+  auto tv6 = add(tv5, IrBuilder::create<Val>(1.0));
   fusion.addOutput(tv6);
 
   tv2->split(0, 4);
@@ -8385,8 +8435,8 @@ TEST_F(NVFuserTest, FusionUnswitchPredicate_CUDA) {
   auto tv0 = makeSymbolicTensor(2);
   fusion.addInput(tv0);
 
-  auto tv1 = add(tv0, IrBuilder::create<Double>(1));
-  auto tv2 = add(tv1, IrBuilder::create<Double>(1));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
+  auto tv2 = add(tv1, IrBuilder::create<Val>(1.0));
   fusion.addOutput(tv2);
 
   tv2->split(0, 4);
@@ -8471,10 +8521,10 @@ TEST_F(NVFuserTest, FusionIssue1052_CUDA) {
   auto tv1 = makeSymbolicTensor(1);
   fusion.addInput(tv1);
 
-  auto tv2 = add(tv0, IrBuilder::create<Double>(1));
+  auto tv2 = add(tv0, IrBuilder::create<Val>(1.0));
   fusion.addOutput(tv2);
 
-  auto tv3 = add(tv1, IrBuilder::create<Double>(1));
+  auto tv3 = add(tv1, IrBuilder::create<Val>(1.0));
   fusion.addOutput(tv3);
 
   tv2->axis(-1)->parallelize(ParallelType::TIDx);
@@ -8562,7 +8612,7 @@ TEST_F(NVFuserTest, FusionPointwiseVectorize_CUDA) {
         break;
       }
     }
-    TORCH_CHECK(found_vec_in_input, "Expect input to be vectorized");
+    NVF_CHECK(found_vec_in_input, "Expect input to be vectorized");
   }
 
   for (auto id : y->getLeafDomain()) {
@@ -8570,7 +8620,7 @@ TEST_F(NVFuserTest, FusionPointwiseVectorize_CUDA) {
       return;
     }
   }
-  TORCH_CHECK(false, "Expect output to be vectorized");
+  NVF_CHECK(false, "Expect output to be vectorized");
 }
 
 TEST_F(NVFuserTest, FusionSmemAliasSerial_CUDA) {
@@ -8580,16 +8630,16 @@ TEST_F(NVFuserTest, FusionSmemAliasSerial_CUDA) {
   auto tv0 = makeSymbolicTensor(1);
   fusion.addInput(tv0);
 
-  auto tv1 = add(tv0, IrBuilder::create<Double>(1));
-  auto tv2 = add(tv1, IrBuilder::create<Double>(1));
-  auto tv3 = add(tv2, IrBuilder::create<Double>(1));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
+  auto tv2 = add(tv1, IrBuilder::create<Val>(1.0));
+  auto tv3 = add(tv2, IrBuilder::create<Val>(1.0));
 
   fusion.addOutput(tv3);
 
   // Just set the dimension of TIDx
   auto tv4 = makeSymbolicTensor(1);
   fusion.addInput(tv4);
-  auto tv5 = add(tv4, IrBuilder::create<Double>(1));
+  auto tv5 = add(tv4, IrBuilder::create<Val>(1.0));
   fusion.addOutput(tv5);
 
   tv1->setMemoryType(MemoryType::Shared);
@@ -8623,7 +8673,7 @@ TEST_F(NVFuserTest, FusionGridReductionWithNonExactParallelDimensions_CUDA) {
   auto tv0 = makeSymbolicTensor(1);
   fusion.addInput(tv0);
 
-  auto tv1 = add(tv0, IrBuilder::create<Double>(1));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
   fusion.addOutput(tv1);
 
   auto tv2 = makeSymbolicTensor(1);
@@ -8656,7 +8706,7 @@ TEST_F(NVFuserTest, FusionGridWelfordWithNonExactParallelDimensions_CUDA) {
   auto tv0 = makeSymbolicTensor(1);
   fusion.addInput(tv0);
 
-  auto tv1 = add(tv0, IrBuilder::create<Double>(1));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
   fusion.addOutput(tv1);
 
   auto tv2 = makeSymbolicTensor(1);
@@ -8694,12 +8744,12 @@ TEST_F(NVFuserTest, FusionGridReductionWithNonExactParallelDimensions2_CUDA) {
 
   auto tv2 = makeSymbolicTensor(3);
   fusion.addInput(tv2);
-  auto tv3 = add(tv2, IrBuilder::create<Double>(1));
+  auto tv3 = add(tv2, IrBuilder::create<Val>(1.0));
   fusion.addOutput(tv3);
 
   auto tv4 = makeSymbolicTensor(3);
   fusion.addInput(tv4);
-  auto tv5 = add(tv4, IrBuilder::create<Double>(1));
+  auto tv5 = add(tv4, IrBuilder::create<Val>(1.0));
   fusion.addOutput(tv5);
 
   tv1->axis(0)->parallelize(ParallelType::BIDx);
@@ -8743,12 +8793,12 @@ TEST_F(NVFuserTest, FusionGridWelfordWithNonExactParallelDimensions2_CUDA) {
 
   auto tv2 = makeSymbolicTensor(3);
   fusion.addInput(tv2);
-  auto tv3 = add(tv2, IrBuilder::create<Double>(1));
+  auto tv3 = add(tv2, IrBuilder::create<Val>(1.0));
   fusion.addOutput(tv3);
 
   auto tv4 = makeSymbolicTensor(3);
   fusion.addInput(tv4);
-  auto tv5 = add(tv4, IrBuilder::create<Double>(1));
+  auto tv5 = add(tv4, IrBuilder::create<Val>(1.0));
   fusion.addOutput(tv5);
 
   tvs.avg->axis(0)->parallelize(ParallelType::BIDx);
@@ -8789,18 +8839,18 @@ TEST_F(NVFuserTest, FusionPredicateParallelizedDomains_CUDA) {
   fusion.addInput(tv0);
 
   // Just to make TIDx/y/z non-exact
-  auto tv1 = add(tv0, IrBuilder::create<Double>(1));
-  auto tv2 = add(tv1, IrBuilder::create<Double>(1));
-  auto tv3 = add(tv2, IrBuilder::create<Double>(1));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
+  auto tv2 = add(tv1, IrBuilder::create<Val>(1.0));
+  auto tv3 = add(tv2, IrBuilder::create<Val>(1.0));
   fusion.addOutput(tv3);
 
   auto tv4 = makeSymbolicTensor(1);
   fusion.addInput(tv4);
 
-  auto tv5 = add(tv4, IrBuilder::create<Double>(1));
-  auto tv6 = add(tv5, IrBuilder::create<Double>(1));
-  auto tv7 = add(tv6, IrBuilder::create<Double>(1));
-  auto tv8 = add(tv7, IrBuilder::create<Double>(1));
+  auto tv5 = add(tv4, IrBuilder::create<Val>(1.0));
+  auto tv6 = add(tv5, IrBuilder::create<Val>(1.0));
+  auto tv7 = add(tv6, IrBuilder::create<Val>(1.0));
+  auto tv8 = add(tv7, IrBuilder::create<Val>(1.0));
   auto tv9 = sum(tv8, {0});
   fusion.addOutput(tv9);
 
@@ -8855,16 +8905,16 @@ TEST_F(NVFuserTest, FusionSmemPredicateUnswitch_CUDA) {
   auto tv1 = makeSymbolicTensor(1);
   fusion.addInput(tv1);
 
-  auto tv2 = add(tv0, IrBuilder::create<Double>(1));
-  auto tv3 = add(tv2, IrBuilder::create<Double>(1));
-  auto tv4 = add(tv3, IrBuilder::create<Double>(1));
-  auto tv5 = add(tv4, IrBuilder::create<Double>(1));
+  auto tv2 = add(tv0, IrBuilder::create<Val>(1.0));
+  auto tv3 = add(tv2, IrBuilder::create<Val>(1.0));
+  auto tv4 = add(tv3, IrBuilder::create<Val>(1.0));
+  auto tv5 = add(tv4, IrBuilder::create<Val>(1.0));
   fusion.addOutput(tv5);
 
   // Just to make TIDx/y/z non-exact
-  auto tvx = add(tv1, IrBuilder::create<Double>(1));
-  auto tvy = add(tvx, IrBuilder::create<Double>(1));
-  auto tvz = add(tvy, IrBuilder::create<Double>(1));
+  auto tvx = add(tv1, IrBuilder::create<Val>(1.0));
+  auto tvy = add(tvx, IrBuilder::create<Val>(1.0));
+  auto tvz = add(tvy, IrBuilder::create<Val>(1.0));
   fusion.addOutput(tvz);
 
   tv5->split(0, 4);
@@ -8911,17 +8961,17 @@ TEST_F(NVFuserTest, FusionFloatPow_CUDA) {
   auto tv0 = makeSymbolicTensor(1);
   fusion.addInput(tv0);
 
-  auto tv1 = binaryOp(BinaryOpType::Pow, tv0, IrBuilder::create<Int>(4));
+  auto tv1 = binaryOp(BinaryOpType::Pow, tv0, IrBuilder::create<Val>(4L));
   // To check if pow(tv0, 2) is replaced with tv0 * tv0
-  auto tv2 = binaryOp(BinaryOpType::Pow, tv0, IrBuilder::create<Int>(2));
+  auto tv2 = binaryOp(BinaryOpType::Pow, tv0, IrBuilder::create<Val>(2L));
   // To check if pow(tv0, 2.0) is replaced with tv0 * tv0
-  auto tv3 = binaryOp(BinaryOpType::Pow, tv0, IrBuilder::create<Double>(2));
-  auto tv4 = binaryOp(BinaryOpType::Pow, tv0, IrBuilder::create<Int>(3));
-  auto tv5 = binaryOp(BinaryOpType::Pow, tv0, IrBuilder::create<Double>(3));
+  auto tv3 = binaryOp(BinaryOpType::Pow, tv0, IrBuilder::create<Val>(2.0));
+  auto tv4 = binaryOp(BinaryOpType::Pow, tv0, IrBuilder::create<Val>(3L));
+  auto tv5 = binaryOp(BinaryOpType::Pow, tv0, IrBuilder::create<Val>(3.0));
   auto s = binaryOp(
       BinaryOpType::Pow,
-      IrBuilder::create<Double>(3),
-      IrBuilder::create<Double>(3));
+      IrBuilder::create<Val>(3.0),
+      IrBuilder::create<Val>(3.0));
   auto tv6 = add(tv0, s);
 
   fusion.addOutput(tv1);
@@ -8997,7 +9047,7 @@ TEST_F(NVFuserTest, FusionChannelsLastParser_CUDA) {
   // This test may not pass if using a custom block sync as there may
   // be additional calls. Skip the test as it's not specifically
   // relevant with block synchronizatin.
-  if (std::getenv("PYTORCH_NVFUSER_USE_BLOCK_SYNC_ATOMIC")) {
+  if (getNvFuserEnv("USE_BLOCK_SYNC_ATOMIC")) {
     return;
   }
   auto g = std::make_shared<torch::jit::Graph>();
@@ -9043,23 +9093,23 @@ TEST_F(NVFuserTest, FusionChannelsLastParser_CUDA) {
   // 2. use a fuzzy compare (ignore non-significant whitespaces for example)
   const std::string expected_kernel = R"(
 __global__ void CUDAGeneratedKernel(Tensor<__half, 4, 4> T0, Tensor<__half, 4, 4> T2, Tensor<__half, 4, 4> T7) {
-  int64_t i0;
-  i0 = T0.size[2] * T0.size[1];
-  int64_t i1;
+  nvfuser_index_t i0;
+  i0 = T0.logical_size[2] * T0.logical_size[1];
+  nvfuser_index_t i1;
   i1 = ((nvfuser_index_t)threadIdx.x) + (128 * ((nvfuser_index_t)blockIdx.x));
-  int64_t i2;
-  i2 = (T0.size[1] * T0.size[2]) * T0.size[3];
-  int64_t i3;
+  nvfuser_index_t i2;
+  i2 = (T0.logical_size[1] * T0.logical_size[2]) * T0.logical_size[3];
+  nvfuser_index_t i3;
   i3 = i1 % i2;
-  int64_t i4;
-  i4 = T0.size[2] * T0.size[3];
-  int64_t i5;
+  nvfuser_index_t i4;
+  i4 = T0.logical_size[2] * T0.logical_size[3];
+  nvfuser_index_t i5;
   i5 = i3 % i4;
-  if ((i1 < (((T0.size[0] * T0.size[1]) * T0.size[2]) * T0.size[3]))) {
+  if ((i1 < (((T0.logical_size[0] * T0.logical_size[1]) * T0.logical_size[2]) * T0.logical_size[3]))) {
     __half T9[1];
     T9[0] = 0;
     T9[0]
-       = T2[(((((i0 * T0.size[3]) * (i1 / i2)) + (i0 * (i5 % T0.size[3]))) + (T0.size[2] * (i3 / i4))) + (i5 / T0.size[3]))];
+       = T2[(((((i0 * T0.logical_size[3]) * (i1 / i2)) + (i0 * (i5 % T0.logical_size[3]))) + (T0.logical_size[2] * (i3 / i4))) + (i5 / T0.logical_size[3]))];
     __half T8[1];
     T8[0] = 0;
     T8[0]
@@ -9096,7 +9146,7 @@ __global__ void CUDAGeneratedKernel(Tensor<__half, 4, 4> T0, Tensor<__half, 4, 4
   // fe.compileFusion(fusion.get());
   // auto outputs = fe.runFusion({input0, input1}, lparams);
   // at::Tensor output_ref = (input0 * input1).relu();
-  // TORCH_CHECK(output_ref.equal(outputs[0]));
+  // NVF_CHECK(output_ref.equal(outputs[0]));
 }
 
 TEST_F(NVFuserTest, FusionThreadPredicateUnswitch_CUDA) {
@@ -9107,8 +9157,8 @@ TEST_F(NVFuserTest, FusionThreadPredicateUnswitch_CUDA) {
   fusion.addInput(tv0);
 
   auto tv1 = sum(tv0, {1});
-  auto tv2 = add(tv1, IrBuilder::create<Double>(1));
-  auto tv3 = add(tv2, IrBuilder::create<Double>(1));
+  auto tv2 = add(tv1, IrBuilder::create<Val>(1.0));
+  auto tv3 = add(tv2, IrBuilder::create<Val>(1.0));
 
   fusion.addOutput(tv3);
 
@@ -9136,7 +9186,7 @@ TEST_F(NVFuserTest, FusionNonContigOutputs_CUDA) {
   auto tv0 = makeSymbolicTensor(1);
   fusion.addInput(tv0);
 
-  auto tv1 = add(tv0, IrBuilder::create<Double>(1));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
   fusion.addOutput(tv1);
 
   tv1->setContiguity(false);
@@ -9151,9 +9201,9 @@ TEST_F(NVFuserTest, FusionNonContigOutputs_CUDA) {
 
   // Returned outputs should only contain one tensor that is the same
   // as the output tensor given to runFusion
-  TORCH_CHECK(returned_outputs.size() == 1);
-  TORCH_CHECK(returned_outputs[0].is_same(at_output));
-  TORCH_CHECK(!returned_outputs[0].is_contiguous());
+  NVF_CHECK(returned_outputs.size() == 1);
+  NVF_CHECK(returned_outputs[0].is_same(at_output));
+  NVF_CHECK(!returned_outputs[0].is_contiguous());
 
   auto at_ref = at_input + 1;
 
@@ -9177,7 +9227,7 @@ TEST_F(NVFuserTest, FusionTestWarpSoftMax_CUDA) {
 
   // Schedule through magic scheduler
   SchedulerRuntimeInfo runtime_info(&fusion, aten_inputs);
-  TORCH_CHECK(SchedulerEntry::canSchedule(
+  NVF_CHECK(SchedulerEntry::canSchedule(
       ScheduleHeuristic::Persistent, &fusion, runtime_info));
   auto scheduler = SchedulerEntry::makeEntry(
       ScheduleHeuristic::Persistent, &fusion, runtime_info);
@@ -9212,9 +9262,9 @@ TEST_F(NVFuserTest, FusionIssue1133_CUDA) {
   auto tv0 = makeSymbolicTensor(2);
   fusion.addInput(tv0);
 
-  auto tv1 = add(tv0, IrBuilder::create<Double>(1));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
   auto tv2 = sum(tv1, {1});
-  auto tv3 = add(tv2, IrBuilder::create<Double>(1));
+  auto tv3 = add(tv2, IrBuilder::create<Val>(1.0));
 
   fusion.addOutput(tv3);
 
@@ -9243,31 +9293,26 @@ TEST_F(NVFuserTest, FusionIssue1133_CUDA) {
       if (!(alloc->buffer()->name() == 1 || alloc->buffer()->name() == 2)) {
         // There should be no allocation other than those for tv1 and tv2 and
         // hoisted indices
-        TORCH_CHECK(
-            alloc->buffer()->isIntegralScalar() || alloc->buffer()->isABool(),
-            "Invalid allocation detected");
+        NVF_CHECK(
+            !alloc->buffer()->isA<TensorView>(), "Invalid allocation detected");
       }
-      TORCH_CHECK(size->isA<Int>(), "Invalid allocation size");
-      TORCH_CHECK(size->as<Int>()->isConst(), "Allocation not constant");
-      auto size_int = size->as<Int>()->value().value();
+      NVF_CHECK(size->isConst(), "Allocation not constant");
+      auto size_int = size->value();
       if (alloc->buffer()->name() == 1) {
-        TORCH_CHECK(
+        NVF_CHECK(
             size_int == split_factor,
             "Invalid allocation size: ",
-            size->as<Int>()->value().value());
+            size->value());
         tv1_validated = true;
       } else {
-        TORCH_CHECK(
-            size_int == 1,
-            "Invalid allocation size: ",
-            size->as<Int>()->value().value());
+        NVF_CHECK(size_int == 1, "Invalid allocation size: ", size->value());
         tv2_validated = true;
       }
     }
   }
 
-  TORCH_CHECK(tv1_validated, "Failed to validate tv1 allocation");
-  TORCH_CHECK(tv2_validated, "Failed to validate tv2 allocation");
+  NVF_CHECK(tv1_validated, "Failed to validate tv1 allocation");
+  NVF_CHECK(tv2_validated, "Failed to validate tv2 allocation");
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({99, 101}, options);
@@ -9279,6 +9324,8 @@ TEST_F(NVFuserTest, FusionIssue1133_CUDA) {
 
   auto ref = (t0 + 1).sum({1}) + 1;
 
+  GTEST_SKIP() << "NOTE: disabling 1133 test for cuda12.2 failure. "
+               << "See issue: https://github.com/NVIDIA/Fuser/issues/615";
   testValidate(&fusion, outputs, aten_inputs, {ref}, __LINE__, __FILE__);
 }
 
@@ -9346,19 +9393,19 @@ TEST_F(NVFuserTest, FusionPersistentBufferCalculation1_CUDA) {
   auto& projectable = persistent_buffer_info.projectable_persistent_buffers;
   auto& projectable_inputs = persistent_buffer_info.projectable_buffer_inputs;
 
-  TORCH_INTERNAL_ASSERT(buffers.size() == 1);
-  TORCH_INTERNAL_ASSERT(resolution.size() == 1 && resolution[0].size() == 1);
-  TORCH_INTERNAL_ASSERT(projectable.size() == 1);
-  TORCH_INTERNAL_ASSERT(projectable_inputs.size() == 1);
+  NVF_ERROR(buffers.size() == 1);
+  NVF_ERROR(resolution.size() == 1 && resolution[0].size() == 1);
+  NVF_ERROR(projectable.size() == 1);
+  NVF_ERROR(projectable_inputs.size() == 1);
 
-  TORCH_INTERNAL_ASSERT(isTvWithinVec(buffers, tv1));
-  TORCH_INTERNAL_ASSERT(isTvWithinVec(projectable, tv1));
-  TORCH_INTERNAL_ASSERT(isTvWithinVec(projectable_inputs, tv0));
+  NVF_ERROR(isTvWithinVec(buffers, tv1));
+  NVF_ERROR(isTvWithinVec(projectable, tv1));
+  NVF_ERROR(isTvWithinVec(projectable_inputs, tv0));
 
   auto tv1_resolution_it = tvEntryInVecVec(resolution, buffers, tv1);
-  TORCH_INTERNAL_ASSERT(tv1_resolution_it != resolution.end())
+  NVF_ERROR(tv1_resolution_it != resolution.end())
 
-  TORCH_INTERNAL_ASSERT(isTvWithinVec(*tv1_resolution_it, tv5));
+  NVF_ERROR(isTvWithinVec(*tv1_resolution_it, tv5));
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor aten_t0 = at::randn({99, 101}, options);
@@ -9368,10 +9415,10 @@ TEST_F(NVFuserTest, FusionPersistentBufferCalculation1_CUDA) {
   auto persistent_buffer_size =
       persistentBufferSize(&fusion, runtime_info, persistent_buffer_info);
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       persistent_buffer_size.persistent_buffer_size ==
       static_cast<int64_t>(aten_t0.size(1) * dataTypeSize(DataType::Float)));
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       persistent_buffer_size.projected_persistent_buffer_size ==
       static_cast<int64_t>(aten_t0.size(1) * dataTypeSize(DataType::Float)));
 }
@@ -9409,19 +9456,19 @@ TEST_F(NVFuserTest, FusionPersistentBufferCalculation2_CUDA) {
   auto& projectable = persistent_buffer_info.projectable_persistent_buffers;
   auto& projectable_inputs = persistent_buffer_info.projectable_buffer_inputs;
 
-  TORCH_INTERNAL_ASSERT(buffers.size() == 1);
-  TORCH_INTERNAL_ASSERT(resolution.size() == 1 && resolution[0].size() == 1);
-  TORCH_INTERNAL_ASSERT(projectable.size() == 1);
-  TORCH_INTERNAL_ASSERT(projectable_inputs.size() == 1);
+  NVF_ERROR(buffers.size() == 1);
+  NVF_ERROR(resolution.size() == 1 && resolution[0].size() == 1);
+  NVF_ERROR(projectable.size() == 1);
+  NVF_ERROR(projectable_inputs.size() == 1);
 
-  TORCH_INTERNAL_ASSERT(isTvWithinVec(buffers, tv1));
-  TORCH_INTERNAL_ASSERT(isTvWithinVec(projectable, tv1));
-  TORCH_INTERNAL_ASSERT(isTvWithinVec(projectable_inputs, tv0));
+  NVF_ERROR(isTvWithinVec(buffers, tv1));
+  NVF_ERROR(isTvWithinVec(projectable, tv1));
+  NVF_ERROR(isTvWithinVec(projectable_inputs, tv0));
 
   auto tv1_resolution_it = tvEntryInVecVec(resolution, buffers, tv1);
-  TORCH_INTERNAL_ASSERT(tv1_resolution_it != resolution.end())
+  NVF_ERROR(tv1_resolution_it != resolution.end())
 
-  TORCH_INTERNAL_ASSERT(isTvWithinVec(*tv1_resolution_it, tv5));
+  NVF_ERROR(isTvWithinVec(*tv1_resolution_it, tv5));
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   at::Tensor aten_t0 = at::randn({99, 101}, options);
@@ -9431,10 +9478,10 @@ TEST_F(NVFuserTest, FusionPersistentBufferCalculation2_CUDA) {
   auto persistent_buffer_size =
       persistentBufferSize(&fusion, runtime_info, persistent_buffer_info);
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       persistent_buffer_size.persistent_buffer_size ==
       static_cast<int64_t>(aten_t0.size(1) * dataTypeSize(DataType::Float)));
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       persistent_buffer_size.projected_persistent_buffer_size ==
       static_cast<int64_t>(aten_t0.size(1) * dataTypeSize(DataType::Half)));
 }
@@ -9484,27 +9531,26 @@ TEST_F(NVFuserTest, FusionPersistentBufferCalculation3_CUDA) {
   auto& projectable = persistent_buffer_info.projectable_persistent_buffers;
   auto& projectable_inputs = persistent_buffer_info.projectable_buffer_inputs;
 
-  TORCH_INTERNAL_ASSERT(buffers.size() == 2);
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(buffers.size() == 2);
+  NVF_ERROR(
       resolution.size() == 2 && resolution[0].size() == 1 &&
       resolution[1].size() == 1);
-  TORCH_INTERNAL_ASSERT(projectable.size() == 1);
-  TORCH_INTERNAL_ASSERT(projectable_inputs.size() == 1);
+  NVF_ERROR(projectable.size() == 1);
+  NVF_ERROR(projectable_inputs.size() == 1);
 
-  TORCH_INTERNAL_ASSERT(
-      isTvWithinVec(buffers, tv1) && isTvWithinVec(buffers, tv7));
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(isTvWithinVec(buffers, tv1) && isTvWithinVec(buffers, tv7));
+  NVF_ERROR(
       isTvWithinVec(projectable, tv1) && !isTvWithinVec(projectable, tv7));
 
-  TORCH_INTERNAL_ASSERT(isTvWithinVec(projectable_inputs, tv0));
+  NVF_ERROR(isTvWithinVec(projectable_inputs, tv0));
 
   auto tv1_resolution_it = tvEntryInVecVec(resolution, buffers, tv1);
-  TORCH_INTERNAL_ASSERT(tv1_resolution_it != resolution.end())
-  TORCH_INTERNAL_ASSERT(isTvWithinVec(*tv1_resolution_it, tv9));
+  NVF_ERROR(tv1_resolution_it != resolution.end())
+  NVF_ERROR(isTvWithinVec(*tv1_resolution_it, tv9));
 
   auto tv7_resolution_it = tvEntryInVecVec(resolution, buffers, tv7);
-  TORCH_INTERNAL_ASSERT(tv7_resolution_it != resolution.end())
-  TORCH_INTERNAL_ASSERT(isTvWithinVec(*tv7_resolution_it, tv13));
+  NVF_ERROR(tv7_resolution_it != resolution.end())
+  NVF_ERROR(isTvWithinVec(*tv7_resolution_it, tv13));
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   at::Tensor aten_t0 = at::randn({99, 101}, options);
@@ -9515,11 +9561,11 @@ TEST_F(NVFuserTest, FusionPersistentBufferCalculation3_CUDA) {
   auto persistent_buffer_size =
       persistentBufferSize(&fusion, runtime_info, persistent_buffer_info);
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       persistent_buffer_size.persistent_buffer_size ==
       static_cast<int64_t>(
           aten_t0.size(1) * dataTypeSize(DataType::Float) * 2));
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       persistent_buffer_size.projected_persistent_buffer_size ==
       static_cast<int64_t>(
           aten_t0.size(1) *
@@ -9563,28 +9609,26 @@ TEST_F(NVFuserTest, FusionPersistentBufferCalculation4_CUDA) {
   auto& projectable = persistent_buffer_info.projectable_persistent_buffers;
   auto& projectable_inputs = persistent_buffer_info.projectable_buffer_inputs;
 
-  TORCH_INTERNAL_ASSERT(buffers.size() == 2);
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(buffers.size() == 2);
+  NVF_ERROR(
       resolution.size() == 2 && resolution[0].size() == 1 &&
       resolution[1].size() == 1);
 
-  TORCH_INTERNAL_ASSERT(projectable.size() == 2);
-  TORCH_INTERNAL_ASSERT(projectable_inputs.size() == 1);
+  NVF_ERROR(projectable.size() == 2);
+  NVF_ERROR(projectable_inputs.size() == 1);
 
-  TORCH_INTERNAL_ASSERT(
-      isTvWithinVec(buffers, tv1) && isTvWithinVec(buffers, tv2));
-  TORCH_INTERNAL_ASSERT(
-      isTvWithinVec(projectable, tv1) && isTvWithinVec(projectable, tv2));
+  NVF_ERROR(isTvWithinVec(buffers, tv1) && isTvWithinVec(buffers, tv2));
+  NVF_ERROR(isTvWithinVec(projectable, tv1) && isTvWithinVec(projectable, tv2));
 
-  TORCH_INTERNAL_ASSERT(isTvWithinVec(projectable_inputs, tv0));
+  NVF_ERROR(isTvWithinVec(projectable_inputs, tv0));
 
   auto tv1_resolution_it = tvEntryInVecVec(resolution, buffers, tv1);
-  TORCH_INTERNAL_ASSERT(tv1_resolution_it != resolution.end())
-  TORCH_INTERNAL_ASSERT(isTvWithinVec(*tv1_resolution_it, tv6));
+  NVF_ERROR(tv1_resolution_it != resolution.end())
+  NVF_ERROR(isTvWithinVec(*tv1_resolution_it, tv6));
 
   auto tv2_resolution_it = tvEntryInVecVec(resolution, buffers, tv2);
-  TORCH_INTERNAL_ASSERT(tv2_resolution_it != resolution.end())
-  TORCH_INTERNAL_ASSERT(isTvWithinVec(*tv2_resolution_it, tv8));
+  NVF_ERROR(tv2_resolution_it != resolution.end())
+  NVF_ERROR(isTvWithinVec(*tv2_resolution_it, tv8));
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   at::Tensor aten_t0 = at::randn({99, 101}, options);
@@ -9594,12 +9638,12 @@ TEST_F(NVFuserTest, FusionPersistentBufferCalculation4_CUDA) {
   auto persistent_buffer_size =
       persistentBufferSize(&fusion, runtime_info, persistent_buffer_info);
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       persistent_buffer_size.persistent_buffer_size ==
       static_cast<int64_t>(
           aten_t0.size(1) * dataTypeSize(DataType::Float) * 2));
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       persistent_buffer_size.projected_persistent_buffer_size ==
       static_cast<int64_t>(aten_t0.size(1) * dataTypeSize(DataType::Half)));
 }
@@ -9631,10 +9675,10 @@ TEST_F(NVFuserTest, FusionPersistentBufferProjection_CUDA) {
 
   // Projection should have broken these dependencies
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       std::find(tv5_producers.begin(), tv5_producers.end(), tv1) ==
       tv5_producers.end());
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       std::find(tv7_producers.begin(), tv7_producers.end(), tv2) ==
       tv7_producers.end());
 
@@ -9690,24 +9734,24 @@ TEST_F(NVFuserTest, FusionPersistentBufferProjection2_CUDA) {
 
   auto persistent_info = scheduler_utils::persistentBuffers(&fusion);
 
-  TORCH_CHECK(persistent_info.persistent_buffers.size() == 2);
+  NVF_CHECK(persistent_info.persistent_buffers.size() == 2);
   for (auto tv : persistent_info.persistent_buffers) {
-    TORCH_CHECK(
+    NVF_CHECK(
         tv == tv4 || tv == tv1,
         "Unexpected persistent buffer: ",
         tv->toString());
   }
 
-  TORCH_CHECK(persistent_info.projectable_persistent_buffers.size() == 1);
+  NVF_CHECK(persistent_info.projectable_persistent_buffers.size() == 1);
   for (auto tv : persistent_info.projectable_persistent_buffers) {
-    TORCH_CHECK(
+    NVF_CHECK(
         tv == tv4,
         "Unexpected projectable persistent buffer: ",
         tv->toString());
   }
 
   for (auto tv : persistent_info.projectable_buffer_inputs) {
-    TORCH_CHECK(
+    NVF_CHECK(
         tv == tv0 || tv == tv1,
         "Unexpected projectable buffer input: ",
         tv->toString());
@@ -9724,7 +9768,7 @@ TEST_F(NVFuserTest, FusionPersistentBufferProjection2_CUDA) {
   auto projected_size = persistent_buffer_size.projected_persistent_buffer_size;
   auto expected_size =
       static_cast<int64_t>(shape[1] * 2 * dataTypeSize(DataType::Half));
-  TORCH_CHECK(
+  NVF_CHECK(
       projected_size == expected_size,
       "Buffer projection failure. Expected size: ",
       expected_size,
@@ -9743,11 +9787,11 @@ TEST_F(NVFuserTest, FusionIssue1223_CUDA) {
   auto tv0 = makeContigTensor(2);
   fusion.addInput(tv0);
 
-  auto tv1 = add(tv0, IrBuilder::create<Double>(1));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
   auto tv2 = sum(tv1, {0, 1});
   fusion.addOutput(tv2);
 
-  auto tv3 = add(tv0, IrBuilder::create<Double>(0));
+  auto tv3 = add(tv0, IrBuilder::create<Val>(0.0));
   fusion.addOutput(tv3);
 
   tv2->split(0, 4);
@@ -9796,7 +9840,7 @@ TEST_F(NVFuserTest, FusionRfactorPredication1_CUDA) {
   auto tv0 = makeContigTensor(1);
   fusion.addInput(tv0);
 
-  auto tv1 = add(tv0, IrBuilder::create<Double>(1));
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
   auto tv2 = min(tv1, {0});
 
   fusion.addOutput(tv2);
@@ -9805,7 +9849,7 @@ TEST_F(NVFuserTest, FusionRfactorPredication1_CUDA) {
   auto tv3 = makeContigTensor(1);
   fusion.addInput(tv3);
 
-  auto tv4 = add(tv3, IrBuilder::create<Double>(1));
+  auto tv4 = add(tv3, IrBuilder::create<Val>(1.0));
   fusion.addOutput(tv4);
 
   tv2->split(0, 4);
@@ -9847,7 +9891,7 @@ TEST_F(NVFuserTest, FusionRfactorPredication2_CUDA) {
   auto tv2 = makeContigTensor(1);
   fusion.addInput(tv2);
 
-  auto tv3 = add(tv2, IrBuilder::create<Double>(1));
+  auto tv3 = add(tv2, IrBuilder::create<Val>(1.0));
   fusion.addOutput(tv3);
 
   tv1->split(0, 4);

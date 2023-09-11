@@ -17,13 +17,12 @@
 #include <limits>
 #include <set>
 
-namespace nvfuser {
-namespace ir_utils {
+namespace nvfuser::ir_utils {
 
 std::vector<int64_t> normalizeNew2Old(
     const std::vector<int64_t>& new2old_in,
     size_t ndims) {
-  TORCH_CHECK(
+  NVF_CHECK(
       new2old_in.size() == ndims,
       "There must be a transpose mapping for each dimension in domain");
 
@@ -36,7 +35,7 @@ std::vector<int64_t> normalizeNew2Old(
       [ndims](int64_t entry) { return entry < 0 ? entry + ndims : entry; });
 
   // Check if any adjusted values are < 0, or >= nDims, which are invalid
-  TORCH_CHECK(
+  NVF_CHECK(
       std::none_of(
           new2old.begin(),
           new2old.end(),
@@ -55,7 +54,7 @@ std::vector<int64_t> normalizeNew2Old(
       [](int64_t entry) { return entry; });
 
   // Error out if duplicate values are found.
-  TORCH_CHECK(
+  NVF_CHECK(
       new2old.size() == ndims && old_pos_set.size() == new2old.size(),
       "Duplicate entries in transformation map.");
 
@@ -82,7 +81,7 @@ std::vector<int> normalizeOld2New(
 
   // Check if any adjusted values are < 0, or >= nDims, which are invalid
 
-  TORCH_CHECK(
+  NVF_CHECK(
       std::none_of(
           old2new.begin(),
           old2new.end(),
@@ -113,7 +112,7 @@ std::vector<int> normalizeOld2New(
       });
 
   // Error out if duplicate values are found.
-  TORCH_CHECK(
+  NVF_CHECK(
       old_pos_set.size() == old2new.size() &&
           new_pos_set.size() == old2new.size(),
       "Duplicate entries in transformation map sent to TensorView reorder.");
@@ -165,7 +164,7 @@ namespace ValReplacement {
 struct SubstituteInExpr : public OptOutMutator {
  public:
   static Expr* subsitute(Expr* expr, Val* reference, Val* substitute) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         expr != nullptr && reference != nullptr && substitute != nullptr,
         "Nullptr arg found.");
     SubstituteInExpr sie(reference, substitute);
@@ -201,7 +200,7 @@ Expr* replaceValInExpr(Expr* expr, Val* reference, Val* substitute) {
 TensorView* rfactorHelper(
     TensorView* reduction_tv,
     const std::vector<int>& axes) {
-  TORCH_INTERNAL_ASSERT(reduction_tv->definition() != nullptr);
+  NVF_ERROR(reduction_tv->definition() != nullptr);
   const bool has_multiple_tvs = reduction_tv->definition()->inputs().size() > 1;
   if (!has_multiple_tvs) {
     return reduction_tv->rFactor(axes);
@@ -464,7 +463,7 @@ class ValReplacementMutator : private OptOutMutator {
     // typically not used by anything else. If we don't grab that count, then it
     // would be a tensorview that doesn't get updated extents. Therefore, first
     // grab all leaves towards outputs and grab stmts from there.
-    auto stmts = StmtSort::getStmts(fusion, allLeafOuts(fusion), true, true);
+    auto stmts = StmtSort::getStmtsTo(fusion, allLeafOuts(fusion), true, true);
 
     // Some fusions, such as standalone rand_like, can have disconnected DAG, so
     // we need some mechanism to make sure our replacement set is as complete as
@@ -482,20 +481,21 @@ class ValReplacementMutator : private OptOutMutator {
         more.emplace_back(v);
       }
     }
-    auto more_stmts = StmtSort::getStmts(fusion, more, true, true);
+    auto more_stmts = StmtSort::getStmtsTo(fusion, more, true, true);
     more_stmts.insert(more_stmts.end(), stmts.begin(), stmts.end());
 
     for (auto stmt : more_stmts) {
-      mutate(stmt);
+      dispatchMutate(stmt);
     }
   }
 
  private:
+  using OptOutMutator::dispatchMutate;
   using OptOutMutator::mutate;
 
-  void mutate(Val* val) final {
+  void dispatchMutate(Val* val) final {
     if (replacement_map_.find(val) == replacement_map_.end()) {
-      return OptOutMutator::mutate(val);
+      return OptOutMutator::dispatchMutate(val);
     }
     auto replaced_val = replacement_map_.at(val);
     registerMutation(val, replaced_val);
@@ -611,118 +611,55 @@ std::vector<ViewOp*> getViewOps(Fusion* fusion) {
   return view_ops;
 }
 
-namespace {
-
-struct ReplaceValInIndexVal : public OptInDispatch {
- public:
-  //! Apply replacements to index as specified in
-  //! replacement_map. index is assumed to consist only from Int and
-  //! NamedScalar
-  static Val* replace(
-      Val* index,
-      const std::unordered_map<Val*, Val*>& replacement_map) {
-    ReplaceValInIndexVal replace_index_val(replacement_map);
-    replace_index_val.handle(index);
-    // Return the original index if not replaced
-    if (replace_index_val.is_replaced_) {
-      return replace_index_val.last_visited_val_;
-    } else {
-      return index;
-    }
-  }
-
- private:
-  ReplaceValInIndexVal(const std::unordered_map<Val*, Val*>& replacement_map)
-      : replacement_map_(replacement_map) {}
-
-  using OptOutDispatch::handle;
-
-  void handle(Val* val) override {
-    TORCH_INTERNAL_ASSERT(
-        val->isA<Int>() || val->isA<Bool>() || val->isA<NamedScalar>(),
-        "Invalid Val type: ",
-        val->toString());
-
-    // if val appears in the replacement map, stop traversing and set
-    // the current val with the replacement
-    auto it = replacement_map_.find(val);
-    if (it != replacement_map_.end()) {
-      last_visited_val_ = it->second;
-      is_replaced_ = true;
-      return;
-    }
-
-    // Recursively traverse its defining expr
-    auto def = val->definition();
-    if (def != nullptr) {
-      if (def->isOneOf<UnaryOp, BinaryOp, TernaryOp>()) {
-        handle(val->definition());
-      } else {
-        TORCH_INTERNAL_ASSERT(false, "Unexpected definition: ", def->toString())
-      }
-      // last_visited_val_ is set in the expr handlers
-    } else {
-      last_visited_val_ = val;
-    }
-  }
-
-  // Clone expression after recurisvely replacing inputs
-  void handle(UnaryOp* uop) override {
-    handle(uop->in());
-    auto inp = last_visited_val_;
-    TORCH_INTERNAL_ASSERT(
-        uop->out()->isA<Int>() || uop->out()->isA<Bool>(),
-        "Unknown output type for expr ",
-        uop->toInlineString());
-    auto out = IrBuilder::create<Int>(c10::nullopt);
-    IrBuilder::create<UnaryOp>(uop->getUnaryOpType(), out, inp);
-    last_visited_val_ = out;
-  }
-
-  // Clone expression after recurisvely replacing inputs
-  void handle(BinaryOp* bop) override {
-    handle(bop->lhs());
-    auto lhs = last_visited_val_;
-    handle(bop->rhs());
-    auto rhs = last_visited_val_;
-    TORCH_INTERNAL_ASSERT(
-        bop->out()->isA<Int>() || bop->out()->isA<Bool>(),
-        "Unknown output type for expr ",
-        bop->toInlineString());
-    auto out = IrBuilder::create<Int>(c10::nullopt);
-    IrBuilder::create<BinaryOp>(bop->getBinaryOpType(), out, lhs, rhs);
-    last_visited_val_ = out;
-  }
-
-  // Clone expression after recurisvely replacing inputs
-  void handle(TernaryOp* top) override {
-    handle(top->in1());
-    auto in1 = last_visited_val_;
-    handle(top->in2());
-    auto in2 = last_visited_val_;
-    handle(top->in3());
-    auto in3 = last_visited_val_;
-    TORCH_INTERNAL_ASSERT(
-        top->out()->isA<Int>() || top->out()->isA<Bool>(),
-        "Unknown output type for expr ",
-        top->toInlineString());
-    auto out = IrBuilder::create<Int>(c10::nullopt);
-    IrBuilder::create<TernaryOp>(top->getTernaryOpType(), out, in1, in2, in3);
-    last_visited_val_ = out;
-  }
-
- private:
-  const std::unordered_map<Val*, Val*>& replacement_map_;
-  Val* last_visited_val_ = nullptr;
-  bool is_replaced_ = false;
-};
-
-} // namespace
-
-Val* replaceValInIndexVal(
-    Val* index,
+Val* replaceValRecursively(
+    Val* val,
     const std::unordered_map<Val*, Val*>& replacement_map) {
-  return ReplaceValInIndexVal::replace(index, replacement_map);
+  if (replacement_map.find(val) != replacement_map.end()) {
+    return replacement_map.at(val);
+  }
+
+  auto def = val->definition();
+  if (def == nullptr) {
+    return val;
+  }
+
+  NVF_ERROR(def->outputs().size() == 1);
+
+  bool mutated = false;
+
+  std::vector<Val*> mutated_inputs;
+  mutated_inputs.reserve(def->inputs().size());
+  for (auto input : def->inputs()) {
+    auto new_input = replaceValRecursively(input, replacement_map);
+    if (new_input != input) {
+      mutated = true;
+    }
+    mutated_inputs.emplace_back(new_input);
+  }
+
+  std::vector<Statement*> mutated_attrs;
+  mutated_attrs.reserve(def->attributes().size());
+  for (auto attr : def->attributes()) {
+    if (auto attr_val = dynamic_cast<Val*>(attr)) {
+      auto new_attr_val = replaceValRecursively(attr_val, replacement_map);
+      if (new_attr_val != attr_val) {
+        mutated = true;
+      }
+      mutated_attrs.emplace_back(new_attr_val);
+    } else {
+      mutated_attrs.emplace_back(attr);
+    }
+  }
+
+  if (!mutated) {
+    return val;
+  }
+
+  auto out = IrBuilder::create<Val>(val->dtype());
+  auto newObjectFunc = def->newObjectFunc();
+  newObjectFunc(def->container(), mutated_inputs, {out}, mutated_attrs);
+
+  return out;
 }
 
 bool isSqueezeInput(const TensorView* tv) {
@@ -893,14 +830,14 @@ class ValidateDomainEquivalence : private IterVisitor {
       : initial_domain_({initial_domain.begin(), initial_domain.end()}),
         derived_domain_({derived_domain.begin(), derived_domain.end()}),
         frontier_({initial_domain.begin(), initial_domain.end()}) {
-    TORCH_INTERNAL_ASSERT(!initial_domain.empty());
-    TORCH_INTERNAL_ASSERT(!derived_domain.empty());
+    NVF_ERROR(!initial_domain.empty());
+    NVF_ERROR(!derived_domain.empty());
     // Make sure there's no duplicate in the parameter vectors
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         initial_domain.size() == initial_domain_.size(),
         "Duplicated entry is detected in inial_domain: ",
         toDelimitedString(initial_domain));
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         derived_domain.size() == derived_domain_.size(),
         "Duplicated entry is detected in derived_domain: ",
         toDelimitedString(derived_domain));
@@ -918,7 +855,7 @@ class ValidateDomainEquivalence : private IterVisitor {
         })) {
       // Make sure all non-symbolic IDs of the derived set are included
       // in the frontier set
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           std::all_of(
               derived_domain.begin(),
               derived_domain.end(),
@@ -934,12 +871,12 @@ class ValidateDomainEquivalence : private IterVisitor {
       // derived set. It is also possible that an ID in the initial
       // domain set still remains in the frontier set as there may be
       // no expr connecting to the derived set, e.g., dynamic reshape
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           std::all_of(
               frontier_.begin(),
               frontier_.end(),
               [&](Val* val) {
-                TORCH_INTERNAL_ASSERT(val->isA<IterDomain>());
+                NVF_ERROR(val->isA<IterDomain>());
                 return derived_domain_.count(val->as<IterDomain>()) ||
                     initial_domain_.count(val);
               }),
@@ -948,7 +885,7 @@ class ValidateDomainEquivalence : private IterVisitor {
           ". Derived domain: ",
           toDelimitedString(derived_domain));
     } else {
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           derived_domain_ == frontier_,
           "Invalid derived domain. Initial domain: ",
           toDelimitedString(initial_domain),
@@ -957,19 +894,19 @@ class ValidateDomainEquivalence : private IterVisitor {
     }
   };
 
-  void handle(Expr* expr) override {
-    TORCH_INTERNAL_ASSERT(
+  void dispatch(Expr* expr) override {
+    NVF_ERROR(
         std::all_of(expr->inputs().begin(), expr->inputs().end(), [](Val* v) {
           return v->isA<IterDomain>();
         }));
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         std::all_of(expr->outputs().begin(), expr->outputs().end(), [](Val* v) {
           return v->isA<IterDomain>();
         }));
     // If any of the inputs is included in derived_domain_, that means there's a
     // dependency within derived_domain_ and the dependent domains
     // redundantly cover the initial domain
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         std::none_of(
             expr->inputs().begin(),
             expr->inputs().end(),
@@ -982,7 +919,7 @@ class ValidateDomainEquivalence : private IterVisitor {
         toDelimitedString(derived_domain_));
     for (auto out : expr->outputs()) {
       // Make sure the output is not yet visited
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           frontier_.insert(out).second,
           "Invalid derived domain due to dependent expr: ",
           expr->toString(),
@@ -990,7 +927,7 @@ class ValidateDomainEquivalence : private IterVisitor {
           out->toString());
     }
     for (auto inp : expr->inputs()) {
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           frontier_.erase(inp) == 1,
           "Invalid derived domain due to dependent expr: ",
           expr->toString(),
@@ -1006,6 +943,21 @@ class ValidateDomainEquivalence : private IterVisitor {
   std::unordered_set<Val*> frontier_;
 };
 
+std::vector<Statement*> next(Statement* stmt) {
+  if (stmt->isVal()) {
+    if (auto val = stmt->as<Val>()->definition()) {
+      return {val};
+    } else {
+      return {};
+    }
+  } else {
+    auto expr = stmt->as<Expr>();
+    std::vector<Statement*> inputs{
+        expr->inputs().begin(), expr->inputs().end()};
+    return inputs;
+  }
+}
+
 } // namespace
 
 void validateDomainEquivalence(
@@ -1014,8 +966,65 @@ void validateDomainEquivalence(
   ValidateDomainEquivalence(initial_domain, derived_domain);
 }
 
+std::vector<Statement*> checkCycle(
+    Fusion* fusion,
+    const std::unordered_set<Statement*>& from,
+    const std::vector<Val*>& to) {
+  std::unordered_set<Statement*> path;
+  std::unordered_set<Statement*> visited;
+  std::deque<Statement*> queue;
+  queue.insert(queue.end(), to.begin(), to.end());
+
+  while (!queue.empty()) {
+    auto val = queue.front();
+
+    // early termination if we have already reached boundary or hit a previously
+    // visited node
+    if (from.count(val) != 0 || visited.count(val) != 0) {
+      queue.pop_front();
+      continue;
+    }
+
+    auto next_stmts = next(val);
+
+    // if val is a leaf node.
+    if (next_stmts.empty()) {
+      queue.pop_front();
+      visited.insert(val);
+      continue;
+    }
+
+    // if val is already in path, we are just cleaning up the stack here.
+    auto iter = path.find(val);
+    if (iter != path.end()) {
+      queue.pop_front();
+      path.erase(iter);
+      visited.insert(val);
+      continue;
+    }
+
+    // putting self on path
+    path.insert(val);
+
+    // check for cycles
+    for (auto stmt : next_stmts) {
+      if (path.count(stmt) != 0) {
+        // find a cycle, return current path;
+        std::vector<Statement*> ret;
+        std::copy(path.begin(), path.end(), std::back_inserter(ret));
+        return ret;
+      }
+      // adding statement to a queue;
+      queue.push_front(stmt);
+    }
+  }
+
+  // no cycle detected, return empty
+  return {};
+}
+
 bool isAlignedScopeExpr(const Expr* expr) {
-  TORCH_INTERNAL_ASSERT(expr != nullptr);
+  NVF_ERROR(expr != nullptr);
   if (auto ite = dynamic_cast<const kir::IfThenElse*>(expr)) {
     if (ite->predicate()->hasValue() &&
         getRegisterType(ite->predicate()->value()) ==
@@ -1032,11 +1041,47 @@ bool isAlignedScopeExpr(const Expr* expr) {
       return false;
     }
   } else {
-    TORCH_INTERNAL_ASSERT(false, "Invalid scope expr: ", expr->toString());
+    NVF_ERROR(false, "Invalid scope expr: ", expr->toString());
   }
 
   return true;
 }
 
-} // namespace ir_utils
-} // namespace nvfuser
+std::vector<Statement*> checkCycle(Fusion* fusion) {
+  return checkCycle(fusion, {}, fusion->outputs());
+}
+
+namespace {
+
+inline bool isTensorAttr(const Val* val, const std::string& attr_name) {
+  NVF_ERROR(val != nullptr);
+  auto getitem = dynamic_cast<GetItem*>(val->definition());
+  if (getitem == nullptr) {
+    return false;
+  }
+  auto getattr = dynamic_cast<GetAttr*>(getitem->array()->definition());
+  if (getattr == nullptr) {
+    return false;
+  }
+  if (getattr->attr() != attr_name) {
+    return false;
+  }
+  auto metadata = dynamic_cast<GetMetaData*>(getattr->struct_()->definition());
+  if (metadata == nullptr) {
+    return false;
+  }
+  return metadata->in()->isA<TensorView>();
+}
+
+} // namespace
+
+bool isTensorSize(const Val* val) {
+  return isTensorAttr(val, "logical_size") || isTensorAttr(val, "alloc_size");
+}
+
+bool isTensorStride(const Val* val) {
+  return isTensorAttr(val, "logical_stride") ||
+      isTensorAttr(val, "alloc_stride");
+}
+
+} // namespace nvfuser::ir_utils

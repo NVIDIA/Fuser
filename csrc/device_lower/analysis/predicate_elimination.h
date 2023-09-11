@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 #include <c10/macros/Export.h>
+#include <exceptions.h>
 
 #include <ir/all_nodes.h>
 #include <kernel_ir.h>
@@ -49,7 +50,7 @@ class TORCH_CUDA_CU_API PredicateElimination : public IterVisitor {
  private:
   using IterVisitor::handle;
 
-  void handle(Expr* expr) final;
+  void dispatch(Expr* expr) final;
 
   //! Set a value to initialize out-of-bound regions
   bool setDefaultInitValue(TensorView* tv);

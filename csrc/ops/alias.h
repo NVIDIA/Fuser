@@ -8,6 +8,7 @@
 #pragma once
 
 #include <c10/macros/Export.h>
+#include <exceptions.h>
 
 #include <ir/interface_nodes.h>
 #include <type.h>
@@ -97,12 +98,14 @@ TORCH_CUDA_CU_API TensorView* transpose(TensorView* x);
 TORCH_CUDA_CU_API TensorView* pad(
     TensorView* x,
     const std::vector<Val*>& pad_widths,
-    Val* value = nullptr);
+    Val* value = nullptr,
+    std::optional<IterType> iter_type_opt = std::nullopt);
 
 //! Concatenate tensors in the given dimension
 TORCH_CUDA_CU_API TensorView* cat(
     const std::vector<TensorView*>& inputs,
-    int64_t dim);
+    int64_t dim,
+    std::optional<IterType> iter_type_opt = std::nullopt);
 
 //! Return a tensor where each dimension is sliced as specified by the
 //! ranges parameter. Stepping must be one at this moment.

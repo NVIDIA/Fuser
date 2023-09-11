@@ -11,11 +11,13 @@
 
 // NOTE: included to avoid compilation error caused by missing destructor in
 // 'SchedulerRuntimeInfo'
+#include <debug.h>
 #include <executor_utils.h>
 #include <ir/base_nodes.h>
 #include <ir/interface_nodes.h>
 #include <ir/internal_nodes.h>
 #include <ir/utils.h>
+#include <options.h>
 #include <algorithm>
 #include <deque>
 #include <iostream>
@@ -38,11 +40,6 @@ using MatmulLayout = MmaOptions::MmaLayout;
 //! Access to the structure should be done with labels defined in
 //!  MmaOptions::MmaDomains.
 using ProblemShape = std::array<int64_t, 3>;
-
-//! A wrapper for printing debug details.
-void printMsg(const std::string& msg) {
-  std::cout << msg << std::endl;
-}
 
 //! A helper for deciding the type of MMA op for given fusion and problem shape.
 inline std::optional<MmaOptions::MacroType> getMmaOp(
@@ -84,7 +81,7 @@ inline bool initCoreHeuristics(
 
   // warp tile shape
   {
-    if (isAmpere(mma_op)) {
+    if (isAmpere(mma_op) || isTuring(mma_op)) {
       // Initial target:
       // - 1 MMA ops per thread in a warp (32 threads), warp tile should be
       //   then 32x bigger than instruction tile,
@@ -100,7 +97,7 @@ inline bool initCoreHeuristics(
           instruction_tile.n * n_ratio,
           instruction_tile.k * k_ratio};
     } else {
-      // No support for Volta and Turing
+      // No support for Volta
       return false;
     }
   }
@@ -130,20 +127,18 @@ inline bool initCoreHeuristics(
   params->mma_macro = mma_op;
   params->tile_sizes = {cta_tile, warp_tile, instruction_tile};
 
-  return true;
-}
+  // stages and async mem copy
+  {
+    // NOTE: compilation errors when async is enabled on Turing devices
+    if (isAmpere(mma_op)) {
+      constexpr int stages = 3;
 
-//! A wrapper for additional heuristics initialization
-inline bool initExtraHeuristics(
-    std::shared_ptr<MatmulParams> params,
-    const ProblemShape& problem_shape) {
-  // TODO: add logic to calculate efficient number of stages
-  constexpr int stages = 3;
-
-  params->async_gmem_load_operands = true;
-  params->double_buffer_options.double_buffer_smem_write = true;
-  params->double_buffer_options.double_buffer_smem_read = true;
-  params->double_buffer_options.smem_double_buffer_stage = stages;
+      params->async_gmem_load_operands = true;
+      params->double_buffer_options.double_buffer_smem_write = true;
+      params->double_buffer_options.double_buffer_smem_read = true;
+      params->double_buffer_options.smem_double_buffer_stage = stages;
+    }
+  }
 
   return true;
 }
@@ -155,7 +150,7 @@ ProblemShape getProblemShape(
     SchedulerRuntimeInfo& runtime_info) {
   const auto mma_output_domains = mma_utils::getProblemIterDomains(fusion);
   if (!mma_output_domains.isValid()) {
-    TORCH_INTERNAL_ASSERT(false, mma_output_domains.getErrorMsg());
+    NVF_ERROR(false, mma_output_domains.getErrorMsg());
   }
 
   const auto [m, n, k] = mma_output_domains.getData();
@@ -165,21 +160,19 @@ ProblemShape getProblemShape(
   auto k_extend = runtime_info.expressionEvaluator().evaluate(k->extent());
 
   if (!(m_extend && n_extend && k_extend)) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         false,
         "Failed to acquire one of problem dimensions, M(",
-        m_extend.has_value(),
+        m_extend.hasValue(),
         "), N(",
-        n_extend.has_value(),
+        n_extend.hasValue(),
         " K(",
-        k_extend.has_value(),
+        k_extend.hasValue(),
         ")");
   }
 
   return ProblemShape{
-      m_extend->as<int64_t>(),
-      n_extend->as<int64_t>(),
-      k_extend->as<int64_t>()};
+      m_extend.as<int64_t>(), n_extend.as<int64_t>(), k_extend.as<int64_t>()};
 }
 
 std::string isMatmulFusionDefinitionSupported(
@@ -200,12 +193,13 @@ std::string isMatmulFusionDefinitionSupported(
 
   // Quick checks - MmaOp
   {
-    // Check if MmaOp processes single gemm
+    // Check if MmaOp represents gemm (requires M/N/K == 1, B == 0)
+    //  or bgemm (requires M/N/K/B == 1)
     constexpr size_t expected_axes_numbers = 1;
     if (mma_expr->mAxes().size() != expected_axes_numbers ||
         mma_expr->nAxes().size() != expected_axes_numbers ||
         mma_expr->kAxes().size() != expected_axes_numbers ||
-        !mma_expr->batchAxes().empty()) {
+        mma_expr->batchAxes().size() > expected_axes_numbers) {
       return "MmaOp has unsupported number of one of M/N/K/Batch axes";
     }
 
@@ -219,12 +213,6 @@ std::string isMatmulFusionDefinitionSupported(
     // Fusion should contain at least two inputs (for now)
     if (minimal_number_of_inputs > fusion_inputs.size()) {
       return "Fusion inputs contain at least one non-TensorView object";
-    }
-    if (minimal_number_of_inputs != fusion_inputs_tvs.size()) {
-      std::stringstream ss;
-      ss << "Fusion inputs must contain at least " << minimal_number_of_inputs
-         << " TensorView objects";
-      return ss.str();
     }
 
     // Fusion has only TVs as outputs, and we expect only one object in the list
@@ -240,28 +228,52 @@ std::string isMatmulFusionDefinitionSupported(
       return roles_map_opt.getErrorMsg();
     }
 
-    size_t core_roles_count = 0;
     const auto& roles_map = roles_map_opt.getData();
-    if (roles_map.count(MatmulRole::MMA_INPUT_A) ==
-        MATMUL_CORE_ROLES_EXPECTED_COUNT) {
-      ++core_roles_count;
+    auto entry = roles_map.find(MatmulRole::INPUT_A);
+    std::set<TensorView*> tvs_with_roles;
+
+    if (entry != roles_map.end()) {
+      if (MATMUL_CORE_ROLES_EXPECTED_COUNT == entry->second.size()) {
+        tvs_with_roles.insert(entry->second.begin(), entry->second.end());
+      } else {
+        return "There is more than a single fusion input that can be MMA first input";
+      }
     } else {
       return "No candidate in fusion inputs for MMA first input";
     }
-    if (roles_map.count(MatmulRole::MMA_INPUT_B) ==
-        MATMUL_CORE_ROLES_EXPECTED_COUNT) {
-      ++core_roles_count;
+
+    entry = roles_map.find(MatmulRole::INPUT_B);
+    if (entry != roles_map.end()) {
+      if (MATMUL_CORE_ROLES_EXPECTED_COUNT == entry->second.size()) {
+        tvs_with_roles.insert(entry->second.begin(), entry->second.end());
+      } else {
+        return "There is more than a single fusion input that can be MMA second input";
+      }
     } else {
       return "No candidate in fusion inputs for MMA second input";
     }
-    if (roles_map.count(MatmulRole::MMA_OUTPUT) ==
-        MATMUL_CORE_ROLES_EXPECTED_COUNT) {
-      ++core_roles_count;
+
+    entry = roles_map.find(MatmulRole::OUTPUT_D);
+    if (entry != roles_map.end()) {
+      if (MATMUL_CORE_ROLES_EXPECTED_COUNT == entry->second.size()) {
+        tvs_with_roles.insert(entry->second.begin(), entry->second.end());
+      } else {
+        return "There is more than a single fusion output that can be MMA output";
+      }
     } else {
       return "No candidate in fusion outputs MMA output";
     }
-    if (roles_map.size() != core_roles_count) {
-      return "Detected fusion roles that are not supported";
+
+    // Non-core roles are optional, no requirements for their presence
+    entry = roles_map.find(MatmulRole::INPUT_C);
+    if (entry != roles_map.end()) {
+      tvs_with_roles.insert(entry->second.begin(), entry->second.end());
+    }
+
+    const auto in_out_tvs_count =
+        fusion_inputs_tvs.size() + fusion_outputs_tvs.size();
+    if (in_out_tvs_count != tvs_with_roles.size()) {
+      return "Detected input/output TVs without assigned roles";
     }
   }
 
@@ -350,8 +362,7 @@ std::shared_ptr<MatmulParams> getMatmulHeuristics(
 
   // Check initial conditions
   auto mma_exprs = ir_utils::getMmaOps(fusion);
-  TORCH_INTERNAL_ASSERT(
-      mma_exprs.size() == 1, "Support only fusion with a single mma op.");
+  NVF_ERROR(mma_exprs.size() == 1, "Support only fusion with a single mma op.");
 
   const auto problem_shape =
       getProblemShape(fusion, mma_exprs.front()->as<MmaOp>(), runtime_info);
@@ -359,23 +370,32 @@ std::shared_ptr<MatmulParams> getMatmulHeuristics(
   const auto device_prop = at::cuda::getCurrentDeviceProperties();
   const auto mma_op =
       getMmaOp(device_prop->major * 10 + device_prop->minor, problem_shape);
-  TORCH_INTERNAL_ASSERT(
-      mma_op.has_value(), "Can not determine MMA op for problem.");
+  NVF_ERROR(
+      mma_op.has_value(), "Failed to determine a MMA op for given problem.");
 
   // Populate heuristic details
   auto status = initCoreHeuristics(params, mma_op.value(), problem_shape);
-  TORCH_INTERNAL_ASSERT(
-      status, "Core part of heuristics failed to initialize.");
-
-  status = initExtraHeuristics(params, problem_shape);
-  TORCH_INTERNAL_ASSERT(
-      status, "Additional part of heuristics failed to initialize.");
+  NVF_ERROR(status, "Initialization of core part of heuristics failed.");
 
   // Set kernel index mode
   params->cparams.index_type = runtime_info.getIndexType();
 
-  if (isDebugDumpEnabled(DebugDumpOption::MatmulChecks)) {
-    printMsg(params->toString());
+  // Disable magic zero for matmul kernels
+  params->cparams.enable_magic_zero = false;
+
+  // Set whether to use shared memory for epilogue
+  const auto& roles_map_opt = mma_utils::getTensorsRoles(fusion);
+  NVF_ERROR(roles_map_opt.isValid(), "Tensor roles map in mma is not valid.");
+
+  const auto roles_map = roles_map_opt.getData();
+  std::tie(params->use_smem_epilogue, params->promote_prologue_smem_reuse) =
+      mma_utils::generateSharedMemoryEpilogueHeuristics(
+          params->tile_sizes,
+          params->double_buffer_options.smem_double_buffer_stage,
+          roles_map);
+
+  if (isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
+    debug() << params->toString() << std::endl;
   }
 
   return params;

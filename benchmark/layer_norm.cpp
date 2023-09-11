@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <csrc/exceptions.h>
 #include <device_lower/lower2device.h>
 #include <executor.h>
 #include <fusion.h>
@@ -26,13 +27,13 @@ using namespace nvfuser;
 //------------------------------------------------------------------------------
 
 static void setupLayerNorm(Fusion* fusion, DataType dtype) {
-  TORCH_INTERNAL_ASSERT(dtype == DataType::Float || dtype == DataType::Half);
+  NVF_ERROR(dtype == DataType::Float || dtype == DataType::Half);
 
   FusionGuard fg(fusion);
 
   const float kEps = 1e-5;
 
-  Double* eps_ptr = IrBuilder::create<Double>(kEps);
+  Val* eps_ptr = IrBuilder::create<Val>(kEps);
 
   // setup fusion
   auto input = makeContigTensor(2, dtype);
@@ -68,7 +69,7 @@ static void NvFuserScheduler_LayerNorm(
     benchmark::State& benchmark_state,
     FusionExecutorCache* fusion_executor_cache,
     DataType dtype) {
-  TORCH_INTERNAL_ASSERT(dtype == DataType::Float || dtype == DataType::Half);
+  NVF_ERROR(dtype == DataType::Float || dtype == DataType::Half);
 
   std::vector<int64_t> input_shape{
       benchmark_state.range(0), benchmark_state.range(1)};
@@ -96,7 +97,7 @@ static void NvFuserScheduler_LayerNorm(
 static void Baseline_LayerNorm(
     benchmark::State& benchmark_state,
     DataType dtype) {
-  TORCH_INTERNAL_ASSERT(dtype == DataType::Float || dtype == DataType::Half);
+  NVF_ERROR(dtype == DataType::Float || dtype == DataType::Half);
 
   std::vector<int64_t> input_shape{
       benchmark_state.range(0), benchmark_state.range(1)};
@@ -143,7 +144,7 @@ static void NvFuserScheduler_TIMM_LayerNorm(
     benchmark::State& benchmark_state,
     FusionExecutorCache* fusion_executor_cache,
     DataType dtype) {
-  TORCH_INTERNAL_ASSERT(dtype == DataType::Float || dtype == DataType::Half);
+  NVF_ERROR(dtype == DataType::Float || dtype == DataType::Half);
 
   // NHWC, norm on C
   std::vector<int64_t> input_shape{
@@ -172,7 +173,7 @@ static void NvFuserScheduler_TIMM_LayerNorm(
 static void Baseline_TIMM_LayerNorm(
     benchmark::State& benchmark_state,
     DataType dtype) {
-  TORCH_INTERNAL_ASSERT(dtype == DataType::Float || dtype == DataType::Half);
+  NVF_ERROR(dtype == DataType::Float || dtype == DataType::Half);
 
   // NHWC, norm on C
   std::vector<int64_t> input_shape{
@@ -289,23 +290,81 @@ NVFUSER_BENCHMARK_RUN(NvFuserScheduler_LayerNorm_fp16)
     ->Unit(benchmark::kMicrosecond)
     ->UseManualTime();
 
-// GPT-2
-NVFUSER_BENCHMARK_RUN(NvFuserScheduler_LayerNorm_fp16)
+// embedding sizes in LLMs e.g. GPT, LLaMA, PaLM
+NVFUSER_BENCHMARK_DEFINE(
+    NvFuserScheduler_LayerNorm_LLMs_fp16,
+    setupLayerNorm,
+    NvFuserScheduler_LayerNorm,
+    DataType::Half);
+NVFUSER_BENCHMARK_RUN(NvFuserScheduler_LayerNorm_LLMs_fp16)
+    ->Args({8192, 512})
     ->Args({8192, 768})
     ->Args({8192, 1024})
     ->Args({8192, 1280})
+    ->Args({8192, 1536})
     ->Args({8192, 1600})
+    ->Args({8192, 2048})
+    ->Args({8192, 2560})
+    ->Args({8192, 4096})
+    ->Args({8192, 5140})
+    ->Args({8192, 6656})
+    ->Args({8192, 8192})
+    ->Args({8192, 18432})
     ->Unit(benchmark::kMicrosecond)
     ->UseManualTime();
 
-NVFUSER_BENCHMARK_RUN(NvFuserScheduler_LayerNorm_fp16)
-    ->Args({16384, 768})
-    ->Args({16384, 1024})
-    ->Args({16384, 1280})
-    ->Args({16384, 1600})
+// large hidden size
+NVFUSER_BENCHMARK_DEFINE(
+    NvFuserScheduler_LayerNorm_LargeHiddenSize_fp16,
+    setupLayerNorm,
+    NvFuserScheduler_LayerNorm,
+    DataType::Half);
+NVFUSER_BENCHMARK_RUN(NvFuserScheduler_LayerNorm_LargeHiddenSize_fp16)
+    ->Args({8192, 60 * 1024})
+    ->Args({8192, 62 * 1024})
+    ->Args({8192, 64 * 1024})
+    ->Args({8192, 66 * 1024})
+    ->Args({8192, 68 * 1024})
+    ->Args({8192, 70 * 1024})
+    ->Args({8192, 72 * 1024})
+    ->Args({8192, 74 * 1024})
+    ->Args({8192, 76 * 1024})
+    ->Args({8192, 78 * 1024})
+    ->Args({8192, 80 * 1024})
+    ->Args({8192, 88 * 1024})
+    ->Args({8192, 96 * 1024})
+    ->Args({8192, 104 * 1024})
+    ->Args({8192, 112 * 1024})
+    ->Args({8192, 120 * 1024})
+    ->Args({8192, 128 * 1024})
     ->Unit(benchmark::kMicrosecond)
     ->UseManualTime();
 
+NVFUSER_BENCHMARK_DEFINE(
+    NvFuserScheduler_LayerNorm_LargeHiddenSize_fp32,
+    setupLayerNorm,
+    NvFuserScheduler_LayerNorm,
+    DataType::Float);
+NVFUSER_BENCHMARK_RUN(NvFuserScheduler_LayerNorm_LargeHiddenSize_fp32)
+    ->Args({8192, 30 * 1024})
+    ->Args({8192, 31 * 1024})
+    ->Args({8192, 32 * 1024})
+    ->Args({8192, 33 * 1024})
+    ->Args({8192, 34 * 1024})
+    ->Args({8192, 35 * 1024})
+    ->Args({8192, 36 * 1024})
+    ->Args({8192, 37 * 1024})
+    ->Args({8192, 38 * 1024})
+    ->Args({8192, 39 * 1024})
+    ->Args({8192, 40 * 1024})
+    ->Args({8192, 44 * 1024})
+    ->Args({8192, 48 * 1024})
+    ->Args({8192, 52 * 1024})
+    ->Args({8192, 56 * 1024})
+    ->Args({8192, 60 * 1024})
+    ->Args({8192, 64 * 1024})
+    ->Unit(benchmark::kMicrosecond)
+    ->UseManualTime();
 //------------------------------------------------------------------------------
 
 BENCHMARK(Baseline_LayerNorm_fp32)

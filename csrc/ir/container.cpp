@@ -29,6 +29,8 @@ void swap(IrContainer& a, IrContainer& b) noexcept {
   swap(a.val_type_name_map_, b.val_type_name_map_);
   swap(a.expr_name_counter_, b.expr_name_counter_);
 
+  swap(a.metadata_, b.metadata_);
+
   // Fixup the Statement::fusion_ links for a
   for (auto val : a.vals_) {
     val->ir_container_ = &a;
@@ -62,11 +64,13 @@ IrCloner IrContainer::copy(const IrContainer* from, IrContainer* to) {
   to->expr_name_counter_ = from->expr_name_counter_;
 
   if (from->axioms_ != nullptr) {
-    to->axioms_ = std::make_unique<std::vector<Bool*>>();
+    to->axioms_ = std::make_unique<std::vector<Val*>>();
     for (auto pred : *from->axioms_) {
       to->axioms_->emplace_back(ir_cloner.clone(pred));
     }
   }
+
+  to->metadata_ = ir_cloner.clone(from->metadata_);
 
   return ir_cloner;
 }
@@ -122,7 +126,7 @@ void IrContainer::registerExpr(IrBuilderPasskey, Expr* expr) {
 }
 
 void IrContainer::removeExpr(Expr* expr) {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       exprs_.find(expr) != exprs_.end(),
       "Wanted to remove an expression but it doesn't exist in this container.");
   auto expr_in_deque = std::find_if(
@@ -130,7 +134,7 @@ void IrContainer::removeExpr(Expr* expr) {
       exprs_up_.end(),
       [expr](std::unique_ptr<Expr>& expr_up) { return expr_up.get() == expr; });
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       expr_in_deque != exprs_up_.end(),
       "Wanted to remove an expression but its unique ptr is missing.");
 
@@ -149,7 +153,7 @@ void IrContainer::removeVal(Val* val) {
     return;
   }
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       vals_.find(val) != vals_.end(),
       "Wanted to remove a value but it doesn't exist in this container.");
   auto val_in_deque = std::find_if(
@@ -157,7 +161,7 @@ void IrContainer::removeVal(Val* val) {
         return val_up.get() == val;
       });
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       val_in_deque != vals_up_.end(),
       "Wanted to remove a value but its unique ptr is missing.");
 
@@ -198,6 +202,7 @@ void IrContainer::clear() noexcept {
   raw_ptrs_.clear();
   axioms_.reset();
   val_type_name_map_.clear();
+  metadata_.clear();
   expr_name_counter_ = 0;
 }
 
@@ -208,18 +213,18 @@ bool IrContainer::inContainer(const Statement* stmt) const {
     return false;
   }
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       stmt->container() == this,
       "Container claims to own stmt, but stmt disagrees.");
 
   Statement* nonconst_stmt = const_cast<Statement*>(stmt); // NOLINT
   if (stmt->isExpr()) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         exprs_.find(nonconst_stmt->as<Expr>()) != exprs_.end(),
         "Somehow container claims to and not to own an Expr.");
   }
   if (stmt->isVal()) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         vals_.find(nonconst_stmt->as<Val>()) != vals_.end(),
         "Somehow container claims to and not to own an Val.");
   }
@@ -228,73 +233,63 @@ bool IrContainer::inContainer(const Statement* stmt) const {
 }
 
 // Shortcuts for frequently used vals
-Int* IrContainer::zeroVal() {
+Val* IrContainer::zeroVal() {
   if (!zero_val_) {
-    auto zero_val = IrBuilder::create<Int>(this, 0);
-    TORCH_INTERNAL_ASSERT(vals_up_.back().get() == zero_val);
-    zero_val_ = std::unique_ptr<Int>(vals_up_.back().release()->as<Int>());
+    auto zero_val = IrBuilder::create<Val>(this, 0L, DataType::Index);
+    NVF_ERROR(vals_up_.back().get() == zero_val);
+    zero_val_ = std::unique_ptr<Val>(vals_up_.back().release());
     vals_up_.pop_back();
   }
   return zero_val_.get();
 }
 
 Val* IrContainer::zeroVal(DataType dtype) {
-  // NOTE: this does not cache values for floating or complex dtypes
-  if (isFloatingPointType(dtype)) {
-    return (Val*)IrBuilder::create<Double>(0.0);
-  } else if (isComplexType(dtype)) {
-    return (Val*)IrBuilder::create<ComplexDouble>(
-        std::complex<double>(0.0, 0.0));
-  } else if (isIntegralType(dtype)) {
-    return (Val*)zeroVal();
+  if (dtype == DataType::Index) {
+    return zeroVal();
   } else if (isBooleanType(dtype)) {
-    return (Val*)falseVal();
+    return falseVal();
   } else {
-    TORCH_CHECK(false, "Could not create zero Val for dtype: ", dtype);
+    // NOTE: this does not cache values
+    return IrBuilder::create<Val>(this, 0L, dtype);
   }
 }
 
-Int* IrContainer::oneVal() {
+Val* IrContainer::oneVal() {
   if (!one_val_) {
-    auto one_val = IrBuilder::create<Int>(this, 1);
-    TORCH_INTERNAL_ASSERT(vals_up_.back().get() == one_val);
-    one_val_ = std::unique_ptr<Int>(vals_up_.back().release()->as<Int>());
+    auto one_val = IrBuilder::create<Val>(this, 1L, DataType::Index);
+    NVF_ERROR(vals_up_.back().get() == one_val);
+    one_val_ = std::unique_ptr<Val>(vals_up_.back().release());
     vals_up_.pop_back();
   }
   return one_val_.get();
 }
 
 Val* IrContainer::oneVal(DataType dtype) {
-  // NOTE: this does not cache values for floating or complex dtypes
-  if (isFloatingPointType(dtype)) {
-    return (Val*)IrBuilder::create<Double>(1.0);
-  } else if (isComplexType(dtype)) {
-    return (Val*)IrBuilder::create<ComplexDouble>(
-        std::complex<double>(1.0, 0.0));
-  } else if (isIntegralType(dtype)) {
-    return (Val*)oneVal();
+  if (dtype == DataType::Index) {
+    return oneVal();
   } else if (isBooleanType(dtype)) {
-    return (Val*)trueVal();
+    return trueVal();
   } else {
-    TORCH_CHECK(false, "Could not create one Val for dtype: ", dtype);
+    // NOTE: this does not cache values
+    return IrBuilder::create<Val>(this, 1L, dtype);
   }
 }
 
-Bool* IrContainer::falseVal() {
+Val* IrContainer::falseVal() {
   if (!false_val_) {
-    auto false_val = IrBuilder::create<Bool>(this, false);
-    TORCH_INTERNAL_ASSERT(vals_up_.back().get() == false_val);
-    false_val_ = std::unique_ptr<Bool>(vals_up_.back().release()->as<Bool>());
+    auto false_val = IrBuilder::create<Val>(this, false, DataType::Bool);
+    NVF_ERROR(vals_up_.back().get() == false_val);
+    false_val_ = std::unique_ptr<Val>(vals_up_.back().release());
     vals_up_.pop_back();
   }
   return false_val_.get();
 }
 
-Bool* IrContainer::trueVal() {
+Val* IrContainer::trueVal() {
   if (!true_val_) {
-    auto true_val = IrBuilder::create<Bool>(this, true);
-    TORCH_INTERNAL_ASSERT(vals_up_.back().get() == true_val);
-    true_val_ = std::unique_ptr<Bool>(vals_up_.back().release()->as<Bool>());
+    auto true_val = IrBuilder::create<Val>(this, true, DataType::Bool);
+    NVF_ERROR(vals_up_.back().get() == true_val);
+    true_val_ = std::unique_ptr<Val>(vals_up_.back().release());
     vals_up_.pop_back();
   }
   return true_val_.get();
@@ -303,8 +298,8 @@ Bool* IrContainer::trueVal() {
 NamedScalar* IrContainer::magicZeroVal() {
   if (!magic_zero_val_) {
     auto magic_zero =
-        IrBuilder::create<NamedScalar>(kMagicZeroName, DataType::Int);
-    TORCH_INTERNAL_ASSERT(vals_up_.back().get() == magic_zero);
+        IrBuilder::create<NamedScalar>(kMagicZeroName, DataType::Index);
+    NVF_ERROR(vals_up_.back().get() == magic_zero);
     magic_zero_val_ = std::unique_ptr<NamedScalar>(
         vals_up_.back().release()->as<NamedScalar>());
     vals_up_.pop_back();
@@ -312,9 +307,18 @@ NamedScalar* IrContainer::magicZeroVal() {
   return magic_zero_val_.get();
 }
 
+Val* IrContainer::metadataOf(Val* v) {
+  if (metadata_.count(v) == 0) {
+    auto metadata_val = IrBuilder::create<Val>(this, metaDataTypeOf(v));
+    auto metadata_expr = IrBuilder::create<GetMetaData>(this, metadata_val, v);
+    metadata_[v] = std::make_pair(metadata_val, metadata_expr);
+  }
+  return metadata_.at(v).first;
+}
+
 void IrContainer::lazyInitAxioms() {
   if (!axioms_) {
-    axioms_ = std::make_unique<std::vector<Bool*>>();
+    axioms_ = std::make_unique<std::vector<Val*>>();
     axioms_->reserve(kParallelTypeThreads.size() * 3);
     auto zero = zeroVal();
     for (auto p : kParallelTypeThreads) {
@@ -328,13 +332,13 @@ void IrContainer::lazyInitAxioms() {
 }
 
 void IrContainer::assumePositive(Val* val) {
-  TORCH_INTERNAL_ASSERT(val->container() == this);
+  NVF_ERROR(val->container() == this);
   lazyInitAxioms();
   axioms_->emplace_back(IrBuilder::gtExpr(val, zeroVal()));
 }
 
 void IrContainer::assumeNonNegative(Val* val) {
-  TORCH_INTERNAL_ASSERT(val->container() == this);
+  NVF_ERROR(val->container() == this);
   lazyInitAxioms();
   axioms_->emplace_back(IrBuilder::geExpr(val, zeroVal()));
 }

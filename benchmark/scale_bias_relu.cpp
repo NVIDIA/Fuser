@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <csrc/exceptions.h>
 #include <device_lower/lower2device.h>
 #include <executor.h>
 #include <fusion.h>
@@ -21,7 +22,7 @@
 using namespace nvfuser;
 
 static void setupSBR(Fusion* fusion, DataType dtype) {
-  TORCH_INTERNAL_ASSERT(dtype == DataType::Float || dtype == DataType::Half);
+  NVF_ERROR(dtype == DataType::Float || dtype == DataType::Half);
 
   FusionGuard fg(fusion);
 
@@ -64,7 +65,7 @@ static void setupSBR(Fusion* fusion, DataType dtype) {
 }
 
 static void setupSBRNorm(Fusion* fusion, DataType dtype) {
-  TORCH_INTERNAL_ASSERT(dtype == DataType::Float || dtype == DataType::Half);
+  NVF_ERROR(dtype == DataType::Float || dtype == DataType::Half);
   FusionGuard fg(fusion);
 
   const size_t kNumberOfDims = 4;
@@ -135,30 +136,7 @@ static void NvFuserScheduler_SBR(
   // inputs
   std::vector<c10::IValue> aten_inputs = {at_x, at_scale, at_bias};
 
-  fusion_executor_cache->profile(true);
-  fusion_executor_cache->runFusionWithInputs(aten_inputs);
-
-  auto compile_log = fusion_executor_cache->getMostRecentExecutorInfo();
-  auto executor_instance = compile_log.fusion_executor;
-  auto params = toString(compile_log.params);
-  auto lparams = toString(compile_log.fusion_executor->lastLaunchParams());
-
-  benchmark_state.SetLabel(params + lparams);
-  benchmark_state.SetLabel(lparams);
-
-  fusion_executor_cache->profile(false);
-  executor_instance->setMeasureKernelTimeFlag(true);
-  // Sync everything up before we start
-  C10_CUDA_CHECK(cudaDeviceSynchronize());
-  for (auto _ : benchmark_state) {
-    clearL2Cache();
-    auto cg_outputs = fusion_executor_cache->runFusionWithInputs(aten_inputs);
-    benchmark_state.SetIterationTime(
-        executor_instance->kernelTimeMs() / 1000.0);
-  }
-  // Sync everything up before we're finished, don't want to run ahead on the
-  // cpu while benchmarking.
-  C10_CUDA_CHECK(cudaDeviceSynchronize());
+  runBenchmarkIterations(benchmark_state, fusion_executor_cache, aten_inputs);
 
   const size_t size =
       input_shape[0] * input_shape[1] * input_shape[2] * input_shape[3];
@@ -237,30 +215,7 @@ static void NvFuserScheduler_SBR_Norm(
   std::vector<c10::IValue> aten_inputs = {
       at_x, at_weight, at_bias, at_mean, at_var};
 
-  fusion_executor_cache->profile(true);
-  fusion_executor_cache->runFusionWithInputs(aten_inputs);
-
-  auto compile_log = fusion_executor_cache->getMostRecentExecutorInfo();
-  auto executor_instance = compile_log.fusion_executor;
-  auto params = toString(compile_log.params);
-  auto lparams = toString(compile_log.fusion_executor->lastLaunchParams());
-
-  benchmark_state.SetLabel(params + lparams);
-
-  fusion_executor_cache->profile(false);
-  executor_instance->setMeasureKernelTimeFlag(true);
-  // Sync everything up before we start
-  C10_CUDA_CHECK(cudaDeviceSynchronize());
-  for (auto _ : benchmark_state) {
-    clearL2Cache();
-    auto cg_outputs = fusion_executor_cache->runFusionWithInputs(aten_inputs);
-    benchmark_state.SetIterationTime(
-        executor_instance->kernelTimeMs() / 1000.0);
-  }
-
-  // Sync everything up before we're finished, don't want to run ahead on the
-  // cpu while benchmarking.
-  C10_CUDA_CHECK(cudaDeviceSynchronize());
+  runBenchmarkIterations(benchmark_state, fusion_executor_cache, aten_inputs);
 
   const size_t size =
       input_shape[0] * input_shape[1] * input_shape[2] * input_shape[3];

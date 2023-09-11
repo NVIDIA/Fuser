@@ -7,6 +7,7 @@
 // clang-format on
 #include <benchmark/utils.h>
 #include <c10/cuda/CUDACachingAllocator.h>
+#include <cuda_utils.h>
 #include <scheduler/all_schedulers.h>
 #include <test/utils.h>
 
@@ -121,7 +122,7 @@ std::string toString(const std::shared_ptr<HeuristicParams>& params) {
   if (tparams) {
     return toString(*tparams);
   }
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       false,
       "Unknown heuristic parameter type. Did you just added a new heuristic parameter type but forget to update here?");
 }
@@ -137,12 +138,46 @@ std::string toString(LaunchParams lparams) {
   return ss.str();
 }
 
-void runBenchmarkIterations(
+namespace {
+
+int64_t getSizeOfInputs(const std::vector<c10::IValue>& inputs) {
+  int64_t bytes = 0;
+  for (const auto& inp : inputs) {
+    if (!inp.isTensor()) {
+      continue;
+    }
+    const auto& inp_tensor = inp.toTensor();
+    bytes += inp_tensor.numel() *
+        (int64_t)dataTypeSize(aten_to_data_type(inp_tensor.scalar_type()));
+  }
+  return bytes;
+}
+
+int64_t getSizeOfOutputs(const std::vector<at::Tensor>& outputs) {
+  int64_t bytes = 0;
+  for (const auto& tensor : outputs) {
+    bytes += tensor.numel() *
+        (int64_t)dataTypeSize(aten_to_data_type(tensor.scalar_type()));
+  }
+  return bytes;
+}
+} // namespace
+
+int64_t runBenchmarkIterations(
     benchmark::State& benchmark_state,
     FusionExecutorCache* fusion_executor_cache,
     std::vector<c10::IValue>& aten_inputs) {
   c10::cuda::CUDACachingAllocator::emptyCache();
-  fusion_executor_cache->runFusionWithInputs(aten_inputs);
+  fusion_executor_cache->profile(true);
+
+  int64_t io_bytes = getSizeOfInputs(aten_inputs);
+
+  // Segment and compile the fusion
+  {
+    auto cg_outputs = fusion_executor_cache->runFusionWithInputs(aten_inputs);
+    io_bytes += getSizeOfOutputs(cg_outputs);
+  }
+
   bool segmented =
       fusion_executor_cache->getMostRecentKernelRuntime()->isSegmented() &&
       fusion_executor_cache->getMostRecentKernelRuntime()
@@ -150,37 +185,31 @@ void runBenchmarkIterations(
               ->groups()
               .size() > 1;
 
+  auto compile_log = fusion_executor_cache->getMostRecentExecutorInfo();
+  auto params = toString(compile_log.params);
+  auto lparams = toString(compile_log.fusion_executor->lastLaunchParams());
+  // Only set if not segmented. In the case of segmented fusions,
+  // this could be confusing as the log would refect only the last
+  // segment. Revisit if necessary.
   if (!segmented) {
-    fusion_executor_cache->profile(true);
-    fusion_executor_cache->runFusionWithInputs(aten_inputs);
-    auto compile_log = fusion_executor_cache->getMostRecentExecutorInfo();
-    auto executor_instance = compile_log.fusion_executor;
-
-    auto params = toString(compile_log.params);
-    auto lparams = toString(compile_log.fusion_executor->lastLaunchParams());
     benchmark_state.SetLabel(params + lparams);
+  }
 
+  fusion_executor_cache->profile(false);
+
+  // Sync everything up before we start
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaDeviceSynchronize());
+
+  if (!segmented) {
+    auto executor_instance = compile_log.fusion_executor;
     executor_instance->setMeasureKernelTimeFlag(true);
-
-    // Sync everything up before we start
-    C10_CUDA_CHECK(cudaDeviceSynchronize());
     for (auto _ : benchmark_state) {
       clearL2Cache();
       auto cg_outputs = fusion_executor_cache->runFusionWithInputs(aten_inputs);
       benchmark_state.SetIterationTime(
           executor_instance->kernelTimeMs() / 1000.0);
     }
-    // Sync everything up before we're finished, don't want to run ahead on the
-    // cpu while benchmarking.
-    C10_CUDA_CHECK(cudaDeviceSynchronize());
   } else {
-    // Segmented
-    // Sync everything up before we start
-    {
-      // Compile/warmup
-      auto cg_outputs = fusion_executor_cache->runFusionWithInputs(aten_inputs);
-    }
-    C10_CUDA_CHECK(cudaDeviceSynchronize());
     CudaKernelTimer timer;
     for (auto _ : benchmark_state) {
       clearL2Cache();
@@ -188,10 +217,49 @@ void runBenchmarkIterations(
       auto cg_outputs = fusion_executor_cache->runFusionWithInputs(aten_inputs);
       benchmark_state.SetIterationTime(timer.elapsed() / 1000.0);
     }
-    // Sync everything up before we're finished, don't want to run ahead on the
-    // cpu while benchmarking.
-    C10_CUDA_CHECK(cudaDeviceSynchronize());
   }
+
+  // Sync everything up before we're finished, don't want to run ahead on the
+  // cpu while benchmarking.
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaDeviceSynchronize());
+
+  return io_bytes;
+}
+
+int64_t runBenchmarkIterations(
+    benchmark::State& benchmark_state,
+    FusionExecutor* fusion_executor,
+    std::vector<c10::IValue>& aten_inputs,
+    const LaunchParams& launch_constraints,
+    CompileParams compile_params) {
+  int64_t io_bytes = getSizeOfInputs(aten_inputs);
+  {
+    // Warm-up run
+    auto cg_outputs = fusion_executor->runFusion(
+        aten_inputs, launch_constraints, compile_params);
+    io_bytes += getSizeOfOutputs(cg_outputs);
+  }
+
+  auto lparams = toString(fusion_executor->lastLaunchParams());
+  benchmark_state.SetLabel(lparams);
+
+  fusion_executor->setMeasureKernelTimeFlag(true);
+
+  // Sync everything up before we start
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaDeviceSynchronize());
+
+  for (auto _ : benchmark_state) {
+    clearL2Cache();
+    auto cg_outputs = fusion_executor->runFusion(
+        aten_inputs, launch_constraints, compile_params);
+    benchmark_state.SetIterationTime(fusion_executor->kernelTimeMs() / 1000.0);
+  }
+
+  // Sync everything up before we're finished, don't want to run ahead on the
+  // cpu while benchmarking.
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaDeviceSynchronize());
+
+  return io_bytes;
 }
 
 namespace executorCache {
@@ -200,3 +268,21 @@ ExecutorMap& getGlobalMap() {
   return executor_map_;
 }
 } // namespace executorCache
+
+// Utility functions for adding cases to benchmarks.
+// Range increment is not available from the public API.
+void addCases16Wave128To32K(benchmark::internal::Benchmark* b) {
+  const auto properties = at::cuda::getCurrentDeviceProperties();
+  int batch_size = 16 * properties->multiProcessorCount;
+  for (auto hidden_size = 128; hidden_size <= 32768; hidden_size += 128) {
+    b->Args({batch_size, hidden_size});
+  }
+}
+
+void addCasesOneWave128To32K(benchmark::internal::Benchmark* b) {
+  const auto properties = at::cuda::getCurrentDeviceProperties();
+  int batch_size = properties->multiProcessorCount;
+  for (auto hidden_size = 128; hidden_size <= 32768; hidden_size += 128) {
+    b->Args({batch_size, hidden_size});
+  }
+}

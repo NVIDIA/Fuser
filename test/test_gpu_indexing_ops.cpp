@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <csrc/exceptions.h>
 #include <gtest/gtest.h>
 
 #include <kernel_cache.h>
@@ -20,7 +21,7 @@ TEST_F(NVFuserTest, FusionSelectOpPointwise_CUDA) {
   FusionGuard fg(&fusion);
 
   auto tv0 = makeSymbolicTensor(3);
-  auto index = IrBuilder::create<Int>();
+  auto index = IrBuilder::create<Val>(DataType::Int);
   fusion.addInput(tv0);
   fusion.addInput(index);
 
@@ -53,7 +54,7 @@ TEST_F(NVFuserTest, FusionSelectOpReduction_CUDA) {
   FusionGuard fg(&fusion);
 
   auto tv0 = makeSymbolicTensor(3);
-  auto index = IrBuilder::create<Int>();
+  auto index = IrBuilder::create<Val>(DataType::Int);
   fusion.addInput(tv0);
   fusion.addInput(index);
 
@@ -91,7 +92,7 @@ TEST_F(NVFuserTest, FusionSelectOpPersistent_CUDA) {
   FusionGuard fg(&fusion);
 
   auto tv0 = makeSymbolicTensor(3);
-  auto index = IrBuilder::create<Int>();
+  auto index = IrBuilder::create<Val>(DataType::Int);
   fusion.addInput(tv0);
   fusion.addInput(index);
 
@@ -194,7 +195,7 @@ TEST_F(NVFuserTest, FusionIndexSelect_CUDA) {
   fusion.addInput(tv_idx);
   TensorView* tv_sel = index_select(tv0, 0, tv_idx);
   TensorView* tv2 = mul(tv1, tv_sel);
-  TensorView* tv3 = add(IrBuilder::create<Double>(17.0), tv2);
+  TensorView* tv3 = add(IrBuilder::create<Val>(17.0), tv2);
   fusion.addOutput(tv3);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -237,7 +238,7 @@ TEST_F(NVFuserTest, FusionIndexSelect1DSch_CUDA) {
   fusion.addInput(tv_idx);
   TensorView* tv_sel = index_select(tv0, 0, tv_idx);
   TensorView* tv2 = mul(tv1, tv_sel);
-  TensorView* tv3 = add(IrBuilder::create<Double>(17.0), tv2);
+  TensorView* tv3 = add(IrBuilder::create<Val>(17.0), tv2);
   fusion.addOutput(tv3);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -279,7 +280,7 @@ TEST_F(NVFuserTest, FusionIndexSelect3DTv_CUDA) {
   fusion.addInput(tv_idx);
   TensorView* tv_sel = index_select(tv0, 0, tv_idx);
   TensorView* tv2 = mul(tv1, tv_sel);
-  TensorView* tv3 = add(IrBuilder::create<Double>(27.0), tv2);
+  TensorView* tv3 = add(IrBuilder::create<Val>(27.0), tv2);
   fusion.addOutput(tv3);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -326,7 +327,7 @@ TEST_F(NVFuserTest, FusionIndexSelectCanSch_CUDA) {
   TensorView* tv_t = mul(tv0, tv_pre);
   TensorView* tv_sel = index_select(tv_t, 0, tv_idx);
   TensorView* tv2 = mul(tv1, tv_sel);
-  TensorView* tv3 = add(IrBuilder::create<Double>(17.0), tv2);
+  TensorView* tv3 = add(IrBuilder::create<Val>(17.0), tv2);
   // Register your outputs
   fusion_fail.addOutput(tv3);
 
@@ -363,7 +364,7 @@ TEST_F(NVFuserTest, FusionIndexSelectCanSch_CUDA) {
   TensorView* tv_sum_t = mul(tv_sum_0, tv_sum_pre);
   TensorView* tv_sum_sel = index_select(tv_sum_t, 0, tv_sum_idx);
   TensorView* tv_sum_2 = mul(tv_sum_1, tv_sum_sel);
-  TensorView* tv_sum_add = add(IrBuilder::create<Double>(17.0), tv_sum_2);
+  TensorView* tv_sum_add = add(IrBuilder::create<Val>(17.0), tv_sum_2);
   auto tv_sum_3 = sum(tv_sum_add, {1});
   // Register your outputs
   fusion_sum_fail.addOutput(tv_sum_3);
@@ -386,7 +387,7 @@ TEST_F(NVFuserTest, FusionIndexSelectCanSch_CUDA) {
   fusion_pass.addInput(tv_idx_p);
   TensorView* tv_sel_p = index_select(tv0_p, 0, tv_idx_p);
   TensorView* tv2_p = mul(tv1_p, tv_sel_p);
-  TensorView* tv3_p = add(IrBuilder::create<Double>(17.0), tv2_p);
+  TensorView* tv3_p = add(IrBuilder::create<Val>(17.0), tv2_p);
   // Register your outputs
   fusion_pass.addOutput(tv3_p);
   // Schedule through magic scheduler
@@ -395,7 +396,7 @@ TEST_F(NVFuserTest, FusionIndexSelectCanSch_CUDA) {
   auto sch_pass = SchedulerEntry::canSchedule(
       ScheduleHeuristic::PointWise, &fusion_pass, runtime_info_pass);
 
-  TORCH_CHECK(sch_pass == true && sch_fail == false && sch_sum_fail == false);
+  NVF_CHECK(sch_pass == true && sch_fail == false && sch_sum_fail == false);
 }
 
 TEST_F(NVFuserTest, FusionIndexSelect_Sum_CUDA) {
@@ -416,7 +417,7 @@ TEST_F(NVFuserTest, FusionIndexSelect_Sum_CUDA) {
   fusion.addInput(tv_idx);
   TensorView* tv_sel = index_select(tv0, 0, tv_idx);
   TensorView* tv2 = mul(tv1, tv_sel);
-  TensorView* tv_add = add(IrBuilder::create<Double>(17.0), tv2);
+  TensorView* tv_add = add(IrBuilder::create<Val>(17.0), tv2);
   auto tv3 = sum(tv_add, {1});
   fusion.addOutput(tv3);
 
@@ -441,7 +442,7 @@ TEST_F(NVFuserTest, FusionIndexSelect_Sum_CUDA) {
   at::Tensor output_add = tv2_ref + 17.0;
   at::Tensor output_ref = output_add.sum({1});
 
-  TORCH_CHECK(output_ref.allclose(output));
+  NVF_CHECK(output_ref.allclose(output));
 }
 
 TEST_F(NVFuserTest, FusionIndexSelectIdxTvFuseable_CUDA) {
@@ -466,7 +467,7 @@ TEST_F(NVFuserTest, FusionIndexSelectIdxTvFuseable_CUDA) {
   TensorView* tv_idx_ret = add(tv_idx, tv_idx_pre);
   TensorView* tv_sel = index_select(tv0, 0, tv_idx_ret);
   TensorView* tv2 = mul(tv1, tv_sel);
-  TensorView* tv3 = add(IrBuilder::create<Double>(17.0), tv2);
+  TensorView* tv3 = add(IrBuilder::create<Val>(17.0), tv2);
   fusion.addOutput(tv3);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -514,7 +515,7 @@ TEST_F(NVFuserTest, FusionIndexSelectDim1InRank2_CUDA) {
     fusion.addInput(tv_idx);
     TensorView* tv_sel = index_select(tv0, 1, tv_idx);
     TensorView* tv2 = mul(tv1, tv_sel);
-    TensorView* tv3 = add(IrBuilder::create<Double>(17.0), tv2);
+    TensorView* tv3 = add(IrBuilder::create<Val>(17.0), tv2);
     fusion.addOutput(tv3);
 
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -557,7 +558,7 @@ TEST_F(NVFuserTest, FusionIndexSelectDim2InRank3_CUDA) {
   fusion.addInput(tv_idx);
   TensorView* tv_sel = index_select(tv0, 2, tv_idx);
   TensorView* tv2 = mul(tv1, tv_sel);
-  TensorView* tv3 = add(IrBuilder::create<Double>(17.0), tv2);
+  TensorView* tv3 = add(IrBuilder::create<Val>(17.0), tv2);
   fusion.addOutput(tv3);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -599,7 +600,7 @@ TEST_F(NVFuserTest, FusionIndexSelectDim1InRank3_CUDA) {
   fusion.addInput(tv_idx);
   TensorView* tv_sel = index_select(tv0, 1, tv_idx);
   TensorView* tv2 = mul(tv1, tv_sel);
-  TensorView* tv3 = add(IrBuilder::create<Double>(17.0), tv2);
+  TensorView* tv3 = add(IrBuilder::create<Val>(17.0), tv2);
   fusion.addOutput(tv3);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -642,7 +643,7 @@ TEST_F(NVFuserTest, FusionIndexSelectDim2InRank4_CUDA) {
   fusion.addInput(tv_idx);
   TensorView* tv_sel = index_select(tv0, 1, tv_idx);
   TensorView* tv2 = mul(tv1, tv_sel);
-  TensorView* tv3 = add(IrBuilder::create<Double>(17.0), tv2);
+  TensorView* tv3 = add(IrBuilder::create<Val>(17.0), tv2);
   fusion.addOutput(tv3);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);

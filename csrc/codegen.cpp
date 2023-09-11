@@ -11,6 +11,7 @@
 #include <ir/utils.h>
 #include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
+#include <options.h>
 #include <scheduler/mma_utils.h>
 #include <type.h>
 #include <utils.h>
@@ -150,7 +151,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     codegen.genPrologue();
     codegen.genBody();
     codegen.endBlock();
-    TORCH_CHECK(codegen.block_nest_level_ == 0);
+    NVF_CHECK(codegen.block_nest_level_ == 0);
     return codegen.code_.str();
   }
 
@@ -169,7 +170,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   }
 
   void setPrecision(std::stringstream& ss, DataType dtype) {
-    TORCH_INTERNAL_ASSERT(isFloatingPointType(dtype));
+    NVF_ERROR(isFloatingPointType(dtype));
     ss << std::setprecision(max_digits10(dtype));
   }
 
@@ -223,47 +224,39 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
   // Generates the kernel function declaration
   void genDeclaration(const std::string& kernel_name) {
-    const auto& kernel_summary = kernel_->summary();
-
     code_ << "__global__ void " << kernel_name << "(";
 
     std::unordered_set<Val*> unique_args;
 
     std::vector<Val*> params;
 
-    // Inputs & Outputs
-    for (auto val : kernel_->inputs()) {
-      params.push_back(val);
-    }
-    for (auto val : kernel_->outputs()) {
-      TORCH_INTERNAL_ASSERT(
-          !val->isScalar(), "No scalar output is allowed: ", val->toString());
-      params.push_back(val);
-    }
-
     // Generate parameter declarations
+    kernel_params_.reserve(kernel_->parameters().size());
     unsigned int duplicate_counter = 0;
-    for (auto i : c10::irange(params.size())) {
+    for (auto i : c10::irange(kernel_->parameters().size())) {
       std::stringstream var_name_ss;
-      if (params[i]->isA<TensorView>()) {
-        var_name_ss << genVariableName(params[i]->as<TensorView>());
+      auto param = kernel_->parameters().at(i);
+      kernel_params_.insert(param);
+
+      if (param->isA<TensorView>()) {
+        var_name_ss << genVariableName(param->as<TensorView>());
       } else {
-        var_name_ss << gen(params[i]);
+        var_name_ss << gen(param);
       }
 
       // If value is duplicate in arguments change the name to avoid name
       // conflicts in args.
-      if (!unique_args.emplace(params[i]).second) {
+      if (!unique_args.emplace(param).second) {
         var_name_ss << "_duplicate_" << duplicate_counter++;
       }
 
-      if (const auto tv = dynamic_cast<TensorView*>(params[i])) {
+      if (const auto tv = dynamic_cast<TensorView*>(param)) {
         if (tv->isCpuScalar()) {
-          code_ << " CpuScalarTensor<" << params[i]->dtype() << "> "
+          code_ << " CpuScalarTensor<" << param->dtype() << "> "
                 << var_name_ss.str();
         } else {
           code_
-              << "Tensor<" << params[i]->dtype() << ", "
+              << "Tensor<" << param->dtype() << ", "
               << TensorDomain::noReductions(tv->getMaybeRFactorDomain()).size()
               << ", "
               << TensorDomain::noReductions(tv->getMaybeAllocationDomain())
@@ -271,29 +264,13 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
               << "> " << var_name_ss.str();
         }
       } else {
-        TORCH_INTERNAL_ASSERT(params[i]->isScalar()); // NOLINT (LLVM bug 48525)
-        TORCH_INTERNAL_ASSERT(params[i]->definition() == nullptr);
-        code_ << params[i]->dtype() << " " << var_name_ss.str();
+        NVF_ERROR(param->isScalar()); // NOLINT (LLVM bug 48525)
+        code_ << param->dtype() << " " << var_name_ss.str();
       }
 
-      if (i + 1 != params.size()) {
+      if (i + 1 != kernel_->parameters().size()) {
         code_ << ", ";
       }
-    }
-
-    // Global buffers
-    for (auto allocate : kernel_summary.global_allocations) {
-      TORCH_INTERNAL_ASSERT(allocate->buffer()->isA<TensorView>());
-      const auto tv = allocate->buffer()->as<TensorView>();
-      const auto& alloc_domain =
-          TensorDomain::noReductions(tv->getMaybeAllocationDomain());
-      code_ << ", Tensor<" << tv->dtype() << ", " << alloc_domain.size() << ", "
-            << alloc_domain.size() << "> " << genVariableName(tv);
-    }
-
-    // Kernels generating random numbers take extra (seed, offset) arguments
-    if (kernel_summary.max_rng_offsets >= 0) {
-      code_ << ", at::PhiloxCudaState philox_args";
     }
 
     code_ << ") ";
@@ -303,12 +280,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   void genPrologue() {
     const auto& kernel_summary = kernel_->summary();
 
-    // Random number generator (optional)
-    if (kernel_summary.max_rng_offsets >= 0) {
-      indent() << "auto philox_offset = philox_args.captured_ ?\n";
-      indent()
-          << "  static_cast<uint64_t>(*(philox_args.offset_.ptr) + philox_args.offset_intragraph_) :\n";
-      indent() << "  philox_args.offset_.val;\n";
+    if (kernel_summary.has_philox_op) {
       indent() << "uint4 rng_result;\n";
       indent() << "nvfuser_index_t rng_subseq = -1;\n";
       indent() << "nvfuser_index_t rng_offset = -1;\n";
@@ -330,10 +302,6 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
                << 16 // always align to 16B for any shared mem allocation
                << ") extern __shared__ char array[];\n";
 
-      if (has_dynamic_smem) {
-        indent() << "unsigned smem_offset = 0;\n";
-      }
-
       if (has_reductions || has_parallel_welford) {
         indent() << "void* shared_mem = array;\n";
         if (has_dynamic_smem) {
@@ -352,7 +320,9 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
                 << ")";
             smem_buf_size = smem_buf_size_with_outer_opt.str();
           }
-          indent() << "smem_offset += " << smem_buf_size << ";\n";
+          // Ensure that smem_offset remains 16-byte aligned, like shared_mem
+          indent() << "const unsigned smem_offset = alignBufferSize("
+                   << smem_buf_size << ", 16);\n";
         }
 
         if (has_parallel_welford) {
@@ -368,11 +338,13 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           indent() << space_type
                    << " *shared_mem_n = shared_mem_avg + block_size;\n";
         }
+      } else if (has_dynamic_smem) {
+        indent() << "const unsigned smem_offset = 0;\n";
       }
     }
 
     // Call the initialization function if using a custom block sync
-    if (std::getenv("PYTORCH_NVFUSER_USE_BLOCK_SYNC_ATOMIC")) {
+    if (getNvFuserEnv("USE_BLOCK_SYNC_ATOMIC")) {
       indent() << "block_sync::init();\n";
     }
   }
@@ -382,7 +354,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   // non-const Expr*.
   void handle(const std::vector<Expr*>& exprs) {
     for (Expr* expr : exprs) {
-      kir::ConstIrVisitor::handle(expr);
+      kir::ConstIrVisitor::dispatch(expr);
     }
   }
 
@@ -401,7 +373,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
   void endBlock(const char* sep = "\n") {
     --block_nest_level_;
-    TORCH_CHECK(block_nest_level_ >= 0);
+    NVF_CHECK(block_nest_level_ >= 0);
     indent() << "}" << sep;
   }
 
@@ -435,19 +407,19 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     if (stmt->isA<Expr>()) {
       // This expr should just be an individul expr with no nested
       // scope
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           !stmt->isA<kir::IfThenElse>() && !stmt->isA<kir::ForLoop>(),
           "Invalid expr: ",
           stmt->toString());
     } else {
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           stmt->isA<Val>(), "Unknown Statement IR type: ", stmt->toString());
     }
 
     std::stringstream tmp_code;
     initStringStreamFormat(tmp_code);
     std::swap(tmp_code, code_);
-    handle(stmt);
+    dispatch(stmt);
     std::swap(tmp_code, code_);
     return tmp_code.str();
   }
@@ -462,77 +434,64 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   }
 
   void handle(const kir::Predicate* pred) final {
-    TORCH_INTERNAL_ASSERT(pred->hasValue());
+    NVF_ERROR(pred->hasValue());
     code_ << gen(pred->value());
   }
 
-  void handle(const Bool* pred) final {
-    const auto def = pred->definition();
-    const bool has_alloc = alloc_map_.find(pred) != alloc_map_.end();
-    if (def != nullptr && !has_alloc) {
-      code_ << "(" << genInline(def) << ")";
-    } else if (pred->isConst()) {
-      code_ << (*pred->value() ? "true" : "false");
-    } else {
-      code_ << genVariableName(pred);
-    }
-  }
-
-  void handle(const Double* d) final {
-    const auto def = d->definition();
-    const bool has_alloc = alloc_map_.find(d) != alloc_map_.end();
-    if (def != nullptr && !has_alloc) {
-      code_ << "(" << genInline(def) << ")";
-    } else if (d->isConst()) {
-      auto val = *d->value();
-      // note: default inf/nan doesn't work and should be replaced with macros
-      // `NAN`, `POS_INFINITY` and `NEG_INFINITY` instead.
-      if (std::isinf(val)) {
-        if (val > 0) {
-          code_ << "POS_INFINITY";
-        } else {
-          code_ << "NEG_INFINITY";
-        }
-      } else if (std::isnan(val)) {
-        code_ << "NAN";
-      } else {
-        setPrecision(code_, d->getDataType().value());
-        code_ << val << getLiteralSuffix(d->getDataType().value());
-      }
-    } else {
-      code_ << genVariableName(d);
-    }
-  }
-
-  void handle(const Int* i) final {
-    // Check the replacement map first. If there's an entry for i, use
+  void handle(const Val* s) final {
+    // Check the replacement map first. If there's an entry for s, use
     // the corresponding replacement.
-    auto replace_it = index_replacement_map_.find(i);
+    auto replace_it = index_replacement_map_.find(s);
     if (replace_it != index_replacement_map_.end()) {
       code_ << replace_it->second;
       return;
     }
-
-    const auto def = i->definition();
-    const bool has_alloc = alloc_map_.find(i) != alloc_map_.end();
-    if (def != nullptr && !has_alloc) {
-      code_ << "(" << genInline(def) << ")";
-    } else if (i->isConst()) {
-      code_ << *i->value() << getLiteralSuffix(i->getDataType().value());
+    const auto def = s->definition();
+    const bool has_alloc = alloc_map_.find(s) != alloc_map_.end();
+    const bool is_param = kernel_params_.find(s) != kernel_params_.end();
+    if (def != nullptr && !has_alloc && !is_param) {
+      if (def->isOneOf<GetAttr, GetItem, GetMetaData>() ||
+          (def->isA<UnaryOp>() &&
+           !inline_op_str(def->as<UnaryOp>()->getUnaryOpType()).has_value())) {
+        code_ << genInline(def);
+      } else {
+        code_ << "(" << genInline(def) << ")";
+      }
+    } else if (s->isConst()) {
+      auto value = s->value();
+      auto dtype = s->dtype();
+      if (value.is<bool>()) {
+        code_ << (value ? "true" : "false");
+      } else if (value.is<int64_t>()) {
+        code_ << value << getLiteralSuffix(dtype);
+      } else if (value.is<double>()) {
+        auto val = value.as<double>();
+        // note: default inf/nan doesn't work and should be replaced with macros
+        // `NAN`, `POS_INFINITY` and `NEG_INFINITY` instead.
+        if (std::isinf(val)) {
+          if (val > 0) {
+            code_ << "POS_INFINITY";
+          } else {
+            code_ << "NEG_INFINITY";
+          }
+        } else if (std::isnan(val)) {
+          code_ << "NAN";
+        } else {
+          setPrecision(code_, dtype);
+          code_ << val << getLiteralSuffix(dtype);
+        }
+      } else if (value.is<std::complex<double>>()) {
+        if (dtype == DataType::ComplexFloat) {
+          code_ << "std::complex<float>" << value;
+        } else {
+          NVF_ERROR(dtype == DataType::ComplexDouble);
+          code_ << "std::complex<double>" << value;
+        }
+      } else {
+        NVF_ERROR(false, "Unhandled constant type: ", s->dtype(), " ", value);
+      }
     } else {
-      code_ << genVariableName(i);
-    }
-  }
-
-  void handle(const ComplexDouble* c) final {
-    const auto def = c->definition();
-    const bool has_alloc = alloc_map_.find(c) != alloc_map_.end();
-    if (def != nullptr && !has_alloc) {
-      code_ << "(" << genInline(def) << ")";
-    } else if (c->isConst()) {
-      code_ << "std::complex<double>" << *c->value();
-    } else {
-      code_ << genVariableName(c);
+      code_ << genVariableName(s);
     }
   }
 
@@ -555,21 +514,16 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           << "]";
   }
 
-  void handle(const ViewAsScalar* sv) final {
-    indent() << gen(sv->output(0)) << " = " << gen(sv->input(0)) << "["
-             << gen(sv->index()) << "];\n";
-  }
-
   void handle(const IterDomain*) final {
-    TORCH_INTERNAL_ASSERT(false, "Unreachable");
+    NVF_ERROR(false, "Unreachable");
   }
 
   void handle(const TensorDomain*) final {
-    TORCH_INTERNAL_ASSERT(false, "Unreachable");
+    NVF_ERROR(false, "Unreachable");
   }
 
-  void handle(const TensorView*) final {
-    TORCH_INTERNAL_ASSERT(false, "Unreachable");
+  void handle(const TensorView* tv) final {
+    code_ << genVariableName(tv);
   }
 
   //! Utility for generating vectorized pointer access in ldsm and
@@ -590,54 +544,87 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   // Utility function to emit a cp.async intrinsic
   void genCpAsync(const LoadStoreOp* ldst, size_t vec_size) {
     auto dtype = ldst->in()->getDataType().value();
+
     bool is_cg = ldst->opType() == LoadStoreOpType::CpAsyncCg;
+    std::string name = (is_cg ? "Ampere::cpAsyncCg" : "Ampere::cpAsyncCa");
 
-    if (is_cg) {
-      indent() << "Ampere::cpAsyncCg";
-    } else {
-      indent() << "Ampere::cpAsyncCa";
+    ArgumentBuilder template_args;
+    template_args.arg(dtype);
+    template_args.arg(vec_size);
+
+    ArgumentBuilder func_args;
+    func_args.arg(genInline(ldst->out()->as<kir::TensorIndex>()->index()));
+    func_args.arg(genInline(ldst->in()->as<kir::TensorIndex>()->index()));
+    if (ldst->predicate() != nullptr) {
+      func_args.arg(genInline(ldst->predicate()));
     }
 
-    if (ldst->predicate() == nullptr) {
-      // Out of line predicate variant
-      code_ << "<" << dtype << ", " << vec_size << ">("
-            << genInline(ldst->out()->as<kir::TensorIndex>()->index()) << ","
-            << genInline(ldst->in()->as<kir::TensorIndex>()->index()) << ");\n";
-    } else {
-      // Inline predicate variant
-      code_ << "<" << dtype << ", " << vec_size << ">("
-            << genInline(ldst->out()->as<kir::TensorIndex>()->index()) << ","
-            << genInline(ldst->in()->as<kir::TensorIndex>()->index()) << ","
-            << genInline(ldst->predicate()) << ");\n";
-    }
+    indent() << genCall(name, template_args, func_args) << ";\n";
   }
 
   void genLdMatrix(const LoadStoreOp* ldst, size_t vector_word_size) {
     auto dtype = ldst->in()->getDataType().value();
-    indent() << "Turing::ldMatrix";
-    if (ldst->opType() == LoadStoreOpType::LdMatrixTranspose) {
-      code_ << "T";
-    }
-    code_ << " (";
-    code_ << "*" << genVectorPointer(ldst->out(), dtype, vector_word_size)
-          << "," << genInline(ldst->in()->as<kir::TensorIndex>()->index())
-          << ");\n";
+
+    bool is_transpose = (ldst->opType() == LoadStoreOpType::LdMatrixTranspose);
+    std::string name =
+        (is_transpose ? "Turing::ldMatrixT" : "Turing::ldMatrix");
+
+    ArgumentBuilder func_args;
+    func_args.arg(genVectorPointer(ldst->out(), dtype, vector_word_size));
+    func_args.arg(genInline(ldst->in()->as<kir::TensorIndex>()->index()));
+
+    indent() << genCall(name, func_args) << ";\n";
   }
 
-  void handle(const kir::BaseAddress* sop) final {
+  void handle(const GetMetaData* gop) final {
+    if (print_inline_) {
+      code_ << gen(gop->in());
+    } else {
+      auto out_type = gop->output(0)->dtype();
+      std::visit(
+          [&](auto&& dtype) {
+            using T = std::decay_t<decltype(dtype)>;
+            if constexpr (std::is_same_v<T, StructType>) {
+              for (const auto& field : dtype.fields) {
+                if (!field.used_in_kernel) {
+                  continue;
+                }
+                indent() << gen(gop->output(0)) << "." << field.name << " = "
+                         << gen(gop->in()) << "." << field.name << ";\n";
+              }
+            } else {
+              indent() << gen(gop->output(0)) << " = " << gen(gop->in())
+                       << ";\n";
+            }
+          },
+          out_type.type);
+    }
+  }
+
+  void handle(const StructConstruct* sop) final {
     if (!print_inline_) {
       indent() << gen(sop->output(0)) << " = ";
     }
-    switch (sop->tv()->getMemoryType()) {
-      case MemoryType::Shared:
-        code_ << "toSmem(" << genVariableName(sop->tv()) << ")";
-        break;
-      case MemoryType::Global:
-        code_ << genVariableName(sop->tv()) << ".data";
-        break;
-      default:
-        TORCH_INTERNAL_ASSERT(false, "Unsupported input for kir::BaseAddress");
+    auto dtype = std::get<StructType>(sop->output(0)->dtype().type);
+    code_ << dtype.name << "{ ";
+    for (auto i : c10::irange(sop->inputs().size())) {
+      if (i > 0) {
+        code_ << ", ";
+      }
+      // TODO: upgrade to C++20 and use dot initialization
+      code_ << /*"." << sop->fieldName(i) << " = " <<*/ gen(sop->input(i));
     }
+    code_ << " }";
+    if (!print_inline_) {
+      code_ << ";\n";
+    }
+  }
+
+  void handle(const GetAttr* gop) final {
+    if (!print_inline_) {
+      indent() << gen(gop->output(0)) << " = ";
+    }
+    code_ << gen(gop->struct_()) << "." << gop->attr();
     if (!print_inline_) {
       code_ << ";\n";
     }
@@ -656,23 +643,20 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     }
 
     if (auto op = inline_op_str(op_type)) {
-      if (alsoBooleanOperator(op_type) &&
-          uop->out()->dtype() == DataType::Bool) {
-        code_ << stringifyBooleanOp(op_type) << gen(uop->in());
-      } else {
-        code_ << *op << gen(uop->in());
-      }
+      code_ << *op << gen(uop->in());
     } else {
       if (op_type == UnaryOpType::Cast) {
         const auto cast_str =
             cast_func_str({uop->in()->dtype(), uop->out()->dtype()});
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             cast_str.has_value(),
             "Invalid cast. Input type: ",
             uop->in()->dtype(),
             ", output type: ",
             uop->out()->dtype());
         code_ << cast_str.value();
+      } else if (op_type == UnaryOpType::BitCast) {
+        code_ << "std::bit_cast<" << uop->out()->dtype() << ">";
       } else {
         code_ << op_type;
         if (needFloatSuffix(op_type) &&
@@ -690,7 +674,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   }
 
   void handle(const RNGOp* rop) final {
-    // TODO: TORCH_INTERNAL_ASSERT that the scheduler correctly creates an
+    // TODO: NVF_ERROR that the scheduler correctly creates an
     // innermost ID of size 4 (float) or size 2 (double)?
     auto index = genInline(rop->getPhiloxIndex());
     int multiple = rop->getPhiloxMultiple();
@@ -701,14 +685,12 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     indent() << "nvfuser_index_t rng_component" << rop->name()
              << " = linear_index" << rop->name() << " % " << multiple << ";\n";
     indent() << "nvfuser_index_t rng_offset" << rop->name() << " = "
-             << rop->getRNGOffset() << ";\n";
+             << genInline(rop->getRNGOffsetVal()) << ";\n";
     indent() << "if (rng_subseq != rng_subseq" << rop->name()
              << " || rng_offset != rng_offset" << rop->name() << ") {\n";
-    indent() << "  auto seed = philox_args.captured_ ?\n"
-             << "      static_cast<uint64_t>(*(philox_args.seed_.ptr)) : \n"
-             << "      philox_args.seed_.val;\n";
-    indent() << "  rng_result = philox(seed, rng_subseq" << rop->name()
-             << ", philox_offset / 4 + rng_offset" << rop->name() << ");\n";
+    indent() << "  rng_result = philox(" << genInline(rop->getRNGSeedVal())
+             << ", rng_subseq" << rop->name() << ", "
+             << "rng_offset" << rop->name() << ");\n";
     indent() << "  rng_subseq = rng_subseq" << rop->name() << ";\n";
     indent() << "  rng_offset = rng_offset" << rop->name() << ";\n";
     indent() << "}\n";
@@ -721,13 +703,13 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     switch (op_type) {
       case RNGOpType::UniformRange: {
         auto parameters = rop->getParameters();
-        TORCH_INTERNAL_ASSERT(parameters.size() == 2);
+        NVF_ERROR(parameters.size() == 2);
         code_ << ", " << gen(parameters[0]) << ", " << gen(parameters[1]);
         break;
       }
       case RNGOpType::NormalGeneral: {
         auto parameters = rop->getParameters();
-        TORCH_INTERNAL_ASSERT(parameters.size() == 2);
+        NVF_ERROR(parameters.size() == 2);
         code_ << ", " << gen(parameters[0]) << ", " << gen(parameters[1]);
         break;
       }
@@ -743,13 +725,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       const std::string& rhs) {
     std::stringstream expr;
     if (auto op = inline_op_str(op_type)) {
-      expr << lhs << " ";
-      if (alsoBooleanOperator(op_type) && data_type == DataType::Bool) {
-        expr << stringifyBooleanOp(op_type);
-      } else {
-        expr << *op;
-      }
-      expr << " " << rhs;
+      expr << lhs << " " << *op << " " << rhs;
     } else {
       if (integer_op_str(op_type) && isIntegralType(data_type)) {
         auto int_op = integer_op_str(op_type);
@@ -811,14 +787,14 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     }
 
     auto rhs = bop->rhs();
-    c10::optional<double> exponent;
-    if (auto val_int = dynamic_cast<Int*>(rhs)) {
+    PolymorphicValue exponent;
+    if (auto val_int = dynamic_cast<Val*>(rhs)) {
       if (val_int->isConst()) {
-        exponent = val_int->value().value();
+        exponent = val_int->value();
       }
-    } else if (auto val_float = dynamic_cast<Double*>(rhs)) {
+    } else if (auto val_float = dynamic_cast<Val*>(rhs)) {
       if (val_float->isConst()) {
-        auto fp_exp = val_float->value().value();
+        auto fp_exp = val_float->value().as<double>();
         double int_exp = 0;
         if (std::modf(fp_exp, &int_exp) == 0) {
           exponent = int_exp;
@@ -826,12 +802,12 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       }
     }
 
-    if (!exponent.has_value()) {
+    if (!exponent.hasValue()) {
       return false;
     }
 
     // Only **2 and **3 are considered
-    if (!(exponent.value() == 2 || exponent.value() == 3)) {
+    if (!(exponent == 2 || exponent == 3)) {
       return false;
     }
 
@@ -839,21 +815,21 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
     if (print_inline_) {
       code_ << lhs << " * " << lhs;
-      if (exponent.value() == 3) {
+      if (exponent == 3) {
         code_ << " * " << lhs;
       }
     } else {
       indent() << gen(bop->out());
       if (bop->out()->isScalar()) {
         code_ << " = " << lhs << " * " << lhs;
-        if (exponent.value() == 3) {
+        if (exponent == 3) {
           code_ << " * " << lhs;
         }
       } else {
         code_ << "\n";
         indent() << kTab << "= " << lhs << "\n";
         indent() << kTab << "* " << lhs;
-        if (exponent.value() == 3) {
+        if (exponent == 3) {
           code_ << "\n";
           indent() << kTab << "* " << lhs;
         }
@@ -899,13 +875,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           indent() << kTab << "= " << (bop->lhs()->isScalar() ? cast : "")
                    << gen(bop->lhs()) << "\n";
           indent() << kTab;
-          if (alsoBooleanOperator(op_type) &&
-              bop->out()->dtype() == DataType::Bool) {
-            code_ << stringifyBooleanOp(op_type);
-          } else {
-            code_ << *op;
-          }
-          code_ << " " << (bop->rhs()->isScalar() ? cast : "")
+          code_ << *op << " " << (bop->rhs()->isScalar() ? cast : "")
                 << gen(bop->rhs());
         } else {
           if (integer_op_str(op_type) && isIntegralType(bop->out()->dtype())) {
@@ -967,6 +937,39 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     }
   }
 
+  void handle(const ArrayConstruct* aop) final {
+    if (!print_inline_) {
+      indent() << gen(aop->out()) << " = ";
+    }
+
+    code_ << aop->out()->dtype() << "{";
+    bool first = true;
+    for (auto in : aop->inputs()) {
+      if (!first) {
+        code_ << ", ";
+      }
+      first = false;
+      code_ << gen(in);
+    }
+    code_ << "}";
+
+    if (!print_inline_) {
+      code_ << ";\n";
+    }
+  }
+
+  void handle(const GetItem* gop) final {
+    if (!print_inline_) {
+      indent() << gen(gop->out()) << " = ";
+    }
+
+    code_ << gen(gop->array()) << "[" << gen(gop->index()) << "]";
+
+    if (!print_inline_) {
+      code_ << ";\n";
+    }
+  }
+
   void handle(const IndexSelectOp* sop) final {
     // generate code
     if (!print_inline_) {
@@ -988,7 +991,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       // non-deterministic
       indent() << gen(sop->output(0)) << " = " << gen(sop->input(2)) << ";\n";
     } else {
-      TORCH_INTERNAL_ASSERT(false, "unkown scatterOp");
+      NVF_ERROR(false, "unkown scatterOp");
     }
   }
 
@@ -1001,7 +1004,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     } else if (isAmpere(macro)) {
       ss << "Ampere";
     } else {
-      TORCH_INTERNAL_ASSERT(false, "mma macro unknown arch");
+      NVF_ERROR(false, "mma macro unknown arch");
     }
     return ss.str();
   }
@@ -1018,10 +1021,9 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     // clang-tidy: bugprone-unchecked-optional-access
     // clang-tidy assumes that function result is unstable, so we need a copy.
     auto mma_layout_opt = mma->layout();
-    TORCH_INTERNAL_ASSERT(
-        mma_layout_opt.has_value(), "mma unknown input layout");
+    NVF_ERROR(mma_layout_opt.has_value(), "mma unknown input layout");
     if (isTuring(options.macro) || isAmpere(options.macro)) {
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           mma_layout_opt == MmaOptions::MmaLayout::TN,
           "MMAs in Turing and Ampere are TN only, transpose is handled either "
           "via ldmatrix.trans for fp16 or explicitly for other types.");
@@ -1029,7 +1031,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     ss << toString(mma_layout_opt.value());
     // TODO: additional parameter could be removed by swizzling iterdomain
     auto acc_stride = mma->accStride();
-    TORCH_INTERNAL_ASSERT(acc_stride > 0);
+    NVF_ERROR(acc_stride > 0);
     ss << "<" << acc_stride << ">";
     return ss.str();
   }
@@ -1085,7 +1087,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   }
 
   void handle(const BroadcastOp* stmt) final {
-    TORCH_INTERNAL_ASSERT(stmt->out()->isA<kir::TensorIndex>());
+    NVF_ERROR(stmt->out()->isA<kir::TensorIndex>());
 
     const ParallelTypeBitmap parallel_types =
         kernel_->summary().broadcast_parallel_types.at(stmt);
@@ -1097,7 +1099,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       return;
     }
 
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         !parallel_types.hasBID(),
         "Parallel broadcast across blocks should have been translated to a GridBroadcast IR node");
 
@@ -1113,8 +1115,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     func_args.arg(gen(stmt->out()));
     func_args.arg(gen(stmt->in()));
     func_args.arg(genStaticCast(genPtrType(data_type), "shared_mem"));
-    TORCH_INTERNAL_ASSERT(
-        stmt->predicate() != nullptr && stmt->predicate()->hasValue());
+    NVF_ERROR(stmt->predicate() != nullptr && stmt->predicate()->hasValue());
     func_args.arg(genInline(stmt->predicate()));
 
     indent() << genCall("broadcast::blockBroadcast", template_args, func_args)
@@ -1148,7 +1149,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     func_args.arg(gen(input));
     func_args.arg(genReductionOp(reduction_op_type, output->dtype()));
     func_args.arg(genStaticCast(genPtrType(output->dtype()), "shared_mem"));
-    TORCH_INTERNAL_ASSERT(read_pred != nullptr && read_pred->hasValue());
+    NVF_ERROR(read_pred != nullptr && read_pred->hasValue());
     func_args.arg(genInline(read_pred));
     func_args.arg(genStaticCast(output->dtype(), genInline(init)));
 
@@ -1186,14 +1187,14 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     func_args.arg(gen(input));
     func_args.arg(genReductionOp(reduction_op_type, output->dtype()));
     func_args.arg(genStaticCast(genPtrType(data_type), "shared_mem"));
-    TORCH_INTERNAL_ASSERT(read_pred != nullptr && read_pred->hasValue());
+    NVF_ERROR(read_pred != nullptr && read_pred->hasValue());
     func_args.arg(genInline(read_pred));
     // Pass the write predicate if available and different from the
     // default predicate. The blockReduce runtime function uses the
     // default predicate for both read and write when only the
     // default one is given.
     if (write_pred != nullptr) {
-      TORCH_INTERNAL_ASSERT(write_pred->hasValue());
+      NVF_ERROR(write_pred->hasValue());
       func_args.arg(genInline(write_pred));
     }
     func_args.arg(genCall(data_type, genInline(init)));
@@ -1202,7 +1203,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   }
 
   void handle(const ReductionOp* rop) final {
-    TORCH_INTERNAL_ASSERT(rop->out()->isA<kir::TensorIndex>());
+    NVF_ERROR(rop->out()->isA<kir::TensorIndex>());
 
     const auto output = rop->out()->as<kir::TensorIndex>();
     const auto input = rop->in()->as<kir::TensorIndex>();
@@ -1212,7 +1213,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     const bool has_block_reduce = domain->hasBlockReduction();
     const bool has_grid_reduce = domain->hasGridReduction();
 
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         !has_grid_reduce,
         "ReductionOp does not support block parallelization. GridReductionOp must be used. ",
         rop->toString());
@@ -1245,9 +1246,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
               out_tv->getLeafDomain().end(),
               [&](IterDomain* id) { return id->isMma(); })) {
         auto mma = dynamic_cast<MmaOp*>(out_tv->definition());
-        TORCH_INTERNAL_ASSERT(
-            mma != nullptr, "CodeGen: mma op not in mma loop");
-        TORCH_INTERNAL_ASSERT(optype == LoadStoreOpType::Set);
+        NVF_ERROR(mma != nullptr, "CodeGen: mma op not in mma loop");
+        NVF_ERROR(optype == LoadStoreOpType::Set);
         genMmaInitialization(mma, ldst);
         return;
       }
@@ -1262,7 +1262,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
             continue;
           }
 
-          TORCH_INTERNAL_ASSERT(
+          NVF_ERROR(
               id->extent()->isConstInt(),
               "Could not evaluate constant value bound to vectorized dim.");
 
@@ -1274,7 +1274,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       }
 
       if (is_vector_op && !ldst->in()->isScalar()) {
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             ldst->out()->dtype() == ldst->in()->dtype(),
             "Vectorized store/load requires input and output datatypes match.");
       }
@@ -1282,8 +1282,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       // dispatch ldmatrix
       if (optype == LoadStoreOpType::LdMatrix ||
           optype == LoadStoreOpType::LdMatrixTranspose) {
-        TORCH_INTERNAL_ASSERT(
-            is_vector_op, "LdMatrix: Vectorization required: ", ldst);
+        NVF_ERROR(is_vector_op, "LdMatrix: Vectorization required: ", ldst);
         genLdMatrix(ldst, vector_word_size);
         return;
       }
@@ -1292,7 +1291,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       if (optype == LoadStoreOpType::CpAsyncCa ||
           optype == LoadStoreOpType::CpAsyncCg) {
         if (optype == LoadStoreOpType::CpAsyncCg) {
-          TORCH_INTERNAL_ASSERT(
+          NVF_ERROR(
               is_vector_op && vector_word_size == 8,
               "cp.async.cg only support vectorize 8");
         }
@@ -1302,7 +1301,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
       // dispatch vectorized load/store
       if (is_vector_op) {
-        TORCH_INTERNAL_ASSERT(optype == LoadStoreOpType::Set);
+        NVF_ERROR(optype == LoadStoreOpType::Set);
         if (ldst->in()->isScalar()) {
           // Note:
           //  Double buffered local tensors need indexed initialization,
@@ -1323,7 +1322,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           }
         } else {
           // Vectorized load
-          TORCH_INTERNAL_ASSERT(
+          NVF_ERROR(
               ldst->in()->isA<kir::TensorIndex>(),
               "Invalid input to unary op with tensor output, found: ",
               ldst->in()->toString());
@@ -1376,7 +1375,21 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     }
 
     // Generic set op
-    TORCH_INTERNAL_ASSERT(optype == LoadStoreOpType::Set);
+    NVF_ERROR(optype == LoadStoreOpType::Set);
+
+    if (!print_inline_ &&
+        std::holds_alternative<StructType>(ldst->out()->dtype().type)) {
+      auto out_type = std::get<StructType>(ldst->out()->dtype().type);
+      auto in_type = std::get<StructType>(ldst->in()->dtype().type);
+      for (const auto& field : out_type.fields) {
+        if (!field.used_in_kernel) {
+          continue;
+        }
+        indent() << gen(ldst->out()) << "." << field.name << " = "
+                 << gen(ldst->in()) << "." << field.name << ";\n";
+      }
+      return;
+    }
 
     if (!print_inline_) {
       indent() << gen(ldst->out());
@@ -1393,7 +1406,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   }
 
   void genBlockWelford(const WelfordOp* wop) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         ir_utils::getTvOutput(wop)->domain()->hasBlockReduction(),
         "Not block-parallel WelfordOp: ",
         wop->toString());
@@ -1461,12 +1474,11 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     func_args.arg(genReinterpretCast(genPtrType(data_type), "shared_mem_avg"));
     func_args.arg(genReinterpretCast(genPtrType(data_type), "shared_mem_var"));
     func_args.arg(genReinterpretCast(genPtrType(index_type), "shared_mem_n"));
-    TORCH_INTERNAL_ASSERT(wop->predicate() != nullptr);
-    TORCH_INTERNAL_ASSERT(
-        wop->predicate() != nullptr && wop->predicate()->hasValue());
+    NVF_ERROR(wop->predicate() != nullptr);
+    NVF_ERROR(wop->predicate() != nullptr && wop->predicate()->hasValue());
     func_args.arg(genInline(wop->predicate()));
     if (wop->writePredicate() != nullptr) {
-      TORCH_INTERNAL_ASSERT(wop->writePredicate()->hasValue());
+      NVF_ERROR(wop->writePredicate()->hasValue());
       func_args.arg(genInline(wop->writePredicate()));
     }
     func_args.arg(genStaticCast(data_type, 0));
@@ -1475,7 +1487,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   }
 
   void handle(const WelfordOp* wop) final {
-    TORCH_INTERNAL_ASSERT(wop->out()->isA<kir::TensorIndex>());
+    NVF_ERROR(wop->out()->isA<kir::TensorIndex>());
 
     const auto out = wop->out()->as<kir::TensorIndex>();
     const auto& domain = out->view()->domain();
@@ -1489,8 +1501,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     const auto in_N = wop->inN();
 
     // inVar was allowed to be nullptr. Make sure it isn't.
-    TORCH_INTERNAL_ASSERT(
-        in_var != nullptr, "Welford var input nullptr not allowed");
+    NVF_ERROR(in_var != nullptr, "Welford var input nullptr not allowed");
 
     const bool has_block_reduce = domain->hasBlockReduction();
     const bool has_grid_reduce = domain->hasGridReduction();
@@ -1550,7 +1561,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   std::string generateGridReduceTemplateFlags(
       const REDUCTION_OP* rop,
       const ParallelTypeBitmap& thread_pred) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         !rop->isAllreduce(),
         "This is not for the allreduce reduction kernel\n");
 
@@ -1561,7 +1572,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           par_domains.find(pt) != par_domains.end() &&
           par_domains.at(pt)->isReduction();
       const bool pred = thread_pred.get(pt);
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           !(parallel_reduction && pred), "Cannot reduce predicated axis: ", pt);
       bool flag = false;
       if (isParallelTypeBlockDim(pt)) {
@@ -1580,7 +1591,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   std::string generateGridReduceTemplateFlags2(
       const REDUCTION_OP* rop,
       const ParallelTypeBitmap& thread_pred) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         !rop->isAllreduce(),
         "This is not for the allreduce reduction kernel\n");
 
@@ -1592,7 +1603,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           par_domains.find(pt) != par_domains.end() &&
           par_domains.at(pt)->isReduction();
       const bool pred = thread_pred.get(pt);
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           !(parallel_reduction && pred), "Cannot reduce predicated axis: ", pt);
       flags.arg(parallel_reduction);
     }
@@ -1605,7 +1616,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       const auto& buffer_indices =
           kernel_->profile().getIndicesInProfileBuffer(expr);
       auto buffer = kernel_->profile().getBuffer();
-      TORCH_INTERNAL_ASSERT(buffer != nullptr);
+      NVF_ERROR(buffer != nullptr);
       for (const auto& index : buffer_indices) {
         func_args.arg(genVariableName(buffer))
             .append("[")
@@ -1616,18 +1627,17 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   }
 
   void handle(const kir::GridReduction* grop) final {
-    TORCH_INTERNAL_ASSERT(grop->out()->isA<kir::TensorIndex>());
+    NVF_ERROR(grop->out()->isA<kir::TensorIndex>());
 
     const auto out = grop->out()->as<kir::TensorIndex>();
     const auto domain = out->view()->domain();
-    TORCH_INTERNAL_ASSERT(domain->hasGridReduction());
+    NVF_ERROR(domain->hasGridReduction());
 
     const auto data_type = grop->out()->dtype();
     const auto op_type = grop->getReductionOpType();
 
-    TORCH_INTERNAL_ASSERT(
-        grop->reduction_buffer()->buffer()->isA<TensorView>());
-    TORCH_INTERNAL_ASSERT(grop->sync_buffer()->buffer()->isA<TensorView>());
+    NVF_ERROR(grop->reduction_buffer()->buffer()->isA<TensorView>());
+    NVF_ERROR(grop->sync_buffer()->buffer()->isA<TensorView>());
     const auto work_buffer =
         grop->reduction_buffer()->buffer()->as<TensorView>();
     const auto sync_buffer = grop->sync_buffer()->buffer()->as<TensorView>();
@@ -1657,12 +1667,11 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     func_args.arg("&").append(genVariableName(sync_buffer)).append("[0]");
     func_args.arg(genCall("static_cast", ptrType(data_type), "shared_mem"));
     // read and write predicates
-    TORCH_INTERNAL_ASSERT(
-        grop->predicate() != nullptr && grop->predicate()->hasValue());
+    NVF_ERROR(grop->predicate() != nullptr && grop->predicate()->hasValue());
     const auto read_pred = genInline(grop->predicate());
     func_args.arg(read_pred);
     if (grop->writePredicate() != nullptr) {
-      TORCH_INTERNAL_ASSERT(grop->writePredicate()->hasValue());
+      NVF_ERROR(grop->writePredicate()->hasValue());
       func_args.arg(genInline(grop->writePredicate()));
     } else {
       func_args.arg(read_pred);
@@ -1683,7 +1692,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   }
 
   void generateGridAllreduce(const kir::GridReduction* grop) {
-    TORCH_INTERNAL_ASSERT(grop->isAllreduce());
+    NVF_ERROR(grop->isAllreduce());
 
     const auto out = grop->out()->as<kir::TensorIndex>();
 
@@ -1730,12 +1739,11 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         data_type,
         genCall("static_cast", ptrType(data_type), "shared_mem")));
     // read and write predicates
-    TORCH_INTERNAL_ASSERT(
-        grop->predicate() != nullptr && grop->predicate()->hasValue());
+    NVF_ERROR(grop->predicate() != nullptr && grop->predicate()->hasValue());
     const auto read_pred = genInline(grop->predicate());
     auto write_pred = read_pred;
     if (grop->writePredicate() != nullptr) {
-      TORCH_INTERNAL_ASSERT(grop->writePredicate()->hasValue());
+      NVF_ERROR(grop->writePredicate()->hasValue());
       write_pred = genInline(grop->writePredicate());
     }
     func_args.arg(read_pred).arg(write_pred);
@@ -1753,10 +1761,9 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   void handle(const kir::GroupedGridReduction* grouped_grop) final {
     const auto out = ir_utils::getTvOutput(grouped_grop);
     const auto domain = out->domain();
-    TORCH_INTERNAL_ASSERT(domain->hasGridReduction());
+    NVF_ERROR(domain->hasGridReduction());
 
-    TORCH_INTERNAL_ASSERT(
-        grouped_grop->sync_buffer()->buffer()->isA<TensorView>());
+    NVF_ERROR(grouped_grop->sync_buffer()->buffer()->isA<TensorView>());
     const auto sync_buffer =
         grouped_grop->sync_buffer()->buffer()->as<TensorView>();
 
@@ -1765,7 +1772,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       return;
     }
 
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         grouped_grop->numHorizontallyGroupedExprs() == 2,
         "Only grouping of 2 reductions is supported. ",
         grouped_grop->toString());
@@ -1787,7 +1794,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     // Append arguments for each reduction
     for (const auto i :
          c10::irange(grouped_grop->numHorizontallyGroupedExprs())) {
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           grouped_grop->reduction_buffers().at(i)->buffer()->isA<TensorView>());
       const auto work_buffer =
           grouped_grop->reduction_buffers().at(i)->buffer()->as<TensorView>();
@@ -1807,13 +1814,13 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     func_args.arg("&").append(genVariableName(sync_buffer)).append("[0]");
     func_args.arg("shared_mem");
     // read and write predicates
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         grouped_grop->predicate() != nullptr &&
         grouped_grop->predicate()->hasValue());
     const auto read_pred = genInline(grouped_grop->predicate());
     func_args.arg(read_pred);
     if (grouped_grop->writePredicate() != nullptr) {
-      TORCH_INTERNAL_ASSERT(grouped_grop->writePredicate()->hasValue());
+      NVF_ERROR(grouped_grop->writePredicate()->hasValue());
       func_args.arg(genInline(grouped_grop->writePredicate()));
     } else {
       func_args.arg(read_pred);
@@ -1837,7 +1844,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       }
       return;
     } else {
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           false, "Non-allreduce grouped grid welford is not yet supported");
     }
   }
@@ -1876,30 +1883,30 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
   //! Returns all combinations of maps from index Vals of grouped loops to their
   //! conrete integers.
-  std::vector<std::unordered_map<const Int*, int64_t>>
+  std::vector<std::unordered_map<const Val*, int64_t>>
   getLoopIndexReplacementMaps() {
-    std::vector<std::unordered_map<const Int*, int64_t>> maps;
+    std::vector<std::unordered_map<const Val*, int64_t>> maps;
 
     if (grouped_loops_.empty()) {
-      std::unordered_map<const Int*, int64_t> empty_map;
+      std::unordered_map<const Val*, int64_t> empty_map;
       return {empty_map};
     }
 
     // Vector of indices of grouped loops
-    std::vector<Int*> loop_indices;
+    std::vector<Val*> loop_indices;
     std::transform(
         grouped_loops_.begin(),
         grouped_loops_.end(),
         std::back_inserter(loop_indices),
-        [](const kir::ForLoop* loop) { return loop->index()->as<Int>(); });
+        [](const kir::ForLoop* loop) { return loop->index(); });
 
     // All combinations of loop index integer values
     const auto index_val_sets = getGroupedLoopIndexConcreteIntSets();
 
     // Create maps from loop index Vals to integers
     for (const auto& index_values : index_val_sets) {
-      TORCH_INTERNAL_ASSERT(loop_indices.size() == index_values.size());
-      std::unordered_map<const Int*, int64_t> index_val_map;
+      NVF_ERROR(loop_indices.size() == index_values.size());
+      std::unordered_map<const Val*, int64_t> index_val_map;
       for (const auto i : c10::irange(loop_indices.size())) {
         auto loop_index = loop_indices.at(i);
         auto index_val = index_values.at(i);
@@ -1913,7 +1920,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
   void generateGroupedGridAllreduce(
       const kir::GroupedGridReduction* grouped_grop) {
-    TORCH_INTERNAL_ASSERT(grouped_grop->isAllreduce());
+    NVF_ERROR(grouped_grop->isAllreduce());
 
     // There are two dimensions of grouping: horizontal grouping and
     // iteration grouping. The total number of individual reductions
@@ -1935,7 +1942,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
     // This is also checked at the lowering validaiton time, so it
     // isn't strictly necessary.
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         num_grouped_iterations * grouped_grop->numHorizontallyGroupedExprs() <=
             kMaxNumGroupedReductions,
         "Too many grouped reductions: ",
@@ -1961,10 +1968,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     for (const auto expr_index :
          c10::irange(grouped_grop->numHorizontallyGroupedExprs())) {
       const auto data_type = grouped_grop->outputs().at(expr_index)->dtype();
-      TORCH_INTERNAL_ASSERT(grouped_grop->reduction_buffers()
-                                .at(expr_index)
-                                ->buffer()
-                                ->isA<TensorView>());
+      NVF_ERROR(grouped_grop->reduction_buffers()
+                    .at(expr_index)
+                    ->buffer()
+                    ->isA<TensorView>());
 
       for (const auto& group_index :
            c10::irange(index_replacement_maps.size())) {
@@ -2013,13 +2020,13 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         bool_types.arg("bool");
         // Same argument for all inputs. Different predicates would be
         // used when grouping is done across iterations
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             grouped_grop->predicate() != nullptr &&
             grouped_grop->predicate()->hasValue());
         const auto read_pred = genInline(grouped_grop->predicate());
         read_preds.arg(read_pred);
         if (grouped_grop->writePredicate() != nullptr) {
-          TORCH_INTERNAL_ASSERT(grouped_grop->writePredicate()->hasValue());
+          NVF_ERROR(grouped_grop->writePredicate()->hasValue());
           write_preds.arg(genInline(grouped_grop->writePredicate()));
         } else {
           write_preds.arg(read_pred);
@@ -2061,14 +2068,14 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   // Mostly the same as the grouped grid redution version
   void generateGroupedGridAllreduceWelford(
       const kir::GroupedGridWelford* grouped_gwop) {
-    TORCH_INTERNAL_ASSERT(grouped_gwop->isAllreduce());
+    NVF_ERROR(grouped_gwop->isAllreduce());
 
     const auto index_replacement_maps = getLoopIndexReplacementMaps();
     const auto num_grouped_iterations = index_replacement_maps.size();
 
     // This is also checked at the lowering validaiton time, so it
     // isn't strictly necessary.
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         num_grouped_iterations * grouped_gwop->numHorizontallyGroupedExprs() <=
             kMaxNumGroupedReductions,
         "Too many grouped reductions: ",
@@ -2140,14 +2147,14 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         bool_types.arg("bool");
         // Same argument for all inputs. Different predicates would be
         // used when grouping is done across iterations
-        TORCH_INTERNAL_ASSERT(grouped_gwop->predicate() != nullptr);
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(grouped_gwop->predicate() != nullptr);
+        NVF_ERROR(
             grouped_gwop->predicate() != nullptr &&
             grouped_gwop->predicate()->hasValue());
         const auto read_pred = genInline(grouped_gwop->predicate());
         read_preds.arg(read_pred);
         if (grouped_gwop->writePredicate() != nullptr) {
-          TORCH_INTERNAL_ASSERT(grouped_gwop->writePredicate()->hasValue());
+          NVF_ERROR(grouped_gwop->writePredicate()->hasValue());
           write_preds.arg(genInline(grouped_gwop->writePredicate()));
         } else {
           write_preds.arg(read_pred);
@@ -2215,14 +2222,14 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
   void generateGroupedGridAllreduceWelfordOuter(
       const kir::GroupedGridWelford* grouped_gwop) {
-    TORCH_INTERNAL_ASSERT(grouped_gwop->isAllreduce());
+    NVF_ERROR(grouped_gwop->isAllreduce());
 
     const auto num_grouped_iterations =
         getGroupedLoopIndexConcreteIntSets().size();
 
     // This is also checked at the lowering validaiton time, so it
     // isn't strictly necessary.
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         num_grouped_iterations * grouped_gwop->numHorizontallyGroupedExprs() <=
             kMaxNumGroupedReductions,
         "Too many grouped reductions: ",
@@ -2231,7 +2238,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         kMaxNumGroupedReductions,
         " reductions are allowed.");
 
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         grouped_gwop->numHorizontallyGroupedExprs() == 1,
         "Horizontal grouped Welford reduciton is not yet supported: ",
         grouped_gwop->toString());
@@ -2291,8 +2298,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     func_template_args.arg(data_type);
 
     const auto& par_dim_map = kernel_->summary().parallel_dimension_map_;
-    TORCH_INTERNAL_ASSERT(par_dim_map.get(ParallelType::TIDx)->isConstInt());
-    TORCH_INTERNAL_ASSERT(par_dim_map.get(ParallelType::TIDy)->isConstInt());
+    NVF_ERROR(par_dim_map.get(ParallelType::TIDx)->isConstInt());
+    NVF_ERROR(par_dim_map.get(ParallelType::TIDy)->isConstInt());
     func_template_args.arg(genInline(par_dim_map.get(ParallelType::TIDx)));
     func_template_args.arg(genInline(par_dim_map.get(ParallelType::TIDy)));
 
@@ -2306,18 +2313,17 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
   void handle(const kir::GridBroadcast* grop) final {
     const auto bop = grop->broadcast_op();
-    TORCH_INTERNAL_ASSERT(bop->out()->isA<kir::TensorIndex>());
+    NVF_ERROR(bop->out()->isA<kir::TensorIndex>());
 
     const ParallelTypeBitmap parallel_types =
         kernel_->summary().broadcast_parallel_types.at(bop);
 
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         parallel_types.hasBID(),
         "GridBroadcast needs to be used with a broadcast op that is parallelized with the BID parallel types");
 
-    TORCH_INTERNAL_ASSERT(
-        grop->broadcast_buffer()->buffer()->isA<TensorView>());
-    TORCH_INTERNAL_ASSERT(grop->sync_buffer()->buffer()->isA<TensorView>());
+    NVF_ERROR(grop->broadcast_buffer()->buffer()->isA<TensorView>());
+    NVF_ERROR(grop->sync_buffer()->buffer()->isA<TensorView>());
     const auto work_buffer =
         grop->broadcast_buffer()->buffer()->as<TensorView>();
     const auto sync_buffer = grop->sync_buffer()->buffer()->as<TensorView>();
@@ -2336,8 +2342,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     func_args.arg(gen(bop->in()));
     func_args.arg("&").append(genVariableName(work_buffer)).append("[0]");
     func_args.arg(genVariableName(sync_buffer));
-    TORCH_INTERNAL_ASSERT(
-        grop->predicate() != nullptr && grop->predicate()->hasValue());
+    NVF_ERROR(grop->predicate() != nullptr && grop->predicate()->hasValue());
     func_args.arg(genInline(grop->predicate()));
 
     indent() << genCall("grid_broadcast::broadcast", template_args, func_args)
@@ -2346,17 +2351,17 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
   void handle(const kir::GridWelford* gwop) final {
     const auto wop = gwop->welford_op();
-    TORCH_INTERNAL_ASSERT(wop->outAvg()->isA<kir::TensorIndex>());
+    NVF_ERROR(wop->outAvg()->isA<kir::TensorIndex>());
 
     const auto out = wop->out()->as<kir::TensorIndex>();
     const auto domain = out->view()->domain();
-    TORCH_INTERNAL_ASSERT(domain->hasGridReduction());
+    NVF_ERROR(domain->hasGridReduction());
 
     const auto data_type = out->dtype();
     const auto index_type = wop->outN()->dtype();
 
-    TORCH_INTERNAL_ASSERT(gwop->var_buffer()->buffer()->isA<TensorView>());
-    TORCH_INTERNAL_ASSERT(gwop->sync_buffer()->buffer()->isA<TensorView>());
+    NVF_ERROR(gwop->var_buffer()->buffer()->isA<TensorView>());
+    NVF_ERROR(gwop->sync_buffer()->buffer()->isA<TensorView>());
 
     const auto avg_buffer = gwop->avg_buffer()->buffer()->as<TensorView>();
     const auto var_buffer = gwop->var_buffer()->buffer()->as<TensorView>();
@@ -2390,7 +2395,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       block_reduce_name_++;
     } else {
       func_args.arg(gen(wop->inAvg()));
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           wop->inVar() != nullptr, "Welford var input nullptr not allowed");
       func_args.arg(genStaticCast(data_type, gen(wop->inVar())));
       func_args.arg(genStaticCast(index_type, gen(wop->inN())));
@@ -2402,12 +2407,11 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     func_args.arg(genReinterpretCast(genPtrType(data_type), "shared_mem_avg"));
     func_args.arg(genReinterpretCast(genPtrType(data_type), "shared_mem_var"));
     func_args.arg(genReinterpretCast(genPtrType(index_type), "shared_mem_n"));
-    TORCH_INTERNAL_ASSERT(
-        gwop->predicate() != nullptr && gwop->predicate()->hasValue());
+    NVF_ERROR(gwop->predicate() != nullptr && gwop->predicate()->hasValue());
     auto read_pred = genInline(gwop->predicate());
     func_args.arg(read_pred);
     if (gwop->writePredicate() != nullptr) {
-      TORCH_INTERNAL_ASSERT(gwop->writePredicate()->hasValue());
+      NVF_ERROR(gwop->writePredicate()->hasValue());
       auto write_pred = genInline(gwop->writePredicate());
       func_args.arg(write_pred);
     } else {
@@ -2424,13 +2428,13 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
   void generateGridAllreduce(const kir::GridWelford* gwop) {
     const auto wop = gwop->welford_op();
-    TORCH_INTERNAL_ASSERT(wop->isAllreduce());
+    NVF_ERROR(wop->isAllreduce());
 
     const auto out = wop->out()->as<kir::TensorIndex>();
 
     const auto data_type = wop->outAvg()->dtype();
     const auto index_type = wop->outN()->dtype();
-    TORCH_INTERNAL_ASSERT(wop->outAvg()->dtype() == wop->outVar()->dtype());
+    NVF_ERROR(wop->outAvg()->dtype() == wop->outVar()->dtype());
 
     ArgumentBuilder data_type_args;
     data_type_args.arg(data_type).arg(data_type).arg(index_type);
@@ -2506,12 +2510,11 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     // shared_buf
     func_args.arg(genCall("PtrTuple", data_type_args, smem_buffer_args));
     // read and write predicates
-    TORCH_INTERNAL_ASSERT(
-        gwop->predicate() != nullptr && gwop->predicate()->hasValue());
+    NVF_ERROR(gwop->predicate() != nullptr && gwop->predicate()->hasValue());
     const auto read_pred = genInline(gwop->predicate());
     auto write_pred = read_pred;
     if (gwop->writePredicate() != nullptr) {
-      TORCH_INTERNAL_ASSERT(gwop->writePredicate()->hasValue());
+      NVF_ERROR(gwop->writePredicate()->hasValue());
       write_pred = genInline(gwop->writePredicate());
     }
     func_args.arg(read_pred).arg(write_pred);
@@ -2562,7 +2565,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
     for (const auto predicated_pt : alloc_fused_reduction->threadPredicate()) {
       auto& state = states[predicated_pt];
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           state != ReductionParallelTypeState::Reduce,
           "Invalid thread predication: ",
           predicated_pt);
@@ -2600,7 +2603,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   void handle(const GroupedReductionOp* grouped_rop) final {
     for (const auto i :
          c10::irange(grouped_rop->numHorizontallyGroupedExprs())) {
-      TORCH_INTERNAL_ASSERT(grouped_rop->output(i)->isA<kir::TensorIndex>());
+      NVF_ERROR(grouped_rop->output(i)->isA<kir::TensorIndex>());
 
       const auto output = grouped_rop->output(i)->as<kir::TensorIndex>();
       const auto input = grouped_rop->input(i)->as<kir::TensorIndex>();
@@ -2610,7 +2613,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       const bool has_block_reduce = domain->hasBlockReduction();
       const bool has_grid_reduce = domain->hasGridReduction();
 
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           !has_grid_reduce,
           "GroupedReductionOp does not support block parallelization. GroupedGridReduction must be used. ",
           grouped_rop->toString());
@@ -2639,7 +2642,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   }
 
   void handle(const GroupedWelfordOp* grouped_wop) final {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         false,
         "Should not reach here as grouped welford is only enabled for grid welford,",
         " which is handled by its own handler");
@@ -2700,7 +2703,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     auto conditional = ite->predicate()->value();
     if (conditional->isConst()) {
       // If the conditional is a constant, then the IfThenElse is not required
-      if (conditional->value().value()) {
+      if (conditional->value()) {
         handle(ite->thenBody().exprs());
       } else {
         handle(ite->elseBody().exprs());
@@ -2731,7 +2734,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   void handle(const kir::Allocate* alloc) final {
     const auto buffer_dtype = alloc->buffer()->dtype();
 
-    TORCH_INTERNAL_ASSERT(alloc->buffer() != nullptr);
+    NVF_ERROR(alloc->buffer() != nullptr);
     alloc_map_.emplace(alloc->buffer(), alloc);
 
     if (!alloc->buffer()->isA<TensorView>()) {
@@ -2742,15 +2745,23 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     const auto tv = alloc->buffer()->as<TensorView>();
 
     const auto size = alloc->size();
-    TORCH_INTERNAL_ASSERT(size != nullptr);
+    NVF_ERROR(size != nullptr);
 
     if (alloc->alias() != nullptr) {
       // Allocate alias another Allocate stmt
       const auto alias_tv = alloc->alias()->buffer()->as<TensorView>();
-      indent() << "// Alias Allocation - " << alloc->memoryType() << "\n";
-      indent() << "auto& " << genVariableName(tv) << " = "
-               << genVariableName(alias_tv) << ";\n";
-
+      if (alias_tv->getDataType() == tv->getDataType()) {
+        indent() << "// Alias Allocation - " << alloc->memoryType() << "\n";
+        indent() << "auto& " << genVariableName(tv) << " = "
+                 << genVariableName(alias_tv) << ";\n";
+      } else {
+        indent() << "// Alias Allocation (changing dtype) - "
+                 << alloc->memoryType() << "\n";
+        indent() << "auto " << genVariableName(tv)
+                 << " = *reinterpret_cast<Array<" << buffer_dtype << ", "
+                 << genInline(size) << ">*>(&" << genVariableName(alias_tv)
+                 << ");\n";
+      }
     } else {
       // Standard Memory Allocation
       switch (tv->getMemoryType()) {
@@ -2759,17 +2770,16 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
                    << "\n";
           break;
         case MemoryType::Shared:
-          // Align Offset Position
-          indent() << "smem_offset = alignBufferSize(smem_offset, "
-                   // Always align to 128b / 16B
-                   << 16 << ");\n";
+          // Assume we have already aligned offsets to 16B
+          NVF_CHECK(
+              alloc->address() != nullptr,
+              "Allocation did not receive an address: ",
+              alloc->toString());
           // Shared Memory Pointer
           indent() << buffer_dtype << "* " << genVariableName(tv)
                    << " = reinterpret_cast<" << buffer_dtype << "*>"
-                   << "(array + smem_offset);\n";
-          // Increment Offset Position
-          indent() << "smem_offset += (" << genInline(size) << " * sizeof("
-                   << buffer_dtype << "));\n";
+                   << "(array + smem_offset + " << genInline(alloc->address())
+                   << ");\n";
           break;
         case MemoryType::Local: {
           auto va = kernel_->summary().vectorized_accesses;
@@ -2783,14 +2793,14 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           }
         } break;
         default:
-          TORCH_INTERNAL_ASSERT(false, "Unexpected memory type");
+          NVF_ERROR(false, "Unexpected memory type");
       }
     }
   }
 
   void handle(const kir::BlockSync* sync) final {
     // Use a custom synchronization method if enabled
-    if (std::getenv("PYTORCH_NVFUSER_USE_BLOCK_SYNC_ATOMIC")) {
+    if (getNvFuserEnv("USE_BLOCK_SYNC_ATOMIC")) {
       indent() << "block_sync::sync();\n";
     } else if (isAligned()) {
       indent() << "__syncthreads();\n";
@@ -2906,11 +2916,13 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   //! Keep track of grouped loops
   std::deque<const kir::ForLoop*> grouped_loops_;
   //! Used to replace symbolic indices with concrete values
-  std::unordered_map<const Int*, int64_t> index_replacement_map_;
+  std::unordered_map<const Val*, int64_t> index_replacement_map_;
   //! Keep track of thread alignment property
   std::vector<bool> aligned_scope_exprs_;
   //! Keep track of the Val* and its generated variable name
   std::unordered_map<const Val*, std::string> val_to_name_;
+  //! basically kernel_->parameters(), but as a set so it's faster to lookup
+  std::unordered_set<const Val*> kernel_params_;
 };
 
 } // namespace

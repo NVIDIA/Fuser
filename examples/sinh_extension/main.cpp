@@ -25,7 +25,7 @@ at::Tensor sinh_nvfuser(const at::Tensor& input) {
   fusion.addInput(x);
 
   // Using equation sinh(x) = [ exp(x) - exp(-1) ] / 2
-  auto output = div(sub(exp(x), exp(neg(x))), IrBuilder::create<Double>(2.0));
+  auto output = div(sub(exp(x), exp(neg(x))), IrBuilder::create<Val>(2.0));
   fusion.addOutput(output);
 
   std::cout << "Create fusion:" << std::endl;

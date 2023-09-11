@@ -7,10 +7,11 @@
 // clang-format on
 #pragma once
 #include <device_lower/lower2device.h>
-#include <dynamic_type.h>
+#include <exceptions.h>
 #include <executor_params.h>
 #include <fusion.h>
 #include <ir/all_nodes.h>
+#include <polymorphic_value.h>
 #include <utils.h>
 
 #include <c10/core/DeviceType.h>
@@ -157,7 +158,7 @@ class PrecomputedValues {
   //! Bind the NamedScalars corresponding to the
   //!  concrete parallel dimension sizes after the
   //!  actual value has been resolved.
-  void bindConcreteParallelTypeValue(ParallelType pt, int64_t value);
+  void bindConcreteParallelTypeValue(ParallelType pt, PolymorphicValue value);
 
   //! Returns if the workspace contains evaluated results.
   bool ready() {
@@ -170,7 +171,7 @@ class PrecomputedValues {
 
   //! Returns value for the given IR node if it's stored
   //!  in the workspace and has been evaluated.
-  c10::optional<EvaluatorValue> getMaybeValueFor(const Val* val) const;
+  const PolymorphicValue& getMaybeValueFor(const Val* val) const;
 
   //! Debugging helper, prints all the currently known values
   void print() const;
@@ -194,7 +195,7 @@ class PrecomputedValues {
 
   //! Bind concrete value to the given index
   //!  if the index is valid.
-  void bindValue_(int index, const EvaluatorValue& value) {
+  void bindValue_(int index, const PolymorphicValue& value) {
     if (index < 0 || is_constant_[index]) {
       return;
     }
@@ -204,7 +205,7 @@ class PrecomputedValues {
   }
   template <typename T>
   void bindValue(int index, const T& value) {
-    bindValue_(index, EvaluatorValue(value));
+    bindValue_(index, PolymorphicValue(value));
   }
 
   //! Invalidate all computed values in the workspace.
@@ -243,13 +244,11 @@ class PrecomputedValues {
   //! Returns true if workspace has a computed or constant
   //!  value for given index.
   bool hasValue(int index) {
-    TORCH_INTERNAL_ASSERT(index > 0);
+    NVF_ERROR(index > 0);
     return defined_[index] || is_constant_[index];
   }
 
-  void bindTensorMetaData(
-      TensorView* tv,
-      const TensorArgAbstract* tensor_arg_abstract);
+  void bindTensorMetaData(TensorView* tv, const at::Tensor& tensor);
 
  private:
   friend NaiveValueMachine;
@@ -269,7 +268,11 @@ class PrecomputedValues {
   std::vector<bool> is_constant_;
 
   //! Stores the concrete values at each index.
-  std::vector<EvaluatorValue> values_;
+  std::vector<PolymorphicValue> values_;
+
+  //! Use a single monostate to represent null, instead of creating a new
+  //! PolymorphicValue for each null.
+  PolymorphicValue null_ = std::monostate{};
 
   //! Stores the IR nodes corresponding to each index.
   std::vector<Val*> symbols_;
@@ -277,7 +280,7 @@ class PrecomputedValues {
   //! An internal log to keep track of all the bindings
   //!  used in each evaluation cycle. To be used for
   //!  consistency check.
-  std::vector<std::pair<int, EvaluatorValue>> binding_log_;
+  std::vector<std::pair<int, PolymorphicValue>> binding_log_;
 
   //! Integer runtime for realizing the values computations.
   std::unique_ptr<NaiveValueMachine> value_machine_;

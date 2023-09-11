@@ -10,7 +10,9 @@
 #include <ATen/core/ivalue.h>
 #include <c10/macros/Export.h>
 #include <c10/util/Exception.h>
+#include <exceptions.h>
 
+#include <debug.h>
 #include <executor_params.h>
 #include <ir/base_nodes.h>
 #include <ir/container.h>
@@ -64,7 +66,7 @@ class KernelArgumentHolder;
 
 class DynamicTransformConcretizationInfo;
 
-//! Fusion Guard is our "context manager". It holds the actrive fusion and
+//! Fusion Guard is our "context manager". It holds the active fusion and
 //! allows it to be accessed anywhere through FusionGuard::getCurFusion()
 class TORCH_CUDA_CU_API FusionGuard {
  public:
@@ -133,9 +135,12 @@ class TORCH_CUDA_CU_API Fusion : public IrContainer {
   void validateInputs();
 
   //! Print this fusion to an output stream
-  std::ostream& print(
-      std::ostream& os = std::cout,
-      bool include_tensor_transforms = true);
+  std::ostream& print(std::ostream& os, bool include_tensor_transforms = true);
+
+  //! Print to default debugging output stream
+  std::ostream& print() {
+    return print(debug());
+  }
 
   //! Print Arith exprs
   //! \param from_outputs_only Only print exprs reachable from outputs

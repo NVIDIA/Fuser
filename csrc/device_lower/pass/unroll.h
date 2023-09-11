@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 #include <c10/macros/Export.h>
+#include <exceptions.h>
 
 #include <device_lower/analysis/thread_predicate.h>
 #include <device_lower/utils.h>
@@ -79,7 +80,7 @@ class TORCH_CUDA_CU_API UnrollPass : kir::ExprMutator {
 
   void handle(kir::ForLoop* fl) final;
 
-  void handle(Expr* expr) final;
+  void dispatch(Expr* expr) final;
 
  private:
   // We will track which loops in the incoming IR will be replaced and by what

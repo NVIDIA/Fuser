@@ -6,29 +6,39 @@
  */
 // clang-format on
 #include <c10/util/irange.h>
+#include <exceptions.h>
 #include <fusion.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
-#include <mutator.h>
 
 #include <vector>
 
+/*
+ * Mutators are the mechanism used to modify IR nodes. Since most nodes are
+ * immutable or at least partially immutable changeing them can require creating
+ * a new node. Base mutator at the moment is a dumb sample mutator that takes
+ * any float of value 1.0 and converts it to 0.0; It is currently used as a
+ * dummy example, however, we should make it a simple instantiation of all the
+ * mutate functions on all node types so that people can inherit it, and only
+ * specialize those nodes which they want to have a particular transformation.
+ */
+
 namespace nvfuser {
 
-void OptOutMutator::mutate(Statement* s) {
+void OptOutMutator::dispatchMutate(Statement* s) {
   Statement::mutatorDispatch(this, s);
 }
 
-void OptOutMutator::mutate(Val* v) {
+void OptOutMutator::dispatchMutate(Val* v) {
   Val::mutatorDispatch(this, v);
 }
 
 void OptOutMutator::registerMutation(Val* val, Val* mutation) {
   bool val_is_ns = val->vtype() == ValType::NamedScalar;
   bool mutation_is_ns = mutation->vtype() == ValType::NamedScalar;
-  bool val_is_scalar = val->vtype() == ValType::Scalar;
-  bool mutation_is_scalar = mutation->vtype() == ValType::Scalar;
-  TORCH_INTERNAL_ASSERT(
+  bool val_is_scalar = val->vtype() == ValType::Others;
+  bool mutation_is_scalar = mutation->vtype() == ValType::Others;
+  NVF_ERROR(
       mutation->dtype() == val->dtype() &&
           (mutation->vtype() == val->vtype() ||
            ((val_is_ns && mutation_is_scalar) ||
@@ -45,13 +55,7 @@ void OptOutMutator::registerMutation(Val* val, Val* mutation) {
   mutations_[val] = mutation;
 }
 
-void OptOutMutator::mutate(Bool* b) {}
-
-void OptOutMutator::mutate(Double* d) {}
-
-void OptOutMutator::mutate(Int* i) {}
-
-void OptOutMutator::mutate(ComplexDouble* c) {}
+void OptOutMutator::mutate(Val* s) {}
 
 void OptOutMutator::mutate(NamedScalar* ns) {}
 
@@ -126,11 +130,15 @@ void OptOutMutator::mutate(TensorView* tv) {
 }
 
 void OptOutMutator::mutate(kir::Predicate*) {
-  TORCH_INTERNAL_ASSERT(false, "Not implemented yet.");
+  NVF_ERROR(false, "Not implemented yet.");
 }
 
 void OptOutMutator::mutate(kir::TensorIndex*) {
-  TORCH_INTERNAL_ASSERT(false, "Not implemented yet.");
+  NVF_ERROR(false, "Not implemented yet.");
+}
+
+void OptOutMutator::mutate(PipelineVal*) {
+  NVF_ERROR(false, "Not implemented yet.");
 }
 
 void OptOutMutator::mutate(Expr* op) {

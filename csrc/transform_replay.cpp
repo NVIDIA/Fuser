@@ -8,6 +8,7 @@
 #include <transform_replay.h>
 
 #include <compute_at_map.h>
+#include <debug.h>
 #include <disjoint_set.h>
 #include <fusion.h>
 #include <instrumentation.h>
@@ -17,6 +18,7 @@
 #include <ir/utils.h>
 #include <maxinfo_propagator.h>
 #include <ops/arith.h>
+#include <options.h>
 #include <root_domain_map.h>
 #include <transform_iter.h>
 
@@ -39,14 +41,14 @@ class ReplaySelf : public ReplayTransformations {
     auto it = id_map_.find(id_in);
 
     // Make sure it exists in the map
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         it != id_map_.end(),
         "Transform traversal failed, dependencies not met.");
     // Grab the ID we're going to replay on
     auto mapped = it->second;
 
     // This ID should be a leaf ID (meaning it has no uses we generated)
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         leaf_ids_.find(mapped) != leaf_ids_.end(),
         "Transform traversal failed, modified a node but it was not a leaf node.");
 
@@ -57,18 +59,16 @@ class ReplaySelf : public ReplayTransformations {
 
     // Manually replay the split, following the output of the operations.
     // This is so rfactor ops are replayed correctly.
-    IterDomain* ido =
-        IterDomainBuilder(s->outer())
-            .start(s->container()->zeroVal())
-            .extent(s->innerSplit() ? remainder->as<Int>() : s->factor())
-            .build();
+    IterDomain* ido = IterDomainBuilder(s->outer())
+                          .start(s->container()->zeroVal())
+                          .extent(s->innerSplit() ? remainder : s->factor())
+                          .build();
 
     // inner IterDomain
-    IterDomain* idi =
-        IterDomainBuilder(s->inner())
-            .start(s->container()->zeroVal())
-            .extent(s->innerSplit() ? s->factor() : remainder->as<Int>())
-            .build();
+    IterDomain* idi = IterDomainBuilder(s->inner())
+                          .start(s->container()->zeroVal())
+                          .extent(s->innerSplit() ? s->factor() : remainder)
+                          .build();
 
     // Generate the split node
     IrBuilder::create<Split>(
@@ -100,14 +100,14 @@ class ReplaySelf : public ReplayTransformations {
     auto it_outer = id_map_.find(id_outer);
     auto it_inner = id_map_.find(id_inner);
 
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         it_outer != id_map_.end() && it_inner != id_map_.end(),
         "Transform traversal failed, dependencies not met.");
 
     auto id_outer_mapped = it_outer->second;
     auto id_inner_mapped = it_inner->second;
 
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         leaf_ids_.find(id_outer_mapped) != leaf_ids_.end() &&
             leaf_ids_.find(id_inner_mapped) != leaf_ids_.end(),
         "Transform traversal failed, modified ",
@@ -121,7 +121,7 @@ class ReplaySelf : public ReplayTransformations {
 
     IterDomain* merged_id = IterDomainBuilder(m->out())
                                 .start(m->container()->zeroVal())
-                                .extent(merged_id_size->as<Int>())
+                                .extent(merged_id_size)
                                 .build();
 
     IrBuilder::create<Merge>(
@@ -138,21 +138,20 @@ class ReplaySelf : public ReplayTransformations {
   }
 
   void handle(Swizzle2D* swizzle) override {
-    TORCH_INTERNAL_ASSERT(
-        false, "Unexpected expr to self replay: ", swizzle->toString());
+    NVF_ERROR(false, "Unexpected expr to self replay: ", swizzle->toString());
   }
 
   void handle(Resize* resize) override {
     auto id_in = resize->in();
 
     auto it = id_map_.find(id_in);
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         it != id_map_.end(),
         "Transform traversal failed, dependencies not met.");
 
     auto mapped = it->second;
 
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         leaf_ids_.find(mapped) != leaf_ids_.end(),
         "Transform traversal failed, modified a node but it was not a leaf node.");
 
@@ -188,7 +187,7 @@ TensorDomain* TransformReplay::fullSelfReplay(
     const TensorDomain* self) {
   FUSER_PERF_SCOPE("TransformReplay::fullSelfReplay");
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       new_self_root->root().size() == self->root().size(),
       "Invalid number of IterDomains provided.");
 
@@ -197,7 +196,7 @@ TensorDomain* TransformReplay::fullSelfReplay(
   {
     size_t i = 0;
     for (auto id : self->root()) {
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           new_self_root->root()[i]->isReduction() == id->isReduction() &&
               new_self_root->root()[i]->isRFactorProduct() ==
                   id->isRFactorProduct() &&
@@ -220,7 +219,7 @@ TensorDomain* TransformReplay::fullSelfReplay(
     size_t i = 0;
     for (auto id : self->leaf()) {
       auto it = replay.getReplay().find(id);
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           it != replay.getReplay().end(),
           "Error during replay, didn't replay an axis.");
       new_domain[i++] = it->second;
@@ -232,7 +231,7 @@ TensorDomain* TransformReplay::fullSelfReplay(
       size_t i = 0;
       for (auto id : self->maybeRFactor()) {
         auto it = replay.getReplay().find(id);
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             it != replay.getReplay().end(),
             "Error during replay, didn't replay an axis.");
         new_rfactor_domain[i++] = it->second;
@@ -308,7 +307,7 @@ std::pair<TensorDomain*, size_t> TransformReplay::replayPasC(
     consumer_pos += (int64_t)consumer->nDims() + 1;
   }
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       consumer_pos >= 0 && (size_t)consumer_pos <= consumer->nDims(),
       "Invalid axis in transform replayPasC.");
 
@@ -332,7 +331,7 @@ std::pair<TensorDomain*, size_t> TransformReplay::replayPasC(
       consumer,
       (int)consumer_pos,
       root_map,
-      false,
+      opt.skip_target_swizzle,
       !opt.replay_swizzle,
       !opt.replay_resize);
 
@@ -368,14 +367,14 @@ std::pair<TensorDomain*, size_t> TransformReplay::replayPasC(
   for (auto c_id : target_consumer_ids) {
     auto it = replay_PasC.getReplay().find(c_id);
     if (it == replay_PasC.getReplay().end()) {
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           maybe_unmapped_ids.count(c_id),
           "Could not find axis, ",
           c_id,
           ", requested in replay.");
       continue;
     }
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         producer_leaf_ids.find(it->second) != producer_leaf_ids.end(),
         "Replayed id to match consumer id ",
         c_id,
@@ -469,7 +468,7 @@ std::pair<TensorDomain*, size_t> TransformReplay::replayPasC(
   for (auto c_id : target_consumer_ids) {
     auto it = replay_PasC.getReplay().find(c_id);
     if (it == replay_PasC.getReplay().end()) {
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           maybe_unmapped_ids.count(c_id),
           "Could not find axis, ",
           c_id,
@@ -547,7 +546,7 @@ std::pair<TensorDomain*, size_t> TransformReplay::replayPasC(
     new_allocation_domain.reserve(consumer->getAllocationDomain().size());
     for (auto id : consumer->getAllocationDomain()) {
       auto it = c2p_map.find(id);
-      TORCH_CHECK(
+      NVF_CHECK(
           it != c2p_map.end(),
           "Unable to replayPasC: can not map ",
           id->toString(),
@@ -580,7 +579,7 @@ std::pair<TensorDomain*, size_t> TransformReplay::replayCasP(
     producer_pos += (int64_t)producer->nDims() + 1;
   }
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       producer_pos >= 0 && (size_t)producer_pos <= producer->nDims(),
       "Invalid axis in transform replayCasP. Consumer: ",
       consumer->toString(),
@@ -608,7 +607,7 @@ std::pair<TensorDomain*, size_t> TransformReplay::replayCasP(
       producer,
       (int)producer_pos,
       root_map,
-      false,
+      opt.skip_target_swizzle,
       !opt.replay_swizzle,
       !opt.replay_resize);
 
@@ -645,7 +644,7 @@ std::pair<TensorDomain*, size_t> TransformReplay::replayCasP(
   for (auto p_id : target_producer_ids) {
     auto it = replay_CasP.getReplay().find(p_id);
     if (it == replay_CasP.getReplay().end()) {
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           maybe_unmapped_ids.count(p_id),
           "Could not find axis, ",
           p_id,
@@ -655,7 +654,7 @@ std::pair<TensorDomain*, size_t> TransformReplay::replayCasP(
           producer);
       continue;
     }
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         consumer_leaf_ids.find(it->second) != consumer_leaf_ids.end(),
         "Replayed id to match producer id ",
         p_id,
@@ -741,7 +740,7 @@ std::pair<TensorDomain*, size_t> TransformReplay::replayCasP(
   for (auto p_id : target_producer_ids) {
     auto it = replay_CasP.getReplay().find(p_id);
     if (it == replay_CasP.getReplay().end()) {
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           maybe_unmapped_ids.count(p_id),
           "Could not find axis, ",
           p_id,
@@ -820,7 +819,7 @@ std::pair<TensorDomain*, size_t> TransformReplay::replayCasP(
     new_allocation_domain.reserve(producer->getAllocationDomain().size());
     for (auto id : producer->getAllocationDomain()) {
       auto it = p2c_map.find(id);
-      TORCH_CHECK(
+      NVF_CHECK(
           it != p2c_map.end(),
           "Unable to replayCasP: can not map ",
           id->toString(),
@@ -1077,15 +1076,16 @@ void TransformPropagator::propagateC2P(TensorView* from, TensorView* to) {
   // skipped, or forwarded, so the matching here is done by skipping it.
   int64_t new_pos =
       TransformReplay::getMatchedLeafPosWithoutReplayPasC(to, from, pos, true);
-  bool debug = isDebugDumpEnabled(DebugDumpOption::TransformPropagator);
-  if (debug) {
-    std::cout << "TransformPropagator::propagateC2P" << std::endl;
-    std::cout << "  from: " << from << " @ " << pos << std::endl;
-    std::cout << "  to: " << to << std::endl;
+  bool debug_print = isDebugDumpEnabled(DebugDumpOption::TransformPropagator);
+  if (debug_print) {
+    debug() << "TransformPropagator::propagateC2P" << std::endl;
+    debug() << "  from: " << from << " @ " << pos << std::endl;
+    debug() << "  to: " << to << std::endl;
   }
   if (new_pos < 0) {
-    auto replay = TransformReplay::replayPasC(to, from, pos);
-    TORCH_INTERNAL_ASSERT(
+    auto replay = TransformReplay::replayPasC(
+        to, from, pos, TransformReplayOptions().skipTargetSwizzle());
+    NVF_ERROR(
         validateDomain(to, replay.first),
         "Tried to set the domain of ",
         to,
@@ -1094,11 +1094,11 @@ void TransformPropagator::propagateC2P(TensorView* from, TensorView* to) {
         " but that would invalidate previously compute at position or max producer position.");
     to->setDomain(replay.first);
     new_pos = (int)replay.second;
-    if (debug) {
-      std::cout << "  replayed: " << to << " @ " << new_pos << std::endl;
+    if (debug_print) {
+      debug() << "  replayed: " << to << " @ " << new_pos << std::endl;
     }
-  } else if (debug) {
-    std::cout << "  replay skipped. result position: " << new_pos << std::endl;
+  } else if (debug_print) {
+    debug() << "  replay skipped. result position: " << new_pos << std::endl;
   }
   replayed_pos_[to] = new_pos;
 }
@@ -1108,15 +1108,16 @@ void TransformPropagator::propagateP2C(TensorView* from, TensorView* to) {
   // See note [Using multiple TransformPropagators]
   int64_t new_pos =
       TransformReplay::getMatchedLeafPosWithoutReplayCasP(to, from, pos, true);
-  bool debug = isDebugDumpEnabled(DebugDumpOption::TransformPropagator);
-  if (debug) {
-    std::cout << "TransformPropagator::propagateP2C" << std::endl;
-    std::cout << "  from: " << from << " @ " << pos << std::endl;
-    std::cout << "  to: " << to << std::endl;
+  bool debug_print = isDebugDumpEnabled(DebugDumpOption::TransformPropagator);
+  if (debug_print) {
+    debug() << "TransformPropagator::propagateP2C" << std::endl;
+    debug() << "  from: " << from << " @ " << pos << std::endl;
+    debug() << "  to: " << to << std::endl;
   }
   if (new_pos < 0) {
-    auto replay = TransformReplay::replayCasP(to, from, pos);
-    TORCH_INTERNAL_ASSERT(
+    auto replay = TransformReplay::replayCasP(
+        to, from, pos, TransformReplayOptions().skipTargetSwizzle());
+    NVF_ERROR(
         validateDomain(to, replay.first),
         "Tried to set the domain of ",
         to,
@@ -1125,11 +1126,11 @@ void TransformPropagator::propagateP2C(TensorView* from, TensorView* to) {
         " but that would invalidate previously compute at position or max producer position.");
     to->setDomain(replay.first);
     new_pos = (int)replay.second;
-    if (debug) {
-      std::cout << "  replayed: " << to << " @ " << new_pos << std::endl;
+    if (debug_print) {
+      debug() << "  replayed: " << to << " @ " << new_pos << std::endl;
     }
-  } else if (debug) {
-    std::cout << "  replay skipped. result position: " << new_pos << std::endl;
+  } else if (debug_print) {
+    debug() << "  replay skipped. result position: " << new_pos << std::endl;
   }
   replayed_pos_[to] = new_pos;
 }
@@ -1137,15 +1138,15 @@ void TransformPropagator::propagateP2C(TensorView* from, TensorView* to) {
 void TransformPropagator::propagateSibling(TensorView* from, TensorView* to) {
   int64_t pos = replayed_pos_.at(from);
   // See note [Using multiple TransformPropagators]
-  bool debug = isDebugDumpEnabled(DebugDumpOption::TransformPropagator);
-  if (debug) {
-    std::cout << "TransformPropagator::propagateSibling" << std::endl;
-    std::cout << "  from: " << from << " @ " << pos << std::endl;
-    std::cout << "  to: " << to << std::endl;
+  bool debug_print = isDebugDumpEnabled(DebugDumpOption::TransformPropagator);
+  if (debug_print) {
+    debug() << "TransformPropagator::propagateSibling" << std::endl;
+    debug() << "  from: " << from << " @ " << pos << std::endl;
+    debug() << "  to: " << to << std::endl;
   }
   if (!TransformReplay::fullSelfMatching(to, from)) {
     auto replay = TransformReplay::fullSelfReplay(to->domain(), from->domain());
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         validateDomain(to, replay),
         "Tried to set the domain of ",
         to,
@@ -1153,11 +1154,11 @@ void TransformPropagator::propagateSibling(TensorView* from, TensorView* to) {
         replay,
         " but that would invalidate previously compute at position or max producer position.");
     to->setDomain(replay);
-    if (debug) {
-      std::cout << "  replayed: " << to << " @ " << pos << std::endl;
+    if (debug_print) {
+      debug() << "  replayed: " << to << " @ " << pos << std::endl;
     }
-  } else if (debug) {
-    std::cout << "  replay skipped. result position: " << pos << std::endl;
+  } else if (debug_print) {
+    debug() << "  replay skipped. result position: " << pos << std::endl;
   }
   replayed_pos_[to] = pos;
 }
@@ -1166,7 +1167,7 @@ TransformPropagator::TransformPropagator(TensorView* from, int64_t pos) {
   if (pos < 0) {
     pos += (int64_t)from->nDims() + 1;
   }
-  TORCH_CHECK(
+  NVF_CHECK(
       pos >= 0 && pos <= (int64_t)from->nDims(),
       "TransformPropagator called on an pos outside valid range.");
   replayed_pos_[from] = pos;
@@ -1179,15 +1180,16 @@ void MostInlinedTransformPropagator::propagateC2P(
   // See note [Using multiple TransformPropagators]
   int64_t new_pos =
       TransformReplay::getMatchedLeafPosWithoutReplayPasC(to, from, pos, true);
-  bool debug = isDebugDumpEnabled(DebugDumpOption::TransformPropagator);
-  if (debug) {
-    std::cout << "MostInlinedTransformPropagator::propagateC2P" << std::endl;
-    std::cout << "  from: " << from << std::endl;
-    std::cout << "  to: " << to << std::endl;
+  bool debug_print = isDebugDumpEnabled(DebugDumpOption::TransformPropagator);
+  if (debug_print) {
+    debug() << "MostInlinedTransformPropagator::propagateC2P" << std::endl;
+    debug() << "  from: " << from << std::endl;
+    debug() << "  to: " << to << std::endl;
   }
   if (new_pos < 0) {
-    auto replay = TransformReplay::replayPasC(to, from, pos);
-    TORCH_INTERNAL_ASSERT(
+    auto replay = TransformReplay::replayPasC(
+        to, from, pos, TransformReplayOptions().skipTargetSwizzle());
+    NVF_ERROR(
         validateDomain(to, replay.first),
         "Tried to set the domain of ",
         to,
@@ -1195,11 +1197,11 @@ void MostInlinedTransformPropagator::propagateC2P(
         replay.first,
         " but that would invalidate previously compute at position or max producer position.");
     to->setDomain(replay.first);
-    if (debug) {
-      std::cout << "  replayed: " << to << std::endl;
+    if (debug_print) {
+      debug() << "  replayed: " << to << std::endl;
     }
-  } else if (debug) {
-    std::cout << "  replay skipped" << std::endl;
+  } else if (debug_print) {
+    debug() << "  replay skipped" << std::endl;
   }
 }
 
@@ -1210,15 +1212,16 @@ void MostInlinedTransformPropagator::propagateP2C(
   // See note [Using multiple TransformPropagators]
   int64_t new_pos =
       TransformReplay::getMatchedLeafPosWithoutReplayCasP(to, from, pos, true);
-  bool debug = isDebugDumpEnabled(DebugDumpOption::TransformPropagator);
-  if (debug) {
-    std::cout << "MostInlinedTransformPropagator::propagateP2C" << std::endl;
-    std::cout << "  from: " << from << std::endl;
-    std::cout << "  to: " << to << std::endl;
+  bool debug_print = isDebugDumpEnabled(DebugDumpOption::TransformPropagator);
+  if (debug_print) {
+    debug() << "MostInlinedTransformPropagator::propagateP2C" << std::endl;
+    debug() << "  from: " << from << std::endl;
+    debug() << "  to: " << to << std::endl;
   }
   if (new_pos < 0) {
-    auto replay = TransformReplay::replayCasP(to, from, pos);
-    TORCH_INTERNAL_ASSERT(
+    auto replay = TransformReplay::replayCasP(
+        to, from, pos, TransformReplayOptions().skipTargetSwizzle());
+    NVF_ERROR(
         validateDomain(to, replay.first),
         "Tried to set the domain of ",
         to,
@@ -1226,11 +1229,11 @@ void MostInlinedTransformPropagator::propagateP2C(
         replay.first,
         " but that would invalidate previously compute at position or max producer position.");
     to->setDomain(replay.first);
-    if (debug) {
-      std::cout << "  replayed: " << to << std::endl;
+    if (debug_print) {
+      debug() << "  replayed: " << to << std::endl;
     }
-  } else if (debug) {
-    std::cout << "  replay skipped" << std::endl;
+  } else if (debug_print) {
+    debug() << "  replay skipped" << std::endl;
   }
 }
 
@@ -1238,16 +1241,15 @@ void MostInlinedTransformPropagator::propagateSibling(
     TensorView* from,
     TensorView* to) {
   // See note [Using multiple TransformPropagators]
-  bool debug = isDebugDumpEnabled(DebugDumpOption::TransformPropagator);
-  if (debug) {
-    std::cout << "MostInlinedTransformPropagator::propagateSibling"
-              << std::endl;
-    std::cout << "  from: " << from << std::endl;
-    std::cout << "  to: " << to << std::endl;
+  bool debug_print = isDebugDumpEnabled(DebugDumpOption::TransformPropagator);
+  if (debug_print) {
+    debug() << "MostInlinedTransformPropagator::propagateSibling" << std::endl;
+    debug() << "  from: " << from << std::endl;
+    debug() << "  to: " << to << std::endl;
   }
   if (!TransformReplay::fullSelfMatching(to, from)) {
     auto replay = TransformReplay::fullSelfReplay(to->domain(), from->domain());
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         validateDomain(to, replay),
         "Tried to set the domain of ",
         to,
@@ -1255,11 +1257,11 @@ void MostInlinedTransformPropagator::propagateSibling(
         replay,
         " but that would invalidate previously compute at position or max producer position.");
     to->setDomain(replay);
-    if (debug) {
-      std::cout << "  replayed: " << to << std::endl;
+    if (debug_print) {
+      debug() << "  replayed: " << to << std::endl;
     }
-  } else if (debug) {
-    std::cout << "  replay skipped" << std::endl;
+  } else if (debug_print) {
+    debug() << "  replay skipped" << std::endl;
   }
 }
 

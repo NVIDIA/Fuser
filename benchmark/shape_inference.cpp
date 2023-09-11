@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <csrc/exceptions.h>
 #include <device_lower/lower2device.h>
 #include <executor.h>
 #include <fusion.h>
@@ -112,7 +113,7 @@ void LayerNormBackward_ShapeInference_Base(
   KernelArgumentHolder args =
       KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
 
-  TORCH_INTERNAL_ASSERT(runtime->getMaybeHeuristicsFor(args).has_value());
+  NVF_ERROR(runtime->getMaybeHeuristicsFor(args).has_value());
 
   fec->profile(true);
   fec->disableKernelLaunch();
@@ -146,7 +147,7 @@ static auto getLayerForwardNormRuntime(
   Fusion& fusion = *fusion_ptr.get();
 
   const float kEps = 1e-5;
-  Double* eps_ptr = IrBuilder::create<Double>(kEps);
+  Val* eps_ptr = IrBuilder::create<Val>(kEps);
 
   auto input = makeSymbolicTensor(shape.size());
   fusion.addInput(input);
@@ -186,7 +187,7 @@ void LayerNormForward_ShapeInferenceBase(
   KernelArgumentHolder args =
       KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
 
-  TORCH_INTERNAL_ASSERT(runtime->getMaybeHeuristicsFor(args).has_value());
+  NVF_ERROR(runtime->getMaybeHeuristicsFor(args).has_value());
 
   fec->profile(true);
   fec->disableKernelLaunch();

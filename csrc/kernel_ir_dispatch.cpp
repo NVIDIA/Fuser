@@ -13,7 +13,7 @@ namespace kir {
 std::vector<Expr*> IrVisitor::handle(const std::vector<Expr*>& exprs) {
   exprs_ = std::vector<Expr*>(exprs);
   for (auto expr : exprs) {
-    handle(expr);
+    dispatch(expr);
   }
   return exprs_;
 }
@@ -24,7 +24,7 @@ void IrVisitor::handle(ForLoop* fl) {
   scope_exprs_.push_back(fl);
   auto body_exprs = std::vector<Expr*>(fl->body().exprs());
   for (auto expr : body_exprs) {
-    handle(expr);
+    dispatch(expr);
   }
   scope_exprs_.pop_back();
   scope_.pop_back();
@@ -36,14 +36,14 @@ void IrVisitor::handle(IfThenElse* ite) {
   scope_.push_back(&ite->thenBody());
   auto then_exprs = std::vector<Expr*>(ite->thenBody().exprs());
   for (auto expr : then_exprs) {
-    handle(expr);
+    dispatch(expr);
   }
   scope_.pop_back();
 
   scope_.push_back(&ite->elseBody());
   auto else_exprs = std::vector<Expr*>(ite->elseBody().exprs());
   for (auto expr : else_exprs) {
-    handle(expr);
+    dispatch(expr);
   }
   scope_.pop_back();
   scope_exprs_.pop_back();
@@ -53,7 +53,7 @@ std::vector<const Expr*> ConstIrVisitor::handle(
     const std::vector<const Expr*>& exprs) {
   exprs_ = exprs;
   for (auto expr : exprs) {
-    handle(expr);
+    dispatch(expr);
   }
   return exprs_;
 }
@@ -64,7 +64,7 @@ void ConstIrVisitor::handle(const ForLoop* fl) {
   scope_exprs_.push_back(fl);
   auto body_exprs = fl->body().exprs();
   for (auto expr : body_exprs) {
-    handle(expr);
+    dispatch(expr);
   }
   scope_exprs_.pop_back();
   scope_.pop_back();
@@ -76,14 +76,14 @@ void ConstIrVisitor::handle(const IfThenElse* ite) {
   scope_.push_back(&ite->thenBody());
   auto then_exprs = ite->thenBody().exprs();
   for (auto expr : then_exprs) {
-    handle(expr);
+    dispatch(expr);
   }
   scope_.pop_back();
 
   scope_.push_back(&ite->elseBody());
   auto else_exprs = ite->elseBody().exprs();
   for (auto expr : else_exprs) {
-    handle(expr);
+    dispatch(expr);
   }
   scope_.pop_back();
   scope_exprs_.pop_back();
@@ -103,7 +103,7 @@ std::vector<Expr*> ExprMutator::mutate(bool reverse_order) {
         return;
       }
       auto pos_it = std::find(exprs_.begin(), exprs_.end(), info.reference);
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           pos_it != exprs_.end(),
           "Issue finding reference expression for insertion.");
       if (info.mode == MutationMode::BEFORE) {
@@ -140,7 +140,7 @@ std::vector<Expr*> ExprMutator::mutate(bool reverse_order) {
     if (replacement_info.scope == nullptr) {
       auto pos_it =
           std::find(exprs_.begin(), exprs_.end(), replacement_info.reference);
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           pos_it != exprs_.end(),
           "Issue finding reference expression for replacement.");
       exprs_.insert(pos_it, replacement_info.new_expr);
@@ -159,11 +159,10 @@ std::vector<Expr*> ExprMutator::mutate(bool reverse_order) {
     if (removal_info.scope == nullptr) {
       auto pos_it =
           std::find(exprs_.begin(), exprs_.end(), removal_info.reference);
-      TORCH_INTERNAL_ASSERT(
-          pos_it != exprs_.end(), "Issue finding expression to remove.");
+      NVF_ERROR(pos_it != exprs_.end(), "Issue finding expression to remove.");
       exprs_.erase(pos_it);
     } else {
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           removal_info.scope->contains(removal_info.reference),
           "Expression to remove is not found in the given scope: ",
           removal_info.reference->toString());
@@ -201,7 +200,7 @@ void ExprMutator::registerMutation(
   } else if (mode == MutationMode::REMOVE) {
     removal_.push_back(mutation);
   } else {
-    TORCH_INTERNAL_ASSERT(false, "Invalid mutation type");
+    NVF_ERROR(false, "Invalid mutation type");
   }
 }
 

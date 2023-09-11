@@ -38,7 +38,7 @@ bool PreferredLaunchConfig::setBdimx(int bdimx, bool dry_run) {
     return false;
   }
 
-  TORCH_INTERNAL_ASSERT(block_size % bdimx == 0, "Invalid bdimx: ", bdimx);
+  NVF_ERROR(block_size % bdimx == 0, "Invalid bdimx: ", bdimx);
   int bdimy = block_size / bdimx;
 
   if (!dry_run) {
@@ -151,10 +151,10 @@ namespace {
 int64_t getAvailableRegisterCount(int64_t persistent_buffer_factor) {
   // The thread block size is (currently) always 256, so each thread
   // can use up to 255 registers
-  int64_t register_count = 255;
+  int64_t register_count = scheduler_utils::max_registers_per_thread;
 
   // Offset a constant overhead
-  register_count -= 40;
+  register_count -= scheduler_utils::register_overhead;
 
   // Allow small number of spills
   register_count += 5;
@@ -187,7 +187,7 @@ bool checkIfWithinRegisterSpace(
   auto pb_factor =
       getMinPersistentBufferSize(total_reduction_numel, bdimy, gdimy);
 
-  TORCH_INTERNAL_ASSERT(pb_factor > 0);
+  NVF_ERROR(pb_factor > 0);
 
   const auto available_reg_count = getAvailableRegisterCount(pb_factor);
 
@@ -498,7 +498,7 @@ std::optional<GridOuterNormalizationParams> getGridOuterNormalizationParams(
 
   // No valid config found. Return launch_cfg, which should be marked
   // as invalid
-  TORCH_INTERNAL_ASSERT(launch_cfg.isInvalid());
+  NVF_ERROR(launch_cfg.isInvalid());
   return std::nullopt;
 }
 
@@ -608,12 +608,11 @@ int64_t partialReductionBufferSize(
         continue;
       }
       auto id_size = runtime_info.expressionEvaluator().evaluate(id->extent());
-      TORCH_INTERNAL_ASSERT(
-          id_size.has_value(), "Could not infer persistent buffer size.");
+      NVF_ERROR(id_size.hasValue(), "Could not infer persistent buffer size.");
       if (buffer_size == -1) {
-        buffer_size = id_size->as<int64_t>();
+        buffer_size = id_size.as<int64_t>();
       } else {
-        buffer_size *= id_size->as<int64_t>();
+        buffer_size *= id_size.as<int64_t>();
       }
     }
     buffer_size = (buffer_size == -1) ? 0
@@ -623,6 +622,103 @@ int64_t partialReductionBufferSize(
     partial_reduction_buffer_size += buffer_size;
   }
   return partial_reduction_buffer_size;
+}
+
+std::pair<std::optional<int64_t>, int64_t>
+getOptionalInnerOuterPersistentBufferBatches(
+    const int64_t inner_dim_numel,
+    const int64_t outer_dim_numel,
+    const int64_t persistent_buffer_size,
+    const int64_t vectorize_factor,
+    const int64_t warp_size,
+    const bool ignore_register_size_limit) {
+  // if inner_dim_numel <= 1024, we are doing multiple reductions per block
+  // with a constant batch size of 1 if vectorized. See Step 5 of
+  // innerOuterPersistentHeuristic. Although batch size is 1, each thread also
+  // needs to do serial reduction of [vectorize_factor] elements. However, if
+  // vectorize_factor is 1, we can increase batch size to set a minimum serial
+  // reduction workload for each thread to take advantage of zero intra-threads
+  // communication cost. Here a middle value of 4 is selected without spending
+  // time to tune as these un-vectorized small cases should be rare in real
+  // world.
+  if (inner_dim_numel <= 1024l) {
+    const int64_t batch = (vectorize_factor == 1) ? 4l : 1l;
+    return std::make_pair(
+        batch, ceilDiv(inner_dim_numel, batch * vectorize_factor));
+  }
+  // Set a minimum workload for each thread to take advantage of low
+  // intra-threads communication cost. Tuned for layer_norm backward on A100.
+  auto getMinimumBatch = [&]() -> int64_t {
+    if (inner_dim_numel >= 3072l) {
+      if (outer_dim_numel <= 2048l && inner_dim_numel == 3072l) {
+        return 3l;
+      } else {
+        return 4l;
+      }
+    } else if (inner_dim_numel >= 2048l) {
+      return 2l;
+    }
+    return 1l;
+  };
+  //! Each thread can use a maximum of 255 registers, and assume 40 of them are
+  //! reserved for indexing and other purposes. So, each thread can use up to
+  //! 215 registers for persistent buffer. Calculate number of buffer batches
+  //! using these 215 registers. total_buffer_bytes is the total size of
+  //! persistent buffers in bytes. reduction_elements is the number of elements
+  //! in the reduction domain. vectorization_factor is the vectorization factor
+  //! of inputs and outputs.
+  auto getMaximumInnerOuterPersistentBufferBatch = [&]() -> int64_t {
+    int64_t register_per_batch = ceilDiv(
+        persistent_buffer_size / inner_dim_numel * vectorize_factor,
+        scheduler_utils::bytes_per_register);
+    return scheduler_utils::safeDiv(
+        scheduler_utils::max_registers_per_thread -
+            scheduler_utils::register_overhead,
+        register_per_batch);
+  };
+
+  const int64_t after_vectorization = inner_dim_numel / vectorize_factor;
+  const int64_t threads_per_block_min = std::min(after_vectorization, 128l);
+  const int64_t threads_per_block_max = getThreadsPerSMGivenRegPerThread(255l);
+  const int64_t batch_min = getMinimumBatch();
+  const int64_t batch_max = getMaximumInnerOuterPersistentBufferBatch();
+
+  // Start from the smallest threads_per_block. If the corresponding batch size
+  // is larger than batch_max, try increase threads per block by a warp until
+  // the threads_per_block reaches threads_per_block_max or the batch size
+  // reaches batch_min.
+  int64_t threads_per_block = threads_per_block_min;
+  int64_t inner_batch = ceilDiv(after_vectorization, threads_per_block);
+  while (inner_batch > batch_max &&
+         threads_per_block + warp_size <= threads_per_block_max &&
+         ceilDiv(after_vectorization, threads_per_block + warp_size) >=
+             batch_min) {
+    threads_per_block += warp_size;
+    inner_batch = ceilDiv(after_vectorization, threads_per_block);
+  }
+
+  // The maximum feature size can be processed without register spills and
+  // fusion segmentation for fp16 is 14K. Here, we can allow register spills to
+  // avoid fusion segmentation by incrase maximum batch size by 3. This allows
+  // us to process up to 20K features (14K + 256*8*3).
+  // Performance on A100-80G:
+  // (1) shape= 16384 x 16384, 1300 GB/s, time_us mean(var)= 1245.08 (8.89703),
+  // 64 bytes stack frame, 64 bytes spill stores, 128 bytes spill loads. (2)
+  // shape= 16384 x 18432, 1070 GB/s, time_us mean(var)= 1683.87 (19.527), 192
+  // bytes stack frame, 192 bytes spill stores, 384 bytes spill loads.
+  // (3) shape= 16384 x 20480, 730 GB/s time_us mean(var)= 2766.64 (12.3883),
+  // 320 bytes stack frame, 320 bytes spill stores, 640 bytes spill loads. As a
+  // ref, the segmented version takes time_us mean(var)= 2841.91 (5.20231)
+  // without considering the overhead of fusion segmentation.
+  // (4) Disable this optimization if vectorize_factor is 1 due to high register
+  // usage in cases can't be vectorized.
+  const int64_t batch_max_reg_spill =
+      vectorize_factor > 1 ? batch_max + 3 : batch_max;
+  if (ignore_register_size_limit || inner_batch <= batch_max_reg_spill) {
+    return std::make_pair(inner_batch, threads_per_block);
+  } else {
+    return std::make_pair(std::nullopt, -1);
+  }
 }
 
 } // namespace normalization_scheduler_utils

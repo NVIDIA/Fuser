@@ -6,6 +6,7 @@
  */
 // clang-format on
 #include <arith.h>
+#include <csrc/exceptions.h>
 #include <device_lower/lower2device.h>
 #include <executor.h>
 #include <fusion.h>
@@ -30,7 +31,7 @@ static void setupSoftmaxDropout(
     Fusion* fusion,
     DataType dtype,
     const int kReductionAxis) {
-  TORCH_INTERNAL_ASSERT(dtype == DataType::Float || dtype == DataType::Half);
+  NVF_ERROR(dtype == DataType::Float || dtype == DataType::Half);
 
   FusionGuard fg(fusion);
 
@@ -44,7 +45,7 @@ static void setupSoftmaxDropout(
   auto attention_scores = makeContigTensor(4, dtype);
   auto attention_mask = makeContigTensor(4, dtype);
 
-  Double* divisor = IrBuilder::create<Double>();
+  Val* divisor = IrBuilder::create<Val>(DataType::Double);
 
   fusion->addInput(attention_scores);
   fusion->addInput(attention_mask);
@@ -58,8 +59,8 @@ static void setupSoftmaxDropout(
   attention_scores = div(attention_scores, divisor);
   attention_scores = add(attention_scores, attention_mask);
   auto attention_probs = softmax(attention_scores, kReductionAxis);
-  auto prob = IrBuilder::create<Double>(kDropoutProbability);
-  auto scale = IrBuilder::create<Double>(kScale);
+  auto prob = IrBuilder::create<Val>(kDropoutProbability);
+  auto scale = IrBuilder::create<Val>(kScale);
   auto dropout_results = dropout(attention_probs, prob, scale);
   auto output = dropout_results.output;
 
@@ -81,7 +82,7 @@ static void NvFuserScheduler_SoftmaxDropout(
     FusionExecutorCache* fusion_executor_cache,
     DataType dtype,
     const int kReductionAxis) {
-  TORCH_INTERNAL_ASSERT(dtype == DataType::Float || dtype == DataType::Half);
+  NVF_ERROR(dtype == DataType::Float || dtype == DataType::Half);
 
   // reduce across 1, [256, 12, 100, 8]
   std::vector<int64_t> input_shape{256, 12, 100, benchmark_state.range(0)};

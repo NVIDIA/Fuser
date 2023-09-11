@@ -1,3 +1,4 @@
+#include <csrc/exceptions.h>
 #include <executor.h>
 #include <ops/arith.h>
 #include <scheduler/all_schedulers.h>
@@ -16,7 +17,7 @@ at::Tensor sinh_nvfuser(const at::Tensor& input) {
   fusion.addInput(x);
 
   // Using equation sinh(x) = [ exp(x) - exp(-1) ] / 2
-  auto output = div(sub(exp(x), exp(neg(x))), IrBuilder::create<Double>(2.0));
+  auto output = div(sub(exp(x), exp(neg(x))), IrBuilder::create<Val>(2.0));
   fusion.addOutput(output);
 
   std::cout << "Create fusion:" << std::endl;
@@ -37,6 +38,6 @@ int main() {
   auto output = sinh_nvfuser(t);
   std::cout << "Expected:" << std::endl << expected << std::endl;
   std::cout << "Output:" << std::endl << output << std::endl;
-  TORCH_CHECK(at::allclose(expected, output));
+  NVF_CHECK(at::allclose(expected, output));
   std::cout << "They match!" << std::endl;
 }

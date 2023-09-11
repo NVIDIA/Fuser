@@ -7,12 +7,14 @@
 // clang-format on
 #include <scheduler/pointwise.h>
 
+#include <debug.h>
 #include <device_lower/utils.h>
 #include <executor_utils.h>
 #include <inlining.h>
 #include <instrumentation.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
+#include <options.h>
 #include <scheduler/pointwise_utils.h>
 #include <scheduler/registry.h>
 #include <scheduler/utils.h>
@@ -58,7 +60,7 @@ class DomainMap : public pointwise_utils::DomainMap {
 
  private:
   bool hasMinimumSize(TensorView* tv, size_t num_axes) const {
-    TORCH_INTERNAL_ASSERT(tv != nullptr);
+    NVF_ERROR(tv != nullptr);
     return (num_axes == 0 || tv->getMaybeRFactorDomain().size() > num_axes);
   }
 };
@@ -100,7 +102,7 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
           });
   TensorView* largest_out = largest_out_entry.get()[0];
 
-  TORCH_INTERNAL_ASSERT(largest_out != nullptr);
+  NVF_ERROR(largest_out != nullptr);
 
   const int64_t device_multiprocessor_count =
       (int64_t)at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
@@ -124,11 +126,11 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
   for (size_t ref_i = 0; ref_i < ref_root.size(); ref_i++) {
     auto inferred_val =
         runtime_info.expressionEvaluator().evaluate(ref_root[ref_i]->extent());
-    TORCH_INTERNAL_ASSERT(
-        inferred_val.has_value(),
+    NVF_ERROR(
+        inferred_val.hasValue(),
         "Error inferring size for pointwise scheduler: ",
         ref_root[ref_i]->extent()->toInlineString());
-    elem_counts[ref_i] = inferred_val->as<int64_t>();
+    elem_counts[ref_i] = inferred_val.as<int64_t>();
     n_elems *= elem_counts[ref_i];
   }
 
@@ -231,7 +233,7 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
   auto& view_disjoint_sets = broadcast_info.get().view_disjoint_set_ids;
   auto& broadcast_byte_multiples = broadcast_info.get().broadcast_multiples;
 
-  TORCH_INTERNAL_ASSERT(broadcast_byte_multiples.size() == ref_root.size());
+  NVF_ERROR(broadcast_byte_multiples.size() == ref_root.size());
 
   int64_t dtype_sum = 0;
   for (auto inp : ir_utils::filterByType<TensorView>(fusion->inputs())) {
@@ -347,7 +349,7 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
   params->unroll_factor = 1;
 
   const auto vectorize_factor = std::min(
-      static_cast<size_t>(max_unroll_factor),
+      max_unroll_factor,
       vectorize_helper::getVectorizationFactor(
           runtime_info, largest_out, data_cache, break_point));
 
@@ -359,8 +361,8 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
     params->unroll_factor = vectorize_factor;
   }
 
-  TORCH_INTERNAL_ASSERT(right_elem_count > 0 || break_point == 0);
-  TORCH_INTERNAL_ASSERT(!(bdimy > 1 && gdim_right > 1));
+  NVF_ERROR(right_elem_count > 0 || break_point == 0);
+  NVF_ERROR(!(bdimy > 1 && gdim_right > 1));
 
   params->break_point = break_point;
   params->flip_grid_binding = flip_grid_binding;
@@ -376,21 +378,21 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
   }
 
   if (isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
-    std::cerr << "\n===== Pointwise Stats ========\n"
-              << "num_elems: " << n_elems << "\n"
-              << "elem_counts: " << elem_counts << "\n"
-              << "max_input_dtype_size: " << max_input_dtype_size << "\n"
-              << "vectorize_factor: " << vectorize_factor << std::endl;
-    std::cerr << "broadcast_byte_multiples: ";
+    debug() << "\n===== Pointwise Stats ========\n"
+            << "num_elems: " << n_elems << "\n"
+            << "elem_counts: " << elem_counts << "\n"
+            << "max_input_dtype_size: " << max_input_dtype_size << "\n"
+            << "vectorize_factor: " << vectorize_factor << std::endl;
+    debug() << "broadcast_byte_multiples: ";
     for (auto multiple : broadcast_byte_multiples) {
-      std::cerr << "(" << multiple.lhs_multiple << ", " << multiple.rhs_multiple
-                << "), ";
+      debug() << "(" << multiple.lhs_multiple << ", " << multiple.rhs_multiple
+              << "), ";
     }
-    std::cerr << "LHS elems: "
-              << (right_elem_count > 0 ? n_elems / right_elem_count : 0)
-              << " RHS elems: " << right_elem_count << std::endl;
-    std::cerr << std::endl;
-    std::cerr << params->toString() << std::endl;
+    debug() << "LHS elems: "
+            << (right_elem_count > 0 ? n_elems / right_elem_count : 0)
+            << " RHS elems: " << right_elem_count << std::endl;
+    debug() << std::endl;
+    debug() << params->toString() << std::endl;
   }
 
   return params;
@@ -402,8 +404,7 @@ LaunchParams schedulePointwise(
     const at::ArrayRef<c10::IValue>& runtime_inputs) {
   FUSER_PERF_SCOPE("scheduleFusion");
   auto params = getPointwiseHeuristics(fusion, runtime_inputs);
-  TORCH_INTERNAL_ASSERT(
-      params != nullptr, "Could not schedule pointwise operation.");
+  NVF_ERROR(params != nullptr, "Could not schedule pointwise operation.");
   schedulePointwise(fusion, *params);
   return params->lparams;
 }
@@ -430,7 +431,7 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
 
   // maybe has_reduction for scheduling should be done on a per output tensor
   // basis.
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       ir_utils::getReductionOps(fusion).empty(),
       "This scheduler only handles pointwise ops.");
 
@@ -471,7 +472,7 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
 
   TensorView* reference_tv = getReferenceTensorView(fusion);
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       reference_tv != nullptr,
       "Could not find a fully broadcasted output to reference schedule on.");
 
@@ -481,8 +482,8 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
 
   if (!ir_utils::getViewOps(fusion).empty()) {
     ComputeAtMap ca_map(fusion);
-    // Propagate view transforms through the graph, expecially the reference.
-    scheduler_utils::propagateViewTransforms(fusion, ca_map);
+    // Propagate reshape transforms through the graph, expecially the reference.
+    scheduler_utils::propagateReshapeTransforms(fusion, ca_map);
 
     // Reorder reference_tv after propagating the view operation. This will
     // reorder for better merging.
@@ -513,11 +514,11 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
 
     // Make sure lhs and rhs groups are disjoint.
     for (auto lhs_val : lhs_all_vals) {
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           rhs_all_vals_set.count(lhs_val) == 0,
           "Error in pointwise scheduler. LHS and RHS of the 2D scheduler are not disjoint.");
     }
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         !rhs_all_vals.empty(),
         "Expecting at least one dimension in the RHS of the pointwise scheduler.");
 
@@ -589,7 +590,7 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
   IterDomain* vectorize_id = nullptr;
   if (params.break_point) {
     // 2D parallelization scheme
-    TORCH_INTERNAL_ASSERT(rhs_i >= 0 && lhs_i >= 0);
+    NVF_ERROR(rhs_i >= 0 && lhs_i >= 0);
 
     // Right (inner merged) dimension is at inner most position, left (outer
     // merged) dimension is at lhs_i. Order as [lhs_i, rhs_i, unmerged...]
@@ -691,7 +692,7 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
     }
   } else {
     // 1D Scheduler
-    TORCH_INTERNAL_ASSERT(rhs_i >= 0 && lhs_i == -1);
+    NVF_ERROR(rhs_i >= 0 && lhs_i == -1);
 
     // right hand side exists and is the only axis we care to schedule, move
     // it from the inner most position to left most. Order as [rhs_i,

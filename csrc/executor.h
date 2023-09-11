@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 #include <device_lower/lower2device.h>
+#include <exceptions.h>
 #include <executor_params.h>
 #include <executor_utils.h>
 #include <expr_evaluator.h>
@@ -14,6 +15,7 @@
 #include <ir/all_nodes.h>
 #include <ir/cloner.h>
 #include <ir/printer.h>
+#include <serde/fusion_cache_generated.h>
 #include <utils.h>
 
 #include <c10/core/DeviceType.h>
@@ -92,7 +94,7 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
       const std::vector<at::Tensor>& outputs,
       const LaunchParams& launch_constraints = LaunchParams(),
       CompileParams compile_params = CompileParams(),
-      const c10::optional<size_t>& opt_code = c10::nullopt) {
+      const std::optional<size_t>& opt_code = std::nullopt) {
     KernelArgumentHolder args =
         KernelArgumentHolder::createKernelArgumentHolder(inputs);
     if (opt_code.has_value()) {
@@ -105,13 +107,13 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
       const at::ArrayRef<c10::IValue>& inputs,
       const LaunchParams& launch_constraints = LaunchParams(),
       CompileParams compile_params = CompileParams(),
-      const c10::optional<size_t>& opt_code = c10::nullopt) {
+      const std::optional<size_t>& opt_code = std::nullopt) {
     return runFusion(inputs, {}, launch_constraints, compile_params, opt_code);
   }
 
   // function to query whether a `FusionExecutor` has a compiled kernel to
   // execute
-  bool compiled() const {
+  bool isCompiled() const {
     return fusion_id_ != -1 && lowered_ && compiled_kernel_.function != nullptr;
   };
 
@@ -133,14 +135,13 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
     std::vector<GlobalBufferInfo> outputs;
     // Temporary work buffers and intemediate global-memory tensors
     std::vector<GlobalBufferInfo> intermediates;
-    uint64_t rand_offset = 0;
   };
 
   using ExecutorCompileTimeInfoCache =
       executor_utils::caching::ExecutorCompileTimeInfoCache;
 
   kir::Kernel* kernel() const {
-    TORCH_INTERNAL_ASSERT(lowered_);
+    NVF_ERROR(lowered_);
     return lowered_->kernel();
   }
 
@@ -184,7 +185,7 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
 
   //! Returns the string of the compiled kernel
   std::string kernelString() const {
-    TORCH_INTERNAL_ASSERT(!kernel_code_.empty(), "Kernel code not generated");
+    NVF_ERROR(!kernel_code_.empty(), "Kernel code not generated");
     return kernel_code_;
   }
 
@@ -250,11 +251,15 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
     disable_parameter_cache_ = true;
   }
 
-  //! Used in distributed setting where we only want to
-  //!  allocate output space and receive output data from
-  //!  a different rank instead of computing them.
-  std::vector<at::Tensor> allocOutputSpace(
-      const at::ArrayRef<c10::IValue>& inputs);
+  //! Serialize Fusion Executor using flatbuffers
+  flatbuffers::Offset<serde::FusionExecutor> serialize(
+      flatbuffers::FlatBufferBuilder& builder) const;
+
+  //! Deserialize Fusion Executor using flatbuffers
+  void deserialize(
+      const serde::FusionExecutor* buffer,
+      Fusion* fusion,
+      CompileParams compile_params);
 
  private:
   static std::string kernelNamespace() {
@@ -264,19 +269,21 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
   LaunchParams computeLaunchParams(
       const LaunchParams& launch_constraints,
       ExpressionEvaluator& expr_eval,
-      const int64_t warp_size);
+      const int64_t warp_size,
+      DataType index_dtype);
 
   int64_t computeSharedMemory(
       ExpressionEvaluator& expr_eval,
       const std::vector<const kir::Allocate*>& buffers,
-      bool align_padding = false,
-      int64_t total = 0);
+      DataType index_dtype,
+      int64_t smem_offset = 0);
 
   //! Return information necessay for allocating intermediate tensors,
   //! including temporary work buffers as well as intermediate
   //! global-memory tensors
   std::vector<GlobalBufferInfo> getIntermediateBufferInfo(
-      ExpressionEvaluator& expr_eval);
+      ExpressionEvaluator& expr_eval,
+      DataType index_dtype);
 
   //! Return information necessay for allocating output tensors. Input
   //! and output tensors are allowed to alias each other, which is
@@ -284,7 +291,8 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
   std::vector<GlobalBufferInfo> getOutputBufferInfo(
       const KernelArgumentHolder& args,
       ExpressionEvaluator& expr_eval,
-      const std::vector<std::pair<int, int>>& input_to_output_aliases);
+      const std::vector<std::pair<int, int>>& input_to_output_aliases,
+      DataType index_dtype);
 
   void setUsedTVs();
 
@@ -302,7 +310,8 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
       const KernelArgumentHolder& args,
       const LaunchParams& launch_constraints,
       const CompileParams& compile_params,
-      const std::vector<at::Tensor>& outputs);
+      const std::vector<at::Tensor>& outputs,
+      DataType index_type);
 
   std::unique_ptr<PrecomputedValues>& evaluatorPrecomputedValues();
 
@@ -311,6 +320,28 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
   void recompileKernel(
       const LaunchParams& new_launch_params,
       const CompileParams& new_compile_params);
+
+  // ExecutorEntry is an internal POD struct for the FusionExecutor class.
+  // We define ExecutorEntry's serialize and deserialize as private methods in
+  // FusionExecutor.
+  flatbuffers::Offset<serde::ExecutorEntry> serialize(
+      flatbuffers::FlatBufferBuilder& builder,
+      const ExecutorEntry& data) const;
+
+  //! Deserialize ExecutorEntry using flatbuffers
+  ExecutorEntry deserialize(const serde::ExecutorEntry* buffer);
+
+  // GlobalBufferInfo is an internal POD struct for the FusionExecutor class.
+  // We define GlobalBufferInfo's serialize and deserialize as private methods
+  // in FusionExecutor.
+  flatbuffers::Offset<serde::GlobalBufferInfo> serialize(
+      flatbuffers::FlatBufferBuilder& builder,
+      const GlobalBufferInfo& data,
+      int64_t tv_position,
+      bool is_fusion_output) const;
+
+  //! Deserialize GlobalBufferInfo using flatbuffers
+  GlobalBufferInfo deserialize(const serde::GlobalBufferInfo* buffer);
 
   //! Get the current dynamic shared memory size
   int64_t getAvailableDynamicSmemSize();
@@ -329,12 +360,6 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
 
   //! Clear the cached properties of the compiled kernel
   void resetCompiledKernelProperties();
-
-  //! Get the corresponding TensorViews for each argument of the kernel.
-  //! If the corresponding argument is not a tensor, use nullptr as placeholder.
-  //! Right now, kernel arguments are in the following order:
-  //! inputs, outputs, intermediates, philox
-  std::vector<TensorView*> getTvsForKernelArguments() const;
 
  private:
   CompileOptions options_;

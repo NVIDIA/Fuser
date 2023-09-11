@@ -9,6 +9,7 @@
 
 #include <compute_at_map.h>
 #include <device_lower/analysis/divisible_split.h>
+#include <exceptions.h>
 #include <fusion.h>
 #include <ir/all_nodes.h>
 #include <maxinfo_propagator.h>
@@ -160,7 +161,7 @@ class TORCH_CUDA_CU_API ContiguousInnerDimensionsMapper
   }
 
   const std::vector<IterDomain*>& mappedRootIds(TensorView* tv) const {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         tv_infos_.find(tv) != tv_infos_.end(),
         "TensorView not found: ",
         tv->toString());
@@ -169,7 +170,7 @@ class TORCH_CUDA_CU_API ContiguousInnerDimensionsMapper
   }
 
   const std::vector<IterDomain*>& mappedRFactorIds(TensorView* tv) const {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         tv_infos_.find(tv) != tv_infos_.end(),
         "TensorView not found: ",
         tv->toString());
@@ -177,9 +178,9 @@ class TORCH_CUDA_CU_API ContiguousInnerDimensionsMapper
         ->mapped_rfactor_ids_;
   }
 
-  Val* getProjectedExtent(IterDomain* id) {
+  Val* getProjectedExtent(IterDomain* id) const {
     if (projected_extent_.find(id) == projected_extent_.end()) {
-      projected_extent_[id] = id->container()->oneVal();
+      NVF_ERROR(false, "Not projected: ", id->toString());
     }
     return projected_extent_.at(id);
   }
@@ -189,7 +190,7 @@ class TORCH_CUDA_CU_API ContiguousInnerDimensionsMapper
  private:
   ContiguousInnerDimensionsMapper(
       TensorView* reference,
-      const std::vector<IterDomain*>& reference_ids,
+      const std::vector<IterDomain*>& ids,
       std::shared_ptr<const ComputeAtMap> ca_map,
       const std::unordered_set<Split*>& divisible_splits);
 
@@ -235,11 +236,21 @@ class TORCH_CUDA_CU_API ContiguousInnerDimensionsMapper
     if (!recording_) {
       return;
     }
+
+    NVF_ERROR(
+        projected_extent_.count(id) == 0,
+        "Already registered: ",
+        id->toString(),
+        ", existing: ",
+        projected_extent_.at(id)->toInlineString(),
+        ", new: ",
+        pe->toInlineString());
+
     projected_extent_[id] = pe;
   }
 
   // Return a boolean predicate indicating if the given ID is fully projected.
-  Bool* isFullyProjected(IterDomain* id);
+  Val* isFullyProjected(IterDomain* id);
 
   // From the projected extent (PE) of I1 and I2, update the PE of I1*I2.
   template <typename MergeOrSplit>
@@ -298,11 +309,37 @@ class TORCH_CUDA_CU_API ContiguousInnerDimensionsMapper
   std::unordered_map<IterDomain*, Val*> projected_extent_;
 };
 
-size_t getVectorizationFactor(
+int64_t getVectorizationFactor(
     SchedulerRuntimeInfo& runtime_info,
     TensorView* reference_tv,
     HeuristicSummary* data_cache,
-    int break_point);
+    int64_t break_point);
+
+int64_t getVectorizationFactorTransposeGroup(
+    SchedulerRuntimeInfo& runtime_info,
+    TensorView* reference,
+    size_t inner_most_dim,
+    const std::vector<size_t>& dims_to_merge,
+    const std::vector<TensorView*>& vec_tv,
+    int64_t max_vectorization);
+
+//! Find the break point for vectorization. Here, we vectorize either
+//! the innermost reduction or iteration domains. We use the producer
+//! of the reduction as a reference of the vectorization
+//! analsis.
+//
+//! Since this is for the reduction and normalization schedulers, the
+//! producer of the reduction should not have reduction domains,
+//! except when it's a fusion input, in which case the reduction
+//! domains of the producer should just be ignored.
+//
+//! \param reduction_consumer
+//! \param reduction_producer
+//! \param consumer_innermost_ndims Innermost consumer domains to vectorize
+int64_t getVectorizationBreakPointOfReductionProducer(
+    TensorView* reduction_consumer,
+    TensorView* reduction_producer,
+    int64_t consumer_innermost_ndims);
 
 } // namespace vectorize_helper
 } // namespace nvfuser

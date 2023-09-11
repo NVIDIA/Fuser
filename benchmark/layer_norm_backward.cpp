@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <csrc/exceptions.h>
 #include <device_lower/lower2device.h>
 #include <executor.h>
 #include <fusion.h>
@@ -28,7 +29,7 @@ using namespace nvfuser;
 static void setupLayerNorm_BWD(Fusion* fusion, DataType dtype) {
   FusionGuard fg(fusion);
 
-  TORCH_INTERNAL_ASSERT(dtype == DataType::Float || dtype == DataType::Half);
+  NVF_ERROR(dtype == DataType::Float || dtype == DataType::Half);
 
   // setup fusion
   auto grad_out = makeContigTensor(2, dtype);
@@ -81,7 +82,7 @@ static void NvFuserScheduler_LayerNorm_BWD(
     benchmark::State& benchmark_state,
     FusionExecutorCache* fusion_executor_cache,
     DataType dtype) {
-  TORCH_INTERNAL_ASSERT(dtype == DataType::Float || dtype == DataType::Half);
+  NVF_ERROR(dtype == DataType::Float || dtype == DataType::Half);
 
   std::vector<int64_t> input_shape{
       benchmark_state.range(0), benchmark_state.range(1)};
@@ -116,7 +117,7 @@ static void NvFuserScheduler_LayerNorm_BWD(
 static void Baseline_LayerNorm_BWD(
     benchmark::State& benchmark_state,
     DataType dtype) {
-  TORCH_INTERNAL_ASSERT(dtype == DataType::Float || dtype == DataType::Half);
+  NVF_ERROR(dtype == DataType::Float || dtype == DataType::Half);
 
   std::vector<int64_t> input_shape{
       benchmark_state.range(0), benchmark_state.range(1)};
@@ -262,6 +263,121 @@ NVFUSER_BENCHMARK_RUN(NvFuserScheduler_LayerNorm_BWD_fp16)
     ->Args({16 * 1024, 1024})
     ->Args({16 * 1024, 1280})
     ->Args({16 * 1024, 1600})
+    ->Unit(benchmark::kMicrosecond)
+    ->UseManualTime();
+
+std::vector<std::vector<int64_t>> getArgs(
+    const int64_t batch_size,
+    const int64_t hidden_size_factor) {
+  std::vector<std::vector<int64_t>> args;
+  std::vector<int64_t> prime_factors = {
+      7,
+      11,
+      13,
+      17,
+      19,
+      101,
+      103,
+      107,
+      109,
+      113,
+      211,
+      223,
+      227,
+      229,
+      233,
+      239,
+      241};
+  for (auto p : prime_factors) {
+    args.push_back({batch_size, p * hidden_size_factor});
+  }
+  return args;
+}
+
+// Non-divisible batch split
+NVFUSER_BENCHMARK_DEFINE(
+    NvFuserScheduler_LayerNorm_BWD_nondiv_fp16,
+    setupLayerNorm_BWD,
+    NvFuserScheduler_LayerNorm_BWD,
+    DataType::Half);
+NVFUSER_BENCHMARK_DEFINE(
+    NvFuserScheduler_LayerNorm_BWD_nondiv_fp32,
+    setupLayerNorm_BWD,
+    NvFuserScheduler_LayerNorm_BWD,
+    DataType::Float);
+void addArgsFactor64(benchmark::internal::Benchmark* b) {
+  const int64_t batch_size = 16 * 1024;
+  const auto& args = getArgs(batch_size, 64l);
+  for (const auto& a : args) {
+    b->Args(a);
+  }
+}
+NVFUSER_BENCHMARK_RUN(NvFuserScheduler_LayerNorm_BWD_nondiv_fp16)
+    ->Apply(addArgsFactor64)
+    ->Unit(benchmark::kMicrosecond)
+    ->UseManualTime();
+NVFUSER_BENCHMARK_RUN(NvFuserScheduler_LayerNorm_BWD_nondiv_fp32)
+    ->Apply(addArgsFactor64)
+    ->Unit(benchmark::kMicrosecond)
+    ->UseManualTime();
+
+// Non-vectorized hidden sizes
+NVFUSER_BENCHMARK_DEFINE(
+    NvFuserScheduler_LayerNorm_BWD_non64_fp16,
+    setupLayerNorm_BWD,
+    NvFuserScheduler_LayerNorm_BWD,
+    DataType::Half);
+NVFUSER_BENCHMARK_DEFINE(
+    NvFuserScheduler_LayerNorm_BWD_non64_fp32,
+    setupLayerNorm_BWD,
+    NvFuserScheduler_LayerNorm_BWD,
+    DataType::Float);
+void addArgsFactor63(benchmark::internal::Benchmark* b) {
+  const int64_t batch_size = 16 * 1024;
+  const auto& args = getArgs(batch_size, 63l);
+  for (const auto& a : args) {
+    b->Args(a);
+  }
+}
+NVFUSER_BENCHMARK_RUN(NvFuserScheduler_LayerNorm_BWD_non64_fp16)
+    ->Apply(addArgsFactor63)
+    ->Unit(benchmark::kMicrosecond)
+    ->UseManualTime();
+NVFUSER_BENCHMARK_RUN(NvFuserScheduler_LayerNorm_BWD_non64_fp32)
+    ->Apply(addArgsFactor63)
+    ->Unit(benchmark::kMicrosecond)
+    ->UseManualTime();
+
+// Multi-reductions per block
+NVFUSER_BENCHMARK_DEFINE(
+    NvFuserScheduler_LayerNorm_BWD_MultiReductionsPerBlock_fp16,
+    setupLayerNorm_BWD,
+    NvFuserScheduler_LayerNorm_BWD,
+    DataType::Half);
+NVFUSER_BENCHMARK_RUN(
+    NvFuserScheduler_LayerNorm_BWD_MultiReductionsPerBlock_fp16)
+    ->Args({8 * 1024, 128})
+    ->Args({8 * 1024, 256})
+    ->Args({8 * 1024, 384})
+    ->Args({8 * 1024, 512})
+    ->Args({8 * 1024, 640})
+    ->Args({8 * 1024, 768})
+    ->Args({8 * 1024, 896})
+    ->Args({8 * 1024, 1023})
+    ->Args({8 * 1024, 1024})
+    ->Unit(benchmark::kMicrosecond)
+    ->UseManualTime();
+NVFUSER_BENCHMARK_RUN(
+    NvFuserScheduler_LayerNorm_BWD_MultiReductionsPerBlock_fp16)
+    ->Args({128, 128})
+    ->Args({128, 256})
+    ->Args({128, 384})
+    ->Args({128, 512})
+    ->Args({128, 640})
+    ->Args({128, 768})
+    ->Args({128, 896})
+    ->Args({128, 1023})
+    ->Args({128, 1024})
     ->Unit(benchmark::kMicrosecond)
     ->UseManualTime();
 //------------------------------------------------------------------------------

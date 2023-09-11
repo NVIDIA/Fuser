@@ -11,6 +11,7 @@
 #include <ir/iostream.h>
 #include <ir/utils.h>
 #include <ops/arith.h>
+#include <options.h>
 #include <predicate_compute.h>
 
 #include <device_lower/pass/index.h>
@@ -23,7 +24,7 @@ Val* IndexLowering::lowerSrcIndex(
     const std::unordered_map<IterDomain*, Val*>& override_index,
     bool generate_pointer) const {
   if (auto tv = dynamic_cast<TensorView*>(src)) {
-    TORCH_INTERNAL_ASSERT(dst->isA<TensorView>());
+    NVF_ERROR(dst->isA<TensorView>());
     return Index::getProducerIndex(
         tv,
         dst->as<TensorView>(),
@@ -58,17 +59,15 @@ void IndexLowering::pushBack(Expr* expr) {
 
 Expr* IndexLowering::back() const {
   if (active_scope_ == nullptr) {
-    TORCH_INTERNAL_ASSERT(
-        !lowered_exprs_.empty(), "IndexLowering::back: empty scope.");
+    NVF_ERROR(!lowered_exprs_.empty(), "IndexLowering::back: empty scope.");
     return lowered_exprs_.back();
   }
-  TORCH_INTERNAL_ASSERT(
-      !active_scope_->empty(), "IndexLowering::back: empty scope.");
+  NVF_ERROR(!active_scope_->empty(), "IndexLowering::back: empty scope.");
   return active_scope_->exprs().back();
 }
 
 void IndexLowering::insertAtTopLevel(Expr* expr) {
-  TORCH_INTERNAL_ASSERT(!lowered_exprs_.empty());
+  NVF_ERROR(!lowered_exprs_.empty());
   lowered_exprs_.insert(lowered_exprs_.end() - 1, expr);
 }
 
@@ -102,13 +101,13 @@ void IndexLowering::handle(const kir::IfThenElse* ite) {
   active_scope_ = &new_ite->thenBody();
 
   for (auto expr : ite->thenBody().exprs()) {
-    OptOutConstDispatch::handle(expr);
+    OptOutConstDispatch::dispatch(expr);
   }
 
   active_scope_ = &new_ite->elseBody();
 
   for (auto expr : ite->elseBody().exprs()) {
-    OptOutConstDispatch::handle(expr);
+    OptOutConstDispatch::dispatch(expr);
   }
 
   active_scope_ = prev_scope;
@@ -128,7 +127,7 @@ void IndexLowering::handle(const kir::ForLoop* for_loop) {
   for_loops_.push_back(new_for_loop);
 
   for (auto expr : for_loop->body().exprs()) {
-    OptOutConstDispatch::handle(expr);
+    OptOutConstDispatch::dispatch(expr);
   }
 
   for_loops_.pop_back();
@@ -139,7 +138,7 @@ void IndexLowering::handle(const RNGOp* rop) {
   // Write random tensor indices into the consumer
   //  tensor index if the output is a tensor.
   auto out_tv = dynamic_cast<TensorView*>(rop->output(0));
-  TORCH_INTERNAL_ASSERT(out_tv != nullptr, "rand scalar not yet supported");
+  NVF_ERROR(out_tv != nullptr, "rand scalar not yet supported");
 
   // TensorIndex for philox subsequence and component.
   auto philox_index =
@@ -155,7 +154,8 @@ void IndexLowering::handle(const RNGOp* rop) {
       out,
       rop->dtype(),
       rop->getParameters(),
-      rop->getRNGOffset(),
+      rop->getRNGSeedVal(),
+      rop->getRNGOffsetVal(),
       philox_index);
 
   pushBack(lowered);
@@ -164,7 +164,7 @@ void IndexLowering::handle(const RNGOp* rop) {
 
 void IndexLowering::handle(const FullOp* fop) {
   auto out_tv = dynamic_cast<TensorView*>(fop->output(0));
-  TORCH_INTERNAL_ASSERT(out_tv != nullptr);
+  NVF_ERROR(out_tv != nullptr);
 
   // TensorIndex for writing output.
   const auto out = lowerDstIndex(out_tv);
@@ -181,7 +181,7 @@ void IndexLowering::handle(const IotaOp* aop) {
   // Write linear tensor indices into the consumer
   //  tensor index if the output is a tensor.
   auto out_tv = dynamic_cast<TensorView*>(aop->output(0));
-  TORCH_INTERNAL_ASSERT(out_tv != nullptr);
+  NVF_ERROR(out_tv != nullptr);
 
   // TensorIndex for writing iota output.
   const auto out = lowerDstIndex(out_tv);
@@ -201,7 +201,7 @@ void IndexLowering::handle(const IotaOp* aop) {
 
 void IndexLowering::handle(const EyeOp* eop) {
   auto out_tv = dynamic_cast<TensorView*>(eop->output(0));
-  TORCH_INTERNAL_ASSERT(out_tv != nullptr);
+  NVF_ERROR(out_tv != nullptr);
 
   // TensorIndex for writing eye output.
   const auto out = lowerDstIndex(out_tv);
@@ -238,22 +238,69 @@ void IndexLowering::handle(const TernaryOp* top) {
   GpuLower::current()->propagateExprInfo(top, back());
 }
 
+void IndexLowering::handle(const ArrayConstruct* aop) {
+  std::vector<Val*> lowered_inputs;
+  for (auto input : aop->inputs()) {
+    lowered_inputs.push_back(lowerSrcIndex(input, aop->out()));
+  }
+  const auto out = lowerDstIndex(aop->out());
+  pushBack(IrBuilder::create<ArrayConstruct>(out, lowered_inputs));
+  GpuLower::current()->propagateExprInfo(aop, back());
+}
+
+void IndexLowering::handle(const StructConstruct* sop) {
+  std::vector<std::pair<std::string, Val*>> lowered_named_inputs;
+  for (auto i : c10::irange(sop->inputs().size())) {
+    lowered_named_inputs.emplace_back(
+        sop->fieldName(i), lowerSrcIndex(sop->inputs().at(i), sop->out()));
+  }
+  const auto out = lowerDstIndex(sop->out());
+  pushBack(IrBuilder::create<StructConstruct>(out, lowered_named_inputs));
+  GpuLower::current()->propagateExprInfo(sop, back());
+}
+
+void IndexLowering::handle(const GetAttr* gop) {
+  const auto struct_ = lowerSrcIndex(gop->struct_(), gop->out());
+  const auto attr = gop->attr();
+  const auto out = lowerDstIndex(gop->out());
+  pushBack(IrBuilder::create<GetAttr>(out, struct_, attr));
+  GpuLower::current()->propagateExprInfo(gop, back());
+}
+
+void IndexLowering::handle(const GetItem* gop) {
+  const auto array = lowerSrcIndex(gop->array(), gop->out());
+  const auto index = lowerSrcIndex(gop->index(), gop->out());
+  const auto out = lowerDstIndex(gop->out());
+  pushBack(IrBuilder::create<GetItem>(out, array, index));
+  GpuLower::current()->propagateExprInfo(gop, back());
+}
+
+void IndexLowering::handle(const GetMetaData* gop) {
+  const auto in = gop->in();
+  const auto out = lowerDstIndex(gop->out());
+  pushBack(IrBuilder::create<GetMetaData>(out, in));
+  GpuLower::current()->propagateExprInfo(gop, back());
+}
+
+void IndexLowering::handle(const TensorConstruct* cop) {
+  const auto out = lowerDstIndex(cop->out());
+  auto indices = Index::getConsumerPerDimLogicalIndex(
+      cop->out(), for_loops_, getRotatedLoop());
+  auto in = cop->in();
+  for (auto index : indices) {
+    in = IrBuilder::getItemExpr(in, index);
+  }
+  in = GpuLower::current()->commonScalarMap().hoistScalar(in, for_loops_);
+  pushBack(IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out, in));
+  GpuLower::current()->propagateExprInfo(cop, back());
+}
+
 void IndexLowering::handle(const IndexSelectOp* sop) {
   auto lowered_index = lowerSrcIndex(sop->input(1), sop->output(0));
-  auto lowered_index_cast = lowered_index;
-
-  // If the type of the index tensor is different from the kernel
-  // index type, promote it to the kernel index type
-  if (GpuLower::current()->kernel()->indexType() !=
-      sop->input(1)->getDataType().value()) {
-    lowered_index_cast =
-        IrBuilder::newScalar(GpuLower::current()->kernel()->indexType());
-    IrBuilder::create<UnaryOp>(
-        UnaryOpType::Cast, lowered_index_cast, lowered_index);
-  }
+  lowered_index = maybeCastOp(DataType::Index, lowered_index);
 
   const std::unordered_map<IterDomain*, Val*> override_index = {
-      {sop->getIndexedID(), lowered_index_cast}};
+      {sop->getIndexedID(), lowered_index}};
   const auto lookup =
       lowerSrcIndex(sop->input(0), sop->output(0), override_index);
 
@@ -265,13 +312,7 @@ void IndexLowering::handle(const IndexSelectOp* sop) {
 
 void IndexLowering::handle(const TorchGatherOp* top) {
   auto lowered_index = lowerSrcIndex(top->input(1), top->output(0));
-  if (GpuLower::current()->kernel()->indexType() !=
-      top->indexTv()->getDataType().value()) {
-    auto lowered_index_cast =
-        IrBuilder::newScalar(GpuLower::current()->kernel()->indexType());
-    IrBuilder::create<UnaryOp>(
-        UnaryOpType::Cast, lowered_index_cast, lowered_index);
-  }
+  lowered_index = IrBuilder::maybeCastExpr(DataType::Index, lowered_index);
 
   const std::unordered_map<IterDomain*, Val*> override_index = {
       {top->getIndexedID(), lowered_index}};
@@ -286,6 +327,8 @@ void IndexLowering::handle(const TorchGatherOp* top) {
 void IndexLowering::handle(const ScatterOp* sop) {
   auto lowered_index = lowerSrcIndex(sop->indexTv(), sop->output(0));
   auto lowered_src = lowerSrcIndex(sop->srcTv(), sop->output(0));
+
+  lowered_index = IrBuilder::maybeCastExpr(DataType::Index, lowered_index);
 
   const std::unordered_map<int, Val*> override_index_out = {
       {sop->dim(), lowered_index}};
@@ -336,13 +379,13 @@ void IndexLowering::handle(const ViewAsScalar* uop) {
             IdMappingMode::LOOP)) {
       // TODO: this doesn't work with loop rotation
       Val* index = loop->indexOrStartIfTrivial();
-      pushBack(
-          IrBuilder::create<ViewAsScalar>(out, in, uop->vector_id(), index));
+      pushBack(IrBuilder::create<LoadStoreOp>(
+          LoadStoreOpType::Set, out, IrBuilder::getItemExpr(in, index)));
       GpuLower::current()->propagateExprInfo(uop, back());
       return;
     }
   }
-  TORCH_INTERNAL_ASSERT(false, "Can not find index for vector dim");
+  NVF_ERROR(false, "Can not find index for vector dim");
 }
 
 namespace {
@@ -417,7 +460,7 @@ GridCommWorkBufferSizeInfo getGridCommWorkBufferSize(
 
   if (is_doubled) {
     size_of_privatized_buffer = SimplifyingIrBuilder::mulExpr(
-        size_of_privatized_buffer, IrBuilder::create<Int>(2));
+        size_of_privatized_buffer, IrBuilder::create<Val>(2L, DataType::Index));
   }
 
   GridCommWorkBufferSizeInfo info;
@@ -425,7 +468,7 @@ GridCommWorkBufferSizeInfo getGridCommWorkBufferSize(
   info.buffer_stride = size_of_single_buffer;
   if (is_doubled) {
     info.buffer_stride = SimplifyingIrBuilder::mulExpr(
-        info.buffer_stride, IrBuilder::create<Int>(2));
+        info.buffer_stride, IrBuilder::create<Val>(2L, DataType::Index));
   }
 
   return info;
@@ -515,7 +558,7 @@ Val* getEntranceLinIndGridReduce(std::vector<kir::ForLoop*>& for_loops) {
 } // namespace
 
 void IndexLowering::handle(const ReductionOp* rop) {
-  TORCH_INTERNAL_ASSERT(ir_utils::isTvOp(rop));
+  NVF_ERROR(ir_utils::isTvOp(rop));
 
   const auto out_tv = rop->out()->as<TensorView>();
   const auto out_domain = out_tv->domain();
@@ -541,7 +584,7 @@ void IndexLowering::handleBlockReduction(
     const ReductionOp* rop,
     Val* out,
     Val* in) {
-  TORCH_INTERNAL_ASSERT(ir_utils::isTvOp(rop));
+  NVF_ERROR(ir_utils::isTvOp(rop));
 
   ReductionOp* indexed_rop = IrBuilder::create<ReductionOp>(
       rop->getReductionOpType(), rop->init(), out, in, rop->isAllreduce());
@@ -565,11 +608,11 @@ void IndexLowering::handleGridReduction(
   const auto out_tv = out->as<kir::TensorIndex>()->view();
   const auto out_domain = out_tv->domain();
 
-  TORCH_INTERNAL_ASSERT(out_domain->hasGridReduction());
+  NVF_ERROR(out_domain->hasGridReduction());
 
   // If we do a grid reduction we can't have a reduction axis that is not bound
   // to a grid or block dim.
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       std::none_of(
           out_domain->leaf().begin(),
           out_domain->leaf().end(),
@@ -650,7 +693,7 @@ void IndexLowering::handleGridReduction(
 }
 
 void IndexLowering::handle(const GroupedReductionOp* grouped_rop) {
-  TORCH_INTERNAL_ASSERT(ir_utils::isTvOp(grouped_rop));
+  NVF_ERROR(ir_utils::isTvOp(grouped_rop));
 
   const auto out_tv = ir_utils::getTvOutput(grouped_rop);
   const auto out_domain = out_tv->domain();
@@ -687,7 +730,7 @@ void IndexLowering::handleBlockReduction(
     const GroupedReductionOp* grouped_rop,
     const std::vector<Val*>& outputs,
     const std::vector<Val*>& inputs) {
-  TORCH_INTERNAL_ASSERT(ir_utils::isTvOp(grouped_rop));
+  NVF_ERROR(ir_utils::isTvOp(grouped_rop));
 
   GroupedReductionOp* indexed_rop = IrBuilder::create<GroupedReductionOp>(
       grouped_rop->getReductionOpTypes(),
@@ -715,11 +758,11 @@ void IndexLowering::handleGridReduction(
   const auto out_tv = ir_utils::getTvOutput(grouped_rop);
   const auto out_domain = out_tv->domain();
 
-  TORCH_INTERNAL_ASSERT(out_domain->hasGridReduction());
+  NVF_ERROR(out_domain->hasGridReduction());
 
   // If we do a grid reduction we can't have a reduction axis that is not bound
   // to a grid or block dim.
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       std::none_of(
           out_domain->leaf().begin(),
           out_domain->leaf().end(),
@@ -801,7 +844,7 @@ void IndexLowering::handleGridReduction(
 }
 
 void IndexLowering::handle(const WelfordOp* wop) {
-  TORCH_INTERNAL_ASSERT(ir_utils::isTvOp(wop));
+  NVF_ERROR(ir_utils::isTvOp(wop));
 
   const auto out_tv = wop->outAvg()->as<TensorView>();
   const auto out_domain = out_tv->domain();
@@ -810,7 +853,7 @@ void IndexLowering::handle(const WelfordOp* wop) {
   const bool has_grid_reduce = out_domain->hasGridReduction();
 
   if (has_grid_reduce) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         std::none_of(
             out_domain->leaf().begin(),
             out_domain->leaf().end(),
@@ -970,7 +1013,7 @@ void IndexLowering::handleGridWelford(WelfordOp* indexed_wop) {
 }
 
 void IndexLowering::handle(const GroupedWelfordOp* grouped_wop) {
-  TORCH_INTERNAL_ASSERT(ir_utils::isTvOp(grouped_wop));
+  NVF_ERROR(ir_utils::isTvOp(grouped_wop));
 
   const auto out_tv = ir_utils::getTvOutput(grouped_wop);
   const auto out_domain = out_tv->domain();
@@ -1002,7 +1045,7 @@ void IndexLowering::handle(const GroupedWelfordOp* grouped_wop) {
     handleGroupedGridWelford(
         grouped_wop, indexed_outputs, indexed_inputs, grouped_wop->initVals());
   } else {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         false,
         "Only grid welford is supported. Validation should have caught non-grid welford grouping.");
   }
@@ -1104,7 +1147,7 @@ bool canUseOuterOptRuntimeKernel(const GroupedWelfordOp* grouped_wop) {
   int num_grouped_iterations = 1;
   for (auto axis : out_domain->leaf()) {
     if (axis->getParallelType() == ParallelType::Group) {
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           axis->extent()->isConstInt(),
           "Grouped IterDomain must have a static integer extent: ",
           axis->extent()->toInlineString());
@@ -1152,11 +1195,11 @@ void IndexLowering::handleGroupedGridWelford(
   const auto out_tv = ir_utils::getTvOutput(op);
   const auto out_domain = out_tv->domain();
 
-  TORCH_INTERNAL_ASSERT(out_domain->hasGridReduction());
+  NVF_ERROR(out_domain->hasGridReduction());
 
   // If we do a grid reduction we can't have a reduction axis that is not bound
   // to a grid or block dim.
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       std::none_of(
           out_domain->leaf().begin(),
           out_domain->leaf().end(),
@@ -1263,7 +1306,7 @@ void IndexLowering::handle(const MmaOp* mma) {
 }
 
 void IndexLowering::handle(const BroadcastOp* bop) {
-  TORCH_INTERNAL_ASSERT(ir_utils::isTvOp(bop));
+  NVF_ERROR(ir_utils::isTvOp(bop));
 
   const auto out_tv = bop->out()->as<TensorView>();
 
@@ -1343,7 +1386,7 @@ void IndexLowering::handle(const kir::CpAsyncCommit* commit) {
 
 void IndexLowering::generate(const std::vector<Expr*>& exprs) {
   for (auto expr : exprs) {
-    OptOutConstDispatch::handle(expr);
+    OptOutConstDispatch::dispatch(expr);
   }
 }
 
@@ -1400,7 +1443,7 @@ void IndexLowering::allocateUniqueFusedReduction(
         IrBuilder::create<kir::AllocateFusedReduction>(
             expr->as<kir::GroupedGridWelford>());
   } else {
-    TORCH_INTERNAL_ASSERT(false, "Invalid expr: ", expr->toString());
+    NVF_ERROR(false, "Invalid expr: ", expr->toString());
   }
 
   fused_reduction_map_.emplace(out_tv, fused_reduction_alloc_reduction);
@@ -1431,15 +1474,15 @@ void IndexLowering::handle(const PadOp* pad) {
       producer_tv, consumer_tv, for_loops_, getRotatedLoop());
 
   // Build a predicate for where
-  Val* pred = IrBuilder::create<Bool>(true);
+  Val* pred = IrBuilder::create<Val>(true);
   for (auto padded_axis : pad->getPaddedAxes()) {
     auto producer_idx = producer_root_indices.at(padded_axis);
     auto producer_root_id = producer_doms.at(padded_axis);
-    TORCH_INTERNAL_ASSERT(!producer_root_id->maybePartial());
-    pred = SimplifyingIrBuilder::andExpr(
+    NVF_ERROR(!producer_root_id->maybePartial());
+    pred = SimplifyingIrBuilder::logicalAndExpr(
         pred,
         // idx >= 0 && idx < extent
-        SimplifyingIrBuilder::andExpr(
+        SimplifyingIrBuilder::logicalAndExpr(
             SimplifyingIrBuilder::geExpr(
                 producer_idx, GpuLower::current()->kernel()->zeroVal()),
             SimplifyingIrBuilder::ltExpr(
@@ -1473,7 +1516,7 @@ void IndexLowering::handle(const CatOp* cat) {
   auto concatenated_dim_idx = out_indices.at(cat->concatenatedDim());
 
   std::vector<Val*> inputs(cat->inputs().size());
-  std::vector<Bool*> preds(cat->inputs().size());
+  std::vector<Val*> preds(cat->inputs().size());
   Val* cur_extent = GpuLower::current()->kernel()->zeroVal();
 
   for (const auto i : c10::irange(cat->inputs().size())) {
@@ -1485,9 +1528,8 @@ void IndexLowering::handle(const CatOp* cat) {
     auto inp_concat_id = TensorDomain::noReductions(
                              cat->input(i)->as<TensorView>()->getRootDomain())
                              .at(cat->concatenatedDim());
-    cur_extent = add(cur_extent, inp_concat_id->extent());
-    preds.at(i) =
-        IrBuilder::ltExpr(concatenated_dim_idx, cur_extent)->as<Bool>();
+    cur_extent = add(cur_extent, inp_concat_id->getMaybeExpandedExtent());
+    preds.at(i) = IrBuilder::ltExpr(concatenated_dim_idx, cur_extent);
   }
 
   auto lowered = IrBuilder::create<CatOp>(

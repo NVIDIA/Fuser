@@ -28,7 +28,7 @@ namespace swizzles {
 std::pair<Val*, Val*> ZShape(Val* x, Val* y, Val* size_y) {
   auto zero = x->fusion()->zeroVal();
   auto one = x->fusion()->oneVal();
-  auto two = IrBuilder::create<Int>(2);
+  auto two = IrBuilder::create<Val>(2L, DataType::Index);
   return {x, where(eq(mod(x, two), zero), y, sub(sub(size_y, one), y))};
 }
 
@@ -86,7 +86,7 @@ std::pair<Val*, Val*> dispatchSwizzle(
     case Swizzle2DType::CyclicShift:
       return swizzles::CyclicShift(x, y, maybe_size_x);
     default:
-      TORCH_INTERNAL_ASSERT(false, "Unsupported swizzle type");
+      NVF_ERROR(false, "Unsupported swizzle type");
   }
 }
 
@@ -104,7 +104,7 @@ std::pair<Val*, Val*> dispatchUnSwizzle(
     case Swizzle2DType::CyclicShift:
       return swizzles::unCyclicShift(x, y, maybe_size_x);
     default:
-      TORCH_INTERNAL_ASSERT(false, "Unsupported swizzle type");
+      NVF_ERROR(false, "Unsupported swizzle type");
   }
 }
 

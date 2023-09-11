@@ -8,6 +8,7 @@
 #pragma once
 
 #include <disjoint_set.h>
+#include <exceptions.h>
 #include <ir/all_nodes.h>
 #include <iter_visitor.h>
 #include <utils.h>
@@ -421,7 +422,7 @@ class TORCH_CUDA_CU_API ComputeAtRootDomainMapBuilder
 
   using BackwardVisitor::handle;
 
-  void handle(Expr* e) override;
+  void dispatch(Expr* e) override;
 
   void handle(UnaryOp* uop) override {
     mapPointwiseOrReductionOp(uop);

@@ -25,7 +25,7 @@ namespace nvfuser {
 std::vector<Expr*> LoopNestGenerator::loweredExprs(
     const std::vector<Expr*>& exprs) {
   FUSER_PERF_SCOPE("GpuLower::Lower::LoopNestGenerator::loweredExprs");
-  TORCH_INTERNAL_ASSERT(FusionGuard::getCurFusion() != nullptr);
+  NVF_ERROR(FusionGuard::getCurFusion() != nullptr);
   LoopNestGenerator generator(exprs);
   return generator.lowered_exprs_;
 }
@@ -42,7 +42,7 @@ kir::ForLoop* openForHelper(kir::ForLoop* scope, IterDomain* id) {
   if (extent_with_halo) {
     // When an axis is extended with halo, unrolling and vectorization
     // are assumed to not be used for now.
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         id->getParallelType() != ParallelType::Unroll &&
         !isParallelTypeVectorize(id->getParallelType()));
     // Use the extent that's extended by halo
@@ -79,7 +79,7 @@ void LoopNestGenerator::openFor(IterDomain* id) {
 }
 
 void LoopNestGenerator::closeFor() {
-  TORCH_INTERNAL_ASSERT(!for_loops_.empty());
+  NVF_ERROR(!for_loops_.empty());
   for_loops_.pop_back();
 }
 
@@ -103,8 +103,8 @@ void LoopNestGenerator::handle(Expr* expr) {
     pushFront(expr);
 
     for (auto out : expr->outputs()) {
-      TORCH_INTERNAL_ASSERT(
-          out->getValType().value() == ValType::Scalar,
+      NVF_ERROR(
+          out->getValType().value() == ValType::Others,
           "Unrecognized output type found in expr ",
           expr,
           " cannot lower ",
@@ -119,7 +119,7 @@ void LoopNestGenerator::handle(Expr* expr) {
   TensorView* out_tv = expr->output(0)->as<TensorView>();
 
   // Grab the loop structure
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       loop_structures_.find(out_tv) != loop_structures_.end(),
       "Could not find loop structure of ",
       out_tv);
@@ -153,7 +153,7 @@ void LoopNestGenerator::handle(Expr* expr) {
 
 // Generate the loop nest structure and place it in lowered_exprs_
 void LoopNestGenerator::generate(const std::vector<Expr*>& exprs) {
-  TORCH_INTERNAL_ASSERT(lowered_exprs_.empty());
+  NVF_ERROR(lowered_exprs_.empty());
 
   // Figure out loop structure of each expression. This can be a bit convoluted,
   // for an example why see Indexing17 test
@@ -243,7 +243,7 @@ void LoopNestGenerator::generate(const std::vector<Expr*>& exprs) {
     auto last_id_concrete = ca_map->getConcreteMappedID(
         tv->axis((int)(tv->nDims() - 1)), IdMappingMode::LOOP);
     auto all_loops_it = concrete_id_dependencies.find(last_id_concrete);
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         all_loops_it != concrete_id_dependencies.end(),
         "Should have processed all id's in all tvs.");
     std::vector<IterDomain*> loop_structure(

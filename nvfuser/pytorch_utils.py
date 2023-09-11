@@ -17,7 +17,6 @@ _torch_dtype_to_nvfuser_dtype_map = {
     torch.bfloat16: DataType.BFloat16,
     torch.long: DataType.Int,
     torch.int: DataType.Int32,
-    torch.uint8: DataType.Int32,
     torch.bool: DataType.Bool,
     # Python scalars
     complex: DataType.ComplexDouble,
@@ -25,6 +24,10 @@ _torch_dtype_to_nvfuser_dtype_map = {
     int: DataType.Int,
     bool: DataType.Bool,
 }
+
+
+def python_scalar_to_nvfuser_dtype(a: Union[int, float, complex, bool]):
+    return _torch_dtype_to_nvfuser_dtype_map[type(a)]
 
 
 def torch_dtype_to_nvfuser_dtype(dtype: Union[torch.dtype, NumberTypeType]):

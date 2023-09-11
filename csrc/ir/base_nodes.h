@@ -10,10 +10,10 @@
 #include <c10/core/ScalarType.h>
 #include <c10/macros/Export.h>
 #include <c10/util/Exception.h>
-#include <c10/util/Optional.h>
+#include <exceptions.h>
 
-#include <dynamic_type.h>
 #include <ir/builder_passkey.h>
+#include <polymorphic_value.h>
 #include <type.h>
 #include <utils.h>
 
@@ -55,20 +55,14 @@ using StmtNameType = unsigned int;
 constexpr StmtNameType kInvalidStmName =
     std::numeric_limits<unsigned int>::max();
 
-class NonCopyable;
-class PolymorphicBase;
 class Fusion;
-class FusionGuard;
 class Expr;
 class Val;
-class UnaryOp;
-class BinaryOp;
-class RNGOp;
-class IterDomain;
 class IrCloner;
 class IrContainer;
 class IrBuilderPasskey;
 class IrContainerPasskey;
+class ExpressionEvaluator;
 
 namespace kir {
 class Kernel;
@@ -82,8 +76,6 @@ class ExprPasskey {
  private:
   explicit ExprPasskey() = default;
 };
-
-TORCH_CUDA_CU_API void swap(Fusion& a, Fusion& b) noexcept;
 
 #define NVFUSER_DECLARE_CLONE \
   virtual Statement* clone(IrCloner* ir_cloner) const override;
@@ -123,16 +115,16 @@ class TORCH_CUDA_CU_API Statement : public NonCopyable, public PolymorphicBase {
   static void mutatorDispatch(T mutator, Statement*);
 
   // Accessor functions to types. Vals always have a DataType, Exprs never do
-  virtual c10::optional<ValType> getValType() const {
-    return c10::nullopt;
+  virtual std::optional<ValType> getValType() const {
+    return std::nullopt;
   }
-  virtual c10::optional<DataType> getDataType() const {
-    return c10::nullopt;
+  virtual std::optional<DataType> getDataType() const {
+    return std::nullopt;
   }
 
   // Short cut to figure out if it is a value/expression
   bool isVal() const {
-    return getValType() != c10::nullopt;
+    return getValType() != std::nullopt;
   }
   bool isExpr() const {
     return isA<Expr>();
@@ -216,7 +208,7 @@ class TORCH_CUDA_CU_API Statement : public NonCopyable, public PolymorphicBase {
 //!     - Must call Val constructor, Val constructor registers with fusion
 //!     - Implementation of bool sameAs(...)
 //!     - Must implement a "cloning" constructor, ex.
-//!        Int::Int(const Int* src, IrCloner* ir_cloner)
+//!        Scalar::Scalar(const Val* src, IrCloner* ir_cloner)
 //! 2) dispatch.h/.cpp must be updated to include dispatch of the new Val
 //! 3) Default mutator function should be added to mutator.cpp
 //! 4a) Printing functions should be added to ir/iostream.h/.cpp
@@ -226,12 +218,52 @@ class TORCH_CUDA_CU_API Statement : public NonCopyable, public PolymorphicBase {
 //!
 class TORCH_CUDA_CU_API Val : public Statement {
  public:
+  // When we create a Val we immediately register them with the active fusion.
   explicit Val(
-      IrBuilderPasskey,
+      IrBuilderPasskey passkey,
       ValType _vtype,
-      DataType _dtype = DataType::Null);
+      DataType _dtype = DataType::Null,
+      PolymorphicValue _value = std::monostate{})
+      : Statement(passkey),
+        vtype_(_vtype),
+        dtype_(std::move(_dtype)),
+        value_(std::move(_value)) {
+    if (value_.hasValue()) {
+      NVF_CHECK(
+          hasCompatibleDataType(value_, dtype_),
+          "Scalar value is not compatible with the given data type ",
+          dtype_,
+          " for value ",
+          PolymorphicValue_functions::toString(value_));
+    }
+  }
+  explicit Val(IrBuilderPasskey passkey, DataType dtype)
+      : Val(passkey, ValType::Others, std::move(dtype)) {}
+  explicit Val(IrBuilderPasskey passkey, PrimDataType dtype)
+      : Val(passkey, ValType::Others, DataType(dtype)) {}
+  explicit Val(IrBuilderPasskey passkey, PolymorphicValue value)
+      : Val(passkey, ValType::Others, nvfuser::getDataType(value), value) {}
+  explicit Val(IrBuilderPasskey passkey, PolymorphicValue value, DataType dtype)
+      : Val(passkey,
+            ValType::Others,
+            dtype,
+            castToDtype(std::move(value), dtype)) {}
 
-  Val(const Val* src, IrCloner* ir_cloner);
+  // NOTE: we don't clone the definition_ and uses_ here
+  //  since they may introduce cloning cycles. Instead, we copy
+  //  the original pointers and we'll fix them up later part of the
+  //  Fusion copy. Neither definition_ nor uses_ are copied through
+  //  this constructor now leaving them to be resolved by later stages
+  //
+  Val(const Val* src, IrCloner* ir_cloner)
+      : Statement(src, ir_cloner),
+        vtype_(src->vtype_),
+        dtype_(src->dtype_),
+        value_(src->value_){};
+
+  std::string toString(int indent_size = 0) const override;
+
+  std::string toInlineString(int indent_size = 0) const override;
 
   // Dispatch functions, definitions in dispatch.cpp
   template <typename T>
@@ -243,7 +275,7 @@ class TORCH_CUDA_CU_API Val : public Statement {
   template <typename T>
   static void mutatorDispatch(T mutator, Val*);
 
-  c10::optional<ValType> getValType() const override {
+  std::optional<ValType> getValType() const override {
     return vtype_;
   }
 
@@ -255,11 +287,23 @@ class TORCH_CUDA_CU_API Val : public Statement {
     return dtype_;
   }
 
+  const PolymorphicValue& value() const {
+    return value_;
+  }
+
+  PolymorphicValue& value() {
+    return value_;
+  }
+
+  bool isSymbolic() const {
+    return !value_.hasValue();
+  }
+
   // Throws if no DataType is found. Vals must have a DataType
-  c10::optional<DataType> getDataType() const override;
+  std::optional<DataType> getDataType() const override;
 
   bool isScalar() const {
-    return vtype_ == ValType::Scalar || vtype_ == ValType::NamedScalar;
+    return vtype_ == ValType::Others || vtype_ == ValType::NamedScalar;
   }
 
   // Returns if all dependencies are constant scalars
@@ -282,21 +326,21 @@ class TORCH_CUDA_CU_API Val : public Statement {
 
   // If this Val is an integer with a direct constant value associated with it,
   // will return the value of that constant integer. If this integer has
-  // defining expressions it will return a c10::nullopt. Those values should be
+  // defining expressions it will return a std::nullopt. Those values should be
   // infered using evaluateInt.
-  c10::optional<int64_t> getInt() const;
+  std::optional<int64_t> getInt() const;
 
   // If this Val is a double with a direct constant value associated with it,
   // will return the value of that constant double. If this double has
-  // defining expressions it will return a c10::nullopt. Those values should be
+  // defining expressions it will return a std::nullopt. Those values should be
   // infered using evaluateDouble.
-  c10::optional<double> getDouble() const;
+  std::optional<double> getDouble() const;
 
   // If this Val is a bool with a direct constant value associated with it,
   // will return the value of that constant bool. If this bool has defining
-  // expressions it will return a c10::nullopt. Those values should be infered
+  // expressions it will return a std::nullopt. Those values should be infered
   // using evaluateBool.
-  c10::optional<bool> getBool() const;
+  std::optional<bool> getBool() const;
 
   // If this Val is a constant integer, and its history is comprised only of
   // constant values, will return the value of that constant integer. Cannot
@@ -315,7 +359,7 @@ class TORCH_CUDA_CU_API Val : public Statement {
 
   // Returns if no dependencies and is a constant scalar.
   virtual bool isConst() const {
-    return false;
+    return value_.hasValue() && definition() == nullptr;
   }
 
   bool isZero() const;
@@ -366,7 +410,7 @@ class TORCH_CUDA_CU_API Val : public Statement {
   bool sameAs(const Statement* other) const override;
 
   void setEvaluatorIndex(int to) {
-    TORCH_INTERNAL_ASSERT(evaluator_index_ == -1);
+    NVF_ERROR(evaluator_index_ == -1);
     evaluator_index_ = to;
   }
 
@@ -379,8 +423,6 @@ class TORCH_CUDA_CU_API Val : public Statement {
   void setDefinition(Expr* expr) {
     definition_ = expr;
   }
-
-  void resolveIndexDtype();
 
   NVFUSER_DECLARE_CLONE
 
@@ -428,39 +470,12 @@ class TORCH_CUDA_CU_API Val : public Statement {
 
   // Expr evaluator idx;
   int evaluator_index_ = -1;
-};
 
-//! A Val object that stores a plain data. Note that this class is only intended
-//! to hold non-IR data, such as DataType, std::vector<int>, etc. Please don't
-//! use this class to hold IR nodes or their pointers.
-template <typename T>
-class TORCH_CUDA_CU_API Attribute : public Val {
- public:
-  T value;
-  Attribute(IrBuilderPasskey passkey, const T& value)
-      : Val(passkey, ValType::Attribute), value(value) {}
-  Attribute(const Attribute* src, IrCloner* ir_cloner)
-      : Val(src, ir_cloner), value(src->value) {}
-  template <typename... Args>
-  Attribute(IrBuilderPasskey passkey, Args... args)
-      : Val(passkey, ValType::Attribute), value(std::forward<Args>(args)...) {}
-
-  NVFUSER_DECLARE_CLONE
-
-  bool sameAs(const Statement* other) const override {
-    if (auto pv = dynamic_cast<const Attribute*>(other)) {
-      return pv->value == value;
-    }
-    return false;
-  }
-
-  std::string toString(int) const override {
-    return Printer<T>::toString(value);
-  }
-
-  std::string toInlineString(int) const override {
-    return Printer<T>::toString(value);
-  }
+  // The concrete value of this Val. This is only used for constant Vals.
+  // Depending on the actual type of the Val, the allowed types of the
+  // value_ can be different. For example, for a TensorView, the value_ must be
+  // a at::Tensor, while for IterDomain, the value_ must be std::monostate{}.
+  PolymorphicValue value_;
 };
 
 using newObjectFuncType = Expr*(
@@ -528,8 +543,9 @@ class TORCH_CUDA_CU_API Expr : public Statement {
 
   bool sameAs(const Statement* other) const override;
 
-  virtual std::vector<EvaluatorValue> evaluate(
-      const std::vector<EvaluatorValue>& inputs) const;
+  virtual std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const;
 
   // Input/output accessors
   const auto& inputs() const {
@@ -559,6 +575,9 @@ class TORCH_CUDA_CU_API Expr : public Statement {
   auto attributeVal(size_t index) const {
     return dynamic_cast<Val*>(attributes_.at(index));
   }
+
+  template <typename T>
+  T& attribute(size_t index) const;
 
   // Dispatch functions, definitions in dispatch.cpp
   template <typename T>
@@ -602,19 +621,32 @@ class TORCH_CUDA_CU_API Expr : public Statement {
 
   // TODO: Add Fusion passkey
   void addInput(Val* input) {
-    TORCH_INTERNAL_ASSERT(input != nullptr);
+    NVF_ERROR(input != nullptr);
     inputs_.push_back(input);
   }
 
   // TODO: Add Fusion passkey
   void addOutput(Val* output) {
-    TORCH_INTERNAL_ASSERT(output != nullptr);
+    NVF_ERROR(output != nullptr);
     outputs_.push_back(output);
   }
 
   // TODO: Add Fusion passkey
   void addAttribute(Statement* attr) {
     attributes_.push_back(attr);
+  }
+
+  // TODO: Add Fusion passkey
+  void addDataAttribute(PolymorphicValue attr);
+
+  // TODO: Add Fusion passkey
+  template <typename T>
+  void addDataAttribute(T attr) {
+    if constexpr (PolymorphicValue::is_candidate_type<T>) {
+      addDataAttribute(PolymorphicValue(std::move(attr)));
+    } else {
+      addDataAttribute(Opaque(std::move(attr)));
+    }
   }
 
   ExprPasskey exprPasskey() {

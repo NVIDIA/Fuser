@@ -30,6 +30,7 @@ static void setupFusion(Fusion* fusion) {
   const float k_079 = 0.79788456;
   const float k_004 = 0.044715;
   const float k_010 = 0.1070322243;
+  const int64_t k_one = 1L;
 
   // gradient tensor
   auto t0 = makeContigTensor(3, DataType::Half);
@@ -50,23 +51,23 @@ static void setupFusion(Fusion* fusion) {
   auto t5 = castOp(DataType::Float, t4);
   auto t6 = broadcast(t3, {true, true, false});
   auto t7 = add(t6, t5);
-  auto t8 = mul(t7, IrBuilder::create<Double>(k_079));
-  auto t9 = mul(t7, IrBuilder::create<Double>(k_004));
+  auto t8 = mul(t7, IrBuilder::create<Val>(k_079));
+  auto t9 = mul(t7, IrBuilder::create<Val>(k_004));
   auto t10 = mul(t9, t7);
-  auto t11 = add(t10, IrBuilder::create<Int>(1));
+  auto t11 = add(t10, IrBuilder::create<Val>(k_one));
   auto t12 = mul(t8, t11);
   auto t13 = unaryOp(UnaryOpType::Tanh, t12);
-  auto t14 = mul(t7, IrBuilder::create<Double>(0.5));
+  auto t14 = mul(t7, IrBuilder::create<Val>(0.5));
   auto t15 = mul(t13, t13);
   auto t16 = unaryOp(UnaryOpType::Neg, t15);
-  auto t17 = add(t16, IrBuilder::create<Int>(1));
-  auto t18 = mul(t7, IrBuilder::create<Double>(k_010));
+  auto t17 = add(t16, IrBuilder::create<Val>(k_one));
+  auto t18 = mul(t7, IrBuilder::create<Val>(k_010));
   auto t19 = mul(t18, t7);
-  auto t20 = add(t19, IrBuilder::create<Double>(k_079));
+  auto t20 = add(t19, IrBuilder::create<Val>(k_079));
   auto t21 = mul(t17, t20);
   auto t22 = mul(t14, t21);
-  auto t23 = add(t13, IrBuilder::create<Int>(1));
-  auto t24 = mul(t23, IrBuilder::create<Double>(0.5));
+  auto t23 = add(t13, IrBuilder::create<Val>(k_one));
+  auto t24 = mul(t23, IrBuilder::create<Val>(0.5));
   auto t25 = add(t22, t24);
   auto t26 = mul(t25, t1);
 
@@ -200,22 +201,12 @@ static void GeluBackward_RunFusion_GpuOnly(benchmark::State& benchmark_state) {
   // inputs
   std::vector<c10::IValue> inputs = setupInputs();
 
-  // outputs
-  std::vector<at::Tensor> outputs;
-
   auto lparams = schedulePointwise(&fusion, c10::ArrayRef<c10::IValue>(inputs));
 
   FusionExecutor executor;
-  executor.setMeasureKernelTimeFlag(true);
   executor.compileFusion(&fusion, inputs, lparams);
 
-  C10_CUDA_CHECK(cudaDeviceSynchronize());
-
-  for (auto _ : benchmark_state) {
-    outputs = executor.runFusion(c10::ArrayRef<c10::IValue>(inputs), lparams);
-    benchmark_state.SetIterationTime(executor.kernelTimeMs() / 1000.0);
-    clearL2Cache();
-  }
+  runBenchmarkIterations(benchmark_state, &executor, inputs, lparams);
 }
 
 BENCHMARK(GeluBackward_RunFusion_GpuOnly)

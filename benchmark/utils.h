@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 
+#include <csrc/exceptions.h>
 #include <device_lower/lower2device.h>
 #include <executor.h>
 #include <fusion.h>
@@ -32,13 +33,28 @@ std::string toString(const TransposeParams& params);
 std::string toString(const std::shared_ptr<HeuristicParams>& params);
 std::string toString(LaunchParams lparams);
 
-// Run benchmark iterations with provided inputs. If not segmented, report
-// kernel time from the runtime, as well as heuristic parameters. If segmented
-// use timers. Make sure to clear L2 between iterations.
-void runBenchmarkIterations(
+//! Run benchmark iterations with a fusion executor cache and
+//! inputs. The kernel time from the executor cache, which
+//! aggregates the kernel times of all segments, is added to
+//! benchmark_state. Heuristic parameters are also recorded but only
+//! if not segmented.
+int64_t runBenchmarkIterations(
     benchmark::State& benchmark_state,
     FusionExecutorCache* fusion_executor_cache,
     std::vector<c10::IValue>& aten_inputs);
+
+//! Run benchmark iterations with a fusion executor and
+//! inputs. The fusion is assumed to have already been compiled. The
+//! kernel time is added to benchmark_state.
+int64_t runBenchmarkIterations(
+    benchmark::State& benchmark_state,
+    FusionExecutor* fusion_executor,
+    std::vector<c10::IValue>& aten_inputs,
+    const LaunchParams& launch_constraints = LaunchParams(),
+    CompileParams compile_params = CompileParams());
+
+void addCasesOneWave128To32K(benchmark::internal::Benchmark* b);
+void addCases16Wave128To32K(benchmark::internal::Benchmark* b);
 
 class CudaKernelTimer {
  public:
@@ -96,7 +112,7 @@ class BenchmarkGraph : public benchmark::Fixture {
 
   FusionExecutorCache* getExecutorCache() {
     auto& executor_ = getExecutorCacheMap()[graphName()];
-    TORCH_INTERNAL_ASSERT(executor_);
+    NVF_ERROR(executor_);
     return executor_.get();
   }
 

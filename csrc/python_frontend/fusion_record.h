@@ -7,11 +7,15 @@
 // clang-format on
 #pragma once
 #include <c10/util/complex.h>
+#include <debug.h>
+#include <exceptions.h>
 #include <ir/interface_nodes.h>
 #include <ops/all_ops.h>
+#include <options.h>
 #include <python_frontend/fusion_definition.h>
 #include <python_frontend/fusion_state.h>
 #include <serde/fusion_cache_generated.h>
+#include <serde/polymorphic_value_serde.h>
 #include <serde/utils.h>
 #include <utils.h>
 
@@ -110,13 +114,7 @@ struct RecordFunctor {
   //! if has supplementary attributes.
   virtual flatbuffers::Offset<serde::RecordFunctor> serialize(
       flatbuffers::FlatBufferBuilder& builder) const {
-    // table RecordFunctor {
-    //     args: [State];
-    //     outputs: [State];
-    //     name: string;
-    //     type: RecordType;
-    //     data: RecordData;
-    // }
+    // See table definition for RecordFunctor in serde/fusion_cache.fbs
 
     std::vector<serde::State> fb_args;
     fb_args.reserve(args_.size());
@@ -194,6 +192,14 @@ struct RecordFunctor {
     return record_type_;
   }
 
+  //! Set the name of an argument. If given, it will be listed as a keyword
+  //! argument during printing using the given name as the key. Unnamed
+  //! arguments are the default, and are listed as positional arguments before
+  //! any named arguments.
+  void setArgName(size_t pos, std::string name) {
+    arg_names_.at(pos) = name;
+  }
+
  protected:
   //! Inputs that are indices into the FusionState's Recorded State.
   std::vector<State> args_;
@@ -257,9 +263,9 @@ struct OpRecord : RecordFunctor {
         result = result &&
             (fusion_op_.target_type() == child_ptr->fusion_op_.target_type());
         if (isDebugDumpEnabled(DebugDumpOption::PythonFrontendDebug)) {
-          std::cout << "\nOpRecord: " << name_ << " Target Type [self: 0x"
-                    << fusion_op_.target_type().name() << "] [other: 0x"
-                    << child_ptr->fusion_op_.target_type().name() << "] ";
+          debug() << "\nOpRecord: " << name_ << " Target Type [self: 0x"
+                  << fusion_op_.target_type().name() << "] [other: 0x"
+                  << child_ptr->fusion_op_.target_type().name() << "] ";
         }
         // Match the nvFuser arith function pointers
         // IMPORTANT! you need to dereference the target pointer in order
@@ -269,7 +275,7 @@ struct OpRecord : RecordFunctor {
              *child_ptr->fusion_op_
                   .template target<OutType (*)(ArgTypes...)>());
         if (isDebugDumpEnabled(DebugDumpOption::PythonFrontendDebug)) {
-          std::cout
+          debug()
               << "Target  Ptr [self: 0x" << std::hex
               << (size_t)*fusion_op_.template target<OutType (*)(ArgTypes...)>()
               << "] [other: 0x" << std::hex
@@ -472,7 +478,7 @@ struct PadOpRecord : RecordFunctor {
     std::vector<Val*> val_widths;
     val_widths.reserve(pad_widths_.size());
     for (auto p : pad_widths_) {
-      auto pval = IrBuilder::create<Int>(p);
+      auto pval = IrBuilder::create<nvfuser::Val>(p);
       val_widths.push_back(pval);
     }
 
@@ -716,48 +722,40 @@ struct SqueezeOpRecord : RecordFunctor {
 };
 
 //! Specialized Record Functor for the FusionState's broadcast_in_dim op.
-
-template <typename OutputShapeType>
+// NOTE: output_ndims gives the rank of the output tensor.  This size can be
+// found from the State after the definition is read and the Fusion IR is in the
+// process of being created.  However, pior to that point, the size is needed
+// for matching a Fusion Record node in the Trie used to cache definitions.
 struct BroadcastInDimOpRecord : RecordFunctor {
   BroadcastInDimOpRecord(
       std::vector<State> _args,
       std::vector<State> _outputs,
-      std::string _name,
-      serde::RecordType record_type,
-      std::vector<OutputShapeType> output_shape,
+      size_t output_ndims,
       std::vector<int64_t> broadcast_dims)
       : RecordFunctor(
             std::move(_args),
             std::move(_outputs),
-            _name,
-            record_type),
-        output_shape_(std::move(output_shape)),
-        broadcast_dims_(std::move(broadcast_dims)) {}
+            "ops.broadcast_in_dim",
+            serde::RecordType_BroadcastInDim),
+        output_ndims_(output_ndims),
+        broadcast_dims_(std::move(broadcast_dims)) {
+    arg_names_[1] = "shape";
+  }
   ~BroadcastInDimOpRecord() override = default;
   RecordFunctor* clone() final {
     return new BroadcastInDimOpRecord(*this);
   }
 
-  inline size_t outputShapeHash(
-      const std::vector<OutputShapeType>& shape) const;
-
   //! Child specific hash function in lower 32 bits.
-  //! | 31 -------------- 16 | 15 --------------  0 |
-  //! | broadcast_dims hash  | output_shape hash    |
-  //!
-  //! The output_shape hash is specialized in 2 ways using the method
-  //! outputShapeHash:
-  //! 1. int64_t - hashes dimension sizes.
-  //! 2. State - hashes number of dimensions
+  //! | 31 -------------------------------------  0 |
+  //! | broadcast_dims hash                         |
   size_t hash() const final {
     auto result = RecordFunctor::hash();
     size_t broadcast_dims_hash = 0;
     for (auto dim : broadcast_dims_) {
-      broadcast_dims_hash |= 1 << ((output_shape_.size() - 1) - dim);
+      broadcast_dims_hash |= 1 << ((output_ndims_ - 1) - dim);
     }
-    broadcast_dims_hash = (broadcast_dims_hash & 0xffff) << 16;
-    return result | broadcast_dims_hash |
-        (outputShapeHash(output_shape_) & 0xffff);
+    return result | (broadcast_dims_hash & 0xffffffff);
   }
 
   bool operator==(const RecordFunctor& other) const final {
@@ -766,16 +764,8 @@ struct BroadcastInDimOpRecord : RecordFunctor {
       result = RecordFunctor::operator==(other);
       if (result) {
         result =
-            ((output_shape_.size() == child_ptr->output_shape_.size()) &&
+            ((output_ndims_ == child_ptr->output_ndims_) &&
              (broadcast_dims_.size() == child_ptr->broadcast_dims_.size()));
-        if (result) {
-          for (size_t i = 0; i < output_shape_.size(); ++i) {
-            if (output_shape_[i] != child_ptr->output_shape_[i]) {
-              result = false;
-              break;
-            }
-          }
-        }
         if (result) {
           for (size_t i = 0; i < broadcast_dims_.size(); ++i) {
             if (broadcast_dims_[i] != child_ptr->broadcast_dims_[i]) {
@@ -789,73 +779,46 @@ struct BroadcastInDimOpRecord : RecordFunctor {
     return result;
   }
 
-  inline c10::optional<std::vector<Val*>> expandShape(
-      const FusionState& fd,
-      const std::vector<bool>& expand_dim,
-      const std::vector<OutputShapeType>& shape) const;
-
-  //! The operator() call is specialize with th expandShape() method based on
-  //! the OutputShapeType template parameter
   void operator()(FusionState& fd) final {
     auto arg = fd.getFusionState(args_.at(0).index)->template as<TensorView>();
+    const auto& output_shape = fd.getFusionStateVector(args_.at(1).index);
 
     const auto& arg_domains_nr = arg->domain()->noReductions();
     const auto arg_ndims = arg_domains_nr.size();
-    TORCH_CHECK(
-        output_shape_.size() >= arg_ndims,
+    NVF_CHECK(
+        output_ndims_ >= arg_ndims,
         "The new shape is expected to be greater-then-or-equal to the input",
-        output_shape_.size(),
+        output_ndims_,
         arg_ndims);
-    TORCH_CHECK(
+    NVF_CHECK(
         arg_ndims == broadcast_dims_.size(),
         "The broadcast dimensions should match the input dimensions.",
         arg_ndims,
         broadcast_dims_.size());
 
-    std::vector<bool> is_broadcast_dim(output_shape_.size(), true);
-    std::vector<bool> is_expand_dim(output_shape_.size(), true);
+    std::vector<bool> is_broadcast_dim(output_ndims_, true);
     for (const auto idx : c10::irange(broadcast_dims_.size())) {
       if (idx > 0) {
-        TORCH_CHECK(
+        NVF_CHECK(
             broadcast_dims_[idx - 1] < broadcast_dims_[idx],
             "Broadcast dimension is not greater than the previous value.");
       }
-      TORCH_CHECK(
-          broadcast_dims_[idx] < static_cast<int>(output_shape_.size()),
+      NVF_CHECK(
+          broadcast_dims_[idx] < static_cast<int>(output_ndims_),
           "Invalid broadcast_dims value.");
       is_broadcast_dim.at(broadcast_dims_[idx]) = false;
-      // Note: when we expand a broadcasted dimension, we need to expand it
-      // to a concrete size, hence the need for `is_expand_dim` flag and the
-      // expand operation following the broadcast.
-      is_expand_dim.at(broadcast_dims_[idx]) =
-          arg_domains_nr[idx]->isBroadcast();
     }
 
     auto output = broadcast(arg, is_broadcast_dim);
+    auto expanded_output = expand(output, output_shape);
 
-    c10::optional<std::vector<Val*>> expand_shape =
-        expandShape(fd, is_expand_dim, output_shape_);
-    if (expand_shape.has_value()) {
-      output = expand(output, expand_shape.value());
-    }
-    fd.setFusionState(outputs_.at(0).index, output);
+    fd.setFusionState(outputs_.at(0).index, expanded_output);
   }
 
   void print(std::ostream& os, bool close_function = true) const final {
     RecordFunctor::print(os, false);
-    os << ", output_shape=[";
-    bool first_arg = true;
-    for (auto shape : output_shape_) {
-      if (first_arg) {
-        first_arg = false;
-      } else {
-        os << ", ";
-      }
-      os << shape;
-    }
-    os << "]";
     os << ", broadcast_dims=[";
-    first_arg = true;
+    bool first_arg = true;
     for (auto dim : broadcast_dims_) {
       if (first_arg) {
         first_arg = false;
@@ -872,119 +835,21 @@ struct BroadcastInDimOpRecord : RecordFunctor {
 
   std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
       flatbuffers::FlatBufferBuilder& builder) const final {
-    return outputShapeRecordData(builder, output_shape_);
+    return {
+        serde::RecordData_BroadcastInDim,
+        serde::CreateBroadcastInDimDirect(
+            builder, output_ndims_, &broadcast_dims_)
+            .Union()};
   };
 
-  inline std::pair<serde::RecordData, flatbuffers::Offset<void>>
-  outputShapeRecordData(
-      flatbuffers::FlatBufferBuilder& builder,
-      const std::vector<OutputShapeType>& shape) const;
-
  private:
-  //! Represents the tensor dimensions of the output tensor.
-  std::vector<OutputShapeType> output_shape_;
+  //! Number of dims of shape Vector used to communicate the output tensor shape
+  size_t output_ndims_;
   //! Communicates which dimensions of the output the input tensor maps.
   //! For instance, for output [2, 3, 4] and input [3]. This vector would
   //! contain [1].
   std::vector<int64_t> broadcast_dims_;
 };
-
-//! ouputShapeHash Specializations used by hash()
-
-template <>
-inline size_t BroadcastInDimOpRecord<int64_t>::outputShapeHash(
-    const std::vector<int64_t>& shape) const {
-  size_t shape_hash = 0;
-  for (auto size : shape) {
-    shape_hash ^= static_cast<size_t>(size);
-  }
-  return shape_hash;
-}
-
-template <>
-inline size_t BroadcastInDimOpRecord<State>::outputShapeHash(
-    const std::vector<State>& shape) const {
-  return shape.size();
-}
-
-//! expandShape Specializations used by operator()
-
-template <>
-inline c10::optional<std::vector<Val*>> BroadcastInDimOpRecord<int64_t>::
-    expandShape(
-        const FusionState& fd,
-        const std::vector<bool>& expand_dim,
-        const std::vector<int64_t>& shape) const {
-  std::vector<Val*> expand_shape(shape.size(), nullptr);
-  bool has_expand = false;
-  for (const auto idx : c10::irange(shape.size())) {
-    if (expand_dim[idx] && shape[idx] != 1 && shape[idx] != -1) {
-      expand_shape[idx] = IrBuilder::create<Int>(shape[idx]);
-      has_expand = true;
-    } else {
-      expand_shape[idx] = IrBuilder::create<Int>(-1);
-    }
-  }
-
-  if (has_expand) {
-    return c10::optional<std::vector<Val*>>(expand_shape);
-  } else {
-    return c10::nullopt;
-  }
-}
-
-template <>
-inline c10::optional<std::vector<Val*>> BroadcastInDimOpRecord<State>::
-    expandShape(
-        const FusionState& fd,
-        const std::vector<bool>& expand_dim,
-        const std::vector<State>& shape) const {
-  std::vector<Val*> expand_shape(shape.size(), nullptr);
-  std::transform(
-      shape.begin(),
-      shape.end(),
-      expand_shape.begin(),
-      [&fd](const State& state) {
-        return fd.getFusionState(state.index)->template as<Val>();
-      });
-  return c10::optional<std::vector<Val*>>(expand_shape);
-}
-
-//! outputShapeRecordData Specializations used by recordData()
-
-template <>
-inline std::pair<serde::RecordData, flatbuffers::Offset<void>>
-BroadcastInDimOpRecord<int64_t>::outputShapeRecordData(
-    flatbuffers::FlatBufferBuilder& builder,
-    const std::vector<int64_t>& shape) const {
-  return {
-      serde::RecordData_BroadcastInDim,
-      serde::CreateBroadcastInDimDirect(builder, &shape, &broadcast_dims_)
-          .Union()};
-}
-
-template <>
-inline std::pair<serde::RecordData, flatbuffers::Offset<void>>
-BroadcastInDimOpRecord<State>::outputShapeRecordData(
-    flatbuffers::FlatBufferBuilder& builder,
-    const std::vector<State>& shape) const {
-  std::vector<serde::State> fb_output_shape;
-  fb_output_shape.reserve(shape.size());
-  for (auto& it : shape) {
-    fb_output_shape.emplace_back(it.index, it.stype);
-  }
-  auto output_shape_fb = builder.CreateVectorOfStructs(
-      fb_output_shape.data(), fb_output_shape.size());
-
-  auto bcast_dims_fb = builder.CreateVector(broadcast_dims_);
-
-  serde::BroadcastInDimSymbolicBuilder bcast_builder(builder);
-  bcast_builder.add_output_shape(output_shape_fb);
-  bcast_builder.add_broadcast_dims(bcast_dims_fb);
-  auto bcast_in_dim_data = bcast_builder.Finish();
-
-  return {serde::RecordData_BroadcastInDimSymbolic, bcast_in_dim_data.Union()};
-}
 
 //! Specialized Record Functor for the FusionState's broadcast op.
 
@@ -1105,9 +970,9 @@ struct CastOpRecord : RecordFunctor {
         result = result &&
             (fusion_op_.target_type() == child_ptr->fusion_op_.target_type());
         if (isDebugDumpEnabled(DebugDumpOption::PythonFrontendDebug)) {
-          std::cout << "\nCastOpRecord: " << name_ << " Target Type [self: 0x"
-                    << fusion_op_.target_type().name() << "] [other: 0x"
-                    << child_ptr->fusion_op_.target_type().name() << "]";
+          debug() << "\nCastOpRecord: " << name_ << " Target Type [self: 0x"
+                  << fusion_op_.target_type().name() << "] [other: 0x"
+                  << child_ptr->fusion_op_.target_type().name() << "]";
         }
         // IMPORTANT! you need to dereference the target pointer in order
         // to match the function
@@ -1116,13 +981,13 @@ struct CastOpRecord : RecordFunctor {
              *child_ptr->fusion_op_
                   .template target<OutType (*)(DataType, ArgType)>());
         if (isDebugDumpEnabled(DebugDumpOption::PythonFrontendDebug)) {
-          std::cout << " Target  Ptr [self: 0x" << std::hex
-                    << (size_t)*fusion_op_
-                           .template target<OutType (*)(DataType, ArgType)>()
-                    << "] [other: 0x" << std::hex
-                    << (size_t)*child_ptr->fusion_op_
-                           .template target<OutType (*)(DataType, ArgType)>()
-                    << "]\n";
+          debug() << " Target  Ptr [self: 0x" << std::hex
+                  << (size_t)*fusion_op_
+                         .template target<OutType (*)(DataType, ArgType)>()
+                  << "] [other: 0x" << std::hex
+                  << (size_t)*child_ptr->fusion_op_
+                         .template target<OutType (*)(DataType, ArgType)>()
+                  << "]\n";
         }
         result = result && (dtype_ == child_ptr->dtype_);
       }
@@ -1279,7 +1144,7 @@ struct EndRecord : RecordFunctor {
 struct TensorRecord : RecordFunctor {
   TensorRecord(
       std::vector<State> _outputs,
-      std::vector<int64_t> _symbolic_sizes,
+      std::vector<int64_t> _shape,
       std::vector<std::optional<bool>> _contiguity,
       PrimDataType _dtype,
       bool _is_cpu = false)
@@ -1288,7 +1153,7 @@ struct TensorRecord : RecordFunctor {
             std::move(_outputs),
             "define_tensor",
             serde::RecordType_Tensor),
-        symbolic_sizes_(std::move(_symbolic_sizes)),
+        shape_(std::move(_shape)),
         contiguity_(std::move(_contiguity)),
         dtype_(_dtype),
         is_cpu_(_is_cpu) {}
@@ -1303,12 +1168,12 @@ struct TensorRecord : RecordFunctor {
   size_t hash() const final {
     auto result = RecordFunctor::hash();
     size_t ssize_hash = 0;
-    for (size_t i = 0; i < symbolic_sizes_.size(); ++i) {
+    for (size_t i = 0; i < shape_.size(); ++i) {
       size_t ssize = 0;
-      if (symbolic_sizes_[i] == -1) {
+      if (shape_[i] == -1) {
         ssize = 1;
       }
-      ssize_hash |= (ssize << (symbolic_sizes_.size() - 1 - i));
+      ssize_hash |= (ssize << (shape_.size() - 1 - i));
     }
     size_t contig_hash = 0;
     for (size_t i = 0; i < contiguity_.size(); ++i) {
@@ -1331,11 +1196,11 @@ struct TensorRecord : RecordFunctor {
       result = result && (is_cpu_ == child_ptr->is_cpu_);
       if (result) {
         result =
-            ((symbolic_sizes_.size() == child_ptr->symbolic_sizes_.size()) &&
+            ((shape_.size() == child_ptr->shape_.size()) &&
              (contiguity_.size() == child_ptr->contiguity_.size()));
         if (result) {
-          for (size_t i = 0; i < symbolic_sizes_.size(); ++i) {
-            if (symbolic_sizes_[i] != child_ptr->symbolic_sizes_[i]) {
+          for (size_t i = 0; i < shape_.size(); ++i) {
+            if (shape_[i] != child_ptr->shape_[i]) {
               result = false;
               break;
             }
@@ -1355,27 +1220,27 @@ struct TensorRecord : RecordFunctor {
   }
 
   void operator()(FusionState& fd) final {
-    auto rank = symbolic_sizes_.size();
+    auto rank = shape_.size();
     std::vector<bool> is_expand(rank);
 
     for (const auto index : c10::irange(rank)) {
       bool is_broadcast = !contiguity_[index].has_value();
-      bool has_symbolic_size = (symbolic_sizes_[index] == -1);
+      bool has_symbolic_size = (shape_[index] == -1);
       is_expand[index] = is_broadcast && has_symbolic_size;
     }
 
     auto tv = TensorViewBuilder()
-                  .ndims(symbolic_sizes_.size())
+                  .ndims(shape_.size())
                   .contiguity(contiguity_)
-                  .shape(symbolic_sizes_)
+                  .shape(shape_)
                   .dtype(dtype_)
                   .expanded(std::move(is_expand))
                   .build();
 
-    if (symbolic_sizes_.empty() && is_cpu_) {
+    if (shape_.empty() && is_cpu_) {
       tv->setCpuScalar(true);
     } else {
-      TORCH_CHECK(!is_cpu_, "CPU non-scalar tensor is not supported!");
+      NVF_CHECK(!is_cpu_, "CPU non-scalar tensor is not supported!");
     }
 
     fd.setFusionState(outputs_.at(0).index, tv);
@@ -1384,9 +1249,9 @@ struct TensorRecord : RecordFunctor {
 
   void print(std::ostream& os, bool close_function = true) const final {
     RecordFunctor::print(os, false);
-    os << "symbolic_sizes=[";
+    os << "shape=[";
     bool first_arg = true;
-    for (auto ss : symbolic_sizes_) {
+    for (auto ss : shape_) {
       if (first_arg) {
         first_arg = false;
       } else {
@@ -1421,7 +1286,7 @@ struct TensorRecord : RecordFunctor {
 
   std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
       flatbuffers::FlatBufferBuilder& builder) const final {
-    auto fb_sizes = builder.CreateVector(symbolic_sizes_);
+    auto fb_sizes = builder.CreateVector(shape_);
 
     auto mapOptionalToEnum = [](std::optional<bool> v) -> int {
       if (!v.has_value()) {
@@ -1453,7 +1318,7 @@ struct TensorRecord : RecordFunctor {
   //! A vector of tensor dimension sizes.
   //! This vector only captures sizes of -1 or 1 to indicate a symbolic
   //! dimension (-1) or a broadcast dimension (1).
-  std::vector<int64_t> symbolic_sizes_;
+  std::vector<int64_t> shape_;
   //! A vector to indicate whether the a tensor dimension is contiguous
   //! with the dimension just to its right.
   std::vector<std::optional<bool>> contiguity_;
@@ -1529,13 +1394,13 @@ struct OutputRecord : RecordFunctor {
     }
 
     if (alias_input) {
-      TORCH_CHECK(
+      NVF_CHECK(
           stride_order_.empty(),
           "stride_order can't be dictated for aliased outputs.");
       if (std::is_same<OutputType, TensorView>::value) {
         fd.aliasOutputToInput(output, alias_input);
       } else {
-        TORCH_INTERNAL_ASSERT(false, "Scalar outputs should not alias inputs.");
+        NVF_ERROR(false, "Scalar outputs should not alias inputs.");
       }
     } else {
       // With C++17, this statement should be "if constexpr"
@@ -1546,14 +1411,14 @@ struct OutputRecord : RecordFunctor {
           std::vector<int64_t> reverse_perm(stride_order_.size());
           int64_t duplicate_check = 0;
           for (const auto i : c10::irange((int64_t)stride_order_.size())) {
-            TORCH_CHECK(
+            NVF_CHECK(
                 stride_order_[i] >= 0 &&
                     stride_order_[i] < (int64_t)reverse_perm.size(),
                 "stride_order elements need to be within [0, stride_order.size())!");
             reverse_perm[stride_order_[i]] = i;
             duplicate_check |= 1 << stride_order_[i];
           }
-          TORCH_CHECK(
+          NVF_CHECK(
               duplicate_check == (1 << reverse_perm.size()) - 1,
               "duplicated elements in stride_order detected!");
           tv_output = permute(tv_output, reverse_perm);
@@ -1562,7 +1427,7 @@ struct OutputRecord : RecordFunctor {
           fd.addOutput(tv_output);
         }
       } else {
-        TORCH_CHECK(
+        NVF_CHECK(
             stride_order_.empty(),
             "stride_order can't be dictated for scalar outputs.");
         fd.addOutput(output);
@@ -1654,31 +1519,42 @@ struct ReductionOpRecord : RecordFunctor {
         result = result &&
             (fusion_op_.target_type() == child_ptr->fusion_op_.target_type());
         if (isDebugDumpEnabled(DebugDumpOption::PythonFrontendDebug)) {
-          std::cout << "\nReductionOpRecord: " << name_
-                    << " Target Type [self: 0x"
-                    << fusion_op_.target_type().name() << "] [other: 0x"
-                    << child_ptr->fusion_op_.target_type().name() << "]";
+          debug() << "\nReductionOpRecord: " << name_
+                  << " Target Type [self: 0x" << fusion_op_.target_type().name()
+                  << "] [other: 0x"
+                  << child_ptr->fusion_op_.target_type().name() << "]";
         }
         // IMPORTANT! you need to dereference the target pointer in order
         // to match the function
         result = result &&
             (*fusion_op_.template target<
 
-                 TensorView* (*)(TensorView*, const std::vector<int>&, bool, DataType)>() ==
+                 TensorView* (*)(TensorView*,
+                                 const std::vector<int>&,
+                                 bool,
+                                 DataType)>() ==
              *child_ptr->fusion_op_.template target<
 
-                 TensorView* (*)(TensorView*, const std::vector<int>&, bool, DataType)>());
+                 TensorView* (*)(TensorView*,
+                                 const std::vector<int>&,
+                                 bool,
+                                 DataType)>());
         if (isDebugDumpEnabled(DebugDumpOption::PythonFrontendDebug)) {
-          std::cout
-              << " Target  Ptr [self: 0x" << std::hex
-              << (size_t)*fusion_op_.template target<
+          debug() << " Target  Ptr [self: 0x" << std::hex
+                  << (size_t)*fusion_op_.template target<
 
-                     TensorView* (*)(TensorView*, const std::vector<int>&, bool, DataType)>()
-              << "] [other: 0x" << std::hex
-              << (size_t)*child_ptr->fusion_op_.template target<
+                         TensorView* (*)(TensorView*,
+                                         const std::vector<int>&,
+                                         bool,
+                                         DataType)>()
+                  << "] [other: 0x" << std::hex
+                  << (size_t)*child_ptr->fusion_op_.template target<
 
-                     TensorView* (*)(TensorView*, const std::vector<int>&, bool, DataType)>()
-              << "]\n";
+                         TensorView* (*)(TensorView*,
+                                         const std::vector<int>&,
+                                         bool,
+                                         DataType)>()
+                  << "]\n";
         }
         result = result && (keep_dim_ == child_ptr->keep_dim_);
         result = result && (dtype_ == child_ptr->dtype_);
@@ -1908,16 +1784,23 @@ struct TakeAlongAxisOpRecord : RecordFunctor {
 //! Specialized Record Functor for recording FusionState scalars for both
 //! inputs and constants.
 
-template <typename ValueType>
 struct ScalarRecord : RecordFunctor {
   ScalarRecord(
       std::vector<State> _outputs,
-      serde::RecordType record_type,
-      std::optional<ValueType> value,
-      PrimDataType dtype)
-      : RecordFunctor({}, std::move(_outputs), "define_scalar", record_type),
-        value_(std::move(value)),
-        dtype_(dtype) {}
+      PolymorphicValue value,
+      std::optional<PrimDataType> dtype)
+      : RecordFunctor(
+            {},
+            std::move(_outputs),
+            "define_scalar",
+            serde::RecordType_Scalar),
+        value_(
+            dtype.has_value() ? castToDtype(std::move(value), dtype.value())
+                              : std::move(value)),
+        dtype_(
+            dtype.has_value()
+                ? dtype.value()
+                : std::get<PrimDataType>(getDataType(value_).type)) {}
   ~ScalarRecord() override = default;
   RecordFunctor* clone() final {
     return new ScalarRecord(*this);
@@ -1932,48 +1815,30 @@ struct ScalarRecord : RecordFunctor {
   }
 
   bool operator==(const RecordFunctor& other) const final {
-    auto result = false;
     if (auto child_ptr = dynamic_cast<const ScalarRecord*>(&other)) {
-      result = RecordFunctor::operator==(other);
-      if (result) {
-        if (value_.has_value()) {
-          if constexpr (
-              std::is_same_v<ValueType, float> ||
-              std::is_same_v<ValueType, double>) {
-            if (std::isnan(value_.value()) &&
-                std::isnan(child_ptr->value_.value())) {
-              return true;
-            } else {
-              result = (value_ == child_ptr->value_);
-            }
+      if (RecordFunctor::operator==(other)) {
+        if (value_.hasValue() != child_ptr->value_.hasValue() ||
+            dtype_ != child_ptr->dtype_) {
+          return false;
+        }
+        if (value_.hasValue()) {
+          if (value_.is<double>() && std::isnan(value_.as<double>()) &&
+              std::isnan(child_ptr->value_.as<double>())) {
+            return true;
           } else {
-            result = (value_ == child_ptr->value_);
+            return value_ == child_ptr->value_;
           }
+        } else {
+          return true;
         }
       }
     }
-    return result;
+    return false;
   }
 
   void operator()(FusionState& fd) final {
-    Val* output = nullptr;
-    if (value_.has_value()) {
-      output =
-          IrBuilder::create<nvfuser::Scalar<ValueType>>(value_.value(), dtype_);
-    } else {
-      if ((dtype_ == DataType::Double) || (dtype_ == DataType::Float)) {
-        output = IrBuilder::create<Double>(dtype_);
-      } else if (
-          (dtype_ == DataType::ComplexDouble) ||
-          (dtype_ == DataType::ComplexFloat)) {
-        output = IrBuilder::create<ComplexDouble>(dtype_);
-      } else if (dtype_ == DataType::Bool) {
-        output = IrBuilder::create<Bool>();
-      } else if (dtype_ == DataType::Int) {
-        output = IrBuilder::create<Int>();
-      } else {
-        TORCH_CHECK(false, "Dtype is not supported as a Scalar input:", dtype_);
-      }
+    Val* output = IrBuilder::create<nvfuser::Val>(value_, dtype_);
+    if (!value_.hasValue()) {
       fd.addInput(output);
     }
     fd.setFusionState(outputs_.at(0).index, output);
@@ -1981,34 +1846,29 @@ struct ScalarRecord : RecordFunctor {
 
   void print(std::ostream& os, bool close_function = true) const final {
     RecordFunctor::print(os, false);
-    if (value_.has_value()) {
-      auto val = value_.value();
-      if constexpr (std::is_same_v<ValueType, bool>) {
-        bool value = __toBool(val);
-        os << (value ? "True" : "False");
-      } else if constexpr (
-          std::is_same_v<ValueType, std::complex<float>> ||
-          std::is_same_v<ValueType, std::complex<double>>) {
-        os << std::showpoint << std::real(val) << "+" << std::showpoint
-           << std::imag(val) << "j";
-      } else if constexpr (
-          std::is_same_v<ValueType, float> ||
-          std::is_same_v<ValueType, double>) {
-        if (std::isinf(val)) {
-          if (std::signbit(val)) {
+    if (value_.hasValue()) {
+      if (value_.is<bool>()) {
+        os << ((bool)value_ ? "True" : "False");
+      } else if (value_.is<std::complex<double>>()) {
+        os << std::showpoint << std::real(value_.as<std::complex<double>>())
+           << "+" << std::showpoint
+           << std::imag(value_.as<std::complex<double>>()) << "j";
+      } else if (value_.is<double>()) {
+        if (std::isinf(value_.as<double>())) {
+          if (std::signbit(value_.as<double>())) {
             os << "float(\"-inf\")";
           } else {
             os << "float(\"inf\")";
           }
-        } else if (std::isnan(val)) {
+        } else if (std::isnan(value_.as<double>())) {
           os << "float(\"nan\")";
         } else {
-          os << std::showpoint << val;
+          os << std::showpoint << value_.as<double>();
         }
-      } else if constexpr (std::is_same_v<ValueType, int64_t>) {
-        os << val;
+      } else if (value_.is<int64_t>()) {
+        os << value_;
       } else {
-        TORCH_CHECK(false, "Unsupported dtype.");
+        NVF_CHECK(false, "Unsupported dtype.");
       }
     } else {
       os << "None";
@@ -2023,105 +1883,21 @@ struct ScalarRecord : RecordFunctor {
 
   std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
       flatbuffers::FlatBufferBuilder& builder) const final {
-    return valueRecordData(builder, value_);
-  };
+    return {
+        serde::RecordData_Scalar,
+        serde::serializeScalar(builder, value_, dtype_).Union()};
+  }
 
   inline std::pair<serde::RecordData, flatbuffers::Offset<void>> valueRecordData(
       flatbuffers::FlatBufferBuilder& builder,
-      std::optional<ValueType> value) const;
+      PolymorphicValue value) const;
 
  private:
   //! The scalar's value, an input is a nullopt
-  std::optional<ValueType> value_;
+  PolymorphicValue value_;
   //! Scalar data type.
   PrimDataType dtype_;
 };
-
-//! valueRecordData Specializations used by recordData() for ScalarRecord
-
-template <>
-inline std::pair<serde::RecordData, flatbuffers::Offset<void>> ScalarRecord<
-    bool>::
-    valueRecordData(
-        flatbuffers::FlatBufferBuilder& builder,
-        std::optional<bool> value) const {
-  if (value.has_value()) {
-    return {
-        serde::RecordData_Bool,
-        serde::CreateBool(builder, value.value()).Union()};
-  } else {
-    return {
-        serde::RecordData_ScalarInput,
-        serde::CreateScalarInput(builder, serde::mapToSerdeDtype(dtype_))
-            .Union()};
-  }
-}
-
-template <>
-inline std::pair<serde::RecordData, flatbuffers::Offset<void>> ScalarRecord<
-    std::complex<double>>::
-    valueRecordData(
-        flatbuffers::FlatBufferBuilder& builder,
-        std::optional<std::complex<double>> value) const {
-  if (value.has_value()) {
-    return {
-        serde::RecordData_ComplexDouble,
-        serde::CreateComplexDouble(
-            builder,
-            value.value().real(),
-            value.value().imag(),
-            serde::mapToSerdeDtype(dtype_))
-            .Union()};
-  } else {
-    return {
-        serde::RecordData_ScalarInput,
-        serde::CreateScalarInput(builder, serde::mapToSerdeDtype(dtype_))
-            .Union()};
-  }
-}
-
-template <>
-inline std::pair<serde::RecordData, flatbuffers::Offset<void>> ScalarRecord<
-    double>::
-    valueRecordData(
-        flatbuffers::FlatBufferBuilder& builder,
-        std::optional<double> value) const {
-  if (value.has_value()) {
-    return {
-        serde::RecordData_Double,
-        serde::CreateDouble(
-            builder, value.value(), serde::mapToSerdeDtype(dtype_))
-            .Union()};
-  } else {
-    return {
-        serde::RecordData_ScalarInput,
-        serde::CreateScalarInput(builder, serde::mapToSerdeDtype(dtype_))
-            .Union()};
-  }
-}
-
-template <>
-inline std::pair<serde::RecordData, flatbuffers::Offset<void>> ScalarRecord<
-    int64_t>::
-    valueRecordData(
-        flatbuffers::FlatBufferBuilder& builder,
-        std::optional<int64_t> value) const {
-  if (value.has_value()) {
-    return {
-        serde::RecordData_Long,
-        serde::CreateLong(
-            builder, value.value(), serde::mapToSerdeDtype(dtype_))
-            .Union()};
-  } else {
-    return {
-        serde::RecordData_ScalarInput,
-        serde::CreateScalarInput(builder, serde::mapToSerdeDtype(dtype_))
-            .Union()};
-  }
-}
-
-//! Specialized Record Functor for the slice operation.
-//! Note: the python API is significantly different from the Codegen function.
 
 struct SliceOpRecord : RecordFunctor {
   SliceOpRecord(
@@ -2183,9 +1959,9 @@ struct SliceOpRecord : RecordFunctor {
     ranges.reserve(ndims);
     for (const auto i : c10::irange(ndims)) {
       Slice tmp;
-      tmp.start = IrBuilder::create<Int>(start_indices_[i]);
-      tmp.stop = IrBuilder::create<Int>(end_indices_[i]);
-      tmp.step = IrBuilder::create<Int>(strides_[i]);
+      tmp.start = IrBuilder::create<nvfuser::Val>(start_indices_[i]);
+      tmp.stop = IrBuilder::create<nvfuser::Val>(end_indices_[i]);
+      tmp.step = IrBuilder::create<nvfuser::Val>(strides_[i]);
       ranges.emplace_back(tmp);
     }
 
@@ -2555,6 +2331,150 @@ struct TensorSizesRecord : RecordFunctor {
   }
 };
 
+//! Specialized Record Functor for the shape op.
+//! Uses the default hash() and print() methods of Record Functor
+
+struct ShapeOpRecord : RecordFunctor {
+  ShapeOpRecord(std::vector<State> args, std::vector<State> outputs)
+      : RecordFunctor(
+            std::move(args),
+            std::move(outputs),
+            "ops.shape",
+            serde::RecordType_ShapeOp) {}
+  ~ShapeOpRecord() override = default;
+  RecordFunctor* clone() final {
+    return new ShapeOpRecord(*this);
+  }
+
+  bool operator==(const RecordFunctor& other) const final {
+    auto result = false;
+    if (dynamic_cast<const ShapeOpRecord*>(&other)) {
+      result = RecordFunctor::operator==(other);
+    }
+    return result;
+  }
+
+  void operator()(FusionState& fd) final {
+    auto arg = fd.getFusionState(args_.at(0).index)->as<TensorView>();
+    auto result = shape(arg);
+    fd.setFusionStateVector(outputs_.at(0).index, result);
+  }
+};
+
+//! Specialized Record Functor for the size op.
+//! Uses the default hash() and print() methods of Record Functor
+
+struct SizeOpRecord : RecordFunctor {
+  SizeOpRecord(std::vector<State> args, std::vector<State> outputs, int64_t dim)
+      : RecordFunctor(
+            std::move(args),
+            std::move(outputs),
+            "ops.size",
+            serde::RecordType_SizeOp),
+        dim_(dim) {}
+  ~SizeOpRecord() override = default;
+  RecordFunctor* clone() final {
+    return new SizeOpRecord(*this);
+  }
+
+  //! Child specific hash function in lower 32 bits.
+  //! | 31 --------------------------------------  0 |
+  //! | dim                                          |
+  size_t hash() const final {
+    auto result = RecordFunctor::hash();
+    return result | (static_cast<size_t>(dim_) & 0xffffffff);
+  }
+
+  bool operator==(const RecordFunctor& other) const final {
+    auto result = false;
+    if (auto child_ptr = dynamic_cast<const SizeOpRecord*>(&other)) {
+      result = RecordFunctor::operator==(other);
+      result = result && (dim_ == child_ptr->dim_);
+    }
+    return result;
+  }
+
+  void operator()(FusionState& fd) final {
+    auto arg = fd.getFusionState(args_.at(0).index)->as<TensorView>();
+    auto result = size(arg, dim_);
+    fd.setFusionState(outputs_.at(0).index, result);
+  }
+
+  std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
+      flatbuffers::FlatBufferBuilder& builder) const final {
+    return {serde::RecordData_Size, serde::CreateSize(builder, dim_).Union()};
+  }
+
+  void print(std::ostream& os, bool close_function = true) const final {
+    RecordFunctor::print(os, false);
+    os << ", dim=" << dim_;
+    if (close_function) {
+      os << ")";
+    }
+  }
+
+ private:
+  int64_t dim_;
+};
+
+//! Specialized Record Functor for the at() op.
+//! Uses the default hash() and print() methods of Record Functor
+
+struct AtOpRecord : RecordFunctor {
+  AtOpRecord(std::vector<State> args, std::vector<State> outputs, int64_t index)
+      : RecordFunctor(
+            std::move(args),
+            std::move(outputs),
+            "ops.at",
+            serde::RecordType_AtOp),
+        index_(index) {}
+  ~AtOpRecord() override = default;
+  RecordFunctor* clone() final {
+    return new AtOpRecord(*this);
+  }
+
+  //! Child specific hash function in lower 32 bits.
+  //! | 31 --------------------------------------  0 |
+  //! | index                                        |
+  size_t hash() const final {
+    auto result = RecordFunctor::hash();
+    return result | (static_cast<size_t>(index_) & 0xffffffff);
+  }
+
+  bool operator==(const RecordFunctor& other) const final {
+    auto result = false;
+    if (auto child_ptr = dynamic_cast<const AtOpRecord*>(&other)) {
+      result = RecordFunctor::operator==(other);
+      result = result && (index_ == child_ptr->index_);
+    }
+    return result;
+  }
+
+  void operator()(FusionState& fd) final {
+    NVF_CHECK(
+        args_.at(0).stype == serde::StateType_Vector, "Expected Vector State!");
+    auto arg = fd.getFusionStateVector(args_.at(0).index);
+    auto result = at(arg, index_);
+    fd.setFusionState(outputs_.at(0).index, result);
+  }
+
+  std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
+      flatbuffers::FlatBufferBuilder& builder) const final {
+    return {serde::RecordData_At, serde::CreateAt(builder, index_).Union()};
+  }
+
+  void print(std::ostream& os, bool close_function = true) const final {
+    RecordFunctor::print(os, false);
+    os << ", index=" << index_;
+    if (close_function) {
+      os << ")";
+    }
+  }
+
+ private:
+  int64_t index_;
+};
+
 struct FullOpRecord : RecordFunctor {
   FullOpRecord(
       std::vector<State> _args,
@@ -2601,14 +2521,25 @@ struct FullOpRecord : RecordFunctor {
 
     std::vector<Val*> nvf_shape(shape_.size(), nullptr);
     for (const auto idx : c10::irange(shape_.size())) {
-      nvf_shape[idx] = IrBuilder::create<Int>(shape_.at(idx));
+      nvf_shape[idx] = IrBuilder::create<nvfuser::Val>(shape_.at(idx));
     }
     auto output = full(nvf_shape, arg, dtype_);
     fd.setFusionState(outputs_.at(0).index, output);
   }
 
   void print(std::ostream& os, bool close_function = true) const override {
-    RecordFunctor::print(os, false);
+    bool first_output = true;
+    for (auto& output : outputs_) {
+      if (first_output) {
+        first_output = false;
+      } else {
+        os << ", ";
+      }
+      os << output;
+    }
+    os << " = "
+       << "fd." << name_ << "(";
+    os << "fill_value=" << args_.at(0);
     os << ", shape=[";
     bool first_arg = true;
     for (auto p : shape_) {
@@ -2719,7 +2650,13 @@ struct RandomOpRecord : RecordFunctor {
             _name,
             serde::RecordType_RandomOp),
         output_shape_(std::move(output_shape)),
-        dtype_(dtype) {}
+        dtype_(dtype) {
+    if (args_.size() == 4) {
+      // seed and offset were provided in addition to the usual 2 arguments
+      setArgName(2, "rng_seed");
+      setArgName(3, "rng_offset");
+    }
+  }
   ~RandomOpRecord() override = default;
   RecordFunctor* clone() final {
     return new RandomOpRecord(*this);
@@ -2767,12 +2704,23 @@ struct RandomOpRecord : RecordFunctor {
         });
     Val* output = nullptr;
     if (name_.compare("ops.uniform") == 0) {
-      output = uniform(output_shape, arg1, arg2, dtype_);
+      if (args_.size() == 2) { // stochastic uniform
+        output = uniform(output_shape, arg1, arg2, dtype_);
+      } else if (args_.size() == 4) { // provided seed and offset
+        auto seed = fd.getFusionState(args_.at(2).index);
+        auto offset = fd.getFusionState(args_.at(3).index);
+        output = uniform(output_shape, arg1, arg2, dtype_, seed, offset);
+      }
     } else if (name_.compare("ops.normal") == 0) {
-      output = normal(output_shape, arg1, arg2, dtype_);
+      if (args_.size() == 2) { // stochastic normal
+        output = normal(output_shape, arg1, arg2, dtype_);
+      } else if (args_.size() == 4) { // provided seed and offset
+        auto seed = fd.getFusionState(args_.at(2).index);
+        auto offset = fd.getFusionState(args_.at(3).index);
+        output = normal(output_shape, arg1, arg2, dtype_, seed, offset);
+      }
     } else {
-      TORCH_INTERNAL_ASSERT(
-          false, "random distribution not recognized:", name_);
+      NVF_ERROR(false, "random distribution not recognized:", name_);
     }
     fd.setFusionState(outputs_.at(0).index, output);
   }
@@ -2817,20 +2765,18 @@ struct RandomOpRecord : RecordFunctor {
   PrimDataType dtype_;
 };
 
-//! Specialized Record Functor for recording FusionState vector of sizes for
-//! both inputs and constants.
+//! Specialized Record Functor for recording Vector of Scalars
 
-template <typename ValueType>
 struct VectorRecord : RecordFunctor {
   VectorRecord(
+      std::vector<State> _args,
       std::vector<State> _outputs,
-      serde::RecordType record_type,
-      std::optional<std::vector<ValueType>> value,
-      size_t size,
       PrimDataType dtype)
-      : RecordFunctor({}, std::move(_outputs), "define_vector", record_type),
-        value_(std::move(value)),
-        size_(size),
+      : RecordFunctor(
+            std::move(_args),
+            std::move(_outputs),
+            "define_vector",
+            serde::RecordType_Vector),
         dtype_(dtype) {}
   ~VectorRecord() override = default;
   RecordFunctor* clone() final {
@@ -2838,62 +2784,58 @@ struct VectorRecord : RecordFunctor {
   }
 
   //! Child specific hash function in lower 32 bits.
-  //! | 31 --------------- 16 | 15 ---------------  0 |
-  //! | Dtype                 | Size                  |
+  //! | 31 ---------------------------------------  0 |
+  //! | Dtype                                         |
   size_t hash() const final {
     auto result = RecordFunctor::hash();
-    result |= (static_cast<size_t>(dtype_) & 0xffff) << 16;
-    return result | (size_ & 0xffff);
+    return result | (static_cast<size_t>(dtype_) & 0xffffffff);
   }
 
   bool operator==(const RecordFunctor& other) const final {
     auto result = false;
     if (auto child_ptr = dynamic_cast<const VectorRecord*>(&other)) {
       result = RecordFunctor::operator==(other);
-      result = result && (value_ == child_ptr->value_) &&
-          (size_ == child_ptr->size_) && (dtype_ == child_ptr->dtype_);
+      result = result && (dtype_ == child_ptr->dtype_);
     }
     return result;
   }
 
   void operator()(FusionState& fd) final {
-    std::vector<Val*> output(size_, nullptr);
-    TORCH_CHECK(
+    std::vector<Val*> output(args_.size(), nullptr);
+    NVF_CHECK(
         dtype_ == DataType::Int,
         "Only Int Dtype is not supported by a vector of sizes: ",
         dtype_);
-    if (value_.has_value()) {
-      for (size_t i = 0; i < size_; ++i) {
-        output.at(i) = IrBuilder::create<Int>(value_.value().at(i));
-      }
-    } else {
-      for (size_t i = 0; i < size_; ++i) {
-        output[i] = IrBuilder::create<Int>();
-        fd.addInput(output.at(i));
-      }
+    for (size_t i = 0; i < args_.size(); ++i) {
+      NVF_CHECK(
+          args_.at(i).stype == serde::StateType_Scalar,
+          "Unsupported State type!");
+      output.at(i) = fd.getFusionState(args_.at(i).index);
     }
     fd.setFusionStateVector(outputs_.at(0).index, output);
   }
 
   void print(std::ostream& os, bool close_function = true) const final {
-    RecordFunctor::print(os, false);
-    os << "[";
-    bool first_arg = true;
-    if (value_.has_value()) {
-      for (auto& v : value_.value()) {
-        if (first_arg) {
-          first_arg = false;
-        } else {
-          os << ", ";
-        }
-        os << v;
+    bool first_output = true;
+    for (auto& output : outputs_) {
+      if (first_output) {
+        first_output = false;
+      } else {
+        os << ", ";
       }
-      os << "]";
-    } else {
-      os << "None";
+      os << output;
     }
-
-    os << ", dtype=" << dtypeToPyString(dtype_);
+    os << " = fd." << name_ << "([";
+    bool first_arg = true;
+    for (auto& arg : args_) {
+      if (first_arg) {
+        first_arg = false;
+      } else {
+        os << ", ";
+      }
+      os << arg;
+    }
+    os << "], dtype=" << dtypeToPyString(dtype_);
     if (close_function) {
       os << ")";
     }
@@ -2901,26 +2843,12 @@ struct VectorRecord : RecordFunctor {
 
   std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
       flatbuffers::FlatBufferBuilder& builder) const final {
-    if (value_.has_value()) {
-      return {
-          serde::RecordData_VectorLong,
-          serde::CreateVectorLongDirect(
-              builder, &(value_.value()), size_, serde::mapToSerdeDtype(dtype_))
-              .Union()};
-    } else {
-      return {
-          serde::RecordData_VectorInput,
-          serde::CreateVectorInput(
-              builder, size_, serde::mapToSerdeDtype(dtype_))
-              .Union()};
-    }
-  }
+    return {
+        serde::RecordData_Vector,
+        serde::CreateVector(builder, serde::mapToSerdeDtype(dtype_)).Union()};
+  };
 
  private:
-  //! The vector's value.
-  std::optional<std::vector<ValueType>> value_;
-  //! Since the vector's value is optional, the size is stored here
-  size_t size_;
   //! Scalar data type.
   PrimDataType dtype_;
 };
@@ -2935,17 +2863,17 @@ using namespace nvfuser::python_frontend;
 template <>
 struct hash<RecordFunctor*> {
   size_t operator()(const RecordFunctor* p) const {
-    TORCH_CHECK(p, "The RecordFunctor Pointer for hashing is null!");
+    NVF_CHECK(p, "The RecordFunctor Pointer for hashing is null!");
     return p->hash();
   }
 };
 template <>
 struct equal_to<RecordFunctor*> {
   bool operator()(const RecordFunctor* p, const RecordFunctor* q) const {
-    TORCH_CHECK(
+    NVF_CHECK(
         p,
         "The RecordFunctor Pointer on the lhs of an equality check is null!");
-    TORCH_CHECK(
+    NVF_CHECK(
         q,
         "The RecordFunctor Pointer on the rhs of an equality check is null!");
     return p->operator==(*q);

@@ -19,6 +19,7 @@ namespace nvfuser {
 namespace {
 
 // Private helper, generating node labels for IrGraphGenerator
+// NOLINTNEXTLINE(cppcoreguidelines-virtual-class-destructor)
 class IrNodeLabel final : private OptInConstDispatch {
   using DetailLevel = IrGraphGenerator::DetailLevel;
 
@@ -27,7 +28,7 @@ class IrNodeLabel final : private OptInConstDispatch {
       const Statement* node,
       DetailLevel detail_level = DetailLevel::Basic) {
     IrNodeLabel generator(detail_level);
-    generator.OptInConstDispatch::handle(node);
+    generator.OptInConstDispatch::dispatch(node);
     return generator.label_.str();
   }
 
@@ -37,36 +38,15 @@ class IrNodeLabel final : private OptInConstDispatch {
 
   ~IrNodeLabel() final = default;
 
-  void handle(const Bool* b) override {
-    if (b->isSymbolic()) {
-      label_ << "b" << b->name();
-    } else {
-      if (detail_level_ >= DetailLevel::Explicit) {
-        label_ << "b" << b->name() << "=";
-      }
-      label_ << *b->value();
+  void handle(const Val* s) override {
+    if (s->isSymbolic()) {
+      label_ << ir_utils::varName(s);
     }
-  }
-
-  void handle(const Double* d) override {
-    if (d->isSymbolic()) {
-      label_ << typePrefix(d->getDataType().value()) << d->name();
-    } else {
+    if (s->isConst()) {
       if (detail_level_ >= DetailLevel::Explicit) {
-        label_ << typePrefix(d->getDataType().value()) << d->name() << "=";
+        label_ << ir_utils::varName(s) << "=";
       }
-      label_ << *d->value();
-    }
-  }
-
-  void handle(const Int* i) override {
-    if (i->isSymbolic()) {
-      label_ << "i" << i->name();
-    } else {
-      if (detail_level_ >= DetailLevel::Explicit) {
-        label_ << "i" << i->name() << "=";
-      }
-      label_ << *i->value();
+      label_ << s->value();
     }
   }
 
@@ -139,7 +119,7 @@ void IrGraphGenerator::print(
     DetailLevel detail_level,
     ExprColorMap* expr_color_map) {
   std::ofstream dot_file(filename);
-  TORCH_CHECK(dot_file.good(), "Failed to open the IR graph file");
+  NVF_CHECK(dot_file.good(), "Failed to open the IR graph file");
   dot_file << toGraphviz(fusion, detail_level, expr_color_map);
 }
 
@@ -161,11 +141,11 @@ IrGraphGenerator::IrGraphGenerator(
   // setup inputs & outputs
   // (indexes used to quickly check if a value is fusion input or output)
   for (const auto* input : fusion->inputs()) {
-    TORCH_CHECK(inputs_.count(input) == 0);
+    NVF_CHECK(inputs_.count(input) == 0);
     inputs_.insert(input);
   }
   for (const auto* output : fusion->outputs()) {
-    TORCH_CHECK(outputs_.count(output) == 0);
+    NVF_CHECK(outputs_.count(output) == 0);
     outputs_.insert(output);
   }
 }
@@ -187,9 +167,9 @@ void IrGraphGenerator::addArc(
     const Statement* src,
     const Statement* dst,
     const std::string& style) {
-  // We automatically visit (handle) the arc's source and destination
-  handle(src);
-  handle(dst);
+  // We automatically visit (dispatch) the arc's source and destination
+  dispatch(src);
+  dispatch(dst);
 
   // generate and queue the arc definition
   std::stringstream arc_def;
@@ -216,8 +196,8 @@ void IrGraphGenerator::printValue(const Val* val, const std::string& label) {
 
 std::string IrGraphGenerator::generate() {
   // IrGraphGenerator instances are not reusable
-  TORCH_CHECK(graph_def_.str().empty());
-  TORCH_CHECK(visited_.empty());
+  NVF_CHECK(graph_def_.str().empty());
+  NVF_CHECK(visited_.empty());
 
   // record detail level
   graph_def_ << "// detail level: ";
@@ -235,7 +215,7 @@ std::string IrGraphGenerator::generate() {
       graph_def_ << "verbose\n";
       break;
     default:
-      TORCH_CHECK(!"Unexpected detail level");
+      NVF_CHECK(!"Unexpected detail level");
   }
 
   graph_def_ << "digraph fusion_ir {\n"
@@ -254,10 +234,10 @@ std::string IrGraphGenerator::generate() {
   // (These are otherwise unreacheable (dead) nodes)
   if (detail_level_ >= DetailLevel::Verbose) {
     for (const auto* expr : fusion_->unordered_exprs()) {
-      handle(expr);
+      dispatch(expr);
     }
     for (const auto* val : fusion_->vals()) {
-      handle(val);
+      dispatch(val);
     }
   }
 
@@ -270,7 +250,7 @@ std::string IrGraphGenerator::generate() {
 
   // Make sure that all referenced nodes have been visited
   for (const auto& kv : id_map_) {
-    TORCH_CHECK(visited(kv.first));
+    NVF_CHECK(visited(kv.first));
   }
 
   return graph_def_.str();
@@ -283,12 +263,12 @@ void IrGraphGenerator::generateComputeGraph() {
 
   // Inputs
   for (const auto* input : fusion_->inputs()) {
-    handle(input);
+    dispatch(input);
   }
 
   // Outputs
   for (const auto* output : fusion_->outputs()) {
-    handle(output);
+    dispatch(output);
   }
 
   graph_def_ << "  }\n";
@@ -322,21 +302,21 @@ void IrGraphGenerator::generateScheduleGraph() {
   graph_def_ << "  }\n";
 }
 
-void IrGraphGenerator::handle(const Statement* s) {
-  OptInConstDispatch::handle(s);
+void IrGraphGenerator::dispatch(const Statement* s) {
+  OptInConstDispatch::dispatch(s);
 }
 
-void IrGraphGenerator::handle(const Val* v) {
+void IrGraphGenerator::dispatch(const Val* v) {
   if (!visited(v)) {
     visited_.insert(v);
     if (const auto* def = v->definition()) {
-      handle(def);
+      dispatch(def);
     }
-    OptInConstDispatch::handle(v);
+    OptInConstDispatch::dispatch(v);
   }
 }
 
-void IrGraphGenerator::handle(const Expr* e) {
+void IrGraphGenerator::dispatch(const Expr* e) {
   if (!visited(e)) {
     visited_.insert(e);
 
@@ -373,20 +353,8 @@ void IrGraphGenerator::handle(const IterDomain* id) {
   addArc(id->extent(), id, "[color=gray]");
 }
 
-void IrGraphGenerator::handle(const Bool* b) {
-  printValue(b, IrNodeLabel::gen(b, detail_level_));
-}
-
-void IrGraphGenerator::handle(const Double* d) {
-  printValue(d, IrNodeLabel::gen(d, detail_level_));
-}
-
-void IrGraphGenerator::handle(const Int* i) {
-  printValue(i, IrNodeLabel::gen(i, detail_level_));
-}
-
-void IrGraphGenerator::handle(const ComplexDouble* i) {
-  printValue(i, IrNodeLabel::gen(i, detail_level_));
+void IrGraphGenerator::handle(const Val* s) {
+  printValue(s, IrNodeLabel::gen(s, detail_level_));
 }
 
 void IrGraphGenerator::handle(const NamedScalar* i) {

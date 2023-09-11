@@ -6,6 +6,7 @@
  */
 // clang-format on
 #pragma once
+#include <exceptions.h>
 #include <iostream>
 
 #include <c10/macros/Export.h>
@@ -33,8 +34,8 @@ TORCH_CUDA_CU_API const char* dtypeToPyString(PrimDataType t);
 //! Example:
 //!
 //!   add(Tensor* arg1, Tensor* arg2) -> Tensor*
-//!   add(Tensor* arg1, Scalar* arg2) -> Tensor*
-//!   add(Scalar* arg1, Scalar* arg2) -> Scalar*
+//!   add(Tensor* arg1, Val* arg2) -> Tensor*
+//!   add(Val* arg1, Val* arg2) -> Val*
 struct TORCH_CUDA_CU_API Tensor {
   Tensor(size_t _index, size_t _dims, FusionDefinition* _fd)
       : index(_index), dims(_dims), fusion_definition(_fd) {}
@@ -102,7 +103,7 @@ struct TORCH_CUDA_CU_API Vector {
 //!   help(FusionDefinition.Operators)
 class TORCH_CUDA_CU_API FusionDefinition : public FusionState {
  public:
-  FusionDefinition(c10::optional<size_t> id, size_t max_length = 256);
+  FusionDefinition(std::optional<size_t> id, size_t max_length = 256);
 
   // The copy/move/assign constructors/operators are removed
   FusionDefinition(const FusionDefinition& fd) = delete;
@@ -127,7 +128,13 @@ class TORCH_CUDA_CU_API FusionDefinition : public FusionState {
   std::vector<at::Tensor> execute(
       const at::ArrayRef<c10::IValue>& inputs,
       bool override_user_schedule,
+      bool capture_debug_output,
       std::optional<int8_t> device) const;
+  //! Return debugging output captured through exeuction with
+  //! capture_debug_output=true
+  std::optional<std::string> getDebugOutput() const {
+    return debug_output_;
+  }
   //! Return the unscheduled Fusion IR
   std::string fusionIr();
   //! Return the Cuda code for the last executed set of inputs
@@ -148,7 +155,7 @@ class TORCH_CUDA_CU_API FusionDefinition : public FusionState {
       bool tensor_transforms,
       bool override_user_schedule) const;
   //! Return fusion id of defined FusionDefinition
-  c10::optional<size_t> id() const;
+  std::optional<size_t> id() const;
   //! Prints the Prescheduled Fusion IR representation
   void printMathIr();
 
@@ -181,7 +188,7 @@ class TORCH_CUDA_CU_API FusionDefinition : public FusionState {
   //! number as appropriate.
   size_t max_length_;
   //! Fusion Cache Id for Scheduled Fusion.
-  c10::optional<size_t> fusion_id_;
+  std::optional<size_t> fusion_id_;
   //! A pointer to the FusionCache.
   FusionCache* fusion_cache_;
   //! Current pointer to node in FusionCache.
@@ -225,6 +232,9 @@ class TORCH_CUDA_CU_API FusionDefinition : public FusionState {
 
   Operators ops;
   SchedOperators sched;
+
+ private:
+  mutable std::optional<std::string> debug_output_ = std::nullopt;
 };
 
 } // namespace nvfuser::python_frontend

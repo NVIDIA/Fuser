@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 
+#include <exceptions.h>
 #include <fusion.h>
 #include <mma_type.h>
 #include <array>
@@ -222,8 +223,13 @@ constexpr size_t MIN_MATMUL_INPUTS_NUMBER = 2;
 using ProblemIterDomains = std::array<IterDomain*, 3>;
 
 //! An alias for mapping between TensorView instance and its role in
-//!  matmul fusion definition,
-using RolesMap = std::map<MatmulRole, TensorView*>;
+//!  matmul fusion definition, some roles can be assigned to more than
+//!  a single tv, for example input for beta scaling in epilogue
+using RolesMap = std::map<MatmulRole, std::vector<TensorView*>>;
+
+//! An alias for storing data types of the tensors in the mma op
+//!  the order is INPUT_A, INPUT_B, OUTPUT_D
+using MmaDataTypes = std::array<DataType, 3>;
 
 //! A wrapper for data containers with optional error message stored if
 //!  initialization of the data fails.
@@ -287,6 +293,35 @@ TORCH_CUDA_CU_API ProblemIterDomainsOpt getProblemIterDomains(Fusion* fusion);
 //!  An error message is stored in retruned object if valid data cannot
 //!  be gathered.
 TORCH_CUDA_CU_API RolesMapOpt getTensorsRoles(Fusion* fusion);
+
+//! Return pair of whether use shared memory epilogue or not and whether to
+//!  reuse shared memory for the prologue at the expense of an additional block
+//!  sync.
+//!
+//! Returns true in first position if using shared memory epilogue won't cause
+//!  the decrease of occupancy ratio. The occupancy ratio is estimated using
+//!  register and shared memory usage.  If ignore_occupancy_drop is set to true,
+//!  returns true if there is enough shared memory to launch the kernel without
+//!  considering the occupancy, useful for debug and validate shared memory
+//!  epilogue implementation.
+//!
+//! Returns true in the second position if reusing shared memory for the
+//!  epilogue does not increase occupancy.
+TORCH_CUDA_CU_API std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
+    const MatMulTileOptions& gemm_tile,
+    const int smem_double_buffer_stage,
+    const RolesMap& roles_map,
+    bool ignore_occupancy_drop = false);
+
+//! This version assumes roles_map has been analyzed to determine smem datatypes
+//! as well as guarantees about prologue smem reuse.
+TORCH_CUDA_CU_API std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
+    const MatMulTileOptions& gemm_tile,
+    const int smem_double_buffer_stage,
+    const MmaDataTypes& data_types,
+    bool smem_a_reuse_guaranteed = false,
+    bool smem_b_reuse_guaranteed = false,
+    bool ignore_occupancy_drop = false);
 
 } // namespace mma_utils
 

@@ -8,12 +8,14 @@
 #pragma once
 
 #include <c10/macros/Export.h>
+#include <exceptions.h>
 
 #include <expr_evaluator.h>
 #include <ir/all_nodes.h>
 #include <ir/cloner.h>
 #include <iter_visitor.h>
 #include <transform_view.h>
+#include <utils.h>
 
 #include <functional>
 #include <memory>
@@ -38,30 +40,45 @@ class TORCH_CUDA_CU_API DynamicTransformInitialInfo {
     return fusion_;
   }
 
-  //! Return whether any dynamic transforms exist in the Fusion
-  bool hasDynamicTransforms() const {
-    return !dynamic_reshapes_.empty() || !dynamic_resizes_.empty();
+  //! Return whether any dynamic transforms exist in the Fusion, or whether
+  //! there are any tensors which could potentially be empty (size-0 extent)
+  //! given some user input. In either of these cases, concretization may change
+  //! the structure of the Fusion.
+  bool isDynamic() const {
+    return hasPossibleEmptyTensor() || !dynamic_reshaped_tvs_.empty() ||
+        !dynamic_resized_ids_.empty();
+  }
+
+  //! Return whether there are any tensors with unknown extent in some
+  //! dimension, so that they might be empty
+  bool hasPossibleEmptyTensor() const {
+    return !maybe_zero_extents_.empty();
   }
 
   //! Return a set of scalars that are inputs or extents of input TensorViews
   //! and that appear in inputs to dynamic expressions. Any Vals not in this
   //! list do not affect concretization.
-  const std::unordered_set<Val*> getRootDynamicVals() const {
+  const std::unordered_set<Val*>& getRootDynamicVals() const {
     return root_dynamic_vals_;
   }
 
-  //! Return a vector of ViewOp expressions that have dynamic output shapes
-  const std::vector<ViewOp*>& getDynamicReshapes() const {
-    return dynamic_reshapes_;
+  //! Return a set of scalars that appear as extents in TensorViews in the
+  //! Fusion. If any of these evaluate to zero, there is at least one empty
+  //! TensorView present.
+  const std::vector<Val*>& getMaybeZeroExtents() const {
+    return maybe_zero_extents_;
   }
 
-  //! Return a vector of Resize expressions that have symbolic output IterTypes
-  const std::vector<Resize*>& getDynamicResizes() const {
-    return dynamic_resizes_;
+  //! Return a vector of outputs of ViewOp expressions that have dynamic output
+  //! shapes
+  const std::vector<TensorView*>& getDynamicReshapedTensorViews() const {
+    return dynamic_reshaped_tvs_;
   }
 
-  const ExpressionEvaluator& getExpressionEvaluator() const {
-    return expr_eval_;
+  //! Return a vector of outputs of Resize expressions that have symbolic output
+  //! IterTypes
+  const std::vector<IterDomain*>& getDynamicResizedIterDomains() const {
+    return dynamic_resized_ids_;
   }
 
   std::string toString() const;
@@ -85,15 +102,24 @@ class TORCH_CUDA_CU_API DynamicTransformInitialInfo {
  private:
   Fusion* fusion_ = nullptr;
 
-  std::vector<ViewOp*> dynamic_reshapes_;
+  // We hold vectors of the _outputs_ of dynamic ops. The reason we don't hold
+  // the ops themselves is that during concretization, the ops will actually be
+  // removed by ir_utils::replaceValInExpr. The outputs will not: their
+  // definitions will merely be altered. When the ops are replaced, if we had
+  // referred to them directly here, we would run into segfaults. Referring only
+  // to the outputs avoids this issue.
+  std::vector<TensorView*> dynamic_reshaped_tvs_;
 
-  std::vector<Resize*> dynamic_resizes_;
+  std::vector<IterDomain*> dynamic_resized_ids_;
+
+  // This is a minimal set of scalars to check for empty tensors. If any are
+  // zero, we should traverse to find empty tensors.
+  std::unordered_set<Val*> maybe_zero_extents_set_;
+  // The set above is populated then used to create this unique vector
+  std::vector<Val*> maybe_zero_extents_;
 
   // Root Vals that determine concretization
   std::unordered_set<Val*> root_dynamic_vals_;
-
-  // ExpressionEvaluator that we use to pre-compute as much as possible
-  ExpressionEvaluator expr_eval_;
 
   friend class DynamicTransformInitialInfoBuilder;
 };
@@ -103,70 +129,86 @@ class TORCH_CUDA_CU_API DynamicTransformInitialInfo {
 class TORCH_CUDA_CU_API DynamicTransformConcretizationInfo {
  public:
   DynamicTransformConcretizationInfo(
-      Fusion* fusion,
-      const DynamicTransformInitialInfo* info,
-      ExpressionEvaluator* expr_eval)
-      : fusion_(fusion) {
-    TORCH_INTERNAL_ASSERT(
-        !fusion->isA<kir::Kernel>(),
-        "Invalid container. Kernel container not allowed.\n");
+      const DynamicTransformInitialInfo* initial_info,
+      ExpressionEvaluator* expr_eval);
 
-    // Make sure all exactly mapped IDs have the same value in the
-    // evaluator when any one of the IDs has a known value
-    expr_eval->propagateBoundValuesThroughExactMaps(fusion);
-
-    analyzeReshapes(info, expr_eval);
-
-    analyzeResizes(info, expr_eval);
+  const std::vector<size_t>& getEmptyExtents() const {
+    return empty_extents_;
   }
 
-  const std::vector<std::pair<TensorView*, AnalyzeViewResult>>&
-  getReshapeTransforms() const {
+  //! Return a vector of pairs holding the index of each reshaped TensorView in
+  //! the vector returned by initialInfo()->getDynamicReshapedTensorViews(),
+  //! along with an AnalyzeViewResult describing how that reshape operation
+  //! should be decomposed into split, merge, squeeze, and broadcast transforms.
+  const std::vector<std::pair<size_t, AnalyzeViewResult>>& getReshapeTransforms()
+      const {
     return reshape_transforms_;
   }
 
-  const std::vector<std::pair<IterDomain*, IterType>>& getResizeTransforms()
-      const {
-    return resize_transforms_;
+  //! Return a vector of pairs holding the index of each resized IterDomain in
+  //! the vector returned by initialInfo()->getDynamicResizedIterDomains(),
+  //! along with the IterType it should be concretized to.
+  const std::vector<std::pair<size_t, IterType>>& getResizeIterTypes() const {
+    return resize_itertypes_;
   }
 
+  //! Comparison operator for the purposes of determining cache hits. This does
+  //! not guarantee equality of all members. Instead, it returns equal if the
+  //! resulting concretizations would be structurally equivalent. Note that
+  //! pointers to Statements may differ between equivalent concretizations due
+  //! to cloning before concretization.
   bool operator==(const DynamicTransformConcretizationInfo& other) const;
 
   bool operator!=(const DynamicTransformConcretizationInfo& other) const {
     return !(*this == other);
   }
 
-  void analyzeReshapes(
-      const DynamicTransformInitialInfo* info,
-      ExpressionEvaluator* expr_eval);
+  //! Given an ExpressionEvaluator which already has input scalars bound to it,
+  //! determine the decomposition of each dynamic reshape operation to use
+  //! during concretization.
+  void analyzeReshapes(ExpressionEvaluator* expr_eval);
 
-  void analyzeResizes(
-      const DynamicTransformInitialInfo* info,
-      ExpressionEvaluator* expr_eval);
+  //! Given an ExpressionEvaluator which already has input scalars bound to it,
+  //! determine the concrete IterType of each resized IterDomain.
+  void analyzeResizes(ExpressionEvaluator* expr_eval);
+
+  const DynamicTransformInitialInfo* initialInfo() const {
+    return initial_info_;
+  }
+
+  void setInitialInfo(const DynamicTransformInitialInfo* initial_info) {
+    initial_info_ = initial_info;
+  }
 
   Fusion* fusion() const {
-    return fusion_;
+    return initial_info_->fusion();
   }
 
   std::string toString() const;
 
   size_t hash() const;
 
-  DynamicTransformConcretizationInfo clone(IrCloner& ir_cloner) const;
+ private:
+  DynamicTransformConcretizationInfo(
+      const DynamicTransformInitialInfo* initial_info)
+      : initial_info_(initial_info) {}
 
  private:
-  DynamicTransformConcretizationInfo(Fusion* fusion) : fusion_(fusion) {}
+  const DynamicTransformInitialInfo* initial_info_ = nullptr;
 
- private:
-  Fusion* fusion_ = nullptr;
+  //! Holds the index of the output TensorView in the vector returned by
+  //! initial_info_->getDynamicReshapedTensorViews(), and the corresponding
+  //! result of analyzeView
+  std::vector<std::pair<size_t, AnalyzeViewResult>> reshape_transforms_;
 
-  // Holds, for each dynamic reshape, the output TensorView, and the result of
-  // analyzeView
-  std::vector<std::pair<TensorView*, AnalyzeViewResult>> reshape_transforms_;
+  //! Holds a vector of indices into initial_info_.getMaybeZeroExtents() which
+  //! evaluate to 0
+  std::vector<size_t> empty_extents_;
 
-  // Holds the resized IterDomain (output of the Resize op) along with the
-  // TensorView where it appears, and its concretized IterType
-  std::vector<std::pair<IterDomain*, IterType>> resize_transforms_;
+  //! Holds the index of the resized IterDomain (output of the Resize op) in the
+  //! vector returned by initial_info_->getDynamicResizedIterDomains() along
+  //! with its concretized IterType
+  std::vector<std::pair<size_t, IterType>> resize_itertypes_;
 
   friend class DynamicTransformInfoBuilder;
 };
@@ -178,25 +220,11 @@ class TORCH_CUDA_CU_API DynamicTransform {
   //! faster concretization once inputs are available.
   static DynamicTransformInitialInfo getInitialInfo(Fusion* fusion);
 
-  //! Get concrete transformations for a symbolic fusion with concrete
-  //! input sizes given through an expression evaluator.
-  static DynamicTransformConcretizationInfo getConcretizationInfo(
-      Fusion* fusion,
-      const DynamicTransformInitialInfo* info,
-      ExpressionEvaluator* expr_eval);
-
-  //! Get concrete transformations for a symbolic fusion with concrete
-  //! input sizes given through kernel arguments
-  static DynamicTransformConcretizationInfo getConcretizationInfo(
-      Fusion* fusion,
-      const DynamicTransformInitialInfo* info,
-      const KernelArgumentHolder* args);
-
   //! Concretizes a given fusion. Note that the concretization is
   //! in-place and the given fusion is modified.
   static void concretizeFusion(
-      Fusion*,
-      const DynamicTransformConcretizationInfo& info);
+      Fusion* fusion,
+      const DynamicTransformConcretizationInfo* info);
 };
 
 } // namespace nvfuser

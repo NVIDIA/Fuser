@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <csrc/exceptions.h>
 #include <device_lower/lower2device.h>
 #include <executor.h>
 #include <fusion.h>
@@ -75,8 +76,8 @@ static auto getLayerBackwardNormRuntime(
   at::Tensor aten_input = at::randn(shape, options);
   at::Tensor aten_weight = at::randn(norm_shape, options);
   at::Tensor aten_bias = at::randn(norm_shape, options);
-  auto at_weight = c10::optional<at::Tensor>(aten_weight);
-  auto at_bias = c10::optional<at::Tensor>(aten_bias);
+  auto at_weight = std::optional<at::Tensor>(aten_weight);
+  auto at_bias = std::optional<at::Tensor>(aten_bias);
 
   const float kEps = 1e-5;
   auto aten_results =
@@ -107,8 +108,7 @@ static void LayerNormBackward_HeuristicLookup(
 
   auto runtime = getLayerBackwardNormRuntime(
       std::move(fusion_ptr), fec, aten_inputs, shape, norm_shape);
-  TORCH_INTERNAL_ASSERT(
-      runtime->getMaybeHeuristicsFor(aten_inputs).has_value());
+  NVF_ERROR(runtime->getMaybeHeuristicsFor(aten_inputs).has_value());
 
   for (auto _ : benchmark_state) {
     // Setup (not included in the measurement)
@@ -125,7 +125,7 @@ static auto getLayerForwardNormRuntime(
   Fusion& fusion = *fusion_ptr.get();
 
   const float kEps = 1e-5;
-  Double* eps_ptr = IrBuilder::create<Double>(kEps);
+  Val* eps_ptr = IrBuilder::create<Val>(kEps);
 
   auto input = makeSymbolicTensor(shape.size());
   fusion.addInput(input);
@@ -160,8 +160,7 @@ static void LayerNormForward_HeuristicLookup(
 
   auto runtime = getLayerForwardNormRuntime(
       std::move(fusion_ptr), fec, aten_inputs, shape, norm_shape);
-  TORCH_INTERNAL_ASSERT(
-      runtime->getMaybeHeuristicsFor(aten_inputs).has_value());
+  NVF_ERROR(runtime->getMaybeHeuristicsFor(aten_inputs).has_value());
 
   for (auto _ : benchmark_state) {
     // Setup (not included in the measurement)

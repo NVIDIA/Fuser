@@ -217,7 +217,7 @@ FindMappedPositions::FindMappedPositions(
   if (reference_pos < 0) {
     reference_pos += int64_t(reference->nDims()) + 1;
   }
-  TORCH_CHECK(
+  NVF_CHECK(
       reference_pos >= 0 && reference_pos <= int64_t(reference->nDims()),
       "Invalid axis received ",
       reference_pos,
@@ -259,7 +259,7 @@ void FindMappedPositions::propagateP2C(TensorView* from, TensorView* to) {
 
 void FindMappedPositions::propagateSibling(TensorView* from, TensorView* to) {
   auto from_pos = output_.at(from);
-  TORCH_CHECK(
+  NVF_CHECK(
       TransformReplay::fullSelfMatching(to, from),
       "Transformations in siblings ",
       from,

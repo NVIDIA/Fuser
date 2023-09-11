@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <debug.h>
 #include <device_lower/lower2device.h>
 #include <expr_evaluator.h>
 #include <instrumentation.h>
@@ -28,6 +29,7 @@ namespace {
 class KernelIrScanner : private IrVisitor {
  public:
   explicit KernelIrScanner(const Kernel* kernel) {
+    index_type_ = kernel->indexType();
     IrVisitor::handle(kernel->topLevelExprs());
     const auto gpu_lower = GpuLower::current();
     for (auto split : gpu_lower->nonDivisibleSplitInfo().splitsToValidate()) {
@@ -42,14 +44,15 @@ class KernelIrScanner : private IrVisitor {
   }
 
  private:
+  using IrVisitor::dispatch;
   using IrVisitor::handle;
-  void handle(Expr* expr) final {
-    IrVisitor::handle(expr);
+  void dispatch(Expr* expr) final {
+    IrVisitor::dispatch(expr);
     for (auto inp : expr->inputs()) {
-      handle(inp);
+      dispatch(inp);
     }
     for (auto out : expr->outputs()) {
-      handle(out);
+      dispatch(out);
     }
   }
   void handle(BlockSync* sync) final {
@@ -79,13 +82,12 @@ class KernelIrScanner : private IrVisitor {
         }
         break;
       default:
-        TORCH_INTERNAL_ASSERT(false, "Unknown memory type to allocate.");
+        NVF_ERROR(false, "Unknown memory type to allocate.");
     }
   }
 
   void handle(RNGOp* rng_op) final {
-    summary_.max_rng_offsets =
-        std::max<int>(summary_.max_rng_offsets, rng_op->getRNGOffset());
+    summary_.has_philox_op = true;
   }
 
   void handle(TensorIndex* tensor_index) final {
@@ -99,7 +101,7 @@ class KernelIrScanner : private IrVisitor {
     if (domain->hasBlockReduction() || domain->hasGridReduction() ||
         tv->getMemoryType() == MemoryType::Shared) {
       const auto data_type = tv->dtype();
-      const size_t type_size = dataTypeSize(data_type);
+      const size_t type_size = dataTypeSize(data_type, index_type_);
       if (type_size > max_smem_type_size_) {
         max_smem_type_size_ = type_size;
         summary_.largest_smem_data_type = data_type;
@@ -109,7 +111,7 @@ class KernelIrScanner : private IrVisitor {
 
   void handle(WelfordOp* welford_op) final {
     summary_.has_welford = true;
-    TORCH_INTERNAL_ASSERT(welford_op->outAvg()->isA<TensorIndex>());
+    NVF_ERROR(welford_op->outAvg()->isA<TensorIndex>());
     auto out_dom = welford_op->outAvg()->as<TensorIndex>()->view()->domain();
     summary_.has_block_welford =
         summary_.has_block_welford || out_dom->hasBlockReduction();
@@ -150,11 +152,11 @@ class KernelIrScanner : private IrVisitor {
       const auto& par_dim_map = GpuLower::current()->parallelDimensionMap();
       auto tidx_val = par_dim_map.get(ParallelType::TIDx);
       auto tidy_val = par_dim_map.get(ParallelType::TIDy);
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           tidx_val->isConstInt(),
           "TIDx is expected to be a const int: ",
           tidx_val->toInlineString());
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           tidy_val->isConstInt(),
           "TIDy is expected to be a const int: ",
           tidy_val->toInlineString());
@@ -187,6 +189,7 @@ class KernelIrScanner : private IrVisitor {
  private:
   size_t max_smem_type_size_ = 0;
   KernelSummary summary_;
+  DataType index_type_;
 };
 
 //! Make sure tensors have valid allocations even when parallelized
@@ -220,14 +223,14 @@ class ValidateAllocation : private OptOutConstDispatch {
   explicit ValidateAllocation(const Kernel* kernel) {
     live_allocations_.emplace_back();
     for (const auto& expr : kernel->topLevelExprs()) {
-      OptOutConstDispatch::handle(expr);
+      OptOutConstDispatch::dispatch(expr);
     }
     live_allocations_.pop_back();
-    TORCH_INTERNAL_ASSERT(live_allocations_.empty());
+    NVF_ERROR(live_allocations_.empty());
   }
 
   void handle(const Allocate* allocate) final {
-    TORCH_INTERNAL_ASSERT(!live_allocations_.empty());
+    NVF_ERROR(!live_allocations_.empty());
     live_allocations_.back().push_back(allocate);
   }
 
@@ -250,14 +253,14 @@ class ValidateAllocation : private OptOutConstDispatch {
             continue;
           }
           if (isParallelTypeThreadDim(loop_id->getParallelType())) {
-            TORCH_INTERNAL_ASSERT(
+            NVF_ERROR(
                 tv->getMemoryType() == MemoryType::Shared ||
                     tv->getMemoryType() == MemoryType::Global,
                 "Tensor t",
                 tv->name(),
                 " must be allocated on SMEM or GMEM.");
           } else if (isParallelTypeBlockDim(loop_id->getParallelType())) {
-            TORCH_INTERNAL_ASSERT(tv->getMemoryType() == MemoryType::Global);
+            NVF_ERROR(tv->getMemoryType() == MemoryType::Global);
           }
         }
       }
@@ -272,17 +275,17 @@ class ValidateAllocation : private OptOutConstDispatch {
 
     live_allocations_.emplace_back();
     for (const auto& expr : for_loop->body().exprs()) {
-      OptOutConstDispatch::handle(expr);
+      OptOutConstDispatch::dispatch(expr);
     }
     live_allocations_.pop_back();
   }
 
   void handle(const IfThenElse* ite) final {
     for (const auto& expr : ite->thenBody().exprs()) {
-      OptOutConstDispatch::handle(expr);
+      OptOutConstDispatch::dispatch(expr);
     }
     for (const auto& expr : ite->elseBody().exprs()) {
-      OptOutConstDispatch::handle(expr);
+      OptOutConstDispatch::dispatch(expr);
     }
   }
 
@@ -294,7 +297,7 @@ class ValidateAllocation : private OptOutConstDispatch {
 
 // TODO(kir): Kernel IR validation
 void Kernel::finalize(std::vector<Expr*> top_level_exprs) {
-  TORCH_INTERNAL_ASSERT(top_level_exprs_.empty());
+  NVF_ERROR(top_level_exprs_.empty());
   top_level_exprs_ = std::move(top_level_exprs);
   warp_padded_parallel_info_ = GpuLower::current()->getWarpPaddedParallelInfo();
   profile_ = GpuLower::current()->profile();
@@ -306,6 +309,11 @@ void Kernel::finalize(std::vector<Expr*> top_level_exprs) {
   summary_.sync_map = GpuLower::current()->syncMap();
   summary_.parallel_dimension_map_ =
       GpuLower::current()->parallelDimensionMap();
+  parameters_ = GpuLower::current()->allKnownVals();
+  parameters_.insert(parameters_.end(), outputs().begin(), outputs().end());
+  for (auto alloc : summary_.global_allocations) {
+    parameters_.push_back(alloc->buffer());
+  }
 }
 
 void Kernel::analyze() {
@@ -316,7 +324,7 @@ void Kernel::analyze() {
 }
 
 void Kernel::print() const {
-  IrPrinter ir_printer(std::cout);
+  IrPrinter ir_printer(debug());
   ir_printer.handle(this);
 }
 
@@ -326,7 +334,7 @@ void Kernel::registerVal(Val* val) {
     return;
   }
   if (val->kernel()) {
-    TORCH_CHECK(
+    NVF_CHECK(
         val->kernel() == this,
         val->toString(),
         " was not found in the active kernel.");
@@ -344,14 +352,14 @@ void Kernel::registerExpr(Expr* expr) {
   }
 
   if (expr->kernel()) {
-    TORCH_CHECK(
+    NVF_CHECK(
         expr->kernel() == this,
         expr->toString(),
         " was not found in the active kernel.");
   }
 
   for (Val* input : expr->inputs()) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         inContainer(input),
         "Input\n",
         input->toString(),
@@ -361,7 +369,7 @@ void Kernel::registerExpr(Expr* expr) {
   }
 
   for (Val* output : expr->outputs()) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         inContainer(output),
         "Output\n",
         output->toString(),
@@ -396,10 +404,10 @@ bool KernelPerformanceProfile::isProfiled(const Expr* expr) const {
   return expr_entry_map_.find(expr) != expr_entry_map_.end();
 }
 
-c10::optional<int> KernelPerformanceProfile::getIndex(const Expr* expr) const {
+std::optional<int> KernelPerformanceProfile::getIndex(const Expr* expr) const {
   auto it = expr_entry_map_.find(expr);
   if (it == expr_entry_map_.end()) {
-    return c10::optional<int>();
+    return std::optional<int>();
   } else {
     return it->second;
   }
@@ -407,8 +415,7 @@ c10::optional<int> KernelPerformanceProfile::getIndex(const Expr* expr) const {
 
 std::array<int, 2> KernelPerformanceProfile::getIndicesInProfileBuffer(
     const Expr* expr) const {
-  TORCH_INTERNAL_ASSERT(
-      isProfiled(expr), "Not a profiled expression: ", expr->toString());
+  NVF_ERROR(isProfiled(expr), "Not a profiled expression: ", expr->toString());
 
   int cycle_index = getIndex(expr).value() * 2;
   int count_index = cycle_index + 1;

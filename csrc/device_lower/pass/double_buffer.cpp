@@ -25,7 +25,7 @@ unsigned int getDoubleBufferAxisPosition(const TensorView* tv) {
   // which defines the loop where prefetching is applied. Therefore,
   // the CA position must be larger than 0.
 
-  TORCH_INTERNAL_ASSERT(tv->getComputeAtPosition() > 0);
+  NVF_ERROR(tv->getComputeAtPosition() > 0);
 
   // Unroll must not exist outside of double-buffer axis
   auto first_unroll_it = std::find_if(
@@ -41,7 +41,7 @@ unsigned int getDoubleBufferAxisPosition(const TensorView* tv) {
   const int unroll_or_ca_pos =
       std::min((int)tv->getComputeAtPosition(), first_unroll_pos);
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       unroll_or_ca_pos > 0,
       "Invalid tensor to double-buffer. Valid double buffer axis not found due to Unroll. ",
       tv->toString());
@@ -56,7 +56,7 @@ unsigned int getDoubleBufferAxisPosition(const TensorView* tv) {
     }
   }
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       valid_pos >= 0,
       "Invalid tensor to double-buffer. Valid double buffer axis not found. ",
       tv->toString());
@@ -74,17 +74,17 @@ void validateDoubleBufferedTensor(const TensorView* tv) {
   // Like vectorization, only LoadStoreOp with another TensorView is
   // considered.
   auto def = tv->definition();
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       def->isA<LoadStoreOp>(),
       "Invalid tensor to double-buffer. Only tensor defined by LoadStoreOp is supported: ",
       def->toString());
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       def->input(0)->isA<TensorView>(),
       "Invalid tensor to double-buffer. Only tensor defined by LoadStoreOp with TensorView is supported: ",
       def->toString());
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       !tv->hasComputeWith(),
       "computeWith is not supported with double buffering: ",
       tv->toString());
@@ -93,7 +93,7 @@ void validateDoubleBufferedTensor(const TensorView* tv) {
   // the double-buffering loop. Otherwise, the producer itself would
   // also need to be double-bufferred.
   auto producer = def->input(0)->as<TensorView>();
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       producer->getComputePosition(tv) <= double_buffer_pos,
       "Invalid tensor to double-buffer. The computeAt position of the producer tensor must be moved left: ",
       producer->toString());
@@ -102,7 +102,7 @@ void validateDoubleBufferedTensor(const TensorView* tv) {
   // are allowed.
   const auto p_mem_type = producer->getMemoryType();
   const auto c_mem_type = tv->getMemoryType();
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       (p_mem_type == MemoryType::Global &&
        (c_mem_type == MemoryType::Shared || c_mem_type == MemoryType::Local)) ||
           (p_mem_type == MemoryType::Shared && c_mem_type == MemoryType::Local),
@@ -134,7 +134,7 @@ class DoubleBufferFusionInspector : private IterVisitor {
       return;
     }
 
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         tv->definition(), "Fusion input shouldn't be double buffered.", tv);
 
     validateDoubleBufferedTensor(tv);
@@ -207,18 +207,20 @@ class DoubleBufferLoopCloner : public kir::IrVisitor {
         double_buffer_loop_->iter_domain());
 
     if (loop_type_ == DoubleBufferLoopStage::Prolog) {
-      TORCH_INTERNAL_ASSERT(start->isZeroInt());
-      stop = SimplifyingIrBuilder::create<Int>(stage_depth - 1);
+      NVF_ERROR(start->isZeroInt());
+      stop = SimplifyingIrBuilder::create<Val>(
+          int64_t(stage_depth - 1), DataType::Index);
     } else if (
         loop_type_ == DoubleBufferLoopStage::Main &&
         requireEpilogue(double_buffer_load_exprs_)) {
       stop = IrBuilder::subExpr(
           double_buffer_loop_->stop(), gpu_lower->kernel()->oneVal());
     } else if (loop_type_ == DoubleBufferLoopStage::Epilog) {
-      TORCH_INTERNAL_ASSERT(requireEpilogue(double_buffer_load_exprs_));
+      NVF_ERROR(requireEpilogue(double_buffer_load_exprs_));
       start = IrBuilder::subExpr(
           double_buffer_loop_->stop(),
-          SimplifyingIrBuilder::create<Int>(stage_depth - 1));
+          SimplifyingIrBuilder::create<Val>(
+              int64_t(stage_depth - 1), DataType::Index));
     }
 
     cloned_top_level_loop_ = IrBuilder::create<kir::ForLoop>(
@@ -254,20 +256,20 @@ class DoubleBufferLoopCloner : public kir::IrVisitor {
   }
 
   void handle(kir::IfThenElse* ite) final {
-    TORCH_INTERNAL_ASSERT(false, "No IfThenElse should exist yet");
+    NVF_ERROR(false, "No IfThenElse should exist yet");
   }
 
-  void handle(Expr* expr) final {
+  void dispatch(Expr* expr) final {
     if (exclude_.count(expr) > 0) {
       return;
     }
 
     if (expr->isA<kir::ForLoop>() || expr->isA<kir::IfThenElse>()) {
-      kir::IrVisitor::handle(expr);
+      kir::IrVisitor::dispatch(expr);
       return;
     }
 
-    TORCH_INTERNAL_ASSERT(!cloned_scopes_.empty());
+    NVF_ERROR(!cloned_scopes_.empty());
 
     if (loop_type_ == DoubleBufferLoopStage::Main) {
       cloned_scopes_.back()->push_back(expr);
@@ -284,7 +286,7 @@ class DoubleBufferLoopCloner : public kir::IrVisitor {
         double_buffer_load_exprs_.end(),
         [out_tv](const auto load_expr) {
           auto double_buffer_tv = ir_utils::getTvOutput(load_expr);
-          TORCH_INTERNAL_ASSERT(double_buffer_tv != nullptr);
+          NVF_ERROR(double_buffer_tv != nullptr);
           return out_tv == double_buffer_tv;
         });
     if ((loop_type_ == DoubleBufferLoopStage::Prolog &&
@@ -323,11 +325,11 @@ class IsDoubleBufferLoadLoop : public kir::IrVisitor {
   using kir::IrVisitor::handle;
 
   bool check(Expr* expr) {
-    handle(expr);
+    dispatch(expr);
     return result_;
   }
 
-  void handle(Expr* expr) final {
+  void dispatch(Expr* expr) final {
     if (result_) {
       return;
     }
@@ -338,7 +340,7 @@ class IsDoubleBufferLoadLoop : public kir::IrVisitor {
       result_ = true;
       return;
     }
-    IrVisitor::handle(expr);
+    IrVisitor::dispatch(expr);
   }
 
  private:
@@ -382,7 +384,7 @@ class DoubleBufferLoopNestInspector : private kir::IrVisitor {
     auto double_buffer_loop =
         gpu_lower->doubleBufferInfo().getDoubleBufferLoop(out_tv, for_loops_);
 
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         double_buffer_loop != nullptr,
         "No double buffer loop found for a double buffered tensor: ",
         out_tv->toString());
@@ -401,15 +403,14 @@ class DoubleBufferLoopNestInspector : private kir::IrVisitor {
   }
 
   static void validateDoubleBufferLoop(kir::ForLoop* loop) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         loop->start()->isZeroInt(), "Unsupported loop: ", loop->toString());
-    TORCH_INTERNAL_ASSERT(
-        loop->step()->isOneInt(), "Unsupported loop: ", loop->toString());
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(loop->step()->isOneInt(), "Unsupported loop: ", loop->toString());
+    NVF_ERROR(
         !loop->vectorize(),
         "Vectorized loop should not be the allocation loop for double-buffered tensor: ",
         loop->toString());
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         !loop->vectorize_shift(),
         "Vectorize shift loop should not be the allocation loop for double-buffered tensor: ",
         loop->toString());
@@ -461,8 +462,8 @@ class DoubleBufferInserter : private kir::ExprMutator {
       : insertion_info_(insertion_info) {
     auto num_double_buffer_loops = insertion_info.size();
     traverseAndInsert(exprs);
-    TORCH_INTERNAL_ASSERT(processed_loop_ != nullptr);
-    TORCH_INTERNAL_ASSERT(insertion_info.size() == num_double_buffer_loops - 1);
+    NVF_ERROR(processed_loop_ != nullptr);
+    NVF_ERROR(insertion_info.size() == num_double_buffer_loops - 1);
   }
 
   using kir::ExprMutator::handle;
@@ -604,7 +605,7 @@ class DoubleBufferInserter : private kir::ExprMutator {
   void insertCpAsyncCommitWaitInMainLoop(
       kir::ForLoop* main_loop,
       const std::vector<Expr*>& loads) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         !main_loop->body().empty(),
         "Double buffer sync insertion: empty main loop.");
     auto& exprs = main_loop->body().exprs();
@@ -625,7 +626,7 @@ class DoubleBufferInserter : private kir::ExprMutator {
         last_double_buffer_load = it;
       }
     }
-    TORCH_INTERNAL_ASSERT(last_double_buffer_load != exprs.end());
+    NVF_ERROR(last_double_buffer_load != exprs.end());
     std::vector<Expr*>::const_iterator commit_it =
         main_loop->body().insert(last_double_buffer_load + 1, cp_async_commit);
 
@@ -676,7 +677,7 @@ bool DoubleBufferInfo::isDoubleBufferedIterDomain(IterDomain* id) {
 }
 
 DoubleBufferInfo::TvInfo& DoubleBufferInfo::getTvInfo(const TensorView* tv) {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       tv->isDoubleBuffered() || tv->isCircularBuffered(),
       "Not a double-buffered tensor: ",
       tv->toString());
@@ -710,7 +711,7 @@ void DoubleBufferInfo::setStageDepth(IterDomain* id, unsigned int stage_depth) {
   if (maybe_exisiting_depth_it == stage_depth_.end()) {
     stage_depth_[concrete_loop_id] = stage_depth;
   } else {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         stage_depth == maybe_exisiting_depth_it->second,
         "Unsupported multiple depth pipelining, was set to ",
         maybe_exisiting_depth_it->second,
@@ -738,8 +739,7 @@ unsigned int DoubleBufferInfo::getStageDepthFor(
 
   auto maybe_depth_it = stage_depth_.find(concrete_id);
 
-  TORCH_INTERNAL_ASSERT(
-      maybe_depth_it != stage_depth_.end(), "Stage depth not found");
+  NVF_ERROR(maybe_depth_it != stage_depth_.end(), "Stage depth not found");
 
   return maybe_depth_it->second;
 }

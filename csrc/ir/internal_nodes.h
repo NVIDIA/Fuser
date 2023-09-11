@@ -8,6 +8,7 @@
 #pragma once
 
 #include <c10/macros/Export.h>
+#include <exceptions.h>
 #include <ir/interface_nodes.h>
 
 #include <fusion.h>
@@ -36,11 +37,6 @@ class ViewTransform;
 class Scope;
 class IrCloner;
 struct AnalyzeViewResult;
-
-//! Returns true if both v1 and v2 are scalars, are the same type of scalars,
-//! and dispatches to the inherited Val type's `->sameAs` call. e.g. if both
-//! vals are `Int` will dispatch to v1->as<Int>()->sameAs(v2.as<Int>())
-bool areEqualScalars(Val* v1, Val* v2);
 
 class TORCH_CUDA_CU_API FullOp : public Expr {
  public:
@@ -82,7 +78,7 @@ class TORCH_CUDA_CU_API SelectOp : public Expr {
   }
 
   int64_t dim() const {
-    return attribute(0)->as<Attribute<int64_t>>()->value;
+    return attribute<int64_t>(0);
   }
 
   IterDomain* getIndexedID() const;
@@ -120,7 +116,7 @@ class TORCH_CUDA_CU_API IndexSelectOp : public Expr {
   IterDomain* getConsumerOfIndexedID() const;
 
   int64_t dim() const {
-    return attribute(0)->as<Attribute<int64_t>>()->value;
+    return attribute<int64_t>(0);
   }
 };
 
@@ -159,7 +155,7 @@ class TORCH_CUDA_CU_API TorchGatherOp : public Expr {
   }
 
   int64_t dim() const {
-    return attribute(0)->as<Attribute<int64_t>>()->value;
+    return attribute<int64_t>(0);
   }
 
   IterDomain* getIndexedID() const;
@@ -167,7 +163,7 @@ class TORCH_CUDA_CU_API TorchGatherOp : public Expr {
   IterDomain* getConsumerOfIndexedID() const;
 
   bool exactSizes() const {
-    return attribute(1)->as<Attribute<bool>>()->value;
+    return attribute<bool>(1);
   }
 };
 
@@ -205,13 +201,13 @@ class TORCH_CUDA_CU_API ScatterOp : public Expr {
   }
 
   int64_t dim() const {
-    return attribute(0)->as<Attribute<int64_t>>()->value;
+    return attribute<int64_t>(0);
   }
 
   IterDomain* getIndexedID() const;
 
   ScatterOpType getScatterOpType() const {
-    return attribute(1)->as<Attribute<ScatterOpType>>()->value;
+    return attribute<ScatterOpType>(1);
   }
 };
 
@@ -281,7 +277,7 @@ class TORCH_CUDA_CU_API EyeOp : public Expr {
   std::string toInlineString(int indent_size = 0) const override;
 
   DataType dtype() const {
-    return attribute(0)->as<Attribute<DataType>>()->value;
+    return attribute<DataType>(0);
   }
 };
 
@@ -303,8 +299,9 @@ class TORCH_CUDA_CU_API UnaryOp : public Expr {
     return "UnaryOp";
   }
 
-  std::vector<EvaluatorValue> evaluate(
-      const std::vector<EvaluatorValue>& inputs) const override;
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
 
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
@@ -317,7 +314,7 @@ class TORCH_CUDA_CU_API UnaryOp : public Expr {
   }
 
   UnaryOpType getUnaryOpType() const {
-    return attribute(0)->as<Attribute<UnaryOpType>>()->value;
+    return attribute<UnaryOpType>(0);
   }
 
  private:
@@ -340,8 +337,9 @@ class TORCH_CUDA_CU_API BinaryOp : public Expr {
     return "BinaryOp";
   }
 
-  std::vector<EvaluatorValue> evaluate(
-      const std::vector<EvaluatorValue>& inputs) const override;
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
 
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
@@ -357,7 +355,7 @@ class TORCH_CUDA_CU_API BinaryOp : public Expr {
   }
 
   BinaryOpType getBinaryOpType() const {
-    return attribute(0)->as<Attribute<BinaryOpType>>()->value;
+    return attribute<BinaryOpType>(0);
   }
 
  private:
@@ -386,8 +384,9 @@ class TORCH_CUDA_CU_API TernaryOp : public Expr {
     return "TernaryOp";
   }
 
-  std::vector<EvaluatorValue> evaluate(
-      const std::vector<EvaluatorValue>& inputs) const override;
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
 
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
@@ -407,7 +406,7 @@ class TORCH_CUDA_CU_API TernaryOp : public Expr {
   }
 
   TernaryOpType getTernaryOpType() const {
-    return attribute(0)->as<Attribute<TernaryOpType>>()->value;
+    return attribute<TernaryOpType>(0);
   }
 
  private:
@@ -417,6 +416,229 @@ class TORCH_CUDA_CU_API TernaryOp : public Expr {
       std::string in1,
       std::string in2,
       std::string in3) const;
+};
+
+// construct an array from a list of values
+class TORCH_CUDA_CU_API ArrayConstruct : public Expr {
+ public:
+  using Expr::Expr;
+
+  ArrayConstruct(IrBuilderPasskey, Val* output, std::vector<Val*> inputs);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "ArrayConstruct";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
+
+  Val* out() const {
+    return output(0);
+  }
+};
+
+class TORCH_CUDA_CU_API ReverseArray : public Expr {
+ public:
+  using Expr::Expr;
+
+  ReverseArray(IrBuilderPasskey, Val* output, Val* input);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "ReverseArray";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
+
+  Val* out() const {
+    return output(0);
+  }
+
+  Val* in() const {
+    return input(0);
+  }
+};
+
+// Get an item from an array, array[index]
+class TORCH_CUDA_CU_API GetItem : public Expr {
+ public:
+  using Expr::Expr;
+
+  GetItem(IrBuilderPasskey, Val* output, Val* array, Val* index);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "GetItem";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
+
+  Val* out() const {
+    return output(0);
+  }
+
+  Val* array() const {
+    return input(0);
+  }
+
+  Val* index() const {
+    return input(1);
+  }
+};
+
+// construct a struct from a list of values
+class TORCH_CUDA_CU_API StructConstruct : public Expr {
+ public:
+  using Expr::Expr;
+
+  StructConstruct(
+      IrBuilderPasskey,
+      Val* output,
+      const std::vector<std::pair<std::string, Val*>>& fields);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "StructConstruct";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
+
+  std::string fieldName(size_t i) const {
+    return attribute<std::string>(i);
+  }
+
+  Val* out() const {
+    return output(0);
+  }
+};
+
+// Get an attribute from a struct, struct.attr
+class TORCH_CUDA_CU_API GetAttr : public Expr {
+ public:
+  using Expr::Expr;
+
+  GetAttr(IrBuilderPasskey, Val* output, Val* struct_, std::string attr);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "GetAttr";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
+
+  Val* out() const {
+    return output(0);
+  }
+
+  Val* struct_() const {
+    return input(0);
+  }
+
+  std::string attr() const {
+    return attribute<std::string>(0);
+  }
+};
+
+// Get an attribute from a struct, struct.attr
+class TORCH_CUDA_CU_API GetMetaData : public Expr {
+ public:
+  using Expr::Expr;
+
+  GetMetaData(IrBuilderPasskey, Val* output, Val* input);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "GetMetaData";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  bool sameAs(const Statement* other) const override {
+    auto other_meta = dynamic_cast<const GetMetaData*>(other);
+    if (other_meta == nullptr) {
+      return false;
+    }
+    // Do not recursively check input, because if we have
+    // T1 = set(T0)
+    // T2 = set(T0)
+    // Then even if T1->sameAs(T2), they should not have the same metadata.
+    // For example, T1 and T2 may be different fusion outputs, so their data
+    // pointers are different.
+    return other_meta->in() == in();
+  }
+
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
+
+  Val* out() const {
+    return output(0);
+  }
+
+  Val* in() const {
+    return input(0);
+  }
+};
+
+// Construct a tensor from an array
+class TORCH_CUDA_CU_API TensorConstruct : public Expr {
+ public:
+  using Expr::Expr;
+
+  TensorConstruct(IrBuilderPasskey, TensorView* output, Val* input);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "TensorConstruct";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
+
+  TensorView* out() const {
+    return output(0)->as<TensorView>();
+  }
+
+  Val* in() const {
+    return input(0);
+  }
 };
 
 //! A specialization for random number generator (RNG) operations. RNG
@@ -430,25 +652,28 @@ class TORCH_CUDA_CU_API RNGOp : public Expr {
     // cppcoreguidelines-pro-type-member-init
     RNGOpType rtype = RNGOpType::Undefined;
     DataType dtype;
-    int rng_offset = 0;
+    size_t num_parameters = 0;
 
     // TODO: Enable the following in C++20:
     // bool operator==(const Attributes &other) const = default;
     bool operator==(const Attributes& other) const {
-      return rtype == other.rtype && dtype == other.dtype &&
-          rng_offset == other.rng_offset;
+      // Note: we do not need to explicitly compare num_parameters since it is
+      // tied to rtype
+      return rtype == other.rtype && dtype == other.dtype;
     }
   };
 
   using Expr::Expr;
 
+  //! Note that if philox_offset is provided, then rng_offset will be ignored.
   RNGOp(
       IrBuilderPasskey,
       RNGOpType type,
       Val* out,
       DataType dtype,
       std::vector<Val*> parameters = {},
-      int rng_offset = 0,
+      Val* philox_seed = nullptr,
+      Val* philox_offset = nullptr,
       Val* philox_index = nullptr);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
@@ -461,27 +686,50 @@ class TORCH_CUDA_CU_API RNGOp : public Expr {
   std::string toInlineString(int indent_size = 0) const override;
 
   RNGOpType getRNGOpType() const {
-    return attribute(0)->as<Attribute<Attributes>>()->value.rtype;
+    return attribute<Attributes>(0).rtype;
   }
 
   DataType dtype() const {
-    return attribute(0)->as<Attribute<Attributes>>()->value.dtype;
+    return attribute<Attributes>(0).dtype;
   }
 
-  int getRNGOffset() const {
-    return attribute(0)->as<Attribute<Attributes>>()->value.rng_offset;
-  }
-
-  void setRNGOffset(int val) {
-    attribute(0)->as<Attribute<Attributes>>()->value.rng_offset = val;
+  size_t getNumParameters() const {
+    return attribute<Attributes>(0).num_parameters;
   }
 
   std::vector<Val*> getParameters() const {
-    return {inputs().begin() + getOutputDims(), inputs().end()};
+    return {
+        inputs().begin() + getOutputDims(),
+        inputs().begin() + (int64_t)(getOutputDims() + getNumParameters())};
   }
 
   std::vector<Val*> getShape() const {
     return {inputs().begin(), inputs().begin() + getOutputDims()};
+  }
+
+  Val* getRNGSeedVal() const {
+    // Note that inputs() consists of:
+    // output dims | parameters | philox seed | philox_offset
+    auto seed_index = getOutputDims() + getNumParameters();
+    return (inputs().size() > seed_index) ? inputs().at(seed_index) : nullptr;
+  }
+
+  Val* getRNGOffsetVal() const {
+    // Note that inputs() consists of:
+    // output dims | parameters | philox seed | philox_offset
+    auto offset_index = getOutputDims() + getNumParameters() + 1;
+    return (inputs().size() > offset_index) ? inputs().at(offset_index)
+                                            : nullptr;
+  }
+
+  bool isDeterministic() const {
+    return inputs().size() == getOutputDims() + getNumParameters() + 2;
+  }
+
+  void setSeedAndOffset(Val* seed, Val* offset) {
+    NVF_ERROR(!isDeterministic());
+    addInput(seed);
+    addInput(offset);
   }
 
   Val* getPhiloxIndex() const {
@@ -517,6 +765,10 @@ class TORCH_CUDA_CU_API BroadcastOp : public Expr {
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
 
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
+
   Val* out() const {
     return output(0);
   }
@@ -535,7 +787,7 @@ class TORCH_CUDA_CU_API BroadcastOp : public Expr {
   //! flags are false because the input tensor may already have
   //! broadcast domains.
   const std::vector<bool>& getBroadcastDimFlags() const {
-    return attribute(0)->as<Attribute<std::vector<bool>>>()->value;
+    return attribute<std::vector<bool>>(0);
   }
 };
 
@@ -564,6 +816,10 @@ class TORCH_CUDA_CU_API SqueezeOp : public Expr {
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
 
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
+
   Val* out() const {
     return output(0);
   }
@@ -582,7 +838,7 @@ class TORCH_CUDA_CU_API SqueezeOp : public Expr {
   //! because the input tensor may have broadcast domains that we don't want to
   //! remove (false flag).
   const std::vector<bool>& getSqueezeDimFlags() const {
-    return attribute(0)->as<Attribute<std::vector<bool>>>()->value;
+    return attribute<std::vector<bool>>(0);
   }
 
   //! Check that squeezed IDs in old_tv concretize to Broadcast IterType
@@ -626,11 +882,11 @@ class TORCH_CUDA_CU_API ReductionOp : public Expr {
   }
 
   BinaryOpType getReductionOpType() const {
-    return attribute(1)->as<Attribute<BinaryOpType>>()->value;
+    return attribute<BinaryOpType>(1);
   }
 
   bool isAllreduce() const {
-    return attribute(2)->as<Attribute<bool>>()->value;
+    return attribute<bool>(2);
   }
 };
 
@@ -682,7 +938,7 @@ class TORCH_CUDA_CU_API GroupedReductionOp : public Expr {
   }
 
   const std::vector<BinaryOpType>& getReductionOpTypes() const {
-    return attribute(0)->as<Attribute<std::vector<BinaryOpType>>>()->value;
+    return attribute<std::vector<BinaryOpType>>(0);
   }
 
   BinaryOpType getReductionOpType(size_t index) const {
@@ -690,7 +946,7 @@ class TORCH_CUDA_CU_API GroupedReductionOp : public Expr {
   }
 
   bool isAllreduce() const {
-    return attribute(1)->as<Attribute<bool>>()->value;
+    return attribute<bool>(1);
   }
 
   //! Return the index of the corresponding reduction expression for
@@ -717,7 +973,7 @@ class TORCH_CUDA_CU_API WelfordTriplet {
   }
 
   TensorView* avgTv() const {
-    TORCH_INTERNAL_ASSERT(avg()->isA<TensorView>());
+    NVF_ERROR(avg()->isA<TensorView>());
     return avg()->as<TensorView>();
   }
 
@@ -730,7 +986,7 @@ class TORCH_CUDA_CU_API WelfordTriplet {
   }
 
   TensorView* varTv() const {
-    TORCH_INTERNAL_ASSERT(var()->isA<TensorView>());
+    NVF_ERROR(var()->isA<TensorView>());
     return var()->as<TensorView>();
   }
 
@@ -743,7 +999,7 @@ class TORCH_CUDA_CU_API WelfordTriplet {
   }
 
   TensorView* NTv() const {
-    TORCH_INTERNAL_ASSERT(N()->isA<TensorView>());
+    NVF_ERROR(N()->isA<TensorView>());
     return N()->as<TensorView>();
   }
 
@@ -767,7 +1023,7 @@ class TORCH_CUDA_CU_API WelfordTriplet {
 
   //! Get the name of a given val in this triplet. None is returned if
   //! not found.
-  c10::optional<ValName> getNameOf(Val* val) const;
+  std::optional<ValName> getNameOf(Val* val) const;
 
   //! Return a new triplet with outputs produced by a function applied
   //! to each of this triplet
@@ -809,7 +1065,7 @@ class TORCH_CUDA_CU_API WelfordTriplet {
 
   //! Convert a given index to a name
   static ValName indexToValName(int index) {
-    TORCH_INTERNAL_ASSERT(index >= 0 && index < 3, "Invalid index: ", index);
+    NVF_ERROR(index >= 0 && index < 3, "Invalid index: ", index);
     return static_cast<ValName>(index);
   }
 
@@ -919,7 +1175,7 @@ class TORCH_CUDA_CU_API WelfordOp : public Expr {
 
   //! True if using the fused reduction kernel (not implemented yet)
   bool isAllreduce() const {
-    return attribute(3)->as<Attribute<bool>>()->value;
+    return attribute<bool>(3);
   }
 
   std::vector<Val*> getInitVals() const;
@@ -1045,7 +1301,7 @@ class TORCH_CUDA_CU_API GroupedWelfordOp : public Expr {
   }
 
   bool isAllreduce() const {
-    return attribute(0)->as<Attribute<bool>>()->value;
+    return attribute<bool>(0);
   }
 };
 
@@ -1108,7 +1364,7 @@ class TORCH_CUDA_CU_API MmaOp : public Expr {
   }
 
   const auto& options() const {
-    return attribute(ATTR_POS_OPTS)->as<Attribute<OptionsInMma>>()->value;
+    return attribute<OptionsInMma>(ATTR_POS_OPTS);
   }
 
   auto accStride() const {
@@ -1118,25 +1374,23 @@ class TORCH_CUDA_CU_API MmaOp : public Expr {
   void configureOptions(MmaOptions options);
 
   auto layout() const {
-    return attribute(ATTR_POS_INPUT_LAYOUT)
-        ->as<Attribute<MmaLayoutOpt>>()
-        ->value;
+    return attribute<MmaLayoutOpt>(ATTR_POS_INPUT_LAYOUT);
   }
 
   const auto& mAxes() const {
-    return attribute(ATTR_POS_M_AXES)->as<Attribute<AxesData>>()->value;
+    return attribute<AxesData>(ATTR_POS_M_AXES);
   }
 
   const auto& nAxes() const {
-    return attribute(ATTR_POS_N_AXES)->as<Attribute<AxesData>>()->value;
+    return attribute<AxesData>(ATTR_POS_N_AXES);
   }
 
   const auto& kAxes() const {
-    return attribute(ATTR_POS_K_AXES)->as<Attribute<AxesData>>()->value;
+    return attribute<AxesData>(ATTR_POS_K_AXES);
   }
 
   const auto& batchAxes() const {
-    return attribute(ATTR_POS_BATCH_AXES)->as<Attribute<AxesData>>()->value;
+    return attribute<AxesData>(ATTR_POS_BATCH_AXES);
   }
 
  private:
@@ -1222,11 +1476,11 @@ class TORCH_CUDA_CU_API ShiftOp : public Expr {
   //! Each of the root axes is shifted by the corresponding value of
   //! offsets. The sign of each value indicates the direction of shifting.
   const std::vector<int>& offsets() const {
-    return attribute(0)->as<Attribute<std::vector<int>>>()->value;
+    return attribute<std::vector<int>>(0);
   }
 
   const std::vector<int>& padWidth() const {
-    return attribute(1)->as<Attribute<std::vector<int>>>()->value;
+    return attribute<std::vector<int>>(1);
   }
 
   bool hasPadding() const {
@@ -1266,7 +1520,7 @@ class TORCH_CUDA_CU_API GatherOp : public Expr {
 
   //! Shape of a window gathered for each element.
   const auto& windowShape() const {
-    return attribute(0)->as<Attribute<std::vector<int>>>()->value;
+    return attribute<std::vector<int>>(0);
   }
 
   //! Returns the gather axis that corresponds to an input axis
@@ -1274,7 +1528,7 @@ class TORCH_CUDA_CU_API GatherOp : public Expr {
 
   //! The size of zero-padding of each axis.
   const auto& padWidth() const {
-    return attribute(1)->as<Attribute<std::vector<std::vector<int>>>>()->value;
+    return attribute<std::vector<std::vector<int>>>(1);
   }
 
   bool hasPadding() const {
@@ -1288,12 +1542,7 @@ class TORCH_CUDA_CU_API ViewAsScalar : public Expr {
  public:
   using Expr::Expr;
 
-  ViewAsScalar(
-      IrBuilderPasskey,
-      Val* out,
-      Val* in,
-      IterDomain* vector_id,
-      Val* index = nullptr);
+  ViewAsScalar(IrBuilderPasskey, Val* out, Val* in, IterDomain* vector_id);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
@@ -1315,11 +1564,6 @@ class TORCH_CUDA_CU_API ViewAsScalar : public Expr {
   // The IterDomain of type VectorComponent newly appended to the output
   IterDomain* vector_id() const {
     return attribute(0)->as<IterDomain>();
-  }
-
-  // The index that vector_id_ is lowered into
-  Val* index() const {
-    return attributeVal(1);
   }
 };
 
@@ -1365,8 +1609,9 @@ class TORCH_CUDA_CU_API LoadStoreOp : public Expr {
     return "LoadStoreOp";
   }
 
-  std::vector<EvaluatorValue> evaluate(
-      const std::vector<EvaluatorValue>& inputs) const override;
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
 
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
@@ -1380,13 +1625,13 @@ class TORCH_CUDA_CU_API LoadStoreOp : public Expr {
   }
 
   LoadStoreOpType opType() const {
-    return attribute(0)->as<Attribute<LoadStoreOpType>>()->value;
+    return attribute<LoadStoreOpType>(0);
   }
 
-  bool hasTranspose() const;
+  bool hasInnerTranspose() const;
 
   void setOpType(LoadStoreOpType op) {
-    attribute(0)->as<Attribute<LoadStoreOpType>>()->value = op;
+    attribute<LoadStoreOpType>(0) = op;
   }
 };
 
@@ -1435,20 +1680,20 @@ class TORCH_CUDA_CU_API Split : public Expr {
   }
 
   bool innerSplit() const {
-    return attribute(1)->as<Attribute<bool>>()->value;
+    return attribute<bool>(1);
   }
 
   //! Start position of the input domain. Non-zero means partial
   //! split. Elements until this offset are ignored.
   Val* startOffset() const {
-    TORCH_INTERNAL_ASSERT(attributeVal(2) != nullptr);
+    NVF_ERROR(attributeVal(2) != nullptr);
     return attributeVal(2);
   }
 
   //! Offset from extent of the input domain. Non-zero means partial
   //! split. Elements after this offset are ignored.
   Val* stopOffset() const {
-    TORCH_INTERNAL_ASSERT(attributeVal(3) != nullptr);
+    NVF_ERROR(attributeVal(3) != nullptr);
     return attributeVal(3);
   }
 
@@ -1535,7 +1780,7 @@ class TORCH_CUDA_CU_API Swizzle2D : public Expr {
   // The type of predefined 1-to-1 functions
   //  used for swizzling math.
   auto swizzleType() const {
-    return attribute(0)->as<Attribute<Swizzle2DType>>()->value;
+    return attribute<Swizzle2DType>(0);
   }
 
   // Swizzle mode of this swizzle instance.
@@ -1580,7 +1825,7 @@ class TORCH_CUDA_CU_API Swizzle2D : public Expr {
   //  TODO: Loop swizzles eventually will be piped through in all mappings
   //  and replay of the fusion IR infrastructure.
   auto swizzleMode() const {
-    return attribute(1)->as<Attribute<SwizzleMode>>()->value;
+    return attribute<SwizzleMode>(1);
   }
 };
 
@@ -1654,12 +1899,6 @@ class TORCH_CUDA_CU_API NamedScalar : public Val {
     return name_;
   }
 
-  //! Check if this is something like T0.size[1]
-  bool isTensorSize() const;
-
-  //! Check if this is something like T0.stride[1]
-  bool isTensorStride() const;
-
   //! Check if this is threadIdx.{x,y,z}
   bool isThreadIdx() const {
     auto p = getParallelIndex();
@@ -1702,11 +1941,11 @@ class TORCH_CUDA_CU_API NamedScalar : public Val {
 
   //! Return the parallel type of this NamedScalar if it is an extent of a
   //! parallel dimension
-  c10::optional<ParallelType> getParallelDim() const;
+  std::optional<ParallelType> getParallelDim() const;
 
   //! Return the parallel type of this NamedScalar if it is an index of a
   //! parallel dimension
-  c10::optional<ParallelType> getParallelIndex() const;
+  std::optional<ParallelType> getParallelIndex() const;
 
  private:
   std::string name_;
@@ -1736,6 +1975,10 @@ class TORCH_CUDA_CU_API PadOp : public Expr {
 
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
+
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
 
   Val* out() const {
     return output(0);
@@ -1838,7 +2081,7 @@ class TORCH_CUDA_CU_API CatOp : public Expr {
       IrBuilderPasskey passkey,
       Val* out,
       const std::vector<Val*>& inputs,
-      int concatenated_dim);
+      int64_t concatenated_dim);
 
   //! Create a cat op with the index and predicates for codegen. Only
   //! used for the Kernel container
@@ -1846,9 +2089,9 @@ class TORCH_CUDA_CU_API CatOp : public Expr {
       IrBuilderPasskey passkey,
       Val* out,
       const std::vector<Val*>& inputs,
-      int concatenated_dim,
+      int64_t concatenated_dim,
       Val* concatenated_domain_index,
-      const std::vector<Bool*>& preds);
+      const std::vector<Val*>& preds);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
@@ -1859,8 +2102,8 @@ class TORCH_CUDA_CU_API CatOp : public Expr {
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
 
-  int concatenatedDim() const {
-    return attribute(0)->as<Attribute<int>>()->value;
+  int64_t concatenatedDim() const {
+    return attribute<int64_t>(0);
   }
 
   //! The index val that determines which input tensor should be used
@@ -1871,7 +2114,7 @@ class TORCH_CUDA_CU_API CatOp : public Expr {
   //! Gets a Bool indicating if the input tensor specified by
   //! tensor_idx should be used to fill the output tensor. Only valid
   //! with the Kernel container
-  Bool* getPred(int input_idx) const;
+  Val* getPred(int input_idx) const;
 };
 
 } // namespace nvfuser

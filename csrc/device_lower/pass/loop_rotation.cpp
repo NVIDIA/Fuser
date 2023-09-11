@@ -5,11 +5,13 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <debug.h>
 #include <device_lower/pass/loop_rotation.h>
 #include <device_lower/utils.h>
 #include <ir/all_nodes.h>
 #include <ir/utils.h>
 #include <kernel_ir_dispatch.h>
+#include <options.h>
 
 #include <device_lower/lower2device.h>
 #include <functional>
@@ -23,7 +25,7 @@ namespace {
 // Clone an expr, if this expr is a container (ForLoop, IfThenElse), then
 // recursively clone all exprs in its scope.
 Expr* recursivelyClone(Expr* expr) {
-  TORCH_INTERNAL_ASSERT(expr != nullptr);
+  NVF_ERROR(expr != nullptr);
   if (auto fl = dynamic_cast<kir::ForLoop*>(expr)) {
     auto new_loop = IrBuilder::create<kir::ForLoop>(fl);
     for (auto e : fl->body().exprs()) {
@@ -37,8 +39,7 @@ Expr* recursivelyClone(Expr* expr) {
     // we only want to rotate the loop in the unswitch path?). We should be
     // definitely revisit how to deal with this ite->predicate() if this is the
     // case.
-    TORCH_INTERNAL_ASSERT(
-        false, "Don't expect to see IfThenElse in loop rotation pass.");
+    NVF_ERROR(false, "Don't expect to see IfThenElse in loop rotation pass.");
     auto new_ite = IrBuilder::create<kir::IfThenElse>(ite->predicate());
     for (auto e : ite->thenBody().exprs()) {
       new_ite->thenBody().push_back(recursivelyClone(e));
@@ -130,7 +131,7 @@ class RotateLoop : kir::ExprMutator {
   //   then the container is automatically selected.
   // This function modifies selection_ to implement this strategy
   void expandSelection(Expr* expr) {
-    TORCH_INTERNAL_ASSERT(expr != nullptr);
+    NVF_ERROR(expr != nullptr);
     for (auto fl : for_loops_) {
       if (fl->iter_domain() != loop_concrete_id_) {
         continue;
@@ -212,7 +213,7 @@ class RotateLoop : kir::ExprMutator {
      public:
       bool operator()(Expr* expr) {
         result_ = true;
-        handle(expr);
+        dispatch(expr);
         return result_;
       }
 
@@ -221,7 +222,7 @@ class RotateLoop : kir::ExprMutator {
      private:
       using kir::IrVisitor::handle;
 
-      void handle(Expr* expr) final {
+      void dispatch(Expr* expr) final {
         if (!result_) {
           return;
         }
@@ -237,7 +238,7 @@ class RotateLoop : kir::ExprMutator {
             return;
           }
         }
-        IrVisitor::handle(expr);
+        IrVisitor::dispatch(expr);
       }
 
      private:
@@ -305,8 +306,8 @@ class RotateLoop : kir::ExprMutator {
   //   }
   void rotate(kir::ForLoop* fl) {
     if (isDebugDumpEnabled(DebugDumpOption::LoopRotation)) {
-      std::cout << "[Loop rotation] Rotating loop:" << std::endl
-                << fl->toString() << std::endl;
+      debug() << "[Loop rotation] Rotating loop:" << std::endl
+              << fl->toString() << std::endl;
     }
     // Insert selected allocations and `prologue` before `fl`, and replace `fl`
     // with `rotated`
@@ -330,7 +331,7 @@ class RotateLoop : kir::ExprMutator {
     }
     if (prologue->empty()) {
       if (isDebugDumpEnabled(DebugDumpOption::LoopRotation)) {
-        std::cout << "[Loop rotation] Nothing to do." << std::endl;
+        debug() << "[Loop rotation] Nothing to do." << std::endl;
       }
       return;
     }
@@ -343,8 +344,8 @@ class RotateLoop : kir::ExprMutator {
     }
     registerInsertBefore(fl, prologue);
     if (isDebugDumpEnabled(DebugDumpOption::LoopRotation)) {
-      std::cout << "[Loop rotation] Prologue:" << std::endl
-                << prologue->toString() << std::endl;
+      debug() << "[Loop rotation] Prologue:" << std::endl
+              << prologue->toString() << std::endl;
     }
     // main
     auto rotated = IrBuilder::create<kir::IfThenElse>(
@@ -359,8 +360,8 @@ class RotateLoop : kir::ExprMutator {
     }
     main->body().push_back(rotated);
     if (isDebugDumpEnabled(DebugDumpOption::LoopRotation)) {
-      std::cout << "[Loop rotation] Main:" << std::endl
-                << main->toString() << std::endl;
+      debug() << "[Loop rotation] Main:" << std::endl
+              << main->toString() << std::endl;
     }
     registerReplace(fl, main);
   }
@@ -372,14 +373,14 @@ class RotateLoop : kir::ExprMutator {
     expandSelection(fl);
     auto id = fl->iter_domain();
     if (id == loop_concrete_id_) {
-      TORCH_CHECK(
+      NVF_CHECK(
           validateSelection(fl), "Unable to rotate loop ", fl->toString());
       rotate(fl);
     }
   }
 
-  void handle(Expr* expr) final {
-    ExprMutator::handle(expr);
+  void dispatch(Expr* expr) final {
+    ExprMutator::dispatch(expr);
     expandSelection(expr);
   }
 };

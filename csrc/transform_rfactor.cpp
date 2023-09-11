@@ -62,13 +62,13 @@ class ReplayRFactor : public ReplayTransformations {
       IterDomain* replace1,
       IterDomain* with0,
       IterDomain* with1) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         with0 != nullptr,
         "The first provided IterDomain should be a real pointer,",
         " the second iter domain provided can be a nullptr.");
     auto pos =
         std::find(rfactor_domain_.begin(), rfactor_domain_.end(), replace0);
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         pos != rfactor_domain_.end(),
         "Could not find iter domain: ",
         replace0->toString(),
@@ -82,7 +82,7 @@ class ReplayRFactor : public ReplayTransformations {
     rfactor_domain_.erase(pos);
     if (replace1 != nullptr) {
       pos = std::find(rfactor_domain_.begin(), rfactor_domain_.end(), replace1);
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           pos != rfactor_domain_.end(),
           "Wanted to replace ",
           replace1->toString(),
@@ -98,13 +98,13 @@ class ReplayRFactor : public ReplayTransformations {
     // Grab our mapping of that ID to the one we're replaying
     auto it = id_map_.find(id_in);
     // Make sure it exists in the map
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         it != id_map_.end(),
         "Transform traversal failed, dependencies not met.");
     // Grab the ID we're going to replay on
     auto mapped = (*it).second;
     // This ID should be a leaf ID (meaning it has no uses we generated)
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         leaf_ids_.find(mapped) != leaf_ids_.end(),
         "Transform traversal failed, modified a node but it was not a leaf node.");
 
@@ -124,7 +124,7 @@ class ReplayRFactor : public ReplayTransformations {
     IterDomain* ido =
         IterDomainBuilder(
             s->container()->zeroVal(),
-            s->innerSplit() ? remainder->as<Int>() : s->factor())
+            s->innerSplit() ? remainder : s->factor())
             .iter_type(
                 rfactor_axes_.count(s->outer()) ? IterType::Reduction
                                                 : IterType::Iteration)
@@ -135,7 +135,7 @@ class ReplayRFactor : public ReplayTransformations {
     IterDomain* idi =
         IterDomainBuilder(
             s->container()->zeroVal(),
-            s->innerSplit() ? s->factor() : remainder->as<Int>())
+            s->innerSplit() ? s->factor() : remainder)
             .iter_type(
                 rfactor_axes_.count(s->inner()) ? IterType::Reduction
                                                 : IterType::Iteration)
@@ -166,14 +166,14 @@ class ReplayRFactor : public ReplayTransformations {
     auto id_inner = m->inner();
     auto it_outer = id_map_.find(id_outer);
     auto it_inner = id_map_.find(id_inner);
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         it_outer != id_map_.end() && it_inner != id_map_.end(),
         "Transform traversal failed, dependencies not met.");
 
     auto id_outer_mapped = (*it_outer).second;
     auto id_inner_mapped = (*it_inner).second;
 
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         leaf_ids_.find(id_outer_mapped) != leaf_ids_.end() &&
             leaf_ids_.find(id_inner_mapped) != leaf_ids_.end(),
         "Transform traversal failed, modified ",
@@ -186,7 +186,7 @@ class ReplayRFactor : public ReplayTransformations {
         mul(id_outer_mapped->extent(), id_inner_mapped->extent());
 
     IterDomain* merged_id =
-        IterDomainBuilder(m->container()->zeroVal(), merged_id_size->as<Int>())
+        IterDomainBuilder(m->container()->zeroVal(), merged_id_size)
             .iter_type(
                 rfactor_axes_.count(m->out()) ? IterType::Reduction
                                               : IterType::Iteration)
@@ -209,7 +209,7 @@ class ReplayRFactor : public ReplayTransformations {
     // rfactor indicating this transofrmation is static.
     if (static_rfactor_ids_.count(m->inner()) ||
         static_rfactor_ids_.count(m->outer())) {
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           static_rfactor_ids_.count(m->inner()) ==
               static_rfactor_ids_.count(m->outer()),
           "If one input to a merge is a static rfactor id, the other must be as well.");
@@ -218,12 +218,11 @@ class ReplayRFactor : public ReplayTransformations {
   }
 
   void handle(Resize* resize) override {
-    TORCH_INTERNAL_ASSERT(false, "Unexpected expression: ", resize->toString());
+    NVF_ERROR(false, "Unexpected expression: ", resize->toString());
   }
 
   void handle(Swizzle2D* swizzle) override {
-    TORCH_INTERNAL_ASSERT(
-        false, "Unexpected expression: ", swizzle->toString());
+    NVF_ERROR(false, "Unexpected expression: ", swizzle->toString());
   }
 
   // The IterDomains in the original_domain that are being factored into the
@@ -266,13 +265,13 @@ std::pair<TensorDomain*, TensorDomain*> TransformRFactor::runReplay(
     std::vector<int> axes) {
   FUSER_PERF_SCOPE("TransformRFactor::runReplay");
 
-  TORCH_CHECK(!axes.empty(), "No axes provided to rfactor replay.");
+  NVF_CHECK(!axes.empty(), "No axes provided to rfactor replay.");
 
   int ndims = (int)original_td->nDims();
 
   // Adjust and check provided axes
   std::transform(axes.begin(), axes.end(), axes.begin(), [ndims](int i) {
-    TORCH_CHECK(
+    NVF_CHECK(
         i >= -ndims && i < ndims,
         "Rfactor replay received an axis outside the number of dims in the tensor, acceptable inclusive range is ",
         -ndims,
@@ -284,7 +283,7 @@ std::pair<TensorDomain*, TensorDomain*> TransformRFactor::runReplay(
   // remove duplicates, and put into a set for searching
   std::unordered_set<int> axes_set(axes.begin(), axes.end());
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       std::all_of(
           axes_set.begin(),
           axes_set.end(),
@@ -309,7 +308,7 @@ std::pair<TensorDomain*, TensorDomain*> TransformRFactor::runReplay(
     }
   }
 
-  TORCH_CHECK(
+  NVF_CHECK(
       found_non_rfactor_reduction,
       "Must have at least one reduction axis not marked as rfactor.");
 
@@ -324,7 +323,7 @@ std::pair<TensorDomain*, TensorDomain*> TransformRFactor::runReplay(
   std::unordered_set<IterDomain*> rfactor_root_axes(
       rfactor_root_ids.begin(), rfactor_root_ids.end());
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       std::none_of(
           rfactor_root_ids.begin(),
           rfactor_root_ids.end(),
@@ -388,7 +387,7 @@ std::pair<TensorDomain*, TensorDomain*> TransformRFactor::runReplay(
     for (auto i : c10::irange(original_td->nDims())) {
       auto orig_id = original_td->axis((int)i);
       auto replayed_id_it = original_to_producer_id_map.find(orig_id);
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           replayed_id_it != original_to_producer_id_map.end(),
           "Error during rfactor replay, missing an axis.");
       auto replayed_id = replayed_id_it->second;
@@ -410,7 +409,7 @@ std::pair<TensorDomain*, TensorDomain*> TransformRFactor::runReplay(
       std::back_inserter(new_producer_rfactor_domain),
       [&](IterDomain* id) {
         auto replayed_id_it = original_to_producer_id_map.find(id);
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             replayed_id_it != original_to_producer_id_map.end(),
             "Error during rfactor replay, missing an axis.");
         return replayed_id_it->second;
@@ -439,7 +438,7 @@ std::pair<TensorDomain*, TensorDomain*> TransformRFactor::runReplay(
       continue;
     }
     auto p2o_it = producer_to_original_map.find(p_root_id);
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         p2o_it != producer_to_original_map.end(),
         "Missing mapping from original tensor domain to producer tensor domain.");
     auto original_id = p2o_it->second;
