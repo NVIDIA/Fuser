@@ -457,15 +457,8 @@ void DynamicTransformConcretizer::concretize() {
       /*traverse_members*/ true,
       /*traverse_attributes*/ true,
       /*traverse_siblings*/ true);
-  for (auto stmt : all_stmts) {
-    if (auto op = dynamic_cast<Expr*>(stmt);
-        stmt->isA<IterDomain>() || (op && op->output(0)->isA<IterDomain>())) {
-      // IterDomain transforms can be traversed in an order that is inconvenient
-      // for us. For this reason, we will explicitly mutate IterDomains and
-      // their transforms when we mutate their associated TensorViews.
-      continue;
-    }
-    OptOutMutator::dispatchMutate(stmt);
+  for (auto tv : ir_utils::filterByType<TensorView>(all_stmts)) {
+    mutate(tv);
   }
 }
 
