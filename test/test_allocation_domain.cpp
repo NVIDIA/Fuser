@@ -607,18 +607,6 @@ TEST_F(AllocationDomainTest, NHWC2d_To_NHWC2d_CUDA) {
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
-void compareDomainExtents(
-    const std::vector<IterDomain*>& a,
-    const std::vector<IterDomain*>& b) {
-  ASSERT_EQ(a.size(), b.size());
-
-  // cacheBefore will clone each of these IterDomains when it recomputes the
-  // original TV. So we just check here that the extents match.
-  for (const auto i : c10::irange(a.size())) {
-    ASSERT_EQ(a.at(i)->extent(), b.at(i)->extent());
-  }
-};
-
 // Similar to NHWC4d_To_NHWC4d_CUDA, but does a cacheBefore
 TEST_F(AllocationDomainTest, NHWC4d_To_NHWC4d_cacheBefore_CUDA) {
   auto fusion_ptr = std::make_unique<Fusion>();
@@ -643,10 +631,9 @@ TEST_F(AllocationDomainTest, NHWC4d_To_NHWC4d_cacheBefore_CUDA) {
   std::vector<IterDomain*> expected_new_allocation_domain{
       tv1->axis(0), tv1->axis(2), tv1->axis(3), tv1->axis(1)};
 
-  compareDomainExtents(tv0->getAllocationDomain(), tv0_nhwc);
-  compareDomainExtents(
-      tv1->getAllocationDomain(), expected_new_allocation_domain);
-  compareDomainExtents(tv2->getAllocationDomain(), tv1_nhwc);
+  ASSERT_EQ(tv0->getAllocationDomain(), tv0_nhwc);
+  ASSERT_EQ(tv1->getAllocationDomain(), expected_new_allocation_domain);
+  ASSERT_EQ(tv2->getAllocationDomain(), tv1_nhwc);
 
   for (auto tv : {tv1, tv2}) {
     // [N, C, H, W]
@@ -731,10 +718,9 @@ TEST_F(AllocationDomainTest, NHWC2d_To_NHWC2d_cacheBefore_CUDA) {
   std::vector<IterDomain*> expected_new_allocation_domain{
       tv1->axis(0), tv1->axis(1)};
 
-  compareDomainExtents(tv0->getAllocationDomain(), tv0_2d);
-  compareDomainExtents(
-      tv1->getAllocationDomain(), expected_new_allocation_domain);
-  compareDomainExtents(tv2->getAllocationDomain(), tv1_2d);
+  ASSERT_EQ(tv0->getAllocationDomain(), tv0_2d);
+  ASSERT_EQ(tv1->getAllocationDomain(), expected_new_allocation_domain);
+  ASSERT_EQ(tv2->getAllocationDomain(), tv1_2d);
 
   for (auto tv : {tv1, tv2}) {
     tv->split(0, 128);
