@@ -416,8 +416,6 @@ void FusionExecutor::compileFusion(
       compile_params,
       block_size,
       save_compiled_binary_ || isDebugDumpEnabled(DebugDumpOption::Sass));
-  std::cerr << "[jingyue] ptx size = " << compiled_kernel_.ptx.size() << std::endl;
-  std::cerr << "[jingyue] cubin size = " << compiled_kernel_.cubin.size() << std::endl;
   NVF_ERROR(fusion_id_ > 0, "failed to assign a fusion_id_ after compilation.");
 
   // These should be nullopt at this point, but reset just in case
