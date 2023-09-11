@@ -1121,54 +1121,61 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType cache_op) {
         "Potentially invalid computeAt and caching detected. Apply caching before computeAt.");
   }
 
-  auto this_producer = RecomputeTv::recompute(this, definition()->inputs());
-  // copy outputs since definition might be removed in loop
-  const auto orig_outputs = definition()->outputs();
+  // Create Producer Domain
+  // This domain will be the consumer which needs a new domain, so replace the
+  // producers domain with this domain.
 
-  // Connect all recomputed siblings to original siblings
-  for (const auto j : c10::irange(orig_outputs.size())) {
-    // Recomputed sibling TV
-    auto producer_val = this_producer->definition()->outputs().at(j);
-    // Corresponding original sibling TV
-    auto consumer_val = orig_outputs.at(j);
+  TensorView* producer = IrBuilder::create<TensorView>(
+      container(),
+      IrBuilder::create<TensorDomain>(
+          container(),
+          getRootDomain(),
+          getRFactorDomain(),
+          getAllocationDomain(),
+          getLeafDomain(),
+          getContiguity()),
+      getDataType().value());
 
-    NVF_ERROR(
-        producer_val->isA<TensorView>() && consumer_val->isA<TensorView>());
-    auto producer = producer_val->as<TensorView>();
-    auto consumer = consumer_val->as<TensorView>();
+  // Set domain of consumer
+  TensorView* consumer = this;
 
-    producer->setMemoryType(MemoryType::Local);
-
-    // Set domain of consumer
-    size_t i = 0;
-    auto no_reduction_root_domain =
-        TensorDomain::noReductions(getMaybeRFactorDomain());
-    std::vector<IterDomain*> new_root_domain(no_reduction_root_domain.size());
-    for (const auto& dom : no_reduction_root_domain) {
-      new_root_domain[i++] = dom->cloneWithoutRFactor();
-    }
-
-    // Warning: allocation domain is temporarily discarded. It will be recovered
-    // later.
-    consumer->setDomain(IrBuilder::create<TensorDomain>(
-        container(),
-        new_root_domain,
-        TensorDomain::getContiguityFilledWith(new_root_domain, true)));
-
-    // Insert producer - Cache_Before (CB) - before this TV.
-    // Before: Prev TV -> [Definition Op] -> This TV
-    // After:  Prev TV -> [Definition Op] -> New CB TV -> [Set Op] -> This TV
-
-    // definition_ is now the above LoadStoreOp
-    IrBuilder::create<LoadStoreOp>(container(), cache_op, consumer, producer);
-
-    auto replayed_consumer_pair = TransformReplay::replayCasP(
-        consumer, producer, -1, TransformReplayOptions().replayAllocation());
-
-    consumer->setDomain(replayed_consumer_pair.first);
+  size_t i = 0;
+  auto no_reduction_root_domain =
+      TensorDomain::noReductions(getMaybeRFactorDomain());
+  std::vector<IterDomain*> new_root_domain(no_reduction_root_domain.size());
+  for (const auto& dom : no_reduction_root_domain) {
+    new_root_domain[i++] = dom->cloneWithoutRFactor();
   }
 
-  return this_producer;
+  // Warning: allocation domain is temporarily discarded. It will be recovered
+  // later.
+  consumer->setDomain(IrBuilder::create<TensorDomain>(
+      container(),
+      new_root_domain,
+      TensorDomain::getContiguityFilledWith(new_root_domain, true)));
+
+  // Insert producer - Cache_Before (CB) - before this TV.
+  // Before: Prev TV -> [Definition Op] -> This TV
+  // After:  Prev TV -> [Definition Op] -> New CB TV -> [Set Op] -> This TV
+
+  std::vector<Val*> replaced_siblings;
+  replaced_siblings.reserve(definition()->outputs().size());
+  for (auto outp : definition()->outputs()) {
+    replaced_siblings.push_back(outp == this ? producer : outp);
+  }
+  ir_utils::transferDefinitionToNewOutputs(definition(), replaced_siblings);
+
+  IrBuilder::create<LoadStoreOp>(container(), cache_op, consumer, producer);
+
+  // definition_ is no longer valid
+  // setDefinition(nullptr);
+
+  auto replayed_consumer_pair = TransformReplay::replayCasP(
+      consumer, producer, -1, TransformReplayOptions().replayAllocation());
+
+  consumer->setDomain(replayed_consumer_pair.first);
+
+  return producer;
 }
 
 TensorView* TensorView::cacheFork() {
