@@ -104,7 +104,7 @@ bool starts_with(std::string_view self, std::string_view __s) noexcept {
 
 } // namespace
 
-std::string Instruction::predicate() {
+std::string Instruction::predicate() const {
   if (str[0] == '@') {
     std::stringstream ss(str);
     char ignore_at = '\0';
@@ -115,7 +115,7 @@ std::string Instruction::predicate() {
   return {};
 }
 
-std::string Instruction::action() {
+std::string Instruction::action() const {
   std::string result;
   std::stringstream ss(str);
   if (str[0] == '@') {
@@ -126,14 +126,14 @@ std::string Instruction::action() {
   return result;
 }
 
-std::string Instruction::op() {
+std::string Instruction::op() const {
   std::stringstream ss(action());
   std::string result;
   ss >> result;
   return result;
 }
 
-std::string Instruction::opCode() {
+std::string Instruction::opCode() const {
   std::string result;
   for (auto i : op()) {
     if (i == '.') {
@@ -144,7 +144,7 @@ std::string Instruction::opCode() {
   return result;
 }
 
-std::vector<std::string> Instruction::args() {
+std::vector<std::string> Instruction::args() const {
   std::stringstream ss(action());
   std::string all_args;
   ss >> all_args; // discard
@@ -166,7 +166,7 @@ std::vector<std::string> Instruction::args() {
   return result;
 }
 
-std::vector<std::string> Instruction::modifiers() {
+std::vector<std::string> Instruction::modifiers() const {
   std::vector<std::string> result;
   std::string current;
   bool found_opcode = false;
