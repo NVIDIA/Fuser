@@ -2427,7 +2427,7 @@ TEST_F(ResizeTest, Slice1DVectorizeManual1) {
   FusionGuard fg(fusion_ptr.get());
 
   const int64_t slice_offset = 4;
-  const std::vector<int64_t> shape({1024 * 1024});
+  const std::vector<int64_t> shape({1024L * 1024L});
 
   // Using a concrete tensor to avoid dynamic reshape
   auto tv0 = makeContigConcreteTensor(shape);
@@ -2466,7 +2466,7 @@ TEST_F(ResizeTest, Slice1DVectorizeManual2) {
   FusionGuard fg(fusion_ptr.get());
 
   const int64_t slice_offset = 4;
-  const std::vector<int64_t> shape({1024 * 1024});
+  const std::vector<int64_t> shape({1024L * 1024L});
 
   auto tv0 = makeContigConcreteTensor(shape);
   fusion.addInput(tv0);
@@ -2522,7 +2522,7 @@ TEST_F(ResizeTest, Slice1DVectorizeManual3) {
   FusionGuard fg(fusion_ptr.get());
 
   const int64_t slice_offset = 4;
-  const std::vector<int64_t> shape({1024 * 1024});
+  const std::vector<int64_t> shape({1024L * 1024L});
 
   auto tv0 = makeContigConcreteTensor(shape);
   fusion.addInput(tv0);
@@ -2571,7 +2571,7 @@ TEST_F(ResizeTest, Slice1DVectorizeManual4) {
   auto& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());
 
-  const std::vector<int64_t> shape({1024 * 1024});
+  const std::vector<int64_t> shape({1024L * 1024L});
 
   auto tv0 = makeContigConcreteTensor({shape[0] - 4});
   fusion.addInput(tv0);
@@ -2613,7 +2613,7 @@ TEST_F(ResizeTest, Slice2DVectorizeManual1) {
   // The extent of the innermost domain is just 2, and the outer
   // domain is sliced. This slicing should be vectorizable by a
   // factor of 4 as the two domains can be merged and vectorized.
-  const std::vector<int64_t> shape({1024 * 1024, 2});
+  const std::vector<int64_t> shape({1024L * 1024L, 2});
 
   auto tv0 = makeContigConcreteTensor(shape);
   fusion.addInput(tv0);
