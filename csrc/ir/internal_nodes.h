@@ -1601,12 +1601,7 @@ class TORCH_CUDA_CU_API LoadStoreOp : public Expr {
  public:
   using Expr::Expr;
 
-  LoadStoreOp(
-      IrBuilderPasskey,
-      LoadStoreOpType op_type,
-      Val* out,
-      Val* in,
-      CacheOp cache_op = CacheOp::Streaming);
+  LoadStoreOp(IrBuilderPasskey, LoadStoreOpType op_type, Val* out, Val* in);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
@@ -1631,10 +1626,6 @@ class TORCH_CUDA_CU_API LoadStoreOp : public Expr {
 
   LoadStoreOpType opType() const {
     return attribute<LoadStoreOpType>(0);
-  }
-
-  CacheOp cacheOp() const {
-    return attribute<CacheOp>(1);
   }
 
   bool hasInnerTranspose() const;
@@ -1984,6 +1975,10 @@ class TORCH_CUDA_CU_API PadOp : public Expr {
 
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
+
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
 
   Val* out() const {
     return output(0);

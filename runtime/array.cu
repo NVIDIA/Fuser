@@ -170,16 +170,7 @@ __device__ void loadLocalToGlobal(
   }
 }
 
-// This is copied from csrc/type.h and should be kept consistent.
-enum class CacheOp {
-  AllLevels,
-  Streaming,
-};
-
-// For simplicity, cache_op is only used for non-volatile loads written in
-// inline assembly. Other loads are done with the default cache operator --
-// cache all levels. ld.volatile doesn't accept cache operator anyway.
-template <typename scalar_t, int vec_size, bool is_volatile, CacheOp cache_op>
+template <typename scalar_t, int vec_size, bool is_volatile>
 __device__ void loadGlobalToLocal(
     scalar_t* to,
     typename MaybeVolatile<scalar_t, is_volatile>::type* from) {
@@ -198,18 +189,9 @@ __device__ void loadGlobalToLocal(
         break;
       } else {
         uint2& data = *reinterpret_cast<uint2*>(to);
-        switch (cache_op) {
-          case CacheOp::AllLevels:
-            asm volatile("ld.global.ca.v2.s32 {%0,%1}, [%2];"
-                         : "=r"(data.x), "=r"(data.y)
-                         : "l"((uint2*)from));
-            break;
-          case CacheOp::Streaming:
-            asm volatile("ld.global.cs.v2.s32 {%0,%1}, [%2];"
-                         : "=r"(data.x), "=r"(data.y)
-                         : "l"((uint2*)from));
-            break;
-        }
+        asm volatile("ld.global.cs.v2.s32 {%0,%1}, [%2];"
+                     : "=r"(data.x), "=r"(data.y)
+                     : "l"((uint2*)from));
       }
       break;
     }
@@ -221,20 +203,9 @@ __device__ void loadGlobalToLocal(
                      : "l"((uint4*)from));
       } else {
         uint4& data = *reinterpret_cast<uint4*>(to);
-        switch (cache_op) {
-          case CacheOp::AllLevels:
-            asm volatile(
-                "ld.global.ca.v4.s32 {%0,%1,%2,%3}, [%4];"
-                : "=r"(data.x), "=r"(data.y), "=r"(data.z), "=r"(data.w)
-                : "l"((uint4*)from));
-            break;
-          case CacheOp::Streaming:
-            asm volatile(
-                "ld.global.cs.v4.s32 {%0,%1,%2,%3}, [%4];"
-                : "=r"(data.x), "=r"(data.y), "=r"(data.z), "=r"(data.w)
-                : "l"((uint4*)from));
-            break;
-        }
+        asm volatile("ld.global.cs.v4.s32 {%0,%1,%2,%3}, [%4];"
+                     : "=r"(data.x), "=r"(data.y), "=r"(data.z), "=r"(data.w)
+                     : "l"((uint4*)from));
       }
       break;
     }
@@ -261,11 +232,7 @@ __device__ void loadGlobalToGlobal(
       break;
     case 12: {
       uint3 local_intermediate;
-      loadGlobalToLocal<
-          scalar_t,
-          vec_size,
-          is_volatile_from,
-          CacheOp::Streaming>(
+      loadGlobalToLocal<scalar_t, vec_size, is_volatile_from>(
           reinterpret_cast<scalar_t*>(&local_intermediate), from);
       loadLocalToGlobal<scalar_t, vec_size, is_volatile_to>(
           to, reinterpret_cast<scalar_t*>(&local_intermediate));
@@ -273,11 +240,7 @@ __device__ void loadGlobalToGlobal(
     }
     case 16: {
       uint4 local_intermediate;
-      loadGlobalToLocal<
-          scalar_t,
-          vec_size,
-          is_volatile_from,
-          CacheOp::Streaming>(
+      loadGlobalToLocal<scalar_t, vec_size, is_volatile_from>(
           reinterpret_cast<scalar_t*>(&local_intermediate), from);
       loadLocalToGlobal<scalar_t, vec_size, is_volatile_to>(
           to, reinterpret_cast<scalar_t*>(&local_intermediate));
