@@ -690,9 +690,6 @@ TensorView* cat(
   return out;
 }
 
-// Currently there's no error check about  the actual values of the
-// Slice parameters. For example, the start parameter of a range of a
-// domain is assumed to be >= 0 and < the extent of the domain.
 TensorView* slice(TensorView* inp, const std::vector<Slice>& ranges) {
   const auto inp_dom = TensorDomain::noReductions(inp->getMaybeRFactorDomain());
   const int ndims = static_cast<int>(inp_dom.size());
@@ -704,35 +701,29 @@ TensorView* slice(TensorView* inp, const std::vector<Slice>& ranges) {
       ", Expected: ",
       ndims);
 
-  auto normalize_slice_range = [](Slice range, Val* extent) -> Slice {
-    if (range.start == nullptr) {
-      range.start = FusionGuard::getCurFusion()->zeroVal();
+  const auto normalize_arg = [](Val* a, Val* extent, Val* def) -> Val* {
+    if (a == nullptr) {
+      return def;
+    } else if (a->isZeroInt() || a->sameAs(extent)) {
+      // These do not need normalization
     } else {
       // Negative start and stop values are relative to end of axis
-      range.start = where(
-          lt(range.start, FusionGuard::getCurFusion()->zeroVal()),
-          add(range.start, extent),
-          range.start);
+      a = where(
+          lt(a, FusionGuard::getCurFusion()->zeroVal()), add(a, extent), a);
     }
-    if (range.stop == nullptr) {
-      range.stop = extent;
-    } else {
-      // Negative start and stop values are relative to end of axis
-      range.stop = where(
-          lt(range.stop, FusionGuard::getCurFusion()->zeroVal()),
-          add(range.stop, extent),
-          range.stop);
+    if (a->dtype() != DataType::Index) {
+      a = SimplifyingIrBuilder::maybeCastExpr(DataType::Index, a);
     }
+    return a;
+  };
+
+  const auto normalize_slice_range = [&normalize_arg](
+                                         Slice range, Val* extent) -> Slice {
+    range.start = normalize_arg(
+        range.start, extent, FusionGuard::getCurFusion()->zeroVal());
+    range.stop = normalize_arg(range.stop, extent, extent);
     if (range.step == nullptr) {
       range.step = FusionGuard::getCurFusion()->oneVal();
-    }
-    if (range.start->dtype() != DataType::Index) {
-      range.start =
-          SimplifyingIrBuilder::maybeCastExpr(DataType::Index, range.start);
-    }
-    if (range.stop->dtype() != DataType::Index) {
-      range.stop =
-          SimplifyingIrBuilder::maybeCastExpr(DataType::Index, range.stop);
     }
     if (range.step->dtype() != DataType::Index) {
       range.step =
@@ -769,8 +760,11 @@ TensorView* slice(TensorView* inp, const std::vector<Slice>& ranges) {
       // Clip the start and stop values to the extent of the input
       auto clipped_start =
           SimplifyingIrBuilder::minExpr(inp_root_id->extent(), range.start);
-      auto clipped_stop =
-          SimplifyingIrBuilder::minExpr(inp_root_id->extent(), range.stop);
+      // stop is clipped the same as start, then we additionally clip so that
+      // stop >= start
+      auto clipped_stop = SimplifyingIrBuilder::maxExpr(
+          SimplifyingIrBuilder::minExpr(inp_root_id->extent(), range.stop),
+          clipped_start);
 
       out_root_id =
           IterDomainBuilder(inp_root_id).is_rfactor_domain(true).build();

@@ -1151,7 +1151,6 @@ TEST_F(NVFuserTest, FusionResizeSliceShmoo_CUDA) {
             {-3, 8},
             {-3, -1},
             {13, -1}})) {
-    std::cout << "start=" << start << " stop=" << stop << std::endl;
     Fusion fusion;
     FusionGuard fg(&fusion);
 
@@ -1162,10 +1161,8 @@ TEST_F(NVFuserTest, FusionResizeSliceShmoo_CUDA) {
     fusion.addInput(tv0);
 
     auto tv1 = slice(
-        tv0, {{IrBuilder::create<Int>(start), IrBuilder::create<Int>(stop)}});
+        tv0, {{IrBuilder::create<Val>(start), IrBuilder::create<Val>(stop)}});
     fusion.addOutput(tv1);
-
-    fusion.printMath();
 
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
@@ -1194,7 +1191,7 @@ TEST_F(NVFuserTest, FusionResizeSlice7_CUDA) {
   fusion.addInput(tv0);
 
   auto tv1 =
-      slice(tv0, {{IrBuilder::create<Int>(11), IrBuilder::create<Int>(13)}});
+      slice(tv0, {{IrBuilder::create<Val>(11), IrBuilder::create<Val>(13)}});
   fusion.addOutput(tv1);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);

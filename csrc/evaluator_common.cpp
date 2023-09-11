@@ -355,6 +355,12 @@ NaiveValueMachine::NaiveValueMachine(PrecomputedValues& precomputed_values)
         makeBinaryOp(bop);
       } else if (auto top = dynamic_cast<TernaryOp*>(def)) {
         makeTernaryOp(top);
+      } else if (auto lsop = dynamic_cast<LoadStoreOp*>(def)) {
+        NVF_ERROR(
+            lsop->opType() == LoadStoreOpType::Set,
+            "NaiveValueMachine: unsupported LoadStoreOpType: ",
+            lsop->opType());
+        makeSetOp(lsop);
       } else {
         // There could be some ops not supported yet. For these ops, we will
         // bind their outputs. So ignoring them here.
@@ -382,18 +388,11 @@ void NaiveValueMachine::copyFrom(const NaiveValueMachine& other) {
   bop_type_.insert(
       bop_type_.end(), other.bop_type_.begin(), other.bop_type_.end());
 
-  top_type_.clear();
-  top_type_.insert(
-      top_type_.end(), other.top_type_.begin(), other.top_type_.end());
-
   src0_.clear();
   src0_.insert(src0_.end(), other.src0_.begin(), other.src0_.end());
 
   src1_.clear();
   src1_.insert(src1_.end(), other.src1_.begin(), other.src1_.end());
-
-  src2_.clear();
-  src2_.insert(src2_.end(), other.src2_.begin(), other.src2_.end());
 
   dest_.clear();
   dest_.insert(dest_.end(), other.dest_.begin(), other.dest_.end());
@@ -450,10 +449,10 @@ void NaiveValueMachine::makeTernaryOp(TernaryOp* top) {
   int in2 = top->inputs()[2]->evaluatorIndex();
   int out = top->outputs()[0]->evaluatorIndex();
 
-  TORCH_INTERNAL_ASSERT(in0 >= 0, "Integer Machine: unknown input 0: ", top);
-  TORCH_INTERNAL_ASSERT(in1 >= 0, "Integer Machine: unknown input 1: ", top);
-  TORCH_INTERNAL_ASSERT(in2 >= 0, "Integer Machine: unknown input 2: ", top);
-  TORCH_INTERNAL_ASSERT(out >= 0, "Integer Machine: unknown out: ", top);
+  NVF_ERROR(in0 >= 0, "Integer Machine: unknown first input: ", top);
+  NVF_ERROR(in1 >= 0, "Integer Machine: unknown second input: ", top);
+  NVF_ERROR(in2 >= 0, "Integer Machine: unknown third input: ", top);
+  NVF_ERROR(out >= 0, "Integer Machine: unknown out: ", top);
 
   int index = makeInstructionEntry();
   inst_type_[index] = InstructionType::TERNARY_OP;
@@ -461,6 +460,19 @@ void NaiveValueMachine::makeTernaryOp(TernaryOp* top) {
   src0_[index] = in0;
   src1_[index] = in1;
   src2_[index] = in2;
+  dest_[index] = out;
+}
+
+void NaiveValueMachine::makeSetOp(LoadStoreOp* lsop) {
+  int in = lsop->in()->evaluatorIndex();
+  int out = lsop->out()->evaluatorIndex();
+
+  NVF_ERROR(in >= 0, "Integer Machine: unknown input: ", lsop);
+  NVF_ERROR(out >= 0, "Integer Machine: unknown out: ", lsop);
+
+  int index = makeInstructionEntry();
+  inst_type_[index] = InstructionType::SET_OP;
+  src0_[index] = in;
   dest_[index] = out;
 }
 
@@ -608,15 +620,30 @@ void NaiveValueMachine::runBinaryOp(int index) {
     case BinaryOpType::Gcd:
       dest = gcd(lhs, rhs);
       break;
+    case BinaryOpType::LT:
+      dest = lhs < rhs;
+      break;
+    case BinaryOpType::LE:
+      dest = lhs <= rhs;
+      break;
+    case BinaryOpType::Eq:
+      dest = lhs == rhs;
+      break;
+    case BinaryOpType::GE:
+      dest = lhs >= rhs;
+      break;
+    case BinaryOpType::GT:
+      dest = lhs > rhs;
+      break;
     default:
-      NVF_CHECK(!"Unexpected operator type");
+      NVF_CHECK(false, "Unexpected operator type ", bop_type_[index]);
   }
 
   precomputed_values_.defined_[dest_index] = true;
 }
 
 void NaiveValueMachine::runTernaryOp(int index) {
-  using namespace EvaluatorValue_functions;
+  using namespace PolymorphicValue_functions;
   int src0_index = src0_[index];
   int src1_index = src1_[index];
   int src2_index = src2_[index];
@@ -634,17 +661,17 @@ void NaiveValueMachine::runTernaryOp(int index) {
   }
   int dest_index = dest_[index];
 
-  auto& in1 = precomputed_values_.values_[src0_index];
-  auto& in2 = precomputed_values_.values_[src1_index];
-  auto& in3 = precomputed_values_.values_[src1_index];
+  auto& a = precomputed_values_.values_[src0_index];
+  auto& b = precomputed_values_.values_[src1_index];
+  auto& c = precomputed_values_.values_[src2_index];
   auto& dest = precomputed_values_.values_[dest_index];
 
   switch (top_type_[index]) {
     case TernaryOpType::Where:
-      dest = in1 ? in2 : in3;
+      dest = a ? b : c;
       break;
     default:
-      TORCH_CHECK(!"Unexpected operator type");
+      NVF_CHECK(!"Unexpected operator type");
   }
 
   precomputed_values_.defined_[dest_index] = true;
