@@ -390,27 +390,26 @@ class TORCH_CUDA_CU_API OptOutMutator : public PolymorphicBase {
   //! registered for mutation. Inputs and attributes are unchanges. This method
   //! is useful for tranferring the definition of e's current outputs to those
   //! their respective registered mutations.
-  virtual void mutateExprOutputsOnly(Expr* e) {
-    virtual void mutateExprOutputsOnly(Expr * e) {
-      mutateExpr(
-          e,
-          /*replace_outputs*/ true,
-          /*replace_inputs*/ false,
-          /*replace_attrs*/ false);
-    }
+  Expr* mutateExprOutputsOnly(Expr* e) {
+    return mutateExpr(
+        e,
+        /*replace_outputs*/ true,
+        /*replace_inputs*/ false,
+        /*replace_attrs*/ false);
+  }
 
-   protected:
-    virtual void removeExpr(IrContainer*, Expr*) const;
-    virtual void registerNewExpr(Expr*) {}
+ protected:
+  virtual void removeExpr(IrContainer*, Expr*) const;
+  virtual void registerNewExpr(Expr*) {}
 
-   private:
-    //! Replaces Expr if any inputs, attrs, or outputs are registered for
-    //! mutation. See comment on mutateExprOutputsOnly for more information.
-    void mutateExpr(
-        Expr*,
-        bool replace_outputs = false,
-        bool replace_inputs = true,
-        bool replace_attrs = true);
-  };
+ private:
+  //! Replaces Expr if any inputs, attrs, or outputs are registered for
+  //! mutation. See comment on mutateExprOutputsOnly for more information.
+  Expr* mutateExpr(
+      Expr*,
+      bool replace_outputs = false,
+      bool replace_inputs = true,
+      bool replace_attrs = true);
+};
 
 } // namespace nvfuser

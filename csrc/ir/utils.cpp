@@ -208,14 +208,14 @@ Expr* transferDefinitionToNewOutputs(
     auto old_output = expr->outputs().at(i);
     auto new_output = new_outputs.at(i);
     NVF_ERROR(
-        new_output.vtype() == old_output.vtype(),
+        new_output->vtype() == old_output->vtype(),
         "transforDefinitionToNewOutputs cannot change val type");
     NVF_ERROR(
-        new_output.dtype() == old_output.dtype(),
+        new_output->dtype() == old_output->dtype(),
         "transforDefinitionToNewOutputs cannot change data type");
     mutator.registerMutation(old_output, new_output);
   }
-  mutator.mutateExprOutputsOnly(expr);
+  return mutator.mutateExprOutputsOnly(expr);
 }
 
 TensorView* rfactorHelper(

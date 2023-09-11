@@ -141,7 +141,7 @@ void OptOutMutator::mutate(PipelineVal*) {
   NVF_ERROR(false, "Not implemented yet.");
 }
 
-void OptOutMutator::mutateExpr(
+Expr* OptOutMutator::mutateExpr(
     Expr* op,
     bool replace_outputs,
     bool replace_inputs,
@@ -194,7 +194,7 @@ void OptOutMutator::mutateExpr(
   }
 
   if (all_same) {
-    return;
+    return op;
   }
 
   auto container = op->container();
@@ -204,6 +204,8 @@ void OptOutMutator::mutateExpr(
   auto new_expr =
       newObjectFunc(container, mutated_inputs, mutated_outputs, mutated_attrs);
   registerNewExpr(new_expr);
+
+  return new_expr;
 }
 
 void OptOutMutator::removeExpr(IrContainer* container, Expr* expr) const {
